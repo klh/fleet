@@ -15,7 +15,7 @@ export interface PlaidLaunchPreflight {
 	pick: Record<string, unknown>;
 	/** The route this lane rides (the trace fact's value). */
 	routeName: string | null;
-	/** The loud admission NOTE body (caller prints with NOTE — prefix). */
+	/** The loud admission notice body (caller prints with the notice prefix). */
 	note: string | null;
 }
 

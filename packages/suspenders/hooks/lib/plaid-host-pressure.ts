@@ -11,7 +11,7 @@
 // launch with an explicit bounded reason. The sampler is injectable —
 // tests feed fixture outputs, never spawn real probes.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { readEnvValue } from "./doctor.ts";
+import { validateBeltWiredGuard } from "../../scripts/lib/belt-wired-guard.ts";
 
 /** One host-pressure sample. Fields null = that signal was unreadable. */
 export interface HostPressureSample {
@@ -152,6 +152,28 @@ export const DEFAULT_HOST_PRESSURE_POLICY: HostPressurePolicy = {
 	maxSwapoutDelta: 2_000,
 };
 
+/** The authoritative guard file (W1102.2: belt.env, 0600). Path injectable
+ *  so tests never touch the machine conf. */
+export const beltEnvGuardPath = (home = process.env.HOME ?? ""): string =>
+	`${home}/.claude/local-llm/belt.env`;
+
+/** Launch-time wired ceiling, config-over-code (reviews #55096/#55151/
+ *  #55318/#55329): belt.env's BELT_WIRED_GUARD_GB is the AUTHORITATIVE
+ *  0600 source, validated by the SHARED W1102.2 validator (mode 0600,
+ *  regular file, no symlink, exactly one plain assignment, positive
+ *  decimal — never a local re-parse). MISSING/INVALID guard = null —
+ *  callers MUST hold on that (plaidLaunchHold does); a silently disabled
+ *  guard is worse than a held launch. The ceiling IS the guard: plaid
+ *  never admits more wired memory than Belt's own admission would. */
+export const launchWiredCeilingBytes = (
+	path: string = beltEnvGuardPath(),
+): number | null => {
+	const valid = validateBeltWiredGuard(path);
+	if (!valid.ok) return null; // missing/wrong-mode/symlink/dup/malformed
+	const parsed = Number(valid.value);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed * 1024 ** 3 : null;
+};
+
 /** The policy the LIVE launch gate runs (review #55130: the wired check
  *  must actually fire — ceiling derived from the installed Belt guard,
  *  never a frozen 24 GiB). Ceiling null = MISSING/INVALID guard → the
@@ -163,36 +185,6 @@ export const launchPressurePolicy = (
 	...DEFAULT_HOST_PRESSURE_POLICY,
 	maxWiredBytes: launchWiredCeilingBytes(guardPath) ?? 0,
 });
-
-/** The authoritative guard file (W1102.2: belt.env, 0600). Path injectable
- *  so tests never touch the machine conf. */
-export const beltEnvGuardPath = (home = process.env.HOME ?? ""): string =>
-	`${home}/.claude/local-llm/belt.env`;
-
-/** Launch-time wired ceiling, config-over-code (reviews #55096/#55151/
- *  #55318): belt.env's BELT_WIRED_GUARD_GB is the AUTHORITATIVE 0600
- *  source — read from the machine conf, NOT process env (services.yaml/
- *  plist hardcoded values are retired by W1102.2; an env override would
- *  split the guard's source of truth). MISSING/INVALID guard = null —
- *  callers MUST hold on that (plaidLaunchHold does); a silently disabled
- *  guard is worse than a held launch. The ceiling IS the guard: plaid
- *  never admits more wired memory than Belt's own admission would. */
-export const launchWiredCeilingBytes = (
-	path: string = beltEnvGuardPath(),
-): number | null => {
-	try {
-		const v = readEnvValue(
-			readFileSync(path, "utf8"),
-			"BELT_WIRED_GUARD_GB",
-		);
-		const parsed = Number(v?.trim());
-		return v?.trim() && Number.isFinite(parsed) && parsed > 0
-			? parsed * 1024 ** 3
-			: null; // missing/invalid guard = fail closed
-	} catch {
-		return null; // unreadable conf = fail closed
-	}
-};
 
 export interface HostPressureDecision {
 	/** true = launch may proceed. */
@@ -292,9 +284,7 @@ export const readHostPressureState = (
 			Number.isFinite(j.ts) &&
 			(j.ts as number) > 0 &&
 			(j.ts as number) <= Date.now();
-		return ok
-			? { swapouts: j.swapouts as number, ts: j.ts as number }
-			: null;
+		return ok ? { swapouts: j.swapouts as number, ts: j.ts as number } : null;
 	} catch {
 		return null;
 	}
@@ -315,10 +305,11 @@ export const writeHostPressureState = (
 	renameSync(tmp, p);
 };
 
-/** Baseline staleness: a persisted anchor older than this no longer
- *  supports a delta (the window is a paced-launch horizon, not a boot-age
- *  ledger) — the next sample starts a fresh baseline instead. */
-export const HOST_PRESSURE_BASELINE_MAX_AGE_MS = 24 * 3600_000;
+/** Baseline staleness (review #55106: 24h outlives any paced horizon): a
+ *  persisted anchor older than this no longer supports a delta — the plaid
+ *  cycle window is 12 min (plaidCycleOpen), so an anchor past 15 min means
+ *  dispatch stopped or the host rebooted; the next sample re-anchors. */
+export const HOST_PRESSURE_BASELINE_MAX_AGE_MS = 15 * 60_000;
 
 /** One launch-gate step: decision vs the persisted baseline → persist this
  *  sample as the next baseline. Reboot reset (current < previous) opens
@@ -332,15 +323,17 @@ export const hostPressureGate = (
 ): HostPressureDecision => {
 	const prev = readHostPressureState(fleetDir);
 	const prevUsable =
-		prev !== null &&
-		Date.now() - prev.ts <= HOST_PRESSURE_BASELINE_MAX_AGE_MS;
+		prev !== null && Date.now() - prev.ts <= HOST_PRESSURE_BASELINE_MAX_AGE_MS;
 	const decision = hostPressureDecision(
 		sample,
 		prevUsable ? (prev?.swapouts ?? null) : null,
 		policy,
 	);
 	if (sample.swapouts === null) return decision; // no anchor write
-	writeHostPressureState(fleetDir, { swapouts: sample.swapouts, ts: Date.now() });
+	writeHostPressureState(fleetDir, {
+		swapouts: sample.swapouts,
+		ts: Date.now(),
+	});
 	return decision;
 };
 

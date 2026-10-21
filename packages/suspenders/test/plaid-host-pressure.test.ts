@@ -2,7 +2,13 @@
 // samplers only — no real memory_pressure/vm_stat spawns in tests.
 import { expect, test } from "bun:test";
 import { Buffer } from "node:buffer";
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	readdirSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -186,4 +192,161 @@ test("live sampler: injectable runner; failed spawn → all-null (hold)", () => 
 	expect(ok.wiredPages).toBe(4_000_000);
 	expect(ok.swapouts).toBe(5_000);
 	expect(ok.pageSizeBytes).toBe(16384);
+});
+
+test("wired ceiling: valid 0600 belt.env derives guard bytes; ceiling IS the guard", () => {
+	const file = guardFixture("BELT_WIRED_GUARD_GB=90\n");
+	try {
+		expect(launchWiredCeilingBytes(file)).toBe(90 * 1024 ** 3);
+		const policy = launchPressurePolicy(file);
+		expect(policy.maxWiredBytes).toBe(90 * 1024 ** 3);
+		// every other knob rides the default policy
+		expect(policy.minFreePct).toBe(DEFAULT_HOST_PRESSURE_POLICY.minFreePct);
+		expect(policy.maxSwapoutDelta).toBe(
+			DEFAULT_HOST_PRESSURE_POLICY.maxSwapoutDelta,
+		);
+	} finally {
+		rmSync(join(file, ".."), { recursive: true, force: true });
+	}
+});
+
+test("wired ceiling: missing/invalid guard → null ceiling, launch holds BEFORE baseline write", () => {
+	const dir = mkdtempSync(join(tmpdir(), "w1102-hold-"));
+	try {
+		// absent belt.env → distinct hold reason, no state file written
+		const absent = join(dir, "belt.env");
+		expect(launchWiredCeilingBytes(absent)).toBeNull();
+		const hold = plaidLaunchHold(
+			dir,
+			healthy(),
+			launchPressurePolicy(absent),
+			absent,
+		);
+		expect(hold).toContain("BELT_WIRED_GUARD_GB missing/invalid");
+		expect(readHostPressureState(dir)).toBeNull();
+		// garbage value → same fail-closed path
+		const junk = guardFixture("BELT_WIRED_GUARD_GB=garbage\n");
+		expect(launchWiredCeilingBytes(junk)).toBeNull();
+		rmSync(join(junk, ".."), { recursive: true, force: true });
+		// a RESOLVABLE guard lets the same healthy sample through
+		const good = guardFixture("BELT_WIRED_GUARD_GB=90\n");
+		try {
+			expect(
+				plaidLaunchHold(dir, healthy(), launchPressurePolicy(good), good),
+			).toBeNull();
+			expect(readHostPressureState(dir)?.swapouts).toBe(5_000);
+		} finally {
+			rmSync(join(good, ".."), { recursive: true, force: true });
+		}
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+// ── W1102.1: the wired ceiling derives from the SHARED belt.env validator
+// (reviews #55130/#55320/#55329) — 0600, regular file, no symlink, exactly
+// one plain assignment. Tests build fixture belt.env files; the machine
+// conf is never touched. ─────────────────────────────────────────────────
+
+const guardFixture = (body: string, mode: number = 0o600): string => {
+	const dir = mkdtempSync(join(tmpdir(), "w1102-guard-"));
+	const file = join(dir, "belt.env");
+	writeFileSync(file, body, { mode });
+	return file;
+};
+
+test("wired ceiling: wrong-mode guard rejected (not a private 0600 conf)", () => {
+	const loose = guardFixture("BELT_WIRED_GUARD_GB=90\n", 0o644);
+	try {
+		expect(launchWiredCeilingBytes(loose)).toBeNull();
+	} finally {
+		rmSync(join(loose, ".."), { recursive: true, force: true });
+	}
+});
+
+test("wired ceiling: symlinked guard rejected (not a regular file)", () => {
+	const dir = mkdtempSync(join(tmpdir(), "w1102-sym-"));
+	try {
+		const real = join(dir, "real.env");
+		writeFileSync(real, "BELT_WIRED_GUARD_GB=90\n", { mode: 0o600 });
+		const link = join(dir, "belt.env");
+		symlinkSync(real, link);
+		expect(launchWiredCeilingBytes(link)).toBeNull();
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("wired ceiling: duplicate guard assignments rejected (ambiguous conf)", () => {
+	const dup = guardFixture(
+		"BELT_WIRED_GUARD_GB=90\nexport BELT_WIRED_GUARD_GB=60\n",
+	);
+	try {
+		expect(launchWiredCeilingBytes(dup)).toBeNull();
+	} finally {
+		rmSync(join(dup, ".."), { recursive: true, force: true });
+	}
+});
+
+test("gate: stale baseline (past the paced horizon) ignored, not refreshed; malformed baselines read null", () => {
+	const dir = mkdtempSync(join(tmpdir(), "w1102-stale-"));
+	try {
+		// anchor 20 min ago — past the 15-min horizon
+		writeFileSync(
+			join(dir, HOST_PRESSURE_STATE_FILE),
+			`${JSON.stringify({ swapouts: 5_000, ts: Date.now() - 20 * 60_000 })}\n`,
+		);
+		// would trip the delta vs the STALE anchor → must open (stale ignored)
+		const grown = hostPressureGate(
+			dir,
+			hostPressureSampleOf(71, 4_000_000, 7_500, "f", 16384),
+			POLICY,
+		);
+		expect(grown.open).toBe(true);
+		const persisted = readHostPressureState(dir);
+		expect(persisted?.swapouts).toBe(7_500);
+		expect(persisted !== null && Date.now() - persisted.ts < 60_000).toBe(true);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("gate: malformed baselines (null/negative/fractional/future) read as null", () => {
+	const dir = mkdtempSync(join(tmpdir(), "w1102-malformed-"));
+	try {
+		const bodies = [
+			`{"swapouts":null,"ts":1}`,
+			`{"swapouts":-5,"ts":${Date.now()}}`,
+			`{"swapouts":5.5,"ts":${Date.now()}}`,
+			`{"swapouts":5,"ts":${Date.now() + 3_600_000}}`,
+		];
+		for (const body of bodies) {
+			writeFileSync(join(dir, HOST_PRESSURE_STATE_FILE), `${body}\n`);
+			expect(readHostPressureState(dir)).toBeNull();
+		}
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("gate: unique tmp name — no shared-tmp interleave, no *.tmp residue", () => {
+	const dir = mkdtempSync(join(tmpdir(), "w1102-race-"));
+	try {
+		// 8 sequential gate writes through the unique-tmp path — every
+		// persisted anchor is SOME observed sample, no residue survives
+		const samples = Array.from({ length: 8 }, (_, i) => 5_000 + i * 100);
+		for (const swapouts of samples) {
+			const r = hostPressureGate(
+				dir,
+				hostPressureSampleOf(71, 4_000_000, swapouts, "f", 16384),
+				POLICY,
+			);
+			expect(r.open).toBe(true);
+		}
+		const persisted = readHostPressureState(dir);
+		expect(samples).toContain(persisted?.swapouts);
+		expect(readdirSync(dir).filter((f) => f.endsWith(".tmp"))).toEqual([]);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });
