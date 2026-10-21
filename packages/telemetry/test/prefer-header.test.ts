@@ -15,6 +15,18 @@ describe(".prefer trace header", () => {
 			"v=1;source=dotfile;directive=can;line=7;index=0;target=glm-5.3-flash;can=active",
 		);
 		expect(parsePreferHeader(value)).toBe(value);
+		const routing = encodePreferHeader({
+			source: "dotfile",
+			directive: "must",
+			line: 2,
+			index: 1,
+			target: "glm-5.3-flash",
+			can: "unavailable",
+			soft: "declared",
+			mustRoute: "reserved",
+		});
+		expect(routing).toContain("soft=declared;must_route=reserved");
+		expect(parsePreferHeader(routing)).toBe(routing);
 	});
 
 	test("rejects prompt, path, newline and malformed field injection", () => {

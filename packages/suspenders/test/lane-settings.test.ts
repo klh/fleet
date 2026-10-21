@@ -109,7 +109,31 @@ describe("lane-settings (W512)", () => {
 			),
 		) as { env: Record<string, string> };
 		expect(settings.env.ANTHROPIC_CUSTOM_HEADERS).toBe(
-			"x-operator: enabled\nx-klh-prefer: v=1;source=dotfile;directive=can;line=4;index=0;target=glm-5.3-flash;can=active",
+			"x-operator: enabled\nx-klh-prefer: v=1;source=dotfile;directive=can;line=4;index=0;target=glm-5.3-flash;can=active;soft=absent;must_route=absent",
 		);
+	});
+
+	test("routing-plane status is explicit without exposing its expression", () => {
+		const settings = JSON.parse(
+			laneSettingsData(
+				env,
+				"glm-5.3-flash",
+				"/p/bin",
+				null,
+				{
+					source: "dotfile",
+					directive: "prefer",
+					line: 2,
+					index: 0,
+					target: "glm-5.3-flash",
+					can: "unavailable",
+				},
+				{ prefer: "private target", must: "private boundary" },
+			),
+		) as { env: Record<string, string> };
+		expect(settings.env.ANTHROPIC_CUSTOM_HEADERS).toContain(
+			"soft=declared;must_route=reserved",
+		);
+		expect(settings.env.ANTHROPIC_CUSTOM_HEADERS).not.toContain("private");
 	});
 });

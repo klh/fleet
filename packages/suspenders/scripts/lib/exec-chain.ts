@@ -7,27 +7,27 @@
 // the last entry), the same-bin tail rides claude native --fallback-model,
 // "claude" stays the appended last resort.
 import { readFileSync } from "node:fs";
-import { readBoardSettings } from "../../hooks/lib/board-config.ts";
 // feed values (llm:<machine>:<tail>) translate to belt model ids via the
 // catalog grammar; lookups: swarm inventory + BYO local-models.json
 import { feedModelOf } from "../../hooks/board/executor-catalog.ts";
 import { specialistByPort } from "../../hooks/board/local-swarm.ts";
-import { readUserPlane } from "../../hooks/lib/repo-laws.ts";
+import { readBoardSettings } from "../../hooks/lib/board-config.ts";
+// W374: the per-provider quota measure — providerOf keys a chain slot to its
+// provider; quota demotion reorders the DEFAULT ladder only (a .prefer MUST
+// chain is owner intent, W228 parity with the W620 cv reorder).
+import type { ProviderPenalty } from "../../hooks/lib/exec-quota.ts";
+import { providerOf } from "../../hooks/lib/exec-quota.ts";
 // W422: which chain tokens are their own CLI vs belt model pins is ADAPTER
 // data (registry.ts) — the if copilot/else-claude ternaries retired here.
 import {
 	adapterFor,
 	isSpawnableExecutor,
 } from "../../hooks/lib/executors/registry.ts";
-// W374: the per-provider quota measure — providerOf keys a chain slot to its
-// provider; quota demotion reorders the DEFAULT ladder only (a .prefer MUST
-// chain is owner intent, W228 parity with the W620 cv reorder).
-import type { ProviderPenalty } from "../../hooks/lib/exec-quota.ts";
-import { providerOf } from "../../hooks/lib/exec-quota.ts";
 // W813: chain tokens may name HUBS (a stack.yaml/hubs.json label rides
 // that hub); can= doability probes resolveLaneExecutor + darkHubNow + the
 // cv tally — all sync, so execPick stays sync.
 import { readRegistry } from "../../hooks/lib/hub-locate.ts";
+import { readUserPlane } from "../../hooks/lib/repo-laws.ts";
 import { darkHubNow, tryLoadStack } from "../../hooks/lib/stack-config.ts";
 import { resolveLaneExecutor } from "./launch-preflight.ts";
 
@@ -67,6 +67,19 @@ export interface PreferDecision {
 	target: string;
 	can: "absent" | "active" | "unavailable";
 }
+
+export const posturePreference = (
+	selected: PreferDecision,
+	target: string,
+	index: number,
+): PreferDecision => ({
+	source: "posture",
+	directive: "posture",
+	line: 0,
+	index,
+	target,
+	can: selected.can,
+});
 
 export const preferOf = (
 	repo: string,

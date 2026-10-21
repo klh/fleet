@@ -11,6 +11,7 @@ import {
 	PREFER_HEADER,
 	type PreferHeaderDecision,
 } from "../../../telemetry/src/prefer-header.ts";
+import type { PreferRouting } from "./prefer-routing.ts";
 
 /** The Task-pin hook command written into the lane settings. process.execPath
  *  over bare `bun`: launchd dispatch runs on a minimal PATH. */
@@ -54,8 +55,14 @@ function customHeaders(
 const customHeadersEnv = (
 	existing: string | undefined,
 	preference: PreferHeaderDecision | undefined,
+	routing?: Pick<PreferRouting, "prefer" | "must">,
 ): Record<string, string> => {
-	const value = customHeaders(existing, preference);
+	const decision = preference && {
+		...preference,
+		soft: routing?.prefer ? ("declared" as const) : ("absent" as const),
+		mustRoute: routing?.must ? ("reserved" as const) : ("absent" as const),
+	};
+	const value = customHeaders(existing, decision);
 	return value ? { ANTHROPIC_CUSTOM_HEADERS: value } : {};
 };
 
@@ -67,6 +74,7 @@ export const laneSettingsData = (
 	bin: string,
 	effort: string | null = null,
 	preference?: PreferHeaderDecision,
+	routing?: Pick<PreferRouting, "prefer" | "must">,
 ): string =>
 	JSON.stringify(
 		{
@@ -83,7 +91,7 @@ export const laneSettingsData = (
 					env.ANTHROPIC_DEFAULT_HAIKU_MODEL ?? model,
 				ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL,
 				ANTHROPIC_AUTH_TOKEN: env.ANTHROPIC_AUTH_TOKEN,
-				...customHeadersEnv(env.ANTHROPIC_CUSTOM_HEADERS, preference),
+				...customHeadersEnv(env.ANTHROPIC_CUSTOM_HEADERS, preference, routing),
 				// W909: the lane's effort level — `work done` banks it into the
 				// work.done event (lib/lane-effort.ts); the reporter renders it.
 				// W923: env wins; the priority-derived default (dispatch-next)

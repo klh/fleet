@@ -7,12 +7,16 @@ export interface PreferHeaderDecision {
 	index: number;
 	target: string;
 	can: "absent" | "active" | "unavailable";
+	/** Quoted/multiword routing plane. Declared means present, not honored. */
+	soft?: "absent" | "declared";
+	/** The routing-plane must= is parsed but not enforced today. */
+	mustRoute?: "absent" | "reserved";
 }
 
 export const PREFER_HEADER = "x-klh-prefer";
 const TARGET = /^[A-Za-z0-9._:/-]{1,96}$/;
 const HEADER =
-	/^v=1;source=(dotfile|default|posture);directive=(must|prefer|can|default|posture);line=(\d{1,5});index=(\d{1,5});target=([A-Za-z0-9._:/-]{1,96});can=(absent|active|unavailable)$/;
+	/^v=1;source=(dotfile|default|posture);directive=(must|prefer|can|default|posture);line=(\d{1,5});index=(\d{1,5});target=([A-Za-z0-9._:/-]{1,96});can=(absent|active|unavailable)(?:;soft=(absent|declared);must_route=(absent|reserved))?$/;
 
 /** Reject unexpected values rather than putting file content in HTTP. */
 export function encodePreferHeader(d: PreferHeaderDecision): string | null {
@@ -23,13 +27,17 @@ export function encodePreferHeader(d: PreferHeaderDecision): string | null {
 		)
 	)
 		return null;
-	const value = `v=1;source=${d.source};directive=${d.directive};line=${d.line};index=${d.index};target=${d.target};can=${d.can}`;
+	const routing =
+		d.soft !== undefined || d.mustRoute !== undefined
+			? `;soft=${d.soft ?? "absent"};must_route=${d.mustRoute ?? "absent"}`
+			: "";
+	const value = `v=1;source=${d.source};directive=${d.directive};line=${d.line};index=${d.index};target=${d.target};can=${d.can}${routing}`;
 	return HEADER.test(value) ? value : null;
 }
 
 /** Canonicalize untrusted inbound metadata before echoing or relaying it. */
 export function parsePreferHeader(value: string | null): string | null {
-	if (!value || value.length > 192) return null;
+	if (!value || value.length > 256) return null;
 	const match = HEADER.exec(value);
 	if (!match) return null;
 	return encodePreferHeader({
@@ -37,7 +45,9 @@ export function parsePreferHeader(value: string | null): string | null {
 		directive: match[2] as PreferHeaderDecision["directive"],
 		line: Number(match[3]),
 		index: Number(match[4]),
-		target: match[5],
+		target: match[5] ?? "",
 		can: match[6] as PreferHeaderDecision["can"],
+		soft: match[7] as PreferHeaderDecision["soft"],
+		mustRoute: match[8] as PreferHeaderDecision["mustRoute"],
 	});
 }

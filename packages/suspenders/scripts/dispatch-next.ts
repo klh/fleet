@@ -127,7 +127,7 @@ import {
 } from "../hooks/lib/stack-config.ts";
 import { recoverOrphanClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
-import { execPick } from "./lib/exec-chain.ts";
+import { execPick, posturePreference } from "./lib/exec-chain.ts";
 import { fleetReport } from "./lib/fleet-report.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
 import {
@@ -264,6 +264,7 @@ const coordCli = coordCliFor(BIN);
 const gitToplevel = (): string =>
 	sh(["git", "rev-parse", "--show-toplevel"], process.cwd()) || process.cwd();
 const CALLER_REPO = resolve(val("--repo") ?? gitToplevel());
+const ROUTING_PREFER = resolveRoutingPrefer(CALLER_REPO);
 const REPO = canonicalProjectRoot(CALLER_REPO);
 const DRY = argv.includes("--dry-run");
 // explicit single-item dispatch (W145 docstring promised this, never wired
@@ -322,15 +323,11 @@ const launchWaits: string[] = [];
 // failed. Surfaced in the final summary line and carried on the registry row.
 const seedFallbacks: string[] = [];
 
-// W519: .prefer routing constraints ride the brief — prefer= soft, must=
-// reserved (lib/prefer-routing.ts); parse errors loud on the dispatch log,
-// never fatal.
+// .prefer routing errors are loud; valid soft and reserved rules ride the brief.
 const routingExtra = (): string[] => {
-	const r = resolveRoutingPrefer(CALLER_REPO);
-	for (const e of r.errors) console.log(`NOTE — .prefer ${e}`);
-	return preferRoutingBriefLines(r);
+	for (const e of ROUTING_PREFER.errors) console.log(`NOTE — .prefer ${e}`);
+	return preferRoutingBriefLines(ROUTING_PREFER);
 };
-
 // W622 retake knob helpers live in scripts/lib/resume-from.ts (1500-line
 // law): decisionFor resolves the operator's --resume-from against the
 // lane-registry resume candidate; resumeBriefLine renders the disclosure.
@@ -659,14 +656,11 @@ const dispatchItem = async (
 				return null;
 			}
 			pick = { ...pick, ...pd.pick };
-			pick.preference = {
-				source: "posture",
-				directive: "posture",
-				line: 0,
-				index: pick.chainIdx,
-				target: pick.name,
-				can: pick.preference.can,
-			};
+			pick.preference = posturePreference(
+				pick.preference,
+				pick.name,
+				pick.chainIdx,
+			);
 			// W1009.2: the route may swap the executor token (e.g. codex) —
 			// resolve the binary from the MERGED pick or the launch wraps the
 			// stale pre-plaid bin with the codex adapter's argv (mixed spawn).
@@ -1086,6 +1080,7 @@ const dispatchItem = async (
 			BIN,
 			effortForPriority(item.priority),
 			pick.preference,
+			ROUTING_PREFER,
 		);
 		writtenFiles.set(laneSettings, settingsData);
 		writeFileSync(laneSettings, settingsData);
