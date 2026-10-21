@@ -189,7 +189,7 @@ test("already committed Anthropic SSE preserves the provider rate-limit event", 
 	}
 });
 
-test("exponential jitter grows across fallback rungs, not just within a rung", async () => {
+test("retry jitter grows with attempts but never delays the next fallback rung", async () => {
 	const slept: number[] = [];
 	const router = new Router(
 		{
@@ -222,7 +222,7 @@ test("exponential jitter grows across fallback rungs, not just within a rung", a
 		body: {},
 		key: "",
 	});
-	expect(slept).toEqual([1250, 2250, 4250]); // No delay once no attempt remains.
+	expect(slept).toEqual([1250, 4250]); // One retry per candidate; no cross-rung sleep.
 });
 
 test("quota-wall retry-after (W695.6.1): floor capped, 429 + retry-after still relayed", async () => {
