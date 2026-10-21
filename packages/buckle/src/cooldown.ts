@@ -75,6 +75,26 @@ export class Cooldowns {
 		}
 	}
 
+	/** An unreachable peer is absent now; no repeated model-size timeout is
+	 * needed before its candidate is removed from the walk. */
+	eject(dep: Deployment): void {
+		const k = Cooldowns.key(dep);
+		this.until.set(k, this.now() + this.cooldownS * 1000);
+		this.reasons.set(k, "other");
+		this.fails.set(k, 0);
+	}
+
+	remainingS(dep: Deployment): number | null {
+		if (!this.benched(dep)) return null;
+		return Math.max(
+			1,
+			Math.ceil(
+				((this.until.get(Cooldowns.key(dep)) ?? this.now()) - this.now()) /
+					1000,
+			),
+		);
+	}
+
 	success(dep: Deployment): void {
 		const k = Cooldowns.key(dep);
 		this.fails.set(k, 0);
@@ -87,10 +107,7 @@ export class Cooldowns {
 		if (!this.benched(dep)) return null;
 		const k = Cooldowns.key(dep);
 		if (this.reasons.get(k) !== "rate_limited") return null;
-		return Math.max(
-			1,
-			Math.ceil(((this.until.get(k) ?? this.now()) - this.now()) / 1000),
-		);
+		return this.remainingS(dep);
 	}
 
 	benched(dep: Deployment): boolean {

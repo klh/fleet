@@ -1,7 +1,11 @@
 // test/wire-deadlines.test.ts — W450: slow/quiet streams survive their
 // configured deadlines; deadline breaches abort with a timeout RouterError.
 import { describe, expect, test } from "bun:test";
-import { defaultFetch, type StreamGuards } from "../src/wire.ts";
+import {
+	defaultFetch,
+	HubConnectError,
+	type StreamGuards,
+} from "../src/wire.ts";
 import { startMockUpstream } from "./mock.ts";
 import type { UpstreamRequest } from "../src/router.ts";
 
@@ -52,6 +56,33 @@ const stallsForever = (): Response =>
 	);
 
 describe("W450 stream deadlines", () => {
+	test("dead Buckle hub fails at connect without spending the model deadline", async () => {
+		const closed = Bun.serve({ port: 0, fetch: () => new Response("ok") });
+		const url = `http://127.0.0.1:${closed.port}`;
+		closed.stop(true);
+		const started = Date.now();
+		const error = await defaultFetch(
+			{ ...dep(url), buckle: true },
+			req(false),
+			120_000,
+		).catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(HubConnectError);
+		expect(Date.now() - started).toBeLessThan(5_000);
+	});
+
+	test("connected Buckle hub may spend time on inference after connect", async () => {
+		const up = await startMockUpstream(async () => {
+			await Bun.sleep(150);
+			return Response.json({ ok: true });
+		});
+		const result = await defaultFetch(
+			{ ...dep(up.url), buckle: true },
+			req(false),
+			1_000,
+		);
+		expect(result.status).toBe(200);
+		up.close();
+	});
 	test("slow first token survives; healthy drips reset the idle guard", async () => {
 		const up = await startMockUpstream(() => sseResp(80, 4, 30));
 		// TTFB window 1000ms ≫ the 80ms silence; idle 50ms ≫ the 30ms gaps

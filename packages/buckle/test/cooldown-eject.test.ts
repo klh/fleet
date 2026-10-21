@@ -41,4 +41,16 @@ describe("Cooldowns", () => {
 		t += 30_000;
 		expect(cd.benched(d)).toBe(false);
 	});
+
+	test("unreachable peer ejects immediately and reports its remaining delay", () => {
+		let t = 1_000;
+		const cd = new Cooldowns(3, 30, () => t);
+		const d = mkDep("g", "http://dead");
+		cd.eject(d);
+		expect(cd.benched(d)).toBe(true);
+		expect(cd.remainingS(d)).toBe(30);
+		t += 30_000;
+		expect(cd.benched(d)).toBe(false);
+		expect(cd.remainingS(d)).toBeNull();
+	});
 });
