@@ -189,8 +189,8 @@ export function openAIToAnthropicSse(): TransformStream<
 			data.push(v.startsWith(" ") ? v.slice(1) : v);
 		} else if (l.startsWith(":")) {
 			// W1106: upstream keepalive comment — translate it, don't eat it.
-			// Client-side idle sensors need bytes; Bun's server idleTimeout is
-			// handled separately (per-request bypass in server.ts).
+			// Client-side idle sensors need bytes; Bun's server idle timer is
+			// disabled globally (BUN_IDLE_TIMEOUT=0 in server.ts).
 			c.enqueue(enc.encode(SSE_KEEPALIVE));
 		}
 	};
