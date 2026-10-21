@@ -8,6 +8,7 @@
 // precedent).
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { createModelProxy } from "../bin/model-proxy.ts";
 
 const bin = (name: string): string =>
 	new URL(`../bin/${name}`, import.meta.url).pathname;
@@ -46,4 +47,50 @@ describe("W1106 Bun idle law on active inference hops", () => {
 		expect(src).toContain("AbortSignal.timeout(3000)");
 		expect(src).toContain("request.signal");
 	});
+
+	test("model-proxy chat: client abort propagates into the upstream body", async () => {
+		// one chunk, then silent-until-cancelled — cancel() firing proves
+		// request.signal reached the upstream fetch (#55405: no fixed
+		// deadline, cancellation preserved)
+		let cancelled = false;
+		const up = Bun.serve({
+			port: 0,
+			fetch: () => sseWithCancel(() => (cancelled = true)),
+		});
+		try {
+			const proxy = createModelProxy({
+				upstream: `http://127.0.0.1:${up.port}`,
+			});
+			const ac = new AbortController();
+			const res = await proxy(
+				new Request("http://belt.local/v1/chat/completions", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ model: "m", stream: true }),
+					signal: ac.signal,
+				}),
+			);
+			expect(res.status).toBe(200);
+			const reader = res.body?.getReader();
+			await reader?.read();
+			await ac.abort();
+			for (let i = 0; i < 20 && !cancelled; i++) await Bun.sleep(25);
+			expect(cancelled).toBe(true);
+		} finally {
+			up.stop(true);
+		}
+	});
 });
+
+/** SSE body with one chunk and a cancel observer (#55405 seam). */
+function sseWithCancel(onCancel: () => void): Response {
+	return new Response(
+		new ReadableStream<Uint8Array>({
+			start(c) {
+				c.enqueue(new TextEncoder().encode('data: {"x":1}\n\n'));
+			},
+			cancel: onCancel,
+		}),
+		{ headers: { "content-type": "text/event-stream" } },
+	);
+}

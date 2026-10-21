@@ -851,6 +851,10 @@ function streamResponse(
 	let chunksIn = 0;
 	let lastChunkMs: number | null = null;
 	let streamCancelled = false;
+	// W1106 (#55419/#55420): EOF without the dialect's protocol terminal
+	// (anthropic message_stop / openai [DONE] / response.completed) is a
+	// TRUNCATED turn — never a completed success.
+	let streamTruncated = false;
 	const t0 = ctx.t0;
 	const progress = (chunk: Uint8Array): void => {
 		chunksIn++;
@@ -859,6 +863,13 @@ function streamResponse(
 	};
 	const finish = once(() => {
 		sniffer.flush();
+		// W1106 (#55419/#55420): the sniffer saw the full body — did the
+		// dialect's protocol terminal arrive? A CLEAN EOF without it is a
+		// truncated turn; a failed pipe keeps its failure kind as the cause
+		// (the guard's deadline outranks the missing terminal), and an abort
+		// never counts as truncation.
+		streamTruncated =
+			!sniffer.completed() && !streamCancelled && !streamFailed;
 		record(
 			deps,
 			ctx,
@@ -871,12 +882,12 @@ function streamResponse(
 		// ok:0/decision errored, no affinity bind, no candidate success
 		// credit; the receipt's terminal carries downstream_cancel.
 		const decision =
-			streamFailed || streamCancelled
+			streamFailed || streamCancelled || streamTruncated
 				? "errored"
 				: result.candidateId === selected
 					? (ctx.sel?.decision ?? "errored")
 					: "fallback";
-		const success = !streamFailed && !streamCancelled;
+		const success = !streamFailed && !streamCancelled && !streamTruncated;
 		const duration = Date.now() - ctx.t0;
 		if (selected) deps.table.inflight(selected, -1);
 		deps.table.recordOutcome(result.candidateId, duration, success);
@@ -893,17 +904,26 @@ function streamResponse(
 				? "downstream_cancel"
 				: success
 					? null
-					: `stream_failed:${streamFailureKind ?? "unknown"}`,
+					: streamTruncated
+						? "stream_truncated"
+						: `stream_failed:${streamFailureKind ?? "unknown"}`,
 			...(success
 				? {}
 				: {
 						decision: "errored",
 						error_code: streamCancelled
 							? "downstream_cancel"
-							: "stream_failed",
+							: streamTruncated
+								? "stream_truncated"
+								: "stream_failed",
 					}),
 			stream_receipt: {
-				terminal: terminalOf(streamFailed, streamFailureKind, streamCancelled),
+				terminal: terminalOf(
+					streamFailed,
+					streamFailureKind,
+					streamCancelled,
+					streamTruncated,
+				),
 				bytes_in: bytesIn,
 				chunks_in: chunksIn,
 				last_chunk_ms: lastChunkMs,
@@ -996,14 +1016,16 @@ function streamResponse(
 }
 
 /** W1106: typed stream terminal for the audit receipt — who ended the
- *  stream, from the body-free evidence at this hop. */
+ *  stream, from the body-free evidence at this hop. EOF without the
+ *  dialect's protocol terminal banks upstream_eof_truncated (#55420). */
 function terminalOf(
 	failed: boolean,
 	kind: string | null,
 	cancelled: boolean,
+	truncated: boolean,
 ): string {
 	if (cancelled) return "downstream_cancel";
-	if (!failed) return "upstream_eof";
+	if (!failed) return truncated ? "upstream_eof_truncated" : "upstream_eof";
 	if (kind === "timeout") return "upstream_deadline";
 	return `upstream_error:${kind ?? "unknown"}`;
 }
