@@ -47,7 +47,9 @@ describe("sseReframer (W616.1)", () => {
 				'data: {"type": "ping"}\n\n' +
 				good,
 		]);
-		expect(out).toBe(good + good);
+		// W1106: each dropped ping leaves a transport keepalive — the client
+		// socket never idles while the upstream is alive.
+		expect(out).toBe(`${good}: keepalive\n\n: keepalive\n\n${good}`);
 	});
 
 	test("W499 splice shape: corrupt event quarantined, stream survives", async () => {
@@ -90,7 +92,7 @@ describe("sseReframer (W616.1)", () => {
 		for (const b of bytes) chunks.push(String.fromCharCode(b));
 		const out = await run(chunks);
 		expect(out).toBe(
-			'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"x"}}\n\n',
+			': keepalive\n\nevent: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"x"}}\n\n',
 		);
 	});
 
@@ -146,6 +148,7 @@ describe("sseReframer (W616.1)", () => {
 				throw new Error("observer boom");
 			},
 		);
-		expect(out).toBe(good);
+		// keepalive still emitted — the observer failure must not idle the socket
+		expect(out).toBe(`: keepalive\n\n${good}`);
 	});
 });
