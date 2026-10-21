@@ -41,6 +41,7 @@ const SOURCE_PATHS = [
 	"packages/buckle/repo-policy.yaml",
 	"packages/buckle/src",
 	"packages/buckle/package.json",
+	"packages/telemetry/src",
 	"packages/local-llm",
 	"packages/blam/src",
 	"packages/blam/bench/paired",

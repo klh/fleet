@@ -88,7 +88,11 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		put(`packages/suspenders/hooks/${file}`, "export const value = 1;");
 	for (const file of ["dispatch-next.ts", "supervise.ts"])
 		put(`packages/suspenders/scripts/${file}`, "export const value = 1;");
-	put("packages/buckle/src/server.ts", "export const value = 1;");
+	put("packages/telemetry/src/http-trace.ts", "export const trace = 1;");
+	put(
+		"packages/buckle/src/server.ts",
+		'export { trace } from "../../telemetry/src/http-trace.ts";',
+	);
 	put("packages/buckle/routing-policy.yaml", "gateway: {}");
 	put("packages/buckle/repo-policy.yaml", "repos: []");
 	put("packages/suspenders/hooks/knowledgeworker.md", "fixture");
@@ -176,6 +180,11 @@ test("canonical step publishes a self-contained committed payload and receipt wi
 	expect(
 		existsSync(
 			join(f.ctx.prefix, ".harness/packages/buckle/src/server.bundle.js"),
+		),
+	).toBe(true);
+	expect(
+		existsSync(
+			join(f.ctx.prefix, ".harness/packages/telemetry/src/http-trace.ts"),
 		),
 	).toBe(true);
 	expect(
