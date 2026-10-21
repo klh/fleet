@@ -91,7 +91,7 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		});
 	});
 
-	test("emitLiteLlmSettings emits the W880 context-window rescue rows", () => {
+	test("emitFallbackSettings emits the W880 context-window rescue rows", () => {
 		const doc = Bun.YAML.parse(
 			emitLiteLlmSettings(loadGatewayPolicy(REPO_POLICY)),
 		) as {
@@ -154,7 +154,7 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		);
 	});
 
-	test("emitLiteLlmSettings → YAML round-trip preserves the ladders", () => {
+	test("emitFallbackSettings → YAML round-trip preserves the ladders", () => {
 		const doc = Bun.YAML.parse(emitLiteLlmSettings(emitterTestFallbacks())) as {
 			litellm_settings: {
 				fallbacks: Record<string, string[]>[];
