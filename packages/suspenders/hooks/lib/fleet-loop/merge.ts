@@ -14,7 +14,12 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { have } from "../run.ts";
 import { openStore, projectIdentity } from "../govdb.ts";
-import { itemClaimOf } from "../ladder-lease.ts";
+import {
+	doneShaResolves,
+	gitInProgress,
+	itemClaimOf,
+	mergeHoldActive,
+} from "../ladder-lease.ts";
 import { flagIntegratedCode } from "../decomposition.ts";
 import { guardedMerge } from "../merge-guard.ts";
 import type { LoopDeps } from "./runtime.ts";
@@ -92,6 +97,20 @@ export function createMergeLadder(
 	function mergeOne(b: string): void {
 		const n = ahead(b);
 		if (n < 0) return; // vanished between sweep and ladder (park-rename race)
+		// W1072.2 fail-closed gates BEFORE retirement AND the ladder: an
+		// operator merge hold defers BOTH (a merged branch's worktree/branch
+		// stays put while the operator integrates provenance); Git in-progress
+		// state (cherry-pick/merge/rebase) defers the ladder. Deferral, never a
+		// strike/decision.
+		if (mergeHoldActive(REPO)) {
+			log(`MERGE-DEFER ${b} — operator merge hold (.fleet/merge-hold)`);
+			return;
+		}
+		const inprog = gitInProgress(REPO);
+		if (inprog) {
+			log(`MERGE-DEFER ${b} — ${inprog}`);
+			return;
+		}
 		if (n === 0) {
 			retireMerged(b);
 			return;
@@ -118,6 +137,15 @@ export function createMergeLadder(
 		const liveRunner = mergeRunnerAlive();
 		if (liveRunner) {
 			log(`MERGE-BUSY ${b} — runner pid ${liveRunner} mid-flight, skipped`);
+			return;
+		}
+		// W1072.2: the exact closure predicate — only a DONE item whose
+		// result_sha resolves to the exact branch HEAD may merge. Unknown,
+		// stale-sha, reclaimed and empty-sha closures all fail closed here; the
+		// next cycle retries (a defer, not a strike).
+		const exact = doneShaResolves(REPO, b, claim);
+		if (!exact.ok) {
+			log(`MERGE-DEFER ${b} — ${exact.why}`);
 			return;
 		}
 		// liveness marker: a crash between --no-commit and commit leaves
@@ -197,6 +225,12 @@ export function createMergeLadder(
 		try {
 			rmSync(`${REPO}/.fleet/merge-active`);
 		} catch {}
+		// W1072.2: the hold defers retirement too — the branch just merged, but
+		// its worktree/branch stay put while the operator owns the checkout.
+		if (mergeHoldActive(REPO)) {
+			log(`RETIRE-DEFER ${b} — operator merge hold, worktree/branch preserved`);
+			return;
+		}
 		retireMerged(b);
 	}
 

@@ -124,6 +124,20 @@ const close = (repo: string, item: string, sha: string) => {
 const flush = (repo: string) =>
 	run(repo, [LOOP, "flush", "--repo", repo, "--glob", "suspenders/*"]);
 
+// once — a single full cycle through mergeOne (the ladder the daemon runs)
+const once = (repo: string) =>
+	run(repo, [LOOP, "once", "--repo", repo, "--glob", "suspenders/*"]);
+
+const touchGitState = (repo: string, name: string) => {
+	mkdirSync(join(repo, ".git"), { recursive: true });
+	writeFileSync(join(repo, ".git", name), "");
+};
+
+const touchHold = (repo: string) => {
+	mkdirSync(join(repo, ".fleet"), { recursive: true });
+	writeFileSync(join(repo, ".fleet", "merge-hold"), "");
+};
+
 const events = (repo: string, kind: string): number => {
 	const db = new Database(
 		join(repo, ".test-home", ".cache", "claude-governor", "governor.db"),
@@ -253,6 +267,70 @@ describe("fleet-loop flush mode (W641)", () => {
 		rmSync(repo, { recursive: true, force: true });
 	});
 
+	// W1072.2: the exact-closure regression — READY (reclaimed/killed lanes),
+	// unknown, stale sha, DONE+exact. Reclaimed W1052.2.2-style partial work
+	// must never merge.
+	test("READY branch never merges (reclaimed/killed lane) — fail closed", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		await laneBranch(repo, item);
+		// take then let the claim die WITHOUT closing: state stays CLAIMED —
+		// and the cycle mode (mergeOne) defers too
+		expect(take(repo, item).code).toBe(0);
+		const r = once(repo);
+		expect(r.code).toBe(0);
+		expect(log(repo)).not.toContain(`MERGED suspenders/${item}`);
+		expect(branchGone(repo, item)).toBe(false);
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	test("cycle mergeOne defers a DONE item with a stale result_sha", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const head = await laneBranch(repo, item);
+		const baseSha = g(repo, ["rev-parse", "main"]).stdout.toString().trim();
+		close(repo, item, baseSha); // closure sha ≠ branch head
+		expect(head).not.toBe(baseSha);
+		const r = once(repo);
+		expect(r.code).toBe(0);
+		expect(log(repo)).toContain(
+			`MERGE-DEFER suspenders/${item} — result_sha ${baseSha} does not resolve to branch HEAD`,
+		);
+		expect(branchGone(repo, item)).toBe(false);
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	test("cycle mergeOne merges a DONE item whose result_sha IS the branch head", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const head = await laneBranch(repo, item);
+		close(repo, item, head);
+		const r = once(repo);
+		expect(r.code).toBe(0);
+		expect(log(repo)).toContain(`MERGED suspenders/${item}`);
+		expect(branchGone(repo, item)).toBe(true);
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	test("cycle mergeOne defers a branch with no matching work item", async () => {
+		const repo = await base();
+		const wt = join(repo, ".worktrees", "GHOST");
+		expect(
+			g(repo, ["worktree", "add", "-b", "suspenders/GHOST", wt]).exitCode,
+		).toBe(0);
+		await Bun.write(Bun.file(join(wt, "f.txt")), "one\ntwo\n");
+		g(repo, ["add", "-A"], wt);
+		expect(g(repo, ["commit", "-m", "ghost change"], wt).exitCode).toBe(0);
+		mkdirSync(join(repo, ".fleet"), { recursive: true });
+		const r = once(repo);
+		expect(r.code).toBe(0);
+		expect(log(repo)).toContain(
+			"MERGE-DEFER suspenders/GHOST — item GHOST is unknown to the graph",
+		);
+		expect(branchGone(repo, "GHOST")).toBe(false);
+		rmSync(repo, { recursive: true, force: true });
+	});
+
 	test("defers DONE whose result_sha does not resolve to the branch head", async () => {
 		const repo = await base();
 		const item = mint(repo);
@@ -264,6 +342,87 @@ describe("fleet-loop flush mode (W641)", () => {
 		expect(r.code).toBe(0);
 		expect(log(repo)).toContain(`FLUSH-DEFER suspenders/${item}`);
 		expect(branchGone(repo, item)).toBe(false);
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	// W1072.2: the operator merge hold — explicit marker, distinct from the
+	// dispatch pause; defers merges AND retirement, never strikes/decides.
+	test("operator merge-hold defers flush merges and retirement", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const head = await laneBranch(repo, item);
+		close(repo, item, head);
+		touchHold(repo);
+		const r = flush(repo);
+		expect(r.code).toBe(0);
+		expect(log(repo)).toContain(
+			`FLUSH-DEFER suspenders/${item} — operator merge hold (.fleet/merge-hold)`,
+		);
+		expect(log(repo)).toContain("FLUSH merged=0 deferred=1");
+		expect(branchGone(repo, item)).toBe(false);
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	test("merge-hold defers retirement of an already-merged branch", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const head = await laneBranch(repo, item);
+		close(repo, item, head);
+		// pre-merge the branch out of band: ahead=0, so the pre-hold code would
+		// have retired (deleted branch + worktree) before any hold check
+		expect(
+			g(repo, ["merge", "--no-ff", `suspenders/${item}`, "-m", "pre"]).exitCode,
+		).toBe(0);
+		touchHold(repo);
+		const r = once(repo);
+		expect(r.code).toBe(0);
+		// the hold gate sits before the ahead===0 retire — MERGE-DEFER IS the
+		// retirement defer here (RETIRE-DEFER is only the mid-merge hold race)
+		expect(log(repo)).toContain(
+			`MERGE-DEFER suspenders/${item} — operator merge hold (.fleet/merge-hold)`,
+		);
+		expect(log(repo)).not.toContain("RETIRED suspenders/");
+		expect(branchGone(repo, item)).toBe(false);
+		// the worktree itself is W827 rogue-reap's concern (it prunes
+		// merged-and-clean worktrees independently) — this gate is retirement
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	// W1072.2 (#55099): with a hold up, a detached flush must NEVER abort/reset
+	// operator merge state — the heal path stays behind the gate.
+	test("flush during cherry-pick + hold: defers, heal never runs, state intact", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const head = await laneBranch(repo, item);
+		close(repo, item, head);
+		// operator cherry-pick in progress + explicit merge hold
+		touchGitState(repo, "CHERRY_PICK_HEAD");
+		touchHold(repo);
+		const r = flush(repo);
+		expect(r.code).toBe(0);
+		expect(log(repo)).toContain(`FLUSH-DEFER suspenders/${item}`);
+		expect(log(repo)).not.toContain("SELF-HEAL");
+		expect(existsSync(join(repo, ".git", "CHERRY_PICK_HEAD"))).toBe(true);
+		expect(branchGone(repo, item)).toBe(false);
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	test("flush with hold + MERGE_HEAD: heal deferred, MERGE_HEAD preserved", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const head = await laneBranch(repo, item);
+		close(repo, item, head);
+		// a legitimate (operator) in-flight merge on main
+		await Bun.write(Bun.file(join(repo, "f.txt")), "conflict\n");
+		g(repo, ["add", "-A"]);
+		expect(g(repo, ["commit", "-m", "diverge"]).exitCode).toBe(0);
+		expect(g(repo, ["merge", `suspenders/${item}`], repo).exitCode).not.toBe(0);
+		touchHold(repo);
+		const r = flush(repo);
+		expect(r.code).toBe(0);
+		expect(existsSync(join(repo, ".git", "MERGE_HEAD"))).toBe(true);
+		expect(log(repo)).not.toContain("SELF-HEAL");
+		expect(log(repo)).toContain(`FLUSH-DEFER suspenders/${item}`);
 		rmSync(repo, { recursive: true, force: true });
 	});
 
