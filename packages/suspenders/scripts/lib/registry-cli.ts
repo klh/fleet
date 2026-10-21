@@ -25,6 +25,7 @@ import {
 	type LaneRef,
 } from "../../hooks/lib/lane-liveness.ts";
 import { loadLanes, type Lane } from "./lane.ts";
+import { repairManagedWrapperPid } from "./registry-pid-repair.ts";
 
 // W651: the verb registry owns the surface — help is generated, parsing rides
 // the kit's pure door (this is an embedded main: the caller owns exit codes).
@@ -48,6 +49,14 @@ const VERBS: VerbSpec[] = [
 		usage: "usage: forget --sid <sid> [--sid ...] — alias of prune",
 		flags: ["--sid"],
 		switches: ["--dry-run"],
+		lax: true,
+	}),
+	defineVerb({
+		name: "repair-pid",
+		usage:
+			"usage: repair-pid --sid <sid> [--apply] — preview or repair a live managed wrapper PID",
+		flags: ["--sid"],
+		switches: ["--apply"],
 		lax: true,
 	}),
 ];
@@ -315,5 +324,21 @@ export const registryMain = (
 	}
 	const parsed = outcome.parsed;
 	if (spec.name === "list") return listVerb(parsed, ctx.fleet);
+	if (spec.name === "repair-pid") {
+		const sid = parsed.flag("--sid");
+		if (!sid || parsed.all("--sid").length !== 1) {
+			console.log(renderVerbHelp(spec));
+			return 2;
+		}
+		const result = repairManagedWrapperPid(
+			ctx.fleet,
+			sid,
+			parsed.flag("--apply") === "true",
+		);
+		console.log(
+			`${result.state.toUpperCase()} ${sid}${result.pid ? ` pid=${result.pid}` : ""}`,
+		);
+		return result.state === "refused" ? 1 : 0;
+	}
 	return pruneVerb(parsed, ctx.fleet);
 };

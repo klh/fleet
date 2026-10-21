@@ -166,6 +166,39 @@ export function mergeLaneRegistry<T extends RegistryLane>(
 	});
 }
 
+/** Exact-row PID repair. The caller rechecks process birth and ancestry while
+ * this lock is held; a changed registry row or process cannot be adopted. */
+export function repairLaneRegistryPid<
+	T extends RegistryLane & { pid?: number },
+>(input: string, expected: T, pid: number, guard: () => boolean): boolean {
+	return withRegistryLock(laneRegistryFile(input), (file) => {
+		const state = readFile<T>(file);
+		if (!state.known) return false;
+		const index = state.lanes.findIndex((row) => row.sid === expected.sid);
+		if (
+			index < 0 ||
+			JSON.stringify(state.lanes[index]) !== JSON.stringify(expected)
+		)
+			return false;
+		if (!guard()) return false;
+		const temp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
+		try {
+			state.lanes[index] = { ...expected, pid };
+			const fd = openSync(temp, "wx", 0o600);
+			try {
+				writeFileSync(fd, JSON.stringify(state.lanes, null, 2));
+				fsyncSync(fd);
+			} finally {
+				closeSync(fd);
+			}
+			renameSync(temp, file);
+			return true;
+		} finally {
+			rmSync(temp, { force: true });
+		}
+	});
+}
+
 /** W636: the registry's ONE deletion authority — same cross-process lock and
  * atomic temp+rename write as mergeLaneRegistry. The caller's liveness guard
  * is re-evaluated under the lock per requested row, so only provably-dead
