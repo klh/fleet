@@ -252,7 +252,10 @@ test("a litellm engine row without adapter_config.proxy_kind fails the preflight
 					model_list: [
 						{
 							model_name: "glm",
-							litellm_params: { model: "zai/glm", api_base: "https://z.example" },
+							litellm_params: {
+								model: "zai/glm",
+								api_base: "https://z.example",
+							},
 						},
 					],
 				},
@@ -296,7 +299,10 @@ test("a marked engine row whose wire model exists in the engine passes", () => {
 					model_list: [
 						{
 							model_name: "glm",
-							litellm_params: { model: "zai/glm", api_base: "https://z.example" },
+							litellm_params: {
+								model: "zai/glm",
+								api_base: "https://z.example",
+							},
 						},
 					],
 				},
@@ -323,7 +329,7 @@ test("an inter-buckle edge to a group the target hub lacks is unroutable", () =>
 			},
 		],
 	});
-	expect(
-		result.errors.some((error) => error.code === "unroutable_group"),
-	).toBe(true);
+	expect(result.errors.some((error) => error.code === "unroutable_group")).toBe(
+		true,
+	);
 });

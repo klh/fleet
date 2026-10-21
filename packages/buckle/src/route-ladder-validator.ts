@@ -216,10 +216,7 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 	}
 	const buckleGroups = new Map<string, Set<string>>();
 	for (const buckle of inputs.buckles)
-		buckleGroups.set(
-			buckle.id,
-			new Set(buckle.pool.groups()),
-		);
+		buckleGroups.set(buckle.id, new Set(buckle.pool.groups()));
 	const link = (
 		from: string,
 		rawUrl: string,
