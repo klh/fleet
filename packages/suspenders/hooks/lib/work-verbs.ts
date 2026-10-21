@@ -98,8 +98,9 @@ export const VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "done",
-		usage: "usage: done <id> [--as sid] --sha <sha> [--summary paragraph]",
-		flags: [...ITEM_FLAGS, "--summary"],
+		usage:
+			"usage: done <id> [--as sid] --sha <sha> [--summary paragraph] [--spend fresh=N,cache=N,out=N,model=<group>]",
+		flags: [...ITEM_FLAGS, "--summary", "--spend"],
 		minPos: 1,
 	}),
 	defineVerb({

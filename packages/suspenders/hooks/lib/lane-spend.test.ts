@@ -275,6 +275,33 @@ function attrGovDb(): Database {
 	return d;
 }
 
+// W1070 — subagent-run item: no ledger rows attribute, the work.done payload
+// carries the closing session's self-reported spend stamp instead.
+function attrSubagentDb(): Database {
+	const d = new Database(":memory:");
+	d.run(
+		"CREATE TABLE events (id INTEGER PRIMARY KEY, ts INTEGER, kind TEXT, project TEXT, payload TEXT)",
+	);
+	d.run(
+		"INSERT INTO events (ts, kind, project, payload) VALUES (?, 'work.claimed', 'proj', ?)",
+		[WT0, JSON.stringify({ work: "W9", by: "s1" })],
+	);
+	d.run(
+		"INSERT INTO events (ts, kind, project, payload) VALUES (?, 'work.done', 'proj', ?)",
+		[
+			WT0 + 20 * 60_000,
+			JSON.stringify({
+				work: "W9",
+				spendFresh: 1500,
+				spendCached: 96_000,
+				spendOut: 2400,
+				spendModel: "glm-5.3-flash",
+			}),
+		],
+	);
+	return d;
+}
+
 function attrLedgerDb(path = ":memory:"): Database {
 	const d = new Database(path);
 	d.run("CREATE TABLE api_keys (key_id TEXT PRIMARY KEY, name TEXT)");
@@ -334,5 +361,39 @@ describe("itemAttribution", () => {
 		const a1 = m.get("W1");
 		expect(a1?.fresh).toBe(0);
 		expect(a1?.wallMs).toBe(30 * 60_000);
+	});
+
+	// W1070: subagent-run work — ledger attributes zero, the done-payload
+	// spend stamp stands in (fresh/cached/out + one named model group).
+	test("done-payload spend stamps in as fallback when no ledger rows attribute", () => {
+		const m = itemAttribution(
+			attrSubagentDb(),
+			"proj",
+			WT0 + 25 * 60_000,
+			null,
+		);
+		const a9 = m.get("W9");
+		expect(a9?.fresh).toBe(1500);
+		expect(a9?.cached).toBe(96_000);
+		expect(a9?.out).toBe(2400);
+		expect(a9?.groups["glm-5.3-flash"]?.in).toBe(1500);
+		expect(a9?.groups["glm-5.3-flash"]?.cacheR).toBe(96_000);
+		expect(a9?.wallMs).toBe(20 * 60_000);
+		// ledger spend wins when it attributes — the stamp never double-counts
+		const lp = `${import.meta.dir}/w1070-ledger-probe.db`;
+		try {
+			unlinkSync(lp);
+		} catch {}
+		attrLedgerDb(lp).close();
+		const withLedger = itemAttribution(
+			attrSubagentDb(),
+			"proj",
+			WT0 + 45 * 60_000,
+			lp,
+		);
+		// W9's window overlaps s1's keyed 22:00 bucket — ledger rows win, the
+		// stamp is ignored (fresh 120 from the ledger, not the 1500 stamp)
+		expect(withLedger.get("W9")?.fresh).toBe(120);
+		expect(withLedger.get("W9")?.cached).toBe(30);
 	});
 });

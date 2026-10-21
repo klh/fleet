@@ -582,3 +582,52 @@ describe("W964 — deterministic row order", () => {
 		d.close();
 	});
 });
+
+// W1070 — session-subagent work: no router_usage rows attribute, the
+// work.done payload's self-reported spend stamp fills the columns instead.
+describe("W1070 — subagent spend stamp renders non-dashed", () => {
+	const db = (): Database => {
+		const d = new Database(":memory:");
+		d.run(
+			"CREATE TABLE work_items (project TEXT, id TEXT, state TEXT, title TEXT, updated_at INTEGER)",
+		);
+		d.run(
+			"CREATE TABLE events (id INTEGER PRIMARY KEY, ts INTEGER, kind TEXT, project TEXT, payload TEXT)",
+		);
+		return d;
+	};
+	test("subagent-run item shows tokens/cache/model, not dashes", () => {
+		const d = db();
+		d.prepare(
+			"INSERT INTO work_items (project, id, state, title, updated_at) VALUES ('p', 'WS9', 'DONE', 't', ?)",
+		).run(T0 - 5_000);
+		d.prepare(
+			"INSERT INTO events (ts, kind, project, payload) VALUES (?, 'work.claimed', 'p', ?)",
+		).run(T0 - 40_000, JSON.stringify({ work: "WS9", by: "s1" }));
+		d.prepare(
+			"INSERT INTO events (ts, kind, project, payload) VALUES (?, 'work.done', 'p', ?)",
+		).run(
+			T0 - 10_000,
+			JSON.stringify({
+				work: "WS9",
+				spendFresh: 1500,
+				spendCached: 96_000,
+				spendOut: 2400,
+				spendModel: "glm-5.3-flash",
+			}),
+		);
+		const { rows } = reportRows(d, "p", { now: T0, ledger: null });
+		const r = rows.find((x) => x.id === "WS9");
+		expect(r?.fresh).toBe(1500);
+		expect(r?.cached).toBe(96_000);
+		expect(r?.model).toBe("glm-5.3-flash");
+		const line = buildReportTable(rows)
+			.split("\n")
+			.find((l) => l.includes("WS9"));
+		expect(line).toContain("98k"); // 1500 + 96000 compacted
+		expect(line).toContain("98%"); // cache share
+		expect(line).toContain("glm-5.3-flash");
+		expect(line).not.toMatch(/-\s+-/); // TOKENS/CACHE not dashed
+		d.close();
+	});
+});

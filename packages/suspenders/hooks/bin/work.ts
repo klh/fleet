@@ -30,6 +30,7 @@ import { rebindKeptLaneContext } from "../lib/lane-context.ts";
 import { gitBadge, gitObservation, mergeReadyWhy } from "../lib/lane-git.ts";
 import { laneAlive } from "../lib/lane-liveness.ts";
 import { doneEffortStamp } from "../lib/lane-effort.ts";
+import { doneSpendStamp, parseDoneSpend } from "../lib/lane-done-spend.ts";
 import {
 	recordKnowledgeSuggestion,
 	renderKnowledgeSuggestion,
@@ -886,6 +887,10 @@ const dispatchVerb = async (
 					`${projectRootOf(PROJECT)}/.fleet`,
 					String(it.owner_sid ?? as ?? ""),
 				),
+				// W1070: a closing session's self-reported spend (--spend, for
+				// subagent-run work with no attributable ledger rows) rides the
+				// done event — itemAttribution replays it as fallback attribution.
+				...doneSpendStamp(parseDoneSpend(flag("--spend"))),
 			});
 			const unblocked = freeDependents(id);
 			releaseClaim(
