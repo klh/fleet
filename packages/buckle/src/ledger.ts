@@ -4,9 +4,11 @@
 // Key ids are a truncated SHA-256 of the bearer token — token material never
 // touches the ledger (SECURITY: nothing hashable → empty string).
 import { Database } from "bun:sqlite";
+import { createHash } from "node:crypto";
 import {
-	safeCorrelationId,
 	type HopReceipt,
+	safeCorrelationId,
+	safeRefusalCode,
 } from "../../telemetry/src/http-trace.ts";
 import type { HopKind } from "./hop.ts";
 import type { Usage } from "./usage.ts";
@@ -134,6 +136,19 @@ export interface RequestReadRow {
 	out_tok: number | null;
 	/** W921 traffic kind: 'readiness' | 'inference'; NULL = legacy row. */
 	traffic_kind: string | null;
+	upstream_refusal_code: string | null;
+	refusal_origin: "upstream" | "bridged-upstream" | "network" | null;
+	retry_after_ms: number | null;
+	selected_target_exact: boolean;
+	selected_target_attempted: boolean;
+}
+
+interface AttemptProvenanceRow {
+	rid: string;
+	candidate: string;
+	upstream_refusal_code: string | null;
+	refusal_origin: RequestReadRow["refusal_origin"];
+	retry_after_ms: number | null;
 }
 
 const INSERT_AUDIT = `
@@ -198,6 +213,8 @@ CREATE TABLE IF NOT EXISTS route_attempt (
   retry_after_ms INTEGER,
   upstream_id TEXT,
   call_id TEXT,
+	upstream_refusal_code TEXT,
+	refusal_origin TEXT,
   PRIMARY KEY (rid, ordinal)
 );
 CREATE INDEX IF NOT EXISTS route_attempt_trace ON route_attempt(trace_id, ts);
@@ -350,14 +367,25 @@ export class Ledger {
 		this.db.run(
 			"CREATE INDEX IF NOT EXISTS route_audit_trace ON route_audit(trace_id, ts)",
 		);
+		const attemptCols = this.db
+			.query("SELECT name FROM pragma_table_info('route_attempt')")
+			.all()
+			.map((row) => (row as { name: string }).name);
+		if (!attemptCols.includes("upstream_refusal_code"))
+			this.db.run(
+				"ALTER TABLE route_attempt ADD COLUMN upstream_refusal_code TEXT",
+			);
+		if (!attemptCols.includes("refusal_origin"))
+			this.db.run("ALTER TABLE route_attempt ADD COLUMN refusal_origin TEXT");
 		this.upsert = this.db.query(UPSERT);
 		this.insAudit = this.db.query(INSERT_AUDIT);
 		this.updAudit = this.db.query(UPDATE_AUDIT);
 		this.updUsage = this.db.query(UPDATE_USAGE);
 		this.insAttempt = this.db.query(`INSERT OR REPLACE INTO route_attempt
 			(rid, ordinal, trace_id, ts, service, hop, candidate, status,
-			refusal, duration_ms, retry_after_ms, upstream_id, call_id)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+			refusal, duration_ms, retry_after_ms, upstream_id, call_id,
+			upstream_refusal_code, refusal_origin)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 		this.flushMs = opts.flushMs ?? 5000;
 		this.flushRows = opts.flushRows ?? 256;
 		this.maxAttempts = Math.max(1, opts.maxFlushAttempts ?? 5);
@@ -605,6 +633,12 @@ export class Ledger {
 				: null,
 			safeCorrelationId(row.upstreamId) ?? null,
 			safeCorrelationId(row.callId) ?? null,
+			safeRefusalCode(row.upstreamRefusalCode),
+			row.refusalOrigin === "upstream" ||
+				row.refusalOrigin === "bridged-upstream" ||
+				row.refusalOrigin === "network"
+				? row.refusalOrigin
+				: null,
 		);
 	}
 
@@ -616,7 +650,7 @@ export class Ledger {
 		return this.db
 			.query(`SELECT rid, ordinal, trace_id, ts, service, hop,
 			candidate, status, refusal, duration_ms, retry_after_ms, upstream_id,
-			call_id FROM route_attempt WHERE trace_id = ?
+			call_id, upstream_refusal_code, refusal_origin FROM route_attempt WHERE trace_id = ?
 			ORDER BY ts, rid, ordinal LIMIT 500`)
 			.all(traceId) as Array<Record<string, unknown>>;
 	}
@@ -756,9 +790,58 @@ export class Ledger {
 		const rows = this.db
 			.query(requestsReadSql(where, limit))
 			.all(...args) as RequestReadRow[];
+		const receipts = rows.length
+			? (this.db
+					.query(`SELECT rid, candidate, upstream_refusal_code, refusal_origin,
+						retry_after_ms FROM route_attempt WHERE rid IN
+						(${rows.map(() => "?").join(",")}) ORDER BY rid, ordinal`)
+					.all(...rows.map((row) => row.rid)) as AttemptProvenanceRow[])
+			: [];
+		const byRid = new Map<string, AttemptProvenanceRow[]>();
+		for (const receipt of receipts) {
+			const attempts = byRid.get(receipt.rid) ?? [];
+			attempts.push(receipt);
+			byRid.set(receipt.rid, attempts);
+		}
 		return rows.map((r) => {
-			if (r.err === null && r.why.length <= REQUEST_WHY_CAP) return r;
-			return { ...r, err: capRequestText(r.err), why: capRequestText(r.why) };
+			const attempts = byRid.get(r.rid) ?? [];
+			const selected = r.candidates_top.split(",")[0] ?? "";
+			const selectedHash = selected
+				? createHash("sha256").update(selected).digest("hex").slice(0, 16)
+				: null;
+			const selectedTargetExact =
+				r.candidates_seen === 1 &&
+				r.ok !== null &&
+				r.attempts !== null &&
+				r.attempts === attempts.length &&
+				r.target_kind !== null &&
+				r.target_host !== null &&
+				r.target_port !== null &&
+				selectedHash !== null &&
+				attempts.every((receipt) => receipt.candidate === selectedHash);
+			const failed = attempts.filter(
+				(receipt) => receipt.refusal_origin !== null,
+			);
+			const refusal =
+				failed.findLast((receipt) => receipt.upstream_refusal_code !== null) ??
+				failed.at(-1);
+			const failedResponse = r.status !== null && r.status >= 400;
+			return {
+				...r,
+				err: capRequestText(r.err),
+				why: capRequestText(r.why) ?? "",
+				upstream_refusal_code: failedResponse
+					? (refusal?.upstream_refusal_code ?? null)
+					: null,
+				refusal_origin: failedResponse
+					? (refusal?.refusal_origin ?? null)
+					: null,
+				retry_after_ms: failedResponse
+					? (refusal?.retry_after_ms ?? null)
+					: null,
+				selected_target_exact: selectedTargetExact,
+				selected_target_attempted: selectedTargetExact && attempts.length > 0,
+			};
 		});
 	}
 

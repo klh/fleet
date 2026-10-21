@@ -9,9 +9,15 @@
 // structurally: flashx tiers are refused in every ladder walk.
 import { createHash } from "node:crypto";
 import {
+	type HopReceipt,
+	safeCorrelationId,
+	safeRefusalCode,
+	traceIdOf,
+} from "../../telemetry/src/http-trace.ts";
+import {
 	type ErrorKind,
-	RouterError,
 	normalizeUpstreamError,
+	RouterError,
 	routerErrorEnvelope,
 } from "./adapters/errors.ts";
 import { resolveAdapter } from "./adapters/index.ts";
@@ -24,11 +30,6 @@ import { FLASHX, type GatewayPolicy } from "./policy.ts";
 import type { TraceContext } from "./trace.ts";
 import type { Deployment, Dialect, UpstreamPool } from "./upstreams.ts";
 import { HubConnectError } from "./wire.ts";
-import {
-	type HopReceipt,
-	safeCorrelationId,
-	traceIdOf,
-} from "../../telemetry/src/http-trace.ts";
 
 export { FLASHX };
 
@@ -69,6 +70,7 @@ interface FailureProvenance {
 	requestId?: string;
 	callId?: string;
 	retryAfterS?: number;
+	upstreamRefusalCode?: string | null;
 }
 
 export interface UpstreamRequest {
@@ -118,6 +120,7 @@ export type TryOutcome =
 			refusalSource: "upstream" | "bridged-upstream";
 			requestId?: string;
 			callId?: string;
+			upstreamRefusalCode?: string | null;
 			/** W134 §1 normalized kind (adapters/errors.ts) */
 			kind: ErrorKind;
 			/** bad_request subclass: the prompt overflowed this deployment's
@@ -355,6 +358,7 @@ export class Router {
 				refusalSource: "upstream" as const,
 				requestId,
 				callId,
+				upstreamRefusalCode: safeRefusalCode(resp.headers.get("x-klh-refusal")),
 			};
 			if (bridged && err.kind === "bad_request" && resp.status < 500) {
 				// a 4xx on a translated hop may be the bridge's doing and its
@@ -439,6 +443,8 @@ export class Router {
 		retryAfterS: number | null,
 		requestId?: string,
 		callId?: string,
+		upstreamRefusalCode: string | null = null,
+		refusalOrigin: HopReceipt["refusalOrigin"] = null,
 	): void {
 		const retryAfterMs =
 			retryAfterS === null || !Number.isFinite(retryAfterS)
@@ -463,6 +469,8 @@ export class Router {
 			retryAfterMs,
 			upstreamId: requestId ?? null,
 			callId: callId ?? null,
+			upstreamRefusalCode,
+			refusalOrigin,
 		};
 		try {
 			this.metrics?.attempt?.(receipt);
@@ -536,6 +544,10 @@ export class Router {
 					null,
 					error.layer === "connect" ? "connect_unreachable" : "network",
 					error.layer === "connect" ? this.cooldowns.remainingS(dep) : null,
+					undefined,
+					undefined,
+					null,
+					"network",
 				);
 				// W985 skip-not-fail: an unreachable rung (ECONNREFUSED, timeout)
 				// must not kill the ladder — record it and walk on to the next
@@ -608,6 +620,8 @@ export class Router {
 				r.retryAfterS,
 				r.requestId,
 				r.callId,
+				r.upstreamRefusalCode ?? null,
+				r.refusalSource,
 			);
 			st.status = r.status;
 			st.error = r.error;
@@ -617,6 +631,7 @@ export class Router {
 				kind: r.kind,
 				requestId: r.requestId,
 				callId: r.callId,
+				upstreamRefusalCode: r.upstreamRefusalCode ?? null,
 				retryAfterS:
 					r.retryAfterS === null
 						? undefined
