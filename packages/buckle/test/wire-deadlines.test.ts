@@ -83,6 +83,28 @@ describe("W450 stream deadlines", () => {
 		expect(result.status).toBe(200);
 		up.close();
 	});
+
+	test("a TCP-open but HTTP-unresponsive Buckle peer is ejected before inference", async () => {
+		const up = Bun.serve({
+			port: 0,
+			fetch: async (request) => {
+				if (new URL(request.url).pathname === "/status") {
+					await Bun.sleep(5_000);
+					return Response.json({ ok: true });
+				}
+				return Response.json({ ok: true });
+			},
+		});
+		const started = Date.now();
+		const error = await defaultFetch(
+			{ ...dep(`http://127.0.0.1:${up.port}`), buckle: true },
+			req(false),
+			120_000,
+		).catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(HubConnectError);
+		expect(Date.now() - started).toBeLessThan(4_000);
+		up.stop(true);
+	});
 	test("slow first token survives; healthy drips reset the idle guard", async () => {
 		const up = await startMockUpstream(() => sseResp(80, 4, 30));
 		// TTFB window 1000ms ≫ the 80ms silence; idle 50ms ≫ the 30ms gaps

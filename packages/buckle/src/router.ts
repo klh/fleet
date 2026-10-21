@@ -23,6 +23,7 @@ import { mayEscalate, type RouteSelection } from "./decide.ts";
 import { FLASHX, type GatewayPolicy } from "./policy.ts";
 import type { TraceContext } from "./trace.ts";
 import type { Deployment, Dialect, UpstreamPool } from "./upstreams.ts";
+import { HubConnectError } from "./wire.ts";
 import {
 	type HopReceipt,
 	safeCorrelationId,
@@ -215,6 +216,7 @@ export class UpstreamError extends Error {
 	constructor(
 		public readonly status: number,
 		message: string,
+		public readonly layer: "connect" | "upstream" = "upstream",
 	) {
 		super(message);
 	}
@@ -397,9 +399,15 @@ export class Router {
 			};
 		} catch (e) {
 			if (req.signal?.aborted) throw e;
-			this.cooldowns.failure(dep);
+			const connectFailure = e instanceof HubConnectError;
+			if (connectFailure) this.cooldowns.eject(dep);
+			else this.cooldowns.failure(dep);
 			this.metrics?.cooldown(`${dep.group}|${dep.url}`);
-			throw new UpstreamError(502, `upstream ${dep.url} unreachable`);
+			throw new UpstreamError(
+				502,
+				`upstream ${dep.url} unreachable`,
+				connectFailure ? "connect" : "upstream",
+			);
 		}
 	}
 
@@ -496,8 +504,8 @@ export class Router {
 					st.attempts,
 					startedAt,
 					null,
-					"network",
-					null,
+					error.layer === "connect" ? "connect_unreachable" : "network",
+					error.layer === "connect" ? this.cooldowns.remainingS(dep) : null,
 				);
 				// W985 skip-not-fail: an unreachable rung (ECONNREFUSED, timeout)
 				// must not kill the ladder — record it and walk on to the next
@@ -512,6 +520,7 @@ export class Router {
 					status: error.status,
 					kind: "network",
 				};
+				if (error.layer === "connect" && raw >= candidates.length - 1) break;
 				continue;
 			}
 			if (r.ok) {

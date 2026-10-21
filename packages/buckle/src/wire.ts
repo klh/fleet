@@ -6,7 +6,6 @@
 // .include_usage injection; LiteLLM streaming_handler.py semantics, MIT) —
 // the 37-test regression net pins the bytes.
 import { resolveAdapter } from "./adapters/index.ts";
-import { connect } from "node:net";
 import { RouterError } from "./adapters/errors.ts";
 import type { Deployment } from "./upstreams.ts";
 import type { UpstreamRequest } from "./router.ts";
@@ -20,8 +19,8 @@ export interface StreamGuards {
 	totalMs: number;
 }
 
-/** A Buckle peer could not establish a TCP connection. This is distinct from
- * a connected peer taking time to generate the first model token. */
+/** A Buckle peer could not answer a short status request. This is distinct
+ * from a responsive peer taking time to generate the first model token. */
 export class HubConnectError extends Error {
 	readonly layer = "connect";
 	constructor() {
@@ -29,32 +28,25 @@ export class HubConnectError extends Error {
 	}
 }
 
-async function hubConnects(
+async function hubResponds(
 	url: string,
 	timeoutMs: number,
 	signal?: AbortSignal,
 ): Promise<boolean> {
-	const target = new URL(url);
-	return await new Promise((resolve) => {
-		const socket = connect({
-			host: target.hostname,
-			port: Number(target.port || (target.protocol === "https:" ? 443 : 80)),
+	try {
+		const statusUrl = new URL("/status", url);
+		const response = await fetch(statusUrl, {
+			method: "GET",
+			signal: signal
+				? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
+				: AbortSignal.timeout(timeoutMs),
+			redirect: "manual",
 		});
-		let settled = false;
-		const finish = (connected: boolean) => {
-			if (settled) return;
-			settled = true;
-			signal?.removeEventListener("abort", abort);
-			socket.destroy();
-			resolve(connected);
-		};
-		const abort = () => finish(false);
-		socket.setTimeout(timeoutMs, () => finish(false));
-		socket.once("connect", () => finish(true));
-		socket.once("error", () => finish(false));
-		if (signal?.aborted) abort();
-		else signal?.addEventListener("abort", abort, { once: true });
-	});
+		await response.body?.cancel();
+		return response.ok;
+	} catch {
+		return false;
+	}
 }
 
 /** Default upstream transport: adapter-built wire call + fetch with
@@ -85,7 +77,7 @@ export async function defaultFetch(
 	// never silently mixed into the warm distribution.
 	if (
 		dep.buckle &&
-		!(await hubConnects(wire.url, Math.min(timeoutMs, 3_000), req.signal))
+		!(await hubResponds(wire.url, Math.min(timeoutMs, 3_000), req.signal))
 	) {
 		if (req.signal?.aborted) throw req.signal.reason;
 		throw new HubConnectError();
