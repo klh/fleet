@@ -282,6 +282,11 @@ services:
 legacyLabels:
   # pre-namespacing supersede set (W284/W640 history)
   - com.belt.swarm
+  # W1105 — direct rapid-mlx KeepAlive plists competed with belt-swarm.
+  - com.belt.llm-8901
+  - com.belt.llm-8902
+  - com.belt.llm-8903
+  - com.belt.llm-8913
   - com.klh.llm-keepwarm
   - com.klh.fleet-monitor
   - com.klh.local-llm

@@ -42,6 +42,14 @@ const DEPS: Array<{ from: string; to: string }> = [
 	{ from: "packages/buckle/src/hop.ts", to: "hop.ts" },
 	{ from: "packages/buckle/src/usage.ts", to: "usage.ts" },
 	{
+		from: "packages/telemetry/src/http-trace.ts",
+		to: "http-trace.ts",
+	},
+	{
+		from: "packages/telemetry/src/prefer-header.ts",
+		to: "prefer-header.ts",
+	},
+	{
 		from: "packages/local-llm/models.catalog.ts",
 		to: "models.catalog.ts",
 	},
@@ -55,6 +63,7 @@ const REWRITE: Array<[RegExp, string]> = [
 	[/^(\.\.\/)+buckle\/src\/gov\/(.+)$/, "./gov/"],
 	[/^(\.\.\/)+belt\/bin\/(.+)$/, "./"],
 	[/^(\.\.\/)+local-llm\/(.+)$/, "./"],
+	[/^(\.\.\/)+telemetry\/src\/(.+)$/, "./"],
 ];
 
 const mapSpec = (spec: string): string | undefined => {
@@ -70,13 +79,15 @@ const scanImports = (src: string): string[] =>
 		.map((m) => m[1])
 		.filter((s) => s.endsWith(".ts") && s.startsWith("."));
 
-/** Copy missing cross-package deps from the repo (never clobber existing). */
+/** Copy cross-package deps from the repo. Runtime imports must match the
+ * installed release, including when a previous install left stale copies. */
 export const copyDeps = (repoRoot: string, prefix: string): string[] => {
 	const done: string[] = [];
 	for (const d of DEPS) {
 		const from = join(repoRoot, d.from);
 		const to = join(prefix, d.to);
-		if (existsSync(to) || !existsSync(from)) continue;
+		if (!existsSync(from)) continue;
+		if (existsSync(to) && readFileSync(to).equals(readFileSync(from))) continue;
 		mkdirSync(dirname(to), { recursive: true });
 		writeFileSync(to, readFileSync(from));
 		done.push(d.to);
