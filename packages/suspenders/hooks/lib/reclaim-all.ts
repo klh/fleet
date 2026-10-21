@@ -7,15 +7,16 @@
 // heartbeat, death repeated STRIKES_TO_RECLAIM consecutive passes
 // (fact-counted), `work extend` leases honored, unknown NEVER releases
 // (monitor doctrine W51: lookup failure is never death).
-import type { GovernorStore } from "./govdb.ts";
-import { loadLaneRegistry } from "./lane-registry.ts";
-import type { LaneRef } from "./lane-liveness.ts";
-import { clearReclaimStrikes, observeReclaim } from "./reclaim-liveness.ts";
-import { releaseWorkClaim } from "./work-release.ts";
+
 import {
 	automaticRecoveryCheck,
 	automaticRecoveryPaused,
 } from "./automatic-recovery.ts";
+import type { GovernorStore } from "./govdb.ts";
+import type { LaneRef } from "./lane-liveness.ts";
+import { loadLaneRegistry } from "./lane-registry.ts";
+import { clearReclaimStrikes, observeReclaim } from "./reclaim-liveness.ts";
+import { releaseWorkClaim } from "./work-release.ts";
 
 // registry rows the claim-liveness verdict joins on (work.ts claimantLanes
 // parity): a claimant with no entry (manual takes, reaped rows) probes from
@@ -65,7 +66,7 @@ export function reclaimAll(
 			id,
 			owner,
 			revision: Number(r.updated_at),
-			lane: claimants.get(owner),
+			lane: matchingClaimantLane(claimants, owner, id),
 		};
 		const gate = automaticRecoveryCheck(claim);
 		if (!gate.ok) {
@@ -77,7 +78,7 @@ export function reclaimAll(
 			id,
 			owner,
 			revision: Number(r.updated_at),
-			lane: claimants.get(owner),
+			lane: claim.lane,
 		});
 		if (d.action !== "release") {
 			out.push({ id, action: "held", why: d.why });
@@ -96,7 +97,7 @@ export function reclaimAll(
 			() =>
 				automaticRecoveryCheck({
 					...claim,
-					lane: lanesBySid(registryDir).get(owner),
+					lane: matchingClaimantLane(lanesBySid(registryDir), owner, id),
 				}).ok,
 		);
 		if (!released) {
@@ -127,3 +128,14 @@ const lanesBySid = (registryDir: string): Map<string, LaneRef> =>
 /** Claimant LaneRefs by sid — the registry view the claim-liveness verdict
  * joins on (shared by the orphaned listing and the bulk pass). */
 export const claimantLanes = lanesBySid;
+
+/** A session may own several work items; only the matching registry row is
+ * process evidence for this particular claim. */
+export const matchingClaimantLane = (
+	lanes: Map<string, LaneRef>,
+	owner: string,
+	id: string,
+): LaneRef | undefined => {
+	const lane = lanes.get(owner);
+	return lane?.item === id ? lane : undefined;
+};
