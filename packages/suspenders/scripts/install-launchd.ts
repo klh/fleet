@@ -196,6 +196,13 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 	const plists = rendered.services.flatMap((s) =>
 		s.files.filter((f) => f.endsWith(".plist")),
 	);
+	const receiptPath = join(home, ".config/klh/service-activation.json");
+	let previous: ActivationReceipt | undefined;
+	try {
+		previous = readActivation(receiptPath);
+	} catch {
+		/* Unknown or absent intent is never invented. */
+	}
 	const failed: string[] = [];
 	const refused: string[] = [];
 	const activated: ActivationService[] = [];
@@ -224,18 +231,23 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 		const label = file.replace(/\.plist$/, "");
 		const unit = join(agentsDir, file);
 		const log = join(insightsDir, `launchd-${label}.log`);
+		const reviewed = previous?.services.find(
+			(service) => service.label === label && service.generation,
+		);
 		// load-launchd.sh: plutil -lint, bootout, bootstrap, print — per-unit
 		// diagnostics land in the insights log, never the installer's stdout
-		const load = await execa(
-			"bash",
-			[
-				join(repo, "scripts/load-launchd.sh"),
-				unit,
-				log,
-				"--owner-initial-install",
-			],
-			{ reject: false, stdout: "pipe", stderr: "pipe" },
-		);
+		const load = reviewed
+			? { exitCode: 0 }
+			: await execa(
+					"bash",
+					[
+						join(repo, "scripts/load-launchd.sh"),
+						unit,
+						log,
+						"--owner-initial-install",
+					],
+					{ reject: false, stdout: "pipe", stderr: "pipe" },
+				);
 		if (load.exitCode !== 0) failed.push(label);
 		else {
 			try {
@@ -248,6 +260,16 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 					ProgramArguments: string[];
 					KeepAlive?: boolean;
 				};
+				if (
+					reviewed &&
+					(digestUnit(readFileSync(unit)) !== reviewed.unitSha256 ||
+						JSON.stringify(definition.ProgramArguments) !==
+							JSON.stringify(reviewed.arguments))
+				) {
+					failed.push(label);
+					refused.push(`${label} — reviewed unit changed during registration`);
+					continue;
+				}
 				// machine env override wins, else the manifest declaration
 				const port = ports[label] ?? declaredPorts.get(label);
 				// W576.7: refuse units whose loaded arguments left the rendered
@@ -269,6 +291,9 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 					arguments: definition.ProgramArguments,
 					resident: definition.KeepAlive === true,
 					...(port === undefined ? {} : { port }),
+					...(reviewed?.generation === undefined
+						? {}
+						: { generation: reviewed.generation }),
 				});
 			} catch {
 				failed.push(label);
@@ -286,13 +311,6 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 		),
 		services: activated,
 	};
-	const receiptPath = join(home, ".config/klh/service-activation.json");
-	let previous: ActivationReceipt | undefined;
-	try {
-		previous = readActivation(receiptPath);
-	} catch {
-		/* Unknown or absent intent is never invented. */
-	}
 	writeActivation(receiptPath, retainActivation(receipt, previous));
 	const superseded: string[] = [];
 	const legacyLabels = loadLegacyLabels(join(repo, "deploy/services.yaml"));

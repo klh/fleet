@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
 	existsSync,
+	cpSync,
 	mkdtempSync,
 	mkdirSync,
 	readFileSync,
@@ -25,6 +26,7 @@ import {
 	upgradeGateway,
 } from "../scripts/upgrade-gateway.ts";
 import { assertBuckleActivation } from "../scripts/assert-service-activation.ts";
+import { buckleUnitForInstall } from "../scripts/assert-service-activation.ts";
 import {
 	acquireApprovalFence,
 	assertFenceForLifecycle,
@@ -335,6 +337,51 @@ test("canonical staging and approved fake lifecycle preserve existing DB/key and
 		process.env.HOME = previousHome;
 		if (previousPrefix === undefined) delete process.env.SUSPENDERS_PREFIX;
 		else process.env.SUSPENDERS_PREFIX = previousPrefix;
+		f.clean();
+	}
+});
+
+test("harness refresh retains the exact reviewed gateway unit and rejects tampering", async () => {
+	const f = fixture();
+	const oldHome = process.env.HOME;
+	const oldPrefix = process.env.SUSPENDERS_PREFIX;
+	process.env.HOME = f.home;
+	process.env.SUSPENDERS_PREFIX = f.generation;
+	try {
+		const { ctx, deps } = approveFixture(f);
+		const prepared = await upgradeGateway(ctx, deps);
+		const reviewSha256 = JSON.parse(prepared.detail ?? "{}").reviewSha256;
+		expect(
+			(await upgradeGateway({ ...ctx, gatewayReview: reviewSha256 }, deps))
+				.status,
+		).toBe("ok");
+		const approvedUnit = readFileSync(f.unit, "utf8");
+		const nextGeneration = join(f.root, "next-generation");
+		cpSync(f.generation, nextGeneration, { recursive: true });
+		rmSync(join(nextGeneration, "bin/fleet-loop.ts"));
+		symlinkSync(
+			join(
+				nextGeneration,
+				".harness/packages/suspenders/hooks/bin/fleet-loop.ts",
+			),
+			join(nextGeneration, "bin/fleet-loop.ts"),
+		);
+		process.env.SUSPENDERS_PREFIX = nextGeneration;
+		expect(
+			buckleUnitForInstall(f.unit, "new checkout candidate", true),
+		).toEqual({
+			bytes: approvedUnit,
+			retained: true,
+		});
+		writeFileSync(f.unit, "competing writer");
+		expect(() =>
+			buckleUnitForInstall(f.unit, "new checkout candidate", true),
+		).toThrow();
+	} finally {
+		if (oldHome === undefined) delete process.env.HOME;
+		else process.env.HOME = oldHome;
+		if (oldPrefix === undefined) delete process.env.SUSPENDERS_PREFIX;
+		else process.env.SUSPENDERS_PREFIX = oldPrefix;
 		f.clean();
 	}
 });

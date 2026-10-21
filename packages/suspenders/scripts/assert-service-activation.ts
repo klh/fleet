@@ -92,6 +92,34 @@ export function assertBuckleActivation(
 		confirmedAbsent,
 	);
 }
+
+/** A harness refresh must not replace a separately reviewed gateway unit. */
+export function buckleUnitForInstall(
+	unit: string,
+	candidate: string,
+	initialInstall = false,
+): { bytes: string; retained: boolean } {
+	const receiptPath = join(
+		process.env.HOME ?? "",
+		".config/klh/service-activation.json",
+	);
+	let receipt: ActivationReceipt | undefined;
+	try {
+		receipt = readActivation(receiptPath);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+	}
+	const reviewed = receipt?.services.find(
+		(service) => service.label === "com.suspenders.buckle-spoke",
+	);
+	if (!reviewed?.generation) {
+		assertBuckleActivation(unit, candidate, initialInstall);
+		return { bytes: candidate, retained: false };
+	}
+	const approvedBytes = readFileSync(unit, "utf8");
+	assertBuckleActivation(unit, approvedBytes, initialInstall);
+	return { bytes: approvedBytes, retained: true };
+}
 /** Inspect the declared job identity, not an attacker-selected file basename. */
 export function assertLaunchdActivation(
 	unit: string,
