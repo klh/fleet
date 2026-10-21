@@ -163,18 +163,33 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 		[join(repo, "scripts/route-preflight.ts")],
 		{ cwd: repo, reject: false },
 	);
-	if (routeGate.exitCode !== 0) {
+	let routeReport: {
+		ok?: boolean;
+		mode?: string;
+		findings?: unknown[];
+		probes?: Array<{ reachable: boolean }>;
+		drills?: Array<{ ok: boolean }>;
+	} | null = null;
+	try {
+		routeReport = JSON.parse(routeGate.stdout);
+	} catch {
+		// A zero-exit child without a valid receipt is not proof of safe routing.
+	}
+	const routeApproved =
+		routeGate.exitCode === 0 &&
+		routeReport?.ok === true &&
+		routeReport.mode === "live" &&
+		Array.isArray(routeReport.findings) &&
+		routeReport.findings.length === 0 &&
+		Array.isArray(routeReport.probes) &&
+		routeReport.probes.every((probe) => probe.reachable === true) &&
+		Array.isArray(routeReport.drills) &&
+		routeReport.drills.length > 0 &&
+		routeReport.drills.every((drill) => drill.ok === true);
+	if (!routeApproved) {
 		let summary = routeGate.stderr?.trim() || "route preflight refused";
-		try {
-			const report = JSON.parse(routeGate.stdout) as {
-				findings?: unknown[];
-				probes?: Array<{ reachable: boolean }>;
-				drills?: Array<{ ok: boolean }>;
-			};
-			summary = `${report.findings?.length ?? 0} graph findings, ${report.probes?.filter((probe) => !probe.reachable).length ?? 0} unreachable hubs, ${report.drills?.filter((drill) => !drill.ok).length ?? 0} failed drills`;
-		} catch {
-			/* The CLI error already names the missing config or invalid source. */
-		}
+		if (routeReport)
+			summary = `${routeReport.findings?.length ?? "?"} graph findings, ${routeReport.probes?.filter((probe) => !probe.reachable).length ?? "?"} unreachable hubs, ${routeReport.drills?.filter((drill) => !drill.ok).length ?? "?"} failed drills; valid live receipt required`;
 		return {
 			status: "failed",
 			note: `route preflight failed before activation: ${summary}`,

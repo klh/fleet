@@ -68,9 +68,7 @@ const baseEnv: Record<string, string> = {
 	TEST_CALLS: calls,
 };
 
-function hubctl(
-	args: string[],
-): { code: number; out: string } {
+function hubctl(args: string[]): { code: number; out: string } {
 	const r = Bun.spawnSync(
 		[process.execPath, join(import.meta.dir, "../deploy/hubctl.ts"), ...args],
 		{
@@ -82,10 +80,7 @@ function hubctl(
 	return { code: r.exitCode, out: stdoutAndStderr(r) };
 }
 
-function stdoutAndStderr(r: {
-	stdout: Buffer;
-	stderr: Buffer;
-}): string {
+function stdoutAndStderr(r: { stdout: Buffer; stderr: Buffer }): string {
 	return r.stdout.toString() + r.stderr.toString();
 }
 
@@ -131,7 +126,7 @@ test("exec rides ssh as one argv element on ssh hubs", () => {
 		.find((l) => l.startsWith("ssh "));
 	expect(sshLine).toBeDefined();
 	const argv = (sshLine ?? "").slice(4).split("\u001f");
-	expect(argv.at(-1)).toBe("docker ps -a");
+	expect(argv.at(-1)).toBe(`${docker} ps -a`);
 	expect(argv).toContain("BatchMode=yes");
 });
 

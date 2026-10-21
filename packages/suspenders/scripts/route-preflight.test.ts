@@ -41,6 +41,19 @@ function fixture(): RoutePreflightSources {
 }
 
 describe("route preflight before activation", () => {
+	test("--help returns usage without reading the machine stack", () => {
+		const command = Bun.spawnSync(
+			[
+				process.execPath,
+				new URL("./route-preflight.ts", import.meta.url).pathname,
+				"--help",
+			],
+			{ env: { ...process.env, KLH_STACK_CONFIG: "/missing/stack.yaml" } },
+		);
+		expect(command.exitCode).toBe(0);
+		expect(command.stdout.toString()).toContain("--static");
+	});
+
 	test("a mapped, reachable peer and both synthetic refusal paths pass", async () => {
 		const result = await checkRoutePreflight(fixture(), async () => true);
 		expect(result.ok).toBe(true);
@@ -79,6 +92,20 @@ describe("route preflight before activation", () => {
 		expect(result.probes).toEqual([
 			{ origin: "http://127.0.0.1:4301", reachable: false },
 		]);
+	});
+
+	test("static first-deploy mode validates graph and drill without requiring the target to be up", async () => {
+		const result = await checkRoutePreflight(
+			fixture(),
+			async () => {
+				throw new Error("must not probe an unstarted target");
+			},
+			{ probeHubs: false },
+		);
+		expect(result.mode).toBe("static");
+		expect(result.ok).toBe(true);
+		expect(result.probes).toEqual([]);
+		expect(result.drills).toHaveLength(2);
 	});
 
 	test("malformed terminal declaration fails instead of silently trusting a local URL", () => {

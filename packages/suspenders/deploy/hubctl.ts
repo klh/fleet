@@ -21,7 +21,7 @@
 //                                     #   never leaves the device
 // Config: KLH_STACK env overrides the stack path (tests).
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
 	chmodSync,
 	existsSync,
@@ -53,6 +53,53 @@ import {
 } from "./release-manifest.ts";
 
 const COMPOSE_TEMPLATE = join(import.meta.dir, "hub-compose.yaml");
+
+type GateRun = () => {
+	status: number | null;
+	stdout: string;
+	stderr: string;
+	error?: Error;
+};
+
+/** Static gate before a hub starts: a down target is normal on first deploy.
+ * The target's outside-process sidecars are checked by deploy/status after up. */
+export function assertHubActivationPreflight(
+	verb: string,
+	run: GateRun = () =>
+		spawnSync(
+			process.execPath,
+			[join(import.meta.dir, "../scripts/route-preflight.ts"), "--static"],
+			{ encoding: "utf8", timeout: 10_000 },
+		),
+): void {
+	if (verb !== "up" && verb !== "deploy") return;
+	const result = run();
+	let report: {
+		ok?: boolean;
+		mode?: string;
+		findings?: unknown[];
+		drills?: unknown[];
+	};
+	try {
+		report = JSON.parse(result.stdout);
+	} catch {
+		throw new Error(
+			`hubctl ${verb} refused: route preflight did not return a valid receipt (${result.error?.message ?? (result.stderr.trim() || "no output")})`,
+		);
+	}
+	if (
+		result.status !== 0 ||
+		report.ok !== true ||
+		report.mode !== "static" ||
+		!Array.isArray(report.findings) ||
+		report.findings.length > 0 ||
+		!Array.isArray(report.drills) ||
+		report.drills.length === 0
+	)
+		throw new Error(
+			`hubctl ${verb} refused: route preflight failed (${report.findings?.length ?? "?"} graph findings, ${report.drills?.length ?? 0} drills; run route-preflight --static for details)`,
+		);
+}
 
 /** Resolve a hub by name, listing what exists on a miss. */
 function requireHub(stack: StackConfig, name: string): HubProfile {
@@ -897,9 +944,11 @@ function main(): void {
 			reloadUpstreams(hub, hubName, hubVersion);
 			return;
 		case "up":
+			assertHubActivationPreflight(verb);
 			upHub(hub, hubName, hubVersion, force);
 			return;
 		case "deploy":
+			assertHubActivationPreflight(verb);
 			deployHub(hub, hubName, auth, hubVersion);
 			return;
 		case "manifest":
@@ -928,4 +977,4 @@ function main(): void {
 	}
 }
 
-main();
+if (import.meta.main) main();
