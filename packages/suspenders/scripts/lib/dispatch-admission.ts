@@ -4,11 +4,11 @@
 // snapshot. The CLI-spawning wrappers (capsuleGet/itemCapsuleGet) stay in
 // the entry: they bind argv-derived BIN/sh.
 import { hostname } from "node:os";
-import { cvMap } from "../../hooks/lib/executor-cv.ts";
 import { quotaProviderPenalty } from "../../hooks/lib/exec-quota.ts";
+import { cvMap } from "../../hooks/lib/executor-cv.ts";
 import { openStore } from "../../hooks/lib/govdb.ts";
-import { ANSI } from "./ready-pool.ts";
 import type { StarterSeedFailure } from "./lane-starter.ts";
+import { ANSI } from "./ready-pool.ts";
 
 export type DispatchLane = {
 	sid: string;
@@ -129,6 +129,11 @@ export class RouteAdmission {
 		private readonly front: () => Promise<string | null>,
 		private readonly token: () => string | null,
 	) {}
+
+	/** A newly launched lane may have produced fresh refusal evidence. */
+	invalidate(): void {
+		this.rows.clear();
+	}
 
 	async check(
 		model: string | null,

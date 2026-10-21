@@ -91,7 +91,7 @@ const logStarved = (starved: Map<string, string[]>): void => {
  * must see, never a clean "pool drained" exit. */
 export type DispatchSummaryOpts = {
 	liveCount: number;
-	targetEff: number;
+	targetEff: number | null;
 	heldSlots: number;
 	dispatched: string[];
 	seedFallbacks: string[];
@@ -106,7 +106,7 @@ export type DispatchSummaryOpts = {
 
 export const dispatchSummary = (o: DispatchSummaryOpts): number => {
 	console.log(
-		`lanes live: ${o.liveCount}/${o.targetEff} (${o.heldSlots} unregistered/uncertain slots held)${o.dispatched.length ? ` — dispatched: ${o.dispatched.join(", ")}` : " — pool drained or lanes busy"}${o.seedFallbacks.length ? ` — seed fallback: ${o.seedFallbacks.join("; ")}` : ""}`,
+		`lanes live: ${o.liveCount}${o.targetEff === null ? " (Plaid, no fixed cap)" : `/${o.targetEff}`} (${o.heldSlots} unregistered/uncertain slots held)${o.dispatched.length ? ` — dispatched: ${o.dispatched.join(", ")}` : " — pool drained or lanes busy"}${o.seedFallbacks.length ? ` — seed fallback: ${o.seedFallbacks.join("; ")}` : ""}`,
 	);
 	// W899: the dispatch summary carries the fleet report table — same shape
 	// the install tail, session-start tick and lane briefs emit.

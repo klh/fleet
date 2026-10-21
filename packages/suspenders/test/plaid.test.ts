@@ -1,10 +1,6 @@
-// test/plaid.test.ts — W911: the bounded plaid posture. Owner arithmetic
-// (coord #46919): two per-provider pools 6–8 each, +2 global overflow,
-// hard cap 18. Covers: posture fail-safe parse, width, route-table
-// honesty invariant (ikea-* ⇒ copilot), plan phases (baseline fair-fill,
-// stretch, overflow, cap, walled pool contributes zero), assignment
-// (least-loaded + ordinal ties + walled exclusion), facts roundtrip,
-// status shape.
+// test/plaid.test.ts — the uncapped plaid posture. Covers posture parse,
+// provider fairness, quota walling, route-table honesty (ikea-* ⇒ copilot),
+// route assignment and status.
 
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
@@ -16,7 +12,6 @@ import type { PlaidRoute } from "../hooks/lib/plaid.ts";
 import {
 	fetchModelCatalog,
 	mergePlaidHealth,
-	PLAID,
 	PLAID_ROUTES,
 	parsePosture,
 	plaidAssign,
@@ -66,10 +61,10 @@ test("posture parse fail-safe: junk → steady, case tolerant, file roundtrip", 
 	expect(readPosture(d)).toBe("plaid");
 });
 
-test("width: steady rides --target; plaid rides the hard cap 18", () => {
+test("width: steady rides --target; plaid has no fixed ceiling", () => {
 	expect(postureWidth("steady", 6)).toBe(6);
 	expect(postureWidth("steady", 4)).toBe(4);
-	expect(postureWidth("plaid", 6)).toBe(PLAID.hardCap);
+	expect(postureWidth("plaid", 6)).toBeNull();
 });
 
 test("route table: owner defaults, honesty invariant, junk → defaults", () => {
@@ -102,7 +97,7 @@ const healthy2 = (routes: PlaidRoute[]): Map<string, string | null> => {
 };
 
 test("plan: baseline fair-fill — emptiest pool first, both minimums filled", () => {
-	const plan = plaidPlan(PLAID_ROUTES, healthy(), new Map(), 0);
+	const plan = plaidPlan(PLAID_ROUTES, healthy(), new Map());
 	expect(plan).toEqual({
 		open: true,
 		provider: "copilot",
@@ -116,37 +111,32 @@ test("plan: baseline before stretch — a pool under 6 outranks one at 6", () =>
 		["copilot", 6],
 		["zai", 3],
 	]);
-	const plan = plaidPlan(PLAID_ROUTES, healthy(), live, 9);
+	const plan = plaidPlan(PLAID_ROUTES, healthy(), live);
 	expect(plan.phase).toBe("baseline");
 	expect(plan.provider).toBe("zai");
 });
 
-test("plan: stretch to 8 per pool once both baselines are full", () => {
+test("plan: balanced growth after both baselines are full", () => {
 	const live = new Map<string, number>([
 		["copilot", 6],
 		["zai", 6],
 	]);
-	const plan = plaidPlan(PLAID_ROUTES, healthy(), live, 12);
-	expect(plan.phase).toBe("stretch");
+	const plan = plaidPlan(PLAID_ROUTES, healthy(), live);
+	expect(plan.phase).toBe("growth");
 	expect(plan.provider).toBe("copilot"); // tie → table order
 });
 
-test("plan: overflow only past two full pools, capped at +2", () => {
-	const full = new Map<string, number>([
-		["copilot", 8],
-		["zai", 8],
-	]);
-	const over = plaidPlan(PLAID_ROUTES, healthy(), full, 16);
-	expect(over.phase).toBe("overflow");
-	expect(over.provider).toBe("copilot");
-	// pool overflow ceiling: 10 in a pool = 8 pool + 2 overflow share
-	const atCeiling = new Map<string, number>([
-		["copilot", 10],
-		["zai", 8],
-	]);
-	const over2 = plaidPlan(PLAID_ROUTES, healthy(), atCeiling, 18);
-	expect(over2.open).toBe(false);
-	expect(over2.reason).toBe("plaid at capacity: 18/18 lanes live");
+test("plan: 40 eligible lanes grow fairly with no fixed provider or global ceiling", () => {
+	const live = new Map<string, number>();
+	for (let n = 0; n < 40; n++) {
+		const plan = plaidPlan(PLAID_ROUTES, healthy(), live);
+		expect(plan.open).toBe(true);
+		const provider = plan.provider as "copilot" | "zai";
+		live.set(provider, (live.get(provider) ?? 0) + 1);
+	}
+	expect(live.get("copilot")).toBe(20);
+	expect(live.get("zai")).toBe(20);
+	expect(plaidPlan(PLAID_ROUTES, healthy(), live).open).toBe(true);
 });
 
 test("plan: walled pool contributes zero — the healthy pool rides its own phases", () => {
@@ -154,7 +144,7 @@ test("plan: walled pool contributes zero — the healthy pool rides its own phas
 	health.set("ikea-sonnet", "quota wall");
 	// copilot fully walled; zai alone healthy → its OWN baseline, never a
 	// copilot slot — the shortfall shows in status baselineOpen, not here
-	const plan = plaidPlan(PLAID_ROUTES, health, new Map(), 0);
+	const plan = plaidPlan(PLAID_ROUTES, health, new Map());
 	expect(plan.open).toBe(true);
 	expect(plan.provider).toBe("zai");
 	expect(plan.phase).toBe("baseline");
@@ -162,8 +152,9 @@ test("plan: walled pool contributes zero — the healthy pool rides its own phas
 
 test("plan: all pools walled → dispatch paused with the loud reason", () => {
 	const dead = healthy();
-	for (const r of PLAID_ROUTES) dead.set(r.name, "quota wall");
-	const paused = plaidPlan(PLAID_ROUTES, dead, new Map(), 0);
+	for (const r of PLAID_ROUTES.filter((route) => route.provider))
+		dead.set(r.name, "quota wall");
+	const paused = plaidPlan(PLAID_ROUTES, dead, new Map());
 	expect(paused.open).toBe(false);
 	expect(paused.reason).toBe(
 		"plaid: no healthy route in any pool — dispatch paused",
@@ -304,19 +295,18 @@ test("facts: lane route + posture roundtrip, dead lanes never count", () => {
 	expect(postureFactOf(db)).toBe("steady"); // fail-safe narrow
 });
 
-test("status: UI-agreement shape — pools, baselineOpen, overflow, views", () => {
+test("status: UI-agreement shape exposes unbounded growth and current pool load", () => {
 	const db = store();
 	recordPostureFact(db, "plaid");
 	recordLaneRoute(db, "s1", "ikea-sonnet");
 	recordLaneRoute(db, "s2", "glm-5.3-flash");
 	const st = plaidStatus(db, ["s1", "s2", "s3-dead"]);
 	expect(st.posture).toBe("plaid");
-	expect(st.width).toBe(18);
+	expect(st.width).toBeNull();
 	expect(st.live.copilot).toBe(1);
 	expect(st.live.zai).toBe(1);
 	expect(st.baselineOpen.copilot).toBe(5);
 	expect(st.baselineOpen.zai).toBe(5);
-	expect(st.overflow.used).toBe(0);
 	expect(st.fallback).toBe(false);
 	const sonnet = st.routes.find((r) => r.name === "ikea-sonnet");
 	expect(sonnet?.lanes).toBe(1);
