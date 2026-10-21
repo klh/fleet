@@ -131,3 +131,60 @@ describe("W422 executor-adapter registry", () => {
 		]);
 	});
 });
+
+// W1121 noninteractive CLI permission policy: every Bash row is a PREFIX
+// rule (trailing `:*`), the governed closure verbs ride the recipe, and no
+// row names an absolute path. A headless lane runs `work done --sha` to
+// close its own item; a bare exact rule (the old `Bash(diff)`) rejects
+// every invocation that carries arguments.
+describe("W1121 claude lane permission recipe", () => {
+	const bashRules = CLAUDE_ALLOWED_TOOLS.split(" ").filter((r) =>
+		r.startsWith("Bash("),
+	);
+
+	test("every Bash rule is a trailing-wildcard prefix rule", () => {
+		for (const rule of bashRules) {
+			expect(rule.endsWith(":*)")).toBe(true);
+		}
+	});
+
+	test("closure + quality + stream verbs ride the recipe", () => {
+		const rules = new Set(bashRules);
+		for (const verb of [
+			"work",
+			"coord",
+			"oracle",
+			"git",
+			"bun",
+			"qlty",
+			"rg",
+			"eza",
+			"sd",
+			"sed",
+			"diff",
+			"head",
+			"tail",
+			"wc",
+			"stat",
+			"find",
+			"grep",
+			"cat",
+		]) {
+			expect(rules.has(`Bash(${verb}:*)`)).toBe(true);
+		}
+	});
+
+	test("no rule pins an absolute or home path (canonical verbs only)", () => {
+		for (const rule of bashRules) {
+			expect(rule.startsWith("Bash(/")).toBe(false);
+			expect(rule.startsWith("Bash(~")).toBe(false);
+		}
+	});
+
+	test("Edit/Write stay allowed; no bare unprefixed Bash grant", () => {
+		const rows = CLAUDE_ALLOWED_TOOLS.split(" ");
+		expect(rows).toContain("Edit");
+		expect(rows).toContain("Write");
+		expect(rows.filter((r) => r === "Bash")).toEqual([]);
+	});
+});
