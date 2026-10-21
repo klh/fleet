@@ -572,6 +572,13 @@ export class OpenAIToAnthropicStream {
 	private warned = new Set<string>();
 	/** W1106: the last pushed chunk was a ping-shaped frame (zero events). */
 	sawPing = false;
+	/** W1106.2: the bridge observed the source's [DONE] sentinel — the ONLY
+	 *  license to emit an anthropic success terminal at flush. */
+	private doneSeen = false;
+	/** W1106.2: an in-band source failure arrived (error event /
+	 *  response.failed|incomplete) — never translated into success, even
+	 *  when a [DONE] follows it. */
+	private failed = false;
 	/** Anomaly ledger for the bridge to warn on post-stream. */
 	readonly warnings: TransformWarning[] = [];
 
@@ -600,6 +607,7 @@ export class OpenAIToAnthropicStream {
 		if (r.usage !== undefined) this.usage = r.usage;
 		if (r.error !== undefined) {
 			const err = r.error as AnyRec;
+			this.failed = true; // W1106.2: in-band failure poisons the terminal
 			out.push({
 				event: "error",
 				data: {
@@ -607,6 +615,26 @@ export class OpenAIToAnthropicStream {
 					error: {
 						type: "api_error",
 						message: str(err?.message) || "upstream stream error",
+					},
+				},
+			});
+			return out;
+		}
+		// W1106.2: Responses-wire in-band failure — nested response.error,
+		// never translated into a success terminal even when [DONE] follows.
+		if (r.type === "response.failed" || r.type === "response.incomplete") {
+			const inner = ((r.response ?? {}) as AnyRec).error as AnyRec | undefined;
+			this.failed = true;
+			out.push({
+				event: "error",
+				data: {
+					type: "error",
+					error: {
+						type: "api_error",
+						message:
+							str(inner?.message) ||
+							str(inner?.code) ||
+							"upstream stream error",
 					},
 				},
 			});
@@ -696,13 +724,23 @@ export class OpenAIToAnthropicStream {
 		}
 	}
 
+	/** W1106.2: the bridge calls this when the source [DONE] sentinel passes
+	 *  — the ONLY license to emit an anthropic success terminal at flush. */
+	noteDone(): void {
+		this.doneSeen = true;
+	}
+
 	/** End of stream: close any open block, emit message_delta + message_stop
-	 *  exactly once. Empty when the stream never started. */
+	 *  exactly once — ONLY when the source terminal was observed (W1106.2: a
+	 *  clean EOF without [DONE] is a truncated turn; a failed source never
+	 *  translates into a success, even when a [DONE] followed it). A
+	 *  truncated source flushes the content close-out only. */
 	flush(): AnthropicEvent[] {
 		const out: AnthropicEvent[] = [];
 		if (!this.started || this.finished) return out;
 		this.finished = true;
 		this.closeActive(out);
+		if (!this.doneSeen || this.failed) return out;
 		const u = this.seenUsage();
 		out.push({
 			event: "message_delta",
@@ -811,6 +849,10 @@ export class AnthropicToOpenAIStream {
 	private model = "";
 	private started = false;
 	private stopped = false;
+	/** W1106.2: a SOURCE message_stop was observed (the flush-retried finish
+	 *  for an unterminated stream does NOT count — the bridge's [DONE]
+	 *  sentinel must mirror source completion, never a generated one). */
+	private stopSeen = false;
 	private inTok: unknown = null;
 	private outTok: unknown = null;
 	private finish: string | null = null;
@@ -871,6 +913,7 @@ export class AnthropicToOpenAIStream {
 		if (d.type === "content_block_delta") this.blockDelta(d, out);
 		if (d.type === "message_delta") this.messageDelta(d);
 		if (d.type === "message_stop") this.emitFinish(out);
+		if (d.type === "message_stop") this.stopSeen = true; // W1106.2
 		return out;
 	}
 
@@ -881,6 +924,12 @@ export class AnthropicToOpenAIStream {
 			this.finish = finishReasonFromAnthropic(delta.stop_reason);
 		if ((d.usage as AnyRec | undefined)?.output_tokens !== undefined)
 			this.outTok = (d.usage as AnyRec).output_tokens;
+	}
+
+	/** W1106.2: true once a SOURCE message_stop was observed — the license
+	 *  for the bridge's [DONE] sentinel. */
+	sawStop(): boolean {
+		return this.stopSeen;
 	}
 
 	/** End of stream: the finish chunk, then the terminal usage chunk —

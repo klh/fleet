@@ -166,7 +166,14 @@ export function openAIToAnthropicSse(): TransformStream<
 			c.enqueue(enc.encode(SSE_KEEPALIVE));
 			return;
 		}
-		if (payload.length === 0 || payload === "[DONE]") return;
+		if (payload === "[DONE]") {
+			// W1106.2: the source's success license — flush may now emit the
+			// anthropic terminal (a failed source never gets here licensed:
+			// noteDone alone can't clear the in-band failure poison).
+			tx.noteDone();
+			return;
+		}
+		if (payload.length === 0) return;
 		try {
 			emit(tx.push(JSON.parse(payload)), c);
 			// W1106: a ping-shaped frame produces zero AnthropicEvents — emit the
@@ -307,7 +314,12 @@ export function anthropicToOpenAISse(): TransformStream<
 			drain(c);
 			dispatch(c);
 			emit(tx.flush(), c);
-			c.enqueue(enc.encode("data: [DONE]\n\n"));
+			// W1106.2: [DONE] is the openai PROTOCOL terminal — it must mirror
+			// a source message_stop, never a bare EOF. The transform only
+			// emits its finish chunk at message_stop (or once, at flush, when
+			// the upstream never terminated); gate the sentinel on the same
+			// fact so a truncated source leaves the target equally truncated.
+			if (tx.sawStop()) c.enqueue(enc.encode("data: [DONE]\n\n"));
 		},
 	});
 }
