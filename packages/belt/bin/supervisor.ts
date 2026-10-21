@@ -882,7 +882,9 @@ export class Supervisor {
 			await this.sleep(this.opts.bindPollMs);
 		}
 		if (this.stopped) return; // stop() during the wait: no record, no spawn
-		if (!released && (await this.probe(t)).tcp) {
+		const stillBound = !released && (await this.probe(t)).tcp;
+		if (this.stopped) return; // stop() during that probe: no record, no spawn
+		if (stillBound) {
 			// Port never released within the budget: defer without a breaker
 			// record or spawn — respawning would race EADDRINUSE. The next
 			// probe cycle re-enters restart on the same reason.
