@@ -214,12 +214,14 @@ async function cycle(): Promise<void> {
 	// operator pass; releases broadcast fleet-wide so dispatch refills them
 	// same-cycle. Fail-isolated: a sweep bug can never take down the
 	// merge/dispatch loop (the wisdom-sweep rule).
-	try {
-		reclaimSweep();
-	} catch (e) {
-		log(
-			`RECLAIM sweep failed (fail-isolated): ${e instanceof Error ? e.message : String(e)}`,
-		);
+	if (!existsSync(`${REPO}/.fleet/reclaim-paused`)) {
+		try {
+			reclaimSweep();
+		} catch (e) {
+			log(
+				`RECLAIM sweep failed (fail-isolated): ${e instanceof Error ? e.message : String(e)}`,
+			);
+		}
 	}
 
 	// 8. maintenance sweep (W779): the folded no-port launchd agents as
