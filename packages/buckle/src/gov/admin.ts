@@ -122,6 +122,9 @@ export async function handleAdmin(
 	if (method === "GET" && path === "/v1/admin/requests") {
 		return listRequests(gov, url);
 	}
+	if (method === "GET" && path === "/v1/admin/metrics") {
+		return gov.metrics();
+	}
 	if (method === "GET" && path === "/v1/admin/traces") {
 		const traceId = url.searchParams.get("trace_id") ?? "";
 		if (!/^[0-9a-f]{32}$/.test(traceId))
