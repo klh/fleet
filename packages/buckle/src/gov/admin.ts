@@ -5,6 +5,7 @@
 // once — the issue response — and verify answers valid/revoked/expired
 // without echoing hashes.
 import { allowOf, methodNotAllowed, problem } from "../citizenship.ts";
+import { readBeltTrace } from "../../../telemetry/src/trace-log.ts";
 import type { RequestReadQuery } from "../ledger.ts";
 import { exportObservations } from "../observation-export.ts";
 import { verifyAuthChain } from "./audit-chain.ts";
@@ -137,6 +138,11 @@ export async function handleAdmin(
 			trace_id: traceId,
 			requests: gov.ledger.requestsRead({ trace_id: traceId, limit: 500 }),
 			attempts: gov.ledger.traceAttempts(traceId),
+			belt: readBeltTrace(
+				process.env.BUCKLE_BELT_ROUTING_LOG ??
+					`${process.env.HOME ?? ""}/.claude-insights/swarm-routing.log`,
+				traceId,
+			),
 		});
 	}
 	if (method === "GET" && path === "/v1/admin/observations") {

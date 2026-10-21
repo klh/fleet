@@ -45,6 +45,8 @@ test("an upstream that dies after SSE headers is recorded as a failed request", 
 		const audit = deps.ledger.auditRows()[0];
 		expect(audit?.ok).toBe(0);
 		expect(audit?.error_code).toBe("stream_failed");
+		expect(audit?.err).toStartWith("stream_failed:");
+		expect(audit?.err).not.toContain("upstream connection dropped");
 		expect(audit?.decision).toBe("errored");
 	} finally {
 		upstream.close();

@@ -49,6 +49,20 @@ export function safeCorrelationId(value: unknown): string | undefined {
 
 export const safeUpstreamId = safeCorrelationId;
 
+/** A body-free failure class for hop logs. Error messages can contain prompt
+ * text or credentials, so only a constrained error name and transport code
+ * may enter durable diagnostics. */
+export function safeFailureKind(error: unknown): string {
+	if (!(error instanceof Error)) return "unknown";
+	const name = SAFE_LABEL.test(error.name.toLowerCase())
+		? error.name.toLowerCase()
+		: "error";
+	const code = (error as Error & { code?: unknown }).code;
+	return typeof code === "string" && SAFE_LABEL.test(code.toLowerCase())
+		? `${name}:${code.toLowerCase()}`
+		: name;
+}
+
 export function traceIdOf(traceparent: string | null): string | undefined {
 	const match = traceparent?.match(TRACEPARENT);
 	const traceId = match?.[1];

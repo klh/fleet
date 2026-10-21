@@ -7,7 +7,10 @@
 // streams record requests without token columns — honest omission, never
 // estimated.
 
-import { stampHopHeaders } from "../../telemetry/src/http-trace.ts";
+import {
+	safeFailureKind,
+	stampHopHeaders,
+} from "../../telemetry/src/http-trace.ts";
 import { RouterError, routerErrorEnvelope } from "./adapters/errors.ts";
 import { resolveAdapter } from "./adapters/index.ts";
 import type { RpcAdmission } from "./admission.ts";
@@ -816,6 +819,7 @@ function streamResponse(
 	const [sniffBranch, clientBranch] = upstream.body.tee();
 	const downstream = new TransformStream<Uint8Array, Uint8Array>();
 	let streamFailed = false;
+	let streamFailureKind: string | null = null;
 	const finish = once(() => {
 		sniffer.flush();
 		record(
@@ -844,7 +848,7 @@ function streamResponse(
 			duration_ms: duration,
 			ok: success,
 			attempts: result.attempts,
-			err: success ? null : "stream_failed",
+			err: success ? null : `stream_failed:${streamFailureKind ?? "unknown"}`,
 			...(success ? {} : { decision: "errored", error_code: "stream_failed" }),
 		});
 		deps.sm
@@ -882,6 +886,7 @@ function streamResponse(
 		.pipeTo(downstream.writable, { preventAbort: true })
 		.then(finish, (err: unknown) => {
 			streamFailed = true;
+			streamFailureKind = safeFailureKind(err);
 			finish();
 			writeErrorEvent(downstream.writable, ctx.dialect, err);
 		});

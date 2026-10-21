@@ -3,6 +3,7 @@ import {
 	beginTrace,
 	childTraceparent,
 	safeCorrelationId,
+	safeFailureKind,
 	stampResponse,
 	traceIdOf,
 } from "../src/http-trace.ts";
@@ -45,6 +46,17 @@ test("untrusted or malformed correlation data never becomes a header", () => {
 	expect(response.headers.get("x-litellm-call-id")).toBe("call-123");
 	expect(response.headers.get("x-klh-attempts")).toBe("2");
 	expect(response.headers.get("x-klh-upstream-status")).toBe("429");
+});
+
+test("failure kind excludes messages and unsafe transport codes", () => {
+	expect(safeFailureKind(new Error("secret prompt"))).toBe("error");
+	const err = Object.assign(new TypeError("private URL"), {
+		code: "ECONNRESET",
+	});
+	expect(safeFailureKind(err)).toBe("typeerror:econnreset");
+	expect(
+		safeFailureKind(Object.assign(new Error("x"), { code: "bad\nkey" })),
+	).toBe("error");
 });
 
 test("outer hop clears stale inner refusal and private upstream metadata", async () => {
