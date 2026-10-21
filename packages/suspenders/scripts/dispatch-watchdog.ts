@@ -19,6 +19,7 @@ import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SpawnLedger } from "../../belt/bin/spawn-admission.ts";
 import { inspectActivatedDispatch } from "./lib/activated-dispatch.ts";
+import { validateBeltWiredGuard } from "./lib/belt-wired-guard.ts";
 import {
 	deliverWatchdogDecision,
 	recoverWatchdogDecision,
@@ -224,17 +225,11 @@ const activatedWiredLimitGb = (): number | null => {
 		);
 		if (!belt || digestUnit(readFileSync(belt.unit)) !== belt.unitSha256)
 			return null;
-		const value = sh([
-			"/usr/bin/plutil",
-			"-extract",
-			"EnvironmentVariables.BELT_WIRED_GUARD_GB",
-			"raw",
-			"-o",
-			"-",
-			belt.unit,
-		]);
-		if (value.code !== 0 || !/^\d+(?:\.\d+)?$/.test(value.out)) return null;
-		return emergencyWiredLimitGb(value.out);
+		const guard = validateBeltWiredGuard(
+			join(HOME, ".claude/local-llm/belt.env"),
+		);
+		if (!guard.ok) return null;
+		return emergencyWiredLimitGb(guard.value);
 	} catch {
 		return null;
 	}
