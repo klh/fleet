@@ -17,30 +17,35 @@
 
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { SpawnLedger } from "../../belt/bin/spawn-admission.ts";
+import { inspectActivatedDispatch } from "./lib/activated-dispatch.ts";
+import type { ProgressState, WorkStats } from "./lib/fleet-progress.ts";
+import { laneProbeReply } from "./lib/lane-probe-sse.ts";
+import { laneToolRoundtrip } from "./lib/lane-tool-probe.ts";
 import {
+	type ResourceAction,
+	resourceAction,
+} from "./lib/resource-actuator.ts";
+import {
+	digestUnit,
 	driftNotices,
 	inspectServices,
 	readActivation,
 	type ServiceVerdict,
 } from "./lib/service-drift.ts";
-import { laneToolRoundtrip } from "./lib/lane-tool-probe.ts";
-import { laneProbeReply } from "./lib/lane-probe-sse.ts";
-import { inspectActivatedDispatch } from "./lib/activated-dispatch.ts";
 import {
-	watchdogVerdict,
-	type WatchdogDimension,
-} from "./lib/watchdog-verdict.ts";
-import {
-	resourceAction,
-	type ResourceAction,
-} from "./lib/resource-actuator.ts";
-import type { ProgressState, WorkStats } from "./lib/fleet-progress.ts";
-
-import {
+	type LaneAudit,
 	watchdogLiveness,
 	watchdogProgress,
-	type LaneAudit,
 } from "./lib/watchdog-liveness.ts";
+import {
+	emergencyWiredLimitGb,
+	loadingReservation,
+} from "./lib/watchdog-memory.ts";
+import {
+	type WatchdogDimension,
+	watchdogVerdict,
+} from "./lib/watchdog-verdict.ts";
 
 const HOME = process.env.HOME ?? "";
 const REPO =
@@ -197,9 +202,65 @@ const laneProbe = async (): Promise<{ ok: boolean; detail: string }> => {
 // just verdict. The always-exempt set is minimal tier's ≤4GB residents
 // (residentSet() minimal in belt bin/registry.ts); everything else MLX is
 // reapable when wired crosses the band.
-const WIRED_GUARD_GB = 60;
 const LITELLM_RSS_GUARD_GB = 4;
 const EXEMPT_PORTS = new Set([8902, 8913]);
+
+const activatedWiredLimitGb = (): number | null => {
+	try {
+		if (
+			effectiveServices().find((s) => s.label === "com.suspenders.belt-swarm")
+				?.state !== "running"
+		)
+			return null;
+		const receipt = readActivation(
+			join(HOME, ".config/klh/service-activation.json"),
+		);
+		const belt = receipt.services.find(
+			(s) => s.label === "com.suspenders.belt-swarm",
+		);
+		if (!belt || digestUnit(readFileSync(belt.unit)) !== belt.unitSha256)
+			return null;
+		const value = sh([
+			"/usr/bin/plutil",
+			"-extract",
+			"EnvironmentVariables.BELT_WIRED_GUARD_GB",
+			"raw",
+			"-o",
+			"-",
+			belt.unit,
+		]);
+		if (value.code !== 0 || !/^\d+(?:\.\d+)?$/.test(value.out)) return null;
+		return emergencyWiredLimitGb(value.out);
+	} catch {
+		return null;
+	}
+};
+
+const spawnLedger = (): SpawnLedger | null => {
+	try {
+		const rows = JSON.parse(
+			readFileSync(join(HOME, ".claude/local-llm/.spawn-ledger.json"), "utf8"),
+		);
+		if (!rows || Array.isArray(rows) || typeof rows !== "object") return null;
+		for (const row of Object.values(rows) as Array<{
+			pid?: number;
+			startedAt?: number;
+			ram_gb?: number;
+		}>) {
+			if (
+				!row ||
+				!Number.isInteger(row.pid) ||
+				!Number.isFinite(row.startedAt) ||
+				(row.ram_gb !== undefined &&
+					(!Number.isFinite(row.ram_gb) || row.ram_gb < 0))
+			)
+				return null;
+		}
+		return rows as SpawnLedger;
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === "ENOENT" ? {} : null;
+	}
+};
 
 const wiredNowGb = (): number => {
 	const out = sh(["/usr/bin/vm_stat"]).out;
@@ -237,6 +298,9 @@ const actOnResource = (
 	);
 
 const reapHeaviestMlx = (): ResourceAction => {
+	const ledger = spawnLedger();
+	if (!ledger)
+		return { state: "held", detail: "spawn reservation ledger unavailable" };
 	const out = sh(["/usr/sbin/lsof", "-nP", "-iTCP", "-sTCP:LISTEN"]).out;
 	const rows: { port: number; pid: number; rss: number }[] = [];
 	for (const line of out.split("\n")) {
@@ -244,6 +308,7 @@ const reapHeaviestMlx = (): ResourceAction => {
 		if (!m) continue;
 		const port = Number.parseInt(m[2], 10);
 		if (EXEMPT_PORTS.has(port)) continue;
+		if (loadingReservation(port, Number(m[1] ?? 0), ledger)) continue;
 		const rss = portRssGb(port);
 		if (rss !== null) rows.push({ port, pid: Number(m[1]), rss });
 	}
@@ -251,6 +316,7 @@ const reapHeaviestMlx = (): ResourceAction => {
 		return { state: "held", detail: "no reapable MLX listener" };
 	rows.sort((a, b) => b.rss - a.rss);
 	const h = rows[0];
+	if (!h) return { state: "held", detail: "no reapable MLX listener" };
 	return actOnResource(
 		"com.suspenders.belt-swarm",
 		h.pid,
@@ -392,32 +458,35 @@ const run = async (): Promise<number> => {
 
 	// 5. memory guard (W500) — act on OOM precursors, never crash on them.
 	const wired = wiredNowGb();
+	const wiredLimit = activatedWiredLimitGb();
 	const litellmGb = portRssGb(4100);
 	const memory: WatchdogDimension = {
 		name: "memory",
 		state:
-			wired > WIRED_GUARD_GB ||
+			(wiredLimit !== null && wired > wiredLimit) ||
 			(litellmGb !== null && litellmGb > LITELLM_RSS_GUARD_GB)
 				? "degraded"
-				: wired < 0 || litellmGb === null
+				: wired < 0 || wiredLimit === null || litellmGb === null
 					? "unknown"
 					: "ok",
-		detail: `wired=${wired < 0 ? "unknown" : `${wired.toFixed(1)}GB`}, gatewayRSS=${litellmGb === null ? "unknown" : `${litellmGb.toFixed(1)}GB`}; emergency action does not prove recovery`,
+		detail: `wired=${wired < 0 ? "unknown" : `${wired.toFixed(1)}GB`}, emergencyLimit=${wiredLimit === null ? "unknown" : `${wiredLimit.toFixed(1)}GB`}, gatewayRSS=${litellmGb === null ? "unknown" : `${litellmGb.toFixed(1)}GB`}; emergency action does not prove recovery`,
 	};
 	const resourceActions: ResourceAction[] = [];
 	if (wired >= 0) {
-		if (wired > WIRED_GUARD_GB) {
+		if (wiredLimit !== null && wired > wiredLimit) {
 			const action = reapHeaviestMlx();
 			resourceActions.push(action);
 			verdicts.push(
-				`memory GUARD: wired ${wired.toFixed(0)}GB > ${WIRED_GUARD_GB}GB → ${action.state}: ${action.detail}`,
+				`memory GUARD: wired ${wired.toFixed(0)}GB > ${wiredLimit.toFixed(0)}GB → ${action.state}: ${action.detail}`,
 			);
-			emit(
-				action.state === "signaled" ? "BROADCAST" : "NEED_DECISION",
-				`dispatch-watchdog memory guard: wired ${wired.toFixed(0)}GB — ${action.state}: ${action.detail}; receipt=${action.receipt ?? "none"}`,
-			);
+			const note = `dispatch-watchdog memory guard: wired ${wired.toFixed(0)}GB — ${action.state}: ${action.detail}; receipt=${action.receipt ?? "none"}`;
+			if (action.state === "signaled") emit("BROADCAST", note);
+			else emitDecision("memory-wired-guard", note);
 			repaired ||= action.state === "signaled";
-		} else verdicts.push(`memory ok (wired ${wired.toFixed(0)}GB)`);
+		} else
+			verdicts.push(
+				`memory ${wiredLimit === null ? "unknown" : "ok"} (wired ${wired.toFixed(0)}GB)`,
+			);
 		if (litellmGb !== null && litellmGb > LITELLM_RSS_GUARD_GB) {
 			const pid = sh([
 				"/usr/sbin/lsof",
@@ -442,10 +511,9 @@ const run = async (): Promise<number> => {
 			verdicts.push(
 				`litellm RSS ${litellmGb.toFixed(1)}GB > ${LITELLM_RSS_GUARD_GB}GB → ${action.state}: ${action.detail}`,
 			);
-			emit(
-				action.state === "signaled" ? "BROADCAST" : "NEED_DECISION",
-				`dispatch-watchdog cloud resource action ${action.state}: ${action.detail}; receipt=${action.receipt ?? "none"}`,
-			);
+			const note = `dispatch-watchdog cloud resource action ${action.state}: ${action.detail}; receipt=${action.receipt ?? "none"}`;
+			if (action.state === "signaled") emit("BROADCAST", note);
+			else emitDecision("memory-cloud-gateway", note);
 			repaired ||= action.state === "signaled";
 		}
 	}
