@@ -78,6 +78,10 @@ function openDb(): Database {
 			path TEXT PRIMARY KEY,
 			pos INTEGER NOT NULL DEFAULT 0
 		);
+		CREATE TABLE IF NOT EXISTS ingestion_versions (
+			source TEXT PRIMARY KEY,
+			version INTEGER NOT NULL
+		);
 		CREATE TABLE IF NOT EXISTS audit (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			ts TEXT NOT NULL,
@@ -201,18 +205,39 @@ function ingestFile(
 /** One tally pass: pull new lines from both route logs into the db, prune
  *  old/overflowing rows. Cheap when nothing new (two stat() calls). */
 export function tallyMetrics(): void {
+	// W1093: older ingesters counted every upstream_attempt as a completed
+	// route. Rebuild only the swarm source once from its authoritative log;
+	// preserve the remote source and its cursor.
+	const d = openDb();
+	d.transaction(() => {
+		const version = d
+			.query("SELECT version FROM ingestion_versions WHERE source = 'swarm'")
+			.get() as { version: number } | null;
+		if (version?.version === 2) return;
+		d.run("DELETE FROM routes WHERE source = 'swarm'");
+		d.run("DELETE FROM cursors WHERE path = ?", [SWARM_LOG]);
+		d.run(
+			"INSERT INTO ingestion_versions (source, version) VALUES ('swarm', 2) ON CONFLICT(source) DO UPDATE SET version = excluded.version",
+		);
+	})();
 	// locals: port 0 = cloud escalation (keep, machine "cloud"); outcome set
-	// only on failure ("empty")
-	ingestFile(SWARM_LOG, "swarm", (j) => ({
-		ts: String(j.ts ?? ""),
-		machine: j.port === 0 ? "cloud" : LOCAL_NAME,
-		port: Number(j.port ?? 0),
-		model: String(j.model ?? ""),
-		role: String(j.category ?? ""),
-		duration_ms: Number(j.duration_ms ?? 0),
-		ok: !j.outcome,
-		err: String(j.outcome ?? ""),
-	}));
+	// only on failure ("empty"). Typed attempt events are not route outcomes.
+	ingestFile(SWARM_LOG, "swarm", (j) => {
+		if (j.event !== undefined && j.event !== "request_completed") return null;
+		const ok =
+			j.ok === true ||
+			(j.ok !== false && (!j.outcome || j.outcome === "in_process"));
+		return {
+			ts: String(j.ts ?? ""),
+			machine: j.port === 0 ? "cloud" : LOCAL_NAME,
+			port: Number(j.port ?? 0),
+			model: String(j.model ?? ""),
+			role: String(j.category ?? ""),
+			duration_ms: Number(j.duration_ms ?? 0),
+			ok,
+			err: ok ? "" : String(j.outcome ?? "error"),
+		};
+	});
 	ingestFile(REMOTES_LOG, "remotes", (j) => {
 		const port = Number(
 			String(j.endpoint ?? "")
@@ -231,7 +256,6 @@ export function tallyMetrics(): void {
 			err: j.ok === false ? "error" : "",
 		};
 	});
-	const d = openDb();
 	const cutoff = new Date(Date.now() - KEEP_DAYS * 86_400_000).toISOString();
 	d.run("DELETE FROM routes WHERE ts < ?", [cutoff]);
 	d.run("DELETE FROM audit WHERE ts < ?", [cutoff]);
