@@ -154,6 +154,33 @@ describe("install --json outcomes (W490.1)", () => {
 		expect(actions).toContain("help");
 	});
 
+	test("--no-llm parses as documented (W1049: meow negation artifact)", async () => {
+		const { code, stdout } = await run([
+			"--yes",
+			"--json",
+			"--dry-run",
+			"--no-llm",
+			"--skip-models",
+		]);
+		expect(code).toBe(0);
+		const doc = JSON.parse(stdout);
+		expect(doc.outcome).toBe("ok");
+		expect(doc.flags.noLlm).toBe(true);
+		expect(doc.flags.skipModels).toBe(true);
+		// noLlm still parses with --skip-models absent
+		const solo = await run(["--no-llm", "--json", "--dry-run"]);
+		expect(solo.code).toBe(0);
+		expect(JSON.parse(solo.stdout).flags.noLlm).toBe(true);
+	});
+
+	test("explicit --llm stays an unknown-flag usage error", async () => {
+		const { code, stdout } = await run(["--llm", "--json"]);
+		expect(code).toBe(2);
+		const doc = JSON.parse(stdout);
+		expect(doc.outcome).toBe("usage_error");
+		expect(doc.error).toContain("--llm");
+	});
+
 	test("probe step runs for real (read-only), detail gated on --verbose", async () => {
 		const plain = await run(["--step", "probeEnvironment", "--json"]);
 		expect(plain.code).toBe(0);
