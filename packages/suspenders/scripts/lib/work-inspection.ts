@@ -75,6 +75,8 @@ export function canonicalWorkReclaim(
 		[
 			"reclaim",
 			expected.id,
+			"--reason",
+			"crash",
 			"--expect-owner",
 			expected.owner,
 			"--expect-updated-at",

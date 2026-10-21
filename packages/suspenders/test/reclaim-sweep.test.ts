@@ -132,6 +132,24 @@ describe("reclaimAll release path", () => {
 });
 
 describe("reclaimAll holds", () => {
+	test("pause marker holds all claims without accruing reclaim strikes", () => {
+		const store = fixture();
+		const root = mkdtempSync(join(tmpdir(), "w1088-sweep-"));
+		directories.push(root);
+		const project = realpathSync(root);
+		seedClaim(store, project, "W8", "autod");
+		seedDeadRegistry(root, "autod", "W8");
+		writeFileSync(join(root, ".fleet", "reclaim-paused"), "paused\n");
+		for (let i = 0; i < 4; i++) {
+			expect(reclaimAll(store, project, root)).toEqual([
+				{ id: "W8", action: "held", why: "automatic recovery paused" },
+			]);
+		}
+		expect(store.query("SELECT COUNT(*) AS n FROM facts").get()).toEqual({
+			n: 0,
+		});
+	});
+
 	test("unknown claimant never releases, pass after pass", () => {
 		const store = fixture();
 		const root = mkdtempSync(join(tmpdir(), "w376-sweep-"));

@@ -14,6 +14,10 @@ import {
 } from "../dead-claim-recovery.ts";
 import { laneProcessIdentity, transcriptAlive } from "../lane-liveness.ts";
 import {
+	automaticRecoveryCheck,
+	automaticRecoveryPaused,
+} from "../automatic-recovery.ts";
+import {
 	canonicalWorkClaim,
 	canonicalWorkReclaim,
 } from "../../../scripts/lib/work-inspection.ts";
@@ -119,15 +123,23 @@ export function createStallWatch(deps: LoopDeps & { STALL_WARN_MS: number }): {
 			dead[key] = observation.episode;
 			if (observation.action !== "live") {
 				if (observation.action === "quarantine") {
+					if (automaticRecoveryPaused(REPO)) continue;
 					let recovery: "released" | "held" | "exhausted" = "held";
 					try {
+						const store = openStore();
 						recovery = attemptRecovery(
-							openStore(),
+							store,
 							{ project, id: l.item, owner: l.sid, revision: claim.updated_at },
 							() =>
-								l.host === hostname() &&
-								laneProcessIdentity(l) === false &&
-								!transcriptAlive(l.sid),
+								automaticRecoveryCheck({
+									repo: REPO,
+									store,
+									project,
+									id: l.item,
+									owner: l.sid,
+									revision: claim.updated_at,
+									lane: l,
+								}).ok,
 							() =>
 								canonicalWorkReclaim(
 									REPO,
