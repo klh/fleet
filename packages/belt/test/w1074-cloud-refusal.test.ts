@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const home = mkdtempSync(join(tmpdir(), "w1074-router-"));
 mkdirSync(join(home, ".claude", "local-llm"), { recursive: true });
+mkdirSync(join(home, ".claude-insights"), { recursive: true });
 writeFileSync(
 	join(home, ".claude", "local-llm", "prefs.json"),
 	JSON.stringify({ allow_cloud: true, cost_speed: "balanced" }),
@@ -34,11 +35,18 @@ const local = Bun.serve({
 const cloud = Bun.serve({
 	port: 0,
 	hostname: "127.0.0.1",
-	fetch() {
+	fetch(req) {
 		cloudCalls++;
 		return Response.json(
 			{ error: { code: "1302", message: "z.ai request rate limit reached" } },
-			{ status: 429, headers: { "retry-after": "7" } },
+			{
+				status: 429,
+				headers: {
+					"retry-after": "7",
+					"x-litellm-call-id": req.headers.get("x-litellm-call-id") ?? "",
+					"x-belt-rid": "gate-rid-1",
+				},
+			},
 		);
 	},
 });
@@ -94,7 +102,11 @@ afterAll(() => {
 const post = () =>
 	fetch(`${base}/v1/messages`, {
 		method: "POST",
-		headers: { "content-type": "application/json" },
+		headers: {
+			"content-type": "application/json",
+			traceparent: "00-11111111111111111111111111111111-2222222222222222-01",
+			"x-klh-request-id": "lane-request-1",
+		},
 		body: JSON.stringify({
 			model: "claude-sonnet-4",
 			max_tokens: 40,
@@ -110,10 +122,43 @@ test("local slot overflow reports the attempted cloud refusal and its retry wind
 	const refused = await post();
 	expect(refused.status).toBe(429);
 	expect(refused.headers.get("retry-after")).toBe("7");
+	expect(refused.headers.get("x-klh-service")).toBe("belt");
+	expect(refused.headers.get("x-klh-hop")).toBe("buckle-gate");
+	expect(refused.headers.get("x-klh-refusal")).toBe("upstream_rate_limit");
+	expect(refused.headers.get("x-klh-trace-id")).toBe(
+		"11111111111111111111111111111111",
+	);
+	expect(refused.headers.get("x-klh-request-id")).toBe("lane-request-1");
+	expect(refused.headers.get("x-klh-upstream-status")).toBe("429");
+	expect(refused.headers.get("x-klh-upstream-request-id")).toBe("gate-rid-1");
+	expect(refused.headers.get("x-litellm-call-id")).toMatch(
+		/^belt_11111111111111111111111111111111_[0-9a-f]{16}$/,
+	);
 	const body = (await refused.json()) as { error: { message: string } };
 	expect(body.error.message).toContain("z.ai request rate limit reached");
 	expect(body.error.message).not.toContain("at max in-flight");
 	expect(cloudCalls).toBe(1);
+	const recorded = readFileSync(
+		join(home, ".claude-insights", "swarm-routing.log"),
+		"utf8",
+	);
+	expect(recorded).not.toContain("Reply OK.");
+	expect(recorded).not.toContain("test-scoped-key");
+	const records = recorded
+		.trim()
+		.split("\n")
+		.map((line) => JSON.parse(line) as Record<string, unknown>);
+	expect(
+		records.some(
+			(row) =>
+				row.event === "upstream_attempt" &&
+				row.hop === "buckle-gate" &&
+				row.status === 429 &&
+				row.trace_id === "11111111111111111111111111111111" &&
+				row.upstream_rid === "gate-rid-1" &&
+				row.retry_after_ms === 7000,
+		),
+	).toBe(true);
 	releaseLocal?.();
 	expect((await first).status).toBe(200);
 });

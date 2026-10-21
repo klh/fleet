@@ -43,15 +43,9 @@ const ENV = {
 /** fetch stub capturing the request body; always 200 + a text block. */
 function stub200(): { fetcher: typeof fetch; bodies: AnyRec[] } {
 	const bodies: AnyRec[] = [];
-	const fetcher = (async (
-		_url: string | URL | Request,
-		init?: RequestInit,
-	) => {
+	const fetcher = (async (_url: string | URL | Request, init?: RequestInit) => {
 		bodies.push(JSON.parse(String(init?.body)) as AnyRec);
-		return {
-			status: 200,
-			json: async () => ({ content: [{ text: "pong" }] }),
-		} as unknown as Response;
+		return Response.json({ content: [{ text: "pong" }] });
 	}) as unknown as typeof fetch;
 	return { fetcher, bodies };
 }

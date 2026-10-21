@@ -11,7 +11,8 @@
 // local failed twice, and the task is COMPLEX/VERY_COMPLEX (SIMPLE never
 // leaves the machine).
 
-import { appendFileSync } from "node:fs";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { createAdmission, overloaded, parsePortCaps } from "./admission.ts";
 import { audioSpeech, audioTranscribe } from "./audio.ts";
 import { livenessResponse } from "./health.ts";
@@ -53,6 +54,11 @@ import { parseToolArgs } from "./router-tools.ts";
 // out; this adds the import for the extracted escalation leg.
 import { escalate } from "./escalate.ts";
 import { ensureUp } from "./spawner.ts";
+import {
+	beginTrace,
+	childTraceparent,
+	stampResponse,
+} from "../../telemetry/src/http-trace.ts";
 
 // W504: per-provider request caps — registry rows carry maxInflight for the
 // big unified-memory backends (:8901/:8903); BELT_PORT_CAPS ("8903:1,8901:3")
@@ -69,12 +75,21 @@ const admission = createAdmission(undefined, undefined, {
 const HOME = process.env.HOME;
 const PREFS_FILE = `${HOME}/.claude/local-llm/prefs.json`;
 const ROUTING_LOG = `${HOME}/.claude-insights/swarm-routing.log`;
+let routingLogReady = false;
 
 function logRouting(entry: Record<string, unknown>) {
 	const line = JSON.stringify({ ts: new Date().toISOString(), ...entry });
 	try {
+		if (!routingLogReady) {
+			mkdirSync(dirname(ROUTING_LOG), { recursive: true });
+			routingLogReady = true;
+		}
 		appendFileSync(ROUTING_LOG, `${line}\n`);
-	} catch {}
+	} catch (error) {
+		console.error(
+			`router: route receipt write failed (${(error as NodeJS.ErrnoException).code ?? "unknown"})`,
+		);
+	}
 }
 
 type Prefs = {
@@ -413,12 +428,44 @@ Bun.serve({
 		if (req.method !== "POST" || url.pathname !== "/v1/messages") {
 			return Response.json({ error: "not found" }, { status: 404 });
 		}
+		const trace = beginTrace(req.headers);
+		const stamped = (
+			response: Response,
+			hop: string,
+			extra: {
+				refusal?: string;
+				attempts?: number;
+				upstreamStatus?: number;
+				upstreamKind?: string;
+				upstreamId?: string;
+				callId?: string;
+			} = {},
+		): Response =>
+			stampResponse(response, {
+				service: "belt",
+				hop,
+				traceId: trace.traceId,
+				requestId: trace.requestId,
+				...extra,
+			});
 
 		let body: AnthropicBody;
 		try {
 			body = await req.json();
 		} catch {
-			return Response.json({ error: "bad json" }, { status: 400 });
+			logRouting({
+				event: "request_completed",
+				trace_id: trace.traceId,
+				request_id: trace.requestId,
+				http_status: 400,
+				outcome: "bad_json",
+				attempts: 0,
+			});
+			return stamped(
+				Response.json({ error: "bad json" }, { status: 400 }),
+				"ingress",
+				{ refusal: "bad_json" },
+			);
 		}
 
 		const startTime = Date.now();
@@ -434,31 +481,46 @@ Bun.serve({
 		// arithmetic lane — zero tokens, zero model calls
 		const arith = arithmeticAnswer(text);
 		if (arith !== null) {
+			logRouting({
+				event: "request_completed",
+				trace_id: trace.traceId,
+				request_id: trace.requestId,
+				http_status: 200,
+				outcome: "in_process",
+				attempts: 0,
+				duration_ms: Math.round(performance.now() - t0),
+			});
 			const id = `msg_arith_${Date.now()}`;
 			const routing = { tier: "SIMPLE", category: "arithmetic" };
 			// no upstream leg — the lane answers in-process
 			const timings = { total_ms: Math.round(performance.now() - t0) };
 			if (wantStream)
-				return new Response(
-					anthropicSseFromText(arith, {
-						id,
-						model: body.model,
-						routing,
-						timings,
-					}),
-					{ headers: sseHeaders(routing) },
+				return stamped(
+					new Response(
+						anthropicSseFromText(arith, {
+							id,
+							model: body.model,
+							routing,
+							timings,
+						}),
+						{ headers: sseHeaders(routing) },
+					),
+					"in_process",
 				);
-			return Response.json({
-				id,
-				type: "message",
-				role: "assistant",
-				model: body.model,
-				content: [{ type: "text", text: arith }],
-				stop_reason: "end_turn",
-				usage: { input_tokens: 0, output_tokens: 0 },
-				_routing: routing,
-				_server_timings: timings,
-			});
+			return stamped(
+				Response.json({
+					id,
+					type: "message",
+					role: "assistant",
+					model: body.model,
+					content: [{ type: "text", text: arith }],
+					stop_reason: "end_turn",
+					usage: { input_tokens: 0, output_tokens: 0 },
+					_routing: routing,
+					_server_timings: timings,
+				}),
+				"in_process",
+			);
 		}
 
 		const isCode = score.dimensions.codePresence > 0.5;
@@ -490,6 +552,7 @@ Bun.serve({
 		// Prompts past Kev's context window skip the serial hop (W270).
 		let classifier = "";
 		let kevEscalate: string | undefined;
+		let preAttempts = 0;
 		const band: [number, number] = prefs.kev?.ambiguity_band ?? [0.25, 0.45];
 		const inBand = score.total >= band[0] && score.total <= band[1];
 		const kevWanted =
@@ -500,12 +563,20 @@ Bun.serve({
 			(inBand || score.tier === "VERY_COMPLEX");
 		if (kevWanted && !kevEligible(text)) classifier = "kev-skipped:long";
 		else if (kevWanted) {
+			const kevTrace = childTraceparent(trace.traceparent);
+			const kevStarted = performance.now();
+			let kevStatus: number | undefined;
+			let kevFailureKind: "http" | "transport" | "decode" | undefined;
 			try {
 				const kr = await fetch(
 					`http://127.0.0.1:${prefs.kev?.port ?? 8912}/v1/systemone`,
 					{
 						method: "POST",
-						headers: { "content-type": "application/json" },
+						headers: {
+							"content-type": "application/json",
+							traceparent: kevTrace,
+							"x-klh-request-id": trace.requestId,
+						},
 						signal: AbortSignal.timeout(4000),
 						body: JSON.stringify({
 							model: "kev-latest",
@@ -547,6 +618,11 @@ Bun.serve({
 						}),
 					},
 				);
+				kevStatus = kr.status;
+				if (!kr.ok) {
+					kevFailureKind = "http";
+					throw new Error("kev rejected request");
+				}
 				const kj = (await kr.json()) as {
 					answers?: { use_case?: { choice?: string } };
 				};
@@ -564,7 +640,22 @@ Bun.serve({
 					classifier = `kev:${uc}`;
 				}
 			} catch {
+				kevFailureKind ??= kevStatus === undefined ? "transport" : "decode";
 				/* kev unavailable → keep regex route */
+			} finally {
+				preAttempts++;
+				logRouting({
+					event: "upstream_attempt",
+					trace_id: trace.traceId,
+					request_id: trace.requestId,
+					attempt: preAttempts,
+					span_id: kevTrace.split("-")[2],
+					hop: "kev",
+					port: prefs.kev?.port ?? 8912,
+					status: kevStatus,
+					duration_ms: Math.round(performance.now() - kevStarted),
+					failure_kind: kevFailureKind,
+				});
 			}
 		}
 
@@ -600,6 +691,59 @@ Bun.serve({
 				`e-label ${el.label} (${el.why})`,
 			];
 			const errors: string[] = [];
+			let attemptCount = preAttempts;
+			let lastHop = "router";
+			let lastStatus: number | undefined;
+			let lastUpstreamId: string | undefined;
+			let lastCallId: string | undefined;
+			const recordAttempt = (receipt: {
+				hop: string;
+				traceparent: string | null;
+				requestId: string | null;
+				status?: number;
+				durationMs: number;
+				port?: number;
+				attemptId?: string;
+				retryAfterMs?: number;
+				upstreamCallId?: string;
+				upstreamRid?: string;
+				failureKind?: "http" | "transport" | "decode" | "empty";
+			}) => {
+				attemptCount++;
+				lastHop = receipt.hop;
+				lastStatus = receipt.status;
+				lastUpstreamId = receipt.upstreamRid;
+				lastCallId = receipt.upstreamCallId;
+				logRouting({
+					event: "upstream_attempt",
+					trace_id: trace.traceId,
+					request_id: trace.requestId,
+					attempt: attemptCount,
+					span_id: receipt.traceparent?.split("-")[2],
+					hop: receipt.hop,
+					port: receipt.port,
+					status: receipt.status,
+					duration_ms: receipt.durationMs,
+					retry_after_ms: receipt.retryAfterMs,
+					upstream_call_id: receipt.upstreamCallId,
+					upstream_rid: receipt.upstreamRid,
+					failure_kind: receipt.failureKind,
+				});
+			};
+			const hopFields = () => ({
+				attempts: attemptCount,
+				upstreamKind:
+					lastHop === "buckle-gate"
+						? "buckle"
+						: lastHop === "litellm"
+							? "litellm"
+							: lastHop === "local-specialist"
+								? "local"
+								: "none",
+				...(lastStatus !== undefined ? { upstreamStatus: lastStatus } : {}),
+				...(lastUpstreamId ? { upstreamId: lastUpstreamId } : {}),
+				...(lastCallId ? { callId: lastCallId } : {}),
+			});
 			if (condenseMeta)
 				note.push(
 					`condense ${condenseMeta.tier}: ${condenseMeta.rules.length} rules fired`,
@@ -631,6 +775,14 @@ Bun.serve({
 			});
 			const logDone = (extra: Record<string, unknown>) =>
 				logRouting({
+					event: "request_completed",
+					trace_id: trace.traceId,
+					request_id: trace.requestId,
+					attempts: attemptCount,
+					last_hop: lastHop,
+					upstream_status: lastStatus,
+					upstream_rid: lastUpstreamId,
+					upstream_call_id: lastCallId,
 					category: el.label,
 					model: usedModel,
 					port: usedPort,
@@ -699,7 +851,13 @@ Bun.serve({
 			const tryCloud = async (wantFast: boolean): Promise<boolean> => {
 				triedCloud = true;
 				try {
-					const c = await escalate(body, { maxTokens: clientMax, wantFast });
+					const c = await escalate(body, {
+						maxTokens: clientMax,
+						wantFast,
+						traceparent: trace.traceparent,
+						requestId: trace.requestId,
+						onAttempt: recordAttempt,
+					});
 					if (c.note) note.push(c.note);
 					if (c.status && c.status >= 400) {
 						cloudStatus = c.status;
@@ -740,19 +898,30 @@ Bun.serve({
 					await tryCloud(score.tier !== "VERY_COMPLEX");
 				}
 				if (!release && !response) {
-					logRouting({
-						category: el.label,
-						port: route.port,
-						...promptFingerprint(text),
+					logDone({
 						outcome: "overloaded",
+						http_status:
+							cloudStatus !== undefined
+								? cloudStatus === 429
+									? 429
+									: 502
+								: 429,
 						cap: admission.capOf(route.port),
 					});
 					if (cloudStatus !== undefined)
-						return upstreamDecline(cloudStatus, retryAfter, [
-							...note,
-							...errors,
-						]);
-					return overloaded(route.port, admission);
+						return stamped(
+							upstreamDecline(cloudStatus, retryAfter, [...note, ...errors]),
+							lastHop,
+							{
+								refusal:
+									cloudStatus === 429 ? "upstream_rate_limit" : "upstream_http",
+								...hopFields(),
+							},
+						);
+					return stamped(overloaded(route.port, admission), "local_admission", {
+						refusal: "local_capacity",
+						...hopFields(),
+					});
 				}
 			}
 			if (wantStream && !response) {
@@ -767,6 +936,9 @@ Bun.serve({
 							tools: oaTools,
 							toolChoice: oaToolChoice,
 							startedAt: t0,
+							traceparent: trace.traceparent,
+							requestId: trace.requestId,
+							onAttempt: recordAttempt,
 						});
 					},
 					note,
@@ -798,12 +970,17 @@ Bun.serve({
 										? undefined
 										: "empty",
 								finish: r.finish,
+								http_status: 200,
 								...r.timings,
 							});
 						},
 					);
 					handedOff = true;
-					return new Response(stream, { headers: sseHeaders(routing) });
+					return stamped(
+						new Response(stream, { headers: sseHeaders(routing) }),
+						lastHop,
+						hopFields(),
+					);
 				}
 			} else if (!response && !wantStream) {
 				const got = await ladder(
@@ -816,6 +993,9 @@ Bun.serve({
 							tools: oaTools,
 							toolChoice: oaToolChoice,
 							startedAt: t0,
+							traceparent: trace.traceparent,
+							requestId: trace.requestId,
+							onAttempt: recordAttempt,
 						});
 					},
 					note,
@@ -853,19 +1033,30 @@ Bun.serve({
 				// every hop saturated → 429 with the longest upstream Retry-After so
 				// the caller's ladder backs off instead of retrying a 502
 				if (retryAfter !== undefined) {
-					logDone({ outcome: "upstream-429" });
-					return upstreamDecline(429, retryAfter, [...note, ...errors]);
-				}
-				logDone({ outcome: "empty" });
-				return Response.json(
-					{
-						type: "error",
-						error: {
-							type: "api_error",
-							message: `router: all routes empty (${[...note, ...errors].join("; ")})`,
+					logDone({ outcome: "upstream-429", http_status: 429 });
+					return stamped(
+						upstreamDecline(429, retryAfter, [...note, ...errors]),
+						lastHop,
+						{
+							refusal: "upstream_rate_limit",
+							...hopFields(),
 						},
-					},
-					{ status: 502 },
+					);
+				}
+				logDone({ outcome: "empty", http_status: 502 });
+				return stamped(
+					Response.json(
+						{
+							type: "error",
+							error: {
+								type: "api_error",
+								message: `router: all routes empty (${[...note, ...errors].join("; ")})`,
+							},
+						},
+						{ status: 502 },
+					),
+					lastHop,
+					{ refusal: "all_routes_empty", ...hopFields() },
 				);
 			}
 
@@ -879,6 +1070,7 @@ Bun.serve({
 					: {}),
 			};
 			logDone({
+				http_status: 200,
 				escalated: usedPort === 0 ? "z.ai" : undefined,
 				finish,
 				...timings,
@@ -886,13 +1078,17 @@ Bun.serve({
 			const id = `msg_${route.role}_${Date.now()}`;
 			const routing = routingInfo();
 			if (wantStream)
-				return new Response(
-					anthropicSseFromText(
-						response,
-						{ id, model: body.model, routing, timings },
-						finish,
+				return stamped(
+					new Response(
+						anthropicSseFromText(
+							response,
+							{ id, model: body.model, routing, timings },
+							finish,
+						),
+						{ headers: sseHeaders(routing) },
 					),
-					{ headers: sseHeaders(routing) },
+					lastHop,
+					hopFields(),
 				);
 			// W789: tool_use blocks after any text; stop_reason tool_use wins.
 			const content: Array<Record<string, unknown>> = [
@@ -904,22 +1100,26 @@ Bun.serve({
 					input: parseToolArgs(c.function.arguments),
 				})),
 			];
-			return Response.json(
-				{
-					id,
-					type: "message",
-					role: "assistant",
-					model: body.model,
-					content,
-					stop_reason:
-						resultToolCalls && resultToolCalls.length > 0
-							? "tool_use"
-							: stopReason(finish),
-					usage: { input_tokens: 0, output_tokens: 0 },
-					_routing: routing,
-					_server_timings: timings,
-				},
-				{ headers: condenseResponseHeaders(routing) },
+			return stamped(
+				Response.json(
+					{
+						id,
+						type: "message",
+						role: "assistant",
+						model: body.model,
+						content,
+						stop_reason:
+							resultToolCalls && resultToolCalls.length > 0
+								? "tool_use"
+								: stopReason(finish),
+						usage: { input_tokens: 0, output_tokens: 0 },
+						_routing: routing,
+						_server_timings: timings,
+					},
+					{ headers: condenseResponseHeaders(routing) },
+				),
+				lastHop,
+				hopFields(),
 			);
 		} finally {
 			if (!handedOff) release?.();
