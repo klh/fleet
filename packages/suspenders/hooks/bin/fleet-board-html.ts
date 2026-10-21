@@ -48,10 +48,6 @@ ${THEME_HEAD}
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 :root, :root[data-theme="dark"] {
-  --klh-ent-accent: #a08ed8;
-  --klh-ent-accent-bg: #1d1a26;
-  --klh-ent-accent-wash: rgba(160,142,216,.12);
-  --klh-ent-edge: rgba(160,142,216,.38);
   --work-ready: #8cbbad;
   --work-working: #83ade0;
   --work-blocked: #e0ae62;
@@ -61,10 +57,6 @@ ${THEME_HEAD}
   --work-cancelled: #a5a29a;
 }
 :root[data-theme="light"] {
-  --klh-ent-accent: #6b5ca5;
-  --klh-ent-accent-wash: rgba(107,92,165,.10);
-  --klh-ent-edge: rgba(107,92,165,.35);
-  --klh-ent-accent-bg: #efecf6;
   --work-ready: #276c5c;
   --work-working: #315f9a;
   --work-blocked: #8a570d;

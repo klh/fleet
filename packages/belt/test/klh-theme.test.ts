@@ -21,8 +21,8 @@ import {
 
 const VENDORED = join(import.meta.dir, "..", "bin", "klh-theme.ts");
 const PIN = {
-	version: "1.4.1",
-	sha256: "4fa1b84ff0135fead1edb2ffa35eba97df74d3606bad6527b122dcaa5265b49a",
+	version: "1.4.3",
+	sha256: "1d90f0790d47a701c5e246c91cd39a454577e02d3b1980655634a177648774f3",
 };
 
 const sha256 = (bytes: Uint8Array | string): string =>

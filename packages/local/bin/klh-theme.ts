@@ -17,7 +17,7 @@ export type ThemePref = Theme | "system";
 
 // Bumped on every change to this file; the vendored copies carry it too, so
 // "same version" means "same bytes" (each consumer's drift test checks it).
-export const KLH_THEME_VERSION = "1.4.2";
+export const KLH_THEME_VERSION = "1.4.3";
 
 export const THEME_KEY = "klh-theme";
 export const THEME_PREFS: readonly ThemePref[] = ["light", "dark", "system"];
@@ -63,6 +63,14 @@ export const TOKENS: Readonly<Record<string, readonly [string, string]>> = {
 	"--klh-chart-grid": ["#2c2c2a", "#e2dfd8"],
 	"--klh-chart-hair": ["#383835", "#cfcbc2"],
 	"--klh-chart-axis": ["#898781", "#6b675f"],
+	"--klh-accent-dim": ["rgba(216,144,15,.45)", "rgba(168,106,0,.40)"],
+	// W1043: enterprise plane (W775.1). The page block in
+	// hooks/bin/fleet-board-html.ts used to define these; they live here so
+	// the W291 hygiene scan resolves every klh-ent reference under hooks/.
+	"--klh-ent-accent": ["#a08ed8", "#6b5ca5"],
+	"--klh-ent-accent-bg": ["#1d1a26", "#efecf6"],
+	"--klh-ent-accent-wash": ["rgba(160,142,216,.12)", "rgba(107,92,165,.10)"],
+	"--klh-ent-edge": ["rgba(160,142,216,.38)", "rgba(107,92,165,.35)"],
 };
 
 // Scale tokens (W291) hold the same value in both themes: font stacks, the

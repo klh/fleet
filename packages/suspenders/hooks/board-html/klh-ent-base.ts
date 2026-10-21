@@ -2,8 +2,10 @@
 // enterprise panel family. The base owns the panel card (shadow DOM,
 // design tokens, status chip, honest states: loading / failed slice
 // ok:false / empty), panels own their data (a body() template over
-// typed rows). Tokens: the page defines --klh-ent-* (enterprise plane,
-// violet); the family never hardcodes colors — var(--klh-ent-*).
+// typed rows). Tokens: the page defines the --klh-ent-* family
+// (enterprise plane, violet); the family never hardcodes colors — every
+// rule consumes the klh-ent-* custom properties defined in
+// hooks/lib/theme.ts.
 import { LitElement, css, html, type TemplateResult } from "lit";
 import type {
 	EntitlementsPayload,
@@ -117,11 +119,13 @@ export class KlhEntPanel extends LitElement {
 				<span class="count">${this.chipText()}</span>
 			</header>
 			<div class="body">
-				${d === null
-					? html`<div class="state">waiting for entitlements…</div>`
-					: d.ok === false
-						? html`<div class="state bad">${d.why}</div>`
-						: (this.body() ?? html`<div class="state">no data yet</div>`)}
+				${
+					d === null
+						? html`<div class="state">waiting for entitlements…</div>`
+						: d.ok === false
+							? html`<div class="state bad">${d.why}</div>`
+							: (this.body() ?? html`<div class="state">no data yet</div>`)
+				}
 			</div>
 		`;
 	}

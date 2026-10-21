@@ -415,9 +415,9 @@ describe("vendoring pin (W291)", () => {
 		).arrayBuffer();
 		const sha256 = new Bun.CryptoHasher("sha256").update(src).digest("hex");
 		expect({ version: KLH_THEME_VERSION, sha256 }).toEqual({
-			version: "1.4.2",
+			version: "1.4.3",
 			sha256:
-				"4abd2237e173e9bbbad93b1fac1f30b912dc6f8f0fab151cc81b68196e54c041",
+				"1d90f0790d47a701c5e246c91cd39a454577e02d3b1980655634a177648774f3",
 		});
 	});
 });
