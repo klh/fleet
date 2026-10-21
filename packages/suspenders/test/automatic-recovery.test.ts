@@ -82,6 +82,11 @@ test("an open decision and an explicit wait protect an otherwise dead claimant",
 test("positive session absence permits recovery, but a later heartbeat reverses the verdict", () => {
 	const { db, claim } = fixture();
 	expect(automaticRecoveryCheck(claim)).toEqual({ ok: true, why: "dead" });
+	expect(
+		db
+			.query("SELECT name FROM sqlite_master WHERE name='lane_launch_intents'")
+			.get(),
+	).toBeNull();
 	db.run("INSERT INTO sessions VALUES ('sid1', ?, 'RUNNING')", Date.now());
 	expect(automaticRecoveryCheck(claim)).toEqual({ ok: false, why: "alive" });
 });
