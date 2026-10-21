@@ -115,6 +115,15 @@ test("native versioned executable and runtime entrypoint are command-position id
 	).toBeNull();
 });
 
+test("managed Claude wrapper is the SID-bearing lane identity, not its native child", () => {
+	const wrapper = "/fleet/hooks/bin/claude-runtime.ts";
+	const rows = roster(
+		`3654 bun ${wrapper} -p Lane autow562 --settings /fleet/.fleet/lane-settings-autow562.json\n3719 /home/agent/.local/bin/claude --resume seed -p --verbose`,
+	);
+	expect(laneProcessIdentity({ ...lane, pid: 3654 }, rows)).toBe(true);
+	expect(laneProcessIdentity({ ...lane, pid: 3719 }, rows)).toBe(false);
+});
+
 test("canonical symlink resolution recognizes native upgrades and actual Node entrypoints", () => {
 	const root = mkdtempSync(join(tmpdir(), "fleet-executable-"));
 	roots.push(root);
