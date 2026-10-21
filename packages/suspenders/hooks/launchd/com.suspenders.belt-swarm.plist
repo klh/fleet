@@ -7,7 +7,7 @@
 	<array>
 		<string>/bin/sh</string>
 		<string>-c</string>
-		<string>set -ae; . "$1"; shift; exec "$@"</string>
+		<string>unset BELT_ESCALATE_URL BELT_ESCALATE_KEY BELT_ESCALATE_MODEL; set -ae; . "$1"; shift; exec "$@"</string>
 		<string>fleet-belt-swarm</string>
 		<string>__HOME__/.claude/local-llm/belt.env</string>
 		<string>__BUN__</string>
