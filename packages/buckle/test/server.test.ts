@@ -2,9 +2,9 @@
 // servicemon endpoints, e2e with a temp upstreams config.
 import { describe, expect, test } from "bun:test";
 import {
+	BUN_IDLE_TIMEOUT,
 	FORBIDDEN_PORT,
 	MAX_REQUEST_BODY_BYTES,
-	resolveIdleTimeout,
 	resolvePort,
 	SHADOW_PORT,
 	startServer,
@@ -28,26 +28,12 @@ describe("resolvePort guard", () => {
 	});
 });
 
-// W450: quiet SSE streams survive longer than Bun's 10s idle default.
-describe("resolveIdleTimeout (W450)", () => {
-	test("default 120s without config", () => {
-		const prior = process.env.BUCKLE_IDLE_TIMEOUT_S;
-		delete process.env.BUCKLE_IDLE_TIMEOUT_S;
-		try {
-			expect(resolveIdleTimeout()).toBe(120);
-			expect(resolveIdleTimeout("")).toBe(120);
-			expect(resolveIdleTimeout("junk")).toBe(120);
-		} finally {
-			if (prior === undefined) delete process.env.BUCKLE_IDLE_TIMEOUT_S;
-			else process.env.BUCKLE_IDLE_TIMEOUT_S = prior;
-		}
-	});
-
-	test("env override, clamped to Bun's 0-255 contract", () => {
-		expect(resolveIdleTimeout("30")).toBe(30);
-		expect(resolveIdleTimeout("400")).toBe(255);
-		expect(resolveIdleTimeout("-4")).toBe(0);
-		expect(resolveIdleTimeout("3.9")).toBe(3);
+// W1106 (owner directive 2026-10-21): the Bun HTTP idle timer is OFF
+// globally — no env knob re-arms it, no per-request bypass. Buckle's own
+// guards are the only deadlines.
+describe("BUN_IDLE_TIMEOUT (W1106)", () => {
+	test("zero for every request — the knob is retired", () => {
+		expect(BUN_IDLE_TIMEOUT).toBe(0);
 	});
 });
 

@@ -69,6 +69,24 @@ export interface RouteAuditOutcome {
 	/** W824: ladder-walk attempt count at settle (null = not recorded —
 	 *  denial rows, aborted walks). */
 	attempts?: number | null;
+	/** W1106 body-free stream termination receipt: typed terminal + progress
+	 *  counters, never payload. null/absent = the request did not stream. */
+	stream_receipt?: StreamReceipt | null;
+}
+
+/** W1106: how a streaming body actually ended — typed terminal, upstream
+ *  progress counters, last-chunk timestamp (ms from t0). Body-free: no
+ *  prompt or completion content ever rides this. */
+export interface StreamReceipt {
+	/** upstream_eof = clean provider close; upstream_error:<kind> = the
+	 *  provider died mid-stream; downstream_cancel = the client hung up;
+	 *  upstream_idle/total_deadline = the wire guards fired. */
+	terminal: string;
+	/** bytes/chunks seen FROM the upstream (activity evidence). */
+	bytes_in: number;
+	chunks_in: number;
+	/** ms from request start to the last upstream chunk (null = none). */
+	last_chunk_ms: number | null;
 }
 
 /** W457 cache telemetry: provider-reported cache numbers joined onto the
@@ -136,6 +154,8 @@ export interface RequestReadRow {
 	out_tok: number | null;
 	/** W921 traffic kind: 'readiness' | 'inference'; NULL = legacy row. */
 	traffic_kind: string | null;
+	/** W1106 typed stream terminal (null = non-stream row / legacy). */
+	stream_receipt: StreamReceipt | null;
 	upstream_refusal_code: string | null;
 	refusal_origin: "upstream" | "bridged-upstream" | "network" | null;
 	retry_after_ms: number | null;
@@ -257,7 +277,8 @@ WHERE rid = ?
 const UPDATE_AUDIT = `
 UPDATE route_audit SET status = ?, duration_ms = ?, ok = ?, err = ?,
   decision = COALESCE(?, decision), error_code = COALESCE(?, error_code),
-  attempts = COALESCE(?, attempts)
+  attempts = COALESCE(?, attempts),
+  stream_receipt = COALESCE(?, stream_receipt)
 WHERE rid = ?
 `;
 
@@ -364,6 +385,11 @@ export class Ledger {
 		// the row predates the column — unmarked legacy).
 		if (!auditCols.includes("traffic_kind"))
 			this.db.run("ALTER TABLE route_audit ADD COLUMN traffic_kind TEXT");
+		// W1106: body-free stream termination receipt — JSON {bytes_in,
+		// chunks_in, last_chunk_ms, terminal}; NULL = the row predates the
+		// column or the request never streamed.
+		if (!auditCols.includes("stream_receipt"))
+			this.db.run("ALTER TABLE route_audit ADD COLUMN stream_receipt TEXT");
 		this.db.run(
 			"CREATE INDEX IF NOT EXISTS route_audit_trace ON route_audit(trace_id, ts)",
 		);
@@ -422,7 +448,11 @@ export class Ledger {
 				r.why.length
 			);
 		}
-		if (op.t === "upd") return 64 + op.rid.length + (op.out.err?.length ?? 0);
+		if (op.t === "upd")
+			return 64 + op.rid.length + (op.out.err?.length ?? 0) +
+				(op.out.stream_receipt
+					? JSON.stringify(op.out.stream_receipt).length
+					: 0);
 		if (op.t === "attempt") {
 			const r = op.row;
 			return (
@@ -699,6 +729,11 @@ export class Ledger {
 			out.decision ?? null,
 			out.error_code ?? null,
 			out.attempts ?? null,
+			out.stream_receipt === undefined
+				? null
+				: out.stream_receipt === null
+					? null
+					: JSON.stringify(out.stream_receipt),
 			rid,
 		);
 	}
@@ -830,6 +865,7 @@ export class Ledger {
 				...r,
 				err: capRequestText(r.err),
 				why: capRequestText(r.why) ?? "",
+				stream_receipt: parseStreamReceipt(r.stream_receipt),
 				upstream_refusal_code: failedResponse
 					? (refusal?.upstream_refusal_code ?? null)
 					: null,
@@ -875,9 +911,30 @@ function requestsReadSql(where: string[], limit: number): string {
 		target_port, target_model, decision, latency_class, tier,
 		allow_cloud, hop, error_code, why, status, duration_ms, ok, err,
 		attempts, cache_r, cache_c, cache_reported, cache_c_reported, in_tok, out_tok,
-		traffic_kind
+		traffic_kind, stream_receipt
 		FROM route_audit ${clause}
 		ORDER BY ts DESC, rid DESC LIMIT ${limit}`;
+}
+
+/** W1106: the stored receipt JSON → typed value (null = absent/legacy/
+ *  corrupt — a bad row never kills the read surface). */
+function parseStreamReceipt(raw: unknown): StreamReceipt | null {
+	if (typeof raw !== "string" || raw.length === 0) return null;
+	try {
+		const j: unknown = JSON.parse(raw);
+		if (!j || typeof j !== "object") return null;
+		const r = j as Record<string, unknown>;
+		if (typeof r.terminal !== "string") return null;
+		return {
+			terminal: r.terminal,
+			bytes_in: typeof r.bytes_in === "number" ? r.bytes_in : 0,
+			chunks_in: typeof r.chunks_in === "number" ? r.chunks_in : 0,
+			last_chunk_ms:
+				typeof r.last_chunk_ms === "number" ? r.last_chunk_ms : null,
+		};
+	} catch {
+		return null;
+	}
 }
 
 /** Presented credential → truncated sha-256 hex id (12 chars). */
