@@ -25,6 +25,118 @@ function poolOf(entries: Array<[string, string[]]>): UpstreamPool {
 }
 
 describe("retry + cooldown in the walk", () => {
+	test("four concurrent 503 refusals advance to the healthy fallback without sleeping", async () => {
+		const attempted: string[] = [];
+		const slept: number[] = [];
+		const router = new Router(
+			{
+				...POLICY,
+				num_retries: 0,
+				retry_after_cap_s: 1,
+				fallbacks: { primary: ["local"] },
+			},
+			{
+				pool: poolOf([
+					["primary", ["http://primary"]],
+					["local", ["http://local"]],
+				]),
+				sleepMs: async (ms) => {
+					slept.push(ms);
+				},
+				fetchImpl: async (dep) => {
+					attempted.push(dep.group);
+					return dep.group === "primary"
+						? new Response("warming", {
+								status: 503,
+								headers: { "retry-after": "60" },
+							})
+						: Response.json({ ok: true });
+				},
+			},
+		);
+		const requests = Array.from({ length: 4 }, () =>
+			router.execute({
+				group: "primary",
+				dialect: "openai",
+				path: "/v1/chat/completions",
+				body: { model: "primary", stream: false },
+				key: "",
+			}),
+		);
+		const results = await Promise.all(requests);
+		expect(
+			results.every((r) => r.kind === "upstream" && r.tier === "local"),
+		).toBe(true);
+		expect(attempted.filter((g) => g === "local")).toHaveLength(4);
+		expect(slept).toEqual([]);
+	});
+
+	test("a retry budget may try a different same-tier candidate without inheriting the first wait", async () => {
+		const attempted: string[] = [];
+		const slept: number[] = [];
+		const router = new Router(
+			{ ...POLICY, num_retries: 1, retry_after_cap_s: 1 },
+			{
+				pool: poolOf([["primary", ["http://cold", "http://healthy"]]]),
+				sleepMs: async (ms) => {
+					slept.push(ms);
+				},
+				fetchImpl: async (dep) => {
+					attempted.push(dep.url);
+					return dep.url === "http://cold"
+						? new Response("warming", {
+								status: 503,
+								headers: { "retry-after": "60" },
+							})
+						: Response.json({ ok: true });
+				},
+			},
+		);
+		const result = await router.execute({
+			group: "primary",
+			dialect: "openai",
+			path: "/v1/chat/completions",
+			body: { model: "primary" },
+			key: "",
+		});
+		expect(result.kind).toBe("upstream");
+		expect(attempted).toEqual(["http://cold", "http://healthy"]);
+		expect(slept).toEqual([]);
+	});
+
+	test("exhausted 503 preserves bounded Retry-After and last-hop evidence", async () => {
+		const router = new Router(
+			{ ...POLICY, num_retries: 0, retry_after_cap_s: 2 },
+			{
+				pool: poolOf([["primary", ["http://primary"]]]),
+				fetchImpl: async () =>
+					new Response("warming", {
+						status: 503,
+						headers: {
+							"retry-after": "60",
+							"x-request-id": "upstream-cold-1",
+						},
+					}),
+			},
+		);
+		const result = await router.execute({
+			group: "primary",
+			dialect: "openai",
+			path: "/v1/chat/completions",
+			body: { model: "primary", stream: false },
+			key: "",
+		});
+		expect(result.kind).toBe("exhausted");
+		if (result.kind !== "exhausted") return;
+		expect(result.status).toBe(503);
+		expect(result.retryAfterS).toBe(2);
+		expect(result.lastFailure).toMatchObject({
+			source: "upstream",
+			status: 503,
+			requestId: "upstream-cold-1",
+		});
+	});
+
 	test("a provider quota wall advances to the configured fallback without sleeping", async () => {
 		const attempted: string[] = [];
 		const slept: number[] = [];

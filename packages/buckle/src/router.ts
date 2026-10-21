@@ -58,6 +58,7 @@ export type ExecuteResult =
 			error: string;
 			attempts: number;
 			lastFailure?: FailureProvenance;
+			retryAfterS?: number;
 	  };
 
 interface FailureProvenance {
@@ -66,6 +67,7 @@ interface FailureProvenance {
 	kind: string;
 	requestId?: string;
 	callId?: string;
+	retryAfterS?: number;
 }
 
 export interface UpstreamRequest {
@@ -134,7 +136,6 @@ interface WalkState {
 		source: "upstream" | "cooldown";
 	};
 	lastFailure?: FailureProvenance;
-	pendingRetryMs?: number;
 }
 
 /** Error bodies are small; never buffer an unbounded one. */
@@ -470,16 +471,17 @@ export class Router {
 		// next candidate free — the retry budget only buys repeat attempts
 		// for failures that can heal (5xx/timeouts/rate limits).
 		let skipped = 0;
+		let pendingRetry: { candidateId: string; delayMs: number } | undefined;
 		for (let attempt = 0; attempt <= retries; attempt++) {
 			if (req.signal?.aborted) return { kind: "aborted" };
 			const raw = attempt + skipped;
 			const dep = candidates.at(Math.min(raw, candidates.length - 1));
 			if (!dep) break;
-			if (st.pendingRetryMs !== undefined) {
-				await this.sleepMs(st.pendingRetryMs);
-				st.pendingRetryMs = undefined;
+			if (pendingRetry?.candidateId === candIdOf(dep)) {
+				await this.sleepMs(pendingRetry.delayMs);
 				if (req.signal?.aborted) return { kind: "aborted" };
 			}
+			pendingRetry = undefined;
 			st.attempts++;
 			const startedAt = this.now();
 			let r: TryOutcome;
@@ -560,6 +562,13 @@ export class Router {
 				kind: r.kind,
 				requestId: r.requestId,
 				callId: r.callId,
+				retryAfterS:
+					r.retryAfterS === null
+						? undefined
+						: Math.max(
+								1,
+								Math.min(Math.ceil(r.retryAfterS), Math.max(1, floorCapS)),
+							),
 			};
 			if (r.kind === "rate_limited" && !st.rateLimit)
 				st.rateLimit = { response: r.response, tier, source: "upstream" };
@@ -587,9 +596,18 @@ export class Router {
 				skipped++;
 				continue;
 			}
-			st.pendingRetryMs =
-				retryDelayS(st.attempts - 1, r.retryAfterS, this.rng, capS, floorCapS) *
-				1000;
+			if (attempt < retries)
+				pendingRetry = {
+					candidateId: candIdOf(dep),
+					delayMs:
+						retryDelayS(
+							st.attempts - 1,
+							r.retryAfterS,
+							this.rng,
+							capS,
+							floorCapS,
+						) * 1000,
+				};
 		}
 		return null;
 	}
@@ -835,6 +853,10 @@ function exhausted(st: WalkState): ExecuteResult {
 		error: st.error,
 		attempts: st.attempts,
 		lastFailure: st.lastFailure,
+		...(st.lastFailure?.status === 503 &&
+		st.lastFailure.retryAfterS !== undefined
+			? { retryAfterS: st.lastFailure.retryAfterS }
+			: {}),
 	};
 }
 
