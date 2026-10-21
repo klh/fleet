@@ -855,6 +855,10 @@ function streamResponse(
 	// (anthropic message_stop / openai [DONE] / response.completed) is a
 	// TRUNCATED turn — never a completed success.
 	let streamTruncated = false;
+	// W1106 (#55446/#55461): typed in-band failure from the body (anthropic
+	// event:error, openai response.failed/incomplete) — non-success even
+	// when a terminal marker follows. null = none seen.
+	let streamInBand: string | null = null;
 	const t0 = ctx.t0;
 	const progress = (chunk: Uint8Array): void => {
 		chunksIn++;
@@ -870,6 +874,10 @@ function streamResponse(
 		// never counts as truncation.
 		streamTruncated =
 			!sniffer.completed() && !streamCancelled && !streamFailed;
+		// W1106 (#55446/#55461): an IN-BAND failure (anthropic event:error /
+		// openai response.failed|incomplete) is non-success even when a
+		// terminal marker follows it.
+		streamInBand = sniffer.failureKind();
 		record(
 			deps,
 			ctx,
@@ -882,12 +890,16 @@ function streamResponse(
 		// ok:0/decision errored, no affinity bind, no candidate success
 		// credit; the receipt's terminal carries downstream_cancel.
 		const decision =
-			streamFailed || streamCancelled || streamTruncated
+			streamFailed ||
+			streamCancelled ||
+			streamTruncated ||
+			streamInBand !== null
 				? "errored"
 				: result.candidateId === selected
 					? (ctx.sel?.decision ?? "errored")
 					: "fallback";
-		const success = !streamFailed && !streamCancelled && !streamTruncated;
+		const success =
+			!streamFailed && !streamCancelled && !streamTruncated && streamInBand === null;
 		const duration = Date.now() - ctx.t0;
 		if (selected) deps.table.inflight(selected, -1);
 		deps.table.recordOutcome(result.candidateId, duration, success);
@@ -904,18 +916,22 @@ function streamResponse(
 				? "downstream_cancel"
 				: success
 					? null
-					: streamTruncated
-						? "stream_truncated"
-						: `stream_failed:${streamFailureKind ?? "unknown"}`,
+					: streamInBand !== null
+						? `stream_failed:${streamInBand}`
+						: streamTruncated
+							? "stream_truncated"
+							: `stream_failed:${streamFailureKind ?? "unknown"}`,
 			...(success
 				? {}
 				: {
 						decision: "errored",
 						error_code: streamCancelled
 							? "downstream_cancel"
-							: streamTruncated
-								? "stream_truncated"
-								: "stream_failed",
+							: streamInBand !== null
+								? "stream_failed"
+								: streamTruncated
+									? "stream_truncated"
+									: "stream_failed",
 					}),
 			stream_receipt: {
 				terminal: terminalOf(
@@ -923,6 +939,7 @@ function streamResponse(
 					streamFailureKind,
 					streamCancelled,
 					streamTruncated,
+					streamInBand,
 				),
 				bytes_in: bytesIn,
 				chunks_in: chunksIn,
@@ -1017,14 +1034,17 @@ function streamResponse(
 
 /** W1106: typed stream terminal for the audit receipt — who ended the
  *  stream, from the body-free evidence at this hop. EOF without the
- *  dialect's protocol terminal banks upstream_eof_truncated (#55420). */
+ *  dialect's protocol terminal banks upstream_eof_truncated (#55420); an
+ *  in-band failure body outranks a terminal marker that follows (#55446). */
 function terminalOf(
 	failed: boolean,
 	kind: string | null,
 	cancelled: boolean,
 	truncated: boolean,
+	inBand: string | null,
 ): string {
 	if (cancelled) return "downstream_cancel";
+	if (inBand !== null) return `in_band_error:${inBand}`;
 	if (!failed) return truncated ? "upstream_eof_truncated" : "upstream_eof";
 	if (kind === "timeout") return "upstream_deadline";
 	return `upstream_error:${kind ?? "unknown"}`;
