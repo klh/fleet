@@ -32,6 +32,7 @@ import {
 	overlayModuleGovSeam,
 } from "./gov/overlay-loader.ts";
 import { type AppDeps, createApp } from "./handlers.ts";
+import { MAX_REQUEST_BODY_BYTES } from "./ingress-body.ts";
 import type { RouteHint } from "./hints.ts";
 import { Ledger } from "./ledger.ts";
 import { ObservationOutbox } from "./observe.ts";
@@ -59,14 +60,12 @@ export function resolveIdleTimeout(v?: string): number {
 	return Math.min(255, Math.max(0, Math.floor(n)));
 }
 
-/** W199.2 request-body cap: Bun's silent default is 128 MiB — an unbounded
- *  LLM ingress invites memory-hangup abuse. 32 MiB bounds a request while
- *  never touching a legitimate payload (200k-token contexts ≈ 1 MiB, image
- *  base64 well under); Bun answers 413 before the gate or ledger see it. */
-export const MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024;
+export { MAX_REQUEST_BODY_BYTES } from "./ingress-body.ts";
 
 export interface ServerOpts {
 	port?: number;
+	/** Test seam for the app-owned request-body deadline; production uses 120s. */
+	ingressBodyTimeoutMs?: number;
 	hostname?: string;
 	dbPath?: string;
 	policyPath?: string;
@@ -302,6 +301,7 @@ export function buildDeps(
 		prefixLedger,
 		diet,
 		observations,
+		ingressBodyTimeoutMs: opts.ingressBodyTimeoutMs,
 		hubId: process.env.BUCKLE_HUB_ID ?? "local",
 	};
 }
