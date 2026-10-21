@@ -4,7 +4,11 @@
 // unused loopback ports for boards and mocks, isolating concurrent runs.
 // test files in one process — a shared side-effect fixture would die
 // with the first file's afterAll).
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+
+// W64's detached merge child races the bun 5s default under load — the
+// established spawn-flake floor (bun:test setDefaultTimeout lesson)
+setDefaultTimeout(30_000);
 
 import { Database } from "bun:sqlite";
 import {
@@ -205,25 +209,28 @@ describe("W57 orchestrate box", () => {
 	const OB = `http://127.0.0.1:${OPORT}`;
 	const MPORT = unusedPort();
 	const MB = `http://127.0.0.1:${MPORT}`;
-	// mock OpenAI-compatible endpoint: fenced-JSON proposal for normal goals,
-	// prose-only garbage for goals containing JUNK (the parse-failure path)
+	// mock gate endpoint (W1119: orch + enhance both enter Buckle on the
+	// anthropic wire — legs discriminate on the system prompt): the plan leg
+	// gets a fenced-JSON proposal for normal goals, prose-only garbage for
+	// goals containing JUNK (the parse-failure path); enhance rewrites.
 	let lastUser = "";
 	const mock = Bun.serve({
 		port: MPORT,
 		fetch: async (req) => {
 			const body = (await req.json().catch(() => ({}))) as {
+				system?: string;
 				messages?: { role: string; content: string }[];
 			};
 			const goal = body.messages?.find((m) => m.role === "user")?.content ?? "";
-			// W270 enhance: the belt router's Anthropic wire
-			if (new URL(req.url).pathname === "/v1/messages")
+			// W270 enhance leg: the rewrite system prompt
+			if (body.system?.includes("Rewrite the user's task prompt"))
 				return Response.json({
 					content: [{ type: "text", text: `Clearly: ${goal}` }],
 				});
 			lastUser = goal;
 			if (goal.includes("JUNK")) {
 				return Response.json({
-					choices: [{ message: { content: "sorry, no json here" } }],
+					content: [{ type: "text", text: "sorry, no json here" }],
 				});
 			}
 			const proposal = {
@@ -235,11 +242,10 @@ describe("W57 orchestrate box", () => {
 				],
 			};
 			return Response.json({
-				choices: [
+				content: [
 					{
-						message: {
-							content: `\`\`\`json\n${JSON.stringify(proposal)}\n\`\`\``,
-						},
+						type: "text",
+						text: `\`\`\`json\n${JSON.stringify(proposal)}\n\`\`\``,
 					},
 				],
 				usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
@@ -252,7 +258,10 @@ describe("W57 orchestrate box", () => {
 			cwd: REPO,
 			env: {
 				...env,
-				SUSPENDERS_LLM_URL: `${MB}/v1/chat/completions`,
+				// W1119: the plan + enhance legs both enter Buckle — the mock
+				// gate answers the scoped-key pair
+				SUSPENDERS_BUCKLE_URL: MB,
+				SUSPENDERS_BUCKLE_TOKEN: "bksk_flows_test",
 				SUSPENDERS_PROMPT_ENHANCE_URL: `${MB}/v1/messages`,
 			},
 			stdout: "pipe",
