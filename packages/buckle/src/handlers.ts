@@ -752,8 +752,9 @@ function handleResult(
 	if (result.kind === "aborted") return new Response(null, { status: 499 });
 	if (result.kind === "exhausted") {
 		const deferred = result.status === 503 && result.retryAfterS !== undefined;
+		const walkDeadline = result.lastFailure?.kind === "walk_deadline";
 		const response = errorResponse(
-			deferred ? 503 : 502,
+			walkDeadline ? 504 : deferred ? 503 : 502,
 			result.error,
 			"no_route",
 		);

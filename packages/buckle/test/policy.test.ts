@@ -16,6 +16,7 @@ test("parsePolicy: defaults when gateway section absent", () => {
 	expect(p.cooldown_time).toBe(30);
 	expect(p.retry_max_delay_s).toBe(8);
 	expect(p.request_timeout_s).toBe(120);
+	expect(p.first_byte_budget_s).toBe(240);
 	expect(p.fallbacks).toBeUndefined();
 });
 
@@ -39,11 +40,20 @@ test("committed Claude fallback names GLM as a separate group", () => {
 
 test("parsePolicy: buckle knobs survive the shared-file shape", () => {
 	const p = parsePolicy(
-		"gateway:\n  retry_max_delay_s: 4\n  retry_after_cap_s: 30\n  request_timeout_s: 60\n",
+		"gateway:\n  retry_max_delay_s: 4\n  retry_after_cap_s: 30\n  request_timeout_s: 60\n  first_byte_budget_s: 150\n",
 	);
 	expect(p.retry_max_delay_s).toBe(4);
 	expect(p.retry_after_cap_s).toBe(30);
 	expect(p.request_timeout_s).toBe(60);
+	expect(p.first_byte_budget_s).toBe(150);
+});
+
+test("parsePolicy rejects a walk budget shorter than one primary attempt", () => {
+	expect(() =>
+		parsePolicy(
+			"gateway:\n  request_timeout_s: 120\n  first_byte_budget_s: 60\n",
+		),
+	).toThrow("first_byte_budget_s");
 });
 
 test("POLICY_DEFAULTS: fixed constants from the ported semantics", () => {
@@ -54,6 +64,7 @@ test("POLICY_DEFAULTS: fixed constants from the ported semantics", () => {
 		retry_max_delay_s: 8,
 		retry_after_cap_s: 60,
 		request_timeout_s: 120,
+		first_byte_budget_s: 240,
 		// W450 long-generation deadlines
 		stream_idle_timeout_s: 60,
 		stream_total_timeout_s: 900,

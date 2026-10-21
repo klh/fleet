@@ -178,6 +178,30 @@ test("exhausted 503 preserves bounded retry and upstream trace attribution", asy
 	}
 });
 
+test("request-wide first-byte deadline is a traced 504", async () => {
+	const upstream = await startMockUpstream(async () => {
+		await Bun.sleep(200);
+		return Response.json({ ok: true });
+	});
+	try {
+		const response = await createApp(
+			testDeps(pool("slow-model", upstream.url, "anthropic"), {
+				policy: {
+					num_retries: 0,
+					request_timeout_s: 0.05,
+					first_byte_budget_s: 0.05,
+				},
+			}),
+		).fetch(request("slow-model"));
+		expect(response.status).toBe(504);
+		expectCorrelation(response);
+		expect(response.headers.get("x-klh-upstream-kind")).toBe("walk_deadline");
+		expect(response.headers.get("x-klh-refusal")).toBe("network");
+	} finally {
+		upstream.close();
+	}
+});
+
 test("a bridged upstream 400 remains attributable after ladder exhaustion", async () => {
 	const upstream = await startMockUpstream(() =>
 		Response.json(
