@@ -94,6 +94,8 @@ export const SWARM_LOG = "~/.claude-insights/swarm-serve-launchd.log";
 
 export const ROUTER = {
 	port: 4000,
+	/** LiteLLM's local-only router group; never escalate this group back to LiteLLM. */
+	gatewayAlias: "local-swarm",
 	label: "router",
 	role: "router",
 	protocol: ROUTER_PROTOCOL,
@@ -373,6 +375,15 @@ export function residentSet(): Specialist[] {
 				(s) => s.ram_gb <= TIER_MAX_RAM_GB && s.minimalResident !== false,
 			)
 		: resident;
+}
+
+/** Effective tier ownership, not the row's default tier. Minimal installs
+ * leave heavy resident rows available for a guarded on-demand start. */
+export function needsDemandStart(
+	s: Pick<Specialist, "port">,
+	resident = residentSet(),
+): boolean {
+	return !resident.some((row) => row.port === s.port);
 }
 
 // bounded fallback: heavy specialists cover each other; the 4B and the 9B
