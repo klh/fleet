@@ -31,12 +31,29 @@ const catalog = {
 
 describe("Z.ai account catalog", () => {
 	test("deduplicates and sorts account-visible model IDs", () => {
-		expect(parseZaiModelIds(catalog)).toEqual([
-			"glm-4.7",
-			"glm-5.3",
-			"glm-5.3-flash",
-		]);
-		expect(() => parseZaiModelIds({ data: [{ id: "../../bad" }] })).toThrow();
+		expect(parseZaiModelIds(catalog)).toEqual({
+			model_ids: ["glm-4.7", "glm-5.3", "glm-5.3-flash"],
+			excluded_model_ids: [],
+		});
+		expect(() => parseZaiModelIds({ data: [{ id: "../../bad" }] })).toThrow(
+			"no chat GLM models",
+		);
+	});
+
+	test("filters non-chat IDs while keeping the chat GLMs", () => {
+		expect(
+			parseZaiModelIds({
+				data: [
+					{ id: "glm-5.3-flash" },
+					{ id: "glm-4.6v" },
+					{ id: "glm-4.5v" },
+					{ id: "glm-5.3-flash" },
+				],
+			}),
+		).toEqual({
+			model_ids: ["glm-5.3-flash"],
+			excluded_model_ids: ["glm-4.5v", "glm-4.6v"],
+		});
 	});
 
 	test("authenticates without retaining the key and keeps a valid old snapshot on fetch failure", async () => {
@@ -83,6 +100,7 @@ describe("Z.ai account catalog", () => {
 				source: ZAI_CATALOG_URL,
 				generated_at: new Date().toISOString(),
 				model_ids: ["glm-4.7", "glm-5.3"],
+				excluded_model_ids: [],
 			};
 			writeZaiSnapshot(path, snapshot);
 			const hub = {
