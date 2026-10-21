@@ -24,6 +24,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { transcriptAlive } from "../lib/lane-liveness.ts";
+import { automaticRecoveryPaused } from "../lib/automatic-recovery.ts";
 import {
 	MANAGED_PREFIX_ENTRIES,
 	PRUNE_ALLOWLIST,
@@ -643,6 +644,12 @@ for (const { project } of zProjects) {
 			if (since && now - since.ts > RECLAIM_MS) {
 				const age = `${((now - since.ts) / 86_400_000).toFixed(1)}d`;
 				const wt = projectRootOf(OWN_PROJECT);
+				if (automaticRecoveryPaused(wt)) {
+					issues.push(
+						`zombie reclaim held for ${w.id}: automatic recovery paused`,
+					);
+					continue;
+				}
 				// W573: CAS-pinned on the observed owner+revision — a claim that
 				// changed hands while the zombie aged is refused, never released.
 				const r = Bun.spawnSync(
@@ -651,6 +658,8 @@ for (const { project } of zProjects) {
 						new URL("./work.ts", import.meta.url).pathname,
 						"reclaim",
 						w.id,
+						"--reason",
+						"crash",
 						"--expect-owner",
 						w.owner_sid,
 						"--expect-updated-at",

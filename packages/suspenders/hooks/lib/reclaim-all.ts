@@ -12,6 +12,10 @@ import { loadLaneRegistry } from "./lane-registry.ts";
 import type { LaneRef } from "./lane-liveness.ts";
 import { clearReclaimStrikes, observeReclaim } from "./reclaim-liveness.ts";
 import { releaseWorkClaim } from "./work-release.ts";
+import {
+	automaticRecoveryCheck,
+	automaticRecoveryPaused,
+} from "./automatic-recovery.ts";
 
 // registry rows the claim-liveness verdict joins on (work.ts claimantLanes
 // parity): a claimant with no entry (manual takes, reaped rows) probes from
@@ -45,9 +49,30 @@ export function reclaimAll(
 		)
 		.all(project) as Record<string, string | number | null>[];
 	const out: ReclaimAllRow[] = [];
+	if (automaticRecoveryPaused(registryDir))
+		return rows.map((r) => ({
+			id: String(r.id),
+			action: "held" as const,
+			why: "automatic recovery paused",
+		}));
 	for (const r of rows) {
 		const id = String(r.id);
 		const owner = String(r.owner_sid ?? "");
+		const claim = {
+			repo: registryDir,
+			store,
+			project,
+			id,
+			owner,
+			revision: Number(r.updated_at),
+			lane: claimants.get(owner),
+		};
+		const gate = automaticRecoveryCheck(claim);
+		if (!gate.ok) {
+			clearReclaimStrikes(store, project, id);
+			out.push({ id, action: "held", why: gate.why });
+			continue;
+		}
 		const d = observeReclaim(store, project, {
 			id,
 			owner,
@@ -68,6 +93,11 @@ export function reclaimAll(
 				updatedAt: Number(r.updated_at),
 			},
 			{ by: "reclaim-all", reason: "reclaim-all" },
+			() =>
+				automaticRecoveryCheck({
+					...claim,
+					lane: lanesBySid(registryDir).get(owner),
+				}).ok,
 		);
 		if (!released) {
 			out.push({ id, action: "changed", why: "claim changed — skipped" });

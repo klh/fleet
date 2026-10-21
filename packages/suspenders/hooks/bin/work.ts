@@ -15,6 +15,7 @@
 
 import type { Database } from "bun:sqlite";
 import { basename } from "node:path";
+import { automaticRecoveryCheck } from "../lib/automatic-recovery.ts";
 import { budgetFlagClear } from "../lib/budget-flag.ts";
 import { itemCapsuleKey } from "../lib/capsule-fence.ts";
 import { unmergedDeps, unmergedNote } from "../lib/dep-merge-gate.ts";
@@ -434,6 +435,7 @@ function releaseObserved(
 	it: Item,
 	by: string,
 	reason: "owner-release" | "operator-reclaim" | "reclaim-all",
+	guard?: () => boolean,
 ): boolean {
 	return releaseWorkClaim(
 		db(),
@@ -445,6 +447,7 @@ function releaseObserved(
 			updatedAt: Number(it.updated_at),
 		},
 		{ by, reason },
+		guard,
 	);
 }
 
@@ -1389,7 +1392,28 @@ const dispatchVerb = async (
 					Number(revision) !== it.updated_at)
 			)
 				die(`${id} revision changed — reclaim refused`);
-			if (!releaseObserved(it, "operator-reclaim", "operator-reclaim"))
+			const crashGuard = () =>
+				automaticRecoveryCheck({
+					repo: process.cwd(),
+					store: db(),
+					project: PROJECT,
+					id,
+					owner: String(it.owner_sid ?? ""),
+					revision: Number(it.updated_at),
+					lane: claimantLanes(process.cwd()).get(String(it.owner_sid ?? "")),
+				}).ok;
+			if (reclaimReason === "crash" && !crashGuard())
+				die(
+					`${id} automatic recovery refused — pause, wait, or death unverified`,
+				);
+			if (
+				!releaseObserved(
+					it,
+					"operator-reclaim",
+					"operator-reclaim",
+					reclaimReason === "crash" ? crashGuard : undefined,
+				)
+			)
 				die(`${id} claim changed — reclaim refused; inspect before retrying`);
 			console.log(
 				rest.includes("--json")

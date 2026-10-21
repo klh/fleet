@@ -27,6 +27,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import type { Database } from "bun:sqlite";
 import { reclaimReceiptMatches } from "./dead-claim-recovery.ts";
+import { automaticRecoveryPaused } from "./automatic-recovery.ts";
 
 const STALE_MS = 15 * 60_000; // lane-log silence floor (== transcript floor)
 const LIVE_HB_MS = 30 * 60_000; // sessions heartbeat window (bus parity)
@@ -399,6 +400,18 @@ export async function quotaSweep(deps: SweepDeps): Promise<SweepReport> {
 
 		// 4. act — only on an exhausted verdict, only when asked
 		if (!exhausted || !deps.act) continue;
+		if (
+			claims.some((claim) =>
+				automaticRecoveryPaused(projectRootOf(claim.project)),
+			)
+		) {
+			actions.push({
+				sid,
+				kind: "reclaim",
+				detail: "held: automatic recovery paused",
+			});
+			continue;
+		}
 		const reclaim =
 			deps.reclaim ??
 			((claim: {
@@ -415,6 +428,8 @@ export async function quotaSweep(deps: SweepDeps): Promise<SweepReport> {
 						bin,
 						"reclaim",
 						claim.id,
+						"--reason",
+						"crash",
 						"--expect-owner",
 						claim.owner,
 						"--expect-updated-at",
