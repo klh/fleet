@@ -11,6 +11,7 @@
 import { envInt } from "./admission.ts";
 import { EXTERNAL, type Specialist } from "./registry.ts";
 import { anthropicMessagesToOpenAi } from "./router-tools.ts";
+import { childTraceparent } from "../../telemetry/src/http-trace.ts";
 
 // ─── 7-dimension complexity scoring (LiteLLM Auto Router pattern) ───
 export interface ComplexityScore {
@@ -500,6 +501,19 @@ export interface CallOpts {
 	/** W257: performance.now() at request receipt — enables per-attempt
 	 *  timings on the used hop. */
 	startedAt?: number;
+	/** Parent trace from the Belt ingress. Each specialist attempt gets a child span. */
+	traceparent?: string;
+	requestId?: string;
+	onAttempt?: (receipt: {
+		hop: "local-specialist";
+		traceparent: string | null;
+		requestId: string | null;
+		port: number;
+		status?: number;
+		durationMs: number;
+		retryAfterMs?: number;
+		failureKind?: "http" | "transport" | "decode" | "empty";
+	}) => void;
 }
 
 export const specialistBase = (port: number): string =>
@@ -516,12 +530,23 @@ export async function viaLocal(
 ): Promise<LocalResult> {
 	let text = "";
 	const t0 = opts.startedAt;
+	const attemptStarted = performance.now();
+	const attemptTrace = opts.traceparent
+		? childTraceparent(opts.traceparent)
+		: null;
+	let status: number | undefined;
+	let retryAfter: number | undefined;
+	let failureKind: "http" | "transport" | "decode" | "empty" | undefined;
 	try {
 		const res = await fetch(
 			`${opts.base ?? specialistBase(r.port)}/v1/chat/completions`,
 			{
 				method: "POST",
-				headers: { "content-type": "application/json" },
+				headers: {
+					"content-type": "application/json",
+					...(attemptTrace ? { traceparent: attemptTrace } : {}),
+					...(opts.requestId ? { "x-klh-request-id": opts.requestId } : {}),
+				},
 				signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
 				body: JSON.stringify({
 					model: r.model,
@@ -537,14 +562,18 @@ export async function viaLocal(
 				}),
 			},
 		);
+		status = res.status;
+		if (!res.ok) failureKind = "http";
 		const tOpen = t0 === undefined ? undefined : performance.now();
 		if (res.status === 429) {
+			failureKind = "http";
+			retryAfter = retryAfterMs(res.headers.get("retry-after"));
 			await res.body?.cancel();
 			return {
 				ok: false,
 				response: "",
 				status: 429,
-				retryAfterMs: retryAfterMs(res.headers.get("retry-after")),
+				retryAfterMs: retryAfter,
 				error: "429 overloaded",
 			};
 		}
@@ -564,6 +593,7 @@ export async function viaLocal(
 			j = JSON.parse(text.replace(/\n/g, "\\n"));
 		}
 		if (j.error) {
+			failureKind = "http";
 			return {
 				ok: false,
 				response: "",
@@ -580,6 +610,7 @@ export async function viaLocal(
 		const response =
 			strip(msg.content || "") || strip(msg.reasoning_content || "");
 		if (!response && toolCalls.length === 0) {
+			failureKind = "empty";
 			return {
 				ok: false,
 				response: "",
@@ -598,12 +629,24 @@ export async function viaLocal(
 				: {}),
 		};
 	} catch (e) {
+		failureKind = status === undefined ? "transport" : "decode";
 		const msg = e instanceof Error ? e.message : String(e);
 		return {
 			ok: false,
 			response: "",
 			error: `${msg}${text ? ` | raw: ${text.slice(0, 120)}` : ""}`,
 		};
+	} finally {
+		opts.onAttempt?.({
+			hop: "local-specialist",
+			traceparent: attemptTrace,
+			requestId: opts.requestId ?? null,
+			port: r.port,
+			status,
+			durationMs: Math.round(performance.now() - attemptStarted),
+			...(retryAfter !== undefined ? { retryAfterMs: retryAfter } : {}),
+			...(failureKind ? { failureKind } : {}),
+		});
 	}
 }
 
@@ -642,6 +685,13 @@ export async function openLocalStream(
 	temperature: number,
 	opts: CallOpts = {},
 ): Promise<StreamOpen> {
+	const attemptStarted = performance.now();
+	const attemptTrace = opts.traceparent
+		? childTraceparent(opts.traceparent)
+		: null;
+	let status: number | undefined;
+	let retryAfter: number | undefined;
+	let failureKind: "http" | "transport" | "decode" | "empty" | undefined;
 	// W739 (opus-review f2f5602a): the TTFB timer was only disarmed on the
 	// open-success path — a failed open (ECONNREFUSED) left it armed for the
 	// full window. Self-expiring, but ref'd; clear on every exit path.
@@ -660,7 +710,12 @@ export async function openLocalStream(
 			`${opts.base ?? specialistBase(r.port)}/v1/chat/completions`,
 			{
 				method: "POST",
-				headers: { "content-type": "application/json" },
+				headers: {
+					"content-type": "application/json",
+					accept: "text/event-stream",
+					...(attemptTrace ? { traceparent: attemptTrace } : {}),
+					...(opts.requestId ? { "x-klh-request-id": opts.requestId } : {}),
+				},
 				signal: ctrl.signal,
 				body: JSON.stringify({
 					model: r.model,
@@ -676,6 +731,7 @@ export async function openLocalStream(
 				}),
 			},
 		);
+		status = res.status;
 		// headers in — disarm; a late fire would abort the live body (the
 		// signal stays bound to the fetch). On a failed open the stale fire
 		// aborts an orphaned controller: harmless no-op.
@@ -689,6 +745,7 @@ export async function openLocalStream(
 					? { openedAt: performance.now() }
 					: {}),
 			};
+		failureKind = res.ok ? "decode" : "http";
 		// W732: post-header non-SSE bodies have no pump/client-cancel owner —
 		// a header-then-stall upstream hung this drain (and the request)
 		// forever. Cap it at the same open window; the abort frees the
@@ -706,18 +763,31 @@ export async function openLocalStream(
 					resolve(s);
 				});
 		});
+		retryAfter =
+			res.status === 429
+				? retryAfterMs(res.headers.get("retry-after"))
+				: undefined;
 		return {
 			ok: false,
 			status: res.status,
-			retryAfterMs:
-				res.status === 429
-					? retryAfterMs(res.headers.get("retry-after"))
-					: undefined,
+			retryAfterMs: retryAfter,
 			error: `${res.status} ${ct || "no content-type"}${raw ? ` | raw: ${raw.slice(0, 120)}` : ""}`,
 		};
 	} catch (e) {
+		failureKind = status === undefined ? "transport" : "decode";
 		if (ttfb) clearTimeout(ttfb);
 		return { ok: false, error: e instanceof Error ? e.message : String(e) };
+	} finally {
+		opts.onAttempt?.({
+			hop: "local-specialist",
+			traceparent: attemptTrace,
+			requestId: opts.requestId ?? null,
+			port: r.port,
+			status,
+			durationMs: Math.round(performance.now() - attemptStarted),
+			...(retryAfter !== undefined ? { retryAfterMs: retryAfter } : {}),
+			...(failureKind ? { failureKind } : {}),
+		});
 	}
 }
 

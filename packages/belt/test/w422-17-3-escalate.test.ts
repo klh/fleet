@@ -41,6 +41,68 @@ describe("escalation leg resolution", () => {
 });
 
 describe("escalate() on the wire", () => {
+	test("LiteLLM 400 carries its echoed call ID and a body-free receipt", async () => {
+		let seenCallId = "";
+		const receipts: unknown[] = [];
+		const result = await escalate(BODY, {
+			maxTokens: 16,
+			wantFast: true,
+			env: {},
+			settings: async () => ({ tok: "test", base: "http://127.0.0.1:4100" }),
+			traceparent: "00-11111111111111111111111111111111-2222222222222222-01",
+			requestId: "lane-request-1",
+			onAttempt: (receipt) => receipts.push(receipt),
+			fetcher: (async (_url: string | URL | Request, init?: RequestInit) => {
+				seenCallId = new Headers(init?.headers).get("x-litellm-call-id") ?? "";
+				return Response.json(
+					{ error: { code: "invalid_request", message: "field rejected" } },
+					{ status: 400, headers: { "x-litellm-call-id": seenCallId } },
+				);
+			}) as typeof fetch,
+		});
+		expect(result.status).toBe(400);
+		expect(result.upstreamCallId).toBe(seenCallId);
+		expect(receipts[0]).toMatchObject({
+			hop: "litellm",
+			status: 400,
+			failureKind: "http",
+			upstreamCallId: seenCallId,
+		});
+		expect(JSON.stringify(receipts)).not.toContain("field rejected");
+	});
+	test("carries trace and stable LiteLLM call ID through the legacy leg", async () => {
+		let seen = new Headers();
+		const result = await escalate(BODY, {
+			maxTokens: 16,
+			wantFast: true,
+			env: {},
+			settings: async () => ({ tok: "test", base: "http://127.0.0.1:4100" }),
+			traceparent: "00-11111111111111111111111111111111-2222222222222222-01",
+			requestId: "belt_1234567890abcdef",
+			fetcher: (async (_url: string | URL | Request, init?: RequestInit) => {
+				seen = new Headers(init?.headers);
+				return Response.json(
+					{ error: { code: "1302", message: "too many requests" } },
+					{
+						status: 429,
+						headers: {
+							"retry-after": "7",
+							"x-litellm-call-id": seen.get("x-litellm-call-id") ?? "",
+						},
+					},
+				);
+			}) as typeof fetch,
+		});
+		expect(seen.get("traceparent")?.slice(0, 36)).toBe(
+			"00-11111111111111111111111111111111-",
+		);
+		expect(seen.get("x-litellm-call-id")).toMatch(
+			/^belt_11111111111111111111111111111111_[0-9a-f]{16}$/,
+		);
+		expect(result.upstreamCallId).toBe(seen.get("x-litellm-call-id"));
+		expect(result.status).toBe(429);
+		expect(result.retryAfterMs).toBe(7000);
+	});
 	test("gate mode posts to the front with the scoped key on both forms", async () => {
 		let seenUrl = "";
 		let seenHeaders = new Headers();

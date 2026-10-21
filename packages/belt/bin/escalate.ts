@@ -16,6 +16,10 @@ import {
 	resolveReasoningEffort,
 	type ReasoningEffort,
 } from "./router-policy.ts";
+import {
+	childTraceparent,
+	safeUpstreamId,
+} from "../../telemetry/src/http-trace.ts";
 
 /** Z.AI GLM-5.3 doc-verified efforts: low|high|max — the model ALWAYS
  *  thinks (disable → 400; medium is not in the 5.3 set). The fleet axis
@@ -44,6 +48,10 @@ export interface EscalateResult {
 	retryAfterMs?: number;
 	note?: string;
 	error?: string;
+	/** Echoed by LiteLLM or stamped by a Buckle gate hop. */
+	upstreamCallId?: string;
+	upstreamRid?: string;
+	attemptId?: string;
 }
 
 function upstreamError(raw: string, status: number): string {
@@ -135,6 +143,20 @@ export async function escalate(
 		settings?: SettingsLoader;
 		fetcher?: typeof fetch;
 		policyPath?: string;
+		traceparent?: string;
+		requestId?: string;
+		onAttempt?: (receipt: {
+			hop: "buckle-gate" | "litellm";
+			traceparent: string | null;
+			requestId: string | null;
+			attemptId: string;
+			status?: number;
+			durationMs: number;
+			retryAfterMs?: number;
+			upstreamCallId?: string;
+			upstreamRid?: string;
+			failureKind?: "http" | "transport" | "decode" | "empty";
+		}) => void;
 	},
 ): Promise<EscalateResult> {
 	const wantFastModel = opts.wantFast ? "glm-5.3-flash" : "glm-5.3";
@@ -150,52 +172,96 @@ export async function escalate(
 		opts.wantFast ? "escalate-fast" : "escalate",
 	);
 	const pinned = ZAI_EFFORT[effort];
-	const res = await (opts.fetcher ?? fetch)(`${leg.url}/v1/messages`, {
-		method: "POST",
-		headers: {
-			"content-type": "application/json",
-			"x-api-key": leg.key,
-			authorization: `Bearer ${leg.key}`,
-			"anthropic-version": "2023-06-01",
-		},
-		signal: AbortSignal.timeout(120_000),
-		body: JSON.stringify({
-			// litellm group names — the [1m] 1M-context ids exist in no litellm
-			// model_list; lanes 400'd on unrecognized_model through this path
-			model,
-			max_tokens: budget.maxTokens,
-			// W770 reasoning pin on both carriers: thinking rides the anthropic
-			// wire (legacy litellm-direct hop buckets it to the same effort);
-			// reasoning_effort rides top-level (gate hop — buckle forwards
-			// verbatim). Both drop harmlessly until the operator's litellm.yaml
-			// zai rows carry allowed_openai_params: [reasoning_effort].
-			thinking: { type: "enabled", budget_tokens: THINKING_BUDGET[pinned] },
-			reasoning_effort: pinned,
-			...(body.system === undefined ? {} : { system: body.system }),
-			messages: body.messages,
-		}),
-	});
-	if (!res.ok) {
-		const error = upstreamError(await res.text(), res.status);
-		return {
-			text: "",
-			model,
-			status: res.status,
-			retryAfterMs:
+	const attemptStarted = performance.now();
+	const attemptTrace = opts.traceparent
+		? childTraceparent(opts.traceparent)
+		: null;
+	const attemptId = `belt_${attemptTrace?.split("-")[1] ?? crypto.randomUUID().replaceAll("-", "")}_${attemptTrace?.split("-")[2] ?? crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
+	let status: number | undefined;
+	let retryAfter: number | undefined;
+	let upstreamCallId: string | undefined;
+	let upstreamRid: string | undefined;
+	let failureKind: "http" | "transport" | "decode" | "empty" | undefined;
+	try {
+		const res = await (opts.fetcher ?? fetch)(`${leg.url}/v1/messages`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				"x-api-key": leg.key,
+				authorization: `Bearer ${leg.key}`,
+				"anthropic-version": "2023-06-01",
+				"x-litellm-call-id": attemptId,
+				...(opts.requestId ? { "x-klh-request-id": opts.requestId } : {}),
+				...(attemptTrace ? { traceparent: attemptTrace } : {}),
+			},
+			signal: AbortSignal.timeout(120_000),
+			body: JSON.stringify({
+				// litellm group names — the [1m] 1M-context ids exist in no litellm
+				// model_list; lanes 400'd on unrecognized_model through this path
+				model,
+				max_tokens: budget.maxTokens,
+				// W770 reasoning pin on both carriers: thinking rides the anthropic
+				// wire (legacy litellm-direct hop buckets it to the same effort);
+				// reasoning_effort rides top-level (gate hop — buckle forwards
+				// verbatim). Both drop harmlessly until the operator's litellm.yaml
+				// zai rows carry allowed_openai_params: [reasoning_effort].
+				thinking: { type: "enabled", budget_tokens: THINKING_BUDGET[pinned] },
+				reasoning_effort: pinned,
+				...(body.system === undefined ? {} : { system: body.system }),
+				messages: body.messages,
+			}),
+		});
+		status = res.status;
+		upstreamCallId = safeUpstreamId(res.headers?.get("x-litellm-call-id"));
+		upstreamRid = safeUpstreamId(res.headers?.get("x-belt-rid"));
+		if (!res.ok) {
+			failureKind = "http";
+			const error = upstreamError(await res.text(), res.status);
+			retryAfter =
 				res.status === 429
 					? retryAfterMs(res.headers.get("retry-after"))
-					: undefined,
-			error,
-		};
-	}
-	const j = (await res.json()) as { content?: Array<{ text?: string }> };
-	return {
-		text: (j.content ?? [])
+					: undefined;
+			return {
+				text: "",
+				model,
+				status: res.status,
+				retryAfterMs: retryAfter,
+				error,
+				attemptId,
+				...(upstreamCallId ? { upstreamCallId } : {}),
+				...(upstreamRid ? { upstreamRid } : {}),
+			};
+		}
+		const j = (await res.json()) as { content?: Array<{ text?: string }> };
+		const text = (j.content ?? [])
 			.map((b) => b.text ?? "")
 			.join("")
-			.trim(),
-		model,
-		status: res.status,
-		note: budget.note,
-	};
+			.trim();
+		if (!text) failureKind = "empty";
+		return {
+			text,
+			model,
+			status: res.status,
+			note: budget.note,
+			attemptId,
+			...(upstreamCallId ? { upstreamCallId } : {}),
+			...(upstreamRid ? { upstreamRid } : {}),
+		};
+	} catch (error) {
+		failureKind ??= status === undefined ? "transport" : "decode";
+		throw error;
+	} finally {
+		opts.onAttempt?.({
+			hop: leg.mode === "gate" ? "buckle-gate" : "litellm",
+			traceparent: attemptTrace,
+			requestId: opts.requestId ?? null,
+			attemptId,
+			status,
+			durationMs: Math.round(performance.now() - attemptStarted),
+			...(retryAfter !== undefined ? { retryAfterMs: retryAfter } : {}),
+			...(upstreamCallId ? { upstreamCallId } : {}),
+			...(upstreamRid ? { upstreamRid } : {}),
+			...(failureKind ? { failureKind } : {}),
+		});
+	}
 }
