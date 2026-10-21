@@ -64,3 +64,24 @@ not from this example.
 Sources: [OpenRouter model catalog](https://openrouter.ai/docs/api/api-reference/models/get-models),
 [OpenRouter API key management](https://openrouter.ai/docs/api/api-reference/api-keys/list),
 [LiteLLM OpenRouter provider](https://docs.litellm.ai/docs/providers/openrouter).
+
+## Live verification (2026-10-21, W1031)
+
+Desktop-hub canary with operator-placed 0600 key files
+(`anthropic.key`, `openai.key` next to `litellm.key`), groups
+`anthropic/claude-sonnet-5` and `openai/gpt-5.2` targeting the local
+LiteLLM engine:
+
+- `claude-sonnet-5` and `claude-haiku-4-5`: 200 end-to-end through
+  Buckle → LiteLLM → api.anthropic.com (1.4 s / 0.7 s).
+- `gpt-5.2`: request reaches OpenAI's API; the account answers 429
+  "no credits remaining" — wire proven, billing-blocked. The row stays
+  configured; it is not "serving" until a paid request succeeds.
+- The dashboard `topology-context` feed separates configured routes from
+  observed outcomes: the hub card lists the routes, and the 15-minute
+  provider observations record the real 200/429 ledger rows.
+
+Verification recipe: list models with the LiteLLM master key, POST a
+4-token chat completion per row through Buckle's front door, then read
+`/api/topology-context` and confirm the provider observations match the
+direct results.
