@@ -31,6 +31,8 @@ test("attributable internal route failures hold before claim and key mint", asyn
 						target_host: "127.0.0.1",
 						target_port: 4000,
 						candidates_seen: 1,
+						selected_target_exact: true,
+						selected_target_attempted: false,
 						status: 502,
 						ok: 0,
 						error_code: "no_route",

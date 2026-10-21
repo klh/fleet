@@ -15,6 +15,8 @@ const row = (ageMs: number, overrides: Record<string, unknown> = {}) => ({
 	target_host: "127.0.0.1",
 	target_port: 4000,
 	candidates_seen: 1,
+	selected_target_exact: true,
+	selected_target_attempted: false,
 	status: 502,
 	ok: 0,
 	error_code: "no_route",
@@ -36,6 +38,7 @@ test("bare 429, upstream 503, mixed candidates and unattributed failures never p
 		{ status: 429, error_code: "rate_limited" },
 		{ status: 503, error_code: "no_route", attempts: 1 },
 		{ candidates_seen: 2 },
+		{ selected_target_exact: false },
 		{ target_host: null },
 		{ target_host: "" },
 		{ traffic_kind: "readiness" },
@@ -49,6 +52,44 @@ test("bare 429, upstream 503, mixed candidates and unattributed failures never p
 			).pause,
 		).toBe(false);
 	}
+});
+
+test("three exact local_cold receipts hold only while their Retry-After is active", () => {
+	const cold = (ageMs: number, overrides: Record<string, unknown> = {}) =>
+		row(ageMs, {
+			status: 429,
+			error_code: "rate_limited",
+			attempts: 1,
+			selected_target_attempted: true,
+			upstream_refusal_code: "local_cold",
+			refusal_origin: "upstream",
+			retry_after_ms: 5_000,
+			...overrides,
+		});
+	const rows = [
+		cold(1_000),
+		cold(2_000, { refusal_origin: "bridged-upstream" }),
+		cold(3_000),
+	];
+	expect(assessBuckleRoute(rows, "glm-5.3-flash", now).pause).toBe(true);
+	expect(assessBuckleRoute(rows, "glm-5.3-flash", now + 4_000).pause).toBe(
+		false,
+	);
+	for (const override of [
+		{ selected_target_exact: false },
+		{ selected_target_attempted: false },
+		{ upstream_refusal_code: null },
+		{ refusal_origin: "network" },
+		{ retry_after_ms: null },
+		{ retry_after_ms: 0 },
+	])
+		expect(
+			assessBuckleRoute(
+				[1_000, 2_000, 3_000].map((age) => cold(age, override)),
+				"glm-5.3-flash",
+				now,
+			).pause,
+		).toBe(false);
 });
 
 test("later success clears, stale failures expire, alternate targets stay unknown", () => {
@@ -109,7 +150,7 @@ test("one audit read per selected model, with no read for an unpinned lane", asy
 	let reads = 0;
 	const server = Bun.serve({
 		port: 0,
-		fetch: (request) => {
+		fetch: () => {
 			reads++;
 			return Response.json({
 				requests: [row(1_000), row(2_000), row(3_000)].map((r) => ({
