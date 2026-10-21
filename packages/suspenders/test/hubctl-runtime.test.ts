@@ -64,7 +64,9 @@ function status(overrides: Record<string, string> = {}) {
 			stderr: "pipe",
 			env: {
 				...process.env,
-				PATH: `${bin}:${process.env.PATH}`,
+				// The configured absolute Docker path must work even when a remote
+				// noninteractive shell does not place docker on PATH.
+				PATH: "/usr/bin:/bin",
 				KLH_STACK: stack,
 				...overrides,
 			},
