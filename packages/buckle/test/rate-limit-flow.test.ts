@@ -105,7 +105,7 @@ for (const stream of [false, true]) {
 	});
 }
 
-test("handler keeps a cooled down provider throttle as 429 without another upstream call", async () => {
+test("handler relays a cooled provider throttle as 429; W1077 probe grants one recovery attempt", async () => {
 	let calls = 0;
 	const upstream = await startMockUpstream(() => {
 		calls++;
@@ -132,7 +132,11 @@ test("handler keeps a cooled down provider throttle as 429 without another upstr
 		const cooled = await app.fetch(request());
 		expect(cooled.status).toBe(429);
 		expect(Number(cooled.headers.get("retry-after"))).toBeGreaterThan(0);
-		expect(calls).toBe(1);
+		// W1077: the benched leg gets ONE liveness probe + one recovery
+		// attempt per request (still 429, still relayed verbatim); the probe
+		// GET also reaches the mock upstream, so calls = r1-attempt + r2-probe
+		// + r2-attempt = 3.
+		expect(calls).toBe(3);
 		expect(deps.ledger.auditRows().map((r) => r.status)).toEqual([429, 429]);
 	} finally {
 		upstream.close();

@@ -186,6 +186,9 @@ export interface RouterDeps {
 		stream?: { idleMs: number; totalMs: number },
 	) => Promise<Response>;
 	metrics?: RouterMetrics;
+	/** W1077: injectable liveness probe (tests stub it; default = a plain
+	 *  GET /v1/models where any HTTP answer counts as live). */
+	probe?: (dep: Deployment) => Promise<Response | null>;
 }
 
 export class Router {
@@ -437,6 +440,34 @@ export class Router {
 		return null;
 	}
 
+	/** W1077: one cheap liveness probe against a benched leg. Any HTTP
+	 *  response (even 401/404 - the leg ANSWERS) proves liveness: clear the
+	 *  bench and hand the leg back for the walk. null = nothing probeable
+	 *  or the probe got no answer. */
+	private async probeBenchedLeg(
+		tier: string,
+		req: UpstreamRequest,
+		dep?: Deployment,
+	): Promise<Deployment | null> {
+		const target =
+			dep ??
+			this.deps.pool
+				.deployments(tier)
+				.find(
+					(d) => this.cooldowns.benched(d) && bridgeRequest(req, d) !== null,
+				);
+		if (target === undefined || !this.cooldowns.benched(target)) return null;
+		const resp =
+			(await this.deps.probe?.(target)) ??
+			(await fetch(`${target.url}/v1/models`, {
+				method: "GET",
+				signal: AbortSignal.timeout(3000),
+			}).catch(() => null));
+		if (resp === null) return null;
+		this.cooldowns.success(target);
+		return target;
+	}
+
 	/** A temporarily ejected rate-limited tier still has an actionable
 	 * outcome. The response is synthetic: a previous provider body must not
 	 * be replayed into a different request. */
@@ -492,6 +523,15 @@ export class Router {
 			}
 			const candidates = this.tierCandidates(tier, req);
 			if (candidates.length === 0) {
+				// W1077: probe-before-fail - a benched wall must not outlive the
+				// upstream. Probe one benched leg; a live leg clears its bench
+				// and rejoins this tier walk instead of stranding the request.
+				const probed = await this.probeBenchedLeg(tier, req);
+				if (probed !== null) {
+					const r = await this.attemptTier(req, tier, [probed], st);
+					if (r !== null) return r;
+					continue;
+				}
 				this.rememberCooledRateLimit(tier, req, st);
 				continue;
 			}
@@ -544,6 +584,16 @@ export class Router {
 			if (req.signal?.aborted) return { kind: "aborted" };
 			if (gate(row)) continue;
 			if (this.cooldowns.rateLimitRemainingS(row.dep) !== null) {
+				// W1077: probe-before-skip in the PRODUCTION selected path - a
+				// rate-limit bench must not outlive the upstream. A live probe
+				// clears the bench and the row rides now; a dead probe keeps the
+				// remembered 429 envelope for the exhausted relay.
+				if ((await this.probeBenchedLeg(row.group, req, row.dep)) !== null) {
+					tried.add(row.candidate_id);
+					const r = await this.attemptTier(req, row.group, [row.dep], st);
+					if (r !== null) return r;
+					continue;
+				}
 				this.rememberCooledRateLimit(row.group, req, st);
 				continue;
 			}
