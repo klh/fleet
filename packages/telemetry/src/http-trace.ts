@@ -1,0 +1,112 @@
+// Shared HTTP trace contract for Fleet services. Only opaque IDs and bounded
+// diagnostic enums cross service boundaries; prompt and error bodies do not.
+import { randomBytes, randomUUID } from "node:crypto";
+
+const TRACEPARENT = /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/;
+const SAFE_ID = /^[A-Za-z0-9._-]{1,128}$/;
+const SAFE_LABEL = /^[a-z][a-z0-9_-]{0,39}$/;
+
+export interface FleetTrace {
+	traceparent: string;
+	traceId: string;
+	requestId: string;
+}
+
+export interface HopFields {
+	service: string;
+	hop?: string;
+	refusal?: string;
+	traceId?: string;
+	requestId?: string;
+	attempts?: number;
+	upstreamStatus?: number;
+	upstreamKind?: string;
+	upstreamId?: string;
+	callId?: string;
+}
+
+/** Opaque correlation IDs only. Reject control characters, whitespace and
+ *  unbounded or user-authored text rather than truncating it into headers. */
+export function safeCorrelationId(value: unknown): string | undefined {
+	return typeof value === "string" && SAFE_ID.test(value) ? value : undefined;
+}
+
+export const safeUpstreamId = safeCorrelationId;
+
+export function traceIdOf(traceparent: string | null): string | undefined {
+	const match = traceparent?.match(TRACEPARENT);
+	const traceId = match?.[1];
+	const spanId = match?.[2];
+	if (!traceId || !spanId || /^0+$/.test(traceId) || /^0+$/.test(spanId))
+		return;
+	return traceId;
+}
+
+export function childTraceparent(parent: string): string {
+	const traceId = traceIdOf(parent);
+	if (!traceId) throw new Error("invalid traceparent");
+	const flags = parent.slice(-2);
+	return `00-${traceId}-${randomBytes(8).toString("hex")}-${flags}`;
+}
+
+/** Accept a W3C parent from the caller or root a new trace. Every hop keeps
+ *  the trace ID and creates a new span on outbound requests. */
+export function beginTrace(headers: Headers): FleetTrace {
+	const incoming = headers.get("traceparent");
+	const traceId = traceIdOf(incoming);
+	const traceparent = traceId
+		? (incoming ?? "")
+		: `00-${randomBytes(16).toString("hex")}-${randomBytes(8).toString("hex")}-01`;
+	return {
+		traceparent,
+		traceId: traceId ?? traceparent.slice(3, 35),
+		requestId:
+			safeCorrelationId(headers.get("x-klh-request-id")) ?? randomUUID(),
+	};
+}
+
+function setLabel(
+	headers: Headers,
+	key: string,
+	value: string | undefined,
+): void {
+	if (value && SAFE_LABEL.test(value)) headers.set(key, value);
+}
+
+/** Shared emitter: these fields identify the emitting layer, not the
+ *  provider claimed by a forwarded response. Native Retry-After stays native. */
+export function stampHopHeaders(headers: Headers, fields: HopFields): void {
+	setLabel(headers, "x-klh-service", fields.service);
+	setLabel(headers, "x-klh-hop", fields.hop);
+	setLabel(headers, "x-klh-refusal", fields.refusal);
+	setLabel(headers, "x-klh-upstream-kind", fields.upstreamKind);
+	if (fields.traceId && /^[0-9a-f]{32}$/.test(fields.traceId))
+		headers.set("x-klh-trace-id", fields.traceId);
+	const requestId = safeCorrelationId(fields.requestId);
+	if (requestId) headers.set("x-klh-request-id", requestId);
+	const callId = safeCorrelationId(fields.callId);
+	const upstreamId = safeCorrelationId(fields.upstreamId) ?? callId;
+	if (upstreamId) headers.set("x-klh-upstream-request-id", upstreamId);
+	if (callId) headers.set("x-litellm-call-id", callId);
+	const attempts = fields.attempts;
+	if (attempts !== undefined && Number.isSafeInteger(attempts) && attempts >= 0)
+		headers.set("x-klh-attempts", String(attempts));
+	const upstreamStatus = fields.upstreamStatus;
+	if (
+		upstreamStatus !== undefined &&
+		Number.isSafeInteger(upstreamStatus) &&
+		upstreamStatus >= 100 &&
+		upstreamStatus <= 599
+	)
+		headers.set("x-klh-upstream-status", String(upstreamStatus));
+}
+
+export function stampResponse(response: Response, fields: HopFields): Response {
+	const headers = new Headers(response.headers);
+	stampHopHeaders(headers, fields);
+	return new Response(response.body, {
+		status: response.status,
+		statusText: response.statusText,
+		headers,
+	});
+}
