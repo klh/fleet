@@ -190,17 +190,17 @@ const retire = async (p: Parsed): Promise<number> => {
 	const wtDir = resolveItemWorktree(ROOT, id);
 	const branch = `suspenders/${id}`;
 	const FORCE = p.flag("--force") === "true";
-	if (!retirementAllowed(id, p)) {
-		console.error(
-			`${id} has an active or unverified claim — retirement requires its exact owner and revision`,
-		);
-		return 4;
-	}
 	// W463 lane-key lifecycle: a lane over is a key revoked. The dirty guard
 	// below keeps a POSSIBLY-LIVE lane's key (exit 3 = the lane may still be
 	// running); exit 4 (the W123 liveness guard below) keeps it too — the
 	// clean exits retire it and delete the per-lane files.
 	if (!wtDir || !existsSync(join(wtDir, ".git"))) {
+		if (!retirementAllowed(id, p)) {
+			console.error(
+				`${id} has an active or unverified claim — retirement requires its exact owner and revision`,
+			);
+			return 4;
+		}
 		console.log(`no worktree for ${id}`);
 		if (activeClaim(id) === null) {
 			const rk = await retireItemKey(id);
