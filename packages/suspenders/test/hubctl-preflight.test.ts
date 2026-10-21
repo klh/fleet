@@ -59,4 +59,18 @@ describe("hubctl activation route gate", () => {
 			})),
 		).toThrow("route preflight failed");
 	});
+
+	test("a zero-exit receipt with a failed drill still refuses activation", () => {
+		expect(() =>
+			assertHubActivationPreflight("deploy", () => ({
+				...good(),
+				stdout: JSON.stringify({
+					ok: true,
+					mode: "static",
+					findings: [],
+					drills: [{ ok: false }],
+				}),
+			})),
+		).toThrow("route preflight failed");
+	});
 });
