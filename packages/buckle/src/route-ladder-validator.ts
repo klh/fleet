@@ -200,6 +200,17 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 				}
 				for (const dep of buckle.pool.deployments(rung)) {
 					configured++;
+					const target = services.get(originOf(dep.url) ?? "");
+					if (
+						target?.layer === "litellm" &&
+						dep.adapter_config?.proxy_kind !== "litellm"
+					)
+						finding(
+							"invalid_config",
+							"buckle",
+							node,
+							`deployment ${dep.url} targets configured LiteLLM ${target.id} without adapter_config.proxy_kind: litellm`,
+						);
 					link(node, dep.url, dep.model ?? rung, dep.buckle === true);
 				}
 			}

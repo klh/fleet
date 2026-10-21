@@ -56,11 +56,16 @@ const stallsForever = (): Response =>
 	);
 
 describe("W450 stream deadlines", () => {
-	test("explicit LiteLLM engine gets bounded non-stream timeout and no stream wall-clock cap", async () => {
-		const seen: Array<{ timeout: string | null; retries: string | null }> = [];
+	test("explicit LiteLLM engine gets bounded non-stream timeout and opt-in stream chunk timeout", async () => {
+		const seen: Array<{
+			timeout: string | null;
+			streamTimeout: string | null;
+			retries: string | null;
+		}> = [];
 		const up = await startMockUpstream(async (request) => {
 			seen.push({
 				timeout: request.headers.get("x-litellm-timeout"),
+				streamTimeout: request.headers.get("x-litellm-stream-timeout"),
 				retries: request.headers.get("x-litellm-num-retries"),
 			});
 			return Response.json({ ok: true });
@@ -75,11 +80,27 @@ describe("W450 stream deadlines", () => {
 				idleMs: 60_000,
 				totalMs: 900_000,
 			});
+			await defaultFetch(
+				{
+					...litellm,
+					adapter_config: {
+						proxy_kind: "litellm",
+						litellm_stream_timeout_s: 45,
+					},
+				},
+				req(true),
+				30_000,
+				{
+					idleMs: 60_000,
+					totalMs: 900_000,
+				},
+			);
 			await defaultFetch(dep(up.url), req(false), 30_000);
 			expect(seen).toEqual([
-				{ timeout: "30", retries: "0" },
-				{ timeout: null, retries: "0" },
-				{ timeout: null, retries: null },
+				{ timeout: "30", streamTimeout: null, retries: "0" },
+				{ timeout: null, streamTimeout: null, retries: "0" },
+				{ timeout: null, streamTimeout: "30", retries: "0" },
+				{ timeout: null, streamTimeout: null, retries: null },
 			]);
 		} finally {
 			up.close();

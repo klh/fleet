@@ -223,6 +223,7 @@ export class UpstreamError extends Error {
 		public readonly status: number,
 		message: string,
 		public readonly layer: "connect" | "upstream" = "upstream",
+		public readonly timedOut = false,
 	) {
 		super(message);
 	}
@@ -420,6 +421,9 @@ export class Router {
 		} catch (e) {
 			if (req.signal?.aborted) throw e;
 			const connectFailure = e instanceof HubConnectError;
+			const timedOut =
+				(e instanceof Error && e.name === "TimeoutError") ||
+				(e instanceof UpstreamError && e.timedOut);
 			if (connectFailure) this.cooldowns.eject(dep);
 			else this.cooldowns.failure(dep);
 			this.metrics?.cooldown(`${dep.group}|${dep.url}`);
@@ -427,6 +431,7 @@ export class Router {
 				502,
 				`upstream ${dep.url} unreachable`,
 				connectFailure ? "connect" : "upstream",
+				timedOut,
 			);
 		}
 	}
@@ -503,12 +508,19 @@ export class Router {
 		// next candidate free — the retry budget only buys repeat attempts
 		// for failures that can heal (5xx/timeouts/rate limits).
 		let skipped = 0;
+		const timedOutOrigins = new Set<string>();
 		let pendingRetry: { candidateId: string; delayMs: number } | undefined;
 		for (let attempt = 0; attempt <= retries; attempt++) {
 			if (req.signal?.aborted) return { kind: "aborted" };
 			if (this.walkExpired(st)) break;
 			const raw = attempt + skipped;
-			const dep = candidates.at(Math.min(raw, candidates.length - 1));
+			const nextIndex = candidates.findIndex(
+				(candidate, index) =>
+					index >= Math.min(raw, candidates.length - 1) &&
+					!timedOutOrigins.has(new URL(candidate.url).origin),
+			);
+			if (nextIndex > raw) skipped += nextIndex - raw;
+			const dep = nextIndex < 0 ? undefined : candidates[nextIndex];
 			if (!dep) break;
 			if (pendingRetry?.candidateId === candIdOf(dep)) {
 				const remainingMs = st.deadlineMs - this.now();
@@ -536,6 +548,7 @@ export class Router {
 			} catch (error) {
 				if (req.signal?.aborted) return { kind: "aborted" };
 				if (!(error instanceof UpstreamError)) throw error;
+				if (error.timedOut) timedOutOrigins.add(new URL(dep.url).origin);
 				this.reportAttempt(
 					req,
 					dep,
@@ -565,21 +578,8 @@ export class Router {
 				// A failed network exchange already spent this row's entire
 				// request timeout. Repeating the same last row cannot improve
 				// this walk; hand the remaining time to the next policy tier.
-				if (raw >= candidates.length - 1) break;
+				if (nextIndex >= candidates.length - 1) break;
 				continue;
-			}
-			if (this.walkExpired(st)) {
-				if (r.ok) void r.response.body?.cancel();
-				this.reportAttempt(
-					req,
-					dep,
-					st.attempts,
-					startedAt,
-					504,
-					"walk_deadline",
-					null,
-				);
-				break;
 			}
 			if (r.ok) {
 				const upstreamId = safeCorrelationId(
@@ -640,6 +640,7 @@ export class Router {
 								Math.min(Math.ceil(r.retryAfterS), Math.max(1, floorCapS)),
 							),
 			};
+			if (this.walkExpired(st)) break;
 			if (r.kind === "rate_limited" && !st.rateLimit)
 				st.rateLimit = { response: r.response, tier, source: "upstream" };
 			if (r.contextWindow) st.ctxWindow = r.response;
