@@ -1,11 +1,37 @@
 import { expect, test } from "bun:test";
 import { problem } from "../src/citizenship.ts";
 import { createApp } from "../src/handlers.ts";
+import { mayRelayPrefer } from "../src/wire.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
 import { testDeps } from "./deps.ts";
 import { startMockUpstream } from "./mock.ts";
 
 const TRACE = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+
+test(".prefer metadata stays on Fleet legs, never provider egress", () => {
+	expect(
+		mayRelayPrefer({
+			group: "x",
+			dialect: "anthropic",
+			url: "http://127.0.0.1:4000",
+		}),
+	).toBe(true);
+	expect(
+		mayRelayPrefer({
+			group: "x",
+			dialect: "anthropic",
+			url: "https://hub.example:4101",
+			buckle: true,
+		}),
+	).toBe(true);
+	expect(
+		mayRelayPrefer({
+			group: "x",
+			dialect: "anthropic",
+			url: "https://api.provider.example",
+		}),
+	).toBe(false);
+});
 
 function request(model: string): Request {
 	return new Request("http://buckle.test/v1/messages", {
@@ -88,7 +114,16 @@ test("upstream 429 is distinguished from a local throttle", async () => {
 
 test("Buckle echoes only canonical .prefer diagnostic metadata", async () => {
 	const upstream = await startMockUpstream(() =>
-		Response.json({ error: "busy" }, { status: 503 }),
+		Response.json(
+			{ error: "busy" },
+			{
+				status: 503,
+				headers: {
+					"x-klh-prefer":
+						"v=1;source=dotfile;directive=must;line=9;index=0;target=fake;can=absent",
+				},
+			},
+		),
 	);
 	try {
 		const app = createApp(
@@ -103,6 +138,9 @@ test("Buckle echoes only canonical .prefer diagnostic metadata", async () => {
 		);
 		const response = await app.fetch(valid);
 		expect(response.headers.get("x-klh-prefer")).toBe(
+			valid.headers.get("x-klh-prefer"),
+		);
+		expect(upstream.calls[0]?.headers.get("x-klh-prefer")).toBe(
 			valid.headers.get("x-klh-prefer"),
 		);
 		const invalid = request("model-pref");

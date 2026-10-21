@@ -11,6 +11,19 @@ import type { Deployment } from "./upstreams.ts";
 import type { UpstreamRequest } from "./router.ts";
 import { poolWarm } from "./pool-warm.ts";
 import { childSpanOf, stripPrivateTrace } from "./trace.ts";
+import { PREFER_HEADER } from "../../telemetry/src/prefer-header.ts";
+
+/** A preference decision may cross Fleet-owned hops but not provider egress. */
+export function mayRelayPrefer(dep: Deployment): boolean {
+	if (dep.buckle) return true;
+	try {
+		return ["localhost", "127.0.0.1", "::1", "[::1]"].includes(
+			new URL(dep.url).hostname,
+		);
+	} catch {
+		return false;
+	}
+}
 
 /** Streaming-body deadlines (W450): idle resets per chunk, total counts
  *  from fetch start. Absent → no stream-specific policy (the old shape). */
@@ -72,6 +85,8 @@ export async function defaultFetch(
 	} else {
 		stripPrivateTrace(wire.headers);
 	}
+	if (req.preference && mayRelayPrefer(dep))
+		wire.headers[PREFER_HEADER] = req.preference;
 	// W143 warm-rate gate: a cold origin (first dispatch since boot/pre-warm)
 	// counts one pool_refill and marks warm — the connect cost is counted,
 	// never silently mixed into the warm distribution.

@@ -481,6 +481,7 @@ Bun.serve({
 				requestId: trace.requestId,
 				...extra,
 			});
+			stamped.headers.delete(PREFER_HEADER);
 			if (preference) stamped.headers.set(PREFER_HEADER, preference);
 			return stamped;
 		};
@@ -963,6 +964,7 @@ Bun.serve({
 							startedAt: t0,
 							traceparent: trace.traceparent,
 							requestId: trace.requestId,
+							preference,
 							onAttempt: recordAttempt,
 						});
 					},
@@ -1021,6 +1023,7 @@ Bun.serve({
 							startedAt: t0,
 							traceparent: trace.traceparent,
 							requestId: trace.requestId,
+							preference,
 							onAttempt: recordAttempt,
 						});
 					},

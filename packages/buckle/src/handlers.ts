@@ -235,6 +235,7 @@ function stamped(
 		callId: route.callId,
 	});
 	for (const [k, v] of hs) resp.headers.set(k, v);
+	resp.headers.delete(PREFER_HEADER);
 	if (ctx.preference) resp.headers.set(PREFER_HEADER, ctx.preference);
 	return resp;
 }
@@ -591,6 +592,7 @@ async function runExecute(
 				deps.hubId ?? "local",
 				ctx.lane,
 			),
+			preference: ctx.preference,
 			signal: req.signal,
 			sel,
 			tier: ctx.tier,

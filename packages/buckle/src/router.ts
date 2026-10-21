@@ -85,6 +85,8 @@ export interface UpstreamRequest {
 	/** W706: the outbound baggage for a relay leg to a buckle-marked peer
 	 *  (origin passed through + peer=self). Absent/non-buckle → the strip. */
 	relayBaggage?: string;
+	/** Canonicalized .prefer selection, diagnostic only. */
+	preference?: string | null;
 	signal?: AbortSignal;
 	// W140 routing laws: the pure decision result (handlers decided via the
 	// candidate table before dispatch) + the complexity tier + the raw hint,

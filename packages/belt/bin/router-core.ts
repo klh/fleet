@@ -504,6 +504,7 @@ export interface CallOpts {
 	/** Parent trace from the Belt ingress. Each specialist attempt gets a child span. */
 	traceparent?: string;
 	requestId?: string;
+	preference?: string | null;
 	onAttempt?: (receipt: {
 		hop: "local-specialist";
 		traceparent: string | null;
@@ -546,6 +547,7 @@ export async function viaLocal(
 					"content-type": "application/json",
 					...(attemptTrace ? { traceparent: attemptTrace } : {}),
 					...(opts.requestId ? { "x-klh-request-id": opts.requestId } : {}),
+					...(opts.preference ? { "x-klh-prefer": opts.preference } : {}),
 				},
 				signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
 				body: JSON.stringify({
@@ -715,6 +717,7 @@ export async function openLocalStream(
 					accept: "text/event-stream",
 					...(attemptTrace ? { traceparent: attemptTrace } : {}),
 					...(opts.requestId ? { "x-klh-request-id": opts.requestId } : {}),
+					...(opts.preference ? { "x-klh-prefer": opts.preference } : {}),
 				},
 				signal: ctrl.signal,
 				body: JSON.stringify({
