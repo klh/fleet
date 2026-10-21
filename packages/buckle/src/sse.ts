@@ -42,6 +42,10 @@ export class SseSniffer {
 	private openai: Usage | null = null;
 	private cacheSeen = false;
 	private cacheWriteSeen = false;
+	/** W1106: the dialect's protocol terminal was seen on this stream —
+	 *  anthropic `message_stop` / openai `[DONE]`. EOF without it is a
+	 *  truncation, never a completed turn. */
+	private sawStop = false;
 
 	constructor(private readonly dialect: Dialect) {}
 
@@ -89,6 +93,26 @@ export class SseSniffer {
 	private dispatch(): void {
 		const payload = this.dataLines.join("\n").trim();
 		this.dataLines = [];
+		// W1106: protocol terminals — openai ends with the [DONE] sentinel
+		// (chat completions) or response.completed (Responses wire, W912);
+		// anthropic with a message_stop event (either framing).
+		if (payload === "[DONE]") this.sawStop = true;
+		else if (
+			this.dialect === "openai" &&
+			this.eventType === "response.completed"
+		)
+			this.sawStop = true;
+		else if (this.dialect === "anthropic" && this.eventType === "message_stop")
+			this.sawStop = true;
+		else if (this.dialect === "anthropic") {
+			try {
+				const j: unknown = payload.length > 0 ? JSON.parse(payload) : null;
+				if (j && typeof j === "object" && (j as AnyRec).type === "message_stop")
+					this.sawStop = true;
+			} catch {
+				// non-JSON: not terminal-bearing
+			}
+		}
 		try {
 			if (payload.length > 0 && payload !== "[DONE]")
 				this.data(JSON.parse(payload));
@@ -96,6 +120,11 @@ export class SseSniffer {
 			// non-JSON data: not usage-bearing, ignore honestly
 		}
 		this.eventType = "";
+	}
+
+	/** W1106: true once the dialect's protocol terminal was seen. */
+	completed(): boolean {
+		return this.sawStop;
 	}
 
 	private data(json: unknown): void {

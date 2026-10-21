@@ -112,6 +112,69 @@ describe("W1106 stream receipts", () => {
 	});
 });
 
+describe("W1106 terminal-aware completion (#55419/#55420)", () => {
+	test("upstream EOF without message_stop → stream_truncated, ok:0", async () => {
+		// message_start then EOF — NO message_stop: a truncated turn, never
+		// a completed success even though the pipe drained cleanly.
+		const upstream = await startMockUpstream(
+			() =>
+				new Response(
+					'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":1}}}\n\n',
+					{ headers: sseHeaders },
+				),
+		);
+		try {
+			const deps = testDeps(poolOf(upstream.url));
+			const res = await createApp(deps).fetch(
+				new Request(`${upstream.url}/v1/messages`, {
+					method: "POST",
+					body: JSON.stringify({ model: "claude-sonnet-5", stream: true }),
+				}),
+			);
+			expect(res.status).toBe(200);
+			await res.text();
+			await Bun.sleep(20);
+			const audit = deps.ledger.auditRows()[0] ?? {};
+			expect(audit.ok).toBe(0);
+			expect(audit.decision).toBe("errored");
+			expect(audit.error_code).toBe("stream_truncated");
+			expect(audit.err).toBe("stream_truncated");
+			expect(receiptOf(audit).terminal).toBe("upstream_eof_truncated");
+		} finally {
+			upstream.close();
+		}
+	});
+
+	test("full turn WITH message_stop → ok:1, terminal upstream_eof", async () => {
+		const upstream = await startMockUpstream(
+			() =>
+				new Response(
+					'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":1}}}\n\n' +
+						'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+					{ headers: sseHeaders },
+				),
+		);
+		try {
+			const deps = testDeps(poolOf(upstream.url));
+			const res = await createApp(deps).fetch(
+				new Request(`${upstream.url}/v1/messages`, {
+					method: "POST",
+					body: JSON.stringify({ model: "claude-sonnet-5", stream: true }),
+				}),
+			);
+			expect(res.status).toBe(200);
+			await res.text();
+			await Bun.sleep(20);
+			const audit = deps.ledger.auditRows()[0] ?? {};
+			expect(audit.ok).toBe(1);
+			expect(audit.error_code).toBeNull();
+			expect(receiptOf(audit).terminal).toBe("upstream_eof");
+		} finally {
+			upstream.close();
+		}
+	});
+});
+
 describe("W1106 MIME contract (#55129/#55126)", () => {
 	test("non-stream JSON keeps application/json (never event-stream)", async () => {
 		const upstream = await startMockUpstream(() =>
