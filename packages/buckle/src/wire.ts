@@ -87,6 +87,19 @@ export async function defaultFetch(
 	}
 	if (req.preference && mayRelayPrefer(dep))
 		wire.headers[PREFER_HEADER] = req.preference;
+	// LiteLLM is an explicitly declared engine, never guessed from a port or
+	// hostname. Buckle owns the outer retry ladder; pass its remaining
+	// non-streaming attempt budget inward so abandoned calls do not continue
+	// consuming provider capacity. LiteLLM applies a timeout header to a
+	// streaming exchange too, so leave it unset there and retain the W450
+	// independent stream idle/total guards after response headers.
+	if (dep.adapter_config?.proxy_kind === "litellm") {
+		wire.headers["x-litellm-num-retries"] = "0";
+		if (!stream)
+			wire.headers["x-litellm-timeout"] = String(
+				Math.max(0.001, timeoutMs / 1000),
+			);
+	}
 	// W143 warm-rate gate: a cold origin (first dispatch since boot/pre-warm)
 	// counts one pool_refill and marks warm — the connect cost is counted,
 	// never silently mixed into the warm distribution.

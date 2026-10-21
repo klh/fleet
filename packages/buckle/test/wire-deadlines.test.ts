@@ -56,6 +56,35 @@ const stallsForever = (): Response =>
 	);
 
 describe("W450 stream deadlines", () => {
+	test("explicit LiteLLM engine gets bounded non-stream timeout and no stream wall-clock cap", async () => {
+		const seen: Array<{ timeout: string | null; retries: string | null }> = [];
+		const up = await startMockUpstream(async (request) => {
+			seen.push({
+				timeout: request.headers.get("x-litellm-timeout"),
+				retries: request.headers.get("x-litellm-num-retries"),
+			});
+			return Response.json({ ok: true });
+		});
+		try {
+			const litellm = {
+				...dep(up.url),
+				adapter_config: { proxy_kind: "litellm" },
+			};
+			await defaultFetch(litellm, req(false), 30_000);
+			await defaultFetch(litellm, req(true), 30_000, {
+				idleMs: 60_000,
+				totalMs: 900_000,
+			});
+			await defaultFetch(dep(up.url), req(false), 30_000);
+			expect(seen).toEqual([
+				{ timeout: "30", retries: "0" },
+				{ timeout: null, retries: "0" },
+				{ timeout: null, retries: null },
+			]);
+		} finally {
+			up.close();
+		}
+	});
 	test("dead Buckle hub fails at connect without spending the model deadline", async () => {
 		const closed = Bun.serve({ port: 0, fetch: () => new Response("ok") });
 		const url = `http://127.0.0.1:${closed.port}`;

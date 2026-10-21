@@ -20,6 +20,8 @@ export interface LiteLlmRouteConfig {
 export interface BeltRouteConfig {
 	id: string;
 	origins: string[];
+	/** Configured local serving endpoint for a model-preserving Belt proxy. */
+	upstream?: string;
 	escalation?: { url: string; model: string };
 	/** Request model IDs for which the Belt ingress never enters its cloud leg. */
 	noEscalationModels?: string[];
@@ -141,7 +143,17 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 						item.id,
 						`invalid service origin ${raw}`,
 					);
-				else services.set(origin, { layer, id: item.id });
+				else {
+					const previous = services.get(origin);
+					if (previous && (previous.layer !== layer || previous.id !== item.id))
+						finding(
+							"invalid_config",
+							layer,
+							item.id,
+							`service origin ${origin} is ambiguous with ${previous.layer}:${previous.id}`,
+						);
+					else services.set(origin, { layer, id: item.id });
+				}
 			}
 	}
 	const link = (
@@ -199,12 +211,17 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 					"no configured deployment in bounded ladder",
 				);
 			const deadline = inputs.requestDeadlineMs;
+			const firstByteBudget = buckle.policy.first_byte_budget_s ?? 240;
+			const attemptTimeout = buckle.policy.request_timeout_s ?? 120;
+			if (!Number.isFinite(firstByteBudget) || firstByteBudget < attemptTimeout)
+				finding(
+					"deadline_budget",
+					"buckle",
+					node,
+					"first_byte_budget_s must cover one full request_timeout_s attempt",
+				);
 			if (deadline !== undefined && Number.isFinite(deadline) && deadline > 0) {
-				const retries = buckle.policy.num_retries ?? 1;
-				const timeout = buckle.policy.request_timeout_s ?? 120;
-				const delay = buckle.policy.retry_after_cap_s ?? 60;
-				const worstMs =
-					ladder.length * ((retries + 1) * timeout + retries * delay) * 1000;
+				const worstMs = firstByteBudget * 1000;
 				if (worstMs > deadline)
 					finding(
 						"deadline_budget",
@@ -270,6 +287,7 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 		const localOnly = new Set(belt.noEscalationModels ?? []);
 		for (const node of [...edges.keys()]) {
 			if (!node.startsWith(prefix)) continue;
+			if (belt.upstream) link(node, belt.upstream, node.slice(prefix.length));
 			if (belt.escalation && !localOnly.has(node.slice(prefix.length)))
 				link(node, belt.escalation.url, belt.escalation.model, true);
 		}
