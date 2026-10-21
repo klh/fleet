@@ -181,6 +181,174 @@ describe("supervisor — real stub children on stub ports", () => {
 		await done;
 	}, 20_000);
 
+	test("healthy router with an old code revision is replaced without touching a model", async () => {
+		let desired = "revision-a";
+		let served: string | null = "revision-a";
+		let routerSpawns = 0;
+		const killed: number[] = [];
+		const router: Target = {
+			name: "router-shim",
+			port: 4000,
+			kind: "router",
+			owned: true,
+			enforceRevision: true,
+			generation: () => desired,
+			portReleaseMs: 500,
+			spawn: () => {
+				routerSpawns++;
+				served = desired;
+				return { pid: 1111, exited: new Promise(() => {}), kill: () => {} };
+			},
+		};
+		const specialist: Target = {
+			name: "extract",
+			port: 8902,
+			kind: "specialist",
+			owned: true,
+			spawn: () => {
+				throw new Error("healthy specialist must not restart");
+			},
+		};
+		const sup = new Supervisor([router, specialist], {
+			...files(),
+			...fast,
+			probe: async (t) =>
+				t.port === 4000
+					? { tcp: served !== null, http: served !== null, revision: served }
+					: { tcp: true, http: true },
+			killPort: (port) => {
+				killed.push(port);
+				if (port === 4000) served = null;
+			},
+		});
+		const done = start(sup);
+		await waitFor(() => stateOf(sup, 4000)?.state === "up");
+		expect(routerSpawns).toBe(0);
+		desired = "revision-b";
+		await waitFor(() => routerSpawns === 1 && served === "revision-b");
+		expect(killed).toEqual([4000]);
+		expect(stateOf(sup, 8902)?.state).toBe("up");
+		await Bun.sleep(100);
+		expect(routerSpawns).toBe(1);
+		sup.stop();
+		await done;
+	});
+
+	test("respawn waits for the port to release before spawning the child", async () => {
+		let served: string | null = "revision-a";
+		const desired = "revision-b";
+		let spawns = 0;
+		let probesSinceKill = 0;
+		let lingerProbes = 0; // dying holder still answers this many probes
+		let probesAtSpawn = -1;
+		const target: Target = {
+			name: "router-shim",
+			port: 4000,
+			kind: "router",
+			owned: true,
+			enforceRevision: true,
+			portReleaseMs: 500,
+			generation: () => desired,
+			spawn: () => {
+				spawns++;
+				probesAtSpawn = probesSinceKill;
+				served = desired;
+				return { pid: 1111, exited: new Promise(() => {}), kill: () => {} };
+			},
+		};
+		const sup = new Supervisor([target], {
+			...files(),
+			...fast,
+			probe: async () => {
+				if (lingerProbes > 0) {
+					lingerProbes--; // the dying holder answers this many more probes
+					return { tcp: true, http: true, revision: "revision-a" };
+				}
+				if (probesSinceKill > 0) probesSinceKill++; // count post-kill probes
+				return {
+					tcp: served !== null,
+					http: served !== null,
+					revision: served,
+				};
+			},
+			killPort: () => {
+				served = null; // holder gone; linger answers one probe before release
+				probesSinceKill = 1;
+				lingerProbes = 1;
+			},
+		});
+		const done = start(sup);
+		// adopted healthy router (never spawned here); replacement = first spawn
+		await waitFor(() => spawns === 1 && served === "revision-b");
+		expect(probesAtSpawn).toBeGreaterThan(1); // spawn came after the release wait
+		sup.stop();
+		await done;
+	});
+
+	test("a port that never releases defers the respawn without a breaker record", async () => {
+		let served: string | null = "revision-a";
+		let spawns = 0;
+		const target: Target = {
+			name: "router-shim",
+			port: 4000,
+			kind: "router",
+			owned: true,
+			enforceRevision: true,
+			portReleaseMs: 120,
+			generation: () => "revision-b",
+			spawn: () => {
+				spawns++;
+				served = "revision-b";
+				return { pid: 1111, exited: new Promise(() => {}), kill: () => {} };
+			},
+		};
+		const sup = new Supervisor([target], {
+			...files(),
+			...fast,
+			probe: async () => ({
+				tcp: served !== null, // holder never dies: TCP always bound
+				http: served !== null,
+				revision: "revision-a",
+			}),
+			killPort: () => {}, // SIGKILL misses (zombie holder): port stays held
+		});
+		const done = start(sup);
+		await Bun.sleep(300); // several probe cycles against the held port
+		expect(spawns).toBe(0); // never spawned into the held port
+		expect(stateOf(sup, 4000)?.restarts).toBe(0); // no breaker record consumed
+		sup.stop();
+		await done;
+	});
+
+	test("stop() during the port-release wait spawns nothing", async () => {
+		let spawns = 0;
+		const target: Target = {
+			name: "router-shim",
+			port: 4000,
+			kind: "router",
+			owned: true,
+			enforceRevision: true,
+			portReleaseMs: 60_000,
+			generation: () => "revision-b",
+			spawn: () => {
+				spawns++;
+				return { pid: 1111, exited: new Promise(() => {}), kill: () => {} };
+			},
+		};
+		const sup = new Supervisor([target], {
+			...files(),
+			...fast,
+			probe: async () => ({ tcp: true, http: true, revision: "revision-a" }),
+			killPort: () => {},
+		});
+		const done = start(sup);
+		await waitFor(() => stateOf(sup, 4000)?.state === "backoff");
+		await Bun.sleep(60); // backoff delay elapsed → inside the release wait
+		sup.stop(); // mid-wait
+		await done;
+		await Bun.sleep(100);
+		expect(spawns).toBe(0); // stopped supervisor spawns nothing
+	});
 	test("probe-after-respawn: a live pid that never binds is NOT up", async () => {
 		const port = freePort();
 		const kills: number[] = [];
@@ -317,6 +485,7 @@ describe("supervisor — stub probes + fake children", () => {
 		let spawns = 0;
 		let probes = 0;
 		let kills = 0;
+		let held = true; // hung holder keeps :93 bound until killPort releases it
 		const t: Target = {
 			name: "dependency",
 			port: 93,
@@ -326,6 +495,7 @@ describe("supervisor — stub probes + fake children", () => {
 			preflight: () => err,
 			spawn: () => {
 				spawns++;
+				held = true;
 				return crashingChild();
 			},
 		};
@@ -336,10 +506,11 @@ describe("supervisor — stub probes + fake children", () => {
 			maxRestarts: 1,
 			killPort: () => {
 				kills++;
+				held = false; // port release, as the kernel does
 			},
 			probe: async () => {
 				probes++;
-				return { tcp: true, http: false };
+				return { tcp: held, http: false };
 			},
 		});
 		const done = start(sup);
@@ -436,6 +607,7 @@ describe("supervisor — stub probes + fake children", () => {
 
 	test("hung router (port bound, no HTTP) is killed and respawned; specialists are not", async () => {
 		let healthy = false;
+		let routerHeld = true; // hung router holds :10 until killPort releases it
 		const killed: number[] = [];
 		const spawned: number[] = [];
 		const mk = (port: number, killHung: boolean): Target => ({
@@ -447,7 +619,10 @@ describe("supervisor — stub probes + fake children", () => {
 			bindTimeoutMs: 100,
 			spawn: () => {
 				spawned.push(port);
-				if (port === 10) healthy = true;
+				if (port === 10) {
+					healthy = true;
+					routerHeld = true;
+				}
 				return { pid: 1234, exited: new Promise(() => {}), kill: () => {} };
 			},
 		});
@@ -455,10 +630,13 @@ describe("supervisor — stub probes + fake children", () => {
 			...files(),
 			...fast,
 			probe: async (t) => ({
-				tcp: true,
+				tcp: t.port === 10 ? routerHeld : true,
 				http: t.port === 10 ? healthy : false,
 			}),
-			killPort: (p) => killed.push(p),
+			killPort: (p) => {
+				killed.push(p);
+				if (p === 10) routerHeld = false; // port release, as the kernel does
+			},
 		});
 		const done = start(sup);
 		await waitFor(() => stateOf(sup, 10)?.state === "up" && healthy);
