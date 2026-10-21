@@ -73,6 +73,11 @@ cp "$REPO_DIR/../local-llm/observation.ts" "$PREFIX/observation.ts"
 # and PROBES the supervised closure — a broken runtime import fails the
 # install here, loudly, not the swarm supervisor at boot.
 bun "$REPO_DIR/bin/runtime-heal.ts" "$PREFIX" "$REPO_DIR/../.." || exit 1
+# W1104.1 (review #55056): closure is verified — release the revision lock
+# NOW, before the tier manifest, model setup and launchd activation. An
+# interrupted install still releases via the EXIT trap above.
+rm -rf "$LOCK"
+trap - EXIT
 echo "→ fleet scripts in place"
 
 # W507: the tier choice is machine config, not launchd env — emit the tier

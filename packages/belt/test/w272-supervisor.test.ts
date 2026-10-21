@@ -349,6 +349,58 @@ describe("supervisor — real stub children on stub ports", () => {
 		await Bun.sleep(100);
 		expect(spawns).toBe(0); // stopped supervisor spawns nothing
 	});
+
+	test("stop() during the final port-free probe records and spawns nothing", async () => {
+		const s = stopProbeFixture();
+		const sup = s.sup;
+		const done = start(sup);
+		await waitFor(() => s.killed);
+		sup.stop();
+		s.releaseGate();
+		await done;
+		expect(s.spawns).toBe(0);
+		expect(stateOf(sup, 4000)?.restarts).toBe(0);
+	});
+
+	function stopProbeFixture() {
+		const f = {
+			sup: null as unknown as Supervisor,
+			spawns: 0,
+			killed: false,
+			releaseGate: () => {},
+		};
+		const gate = new Promise<void>((r) => {
+			f.releaseGate = r;
+		});
+		const target: Target = {
+			name: "router-shim",
+			port: 4000,
+			kind: "router",
+			owned: true,
+			enforceRevision: true,
+			portReleaseMs: 0,
+			generation: () => "revision-b",
+			spawn: () => {
+				f.spawns++;
+				return { pid: 1111, exited: new Promise(() => {}), kill: () => {} };
+			},
+		};
+		f.sup = new Supervisor([target], {
+			...files(),
+			...fast,
+			probe: async () => {
+				if (f.killed) {
+					await gate; // stop() lands while this post-deadline probe awaits
+					return { tcp: false, http: false }; // port released in the gap
+				}
+				return { tcp: true, http: true, revision: "revision-a" };
+			},
+			killPort: () => {
+				f.killed = true;
+			},
+		});
+		return f;
+	}
 	test("probe-after-respawn: a live pid that never binds is NOT up", async () => {
 		const port = freePort();
 		const kills: number[] = [];
