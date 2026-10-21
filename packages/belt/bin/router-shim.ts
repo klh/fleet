@@ -460,7 +460,7 @@ async function readRouterBody(
 	let length = 0;
 	try {
 		for (;;) {
-			const next = await new Promise<ReadableStreamReadResult<Uint8Array>>(
+			const next = await new Promise<Awaited<ReturnType<typeof reader.read>>>(
 				(resolve, reject) => {
 					if (ingress.aborted) return reject(ingress.reason);
 					const abort = () => reject(ingress.reason);
@@ -499,10 +499,10 @@ Bun.serve({
 	hostname: "127.0.0.1",
 	idleTimeout: 0, // streams may idle through a long prefill
 	async fetch(req) {
-		const requestSignal = AbortSignal.any([
-			req.signal,
-			AbortSignal.timeout(120_000),
-		]);
+		// W1117: cancellation propagates from byte one (req.signal); the
+		// ABSOLUTE deadline is joined after the body parses — a streaming
+		// request gets the stream-total budget (Buckle stream_total_timeout_s
+		// parity), never a fixed wall over a healthy SSE.
 		const url = new URL(req.url);
 		// W1081: every envelope identifies its emitter — the ingress trace
 		// begins once at fetch top so the early paths (404, audio, registry)
@@ -569,11 +569,11 @@ Bun.serve({
 
 		let body: AnthropicBody;
 		try {
-			body = await readRouterBody(req, requestSignal);
+			body = await readRouterBody(req, req.signal);
 		} catch (error) {
 			const tooLarge =
 				error instanceof Error && error.message === "body too large";
-			const timedOut = requestSignal.aborted || error instanceof DOMException;
+			const timedOut = req.signal.aborted || error instanceof DOMException;
 			const status = tooLarge ? 413 : timedOut ? 408 : 400;
 			logRouting({
 				event: "request_completed",
@@ -598,6 +598,14 @@ Bun.serve({
 				{ refusal: "bad_json" },
 			);
 		}
+
+		// W1117: the deadline joins here — stream bodies ride the stream-total
+		// budget (900s, Buckle parity) so a healthy long prefill survives;
+		// non-stream exchanges keep the 120s whole-exchange cap.
+		const requestSignal = AbortSignal.any([
+			req.signal,
+			AbortSignal.timeout(body.stream === true ? 900_000 : 120_000),
+		]);
 
 		const startTime = Date.now();
 		const t0 = performance.now();
