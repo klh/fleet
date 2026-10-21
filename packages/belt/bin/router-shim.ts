@@ -55,7 +55,7 @@ import { parseToolArgs } from "./router-tools.ts";
 // W422.17.3 governor note: re-read after the /tmp splice that moved viaCloud
 // out; this adds the import for the extracted escalation leg.
 import { escalate } from "./escalate.ts";
-import { ensureUp } from "./spawner.ts";
+import { ensureAvailable } from "./spawner.ts";
 import {
 	beginTrace,
 	childTraceparent,
@@ -343,29 +343,45 @@ async function ladder<R extends Attempt>(
 	used: Specialist;
 	fbRelease?: () => void;
 	retryAfterMs?: number;
+	coldDeferred?: boolean;
 }> {
-	let result = await callHonoringRetryAfter(() => call(primary));
+	const primaryReady =
+		!process.env.BELT_UPSTREAM_BASE && needsDemandStart(primary)
+			? await ensureAvailable(primary)
+			: undefined;
+	let result =
+		primaryReady && !primaryReady.up
+			? ({ ok: false, status: 503, error: primaryReady.error } as R)
+			: await callHonoringRetryAfter(() => call(primary));
 	let used = primary;
+	let coldDeferred = primaryReady !== undefined && !primaryReady.up;
 	let retryAfter =
 		result.status === 429 ? (result.retryAfterMs ?? 0) : undefined;
+	if (primaryReady && !primaryReady.up) retryAfter = primaryReady.retryAfterMs;
 	if (result.ok) return { result, used };
 	errors.push(`:${primary.port} ${result.error ?? "empty"}`);
 	const fb = fallbackFor(route.port);
-	if (!fb) return { result, used, retryAfterMs: retryAfter };
+	if (!fb) return { result, used, retryAfterMs: retryAfter, coldDeferred };
 	const fbRelease = admission.tryAcquire(fb.port);
 	if (!fbRelease) {
 		note.push(`fallback :${fb.port} at max in-flight`);
-		return { result, used, retryAfterMs: retryAfter };
+		return { result, used, retryAfterMs: retryAfter, coldDeferred };
 	}
 	note.push(`fallback → :${fb.port}`);
 	if (!process.env.BELT_UPSTREAM_BASE && needsDemandStart(fb)) {
-		const ready = await ensureUp(fb);
+		const ready = await ensureAvailable(fb);
 		if (!ready.up) {
 			fbRelease();
 			errors.push(
-				`:${fb.port} demand start failed: ${ready.error ?? "not ready"}`,
+				`:${fb.port} demand start deferred: ${ready.error ?? "not ready"}`,
 			);
-			return { result, used, retryAfterMs: retryAfter };
+			coldDeferred = true;
+			return {
+				result,
+				used,
+				retryAfterMs: Math.max(retryAfter ?? 0, ready.retryAfterMs),
+				coldDeferred,
+			};
 		}
 	}
 	result = await callHonoringRetryAfter(() => call(fb));
@@ -375,7 +391,7 @@ async function ladder<R extends Attempt>(
 	if (result.ok) return { result, used, fbRelease };
 	fbRelease();
 	errors.push(`:${fb.port} ${result.error ?? "empty"}`);
-	return { result, used, retryAfterMs: retryAfter };
+	return { result, used, retryAfterMs: retryAfter, coldDeferred };
 }
 
 // header = ASCII essentials only (the note carries "→"); full _routing rides
@@ -841,6 +857,7 @@ Bun.serve({
 			};
 
 			let retryAfter: number | undefined;
+			let coldDeferred = false;
 			let cloudStatus: number | undefined;
 			// W279: cloud-first serving — a cloud serving-tier decision escalates
 			// BEFORE the local ladder (a stated >32k-token request on the small
@@ -922,28 +939,6 @@ Bun.serve({
 						...hopFields(),
 					});
 				}
-				// Only cold-start after the cloud-first leg declines and a local
-				// slot is available. Minimal tiers leave heavy registry residents
-				// unowned; ensureUp single-flights those demand starts.
-				if (
-					release &&
-					!response &&
-					route &&
-					!process.env.BELT_UPSTREAM_BASE &&
-					needsDemandStart(route)
-				) {
-					const ens = await ensureUp(route);
-					if (ens.up) {
-						if (ens.cold)
-							note.push(
-								`ondemand :${route.port} ready (cold ${(ens.waitedMs / 1000).toFixed(1)}s)`,
-							);
-					} else {
-						note.push(
-							`ondemand :${route.port} DOWN (${ens.error ?? "spawn failed"})`,
-						);
-					}
-				}
 			}
 			if (wantStream && !response) {
 				// streamed: TTFT = the specialist's first token, not the full answer
@@ -969,6 +964,7 @@ Bun.serve({
 				usedModel = opened.used.model;
 				if (opened.retryAfterMs !== undefined)
 					retryAfter = Math.max(retryAfter ?? 0, opened.retryAfterMs);
+				coldDeferred ||= opened.coldDeferred === true;
 				if (opened.result.ok) {
 					const routing = routingInfo();
 					const fbRelease = opened.fbRelease;
@@ -1027,6 +1023,7 @@ Bun.serve({
 				usedModel = got.used.model;
 				if (got.retryAfterMs !== undefined)
 					retryAfter = Math.max(retryAfter ?? 0, got.retryAfterMs);
+				coldDeferred ||= got.coldDeferred === true;
 				localTimings = got.result.timings;
 				if (got.result.ok) {
 					response = got.result.response;
@@ -1051,15 +1048,18 @@ Bun.serve({
 			}
 
 			if (!response && !(resultToolCalls && resultToolCalls.length > 0)) {
-				// every hop saturated → 429 with the longest upstream Retry-After so
-				// the caller's ladder backs off instead of retrying a 502
+				// A cold local leg is a retryable capacity refusal, not an upstream
+				// provider failure. Preserve its backoff hint for the caller.
 				if (retryAfter !== undefined) {
-					logDone({ outcome: "upstream-429", http_status: 429 });
+					logDone({
+						outcome: coldDeferred ? "cold-model" : "upstream-429",
+						http_status: 429,
+					});
 					return stamped(
 						upstreamDecline(429, retryAfter, [...note, ...errors]),
 						lastHop,
 						{
-							refusal: "upstream_rate_limit",
+							refusal: coldDeferred ? "local_cold" : "upstream_rate_limit",
 							...hopFields(),
 						},
 					);

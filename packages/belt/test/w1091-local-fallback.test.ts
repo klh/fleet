@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { needsDemandStart, SPECIALISTS } from "../bin/registry.ts";
+import { ensureAvailable } from "../bin/spawner.ts";
 
 const reason = SPECIALISTS.find((row) => row.role === "reason");
 
@@ -17,6 +18,29 @@ test("minimal tier demand-starts a heavy registered resident", () => {
 	} finally {
 		if (prior === undefined) delete process.env.BELT_TIER;
 		else process.env.BELT_TIER = prior;
+	}
+});
+
+test("four concurrent cold admissions refuse promptly with a shared retry hint", async () => {
+	if (!reason) throw new Error("reason registry row missing");
+	const reserved = Bun.serve({ port: 0, fetch: () => new Response() });
+	const coldPort = reserved.port;
+	reserved.stop(true);
+	const prior = process.env.BELT_DEMAND_WARMUP;
+	process.env.BELT_DEMAND_WARMUP = "0";
+	try {
+		const started = performance.now();
+		const results = await Promise.all(
+			Array.from({ length: 4 }, () =>
+				ensureAvailable({ ...reason, port: coldPort as typeof reason.port }),
+			),
+		);
+		expect(performance.now() - started).toBeLessThan(5_000);
+		expect(results.every((r) => !r.up && !r.warming)).toBe(true);
+		expect(results.every((r) => r.retryAfterMs >= 1_000)).toBe(true);
+	} finally {
+		if (prior === undefined) delete process.env.BELT_DEMAND_WARMUP;
+		else process.env.BELT_DEMAND_WARMUP = prior;
 	}
 });
 
@@ -134,11 +158,19 @@ test("local router answers SIMPLE and COMPLEX without a cloud hop", async () => 
 	expect(cloudCalls).toBe(0);
 });
 
-test("unavailable local routes refuse without re-entering the cloud ladder", async () => {
+test("four simultaneous local failovers refuse without re-entering the cloud ladder", async () => {
 	rejectLocal = true;
-	const result = await route(
-		"Analyze the architectural tradeoffs and failure modes of a distributed transaction coordinator across multiple services with adversarial retries and partial network partitions.",
+	const started = performance.now();
+	const results = await Promise.all(
+		Array.from({ length: 4 }, () =>
+			route(
+				"Analyze the architectural tradeoffs and failure modes of a distributed transaction coordinator across multiple services with adversarial retries and partial network partitions.",
+			),
+		),
 	);
-	expect(result.status).toBe(502);
+	expect(performance.now() - started).toBeLessThan(10_000);
+	expect(results.every((result) => [429, 502].includes(result.status))).toBe(
+		true,
+	);
 	expect(cloudCalls).toBe(0);
 });
