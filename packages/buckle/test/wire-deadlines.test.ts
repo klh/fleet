@@ -56,7 +56,7 @@ const stallsForever = (): Response =>
 	);
 
 describe("W450 stream deadlines", () => {
-	test("explicit LiteLLM engine gets bounded non-stream timeout and opt-in stream chunk timeout", async () => {
+	test("explicit LiteLLM engine gets bounded non-stream timeout and no stream wall-clock cap", async () => {
 		const seen: Array<{
 			timeout: string | null;
 			streamTimeout: string | null;
