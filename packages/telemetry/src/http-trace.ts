@@ -41,8 +41,8 @@ export interface HopReceipt {
 	callId: string | null;
 }
 
-/** Opaque correlation IDs only. Reject control characters, whitespace and
- *  unbounded or user-authored text rather than truncating it into headers. */
+/** Shape and length guard for correlation IDs. This does not establish who
+ *  authored the value or whether it is unique. */
 export function safeCorrelationId(value: unknown): string | undefined {
 	return typeof value === "string" && SAFE_ID.test(value) ? value : undefined;
 }
@@ -89,9 +89,23 @@ function setLabel(
 	if (value && SAFE_LABEL.test(value)) headers.set(key, value);
 }
 
-/** Shared emitter: these fields identify the emitting layer, not the
- *  provider claimed by a forwarded response. Native Retry-After stays native. */
+const OWNED_HEADERS = [
+	"x-klh-service",
+	"x-klh-hop",
+	"x-klh-refusal",
+	"x-klh-upstream-kind",
+	"x-klh-trace-id",
+	"x-klh-request-id",
+	"x-klh-upstream-request-id",
+	"x-klh-attempts",
+	"x-klh-upstream-status",
+] as const;
+
+/** Shared emitter: these fields identify the emitting layer. Clear a
+ * forwarded layer's values first so a missing field cannot be misattributed.
+ * Native Retry-After and LiteLLM's own call ID remain separate. */
 export function stampHopHeaders(headers: Headers, fields: HopFields): void {
+	for (const name of OWNED_HEADERS) headers.delete(name);
 	setLabel(headers, "x-klh-service", fields.service);
 	setLabel(headers, "x-klh-hop", fields.hop);
 	setLabel(headers, "x-klh-refusal", fields.refusal);
@@ -101,7 +115,7 @@ export function stampHopHeaders(headers: Headers, fields: HopFields): void {
 	const requestId = safeCorrelationId(fields.requestId);
 	if (requestId) headers.set("x-klh-request-id", requestId);
 	const callId = safeCorrelationId(fields.callId);
-	const upstreamId = safeCorrelationId(fields.upstreamId) ?? callId;
+	const upstreamId = safeCorrelationId(fields.upstreamId);
 	if (upstreamId) headers.set("x-klh-upstream-request-id", upstreamId);
 	if (callId) headers.set("x-litellm-call-id", callId);
 	const attempts = fields.attempts;
@@ -119,6 +133,26 @@ export function stampHopHeaders(headers: Headers, fields: HopFields): void {
 
 export function stampResponse(response: Response, fields: HopFields): Response {
 	const headers = new Headers(response.headers);
+	// fetch may already have decoded the body. Forwarding the original length
+	// or encoding would corrupt that response. Hop-by-hop metadata belongs to
+	// the connection that produced the response, never the next connection.
+	for (const name of [
+		"content-encoding",
+		"content-length",
+		"connection",
+		"keep-alive",
+		"transfer-encoding",
+		"te",
+		"trailer",
+		"upgrade",
+	])
+		headers.delete(name);
+	// LiteLLM can include spend, key and upstream URL metadata. Its call ID is
+	// the sole diagnostic exception; the typed fields below re-emit it safely.
+	for (const name of [...headers.keys()]) {
+		if (name.startsWith("llm_provider-") || name.startsWith("x-litellm-"))
+			headers.delete(name);
+	}
 	stampHopHeaders(headers, fields);
 	return new Response(response.body, {
 		status: response.status,
