@@ -9,6 +9,11 @@ export interface BuckleRouteConfig {
 	origins: string[];
 	policy: GatewayPolicy;
 	pool: UpstreamPool;
+	/** W1094: loopback leaves THIS pool's own inventory declares (a hub's
+	 * rendered ollama/swarm rows) — resolved on that device, exempt from the
+	 * local-unmapped check. Committed-base specialist rows are NOT terminals:
+	 * owner law routes local models via Belt (trace b73f8a2d, review #55637). */
+	terminals?: string[];
 }
 
 export interface LiteLlmRouteConfig {

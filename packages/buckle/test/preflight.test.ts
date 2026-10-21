@@ -40,6 +40,9 @@ groups:
 	);
 	return {
 		upstreamsPath: join(dir, "upstreams.yaml"),
+		// Never written: with --stack the CLI sees no ambient machine stack,
+		// so the fixture is the whole snapshot (hubs included).
+		stackPath: join(dir, "stack.yaml"),
 		env: {
 			BUCKLE_POLICY: join(dir, "policy.yaml"),
 			LITELLM_CONFIG: join(dir, "litellm.yaml"),
@@ -49,13 +52,22 @@ groups:
 
 function preflight(fix: {
 	upstreamsPath: string;
+	stackPath: string;
 	env: Record<string, string>;
 }): { code: number; out: string } {
 	const proc = Bun.spawnSync({
-		// --upstreams is the BASE file (replaces the committed default);
-		// BUCKLE_UPSTREAMS is an override-merge over ambient state and is
-		// deliberately stripped so the fixture is the whole snapshot.
-		cmd: ["bun", BIN, "--upstreams", fix.upstreamsPath],
+		// --upstreams is the BASE file (replaces the committed default) and
+		// --stack replaces the machine stack; BUCKLE_UPSTREAMS is an
+		// override-merge over ambient state and is deliberately stripped so
+		// the fixture is the whole snapshot.
+		cmd: [
+			"bun",
+			BIN,
+			"--upstreams",
+			fix.upstreamsPath,
+			"--stack",
+			fix.stackPath,
+		],
 		env: {
 			...process.env,
 			...fix.env,
@@ -86,7 +98,7 @@ test("a marked engine row with a known wire model passes clean", () => {
 
 test("an unknown engine wire model and a broken config fail closed", () => {
 	const dir = mkdtempSync(join(tmpdir(), "buckle-preflight-"));
-	const env = fixture(dir, true);
+	const fix = fixture(dir, true);
 	writeFileSync(
 		join(dir, "upstreams.yaml"),
 		`version: 1
@@ -99,10 +111,52 @@ groups:
         proxy_kind: litellm
 `,
 	);
-	const ghost = preflight(env);
+	const ghost = preflight(fix);
 	expect(ghost.code).toBe(1);
 	expect(ghost.out).toContain("unknown_engine_model");
 	writeFileSync(join(dir, "upstreams.yaml"), "groups: [not, a, mapping\n");
-	const broken = preflight(env);
+	const broken = preflight(fix);
 	expect(broken.code).toBe(2);
+});
+
+test("a missing live upstreams file fails closed (no silent committed fallback)", () => {
+	const dir = mkdtempSync(join(tmpdir(), "buckle-preflight-"));
+	const fix = fixture(dir, true);
+	const proc = Bun.spawnSync({
+		cmd: ["bun", BIN, "--upstreams", join(dir, "absent.yaml")],
+		env: { ...process.env, ...fix.env },
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	expect(proc.exitCode).toBe(2);
+	expect(proc.stderr.toString()).toContain("failed to load");
+});
+
+test("hub inventory from the real StackConfig shape resolves groups", () => {
+	const dir = mkdtempSync(join(tmpdir(), "buckle-preflight-"));
+	const fix = fixture(dir, true);
+	const stackPath = join(dir, "stack.yaml");
+	writeFileSync(
+		stackPath,
+		`version: "1"
+hubs:
+  nas:
+    host: nas.example
+    buckle_port: 4101
+    upstreams:
+      zai_litellm_url: http://nas.example:4111
+      groups:
+        relay:
+          - url: https://provider.example/v1
+            dialect: openai
+`,
+	);
+	const ok = Bun.spawnSync({
+		cmd: ["bun", BIN, "--upstreams", fix.upstreamsPath, "--stack", stackPath],
+		env: { ...process.env, ...fix.env },
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	expect(ok.exitCode).toBe(0);
+	expect(ok.stdout.toString()).toContain("1 hub(s)");
 });
