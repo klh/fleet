@@ -741,7 +741,15 @@ function handleResult(
 ): Response | Promise<Response> {
 	if (result.kind === "aborted") return new Response(null, { status: 499 });
 	if (result.kind === "exhausted") {
-		return errorResponse(502, result.error, "no_route");
+		const deferred = result.status === 503 && result.retryAfterS !== undefined;
+		const response = errorResponse(
+			deferred ? 503 : 502,
+			result.error,
+			"no_route",
+		);
+		if (deferred)
+			response.headers.set("retry-after", String(result.retryAfterS));
+		return response;
 	}
 	if (result.kind === "client-error") {
 		// the upstream rejected the request — its error body is the most

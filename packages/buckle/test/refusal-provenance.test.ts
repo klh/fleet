@@ -86,6 +86,33 @@ test("upstream 429 is distinguished from a local throttle", async () => {
 	}
 });
 
+test("exhausted 503 preserves bounded retry and upstream trace attribution", async () => {
+	const upstream = await startMockUpstream(() =>
+		Response.json(
+			{ error: { type: "overloaded_error", message: "warming" } },
+			{
+				status: 503,
+				headers: { "retry-after": "60", "x-request-id": "req_cold" },
+			},
+		),
+	);
+	try {
+		const response = await createApp(
+			testDeps(pool("model-cold", upstream.url, "anthropic"), {
+				policy: { num_retries: 0, retry_after_cap_s: 2 },
+			}),
+		).fetch(request("model-cold"));
+		expect(response.status).toBe(503);
+		expect(response.headers.get("retry-after")).toBe("2");
+		expectCorrelation(response);
+		expect(response.headers.get("x-klh-refusal")).toBe("upstream");
+		expect(response.headers.get("x-klh-upstream-status")).toBe("503");
+		expect(response.headers.get("x-klh-upstream-request-id")).toBe("req_cold");
+	} finally {
+		upstream.close();
+	}
+});
+
 test("a bridged upstream 400 remains attributable after ladder exhaustion", async () => {
 	const upstream = await startMockUpstream(() =>
 		Response.json(
