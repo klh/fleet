@@ -52,6 +52,27 @@ const TEST_CMD_RE = new RegExp(
 	),
 	"i",
 );
+const CODEX_TEST_START =
+	/^(?:bun|npm|yarn|pnpm)\s+(?:run\s+)?test\b|^(?:vitest|jest|pytest)\b|^node\s+--test\b|^cargo\s+test\b|^go\s+test\b/i;
+
+/** The Codex functions.exec script must directly invoke one test command.
+ * A relayed inbox message or a script that merely mentions "bun test" is
+ * not execution evidence. Reject shell chaining and computed commands. */
+const codexInitiatedTest = (source: string): boolean => {
+	const calls = [
+		...source.matchAll(
+			/tools\.exec_command\(\s*\{\s*cmd\s*:\s*("(?:\\.|[^"\\])*")/g,
+		),
+	];
+	if (calls.length !== 1) return false;
+	let command: string;
+	try {
+		command = JSON.parse(calls[0]?.[1] ?? "") as string;
+	} catch {
+		return false;
+	}
+	return CODEX_TEST_START.test(command.trim()) && !/[;&|`]/.test(command);
+};
 
 /** a test-pass claim in lane prose (negations in the preceding window void it). */
 export const isClaim = (text: string): boolean =>
@@ -118,6 +139,7 @@ export function transcriptEventsFromText(text: string): TranscriptEvents {
 	// for a test run? Only results of such calls become run events;
 	// unpaired or non-test results are foreign noise and drop.
 	const initiated = new Map<string, boolean>();
+	const codexInitiated = new Map<string, boolean>();
 	for (const lineOf of text.split("\n")) {
 		if (lineOf.length < 2) continue;
 		let obj: Record<string, unknown>;
@@ -127,6 +149,47 @@ export function transcriptEventsFromText(text: string): TranscriptEvents {
 			continue;
 		}
 		const ts = Date.parse(String(obj.timestamp ?? "")) || 0;
+		const payload = obj.payload as Record<string, unknown> | undefined;
+		if (obj.type === "response_item" && payload) {
+			if (payload.type === "custom_tool_call" && payload.name === "exec") {
+				const id = payload.call_id;
+				if (typeof id === "string")
+					codexInitiated.set(
+						id,
+						typeof payload.input === "string" &&
+							codexInitiatedTest(payload.input),
+					);
+			} else if (payload.type === "custom_tool_call_output") {
+				const id = payload.call_id;
+				if (typeof id === "string" && codexInitiated.get(id)) {
+					const parts = payload.output;
+					if (Array.isArray(parts)) {
+						const content = parts
+							.map((part: unknown) =>
+								part &&
+								typeof part === "object" &&
+								typeof (part as ContentPart).text === "string"
+									? (part as ContentPart).text
+									: "",
+							)
+							.join("\n");
+						if (content.includes("Script completed") && runCounts(content))
+							keep({ ts, text: content }, out.runs);
+					}
+				}
+			} else if (payload.type === "message" && payload.role === "assistant") {
+				const parts = payload.content;
+				if (Array.isArray(parts))
+					for (const part of parts as ContentPart[])
+						if (
+							part?.type === "output_text" &&
+							typeof part.text === "string" &&
+							isClaim(part.text)
+						)
+							keep({ ts, text: part.text }, out.claims);
+			}
+			continue;
+		}
 		const msg = obj.message as
 			| { role?: unknown; content?: unknown }
 			| undefined;
@@ -348,8 +411,10 @@ const statMtime = (p: string): number | null => {
 	}
 };
 
-/** The done-gate verdict (W833): every test-pass claim needs a passing run
- *  before it, unchanged test-affecting files after that run, and a closing
+/** The done-gate verdict (W833): a test-pass claim needs a passing own run
+ *  by closure. A later run can correct an unsupported interim claim, but a
+ *  final capsule claim must follow its evidence. Test-affecting files must
+ *  remain unchanged after that run, and the closing
  *  diff free of suite erosion. Fails open on missing/unreadable evidence;
  *  SUSPENDERS_CLAIM_CHECK=0 disables. */
 export const claimCheckVerdict = (o: {
@@ -390,68 +455,49 @@ export const claimCheckVerdict = (o: {
 		? transcriptEventsFromText(text)
 		: { claims: [], runs: [] };
 	const now = o.now ?? Date.now();
-	if (o.capsuleDone && isClaim(o.capsuleDone))
+	const capsuleClaimsPass = !!o.capsuleDone && isClaim(o.capsuleDone);
+	if (capsuleClaimsPass)
 		claims.push({ ts: o.capsuleTs ?? now, text: o.capsuleDone });
 	if (!claims.length) return { ok: true };
 	claims.sort((a, b) => a.ts - b.ts);
 	runs.sort((a, b) => a.ts - b.ts);
-	let firstPassTs = 0;
-	for (const r of runs)
-		if (isPassingRun(r.text) && (firstPassTs === 0 || r.ts < firstPassTs))
-			firstPassTs = r.ts;
-	let ri = 0;
-	let seenRun = false;
-	let everPassed = false;
-	let lastBefore: { ts: number; pass: number; fail: number } | null = null;
+	const lastClaim = claims.at(-1);
+	if (!lastClaim) return { ok: true };
+	// The capsule is the final explicit claim. Otherwise work done is the
+	// closure boundary, allowing a later own run to correct interim prose.
+	const boundary = capsuleClaimsPass ? (o.capsuleTs ?? now) : now;
+	const lastRun = runs.filter((run) => run.ts <= boundary).at(-1);
+	const counts = lastRun ? runCounts(lastRun.text) : null;
 	let miss: { claim: ClaimEvent; why: string } | null = null;
-	for (const claim of claims) {
-		while (ri < runs.length && runs[ri].ts <= claim.ts) {
-			const c = runCounts(runs[ri].text);
-			if (c) {
-				seenRun = true;
-				lastBefore = { ts: runs[ri].ts, pass: c.pass, fail: c.fail };
-				if (c.pass > 0 && c.fail === 0) everPassed = true;
-			}
-			ri++;
-		}
-		if (everPassed) continue;
+	if (!counts || counts.pass === 0 || counts.fail > 0)
 		miss = {
-			claim,
-			why: !seenRun
+			claim: lastClaim,
+			why: !counts
 				? runs.length
 					? "every test run in the transcript is after the claim"
 					: "no test run found in the transcript"
-				: lastBefore && lastBefore.fail > 0
-					? `last run before the claim failed (${lastBefore.pass} pass / ${lastBefore.fail} fail${firstPassTs > claim.ts ? `, first passing run ${new Date(firstPassTs).toISOString()}` : ""})`
+				: counts.fail > 0
+					? `last run before the claim failed (${counts.pass} pass / ${counts.fail} fail)`
 					: "no passing run before the claim",
 		};
-		break;
-	}
 	if (!miss) {
-		const lastClaim = claims.at(-1);
-		if (lastClaim) {
-			let horizon = 0;
-			for (const r of runs) {
-				if (r.ts > lastClaim.ts) break;
-				if (isPassingRun(r.text) && r.ts > horizon) horizon = r.ts;
+		const horizon = lastRun?.ts ?? 0;
+		if (horizon > 0) {
+			const grace = o.graceMs ?? CLAIM_CHECK_GRACE_MS;
+			const root = o.statRoot ?? process.cwd();
+			const stale: string[] = [];
+			for (const p of o.paths.filter(testAffectingPath)) {
+				const m = statMtime(join(root, p));
+				if (m !== null && m > horizon + grace)
+					stale.push(
+						`${p} (modified ${new Date(m).toISOString()}, after run ${new Date(horizon).toISOString()} + ${Math.round(grace / 1000)}s grace)`,
+					);
 			}
-			if (horizon > 0) {
-				const grace = o.graceMs ?? CLAIM_CHECK_GRACE_MS;
-				const root = o.statRoot ?? process.cwd();
-				const stale: string[] = [];
-				for (const p of o.paths.filter(testAffectingPath)) {
-					const m = statMtime(join(root, p));
-					if (m !== null && m > horizon + grace)
-						stale.push(
-							`${p} (modified ${new Date(m).toISOString()}, after run ${new Date(horizon).toISOString()} + ${Math.round(grace / 1000)}s grace)`,
-						);
-				}
-				if (stale.length)
-					miss = {
-						claim: lastClaim,
-						why: `test-affecting files changed after the last passing run:\n  ${stale.join("\n  ")}\n  rerun the suite so the pass predates the changes`,
-					};
-			}
+			if (stale.length)
+				miss = {
+					claim: lastClaim,
+					why: `test-affecting files changed after the last passing run:\n  ${stale.join("\n  ")}\n  rerun the suite so the pass predates the changes`,
+				};
 		}
 	}
 	if (miss)

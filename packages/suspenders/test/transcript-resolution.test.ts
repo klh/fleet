@@ -105,6 +105,24 @@ test("the --claude-worktrees-<name> strip finds the main-encoded transcript", ()
 	).toBe(join(strippedDir, "sid-cc.jsonl"));
 });
 
+test("a Codex rollout resolves by the exact session ID", () => {
+	const home = join(root, "codex-home");
+	const sessions = join(home, ".codex/sessions/2026/10/19");
+	mkdirSync(sessions, { recursive: true });
+	const sid = "01a152cf-82a0-7a93-8730-9256694cfa67";
+	const rollout = join(sessions, `rollout-2026-10-19T08-18-13-${sid}.jsonl`);
+	writeFileSync(rollout, '{"type":"session_meta"}\n');
+	expect(
+		resolveTranscriptPath({ session_id: sid, cwd: root }, PROJECTS(home)),
+	).toBe(rollout);
+	expect(
+		resolveTranscriptPath(
+			{ session_id: "../../../other", cwd: root },
+			PROJECTS(home),
+		),
+	).toBeNull();
+});
+
 test("no candidate resolves to null (fail open)", () => {
 	expect(
 		resolveTranscriptPath(

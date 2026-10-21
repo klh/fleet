@@ -99,6 +99,43 @@ const orphanResult = (text: string, id: string, min: number): string =>
 		},
 	});
 
+const codexCall = (command: string, min: number): string => {
+	const id = `call_codex_${++tid}`;
+	return lineOf({
+		type: "response_item",
+		timestamp: iso(min),
+		payload: {
+			type: "custom_tool_call",
+			name: "exec",
+			call_id: id,
+			input: `const r=await tools.exec_command({cmd:${JSON.stringify(command)},workdir:"/repo"});text(r.output)`,
+		},
+	});
+};
+const codexResult = (text: string, min: number): string =>
+	lineOf({
+		type: "response_item",
+		timestamp: iso(min),
+		payload: {
+			type: "custom_tool_call_output",
+			call_id: `call_codex_${tid}`,
+			output: [
+				{ type: "input_text", text: "Script completed\nOutput:\n" },
+				{ type: "input_text", text },
+			],
+		},
+	});
+const codexSay = (text: string, min: number): string =>
+	lineOf({
+		type: "response_item",
+		timestamp: iso(min),
+		payload: {
+			type: "message",
+			role: "assistant",
+			content: [{ type: "output_text", text }],
+		},
+	});
+
 const v = (o: Partial<Parameters<typeof claimCheckVerdict>[0]> = {}) =>
 	claimCheckVerdict({ paths: [], diffText: "", disabled: false, ...o });
 
@@ -188,19 +225,97 @@ describe("ordering: the pass must predate the claim", () => {
 		expect(r.why).toContain("failed (2 pass / 2 fail)");
 	});
 
-	test("passing run only after the claim refuses", () => {
+	test("a passing run after closure cannot validate the claim", () => {
 		const r = v({
 			transcriptText: [
 				assistantSay("suite is green", -2),
 				toolResult(" 4 pass\n 0 fail", 5),
 			].join("\n"),
+			now: T0,
 		});
 		expect(r.ok).toBe(false);
 		expect(r.why).toContain("after the claim");
 	});
+
+	test("a later own passing run corrects an unsupported interim claim at closure", () => {
+		const r = v({
+			transcriptText: [
+				assistantSay("all tests pass", -10),
+				toolResult(" 7 pass\n 0 fail", -5),
+			].join("\n"),
+		});
+		expect(r.ok).toBe(true);
+	});
+
+	test("a later failed run does not validate an earlier unsupported claim", () => {
+		const r = v({
+			transcriptText: [
+				assistantSay("all tests pass", -10),
+				toolResult(" 2 pass\n 1 fail", -5),
+			].join("\n"),
+		});
+		expect(r.ok).toBe(false);
+		expect(r.why).toContain("failed (2 pass / 1 fail)");
+	});
+
+	test("a failed run after a pass invalidates the final claim", () => {
+		const r = v({
+			transcriptText: [
+				toolResult(" 7 pass\n 0 fail", -10),
+				toolResult(" 2 pass\n 1 fail", -5),
+				assistantSay("all tests pass", -2),
+			].join("\n"),
+		});
+		expect(r.ok).toBe(false);
+		expect(r.why).toContain("failed (2 pass / 1 fail)");
+	});
 });
 
 describe("origin: foreign noise never counts (W917)", () => {
+	test("Codex own exec_command test output corrects an interim claim", () => {
+		const transcriptText = [
+			codexSay("681 tests pass", -10),
+			codexCall("bun test packages/buckle/test/gov-metrics.test.ts", -6),
+			codexResult(" 7 pass\n 0 fail\nRan 7 tests across 1 file.", -5),
+		].join("\n");
+		const events = transcriptEventsFromText(transcriptText);
+		expect(events.claims).toHaveLength(1);
+		expect(events.runs).toHaveLength(1);
+		const r = v({ transcriptText });
+		expect(r.ok).toBe(true);
+	});
+
+	test("Codex relayed counts from a non-test command do not count", () => {
+		const r = v({
+			transcriptText: [
+				codexSay("all tests pass", -10),
+				codexCall("coord inbox --as sid", -6),
+				codexResult(" 681 pass\n 0 fail", -5),
+			].join("\n"),
+		});
+		expect(r.ok).toBe(false);
+		expect(r.why).toContain("no test run found");
+	});
+
+	test("Codex output without its initiating call is foreign", () => {
+		const r = v({
+			transcriptText: [
+				codexSay("all tests pass", -10),
+				codexResult(" 681 pass\n 0 fail", -5),
+			].join("\n"),
+		});
+		expect(r.ok).toBe(false);
+	});
+	test("foreign relayed pass after a false claim cannot correct it", () => {
+		const r = v({
+			transcriptText: [
+				assistantSay("all tests pass", -10),
+				orphanResult(" 681 pass\n 0 fail", "foreign_report", -5),
+			].join("\n"),
+		});
+		expect(r.ok).toBe(false);
+		expect(r.why).toContain("no test run found");
+	});
 	test("relayed counts in an unpaired tool_result never satisfy a claim", () => {
 		const r = v({
 			transcriptText: [
@@ -268,6 +383,18 @@ describe("origin: foreign noise never counts (W917)", () => {
 });
 
 describe("capsule claims", () => {
+	test("a final capsule claim remains refused until its own passing run", () => {
+		const r = v({
+			transcriptText: [
+				assistantSay("all tests pass", -10),
+				toolResult(" 7 pass\n 0 fail", 5),
+			].join("\n"),
+			capsuleDone: "all tests pass",
+			capsuleTs: Date.parse(iso(-2)),
+		});
+		expect(r.ok).toBe(false);
+		expect(r.why).toContain("after the claim");
+	});
 	test("capsule claim with no run refuses", () => {
 		const r = v({
 			transcriptText: "",
