@@ -44,20 +44,19 @@ gateway:
   # openai-dialect zai twin → Belt's local router. The router starts models
   # excluded by the current tier on demand and never re-enters this ladder.
   # fallback-drill.ts asserts the ladder every 4 min.
-  # W880 mirror rows (F3 gap): the twins themselves were bare — an address
-  # straight to a zai group died with z.ai. Twin → anthropic-dialect
-  # same-model rung → local router (cycle-safe: litellm bounds the twin walk
-  # with fallback_depth/max_fallbacks). The local router has no fallback
-  # back into this gateway. NEVER
+  # W880 mirror rows (F3 gap): direct zai groups still have a local rescue.
+  # The twin must never point back to glm: a reciprocal pair loops inside
+  # LiteLLM during an outage. The local router has no fallback into this
+  # gateway. NEVER
   # flashx — same upstream family saturates together, and flashx is too
   # expensive.
   fallbacks:
     glm-5.3-flash: [zai-glm-5.3-flash, local-swarm]
     glm-5.3: [zai-glm-5.3, local-swarm]
     glm-5.2: [zai-glm-5.2, local-swarm]
-    zai-glm-5.3-flash: [glm-5.3-flash, local-swarm]
-    zai-glm-5.3: [glm-5.3, local-swarm]
-    zai-glm-5.2: [glm-5.2, local-swarm]
+    zai-glm-5.3-flash: [local-swarm]
+    zai-glm-5.3: [local-swarm]
+    zai-glm-5.2: [local-swarm]
   # W880 (F3): rescue oversized requests that hard-400 on a small-context
   # specialist — the provider's context-window error retries on the
   # standard cloud group (big window, itself laddered to the local router).

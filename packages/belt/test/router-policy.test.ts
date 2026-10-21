@@ -36,9 +36,9 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 			"glm-5.3-flash": ["zai-glm-5.3-flash", "local-swarm"],
 			"glm-5.3": ["zai-glm-5.3", "local-swarm"],
 			"glm-5.2": ["zai-glm-5.2", "local-swarm"],
-			"zai-glm-5.3-flash": ["glm-5.3-flash", "local-swarm"],
-			"zai-glm-5.3": ["glm-5.3", "local-swarm"],
-			"zai-glm-5.2": ["glm-5.2", "local-swarm"],
+			"zai-glm-5.3-flash": ["local-swarm"],
+			"zai-glm-5.3": ["local-swarm"],
+			"zai-glm-5.2": ["local-swarm"],
 		});
 		expect(p.enable_pre_call_checks).toBe(true);
 		expect(p.context_window_fallbacks).toEqual({
@@ -63,11 +63,10 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		}
 	});
 
-	test("W880: zai twins reach the local router without a router loop", () => {
+	test("W880: zai twins reach the local router without reciprocal fallback", () => {
 		const f = loadGatewayPolicy(REPO_POLICY).fallbacks ?? {};
 		for (const twin of ["zai-glm-5.3-flash", "zai-glm-5.3", "zai-glm-5.2"]) {
-			const mirror = twin.replace(/^zai-/, "");
-			expect(f[twin]).toEqual([mirror, "local-swarm"]);
+			expect(f[twin]).toEqual(["local-swarm"]);
 		}
 		expect(f["local-swarm"]).toBeUndefined();
 	});

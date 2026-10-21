@@ -155,6 +155,31 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 		return { status: "failed", note: stable.refusal };
 	}
 	const repo = stable.repo;
+	// Read-only route gate must run from the pinned source checkout: the
+	// installed harness snapshot has no Buckle/Belt package closure. A failed
+	// graph or connect check blocks activation before any unit is rendered.
+	const routeGate = await execa(
+		process.execPath,
+		[join(repo, "scripts/route-preflight.ts")],
+		{ cwd: repo, reject: false },
+	);
+	if (routeGate.exitCode !== 0) {
+		let summary = routeGate.stderr?.trim() || "route preflight refused";
+		try {
+			const report = JSON.parse(routeGate.stdout) as {
+				findings?: unknown[];
+				probes?: Array<{ reachable: boolean }>;
+				drills?: Array<{ ok: boolean }>;
+			};
+			summary = `${report.findings?.length ?? 0} graph findings, ${report.probes?.filter((probe) => !probe.reachable).length ?? 0} unreachable hubs, ${report.drills?.filter((drill) => !drill.ok).length ?? 0} failed drills`;
+		} catch {
+			/* The CLI error already names the missing config or invalid source. */
+		}
+		return {
+			status: "failed",
+			note: `route preflight failed before activation: ${summary}`,
+		};
+	}
 	const home = process.env.HOME ?? "";
 	const agentsDir = join(home, "Library", "LaunchAgents");
 	const insightsDir = join(home, ".claude-insights");
