@@ -1146,6 +1146,33 @@ describe("lane key lifecycle (W463)", () => {
 				JSON.stringify({ sid, key_id: "deadbeefcafe", mintedAt: 1 }),
 			);
 			writeFileSync(settingsPath, "{}");
+			const env = {
+				SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${stub.port}`,
+				SUSPENDERS_BELT_ENV: join(HOME, "belt.env"),
+			};
+			const refused = await toolA(env, "worktree.ts", "retire", id);
+			expect(refused.code).toBe(4);
+			expect(existsSync(metaPath)).toBe(true);
+			expect(stub.calls.some((c) => c.includes("/revoke"))).toBe(false);
+			const revision = JSON.parse(
+				(await toolA({}, "work.ts", "show", id, "--json")).out,
+			).updated_at as number;
+			const prepared = await toolA(
+				env,
+				"worktree.ts",
+				"retire",
+				id,
+				"--expect-owner",
+				sid,
+				"--expect-updated-at",
+				String(revision),
+			);
+			expect(prepared.code).toBe(0);
+			expect(existsSync(metaPath)).toBe(true);
+			expect(stub.calls.some((c) => c.includes("/revoke"))).toBe(false);
+			expect(
+				(await toolA({}, "work.ts", "release", id, "--as", sid)).code,
+			).toBe(0);
 			const out = await toolA(
 				{
 					SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${stub.port}`,

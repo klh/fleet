@@ -244,8 +244,11 @@ export { residueOf };
 
 // W349: retire+recreate a wrong-branch leftover — hoisted to lib/lane.ts
 // (W911 1500-law decomposition).
-const recreateWorktree = (item: string): string | null =>
-	recreateWorktreeFor(item, BIN);
+const recreateWorktree = (
+	item: string,
+	owner: string,
+	revision: number,
+): string | null => recreateWorktreeFor(item, BIN, owner, revision);
 // W629 DRY: the execPath+CLI prefix builders hoisted to lib/lane.ts (W911
 // 1500-law decomposition); call sites pass the verb tail (rest params fold
 // the conditional spreads several sites carry).
@@ -748,7 +751,7 @@ const dispatchItem = async (
 				);
 				return null;
 			}
-			const skip = recreateWorktree(item);
+			const skip = recreateWorktree(item, sid, claimRevision);
 			if (skip) {
 				console.log(skip);
 				return null;
