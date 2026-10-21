@@ -48,10 +48,31 @@ describe("route preflight before activation", () => {
 				new URL("./route-preflight.ts", import.meta.url).pathname,
 				"--help",
 			],
-			{ env: { ...process.env, KLH_STACK_CONFIG: "/missing/stack.yaml" } },
+			{ env: { ...process.env, KLH_STACK: "/missing/stack.yaml" } },
 		);
 		expect(command.exitCode).toBe(0);
 		expect(command.stdout.toString()).toContain("--static");
+	});
+
+	test("uses the same KLH_STACK path as hubctl when conflicting overrides exist", () => {
+		const command = Bun.spawnSync(
+			[
+				process.execPath,
+				new URL("./route-preflight.ts", import.meta.url).pathname,
+				"--static",
+			],
+			{
+				env: {
+					...process.env,
+					KLH_STACK: "/missing/canonical-stack.yaml",
+					KLH_STACK_CONFIG: "/dev/null",
+				},
+			},
+		);
+		expect(command.exitCode).toBe(1);
+		expect(command.stderr.toString()).toContain(
+			"/missing/canonical-stack.yaml",
+		);
 	});
 
 	test("a mapped, reachable peer and both synthetic refusal paths pass", async () => {

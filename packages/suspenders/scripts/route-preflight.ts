@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { YAML } from "bun";
 import { SPECIALISTS } from "../../belt/bin/registry.ts";
+import { STACK_PATH } from "../hooks/lib/stack-config.ts";
 import { runForcedFailoverDrill } from "../../buckle/src/forced-failover-drill.ts";
 import {
 	loadGatewayPolicy,
@@ -222,10 +223,7 @@ export async function machineRoutePreflight(
 	options: { probeHubs?: boolean } = {},
 ): Promise<RoutePreflightResult> {
 	const home = homedir();
-	const stackPath =
-		process.env.KLH_STACK_CONFIG ??
-		process.env.KLH_STACK ??
-		join(home, ".config/klh/stack.yaml");
+	const stackPath = STACK_PATH();
 	const llm = join(home, ".claude/local-llm");
 	const upstreamPath =
 		process.env.BUCKLE_UPSTREAMS ?? join(llm, "upstreams.yaml");
