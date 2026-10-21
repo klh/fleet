@@ -328,9 +328,16 @@ export async function catalogFor(
 	machine: RemoteMachine,
 	ep: RemoteEndpoint,
 ): Promise<string[]> {
-	if (ep.protocol === "immich") return [];
+	return (await catalogEvidenceFor(machine, ep)).models;
+}
+
+export async function catalogEvidenceFor(
+	machine: RemoteMachine,
+	ep: RemoteEndpoint,
+): Promise<{ models: string[]; servedBy?: "belt" }> {
+	if (ep.protocol === "immich") return { models: [] };
 	const url = endpointUrl(machine, ep, ep.base ? "/models" : "/v1/models");
-	if (!url) return [];
+	if (!url) return { models: [] };
 	const headers: Record<string, string> = {};
 	const key = endpointKey(ep);
 	if (key) headers.authorization = `Bearer ${key}`;
@@ -339,14 +346,17 @@ export async function catalogFor(
 			headers,
 			signal: AbortSignal.timeout(4000),
 		});
-		if (!r.ok) return [];
+		if (!r.ok) return { models: [] };
 		const j = (await r.json()) as { data?: { id?: unknown }[] };
 		const ids = (Array.isArray(j.data) ? j.data : [])
 			.map((d) => (typeof d?.id === "string" ? d.id : ""))
 			.filter((id) => validModel(id));
-		return [...new Set(ids)];
+		return {
+			models: [...new Set(ids)],
+			servedBy: r.headers.get("x-klh-hop") === "belt" ? "belt" : undefined,
+		};
 	} catch {
-		return [];
+		return { models: [] };
 	}
 }
 
@@ -394,6 +404,7 @@ export interface CheckRow {
 	roles: string[];
 	model?: string;
 	models?: string[]; // W224 — live /v1/models catalog; absent when the fetch fails or adds nothing
+	servedBy?: "belt"; // Attested by live catalog response header, never inferred from config
 	ok: boolean;
 	ms: number;
 	ip?: string;
@@ -411,7 +422,9 @@ export async function checkAll(): Promise<CheckRow[]> {
 			noteLiveness(m.name, ep.port, ok, reason);
 			// W224 — catalog on live endpoints only: a dead one already paid the
 			// probe timeout, a second /v1/models fetch would double it
-			const models = ok ? await catalogFor(m, ep) : [];
+			const catalog = ok
+				? await catalogEvidenceFor(m, ep)
+				: { models: [] as string[], servedBy: undefined };
 			const st = stateFor(m.name);
 			rows.push({
 				machine: m.name,
@@ -420,7 +433,8 @@ export async function checkAll(): Promise<CheckRow[]> {
 				protocol: ep.protocol,
 				roles: ep.roles,
 				model: ep.model,
-				...(models.length ? { models } : {}),
+				...(catalog.models.length ? { models: catalog.models } : {}),
+				...(catalog.servedBy ? { servedBy: catalog.servedBy } : {}),
 				ok,
 				...(reason ? { reason } : {}),
 				ms: Date.now() - t0,

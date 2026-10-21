@@ -173,6 +173,21 @@ function renderEnv(
 	kv("HUB_STORE_PORT", hub.store_port);
 	kv("HUB_BELT_BIND", hub.belt_bind);
 	kv("HUB_BELT_PORT", hub.belt_port);
+	if (hub.belt_model) {
+		const upstream = new URL(hub.belt_model.upstream);
+		if (
+			!["http:", "https:"].includes(upstream.protocol) ||
+			upstream.username ||
+			upstream.password
+		)
+			throw new Error(
+				"belt_model.upstream must be an HTTP URL without credentials",
+			);
+		kv("COMPOSE_PROFILES", "belt-model");
+		kv("HUB_BELT_MODEL_PORT", hub.belt_model.port);
+		kv("HUB_BELT_MODEL_HEALTH_PORT", hub.belt_model.health_port);
+		kv("HUB_BELT_MODEL_UPSTREAM", upstream.href.replace(/\/$/, ""));
+	}
 	// health sidecar ports (W422.10) — compose health hits the SIDECAR
 	kv("HUB_BUCKLE_HEALTH_PORT", hub.buckle_health_port);
 	kv("HUB_BOARD_HEALTH_PORT", hub.board_health_port);
@@ -580,6 +595,15 @@ function status(hub: HubProfile): number {
 		["board-health", hub.board_health_port ?? 7800, "/healthz"],
 		["store-health", hub.store_health_port ?? 7794, "/healthz"],
 		["belt-health", hub.belt_health_port ?? 7790, "/healthz"],
+		...(hub.belt_model
+			? [
+					["belt-model-health", hub.belt_model.health_port, "/healthz"] as [
+						string,
+						number,
+						string,
+					],
+				]
+			: []),
 		["model-store-health", hub.model_store_health_port ?? 7793, "/healthz"],
 		// W854: the mdns-health sidecar's verdict port
 		["mdns-health", hub.mdns?.sidecar_port ?? 4115, "/healthz"],
