@@ -69,7 +69,9 @@ export async function boardFixture(
 	// guards. The stub never spawns (validation tests exit before dispatch).
 	const agentBin = join(HOME, ".local", "bin");
 	mkdirSync(agentBin, { recursive: true });
-	writeFileSync(join(agentBin, "claude"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+	writeFileSync(join(agentBin, "claude"), "#!/bin/sh\nexit 0\n", {
+		mode: 0o755,
+	});
 	const REPO = mkdtempSync(join(tmpdir(), "suspenders-boardrepo-"));
 	mkdirSync(join(REPO, ".git"), { recursive: true });
 	// W55: a REAL git repo for the diff endpoint (REPO's .git is an empty dir)
@@ -190,10 +192,50 @@ export async function boardFixture(
 		return row.id;
 	}
 
-	const proc = Bun.spawn(
-		["bun", join(bin, "fleet-board.ts"), "--port", String(PORT)],
-		{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
-	);
+	// Keep a test-only guardian between the runner and board. If the runner is
+	// killed before afterAll, the guardian observes its changed parent PID and
+	// stops exactly the board it spawned. Normal teardown still kills `proc`.
+	const guardian = `
+		import { rmSync } from "node:fs";
+		const parentPid = ${process.pid};
+		const board = Bun.spawn(${JSON.stringify([
+			"bun",
+			join(bin, "fleet-board.ts"),
+			"--port",
+			String(PORT),
+		])}, {
+			cwd: process.cwd(), env: process.env, stdout: "inherit", stderr: "inherit"
+		});
+		let stopping = false;
+		let orphaned = false;
+		const stop = () => {
+			if (stopping) return;
+			stopping = true;
+			board.kill();
+		};
+		process.on("SIGTERM", stop);
+		process.on("SIGINT", stop);
+		const watch = setInterval(() => {
+			if (process.ppid !== parentPid) {
+				orphaned = true;
+				stop();
+			}
+		}, 100);
+		const code = await board.exited;
+		clearInterval(watch);
+		if (orphaned) {
+			for (const path of ${JSON.stringify([HOME, REPO, GREPO])}) {
+				rmSync(path, { recursive: true, force: true });
+			}
+		}
+		process.exit(code);
+	`;
+	const proc = Bun.spawn(["bun", "-e", guardian], {
+		cwd: REPO,
+		env,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
 	// Register cleanup before awaiting startup so failed fixtures cannot leak
 	// processes. Drain output continuously to avoid a full pipe blocking them.
 	let output = "";
