@@ -8,7 +8,6 @@ import { join } from "node:path";
 import {
 	createMaintenanceSweep,
 	isDue,
-	MAINTENANCE_TASKS,
 	missingRunners,
 	readStamps,
 	suspendersRoot,
@@ -19,7 +18,12 @@ const stampsPath = join(tmp, "stamps.json");
 
 describe("maintenance due logic (W779)", () => {
 	test("interval: never-ran is due, inside cadence is not, boundary is", () => {
-		const t = { name: "t", everySeconds: 900, timeoutMs: 1000, argv: () => ["x"] };
+		const t = {
+			name: "t",
+			everySeconds: 900,
+			timeoutMs: 1000,
+			argv: () => ["x"],
+		};
 		expect(isDue(t, undefined, 1_000_000)).toBe(true);
 		expect(isDue(t, 1_000_000 - 899_999, 1_000_000)).toBe(false);
 		expect(isDue(t, 1_000_000 - 900_000, 1_000_000)).toBe(true);
@@ -40,7 +44,13 @@ describe("calendar due logic (W779)", () => {
 		argv: () => ["x"],
 	};
 	const day = new Date(2026, 9, 18);
-	const fire = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 10, 0).getTime();
+	const fire = new Date(
+		day.getFullYear(),
+		day.getMonth(),
+		day.getDate(),
+		10,
+		0,
+	).getTime();
 	const nowEarly = fire - 60_000;
 	const nowMid = fire + 60_000;
 	test("calendar: due only at/after the local fire instant", () => {
@@ -79,7 +89,7 @@ describe("maintenance sweep (W779)", () => {
 	test("attempt-stamps before the child runs; cmd = bun + runner argv", () => {
 		rmSync(stampsPath, { force: true });
 		const seen: string[] = [];
-		const sweep = createMaintenanceSweep(deps, {
+		const { maintenanceSweep: sweep } = createMaintenanceSweep(deps, {
 			tasks: [mkTask("a")],
 			stampsPath,
 			spawn: (cmd, opts) => {
@@ -96,7 +106,7 @@ describe("maintenance sweep (W779)", () => {
 	});
 	test("fail-isolated: spawn throw never takes the sweep down", () => {
 		rmSync(stampsPath, { force: true });
-		const sweep = createMaintenanceSweep(deps, {
+		const { maintenanceSweep: sweep } = createMaintenanceSweep(deps, {
 			tasks: [mkTask("a"), mkTask("b")],
 			stampsPath,
 			spawn: (cmd) => {
@@ -108,11 +118,22 @@ describe("maintenance sweep (W779)", () => {
 		expect(r.failed).toEqual(["a", "b"]);
 		expect(r.ran).toEqual([]);
 	});
+	test("smoke: factory returns { maintenanceSweep } — destructurable, callable once (W1083)", () => {
+		const { maintenanceSweep } = createMaintenanceSweep(deps, {
+			tasks: [],
+			stampsPath,
+			spawn: () => {
+				throw new Error("must not spawn");
+			},
+		});
+		expect(typeof maintenanceSweep).toBe("function");
+		expect(maintenanceSweep()).toEqual({ ran: [], failed: [], skipped: 0 });
+	});
 	test("SUSPENDERS_MAINTENANCE=0 disables the sweep entirely", () => {
 		const prev = process.env.SUSPENDERS_MAINTENANCE;
 		process.env.SUSPENDERS_MAINTENANCE = "0";
 		try {
-			const sweep = createMaintenanceSweep(deps, {
+			const { maintenanceSweep: sweep } = createMaintenanceSweep(deps, {
 				tasks: [mkTask("a")],
 				stampsPath,
 				spawn: () => {
@@ -123,7 +144,7 @@ describe("maintenance sweep (W779)", () => {
 			expect(r).toEqual({ ran: [], failed: [], skipped: 1 });
 		} finally {
 			if (prev === undefined) delete process.env.SUSPENDERS_MAINTENANCE;
-		 else process.env.SUSPENDERS_MAINTENANCE = prev;
+			else process.env.SUSPENDERS_MAINTENANCE = prev;
 		}
 	});
 	test("registry guard: every folded runner resolves at the package root", () => {

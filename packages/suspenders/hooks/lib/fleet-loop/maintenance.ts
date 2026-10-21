@@ -358,13 +358,13 @@ export function createMaintenanceSweep(
 		spawn?: SpawnFn;
 		now?: () => number;
 	},
-): () => SweepResult {
+): { maintenanceSweep: () => SweepResult } {
 	const tasks = overrides?.tasks ?? MAINTENANCE_TASKS;
 	const stampsPath = overrides?.stampsPath ?? maintenanceStampsPath();
 	const spawn = overrides?.spawn ?? defaultSpawn;
 	const now = overrides?.now ?? (() => Date.now());
 	const root = suspendersRoot();
-	return (): SweepResult => {
+	const sweep = (): SweepResult => {
 		if (process.env.SUSPENDERS_MAINTENANCE === "0")
 			return { ran: [], failed: [], skipped: tasks.length };
 		const stamps = readStamps(stampsPath);
@@ -406,6 +406,7 @@ export function createMaintenanceSweep(
 		}
 		return result;
 	};
+	return { maintenanceSweep: sweep };
 }
 
 // task-runner existence check — a folded runner must resolve at the root,
