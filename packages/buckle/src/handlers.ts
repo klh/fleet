@@ -597,40 +597,50 @@ function finishResponse(
 	const ok =
 		result.kind === "upstream" ||
 		(result.kind === "client-error" && !rateLimited);
-	deps.table.inflight(sel.head.candidate_id, -1);
-	if (result.kind === "upstream" && result.stream) {
-		// the slot rides the whole stream drain — streamResponse's finish
-		// releases it when the client branch settles (the RPC is still live)
-	} else {
+	const streaming =
+		result.kind === "upstream" && result.stream && !!result.response.body;
+	if (!streaming) {
+		deps.table.inflight(sel.head.candidate_id, -1);
 		ctx.slot?.();
 	}
 	const winner =
 		result.kind === "upstream" ? result.candidateId : sel.head.candidate_id;
-	deps.table.recordOutcome(winner, ms, result.kind === "upstream");
+	if (!streaming)
+		deps.table.recordOutcome(winner, ms, result.kind === "upstream");
 	// W237: the delivered candidate owns this prefix for the TTL window.
-	if (result.kind === "upstream" && ctx.affKey && deps.affinity && affinityOn())
+	if (
+		result.kind === "upstream" &&
+		!streaming &&
+		ctx.affKey &&
+		deps.affinity &&
+		affinityOn()
+	)
 		deps.affinity.bind(ctx.affKey, result.candidateId);
-	deps.ledger.auditOutcome(ctx.rid, {
-		status: resp.status,
-		duration_ms: ms,
-		ok,
-		// W824: the ladder walk length at settle (null on aborted walks —
-		// the union kind without an attempts field).
-		attempts: result.kind === "aborted" ? null : result.attempts,
-		err: rateLimited
-			? "rate_limited"
-			: result.kind === "exhausted"
-				? result.error
-				: null,
-		...(rateLimited ? { decision: "errored", error_code: "rate_limited" } : {}),
-	});
-	deps.sm
-		.counter("buckle_route_decisions_total", "Routing decisions.")
-		.inc({ decision, dialect: ctx.dialect });
+	if (!streaming)
+		deps.ledger.auditOutcome(ctx.rid, {
+			status: resp.status,
+			duration_ms: ms,
+			ok,
+			// W824: the ladder walk length at settle (null on aborted walks —
+			// the union kind without an attempts field).
+			attempts: result.kind === "aborted" ? null : result.attempts,
+			err: rateLimited
+				? "rate_limited"
+				: result.kind === "exhausted"
+					? result.error
+					: null,
+			...(rateLimited
+				? { decision: "errored", error_code: "rate_limited" }
+				: {}),
+		});
+	if (!streaming)
+		deps.sm
+			.counter("buckle_route_decisions_total", "Routing decisions.")
+			.inc({ decision, dialect: ctx.dialect });
 	// W461 stage 2: ended — the request settled (attempts/status on the
 	// delivered outcome; streams that outlive this stay open-ended until
 	// drain reconciliation, never faked as ended).
-	if (ctx.admitted)
+	if (ctx.admitted && !streaming)
 		observe(deps, ctx, "lane.request.ended", {
 			outcome: decision,
 			status: resp.status,
@@ -723,6 +733,7 @@ function streamResponse(
 	const sniffer = new SseSniffer(ctx.dialect);
 	const [sniffBranch, clientBranch] = upstream.body.tee();
 	const downstream = new TransformStream<Uint8Array, Uint8Array>();
+	let streamFailed = false;
 	const finish = once(() => {
 		sniffer.flush();
 		record(
@@ -732,6 +743,37 @@ function streamResponse(
 			sniffer.cacheReported(),
 			sniffer.cacheWriteReported(),
 		);
+		const selected = ctx.sel?.head.candidate_id;
+		const decision = streamFailed
+			? "errored"
+			: result.candidateId === selected
+				? (ctx.sel?.decision ?? "errored")
+				: "fallback";
+		const success = !streamFailed;
+		const duration = Date.now() - ctx.t0;
+		if (selected) deps.table.inflight(selected, -1);
+		deps.table.recordOutcome(result.candidateId, duration, success);
+		if (success && ctx.affKey && deps.affinity && affinityOn())
+			deps.affinity.bind(ctx.affKey, result.candidateId);
+		deps.ledger.auditOutcome(ctx.rid, {
+			// Headers have already been sent; ok/error_code carry the later
+			// stream failure without pretending the HTTP status was 502.
+			status: 200,
+			duration_ms: duration,
+			ok: success,
+			attempts: result.attempts,
+			err: success ? null : "stream_failed",
+			...(success ? {} : { decision: "errored", error_code: "stream_failed" }),
+		});
+		deps.sm
+			.counter("buckle_route_decisions_total", "Routing decisions.")
+			.inc({ decision, dialect: ctx.dialect });
+		if (ctx.admitted)
+			observe(deps, ctx, "lane.request.ended", {
+				outcome: decision,
+				status: 200,
+				attempts: result.attempts,
+			});
 		ctx.slot?.(); // W450: the drain settled — the upstream slot frees
 	});
 	sniffBranch.pipeTo(blackHole(sniffer)).catch(() => {
@@ -754,10 +796,13 @@ function streamResponse(
 					}),
 				)
 			: clientBranch;
-	sanitized.pipeTo(downstream.writable).then(finish, (err: unknown) => {
-		finish();
-		writeErrorEvent(downstream.writable, ctx.dialect, err);
-	});
+	sanitized
+		.pipeTo(downstream.writable, { preventAbort: true })
+		.then(finish, (err: unknown) => {
+			streamFailed = true;
+			finish();
+			writeErrorEvent(downstream.writable, ctx.dialect, err);
+		});
 	return new Response(downstream.readable, {
 		status: 200,
 		headers: SSE_HEADERS(upstream.headers),
