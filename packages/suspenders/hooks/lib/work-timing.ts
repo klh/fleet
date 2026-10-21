@@ -5,6 +5,7 @@
 // json_extract scan the DuckDB-2.0 finding measured is gone.
 import type { Database } from "bun:sqlite";
 import { readFileSync, statSync } from "node:fs";
+import { type DoneSpend, spendFromDonePayload } from "./lane-done-spend.ts";
 
 // W15 — lane-level wall-time metric. Per-item claim→done is distorted when a
 // lane works items back-to-back (serialized multi-claims), so replay the Work
@@ -26,6 +27,9 @@ export interface ItemTiming {
 	// W909: the lane's effort level, stamped into the work.done payload by
 	// `work done` (lib/lane-effort.ts); last done event wins.
 	effort?: string;
+	// W1070: the closing session's self-reported spend (lib/lane-done-spend.ts)
+	// for subagent-run work with no attributable ledger rows.
+	spend?: DoneSpend;
 }
 
 // W682 — the claim-replay event shape: callers that batch the bus read for
@@ -87,13 +91,15 @@ export function workTiming(
 	for (const r of rows) {
 		let work = "";
 		let effort: string | undefined;
+		let spend: DoneSpend | undefined;
 		try {
 			const p = JSON.parse(r.payload ?? "{}") as {
 				work?: string;
 				effort?: string;
-			};
+			} & Parameters<typeof spendFromDonePayload>[0];
 			work = p.work ?? "";
 			effort = p.effort;
+			if (r.kind === "work.done") spend = spendFromDonePayload(p) ?? undefined;
 		} catch {}
 		if (!work) continue;
 		const t = item(work);
@@ -111,6 +117,7 @@ export function workTiming(
 			if (r.kind === "work.done") {
 				t.done = true;
 				if (effort) t.effort = effort;
+				if (spend) t.spend = spend;
 			}
 			if (r.kind === "work.failed") t.failed = true;
 			t.lastEvent = r.ts;

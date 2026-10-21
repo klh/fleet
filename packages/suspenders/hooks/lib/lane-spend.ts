@@ -373,11 +373,19 @@ export function itemAttribution(
 	for (const work of works) {
 		const t = timing.get(work);
 		const s = spend.get(work);
+		// W1070 fallback: session-subagent work leaves no router_usage rows (no
+		// per-lane key) — when the ledger attributes nothing, the closing
+		// session's self-reported spend (work.done payload, lib/lane-done-spend.ts)
+		// stands in so TOKENS/CACHE/MODEL don't dash out.
+		const ds =
+			(s?.in ?? 0) + (s?.cacheR ?? 0) + (s?.cacheC ?? 0) + (s?.out ?? 0) <= 0
+				? t?.spend
+				: undefined;
 		out.set(work, {
 			work,
-			fresh: s?.in ?? 0,
-			cached: (s?.cacheR ?? 0) + (s?.cacheC ?? 0),
-			out: s?.out ?? 0,
+			fresh: ds ? ds.fresh : (s?.in ?? 0),
+			cached: ds ? ds.cached : (s?.cacheR ?? 0) + (s?.cacheC ?? 0),
+			out: ds ? ds.out : (s?.out ?? 0),
 			requests: s?.requests ?? 0,
 			wallMs: t?.wallMs ?? 0,
 			agentMs: t?.agentMs ?? 0,
@@ -385,7 +393,19 @@ export function itemAttribution(
 			blindCache:
 				(s?.firstBucket != null && s.firstBucket < cacheEraFixBucket()) ||
 				false,
-			groups: Object.fromEntries(s?.groups ?? []),
+			groups: ds
+				? ds.model
+					? {
+							[ds.model]: {
+								in: ds.fresh,
+								out: ds.out,
+								cacheR: ds.cached,
+								cacheC: 0,
+								requests: 0,
+							},
+						}
+					: {}
+				: Object.fromEntries(s?.groups ?? []),
 		});
 	}
 	return out;
