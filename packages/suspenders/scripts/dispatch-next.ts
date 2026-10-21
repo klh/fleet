@@ -130,11 +130,7 @@ import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import { execPick, posturePreference } from "./lib/exec-chain.ts";
 import { fleetReport } from "./lib/fleet-report.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
-import {
-	dispatchStarterFork,
-	type StarterSeedFailure,
-	starterStartLine,
-} from "./lib/lane-starter.ts";
+import { dispatchStarterFork, starterStartLine } from "./lib/lane-starter.ts";
 import {
 	activeRateLimitWalls,
 	parkExhaustedLaunch,
@@ -170,7 +166,11 @@ import { verdictRepeatGate } from "./lib/verdict-repeat-gate.ts";
 
 export { capabilityGate, isOwnerGated, parseReady };
 
-import { parseCapsuleGet } from "./lib/dispatch-admission.ts";
+import {
+	RouteAdmission,
+	parseCapsuleGet,
+	type DispatchLane as Lane,
+} from "./lib/dispatch-admission.ts";
 import {
 	composeDispatchBrief,
 	dryDispatchPreview,
@@ -322,6 +322,11 @@ const launchWaits: string[] = [];
 // W695.1: seed-failure fallbacks — dispatched cold because the starter seed
 // failed. Surfaced in the final summary line and carried on the registry row.
 const seedFallbacks: string[] = [];
+const routeAdmission = new RouteAdmission(
+	!DRY && !NO_BELT,
+	probeBuckleFront,
+	adminKey,
+);
 
 // .prefer routing errors are loud; valid soft and reserved rules ride the brief.
 const routingExtra = (): string[] => {
@@ -331,23 +336,6 @@ const routingExtra = (): string[] => {
 // W622 retake knob helpers live in scripts/lib/resume-from.ts (1500-line
 // law): decisionFor resolves the operator's --resume-from against the
 // lane-registry resume candidate; resumeBriefLine renders the disclosure.
-
-type Lane = {
-	sid: string;
-	item: string;
-	pid: number;
-	branch: string;
-	worktree: string;
-	agent?: string;
-	host?: string;
-	hub?: string;
-	slab?: string;
-	launchedAt: number;
-	attempt?: number;
-	/** W695.1: set when the lane was dispatched on a COLD-START fallback after
-	 *  a starter-seed failure — exit code, stderr tail, phase, preflight. */
-	seedError?: StarterSeedFailure;
-};
 
 // lane liveness is THE plane's verdict (2026-10-05) — hoisted to lib/lane.ts
 // (W911 1500-law decomposition); the wrapper binds the CLI builders + dir.
@@ -675,6 +663,13 @@ const dispatchItem = async (
 			}
 			routeName = pd.routeName;
 			if (pd.note) console.log(`NOTE — ${pd.note}`);
+		}
+		const route = await routeAdmission.check(pick.model);
+		if (route.pause) {
+			console.log(
+				`WAIT ${item} — ${pick.model} has ${route.failures} recent, exactly attributed Buckle internal refusals; retry after audit window`,
+			);
+			return null;
 		}
 		const take = run(
 			workCli("take", item, "--as", sid, "--origin", `${hostname()}:claude`),

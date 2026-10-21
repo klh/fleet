@@ -1,0 +1,136 @@
+import { expect, test } from "bun:test";
+import {
+	assessBuckleRoute,
+	fetchBuckleRouteAudit,
+	RouteAdmission,
+} from "../scripts/lib/dispatch-admission.ts";
+
+const now = Date.parse("2026-10-21T12:00:00.000Z");
+const row = (ageMs: number, overrides: Record<string, unknown> = {}) => ({
+	ts: new Date(now - ageMs).toISOString(),
+	traffic_kind: "inference",
+	hop: "origin",
+	target_model: "glm-5.3-flash",
+	target_kind: "local",
+	target_host: "127.0.0.1",
+	target_port: 4000,
+	candidates_seen: 1,
+	status: 502,
+	ok: 0,
+	error_code: "no_route",
+	attempts: 0,
+	...overrides,
+});
+
+test("three exact internal failures pause only the selected model", () => {
+	const rows = [row(1_000), row(2_000), row(3_000)];
+	expect(assessBuckleRoute(rows, "glm-5.3-flash", now)).toEqual({
+		pause: true,
+		failures: 3,
+	});
+	expect(assessBuckleRoute(rows, "claude-sonnet-5", now).pause).toBe(false);
+});
+
+test("bare 429, upstream 503, mixed candidates and unattributed failures never pause", () => {
+	for (const override of [
+		{ status: 429, error_code: "rate_limited" },
+		{ status: 503, error_code: "no_route", attempts: 1 },
+		{ candidates_seen: 2 },
+		{ target_host: null },
+		{ target_host: "" },
+		{ traffic_kind: "readiness" },
+		{ hop: "forwarded" },
+	]) {
+		expect(
+			assessBuckleRoute(
+				[row(1_000, override), row(2_000, override), row(3_000, override)],
+				"glm-5.3-flash",
+				now,
+			).pause,
+		).toBe(false);
+	}
+});
+
+test("later success clears, stale failures expire, alternate targets stay unknown", () => {
+	expect(
+		assessBuckleRoute(
+			[
+				row(500, { status: 200, ok: 1, error_code: null }),
+				row(1_000),
+				row(2_000),
+				row(3_000),
+			],
+			"glm-5.3-flash",
+			now,
+		).pause,
+	).toBe(false);
+	expect(
+		assessBuckleRoute(
+			[row(91_000), row(92_000), row(93_000)],
+			"glm-5.3-flash",
+			now,
+		).pause,
+	).toBe(false);
+	expect(
+		assessBuckleRoute(
+			[row(1_000), row(2_000), row(3_000), row(4_000, { target_port: 4100 })],
+			"glm-5.3-flash",
+			now,
+		).pause,
+	).toBe(false);
+});
+
+test("audit fetch is authenticated, bounded and rejects missing evidence", async () => {
+	const seen: string[] = [];
+	const server = Bun.serve({
+		port: 0,
+		fetch: (request) => {
+			seen.push(new URL(request.url).pathname);
+			if (request.headers.get("authorization") !== "Bearer fixture-admin")
+				return new Response(null, { status: 401 });
+			return Response.json({ requests: [row(1_000)] });
+		},
+	});
+	try {
+		const front = `http://127.0.0.1:${server.port}`;
+		expect(
+			await fetchBuckleRouteAudit(front, null, "glm-5.3-flash", now),
+		).toBeNull();
+		expect(
+			await fetchBuckleRouteAudit(front, "fixture-admin", "glm-5.3-flash", now),
+		).toHaveLength(1);
+		expect(seen).toEqual(["/v1/admin/requests"]);
+	} finally {
+		server.stop(true);
+	}
+});
+
+test("one audit read per selected model, with no read for an unpinned lane", async () => {
+	let reads = 0;
+	const server = Bun.serve({
+		port: 0,
+		fetch: (request) => {
+			reads++;
+			return Response.json({
+				requests: [row(1_000), row(2_000), row(3_000)].map((r) => ({
+					...r,
+					ts: new Date(Date.now() - 1_000).toISOString(),
+				})),
+			});
+		},
+	});
+	try {
+		const admission = new RouteAdmission(
+			true,
+			async () => `http://127.0.0.1:${server.port}`,
+			() => "fixture-admin",
+		);
+		expect((await admission.check(null)).pause).toBe(false);
+		expect(reads).toBe(0);
+		expect((await admission.check("glm-5.3-flash")).pause).toBe(true);
+		expect((await admission.check("glm-5.3-flash")).pause).toBe(true);
+		expect(reads).toBe(1);
+	} finally {
+		server.stop(true);
+	}
+});
