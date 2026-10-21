@@ -28,6 +28,35 @@ import {
 import type { StepContext, StepResult } from "./install-run.ts";
 import { loadLegacyLabels } from "./install-services.ts";
 
+/** Drop per-user launchctl values before loading a unit that sources an
+ * authoritative envFile. Never log getenv output: one value may be a key. */
+type LaunchctlEnvRunner = (
+	command: string,
+	args: string[],
+) => Promise<{ exitCode: number | undefined; stdout: string }>;
+
+export async function clearInheritedLaunchctlEnv(
+	names: string[],
+	run: LaunchctlEnvRunner = (command, args) =>
+		execa(command, args, {
+			reject: false,
+			stdout: "pipe",
+			stderr: "pipe",
+		}),
+): Promise<boolean> {
+	for (const name of names) {
+		if (!/^[A-Z_][A-Z0-9_]*$/.test(name)) return false;
+		const before = await run("/bin/launchctl", ["getenv", name]);
+		if (before.exitCode !== 0) return false;
+		if (!before.stdout.trim()) continue;
+		const clear = await run("/bin/launchctl", ["unsetenv", name]);
+		if (clear.exitCode !== 0) return false;
+		const after = await run("/bin/launchctl", ["getenv", name]);
+		if (after.exitCode !== 0 || after.stdout.trim()) return false;
+	}
+	return true;
+}
+
 // supersede the pre-namespacing agent labels so old and new never run side by
 // side (same jobs, stale script paths, double keepwarm/monitor pings).
 // W284/W640/W779 history: the retired set is DATA now — deploy/services.yaml
@@ -231,7 +260,12 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 		{ cwd: repo, stderr: "inherit" },
 	);
 	const rendered = JSON.parse(res.stdout) as {
-		services: Array<{ service: string; files: string[]; port?: number }>;
+		services: Array<{
+			service: string;
+			files: string[];
+			port?: number;
+			clearInheritedEnv?: string[];
+		}>;
 	};
 	const plists = rendered.services.flatMap((s) =>
 		s.files.filter((f) => f.endsWith(".plist")),
@@ -269,6 +303,16 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 		throw new Error("Invalid machine service port mapping");
 	for (const file of plists) {
 		const label = file.replace(/\.plist$/, "");
+		const clearNames =
+			rendered.services.find((service) => service.files.includes(file))
+				?.clearInheritedEnv ?? [];
+		if (!(await clearInheritedLaunchctlEnv(clearNames))) {
+			failed.push(label);
+			refused.push(
+				`${label} — stale launchctl environment could not be cleared`,
+			);
+			continue;
+		}
 		const unit = join(agentsDir, file);
 		const log = join(insightsDir, `launchd-${label}.log`);
 		const reviewed = previous?.services.find(

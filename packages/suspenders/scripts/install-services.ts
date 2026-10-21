@@ -79,6 +79,8 @@ export interface ServiceSpec {
 	cwd?: string;
 	env: Record<string, string>;
 	envFile?: string | string[];
+	/** Environment names removed before envFile is sourced (launchd only). */
+	clearInheritedEnv?: string[];
 	schedule: Schedule;
 	nice?: number;
 	logs: { out: string; err: string };
@@ -139,6 +141,7 @@ const KNOWN_SERVICE_KEYS = new Set([
 	"cwd",
 	"env",
 	"envFile",
+	"clearInheritedEnv",
 	"schedule",
 	"nice",
 	"logs",
@@ -226,6 +229,15 @@ export function validateSpec(spec: ServiceSpec): void {
 		problems.push("bunEntry must be a non-empty string");
 	}
 	envFilePaths(spec);
+	if (
+		spec.clearInheritedEnv !== undefined &&
+		(!Array.isArray(spec.clearInheritedEnv) ||
+			spec.clearInheritedEnv.some(
+				(name) => typeof name !== "string" || !/^[A-Z_][A-Z0-9_]*$/.test(name),
+			))
+	) {
+		problems.push("clearInheritedEnv must contain environment variable names");
+	}
 	const cal = spec.schedule.calendar;
 	if (cal !== undefined) {
 		if (!Number.isInteger(cal.hour) || cal.hour < 0 || cal.hour > 23)
@@ -339,6 +351,8 @@ export function loadManifest(path = MANIFEST_PATH): ServiceSpec[] {
 			spec.abandonProcessGroup = entry.abandonProcessGroup as boolean;
 		if (entry.envFile !== undefined)
 			spec.envFile = entry.envFile as string | string[];
+		if (entry.clearInheritedEnv !== undefined)
+			spec.clearInheritedEnv = entry.clearInheritedEnv as string[];
 		if (entry.nice !== undefined) spec.nice = entry.nice as number;
 		if (entry.port !== undefined) spec.port = entry.port as number;
 		for (const a of spec.args) {
@@ -430,15 +444,19 @@ export function renderDarwin(spec: ServiceSpec, values: RenderValues): string {
 	const files = envFilePaths(spec).map(s);
 	// launchd has no EnvironmentFile. Positional arguments keep machine
 	// paths and service argv out of shell syntax; exec preserves supervision.
+	const clear = spec.clearInheritedEnv ?? [];
 	const args =
-		files.length === 0
+		files.length === 0 && clear.length === 0
 			? directArgs
 			: [
 					"/bin/sh",
 					"-c",
-					["set -ae", ...files.map(() => '. "$1"; shift'), 'exec "$@"'].join(
-						"; ",
-					),
+					[
+						...(clear.length > 0 ? [`unset ${clear.join(" ")}`] : []),
+						"set -ae",
+						...files.map(() => '. "$1"; shift'),
+						'exec "$@"',
+					].join("; "),
 					`fleet-${spec.name}`,
 					...files,
 					...directArgs,
@@ -886,6 +904,7 @@ function main(argv: string[]): number {
 		outFile: string | null;
 		files: string[];
 		port?: number;
+		clearInheritedEnv?: string[];
 	}[] = [];
 	if (outDir !== null) {
 		// Check all governed active destinations before writing any output.
@@ -922,6 +941,9 @@ function main(argv: string[]): number {
 				outFile: join(resolve(outDir), r.units[0].file),
 				files: r.units.map((u) => u.file),
 				...(r.spec.port === undefined ? {} : { port: r.spec.port }),
+				...(r.spec.clearInheritedEnv === undefined
+					? {}
+					: { clearInheritedEnv: r.spec.clearInheritedEnv }),
 			});
 		}
 	} else {
@@ -936,6 +958,9 @@ function main(argv: string[]): number {
 				outFile: null,
 				files: r.units.map((u) => u.file),
 				...(r.spec.port === undefined ? {} : { port: r.spec.port }),
+				...(r.spec.clearInheritedEnv === undefined
+					? {}
+					: { clearInheritedEnv: r.spec.clearInheritedEnv }),
 			});
 		}
 	}
