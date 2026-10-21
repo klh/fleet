@@ -27,7 +27,10 @@ await runCli({
 				const snapshot = await fetchZaiCatalog(keyFile);
 				const changed = writeZaiSnapshot(path, snapshot);
 				console.log(
-					`${changed ? "updated" : "unchanged"}: ${snapshot.model_ids.length} account-visible Z.ai models at ${path}`,
+					`${changed ? "updated" : "unchanged"}: ${snapshot.model_ids.length} account-visible Z.ai models at ${path}` +
+						(snapshot.excluded_model_ids.length
+							? ` (${snapshot.excluded_model_ids.length} non-chat excluded: ${snapshot.excluded_model_ids.join(", ")})`
+							: ""),
 				);
 			},
 		}),

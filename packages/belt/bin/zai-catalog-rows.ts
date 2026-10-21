@@ -11,9 +11,13 @@ export type ZaiCatalogSnapshot = {
 	source: typeof ZAI_CATALOG_URL;
 	generated_at: string;
 	model_ids: string[];
+	excluded_model_ids: string[];
 };
 
-export function parseZaiModelIds(raw: unknown): string[] {
+export function parseZaiModelIds(raw: unknown): {
+	model_ids: string[];
+	excluded_model_ids: string[];
+} {
 	if (
 		!raw ||
 		typeof raw !== "object" ||
@@ -23,14 +27,25 @@ export function parseZaiModelIds(raw: unknown): string[] {
 	const ids = (raw as { data: Array<{ id?: unknown }> }).data.map(
 		(row) => row?.id,
 	);
-	if (
-		ids.length === 0 ||
-		ids.some((id) => typeof id !== "string" || !MODEL_ID.test(id))
-	)
+	if (ids.length === 0) throw new Error("Z.ai model catalog is empty");
+	const chat = ids.filter(
+		(id): id is string => typeof id === "string" && MODEL_ID.test(id),
+	);
+	// New non-chat (image/audio/OCR) IDs filter out instead of failing the
+	// whole refresh; a chat GLM we cannot recognize still refuses loudly.
+	const excluded = ids.filter(
+		(id) => typeof id !== "string" || !MODEL_ID.test(id),
+	) as string[];
+	if (chat.length === 0)
 		throw new Error(
-			"Z.ai model catalog contains no models or an invalid model ID",
+			`Z.ai model catalog has no chat GLM models (excluded ${excluded.length})`,
 		);
-	return [...new Set(ids as string[])].sort((a, b) => a.localeCompare(b));
+	return {
+		model_ids: [...new Set(chat)].sort((a, b) => a.localeCompare(b)),
+		excluded_model_ids: [...new Set(excluded)].sort((a, b) =>
+			a.localeCompare(b),
+		),
+	};
 }
 
 export function validateZaiSnapshot(
@@ -46,10 +61,13 @@ export function validateZaiSnapshot(
 		doc.model_ids.some((id) => typeof id !== "string" || !MODEL_ID.test(id))
 	)
 		throw new Error("invalid Z.ai catalog snapshot");
+	const excluded = Array.isArray(doc.excluded_model_ids)
+		? doc.excluded_model_ids
+		: [];
 	const age = now - Date.parse(doc.generated_at ?? "");
 	if (!Number.isFinite(age) || age < 0 || age > ZAI_CATALOG_MAX_AGE_MS)
 		throw new Error("Z.ai catalog snapshot is stale; refresh before deploy");
-	return doc as ZaiCatalogSnapshot;
+	return { ...doc, excluded_model_ids: [...excluded] } as ZaiCatalogSnapshot;
 }
 
 export function readZaiSnapshot(

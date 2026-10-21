@@ -55,11 +55,13 @@ export async function fetchZaiCatalog(
 		body.set(chunk, offset);
 		offset += chunk.byteLength;
 	}
+	const parsed = parseZaiModelIds(JSON.parse(new TextDecoder().decode(body)));
 	return {
 		version: 1,
 		source: ZAI_CATALOG_URL,
 		generated_at: new Date().toISOString(),
-		model_ids: parseZaiModelIds(JSON.parse(new TextDecoder().decode(body))),
+		model_ids: parsed.model_ids,
+		excluded_model_ids: parsed.excluded_model_ids,
 	};
 }
 
@@ -83,7 +85,10 @@ export function writeZaiSnapshot(
 		}
 	})();
 	const changed =
-		JSON.stringify(previous?.model_ids) !== JSON.stringify(snapshot.model_ids);
+		JSON.stringify(previous?.model_ids) !==
+			JSON.stringify(snapshot.model_ids) ||
+		JSON.stringify(previous?.excluded_model_ids) !==
+			JSON.stringify(snapshot.excluded_model_ids);
 	const temp = join(dirname(path), `.zai-catalog-${crypto.randomUUID()}.tmp`);
 	try {
 		writeFileSync(temp, `${JSON.stringify(snapshot, null, 2)}\n`, {
