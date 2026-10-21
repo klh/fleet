@@ -129,6 +129,7 @@ constructed — no `innerHTML`.
 | `--klh-on-accent`   | `#141413`               | `#ffffff`              |
 | `--klh-accent-bg`   | `#221f14`               | `#fbf1dc`              |
 | `--klh-accent-wash` | `rgba(216,144,15,.12)`  | `rgba(168,106,0,.10)`  |
+| `--klh-accent-dim`  | `rgba(216,144,15,.45)`  | `rgba(168,106,0,.40)`  |
 | `--klh-warm`        | `#221f1c`               | `#f8efe4`              |
 | `--klh-danger`      | `#af2f12`               | `#af2f12`              |
 | `--klh-danger-ink`  | `#c96a4f`               | `#a3361a`              |
@@ -153,12 +154,18 @@ constructed — no `innerHTML`.
 | `--klh-chart-grid`  | `#2c2c2a`               | `#e2dfd8`              |
 | `--klh-chart-hair`  | `#383835`               | `#cfcbc2`              |
 | `--klh-chart-axis`  | `#898781`               | `#6b675f`              |
+| `--klh-ent-accent`     | `#a08ed8`               | `#6b5ca5`              |
+| `--klh-ent-accent-bg`  | `#1d1a26`               | `#efecf6`              |
+| `--klh-ent-accent-wash`| `rgba(160,142,216,.12)` | `rgba(107,92,165,.10)` |
+| `--klh-ent-edge`       | `rgba(160,142,216,.38)` | `rgba(107,92,165,.35)` |
 
 Roles: `bg` page base · `field` text inputs · `panel` top bar / sunk panels ·
 `surface` cards · `overlay` drawers · `surface-hi` raised chips/avatars ·
 `ink` → `ink-3` → `dim` text emphasis ladder · `accent` interactive amber,
-`on-accent` text on an accent fill · `edge-*` borders by strength · `rule`
-table dividers · `danger*` / `ok*` / `info` status families.
+`on-accent` text on an accent fill, `accent-dim` the softened fill for meter
+bars · `edge-*` borders by strength · `rule`
+table dividers · `danger*` / `ok*` / `info` status families · `ent-*` the
+enterprise plane (W775.1 panel family, violet).
 
 Lit components consume the same names (custom properties pierce shadow DOM),
 e.g. `klh-decision-eval` uses `--klh-surface`, `--klh-ink`, `--klh-edge`,
