@@ -66,6 +66,7 @@ import {
 	workCliFor,
 } from "./lib/lane.ts";
 import {
+	adminKey,
 	ensureLaneKey,
 	LANE_KEY_TTL_S,
 	laneKeyMetaPath,
@@ -290,19 +291,9 @@ const TARGET_EFF = postureWidth(POSTURE, TARGET);
 // 502s on its first request, W1019). The /v1/models read is auth-gated:
 // the machine conf's admin key (belt.env, 0600) authenticates it; absent
 // key/front = no evidence, never a demotion (quota + bin stay authority).
-const plaidFrontToken = (): string | null => {
-	try {
-		const line = readFileSync(
-			`${process.env.HOME}/.claude/local-llm/belt.env`,
-			"utf8",
-		)
-			.split("\n")
-			.find((l) => l.startsWith("BUCKLE_ADMIN_KEY="));
-		return line?.split("=").slice(1).join("=").trim() || null;
-	} catch {
-		return null;
-	}
-};
+// W1063 DRY: the one lane-auth admin-key reader (env-first over belt.env —
+// the same precedence every other governance consumer uses)
+const plaidFrontToken = (): string | null => adminKey();
 const PLAID_MODEL_HEALTH =
 	POSTURE === "plaid" && !NO_BELT && !DRY
 		? await plaidProbeHealth(await probeBuckleFront(), plaidFrontToken())
