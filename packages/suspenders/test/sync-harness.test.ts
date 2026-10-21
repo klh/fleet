@@ -13,7 +13,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { executePlan, type StepContext } from "../scripts/install-run.ts";
-import { syncHarness } from "../scripts/sync-harness.ts";
+import {
+	coldCacheVerdict,
+	materializeDependencies,
+	offlineResolveArgs,
+	syncHarness,
+} from "../scripts/sync-harness.ts";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -379,6 +384,56 @@ test("offline dependency resolution produces a lock and staged import rather tha
 	expect(existsSync(join(f.ctx.prefix, "node_modules/zod/package.json"))).toBe(
 		true,
 	);
+});
+
+test("offlineResolveArgs freezes the resolver argv shape (W1050)", () => {
+	expect(offlineResolveArgs()[1]).toBe("install");
+	expect(offlineResolveArgs()).toContain("--offline");
+	expect(offlineResolveArgs()).toContain("--ignore-scripts");
+	expect(offlineResolveArgs()).toContain("--lockfile-only");
+});
+
+test("cold-cache ladder resolves offline when the cache is warm (W1050)", async () => {
+	const f = fixture();
+	const calls: string[][] = [];
+	const run = async (argv: string[]): Promise<void> => {
+		calls.push(argv);
+	};
+	await materializeDependencies(join(f.root, "stage"), run);
+	expect(calls).toHaveLength(1);
+	expect(calls[0]).toEqual(offlineResolveArgs());
+});
+
+test("cold-cache ladder fetches once and re-verifies offline (W1050)", async () => {
+	const f = fixture();
+	const calls: string[][] = [];
+	const run = async (argv: string[]): Promise<void> => {
+		calls.push(argv);
+		if (argv.includes("--offline") && calls.length === 1)
+			throw new Error("ENOENT: cache miss @clack/prompts");
+	};
+	await materializeDependencies(join(f.root, "stage"), run);
+	expect(calls).toHaveLength(3);
+	expect(calls[0]).toEqual(offlineResolveArgs());
+	expect(calls[1]).not.toContain("--offline");
+	expect(calls[1]).toContain("--ignore-scripts");
+	expect(calls[1]).toContain("--lockfile-only");
+	expect(calls[2]).toEqual(offlineResolveArgs());
+});
+
+test("cold-cache ladder fails early naming the remedy when both legs fail (W1050)", async () => {
+	const f = fixture();
+	const run = async (): Promise<void> => {
+		throw new Error("network unreachable");
+	};
+	const error = await materializeDependencies(join(f.root, "stage"), run).then(
+		() => null,
+		(e: Error) => e,
+	);
+	expect(error?.message).toContain("warm the cache");
+	expect(error?.message).toContain("network unreachable");
+	// the verdict is the shared builder — same shape for direct callers
+	expect(coldCacheVerdict("a", "b").message).toContain("fetch: b");
 });
 
 test("exclusive synchronization lock prevents simultaneous installers from publishing twice", async () => {
