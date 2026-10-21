@@ -68,6 +68,39 @@ test("auditSettle persists one bounded settle row; traceRead joins it", () => {
 	});
 	// the close error's message never becomes durable
 	expect(JSON.stringify(read.settle)).not.toContain("dropped");
+	// a caller's pre-typed failure kind rides clamped, not re-derived
+	ledger.auditSettle(
+		{
+			rid: "request-2",
+			traceId: TRACE,
+			firstByteAt: 100,
+			lastByteAt: 200,
+			closer: "upstream",
+			failureKind: "in_band:overloaded_error",
+		},
+		0,
+	);
+	const typed = ledger.traceRead(TRACE);
+	expect(typed.settle).toMatchObject({
+		rid: "request-2",
+		failure_kind: "in_band:overloaded_error",
+	});
+	// unsafe failure-kind text collapses to null, never rides durable
+	ledger.auditSettle(
+		{
+			rid: "request-3",
+			traceId: TRACE,
+			firstByteAt: 1,
+			lastByteAt: 2,
+			closer: "upstream",
+			failureKind: "bad\nkind with spaces",
+		},
+		0,
+	);
+	expect(ledger.traceRead(TRACE).settle).toMatchObject({
+		rid: "request-3",
+		failure_kind: null,
+	});
 	// invalid trace ids read empty, never throw
 	expect(ledger.traceRead("nope").attempts).toEqual([]);
 	ledger.close();
