@@ -4,6 +4,10 @@
 // Key ids are a truncated SHA-256 of the bearer token — token material never
 // touches the ledger (SECURITY: nothing hashable → empty string).
 import { Database } from "bun:sqlite";
+import {
+	safeCorrelationId,
+	type HopReceipt,
+} from "../../telemetry/src/http-trace.ts";
 import type { HopKind } from "./hop.ts";
 import type { Usage } from "./usage.ts";
 
@@ -180,6 +184,23 @@ CREATE TABLE IF NOT EXISTS route_audit (
   hop TEXT,
   traffic_kind TEXT
 );
+CREATE TABLE IF NOT EXISTS route_attempt (
+  rid TEXT NOT NULL,
+  ordinal INTEGER NOT NULL,
+  trace_id TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  service TEXT NOT NULL,
+  hop TEXT NOT NULL,
+  candidate TEXT NOT NULL,
+  status INTEGER,
+  refusal TEXT,
+  duration_ms INTEGER NOT NULL,
+  retry_after_ms INTEGER,
+  upstream_id TEXT,
+  call_id TEXT,
+  PRIMARY KEY (rid, ordinal)
+);
+CREATE INDEX IF NOT EXISTS route_attempt_trace ON route_attempt(trace_id, ts);
 `;
 
 const UPSERT = `
@@ -201,6 +222,7 @@ ON CONFLICT(hour_bucket, key, model_group, model) DO UPDATE SET
 type AuditOp =
 	| { t: "ins"; row: RouteAuditDecision }
 	| { t: "upd"; rid: string; out: RouteAuditOutcome }
+	| { t: "attempt"; row: HopReceipt; ts: string }
 	| {
 			t: "use";
 			rid: string;
@@ -252,6 +274,7 @@ export class Ledger {
 	private readonly insAudit: ReturnType<Database["query"]>;
 	private readonly updAudit: ReturnType<Database["query"]>;
 	private readonly updUsage: ReturnType<Database["query"]>;
+	private readonly insAttempt: ReturnType<Database["query"]>;
 	private readonly flushMs: number;
 	private readonly flushRows: number;
 	private readonly maxAttempts: number;
@@ -331,6 +354,10 @@ export class Ledger {
 		this.insAudit = this.db.query(INSERT_AUDIT);
 		this.updAudit = this.db.query(UPDATE_AUDIT);
 		this.updUsage = this.db.query(UPDATE_USAGE);
+		this.insAttempt = this.db.query(`INSERT OR REPLACE INTO route_attempt
+			(rid, ordinal, trace_id, ts, service, hop, candidate, status,
+			refusal, duration_ms, retry_after_ms, upstream_id, call_id)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 		this.flushMs = opts.flushMs ?? 5000;
 		this.flushRows = opts.flushRows ?? 256;
 		this.maxAttempts = Math.max(1, opts.maxFlushAttempts ?? 5);
@@ -368,6 +395,20 @@ export class Ledger {
 			);
 		}
 		if (op.t === "upd") return 64 + op.rid.length + (op.out.err?.length ?? 0);
+		if (op.t === "attempt") {
+			const r = op.row;
+			return (
+				96 +
+				r.rid.length +
+				r.traceId.length +
+				r.service.length +
+				r.hop.length +
+				r.candidate.length +
+				(r.refusal?.length ?? 0) +
+				(r.upstreamId?.length ?? 0) +
+				(r.callId?.length ?? 0)
+			);
+		}
 		return 32 + op.rid.length;
 	}
 
@@ -457,6 +498,7 @@ export class Ledger {
 				for (const { v: op } of audit) {
 					if (op.t === "ins") this.insertAudit(op.row);
 					else if (op.t === "upd") this.updateAudit(op.rid, op.out);
+					else if (op.t === "attempt") this.insertAttempt(op.row, op.ts);
 					else
 						this.updateUsageRow(
 							op.rid,
@@ -523,6 +565,60 @@ export class Ledger {
 	auditDecision(row: RouteAuditDecision): void {
 		this.pushAudit({ t: "ins", row });
 		if (this.auditRing.length >= this.flushRows) this.flushSoon();
+	}
+
+	/** Bounded, body-free attempt receipts share the audit ring and its
+	 * backpressure. A missing/unsafe correlation ID is never persisted. */
+	auditAttempt(row: HopReceipt): void {
+		if (!/^[0-9a-f]{32}$/.test(row.traceId)) return;
+		if (
+			!safeCorrelationId(row.rid) ||
+			!Number.isSafeInteger(row.ordinal) ||
+			row.ordinal < 1
+		)
+			return;
+		this.pushAudit({ t: "attempt", row, ts: this.now().toISOString() });
+		if (this.auditRing.length >= this.flushRows) this.flushSoon();
+	}
+
+	private insertAttempt(row: HopReceipt, ts: string): void {
+		this.insAttempt.run(
+			row.rid,
+			row.ordinal,
+			row.traceId,
+			ts,
+			safeCorrelationId(row.service) ?? "unknown",
+			safeCorrelationId(row.hop) ?? "unknown",
+			safeCorrelationId(row.candidate) ?? "unknown",
+			row.status !== null &&
+				Number.isSafeInteger(row.status) &&
+				row.status >= 100 &&
+				row.status <= 599
+				? row.status
+				: null,
+			safeCorrelationId(row.refusal) ?? null,
+			Number.isFinite(row.durationMs)
+				? Math.max(0, Math.floor(row.durationMs))
+				: 0,
+			row.retryAfterMs !== null && Number.isFinite(row.retryAfterMs)
+				? Math.max(0, Math.floor(row.retryAfterMs))
+				: null,
+			safeCorrelationId(row.upstreamId) ?? null,
+			safeCorrelationId(row.callId) ?? null,
+		);
+	}
+
+	/** One trace's observed attempts, in walk order. Legacy requests simply
+	 * return an empty list. The read barrier includes queued receipts. */
+	traceAttempts(traceId: string): Array<Record<string, unknown>> {
+		if (!/^[0-9a-f]{32}$/.test(traceId)) return [];
+		this.flush();
+		return this.db
+			.query(`SELECT rid, ordinal, trace_id, ts, service, hop,
+			candidate, status, refusal, duration_ms, retry_after_ms, upstream_id,
+			call_id FROM route_attempt WHERE trace_id = ?
+			ORDER BY ts, rid, ordinal LIMIT 500`)
+			.all(traceId) as Array<Record<string, unknown>>;
 	}
 
 	/** The flush-time INSERT (extracted from the old inline body). */

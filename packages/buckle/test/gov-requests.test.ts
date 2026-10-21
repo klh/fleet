@@ -109,6 +109,24 @@ async function getRequests(
 }
 
 describe("W824 gate class", () => {
+	test("trace connector is admin-only and validates the trace ID", async () => {
+		const upstream = await startMockUpstream(() => Response.json(OPENAI_USAGE));
+		const gate = await startGate(upstream.url);
+		const path = "/v1/admin/traces?trace_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+		const bare = await fetch(`${gate.base}${path}`);
+		expect(bare.status).toBe(401);
+		const allowed = await fetch(`${gate.base}${path}`, {
+			headers: { authorization: `Bearer ${ROOT}` },
+		});
+		expect(allowed.status).toBe(200);
+		expect(await allowed.json()).toMatchObject({ requests: [], attempts: [] });
+		const invalid = await fetch(`${gate.base}/v1/admin/traces?trace_id=bad`, {
+			headers: { authorization: `Bearer ${ROOT}` },
+		});
+		expect(invalid.status).toBe(400);
+		gate.stop();
+		upstream.close();
+	});
 	test("401 bare, 403 proxy-scoped, 204 OPTIONS + Allow", async () => {
 		const upstream = await startMockUpstream(() => Response.json(OPENAI_USAGE));
 		const gate = await startGate(upstream.url);

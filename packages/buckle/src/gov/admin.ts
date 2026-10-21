@@ -122,6 +122,20 @@ export async function handleAdmin(
 	if (method === "GET" && path === "/v1/admin/requests") {
 		return listRequests(gov, url);
 	}
+	if (method === "GET" && path === "/v1/admin/traces") {
+		const traceId = url.searchParams.get("trace_id") ?? "";
+		if (!/^[0-9a-f]{32}$/.test(traceId))
+			return bad(
+				400,
+				"buckle.bad_trace_id",
+				"trace_id must be 32 lowercase hex characters",
+			);
+		return ok({
+			trace_id: traceId,
+			requests: gov.ledger.requestsRead({ trace_id: traceId, limit: 500 }),
+			attempts: gov.ledger.traceAttempts(traceId),
+		});
+	}
 	if (method === "GET" && path === "/v1/admin/observations") {
 		const path =
 			process.env.BUCKLE_OBSERVATIONS_DB ??
