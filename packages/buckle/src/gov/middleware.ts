@@ -16,6 +16,7 @@ import {
 	stampRateLimit,
 } from "../citizenship.ts";
 import { tokenFromHeaders, type Ledger } from "../ledger.ts";
+import { INGRESS_BODY_TIMEOUT_MS } from "../ingress-body.ts";
 import {
 	MetricsConnector,
 	type MetricsConnectorOpts,
@@ -55,6 +56,9 @@ export interface GovernanceOpts {
 	adaptation?: AdaptationConfig;
 	/** Machine-owned LiteLLM metrics URL and 0600 key path. */
 	metrics?: MetricsConnectorOpts;
+	/** W1118: the shared request-body deadline — the gate's bounded JSON
+	 *  reads (admin/federation) honor the same knob the proxy path uses. */
+	ingressBodyTimeoutMs?: number;
 }
 
 export interface Principal {
@@ -79,6 +83,8 @@ export interface GovernanceDeps {
 }
 
 export class Governance {
+	/** W1118: shared body-read deadline for the gate's own JSON paths. */
+	readonly ingressBodyTimeoutMs: number;
 	readonly keys: KeyStore;
 	readonly budgets: Budgets;
 	readonly slots: Slots;
@@ -121,6 +127,7 @@ export class Governance {
 		this.keys = new KeyStore(this.db);
 		this.budgets = new Budgets(this.db);
 		this.slots = new Slots(this.db, opts.slots ?? slotsFromEnv());
+		this.ingressBodyTimeoutMs = opts.ingressBodyTimeoutMs ?? INGRESS_BODY_TIMEOUT_MS;
 		this.jwtValidator = opts.jwt ? createJwtValidator(opts.jwt) : null;
 		this.rootHash = opts.rootKey ? hashKey(opts.rootKey) : null;
 		this.federation = opts.federation ?? null;
