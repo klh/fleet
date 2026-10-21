@@ -20,6 +20,7 @@ const run = (chunks: unknown[]): { event: string; data: AnyRec }[] => {
 	const s = new OpenAIToAnthropicStream();
 	const out: { event: string; data: AnyRec }[] = [];
 	for (const c of chunks) out.push(...s.push(c));
+	s.noteDone(); // W1106.2: fixtures model COMPLETE source streams ([DONE] seen)
 	out.push(...s.flush());
 	return out;
 };
@@ -542,6 +543,7 @@ describe("OpenAIToAnthropicStream edges", () => {
 		const s = new OpenAIToAnthropicStream();
 		expect(s.flush()).toEqual([]);
 		s.push({ id: "e", model: "m", choices: [] });
+		s.noteDone(); // W1106.2: the terminal gates on the source [DONE]
 		const f1 = s.flush();
 		expect(names(f1)).toEqual(["message_delta", "message_stop"]);
 		expect(s.flush()).toEqual([]);
