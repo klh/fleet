@@ -218,6 +218,7 @@ test("a reviewed hub candidate pin survives plain push and up without moving the
 	const canaryDir = join(dir, "candidate-hub");
 	config.hubs.stable = {
 		...config.hubs.w363,
+		buckle_port: 14311,
 		deploy: { ...config.hubs.w363.deploy, dir: join(dir, "stable-hub") },
 	};
 	config.hubs.w363.version_override = "reviewed-candidate";
