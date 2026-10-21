@@ -150,6 +150,7 @@ async function reachable(raw: string, timeoutMs: number): Promise<boolean> {
 
 export interface RoutePreflightResult {
 	ok: boolean;
+	mode: "live" | "static";
 	checkedNodes: number;
 	findings: RouteLadderFinding[];
 	probes: Array<{ origin: string; reachable: boolean }>;
@@ -164,18 +165,22 @@ export interface RoutePreflightResult {
 export async function checkRoutePreflight(
 	source: RoutePreflightSources,
 	probe = reachable,
+	options: { probeHubs?: boolean } = {},
 ): Promise<RoutePreflightResult> {
 	const inputs = routeInputs(source);
 	const graph = validateRouteLadders(inputs);
 	const origins = new Set(
 		inputs.buckles.flatMap((buckle) => buckle.origins).slice(1),
 	);
-	const probes = await Promise.all(
-		[...origins].map(async (url) => ({
-			origin: url,
-			reachable: await probe(url, 3000),
-		})),
-	);
+	const probes =
+		options.probeHubs === false
+			? []
+			: await Promise.all(
+					[...origins].map(async (url) => ({
+						origin: url,
+						reachable: await probe(url, 3000),
+					})),
+				);
 	const drills: RoutePreflightResult["drills"] = [];
 	const local = inputs.buckles[0];
 	for (const [group, fallbacks] of Object.entries(
@@ -200,6 +205,7 @@ export async function checkRoutePreflight(
 		break;
 	}
 	return {
+		mode: options.probeHubs === false ? "static" : "live",
 		ok:
 			graph.errors.length === 0 &&
 			probes.every((item) => item.reachable) &&
@@ -212,10 +218,14 @@ export async function checkRoutePreflight(
 	};
 }
 
-export async function machineRoutePreflight(): Promise<RoutePreflightResult> {
+export async function machineRoutePreflight(
+	options: { probeHubs?: boolean } = {},
+): Promise<RoutePreflightResult> {
 	const home = homedir();
 	const stackPath =
-		process.env.KLH_STACK_CONFIG ?? join(home, ".config/klh/stack.yaml");
+		process.env.KLH_STACK_CONFIG ??
+		process.env.KLH_STACK ??
+		join(home, ".config/klh/stack.yaml");
 	const llm = join(home, ".claude/local-llm");
 	const upstreamPath =
 		process.env.BUCKLE_UPSTREAMS ?? join(llm, "upstreams.yaml");
@@ -227,18 +237,35 @@ export async function machineRoutePreflight(): Promise<RoutePreflightResult> {
 	const stack = YAML.parse(readFileSync(stackPath, "utf8"));
 	const litellm = YAML.parse(readFileSync(litePath, "utf8"));
 	const deadlineMs = Number(process.env.SUSPENDERS_LANE_DEADLINE_MS || 900000);
-	return checkRoutePreflight({
-		stack,
-		localPool: loadUpstreams(),
-		policy: loadGatewayPolicy(),
-		litellm,
-		deadlineMs,
-	});
+	return checkRoutePreflight(
+		{
+			stack,
+			localPool: loadUpstreams(),
+			policy: loadGatewayPolicy(),
+			litellm,
+			deadlineMs,
+		},
+		reachable,
+		options,
+	);
 }
 
 if (import.meta.main) {
+	const args = process.argv.slice(2);
+	if (args.includes("--help") || args.includes("-h")) {
+		console.log(
+			"usage: route-preflight [--static] [--help]\n  --static  validate graph and synthetic failover without probing live hubs (for first hub activation)",
+		);
+		process.exit(0);
+	}
+	if (args.some((arg) => arg !== "--static")) {
+		console.error("route-preflight: unknown option; use --help");
+		process.exit(2);
+	}
 	try {
-		const result = await machineRoutePreflight();
+		const result = await machineRoutePreflight({
+			probeHubs: !args.includes("--static"),
+		});
 		console.log(JSON.stringify(result));
 		process.exitCode = result.ok ? 0 : 1;
 	} catch (error) {

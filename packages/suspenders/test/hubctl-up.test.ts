@@ -16,6 +16,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { hubctlRouteFixture } from "./support/hubctl-route-fixture.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "fleet-hub-up-"));
 const bin = join(dir, "bin");
@@ -52,6 +53,7 @@ writeFileSync(
 		hubs: {
 			w4226: {
 				host: "127.0.0.1",
+				buckle_port: 14301,
 				deploy: { dir: deployDir, docker },
 			},
 		},
@@ -59,6 +61,7 @@ writeFileSync(
 );
 const baseEnv: Record<string, string> = {
 	...process.env,
+	...hubctlRouteFixture(dir),
 	KLH_STACK: stack,
 	PATH: `${bin}:${process.env.PATH ?? ""}`,
 	TEST_CALLS: calls,
