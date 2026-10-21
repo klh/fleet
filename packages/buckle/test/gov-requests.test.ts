@@ -149,6 +149,41 @@ describe("W824 gate class", () => {
 });
 
 describe("W824 per-request rows", () => {
+	test("one trace query joins the live route and each Buckle attempt", async () => {
+		const upstream = await startMockUpstream(() => Response.json(OPENAI_USAGE));
+		const gate = await startGate(upstream.url);
+		const lane = await issueViaAdmin(gate.base, {
+			name: "trace-lane",
+			scopes: ["buckle:proxy:WRITE_"],
+		});
+		const traceId = "c".repeat(32);
+		const response = await chat(
+			gate.base,
+			lane.key,
+			`00-${traceId}-1234567890abcdef-01`,
+		);
+		expect(response.status).toBe(200);
+		const res = await fetch(
+			`${gate.base}/v1/admin/traces?trace_id=${traceId}`,
+			{ headers: { authorization: `Bearer ${ROOT}` } },
+		);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			requests: ReqRow[];
+			attempts: Array<Record<string, unknown>>;
+		};
+		expect(body.requests).toHaveLength(1);
+		expect(body.attempts).toHaveLength(1);
+		expect(body.attempts[0]).toMatchObject({
+			trace_id: traceId,
+			ordinal: 1,
+			service: "buckle",
+			status: 200,
+		});
+		expect(body.attempts[0]?.rid).toBe(body.requests[0]?.rid);
+		gate.stop();
+		upstream.close();
+	});
 	test("exposes and filters W3C trace IDs without changing the request ID", async () => {
 		const upstream = await startMockUpstream(() => Response.json(OPENAI_USAGE));
 		const gate = await startGate(upstream.url);
