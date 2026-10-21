@@ -35,6 +35,7 @@ describe("W422 executor-adapter registry", () => {
 		]);
 		expect(HARNESS_PROCESS_NAMES).toEqual([
 			"claude",
+			"claude-runtime.ts",
 			"codex",
 			"forge",
 			"copilot",

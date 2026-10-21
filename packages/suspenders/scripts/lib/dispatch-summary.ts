@@ -41,25 +41,33 @@ export const resolveDaemonizedPids = async (
 	sh: (cmd: string[], cwd?: string) => string,
 	dispatched: string[],
 	live: DispatchLaneLike[],
+	inspectIdentity: typeof laneProcessIdentity = laneProcessIdentity,
+	settleMs = 3000,
 ): Promise<void> => {
 	if (!dispatched.some((d) => d.includes("(pid "))) return;
-	await Bun.sleep(3000);
+	await Bun.sleep(settleMs);
 	const listing = daemonCwdListing(sh);
-	const byCwd = new Map<string, number>();
+	const byCwd = new Map<string, number[]>();
 	let cur = "";
 	for (const line of listing.split("\n")) {
 		if (line.startsWith("p")) cur = line.slice(1);
 		if (line.startsWith("n")) {
-			const wt = byCwd.get(line.slice(1));
-			byCwd.set(
-				line.slice(1),
-				cur && (!wt || Number(cur) > wt) ? Number(cur) : (wt ?? 0),
-			);
+			const pid = Number(cur);
+			if (!Number.isSafeInteger(pid) || pid < 1) continue;
+			const cwd = line.slice(1);
+			const candidates = byCwd.get(cwd) ?? [];
+			candidates.push(pid);
+			byCwd.set(cwd, candidates);
 		}
 	}
 	for (const l of live) {
-		const resolved = byCwd.get(l.worktree);
-		if (resolved && laneProcessIdentity(l) === false) {
+		// A native child can share the worktree cwd but has no lane SID in argv.
+		// Never replace a live wrapper, nor adopt an unanchored cwd candidate.
+		if (inspectIdentity(l) !== false) continue;
+		const resolved = (byCwd.get(l.worktree) ?? [])
+			.sort((a, b) => b - a)
+			.find((pid) => inspectIdentity({ ...l, pid }) === true);
+		if (resolved) {
 			l.pid = resolved;
 			dispatched.push(`${l.item}→${l.sid}(daemonized pid ${resolved})`);
 		}

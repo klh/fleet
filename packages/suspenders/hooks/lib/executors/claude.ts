@@ -54,7 +54,7 @@ export const claudeAdapter: ExecutorAdapter = {
 		"--max-turns",
 		"1",
 	],
-	processNames: ["claude"],
+	processNames: ["claude", "claude-runtime.ts"],
 	// W626: launchd's bare PATH hides the native install — which() misses and
 	// every versioned claude row degraded to the unknown compatibility branch.
 	installPaths: ["~/.local/bin/claude"],
