@@ -16,6 +16,10 @@ import {
 	stampRateLimit,
 } from "../citizenship.ts";
 import { tokenFromHeaders, type Ledger } from "../ledger.ts";
+import {
+	MetricsConnector,
+	type MetricsConnectorOpts,
+} from "../metrics-connector.ts";
 import type { Servicemon } from "../servicemon.ts";
 import { Budgets, type BudgetView, effectiveLimit } from "./budgets.ts";
 import { type Federation, stashPrincipal } from "./federation.ts";
@@ -49,6 +53,8 @@ export interface GovernanceOpts {
 	 *  authorize/audit/budget) an enterprise overlay registers — validated
 	 *  at boot, fail-closed; absent = solo posture. */
 	adaptation?: AdaptationConfig;
+	/** Machine-owned LiteLLM metrics URL and 0600 key path. */
+	metrics?: MetricsConnectorOpts;
 }
 
 export interface Principal {
@@ -78,6 +84,7 @@ export class Governance {
 	readonly slots: Slots;
 	readonly db: Database;
 	private readonly sm: Servicemon;
+	private readonly metricsConnector: MetricsConnector;
 	/** W824: public — the /v1/admin/requests read rides the ledger's own
 	 *  connection (read barrier + capped per-request SELECT). */
 	readonly ledger: Ledger;
@@ -93,6 +100,14 @@ export class Governance {
 
 	constructor(deps: GovernanceDeps, opts: GovernanceOpts) {
 		this.sm = deps.sm;
+		this.metricsConnector = new MetricsConnector({
+			url: opts.metrics?.url ?? process.env.BUCKLE_LITELLM_METRICS_URL,
+			keyFile:
+				opts.metrics?.keyFile ?? process.env.BUCKLE_LITELLM_METRICS_KEY_FILE,
+			fetcher: opts.metrics?.fetcher,
+			timeoutMs: opts.metrics?.timeoutMs,
+			maxBytes: opts.metrics?.maxBytes,
+		});
 		this.ledger = deps.ledger;
 		// W154: adopt the shared Federation handle when present — one DB per
 		// process, so :memory: tests and CR/team reads see one world.
@@ -114,6 +129,11 @@ export class Governance {
 		this.adaptation = opts.adaptation
 			? validateAdaptation(opts.adaptation)
 			: null;
+	}
+
+	/** Admin-only joined scrape. Public /metrics remains Buckle-only. */
+	metrics(): Promise<Response> {
+		return this.metricsConnector.expose(this.sm.expose());
 	}
 
 	/** Denial audit: route_audit row (denied audits too — W136) + counter. */

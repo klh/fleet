@@ -85,7 +85,10 @@ export interface ServerOpts {
 	// hubEntitlements injects the entitlement-menu provider the same way.
 	// W233.2: usageIngest injects the usage-ingest provider the same way.
 	// W233.3: manifestCr injects the manifest + CR queue serving provider.
-	auth?: Pick<GovernanceOpts, "rootKey" | "jwt" | "slots" | "adaptation"> & {
+	auth?: Pick<
+		GovernanceOpts,
+		"rootKey" | "jwt" | "slots" | "adaptation" | "metrics"
+	> & {
 		spokeEnrollment?: SpokeEnrollmentFactory;
 		hubEntitlements?: HubEntitlementsFactory;
 		usageIngest?: UsageIngestFactory;
@@ -326,6 +329,7 @@ export function startServer(
 			federation: deps.federation,
 			slots: opts.auth?.slots,
 			adaptation: opts.auth?.adaptation,
+			metrics: opts.auth?.metrics,
 		},
 	);
 	const gated = authOn ? gov.gate(app.fetch) : app.fetch;
