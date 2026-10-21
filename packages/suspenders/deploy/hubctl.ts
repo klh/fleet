@@ -285,15 +285,16 @@ function redactedRender(envText: string): string {
 
 /** W688.7.1: the hub's upstream ladder file — stack.yaml `upstreams:` in
  *  buckle's upstreams.yaml shape. W1123 hub identity: always stamped
- *  `inherit_defaults: false` (fail-forward) unless the hub opts back into
- *  the committed base with `upstreams.inherit_defaults: true` — a Docker/
- *  remote hub exposes ONLY its configured + generated groups, never the
- *  committed Mac local-swarm (:890x). Empty groups = an empty pool, not a
- *  silent inheritance. Always rendered: compose mounts it. */
+ *  `inherit_defaults: false` (fail-forward, no operator escape — an opt-in
+ *  would re-import the committed Mac local-swarm :890x onto a remote hub).
+ *  A Docker/remote hub exposes ONLY its configured + generated groups; empty
+ *  groups = an empty pool, not a silent inheritance. The local Mac spoke
+ *  keeps merge-over-base through its own UNFLAGGED override file. Always
+ *  rendered: compose mounts it. */
 function renderUpstreams(hub: HubProfile): string {
 	return stringify({
 		version: 1,
-		inherit_defaults: hub.upstreams?.inherit_defaults === true,
+		inherit_defaults: false,
 		groups: mergeZaiHubUpstreams(hub, mergedHubUpstreams(hub)),
 	});
 }

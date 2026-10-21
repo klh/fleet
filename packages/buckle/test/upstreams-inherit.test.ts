@@ -65,6 +65,12 @@ describe("inherit_defaults (W1123)", () => {
 		expect(pool.deployments("glm-5.3-flash")).toEqual([]);
 	});
 
+	test("a configured-but-missing BUCKLE_UPSTREAMS is startup fatal (W1123)", () => {
+		expect(() =>
+			loadWithOverride("/nonexistent/buckle-hub-mount.yaml"),
+		).toThrow(/configured but missing/);
+	});
+
 	test("a hub ladder serves only its own groups under the flag", () => {
 		const over = join(scratch(), "upstreams.hub.yaml");
 		writeFileSync(

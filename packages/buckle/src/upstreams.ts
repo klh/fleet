@@ -133,12 +133,19 @@ function poolFrom(doc: UpstreamsDoc): UpstreamPool {
 }
 
 /** Resolution: explicit path → BUCKLE_UPSTREAMS → committed default (the
- *  override file merges over the default; groups it declares win). */
+ *  override file merges over the default; groups it declares win). W1123
+ *  fail-forward: a CONFIGURED override that cannot load is startup fatal —
+ *  a hub with a broken mount must never silently fall back to the committed
+ *  Mac ladder (:890x). Unset env = base-only, as always. */
 export function loadUpstreams(explicitPath?: string): UpstreamPool {
 	const basePath = explicitPath ?? DEFAULT_UPSTREAMS;
 	let doc = parseUpstreams(readFileSync(basePath, "utf8"), basePath);
 	const overPath = process.env.BUCKLE_UPSTREAMS;
-	if (overPath && existsSync(overPath)) {
+	if (overPath) {
+		if (!existsSync(overPath))
+			throw new Error(
+				`upstreams: BUCKLE_UPSTREAMS=${overPath} is configured but missing — refusing to fall back to the committed ladder (W1123)`,
+			);
 		doc = mergeUpstreams(
 			doc,
 			parseUpstreams(readFileSync(overPath, "utf8"), overPath),

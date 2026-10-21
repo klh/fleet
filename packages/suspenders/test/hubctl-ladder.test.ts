@@ -174,8 +174,9 @@ test("solo push renders an empty ladder + empty upstream.env (compose stays vali
 	);
 });
 
-test("rendered ladder stamps inherit_defaults false by default, true only on explicit opt-in (W1123)", () => {
-	// explicit `upstreams.inherit_defaults: true` → the committed base may merge
+test("rendered ladder stamps inherit_defaults false unconditionally — no operator escape (W1123)", () => {
+	// even an operator-declared inherit_defaults: true must not render true —
+	// an opt-in would re-import the committed Mac local-swarm onto a hub
 	const optStack = join(dir, "opt-stack.json");
 	writeFileSync(
 		optStack,
@@ -207,7 +208,7 @@ test("rendered ladder stamps inherit_defaults false by default, true only on exp
 	const opted = parse(
 		readFileSync(join(deployDir, "upstreams.hub.yaml"), "utf8"),
 	);
-	expect(opted.inherit_defaults).toBe(true);
+	expect(opted.inherit_defaults).toBe(false);
 });
 
 test("compose binds the prefs file at BUCKLE_PREFS (W983)", () => {
