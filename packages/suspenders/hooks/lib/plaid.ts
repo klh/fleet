@@ -1,12 +1,8 @@
-// hooks/lib/plaid.ts — W911: the bounded plaid posture (owner definition
-// 2026-10-19, corrected to the final arithmetic the same day — coord
-// #46919). Plaid runs TWO independent per-provider pools: 6–8 lanes on
-// Copilot (the IKEA Copilot routes) and 6–8 on Z.ai (GLM 5.3 Flash), plus
-// up to two overflow lanes placed on whichever provider has capacity,
-// global hard cap 18. Overflow never reduces a provider minimum; one
-// provider NEVER cross-fills the other's pool; a fully walled provider
-// contributes zero lanes (surfaced loudly), capacity selection is dynamic
-// WITHIN each pool. Every lane rides a REAL, observable, quota-aware,
+// hooks/lib/plaid.ts — the plaid posture. Copilot and Z.ai are distinct
+// provider pools. Baselines guide fair initial fill, then each healthy pool
+// can keep growing; there is no numerical lane ceiling. One provider never
+// impersonates the other's route; a fully walled provider contributes zero
+// lanes (surfaced loudly). Every lane rides a real, quota-aware,
 // traced route; personal ChatGPT/Claude CLI seats are never labeled IKEA —
 // the ikea-* prefix is reserved for Copilot-provider routes, and only
 // plaid-dispatched lanes carry a route fact at all.
@@ -50,29 +46,20 @@ export const writePosture = (fleetDir: string, p: Posture): void => {
 	writeFileSync(`${fleetDir}/posture`, `${p}\n`);
 };
 
-// ── width: per-provider pools (owner arithmetic, coord #46919) ────────────
+// ── baseline: fair initial fill, never a ceiling ──────────────────────────
 
-/** The plaid width constants: per-provider pool 6–8 (baseline 6, max 8),
- *  plus up to 2 global overflow lanes, hard cap 18. */
+/** A fair-fill threshold for each provider; no maximum is implied. */
 export const PLAID = {
-	/** Per-provider pool minimum — overflow never reduces it. */
 	baseline: 6,
-	/** Per-provider pool maximum (pool lanes). */
-	max: 8,
-	/** Global overflow slots beyond the two full pools. */
-	overflow: 2,
-	/** Global hard cap: 8 + 8 + 2. */
-	hardCap: 18,
 } as const;
 
 /** The two plaid provider pools (owner-named). */
 export const POOL_PROVIDERS = ["copilot", "zai"] as const;
 export type PoolProvider = (typeof POOL_PROVIDERS)[number];
 
-/** Effective dispatch stop for the loop: steady = --target; plaid = the
- *  global hard cap (the per-pool phases gate inside plaidPlan). */
-export const postureWidth = (p: Posture, target: number): number =>
-	p === "plaid" ? PLAID.hardCap : target;
+/** Steady uses its requested target; plaid has no total-width target. */
+export const postureWidth = (p: Posture, target: number): number | null =>
+	p === "plaid" ? null : target;
 
 // ── routes: the owner-defined ride table (config-over-code: the machine
 // suspenders-board.json `plaid_routes` overrides these rows) ──────────────
@@ -324,8 +311,8 @@ export interface PlaidPlan {
 	open: boolean;
 	/** Where the next lane rides; null when paused. */
 	provider: PoolProvider | null;
-	/** baseline (the ≥6 minimum) · stretch (6→8) · overflow (the +2). */
-	phase: "baseline" | "stretch" | "overflow" | null;
+	/** baseline fair-fill or unconstrained balanced growth. */
+	phase: "baseline" | "growth" | null;
 	/** Pause reason when closed. */
 	reason: string | null;
 }
@@ -345,16 +332,12 @@ export const plaidHealthyPools = (
 		(POOL_PROVIDERS as readonly string[]).includes(p),
 	);
 
-/** Next-lane allocation across the two pools: baseline minimums first
- *  (emptiest healthy pool first), then pool stretch to 8, then the global
- *  overflow. Capacity is dynamic WITHIN each pool; one provider never
- *  cross-fills the other; overflow never reduces a minimum; a fully walled
- *  pool contributes zero (surfaced in reason, never replaced). */
+/** Next-lane allocation: fill healthy provider baselines, then pick the
+ *  emptiest healthy pool indefinitely. Refusal/quota health is the stop. */
 export const plaidPlan = (
 	routes: PlaidRoute[],
 	health: Map<string, string | null>,
 	liveByProvider: Map<string, number>,
-	totalLive: number,
 ): PlaidPlan => {
 	const healthy = plaidHealthyPools(routes, health);
 	const live = (p: PoolProvider): number => liveByProvider.get(p) ?? 0;
@@ -367,35 +350,19 @@ export const plaidPlan = (
 	const first = base[0];
 	if (base.length && first)
 		return { open: true, provider: first, phase: "baseline", reason: null };
-	const stretch = healthy.filter((p) => live(p) < PLAID.max).sort(byEmptiest);
-	const nextStretch = stretch[0];
-	if (stretch.length && nextStretch)
+	const nextGrowth = healthy.sort(byEmptiest)[0];
+	if (nextGrowth)
 		return {
 			open: true,
-			provider: nextStretch,
-			phase: "stretch",
+			provider: nextGrowth,
+			phase: "growth",
 			reason: null,
 		};
-	if (totalLive < PLAID.hardCap) {
-		const over = healthy
-			.filter((p) => live(p) < PLAID.max + PLAID.overflow)
-			.sort(byEmptiest);
-		const nextOver = over[0];
-		if (over.length && nextOver)
-			return {
-				open: true,
-				provider: nextOver,
-				phase: "overflow",
-				reason: null,
-			};
-	}
 	return {
 		open: false,
 		provider: null,
 		phase: null,
-		reason: healthy.length
-			? `plaid at capacity: ${totalLive}/${PLAID.hardCap} lanes live`
-			: "plaid: no healthy route in any pool — dispatch paused",
+		reason: "plaid: no healthy route in any pool — dispatch paused",
 	};
 };
 
@@ -404,7 +371,7 @@ export const plaidPlan = (
 export interface PlaidAssignment {
 	route: PlaidRoute;
 	/** phase from the plan that chose this pool (telemetry only). */
-	phase: "baseline" | "stretch" | "overflow" | null;
+	phase: "baseline" | "growth" | null;
 }
 
 /** Least-loaded healthy route of the picked pool, ordinal-balanced ties
@@ -416,7 +383,7 @@ export const plaidAssign = (
 	load: Map<string, number>,
 	provider: PoolProvider,
 	ordinal: number,
-	phase: "baseline" | "stretch" | "overflow" | null = null,
+	phase: "baseline" | "growth" | null = null,
 ): PlaidAssignment => {
 	const pool = routes.filter(
 		(r) => r.provider === provider && !health.get(r.name),
@@ -440,14 +407,12 @@ export interface PlaidRouteView extends PlaidRoute {
 
 export interface PlaidStatus {
 	posture: Posture;
-	/** The global hard cap (8 + 8 + 2). */
-	width: number;
+	/** Null means dispatch continues while healthy READY work exists. */
+	width: null;
 	/** Live lanes per pool: copilot + zai. */
 	live: { copilot: number; zai: number };
 	/** Baseline minimums still to fill, per pool. */
 	baselineOpen: { copilot: number; zai: number };
-	/** Overflow slots used / available. */
-	overflow: { used: number; open: number };
 	/** true when NO route is healthy anywhere. */
 	fallback: boolean;
 	routes: PlaidRouteView[];
@@ -470,11 +435,9 @@ export const plaidStatus = (
 	const quota = quotaProviderPenalty(store);
 	const health = plaidHealth(quota);
 	const load = routeLoadOf(store, liveSids);
-	const total = liveSids.length;
-	const overUsed = Math.max(0, total - 2 * PLAID.max);
 	return {
 		posture: postureFactOf(store),
-		width: PLAID.hardCap,
+		width: null,
 		live: {
 			copilot: poolTotalOf(routes, load, "copilot"),
 			zai: poolTotalOf(routes, load, "zai"),
@@ -486,8 +449,7 @@ export const plaidStatus = (
 			),
 			zai: Math.max(0, PLAID.baseline - poolTotalOf(routes, load, "zai")),
 		},
-		overflow: { used: overUsed, open: Math.max(0, PLAID.overflow - overUsed) },
-		fallback: routes.every((r) => !!health.get(r.name)),
+		fallback: plaidHealthyPools(routes, health).length === 0,
 		routes: routes.map((r) => ({
 			...r,
 			available: !health.get(r.name),
@@ -556,7 +518,7 @@ export const plaidGate = (
 		routes,
 		health,
 		load,
-		plan: plaidPlan(routes, health, liveBy, liveSids.length),
+		plan: plaidPlan(routes, health, liveBy),
 	};
 };
 
@@ -610,7 +572,7 @@ export const plaidDispatch = (o: {
 		const liveBy = new Map(
 			POOL_PROVIDERS.map((p) => [p, poolTotalOf(g.routes, g.load, p)]),
 		);
-		const plan = plaidPlan([route], g.health, liveBy, o.sids.length);
+		const plan = plaidPlan([route], g.health, liveBy);
 		if (!plan.open)
 			return { skip: plan.reason, pick: {}, routeName: null, note: null };
 		return {

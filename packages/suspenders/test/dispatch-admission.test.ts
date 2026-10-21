@@ -171,6 +171,9 @@ test("one audit read per selected model, with no read for an unpinned lane", asy
 		expect((await admission.check("glm-5.3-flash")).pause).toBe(true);
 		expect((await admission.check("glm-5.3-flash")).pause).toBe(true);
 		expect(reads).toBe(1);
+		admission.invalidate();
+		expect((await admission.check("glm-5.3-flash")).pause).toBe(true);
+		expect(reads).toBe(2);
 	} finally {
 		server.stop(true);
 	}

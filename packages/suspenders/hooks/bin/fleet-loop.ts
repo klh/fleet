@@ -359,7 +359,9 @@ if (MODE === "posture") {
 	if (arg) writePosture(`${REPO}/.fleet`, parsePosture(arg));
 	const p = readPosture(`${REPO}/.fleet`);
 	console.log(
-		`posture: ${p} — loop stop ${postureWidth(p, 6)} lanes (steady --target 6; plaid per-pool 6-8 + overflow 2, cap 18)`,
+		p === "plaid"
+			? "posture: plaid — no fixed lane cap; sequential launches with a 10s default gap while routes are healthy"
+			: `posture: steady — loop stop ${postureWidth(p, 6)} lanes (--target 6)`,
 	);
 	process.exit(0);
 }

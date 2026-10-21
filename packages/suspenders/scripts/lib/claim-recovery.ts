@@ -1,6 +1,6 @@
 import { hostname } from "node:os";
-import { captureClaimFeed } from "./structured-feed.ts";
 import { isOwnerGated } from "./ready-pool.ts";
+import { captureClaimFeed } from "./structured-feed.ts";
 
 export type RecoverableClaim = {
 	id: string;
@@ -48,6 +48,8 @@ export const recoverOrphanClaims = async (o: {
 	item?: string;
 	takenSids: Set<string>;
 	targetEff: number;
+	/** Plaid recovers at most one orphan per refill cycle, without a lane cap. */
+	maxRows?: number;
 	busySlots: number;
 	now: number;
 }): Promise<{ refused: string | null; rows: RecoverableClaim[] }> => {
@@ -70,7 +72,7 @@ export const recoverOrphanClaims = async (o: {
 		isOwnerGated,
 		hostname(),
 	);
-	const slots = Math.max(0, o.targetEff - o.busySlots);
+	const slots = o.maxRows ?? Math.max(0, o.targetEff - o.busySlots);
 	return {
 		refused: null,
 		rows: candidates.filter((r) => !o.item || r.id === o.item).slice(0, slots),
