@@ -291,9 +291,11 @@ const XFAIL_RE = new RegExp(
 	"i",
 );
 const STRICT_RE =
-	/\.(?:toBe|toEqual|toStrictEqual|toMatchObject|toMatchSnapshot|toContain|toHaveLength)\s*\(/;
-const LOOSE_RE =
-	/\.(?:toBeTruthy|toBeFalsy|toBeDefined|toBeUndefined|toBeNull)\s*\(/;
+	/\.(?:toBe|toBeNull|toBeUndefined|toEqual|toStrictEqual|toMatchObject|toMatchSnapshot|toContain|toHaveLength)\s*\(/;
+const LOOSE_RE = /\.(?:toBeTruthy|toBeFalsy|toBeDefined)\s*\(/;
+const ASSERTION_CALL_RE = /\b(?:expect|assert)\s*\(/g;
+const VACUOUS_ASSERTION_RE =
+	/\bexpect\s*\(\s*(?:true|false|null|undefined|\d+|["'`][^"'`]*["'`])\s*\)\s*\.(?:toBe|toEqual|toStrictEqual)\s*\(/;
 const META_PATH =
 	/^((?:\.fleet|\.claude|\.agents|node_modules)[/\\]|\.klh-(?:brief|done)\.md$|\.workgraph\.jsonl$)/;
 const DOC_PATH = /\.(?:md|markdown|txt)$/i;
@@ -322,8 +324,19 @@ export function scanClosingDiff(diff: string): ClaimCheckHit[] {
 		path: string;
 		line: number;
 		text: string;
+		hunk: number;
 	}[] = [];
 	const addedNames = new Set<string>();
+	const hunks: {
+		addedNames: string[];
+		removedNames: string[];
+		addedAssertions: number;
+		removedAssertions: number;
+		addedStrict: number;
+		removedStrict: number;
+		vacuousAddition: boolean;
+	}[] = [];
+	let currentHunk = -1;
 	let path = "";
 	let delPath = "";
 	let isTest = false;
@@ -365,15 +378,36 @@ export function scanClosingDiff(diff: string): ClaimCheckHit[] {
 		if (hunk) {
 			rmLine = Number(hunk[1]);
 			addLine = Number(hunk[2]);
+			currentHunk =
+				hunks.push({
+					addedNames: [],
+					removedNames: [],
+					addedAssertions: 0,
+					removedAssertions: 0,
+					addedStrict: 0,
+					removedStrict: 0,
+					vacuousAddition: false,
+				}) - 1;
 			continue;
 		}
 		if (raw.startsWith("+")) {
 			const t = raw.slice(1);
 			if (isTest) {
+				const h = hunks[currentHunk];
 				const name = TEST_CALL_NAME.exec(t);
-				if (name?.[3]) addedNames.add(name[3]);
+				if (name?.[3]) {
+					addedNames.add(name[3]);
+					h?.addedNames.push(name[3]);
+				}
 				if (XFAIL_RE.test(t)) push("xfail-gate", path, addLine, t);
-				if (STRICT_RE.test(t)) strictAdded++;
+				if (h) {
+					h.addedAssertions += [...t.matchAll(ASSERTION_CALL_RE)].length;
+					if (VACUOUS_ASSERTION_RE.test(t)) h.vacuousAddition = true;
+				}
+				if (STRICT_RE.test(t)) {
+					strictAdded++;
+					if (h) h.addedStrict++;
+				}
 				if (LOOSE_RE.test(t) && !looseFirst)
 					looseFirst = { line: addLine, text: t };
 			}
@@ -383,10 +417,23 @@ export function scanClosingDiff(diff: string): ClaimCheckHit[] {
 		if (raw.startsWith("-")) {
 			const t = raw.slice(1);
 			if (isTest) {
+				const h = hunks[currentHunk];
 				const name = TEST_CALL_NAME.exec(t);
-				if (name?.[3])
-					removedCalls.push({ name: name[3], path, line: rmLine, text: t });
-				if (STRICT_RE.test(t)) strictRemoved++;
+				if (name?.[3]) {
+					removedCalls.push({
+						name: name[3],
+						path,
+						line: rmLine,
+						text: t,
+						hunk: currentHunk,
+					});
+					h?.removedNames.push(name[3]);
+				}
+				if (h) h.removedAssertions += [...t.matchAll(ASSERTION_CALL_RE)].length;
+				if (STRICT_RE.test(t)) {
+					strictRemoved++;
+					if (h) h.removedStrict++;
+				}
 			}
 			rmLine++;
 			continue;
@@ -396,8 +443,25 @@ export function scanClosingDiff(diff: string): ClaimCheckHit[] {
 		addLine++;
 	}
 	flush();
-	for (const c of removedCalls)
-		if (!addedNames.has(c.name)) push("deleted-test", c.path, c.line, c.text);
+	const replacementsUsed = new Map<number, number>();
+	for (const c of removedCalls) {
+		if (addedNames.has(c.name)) continue;
+		const h = hunks[c.hunk];
+		const available =
+			h?.addedNames.filter((name) => !h.removedNames.includes(name)).length ??
+			0;
+		const used = replacementsUsed.get(c.hunk) ?? 0;
+		const preservesAssertions =
+			!!h &&
+			h.addedAssertions >= h.removedAssertions &&
+			h.addedStrict >= h.removedStrict &&
+			!h.vacuousAddition;
+		if (used < available && preservesAssertions) {
+			replacementsUsed.set(c.hunk, used + 1);
+			continue;
+		}
+		push("deleted-test", c.path, c.line, c.text);
+	}
 	return hits;
 }
 

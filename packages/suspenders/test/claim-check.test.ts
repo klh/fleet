@@ -531,6 +531,93 @@ describe("diff erosion", () => {
 		expect(scanClosingDiff(diff)).toEqual([]);
 	});
 
+	test("a same-hunk, one-for-one test rewrite preserves coverage", () => {
+		const diff = [
+			"diff --git a/src/route.test.ts b/src/route.test.ts",
+			"--- a/src/route.test.ts",
+			"+++ b/src/route.test.ts",
+			"@@ -3,4 +3,4 @@",
+			'-\ttest("legacy direct route", () => {',
+			"-\t\texpect(route()).toBe('direct');",
+			'+\ttest("gateway route", () => {',
+			"+\t\texpect(route()).toBe('gateway');",
+		].join("\n");
+		expect(scanClosingDiff(diff)).toEqual([]);
+	});
+
+	test("one replacement cannot excuse two removed tests", () => {
+		const diff = [
+			"diff --git a/src/route.test.ts b/src/route.test.ts",
+			"--- a/src/route.test.ts",
+			"+++ b/src/route.test.ts",
+			"@@ -3,6 +3,4 @@",
+			'-\ttest("legacy direct route", () => {',
+			'-\ttest("legacy error route", () => {',
+			'+\ttest("gateway route", () => {',
+		].join("\n");
+		expect(scanClosingDiff(diff).map((hit) => hit.kind)).toEqual([
+			"deleted-test",
+		]);
+	});
+
+	test("a vacuous replacement cannot excuse a substantive deleted test", () => {
+		const diff = [
+			"diff --git a/src/route.test.ts b/src/route.test.ts",
+			"--- a/src/route.test.ts",
+			"+++ b/src/route.test.ts",
+			"@@ -3,4 +3,4 @@",
+			'-\ttest("legacy direct route", () => {',
+			"-\t\texpect(route()).toBe('direct');",
+			'+\ttest("gateway route", () => {',
+			"+\t\texpect(true).toBe(true);",
+		].join("\n");
+		expect(scanClosingDiff(diff).map((hit) => hit.kind)).toContain(
+			"deleted-test",
+		);
+	});
+
+	test("a new test with fewer assertions cannot excuse a deleted test", () => {
+		const diff = [
+			"diff --git a/src/route.test.ts b/src/route.test.ts",
+			"--- a/src/route.test.ts",
+			"+++ b/src/route.test.ts",
+			"@@ -3,4 +3,3 @@",
+			'-\ttest("legacy direct route", () => {',
+			"-\t\texpect(route()).toBe('direct');",
+			'+\ttest("gateway route", () => {',
+		].join("\n");
+		expect(scanClosingDiff(diff).map((hit) => hit.kind)).toContain(
+			"deleted-test",
+		);
+	});
+
+	test("a replacement in a different hunk cannot excuse deletion", () => {
+		const diff = [
+			"diff --git a/src/route.test.ts b/src/route.test.ts",
+			"--- a/src/route.test.ts",
+			"+++ b/src/route.test.ts",
+			"@@ -3,1 +3,0 @@",
+			'-\ttest("legacy direct route", () => {',
+			"@@ -40,0 +39,1 @@",
+			'+\ttest("unrelated new route", () => {',
+		].join("\n");
+		expect(scanClosingDiff(diff).map((hit) => hit.kind)).toEqual([
+			"deleted-test",
+		]);
+	});
+
+	test("exact null assertion is not a loosened assertion", () => {
+		const diff = [
+			"diff --git a/src/route.test.ts b/src/route.test.ts",
+			"--- a/src/route.test.ts",
+			"+++ b/src/route.test.ts",
+			"@@ -7,2 +7,2 @@",
+			"-\t\texpect(route()).toBe('direct');",
+			"+\t\texpect(route()).toBeNull();",
+		].join("\n");
+		expect(scanClosingDiff(diff)).toEqual([]);
+	});
+
 	test("focused and expected-failure gates refuse", () => {
 		// fixtures assemble gate vocabulary from parts so this file's own
 		// closing diffs never trip the scans they test (W511/W833 doctrine)
