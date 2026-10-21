@@ -99,6 +99,7 @@ export function routeInputs(source: RoutePreflightSources): RouteLadderInputs {
 			policy: source.policy,
 		},
 	];
+	const beltModels: NonNullable<RouteLadderInputs["belts"]> = [];
 	for (const [name, raw] of Object.entries(hubs)) {
 		const hub = record(raw);
 		buckles.push({
@@ -107,6 +108,20 @@ export function routeInputs(source: RoutePreflightSources): RouteLadderInputs {
 			pool: activePool(poolFrom(hub.upstreams)),
 			policy: {},
 		});
+		if (hub.belt_model !== undefined) {
+			const model = record(hub.belt_model);
+			const port = Number(model.port);
+			const upstream = string(model.upstream);
+			if (!Number.isSafeInteger(port) || port < 1 || port > 65535 || !upstream)
+				throw new Error(`hub ${name} has an invalid belt_model route`);
+			const outside = new URL(hubOrigin(name, hub));
+			outside.port = String(port);
+			beltModels.push({
+				id: `${name}-model`,
+				origins: [outside.origin, `http://127.0.0.1:${port}`],
+				upstream,
+			});
+		}
 	}
 	const specialistOrigins = SPECIALISTS.map(
 		(item) => `http://127.0.0.1:${item.port}`,
@@ -130,6 +145,7 @@ export function routeInputs(source: RoutePreflightSources): RouteLadderInputs {
 					? { escalation: { url: escalationUrl, model: escalationModel } }
 					: {}),
 			},
+			...beltModels,
 		],
 		terminalOrigins: [...specialistOrigins, ...(terminals as string[])],
 		requestDeadlineMs: source.deadlineMs,

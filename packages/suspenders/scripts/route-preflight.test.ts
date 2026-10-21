@@ -84,6 +84,47 @@ describe("route preflight before activation", () => {
 		]);
 	});
 
+	test("hub Belt model proxy is a configured transit to its declared model server", async () => {
+		const source = fixture();
+		source.stack = {
+			route_preflight: { terminal_origins: ["http://127.0.0.1:11434"] },
+			hubs: {
+				nas: {
+					host: "nas.example",
+					buckle_port: 4301,
+					belt_model: {
+						port: 8914,
+						health_port: 8915,
+						upstream: "http://127.0.0.1:11434",
+					},
+					upstreams: {
+						groups: {
+							model: [{ url: "http://127.0.0.1:8914", dialect: "openai" }],
+						},
+					},
+				},
+			},
+		};
+		source.localPool = pool({
+			model: [{ url: "http://nas.example:4301", dialect: "openai" }],
+			fallback: [{ url: "https://other.example/v1", dialect: "openai" }],
+		});
+		const inputs = routeInputs(source);
+		expect(inputs.belts?.find((belt) => belt.id === "nas-model")).toEqual({
+			id: "nas-model",
+			origins: ["http://nas.example:8914", "http://127.0.0.1:8914"],
+			upstream: "http://127.0.0.1:11434",
+		});
+		const result = await checkRoutePreflight(source, async () => true);
+		expect(result.ok).toBe(true);
+		expect(result.findings).toEqual([]);
+		delete (source.stack as { route_preflight?: unknown }).route_preflight;
+		const missingLeaf = await checkRoutePreflight(source, async () => true);
+		expect(missingLeaf.findings.map((finding) => finding.code)).toContain(
+			"unmapped_local_target",
+		);
+	});
+
 	test("unmapped local leaf and cyclic LiteLLM fallbacks block activation", async () => {
 		const source = fixture();
 		source.localPool = pool({
