@@ -39,12 +39,60 @@ export interface HopReceipt {
 	retryAfterMs: number | null;
 	upstreamId: string | null;
 	callId: string | null;
+	/** W1086: rides the FINAL serving attempt only. Absent = not
+	 *  instrumented at that layer — readers see NULL, never a guess. */
+	settle?: StreamSettle;
+}
+
+/** Who ended the stream, observed at the close site: 'upstream' = the
+ *  provider ended it, 'client' = the caller disconnected, 'buckle' = this
+ *  gateway enforced a deadline/guard, 'unknown' = the close was observed
+ *  without a direction probe. Uninstrumented layers must not claim one. */
+export type StreamCloser = "upstream" | "client" | "buckle" | "unknown";
+
+/** W1086 stream settle facts: body-free timing + close direction for the
+ *  stream that rode this attempt. NULL timestamps = the byte was never
+ *  observed (e.g. headers ok, zero body bytes). */
+export interface StreamSettle {
+	firstByteMs: number | null;
+	lastByteMs: number | null;
+	closer: StreamCloser;
+	failureKind: string | null;
 }
 
 /** Shape and length guard for correlation IDs. This does not establish who
  *  authored the value or whether it is unique. */
 export function safeCorrelationId(value: unknown): string | undefined {
 	return typeof value === "string" && SAFE_ID.test(value) ? value : undefined;
+}
+
+export interface SettleInput {
+	/** Request start (epoch ms) — the offsets are relative to it. */
+	t0: number;
+	/** First upstream body byte observed (epoch ms), null = none seen. */
+	firstByteAt: number | null;
+	/** Last body byte observed (epoch ms), null = none seen. */
+	lastByteAt: number | null;
+	closer: StreamCloser;
+	/** The close error, if any — reduced to a bounded failure kind. */
+	error?: unknown;
+}
+
+/** Build the settle block at a stream close site: clamps the offsets
+ *  (>= 0), keeps NULL for unobserved bytes, and reduces the close error
+ *  through safeFailureKind so no message text ever becomes durable. */
+export function buildSettleFact(input: SettleInput): StreamSettle {
+	const rel = (at: number | null): number | null => {
+		if (at === null || !Number.isFinite(at)) return null;
+		return Math.max(0, Math.floor(at - input.t0));
+	};
+	return {
+		firstByteMs: rel(input.firstByteAt),
+		lastByteMs: rel(input.lastByteAt),
+		closer: input.closer,
+		failureKind:
+			input.error === undefined ? null : safeFailureKind(input.error),
+	};
 }
 
 export const safeUpstreamId = safeCorrelationId;
