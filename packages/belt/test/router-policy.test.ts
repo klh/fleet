@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
 	emitClassTiers,
-	emitFallbackSettings,
+	emitLiteLlmSettings,
 	emitRouterSettings,
 	loadGatewayPolicy,
 	parsePolicy,
@@ -91,16 +91,18 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		});
 	});
 
-	test("emitFallbackSettings emits the W880 context-window rescue rows", () => {
+	test("emitLiteLlmSettings emits the W880 context-window rescue rows", () => {
 		const doc = Bun.YAML.parse(
-			emitFallbackSettings(loadGatewayPolicy(REPO_POLICY)),
+			emitLiteLlmSettings(loadGatewayPolicy(REPO_POLICY)),
 		) as {
 			litellm_settings: {
+				drop_params: boolean;
 				fallbacks: Record<string, string[]>[];
 				context_window_fallbacks: Record<string, string[]>[];
 			};
 		};
 		expect(doc.litellm_settings.fallbacks).toHaveLength(7);
+		expect(doc.litellm_settings.drop_params).toBe(true);
 		expect(doc.litellm_settings.context_window_fallbacks).toEqual([
 			{ "local-extract": ["glm-5.3-flash"] },
 			{ "local-coder": ["glm-5.3-flash"] },
@@ -152,10 +154,8 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		);
 	});
 
-	test("emitFallbackSettings → YAML round-trip preserves the ladders", () => {
-		const doc = Bun.YAML.parse(
-			emitFallbackSettings(emitterTestFallbacks()),
-		) as {
+	test("emitLiteLlmSettings → YAML round-trip preserves the ladders", () => {
+		const doc = Bun.YAML.parse(emitLiteLlmSettings(emitterTestFallbacks())) as {
 			litellm_settings: {
 				fallbacks: Record<string, string[]>[];
 			};
@@ -168,7 +168,7 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 	});
 
 	test("emitted ladder line is verbatim LiteLLM fallback shape", () => {
-		const out = emitFallbackSettings(emitterTestFallbacks());
+		const out = emitLiteLlmSettings(emitterTestFallbacks());
 		expect(out).toContain(
 			"    - glm-5.3-flash: [zai-glm-5.3-flash, local-reason]",
 		);
@@ -178,10 +178,12 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		const policy = parsePolicy(
 			"gateway:\n  litellm_fallbacks: false\n  fallbacks:\n    primary: [secondary]\n",
 		);
-		expect(emitFallbackSettings(policy)).toBe("");
+		expect(Bun.YAML.parse(emitLiteLlmSettings(policy))).toEqual({
+			litellm_settings: { drop_params: true },
+		});
 		expect(policy.fallbacks).toEqual({ primary: ["secondary"] });
 		expect(
-			emitFallbackSettings({ ...policy, litellm_fallbacks: true }),
+			emitLiteLlmSettings({ ...policy, litellm_fallbacks: true }),
 		).toContain("primary: [secondary]");
 	});
 
@@ -280,7 +282,11 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		const out = emitRouterSettings(parsePolicy("version: 1\n"));
 		expect(out.includes("fallbacks")).toBe(false);
 		expect(out).toContain("routing_strategy: latency-based-routing");
-		expect(emitFallbackSettings(parsePolicy("version: 1\n"))).toBe("");
+		expect(
+			Bun.YAML.parse(emitLiteLlmSettings(parsePolicy("version: 1\n"))),
+		).toEqual({
+			litellm_settings: { drop_params: true },
+		});
 	});
 });
 
