@@ -243,6 +243,65 @@ test("Belt cloud escalation must enter Buckle, even when LiteLLM would avoid a c
 	).toBe(true);
 });
 
+test("LiteLLM local-swarm model ID stops Belt re-escalation through Buckle", () => {
+	const inputs = {
+		buckles: [
+			{
+				id: "local",
+				origins: ["http://127.0.0.1:4101"],
+				policy: { ...policy, fallbacks: {} },
+				pool: pool({
+					"glm-5.3-flash": [
+						{
+							url: "http://127.0.0.1:4100",
+							adapter_config: { proxy_kind: "litellm" },
+						},
+					],
+				}),
+			},
+		],
+		litellms: [
+			{
+				id: "engine",
+				origins: ["http://127.0.0.1:4100"],
+				config: {
+					model_list: [
+						{
+							model_name: "glm-5.3-flash",
+							litellm_params: { api_base: "https://zai.example" },
+						},
+						{
+							model_name: "local-swarm",
+							litellm_params: { api_base: "http://127.0.0.1:4000" },
+						},
+					],
+					litellm_settings: {
+						fallbacks: [{ "glm-5.3-flash": ["local-swarm"] }],
+					},
+				},
+			},
+		],
+		belts: [
+			{
+				id: "router",
+				origins: ["http://127.0.0.1:4000"],
+				escalation: { url: "http://127.0.0.1:4101", model: "glm-5.3-flash" },
+				noEscalationModels: ["local-swarm"],
+			},
+		],
+	};
+	expect(validateRouteLadders(inputs).errors).toEqual([]);
+	expect(
+		validateRouteLadders({
+			...inputs,
+			belts: inputs.belts.map((belt) => ({
+				...belt,
+				noEscalationModels: [],
+			})),
+		}).errors,
+	).toContainEqual(expect.objectContaining({ code: "cycle", layer: "fleet" }));
+});
+
 test("effective Fleet-selected groups are checked without changing directive order", () => {
 	const result = validateRouteLadders({
 		buckles: [
