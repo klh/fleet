@@ -47,6 +47,18 @@ fi
 
 echo "→ installing to $PREFIX"
 mkdir -p "$PREFIX"
+# W1104.1: the runtime-revision hash (router-runtime-revision.ts) treats a
+# runtime holding .belt-overlay.lock as "refresh in progress" and reports no
+# revision, so the supervisor keeps serving a healthy router until the copy
+# is complete. Fail closed on a concurrent owner; release on success AND
+# failure (the EXIT trap covers the runtime-heal failure path below).
+LOCK="$PREFIX/.belt-overlay.lock"
+if ! mkdir "$LOCK" 2>/dev/null; then
+  echo "✗ $LOCK exists — another belt install/refresh owns the runtime;" >&2
+  echo "  remove it only once no installer is running" >&2
+  exit 1
+fi
+trap 'rm -rf "$LOCK"' EXIT
 for item in "$REPO_DIR"/bin/*; do
   # W284: belt kit is the source — swarm.ts (supervise) refreshes the home
   # copy unconditionally; the W556 keep-rule retired with the suspenders

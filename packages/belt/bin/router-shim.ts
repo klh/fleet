@@ -26,6 +26,7 @@ import {
 	type Specialist,
 } from "./registry.ts";
 import { registryResponse } from "./registry-emit.ts";
+import { routerRuntimeRevision } from "./router-runtime-revision.ts";
 import {
 	applyInboundCondense,
 	type CondenseMeta,
@@ -81,6 +82,9 @@ const admission = createAdmission(undefined, undefined, {
 const HOME = process.env.HOME;
 const PREFS_FILE = `${HOME}/.claude/local-llm/prefs.json`;
 const ROUTING_LOG = `${HOME}/.claude-insights/swarm-routing.log`;
+// Captured before serving requests. Re-reading the file on every health probe
+// would falsely claim an old process had loaded newly installed modules.
+const loadedRevision = routerRuntimeRevision(import.meta.path);
 let routingLogReady = false;
 
 function logRouting(entry: Record<string, unknown>) {
@@ -468,7 +472,11 @@ Bun.serve({
 			router: "complexity-v3",
 		});
 		// livenessResponse stamps itself (service = "belt-router") — no re-wrap
-		if (health) return health;
+		if (health) {
+			if (loadedRevision)
+				health.headers.set("x-belt-runtime-revision", loadedRevision);
+			return health;
+		}
 
 		// W271: the full registry (ETag'd); hubs proxy it, spokes pull it
 		if (
