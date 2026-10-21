@@ -147,6 +147,26 @@ const coldRetryAfterMs = (): number => {
 	return Math.ceil(base + Math.random() * base) * 1000;
 };
 
+/** A loading model's retry hint follows the remaining cold-load budget.
+ * The cap is an estimate, so a small per-request spread prevents a herd at
+ * the predicted finish while every request still re-probes actual liveness. */
+export const loadingRetryAfterMs = (
+	s: Specialist,
+	startedAt: number,
+	now = Date.now(),
+	random = Math.random(),
+): number => {
+	const remaining = Math.max(
+		1_000,
+		coldTimeoutMs(s) - Math.max(0, now - startedAt),
+	);
+	return (
+		Math.ceil(
+			(remaining * (1 + Math.max(0, Math.min(random, 1)) * 0.1)) / 1_000,
+		) * 1_000
+	);
+};
+
 /** Request-path admission: never wait for a cold model's multi-minute load.
  * Existing ledger reservations prevent duplicate starts across router restarts.
  * A refused memory reservation is a prompt refusal, never a retrying spawn. */
@@ -160,7 +180,7 @@ export async function ensureAvailable(
 		return {
 			up: false,
 			warming: true,
-			retryAfterMs,
+			retryAfterMs: loadingRetryAfterMs(s, row.startedAt),
 			error: `model :${s.port} is loading (pid ${row.pid})`,
 		};
 	}
@@ -182,7 +202,7 @@ export async function ensureAvailable(
 		return {
 			up: false,
 			warming: true,
-			retryAfterMs,
+			retryAfterMs: loadingRetryAfterMs(s, Date.now()),
 			error: `model :${s.port} warmup started (pid ${child.pid})`,
 		};
 	} catch (error) {
