@@ -689,9 +689,11 @@ function runtimeReport(
 ): void {
 	const compose = `docker compose -f ${JSON.stringify(`${dir}/hub-compose.yaml`)} --project-directory ${JSON.stringify(dir)}`;
 	try {
+		const sourceRoot = hub.repos?.src ?? "/src/fleet/packages";
+		if (!safeWord(sourceRoot)) throw new Error("invalid runtime source path");
 		const out = runOnHub(
 			hub,
-			`${compose} exec -T buckle-hub bun /src/fleet/packages/suspenders/deploy/runtime-info.ts --json 2>&1 || true`,
+			`${compose} exec -T buckle-hub bun ${sourceRoot}/suspenders/deploy/runtime-info.ts --json 2>&1 || true`,
 		);
 		const line = [...out.split("\n")].reverse().find((l) => l.startsWith("{"));
 		if (line) {
