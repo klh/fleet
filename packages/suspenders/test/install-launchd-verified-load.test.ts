@@ -78,6 +78,14 @@ const ctxFixture = (root: string): string => {
 	mkdirSync(join(repo, ".git"), { recursive: true });
 	mkdirSync(join(repo, "deploy"), { recursive: true });
 	writeFileSync(join(repo, "deploy/services.yaml"), "fixture manifest");
+	// W1102 wired-admission guard: fixtures seed the canonical 0600 belt.env
+	// so the competing-writer assertions reach the launchd path they cover.
+	mkdirSync(join(root, "home", ".claude", "local-llm"), { recursive: true });
+	writeFileSync(
+		join(root, "home", ".claude", "local-llm", "belt.env"),
+		"BELT_WIRED_GUARD_GB=73\n",
+		{ mode: 0o600 },
+	);
 	return JSON.stringify({
 		repo,
 		prefix: join(root, "prefix"),

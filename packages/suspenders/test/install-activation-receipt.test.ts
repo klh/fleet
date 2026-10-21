@@ -13,6 +13,18 @@ import {
 	readActivation,
 	writeActivation,
 } from "../scripts/lib/service-drift.ts";
+
+// W1102: the wired-admission guard reads the private belt.env before any
+// unit work — fixtures seed the canonical 0600 guard so receipt assertions
+// exercise the activation path they were written for.
+const seedBeltGuard = (home: string): void => {
+	mkdirSync(join(home, ".claude", "local-llm"), { recursive: true });
+	writeFileSync(
+		join(home, ".claude", "local-llm", "belt.env"),
+		"BELT_WIRED_GUARD_GB=73\n",
+		{ mode: 0o600 },
+	);
+};
 test("installer receipt includes only successfully activated services without service operations", async () => {
 	const root = mkdtempSync(join(tmpdir(), "fleet-activation-fixture-"));
 	try {
@@ -23,6 +35,7 @@ test("installer receipt includes only successfully activated services without se
 		mkdirSync(join(repo, ".git"), { recursive: true });
 		mkdirSync(join(repo, "deploy"), { recursive: true });
 		writeFileSync(join(repo, "deploy/services.yaml"), "fixture manifest");
+		seedBeltGuard(home);
 		const script = `import {mock} from "bun:test";import{mkdirSync,writeFileSync}from"node:fs";import{join}from"node:path";import{createRequire}from"node:module";
 const home=process.env.HOME;const agents=join(home,"Library/LaunchAgents");mkdirSync(agents,{recursive:true});let forbidden=false;let phase=0;
 mock.module(createRequire(process.argv[1]).resolve("execa"),()=>({execa:async(command,args)=>{
@@ -96,6 +109,7 @@ test("registration refuses an invalid successful route receipt before rendering"
 		mkdirSync(join(repo, ".git"), { recursive: true });
 		mkdirSync(join(repo, "deploy"), { recursive: true });
 		writeFileSync(join(repo, "deploy/services.yaml"), "fixture manifest");
+		seedBeltGuard(join(root, "home"));
 		const script = `import {mock} from "bun:test";import{createRequire}from"node:module";
 let rendered=false;mock.module(createRequire(process.argv[1]).resolve("execa"),()=>({execa:async(command,args)=>{
 if(command===process.execPath && args[0].endsWith("/scripts/route-preflight.ts"))return{exitCode:0,stdout:JSON.stringify({ok:true,mode:"static",findings:[],probes:[],drills:[{ok:true}]})};
@@ -154,6 +168,7 @@ test("registration retains a reviewed gateway without loading it again", async (
 		mkdirSync(agents, { recursive: true });
 		writeFileSync(join(repo, "deploy/services.yaml"), "legacyLabels: []");
 		writeFileSync(unit, body);
+		seedBeltGuard(home);
 		writeActivation(receiptPath, {
 			schema: "fleet.service-activation.v1",
 			platform: "darwin",
