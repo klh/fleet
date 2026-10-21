@@ -2,18 +2,23 @@
 // samplers only — no real memory_pressure/vm_stat spawns in tests.
 import { expect, test } from "bun:test";
 import { Buffer } from "node:buffer";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	parsePageSizeBytes,
+	DEFAULT_HOST_PRESSURE_POLICY,
+	HOST_PRESSURE_STATE_FILE,
 	hostPressureDecision,
 	hostPressureGate,
 	hostPressureSampleOf,
 	liveHostPressureSample,
+	launchPressurePolicy,
+	launchWiredCeilingBytes,
 	parseFreePct,
+	parsePageSizeBytes,
 	parseSwapouts,
 	parseWiredPages,
+	plaidLaunchHold,
 	readHostPressureState,
 } from "../hooks/lib/plaid-host-pressure.ts";
 

@@ -11,10 +11,6 @@
 // launch with an explicit bounded reason. The sampler is injectable —
 // tests feed fixture outputs, never spawn real probes.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import {
-	modelBudgetGb,
-	wiredGuardGb,
-} from "../../../local-llm/memory-policy.ts";
 import { readEnvValue } from "./doctor.ts";
 
 /** One host-pressure sample. Fields null = that signal was unreadable. */
@@ -131,10 +127,11 @@ function defaultSpawnRunner(
 
 // ── the decision (pure — the gate) ────────────────────────────────────────
 // Wired ceiling rides the Belt wired-admission guard (config-over-code):
-// BELT_WIRED_GUARD_GB → wiredGuardGb() (default 60 GiB). This host runs a
-// 90 GiB guard and a legitimate cold model reserves ~31 GiB — a frozen
-// 24 GiB default would hold every launch. The launch ceiling = guard +
-// one modelBudget headroom, and the env knob overrides for operators.
+// belt.env's BELT_WIRED_GUARD_GB is the AUTHORITATIVE 0600 source (W1102.2
+// installer ruling; services.yaml/plist hardcoded values are being
+// retired). The launch ceiling = the guard itself — plaid must never admit
+// MORE wired than Belt's own admission would (a guard+headroom ceiling
+// above the guard would let plaid reserve what Belt refuses).
 
 export interface HostPressurePolicy {
 	/** launches hold below this free % (null = never on free%). */
@@ -155,28 +152,46 @@ export const DEFAULT_HOST_PRESSURE_POLICY: HostPressurePolicy = {
 	maxSwapoutDelta: 2_000,
 };
 
-/** Launch-time wired ceiling, config-over-code (review #55096): the
- *  INSTALLED Belt guard is the source — env pin first, then belt.env's
- *  BELT_WIRED_GUARD_GB read from the machine conf (the same precedence
- *  every governance consumer uses; W1063), else the wired check is OFF
- *  (null). An unpropagated env default (60+28=88 GiB) must never
- *  false-hold a host running a 90 GiB guard. */
-export const launchWiredCeilingBytes = (): number | null => {
-	const env = process.env.BELT_WIRED_GUARD_GB?.trim();
-	if (env) {
-		const gb = wiredGuardGb(env);
-		return (gb + modelBudgetGb(20)) * 1024 ** 3;
-	}
-	const home = process.env.HOME ?? "";
+/** The policy the LIVE launch gate runs (review #55130: the wired check
+ *  must actually fire — ceiling derived from the installed Belt guard,
+ *  never a frozen 24 GiB). Ceiling null = MISSING/INVALID guard → the
+ *  policy carries a 0-byte ceiling so the wired check fires (and holds)
+ *  rather than silently skipping (review #55320). */
+export const launchPressurePolicy = (
+	guardPath: string = beltEnvGuardPath(),
+): HostPressurePolicy => ({
+	...DEFAULT_HOST_PRESSURE_POLICY,
+	maxWiredBytes: launchWiredCeilingBytes(guardPath) ?? 0,
+});
+
+/** The authoritative guard file (W1102.2: belt.env, 0600). Path injectable
+ *  so tests never touch the machine conf. */
+export const beltEnvGuardPath = (home = process.env.HOME ?? ""): string =>
+	`${home}/.claude/local-llm/belt.env`;
+
+/** Launch-time wired ceiling, config-over-code (reviews #55096/#55151/
+ *  #55318): belt.env's BELT_WIRED_GUARD_GB is the AUTHORITATIVE 0600
+ *  source — read from the machine conf, NOT process env (services.yaml/
+ *  plist hardcoded values are retired by W1102.2; an env override would
+ *  split the guard's source of truth). MISSING/INVALID guard = null —
+ *  callers MUST hold on that (plaidLaunchHold does); a silently disabled
+ *  guard is worse than a held launch. The ceiling IS the guard: plaid
+ *  never admits more wired memory than Belt's own admission would. */
+export const launchWiredCeilingBytes = (
+	path: string = beltEnvGuardPath(),
+): number | null => {
 	try {
 		const v = readEnvValue(
-			readFileSync(`${home}/.claude/local-llm/belt.env`, "utf8"),
+			readFileSync(path, "utf8"),
 			"BELT_WIRED_GUARD_GB",
 		);
-		if (v?.trim())
-			return (wiredGuardGb(v.trim()) + modelBudgetGb(20)) * 1024 ** 3;
-	} catch {} // unreadable conf = no evidence — the check stays off
-	return null;
+		const parsed = Number(v?.trim());
+		return v?.trim() && Number.isFinite(parsed) && parsed > 0
+			? parsed * 1024 ** 3
+			: null; // missing/invalid guard = fail closed
+	} catch {
+		return null; // unreadable conf = fail closed
+	}
 };
 
 export interface HostPressureDecision {
@@ -285,14 +300,17 @@ export const readHostPressureState = (
 	}
 };
 
-/** Persist the baseline atomically (tmp+rename — a torn write never reads). */
+/** Persist the baseline atomically (unique tmp + rename — a torn write
+ *  never reads, and concurrent dispatch invocations never interleave on a
+ *  shared `.tmp` name; review #55106). Last-writer-wins on the rename: the
+ *  delta anchor only ever moves forward to SOME observed sample. */
 export const writeHostPressureState = (
 	fleetDir: string,
 	state: HostPressureState,
 ): void => {
 	mkdirSync(fleetDir, { recursive: true });
 	const p = `${fleetDir}/${HOST_PRESSURE_STATE_FILE}`;
-	const tmp = `${p}.tmp`;
+	const tmp = `${p}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
 	writeFileSync(tmp, `${JSON.stringify(state)}\n`);
 	renameSync(tmp, p);
 };
@@ -329,12 +347,20 @@ export const hostPressureGate = (
 /** Dispatch-side one-shot (W1102.1): live sample → gate → hold reason or
  *  null. Called before EACH Plaid claim/take — the dispatcher is
  *  short-lived, so the swapout baseline rides the persisted .fleet state
- *  across invocations. Sampler injectable for tests. */
+ *  across invocations. A missing/invalid belt.env guard holds FIRST with
+ *  its own distinct reason (review #55320) — before any baseline write,
+ *  so a conf outage never anchors a swapout sample it couldn't gate
+ *  against. Sampler injectable for tests. */
 export const plaidLaunchHold = (
 	fleetDir: string,
 	sample: HostPressureSample = liveHostPressureSample(),
-	policy: HostPressurePolicy = DEFAULT_HOST_PRESSURE_POLICY,
+	policy: HostPressurePolicy = launchPressurePolicy(),
+	guardPath: string = beltEnvGuardPath(),
 ): string | null => {
+	// the wired policy must be evidence-backed: an unresolvable guard is a
+	// distinct fail-closed hold, not a silent skip of the wired check
+	if (launchWiredCeilingBytes(guardPath) === null)
+		return "plaid host pressure: belt.env BELT_WIRED_GUARD_GB missing/invalid — wired ceiling unresolvable — hold";
 	const d = hostPressureGate(fleetDir, sample, policy);
 	return d.open ? null : (d.reason ?? "plaid host pressure: hold");
 };
