@@ -97,6 +97,28 @@ async function loadPrefs(): Promise<Prefs> {
 const cloudAllowed = (p: Prefs): boolean =>
 	p.allow_cloud === true && p.cost_speed !== "cost";
 
+function upstreamDecline(
+	status: number,
+	retryAfterMs: number | undefined,
+	details: string[],
+): Response {
+	const retrySeconds = Math.max(1, Math.ceil((retryAfterMs ?? 0) / 1000));
+	const rateLimited = status === 429;
+	return Response.json(
+		{
+			type: "error",
+			error: {
+				type: rateLimited ? "overloaded_error" : "api_error",
+				message: `router: upstream HTTP ${status} (${details.join("; ")})${rateLimited ? `; retry after ${retrySeconds}s` : ""}`,
+			},
+		},
+		{
+			status: rateLimited ? 429 : 502,
+			headers: rateLimited ? { "retry-after": String(retrySeconds) } : {},
+		},
+	);
+}
+
 // arithmetic lane: a pure-math ask is evaluated directly, never sent to an
 // LLM — Qwen3-4B deterministically answers 17*23 -> "401" at temp 0 (verified
 // 2026-09-23). Strict allowlist; anything ambiguous fails safe to the LLM.
@@ -668,6 +690,7 @@ Bun.serve({
 			};
 
 			let retryAfter: number | undefined;
+			let cloudStatus: number | undefined;
 			// W279: cloud-first serving — a cloud serving-tier decision escalates
 			// BEFORE the local ladder (a stated >32k-token request on the small
 			// local tiers is broken placement); on failure the ladder runs on the
@@ -678,6 +701,12 @@ Bun.serve({
 				try {
 					const c = await escalate(body, { maxTokens: clientMax, wantFast });
 					if (c.note) note.push(c.note);
+					if (c.status && c.status >= 400) {
+						cloudStatus = c.status;
+						errors.push(
+							`cloud HTTP ${c.status}: ${c.error ?? "upstream declined"}`,
+						);
+					}
 					if (c.status === 429)
 						retryAfter = Math.max(retryAfter ?? 0, c.retryAfterMs ?? 0);
 					if (!c.text) return false;
@@ -718,6 +747,11 @@ Bun.serve({
 						outcome: "overloaded",
 						cap: admission.capOf(route.port),
 					});
+					if (cloudStatus !== undefined)
+						return upstreamDecline(cloudStatus, retryAfter, [
+							...note,
+							...errors,
+						]);
 					return overloaded(route.port, admission);
 				}
 			}
@@ -740,7 +774,8 @@ Bun.serve({
 				);
 				usedPort = opened.used.port;
 				usedModel = opened.used.model;
-				retryAfter = opened.retryAfterMs;
+				if (opened.retryAfterMs !== undefined)
+					retryAfter = Math.max(retryAfter ?? 0, opened.retryAfterMs);
 				if (opened.result.ok) {
 					const routing = routingInfo();
 					const fbRelease = opened.fbRelease;
@@ -789,7 +824,8 @@ Bun.serve({
 				got.fbRelease?.();
 				usedPort = got.used.port;
 				usedModel = got.used.model;
-				retryAfter = got.retryAfterMs;
+				if (got.retryAfterMs !== undefined)
+					retryAfter = Math.max(retryAfter ?? 0, got.retryAfterMs);
 				localTimings = got.result.timings;
 				if (got.result.ok) {
 					response = got.result.response;
@@ -818,17 +854,7 @@ Bun.serve({
 				// the caller's ladder backs off instead of retrying a 502
 				if (retryAfter !== undefined) {
 					logDone({ outcome: "upstream-429" });
-					const s = Math.max(1, Math.ceil(retryAfter / 1000));
-					return Response.json(
-						{
-							type: "error",
-							error: {
-								type: "overloaded_error",
-								message: `router: upstream 429 (${[...note, ...errors].join("; ")}); retry after ${s}s`,
-							},
-						},
-						{ status: 429, headers: { "retry-after": String(s) } },
-					);
+					return upstreamDecline(429, retryAfter, [...note, ...errors]);
 				}
 				logDone({ outcome: "empty" });
 				return Response.json(

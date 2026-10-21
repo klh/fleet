@@ -43,6 +43,24 @@ export interface EscalateResult {
 	status?: number;
 	retryAfterMs?: number;
 	note?: string;
+	error?: string;
+}
+
+function upstreamError(raw: string, status: number): string {
+	try {
+		const parsed = JSON.parse(raw) as {
+			error?: { code?: string | number; message?: string } | string;
+		};
+		const error = parsed.error;
+		if (typeof error === "string") return error.slice(0, 512);
+		if (error && typeof error === "object") {
+			const detail = [error.code, error.message].filter(Boolean).join(": ");
+			if (detail) return detail.slice(0, 512);
+		}
+	} catch {
+		// Preserve a bounded plain-text error when the upstream did not send JSON.
+	}
+	return raw.trim().slice(0, 512) || `HTTP ${status}`;
 }
 
 /** The escalation leg the operator's machine config selects. */
@@ -157,13 +175,17 @@ export async function escalate(
 			messages: body.messages,
 		}),
 	});
-	if (res.status === 429) {
-		await res.body?.cancel();
+	if (!res.ok) {
+		const error = upstreamError(await res.text(), res.status);
 		return {
 			text: "",
 			model,
-			status: 429,
-			retryAfterMs: retryAfterMs(res.headers.get("retry-after")),
+			status: res.status,
+			retryAfterMs:
+				res.status === 429
+					? retryAfterMs(res.headers.get("retry-after"))
+					: undefined,
+			error,
 		};
 	}
 	const j = (await res.json()) as { content?: Array<{ text?: string }> };
