@@ -667,7 +667,7 @@ const dispatchItem = async (
 		const route = await routeAdmission.check(pick.model);
 		if (route.pause) {
 			console.log(
-				`WAIT ${item} — ${pick.model} has ${route.failures} recent, exactly attributed Buckle internal refusals; retry after audit window`,
+				`WAIT ${item} — ${pick.model} has ${route.failures} recent, exactly attributed route refusals; retry when evidence clears`,
 			);
 			return null;
 		}

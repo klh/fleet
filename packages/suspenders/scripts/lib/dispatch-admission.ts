@@ -63,8 +63,8 @@ export const fetchBuckleRouteAudit = async (
 	}
 };
 
-/** The audit's target is the selected head, not the delivered fallback.
- * Require one candidate, a complete target, and an exact model match. */
+/** Only exact selected-target evidence can hold a route. A typed upstream
+ * refusal may hold until Retry-After; a bare 429 cannot. */
 export const assessBuckleRoute = (
 	rows: AuditRow[] | null,
 	model: string | null,
@@ -80,6 +80,7 @@ export const assessBuckleRoute = (
 				r.hop === "origin" &&
 				r.target_model === model &&
 				r.candidates_seen === 1 &&
+				r.selected_target_exact === true &&
 				typeof r.target_kind === "string" &&
 				r.target_kind.length > 0 &&
 				typeof r.target_host === "string" &&
@@ -99,13 +100,22 @@ export const assessBuckleRoute = (
 	let failures = 0;
 	for (const r of exact) {
 		if (r.ok === 1 && typeof r.status === "number" && r.status < 400) break;
-		if (
+		const internal =
 			r.ok === 0 &&
 			(r.status === 502 || r.status === 503) &&
 			r.attempts === 0 &&
-			INTERNAL_CODES.has(String(r.error_code))
-		)
-			failures++;
+			INTERNAL_CODES.has(String(r.error_code));
+		const localCold =
+			r.ok === 0 &&
+			r.status === 429 &&
+			r.selected_target_attempted === true &&
+			r.upstream_refusal_code === "local_cold" &&
+			(r.refusal_origin === "upstream" ||
+				r.refusal_origin === "bridged-upstream") &&
+			Number.isSafeInteger(r.retry_after_ms) &&
+			Number(r.retry_after_ms) > 0 &&
+			now < r.when + Math.min(Number(r.retry_after_ms), AUDIT_WINDOW_MS);
+		if (internal || localCold) failures++;
 	}
 	return { pause: failures >= 3, failures };
 };
