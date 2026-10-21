@@ -123,6 +123,7 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 	);
 	put("packages/local-llm/fixture.ts", "export const value = 1;");
 	put("packages/blam/src/fixture.ts", "export const value = 1;");
+	put("packages/telemetry/src/fixture.ts", "export const value = 1;");
 	put("packages/blam/bench/paired/fixture.ts", "export const value = 1;");
 	put("packages/blam/bench/improve/fixture.ts", "export const value = 1;");
 	put(
