@@ -684,10 +684,15 @@ function status(hub: HubProfile): number {
 /** Exec deploy/runtime-info.ts inside buckle-hub and print the verdict. */
 function runtimeReport(
 	hub: HubProfile,
-	_docker: string | undefined,
+	docker: string | undefined,
 	dir: string,
 ): void {
-	const compose = `docker compose -f ${JSON.stringify(`${dir}/hub-compose.yaml`)} --project-directory ${JSON.stringify(dir)}`;
+	const dockerBin = docker ?? "docker";
+	if (!safeWord(dockerBin)) {
+		console.log("· runtime: unknown (invalid configured Docker path)");
+		return;
+	}
+	const compose = `${dockerBin} compose -f ${JSON.stringify(`${dir}/hub-compose.yaml`)} --project-directory ${JSON.stringify(dir)}`;
 	try {
 		const sourceRoot = hub.repos?.src ?? "/src/fleet/packages";
 		if (!safeWord(sourceRoot)) throw new Error("invalid runtime source path");
