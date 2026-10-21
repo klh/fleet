@@ -102,12 +102,78 @@ describe("buckleChat", () => {
 					user: "u",
 					fetcher: (async () => {
 						calls++;
-						return new Response("no", { status: 503 });
+						return new Response("secret-prompt-echo", {
+							status: 503,
+							headers: { "x-klh-trace-id": "a".repeat(32) },
+						});
 					}) as unknown as typeof fetch,
 				},
 				ENV,
 			),
 		).rejects.toThrow("HTTP 503");
 		expect(calls).toBe(1);
+	});
+
+	test("openai wire POSTs the chat-completions path", async () => {
+		let seenUrl = "";
+		await buckleChat(
+			{
+				model: "m",
+				user: "u",
+				wire: "openai",
+				fetcher: (async (input: unknown) => {
+					seenUrl = String(input);
+					return new Response(
+						JSON.stringify({
+							model: "served",
+							choices: [{ message: { content: "ok" } }],
+						}),
+						{ status: 200 },
+					);
+				}) as unknown as typeof fetch,
+			},
+			ENV,
+		);
+		expect(seenUrl).toBe("http://127.0.0.1:4101/v1/chat/completions");
+	});
+
+	test("result carries buckle's x-klh-trace-id response identity", async () => {
+		const result = await buckleChat(
+			{
+				model: "m",
+				user: "u",
+				fetcher: (async () =>
+					new Response(
+						JSON.stringify({ content: [{ type: "text", text: "x" }] }),
+						{
+							status: 200,
+							headers: { "x-klh-trace-id": "b".repeat(32) },
+						},
+					)) as unknown as typeof fetch,
+			},
+			ENV,
+		);
+		expect(result.traceId).toBe("b".repeat(32));
+	});
+
+	test("error text stays bounded — no upstream body, trace id only", async () => {
+		try {
+			await buckleChat(
+				{
+					model: "m",
+					user: "u",
+					fetcher: (async () =>
+						new Response("prompt-and-key-echo", {
+							status: 500,
+						})) as unknown as typeof fetch,
+				},
+				ENV,
+			);
+			expect.unreachable();
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : String(e);
+			expect(msg).not.toContain("prompt-and-key-echo");
+			expect(msg).toContain("trace");
+		}
 	});
 });
