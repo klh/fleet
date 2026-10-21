@@ -4,7 +4,13 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { ClaudeControl, claudeStreamArguments } from "../lib/claude-control.ts";
-import { consumeClaudeWake, waitForClaudeWake } from "../lib/claude-wake.ts";
+import {
+	consumeClaudeWake,
+	proveClaudeWake,
+	releaseClaudeWake,
+	waitForClaudeWake,
+} from "../lib/claude-wake.ts";
+// W1035.1: interrupt results are internal turn boundaries — never terminal.
 import { defineVerb, runCli } from "../lib/verb-kit.ts";
 
 async function run(args: string[]): Promise<number> {
@@ -20,9 +26,14 @@ async function run(args: string[]): Promise<number> {
 		env: { ...process.env, SUSPENDERS_CLAUDE_WAKE: "0" },
 	});
 	const abort = new AbortController();
-	const control = new ClaudeControl((frame) => {
-		if (!child.stdin.write(`${JSON.stringify(frame)}\n`)) child.stdout.pause();
-	});
+	const control = new ClaudeControl(
+		(frame) => {
+			if (!child.stdin.write(`${JSON.stringify(frame)}\n`))
+				child.stdout.pause();
+		},
+		// config-over-code knob: the interrupted-result wait (tests pin it low)
+		Number(process.env.SUSPENDERS_CLAUDE_CONTROL_TIMEOUT_MS) || 10_000,
+	);
 	child.stdin.on("drain", () => child.stdout.resume());
 	child.stdin.on("error", () => control.close());
 	const emit = (frame: Record<string, unknown>) =>
@@ -38,7 +49,14 @@ async function run(args: string[]): Promise<number> {
 		try {
 			const frame = JSON.parse(line);
 			control.receive(frame);
-			if (frame.type === "result" && !control.busy) {
+			// W1035.1: a result closing an interrupted turn is an internal
+			// boundary — the injected turn follows in the same conversation, so
+			// the end-of-session close waits for the NEXT result instead.
+			if (
+				frame.type === "result" &&
+				!control.busy &&
+				!control.interruptBoundaryResult
+			) {
 				clearTimeout(finishTimer);
 				finishTimer = setTimeout(() => {
 					if (!control.active && !control.busy) {
@@ -77,6 +95,8 @@ async function run(args: string[]): Promise<number> {
 			const wasActive = control.active;
 			try {
 				await control.steer(text);
+				// W1035.1: the watermark moves only after a proven injection.
+				proveClaudeWake(sid, undefined, "managed");
 				consumeClaudeWake(sid, undefined, "boundary");
 				emit({
 					type: "fleet.claude.delivery",
@@ -85,17 +105,25 @@ async function run(args: string[]): Promise<number> {
 					event: text.match(/^Fleet direct event #(\d+)/)?.[1] ?? null,
 				});
 			} catch (error) {
+				// Interrupt refused/timeout: requeue — the durable event must not
+				// sit behind an advanced watermark.
+				releaseClaudeWake(sid, undefined, "managed");
 				emit({
 					type: "fleet.claude.delivery",
 					sid,
 					state: "queued",
 					reason: String(error),
 				});
+				break;
 			}
 		}
 	})();
 	control.start(stream.prompt);
 	const code = await exited;
+	// W1035.1: a native exit with an unproven injection requeues the claim —
+	// the resume path replays the directed event instead of it being lost
+	// behind a watermark that never advanced.
+	releaseClaudeWake(sid, undefined, "managed");
 	closing = true;
 	abort.abort();
 	control.close();
