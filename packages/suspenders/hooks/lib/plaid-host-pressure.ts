@@ -11,7 +11,11 @@
 // launch with an explicit bounded reason. The sampler is injectable —
 // tests feed fixture outputs, never spawn real probes.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { modelBudgetGb, wiredGuardGb } from "../../../local-llm/memory-policy.ts";
+import {
+	modelBudgetGb,
+	wiredGuardGb,
+} from "../../../local-llm/memory-policy.ts";
+import { readEnvValue } from "./doctor.ts";
 
 /** One host-pressure sample. Fields null = that signal was unreadable. */
 export interface HostPressureSample {
@@ -96,7 +100,9 @@ const parseSample = (mp: string, vm: string): HostPressureSample =>
  *  (never shell). Any failed/odd read leaves that field null — the
  *  DECIDER treats unknown as hold (fail-closed). Runner injectable for
  *  tests (fixture outputs, no real spawns). */
-export type SpawnRunner = (cmd: string[]) => { exitCode: number; stdout: Buffer } | null;
+export type SpawnRunner = (
+	cmd: string[],
+) => { exitCode: number; stdout: Buffer } | null;
 export const liveHostPressureSample = (
 	run: SpawnRunner = defaultSpawnRunner,
 ): HostPressureSample => {
@@ -113,7 +119,9 @@ export const liveHostPressureSample = (
 	return parseSample(mp, vm);
 };
 
-function defaultSpawnRunner(cmd: string[]): { exitCode: number; stdout: Buffer } | null {
+function defaultSpawnRunner(
+	cmd: string[],
+): { exitCode: number; stdout: Buffer } | null {
 	try {
 		return Bun.spawnSync(cmd);
 	} catch {
@@ -139,26 +147,37 @@ export interface HostPressurePolicy {
 	maxSwapoutDelta: number | null;
 }
 
-/** Owner defaults: hold under 25% free, above (Belt wired guard + model
- *  headroom) bytes, or 2000+ swapouts between launches (a real pressure
- *  spike — raw swap totals never decide). Wired threshold derives from
- *  the SAME config the Belt spawner reads (BELT_WIRED_GUARD_GB, default
- *  60 GiB) plus one modelBudget headroom — never a frozen number. */
+/** Hold under 25% free or 2000+ swapouts between launches (a real pressure
+ *  spike — raw swap totals never decide). */
 export const DEFAULT_HOST_PRESSURE_POLICY: HostPressurePolicy = {
 	minFreePct: 25,
-	maxWiredBytes:
-		(wiredGuardGb(process.env.BELT_WIRED_GUARD_GB) +
-			modelBudgetGb(20)) *
-		1024 ** 3,
+	maxWiredBytes: null,
 	maxSwapoutDelta: 2_000,
 };
 
-/** Launch-time wired ceiling: the guard + headroom derived above, as a
- *  named helper so tests/operators read the same derivation dispatch uses. */
-export const launchWiredCeilingBytes = (
-	guardGb = wiredGuardGb(process.env.BELT_WIRED_GUARD_GB),
-): number =>
-	(guardGb + modelBudgetGb(20)) * 1024 ** 3;
+/** Launch-time wired ceiling, config-over-code (review #55096): the
+ *  INSTALLED Belt guard is the source — env pin first, then belt.env's
+ *  BELT_WIRED_GUARD_GB read from the machine conf (the same precedence
+ *  every governance consumer uses; W1063), else the wired check is OFF
+ *  (null). An unpropagated env default (60+28=88 GiB) must never
+ *  false-hold a host running a 90 GiB guard. */
+export const launchWiredCeilingBytes = (): number | null => {
+	const env = process.env.BELT_WIRED_GUARD_GB?.trim();
+	if (env) {
+		const gb = wiredGuardGb(env);
+		return (gb + modelBudgetGb(20)) * 1024 ** 3;
+	}
+	const home = process.env.HOME ?? "";
+	try {
+		const v = readEnvValue(
+			readFileSync(`${home}/.claude/local-llm/belt.env`, "utf8"),
+			"BELT_WIRED_GUARD_GB",
+		);
+		if (v?.trim())
+			return (wiredGuardGb(v.trim()) + modelBudgetGb(20)) * 1024 ** 3;
+	} catch {} // unreadable conf = no evidence — the check stays off
+	return null;
+};
 
 export interface HostPressureDecision {
 	/** true = launch may proceed. */
@@ -243,7 +262,8 @@ export interface HostPressureState {
 	ts: number;
 }
 
-/** Read the persisted baseline; junk/absent = null (fresh baseline next). */
+/** Read the persisted baseline; junk/absent/malformed = null (fresh
+ *  baseline next — a NaN/negative/fractional counter never anchors). */
 export const readHostPressureState = (
 	fleetDir: string,
 ): HostPressureState | null => {
@@ -251,8 +271,14 @@ export const readHostPressureState = (
 		const j = JSON.parse(
 			readFileSync(`${fleetDir}/${HOST_PRESSURE_STATE_FILE}`, "utf8"),
 		) as Partial<HostPressureState>;
-		return typeof j.swapouts === "number" && typeof j.ts === "number"
-			? { swapouts: j.swapouts, ts: j.ts }
+		const ok =
+			Number.isInteger(j.swapouts) &&
+			(j.swapouts as number) >= 0 &&
+			Number.isFinite(j.ts) &&
+			(j.ts as number) > 0 &&
+			(j.ts as number) <= Date.now();
+		return ok
+			? { swapouts: j.swapouts as number, ts: j.ts as number }
 			: null;
 	} catch {
 		return null;
@@ -271,19 +297,44 @@ export const writeHostPressureState = (
 	renameSync(tmp, p);
 };
 
+/** Baseline staleness: a persisted anchor older than this no longer
+ *  supports a delta (the window is a paced-launch horizon, not a boot-age
+ *  ledger) — the next sample starts a fresh baseline instead. */
+export const HOST_PRESSURE_BASELINE_MAX_AGE_MS = 24 * 3600_000;
+
 /** One launch-gate step: decision vs the persisted baseline → persist this
  *  sample as the next baseline. Reboot reset (current < previous) opens
- *  (non-negative delta) and re-anchors. */
+ *  (non-negative delta) and re-anchors. Never writes a synthetic anchor:
+ *  an unreadable/unknown swapout leaves the previous state byte-for-byte
+ *  (and a stale previous does not refresh). */
 export const hostPressureGate = (
 	fleetDir: string,
 	sample: HostPressureSample,
 	policy: HostPressurePolicy = DEFAULT_HOST_PRESSURE_POLICY,
 ): HostPressureDecision => {
 	const prev = readHostPressureState(fleetDir);
-	const decision = hostPressureDecision(sample, prev?.swapouts ?? null, policy);
-	writeHostPressureState(fleetDir, {
-		swapouts: sample.swapouts ?? prev?.swapouts ?? 0,
-		ts: Date.now(),
-	});
+	const prevUsable =
+		prev !== null &&
+		Date.now() - prev.ts <= HOST_PRESSURE_BASELINE_MAX_AGE_MS;
+	const decision = hostPressureDecision(
+		sample,
+		prevUsable ? (prev?.swapouts ?? null) : null,
+		policy,
+	);
+	if (sample.swapouts === null) return decision; // no anchor write
+	writeHostPressureState(fleetDir, { swapouts: sample.swapouts, ts: Date.now() });
 	return decision;
+};
+
+/** Dispatch-side one-shot (W1102.1): live sample → gate → hold reason or
+ *  null. Called before EACH Plaid claim/take — the dispatcher is
+ *  short-lived, so the swapout baseline rides the persisted .fleet state
+ *  across invocations. Sampler injectable for tests. */
+export const plaidLaunchHold = (
+	fleetDir: string,
+	sample: HostPressureSample = liveHostPressureSample(),
+	policy: HostPressurePolicy = DEFAULT_HOST_PRESSURE_POLICY,
+): string | null => {
+	const d = hostPressureGate(fleetDir, sample, policy);
+	return d.open ? null : (d.reason ?? "plaid host pressure: hold");
 };

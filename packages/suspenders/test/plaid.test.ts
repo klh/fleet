@@ -202,26 +202,43 @@ test("health: quota penalty outranks the binary probe, per-pool walling", () => 
 	);
 });
 
-test("model probe: a pin the front can't serve walls the route; no evidence never demotes", () => {
+test("model probe: a pin the front can't serve walls the route; unavailable ≠ empty", () => {
 	const catalog = ["claude-sonnet-5", "glm-5.3-flash"];
 	const ok = plaidModelHealth(PLAID_ROUTES, catalog);
-	expect(ok.get("ikea-sonnet")).toBeNull();
-	expect(ok.get("glm-5.3-flash")).toBeNull();
+	expect(ok?.get("ikea-sonnet")).toBeNull();
+	expect(ok?.get("glm-5.3-flash")).toBeNull();
 	// unpinned routes are exempt (no model to verify)
-	expect(ok.get("codex-personal")).toBeNull();
+	expect(ok?.get("codex-personal")).toBeNull();
 	const missing = plaidModelHealth(PLAID_ROUTES, ["glm-5.3-flash"]);
-	expect(missing.get("ikea-sonnet")).toBe(
+	expect(missing?.get("ikea-sonnet")).toBe(
 		"model claude-sonnet-5 not served at the buckle front",
 	);
-	// no evidence (front unreachable/odd shape) — fail-open doctrine
-	const none = plaidModelHealth(PLAID_ROUTES, null);
-	expect(none.get("ikea-sonnet")).toBeNull();
+	// W1102.1 fail-closed: catalog UNAVAILABLE → null (plaid holds on it),
+	// a reachable EMPTY catalog is valid evidence (walls every pinned route)
+	expect(plaidModelHealth(PLAID_ROUTES, null)).toBeNull();
+	const empty = plaidModelHealth(PLAID_ROUTES, []);
+	expect(empty?.get("ikea-sonnet")).toContain("not served");
 	// the no-belt fetch short-circuits without touching the network
 	expect(fetchModelCatalog(null)).resolves.toBeNull();
 });
 
 test("gate: model-probe walling re-routes the pool plan; quota outranks the probe", () => {
 	const db = store();
+	// W1102.1 fail-closed: an UNAVAILABLE catalog closes the plan outright
+	const un = plaidGate(db, [], new Map(), null);
+	expect(un.plan.open).toBe(false);
+	expect(un.plan.reason).toContain("catalog unavailable");
+	// the dispatch override holds too (pinned or pooled)
+	expect(
+		plaidDispatch({
+			store: db,
+			sids: [],
+			quota: new Map(),
+			ordinal: 0,
+			hub: null,
+			modelHealth: null,
+		}).skip,
+	).toContain("catalog unavailable");
 	// probe alone: the copilot pin unserved → zai takes the baseline
 	const g = plaidGate(
 		db,

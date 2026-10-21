@@ -26,10 +26,20 @@ Swapouts: 5000.`;
 
 // explicit policy in tests — never the env-derived default (ambient
 // BELT_WIRED_GUARD_GB must not decide test outcomes)
-const POLICY = { minFreePct: 25, maxWiredBytes: 96 * 1024 ** 3, maxSwapoutDelta: 2_000 };
+const POLICY = {
+	minFreePct: 25,
+	maxWiredBytes: 96 * 1024 ** 3,
+	maxSwapoutDelta: 2_000,
+};
 
 const healthy = () =>
-	hostPressureSampleOf(parseFreePct(HEALTHY_MP), parseWiredPages(HEALTHY_VM), parseSwapouts(HEALTHY_VM), "fixture", parsePageSizeBytes(HEALTHY_VM));
+	hostPressureSampleOf(
+		parseFreePct(HEALTHY_MP),
+		parseWiredPages(HEALTHY_VM),
+		parseSwapouts(HEALTHY_VM),
+		"fixture",
+		parsePageSizeBytes(HEALTHY_VM),
+	);
 
 test("parsers: free %, wired pages, page size, cumulative swapouts; junk → null", () => {
 	expect(parseFreePct("System-wide memory free percentage: 71%")).toBe(71);
@@ -122,14 +132,28 @@ test("gate: baseline persists across invocations; re-anchors on outcomes", () =>
 		expect(d1.open).toBe(true);
 		expect(readHostPressureState(dir)?.swapouts).toBe(5_000);
 		// cycle 2 (separate invocation): +2500 swapouts → hold, anchor moves
-		const grown = hostPressureGate(dir, hostPressureSampleOf(71, 4_000_000, 7_500, "f", 16384), POLICY);
+		const grown = hostPressureGate(
+			dir,
+			hostPressureSampleOf(71, 4_000_000, 7_500, "f", 16384),
+			POLICY,
+		);
 		expect(grown.open).toBe(false);
 		expect(grown.reason).toContain("+2500");
 		expect(readHostPressureState(dir)?.swapouts).toBe(7_500);
 		// cycle 3: clean again → reopened (deltas ride the new anchor)
-		expect(hostPressureGate(dir, hostPressureSampleOf(71, 4_000_000, 7_600, "f", 16384), POLICY).open).toBe(true);
+		expect(
+			hostPressureGate(
+				dir,
+				hostPressureSampleOf(71, 4_000_000, 7_600, "f", 16384),
+				POLICY,
+			).open,
+		).toBe(true);
 		// unknown sample: holds, previous anchor survives (no 0 write)
-		const unknown = hostPressureGate(dir, hostPressureSampleOf(71, null, null, "f"), POLICY);
+		const unknown = hostPressureGate(
+			dir,
+			hostPressureSampleOf(71, null, null, "f"),
+			POLICY,
+		);
 		expect(unknown.open).toBe(false);
 		expect(readHostPressureState(dir)?.swapouts).toBe(7_600);
 	} finally {
@@ -143,7 +167,10 @@ test("live sampler: injectable runner; failed spawn → all-null (hold)", () => 
 	expect(failed.wiredPages).toBeNull();
 	expect(failed.swapouts).toBeNull();
 	expect(failed.pageSizeBytes).toBeNull();
-	const bad = liveHostPressureSample(() => ({ exitCode: 1, stdout: Buffer.from("junk") }));
+	const bad = liveHostPressureSample(() => ({
+		exitCode: 1,
+		stdout: Buffer.from("junk"),
+	}));
 	expect(bad.freePct).toBeNull();
 	// fixture-driven success path through the injected runner
 	const ok = liveHostPressureSample((cmd) => ({
