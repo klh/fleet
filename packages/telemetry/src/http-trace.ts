@@ -25,6 +25,22 @@ export interface HopFields {
 	callId?: string;
 }
 
+/** One bounded, body-free attempt receipt shared by gateway layers. */
+export interface HopReceipt {
+	rid: string;
+	traceId: string;
+	ordinal: number;
+	service: string;
+	hop: string;
+	candidate: string;
+	status: number | null;
+	refusal: string | null;
+	durationMs: number;
+	retryAfterMs: number | null;
+	upstreamId: string | null;
+	callId: string | null;
+}
+
 /** Opaque correlation IDs only. Reject control characters, whitespace and
  *  unbounded or user-authored text rather than truncating it into headers. */
 export function safeCorrelationId(value: unknown): string | undefined {
