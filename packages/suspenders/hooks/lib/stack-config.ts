@@ -123,6 +123,11 @@ export interface HubProfile {
 		zai_catalog_file?: string;
 		/** LiteLLM URL reachable from this hub. */
 		zai_litellm_url?: string;
+		// W1123: no operator inherit escape — hubctl always stamps
+		// `inherit_defaults: false` into the rendered hub ladder (an opt-in
+		// would re-import the committed Mac local-swarm :890x onto a remote
+		// hub). The Mac spoke keeps merge-over-base via its own unflagged
+		// BUCKLE_UPSTREAMS override.
 	};
 	/** Display-only provider placement while its credential-gated route is
 	 *  being prepared. This never enables a Buckle upstream or draws a path. */
