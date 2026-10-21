@@ -41,6 +41,10 @@ const SOURCE_PATHS = [
 	"packages/buckle/repo-policy.yaml",
 	"packages/buckle/src",
 	"packages/buckle/package.json",
+	// W1081: the shared HTTP identity-header seam — buckle src + belt bin and
+	// the suspenders servicemon wrap all import it; the prefix must ship it
+	// or every stamped service dies on its installed copy.
+	"packages/telemetry/src",
 	"packages/local-llm",
 	"packages/blam/src",
 	"packages/blam/bench/paired",

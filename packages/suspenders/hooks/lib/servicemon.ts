@@ -16,6 +16,15 @@
 //                the service actually sees usage — a service with no token
 //                dimension omits the family honestly rather than faking
 //                zeros. /health stays whatever it was (compat).
+//
+// W1081: the identity-header choke point — every wrapped response (including
+// the 500 this wrapper synthesizes) is stamped with the fleet citizenship
+// x-headers (telemetry/src/http-trace.ts): x-klh-service names the emitting
+// service, x-klh-hop marks the observability face, and x-klh-refusal marks
+// this wrapper's own admission (handler throw = "handler_throw"). One wrap
+// per service ⇒ every error envelope out of store/board/knowledge-api/
+// model-store is attributable from headers alone.
+import { stampResponse } from "../../../telemetry/src/http-trace.ts";
 
 export const DEFAULT_BUCKETS: number[] = [
 	0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10,
@@ -347,6 +356,18 @@ export function servicemon(opts: ServicemonOptions): Servicemon {
 				resp = new Response("internal error", { status: 500 });
 			}
 		}
+		// W1081: every wrapped response identifies its emitter — errors are
+		// attributable from headers alone (fleet citizenship, owner law).
+		if (resp)
+			resp = stampResponse(resp, {
+				service: opts.service,
+				hop: "observability",
+				refusal: threw
+					? "handler_throw"
+					: resp.status >= 400
+						? "handler"
+						: undefined,
+			});
 		httpRequests.inc({ route });
 		httpDuration.observe({ route }, (performance.now() - t0) / 1000);
 		// resp is undefined when inner() upgraded the request to a WebSocket
