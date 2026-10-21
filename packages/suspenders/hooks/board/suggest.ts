@@ -119,9 +119,16 @@ export function suggestTelemetry(payload: Record<string, unknown>): void {
 	).run(Date.now(), JSON.stringify(payload));
 }
 
+/** One gated suggest round-trip. The seam the caller-level test drives:
+ *  `deps.env` substitutes the credential pair, `deps.fetcher` the wire —
+ *  production resolves both from the process env / global fetch. */
 export async function suggest(
 	project: string,
 	draft: string,
+	deps: {
+		env?: NodeJS.ProcessEnv;
+		fetcher?: typeof fetch;
+	} = {},
 ): Promise<{ status: number; body: Record<string, unknown> }> {
 	const key = `${project}\u0000${draft}`;
 	const hit = cacheGet(key);
@@ -145,15 +152,19 @@ export async function suggest(
 	try {
 		// W1119: the one gated leg — fail closed (throws) on a down gate or
 		// missing scoped key; the honest 502 below is the caller's surface.
-		const r = await buckleChat({
-			model,
-			system: SUGGEST_SYS,
-			user: `DRAFT:\n${draft}\n\n${ctx}`,
-			maxTokens: SUGGEST.MAX_TOKENS,
-			temperature: 0.3,
-			hint: suggestSpec(),
-			timeoutMs: SUGGEST.TIMEOUT_MS,
-		});
+		const r = await buckleChat(
+			{
+				model,
+				system: SUGGEST_SYS,
+				user: `DRAFT:\n${draft}\n\n${ctx}`,
+				maxTokens: SUGGEST.MAX_TOKENS,
+				temperature: 0.3,
+				hint: suggestSpec(),
+				timeoutMs: SUGGEST.TIMEOUT_MS,
+				...(deps.fetcher ? { fetcher: deps.fetcher } : {}),
+			},
+			deps.env ?? process.env,
+		);
 		content = r.text;
 		traceId = r.traceId;
 	} catch (e) {
