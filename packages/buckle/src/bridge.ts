@@ -17,6 +17,7 @@ import {
 	responseAnthropicToOpenAI,
 	responseOpenAIToAnthropic,
 } from "./adapters/tools.ts";
+import { SSE_KEEPALIVE } from "./sse.ts";
 import type { UpstreamRequest } from "./router.ts";
 import type { Deployment, Dialect } from "./upstreams.ts";
 
@@ -143,6 +144,7 @@ export function openAIToAnthropicSse(): TransformStream<
 	const enc = new TextEncoder();
 	const tx = new OpenAIToAnthropicStream();
 	let buf = "";
+	let event = "";
 	let data: string[] = [];
 	const emit = (
 		events: AnthropicEvent[],
@@ -154,10 +156,22 @@ export function openAIToAnthropicSse(): TransformStream<
 	};
 	const dispatch = (c: TransformStreamDefaultController<Uint8Array>): void => {
 		const payload = data.join("\n").trim();
+		const evt = event;
 		data = [];
+		event = "";
+		// W1106: `event: ping` is transport-only regardless of payload — it
+		// must never reach the semantic transform (a first-chunk ping would
+		// fabricate message_start). Emit the keepalive, clear, done.
+		if (evt === "ping") {
+			c.enqueue(enc.encode(SSE_KEEPALIVE));
+			return;
+		}
 		if (payload.length === 0 || payload === "[DONE]") return;
 		try {
 			emit(tx.push(JSON.parse(payload)), c);
+			// W1106: a ping-shaped frame produces zero AnthropicEvents — emit the
+			// keepalive so the downstream socket never idles inside a quiet window.
+			if (tx.sawPing) c.enqueue(enc.encode(SSE_KEEPALIVE));
 		} catch {
 			// non-JSON frame: nothing to translate
 		}
@@ -167,9 +181,17 @@ export function openAIToAnthropicSse(): TransformStream<
 		c: TransformStreamDefaultController<Uint8Array>,
 	): void => {
 		if (l.length === 0) dispatch(c);
-		else if (l.startsWith("data:")) {
+		else if (l.startsWith("event:")) {
+			const v = l.slice(6);
+			event = v.startsWith(" ") ? v.slice(1) : v;
+		} else if (l.startsWith("data:")) {
 			const v = l.slice(5);
 			data.push(v.startsWith(" ") ? v.slice(1) : v);
+		} else if (l.startsWith(":")) {
+			// W1106: upstream keepalive comment — translate it, don't eat it.
+			// Client-side idle sensors need bytes; Bun's server idle timer is
+			// disabled globally (BUN_IDLE_TIMEOUT=0 in server.ts).
+			c.enqueue(enc.encode(SSE_KEEPALIVE));
 		}
 	};
 	const drain = (c: TransformStreamDefaultController<Uint8Array>): void => {
@@ -222,12 +244,32 @@ export function anthropicToOpenAISse(): TransformStream<
 	};
 	const dispatch = (c: TransformStreamDefaultController<Uint8Array>): void => {
 		const payload = data.join("\n").trim();
+		const evt = event;
 		data = [];
+		// W1106: anthropic ping events are transport-only on the mirror side
+		// too — emit the keepalive, never feed the semantic transform. Covers
+		// BOTH the `event: ping` name and a bare `data: {"type":"ping"}`.
+		if (evt === "ping") {
+			c.enqueue(enc.encode(SSE_KEEPALIVE));
+			event = "";
+			return;
+		}
 		if (payload.length === 0) return;
+		let parsed: unknown;
 		try {
-			emit(tx.push({ event, data: JSON.parse(payload) }), c);
+			parsed = JSON.parse(payload);
 		} catch {
-			// non-JSON frame: nothing to translate
+			event = ""; // non-JSON frame: nothing to translate
+			return;
+		}
+		if (
+			parsed &&
+			typeof parsed === "object" &&
+			(parsed as AnyRec).type === "ping"
+		) {
+			c.enqueue(enc.encode(SSE_KEEPALIVE));
+		} else {
+			emit(tx.push({ event, data: parsed }), c);
 		}
 		event = "";
 	};
@@ -242,6 +284,9 @@ export function anthropicToOpenAISse(): TransformStream<
 		} else if (l.startsWith("data:")) {
 			const v = l.slice(5);
 			data.push(v.startsWith(" ") ? v.slice(1) : v);
+		} else if (l.startsWith(":")) {
+			// W1106: upstream keepalive comment — translate, don't eat.
+			c.enqueue(enc.encode(SSE_KEEPALIVE));
 		}
 	};
 	const drain = (c: TransformStreamDefaultController<Uint8Array>): void => {
