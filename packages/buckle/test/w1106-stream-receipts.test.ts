@@ -145,6 +145,106 @@ describe("W1106 terminal-aware completion (#55419/#55420)", () => {
 		}
 	});
 
+	test("in-band anthropic event:error BEFORE message_stop → ok:0 despite terminal", async () => {
+		// #55446/#55461: the terminal marker arrives AFTER the failure — the
+		// failure wins, never a completed success.
+		const upstream = await startMockUpstream(
+			() =>
+				new Response(
+					'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":1}}}\n\n' +
+						'event: error\ndata: {"type":"error","error":{"type":"overloaded_error","message":"overloaded"}}\n\n' +
+						'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+					{ headers: sseHeaders },
+				),
+		);
+		try {
+			const deps = testDeps(poolOf(upstream.url));
+			const res = await createApp(deps).fetch(
+				new Request(`${upstream.url}/v1/messages`, {
+					method: "POST",
+					body: JSON.stringify({ model: "claude-sonnet-5", stream: true }),
+				}),
+			);
+			expect(res.status).toBe(200);
+			await res.text();
+			await Bun.sleep(20);
+			const audit = deps.ledger.auditRows()[0] ?? {};
+			expect(audit.ok).toBe(0);
+			expect(audit.decision).toBe("errored");
+			expect(audit.error_code).toBe("stream_failed");
+			expect(audit.err).toBe("stream_failed:in_band:overloaded_error");
+			expect(receiptOf(audit).terminal).toBe(
+				"in_band_error:in_band:overloaded_error",
+			);
+		} finally {
+			upstream.close();
+		}
+	});
+
+	test("openai response.failed before [DONE] → ok:0 despite sentinel", async () => {
+		const upstream = await startMockUpstream(
+			() =>
+				new Response(
+					'data: {"type":"response.failed","response":{"usage":{"prompt_tokens":1}}}\n\n' +
+						"data: [DONE]\n\n",
+					{ headers: sseHeaders },
+				),
+		);
+		try {
+			const deps = testDeps({
+				groups: () => ["glm-5.3-flash"],
+				deployments: (g) => [
+					{ group: g, url: upstream.url, dialect: "openai" as const },
+				],
+			});
+			const res = await createApp(deps).fetch(
+				new Request(`${upstream.url}/v1/chat/completions`, {
+					method: "POST",
+					body: JSON.stringify({ model: "glm-5.3-flash", stream: true }),
+				}),
+			);
+			expect(res.status).toBe(200);
+			await res.text();
+			await Bun.sleep(20);
+			const audit = deps.ledger.auditRows()[0] ?? {};
+			expect(audit.ok).toBe(0);
+			expect(audit.error_code).toBe("stream_failed");
+		} finally {
+			upstream.close();
+		}
+	});
+
+	test("heartbeat-only stream is never semantic completion", async () => {
+		// #55446: pings/keepalives must not complete a turn — a stream of
+		// only pings that EOFs is truncated (ok:0), never ok:1.
+		const upstream = await startMockUpstream(
+			() =>
+				new Response(
+					'event: ping\ndata: {"type":"ping"}\n\n: keepalive\n\n' +
+						'event: ping\ndata: {"type":"ping"}\n\n',
+					{ headers: sseHeaders },
+				),
+		);
+		try {
+			const deps = testDeps(poolOf(upstream.url));
+			const res = await createApp(deps).fetch(
+				new Request(`${upstream.url}/v1/messages`, {
+					method: "POST",
+					body: JSON.stringify({ model: "claude-sonnet-5", stream: true }),
+				}),
+			);
+			expect(res.status).toBe(200);
+			await res.text();
+			await Bun.sleep(20);
+			const audit = deps.ledger.auditRows()[0] ?? {};
+			expect(audit.ok).toBe(0);
+			expect(audit.error_code).toBe("stream_truncated");
+			expect(receiptOf(audit).terminal).toBe("upstream_eof_truncated");
+		} finally {
+			upstream.close();
+		}
+	});
+
 	test("full turn WITH message_stop → ok:1, terminal upstream_eof", async () => {
 		const upstream = await startMockUpstream(
 			() =>

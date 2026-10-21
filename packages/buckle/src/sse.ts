@@ -46,6 +46,11 @@ export class SseSniffer {
 	 *  anthropic `message_stop` / openai `[DONE]`. EOF without it is a
 	 *  truncation, never a completed turn. */
 	private sawStop = false;
+	/** W1106: an in-band failure arrived (anthropic event:error / openai
+	 *  response.failed|incomplete / a non-null error object) — non-success
+	 *  even when a terminal marker follows. */
+	private sawError = false;
+	private errorKind: string | null = null;
 
 	constructor(private readonly dialect: Dialect) {}
 
@@ -97,11 +102,14 @@ export class SseSniffer {
 		// (chat completions) or response.completed (Responses wire, W912);
 		// anthropic with a message_stop event (either framing).
 		if (payload === "[DONE]") this.sawStop = true;
+		else if (this.dialect === "openai" && this.eventType === "response.completed")
+			this.sawStop = true;
 		else if (
 			this.dialect === "openai" &&
-			this.eventType === "response.completed"
+			(this.eventType === "response.failed" ||
+				this.eventType === "response.incomplete")
 		)
-			this.sawStop = true;
+			this.markError("in_band"); // #55446: in-band failure, never completion
 		else if (this.dialect === "anthropic" && this.eventType === "message_stop")
 			this.sawStop = true;
 		else if (this.dialect === "anthropic") {
@@ -127,9 +135,52 @@ export class SseSniffer {
 		return this.sawStop;
 	}
 
+	/** W1106 (#55446/#55461): an in-band failure arrived — non-success even
+	 *  when a terminal marker follows it. */
+	failed(): boolean {
+		return this.sawError;
+	}
+
+	/** The typed in-band failure kind (null = no in-band failure seen). */
+	failureKind(): string | null {
+		return this.errorKind;
+	}
+
+	private markError(kind: string): void {
+		this.sawError = true;
+		this.errorKind = kind;
+	}
+
 	private data(json: unknown): void {
 		if (!json || typeof json !== "object") return;
 		const r = json as AnyRec;
+		// W1106 (#55446/#55461): in-band failure bodies — anthropic's
+		// `{type:"error"}` event and openai error envelopes — mark the
+		// stream failed REGARDLESS of any terminal marker that follows.
+		if (r.type === "error") {
+			const err = (r.error ?? {}) as AnyRec;
+			this.markError(
+				typeof err.type === "string" ? `in_band:${err.type}` : "in_band",
+			);
+			return;
+		}
+		// Responses-wire failures arrive as bare data frames (no event name):
+		// the JSON type field is the only signal.
+		if (r.type === "response.failed" || r.type === "response.incomplete") {
+			const inner = ((r.response ?? {}) as AnyRec).error as AnyRec | undefined;
+			this.markError(
+				inner && typeof inner.code === "string"
+					? `in_band:${inner.code}`
+					: "in_band",
+			);
+			return;
+		}
+		if (
+			r.error !== undefined &&
+			r.error !== null &&
+			typeof r.error === "object"
+		)
+			this.markError("in_band");
 		if (this.dialect === "anthropic") {
 			const t = typeof r.type === "string" ? r.type : this.eventType;
 			if (t === "message_start") {
