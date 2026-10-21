@@ -21,7 +21,7 @@ import {
 	loadGatewayPolicy,
 } from "./router-policy.ts";
 import { buildRemoteEntries } from "./remotes-validate.ts";
-import { chatEntries } from "./registry.ts";
+import { chatEntries, ROUTER } from "./registry.ts";
 import { litellmRows } from "./registry-emit.ts";
 import { openRouterFreeRows } from "./openrouter-free-rows.ts";
 import { readZaiSnapshot, zaiLiteLlmRows } from "./zai-catalog-rows.ts";
@@ -171,8 +171,8 @@ const anth = [
 		// Degradation tier: the local swarm ingress (:4000). LiteLLM POSTs
 		// Anthropic-shape requests to any base — the shim accepts glm ids and
 		// routes by complexity (audit row: anthropic/<name> + api_base).
-		name: "local-swarm",
-		model: "anthropic/local-swarm",
+		name: ROUTER.gatewayAlias,
+		model: `anthropic/${ROUTER.gatewayAlias}`,
 		base: "http://127.0.0.1:4000",
 		key: "dummy",
 	},

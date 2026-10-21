@@ -11,7 +11,7 @@
 #
 # OWNER DIRECTIVES (lesson.fanout-rate-budget + the 2026-10-04/06 hand-edit
 # fold, W219.2): the 429 wall proved glm groups need cross-group ladders to
-# the zai twins + local-reason; the TLS outage proved they must be live
+# the zai twins + the Belt local router; the TLS outage proved they must be live
 # (placement law above). NEVER flashx — same upstream family saturates
 # together, and flashx is too expensive.
 #   - operators edit THIS FILE — never code. Runtime copy
@@ -41,33 +41,31 @@ gateway:
   # and context_window_fallbacks below needs it live per the docs pairing.
   enable_pre_call_checks: true
   # Ordered cross-group ladders (tried after num_retries): glm group →
-  # openai-dialect zai twin → local-reason. When z.ai is dark both z.ai
-  # rungs fail and local-reason answers — the drill in llm-keepwarm.ts
-  # (fallback-drill.ts) asserts exactly this every 4 min.
+  # openai-dialect zai twin → Belt's local router. The router starts models
+  # excluded by the current tier on demand and never re-enters this ladder.
+  # fallback-drill.ts asserts the ladder every 4 min.
   # W880 mirror rows (F3 gap): the twins themselves were bare — an address
   # straight to a zai group died with z.ai. Twin → anthropic-dialect
-  # same-model rung → local-reason (cycle-safe: litellm bounds the walk
-  # with fallback_depth/max_fallbacks). local-swarm (the :4000 shim row)
-  # ladders to the resident specialist for a shim-only death. NEVER
+  # same-model rung → local router (cycle-safe: litellm bounds the twin walk
+  # with fallback_depth/max_fallbacks). The local router has no fallback
+  # back into this gateway. NEVER
   # flashx — same upstream family saturates together, and flashx is too
   # expensive.
   fallbacks:
-    glm-5.3-flash: [zai-glm-5.3-flash, local-reason]
-    glm-5.3: [zai-glm-5.3, local-reason]
-    glm-5.2: [zai-glm-5.2, local-reason]
-    zai-glm-5.3-flash: [glm-5.3-flash, local-reason]
-    zai-glm-5.3: [glm-5.3, local-reason]
-    zai-glm-5.2: [glm-5.2, local-reason]
-    local-swarm: [local-reason]
+    glm-5.3-flash: [zai-glm-5.3-flash, local-swarm]
+    glm-5.3: [zai-glm-5.3, local-swarm]
+    glm-5.2: [zai-glm-5.2, local-swarm]
+    zai-glm-5.3-flash: [glm-5.3-flash, local-swarm]
+    zai-glm-5.3: [glm-5.3, local-swarm]
+    zai-glm-5.2: [glm-5.2, local-swarm]
   # W880 (F3): rescue oversized requests that hard-400 on a small-context
   # specialist — the provider's context-window error retries on the
-  # standard cloud group (big window, itself laddered to local-reason).
+  # standard cloud group (big window, itself laddered to the local router).
   context_window_fallbacks:
     local-extract: [glm-5.3-flash]
     local-coder: [glm-5.3-flash]
     local-reason: [glm-5.3-flash]
     local-general: [glm-5.3-flash]
-    local-swarm: [glm-5.3-flash]
     nas-qwen2.5-0.5b: [glm-5.3-flash]
 
 # Direct-tier bypass (W270) — hot local classes skip the LiteLLM hop.

@@ -20,6 +20,8 @@ import { promptFingerprint } from "./prompt-fingerprint.ts";
 import {
 	byPort,
 	fallbackFor,
+	needsDemandStart,
+	ROUTER,
 	SPECIALISTS,
 	type Specialist,
 } from "./registry.ts";
@@ -356,6 +358,16 @@ async function ladder<R extends Attempt>(
 		return { result, used, retryAfterMs: retryAfter };
 	}
 	note.push(`fallback → :${fb.port}`);
+	if (!process.env.BELT_UPSTREAM_BASE && needsDemandStart(fb)) {
+		const ready = await ensureUp(fb);
+		if (!ready.up) {
+			fbRelease();
+			errors.push(
+				`:${fb.port} demand start failed: ${ready.error ?? "not ready"}`,
+			);
+			return { result, used, retryAfterMs: retryAfter };
+		}
+	}
 	result = await callHonoringRetryAfter(() => call(fb));
 	used = fb;
 	if (result.status === 429)
@@ -476,6 +488,10 @@ Bun.serve({
 		// score complexity and select specialist:
 		//   code-ish → coder; everything non-SIMPLE prose → 27B general; else 4B
 		const prefs = await loadPrefs();
+		// A request sent by LiteLLM to this local router must never escalate
+		// back into LiteLLM's fallback ladder. The group alias is registry data.
+		const cloudAllowedForRequest =
+			body.model !== ROUTER.gatewayAlias && cloudAllowed(prefs);
 		const score = scoreComplexity(text);
 
 		// arithmetic lane — zero tokens, zero model calls
@@ -817,23 +833,6 @@ Bun.serve({
 				note.push(`forced dead primary :${primary.port}`);
 			}
 
-			// ondemand tier: spawn on first request (single-flight); residents rely
-			// on launchd KeepAlive instead (routing rule 2). Cold load is visible in
-			// the note — never a silent fallback (that was the W1 defect).
-			if (route.tier === "ondemand") {
-				const ens = await ensureUp(route);
-				if (ens.up) {
-					if (ens.cold)
-						note.push(
-							`ondemand :${route.port} ready (cold ${(ens.waitedMs / 1000).toFixed(1)}s)`,
-						);
-				} else {
-					note.push(
-						`ondemand :${route.port} DOWN (${ens.error ?? "spawn failed"})`,
-					);
-				}
-			}
-
 			// budget policy per target model (thinking off / min budget)
 			const budgetFor = (t: Specialist) => {
 				const b = applyBudget(t.model, clientMax);
@@ -881,7 +880,7 @@ Bun.serve({
 			// cloud gate + tier decision: only prefs authorize the cloud leg;
 			// W786: kev's escalate verdict can keep it local (fail-open — no
 			// verdict, kev down, or escalate_gate off ⇒ today's behavior)
-			if (el.label === "cloud" && cloudAllowed(prefs)) {
+			if (el.label === "cloud" && cloudAllowedForRequest) {
 				if (kevEscalateVeto(el.label, kevEscalate))
 					note.push("kev escalate-gate: kept local");
 				else await tryCloud(true);
@@ -891,7 +890,7 @@ Bun.serve({
 			// local leg will actually run, including after a failed cloud attempt.
 			if (!response) {
 				release = admission.tryAcquire(route.port);
-				if (!release && cloudAllowed(prefs) && !triedCloud) {
+				if (!release && cloudAllowedForRequest && !triedCloud) {
 					// W1071 (owner doctrine 2026-10-20): a local cap-refusal is an
 					// internal signal, never an upstream one — spill to cloud when
 					// prefs authorize it; 429 only after cloud also declines.
@@ -922,6 +921,28 @@ Bun.serve({
 						refusal: "local_capacity",
 						...hopFields(),
 					});
+				}
+				// Only cold-start after the cloud-first leg declines and a local
+				// slot is available. Minimal tiers leave heavy registry residents
+				// unowned; ensureUp single-flights those demand starts.
+				if (
+					release &&
+					!response &&
+					route &&
+					!process.env.BELT_UPSTREAM_BASE &&
+					needsDemandStart(route)
+				) {
+					const ens = await ensureUp(route);
+					if (ens.up) {
+						if (ens.cold)
+							note.push(
+								`ondemand :${route.port} ready (cold ${(ens.waitedMs / 1000).toFixed(1)}s)`,
+							);
+					} else {
+						note.push(
+							`ondemand :${route.port} DOWN (${ens.error ?? "spawn failed"})`,
+						);
+					}
 				}
 			}
 			if (wantStream && !response) {
@@ -1023,7 +1044,7 @@ Bun.serve({
 			if (
 				!response &&
 				!(resultToolCalls && resultToolCalls.length > 0) &&
-				cloudAllowed(prefs) &&
+				cloudAllowedForRequest &&
 				!triedCloud
 			) {
 				await tryCloud(score.tier !== "VERY_COMPLEX");
