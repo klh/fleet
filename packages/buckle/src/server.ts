@@ -172,6 +172,16 @@ export function buildDeps(
 		call: directCall,
 	});
 	const metrics: RouterMetrics = {
+		attempt: (receipt) => {
+			try {
+				ledger.auditAttempt(receipt);
+			} catch {
+				sm.counter(
+					"buckle_trace_receipt_failures_total",
+					"Attempt receipts rejected by the local ledger sink.",
+				).inc();
+			}
+		},
 		fallback: (tier) =>
 			sm
 				.counter(
