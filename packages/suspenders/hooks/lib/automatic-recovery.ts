@@ -7,7 +7,7 @@ import type { LaneRef } from "./lane-liveness.ts";
 import { probeClaim } from "./reclaim-liveness.ts";
 import {
 	inspectLaunchIntent,
-	launchIntent,
+	type LaunchIntent,
 } from "../../scripts/lib/launch-fencing.ts";
 
 export type AutomaticRecoveryClaim = {
@@ -61,7 +61,18 @@ export function automaticRecoveryCheck(
 		if (probe.holdUntil !== null) return { ok: false, why: "waiting" };
 		const verdict = probe.verdict;
 		if (verdict !== "dead") return { ok: false, why: verdict };
-		const intent = launchIntent(claim.store, claim.project, claim.id);
+		// The final CAS guard must be read-only. launchIntent() initializes its
+		// schema, so query an existing table without creating one here.
+		const hasIntents = claim.store
+			.query(
+				"SELECT 1 AS found FROM sqlite_master WHERE type='table' AND name='lane_launch_intents'",
+			)
+			.get() as { found: number } | null;
+		const intent = hasIntents
+			? (claim.store
+					.query("SELECT * FROM lane_launch_intents WHERE project=? AND item=?")
+					.get(claim.project, claim.id) as LaunchIntent | null)
+			: null;
 		if (intent) {
 			if (intent.sid !== claim.owner) return { ok: false, why: "unknown" };
 			if (inspectLaunchIntent(intent) !== "dead")
