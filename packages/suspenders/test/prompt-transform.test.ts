@@ -4,11 +4,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
 	condensePrompt,
-	ENHANCE_DIRECT_ALIASES,
-	ENHANCE_SYS,
-	ENHANCE_URL,
+	ENHANCE_HINT,
+	ENHANCE_MODEL,
 	enhancePrompt,
-	type EnhanceTarget,
 	type Fetcher,
 	holdPlan,
 	PROMPT_DEFAULTS,
@@ -20,6 +18,12 @@ import {
 	takePlan,
 } from "../hooks/board/prompt-transform.ts";
 import { validateBoardSettings } from "../hooks/lib/board-config.ts";
+
+// W1119 stub credential pair — the knowledge-buckle contract both-or-neither
+const GATE_ENV = {
+	SUSPENDERS_BUCKLE_URL: "http://127.0.0.1:4101",
+	SUSPENDERS_BUCKLE_TOKEN: "bksk_pt_test",
+};
 
 const FLUFFY =
 	"Hi there! Could you please just basically add a CSV export to the `tasks` table in hooks/board/data.ts? I would like you to make sure that it streams. I would like you to make sure that it streams. Thanks so much!";
@@ -86,208 +90,116 @@ describe("prompt condenser", () => {
 	});
 });
 
-describe("enhance (belt router, Anthropic wire)", () => {
-	test("returns the rewrite on success, posts the Anthropic shape", async () => {
-		let seen: Record<string, unknown> = {};
-		const fetcher: Fetcher = async (_url, init) => {
-			seen = JSON.parse(String(init?.body));
+describe("enhance through the gate (W1119)", () => {
+	test("rewrites via the gated leg: auth + hint ride, think block stripped", async () => {
+		let seen: { url: string; auth: string | null; hint: string | null } = {
+			url: "",
+			auth: null,
+			hint: null,
+		};
+		let calls = 0;
+		const fetcher: Fetcher = (async (input: unknown, init?: RequestInit) => {
+			calls++;
+			const h = new Headers(init?.headers);
+			seen = {
+				url: String(input),
+				auth: h.get("authorization"),
+				hint: h.get("x-belt-hint"),
+			};
 			return Response.json({
+				model: "served",
 				content: [{ type: "text", text: "<think>x</think>Add CSV export." }],
 			});
-		};
-		const r = await enhancePrompt("add csv", { model: "m1", fetcher });
+		}) as unknown as typeof fetch;
+		const r = await enhancePrompt("add csv", { env: GATE_ENV, fetcher });
+		expect(calls).toBe(1);
 		expect(r.ok).toBe(true);
 		expect(r.text).toBe("Add CSV export.");
-		expect(seen.model).toBe("m1");
-		expect(seen.max_tokens).toBe(400);
-		expect(Array.isArray(seen.messages)).toBe(true);
+		expect(r.model).toBe("local-extract");
+		expect(seen.url).toBe("http://127.0.0.1:4101/v1/messages");
+		expect(seen.auth).toBe("Bearer bksk_pt_test");
+		expect(seen.hint).toBe(ENHANCE_HINT);
 	});
-	test("unreachable router degrades to no enhancement", async () => {
-		const fetcher: Fetcher = async () => {
+	test("down gate degrades honestly — no reroute, second leg never fires", async () => {
+		let calls = 0;
+		const fetcher: Fetcher = (async () => {
+			calls++;
 			throw new Error("ECONNREFUSED");
-		};
-		const r = await enhancePrompt("add csv", { model: "m", fetcher });
+		}) as unknown as typeof fetch;
+		const r = await enhancePrompt("add csv", { env: GATE_ENV, fetcher });
+		expect(calls).toBe(1);
 		expect(r.ok).toBe(false);
 		expect(r.text).toBe("add csv");
-		expect(r.note).toContain("unreachable");
+		expect(r.note).toContain("buckle");
 	});
-	test("real closed port degrades too", async () => {
+	test("missing scoped key fails closed before any fetch", async () => {
+		const fetcher: Fetcher = (async () => {
+			throw new Error("must never fetch");
+		}) as unknown as typeof fetch;
 		const r = await enhancePrompt("add csv", {
-			model: "m",
-			url: "http://127.0.0.1:9/v1/messages",
-			timeoutMs: 2000,
+			env: { SUSPENDERS_BUCKLE_URL: "http://127.0.0.1:4101" },
+			fetcher,
 		});
 		expect(r.ok).toBe(false);
 		expect(r.text).toBe("add csv");
+		expect(r.note).toContain("together");
 	});
-	test("HTTP error and empty text degrade", async () => {
-		const e500: Fetcher = async () => new Response("boom", { status: 500 });
-		expect(
-			(await enhancePrompt("g", { model: "m", fetcher: e500 })).note,
-		).toContain("HTTP 500");
-		const empty: Fetcher = async () => Response.json({ content: [] });
-		const r = await enhancePrompt("g", { model: "m", fetcher: empty });
-		expect(r.ok).toBe(false);
-		expect(r.text).toBe("g");
-	});
-	test("W422.17.3: key rides both wire forms; keyless sends no credential", async () => {
-		const seen: { url: string; headers: Headers }[] = [];
-		const fetcher: Fetcher = async (url, init) => {
-			seen.push({ url: String(url), headers: new Headers(init?.headers) });
-			return Response.json({
-				content: [{ type: "text", text: "Add CSV export." }],
-			});
-		};
-		await enhancePrompt("g", { model: "m", fetcher, key: "bksk_test" });
-		expect(seen[0].url).toBe(ENHANCE_URL);
-		expect(seen[0].headers.get("x-api-key")).toBe("bksk_test");
-		expect(seen[0].headers.get("authorization")).toBe("Bearer bksk_test");
-		await enhancePrompt("g", { model: "m", fetcher, key: "" });
-		expect(seen[1].headers.get("x-api-key")).toBeNull();
-		expect(seen[1].headers.get("authorization")).toBeNull();
-	});
-	test("W422.17.3: gate refusal degrades honestly, never invents text", async () => {
+	test("gate refusal (HTTP 401) degrades without inventing text", async () => {
 		const r = await enhancePrompt("add csv", {
-			model: "m",
-			url: ENHANCE_URL,
-			key: "bksk_revoked",
-			fetcher: async () =>
+			env: GATE_ENV,
+			fetcher: (async () =>
 				new Response('{"error":"missing credential"}', {
 					status: 401,
-				}),
+				})) as unknown as typeof fetch,
 		});
 		expect(r.ok).toBe(false);
 		expect(r.text).toBe("add csv");
 		expect(r.note).toContain("HTTP 401");
 	});
+	test("empty rewrite text degrades to the untouched goal", async () => {
+		const r = await enhancePrompt("add csv", {
+			env: GATE_ENV,
+			fetcher: (async () =>
+				Response.json({
+					content: [{ type: "text", text: "  " }],
+				})) as unknown as typeof fetch,
+		});
+		expect(r.ok).toBe(false);
+		expect(r.text).toBe("add csv");
+	});
 });
 
-describe("enhancePrompt (openai wire, W288)", () => {
-	test("posts system+user messages, parses choices[].message", async () => {
-		let seen: Record<string, unknown> = {};
-		const fetcher: Fetcher = async (_url, init) => {
-			seen = JSON.parse(String(init?.body));
-			return Response.json({
-				choices: [
-					{
-						message: {
-							content: "<think>x</think>Add CSV export.",
-						},
-					},
-				],
-			});
-		};
+describe("enhance target resolution (W1119)", () => {
+	afterEach(() => {
+		delete process.env.SUSPENDERS_PROMPT_MODEL;
+	});
+	test("model pin rides as data; no endpoint is resolved", async () => {
+		process.env.SUSPENDERS_PROMPT_MODEL = "glm-5.3-flash";
+		expect(await resolveEnhanceTarget()).toEqual({
+			mode: "buckle",
+			model: "glm-5.3-flash",
+		});
+	});
+	test("default resolves to the extract preference through buckle", async () => {
+		delete process.env.SUSPENDERS_PROMPT_MODEL;
+		expect(await resolveEnhanceTarget()).toEqual({
+			mode: "buckle",
+			model: ENHANCE_MODEL,
+		});
+	});
+	test("enhancePrompt honors a call-time model pin", async () => {
 		const r = await enhancePrompt("add csv", {
-			model: "local-extract",
-			url: "http://127.0.0.1:8902/v1/chat/completions",
-			wire: "openai",
-			fetcher,
+			env: {
+				...GATE_ENV,
+				SUSPENDERS_PROMPT_MODEL: "glm-5.3-flash",
+			},
+			fetcher: (async () =>
+				Response.json({
+					content: [{ type: "text", text: "Add CSV export." }],
+				})) as unknown as typeof fetch,
 		});
 		expect(r.ok).toBe(true);
-		expect(r.text).toBe("Add CSV export.");
-		expect(seen.model).toBe("local-extract");
-		expect(seen.max_tokens).toBe(400);
-		expect(seen.system).toBeUndefined();
-		expect(seen.messages).toEqual([
-			{ role: "system", content: ENHANCE_SYS },
-			{ role: "user", content: "add csv" },
-		]);
-	});
-	test("same degrade notes as the anthropic wire", async () => {
-		const e500: Fetcher = async () => new Response("boom", { status: 500 });
-		expect(
-			(
-				await enhancePrompt("g", {
-					model: "m",
-					wire: "openai",
-					fetcher: e500,
-				})
-			).note,
-		).toContain("HTTP 500");
-		const dead: Fetcher = async () => {
-			throw new Error("ECONNREFUSED");
-		};
-		const r = await enhancePrompt("g", {
-			model: "m",
-			wire: "openai",
-			fetcher: dead,
-		});
-		expect(r.note).toContain("unreachable");
-	});
-});
-
-describe("enhance target resolution (W288)", () => {
-	const setPins = (m?: string, u?: string) => {
-		delete process.env.SUSPENDERS_PROMPT_MODEL;
-		delete process.env.SUSPENDERS_PROMPT_ENHANCE_URL;
-		if (m) process.env.SUSPENDERS_PROMPT_MODEL = m;
-		if (u) process.env.SUSPENDERS_PROMPT_ENHANCE_URL = u;
-	};
-	afterEach(() => setPins());
-	test("model pin → gateway with the pinned id", async () => {
-		setPins("glm-5.3-flash");
-		const t = await resolveEnhanceTarget({ readFile: () => "{}" });
-		expect(t.mode).toBe("gateway");
-		expect(t.model).toBe("glm-5.3-flash");
-		expect(t.url).toBe(ENHANCE_URL);
-		expect(t.wire).toBe("anthropic");
-	});
-	test("url pin → gateway on the pin, alias id", async () => {
-		setPins(undefined, "http://127.0.0.1:9999/v1/messages");
-		expect(await resolveEnhanceTarget({ readFile: () => "{}" })).toEqual({
-			mode: "gateway",
-			alias: "",
-			model: ENHANCE_DIRECT_ALIASES[0],
-			url: "http://127.0.0.1:9999/v1/messages",
-			wire: "anthropic",
-		} satisfies EnhanceTarget);
-	});
-	test("direct map: extract row wins, /v1 normalized, endpoint appended", async () => {
-		const t = await resolveEnhanceTarget({
-			readFile: () =>
-				JSON.stringify({
-					"local-coder": "http://127.0.0.1:8901/v1",
-					"local-extract": "http://127.0.0.1:8902",
-				}),
-			probe: async () => "mlx-community/Qwen3-4B-Instruct-2507-4bit",
-		});
-		expect(t.mode).toBe("direct");
-		expect(t.alias).toBe("local-extract");
-		expect(t.model).toBe("mlx-community/Qwen3-4B-Instruct-2507-4bit");
-		expect(t.url).toBe("http://127.0.0.1:8902/v1/chat/completions");
-		expect(t.wire).toBe("openai");
-	});
-	test("no extract row falls to reason; non-loopback rows ignored", async () => {
-		const t = await resolveEnhanceTarget({
-			readFile: () =>
-				JSON.stringify({
-					"local-extract": "https://api.example.com/v1",
-					"local-reason": "http://localhost:8903/v1",
-				}),
-			probe: async (base) =>
-				base.includes("8903")
-					? "mlx-community/Qwen3.5-35B-A3B-OptiQ-4bit"
-					: null,
-		});
-		expect(t.alias).toBe("local-reason");
-		expect(t.model).toBe("mlx-community/Qwen3.5-35B-A3B-OptiQ-4bit");
-		expect(t.url).toBe("http://localhost:8903/v1/chat/completions");
-	});
-	test("no map / unreadable / no match → gateway default with alias id", async () => {
-		for (const read of [
-			() => "{}",
-			(): string => {
-				throw new Error("ENOENT");
-			},
-		]) {
-			expect(await resolveEnhanceTarget({ readFile: read })).toEqual({
-				mode: "gateway",
-				alias: "",
-				model: ENHANCE_DIRECT_ALIASES[0],
-				url: ENHANCE_URL,
-				wire: "anthropic",
-			} satisfies EnhanceTarget);
-		}
+		expect(r.model).toBe("glm-5.3-flash");
 	});
 });
 

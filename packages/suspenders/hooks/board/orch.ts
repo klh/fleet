@@ -159,8 +159,6 @@ export async function orchPrepare(
 		enhance: async (text) => {
 			const r = await enhancePrompt(text, {
 				model: target.model,
-				url: target.url,
-				wire: target.wire,
 				...(traceId ? { traceparent: orchTraceparent(traceId) } : {}),
 			});
 			orchTelemetry({
@@ -168,9 +166,7 @@ export async function orchPrepare(
 				traceId,
 				project: projectIdentity(repo),
 				model: r.model,
-				...(target.alias ? { alias: target.alias } : {}),
-				host: new URL(target.url).host,
-				...(target.mode === "direct" ? { direct: true } : {}),
+				host: "buckle",
 				ms: r.ms,
 				...(r.ok ? {} : { error: r.note.slice(0, 200) }),
 			});
@@ -179,10 +175,10 @@ export async function orchPrepare(
 					traceId,
 					at: Date.now(),
 					phase: "prompt.enhance",
-					service: target.mode === "direct" ? "local model" : "buckle gateway",
+					service: "buckle gateway",
 					status: r.ok ? "ok" : "error",
 					model: r.model,
-					endpoint: new URL(target.url).host,
+					endpoint: "buckle",
 					ms: r.ms,
 				});
 			return r;

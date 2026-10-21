@@ -262,7 +262,6 @@ describe("W57 orchestrate box", () => {
 				// gate answers the scoped-key pair
 				SUSPENDERS_BUCKLE_URL: MB,
 				SUSPENDERS_BUCKLE_TOKEN: "bksk_flows_test",
-				SUSPENDERS_PROMPT_ENHANCE_URL: `${MB}/v1/messages`,
 			},
 			stdout: "pipe",
 			stderr: "pipe",
