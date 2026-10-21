@@ -522,7 +522,10 @@ export class Router {
 					status: error.status,
 					kind: "network",
 				};
-				if (error.layer === "connect" && raw >= candidates.length - 1) break;
+				// A failed network exchange already spent this row's entire
+				// request timeout. Repeating the same last row cannot improve
+				// this walk; hand the remaining time to the next policy tier.
+				if (raw >= candidates.length - 1) break;
 				continue;
 			}
 			if (r.ok) {

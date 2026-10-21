@@ -71,3 +71,85 @@ test("dead Buckle peer ejects on connect and the fallback serves promptly", asyn
 	).toBe(true);
 	fallback.close();
 });
+
+test("timed-out row is tried once per tier, not twice before the next tier", async () => {
+	const attempted: string[] = [];
+	const timeoutMs: number[] = [];
+	const slept: number[] = [];
+	const router = new Router(
+		{
+			num_retries: 1,
+			allowed_fails: 99,
+			request_timeout_s: 120,
+			fallbacks: { primary: ["second", "third"] },
+		},
+		{
+			pool: {
+				groups: () => ["primary", "second", "third"],
+				deployments: (group) => [
+					{ group, url: `http://${group}.example.invalid`, dialect: "openai" },
+				],
+			},
+			sleepMs: async (ms) => {
+				slept.push(ms);
+			},
+			fetchImpl: async (dep, _req, timeout) => {
+				attempted.push(dep.group);
+				timeoutMs.push(timeout);
+				throw new Error("simulated first-byte timeout");
+			},
+		},
+	);
+	const result = await router.execute({
+		group: "primary",
+		dialect: "openai",
+		path: "/v1/chat/completions",
+		body: { model: "primary" },
+		key: "",
+	});
+	expect(result.kind).toBe("exhausted");
+	expect(attempted).toEqual(["primary", "second", "third"]);
+	expect(timeoutMs).toEqual([120_000, 120_000, 120_000]);
+	expect(slept).toEqual([]);
+});
+
+test("a failed network row still advances to a different same-tier candidate", async () => {
+	const attempted: string[] = [];
+	const router = new Router(
+		{ num_retries: 1, allowed_fails: 99, request_timeout_s: 120 },
+		{
+			pool: {
+				groups: () => ["primary"],
+				deployments: () => [
+					{
+						group: "primary",
+						url: "http://first.example.invalid",
+						dialect: "openai",
+					},
+					{
+						group: "primary",
+						url: "http://second.example.invalid",
+						dialect: "openai",
+					},
+				],
+			},
+			fetchImpl: async (dep) => {
+				attempted.push(dep.url);
+				if (dep.url.includes("first")) throw new Error("network timeout");
+				return Response.json({ ok: true });
+			},
+		},
+	);
+	const result = await router.execute({
+		group: "primary",
+		dialect: "openai",
+		path: "/v1/chat/completions",
+		body: { model: "primary" },
+		key: "",
+	});
+	expect(result.kind).toBe("upstream");
+	expect(attempted).toEqual([
+		"http://first.example.invalid",
+		"http://second.example.invalid",
+	]);
+});
