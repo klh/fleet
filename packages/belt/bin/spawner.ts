@@ -20,15 +20,20 @@
 
 import { closeSync, mkdirSync, openSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { serverKvArgs } from "./kv-prefix.ts";
 import {
-	admitSpawn,
-	withSpawnLedger,
-	type SpawnRow,
-} from "./spawn-admission.ts";
+	coldLoadTimeoutMs,
+	modelBudgetGb,
+	rapidMemoryArgs,
+	wiredGuardGb,
+} from "./memory-policy.ts";
 import type { Platform, PlatformDefinition, Specialist } from "./registry.ts";
 import { platformDefinitions, runtimeFor, thisPlatform } from "./registry.ts";
-import { modelBudgetGb, rapidMemoryArgs } from "./memory-policy.ts";
-import { serverKvArgs } from "./kv-prefix.ts";
+import {
+	admitSpawn,
+	type SpawnRow,
+	withSpawnLedger,
+} from "./spawn-admission.ts";
 
 const HOME = process.env.HOME;
 const MLX_PYTHON = `${HOME}/.local/share/uv/tools/mlx-lm/bin/python`;
@@ -193,9 +198,8 @@ export async function ensureAvailable(
 }
 
 // 5.6GB 9B loads in seconds; big models get ram_gb × 20s (22GB → ~7min).
-const COLD_TIMEOUT_FLOOR_MS = 90_000;
 export const coldTimeoutMs = (s: Specialist): number =>
-	Math.max(COLD_TIMEOUT_FLOOR_MS, s.ram_gb * 20_000);
+	coldLoadTimeoutMs(s.ram_gb);
 
 // Single-flight per port — concurrent cold requests share one load wait.
 const pending = new Map<number, Promise<EnsureResult>>();
@@ -253,9 +257,7 @@ const readyListener = (port: number, pid: number): boolean => {
 // clamp: empty env → Number("") = 0 (refuse every load); garbage → NaN
 // (comparisons false, guard never trips — fail-open OOM). glm-5.3 review
 // of f4aad15c: env knobs validate or fall back to the default.
-const rawWiredGb = Number(process.env.BELT_WIRED_GUARD_GB ?? 60);
-export const WIRED_GUARD_GB =
-	Number.isFinite(rawWiredGb) && rawWiredGb > 0 ? rawWiredGb : 60;
+export const WIRED_GUARD_GB = wiredGuardGb(process.env.BELT_WIRED_GUARD_GB);
 
 // Get-CimInstance one-liner: physical used (working set) vs commit charge,
 // the larger wins — both are OOM precursors on Windows.
