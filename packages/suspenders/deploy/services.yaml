@@ -223,8 +223,11 @@ services:
     abandonProcessGroup: true
     bunEntry: "__HOME__/.claude/local-llm/swarm.ts"
     args: ["supervise"]
+    # launchctl setenv survives reinstalls; only reviewed belt.env may set
+    # the escalation route or credential for this service and its children.
+    clearInheritedEnv: [BELT_ESCALATE_URL, BELT_ESCALATE_KEY, BELT_ESCALATE_MODEL]
+    # BELT_WIRED_GUARD_GB comes only from the validated 0600 envFile below.
     env:
-      BELT_WIRED_GUARD_GB: "90"
       PATH: "__HOME__/.local/bin:__HOME__/.local/share/uv/tools/mlx-lm/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
     # W876: belt.env rides the unit env (sourced before exec) so the
     # supervisor and its children inherit LITELLM_KEY — remotes.ts endpointKey
@@ -279,6 +282,11 @@ services:
 legacyLabels:
   # pre-namespacing supersede set (W284/W640 history)
   - com.belt.swarm
+  # W1105 — direct rapid-mlx KeepAlive plists competed with belt-swarm.
+  - com.belt.llm-8901
+  - com.belt.llm-8902
+  - com.belt.llm-8903
+  - com.belt.llm-8913
   - com.klh.llm-keepwarm
   - com.klh.fleet-monitor
   - com.klh.local-llm

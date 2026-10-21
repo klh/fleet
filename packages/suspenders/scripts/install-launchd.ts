@@ -16,6 +16,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { execa } from "execa";
+import { validateBeltWiredGuard } from "./lib/belt-wired-guard.ts";
 import {
 	digestUnit,
 	parseLoadedArguments,
@@ -27,6 +28,35 @@ import {
 } from "./lib/service-drift.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
 import { loadLegacyLabels } from "./install-services.ts";
+
+/** Drop per-user launchctl values before loading a unit that sources an
+ * authoritative envFile. Never log getenv output: one value may be a key. */
+type LaunchctlEnvRunner = (
+	command: string,
+	args: string[],
+) => Promise<{ exitCode: number | undefined; stdout: string }>;
+
+export async function clearInheritedLaunchctlEnv(
+	names: string[],
+	run: LaunchctlEnvRunner = (command, args) =>
+		execa(command, args, {
+			reject: false,
+			stdout: "pipe",
+			stderr: "pipe",
+		}),
+): Promise<boolean> {
+	for (const name of names) {
+		if (!/^[A-Z_][A-Z0-9_]*$/.test(name)) return false;
+		const before = await run("/bin/launchctl", ["getenv", name]);
+		if (before.exitCode !== 0) return false;
+		if (!before.stdout.trim()) continue;
+		const clear = await run("/bin/launchctl", ["unsetenv", name]);
+		if (clear.exitCode !== 0) return false;
+		const after = await run("/bin/launchctl", ["getenv", name]);
+		if (after.exitCode !== 0 || after.stdout.trim()) return false;
+	}
+	return true;
+}
 
 // supersede the pre-namespacing agent labels so old and new never run side by
 // side (same jobs, stale script paths, double keepwarm/monitor pings).
@@ -155,7 +185,55 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 		return { status: "failed", note: stable.refusal };
 	}
 	const repo = stable.repo;
-	const home = process.env.HOME ?? "";
+	const home = ctx.home || process.env.HOME || "";
+	const guard = validateBeltWiredGuard(
+		join(home, ".claude", "local-llm", "belt.env"),
+	);
+	if (!guard.ok)
+		return {
+			status: "failed",
+			note: `${guard.reason}; Belt and dispatch require the same machine value before activation`,
+		};
+	// Read-only route gate must run from the pinned source checkout: the
+	// installed harness snapshot has no Buckle/Belt package closure. A failed
+	// graph or connect check blocks activation before any unit is rendered.
+	const routeGate = await execa(
+		process.execPath,
+		[join(repo, "scripts/route-preflight.ts")],
+		{ cwd: repo, reject: false },
+	);
+	let routeReport: {
+		ok?: boolean;
+		mode?: string;
+		findings?: unknown[];
+		probes?: Array<{ reachable: boolean }>;
+		drills?: Array<{ ok: boolean }>;
+	} | null = null;
+	try {
+		routeReport = JSON.parse(routeGate.stdout);
+	} catch {
+		// A zero-exit child without a valid receipt is not proof of safe routing.
+	}
+	const routeApproved =
+		routeGate.exitCode === 0 &&
+		routeReport?.ok === true &&
+		routeReport.mode === "live" &&
+		Array.isArray(routeReport.findings) &&
+		routeReport.findings.length === 0 &&
+		Array.isArray(routeReport.probes) &&
+		routeReport.probes.every((probe) => probe.reachable === true) &&
+		Array.isArray(routeReport.drills) &&
+		routeReport.drills.length > 0 &&
+		routeReport.drills.every((drill) => drill.ok === true);
+	if (!routeApproved) {
+		let summary = routeGate.stderr?.trim() || "route preflight refused";
+		if (routeReport)
+			summary = `${routeReport.findings?.length ?? "?"} graph findings, ${routeReport.probes?.filter((probe) => !probe.reachable).length ?? "?"} unreachable hubs, ${routeReport.drills?.filter((drill) => !drill.ok).length ?? "?"} failed drills; valid live receipt required`;
+		return {
+			status: "failed",
+			note: `route preflight failed before activation: ${summary}`,
+		};
+	}
 	const agentsDir = join(home, "Library", "LaunchAgents");
 	const insightsDir = join(home, ".claude-insights");
 	// W264: agent logs live in the private insights dir, never world-readable /tmp
@@ -191,7 +269,12 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 		{ cwd: repo, stderr: "inherit" },
 	);
 	const rendered = JSON.parse(res.stdout) as {
-		services: Array<{ service: string; files: string[]; port?: number }>;
+		services: Array<{
+			service: string;
+			files: string[];
+			port?: number;
+			clearInheritedEnv?: string[];
+		}>;
 	};
 	const plists = rendered.services.flatMap((s) =>
 		s.files.filter((f) => f.endsWith(".plist")),
@@ -229,6 +312,16 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 		throw new Error("Invalid machine service port mapping");
 	for (const file of plists) {
 		const label = file.replace(/\.plist$/, "");
+		const clearNames =
+			rendered.services.find((service) => service.files.includes(file))
+				?.clearInheritedEnv ?? [];
+		if (!(await clearInheritedLaunchctlEnv(clearNames))) {
+			failed.push(label);
+			refused.push(
+				`${label} — stale launchctl environment could not be cleared`,
+			);
+			continue;
+		}
 		const unit = join(agentsDir, file);
 		const log = join(insightsDir, `launchd-${label}.log`);
 		const reviewed = previous?.services.find(

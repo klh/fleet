@@ -36,10 +36,7 @@ const pick = (attempt: number, de: string[], enabled?: string[]) => {
 };
 // W620: same settings write, pick reads the trust tally
 const pickCv = (attempt: number, de: string[], cv: Map<string, number>) => {
-	writeFileSync(
-		settingsFile,
-		JSON.stringify({ default_executors: de }),
-	);
+	writeFileSync(settingsFile, JSON.stringify({ default_executors: de }));
 	return execPick(attempt, REPO, cv);
 };
 
@@ -102,6 +99,14 @@ describe("W183.2 default-executor fallback chain (execPick default branch)", () 
 		writeFileSync(join(REPO, ".prefer"), "must=glm-5.3-flash\n");
 		const p = execPick(0, REPO);
 		expect(p.agent).toBe("glm-5.3-flash");
+		expect(p.preference).toEqual({
+			source: "dotfile",
+			directive: "must",
+			line: 1,
+			index: 0,
+			target: "glm-5.3-flash",
+			can: "absent",
+		});
 		expect(p.chainLen).toBe(1);
 		expect(p.chainIdx).toBe(0);
 		rmSync(join(REPO, ".prefer"));
@@ -112,7 +117,11 @@ describe("W620 trust tally reorders the DEFAULT ladder only", () => {
 	test("cv desc reorders; claude stays last with no data (stable, missing = 0)", () => {
 		// [glm-x, glm-flash2, claude], only glm-flash2 trusted: it jumps first,
 		// ties keep original relative order (glm-x before claude)
-		const p = pickCv(0, ["llm:desktop:glm-x", "glm-flash2", "claude"], new Map([["glm-flash2", 7]]));
+		const p = pickCv(
+			0,
+			["llm:desktop:glm-x", "glm-flash2", "claude"],
+			new Map([["glm-flash2", 7]]),
+		);
 		expect(p.agent).toBe("glm-flash2");
 		expect(p.chainIdx).toBe(0);
 		expect(p.chainLen).toBe(3);
@@ -163,6 +172,8 @@ describe("W813 chain semantics: comma-lists, hub targets, position law, can=", (
 			"must=glm-5.3-flash\nprefer=glm-flash2\n",
 		);
 		expect(execPick(0, REPO).name).toBe("glm-flash2");
+		expect(execPick(0, REPO).preference.directive).toBe("prefer");
+		expect(execPick(0, REPO).preference.line).toBe(2);
 		expect(execPick(1, REPO).name).toBe("glm-5.3-flash");
 		rmSync(join(REPO, ".prefer"));
 	});
@@ -205,6 +216,14 @@ describe("W813 chain semantics: comma-lists, hub targets, position law, can=", (
 		const p = execPick(0, REPO, cv);
 		expect(p.name).toBe("glm-flash2");
 		expect(p.chainLen).toBe(1);
+		expect(p.preference).toEqual({
+			source: "dotfile",
+			directive: "can",
+			line: 2,
+			index: 0,
+			target: "glm-flash2",
+			can: "active",
+		});
 		rmSync(join(REPO, ".prefer"));
 	});
 
@@ -227,6 +246,7 @@ describe("W813 chain semantics: comma-lists, hub targets, position law, can=", (
 		const p = execPick(0, REPO, new Map());
 		expect(p.name).toBe("glm-5.3-flash");
 		expect(p.chainLen).toBe(1);
+		expect(p.preference.can).toBe("unavailable");
 		rmSync(join(REPO, ".prefer"));
 	});
 

@@ -11,6 +11,10 @@ const root = mkdtempSync(join(tmpdir(), "fleet-w643-"));
 const home = join(root, "home");
 mkdirSync(home);
 const env = { ...process.env, HOME: home, GOVERNOR_STORE_URL: "" };
+// W670: an ambient KLH_CLAIM_TOKEN (the dispatch lane running this suite)
+// leaks through the process.env spread — the env channel would then satisfy
+// every done() that expects a refusal, inverting the fence under test.
+delete env.KLH_CLAIM_TOKEN;
 const source = join(import.meta.dir, "../hooks");
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 

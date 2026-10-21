@@ -7,6 +7,10 @@
 // one source of truth, no route table duplicated here.
 
 // ─── problem+json (RFC 9457) — error bodies for the gate and the limiter ───
+// W1081: every problem envelope names its emitter — x-klh-service is fixed
+// (belt owns this module), callers pass more identity via `headers`.
+import { stampHopHeaders } from "../../telemetry/src/http-trace.ts";
+
 export const problem = (
 	status: number,
 	title: string,
@@ -15,8 +19,8 @@ export const problem = (
 	instance: string,
 	why?: string,
 	headers?: Record<string, string>,
-): Response =>
-	new Response(
+): Response => {
+	const res = new Response(
 		JSON.stringify(
 			{
 				type: "about:blank",
@@ -38,6 +42,15 @@ export const problem = (
 			},
 		},
 	);
+	// W1081: refusal codes name the refusing belt face — the envelope is
+	// attributable from headers alone (x-klh-refusal = the stable code).
+	stampHopHeaders(res.headers, {
+		service: "belt",
+		hop: "ingress",
+		refusal: code.split(".").pop(),
+	});
+	return res;
+};
 
 // ─── method introspection — OPTIONS 204+Allow, off-method 405+Allow ───
 export type RouteMethods = Record<string, string[]>;

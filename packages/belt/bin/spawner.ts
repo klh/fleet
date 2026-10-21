@@ -20,15 +20,20 @@
 
 import { closeSync, mkdirSync, openSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { serverKvArgs } from "./kv-prefix.ts";
 import {
-	admitSpawn,
-	withSpawnLedger,
-	type SpawnRow,
-} from "./spawn-admission.ts";
+	coldLoadTimeoutMs,
+	modelBudgetGb,
+	rapidMemoryArgs,
+	wiredGuardGb,
+} from "./memory-policy.ts";
 import type { Platform, PlatformDefinition, Specialist } from "./registry.ts";
 import { platformDefinitions, runtimeFor, thisPlatform } from "./registry.ts";
-import { modelBudgetGb, rapidMemoryArgs } from "./memory-policy.ts";
-import { serverKvArgs } from "./kv-prefix.ts";
+import {
+	admitSpawn,
+	type SpawnRow,
+	withSpawnLedger,
+} from "./spawn-admission.ts";
 
 const HOME = process.env.HOME;
 const MLX_PYTHON = `${HOME}/.local/share/uv/tools/mlx-lm/bin/python`;
@@ -127,10 +132,94 @@ export interface EnsureResult {
 	error?: string; // log tail when the spawned process died loading
 }
 
+export interface QuickEnsureResult {
+	up: boolean;
+	warming: boolean;
+	retryAfterMs: number;
+	error?: string;
+}
+
+const coldRetryAfterMs = (): number => {
+	const seconds = Number(process.env.BELT_COLD_RETRY_AFTER_S ?? 30);
+	const base = Number.isFinite(seconds) && seconds >= 1 ? seconds : 30;
+	// Independent requests spread their next probe across a window, so a
+	// 30-40-lane cold fallback cannot synchronize into a refill burst.
+	return Math.ceil(base + Math.random() * base) * 1000;
+};
+
+/** A loading model's retry hint follows the remaining cold-load budget.
+ * The cap is an estimate, so a small per-request spread prevents a herd at
+ * the predicted finish while every request still re-probes actual liveness. */
+export const loadingRetryAfterMs = (
+	s: Specialist,
+	startedAt: number,
+	now = Date.now(),
+	random = Math.random(),
+): number => {
+	const remaining = Math.max(
+		1_000,
+		coldTimeoutMs(s) - Math.max(0, now - startedAt),
+	);
+	return (
+		Math.ceil(
+			(remaining * (1 + Math.max(0, Math.min(random, 1)) * 0.1)) / 1_000,
+		) * 1_000
+	);
+};
+
+/** Request-path admission: never wait for a cold model's multi-minute load.
+ * Existing ledger reservations prevent duplicate starts across router restarts.
+ * A refused memory reservation is a prompt refusal, never a retrying spawn. */
+export async function ensureAvailable(
+	s: Specialist,
+): Promise<QuickEnsureResult> {
+	if (await isUp(s.port)) return { up: true, warming: false, retryAfterMs: 0 };
+	const retryAfterMs = coldRetryAfterMs();
+	const row = readLedger()[String(s.port)];
+	if (row && pidAlive(row.pid)) {
+		return {
+			up: false,
+			warming: true,
+			retryAfterMs: loadingRetryAfterMs(s, row.startedAt),
+			error: `model :${s.port} is loading (pid ${row.pid})`,
+		};
+	}
+	if (process.env.BELT_DEMAND_WARMUP === "0") {
+		return {
+			up: false,
+			warming: false,
+			retryAfterMs,
+			error: `model :${s.port} is cold; demand warmup disabled`,
+		};
+	}
+	try {
+		const child = spawnReserved(s);
+		void child.exited
+			.then(() => clearLedgerPort(s.port))
+			.catch((error) =>
+				console.error(`model :${s.port} spawn ledger cleanup failed: ${error}`),
+			);
+		return {
+			up: false,
+			warming: true,
+			retryAfterMs: loadingRetryAfterMs(s, Date.now()),
+			error: `model :${s.port} warmup started (pid ${child.pid})`,
+		};
+	} catch (error) {
+		// A concurrent request can win the ledger reservation after our read.
+		// Both cases are bounded refusals; the next request re-probes liveness.
+		return {
+			up: false,
+			warming: false,
+			retryAfterMs,
+			error: String(error),
+		};
+	}
+}
+
 // 5.6GB 9B loads in seconds; big models get ram_gb × 20s (22GB → ~7min).
-const COLD_TIMEOUT_FLOOR_MS = 90_000;
 export const coldTimeoutMs = (s: Specialist): number =>
-	Math.max(COLD_TIMEOUT_FLOOR_MS, s.ram_gb * 20_000);
+	coldLoadTimeoutMs(s.ram_gb);
 
 // Single-flight per port — concurrent cold requests share one load wait.
 const pending = new Map<number, Promise<EnsureResult>>();
@@ -188,9 +277,7 @@ const readyListener = (port: number, pid: number): boolean => {
 // clamp: empty env → Number("") = 0 (refuse every load); garbage → NaN
 // (comparisons false, guard never trips — fail-open OOM). glm-5.3 review
 // of f4aad15c: env knobs validate or fall back to the default.
-const rawWiredGb = Number(process.env.BELT_WIRED_GUARD_GB ?? 60);
-export const WIRED_GUARD_GB =
-	Number.isFinite(rawWiredGb) && rawWiredGb > 0 ? rawWiredGb : 60;
+export const WIRED_GUARD_GB = wiredGuardGb(process.env.BELT_WIRED_GUARD_GB);
 
 // Get-CimInstance one-liner: physical used (working set) vs commit charge,
 // the larger wins — both are OOM precursors on Windows.

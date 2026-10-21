@@ -35,6 +35,8 @@ export interface LiteLlmRouteConfig {
 export interface BeltRouteConfig {
 	id: string;
 	origins: string[];
+	/** Configured local serving endpoint for a model-preserving Belt proxy. */
+	upstream?: string;
 	escalation?: { url: string; model: string };
 	/** Request model IDs for which the Belt ingress never enters its cloud leg. */
 	noEscalationModels?: string[];
@@ -158,22 +160,30 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 						item.id,
 						`invalid service origin ${raw}`,
 					);
-				else services.set(origin, { layer, id: item.id });
+				else {
+					const previous = services.get(origin);
+					if (previous && (previous.layer !== layer || previous.id !== item.id))
+						finding(
+							"invalid_config",
+							layer,
+							item.id,
+							`service origin ${origin} is ambiguous with ${previous.layer}:${previous.id}`,
+						);
+					else services.set(origin, { layer, id: item.id });
+				}
 			}
 	}
 	// W1094 engine-kind preflight: a deployment into a litellm origin must
 	// declare adapter_config.proxy_kind=litellm — without it the front's
 	// x-litellm-num-retries / stream-timeout headers are inert and the
-	// engine's own fallbacks stay unbounded. Marked rungs are the targets
-	// the engine's model_list rows must resolve to.
+	// engine's own fallbacks stay unbounded. The effective wire model
+	// (dep.model ?? group — the id the front sends the engine) must exist in
+	// the engine's model_list; engine rows unreferenced by buckle are fine
+	// (broad catalogs).
 	const engineOrigins = new Set<string>();
 	for (const lite of inputs.litellms ?? [])
 		for (const origin of lite.origins.map(originOf))
 			if (origin !== null) engineOrigins.add(origin);
-	// W1094: an engine-backed deployment's effective wire model
-	// (dep.model ?? group — the id the front sends the engine) must exist in
-	// the engine's model_list; engine rows unreferenced by buckle are fine
-	// (broad catalogs). Reversed from the earlier per-engine-row direction.
 	const engineModels = new Map<string, Set<string>>();
 	for (const lite of inputs.litellms ?? []) {
 		const doc = recordOf(lite.config);
@@ -184,7 +194,6 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 		for (const origin of lite.origins.map(originOf))
 			if (origin !== null) engineModels.set(origin, names);
 	}
-	const markedRungs = new Set<string>();
 	for (const buckle of inputs.buckles) {
 		for (const rung of buckle.pool.groups()) {
 			for (const dep of buckle.pool.deployments(rung)) {
@@ -199,7 +208,6 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 							`engine row ${origin} lacks adapter_config.proxy_kind=litellm`,
 						);
 					else {
-						markedRungs.add(dep.model ?? rung);
 						const names = engineModels.get(origin);
 						if (names && !names.has(dep.model ?? rung))
 							finding(
@@ -220,13 +228,24 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 		}
 	}
 	const buckleGroups = new Map<string, Set<string>>();
-	for (const buckle of inputs.buckles)
+	const perPoolTerminals = new Map<string, Set<string>>();
+	for (const buckle of inputs.buckles) {
 		buckleGroups.set(buckle.id, new Set(buckle.pool.groups()));
+		perPoolTerminals.set(
+			buckle.id,
+			new Set(
+				(buckle.terminals ?? [])
+					.map(originOf)
+					.filter((origin): origin is string => origin !== null),
+			),
+		);
+	}
 	const link = (
 		from: string,
 		rawUrl: string,
 		model: string,
 		requireService = false,
+		poolTerminals?: Set<string>,
 	) => {
 		const origin = originOf(rawUrl);
 		if (!origin) {
@@ -235,7 +254,12 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 		}
 		const service = services.get(origin);
 		if (!service) {
-			if (requireService || (localUrl(rawUrl) && !terminals.has(origin)))
+			// W1094: a loopback leaf the DECLARING pool's own inventory
+			// renders (e.g. the hub's ollama) is resolved on that device;
+			// a global terminal set would let one device's Belt vouch for
+			// another's port (trace b73f8a2d, review #55637).
+			const exempt = terminals.has(origin) || poolTerminals?.has(origin);
+			if (requireService || (localUrl(rawUrl) && !exempt))
 				finding(
 					"unmapped_local_target",
 					"fleet",
@@ -276,7 +300,13 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 				}
 				for (const dep of buckle.pool.deployments(rung)) {
 					configured++;
-					link(node, dep.url, dep.model ?? rung, dep.buckle === true);
+					link(
+						node,
+						dep.url,
+						dep.model ?? rung,
+						dep.buckle === true,
+						perPoolTerminals.get(buckle.id),
+					);
 				}
 			}
 			if (configured === 0)
@@ -287,12 +317,17 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 					"no configured deployment in bounded ladder",
 				);
 			const deadline = inputs.requestDeadlineMs;
+			const firstByteBudget = buckle.policy.first_byte_budget_s ?? 240;
+			const attemptTimeout = buckle.policy.request_timeout_s ?? 120;
+			if (!Number.isFinite(firstByteBudget) || firstByteBudget < attemptTimeout)
+				finding(
+					"deadline_budget",
+					"buckle",
+					node,
+					"first_byte_budget_s must cover one full request_timeout_s attempt",
+				);
 			if (deadline !== undefined && Number.isFinite(deadline) && deadline > 0) {
-				const retries = buckle.policy.num_retries ?? 1;
-				const timeout = buckle.policy.request_timeout_s ?? 120;
-				const delay = buckle.policy.retry_after_cap_s ?? 60;
-				const worstMs =
-					ladder.length * ((retries + 1) * timeout + retries * delay) * 1000;
+				const worstMs = firstByteBudget * 1000;
 				if (worstMs > deadline)
 					finding(
 						"deadline_budget",
@@ -354,14 +389,21 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 		}
 	}
 	for (const belt of inputs.belts ?? []) {
-		// W1094: the static graph keeps cycle detection (a return into a rung
-		// the walk already visited repeats a node — caught below). The runtime
-		// visited-path/attempt-budget contract for the Belt→Buckle return is
-		// proven by the drill, not by a blanket layer rejection here.
 		const prefix = `belt:${belt.id}:`;
 		const localOnly = new Set(belt.noEscalationModels ?? []);
+		if (belt.escalation) {
+			const target = services.get(originOf(belt.escalation.url) ?? "");
+			if (target?.layer !== "buckle")
+				finding(
+					"invalid_config",
+					"belt",
+					belt.id,
+					`cloud escalation target ${belt.escalation.url} must be a configured Buckle gate`,
+				);
+		}
 		for (const node of [...edges.keys()]) {
 			if (!node.startsWith(prefix)) continue;
+			if (belt.upstream) link(node, belt.upstream, node.slice(prefix.length));
 			if (belt.escalation && !localOnly.has(node.slice(prefix.length)))
 				link(node, belt.escalation.url, belt.escalation.model, true);
 		}

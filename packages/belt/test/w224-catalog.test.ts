@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	catalogFor,
+	catalogEvidenceFor,
 	type RemoteEndpoint,
 	type RemoteMachine,
 	routeTask,
@@ -57,6 +58,14 @@ const hostile = Bun.serve({
 		return new Response("nope", { status: 404 });
 	},
 });
+const belt = Bun.serve({
+	port: 0,
+	fetch: () =>
+		Response.json(
+			{ data: [{ id: "live-belt-model" }] },
+			{ headers: { "x-klh-hop": "belt" } },
+		),
+});
 const machine = (port: number): RemoteMachine => ({
 	name: "w224stub",
 	host: "stub.invalid",
@@ -75,7 +84,19 @@ const HOME = mkdtempSync(join(tmpdir(), "belt-w224-"));
 afterAll(() => {
 	stub.stop(true);
 	hostile.stop(true);
+	belt.stop(true);
 	rmSync(HOME, { recursive: true, force: true });
+});
+
+test("catalog evidence reports Belt ownership only from the live endpoint", async () => {
+	expect(await catalogEvidenceFor(machine(belt.port), ep(belt.port))).toEqual({
+		models: ["live-belt-model"],
+		servedBy: "belt",
+	});
+	expect(await catalogEvidenceFor(machine(stub.port), ep(stub.port))).toEqual({
+		models: ["m-a", "m-b"],
+		servedBy: undefined,
+	});
 });
 
 test("catalogFor: live /v1/models, deduped, order kept", async () => {

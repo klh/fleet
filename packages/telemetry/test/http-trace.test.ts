@@ -4,6 +4,7 @@ import {
 	childTraceparent,
 	safeCorrelationId,
 	safeFailureKind,
+	safeRefusalCode,
 	stampResponse,
 	traceIdOf,
 } from "../src/http-trace.ts";
@@ -57,6 +58,13 @@ test("failure kind excludes messages and unsafe transport codes", () => {
 	expect(
 		safeFailureKind(Object.assign(new Error("x"), { code: "bad\nkey" })),
 	).toBe("error");
+});
+
+test("upstream refusal codes are bounded diagnostic tokens", () => {
+	expect(safeRefusalCode("local_cold")).toBe("local_cold");
+	expect(safeRefusalCode("sk-secret-from-body")).toBeNull();
+	expect(safeRefusalCode("bad\nkey")).toBeNull();
+	expect(safeRefusalCode("x".repeat(41))).toBeNull();
 });
 
 test("outer hop clears stale inner refusal and private upstream metadata", async () => {

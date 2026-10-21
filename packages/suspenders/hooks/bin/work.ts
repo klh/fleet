@@ -27,16 +27,16 @@ import {
 	projectRootOf,
 	resolveSidOf,
 } from "../lib/govdb.ts";
-import { rebindKeptLaneContext } from "../lib/lane-context.ts";
-import { gitBadge, gitObservation, mergeReadyWhy } from "../lib/lane-git.ts";
-import { laneAlive } from "../lib/lane-liveness.ts";
-import { doneEffortStamp } from "../lib/lane-effort.ts";
-import { doneSpendStamp, parseDoneSpend } from "../lib/lane-done-spend.ts";
 import {
 	recordKnowledgeSuggestion,
 	renderKnowledgeSuggestion,
 	suggestKnowledge,
 } from "../lib/kev-curation.ts";
+import { rebindKeptLaneContext } from "../lib/lane-context.ts";
+import { doneSpendStamp, parseDoneSpend } from "../lib/lane-done-spend.ts";
+import { doneEffortStamp } from "../lib/lane-effort.ts";
+import { gitBadge, gitObservation, mergeReadyWhy } from "../lib/lane-git.ts";
+import { laneAlive } from "../lib/lane-liveness.ts";
 import {
 	loadLaneRegistry,
 	loadLaneRegistryFile,
@@ -44,7 +44,11 @@ import {
 import { itemAttribution, renderAttribution } from "../lib/lane-spend.ts";
 import { triggerMergeOnDone } from "../lib/merge-on-done.ts";
 import { preferTagFor } from "../lib/prefer.ts";
-import { claimantLanes, reclaimAll } from "../lib/reclaim-all.ts";
+import {
+	claimantLanes,
+	matchingClaimantLane,
+	reclaimAll,
+} from "../lib/reclaim-all.ts";
 import {
 	parseDuration,
 	probeClaim,
@@ -56,7 +60,6 @@ import {
 } from "../lib/reclaim-sticky.ts";
 import { reproGateRefusal } from "../lib/repro-gate.ts";
 import { reapIfIdle } from "../lib/subscribe-attach.ts";
-import { queueCompletionKnowledge } from "../lib/work-knowledge.ts";
 import { dieFor, idList, type Parsed, runCli } from "../lib/verb-kit.ts";
 import {
 	applyAllocations,
@@ -74,6 +77,7 @@ import {
 } from "../lib/work-completion-record.ts";
 import { EFFORTS } from "../lib/work-effort.ts";
 import { evidencePatternsOf } from "../lib/work-fence.ts";
+import { queueCompletionKnowledge } from "../lib/work-knowledge.ts";
 import { runMigrateLedger } from "../lib/work-migrate-ledger.ts";
 import { exportMirror, MIRROR_NAME, mirrorOrNull } from "../lib/work-mirror.ts";
 import { releaseWorkClaim } from "../lib/work-release.ts";
@@ -85,13 +89,13 @@ import {
 	reportTableLinkOpts,
 } from "../lib/work-report.ts";
 import { retryFailedItem } from "../lib/work-retry.ts";
+import { mergeTags, validateTags } from "../lib/work-tags.ts";
+import { VERBS } from "../lib/work-verbs.ts";
 import {
 	parseWaitUntil,
 	waitForPrerequisite,
 	wakeAfterEvidence,
 } from "../lib/work-wait.ts";
-import { mergeTags, validateTags } from "../lib/work-tags.ts";
-import { VERBS } from "../lib/work-verbs.ts";
 import { resolveItemWorktree } from "../lib/worktree-lookup.ts";
 import { provisionForTake } from "../lib/worktree-provision.ts";
 
@@ -1206,7 +1210,7 @@ const dispatchVerb = async (
 					id: String(r.id),
 					owner,
 					revision: Number(r.updated_at),
-					lane: lanesBySid.get(owner),
+					lane: matchingClaimantLane(lanesBySid, owner, String(r.id)),
 				}).verdict !== "alive"
 			);
 		});
@@ -1374,7 +1378,11 @@ const dispatchVerb = async (
 				id,
 				owner: String(it.owner_sid ?? ""),
 				revision: Number(it.updated_at),
-				lane: claimantLanes(process.cwd()).get(String(it.owner_sid ?? "")),
+				lane: matchingClaimantLane(
+					claimantLanes(process.cwd()),
+					String(it.owner_sid ?? ""),
+					id,
+				),
 			}).verdict;
 			const gate = reclaimGateDecision(
 				verdict,

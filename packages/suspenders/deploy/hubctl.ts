@@ -21,7 +21,7 @@
 //                                     #   never leaves the device
 // Config: KLH_STACK env overrides the stack path (tests).
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
 	chmodSync,
 	existsSync,
@@ -53,6 +53,54 @@ import {
 } from "./release-manifest.ts";
 
 const COMPOSE_TEMPLATE = join(import.meta.dir, "hub-compose.yaml");
+
+type GateRun = () => {
+	status: number | null;
+	stdout: string;
+	stderr: string;
+	error?: Error;
+};
+
+/** Static gate before a hub starts: a down target is normal on first deploy.
+ * The target's outside-process sidecars are checked by deploy/status after up. */
+export function assertHubActivationPreflight(
+	verb: string,
+	run: GateRun = () =>
+		spawnSync(
+			process.execPath,
+			[join(import.meta.dir, "../scripts/route-preflight.ts"), "--static"],
+			{ encoding: "utf8", timeout: 10_000 },
+		),
+): void {
+	if (verb !== "up" && verb !== "deploy") return;
+	const result = run();
+	let report: {
+		ok?: boolean;
+		mode?: string;
+		findings?: unknown[];
+		drills?: Array<{ ok?: boolean }>;
+	};
+	try {
+		report = JSON.parse(result.stdout);
+	} catch {
+		throw new Error(
+			`hubctl ${verb} refused: route preflight did not return a valid receipt (${result.error?.message ?? (result.stderr.trim() || "no output")})`,
+		);
+	}
+	if (
+		result.status !== 0 ||
+		report.ok !== true ||
+		report.mode !== "static" ||
+		!Array.isArray(report.findings) ||
+		report.findings.length > 0 ||
+		!Array.isArray(report.drills) ||
+		report.drills.length === 0 ||
+		report.drills.some((drill) => drill.ok !== true)
+	)
+		throw new Error(
+			`hubctl ${verb} refused: route preflight failed (${report.findings?.length ?? "?"} graph findings, ${report.drills?.length ?? 0} drills; run route-preflight --static for details)`,
+		);
+}
 
 /** Resolve a hub by name, listing what exists on a miss. */
 function requireHub(stack: StackConfig, name: string): HubProfile {
@@ -173,6 +221,21 @@ function renderEnv(
 	kv("HUB_STORE_PORT", hub.store_port);
 	kv("HUB_BELT_BIND", hub.belt_bind);
 	kv("HUB_BELT_PORT", hub.belt_port);
+	if (hub.belt_model) {
+		const upstream = new URL(hub.belt_model.upstream);
+		if (
+			!["http:", "https:"].includes(upstream.protocol) ||
+			upstream.username ||
+			upstream.password
+		)
+			throw new Error(
+				"belt_model.upstream must be an HTTP URL without credentials",
+			);
+		kv("COMPOSE_PROFILES", "belt-model");
+		kv("HUB_BELT_MODEL_PORT", hub.belt_model.port);
+		kv("HUB_BELT_MODEL_HEALTH_PORT", hub.belt_model.health_port);
+		kv("HUB_BELT_MODEL_UPSTREAM", upstream.href.replace(/\/$/, ""));
+	}
 	// health sidecar ports (W422.10) — compose health hits the SIDECAR
 	kv("HUB_BUCKLE_HEALTH_PORT", hub.buckle_health_port);
 	kv("HUB_BOARD_HEALTH_PORT", hub.board_health_port);
@@ -580,6 +643,15 @@ function status(hub: HubProfile): number {
 		["board-health", hub.board_health_port ?? 7800, "/healthz"],
 		["store-health", hub.store_health_port ?? 7794, "/healthz"],
 		["belt-health", hub.belt_health_port ?? 7790, "/healthz"],
+		...(hub.belt_model
+			? [
+					["belt-model-health", hub.belt_model.health_port, "/healthz"] as [
+						string,
+						number,
+						string,
+					],
+				]
+			: []),
 		["model-store-health", hub.model_store_health_port ?? 7793, "/healthz"],
 		// W854: the mdns-health sidecar's verdict port
 		["mdns-health", hub.mdns?.sidecar_port ?? 4115, "/healthz"],
@@ -612,14 +684,21 @@ function status(hub: HubProfile): number {
 /** Exec deploy/runtime-info.ts inside buckle-hub and print the verdict. */
 function runtimeReport(
 	hub: HubProfile,
-	_docker: string | undefined,
+	docker: string | undefined,
 	dir: string,
 ): void {
-	const compose = `docker compose -f ${JSON.stringify(`${dir}/hub-compose.yaml`)} --project-directory ${JSON.stringify(dir)}`;
+	const dockerBin = docker ?? "docker";
+	if (!safeWord(dockerBin)) {
+		console.log("· runtime: unknown (invalid configured Docker path)");
+		return;
+	}
+	const compose = `${dockerBin} compose -f ${JSON.stringify(`${dir}/hub-compose.yaml`)} --project-directory ${JSON.stringify(dir)}`;
 	try {
+		const sourceRoot = hub.repos?.src ?? "/src/fleet/packages";
+		if (!safeWord(sourceRoot)) throw new Error("invalid runtime source path");
 		const out = runOnHub(
 			hub,
-			`${compose} exec -T buckle-hub bun /src/fleet/packages/suspenders/deploy/runtime-info.ts --json 2>&1 || true`,
+			`${compose} exec -T buckle-hub bun ${sourceRoot}/suspenders/deploy/runtime-info.ts --json 2>&1 || true`,
 		);
 		const line = [...out.split("\n")].reverse().find((l) => l.startsWith("{"));
 		if (line) {
@@ -873,9 +952,11 @@ function main(): void {
 			reloadUpstreams(hub, hubName, hubVersion);
 			return;
 		case "up":
+			assertHubActivationPreflight(verb);
 			upHub(hub, hubName, hubVersion, force);
 			return;
 		case "deploy":
+			assertHubActivationPreflight(verb);
 			deployHub(hub, hubName, auth, hubVersion);
 			return;
 		case "manifest":
@@ -904,4 +985,4 @@ function main(): void {
 	}
 }
 
-main();
+if (import.meta.main) main();

@@ -1,7 +1,11 @@
 // test/wire-deadlines.test.ts — W450: slow/quiet streams survive their
 // configured deadlines; deadline breaches abort with a timeout RouterError.
 import { describe, expect, test } from "bun:test";
-import { defaultFetch, type StreamGuards } from "../src/wire.ts";
+import {
+	defaultFetch,
+	HubConnectError,
+	type StreamGuards,
+} from "../src/wire.ts";
 import { startMockUpstream } from "./mock.ts";
 import type { UpstreamRequest } from "../src/router.ts";
 
@@ -52,6 +56,105 @@ const stallsForever = (): Response =>
 	);
 
 describe("W450 stream deadlines", () => {
+	test("explicit LiteLLM engine gets bounded non-stream timeout and no stream wall-clock cap", async () => {
+		const seen: Array<{
+			timeout: string | null;
+			streamTimeout: string | null;
+			retries: string | null;
+		}> = [];
+		const up = await startMockUpstream(async (request) => {
+			seen.push({
+				timeout: request.headers.get("x-litellm-timeout"),
+				streamTimeout: request.headers.get("x-litellm-stream-timeout"),
+				retries: request.headers.get("x-litellm-num-retries"),
+			});
+			return Response.json({ ok: true });
+		});
+		try {
+			const litellm = {
+				...dep(up.url),
+				adapter_config: { proxy_kind: "litellm" },
+			};
+			await defaultFetch(litellm, req(false), 30_000);
+			await defaultFetch(litellm, req(true), 30_000, {
+				idleMs: 60_000,
+				totalMs: 900_000,
+			});
+			await defaultFetch(
+				{
+					...litellm,
+					adapter_config: {
+						proxy_kind: "litellm",
+						litellm_stream_timeout_s: 45,
+					},
+				},
+				req(true),
+				30_000,
+				{
+					idleMs: 60_000,
+					totalMs: 900_000,
+				},
+			);
+			await defaultFetch(dep(up.url), req(false), 30_000);
+			expect(seen).toEqual([
+				{ timeout: "30", streamTimeout: null, retries: "0" },
+				{ timeout: null, streamTimeout: null, retries: "0" },
+				{ timeout: null, streamTimeout: "30", retries: "0" },
+				{ timeout: null, streamTimeout: null, retries: null },
+			]);
+		} finally {
+			up.close();
+		}
+	});
+	test("dead Buckle hub fails at connect without spending the model deadline", async () => {
+		const closed = Bun.serve({ port: 0, fetch: () => new Response("ok") });
+		const url = `http://127.0.0.1:${closed.port}`;
+		closed.stop(true);
+		const started = Date.now();
+		const error = await defaultFetch(
+			{ ...dep(url), buckle: true },
+			req(false),
+			120_000,
+		).catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(HubConnectError);
+		expect(Date.now() - started).toBeLessThan(5_000);
+	});
+
+	test("connected Buckle hub may spend time on inference after connect", async () => {
+		const up = await startMockUpstream(async () => {
+			await Bun.sleep(150);
+			return Response.json({ ok: true });
+		});
+		const result = await defaultFetch(
+			{ ...dep(up.url), buckle: true },
+			req(false),
+			1_000,
+		);
+		expect(result.status).toBe(200);
+		up.close();
+	});
+
+	test("a TCP-open but HTTP-unresponsive Buckle peer is ejected before inference", async () => {
+		const up = Bun.serve({
+			port: 0,
+			fetch: async (request) => {
+				if (new URL(request.url).pathname === "/status") {
+					await Bun.sleep(5_000);
+					return Response.json({ ok: true });
+				}
+				return Response.json({ ok: true });
+			},
+		});
+		const started = Date.now();
+		const error = await defaultFetch(
+			{ ...dep(`http://127.0.0.1:${up.port}`), buckle: true },
+			req(false),
+			120_000,
+		).catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(HubConnectError);
+		expect(Date.now() - started).toBeLessThan(4_000);
+		up.stop(true);
+	});
 	test("slow first token survives; healthy drips reset the idle guard", async () => {
 		const up = await startMockUpstream(() => sseResp(80, 4, 30));
 		// TTFB window 1000ms ≫ the 80ms silence; idle 50ms ≫ the 30ms gaps

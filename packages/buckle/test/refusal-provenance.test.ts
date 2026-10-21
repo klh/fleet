@@ -1,11 +1,37 @@
 import { expect, test } from "bun:test";
 import { problem } from "../src/citizenship.ts";
 import { createApp } from "../src/handlers.ts";
+import { mayRelayPrefer } from "../src/wire.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
 import { testDeps } from "./deps.ts";
 import { startMockUpstream } from "./mock.ts";
 
 const TRACE = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+
+test(".prefer metadata stays on Fleet legs, never provider egress", () => {
+	expect(
+		mayRelayPrefer({
+			group: "x",
+			dialect: "anthropic",
+			url: "http://127.0.0.1:4000",
+		}),
+	).toBe(true);
+	expect(
+		mayRelayPrefer({
+			group: "x",
+			dialect: "anthropic",
+			url: "https://hub.example:4101",
+			buckle: true,
+		}),
+	).toBe(true);
+	expect(
+		mayRelayPrefer({
+			group: "x",
+			dialect: "anthropic",
+			url: "https://api.provider.example",
+		}),
+	).toBe(false);
+});
 
 function request(model: string): Request {
 	return new Request("http://buckle.test/v1/messages", {
@@ -86,6 +112,45 @@ test("upstream 429 is distinguished from a local throttle", async () => {
 	}
 });
 
+test("Buckle echoes only canonical .prefer diagnostic metadata", async () => {
+	const upstream = await startMockUpstream(() =>
+		Response.json(
+			{ error: "busy" },
+			{
+				status: 503,
+				headers: {
+					"x-klh-prefer":
+						"v=1;source=dotfile;directive=must;line=9;index=0;target=fake;can=absent",
+				},
+			},
+		),
+	);
+	try {
+		const app = createApp(
+			testDeps(pool("model-pref", upstream.url, "anthropic"), {
+				policy: { num_retries: 0 },
+			}),
+		);
+		const valid = request("model-pref");
+		valid.headers.set(
+			"x-klh-prefer",
+			"v=1;source=dotfile;directive=can;line=4;index=0;target=glm-5.3-flash;can=active",
+		);
+		const response = await app.fetch(valid);
+		expect(response.headers.get("x-klh-prefer")).toBe(
+			valid.headers.get("x-klh-prefer"),
+		);
+		expect(upstream.calls[0]?.headers.get("x-klh-prefer")).toBe(
+			valid.headers.get("x-klh-prefer"),
+		);
+		const invalid = request("model-pref");
+		invalid.headers.set("x-klh-prefer", "must=secret; token=private");
+		expect((await app.fetch(invalid)).headers.get("x-klh-prefer")).toBeNull();
+	} finally {
+		upstream.close();
+	}
+});
+
 test("exhausted 503 preserves bounded retry and upstream trace attribution", async () => {
 	const upstream = await startMockUpstream(() =>
 		Response.json(
@@ -108,6 +173,30 @@ test("exhausted 503 preserves bounded retry and upstream trace attribution", asy
 		expect(response.headers.get("x-klh-refusal")).toBe("upstream");
 		expect(response.headers.get("x-klh-upstream-status")).toBe("503");
 		expect(response.headers.get("x-klh-upstream-request-id")).toBe("req_cold");
+	} finally {
+		upstream.close();
+	}
+});
+
+test("request-wide first-byte deadline is a traced 504", async () => {
+	const upstream = await startMockUpstream(async () => {
+		await Bun.sleep(200);
+		return Response.json({ ok: true });
+	});
+	try {
+		const response = await createApp(
+			testDeps(pool("slow-model", upstream.url, "anthropic"), {
+				policy: {
+					num_retries: 0,
+					request_timeout_s: 0.05,
+					first_byte_budget_s: 0.05,
+				},
+			}),
+		).fetch(request("slow-model"));
+		expect(response.status).toBe(504);
+		expectCorrelation(response);
+		expect(response.headers.get("x-klh-upstream-kind")).toBe("walk_deadline");
+		expect(response.headers.get("x-klh-refusal")).toBe("network");
 	} finally {
 		upstream.close();
 	}

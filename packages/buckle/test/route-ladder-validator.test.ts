@@ -4,7 +4,14 @@ import type { GatewayPolicy } from "../src/policy.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
 
 function pool(
-	rows: Record<string, Array<{ url: string; model?: string }>>,
+	rows: Record<
+		string,
+		Array<{
+			url: string;
+			model?: string;
+			adapter_config?: Record<string, unknown>;
+		}>
+	>,
 ): UpstreamPool {
 	return {
 		groups: () => Object.keys(rows),
@@ -42,6 +49,46 @@ test("Buckle's bounded fallback rows are not recursively expanded", () => {
 		],
 	});
 	expect(result.errors).toEqual([]);
+});
+
+test("a configured LiteLLM target requires its explicit engine marker", () => {
+	const makeInputs = (adapter_config?: Record<string, unknown>) => ({
+		buckles: [
+			{
+				id: "spoke",
+				origins: ["http://127.0.0.1:4101"],
+				policy,
+				pool: pool({
+					primary: [{ url: "http://127.0.0.1:4100/v1", adapter_config }],
+					backup: [{ url: "https://other.example/v1" }],
+				}),
+			},
+		],
+		litellms: [
+			{
+				id: "engine",
+				origins: ["http://127.0.0.1:4100"],
+				config: {
+					model_list: [
+						{
+							model_name: "primary",
+							litellm_params: { api_base: "https://provider.example" },
+						},
+					],
+				},
+			},
+		],
+	});
+	expect(validateRouteLadders(makeInputs()).errors).toContainEqual(
+		expect.objectContaining({
+			code: "missing_proxy_kind",
+			layer: "buckle",
+			path: "buckle:spoke:primary",
+		}),
+	);
+	expect(
+		validateRouteLadders(makeInputs({ proxy_kind: "litellm" })).errors,
+	).toEqual([]);
 });
 
 test("LiteLLM's recursive fallback cycle is identified with the owning layer", () => {
@@ -150,7 +197,7 @@ test("cross-service Belt escalation back into the same Buckle group is a cycle",
 	expect(result.errors.some((error) => error.code === "cycle")).toBe(true);
 });
 
-test("LiteLLM local-swarm preserves the model ID that disables Belt re-escalation", () => {
+test("Belt cloud escalation must enter Buckle, even when LiteLLM would avoid a cycle", () => {
 	const config = {
 		model_list: [
 			{
@@ -182,13 +229,77 @@ test("LiteLLM local-swarm preserves the model ID that disables Belt re-escalatio
 			},
 		],
 	};
-	expect(validateRouteLadders(inputs).errors).toEqual([]);
+	expect(validateRouteLadders(inputs).errors).toEqual([
+		expect.objectContaining({
+			code: "invalid_config",
+			layer: "belt",
+		}),
+	]);
 	expect(
 		validateRouteLadders({
 			...inputs,
 			belts: inputs.belts.map((belt) => ({ ...belt, noEscalationModels: [] })),
 		}).errors.some((error) => error.code === "cycle"),
 	).toBe(true);
+});
+
+test("LiteLLM local-swarm model ID stops Belt re-escalation through Buckle", () => {
+	const inputs = {
+		buckles: [
+			{
+				id: "local",
+				origins: ["http://127.0.0.1:4101"],
+				policy: { ...policy, fallbacks: {} },
+				pool: pool({
+					"glm-5.3-flash": [
+						{
+							url: "http://127.0.0.1:4100",
+							adapter_config: { proxy_kind: "litellm" },
+						},
+					],
+				}),
+			},
+		],
+		litellms: [
+			{
+				id: "engine",
+				origins: ["http://127.0.0.1:4100"],
+				config: {
+					model_list: [
+						{
+							model_name: "glm-5.3-flash",
+							litellm_params: { api_base: "https://zai.example" },
+						},
+						{
+							model_name: "local-swarm",
+							litellm_params: { api_base: "http://127.0.0.1:4000" },
+						},
+					],
+					litellm_settings: {
+						fallbacks: [{ "glm-5.3-flash": ["local-swarm"] }],
+					},
+				},
+			},
+		],
+		belts: [
+			{
+				id: "router",
+				origins: ["http://127.0.0.1:4000"],
+				escalation: { url: "http://127.0.0.1:4101", model: "glm-5.3-flash" },
+				noEscalationModels: ["local-swarm"],
+			},
+		],
+	};
+	expect(validateRouteLadders(inputs).errors).toEqual([]);
+	expect(
+		validateRouteLadders({
+			...inputs,
+			belts: inputs.belts.map((belt) => ({
+				...belt,
+				noEscalationModels: [],
+			})),
+		}).errors,
+	).toContainEqual(expect.objectContaining({ code: "cycle", layer: "fleet" }));
 });
 
 test("effective Fleet-selected groups are checked without changing directive order", () => {
@@ -234,102 +345,70 @@ test("unmapped local target, missing fallback, and retry budget beyond caller de
 	expect(result.errors.map((error) => error.code)).toContain("deadline_budget");
 });
 
-test("a litellm engine row without adapter_config.proxy_kind fails the preflight", () => {
+test("validator uses the request-wide first-byte budget instead of multiplying retries by ladder length", () => {
 	const result = validateRouteLadders({
 		buckles: [
 			{
 				id: "local",
+				origins: ["http://127.0.0.1:4101"],
+				policy: {
+					...policy,
+					num_retries: 3,
+					request_timeout_s: 120,
+					first_byte_budget_s: 240,
+					fallbacks: { primary: ["second", "third"] },
+				},
+				pool: pool({
+					primary: [{ url: "https://primary.example.invalid" }],
+					second: [{ url: "https://second.example.invalid" }],
+					third: [{ url: "https://third.example.invalid" }],
+				}),
+			},
+		],
+		requestDeadlineMs: 600_000,
+	});
+	expect(result.errors.map((error) => error.code)).not.toContain(
+		"deadline_budget",
+	);
+});
+
+test("remote Belt proxy preserves the requested model when linking its configured terminal", () => {
+	const base = {
+		buckles: [
+			{
+				id: "nas",
 				origins: ["http://127.0.0.1:4101"],
 				policy,
-				pool: pool({ primary: [{ url: "http://127.0.0.1:4100" }] }),
+				pool: pool({ qwen: [{ url: "http://127.0.0.1:8914" }] }),
 			},
 		],
-		litellms: [
+		belts: [
 			{
-				id: "engine",
-				origins: ["http://127.0.0.1:4100"],
-				config: {
-					model_list: [
-						{
-							model_name: "glm",
-							litellm_params: {
-								model: "zai/glm",
-								api_base: "https://z.example",
-							},
-						},
-					],
-				},
+				id: "nas-model",
+				origins: ["http://127.0.0.1:8914"],
+				upstream: "http://127.0.0.1:11434",
 			},
 		],
+	};
+	const mapped = validateRouteLadders({
+		...base,
+		terminalOrigins: ["http://127.0.0.1:11434"],
 	});
-	expect(
-		result.errors.some(
-			(error) =>
-				error.code === "missing_proxy_kind" && error.layer === "buckle",
-		),
-	).toBe(true);
-});
-
-test("a marked engine row whose wire model exists in the engine passes", () => {
-	const result = validateRouteLadders({
-		buckles: [
-			{
-				id: "local",
-				origins: ["http://127.0.0.1:4101"],
-				policy: { ...policy, fallbacks: {} },
-				pool: {
-					groups: () => ["primary"],
-					deployments: (group: string) => [
-						{
-							group,
-							url: "http://127.0.0.1:4100",
-							dialect: "openai" as const,
-							model: "glm",
-							adapter_config: { proxy_kind: "litellm" },
-						},
-					],
-				},
-			},
-		],
-		litellms: [
-			{
-				id: "engine",
-				origins: ["http://127.0.0.1:4100"],
-				config: {
-					model_list: [
-						{
-							model_name: "glm",
-							litellm_params: {
-								model: "zai/glm",
-								api_base: "https://z.example",
-							},
-						},
-					],
-				},
-			},
-		],
-	});
-	expect(result.errors).toEqual([]);
-});
-
-test("an inter-buckle edge to a group the target hub lacks is unroutable", () => {
-	const result = validateRouteLadders({
-		buckles: [
-			{
-				id: "spoke",
-				origins: ["http://127.0.0.1:4101"],
-				policy: { ...policy, fallbacks: {} },
-				pool: pool({ g: [{ url: "http://127.0.0.1:5101" }] }),
-			},
-			{
-				id: "hub",
-				origins: ["http://127.0.0.1:5101"],
-				policy: { ...policy, fallbacks: {} },
-				pool: pool({ actual: [{ url: "https://provider.example/v1" }] }),
-			},
-		],
-	});
-	expect(result.errors.some((error) => error.code === "unroutable_group")).toBe(
-		true,
+	expect(mapped.errors).toEqual([]);
+	expect(mapped.checkedNodes).toBeGreaterThan(1);
+	const missing = validateRouteLadders(base);
+	expect(missing.errors.map((error) => error.code)).toContain(
+		"unmapped_local_target",
 	);
+});
+
+test("duplicate service origins are rejected instead of silently selecting one Belt proxy", () => {
+	const result = validateRouteLadders({
+		buckles: [],
+		belts: [
+			{ id: "one", origins: ["http://127.0.0.1:8914"] },
+			{ id: "two", origins: ["http://127.0.0.1:8914"] },
+		],
+	});
+	expect(result.errors.map((error) => error.code)).toContain("invalid_config");
 });

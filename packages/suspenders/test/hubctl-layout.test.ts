@@ -12,11 +12,18 @@ const template = readFileSync(
 );
 const compose = parse(template);
 
-function render(version?: string, repos?: Record<string, string>) {
+function render(
+	version?: string,
+	repos?: Record<string, string>,
+	beltModel?: { port: number; health_port: number; upstream: string },
+) {
 	const stack = join(dir, "stack.json");
 	writeFileSync(
 		stack,
-		JSON.stringify({ version, hubs: { test: { host: "localhost", repos } } }),
+		JSON.stringify({
+			version,
+			hubs: { test: { host: "localhost", repos, belt_model: beltModel } },
+		}),
 	);
 	const result = Bun.spawnSync(
 		[
@@ -37,6 +44,32 @@ function render(version?: string, repos?: Record<string, string>) {
 	};
 }
 
+test("Belt model proxy is an optional outside-probed hub service", () => {
+	const service = compose.services["belt-model"];
+	const health = compose.services["belt-model-health"];
+	expect(service.profiles).toEqual(["belt-model"]);
+	expect(health.profiles).toEqual(["belt-model"]);
+	expect(service.command).toContain("belt/bin/model-proxy.ts");
+	expect(service.network_mode).toBe("host");
+	expect(health.network_mode).toBe("host");
+	expect(String(health.command)).toContain("/v1/models");
+	expect(health.healthcheck.test.join(" ")).toContain("/healthz");
+	const absent = render("reviewed-sha");
+	expect(absent.text).not.toContain("COMPOSE_PROFILES");
+	const configured = render("reviewed-sha", undefined, {
+		port: 8914,
+		health_port: 8915,
+		upstream: "http://127.0.0.1:11434",
+	});
+	expect(configured.code).toBe(0);
+	expect(configured.text).toContain("COMPOSE_PROFILES=belt-model");
+	expect(configured.text).toContain("HUB_BELT_MODEL_PORT=8914");
+	expect(configured.text).toContain("HUB_BELT_MODEL_HEALTH_PORT=8915");
+	expect(configured.text).toContain(
+		"HUB_BELT_MODEL_UPSTREAM=http://127.0.0.1:11434",
+	);
+});
+
 test("all hub services share one pinned monorepo with prepared dependencies", () => {
 	expect(
 		Object.keys(compose.services).filter((name) => name.endsWith("-repo")),
@@ -51,7 +84,7 @@ test("all hub services share one pinned monorepo with prepared dependencies", ()
 	// Changing the pinned source must recreate both preparation and runtime
 	// containers; dependency ordering alone does not restart an existing app.
 	for (const [name, service] of Object.entries(compose.services)) {
-		if (name !== "fleet-repo")
+		if (name !== "fleet-repo" && name !== "hub-init")
 			expect(
 				(service as { environment: Record<string, string> }).environment
 					.FLEET_VERSION,
@@ -174,24 +207,21 @@ test("repo initializer fetches an immutable SHA into a fresh volume and updates 
 	);
 });
 
-test("unset repos.src collapses byte-identical to the pre-W493 public layout", () => {
-	// W493.1 closure evidence: with repos.src unset the renderer emits no
-	// HUB_FLEET_SRC, so the template must reduce to the pre-W493 public
-	// layout by substituting the compose default back in.
-	const repo = join(import.meta.dir, "../../..");
-	const show = (ref: string): string =>
-		Bun.spawnSync(
-			[
-				"git",
-				"-C",
-				repo,
-				"show",
-				`${ref}:packages/suspenders/deploy/hub-compose.yaml`,
-			],
-			{ stdout: "pipe", stderr: "pipe" },
-		).stdout.toString();
-	const pre = show("e6801ee~1"); // the commit that parameterized the layout
+test("unset repos.src uses the current public package root", () => {
+	// The renderer leaves this optional override unset and every templated
+	// package path resolves to the shared Fleet checkout's package root.
+	const rendered = render("reviewed-sha");
+	expect(rendered.code).toBe(0);
+	expect(rendered.text).not.toContain("HUB_FLEET_SRC=");
 	const knob = `\${HUB_FLEET_SRC:-/src/fleet/packages}`;
 	expect(template.split(knob).length - 1).toBeGreaterThan(0);
-	expect(template.replaceAll(knob, "/src/fleet/packages")).toBe(pre);
+	const resolved = template.replaceAll(knob, "/src/fleet/packages");
+	expect(resolved).not.toContain(knob);
+	const current = parse(resolved);
+	expect(current.services["buckle-hub"].working_dir).toContain(
+		"/src/fleet/packages/buckle",
+	);
+	expect(current.services["belt-hub"].command).toContain(
+		"/src/fleet/packages/belt/",
+	);
 });

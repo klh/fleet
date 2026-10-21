@@ -14,6 +14,7 @@ writeFileSync(
 let releaseLocal: (() => void) | undefined;
 let localCalls = 0;
 let cloudCalls = 0;
+let cloudPreference: string | null = null;
 const local = Bun.serve({
 	port: 0,
 	hostname: "127.0.0.1",
@@ -37,12 +38,15 @@ const cloud = Bun.serve({
 	hostname: "127.0.0.1",
 	fetch(req) {
 		cloudCalls++;
+		cloudPreference = req.headers.get("x-klh-prefer");
 		return Response.json(
 			{ error: { code: "1302", message: "z.ai request rate limit reached" } },
 			{
 				status: 429,
 				headers: {
 					"retry-after": "7",
+					"x-klh-prefer":
+						"v=1;source=default;directive=default;line=0;index=0;target=fake;can=absent",
 					"x-litellm-call-id": req.headers.get("x-litellm-call-id") ?? "",
 					"x-belt-rid": "gate-rid-1",
 				},
@@ -75,7 +79,7 @@ beforeAll(async () => {
 				BELT_UPSTREAM_BASE: `http://127.0.0.1:${local.port}`,
 				BELT_PORT_CAPS: "8902:1",
 				BELT_ESCALATE_URL: `http://127.0.0.1:${cloud.port}`,
-				BELT_ESCALATE_KEY: "test-scoped-key",
+				BELT_ESCALATE_KEY: "bksk_test-scoped-key",
 			},
 			stdout: "ignore",
 			stderr: "pipe",
@@ -106,6 +110,8 @@ const post = () =>
 			"content-type": "application/json",
 			traceparent: "00-11111111111111111111111111111111-2222222222222222-01",
 			"x-klh-request-id": "lane-request-1",
+			"x-klh-prefer":
+				"v=1;source=dotfile;directive=must;line=2;index=0;target=glm-5.3-flash;can=absent",
 		},
 		body: JSON.stringify({
 			model: "claude-sonnet-4",
@@ -129,6 +135,8 @@ test("local slot overflow reports the attempted cloud refusal and its retry wind
 		"11111111111111111111111111111111",
 	);
 	expect(refused.headers.get("x-klh-request-id")).toBe("lane-request-1");
+	expect(refused.headers.get("x-klh-prefer")).toBe(cloudPreference);
+	expect(cloudPreference).toContain("directive=must;line=2");
 	expect(refused.headers.get("x-klh-upstream-status")).toBe("429");
 	expect(refused.headers.get("x-klh-upstream-request-id")).toBe("gate-rid-1");
 	expect(refused.headers.get("x-litellm-call-id")).toMatch(

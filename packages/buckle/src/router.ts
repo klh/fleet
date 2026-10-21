@@ -9,9 +9,15 @@
 // structurally: flashx tiers are refused in every ladder walk.
 import { createHash } from "node:crypto";
 import {
+	type HopReceipt,
+	safeCorrelationId,
+	safeRefusalCode,
+	traceIdOf,
+} from "../../telemetry/src/http-trace.ts";
+import {
 	type ErrorKind,
-	RouterError,
 	normalizeUpstreamError,
+	RouterError,
 	routerErrorEnvelope,
 } from "./adapters/errors.ts";
 import { resolveAdapter } from "./adapters/index.ts";
@@ -23,11 +29,7 @@ import { mayEscalate, type RouteSelection } from "./decide.ts";
 import { FLASHX, type GatewayPolicy } from "./policy.ts";
 import type { TraceContext } from "./trace.ts";
 import type { Deployment, Dialect, UpstreamPool } from "./upstreams.ts";
-import {
-	type HopReceipt,
-	safeCorrelationId,
-	traceIdOf,
-} from "../../telemetry/src/http-trace.ts";
+import { HubConnectError } from "./wire.ts";
 
 export { FLASHX };
 
@@ -68,6 +70,7 @@ interface FailureProvenance {
 	requestId?: string;
 	callId?: string;
 	retryAfterS?: number;
+	upstreamRefusalCode?: string | null;
 }
 
 export interface UpstreamRequest {
@@ -84,6 +87,8 @@ export interface UpstreamRequest {
 	/** W706: the outbound baggage for a relay leg to a buckle-marked peer
 	 *  (origin passed through + peer=self). Absent/non-buckle → the strip. */
 	relayBaggage?: string;
+	/** Canonicalized .prefer selection, diagnostic only. */
+	preference?: string | null;
 	signal?: AbortSignal;
 	// W140 routing laws: the pure decision result (handlers decided via the
 	// candidate table before dispatch) + the complexity tier + the raw hint,
@@ -115,6 +120,7 @@ export type TryOutcome =
 			refusalSource: "upstream" | "bridged-upstream";
 			requestId?: string;
 			callId?: string;
+			upstreamRefusalCode?: string | null;
 			/** W134 §1 normalized kind (adapters/errors.ts) */
 			kind: ErrorKind;
 			/** bad_request subclass: the prompt overflowed this deployment's
@@ -129,6 +135,7 @@ interface WalkState {
 	attempts: number;
 	status: number;
 	error: string;
+	deadlineMs: number;
 	ctxWindow?: Response;
 	rateLimit?: {
 		response: Response;
@@ -215,6 +222,8 @@ export class UpstreamError extends Error {
 	constructor(
 		public readonly status: number,
 		message: string,
+		public readonly layer: "connect" | "upstream" = "upstream",
+		public readonly timedOut = false,
 	) {
 		super(message);
 	}
@@ -227,7 +236,7 @@ export interface RouterDeps {
 	cooldowns?: Cooldowns;
 	now?: () => number;
 	rng?: () => number;
-	sleepMs?: (ms: number) => Promise<void>;
+	sleepMs?: (ms: number, signal?: AbortSignal) => Promise<void>;
 	fetchImpl?: (
 		dep: Deployment,
 		req: UpstreamRequest,
@@ -237,14 +246,14 @@ export interface RouterDeps {
 	metrics?: RouterMetrics;
 	/** W1077: injectable liveness probe (tests stub it; default = a plain
 	 *  GET /v1/models where any HTTP answer counts as live). */
-	probe?: (dep: Deployment) => Promise<Response | null>;
+	probe?: (dep: Deployment, signal?: AbortSignal) => Promise<Response | null>;
 }
 
 export class Router {
 	private readonly cooldowns: Cooldowns;
 	private readonly now: () => number;
 	private readonly rng: () => number;
-	private readonly sleepMs: (ms: number) => Promise<void>;
+	private readonly sleepMs: (ms: number, signal?: AbortSignal) => Promise<void>;
 	private readonly fetchImpl: (
 		dep: Deployment,
 		req: UpstreamRequest,
@@ -267,7 +276,20 @@ export class Router {
 		this.now = deps.now ?? Date.now;
 		this.rng = deps.rng ?? Math.random;
 		this.sleepMs =
-			deps.sleepMs ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+			deps.sleepMs ??
+			((ms, signal) =>
+				new Promise((resolve) => {
+					if (signal?.aborted) return resolve();
+					const timer = setTimeout(resolve, ms);
+					signal?.addEventListener(
+						"abort",
+						() => {
+							clearTimeout(timer);
+							resolve();
+						},
+						{ once: true },
+					);
+				}));
 		this.fetchImpl = deps.fetchImpl ?? defaultFetchImpl;
 		this.metrics = deps.metrics;
 	}
@@ -337,6 +359,7 @@ export class Router {
 				refusalSource: "upstream" as const,
 				requestId,
 				callId,
+				upstreamRefusalCode: safeRefusalCode(resp.headers.get("x-klh-refusal")),
 			};
 			if (bridged && err.kind === "bad_request" && resp.status < 500) {
 				// a 4xx on a translated hop may be the bridge's doing and its
@@ -397,9 +420,19 @@ export class Router {
 			};
 		} catch (e) {
 			if (req.signal?.aborted) throw e;
-			this.cooldowns.failure(dep);
+			const connectFailure = e instanceof HubConnectError;
+			const timedOut =
+				(e instanceof Error && e.name === "TimeoutError") ||
+				(e instanceof UpstreamError && e.timedOut);
+			if (connectFailure) this.cooldowns.eject(dep);
+			else this.cooldowns.failure(dep);
 			this.metrics?.cooldown(`${dep.group}|${dep.url}`);
-			throw new UpstreamError(502, `upstream ${dep.url} unreachable`);
+			throw new UpstreamError(
+				502,
+				`upstream ${dep.url} unreachable`,
+				connectFailure ? "connect" : "upstream",
+				timedOut,
+			);
 		}
 	}
 
@@ -415,6 +448,8 @@ export class Router {
 		retryAfterS: number | null,
 		requestId?: string,
 		callId?: string,
+		upstreamRefusalCode: string | null = null,
+		refusalOrigin: HopReceipt["refusalOrigin"] = null,
 	): void {
 		const retryAfterMs =
 			retryAfterS === null || !Number.isFinite(retryAfterS)
@@ -439,6 +474,8 @@ export class Router {
 			retryAfterMs,
 			upstreamId: requestId ?? null,
 			callId: callId ?? null,
+			upstreamRefusalCode,
+			refusalOrigin,
 		};
 		try {
 			this.metrics?.attempt?.(receipt);
@@ -457,7 +494,7 @@ export class Router {
 		const retries = this.policy.num_retries ?? 1;
 		const capS = this.policy.retry_max_delay_s ?? 8;
 		const floorCapS = this.policy.retry_after_cap_s ?? 60;
-		const timeoutMs = (this.policy.request_timeout_s ?? 120) * 1000;
+		const perAttemptMs = (this.policy.request_timeout_s ?? 120) * 1000;
 		// W450: streaming bodies get idle+total guards; non-streaming keeps
 		// request_timeout_s as its whole-exchange cap (the wire applies it).
 		const stream =
@@ -471,17 +508,38 @@ export class Router {
 		// next candidate free — the retry budget only buys repeat attempts
 		// for failures that can heal (5xx/timeouts/rate limits).
 		let skipped = 0;
+		const timedOutOrigins = new Set<string>();
 		let pendingRetry: { candidateId: string; delayMs: number } | undefined;
 		for (let attempt = 0; attempt <= retries; attempt++) {
 			if (req.signal?.aborted) return { kind: "aborted" };
+			if (this.walkExpired(st)) break;
 			const raw = attempt + skipped;
-			const dep = candidates.at(Math.min(raw, candidates.length - 1));
+			const nextIndex = candidates.findIndex(
+				(candidate, index) =>
+					index >= Math.min(raw, candidates.length - 1) &&
+					!timedOutOrigins.has(new URL(candidate.url).origin),
+			);
+			if (nextIndex > raw) skipped += nextIndex - raw;
+			const dep = nextIndex < 0 ? undefined : candidates[nextIndex];
 			if (!dep) break;
 			if (pendingRetry?.candidateId === candIdOf(dep)) {
-				await this.sleepMs(pendingRetry.delayMs);
+				const remainingMs = st.deadlineMs - this.now();
+				// Retry-After constrains this candidate only. A healthy fallback
+				// must get the remaining budget instead of waiting it away.
+				if (pendingRetry.delayMs >= remainingMs) break;
+				await this.waitBeforeRetry(
+					pendingRetry.delayMs,
+					req.signal,
+					remainingMs,
+				);
 				if (req.signal?.aborted) return { kind: "aborted" };
+				if (this.walkExpired(st)) break;
 			}
 			pendingRetry = undefined;
+			const timeoutMs = Math.max(
+				1,
+				Math.min(perAttemptMs, st.deadlineMs - this.now()),
+			);
 			st.attempts++;
 			const startedAt = this.now();
 			let r: TryOutcome;
@@ -490,14 +548,19 @@ export class Router {
 			} catch (error) {
 				if (req.signal?.aborted) return { kind: "aborted" };
 				if (!(error instanceof UpstreamError)) throw error;
+				if (error.timedOut) timedOutOrigins.add(new URL(dep.url).origin);
 				this.reportAttempt(
 					req,
 					dep,
 					st.attempts,
 					startedAt,
 					null,
-					"network",
+					error.layer === "connect" ? "connect_unreachable" : "network",
+					error.layer === "connect" ? this.cooldowns.remainingS(dep) : null,
+					undefined,
+					undefined,
 					null,
+					"network",
 				);
 				// W985 skip-not-fail: an unreachable rung (ECONNREFUSED, timeout)
 				// must not kill the ladder — record it and walk on to the next
@@ -512,6 +575,10 @@ export class Router {
 					status: error.status,
 					kind: "network",
 				};
+				// A failed network exchange already spent this row's entire
+				// request timeout. Repeating the same last row cannot improve
+				// this walk; hand the remaining time to the next policy tier.
+				if (nextIndex >= candidates.length - 1) break;
 				continue;
 			}
 			if (r.ok) {
@@ -553,6 +620,8 @@ export class Router {
 				r.retryAfterS,
 				r.requestId,
 				r.callId,
+				r.upstreamRefusalCode ?? null,
+				r.refusalSource,
 			);
 			st.status = r.status;
 			st.error = r.error;
@@ -562,6 +631,7 @@ export class Router {
 				kind: r.kind,
 				requestId: r.requestId,
 				callId: r.callId,
+				upstreamRefusalCode: r.upstreamRefusalCode ?? null,
 				retryAfterS:
 					r.retryAfterS === null
 						? undefined
@@ -570,6 +640,7 @@ export class Router {
 								Math.min(Math.ceil(r.retryAfterS), Math.max(1, floorCapS)),
 							),
 			};
+			if (this.walkExpired(st)) break;
 			if (r.kind === "rate_limited" && !st.rateLimit)
 				st.rateLimit = { response: r.response, tier, source: "upstream" };
 			if (r.contextWindow) st.ctxWindow = r.response;
@@ -612,6 +683,40 @@ export class Router {
 		return null;
 	}
 
+	private walkExpired(st: WalkState): boolean {
+		if (this.now() < st.deadlineMs) return false;
+		st.status = 504;
+		st.error = "Buckle first-byte walk deadline exceeded";
+		st.lastFailure = { source: "network", status: 504, kind: "walk_deadline" };
+		return true;
+	}
+
+	private async waitBeforeRetry(
+		ms: number,
+		signal: AbortSignal | undefined,
+		remainingMs: number,
+	): Promise<void> {
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), remainingMs);
+		const onAbort = () => controller.abort();
+		signal?.addEventListener("abort", onAbort, { once: true });
+		if (signal?.aborted) controller.abort();
+		try {
+			const aborted = controller.signal.aborted
+				? Promise.resolve()
+				: new Promise<void>((resolve) =>
+						controller.signal.addEventListener("abort", () => resolve(), {
+							once: true,
+						}),
+					);
+			await Promise.race([this.sleepMs(ms, controller.signal), aborted]);
+		} finally {
+			clearTimeout(timer);
+			signal?.removeEventListener("abort", onAbort);
+			controller.abort();
+		}
+	}
+
 	/** W1077: one cheap liveness probe against a benched leg. Any HTTP
 	 *  response (even 401/404 - the leg ANSWERS) proves liveness: clear the
 	 *  bench and hand the leg back for the walk. null = nothing probeable
@@ -619,8 +724,11 @@ export class Router {
 	private async probeBenchedLeg(
 		tier: string,
 		req: UpstreamRequest,
+		st: WalkState,
 		dep?: Deployment,
 	): Promise<Deployment | null> {
+		const remainingMs = st.deadlineMs - this.now();
+		if (remainingMs <= 0 || req.signal?.aborted) return null;
 		const target =
 			dep ??
 			this.deps.pool
@@ -629,11 +737,15 @@ export class Router {
 					(d) => this.cooldowns.benched(d) && bridgeRequest(req, d) !== null,
 				);
 		if (target === undefined || !this.cooldowns.benched(target)) return null;
+		const timeout = AbortSignal.timeout(Math.min(remainingMs, 3_000));
+		const signal = req.signal
+			? AbortSignal.any([req.signal, timeout])
+			: timeout;
 		const resp =
-			(await this.deps.probe?.(target)) ??
+			(await this.deps.probe?.(target, signal)) ??
 			(await fetch(`${target.url}/v1/models`, {
 				method: "GET",
-				signal: AbortSignal.timeout(3000),
+				signal,
 			}).catch(() => null));
 		if (resp === null) return null;
 		this.cooldowns.success(target);
@@ -677,19 +789,24 @@ export class Router {
 	 *  override) are skipped as skip-not-failure. */
 	async execute(req: UpstreamRequest): Promise<ExecuteResult> {
 		if (req.signal?.aborted) return { kind: "aborted" };
+		const deadlineMs =
+			this.now() + (this.policy.first_byte_budget_s ?? 240) * 1000;
 		if (req.sel)
 			return this.walkSelected(req, {
 				attempts: 0,
 				status: 502,
 				error: `no healthy upstream for ${req.group}`,
+				deadlineMs,
 			});
 		const st: WalkState = {
 			attempts: 0,
 			status: 502,
 			error: `no healthy upstream for ${req.group}`,
+			deadlineMs,
 		};
 		const tiers = [req.group, ...(this.policy.fallbacks?.[req.group] ?? [])];
 		for (const tier of tiers) {
+			if (this.walkExpired(st)) break;
 			if (FLASHX.test(tier)) {
 				this.metrics?.refused(tier);
 				continue;
@@ -699,7 +816,7 @@ export class Router {
 				// W1077: probe-before-fail - a benched wall must not outlive the
 				// upstream. Probe one benched leg; a live leg clears its bench
 				// and rejoins this tier walk instead of stranding the request.
-				const probed = await this.probeBenchedLeg(tier, req);
+				const probed = await this.probeBenchedLeg(tier, req, st);
 				if (probed !== null) {
 					const r = await this.attemptTier(req, tier, [probed], st);
 					if (r !== null) return r;
@@ -712,6 +829,7 @@ export class Router {
 			const r = await this.attemptTier(req, tier, candidates, st);
 			if (r !== null) return r;
 		}
+		this.walkExpired(st);
 		return exhausted(st);
 	}
 
@@ -759,13 +877,16 @@ export class Router {
 						}));
 		for (const row of ordered) {
 			if (req.signal?.aborted) return { kind: "aborted" };
+			if (this.walkExpired(st)) break;
 			if (gate(row)) continue;
 			if (this.cooldowns.rateLimitRemainingS(row.dep) !== null) {
 				// W1077: probe-before-skip in the PRODUCTION selected path - a
 				// rate-limit bench must not outlive the upstream. A live probe
 				// clears the bench and the row rides now; a dead probe keeps the
 				// remembered 429 envelope for the exhausted relay.
-				if ((await this.probeBenchedLeg(row.group, req, row.dep)) !== null) {
+				if (
+					(await this.probeBenchedLeg(row.group, req, st, row.dep)) !== null
+				) {
 					tried.add(row.candidate_id);
 					const r = await this.attemptTier(req, row.group, [row.dep], st);
 					if (r !== null) return r;
@@ -780,6 +901,7 @@ export class Router {
 		}
 		if (sel.verb === "must" && sel.fit === sel.total && sel.total > 0) {
 			// must-domain closed: no substitution beyond the hint (law 2)
+			this.walkExpired(st);
 			return exhausted(st);
 		}
 		return this.gatedLadder(req, sel, st, tried);
@@ -796,6 +918,7 @@ export class Router {
 	): Promise<ExecuteResult> {
 		const tiers = [req.group, ...(this.policy.fallbacks?.[req.group] ?? [])];
 		for (const tier of tiers) {
+			if (this.walkExpired(st)) break;
 			if (FLASHX.test(tier)) {
 				this.metrics?.refused(tier);
 				continue;
@@ -822,6 +945,7 @@ export class Router {
 			const r = await this.attemptTier(req, tier, candidates, st);
 			if (r !== null) return r;
 		}
+		this.walkExpired(st);
 		return exhausted(st);
 	}
 }

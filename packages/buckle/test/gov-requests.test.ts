@@ -94,6 +94,10 @@ interface ReqRow {
 	key_team: string | null;
 	err: string | null;
 	traffic_kind: string | null;
+	upstream_refusal_code: string | null;
+	refusal_origin: string | null;
+	retry_after_ms: number | null;
+	selected_target_exact: boolean;
 }
 
 async function getRequests(
@@ -149,6 +153,56 @@ describe("W824 gate class", () => {
 });
 
 describe("W824 per-request rows", () => {
+	test("provider cold refusal stays distinct from generic 429 in request audit", async () => {
+		const upstream = await startMockUpstream(() =>
+			Response.json(
+				{ error: { type: "rate_limit_error", message: "warming" } },
+				{
+					status: 429,
+					headers: {
+						"x-klh-refusal": "local_cold",
+						"x-klh-service": "belt",
+						"retry-after": "1",
+					},
+				},
+			),
+		);
+		const gate = await startGate(upstream.url);
+		try {
+			const lane = await issueViaAdmin(gate.base, {
+				name: "cold-lane",
+				scopes: ["buckle:proxy:WRITE_"],
+			});
+			expect((await chat(gate.base, lane.key)).status).toBe(429);
+			const out = await getRequests(gate.base, ROOT, "?inference=true");
+			expect(out.status).toBe(200);
+			const row = (out.body.requests as ReqRow[])[0];
+			expect(row).toMatchObject({
+				status: 429,
+				error_code: "rate_limited",
+				upstream_refusal_code: "local_cold",
+				refusal_origin: "upstream",
+				retry_after_ms: 1000,
+				selected_target_exact: true,
+			});
+			const trace = await fetch(
+				`${gate.base}/v1/admin/traces?trace_id=${row?.trace_id}`,
+				{
+					headers: { authorization: `Bearer ${ROOT}` },
+				},
+			);
+			const detail = (await trace.json()) as {
+				attempts: Array<Record<string, unknown>>;
+			};
+			expect(detail.attempts[0]).toMatchObject({
+				upstream_refusal_code: "local_cold",
+				refusal_origin: "upstream",
+			});
+		} finally {
+			gate.stop();
+			upstream.close();
+		}
+	});
 	test("one trace query joins the live route and each Buckle attempt", async () => {
 		const upstream = await startMockUpstream(() => Response.json(OPENAI_USAGE));
 		const gate = await startGate(upstream.url);

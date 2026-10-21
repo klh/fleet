@@ -239,11 +239,11 @@ function renderFleet(){
     line += ' · consults: ' + ck.open + ' open, ' + (ck.human + ck.kb) + ' answered' +
       (ck.kbSolutions ? ' · kb ' + ck.kbSolutions + ' solutions/' + ck.kbHits + ' hits' : '');
   }
-  // W911: the plaid view rides the fleet line — pools/baseline/overflow and
+  // Plaid view rides the fleet line — pools/baseline and
   // unavailable routes with their reasons (UI agreement with the dispatcher).
   var pl = d.plaid;
   if (pl) {
-    line += ' · plaid ' + pl.posture + ' (pools ' + pl.live.copilot + '/' + pl.live.zai + ', baseline open ' + pl.baselineOpen.copilot + '+' + pl.baselineOpen.zai + ', overflow ' + pl.overflow.used + '/2)';
+    line += ' · plaid ' + pl.posture + ' (pools ' + pl.live.copilot + '/' + pl.live.zai + ', baseline open ' + pl.baselineOpen.copilot + '+' + pl.baselineOpen.zai + ', no fixed cap)';
     var down = (pl.routes || []).filter(function(r){ return !r.available; });
     for (var i = 0; i < down.length; i++) line += ' · down: ' + down[i].name + ' (' + (down[i].reason || 'unknown') + ')';
     if (pl.fallback) line += ' · no healthy route — dispatch paused';
@@ -257,7 +257,7 @@ function renderFleet(){
   var context = [];
   if (zN) context.push(zN + ' recently flagged');
   if (ck && (ck.human || ck.kbSolutions)) context.push('Consult ' + ck.open + ' open · ' + (ck.human + ck.kb) + ' answered');
-  if (pl) context.push('Plaid ' + pl.posture + ' · Copilot ' + pl.live.copilot + ' / Zai ' + pl.live.zai + ' · baseline ' + pl.baselineOpen.copilot + '+' + pl.baselineOpen.zai + ' · overflow ' + pl.overflow.used + '/2');
+  if (pl) context.push('Plaid ' + pl.posture + ' · Copilot ' + pl.live.copilot + ' / Zai ' + pl.live.zai + ' · baseline ' + pl.baselineOpen.copilot + '+' + pl.baselineOpen.zai + ' · no fixed cap');
   if (pl && pl.fallback) context.push('No healthy route · dispatch paused');
   context.unshift('Live = RUNNING with a heartbeat within 5 min; claimed work is on Tasks');
   setText(byId('fleetContext'), context.join('   ·   '));

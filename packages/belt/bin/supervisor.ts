@@ -38,6 +38,7 @@ import { endpointPassed } from "./health.ts";
 import { hubTargets } from "./hubs.ts";
 import { EXTERNAL, residentSet, SPECIALISTS } from "./registry.ts";
 import { litellmTarget } from "./litellm-target.ts";
+import { routerRuntimeRevision } from "./router-runtime-revision.ts";
 import { spawnArgs, spawnReserved } from "./spawner.ts";
 
 const HOME = process.env.HOME ?? "";
@@ -95,6 +96,10 @@ export interface Target {
 	preflight?: () => string | null;
 	/** Non-secret config revision; changed revisions receive their own budget. */
 	generation?: string | (() => string);
+	/** Require a live process to report the code revision it loaded. */
+	enforceRevision?: boolean;
+	/** W1104.1: per-target cap on the post-kill port-release wait. */
+	portReleaseMs?: number;
 	/** W371 hub heal: restart action for a down remote hub (compose up over
 	 *  ssh or local docker). Presence routes the target into the hub loop.
 	 *  Null = clean run; string = bounded failure note. */
@@ -107,6 +112,7 @@ export interface Target {
 export interface ProbeResult {
 	tcp: boolean;
 	http: boolean;
+	revision?: string | null;
 }
 
 export interface TargetStatus {
@@ -150,6 +156,8 @@ export interface SupervisorOptions {
 	windowMs: number;
 	stableMs: number;
 	bindPollMs: number;
+	/** W1104.1: bounded wait after killPort for the listen socket to release. */
+	portReleaseMs: number;
 	probe: (t: Target) => Promise<ProbeResult>;
 	killPort: (port: number) => void;
 	now: () => number;
@@ -168,6 +176,7 @@ export const DEFAULTS: Omit<
 	windowMs: 3_600_000,
 	stableMs: 60_000,
 	bindPollMs: 250,
+	portReleaseMs: 2_000,
 	probe: (t) => probeTarget(t),
 	killPort: (port) => killPortPids(port),
 	now: () => Date.now(),
@@ -257,6 +266,7 @@ export const tcpProbe = (
 
 export interface HttpProbeOptions {
 	headers?: Record<string, string>;
+	onResponse?: (response: Response) => void;
 	/** Statuses that count as serving; omitted = any reply (even 404). */
 	okStatus?: number[];
 	/** TLS transport (remote hubs may speak https; default http). */
@@ -278,6 +288,7 @@ export const httpProbe = async (
 			signal: AbortSignal.timeout(timeoutMs),
 			redirect: "manual",
 		});
+		opts.onResponse?.(r);
 		if (opts.okStatus?.includes(r.status) && r.ok)
 			return await endpointPassed(r);
 		await r.body?.cancel();
@@ -290,12 +301,21 @@ export const httpProbe = async (
 export async function probeTarget(t: Target): Promise<ProbeResult> {
 	const host = t.host ?? "127.0.0.1";
 	if (!(await tcpProbe(t.port, host))) return { tcp: false, http: false };
+	let revision: string | null = null;
 	const http = await httpProbe(t.port, t.healthPath, host, 2000, {
 		headers: t.probeHeaders?.(),
 		okStatus: t.okStatus,
 		scheme: t.scheme,
+		...(t.enforceRevision
+			? {
+					onResponse: (response: Response) => {
+						const value = response.headers.get("x-belt-runtime-revision");
+						revision = /^[0-9a-f]{64}$/.test(value ?? "") ? value : null;
+					},
+				}
+			: {}),
 	});
-	return { tcp: true, http };
+	return { tcp: true, http, ...(t.enforceRevision ? { revision } : {}) };
 }
 
 /** SIGKILL whatever listens on the port (argument-array lsof, no shell). */
@@ -365,13 +385,6 @@ interface BudgetDoc {
 }
 const digest = (value: string): string =>
 	createHash("sha256").update(value).digest("hex");
-const fileRevision = (path: string): string => {
-	try {
-		return digest(readFileSync(path, "utf8"));
-	} catch {
-		return "missing";
-	}
-};
 const targetIdentity = (t: Target): string =>
 	digest(
 		JSON.stringify([
@@ -735,6 +748,22 @@ export class Supervisor {
 			const p = await this.probe(t);
 			const now = this.opts.now();
 			if (p.tcp && p.http) {
+				const desired =
+					typeof t.generation === "function" ? t.generation() : t.generation;
+				if (
+					t.enforceRevision &&
+					desired &&
+					desired !== "missing" &&
+					p.revision !== desired
+				) {
+					await this.restart(
+						t,
+						r,
+						"loaded router code revision differs from runtime",
+						true,
+					);
+					continue;
+				}
 				r.fails = 0;
 				r.hung = 0;
 				r.seenUp = true;
@@ -775,7 +804,12 @@ export class Supervisor {
 		}
 	}
 
-	private async restart(t: Target, r: Runtime, reason: string): Promise<void> {
+	private async restart(
+		t: Target,
+		r: Runtime,
+		reason: string,
+		replaceHealthy = false,
+	): Promise<void> {
 		const s = this.status.get(t.port) as TargetStatus;
 		this.preflight(t);
 		if (s.preflightError) {
@@ -822,11 +856,43 @@ export class Supervisor {
 		if (this.stopped) return;
 
 		const before = await this.probe(t);
-		if (before.tcp && before.http) return; // healed by someone else
+		if (before.tcp && before.http) {
+			if (!replaceHealthy) return; // healed by someone else
+			const desired =
+				typeof t.generation === "function" ? t.generation() : t.generation;
+			if (!desired || desired === "missing" || before.revision === desired)
+				return;
+		}
 		this.preflight(t);
 		if (s.preflightError) return; // dependency changed during backoff; keep probing
 		if (targetIdentity(t) !== r.identity) return; // retry against the new config's budget
 		if (before.tcp) this.opts.killPort(t.port); // orphan / hung holder
+
+		// W1104.1: SIGKILL returns before the kernel releases the listen socket;
+		// respawning into it races EADDRINUSE. Wait (bounded) until :port is
+		// free — probe().tcp false — before handing the port to the new child.
+		let released = false;
+		const releaseDeadline =
+			this.opts.now() + (t.portReleaseMs ?? this.opts.portReleaseMs);
+		while (!this.stopped && this.opts.now() < releaseDeadline) {
+			if (!(await this.probe(t)).tcp) {
+				released = true;
+				break;
+			}
+			await this.sleep(this.opts.bindPollMs);
+		}
+		if (this.stopped) return; // stop() during the wait: no record, no spawn
+		const stillBound = !released && (await this.probe(t)).tcp;
+		if (this.stopped) return; // stop() during that probe: no record, no spawn
+		if (stillBound) {
+			// Port never released within the budget: defer without a breaker
+			// record or spawn — respawning would race EADDRINUSE. The next
+			// probe cycle re-enters restart on the same reason.
+			this.transition(t, "down", {
+				lastError: `:${t.port} still held after port-release wait`,
+			});
+			return;
+		}
 
 		r.breaker.record(this.opts.now());
 		s.restarts++;
@@ -887,7 +953,15 @@ export class Supervisor {
 		const deadline = this.opts.now() + (t.bindTimeoutMs ?? 30_000);
 		while (!this.stopped && this.opts.now() < deadline) {
 			if (r.child === child && r.childDead) return false;
-			if ((await this.opts.probe(t)).tcp) return true;
+			const probe = await this.opts.probe(t);
+			const desired =
+				typeof t.generation === "function" ? t.generation() : t.generation;
+			if (
+				probe.tcp &&
+				(!t.enforceRevision ||
+					(probe.http && desired !== "missing" && probe.revision === desired))
+			)
+				return true;
 			await this.sleep(this.opts.bindPollMs);
 		}
 		return false;
@@ -914,8 +988,9 @@ export function fleetTargets(): Target[] {
 			healthPath: "/health/liveliness",
 			okStatus: [200],
 			killHung: true,
+			enforceRevision: true,
 			bindTimeoutMs: 15_000,
-			generation: () => fileRevision(ROUTER_SCRIPT),
+			generation: () => routerRuntimeRevision(ROUTER_SCRIPT) ?? "missing",
 			spawn: () =>
 				spawnLogged(
 					[process.execPath, ROUTER_SCRIPT],

@@ -269,6 +269,22 @@ export function buildTopology(
 		? supervisor.targets.filter((item) => item.kind === "hub")
 		: [];
 	const rows = Array.isArray(remotes?.rows) ? remotes.rows : [];
+	const beltModelsFor = (name) =>
+		remoteFresh
+			? [
+					...new Set(
+						rows
+							.filter(
+								(row) =>
+									String(row.machine).toLowerCase() === name.toLowerCase() &&
+									row.ok &&
+									row.servedBy === "belt" &&
+									Array.isArray(row.models),
+							)
+							.flatMap((row) => row.models),
+					),
+				]
+			: [];
 	const routes = Array.isArray(remotes?.routes) ? remotes.routes : [];
 	const machines = new Map();
 	for (const row of rows) {
@@ -367,8 +383,10 @@ export function buildTopology(
 			configuredProviders.add("openrouter");
 			providerCounts.openrouter = (providerCounts.openrouter ?? 0) + 1;
 		}
+		const beltModels = beltModelsFor(key);
 		return {
 			name: String(item.name),
+			...(beltModels.length ? { beltModels } : {}),
 			...(gatewayModels.length || routes?.providerIntents?.length
 				? {
 						gatewayModels,
@@ -392,6 +410,9 @@ export function buildTopology(
 	const machineCards = addNetworkEvidence(
 		[...machines.values()].map((item) => ({
 			...item,
+			...(beltModelsFor(item.name).length
+				? { beltModels: beltModelsFor(item.name) }
+				: {}),
 			models: inventoryModels.length
 				? [
 						...new Set(

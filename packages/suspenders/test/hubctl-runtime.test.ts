@@ -23,7 +23,8 @@ const args = process.argv.slice(2);
 if (args.includes("ps")) {
   console.log(JSON.stringify({Service:"buckle-hub",State:"running"}));
 } else if (args.includes("exec")) {
-  console.log(process.env.TEST_RUNTIME_JSON ?? "docker: container not running");
+  const source = "/src/fleet/node_modules/fleet/packages/suspenders/deploy/runtime-info.ts";
+  console.log(args.includes(source) ? (process.env.TEST_RUNTIME_JSON ?? "docker: container not running") : "docker: runtime source missing");
 }
 `,
 );
@@ -35,6 +36,7 @@ writeFileSync(
 		hubs: {
 			test: {
 				host: "localhost",
+				repos: { src: "/src/fleet/node_modules/fleet/packages" },
 				deploy: { dir, docker },
 				// 0 = skip the network probes — they would hit machine defaults
 				buckle_health_port: 0,
@@ -62,7 +64,9 @@ function status(overrides: Record<string, string> = {}) {
 			stderr: "pipe",
 			env: {
 				...process.env,
-				PATH: `${bin}:${process.env.PATH}`,
+				// The configured absolute Docker path must work even when a remote
+				// noninteractive shell does not place docker on PATH.
+				PATH: "/usr/bin:/bin",
 				KLH_STACK: stack,
 				...overrides,
 			},

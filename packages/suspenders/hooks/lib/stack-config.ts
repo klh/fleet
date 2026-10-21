@@ -20,6 +20,13 @@ export interface HubProfile {
 	board_port?: number;
 	store_port?: number;
 	belt_port?: number;
+	/** Optional Belt-owned OpenAI model wire. The URL is a local model server
+	 * selected by machine config, never a model name compiled into Fleet. */
+	belt_model?: {
+		port: number;
+		health_port: number;
+		upstream: string;
+	};
 	/** Health sidecar serve ports (W422.10) — where each *-health probe
 	 *  serves its verdict; falls through to the template default when
 	 *  undeclared. */

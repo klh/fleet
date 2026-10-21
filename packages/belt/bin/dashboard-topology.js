@@ -303,6 +303,7 @@ class BeltTopology extends LitElement {
 		gatewayModelCosts = {},
 		services = [],
 		gatewayModelPorts = {},
+		beltModels = [],
 	) {
 		const configuredAliases = new Set([
 			...(gatewayModels ?? []),
@@ -312,7 +313,9 @@ class BeltTopology extends LitElement {
 			? [
 					...(gatewayModels ?? []).map((name) => ({
 						name,
-						source: this.targetHint(gatewayModelTargets[name]),
+						source: beltModels.includes(name)
+							? "Belt live catalog · inference unverified"
+							: this.targetHint(gatewayModelTargets[name]),
 						targets: gatewayModelTargets[name] ?? [],
 						routes: gatewayModelAliases[name] ?? [],
 						state: "unknown",
@@ -324,7 +327,9 @@ class BeltTopology extends LitElement {
 						.filter((item) => !configuredAliases.has(item.model))
 						.map((item) => ({
 							name: item.model,
-							source: "probe · origin unknown",
+							source: beltModels.includes(item.model)
+								? "Belt live catalog · inference unverified"
+								: "probe · origin unknown",
 							targets: [],
 							routes: [],
 							state: item.state,
@@ -367,7 +372,7 @@ class BeltTopology extends LitElement {
 								return svg`<g><title>${item.name} · ${item.source} · ${costDetail(item.price)}${item.targets.length ? ` · targets: ${item.targets.join(", ")}` : ""}${item.routes.length ? ` · Buckle routes: ${item.routes.join(", ")}` : ""}</title>
 						<circle cx=${itemX} cy=${itemY} r="3" fill=${colour(item.state)}></circle>
 						<text class="title" x=${itemX + 9} y=${itemY + 4}>${this.shortModel(item.name, 16)}</text>
-					<text class="meta" x=${itemX + 9} y=${itemY + 18}>${this.shortModel(`${item.ports.length === 1 ? `:${item.ports[0]} · ` : ""}${costCaption(item.price)}`, 19)}</text>
+					<text class="meta" x=${itemX + 9} y=${itemY + 18}>${this.shortModel(`${beltModels.includes(item.name) ? "Belt · " : item.ports.length === 1 ? `:${item.ports[0]} · ` : ""}${costCaption(item.price)}`, 19)}</text>
 					</g>`;
 							})
 						: svg`<text class="meta" x=${x + 23} y=${y + 132}>No model inventory reported</text>`
@@ -394,7 +399,7 @@ class BeltTopology extends LitElement {
 							return svg`<g><title>${item.model} · ${local ? "locally run; no posted API token rate" : "price unknown; probe origin unverified"}</title>
 								<circle cx=${itemX} cy=${itemY} r="3" fill=${colour(item.state)}></circle>
 								<text class="title" x=${itemX + 10} y=${itemY + 4}>${local ? `${item.port === 8912 ? "Kev" : item.role} · ${item.label}` : this.shortModel(item.model, 23)}</text>
-								<text class="meta endpoint" x=${itemX + 10} y=${itemY + 18}>${local ? this.shortModel(item.model, 20) : "source unverified"}</text>
+								<text class="meta endpoint" x=${itemX + 10} y=${itemY + 18}>${local ? this.shortModel(item.model, 20) : beltModels.includes(item.model) ? "Belt live catalog" : "source unverified"}</text>
 								${local ? svg`<text class="meta endpoint" x=${itemX + 10} y=${itemY + 31}>${item.load5m === null ? "Belt load unreported" : `${item.load5m} Belt req/5m`}</text>` : ""}
 							</g>`;
 						})
@@ -756,7 +761,7 @@ class BeltTopology extends LitElement {
 						),
 				)}
 				${this.machine(16, 65, 370, localHeight, "This Mac", `local spoke · :4101 · ${data.gateway === "unknown" ? "unobserved" : data.gateway}`, data.gateway, models, true, data.localConsoleUrl, data.work)}
-		${hubCards.map((item) => this.machine(430, item.y, 275, item.height, item.displayName || item.name, `:${item.port} · ${item.state} probe`, item.state, item.models, false, item.consoleUrl, null, item.gatewayModels, item.gatewayModelTargets, item.name, item.gatewayModelAliases, item.gatewayRouteCount, item.gatewayUnresolvedRoutes, item.gatewayModelCosts, item.services, item.gatewayModelPorts))}
+		${hubCards.map((item) => this.machine(430, item.y, 275, item.height, item.displayName || item.name, `:${item.port} · ${item.state} probe`, item.state, item.models, false, item.consoleUrl, null, item.gatewayModels, item.gatewayModelTargets, item.name, item.gatewayModelAliases, item.gatewayRouteCount, item.gatewayUnresolvedRoutes, item.gatewayModelCosts, item.services, item.gatewayModelPorts, item.beltModels))}
 					${cloudCards.map((item) =>
 						this.cloud(
 							770,

@@ -16,6 +16,8 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { hostname } from "node:os";
+// W1081: the 404 tail (and every envelope below it) names its emitter.
+import { stampHopHeaders } from "../../telemetry/src/http-trace.ts";
 // W258: per-machine capability forecast rides the catalog surface
 import { capabilityPayload } from "./catalog-capability.ts";
 import { endpointState, supervisorSource } from "./dashboard-state.ts";
@@ -1060,7 +1062,13 @@ Bun.serve({
 					headers: { "content-type": "text/javascript; charset=utf-8" },
 				},
 			);
-		return new Response("not found\n", { status: 404 });
+		const notFound = new Response("not found\n", { status: 404 });
+		stampHopHeaders(notFound.headers, {
+			service: "belt-dashboard",
+			hop: "ingress",
+			refusal: "no_route",
+		});
+		return notFound;
 	},
 });
 

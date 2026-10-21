@@ -42,7 +42,13 @@ import { createRuntimeSync } from "../lib/fleet-loop/runtime-sync.ts";
 import { createStallWatch } from "../lib/fleet-loop/stall-watch.ts";
 import { openStore, projectIdentity } from "../lib/govdb.ts";
 // W641: the ladder's govdb lease gate — shared flush predicate, one source
-import { itemClaimOf } from "../lib/ladder-lease.ts";
+import {
+	doneShaResolves,
+	gitInProgress,
+	gitMidOp,
+	itemClaimOf,
+	mergeHoldActive,
+} from "../lib/ladder-lease.ts";
 import { laneProcessIdentity } from "../lib/lane-liveness.ts";
 import { flushOnDoneWait } from "../lib/merge-on-done.ts";
 // W911: the plaid posture switch — read/write .fleet/posture (the file
@@ -147,9 +153,15 @@ async function cycle(): Promise<void> {
 	// 1. never enter a cycle with leftover merge state. MERGE_HEAD is either
 	// a LIVE merge (another runner mid-flight — hands off) or crashed-run
 	// debris (heal: surgical abort, guarded reset as last resort).
+	// W1072.2: a hold or a non-merge mid-op (cherry-pick/rebase) defers the
+	// heal too — operator state is never aborted/reset by the ladder.
 	if (existsSync(`${REPO}/.git/MERGE_HEAD`)) {
 		const live = mergeRunnerAlive();
 		if (live) log(`MERGE in progress by pid ${live} — cycle leaves it alone`);
+		else if (mergeHoldActive(REPO) || gitMidOp(REPO))
+			log(
+				"MERGE-DEFER cycle — merge state + operator hold/mid-op, heal deferred",
+			);
 		else healCrashedMerge();
 	}
 
@@ -253,7 +265,13 @@ if (MODE === "flush") {
 			log(`FLUSH-VETO — merge runner pid ${live} mid-flight, flush refused`);
 			process.exit(1);
 		}
-		healCrashedMerge();
+		// W1072.2: hold/mid-op defers the heal — a detached flush must never
+		// abort/reset operator merge state (cherry-pick race #55077).
+		if (mergeHoldActive(REPO) || gitMidOp(REPO))
+			log(
+				"MERGE-DEFER flush — merge state + operator hold/mid-op, heal deferred",
+			);
+		else healCrashedMerge();
 	}
 	// W249 merge-on-done: --item <id> --await <secs> — the done-verb's detached
 	// trigger waits HERE for the closing lane to exit (the alive-lane veto
@@ -276,20 +294,24 @@ if (MODE === "flush") {
 	);
 	if (doneWait.branch) sweep.add(doneWait.branch);
 	for (const b of sweep) {
+		// W1072.2: ONE shared predicate with mergeOne — DONE + exact result_sha;
+		// the sweep's own hold/in-progress gate sits before it so a held checkout
+		// defers the whole sweep loudly without touching any branch.
+		if (mergeHoldActive(REPO)) {
+			log(`FLUSH-DEFER ${b} — operator merge hold (.fleet/merge-hold)`);
+			deferred++;
+			continue;
+		}
+		const inprog = gitInProgress(REPO);
+		if (inprog) {
+			log(`FLUSH-DEFER ${b} — ${inprog}`);
+			deferred++;
+			continue;
+		}
 		const claim = itemClaimOf(REPO, b);
-		const head = sh(["git", "rev-parse", "--verify", b]);
-		const stored = claim.resultSha
-			? sh(["git", "rev-parse", "--verify", `${claim.resultSha}^{commit}`])
-			: "";
-		const verified =
-			claim.state === "DONE" && !claim.blocked && !!head && stored === head;
-		if (!verified) {
-			const why = claim.blocked
-				? claim.reason
-				: claim.state !== "DONE"
-					? `item ${claim.item} is ${claim.state ?? "unknown to the graph"}`
-					: `result_sha ${claim.resultSha ?? "none"} ≠ branch head`;
-			log(`FLUSH-DEFER ${b} — ${why}`);
+		const exact = doneShaResolves(REPO, b, claim);
+		if (!exact.ok) {
+			log(`FLUSH-DEFER ${b} — ${exact.why}`);
 			deferred++;
 			continue;
 		}
@@ -324,9 +346,14 @@ if (MODE === "ship") {
 		console.error(`ship refused: merge runner pid ${live} mid-flight`);
 		process.exit(1);
 	}
-	// never enter with leftover merge state (same as cycle step 1)
+	// never enter with leftover merge state (same as cycle step 1);
+	// W1072.2: hold/mid-op defers the heal — operator state is never touched
 	if (existsSync(`${REPO}/.git/MERGE_HEAD`)) {
-		healCrashedMerge();
+		if (mergeHoldActive(REPO) || gitMidOp(REPO))
+			log(
+				"MERGE-DEFER ship — merge state + operator hold/mid-op, heal deferred",
+			);
+		else healCrashedMerge();
 	}
 	mergeOne(b);
 	process.exit(0);
@@ -359,7 +386,9 @@ if (MODE === "posture") {
 	if (arg) writePosture(`${REPO}/.fleet`, parsePosture(arg));
 	const p = readPosture(`${REPO}/.fleet`);
 	console.log(
-		`posture: ${p} — loop stop ${postureWidth(p, 6)} lanes (steady --target 6; plaid per-pool 6-8 + overflow 2, cap 18)`,
+		p === "plaid"
+			? "posture: plaid — no fixed lane cap; sequential launches with a 10s default gap while routes are healthy"
+			: `posture: steady — loop stop ${postureWidth(p, 6)} lanes (--target 6)`,
 	);
 	process.exit(0);
 }

@@ -87,4 +87,53 @@ describe("lane-settings (W512)", () => {
 		) as { env: Record<string, string> };
 		expect(clean.env.SUSPENDERS_LANE_EFFORT).toBeUndefined();
 	});
+
+	test("selected .prefer rule joins Claude requests without replacing operator headers", () => {
+		const settings = JSON.parse(
+			laneSettingsData(
+				{
+					...env,
+					ANTHROPIC_CUSTOM_HEADERS: "x-operator: enabled\nx-klh-prefer: stale",
+				},
+				"glm-5.3-flash",
+				"/p/bin",
+				null,
+				{
+					source: "dotfile",
+					directive: "can",
+					line: 4,
+					index: 0,
+					target: "glm-5.3-flash",
+					can: "active",
+				},
+			),
+		) as { env: Record<string, string> };
+		expect(settings.env.ANTHROPIC_CUSTOM_HEADERS).toBe(
+			"x-operator: enabled\nx-klh-prefer: v=1;source=dotfile;directive=can;line=4;index=0;target=glm-5.3-flash;can=active;soft=absent;must_route=absent",
+		);
+	});
+
+	test("routing-plane status is explicit without exposing its expression", () => {
+		const settings = JSON.parse(
+			laneSettingsData(
+				env,
+				"glm-5.3-flash",
+				"/p/bin",
+				null,
+				{
+					source: "dotfile",
+					directive: "prefer",
+					line: 2,
+					index: 0,
+					target: "glm-5.3-flash",
+					can: "unavailable",
+				},
+				{ prefer: "private target", must: "private boundary" },
+			),
+		) as { env: Record<string, string> };
+		expect(settings.env.ANTHROPIC_CUSTOM_HEADERS).toContain(
+			"soft=declared;must_route=reserved",
+		);
+		expect(settings.env.ANTHROPIC_CUSTOM_HEADERS).not.toContain("private");
+	});
 });

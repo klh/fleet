@@ -5,7 +5,13 @@
 // rules (registry parse incl. the AUDIO_SERVICES trap), report composition,
 // the pulse-face lines, and the accepted-violations baseline.
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -21,6 +27,7 @@ import {
 	saveAccepted,
 	violationKey,
 	verifyVendorHeaders,
+	violationsOf,
 	walkLicenses,
 } from "../hooks/lib/license-audit.ts";
 
@@ -64,6 +71,46 @@ describe("license classification", () => {
 });
 
 describe("node_modules walk", () => {
+	test("skips workspace links and nested installer artifacts, still flags unknown dependencies", () => {
+		const root = mkdtempSync(join(tmpdir(), "lic-links-"));
+		try {
+			pkg(
+				join(root, "packages/blam"),
+				"@klh/blam",
+				"1.0.0",
+				"SEE LICENSE IN LICENSE",
+			);
+			pkg(
+				join(root, "packages/local"),
+				"local",
+				"1.0.0",
+				"SEE LICENSE IN LICENSE",
+			);
+			mkdirSync(join(root, "node_modules/@klh"), { recursive: true });
+			symlinkSync(
+				join(root, "packages/blam"),
+				join(root, "node_modules/@klh/blam"),
+				"dir",
+			);
+			symlinkSync(
+				join(root, "packages/local"),
+				join(root, "node_modules/local"),
+				"dir",
+			);
+			mkdirSync(join(root, "node_modules/node_modules"));
+			pkg(join(root, "node_modules/third-party"), "third-party", "2.0.0", null);
+
+			const rows = walkLicenses(root);
+			expect(rows.map((row) => row.name)).toEqual(["third-party"]);
+			expect(rows[0]?.cls).toBe("unknown");
+			expect(violationsOf(rows).map((row) => row.name)).toEqual([
+				"third-party",
+			]);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
 	test("walks .bun store + hoisted, dedupes, scopes, dotfiles", () => {
 		const root = mkdtempSync(join(tmpdir(), "lic-walk-"));
 		try {

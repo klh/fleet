@@ -11,12 +11,55 @@ import type { Deployment } from "./upstreams.ts";
 import type { UpstreamRequest } from "./router.ts";
 import { poolWarm } from "./pool-warm.ts";
 import { childSpanOf, stripPrivateTrace } from "./trace.ts";
+import { PREFER_HEADER } from "../../telemetry/src/prefer-header.ts";
+
+/** A preference decision may cross Fleet-owned hops but not provider egress. */
+export function mayRelayPrefer(dep: Deployment): boolean {
+	if (dep.buckle) return true;
+	try {
+		return ["localhost", "127.0.0.1", "::1", "[::1]"].includes(
+			new URL(dep.url).hostname,
+		);
+	} catch {
+		return false;
+	}
+}
 
 /** Streaming-body deadlines (W450): idle resets per chunk, total counts
  *  from fetch start. Absent → no stream-specific policy (the old shape). */
 export interface StreamGuards {
 	idleMs: number;
 	totalMs: number;
+}
+
+/** A Buckle peer could not answer a short status request. This is distinct
+ * from a responsive peer taking time to generate the first model token. */
+export class HubConnectError extends Error {
+	readonly layer = "connect";
+	constructor() {
+		super("Buckle peer connection unavailable");
+	}
+}
+
+async function hubResponds(
+	url: string,
+	timeoutMs: number,
+	signal?: AbortSignal,
+): Promise<boolean> {
+	try {
+		const statusUrl = new URL("/status", url);
+		const response = await fetch(statusUrl, {
+			method: "GET",
+			signal: signal
+				? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
+				: AbortSignal.timeout(timeoutMs),
+			redirect: "manual",
+		});
+		await response.body?.cancel();
+		return response.ok;
+	} catch {
+		return false;
+	}
 }
 
 /** Default upstream transport: adapter-built wire call + fetch with
@@ -42,9 +85,42 @@ export async function defaultFetch(
 	} else {
 		stripPrivateTrace(wire.headers);
 	}
+	if (req.preference && mayRelayPrefer(dep))
+		wire.headers[PREFER_HEADER] = req.preference;
+	// LiteLLM is an explicitly declared engine, never guessed from a port or
+	// hostname. Buckle owns the outer retry ladder; pass its remaining
+	// non-streaming attempt budget inward so abandoned calls do not continue
+	// consuming provider capacity. For streaming, only an explicitly configured
+	// LiteLLM first-chunk timeout is passed inward. Its stream timeout applies
+	// to waits for chunks, so do not set a short wall-clock cap on generation.
+	if (dep.adapter_config?.proxy_kind === "litellm") {
+		wire.headers["x-litellm-num-retries"] = "0";
+		if (!stream)
+			wire.headers["x-litellm-timeout"] = String(
+				Math.max(0.001, timeoutMs / 1000),
+			);
+		else {
+			const configured = dep.adapter_config.litellm_stream_timeout_s;
+			if (
+				typeof configured === "number" &&
+				Number.isFinite(configured) &&
+				configured > 0
+			)
+				wire.headers["x-litellm-stream-timeout"] = String(
+					Math.max(0.001, Math.min(configured, timeoutMs / 1000)),
+				);
+		}
+	}
 	// W143 warm-rate gate: a cold origin (first dispatch since boot/pre-warm)
 	// counts one pool_refill and marks warm — the connect cost is counted,
 	// never silently mixed into the warm distribution.
+	if (
+		dep.buckle &&
+		!(await hubResponds(wire.url, Math.min(timeoutMs, 3_000), req.signal))
+	) {
+		if (req.signal?.aborted) throw req.signal.reason;
+		throw new HubConnectError();
+	}
 	poolWarm.observe(wire.url);
 	const t0 = Date.now();
 	const ctrl = new AbortController();

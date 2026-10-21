@@ -6,6 +6,12 @@
 // settings-env merge can clobber; user settings.json env merges OVER process
 // env and killed every env-delivered pin, probed live 2026-10-05, W250).
 // The file is 0600 — it carries the lane token.
+import {
+	encodePreferHeader,
+	PREFER_HEADER,
+	type PreferHeaderDecision,
+} from "../../../telemetry/src/prefer-header.ts";
+import type { PreferRouting } from "./prefer-routing.ts";
 
 /** The Task-pin hook command written into the lane settings. process.execPath
  *  over bare `bun`: launchd dispatch runs on a minimal PATH. */
@@ -34,6 +40,32 @@ const runawayEnv = (env: Record<string, string>): Record<string, string> =>
 		RUNAWAY_ENV_KEYS.filter((k) => env[k]).map((k) => [k, env[k]] as const),
 	);
 
+function customHeaders(
+	existing: string | undefined,
+	preference: PreferHeaderDecision | undefined,
+): string | undefined {
+	const lines = (existing ?? "")
+		.split("\n")
+		.filter((line) => line.trim() && !/^x-klh-prefer\s*:/i.test(line));
+	const encoded = preference && encodePreferHeader(preference);
+	if (encoded) lines.push(`${PREFER_HEADER}: ${encoded}`);
+	return lines.length ? lines.join("\n") : undefined;
+}
+
+const customHeadersEnv = (
+	existing: string | undefined,
+	preference: PreferHeaderDecision | undefined,
+	routing?: Pick<PreferRouting, "prefer" | "must">,
+): Record<string, string> => {
+	const decision = preference && {
+		...preference,
+		soft: routing?.prefer ? ("declared" as const) : ("absent" as const),
+		mustRoute: routing?.must ? ("reserved" as const) : ("absent" as const),
+	};
+	const value = customHeaders(existing, decision);
+	return value ? { ANTHROPIC_CUSTOM_HEADERS: value } : {};
+};
+
 /** The lane --settings file content: env grammar + the W512 Task pin hook.
  *  Pure — unit-testable. */
 export const laneSettingsData = (
@@ -41,6 +73,8 @@ export const laneSettingsData = (
 	model: string,
 	bin: string,
 	effort: string | null = null,
+	preference?: PreferHeaderDecision,
+	routing?: Pick<PreferRouting, "prefer" | "must">,
 ): string =>
 	JSON.stringify(
 		{
@@ -57,6 +91,7 @@ export const laneSettingsData = (
 					env.ANTHROPIC_DEFAULT_HAIKU_MODEL ?? model,
 				ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL,
 				ANTHROPIC_AUTH_TOKEN: env.ANTHROPIC_AUTH_TOKEN,
+				...customHeadersEnv(env.ANTHROPIC_CUSTOM_HEADERS, preference, routing),
 				// W909: the lane's effort level — `work done` banks it into the
 				// work.done event (lib/lane-effort.ts); the reporter renders it.
 				// W923: env wins; the priority-derived default (dispatch-next)

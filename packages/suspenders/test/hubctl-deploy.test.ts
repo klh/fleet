@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { hubctlRouteFixture } from "./support/hubctl-route-fixture.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "fleet-hub-deploy-"));
 const bin = join(dir, "bin");
@@ -87,6 +88,7 @@ writeFileSync(
 );
 const baseEnv: Record<string, string> = {
 	...process.env,
+	...hubctlRouteFixture(dir),
 	KLH_STACK: stack,
 	PATH: `${bin}:${process.env.PATH ?? ""}`,
 	TEST_CALLS: calls,
@@ -216,6 +218,7 @@ test("a reviewed hub candidate pin survives plain push and up without moving the
 	const canaryDir = join(dir, "candidate-hub");
 	config.hubs.stable = {
 		...config.hubs.w363,
+		buckle_port: 14311,
 		deploy: { ...config.hubs.w363.deploy, dir: join(dir, "stable-hub") },
 	};
 	config.hubs.w363.version_override = "reviewed-candidate";

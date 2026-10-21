@@ -20,10 +20,13 @@ import { promptFingerprint } from "./prompt-fingerprint.ts";
 import {
 	byPort,
 	fallbackFor,
+	needsDemandStart,
+	ROUTER,
 	SPECIALISTS,
 	type Specialist,
 } from "./registry.ts";
 import { registryResponse } from "./registry-emit.ts";
+import { routerRuntimeRevision } from "./router-runtime-revision.ts";
 import {
 	applyInboundCondense,
 	type CondenseMeta,
@@ -53,12 +56,16 @@ import { parseToolArgs } from "./router-tools.ts";
 // W422.17.3 governor note: re-read after the /tmp splice that moved viaCloud
 // out; this adds the import for the extracted escalation leg.
 import { escalate } from "./escalate.ts";
-import { ensureUp } from "./spawner.ts";
+import { ensureAvailable } from "./spawner.ts";
 import {
 	beginTrace,
 	childTraceparent,
 	stampResponse,
 } from "../../telemetry/src/http-trace.ts";
+import {
+	parsePreferHeader,
+	PREFER_HEADER,
+} from "../../telemetry/src/prefer-header.ts";
 
 // W504: per-provider request caps — registry rows carry maxInflight for the
 // big unified-memory backends (:8901/:8903); BELT_PORT_CAPS ("8903:1,8901:3")
@@ -75,6 +82,9 @@ const admission = createAdmission(undefined, undefined, {
 const HOME = process.env.HOME;
 const PREFS_FILE = `${HOME}/.claude/local-llm/prefs.json`;
 const ROUTING_LOG = `${HOME}/.claude-insights/swarm-routing.log`;
+// Captured before serving requests. Re-reading the file on every health probe
+// would falsely claim an old process had loaded newly installed modules.
+const loadedRevision = routerRuntimeRevision(import.meta.path);
 let routingLogReady = false;
 
 function logRouting(entry: Record<string, unknown>) {
@@ -341,21 +351,47 @@ async function ladder<R extends Attempt>(
 	used: Specialist;
 	fbRelease?: () => void;
 	retryAfterMs?: number;
+	coldDeferred?: boolean;
 }> {
-	let result = await callHonoringRetryAfter(() => call(primary));
+	const primaryReady =
+		!process.env.BELT_UPSTREAM_BASE && needsDemandStart(primary)
+			? await ensureAvailable(primary)
+			: undefined;
+	let result =
+		primaryReady && !primaryReady.up
+			? ({ ok: false, status: 503, error: primaryReady.error } as R)
+			: await callHonoringRetryAfter(() => call(primary));
 	let used = primary;
+	let coldDeferred = primaryReady !== undefined && !primaryReady.up;
 	let retryAfter =
 		result.status === 429 ? (result.retryAfterMs ?? 0) : undefined;
+	if (primaryReady && !primaryReady.up) retryAfter = primaryReady.retryAfterMs;
 	if (result.ok) return { result, used };
 	errors.push(`:${primary.port} ${result.error ?? "empty"}`);
 	const fb = fallbackFor(route.port);
-	if (!fb) return { result, used, retryAfterMs: retryAfter };
+	if (!fb) return { result, used, retryAfterMs: retryAfter, coldDeferred };
 	const fbRelease = admission.tryAcquire(fb.port);
 	if (!fbRelease) {
 		note.push(`fallback :${fb.port} at max in-flight`);
-		return { result, used, retryAfterMs: retryAfter };
+		return { result, used, retryAfterMs: retryAfter, coldDeferred };
 	}
 	note.push(`fallback → :${fb.port}`);
+	if (!process.env.BELT_UPSTREAM_BASE && needsDemandStart(fb)) {
+		const ready = await ensureAvailable(fb);
+		if (!ready.up) {
+			fbRelease();
+			errors.push(
+				`:${fb.port} demand start deferred: ${ready.error ?? "not ready"}`,
+			);
+			coldDeferred = true;
+			return {
+				result,
+				used,
+				retryAfterMs: Math.max(retryAfter ?? 0, ready.retryAfterMs),
+				coldDeferred,
+			};
+		}
+	}
 	result = await callHonoringRetryAfter(() => call(fb));
 	used = fb;
 	if (result.status === 429)
@@ -363,7 +399,7 @@ async function ladder<R extends Attempt>(
 	if (result.ok) return { result, used, fbRelease };
 	fbRelease();
 	errors.push(`:${fb.port} ${result.error ?? "empty"}`);
-	return { result, used, retryAfterMs: retryAfter };
+	return { result, used, retryAfterMs: retryAfter, coldDeferred };
 }
 
 // header = ASCII essentials only (the note carries "→"); full _routing rides
@@ -403,32 +439,11 @@ Bun.serve({
 	idleTimeout: 0, // streams may idle through a long prefill
 	async fetch(req) {
 		const url = new URL(req.url);
-
-		const health = livenessResponse(req, "belt-router", {
-			router: "complexity-v3",
-		});
-		if (health) return health;
-
-		// W271: the full registry (ETag'd); hubs proxy it, spokes pull it
-		if (
-			(req.method === "GET" || req.method === "HEAD") &&
-			url.pathname === "/registry.json"
-		)
-			return registryResponse(req);
-
-		// ─── W440 audio tier: TTS/STT behind the router (OpenAI wire) ───
-		// Handlers live in bin/audio.ts (rows: registry.ts AUDIO_SERVICES);
-		// the vendor key is machine config — a missing key is a clean 503.
-		if (req.method === "POST" && url.pathname === "/v1/audio/speech")
-			return audioSpeech(req);
-
-		if (req.method === "POST" && url.pathname === "/v1/audio/transcriptions")
-			return audioTranscribe(req);
-
-		if (req.method !== "POST" || url.pathname !== "/v1/messages") {
-			return Response.json({ error: "not found" }, { status: 404 });
-		}
+		// W1081: every envelope identifies its emitter — the ingress trace
+		// begins once at fetch top so the early paths (404, audio, registry)
+		// stamp the same x-klh set as the /v1/messages ladder below.
 		const trace = beginTrace(req.headers);
+		const preference = parsePreferHeader(req.headers.get(PREFER_HEADER));
 		const stamped = (
 			response: Response,
 			hop: string,
@@ -440,14 +455,52 @@ Bun.serve({
 				upstreamId?: string;
 				callId?: string;
 			} = {},
-		): Response =>
-			stampResponse(response, {
+		): Response => {
+			const stamped = stampResponse(response, {
 				service: "belt",
 				hop,
 				traceId: trace.traceId,
 				requestId: trace.requestId,
 				...extra,
 			});
+			stamped.headers.delete(PREFER_HEADER);
+			if (preference) stamped.headers.set(PREFER_HEADER, preference);
+			return stamped;
+		};
+
+		const health = livenessResponse(req, "belt-router", {
+			router: "complexity-v3",
+		});
+		// livenessResponse stamps itself (service = "belt-router") — no re-wrap
+		if (health) {
+			if (loadedRevision)
+				health.headers.set("x-belt-runtime-revision", loadedRevision);
+			return health;
+		}
+
+		// W271: the full registry (ETag'd); hubs proxy it, spokes pull it
+		if (
+			(req.method === "GET" || req.method === "HEAD") &&
+			url.pathname === "/registry.json"
+		)
+			return stamped(registryResponse(req), "ingress");
+
+		// ─── W440 audio tier: TTS/STT behind the router (OpenAI wire) ───
+		// Handlers live in bin/audio.ts (rows: registry.ts AUDIO_SERVICES);
+		// the vendor key is machine config — a missing key is a clean 503.
+		if (req.method === "POST" && url.pathname === "/v1/audio/speech")
+			return stamped(await audioSpeech(req), "ingress");
+
+		if (req.method === "POST" && url.pathname === "/v1/audio/transcriptions")
+			return stamped(await audioTranscribe(req), "ingress");
+
+		if (req.method !== "POST" || url.pathname !== "/v1/messages") {
+			return stamped(
+				Response.json({ error: "not found" }, { status: 404 }),
+				"ingress",
+				{ refusal: "no_route" },
+			);
+		}
 
 		let body: AnthropicBody;
 		try {
@@ -476,6 +529,10 @@ Bun.serve({
 		// score complexity and select specialist:
 		//   code-ish → coder; everything non-SIMPLE prose → 27B general; else 4B
 		const prefs = await loadPrefs();
+		// A request sent by LiteLLM to this local router must never escalate
+		// back into LiteLLM's fallback ladder. The group alias is registry data.
+		const cloudAllowedForRequest =
+			body.model !== ROUTER.gatewayAlias && cloudAllowed(prefs);
 		const score = scoreComplexity(text);
 
 		// arithmetic lane — zero tokens, zero model calls
@@ -817,23 +874,6 @@ Bun.serve({
 				note.push(`forced dead primary :${primary.port}`);
 			}
 
-			// ondemand tier: spawn on first request (single-flight); residents rely
-			// on launchd KeepAlive instead (routing rule 2). Cold load is visible in
-			// the note — never a silent fallback (that was the W1 defect).
-			if (route.tier === "ondemand") {
-				const ens = await ensureUp(route);
-				if (ens.up) {
-					if (ens.cold)
-						note.push(
-							`ondemand :${route.port} ready (cold ${(ens.waitedMs / 1000).toFixed(1)}s)`,
-						);
-				} else {
-					note.push(
-						`ondemand :${route.port} DOWN (${ens.error ?? "spawn failed"})`,
-					);
-				}
-			}
-
 			// budget policy per target model (thinking off / min budget)
 			const budgetFor = (t: Specialist) => {
 				const b = applyBudget(t.model, clientMax);
@@ -842,6 +882,7 @@ Bun.serve({
 			};
 
 			let retryAfter: number | undefined;
+			let coldDeferred = false;
 			let cloudStatus: number | undefined;
 			// W279: cloud-first serving — a cloud serving-tier decision escalates
 			// BEFORE the local ladder (a stated >32k-token request on the small
@@ -856,6 +897,7 @@ Bun.serve({
 						wantFast,
 						traceparent: trace.traceparent,
 						requestId: trace.requestId,
+						preference,
 						onAttempt: recordAttempt,
 					});
 					if (c.note) note.push(c.note);
@@ -881,7 +923,7 @@ Bun.serve({
 			// cloud gate + tier decision: only prefs authorize the cloud leg;
 			// W786: kev's escalate verdict can keep it local (fail-open — no
 			// verdict, kev down, or escalate_gate off ⇒ today's behavior)
-			if (el.label === "cloud" && cloudAllowed(prefs)) {
+			if (el.label === "cloud" && cloudAllowedForRequest) {
 				if (kevEscalateVeto(el.label, kevEscalate))
 					note.push("kev escalate-gate: kept local");
 				else await tryCloud(true);
@@ -891,7 +933,7 @@ Bun.serve({
 			// local leg will actually run, including after a failed cloud attempt.
 			if (!response) {
 				release = admission.tryAcquire(route.port);
-				if (!release && cloudAllowed(prefs) && !triedCloud) {
+				if (!release && cloudAllowedForRequest && !triedCloud) {
 					// W1071 (owner doctrine 2026-10-20): a local cap-refusal is an
 					// internal signal, never an upstream one — spill to cloud when
 					// prefs authorize it; 429 only after cloud also declines.
@@ -938,6 +980,7 @@ Bun.serve({
 							startedAt: t0,
 							traceparent: trace.traceparent,
 							requestId: trace.requestId,
+							preference,
 							onAttempt: recordAttempt,
 						});
 					},
@@ -948,6 +991,7 @@ Bun.serve({
 				usedModel = opened.used.model;
 				if (opened.retryAfterMs !== undefined)
 					retryAfter = Math.max(retryAfter ?? 0, opened.retryAfterMs);
+				coldDeferred ||= opened.coldDeferred === true;
 				if (opened.result.ok) {
 					const routing = routingInfo();
 					const fbRelease = opened.fbRelease;
@@ -995,6 +1039,7 @@ Bun.serve({
 							startedAt: t0,
 							traceparent: trace.traceparent,
 							requestId: trace.requestId,
+							preference,
 							onAttempt: recordAttempt,
 						});
 					},
@@ -1006,6 +1051,7 @@ Bun.serve({
 				usedModel = got.used.model;
 				if (got.retryAfterMs !== undefined)
 					retryAfter = Math.max(retryAfter ?? 0, got.retryAfterMs);
+				coldDeferred ||= got.coldDeferred === true;
 				localTimings = got.result.timings;
 				if (got.result.ok) {
 					response = got.result.response;
@@ -1023,22 +1069,25 @@ Bun.serve({
 			if (
 				!response &&
 				!(resultToolCalls && resultToolCalls.length > 0) &&
-				cloudAllowed(prefs) &&
+				cloudAllowedForRequest &&
 				!triedCloud
 			) {
 				await tryCloud(score.tier !== "VERY_COMPLEX");
 			}
 
 			if (!response && !(resultToolCalls && resultToolCalls.length > 0)) {
-				// every hop saturated → 429 with the longest upstream Retry-After so
-				// the caller's ladder backs off instead of retrying a 502
+				// A cold local leg is a retryable capacity refusal, not an upstream
+				// provider failure. Preserve its backoff hint for the caller.
 				if (retryAfter !== undefined) {
-					logDone({ outcome: "upstream-429", http_status: 429 });
+					logDone({
+						outcome: coldDeferred ? "cold-model" : "upstream-429",
+						http_status: 429,
+					});
 					return stamped(
 						upstreamDecline(429, retryAfter, [...note, ...errors]),
 						lastHop,
 						{
-							refusal: "upstream_rate_limit",
+							refusal: coldDeferred ? "local_cold" : "upstream_rate_limit",
 							...hopFields(),
 						},
 					);

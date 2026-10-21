@@ -19,9 +19,9 @@ const REPO_POLICY = new URL("../bin/routing-policy.yaml", import.meta.url)
 /** Fixed ladder — pins the EMITTER shape independent of policy drift. */
 const emitterTestFallbacks = () => ({
 	fallbacks: {
-		"glm-5.3-flash": ["zai-glm-5.3-flash", "local-reason"],
-		"glm-5.3": ["zai-glm-5.3", "local-reason"],
-		"glm-5.2": ["zai-glm-5.2", "local-reason"],
+		"glm-5.3-flash": ["zai-glm-5.3-flash", "local-swarm"],
+		"glm-5.3": ["zai-glm-5.3", "local-swarm"],
+		"glm-5.2": ["zai-glm-5.2", "local-swarm"],
 	},
 });
 
@@ -33,13 +33,12 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		expect(p.allowed_fails).toBe(3);
 		expect(p.cooldown_time).toBe(30);
 		expect(p.fallbacks).toEqual({
-			"glm-5.3-flash": ["zai-glm-5.3-flash", "local-reason"],
-			"glm-5.3": ["zai-glm-5.3", "local-reason"],
-			"glm-5.2": ["zai-glm-5.2", "local-reason"],
-			"zai-glm-5.3-flash": ["glm-5.3-flash", "local-reason"],
-			"zai-glm-5.3": ["glm-5.3", "local-reason"],
-			"zai-glm-5.2": ["glm-5.2", "local-reason"],
-			"local-swarm": ["local-reason"],
+			"glm-5.3-flash": ["zai-glm-5.3-flash", "local-swarm"],
+			"glm-5.3": ["zai-glm-5.3", "local-swarm"],
+			"glm-5.2": ["zai-glm-5.2", "local-swarm"],
+			"zai-glm-5.3-flash": ["local-swarm"],
+			"zai-glm-5.3": ["local-swarm"],
+			"zai-glm-5.2": ["local-swarm"],
 		});
 		expect(p.enable_pre_call_checks).toBe(true);
 		expect(p.context_window_fallbacks).toEqual({
@@ -47,7 +46,6 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 			"local-coder": ["glm-5.3-flash"],
 			"local-reason": ["glm-5.3-flash"],
 			"local-general": ["glm-5.3-flash"],
-			"local-swarm": ["glm-5.3-flash"],
 			"nas-qwen2.5-0.5b": ["glm-5.3-flash"],
 		});
 	});
@@ -57,21 +55,20 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		expect(JSON.stringify(p).toLowerCase().includes("flashx")).toBe(false);
 	});
 
-	test("fallback order is zai twin → local-reason, per glm group", () => {
+	test("fallback order is zai twin → local router, per glm group", () => {
 		const f = loadGatewayPolicy(REPO_POLICY).fallbacks ?? {};
 		for (const [group, ladder] of Object.entries(f)) {
-			expect(ladder?.at(-1)).toBe("local-reason");
+			expect(ladder?.at(-1)).toBe("local-swarm");
 			expect(ladder).not.toContain(group);
 		}
 	});
 
-	test("W880: zai twins + local-swarm are laddered (F3 gap closed)", () => {
+	test("W880: zai twins reach the local router without reciprocal fallback", () => {
 		const f = loadGatewayPolicy(REPO_POLICY).fallbacks ?? {};
 		for (const twin of ["zai-glm-5.3-flash", "zai-glm-5.3", "zai-glm-5.2"]) {
-			const mirror = twin.replace(/^zai-/, "");
-			expect(f[twin]).toEqual([mirror, "local-reason"]);
+			expect(f[twin]).toEqual(["local-swarm"]);
 		}
-		expect(f["local-swarm"]).toEqual(["local-reason"]);
+		expect(f["local-swarm"]).toBeUndefined();
 	});
 
 	test("emit → YAML round-trip: knobs in router_settings, no fallbacks", () => {
@@ -104,7 +101,7 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 				context_window_fallbacks: Record<string, string[]>[];
 			};
 		};
-		expect(doc.litellm_settings.fallbacks).toHaveLength(7);
+		expect(doc.litellm_settings.fallbacks).toHaveLength(6);
 		expect(doc.litellm_settings.drop_params).toBe(true);
 		expect(doc.litellm_settings.callbacks).toEqual(["prometheus"]);
 		expect(doc.litellm_settings.require_auth_for_metrics_endpoint).toBe(true);
@@ -114,7 +111,6 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 			{ "local-coder": ["glm-5.3-flash"] },
 			{ "local-reason": ["glm-5.3-flash"] },
 			{ "local-general": ["glm-5.3-flash"] },
-			{ "local-swarm": ["glm-5.3-flash"] },
 			{ "nas-qwen2.5-0.5b": ["glm-5.3-flash"] },
 		]);
 	});
@@ -167,16 +163,16 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 			};
 		};
 		expect(doc.litellm_settings.fallbacks).toEqual([
-			{ "glm-5.3-flash": ["zai-glm-5.3-flash", "local-reason"] },
-			{ "glm-5.3": ["zai-glm-5.3", "local-reason"] },
-			{ "glm-5.2": ["zai-glm-5.2", "local-reason"] },
+			{ "glm-5.3-flash": ["zai-glm-5.3-flash", "local-swarm"] },
+			{ "glm-5.3": ["zai-glm-5.3", "local-swarm"] },
+			{ "glm-5.2": ["zai-glm-5.2", "local-swarm"] },
 		]);
 	});
 
 	test("emitted ladder line is verbatim LiteLLM fallback shape", () => {
 		const out = emitLiteLlmSettings(emitterTestFallbacks());
 		expect(out).toContain(
-			"    - glm-5.3-flash: [zai-glm-5.3-flash, local-reason]",
+			"    - glm-5.3-flash: [zai-glm-5.3-flash, local-swarm]",
 		);
 	});
 

@@ -1,23 +1,5 @@
 #!/usr/bin/env bun
-// dispatch-next.ts — suspenders refills its own fleet (W145, "eat own dog
-// food"). The POLICY half of the dispatch loop: pick READY unblocked items
-// from the Work Graph, brief a headless lane, spawn it daemonized. The
-// plumbing conventions (worktree, lanes.json, DISPATCHED log line, env
-// scrub) mirror `hooks/bin/fleet-loop.ts dispatch` so the loop's pid guard,
-// retire lifecycle, and `lanes` verb cover the lanes we spawn; the brief
-// adds what the fleet needs to be self-resuming:
-//
-//   - capsule protocol  — lanes bank a ≤10-line continuation capsule at every
-//     work-unit boundary (`coord capsule set/get`, hooks/bin/coord.ts); the
-//     LAST capsule stands as the hand-off.
-//   - landing chain     — commit → work done --sha → coord fact set finding.
-//   - resume path       — alive lane: reachable via its sid on the graph
-//     (owner_sid + coord inbox). Dead lane: re-dispatch reuses the sid,
-//     reads the capsule + item state, and returns them as RESUME CONTEXT.
-//
-//   bun scripts/dispatch-next.ts [--repo <dir>] [--target N] [--dry-run]
-//                                [--item Wn] [--no-belt]
-//                                [--allow-ungoverned] [--show-capsule <sid>]
+// Refill READY work and resume dead claimed lanes under the fleet-loop scheduler.
 import {
 	appendFileSync,
 	chmodSync,
@@ -110,13 +92,13 @@ import {
 import { laneSid } from "../hooks/lib/laneslug.ts";
 // W911: the bounded plaid posture — the ONE override of the execPick chain.
 import {
-	plaidDispatch,
-	plaidGate,
 	plaidProbeHealth,
-	postureWidth,
 	readPosture,
 	recordPlaidTrace,
 } from "../hooks/lib/plaid.ts";
+// W1102.1: the plaid launch preflight (host-pressure hold + pool plan +
+// route pick) — its own module per the 1500-line law
+import { plaidLaunchPreflight } from "../scripts/lib/plaid-launch.ts";
 // W862: policy provenance rides the brief — read-only graph read, the
 // compliance check itself re-runs at the lane's session bootstrap
 import { policyBriefLines } from "../hooks/lib/session-policy.ts";
@@ -127,14 +109,10 @@ import {
 } from "../hooks/lib/stack-config.ts";
 import { recoverOrphanClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
-import { execPick } from "./lib/exec-chain.ts";
+import { execPick, posturePreference } from "./lib/exec-chain.ts";
 import { fleetReport } from "./lib/fleet-report.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
-import {
-	dispatchStarterFork,
-	type StarterSeedFailure,
-	starterStartLine,
-} from "./lib/lane-starter.ts";
+import { dispatchStarterFork, starterStartLine } from "./lib/lane-starter.ts";
 import {
 	activeRateLimitWalls,
 	parkExhaustedLaunch,
@@ -164,13 +142,24 @@ import {
 // guard moved to lib modules; the re-exports keep supervise.ts and the test
 // suites on their dispatch-next import path.
 import { capabilityGate, isOwnerGated, parseReady } from "./lib/ready-pool.ts";
+import {
+	canAttemptRefill,
+	dispatchHeld,
+	plaidCycleOpen,
+	plaidLaunchGapMs,
+	refillWindow,
+} from "./lib/refill-window.ts";
 import { isResumableClaim } from "./lib/resumable-claim.ts";
 import { decisionFor, resumeBriefLine } from "./lib/resume-from.ts";
 import { verdictRepeatGate } from "./lib/verdict-repeat-gate.ts";
 
 export { capabilityGate, isOwnerGated, parseReady };
 
-import { parseCapsuleGet } from "./lib/dispatch-admission.ts";
+import {
+	type DispatchLane as Lane,
+	parseCapsuleGet,
+	RouteAdmission,
+} from "./lib/dispatch-admission.ts";
 import {
 	composeDispatchBrief,
 	dryDispatchPreview,
@@ -197,7 +186,8 @@ if (
 Refill agent lanes from READY work and resume unfinished claims.
 
   --repo <dir>             Project checkout (default: Git root)
-  --target <N>             Desired live lane count (default: 6)
+  --target <N>             Steady posture live lane target (default: 6);
+                           plaid grows one attempted launch per cycle
   --dry-run                Preview without launching or changing claims
   --item <Wn>              Dispatch one specific work item
   --route <name>           Pin a plaid route for --item; no model fallback
@@ -225,15 +215,9 @@ const val = (flag: string): string | undefined => {
 	const i = argv.indexOf(flag);
 	return i >= 0 ? argv[i + 1] : undefined;
 };
-// Governance target (owner directive 2026-10-05: everything under buckle +
-// suspenders — lanes are the governed path, so the default fleet width rises
-// from 3 to 8; --target still overrides per invocation).
-// W500 OOM: 8 concurrent lanes × local-model KV growth helped kill the
-// machine (python fleet 91GB of 128GB, jetsam 2026-10-06 22:14). The
-// fanout-rate-budget lesson's cap is 6 — default follows it.
+// Steady posture's target. Plaid ignores this numeric ceiling.
 const TARGET = Number(val("--target") ?? 6);
-// W629 DRY + W911 1500-law: the spawn helpers live in lib/lane.ts; these
-// REPO-default wrappers keep the 16 call sites cwd-free.
+// Spawn helpers keep call sites cwd-free.
 const sh = (cmd: string[], cwd = REPO): string => shShared(cmd, cwd);
 const run = (cmd: string[], cwd = REPO): { code: number; out: string } =>
 	runShared(cmd, cwd);
@@ -264,6 +248,7 @@ const coordCli = coordCliFor(BIN);
 const gitToplevel = (): string =>
 	sh(["git", "rev-parse", "--show-toplevel"], process.cwd()) || process.cwd();
 const CALLER_REPO = resolve(val("--repo") ?? gitToplevel());
+const ROUTING_PREFER = resolveRoutingPrefer(CALLER_REPO);
 const REPO = canonicalProjectRoot(CALLER_REPO);
 const DRY = argv.includes("--dry-run");
 // explicit single-item dispatch (W145 docstring promised this, never wired
@@ -284,23 +269,21 @@ const SHOW_CAPSULE = val("--show-capsule");
 // doctrine stays fresh lane + capsule.
 const RESUME_FROM = val("--resume-from");
 const FLEET = `${REPO}/.fleet`;
-// Plaid capacity and pool arithmetic live in hooks/lib/plaid.ts.
+// --target never caps Plaid; refill-window.ts controls launch cadence.
 const POSTURE = readPosture(FLEET);
 if (argv.includes("--route") && (!ROUTE || !ITEM || POSTURE !== "plaid"))
 	throw new Error("--route requires --item in plaid posture");
-const TARGET_EFF = postureWidth(POSTURE, TARGET);
 // W989: one catalog probe per run — plaid lanes only ride models the buckle
 // front actually serves (a pin the front can't serve launches a lane that
-// 502s on its first request, W1019). The /v1/models read is auth-gated:
-// the machine conf's admin key (belt.env, 0600) authenticates it; absent
-// key/front = no evidence, never a demotion (quota + bin stay authority).
-// W1063 DRY: the one lane-auth admin-key reader (env-first over belt.env —
-// the same precedence every other governance consumer uses)
-const plaidFrontToken = (): string | null => adminKey();
+// 502s on its first request, W1019). The /v1/models read is auth-gated by
+// the one lane-auth admin-key reader (W1063, env-first over belt.env).
+// W1102.1: the probe result (null = catalog unavailable) rides the plaid
+// launch preflight — an unavailable catalog holds EVERY plaid launch
+// (fail-closed); reachable-empty `[]` stays valid evidence.
 const PLAID_MODEL_HEALTH =
 	POSTURE === "plaid" && !NO_BELT && !DRY
-		? await plaidProbeHealth(await probeBuckleFront(), plaidFrontToken())
-		: null;
+		? await plaidProbeHealth(await probeBuckleFront(), adminKey())
+		: undefined;
 // W636: `registry` verb family — liveness-guarded operator cleanup of the
 // durable lane registry (list/prune/forget); command discovery precedes the
 // dispatch pipeline exactly like --help above. Dynamic import: the verb
@@ -321,36 +304,23 @@ const launchWaits: string[] = [];
 // W695.1: seed-failure fallbacks — dispatched cold because the starter seed
 // failed. Surfaced in the final summary line and carried on the registry row.
 const seedFallbacks: string[] = [];
+const routeAdmission = new RouteAdmission(
+	!DRY && !NO_BELT,
+	probeBuckleFront,
+	adminKey,
+	// W1102.1: plaid posture fails closed on an UNAVAILABLE audit read
+	// (front down/401/timeout); steady keeps missing-evidence-never-blocks
+	POSTURE === "plaid",
+);
 
-// W519: .prefer routing constraints ride the brief — prefer= soft, must=
-// reserved (lib/prefer-routing.ts); parse errors loud on the dispatch log,
-// never fatal.
+// .prefer routing errors are loud; valid soft and reserved rules ride the brief.
 const routingExtra = (): string[] => {
-	const r = resolveRoutingPrefer(CALLER_REPO);
-	for (const e of r.errors) console.log(`NOTE — .prefer ${e}`);
-	return preferRoutingBriefLines(r);
+	for (const e of ROUTING_PREFER.errors) console.log(`NOTE — .prefer ${e}`);
+	return preferRoutingBriefLines(ROUTING_PREFER);
 };
-
 // W622 retake knob helpers live in scripts/lib/resume-from.ts (1500-line
 // law): decisionFor resolves the operator's --resume-from against the
 // lane-registry resume candidate; resumeBriefLine renders the disclosure.
-
-type Lane = {
-	sid: string;
-	item: string;
-	pid: number;
-	branch: string;
-	worktree: string;
-	agent?: string;
-	host?: string;
-	hub?: string;
-	slab?: string;
-	launchedAt: number;
-	attempt?: number;
-	/** W695.1: set when the lane was dispatched on a COLD-START fallback after
-	 *  a starter-seed failure — exit code, stderr tail, phase, preflight. */
-	seedError?: StarterSeedFailure;
-};
 
 // lane liveness is THE plane's verdict (2026-10-05) — hoisted to lib/lane.ts
 // (W911 1500-law decomposition); the wrapper binds the CLI builders + dir.
@@ -622,43 +592,37 @@ const dispatchItem = async (
 		}
 		pick = execPick(attempt, CALLER_REPO, cv, quota);
 		bin = resolveLaneExecutor(pick.bin);
-		if (!bin) {
+		if (!bin && POSTURE !== "plaid") {
 			governanceRefusals.push(item);
 			console.log(
 				`REFUSED ${item} — selected executor unavailable; nothing claimed or minted`,
 			);
 			return null;
 		}
-		// W911 plaid: the posture-level override of the execPick chain (owner
-		// arithmetic coord #46919) — the pool plan decides IF this lane
-		// dispatches (per-pool 6–8 + overflow 2, cap 18) and plaidAssign picks
-		// the least-loaded healthy route of the picked pool. Steady posture
-		// never touches this branch: the .prefer chain stands (W228).
+		// Plaid picks the least-loaded healthy provider. Steady uses .prefer.
+		// W1102.1: the plaid preflight (host-pressure hold + pool plan +
+		// route pick) moved to scripts/lib/plaid-launch.ts (1500-line law).
 		if (POSTURE === "plaid") {
-			const g = plaidGate(
-				store,
-				lanes.map((l) => l.sid),
-				quota,
-				PLAID_MODEL_HEALTH,
-			);
-			if (!g.plan.open) {
-				console.log(`SKIP ${item} — ${g.plan.reason}`);
-				return null;
-			}
-			const pd = plaidDispatch({
+			const pre = await plaidLaunchPreflight({
 				store,
 				sids: lanes.map((l) => l.sid),
 				quota,
 				ordinal,
 				hub: pick.hub,
-				modelHealth: PLAID_MODEL_HEALTH,
 				routePin: ROUTE,
+				fleetDir: FLEET,
+				modelHealth: PLAID_MODEL_HEALTH,
 			});
-			if (pd.skip) {
-				console.log(`SKIP ${item} — ${pd.skip}`);
+			if (pre.skip) {
+				console.log(`SKIP ${item} — ${pre.skip}`);
 				return null;
 			}
-			pick = { ...pick, ...pd.pick };
+			pick = { ...pick, ...pre.pick };
+			pick.preference = posturePreference(
+				pick.preference,
+				pick.name,
+				pick.chainIdx,
+			);
 			// W1009.2: the route may swap the executor token (e.g. codex) —
 			// resolve the binary from the MERGED pick or the launch wraps the
 			// stale pre-plaid bin with the codex adapter's argv (mixed spawn).
@@ -671,8 +635,16 @@ const dispatchItem = async (
 				store.close();
 				return null;
 			}
-			routeName = pd.routeName;
-			if (pd.note) console.log(`NOTE — ${pd.note}`);
+			routeName = pre.routeName;
+			if (pre.note) console.log(`NOTE — ${pre.note}`);
+		}
+		const route = await routeAdmission.check(pick.model);
+		if (route.pause) {
+			const why =
+				route.reason ??
+				`${pick.model} has ${route.failures} recent, exactly attributed route refusals; retry when evidence clears`;
+			console.log(`WAIT ${item} — ${why}`);
+			return null;
 		}
 		const take = run(
 			workCli("take", item, "--as", sid, "--origin", `${hostname()}:claude`),
@@ -1077,6 +1049,8 @@ const dispatchItem = async (
 			m,
 			BIN,
 			effortForPriority(item.priority),
+			pick.preference,
+			ROUTING_PREFER,
 		);
 		writtenFiles.set(laneSettings, settingsData);
 		writeFileSync(laneSettings, settingsData);
@@ -1236,6 +1210,10 @@ const main = async (): Promise<void> => {
 		process.exitCode = 2;
 		return;
 	}
+	if (!DRY && dispatchHeld(FLEET)) {
+		console.log("WAIT — dispatch paused for rollout; live lanes keep running");
+		return;
+	}
 	// prune: dead entries leave lanes.json (history keeps the audit); a worktree
 	// with a live claude/codex cwd is alive no matter what the pid says —
 	// daemonized `claude -p` re-parents away from the recorded pid within minutes.
@@ -1256,7 +1234,8 @@ const main = async (): Promise<void> => {
 		dry: DRY,
 		...(ITEM ? { item: ITEM } : {}),
 		takenSids: new Set(lanes.map((l) => l.sid)),
-		targetEff: TARGET_EFF,
+		targetEff: TARGET,
+		...(POSTURE === "plaid" ? { maxRows: 1 } : {}),
 		busySlots: Math.max(held.size, [...audit.values()].filter(Boolean).length),
 		now: Date.now(),
 	});
@@ -1324,29 +1303,24 @@ const main = async (): Promise<void> => {
 			// fail-open
 		}
 	}
-	// W1025: pace the refill while rate-limit walls are active — the 429
-	// churn burns lane attempt budgets on pacing events, not failures.
-	// Effective target = live/(live+walls) share of the posture width,
-	// floored at 1; the PACED line discloses it. Fail-open on a dark store.
-	let pacedTarget = TARGET_EFF;
+	// Plaid observes pressure between launches; steady keeps its numeric target.
+	let walls = 0;
 	if (!DRY && !ITEM) {
 		try {
 			const pstore = openStore();
-			const walls = activeRateLimitWalls(pstore, projectIdentity(REPO));
+			walls = activeRateLimitWalls(pstore, projectIdentity(REPO));
 			pstore.close();
-			if (walls > 0) {
-				pacedTarget = Math.max(
-					1,
-					Math.ceil((TARGET_EFF * live.length) / (live.length + walls)),
-				);
-				console.log(
-					`PACED — ${walls} active rate-limit wall(s); effective target ${pacedTarget}/${TARGET_EFF} (W1025)`,
-				);
-			}
 		} catch {
-			// fail-open: a dark store never throttles dispatch
+			// dark-store fallback remains visible through the route admission gate
 		}
 	}
+	let window = refillWindow(POSTURE, TARGET, live.length, walls);
+	if (walls > 0)
+		console.log(
+			POSTURE === "plaid"
+				? `PACED — ${walls} active rate-limit wall(s); new Plaid launches paused until recovery`
+				: `PACED — ${walls} active rate-limit wall(s); effective target ${window.target}/${TARGET} (W1025)`,
+		);
 	// resume candidates: dead dispatched lanes whose item is still CLAIMED by
 	// them (state on the graph) — re-dispatch with the same sid so the capsule
 	// fact (lane.<sid>.capsule) and the claim both carry over.
@@ -1360,18 +1334,42 @@ const main = async (): Promise<void> => {
 		resumeOf.set(l.item, l);
 	}
 	const dispatched: string[] = [];
+	let plaidRefused = false;
+	const plaidCycleStarted = Date.now();
+	const canLaunch = (): boolean =>
+		!plaidRefused &&
+		(POSTURE !== "plaid" || plaidCycleOpen(plaidCycleStarted, Date.now())) &&
+		(DRY || !dispatchHeld(FLEET)) &&
+		canAttemptRefill(window, live.length + heldSlots + dispatched.length);
+	const afterLaunch = async (): Promise<void> => {
+		if (POSTURE !== "plaid" || DRY || ITEM) return;
+		await Bun.sleep(
+			plaidLaunchGapMs(process.env.SUSPENDERS_PLAID_LAUNCH_GAP_MS),
+		);
+		routeAdmission.invalidate();
+		try {
+			const pstore = openStore();
+			walls = activeRateLimitWalls(pstore, projectIdentity(REPO));
+			pstore.close();
+			window = refillWindow(POSTURE, TARGET, live.length, walls);
+		} catch {
+			// Exact-target route audit and provider quota still gate the next item.
+		}
+	};
 	for (const [, resume] of resumeOf) {
-		if (live.length + heldSlots + dispatched.length >= pacedTarget) break;
+		if (!canLaunch()) break;
 		const out = await dispatchItem(resume.item, live, resume);
 		if (out) dispatched.push(out);
+		else if (POSTURE === "plaid") {
+			plaidRefused = true;
+			break;
+		}
+		await afterLaunch();
 	}
 	if (ITEM && !live.some((l) => l.item === ITEM) && !resumeOf.has(ITEM)) {
-		if (
-			live.length + heldSlots + dispatched.length >= pacedTarget &&
-			!held.has(ITEM)
-		) {
+		if (!canLaunch() && !held.has(ITEM)) {
 			console.log(
-				`REFUSED ${ITEM} — target capacity occupied by live or uncertain launches`,
+				`REFUSED ${ITEM} — ${POSTURE === "plaid" ? "rate-limit wall or dispatch hold" : "target capacity occupied by live or uncertain launches"}`,
 			);
 			governanceRefusals.push(ITEM);
 		} else {
@@ -1426,9 +1424,14 @@ const main = async (): Promise<void> => {
 	for (const s of skips) console.log(s);
 	capStore?.close();
 	for (const r of dispatchable) {
-		if (live.length + heldSlots + dispatched.length >= pacedTarget) break;
+		if (!canLaunch()) break;
 		const out = await dispatchItem(r.id, live, undefined, dispatched.length);
 		if (out) dispatched.push(out);
+		else if (POSTURE === "plaid") {
+			plaidRefused = true;
+			break;
+		}
+		await afterLaunch();
 	}
 	// daemonized-pid resolve: scripts/lib/dispatch-summary.ts (W928)
 	await resolveDaemonizedPids(sh, dispatched, live);
@@ -1474,7 +1477,7 @@ const main = async (): Promise<void> => {
 	// W899/W928: the tail render + exit-code decision ride dispatch-summary.ts
 	process.exitCode = dispatchSummary({
 		liveCount: live.length,
-		targetEff: TARGET_EFF,
+		targetEff: window.target,
 		heldSlots,
 		dispatched,
 		seedFallbacks,

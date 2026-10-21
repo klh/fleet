@@ -26,12 +26,20 @@ test("healImports rewrites mapped cross-package imports to runtime-local", () =>
 			`import { x } from "../../suspenders/deploy/hub-remote.ts";\nimport { y } from "../../buckle/src/gov/keys.ts";\nexport const h = x + y;\n`,
 		);
 		writeFileSync(join(prefix, "hub-remote.ts"), "export const x = 1;\n");
+		writeFileSync(
+			join(prefix, "escalate.ts"),
+			'import { trace } from "../../telemetry/src/http-trace.ts";\n',
+		);
+		writeFileSync(join(prefix, "http-trace.ts"), "export const trace = 1;\n");
 		mkdirSync(join(prefix, "gov"), { recursive: true });
 		writeFileSync(join(prefix, "gov", "keys.ts"), "export const y = 2;\n");
 		const done = healImports(prefix);
 		const out = readText(join(prefix, "hubs.ts"));
 		expect(out).toContain('from "./hub-remote.ts"');
 		expect(out).toContain('from "./gov/keys.ts"');
+		expect(readText(join(prefix, "escalate.ts"))).toContain(
+			'from "./http-trace.ts"',
+		);
 		expect(done.some((d) => d.startsWith("hubs.ts:"))).toBe(true);
 	} finally {
 		rmSync(prefix, { recursive: true, force: true });
@@ -85,7 +93,7 @@ test("healImports never rewrites a wrapper to import itself", () => {
 	}
 });
 
-test("copyDeps copies missing deps and never clobbers existing files", () => {
+test("copyDeps refreshes stale release deps and leaves missing sources alone", () => {
 	const root = mkprefix();
 	const prefix = mkprefix();
 	try {
@@ -93,8 +101,10 @@ test("copyDeps copies missing deps and never clobbers existing files", () => {
 		mkdirSync(depDir, { recursive: true });
 		writeFileSync(join(depDir, "hub-remote.ts"), "export const h = 1;\n");
 		writeFileSync(join(prefix, "hub-remote.ts"), "original\n");
-		expect(copyDeps(root, prefix)).toEqual([]);
-		expect(readText(join(prefix, "hub-remote.ts"))).toBe("original\n");
+		expect(copyDeps(root, prefix)).toEqual(["hub-remote.ts"]);
+		expect(readText(join(prefix, "hub-remote.ts"))).toBe(
+			"export const h = 1;\n",
+		);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 		rmSync(prefix, { recursive: true, force: true });

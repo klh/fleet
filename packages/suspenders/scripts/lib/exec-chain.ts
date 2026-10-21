@@ -7,27 +7,27 @@
 // the last entry), the same-bin tail rides claude native --fallback-model,
 // "claude" stays the appended last resort.
 import { readFileSync } from "node:fs";
-import { readBoardSettings } from "../../hooks/lib/board-config.ts";
 // feed values (llm:<machine>:<tail>) translate to belt model ids via the
 // catalog grammar; lookups: swarm inventory + BYO local-models.json
 import { feedModelOf } from "../../hooks/board/executor-catalog.ts";
 import { specialistByPort } from "../../hooks/board/local-swarm.ts";
-import { readUserPlane } from "../../hooks/lib/repo-laws.ts";
+import { readBoardSettings } from "../../hooks/lib/board-config.ts";
+// W374: the per-provider quota measure — providerOf keys a chain slot to its
+// provider; quota demotion reorders the DEFAULT ladder only (a .prefer MUST
+// chain is owner intent, W228 parity with the W620 cv reorder).
+import type { ProviderPenalty } from "../../hooks/lib/exec-quota.ts";
+import { providerOf } from "../../hooks/lib/exec-quota.ts";
 // W422: which chain tokens are their own CLI vs belt model pins is ADAPTER
 // data (registry.ts) — the if copilot/else-claude ternaries retired here.
 import {
 	adapterFor,
 	isSpawnableExecutor,
 } from "../../hooks/lib/executors/registry.ts";
-// W374: the per-provider quota measure — providerOf keys a chain slot to its
-// provider; quota demotion reorders the DEFAULT ladder only (a .prefer MUST
-// chain is owner intent, W228 parity with the W620 cv reorder).
-import type { ProviderPenalty } from "../../hooks/lib/exec-quota.ts";
-import { providerOf } from "../../hooks/lib/exec-quota.ts";
 // W813: chain tokens may name HUBS (a stack.yaml/hubs.json label rides
 // that hub); can= doability probes resolveLaneExecutor + darkHubNow + the
 // cv tally — all sync, so execPick stays sync.
 import { readRegistry } from "../../hooks/lib/hub-locate.ts";
+import { readUserPlane } from "../../hooks/lib/repo-laws.ts";
 import { darkHubNow, tryLoadStack } from "../../hooks/lib/stack-config.ts";
 import { resolveLaneExecutor } from "./launch-preflight.ts";
 
@@ -53,10 +53,33 @@ import { resolveLaneExecutor } from "./launch-preflight.ts";
  * unchanged. A later can= line wins. */
 export interface PreferChainEntry {
 	value: string;
-	kind: "must" | "prefer";
+	kind: "must" | "prefer" | "can";
 	/** 1-based source line — the W813 position tiebreak. */
 	line: number;
 }
+
+/** Audit metadata for the actual executor selection, never a routing input. */
+export interface PreferDecision {
+	source: "dotfile" | "default" | "posture";
+	directive: "must" | "prefer" | "can" | "default" | "posture";
+	line: number;
+	index: number;
+	target: string;
+	can: "absent" | "active" | "unavailable";
+}
+
+export const posturePreference = (
+	selected: PreferDecision,
+	target: string,
+	index: number,
+): PreferDecision => ({
+	source: "posture",
+	directive: "posture",
+	line: 0,
+	index,
+	target,
+	can: selected.can,
+});
 
 export const preferOf = (
 	repo: string,
@@ -144,9 +167,7 @@ const hubLabelOf = (e: string): string | null => {
 	if (isSpawnableExecutor(e) || !e.trim()) return null;
 	const tok = e.trim().toLowerCase();
 	if (
-		Object.keys(tryLoadStack()?.hubs ?? {}).some(
-			(l) => l.toLowerCase() === tok,
-		)
+		Object.keys(tryLoadStack()?.hubs ?? {}).some((l) => l.toLowerCase() === tok)
 	)
 		return e.trim();
 	const reg = readRegistry();
@@ -180,17 +201,18 @@ const chainEntriesOf = (
 	prefer: ReturnType<typeof preferOf>,
 	cvOf?: Map<string, number>,
 	quota?: ProviderPenalty,
-): PreferChainEntry[] => {
+): { entries: PreferChainEntry[]; can: PreferDecision["can"] } => {
 	const canTok =
-		prefer.can && canDoable(prefer.can.value, cvOf, quota)
-			? prefer.can
-			: null;
+		prefer.can && canDoable(prefer.can.value, cvOf, quota) ? prefer.can : null;
 	const kept = prefer.directives.filter((d) => !canTok || d.kind !== "must");
 	if (canTok)
-		kept.push({ value: canTok.value, kind: "prefer", line: canTok.line });
+		kept.push({ value: canTok.value, kind: "can", line: canTok.line });
 	// stable sort: equal lines keep file order (comma-list left-first)
 	kept.sort((a, b) => b.line - a.line);
-	return kept;
+	return {
+		entries: kept,
+		can: canTok ? "active" : prefer.can ? "unavailable" : "absent",
+	};
 };
 
 // W813 can= doability — sync probes only (execPick stays sync):
@@ -252,6 +274,7 @@ export const execPick = (
 	fallbackModels: string[];
 	chainLen: number;
 	chainIdx: number;
+	preference: PreferDecision;
 } => {
 	const prefer = preferOf(repo);
 	const s = readBoardSettings().settings;
@@ -261,11 +284,12 @@ export const execPick = (
 		const h = hubOverride ?? prefer.hub;
 		return h ? `[${h.toUpperCase()}] ${executor}` : executor;
 	};
-	const chainEntries = chainEntriesOf(prefer, cvOf, quota);
+	const { entries: chainEntries, can } = chainEntriesOf(prefer, cvOf, quota);
 	if (chainEntries.length > 0) {
 		const chain = chainEntries.map((d) => d.value);
 		const idx = Math.min(attempt, chain.length - 1);
 		const e = chain[idx];
+		const chosen = chainEntries[idx];
 		const slot = slotFor(e);
 		// W228+W813: the directive at the picked position is owner intent —
 		// allow-list collision is surfaced, never silently rerouted.
@@ -285,12 +309,10 @@ export const execPick = (
 		// one process tries all of them before a dead-lane re-dispatch is
 		// needed; a bin switch further down the chain can only be reached
 		// by that re-dispatch (a CLI flag can't cross binaries mid-process).
-		const fallbackModels = chain
-			.slice(idx + 1)
-			.flatMap((next) => {
-				const ns = slotFor(next);
-				return ns.bin === bin && ns.model ? [ns.model] : [];
-			});
+		const fallbackModels = chain.slice(idx + 1).flatMap((next) => {
+			const ns = slotFor(next);
+			return ns.bin === bin && ns.model ? [ns.model] : [];
+		});
 		return {
 			agent: label(e, slot.hub),
 			model: slot.model,
@@ -301,6 +323,14 @@ export const execPick = (
 			chainLen: chain.length,
 			chainIdx: idx,
 			name: e,
+			preference: {
+				source: "dotfile",
+				directive: chosen.kind,
+				line: chosen.line,
+				index: idx,
+				target: e,
+				can,
+			},
 		};
 	}
 	// W183.2 - the ordered default_executors list IS the fallback chain: the
@@ -327,8 +357,10 @@ export const execPick = (
 	// ranks among usable slots). The pre-sort head at the attempt index is
 	// what quota reshuffles, and the reshuffle is loud (NOTE, admission
 	// NOTE precedent).
-	const quotaWhy = (slot: { name: string; model: string | null }): string | null =>
-		quota?.get(providerOf(slot.model ?? slot.name)) ?? null;
+	const quotaWhy = (slot: {
+		name: string;
+		model: string | null;
+	}): string | null => quota?.get(providerOf(slot.model ?? slot.name)) ?? null;
 	const penaltyOf = (slot: { name: string; model: string | null }): number =>
 		quotaWhy(slot) ? 1 : 0;
 	const wouldBe = chain[Math.min(attempt, chain.length - 1)];
@@ -364,6 +396,14 @@ export const execPick = (
 			chainLen: chain.length,
 			chainIdx: idx,
 			name,
+			preference: {
+				source: "default",
+				directive: "default",
+				line: 0,
+				index: idx,
+				target: name,
+				can,
+			},
 		};
 	}
 	return {
@@ -376,5 +416,13 @@ export const execPick = (
 		fallbackModels: [],
 		chainLen: 0,
 		chainIdx: 0,
+		preference: {
+			source: "default",
+			directive: "default",
+			line: 0,
+			index: 0,
+			target: "claude",
+			can,
+		},
 	};
 };

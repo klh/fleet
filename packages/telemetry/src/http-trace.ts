@@ -39,6 +39,17 @@ export interface HopReceipt {
 	retryAfterMs: number | null;
 	upstreamId: string | null;
 	callId: string | null;
+	/** Origin's bounded refusal code, as received on the upstream response. */
+	upstreamRefusalCode?: string | null;
+	/** Which layer produced the attempted refusal; never inferred from status. */
+	refusalOrigin?: "upstream" | "bridged-upstream" | "network" | null;
+}
+
+/** Upstream metadata is untrusted. Persist only a short diagnostic token. */
+export function safeRefusalCode(value: unknown): string | null {
+	return typeof value === "string" && /^[a-z][a-z0-9_]{0,39}$/.test(value)
+		? value
+		: null;
 }
 
 /** Shape and length guard for correlation IDs. This does not establish who

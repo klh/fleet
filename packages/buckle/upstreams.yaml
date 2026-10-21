@@ -123,4 +123,5 @@ groups:
 #      dialect: openai
 #      adapter: openai-compat
 #      model: local-reason           # litellm model_name (litellm.yaml model_list)
+#      adapter_config: { proxy_kind: litellm } # enables bounded inner timeout and zero inner retries
 #      api_key_env: LITELLM_KEY
