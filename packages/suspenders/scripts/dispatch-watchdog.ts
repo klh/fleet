@@ -24,6 +24,7 @@ import {
 	type ServiceVerdict,
 } from "./lib/service-drift.ts";
 import { laneToolRoundtrip } from "./lib/lane-tool-probe.ts";
+import { laneProbeReply } from "./lib/lane-probe-sse.ts";
 import { inspectActivatedDispatch } from "./lib/activated-dispatch.ts";
 import {
 	watchdogVerdict,
@@ -179,7 +180,7 @@ const laneProbe = async (): Promise<{ ok: boolean; detail: string }> => {
 				},
 			);
 			if (!r.ok) throw new Error(`lane front HTTP ${r.status}`);
-			return await r.json();
+			return await laneProbeReply(r);
 		});
 	} finally {
 		await fetch(`http://127.0.0.1:4101/v1/admin/keys/${mb.key_id}/revoke`, {

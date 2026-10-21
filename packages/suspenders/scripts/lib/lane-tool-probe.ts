@@ -27,7 +27,18 @@ export async function laneToolRoundtrip(
 			},
 		},
 	];
-	const base = { model: "glm-5.3-flash", max_tokens: 256, tools };
+	const base = {
+		model: "glm-5.3-flash",
+		max_tokens: 256,
+		stream: true,
+		tools,
+		system: [{ type: "text", text: "Fleet lane transport health check." }],
+		metadata: { user_id: "fleet-watchdog-probe" },
+		context_management: {
+			edits: [{ type: "clear_tool_uses_20250919" }],
+		},
+		service_tier: "auto",
+	};
 	const first = await request({
 		...base,
 		messages,

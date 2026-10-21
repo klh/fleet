@@ -42,6 +42,15 @@ test("roundtrip preserves thinking and links result to exact tool id", async () 
 	}, "secret-nonce");
 	expect(result.ok).toBe(true);
 	expect(JSON.stringify(requests[0])).not.toContain("secret-nonce");
+	for (const body of requests) {
+		expect(body.stream).toBe(true);
+		expect(body.system).toEqual([{ type: "text", text: expect.any(String) }]);
+		expect(body.metadata).toEqual({ user_id: "fleet-watchdog-probe" });
+		expect(body.context_management).toEqual({
+			edits: [{ type: "clear_tool_uses_20250919" }],
+		});
+		expect(body.service_tier).toBe("auto");
+	}
 	expect(requests[1].messages).toEqual([
 		...(requests[0].messages as unknown[]),
 		{ role: "assistant", content: structured.content },
