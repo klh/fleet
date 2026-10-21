@@ -557,6 +557,10 @@ export class Router {
 		const ordered = sel.ordered.filter(
 			(row) => bridgeRequest(req, row.dep) !== null,
 		);
+		// W1080: name the real refusal — an all-unbridgeable selection is a
+		// body the transform rejected, not an unhealthy upstream.
+		if (ordered.length === 0 && sel.ordered.length > 0)
+			st.error = `all ${String(sel.ordered.length)} selected row(s) unbridgeable — the transform rejected this request body`;
 		// The escalation law owns EVERY prefer/no-hint cloud delivery: the
 		// hint ranks the head, it does not authorize leaving the machine
 		// (W136 §5.2 — prefs AND tier-warrant AND failed-twice, all AND-ed).

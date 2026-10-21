@@ -118,10 +118,10 @@ export function requestAnthropicToOpenAI(body: AnyRec): RequestTransform {
 		} else if (key === "tool_choice") {
 			const choice = choiceAToO(value);
 			if (choice === null) {
-				rejected = {
+				warnings.push({
 					field: "tool_choice",
-					message: `untranslatable tool_choice ${JSON.stringify(value) ?? ""}`,
-				};
+					message: "untranslatable tool_choice — dropped (W1080)",
+				});
 			} else {
 				out.tool_choice = choice;
 			}
@@ -154,10 +154,13 @@ export function requestAnthropicToOpenAI(body: AnyRec): RequestTransform {
 				message: "no openai-compat equivalent — honest degrade (dropped)",
 			});
 		} else {
-			rejected = {
+			// W1080 proxy law: echo the wire — unknown client fields ride
+			// verbatim; upstreams own any objection (a 400 is a live signal).
+			out[key] = value;
+			warnings.push({
 				field: key,
-				message: "unrecognized field for the openai wire",
-			};
+				message: "no openai-compat transform — passed through verbatim (W1080)",
+			});
 		}
 	}
 	return { body: out, warnings, rejected };
@@ -431,10 +434,12 @@ export function requestOpenAIToAnthropic(body: AnyRec): RequestTransform {
 				message: "no anthropic equivalent — honest degrade (dropped)",
 			});
 		} else {
-			rejected = {
+			// W1080 proxy law (reverse bridge): pass through verbatim.
+			out[key] = value;
+			warnings.push({
 				field: key,
-				message: "unrecognized field for the anthropic wire",
-			};
+				message: "no anthropic transform — passed through verbatim (W1080)",
+			});
 		}
 	}
 	return { body: out, warnings, rejected };

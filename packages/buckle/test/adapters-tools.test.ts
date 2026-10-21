@@ -105,14 +105,15 @@ describe("requestAnthropicToOpenAI", () => {
 		expect(msgs[3]).toEqual({ role: "user", content: "thanks" });
 	});
 
-	test("thinking/top_k degrade; unknown field rejects naming it", () => {
+	test("thinking/top_k degrade; unknown fields pass through (W1080)", () => {
 		const r = requestAnthropicToOpenAI({
 			model: "g",
 			thinking: { type: "enabled" },
 			frobnicate: 1,
 		});
 		expect(r.warnings[0]?.field).toBe("thinking");
-		expect(r.rejected?.field).toBe("frobnicate");
+		expect(r.rejected).toBeNull();
+		expect(r.body.frobnicate).toBe(1);
 	});
 
 	test("metadata drops with a warning, never rejects (W1019)", () => {
@@ -324,7 +325,7 @@ describe("requestOpenAIToAnthropic", () => {
 		expect(fields).toContain("seed");
 	});
 
-	test("history parse-fail + unknown field = reject-verbose", () => {
+	test("history parse-fail rejects; unknown field passes through (W1080)", () => {
 		const bad = requestOpenAIToAnthropic({
 			model: "m",
 			messages: [
@@ -345,7 +346,8 @@ describe("requestOpenAIToAnthropic", () => {
 			messages: [],
 			frobnicate: true,
 		});
-		expect(unknown.rejected?.field).toBe("frobnicate");
+		expect(unknown.rejected).toBeNull();
+		expect(unknown.body.frobnicate).toBe(true);
 	});
 });
 
