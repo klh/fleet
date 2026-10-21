@@ -28,7 +28,7 @@ import { livenessResponse } from "./health.ts";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// Machine-level config (config-over-code): BELT_MCP_* / BELT_ROUTER_URL live
+// Machine-level config (config-over-code): BELT_MCP_* / BELT_INFER_URL live
 // in ~/.claude/local-llm/belt-mcp.env (0600, operator-owned, never the repo).
 // Loaded into process.env at boot so launchd needs no env plumbing. Existing
 // process env always wins — the file only fills gaps.

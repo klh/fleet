@@ -2,15 +2,21 @@
 //   knowledge_search — ranked retrieval over the fleet knowledge layer
 //     (knowledge.db cards + governor.db facts/consult_kb), prose-card output
 //     with trust markers so a remote consumer treats hits as leads, not facts.
-//   belt_infer — one-shot LLM completion routed through the local belt router
-//     (:4000, Anthropic wire). The fleet's routing ladder decides the model.
+//   belt_infer — one-shot LLM completion entering the local Buckle gate
+//     (Anthropic wire). Buckle's ladder decides the model; belt never
+//     shortcuts around Buckle (owner law 2026-10-21, event #55466).
 // Tool EXECUTION failures surface inside the result (isError) per the MCP
 // spec; protocol errors (unknown tool) are the server's JSON-RPC problem.
 import { searchKnowledge, type KnowledgeCard } from "./mcp-knowledge.ts";
 
 export const SERVER_INFO = { name: "belt-mcp", version: "0.1.0" } as const;
 
-const ROUTER_URL = () => process.env.BELT_ROUTER_URL ?? "http://127.0.0.1:4000";
+const INFER_URL = () => process.env.BELT_INFER_URL ?? "http://127.0.0.1:4101";
+const INFER_KEY = () => process.env.BELT_INFER_KEY?.trim() ?? "";
+/** DEV posture only: no credential in hand — call the gate unauthenticated
+ *  instead of failing every tool call (the loopback gate answers; a hub
+ *  deployment always sets BELT_INFER_KEY). */
+const DEV_INFER = () => process.env.BELT_MCP_DEV === "1" && INFER_KEY() === "";
 
 const FILTER_SCHEMA = {
 	domain: {
@@ -47,7 +53,7 @@ export const TOOLS = [
 	{
 		name: "belt_infer",
 		description:
-			"Run a one-shot LLM completion through the klh belt router (complexity-scored local swarm with cloud escalation). Use for drafting, summarizing, or answering a single prompt; the router picks the model. Not a chat session — each call is independent.",
+			"Run a one-shot LLM completion through the local Buckle gate (Buckle's ladder picks the model; belt never shortcuts Buckle). Use for drafting, summarizing, or answering a single prompt. Not a chat session — each call is independent.",
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -109,9 +115,22 @@ async function beltInfer(
 		messages: [{ role: "user", content: prompt }],
 	};
 	if (typeof args.system === "string") body.system = args.system;
-	const res = await fetch(`${ROUTER_URL()}/v1/messages`, {
+	const key = INFER_KEY();
+	const dev = DEV_INFER();
+	if (!key && !dev)
+		throw new Error("belt infer unconfigured: BELT_INFER_KEY required");
+	const res = await fetch(`${INFER_URL()}/v1/messages`, {
 		method: "POST",
-		headers: { "content-type": "application/json" },
+		headers: {
+			"content-type": "application/json",
+			...(key
+				? {
+						"x-api-key": key,
+						authorization: `Bearer ${key}`,
+						"anthropic-version": "2023-06-01",
+					}
+				: {}),
+		},
 		body: JSON.stringify(body),
 		signal: signal
 			? AbortSignal.any([signal, AbortSignal.timeout(120_000)])
@@ -120,7 +139,7 @@ async function beltInfer(
 	if (!res.ok) {
 		const detail = await res.text().catch(() => "");
 		throw new Error(
-			`belt router ${res.status}: ${detail.slice(0, 200) || "no detail"}`,
+			`belt infer ${res.status}: ${detail.slice(0, 200) || "no detail"}`,
 		);
 	}
 	const data = (await res.json()) as {
@@ -130,7 +149,7 @@ async function beltInfer(
 		.filter((b) => b.type === "text" && typeof b.text === "string")
 		.map((b) => b.text as string)
 		.join("");
-	if (!text) throw new Error("belt router returned no text content");
+	if (!text) throw new Error("belt infer returned no text content");
 	return text;
 }
 
