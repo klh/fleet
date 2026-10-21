@@ -842,7 +842,20 @@ function streamResponse(
 	if (!upstream.body) return jsonResponse(deps, ctx, result);
 	const sniffer = new SseSniffer(ctx.dialect);
 	const [sniffBranch, clientBranch] = upstream.body.tee();
-	const downstream = new TransformStream<Uint8Array, Uint8Array>();
+	// W1106 (#55505): ONE cancel bus — a Request abort AND a downstream
+	// reader.cancel (direct body cancel, no Request signal) both feed it;
+	// both pipes ride its signal so either path tears the tee + upstream
+	// down and the receipt banks downstream_cancel, never a misattributed
+	// upstream error.
+	let streamCancelled = false;
+	const downstreamAbort = new AbortController();
+	const cancelDownstream = (): void => {
+		streamCancelled = true;
+		downstreamAbort.abort();
+	};
+	const downstream = new TransformStream<Uint8Array, Uint8Array>({
+		cancel: () => cancelDownstream(),
+	});
 	let streamFailed = false;
 	let streamFailureKind: string | null = null;
 	// W1106: body-free stream progress counters — terminal receipts answer
@@ -850,7 +863,6 @@ function streamResponse(
 	let bytesIn = 0;
 	let chunksIn = 0;
 	let lastChunkMs: number | null = null;
-	let streamCancelled = false;
 	// W1106 (#55419/#55420): EOF without the dialect's protocol terminal
 	// (anthropic message_stop / openai [DONE] / response.completed) is a
 	// TRUNCATED turn — never a completed success.
@@ -958,7 +970,7 @@ function streamResponse(
 		ctx.slot?.(); // W450: the drain settled — the upstream slot frees
 	});
 	sniffBranch
-		.pipeTo(blackHole(sniffer, progress), { signal: ctx.signal })
+		.pipeTo(blackHole(sniffer, progress), { signal: downstreamAbort.signal })
 		.catch(() => {
 			// the sniff branch failing (or aborting) must not affect the client
 		});
@@ -970,13 +982,15 @@ function streamResponse(
 	// in-flight upstream slot, not leak it). The rejections land in the
 	// handlers above — no branch.cancel() from outside a locked pipe (#55409:
 	// that rejects a promise try/catch never sees).
-	ctx.signal?.addEventListener(
-		"abort",
-		() => {
-			streamCancelled = true;
-		},
-		{ once: true },
-	);
+	if (ctx.signal?.aborted === true) cancelDownstream();
+	else
+		ctx.signal?.addEventListener(
+			"abort",
+			() => {
+				if (!streamCancelled) cancelDownstream();
+			},
+			{ once: true },
+		);
 	// W616.1: anthropic clients get the re-framer — canonical frames, pings
 	// dropped, corrupt events quarantined (litellm's keepalive ping splices
 	// mid-line under load; byte-identity forwarded the defect to the lane).
@@ -995,14 +1009,18 @@ function streamResponse(
 				)
 			: clientBranch;
 	sanitized
-		.pipeTo(downstream.writable, { preventAbort: true, signal: ctx.signal })
+		.pipeTo(downstream.writable, {
+			preventAbort: true,
+			signal: downstreamAbort.signal,
+		})
 		.then(finish, (err: unknown) => {
 			// W1106: classify BEFORE the receipt lands. The request signal is
 			// the honest cancel evidence (real-Bun probe: pipeTo rejects
 			// LAZILY — on the next failed write, or carrying the upstream's
 			// own error object — so rejection identity cannot separate a
-			// client abort from an upstream death).
-			if (ctx.signal?.aborted === true) {
+			// client abort from an upstream death). A downstream reader.cancel
+			// rides the same bus via the TransformStream cancel hook (#55505).
+			if (downstreamAbort.signal.aborted) {
 				streamCancelled = true;
 			} else {
 				streamFailed = true;
