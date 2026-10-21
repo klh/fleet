@@ -93,6 +93,61 @@ async function command(argv: string[], cwd: string): Promise<void> {
 		);
 }
 
+// W1050 cold-cache bootstrap: offline resolution needs cached package
+// manifests. On a first install against an empty Bun cache every offline
+// pass fails; the ladder fetches the locked manifests once (network,
+// scripts disabled, lockfile-only — nothing executes, nothing materializes)
+// and re-verifies the offline graph before materialization.
+export function offlineResolveArgs(): string[] {
+	return [
+		process.execPath,
+		"install",
+		"--offline",
+		"--ignore-scripts",
+		"--lockfile-only",
+		"--save-text-lockfile",
+	];
+}
+
+/** W1050 fail-early verdict: both ladder legs failed — name the remedy. */
+export function coldCacheVerdict(offline: unknown, fetch: unknown): Error {
+	const text = (error: unknown): string =>
+		error instanceof Error ? error.message : String(error);
+	return new Error(
+		`Dependency manifests are unavailable offline and the fetch failed; warm the cache with "bun install" in the fleet checkout, then retry the install. offline: ${text(offline)}; fetch: ${text(fetch)}`,
+	);
+}
+
+/** W1050 cold-cache ladder: offline resolve; on failure fetch the locked
+ *  manifests once (network, scripts disabled, lockfile-only) and re-verify
+ *  offline. Throws the coldCacheVerdict when both legs fail. */
+export async function materializeDependencies(
+	stage: string,
+	run: (argv: string[], cwd: string) => Promise<void> = command,
+): Promise<void> {
+	const offline = offlineResolveArgs();
+	try {
+		await run(offline, stage);
+		return;
+	} catch (offlineError) {
+		try {
+			await run(
+				[
+					process.execPath,
+					"install",
+					"--ignore-scripts",
+					"--lockfile-only",
+					"--save-text-lockfile",
+				],
+				stage,
+			);
+		} catch (fetchError) {
+			throw coldCacheVerdict(offlineError, fetchError);
+		}
+		await run(offline, stage);
+	}
+}
+
 async function archive(
 	repo: string,
 	revision: string,
@@ -319,17 +374,10 @@ export async function syncHarness(
 		// then require that exact dependency graph for materialization. The root
 		// manifest contains production dependencies only; Bun's production +
 		// lockfile-only combination can incorrectly return without writing a lock.
-		await command(
-			[
-				process.execPath,
-				"install",
-				"--offline",
-				"--ignore-scripts",
-				"--lockfile-only",
-				"--save-text-lockfile",
-			],
-			stage,
-		);
+		// W1050: the resolver is a cold-cache ladder — on an empty Bun cache the
+		// offline leg fetches once via the network and re-verifies offline; both
+		// legs failing fails the sync early with the remedy.
+		await materializeDependencies(stage);
 		await command(
 			[
 				process.execPath,
