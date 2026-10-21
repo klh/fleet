@@ -4,7 +4,14 @@ import type { GatewayPolicy } from "../src/policy.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
 
 function pool(
-	rows: Record<string, Array<{ url: string; model?: string }>>,
+	rows: Record<
+		string,
+		Array<{
+			url: string;
+			model?: string;
+			adapter_config?: Record<string, unknown>;
+		}>
+	>,
 ): UpstreamPool {
 	return {
 		groups: () => Object.keys(rows),
@@ -42,6 +49,46 @@ test("Buckle's bounded fallback rows are not recursively expanded", () => {
 		],
 	});
 	expect(result.errors).toEqual([]);
+});
+
+test("a configured LiteLLM target requires its explicit engine marker", () => {
+	const makeInputs = (adapter_config?: Record<string, unknown>) => ({
+		buckles: [
+			{
+				id: "spoke",
+				origins: ["http://127.0.0.1:4101"],
+				policy,
+				pool: pool({
+					primary: [{ url: "http://127.0.0.1:4100/v1", adapter_config }],
+					backup: [{ url: "https://other.example/v1" }],
+				}),
+			},
+		],
+		litellms: [
+			{
+				id: "engine",
+				origins: ["http://127.0.0.1:4100"],
+				config: {
+					model_list: [
+						{
+							model_name: "primary",
+							litellm_params: { api_base: "https://provider.example" },
+						},
+					],
+				},
+			},
+		],
+	});
+	expect(validateRouteLadders(makeInputs()).errors).toContainEqual(
+		expect.objectContaining({
+			code: "invalid_config",
+			layer: "buckle",
+			path: "buckle:spoke:primary",
+		}),
+	);
+	expect(
+		validateRouteLadders(makeInputs({ proxy_kind: "litellm" })).errors,
+	).toEqual([]);
 });
 
 test("LiteLLM's recursive fallback cycle is identified with the owning layer", () => {

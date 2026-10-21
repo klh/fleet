@@ -153,3 +153,86 @@ test("first-byte deadline ends when streaming headers arrive", async () => {
 	if (result.kind === "upstream")
 		expect(await result.response.text()).toContain("second");
 });
+
+test("streamed timeout skips another LiteLLM model row on the same configured origin", async () => {
+	let now = 0;
+	const seen: Array<{ url: string; timeoutMs: number }> = [];
+	const router = new Router(
+		{
+			request_timeout_s: 120,
+			first_byte_budget_s: 240,
+			num_retries: 1,
+			fallbacks: { primary: ["fallback"] },
+		},
+		{
+			pool: {
+				groups: () => ["primary", "fallback"],
+				deployments: (group) =>
+					group === "primary"
+						? [
+								{
+									group,
+									url: "https://engine.example.invalid/one",
+									dialect: "anthropic",
+								},
+								{
+									group,
+									url: "https://engine.example.invalid/two",
+									dialect: "anthropic",
+								},
+							]
+						: [
+								{
+									group,
+									url: "https://local.example.invalid",
+									dialect: "anthropic",
+								},
+							],
+			},
+			now: () => now,
+			fetchImpl: async (dep, _req, timeoutMs) => {
+				seen.push({ url: dep.url, timeoutMs });
+				if (dep.group === "primary") {
+					now += timeoutMs;
+					throw new DOMException("synthetic timeout", "TimeoutError");
+				}
+				return Response.json({
+					type: "message",
+					role: "assistant",
+					content: [],
+				});
+			},
+		},
+	);
+	const result = await router.execute({
+		...request(),
+		body: { ...request().body, stream: true },
+	});
+	expect(result.kind).toBe("upstream");
+	if (result.kind === "upstream") expect(result.tier).toBe("fallback");
+	expect(seen).toEqual([
+		{ url: "https://engine.example.invalid/one", timeoutMs: 120_000 },
+		{ url: "https://local.example.invalid", timeoutMs: 120_000 },
+	]);
+});
+
+test("headers received exactly at the walk deadline still deliver the successful response", async () => {
+	let now = 0;
+	const router = new Router(
+		{ request_timeout_s: 2, first_byte_budget_s: 2 },
+		{
+			pool,
+			now: () => now,
+			fetchImpl: async () => {
+				now = 2_000;
+				return Response.json({
+					type: "message",
+					role: "assistant",
+					content: [],
+				});
+			},
+		},
+	);
+	const result = await router.execute(request());
+	expect(result.kind).toBe("upstream");
+});
