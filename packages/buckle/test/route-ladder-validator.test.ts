@@ -233,3 +233,71 @@ test("unmapped local target, missing fallback, and retry budget beyond caller de
 	);
 	expect(result.errors.map((error) => error.code)).toContain("deadline_budget");
 });
+
+test("validator uses the request-wide first-byte budget instead of multiplying retries by ladder length", () => {
+	const result = validateRouteLadders({
+		buckles: [
+			{
+				id: "local",
+				origins: ["http://127.0.0.1:4101"],
+				policy: {
+					...policy,
+					num_retries: 3,
+					request_timeout_s: 120,
+					first_byte_budget_s: 240,
+					fallbacks: { primary: ["second", "third"] },
+				},
+				pool: pool({
+					primary: [{ url: "https://primary.example.invalid" }],
+					second: [{ url: "https://second.example.invalid" }],
+					third: [{ url: "https://third.example.invalid" }],
+				}),
+			},
+		],
+		requestDeadlineMs: 600_000,
+	});
+	expect(result.errors.map((error) => error.code)).not.toContain(
+		"deadline_budget",
+	);
+});
+
+test("remote Belt proxy preserves the requested model when linking its configured terminal", () => {
+	const base = {
+		buckles: [
+			{
+				id: "nas",
+				origins: ["http://127.0.0.1:4101"],
+				policy,
+				pool: pool({ qwen: [{ url: "http://127.0.0.1:8914" }] }),
+			},
+		],
+		belts: [
+			{
+				id: "nas-model",
+				origins: ["http://127.0.0.1:8914"],
+				upstream: "http://127.0.0.1:11434",
+			},
+		],
+	};
+	const mapped = validateRouteLadders({
+		...base,
+		terminalOrigins: ["http://127.0.0.1:11434"],
+	});
+	expect(mapped.errors).toEqual([]);
+	expect(mapped.checkedNodes).toBeGreaterThan(1);
+	const missing = validateRouteLadders(base);
+	expect(missing.errors.map((error) => error.code)).toContain(
+		"unmapped_local_target",
+	);
+});
+
+test("duplicate service origins are rejected instead of silently selecting one Belt proxy", () => {
+	const result = validateRouteLadders({
+		buckles: [],
+		belts: [
+			{ id: "one", origins: ["http://127.0.0.1:8914"] },
+			{ id: "two", origins: ["http://127.0.0.1:8914"] },
+		],
+	});
+	expect(result.errors.map((error) => error.code)).toContain("invalid_config");
+});

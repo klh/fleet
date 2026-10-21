@@ -4,7 +4,7 @@
 import type { HopReceipt } from "../../telemetry/src/http-trace.ts";
 import type { GatewayPolicy } from "./policy.ts";
 import { Router } from "./router.ts";
-import type { UpstreamPool } from "./upstreams.ts";
+import type { Dialect, UpstreamPool } from "./upstreams.ts";
 
 export interface FailoverDrillPlan {
 	policy: GatewayPolicy;
@@ -14,6 +14,10 @@ export interface FailoverDrillPlan {
 	failureStatus: 429 | 503;
 	maxAttempts: number;
 	maxWallMs: number;
+	/** Exercise the actual lane wire by choosing Anthropic, while retaining
+	 *  the OpenAI compatibility drill for existing clients. */
+	dialect?: Dialect;
+	retryAfterS?: number;
 }
 
 export interface FailoverDrillReport {
@@ -26,6 +30,7 @@ export interface FailoverDrillReport {
 		retryAfterMs: number | null;
 		refusal: string | null;
 	}>;
+	simulatedWaitMs: number;
 }
 
 export async function runForcedFailoverDrill(
@@ -51,11 +56,14 @@ export async function runForcedFailoverDrill(
 		);
 	const receipts: HopReceipt[] = [];
 	const attemptedGroups: string[] = [];
+	let simulatedWaitMs = 0;
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), plan.maxWallMs);
 	try {
 		const router = new Router(plan.policy, {
 			pool: plan.pool,
+			now: () => Date.now() + simulatedWaitMs,
+			rng: () => 0,
 			metrics: {
 				fallback: () => {},
 				cooldown: () => {},
@@ -64,7 +72,8 @@ export async function runForcedFailoverDrill(
 			},
 			probe: async () => null,
 			sleepMs: async (ms) => {
-				if (ms > plan.maxWallMs)
+				simulatedWaitMs += ms;
+				if (simulatedWaitMs > plan.maxWallMs)
 					throw new Error("drill retry wait exceeds wall budget");
 			},
 			fetchImpl: async (dep) => {
@@ -72,23 +81,44 @@ export async function runForcedFailoverDrill(
 				if (attemptedGroups.length > plan.maxAttempts)
 					throw new Error("drill attempt budget exceeded");
 				return dep.group === plan.fallback
-					? Response.json({
-							choices: [{ message: { role: "assistant", content: "ok" } }],
-						})
+					? Response.json(
+							plan.dialect === "anthropic"
+								? {
+										type: "message",
+										role: "assistant",
+										content: [{ type: "text", text: "ok" }],
+									}
+								: {
+										choices: [
+											{ message: { role: "assistant", content: "ok" } },
+										],
+									},
+						)
 					: Response.json(
 							{ error: { message: "synthetic failover drill" } },
-							{ status: plan.failureStatus, headers: { "retry-after": "60" } },
+							{
+								status: plan.failureStatus,
+								headers: { "retry-after": String(plan.retryAfterS ?? 60) },
+							},
 						);
 			},
 		});
 		const result = await router.execute({
 			group: plan.group,
-			dialect: "openai",
-			path: "/v1/chat/completions",
-			body: {
-				model: plan.group,
-				messages: [{ role: "user", content: "drill" }],
-			},
+			dialect: plan.dialect ?? "openai",
+			path:
+				plan.dialect === "anthropic" ? "/v1/messages" : "/v1/chat/completions",
+			body:
+				plan.dialect === "anthropic"
+					? {
+							model: plan.group,
+							max_tokens: 16,
+							messages: [{ role: "user", content: "drill" }],
+						}
+					: {
+							model: plan.group,
+							messages: [{ role: "user", content: "drill" }],
+						},
 			key: "",
 			signal: controller.signal,
 		});
@@ -106,6 +136,7 @@ export async function runForcedFailoverDrill(
 				!controller.signal.aborted,
 			deliveredGroup: result.kind === "upstream" ? result.tier : null,
 			attempts,
+			simulatedWaitMs,
 		};
 	} finally {
 		clearTimeout(timeout);

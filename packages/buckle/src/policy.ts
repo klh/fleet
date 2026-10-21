@@ -34,6 +34,10 @@ export interface GatewayPolicy {
 	retry_max_delay_s?: number;
 	retry_after_cap_s?: number;
 	request_timeout_s?: number;
+	/** Maximum time to obtain response headers across the entire selected
+	 *  candidate and fallback walk. Active streaming bodies use their own
+	 *  idle/total guards after headers arrive. */
+	first_byte_budget_s?: number;
 	// W450 long-generation deadlines: a streaming body that stalls longer
 	// than the idle deadline is hung (abort); a healthy stream may run to
 	// the total deadline regardless of request_timeout_s. Non-streaming
@@ -113,6 +117,7 @@ export const POLICY_DEFAULTS: Required<
 		| "retry_max_delay_s"
 		| "retry_after_cap_s"
 		| "request_timeout_s"
+		| "first_byte_budget_s"
 		| "stream_idle_timeout_s"
 		| "stream_total_timeout_s"
 		| "aids"
@@ -121,6 +126,7 @@ export const POLICY_DEFAULTS: Required<
 	retry_max_delay_s: number;
 	retry_after_cap_s: number;
 	request_timeout_s: number;
+	first_byte_budget_s: number;
 	stream_idle_timeout_s: number;
 	stream_total_timeout_s: number;
 } = {
@@ -130,6 +136,7 @@ export const POLICY_DEFAULTS: Required<
 	retry_max_delay_s: 8,
 	retry_after_cap_s: 60,
 	request_timeout_s: 120,
+	first_byte_budget_s: 240,
 	stream_idle_timeout_s: 60,
 	stream_total_timeout_s: 900,
 };
@@ -149,12 +156,25 @@ export function parsePolicy(
 	if (doc === null || typeof doc !== "object" || Array.isArray(doc))
 		throw new Error("policy: policy must be an object");
 	const gateway = doc?.gateway ?? {};
-	return {
+	const policy: GatewayPolicy = {
 		...POLICY_DEFAULTS,
 		...gateway,
 		tags: doc?.tags ?? {},
 		aids: doc?.aids ?? {},
 	};
+	const attempt = policy.request_timeout_s ?? POLICY_DEFAULTS.request_timeout_s;
+	const walk =
+		policy.first_byte_budget_s ?? POLICY_DEFAULTS.first_byte_budget_s;
+	if (
+		!Number.isFinite(attempt) ||
+		attempt <= 0 ||
+		!Number.isFinite(walk) ||
+		walk < attempt
+	)
+		throw new Error(
+			"policy: first_byte_budget_s must be at least request_timeout_s",
+		);
+	return policy;
 }
 
 const jsonSibling = (path: string): string =>
