@@ -21,6 +21,9 @@ export interface SettleReceipt {
 	lastByteAt: number | null;
 	closer: StreamCloser;
 	error?: unknown;
+	/** Pre-typed failure kind from the close site (RouterError.kind,
+	 *  in_band:<type>, stream_truncated) — clamped, never re-derived. */
+	failureKind?: string | null;
 }
 import type { HopKind } from "./hop.ts";
 import type { Usage } from "./usage.ts";
@@ -634,6 +637,7 @@ export class Ledger {
 			lastByteAt: receipt.lastByteAt,
 			closer: receipt.closer,
 			error: receipt.error,
+			failureKind: receipt.failureKind,
 		});
 		this.pushAudit({
 			t: "settle",

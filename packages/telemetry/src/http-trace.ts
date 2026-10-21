@@ -5,6 +5,9 @@ import { randomBytes, randomUUID } from "node:crypto";
 const TRACEPARENT = /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/;
 const SAFE_ID = /^[A-Za-z0-9._-]{1,128}$/;
 const SAFE_LABEL = /^[a-z][a-z0-9_-]{0,39}$/;
+/** Caller-typed failure kinds may carry a namespace colon (in_band:<type>)
+ *  and run longer than a plain label — same charset otherwise. */
+const SAFE_LABEL_TYPED = /^[a-z][a-z0-9_:-]{0,127}$/;
 
 export interface FleetTrace {
 	traceparent: string;
@@ -76,22 +79,35 @@ export interface SettleInput {
 	closer: StreamCloser;
 	/** The close error, if any — reduced to a bounded failure kind. */
 	error?: unknown;
+	/** A pre-typed failure kind from the close site (RouterError.kind,
+	 *  in_band:<type>, stream_truncated) — clamped, NOT re-derived, so the
+	 *  caller's richer taxonomy survives. Takes precedence over `error`. */
+	failureKind?: string | null;
 }
 
 /** Build the settle block at a stream close site: clamps the offsets
  *  (>= 0), keeps NULL for unobserved bytes, and reduces the close error
- *  through safeFailureKind so no message text ever becomes durable. */
+ *  through safeFailureKind so no message text ever becomes durable. A
+ *  caller-supplied pre-typed failureKind wins verbatim (clamped) — the
+ *  close site knows its taxonomy better than a re-derivation would. */
 export function buildSettleFact(input: SettleInput): StreamSettle {
 	const rel = (at: number | null): number | null => {
 		if (at === null || !Number.isFinite(at)) return null;
 		return Math.max(0, Math.floor(at - input.t0));
 	};
+	const kind =
+		input.failureKind !== undefined && input.failureKind !== null
+			? SAFE_LABEL_TYPED.test(input.failureKind.toLowerCase())
+				? input.failureKind.toLowerCase()
+				: null
+			: input.error === undefined
+				? null
+				: safeFailureKind(input.error);
 	return {
 		firstByteMs: rel(input.firstByteAt),
 		lastByteMs: rel(input.lastByteAt),
 		closer: input.closer,
-		failureKind:
-			input.error === undefined ? null : safeFailureKind(input.error),
+		failureKind: kind,
 	};
 }
 
