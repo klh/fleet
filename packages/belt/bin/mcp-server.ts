@@ -58,6 +58,13 @@ const ROUTES = {
 	"/health": ["GET", "HEAD"],
 };
 const SESSION_TTL_MS = 86_400_000;
+const MCP_BODY_MAX_BYTES = 1_048_576;
+const MCP_INGRESS_MS = 10_000;
+const configuredDeadline = Number(process.env.BELT_MCP_REQUEST_MS ?? 120_000);
+const MCP_REQUEST_MS =
+	Number.isSafeInteger(configuredDeadline) && configuredDeadline > 0
+		? configuredDeadline
+		: 120_000;
 
 const PORT = Number(process.env.BELT_MCP_PORT ?? 7793);
 const BIND = process.env.BELT_MCP_BIND ?? "127.0.0.1";
@@ -109,7 +116,7 @@ const rpcResult = (id: RpcMsg["id"], result: unknown) =>
 const rpcError = (id: RpcMsg["id"], code: number, message: string) =>
 	({ jsonrpc: "2.0", id, error: { code, message } }) as const;
 
-async function dispatch(msg: RpcMsg): Promise<unknown> {
+async function dispatch(msg: RpcMsg, signal: AbortSignal): Promise<unknown> {
 	switch (msg.method) {
 		case "initialize": {
 			const asked = msg.params?.protocolVersion;
@@ -140,7 +147,7 @@ async function dispatch(msg: RpcMsg): Promise<unknown> {
 					: {};
 			if (name !== "knowledge_search" && name !== "belt_infer")
 				return rpcError(msg.id, -32602, `unknown tool: ${name}`);
-			const { text, isError } = await callTool(name, args);
+			const { text, isError } = await callTool(name, args, signal);
 			return { content: [{ type: "text", text }], isError };
 		}
 		default:
@@ -187,13 +194,64 @@ const authGate = async (
 	return null;
 };
 
-async function handleMcpPost(req: Request): Promise<Response> {
+function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+	if (signal.aborted) return Promise.reject(signal.reason);
+	return new Promise<T>((resolve, reject) => {
+		const abort = () => reject(signal.reason);
+		signal.addEventListener("abort", abort, { once: true });
+		promise
+			.then(resolve, reject)
+			.finally(() => signal.removeEventListener("abort", abort));
+	});
+}
+
+async function readRpc(req: Request, signal: AbortSignal): Promise<RpcMsg> {
+	const length = Number(req.headers.get("content-length"));
+	if (length > MCP_BODY_MAX_BYTES) throw new Error("body too large");
+	if (!req.body) throw new Error("empty body");
+	const ingress = AbortSignal.any([
+		signal,
+		AbortSignal.timeout(MCP_INGRESS_MS),
+	]);
+	const reader = req.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	try {
+		for (;;) {
+			const { done, value } = await withAbort(reader.read(), ingress);
+			if (done) break;
+			total += value.byteLength;
+			if (total > MCP_BODY_MAX_BYTES) throw new Error("body too large");
+			chunks.push(value);
+		}
+	} catch (error) {
+		void reader.cancel().catch(() => {});
+		throw error;
+	} finally {
+		reader.releaseLock();
+	}
+	const bytes = new Uint8Array(total);
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return JSON.parse(new TextDecoder().decode(bytes)) as RpcMsg;
+}
+
+async function handleMcpPost(
+	req: Request,
+	signal: AbortSignal,
+): Promise<Response> {
 	let msg: RpcMsg;
 	try {
-		msg = (await req.json()) as RpcMsg;
-	} catch {
+		msg = await readRpc(req, signal);
+	} catch (error) {
+		const tooLarge =
+			error instanceof Error && error.message === "body too large";
+		const timedOut = signal.aborted || error instanceof DOMException;
 		return new Response(JSON.stringify(rpcError(null, -32700, "parse error")), {
-			status: 400,
+			status: tooLarge ? 413 : timedOut ? 408 : 400,
 			headers: { "content-type": "application/json" },
 		});
 	}
@@ -222,7 +280,18 @@ async function handleMcpPost(req: Request): Promise<Response> {
 	}
 
 	const isNotification = msg.id === undefined || msg.id === null;
-	const out = await dispatch(msg);
+	let out: unknown;
+	try {
+		out = await withAbort(dispatch(msg, signal), signal);
+	} catch {
+		return problem(
+			504,
+			"Gateway Timeout",
+			"belt.mcp.deadline",
+			"MCP request deadline exceeded",
+			"/mcp",
+		);
+	}
 	if (isNotification) return new Response(null, { status: 202 });
 	const body =
 		out !== null && typeof out === "object" && "error" in (out as object)
@@ -250,6 +319,10 @@ const server = Bun.serve({
 	hostname: BIND,
 	idleTimeout: 180, // belt_infer can legitimately run long on the swarm
 	async fetch(req): Promise<Response> {
+		const signal = AbortSignal.any([
+			req.signal,
+			AbortSignal.timeout(MCP_REQUEST_MS),
+		]);
 		const pathname = new URL(req.url).pathname;
 		if (!AUTH && !DEV) {
 			if (pathname === "/" && req.method === "GET")
@@ -295,7 +368,7 @@ const server = Bun.serve({
 			);
 		const authFail = await authGate(req, pathname);
 		if (authFail) return authFail;
-		if (req.method === "POST") return handleMcpPost(req);
+		if (req.method === "POST") return handleMcpPost(req, signal);
 		if (req.method === "GET")
 			return methodNotAllowed("/mcp", ROUTES["/mcp"] ?? ["POST"]);
 		// DELETE — session termination; we accept and drop nothing stateful

@@ -108,6 +108,8 @@ export async function escalate(
 		traceparent?: string;
 		requestId?: string;
 		preference?: string | null;
+		/** Shared ingress cancellation/deadline. */
+		signal?: AbortSignal;
 		onAttempt?: (receipt: {
 			hop: "buckle-gate" | "litellm";
 			traceparent: string | null;
@@ -161,7 +163,9 @@ export async function escalate(
 				...(attemptTrace ? { traceparent: attemptTrace } : {}),
 				...(opts.preference ? { "x-klh-prefer": opts.preference } : {}),
 			},
-			signal: AbortSignal.timeout(120_000),
+			signal: opts.signal
+				? AbortSignal.any([opts.signal, AbortSignal.timeout(120_000)])
+				: AbortSignal.timeout(120_000),
 			body: JSON.stringify({
 				// Buckle group names — [1m] context aliases are not configured groups.
 				model,

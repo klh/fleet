@@ -498,6 +498,8 @@ export interface CallOpts {
 	tools?: OpenAiToolDef[];
 	toolChoice?: unknown;
 	timeoutMs?: number;
+	/** Incoming request lifetime, including client cancellation and deadline. */
+	signal?: AbortSignal;
 	/** W257: performance.now() at request receipt — enables per-attempt
 	 *  timings on the used hop. */
 	startedAt?: number;
@@ -549,7 +551,12 @@ export async function viaLocal(
 					...(opts.requestId ? { "x-klh-request-id": opts.requestId } : {}),
 					...(opts.preference ? { "x-klh-prefer": opts.preference } : {}),
 				},
-				signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
+				signal: opts.signal
+					? AbortSignal.any([
+							opts.signal,
+							AbortSignal.timeout(opts.timeoutMs ?? 120_000),
+						])
+					: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
 				body: JSON.stringify({
 					model: r.model,
 					messages,
@@ -661,12 +668,14 @@ export async function callHonoringRetryAfter<
 	call: () => Promise<T>,
 	capMs = RETRY_WAIT_CAP_MS,
 	sleep: (ms: number) => Promise<unknown> = Bun.sleep,
+	signal?: AbortSignal,
 ): Promise<T> {
 	const first = await call();
-	if (first.status !== 429) return first;
+	if (first.status !== 429 || signal?.aborted) return first;
 	const wait = first.retryAfterMs ?? capMs;
 	if (wait > capMs) return first;
 	await sleep(wait);
+	if (signal?.aborted) return first;
 	return call();
 }
 
@@ -719,7 +728,9 @@ export async function openLocalStream(
 					...(opts.requestId ? { "x-klh-request-id": opts.requestId } : {}),
 					...(opts.preference ? { "x-klh-prefer": opts.preference } : {}),
 				},
-				signal: ctrl.signal,
+				signal: opts.signal
+					? AbortSignal.any([ctrl.signal, opts.signal])
+					: ctrl.signal,
 				body: JSON.stringify({
 					model: r.model,
 					messages,

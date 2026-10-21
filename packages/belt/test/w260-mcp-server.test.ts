@@ -45,17 +45,27 @@ db.run(
 	"CREATE VIRTUAL TABLE knowledge_fts USING fts5(topic, fact, domain UNINDEXED, area UNINDEXED, origin_kind UNINDEXED, origin_system UNINDEXED, state UNINDEXED)",
 );
 for (const c of [card, card2]) {
-	const info = db
-		.run(
-			"INSERT INTO knowledge (ts, topic, fact, domain, area, origin_kind, source_ref, state, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			[now, c.topic, c.fact, c.domain, c.area, c.origin_kind, c.source_ref, c.state, now],
-		)
+	const info =
 		// standalone FTS5 (no external content): direct inserts, rowid-linked
-		.lastInsertRowid;
-	db.run(
-		"INSERT INTO knowledge_fts (rowid, topic, fact) VALUES (?, ?, ?)",
-		[info, c.topic, c.fact],
-	);
+		db.run(
+			"INSERT INTO knowledge (ts, topic, fact, domain, area, origin_kind, source_ref, state, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			[
+				now,
+				c.topic,
+				c.fact,
+				c.domain,
+				c.area,
+				c.origin_kind,
+				c.source_ref,
+				c.state,
+				now,
+			],
+		).lastInsertRowid;
+	db.run("INSERT INTO knowledge_fts (rowid, topic, fact) VALUES (?, ?, ?)", [
+		info,
+		c.topic,
+		c.fact,
+	]);
 }
 db.close();
 
@@ -131,7 +141,12 @@ describe("w260 knowledge search", () => {
 // ─── Entra bearer gate fixtures (RSA keypair + stub JWKS) ────────────────────
 const JWKS_PORT = 19_770 + Math.floor(Math.random() * 200);
 const keyPair = await crypto.subtle.generateKey(
-	{ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+	{
+		name: "RSASSA-PKCS1-v1_5",
+		modulusLength: 2048,
+		publicExponent: new Uint8Array([1, 0, 1]),
+		hash: "SHA-256",
+	},
 	true,
 	["sign", "verify"],
 );
@@ -148,7 +163,10 @@ const makeToken = async (
 	kid = "test-key-1",
 ): Promise<string> => {
 	const enc = (o: unknown) =>
-		btoa(JSON.stringify(o)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+		btoa(JSON.stringify(o))
+			.replaceAll("+", "-")
+			.replaceAll("/", "_")
+			.replace(/=+$/, "");
 	const b64 = (buf: ArrayBuffer) =>
 		btoa(String.fromCharCode(...new Uint8Array(buf)))
 			.replaceAll("+", "-")
@@ -224,21 +242,26 @@ const MCP_PORT = 19_900 + Math.floor(Math.random() * 400);
 const ROUTER_PORT = 19_500 + Math.floor(Math.random() * 300);
 const routerStub = Bun.serve({
 	port: ROUTER_PORT,
-	fetch: (req) => {
+	async fetch(req) {
 		const url = new URL(req.url);
-		if (url.pathname === "/v1/messages")
+		if (url.pathname === "/v1/messages") {
+			const body = (await req.json()) as { messages?: { content?: string }[] };
+			if (body.messages?.[0]?.content === "stall") await Bun.sleep(500);
 			return Response.json({
 				content: [{ type: "text", text: "stub-inference" }],
 			});
+		}
 		return new Response("not found", { status: 404 });
 	},
 });
 
-const spawnMcp = async (): Promise<{
+const spawnMcp = async (
+	options: { port?: number; deadlineMs?: number } = {},
+): Promise<{
 	proc: ReturnType<typeof Bun.spawn>;
 	url: string;
 }> => {
-	const port = MCP_PORT;
+	const port = options.port ?? MCP_PORT;
 	const env = {
 		...process.env,
 		BELT_MCP_PORT: String(port),
@@ -246,6 +269,9 @@ const spawnMcp = async (): Promise<{
 		BELT_KNOWLEDGE_DB: KB_DB,
 		BELT_GOVERNOR_DB: GOV_DB,
 		BELT_ROUTER_URL: `http://127.0.0.1:${ROUTER_PORT}`,
+		...(options.deadlineMs
+			? { BELT_MCP_REQUEST_MS: String(options.deadlineMs) }
+			: {}),
 	};
 	const proc = Bun.spawn([process.execPath, "bin/mcp-server.ts"], {
 		cwd: new URL("..", import.meta.url).pathname,
@@ -377,12 +403,52 @@ describe("w260 mcp e2e", () => {
 	test("parse error answers 400; notification answers 202", async () => {
 		const bad = await fetch(`${url}/mcp`, {
 			method: "POST",
-			headers: { "content-type": "application/json", accept: "application/json" },
+			headers: {
+				"content-type": "application/json",
+				accept: "application/json",
+			},
 			body: "not-json",
 		});
 		expect(bad.status).toBe(400);
-		const note = await post({ jsonrpc: "2.0", method: "notifications/initialized" });
+		const note = await post({
+			jsonrpc: "2.0",
+			method: "notifications/initialized",
+		});
 		expect(note.status).toBe(202);
+	});
+
+	test("oversized JSON is rejected before parsing", async () => {
+		const large = await post({
+			jsonrpc: "2.0",
+			id: 8,
+			method: "ping",
+			padding: "x".repeat(1_048_576),
+		});
+		expect(large.status).toBe(413);
+	});
+
+	test("app deadline terminates stalled inference", async () => {
+		const short = await spawnMcp({ port: MCP_PORT + 1, deadlineMs: 80 });
+		try {
+			const started = Date.now();
+			const response = await fetch(`${short.url}/mcp`, {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					accept: "application/json",
+				},
+				body: JSON.stringify({
+					jsonrpc: "2.0",
+					id: 9,
+					method: "tools/call",
+					params: { name: "belt_infer", arguments: { prompt: "stall" } },
+				}),
+			});
+			expect(response.status).toBe(504);
+			expect(Date.now() - started).toBeLessThan(400);
+		} finally {
+			short.proc.kill();
+		}
 	});
 
 	test("unknown session header → 404; forbidden host → 403; GET /mcp → 405", async () => {

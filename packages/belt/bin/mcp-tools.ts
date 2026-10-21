@@ -10,8 +10,7 @@ import { searchKnowledge, type KnowledgeCard } from "./mcp-knowledge.ts";
 
 export const SERVER_INFO = { name: "belt-mcp", version: "0.1.0" } as const;
 
-const ROUTER_URL = () =>
-	process.env.BELT_ROUTER_URL ?? "http://127.0.0.1:4000";
+const ROUTER_URL = () => process.env.BELT_ROUTER_URL ?? "http://127.0.0.1:4000";
 
 const FILTER_SCHEMA = {
 	domain: {
@@ -98,7 +97,10 @@ async function knowledgeSearch(args: Record<string, unknown>): Promise<string> {
 	].join("\n");
 }
 
-async function beltInfer(args: Record<string, unknown>): Promise<string> {
+async function beltInfer(
+	args: Record<string, unknown>,
+	signal?: AbortSignal,
+): Promise<string> {
 	const prompt = typeof args.prompt === "string" ? args.prompt : "";
 	if (!prompt.trim()) throw new Error("prompt is required");
 	const body: Record<string, unknown> = {
@@ -111,7 +113,9 @@ async function beltInfer(args: Record<string, unknown>): Promise<string> {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(body),
-		signal: AbortSignal.timeout(120_000),
+		signal: signal
+			? AbortSignal.any([signal, AbortSignal.timeout(120_000)])
+			: AbortSignal.timeout(120_000),
 	});
 	if (!res.ok) {
 		const detail = await res.text().catch(() => "");
@@ -133,12 +137,13 @@ async function beltInfer(args: Record<string, unknown>): Promise<string> {
 export const callTool = async (
 	name: string,
 	args: Record<string, unknown>,
+	signal?: AbortSignal,
 ): Promise<{ text: string; isError: boolean }> => {
 	try {
 		if (name === "knowledge_search")
 			return { text: await knowledgeSearch(args), isError: false };
 		if (name === "belt_infer")
-			return { text: await beltInfer(args), isError: false };
+			return { text: await beltInfer(args, signal), isError: false };
 		throw new Error(`unknown tool: ${name}`);
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);

@@ -346,6 +346,7 @@ async function ladder<R extends Attempt>(
 	call: (t: Specialist) => Promise<R>,
 	note: string[],
 	errors: string[],
+	signal?: AbortSignal,
 ): Promise<{
 	result: R;
 	used: Specialist;
@@ -360,13 +361,18 @@ async function ladder<R extends Attempt>(
 	let result =
 		primaryReady && !primaryReady.up
 			? ({ ok: false, status: 503, error: primaryReady.error } as R)
-			: await callHonoringRetryAfter(() => call(primary));
+			: await callHonoringRetryAfter(
+					() => call(primary),
+					undefined,
+					undefined,
+					signal,
+				);
 	let used = primary;
 	let coldDeferred = primaryReady !== undefined && !primaryReady.up;
 	let retryAfter =
 		result.status === 429 ? (result.retryAfterMs ?? 0) : undefined;
 	if (primaryReady && !primaryReady.up) retryAfter = primaryReady.retryAfterMs;
-	if (result.ok) return { result, used };
+	if (result.ok || signal?.aborted) return { result, used };
 	errors.push(`:${primary.port} ${result.error ?? "empty"}`);
 	const fb = fallbackFor(route.port);
 	if (!fb) return { result, used, retryAfterMs: retryAfter, coldDeferred };
@@ -392,7 +398,16 @@ async function ladder<R extends Attempt>(
 			};
 		}
 	}
-	result = await callHonoringRetryAfter(() => call(fb));
+	if (signal?.aborted) {
+		fbRelease();
+		return { result, used, retryAfterMs: retryAfter, coldDeferred };
+	}
+	result = await callHonoringRetryAfter(
+		() => call(fb),
+		undefined,
+		undefined,
+		signal,
+	);
 	used = fb;
 	if (result.status === 429)
 		retryAfter = Math.max(retryAfter ?? 0, result.retryAfterMs ?? 0);
@@ -430,6 +445,52 @@ const condenseResponseHeaders = (
 	};
 };
 
+const ROUTER_BODY_MAX_BYTES = 8 * 1_048_576;
+
+async function readRouterBody(
+	req: Request,
+	signal: AbortSignal,
+): Promise<AnthropicBody> {
+	if (Number(req.headers.get("content-length")) > ROUTER_BODY_MAX_BYTES)
+		throw new Error("body too large");
+	if (!req.body) throw new Error("empty body");
+	const ingress = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
+	const reader = req.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let length = 0;
+	try {
+		for (;;) {
+			const next = await new Promise<ReadableStreamReadResult<Uint8Array>>(
+				(resolve, reject) => {
+					if (ingress.aborted) return reject(ingress.reason);
+					const abort = () => reject(ingress.reason);
+					ingress.addEventListener("abort", abort, { once: true });
+					reader
+						.read()
+						.then(resolve, reject)
+						.finally(() => ingress.removeEventListener("abort", abort));
+				},
+			);
+			if (next.done) break;
+			length += next.value.byteLength;
+			if (length > ROUTER_BODY_MAX_BYTES) throw new Error("body too large");
+			chunks.push(next.value);
+		}
+	} catch (error) {
+		void reader.cancel().catch(() => {});
+		throw error;
+	} finally {
+		reader.releaseLock();
+	}
+	const bytes = new Uint8Array(length);
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return JSON.parse(new TextDecoder().decode(bytes)) as AnthropicBody;
+}
+
 Bun.serve({
 	port: ROUTER_PORT,
 	// W204: loopback-only — never a raw LAN bind; external access only via an
@@ -438,6 +499,10 @@ Bun.serve({
 	hostname: "127.0.0.1",
 	idleTimeout: 0, // streams may idle through a long prefill
 	async fetch(req) {
+		const requestSignal = AbortSignal.any([
+			req.signal,
+			AbortSignal.timeout(120_000),
+		]);
 		const url = new URL(req.url);
 		// W1081: every envelope identifies its emitter — the ingress trace
 		// begins once at fetch top so the early paths (404, audio, registry)
@@ -504,18 +569,31 @@ Bun.serve({
 
 		let body: AnthropicBody;
 		try {
-			body = await req.json();
-		} catch {
+			body = await readRouterBody(req, requestSignal);
+		} catch (error) {
+			const tooLarge =
+				error instanceof Error && error.message === "body too large";
+			const timedOut = requestSignal.aborted || error instanceof DOMException;
+			const status = tooLarge ? 413 : timedOut ? 408 : 400;
 			logRouting({
 				event: "request_completed",
 				trace_id: trace.traceId,
 				request_id: trace.requestId,
-				http_status: 400,
+				http_status: status,
 				outcome: "bad_json",
 				attempts: 0,
 			});
 			return stamped(
-				Response.json({ error: "bad json" }, { status: 400 }),
+				Response.json(
+					{
+						error: tooLarge
+							? "body too large"
+							: timedOut
+								? "request timeout"
+								: "bad json",
+					},
+					{ status },
+				),
 				"ingress",
 				{ refusal: "bad_json" },
 			);
@@ -634,7 +712,7 @@ Bun.serve({
 							traceparent: kevTrace,
 							"x-klh-request-id": trace.requestId,
 						},
-						signal: AbortSignal.timeout(4000),
+						signal: AbortSignal.any([requestSignal, AbortSignal.timeout(4000)]),
 						body: JSON.stringify({
 							model: "kev-latest",
 							state: text.slice(0, 4000),
@@ -890,6 +968,7 @@ Bun.serve({
 			// best-effort route (REASON). One cloud attempt per request.
 			let triedCloud = false;
 			const tryCloud = async (wantFast: boolean): Promise<boolean> => {
+				if (requestSignal.aborted) return false;
 				triedCloud = true;
 				try {
 					const c = await escalate(body, {
@@ -898,6 +977,7 @@ Bun.serve({
 						traceparent: trace.traceparent,
 						requestId: trace.requestId,
 						preference,
+						signal: requestSignal,
 						onAttempt: recordAttempt,
 					});
 					if (c.note) note.push(c.note);
@@ -981,11 +1061,13 @@ Bun.serve({
 							traceparent: trace.traceparent,
 							requestId: trace.requestId,
 							preference,
+							signal: requestSignal,
 							onAttempt: recordAttempt,
 						});
 					},
 					note,
 					errors,
+					requestSignal,
 				);
 				usedPort = opened.used.port;
 				usedModel = opened.used.model;
@@ -1040,11 +1122,13 @@ Bun.serve({
 							traceparent: trace.traceparent,
 							requestId: trace.requestId,
 							preference,
+							signal: requestSignal,
 							onAttempt: recordAttempt,
 						});
 					},
 					note,
 					errors,
+					requestSignal,
 				);
 				got.fbRelease?.();
 				usedPort = got.used.port;
