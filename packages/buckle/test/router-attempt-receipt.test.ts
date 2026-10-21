@@ -36,7 +36,15 @@ test("Buckle emits one bounded receipt per attempted rung across a fallback", as
 								},
 							},
 						)
-					: Response.json({ id: "ok" }),
+					: Response.json(
+							{ id: "ok" },
+							{
+								headers: {
+									"x-request-id": "provider_success",
+									"x-litellm-call-id": "litellm_success",
+								},
+							},
+						),
 		},
 	);
 	const result = await router.execute({
@@ -78,6 +86,10 @@ test("Buckle emits one bounded receipt per attempted rung across a fallback", as
 		upstreamId: "req_one",
 		callId: "call_one",
 		retryAfterMs: 2000,
+	});
+	expect(receipts[1]).toMatchObject({
+		upstreamId: "provider_success",
+		callId: "litellm_success",
 	});
 	expect(JSON.stringify(receipts)).not.toContain("private prompt");
 	expect(JSON.stringify(receipts)).not.toContain("secret-key");

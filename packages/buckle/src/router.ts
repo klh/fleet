@@ -513,6 +513,13 @@ export class Router {
 				continue;
 			}
 			if (r.ok) {
+				const upstreamId = safeCorrelationId(
+					r.response.headers.get("x-request-id") ??
+						r.response.headers.get("x-klh-upstream-request-id"),
+				);
+				const callId = safeCorrelationId(
+					r.response.headers.get("x-litellm-call-id"),
+				);
 				this.reportAttempt(
 					req,
 					dep,
@@ -521,6 +528,8 @@ export class Router {
 					r.response.status,
 					null,
 					null,
+					upstreamId,
+					callId,
 				);
 				return {
 					kind: "upstream",
