@@ -44,7 +44,7 @@ import {
 	loadNotifyConfig,
 	NOTIFY_PATH,
 } from "../hooks/lib/notify.ts";
-import { assertBuckleActivation } from "./assert-service-activation.ts";
+import { buckleUnitForInstall } from "./assert-service-activation.ts";
 
 export const PACKAGE_ROOT = resolve(import.meta.dir, "..");
 export const MANIFEST_PATH = join(PACKAGE_ROOT, "deploy", "services.yaml");
@@ -889,6 +889,7 @@ function main(argv: string[]): number {
 	}[] = [];
 	if (outDir !== null) {
 		// Check all governed active destinations before writing any output.
+		const retained = new Set<string>();
 		for (const r of rendered)
 			for (const u of r.units) {
 				const destination = join(resolve(outDir), u.file);
@@ -899,13 +900,21 @@ function main(argv: string[]): number {
 							values.home,
 							"Library/LaunchAgents/com.suspenders.buckle-spoke.plist",
 						)
-				)
-					assertBuckleActivation(destination, u.body, initialInstall);
+				) {
+					const selected = buckleUnitForInstall(
+						destination,
+						u.body,
+						initialInstall,
+					);
+					u.body = selected.bytes;
+					if (selected.retained) retained.add(destination);
+				}
 			}
 		mkdirSync(outDir, { recursive: true });
 		for (const r of rendered) {
 			for (const u of r.units) {
-				writeFileSync(join(resolve(outDir), u.file), u.body);
+				const destination = join(resolve(outDir), u.file);
+				if (!retained.has(destination)) writeFileSync(destination, u.body);
 			}
 			results.push({
 				service: r.spec.name,
