@@ -12,6 +12,10 @@
 import { knowledgeBuckleRoute } from "./knowledge-buckle.ts";
 
 export const BUCKLE_MESSAGES_PATH = "/v1/messages";
+export const BUCKLE_CHAT_PATH = "/v1/chat/completions";
+/** buckle's response-identity header (telemetry/src/http-trace.ts
+ *  OWNED_HEADERS — a 32-hex trace id, not a W3C traceparent). */
+export const TRACE_ID_HEADER = "x-klh-trace-id";
 // W136 hint grammar lives in buckle (src/hints.ts) — ≤512 bytes on the wire,
 // exactly one header; buckle rejects malformed hints server-side, so the
 // client only bounds the byte length.
@@ -62,7 +66,10 @@ export interface BuckleChatRequest {
 	temperature?: number;
 	hint?: string;
 	traceparent?: string;
-	/** wall-clock budget — becomes the absolute deadline stamped at send */
+	/** LOCAL wall-clock budget only (the AbortSignal). The repo has no
+	 *  established cross-hop deadline header yet (owner note 2026-10-21) —
+	 *  cross-hop propagation coordinates with W1118/W1117/W1086 before any
+	 *  wire format lands. */
 	timeoutMs?: number;
 	wire?: "anthropic" | "openai";
 	fetcher?: typeof fetch;
@@ -72,11 +79,14 @@ export interface BuckleChatResult {
 	text: string;
 	model: string;
 	ms: number;
+	/** buckle's response identity (x-klh-trace-id), null when absent */
 	traceId: string | null;
 }
 
 /** One gated chat call. Throws on absent config or a non-2xx/timed-out gate
- *  (fail closed — the error is the caller's to surface; no solo reroute). */
+ *  (fail closed — the error is the caller's to surface; no solo reroute).
+ *  Errors carry bounded status + trace identity only — never the upstream
+ *  body, which can echo prompt/key material. */
 export async function buckleChat(
 	req: BuckleChatRequest,
 	env: NodeJS.ProcessEnv = process.env,
@@ -105,7 +115,7 @@ export async function buckleChat(
 	let res: Response;
 	try {
 		res = await (req.fetcher ?? fetch)(
-			`${base.origin}${BUCKLE_MESSAGES_PATH}`,
+			`${base.origin}${openai ? BUCKLE_CHAT_PATH : BUCKLE_MESSAGES_PATH}`,
 			{
 				method: "POST",
 				headers: inferenceHeaders({
@@ -123,10 +133,11 @@ export async function buckleChat(
 			`buckle inference unavailable: ${error instanceof Error ? error.message : String(error)}`,
 		);
 	}
-	if (!res.ok) {
-		const detail = (await res.text()).slice(0, 200);
-		throw new Error(`buckle inference HTTP ${res.status}: ${detail}`);
-	}
+	const traceId = res.headers.get(TRACE_ID_HEADER);
+	if (!res.ok)
+		throw new Error(
+			`buckle inference HTTP ${res.status} (trace ${traceId ?? "none"})`,
+		);
 	const j = (await res.json()) as {
 		content?: { type?: string; text?: string }[];
 		choices?: { message?: { content?: string } }[];
@@ -142,6 +153,6 @@ export async function buckleChat(
 		text,
 		model: j.model ?? req.model,
 		ms: Date.now() - t0,
-		traceId: res.headers.get("traceparent"),
+		traceId,
 	};
 }
