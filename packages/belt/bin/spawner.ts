@@ -127,6 +127,71 @@ export interface EnsureResult {
 	error?: string; // log tail when the spawned process died loading
 }
 
+export interface QuickEnsureResult {
+	up: boolean;
+	warming: boolean;
+	retryAfterMs: number;
+	error?: string;
+}
+
+const coldRetryAfterMs = (): number => {
+	const seconds = Number(process.env.BELT_COLD_RETRY_AFTER_S ?? 30);
+	const base = Number.isFinite(seconds) && seconds >= 1 ? seconds : 30;
+	// Independent requests spread their next probe across a window, so a
+	// 30-40-lane cold fallback cannot synchronize into a refill burst.
+	return Math.ceil(base + Math.random() * base) * 1000;
+};
+
+/** Request-path admission: never wait for a cold model's multi-minute load.
+ * Existing ledger reservations prevent duplicate starts across router restarts.
+ * A refused memory reservation is a prompt refusal, never a retrying spawn. */
+export async function ensureAvailable(
+	s: Specialist,
+): Promise<QuickEnsureResult> {
+	if (await isUp(s.port)) return { up: true, warming: false, retryAfterMs: 0 };
+	const retryAfterMs = coldRetryAfterMs();
+	const row = readLedger()[String(s.port)];
+	if (row && pidAlive(row.pid)) {
+		return {
+			up: false,
+			warming: true,
+			retryAfterMs,
+			error: `model :${s.port} is loading (pid ${row.pid})`,
+		};
+	}
+	if (process.env.BELT_DEMAND_WARMUP === "0") {
+		return {
+			up: false,
+			warming: false,
+			retryAfterMs,
+			error: `model :${s.port} is cold; demand warmup disabled`,
+		};
+	}
+	try {
+		const child = spawnReserved(s);
+		void child.exited
+			.then(() => clearLedgerPort(s.port))
+			.catch((error) =>
+				console.error(`model :${s.port} spawn ledger cleanup failed: ${error}`),
+			);
+		return {
+			up: false,
+			warming: true,
+			retryAfterMs,
+			error: `model :${s.port} warmup started (pid ${child.pid})`,
+		};
+	} catch (error) {
+		// A concurrent request can win the ledger reservation after our read.
+		// Both cases are bounded refusals; the next request re-probes liveness.
+		return {
+			up: false,
+			warming: false,
+			retryAfterMs,
+			error: String(error),
+		};
+	}
+}
+
 // 5.6GB 9B loads in seconds; big models get ram_gb × 20s (22GB → ~7min).
 const COLD_TIMEOUT_FLOOR_MS = 90_000;
 export const coldTimeoutMs = (s: Specialist): number =>
