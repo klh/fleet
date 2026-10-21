@@ -6,8 +6,14 @@ PID and birth identity; the native Claude executable is passed separately
 in the lane environment. The runtime owns Claude's stream-json stdin.
 On a directed event it requests a native interrupt, waits for both the
 success response and the interrupted turn's result, then injects the
-event into that same Claude conversation. Native stdout and delivery
-receipts remain NDJSON. A protocol failure leaves the durable event queued.
+event into that same Claude conversation. The interrupted turn's result
+frame is an internal boundary — the end-of-session close waits for the
+injected turn's outcome instead (W1035.1). Native stdout and delivery
+receipts remain NDJSON. A protocol failure leaves the durable event
+queued: wake emissions are claimed-then-proved, so the watermark advances
+only after a proven injection and a refused interrupt or native exit
+requeues the claim for replay (a dead runtime's claim is stolen by the
+next consumer).
 
 This applies to newly launched local managed lanes. An existing unmanaged
 interactive CLI cannot be adopted or interrupted through this runtime.
