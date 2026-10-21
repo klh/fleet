@@ -48,11 +48,12 @@ export function reclaimAll(
 	for (const r of rows) {
 		const id = String(r.id);
 		const owner = String(r.owner_sid ?? "");
+		const lane = matchingClaimantLane(claimants, owner, id);
 		const d = observeReclaim(store, project, {
 			id,
 			owner,
 			revision: Number(r.updated_at),
-			lane: claimants.get(owner),
+			lane,
 		});
 		if (d.action !== "release") {
 			out.push({ id, action: "held", why: d.why });
@@ -97,3 +98,14 @@ const lanesBySid = (registryDir: string): Map<string, LaneRef> =>
 /** Claimant LaneRefs by sid — the registry view the claim-liveness verdict
  * joins on (shared by the orphaned listing and the bulk pass). */
 export const claimantLanes = lanesBySid;
+
+/** A session may own several work items; only the matching registry row is
+ * process evidence for this particular claim. */
+export const matchingClaimantLane = (
+	lanes: Map<string, LaneRef>,
+	owner: string,
+	id: string,
+): LaneRef | undefined => {
+	const lane = lanes.get(owner);
+	return lane?.item === id ? lane : undefined;
+};

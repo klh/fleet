@@ -43,7 +43,11 @@ import {
 import { itemAttribution, renderAttribution } from "../lib/lane-spend.ts";
 import { triggerMergeOnDone } from "../lib/merge-on-done.ts";
 import { preferTagFor } from "../lib/prefer.ts";
-import { claimantLanes, reclaimAll } from "../lib/reclaim-all.ts";
+import {
+	claimantLanes,
+	matchingClaimantLane,
+	reclaimAll,
+} from "../lib/reclaim-all.ts";
 import {
 	parseDuration,
 	probeClaim,
@@ -1203,7 +1207,7 @@ const dispatchVerb = async (
 					id: String(r.id),
 					owner,
 					revision: Number(r.updated_at),
-					lane: lanesBySid.get(owner),
+					lane: matchingClaimantLane(lanesBySid, owner, String(r.id)),
 				}).verdict !== "alive"
 			);
 		});
@@ -1371,7 +1375,11 @@ const dispatchVerb = async (
 				id,
 				owner: String(it.owner_sid ?? ""),
 				revision: Number(it.updated_at),
-				lane: claimantLanes(process.cwd()).get(String(it.owner_sid ?? "")),
+				lane: matchingClaimantLane(
+					claimantLanes(process.cwd()),
+					String(it.owner_sid ?? ""),
+					id,
+				),
 			}).verdict;
 			const gate = reclaimGateDecision(
 				verdict,

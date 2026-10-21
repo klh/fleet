@@ -132,6 +132,25 @@ describe("reclaimAll release path", () => {
 });
 
 describe("reclaimAll holds", () => {
+	test("a dead registry row cannot condemn a different claim owned by the same session", () => {
+		const store = fixture();
+		const root = mkdtempSync(join(tmpdir(), "w376-sweep-"));
+		directories.push(root);
+		const project = realpathSync(root);
+		seedClaim(store, project, "W7", "manual-session");
+		seedClaim(store, project, "W8", "manual-session");
+		seedDeadRegistry(root, "manual-session", "W7");
+		store.run(
+			"INSERT INTO sessions (sid, state, hb) VALUES ('manual-session', 'RUNNING', ?)",
+			Date.now() - 2 * 60 * 60_000,
+		);
+		const rows = deadPasses(store, project, root);
+		expect(rows.find((row) => row.id === "W7")?.action).toBe("released");
+		expect(rows.find((row) => row.id === "W8")?.action).toBe("held");
+		expect(
+			store.query("SELECT state FROM work_items WHERE id = 'W8'").get(),
+		).toEqual({ state: "CLAIMED" });
+	});
 	test("unknown claimant never releases, pass after pass", () => {
 		const store = fixture();
 		const root = mkdtempSync(join(tmpdir(), "w376-sweep-"));
