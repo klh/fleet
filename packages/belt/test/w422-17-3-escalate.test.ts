@@ -1,7 +1,6 @@
 // w422-17-3-escalate.test.ts — W422.17.3: the :4000 router's cloud-escalation
 // leg rides the buckle gate when the operator sets BELT_ESCALATE_URL/KEY
-// (scoped buckle:proxy:WRITE_ key), keeps the legacy settings.json leg when
-// not enrolled, and disables honestly when neither exists. Stub fetchers
+// (scoped buckle:proxy:WRITE_ key), and disables when not enrolled. Stub fetchers
 // only — never the live :890x fleet, never real creds.
 import { describe, expect, test } from "bun:test";
 import { escalate, resolveEscalationLeg } from "../bin/escalate.ts";
@@ -14,41 +13,40 @@ const BODY = {
 };
 
 describe("escalation leg resolution", () => {
-	test("gate env beats legacy creds", async () => {
-		const leg = await resolveEscalationLeg(
-			{ BELT_ESCALATE_URL: GATE, BELT_ESCALATE_KEY: "bksk_g" },
-			async () => ({ tok: "legacy", base: "http://127.0.0.1:4100" }),
-		);
+	test("scoped gate env enables escalation", () => {
+		const leg = resolveEscalationLeg({
+			BELT_ESCALATE_URL: GATE,
+			BELT_ESCALATE_KEY: "bksk_g",
+		});
 		expect(leg?.mode).toBe("gate");
 		expect(leg?.url).toBe(GATE);
 		expect(leg?.key).toBe("bksk_g");
 	});
-	test("gate env without a key falls back to legacy", async () => {
-		const leg = await resolveEscalationLeg(
-			{ BELT_ESCALATE_URL: GATE },
-			async () => ({ tok: "legacy", base: "http://127.0.0.1:4100" }),
-		);
-		expect(leg?.mode).toBe("legacy");
-		expect(leg?.key).toBe("legacy");
+	test("gate env without a scoped key disables escalation", () => {
+		expect(resolveEscalationLeg({ BELT_ESCALATE_URL: GATE })).toBeNull();
+		expect(
+			resolveEscalationLeg({
+				BELT_ESCALATE_URL: GATE,
+				BELT_ESCALATE_KEY: "litellm-inference-key",
+			}),
+		).toBeNull();
 	});
-	test("neither gate env nor legacy creds → escalation disabled", async () => {
-		const leg = await resolveEscalationLeg(
-			{ BELT_ESCALATE_KEY: "bksk_key_without_url" },
-			async () => ({}),
-		);
+	test("missing gate URL disables escalation", () => {
+		const leg = resolveEscalationLeg({
+			BELT_ESCALATE_KEY: "bksk_key_without_url",
+		});
 		expect(leg).toBeNull();
 	});
 });
 
 describe("escalate() on the wire", () => {
-	test("LiteLLM 400 carries its echoed call ID and a body-free receipt", async () => {
+	test("Buckle 400 carries its echoed call ID and a body-free receipt", async () => {
 		let seenCallId = "";
 		const receipts: unknown[] = [];
 		const result = await escalate(BODY, {
 			maxTokens: 16,
 			wantFast: true,
-			env: {},
-			settings: async () => ({ tok: "test", base: "http://127.0.0.1:4100" }),
+			env: { BELT_ESCALATE_URL: GATE, BELT_ESCALATE_KEY: "bksk_test" },
 			traceparent: "00-11111111111111111111111111111111-2222222222222222-01",
 			requestId: "lane-request-1",
 			onAttempt: (receipt) => receipts.push(receipt),
@@ -63,20 +61,19 @@ describe("escalate() on the wire", () => {
 		expect(result.status).toBe(400);
 		expect(result.upstreamCallId).toBe(seenCallId);
 		expect(receipts[0]).toMatchObject({
-			hop: "litellm",
+			hop: "buckle-gate",
 			status: 400,
 			failureKind: "http",
 			upstreamCallId: seenCallId,
 		});
 		expect(JSON.stringify(receipts)).not.toContain("field rejected");
 	});
-	test("carries trace and stable LiteLLM call ID through the legacy leg", async () => {
+	test("carries trace and stable call ID through Buckle", async () => {
 		let seen = new Headers();
 		const result = await escalate(BODY, {
 			maxTokens: 16,
 			wantFast: true,
-			env: {},
-			settings: async () => ({ tok: "test", base: "http://127.0.0.1:4100" }),
+			env: { BELT_ESCALATE_URL: GATE, BELT_ESCALATE_KEY: "bksk_test" },
 			traceparent: "00-11111111111111111111111111111111-2222222222222222-01",
 			requestId: "belt_1234567890abcdef",
 			fetcher: (async (_url: string | URL | Request, init?: RequestInit) => {
@@ -130,7 +127,7 @@ describe("escalate() on the wire", () => {
 		expect(seenHeaders.get("authorization")).toBe("Bearer bksk_wire");
 		expect(seenBody.model).toBe("glm-5.3-flash");
 	});
-	test("BELT_ESCALATE_MODEL overrides the wire model; legacy leg keeps pins", async () => {
+	test("BELT_ESCALATE_MODEL overrides the Buckle group", async () => {
 		let seenUrl = "";
 		let _seenBody: Record<string, unknown> = {};
 		const fetcher = (async (
@@ -148,20 +145,12 @@ describe("escalate() on the wire", () => {
 			wantFast: true,
 			env: {
 				BELT_ESCALATE_URL: GATE,
-				BELT_ESCALATE_KEY: "k",
+				BELT_ESCALATE_KEY: "bksk_test",
 				BELT_ESCALATE_MODEL: "glm-5.3",
 			},
 			fetcher,
 		});
 		expect(gate.model).toBe("glm-5.3");
-		const legacy = await escalate(BODY, {
-			maxTokens: 16,
-			wantFast: false,
-			env: {},
-			settings: async () => ({ tok: "t", base: "http://127.0.0.1:4100" }),
-			fetcher,
-		});
-		expect(legacy.model).toBe("glm-5.3");
-		expect(seenUrl).toBe("http://127.0.0.1:4100/v1/messages");
+		expect(seenUrl).toBe(`${GATE}/v1/messages`);
 	});
 });

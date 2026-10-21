@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { YAML } from "bun";
 import { ROUTER, SPECIALISTS } from "../../belt/bin/registry.ts";
 import { STACK_PATH } from "../hooks/lib/stack-config.ts";
+import { parseEnvBody } from "../hooks/lib/hub-provider-keys.ts";
 import { runForcedFailoverDrill } from "../../buckle/src/forced-failover-drill.ts";
 import {
 	loadGatewayPolicy,
@@ -75,6 +76,7 @@ export interface RoutePreflightSources {
 	policy: GatewayPolicy;
 	litellm: unknown;
 	deadlineMs?: number;
+	beltEscalation?: { url?: string; model?: string; scopedKey: boolean };
 }
 
 export function routeInputs(source: RoutePreflightSources): RouteLadderInputs {
@@ -126,8 +128,18 @@ export function routeInputs(source: RoutePreflightSources): RouteLadderInputs {
 	const specialistOrigins = SPECIALISTS.map(
 		(item) => `http://127.0.0.1:${item.port}`,
 	);
-	const escalationUrl = string(process.env.BELT_ESCALATE_URL);
-	const escalationModel = string(process.env.BELT_ESCALATE_MODEL);
+	const escalationUrl = string(
+		source.beltEscalation?.url ?? process.env.BELT_ESCALATE_URL,
+	);
+	const escalationModel = string(
+		source.beltEscalation?.model ?? process.env.BELT_ESCALATE_MODEL,
+	);
+	if (
+		escalationUrl &&
+		source.beltEscalation &&
+		!source.beltEscalation.scopedKey
+	)
+		throw new Error("Belt cloud escalation requires a scoped Buckle key");
 	return {
 		buckles,
 		litellms: [
@@ -251,6 +263,15 @@ export async function machineRoutePreflight(
 	process.env.BUCKLE_UPSTREAMS = upstreamPath;
 	const stack = YAML.parse(readFileSync(stackPath, "utf8"));
 	const litellm = YAML.parse(readFileSync(litePath, "utf8"));
+	const beltEnvPath = join(llm, "belt.env");
+	const beltEnv: Record<string, string> = existsSync(beltEnvPath)
+		? Object.fromEntries(
+				parseEnvBody(readFileSync(beltEnvPath, "utf8")).map((entry) => [
+					entry.name,
+					entry.value,
+				]),
+			)
+		: {};
 	const deadlineMs = Number(process.env.SUSPENDERS_LANE_DEADLINE_MS || 900000);
 	return checkRoutePreflight(
 		{
@@ -259,6 +280,15 @@ export async function machineRoutePreflight(
 			policy: loadGatewayPolicy(),
 			litellm,
 			deadlineMs,
+			beltEscalation: {
+				url: beltEnv.BELT_ESCALATE_URL ?? process.env.BELT_ESCALATE_URL,
+				model: beltEnv.BELT_ESCALATE_MODEL ?? process.env.BELT_ESCALATE_MODEL,
+				scopedKey: (
+					beltEnv.BELT_ESCALATE_KEY ??
+					process.env.BELT_ESCALATE_KEY ??
+					""
+				).startsWith("bksk_"),
+			},
 		},
 		reachable,
 		options,
