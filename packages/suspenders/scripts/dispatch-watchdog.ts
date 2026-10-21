@@ -19,6 +19,10 @@ import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SpawnLedger } from "../../belt/bin/spawn-admission.ts";
 import { inspectActivatedDispatch } from "./lib/activated-dispatch.ts";
+import {
+	deliverWatchdogDecision,
+	recoverWatchdogDecision,
+} from "./lib/watchdog-decision.ts";
 import type { ProgressState, WorkStats } from "./lib/fleet-progress.ts";
 import { laneProbeReply } from "./lib/lane-probe-sse.ts";
 import { laneToolRoundtrip } from "./lib/lane-tool-probe.ts";
@@ -326,19 +330,26 @@ const reapHeaviestMlx = (): ResourceAction => {
 };
 
 // ---------- repair + report ----------
-const emit = (kind: string, note: string): void => {
-	sh([
-		process.execPath,
-		`${PREFIX}/bin/coord.ts`,
-		"emit",
-		kind,
-		"--scope",
-		"suspenders",
-		"--as",
-		SID,
-		"--note",
-		note.slice(0, 900),
-	]);
+const emit = (kind: string, note: string): boolean => {
+	try {
+		const result = sh([
+			process.execPath,
+			`${PREFIX}/bin/coord.ts`,
+			"emit",
+			kind,
+			"--scope",
+			"suspenders",
+			"--as",
+			SID,
+			"--note",
+			note.slice(0, 900),
+		]);
+		if (result.code === 0) return true;
+	} catch {
+		// Keep the decision eligible on the next watchdog pass.
+	}
+	log(`coord delivery failed: ${kind}`);
+	return false;
 };
 
 const readState = (): ProgressState & {
@@ -366,10 +377,14 @@ const run = async (): Promise<number> => {
 	const DECISION_TTL_MS = 6 * 60 * 60 * 1000;
 	const decisionEmits = { ...(previous.decisionEmits ?? {}) };
 	const emitDecision = (key: string, note: string): void => {
-		const last = decisionEmits[key] ?? 0;
-		if (Date.now() - last < DECISION_TTL_MS) return;
-		decisionEmits[key] = Date.now();
-		emit("NEED_DECISION", note);
+		deliverWatchdogDecision(
+			decisionEmits,
+			key,
+			note,
+			Date.now(),
+			DECISION_TTL_MS,
+			(message) => emit("NEED_DECISION", message),
+		);
 	};
 
 	// 1. Immutable activation integrity. Deployment belongs to the installer owner.
@@ -483,10 +498,13 @@ const run = async (): Promise<number> => {
 			if (action.state === "signaled") emit("BROADCAST", note);
 			else emitDecision("memory-wired-guard", note);
 			repaired ||= action.state === "signaled";
-		} else
+		} else {
 			verdicts.push(
 				`memory ${wiredLimit === null ? "unknown" : "ok"} (wired ${wired.toFixed(0)}GB)`,
 			);
+			if (wiredLimit !== null)
+				recoverWatchdogDecision(decisionEmits, "memory-wired-guard");
+		}
 		if (litellmGb !== null && litellmGb > LITELLM_RSS_GUARD_GB) {
 			const pid = sh([
 				"/usr/sbin/lsof",
@@ -517,6 +535,8 @@ const run = async (): Promise<number> => {
 			repaired ||= action.state === "signaled";
 		}
 	}
+	if (litellmGb !== null && litellmGb <= LITELLM_RSS_GUARD_GB)
+		recoverWatchdogDecision(decisionEmits, "memory-cloud-gateway");
 	if (!probe.ok) {
 		emitDecision(
 			"lane-path-failing",
