@@ -25,8 +25,8 @@ type AnyRec = Record<string, unknown>;
  *  that sensor idle sockets must see bytes to keep a live stream alive.
  *  Never masks a hung provider — the wire.ts upstream idle/total guards
  *  measure upstream chunks independently. NOTE: keepalives do NOT reset
- *  Bun's server-side idleTimeout (real-Bun canary disproved that); the
- *  server side is handled by the per-request timeout bypass in server.ts. */
+ *  Bun's server-side idleTimeout (real-Bun canary disproved that); W1106
+ *  disables that timer globally (BUN_IDLE_TIMEOUT=0 in server.ts). */
 export const SSE_KEEPALIVE = ": keepalive\n\n";
 
 /** Consumes upstream SSE bytes, extracts usage. Emits nothing downstream. */
