@@ -183,6 +183,30 @@ describe("observed topology snapshot", () => {
 });
 
 describe("Belt topology", () => {
+	test("marks hub models Belt served only with fresh live catalog evidence", () => {
+		const remotes = {
+			ts: new Date(now).toISOString(),
+			rows: [
+				{
+					machine: "nas",
+					port: 8914,
+					ok: true,
+					servedBy: "belt",
+					models: ["dynamic-qwen"],
+					last_seen: now,
+				},
+			],
+		};
+		const supervisor = {
+			observation,
+			targets: [{ kind: "hub", name: "nas", state: "up", port: 4101 }],
+		};
+		const live = buildTopology({}, remotes, supervisor, now);
+		expect(live.hubs[0]?.beltModels).toEqual(["dynamic-qwen"]);
+		expect(live.machines[0]?.beltModels).toEqual(["dynamic-qwen"]);
+		const stale = buildTopology({}, remotes, supervisor, now + 10 * 60_000);
+		expect(stale.hubs[0]?.beltModels).toBeUndefined();
+	});
 	test("uses the shared inventory for local, hub and remote model labels", () => {
 		const model = buildTopology(
 			{

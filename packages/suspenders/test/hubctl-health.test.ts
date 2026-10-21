@@ -44,6 +44,15 @@ writeFileSync(
 				store_health_port: 18103,
 				belt_health_port: 18104,
 			},
+			"test-model": {
+				host: "localhost",
+				deploy: { dir, docker },
+				belt_model: {
+					port: 18914,
+					health_port: 18915,
+					upstream: "http://127.0.0.1:11434",
+				},
+			},
 			remote: {
 				host: "hub.test",
 				deploy: { ssh: "kk@hub.test", dir },
@@ -93,6 +102,12 @@ test("local hub status queries the configured independent sidecars without SSH",
 	for (const port of [18101, 18102, 18103, 18104])
 		expect(result.calls).toContain(`:${port}/healthz`);
 	expect(result.calls).not.toContain("/api/status");
+});
+test("model-enabled hub status includes the Belt model outside probe", () => {
+	const result = status("test-model");
+	expect(result.code).toBe(0);
+	expect(result.calls).toContain(":18915/healthz");
+	expect(result.out).toContain("belt-model-health :18915/healthz → 200");
 });
 test("running but unhealthy containers and failed external verdicts fail status", () => {
 	expect(status({ TEST_DOCKER_HEALTH: "unhealthy" }).code).toBe(1);

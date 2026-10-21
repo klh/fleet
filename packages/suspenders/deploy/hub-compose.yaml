@@ -518,6 +518,53 @@ services:
       retries: 3
       start_period: 15s
 
+  # Optional Belt-owned model wire. A machine profile selects the upstream;
+  # its live /v1/models response supplies inventory, without model IDs here.
+  belt-model:
+    profiles: [belt-model]
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+    container_name: ${HUB_NAME:-desktop}-belt-model
+    logging: *default-logging
+    <<: *runtime-hardening
+    network_mode: host
+    restart: unless-stopped
+    command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/belt/bin/model-proxy.ts
+    depends_on:
+      fleet-deps:
+        condition: service_completed_successfully
+    environment:
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
+      BELT_MODEL_PORT: ${HUB_BELT_MODEL_PORT:-8914}
+      BELT_MODEL_UPSTREAM: ${HUB_BELT_MODEL_UPSTREAM:-}
+    volumes:
+      - fleet-repo:/src/fleet:ro
+
+  belt-model-health:
+    profiles: [belt-model]
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+    container_name: ${HUB_NAME:-desktop}-belt-model-health
+    logging: *default-logging
+    <<: *runtime-hardening
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      belt-model:
+        condition: service_started
+    command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_BELT_MODEL_PORT:-8914}/v1/models --listen ${HUB_BELT_MODEL_HEALTH_PORT:-8915}
+    environment:
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
+      HUB_BELT_MODEL_HEALTH_PORT: ${HUB_BELT_MODEL_HEALTH_PORT:-8915}
+    volumes:
+      - fleet-repo:/src/fleet:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.HUB_BELT_MODEL_HEALTH_PORT ?? "8915") + "/healthz"); if (!r.ok) process.exit(1);'
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
   # W763 hub model store: content-addressed blobs + catalog sync
   # (belt/bin/model-store.ts). Pull auth = the hub's OWN buckle ledger
   # (shared buckle.db WAL — the face mints nothing, fails closed 503
