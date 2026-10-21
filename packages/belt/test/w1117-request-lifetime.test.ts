@@ -97,3 +97,34 @@ test("cloud escalation forwards cancellation to its fetch", async () => {
 	await expect(call).rejects.toThrow("aborted");
 	expect(upstreamAborted).toBe(true);
 });
+
+test("cloud escalation emits the inherited hop contract", async () => {
+	let seen: string | null = null;
+	await escalate(
+		{ model: "belt-router", max_tokens: 16, messages: [] },
+		{
+			maxTokens: 16,
+			wantFast: true,
+			env: {
+				BELT_ESCALATE_URL: "https://gate.example",
+				BELT_ESCALATE_KEY: "bksk_test",
+			},
+			hopContract: {
+				deadlineMs: 1_800_000_090_000,
+				budget: 2,
+				path: ["aaaaaaaaaaaaaaaa"],
+			},
+			fetcher: (_url, init) => {
+				const headers = new Headers(init?.headers);
+				seen = headers.get("x-klh-hop-contract");
+				return Promise.resolve(
+					Response.json({ content: [{ type: "text", text: "ok" }] }),
+				);
+			},
+		},
+	);
+	// deadline passthrough absolute + belt's rung appended after the visited one
+	expect(seen).toContain("deadline=1800000090000");
+	expect(seen).toContain("path=aaaaaaaaaaaaaaaa,");
+	expect(seen?.match(/budget=\d{1,2}/)?.[0]).toBe("budget=1");
+});

@@ -15,6 +15,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { createAdmission, overloaded, parsePortCaps } from "./admission.ts";
 import { audioSpeech, audioTranscribe } from "./audio.ts";
+import { HOP_CONTRACT_HEADER, inheritDeadline } from "./hop-deadline.ts";
 import { livenessResponse } from "./health.ts";
 import { promptFingerprint } from "./prompt-fingerprint.ts";
 import {
@@ -599,12 +600,23 @@ Bun.serve({
 			);
 		}
 
-		// W1117: the deadline joins here — stream bodies ride the stream-total
-		// budget (900s, Buckle parity) so a healthy long prefill survives;
-		// non-stream exchanges keep the 120s whole-exchange cap.
+		// W1117: the deadline joins here — clamp the local budget to the
+		// inherited hop contract (absolute, never re-based); absent/invalid
+		// headers keep the Buckle-parity defaults. An expired contract is
+		// answered 504 — a past deadline is never re-based forward.
+		const inherited = inheritDeadline(
+			req.headers.get(HOP_CONTRACT_HEADER),
+			body.stream === true,
+		);
+		if (inherited === "expired")
+			return stamped(
+				Response.json({ error: "request deadline exceeded" }, { status: 504 }),
+				"ingress",
+				{ refusal: "deadline_expired" },
+			);
 		const requestSignal = AbortSignal.any([
 			req.signal,
-			AbortSignal.timeout(body.stream === true ? 900_000 : 120_000),
+			AbortSignal.timeout(inherited.deadlineMs - Date.now()),
 		]);
 
 		const startTime = Date.now();
@@ -986,6 +998,19 @@ Bun.serve({
 						requestId: trace.requestId,
 						preference,
 						signal: requestSignal,
+						hopContract: inherited.contract
+							? {
+									deadlineMs: inherited.deadlineMs,
+									budget: inherited.contract.budget,
+									path: inherited.contract.path,
+								}
+							: {
+									// belt IS the root for this contract: stamp its own
+									// deadline so the return leg keeps one clock.
+									deadlineMs: inherited.deadlineMs,
+									budget: 99,
+									path: [],
+								},
 						onAttempt: recordAttempt,
 					});
 					if (c.note) note.push(c.note);
