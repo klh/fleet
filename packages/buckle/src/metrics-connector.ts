@@ -48,7 +48,7 @@ function validatedUrl(raw: string): URL | null {
 		url.password ||
 		url.search ||
 		url.hash ||
-		url.pathname !== "/metrics"
+		(url.pathname !== "/metrics" && url.pathname !== "/metrics/")
 	)
 		return null;
 	return url;

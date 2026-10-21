@@ -173,6 +173,27 @@ describe("Buckle private metrics connector", () => {
 		);
 	});
 
+	test("accepts LiteLLM's canonical /metrics/ path without redirecting", async () => {
+		let requested = "";
+		let redirect = "";
+		const connector = new MetricsConnector({
+			url: "http://127.0.0.1:4100/metrics/",
+			keyFile,
+			fetcher: async (url, init) => {
+				requested = url.pathname;
+				redirect = init.redirect ?? "";
+				return new Response("litellm_requests_total 1\n", {
+					headers: { "content-type": "text/plain" },
+				});
+			},
+		});
+		const response = await connector.expose("buckle_counter 1\n");
+		expect(response.headers.get("x-buckle-litellm-metrics-status")).toBe("ok");
+		expect(requested).toBe("/metrics/");
+		expect(redirect).toBe("error");
+		expect(await response.text()).toContain("litellm_requests_total 1");
+	});
+
 	test("times out a stalled scrape", async () => {
 		const connector = new MetricsConnector({
 			url: "http://127.0.0.1:9/metrics",
