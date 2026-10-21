@@ -305,6 +305,11 @@ interface Ctx {
 	 *  carries the x-klh-traffic: readiness mark (the healthcheck sidecar's
 	 *  synthetic full-chain poll); 'inference' otherwise. */
 	trafficKind: string;
+	/** W1106: the request's abort signal — the honest downstream_cancel
+	 *  evidence for stream receipts (Bun surfaces destination death lazily:
+	 *  a pipeTo only rejects on the NEXT failed write, so a quiet abort
+	 *  after the last chunk would otherwise bank as upstream_eof). */
+	signal?: AbortSignal;
 	/** Canonicalized executor intent; diagnostic only, never a route hint. */
 	preference: string | null;
 	/** W461 stage 2: set once the admitted observation is published —
@@ -436,6 +441,7 @@ async function proxy(
 		},
 	};
 	ctx.trafficKind = trafficKindOf(req);
+	ctx.signal = req.signal;
 	ctx.t0 = Date.now();
 	const hint = hintFromHeaders(req.headers);
 	if (!hint.ok) return deny(deps, ctx, 400, hint.why, "bad_hint", "denied");
@@ -839,6 +845,18 @@ function streamResponse(
 	const downstream = new TransformStream<Uint8Array, Uint8Array>();
 	let streamFailed = false;
 	let streamFailureKind: string | null = null;
+	// W1106: body-free stream progress counters — terminal receipts answer
+	// "who closed this stream" without ever logging payload.
+	let bytesIn = 0;
+	let chunksIn = 0;
+	let lastChunkMs: number | null = null;
+	let streamCancelled = false;
+	const t0 = ctx.t0;
+	const progress = (chunk: Uint8Array): void => {
+		chunksIn++;
+		bytesIn += chunk.byteLength;
+		lastChunkMs = Date.now() - t0;
+	};
 	const finish = once(() => {
 		sniffer.flush();
 		record(
@@ -849,12 +867,16 @@ function streamResponse(
 			sniffer.cacheWriteReported(),
 		);
 		const selected = ctx.sel?.head.candidate_id;
-		const decision = streamFailed
-			? "errored"
-			: result.candidateId === selected
-				? (ctx.sel?.decision ?? "errored")
-				: "fallback";
-		const success = !streamFailed;
+		// W1106 (#55344): a downstream cancel is a DISTINCT non-success —
+		// ok:0/decision errored, no affinity bind, no candidate success
+		// credit; the receipt's terminal carries downstream_cancel.
+		const decision =
+			streamFailed || streamCancelled
+				? "errored"
+				: result.candidateId === selected
+					? (ctx.sel?.decision ?? "errored")
+					: "fallback";
+		const success = !streamFailed && !streamCancelled;
 		const duration = Date.now() - ctx.t0;
 		if (selected) deps.table.inflight(selected, -1);
 		deps.table.recordOutcome(result.candidateId, duration, success);
@@ -867,8 +889,25 @@ function streamResponse(
 			duration_ms: duration,
 			ok: success,
 			attempts: result.attempts,
-			err: success ? null : `stream_failed:${streamFailureKind ?? "unknown"}`,
-			...(success ? {} : { decision: "errored", error_code: "stream_failed" }),
+			err: streamCancelled
+				? "downstream_cancel"
+				: success
+					? null
+					: `stream_failed:${streamFailureKind ?? "unknown"}`,
+			...(success
+				? {}
+				: {
+						decision: "errored",
+						error_code: streamCancelled
+							? "downstream_cancel"
+							: "stream_failed",
+					}),
+			stream_receipt: {
+				terminal: terminalOf(streamFailed, streamFailureKind, streamCancelled),
+				bytes_in: bytesIn,
+				chunks_in: chunksIn,
+				last_chunk_ms: lastChunkMs,
+			},
 		});
 		deps.sm
 			.counter("buckle_route_decisions_total", "Routing decisions.")
@@ -881,9 +920,26 @@ function streamResponse(
 			});
 		ctx.slot?.(); // W450: the drain settled — the upstream slot frees
 	});
-	sniffBranch.pipeTo(blackHole(sniffer)).catch(() => {
-		// the sniff branch failing must not affect the client branch
-	});
+	sniffBranch
+		.pipeTo(blackHole(sniffer, progress), { signal: ctx.signal })
+		.catch(() => {
+			// the sniff branch failing (or aborting) must not affect the client
+		});
+	// W1106: a quiet abort never rejects the pipe on its own (real-Bun
+	// probe — Bun surfaces destination death only on the next failed
+	// write), so the request signal drives BOTH pipes: pipeTo cancels its
+	// source when the signal fires, which tears the tee branches down and
+	// with them the upstream body (#55399: a client walk must free the
+	// in-flight upstream slot, not leak it). The rejections land in the
+	// handlers above — no branch.cancel() from outside a locked pipe (#55409:
+	// that rejects a promise try/catch never sees).
+	ctx.signal?.addEventListener(
+		"abort",
+		() => {
+			streamCancelled = true;
+		},
+		{ once: true },
+	);
 	// W616.1: anthropic clients get the re-framer — canonical frames, pings
 	// dropped, corrupt events quarantined (litellm's keepalive ping splices
 	// mid-line under load; byte-identity forwarded the defect to the lane).
@@ -902,12 +958,30 @@ function streamResponse(
 				)
 			: clientBranch;
 	sanitized
-		.pipeTo(downstream.writable, { preventAbort: true })
+		.pipeTo(downstream.writable, { preventAbort: true, signal: ctx.signal })
 		.then(finish, (err: unknown) => {
-			streamFailed = true;
-			streamFailureKind = safeFailureKind(err);
+			// W1106: classify BEFORE the receipt lands. The request signal is
+			// the honest cancel evidence (real-Bun probe: pipeTo rejects
+			// LAZILY — on the next failed write, or carrying the upstream's
+			// own error object — so rejection identity cannot separate a
+			// client abort from an upstream death).
+			if (ctx.signal?.aborted === true) {
+				streamCancelled = true;
+			} else {
+				streamFailed = true;
+				// W1106: RouterError.kind is the typed taxonomy (wire guards
+				// throw RouterError "timeout" at their deadlines); telemetry's
+				// safeFailureKind is generic and would bucket it "error".
+				streamFailureKind =
+					err instanceof RouterError ? err.kind : safeFailureKind(err);
+			}
 			finish();
-			writeErrorEvent(downstream.writable, ctx.dialect, err);
+			if (!streamCancelled)
+				writeErrorEvent(downstream.writable, ctx.dialect, err);
+		})
+		.catch(() => {
+			// W1106: the error-event write failed = the client is gone; the
+			// receipt already banked the upstream failure — terminal stands.
 		});
 	// W1106: the SSE contract is ours — a classified stream whose provider
 	// omitted or mislabeled content-type must still carry the exact MIME the
@@ -921,10 +995,28 @@ function streamResponse(
 	});
 }
 
-/** Sink for the sniff branch: bytes in, usage extraction, nothing out. */
-function blackHole(sniffer: SseSniffer): WritableStream<Uint8Array> {
+/** W1106: typed stream terminal for the audit receipt — who ended the
+ *  stream, from the body-free evidence at this hop. */
+function terminalOf(
+	failed: boolean,
+	kind: string | null,
+	cancelled: boolean,
+): string {
+	if (cancelled) return "downstream_cancel";
+	if (!failed) return "upstream_eof";
+	if (kind === "timeout") return "upstream_deadline";
+	return `upstream_error:${kind ?? "unknown"}`;
+}
+
+/** Sink for the sniff branch: bytes in, usage extraction (+ the W1106
+ *  progress counters), nothing out. */
+function blackHole(
+	sniffer: SseSniffer,
+	progress?: (chunk: Uint8Array) => void,
+): WritableStream<Uint8Array> {
 	return new WritableStream({
 		write(chunk) {
+			progress?.(chunk);
 			sniffer.push(chunk);
 		},
 	});

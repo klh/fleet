@@ -248,7 +248,7 @@ async function handleMcpPost(req: Request): Promise<Response> {
 const server = Bun.serve({
 	port: PORT,
 	hostname: BIND,
-	idleTimeout: 180, // belt_infer can legitimately run long on the swarm
+	idleTimeout: 0, // W1106: belt_infer streams run past any fixed cutoff — Buckle's guards arbitrate deadlines
 	async fetch(req): Promise<Response> {
 		const pathname = new URL(req.url).pathname;
 		if (!AUTH && !DEV) {
