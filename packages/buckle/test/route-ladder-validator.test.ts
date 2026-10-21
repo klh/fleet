@@ -197,7 +197,7 @@ test("cross-service Belt escalation back into the same Buckle group is a cycle",
 	expect(result.errors.some((error) => error.code === "cycle")).toBe(true);
 });
 
-test("LiteLLM local-swarm preserves the model ID that disables Belt re-escalation", () => {
+test("Belt cloud escalation must enter Buckle, even when LiteLLM would avoid a cycle", () => {
 	const config = {
 		model_list: [
 			{
@@ -229,7 +229,12 @@ test("LiteLLM local-swarm preserves the model ID that disables Belt re-escalatio
 			},
 		],
 	};
-	expect(validateRouteLadders(inputs).errors).toEqual([]);
+	expect(validateRouteLadders(inputs).errors).toEqual([
+		expect.objectContaining({
+			code: "invalid_config",
+			layer: "belt",
+		}),
+	]);
 	expect(
 		validateRouteLadders({
 			...inputs,

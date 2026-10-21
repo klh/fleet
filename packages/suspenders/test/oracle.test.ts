@@ -358,7 +358,7 @@ test("W742.1 panel fans to both legs and marks agreement", async () => {
 			env: {
 				ORACLE_ROUTE_URL: local.chat,
 				BELT_ESCALATE_URL: `${cloud.base}/v1/messages`,
-				BELT_ESCALATE_KEY: "k",
+				BELT_ESCALATE_KEY: "bksk_test",
 			},
 		});
 		expect(r.code).toBe(0);

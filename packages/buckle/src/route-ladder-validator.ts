@@ -296,6 +296,16 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 	for (const belt of inputs.belts ?? []) {
 		const prefix = `belt:${belt.id}:`;
 		const localOnly = new Set(belt.noEscalationModels ?? []);
+		if (belt.escalation) {
+			const target = services.get(originOf(belt.escalation.url) ?? "");
+			if (target?.layer !== "buckle")
+				finding(
+					"invalid_config",
+					"belt",
+					belt.id,
+					`cloud escalation target ${belt.escalation.url} must be a configured Buckle gate`,
+				);
+		}
 		for (const node of [...edges.keys()]) {
 			if (!node.startsWith(prefix)) continue;
 			if (belt.upstream) link(node, belt.upstream, node.slice(prefix.length));
