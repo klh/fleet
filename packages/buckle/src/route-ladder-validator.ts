@@ -15,6 +15,16 @@ export interface LiteLlmRouteConfig {
 	id: string;
 	origins: string[];
 	config: unknown;
+	/**
+	 * Deployment URLs the buckle front serves through this engine (W1094):
+	 * a row pointing at a litellm origin must declare
+	 * `adapter_config.proxy_kind: "litellm"` — without it the front's
+	 * x-litellm-num-retries / stream-timeout headers never reach the engine,
+	 * so its fallbacks stay unbounded. Rows that do NOT name a litellm origin
+	 * must NOT carry the kind (a wrong marker routes a plain provider as an
+	 * engine and strands the ladder).
+	 */
+	litellmOriginUrls?: string[];
 }
 
 export interface BeltRouteConfig {
@@ -44,6 +54,8 @@ export interface RouteLadderFinding {
 		| "missing_fallback"
 		| "unroutable_group"
 		| "deadline_budget"
+		| "missing_proxy_kind"
+		| "unknown_engine_model"
 		| "invalid_config";
 	layer: "buckle" | "litellm" | "belt" | "fleet";
 	path: string;
@@ -144,6 +156,40 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 				else services.set(origin, { layer, id: item.id });
 			}
 	}
+	// W1094 engine-kind preflight: a deployment into a litellm origin must
+	// declare adapter_config.proxy_kind=litellm — without it the front's
+	// x-litellm-num-retries / stream-timeout headers are inert and the
+	// engine's own fallbacks stay unbounded. Marked rungs are the targets
+	// the engine's model_list rows must resolve to.
+	const engineOrigins = new Set<string>();
+	for (const lite of inputs.litellms ?? [])
+		for (const origin of lite.origins.map(originOf))
+			if (origin !== null) engineOrigins.add(origin);
+	const markedRungs = new Set<string>();
+	for (const buckle of inputs.buckles) {
+		for (const rung of buckle.pool.groups()) {
+			for (const dep of buckle.pool.deployments(rung)) {
+				const origin = originOf(dep.url);
+				const kind = recordOf(dep.adapter_config)?.proxy_kind;
+				if (origin !== null && engineOrigins.has(origin)) {
+					if (kind !== "litellm")
+						finding(
+							"missing_proxy_kind",
+							"buckle",
+							`buckle:${buckle.id}:${rung}`,
+							`engine row ${origin} lacks adapter_config.proxy_kind=litellm`,
+						);
+					else markedRungs.add(dep.model ?? rung);
+				} else if (kind === "litellm")
+					finding(
+						"invalid_config",
+						"buckle",
+						`buckle:${buckle.id}:${rung}`,
+						`proxy_kind=litellm on a non-engine row ${origin ?? dep.url}`,
+					);
+			}
+		}
+	}
 	const link = (
 		from: string,
 		rawUrl: string,
@@ -223,6 +269,28 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 			continue;
 		}
 		const models = new Set<string>();
+		// W1094: an engine model_list row whose litellm_params.model names a
+		// group no marked deployment carries is stranded — the front never
+		// selects it, so its engine-side fallbacks are unreachable policy.
+		// Meaningful only when a buckle snapshot exists at all (standalone
+		// engine validation has no deployment table to resolve against).
+		const hasBuckleRows = inputs.buckles.some((b) =>
+			b.pool.groups().some((g) => b.pool.deployments(g).length > 0),
+		);
+		for (const item of hasBuckleRows ? modelRows : []) {
+			const params = recordOf(recordOf(item)?.litellm_params);
+			if (
+				typeof params?.model === "string" &&
+				!markedRungs.has(params.model.replace(/^[^/]+\//, "")) &&
+				!markedRungs.has(params.model)
+			)
+				finding(
+					"unknown_engine_model",
+					"litellm",
+					`litellm:${lite.id}:${params.model}`,
+					"engine model has no proxy_kind=litellm deployment in any buckle group",
+				);
+		}
 		for (const item of modelRows) {
 			const row = recordOf(item);
 			const group = row?.model_name;

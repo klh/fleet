@@ -233,3 +233,36 @@ test("unmapped local target, missing fallback, and retry budget beyond caller de
 	);
 	expect(result.errors.map((error) => error.code)).toContain("deadline_budget");
 });
+
+test("a litellm engine row without adapter_config.proxy_kind fails the preflight", () => {
+	const result = validateRouteLadders({
+		buckles: [
+			{
+				id: "local",
+				origins: ["http://127.0.0.1:4101"],
+				policy,
+				pool: pool({ primary: [{ url: "http://127.0.0.1:4100" }] }),
+			},
+		],
+		litellms: [
+			{
+				id: "engine",
+				origins: ["http://127.0.0.1:4100"],
+				config: {
+					model_list: [
+						{
+							model_name: "glm",
+							litellm_params: { model: "zai/glm", api_base: "https://z.example" },
+						},
+					],
+				},
+			},
+		],
+	});
+	expect(
+		result.errors.some(
+			(error) =>
+				error.code === "missing_proxy_kind" && error.layer === "buckle",
+		),
+	).toBe(true);
+});
