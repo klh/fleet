@@ -148,7 +148,7 @@ export function requestAnthropicToOpenAI(body: AnyRec): RequestTransform {
 				message:
 					"client telemetry (user_id) has no openai-compat equivalent — dropped",
 			});
-		} else if (key === "thinking" || key === "top_k") {
+		} else if (key === "thinking" || key === "top_k" || key === "service_tier") {
 			warnings.push({
 				field: key,
 				message: "no openai-compat equivalent — honest degrade (dropped)",

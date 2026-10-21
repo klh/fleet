@@ -23,7 +23,7 @@ describe("W1080 proxy law: unknown fields ride the bridge", () => {
 		expect(body.context_management).toEqual({
 			edits: [{ type: "clear_tool_uses_20250919" }],
 		});
-		expect(body.service_tier).toBe("auto");
+		expect(body.service_tier).toBeUndefined(); // W1080 amendment: known-untranslatable drops
 	});
 
 	test("anthropic→openai drops untranslatable tool_choice instead of rejecting", () => {
