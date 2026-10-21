@@ -435,31 +435,9 @@ Bun.serve({
 	idleTimeout: 0, // streams may idle through a long prefill
 	async fetch(req) {
 		const url = new URL(req.url);
-
-		const health = livenessResponse(req, "belt-router", {
-			router: "complexity-v3",
-		});
-		if (health) return health;
-
-		// W271: the full registry (ETag'd); hubs proxy it, spokes pull it
-		if (
-			(req.method === "GET" || req.method === "HEAD") &&
-			url.pathname === "/registry.json"
-		)
-			return registryResponse(req);
-
-		// ─── W440 audio tier: TTS/STT behind the router (OpenAI wire) ───
-		// Handlers live in bin/audio.ts (rows: registry.ts AUDIO_SERVICES);
-		// the vendor key is machine config — a missing key is a clean 503.
-		if (req.method === "POST" && url.pathname === "/v1/audio/speech")
-			return audioSpeech(req);
-
-		if (req.method === "POST" && url.pathname === "/v1/audio/transcriptions")
-			return audioTranscribe(req);
-
-		if (req.method !== "POST" || url.pathname !== "/v1/messages") {
-			return Response.json({ error: "not found" }, { status: 404 });
-		}
+		// W1081: every envelope identifies its emitter — the ingress trace
+		// begins once at fetch top so the early paths (404, audio, registry)
+		// stamp the same x-klh set as the /v1/messages ladder below.
 		const trace = beginTrace(req.headers);
 		const preference = parsePreferHeader(req.headers.get(PREFER_HEADER));
 		const stamped = (
@@ -485,6 +463,36 @@ Bun.serve({
 			if (preference) stamped.headers.set(PREFER_HEADER, preference);
 			return stamped;
 		};
+
+		const health = livenessResponse(req, "belt-router", {
+			router: "complexity-v3",
+		});
+		// livenessResponse stamps itself (service = "belt-router") — no re-wrap
+		if (health) return health;
+
+		// W271: the full registry (ETag'd); hubs proxy it, spokes pull it
+		if (
+			(req.method === "GET" || req.method === "HEAD") &&
+			url.pathname === "/registry.json"
+		)
+			return stamped(registryResponse(req), "ingress");
+
+		// ─── W440 audio tier: TTS/STT behind the router (OpenAI wire) ───
+		// Handlers live in bin/audio.ts (rows: registry.ts AUDIO_SERVICES);
+		// the vendor key is machine config — a missing key is a clean 503.
+		if (req.method === "POST" && url.pathname === "/v1/audio/speech")
+			return stamped(await audioSpeech(req), "ingress");
+
+		if (req.method === "POST" && url.pathname === "/v1/audio/transcriptions")
+			return stamped(await audioTranscribe(req), "ingress");
+
+		if (req.method !== "POST" || url.pathname !== "/v1/messages") {
+			return stamped(
+				Response.json({ error: "not found" }, { status: 404 }),
+				"ingress",
+				{ refusal: "no_route" },
+			);
+		}
 
 		let body: AnthropicBody;
 		try {

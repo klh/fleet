@@ -238,10 +238,37 @@ describe("status cache honors STATUS_REFRESH_S", () => {
 		});
 		const r = await f(new Request("http://t/rpc"));
 		expect(r.status).toBe(500);
+		// W1081: the synthesized envelope identifies its emitter from headers
+		// alone — service name, observability face, and the throw admission.
+		expect(r.headers.get("x-klh-service")).toBe("t11");
+		expect(r.headers.get("x-klh-hop")).toBe("observability");
+		expect(r.headers.get("x-klh-refusal")).toBe("handler_throw");
 		const j = (await (await f(new Request("http://t/status"))).json()) as {
 			last_error: { message: string } | null;
 		};
 		expect(j.last_error?.message).toBe("read ~/dev/secret failed");
+	});
+
+	test("W1081: handler-emitted 4xx carries the handler refusal, 2xx none", async () => {
+		const sm = servicemon({ service: "t11b", port: 0 });
+		const f = sm.fetch((req: Request) =>
+			req.url.endsWith("/nope")
+				? Response.json({ ok: false }, { status: 404 })
+				: Response.json({ ok: true }),
+		);
+		const notFound = await f(new Request("http://t/nope"));
+		expect(notFound.status).toBe(404);
+		expect(notFound.headers.get("x-klh-service")).toBe("t11b");
+		expect(notFound.headers.get("x-klh-hop")).toBe("observability");
+		expect(notFound.headers.get("x-klh-refusal")).toBe("handler");
+		const ok = await f(new Request("http://t/ok"));
+		expect(ok.status).toBe(200);
+		expect(ok.headers.get("x-klh-service")).toBe("t11b");
+		expect(ok.headers.get("x-klh-refusal")).toBeNull();
+		const method = await f(new Request("http://t/status", { method: "POST" }));
+		expect(method.status).toBe(405);
+		expect(method.headers.get("x-klh-service")).toBe("t11b");
+		expect(method.headers.get("x-klh-refusal")).toBe("method_not_allowed");
 	});
 });
 
@@ -298,6 +325,18 @@ describe("wiring — store-server", () => {
 		expect(st.requests.by_route["/nope"]).toBeGreaterThan(0);
 		expect(st.requests.by_route["/rpc"]).toBeGreaterThan(0);
 		expect(unsafe(JSON.stringify(st))).toBe(false);
+	});
+
+	test("W1081: every envelope names the store from headers alone", async () => {
+		const missing = await fetch(`${base}/nope`);
+		expect(missing.status).toBe(404);
+		expect(missing.headers.get("x-klh-service")).toBe("store-server");
+		expect(missing.headers.get("x-klh-hop")).toBe("observability");
+		expect(missing.headers.get("x-klh-refusal")).toBe("handler");
+		// 2xx carries the identity, never a refusal
+		const ok = await fetch(`${base}/health`);
+		expect(ok.headers.get("x-klh-service")).toBe("store-server");
+		expect(ok.headers.get("x-klh-refusal")).toBeNull();
 	});
 });
 

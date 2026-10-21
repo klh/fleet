@@ -74,6 +74,19 @@ describe("problem+json (RFC 9457)", () => {
 			why: "rpm window exhausted",
 		});
 	});
+
+	test("W1081: problem envelopes identify the emitter from headers alone", async () => {
+		const res = problem(
+			405,
+			"Method Not Allowed",
+			"belt.method_not_allowed",
+			"allowed: GET",
+			"/api/status",
+		);
+		expect(res.headers.get("x-klh-service")).toBe("belt");
+		expect(res.headers.get("x-klh-hop")).toBe("ingress");
+		expect(res.headers.get("x-klh-refusal")).toBe("method_not_allowed");
+	});
 });
 
 describe("conditional GET — ETag/304", () => {

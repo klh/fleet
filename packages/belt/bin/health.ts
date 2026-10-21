@@ -1,3 +1,6 @@
+// W1081: health envelopes identify their emitter like every other face.
+import { stampHopHeaders } from "../../telemetry/src/http-trace.ts";
+
 /** Process liveness only; outside-process sidecars own service health. */
 export function livenessResponse(
 	req: Request,
@@ -15,21 +18,27 @@ export function livenessResponse(
 		"content-type": "application/json",
 		allow: "GET, HEAD, OPTIONS",
 	};
+	const stamp = (res: Response): Response => {
+		stampHopHeaders(res.headers, { service, hop: "probe" });
+		return res;
+	};
 	if (req.method === "OPTIONS")
-		return new Response(null, { status: 204, headers });
+		return stamp(new Response(null, { status: 204, headers }));
 	if (req.method !== "GET" && req.method !== "HEAD")
-		return new Response(null, { status: 405, headers });
-	return new Response(
-		req.method === "HEAD"
-			? null
-			: JSON.stringify({
-					ok: true,
-					status: "alive",
-					service,
-					check: "process-liveness",
-					...details,
-				}),
-		{ headers },
+		return stamp(new Response(null, { status: 405, headers }));
+	return stamp(
+		new Response(
+			req.method === "HEAD"
+				? null
+				: JSON.stringify({
+						ok: true,
+						status: "alive",
+						service,
+						check: "process-liveness",
+						...details,
+					}),
+			{ headers },
+		),
 	);
 }
 
