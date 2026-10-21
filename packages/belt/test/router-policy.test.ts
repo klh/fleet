@@ -97,12 +97,18 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		) as {
 			litellm_settings: {
 				drop_params: boolean;
+				callbacks: string[];
+				require_auth_for_metrics_endpoint: boolean;
+				prometheus_emit_stream_label: boolean;
 				fallbacks: Record<string, string[]>[];
 				context_window_fallbacks: Record<string, string[]>[];
 			};
 		};
 		expect(doc.litellm_settings.fallbacks).toHaveLength(7);
 		expect(doc.litellm_settings.drop_params).toBe(true);
+		expect(doc.litellm_settings.callbacks).toEqual(["prometheus"]);
+		expect(doc.litellm_settings.require_auth_for_metrics_endpoint).toBe(true);
+		expect(doc.litellm_settings.prometheus_emit_stream_label).toBe(true);
 		expect(doc.litellm_settings.context_window_fallbacks).toEqual([
 			{ "local-extract": ["glm-5.3-flash"] },
 			{ "local-coder": ["glm-5.3-flash"] },
@@ -179,7 +185,12 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 			"gateway:\n  litellm_fallbacks: false\n  fallbacks:\n    primary: [secondary]\n",
 		);
 		expect(Bun.YAML.parse(emitLiteLlmSettings(policy))).toEqual({
-			litellm_settings: { drop_params: true },
+			litellm_settings: {
+				drop_params: true,
+				callbacks: ["prometheus"],
+				require_auth_for_metrics_endpoint: true,
+				prometheus_emit_stream_label: true,
+			},
 		});
 		expect(policy.fallbacks).toEqual({ primary: ["secondary"] });
 		expect(
@@ -285,7 +296,12 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		expect(
 			Bun.YAML.parse(emitLiteLlmSettings(parsePolicy("version: 1\n"))),
 		).toEqual({
-			litellm_settings: { drop_params: true },
+			litellm_settings: {
+				drop_params: true,
+				callbacks: ["prometheus"],
+				require_auth_for_metrics_endpoint: true,
+				prometheus_emit_stream_label: true,
+			},
 		});
 	});
 });

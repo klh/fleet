@@ -21,6 +21,12 @@ import {
 	symlinkSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import {
+	DEFAULT_PATHS,
+	litellmToolInstallArgs,
+	prismaPreflight,
+	prometheusPreflight,
+} from "../../belt/bin/litellm-target.ts";
 import { refreshFlatHome, smokeRouter } from "./belt-bin-overlay.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
 
@@ -34,6 +40,47 @@ const logFor = (ctx: StepContext): ((line: string) => void) => {
 		sink(line);
 	};
 };
+
+export interface LiteLlmMetricsDeps {
+	python?: string;
+	uv?: string | null;
+	probe?: (python: string) => string | null;
+	run?: (args: string[]) => Promise<number>;
+}
+
+/** Repair the exact uv tool environment before enabling native metrics.
+ * The proxy itself never installs dependencies; this runs during install. */
+export async function ensureLiteLlmMetricsDependency(
+	deps: LiteLlmMetricsDeps = {},
+): Promise<"present" | "installed"> {
+	const python = deps.python ?? DEFAULT_PATHS.python;
+	const probe =
+		deps.probe ??
+		((path: string) => prismaPreflight(path) ?? prometheusPreflight(path));
+	if (probe(python) === null) return "present";
+	const uv = deps.uv === undefined ? Bun.which("uv") : deps.uv;
+	if (!uv)
+		throw new Error("uv missing; LiteLLM metrics dependency unavailable");
+	const args = litellmToolInstallArgs(uv);
+	const run =
+		deps.run ??
+		(async (argv: string[]): Promise<number> => {
+			const child = Bun.spawn(argv, {
+				stdin: "ignore",
+				stdout: "ignore",
+				stderr: "ignore",
+				timeout: 300_000,
+			});
+			return await child.exited;
+		});
+	const code = await run(args);
+	if (code !== 0)
+		throw new Error(`LiteLLM metrics tool install exited ${code}`);
+	const missing = probe(python);
+	if (missing !== null)
+		throw new Error(`LiteLLM metrics preflight: ${missing}`);
+	return "installed";
+}
 
 // ─── gateway-config regen (W889) ───
 
@@ -148,6 +195,17 @@ export async function seedLocalLlm(ctx: StepContext): Promise<StepResult> {
 		};
 	}
 	const log = logFor(ctx);
+	if (ctx.llmHome === join(process.env.HOME ?? "", ".claude", "local-llm")) {
+		try {
+			const state = await ensureLiteLlmMetricsDependency();
+			log(`LiteLLM Prometheus dependency ${state}`);
+		} catch (err) {
+			return {
+				status: "failed",
+				note: `LiteLLM native metrics dependency failed — ${err instanceof Error ? err.message : String(err)}`,
+			};
+		}
+	}
 	mkdirSync(ctx.llmHome, { recursive: true });
 	// W778: the flattened kit now imports npm deps (stack-config.ts → yaml)
 	// and the home has no manifest of its own — ride the prefix's offline

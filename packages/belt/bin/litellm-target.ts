@@ -12,7 +12,8 @@
 // 401 = serving (endpoint alive, key mismatch); anything else = not serving.
 //
 // Preflight: `prisma` must import in the litellm uv tool env (the 2026-10-03
-// root cause). Missing → log + alert status. Never auto-installed in-process.
+// root cause); native Prometheus metrics also require prometheus_client.
+// Missing → log + alert status. Never auto-installed in-process.
 
 import { openSync, readFileSync } from "node:fs";
 import type { Child, Target } from "./supervisor.ts";
@@ -21,6 +22,23 @@ const HOME = process.env.HOME ?? "";
 
 export const LITELLM_PORT = 4100;
 export const LITELLM_OK_STATUS = [200, 401];
+export const LITELLM_TOOL_SPEC = "litellm[proxy]==1.103.0";
+export const LITELLM_PROMETHEUS_SPEC = "prometheus-client==0.20.0";
+
+/** Reproducible tool environment for first install and dependency repair. */
+export const litellmToolInstallArgs = (uv = "uv"): string[] => [
+	uv,
+	"tool",
+	"install",
+	"--force",
+	"--python",
+	"3.13",
+	"--with",
+	"prisma",
+	"--with",
+	LITELLM_PROMETHEUS_SPEC,
+	LITELLM_TOOL_SPEC,
+];
 
 export interface LitellmPaths {
 	bin: string;
@@ -142,7 +160,7 @@ export const litellmArgv = (
 
 /** null = prisma importable; otherwise the alert reason. */
 export function prismaPreflight(python = DEFAULT_PATHS.python): string | null {
-	const fix = "fix: uv tool install --force --with prisma litellm[proxy]";
+	const fix = `fix: ${litellmToolInstallArgs().join(" ")}`;
 	try {
 		const r = Bun.spawnSync([python, "-c", "import prisma"], {
 			stdout: "ignore",
@@ -151,6 +169,24 @@ export function prismaPreflight(python = DEFAULT_PATHS.python): string | null {
 		if (r.exitCode === 0) return null;
 		const tail = r.stderr.toString().trim().split("\n").pop() ?? "";
 		return `prisma not importable in litellm tool env (${tail}) — ${fix}`;
+	} catch (e) {
+		return `litellm tool python unusable at ${python} (${String(e)}) — ${fix}`;
+	}
+}
+
+/** null = native Prometheus collector importable in the LiteLLM tool env. */
+export function prometheusPreflight(
+	python = DEFAULT_PATHS.python,
+): string | null {
+	const fix = `fix: ${litellmToolInstallArgs().join(" ")}`;
+	try {
+		const r = Bun.spawnSync([python, "-c", "import prometheus_client"], {
+			stdout: "ignore",
+			stderr: "pipe",
+		});
+		if (r.exitCode === 0) return null;
+		const tail = r.stderr.toString().trim().split("\n").pop() ?? "";
+		return `prometheus_client not importable in litellm tool env (${tail}) — ${fix}`;
 	} catch (e) {
 		return `litellm tool python unusable at ${python} (${String(e)}) — ${fix}`;
 	}
@@ -189,7 +225,10 @@ export function litellmTarget(deps: LitellmTargetDeps = {}): Target {
 		// litellm can wedge with the port bound — restart after hungThreshold.
 		killHung: true,
 		bindTimeoutMs: 120_000,
-		preflight: deps.preflight ?? (() => prismaPreflight(paths.python)),
+		preflight:
+			deps.preflight ??
+			(() =>
+				prismaPreflight(paths.python) ?? prometheusPreflight(paths.python)),
 		spawn: (): Child => {
 			const keys = loadKeys(paths, env, read);
 			const fd = openSync(paths.log, "a");

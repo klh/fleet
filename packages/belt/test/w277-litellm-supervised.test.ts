@@ -7,11 +7,14 @@ import { join } from "node:path";
 import {
 	DEFAULT_PATHS,
 	LITELLM_OK_STATUS,
+	LITELLM_PROMETHEUS_SPEC,
 	type LitellmPaths,
 	litellmArgv,
 	litellmTarget,
+	litellmToolInstallArgs,
 	loadKeys,
 	prismaPreflight,
+	prometheusPreflight,
 } from "../bin/litellm-target.ts";
 import { livenessReport } from "../bin/liveness.ts";
 import {
@@ -317,6 +320,36 @@ describe("prisma preflight — alert, never auto-install", () => {
 			engine.stop(true);
 		}
 	}, 15_000);
+});
+
+describe("native LiteLLM Prometheus metrics dependency", () => {
+	test("installer keeps LiteLLM version and Prometheus client pinned", () => {
+		const args = litellmToolInstallArgs("/opt/uv");
+		expect(args).toEqual([
+			"/opt/uv",
+			"tool",
+			"install",
+			"--force",
+			"--python",
+			"3.13",
+			"--with",
+			"prisma",
+			"--with",
+			LITELLM_PROMETHEUS_SPEC,
+			"litellm[proxy]==1.103.0",
+		]);
+	});
+
+	test("missing Prometheus client is a preflight alert with a repair command", () => {
+		const py = Bun.which("python3");
+		if (!py) return;
+		const reason = prometheusPreflight(py);
+		if (reason !== null) {
+			expect(reason).toContain("prometheus_client not importable");
+			expect(reason).toContain(LITELLM_PROMETHEUS_SPEC);
+		}
+		expect(prometheusPreflight(join(dir, "no-python"))).toContain("unusable");
+	});
 });
 
 describe("supervision — stub litellm spawn/kill/respawn/backoff", () => {

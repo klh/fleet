@@ -185,6 +185,9 @@ export function emitLiteLlmSettings(p: GatewayPolicy): string {
 	return (
 		"litellm_settings:\n" +
 		"  drop_params: true\n" +
+		"  callbacks: [prometheus]\n" +
+		"  require_auth_for_metrics_endpoint: true\n" +
+		"  prometheus_emit_stream_label: true\n" +
 		(fallbackLines ? `  fallbacks:\n${fallbackLines}\n` : "") +
 		(cwLines ? `  context_window_fallbacks:\n${cwLines}\n` : "")
 	);

@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { INSTALL_CONTRACT } from "../scripts/install-contract.ts";
 import {
 	downloadModels,
+	ensureLiteLlmMetricsDependency,
 	gatewayConfigStale,
 	refreshSupervisor,
 	seedLocalLlm,
@@ -85,6 +86,60 @@ describe("W771.2 contract flips", () => {
 		]) {
 			expect(step(name)?.v1).toBe("real");
 		}
+	});
+});
+
+describe("LiteLLM native metrics fresh install", () => {
+	test("missing dependency installs the pinned tool and verifies the new env", async () => {
+		let present = false;
+		const calls: string[][] = [];
+		const result = await ensureLiteLlmMetricsDependency({
+			python: "/fixture/python",
+			uv: "/fixture/uv",
+			probe: () => (present ? null : "prometheus_client missing"),
+			run: async (args) => {
+				calls.push(args);
+				present = true;
+				return 0;
+			},
+		});
+		expect(result).toBe("installed");
+		expect(calls).toEqual([
+			[
+				"/fixture/uv",
+				"tool",
+				"install",
+				"--force",
+				"--python",
+				"3.13",
+				"--with",
+				"prisma",
+				"--with",
+				"prometheus-client==0.20.0",
+				"litellm[proxy]==1.103.0",
+			],
+		]);
+	});
+
+	test("healthy installation is left intact; failed repair remains a failure", async () => {
+		let runs = 0;
+		expect(
+			await ensureLiteLlmMetricsDependency({
+				probe: () => null,
+				run: async () => {
+					runs++;
+					return 0;
+				},
+			}),
+		).toBe("present");
+		expect(runs).toBe(0);
+		await expect(
+			ensureLiteLlmMetricsDependency({
+				uv: "/fixture/uv",
+				probe: () => "prometheus_client missing",
+				run: async () => 1,
+			}),
+		).rejects.toThrow("exited 1");
 	});
 });
 
@@ -340,6 +395,16 @@ describe("W889 gateway-config regen", () => {
 		expect(existsSync(join(home, "gateway-config.ts"))).toBe(true);
 		const yamlText = readFileSync(join(home, "litellm.yaml"), "utf8");
 		expect(yamlText).toContain("model_list:");
+		const generated = Bun.YAML.parse(yamlText) as {
+			litellm_settings: {
+				callbacks: string[];
+				require_auth_for_metrics_endpoint: boolean;
+			};
+		};
+		expect(generated.litellm_settings.callbacks).toEqual(["prometheus"]);
+		expect(generated.litellm_settings.require_auth_for_metrics_endpoint).toBe(
+			true,
+		);
 		expect(yamlText).not.toContain("old: yaml");
 		expect(yamlText).not.toContain("2020-01-01");
 		expect(res.note).toContain("gateway config regenerated");
