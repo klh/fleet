@@ -12,8 +12,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { residentSet, DOWNLOAD_MODELS } from "../bin/registry.ts";
-import { spawnArgs } from "../bin/spawner.ts";
+import { DOWNLOAD_MODELS } from "../bin/registry.ts";
 
 const DRY = process.argv.includes("--dry-run");
 const SKIP_DL = process.argv.includes("--skip-download");
@@ -138,33 +137,7 @@ async function stepMetalCheck(): Promise<void> {
 
 async function stepLaunchd(): Promise<void> {
 	if (!WITH_LAUNCHD) return;
-	console.log("\n5) launchd plists (KeepAlive) → ~/Library/LaunchAgents");
-	const logDir = `${HOME}/.claude-insights`;
-	if (!DRY) await Bun.$`mkdir -p ${logDir}`.quiet().catch(() => {});
-	// BELT_TIER=minimal installs KeepAlive plists for the small fleet only
-	for (const f of residentSet().filter((x) => x.engine === "rapid")) {
-		const label = `com.belt.llm-${f.port}`;
-		const plistPath = join(HOME, "Library", "LaunchAgents", `${label}.plist`);
-		const args = spawnArgs(f);
-		const plist = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>Label</key><string>${label}</string>
-  <key>ProgramArguments</key><array>${args.map((a) => `<string>${a}</string>`).join("")}</array>
-  <key>KeepAlive</key><true/>
-  <key>RunAtLoad</key><true/>
-  <key>StandardOutPath</key><string>${logDir}/mlx-${f.port}.log</string>
-  <key>StandardErrorPath</key><string>${logDir}/mlx-${f.port}.log</string>
-</dict></plist>`;
-		console.log(`  → ${plistPath}`);
-		if (!DRY) {
-			await Bun.write(plistPath, plist);
-			await sh(["/bin/launchctl", "load", plistPath]);
-		}
-	}
-	console.log(
-		"  note: keep ProgramArguments absolute — launchd does not inherit your PATH.",
-	);
+	console.log("\n5) model lifecycle is owned by com.suspenders.belt-swarm");
 }
 
 // ─── coordination plane: governor.db + coord CLIs + launchd agents ───

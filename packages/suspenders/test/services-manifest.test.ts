@@ -132,7 +132,9 @@ describe("services manifest (W488.1)", () => {
 		// its children ride the env passthrough at every reboot spawn
 		expect(args[0]).toBe("/bin/sh");
 		expect(args[1]).toBe("-c");
-		expect(args[2]).toBe('set -ae; . "$1"; shift; exec "$@"');
+		expect(args[2]).toBe(
+			'unset BELT_ESCALATE_URL BELT_ESCALATE_KEY BELT_ESCALATE_MODEL; set -ae; . "$1"; shift; exec "$@"',
+		);
 		expect(args[3]).toBe("fleet-belt-swarm");
 		expect(args[4]).toBe(`${FIXTURE.home}/.claude/local-llm/belt.env`);
 		// direct args follow the sourced files: bun, entry, then "supervise"
@@ -468,6 +470,8 @@ describe("services manifest win32 (W488.3)", () => {
 	test("legacyLabels: loader returns the manifest list, strings only", () => {
 		expect(loadLegacyLabels()).toContain("com.klh.kev");
 		expect(loadLegacyLabels()).toContain("com.klh-local.dashboard");
+		for (const port of [8901, 8902, 8903, 8913])
+			expect(loadLegacyLabels()).toContain(`com.belt.llm-${port}`);
 		for (const l of loadLegacyLabels()) expect(typeof l).toBe("string");
 	});
 
