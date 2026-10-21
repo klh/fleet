@@ -13,9 +13,10 @@ import {
 	fstatSync,
 	openSync,
 	readSync,
+	readdirSync,
 	realpathSync,
 } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { run } from "./run.ts";
 
 function realpathSafe(p: string): string {
@@ -35,6 +36,45 @@ export type TranscriptRef = {
 	session_id?: string;
 	transcript_path?: string;
 	cwd?: string;
+};
+
+const directoryNames = (root: string, pattern: RegExp): string[] => {
+	try {
+		return readdirSync(root, { withFileTypes: true })
+			.filter((entry) => entry.isDirectory() && pattern.test(entry.name))
+			.map((entry) => entry.name)
+			.sort()
+			.reverse();
+	} catch {
+		return [];
+	}
+};
+
+/** Codex rollouts are date-partitioned, so match the exact UUID filename
+ * suffix rather than trusting a session-supplied path or scanning content. */
+const codexRollout = (sessions: string, sid: string): string | null => {
+	if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(sid)) return null;
+	for (const year of directoryNames(sessions, /^\d{4}$/)) {
+		const yearPath = join(sessions, year);
+		for (const month of directoryNames(yearPath, /^\d{2}$/)) {
+			const monthPath = join(yearPath, month);
+			for (const day of directoryNames(monthPath, /^\d{2}$/)) {
+				const dayPath = join(monthPath, day);
+				try {
+					const match = readdirSync(dayPath, { withFileTypes: true }).find(
+						(entry) =>
+							entry.isFile() &&
+							entry.name.startsWith("rollout-") &&
+							entry.name.endsWith(`-${sid}.jsonl`),
+					);
+					if (match) return join(dayPath, match.name);
+				} catch {
+					// Missing or unreadable day: try the remaining date partitions.
+				}
+			}
+		}
+	}
+	return null;
 };
 
 /** The one resolution order — first candidate that exists wins, null fails
@@ -87,7 +127,10 @@ export function resolveTranscriptPath(
 		candidates.push(`${projects}/${encodeProjectDir(hook.cwd)}/${file}`);
 	}
 	for (const c of candidates) if (existsSync(c)) return c;
-	return null;
+	const codexHome = projectsRoot ? dirname(dirname(projectsRoot)) : home;
+	return hook.session_id
+		? codexRollout(join(codexHome, ".codex/sessions"), hook.session_id)
+		: null;
 }
 
 /** The last `bytes` of a transcript as text — bounded tail, never the whole
