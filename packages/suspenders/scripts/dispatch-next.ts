@@ -659,6 +659,14 @@ const dispatchItem = async (
 				return null;
 			}
 			pick = { ...pick, ...pd.pick };
+			pick.preference = {
+				source: "posture",
+				directive: "posture",
+				line: 0,
+				index: pick.chainIdx,
+				target: pick.name,
+				can: pick.preference.can,
+			};
 			// W1009.2: the route may swap the executor token (e.g. codex) —
 			// resolve the binary from the MERGED pick or the launch wraps the
 			// stale pre-plaid bin with the codex adapter's argv (mixed spawn).
@@ -1077,6 +1085,7 @@ const dispatchItem = async (
 			m,
 			BIN,
 			effortForPriority(item.priority),
+			pick.preference,
 		);
 		writtenFiles.set(laneSettings, settingsData);
 		writeFileSync(laneSettings, settingsData);

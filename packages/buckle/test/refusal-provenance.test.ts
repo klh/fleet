@@ -86,6 +86,33 @@ test("upstream 429 is distinguished from a local throttle", async () => {
 	}
 });
 
+test("Buckle echoes only canonical .prefer diagnostic metadata", async () => {
+	const upstream = await startMockUpstream(() =>
+		Response.json({ error: "busy" }, { status: 503 }),
+	);
+	try {
+		const app = createApp(
+			testDeps(pool("model-pref", upstream.url, "anthropic"), {
+				policy: { num_retries: 0 },
+			}),
+		);
+		const valid = request("model-pref");
+		valid.headers.set(
+			"x-klh-prefer",
+			"v=1;source=dotfile;directive=can;line=4;index=0;target=glm-5.3-flash;can=active",
+		);
+		const response = await app.fetch(valid);
+		expect(response.headers.get("x-klh-prefer")).toBe(
+			valid.headers.get("x-klh-prefer"),
+		);
+		const invalid = request("model-pref");
+		invalid.headers.set("x-klh-prefer", "must=secret; token=private");
+		expect((await app.fetch(invalid)).headers.get("x-klh-prefer")).toBeNull();
+	} finally {
+		upstream.close();
+	}
+});
+
 test("exhausted 503 preserves bounded retry and upstream trace attribution", async () => {
 	const upstream = await startMockUpstream(() =>
 		Response.json(

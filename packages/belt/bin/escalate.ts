@@ -145,6 +145,7 @@ export async function escalate(
 		policyPath?: string;
 		traceparent?: string;
 		requestId?: string;
+		preference?: string | null;
 		onAttempt?: (receipt: {
 			hop: "buckle-gate" | "litellm";
 			traceparent: string | null;
@@ -193,6 +194,7 @@ export async function escalate(
 				"x-litellm-call-id": attemptId,
 				...(opts.requestId ? { "x-klh-request-id": opts.requestId } : {}),
 				...(attemptTrace ? { traceparent: attemptTrace } : {}),
+				...(opts.preference ? { "x-klh-prefer": opts.preference } : {}),
 			},
 			signal: AbortSignal.timeout(120_000),
 			body: JSON.stringify({

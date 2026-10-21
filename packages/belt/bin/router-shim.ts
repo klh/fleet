@@ -61,6 +61,10 @@ import {
 	childTraceparent,
 	stampResponse,
 } from "../../telemetry/src/http-trace.ts";
+import {
+	parsePreferHeader,
+	PREFER_HEADER,
+} from "../../telemetry/src/prefer-header.ts";
 
 // W504: per-provider request caps — registry rows carry maxInflight for the
 // big unified-memory backends (:8901/:8903); BELT_PORT_CAPS ("8903:1,8901:3")
@@ -457,6 +461,7 @@ Bun.serve({
 			return Response.json({ error: "not found" }, { status: 404 });
 		}
 		const trace = beginTrace(req.headers);
+		const preference = parsePreferHeader(req.headers.get(PREFER_HEADER));
 		const stamped = (
 			response: Response,
 			hop: string,
@@ -468,14 +473,17 @@ Bun.serve({
 				upstreamId?: string;
 				callId?: string;
 			} = {},
-		): Response =>
-			stampResponse(response, {
+		): Response => {
+			const stamped = stampResponse(response, {
 				service: "belt",
 				hop,
 				traceId: trace.traceId,
 				requestId: trace.requestId,
 				...extra,
 			});
+			if (preference) stamped.headers.set(PREFER_HEADER, preference);
+			return stamped;
+		};
 
 		let body: AnthropicBody;
 		try {
@@ -872,6 +880,7 @@ Bun.serve({
 						wantFast,
 						traceparent: trace.traceparent,
 						requestId: trace.requestId,
+						preference,
 						onAttempt: recordAttempt,
 					});
 					if (c.note) note.push(c.note);

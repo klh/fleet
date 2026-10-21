@@ -11,6 +11,10 @@ import {
 	safeFailureKind,
 	stampHopHeaders,
 } from "../../telemetry/src/http-trace.ts";
+import {
+	parsePreferHeader,
+	PREFER_HEADER,
+} from "../../telemetry/src/prefer-header.ts";
 import { RouterError, routerErrorEnvelope } from "./adapters/errors.ts";
 import { resolveAdapter } from "./adapters/index.ts";
 import type { RpcAdmission } from "./admission.ts";
@@ -231,6 +235,7 @@ function stamped(
 		callId: route.callId,
 	});
 	for (const [k, v] of hs) resp.headers.set(k, v);
+	if (ctx.preference) resp.headers.set(PREFER_HEADER, ctx.preference);
 	return resp;
 }
 
@@ -299,6 +304,8 @@ interface Ctx {
 	 *  carries the x-klh-traffic: readiness mark (the healthcheck sidecar's
 	 *  synthetic full-chain poll); 'inference' otherwise. */
 	trafficKind: string;
+	/** Canonicalized executor intent; diagnostic only, never a route hint. */
+	preference: string | null;
 	/** W461 stage 2: set once the admitted observation is published —
 	 *  ended events only ride admitted requests. */
 	admitted?: boolean;
@@ -412,6 +419,7 @@ async function proxy(
 		condenseIn: false,
 		affKey: null,
 		prefixFp: null,
+		preference: parsePreferHeader(req.headers.get(PREFER_HEADER)),
 		// W461 stage 1: accept a caller traceparent, else root a fresh trace;
 		// baggage survives only in the fleet-allowlisted subset. W706: the
 		// hop marker rides the same baggage header — origin defaults to self
