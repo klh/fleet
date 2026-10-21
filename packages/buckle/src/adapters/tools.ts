@@ -101,7 +101,7 @@ const REASONING_EFFORT_CLAMP: Record<string, "low" | "high" | "max"> = {
  *  W884); unknown efforts degrade honestly (dropped + warning). */
 export function requestAnthropicToOpenAI(body: AnyRec): RequestTransform {
 	const warnings: TransformWarning[] = [];
-	let rejected: TransformWarning | null = null;
+	const rejected: TransformWarning | null = null;
 	const out: AnyRec = {};
 	for (const [key, value] of Object.entries(body)) {
 		if (PASS_THROUGH.has(key)) {
@@ -148,7 +148,11 @@ export function requestAnthropicToOpenAI(body: AnyRec): RequestTransform {
 				message:
 					"client telemetry (user_id) has no openai-compat equivalent — dropped",
 			});
-		} else if (key === "thinking" || key === "top_k" || key === "service_tier") {
+		} else if (
+			key === "thinking" ||
+			key === "top_k" ||
+			key === "service_tier"
+		) {
 			warnings.push({
 				field: key,
 				message: "no openai-compat equivalent — honest degrade (dropped)",
@@ -189,6 +193,7 @@ function choiceAToO(value: unknown): unknown {
 	if (!value || typeof value !== "object") return null;
 	const r = value as AnyRec;
 	if (r.type === "auto") return "auto";
+	if (r.type === "none") return "none";
 	if (r.type === "any") return "required";
 	if (r.type === "tool" && typeof r.name === "string") {
 		return { type: "function", function: { name: r.name } };

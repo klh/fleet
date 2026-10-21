@@ -25,6 +25,19 @@ const run = (chunks: unknown[]): { event: string; data: AnyRec }[] => {
 };
 
 describe("requestAnthropicToOpenAI", () => {
+	test("tool_choice none remains a hard no-tools constraint", () => {
+		const result = requestAnthropicToOpenAI({
+			model: "g",
+			max_tokens: 64,
+			tools: [{ name: "probe", input_schema: { type: "object" } }],
+			tool_choice: { type: "none" },
+			messages: [{ role: "user", content: "answer without a tool" }],
+		});
+		expect(result.rejected).toBe(null);
+		expect(result.body.tool_choice).toBe("none");
+		expect(result.warnings.some((w) => w.field === "tool_choice")).toBe(false);
+	});
+
 	test("field table: system, tools, tool_choice, tool_use/tool_result", () => {
 		const r = requestAnthropicToOpenAI({
 			model: "g",
