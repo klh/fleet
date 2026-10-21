@@ -99,6 +99,10 @@ export function parseFlags(
 		typeof raw.confirm === "string" && raw.confirm.trim() !== ""
 			? raw.confirm
 			: null;
+	// meow v14 negates --no-llm (yargs boolean-negation, prefix "no-") into
+	// llm=false and never sets noLlm — map the artifact back; an explicit
+	// --llm (llm=true) stays an unknown-flag usage error.
+	const noLlm = bool("noLlm") || raw.llm === false;
 	const flags: ResolvedFlags = {
 		dryRun: bool("dryRun"),
 		json: bool("json"),
@@ -110,7 +114,7 @@ export function parseFlags(
 		profile: profile ?? "hub",
 		prune: bool("prune"),
 		skipModels: bool("skipModels"),
-		noLlm: bool("noLlm"),
+		noLlm,
 		hub,
 		withLaunchd: bool("withLaunchd"),
 		reBlessActivation: bool("reBlessActivation"),
@@ -120,7 +124,11 @@ export function parseFlags(
 			: {}),
 	};
 	const known = Object.keys(meowFlags);
-	const unknown = Object.keys(raw).filter((k) => !known.includes(k));
+	// raw.llm=false is the meow negation artifact of --no-llm (mapped above);
+	// only an explicit --llm (llm=true) remains unknown.
+	const unknown = Object.keys(raw).filter(
+		(k) => !known.includes(k) && !(k === "llm" && raw.llm === false),
+	);
 	if (unknown.length > 0) {
 		return { error: `unknown flag --${unknown[0] ?? ""}`, flags };
 	}
