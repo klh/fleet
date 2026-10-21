@@ -5,6 +5,7 @@
 // once — the issue response — and verify answers valid/revoked/expired
 // without echoing hashes.
 import { allowOf, methodNotAllowed, problem } from "../citizenship.ts";
+import { readBoundedJson } from "../ingress-body.ts";
 import { readBeltTrace } from "../../../telemetry/src/trace-log.ts";
 import { readRemoteTraces } from "../../../telemetry/src/remote-traces.ts";
 import type { RequestReadQuery } from "../ledger.ts";
@@ -56,11 +57,9 @@ function scopeFilter(scopes: string[]): {
 }
 
 async function verifyKey(req: Request, gov: Governance): Promise<Response> {
-	const body = (await req.json().catch(() => null)) as Record<
-		string,
-		unknown
-	> | null;
-	if (body === null) return bad(400, "buckle.bad_body", "invalid JSON body");
+	const read = await readBoundedJson(req, gov.ingressBodyTimeoutMs);
+	if (!read.ok) return bad(read.status, read.code, read.why);
+	const body = read.body as Record<string, unknown> | null;
 	const key = str(body.key);
 	if (key === null) return bad(400, "buckle.bad_body", "missing key");
 	const v = gov.keys.verify(key);
@@ -203,11 +202,9 @@ async function issueKey(
 	p: Principal,
 	gov: Governance,
 ): Promise<Response> {
-	const body = (await req.json().catch(() => null)) as Record<
-		string,
-		unknown
-	> | null;
-	if (body === null) return bad(400, "buckle.bad_body", "invalid JSON body");
+	const read = await readBoundedJson(req, gov.ingressBodyTimeoutMs);
+	if (!read.ok) return bad(read.status, read.code, read.why);
+	const body = read.body as Record<string, unknown> | null;
 	const name = str(body.name);
 	if (name === null) return bad(400, "buckle.bad_body", "missing name");
 	const scopes = Array.isArray(body.scopes)
@@ -276,11 +273,9 @@ async function mintEnrollCode(
 			"buckle.no_federation",
 			"no enrollment surface on this gate (solo posture)",
 		);
-	const body = (await req.json().catch(() => null)) as Record<
-		string,
-		unknown
-	> | null;
-	if (body === null) return bad(400, "buckle.bad_body", "invalid JSON body");
+	const read = await readBoundedJson(req, gov.ingressBodyTimeoutMs);
+	if (!read.ok) return bad(read.status, read.code, read.why);
+	const body = read.body as Record<string, unknown> | null;
 	const spokeId = str(body.spoke_id);
 	if (spokeId === null) return bad(400, "buckle.bad_body", "missing spoke_id");
 	const out = sp.mint({
@@ -366,11 +361,9 @@ function listRequests(gov: Governance, url: URL): Response {
 }
 
 async function upsertTeam(req: Request, gov: Governance): Promise<Response> {
-	const body = (await req.json().catch(() => null)) as Record<
-		string,
-		unknown
-	> | null;
-	if (body === null) return bad(400, "buckle.bad_body", "invalid JSON body");
+	const read = await readBoundedJson(req, gov.ingressBodyTimeoutMs);
+	if (!read.ok) return bad(read.status, read.code, read.why);
+	const body = read.body as Record<string, unknown> | null;
 	const teamId = str(body.team_id);
 	if (teamId === null) return bad(400, "buckle.bad_body", "missing team_id");
 	gov.keys.upsertTeam({

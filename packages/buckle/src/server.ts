@@ -240,6 +240,7 @@ export function buildDeps(
 	const dbPath = opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db";
 	const federation = new Federation({
 		dbPath,
+		ingressBodyTimeoutMs: opts.ingressBodyTimeoutMs,
 		policy,
 		pool,
 		policyPath: opts.policyPath,
@@ -328,6 +329,7 @@ export function startServer(
 			jwt: opts.auth?.jwt ?? oidcGateOptsFromEnv() ?? undefined,
 			federation: deps.federation,
 			slots: opts.auth?.slots,
+			ingressBodyTimeoutMs: opts.ingressBodyTimeoutMs,
 			adaptation: opts.auth?.adaptation,
 			metrics: opts.auth?.metrics,
 		},

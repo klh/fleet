@@ -12,6 +12,7 @@ import { type AidsLedger, parseAids, tokensEstimate } from "./aids.ts";
 import { alignBody, alignForUpstream } from "./align.ts";
 import { type DietStore, pruneOptsOf, pruneTrajectory } from "./diet.ts";
 import type { Expander } from "./expand.ts";
+import { readBoundedJson } from "./ingress-body.ts";
 import type { AidsPolicy } from "./policy.ts";
 import type { Preseeder } from "./preseed.ts";
 import type { Servicemon } from "./servicemon.ts";
@@ -101,15 +102,13 @@ export async function aidsPreseed(
 	deps: AidsDeps,
 	req: Request,
 ): Promise<Response> {
-	let raw: AnyRec;
-	try {
-		raw = (await req.json()) as AnyRec;
-	} catch {
+	const read = await readBoundedJson(req);
+	if (!read.ok)
 		return Response.json(
-			{ ok: false, error: "invalid JSON body" },
-			{ status: 400 },
+			{ ok: false, error: read.why },
+			{ status: read.status },
 		);
-	}
+	const raw = read.body as AnyRec;
 	const parsed = parsePreseedBody(raw);
 	if (!parsed.ok || !parsed.req)
 		return Response.json(
@@ -144,15 +143,13 @@ export async function aidsExpand(
 			{ ok: false, error: "expander not configured" },
 			{ status: 501 },
 		);
-	let raw: AnyRec;
-	try {
-		raw = (await req.json()) as AnyRec;
-	} catch {
+	const read = await readBoundedJson(req);
+	if (!read.ok)
 		return Response.json(
-			{ ok: false, error: "invalid JSON body" },
-			{ status: 400 },
+			{ ok: false, error: read.why },
+			{ status: read.status },
 		);
-	}
+	const raw = read.body as AnyRec;
 	const goal = typeof raw.goal === "string" ? raw.goal : "";
 	if (!goal.trim())
 		return Response.json(
