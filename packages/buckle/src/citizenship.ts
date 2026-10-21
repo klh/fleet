@@ -4,6 +4,7 @@
 // Allow) off ONE route table, and the rate-limit header trio in both
 // families. The gate (gov/middleware.ts), the wire handlers, the admin API
 // and servicemon all code to this module — one source of truth per pattern.
+import { stampHopHeaders } from "../../telemetry/src/http-trace.ts";
 
 export const PROBLEM_SLUGS: Record<number, string> = {
 	400: "bad_request",
@@ -67,6 +68,7 @@ export function problem(p: ProblemInput): Response {
 		...(p.challenge === undefined ? {} : { "www-authenticate": p.challenge }),
 	});
 	for (const [k, v] of Object.entries(p.headers ?? {})) h.set(k, v);
+	stampHopHeaders(h, { service: "buckle", refusal: "buckle" });
 	return new Response(JSON.stringify(body), { status: p.status, headers: h });
 }
 

@@ -7,6 +7,7 @@
 // semantics: upstream retry-after verbatim when present, capped exponential
 // 2**attempt + U[0,1) jitter when absent). Owner directive enforced
 // structurally: flashx tiers are refused in every ladder walk.
+import { createHash } from "node:crypto";
 import {
 	type ErrorKind,
 	RouterError,
@@ -22,6 +23,11 @@ import { mayEscalate, type RouteSelection } from "./decide.ts";
 import { FLASHX, type GatewayPolicy } from "./policy.ts";
 import type { TraceContext } from "./trace.ts";
 import type { Deployment, Dialect, UpstreamPool } from "./upstreams.ts";
+import {
+	type HopReceipt,
+	safeCorrelationId,
+	traceIdOf,
+} from "../../telemetry/src/http-trace.ts";
 
 export { FLASHX };
 
@@ -40,6 +46,8 @@ export type ExecuteResult =
 			response: Response;
 			tier: string;
 			attempts: number;
+			refusalSource: "upstream" | "cooldown";
+			failureKind: ErrorKind;
 	  }
 	| {
 			kind: "aborted";
@@ -49,7 +57,16 @@ export type ExecuteResult =
 			status: number;
 			error: string;
 			attempts: number;
+			lastFailure?: FailureProvenance;
 	  };
+
+interface FailureProvenance {
+	source: "upstream" | "bridged-upstream" | "network";
+	status: number;
+	kind: string;
+	requestId?: string;
+	callId?: string;
+}
 
 export interface UpstreamRequest {
 	group: string;
@@ -57,6 +74,8 @@ export interface UpstreamRequest {
 	path: string;
 	body: Record<string, unknown>;
 	key: string;
+	/** The Buckle audit join key; no credential or request body rides telemetry. */
+	rid?: string;
 	/** W461 stage 1: request-scoped W3C trace context (correlation only —
 	 *  never identity/authz). Absent → the wire roots a fresh trace. */
 	trace?: TraceContext;
@@ -76,6 +95,8 @@ export interface RouterMetrics {
 	fallback(tier: string): void;
 	cooldown(dep: string): void;
 	refused(tier: string): void;
+	/** Every attempted rung, including network failures and later fallbacks. */
+	attempt?(receipt: HopReceipt): void;
 }
 
 /** A single upstream attempt's classified outcome. */
@@ -89,6 +110,9 @@ export type TryOutcome =
 			retryAfterS: number | null;
 			clientFault: boolean;
 			exhaustTier: boolean;
+			refusalSource: "upstream" | "bridged-upstream";
+			requestId?: string;
+			callId?: string;
 			/** W134 §1 normalized kind (adapters/errors.ts) */
 			kind: ErrorKind;
 			/** bad_request subclass: the prompt overflowed this deployment's
@@ -104,7 +128,12 @@ interface WalkState {
 	status: number;
 	error: string;
 	ctxWindow?: Response;
-	rateLimit?: { response: Response; tier: string };
+	rateLimit?: {
+		response: Response;
+		tier: string;
+		source: "upstream" | "cooldown";
+	};
+	lastFailure?: FailureProvenance;
 	pendingRetryMs?: number;
 }
 
@@ -148,16 +177,35 @@ async function classifyFailure(dep: Deployment, resp: Response) {
 		family = deriveAdapter(dep.dialect);
 	}
 	const err = normalizeUpstreamError(family, resp.status, wire, resp.headers);
+	const record =
+		wire && typeof wire === "object" ? (wire as Record<string, unknown>) : null;
+	const detail =
+		record?.error && typeof record.error === "object"
+			? (record.error as Record<string, unknown>)
+			: null;
+	const requestId = safeCorrelationId(
+		resp.headers.get("x-request-id") ??
+			detail?.request_id ??
+			record?.request_id,
+	);
+	const callId = safeCorrelationId(resp.headers.get("x-litellm-call-id"));
 	// the body is now decoded text: length/encoding headers no longer apply
 	const headers = new Headers(resp.headers);
 	headers.delete("content-length");
 	headers.delete("content-encoding");
+	// LiteLLM's api-base header may contain an operator URL. It belongs in
+	// internal hop logs, never a client-facing error response.
+	headers.delete("x-litellm-model-api-base");
+	if (!requestId) headers.delete("x-request-id");
+	if (!callId) headers.delete("x-litellm-call-id");
+	if (requestId) headers.set("x-klh-upstream-request-id", requestId);
+	if (callId) headers.set("x-litellm-call-id", callId);
 	const replay = new Response(text, {
 		status: resp.status,
 		statusText: resp.statusText,
 		headers,
 	});
-	return { err, replay };
+	return { err, replay, requestId, callId };
 }
 
 /** Thrown when an upstream is unreachable (network/timeout); the walk
@@ -220,6 +268,7 @@ export class Router {
 		this.sleepMs =
 			deps.sleepMs ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
 		this.fetchImpl = deps.fetchImpl ?? defaultFetchImpl;
+		this.metrics = deps.metrics;
 	}
 
 	/** Same-dialect deployments first (pass-through precedence); the
@@ -257,7 +306,10 @@ export class Router {
 					: resp;
 				return { ok: true, response };
 			}
-			const { err, replay } = await classifyFailure(dep, resp);
+			const { err, replay, requestId, callId } = await classifyFailure(
+				dep,
+				resp,
+			);
 			const ra = err.retryAfterS ?? retryAfterS(resp.headers, this.now);
 			const base = {
 				ok: false as const,
@@ -281,6 +333,9 @@ export class Router {
 				retryAfterS: ra,
 				kind: err.kind,
 				contextWindow: err.contextWindow,
+				refusalSource: "upstream" as const,
+				requestId,
+				callId,
 			};
 			if (bridged && err.kind === "bad_request" && resp.status < 500) {
 				// a 4xx on a translated hop may be the bridge's doing and its
@@ -291,6 +346,7 @@ export class Router {
 					error: `bridged upstream ${dep.url} rejected the request (${String(resp.status)})`,
 					clientFault: false,
 					exhaustTier: true,
+					refusalSource: "bridged-upstream",
 				};
 			}
 			if (err.contextWindow) {
@@ -300,6 +356,7 @@ export class Router {
 					error: `upstream ${dep.url} context window exceeded (${String(resp.status)})`,
 					clientFault: false,
 					exhaustTier: true,
+					refusalSource: "upstream",
 				};
 			}
 			// a 5xx is the upstream's fault whatever its body claims; 404 is a
@@ -318,6 +375,7 @@ export class Router {
 					error: `upstream ${dep.url} rejected the request (${String(resp.status)})`,
 					clientFault: true,
 					exhaustTier: false,
+					refusalSource: "upstream",
 				};
 			}
 			this.cooldowns.failure(
@@ -329,6 +387,7 @@ export class Router {
 				...base,
 				error: `upstream ${dep.url} returned ${String(resp.status)}`,
 				clientFault: false,
+				refusalSource: "upstream",
 				// W987: auth rungs (401/403) are deployment faults — the
 				// credential belongs to this dep, not the request — so they
 				// walk on instead of exhausting the tier (the copilot seat's
@@ -340,6 +399,50 @@ export class Router {
 			this.cooldowns.failure(dep);
 			this.metrics?.cooldown(`${dep.group}|${dep.url}`);
 			throw new UpstreamError(502, `upstream ${dep.url} unreachable`);
+		}
+	}
+
+	/** One bounded receipt per actual candidate attempt. Telemetry failures
+	 * cannot change routing, and candidate IDs never expose a raw URL. */
+	private reportAttempt(
+		req: UpstreamRequest,
+		dep: Deployment,
+		ordinal: number,
+		startedAt: number,
+		status: number | null,
+		refusal: string | null,
+		retryAfterS: number | null,
+		requestId?: string,
+		callId?: string,
+	): void {
+		const retryAfterMs =
+			retryAfterS === null || !Number.isFinite(retryAfterS)
+				? null
+				: Math.min(
+						Number.MAX_SAFE_INTEGER,
+						Math.max(0, Math.round(retryAfterS * 1000)),
+					);
+		const receipt: HopReceipt = {
+			rid: req.rid ?? "",
+			traceId: traceIdOf(req.trace?.traceparent ?? null) ?? "",
+			ordinal,
+			service: "buckle",
+			hop: dep.dialect === req.dialect ? "upstream" : "bridged-upstream",
+			candidate: createHash("sha256")
+				.update(candIdOf(dep))
+				.digest("hex")
+				.slice(0, 16),
+			status,
+			refusal,
+			durationMs: Math.max(0, this.now() - startedAt),
+			retryAfterMs,
+			upstreamId: requestId ?? null,
+			callId: callId ?? null,
+		};
+		try {
+			this.metrics?.attempt?.(receipt);
+		} catch {
+			// The receipt sink is observability, never a routing dependency.
 		}
 	}
 
@@ -378,12 +481,22 @@ export class Router {
 				if (req.signal?.aborted) return { kind: "aborted" };
 			}
 			st.attempts++;
+			const startedAt = this.now();
 			let r: TryOutcome;
 			try {
 				r = await this.tryOnce(req, dep, timeoutMs, stream);
 			} catch (error) {
 				if (req.signal?.aborted) return { kind: "aborted" };
 				if (!(error instanceof UpstreamError)) throw error;
+				this.reportAttempt(
+					req,
+					dep,
+					st.attempts,
+					startedAt,
+					null,
+					"network",
+					null,
+				);
 				// W985 skip-not-fail: an unreachable rung (ECONNREFUSED, timeout)
 				// must not kill the ladder — record it and walk on to the next
 				// candidate / fallback rung. A banked provider rate limit still
@@ -392,9 +505,23 @@ export class Router {
 				if (st.rateLimit) break;
 				st.status = error.status;
 				st.error = `no healthy upstream for ${req.group} (${error.message})`;
+				st.lastFailure = {
+					source: "network",
+					status: error.status,
+					kind: "network",
+				};
 				continue;
 			}
 			if (r.ok) {
+				this.reportAttempt(
+					req,
+					dep,
+					st.attempts,
+					startedAt,
+					r.response.status,
+					null,
+					null,
+				);
 				return {
 					kind: "upstream",
 					response: r.response,
@@ -405,10 +532,28 @@ export class Router {
 					stream: req.body.stream === true,
 				};
 			}
+			this.reportAttempt(
+				req,
+				dep,
+				st.attempts,
+				startedAt,
+				r.status,
+				r.kind,
+				r.retryAfterS,
+				r.requestId,
+				r.callId,
+			);
 			st.status = r.status;
 			st.error = r.error;
+			st.lastFailure = {
+				source: r.refusalSource,
+				status: r.status,
+				kind: r.kind,
+				requestId: r.requestId,
+				callId: r.callId,
+			};
 			if (r.kind === "rate_limited" && !st.rateLimit)
-				st.rateLimit = { response: r.response, tier };
+				st.rateLimit = { response: r.response, tier, source: "upstream" };
 			if (r.contextWindow) st.ctxWindow = r.response;
 			if (r.exhaustTier) break;
 			// A provider that asks us to wait beyond the configured retry cap is
@@ -491,6 +636,7 @@ export class Router {
 		);
 		st.rateLimit = {
 			tier,
+			source: "cooldown",
 			response: Response.json(routerErrorEnvelope(error, req.dialect), {
 				status: 429,
 				headers: { "retry-after": String(retryAfter) },
@@ -662,6 +808,8 @@ function exhausted(st: WalkState): ExecuteResult {
 			response: st.rateLimit.response,
 			tier: st.rateLimit.tier,
 			attempts: st.attempts,
+			refusalSource: st.rateLimit.source,
+			failureKind: "rate_limited",
 		};
 	if (st.ctxWindow)
 		return {
@@ -669,12 +817,15 @@ function exhausted(st: WalkState): ExecuteResult {
 			response: st.ctxWindow,
 			tier: "",
 			attempts: st.attempts,
+			refusalSource: "upstream",
+			failureKind: "bad_request",
 		};
 	return {
 		kind: "exhausted",
 		status: st.status,
 		error: st.error,
 		attempts: st.attempts,
+		lastFailure: st.lastFailure,
 	};
 }
 
