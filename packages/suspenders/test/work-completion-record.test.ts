@@ -1,21 +1,25 @@
-import { TAIL } from "../hooks/board-html/tail.ts";
-import { createHash } from "node:crypto";
-import {
-	persistCompletion,
-	type CompletionRecord,
-} from "../hooks/lib/work-completion-record.ts";
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import {
-	mkdtempSync,
 	mkdirSync,
+	mkdtempSync,
 	readFileSync,
 	realpathSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { TAIL } from "../hooks/board-html/tail.ts";
+import {
+	encodeProjectDir,
+	resolveTranscriptPath,
+} from "../hooks/lib/transcript.ts";
+import {
+	type CompletionRecord,
+	persistCompletion,
+} from "../hooks/lib/work-completion-record.ts";
 
 const cleanup: string[] = [];
 const workFile = join(import.meta.dir, "..", "hooks", "bin", "work.ts");
@@ -199,6 +203,78 @@ test("completion persists a paragraph with immutable commit evidence after owner
 		origin_sid: "completion-lane",
 	});
 	knowledge.close();
+});
+
+test("prior shared-session test claim and another item's capsule cannot block this close", () => {
+	const f = fixture();
+	const transcriptDir = join(
+		f.home,
+		".claude",
+		"projects",
+		encodeProjectDir(realpathSync(f.repo)),
+	);
+	mkdirSync(transcriptDir, { recursive: true });
+	writeFileSync(
+		join(transcriptDir, "completion-lane.jsonl"),
+		JSON.stringify({
+			type: "assistant",
+			timestamp: new Date(Date.now() - 60_000).toISOString(),
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "all tests pass for an earlier item" }],
+			},
+		}),
+	);
+	const db = new Database(
+		join(f.home, ".cache", "claude-governor", "governor.db"),
+	);
+	db.query(
+		"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, ?, 1, ?)",
+	).run(
+		"lane.completion-lane.capsule",
+		JSON.stringify({
+			item: "W999",
+			done: "all tests pass for W999",
+			ts: Date.now(),
+		}),
+		"completion-lane",
+		Date.now(),
+	);
+	db.close();
+	const done = f.work("done", f.id, "--sha", f.sha, "--summary", summary);
+	expect(done.code).toBe(0);
+	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("DONE");
+});
+
+test("current item's unsupported transcript claim still blocks completion", () => {
+	const f = fixture();
+	const transcriptDir = join(
+		f.home,
+		".claude",
+		"projects",
+		encodeProjectDir(realpathSync(f.repo)),
+	);
+	mkdirSync(transcriptDir, { recursive: true });
+	writeFileSync(
+		join(transcriptDir, "completion-lane.jsonl"),
+		JSON.stringify({
+			type: "assistant",
+			timestamp: new Date().toISOString(),
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "all tests pass for this item" }],
+			},
+		}),
+	);
+	expect(
+		resolveTranscriptPath(
+			{ session_id: "completion-lane", cwd: f.repo },
+			join(f.home, ".claude", "projects"),
+		),
+	).toBe(join(transcriptDir, "completion-lane.jsonl"));
+	const done = f.work("done", f.id, "--sha", f.sha, "--summary", summary);
+	expect(done.code).toBe(2);
+	expect(done.err).toContain("test-pass claim not backed by evidence");
 });
 
 test("a dispatched no-op cannot become DONE using an old valid commit", () => {
