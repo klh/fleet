@@ -43,6 +43,16 @@ export type HopContractAdmission =
 	| { ok: true; contract: HopContract }
 	| { ok: false; denial: HopContractDenial };
 
+/** A child contract that cannot encode refuses the leg (never a
+ *  contract-less bypass). Unreachable for admitted contracts by the grammar
+ *  (budget ∈ [0,99], path ≤64, 13-digit deadline) — kept typed so the
+ *  router classification is honest if an invariant ever breaks. */
+export class HopContractRefusal extends Error {
+	constructor(ownRung: string) {
+		super(`hop contract unencodable at rung ${ownRung}`);
+	}
+}
+
 /** The typed denial for a parsed verdict: null when the contract admits. */
 function denialOf(
 	parsed: HopContractParse,

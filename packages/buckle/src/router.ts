@@ -27,6 +27,7 @@ import { bridgeRequest, bridgeResponse } from "./bridge.ts";
 import { type CandidateRow, candIdOf } from "./candidates.ts";
 import { Cooldowns, retryAfterS, retryDelayS } from "./cooldown.ts";
 import { mayEscalate, type RouteSelection } from "./decide.ts";
+import type { HopContract } from "./hop-deadline.ts";
 import { FLASHX, type GatewayPolicy } from "./policy.ts";
 import {
 	type ProviderLease,
@@ -95,6 +96,13 @@ export interface UpstreamRequest {
 	/** W706: the outbound baggage for a relay leg to a buckle-marked peer
 	 *  (origin passed through + peer=self). Absent/non-buckle → the strip. */
 	relayBaggage?: string;
+	/** W1118.1: the admitted (or rooted) hop contract — its absolute
+	 *  deadline clamps the walk; its child form rides every fleet leg.
+	 *  Absent on direct internal callers (no contract, no clamp). */
+	hopContract?: HopContract;
+	/** W1118.1: this hop's own rung id (ingress URL + wire model) — the
+	 *  sender-side append for the child contract. */
+	ownRung?: string;
 	/** Canonicalized .prefer selection, diagnostic only. */
 	preference?: string | null;
 	signal?: AbortSignal;
@@ -1017,8 +1025,12 @@ export class Router {
 	 *  override) are skipped as skip-not-failure. */
 	async execute(req: UpstreamRequest): Promise<ExecuteResult> {
 		if (req.signal?.aborted) return { kind: "aborted" };
-		const deadlineMs =
-			this.now() + (this.policy.first_byte_budget_s ?? 240) * 1000;
+		// W1118.1: an admitted hop contract CLAMPS the local walk deadline —
+		// an absolute deadline never extends the local budget, only tightens.
+		const deadlineMs = Math.min(
+			this.now() + (this.policy.first_byte_budget_s ?? 240) * 1000,
+			req.hopContract?.deadlineMs ?? Number.POSITIVE_INFINITY,
+		);
 		if (req.sel)
 			return this.walkSelected(req, {
 				attempts: 0,
