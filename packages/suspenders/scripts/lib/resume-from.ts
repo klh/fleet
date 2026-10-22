@@ -30,6 +30,8 @@ import { statSync } from "node:fs";
 import { basename } from "node:path";
 import { adapterForExact } from "../../hooks/lib/executors/registry.ts";
 import { transcriptPath } from "../../hooks/lib/lane-liveness.ts";
+import { continuationPrompt } from "./lane-layout.ts";
+import { starterInstructionContext } from "./lane-starter.ts";
 
 /** Policy flag — the knob is opt-in at the machine level. */
 export const RESUME_RETAKE_FLAG = "SUSPENDERS_RESUME_RETAKE";
@@ -123,3 +125,32 @@ export const resumeBriefLine = (d: ResumeDecision): string[] =>
 				`RESUME MODE: this lane resumed ${d.sid}'s transcript (claude --resume --fork-session); the capsule below is context, not the sole hand-off. Fences held: policy on, claude adapter, claim sid match, transcript cache-warm.`,
 			]
 		: [];
+
+/** W1139.2 layout law: an honored transcript resume appends a CONTINUATION
+ *  instruction onto the stable shared prefix — the resumed transcript already
+ *  carries history, so the new turn never re-orients with a full cold brief.
+ *  Fresh mode passes `cold` through unchanged. */
+export const continuationPromptFor = (
+	d: ResumeDecision,
+	cold: string,
+): string =>
+	d.mode === "resume"
+		? continuationPrompt(
+				starterInstructionContext(),
+				resumeBriefLine(d).join(" "),
+			)
+		: cold;
+
+/** W622/W1139.2: the dispatch-facing resume notes — the honored resume and a
+ *  refused --resume-from both surface, never silent. */
+export const resumeStartNotes = (
+	d: ResumeDecision,
+	requested: boolean,
+): void => {
+	if (d.mode === "resume")
+		console.log(
+			`NOTE — transcript resume ${d.sid} (claude --resume --fork-session; fences held)`,
+		);
+	else if (requested)
+		console.log(`NOTE — --resume-from refused: ${d.why}; fresh lane + capsule`);
+};
