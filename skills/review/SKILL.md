@@ -26,3 +26,5 @@ Categorize findings as Critical, Important, or Suggestion. Every finding carries
 - `bun test | tail` gates the chain on tail's exit 0 — the verifier runs bare or under `pipefail`.
 - `git stash` is shared across worktrees on this mount — never bare `stash pop`; prefer a WIP commit.
 - Read what you cite: full reads before review claims; a partial read is declared, not hidden.
+- bun:sqlite `.get()` returns null on no match — an `!== undefined` guard is always true; flag it.
+- Empty-string env knobs count as set (`env.X ?? fallback` passes on `""`) — flag untrimmed operator-knob fallbacks.
