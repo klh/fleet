@@ -398,7 +398,7 @@ export function subscriberPendingControl(sid: string) {
 	if (!kind) return null;
 	return db
 		.query(
-			"SELECT e.id, e.ts, e.source, e.kind, e.scope, e.payload, e.target FROM events e WHERE e.target = ? AND e.kind = ? AND NOT EXISTS (SELECT 1 FROM direct_message_receipts r WHERE r.event_id = e.id AND r.sid = ? AND r.state = 'ACCEPTED') ORDER BY e.id DESC LIMIT 1",
+			"SELECT e.id, e.ts, e.source, e.kind, e.scope, e.payload, e.target FROM (SELECT * FROM events WHERE target = ? AND kind = ? ORDER BY id DESC LIMIT 1) e WHERE NOT EXISTS (SELECT 1 FROM direct_message_receipts r WHERE r.event_id = e.id AND r.sid = ? AND r.state = 'ACCEPTED')",
 		)
 		.get(sid, kind, sid) as (Ev & { target: string }) | null;
 }
