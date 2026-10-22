@@ -94,5 +94,6 @@ through 2026-09), cross-checked against MAST's three-category taxonomy
 arXiv:2503.13657): MAST categories are orthogonal, not conflicting — a
 CRASH incident often maps to a MAST category too; the mapping is recorded
 per-record in the dataset. H5–H8 were added 2026-10-07 (W447) from the
-consult evaluation research (toto-gpt.md, § "How to evaluate whether it
-works") and the MAST ask/deliver/answer/use split.
+consult evaluation research (fleet-root `docs/research-toto-gpt.md`, §
+"How to evaluate whether it works") and the MAST ask/deliver/answer/use
+split.

@@ -61,19 +61,20 @@ Full definitions, subclasses, decision tree: `docs/taxonomy.md`.
 bun install
 bun tools/label.ts validate dataset/incidents.jsonl   # schema-check the dataset
 bun tools/label.ts list                                # summary by class
-bun test                                               # all package tests (137)
+bun test                                               # all package tests (164)
 bun bench/consult/harness.ts                           # consult policy suite
 bun bench/paired/harness.ts                            # paired-arm eval suite
 ```
 
 ## Repo layout
 
-    docs/       taxonomy, labeling protocol, metrics, related work
+    docs/       taxonomy, labeling protocol, metrics, condense spec +
+                compression research
     schema/     JSON Schema for incident records
     dataset/    incidents.jsonl (sanitized real incidents) + format doc
     bench/      scenario harness + reproducible failure scenarios
     tools/      labeling CLI + agreement statistics
-    paper/      venue plan, outline, LaTeX scaffold
+    paper/      outline + venue ranking (outline.md)
 
 ## License
 
