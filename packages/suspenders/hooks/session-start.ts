@@ -406,8 +406,11 @@ if (!isSubagent && input.cwd) {
 				.query("SELECT value FROM facts WHERE key = ?")
 				.get(`broadcast.seen.${sid}`) as { value: string } | null;
 			if (b.ts > Number(seen?.value ?? 0)) {
+				// a broadcast note is event context, not a briefing — cap it so one
+				// verbose notice (quota-sweep dumps) cannot flood the resume packet
+				const note = b.note.replace(/\s+/g, " ").trim();
 				out.push(
-					`HISTORICAL FLEET NOTICE (${new Date(b.ts).toISOString().slice(0, 16).replace("T", " ")} UTC; recorded event, not current capability): ${b.note.replace(/\s+/g, " ").trim()} — this does not establish a current transport.`,
+					`HISTORICAL FLEET NOTICE (${new Date(b.ts).toISOString().slice(0, 16).replace("T", " ")} UTC; recorded event, not current capability): ${note.length > 300 ? `${note.slice(0, 300)}…` : note} — this does not establish a current transport.`,
 				);
 				db.query(
 					"INSERT INTO facts (key, value, ts) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, ts = excluded.ts",
