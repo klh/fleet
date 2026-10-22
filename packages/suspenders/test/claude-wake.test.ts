@@ -10,6 +10,9 @@ import {
 
 const home = mkdtempSync(join(tmpdir(), "fleet-claude-wake-"));
 afterAll(() => rmSync(home, { recursive: true, force: true }));
+// W670: lane envs carry SUSPENDERS_CLAUDE_WAKE=0 (the managed runtime pins it
+// for native children) — pin the knob so native-consumer watchers arm here.
+process.env.SUSPENDERS_CLAUDE_WAKE = "1";
 const event = (id: number, target: string, kind = "NOTE") => ({
 	id,
 	target,
@@ -53,7 +56,7 @@ describe("Claude native hook wake bridge", () => {
 			expect(signalClaudeDirectEvent(event(i + 3, sid, kind), sid, home)).toBe(
 				true,
 			);
-			const text = consumeClaudeWake(sid, home);
+			const text = consumeClaudeWake(sid, home)?.text ?? null;
 			expect(text).toContain(`direct instruction ${i + 3}`);
 			expect(text).toContain(`coord inbox --as ${sid}`);
 			expect(consumeClaudeWake(sid, home)).toBeNull();

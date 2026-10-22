@@ -73,3 +73,36 @@ test("a failed interrupt never injects a message or claims successful cancellati
 	expect(sent.filter((frame) => frame.type === "user")).toHaveLength(1);
 	control.close();
 });
+
+test("awaitResult resolves true on the injected turn's result, false on close", async () => {
+	const control = new ClaudeControl(() => {});
+	control.start("original");
+	const proof = control.awaitResult(1000);
+	control.receive({ type: "result", subtype: "success", result: "done" });
+	expect(await proof).toBe(true);
+	const proof2 = control.awaitResult(1000);
+	control.close(); // native exit mid-injection: NOT delivered — replay
+	expect(await proof2).toBe(false);
+});
+
+test("routine notes wait for the turn boundary instead of interrupting", async () => {
+	const sent: Record<string, unknown>[] = [];
+	const control = new ClaudeControl((frame) => sent.push(frame));
+	control.start("original");
+	const boundary = control.boundary();
+	await Promise.resolve();
+	// nothing was sent while waiting — no interrupt frame for a routine note
+	expect(sent).toHaveLength(1);
+	control.receive({ type: "result", subtype: "success", result: "turn end" });
+	await boundary;
+	control.start("routine");
+	expect(
+		sent.filter(
+			(frame) =>
+				frame.type === "control_request" &&
+				frame.request?.subtype === "interrupt",
+		),
+	).toHaveLength(0);
+	expect(sent.filter((frame) => frame.type === "user")).toHaveLength(2);
+	control.close();
+});

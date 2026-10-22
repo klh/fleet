@@ -8,7 +8,7 @@ import {
 	consumeClaudeWake,
 	proveClaudeWake,
 	releaseClaudeWake,
-	waitForClaudeWake,
+	waitForClaudeWakeClaim,
 } from "../lib/claude-wake.ts";
 // W1035.1: interrupt results are internal turn boundaries — never terminal.
 import { defineVerb, runCli } from "../lib/verb-kit.ts";
@@ -87,22 +87,60 @@ async function run(args: string[]): Promise<number> {
 	});
 	const delivery = (async () => {
 		while (!closing) {
-			const text = await waitForClaudeWake(sid, {
+			const claim = await waitForClaudeWakeClaim(sid, {
 				consumer: "managed",
 				abort: abort.signal,
 			});
-			if (!text || closing) break;
+			if (!claim || closing) break;
 			const wasActive = control.active;
+			let state = wasActive ? "interrupted-and-injected" : "injected";
+			// W1035.1.1: a native interrupt aborts in-flight tool calls — only an
+			// explicitly urgent event may do that. Routine direct notes coalesce:
+			// they wait for the current turn's boundary, then inject into the
+			// same conversation without interrupting anything.
+			if (wasActive && !claim.urgent) {
+				try {
+					await control.boundary(abort.signal);
+					state = "boundary-injected";
+				} catch {
+					// Boundary timeout/abort: never abort the turn for a routine
+					// note — requeue; the next wake replays the event.
+					releaseClaudeWake(sid, undefined, "managed");
+					emit({
+						type: "fleet.claude.delivery",
+						sid,
+						state: "queued",
+						reason: "routine note waits for the turn boundary",
+						event: String(claim.id),
+					});
+					continue;
+				}
+				if (closing) break;
+			}
 			try {
-				await control.steer(text);
+				await control.steer(claim.text);
 				// W1035.1: the watermark moves only after a proven injection.
-				proveClaudeWake(sid, undefined, "managed");
+				// W1035.1.1: proof waits for the injected turn's RESULT frame — a
+				// native exit before it leaves the claim requeueable (replay).
+				control.awaitResult().then(
+					(delivered) => {
+						if (!delivered) return;
+						proveClaudeWake(sid, undefined, "managed", claim.id);
+						emit({
+							type: "fleet.claude.delivery",
+							sid,
+							state: "delivered",
+							event: String(claim.id),
+						});
+					},
+					() => {},
+				);
 				consumeClaudeWake(sid, undefined, "boundary");
 				emit({
 					type: "fleet.claude.delivery",
 					sid,
-					state: wasActive ? "interrupted-and-injected" : "injected",
-					event: text.match(/^Fleet direct event #(\d+)/)?.[1] ?? null,
+					state,
+					event: String(claim.id),
 				});
 			} catch (error) {
 				// Interrupt refused/timeout: requeue — the durable event must not
@@ -122,7 +160,8 @@ async function run(args: string[]): Promise<number> {
 	const code = await exited;
 	// W1035.1: a native exit with an unproven injection requeues the claim —
 	// the resume path replays the directed event instead of it being lost
-	// behind a watermark that never advanced.
+	// behind a watermark that never advanced. W1035.1.1: proof moved to the
+	// injected turn's result, so this covers the whole inject→result window.
 	releaseClaudeWake(sid, undefined, "managed");
 	closing = true;
 	abort.abort();

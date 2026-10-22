@@ -371,13 +371,19 @@ export async function cmdMessage(rest: string[]): Promise<void> {
 	const needle = rest[0];
 	const text = rest[1];
 	if (!needle || !text)
-		die('usage: message <target-label-or-sid-or-substring> "text" [--as sid]');
+		die(
+			'usage: message <target-label-or-sid-or-substring> "text" [--urgent] [--as sid]',
+		);
 	const { target, deferred } = resolveMessageTarget(needle);
+	// W1035.1.1: --urgent is the ONLY native-interrupt class. Routine direct
+	// notes coalesce at the target's next turn boundary instead of aborting
+	// in-flight tool calls (W1117 churn evidence).
 	const id = emitEvent({
 		kind: DIRECT_MESSAGE_KIND,
 		note: text,
 		source,
 		to: target.sid,
+		extra: rest.includes("--urgent") ? { urgent: "1" } : {},
 	});
 	console.log(
 		`${green("✓")} ${dim(`message queued #${id} → ${target.label} @${target.sid.slice(0, 8)}`)}`,
@@ -386,7 +392,9 @@ export async function cmdMessage(rest: string[]): Promise<void> {
 		dim(
 			deferred
 				? "This exact session is inactive; the message is queued until it resumes and remains unaccepted until it acknowledges it."
-				: "A queued message does not wake an idle CLI session. It is shown on its next turn and remains unaccepted until that session acknowledges it.",
+				: rest.includes("--urgent")
+					? "Urgent: an active managed lane is interrupted mid-turn for this; an idle CLI session still wakes only at its next hook boundary."
+					: "A queued message does not wake an idle CLI session. It is shown on its next turn and remains unaccepted until that session acknowledges it.",
 		),
 	);
 }
