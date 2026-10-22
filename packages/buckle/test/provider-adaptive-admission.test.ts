@@ -52,6 +52,9 @@ test("only current-epoch successes gradually recover, unrelated failures do not 
 	expect(core.snapshot().adaptiveGapMs).toBe(1);
 	first.feedback?.(429, null);
 	first.release();
+	await Bun.sleep(
+		Math.max(0, core.snapshot().congestionUntilMs - Date.now()) + 1,
+	);
 	for (let i = 0; i < 8; i++) {
 		const lease = await core.acquire();
 		lease.feedback?.(200, null);
@@ -67,6 +70,9 @@ test("maximum adaptive backoff still grants within a shorter caller budget", asy
 		const lease = await core.acquire(undefined, 150);
 		lease.feedback?.(429, null);
 		lease.release();
+		await Bun.sleep(
+			Math.max(0, core.snapshot().congestionUntilMs - Date.now()) + 1,
+		);
 	}
 	expect(core.snapshot().adaptiveGapMs).toBe(100);
 	const started = Date.now();
