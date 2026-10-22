@@ -11,6 +11,7 @@ import {
 	PREFER_HEADER,
 	type PreferHeaderDecision,
 } from "../../../telemetry/src/prefer-header.ts";
+import { join } from "node:path";
 import type { PreferRouting } from "./prefer-routing.ts";
 
 /** The Task-pin hook command written into the lane settings. process.execPath
@@ -33,7 +34,7 @@ const RUNAWAY_ENV_KEYS = [
 ] as const;
 
 export const runawayHookCommand = (bin: string): string =>
-	`${process.execPath} ${bin}/gate.ts runaway`;
+	`${process.execPath} ${join(bin, "..", "gate.ts")} runaway`;
 
 const runawayEnv = (env: Record<string, string>): Record<string, string> =>
 	Object.fromEntries(

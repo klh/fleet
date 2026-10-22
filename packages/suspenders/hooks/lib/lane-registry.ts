@@ -150,7 +150,13 @@ export function mergeLaneRegistry<T extends RegistryLane>(
  * this lock is held; a changed registry row or process cannot be adopted. */
 export function repairLaneRegistryPid<
 	T extends RegistryLane & { pid?: number },
->(input: string, expected: T, pid: number, guard: () => boolean): boolean {
+>(
+	input: string,
+	expected: T,
+	pid: number,
+	guard: () => boolean,
+	launchedAt?: number,
+): boolean {
 	return withRegistryLock(laneRegistryFile(input), (file) => {
 		const state = readFile<T>(file);
 		if (!state.known) return false;
@@ -163,7 +169,11 @@ export function repairLaneRegistryPid<
 		if (!guard()) return false;
 		const temp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
 		try {
-			state.lanes[index] = { ...expected, pid };
+			state.lanes[index] = {
+				...expected,
+				pid,
+				...(launchedAt === undefined ? {} : { launchedAt }),
+			};
 			const fd = openSync(temp, "wx", 0o600);
 			try {
 				writeFileSync(fd, JSON.stringify(state.lanes, null, 2));

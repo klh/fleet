@@ -53,7 +53,7 @@ describe("lane-settings (W512)", () => {
 
 	test("runaway guard: command via prefix bin, thresholds pass through env", () => {
 		const cmd = runawayHookCommand("/p/bin");
-		expect(cmd).toContain("/p/bin/gate.ts runaway");
+		expect(cmd).toContain("/p/gate.ts runaway");
 		expect(cmd.startsWith(process.execPath)).toBe(true);
 		const s = JSON.parse(
 			laneSettingsData(
