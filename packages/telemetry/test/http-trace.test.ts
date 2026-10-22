@@ -4,10 +4,28 @@ import {
 	childTraceparent,
 	safeCorrelationId,
 	safeFailureKind,
+	safeProviderErrorToken,
 	safeRefusalCode,
 	stampResponse,
 	traceIdOf,
 } from "../src/http-trace.ts";
+
+test("provider diagnostic tokens are bounded and do not persist credentials or prose", () => {
+	expect(safeProviderErrorToken(1302)).toBe("1302");
+	expect(safeProviderErrorToken("rate_limit_error")).toBe("rate_limit_error");
+	for (const value of [
+		undefined,
+		null,
+		{},
+		Number.NaN,
+		"x".repeat(65),
+		"unsafe\nvalue",
+		"message with spaces",
+		["sk-", "syntheticcredential"].join(""),
+	]) {
+		expect(safeProviderErrorToken(value)).toBeNull();
+	}
+});
 
 test("trace context roots, forwards and creates a child span", () => {
 	const root = beginTrace(new Headers());

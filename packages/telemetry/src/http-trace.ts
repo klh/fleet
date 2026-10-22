@@ -54,6 +54,9 @@ export interface HopReceipt {
 	/** Configured account pool and measured local queue dwell; absent is unknown. */
 	providerPool?: string | null;
 	queueWaitMs?: number | null;
+	/** Provider-reported bounded diagnostic tokens; never response messages. */
+	providerErrorCode?: string | null;
+	providerErrorType?: string | null;
 	/** W1086: rides the FINAL serving attempt only. Absent = not
 	 *  instrumented at that layer — readers see NULL, never a guess. */
 	settle?: StreamSettle;
@@ -73,6 +76,18 @@ export function safeCorrelationId(value: unknown): string | undefined {
 }
 
 export const safeUpstreamId = safeCorrelationId;
+
+export function safeProviderErrorToken(value: unknown): string | null {
+	const token =
+		typeof value === "number" && Number.isSafeInteger(value)
+			? String(value)
+			: value;
+	return typeof token === "string" &&
+		/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(token) &&
+		!/^(?:sk-|bksk_|ghp_|AKIA|Bearer)/i.test(token)
+		? token
+		: null;
+}
 
 /** Who ended the stream, observed at the close site: 'upstream' = the
  *  provider ended it, 'client' = the caller disconnected, 'buckle' = this

@@ -7,6 +7,7 @@ const config = {
 	intervalMs: 100,
 	maxOutstanding: 4,
 	queueWaitMs: 1000,
+	recovery: { successWindow: 8, decreasePercent: 5 },
 };
 const pool: UpstreamPool = {
 	groups: () => ["alias-a", "alias-b"],
