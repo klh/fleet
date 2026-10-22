@@ -221,6 +221,14 @@ services:
   # (~/.claude/local-llm/tier.json) — no tier env in the unit (W507).
   - name: belt-swarm
     abandonProcessGroup: true
+    # W1073: service-owned children survive bootout/bootstrap and the
+    # restarted supervisor adopts their ports — a bare install kept serving
+    # the pre-install router code. childPort names the abandoned listener
+    # the install RECYCLES post-bootstrap: record the old listener pid,
+    # kill it, poll <=30s for a fresh listener (supervise respawns from the
+    # synced runtime home); a timeout fails the unit in the install report.
+    # Metadata only — never rendered into any unit (like `port`).
+    childPort: 4000
     bunEntry: "__HOME__/.claude/local-llm/swarm.ts"
     args: ["supervise"]
     # launchctl setenv survives reinstalls; only reviewed belt.env may set
