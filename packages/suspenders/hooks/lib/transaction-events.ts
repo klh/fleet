@@ -14,7 +14,7 @@ export class TransactionEvents {
 	) {}
 	inserted(transaction: object | null, id: number): void {
 		if (!transaction) {
-			this.publish(id);
+			this.publishCommitted(id);
 			return;
 		}
 		let ids = this.pending.get(transaction);
@@ -28,11 +28,16 @@ export class TransactionEvents {
 		const ids = this.pending.get(transaction);
 		this.pending.delete(transaction);
 		if (!committed || !ids) return;
-		for (const id of [...ids].sort((a, b) => a - b)) {
+		for (const id of [...ids].sort((a, b) => a - b)) this.publishCommitted(id);
+	}
+	private publishCommitted(id: number): void {
+		try {
+			this.publish(id);
+		} catch (error) {
 			try {
-				this.publish(id);
-			} catch (error) {
 				this.failed(id, error);
+			} catch {
+				/* Reporting cannot invalidate a durable commit. */
 			}
 		}
 	}

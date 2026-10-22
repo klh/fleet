@@ -33,3 +33,27 @@ test("after committed publication failure later rows still publish and no SQL fa
 	expect(sent).toEqual([3]);
 	expect(failed).toEqual([2]);
 });
+
+test("autocommit publication and reporting failures do not block later committed events", () => {
+	const sent: number[] = [];
+	const failed: number[] = [];
+	const bus = new TransactionEvents(
+		(id) => {
+			if (id === 2) throw Error("closed socket");
+			sent.push(id);
+		},
+		(id) => {
+			failed.push(id);
+			throw Error("closed diagnostic pipe");
+		},
+	);
+	expect(() => bus.inserted(null, 2)).not.toThrow();
+	bus.inserted(null, 3);
+	expect(sent).toEqual([3]);
+	expect(failed).toEqual([2]);
+	const tx = {};
+	bus.inserted(tx, 2);
+	bus.inserted(tx, 4);
+	expect(() => bus.finish(tx, true)).not.toThrow();
+	expect(sent).toEqual([3, 4]);
+});
