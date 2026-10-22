@@ -102,11 +102,21 @@ if (probeables.length) {
 // hard-died on Fallbacks=None). One real glm-5.3-flash request through the
 // gateway; when z.ai is dark only a local rung can answer, so a 200 here
 // proves the ladder. Skipped (no key) prints, never throws.
-import { drillFallback } from "./fallback-drill.ts";
+import { drillFallback, probeFallbackLiveness } from "./fallback-drill.ts";
 
-const drill = await drillFallback();
+// W1124.14: the completion half of the fallback drill is operator opt-in,
+// default OFF — a real glm completion through the gateway is idle inference
+// when nobody asked. The GET reachability probe + ladder assertion stay on.
+const drill = fallbackDrillEnabled()
+	? await drillFallback()
+	: await probeFallbackLiveness();
 {
-	const mark = drill.verdict === "pass" ? green("✓") : red("✗");
+	const mark =
+		drill.verdict === "pass"
+			? green("✓")
+			: drill.verdict === "fail"
+				? red("✗")
+				: dim("–");
 	const detail =
 		drill.verdict === "pass"
 			? `${drill.dark ? "z.ai dark, local answered" : "z.ai up"}${drill.model ? ` via ${drill.model}` : ""}`
@@ -129,9 +139,22 @@ import {
 	prefixCachePath,
 	warmOnce,
 } from "./prefix-keepwarm.ts";
+import {
+	cacheDrillEnabled,
+	fallbackDrillEnabled,
+	prefixWarmEnabled,
+} from "../lib/keepwarm-gate.ts";
 
 {
-	const auth = await ensureKeepwarmAuth();
+	// W1124.14: operator opt-in, default OFF — when unset there is no auth
+	// mint, no front contact, no inference (local pings + fallback drill stay).
+	const enabled = prefixWarmEnabled();
+	const auth = enabled
+		? await ensureKeepwarmAuth()
+		: {
+				mode: "skipped" as const,
+				why: "disabled (opt-in BELT_PREFIX_KEEPWARM_ENABLED)",
+			};
 	const w =
 		auth.mode === "enrolled"
 			? await warmOnce({
@@ -140,7 +163,8 @@ import {
 					prefix: loadPrefix(prefixCachePath()),
 				})
 			: { verdict: "skipped" as const, why: auth.why, ms: 0, usage: null };
-	const mark = w.verdict === "pass" ? green("✓") : red("✗");
+	const mark =
+		w.verdict === "pass" ? green("✓") : enabled ? red("✗") : dim("–");
 	const u = w.usage;
 	const tok = u ? ` in ${u.in_tok} cached ${u.cache_r}` : "";
 	console.log(`  ${dim("prefix")}  ${mark} ${dim(`${w.why} ${w.ms}ms${tok}`)}`);
@@ -161,7 +185,14 @@ import {
 } from "./fallback-drill.ts";
 
 {
-	const auth = await ensureKeepwarmAuth({ sid: CACHE_SID });
+	// W1124.14: operator opt-in, default OFF — same shape as the prefix gate.
+	const enabled = cacheDrillEnabled();
+	const auth = enabled
+		? await ensureKeepwarmAuth({ sid: CACHE_SID })
+		: {
+				mode: "skipped" as const,
+				why: "disabled (opt-in BELT_CACHE_DRILL_ENABLED)",
+			};
 	const c =
 		auth.mode === "enrolled"
 			? await drillCacheShare({
@@ -177,7 +208,8 @@ import {
 					floor: drillFloor(),
 					why: auth.why,
 				};
-	const cmark = c.verdict === "pass" ? green("✓") : red("✗");
+	const cmark =
+		c.verdict === "pass" ? green("✓") : enabled ? red("✗") : dim("–");
 	console.log(
 		`  ${dim("cache")}  ${cmark} ${dim(`${c.why} floor ${c.floor}`)}`,
 	);
