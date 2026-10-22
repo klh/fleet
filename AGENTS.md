@@ -64,41 +64,59 @@ depends on fleet; local-only until its GitHub push — W422.9/W422.1).
   that affect lanes (what/who/exact command).
 - Per-package AGENTS.md files are each subtree's canonical docs — they are
   the package-level truth; this root file is the stack-wide law.
-
-## Supervisor reporting (W892, installed face W899/W906)
-
-`work report` (verb) — with `bun ~/.claude/hooks/suspenders/bin/fleet-report.ts`
-as its installed-face shim (argv-verbatim passthrough, W913) — renders THE
-supervisor reply table (owner GO 2026-10-19): rows = riding + queued +
-last-5-done (or strict `--ids w1,w2`); columns ITEM/ST/TASK/TOKENS/CACHE/
-OUT-MIN/AGENT from each item's W776 attribution; fixed-width programmatic
-pads; ST letters R = riding, Q = queued, D = done, F = failed (W891 colors
-them on the board). Supervisor ticks paste it verbatim — the session-start
-SUPERVISOR DEFAULT contract references the installed reporter and
-EMITS it (the hook calls the one library; W899), lane briefs carry the
-same table (dispatch FLEET REPORT), and the install tail runs the report
-through the PATH shim as its final section (every install proves the verb
-live). One implementation (hooks/lib/work-report.ts) — the bin's glyph/
-spend-line parser retired (W913). This supersedes the W865 prose list.
-(owner GO 2026-10-19): rows = riding + queued + last-5-done (or strict
-`--ids w1,w2`); columns ITEM/ST/TASK/TOKENS/CACHE/OUT-MIN/AGENT/MODEL/
-EFFORT/CONSULT from each item's W776 attribution — MODEL = top model_group
-(`+` when several), EFFORT = the lane's effort level (dispatch pins
-SUSPENDERS_LANE_EFFORT into the per-lane 0600 settings; `work done` banks it
-into the work.done event), CONSULT Y/N = the lane banked knowledge or
-consulted (W909 event links); fixed-width programmatic pads; ST letters
-R = riding, Q = queued, D = done, F = failed (W891 colors them on the
-board). Supervisor ticks paste it verbatim — the session-start
-SUPERVISOR DEFAULT contract references the installed reporter and
-EMITS it (the hook calls the one library; W899), lane briefs carry the
-same table (dispatch FLEET REPORT), and the install tail runs the report
-through the PATH shim as its final section (every install proves the verb
-live). This supersedes the W865 prose list.
-
 - Agent skills: the repo-root `skills/` catalog installs into any agent CLI
   via `npx skills add klh/fleet` (`-g -y -a <ids>`; target ids in README
   "Install the skills as agent tools"). ChatGPT is not a CLI target — paste
   the `SKILL.md` into the conversation.
+
+## Lane protocol (single source — package AGENTS.md files point here)
+
+How to work here as a dispatched lane. The brief carries WHO and WHAT; this
+section carries HOW.
+
+0. **PLAN FIRST** — before any edit: `eza -T` the directories the mission
+   touches (or `git ls-files`) for the shape, then rg the areas it names,
+   read the files you would edit and `.qlty/qlty.toml` + the biome rule set.
+   Code to the spec — never emit flagged patterns for the gate to catch.
+   Note what live lanes already own: the governor denies parallel edits to
+   a leased file; re-read and retry, it integrates rather than blocks.
+1. **SHATTER JUDGMENT** — if the mission decomposes into 2+ genuinely
+   independent scopes, do NOT implement it all here:
+   `bun ~/.claude/hooks/suspenders/bin/work.ts split <id> "child one title"
+"child two title" --reason independent-scopes --keep 1`, work only the
+   kept child, end with `SPLIT <id>` — the fleet refills the rest. A split
+   beyond 2 children needs a registered plan item first (`work add "plan: …"`,
+   then `split --plan <id>`).
+2. Work in the worktree + branch your brief names. SMALL anchored edits;
+   co-situated tests for new logic; never hand-edit files another live lane
+   owns.
+3. **GATES** — `qlty fmt` + `qlty check` on changed files → "No issues";
+   `bun test` on the files you touched → green.
+4. Commit on your branch (subject = the item title), push the branch. NO tags.
+5. Finish: `bun ~/.claude/hooks/suspenders/bin/work.ts done <id> --sha <branch-head>`.
+   Final line: `DONE <sha>` | `SPLIT <id>` | `BLOCKED` (after 3 honest
+   attempts, tree restored).
+
+Inbox is WS-first (W303): bootstrap opens `coord subscribe --as <sid>` —
+one persistent push connection, never polled. `coord inbox --as <sid>` is
+the catch-up read before starting and before finishing. Narrate terse, in
+plain response text — never a shell `echo`/tool call; templates are the
+ENTIRE narration, no asides: a consult addressed to you → `consult: [C12]
+<sid> asks …` then `consult: [C12] replying <answer>` after acting; an
+answer to your consult → `consult: [C12] answered: <answer>`; fleet-wide →
+`consult: fleet asks, …` / `consult: fleet, no knowledge, didn't reply` /
+`consult: fleet, details forwarded`. Act first, then `coord ack <event-id>
+--as <sid>` — delivery is not acceptance; reserve `coord inbox --ack` for
+a fully processed inbox. Routine BROADCAST/work.landed/knowledge.settled
+get no commentary.
+
+## Supervisor reporting
+
+`work report` renders THE supervisor reply table (owner GO 2026-10-19) —
+supervisor ticks paste it verbatim. One implementation
+(hooks/lib/work-report.ts); the installed face is a verbatim shim (W913).
+The full contract — rows, columns, ST letters, cache floor — is
+single-sourced in packages/suspenders/AGENTS.md § Supervisor reporting.
 
 ## Operations — every verb and what it is for
 
@@ -106,29 +124,24 @@ Shims on PATH (`coord`, `work`, `dispatch` → the installed prefix;
 `~/.local/bin`, override with SUSPENDERS_SHIM_BIN). Every verb has
 `--help` (per-verb usage + flags from its schema).
 
-Work graph (`work` — the ONE ledger; never Markdown todos):
+Work graph (`work` — the ONE ledger; never Markdown todos; every verb has
+`--help`):
 
-- `work ready` — claimable items · `work list` — all (◐ claimed, ⊞ split)
-- `work show <id>` — the item · `work take <id> --as <sid>` — mints/attaches
-  the item worktree (.worktrees/<id>, path printed; W870: never treeless
-  claims) — the location-vs-claim write gate binds the claim's edits to that
-  tree, refusing main-checkout edits from the claim holder
-- `work allocate [--apply] [--capacity N]` — scorer-ranked plan of READY ×
-  lanes (reclaimed-first FIFO, decisions {assign|recommend} with
-  alloc_reason audit trail; `--apply` claims only the assign kind)
-- `work done <id> --sha <sha>` — close with evidence
-- `work add <title> [--parent <id>] [--priority n] [--desc ...]
-[--tag t1,t2]` — mint (never invent work; empty title = unfilled item;
-  W846: `--tag` stamps classification tags, comma-set — split children
-  inherit the parent's)
+- `work ready` — claimable · `work list` — all (◐ claimed, ⊞ split) ·
+  `work show <id>` — the item
+- `work take <id> --as <sid>` — claim + mint the item worktree
+  (.worktrees/<id>; W870: never treeless claims)
+- `work allocate [--apply]` — scorer-ranked plan of READY × lanes
+- `work done <id> --sha <sha>` — close with evidence · `work add <title>`
+  — mint (never invent work)
 - `work split` — fan out parallelizable work · `work lanes [--json]` —
-  lane liveness (the one liveness surface)
-- `work reclaim all` — dead lanes' claims → READY (ghost cleanup)
+  lane liveness (the one liveness surface) · `work reclaim all` — dead
+  lanes' claims → READY
 
 Coordination (`coord`):
 
-- `coord subscribe --as <sid>` — WS push inbox; opened at session start;
-  NEVER poll with repeated probes
+- `coord subscribe --as <sid>` — WS push inbox; opened at bootstrap; NEVER
+  poll with repeated probes
 - `coord emit BROADCAST --scope suspenders --as <sid> --note "..."` —
   every lane-affecting landed change broadcasts same-turn
 - `coord emit NEED_DECISION --to <sid> --note "q + options" --as <sid>` —
@@ -136,34 +149,23 @@ Coordination (`coord`):
 - `coord fact set/get/list` — fleet knowledge (`lesson.*` before
   re-deriving pain; `finding.*` for intel; IKEA content ONLY here)
 - `coord consult` / `coord who-knows` — questions, never ownership
-- `coord ack <event-id> --as <sid>` — accept one directed message or consult
-  only after acting on it; reading or receiving a WS push is delivery, not
-  acceptance. `coord inbox --ack` accepts the entire pending inbox, so use it
-  only after processing every displayed event.
-- `coord coordinate` — bounded peer-coordination round (W977.1, topics
-  work|claims|capacity; singleflight + rate-capped, Kev `--classify`
-  outbound-only; docs/design/supervisor-coordination.md)
+- `coord ack <event-id> --as <sid>` — accept one directed event only after
+  acting on it; delivery is not acceptance (`coord inbox --ack` accepts the
+  entire pending inbox — only after processing every displayed event)
+- `coord coordinate` — bounded peer-coordination round (W977.1;
+  docs/design/supervisor-coordination.md)
 - `coord fleet` — who is working (sessions + claims; never /tmp files)
-- `coord rename --as <sid> <name> [--force]` — the ONE shared rename (W930):
-  stamps sessions.tags `name` for every @name resolution; the stop gate
-  syncs native CLI /rename (claude-code `custom-title`) through the same
-  core, duplicate live same-project names refuse without `--force`
-- `coord project identity` / `coord project rekey <old> <new>` — graph
-  identity migration as a VERB (W428): one tx across work_items, work_deps,
-  work_sequences, consults, consult_kb, sessions + events `$.project`;
-  children-first + `PRAGMA defer_foreign_keys` (composite FKs on
-  work_deps→work_items 500 otherwise); refused when the target holds items
+- `coord rename` / `coord project rekey` — the shared rename (W930) and
+  graph identity migration (W428) — `--help` carries the grammar
 
 Oracle (`oracle` — the named review/escalation tool, W647):
 
 - `oracle review` / `oracle bugs` / `oracle analyze` — the fixed prompt
   contract (replaces ad-hoc "-review" phrasing in lane prompts); stateless,
-  one request one answer. Default leg is PINNED to the :8903 local-reason
-  tier (direct OpenAI-wire POST; `ORACLE_ROUTE_URL`/`_KEY`/`_MODEL` are the
-  config-over-code overrides); `--cloud` fires the stronger cloud route via
-  the :4000 router's own escalation leg (buckle-gate `BELT_ESCALATE_*` env,
-  glm-5.3). NO automatic stuck-detection routing — a lane or human invokes
-  it explicitly, every time. Exit 0 answer · 1 usage/input · 2 leg failure.
+  one request one answer, pinned local-reason leg (`ORACLE_ROUTE_*` are the
+  config-over-code overrides); `--cloud` = the stronger cloud route. NO
+  automatic stuck-detection routing — a lane or human invokes it explicitly,
+  every time. Exit 0 answer · 1 usage/input · 2 leg failure.
 
 Lanes (`dispatch`) — spawns a headless lane from READY work: brief
 composed (caveman-condensed), per-lane `bksk_` key minted from
@@ -171,114 +173,7 @@ composed (caveman-condensed), per-lane `bksk_` key minted from
 per-lane `--settings` file. No admin key = belt direct, surfaced.
 
 Hubs (`bun deploy/hubctl.ts <verb> <hub>`) — config-over-code deploys from
-`~/.config/klh/stack.yaml` (hub = a profile: ports, binds, ssh/dir/docker,
-secret PATHS):
-
-- `render <hub>` — the compose .env (no secrets)
-- `mint <hub>` — root key generated ON the hub (0600, idempotent)
-- `push <hub>` — template + .env streamed (scp -O; Synology has no SFTP)
-- `up <hub>` — docker compose up -d · `status <hub>` — health probes
-- `deploy <hub>` — install-grade one-shot: mint → push → up → status
-  (alias: `bash install.sh --hub <name>` from packages/suspenders;
-  `--dry-run` renders the .env only)
-- live profiles: `nas` (kk@nas.threads.dk) and `desktop` (local Docker)
-
-Board (`bun packages/suspenders/hooks/bin/fleet-board.ts` — :7799):
-
-- `POST /api/prompt/settings` — the prompt.condense/enhance/debug/log
-  toggles (GET reads); `POST /api/orchestrate/preview
-{"project": "<repo path>", "goal": "..."}` — what WILL be dispatched
-  (condense + enhance run for real; previewId held; nothing written)
-- writes need `x-klh-write-token: $(cat
-~/.cache/claude-governor/write-token)`; W264 host guard: only `*.local`
-  - loopback Hosts pass
-
-Buckle gate (LLM auth — keys are the front door):
-
-- root key: hubs = `<repo>/buckle/buckle.env` (compose env_file), Mac
-  spoke = `~/.claude/local-llm/buckle-spoke.env`
-- admin: `belt.env BUCKLE_ADMIN_KEY` (scopes admin+proxy WRITE)
-- `POST /v1/admin/keys {"name","scopes"}` mint · `GET /v1/admin/keys` ·
-  `POST /v1/admin/keys/verify` · `POST /v1/admin/keys/<id>/revoke`
-- per-lane keys: name=sid, scope `buckle:proxy:WRITE_`; test keys get
-  revoked, never left behind
-
-Machines and processes:
-
-- install: `bash install.sh [--wire] [--with-launchd]` from
-  fleet/packages/suspenders — the ONLY repo→prefix sync (SUSPENDERS_PREFIX /
-  SUSPENDERS_SHIM_BIN override); old checkouts are push-dead (archived)
-- launchd labels (port/process map; `launchctl kickstart
-gui/$(id -u)/<label>` revives):
-  - `com.suspenders.belt-swarm` — the belt kit's `supervise` supervisor
-    (KeepAlive; renamed from com.belt.swarm for the W640 receipt namespace):
-    spawns :4000 + the MLX specialists below (W284: the ONLY swarm
-    supervisor — `com.suspenders.local-llm` is retired and rides the
-    LEGACY boot-out list)
-  - `com.suspenders.cloud-gateway` — cloud transport lifecycle
-    (belt/bin/cloud-gateway.ts → litellm :4100); never starts
-    router/swarm
-  - W779 heartbeat (2026-10-18): the no-port maintenance agents (fleet-
-    monitor, db-backup, harvest, quota-sweep, dispatch-watchdog, llm-
-    keepwarm, coord-worker, auto-install, soak, rogue-reap W827, license-
-    audit W828, metrics-alert W782.2.1, knowledge-sync W944 —
-    reaps lane-leaked serve processes in stale .worktrees dirs + prunes
-    merged-and-clean worktrees; `.fleet/rogue-reap-paused` pauses) are
-    NOT launchd units —
-    they are typed tasks fired by the ONE fleet-loop cycle, each task
-    owning its cadence and fan-out (hooks/lib/fleet-loop/maintenance.ts;
-    retired labels ride the services.yaml legacyLabels boot-out list)
-  - `com.belt.dashboard` — fleet dashboard :7791 (LAN:
-    belt.local:7791), runtime copy ~/.claude/local-llm/dashboard.ts
-  - `com.suspenders.buckle-spoke` — buckle gateway :4101 (Mac spoke)
-  - `com.suspenders.board` — fleet board :7799
-  - `com.suspenders.fleet-pulse` — W822 periodic digest (StartInterval =
-    notify.yaml pulse.interval_s, default 14400): `notify.ts pulse` composes
-    lanes/READY/DONE/watchdog/decisions/commits into one notification via the
-    notify.yaml 'pulse' class; every install registers it post-install
-  - `com.klh-local.caddy` — the Caddy .local front
-  - same namespace, no ports: knowledge-worker
-  - LEGACY, never load: `com.klh.local-llm` / `com.klh.llm-keepwarm` /
-    `com.klh.fleet-monitor` (superseded — installers boot them out and
-    rm the plists) and `com.belt.gateway` (retired W277 — was the :4100
-    litellm wrapper; a plist may linger on disk but must stay UNLOADED)
-    and `com.suspenders.local-llm` (retired W284 — the suspenders
-    local-llm serve fork; both installers boot it out and rm the plist)
-- local-llm swarm: `bun ~/.claude/local-llm/swarm.ts status|supervise` —
-  belt kit is the source (W284: the suspenders local-llm serve fork is
-  retired; installs heal the runtime home's belt closure from
-  packages/belt/bin). Specialists (belt registry.ts): :8901 coder · :8902
-  extract · :8903 reason · :8906 danish/general · :8907 embeddings ·
-  :8912 kev · :8913 rerank — the tier manifest `tier.json` scopes the
-  RESIDENT set (BELT_TIER=minimal = :8902 + :8913; the rest load on
-  demand). :4000 = belt/bin/router-shim.ts — the Anthropic-format API
-  (complexity-v3 router) that is the seam lanes ride; `supervise` spawns
-  it from the runtime-home copy
-- belt router :4000 (= router-shim, see above) · litellm :4100
-  (com.suspenders.cloud-gateway) · buckle spoke :4101 (Mac), hubs
-  :4101 (NAS) / :4111 (desktop) · board :7799 · store :7794 (Mac) /
-  :7795 (NAS) / :7796 (desktop)
-- NAS = `kk@nas.threads.dk`; docker at `/usr/local/bin/docker` (NOT on
-  non-interactive PATH); compose v5.6.0 per-user plugin
-
-Machine-level config (the SOLE conf — repos carry placeholders only):
-
-- `~/.config/klh/stack.yaml` (mode 600): hub profiles + `version:` — the
-  one string that pins buckle+suspenders+belt
-- `~/.claude/local-llm/`: `belt.env` (upstream keys, BUCKLE_ADMIN_KEY),
-  `hubs.json` (label → candidate URLs resolveHub walks),
-  `routing-policy.yaml` (operator-owned ladder — edit THIS, never code),
-  `upstreams.yaml` (group overrides — per-model upstream ladders over
-  swarm :8902 / router :4000 / litellm :4100),
-  `buckle-spoke.env` / `buckle-desktop.env` (BUCKLE_ROOT_KEY; the spoke
-  env also holds `GITHUB_COPILOT_PAT`, resolved from the 0600 `copilot.key`)
-- IKEA Copilot seat (W695.6): claude-* lane models are first-class buckle
-  upstreams — `https://api.githubcopilot.com` serves the Anthropic wire
-  (`/v1/messages`, Bearer `GITHUB_COPILOT_PAT`, header
-  `copilot-integration-id` via `adapter_config.headers`; tools+SSE on this
-  wire unverified 2026-10-12, quota wall same day); group `claude-sonnet-5`
-  → `model: claude-sonnet-5.5` (dots-to-dashes alias is data). Template:
-  `packages/buckle/upstreams.copilot.yaml` → merge into the machine
-  `upstreams.yaml`. The `:4102` ikea-shim is RETIRED (never activated);
-  litellm copilot rows stay off (its /v1/messages bridge hits the Responses
-  API Copilot rejects; its provider forces an interactive device flow)
+`~/.config/klh/stack.yaml`. Board (:7799), buckle key endpoints, the
+launchd label map, the port/process map, machine-level config paths and the
+IKEA Copilot seat are reference material, single-sourced in
+docs/operations-reference.md.

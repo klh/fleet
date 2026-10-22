@@ -1,31 +1,13 @@
-# AGENTS.md — lane working protocol
+# AGENTS.md — belt package law
 
-How to work in this repo as a dispatched lane — written for any agent CLI
-(`claude -p`, `codex exec`, or a human). The dispatch brief carries WHO you
-are and WHAT the mission is; this file carries HOW. Read it before any edit.
+The fleet-wide lane protocol (plan-first, shatter judgment, gates, done,
+inbox/narration) is single-sourced in the repo-root AGENTS.md § Lane
+protocol. This file carries belt package law.
 
 ## Protocol
 
-0. **PLAN FIRST** — before any edit: `eza -T` the directories the mission
-   touches (or `git ls-files`) for the shape, then rg the areas it names,
-   read the files you would edit and `.qlty/qlty.toml` + the biome rule set.
-   Code to the spec — never emit flagged patterns for the gate to catch.
-   Note what live lanes already own: the governor denies parallel edits to
-   a leased file; re-read and retry, it integrates rather than blocks.
-1. **SHATTER JUDGMENT** — if the mission decomposes into 2+ genuinely
-   independent scopes, do NOT implement it all here:
-   `bun ~/.claude/hooks/suspenders/bin/work.ts split <id> "child one title"
-"child two title" --reason independent-scopes --keep 1`, work only the
-   kept child, end with `SPLIT <id>` — the fleet refills the rest. A split
-   beyond 2 children needs a registered plan item first (`work add "plan: …"`,
-   then `split --plan <id>`). Poll your inbox before starting and before finishing — `coord inbox --as <sid>` carries coordinator/board messages (drawer "send message" delivers there).
-2. Work in the worktree + branch your brief names. SMALL anchored edits;
-   co-situated tests for new logic; never hand-edit files another live lane
-   owns.
-3. **GATES** — `qlty fmt` + `qlty check` on changed files → "No issues";
-   `bun test` on the files you touched → green.
-4. Commit on your branch (subject = the item title), push the branch. NO tags.
-5. Finish: `bun ~/.claude/hooks/suspenders/bin/work.ts done <id> --sha <branch-head>`.
+Point at the root: the fleet-wide lane protocol is single-sourced in the
+repo-root AGENTS.md § Lane protocol. Belt adds nothing to it.
 
 ## LLM routing
 
@@ -36,11 +18,6 @@ stays the default; use the remote/local machines (NAS ollama, the local
 swarm) to refine a prompt or plan, for long-running background tasks, or as
 fallback when cloud is down. The optimization target is SPEED, not cost.
 Details: docs/multi-machine.md.
-
-Final line of output: `DONE <sha>` | `SPLIT <id>` | `BLOCKED` (after 3
-honest attempts, tree restored).
-
-Repo doctrine lives in Package law below.
 
 ---
 
@@ -53,28 +30,15 @@ deterministic router :4000, dashboard :7791, bench rig. Install deploys to
 
 ## LLM Routing Doctrine
 
-Owner directive 2026-09-29: agents ASK BELT what LLMs are available before
-dispatching LLM work — `bun bin/remotes.ts check` / `discover`. Cloud is
-fastest for most items and stays the default; use remote/local machines
-(NAS ollama, the local swarm) to refine a prompt or plan, for long-running
-background tasks, or as fallback when cloud is down. The optimization target
-is SPEED, not cost. Config model + verbs: docs/multi-machine.md.
+Single source: § LLM routing above.
 
 ## qlty Quality Doctrine
 
-qlty is THE quality tool; `.qlty/` must exist or the governor's on-write
-gate silently no-ops. Three moments: (1) on-write — the suspenders post-files
-gate runs qlty-fmt + fast lint and blocks with the diff inline; (2) pre-merge
-— `qlty fmt` + `qlty check --fix` on staged files; (3) on-stop — the evidence
-gate, not lint.
-
-**SPEC FIRST: read `.qlty/qlty.toml` and the biome rule set BEFORE the first
-write here, then code to the spec.** Never emit flagged patterns and let the
-gate catch them — recurring offenders: non-null `!` (noNonNullAssertion),
-string `+ "\n"` concat (useTemplate), comma operator, unused vars/imports,
-use-before-declaration. biome owns code formatting; prettier owns markdown
-only — never enable both on code (they deadlock).
+The fleet-wide law (root AGENTS.md § Laws) applies; belt specifics: the
+on-write gate runs qlty-fmt + fast lint and blocks with the diff inline;
+on-stop — the evidence gate, not lint.
 
 ## UI law
 
-NEVER `innerHTML` / `document.write` (blocked by the write-gate). `document.createElement` only inside web components (lit). UI = Lit components + design tokens per klh-core-components / klh-lit-dev skills.
+The fleet-wide law (root AGENTS.md § Laws) applies; belt adds:
+`document.createElement` only inside web components (lit).
