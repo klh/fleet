@@ -58,6 +58,32 @@ function fixture() {
 	return { dir, first, second, spec, values };
 }
 describe("W501 supervised gateway env files", () => {
+	test("Darwin service PATH preserves configured tools and resolves system administration utilities", () => {
+		const f = fixture();
+		f.spec.env.PATH = "/fixture/bin:/usr/bin:/bin";
+		const plist = parsePlistXml(renderDarwin(f.spec, f.values));
+		const path = (plist.EnvironmentVariables as Record<string, string>).PATH;
+		expect(path.split(":")).toEqual([
+			"/fixture/bin",
+			"/usr/bin",
+			"/bin",
+			"/usr/sbin",
+			"/sbin",
+		]);
+		for (const spec of loadManifest()) {
+			const unit = parsePlistXml(renderDarwin(spec, f.values));
+			const servicePath = (unit.EnvironmentVariables as Record<string, string>)
+				.PATH;
+			expect(servicePath.split(":")).toContain("/usr/sbin");
+			expect(servicePath.split(":")).toContain("/sbin");
+			if (process.platform === "darwin" && spec.name === "belt-swarm") {
+				const probe = Bun.spawnSync(["lsof", "-v"], {
+					env: { HOME: f.dir, PATH: servicePath },
+				});
+				expect(probe.exitCode).toBe(0);
+			}
+		}
+	});
 	test("Darwin services trust the local Caddy CA when it is installed", () => {
 		const f = fixture();
 		const ca = join(

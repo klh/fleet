@@ -480,12 +480,14 @@ const relayToOwner = async (
 		store?.close();
 	}
 	if (!owner || owner === askerSid) return "no-owner";
+	// W1147: message's needle and text are positional — an option token in
+	// the text slot publishes the option itself as the note body. Documented
+	// order: message <target> "text" --as <sid>.
 	const p = Bun.spawnSync([
 		process.execPath,
 		join(suspendersBinDir(), "coord.ts"),
 		"message",
 		owner,
-		"--note",
 		`consult ${consult} answered: ${answer.slice(0, 400)}`,
 		"--as",
 		askerSid,

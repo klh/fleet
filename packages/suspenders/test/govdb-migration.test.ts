@@ -10,6 +10,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-mig-"));
+// restore before afterAll cleanup: the rest of the suite shares this process —
+// a leaked fixture HOME rides later spawns' {...process.env} spreads (W1124.11)
+const REAL_HOME = process.env.HOME;
 process.env.HOME = HOME; // govdb computes REG from HOME at module load — set before the dynamic import
 // The ?query busts bun's module cache: bun test shares one module registry across
 // files, so if another suite (gates.test.ts → files.ts) imported govdb first, the
@@ -58,6 +61,7 @@ function rowCount(table: string): number {
 }
 
 afterAll(() => {
+	process.env.HOME = REAL_HOME;
 	rmSync(HOME, { recursive: true, force: true });
 });
 

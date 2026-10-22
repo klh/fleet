@@ -9,6 +9,9 @@ import { join } from "node:path";
 import type { Database } from "bun:sqlite";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-w836-"));
+// restore before afterAll cleanup: the rest of the suite shares this process —
+// a leaked fixture HOME rides later spawns' {...process.env} spreads (W1124.11)
+const REAL_HOME = process.env.HOME;
 process.env.HOME = HOME;
 const { openGovernorDb, openKnowledgeDb } = await import(
 	`../hooks/lib/govdb.ts?w836=${encodeURIComponent(HOME)}`
@@ -17,6 +20,7 @@ const { openGovernorDb, openKnowledgeDb } = await import(
 mkdirSync(join(HOME, ".cache", "claude-governor"), { recursive: true });
 
 afterAll(() => {
+	process.env.HOME = REAL_HOME;
 	rmSync(HOME, { recursive: true, force: true });
 });
 
@@ -81,7 +85,13 @@ test("grade stamps rating/evidence/researched_at + provenance note", async () =>
 	const kb = freshKb();
 	const store = new SqliteKnowledgeStore(kb);
 	const id = seed("grade me");
-	expect(await store.grade(id, { rating: "solid", evidence: "docs/a.md:4", researchedAt: 1_700_000_000_000 })).toBe(true);
+	expect(
+		await store.grade(id, {
+			rating: "solid",
+			evidence: "docs/a.md:4",
+			researchedAt: 1_700_000_000_000,
+		}),
+	).toBe(true);
 	const r = row(id);
 	expect(r?.rating).toBe("solid");
 	expect(r?.evidence).toBe("docs/a.md:4");
@@ -105,7 +115,10 @@ test("graveyard buries with reason, never deletes, refuses twice", async () => {
 	const store = new SqliteKnowledgeStore(kb);
 	const id = seed("bury me");
 	expect(
-		await store.graveyard(id, "suspected star manipulation - fork/star curve inconsistent"),
+		await store.graveyard(
+			id,
+			"suspected star manipulation - fork/star curve inconsistent",
+		),
 	).toBe(true);
 	const r = row(id);
 	expect(r?.state).toBe("graveyard");

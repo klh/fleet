@@ -81,6 +81,16 @@
 						"timeout": 10
 					}
 				]
+			},
+			{
+				"matcher": "Skill",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun $HOME/.claude/hooks/suspenders/gate.ts pre-skill",
+						"timeout": 10
+					}
+				]
 			}
 		],
 		"PostToolUse": [

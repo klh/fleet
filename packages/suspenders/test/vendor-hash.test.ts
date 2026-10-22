@@ -1,10 +1,10 @@
 // vendor-hash.test.ts — W292 (W278 review finding #9): the committed vendored
 // Lit bundles must byte-match a fresh production build (drift alarm), ship
 // WITHOUT the dev-mode runtime ("Lit is in dev mode"), and share ONE lit
-// runtime chunk instead of inlining lit per bundle. The fresh
-// build reuses the package.json `build:vendor` line verbatim (shell-quote
-// parsed, outdir swapped for a tmpdir) so the flags have one source of truth;
-// the repo's vendor/ dir is never written by this test.
+// runtime chunk instead of inlining lit per bundle. The fresh build reuses
+// scripts/build-vendor.ts's argv verbatim (outdir swapped for a tmpdir) so
+// the flags have one source of truth; the repo's vendor/ dir is never
+// written by this test.
 import { describe, expect, test } from "bun:test";
 import {
 	readdirSync,
@@ -16,7 +16,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { parse } from "shell-quote";
 
 const ROOT = join(import.meta.dir, "..");
 const VENDOR = join(ROOT, "hooks/board-html/vendor");
@@ -25,29 +24,25 @@ function sha256(b: Buffer): string {
 	return createHash("sha256").update(b).digest("hex");
 }
 
-// "bun build <entries…> --flags… --outdir <dir>" — parsed, never mirrored;
-// the outdir value is swapped for a throwaway tmpdir so the test never
-// writes the repo's vendor/ dir.
+// The package.json face — bun scripts/build-vendor.ts — spawned verbatim
+// with --outdir swapped for a throwaway tmpdir so the test never writes the
+// repo's vendor/ dir. Banner + prune ride along (one face, no mirror).
 function freshBuild(): Map<string, string> {
-	const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
-	const argv = parse(pkg.scripts["build:vendor"]) as string[];
-	expect(argv[0]).toBe("bun");
-	expect(argv[1]).toBe("build");
-	const i = argv.indexOf("--outdir");
-	expect(i).toBeGreaterThan(-1);
 	const out = mkdtempSync(join(tmpdir(), "w292-vendor-"));
-	argv[i + 1] = out;
 	try {
-		const p = Bun.spawnSync(argv, {
-			cwd: ROOT,
-			// bun's minifier names symbols differently per NODE_ENV class
-			// (unset/production vs test/development) — pin the child so a
-			// `bun test` run (NODE_ENV=test) still byte-matches committed
-			// artifacts built the plain `bun run build:vendor` way.
-			env: { ...process.env, NODE_ENV: "production" },
-			stdout: "pipe",
-			stderr: "pipe",
-		});
+		const p = Bun.spawnSync(
+			["bun", join(ROOT, "scripts/build-vendor.ts"), "--outdir", out],
+			{
+				cwd: ROOT,
+				// bun's minifier names symbols differently per NODE_ENV class
+				// (unset/production vs test/development) — pin the child so a
+				// `bun test` run (NODE_ENV=test) still byte-matches committed
+				// artifacts built the plain `bun run build:vendor` way.
+				env: { ...process.env, NODE_ENV: "production" },
+				stdout: "pipe",
+				stderr: "pipe",
+			},
+		);
 		expect(p.exitCode).toBe(0);
 		const hashes = new Map<string, string>();
 		for (const f of readdirSync(out).sort())
@@ -62,7 +57,10 @@ describe("vendor-hash (W292)", () => {
 	test("build:vendor stays a production split build with a named lit chunk", () => {
 		const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 		const script: string = pkg.scripts["build:vendor"];
-		expect(script).toBeDefined();
+		expect(script).toBe("bun scripts/build-vendor.ts");
+		// the pinned flags + entries live in the build face, not the
+		// package.json line (W1107.2.2) — still one source of truth
+		const src = readFileSync(join(ROOT, "scripts/build-vendor.ts"), "utf8");
 		for (const token of [
 			"--minify",
 			"--production",
@@ -72,7 +70,7 @@ describe("vendor-hash (W292)", () => {
 			"hooks/board-html/klh-components.ts",
 			"hooks/board-html/klh-service-row.ts",
 		])
-			expect(script).toContain(token);
+			expect(src).toContain(token);
 	});
 
 	test("committed vendor artifacts byte-match a fresh production build", () => {
