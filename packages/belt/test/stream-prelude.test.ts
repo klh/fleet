@@ -83,6 +83,39 @@ test("valid split prelude bytes replay exactly once", async () => {
 	if (result.ok) expect(await new Response(result.body).text()).toBe(raw);
 });
 
+test("EOF flush preserves usable unterminated final frame", async () => {
+	const raw = 'data: {"choices":[{"delta":{"content":"last"}}]}';
+	const result = await primeLocalStream(
+		responseBody(raw),
+		new AbortController().signal,
+	);
+	expect(result.ok).toBe(true);
+	if (result.ok) expect(await new Response(result.body).text()).toBe(raw);
+});
+
+test("deadline returns while never-settling transport cancellation retains admission", async () => {
+	const admission = createAdmission(1);
+	const release = admission.tryAcquire(1234);
+	if (!release) throw new Error("missing fixture lease");
+	let cleanup: Promise<void> | undefined;
+	const body = new ReadableStream<Uint8Array>({
+		start(controller) {
+			controller.enqueue(enc.encode(role));
+		},
+		cancel: () => new Promise<void>(() => {}),
+	});
+	const before = Date.now();
+	await expect(
+		primeLocalStream(body, AbortSignal.timeout(20), (pending) => {
+			cleanup = pending;
+			void pending.then(release);
+		}),
+	).rejects.toThrow();
+	expect(Date.now() - before).toBeLessThan(200);
+	expect(cleanup).toBeDefined();
+	expect(admission.tryAcquire(1234)).toBeNull();
+});
+
 test("original deadline cancels stalled metadata and bounded prelude refuses overflow", async () => {
 	let cancelled = false;
 	const stream = new ReadableStream<Uint8Array>({

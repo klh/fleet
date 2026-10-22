@@ -7,6 +7,7 @@ import { upstreamErrorDetail } from "../../buckle/src/error-detail.ts";
 export async function primeLocalStream(
 	body: ReadableStream<Uint8Array>,
 	signal: AbortSignal,
+	onCleanup?: (cleanup: Promise<void>) => void,
 ): Promise<
 	| { ok: true; body: ReadableStream<Uint8Array> }
 	| { ok: false; status: number; error: string; retryAfterMs?: number }
@@ -19,7 +20,14 @@ export async function primeLocalStream(
 		if (frame && typeof frame === "object" && "error" in frame)
 			detail = upstreamErrorDetail(frame);
 	});
-	const abort = () => void reader.cancel(signal.reason).catch(() => {});
+	let cleanup: Promise<void> | undefined;
+	const cancel = (reason: unknown) => {
+		if (!cleanup) {
+			cleanup = reader.cancel(reason).catch(() => {});
+			onCleanup?.(cleanup);
+		}
+	};
+	const abort = () => cancel(signal.reason);
 	signal.addEventListener("abort", abort, { once: true });
 	try {
 		for (;;) {
@@ -33,8 +41,8 @@ export async function primeLocalStream(
 				chunks.push(next.value);
 				sniff.push(next.value);
 			}
-			if (sniff.failed() || next.done) {
-				await reader.cancel("local stream refused before output");
+			if (sniff.failed() || (next.done && !sniff.hasUsableOutput())) {
+				cancel("local stream refused before output");
 				return {
 					ok: false,
 					status:
@@ -51,7 +59,7 @@ export async function primeLocalStream(
 			if (sniff.hasUsableOutput()) break;
 		}
 	} catch (error) {
-		await reader.cancel(error).catch(() => {});
+		cancel(error);
 		throw error;
 	} finally {
 		signal.removeEventListener("abort", abort);

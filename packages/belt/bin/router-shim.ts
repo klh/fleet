@@ -332,6 +332,7 @@ if (process.argv[2] === "selftest-danish") {
 const ROUTER_PORT = Number(process.env.BELT_ROUTER_PORT ?? 4000);
 
 type Attempt = {
+	cleanup?: Promise<void>;
 	ok: boolean;
 	error?: string;
 	status?: number;
@@ -397,7 +398,8 @@ async function ladder<R extends Attempt>(
 	if (result.status === 429)
 		retryAfter = Math.max(retryAfter ?? 0, result.retryAfterMs ?? 0);
 	if (result.ok) return { result, used, fbRelease };
-	fbRelease();
+	if (result.cleanup) void result.cleanup.then(fbRelease, fbRelease);
+	else fbRelease();
 	errors.push(`:${fb.port} ${result.error ?? "empty"}`);
 	return { result, used, retryAfterMs: retryAfter, coldDeferred };
 }
@@ -722,6 +724,12 @@ Bun.serve({
 
 		let release: (() => void) | null = null;
 		let handedOff = false; // a live stream owns `release` until its last byte
+		const pendingCleanup: Promise<void>[] = [];
+		const releasePrimary = () => {
+			if (pendingCleanup.length)
+				void Promise.allSettled(pendingCleanup).then(() => release?.());
+			else release?.();
+		};
 		try {
 			const clientMax = Math.min(body.max_tokens ?? 1024, 4096);
 			const temperature = body.temperature ?? 0.7;
@@ -971,18 +979,26 @@ Bun.serve({
 				const opened = await ladder(
 					route,
 					primary,
-					(t) => {
+					async (t) => {
 						const b = budgetFor(t);
-						return openLocalStream(t, messages, b.maxTokens, temperature, {
-							extra: b.extra,
-							tools: oaTools,
-							toolChoice: oaToolChoice,
-							startedAt: t0,
-							traceparent: trace.traceparent,
-							requestId: trace.requestId,
-							preference,
-							onAttempt: recordAttempt,
-						});
+						const local = await openLocalStream(
+							t,
+							messages,
+							b.maxTokens,
+							temperature,
+							{
+								extra: b.extra,
+								tools: oaTools,
+								toolChoice: oaToolChoice,
+								startedAt: t0,
+								traceparent: trace.traceparent,
+								requestId: trace.requestId,
+								preference,
+								onAttempt: recordAttempt,
+							},
+						);
+						if (!local.ok && local.cleanup) pendingCleanup.push(local.cleanup);
+						return local;
 					},
 					note,
 					errors,
@@ -1006,7 +1022,7 @@ Bun.serve({
 						},
 						(r) => {
 							fbRelease?.();
-							release?.();
+							releasePrimary();
 							logDone({
 								outcome: r.error
 									? "stream-error"
@@ -1171,7 +1187,7 @@ Bun.serve({
 				hopFields(),
 			);
 		} finally {
-			if (!handedOff) release?.();
+			if (!handedOff) releasePrimary();
 		}
 	},
 });

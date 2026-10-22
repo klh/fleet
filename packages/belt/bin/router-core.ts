@@ -684,7 +684,13 @@ export type StreamOpen =
 			/** W257: performance.now() when the upstream opened (headers in). */
 			openedAt?: number;
 	  }
-	| { ok: false; error: string; status?: number; retryAfterMs?: number };
+	| {
+			ok: false;
+			error: string;
+			status?: number;
+			retryAfterMs?: number;
+			cleanup?: Promise<void>;
+	  };
 
 export async function openLocalStream(
 	r: { port: number; model: string },
@@ -704,6 +710,7 @@ export async function openLocalStream(
 	// open-success path — a failed open (ECONNREFUSED) left it armed for the
 	// full window. Self-expiring, but ref'd; clear on every exit path.
 	let ttfb: ReturnType<typeof setTimeout> | undefined;
+	let cleanup: Promise<void> | undefined;
 	try {
 		// W278: connect/TTFB-only timeout — AbortSignal.timeout stayed armed
 		// through the body and cut healthy streams >120s mid-generation. Once
@@ -746,12 +753,19 @@ export async function openLocalStream(
 		// aborts an orphaned controller: harmless no-op.
 		const ct = res.headers.get("content-type") ?? "";
 		if (res.ok && res.body && ct.includes("text/event-stream")) {
-			const primed = await primeLocalStream(res.body, ctrl.signal);
+			const primed = await primeLocalStream(
+				res.body,
+				ctrl.signal,
+				(pending) => {
+					cleanup = pending;
+				},
+			);
 			clearTimeout(ttfb);
 			if (!primed.ok) {
 				status = primed.status;
 				failureKind = "http";
-				return primed;
+				retryAfter = retryAfterMs(res.headers.get("retry-after"));
+				return { ...primed, retryAfterMs: retryAfter, cleanup };
 			}
 			return {
 				ok: true,
@@ -793,7 +807,11 @@ export async function openLocalStream(
 	} catch (e) {
 		failureKind = status === undefined ? "transport" : "decode";
 		if (ttfb) clearTimeout(ttfb);
-		return { ok: false, error: e instanceof Error ? e.message : String(e) };
+		return {
+			ok: false,
+			error: e instanceof Error ? e.message : String(e),
+			cleanup,
+		};
 	} finally {
 		opts.onAttempt?.({
 			hop: "local-specialist",
