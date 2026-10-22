@@ -30,11 +30,10 @@ import {
 	parseGovernanceMode,
 	probeFrontDecision,
 } from "./lib/governance-decide.ts";
-import { attributeHubLane } from "./lib/hub-lane.ts";
+import { applyLaneAttributionPosture } from "./lib/attribution-posture.ts";
 import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
 import { jobslabFor, jobslabTag, laneClassOf } from "./lib/jobslab.ts";
 import {
-	applyLaneAttribution,
 	coordCliFor,
 	executorLaunch,
 	laneAuditFor,
@@ -47,12 +46,7 @@ import {
 	spawnClaude,
 	workCliFor,
 } from "./lib/lane.ts";
-import {
-	adminKey,
-	ensureLaneKey,
-	LANE_KEY_TTL_S,
-	laneKeyMetaPath,
-} from "./lib/lane-auth.ts";
+import { adminKey } from "./lib/lane-auth.ts";
 import { grinderGate } from "./lib/lane-death-capture.ts";
 // W512: lane --settings composer — env grammar + the Task-pin hook block
 import { laneSettingsData } from "./lib/lane-settings.ts";
@@ -882,103 +876,31 @@ const dispatchItem = async (
 				}
 			}
 			applyInsertion(env, pick.bin, ctx);
-			// W1 dispatch-side adoption (finding.w1): the lane rides the buckle
-			// front with /w/<sid> so usage attributes per lane (route_audit.lane).
-			// W463 fail-closed: the gate demands bksk_ keys, so a mint failure
-			// REFUSES the lane — governance must not silently vanish — and only
-			// the explicit --allow-ungoverned override rides belt direct.
-			// W422.17: probe once — front up rides the W463 governed mint path,
-			// front down branches on the governance mode (strict refuses, solo
-			// keeps the belt-direct fallback). undefined = hub won, hub branch.
-			// W615: a winning hub redirect NO LONGER skips attribution (the
-			// identity-doc gap): the lane mints its key AT the hub and rides
-			// <hub-url>/w/<sid>, so hub-routed usage lands in the hub's own
-			// route_audit.lane. Credential + posture = hubAttributionDecision.
-			const frontUp: string | null | undefined = resolvedHub
-				? undefined
-				: await probeBuckleFront();
-			if (resolvedHub) {
-				// W615 (lib/hub-lane.ts): mint AT the hub, ride <hub>/w/<sid> —
-				// governed → env attribution + 0600 meta; override/refuse → the
-				// W463 disclosure machinery, hub-worded.
-				const hub = await attributeHubLane({
-					sid,
-					hubLabel: hubPick ?? resolvedHub,
-					hubUrl: resolvedHubUrl ?? resolvedHub,
-					allowUngoverned: ALLOW_UNGOVERNED,
-					env,
-				});
-				if (hub.decision.mode === "governed") {
-					ownedKeyId = hub.ownedKeyId;
-					ownedKeyFront = resolvedHubUrl ?? resolvedHub;
-					const meta = hub.meta as string;
-					writtenFiles.set(laneKeyMetaPath(FLEET, sid), meta);
-					writeFileSync(laneKeyMetaPath(FLEET, sid), meta);
-					chmodSync(laneKeyMetaPath(FLEET, sid), 0o600);
-					hubNote += ` — lane attribution: hub ${resolvedHub} /w/${sid} (scoped key, ttl ${LANE_KEY_TTL_S}s)`;
-				} else if (hub.decision.mode === "ungoverned-override") {
-					console.log(`*** ${hub.decision.note} ***`);
-					hubNote += ` — ${hub.decision.note}`;
-					// W463: the override is disclosed IN the brief the lane reads.
-					const disclosed = `${brief}\n\nGOVERNANCE: ${hub.decision.note}.\n`;
-					writeFileSync(briefFile, disclosed);
-					writeFileSync(`${wt}/.klh-brief.md`, disclosed);
-				} else {
-					governanceRefusals.push(item);
-					console.log(
-						`REFUSED ${item} — ${hub.decision.why}; launch refused; claim cleanup follows, nothing spawned`,
-					);
-					log(`REFUSED ${item} → ${sid} — ${hub.decision.why}`);
-					return null;
-				}
-			} else if (frontUp) {
-				const decision = laneKeyDecision(
-					await ensureLaneKey(sid),
-					ALLOW_UNGOVERNED,
-					governanceMode(),
-				);
-				if (decision.mode === "governed") {
-					applyLaneAttribution(env, sid, undefined, decision.key);
-					ownedKeyId = decision.keyId;
-					const meta = `${JSON.stringify({ sid, key_id: decision.keyId, mintedAt: Date.now() }, null, 2)}\n`;
-					writtenFiles.set(laneKeyMetaPath(FLEET, sid), meta);
-					writeFileSync(laneKeyMetaPath(FLEET, sid), meta);
-					chmodSync(laneKeyMetaPath(FLEET, sid), 0o600);
-					hubNote += ` — lane attribution: buckle front /w/${sid} (scoped key, ttl ${LANE_KEY_TTL_S}s)`;
-				} else if (decision.mode === "ungoverned-override") {
-					console.log(`*** ${decision.note} ***`);
-					hubNote += ` — ${decision.note}`;
-					// W463: the override is disclosed IN the brief the lane reads.
-					const disclosed = `${brief}\n\nGOVERNANCE: ${decision.note}.\n`;
-					writeFileSync(briefFile, disclosed);
-					writeFileSync(`${wt}/.klh-brief.md`, disclosed);
-				} else {
-					governanceRefusals.push(item);
-					console.log(
-						`REFUSED ${item} — ${decision.why}; launch refused; claim cleanup follows, nothing spawned`,
-					);
-					log(`REFUSED ${item} → ${sid} — ${decision.why}`);
-					return null;
-				}
-			} else if (frontUp !== undefined) {
-				// W422.17 probe-false: the buckle front did not answer. Strict (the
-				// default) refuses the lane with the same machinery as a mint
-				// failure; solo keeps the belt-direct fallback — loud, disclosed.
-				const probe = probeFrontDecision(ALLOW_UNGOVERNED, governanceMode());
-				if (probe.mode === "refuse") {
-					governanceRefusals.push(item);
-					console.log(
-						`REFUSED ${item} — ${probe.why}; launch refused; claim cleanup follows, nothing spawned`,
-					);
-					log(`REFUSED ${item} → ${sid} — ${probe.why}`);
-					return null;
-				}
-				console.log(`NOTE — ${probe.note}`);
-				hubNote += ` — ${probe.note}`;
-				// ungoverned rides are disclosed IN the brief the lane reads.
-				const disclosed = `${brief}\n\nGOVERNANCE: ${probe.note}.\n`;
-				writeFileSync(briefFile, disclosed);
-				writeFileSync(`${wt}/.klh-brief.md`, disclosed);
+			// W1/W463/W422.17/W615 attribution posture — lib/attribution-posture.ts
+			// (W1063): the lane mints its key and rides /w/<sid> — governed, loudly
+			// disclosed override/belt-direct, or fail-closed refusal.
+			const attribution = await applyLaneAttributionPosture({
+				sid,
+				item,
+				hubWon: resolvedHub,
+				hubPick,
+				hubUrl: resolvedHubUrl ?? resolvedHub,
+				allowUngoverned: ALLOW_UNGOVERNED,
+				governance: governanceMode(),
+				env,
+				writtenFiles,
+				refusals: governanceRefusals,
+				log,
+				brief,
+				briefFile,
+				wt,
+				fleet: FLEET,
+			});
+			if (attribution.note) hubNote += ` — ${attribution.note}`;
+			if (attribution.kind === "refused") return null;
+			if (attribution.kind === "attributed") {
+				ownedKeyId = attribution.ownedKeyId;
+				ownedKeyFront = attribution.ownedKeyFront;
 			}
 		}
 		// W432: the prompt points at the READABLE copy — sandboxed lanes read
