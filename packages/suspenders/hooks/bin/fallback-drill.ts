@@ -131,6 +131,54 @@ export async function zaiDark(
 	}
 }
 
+/** Ladder assertion against the LIVE gateway config with the uniform
+ *  unreadable-config shape — shared by the completion drill and the
+ *  GET-only liveness probe (W1124.14 DRY). */
+function laddersCheck(
+	deps: Pick<DrillDeps, "configPath" | "readConfig">,
+): LadderCheck {
+	const read = deps.readConfig ?? ((p: string) => readFileSync(p, "utf8"));
+	const configPath = deps.configPath ?? GATEWAY_CONFIG;
+	try {
+		return checkFallbacksPresent(read(configPath));
+	} catch (e) {
+		return {
+			present: false,
+			groups: [],
+			why: `gateway config unreadable: ${String(e).slice(0, 120)}`,
+		};
+	}
+}
+
+/** W1124.14: the GET-only half of the fallback leg — z.ai reachability
+ *  (one GET, never a completion) plus the live-config ladder assertion.
+ *  This is the keepwarm's DEFAULT fallback posture: network/GET liveness
+ *  stays on while the real glm completion waits for the explicit opt-in
+ *  (BELT_FALLBACK_DRILL_ENABLED). Never throws; ok=false (no completion
+ *  was made), verdict skipped (nothing inferred, nothing asserted). */
+export async function probeFallbackLiveness(
+	deps: Pick<
+		DrillDeps,
+		"zaiBase" | "probeTimeoutMs" | "configPath" | "readConfig" | "fetchImpl"
+	> = {},
+): Promise<DrillResult> {
+	const ladders = laddersCheck(deps);
+	const dark = await zaiDark(
+		deps.fetchImpl ?? fetch,
+		deps.zaiBase,
+		deps.probeTimeoutMs,
+	);
+	return {
+		dark,
+		ok: false,
+		ms: 0,
+		model: null,
+		laddersPresent: ladders.present,
+		verdict: "skipped",
+		why: `z.ai ${dark ? "dark" : "reachable"} (GET probe; completion drill is opt-in: BELT_FALLBACK_DRILL_ENABLED)`,
+	};
+}
+
 /** One drill pass: key → ladder assertion (W878: the config must carry
  *  litellm_settings.fallbacks, else fail even when z.ai answers) → darkness
  *  probe, then a real 1-token completion through the gateway. ok = 200 + at
@@ -151,18 +199,7 @@ export async function drillFallback(
 			verdict: "skipped",
 			why: `no LITELLM_KEY (env or ${MASTER_KEY_FILE})`,
 		};
-	const read = deps.readConfig ?? ((p: string) => readFileSync(p, "utf8"));
-	const configPath = deps.configPath ?? GATEWAY_CONFIG;
-	let ladders: LadderCheck;
-	try {
-		ladders = checkFallbacksPresent(read(configPath));
-	} catch (e) {
-		ladders = {
-			present: false,
-			groups: [],
-			why: `gateway config unreadable: ${String(e).slice(0, 120)}`,
-		};
-	}
+	const ladders = laddersCheck(deps);
 	const dark = await zaiDark(fetchImpl, deps.zaiBase, deps.probeTimeoutMs);
 	return runRequest(fetchImpl, key, dark, deps, ladders);
 }
