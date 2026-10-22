@@ -2,10 +2,8 @@
 // (1) every catalog SKILL.md carries a trigger-style description and a
 // Gotchas section (the audit contract — regression-proof after W1144);
 // (2) the `review` skill names the fleet-documented review-trap classes and
-// the seeded fixture (tests/fixtures/review-eval/seed.ts) plants a
-// mechanically-flaggable instance of each — the measurable form of
-// "verification skill improved": trap coverage 0 → 4 named classes, held
-// by test.
+// the seeded fixture documents the same trap classes. This is a documentation
+// contract test, not an execution of an agent or evidence of review quality.
 import { describe, expect, test } from "bun:test";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -40,7 +38,7 @@ describe("skills catalog", () => {
 	});
 });
 
-describe("review-skill trap coverage (W1144 measurable)", () => {
+describe("review-skill documentation contract", () => {
 	const review = skillText("review");
 	const seed = readFileSync(
 		join(ROOT, "tests/fixtures/review-eval/seed.ts"),
