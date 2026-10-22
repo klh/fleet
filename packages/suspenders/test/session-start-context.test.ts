@@ -72,6 +72,14 @@ test("historical notice notes cap at 300 chars so one verbose broadcast cannot f
 });
 
 test("resume labels old notices as history and states current Fleet coordination", () => {
+	// drop the previous test's broadcast.latest: its Date.now() ts would be
+	// emitted (and watermarked) by THIS test's startup run, suppressing the
+	// deliberately older W931 notice below
+	{
+		const pre = new Database(dbPath);
+		pre.query("DELETE FROM facts WHERE key = 'broadcast.latest'").run();
+		pre.close();
+	}
 	start("startup");
 	const db = new Database(dbPath);
 	db.query(
