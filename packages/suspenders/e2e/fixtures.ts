@@ -34,6 +34,11 @@ type TestOptions = {
 	/** console-error texts matching any of these are watcher-exempt (designed
 	 *  noise only — a spec must name its exemptions in its header comment). */
 	watcherIgnore: RegExp[];
+	/** resource-load 404s on URLs matching any of these are watcher-exempt
+	 *  (designed fallback probes on partial stub servers) — the browser's
+	 *  "Failed to load resource" line still requires the wire to have REALLY
+	 *  carried that 404, and every other 404 stays a failure. */
+	watcherAllow404: RegExp[];
 };
 
 type WorkerFixtures = {
@@ -54,6 +59,7 @@ export const test = base.extend<TestFixtures & WorkerFixtures & TestOptions>({
 	peerBoardOptions: [{}, { option: true, scope: "worker" }],
 	cleanBoardOptions: [{}, { option: true }],
 	watcherIgnore: [[], { option: true }],
+	watcherAllow404: [[], { option: true }],
 
 	board: [
 		async ({ boardOptions }, use, workerInfo) => {
