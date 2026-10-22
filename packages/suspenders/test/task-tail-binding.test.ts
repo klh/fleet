@@ -1,6 +1,6 @@
-import { afterAll, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdirSync, writeFileSync, appendFileSync } from "node:fs";
+import { afterAll, expect, test } from "bun:test";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { boardFixture } from "./helpers/board-fixture.ts";
 

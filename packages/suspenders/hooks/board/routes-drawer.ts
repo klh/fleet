@@ -1,3 +1,5 @@
+import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
+import { projectRootOf } from "../lib/govdb.ts";
 import {
 	completionRecord,
 	completionTail,
@@ -6,11 +8,9 @@ import {
 // The fetch fragment moved verbatim (route order preserved by the
 // entry's handler list); returns null when nothing matches.
 import { db } from "./context.ts";
-import { projectRootOf } from "../lib/govdb.ts";
 import { json } from "./helpers.ts";
 import { LANE_TAIL_BYTES } from "./lanes.ts";
 import { taskTailSnapshot } from "./task-tail.ts";
-import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 
 export async function handleDrawer(
 	_req: Request,
