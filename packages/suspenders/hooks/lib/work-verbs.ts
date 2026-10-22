@@ -73,8 +73,15 @@ export const VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "take",
-		usage: "usage: take <id> --as <sid> [--origin <host:agent>]",
-		flags: [...ITEM_FLAGS],
+		usage:
+			"usage: take <id> --as <sid> [--origin <host:agent>] | take <id> --as <current-owner> --token <current-token> --expect-updated-at <revision> [--reconcile-context --force --evidence <0600-json>] (explicit local operator repair; SID is not authentication)",
+		flags: [
+			...ITEM_FLAGS,
+			"--expect-updated-at",
+			"--reconcile-context",
+			"--force",
+		],
+		switches: ["--reconcile-context", "--force"],
 		minPos: 1,
 		reqFlags: ["--as"],
 	}),

@@ -710,6 +710,13 @@ const dispatchVerb = async (
 		const id = pos[0];
 		let as = flag("--as");
 		const origin = flag("--origin");
+		if (
+			rest.includes("--reconcile-context") &&
+			(!flag("--evidence") || !rest.includes("--force"))
+		)
+			die(
+				"take --reconcile-context requires --force --evidence <0600-json>; this is an explicit local operator repair, not SID authentication",
+			);
 		if (!id || !as) die("usage: take <id> --as <sid> [--origin <host:agent>]");
 		// truncated-sid guard: a display slice (e.g. 'visual-c') must not become
 		// the owner of record — expand a unique session-sid prefix to the full sid
@@ -755,6 +762,13 @@ const dispatchVerb = async (
 			sid: as,
 			reason: "manual take",
 			origin: origin ?? null,
+			token: flag("--token") ?? process.env.KLH_CLAIM_TOKEN ?? null,
+			expectedRevision: flag("--expect-updated-at")
+				? Number(flag("--expect-updated-at"))
+				: undefined,
+			reconcileEvidence: rest.includes("--reconcile-context")
+				? (flag("--evidence") ?? undefined)
+				: undefined,
 		});
 		if (!claimed.ok)
 			die(
