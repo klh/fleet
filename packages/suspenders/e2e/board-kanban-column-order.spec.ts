@@ -23,7 +23,8 @@ function mustBoard(): Board {
 const ORDER = [
 	"ready",
 	"waiting",
-	"working",
+	"claimed",
+	"paused",
 	"blocked",
 	"failed",
 	"done",
