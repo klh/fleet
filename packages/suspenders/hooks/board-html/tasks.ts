@@ -1,7 +1,10 @@
 // hooks/board-html/tasks.ts — tasks table + kanban + drawer (W157 client chunk).
 // String.raw matches the original single-template semantics; bun's
 // non-ASCII escaping in String.raw reproduces the served page bytes.
-export const TASKS = String.raw`// --- 4: tasks table (Tasks tab, /api/tasks) + drawer (/api/task) ---
+import { executionSummary } from "../lib/work-execution.ts";
+
+export const TASKS = String.raw`var executionSummary = ${executionSummary.toString()};
+// --- 4: tasks table (Tasks tab, /api/tasks) + drawer (/api/task) ---
 // view state: session filter + column sort, persisted per browser (owner
 // asked: filter tasks by owning session, sortable table, fragments grouped)
 var taskSort = {key: 'priority', dir: 1};
@@ -324,7 +327,7 @@ function renderTasks(){
 var KCOLS = [
   { key: 'READY', label: 'ready', states: ['READY'] },
   { key: 'WAITING', label: 'waiting', states: ['WAITING', 'SHATTERED'], cap: 12 },
-  { key: 'ACTIVE', label: 'working', states: ['CLAIMED', 'RUNNING'] },
+  { key: 'ACTIVE', label: 'claimed', states: ['CLAIMED', 'RUNNING'] },
   { key: 'BLOCKED', label: 'blocked', states: ['BLOCKED', 'PAUSED'] },
   { key: 'FAILED', label: 'failed', states: ['FAILED'] },
   { key: 'DONE', label: 'done', states: ['DONE'], cap: 12 },
@@ -494,6 +497,11 @@ function kanbanCard(t, fam){
     '<div class="kcardident"><button type="button" class="tidbtn mono" data-task="' + esc(t.id) + '" data-proj="' + esc(t.project || '') + '" aria-haspopup="dialog">' + esc(t.id) + '</button>' +
     '<span class="kage dim">' + agoShort(t.age_s) + '</span></div>';
   html += '<div class="ktitle">' + esc(String(t.title || '(untitled)')).slice(0, 140) + '</div>';
+  if (t.execution) {
+    var ex = t.execution;
+    var proof = ex.progress ? ex.progress.stage + ' · ' + new Date(ex.progress.ts).toISOString() : 'no artifact evidence in snapshot';
+    html += '<div class="klane dim" title="' + esc(ex.source + ' · observed ' + new Date(ex.observed_at).toISOString()) + '">' + esc(ex.state + ' · ' + proof) + '</div>';
+  }
   if (displayState(t) === 'BLOCKED' && t.blocked_by && t.blocked_by.length)
     html += '<div class="klane dim">waiting on ' + esc(t.blocked_by.join(', ')) + '</div>';
   if (t.state === 'SHATTERED' && t.waiting_on && t.waiting_on.length)
@@ -643,7 +651,10 @@ function renderKanban(){
   buildOwnerDisp(ts);
   if (hashFilter) ts = ts.filter(function(t){ return hashMatch([t.id, t.title, ownerKey(t), ownerName(t), t.project]); });
   if (boardQuery) ts = ts.filter(function(t){ return boardMatch([t.id, t.title, t.state, ownerKey(t), ownerName(t), t.project]); });
-  var html = '<div class="kanban">';
+  var executionCounts = executionSummary(ts.filter(function(t){ return !!t.execution; }));
+  var observed = ts.find(function(t){ return !!t.execution; });
+  var summary = executionCounts.claims + ' claims · ' + executionCounts.owners + ' owners · ' + executionCounts.live_harnesses + ' live harnesses · ' + executionCounts.paused + ' paused · ' + executionCounts.blocked + ' blocked · ' + executionCounts.dead + ' dead · ' + executionCounts.unknown + ' unknown · ' + executionCounts.transitioning + ' transitioning';
+  var html = '<p class="dim" title="Harness presence is not productive output">' + esc(summary) + (observed ? ' · checked ' + esc(new Date(observed.execution.observed_at).toISOString()) : ' · execution evidence unavailable') + '</p><div class="kanban">';
   var shownAll = [];
   var fam = kanbanFamilies(ts);
   for (var c = 0; c < KCOLS.length; c++) {

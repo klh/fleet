@@ -77,7 +77,7 @@ export const BODY = String.raw`
   <nav id="taskFocus" class="taskFocus" aria-label="Filter tasks by status">
     <button type="button" data-focus="all">All open <span data-count="all">0</span></button>
     <button type="button" data-focus="attention">Needs attention <span data-count="attention">0</span></button>
-    <button type="button" data-focus="working">Working <span data-count="working">0</span></button>
+    <button type="button" data-focus="working">Claimed <span data-count="working">0</span></button>
     <button type="button" data-focus="ready">Ready <span data-count="ready">0</span></button>
     <button type="button" data-focus="waiting">Waiting <span data-count="waiting">0</span></button>
   </nav>
