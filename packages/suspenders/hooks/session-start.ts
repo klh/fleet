@@ -32,6 +32,8 @@ import {
 } from "./lib/supervisor.ts";
 import {
 	seedSupervisorRefill,
+	supervisorContractNotice,
+	supervisorControlStatus,
 	supervisorRefillDirective,
 } from "./lib/supervisor-refill.ts";
 
@@ -356,18 +358,36 @@ if (mine.length || inbox > 0 || readyN > 0 || head) {
 			: "GOVERNANCE: strict — lanes dispatch only through buckle (probe-false = refusal; solo mode via: coord governance solo)",
 	);
 	// W637 supervisor default (owner law 2026-10-11): when the pool holds
-	// READY work, the arm-loop directive renders here — compliance by
-	// injection, not model-recall of the global CLAUDE.md rule. Top-level
-	// sessions only: a subagent lane is not a loop-arming runtime, and a
+	// READY work, current advisory guidance renders here. It never grants
+	// controller authority or arms another loop. Top-level sessions only:
+	// a subagent lane is not a controller, and a
 	// W1124.12 worker-role lane (the dispatch settings marker) is neither —
 	// it executes its claim instead of arming the refill loop.
+	// W1069: the contract body renders at EVERY top-level bootstrap from the
+	// one in-repo source — a fresh session in any project (fleet or not)
+	// receives the live supervisor contract, so stale prose in non-synced
+	// homes (global CLAUDE.md, repo AGENTS.md) can never arm a shallow loop.
+	// READY>0 keeps the arming header + W892 table; subagent and worker-role
+	// lanes stay exempt (neither is a loop-arming runtime, W1124.12).
+	if (!isSubagent && !isWorkerRole && readyN > 0) {
+		out.push(
+			supervisorRefillDirective(readyN, supervisorControlStatus(db, project)),
+		);
+	}
 	if (readyN > 0 && !isSubagent && !isWorkerRole) {
 		// W899: the SUPERVISOR DEFAULT contract EMITS the W892 table —
 		// session-start only CALLS the one implementation (lib/work-report.ts),
 		// the same shape the install tail and lane briefs carry.
-		out.push(supervisorRefillDirective(readyN));
 		out.push(renderFleetReport(db as unknown as Database, project));
 	}
+}
+
+// W1069: the READY=0 contract notice renders OUTSIDE the owned/inbox/head
+// guard — a fresh session in a non-fleet project (no owned items, empty
+// inbox, READY=0, no integration head) receives the live contract too, so
+// acceptance is every top-level bootstrap, fleet project or not.
+if (!isSubagent && !isWorkerRole && readyN === 0) {
+	out.push(supervisorContractNotice(supervisorControlStatus(db, project)));
 }
 
 // W422.17.1 interactive-session enrollment — top-level sessions mint (or

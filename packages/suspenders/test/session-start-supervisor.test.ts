@@ -15,6 +15,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { projectIdentity } from "../hooks/lib/govdb.ts";
+import type { GovernorStore } from "../hooks/lib/govdb.ts";
+import {
+	acquireControllerLease,
+	currentControllerIdentity,
+} from "../scripts/lib/controller-fence.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-sup-"));
 const REPO_A = mkdtempSync(join(tmpdir(), "suspenders-sup-repo-a-"));
@@ -118,13 +123,19 @@ afterAll(() => {
 });
 
 describe("supervisor-default directive (W637)", () => {
-	test("no READY work — no directive", () => {
+	test("W1069: fresh non-fleet session (READY=0) receives the contract notice", () => {
 		const r = runHook(REPO_A, join(HOME, "tp-a.jsonl"));
 		expect(r.code).toBe(0);
 		expect(r.out).not.toContain("SUPERVISOR DEFAULT");
+		expect(r.out).toContain("SUPERVISOR CONTRACT");
+		expect(r.out).not.toContain("/loop refill");
+		expect(r.out).not.toContain("work reclaim all");
+		expect(r.out).toContain("canonical guarded landing");
+		expect(r.out).toContain("controller=absent");
+		expect(r.out).toContain("not a grant of controller authority");
 	});
 
-	test("work added after empty SessionStart arms once through PostToolUse", () => {
+	test("work added after empty SessionStart notifies once without arming through PostToolUse", () => {
 		const first = runWork(REPO_A, ["add", "first new work"]);
 		expect(first.exitCode).toBe(0);
 		const command =
@@ -132,7 +143,8 @@ describe("supervisor-default directive (W637)", () => {
 		const prompt = runPush(REPO_A, command);
 		expect(prompt.code).toBe(0);
 		expect(prompt.out).toContain("SUPERVISOR DEFAULT: READY 1 > 0");
-		expect(prompt.out).toContain("/loop refill");
+		expect(prompt.out).not.toContain("/loop refill");
+		expect(prompt.out).toContain("advisory only");
 		expect(runPush(REPO_A, command).out).not.toContain("SUPERVISOR DEFAULT");
 		const second = runWork(REPO_A, ["add", "another new work"]);
 		expect(second.exitCode).toBe(0);
@@ -190,17 +202,42 @@ describe("supervisor-default directive (W637)", () => {
 		}
 	});
 
-	test("top-level start with READY>0 renders the arm-loop directive", () => {
+	test("top-level start with READY>0 renders advisory guidance without a loop", () => {
 		const first = runHook(REPO_B, join(HOME, "tp-b.jsonl"));
 		expect(first.code).toBe(0);
 		seedReady(PROJECT_B);
 		const r = runHook(REPO_B, join(HOME, "tp-b.jsonl"));
 		expect(r.code).toBe(0);
 		expect(r.out).toContain("SUPERVISOR DEFAULT");
-		expect(r.out).toContain("/loop refill");
+		expect(r.out).not.toContain("/loop refill");
 		expect(r.out).toContain("READY 1");
 		expect(r.out).toContain("coord message <sid>");
 		expect(r.out).toContain("never cancel the lane just to revise its prompt");
+	});
+
+	test("canonical live controller and both holds are observed without granting a second loop", () => {
+		mkdirSync(join(REPO_B, ".fleet"), { recursive: true });
+		writeFileSync(join(REPO_B, ".fleet/dispatch-paused"), "deployment hold");
+		writeFileSync(join(REPO_B, ".fleet/reclaim-paused"), "recovery hold");
+		const db = new Database(DB);
+		try {
+			expect(
+				acquireControllerLease(
+					db as unknown as GovernorStore,
+					PROJECT_B,
+					currentControllerIdentity("fixture-controller", import.meta.path),
+				),
+			).toBe(true);
+		} finally {
+			db.close();
+		}
+		const r = runHook(REPO_B, join(HOME, "held-controller.jsonl"));
+		expect(r.code).toBe(0);
+		expect(r.out).toContain("controller=alive; dispatch=held; reclaim=held");
+		expect(r.out).toContain("Snapshot is not authorization");
+		expect(r.out).not.toContain("/loop refill");
+		expect(r.out).not.toContain("prune --all-dead");
+		expect(r.out).not.toContain("work reclaim all");
 	});
 
 	test("W899: the directive carries the emitted report table", () => {
@@ -221,5 +258,7 @@ describe("supervisor-default directive (W637)", () => {
 		);
 		expect(r.out).toContain("SUBAGENT LANE");
 		expect(r.out).not.toContain("SUPERVISOR DEFAULT");
+		// W1069: a subagent is not a loop-arming runtime — neither face
+		expect(r.out).not.toContain("SUPERVISOR CONTRACT");
 	});
 });
