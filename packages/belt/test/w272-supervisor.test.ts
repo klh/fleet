@@ -778,3 +778,79 @@ describe("watchdog liveness report", () => {
 		expect(r.alerts.some((a) => a.includes("circuit open"))).toBe(true);
 	});
 });
+
+describe("W1076 hub-heal circuit latch", () => {
+	const down = async (): Promise<ProbeResult> => ({ tcp: false, http: false });
+	const hub = (port: number, heals: () => void): Target => ({
+		name: "nas-spoke",
+		port,
+		kind: "hub",
+		owned: false,
+		bindTimeoutMs: 40,
+		heal: async () => {
+			heals();
+			return null;
+		},
+	});
+
+	test("permanently-dead hub latches the circuit open — heals stop, budget file bounded", async () => {
+		const f = files();
+		let heals = 0;
+		const sup = new Supervisor([hub(94, () => heals++)], {
+			...f,
+			...fast,
+			probe: down,
+			maxRestarts: 2,
+			windowMs: 60_000,
+			backoffBaseMs: 1,
+		});
+		const done = start(sup);
+		await waitFor(() => stateOf(sup, 94)?.state === "unhealthy");
+		expect(heals).toBe(2);
+		expect(stateOf(sup, 94)?.lastError ?? "").toMatch(/circuit latched/);
+		const entry = () =>
+			Object.values(
+				(
+					JSON.parse(
+						readFileSync(`${f.statusFile}.restart-budget.json`, "utf8"),
+					) as {
+						targets: Record<string, { attempt: number; restarts: number }>;
+					}
+				).targets,
+			)[0] as { attempt: number; restarts: number };
+		expect(entry().attempt).toBe(2);
+		const restartsAtLatch = entry().restarts;
+		await Bun.sleep(120);
+		expect(heals).toBe(2); // latched: no third heal, ever
+		expect(stateOf(sup, 94)?.state).toBe("unhealthy");
+		expect(entry().attempt).toBe(2); // attempt cap, not 342
+		expect(entry().restarts).toBe(restartsAtLatch); // budget bounded
+		sup.stop();
+		await done;
+	});
+
+	test("a full up re-probe releases the latch; the next outage heals again then re-latches", async () => {
+		let heals = 0;
+		let up = false;
+		let healthy = false;
+		const sup = new Supervisor([hub(95, () => heals++)], {
+			...files(),
+			...fast,
+			maxRestarts: 2,
+			windowMs: 60_000,
+			backoffBaseMs: 1,
+			probe: async () => ({ tcp: up, http: up && healthy }),
+		});
+		const done = start(sup);
+		await waitFor(() => stateOf(sup, 95)?.state === "unhealthy");
+		up = true;
+		healthy = true;
+		await waitFor(() => stateOf(sup, 95)?.state === "up"); // explicit re-probe
+		up = false;
+		healthy = false;
+		await waitFor(() => heals >= 3); // latch released: heals armed again
+		await waitFor(() => heals === 4 && stateOf(sup, 95)?.state === "unhealthy"); // re-latch
+		sup.stop();
+		await done;
+	});
+});

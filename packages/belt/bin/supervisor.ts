@@ -634,9 +634,10 @@ export class Supervisor {
 	}
 
 	/** W371 hub-heal loop: probe-driven remote restart. Down for failThreshold
-	 *  probes → quiet-hours hold → breaker → backoff → heal (compose up) →
-	 *  poll for bind within bindTimeoutMs. No local child: re-probing is the
-	 *  only liveness. */
+	 *  probes → quiet-hours hold → latch (maxRestarts consecutive failed
+	 *  heals → circuit open until a full up re-probe) → breaker → backoff →
+	 *  heal (compose up) → poll for bind within bindTimeoutMs. No local
+	 *  child: re-probing is the only liveness. */
 	private async loopHub(t: Target): Promise<void> {
 		const r = this.rt.get(t.port) as Runtime;
 		const s = this.status.get(t.port) as TargetStatus;
@@ -648,7 +649,17 @@ export class Supervisor {
 			if (p.tcp) {
 				r.fails = 0;
 				r.upSince ??= now;
-				if (r.attempt > 0 && now - r.upSince >= this.opts.stableMs) {
+				// W1076: a full up re-probe releases a latched circuit with a
+				// fresh budget (attempt + breaker); below the latch the existing
+				// stableMs reset (backoff only) is unchanged.
+				if (p.http && r.attempt >= this.opts.maxRestarts) {
+					r.attempt = 0;
+					r.breaker = new RestartBreaker(
+						this.opts.maxRestarts,
+						this.opts.windowMs,
+					);
+					this.persistBudget();
+				} else if (r.attempt > 0 && now - r.upSince >= this.opts.stableMs) {
 					r.attempt = 0;
 					this.persistBudget();
 				}
@@ -666,6 +677,20 @@ export class Supervisor {
 					? "expected down (quiet hours)"
 					: `no TCP on :${t.port} (${r.fails}/${this.opts.failThreshold})`;
 				this.transition(t, "down", { lastError: why, nextRetryAt: null });
+				await this.sleep(this.opts.intervalMs);
+				continue;
+			}
+			// W1076: consecutive-failure latch — after maxRestarts failed heal
+			// cycles the circuit OPENS and stays open (no heal attempts, the
+			// budget file stops accumulating) until a full up re-probe releases
+			// it. The sliding-window breaker alone re-arms as its stamps age
+			// out: 6 heals/h against a permanently-dead hub forever (measured
+			// 2026-10-21: 342 restarts on the :4101 NAS spoke).
+			if (r.attempt >= this.opts.maxRestarts) {
+				this.transition(t, "unhealthy", {
+					lastError: `circuit latched: ${r.attempt} consecutive failed heals — not retrying until the hub re-probes up`,
+					nextRetryAt: null,
+				});
 				await this.sleep(this.opts.intervalMs);
 				continue;
 			}
