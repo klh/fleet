@@ -197,11 +197,19 @@ export const laneIdentityPrompt = (sid: string, wt: string): string =>
 // lives in hooks/lib/secret-guard.ts (W458.1) — one pattern shared with the
 // starter-artifact validation.
 import { assertNoSecrets } from "../../hooks/lib/secret-guard.ts";
+import { WORKER_MANAGED_PROFILE } from "../../hooks/lib/executors/claude.ts";
 
 export { assertNoSecrets };
 
 export const starterVersion = (seedPrompt: string): string =>
-	createHash("sha256").update(seedPrompt).digest("hex").slice(0, 12);
+	createHash("sha256")
+		.update(
+			// W1124.12: the managed worker profile is part of a starter's
+			// identity — a profile change supersedes every cached session.
+			`${WORKER_MANAGED_PROFILE.mcpConfig}|${WORKER_MANAGED_PROFILE.tools}|${seedPrompt}`,
+		)
+		.digest("hex")
+		.slice(0, 12);
 
 export const startersDir = (fleet: string): string => join(fleet, "starters");
 
