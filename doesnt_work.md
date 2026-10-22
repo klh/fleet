@@ -81,6 +81,17 @@ decision-grade: it has to change what you would do. When a verdict flips
 
 ## Context / token economy
 
+- **Advisory-only effort budgets as a spend target (W1140.1)** — the W1140
+  policy surfaces budget baselines in the lane brief (low 100k / medium 200k /
+  high 300k tokens) but nothing in the ride observes them: post-policy low
+  lanes average 4.5M fresh tokens (45x baseline, W776 ledger, n=14), and not
+  one lane in either cohort finished within budget (1/60 pre, 0/18 post).
+  Mechanism: baselines are prose in the brief, never checked at checkpoints;
+  per-item attribution also bills whole multi-day rides, inflating the
+  comparison. Replaced by: treat budgets as unmet until a ride-time budget
+  signal exists (checkpoint when a lane crosses its baseline, surfaced on the
+  board) or budget semantics are redefined to per-agent-hour.
+
 - **W960 self-improvement on the pinned local GLM/Claude route** — the
   2026-10-20 AC smoke generated a candidate but both arms failed all three
   private judges: the executor made empty patches, and Claude reported zero
