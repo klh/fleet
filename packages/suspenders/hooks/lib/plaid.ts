@@ -19,6 +19,12 @@ import type { ProviderPenalty } from "./exec-quota.ts";
 import { quotaProviderPenalty } from "./exec-quota.ts";
 import { adapterFor } from "./executors/registry.ts";
 import type { GovernorStore } from "./govdb.ts";
+import { readBoardSettings } from "./board-config.ts";
+import {
+	PLAID_ROUTES,
+	type PlaidRoute,
+	parsePlaidRoutes,
+} from "./plaid-route-config.ts";
 
 // ── posture file (.fleet/posture) ─────────────────────────────────────────
 
@@ -64,81 +70,11 @@ export const postureWidth = (p: Posture, target: number): number | null =>
 // ── routes: the owner-defined ride table (config-over-code: the machine
 // suspenders-board.json `plaid_routes` overrides these rows) ──────────────
 
-export interface PlaidRoute {
-	/** Route key — `ikea-*` is reserved for Copilot-provider rides. */
-	name: string;
-	/** Honest human label (the board shows it verbatim). */
-	label: string;
-	/** Executor chain token ("codex", "claude"); adapterFor resolves the bin. */
-	executor: string;
-	/** Belt model/group pin; null = the executor CLI rides its own config. */
-	model: string | null;
-	/** exec-quota provider key the route's health reads; null = exempt. */
-	provider: string | null;
-}
-
-/** Owner definition 2026-10-19; W989 truthfulness pass 2026-10-20: the
- *  codex executor rides the PERSONAL Codex CLI seat — it never touches the
- *  Copilot provider through Buckle — so it carries no ikea-* name and no
- *  pool provider (a personal seat is never pool capacity; bin-probed only,
- *  dispatchable only where a route pick reaches it outside the pools). The
- *  Copilot ride is the claude CLI pinned to claude-sonnet-5 (the Copilot
- *  seat serves the Anthropic wire). Table order IS the defined fallback:
- *  Copilot → glm (glm-flash the floor) → personal codex. */
-export const PLAID_ROUTES: PlaidRoute[] = [
-	{
-		name: "ikea-sonnet",
-		label: "IKEA Copilot Sonnet",
-		executor: "claude",
-		model: "claude-sonnet-5",
-		provider: "copilot",
-	},
-	{
-		name: "glm-5.3-flash",
-		label: "GLM 5.3 Flash",
-		executor: "claude",
-		model: "glm-5.3-flash",
-		provider: "zai",
-	},
-	{
-		name: "codex-personal",
-		label: "Codex (personal seat)",
-		executor: "codex",
-		model: null,
-		provider: null,
-	},
-];
-
-/** Route rows → validated table; junk rows/fields fall back to defaults
- *  (fail-safe narrow, same doctrine as readPosture). */
-export const plaidRoutes = (rows?: unknown): PlaidRoute[] => {
-	if (!Array.isArray(rows) || rows.length === 0) return PLAID_ROUTES;
-	const out: PlaidRoute[] = [];
-	for (const raw of rows) {
-		const r = raw as Partial<PlaidRoute>;
-		if (typeof r.name !== "string" || !r.name.trim()) return PLAID_ROUTES;
-		if (typeof r.executor !== "string" || !r.executor.trim())
-			return PLAID_ROUTES;
-		if (r.name.toLowerCase().startsWith("ikea-") && r.provider !== "copilot")
-			return PLAID_ROUTES; // the IKEA label is reserved (honesty law)
-		const label =
-			typeof r.label === "string" && r.label.trim()
-				? r.label.trim()
-				: r.name.trim();
-		out.push({
-			name: r.name.trim(),
-			label,
-			executor: r.executor.trim(),
-			model:
-				typeof r.model === "string" && r.model.trim() ? r.model.trim() : null,
-			provider:
-				typeof r.provider === "string" && r.provider.trim()
-					? r.provider.trim()
-					: null,
-		});
-	}
-	return out;
-};
+export { PLAID_ROUTES } from "./plaid-route-config.ts";
+export type { PlaidRoute } from "./plaid-route-config.ts";
+/** No argument reads the same live configuration used by health, planning and preview. */
+export const plaidRoutes = (rows?: unknown): PlaidRoute[] =>
+	rows === undefined ? plaidRouteTable() : parsePlaidRoutes(rows);
 
 // ── health, load, assignment ──────────────────────────────────────────────
 
@@ -163,15 +99,20 @@ export const plaidHealth = (
 	return health;
 };
 
-// machine-level override hook — plaidRoutes(rows) is pure; the board and
-// dispatch both read the same machine file so config and UI agree by
-// construction. Junk machine config = the committed defaults (fail-safe).
+// One runtime route source for board, dispatch, health and preview.
+// Test overrides are explicit; malformed operator configuration fails closed.
 let tableOverride: (() => PlaidRoute[]) | null = null;
 /** Set the route-table source (board-config's validated rows). */
 export const setPlaidRouteSource = (src: () => PlaidRoute[]): void => {
 	tableOverride = src;
 };
-const plaidRouteTable = (): PlaidRoute[] => tableOverride?.() ?? PLAID_ROUTES;
+const plaidRouteTable = (): PlaidRoute[] => {
+	if (tableOverride) return tableOverride();
+	const configured = readBoardSettings();
+	if (configured.error)
+		throw new Error(`Plaid route configuration: ${configured.error}`);
+	return configured.settings.plaid_routes ?? PLAID_ROUTES;
+};
 
 // ── W989: the configured-model probe (routes must reach their model
 // through the buckle front — W1019 lesson: a pin the front can't serve
