@@ -146,6 +146,10 @@ export function mergeZaiHubUpstreams(
 					dialect: "openai",
 					adapter: "openai-compat",
 					model: `zai-${id}`,
+					// W1122: generated rows ride the LiteLLM engine — declare it so
+					// Buckle applies bounded proxy behavior (zero inner retries,
+					// bounded first-byte headers) and route preflight passes.
+					adapter_config: { proxy_kind: "litellm" },
 					api_key_env: "LITELLM_KEY",
 				},
 			],

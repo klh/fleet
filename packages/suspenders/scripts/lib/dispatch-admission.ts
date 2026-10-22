@@ -128,6 +128,9 @@ export class RouteAdmission {
 		private readonly enabled: boolean,
 		private readonly front: () => Promise<string | null>,
 		private readonly token: () => string | null,
+		/** W1102.1 plaid posture: an UNAVAILABLE audit read holds the launch
+		 *  (fail-closed); steady keeps missing-evidence-never-blocks. */
+		private readonly requireEvidence = false,
 	) {}
 
 	/** A newly launched lane may have produced fresh refusal evidence. */
@@ -137,14 +140,24 @@ export class RouteAdmission {
 
 	async check(
 		model: string | null,
-	): Promise<{ pause: boolean; failures: number }> {
+	): Promise<{ pause: boolean; failures: number; reason?: string | null }> {
 		if (!this.enabled || !model) return { pause: false, failures: 0 };
 		if (!this.rows.has(model))
 			this.rows.set(
 				model,
 				await fetchBuckleRouteAudit(await this.front(), this.token(), model),
 			);
-		return assessBuckleRoute(this.rows.get(model) ?? null, model);
+		const rows = this.rows.get(model) ?? null;
+		// null = front down/401/timeout/odd shape — no evidence, not an empty
+		// history (a reachable authenticated `requests: []` is rows === [])
+		if (this.requireEvidence && rows === null)
+			return {
+				pause: true,
+				failures: 0,
+				reason:
+					"buckle route audit read unavailable — launch held (fail-closed)",
+			};
+		return assessBuckleRoute(rows, model);
 	}
 }
 

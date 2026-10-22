@@ -117,7 +117,7 @@ describe("services manifest (W488.1)", () => {
 		expect(d.Label).toBe("com.suspenders.belt-swarm");
 		expect(d.AbandonProcessGroup).toBe(true);
 		const env = d.EnvironmentVariables as { [k: string]: string };
-		expect(env.BELT_WIRED_GUARD_GB).toBe("90");
+		expect(env.BELT_WIRED_GUARD_GB).toBeUndefined();
 		expect(env.PATH).toContain("mlx-lm");
 	});
 

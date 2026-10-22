@@ -5,8 +5,8 @@ import { randomBytes, randomUUID } from "node:crypto";
 const TRACEPARENT = /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/;
 const SAFE_ID = /^[A-Za-z0-9._-]{1,128}$/;
 const SAFE_LABEL = /^[a-z][a-z0-9_-]{0,39}$/;
-/** W1086: caller-typed failure kinds may carry a namespace colon
- *  (in_band:<type>) and run longer than a plain label — same charset. */
+/** Caller-typed failure kinds may carry a namespace colon (in_band:<type>)
+ *  and run longer than a plain label — same charset otherwise. */
 const SAFE_LABEL_TYPED = /^[a-z][a-z0-9_:-]{0,127}$/;
 
 export interface FleetTrace {
@@ -92,36 +92,40 @@ export interface SettleInput {
 	closer: StreamCloser;
 	/** The close error, if any — reduced to a bounded failure kind. */
 	error?: unknown;
-	/** W1106: a pre-typed failure kind from the close site (RouterError.kind,
-	 *  in_band:<type>, stream_truncated) — clamped, NOT re-derived, so the
-	 *  caller's richer taxonomy survives. Takes precedence over `error`. */
+	/** A pre-typed failure kind from the close site — clamped, NOT
+	 *  re-derived, so the caller's taxonomy survives. Precedes `error`. */
 	failureKind?: string | null;
 }
 
 /** Build the settle block at a stream close site: clamps the offsets
  *  (>= 0), keeps NULL for unobserved bytes, and reduces the close error
  *  through safeFailureKind so no message text ever becomes durable. A
- *  caller-supplied pre-typed failureKind wins verbatim (clamped) — the
- *  close site knows its taxonomy better than a re-derivation would. */
+ *  caller-supplied pre-typed failureKind wins verbatim (clamped). */
 export function buildSettleFact(input: SettleInput): StreamSettle {
 	const rel = (at: number | null): number | null => {
 		if (at === null || !Number.isFinite(at)) return null;
 		return Math.max(0, Math.floor(at - input.t0));
 	};
-	const kind =
-		input.failureKind !== undefined && input.failureKind !== null
-			? SAFE_LABEL_TYPED.test(input.failureKind.toLowerCase())
-				? input.failureKind.toLowerCase()
-				: null
-			: input.error === undefined
-				? null
-				: safeFailureKind(input.error);
+	const kind = buildSettleKind(input);
 	return {
 		firstByteMs: rel(input.firstByteAt),
 		lastByteMs: rel(input.lastByteAt),
 		closer: input.closer,
 		failureKind: kind,
 	};
+}
+
+/** Reduce the settle input to one bounded failure kind: a pre-typed
+ *  caller kind wins (clamped through SAFE_LABEL_TYPED), an error reduces
+ *  through safeFailureKind, no error = null. */
+function buildSettleKind(input: SettleInput): string | null {
+	return input.failureKind !== undefined && input.failureKind !== null
+		? SAFE_LABEL_TYPED.test(input.failureKind.toLowerCase())
+			? input.failureKind.toLowerCase()
+			: null
+		: input.error === undefined
+			? null
+			: safeFailureKind(input.error);
 }
 
 /** A body-free failure class for hop logs. Error messages can contain prompt

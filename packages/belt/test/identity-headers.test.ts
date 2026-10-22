@@ -6,6 +6,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { routerRuntimeRevision } from "../bin/router-runtime-revision.ts";
 
 const home = mkdtempSync(join(tmpdir(), "w1081-router-"));
 mkdirSync(join(home, ".claude", "local-llm"), { recursive: true });
@@ -69,6 +70,11 @@ test("W1081 chain-walk: health envelope names the belt probe face", async () => 
 	expect(r.status).toBe(200);
 	expect(r.headers.get("x-klh-service")).toBe("belt-router");
 	expect(r.headers.get("x-klh-hop")).toBe("probe");
+	expect(r.headers.get("x-belt-runtime-revision")).toBe(
+		routerRuntimeRevision(
+			new URL("../bin/router-shim.ts", import.meta.url).pathname,
+		),
+	);
 });
 
 test("W1081 chain-walk: bad json → 400 attributed to belt ingress", async () => {

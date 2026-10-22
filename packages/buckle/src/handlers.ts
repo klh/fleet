@@ -61,6 +61,12 @@ import {
 	type HopContext,
 } from "./hop.ts";
 import { keyIdFromToken, type Ledger, tokenFromHeaders } from "./ledger.ts";
+import {
+	IngressBodyError,
+	INGRESS_BODY_TIMEOUT_MS,
+	MAX_REQUEST_BODY_BYTES,
+	readIngressJson,
+} from "./ingress-body.ts";
 import type {
 	ObservationData,
 	ObservationOutbox,
@@ -138,6 +144,8 @@ export interface AppDeps {
 	// W450 bounded RPC admission: in-flight slot bound over the proxy path.
 	// Optional — bare deps (testDeps, dev) admit unbounded (current shape).
 	admission?: RpcAdmission;
+	/** Injection seam for the 120s ingress body deadline. */
+	ingressBodyTimeoutMs?: number;
 	// W461 stage 2: the bounded observation outbox. Optional — absent =
 	// observations inert (bare deps, or BUCKLE_OBSERVATIONS_PATH unset).
 	observations?: ObservationOutbox;
@@ -447,8 +455,32 @@ async function proxy(
 	if (!hint.ok) return deny(deps, ctx, 400, hint.why, "bad_hint", "denied");
 	let body: Record<string, unknown>;
 	try {
-		body = (await req.json()) as Record<string, unknown>;
-	} catch {
+		body = (await readIngressJson(
+			req,
+			deps.ingressBodyTimeoutMs ?? INGRESS_BODY_TIMEOUT_MS,
+			MAX_REQUEST_BODY_BYTES,
+		)) as Record<string, unknown>;
+	} catch (error) {
+		if (error instanceof IngressBodyError) {
+			if (error.code === "timeout")
+				return deny(
+					deps,
+					ctx,
+					408,
+					"request body deadline exceeded",
+					"body_timeout",
+					"denied",
+				);
+			if (error.code === "too_large")
+				return deny(
+					deps,
+					ctx,
+					413,
+					"request body too large",
+					"body_too_large",
+					"denied",
+				);
+		}
 		return deny(deps, ctx, 400, "invalid JSON body", null, "denied");
 	}
 	const model = typeof body.model === "string" ? body.model : "";

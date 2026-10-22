@@ -7,12 +7,14 @@ import { Database, type Statement } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import {
 	buildSettleFact,
-	type HopReceipt,
 	safeCorrelationId,
 	safeRefusalCode,
-	type StreamCloser,
+	type HopReceipt,
 	type StreamSettle,
+	type StreamCloser,
 } from "../../telemetry/src/http-trace.ts";
+import type { HopKind } from "./hop.ts";
+import type { Usage } from "./usage.ts";
 
 /** W1086 settle receipt: the caller hands raw timings; the ledger validates
  *  + bounds every field before anything durable is written. */
@@ -23,13 +25,10 @@ export interface SettleReceipt {
 	lastByteAt: number | null;
 	closer: StreamCloser;
 	error?: unknown;
-	/** W1106: pre-typed failure kind (RouterError.kind, in_band:<type>,
-	 *  stream_truncated) — passes through buildSettleFact clamped, never
-	 *  re-derived. */
+	/** Pre-typed failure kind from the close site (RouterError.kind,
+	 *  in_band:<type>, stream_truncated) — clamped, never re-derived. */
 	failureKind?: string | null;
 }
-import type { HopKind } from "./hop.ts";
-import type { Usage } from "./usage.ts";
 
 export interface UsageRecord {
 	key: string;
@@ -334,14 +333,14 @@ type Pending<T> = { v: T; tries: number; b: number };
 
 export class Ledger {
 	private readonly db: Database;
-	private readonly upsert: Statement;
+	private readonly upsert: ReturnType<Database["query"]>;
 	// W450: audit statements prepared once (measured ~5%/op over the cached
 	// db.query() lookup at 2k-op flushes; the flush is background, but the
 	// hoist is free and keeps every hot statement beside upsert).
-	private readonly insAudit: Statement;
-	private readonly updAudit: Statement;
-	private readonly updUsage: Statement;
-	private readonly insAttempt: Statement;
+	private readonly insAudit: ReturnType<Database["query"]>;
+	private readonly updAudit: ReturnType<Database["query"]>;
+	private readonly updUsage: ReturnType<Database["query"]>;
+	private readonly insAttempt: ReturnType<Database["query"]>;
 	/** W1086 settle statement — beside insAttempt (same flush path). */
 	private readonly insSettle: Statement;
 	private readonly flushMs: number;
@@ -483,10 +482,14 @@ export class Ledger {
 			);
 		}
 		if (op.t === "upd")
-			return 64 + op.rid.length + (op.out.err?.length ?? 0) +
+			return (
+				64 +
+				op.rid.length +
+				(op.out.err?.length ?? 0) +
 				(op.out.stream_receipt
 					? JSON.stringify(op.out.stream_receipt).length
-					: 0);
+					: 0)
+			);
 		if (op.t === "attempt") {
 			const r = op.row;
 			return (
@@ -683,6 +686,31 @@ export class Ledger {
 		if (this.auditRing.length >= this.flushRows) this.flushSoon();
 	}
 
+	/** W1086 stream settle: the caller observes the close and hands raw
+	 *  timings; every field is validated + bounded HERE (closer enum, ms
+	 *  clamp, failure kind reduced via buildSettleFact). One row per rid —
+	 *  the final settle stands, retries REPLACE. */
+	auditSettle(receipt: SettleReceipt, t0: number): void {
+		if (!/^[0-9a-f]{32}$/.test(receipt.traceId)) return;
+		if (!safeCorrelationId(receipt.rid)) return;
+		const s = buildSettleFact({
+			t0,
+			firstByteAt: receipt.firstByteAt,
+			lastByteAt: receipt.lastByteAt,
+			closer: receipt.closer,
+			error: receipt.error,
+			failureKind: receipt.failureKind,
+		});
+		this.pushAudit({
+			t: "settle",
+			rid: receipt.rid,
+			traceId: receipt.traceId,
+			s,
+			ts: this.now().toISOString(),
+		});
+		if (this.auditRing.length >= this.flushRows) this.flushSoon();
+	}
+
 	private insertAttempt(row: HopReceipt, ts: string): void {
 		this.insAttempt.run(
 			row.rid,
@@ -716,74 +744,8 @@ export class Ledger {
 		);
 	}
 
-	/** W1086 stream settle: the caller observes the close and hands raw
-	 * timings; every field is validated + bounded HERE (closer enum, ms
-	 * clamp, failure kind reduced via buildSettleFact). One row per rid —
-	 * the final settle stands, retries REPLACE. */
-	auditSettle(receipt: SettleReceipt, t0: number): void {
-		if (!/^[0-9a-f]{32}$/.test(receipt.traceId)) return;
-		if (!safeCorrelationId(receipt.rid)) return;
-		const s = buildSettleFact({
-			t0,
-			firstByteAt: receipt.firstByteAt,
-			lastByteAt: receipt.lastByteAt,
-			closer: receipt.closer,
-			error: receipt.error,
-			failureKind: receipt.failureKind,
-		});
-		this.pushAudit({
-			t: "settle",
-			rid: receipt.rid,
-			traceId: receipt.traceId,
-			s,
-			ts: this.now().toISOString(),
-		});
-		if (this.auditRing.length >= this.flushRows) this.flushSoon();
-	}
-
-	/** One trace's observed attempts, in walk order. Legacy requests simply
-	 * return an empty list. The read barrier includes queued receipts. */
-	traceAttempts(traceId: string): Array<Record<string, unknown>> {
-		if (!/^[0-9a-f]{32}$/.test(traceId)) return [];
-		this.flush();
-		return this.db
-			.query(`SELECT rid, ordinal, trace_id, ts, service, hop,
-			candidate, status, refusal, duration_ms, retry_after_ms, upstream_id,
-			call_id, upstream_refusal_code, refusal_origin FROM route_attempt WHERE trace_id = ?
-			ORDER BY ts, rid, ordinal LIMIT 500`)
-			.all(traceId) as Array<Record<string, unknown>>;
-	}
-
-	/** W1086 trace-centric read: the per-request audit rows + hop attempts +
-	 *  the stream settle row for ONE trace — the LiteLLM call id joins by
-	 *  trace_id (route_attempt.call_id), never by probing. Bounded,
-	 *  body-free. */
-	traceRead(traceId: string): {
-		trace_id: string;
-		requests: Array<Record<string, unknown>>;
-		attempts: Array<Record<string, unknown>>;
-		settle: Record<string, unknown> | null;
-	} {
-		if (!/^[0-9a-f]{32}$/.test(traceId))
-			return { trace_id: traceId, requests: [], attempts: [], settle: null };
-		this.flush();
-		const settle = (
-			this.db
-				.query(`SELECT rid, trace_id, ts, first_byte_ms, last_byte_ms,
-			closer, failure_kind FROM stream_settle WHERE trace_id = ?
-			ORDER BY ts DESC LIMIT 1`)
-				.all(traceId) as Array<Record<string, unknown>>
-		)[0];
-		return {
-			trace_id: traceId,
-			requests: this.requestsRead({ limit: 200, trace_id: traceId }),
-			attempts: this.traceAttempts(traceId),
-			settle: settle ?? null,
-		};
-	}
-
-	/** The flush-time settle INSERT (INSERT OR REPLACE — one row per rid,
-	 *  the final settle stands). */
+	/** W1086: one settle row per rid — the final settle stands, retries
+	 *  REPLACE. Fields arrive pre-bounded via buildSettleFact. */
 	private insertSettle(op: {
 		rid: string;
 		traceId: string;
@@ -799,6 +761,19 @@ export class Ledger {
 			op.s.closer,
 			op.s.failureKind,
 		);
+	}
+
+	/** One trace's observed attempts, in walk order. Legacy requests simply
+	 * return an empty list. The read barrier includes queued receipts. */
+	traceAttempts(traceId: string): Array<Record<string, unknown>> {
+		if (!/^[0-9a-f]{32}$/.test(traceId)) return [];
+		this.flush();
+		return this.db
+			.query(`SELECT rid, ordinal, trace_id, ts, service, hop,
+			candidate, status, refusal, duration_ms, retry_after_ms, upstream_id,
+			call_id, upstream_refusal_code, refusal_origin FROM route_attempt WHERE trace_id = ?
+			ORDER BY ts, rid, ordinal LIMIT 500`)
+			.all(traceId) as Array<Record<string, unknown>>;
 	}
 
 	/** The flush-time INSERT (extracted from the old inline body). */
@@ -995,6 +970,34 @@ export class Ledger {
 				selected_target_attempted: selectedTargetExact && attempts.length > 0,
 			};
 		});
+	}
+
+	/** W1086 trace-centric read: the per-request audit rows + hop attempts +
+	 *  the stream settle row for ONE trace — the LiteLLM call id joins by
+	 *  trace_id (route_attempt.call_id), never by probing. Bounded,
+	 *  body-free. */
+	traceRead(traceId: string): {
+		trace_id: string;
+		requests: RequestReadRow[];
+		attempts: Array<Record<string, unknown>>;
+		settle: Record<string, unknown> | null;
+	} {
+		if (!/^[0-9a-f]{32}$/.test(traceId))
+			return { trace_id: traceId, requests: [], attempts: [], settle: null };
+		this.flush();
+		const settle = (
+			this.db
+				.query(`SELECT rid, trace_id, ts, first_byte_ms, last_byte_ms,
+			closer, failure_kind FROM stream_settle WHERE trace_id = ?
+			ORDER BY ts DESC LIMIT 1`)
+				.all(traceId) as Array<Record<string, unknown>>
+		)[0];
+		return {
+			trace_id: traceId,
+			requests: this.requestsRead({ limit: 200, trace_id: traceId }),
+			attempts: this.traceAttempts(traceId),
+			settle: settle ?? null,
+		};
 	}
 
 	close(): void {

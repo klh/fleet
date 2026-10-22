@@ -5,7 +5,7 @@
 // not-ahead branch is a no-op, a failed ladder aborts the merge and leaves
 // the branch (strike counted), a live daemon merge vetoes ship outright
 // (W101) and crashed debris is healed, not blindly aborted.
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import {
 	existsSync,
 	mkdirSync,
@@ -15,6 +15,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// the once-mode cycle runs the full maintenance sweep — spawn-heavy, well
+// over the 5s default under load (same guard as fleet-loop-flush.test.ts)
+setDefaultTimeout(30_000);
 
 const LOOP = join(import.meta.dir, "..", "hooks", "bin", "fleet-loop.ts");
 const env = { ...process.env, FLEET_UNTRACKED_GRACE_MS: "0" };
@@ -89,6 +93,58 @@ const log = (repo: string): string => {
 	}
 };
 
+// W1072.2: ship rides mergeOne, and mergeOne now fails closed on any branch
+// whose item is not DONE with an exact result_sha — seed a real closure for
+// the fixture branch via the plane itself (registry row maps SHIP1 → item).
+const seedClosure = (repo: string, item: string, sha: string) => {
+	const WORK = join(import.meta.dir, "..", "hooks", "bin", "work.ts");
+	const run = (args: string[]) => {
+		const p = Bun.spawnSync(["bun", ...args], {
+			cwd: repo,
+			// HOME in the scratch repo: the seed must hit the ISOLATED store, not
+			// the ambient one. FLEET_MERGE_ON_DONE=0: the seed's own `work done`
+			// must not spawn a detached flush whose marker MERGE-BUSYs the ship.
+			env: {
+				...env,
+				HOME: join(repo, ".test-home"),
+				GOVERNOR_STORE_URL: "",
+				FLEET_MERGE_ON_DONE: "0",
+			},
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		return {
+			out: `${p.stdout.toString()}${p.stderr.toString()}`,
+			code: p.exitCode,
+		};
+	};
+	const add = run([WORK, "add", `ship item ${item}`, "--by", "lane"]);
+	const m = /\b(W\d+)\b/.exec(add.out);
+	if (!m) throw new Error(`work add failed: ${add.out}`);
+	const minted = m[1];
+	const take = run([WORK, "take", minted, "--as", "shiplane"]);
+	const tok = /claim token: ([0-9a-f]{48})/.exec(take.out)?.[1];
+	const reg = JSON.parse(
+		readFileSync(join(repo, ".fleet", "lanes.json"), "utf8"),
+	) as { sid: string; item: string; branch: string }[];
+	reg.push({ sid: "shiplane", item: minted, branch: `suspenders/${item}` });
+	writeFileSync(join(repo, ".fleet", "lanes.json"), JSON.stringify(reg));
+	const done = run([
+		WORK,
+		"done",
+		minted,
+		"--as",
+		"shiplane",
+		"--sha",
+		sha,
+		"--summary",
+		"ship fixture closure: the branch head is the recorded result_sha so the exact-closure predicate passes.",
+		...(tok ? ["--token", tok] : []),
+	]);
+	if (done.code !== 0) throw new Error(`work done failed: ${done.out}`);
+	return minted;
+};
+
 // W101: a live merge-active marker — pid alive + exact ps cmdline + fresh
 // ts, the same shape mergeOne writes; the sleeper stands in for the runner
 function liveMarker(repo: string): ReturnType<typeof Bun.spawn> {
@@ -111,6 +167,11 @@ function liveMarker(repo: string): ReturnType<typeof Bun.spawn> {
 describe("fleet-loop ship mode (W64)", () => {
 	test("merges one branch through the ladder, retires branch + worktree", async () => {
 		const repo = await scratchRepo();
+		seedClosure(
+			repo,
+			"SHIP1",
+			g(repo, ["rev-parse", "suspenders/SHIP1"]).stdout.toString().trim(),
+		);
 		const r = ship(repo, ["--branch", "suspenders/SHIP1"]);
 		expect(r.code).toBe(0);
 		expect(log(repo)).toContain("MERGED suspenders/SHIP1");
@@ -129,6 +190,11 @@ describe("fleet-loop ship mode (W64)", () => {
 
 	test("ladder template substitution runs and clears prior strikes", async () => {
 		const repo = await scratchRepo();
+		seedClosure(
+			repo,
+			"SHIP1",
+			g(repo, ["rev-parse", "suspenders/SHIP1"]).stdout.toString().trim(),
+		);
 		const r = ship(repo, [
 			"--branch",
 			"suspenders/SHIP1",
@@ -165,6 +231,11 @@ describe("fleet-loop ship mode (W64)", () => {
 
 	test("failed ladder: FAIL, merge aborted, branch kept, strike counted", async () => {
 		const repo = await scratchRepo();
+		seedClosure(
+			repo,
+			"SHIP1",
+			g(repo, ["rev-parse", "suspenders/SHIP1"]).stdout.toString().trim(),
+		);
 		const r = ship(repo, [
 			"--branch",
 			"suspenders/SHIP1",

@@ -16,6 +16,12 @@ const root = mkdtempSync(join(tmpdir(), "fleet-completion-"));
 const home = join(root, "home");
 mkdirSync(home);
 const env = { ...process.env, HOME: home, GOVERNOR_STORE_URL: "" };
+// W670: an ambient KLH_CLAIM_TOKEN (this test runner's own dispatch lane)
+// leaks into fixture children through the process.env spread — done prefers
+// the env channel over the lane-context file, so every terminal write would
+// present the runner's token and read as a stale writer. The fixture's
+// token channel is .fleet/lane-context.json (dispatch's durable channel).
+delete env.KLH_CLAIM_TOKEN;
 const source = join(import.meta.dir, "../hooks");
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 let sequence = 0;
@@ -91,6 +97,8 @@ test("direct messages take priority without spending the lane continuation budge
 	const f = fixture();
 	const db = new Database(join(home, ".cache/claude-governor/governor.db"));
 	try {
+		// the directed_event_receipt_ai trigger queues the receipt with the
+		// event insert — assert the real queued path, never a second manual row
 		const inserted = db
 			.query(
 				"INSERT INTO events (ts, source, kind, payload, target) VALUES (?, 'owner', 'NOTE', ?, 'dispatch-owner')",
@@ -99,9 +107,13 @@ test("direct messages take priority without spending the lane continuation budge
 				Date.now(),
 				JSON.stringify({ note: "Read this before continuing the work item" }),
 			);
-		db.query(
-			"INSERT INTO direct_message_receipts (event_id, sid, state, queued_at) VALUES (?, 'dispatch-owner', 'QUEUED', ?)",
-		).run(inserted.lastInsertRowid, Date.now());
+		expect(
+			db
+				.query(
+					"SELECT state FROM direct_message_receipts WHERE event_id = ? AND sid = 'dispatch-owner'",
+				)
+				.get(inserted.lastInsertRowid),
+		).toEqual({ state: "QUEUED" });
 		const result = f.stop();
 		expect(result.err).toContain("TURN-BOUNDARY INBOX");
 		expect(result.err).toContain("Read this before continuing the work item");

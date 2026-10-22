@@ -146,6 +146,47 @@ test("audit fetch is authenticated, bounded and rejects missing evidence", async
 	}
 });
 
+test("W1102.1: plaid fail-closed — unavailable audit holds, empty history permits", async () => {
+	// [serve, expectPause, reason] — unavailable (throw/503) holds in plaid;
+	// authenticated reachable EMPTY history is valid first-launch evidence
+	const dead = Bun.serve({ port: 0, fetch: () => new Response("x") });
+	const deadPort = dead.port;
+	dead.stop(true);
+	const cases: [string | (() => Response), boolean, string?][] = [
+		[`http://127.0.0.1:${deadPort}`, true, "audit read unavailable"],
+		[() => new Response(null, { status: 503 }), true, "audit read unavailable"],
+		[() => Response.json({ requests: [] }), false],
+	];
+	for (const [serve, expectPause, reason] of cases) {
+		const server = Bun.serve({
+			port: 0,
+			fetch: typeof serve === "function" ? serve : () => new Response("x"),
+		});
+		const front =
+			typeof serve === "string" ? serve : `http://127.0.0.1:${server.port}`;
+		try {
+			const plaid = new RouteAdmission(
+				true,
+				async () => front,
+				() => "fixture-admin",
+				true,
+			);
+			const r = await plaid.check("glm-5.3-flash");
+			expect(r.pause).toBe(expectPause);
+			if (reason) expect(r.reason).toContain(reason);
+			// steady posture (requireEvidence default false) NEVER holds here
+			const steady = new RouteAdmission(
+				true,
+				async () => front,
+				() => "fixture-admin",
+			);
+			expect((await steady.check("glm-5.3-flash")).pause).toBe(false);
+		} finally {
+			server.stop(true);
+		}
+	}
+});
+
 test("one audit read per selected model, with no read for an unpinned lane", async () => {
 	let reads = 0;
 	const server = Bun.serve({

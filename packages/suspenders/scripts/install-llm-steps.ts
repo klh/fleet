@@ -13,6 +13,7 @@
 // (ctx.noLlm / ctx.skipModels) — the SUSPENDERS_LEGACY_* env handoff is
 // retired with the bash front.
 import {
+	chmodSync,
 	copyFileSync,
 	existsSync,
 	mkdirSync,
@@ -29,6 +30,7 @@ import {
 } from "../../belt/bin/litellm-target.ts";
 import { refreshFlatHome, smokeRouter } from "./belt-bin-overlay.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
+import { validateBeltWiredGuard } from "./lib/belt-wired-guard.ts";
 
 const kitDir = (ctx: StepContext): string => join(ctx.repo, "..", "local-llm");
 const beltBin = (ctx: StepContext): string =>
@@ -195,6 +197,19 @@ export async function seedLocalLlm(ctx: StepContext): Promise<StepResult> {
 		};
 	}
 	const log = logFor(ctx);
+	mkdirSync(ctx.llmHome, { recursive: true });
+	const beltEnv = join(ctx.llmHome, "belt.env");
+	if (!existsSync(beltEnv)) {
+		copyFileSync(join(kitDir(ctx), "belt.env"), beltEnv);
+		chmodSync(beltEnv, 0o600);
+		log(`+ ${beltEnv} (stub — configure before install)`);
+	}
+	const guard = validateBeltWiredGuard(beltEnv);
+	if (!guard.ok)
+		return {
+			status: "failed",
+			note: `${guard.reason}; configure ${beltEnv} before install`,
+		};
 	if (ctx.llmHome === join(process.env.HOME ?? "", ".claude", "local-llm")) {
 		try {
 			const state = await ensureLiteLlmMetricsDependency();
@@ -206,7 +221,6 @@ export async function seedLocalLlm(ctx: StepContext): Promise<StepResult> {
 			};
 		}
 	}
-	mkdirSync(ctx.llmHome, { recursive: true });
 	// W778: the flattened kit now imports npm deps (stack-config.ts → yaml)
 	// and the home has no manifest of its own — ride the prefix's offline
 	// node_modules (idempotent; a real operator dir is left alone).
@@ -263,10 +277,9 @@ export async function seedLocalLlm(ctx: StepContext): Promise<StepResult> {
 			log("tier manifest emission skipped (stale kit registry-emit.ts)");
 		}
 	}
-	// W284: operator stubs — belt.env stays kit-sourced; the routing-policy
-	// default now rides the belt kit.
+	// W284: routing-policy default rides the belt kit. The private belt.env
+	// was validated before any supervisor closure was installed.
 	const stubs: Array<[string, string]> = [
-		["belt.env", join(kitDir(ctx), "belt.env")],
 		["routing-policy.yaml", join(beltBin(ctx), "routing-policy.yaml")],
 	];
 	for (const [stub, source] of stubs) {

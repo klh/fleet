@@ -9,7 +9,7 @@
 // (Chorus AGPL-3.0: zero code — patterns only; emdash Apache-2.0, superlite
 // and best-of MIT: attribution required, patterns preferred). Writes the
 // report json the W822 pulse reads and lands finding.license-audit.
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -126,31 +126,36 @@ function walkNodeModules(
 		return;
 	}
 	for (const e of entries) {
-		if (e.startsWith(".") || e === skip) continue;
+		if (e.startsWith(".") || e === skip || e === "node_modules") continue;
 		if (e.startsWith("@")) {
+			const scope = join(nm, e);
+			if (!isRealDirectory(scope)) continue;
 			let inner: string[];
 			try {
-				inner = readdirSync(join(nm, e));
+				inner = readdirSync(scope);
 			} catch {
 				continue;
 			}
 			for (const n of inner) {
 				if (n.startsWith(".")) continue;
-				consider(join(nm, e, n), seen, rows);
+				consider(join(scope, n), seen, rows);
 			}
 			continue;
 		}
-		const full = join(nm, e);
-		try {
-			if (!statSync(full).isDirectory()) continue;
-		} catch {
-			continue;
-		}
-		consider(full, seen, rows);
+		consider(join(nm, e), seen, rows);
+	}
+}
+
+function isRealDirectory(path: string): boolean {
+	try {
+		return lstatSync(path).isDirectory();
+	} catch {
+		return false;
 	}
 }
 
 function consider(full: string, seen: Set<string>, rows: LicenseRow[]): void {
+	if (!isRealDirectory(full)) return;
 	let j: { name?: string; version?: string };
 	try {
 		j = JSON.parse(readFileSync(join(full, "package.json"), "utf8")) as {

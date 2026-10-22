@@ -16,6 +16,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { execa } from "execa";
+import { validateBeltWiredGuard } from "./lib/belt-wired-guard.ts";
 import {
 	digestUnit,
 	parseLoadedArguments,
@@ -184,6 +185,15 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 		return { status: "failed", note: stable.refusal };
 	}
 	const repo = stable.repo;
+	const home = ctx.home || process.env.HOME || "";
+	const guard = validateBeltWiredGuard(
+		join(home, ".claude", "local-llm", "belt.env"),
+	);
+	if (!guard.ok)
+		return {
+			status: "failed",
+			note: `${guard.reason}; Belt and dispatch require the same machine value before activation`,
+		};
 	// Read-only route gate must run from the pinned source checkout: the
 	// installed harness snapshot has no Buckle/Belt package closure. A failed
 	// graph or connect check blocks activation before any unit is rendered.
@@ -224,7 +234,6 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 			note: `route preflight failed before activation: ${summary}`,
 		};
 	}
-	const home = process.env.HOME ?? "";
 	const agentsDir = join(home, "Library", "LaunchAgents");
 	const insightsDir = join(home, ".claude-insights");
 	// W264: agent logs live in the private insights dir, never world-readable /tmp

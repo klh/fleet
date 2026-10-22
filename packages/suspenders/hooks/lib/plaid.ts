@@ -178,8 +178,12 @@ const plaidRouteTable = (): PlaidRoute[] => tableOverride?.() ?? PLAID_ROUTES;
 // launches a lane that 502s on its first request) ─────────────────────────
 
 /** GET <front>/v1/models → served model ids; null = no evidence (front
- *  unreachable/odd shape). Fail-open by doctrine: no evidence never
- *  demotes — the quota + bin probes stay the walling authority. */
+ *  unreachable/odd shape). W1102.1: the plaid posture FAILS CLOSED on no
+ *  evidence — an unreachable/unparseable catalog is `null`, a reachable
+ *  empty catalog is `[]` (the front answering with zero models is honest
+ *  evidence every pin is unserved). No evidence never walling was the
+ *  W989 doctrine; W1102.1 keeps quota+bin as walls but adds the catalog
+ *  availability signal for plaid launch gating. */
 export const PLAID_PROBE_TIMEOUT_MS = 1500;
 export const fetchModelCatalog = async (
 	front: string | null,
@@ -198,25 +202,29 @@ export const fetchModelCatalog = async (
 		const ids = j.data
 			.map((d) => (typeof d?.id === "string" ? d.id : ""))
 			.filter(Boolean);
-		return ids.length ? ids : null;
+		return ids; // [] = reachable empty catalog (valid evidence)
 	} catch {
-		return null; // front down/timeout — no evidence, not a wall
+		return null; // front down/timeout — unavailable, not empty
 	}
 };
 
-/** Per-route model health over a fetched catalog: a pinned model the front
- *  does not serve is an unavailable route (honest reason); unpinned routes
- *  and evidence-less runs are exempt. Pure — tests feed the catalog. */
+/** Per-route model health over a fetched catalog. W1102.1 typed states:
+ *  `null` return = catalog UNAVAILABLE (no evidence — plaid launch holds
+ *  fail-closed), a Map = the catalog was read (empty map impossible: every
+ *  route gets an entry; `[]` catalog walls every pinned route — a
+ *  reachable front serving zero models is honest evidence). Pure — tests
+ *  feed the catalog. */
 export const plaidModelHealth = (
 	routes: PlaidRoute[],
 	catalog: string[] | null,
-): Map<string, string | null> => {
-	const served = catalog ? new Set(catalog) : null;
+): Map<string, string | null> | null => {
+	if (catalog === null) return null; // unavailable ≠ empty
+	const served = new Set(catalog);
 	const health = new Map<string, string | null>();
 	for (const r of routes) {
 		health.set(
 			r.name,
-			r.model && served && !served.has(r.model)
+			r.model && !served.has(r.model)
 				? `model ${r.model} not served at the buckle front`
 				: null,
 		);
@@ -227,11 +235,12 @@ export const plaidModelHealth = (
 /** Dispatch-side one-shot: the live route table probed against the front
  *  (probeBuckleFront's url; null = no belt). The front's /v1/models is
  *  auth-gated — callers pass the machine conf's admin key (belt.env);
- *  absent key = 401 = no evidence. One call per dispatch run. */
+ *  absent key = 401 = catalog unavailable → null (plaid holds). One call
+ *  per dispatch run. */
 export const plaidProbeHealth = async (
 	front: string | null,
 	token?: string | null,
-): Promise<Map<string, string | null>> =>
+): Promise<Map<string, string | null> | null> =>
 	plaidModelHealth(
 		plaidRouteTable(),
 		await fetchModelCatalog(front, PLAID_PROBE_TIMEOUT_MS, token),
@@ -496,7 +505,9 @@ export const plaidPickOf = (
 // ── the dispatch-side entry: one call assembles the full gate state ───────
 
 /** One dispatch decision: route table + health + load + plan assembled
- *  once — the shape dispatch-next's plaid override consumes. */
+ *  once — the shape dispatch-next's plaid override consumes. W1102.1
+ *  fail-closed: an UNAVAILABLE catalog (modelHealth null) closes the plan
+ *  with an explicit reason — no evidence never launches a plaid lane. */
 export const plaidGate = (
 	store: GovernorStore,
 	liveSids: string[],
@@ -509,6 +520,18 @@ export const plaidGate = (
 	plan: PlaidPlan;
 } => {
 	const routes = plaidRouteTable();
+	if (modelHealth === null)
+		return {
+			routes,
+			health: plaidHealth(quota),
+			load: new Map(),
+			plan: {
+				open: false,
+				provider: null,
+				phase: null,
+				reason: PLAID_CATALOG_UNAVAILABLE,
+			},
+		};
 	const health = mergePlaidHealth(plaidHealth(quota), modelHealth);
 	const load = routeLoadOf(store, liveSids);
 	const liveBy = new Map(
@@ -523,6 +546,11 @@ export const plaidGate = (
 };
 
 // ── the dispatch override, end to end ─────────────────────────────────────
+
+/** The loud hold reason when the catalog probe ran but the front gave no
+ *  evidence (unreachable/401/odd shape ≠ a healthy empty catalog). */
+export const PLAID_CATALOG_UNAVAILABLE =
+	"plaid: buckle front /v1/models catalog unavailable — launch held (fail-closed)";
 
 export interface PlaidDispatch {
 	/** non-null = SKIP dispatch with this reason (pool plan closed). */
@@ -549,6 +577,16 @@ export const plaidDispatch = (o: {
 	modelHealth?: Map<string, string | null> | null;
 }): PlaidDispatch => {
 	const g = plaidGate(o.store, o.sids, o.quota, o.modelHealth);
+	// W1102.1 fail-closed: an unavailable catalog holds EVERY plaid launch,
+	// pinned or pooled (the routePin branch below reads per-route health —
+	// it must never bypass the availability signal)
+	if (o.modelHealth === null)
+		return {
+			skip: PLAID_CATALOG_UNAVAILABLE,
+			pick: {},
+			routeName: null,
+			note: null,
+		};
 	if (o.routePin) {
 		const route = g.routes.find((r) => r.name === o.routePin);
 		if (
