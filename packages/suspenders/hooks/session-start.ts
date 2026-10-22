@@ -18,6 +18,10 @@ import { enrollTopLevel } from "./lib/hook-scripts.ts";
 import { run } from "./lib/run.ts";
 import { checkSessionPolicies } from "./lib/session-policy.ts";
 import { attachSubscribe, subagentLaneSuffix } from "./lib/subscribe-attach.ts";
+// W1124.12: an explicit worker role skips the SUPERVISOR DEFAULT + report
+// injection — a managed lane is not a loop-arming runtime (same ruling as
+// the isSubagent branch, source of truth = lane-settings.ts role marker).
+import { sessionRole } from "./lib/coordinator-edit-gate.ts";
 import {
 	seedSupervisorRefill,
 	supervisorRefillDirective,
@@ -57,6 +61,10 @@ const now = Date.now();
 const suffix = subagentLaneSuffix(input.transcript_path ?? "");
 const isSubagent = suffix !== "";
 let lane = `${sid}${suffix}`; // suffix re-derived in the canonical branch below
+// W1124.12: an explicit worker role — the dispatch-written lane-settings.ts
+// marker — skips the SUPERVISOR DEFAULT + report injection below: a managed
+// lane is not a loop-arming runtime (same ruling as the isSubagent branch).
+const isWorkerRole = sessionRole(input.cwd ?? process.cwd()) === "lane";
 
 function pname(p: string): string {
 	const parts = p.split("/");
@@ -315,7 +323,8 @@ const readyN = (
 		)
 		.get(project) as { n: number }
 ).n;
-if (!isSubagent) seedSupervisorRefill(db as Database, project, sid, readyN);
+if (!isSubagent && !isWorkerRole)
+	seedSupervisorRefill(db as Database, project, sid, readyN);
 const cur = db
 	.query("SELECT event_id FROM cursors WHERE sid = ?")
 	.get(lane) as { event_id: number } | null;
@@ -348,8 +357,10 @@ if (mine.length || inbox > 0 || readyN > 0 || head) {
 	// W637 supervisor default (owner law 2026-10-11): when the pool holds
 	// READY work, the arm-loop directive renders here — compliance by
 	// injection, not model-recall of the global CLAUDE.md rule. Top-level
-	// sessions only: a subagent lane is not a loop-arming runtime.
-	if (readyN > 0 && !isSubagent) {
+	// sessions only: a subagent lane is not a loop-arming runtime, and a
+	// W1124.12 worker-role lane (the dispatch settings marker) is neither —
+	// it executes its claim instead of arming the refill loop.
+	if (readyN > 0 && !isSubagent && !isWorkerRole) {
 		// W899: the SUPERVISOR DEFAULT contract EMITS the W892 table —
 		// session-start only CALLS the one implementation (lib/work-report.ts),
 		// the same shape the install tail and lane briefs carry.

@@ -22,6 +22,7 @@ import {
 	STARTER_FLAG,
 	STARTER_SAVED_S,
 } from "../scripts/lib/lane-starter.ts";
+import { WORKER_MANAGED_PROFILE } from "../hooks/lib/executors/claude.ts";
 
 const scratch = (): string => {
 	const d = join(
@@ -52,6 +53,26 @@ describe("lane-starter", () => {
 	test("starter version is content-derived and stable", () => {
 		expect(starterVersion("same text")).toBe(starterVersion("same text"));
 		expect(starterVersion("same text")).not.toBe(starterVersion("other"));
+	});
+
+	// W1124.12: the managed worker profile is part of the version hash — a
+	// profile change supersedes every cached starter session without touching
+	// the seed prompt text.
+	test("starter version invalidates when the managed profile changes", () => {
+		const before = starterVersion("seed");
+		const savedMcp = WORKER_MANAGED_PROFILE.mcpConfig;
+		const savedTools = WORKER_MANAGED_PROFILE.tools;
+		try {
+			WORKER_MANAGED_PROFILE.mcpConfig = `{"mcpServers":{"drifted":{}}}`;
+			expect(starterVersion("seed")).not.toBe(before);
+			WORKER_MANAGED_PROFILE.mcpConfig = savedMcp;
+			WORKER_MANAGED_PROFILE.tools = "Bash";
+			expect(starterVersion("seed")).not.toBe(before);
+		} finally {
+			WORKER_MANAGED_PROFILE.mcpConfig = savedMcp;
+			WORKER_MANAGED_PROFILE.tools = savedTools;
+		}
+		expect(starterVersion("seed")).toBe(before);
 	});
 
 	test("ensureStarter seeds once then reuses the registry", () => {
