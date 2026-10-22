@@ -143,10 +143,14 @@ async function exercisePause(interruptDuringResume: boolean): Promise<void> {
 	}
 }
 
-for (const interruptDuringResume of [false, true]) {
-	test(
-		`managed pause waits idle and resumes the same process (interrupt active resume: ${interruptDuringResume})`,
-		() => exercisePause(interruptDuringResume),
-		10000,
-	);
-}
+test(
+	"managed pause checkpoints through canonical CLI, waits idle, and resumes the same native process",
+	() => exercisePause(false),
+	10000,
+);
+
+test(
+	"direct messages interrupt active resumed work in the same native process",
+	() => exercisePause(true),
+	10000,
+);
