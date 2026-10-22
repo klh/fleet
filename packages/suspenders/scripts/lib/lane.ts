@@ -302,16 +302,16 @@ export const spawnClaude = (o: {
 			"acceptEdits",
 		]
 	)
-		.map((a) => (a.includes(" ") ? sq(a) : a))
+		.map(sq)
 		.join(" ");
 	// A detached child has its own process group, so dispatcher group teardown
 	// cannot terminate the harness. unref releases the event-loop reference.
 	// exec preserves the recorded harness PID,
 	// stdin EOF prevents input waits, and the log is the board's tail surface.
 	const head = o.promptLast
-		? `${o.promptArgs?.[0] ?? "exec"} ${tail} ${sq(o.prompt)}`
+		? `${sq(o.promptArgs?.[0] ?? "exec")} ${tail} ${sq(o.prompt)}`
 		: o.promptArgs
-			? `${o.promptArgs.map((a) => (a.includes(" ") ? sq(a) : a)).join(" ")} ${tail}`
+			? `${o.promptArgs.map(sq).join(" ")} ${tail}`
 			: `-p ${sq(o.prompt)} ${tail}`;
 	return Bun.spawn(
 		[

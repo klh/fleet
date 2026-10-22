@@ -5,8 +5,10 @@
 //
 // Secrets are resolved at SPAWN time — the inherited env wins, else the
 // machine-local key files (required Z.ai and LiteLLM; optional Anthropic,
-// OpenAI, Copilot and OpenRouter). litellm.yaml references them as
-// os.environ/… so key values never appear in code, argv, logs or status.
+// OpenAI, Copilot and OpenRouter). The Z.ai key source is the canonical
+// private Fleet key file (regular, non-empty, mode 0600) — the unrelated
+// ~/.config/zai tool config is NOT read here. litellm.yaml references them
+// as os.environ/… so key values never appear in code, argv, logs or status.
 //
 // Liveness: GET /v1/models with the master key. 200 = serving + authorized,
 // 401 = serving (endpoint alive, key mismatch); anything else = not serving.
@@ -15,7 +17,7 @@
 // root cause); native Prometheus metrics also require prometheus_client.
 // Missing → log + alert status. Never auto-installed in-process.
 
-import { openSync, readFileSync } from "node:fs";
+import { openSync, readFileSync, statSync } from "node:fs";
 import type { Child, Target } from "./supervisor.ts";
 
 const HOME = process.env.HOME ?? "";
@@ -45,7 +47,8 @@ export interface LitellmPaths {
 	bin: string;
 	python: string;
 	config: string;
-	zaiConfig: string;
+	/** Canonical private Fleet Z.ai key file (regular file, non-empty, 0600). */
+	zaiKeyFile: string;
 	masterKeyFile: string;
 	/** Anthropic upstream key for litellm.yaml rows pointing at
 	 *  api.anthropic.com (claude-sonnet-5 / claude-haiku-4-5). Optional:
@@ -67,7 +70,7 @@ export const DEFAULT_PATHS: LitellmPaths = {
 	bin: `${HOME}/.local/bin/litellm`,
 	python: `${HOME}/.local/share/uv/tools/litellm/bin/python`,
 	config: `${HOME}/.claude/local-llm/litellm.yaml`,
-	zaiConfig: `${HOME}/.config/zai/config.json`,
+	zaiKeyFile: `${HOME}/.claude/local-llm/zai.key`,
 	masterKeyFile: `${HOME}/.claude/local-llm/litellm.key`,
 	anthropicKeyFile: `${HOME}/.claude/local-llm/anthropic.key`,
 	openaiKeyFile: `${HOME}/.claude/local-llm/openai.key`,
@@ -87,6 +90,7 @@ export interface LitellmKeys {
 
 type Env = Record<string, string | undefined>;
 type ReadFile = (path: string) => string;
+type StatFile = (path: string) => { isFile(): boolean; mode: number };
 
 const readText: ReadFile = (path) => readFileSync(path, "utf8");
 
@@ -98,15 +102,28 @@ const tryRead = (read: ReadFile, path: string): string | null => {
 	}
 };
 
-function zaiKeyFromFile(read: ReadFile, path: string): string | null {
-	const raw = tryRead(read, path);
-	if (!raw) return null;
+const tryStat = (stat: StatFile, path: string) => {
 	try {
-		const key = (JSON.parse(raw) as { apiKey?: unknown }).apiKey;
-		return typeof key === "string" && key.trim() ? key.trim() : null;
+		return stat(path);
 	} catch {
 		return null;
 	}
+};
+
+/** Canonical Z.ai source: a REGULAR, non-empty, 0600 key file. Anything
+ *  else (absent, empty, wrong mode, directory/symlink) reads as no key —
+ *  the failure then names the path, never a value. */
+function zaiKeyFromFile(
+	read: ReadFile,
+	stat: StatFile,
+	path: string,
+): string | null {
+	const st = tryStat(stat, path);
+	if (!st?.isFile() || (st.mode & 0o777) !== 0o600) return null;
+	const raw = tryRead(read, path);
+	if (!raw) return null;
+	const key = raw.trim();
+	return key ? key : null;
 }
 
 /** Env first, then the 0600 files. Throws naming the SOURCE, never a value. */
@@ -114,8 +131,9 @@ export function loadKeys(
 	paths: LitellmPaths = DEFAULT_PATHS,
 	env: Env = process.env,
 	read: ReadFile = readText,
+	stat: StatFile = statSync,
 ): LitellmKeys {
-	const zai = env.Z_AI_API_KEY || zaiKeyFromFile(read, paths.zaiConfig);
+	const zai = env.Z_AI_API_KEY || zaiKeyFromFile(read, stat, paths.zaiKeyFile);
 	const master =
 		env.LITELLM_KEY || tryRead(read, paths.masterKeyFile)?.trim() || null;
 	const anthropic =
@@ -131,7 +149,7 @@ export function loadKeys(
 		tryRead(read, paths.openrouterKeyFile)?.trim() ||
 		null;
 	const missing: string[] = [];
-	if (!zai) missing.push(`Z_AI_API_KEY (env or ${paths.zaiConfig} apiKey)`);
+	if (!zai) missing.push(`Z_AI_API_KEY (env or ${paths.zaiKeyFile})`);
 	if (!master) missing.push(`LITELLM_KEY (env or ${paths.masterKeyFile})`);
 	if (!zai || !master) throw new Error(`missing ${missing.join(", ")}`);
 	return {
@@ -198,6 +216,8 @@ export interface LitellmTargetDeps {
 	port?: number;
 	env?: Env;
 	read?: ReadFile;
+	/** Injected stat for the 0600 key-file gate (tests pin fixture paths). */
+	stat?: StatFile;
 	/** Override the server argv (tests run a stub on a free port). */
 	argv?: string[];
 	preflight?: () => string | null;
@@ -208,6 +228,7 @@ export function litellmTarget(deps: LitellmTargetDeps = {}): Target {
 	const port = deps.port ?? LITELLM_PORT;
 	const env = deps.env ?? process.env;
 	const read = deps.read ?? readText;
+	const stat = deps.stat ?? statSync;
 	return {
 		name: "litellm",
 		port,
@@ -217,7 +238,7 @@ export function litellmTarget(deps: LitellmTargetDeps = {}): Target {
 		okStatus: LITELLM_OK_STATUS,
 		probeHeaders: () => {
 			try {
-				const { LITELLM_KEY } = loadKeys(paths, env, read);
+				const { LITELLM_KEY } = loadKeys(paths, env, read, stat);
 				return { Authorization: `Bearer ${LITELLM_KEY}` };
 			} catch {
 				return {}; // unauthenticated probe: 401 still proves liveness
@@ -231,7 +252,7 @@ export function litellmTarget(deps: LitellmTargetDeps = {}): Target {
 			(() =>
 				prismaPreflight(paths.python) ?? prometheusPreflight(paths.python)),
 		spawn: (): Child => {
-			const keys = loadKeys(paths, env, read);
+			const keys = loadKeys(paths, env, read, stat);
 			const fd = openSync(paths.log, "a");
 			return Bun.spawn(deps.argv ?? litellmArgv(paths, port), {
 				stdin: "ignore",

@@ -1,7 +1,13 @@
 // W277 — litellm (:4100) joins the supervised set. Stub servers on free ports
 // only — never touches the live :4100 engine or the real key files.
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	mkdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -47,13 +53,13 @@ Bun.serve({ port, hostname: "127.0.0.1", fetch: (req) => {
 );
 
 const paths = (over: Partial<LitellmPaths> = {}): LitellmPaths => {
-	const zaiConfig = join(dir, "zai.json");
+	const zaiKeyFile = join(dir, "zai.key");
 	const masterKeyFile = join(dir, "litellm.key");
-	writeFileSync(zaiConfig, JSON.stringify({ apiKey: ZAI }), { mode: 0o600 });
+	writeFileSync(zaiKeyFile, ZAI, { mode: 0o600 });
 	writeFileSync(masterKeyFile, `${MASTER}\n`, { mode: 0o600 });
 	return {
 		...DEFAULT_PATHS,
-		zaiConfig,
+		zaiKeyFile,
 		masterKeyFile,
 		// pinned into the tmpdir like the other keys — spreading DEFAULT_PATHS
 		// left the optional-key files on the REAL machine paths, so loadKeys
@@ -171,9 +177,34 @@ describe("keys — env first, then the 0600 files, never echoed", () => {
 		).toBe("override");
 	});
 
+	test("zai key file must be a regular non-empty 0600 file", () => {
+		const env = {};
+		// a rejected source throws naming the path only — never a value
+		const rejects = (file: string) =>
+			expect(() => loadKeys(paths({ zaiKeyFile: file }), env)).toThrow(
+				new RegExp(`Z_AI_API_KEY.*${file.replace(/\./g, "\\.")}`),
+			);
+		// wrong mode (0644) → rejected
+		const loose = join(dir, "zai-loose.key");
+		writeFileSync(loose, ZAI, { mode: 0o644 });
+		rejects(loose);
+		// empty file → rejected
+		const empty = join(dir, "zai-empty.key");
+		writeFileSync(empty, "", { mode: 0o600 });
+		rejects(empty);
+		// directory → rejected
+		const asDir = join(dir, "zai-dir.key");
+		mkdirSync(asDir);
+		rejects(asDir);
+		// absent → rejected
+		rejects(join(dir, "nope.key"));
+		// present regular 0600 non-empty → accepted
+		expect(loadKeys(paths(), env).Z_AI_API_KEY).toBe(ZAI);
+	});
+
 	test("missing keys throw naming the source, not a value", () => {
 		const p = paths({
-			zaiConfig: join(dir, "nope.json"),
+			zaiKeyFile: join(dir, "nope.json"),
 			masterKeyFile: join(dir, "nope.key"),
 		});
 		expect(() => loadKeys(p, {})).toThrow(/Z_AI_API_KEY.*LITELLM_KEY/);

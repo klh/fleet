@@ -10,6 +10,8 @@ import {
 	writeSessionState,
 } from "./session-state.ts";
 import { subagentLaneSuffix } from "./subscribe-attach.ts";
+// W1124.12: worker-role lanes never arm the refill loop (mid-session either).
+import { sessionRole } from "./coordinator-edit-gate.ts";
 
 type RefillState = { project: string; eventId: number; prompted: boolean };
 
@@ -45,7 +47,10 @@ export function midSessionSupervisorRefill(
 	if (!sid || process.env.CLAUDE_FLEET_BOOTSTRAP === "0") return "";
 	if (
 		subagentLaneSuffix(hook.transcript_path ?? "") ||
-		(hook as HookInput & { agent_id?: string }).agent_id
+		(hook as HookInput & { agent_id?: string }).agent_id ||
+		// W1124.12: a worker-role lane executes its claim — it never arms
+		// the refill loop mid-session either (same ruling as session-start).
+		sessionRole(hook.cwd ?? process.cwd()) === "lane"
 	)
 		return "";
 	const command = hook.tool_input?.command ?? "";

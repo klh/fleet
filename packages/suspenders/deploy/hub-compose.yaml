@@ -211,7 +211,7 @@ services:
       # (server.ts W461 stage 2; the network read model resolves the same
       # chain) — hubs project per-hub request edges for the Network overview
       BUCKLE_OBSERVATIONS_PATH: /state/buckle/observations.ndjson
-      BUCKLE_POLICY: ${HUB_FLEET_SRC:-/src/fleet/packages}/buckle/routing-policy.yaml
+      BUCKLE_POLICY: /etc/klh/routing-policy.hub.yaml
       BUCKLE_UPSTREAMS: /etc/klh/upstreams.hub.yaml
       # W983: the hub's owner prefs (allow_cloud / cost_speed), rendered by
       # hubctl from stack.yaml `buckle_prefs:` — the switches the routing
@@ -246,6 +246,7 @@ services:
       # stack.yaml `upstreams:` (always present — empty groups = the
       # committed placeholder ladder stands); merged over the base file
       - ./upstreams.hub.yaml:/etc/klh/upstreams.hub.yaml:ro
+      - ./routing-policy.hub.yaml:/etc/klh/routing-policy.hub.yaml:ro
       # W983: the 0600 owner-prefs file hubctl push renders from stack.yaml
       - ./buckle-prefs.json:/etc/klh/buckle-prefs.json:ro
       - buckle-state:/state/buckle

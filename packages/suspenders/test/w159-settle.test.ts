@@ -10,6 +10,9 @@ import { join } from "node:path";
 import type { Database } from "bun:sqlite";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-w159-"));
+// restore before afterAll cleanup: the rest of the suite shares this process —
+// a leaked fixture HOME rides later spawns' {...process.env} spreads (W1124.11)
+const REAL_HOME = process.env.HOME;
 process.env.HOME = HOME;
 // query bust: this file's own govdb instance, bound to the temp HOME
 const { openGovernorDb, openKnowledgeDb } = await import(
@@ -77,6 +80,7 @@ function seedSession(sid: string, domain?: "hub" | "private"): void {
 }
 
 afterAll(() => {
+	process.env.HOME = REAL_HOME;
 	rmSync(HOME, { recursive: true, force: true });
 });
 
