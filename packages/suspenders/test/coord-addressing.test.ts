@@ -387,4 +387,36 @@ describe("coord message", () => {
 		db.close();
 		expect((JSON.parse(row.payload) as { note: string }).note).toBe(body);
 	});
+
+	test("hyphen-led quoted bodies survive directed and broadcast messages exactly", () => {
+		for (const target of ["ikea-opus", "--all"]) {
+			for (const body of [
+				"- bullet\n- second ✓",
+				"-- heading\nmore",
+				"--unrelated",
+				"-1 is the result",
+				"--as is documented here",
+			]) {
+				seedSessions();
+				const result = run([
+					"message",
+					target,
+					body,
+					"--as",
+					"caller-99999999",
+				]);
+				expect(result.code).toBe(0);
+				const db = new Database(DB, { readonly: true });
+				const event = db
+					.query(
+						"SELECT payload FROM events WHERE kind = ? ORDER BY id DESC LIMIT 1",
+					)
+					.get(target === "--all" ? "BROADCAST" : DIRECT_KIND) as {
+					payload: string;
+				};
+				db.close();
+				expect(JSON.parse(event.payload).note).toBe(body);
+			}
+		}
+	});
 });

@@ -363,10 +363,15 @@ export async function cmdMessage(rest: string[]): Promise<void> {
 	// verb-kit parser is order-free on flags, so it cannot reject this shape
 	// while preserving the documented order — reject option tokens here,
 	// before resolving a target or emitting any event.
+	const misplacedFlag = (value: string | undefined): boolean =>
+		value !== undefined &&
+		["--as", "--all", "--note", "--help", "-h"].includes(
+			value.split("=", 1)[0],
+		);
 	const badToken =
-		rest[0]?.startsWith("-") && rest[0] !== "--all"
+		misplacedFlag(rest[0]) && rest[0] !== "--all"
 			? rest[0]
-			: rest[1]?.startsWith("-")
+			: misplacedFlag(rest[1])
 				? rest[1]
 				: null;
 	if (badToken)
