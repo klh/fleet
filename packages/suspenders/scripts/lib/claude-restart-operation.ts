@@ -20,6 +20,7 @@ import {
 	restartJournalPath,
 	restartContinuationProof,
 	pausedNativeBoundary,
+	validateRestartBoundary,
 	type ClaudeRestartSnapshot,
 	type ClaudeRestartJournal,
 	type RestartIdentity,
@@ -158,6 +159,33 @@ function children(pid: number): number[] {
 		.filter(Boolean)
 		.map(Number);
 }
+export async function verifyRestartDrain(
+	front: string,
+	sid: string,
+	headers: Record<string, string>,
+): Promise<void> {
+	const query = new URLSearchParams({
+		limit: "500",
+		inference: "true",
+		lane: sid,
+	});
+	const response = await fetch(`${front}/v1/admin/requests?${query}`, {
+		headers,
+		signal: AbortSignal.timeout(5000),
+	});
+	const body = (await response.json()) as {
+		requests?: Array<{ lane?: string; status?: number | null }>;
+	};
+	if (
+		!response.ok ||
+		!Array.isArray(body.requests) ||
+		body.requests.length >= 500 ||
+		body.requests.some((row) => row.lane !== sid)
+	)
+		throw new Error("Restart scoped inference coverage is unknown");
+	if (body.requests.some((row) => row.status == null))
+		throw new Error("Restart lane inference has not drained");
+}
 async function verifyRoute(sid: string, settings: string): Promise<void> {
 	const config = privateJson<{ env?: Record<string, string> }>(settings);
 	const token = config.env?.ANTHROPIC_AUTH_TOKEN;
@@ -176,17 +204,7 @@ async function verifyRoute(sid: string, settings: string): Promise<void> {
 	const key = (await verified.json()) as { valid?: boolean };
 	if (!verified.ok || key.valid !== true)
 		throw new Error("Restart lane key is not valid");
-	const response = await fetch(
-		`${BUCKLE_FRONT}/v1/admin/requests?limit=500&inference=true`,
-		{ headers, signal: AbortSignal.timeout(5000) },
-	);
-	const body = (await response.json()) as {
-		requests?: Array<{ lane?: string; status?: number | null }>;
-	};
-	if (!response.ok || !Array.isArray(body.requests))
-		throw new Error("Restart inference drain is unknown");
-	if (body.requests.some((row) => row.lane === sid && row.status == null))
-		throw new Error("Restart lane inference has not drained");
+	await verifyRestartDrain(BUCKLE_FRONT, sid, headers);
 }
 
 /** Existing settings use the stable installed-prefix symlink. A pinned old
@@ -314,7 +332,7 @@ export async function restartManagedClaude(
 		oldWrapper: wrapper,
 		oldNative: native,
 	};
-	const validate = async (value: ClaudeRestartSnapshot) => {
+	const assertLocal = (value: ClaudeRestartSnapshot) => {
 		controlRecord();
 		const now = claudeRestartAuthority(value.sid, value.item, value.worktree);
 		if (
@@ -331,18 +349,21 @@ export async function restartManagedClaude(
 			throw new Error(
 				"Restart authority, checkpoint, edits or settings changed",
 			);
-		await verifyRoute(value.sid, value.sourceSettings);
+		if (
+			existsSync(value.settings) &&
+			restartHash(readFileSync(value.settings)) !== value.settingsHash
+		)
+			throw new Error("Materialized settings changed");
 		if (
 			identity(value.oldWrapper.pid) !== false &&
 			!pausedNativeBoundary(readFrames(log), value.checkpoint)
 		)
 			throw new Error("Native activity followed the managed pause boundary");
-		const after = claudeRestartAuthority(value.sid, value.item, value.worktree);
-		if (
-			after.claim.updated_at !== value.claimRevision ||
-			after.checkpoint !== value.checkpoint
-		)
-			throw new Error("Restart authority changed during drain verification");
+	};
+	const validate = async (value: ClaudeRestartSnapshot) => {
+		await validateRestartBoundary(value, assertLocal, () =>
+			verifyRoute(value.sid, value.sourceSettings),
+		);
 	};
 	await validate(snapshot);
 	if (!apply) return { snapshot, phase: "prepared" };
@@ -506,7 +527,10 @@ export function verifyManagedClaudeRestart(
 		throw new Error("Restart incarnation not proven");
 	if (
 		restartHash(readFileSync(value.settings)) !== value.settingsHash ||
-		restartHash(readFileSync(value.runtime)) !== value.runtimeHash
+		restartHash(readFileSync(value.runtime)) !== value.runtimeHash ||
+		restartHash(
+			readFileSync(join(value.worktree, ".fleet", "lane-context.json")),
+		) !== value.contextHash
 	)
 		throw new Error("Restart settings/runtime proof changed");
 	const event = restartContinuationProof(
@@ -521,9 +545,17 @@ export function verifyManagedClaudeRestart(
 	try {
 		const claimed = store
 			.query(
-				"SELECT 1 FROM work_items WHERE project=? AND id=? AND owner_sid=? AND state='CLAIMED'",
+				"SELECT claim_token_hash FROM work_items WHERE project=? AND id=? AND owner_sid=? AND state='CLAIMED' AND updated_at=?",
 			)
-			.get(projectIdentity(lane.worktree), lane.item, sid);
+			.get(
+				projectIdentity(lane.worktree),
+				lane.item,
+				sid,
+				value.claimRevision,
+			) as { claim_token_hash: string | null } | null;
+		const token = (
+			readLaneContextFile(value.worktree) as { claimToken?: string } | null
+		)?.claimToken;
 		const running = store
 			.query("SELECT 1 FROM facts WHERE key=? AND value='RUNNING'")
 			.get(`lane.${sid}.state`);
@@ -532,7 +564,12 @@ export function verifyManagedClaudeRestart(
 				"SELECT 1 FROM direct_message_receipts r JOIN events e ON e.id=r.event_id WHERE r.event_id=? AND r.sid=? AND r.accepted_at IS NOT NULL AND e.kind='NOTE'",
 			)
 			.get(event, sid);
-		if (!claimed || !running || !accepted)
+		if (
+			!claimed?.claim_token_hash ||
+			!claimTokenVerdict(claimed, token).ok ||
+			!running ||
+			!accepted
+		)
 			throw new Error(
 				"Restart canonical RUNNING claim and accepted direct event not proven",
 			);

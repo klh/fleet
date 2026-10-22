@@ -66,6 +66,16 @@ export type RestartDependencies = {
 export const restartHash = (data: string | Buffer): string =>
 	createHash("sha256").update(data).digest("hex");
 
+export async function validateRestartBoundary(
+	snapshot: ClaudeRestartSnapshot,
+	assertLocal: (snapshot: ClaudeRestartSnapshot) => void,
+	drain: () => Promise<void>,
+): Promise<void> {
+	assertLocal(snapshot);
+	await drain();
+	assertLocal(snapshot);
+}
+
 export function privateJson<T>(path: string): T {
 	if ((statSync(path).mode & 0o777) !== 0o600)
 		throw new Error("Restart evidence must have mode 0600");

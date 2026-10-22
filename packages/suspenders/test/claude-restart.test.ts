@@ -8,6 +8,7 @@ import {
 	restartHash,
 	restartContinuationProof,
 	pausedNativeBoundary,
+	validateRestartBoundary,
 	type ClaudeRestartSnapshot,
 	type RestartDependencies,
 } from "../hooks/lib/claude-restart.ts";
@@ -295,4 +296,18 @@ test("a stale pause frame never proves an active native turn idle", () => {
 	);
 	expect(pausedNativeBoundary(frames, "b".repeat(40))).toBe(false);
 	expect(pausedNativeBoundary(frames.slice(1), checkpoint)).toBe(false);
+});
+
+test("a settings mutation during async drain is refused by the final local snapshot assertion", async () => {
+	const f = fixture();
+	const assertLocal = (snapshot: ClaudeRestartSnapshot) => {
+		if (restartHash(readFileSync(snapshot.settings)) !== snapshot.settingsHash)
+			throw new Error("local snapshot changed");
+	};
+	await expect(
+		validateRestartBoundary(f.snapshot, assertLocal, async () => {
+			await Bun.sleep(1);
+			writeFileSync(f.snapshot.settings, "changed while draining");
+		}),
+	).rejects.toThrow("local snapshot changed");
 });
