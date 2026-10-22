@@ -215,6 +215,24 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		],
 	},
 	{
+		// W1029.1: the authenticated Z.ai account catalog — per configured
+		// hub, fetch the account-visible chat models and, when the route set
+		// changed, regenerate litellm.yaml with BOTH catalog snapshots (the
+		// serialization contract with the OpenRouter refresh above — one
+		// :4100 engine), restart the engine, wait for the zai-<id> rows to be
+		// live, then reload the affected Buckle hub. Registered directly after
+		// the OpenRouter task: the sweep is sequential, so the two refreshes
+		// never interleave. Failures keep the previous applied marker → the
+		// last-good routes keep serving; retry at the next cadence.
+		name: "zai-catalog-refresh",
+		everySeconds: 1800,
+		timeoutMs: 240_000,
+		argv: (root) => [
+			join(root, "deploy/zai-catalog-sync.ts"),
+			"refresh-configured",
+		],
+	},
+	{
 		// W1013: the WS-native ChatGPT auto-coordinate loop — scans the work
 		// graph for gated triggers (NEED_DECISION, item failed after >=2 runs,
 		// benchmarks.md row) and asks the ChatGPT co-supervisor over the W931

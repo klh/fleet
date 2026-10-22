@@ -3,6 +3,7 @@
 // is logged, and a failed fetch leaves the previous snapshot untouched.
 import { defineVerb, runCli } from "../hooks/lib/verb-kit.ts";
 import { loadStack } from "../hooks/lib/stack-config.ts";
+import { refreshConfiguredZai } from "./zai-catalog-refresh.ts";
 import { fetchZaiCatalog, writeZaiSnapshot } from "./zai-catalog.ts";
 
 await runCli({
@@ -32,6 +33,14 @@ await runCli({
 							? ` (${snapshot.excluded_model_ids.length} non-chat excluded: ${snapshot.excluded_model_ids.join(", ")})`
 							: ""),
 				);
+			},
+		}),
+		defineVerb({
+			name: "refresh-configured",
+			usage: "usage: zai-catalog-sync refresh-configured",
+			run: async () => {
+				for (const message of await refreshConfiguredZai(loadStack()))
+					console.log(message);
 			},
 		}),
 	],
