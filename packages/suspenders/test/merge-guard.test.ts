@@ -5,6 +5,7 @@ import {
 	readFileSync,
 	rmSync,
 	writeFileSync,
+	realpathSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,7 +27,7 @@ const git = (repo: string, ...args: string[]) => {
 	};
 };
 function fixture(content: string, name = "change.ts") {
-	const repo = mkdtempSync(join(tmpdir(), "fleet-merge-guard-"));
+	const repo = realpathSync(mkdtempSync(join(tmpdir(), "fleet-merge-guard-")));
 	repos.push(repo);
 	git(repo, "init", "-b", "main");
 	git(repo, "config", "user.name", "test");
@@ -47,7 +48,40 @@ function fixture(content: string, name = "change.ts") {
 	writeFileSync(join(repo, ".fleet/lanes.json"), "[]");
 	return { repo, before };
 }
-function ship(repo: string, ladder?: string, callerRepo = repo) {
+function ship(
+	repo: string,
+	ladder?: string,
+	callerRepo = repo,
+	approved = true,
+) {
+	// Exercise the real ladder, including exact DONE and independent review.
+	// These fixtures previously stopped at unknown-item and never reached
+	// the merge guard they purported to test.
+	const env = {
+		...process.env,
+		HOME: join(repo, ".test-home"),
+		GOVERNOR_STORE_URL: "",
+		FLEET_UNTRACKED_GRACE_MS: "0",
+	};
+	const seeded = Bun.spawnSync(
+		[
+			"bun",
+			"-e",
+			`
+		import {openStore,projectIdentity} from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/govdb.ts"))};
+		import {reviewContext,publishReviewReceipt} from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/review-receipt.ts"))};
+		const db=openStore(), project=projectIdentity(), c=reviewContext(process.cwd(),"suspenders/GUARD");
+		db.query("INSERT OR REPLACE INTO work_items(project,id,title,state,result_sha,created_at,updated_at) VALUES (?,'GUARD','fixture','DONE',?,?,?)").run(project,c.commit,Date.now(),Date.now());
+		db.run("CREATE TABLE IF NOT EXISTS work_completion_records(project TEXT,item TEXT,commit_sha TEXT,completed_by TEXT)");
+		db.query("INSERT INTO work_completion_records VALUES (?,'GUARD',?,'fixture-author')").run(project,c.commit);
+		db.query("INSERT INTO sessions(sid,project,role,started_at,hb,state) VALUES ('fixture-reviewer',?,'reviewer',?,?,'DONE')").run(project,Date.now(),Date.now());
+		if (${approved}) publishReviewReceipt(db,project,'GUARD',{version:1,commit:c.commit,base:c.base,instructions:c.instructions,reviewer:'fixture-reviewer',verdict:'PASS',blocking:[],evidence:'fixture independent review'});
+		db.close();
+	`,
+		],
+		{ cwd: repo, env, stdout: "pipe", stderr: "pipe" },
+	);
+	if (seeded.exitCode !== 0) throw new Error(seeded.stderr.toString());
 	return Bun.spawnSync(
 		[
 			"bun",
@@ -61,12 +95,7 @@ function ship(repo: string, ladder?: string, callerRepo = repo) {
 		],
 		{
 			cwd: repo,
-			env: {
-				...process.env,
-				HOME: join(repo, ".test-home"),
-				GOVERNOR_STORE_URL: "",
-				FLEET_UNTRACKED_GRACE_MS: "0",
-			},
+			env,
 			stdout: "pipe",
 			stderr: "pipe",
 		},
@@ -83,6 +112,16 @@ function rejected(repo: string, before: string) {
 afterEach(() => {
 	for (const repo of repos.splice(0))
 		rmSync(repo, { recursive: true, force: true });
+});
+
+test("canonical ship defers unreviewed DONE without parking or pretending it landed", () => {
+	const { repo, before } = fixture("export const valid = 1;\n");
+	ship(repo, undefined, repo, false);
+	expect(git(repo, "rev-parse", "HEAD").out).toBe(before);
+	const log = readFileSync(join(repo, ".fleet/loop.log"), "utf8");
+	expect(log).toContain("independent review receipt missing");
+	expect(log).not.toContain("PARKED");
+	expect(log).not.toContain("MERGED");
 });
 
 test("clean Git merge cannot publish already committed conflict markers", () => {
@@ -180,7 +219,11 @@ test("commented TypeScript config follows JSONC syntax", () => {
 		'{ // valid TypeScript config\n"compilerOptions": { "strict": true, },\n}\n',
 		"tsconfig.json",
 	);
-	ship(repo);
+	const result = ship(repo);
+	if (git(repo, "rev-parse", "HEAD").out === before)
+		throw new Error(
+			`ship did not publish: ${result.stderr.toString().slice(-1500)}\n${readFileSync(join(repo, ".fleet/loop.log"), "utf8").slice(-3500)}`,
+		);
 	expect(git(repo, "rev-parse", "HEAD").out).not.toBe(before);
 	expect(readFileSync(join(repo, ".fleet/loop.log"), "utf8")).toContain(
 		"MERGED",

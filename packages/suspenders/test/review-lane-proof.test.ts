@@ -11,9 +11,47 @@ import {
 	test,
 } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { guardedMerge } from "../hooks/lib/merge-guard.ts";
+import {
+	checkReviewReceipt,
+	reviewContext,
+	recordLanding,
+	type ReviewContext,
+} from "../hooks/lib/review-receipt.ts";
+import type { GovernorStore } from "../hooks/lib/govdb-store.ts";
+import {
+	scheduleReview,
+	reviewRequestKey,
+} from "../hooks/lib/review-scheduler.ts";
+
+function seedCompletion(
+	db: Database,
+	item: string,
+	context: ReviewContext,
+): void {
+	db.exec(
+		"CREATE TABLE IF NOT EXISTS work_completion_records(project TEXT,item TEXT,summary TEXT,summary_hash TEXT,commit_sha TEXT,baseline_sha TEXT,completed_by TEXT,completed_at INTEGER,capsule_json TEXT,evidence_json TEXT)",
+	);
+	db.query(
+		"INSERT INTO work_completion_records(project,item,summary,summary_hash,commit_sha,baseline_sha,completed_by,completed_at,capsule_json,evidence_json) VALUES (?,?,'fixture',?,?,?,'fixture-author',?,'{}','{}')",
+	).run(
+		MY_PROJ,
+		item,
+		"0".repeat(64),
+		context.commit,
+		context.base,
+		Date.now(),
+	);
+	db.query(
+		"UPDATE work_items SET state='DONE',result_sha=? WHERE project=? AND id=?",
+	).run(context.commit, MY_PROJ, item);
+	db.query(
+		"INSERT OR REPLACE INTO facts(key,value,source,version,ts) VALUES ('lane.fixture-author.model','fixture-model','fixture',1,?)",
+	).run(Date.now());
+}
 
 setDefaultTimeout(120_000);
 
@@ -237,5 +275,248 @@ describe("W634 review-lane coverage proof (Sinai rule)", () => {
 		const payload = JSON.parse(ev.payload) as Record<string, unknown>;
 		expect(payload.verdict).toBe("FAIL");
 		expect(String(payload.note)).toContain("coverage-proof (no-coverage)");
+	});
+
+	test("actual review-lane receipt authorizes exact merge and separate landing", () => {
+		const item = ids.proved;
+		const repo = realpathSync(REPO);
+		const context = reviewContext(repo, `suspenders/${item}`);
+		const db = new Database(DB_PATH);
+		try {
+			const event = db
+				.query(
+					"SELECT source,payload FROM events WHERE kind='work.review' AND json_extract(payload,'$.work')=? ORDER BY id DESC LIMIT 1",
+				)
+				.get(item) as { source: string; payload: string };
+			const receipt = JSON.parse(JSON.parse(event.payload).receipt);
+			expect(receipt).toMatchObject({
+				commit: context.commit,
+				base: context.base,
+				reviewer: event.source,
+				instructions: context.instructions,
+				verdict: "PASS",
+			});
+			expect(
+				db
+					.query("SELECT sid FROM sessions WHERE sid=? AND project=?")
+					.get(event.source, MY_PROJ),
+			).toBeTruthy();
+			seedCompletion(db, item, context);
+			const store = db as unknown as GovernorStore;
+			const result = guardedMerge({
+				repo,
+				callerRepo: repo,
+				branch: `suspenders/${item}`,
+				timeoutMs: 10_000,
+				verifyReview: () => checkReviewReceipt(store, MY_PROJ, item, context),
+			});
+			expect(result).toEqual({ code: 0, tail: "" });
+			const landed = recordLanding(
+				store,
+				repo,
+				MY_PROJ,
+				item,
+				`suspenders/${item}`,
+				context.commit,
+			);
+			expect(
+				db.query("SELECT kind FROM events WHERE id=?").get(landed),
+			).toEqual({ kind: "work.landed" });
+		} finally {
+			db.close();
+		}
+	});
+
+	test("canonical missing review schedules existing runner through scoped Buckle then lands", async () => {
+		const item = addWork("automatic review fixture");
+		expect(git(["checkout", "-b", `suspenders/${item}`]).code).toBe(0);
+		await Bun.write(join(REPO, "automatic.md"), "Documented fixture change.\n");
+		git(["add", "automatic.md"]);
+		git(["commit", "-m", "automatic fixture"]);
+		git(["checkout", "main"]);
+		const context = reviewContext(realpathSync(REPO), `suspenders/${item}`);
+		const db = new Database(DB_PATH);
+		seedCompletion(db, item, context);
+		let minted = 0,
+			inferred = 0,
+			revoked = 0;
+		const server = Bun.serve({
+			port: 0,
+			fetch: async (req) => {
+				const path = new URL(req.url).pathname;
+				if (path === "/v1/admin/keys") {
+					minted += 1;
+					return Response.json({
+						key: "bksk_fixture_review",
+						key_id: "fixture-review-key",
+					});
+				}
+				if (path.endsWith("/revoke")) {
+					revoked += 1;
+					return Response.json({ ok: true });
+				}
+				if (/^\/w\/review-[^/]+\/v1\/chat\/completions$/.test(path)) {
+					inferred += 1;
+					expect(req.headers.get("authorization")).toBe(
+						"Bearer bksk_fixture_review",
+					);
+					const body = (await req.json()) as {
+						model: string;
+						messages: { content: string }[];
+					};
+					expect(body.model).toBe("fixture-model");
+					expect(body.messages[0].content).toContain(context.commit);
+					return Response.json({
+						choices: [
+							{ message: { content: "No blocking findings.\nVERDICT: PASS" } },
+						],
+					});
+				}
+				return new Response("unexpected endpoint", { status: 404 });
+			},
+		});
+		const ship = async () => {
+			const p = Bun.spawn(
+				[
+					"bun",
+					join(BIN, "fleet-loop.ts"),
+					"ship",
+					"--repo",
+					realpathSync(REPO),
+					"--branch",
+					`suspenders/${item}`,
+				],
+				{
+					cwd: REPO,
+					env: {
+						...env,
+						GOVERNOR_STORE_URL: "",
+						FLEET_UNTRACKED_GRACE_MS: "0",
+						SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${server.port}`,
+						BUCKLE_ADMIN_KEY: "fixture-admin",
+					},
+					stdout: "pipe",
+					stderr: "pipe",
+				},
+			);
+			await new Response(p.stdout).text();
+			await p.exited;
+		};
+		try {
+			await Bun.write(join(REPO, ".fleet/lanes.json"), "[]");
+			await ship();
+			expect(git(["rev-parse", "HEAD"]).out.trim()).toBe(context.base);
+			for (
+				let i = 0;
+				i < 100 &&
+				!db
+					.query(
+						"SELECT id FROM events WHERE kind='work.review' AND json_extract(payload,'$.work')=?",
+					)
+					.get(item);
+				i += 1
+			)
+				await Bun.sleep(50);
+			expect(
+				db
+					.query(
+						"SELECT id FROM events WHERE kind='work.review' AND json_extract(payload,'$.work')=?",
+					)
+					.get(item),
+			).toBeTruthy();
+			await ship();
+			expect(
+				git(["merge-base", "--is-ancestor", context.commit, "HEAD"]).code,
+			).toBe(0);
+			expect(
+				db
+					.query(
+						"SELECT id FROM events WHERE kind='work.landed' AND json_extract(payload,'$.work')=?",
+					)
+					.get(item),
+			).toBeTruthy();
+			expect({ minted, inferred, revoked }).toEqual({
+				minted: 1,
+				inferred: 1,
+				revoked: 1,
+			});
+		} finally {
+			db.close();
+			server.stop(true);
+		}
+	});
+
+	test("base changed at spawn releases old review lease as ERROR before any mint", async () => {
+		const item = addWork("stale scheduled review fixture");
+		git(["checkout", "-b", `suspenders/${item}`]);
+		await Bun.write(join(REPO, "stale.md"), "Candidate fixture.\n");
+		git(["add", "stale.md"]);
+		git(["commit", "-m", "stale fixture"]);
+		git(["checkout", "main"]);
+		const repo = realpathSync(REPO),
+			context = reviewContext(repo, `suspenders/${item}`);
+		const db = new Database(DB_PATH);
+		seedCompletion(db, item, context);
+		let calls = 0;
+		const server = Bun.serve({
+			port: 0,
+			fetch: () => {
+				calls += 1;
+				return new Response("must not be called", { status: 500 });
+			},
+		});
+		let child: ReturnType<typeof Bun.spawn> | undefined;
+		try {
+			scheduleReview({
+				db: db as unknown as GovernorStore,
+				project: MY_PROJ,
+				item,
+				repo,
+				context,
+				env: {
+					...env,
+					GOVERNOR_STORE_URL: "",
+					SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${server.port}`,
+					BUCKLE_ADMIN_KEY: "fixture-admin",
+				},
+				spawn: (args, childEnv) => {
+					writeFileSync(
+						join(REPO, "REVIEW.md"),
+						"New instruction after reservation.\n",
+					);
+					git(["add", "REVIEW.md"]);
+					git(["commit", "-m", "changed integration base"]);
+					child = Bun.spawn(args, {
+						cwd: repo,
+						env: childEnv,
+						stdout: "pipe",
+						stderr: "pipe",
+					});
+				},
+			});
+			if (!child) throw new Error("review was not scheduled");
+			await new Response(child.stderr).text();
+			await child.exited;
+			expect(child.exitCode).toBe(2);
+			expect(calls).toBe(0);
+			const row = db
+				.query("SELECT value FROM facts WHERE key=?")
+				.get(reviewRequestKey(MY_PROJ, item, context)) as { value: string };
+			expect(JSON.parse(row.value)).toMatchObject({
+				state: "ERROR",
+				leaseUntil: 0,
+				error: "review context changed before scheduled runner started",
+			});
+			expect(
+				db
+					.query(
+						"SELECT id FROM events WHERE kind='work.review' AND json_extract(payload,'$.work')=?",
+					)
+					.get(item),
+			).toBeNull();
+		} finally {
+			db.close();
+			server.stop(true);
+		}
 	});
 });

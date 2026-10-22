@@ -115,7 +115,7 @@ export async function handleAdmin(
 		return ok({ windows: gov.budgets.snapshot() });
 	}
 	if (method === "GET" && path === "/v1/admin/slots") {
-		return ok({ held: gov.slots.held() });
+		return ok({ held: gov.slots.held(), provider_pools: gov.providerPools() });
 	}
 	// W824 per-request inspection over the usage ledger: capped, filtered,
 	// read-only (gate class enforces buckle:admin:READ_); key NAME/team join
