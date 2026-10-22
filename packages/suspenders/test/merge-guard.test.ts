@@ -219,7 +219,11 @@ test("commented TypeScript config follows JSONC syntax", () => {
 		'{ // valid TypeScript config\n"compilerOptions": { "strict": true, },\n}\n',
 		"tsconfig.json",
 	);
-	ship(repo);
+	const result = ship(repo);
+	if (git(repo, "rev-parse", "HEAD").out === before)
+		throw new Error(
+			`ship did not publish: ${result.stderr.toString().slice(-1500)}\n${readFileSync(join(repo, ".fleet/loop.log"), "utf8").slice(-3500)}`,
+		);
 	expect(git(repo, "rev-parse", "HEAD").out).not.toBe(before);
 	expect(readFileSync(join(repo, ".fleet/loop.log"), "utf8")).toContain(
 		"MERGED",
