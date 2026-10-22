@@ -47,7 +47,8 @@ validate` must pass before commit.
 - Target: κ ≥ 0.7 (substantial). Below target: revise definitions, re-label
   the sample, re-measure. Report final κ in the paper.
 - Contested records are adjudicated by the taxonomy maintainer; the
-  adjudication log lives in `dataset/adjudication.md`.
+  adjudication log lives in `dataset/adjudication.md` (created at the
+  first adjudication).
 
 ## Metrics
 
