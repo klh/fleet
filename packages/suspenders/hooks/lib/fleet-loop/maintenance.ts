@@ -22,6 +22,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { appendSweepNotice, pausePath, readPause } from "./sweep-state.ts";
 import type { LoopDeps } from "./runtime.ts";
 
 export interface MaintenanceTask {
@@ -326,6 +327,9 @@ export interface SweepResult {
 	ran: string[];
 	failed: string[];
 	skipped: number;
+	/** W1201: one line per failed source — also surfaced via the W822 pulse
+	 *  maintenance section (sweep-state readSweepNotices). */
+	notices: string[];
 }
 
 type SpawnFn = (
@@ -366,11 +370,26 @@ export function createMaintenanceSweep(
 	const root = suspendersRoot();
 	const sweep = (): SweepResult => {
 		if (process.env.SUSPENDERS_MAINTENANCE === "0")
-			return { ran: [], failed: [], skipped: tasks.length };
+			return { ran: [], failed: [], skipped: tasks.length, notices: [] };
 		const stamps = readStamps(stampsPath);
 		const nowMs = now();
-		const result: SweepResult = { ran: [], failed: [], skipped: 0 };
+		const result: SweepResult = {
+			ran: [],
+			failed: [],
+			skipped: 0,
+			notices: [],
+		};
 		for (const task of tasks) {
+			// W1201 budget pause: a named stop-reason marker parks the task —
+			// skip + say why, never crash and never a quiet skip.
+			const paused = readPause(task.name);
+			if (paused !== null) {
+				deps.log(
+					`MAINT ${task.name} paused(${paused.reason}) — clear ${pausePath(task.name)} to resume`,
+				);
+				result.skipped++;
+				continue;
+			}
 			if (!isDue(task, stamps[task.name], nowMs)) {
 				result.skipped++;
 				continue;
@@ -392,15 +411,20 @@ export function createMaintenanceSweep(
 					deps.log(`MAINT ${task.name} ok${r.out !== "" ? ` ${r.out}` : ""}`);
 					result.ran.push(task.name);
 				} else {
+					const notice = appendSweepNotice(
+						task.name,
+						`fail(${r.code})${r.out !== "" ? ` ${r.out}` : ""}`,
+					);
+					result.notices.push(notice);
 					deps.log(
 						`MAINT ${task.name} fail(${r.code})${r.out !== "" ? ` ${r.out}` : ""}`,
 					);
 					result.failed.push(task.name);
 				}
 			} catch (e) {
-				deps.log(
-					`MAINT ${task.name} fail(spawn) ${e instanceof Error ? e.message : String(e)}`,
-				);
+				const msg = e instanceof Error ? e.message : String(e);
+				result.notices.push(appendSweepNotice(task.name, `fail(spawn) ${msg}`));
+				deps.log(`MAINT ${task.name} fail(spawn) ${msg}`);
 				result.failed.push(task.name);
 			}
 		}
