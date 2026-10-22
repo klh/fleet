@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import {
 	buildSettleFact,
 	safeCorrelationId,
+	safeProviderErrorToken,
 	safeRefusalCode,
 	type HopReceipt,
 	type StreamSettle,
@@ -174,7 +175,12 @@ export interface RequestReadRow {
 	/** W1106 typed stream terminal (null = non-stream row / legacy). */
 	stream_receipt: StreamReceipt | null;
 	upstream_refusal_code: string | null;
-	refusal_origin: "upstream" | "bridged-upstream" | "network" | null;
+	refusal_origin:
+		| "upstream"
+		| "bridged-upstream"
+		| "network"
+		| "local-admission"
+		| null;
 	retry_after_ms: number | null;
 	selected_target_exact: boolean;
 	selected_target_attempted: boolean;
@@ -254,6 +260,8 @@ CREATE TABLE IF NOT EXISTS route_attempt (
 	refusal_origin TEXT,
 	provider_pool TEXT,
 	queue_wait_ms INTEGER,
+	provider_error_code TEXT,
+	provider_error_type TEXT,
   PRIMARY KEY (rid, ordinal)
 );
 CREATE INDEX IF NOT EXISTS route_attempt_trace ON route_attempt(trace_id, ts);
@@ -439,6 +447,10 @@ export class Ledger {
 			this.db.run("ALTER TABLE route_attempt ADD COLUMN provider_pool TEXT");
 		if (!attemptCols.includes("queue_wait_ms"))
 			this.db.run("ALTER TABLE route_attempt ADD COLUMN queue_wait_ms INTEGER");
+		for (const column of ["provider_error_code", "provider_error_type"]) {
+			if (!attemptCols.includes(column))
+				this.db.run(`ALTER TABLE route_attempt ADD COLUMN ${column} TEXT`);
+		}
 		this.upsert = this.db.query(UPSERT);
 		this.insAudit = this.db.query(INSERT_AUDIT);
 		this.updAudit = this.db.query(UPDATE_AUDIT);
@@ -446,8 +458,9 @@ export class Ledger {
 		this.insAttempt = this.db.query(`INSERT OR REPLACE INTO route_attempt
 			(rid, ordinal, trace_id, ts, service, hop, candidate, status,
 			refusal, duration_ms, retry_after_ms, upstream_id, call_id,
-			upstream_refusal_code, refusal_origin, provider_pool, queue_wait_ms)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+			upstream_refusal_code, refusal_origin, provider_pool, queue_wait_ms,
+			provider_error_code, provider_error_type)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 		this.insSettle = this.db.query(`INSERT OR REPLACE INTO stream_settle
 			(rid, trace_id, ts, first_byte_ms, last_byte_ms, closer, failure_kind)
 			VALUES (?, ?, ?, ?, ?, ?, ?)`);
@@ -751,6 +764,8 @@ export class Ledger {
 			Number.isSafeInteger(row.queueWaitMs) && (row.queueWaitMs ?? -1) >= 0
 				? row.queueWaitMs
 				: null,
+			safeProviderErrorToken(row.providerErrorCode),
+			safeProviderErrorToken(row.providerErrorType),
 		);
 	}
 
@@ -781,7 +796,8 @@ export class Ledger {
 		return this.db
 			.query(`SELECT rid, ordinal, trace_id, ts, service, hop,
 			candidate, status, refusal, duration_ms, retry_after_ms, upstream_id,
-			call_id, upstream_refusal_code, refusal_origin, provider_pool, queue_wait_ms FROM route_attempt WHERE trace_id = ?
+			call_id, upstream_refusal_code, refusal_origin, provider_pool, queue_wait_ms,
+			provider_error_code, provider_error_type FROM route_attempt WHERE trace_id = ?
 			ORDER BY ts, rid, ordinal LIMIT 500`)
 			.all(traceId) as Array<Record<string, unknown>>;
 	}

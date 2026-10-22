@@ -12,6 +12,8 @@
        machine-local knowledge-buckle.json (or explicit environment pair).
        The W96 hint keeps local specialist routing. -->
   <key>EnvironmentVariables</key><dict>
+		<key>PATH</key>
+		<string>/usr/bin:/bin:/usr/sbin:/sbin</string>
     <!-- W103 substitution contract: repo root for the mechanical single-file
          test (pointer-row conversion / reject on ingest) -->
     <key>KNOWLEDGE_DOCS_ROOT</key><string>__REPO__</string>

@@ -167,3 +167,30 @@ describe("networkFromThrow", () => {
 		);
 	});
 });
+
+test("typed peer network refusals survive HTTP error normalization", () => {
+	for (const family of ["anthropic", "openai-compat"] as const) {
+		for (const [code, kind] of [
+			["network", "network"],
+			["connect_unreachable", "network"],
+			["timeout", "timeout"],
+		] as const) {
+			const headers = new Headers({ "x-klh-refusal": code });
+			expect(normalizeUpstreamError(family, 502, {}, headers).kind).toBe(kind);
+			expect(normalizeUpstreamError(family, 429, {}, headers).kind).toBe(
+				"rate_limited",
+			);
+			expect(normalizeUpstreamError(family, 401, {}, headers).kind).toBe(
+				"auth",
+			);
+		}
+	}
+	expect(
+		normalizeUpstreamError(
+			"anthropic",
+			502,
+			{},
+			new Headers({ "x-klh-refusal": "made_up" }),
+		).kind,
+	).toBe("server");
+});

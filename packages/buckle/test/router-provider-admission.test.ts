@@ -3,6 +3,7 @@
 // pace starts across aliases, bound streams hold their lease to EOF/cancel/
 // error, and a local queue refusal never masquerades as an upstream verdict.
 import { describe, expect, test } from "bun:test";
+import { errorResponse } from "../src/handlers.ts";
 import { parsePolicy } from "../src/policy.ts";
 import { Router } from "../src/router.ts";
 import type { Deployment, UpstreamPool } from "../src/upstreams.ts";
@@ -21,6 +22,9 @@ gateway:
       intervalMs: 50
       maxOutstanding: 3
       queueWaitMs: 1000
+      recovery:
+        successWindow: 8
+        decreasePercent: 5
 `);
 
 function poolOf(deps: Deployment[]): UpstreamPool {
@@ -111,6 +115,9 @@ describe("provider-account admission", () => {
       intervalMs: 60
       maxOutstanding: 4
       queueWaitMs: 1000
+      recovery:
+        successWindow: 8
+        decreasePercent: 5
 `);
 		const executed: number[] = [];
 		let end1!: () => void;
@@ -296,11 +303,13 @@ describe("provider-account admission", () => {
 		expect(r2.kind).toBe("client-error");
 	});
 
-	test("queue wait is deducted from the fetch budget", async () => {
+	test("queue wait consumes the walk budget without reducing the independent network cap", async () => {
 		const first = held();
 		const timeouts: number[] = [];
 		let fetches = 0;
+		let now = 0;
 		const router = new Router(POLICY, {
+			now: () => now,
 			pool: poolOf([dep("http://a", "m1", "zai-main")]),
 			sleepMs: async () => {},
 			fetchImpl: async (_d, _r, timeoutMs) => {
@@ -309,17 +318,17 @@ describe("provider-account admission", () => {
 				return fetches === 1 ? first.response : Response.json({ ok: true });
 			},
 		});
-		const w1 = router.execute(req("m1"));
-		await Bun.sleep(10); // slot held by the hanging body
+		const w1 = await router.execute(req("m1"));
+		now = 10; // first body holds the slot
 		const w2 = router.execute(req("m1")); // queues
 		await Bun.sleep(10); // dwell accrues while queued
+		now = 35; // deterministic 25ms admission dwell
 		first.end(); // release: the queued start fires with deducted budget
 		const r2 = await w2;
 		expect(r2.kind).toBe("upstream");
-		await w1;
+		if (w1.kind === "upstream") await w1.response.text();
 		expect(timeouts[0]).toBe(5000);
-		expect(timeouts[1]).toBeGreaterThan(0);
-		expect(timeouts[1]).toBeLessThan(5000);
+		expect(timeouts[1]).toBe(5000);
 	});
 
 	test("malformed pool policy refuses to parse", () => {
@@ -332,8 +341,11 @@ describe("provider-account admission", () => {
       intervalMs: 1
       maxOutstanding: 1
       queueWaitMs: 1
+      recovery:
+        successWindow: 8
+        decreasePercent: 5
 `),
-		).toThrow(/exactly five positive integers/);
+		).toThrow(/explicit bounded recovery/);
 	});
 
 	test("bound successes carry pool canary metadata; unbound stay clean", async () => {
@@ -391,4 +403,274 @@ test("same-walk account skip preserves shared backoff for the next request", asy
 	expect(calls).toEqual(["primary", "local"]);
 	controller.abort();
 	expect((await second).kind).toBe("aborted");
+});
+
+test("queue expiry is local evidence and skips account aliases before an independent fallback", async () => {
+	const receipts: import("../../telemetry/src/http-trace.ts").HopReceipt[] = [];
+	const calls: string[] = [];
+	const blocker = held();
+	const router = new Router(
+		{
+			...POLICY,
+			request_timeout_s: 0.025,
+			first_byte_budget_s: 0.2,
+			provider_pools: Object.fromEntries(
+				Object.entries(POLICY.provider_pools ?? {}).map(([id, policy]) => [
+					id,
+					{ ...policy, queueWaitMs: 25 },
+				]),
+			),
+			fallbacks: { primary: ["alias", "local"] },
+		},
+		{
+			pool: poolOf([
+				dep("https://blocker.example.invalid", "blocker", "zai-main"),
+				dep("https://primary.example.invalid", "primary", "zai-main"),
+				dep("https://alias.example.invalid", "alias", "zai-main"),
+				dep("https://local.example.invalid", "local"),
+			]),
+			metrics: {
+				fallback() {},
+				cooldown() {},
+				refused() {},
+				attempt(receipt) {
+					receipts.push(receipt);
+				},
+			},
+			fetchImpl: async (deployment) => {
+				calls.push(deployment.group);
+				return deployment.group === "blocker"
+					? blocker.response
+					: new Response("ok");
+			},
+		},
+	);
+	const first = await router.execute(req("blocker"));
+	try {
+		const second = await router.execute(req("primary"));
+		expect(second.kind).toBe("upstream");
+		expect(calls).toEqual(["blocker", "local"]);
+		expect(receipts[1]).toMatchObject({
+			status: 503,
+			refusal: "local_admission",
+			refusalOrigin: "local-admission",
+			providerPool: "zai-main",
+		});
+		expect(receipts[1]?.queueWaitMs).toBeGreaterThanOrEqual(20);
+	} finally {
+		blocker.end();
+		if (first.kind === "upstream") await first.response.text();
+	}
+});
+
+test("a queued grant followed by fetch timeout retains dwell and skips account requeue", async () => {
+	const receipts: import("../../telemetry/src/http-trace.ts").HopReceipt[] = [];
+	const calls: string[] = [];
+	const blocker = held();
+	let fetchBudget = 0;
+	const router = new Router(
+		{
+			...POLICY,
+			request_timeout_s: 0.04,
+			first_byte_budget_s: 0.2,
+			fallbacks: { primary: ["alias", "local"] },
+		},
+		{
+			pool: poolOf([
+				dep("https://blocker.example.invalid", "blocker", "zai-main"),
+				dep("https://primary.example.invalid", "primary", "zai-main"),
+				dep("https://alias.example.invalid", "alias", "zai-main"),
+				dep("https://local.example.invalid", "local"),
+			]),
+			metrics: {
+				fallback() {},
+				cooldown() {},
+				refused() {},
+				attempt(receipt) {
+					receipts.push(receipt);
+				},
+			},
+			fetchImpl: async (deployment, _request, budget) => {
+				calls.push(deployment.group);
+				if (deployment.group === "blocker") return blocker.response;
+				if (deployment.group === "local") return new Response("ok");
+				fetchBudget = budget;
+				await Bun.sleep(budget);
+				throw new DOMException("fixture header timeout", "TimeoutError");
+			},
+		},
+	);
+	const first = await router.execute(req("blocker"));
+	const second = router.execute(req("primary"));
+	await Bun.sleep(25);
+	blocker.end();
+	if (first.kind === "upstream") await first.response.text();
+	expect((await second).kind).toBe("upstream");
+	expect(calls).toEqual(["blocker", "primary", "local"]);
+	expect(fetchBudget).toBeLessThan(65);
+	expect(receipts[1]?.queueWaitMs).toBeGreaterThanOrEqual(20);
+	expect(receipts[1]).toMatchObject({
+		refusal: "network",
+		refusalOrigin: "network",
+		providerPool: "zai-main",
+	});
+});
+
+test("admission may outlast the network cap while retaining that cap inside the walk deadline", async () => {
+	const blocker = held();
+	const budgets: number[] = [];
+	const router = new Router(
+		{ ...POLICY, request_timeout_s: 0.02, first_byte_budget_s: 0.2 },
+		{
+			pool: poolOf([dep("https://fixture.invalid", "m", "zai-main")]),
+			fetchImpl: async (_d, _r, budget) => {
+				budgets.push(budget);
+				return budgets.length === 1 ? blocker.response : new Response("ok");
+			},
+		},
+	);
+	const first = await router.execute(req("m"));
+	const second = router.execute(req("m"));
+	await Bun.sleep(50); // longer than the 20ms network cap, within the 200ms walk
+	blocker.end();
+	if (first.kind === "upstream") await first.response.text();
+	expect((await second).kind).toBe("upstream");
+	expect(budgets).toEqual([20, 20]);
+});
+
+test("a held admission cannot outlive the remaining walk deadline", async () => {
+	const blocker = held();
+	let calls = 0;
+	const router = new Router(
+		{ ...POLICY, request_timeout_s: 0.02, first_byte_budget_s: 0.05 },
+		{
+			pool: poolOf([dep("https://fixture.invalid", "m", "zai-main")]),
+			fetchImpl: async () => {
+				calls++;
+				return blocker.response;
+			},
+		},
+	);
+	const first = await router.execute(req("m"));
+	const started = performance.now();
+	const second = await router.execute(req("m"));
+	expect(performance.now() - started).toBeLessThan(120);
+	expect(second.kind).toBe("exhausted");
+	expect(calls).toBe(1);
+	blocker.end();
+	if (first.kind === "upstream") await first.response.text();
+});
+
+test("a lease granted after walk expiry is released without fetching", async () => {
+	const blocker = held();
+	let now = 0;
+	let calls = 0;
+	const router = new Router(
+		{ ...POLICY, request_timeout_s: 0.02, first_byte_budget_s: 0.05 },
+		{
+			now: () => now,
+			pool: poolOf([dep("https://fixture.invalid", "m", "zai-main")]),
+			fetchImpl: async () => {
+				calls++;
+				return blocker.response;
+			},
+		},
+	);
+	const first = await router.execute(req("m"));
+	const second = router.execute(req("m"));
+	await Bun.sleep(5);
+	now = 60;
+	blocker.end();
+	if (first.kind === "upstream") await first.response.text();
+	expect((await second).kind).toBe("exhausted");
+	expect(calls).toBe(1);
+	await Bun.sleep(5);
+	expect(router.providerAdmissionSnapshot()["zai-main"]?.outstanding).toBe(0);
+});
+
+test("nested peer network refusal skips shared account aliases within the original walk", async () => {
+	const calls: string[] = [];
+	const blocker = held();
+	const peer = new Router(
+		{ ...POLICY, num_retries: 0, request_timeout_s: 0.035 },
+		{
+			pool: poolOf([dep("https://backend.example.invalid", "primary")]),
+			fetchImpl: async (_dep, _req, budget) => {
+				await Bun.sleep(budget);
+				throw new DOMException(
+					"fixture peer first byte timeout",
+					"TimeoutError",
+				);
+			},
+		},
+	);
+	const server = Bun.serve({
+		port: 0,
+		fetch: async () => {
+			const result = await peer.execute(req("primary"));
+			expect(result.kind).toBe("exhausted");
+			if (result.kind !== "exhausted") throw new Error("peer did not fail");
+			const response = errorResponse(result.status, result.error);
+			response.headers.set(
+				"x-klh-refusal",
+				result.lastFailure?.kind ?? "unknown",
+			);
+			return response;
+		},
+	});
+	const receipts: import("../../telemetry/src/http-trace.ts").HopReceipt[] = [];
+	const router = new Router(
+		{
+			...POLICY,
+			num_retries: 1,
+			first_byte_budget_s: 0.25,
+			request_timeout_s: 0.1,
+			fallbacks: { primary: ["alias", "local"] },
+		},
+		{
+			pool: poolOf([
+				dep("https://blocker.example.invalid", "blocker", "zai-main"),
+				dep(server.url.href, "primary", "zai-main"),
+				dep("https://alias.example.invalid", "alias", "zai-main"),
+				dep("https://local.example.invalid", "local"),
+			]),
+			sleepMs: async () => {},
+			metrics: {
+				fallback() {},
+				cooldown() {},
+				refused() {},
+				attempt(receipt) {
+					receipts.push(receipt);
+				},
+			},
+			fetchImpl: async (deployment, _req, budget) => {
+				calls.push(deployment.group);
+				if (deployment.group === "blocker") return blocker.response;
+				if (deployment.group === "local") return new Response("ok");
+				return fetch(deployment.url, { signal: AbortSignal.timeout(budget) });
+			},
+		},
+	);
+	try {
+		const first = await router.execute(req("blocker"));
+		const start = Date.now();
+		const pending = router.execute(req("primary"));
+		await Bun.sleep(100);
+		blocker.end();
+		if (first.kind === "upstream") await first.response.text();
+		const result = await pending;
+		expect(result.kind).toBe("upstream");
+		expect(calls).toEqual(["blocker", "primary", "local"]);
+		expect(Date.now() - start).toBeLessThan(250);
+		expect(receipts[1]).toMatchObject({
+			status: 502,
+			refusal: "network",
+			upstreamRefusalCode: "network",
+			providerPool: "zai-main",
+		});
+		expect(receipts[1]?.queueWaitMs).toBeGreaterThanOrEqual(90);
+		if (result.kind === "upstream") await result.response.text();
+	} finally {
+		server.stop(true);
+	}
 });
