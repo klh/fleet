@@ -5,6 +5,7 @@ import {
 	writeFileSync,
 	rmSync,
 	realpathSync,
+	symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -240,4 +241,19 @@ test("review revoked during isolated ladder prevents publication", () => {
 	expect(result.code).toBe(1);
 	expect(result.tail).toContain("new blocking finding");
 	expect(f.git("rev-parse", "HEAD")).toBe(f.context.base);
+});
+
+test("instruction reads reject oversized files and symlinks before loading content", () => {
+	const f = fixture();
+	writeFileSync(join(f.repo, "AGENTS.md"), "x".repeat(131_073));
+	f.git("add", ".");
+	f.git("commit", "-m", "oversized instructions");
+	expect(() => reviewContext(f.repo, "suspenders/W1")).toThrow(
+		"bounded context budget",
+	);
+	rmSync(join(f.repo, "AGENTS.md"));
+	symlinkSync("how-to-review.md", join(f.repo, "AGENTS.md"));
+	f.git("add", ".");
+	f.git("commit", "-m", "instruction symlink");
+	expect(() => reviewContext(f.repo, "suspenders/W1")).toThrow("regular file");
 });

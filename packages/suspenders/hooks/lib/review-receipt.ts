@@ -67,17 +67,25 @@ export function reviewContext(
 		.trim();
 	const instructions: Record<string, string> = {};
 	const text: string[] = [];
+	let instructionBytes = 0;
 	for (const path of [...names].sort()) {
-		const p = Bun.spawnSync(["git", "show", `${preview}:${path}`], {
-			cwd: repo,
-			stdout: "pipe",
-			stderr: "pipe",
-		});
-		if (p.exitCode !== 0) {
+		const entry = git(repo, ["ls-tree", "-z", preview, "--", path]);
+		if (!entry) {
 			instructions[path] = "absent";
 			continue;
 		}
-		const body = p.stdout.toString();
+		if (!/^100(?:644|755) blob /.test(entry))
+			throw new Error(`review instruction must be a regular file: ${path}`);
+		const object = `${preview}:${path}`;
+		const size = Number(git(repo, ["cat-file", "-s", object]).trim());
+		instructionBytes += size;
+		if (
+			!Number.isSafeInteger(size) ||
+			size > 131_072 ||
+			instructionBytes > 524_288
+		)
+			throw new Error("review instructions exceed bounded context budget");
+		const body = git(repo, ["show", object]);
 		instructions[path] = hash(body);
 		text.push(`INSTRUCTION ${path} (sha256 ${instructions[path]}):\n${body}`);
 	}
