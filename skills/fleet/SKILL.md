@@ -19,3 +19,8 @@ Fleet governance check ($ARGUMENTS — optional mode: `strict` or `solo`).
 - Never reconstruct live state from /tmp files or Markdown ledgers — query the plane: `coord fleet` (sessions + claims), `work lanes --json` (liveness).
 - WS feed ids are not event ids: the inbox hook numbers its own lines and a replay fakes live churn — check the events-table timestamp before acting.
 - Never raw sqlite3 on governor.db; supported CLIs + board API only — a missing verb is a tooling gap, not an invitation to hand-roll SQL.
+- For a peer answer, use `coord consult <sid> "<question>" --as <asker>`.
+  Copy the exact SID from `coord fleet --json` (`lanes[].sid`) or `[sid=...]`.
+  `HEAD` is a Git commit. An unresolved recipient needs discovery and retry
+  or an explicit blocker; a broadcast is never a substitute. Inline @mentions
+  in broadcast text create neither a directed interrupt nor a consult.
