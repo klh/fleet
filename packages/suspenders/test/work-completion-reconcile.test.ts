@@ -220,6 +220,18 @@ test("public or symlink operator evidence is rejected", async () => {
 	expect((await f.run()).code).not.toBe(0);
 }, 30_000);
 
+test("conventional path on a different registered branch is not item proof", async () => {
+	const f = await fixture();
+	const changed = Bun.spawnSync(
+		["git", "-C", f.tree, "checkout", "-b", `foreign-${f.id}`],
+		{ stdout: "ignore", stderr: "pipe" },
+	);
+	expect(changed.exitCode).toBe(0);
+	const result = await f.run();
+	expect(result.code).not.toBe(0);
+	expect(result.err).toContain("registered");
+}, 30_000);
+
 test("actual native attachment and competing claim owner refuse restoration", async () => {
 	const f = await fixture();
 	const executable = join(h.HOME, "claude");

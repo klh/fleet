@@ -1,7 +1,7 @@
 // Explicit local operator repair of graph drift; immutable completion stays intact.
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import type { GovernorStore } from "./govdb.ts";
-import { projectRootOf } from "./govdb-project.ts";
+import { projectIdentity, projectRootOf } from "./govdb-project.ts";
 import {
 	laneProcessIdentity,
 	worktreeProcessIdentity,
@@ -9,7 +9,7 @@ import {
 import { bytesHash } from "./reclaim-context-evidence.ts";
 import { claimantLanes, matchingClaimantLane } from "./reclaim-all.ts";
 import { completionRecord } from "./work-completion-record.ts";
-import { resolveItemWorktree } from "./worktree-lookup.ts";
+import { registryWorktrees, resolveItemWorktree } from "./worktree-lookup.ts";
 
 type Evidence = {
 	project: string;
@@ -81,6 +81,17 @@ export function reconcileCompletion(
 		return p.stdout.toString().trim();
 	};
 	const inspect = () => {
+		if (
+			projectIdentity(tree) !== project ||
+			!registryWorktrees(root).some(
+				(entry) =>
+					entry.branch === `suspenders/${item}` &&
+					realpathSync(entry.path) === realpathSync(tree),
+			)
+		)
+			throw new Error(
+				"Item tree is not registered to this exact project and branch",
+			);
 		const lane = matchingClaimantLane(claimantLanes(root), owner, item);
 		if (
 			(lane && laneProcessIdentity(lane) !== false) ||
