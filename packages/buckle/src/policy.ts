@@ -11,7 +11,10 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { YAML } from "bun";
-import type { ProviderPoolPolicy } from "./provider-admission-core.ts";
+import {
+	assertProviderPoolPolicy,
+	type ProviderPoolPolicy,
+} from "./provider-admission-core.ts";
 
 /** OWNER DIRECTIVE (W124, lesson.fanout-rate-budget): flashx appears in no
  *  group, no ladder, no alias — same upstream family saturates together and
@@ -183,29 +186,16 @@ export function parsePolicy(
 			"policy: first_byte_budget_s must be at least request_timeout_s",
 		);
 	// W1078: every configured pool policy must be complete and bounded — the
-	// exact five positive safe integers with maxOutstanding >= concurrency.
+	// explicit limits and recovery policy, shared with the admission core.
 	// A malformed policy refuses startup (fail-closed), never degrades to
 	// unbounded forwarding.
 	const pools = policy.provider_pools ?? {};
 	for (const [id, pool] of Object.entries(pools)) {
-		const five =
-			pool !== null &&
-			typeof pool === "object" &&
-			Object.keys(pool).length === 5 &&
-			Number.isSafeInteger(pool.concurrency) &&
-			pool.concurrency > 0 &&
-			Number.isSafeInteger(pool.intervalCap) &&
-			pool.intervalCap > 0 &&
-			Number.isSafeInteger(pool.intervalMs) &&
-			pool.intervalMs > 0 &&
-			Number.isSafeInteger(pool.maxOutstanding) &&
-			pool.maxOutstanding > 0 &&
-			Number.isSafeInteger(pool.queueWaitMs) &&
-			pool.queueWaitMs > 0;
-		if (!five || pool.maxOutstanding < pool.concurrency)
-			throw new Error(
-				`policy: provider_pools."${id}" must carry exactly five positive integers with maxOutstanding >= concurrency`,
-			);
+		try {
+			assertProviderPoolPolicy(pool);
+		} catch (error) {
+			throw new Error(`policy: provider_pools."${id}": ${String(error)}`);
+		}
 	}
 	return policy;
 }
