@@ -322,7 +322,9 @@ export function resolveTarget(needle: string, project?: string): SessionTarget {
 	const matches = live.filter((target) => matchesNeedle(target, q));
 	if (matches.length === 1) return matches[0];
 	if (matches.length === 0)
-		die(`no live session target matching ${JSON.stringify(needle)}`);
+		die(
+			`no live session target matching ${JSON.stringify(needle)}; no directed request delivered. Discover the exact recipient with coord fleet --json (lanes[].sid), then retry. Do not substitute a broadcast.`,
+		);
 	die(
 		`ambiguous target ${JSON.stringify(needle)} — ${matches
 			.map((target) => `${target.label} ${target.sid}`)

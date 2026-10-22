@@ -172,8 +172,14 @@ export async function cmdEmit(rest: string[]): Promise<void> {
 			extra[m[1]] = m[2];
 	}
 	const id = emitEvent({ kind, scope, sha, note, source, to, extra });
+	const delivery =
+		kind === "BROADCAST" && !to
+			? "bus; target=none; no consult opened. Inline @mentions do not route. For an answer use coord consult <sid> <question> --as <asker>."
+			: to
+				? `@${to.slice(0, 8)}`
+				: "bus";
 	console.log(
-		`${green("✓")} ${dim(`event queued #${id} → ${to ? `@${to.slice(0, 8)}` : "bus"}`)}`,
+		`${green("✓")} ${dim(`${kind === "BROADCAST" ? "BROADCAST " : ""}event queued #${id} → ${delivery}`)}`,
 	);
 }
 
