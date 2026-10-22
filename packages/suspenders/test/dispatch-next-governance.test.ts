@@ -42,6 +42,10 @@ const {
 	beltEnv: true,
 });
 
+// ─── W463 fail-closed governance + lane key lifecycle ──────────────────────
+// (e2e cases here spawn dispatch-next/worktree async (Bun.spawn, not
+// spawnSync): a sync spawn blocks this process' event loop, which would stall
+// the stub buckle front and make the child's 600ms front probe time out.)
 describe("fail-closed governance (W463)", () => {
 	test("laneKeyDecision: mint ok → governed", () => {
 		const d = laneKeyDecision({ key: "bksk_x", keyId: "abc123def45" }, false);

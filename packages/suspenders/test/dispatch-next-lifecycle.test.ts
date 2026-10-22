@@ -213,7 +213,3 @@ describe("crash resume budget", () => {
 		expect(again.out).toContain("launch backoff");
 	});
 });
-// ─── W463 fail-closed governance + lane key lifecycle ──────────────────────
-// NOTE: e2e cases here spawn dispatch-next/worktree async (Bun.spawn, not
-// spawnSync): a sync spawn blocks this process' event loop, which would stall
-// the stub buckle front and make the child's 600ms front probe time out.
