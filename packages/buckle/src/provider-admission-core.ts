@@ -13,6 +13,9 @@ export interface ProviderLease {
 }
 export class ProviderAdmissionFull extends Error {}
 
+// Leave room for several paced starts within the configured admission wait.
+const MAX_ADAPTIVE_GAP_MS = 30_000;
+
 /** One instance per explicit account-pool ID at its authoritative egress.
  * maxOutstanding includes running requests: the whole retained set is bounded.
  * intervalCap counts STARTS; long streams do not consume another RPM slot. */
@@ -95,7 +98,10 @@ export class ProviderAdmissionCore {
 			if (epoch === this.feedbackEpoch) {
 				this.feedbackEpoch++;
 				this.adaptiveGapMs = Math.min(
-					Math.max(this.baseGapMs, this.policy.queueWaitMs),
+					Math.max(
+						this.baseGapMs,
+						Math.min(MAX_ADAPTIVE_GAP_MS, this.policy.queueWaitMs / 4),
+					),
 					this.adaptiveGapMs * 2,
 				);
 				this.notBeforeMs = Math.max(

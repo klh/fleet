@@ -60,6 +60,20 @@ test("only current-epoch successes gradually recover, unrelated failures do not 
 	expect(core.snapshot().adaptiveGapMs).toBeLessThan(2);
 });
 
+test("maximum adaptive backoff still grants within a shorter caller budget", async () => {
+	const core = new ProviderAdmissionCore({ ...policy, queueWaitMs: 400 });
+	for (let i = 0; i < 10; i++) {
+		const lease = await core.acquire(undefined, 150);
+		lease.feedback?.(429, null);
+		lease.release();
+	}
+	expect(core.snapshot().adaptiveGapMs).toBe(100);
+	const started = Date.now();
+	const lease = await core.acquire(undefined, 150);
+	expect(Date.now() - started).toBeLessThan(150);
+	lease.release();
+}, 3000);
+
 test("forty concurrent callers share adaptive pacing against a real-clock one-request-per-second provider", async () => {
 	let lastAccepted = 0;
 	let accepted = 0;
