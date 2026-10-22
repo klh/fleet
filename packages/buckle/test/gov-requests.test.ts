@@ -5,50 +5,14 @@
 // never-key-material law.
 import { describe, expect, test } from "bun:test";
 import { Ledger } from "../src/ledger.ts";
-import { startServer } from "../src/server.ts";
 import { startMockUpstream } from "./mock.ts";
-
-const ROOT = "buckle-test-root";
-
-async function startGate(
-	upstreamUrl: string,
-): Promise<{ base: string; stop(): void }> {
-	const dir = `/tmp/buckle-gate-${Date.now()}-${process.pid}-${Math.random()
-		.toString(36)
-		.slice(2, 6)}`;
-	const cfg = `groups:\n  glm-5.3-flash:\n    - url: ${upstreamUrl}\n      dialect: openai\n`;
-	await Bun.write(`${dir}.yaml`, cfg);
-	const server = startServer({
-		port: 0,
-		upstreamsPath: `${dir}.yaml`,
-		dbPath: ":memory:",
-		auth: { rootKey: ROOT },
-	});
-	return {
-		base: `http://127.0.0.1:${server.port}`,
-		stop: () => server.stop(true),
-	};
-}
-
-interface Issued {
-	key: string;
-	keyId: string;
-}
-
-async function issueViaAdmin(
-	base: string,
-	body: Record<string, unknown>,
-): Promise<Issued> {
-	const res = await fetch(`${base}/v1/admin/keys`, {
-		method: "POST",
-		headers: { authorization: `Bearer ${ROOT}` },
-		body: JSON.stringify(body),
-	});
-	const out = (await res.json()) as { key: string; key_id: string };
-	return { key: out.key, keyId: out.key_id };
-}
-
-const CHAT_BODY = JSON.stringify({ model: "glm-5.3-flash", stream: false });
+import {
+	CHAT_BODY,
+	chat,
+	issueViaAdmin,
+	ROOT,
+	startGate,
+} from "./fixtures/gate.ts";
 
 const OPENAI_USAGE = {
 	id: "w824",
@@ -59,21 +23,6 @@ const OPENAI_USAGE = {
 		prompt_tokens_details: { cached_tokens: 5 },
 	},
 };
-
-async function chat(
-	base: string,
-	token: string,
-	traceparent?: string,
-): Promise<Response> {
-	return fetch(`${base}/v1/chat/completions`, {
-		method: "POST",
-		headers: {
-			authorization: `Bearer ${token}`,
-			...(traceparent ? { traceparent } : {}),
-		},
-		body: CHAT_BODY,
-	});
-}
 
 interface ReqRow {
 	rid: string;
@@ -115,7 +64,7 @@ async function getRequests(
 describe("W824 gate class", () => {
 	test("trace connector is admin-only and validates the trace ID", async () => {
 		const upstream = await startMockUpstream(() => Response.json(OPENAI_USAGE));
-		const gate = await startGate(upstream.url);
+		const gate = await startGate({ upstreamUrl: upstream.url, auth: { rootKey: ROOT } });
 		const path = "/v1/admin/traces?trace_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 		const bare = await fetch(`${gate.base}${path}`);
 		expect(bare.status).toBe(401);
@@ -133,7 +82,7 @@ describe("W824 gate class", () => {
 	});
 	test("401 bare, 403 proxy-scoped, 204 OPTIONS + Allow", async () => {
 		const upstream = await startMockUpstream(() => Response.json(OPENAI_USAGE));
-		const gate = await startGate(upstream.url);
+		const gate = await startGate({ upstreamUrl: upstream.url, auth: { rootKey: ROOT } });
 		const bare = await fetch(`${gate.base}/v1/admin/requests`);
 		expect(bare.status).toBe(401);
 		const lane = await issueViaAdmin(gate.base, {
@@ -167,7 +116,7 @@ describe("W824 per-request rows", () => {
 				},
 			),
 		);
-		const gate = await startGate(upstream.url);
+		const gate = await startGate({ upstreamUrl: upstream.url, auth: { rootKey: ROOT } });
 		try {
 			const lane = await issueViaAdmin(gate.base, {
 				name: "cold-lane",
@@ -205,17 +154,15 @@ describe("W824 per-request rows", () => {
 	});
 	test("one trace query joins the live route and each Buckle attempt", async () => {
 		const upstream = await startMockUpstream(() => Response.json(OPENAI_USAGE));
-		const gate = await startGate(upstream.url);
+		const gate = await startGate({ upstreamUrl: upstream.url, auth: { rootKey: ROOT } });
 		const lane = await issueViaAdmin(gate.base, {
 			name: "trace-lane",
 			scopes: ["buckle:proxy:WRITE_"],
 		});
 		const traceId = "c".repeat(32);
-		const response = await chat(
-			gate.base,
-			lane.key,
-			`00-${traceId}-1234567890abcdef-01`,
-		);
+		const response = await chat(gate.base, lane.key, {
+			headers: { traceparent: `00-${traceId}-1234567890abcdef-01` },
+		});
 		expect(response.status).toBe(200);
 		const res = await fetch(
 			`${gate.base}/v1/admin/traces?trace_id=${traceId}`,
@@ -240,7 +187,7 @@ describe("W824 per-request rows", () => {
 	});
 	test("exposes and filters W3C trace IDs without changing the request ID", async () => {
 		const upstream = await startMockUpstream(() => Response.json(OPENAI_USAGE));
-		const gate = await startGate(upstream.url);
+		const gate = await startGate({ upstreamUrl: upstream.url, auth: { rootKey: ROOT } });
 		const lane = await issueViaAdmin(gate.base, {
 			name: "trace-lane",
 			scopes: ["buckle:proxy:WRITE_"],
@@ -250,7 +197,9 @@ describe("W824 per-request rows", () => {
 			scopes: ["buckle:admin:READ_"],
 		});
 		const traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
-		await chat(gate.base, lane.key, `00-${traceId}-00f067aa0ba902b7-01`);
+		await chat(gate.base, lane.key, {
+			headers: { traceparent: `00-${traceId}-00f067aa0ba902b7-01` },
+		});
 		await chat(gate.base, lane.key);
 		const all = await getRequests(gate.base, auditor.key);
 		const rows = all.body.requests as ReqRow[];
@@ -275,7 +224,7 @@ describe("W824 per-request rows", () => {
 	});
 	test("usage join + key name join", async () => {
 		const upstream = await startMockUpstream(() => Response.json(OPENAI_USAGE));
-		const gate = await startGate(upstream.url);
+		const gate = await startGate({ upstreamUrl: upstream.url, auth: { rootKey: ROOT } });
 		const lane = await issueViaAdmin(gate.base, {
 			name: "lane-autow824",
 			scopes: ["buckle:proxy:WRITE_"],
@@ -305,7 +254,7 @@ describe("W824 per-request rows", () => {
 
 	test("newest first + never key material", async () => {
 		const upstream = await startMockUpstream(() => Response.json(OPENAI_USAGE));
-		const gate = await startGate(upstream.url);
+		const gate = await startGate({ upstreamUrl: upstream.url, auth: { rootKey: ROOT } });
 		const lane = await issueViaAdmin(gate.base, {
 			name: "lane-autow824",
 			scopes: ["buckle:proxy:WRITE_"],
@@ -331,7 +280,7 @@ describe("W824 per-request rows", () => {
 describe("W824 minted-then-revoked", () => {
 	test("rows keep the key NAME join after revocation", async () => {
 		const upstream = await startMockUpstream(() => Response.json(OPENAI_USAGE));
-		const gate = await startGate(upstream.url);
+		const gate = await startGate({ upstreamUrl: upstream.url, auth: { rootKey: ROOT } });
 		const lane = await issueViaAdmin(gate.base, {
 			name: "lane-gone",
 			scopes: ["buckle:proxy:WRITE_"],
@@ -368,7 +317,7 @@ describe("W824 minted-then-revoked", () => {
 describe("W824 cap + filters", () => {
 	test("limit default/clamp/400", async () => {
 		const upstream = await startMockUpstream(() => Response.json(OPENAI_USAGE));
-		const gate = await startGate(upstream.url);
+		const gate = await startGate({ upstreamUrl: upstream.url, auth: { rootKey: ROOT } });
 		const lane = await issueViaAdmin(gate.base, {
 			name: "lane-filters",
 			scopes: ["buckle:proxy:WRITE_"],
@@ -504,7 +453,7 @@ describe("W824 read cap", () => {
 describe("W921 traffic kind", () => {
 	test("marked root-auth requests persist readiness; everything else stays inference", async () => {
 		const upstream = await startMockUpstream(() => Response.json(OPENAI_USAGE));
-		const gate = await startGate(upstream.url);
+		const gate = await startGate({ upstreamUrl: upstream.url, auth: { rootKey: ROOT } });
 		const lane = await issueViaAdmin(gate.base, {
 			name: "w921-lane",
 			scopes: ["buckle:proxy:WRITE_"],
