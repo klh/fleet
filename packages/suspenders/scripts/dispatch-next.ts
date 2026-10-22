@@ -17,13 +17,11 @@ import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
 
 export { composeBrief };
 
-// W422: executor specifics ride the adapter registry (hooks/lib/executors/)
-// — dispatch composes adapter.spawnArgs/verifyBrief-harness, no per-agent
-// branches. The spawn-args INTERFACE lives in scripts/lib/lane.ts.
+// W422: executor specifics ride the adapter registry (hooks/lib/executors/) —
+// no per-agent branches; the spawn-args INTERFACE lives in scripts/lib/lane.ts.
 import { adapterFor } from "../hooks/lib/executors/registry.ts";
 import { dispatchLaneEffort } from "../hooks/lib/lane-effort-policy.ts";
-// W157 decomposition: the pure governance decisions live in their module;
-// re-exported so existing importers (tests, scripts) keep their path.
+// W157: governance decisions live in their module, re-exported for importers.
 import {
 	laneKeyDecision,
 	parseGovernanceMode,
@@ -138,13 +136,13 @@ import {
 	renewLaunchLease,
 	resolveLaneExecutor,
 } from "./lib/launch-preflight.ts";
-// W636 decomposition: the READY-pool helpers + the archived-origin landing
-// guard moved to lib modules; the re-exports keep supervise.ts and the test
-// suites on their dispatch-next import path.
+// W636: READY-pool helpers + the archived-origin landing guard moved to lib
+// modules; re-exports keep supervise.ts and the tests on this import path.
 import { capabilityGate, isOwnerGated, parseReady } from "./lib/ready-pool.ts";
 import {
 	canAttemptRefill,
 	dispatchHeld,
+	dispatchHoldGate,
 	plaidCycleOpen,
 	plaidLaunchGapMs,
 	refillWindow,
@@ -169,8 +167,7 @@ import {
 	resolveDaemonizedPids,
 } from "./lib/dispatch-summary.ts";
 
-// parseCapsuleGet is re-exported so supervise.ts and the test suites keep
-// their dispatch-next import path (W576.1.1 decomposition).
+// parseCapsuleGet re-export keeps supervise.ts + tests on this path (W576.1.1).
 export { parseCapsuleGet };
 
 const argv = process.argv.slice(2);
@@ -178,7 +175,7 @@ const argv = process.argv.slice(2);
 // `registry <verb> --help` belongs to the registry verb below, not this usage.
 if (
 	import.meta.main &&
-	argv[0] !== "registry" &&
+	argv[0] !== "registry" && argv[0] !== "hold" && argv[0] !== "release" &&
 	(argv.includes("--help") || argv.includes("-h"))
 ) {
 	console.log(`Usage: dispatch [options]
@@ -234,13 +231,10 @@ const recreateWorktree = (
 // the conditional spreads several sites carry).
 const workCli = workCliFor(BIN);
 const coordCli = coordCliFor(BIN);
-// W494: REPO is the repo ROOT, never cwd — the loop runs from
-// packages/<name> in the monorepo, and worktrees/briefs live at
-// <root>/.worktrees (worktree.ts derives toplevel from the project
-// identity). cwd-as-root ENOENT'd the brief write mid-dispatch and
-// stranded half-born claims. (sh/run hoist above this so the toplevel
-// probe delegates to the shared spawn helper instead of re-inlining it —
-// REPO's default param is call-time-safe.)
+// W494: REPO is the repo ROOT, never cwd — the loop runs from packages/<name>
+// in the monorepo; worktrees/briefs live at <root>/.worktrees (worktree.ts
+// derives toplevel from the project identity); cwd-as-root ENOENT'd the brief
+// write mid-dispatch and stranded half-born claims.
 const gitToplevel = (): string =>
 	sh(["git", "rev-parse", "--show-toplevel"], process.cwd()) || process.cwd();
 const CALLER_REPO = resolve(val("--repo") ?? gitToplevel());
@@ -291,6 +285,11 @@ if (import.meta.main && argv[0] === "registry") {
 if (import.meta.main && argv[0] === "intent") {
 	const { intentMain } = await import("./lib/launch-intent-cli.ts");
 	process.exit(intentMain(argv.slice(1), { repo: REPO }));
+}
+// W1196: holds ride the CLI with attribution — never touch the files by hand.
+if (import.meta.main && (argv[0] === "hold" || argv[0] === "release")) {
+	const { holdMain } = await import("./lib/dispatch-hold-cli.ts");
+	process.exit(holdMain(argv.slice(1), { fleet: FLEET, release: argv[0] === "release" }));
 }
 const LOOP_LOG = `${FLEET}/loop.log`;
 // W463: mint failures refuse the dispatch (fail-closed). Collected so main()
@@ -1212,8 +1211,9 @@ const main = async (): Promise<void> => {
 		process.exitCode = 2;
 		return;
 	}
-	if (!DRY && dispatchHeld(FLEET)) {
-		console.log("WAIT — dispatch paused for rollout; live lanes keep running");
+	const holdLine = DRY ? null : dispatchHoldGate(FLEET);
+	if (holdLine !== null) {
+		console.log(holdLine);
 		return;
 	}
 	// prune: dead entries leave lanes.json (history keeps the audit); a worktree
