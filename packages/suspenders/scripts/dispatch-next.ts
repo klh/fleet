@@ -29,7 +29,6 @@ import {
 	parseGovernanceMode,
 	probeFrontDecision,
 } from "./lib/governance-decide.ts";
-// W1119.2: the W463 override-disclosure writers (1500-law decomposition)
 import { discloseInBrief, noBeltNote } from "./lib/governance-disclose.ts";
 import { attributeHubLane } from "./lib/hub-lane.ts";
 import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
