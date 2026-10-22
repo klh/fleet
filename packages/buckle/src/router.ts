@@ -159,6 +159,8 @@ interface WalkState {
 	status: number;
 	error: string;
 	deadlineMs: number;
+	/** An explicit account Retry-After cannot heal through another alias. */
+	rateLimitedPools?: Set<string>;
 	ctxWindow?: Response;
 	rateLimit?: {
 		response: Response;
@@ -624,7 +626,8 @@ export class Router {
 			const nextIndex = candidates.findIndex(
 				(candidate, index) =>
 					index >= Math.min(raw, candidates.length - 1) &&
-					!timedOutOrigins.has(new URL(candidate.url).origin),
+					!timedOutOrigins.has(new URL(candidate.url).origin) &&
+					!st.rateLimitedPools?.has(providerPoolIdOf(candidate) ?? ""),
 			);
 			if (nextIndex > raw) skipped += nextIndex - raw;
 			const dep = nextIndex < 0 ? undefined : candidates[nextIndex];
@@ -771,8 +774,19 @@ export class Router {
 							),
 			};
 			if (this.walkExpired(st)) break;
-			if (r.kind === "rate_limited" && !st.rateLimit)
-				st.rateLimit = { response: r.response, tier, source: "upstream" };
+			if (r.kind === "rate_limited") {
+				if (!st.rateLimit)
+					st.rateLimit = { response: r.response, tier, source: "upstream" };
+				// An explicit provider not-before applies to every alias of the
+				// account. Skip it within this walk; the shared core retains the
+				// backoff for subsequent requests. Without Retry-After, keep the
+				// configured adaptive retry policy for transient burst feedback.
+				const account = providerPoolIdOf(dep);
+				if (account !== null && r.retryAfterS !== null && r.retryAfterS > 0) {
+					st.rateLimitedPools ??= new Set();
+					st.rateLimitedPools.add(account);
+				}
+			}
 			if (r.contextWindow) st.ctxWindow = r.response;
 			if (r.exhaustTier) break;
 			// A provider that asks us to wait beyond the configured retry cap is
