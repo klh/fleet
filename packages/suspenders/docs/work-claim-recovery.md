@@ -34,3 +34,10 @@ a product diff. The transaction records `work.context-reconciled` with evidence
 digests and actor `operator-reconcile`; raw tokens are never recorded. This does
 not bypass `work done` checks or close the item. The current owner completes it
 normally after reconciliation.
+
+If the current token is lost, first use guarded operator reclaim to return the
+stopped claim to READY. Then use the explicit attested command without `--token`,
+pinning the new READY revision and the intended new owner in the evidence. This
+path requires an unowned READY row, validates the same historical evidence and
+mints a new token. It cannot override another active claim. Capture the new token
+from the ordinary take result, then run `work done` normally.
