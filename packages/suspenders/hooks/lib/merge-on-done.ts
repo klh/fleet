@@ -8,6 +8,8 @@
 //     mid-flight and its retire swept the worktree from under the agents),
 //     then the sweep merges seconds after exit instead of at the next 120s
 //     cycle. Timeout defers loudly; the daemon sweep still owns the branch.
+//     W1124.16: the veto is tri-state honest — only a PROVEN-dead lane
+//     (explicit false) reads ready; an unknown probe (null) defers.
 import { join } from "node:path";
 import { readLaneRegistry } from "./lane-registry.ts";
 
@@ -41,7 +43,10 @@ const branchExists = (repo: string, branch: string): boolean =>
 
 /** Bounded wait for the closing lane to exit. `alive` is the CALLER's
  *  liveness surface (fleet-loop's laneIsAlive — THE surface, no drift). A
- *  branch that vanishes mid-wait is already merged or retired: stop early. */
+ *  branch that vanishes mid-wait is already merged or retired: stop early.
+ *  W1124.16: ONLY a proven-dead lane reads ready — this verdict authorizes
+ *  a merge, and an unknown probe (null) is never death. Unknown and live
+ *  both wait out the deadline and land as timeout (a loud defer). */
 export async function awaitLaneExit(
 	repo: string,
 	branch: string,
@@ -49,12 +54,12 @@ export async function awaitLaneExit(
 	alive: (b: string) => boolean | null,
 	pollMs = POLL_MS,
 ): Promise<"ready" | "timeout" | "gone"> {
-	// the common case is a dead lane (manual close) — no async loop at all
-	if (alive(branch) !== true) return "ready";
+	// the common case is a proven-dead lane (manual close) — no async loop
+	if (alive(branch) === false) return "ready";
 	const deadline = Date.now() + Math.max(0, deadlineMs);
 	while (Date.now() < deadline) {
 		if (!branchExists(repo, branch)) return "gone";
-		if (alive(branch) !== true) return "ready";
+		if (alive(branch) === false) return "ready";
 		await Bun.sleep(pollMs);
 	}
 	return !branchExists(repo, branch) ? "gone" : "timeout";
@@ -99,7 +104,10 @@ export function triggerMergeOnDone(repo: string, item: string): boolean {
 			? registry.lanes.find((row) => row.item === item)
 			: undefined;
 		if (!lane) return false;
-		const awaitSecs = Math.max(0, Number(process.env.FLEET_MERGE_ON_DONE_AWAIT_SECS ?? 120));
+		const awaitSecs = Math.max(
+			0,
+			Number(process.env.FLEET_MERGE_ON_DONE_AWAIT_SECS ?? 120),
+		);
 		const proc = Bun.spawn({
 			cmd: [
 				process.execPath,
