@@ -4,10 +4,11 @@ import { join } from "node:path";
 import { signalClaudeDirectEvent } from "../hooks/lib/claude-wake.ts";
 import { pausedLaneFixture } from "./helpers/paused-lane.ts";
 
-test("managed pause checkpoints through canonical CLI, waits idle, and resumes the same native process", async () => {
+async function exercisePause(interruptDuringResume: boolean): Promise<void> {
 	const { home, cwd, sid, env: fixtureEnv } = pausedLaneFixture();
 	const env = {
 		...fixtureEnv,
+		SUSPENDERS_FIXTURE_RESUME_ACTIVE: interruptDuringResume ? "1" : "0",
 		SUSPENDERS_CLAUDE_NATIVE_BIN: join(
 			import.meta.dir,
 			"fixtures/claude-stream-pause.ts",
@@ -69,6 +70,12 @@ test("managed pause checkpoints through canonical CLI, waits idle, and resumes t
 						await call(["fact", "set", `lane.${sid}.state`, "PAUSE_REQUESTED"]);
 						expect(signal(10, "pause_requested")).toBe(true);
 					}
+					if (
+						frame.type === "fleet.fixture.resume" &&
+						frame.state === "active"
+					) {
+						expect(signal(13, "NOTE")).toBe(true);
+					}
 					if (frame.type === "fleet.claude.pause" && frame.state === "paused") {
 						paused = true;
 						expect(frame.checkpoint).toMatch(/^[a-f0-9]{40}$/);
@@ -108,9 +115,23 @@ test("managed pause checkpoints through canonical CLI, waits idle, and resumes t
 					f.result === "UNEXPECTED_NORMAL_WORK",
 			),
 		).toBe(false);
-		expect(frames.find((f) => f.result === "RESUMED")?.pid).toBe(
-			frames.find((f) => f.subtype === "init")?.pid,
-		);
+		expect(
+			frames.find(
+				(f) =>
+					f.result === (interruptDuringResume ? "DIRECT_DELIVERED" : "RESUMED"),
+			)?.pid,
+		).toBe(frames.find((f) => f.subtype === "init")?.pid);
+		if (interruptDuringResume) {
+			expect(
+				frames.some(
+					(f) =>
+						f.type === "fleet.claude.delivery" &&
+						f.event === "13" &&
+						f.state === "interrupted-and-injected",
+				),
+			).toBe(true);
+			expect(frames.some((f) => f.result === "RESUMED")).toBe(false);
+		}
 		expect(await call(["fact", "get", `lane.${sid}.state`])).toStartWith(
 			"RUNNING ",
 		);
@@ -120,4 +141,12 @@ test("managed pause checkpoints through canonical CLI, waits idle, and resumes t
 		await child.exited;
 		rmSync(home, { recursive: true, force: true });
 	}
-}, 10000);
+}
+
+for (const interruptDuringResume of [false, true]) {
+	test(
+		`managed pause waits idle and resumes the same process (interrupt active resume: ${interruptDuringResume})`,
+		() => exercisePause(interruptDuringResume),
+		10000,
+	);
+}
