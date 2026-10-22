@@ -45,6 +45,7 @@ const MARKERS: ReadonlyArray<{ marker: string; re: RegExp }> = [
 ];
 
 const HUNK = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? /;
+const PROSE_PATH = /\.(?:md|mdx|rst|txt|adoc)$/i;
 
 /** Scan the ADDED lines of a unified diff (-U0) for fake-completion markers. */
 export function scanCompletionDiff(diff: string): FakeCompletionHit[] {
@@ -68,6 +69,14 @@ export function scanCompletionDiff(diff: string): FakeCompletionHit[] {
 		if (raw.startsWith("+") && path) {
 			const text = raw.slice(1);
 			for (const m of MARKERS) {
+				// Prose can honestly describe future proposals. Source keeps its
+				// broader scan so a multiline error constructor cannot evade it.
+				if (
+					m.marker === "placeholder-throw" &&
+					PROSE_PATH.test(path) &&
+					!/\bthrow\s+/.test(text)
+				)
+					continue;
 				if (m.re.test(text)) {
 					hits.push({
 						path,

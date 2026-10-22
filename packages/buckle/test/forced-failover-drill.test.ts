@@ -106,6 +106,7 @@ const sharedAccountPlan = {
 				intervalMs: 50,
 				maxOutstanding: 3,
 				queueWaitMs: 1000,
+				recovery: { successWindow: 8, decreasePercent: 5 },
 			},
 		},
 		fallbacks: { primary: ["alias", "local"] },
