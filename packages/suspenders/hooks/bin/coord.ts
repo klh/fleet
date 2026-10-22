@@ -24,7 +24,7 @@ import {
 	cmdResumed,
 	cmdResumeSession,
 } from "../coord/bus.ts";
-import { cmdTargets, cmdMessage } from "../coord/addressing.ts";
+import { cmdTargets, cmdMessage, cmdDelivery } from "../coord/addressing.ts";
 import { cmdExecutorCv } from "../coord/executor-cv.ts";
 import { cmdWisdom } from "../coord/wisdom.ts";
 import {
@@ -52,6 +52,7 @@ import {
 	cmdKnowledgeNote,
 	cmdKnowledgeVerify,
 	cmdKnowledgeCurate,
+	cmdKnowledgeReprocess,
 	cmdKnowledgePropose,
 	cmdKnowledgeProposals,
 	cmdKnowledgeDispose,
@@ -308,6 +309,13 @@ const VERBS: VerbSpec[] = [
 		run: (p) => cmdKnowledgeDispose(p.rest),
 	}),
 	defineVerb({
+		name: "knowledge-reprocess",
+		usage: "usage: knowledge-reprocess [--apply]",
+		switches: ["--apply"],
+		lax: true,
+		run: (p) => cmdKnowledgeReprocess(p.rest),
+	}),
+	defineVerb({
 		name: "bootstrap",
 		usage:
 			"usage: bootstrap --as <sid> [--role r] [--parent sid] [--worktree w] [--caps shell,fs,...] [--actor id] [--tags json] [--name label]",
@@ -382,6 +390,13 @@ const VERBS: VerbSpec[] = [
 			'usage: message <target-label-or-sid-or-substring> "text" [--as sid] | message --all "text" [--as sid]',
 		lax: true,
 		run: (p) => cmdMessage(p.rest),
+	}),
+	defineVerb({
+		name: "delivery",
+		usage: "usage: delivery <delivery-id> [--json]",
+		minPos: 1,
+		switches: ["--json"],
+		run: (p) => cmdDelivery(p.rest),
 	}),
 	defineVerb({
 		name: "wisdom",

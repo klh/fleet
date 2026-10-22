@@ -25,6 +25,8 @@ import {
 	parseModelIds,
 	PERMISSIVE,
 	saveAccepted,
+	vendoredLitChunks,
+	vendoredEntries,
 	violationKey,
 	verifyVendorHeaders,
 	violationsOf,
@@ -149,6 +151,64 @@ describe("node_modules walk", () => {
 });
 
 describe("vendored banners + model licenses", () => {
+	test("vendoredLitChunks discovers hash-named board chunks, banner-checked", () => {
+		// W1107.2.2: hash-named lit chunks rotate every build, so the audit
+		// discovers them instead of pinning names (the pinned list rotted
+		// within one build — it named chunks no build ever produced).
+		const root = mkdtempSync(join(tmpdir(), "lic-chunks-"));
+		try {
+			const dir = join(
+				root,
+				"packages",
+				"suspenders",
+				"hooks",
+				"board-html",
+				"vendor",
+			);
+			mkdirSync(dir, { recursive: true });
+			writeFileSync(join(dir, "lit-aaaa1111.js"), "// no banner\n");
+			writeFileSync(
+				join(dir, "lit-bbbb2222.js"),
+				"// Vendored from the Lit monorepo — BSD-3-Clause\n",
+			);
+			writeFileSync(
+				join(dir, "klh-topbar.js"),
+				"// first-party entry, not third-party\n",
+			);
+			const rows = verifyVendorHeaders(root);
+			expect(
+				rows.filter((r) =>
+					r.path.startsWith("packages/suspenders/hooks/board-html/vendor/"),
+				),
+			).toEqual([
+				{
+					path: "packages/suspenders/hooks/board-html/vendor/lit-aaaa1111.js",
+					license: "BSD-3-Clause",
+					header: "missing",
+				},
+				{
+					path: "packages/suspenders/hooks/board-html/vendor/lit-bbbb2222.js",
+					license: "BSD-3-Clause",
+					header: "present",
+				},
+			]);
+			// absent vendor dir (installed prefix) discovers nothing, no throw
+			expect(
+				vendoredEntries(mkdtempSync(join(tmpdir(), "lic-empty-"))),
+			).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ path: "packages/belt/bin/vendor/lit.js" }),
+				]),
+			);
+			expect(vendoredLitChunks(root).map((e) => e.path)).toEqual([
+				"packages/suspenders/hooks/board-html/vendor/lit-aaaa1111.js",
+				"packages/suspenders/hooks/board-html/vendor/lit-bbbb2222.js",
+			]);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
 	test("verifyVendorHeaders flags a missing banner on a fixture root", () => {
 		const root = mkdtempSync(join(tmpdir(), "lic-vendor-"));
 		try {

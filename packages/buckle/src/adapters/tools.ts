@@ -11,6 +11,8 @@
 // same table the other way — openai chunk frames + a terminal include_usage
 // chunk, [DONE] emitted by the bridge.
 import { type Usage, usageFromAnthropic, usageFromOpenAI } from "../usage.ts";
+import { emptyStreamError, StreamSemantics } from "../stream-semantics.ts";
+import { upstreamErrorDetail } from "./errors.ts";
 
 export interface TransformWarning {
 	field: string;
@@ -33,6 +35,7 @@ export interface ResponseTransform {
 type AnyRec = Record<string, unknown>;
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
+
 // finite-number coercion for wire indexes (W426 mirror block indexes)
 const num = (v: unknown): number =>
 	typeof v === "number" && Number.isFinite(v) ? v : 0;
@@ -570,6 +573,18 @@ export class OpenAIToAnthropicStream {
 	private usage: unknown = null;
 	private stopReason: string | null = null;
 	private warned = new Set<string>();
+	/** W1106: the last pushed chunk was a ping-shaped frame (zero events). */
+	sawPing = false;
+	/** W1106.2: the bridge observed the source's [DONE] sentinel — the ONLY
+	 *  license to emit an anthropic success terminal at flush. */
+	private doneSeen = false;
+	/** W1106.2: an in-band source failure arrived (error event /
+	 *  response.failed|incomplete) — never translated into success, even
+	 *  when a [DONE] follows it. */
+	private failed = false;
+	/** W1106 empty-stream guard: semantic observation of every source frame —
+	 *  a [DONE] WITHOUT usable output is a typed empty failure, not success. */
+	private readonly semantics = new StreamSemantics();
 	/** Anomaly ledger for the bridge to warn on post-stream. */
 	readonly warnings: TransformWarning[] = [];
 
@@ -590,17 +605,34 @@ export class OpenAIToAnthropicStream {
 		const out: AnthropicEvent[] = [];
 		if (!chunk || typeof chunk !== "object") return out;
 		const r = chunk as AnyRec;
+		// W1106: ping-shaped keepalives are transport-only — return BEFORE any
+		// state change (a first-chunk ping must never fabricate message_start)
+		// and flag it so the SSE bridge emits a keepalive comment.
+		this.sawPing = (r as { type?: unknown }).type === "ping";
+		if (this.sawPing) return out;
 		if (r.usage !== undefined) this.usage = r.usage;
+		this.semantics.observe(r, "openai");
 		if (r.error !== undefined) {
-			const err = r.error as AnyRec;
+			this.failed = true; // W1106.2: in-band failure poisons the terminal
 			out.push({
 				event: "error",
 				data: {
 					type: "error",
-					error: {
-						type: "api_error",
-						message: str(err?.message) || "upstream stream error",
-					},
+					error: upstreamErrorDetail(r),
+				},
+			});
+			return out;
+		}
+		// W1106.2: Responses-wire in-band failure — nested response.error,
+		// never translated into a success terminal even when [DONE] follows.
+		if (r.type === "response.failed" || r.type === "response.incomplete") {
+			const inner = ((r.response ?? {}) as AnyRec).error as AnyRec | undefined;
+			this.failed = true;
+			out.push({
+				event: "error",
+				data: {
+					type: "error",
+					error: upstreamErrorDetail({ ...r, error: inner }),
 				},
 			});
 			return out;
@@ -689,13 +721,34 @@ export class OpenAIToAnthropicStream {
 		}
 	}
 
+	/** W1106.2: the bridge calls this when the source [DONE] sentinel passes
+	 *  — the ONLY license to emit an anthropic success terminal at flush. */
+	noteDone(): void {
+		this.doneSeen = true;
+	}
+
 	/** End of stream: close any open block, emit message_delta + message_stop
-	 *  exactly once. Empty when the stream never started. */
+	 *  exactly once — ONLY when the source terminal was observed (W1106.2: a
+	 *  clean EOF without [DONE] is a truncated turn; a failed source never
+	 *  translates into a success, even when a [DONE] followed it). A
+	 *  truncated source flushes the content close-out only. */
 	flush(): AnthropicEvent[] {
 		const out: AnthropicEvent[] = [];
 		if (!this.started || this.finished) return out;
 		this.finished = true;
 		this.closeActive(out);
+		if (!this.doneSeen || this.failed) return out;
+		// W1106 empty-stream guard: the source said DONE, but said NOTHING —
+		// a protocol terminal without usable output is a typed in-band error,
+		// never a synthesized success terminal (the 483-byte class).
+		const empty = this.semantics.failure();
+		if (empty !== null) {
+			out.push({
+				event: "error",
+				data: { type: "error", error: emptyStreamError(empty) },
+			});
+			return out;
+		}
 		const u = this.seenUsage();
 		out.push({
 			event: "message_delta",
@@ -804,6 +857,16 @@ export class AnthropicToOpenAIStream {
 	private model = "";
 	private started = false;
 	private stopped = false;
+	/** W1106.2: a SOURCE message_stop was observed (the flush-retried finish
+	 *  for an unterminated stream does NOT count — the bridge's [DONE]
+	 *  sentinel must mirror source completion, never a generated one). */
+	private stopSeen = false;
+	/** W1124.4: an in-band source failure (event:error) poisons the terminal —
+	 *  error+message_stop never translates into a success finish frame. */
+	private failed = false;
+	/** W1106 empty-stream guard: semantic observation of every source event —
+	 *  a message_stop WITHOUT usable output is a typed empty failure. */
+	private readonly semantics = new StreamSemantics();
 	private inTok: unknown = null;
 	private outTok: unknown = null;
 	private finish: string | null = null;
@@ -837,15 +900,16 @@ export class AnthropicToOpenAIStream {
 		const data = (evt as AnyRec).data;
 		if (!data || typeof data !== "object") return out;
 		const d = data as AnyRec;
+		this.semantics.observe(d, "anthropic");
 		if (d.type === "ping") return out;
 		if (d.type === "error") {
-			const err = (d.error ?? {}) as AnyRec;
+			// W1124.4: in-band source failure poisons the terminal — an error
+			// event (even followed by message_stop) never licenses a success
+			// finish frame.
+			this.failed = true;
 			out.push(
 				this.frame({
-					error: {
-						message: str(err.message) || "upstream stream error",
-						type: str(err.type) || "api_error",
-					},
+					error: upstreamErrorDetail(d),
 				}),
 			);
 			return out;
@@ -864,6 +928,7 @@ export class AnthropicToOpenAIStream {
 		if (d.type === "content_block_delta") this.blockDelta(d, out);
 		if (d.type === "message_delta") this.messageDelta(d);
 		if (d.type === "message_stop") this.emitFinish(out);
+		if (d.type === "message_stop") this.stopSeen = true; // W1106.2
 		return out;
 	}
 
@@ -876,18 +941,38 @@ export class AnthropicToOpenAIStream {
 			this.outTok = (d.usage as AnyRec).output_tokens;
 	}
 
+	/** W1106.2: true once a SOURCE message_stop was observed — the license
+	 *  for the bridge's [DONE] sentinel. W1124.4: an in-band source failure
+	 *  revokes it (error + message_stop never mirrors as [DONE]). */
+	sawStop(): boolean {
+		return this.stopSeen && !this.failed;
+	}
+
 	/** End of stream: the finish chunk, then the terminal usage chunk —
 	 *  emitted at message_stop (upstreams always send it), retried once at
-	 *  flush for a stream the upstream never terminated. */
+	 *  flush for a stream the upstream never terminated. W1124.4: a
+	 *  truncated source (no message_stop) or a failed source flushes EMPTY —
+	 *  no finish frame, no usage chunk: never a synthesized success. */
 	flush(): AnyRec[] {
 		const out: AnyRec[] = [];
 		if (!this.started) return out;
+		if (!this.stopSeen || this.failed) return out;
 		this.emitFinish(out);
 		return out;
 	}
 
 	private emitFinish(out: AnyRec[]): void {
-		if (this.stopped) return;
+		if (this.stopped || this.failed) return; // W1124.4: failure revokes the terminal
+		// W1106 empty-stream guard: the source said message_stop, but said
+		// NOTHING — a terminal without usable output poisons the terminal
+		// (error chunk only; [DONE]/finish never fabricate) — the 483-byte
+		// class on the mirror side.
+		const empty = this.semantics.failure();
+		if (empty !== null) {
+			this.failed = true;
+			out.push(this.frame({ error: emptyStreamError(empty) }));
+			return;
+		}
 		this.stopped = true;
 		out.push(this.frame({ choices: [choice({}, this.finish ?? "stop")] }));
 		const u = this.seenUsage();

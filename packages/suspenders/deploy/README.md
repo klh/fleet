@@ -265,3 +265,40 @@ Deterministic (no clock): same checkout → same bytes. CI job
 `release-manifest` uploads all three and fails on a floating image. The
 schema upgrade / migration-failure / rollback-compat contract is
 `test/release-manifest.test.ts`.
+
+## Trace receipts over a managed ssh tunnel (W1097)
+
+A hub's trace-receipt plane (the buckle gate's
+`/v1/admin/traces?trace_id=<32-hex>`) is plain HTTP on the LAN, and the
+hub's TLS front carries an untrusted certificate — so the bounded trace
+connector (packages/telemetry/src/remote-traces.ts) never points at the hub
+directly: direct HTTP would carry the read key in the clear and HTTPS would
+need trust weakened. `hubs.<label>.trace_tunnel` declares the trusted
+transport instead: a managed ssh tunnel. The read key rides the ssh
+channel; the connector fetches `http://127.0.0.1:<listen_port>/` on this
+device — the one non-https form its URL law admits.
+
+    # ~/.config/klh/stack.yaml (mode 600, placeholders here)
+    hubs:
+      nas:
+        trace_tunnel:
+          listen_port: 14101   # on THIS device, 1024–65535
+          # target_port: 4101  # default = buckle_port
+          read_key: /path/on/this/device/nas-trace-read.key  # 0600
+
+    bun deploy/hubctl.ts trace-tunnel nas up      # ssh -N -L, 0600 state, wait for forward
+    bun deploy/hubctl.ts trace-tunnel nas status  # banked verdict (exit 1 = down)
+    bun deploy/hubctl.ts trace-tunnel nas down    # SIGTERM + reap state (idempotent)
+    bun deploy/hubctl.ts trace-tunnel nas peer --file ~/.config/klh/trace-peers.json
+
+`peer` renders the connector peer row into the private 0600 peers file —
+the merged bytes are validated with the connector's OWN law (parsePeers)
+before they land, so hubctl never writes a file the reader would reject.
+Every readRemoteTraces answer carries a coverage block
+({hubs, ok, degraded, by_hub}) — per-read proof of what was attempted and
+what answered, counts + status strings only. Plan law: undeclared =
+not configured (null, never an error); a declaration without `deploy.ssh`
+refuses — the tunnel IS the trusted transport. Tests:
+deploy/trace-tunnel.test.ts (plan law, argv shape, peers merge, lifecycle
+with an injected child, e2e through a real loopback server) and
+telemetry/test/remote-traces.test.ts (connector law + coverage).

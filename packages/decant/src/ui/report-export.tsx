@@ -129,24 +129,29 @@ export function ReportExportButton({
       setError("Allow pop-ups for this local page, then try again.");
       return;
     }
-    preview.document.write("<p style='font-family:system-ui;padding:2rem'>Preparing report…</p>");
     setPrinting(true);
     setError(null);
+    let reportUrl: string | null = null;
     void fetch(href)
       .then(async (response) => {
         if (!response.ok) {
           throw new Error(`Report request failed (${response.status})`);
         }
         const documentHtml = await response.text();
-        preview.document.open();
-        preview.document.write(documentHtml);
-        preview.document.close();
+        reportUrl = URL.createObjectURL(new Blob([documentHtml], { type: "text/html" }));
+        const loaded = waitForPopupLoad(preview);
+        preview.location.assign(reportUrl);
+        await loaded;
+        URL.revokeObjectURL(reportUrl);
         await waitForReportFonts(preview.document);
         preview.focus();
         preview.print();
         closeReview();
       })
       .catch((reason: unknown) => {
+        if (reportUrl != null) {
+          URL.revokeObjectURL(reportUrl);
+        }
         preview.close();
         setError(errorMessage(reason));
       })
@@ -379,6 +384,29 @@ export function ReportRouteView({
       )}
     </div>
   );
+}
+
+function waitForPopupLoad(popup: Window): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    let settle = (_error?: Error) => {};
+    const stopWatching = () => {
+      clearInterval(pollTimer);
+    };
+    const pollTimer = setInterval(() => {
+      if (popup.closed) {
+        settle(new Error("Report preview window was closed before it loaded."));
+      }
+    }, 250);
+    settle = (error) => {
+      stopWatching();
+      if (error != null) {
+        reject(error);
+        return;
+      }
+      resolve();
+    };
+    popup.addEventListener("load", () => settle(), { once: true });
+  });
 }
 
 export async function waitForReportFonts(document: Document): Promise<void> {

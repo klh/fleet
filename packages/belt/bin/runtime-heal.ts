@@ -42,6 +42,11 @@ const DEPS: Array<{ from: string; to: string }> = [
 	{ from: "packages/buckle/src/hop.ts", to: "hop.ts" },
 	{ from: "packages/buckle/src/usage.ts", to: "usage.ts" },
 	{
+		from: "packages/buckle/src/stream-semantics.ts",
+		to: "stream-semantics.ts",
+	},
+	{ from: "packages/buckle/src/error-detail.ts", to: "error-detail.ts" },
+	{
 		from: "packages/telemetry/src/http-trace.ts",
 		to: "http-trace.ts",
 	},
@@ -65,6 +70,7 @@ const REWRITE: Array<[RegExp, string]> = [
 	[/^(\.\.\/)+suspenders\/hooks\/lib\/(.+)$/, "./"],
 	[/^(\.\.\/)+hooks\/lib\/(.+)$/, "./"],
 	[/^(\.\.\/)+buckle\/src\/gov\/(.+)$/, "./gov/"],
+	[/^(\.\.\/)+buckle\/src\/((?:stream-semantics|error-detail)\.ts)$/, "./"],
 	[/^(\.\.\/)+belt\/bin\/(.+)$/, "./"],
 	[/^(\.\.\/)+local-llm\/(.+)$/, "./"],
 	[/^(\.\.\/)+telemetry\/src\/(.+)$/, "./"],

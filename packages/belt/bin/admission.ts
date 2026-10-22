@@ -96,3 +96,13 @@ export async function admit(
 		release();
 	}
 }
+
+/** A failed stream can finish its caller before local transport cleanup.
+ * Retain only that target's slot until its own cleanup settles. */
+export function releaseAfterCleanup(
+	release: () => void,
+	cleanup: Promise<void>[],
+): void {
+	if (cleanup.length) void Promise.allSettled(cleanup).then(release);
+	else release();
+}

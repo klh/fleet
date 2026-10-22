@@ -20,6 +20,7 @@ const run = (chunks: unknown[]): { event: string; data: AnyRec }[] => {
 	const s = new OpenAIToAnthropicStream();
 	const out: { event: string; data: AnyRec }[] = [];
 	for (const c of chunks) out.push(...s.push(c));
+	s.noteDone(); // W1106.2: fixtures model COMPLETE source streams ([DONE] seen)
 	out.push(...s.flush());
 	return out;
 };
@@ -541,14 +542,41 @@ describe("OpenAIToAnthropicStream edges", () => {
 	test("flush exactly-once; never-started flushes empty; end_turn default", () => {
 		const s = new OpenAIToAnthropicStream();
 		expect(s.flush()).toEqual([]);
-		s.push({ id: "e", model: "m", choices: [] });
+		// W1106 empty-stream guard: the success fixture carries REAL output —
+		// a usage-only turn now types as empty_response, never message_stop.
+		s.push({
+			id: "e",
+			model: "m",
+			choices: [{ index: 0, delta: { content: "ok" } }],
+		});
+		s.noteDone(); // W1106.2: the terminal gates on the source [DONE]
 		const f1 = s.flush();
-		expect(names(f1)).toEqual(["message_delta", "message_stop"]);
+		expect(names(f1)).toEqual([
+			"content_block_stop",
+			"message_delta",
+			"message_stop",
+		]);
 		expect(s.flush()).toEqual([]);
-		const delta = (f1[0]?.data ?? {}) as AnyRec;
+		const delta = (f1[1]?.data ?? {}) as AnyRec;
 		expect(delta.delta).toEqual({
 			stop_reason: "end_turn",
 			stop_sequence: null,
 		});
+	});
+
+	test("W1106: [DONE] with no usable output → typed empty error, never message_stop", () => {
+		const s = new OpenAIToAnthropicStream();
+		s.push({
+			id: "e",
+			model: "m",
+			choices: [],
+			usage: { prompt_tokens: 33341, completion_tokens: 0 },
+		});
+		s.noteDone();
+		const f1 = s.flush();
+		expect(names(f1)).toEqual(["error"]);
+		const err = (f1[0]?.data ?? {}) as AnyRec;
+		expect(err.error).toMatchObject({ code: "empty_response" });
+		expect(s.flush()).toEqual([]); // exactly once
 	});
 });

@@ -11,6 +11,10 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { YAML } from "bun";
+import {
+	assertProviderPoolPolicy,
+	type ProviderPoolPolicy,
+} from "./provider-admission-core.ts";
 
 /** OWNER DIRECTIVE (W124, lesson.fanout-rate-budget): flashx appears in no
  *  group, no ladder, no alias — same upstream family saturates together and
@@ -49,6 +53,12 @@ export interface GatewayPolicy {
 	// DEFAULT-OFF per the W137 economics (cache reads are 0.1x — compression
 	// must prove ROI on cache-miss traffic before an operator flips it).
 	aids?: AidsPolicy;
+	// W1078 provider-account admission: pool id -> bounded pacing policy,
+	// EXPLICIT machine config (no account limit is ever inferred — every
+	// number is operator-owned). A deployment binds to one pool via
+	// adapter_config.provider_pool; an unbound pool id or malformed binding
+	// is startup-fatal in the router (fail-closed, never silently off).
+	provider_pools?: Record<string, ProviderPoolPolicy>;
 }
 
 /** W142 aids policy (routing-policy.yaml `aids:` block). Belt ignores the
@@ -121,6 +131,7 @@ export const POLICY_DEFAULTS: Required<
 		| "stream_idle_timeout_s"
 		| "stream_total_timeout_s"
 		| "aids"
+		| "provider_pools"
 	>
 > & {
 	retry_max_delay_s: number;
@@ -174,6 +185,18 @@ export function parsePolicy(
 		throw new Error(
 			"policy: first_byte_budget_s must be at least request_timeout_s",
 		);
+	// W1078: every configured pool policy must be complete and bounded — the
+	// explicit limits and recovery policy, shared with the admission core.
+	// A malformed policy refuses startup (fail-closed), never degrades to
+	// unbounded forwarding.
+	const pools = policy.provider_pools ?? {};
+	for (const [id, pool] of Object.entries(pools)) {
+		try {
+			assertProviderPoolPolicy(pool);
+		} catch (error) {
+			throw new Error(`policy: provider_pools."${id}": ${String(error)}`);
+		}
+	}
 	return policy;
 }
 

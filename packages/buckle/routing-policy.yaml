@@ -17,6 +17,13 @@
 version: 1
 
 gateway:
+  # Account pools are operator-owned. Every configured pool MUST explicitly
+  # declare recovery, e.g. recovery: {successWindow: 8, decreasePercent: 20}.
+  # successWindow is the consecutive healthy evidence threshold, retained
+  # while healthy; each subsequent success can decrease pacing once per base
+  # start interval. It also bounds congestion episodes in observed feedback
+  # RTT samples. No idle decay; provider Retry-After always remains binding.
+  # These feedback controls do not establish provider capacity.
   num_retries: 1
   allowed_fails: 3
   cooldown_time: 30
@@ -28,8 +35,9 @@ gateway:
   # W450 long-generation deadlines: a streaming body that sits silent
   # longer than stream_idle_timeout_s is hung (aborted); a healthy stream
   # runs to stream_total_timeout_s regardless of request_timeout_s (which
-  # stays the cap for the non-streaming exchange). The server-side
-  # connection idle bound is BUCKLE_IDLE_TIMEOUT_S (0-255s, default 120).
+  # stays the cap for the non-streaming exchange). W1106: Bun's server
+  # idle timer is disabled globally (0) — these Buckle guards are the
+  # ONLY stream deadlines.
   stream_idle_timeout_s: 60
   stream_total_timeout_s: 900
   # The first requested route may use its full 120s; later fallback attempts

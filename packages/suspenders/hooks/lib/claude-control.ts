@@ -34,6 +34,11 @@ export function claudeStreamArguments(args: string[]): {
 export class ClaudeControl {
 	active = false;
 	busy = false;
+	/** W1035.1: the result frame that closes an interrupted turn is an
+	 * internal turn boundary — never a terminal conversation result. The
+	 * runtime reads this right after receive() to skip its end-of-session
+	 * close on exactly that frame. */
+	interruptBoundaryResult = false;
 	private closed = false;
 	private result: {
 		resolve: () => void;
@@ -57,11 +62,19 @@ export class ClaudeControl {
 	start(text: string): void {
 		if (this.closed) throw new Error("Claude control channel closed");
 		this.active = true;
+		// A new injected turn clears the boundary flag: the next result frame
+		// is the real turn end again.
+		this.interruptBoundaryResult = false;
 		this.send({ type: "user", message: { role: "user", content: text } });
 	}
 
 	receive(frame: ResponseFrame): void {
 		if (frame.type === "result") {
+			// W1035.1: a result arriving while an interrupt is awaited closes the
+			// INTERRUPTED turn — an internal boundary, never the conversation's
+			// terminal result. The runtime holds its end-of-session close back
+			// for exactly one frame when this is set.
+			this.interruptBoundaryResult = this.result !== null;
 			this.active = false;
 			if (this.result) {
 				clearTimeout(this.result.timer);

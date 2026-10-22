@@ -1,5 +1,5 @@
-import{o,r,e,s}from"./lit-nenj1r4j.js";import{i,l,d}from"./lit-rbfdvrsn.js";var p=(t)=>t&&t!=="unassigned"?t.charAt(0).toUpperCase():"?",v=(t)=>["team","department"].filter((a)=>t[a]).join(" · ")||"no team tags";class h extends s{static properties={me:{type:Object},open:{state:!0},themePref:{state:!0}};static styles=r`
-		${o(d)}
+import{o,r,e,s}from"./lit-ec6b45c34eb5ebcc.js";import{i,l,c}from"./lit-c4ad04da846aeac8.js";var p=(t)=>t&&t!=="unassigned"?t.charAt(0).toUpperCase():"?",v=(t)=>["team","department"].filter((a)=>t[a]).join(" · ")||"no team tags";class h extends s{static properties={me:{type:Object},open:{state:!0},themePref:{state:!0}};static styles=r`
+		${o(c)}
 		:host {
 			display: block;
 		}
@@ -134,8 +134,8 @@ import{o,r,e,s}from"./lit-nenj1r4j.js";import{i,l,d}from"./lit-rbfdvrsn.js";var 
 			</div>
 			<div class="cavsec">switch actor (demo preview)</div>
 			<select aria-label="switch actor (demo preview)">
-				${this.actorOptions().map((c)=>e`<option value=${c} ?selected=${c===n}>
-							${c}
+				${this.actorOptions().map((d)=>e`<option value=${d} ?selected=${d===n}>
+							${d}
 						</option>`)}
 			</select>
 			<div class="cavnote">

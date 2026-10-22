@@ -42,10 +42,13 @@ export function createModelProxy(options: { upstream: string }) {
 				method: request.method,
 				headers: upstreamHeaders,
 				body: chat ? request.body : undefined,
-				signal: AbortSignal.any([
-					request.signal,
-					AbortSignal.timeout(inventory ? 3000 : 120_000),
-				]),
+				signal: inventory
+					// inventory: fixed 3s — a catalog poll, not a stream (#55405)
+					? AbortSignal.any([request.signal, AbortSignal.timeout(3000)])
+					// W1106: chat streams carry NO fixed client-side cutoff — the
+					// client's abort (Buckle's wire guards upstream of this hop)
+					// is the deadline authority, propagated via request.signal.
+					: request.signal,
 				redirect: "manual",
 			});
 			const contentType = response.headers.get("content-type");
@@ -82,6 +85,9 @@ if (import.meta.main) {
 	Bun.serve({
 		hostname: "127.0.0.1",
 		port,
+		// W1106 (owner directive 2026-10-21): no Bun idle cutoff on the
+		// inference path — quiet model streams ride past any fixed timer.
+		idleTimeout: 0,
 		fetch: createModelProxy({ upstream }),
 	});
 }

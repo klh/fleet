@@ -18,12 +18,18 @@
 //        knowledge-api, 7799 board — 7794 was free)
 
 import { readFileSync, statSync } from "node:fs";
+import { TransactionEvents } from "../lib/transaction-events.ts";
 import { expireConsults } from "../lib/consult-expiry.ts";
 import { consultStoreId } from "../lib/consult-outbox.ts";
+import { storeAdmissionRefusal } from "../lib/store-admission.ts";
 import {
 	ensureConsultRelayReceipts,
 	handleConsultRelay,
 } from "../lib/consult-relay-receiver.ts";
+import {
+	ensureEventRelayReceipts,
+	handleEventRelay,
+} from "../lib/event-relay.ts";
 import {
 	type GovernorStore,
 	knowledgeSqlViolation,
@@ -80,6 +86,7 @@ const sm = servicemon({ service: "store-server", port: PORT });
 const db = openGovernorDb();
 const INSTANCE_ID = consultStoreId(db);
 ensureConsultRelayReceipts(db as unknown as GovernorStore);
+ensureEventRelayReceipts(db as unknown as GovernorStore);
 const txDb = openGovernorDb() as unknown as GovernorStore;
 const TX_IDLE_MS = 10_000;
 
@@ -120,6 +127,9 @@ const serialIdb = perPlaneSerial();
 // the tx module (W978: cells carry `started` for the stale sweep)
 const govCell: TxCell = { v: null };
 const idbCell: TxCell = { v: null };
+const transactionEvents = new TransactionEvents((id) =>
+	maybeBroadcastInsert("INSERT INTO events", id),
+);
 
 // W303 — WS push for coord subscribe: real-time replacement for the
 // relaunch-a-long-poll pattern. Sockets are tracked here (not Bun pub/sub
@@ -180,6 +190,7 @@ setInterval(() => {
 		{ label: "governor", cell: govCell, txConn: txDb, conn: db },
 		{ label: "identity", cell: idbCell, txConn: txIdb, conn: idb },
 	]) {
+		const activeTransaction = plane.cell.v;
 		const events = [
 			sweepStaleTxn({
 				label: plane.label,
@@ -190,6 +201,8 @@ setInterval(() => {
 				? null
 				: sweepOrphanTxn({ label: plane.label, conn: plane.conn }),
 		];
+		if (activeTransaction && !plane.cell.v)
+			transactionEvents.finish(activeTransaction, false);
 		for (const e of events) {
 			if (!e) continue;
 			const row = db.run(
@@ -209,9 +222,8 @@ function scopeCoversLocal(a: string, b: string): boolean {
 	return a === b || b.startsWith(`${a}/`) || a.startsWith(`${b}/`);
 }
 
-// best-effort: reads the just-inserted row back off the non-tx connection,
-// so an insert made inside an open tx (not committed yet) is a silent no-op
-// here rather than a premature broadcast of a row that might still roll back.
+// Read only committed rows from the non-transaction connection. Transaction
+// inserts reach this publisher after successful COMMIT, never before.
 function maybeBroadcastInsert(sql: string, rowid: number): void {
 	if (!EVENTS_INSERT_RE.test(sql) || !sockets.size) return;
 	const row = db
@@ -273,13 +285,15 @@ const exec = (
 	sql: string,
 	params: unknown[],
 	conn: GovernorStore,
+	transaction: object | null = null,
 ): Record<string, unknown> => {
 	const st = conn.query(sql);
 	if (mode === "get") return { row: st.get(...params) ?? null };
 	if (mode === "all") return { rows: st.all(...params) };
 	const r = st.run(...params);
 	const lastInsertRowid = Number(r.lastInsertRowid);
-	maybeBroadcastInsert(sql, lastInsertRowid);
+	if (EVENTS_INSERT_RE.test(sql))
+		transactionEvents.inserted(transaction, lastInsertRowid);
 	return { changes: r.changes, lastInsertRowid };
 };
 
@@ -288,10 +302,12 @@ const exec = (
 // planes; per-plane cells keep tx windows private per file.
 const rollIdle = (cell: TxCell, txConn: GovernorStore): void => {
 	if (!cell.v || Date.now() - cell.v.last <= TX_IDLE_MS) return;
+	const expired = cell.v;
 	try {
 		txConn.run("ROLLBACK");
 	} catch {}
 	cell.v = null;
+	transactionEvents.finish(expired, false);
 };
 
 const beginOp = (
@@ -316,16 +332,19 @@ const endOp = (
 ): Record<string, unknown> => {
 	if (!cell.v || cell.v.id !== (txid ?? "?"))
 		return { err: "no such transaction" };
+	const completed = cell.v;
 	cell.v = null;
 	try {
 		txConn.run(op === "commit" ? "COMMIT" : "ROLLBACK");
-		return { ok: true };
 	} catch (e) {
 		try {
 			txConn.run("ROLLBACK");
 		} catch {}
+		transactionEvents.finish(completed, false);
 		return { err: `${op} failed: ${String(e)}` };
 	}
+	transactionEvents.finish(completed, op === "commit");
+	return { ok: true };
 };
 
 const txOp = (
@@ -366,13 +385,15 @@ const makePlaneRpc =
 		return serial(() => {
 			rollIdle(cell, txConn);
 			const t = cell.v;
+			if (payload.txid && payload.txid !== t?.id)
+				return { err: "no such transaction" };
 			if (t) {
 				// WAL lets outside reads use the plane's main connection while the
 				// tagged writer owns txConn. Only outside writes must wait for the
 				// transaction to end; blocking reads also breaks the HTTP client's
 				// eager SELECT 1 probe under normal concurrent lane starts.
 				if (!payload.txid && payload.mode === "run")
-					return { err: "a transaction is open — retry" };
+					return storeAdmissionRefusal();
 				if (payload.txid && payload.txid !== t.id)
 					return { err: "no such transaction" };
 				if (payload.txid) t.last = Date.now();
@@ -382,6 +403,7 @@ const makePlaneRpc =
 				payload.sql,
 				payload.params,
 				t && payload.txid ? txConn : conn,
+				t && payload.txid ? t : null,
 			);
 		});
 	};
@@ -512,6 +534,36 @@ const base = {
 						{ status: 503 },
 					);
 				return handleConsultRelay(
+					req,
+					url,
+					db as unknown as GovernorStore,
+					(eventId) => maybeBroadcastInsert("INSERT INTO events", eventId),
+				);
+			});
+		}
+		// W1061 — cross-hub direct event relay: same gate shape, same serial
+		// chain, same targeted WS notify as /consult-relay; the inserted event
+		// rides the lane's own subscribe push (managed-runtime wake) and its
+		// inbox/ack path stamps the SEEN/ACCEPTED receipts the status GET reads.
+		if (
+			url.pathname === "/event-relay" ||
+			url.pathname.startsWith("/event-relay/")
+		) {
+			if (!RELAY_TOKEN)
+				return Response.json(
+					{ error: "Event relay requires a configured server token" },
+					{ status: 503 },
+				);
+			if (req.headers.get("x-governor-token") !== RELAY_TOKEN)
+				return new Response("forbidden", { status: 403 });
+			return serialGov(() => {
+				rollIdle(govCell, txDb);
+				if (govCell.v)
+					return Response.json(
+						{ error: "Store transaction is active" },
+						{ status: 503 },
+					);
+				return handleEventRelay(
 					req,
 					url,
 					db as unknown as GovernorStore,

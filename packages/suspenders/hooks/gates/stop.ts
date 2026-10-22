@@ -7,8 +7,9 @@
 // `bun gate.ts post-files` per changed file (up to 50 bun processes per Stop).
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { openStore } from "../lib/govdb.ts";
+import { claudeStopPause } from "../lib/claude-pause.ts";
 import { allow, feedback, type HookInput } from "../lib/hookio.ts";
 import { laneCompletion } from "../lib/lane-completion.ts";
 import { run } from "../lib/run.ts";
@@ -128,8 +129,12 @@ export function stopGate(hook: HookInput): never {
 		const laneSid = turnBoundarySid(hook);
 		if (laneSid) {
 			try {
+				const store = openStore();
+				const pause = claudeStopPause(store, laneSid, drainCwd);
+				if (pause === "paused") allow();
+				if (pause) feedback(pause);
 				const f = turnBoundaryFeedback(
-					pendingTurnMessages(openStore(), laneSid),
+					pendingTurnMessages(store, laneSid),
 					laneSid,
 				);
 				if (f) feedback(f);
@@ -145,34 +150,13 @@ export function stopGate(hook: HookInput): never {
 	// fires only when the stop was otherwise allowed.
 	contextPressureGuard(hook);
 
-	// W497: the session-end knowledge ask — ONCE per session, only for
-	// substantive ones (transcript > 20KB): block this stop and make the
-	// agent either donate its learnings or declare none. Self-resolving: the
-	// marker prevents another knowledge ask; repeated stops still verify work.
-	const h = hook as HookInput & {
-		session_id?: string;
-		transcript_path?: string;
-	};
-	if (h.session_id && h.transcript_path && existsSync(h.transcript_path)) {
-		const top = run(
-			"git",
-			["-C", hook.cwd ?? ".", "rev-parse", "--show-toplevel"],
-			{
-				cwd: hook.cwd,
-			},
-		);
-		if (top.ok && statSync(h.transcript_path).size > 20_000) {
-			const dir = `${top.out.trim()}/.fleet/session-learnings`;
-			const marker = `${dir}/${h.session_id}`;
-			if (!existsSync(marker)) {
-				mkdirSync(dir, { recursive: true });
-				writeFileSync(marker, new Date().toISOString());
-				feedback(
-					'Session-end knowledge ask (asked once): did you learn anything valuable this session — a lesson another lane would need, a gotcha, a correction? If yes, write it NOW: coord fact set lesson.<topic> "<fact>" (durable, immediate) or coord knowledge-enqueue "<text>" (distill queue). If nothing valuable: reply one line and stop — exit is fine.',
-				);
-			}
-		}
-	}
+	// W1146: the W497 session-end knowledge ask is RETIRED from Stop — the
+	// live WS/CLI Stop event is end-of-TURN, not session end, so the ask
+	// re-prompted on ordinary answer boundaries (transcript > 20KB makes it
+	// unconditional). Passive knowledge write-back rides the true SessionEnd
+	// settle (hooks/lib/settle.ts via hooks/session-end.ts); deliberate
+	// donation stays a lane choice (coord knowledge-enqueue / fact set).
+
 	const cwd = hook.cwd ?? "";
 	if (!cwd || !existsSync(cwd)) allow();
 	if (!run("git", ["rev-parse", "--is-inside-work-tree"], { cwd }).ok) allow();

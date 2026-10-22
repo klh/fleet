@@ -154,7 +154,7 @@ export const INSTALL_CONTRACT = {
 			{
 				prompt: "wire hooks into ~/.claude/settings.json?",
 				unattended:
-					"native: --wire (or --step wireSettings --yes) merges user-level settings; --wire-repo <path> wires a repo's project settings",
+					"native: the default plan merges user-level settings (env/auth preserved); --wire consents to that plan in one flag; --wire-repo <path> wires a repo's project settings",
 			},
 			{
 				prompt: "install the macOS launchd agents?",
@@ -208,7 +208,7 @@ export const INSTALL_CONTRACT = {
 		wire: {
 			flag: "--wire",
 			meaning:
-				"user-level wire — merge the hooks block into ~/.claude/settings.json (policy adapters + gate wires ride along); consented on its own, implies --step wireSettings",
+				"user-level wire — run the full default plan INCLUDING wireSettings (hooks merge into ~/.claude/settings.json, env/auth preserved); consented on its own, never a wire-only action",
 		},
 		gatewayReview: {
 			flag: "--gateway-review",
@@ -361,9 +361,9 @@ export const INSTALL_CONTRACT = {
 		{
 			name: "wireSettings",
 			oneLiner:
-				"merge the hooks block into ~/.claude/settings.json (--wire, policy adapters + gate wires ride along) or a repo's project settings (--wire-repo <path>) — per-event merge, never clobber",
+				"merge the hooks block into ~/.claude/settings.json (default-plan step: hooks merge only — existing env/auth is preserved, never rewritten) or a repo's project settings (--wire-repo <path>) — per-event merge, never clobber",
 			mutates: true,
-			optIn: true,
+			optIn: false,
 			v1: "real",
 		},
 		{

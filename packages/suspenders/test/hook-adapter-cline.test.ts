@@ -193,11 +193,20 @@ describe("buildDecision", () => {
 
 describe("resolveClineSid", () => {
 	test("falls back to the session's own task id", () => {
-		const r = resolveClineSid(REPO, {
-			taskId: "conv-1",
-			parent_agent_id: null,
-		});
-		expect(r).toEqual({ sid: "conv-1", source: "own" });
+		// scrub lane identity for the direct call — resolveClineSid prefers
+		// SUSPENDERS_SID, so a dispatched lane's env masks the own-task
+		// fallback this test pins (same scrub baseEnv() applies to children)
+		const laneSid = process.env.SUSPENDERS_SID;
+		delete process.env.SUSPENDERS_SID;
+		try {
+			const r = resolveClineSid(REPO, {
+				taskId: "conv-1",
+				parent_agent_id: null,
+			});
+			expect(r).toEqual({ sid: "conv-1", source: "own" });
+		} finally {
+			if (laneSid !== undefined) process.env.SUSPENDERS_SID = laneSid;
+		}
 	});
 });
 

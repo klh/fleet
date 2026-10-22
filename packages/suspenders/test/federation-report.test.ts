@@ -18,6 +18,7 @@ import {
 	selfReportRule,
 } from "../hooks/lib/federation-report.ts";
 import { startServer } from "../../buckle/src/server.ts";
+import { createReferenceGovSeam } from "../../buckle/src/gov/reference-seam.ts";
 import { lastKnownPath, type FederationEnv } from "../hooks/lib/federation.ts";
 import { atomicWrite } from "../hooks/lib/board-config.ts";
 import { GROUPS } from "../hooks/lib/usage.ts";
@@ -157,7 +158,10 @@ async function startOptedInHub(): Promise<{
 		policyPath: `${dir}.policy.yaml`,
 		upstreamsPath: `${dir}.upstreams.yaml`,
 		dbPath: ":memory:",
-		auth: { rootKey: ROOT },
+		// W1114: rollup ingest/read rides the hub-side usage provider — the
+		// reference gov seam (the overlay's factory contract), opt-in read
+		// from the live policy above; provider-less solo still 501s.
+		auth: { rootKey: ROOT, ...createReferenceGovSeam() },
 	});
 	const base = `http://127.0.0.1:${String(srv.port)}`;
 	const mint = async (name: string): Promise<string> => {

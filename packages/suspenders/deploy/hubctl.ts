@@ -19,6 +19,18 @@
 //                                     # W484.1.1: mint a short-lived bksk_ lane
 //                                     #   key ON the hub — the root credential
 //                                     #   never leaves the device
+//   bun deploy/hubctl.ts mint-service-key <hub> --name <name> --out <keyfile>
+//                                     # W1124.15: mint a PERSISTENT proxy-only
+//                                     #   service credential (no expiry) for
+//                                     #   spoke/persistent hub links — audited,
+//                                     #   distinct from expiring lane keys; the
+//                                     #   raw key lands in --out (0600), stdout
+//                                     #   carries metadata only
+//   bun deploy/hubctl.ts verify-key <hub> --file <path>
+//                                     # W1124.15: verify a configured cross-hub
+//                                     #   key against the hub's verify API —
+//                                     #   exit 1 with the hub's actual
+//                                     #   expired/revoked code on a dead key
 // Config: KLH_STACK env overrides the stack path (tests).
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -49,6 +61,15 @@ import {
 import { composeUpArgv, sshOpts } from "./hub-remote.ts";
 import { mergedHubUpstreams } from "./openrouter-free.ts";
 import { mergeZaiHubUpstreams } from "./zai-catalog.ts";
+import { renderHubPolicy } from "./hub-policy.ts";
+import {
+	mintServiceKey,
+	runMintOnHub,
+	verifyConfiguredServiceKey as serviceKeyVerdict,
+	verifyKeyFile,
+	type ServiceKeyRunner,
+} from "./service-key.ts";
+import { traceTunnelVerb } from "./trace-tunnel.ts";
 
 import {
 	buildRelease,
@@ -289,11 +310,17 @@ function redactedRender(envText: string): string {
 }
 
 /** W688.7.1: the hub's upstream ladder file — stack.yaml `upstreams:` in
- *  buckle's upstreams.yaml shape; empty groups = the committed ladder stands
- *  (merge-over-base is by group name). Always rendered: compose mounts it. */
+ *  buckle's upstreams.yaml shape. W1123 hub identity: always stamped
+ *  `inherit_defaults: false` (fail-forward, no operator escape — an opt-in
+ *  would re-import the committed Mac local-swarm :890x onto a remote hub).
+ *  A Docker/remote hub exposes ONLY its configured + generated groups; empty
+ *  groups = an empty pool, not a silent inheritance. The local Mac spoke
+ *  keeps merge-over-base through its own UNFLAGGED override file. Always
+ *  rendered: compose mounts it. */
 function renderUpstreams(hub: HubProfile): string {
 	return stringify({
 		version: 1,
+		inherit_defaults: false,
 		groups: mergeZaiHubUpstreams(hub, mergedHubUpstreams(hub)),
 	});
 }
@@ -357,6 +384,10 @@ function tryRunOnHub(hub: HubProfile, script: string): string | null {
 		return null;
 	}
 }
+
+/** The service-key module's injected hub exec face — hubctl's own runOnHub
+ *  (ssh when the hub declares it, local /bin/sh otherwise). */
+export const serviceKeyRunner: ServiceKeyRunner = runOnHub;
 
 /** Copy a file to the hub host (scp legacy protocol — Synology sshd has no
  *  SFTP subsystem; the hub's deploy.dir must exist). */
@@ -444,6 +475,30 @@ function pushProviderEnv(hub: HubProfile, dir: string): void {
 	);
 }
 
+/** Write the required policy before either fresh activation or reload. */
+function pushGatewayPolicy(hub: HubProfile, dir: string): void {
+	// Materialize policy beside the ladder: defaults preserved, overrides validated.
+	const policyText = renderHubPolicy(
+		readFileSync(
+			join(import.meta.dir, "../../buckle/routing-policy.yaml"),
+			"utf8",
+		),
+		hub.buckle_gateway,
+	);
+	if (hub.deploy?.ssh) {
+		runOnHub(
+			hub,
+			`umask 077; cat > ${JSON.stringify(`${dir}/routing-policy.hub.yaml`)}`,
+			{ input: policyText },
+		);
+	} else {
+		writeFileSync(`${dir}/routing-policy.hub.yaml`, policyText, {
+			mode: 0o600,
+		});
+		chmodSync(`${dir}/routing-policy.hub.yaml`, 0o600);
+	}
+}
+
 /** Refresh only the Buckle ladder and its key environment. The container is
  *  recreated (not merely restarted) because Compose must reread env_file. */
 function reloadUpstreams(
@@ -458,6 +513,7 @@ function reloadUpstreams(
 			`hubctl reload-upstreams refused: ${name} has stale or unpinned deploy ref; run hubctl push ${name} first`,
 		);
 	const rendered = renderUpstreams(hub);
+	pushGatewayPolicy(hub, dir);
 	pushUpstreamEnv(hub, dir);
 	const destination = `${dir}/upstreams.hub.yaml`;
 	if (hub.deploy?.ssh) {
@@ -515,6 +571,7 @@ function pushConfig(
 	} else {
 		writeFileSync(`${dir}/upstreams.hub.yaml`, renderUpstreams(hub));
 	}
+	pushGatewayPolicy(hub, dir);
 	pushUpstreamEnv(hub, dir);
 	// W1124.8.2.1: central provider profiles → the 0600 provider.env
 	pushProviderEnv(hub, dir);
@@ -775,6 +832,10 @@ function deployHub(
 		);
 		process.exit(1);
 	}
+	// W1124.15: a full install validates the configured cross-hub key
+	// lifecycle — a declared key must be VALID on the hub it points at;
+	// expired/revoked fails the install with the hub's actual code.
+	if (!verifyConfiguredServiceKey(hub, name)) process.exit(1);
 	console.log(`deploy: ${name} all healthy`);
 }
 
@@ -868,15 +929,6 @@ function execHub(hub: HubProfile, name: string, cmd: string[]): void {
 // it lives, POSTs the hub's own admin API from inside the device, and
 // prints the mint response + http code. The root credential is used in a
 // header variable and never printed or transported off the hub.
-const MINT_LANE_KEY_SCRIPT = [
-	"umask 077",
-	"K=$(sed -n 's/^BUCKLE_ROOT_KEY=//p' \"$1\" | head -n1 | tr -d '\\r\\n')",
-	'[ -n "$K" ] || { echo "hub root key missing at $1" >&2; exit 3; }',
-	"curl --max-time 15 -sS -X POST \\",
-	'  -H "Authorization: Bearer $K" -H "content-type: application/json" \\',
-	'  -d "$2" -w \'\\n%{http_code}\' "http://127.0.0.1:$3/v1/admin/keys"',
-].join("\n");
-
 /** sid charset: sids ride a JSON body key name + the ssh string — bare
  *  word, no separators, ≥3 chars. */
 function validSid(s: string | undefined): s is string {
@@ -895,53 +947,33 @@ function flagVal(flags: string[], f: string): string | undefined {
 	return i >= 0 ? flags[i + 1] : undefined;
 }
 
+/** W1124.15: the deploy-gate face — nothing declared = nothing to check;
+ *  declared-and-failed fails the install with the evidence printed above.
+ *  (The verification core lives in deploy/service-key.ts; this thin export
+ *  binds hubctl's hub-exec runner.) */
+export function verifyConfiguredServiceKey(
+	hub: HubProfile,
+	name: string,
+): boolean {
+	return serviceKeyVerdict(serviceKeyRunner, hub, name);
+}
+
 function mintLaneKey(
 	hub: HubProfile,
 	name: string,
 	sid: string,
 	ttl: number,
 ): void {
-	const port = hub.buckle_port;
-	const root = hub.secrets?.buckle_root_key;
-	if (!port || !root)
-		throw new Error(
-			`hub ${name} needs buckle_port + secrets.buckle_root_key in stack.yaml`,
-		);
-	const body = JSON.stringify({
-		name: sid,
-		scopes: ["buckle:proxy:WRITE_"],
-		expires_in_s: ttl,
-	});
-	const quote = (a: string): string => `'${a.replace(/'/g, `'\\''`)}'`;
-	let out: string;
-	try {
-		out = runOnHub(
-			hub,
-			// script args: $1=root-key file, $2=curl body, $3=gate port —
-			// the script reads -d "$2" and port "$3" (W974: was swapped, every
-			// mint 400'd on a JSON-body URL)
-			`/bin/sh -c ${quote(MINT_LANE_KEY_SCRIPT)} sh ${quote(root)} ${quote(body)} ${quote(String(port))}`,
-		);
-	} catch (e) {
-		// the hub-side script's diagnostic (e.g. root key missing) rides stderr
-		const err = e as { stderr?: unknown; message?: unknown };
-		const hint =
-			typeof err.stderr === "string" && err.stderr.trim().length > 0
-				? err.stderr.trim()
-				: typeof err.message === "string"
-					? err.message
-					: String(e);
-		console.log(`hubctl mint-lane-key: ${hint}`);
-		process.exit(1);
-	}
-	const lines = out.trimEnd().split("\n");
-	const status = Number(lines.at(-1));
-	const payload = lines.slice(0, -1).join("\n");
-	if (!(status >= 200 && status < 300)) {
-		console.log(payload || `hub gate answered ${status} — key not minted`);
-		process.exit(1);
-	}
-	console.log(payload);
+	runMintOnHub(
+		serviceKeyRunner,
+		hub,
+		name,
+		JSON.stringify({
+			name: sid,
+			scopes: ["buckle:proxy:WRITE_"],
+			expires_in_s: ttl,
+		}),
+	);
 }
 
 function main(): void {
@@ -954,7 +986,14 @@ function main(): void {
 			"usage: hubctl <render|mint|push|up|status|deploy|reload-upstreams|manifest|exec|mint-lane-key> <hub> — config: ~/.config/klh/stack.yaml\n" +
 				"       up accepts --force: proceed on a stale/unpinned hub .env (refused by default)\n" +
 				"       exec runs allowlisted read-only probes; mint-lane-key mints a\n" +
-				"       short-lived lane key ON the hub (root credential never leaves it)",
+				"       short-lived lane key ON the hub (root credential never leaves it)\n" +
+				"       mint-service-key mints a PERSISTENT proxy-only service credential\n" +
+				"       (no expiry, --out keyfile at 0600, metadata only on stdout) for\n" +
+				"       spoke/persistent links; verify-key checks a\n" +
+				"       configured cross-hub key and fails on expired/revoked with the\n" +
+				"       hub's actual code; trace-tunnel <hub> up|status|down|peer runs\n" +
+				"       the W1097 managed ssh tunnel for the bounded trace connector\n" +
+				"       (hubs.<label>.trace_tunnel in stack.yaml)",
 		);
 		process.exit(hubName ? 0 : 2);
 	}
@@ -1012,9 +1051,40 @@ function main(): void {
 			mintLaneKey(hub, hubName, sid, ttl);
 			return;
 		}
+		case "mint-service-key": {
+			const name = flagVal(flags, "--name");
+			const out = flagVal(flags, "--out");
+			if (!validSid(name) || !out) {
+				console.log(
+					"usage: hubctl mint-service-key <hub> --name <service-name> --out <keyfile> — the raw key lands in --out (0600, never printed)",
+				);
+				process.exit(2);
+			}
+			mintServiceKey(serviceKeyRunner, hub, hubName, name, out);
+			return;
+		}
+		case "verify-key": {
+			const file = flagVal(flags, "--file");
+			const envName = flagVal(flags, "--env");
+			if (!file) {
+				console.log(
+					"usage: hubctl verify-key <hub> --file <key-env-path> [--env NAME] — --env selects inside a multi-variable file",
+				);
+				process.exit(2);
+			}
+			process.exit(
+				verifyKeyFile(serviceKeyRunner, hub, hubName, file, envName) ? 0 : 1,
+			);
+			return;
+		}
+		case "trace-tunnel":
+			// the verb owns its exit codes (0 ok · 1 failed · 2 usage) and
+			// process.exit()s on every path — never returns here
+			void traceTunnelVerb(hub, hubName, flags);
+			return;
 		default:
 			console.log(
-				`hubctl: unknown verb "${verb}" — render|mint|push|up|status|deploy|reload-upstreams|manifest|exec|mint-lane-key`,
+				`hubctl: unknown verb "${verb}" — render|mint|push|up|status|deploy|reload-upstreams|manifest|exec|mint-lane-key|mint-service-key|verify-key|trace-tunnel`,
 			);
 			process.exit(2);
 	}

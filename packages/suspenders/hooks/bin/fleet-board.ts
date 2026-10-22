@@ -186,6 +186,12 @@ const served = sm.wrapped(base);
 const inner = served.fetch as (req: Request) => Promise<Response>;
 Bun.serve({
 	...served,
+	// owner directive 2026-10-21: no Bun HTTP idle timer on active agent
+	// paths — /api/orchestrate proposals run up to the application's own
+	// 130s client / 120s LLM deadline and Bun's connection-idle default
+	// must never cut the transport (the W450 range law, buckle-side); the
+	// app owns its timeouts.
+	idleTimeout: 0,
 	async fetch(req: Request, server): Promise<Response> {
 		if (isThemePath(new URL(req.url).pathname)) return handleTheme(req);
 		const denied = hostGuard(req, {

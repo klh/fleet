@@ -69,6 +69,42 @@ test("removed and context lines never flag", () => {
 	expect(scanCompletionDiff(diff)).toHaveLength(0);
 });
 
+test("honest proposal prose is not an executable placeholder", () => {
+	const prose = assemble(
+		"The proposals below remain un",
+		"implemented unless stated otherwise.",
+	);
+	expect(scanCompletionDiff(diffFor([prose], "how-to-review.md"))).toEqual([]);
+});
+
+test("placeholder throws remain blocked for multiple error forms", () => {
+	for (const prefix of [
+		"throw new Error(",
+		"throw TypeError(",
+		"if (missing) throw ",
+	]) {
+		const line = assemble(prefix, '"not ', "implemented", '");');
+		expect(scanCompletionDiff(diffFor([line]))[0]?.marker).toBe(
+			"placeholder-throw",
+		);
+	}
+});
+
+test("multiline source placeholders and documentation code gates remain blocked", () => {
+	const message = assemble('"not ', "implemented", '");');
+	expect(
+		scanCompletionDiff(diffFor(["throw new Error(", message]))[0]?.marker,
+	).toBe("placeholder-throw");
+	expect(
+		scanCompletionDiff(diffFor([`throw new Error(${message}`], "guide.md"))[0]
+			?.marker,
+	).toBe("placeholder-throw");
+	const stub = assemble("TO", "DO", ": unfinished implementation");
+	expect(scanCompletionDiff(diffFor([stub], "guide.md"))[0]?.marker).toBe(
+		"stub-note",
+	);
+});
+
 test("deleted files and no-newline marks do not break numbering", () => {
 	const diff = [
 		"diff --git a/src/gone.ts b/src/gone.ts",

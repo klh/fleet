@@ -6,8 +6,11 @@ import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { parse } from "yaml";
+import type { GatewayPolicy } from "../../../buckle/src/policy.ts";
 
 export interface HubProfile {
+	/** Per-hub Buckle gateway overrides; policy data only, never credentials. */
+	buckle_gateway?: GatewayPolicy;
 	/** Reviewed canary ref for this hub only. Keeps the shared stack version
 	 * pinned for other hubs while one hub validates a new public base. */
 	version_override?: string;
@@ -123,6 +126,11 @@ export interface HubProfile {
 		zai_catalog_file?: string;
 		/** LiteLLM URL reachable from this hub. */
 		zai_litellm_url?: string;
+		// W1123: no operator inherit escape — hubctl always stamps
+		// `inherit_defaults: false` into the rendered hub ladder (an opt-in
+		// would re-import the committed Mac local-swarm :890x onto a remote
+		// hub). The Mac spoke keeps merge-over-base via its own unflagged
+		// BUCKLE_UPSTREAMS override.
 	};
 	/** Display-only provider placement while its credential-gated route is
 	 *  being prepared. This never enables a Buckle upstream or draws a path. */
@@ -145,6 +153,18 @@ export interface HubProfile {
 	};
 	secrets?: {
 		buckle_root_key?: string;
+		/** W1124.15: PATH (on this device) to the 0600 env file holding the
+		 *  PERSISTENT proxy-only service credential this device's spoke links
+		 *  use toward the hub — distinct from short-lived expiring lane keys.
+		 *  hubctl deploy verifies it against the hub's verify API and fails
+		 *  with the hub's actual expired/revoked code; values never live in
+		 *  config, only this PATH (plus, optionally, the env NAME to select
+		 *  inside a multi-variable file). */
+		buckle_service_key?: string;
+		/** W1124.15: env NAME of the service credential inside
+		 *  buckle_service_key when that file carries several variables (spoke
+		 *  env files start with the ROOT key — never guess a line). */
+		buckle_service_key_env?: string;
 		/** Ladder key env NAME → key-file PATH on the hub device. hubctl push
 		 *  materializes them into the 0600 `upstream.env` ON the hub (the
 		 *  value is read there, never printed or transported); values never
@@ -155,6 +175,26 @@ export interface HubProfile {
 	 *  hub is EXPECTED down in it (NAS DSM poweroff). Routing skips, dispatch
 	 *  falls back to local belt, monitoring suppresses instead of paging. */
 	quiet_hours?: string;
+	/** W1097: the trusted transport THIS device uses to read the hub's trace
+	 *  receipts (the bounded trace connector, telemetry/remote-traces.ts).
+	 *  The hub gate is plain HTTP on the LAN and its TLS front carries an
+	 *  untrusted certificate — direct HTTP would carry the read key in the
+	 *  clear, HTTPS would need trust weakened. The managed ssh tunnel is the
+	 *  trusted front: the read key rides the ssh channel, the connector
+	 *  fetches loopback on this device (http://127.0.0.1:<listen_port>/ — the
+	 *  one non-https form the connector's URL law admits). Requires the
+	 *  hub's deploy.ssh target. hubctl trace-tunnel <hub> up|status|down|peer
+	 *  is the managed face. */
+	trace_tunnel?: {
+		/** Loopback port bound on THIS device (never the hub's — the Mac
+		 *  spoke itself serves 4101). Operator-chosen, 1024–65535. */
+		listen_port: number;
+		/** Port on the HUB the forward targets; default = buckle_port. */
+		target_port?: number;
+		/** PATH (on this device) to the 0600 read key minted ON the hub —
+		 *  the connector's tokenFile. Values never live in config. */
+		read_key: string;
+	};
 }
 
 export interface StackConfig {

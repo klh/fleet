@@ -144,7 +144,14 @@ const sameConfiguredCandidate = (
 	const keys = Object.keys(actual).sort();
 	return (
 		JSON.stringify(keys) === JSON.stringify(Object.keys(generated).sort()) &&
-		keys.every((key) => actual[key] === generated[key])
+		keys.every((key) => {
+			const a = actual[key];
+			const b = generated[key];
+			// adapter_config (W1122) nests an object — compare structurally.
+			return typeof a === "object" && a !== null
+				? JSON.stringify(a) === JSON.stringify(b)
+				: a === b;
+		})
 	);
 };
 
