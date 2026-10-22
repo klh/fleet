@@ -7,11 +7,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { StackConfig } from "../hooks/lib/stack-config.ts";
 import { fetchFreeSnapshot, writeFreeSnapshot } from "./openrouter-free.ts";
+import * as activation from "./litellm-activation.ts";
 
 const home = process.env.HOME ?? homedir();
 const keyFile = join(home, ".claude/local-llm/openrouter.key");
-const generator = join(home, ".claude/local-llm/gateway-config.ts");
-const liteKeyFile = join(home, ".claude/local-llm/litellm.key");
 
 const keyFileReady = (): boolean => {
 	try {
@@ -128,13 +127,13 @@ export async function refreshConfiguredOpenRouter(
 			"OpenRouter refresh idle: no hub has cloud opt-in and a LiteLLM key path",
 		];
 	const snapshot = await fetchFreeSnapshot();
-	const hash = markerHash(snapshot.groups);
+	const hash = activation.markerHash(snapshot.groups);
 	const messages: string[] = [];
 	for (const [name, hub] of eligible) {
 		const path = hub.upstreams?.openrouter_free_catalog_file;
 		if (!path) continue;
 		writeFreeSnapshot(path, snapshot);
-		if (appliedHash(path) === hash) {
+		if (activation.appliedHash(path) === hash) {
 			messages.push(
 				`${name}: ${Object.keys(snapshot.groups).length} routes unchanged`,
 			);
@@ -144,16 +143,18 @@ export async function refreshConfiguredOpenRouter(
 			throw new Error(
 				`${name}: automatic LiteLLM reload currently requires a local macOS hub`,
 			);
-		run([process.execPath, generator], { OPENROUTER_FREE_CATALOG: path });
-		restartLiteLLM();
-		await waitForLiteLLMModels(Object.keys(snapshot.groups));
-		run([
+		activation.runCommand([process.execPath, activation.gatewayGenerator], {
+			OPENROUTER_FREE_CATALOG: path,
+		});
+		activation.restartLiteLLM();
+		await activation.waitForLiteLLMModels(Object.keys(snapshot.groups));
+		activation.runCommand([
 			process.execPath,
 			join(import.meta.dir, "hubctl.ts"),
 			"reload-upstreams",
 			name,
 		]);
-		writeAppliedHash(path, hash);
+		activation.writeAppliedHash(path, hash);
 		messages.push(
 			`${name}: activated ${Object.keys(snapshot.groups).length} OpenRouter free routes`,
 		);
