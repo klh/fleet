@@ -8,6 +8,7 @@
 import { launchSchema } from "../../scripts/lib/launch-fencing.ts";
 import { budgetFlagClear } from "./budget-flag.ts";
 import type { GovernorStore } from "./govdb.ts";
+import { reactivationRefusal } from "./work-completion-record.ts";
 
 type Row = {
 	state: string;
@@ -36,6 +37,10 @@ export function retryFailedItem(
 			.query("SELECT * FROM work_items WHERE project=? AND id=?")
 			.get(project, id) as Row | undefined;
 		if (!it) return { ok: false, error: `no such work item: ${id}` };
+		// W1173: a retained completion record is completed history — retry is
+		// the reactivation gate and refuses with the deterministic diagnostic.
+		const reactivation = reactivationRefusal(store, project, id);
+		if (reactivation) return { ok: false, error: reactivation };
 		if (it.state !== "FAILED") {
 			// W787: a READY item with a launch-budget reservation is the same
 			// environment-killed class — dispatch refuses it every cycle (and
