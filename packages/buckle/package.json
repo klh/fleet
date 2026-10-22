@@ -18,7 +18,8 @@
 		"typescript": "^7"
 	},
 	"dependencies": {
-		"@klh/blam": "workspace:*"
+		"@klh/blam": "workspace:*",
+		"p-queue": "^9.3.3"
 	},
 	"license": "SEE LICENSE IN LICENSE"
 }

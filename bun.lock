@@ -28,6 +28,7 @@
       "version": "2.0.0",
       "dependencies": {
         "@klh/blam": "workspace:*",
+        "p-queue": "^9.3.3",
       },
       "devDependencies": {
         "@types/bun": "latest",
