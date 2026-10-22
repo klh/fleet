@@ -6,8 +6,8 @@ import { createInterface } from "node:readline";
 import { ClaudeControl, claudeStreamArguments } from "../lib/claude-control.ts";
 import {
 	claudeLaneState,
-	claudePauseProof,
 	claudePausePrompt,
+	claudePauseProof,
 	claudeResumePrompt,
 	claudeWakeControl,
 } from "../lib/claude-pause.ts";
