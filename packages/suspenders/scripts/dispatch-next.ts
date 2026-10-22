@@ -976,8 +976,7 @@ const dispatchItem = async (
 				discloseInBrief(brief, briefFile, wt, probe.note);
 			}
 		} else {
-			// W1119.2: --no-belt is retired as an explicit UNGOVERNED override —
-			// loud + disclosed IN the brief (W463), never a silent belt-less lane.
+			// W1119.2: --no-belt retired as an explicit UNGOVERNED override (W463).
 			const note = noBeltNote();
 			console.log(`*** ${note} ***`);
 			hubNote += ` — ${note}`;
