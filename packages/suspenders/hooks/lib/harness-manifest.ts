@@ -18,6 +18,7 @@ export const HOOK_ITEMS = [
 	"rules",
 	"gate.ts",
 	"session-start.ts",
+	"subagent-start.ts",
 	"session-end.ts",
 	"pre-compact.ts", // W253 checkpoint roll — the settings.json PreCompact face
 	"knowledgeworker.md",

@@ -54,6 +54,7 @@ const SOURCE_PATHS = [
 const ENTRYPOINTS = [
 	"hooks/gate.ts",
 	"hooks/session-start.ts",
+	"hooks/subagent-start.ts",
 	"hooks/session-end.ts",
 	"hooks/pre-compact.ts", // W253 checkpoint roll — validated with the other faces
 	"hooks/bin/coord.ts",

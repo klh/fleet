@@ -47,6 +47,7 @@ import { laneId, leaseExpired } from "./governor.ts";
 import { lifecycleGate } from "./lifecycle.ts";
 import { scrubGateSegments } from "./scrub.ts";
 import { planeLoopGate } from "./plane-loop.ts";
+import { hookSubagentSuffix } from "../lib/hook-lane.ts";
 
 // governor-bypass section: shell writes must respect governor leases
 const GOV = `${process.env.HOME}/.cache/claude-governor`;
@@ -337,7 +338,7 @@ export function bashGate(hook: HookInput): never {
 			if (live.length > 0) {
 				const lane = laneId(hook);
 				const sid = hook.session_id ?? "unknown";
-				const isSubagent = (hook.transcript_path ?? "").includes("/subagents/");
+				const isSubagent = hookSubagentSuffix(hook) !== "";
 				const exPath = `${GOV}/exempt.json`;
 				const exempt =
 					!isSubagent &&

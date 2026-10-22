@@ -21,6 +21,16 @@
 				]
 			}
 		],
+		"SubagentStart": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun $HOME/.claude/hooks/suspenders/subagent-start.ts"
+					}
+				]
+			}
+		],
 		"SessionEnd": [
 			{
 				"hooks": [

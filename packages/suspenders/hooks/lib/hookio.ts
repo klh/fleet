@@ -25,6 +25,9 @@ export type HookInput = {
 	cwd?: string;
 	stop_hook_active?: boolean;
 	transcript_path?: string;
+	agent_id?: string;
+	agent_type?: string;
+	agent_transcript_path?: string;
 	hook_event_name?: string;
 };
 

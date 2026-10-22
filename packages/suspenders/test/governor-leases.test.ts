@@ -172,6 +172,73 @@ describe("lease enforcement (findings 1-3)", () => {
 		denied(gate("pre-bash", bashHook("sessA", MAIN_TP, "touch sub/g.txt")));
 	});
 
+	test("native agent_id isolates leases when siblings share the parent transcript", () => {
+		writeFileSync(join(REPO, "native-leases.txt"), "owned\n");
+		const child = (agent: string, hook: Record<string, unknown>) => ({
+			...hook,
+			agent_id: agent,
+			agent_type: "claude",
+			hook_event_name: "PreToolUse",
+		});
+		allowed(
+			gate(
+				"governor",
+				child("a1", writeHook("native", MAIN_TP, "native-leases.txt")),
+			),
+		);
+		denied(
+			gate(
+				"governor",
+				child("b2", writeHook("native", MAIN_TP, "native-leases.txt")),
+			),
+		);
+		denied(gate("governor", writeHook("native", MAIN_TP, "native-leases.txt")));
+		allowed(
+			gate(
+				"pre-bash",
+				child(
+					"agent-a1",
+					bashHook("native", MAIN_TP, "touch native-leases.txt"),
+				),
+			),
+		);
+		denied(
+			gate(
+				"pre-bash",
+				child("b2", bashHook("native", MAIN_TP, "touch native-leases.txt")),
+			),
+		);
+	});
+
+	test("native children do not inherit an exempt parent's lease bypass", () => {
+		writeFileSync(join(REPO, "native-exempt.txt"), "owned\n");
+		allowed(
+			gate(
+				"governor",
+				writeHook("exempt-holder", MAIN_TP, "native-exempt.txt"),
+			),
+		);
+		const exempt = join(REG, "exempt.json");
+		writeFileSync(exempt, JSON.stringify(["exempt-parent"]));
+		try {
+			const identity = { agent_id: "a1", agent_type: "claude" };
+			denied(
+				gate("governor", {
+					...writeHook("exempt-parent", MAIN_TP, "native-exempt.txt"),
+					...identity,
+				}),
+			);
+			denied(
+				gate("pre-bash", {
+					...bashHook("exempt-parent", MAIN_TP, "touch native-exempt.txt"),
+					...identity,
+				}),
+			);
+		} finally {
+			rmSync(exempt, { force: true });
+		}
+	});
+
 	test("bash gate allows when no registry exists (fail open, no side effects)", () => {
 		const H2 = mkdtempSync(join(tmpdir(), "suspenders-noreg-"));
 		try {

@@ -15,6 +15,7 @@
 // old lost-update dance (atomic rename + fresh-reload-before-deny) is gone.
 // Gates FAIL OPEN: a dead/contended registry never blocks an edit.
 import { deny, type HookInput } from "../lib/hookio.ts";
+import { hookLaneId, hookSubagentSuffix } from "../lib/hook-lane.ts";
 import { gateWroteSince } from "./files.ts";
 import { run } from "../lib/run.ts";
 import { canonicalProjectRoot } from "../lib/lane-registry.ts";
@@ -71,15 +72,12 @@ function loadJSON<T>(p: string, fallback: T): T {
 
 // Stable LANE identity: subagents inherit the parent's session_id, so raw
 // session_id makes sibling subagents share lease ownership (two lanes could
-// edit one file). Discriminate by the transcript — subagent transcripts live
-// under /subagents/<agent>.jsonl. Main-lane ids are unchanged, so leases
+// edit one file). Use the shared native agent_id / legacy transcript resolver.
+// Main-lane ids are unchanged, so leases
 // written before this are still owned by their session. Shared with the Bash
 // gate: both enforcers must compute the SAME owner identity.
 export function laneId(hook: HookInput): string {
-	const sid: string = hook.session_id ?? "unknown";
-	const tp: string = hook.transcript_path ?? "";
-	const m = tp.match(/\/subagents\/([^/]+?)(?:\.jsonl)?\/?$/);
-	return m ? `${sid}#${m[1]}` : sid;
+	return hookLaneId(hook) || "unknown";
 }
 
 // Lease expiry: 15 min since the last governed touch of THIS file. Session
@@ -137,10 +135,10 @@ export function governorGate(hook: HookInput): void {
 	const sid = hook.session_id ?? "unknown";
 	// Subagents inherit the parent session's session_id, so an exempt-list
 	// hit alone would leak the orchestrator's exemption to every subagent.
-	// Subagent transcripts always live under /subagents/ — strip the
-	// exemption there so each subagent takes a real lease. Exemption stays
+	// Detect native agent_id even when transcript_path names the parent — strip
+	// the exemption so each subagent takes a real lease. Exemption stays
 	// SESSION-scoped; every ownership decision below uses the lane id.
-	const isSubagent = (hook.transcript_path ?? "").includes("/subagents/");
+	const isSubagent = hookSubagentSuffix(hook) !== "";
 	if (!isSubagent && existsSync(EXEMPT)) {
 		const exempt = loadJSON<string[]>(EXEMPT, []);
 		if (exempt.includes(sid)) return;

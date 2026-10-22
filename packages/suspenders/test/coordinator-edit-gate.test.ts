@@ -192,6 +192,23 @@ describe("sessionRole", () => {
 	test("absent marker outside any lane registry = coordinator", () => {
 		withRole(undefined, () => expect(sessionRole(other)).toBe("coordinator"));
 	});
+	// W1041.2 review case 3: a native child of an interactive coordinator
+	// inherits neither the lane marker nor a lanes.json registration, yet it
+	// is an executor — the seam's agent fields classify it before the walk.
+	test("native child of a coordinator is a lane, even over an inherited coordinator marker", () => {
+		const child = {
+			agent_id: "a1",
+			agent_type: "claude",
+			transcript_path: join(root, "no", "subagents", "a1.jsonl"),
+		};
+		withRole(undefined, () => expect(sessionRole(other, child)).toBe("lane"));
+		withRole("coordinator", () =>
+			expect(sessionRole(other, child)).toBe("lane"),
+		);
+		withRole(undefined, () =>
+			expect(sessionRole(other, { agent_type: "claude" })).toBe("coordinator"),
+		);
+	});
 });
 
 describe("coordinatorDenyText", () => {
