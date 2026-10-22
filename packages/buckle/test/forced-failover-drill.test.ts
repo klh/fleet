@@ -93,3 +93,69 @@ test("Anthropic lane drill follows the fallback and accounts for virtual retry w
 		"local",
 	]);
 });
+
+const sharedAccountPlan = {
+	policy: {
+		num_retries: 0,
+		request_timeout_s: 1,
+		first_byte_budget_s: 2,
+		provider_pools: {
+			shared: {
+				concurrency: 1,
+				intervalCap: 100,
+				intervalMs: 50,
+				maxOutstanding: 3,
+				queueWaitMs: 1000,
+			},
+		},
+		fallbacks: { primary: ["alias", "local"] },
+	},
+	pool: {
+		groups: () => ["primary", "alias", "local"],
+		deployments: (group: string) => [
+			{
+				group,
+				url: `https://${group}.example.invalid`,
+				dialect: "openai" as const,
+				...(group === "local"
+					? {}
+					: { adapter_config: { provider_pool: "shared" } }),
+			},
+		],
+	},
+	group: "primary",
+	failureStatus: 429 as const,
+	maxAttempts: 3,
+	maxWallMs: 2000,
+};
+
+test.each([1, 60])(
+	"account 429 Retry-After %ds skips same-account alias and reaches independent fallback without waiting",
+	async (retryAfterS) => {
+		const started = performance.now();
+		const report = await runForcedFailoverDrill({
+			...sharedAccountPlan,
+			retryAfterS,
+			fallback: "local",
+		});
+		expect(performance.now() - started).toBeLessThan(300);
+		expect(report.ok).toBe(true);
+		expect(report.deliveredGroup).toBe("local");
+		expect(report.attempts.map((a) => a.group)).toEqual(["primary", "local"]);
+		expect(report.simulatedWaitMs).toBe(0);
+	},
+);
+
+test("an all-same-account ladder truthfully cannot deliver through its blocked alias", async () => {
+	const started = performance.now();
+	const report = await runForcedFailoverDrill({
+		...sharedAccountPlan,
+		policy: { ...sharedAccountPlan.policy, fallbacks: { primary: ["alias"] } },
+		fallback: "alias",
+	});
+	expect(performance.now() - started).toBeLessThan(300);
+	expect(report.ok).toBe(false);
+	expect(report.deliveredGroup).toBeNull();
+	expect(report.attempts.map((a) => a.status)).toEqual([429]);
+	expect(report.simulatedWaitMs).toBe(0);
+});

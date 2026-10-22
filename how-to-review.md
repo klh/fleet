@@ -123,8 +123,37 @@ trivial diff.
 
 ## Harness integration
 
-PROPOSALS ONLY — nothing in this section is implemented; each bullet would be its
-own work item.
+### Implemented machine-review and landing receipts (W1130)
+
+The existing second-opinion runner loads applicable root/package `AGENTS.md`
+and `REVIEW.md` from the immutable candidate merge tree. Its `work.review`
+receipt binds the full candidate commit, integration base, instruction hashes,
+independent registered reviewer session, verdict, blocking IDs and evidence.
+An explicit `RESOLVED: B1-id <evidence>` line resolves a prior finding on the
+same commit; a later empty PASS cannot erase it.
+
+The canonical Fleet merge ladder defers missing, stale or blocked receipts,
+and rechecks immediately before publication. Changing the candidate, moving
+the integration base or changing applicable instructions requires fresh review.
+On deferral it schedules the existing second-opinion runner through Buckle,
+using a minted proxy-only key revoked after the request. Model selection uses
+`SUSPENDERS_REVIEW_MODEL` or the completion author's existing lane model fact;
+missing model/auth stays explicitly deferred. One durable request lease covers
+each exact context. `SUSPENDERS_REVIEW_CONCURRENCY` defaults to two reviewers;
+transport errors back off and stop after three attempts. An unchanged failing
+review is not repeatedly sampled until a model happens to approve it.
+Unreviewed branches remain available; missing review does not consume the
+three-strike parking budget. `work done` remains branch completion, not landing.
+The separate idempotent `work.landed` event is written only after the exact
+DONE commit is verified as an ancestor of the integration checkout's HEAD.
+
+These are machine-review receipts. Session registration is Fleet's existing
+local coordination identity boundary, not cryptographic proof of a human or
+organizational independence. The risk-tier human requirements above remain
+an operator obligation; no trusted human-approval connector exists here, and
+the machine receipt must not be presented as satisfying those requirements.
+
+The proposals below remain unimplemented unless stated otherwise.
 
 ### a. What the harness could add to support the practice
 

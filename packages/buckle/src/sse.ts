@@ -62,7 +62,14 @@ export class SseSniffer {
 	 *  completed turn (the 483-byte envelope class). */
 	private readonly semantics = new StreamSemantics();
 
-	constructor(private readonly dialect: Dialect) {}
+	constructor(
+		private readonly dialect: Dialect,
+		private readonly onFrame?: (frame: unknown) => void,
+	) {}
+
+	hasUsableOutput(): boolean {
+		return this.semantics.failure() === null;
+	}
 
 	/** Feed the next byte chunk. */
 	push(chunk: Uint8Array | string): void {
@@ -143,6 +150,7 @@ export class SseSniffer {
 		try {
 			if (payload.length > 0 && payload !== "[DONE]") {
 				const parsed: unknown = JSON.parse(payload);
+				this.onFrame?.(parsed);
 				// W1106 empty-stream guard: re-mark the bridge's own typed
 				// failure when it passes through a second hop (preserve the
 				// semantic code, never a generic api_error), then observe.
