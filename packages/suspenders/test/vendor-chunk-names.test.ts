@@ -52,3 +52,31 @@ test("cyclic chunk graphs refuse without deleting original artifacts", () => {
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+test("only AST module specifiers change; ordinary strings, templates, comments and regexes stay exact", () => {
+	const dir = mkdtempSync(join(tmpdir(), "vendor-specifiers-"));
+	try {
+		writeFileSync(join(dir, "lit-a.js"), "export const value=1;");
+		const preserved =
+			'const text="./lit-a.js";const template=`./lit-a.js`;const regex=/\\.\\/lit-a\\.js/;/* ./lit-a.js */';
+		writeFileSync(
+			join(dir, "entry.js"),
+			`import {value} from "./lit-a.js";export {value} from "./lit-a.js";export * from "./lit-a.js";import("./lit-a.js");${preserved}`,
+		);
+		canonicalizeChunks(dir);
+		const entry = readFileSync(join(dir, "entry.js"), "utf8");
+		expect(entry).toContain(preserved);
+		const name = readdirSync(dir).find((name) => name.startsWith("lit-"));
+		expect(
+			entry.match(new RegExp(name?.replaceAll(".", "\\.") ?? "missing", "g")),
+		).toHaveLength(4);
+		// A non-import self reference must not invent a graph cycle.
+		writeFileSync(
+			join(dir, "lit-self.js"),
+			'export const example="./lit-self.js";',
+		);
+		expect(() => canonicalizeChunks(dir)).not.toThrow();
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});

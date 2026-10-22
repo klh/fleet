@@ -18,6 +18,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
+import { parse } from "acorn";
 
 const ROOT = resolve(import.meta.dir, "..");
 const DEFAULT_OUTDIR = join(ROOT, "hooks/board-html/vendor");
@@ -63,10 +64,51 @@ export function canonicalizeChunks(outdir: string): void {
 	const names = new Map<string, string>();
 	const output = new Map<string, string>();
 	const visiting = new Set<string>();
-	const rewrite = (body: string): string =>
-		body.replace(/\.\/(lit-[A-Za-z0-9]+\.js)/g, (full, dependency: string) =>
-			files.has(dependency) ? `./${visit(dependency)}` : full,
-		);
+	const rewrite = (body: string): string => {
+		type Node = {
+			type: string;
+			start: number;
+			end: number;
+			[key: string]: unknown;
+		};
+		const edits: { start: number; end: number; text: string }[] = [];
+		const walk = (value: unknown): void => {
+			if (!value || typeof value !== "object") return;
+			if (Array.isArray(value)) {
+				for (const child of value) walk(child);
+				return;
+			}
+			const node = value as Node;
+			if (
+				[
+					"ImportDeclaration",
+					"ExportNamedDeclaration",
+					"ExportAllDeclaration",
+					"ImportExpression",
+				].includes(node.type)
+			) {
+				const source = node.source as Node | undefined;
+				if (
+					source?.type === "Literal" &&
+					typeof source.value === "string" &&
+					/^\.\/lit-[A-Za-z0-9]+\.js$/.test(source.value)
+				) {
+					const dependency = source.value.slice(2);
+					if (files.has(dependency))
+						edits.push({
+							start: source.start,
+							end: source.end,
+							text: JSON.stringify(`./${visit(dependency)}`),
+						});
+				}
+			}
+			for (const child of Object.values(node)) walk(child);
+		};
+		walk(parse(body, { ecmaVersion: "latest", sourceType: "module" }));
+		for (const edit of edits.sort((a, b) => b.start - a.start))
+			body = body.slice(0, edit.start) + edit.text + body.slice(edit.end);
+		return body;
+	};
 	const visit = (name: string): string => {
 		const known = names.get(name);
 		if (known) return known;
