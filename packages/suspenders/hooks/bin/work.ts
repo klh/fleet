@@ -75,6 +75,7 @@ import {
 	persistCompletion,
 	prepareCompletion,
 } from "../lib/work-completion-record.ts";
+import { editPayload, editSteer, editWorkItem } from "../lib/work-edit.ts";
 import { EFFORTS } from "../lib/work-effort.ts";
 import { evidencePatternsOf } from "../lib/work-fence.ts";
 import { queueCompletionKnowledge } from "../lib/work-knowledge.ts";
@@ -190,6 +191,7 @@ const MUTATING_CMDS = new Set([
 	"wait",
 	"wake",
 	"cancel",
+	"edit",
 	"supersede",
 	"block",
 	"unblock",
@@ -1050,6 +1052,30 @@ const dispatchVerb = async (
 		})();
 		console.log(`${dim("⊘")} ${id} CANCELLED${note ? dim(` — ${note}`) : ""}`);
 		retireItemWorktree(id);
+	} else if (name === "edit") {
+		// W1128 — amend a live item in place; terminal states refuse (the
+		// ledger owns history). work.edited carries the changed fields; a
+		// CLAIMED item keeps its lane — steer it, never supersede it.
+		const id = pos[0] ?? "";
+		const pRaw = flag("--priority");
+		const r = editWorkItem(db(), PROJECT, id, {
+			title: flag("--title") ?? undefined,
+			desc: flag("--desc") ?? undefined,
+			tag: flag("--tag") ?? undefined,
+			...(pRaw !== null ? { priority: Number(pRaw) } : {}),
+		});
+		if (!r.ok) die(r.error);
+		const fields = Object.keys(r.changed);
+		const reason = flag("--reason") ?? "";
+		if (fields.length > 0) {
+			emit("work.edited", id, editPayload(r.changed, reason));
+			console.log(
+				`${green("✓")} ${cyan(id)} EDITED — ${fields.join(", ")}${reason ? dim(` — ${reason}`) : ""}`,
+			);
+		} else
+			console.log(`${amber("·")} ${id} unchanged — values already current`);
+		const steer = editSteer(r.state, r.owner);
+		if (steer) console.log(`${amber("●")} ${steer}`);
 	} else if (name === "supersede") {
 		const id = pos[0];
 		const byId = flag("--by");

@@ -121,6 +121,11 @@ Work graph (`work` — the ONE ledger; never Markdown todos):
 [--tag t1,t2]` — mint (never invent work; empty title = unfilled item;
   W846: `--tag` stamps classification tags, comma-set — split children
   inherit the parent's)
+- `work edit <id> [--title t] [--desc d] [--tag a,b] [--priority n]
+[--reason r]` — amend a live item in place (W1128), emits `work.edited`
+  with the changed fields; terminal items (DONE/CANCELLED/SUPERSEDED/
+  FAILED) refuse — supersede/retry own history; a CLAIMED item still
+  edits the record and points at `coord message <sid>` to steer the lane
 - `work split` — fan out parallelizable work · `work lanes [--json]` —
   lane liveness (the one liveness surface)
 - `work reclaim all` — dead lanes' claims → READY (ghost cleanup)
