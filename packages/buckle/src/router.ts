@@ -27,6 +27,13 @@ import { type CandidateRow, candIdOf } from "./candidates.ts";
 import { Cooldowns, retryAfterS, retryDelayS } from "./cooldown.ts";
 import { mayEscalate, type RouteSelection } from "./decide.ts";
 import { FLASHX, type GatewayPolicy } from "./policy.ts";
+import {
+	type ProviderLease,
+	ProviderAdmissionCore,
+	ProviderAdmissionFull,
+	bindProviderLease,
+	type ProviderPoolPolicy,
+} from "./provider-admission-core.ts";
 import type { TraceContext } from "./trace.ts";
 import type { Deployment, Dialect, UpstreamPool } from "./upstreams.ts";
 import { HubConnectError } from "./wire.ts";
@@ -64,7 +71,7 @@ export type ExecuteResult =
 	  };
 
 interface FailureProvenance {
-	source: "upstream" | "bridged-upstream" | "network";
+	source: "upstream" | "bridged-upstream" | "network" | "local-admission";
 	status: number;
 	kind: string;
 	requestId?: string;
@@ -109,6 +116,18 @@ export interface RouterMetrics {
 /** A single upstream attempt's classified outcome. */
 export type TryOutcome =
 	| { ok: true; response: Response }
+	| {
+			ok: false;
+			/** W1078 local admission refusal: the bounded account-pool queue
+			 *  refused (full or wait expired) BEFORE any upstream attempt —
+			 *  no fetch happened, nothing benched, no provider cooldown. */
+			localAdmission: true;
+			status: 503;
+			error: string;
+			/** Window-derived floor from the pool policy — config, never a
+			 *  fabricated provider verdict. */
+			retryAfterS: number;
+	  }
 	| {
 			ok: false;
 			response: Response;
@@ -261,6 +280,10 @@ export class Router {
 		stream?: { idleMs: number; totalMs: number },
 	) => Promise<Response>;
 	private readonly metrics?: RouterMetrics;
+	/** W1078: one admission core per explicitly configured account pool —
+	 *  every deployment bound to the id shares the SAME instance (one
+	 *  configured authority counts each actual provider attempt once). */
+	private readonly pools: Map<string, ProviderAdmissionCore>;
 
 	constructor(
 		private readonly policy: GatewayPolicy,
@@ -292,6 +315,25 @@ export class Router {
 				}));
 		this.fetchImpl = deps.fetchImpl ?? defaultFetchImpl;
 		this.metrics = deps.metrics;
+		// W1078: instantiate one core per explicitly configured account pool.
+		// Bindings validate fail-closed here: a deployment bound to a pool
+		// with no policy (or a malformed id) refuses startup — admission is
+		// never silently disabled once configured.
+		this.pools = new Map(
+			Object.entries(policy.provider_pools ?? {}).map(([id, p]) => [
+				id,
+				new ProviderAdmissionCore(p),
+			]),
+		);
+		for (const group of deps.pool.groups())
+			for (const dep of deps.pool.deployments(group)) {
+				if (dep.adapter_config?.provider_pool === undefined) continue;
+				const id = providerPoolIdOf(dep);
+				if (id === null || !this.pools.has(id))
+					throw new Error(
+						`router: deployment ${dep.group}/${dep.url} binds provider_pool "${String(dep.adapter_config?.provider_pool)}" with no matching gateway.provider_pools policy (W1078 admission is fail-closed)`,
+					);
+			}
 	}
 
 	/** Same-dialect deployments first (pass-through precedence); the
@@ -320,13 +362,52 @@ export class Router {
 		if (wireReq === null)
 			throw new UpstreamError(502, `upstream ${dep.url} not bridgeable`);
 		const bridged = wireReq !== req;
+		// W1078: admission at the selected-attempt seam — after bridge
+		// eligibility, before the fetch. The queue wait is capped by the
+		// remaining attempt budget (deadlines only shrink); a granted lease
+		// clears the wait timer, so active streams keep their own guards.
+		const poolId = providerPoolIdOf(dep);
+		const admission = poolId === null ? undefined : this.pools.get(poolId);
+		let lease: ProviderLease | undefined;
+		let queueWaitMs = 0;
+		if (admission !== undefined && poolId !== null) {
+			const queuedAt = this.now();
+			try {
+				lease = await admission.acquire(req.signal, timeoutMs);
+			} catch (error) {
+				if (req.signal?.aborted) throw error;
+				const expired = error instanceof Error && error.name === "TimeoutError";
+				if (error instanceof ProviderAdmissionFull || expired) {
+					return admissionRefusal(
+						dep,
+						this.policy.provider_pools?.[poolId],
+						error instanceof ProviderAdmissionFull ? "full" : "expired",
+					);
+				}
+				throw error;
+			}
+			queueWaitMs = Math.max(0, Math.round(this.now() - queuedAt));
+			timeoutMs = Math.max(1, timeoutMs - (this.now() - queuedAt));
+		}
 		try {
-			const resp = await this.fetchImpl(dep, wireReq, timeoutMs, stream);
+			const raw = await this.fetchImpl(dep, wireReq, timeoutMs, stream);
+			const resp = lease === undefined ? raw : bindProviderLease(raw, lease);
 			if (resp.ok) {
 				this.cooldowns.success(dep);
 				const response = bridged
 					? bridgeResponse(resp, req.dialect, req.body.stream === true)
 					: resp;
+				// W1078 canary metadata (body-free, set AFTER the bridge so both
+				// dialects preserve it): proves which configured pool served the
+				// alias and separates queue dwell from provider latency. Local
+				// refusal metadata stays typed-local (never this header path).
+				if (lease !== undefined && poolId !== null) {
+					response.headers.set("x-klh-provider-pool", poolId);
+					response.headers.set(
+						"x-klh-provider-queue-wait-ms",
+						String(queueWaitMs),
+					);
+				}
 				return { ok: true, response };
 			}
 			const { err, replay, requestId, callId } = await classifyFailure(
@@ -419,6 +500,9 @@ export class Router {
 				exhaustTier: err.kind !== "auth" && !err.retryable,
 			};
 		} catch (e) {
+			// W1078: no Response exists to hold the lease — release before any
+			// classification/wrap so a failed fetch never leaks its slot.
+			lease?.release();
 			if (req.signal?.aborted) throw e;
 			const connectFailure = e instanceof HubConnectError;
 			const timedOut =
@@ -609,6 +693,25 @@ export class Router {
 					attempts: st.attempts,
 					stream: req.body.stream === true,
 				};
+			}
+			if ("localAdmission" in r) {
+				// W1078 skip-grade: the local account pool is shared across the
+				// tier's rows, so repeating a refused row inside this tier cannot
+				// heal — advance to the next candidate / fallback rung FREE (no
+				// bench, no cooldown metric, no retry budget, no rate-limit
+				// memory). The refusal becomes the walk's lastFailure, so an
+				// exhausted ladder answers 503 + window-derived Retry-After.
+				st.status = r.status;
+				st.error = r.error;
+				st.lastFailure = {
+					source: "local-admission",
+					status: r.status,
+					kind: "local_admission",
+					retryAfterS: r.retryAfterS,
+				};
+				if (raw + 1 >= candidates.length) break;
+				skipped++;
+				continue;
 			}
 			this.reportAttempt(
 				req,
@@ -948,6 +1051,36 @@ export class Router {
 		this.walkExpired(st);
 		return exhausted(st);
 	}
+}
+
+/** W1078: the explicit account binding on a deployment — a bounded pool id
+ *  into gateway.provider_pools, operator config, never derived from host,
+ *  model name or secret bytes (admission-core notes). */
+export function providerPoolIdOf(dep: Deployment): string | null {
+	const cfg = dep.adapter_config?.provider_pool;
+	if (typeof cfg !== "string") return null;
+	return /^[\w.-]{1,64}$/.test(cfg) ? cfg : null;
+}
+
+/** W1078 local admission refusal: a LOCAL queue decision, never an upstream
+ *  verdict — no bench, no provider cooldown, no fabricated 429. The 503
+ *  carries the pool's window-derived Retry-After floor (config, not a
+ *  provider claim). */
+function admissionRefusal(
+	dep: Deployment,
+	policy: ProviderPoolPolicy,
+	cause: "full" | "expired",
+): TryOutcome {
+	return {
+		ok: false,
+		localAdmission: true,
+		status: 503,
+		error:
+			cause === "full"
+				? `provider account pool for ${dep.url} is saturated — admission refused locally (W1078)`
+				: `provider account pool wait expired for ${dep.url} — admission timed out locally (W1078)`,
+		retryAfterS: Math.ceil(policy.intervalMs / 1000),
+	};
 }
 
 /** End of a walk with nothing delivered: an all-rungs context-window
