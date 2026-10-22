@@ -1,6 +1,6 @@
+import { Database } from "bun:sqlite";
 import { afterAll, expect, test } from "bun:test";
 import { boardFixture } from "./helpers/board-fixture.ts";
-import { Database } from "bun:sqlite";
 
 const { BASE, REPO, HOME } = await boardFixture(0, afterAll);
 test("actual tasks API separates a coordinator claim from execution, served board labels claims honestly", async () => {

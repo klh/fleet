@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
 import {
-	executionSummary,
-	workExecution,
 	type ExecutionClaim,
 	type ExecutionEvidence,
+	executionSummary,
+	workExecution,
 } from "../hooks/lib/work-execution.ts";
+
 const claim: ExecutionClaim = {
 	project: "p",
 	id: "W1",

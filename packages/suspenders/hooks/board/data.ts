@@ -1,9 +1,9 @@
 import { usableRecommendation } from "../lib/advice-quality.ts";
+import { completionTail } from "../lib/work-completion-record.ts";
+import { claimWindows, type TimingEventRow } from "../lib/work-timing.ts";
 // W858.7.21: the hub reachability check + its probe bundle moved to
 // hub-check.ts (1500-line decompose); setupChecks imports it below.
 import { hubCheck } from "./hub-check.ts";
-import { completionTail } from "../lib/work-completion-record.ts";
-import { claimWindows, type TimingEventRow } from "../lib/work-timing.ts";
 
 // hooks/board/data.ts — the /api data builders: tasks, board, claims, decisions, activity (W157 board split).
 // Pieces moved verbatim from bin/fleet-board.ts; exports widened so
