@@ -335,6 +335,11 @@ export interface ItemAttribution {
 	work: string;
 	fresh: number; // non-cache prompt tokens (in)
 	cached: number; // cacheR + cacheC
+	/** W1131 OTel split: cache_read vs cache_creation prompt tokens. Null =
+	 *  unreported (renders —, never 0); merged `cached` stays the cache-share
+	 *  truth. */
+	cacheRead: number | null;
+	cacheCreation: number | null;
 	out: number;
 	requests: number;
 	wallMs: number; // first claim → last event (W15)
@@ -385,6 +390,8 @@ export function itemAttribution(
 			work,
 			fresh: ds ? ds.fresh : (s?.in ?? 0),
 			cached: ds ? ds.cached : (s?.cacheR ?? 0) + (s?.cacheC ?? 0),
+			cacheRead: ds ? null : (s?.cacheR ?? null),
+			cacheCreation: ds ? null : (s?.cacheC ?? null),
 			out: ds ? ds.out : (s?.out ?? 0),
 			requests: s?.requests ?? 0,
 			wallMs: t?.wallMs ?? 0,

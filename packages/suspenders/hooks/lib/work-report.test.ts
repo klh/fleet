@@ -13,9 +13,13 @@ import {
 	DEFAULT_DONE_WINDOW_MS,
 	DONE_ROW_CAP,
 	type ReportRow,
-	reportBucketRank,
-	reportLetter,
+	DEFAULT_STALL_MS,
+	REPORT_GLYPHS,
+	reportGlyph,
 	reportModel,
+	reportSection,
+	reportStatus,
+	sectionRank,
 	MODEL_CAP,
 	parseReportWindow,
 	reportRows,
@@ -32,13 +36,35 @@ const bel = String.fromCharCode(7);
 const stripEscapes = (s: string): string =>
 	s.replace(new RegExp(`${esc}]8;[^${bel}]*${bel}`, "g"), "");
 
-describe("reportLetter", () => {
-	test("riding/queued/done/failed letters", () => {
-		expect(reportLetter("CLAIMED")).toBe("R");
-		expect(reportLetter("RUNNING")).toBe("R");
-		expect(reportLetter("READY")).toBe("Q");
-		expect(reportLetter("DONE")).toBe("D");
-		expect(reportLetter("FAILED")).toBe("F");
+describe("W1131 §3 — glyphs + status words", () => {
+	test("graph states map to board glyphs", () => {
+		expect(reportGlyph("READY")).toBe(REPORT_GLYPHS.ready);
+		expect(reportGlyph("CLAIMED")).toBe(REPORT_GLYPHS.working);
+		expect(reportGlyph("RUNNING")).toBe(REPORT_GLYPHS.working);
+		expect(reportGlyph("DONE")).toBe(REPORT_GLYPHS.done);
+		expect(reportGlyph("FAILED")).toBe(REPORT_GLYPHS.failed);
+		expect(reportGlyph("CANCELLED")).toBe(REPORT_GLYPHS.cancelled);
+	});
+	test("every glyph is single-width and paired with a word", () => {
+		for (const g of Object.values(REPORT_GLYPHS)) {
+			expect([...g].length).toBe(1);
+			expect(g).not.toMatch(/\p{Extended_Pictographic}/u);
+		}
+		expect(reportStatus("RUNNING")).toBe("working");
+		expect(reportStatus("READY")).toBe("ready");
+		expect(reportStatus("FAILED")).toBe("failed");
+	});
+	test("sections order actionable-first; needs_you reason precedence", () => {
+		expect(reportSection("RUNNING", false, false)).toBe("working");
+		expect(reportSection("READY", false, false)).toBe("waiting");
+		expect(reportSection("DONE", false, false)).toBe("done");
+		expect(reportSection("RUNNING", true, false)).toBe("needs_you");
+		expect(reportSection("FAILED", false, false)).toBe("needs_you");
+		expect(reportSection("READY", false, true)).toBe("needs_you");
+		expect(sectionRank("needs_you")).toBeLessThan(sectionRank("working"));
+		expect(sectionRank("working")).toBeLessThan(sectionRank("waiting"));
+		expect(sectionRank("waiting")).toBeLessThan(sectionRank("done"));
+		expect(DEFAULT_STALL_MS).toBe(2 * 3_600_000);
 	});
 });
 
@@ -147,13 +173,13 @@ describe("buildReportTable — the prototype golden", () => {
 			[
 				"ITEM      ST  TASK                        TOKENS  CACHE  OUT/MIN   AGENT  MODEL  EFFORT  CONSULT",
 				"--------  --  --------------------------  ------  -----  -------  ------  -----  ------  -------",
-				"W887      R   board micro-metrics: spark    172k     0%     5750     12m      -       -        N",
-				"W843      D   Buckle: reconcile provider    8.8M    98%      833     36m      -       -        N",
-				"W552      R   Save governed IKEA recordi    5.2M    90%       76  21h37m      -       -        N",
-				"W688.4    R   Enterprise W235 packaging:     60k     0%      207   1h56m      -       -        N",
-				"W782      R   review: skipped/postponed/       -      -        0   1h30m      -       -        N",
-				"W179.2    Q   notification fan-out — NEE       -      -        0   9d22h      -       -        N",
-				"W688.7.1  D   hub serves the enterprise    17.1M    39%     3364     55m      -       -        N",
+				"W887      ◐   board micro-metrics: spark    172k     0%     5750     12m      -       -        N",
+				"W843      ✓   Buckle: reconcile provider    8.8M    98%      833     36m      -       -        N",
+				"W552      ◐   Save governed IKEA recordi    5.2M    90%       76  21h37m      -       -        N",
+				"W688.4    ◐   Enterprise W235 packaging:     60k     0%      207   1h56m      -       -        N",
+				"W782      ◐   review: skipped/postponed/       -      -        0   1h30m      -       -        N",
+				"W179.2    ·   notification fan-out — NEE       -      -        0   9d22h      -       -        N",
+				"W688.7.1  ✓   hub serves the enterprise    17.1M    39%     3364     55m      -       -        N",
 			].join("\n"),
 		);
 	});
@@ -184,7 +210,8 @@ describe("buildReportTable — the prototype golden", () => {
 		const lines = t.split("\n");
 		expect(TASK_CAP).toBe(26);
 		expect(lines[2].includes(`${"x".repeat(TASK_CAP)}  `)).toBe(true);
-		expect(lines[3]).toContain("F");
+		// W1131: FAILED renders the board glyph, not the W892 letter
+		expect(lines[3]).toContain(REPORT_GLYPHS.failed);
 		expect(lines[3]).toContain("  -  ");
 	});
 });
@@ -265,7 +292,11 @@ describe("reportRows", () => {
 		const { rows, missing } = reportRows(d, "p", { now: T0, ledger: null });
 		expect(missing).toEqual([]);
 		expect(rows.map((r) => r.id)).toEqual(["W1", "W2", "W3"]);
-		expect(rows.map((r) => reportLetter(r.state))).toEqual(["R", "Q", "D"]);
+		expect(rows.map((r) => reportStatus(r.state))).toEqual([
+			"working",
+			"ready",
+			"done",
+		]);
 		const ids = reportRows(d, "p", {
 			ids: ["W5", "W9"],
 			now: T0,
@@ -525,10 +556,11 @@ describe("W964 — deterministic row order", () => {
 		expect(compareItemIds("W964", "W964")).toBe(0);
 	});
 
-	test("reportBucketRank: R < Q < F < D", () => {
-		expect(reportBucketRank("CLAIMED")).toBeLessThan(reportBucketRank("READY"));
-		expect(reportBucketRank("READY")).toBeLessThan(reportBucketRank("FAILED"));
-		expect(reportBucketRank("FAILED")).toBeLessThan(reportBucketRank("DONE"));
+	test("reportRows sort: needs_you < working < waiting < done", () => {
+		expect(sectionRank(reportSection("CLAIMED", true, false))).toBe(0);
+		expect(sectionRank(reportSection("CLAIMED", false, false))).toBe(1);
+		expect(sectionRank(reportSection("READY", false, false))).toBe(2);
+		expect(sectionRank(reportSection("DONE", false, false))).toBe(3);
 	});
 
 	test("pool: byte-identical across runs; a spend tick never moves rows", () => {

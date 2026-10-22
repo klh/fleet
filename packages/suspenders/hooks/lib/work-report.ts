@@ -14,6 +14,7 @@ import {
 	type ItemAttribution,
 	itemAttribution,
 } from "./lane-spend.ts";
+import type { LaneLive } from "./work-report-live.ts";
 
 /** One table row: graph state joined to its spend attribution. */
 export interface ReportRow {
@@ -22,27 +23,130 @@ export interface ReportRow {
 	title: string;
 	fresh: number;
 	cached: number;
+	/** W1131 OTel split (§1): null = unreported (renders —, never 0). */
+	cacheRead: number | null;
+	cacheCreation: number | null;
 	out: number;
 	agentMs: number;
 	model: string; // W909: top model_group (+ when several), "" = none
 	effort: string | null; // W909: lane effort level (work.done payload)
 	consulted: boolean; // W909: lane banked knowledge or consulted
 	blindCache: boolean; // W943.1: attributed spend spans the cache-blind era — CACHE is a floor
+	/** W1131 §4/§8 live join: updatedAt drives AGE + the stall grace; hub is
+	 *  the terminal hub of the lane's LAST usage-bearing request; requests =
+	 *  LLM calls per item (runaway detector); lastActivityAgoMs/lastOutAgoMs
+	 *  = age of the last request / last output-bearing request (null = no
+	 *  live facts in the lookback window). stalled: working && past grace &&
+	 *  no recent output. decision: open NEED_DECISION targets this item. */
+	updatedAt: number;
+	ownerSid: string | null;
+	hub: string | null;
+	requests: number | null;
+	lastActivityAgoMs: number | null;
+	lastOutAgoMs: number | null;
+	stalled: boolean;
+	decision: boolean;
+	/** --all scope only: which project the row came from. */
+	project: string | null;
 }
 
-/** done → D, failed → F, riding (CLAIMED/RUNNING) → R, queued (READY) → Q. */
-export const reportLetter = (state: string): string => {
-	if (state === "DONE") return "D";
-	if (state === "FAILED") return "F";
-	if (state === "WAITING") return "W";
-	if (state === "READY") return "Q";
-	return "R"; // CLAIMED/RUNNING — riding
+/** W1131 §3 board-vocabulary states — single-width glyphs, never emoji.
+ *  ready ·, waiting ○, working ◐, blocked ⊘, failed ✗, done ✓, cancelled –. */
+export const REPORT_GLYPHS = {
+	ready: "·",
+	waiting: "○",
+	working: "◐",
+	blocked: "\u{2298}",
+	failed: "\u{2717}",
+	done: "\u{2713}",
+	cancelled: "\u{2013}",
+} as const;
+
+/** Graph state → glyph; BLOCKED isn't a graph state — the blocked glyph
+ *  rides rows whose needs-you reason is an open NEED_DECISION (§4). */
+export const reportGlyph = (state: string): string => {
+	switch (state) {
+		case "READY":
+			return REPORT_GLYPHS.ready;
+		case "WAITING":
+			return REPORT_GLYPHS.waiting;
+		case "CLAIMED":
+		case "RUNNING":
+			return REPORT_GLYPHS.working;
+		case "DONE":
+			return REPORT_GLYPHS.done;
+		case "FAILED":
+			return REPORT_GLYPHS.failed;
+		case "CANCELLED":
+		case "SUPERSEDED":
+			return REPORT_GLYPHS.cancelled;
+		default:
+			return REPORT_GLYPHS.ready;
+	}
 };
 
-/** W964 ST-bucket rank: R riding < Q queued < F failed < D done. */
-const BUCKET_RANK: Record<string, number> = { R: 0, Q: 1, W: 2, F: 3, D: 4 };
-export const reportBucketRank = (state: string): number =>
-	BUCKET_RANK[reportLetter(state)] ?? 9;
+/** Graph state → status word (never colour alone: glyph + word everywhere). */
+export const reportStatus = (state: string): string => {
+	switch (state) {
+		case "READY":
+			return "ready";
+		case "WAITING":
+			return "waiting";
+		case "CLAIMED":
+		case "RUNNING":
+			return "working";
+		case "DONE":
+			return "done";
+		case "FAILED":
+			return "failed";
+		case "CANCELLED":
+		case "SUPERSEDED":
+			return "cancelled";
+		default:
+			return "ready";
+	}
+};
+
+/** W1131 §4 actionable-first sections. needs_you = open NEED_DECISION +
+ *  failed + stalled; then working, waiting, recent done (§4). */
+export type ReportSection = "needs_you" | "working" | "waiting" | "done";
+
+export const REPORT_SECTIONS: ReportSection[] = [
+	"needs_you",
+	"working",
+	"waiting",
+	"done",
+];
+
+/** needs-you reason precedence: decision > failed > stalled (§4 order). */
+export const needsYouReason = (
+	state: string,
+	stalled: boolean,
+	decision: boolean,
+): "decision" | "failed" | "stalled" | null =>
+	decision
+		? "decision"
+		: state === "FAILED"
+			? "failed"
+			: stalled
+				? "stalled"
+				: null;
+
+/** Row → section: needs_you wins, then state buckets. */
+export const reportSection = (
+	state: string,
+	stalled: boolean,
+	decision: boolean,
+): ReportSection => {
+	if (needsYouReason(state, stalled, decision)) return "needs_you";
+	if (state === "CLAIMED" || state === "RUNNING") return "working";
+	if (state === "READY" || state === "WAITING") return "waiting";
+	return "done";
+};
+
+/** The §4 section rank that replaces the W964 ST-bucket order. */
+export const sectionRank = (s: ReportSection): number =>
+	REPORT_SECTIONS.indexOf(s);
 
 /** W964 numeric-aware id compare: digit runs compare numerically — W9 < W49
  *  < W953; W688.4 < W688.7.1 — non-digit runs lexically, prefix < extension. */
@@ -74,6 +178,14 @@ export const parseReportWindow = (raw: string): number | null => {
 
 /** Recent-done lookback default: DONE rows older than this leave the table. */
 export const DEFAULT_DONE_WINDOW_MS = 48 * 3_600_000;
+
+/** W1131 §4 stall threshold: a working lane quiet (or outputless) longer
+ *  than this lands in needs_you. Config knob: SUSPENDERS_REPORT_STALL_MS. */
+export const DEFAULT_STALL_MS = 2 * 3_600_000;
+export const stallThresholdMs = (): number => {
+	const raw = Number(process.env.SUSPENDERS_REPORT_STALL_MS);
+	return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_STALL_MS;
+};
 
 /** Recent-done row cap: the table carries the LAST few done, never the flood. */
 export const DONE_ROW_CAP = 5;
@@ -133,26 +245,75 @@ export const consultedItems = (db: Database, project: string): Set<string> => {
 	}
 };
 
+/** W1131 §4 open-decision set: items holding a NEED_DECISION newer than any
+ *  NEED_DECISION_RESOLVED for the same item. Fail-soft like consultedItems. */
+export const openDecisions = (db: Database, project: string): Set<string> => {
+	try {
+		const rows = db
+			.query(
+				"SELECT kind, payload FROM events WHERE kind IN ('NEED_DECISION','NEED_DECISION_RESOLVED') AND project = ? ORDER BY id",
+			)
+			.all(project) as Array<{ kind: string; payload: string | null }>;
+		const last = new Map<string, number>();
+		for (const r of rows) {
+			try {
+				const it = (JSON.parse(r.payload ?? "{}") as { item?: string }).item;
+				if (!it) continue;
+				last.set(it, r.kind === "NEED_DECISION" ? 1 : 0);
+			} catch {}
+		}
+		const out = new Set<string>();
+		for (const [it, open] of last) if (open === 1) out.add(it);
+		return out;
+	} catch {
+		return new Set(); // no events table (tests) — fail soft
+	}
+};
+
 /** W892 row mapper: graph items ⋈ W776 attribution → table rows. */
 export const toReportRows = (
 	items: Array<Record<string, string | number | null>>,
 	attribution: Map<string, ItemAttribution>,
 	consulted?: Set<string>,
+	liveBySid?: Map<string, LaneLive>,
+	decisions?: Set<string>,
+	stallMs = DEFAULT_STALL_MS,
+	now = Date.now(),
 ): ReportRow[] =>
 	items.map((it) => {
-		const a = attribution.get(String(it.id));
+		const id = String(it.id);
+		const a = attribution.get(id);
+		const lv = liveBySid?.get(String(it.owner_sid ?? ""));
+		const age = now - Number(it.updated_at ?? now);
+		const working = it.state === "CLAIMED" || it.state === "RUNNING";
+		const lastOutAgo = lv?.lastOutTs == null ? null : now - lv.lastOutTs;
+		const quiet =
+			(a?.out ?? 0) === 0 || lastOutAgo == null || lastOutAgo > stallMs;
+		const stalled = Boolean(working && age > stallMs && quiet);
+		const decision = decisions?.has(id) ?? false;
 		return {
-			id: String(it.id),
+			id,
 			state: String(it.state),
 			title: String(it.title ?? ""),
 			fresh: a?.fresh ?? 0,
 			cached: a?.cached ?? 0,
+			cacheRead: a?.cacheRead ?? null,
+			cacheCreation: a?.cacheCreation ?? null,
 			out: a?.out ?? 0,
 			agentMs: a?.agentMs ?? 0,
 			model: reportModel(a?.groups ?? {}),
 			effort: a?.effort ?? null,
-			consulted: consulted?.has(String(it.id)) ?? false,
+			consulted: consulted?.has(id) ?? false,
 			blindCache: a?.blindCache ?? false,
+			updatedAt: Number(it.updated_at ?? now),
+			ownerSid: it.owner_sid == null ? null : String(it.owner_sid),
+			hub: lv?.hub ?? null,
+			requests: a?.requests ?? null,
+			lastActivityAgoMs: lv?.lastTs == null ? null : now - lv.lastTs,
+			lastOutAgoMs: lastOutAgo,
+			stalled,
+			decision,
+			project: it.project == null ? null : String(it.project),
 		};
 	});
 
@@ -172,6 +333,12 @@ export const reportRows = (
 		now?: number;
 		/** hermetic pin (tests): null = zero spend, real wall */
 		ledger?: string | null;
+		/** W1131 §8 live lane facts (hub, last activity) joined by owner_sid */
+		live?: LaneLive[];
+		/** §4 stall threshold override (tests); default stallThresholdMs() */
+		stallMs?: number;
+		/** §11 --mine: keep only rows dispatched to/claimed by this sid */
+		mineSid?: string | null;
 	},
 ): { rows: ReportRow[]; missing: string[] } => {
 	const now = opts.now ?? Date.now();
@@ -208,21 +375,38 @@ export const reportRows = (
 		// above still decides WHICH done rows appear (recency cap).
 		items = [...actives, ...dones].sort(
 			(a, b) =>
-				reportBucketRank(String(a.state)) - reportBucketRank(String(b.state)) ||
+				sectionRank(reportSection(String(a.state), false, false)) -
+					sectionRank(reportSection(String(b.state), false, false)) ||
 				compareItemIds(String(a.id), String(b.id)),
 		);
 	}
-	return {
-		rows: toReportRows(
-			items,
-			itemAttribution(
-				db,
-				project,
-				now,
-				"ledger" in opts ? opts.ledger : undefined,
-			),
-			consultedItems(db, project),
+	const liveMap = new Map(opts.live?.map((l) => [l.sid, l]));
+	const rows = toReportRows(
+		items,
+		itemAttribution(
+			db,
+			project,
+			now,
+			"ledger" in opts ? opts.ledger : undefined,
 		),
+		consultedItems(db, project),
+		liveMap,
+		openDecisions(db, project),
+		opts.stallMs ?? stallThresholdMs(),
+		now,
+	);
+	// §4 actionable-first: needs_you (decision > failed > stalled) → working →
+	// waiting → done; id ascending inside each section (W964 stability).
+	// --ids strict mode keeps CALLER order — only the pool sorts.
+	if (!opts.ids || opts.ids.length === 0)
+		rows.sort(
+			(a, b) =>
+				sectionRank(reportSection(a.state, a.stalled, a.decision)) -
+					sectionRank(reportSection(b.state, b.stalled, b.decision)) ||
+				compareItemIds(a.id, b.id),
+		);
+	return {
+		rows,
 		missing,
 	};
 };
@@ -330,7 +514,7 @@ export const buildReportTable = (
 		const tokens = r.fresh + r.cached;
 		return [
 			r.id,
-			reportLetter(r.state),
+			reportGlyph(r.state),
 			r.title.slice(0, TASK_CAP),
 			tokens > 0 ? compactTokens(tokens) : "-",
 			tokens > 0
