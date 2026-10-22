@@ -1,14 +1,13 @@
-// work-report.ts — W892: `work report`, the ONE supervisor reply table
-// (owner GO 2026-10-19). Port of the coordinator's prototype loop: rows =
-// riding + queued + recent-done items (or --ids), columns ITEM/ST/TASK/
-// TOKENS/CACHE/OUT-MIN/AGENT computed from each item's W776 attribution
-// (fresh+cached tokens, cache-hit %, out/min over agent wall). Programmatic
-// fixed-width pads — the table cannot drift. ST letters: R = riding
-// (CLAIMED/RUNNING), Q = queued (READY), D = done (DONE), F = failed
-// (FAILED; surfaces via --ids). W891 colors these letters on the board.
+// work-report.ts — W1131: `work report`, the ONE supervisor report. This
+// module owns the CONTRACT (a stable, versioned JSON object) plus the shared
+// row/state helpers; every view renders FROM the contract — the tty table /
+// md / plain formats (work-report-render.ts) and the tree/delta/statusline/
+// watch modes (work-report-modes.ts) — so board and CLI never disagree.
+// States use the board vocabulary (single-width glyphs, no emoji); rows are
+// actionable-first (needs-you → working → waiting → done); unreported
+// metrics render as UNKNOWN (—), never a measured 0 (W1131 §5).
 
 import type { Database } from "bun:sqlite";
-import Table from "cli-table3";
 import {
 	type GroupSpend,
 	type ItemAttribution,
