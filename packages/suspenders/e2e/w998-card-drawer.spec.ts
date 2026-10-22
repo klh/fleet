@@ -7,7 +7,7 @@
 import { expect, test } from "@playwright/test";
 import { startBoard } from "./harness.ts";
 
-const NOTE =
+const failureDetail =
 	"launch budget exhausted after 3 backoff rounds; upstream 429 wall held for the whole routing walk and the retry queue deadline cascaded";
 
 test.describe.configure({ mode: "serial" });
@@ -19,7 +19,7 @@ test.beforeAll(async () => {
 	b = await startBoard("w998", {});
 	wId = b.mintedId(b.workOk(["add", "w998 card drawer item"], "add"));
 	b.workOk(["take", wId, "--as", "autow998-e2e"], "take");
-	b.workOk(["fail", wId, "--note", NOTE], "fail");
+	b.workOk(["fail", wId, "--note", failureDetail], "fail");
 });
 
 test.afterAll(async () => {
@@ -41,9 +41,7 @@ test("gui: work card stamps the update age compactly, full instant on hover", as
 	// the full instant survives as the <time> tooltip
 	expect(stampHtml).toMatch(/title="updated [^"]+ · UTC /);
 	// the card age keeps its open-age tooltip next to the id
-	const age = page
-		.locator(`.kcard[data-kid="${wId}"] .kage`)
-		.first();
+	const age = page.locator(`.kcard[data-kid="${wId}"] .kage`).first();
 	await expect(age).toHaveText(/^\d+[smhd]$/);
 	expect(await age.getAttribute("title")).toMatch(/^open /);
 });
@@ -60,9 +58,7 @@ test("gui: failed-item drawer renders the full failure note unclamped", async ({
 		"launch budget exhausted after 3 backoff rounds",
 	);
 	// the SECOND `;` segment proves nothing was sliced off for the drawer
-	await expect(para).toContainText(
-		"retry queue deadline cascaded",
-	);
+	await expect(para).toContainText("retry queue deadline cascaded");
 	// no line clamp on the drawer paragraph — long notes wrap instead
 	const clamp = await para.evaluate(
 		(el) => getComputedStyle(el).webkitLineClamp,
