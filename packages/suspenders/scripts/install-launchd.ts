@@ -28,6 +28,10 @@ import {
 } from "./lib/service-drift.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
 import { loadLegacyLabels } from "./install-services.ts";
+import {
+	processRecycleHooks,
+	recycleChildListener,
+} from "./lib/service-recycle.ts";
 
 /** Drop per-user launchctl values before loading a unit that sources an
  * authoritative envFile. Never log getenv output: one value may be a key. */
@@ -273,6 +277,7 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 			service: string;
 			files: string[];
 			port?: number;
+			childPort?: number;
 			clearInheritedEnv?: string[];
 		}>;
 	};
@@ -288,6 +293,7 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 	}
 	const failed: string[] = [];
 	const refused: string[] = [];
+	const recycled: string[] = [];
 	const activated: ActivationService[] = [];
 	const ports = JSON.parse(
 		process.env.SUSPENDERS_SERVICE_PORTS_JSON ?? "{}",
@@ -302,6 +308,21 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 				: s.files
 						.filter((f) => f.endsWith(".plist"))
 						.map((f) => [f.replace(/\.plist$/, ""), s.port as number]),
+		),
+	);
+	// W1073: belt-swarm abandons its process group — the :4000 child router
+	// survives bootout/bootstrap and the restarted supervisor adopts the live
+	// port, still serving the pre-install code. The manifest declares the
+	// abandoned listener per service; post-bootstrap the install recycles it
+	// (kill the old holder, poll a bounded window for a FRESH pid) so the
+	// synced runtime home actually runs. Timeout fails the unit.
+	const declaredChildPorts = new Map(
+		rendered.services.flatMap((s) =>
+			s.childPort === undefined
+				? []
+				: s.files
+						.filter((f) => f.endsWith(".plist"))
+						.map((f) => [f.replace(/\.plist$/, ""), s.childPort as number]),
 		),
 	);
 	if (
@@ -377,6 +398,22 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 					refused.push(`${label} — ${verified.reason}`);
 					continue;
 				}
+				// W1073: recycle the declared abandoned child listener — supervise
+				// respawns it from the freshly synced runtime home; a stale holder
+				// (or no fresh listener within the window) fails the unit.
+				const childPort = declaredChildPorts.get(label);
+				if (childPort !== undefined) {
+					const recycle = await recycleChildListener(
+						{ port: childPort },
+						processRecycleHooks(),
+					);
+					if (!recycle.ok) {
+						failed.push(label);
+						refused.push(`${label} — child recycle failed: ${recycle.reason}`);
+						continue;
+					}
+					recycled.push(label);
+				}
 				activated.push({
 					label,
 					unit,
@@ -429,6 +466,6 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 	return {
 		status: "ok",
 		note: `${rendered.services.length} launchd agents rendered via install-services.ts and loaded${stable.normalized ? " — snapshot normalized to the pinned checkout (W631)" : ""}`,
-		detail: `${agentsDir} — from deploy/services.yaml; legacy labels superseded: ${superseded.length > 0 ? superseded.join(" ") : "none"}`,
+		detail: `${agentsDir} — from deploy/services.yaml; legacy labels superseded: ${superseded.length > 0 ? superseded.join(" ") : "none"}${recycled.length > 0 ? `; recycled child listeners: ${recycled.join(" ")}` : ""}`,
 	};
 }
