@@ -30,6 +30,8 @@ import {
 	parseGovernanceMode,
 	probeFrontDecision,
 } from "./lib/governance-decide.ts";
+// W1119.2: the W463 override-disclosure writers (1500-law decomposition)
+import { discloseInBrief, noBeltNote } from "./lib/governance-disclose.ts";
 import { attributeHubLane } from "./lib/hub-lane.ts";
 import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
 import { jobslabFor, jobslabTag, laneClassOf } from "./lib/jobslab.ts";
@@ -919,9 +921,7 @@ const dispatchItem = async (
 					console.log(`*** ${hub.decision.note} ***`);
 					hubNote += ` — ${hub.decision.note}`;
 					// W463: the override is disclosed IN the brief the lane reads.
-					const disclosed = `${brief}\n\nGOVERNANCE: ${hub.decision.note}.\n`;
-					writeFileSync(briefFile, disclosed);
-					writeFileSync(`${wt}/.klh-brief.md`, disclosed);
+					discloseInBrief(brief, briefFile, wt, hub.decision.note);
 				} else {
 					governanceRefusals.push(item);
 					console.log(
@@ -948,9 +948,7 @@ const dispatchItem = async (
 					console.log(`*** ${decision.note} ***`);
 					hubNote += ` — ${decision.note}`;
 					// W463: the override is disclosed IN the brief the lane reads.
-					const disclosed = `${brief}\n\nGOVERNANCE: ${decision.note}.\n`;
-					writeFileSync(briefFile, disclosed);
-					writeFileSync(`${wt}/.klh-brief.md`, disclosed);
+					discloseInBrief(brief, briefFile, wt, decision.note);
 				} else {
 					governanceRefusals.push(item);
 					console.log(
@@ -960,9 +958,8 @@ const dispatchItem = async (
 					return null;
 				}
 			} else if (frontUp !== undefined) {
-				// W422.17 probe-false: the buckle front did not answer. Strict (the
-				// default) refuses the lane with the same machinery as a mint
-				// failure; solo keeps the belt-direct fallback — loud, disclosed.
+				// W422.17 probe-false, W1119.2: an unreachable front refuses the
+				// lane in BOTH modes — solo relents nowhere (single-buckle-inference).
 				const probe = probeFrontDecision(ALLOW_UNGOVERNED, governanceMode());
 				if (probe.mode === "refuse") {
 					governanceRefusals.push(item);
@@ -975,10 +972,15 @@ const dispatchItem = async (
 				console.log(`NOTE — ${probe.note}`);
 				hubNote += ` — ${probe.note}`;
 				// ungoverned rides are disclosed IN the brief the lane reads.
-				const disclosed = `${brief}\n\nGOVERNANCE: ${probe.note}.\n`;
-				writeFileSync(briefFile, disclosed);
-				writeFileSync(`${wt}/.klh-brief.md`, disclosed);
+				discloseInBrief(brief, briefFile, wt, probe.note);
 			}
+		} else {
+			// W1119.2: --no-belt is retired as an explicit UNGOVERNED override —
+			// loud + disclosed IN the brief (W463), never a silent belt-less lane.
+			const note = noBeltNote();
+			console.log(`*** ${note} ***`);
+			hubNote += ` — ${note}`;
+			discloseInBrief(brief, briefFile, wt, note);
 		}
 		// W432: the prompt points at the READABLE copy — sandboxed lanes read
 		// nothing outside their worktree (W.F1 above), so the canonical

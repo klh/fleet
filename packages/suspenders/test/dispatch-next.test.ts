@@ -1206,10 +1206,11 @@ describe("governance mode decisions (W422.17)", () => {
 			expect(d.why).toContain("buckle front unreachable + governance:strict");
 	});
 
-	test("probeFrontDecision: solo proceeds belt-direct with the loud note", () => {
+	test("probeFrontDecision: solo refuses too (W1119.2 — solo relents nowhere)", () => {
 		const d = probeFrontDecision(false, "solo");
-		expect(d.mode).toBe("belt-direct");
-		if (d.mode === "belt-direct") expect(d.note).toContain("governance:solo");
+		expect(d.mode).toBe("refuse");
+		if (d.mode === "refuse")
+			expect(d.why).toContain("buckle front unreachable + governance:solo");
 	});
 
 	test("probeFrontDecision: --allow-ungoverned overrides BOTH modes", () => {
@@ -1294,19 +1295,18 @@ describe("governance mode e2e: probe-false strict (W422.17)", () => {
 	}, 60_000);
 });
 
-describe("governance mode e2e: probe-false solo (W422.17)", () => {
-	test("probe-false + solo → proceeds belt-direct with the loud note", async () => {
+describe("governance mode e2e: probe-false solo (W422.17, W1119.2)", () => {
+	test("probe-false + solo → REFUSED (solo relents nowhere)", async () => {
 		expect((await toolA({}, "coord.ts", "governance", "solo")).code).toBe(0);
 		const id = await addItem("governance solo belt-direct item");
-		const sid = laneSid(id, projectIdentity(REPO));
 		const out = await dispatchA({ PATH: "/usr/bin:/bin" }, "--item", id);
 		expect(out.code).not.toBe(0);
-		expect(out.out).toContain("BELT-DIRECT DISPATCH");
-		expect(out.out).toContain("governance:solo");
-		expect(out.out).toContain("executor exited during launch");
+		expect(out.out).toContain(`REFUSED ${id}`);
+		expect(out.out).toContain("buckle front unreachable + governance:solo");
+		expect(out.out).toContain("dispatch(es) REFUSED");
 		expect(out.out).not.toContain("(pid");
-		const brief = readFileSync(join(REPO, ".fleet", `brief-${sid}.md`), "utf8");
-		expect(brief).toContain("GOVERNANCE: BELT-DIRECT DISPATCH");
+		const show = await toolA({}, "work.ts", "show", id);
+		expect(show.out).toContain("READY");
 		// restore the default so the scratch db ends strict
 		expect((await toolA({}, "coord.ts", "governance", "strict")).code).toBe(0);
 	}, 60_000);
