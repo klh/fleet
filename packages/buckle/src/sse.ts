@@ -312,6 +312,7 @@ export class SseSniffer {
 export function sseReframer(
 	onDrop?: (reason: "ping" | "corrupt", preview: string) => void,
 	guardDialect?: Dialect,
+	onFailure?: (kind: string) => void,
 ): TransformStream<Uint8Array, Uint8Array> {
 	const decoder = new TextDecoder();
 	const encoder = new TextEncoder();
@@ -322,6 +323,8 @@ export function sseReframer(
 	const guard =
 		guardDialect === undefined ? null : new SseSniffer(guardDialect);
 	let rejected = false;
+	let terminals: string[] = [];
+	let terminalBytes = 0;
 	let buf = "";
 	let eventType = "";
 	/** data: lines of the event being assembled (joined with \n at emit) */
@@ -365,9 +368,11 @@ export function sseReframer(
 			if (evt.length > 0) c.enqueue(encoder.encode(`event: ${evt}\n\n`));
 			return;
 		}
+		let parsed: AnyRec | null = null;
 		if (payload !== "[DONE]") {
 			try {
 				const j: unknown = JSON.parse(payload);
+				if (j && typeof j === "object") parsed = j as AnyRec;
 				if (j && typeof j === "object" && (j as AnyRec).type === "ping") {
 					drop("ping", payload.slice(0, 80));
 					c.enqueue(encoder.encode(SSE_KEEPALIVE)); // W1106: socket fed
@@ -383,15 +388,117 @@ export function sseReframer(
 		// in-band error. Error/failed frames pass (already failures).
 		if (guard !== null) {
 			guard.push(`event: ${evt}\ndata: ${payload}\n\n`);
+			const frame = (body: string): string =>
+				evt ? `event: ${evt}\ndata: ${body}\n\n` : `data: ${body}\n\n`;
+			const hold = (body: string): boolean => {
+				const encoded = frame(body);
+				terminalBytes += encoder.encode(encoded).byteLength;
+				if (terminalBytes > 16_384) {
+					terminals = [];
+					rejected = true;
+					try {
+						onFailure?.("stream_terminal_metadata_limit");
+					} catch {
+						/* observers cannot break delivery */
+					}
+					const error = {
+						type: "api_error",
+						code: "stream_terminal_metadata_limit",
+						message: "Upstream terminal metadata exceeds 16 KiB",
+					};
+					c.enqueue(
+						encoder.encode(
+							guardDialect === "anthropic"
+								? `event: error\ndata: ${JSON.stringify({ type: "error", error })}\n\n`
+								: `data: ${JSON.stringify({ error })}\n\n`,
+						),
+					);
+					return false;
+				}
+				terminals.push(encoded);
+				return true;
+			};
+			// A real source error wins over any previously held success metadata.
+			if (
+				parsed &&
+				(parsed.error != null ||
+					["error", "response.failed", "response.incomplete"].includes(
+						String(parsed.type),
+					))
+			) {
+				terminals = [];
+				c.enqueue(encoder.encode(frame(payload)));
+				rejected = true;
+				return;
+			}
+			if (
+				terminals.length > 0 &&
+				parsed &&
+				((guardDialect === "anthropic" &&
+					(parsed.type ?? evt) === "message_delta") ||
+					(guardDialect === "openai" &&
+						Array.isArray(parsed.choices) &&
+						parsed.choices.length === 0 &&
+						parsed.usage != null))
+			) {
+				hold(payload);
+				return;
+			}
+			if (
+				guardDialect === "anthropic" &&
+				(parsed?.type ?? evt) === "message_delta" &&
+				(parsed?.delta as AnyRec | undefined)?.stop_reason != null
+			) {
+				hold(payload);
+				return;
+			}
+			if (
+				guardDialect === "openai" &&
+				Array.isArray(parsed?.choices) &&
+				parsed.choices.some((choice: AnyRec) => choice.finish_reason != null)
+			) {
+				const choices = parsed.choices as AnyRec[];
+				const terminal = {
+					...parsed,
+					choices: choices
+						.filter((choice) => choice.finish_reason != null)
+						.map((choice) => ({
+							index: choice.index,
+							delta: {},
+							finish_reason: choice.finish_reason,
+						})),
+				};
+				if (!hold(JSON.stringify(terminal))) return;
+				if (
+					choices.some(
+						(choice) => Object.keys((choice.delta ?? {}) as AnyRec).length > 0,
+					)
+				) {
+					const live = {
+						...parsed,
+						choices: choices.map((choice) => ({
+							...choice,
+							finish_reason: null,
+						})),
+					};
+					delete live.usage;
+					c.enqueue(encoder.encode(frame(JSON.stringify(live))));
+				}
+				return;
+			}
 			// completed() covers the named terminals AND the eventless
 			// type:message_stop / type:response.completed frames — one
 			// verdict for every framing.
 			if (guard.completed()) {
 				const kind = guard.failureKind();
 				if (kind !== null && EMPTY_STREAM_KINDS.includes(kind)) {
+					terminals = [];
 					rejectEmpty(c, kind);
 					return;
 				}
+				for (const terminal of terminals) c.enqueue(encoder.encode(terminal));
+				terminals = [];
+				terminalBytes = 0;
 			}
 		}
 		c.enqueue(

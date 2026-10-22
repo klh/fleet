@@ -12,6 +12,11 @@ import { envInt } from "./admission.ts";
 import { EXTERNAL, type Specialist } from "./registry.ts";
 import { anthropicMessagesToOpenAi } from "./router-tools.ts";
 import { childTraceparent } from "../../telemetry/src/http-trace.ts";
+import {
+	emptyStreamError,
+	StreamSemantics,
+} from "../../buckle/src/stream-semantics.ts";
+import { upstreamErrorDetail } from "../../buckle/src/error-detail.ts";
 
 // ─── 7-dimension complexity scoring (LiteLLM Auto Router pattern) ───
 export interface ComplexityScore {
@@ -931,6 +936,7 @@ export function anthropicSseFromText(
 }
 
 interface OpenAiChunk {
+	error?: unknown;
 	choices?: Array<{
 		delta?: {
 			content?: string | null;
@@ -961,9 +967,11 @@ export function anthropicSseFromOpenAi(
 	const enc = new TextEncoder();
 	const dec = new TextDecoder();
 	const filter = thinkFilter();
+	const semantics = new StreamSemantics();
 	let buf = "";
 	let chars = 0;
 	let finish: string | undefined;
+	let sourceFailure: string | undefined;
 	let outTokens = 0;
 	let finished = false;
 	let ttftAt: number | undefined;
@@ -994,6 +1002,7 @@ export function anthropicSseFromOpenAi(
 		onDone({ chars, finish, error, timings: timings ?? composeTimings() });
 	};
 	const handleLine = (line: string): string => {
+		if (sourceFailure) return "";
 		if (!line.startsWith("data:")) return "";
 		const data = line.slice(5).trim();
 		if (!data || data === "[DONE]") return "";
@@ -1003,6 +1012,23 @@ export function anthropicSseFromOpenAi(
 		} catch {
 			return "";
 		}
+		if (j.error != null) {
+			const error = upstreamErrorDetail(j);
+			sourceFailure = String(error.code ?? error.type);
+			return sseEvent("error", { type: "error", error });
+		}
+		// Count only text actually emitted after think-filtering; named tools
+		// and explicit reasoning fields still use the shared wire observer.
+		semantics.observe(
+			{
+				...j,
+				choices: j.choices?.map((choice) => ({
+					...choice,
+					delta: { ...choice.delta, content: null },
+				})),
+			},
+			"openai",
+		);
 		if (j.usage?.completion_tokens) outTokens = j.usage.completion_tokens;
 		const ch = j.choices?.[0];
 		if (ch?.finish_reason) finish = ch.finish_reason;
@@ -1067,6 +1093,7 @@ export function anthropicSseFromOpenAi(
 		if (textClosed) return ""; // text after tool blocks: dropped (wire order)
 		if (ttftAt === undefined) ttftAt = performance.now();
 		chars += text.length;
+		semantics.observe({ delta: { text } }, "anthropic");
 		return textDelta(text);
 	};
 	const reader = upstream.getReader();
@@ -1087,6 +1114,32 @@ export function anthropicSseFromOpenAi(
 						const { value, done: eof } = await reader.read();
 						if (eof) {
 							const timings = composeTimings();
+							const last = handleLine(buf);
+							if (sourceFailure) {
+								if (!clientGone) {
+									if (last) c.enqueue(enc.encode(last));
+									c.close();
+								}
+								done(sourceFailure, timings);
+								return;
+							}
+							const failure = semantics.failure();
+							if (failure) {
+								if (!clientGone) {
+									c.enqueue(
+										enc.encode(
+											last +
+												sseEvent("error", {
+													type: "error",
+													error: emptyStreamError(failure),
+												}),
+										),
+									);
+									c.close();
+								}
+								done(failure, timings);
+								return;
+							}
 							let tail = anthropicTail(finish, outTokens, timings);
 							if (toolAcc.size > 0) {
 								if (!textClosed)
@@ -1102,7 +1155,7 @@ export function anthropicSseFromOpenAi(
 										index: blockIndex,
 									}) + tail;
 							}
-							const out = handleLine(buf) + tail;
+							const out = last + tail;
 							if (!clientGone) {
 								c.enqueue(enc.encode(out));
 								c.close();
@@ -1115,6 +1168,12 @@ export function anthropicSseFromOpenAi(
 						buf = lines.pop() ?? "";
 						const out = lines.map(handleLine).join("");
 						if (out && !clientGone) c.enqueue(enc.encode(out));
+						if (sourceFailure) {
+							if (!clientGone) c.close();
+							done(sourceFailure);
+							await reader.cancel("upstream source error").catch(() => {});
+							return;
+						}
 					}
 				} catch (e) {
 					const msg = e instanceof Error ? e.message : String(e);
