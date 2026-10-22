@@ -18,15 +18,15 @@ Trace `1252d23afc55a8d355f44b8bb231d6f2`: one client request produced
 three provider attempts (15:06:34.181, 36.393, 38.718 — ~2.2 s apart,
 matching `retryDelayS` 2^1 + jitter) and then a client 499. The chain:
 
-1. `walkSelected` (packages/buckle/src/router.ts:942) walks every
+1. `walkSelected` (packages/buckle/src/router.ts:1067) walks every
    `sel.ordered` row; the flash selection carries two same-account
    terminal rows.
 2. Each row runs `attemptTier` with a single candidate
-   (router.ts:994/1002); the loop takes `num_retries + 1` attempts
-   (router.ts:597) and a rate-limited outcome under `retry_after_cap_s`
-   re-books the SAME row as `pendingRetry` (router.ts:773-784).
+   (router.ts:1119/1127); the loop takes `num_retries + 1` attempts
+   (router.ts:661) and a rate-limited outcome under `retry_after_cap_s`
+   re-books the SAME row as `pendingRetry` (router.ts:899-906).
 3. Hub policy was the repo default `num_retries: 1`
-   (packages/buckle/src/policy.ts:141) → one row = up to 2 provider
+   (packages/buckle/src/policy.ts:144) → one row = up to 2 provider
    hits; two rows = up to 4 per admitted request. Observed 3, then the
    client walked away (499).
 4. Feedback is row-keyed: `Cooldowns` keys `group|url`
@@ -45,15 +45,19 @@ litellm is attempt-neutral on both egresses (`num_retries 0`,
   account attempts; the actual provider 429 path is downstream of it.
 - Hub (NAS buckle :4101): rendered `upstreams.hub.yaml` binds NO
   `provider_pool`, so W1078's fail-closed rule means NO admission core
-  exists at the real account egress (router.ts:330-335).
+  exists at the real account egress (router.ts:330-345).
 - The same CodingPlan account is reachable from two egresses (NAS
   litellm for hub lanes, Mac litellm :4100 for local fallback) with no
   shared state — the provider sees the sum; neither side paces it.
 
 ## Remedy contract (config-first; no new admission implementation)
 
-New adaptive admission design is owned by the decision reviewer
-(W1124.19), not this item. The evidence-backed minimum:
+The adaptive shared pacing this contract called for LANDED in the
+9a67fdb2 release: `ProviderAdmissionCore` now bends a per-pool adaptive
+start gap from real 429 feedback (leases carry
+`feedback(status, retryAfterS)` —
+packages/buckle/src/provider-admission-core.ts:41-75), deployed at 50
+concurrent / 50 starts per 1000 ms. The evidence-backed minimum remains:
 
 1. **One admitted attempt = one provider attempt** at the hub: rendered
    hub policy `num_retries: 0` plus one terminal row per alias (dedupe
@@ -64,12 +68,12 @@ New adaptive admission design is owned by the decision reviewer
 2. **Bind the account at its authoritative egress**: `provider_pool` on
    the hub's Zai rows + `gateway.provider_pools` in the hub gateway
    policy — W1078 `ProviderAdmissionCore`
-   (packages/buckle/src/provider-admission-core.ts:18), operator-owned
+   (packages/buckle/src/provider-admission-core.ts:53), operator-owned
    numbers, fail-closed. Do NOT add a second independent queue
    pretending shared state.
 3. **Account-faithful bench for free**: with one row per account, the
    row-keyed bench becomes account-faithful; W1077 probe-before-skip
-   (router.ts:985-999) re-admits a live row fast.
+   (router.ts:1111) re-admits a live row fast.
 4. **Single authoritative account egress** (operator decision): local
    cloud fallback rides the hub's admitted egress, or accounts split per
    egress. Needed before any ramp past ~20.
@@ -80,7 +84,7 @@ No bypass, no hardcoded exclusion — pacing and admission only.
 
 1. `hubctl render/push/up/status <hub>`; canary hub first.
 2. Probes: `x-klh-provider-pool` + `x-klh-provider-queue-wait-ms`
-   (router.ts:404-410) prove the pool served and separate queue dwell
+   (router.ts:442) prove the pool served and separate queue dwell
    from provider latency; hop receipts show ≤ 1 attempt per request at
    the account hop.
 3. Acceptance: hub top-100 zero upstream-429 at steady state; 503s only
