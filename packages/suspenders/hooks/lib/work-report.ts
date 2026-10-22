@@ -8,6 +8,7 @@
 // metrics render as UNKNOWN (—), never a measured 0 (W1131 §5).
 
 import type { Database } from "bun:sqlite";
+import Table from "cli-table3";
 import {
 	type GroupSpend,
 	type ItemAttribution,
