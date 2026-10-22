@@ -31,8 +31,14 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 		emit({ type: "result", subtype: "success", result: "CHECKPOINTED", pid: process.pid });
 	} else if (text.includes("FLEET_MANAGED_RESUME:")) {
 		call(["resumed"]);
-		emit({ type: "result", subtype: "success", result: "RESUMED", pid: process.pid, session_id: "pause-native-session" });
-	} else {
+		const finish = () => emit({ type: "result", subtype: "success", result: "RESUMED", pid: process.pid, session_id: "pause-native-session" });
+ if(process.env.SUSPENDERS_FIXTURE_RESUME_ACTIVE === "1") {
+ emit({type:"fleet.fixture.resume",state:"active",pid:process.pid});
+ timer=setTimeout(finish,2000);
+ } else finish();
+	} else if(process.env.SUSPENDERS_FIXTURE_RESUME_ACTIVE === "1") {
+ emit({type:"result",subtype:"success",result:"DIRECT_DELIVERED",pid:process.pid});
+ } else {
 		emit({ type: "result", result: "UNEXPECTED_NORMAL_WORK" });
 	}
 });
