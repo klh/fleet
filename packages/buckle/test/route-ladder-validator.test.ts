@@ -507,3 +507,22 @@ test("an engine row serving a different family than its group name asserts misma
 		}),
 	);
 });
+
+test("a fallback rung may cross families without a mismatch finding", () => {
+	const result = validateRouteLadders({
+		buckles: [
+			{
+				id: "local",
+				origins: ["http://127.0.0.1:4101"],
+				policy: { ...policy, fallbacks: { "gpt-6-sol": ["glm-relay"] } },
+				pool: pool({
+					"gpt-6-sol": [{ url: "https://provider.example/v1" }],
+					"glm-relay": [
+						{ url: "https://other.example/v1", model: "zai-glm-5.3-flash" },
+					],
+				}),
+			},
+		],
+	});
+	expect(result.errors).toEqual([]);
+});
