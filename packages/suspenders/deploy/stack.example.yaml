@@ -106,6 +106,18 @@ hubs:
     buckle_prefs:
       allow_cloud: false # true only where the operator wants hub cloud egress
       cost_speed: balanced # balanced | cost | speed | quality
+    # W1097: managed ssh tunnel — the trusted transport THIS device uses to
+    # read the hub's trace receipts (hubctl trace-tunnel nas up|status|down|
+    # peer). The hub gate is plain HTTP on the LAN and the TLS front carries
+    # an untrusted cert: never point the connector at the hub directly. The
+    # read key rides the ssh channel; the connector fetches loopback only.
+    # listen_port is on THIS device (1024-65535); target_port defaults to
+    # buckle_port; read_key is a 0600 read key PATH on this device, minted
+    # ON the hub — values never live in config.
+    # trace_tunnel:
+    #   listen_port: 14101
+    #   # target_port: 4101 # default = buckle_port
+    #   read_key: /path/on/this/device/nas-trace-read.key
     # W854 mDNS advertisement (_klh-hub._tcp) — all knobs optional;
     # undeclared = the compose template defaults (port ← buckle_port,
     # addr auto-detects the primary LAN IPv4, hostname = normalized label).

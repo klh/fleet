@@ -63,6 +63,7 @@ import {
 	verifyKeyFile,
 	type ServiceKeyRunner,
 } from "./service-key.ts";
+import { traceTunnelVerb } from "./trace-tunnel.ts";
 
 import {
 	buildRelease,
@@ -928,7 +929,9 @@ function main(): void {
 				"       (no expiry, --out keyfile at 0600, metadata only on stdout) for\n" +
 				"       spoke/persistent links; verify-key checks a\n" +
 				"       configured cross-hub key and fails on expired/revoked with the\n" +
-				"       hub's actual code",
+				"       hub's actual code; trace-tunnel <hub> up|status|down|peer runs\n" +
+				"       the W1097 managed ssh tunnel for the bounded trace connector\n" +
+				"       (hubs.<label>.trace_tunnel in stack.yaml)",
 		);
 		process.exit(hubName ? 0 : 2);
 	}
@@ -1012,9 +1015,14 @@ function main(): void {
 			);
 			return;
 		}
+		case "trace-tunnel":
+			// the verb owns its exit codes (0 ok · 1 failed · 2 usage) and
+			// process.exit()s on every path — never returns here
+			void traceTunnelVerb(hub, hubName, flags);
+			return;
 		default:
 			console.log(
-				`hubctl: unknown verb "${verb}" — render|mint|push|up|status|deploy|reload-upstreams|manifest|exec|mint-lane-key|mint-service-key|verify-key`,
+				`hubctl: unknown verb "${verb}" — render|mint|push|up|status|deploy|reload-upstreams|manifest|exec|mint-lane-key|mint-service-key|verify-key|trace-tunnel`,
 			);
 			process.exit(2);
 	}
