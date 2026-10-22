@@ -1,22 +1,13 @@
-import { expect, test } from "@playwright/test";
-import { type Board, startBoard } from "./harness";
-
-let board: Board | null = null;
-
-test.beforeAll(async () => {
-	board = await startBoard("activity-histogram");
-	board.workOk(["add", "Activity histogram sample"], "add work event");
-});
-
-test.afterAll(async () => {
-	if (board) await board.stop();
-});
+// W1136: rides the shared fixtures — cleanBoard (fresh world per test) +
+// the auto pageWatcher; the beforeAll(startBoard) copy is gone.
+import { expect, test } from "./fixtures";
 
 test("activity bars show counts and filter the event feed", async ({
 	page,
+	cleanBoard,
 }) => {
-	if (!board) throw new Error("board not started");
-	await page.goto(`${board.BASE}/#activity`);
+	cleanBoard.workOk(["add", "Activity histogram sample"], "add work event");
+	await page.goto(`${cleanBoard.BASE}/#activity`);
 	const bars = page.locator("#actHist .acthist-bar");
 	await expect(bars).toHaveCount(24);
 	await expect(page.locator("#actHist")).toContainText("events");

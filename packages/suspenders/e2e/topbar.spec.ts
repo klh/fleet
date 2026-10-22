@@ -3,77 +3,24 @@
 // owns the console bar in shadow DOM: avatar dropdown (me via /api/console/me),
 // settings gear (theme radios on window.klhTheme), and the light-DOM fleet
 // strip that every page wears above it. Screenshots land in /tmp/w658-shots.
+// W1136: rides the shared fixtures — worker board + the auto pageWatcher
+// (the local watch() copy is gone); the beforeAll(startBoard) copy is gone
+// and the six-surface nav walk is parameterized into its own tests.
 import { mkdirSync } from "node:fs";
-import { expect, type Page, test } from "@playwright/test";
-import { type Board, startBoard } from "./harness";
-
-test.describe.configure({ mode: "serial" });
+import type { Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 const SHOTS = "/tmp/w658-shots";
-
-let board: Board | null = null;
-
-test.beforeAll(async () => {
-	mkdirSync(SHOTS, { recursive: true });
-	board = await startBoard("topbar");
-});
-
-test.afterAll(async () => {
-	if (board) await board.stop();
-});
-
-function mustBoard(): Board {
-	if (board === null) throw new Error("board not started");
-	return board;
-}
-
-/** Render-and-look guards: an uncaught page exception or a console error is
- *  a GUI defect, not test noise — collect and assert empty at each test end.
- *  The W775.1 ent-zone probes /api/entitlements + /api/enterprise at connect
- *  and polls them for the life of the page — provider-less those answer the
- *  DESIGNED honest 501 (the GUI probe keys on the status), so the
- *  resource-load console noise those two endpoints provoke is exempted, with
- *  the response listener proving every 501 is one of them. */
-function watch(page: Page): { clean(): void } {
-	const pageErrors: string[] = [];
-	const consoleErrors: string[] = [];
-	const entProbe = /\/api\/(entitlements|enterprise)(\?|$)/;
-	const seen501: string[] = [];
-	page.on("response", (r) => {
-		if (r.status() === 501) seen501.push(r.url());
-	});
-	page.on("pageerror", (e) => pageErrors.push(String(e)));
-	page.on("console", (m) => {
-		if (m.type() === "error") consoleErrors.push(m.text());
-	});
-	return {
-		clean(): void {
-			expect(pageErrors, "uncaught page exceptions").toEqual([]);
-			const rogue = consoleErrors.filter(
-				(t) =>
-					!(
-						t.includes("status of 501") && seen501.some((u) => entProbe.test(u))
-					),
-			);
-			expect(rogue, "console errors (ent-zone 501 noise exempted)").toEqual([]);
-			expect(
-				seen501.filter((u) => !entProbe.test(u)),
-				"501s outside the ent-zone probe endpoints",
-			).toEqual([]);
-		},
-	};
-}
+mkdirSync(SHOTS, { recursive: true });
 
 const bar = (page: Page) => page.locator("klh-topbar");
 
 test("klh-topbar upgrades on the board, belt console and usage page", async ({
 	page,
+	board,
 }) => {
-	const B = mustBoard();
-	const look = watch(page);
-
 	// board (/) — fetch path: avatar shows "?" until /api/console/me lands
-	await page.goto(`${B.BASE}/`);
+	await page.goto(`${board.BASE}/`);
 	await expect(bar(page)).toBeVisible();
 	const strip = page.locator("nav.klh-fleetnav");
 	await expect(strip).toBeVisible();
@@ -98,27 +45,24 @@ test("klh-topbar upgrades on the board, belt console and usage page", async ({
 	await expect(avatar).toBeFocused();
 
 	// belt console — server-rendered me attr rides the same component
-	await page.goto(`${B.BASE}/console/buckle`);
+	await page.goto(`${board.BASE}/console/buckle`);
 	await expect(bar(page).locator(".cavbtn")).toBeVisible();
 	await expect(page.locator("h1.ptitle")).toHaveText("Belt gateway");
 	await page.screenshot({ path: `${SHOTS}/2-belt.png`, fullPage: true });
 
 	// usage — no me attr, the component fetches again
-	await page.goto(`${B.BASE}/usage`);
+	await page.goto(`${board.BASE}/usage`);
 	await expect(bar(page).locator(".cavbtn")).toBeVisible();
 	await expect(page.locator("h1.utitle")).toHaveText("USAGE");
 	await page.screenshot({ path: `${SHOTS}/3-usage.png`, fullPage: true });
-
-	look.clean();
 });
 
 test("settings gear: theme radios flip data-theme on the document", async ({
 	page,
+	board,
 }) => {
-	const B = mustBoard();
-	const look = watch(page);
 	// the settings link is slotted only on console pages — drive there
-	await page.goto(`${B.BASE}/console/buckle`);
+	await page.goto(`${board.BASE}/console/buckle`);
 	await expect(bar(page)).toBeVisible();
 	const gear = bar(page).locator(".klh-settings > summary");
 	await gear.click();
@@ -135,7 +79,6 @@ test("settings gear: theme radios flip data-theme on the document", async ({
 	await page.screenshot({ path: `${SHOTS}/4-settings-light.png` });
 	await panel.getByRole("radio", { name: "system" }).check();
 	await gear.click();
-	look.clean();
 });
 
 // W858.3: the fleet strip is ONE navigation for belt / gateway / local /
@@ -151,20 +94,23 @@ const NAV_VIEWS = [
 	"Settings",
 ] as const;
 
-test("W858.3: the fleet strip unifies belt, gateway, local, hub and settings on every surface", async ({
-	page,
-}) => {
-	const B = mustBoard();
-	const look = watch(page);
-	for (const [path, current] of [
-		["/", "Workflows"],
-		["/console/buckle", "Gateway"],
-		["/console/local", "Services"],
-		["/console/hub", "Hub"],
-		["/console/settings", "Settings"],
-		["/#usage", "Workflows"],
-	] as const) {
-		await page.goto(`${B.BASE}${path}`);
+// one minted test per surface (W1136: the old spec walked all six in a
+// single test with a manual for-loop over path/current pairs)
+const SURFACES = [
+	["/", "Workflows"],
+	["/console/buckle", "Gateway"],
+	["/console/local", "Services"],
+	["/console/hub", "Hub"],
+	["/console/settings", "Settings"],
+	["/#usage", "Workflows"],
+] as const;
+
+for (const [path, current] of SURFACES) {
+	test(`W858.3: the fleet strip unifies the nav on ${path}`, async ({
+		page,
+		board,
+	}) => {
+		await page.goto(`${board.BASE}${path}`);
 		const strip = page.locator("nav.klh-fleetnav");
 		await expect(strip).toBeVisible();
 		for (const label of NAV_VIEWS)
@@ -176,9 +122,15 @@ test("W858.3: the fleet strip unifies belt, gateway, local, hub and settings on 
 				await expect(link).toHaveAttribute("aria-current", "page");
 			else await expect(link).not.toHaveAttribute("aria-current");
 		}
-	}
+	});
+}
+
+test("W858.3: strip hrefs and the board gear panel carry console-settings (slot parity)", async ({
+	page,
+	board,
+}) => {
 	// Hub → /console/hub, Settings → /console/settings (board = relative hrefs)
-	await page.goto(`${B.BASE}/`);
+	await page.goto(`${board.BASE}/`);
 	const strip = page.locator("nav.klh-fleetnav");
 	await expect(strip.getByRole("link", { name: "Hub" })).toHaveAttribute(
 		"href",
@@ -194,5 +146,4 @@ test("W858.3: the fleet strip unifies belt, gateway, local, hub and settings on 
 		bar(page).getByRole("link", { name: /all console settings/ }),
 	).toBeVisible();
 	await page.screenshot({ path: `${SHOTS}/5-w8583-strip.png` });
-	look.clean();
 });

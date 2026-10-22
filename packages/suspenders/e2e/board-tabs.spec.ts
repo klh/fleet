@@ -2,32 +2,15 @@
 // <klh-board-tabs> Lit component. Click → tab-select → setTab flips the
 // aria-current marker, the visible section and location.hash; a hash
 // deep-link lands on the right tab; Usage stays inside the board shell.
-import { expect, test } from "@playwright/test";
-import { type Board, startBoard } from "./harness";
-
-test.describe.configure({ mode: "serial" });
-
-let board: Board | null = null;
-
-test.beforeAll(async () => {
-	board = await startBoard("board-tabs");
-});
-
-test.afterAll(async () => {
-	if (board) await board.stop();
-});
-
-function mustBoard(): Board {
-	if (board === null) throw new Error("board not started");
-	return board;
-}
+// W1136: rides the shared fixtures — worker board + the auto pageWatcher;
+// the beforeAll(startBoard) copy is gone.
+import { expect, test } from "./fixtures";
 
 test("tabs component drives sections, hash and aria-current", async ({
 	page,
+	board,
 }) => {
-	const errors: string[] = [];
-	page.on("pageerror", (e) => errors.push(String(e)));
-	await page.goto(`${mustBoard().BASE}/`);
+	await page.goto(`${board.BASE}/`);
 	const tabs = page.locator("klh-board-tabs");
 	await expect(tabs).toBeVisible();
 	await expect(tabs.getByRole("button")).toHaveCount(7);
@@ -46,7 +29,7 @@ test("tabs component drives sections, hash and aria-current", async ({
 	await page.goBack();
 	await expect(cur).toHaveText("Decisions");
 
-	await page.goto(`${mustBoard().BASE}/#setup`);
+	await page.goto(`${board.BASE}/#setup`);
 	await expect(page.locator("klh-board-tabs button[aria-current]")).toHaveText(
 		"Setup",
 	);
@@ -59,13 +42,13 @@ test("tabs component drives sections, hash and aria-current", async ({
 	await expect(page.locator("#tab-usage .uplot").first()).toBeVisible();
 	await page.goBack();
 	await expect(page.locator("#tab-setup")).toBeVisible();
-	expect(errors, "uncaught page exceptions").toEqual([]);
 });
 
 test("Usage filters and old links preserve the board shell", async ({
 	page,
+	board,
 }) => {
-	await page.goto(`${mustBoard().BASE}/#setup`);
+	await page.goto(`${board.BASE}/#setup`);
 	const shell = page.locator("klh-topbar");
 	await page
 		.locator("klh-board-tabs")
@@ -83,15 +66,16 @@ test("Usage filters and old links preserve the board shell", async ({
 	await expect(shell).toBeVisible();
 	await page.goBack();
 	await expect(page).toHaveURL(/#usage$/);
-	await page.goto(`${mustBoard().BASE}/usage?days=7&team=platform#cache`);
+	await page.goto(`${board.BASE}/usage?days=7&team=platform#cache`);
 	await expect(page).toHaveURL(/#usage\?days=7&team=platform&section=cache$/);
 	await expect(page.locator("#tab-usage")).toBeVisible();
 });
 
 test("changing sections starts at the header after a deep scroll", async ({
 	page,
+	board,
 }) => {
-	await page.goto(`${mustBoard().BASE}/#lanes`);
+	await page.goto(`${board.BASE}/#lanes`);
 	await page.evaluate(() => {
 		const filler = document.createElement("div");
 		filler.style.height = "2400px";
@@ -110,9 +94,10 @@ test("changing sections starts at the header after a deep scroll", async ({
 
 test("lane status rail reaches offscreen columns by mouse and keyboard", async ({
 	page,
+	board,
 }) => {
 	await page.setViewportSize({ width: 960, height: 700 });
-	await page.goto(`${mustBoard().BASE}/#lanes`);
+	await page.goto(`${board.BASE}/#lanes`);
 	const rail = page.locator("#kstatusnav");
 	await expect(rail.getByRole("button")).toHaveCount(7);
 	const wrap = page.locator(".kwrap");
@@ -130,6 +115,7 @@ test("lane status rail reaches offscreen columns by mouse and keyboard", async (
 
 test("task rows start compact and identify an unnamed owner by model", async ({
 	page,
+	board,
 }) => {
 	const sid = "01a15006-3fc1-76e1-abe1-af8a11d44426";
 	await page.route("**/api/tasks?**", async (route) => {
@@ -165,7 +151,7 @@ test("task rows start compact and identify an unnamed owner by model", async ({
 		});
 		await route.fulfill({ response, json: payload });
 	});
-	await page.goto(`${mustBoard().BASE}/#tasks`);
+	await page.goto(`${board.BASE}/#tasks`);
 	const row = page.locator('tr[data-tid="W9999"]');
 	await expect(row).toBeVisible();
 	await expect(row.locator(".taskowner")).toContainText("glm-5.3-flash");

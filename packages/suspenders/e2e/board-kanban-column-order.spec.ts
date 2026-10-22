@@ -2,23 +2,12 @@
 // ready → waiting → working → blocked → failed → done → cancelled at
 // desktop width and on a narrow screen; the kstatusnav jump buttons
 // follow the same order (keyboard order = column order).
-import { expect, test } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
-
-let board: Board | null = null;
-
-test.beforeAll(async () => {
-	board = await startBoard("board-kanban-column-order");
-});
-
-test.afterAll(async () => {
-	if (board) await board.stop();
-});
-
-function mustBoard(): Board {
-	if (board === null) throw new Error("board not started");
-	return board;
-}
+// W1136: rides the shared fixtures — worker board + the auto pageWatcher;
+// the beforeAll(startBoard) copy is gone, and the desktop/narrow viewport
+// split is the projects matrix (chromium-desktop / chromium-narrow) instead
+// of a manual setViewportSize call.
+import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
 
 const ORDER = [
 	"ready",
@@ -30,7 +19,7 @@ const ORDER = [
 	"cancelled",
 ];
 
-async function assertOrder(page: import("@playwright/test").Page) {
+async function assertOrder(page: Page) {
 	const labels = await page.locator(".kanban .kcol h3").allInnerTexts();
 	expect(
 		labels.map((l) =>
@@ -51,15 +40,28 @@ async function assertOrder(page: import("@playwright/test").Page) {
 	).toEqual(ORDER);
 }
 
-test("column order holds at desktop width and on a narrow screen", async ({
+test("column order holds at desktop width", async ({
 	page,
-}) => {
-	await page.setViewportSize({ width: 1440, height: 900 });
-	await page.goto(`${mustBoard().BASE}/#lanes`);
+	board,
+}, testInfo) => {
+	test.skip(
+		testInfo.project.name !== "chromium-desktop",
+		"desktop project runs the desktop-width assertion",
+	);
+	await page.goto(`${board.BASE}/#lanes`);
 	await expect(page.locator(".kanban .kcol")).toHaveCount(ORDER.length);
 	await assertOrder(page);
+});
 
-	await page.setViewportSize({ width: 420, height: 800 });
+test("column order holds on a narrow screen", async ({
+	page,
+	board,
+}, testInfo) => {
+	test.skip(
+		testInfo.project.name !== "chromium-narrow",
+		"narrow project runs the narrow-screen assertion",
+	);
+	await page.goto(`${board.BASE}/#lanes`);
 	await expect(page.locator(".kanban .kcol")).toHaveCount(ORDER.length);
 	await assertOrder(page);
 });

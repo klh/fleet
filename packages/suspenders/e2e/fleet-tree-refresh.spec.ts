@@ -8,21 +8,18 @@
 // Rides realDeps env knobs
 // (SUSPENDERS_LLM_HOME, SUSPENDERS_LOCAL_REGISTRY) + the module singleton,
 // so the spec exercises the exact wire surface a human sees.
-import {
-	chromium,
-	expect,
-	test,
-	type Browser,
-	type Page,
-} from "@playwright/test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+// W1136: rides the shared fixtures — the page fixture replaces the
+// hand-launched chromium (each test navigates its own page), and the auto
+// pageWatcher guards every navigation. Still serial: the lane/registry
+// lifecycle below is stateful.
+import { expect, test } from "./fixtures";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { handleFleetTree } from "../hooks/board/routes-fleet-tree.ts";
 
-let browser: Browser;
-let page: Page;
-let HOME: string;
+let BASE = "";
+let HOME = "";
 const stops: { stop: () => void }[] = [];
 
 // dead port: bind, read the OS-picked port, release
@@ -93,7 +90,12 @@ const guarded = Bun.serve({
 			? Response.json({
 					router: { port: LANE },
 					entries: [
-						{ alias: "vault-coder", label: "vault coder", port: LANE, tier: "coder" },
+						{
+							alias: "vault-coder",
+							label: "vault coder",
+							port: LANE,
+							tier: "coder",
+						},
 					],
 				})
 			: new Response("denied", { status: 401 });
@@ -161,22 +163,17 @@ test.beforeAll(async () => {
 		},
 	});
 
-	browser = await chromium.launch();
-	const ctx = await browser.newContext();
-	page = await ctx.newPage();
-	await page.goto(`http://127.0.0.1:${board.port}/fleet-tree`);
-	await expect(page.locator("#tree")).toContainText("nas");
+	BASE = `http://127.0.0.1:${String(board.port)}`;
 });
 
 function rmHome() {
-	// deferred on purpose: HOME teardown after browser close, best-effort
+	// deferred on purpose: HOME teardown after all servers stop, best-effort
 	try {
-		require("node:fs").rmSync(HOME, { recursive: true, force: true });
+		rmSync(HOME, { recursive: true, force: true });
 	} catch {}
 }
 
 test.afterAll(async () => {
-	await browser?.close();
 	for (const s of stops.reverse()) s.stop();
 });
 
@@ -196,7 +193,10 @@ const refresh = async () => {
 	await expect(page.locator("#refresh")).toBeEnabled();
 };
 
-test("startup renders live hub, protected hub, dead hub and simulation root", async () => {
+test("startup renders live hub, protected hub, dead hub and simulation root", async ({
+	page,
+}) => {
+	await page.goto(`${BASE}/fleet-tree`);
 	const t = await page.locator("#tree").innerText();
 	expect(t).toContain("nas");
 	expect(t).toContain("discovery: available");
@@ -212,7 +212,10 @@ test("startup renders live hub, protected hub, dead hub and simulation root", as
 	});
 });
 
-test("W565 demo roots stay namespaced and unprobed leaves stay neutral", async () => {
+test("W565 demo roots stay namespaced and unprobed leaves stay neutral", async ({
+	page,
+}) => {
+	await page.goto(`${BASE}/fleet-tree`);
 	const t = await page.locator("#tree").innerText();
 	expect(t).toContain("nas (demo)");
 	// DOM-level namespace: one live "nas" rootlabel, demo doubles carry
@@ -237,11 +240,14 @@ test("W565 demo roots stay namespaced and unprobed leaves stay neutral", async (
 	expect(await leafClass("coder :")).toContain("up");
 	await page.screenshot({
 		path: "e2e/test-results/w565-demo-namespace.png",
-	fullPage: true,
+		fullPage: true,
 	});
 });
 
-test("W569 authorized discovery renders authorized, denied and unknown hubs", async () => {
+test("W569 authorized discovery renders authorized, denied and unknown hubs", async ({
+	page,
+}) => {
+	await page.goto(`${BASE}/fleet-tree`);
 	await refresh();
 	const t = await page.locator("#tree").innerText();
 	expect(seenAuth).toContain("Bearer bksk_e2e_good");
@@ -257,7 +263,10 @@ test("W569 authorized discovery renders authorized, denied and unknown hubs", as
 	});
 });
 
-test("lane stop/start transition flips the leaf on the next sweep", async () => {
+test("lane stop/start transition flips the leaf on the next sweep", async ({
+	page,
+}) => {
+	await page.goto(`${BASE}/fleet-tree`);
 	laneSrv.stop(true);
 	await refresh();
 	expect(await leafClass("coder :")).toContain("downleaf");
@@ -278,7 +287,10 @@ test("lane stop/start transition flips the leaf on the next sweep", async () => 
 	});
 });
 
-test("inaccessible registry serves last-good snapshot with the stale badge", async () => {
+test("inaccessible registry serves last-good snapshot with the stale badge", async ({
+	page,
+}) => {
+	await page.goto(`${BASE}/fleet-tree`);
 	registry.stop(true);
 	nas.stop(true);
 	vault.stop(true);

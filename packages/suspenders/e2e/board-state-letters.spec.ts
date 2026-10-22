@@ -3,25 +3,11 @@
 // table pills and the fleet lanes rows both carry the .stl letter, and each
 // computed color resolves to the matching klh semantic token — never a
 // literal. Read against the shipped bytes; screenshots land in test-results.
-import { expect, test } from "@playwright/test";
-import { type Board, startBoard } from "./harness";
+// W1136: rides the shared fixtures — worker board (--demo pinned via
+// boardOptions) + the auto pageWatcher; the beforeAll(startBoard) copy is gone.
+import { expect, test } from "./fixtures";
 
-test.describe.configure({ mode: "serial" });
-
-let board: Board | null = null;
-
-test.beforeAll(async () => {
-	board = await startBoard("board-state-letters", { args: ["--demo"] });
-});
-
-test.afterAll(async () => {
-	if (board) await board.stop();
-});
-
-function mustBoard(): Board {
-	if (board === null) throw new Error("board not started");
-	return board;
-}
+test.use({ boardOptions: { args: ["--demo"] } });
 
 // token-resolved proof: the letter's computed color must equal the page's
 // own resolution of the semantic var — no hex literal in this spec
@@ -42,11 +28,11 @@ function hexToRgb(hex: string): string {
 
 test("tasks table: pills carry state letters in the semantic hues", async ({
 	page,
+	board,
 }) => {
-	const b = mustBoard();
 	// DONE rows are opt-in (taskShowDone) — surface them so the D letter renders
 	await page.addInitScript(() => localStorage.setItem("taskShowDone", "1"));
-	await page.goto(`${b.BASE}/#tasks`);
+	await page.goto(`${board.BASE}/#tasks`);
 	const table = page.locator("#tasksBody");
 	await expect(table.locator("tr").first()).toBeVisible();
 	// the letter leads every state pill
@@ -79,8 +65,9 @@ test("tasks table: pills carry state letters in the semantic hues", async ({
 
 test("board cards, columns and pills resolve state hues in both themes", async ({
 	page,
+	board,
 }) => {
-	await page.goto(`${mustBoard().BASE}/#lanes`);
+	await page.goto(`${board.BASE}/#lanes`);
 	await expect(page.locator('.kcard[data-tone="ready"]').first()).toBeVisible();
 	for (const theme of ["dark", "light"]) {
 		await page
@@ -111,9 +98,9 @@ test("board cards, columns and pills resolve state hues in both themes", async (
 
 test("tasks filters use the shared project scope and retain column sorting", async ({
 	page,
+	board,
 }) => {
-	const b = mustBoard();
-	await page.goto(`${b.BASE}/#tasks`);
+	await page.goto(`${board.BASE}/#tasks`);
 	await expect(page.locator("#proj")).toHaveCount(1);
 	await expect(page.locator("#taskProj")).toHaveCount(0);
 	const all = page.locator('#taskFocus [data-focus="all"]');
@@ -144,9 +131,9 @@ test("tasks filters use the shared project scope and retain column sorting", asy
 
 test("fleet lanes rows: the status word leads with its letter", async ({
 	page,
+	board,
 }) => {
-	const b = mustBoard();
-	await page.goto(`${b.BASE}/#governor`);
+	await page.goto(`${board.BASE}/#governor`);
 	// the fleet strip ships collapsed — expand before asserting rows
 	await page.click("#fleetHead");
 	const rows = page.locator(".fleetrow");

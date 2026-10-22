@@ -4,51 +4,19 @@
 // (UI law). Render-and-look against a real fleet-board.ts (scratch HOME —
 // policy missing, registry empty: the cards' degraded states are the
 // fixture). Screenshots land in /tmp/w66911-shots.
+// W1136: rides the shared fixtures — worker board + the auto pageWatcher
+// (the local watch() copy is gone); the beforeAll(startBoard) copy is gone.
 import { mkdirSync } from "node:fs";
-import { expect, test, type Page } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
-
-test.describe.configure({ mode: "serial" });
+import { expect, test } from "./fixtures";
 
 const SHOTS = "/tmp/w66911-shots";
 
-let board: Board | null = null;
-
-test.beforeAll(async () => {
-	mkdirSync(SHOTS, { recursive: true });
-	board = await startBoard("cards");
-});
-
-test.afterAll(async () => {
-	if (board) await board.stop();
-});
-
-function mustBoard(): Board {
-	if (board === null) throw new Error("board not started");
-	return board;
-}
-
-function watch(page: Page): { clean(): void } {
-	const pageErrors: string[] = [];
-	const consoleErrors: string[] = [];
-	page.on("pageerror", (e) => pageErrors.push(String(e)));
-	page.on("console", (m) => {
-		if (m.type() === "error") consoleErrors.push(m.text());
-	});
-	return {
-		clean(): void {
-			expect(pageErrors, "uncaught page exceptions").toEqual([]);
-			expect(consoleErrors, "console errors").toEqual([]);
-		},
-	};
-}
-
 test("belt console: policy + upstream-pool cards upgrade and render", async ({
 	page,
+	board,
 }) => {
-	const B = mustBoard();
-	const look = watch(page);
-	await page.goto(`${B.BASE}/console/buckle`);
+	mkdirSync(SHOTS, { recursive: true });
+	await page.goto(`${board.BASE}/console/buckle`);
 	const network = page.locator("klh-network-card");
 	const inventory = page.locator("details.consoleInventory");
 	await expect(network).toBeVisible();
@@ -73,15 +41,13 @@ test("belt console: policy + upstream-pool cards upgrade and render", async ({
 	// dormant groups ride the state column
 	await expect(pool.getByText("dormant")).toBeVisible();
 	await page.screenshot({ path: `${SHOTS}/belt-cards.png`, fullPage: true });
-	look.clean();
 });
 
 test("local page: registry card upgrades; settings: knobs + audit cards", async ({
 	page,
+	board,
 }) => {
-	const B = mustBoard();
-	const look = watch(page);
-	await page.goto(`${B.BASE}/console/local`);
+	await page.goto(`${board.BASE}/console/local`);
 	const inventory = page.locator("details.consoleInventory");
 	await expect(page.locator("klh-service-row").first()).toBeVisible();
 	await expect(inventory).not.toHaveAttribute("open", "");
@@ -115,5 +81,4 @@ test("local page: registry card upgrades; settings: knobs + audit cards", async 
 		path: `${SHOTS}/settings-cards.png`,
 		fullPage: true,
 	});
-	look.clean();
 });

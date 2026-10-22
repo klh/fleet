@@ -7,7 +7,8 @@
 import { expect } from "@playwright/test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface WorkResult {
 	code: number;
@@ -64,7 +65,12 @@ export async function startBoard(
 		SUSPENDERS_KEV_URL: "http://127.0.0.1:1",
 		...opts.env,
 	};
-	const bin = join(import.meta.dir, "..", "hooks", "bin");
+	const bin = join(
+		dirname(fileURLToPath(import.meta.url)),
+		"..",
+		"hooks",
+		"bin",
+	);
 	const BASE = `http://127.0.0.1:${String(PORT)}`;
 
 	function work(args: string[]): WorkResult {

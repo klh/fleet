@@ -1,30 +1,13 @@
 // Dependency details on cards without cross-column connector lines.
-import { expect, test } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
-
-test.describe.configure({ mode: "serial" });
-
-let board: Board | null = null;
-
-test.beforeAll(async () => {
-	board = await startBoard("board-splines");
-});
-
-test.afterAll(async () => {
-	if (board) await board.stop();
-});
-
-function mustBoard(): Board {
-	if (board === null) throw new Error("board not started");
-	return board;
-}
+// W1136: rides the shared fixtures — cleanBoard (fresh world per test) +
+// the auto pageWatcher; the beforeAll(startBoard) copy is gone.
+import { expect, test } from "./fixtures";
 
 test("blocked and split cards name their dependencies without connector lines", async ({
 	page,
+	cleanBoard,
 }) => {
-	const b = mustBoard();
-	const errors: string[] = [];
-	page.on("pageerror", (e) => errors.push(String(e)));
+	const b = cleanBoard;
 	const wA = b.mintedId(
 		b.workOk(["add", "spline root", "--scope", "spl-root"]),
 	);
@@ -47,7 +30,7 @@ test("blocked and split cards name their dependencies without connector lines", 
 		"split wP",
 	);
 
-	await page.goto(`${b.BASE}/`);
+	await page.goto(`${cleanBoard.BASE}/`);
 	const tabs = page.locator("klh-board-tabs");
 	await tabs.getByRole("button", { name: "Lanes" }).click();
 	await expect(page.locator("#tab-lanes")).toBeVisible();
@@ -70,5 +53,4 @@ test("blocked and split cards name their dependencies without connector lines", 
 	await expect(page.locator("#splinesLegend")).toHaveCount(0);
 
 	await page.screenshot({ path: "board-splines.png", fullPage: true });
-	expect(errors, "uncaught page exceptions").toEqual([]);
 });

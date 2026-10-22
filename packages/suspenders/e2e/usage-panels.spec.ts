@@ -4,7 +4,10 @@
 // builders' output plus the real /vendor bundles; chromium drives both
 // dashboards: hosts must upgrade, shadow content must paint, uPlot must
 // mount, and full-page screenshots land as evidence.
-import { expect, test } from "@playwright/test";
+// W1136: rides the shared fixtures — the auto pageWatcher guards every
+// navigation (no console-error/pageerror escape); the usage-server child
+// process stays (it serves the page builders directly, not a fleet-board).
+import { expect, test } from "./fixtures";
 import {
 	copyFileSync,
 	mkdtempSync,

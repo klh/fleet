@@ -2,10 +2,13 @@
 // corner tab — its outline must sit ON the card's top and left border, for
 // every state (the rule is shared), in both themes and at both a desktop and
 // a narrow viewport. Measured geometry (getBoundingClientRect), not strings.
-import { expect, test } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
-
-test.describe.configure({ mode: "serial" });
+// W1136: rides the shared fixtures — worker board + the auto pageWatcher;
+// the beforeAll(startBoard) copy is gone, and the desktop/narrow viewport
+// split is the projects matrix (chromium-desktop / chromium-narrow) instead
+// of manual setViewportSize calls.
+import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
+import type { Board } from "./harness";
 
 const STATES = [
 	"READY",
@@ -26,24 +29,9 @@ interface BadgeGeom {
 	alignSelf: string;
 }
 
-let board: Board | null = null;
-
-test.beforeAll(async () => {
-	board = await startBoard("board-status-badge");
-	board.workOk(["add", "badge alignment probe"], "mint a real item");
-});
-
-test.afterAll(async () => {
-	if (board) await board.stop();
-});
-
-function mustBoard(): Board {
-	if (board === null) throw new Error("board not started");
-	return board;
-}
-
 /** Inject one synthetic task per state, then measure every card's badge. */
-async function measure(page: import("@playwright/test").Page) {
+async function measure(page: Page, board: Board) {
+	board.workOk(["add", "badge alignment probe"], "mint a real item");
 	await page.route("**/api/tasks?**", async (route) => {
 		const response = await route.fetch();
 		const payload = (await response.json()) as {
@@ -108,20 +96,36 @@ function expectAligned(rows: BadgeGeom[]) {
 
 test("badge outline aligns with the card top-left border, all states", async ({
 	page,
-}) => {
-	await page.setViewportSize({ width: 1280, height: 800 });
-	expectAligned(await measure(page));
+	board,
+}, testInfo) => {
+	test.skip(
+		testInfo.project.name !== "chromium-desktop",
+		"desktop project runs the desktop-width assertion",
+	);
+	expectAligned(await measure(page, board));
 });
 
-test("alignment holds in the light theme", async ({ page }) => {
-	await page.setViewportSize({ width: 1280, height: 800 });
+test("alignment holds in the light theme", async ({
+	page,
+	board,
+}, testInfo) => {
+	test.skip(
+		testInfo.project.name !== "chromium-desktop",
+		"desktop project runs the theme assertion",
+	);
 	// pre-paint pref (theme.ts reads localStorage klh-theme before first render)
 	await page.addInitScript(() => localStorage.setItem("klh-theme", "light"));
-	expectAligned(await measure(page));
+	expectAligned(await measure(page, board));
 	await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 });
 
-test("alignment holds at a narrow viewport", async ({ page }) => {
-	await page.setViewportSize({ width: 480, height: 800 });
-	expectAligned(await measure(page));
+test("alignment holds at a narrow viewport", async ({
+	page,
+	board,
+}, testInfo) => {
+	test.skip(
+		testInfo.project.name !== "chromium-narrow",
+		"narrow project runs the narrow assertion",
+	);
+	expectAligned(await measure(page, board));
 });

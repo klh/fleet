@@ -17,7 +17,11 @@
 // and auth are the real hub surfaces). Everything else is the real
 // process: dispatch-next, work.ts, work-cr.ts, federation-pull.ts,
 // fleet-board.ts, and the served board page.
-import { expect, test, type Page } from "@playwright/test";
+// W1136: rides the shared fixtures — the auto pageWatcher replaces the
+// local watch() copy; the module-level hub world stays (it stands up a real
+// buckle boot + federation seam, far more than one board).
+import type { Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import {
 	existsSync,
 	mkdirSync,
@@ -28,7 +32,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startBoard, unusedPort, type Board } from "./harness";
+import { unusedPort } from "./harness";
 import { dispatchHarness } from "../test/helpers/dispatch-harness.ts";
 import { laneSid } from "../hooks/lib/laneslug.ts";
 import { projectIdentity } from "../hooks/lib/govdb.ts";
@@ -90,42 +94,7 @@ async function waitUp(base: string, what: string): Promise<void> {
 	throw new Error(`${what} did not start`);
 }
 
-/** Render-and-look guards, verbatim from hub-board.spec.ts (W353). */
-function watch(page: Page): { clean(): void } {
-	const pageErrors: string[] = [];
-	const consoleErrors: string[] = [];
-	// the W775.1 ent-zone probes /api/entitlements + /api/enterprise at
-	// connect and polls them for the life of the page — provider-less those
-	// answer the DESIGNED honest 501 (the GUI probe keys on the status), so
-	// the resource-load console noise those two endpoints provoke is
-	// exempted, with the response listener proving every 501 is one of them
-	const entProbe = /\/api\/(entitlements|enterprise)(\?|$)/;
-	const seen501: string[] = [];
-	page.on("response", (r) => {
-		if (r.status() === 501) seen501.push(r.url());
-	});
-	page.on("pageerror", (e) => pageErrors.push(String(e)));
-	page.on("console", (m) => {
-		if (m.type() === "error") consoleErrors.push(m.text());
-	});
-	return {
-		clean(): void {
-			expect(pageErrors, "uncaught page exceptions").toEqual([]);
-			const rogue = consoleErrors.filter(
-				(t) =>
-					!(
-						t.includes("status of 501") && seen501.some((u) => entProbe.test(u))
-					),
-			);
-			expect(rogue, "console errors (ent-zone 501 noise exempted)").toEqual([]);
-			expect(
-				seen501.filter((u) => !entProbe.test(u)),
-				"501s outside the ent-zone probe endpoints",
-			).toEqual([]);
-		},
-	};
-}
-
+/** Render-and-look guards ride the auto pageWatcher fixture (W1136). */
 async function openTasks(page: Page): Promise<void> {
 	await page.getByRole("button", { name: "Tasks" }).click();
 }
@@ -202,8 +171,8 @@ const hubProc = Bun.spawn(
 	void drain(hubProc.stderr);
 }
 
-// the HUB board (real fleet-board process, its own scratch graph)
-const hubBoard: Board = await startBoard("hub");
+// the HUB board is the fixtures.ts `board` (real fleet-board process, its
+// own scratch graph, per-worker) — the module-level startBoard copy is gone
 
 // the SPOKE world: scratch repo + HOME + stub executor (dispatch-harness)
 // (test.afterAll, not the bare bun:test hook — this file runs under the
@@ -240,7 +209,6 @@ test.afterAll(async () => {
 	await hubProc.exited;
 	upstream.stop(true);
 	rmSync(hubDir, { recursive: true, force: true });
-	await hubBoard.stop();
 });
 
 test.beforeAll(async () => {
@@ -252,9 +220,9 @@ test.beforeAll(async () => {
 
 test("all-up topology: dispatch → hub front → federation → board → reconcile → done returns", async ({
 	page,
+	board,
 }) => {
-	const H = hubBoard;
-	const look = watch(page);
+	const H = board;
 	mkdirSync(SHOTS, { recursive: true });
 
 	// LEG 1 — local dispatch: a real dispatch-next with hub pinning; the
@@ -518,6 +486,4 @@ test("all-up topology: dispatch → hub front → federation → board → recon
 	await expect(drawer).toContainText("work.done");
 	await expect(drawer).toContainText(SHA.slice(0, 7));
 	await page.screenshot({ path: `${SHOTS}/3-done.png`, fullPage: true });
-
-	look.clean();
 });

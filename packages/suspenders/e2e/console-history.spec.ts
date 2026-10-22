@@ -1,20 +1,11 @@
-import { expect, test } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
-
-let board: Board | null = null;
-
-test.beforeAll(async () => {
-	board = await startBoard("console-history");
-});
-
-test.afterAll(async () => {
-	if (board) await board.stop();
-});
+// W1136: rides the shared fixtures — worker board + the auto pageWatcher;
+// the beforeAll(startBoard) copy is gone.
+import { expect, test } from "./fixtures";
 
 test("hub tokens start with active rows and expose full history on demand", async ({
 	page,
+	board,
 }) => {
-	if (!board) throw new Error("board not started");
 	await page.goto(`${board.BASE}/console/hub`);
 	const admin = page.locator("klh-hub-admin");
 	await expect(admin).toBeVisible();
@@ -63,8 +54,8 @@ test("hub tokens start with active rows and expose full history on demand", asyn
 
 test("settings audit hides older entries and details until requested", async ({
 	page,
+	board,
 }) => {
-	if (!board) throw new Error("board not started");
 	await page.goto(`${board.BASE}/console/settings`);
 	const audit = page.locator("klh-audit-list");
 	await expect(audit).toBeVisible();
