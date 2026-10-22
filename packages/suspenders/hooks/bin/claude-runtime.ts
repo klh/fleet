@@ -6,8 +6,8 @@ import { createInterface } from "node:readline";
 import { ClaudeControl, claudeStreamArguments } from "../lib/claude-control.ts";
 import {
 	claudeLaneState,
-	claudePauseProof,
 	claudePausePrompt,
+	claudePauseProof,
 	claudeResumePrompt,
 	claudeWakeControl,
 } from "../lib/claude-pause.ts";
@@ -147,7 +147,9 @@ async function run(args: string[]): Promise<number> {
 			});
 			if (!text || closing) break;
 			const kind = claudeWakeControl(text);
-			if (pauseMode !== "running" && !kind) {
+			if ((pauseMode === "checkpointing" || pauseMode === "paused") && !kind) {
+				// Checkpointing and PAUSED remain silent. RESUMING is an active
+				// native turn, so direct messages use the ordinary proven interrupt.
 				// Keep the unproved claim: no busy-spin and no fake delivery. A
 				// subsequent resume has a higher event ID and wakes this watcher.
 				emit({
