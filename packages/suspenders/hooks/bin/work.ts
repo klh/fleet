@@ -16,6 +16,7 @@
 import type { Database } from "bun:sqlite";
 import { basename } from "node:path";
 import { automaticRecoveryCheck } from "../lib/automatic-recovery.ts";
+import { reconcileCompletion } from "../lib/work-completion-reconcile.ts";
 import { budgetFlagClear } from "../lib/budget-flag.ts";
 import { itemCapsuleKey } from "../lib/capsule-fence.ts";
 import { unmergedDeps, unmergedNote } from "../lib/dep-merge-gate.ts";
@@ -707,6 +708,10 @@ const dispatchVerb = async (
 		const json = flag("--json");
 		for (const id of idList(pos)) showOne(id, Boolean(json));
 		if (json) process.exit(0);
+	} else if (name === "reconcile-completion") {
+		console.log(
+			JSON.stringify(reconcileCompletion(db(), PROJECT, pos[0], rest)),
+		);
 	} else if (name === "take") {
 		const id = pos[0];
 		let as = flag("--as");
