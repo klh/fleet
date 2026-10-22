@@ -1,0 +1,796 @@
+<!DOCTYPE html><html lang="en"><head>
+    <meta charset="utf-8">
+    <title>Jepsen: Orkes Conductor 5.3.2</title>
+    <link rel="stylesheet" type="text/css" href="/css/reset.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0, target-densitydpi=device-dpi">
+    <link rel="stylesheet" type="text/css" href="/css/base.css">
+    <link rel="stylesheet" type="text/css" href="/css/grid.css">
+
+    <!-- Global site tag (gtag.js) - Google Analytics -->
+    <script async="" src="https://www.googletagmanager.com/gtag/js?id=G-B63PCPTL0V"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-B63PCPTL0V');
+    </script>
+  </head>
+
+  <body>
+    <div class="main">
+      <div class="bar">
+        <h1><a href="/">JEPSEN</a></h1>
+      </div>
+
+      <div id="nav"><nav><a href="/blog" class="">Blog</a><a href="/analyses" class="selected">Analyses</a><a href="/talks" class="">Talks</a><a href="/consistency" class="">Consistency</a><a href="/services" class="">Services</a></nav><nav><a href="/analyses/ethics" class="">Ethics</a></nav></div>
+
+      
+
+      <div class="content"><div class="title">
+  <a class="pdf" href="/analyses/orkes-conductor-5.3.2.pdf">
+    <img src="/images/file-pdf.svg" alt="PDF download" title="PDF download">
+  </a>
+
+      <h1 class="with-date title">Orkes Conductor 5.3.2</h1>
+    
+    <div class="sub">
+      <div class="author">
+        Kyle Kingsbury
+      </div>
+
+              <div class="date">2026-10-20</div>
+          </div>
+  </div>
+
+  <div class="abstract">
+    <p><a href="https://orkes.io/platform">Orkes Conductor</a> is a
+    workflow orchestration platform which runs user-defined tasks and
+    routes data between them. We tested Orkes Conductor versions 5.3.2
+    through 5.5.0-rc2 and found unexpectedly frequent concurrent
+    execution of individual tasks, one issue that could significantly
+    delay workflow execution, four minor issues with
+    <code>startWorkflow</code> errors or null IDs, and three serious
+    problems which caused Conductor to permanently abandon or forget
+    workflow executions, or to mark them completed even though their
+    tasks were never run. Orkes has released version 5.5.6 with patches
+    for all serious safety issues, as well as reducing concurrent
+    execution and fixing two <code>startWorkflow</code> errors. The
+    other two <code>startWorkflow</code> errors are under investigation.
+    Delayed execution is consistent with Conductor’s design parameters
+    and need not be addressed. Orkes has published <a href="https://orkes.io/blog/orkes-conductor-jepsen-testing">a
+    companion blog post</a> to this work. This research was funded by
+    Orkes Inc., and conducted in accordance with the <a href="https://jepsen.io/analyses/ethics">Jepsen ethics
+    policy</a>.</p>
+  </div>
+
+
+<article class="section group">
+  <div class="col span_12_of_12">
+<h1 data-number="1" id="background"><span class="header-section-number">1</span> Background</h1>
+<p>A <a href="https://github.com/resources/articles/what-is-workflow-orchestration">workflow
+orchestrator</a> is a software system which executes computations made
+up of small <em>tasks</em>. Tasks are connected in a <em>workflow</em>,
+which routes the outputs of some tasks to the inputs of others,
+determines which tasks may be scheduled and when, and so on. The
+orchestrator manages workflows and specific executions of them, runs
+their tasks, persists state, and tries to drive each execution to
+completion.</p>
+<p><a href="https://orkes.io/platform">Conductor</a> is a workflow
+system <a href="https://github.com/netflix/conductor">originally built
+by Netflix</a> and open sourced in 2016.<a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a> The
+open source version, <a href="https://github.com/conductor-oss/conductor">Conductor OSS</a>, is
+now maintained by the <a href="https://conductor-oss.org/">Conductor OSS
+Foundation</a>. This foundation is led by <a href="https://orkes.io/blog/differences-between-conductor-oss-vs-orkes-conductor">Orkes</a>,
+whose founders helped build Conductor at Netflix. Orkes also offers a <a href="https://orkes.io/platform">hosted version of Conductor</a> with
+additional features, called <em>Orkes Conductor</em>. This analysis
+focuses on Orkes Conductor, which we call <em>Conductor</em> for
+short.</p>
+<p>In Conductor, a <em>workflow definition</em> is a JSON structure that
+defines which tasks must be executed, their order, what their inputs and
+outputs should be, and so on. Each workflow definition is identified by
+a name and a version. For example, a workflow definition could specify
+that to adopt a cat, one must first complete an application, then
+schedule a vet visit, and receive vaccination records from the vet. A
+workflow may also accept an input (say, the name of the cat) and produce
+an output (like a certificate of adoption).</p>
+<p>A workflow definition may be run many times—say, once for each cat to
+be adopted. Each instance is called a <em>workflow execution</em>, but
+we often call an execution a “workflow” for short. Each execution is
+identified by a unique <em>workflow ID</em>. During an execution a task
+may also be attempted multiple times (e.g. in case of failure), and each
+attempt receives a unique <em>execution ID</em>.</p>
+<p>Some tasks are built into Conductor. Some are <em>system tasks</em>,
+like making HTTP requests or submitting events to a log like Kafka.
+Others are called <em>operators</em>—these provide control flow like
+conditionals, fork/join, loops, and so on. Operators may execute
+ECMAScript code to perform user-defined logic. Finally there are
+<em>worker tasks</em>, which are written by users to perform the
+“business logic” of the system.</p>
+<p>To start an execution of a workflow, one can make an API call to
+Conductor, submit an event through a message broker, or use Conductor’s
+built-in <code>cron</code>-style scheduler. Once acknowledged, Conductor
+schedules the workflow’s tasks and attempts to drive it to
+completion.</p>
+<h2 data-number="1.1" id="architecture"><span class="header-section-number">1.1</span> Architecture</h2>
+<p>Conductor <a href="https://orkes.io/academy/learn/56cf6301-6257-4bf3-8df8-513cc752a47d">has
+five major components</a>. Conductor servers are stateless processes
+which manage workflows and schedule execution. They provide an API and
+user interface, interact with external services, and track state. The
+definitions of workflows, the state of their executions and the results
+of tasks are stored in a database like Postgres, Cassandra, or Redis.
+Conductor also uses a queue—often Redis—to dispatch work to various
+processes, and to store short-lived state. Finally, there are two pools
+of stateless workers: standard workers which execute Conductor’s
+built-in tasks, and custom workers, which are written by users using <a href="https://github.com/conductor-oss#conductor-sdks">SDKs for various
+languages</a>. All workers <a href="https://orkes.io/content/conductor-architecture">connect to a
+Conductor server</a>, poll the server for tasks, execute them, and send
+results back to the server.</p>
+<p>Each component may be scaled independently. Any number of servers and
+workers can run concurrently, and nodes may be killed and restarted at
+any time. In version 5.3.2, the database and queue were both required to
+preserve all acknowledged writes. However, version 5.4.0 introduced a
+new option which enabled the use of a lossy storage system for all
+queues except for the main <em>decider queue</em>.</p>
+<h2 data-number="1.2" id="guarantees"><span class="header-section-number">1.2</span> Guarantees</h2>
+<p>Conductor guarantees <a href="https://orkes.io/content/error-handling#message-delivery-guarantees">“at
+least once message delivery”</a>, ensuring that all messages are
+persistent and will be delivered to task workers one or more times.
+Conductor also guarantees that workflows eventually terminate. “If a
+workflow has started, it will run to completion as long as all its tasks
+are completed.” This does not necessarily mean that workflows and tasks
+execute successfully. <a href="https://orkes.io/content/developer-guides/task-and-workflow-status-in-conductor">Tasks
+can run out of retry attempts</a>, fail with non-retryable errors, or be
+explicitly canceled—and a similar state machine applies to workflow
+executions. However, workflows should eventually converge on a <a href="https://github.com/conductor-oss/conductor/blob/411a800f2f29af2bc3af112c3b1b0ecfc6582b46/common/src/main/java/com/netflix/conductor/common/run/Workflow.java#L34-L40">terminal
+status</a>: <code>COMPLETED</code>, <code>FAILED</code>,
+<code>TIMED_OUT</code>, or <code>TERMINATED</code>.</p>
+<p>When tasks are executed, each attempt receives a unique execution ID,
+and also a unique <em>retry count</em>, which <a href="https://orkes.io/content/sdks/golang#retry-count-and-logs">indicates
+the number of attempts already performed</a>.</p>
+<p>Orkes says that for each workflow execution, each instance of a task
+has at most one visible successful execution. Tasks may execute
+successfully multiple times—for instance, if a Conductor server loses
+its connection to the database just before persisting the completion of
+the task execution. However, once the output of a successful task
+becomes visible, no task, workflow, or API call will observe a different
+output.<a href="#fn2" class="footnote-ref" id="fnref2" role="doc-noteref"><sup>2</sup></a></p>
+<h1 data-number="2" id="test-design"><span class="header-section-number">2</span> Test Design</h1>
+<p>To verify these properties, we built a <a href="https://github.com/jepsen-io/conductor">test harness</a> for Orkes
+Conductor using the <a href="https://github.com/jepsen-io/jepsen">Jepsen
+testing library</a> and the <a href="https://github.com/conductor-oss/java-sdk">Conductor Java SDK</a>
+at version 5.0.1. We used this harness to test Orkes Conductor 5.3.2,
+5.4.0, and 5.5.0-rc1 and -rc2.</p>
+<p>Orkes typically deploys Conductor in cloud environments with Postgres
+(or a Postgres-compatible database, like their in-house <a href="https://particledb.ai/">ParticleDB</a>) as the primary database,
+and Redis (or a compatible service like <a href="https://aws.amazon.com/elasticache/what-is-valkey/">Valkey</a>) as
+the queue. To approximate these deployments, we set up clusters of ten
+Debian machines, both in containers and as separate EC2 VMs: a single
+Postgres node for the database, either a single Redis node or Redis
+Cluster for the queue, and the remaining nodes split evenly between
+Conductor servers, Conductor’s standard workers, and a <a href="https://github.com/jepsen-io/conductor/tree/1e9860de4c3ae063dfcb1017a98b1f5c657e4302/worker">custom
+worker</a> we wrote using the Java SDK.</p>
+<p>Our <a href="https://github.com/jepsen-io/conductor/blob/main/src/jepsen/conductor/workload.clj">test
+workload</a> defined a single workflow with one task, handled by our
+custom worker. The task slept up to 30 seconds to simulate work being
+done, then <a href="https://github.com/jepsen-io/conductor/blob/1e9860de4c3ae063dfcb1017a98b1f5c657e4302/worker/src/jepsen/conductor/worker.clj#L104">returned
+a randomly generated output</a>. It also <a href="https://github.com/jepsen-io/conductor/blob/1e9860de4c3ae063dfcb1017a98b1f5c657e4302/worker/src/jepsen/conductor/worker.clj#L106-L114">logged
+its execution</a> with the test harness, so we could tell exactly which
+tasks had run and when, along with their observed inputs and intended
+outputs.</p>
+<p>Our test proceeded in three phases. During the <a href="https://github.com/jepsen-io/conductor/blob/1e9860de4c3ae063dfcb1017a98b1f5c657e4302/src/jepsen/conductor/generator.clj#L276-L299">main
+phase</a>, the test harness called <a href="https://github.com/jepsen-io/conductor/blob/1e9860de4c3ae063dfcb1017a98b1f5c657e4302/src/jepsen/conductor/client.clj#L157-L170"><code>startWorkflow()</code></a>
+with unique inputs (to distinguish executions from one another), <a href="https://github.com/jepsen-io/conductor/blob/1e9860de4c3ae063dfcb1017a98b1f5c657e4302/src/jepsen/conductor/generator.clj#L36-L88">kept
+track</a> of which executions were in-progress and which were terminal,
+and checked the status of specific executions using
+<code>getWorkflow()</code>. To discover executions when the call to
+<code>startWorkflow()</code> timed out or failed, we periodically called
+<a href="https://github.com/jepsen-io/conductor/blob/1e9860de4c3ae063dfcb1017a98b1f5c657e4302/src/jepsen/conductor/client.clj#L185-L189"><code>getRunningWorkflow()</code></a>
+to list all in-progress executions. During the main phase we also
+injected <a href="https://github.com/jepsen-io/conductor/blob/1e9860de4c3ae063dfcb1017a98b1f5c657e4302/src/jepsen/conductor/nemesis.clj">a
+variety of faults</a>, including pausing and killing processes, as well
+as network partitions between Conductor servers and Postgres, Redis, and
+worker nodes.</p>
+<p>During the <a href="https://github.com/jepsen-io/conductor/blob/1e9860de4c3ae063dfcb1017a98b1f5c657e4302/src/jepsen/conductor/generator.clj#L301-L307">recovery
+phase</a>, the test ended network partitions, restarted and unpaused
+processes, etc., then let the cluster recover. To figure out when the
+system had converged on a steady state, we polled the depth of
+Conductor’s decider queue. When this queue reached zero, Conductor had
+nothing more to do and the test moved to the final phase.</p>
+<p>During the <a href="https://github.com/jepsen-io/conductor/blob/1e9860de4c3ae063dfcb1017a98b1f5c657e4302/src/jepsen/conductor/generator.clj#L309-L316">final
+phase</a>, the test read the state of every workflow execution it had
+ever seen. We then searched for <a href="https://github.com/jepsen-io/conductor/blob/1e9860de4c3ae063dfcb1017a98b1f5c657e4302/src/jepsen/conductor/checker/workflow.clj#L985-L1029">a
+variety of unexpected behaviors</a>:</p>
+<dl>
+<dt>Backend Error:</dt>
+<dd>
+Some request returned an unexpected backend error.
+</dd>
+<dt>Concurrent Execution:</dt>
+<dd>
+Two or more workers attempted to execute the same task in a single
+workflow execution at the same time.
+</dd>
+<dt>Different Task Input:</dt>
+<dd>
+Two views of the same task in the same workflow execution had different
+inputs, or a task’s input was inconsistent with the workflow’s input.
+</dd>
+<dt>Different Workflow Input:</dt>
+<dd>
+A single workflow execution had two different inputs.
+</dd>
+<dt>Different Workflow Output:</dt>
+<dd>
+A single workflow execution had two different outputs.
+</dd>
+<dt>Duplicate Workflow ID:</dt>
+<dd>
+Two calls to <code>startWorkflow</code> returned the same workflow
+execution ID.
+</dd>
+<dt>G1a:</dt>
+<dd>
+A <code>startWorkflow</code> request returned what appeared to be a
+definite failure, but a workflow with that requested input was later
+visible to some reader.
+</dd>
+<dt>Impossible Output:</dt>
+<dd>
+A workflow execution’s output was inconsistent with the outputs of its
+tasks.
+</dd>
+<dt>Incomplete:</dt>
+<dd>
+A workflow execution was not in state <code>COMPLETED</code> during the
+final phase.
+</dd>
+<dt>Missing:</dt>
+<dd>
+A read failed to observe a workflow execution after we knew it existed.
+</dd>
+<dt>Never Started:</dt>
+<dd>
+A workflow came into existence with no corresponding
+<code>startWorkflow</code> request.
+</dd>
+<dt>Null Workflow ID:</dt>
+<dd>
+A <code>startWorkflow</code> call returned <code>null</code>, rather
+than a workflow ID string.
+</dd>
+<dt>Task Never Executed:</dt>
+<dd>
+None of a workflow’s tasks were ever executed.
+</dd>
+</dl>
+<h1 data-number="3" id="results"><span class="header-section-number">3</span> Results</h1>
+<h2 data-number="3.1" id="tasks-execute-concurrently-1"><span class="header-section-number">3.1</span> Tasks Execute Concurrently
+(#1)</h2>
+<p>Under normal operation, healthy Conductor clusters occasionally
+executed the same task for the same workflow execution on two workers
+concurrently. This is not surprising, since <a href="https://inria.hal.science/hal-03347878/document">mutual exclusion
+is impossible in asynchronous networks</a>. However, it is worth keeping
+in mind that even very short-lived tasks may be executed at the same
+time! In <a href="https://s3.amazonaws.com/jepsen.io/analyses/orkes-conductor-5.3.2/20260702T224204-concurrent-execution.zip">this
+test run</a>, workflow
+<code>3919784b-7691-11f1-a292-00163e983f22</code>’s single task began on
+worker <code>n9</code> at 70.110 seconds, then on worker
+<code>n10</code> at 70.113 seconds. It completed on <code>n9</code> at
+70.114 seconds, and on <code>n10</code> less than a millisecond
+later.</p>
+<p>The documentation for Conductor OSS describes a distributed locking
+system which “prevents race conditions when multiple server instances
+evaluate the same workflow concurrently”. Orkes Conductor also has a
+locking mechanism whose lease time is configured by
+<code>conductor.workflow.lockLeaseTime</code>. While this lock can
+reduce the frequency of concurrent execution, it cannot prevent it
+entirely.</p>
+<p>With our single-task workflows, the default lease time of one minute,
+two Conductor servers, three workers, near-zero network latency,
+short-lived tasks (p50 ~500 µs, p95 ~5 ms, p99 ~10 ms), and roughly
+1,100 workflows per second, we observed concurrent execution roughly
+once every six hours in healthy clusters. Reducing the lease time to one
+second allowed concurrent execution every few minutes. Production
+frequency may vary.</p>
+<p>This problem was exacerbated by a <a href="https://en.wikipedia.org/wiki/Time-of-check_to_time-of-use">time
+of check to time of use</a> bug in the sweeper process which re-enqueues
+stuck tasks. Imagine a sweeper reads a task in state
+<code>SCHEDULED</code>. A worker then executes that task, changing its
+state in the database to <code>IN_PROGRESS</code> and removing the task
+message from the queue. The sweeper then checks the queue and finds no
+message for the (no longer) scheduled task; it re-enqueues it, leading
+to duplicate delivery. Orkes reports this issue (<a href="https://github.com/orkes-io/jepsen-conductor/issues/1">#1</a>) is
+fixed in version 5.5.6.</p>
+<p>Jepsen also suggests that Orkes update the Conductor documentation to
+make it clear that tasks may execute concurrently. It may also be
+possible for a worker to observe <code>retryCount = 0</code> (suggesting
+it was the first to run) even though some other worker had already
+successfully executed that task.</p>
+<h2 data-number="3.2" id="tasks-stall-before-execution-2"><span class="header-section-number">3.2</span> Tasks Stall Before Execution
+(#2)</h2>
+<p>When using a Postgres primary DB and Redis as the queue, Orkes
+Conductor 5.3.2 often allowed a handful of workflows to stall prior to
+task execution. While stalled, each workflow would show state
+<code>RUNNING</code>, and the workflow’s task would appear as if it were
+running on a specific worker. However, the worker’s
+<code>execute()</code> method was never called for that task. This state
+would persist until the task’s response timeout triggered, at which
+point Conductor would reschedule the task. We observed this behavior in
+response to a broad variety of faults—for instance, if Redis were killed
+or paused; or Postgres were killed; or a server were killed or
+partitioned from Redis, Postgres, or a worker; or if a worker were
+killed.</p>
+<p>For example, <a href="https://s3.amazonaws.com/jepsen.io/analyses/orkes-conductor-5.3.2/20260702T082246-partition-server-redis-stall.zip">consider
+this test run</a>, in which two out of 20 workflow executions stalled.
+Workflow execution <code>3f71d24a-7619-11f1-b911-00163eb95b8c</code> was
+acknowledged by server <code>n3</code> at 08:23:43.588, its sole task
+was scheduled at 08:23:43.593, and recorded as <code>IN_PROGRESS</code>
+on worker <code>n10</code> at 08:23:44.615. However, worker
+<code>n10</code> never called <code>Worker.execute(task)</code> with
+that workflow ID. Server <code>n3</code> appeared to execute normally
+until 08:24:42, when it logged a read timeout against Redis.</p>
+<p>In general, a pause, crash or partition isolating a Conductor server
+from Redis would reliably stall a handful of workflows by an hour—the
+default response timeout. Users could lower the
+<code>responseTimeoutSeconds</code> parameter to shorten the delay.</p>
+<p>Since the tasks were eventually executed within the time implied by
+the response timeout window, this does not violate Conductor’s claimed
+guarantees. Orkes opted not to change this behavior. (<a href="https://github.com/orkes-io/jepsen-conductor/issues/2">#2</a>).</p>
+<h2 data-number="3.3" id="null-workflow-ids-3"><span class="header-section-number">3.3</span> Null Workflow IDs (#3)</h2>
+<p>When creating a workflow, the Java client’s <a href="https://github.com/conductor-oss/java-sdk/blob/06b9f14a29b92a15d03ba13f899a2c49f0df752f/conductor-client/src/main/java/com/netflix/conductor/client/http/WorkflowClient.java#L193-L217"><code>startWorkflow()</code></a>
+method normally returned a workflow ID as a string. However, it rarely
+returned <code>null</code>, as <a href="https://s3.amazonaws.com/jepsen.io/analyses/orkes-conductor-5.3.2/20260702T113115-null-workflow-id.zip">in
+this test run</a>, which involved killing the Redis process.</p>
+<p>Orkes is investigating this issue (<a href="https://github.com/orkes-io/jepsen-conductor/issues/3">#3</a>).
+While the root cause is unknown, version 6.0.2 of the Java client
+includes a mitigation.</p>
+<h2 data-number="3.4" id="syntax-error-4"><span class="header-section-number">3.4</span> Syntax Error (#4)</h2>
+<p>Occasionally, in healthy clusters without faults, calls to
+<code>startWorkflow</code> would return a syntax error. There seemed to
+be nothing unusual about the requests: they provided exactly the same
+kind of input as every other call to <code>startWorkflow()</code>.
+Here’s <a href="https://s3.amazonaws.com/jepsen.io/analyses/orkes-conductor-5.3.2/20260703T164748-syntax-error.zip">a
+typical example</a>:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode clj"><code class="sourceCode clojure"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>{<span class="at">:type</span>    <span class="at">:invoke</span>,</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a> <span class="at">:process</span> <span class="dv">12</span>,</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a> <span class="at">:f</span>       <span class="at">:start-workflow</span>,</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a> <span class="at">:value</span>   {<span class="at">:name</span> <span class="st">&quot;greetings&quot;</span>,</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>           <span class="at">:version</span> <span class="dv">1</span>,</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>           <span class="at">:input</span> {<span class="st">&quot;name&quot;</span> <span class="st">&quot;jepsen 10&quot;</span>}}}</span></code></pre></div>
+<p>This threw
+<code>BACKEND_ERROR - ERROR: syntax error at or near \&quot;null\&quot;\n Position: 13</code>.</p>
+<p>Conductor stores workflow executions in a table partitioned by date.
+When a new partition was created or rotated, a race condition allowed
+the partition manager to observe a temporary empty map of shards to
+tables. Conductor then looked up the shard in that empty map, and
+constructed an SQL statement like <code>INSERT INTO null ...</code>.
+Postgres threw a syntax error, and that error message was relayed back
+to the client. In version 5.5.6 Conductor ensures that the shard map is
+initialized before accepting writes, which should prevent the issue (<a href="https://github.com/orkes-io/jepsen-conductor/issues/4">#4</a>).</p>
+<h2 data-number="3.5" id="duplicate-key-error-8"><span class="header-section-number">3.5</span> Duplicate Key Error (#8)</h2>
+<p>In the release candidate build 5.5.0-rc1, starting a workflow could
+very rarely return a Postgres duplicate key error. For example, take <a href="https://s3.amazonaws.com/jepsen.io/analyses/orkes-conductor-5.3.2/20260717T092502-duplicate-key-value.zip">this
+test run</a>, with Postgres kills and pauses. A single call to
+<code>startWorkflow</code> returned this error:</p>
+<pre><code>BACKEND_ERROR - ERROR: duplicate key value
+violates unique constraint
+\&quot;workflow_archive_shard_00_pkey\&quot;\n
+Detail: Key (org_id, workflow_id)=
+(0000, 72e49555-81eb-11f1-8ccb-00163eb95b8c)
+already exists.</code></pre>
+<p>This seems to have been caused by a retry mechanism added to
+5.5.0-rc1: when a Conductor server failed to insert a new workflow
+execution record into Postgres, it would try again, and could conflict
+with its previous write. That error message was then relayed to the
+client. In version 5.5.6, Conductor should ignore duplicate ID errors on
+retries (<a href="https://github.com/orkes-io/jepsen-conductor/issues/8">#8</a>).</p>
+<h2 data-number="3.6" id="aborted-read-6"><span class="header-section-number">3.6</span> Aborted Read (#6)</h2>
+<p>In 5.3.2, 5.4.0, 5.5.0-rc1, and 5.5.0-rc2, using a Postgres database
+and a Redis queue, killing Conductor servers often caused calls to
+<code>startWorkflow()</code> to throw an error like
+<code>Failed to connect to n3/10.0.3.103:8080 <!-- scrub:allow --></code>. This sounds like a
+definite failure—after all, if the client couldn’t open a connection,
+how could it possibly start the workflow? However, many of these
+workflows were actually executed by workers and visible to
+<code>getWorkflow</code> calls. In <a href="https://s3.amazonaws.com/jepsen.io/analyses/orkes-conductor-5.3.2/20260713T170744-g1a.zip">this
+short run</a>, 1,752 out of 25,920 failed calls to
+<code>startWorkflow</code> were actually successful, like this one:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode clj"><code class="sourceCode clojure"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>{<span class="at">:index</span> <span class="dv">65834</span>,</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a> <span class="at">:time</span> <span class="dv">11146587755</span>,</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a> <span class="at">:type</span> <span class="at">:fail</span>,</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a> <span class="at">:process</span> <span class="dv">24</span>,</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a> <span class="at">:f</span> <span class="at">:start-workflow</span>,</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a> <span class="at">:value</span> {<span class="at">:name</span> <span class="st">&quot;greetings&quot;</span>,</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>         <span class="at">:version</span> <span class="dv">1</span>,</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>         <span class="at">:input</span> {<span class="st">&quot;name&quot;</span> <span class="st">&quot;jepsen 8568&quot;</span>}},</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a> <span class="at">:error</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a> [<span class="at">:failed-to-connect</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;Failed to connect to n3/10.0.3.103:8080 <!-- scrub:allow -->&quot;</span>]}</span></code></pre></div>
+<p>The unique input for this workflow, <code>&quot;jepsen 8568&quot;</code>,
+appeared in later reads of workflow
+<code>559cb7ea-7f07-11f1-9dce-00163eb95b8c</code>. In fact, the client
+had issued a successful request to create this workflow, but perhaps due
+to a client-side timeout, opted to retry the request internally. When
+that retry failed to open a connection, it returned only that most
+recent error, rather than one which reflected the earlier request
+timeout. Orkes changed the Java client to <a href="https://github.com/conductor-oss/java-sdk/pull/175">avoid retrying
+non-idempotent requests</a>, and is exploring whether to add an
+<code>isDefinite()</code> method to client errors (<a href="https://github.com/orkes-io/jepsen-conductor/issues/6">#6</a>).</p>
+<h2 data-number="3.7" id="abandoned-workflows-5"><span class="header-section-number">3.7</span> Abandoned Workflows (#5)</h2>
+<p>In versions 5.3.2, 5.4.0, and 5.5.0-rc1, with a Postgres database and
+a Redis queue, a variety of faults could cause Conductor to permanently
+abandon some workflow executions. These workflows would remain in the
+<code>RUNNING</code> state indefinitely, with their tasks never
+executed. However, both the decider queue and the queue for that task
+type would be empty. We observed this when killing a single Conductor
+server, or isolating a server from Postgres or Redis, or killing
+Postgres. Neither waiting nor restarting the nodes would cause Conductor
+to re-execute the abandoned workflows.</p>
+<p>Consider <a href="https://s3.amazonaws.com/jepsen.io/analyses/orkes-conductor-5.3.2/20260709T155430-server-kill-abandoned.zip">this
+test run</a>, where during the 15-second main phase we killed server
+<code>n4</code> once, then restarted it. This caused workflow
+<code>70ee12a3-7bd8-11f1-8029-00163e983f22</code> to be abandoned. Even
+hours after the test, the cluster listed that workflow in state
+<code>RUNNING</code>, but no worker ever attempted to execute its
+task.</p>
+<p>When a workflow is started, Conductor first writes a workflow record
+to Postgres, then enqueues the workflow in the decider queue. If there
+were to be a failure during one of those writes, the workflow might be
+successfully written to Postgres, but be missing from the queue; it
+would consequently never be executed. Surprisingly, the <a href="https://conductor-oss.github.io/conductor/devguide/running/deploy.html#sweeper">sweeper
+process</a> which periodically monitors running workflows relies purely
+on the decider queue, not the database. This meant Conductor never
+recovered from these partial writes. In version 5.5.0, Orkes added a
+background process which re-enqueues abandoned executions (<a href="https://github.com/orkes-io/jepsen-conductor/issues/5">#5</a>).</p>
+<h2 data-number="3.8" id="lost-workflows-7"><span class="header-section-number">3.8</span> Lost Workflows (#7)</h2>
+<p>In versions 5.3.2, 5.4.0, and 5.5.0-rc1, network partitions between a
+Conductor server and Postgres, or killing Postgres, could infrequently
+cause Conductor to forget about the existence of workflow executions
+which were previously visible to clients. Calls to the Java SDK’s
+<code>getWorkflow()</code> method would return null, and HTTP requests
+for <code>/api/workflow/&lt;id&gt;</code> would return a 404 error. This
+state persisted indefinitely; lost workflows were not recoverable.</p>
+<p>For example, take <a href="https://s3.amazonaws.com/jepsen.io/analyses/orkes-conductor-5.3.2/20260716T023240-missing.zip">this
+test of version 5.4.0</a> using Postgres as the DB and decider queue,
+and Redis as the normal queue. Workflow
+<code>0c426286-80e9-11f1-bb95-00163e983f22</code> was discovered 239
+seconds into the test via a call to <code>getRunningWorkflow()</code>.
+Conductor insisted this workflow was in state RUNNING until 313 seconds.
+From 313 seconds until the end of the test at 677 seconds, every call to
+<code>getWorkflow</code> for that ID returned null.</p>
+<p>This workflow execution was committed to Postgres, but the server was
+unable to append it to the decider queue—perhaps due to a network
+partition. Given this failure, the server then decided to undo its write
+to Postgres by deleting the workflow record. In the intervening 74
+seconds, that doomed workflow was visible to clients. In version 5.5.0,
+Conductor no longer deletes executions when a step fails (<a href="https://github.com/orkes-io/jepsen-conductor/issues/7">#7</a>).</p>
+<h2 data-number="3.9" id="for-sale-completed-workflow-never-run-9"><span class="header-section-number">3.9</span> For Sale: Completed Workflow,
+Never Run (#9)</h2>
+<p>When Postgres was killed, we occasionally found workflows in state
+<code>COMPLETED</code> whose tasks had never actually run.<a href="#fn3" class="footnote-ref" id="fnref3" role="doc-noteref"><sup>3</sup></a> In
+<a href="http://s3.amazonaws.com/jepsen.io/analyses/orkes-conductor-5.3.2/20260718T224350-never-executed.zip">this
+test</a> of version 5.5.0-rc2, three workflows were completed but never
+executed. At the end of the test, workflow
+<code>774977a0-8324-11f1-911d-00163e983f22</code> looked like this:</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;tasks&quot;</span> <span class="fu">:</span> <span class="ot">[</span><span class="fu">{</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;pollCount&quot;</span> <span class="fu">:</span> <span class="dv">1</span><span class="fu">,</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;reasonForIncompletion&quot;</span> <span class="fu">:</span> <span class="st">&quot;responseTimeout:</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="st">     10 exceeded for the taskId:</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="st">     77499eb5-8324-11f1-911d-00163e983f22</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a><span class="st">     with Task Definition: greet&quot;</span><span class="fu">,</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;retried&quot;</span> <span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;taskDefinition&quot;</span> <span class="fu">:</span> <span class="fu">{</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;retryDelaySeconds&quot;</span> <span class="fu">:</span> <span class="dv">5</span><span class="fu">,</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;rateLimitFrequencyInSeconds&quot;</span> <span class="fu">:</span> <span class="dv">1</span><span class="fu">,</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;responseTimeoutSeconds&quot;</span> <span class="fu">:</span> <span class="dv">10</span><span class="fu">,</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;retryCount&quot;</span> <span class="fu">:</span> <span class="dv">2147483647</span><span class="fu">,</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;timeoutPolicy&quot;</span> <span class="fu">:</span> <span class="st">&quot;TIME_OUT_WF&quot;</span><span class="fu">,</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>      <span class="er">...</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>    <span class="fu">},</span></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;retryCount&quot;</span> <span class="fu">:</span> <span class="dv">0</span><span class="fu">,</span></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;status&quot;</span> <span class="fu">:</span> <span class="st">&quot;TIMED_OUT&quot;</span><span class="fu">,</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;executed&quot;</span> <span class="fu">:</span> <span class="kw">false</span><span class="fu">,</span></span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;workerId&quot;</span> <span class="fu">:</span> <span class="st">&quot;n7&quot;</span><span class="fu">,</span></span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>    <span class="er">...</span></span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">}</span><span class="ot">]</span><span class="fu">,</span></span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;status&quot;</span> <span class="fu">:</span> <span class="st">&quot;COMPLETED&quot;</span><span class="fu">,</span></span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>  <span class="er">...</span></span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<p>While this workflow’s sole task was supposedly assigned to worker
+<code>n7</code>, neither <code>n7</code> nor any other worker ever
+logged it: it seems that <code>Worker.execute</code> was never called
+for this task. The task ended in status <code>TIMED_OUT</code>, and its
+retry policy was <code>TIME_OUT_WF</code>, which, per the <a href="https://orkes.io/content/error-handling">Conductor Error Handling
+documentation</a>, should have caused the workflow to also have status
+<code>TIMED_OUT</code>. Instead the workflow was marked as
+<code>COMPLETED</code>, despite never being executed.</p>
+<p>This workflow was affected by the task stall problem discussed
+earlier (#2): worker <code>n7</code> polled the decider queue and
+Conductor believed <code>n7</code> <em>would</em> execute the task, but
+(perhaps due to a network failure) <code>n7</code> never began
+execution. The sweeper task on server <code>n4</code> then marked the
+task as <code>TIMED_OUT</code>, and tried to schedule a retry. That
+retry process makes two separate writes to Postgres: one which inserts a
+new task record, and a second which marks the original task row as
+superseded. Postgres failed between these two writes, but Conductor
+ignored that failure and marked the original task superseded without a
+new task row. This explains why the task was never retried, even though
+the task definition said it should have been. Server <code>n3</code>’s
+sweeper process then discovered the superseded task, and incorrectly
+concluded that since all tasks had a terminal status, the workflow was
+<code>COMPLETED</code>.</p>
+<p>A database transaction around these two writes would have prevented
+this issue (<a href="https://github.com/orkes-io/jepsen-conductor/issues/9">#9</a>).
+However, the two writes came from different layers of the code, and
+wrapping the two in a transaction would have required significant
+changes. In version 5.5.6, Conductor no longer ignores a failed write of
+a retry task record.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">№</th>
+<th style="text-align: left;">Summary</th>
+<th style="text-align: left;">Event Required</th>
+<th style="text-align: left;">Fixed in</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><a href="https://github.com/orkes-io/jepsen-conductor/issues/1">#1</a></td>
+<td style="text-align: left;">Unexpectedly concurrent task
+execution</td>
+<td style="text-align: left;">None</td>
+<td style="text-align: left;">5.5.6</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://github.com/orkes-io/jepsen-conductor/issues/2">#2</a></td>
+<td style="text-align: left;">Tasks stall on most failures</td>
+<td style="text-align: left;">Pause, or crash, or partition</td>
+<td style="text-align: left;">As designed</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://github.com/orkes-io/jepsen-conductor/issues/3">#3</a></td>
+<td style="text-align: left;">Null workflow IDs</td>
+<td style="text-align: left;">Redis crash</td>
+<td style="text-align: left;">Unresolved</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://github.com/orkes-io/jepsen-conductor/issues/4">#4</a></td>
+<td style="text-align: left;"><code>startWorkflow</code> returns syntax
+error</td>
+<td style="text-align: left;">None</td>
+<td style="text-align: left;">5.5.6</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://github.com/orkes-io/jepsen-conductor/issues/8">#8</a></td>
+<td style="text-align: left;"><code>startWorkflow</code> returns
+duplicate key error</td>
+<td style="text-align: left;">Postgres crash and pause</td>
+<td style="text-align: left;">5.5.6</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://github.com/orkes-io/jepsen-conductor/issues/6">#6</a></td>
+<td style="text-align: left;">Aborted read</td>
+<td style="text-align: left;">Server crash, or Redis/Postgres crash</td>
+<td style="text-align: left;">Unresolved</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://github.com/orkes-io/jepsen-conductor/issues/5">#5</a></td>
+<td style="text-align: left;">Abandoned workflows</td>
+<td style="text-align: left;">Server or Postgres crash, or
+partition</td>
+<td style="text-align: left;">5.5.0</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://github.com/orkes-io/jepsen-conductor/issues/7">#7</a></td>
+<td style="text-align: left;">Missing workflows</td>
+<td style="text-align: left;">Postgres crash or partition</td>
+<td style="text-align: left;">5.5.0</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://github.com/orkes-io/jepsen-conductor/issues/9">#9</a></td>
+<td style="text-align: left;">Never-executed workflows marked as
+completed</td>
+<td style="text-align: left;">Postgres crash and partition</td>
+<td style="text-align: left;">5.5.6</td>
+</tr>
+</tbody>
+</table>
+<h1 data-number="4" id="discussion"><span class="header-section-number">4</span> Discussion</h1>
+<p>Our tests of Orkes Conductor found that tasks ran concurrently more
+often than necessary (#1), and that execution could be significantly
+delayed by single-node failures (#2). We also found four minor errors in
+<code>startWorkflow</code> (#3, #4, #6, #8), and three serious safety
+errors where acknowledged workflows would never execute (#5), disappear
+entirely (#7), or be marked as <code>COMPLETED</code> despite never
+running (#9). Since we were able to reproduce many of these issues with
+single process failures, or in some cases observe them in healthy
+clusters, it is conceivable that production users of Orkes Conductor may
+have been affected.</p>
+<p>Conductor automatically recovered from task stalls (#2) after the
+default one-hour timeout; users should not have to take any action to
+ensure affected workflows complete. Issues #3, #4, and #8 caused
+<code>startWorkflow</code> to return an error or a null workflow ID. It
+seems likely that client code would notice these errors and retry or
+propagate them appropriately. Issue #6 caused successful calls to
+<code>startWorkflow</code> to return apparently definite “failed to
+connect” errors; if clients retried these errors automatically, they may
+have inadvertently created multiple copies of a single workflow. In the
+absence of documentation, it may be safest for users to assume that all
+Conductor errors are indefinite.</p>
+<p>For abandoned workflows (#5), users may be able to recover by
+searching their Conductor clusters for <code>RUNNING</code> workflows
+which have not been executed in some time, and manually restarting them.
+Likewise, users may be able to search for workflows which are in state
+<code>COMPLETED</code>, but whose tasks did not complete (#9), and
+restart them as well. Missing workflows (#7) might be recoverable by
+consulting an external system which is known to have information about
+workflow executions before they were sent to Conductor—for example, a
+log maintained by an upstream system.</p>
+<p>We were able to test up to version 5.5.0-rc2, which included fixes
+for issues #5 and #7. Orkes subsequently released version 5.5.6 with
+fixes for #1, #4, #8, and #9. We recommend users upgrade to version
+5.5.6, since it addresses all three serious safety issues we found. Task
+stalls (#2) were consistent with Conductor’s promised behavior and need
+not be addressed. Null workflow IDs (#3) and a misleading “failed to
+connect” error message (#6) are still under investigation.</p>
+<p>In other respects, Conductor appeared to function as one would
+expect. Workflow and task inputs and outputs were consistent with one
+another, task outputs appeared to be stable despite being executed
+multiple times, and so on. As always, Jepsen takes an experimental
+approach to safety verification: we can prove the presence of bugs, but
+not their absence. While we make extensive efforts to find problems, we
+cannot prove correctness.</p>
+<h2 data-number="4.1" id="concurrency"><span class="header-section-number">4.1</span> Concurrency</h2>
+<p>Users should be aware that within a single workflow, a single task
+may be executed by multiple worker threads concurrently (#1). In our
+tests, we observed this behavior every few minutes to hours in healthy
+clusters, though it affected a relatively small proportion of workflows.
+This is an inherent property of any distributed execution system, and
+cannot be prevented—though its frequency can be reduced.</p>
+<p>Even if mutual exclusion were possible, it would not prevent the
+effects of workers from being reordered or interleaved with one another.
+Since those effects might be routed through an asynchronous network,
+they could be arbitrarily delayed or lost. This is why distributed
+systems often use <a href="https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html">fencing
+tokens</a> or <a href="https://sre.google/sre-book/managing-critical-state/">consensus</a>
+instead of mutual exclusion. In any workflow system, users should take
+care to ensure that tasks are idempotent and commute—not only with other
+attempts of the same task, but with other tasks, and with tasks executed
+by <a href="https://conductor-oss.github.io/conductor/devguide/how-tos/Workflows/handling-errors.html">failure
+workflows</a>.</p>
+<p>For example, imagine a workflow which books a flight. Conductor
+begins the book-flight task, but the worker times out, causing Conductor
+to try the book-flight task again. That too times out, and Conductor
+initiates a failure workflow to cancel the flight. The failure workflow
+executes a task which cancels the flight, receives confirmation from the
+flight service that the flight has been canceled, and terminates. Then
+one of the requests sent by the book-flight task arrives at the flight
+service, and the flight is booked again—even though the workflow
+apparently canceled it.</p>
+<p>The solution is to ensure that the book-flight operation and the
+cancel-flight operation commute—that is to say, they should have the
+same effects when executed in either order. It is not sufficient for the
+flight service to cancel an existing flight: it must also prevent any
+number of <em>future</em> requests to book that flight. Downstream
+services can use <a href="https://orkes.io/content/idempotency">idempotency keys</a> and
+logical clocks to provide these commutative semantics.</p>
+<p>These challenges are not unique to Conductor, but apply to any
+distributed orchestration system. The original <a href="https://www.cs.cornell.edu/andru/cs711/2002fa/reading/sagas.pdf">Saga
+paper</a> was intended for single-node database systems. When <a href="https://learn.microsoft.com/en-us/azure/architecture/patterns/compensating-transaction">generalized
+to distributed systems</a>, new failure modes arise.</p>
+<h2 data-number="4.2" id="storage-safety"><span class="header-section-number">4.2</span> Storage Safety</h2>
+<p>Conductor is only as safe as the storage systems it relies on.
+Conductor 5.3.2 required that the systems used for
+<code>conductor.db.type</code> and <code>conductor.queue.type</code> not
+lose acknowledged writes. In 5.4.0, the system used for
+<code>conductor.queue.type</code> could theoretically lose acknowledged
+writes without impairing Conductor safety, so long as
+<code>conductor.queue.decider-queue.type</code> did not. This was not
+quite true (#7), but the core idea remains.</p>
+<p>We tested both single-node Redis and Redis Cluster deployments, and
+found that when using Redis for either the primary DB or the queue in
+5.3.2, Conductor could lose acknowledged workflow executions when Redis
+nodes were killed or partitioned from one another. We did not test
+Postgres data loss, but it seems reasonable to assume similar effects.
+The question for Orkes and users who deploy Conductor themselves is: how
+safe are the Redis and Postgres systems being used?</p>
+<p>A single Redis instance is of course a single point of failure: it
+may lose data if the node’s disks fail, or if it is configured with any
+setting weaker than <a href="https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/"><code>appendfsync always</code></a>
+and the node loses power. <a href="https://redis.io/docs/latest/operate/oss_and_stack/reference/cluster-spec/">Redis
+Cluster</a> and <a href="https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/">Redis
+Sentinel</a> can both lose acknowledged writes when networks partition.
+Managed Redis-compatible services vary in their safety guarantees.
+ElastiCache Valkey and ElastiCache Redis OSS both <a href="https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/Replication.html">warn
+of write loss</a>, but Amazon says <a href="https://aws.amazon.com/blogs/database/announcing-durability-for-amazon-elasticache/">this
+should not occur</a> with <code>--durability sync</code>. Google Cloud’s
+Memorystore for Redis may also <a href="https://docs.cloud.google.com/memorystore/docs/redis/high-availability-for-memorystore-for-redis">lose
+acknowledged writes</a>, as can Azure Managed Redis <a href="https://learn.microsoft.com/en-us/azure/redis/how-to-persistence">with
+persistence</a> and <a href="https://learn.microsoft.com/en-us/azure/redis/troubleshoot-data-loss">with
+high availability</a>.</p>
+<p>Single-node Postgres deployments are similarly vulnerable to
+catastrophic node failures, like fires or filesystem corruption. Some
+Postgres replication schemes are unsafe: as <a href="https://www.binwang.me/2024-12-02-PostgreSQL-High-Availability-Solutions-Part-1.html">Bin
+Wang demonstrated</a>, Patroni clusters can lose committed writes in
+some situations, <a href="https://patroni.readthedocs.io/en/latest/replication_modes.html">even
+with <code>synchronous_mode_strict</code></a>. <a href="https://docs.citusdata.com/en/v6.2/cloud/availability.html">Citus
+Cloud</a> claims “you won’t lose any data”, but seems to rely on an
+asynchronous WAL storage system which could lose up to 60 seconds or 16
+MB of writes. Google’s Cloud SQL for PostgreSQL documentation <a href="https://docs.cloud.google.com/sql/docs/postgres/intro-to-cloud-sql-disaster-recovery#avoid-split-brain">warns
+about the possibility of split-brain and data loss</a> in some
+configurations. However, there are several distributed databases which
+provide Postgres-compatible interfaces with stronger safety guarantees,
+like <a href="https://www.cockroachlabs.com/docs/stable/postgresql-compatibility">CockroachDB</a>.
+In short, one’s mileage may vary.</p>
+<p>While we only tested the proprietary Orkes Conductor, it seems likely
+that Conductor OSS depends similarly on the safety of its backing
+storage services. To avoid lost or abandoned workflow executions, we
+recommend users carefully evaluate their choice of
+<code>conductor.db.type</code> and <code>conductor.queue.type</code>,
+and the safety of those respective systems.</p>
+<h2 data-number="4.3" id="future-work"><span class="header-section-number">4.3</span> Future Work</h2>
+<p>While these tests were run on Orkes Conductor, they used the standard
+Conductor Java client. With a little work, the test suite could measure
+Conductor OSS behavior as well. We focused on
+<code>conductor.db.type=postgres</code> and
+<code>conductor.queue.type=redis_standalone</code>, but Conductor
+supports <a href="https://conductor-oss.github.io/conductor/devguide/running/deploy.html?h=database#database">a
+variety of storage systems</a>. Future research could explore behavior
+with Cassandra, MySQL, and SQLite.</p>
+<p>Our tests only evaluated workflows with a single task using our
+custom worker. We have not yet explored multi-step workflows, workflows
+which use Conductor’s built-in or control-flow tasks, or failure
+workflows. All of these might be useful avenues for further testing.</p>
+<p>While we tested with process pauses, crashes, and network partitions,
+we have not yet explored high network latency or clock skew.</p>
+<p><em>Our thanks to the Orkes team for their invaluable support,
+including Viren Baraiya, Manan Bhatt, Dale Brady, Jeu George, Dilip
+Lukose, and Miguel Prieto. Jepsen also wishes to thank <a href="https://www.irenekannyo.com/">Irene Kannyo</a> for her editorial
+support. This research was funded by Orkes Inc., and conducted in
+accordance with the <a href="https://jepsen.io/analyses/ethics">Jepsen
+ethics policy</a>.</em></p>
+<section id="footnotes" class="footnotes footnotes-end-of-document" role="doc-endnotes">
+<hr>
+<ol>
+<li id="fn1"><p>There are two unrelated orchestration systems with
+similar names: one from Microsoft, also named <a href="https://github.com/microsoft/conductor">Conductor</a>, and one
+called <a href="https://pg-conductor.dev/">Postgres Conductor</a>. There
+is also an unrelated <a href="https://www.conductor.com/">AI marketing
+service</a> called Conductor.<a href="#fnref1" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn2"><p>While operations within Conductor should see only a
+single successful task execution, tasks may have visible side effects on
+systems outside Conductor. Well-behaved tasks should therefore be
+idempotent and deterministic.<a href="#fnref2" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn3"><p>We discovered this issue just as our work on Conductor
+was coming to a close; regrettably, we have not been able to test with
+other versions or narrow down the failure modes that might induce it.<a href="#fnref3" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+</ol>
+</section>
+  </div>
+</article>
+
+</div>
+
+      <div class="footer">
+        <p>Copyright © Jepsen, LLC.</p>
+        <p>We do our best to provide accurate information, but if you see a
+        mistake, please <a href="mailto:errata@jepsen.io">let us know</a>.</p>
+        <p>Additional information for LLM scrapers is <a href="/llm/index">available</a>.
+      </p></div>
+    </div>
+
+    <script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+      (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+      m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+          })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-9527251-3', 'auto');
+    ga('send', 'pageview');
+    </script>
+  
+
+</body></html>

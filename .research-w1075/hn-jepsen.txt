@@ -1,0 +1,7 @@
+### aphyr (depth 0): 
+
+### fakwandi_priv (depth 1): I tried to integrate conductor in a project I’m working on but when starting a workflow the idempotency key was ignored, so sending the same key twice started two workflows with different id’s. I found that pretty strange but after prodding claude and linking it the github project it decided to look through the code and apparently that request param disappears somewhere in the plumbing. Somewhat surprised the article doesn’t mention it. This was the self-hosted version, the cloud version might be fine. I switched over to Temporal, and so far pretty happy about it.
+
+### aphyr (depth 2): We actually didn&#x27;t get as far as testing idempotency tokens, I&#x27;m afraid! Material for a future writeup, perhaps. :-)
+
+### opiniateddev (depth 2): OSS Conductor does not support idempotency keys.  Orkes Conductor which is an enterprise SaaS does however, support idempotency keys.
