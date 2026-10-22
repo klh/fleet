@@ -152,3 +152,70 @@ describe("sseReframer (W616.1)", () => {
 		expect(out).toBe(`: keepalive\n\n${good}`);
 	});
 });
+
+describe("sseReframer W1106 eventless guard (guardDialect)", () => {
+	/** run() with the dialect guard attached (the handlers.ts wiring). */
+	async function guarded(chunks: string[], dialect: "anthropic" | "openai") {
+		const dec = new TextDecoder();
+		let out = "";
+		const src = new ReadableStream<Uint8Array>({
+			start(c) {
+				for (const ch of chunks) c.enqueue(enc.encode(ch));
+				c.close();
+			},
+		});
+		await src.pipeThrough(sseReframer(undefined, dialect)).pipeTo(
+			new WritableStream<Uint8Array>({
+				write(b) {
+					out += dec.decode(b, { stream: true });
+				},
+			}),
+		);
+		return out;
+	}
+
+	test("eventless type:message_stop with NO output → typed error, terminal dropped", async () => {
+		const out = await guarded(
+			[
+				'data: {"type":"message_start","message":{"usage":{"input_tokens":9}}}\n\n',
+				'data: {"type":"message_stop"}\n\n',
+			],
+			"anthropic",
+		);
+		expect(out).not.toContain("message_stop");
+		expect(out).toContain('"code":"empty_response"');
+	});
+
+	test("eventless type:message_stop AFTER real text → passes through untouched", async () => {
+		const stop = 'data: {"type":"message_stop"}\n\n';
+		const out = await guarded(
+			[
+				'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}\n\n',
+				stop,
+			],
+			"anthropic",
+		);
+		expect(out).toContain(stop.trim());
+		expect(out).not.toContain("empty_response");
+	});
+
+	test("eventless type:response.completed with NO output → typed error (Responses wire)", async () => {
+		const out = await guarded(
+			[
+				'data: {"type":"response.output_text.delta","delta":""}\n\n',
+				'data: {"type":"response.completed","response":{"output":[]}}\n\n',
+			],
+			"openai",
+		);
+		expect(out).not.toContain("response.completed");
+		expect(out).toContain('"code":"empty_response"');
+	});
+
+	test("eventless type:response.completed AFTER real text → passes through", async () => {
+		const done =
+			'data: {"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"hi"}]}]}}\n\n';
+		const out = await guarded([done], "openai");
+		expect(out).toContain("response.completed");
+		expect(out).not.toContain("empty_response");
+	});
+});

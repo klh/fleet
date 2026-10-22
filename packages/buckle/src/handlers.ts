@@ -916,8 +916,7 @@ function streamResponse(
 		// truncated turn; a failed pipe keeps its failure kind as the cause
 		// (the guard's deadline outranks the missing terminal), and an abort
 		// never counts as truncation.
-		streamTruncated =
-			!sniffer.completed() && !streamCancelled && !streamFailed;
+		streamTruncated = !sniffer.completed() && !streamCancelled && !streamFailed;
 		// W1106 (#55446/#55461): an IN-BAND failure (anthropic event:error /
 		// openai response.failed|incomplete) is non-success even when a
 		// terminal marker follows it.
@@ -943,7 +942,10 @@ function streamResponse(
 					? (ctx.sel?.decision ?? "errored")
 					: "fallback";
 		const success =
-			!streamFailed && !streamCancelled && !streamTruncated && streamInBand === null;
+			!streamFailed &&
+			!streamCancelled &&
+			!streamTruncated &&
+			streamInBand === null;
 		const duration = Date.now() - ctx.t0;
 		if (selected) deps.table.inflight(selected, -1);
 		deps.table.recordOutcome(result.candidateId, duration, success);

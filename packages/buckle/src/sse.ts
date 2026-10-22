@@ -8,7 +8,6 @@
 // message_delta. Keep-alive comment lines (`: ping`) pass through the
 // client branch verbatim and are ignored here.
 import type { Dialect } from "./upstreams.ts";
-import { EMPTY_STREAM_KINDS, StreamSemantics } from "./stream-semantics.ts";
 import {
 	type EmptyStreamKind,
 	EMPTY_STREAM_KINDS,
@@ -31,7 +30,7 @@ type AnyRec = Record<string, unknown>;
  *  for upstream activity (ping drops, zero-event bridge chunks): clients
  *  that sensor idle sockets must see bytes to keep a live stream alive.
  *  Never masks a hung provider — the wire.ts upstream idle/total guards
- *  measure upstream chunks independently. NOTE: keepalives do NOT reset
+ *  measure upstream chunks independently. keepalives do NOT reset
  *  Bun's server-side idleTimeout (real-Bun canary disproved that); W1106
  *  disables that timer globally (BUN_IDLE_TIMEOUT=0 in server.ts). */
 export const SSE_KEEPALIVE = ": keepalive\n\n";
@@ -126,11 +125,17 @@ export class SseSniffer {
 			this.markError("in_band"); // #55446: in-band failure, never completion
 		else if (this.dialect === "anthropic" && this.eventType === "message_stop")
 			this.sawStop = true;
-		else if (this.dialect === "anthropic") {
+		else {
+			// W1106 eventless frames (data-only, no event name — bridge hops
+			// that strip names, the Responses wire): the JSON type field is
+			// the only terminal signal, either dialect.
 			try {
 				const j: unknown = payload.length > 0 ? JSON.parse(payload) : null;
-				if (j && typeof j === "object" && (j as AnyRec).type === "message_stop")
-					this.sawStop = true;
+				if (j && typeof j === "object") {
+					const t = (j as AnyRec).type;
+					if (t === "message_stop" || t === "response.completed")
+						this.sawStop = true;
+				}
 			} catch {
 				// non-JSON: not terminal-bearing
 			}
@@ -314,7 +319,8 @@ export function sseReframer(
 	// reframer also observes every re-assembled frame — a success terminal
 	// without usable output is swapped for the typed in-band error so the
 	// native client sees the failure the ledger banks.
-	const guard = guardDialect === undefined ? null : new SseSniffer(guardDialect);
+	const guard =
+		guardDialect === undefined ? null : new SseSniffer(guardDialect);
 	let rejected = false;
 	let buf = "";
 	let eventType = "";
@@ -377,10 +383,10 @@ export function sseReframer(
 		// in-band error. Error/failed frames pass (already failures).
 		if (guard !== null) {
 			guard.push(`event: ${evt}\ndata: ${payload}\n\n`);
-			if (
-				(evt === "message_stop" && guardDialect === "anthropic") ||
-				(payload === "[DONE]" && guardDialect === "openai")
-			) {
+			// completed() covers the named terminals AND the eventless
+			// type:message_stop / type:response.completed frames — one
+			// verdict for every framing.
+			if (guard.completed()) {
 				const kind = guard.failureKind();
 				if (kind !== null && EMPTY_STREAM_KINDS.includes(kind)) {
 					rejectEmpty(c, kind);
