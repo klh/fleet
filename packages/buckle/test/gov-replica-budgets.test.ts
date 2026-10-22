@@ -106,15 +106,15 @@ describe("W468 admission-control slots", () => {
 		expect(next.held().global).toBe(1);
 	});
 
-	test("slotsFromEnv: defaults shape a bare install, 0 disables", () => {
-		expect(slotsFromEnv({})).toEqual({ global: 64, perTeam: 16 });
-		expect(slotsFromEnv({ BUCKLE_SLOTS_GLOBAL: "0" })).toEqual({
-			global: 0,
-			perTeam: 16,
+	test("slotsFromEnv: W1068 default is OFF (0 disables), knobs opt in", () => {
+		expect(slotsFromEnv({})).toEqual({ global: 0, perTeam: 0 });
+		expect(slotsFromEnv({ BUCKLE_SLOTS_GLOBAL: "64" })).toEqual({
+			global: 64,
+			perTeam: 0,
 		});
 		expect(slotsFromEnv({ BUCKLE_SLOTS_PER_TEAM: "garbage" })).toEqual({
-			global: 64,
-			perTeam: 16,
+			global: 0,
+			perTeam: 0,
 		});
 	});
 });
