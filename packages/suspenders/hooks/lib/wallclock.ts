@@ -24,3 +24,33 @@ export const dualStamp = (t: number | Date): string =>
 /** `10-19T12:34:56Z (14:34 local)` — dense form for table cells and cards. */
 export const dualShort = (t: number | Date): string =>
 	`${utcZ(t).slice(5)} (${localIso(t).slice(11, 16)} local)`;
+
+// Client-chunk embeds: served board chunks share one <script> scope and
+// cannot import this lib at runtime, so chunks inline these via fn.toString()
+// (the renders.ts embed face). Self-contained on purpose — no module-scope
+// references — and byte-equal to the lib forms above on real instants
+// (parity pinned in test/wallclock.test.ts). Falsy and NaN inputs render the
+// chunk-facing ''/String(t) forms the board's title/text sites expect.
+export const embedDualStamp = function dualStamp(
+	t: number | string | Date,
+): string {
+	if (!t) return "";
+	const d = new Date(t);
+	if (Number.isNaN(d.getTime())) return String(t);
+	const pad = (n: number): string => (n < 10 ? "0" : "") + n;
+	const off = -d.getTimezoneOffset();
+	const a = Math.abs(off);
+	const sg = off >= 0 ? "+" : "-";
+	return `${d.toISOString().replace(/\.\d{3}Z$/, "Z")} (${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}${sg}${pad((a / 60) | 0)}:${pad(a % 60)})`;
+};
+
+export const embedDualShort = function dualShort(
+	t: number | string | Date,
+): string {
+	if (!t) return "";
+	const d = new Date(t);
+	if (Number.isNaN(d.getTime())) return String(t);
+	const pad = (n: number): string => (n < 10 ? "0" : "") + n;
+	const z = d.toISOString().replace(/\.\d{3}Z$/, "Z");
+	return `${z.slice(5)} (${pad(d.getHours())}:${pad(d.getMinutes())} local)`;
+};
