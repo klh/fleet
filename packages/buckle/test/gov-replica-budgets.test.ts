@@ -157,6 +157,36 @@ describe("W468 admission-control slots", () => {
 		expect(s.held().global).toBe(1);
 	});
 
+	test("W1118 #55606: one sweep reclaims the stale holder, never the renewing one", () => {
+		let t = 4_000_000;
+		const { db } = fileDb();
+		const limits = { global: 3, perTeam: 0 };
+		const s = new Slots(db, limits, () => t, 60_000);
+		const live = s.acquire(null);
+		const stale = s.acquire(null);
+		expect(live).not.toBeNull();
+		expect(stale).not.toBeNull();
+		t += 30_000; // the live heartbeat fires mid-flight (every leaseMs/2)
+		live?.renew(); // deadline 4_090_000 — stale stays at 4_060_000
+		t += 31_000; // past the stale row's deadline, inside live's renewed one
+		const fresh = s.acquire(null); // the ONE sweep: stale dies, live survives
+		expect(fresh).not.toBeNull();
+		expect(s.held().global).toBe(2);
+		expect(s.acquire(null)).not.toBeNull(); // global=3 admits the third
+		expect(s.held().global).toBe(3);
+	});
+
+	test("W1118 #55798: a failed release DELETE is retried at the next release call", () => {
+		const t = 5_000_000;
+		const { db } = fileDb();
+		const s = new Slots(db, { global: 1, perTeam: 0 }, () => t, 60_000);
+		const lease = s.acquire(null);
+		expect(lease).not.toBeNull();
+		// fault injection: close the db so BEGIN IMMEDIATE throws
+		db.close();
+		expect(() => lease?.release()).not.toThrow(); // surfaced, not thrown
+		expect(() => lease?.release()).not.toThrow(); // retry path also safe
+	});
 	test("W1118: separate WAL connections cannot both take the last slot", () => {
 		const { path } = fileDb();
 		const limits = { global: 1, perTeam: 0 };

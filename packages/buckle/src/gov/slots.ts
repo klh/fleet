@@ -134,8 +134,8 @@ export class Slots {
 				// (flush/cancel/abort) retries; the rows also age out at the
 				// sweep deadline either way. Never throws into a settle path.
 				if (released) return;
-				this.db.exec("BEGIN IMMEDIATE");
 				try {
+					this.db.exec("BEGIN IMMEDIATE");
 					for (const scope of scopes)
 						this.db.query(DELETE_HOLDER).run(scope, holder);
 					this.db.exec("COMMIT");
