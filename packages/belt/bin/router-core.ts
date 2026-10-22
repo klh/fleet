@@ -748,9 +748,8 @@ export async function openLocalStream(
 			},
 		);
 		status = res.status;
-		// headers in — disarm; a late fire would abort the live body (the
-		// signal stays bound to the fetch). On a failed open the stale fire
-		// aborts an orphaned controller: harmless no-op.
+		// Keep the original open deadline through metadata-only SSE: a backend
+		// may reject admission inside the generator after sending HTTP 200.
 		const ct = res.headers.get("content-type") ?? "";
 		if (res.ok && res.body && ct.includes("text/event-stream")) {
 			const primed = await primeLocalStream(

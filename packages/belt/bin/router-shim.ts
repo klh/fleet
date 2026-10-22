@@ -13,7 +13,12 @@
 
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { createAdmission, overloaded, parsePortCaps } from "./admission.ts";
+import {
+	createAdmission,
+	overloaded,
+	parsePortCaps,
+	releaseAfterCleanup,
+} from "./admission.ts";
 import { audioSpeech, audioTranscribe } from "./audio.ts";
 import { livenessResponse } from "./health.ts";
 import { promptFingerprint } from "./prompt-fingerprint.ts";
@@ -398,8 +403,7 @@ async function ladder<R extends Attempt>(
 	if (result.status === 429)
 		retryAfter = Math.max(retryAfter ?? 0, result.retryAfterMs ?? 0);
 	if (result.ok) return { result, used, fbRelease };
-	if (result.cleanup) void result.cleanup.then(fbRelease, fbRelease);
-	else fbRelease();
+	releaseAfterCleanup(fbRelease, result.cleanup ? [result.cleanup] : []);
 	errors.push(`:${fb.port} ${result.error ?? "empty"}`);
 	return { result, used, retryAfterMs: retryAfter, coldDeferred };
 }
@@ -726,9 +730,7 @@ Bun.serve({
 		let handedOff = false; // a live stream owns `release` until its last byte
 		const pendingCleanup: Promise<void>[] = [];
 		const releasePrimary = () => {
-			if (pendingCleanup.length)
-				void Promise.allSettled(pendingCleanup).then(() => release?.());
-			else release?.();
+			if (release) releaseAfterCleanup(release, pendingCleanup);
 		};
 		try {
 			const clientMax = Math.min(body.max_tokens ?? 1024, 4096);
@@ -997,7 +999,8 @@ Bun.serve({
 								onAttempt: recordAttempt,
 							},
 						);
-						if (!local.ok && local.cleanup) pendingCleanup.push(local.cleanup);
+						if (!local.ok && local.cleanup && t.port === route.port)
+							pendingCleanup.push(local.cleanup);
 						return local;
 					},
 					note,

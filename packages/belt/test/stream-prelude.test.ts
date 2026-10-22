@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createAdmission } from "../bin/admission.ts";
+import { createAdmission, releaseAfterCleanup } from "../bin/admission.ts";
 import { anthropicSseFromOpenAi, openLocalStream } from "../bin/router-core.ts";
 import { primeLocalStream } from "../bin/stream-prelude.ts";
 
@@ -180,4 +180,22 @@ test("two held backend streams retain existing admission slots through cancel cl
 	expect(admission.inflight(1234)).toBe(1);
 	await b.cancel();
 	expect(active).toBe(0);
+});
+
+test("different targets release independently when fallback cleanup never settles", async () => {
+	const admission = createAdmission(1);
+	const primary = admission.tryAcquire(1234);
+	const fallback = admission.tryAcquire(1235);
+	if (!primary || !fallback) throw new Error("missing fixture lease");
+	let cleanPrimary!: () => void;
+	const primaryCleanup = new Promise<void>((resolve) => {
+		cleanPrimary = resolve;
+	});
+	const fallbackCleanup = new Promise<void>(() => {});
+	releaseAfterCleanup(primary, [primaryCleanup]);
+	releaseAfterCleanup(fallback, [fallbackCleanup]);
+	cleanPrimary();
+	await Bun.sleep(0);
+	expect(admission.inflight(1234)).toBe(0);
+	expect(admission.inflight(1235)).toBe(1);
 });
