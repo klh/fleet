@@ -8,6 +8,7 @@
 // message_delta. Keep-alive comment lines (`: ping`) pass through the
 // client branch verbatim and are ignored here.
 import type { Dialect } from "./upstreams.ts";
+import { EMPTY_STREAM_KINDS, StreamSemantics } from "./stream-semantics.ts";
 import {
 	cacheUsageReported,
 	cacheWriteReported,
@@ -51,6 +52,10 @@ export class SseSniffer {
 	 *  even when a terminal marker follows. */
 	private sawError = false;
 	private errorKind: string | null = null;
+	/** W1106 empty-stream guard: semantic observation of every data frame —
+	 *  a protocol terminal WITHOUT usable output is a typed failure, not a
+	 *  completed turn (the 483-byte envelope class). */
+	private readonly semantics = new StreamSemantics();
 
 	constructor(private readonly dialect: Dialect) {}
 
@@ -102,7 +107,10 @@ export class SseSniffer {
 		// (chat completions) or response.completed (Responses wire, W912);
 		// anthropic with a message_stop event (either framing).
 		if (payload === "[DONE]") this.sawStop = true;
-		else if (this.dialect === "openai" && this.eventType === "response.completed")
+		else if (
+			this.dialect === "openai" &&
+			this.eventType === "response.completed"
+		)
 			this.sawStop = true;
 		else if (
 			this.dialect === "openai" &&
@@ -122,12 +130,34 @@ export class SseSniffer {
 			}
 		}
 		try {
-			if (payload.length > 0 && payload !== "[DONE]")
-				this.data(JSON.parse(payload));
+			if (payload.length > 0 && payload !== "[DONE]") {
+				const parsed: unknown = JSON.parse(payload);
+				// W1106 empty-stream guard: re-mark the bridge's own typed
+				// failure when it passes through a second hop (preserve the
+				// semantic code, never a generic api_error), then observe.
+				const err = (parsed as AnyRec).error;
+				const code =
+					err !== null && typeof err === "object"
+						? String((err as AnyRec).code)
+						: "";
+				if (EMPTY_STREAM_KINDS.includes(code)) {
+					this.markError(code);
+					return;
+				}
+				this.semantics.observe(parsed, this.dialect);
+				this.data(parsed);
+			}
 		} catch {
 			// non-JSON data: not usage-bearing, ignore honestly
 		}
 		this.eventType = "";
+	}
+
+	/** W1106 empty-stream verdict: when the protocol terminal arrived but
+	 *  NO usable assistant output was seen, this is the typed failure kind
+	 *  (handlers banks it via failureKind()). Null = turn carried output. */
+	private semanticFailure(): string | null {
+		return this.sawStop ? this.semantics.failure() : null;
 	}
 
 	/** W1106: true once the dialect's protocol terminal was seen. */
@@ -136,14 +166,19 @@ export class SseSniffer {
 	}
 
 	/** W1106 (#55446/#55461): an in-band failure arrived — non-success even
-	 *  when a terminal marker follows it. */
+	 *  when a terminal marker follows it. The empty-stream guard rides the
+	 *  same verdict: a protocol terminal WITHOUT usable output is also a
+	 *  failure (the 483-byte class). A REAL in-band failure outranks the
+	 *  semantic one — errorKind wins when both are set. */
 	failed(): boolean {
-		return this.sawError;
+		return this.sawError || this.semanticFailure() !== null;
 	}
 
-	/** The typed in-band failure kind (null = no in-band failure seen). */
+	/** The typed in-band failure kind (null = no in-band failure seen). The
+	 *  empty-stream guard folds its verdict in here — handlers.ts banks it
+	 *  unchanged via streamInBand. */
 	failureKind(): string | null {
-		return this.errorKind;
+		return this.errorKind ?? this.semanticFailure();
 	}
 
 	private markError(kind: string): void {
