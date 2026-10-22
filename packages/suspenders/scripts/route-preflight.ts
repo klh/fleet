@@ -6,16 +6,22 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { YAML } from "bun";
 import { ROUTER, SPECIALISTS } from "../../belt/bin/registry.ts";
-import { STACK_PATH } from "../hooks/lib/stack-config.ts";
+import { STACK_PATH, type HubProfile } from "../hooks/lib/stack-config.ts";
 import { parseEnvBody } from "../hooks/lib/hub-provider-keys.ts";
+import { renderHubPolicy } from "../deploy/hub-policy.ts";
+import { renderUpstreams } from "../deploy/hubctl.ts";
 import { providerPoolIdOf } from "../../buckle/src/router.ts";
 import { runForcedFailoverDrill } from "../../buckle/src/forced-failover-drill.ts";
 import {
 	loadGatewayPolicy,
+	parsePolicy,
 	type GatewayPolicy,
 } from "../../buckle/src/policy.ts";
 import {
 	validateRouteLadders,
+	type BeltRouteConfig,
+	type BuckleRouteConfig,
+	type LiteLlmRouteConfig,
 	type RouteLadderFinding,
 	type RouteLadderInputs,
 } from "../../buckle/src/route-ladder-validator.ts";
@@ -78,9 +84,27 @@ export interface RoutePreflightSources {
 	litellm: unknown;
 	deadlineMs?: number;
 	beltEscalation?: { url?: string; model?: string; scopedKey: boolean };
+	/** W1094.1: the committed base gateway policy text (buckle/
+	 * routing-policy.yaml). Every hub buckle rides the SAME rendered policy
+	 * hubctl pushes (renderHubPolicy over the committed default + the hub's
+	 * own buckle_gateway overrides); absent = fail closed for any hub. */
+	basePolicyText?: string;
 }
 
-export function routeInputs(source: RoutePreflightSources): RouteLadderInputs {
+export interface MachineRouteInputs {
+	/** The machine this view scopes terminal evidence to. */
+	id: string;
+	inputs: RouteLadderInputs;
+}
+
+/** W1094.1: per-machine route views. Every run carries ALL services so
+ * cross-machine hops resolve; terminals are machine-scoped evidence — the
+ * Mac specialist registry terminates only the local machine, and a hub's
+ * engine endpoints must be declared on ITS profile
+ * (hub.route_preflight.terminal_origins), never inherited from the Mac. */
+export function routeInputsByMachine(
+	source: RoutePreflightSources,
+): MachineRouteInputs[] {
 	const stack = record(source.stack);
 	const hubs = record(stack.hubs);
 	if (Object.keys(hubs).length === 0)
@@ -94,7 +118,7 @@ export function routeInputs(source: RoutePreflightSources): RouteLadderInputs {
 	const terminals = (declared ?? []) as unknown[];
 	if (terminals.some((item) => !string(item)))
 		throw new Error("route_preflight.terminal_origins must contain URLs");
-	const buckles: RouteLadderInputs["buckles"] = [
+	const buckles: BuckleRouteConfig[] = [
 		{
 			id: "local",
 			origins: ["http://127.0.0.1:4101"],
@@ -102,14 +126,16 @@ export function routeInputs(source: RoutePreflightSources): RouteLadderInputs {
 			policy: source.policy,
 		},
 	];
-	const beltModels: NonNullable<RouteLadderInputs["belts"]> = [];
+	const beltModels: BeltRouteConfig[] = [];
 	for (const [name, raw] of Object.entries(hubs)) {
 		const hub = record(raw);
 		buckles.push({
 			id: name,
 			origins: [hubOrigin(name, hub)],
-			pool: activePool(poolFrom(hub.upstreams)),
-			policy: {},
+			pool: activePool(
+				poolFrom(YAML.parse(renderUpstreams(hub as unknown as HubProfile))),
+			),
+			policy: hubPolicy(source, name, hub),
 		});
 		if (hub.belt_model !== undefined) {
 			const model = record(hub.belt_model);
@@ -141,6 +167,24 @@ export function routeInputs(source: RoutePreflightSources): RouteLadderInputs {
 		!source.beltEscalation.scopedKey
 	)
 		throw new Error("Belt cloud escalation requires a scoped Buckle key");
+	const litellms: LiteLlmRouteConfig[] = [
+		{
+			id: "local",
+			origins: ["http://127.0.0.1:4100", "http://host.docker.internal:4100"],
+			config: source.litellm,
+		},
+	];
+	const belts: BeltRouteConfig[] = [
+		{
+			id: "local",
+			origins: ["http://127.0.0.1:4000"],
+			noEscalationModels: [ROUTER.gatewayAlias],
+			...(escalationUrl && escalationModel
+				? { escalation: { url: escalationUrl, model: escalationModel } }
+				: {}),
+		},
+		...beltModels,
+	];
 	return {
 		buckles,
 		litellms: [
