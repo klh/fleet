@@ -301,7 +301,10 @@ describe("W1106 terminal-aware completion (#55419/#55420)", () => {
 		const upstream = await startMockUpstream(
 			() =>
 				new Response(
+					// W1106 empty-stream guard: a terminal-only turn is a typed
+					// failure — the success fixture carries real text output.
 					'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":1}}}\n\n' +
+						'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"he"}}\n\n' +
 						'event: message_stop\ndata: {"type":"message_stop"}\n\n',
 					{ headers: sseHeaders },
 				),

@@ -1023,23 +1023,23 @@ function streamResponse(
 			},
 			{ once: true },
 		);
-	// W616.1: anthropic clients get the re-framer — canonical frames, pings
+	// W616.1: every SSE client gets the re-framer — canonical frames, pings
 	// dropped, corrupt events quarantined (litellm's keepalive ping splices
 	// mid-line under load; byte-identity forwarded the defect to the lane).
-	const sanitized =
-		ctx.dialect === "anthropic"
-			? clientBranch.pipeThrough(
-					sseReframer((reason, preview) => {
-						deps.sm
-							.counter(
-								"buckle_sse_reframe_dropped_total",
-								"SSE events dropped by the re-framer (ping keepalives, quarantined upstream framing defects).",
-							)
-							.inc({ reason });
-						console.warn(`buckle: sse reframe dropped (${reason}): ${preview}`);
-					}),
+	// W1106 (#56010): the reframer also carries the empty-stream guard for
+	// BOTH dialects — a success terminal without usable output reaches the
+	// native client as the typed in-band error, matching the ledger.
+	const sanitized = clientBranch.pipeThrough(
+		sseReframer((reason, preview) => {
+			deps.sm
+				.counter(
+					"buckle_sse_reframe_dropped_total",
+					"SSE events dropped by the re-framer (ping keepalives, quarantined upstream framing defects).",
 				)
-			: clientBranch;
+				.inc({ reason });
+			console.warn(`buckle: sse reframe dropped (${reason}): ${preview}`);
+		}, ctx.dialect),
+	);
 	sanitized
 		.pipeTo(downstream.writable, {
 			preventAbort: true,

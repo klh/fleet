@@ -11,7 +11,11 @@
 // same table the other way — openai chunk frames + a terminal include_usage
 // chunk, [DONE] emitted by the bridge.
 import { type Usage, usageFromAnthropic, usageFromOpenAI } from "../usage.ts";
-import { emptyStreamError, StreamSemantics } from "../stream-semantics.ts";
+import {
+	EMPTY_STREAM_KINDS,
+	emptyStreamError,
+	StreamSemantics,
+} from "../stream-semantics.ts";
 
 export interface TransformWarning {
 	field: string;
@@ -34,6 +38,17 @@ export interface ResponseTransform {
 type AnyRec = Record<string, unknown>;
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
+
+/** W1106: the semantic empty-stream code of an error envelope, or null —
+ *  rewraps preserve recognized codes across a second hop (never genericize
+ *  a typed empty/reasoning/token-limit failure into a bare api_error). */
+const semanticCodeOf = (err: unknown): string | null => {
+	if (err === null || typeof err !== "object") return null;
+	const code = (err as AnyRec).code;
+	return typeof code === "string" && EMPTY_STREAM_KINDS.includes(code)
+		? code
+		: null;
+};
 // finite-number coercion for wire indexes (W426 mirror block indexes)
 const num = (v: unknown): number =>
 	typeof v === "number" && Number.isFinite(v) ? v : 0;
@@ -619,6 +634,11 @@ export class OpenAIToAnthropicStream {
 					type: "error",
 					error: {
 						type: "api_error",
+						// W1106: a recognized semantic code rides through the
+						// rewrap — a second hop must never genericize it.
+						...(semanticCodeOf(err) !== null
+							? { code: semanticCodeOf(err) }
+							: {}),
 						message: str(err?.message) || "upstream stream error",
 					},
 				},
@@ -636,6 +656,9 @@ export class OpenAIToAnthropicStream {
 					type: "error",
 					error: {
 						type: "api_error",
+						...(semanticCodeOf(inner) !== null
+							? { code: semanticCodeOf(inner) }
+							: {}),
 						message:
 							str(inner?.message) ||
 							str(inner?.code) ||
@@ -919,6 +942,11 @@ export class AnthropicToOpenAIStream {
 			out.push(
 				this.frame({
 					error: {
+						// W1106: a recognized semantic code rides through the
+						// rewrap — a second hop must never genericize it.
+						...(semanticCodeOf(err) !== null
+							? { code: semanticCodeOf(err) }
+							: {}),
 						message: str(err.message) || "upstream stream error",
 						type: str(err.type) || "api_error",
 					},

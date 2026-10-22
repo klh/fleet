@@ -79,15 +79,47 @@ export class StreamSemantics {
 			}
 		}
 		// Responses wire (W912): text deltas + function-call items carry output;
-		// reasoning summaries do not. `response.completed` snapshots are the
-		// terminal frame itself — nothing usable can start there.
-		this.usable ||= r.type === "response.output_text.delta" && text(r.delta);
-		const item = rec(r.item);
-		this.usable ||= item.type === "function_call" && text(item.name);
+		// reasoning summaries do not. A completed/incomplete response carries
+		// the WHOLE output in its snapshot — observe it item by item.
+		this.usable ||=
+			(r.type === "response.output_text.delta" ||
+				r.type === "response.audio.delta") &&
+			text(r.delta);
+		this.observeOutputItem(rec(r.item));
 		this.reasoning ||=
 			typeof r.type === "string" &&
 			r.type.startsWith("response.reasoning") &&
 			text(r.delta);
+		if (r.type === "response.completed" || r.type === "response.incomplete") {
+			const resp = rec(r.response);
+			const output = Array.isArray(resp.output) ? resp.output : [];
+			for (const o of output) this.observeOutputItem(rec(o));
+		}
+	}
+
+	/** One Responses-wire output item (from output_item.* events or a
+	 *  response.completed snapshot): reasoning items mark reasoning; message
+	 *  content entries (output_text/refusal/output_audio) and named function
+	 *  calls are usable output — image/audio-bearing payloads must never be
+	 *  mislabeled empty. */
+	private observeOutputItem(item: AnyRec): void {
+		if (item.type === "reasoning" || item.type === "redacted_reasoning") {
+			this.reasoning = true;
+			return;
+		}
+		if (item.type === "function_call" && text(item.name)) {
+			this.usable = true;
+			return;
+		}
+		if (item.type !== "message") return;
+		const content = Array.isArray(item.content) ? item.content : [];
+		for (const c of content) {
+			const part = rec(c);
+			this.usable ||=
+				(part.type === "output_text" && text(part.text)) ||
+				(part.type === "refusal" && text(part.refusal)) ||
+				part.type === "output_audio";
+		}
 	}
 
 	/** The typed failure at the terminal, or null when the turn carried

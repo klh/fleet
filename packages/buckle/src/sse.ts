@@ -8,7 +8,12 @@
 // message_delta. Keep-alive comment lines (`: ping`) pass through the
 // client branch verbatim and are ignored here.
 import type { Dialect } from "./upstreams.ts";
-import { EMPTY_STREAM_KINDS, StreamSemantics } from "./stream-semantics.ts";
+import {
+	type EmptyStreamKind,
+	EMPTY_STREAM_KINDS,
+	emptyStreamError,
+	StreamSemantics,
+} from "./stream-semantics.ts";
 import {
 	cacheUsageReported,
 	cacheWriteReported,
@@ -300,9 +305,16 @@ export class SseSniffer {
  */
 export function sseReframer(
 	onDrop?: (reason: "ping" | "corrupt", preview: string) => void,
+	guardDialect?: Dialect,
 ): TransformStream<Uint8Array, Uint8Array> {
 	const decoder = new TextDecoder();
 	const encoder = new TextEncoder();
+	// W1106 empty-stream guard (#56010): when a dialect is handed in, the
+	// reframer also observes every re-assembled frame — a success terminal
+	// without usable output is swapped for the typed in-band error so the
+	// native client sees the failure the ledger banks.
+	const guard = guardDialect === undefined ? null : new SseSniffer(guardDialect);
+	let rejected = false;
 	let buf = "";
 	let eventType = "";
 	/** data: lines of the event being assembled (joined with \n at emit) */
@@ -316,11 +328,27 @@ export function sseReframer(
 		}
 	};
 
+	/** W1106 empty-stream guard: swap a SUCCESS terminal that carried no
+	 *  usable output for the dialect's typed in-band error frame. */
+	const rejectEmpty = (
+		c: TransformStreamDefaultController<Uint8Array>,
+		kind: string,
+	): void => {
+		rejected = true;
+		const error = emptyStreamError(kind as EmptyStreamKind);
+		const body =
+			guardDialect === "anthropic"
+				? `event: error\ndata: ${JSON.stringify({ type: "error", error })}\n\n`
+				: `data: ${JSON.stringify({ error })}\n\n`;
+		c.enqueue(encoder.encode(body));
+	};
+
 	const dispatch = (c: TransformStreamDefaultController<Uint8Array>): void => {
 		const payload = dataLines.join("\n").trim();
 		const evt = eventType;
 		dataLines = [];
 		eventType = "";
+		if (rejected) return;
 		if (evt === "ping") {
 			drop("ping", payload.slice(0, 80));
 			c.enqueue(encoder.encode(SSE_KEEPALIVE)); // W1106: keep the socket fed
@@ -341,6 +369,22 @@ export function sseReframer(
 			} catch {
 				drop("corrupt", payload.slice(0, 80));
 				return;
+			}
+		}
+		// W1106 empty-stream guard (#56010): observe the re-assembled frame;
+		// a SUCCESS terminal without usable output swaps for the typed
+		// in-band error. Error/failed frames pass (already failures).
+		if (guard !== null) {
+			guard.push(`event: ${evt}\ndata: ${payload}\n\n`);
+			if (
+				(evt === "message_stop" && guardDialect === "anthropic") ||
+				(payload === "[DONE]" && guardDialect === "openai")
+			) {
+				const kind = guard.failureKind();
+				if (kind !== null && EMPTY_STREAM_KINDS.includes(kind)) {
+					rejectEmpty(c, kind);
+					return;
+				}
 			}
 		}
 		c.enqueue(
