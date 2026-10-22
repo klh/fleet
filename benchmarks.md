@@ -892,3 +892,12 @@ Without explicit remote classification, request seven returns a synthetic
 embargo. With classification, request seven reaches the provider and returns
 semantic `recovered` output. The final two tests passed 31 assertions in
 3.29 seconds. This is protocol regression evidence, not measured live capacity.
+# W1124.28 — installed LiteLLM cancellation contract
+
+`packages/belt/test/litellm-cancellation.test.ts` drives actual Buckle HTTP,
+the installed LiteLLM proxy and an isolated cancellable provider. Six arms
+compare disconnect monitoring off/on for nonstream pre-header, stream
+pre-header and midstream aborts. With monitoring enabled, every arm observes
+the provider's real HTTP abort and zero active work within 150 ms; the two
+tests passed 46 assertions in 13.29 seconds. No external provider was called;
+this establishes transport propagation, not Z.ai server-side cancellation.
