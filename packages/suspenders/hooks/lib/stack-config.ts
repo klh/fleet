@@ -165,6 +165,26 @@ export interface HubProfile {
 	 *  hub is EXPECTED down in it (NAS DSM poweroff). Routing skips, dispatch
 	 *  falls back to local belt, monitoring suppresses instead of paging. */
 	quiet_hours?: string;
+	/** W1097: the trusted transport THIS device uses to read the hub's trace
+	 *  receipts (the bounded trace connector, telemetry/remote-traces.ts).
+	 *  The hub gate is plain HTTP on the LAN and its TLS front carries an
+	 *  untrusted certificate — direct HTTP would carry the read key in the
+	 *  clear, HTTPS would need trust weakened. The managed ssh tunnel is the
+	 *  trusted front: the read key rides the ssh channel, the connector
+	 *  fetches loopback on this device (http://127.0.0.1:<listen_port>/ — the
+	 *  one non-https form the connector's URL law admits). Requires the
+	 *  hub's deploy.ssh target. hubctl trace-tunnel <hub> up|status|down|peer
+	 *  is the managed face. */
+	trace_tunnel?: {
+		/** Loopback port bound on THIS device (never the hub's — the Mac
+		 *  spoke itself serves 4101). Operator-chosen, 1024–65535. */
+		listen_port: number;
+		/** Port on the HUB the forward targets; default = buckle_port. */
+		target_port?: number;
+		/** PATH (on this device) to the 0600 read key minted ON the hub —
+		 *  the connector's tokenFile. Values never live in config. */
+		read_key: string;
+	};
 }
 
 export interface StackConfig {
