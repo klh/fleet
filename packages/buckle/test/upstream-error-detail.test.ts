@@ -19,6 +19,45 @@ const wire = {
 	},
 };
 
+test("actual LiteLLM AnthropicException message retains the structured provider code", () => {
+	const provider = {
+		type: "error",
+		error: {
+			type: "rate_limit_error",
+			code: "1302",
+			message: "Rate limit reached for requests",
+		},
+		request_id: "synthetic-provider-request",
+	};
+	const wrapped = {
+		error: {
+			type: "rate_limit_error",
+			message: `litellm.RateLimitError: AnthropicException - ${JSON.stringify(provider)}. Received Model Group=glm-5.3-flash\nAvailable Model Group Fallbacks=[]`,
+		},
+	};
+	expect(upstreamErrorDetail(wrapped)).toMatchObject({
+		code: "1302",
+		type: "rate_limit_error",
+		message: "Rate limit reached for requests",
+	});
+	for (const code of ["1113", "1305", "1313"]) {
+		const error = { ...provider, error: { ...provider.error, code } };
+		expect(
+			upstreamErrorDetail({
+				error: {
+					message: `ZaiException - ${JSON.stringify(error)}. Received Model Group=fixture${"x".repeat(9000)}`,
+				},
+			}).code,
+		).toBe(code);
+	}
+	for (const message of [
+		"Rate limit1302 reached",
+		`AnthropicException - ${JSON.stringify(provider)}`.slice(0, -1),
+		`AnthropicException - ${JSON.stringify(provider)}${"x".repeat(8192)}`,
+	])
+		expect(upstreamErrorDetail({ error: { message } }).code).toBeUndefined();
+});
+
 test("nested RFC problem cause, provider code and trace survive HTTP normalization", () => {
 	const normalized = normalizeUpstreamError("anthropic", 429, wire);
 	expect(normalized.message).toBe("account concurrency exhausted");
