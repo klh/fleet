@@ -9,25 +9,30 @@
 // one-tab indent preserved, output byte-compatible.
 import { statSync } from "node:fs";
 import { hostname } from "node:os";
-import { resolveStoreHttpBase } from "../lib/govdb.ts";
 import { signalClaudeDirectEvent } from "../lib/claude-wake.ts";
 import {
 	codexThreadForSession,
 	deliverSubscribedCodexEvent,
 } from "../lib/codex-direct-delivery.ts";
 import { steerCodexDirectEvent } from "../lib/codex-steer.ts";
-import { type LaneRef, laneVerdict } from "../lib/lane-liveness.ts";
-import { loadLaneRegistry } from "../lib/lane-registry.ts";
 import {
-	forwardDirectEvent,
-	foreignLaneMatch,
-	sidResolvesLocally,
 	type ForeignLaneHit,
+	foreignLaneMatch,
+	forwardDirectEvent,
+	sidResolvesLocally,
 } from "../lib/event-relay.ts";
 import { localHubLabel } from "../lib/federation-work.ts";
-import { advanceCursor, fetchEventsPaged } from "./event-scan.ts";
-import { emitStoredEvent, type EventPublication } from "./event-publish.ts";
+import { resolveStoreHttpBase } from "../lib/govdb.ts";
 import {
+	type LaneRef,
+	laneProcessIdentity,
+	laneVerdict,
+} from "../lib/lane-liveness.ts";
+import { loadLaneRegistry } from "../lib/lane-registry.ts";
+import { type EventPublication, emitStoredEvent } from "./event-publish.ts";
+import { advanceCursor, fetchEventsPaged } from "./event-scan.ts";
+import {
+	type Ev,
 	amber,
 	arg,
 	cyan,
@@ -71,11 +76,29 @@ export function isLiveSession(row: LivenessRow, now = Date.now()): boolean {
 
 export function subscriberSessionAlive(sid: string, now = Date.now()): boolean {
 	const row = db
-		.query("SELECT state, hb, transcript_path FROM sessions WHERE sid = ?")
+		.query(
+			"SELECT state, hb, transcript_path, project FROM sessions WHERE sid = ?",
+		)
 		.get(sid) as
-		| { state: string; hb: number; transcript_path: string | null }
+		| {
+				state: string;
+				hb: number;
+				transcript_path: string | null;
+				project: string;
+		  }
 		| undefined;
 	if (row?.state !== "RUNNING") return false;
+	// A managed native conversation remains addressable while checkpointed
+	// and idle. Its exact registered harness identity, never this subscriber
+	// or a stale transcript, owns that lifetime.
+	try {
+		const lane = loadLaneRegistry<LaneRef>(row.project).find(
+			(lane) => lane.sid === sid,
+		);
+		if (lane && laneProcessIdentity(lane) === true) return true;
+	} catch {
+		// Unknown registry/process identity cannot extend the freshness lease.
+	}
 	if (row.transcript_path) {
 		try {
 			if (
@@ -172,8 +195,14 @@ export async function cmdEmit(rest: string[]): Promise<void> {
 			extra[m[1]] = m[2];
 	}
 	const id = emitEvent({ kind, scope, sha, note, source, to, extra });
+	const delivery =
+		kind === "BROADCAST" && !to
+			? "bus; target=none; no consult opened. Inline @mentions do not route. For an answer use coord consult <sid> <question> --as <asker>."
+			: to
+				? `@${to.slice(0, 8)}`
+				: "bus";
 	console.log(
-		`${green("✓")} ${dim(`event queued #${id} → ${to ? `@${to.slice(0, 8)}` : "bus"}`)}`,
+		`${green("✓")} ${dim(`${kind === "BROADCAST" ? "BROADCAST " : ""}event queued #${id} → ${delivery}`)}`,
 	);
 }
 
@@ -354,6 +383,26 @@ export async function cmdWait(rest: string[]): Promise<void> {
 // no sleep loop, no exit, no relaunch, ever. Falls back to cmdWait --forever
 // when no HTTP store is bound (GOVERNOR_STORE_URL=local dev mode has no
 // server to connect to) — wait is the face's fallback, not a peer.
+/** Re-deliver only the current durable lifecycle control after a WS gap.
+ * Receipt acceptance and lifecycle transitions remain worker-owned. */
+export function subscriberPendingControl(sid: string) {
+	const state = db
+		.query("SELECT value FROM facts WHERE key = ?")
+		.get(`lane.${sid}.state`) as { value: string } | null;
+	const kind =
+		state?.value === "RESUME_READY"
+			? "resume_ready"
+			: state?.value === "PAUSE_REQUESTED"
+				? "pause_requested"
+				: null;
+	if (!kind) return null;
+	return db
+		.query(
+			"SELECT e.id, e.ts, e.source, e.kind, e.scope, e.payload, e.target FROM (SELECT * FROM events WHERE target = ? AND kind = ? ORDER BY id DESC LIMIT 1) e WHERE NOT EXISTS (SELECT 1 FROM direct_message_receipts r WHERE r.event_id = e.id AND r.sid = ? AND r.state = 'ACCEPTED')",
+		)
+		.get(sid, kind, sid) as (Ev & { target: string }) | null;
+}
+
 export async function cmdSubscribe(rest: string[]): Promise<void> {
 	const as =
 		arg("--as") ?? die("usage: subscribe --as <sid> [--scope s] [--kinds a,b]");
@@ -379,6 +428,17 @@ export async function cmdSubscribe(rest: string[]): Promise<void> {
 		const ws = new WebSocket(`${wsBase}/subscribe?${params}`);
 		ws.addEventListener("open", () => {
 			backoff = 500; // a clean connect resets the reconnect backoff
+			// WebSocket push contains future events only. A pause/resume emitted
+			// during disconnection is durable, but otherwise never wakes native.
+			try {
+				const pending = subscriberPendingControl(as);
+				if (pending) signalClaudeDirectEvent(pending, as);
+			} catch {
+				console.error(
+					"coord subscribe: durable control catch-up failed; reconnecting",
+				);
+				ws.close();
+			}
 		});
 		ws.addEventListener("message", (e) => {
 			const event = JSON.parse(String(e.data)) as Ev & {
