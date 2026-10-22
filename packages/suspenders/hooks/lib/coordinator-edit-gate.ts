@@ -15,31 +15,83 @@
 //   3. KLH_SESSION_ROLE=coordinator — explicit owner override, skips the walk.
 //   else                            — coordinator.
 // The sid-prefix route was REJECTED (manual sids collide, lanes rename).
-// Scope: fleet-shaped repos only (a packages/suspenders ancestor of cwd),
-// and only targets INSIDE that root — machine config (~/.config/klh,
+// Scope: VERIFIED fleet identity only (W1124.9 — the bare packages/
+// suspenders ancestor walk classified stale /tmp lookalikes as Fleet roots
+// and blocked valid non-Fleet edits). Two accepted identities:
+//   - git repository identity: the monorepo closure (packages/suspenders/
+//     hooks/gate.ts) sits AT `git rev-parse --show-toplevel` of cwd — real
+//     main checkouts and linked worktrees verify; temp dirs never do.
+//   - canonical installed closure: cwd under $SUSPENDERS_PREFIX (default
+//     ~/.claude/hooks/suspenders) with the pinned harness-receipt.json.
+// Only targets INSIDE that root gate; machine config (~/.config/klh,
 // belt.env) and other repos stay untouched: that is the coordinator's ops
 // surface (the design question's "this coord session does real ops edits").
 // Every block appends to the denied-calls.jsonl audit (W80, hookio deny())
 // — the superlite incidents.jsonl analog — and the deny text is the
 // dispatch-it-instead redirect. SUSPENDERS_COORD_EDIT_GATE=0 disables
 // (owner kill switch, the scrub-gate pattern).
-import { existsSync } from "node:fs";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
+import { RECEIPT_FILE } from "./harness-manifest.ts";
 import { resolveFleetLane } from "./fleetlane.ts";
 import { deny, type HookInput } from "./hookio.ts";
 
 const EDIT_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
 
-// Fleet repo root for cwd: the nearest ancestor owning packages/suspenders
-// (the monorepo shape; worktrees carry it at their own root). "" = not fleet.
+// Fleet repo root for cwd — verified identity, never the bare directory-
+// shape ancestor walk (W1124.9): the shape must sit at a VERIFIED boundary.
+// Git identity first (`git rev-parse --show-toplevel`; real main checkouts
+// and linked worktrees verify, temp dirs never do), then the canonical
+// installed closure. "" = not fleet — never gated.
 export function fleetRootFor(cwd: string): string {
-	let dir = resolve(cwd);
-	for (;;) {
-		if (existsSync(`${dir}/packages/suspenders`)) return dir;
-		const up = dirname(dir);
-		if (up === dir) return "";
-		dir = up;
+	const dir = resolve(cwd);
+	const top = gitToplevelFor(dir);
+	if (
+		top &&
+		existsSync(join(top, "packages", "suspenders", "hooks", "gate.ts"))
+	) {
+		return top;
 	}
+	return installedClosureRootFor(dir);
+}
+
+// `git rev-parse` is the authority for repository identity (worktree .git
+// pointers, GIT_DIR, bounds): failure = not a repository. The toplevel comes
+// back real (symlink-resolved), so it compares equal to real-pathed targets.
+function gitToplevelFor(dir: string): string {
+	const r = Bun.spawnSync(["git", "-C", dir, "rev-parse", "--show-toplevel"], {
+		stdin: "ignore",
+		stdout: "pipe",
+		stderr: "pipe",
+		env: { ...process.env },
+	});
+	if (r.exitCode !== 0) return "";
+	return r.stdout.toString().trim();
+}
+
+// Canonical installed closure: cwd inside the installed harness prefix
+// ($SUSPENDERS_PREFIX, default ~/.claude/hooks/suspenders — the symlinked
+// generation face) WITH the pinned harness-receipt.json — the marker
+// sync-harness writes per generation. A lookalike dir without the receipt
+// is not the closure.
+function installedClosureRootFor(cwd: string): string {
+	const prefix =
+		process.env.SUSPENDERS_PREFIX ||
+		join(process.env.HOME ?? "", ".claude", "hooks", "suspenders");
+	if (!prefix) return "";
+	const candidates = [resolve(prefix)];
+	try {
+		candidates.push(realpathSync(prefix));
+	} catch {}
+	for (const base of candidates) {
+		if (
+			(cwd === base || cwd.startsWith(`${base}/`)) &&
+			existsSync(join(base, RECEIPT_FILE))
+		) {
+			return base;
+		}
+	}
+	return "";
 }
 
 // The coordinator's direct-write surface: docs/specs/plans (*.md) and
@@ -76,7 +128,12 @@ export function coordinatorEditGate(hook: HookInput): void {
 	const root = fleetRootFor(at);
 	if (!root) return; // not a fleet-shaped repo — never gate
 	const abs = isAbsolute(f) ? resolve(f) : resolve(root, f);
-	if (!abs.startsWith(`${root}/`)) return; // outside the repo: ops surface
+	// The root is real (git resolves symlinks); compare the target's real
+	// path too so /tmp-style spellings of an in-root target still gate.
+	const real = existsSync(abs) ? realpathSync(abs) : abs;
+	if (!abs.startsWith(`${root}/`) && !real.startsWith(`${root}/`)) {
+		return; // outside the repo: ops surface
+	}
 	if (coordinatorWriteAllowed(abs)) return; // docs + .fleet surface
 	if (sessionRole(at) === "lane") return;
 	deny(coordinatorDenyText(abs.slice(root.length + 1)));
