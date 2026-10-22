@@ -23,7 +23,8 @@ const decodeCapped = async (
 	for (;;) {
 		const { done, value } = await reader.read();
 		if (done) break;
-		if (text.length < STREAM_CAP_BYTES) text += dec.decode(value, { stream: true });
+		if (text.length < STREAM_CAP_BYTES)
+			text += dec.decode(value, { stream: true });
 		// drain always, retain only the cap
 	}
 	text += dec.decode();
@@ -32,7 +33,22 @@ const decodeCapped = async (
 		: text.slice(0, STREAM_CAP_BYTES);
 };
 
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number): Promise<void> =>
+	new Promise((r) => setTimeout(r, ms));
+
+/** W1124.12.2: every deadline/grace/reap timer is cancellable AND unref'd —
+ *  a pending setTimeout keeps the Bun event loop alive, so a seed that exits
+ *  before its deadline wedged the caller (dispatch-next hung minutes past
+ *  "dispatched" on the still-pending 180s starter timer). unref lets the
+ *  process die; cancel retires the loser's callback entirely. */
+const bounded = (ms: number): { p: Promise<void>; cancel: () => void } => {
+	let t: ReturnType<typeof setTimeout> | undefined;
+	const p = new Promise<void>((r) => {
+		t = setTimeout(r, ms);
+		if (typeof t.unref === "function") t.unref();
+	});
+	return { p, cancel: () => clearTimeout(t) };
+};
 
 /** No live member of the child's process group (POSIX kill(-pgid, 0)). On
  *  win32 there is no group grammar — fall back to the direct pid probe and
@@ -86,17 +102,20 @@ export const runSeedGroup = async (
 	const termGraceMs = opts.termGraceMs ?? 2_000;
 	const reapBudgetMs = opts.reapBudgetMs ?? 3_000;
 	const timeoutMs = Math.max(1, Math.floor(opts.timeoutMs));
-	const child: Subprocess<"ignore", "pipe", "pipe"> = Bun.spawn([bin, ...args], {
-		cwd: opts.cwd,
-		env: opts.env,
-		stdin: "ignore",
-		stdout: "pipe",
-		stderr: "pipe",
-		// POSIX: the child LEADS its own process group — group signals reach
-		// shell wrappers AND their descendants (the exact descendant gap the
-		// spawnSync `timeout` shape could not prove).
-		detached: true,
-	});
+	const child: Subprocess<"ignore", "pipe", "pipe"> = Bun.spawn(
+		[bin, ...args],
+		{
+			cwd: opts.cwd,
+			env: opts.env,
+			stdin: "ignore",
+			stdout: "pipe",
+			stderr: "pipe",
+			// POSIX: the child LEADS its own process group — group signals reach
+			// shell wrappers AND their descendants (the exact descendant gap the
+			// spawnSync `timeout` shape could not prove).
+			detached: true,
+		},
+	);
 	const pgid = child.pid;
 	const exitPromise: Promise<number> = child.exited;
 	const pipes: Promise<[string, string]> = Promise.all([
@@ -116,18 +135,23 @@ export const runSeedGroup = async (
 		}
 	};
 
-	// deadline vs exit — one race, explicit winner
+	// deadline vs exit — one race, explicit winner; the loser's timer is
+	// cancelled so nothing pends past the await (bounded())
+	const deadline = bounded(timeoutMs);
 	const winner = await Promise.race([
 		exitPromise.then(() => "exit" as const),
-		sleep(timeoutMs).then(() => "deadline" as const),
+		deadline.p.then(() => "deadline" as const),
 	]);
+	deadline.cancel();
 	timedOut = winner === "deadline";
 	if (timedOut) {
 		killGroup("SIGTERM");
+		const grace = bounded(termGraceMs);
 		const exitedInGrace = await Promise.race([
 			exitPromise.then(() => true),
-			sleep(termGraceMs).then(() => false),
+			grace.p.then(() => false),
 		]);
+		grace.cancel();
 		if (!exitedInGrace) killGroup("SIGKILL");
 	}
 	// bounded reap: reaped direct child + reparented/init-reaped descendants
@@ -139,8 +163,15 @@ export const runSeedGroup = async (
 		await sleep(25);
 		groupDown = !isGroupAlive(pgid);
 	}
-	await Promise.race([exitPromise, sleep(reapBudgetMs)]);
-	const [out, err] = await Promise.race([pipes, sleep(reapBudgetMs).then(() => ["", ""] as [string, string])]);
+	const reapExit = bounded(reapBudgetMs);
+	await Promise.race([exitPromise, reapExit.p]);
+	reapExit.cancel();
+	const reapPipes = bounded(reapBudgetMs);
+	const [out, err] = await Promise.race([
+		pipes,
+		reapPipes.p.then(() => ["", ""] as [string, string]),
+	]);
+	reapPipes.cancel();
 
 	return {
 		code: timedOut ? null : child.exitCode,
