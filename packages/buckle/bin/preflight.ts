@@ -27,7 +27,8 @@ import {
 	type LiteLlmRouteConfig,
 	validateRouteLadders,
 } from "../src/route-ladder-validator.ts";
-import { loadGatewayPolicy } from "../src/policy.ts";
+import { loadGatewayPolicy, parsePolicy } from "../src/policy.ts";
+import type { GatewayPolicy } from "../src/policy.ts";
 import { loadUpstreams } from "../src/upstreams.ts";
 
 const arg = (name: string): string | null => {
@@ -76,6 +77,23 @@ try {
 } catch (e) {
 	die(`policy failed to load: ${e instanceof Error ? e.message : e}`);
 }
+// The hub's REAL policy is the COMMITTED routing policy — hubctl renders
+// exactly this file onto every hub (pushGatewayPolicy) — with the hub's
+// buckle_gateway override shallow-spread over it (renderHubPolicy's merge).
+// This device's live policy is the Mac's posture, never a hub's.
+let committedPolicy: GatewayPolicy;
+try {
+	committedPolicy = parsePolicy(
+		readFileSync(
+			new URL("../routing-policy.yaml", import.meta.url).pathname,
+			"utf8",
+		),
+	);
+} catch (e) {
+	die(
+		`committed routing policy failed to load: ${e instanceof Error ? e.message : e}`,
+	);
+}
 
 // ── the stack: hub origins + the inventories they resolve ──────────────────
 // The real HubProfile shape (suspenders hooks/lib/stack-config.ts):
@@ -85,6 +103,7 @@ interface StackHub {
 	url?: string;
 	host?: string;
 	buckle_port?: number;
+	buckle_gateway?: GatewayPolicy;
 	upstreams?: {
 		groups?: Record<string, Array<Record<string, unknown>>>;
 		zai_litellm_url?: string;
@@ -111,20 +130,18 @@ const hubOrigins = [...Object.values(hubs)]
 	.map(hubOrigin)
 	.filter((origin): origin is string => origin !== null);
 
-// The engine config is optional machine state: absent → the ladder is
+// The LOCAL engine config is optional machine state: absent → the ladder is
 // validated engine-less (rows pointing at :4100 then fail as unmapped).
+// Hub-side engines (zai_litellm_url) are NEVER credited this snapshot's
+// config — the Mac holds no hub model_list — so each registers unverified
+// and its rows report unverified_engine (never silently green).
 let litellms: LiteLlmRouteConfig[] = [];
 if (existsSync(litellmPath)) {
 	try {
 		litellms = [
 			{
 				id: "engine",
-				origins: [
-					"http://127.0.0.1:4100",
-					...[...Object.values(hubs)]
-						.map((hub) => hub.upstreams?.zai_litellm_url)
-						.filter((url): url is string => typeof url === "string"),
-				],
+				origins: ["http://127.0.0.1:4100"],
 				config: Bun.YAML.parse(readFileSync(litellmPath, "utf8")),
 			},
 		];
@@ -133,6 +150,11 @@ if (existsSync(litellmPath)) {
 			`litellm config failed to parse: ${e instanceof Error ? e.message : e}`,
 		);
 	}
+}
+for (const [name, hub] of Object.entries(hubs)) {
+	const url = hub.upstreams?.zai_litellm_url;
+	if (typeof url !== "string") continue;
+	litellms.push({ id: `engine:${name}`, origins: [url], unverified: true });
 }
 
 const deadlineRaw = arg("deadline-ms");
@@ -144,12 +166,17 @@ const belts: BeltRouteConfig[] = [
 		origins: [beltOrigin],
 	},
 ];
+// The belt swarm's pinned specialist ports (belt bin/router-shim.ts
+// registry rows) — the LOCAL pool's terminals, resolved on this device.
+// Hub inventories never vouch for them (review #55637).
+const swarmPorts = [8901, 8902, 8903, 8906, 8907, 8912, 8913];
 const buckles: BuckleRouteConfig[] = [
 	{
 		id: "local",
 		origins: [process.env.BUCKLE_ORIGIN ?? "http://127.0.0.1:4101"],
 		policy,
 		pool,
+		terminals: swarmPorts.map((port) => `http://127.0.0.1:${port}`),
 	},
 	// Every configured hub is a known buckle service. When the hub profile
 	// carries its REAL upstream ladder (hub.upstreams.groups), that
@@ -161,23 +188,39 @@ const buckles: BuckleRouteConfig[] = [
 		if (origin === null) return [];
 		const rows = hub.upstreams?.groups ?? {};
 		const groups = Object.keys(rows);
+		// A hub pool's terminals are ONLY the loopback leaves that hub's own
+		// inventory declares — a global set would let one device's inventory
+		// vouch for another's port (trace b73f8a2d, review #55637).
+		const ownTerminals = [...Object.values(rows)]
+			.flat()
+			.map((row) => row?.url)
+			.filter(
+				(url): url is string =>
+					typeof url === "string" &&
+					/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\]):/.test(url),
+			);
+		// The hub's REAL ladder policy is the committed routing policy with
+		// the hub's buckle_gateway override spread over it — renderHubPolicy's
+		// merge, mirrored.
+		const hubPolicy: GatewayPolicy = {
+			...committedPolicy,
+			...(hub.buckle_gateway ?? {}),
+		};
 		if (groups.length === 0)
 			return [
 				{
 					id: origin,
 					origins: [origin],
-					policy,
+					policy: hubPolicy,
 					pool: { groups: () => [], deployments: () => [] },
-					opaque: true,
+					terminals: ownTerminals,
 				},
 			];
 		return [
 			{
 				id: origin,
 				origins: [origin],
-				// The hub's own ladder policy lives on the hub device; this
-				// snapshot checks membership/deadline, never its fallbacks.
-				policy: { ...policy, fallbacks: {} },
+				policy: hubPolicy,
 				pool: {
 					groups: () => groups,
 					deployments: (group: string) =>
@@ -187,56 +230,49 @@ const buckles: BuckleRouteConfig[] = [
 							dialect: "openai" as const,
 						})),
 				},
+				terminals: ownTerminals,
 			},
 		];
 	}),
-];
-
-// The belt swarm's pinned specialist ports (belt bin/router-shim.ts
-// registry rows): local ladder targets onto them are terminals, never
-// unmapped findings. Hub-inventory rows referencing hub-loopback services
-// (the hub's own ollama/swarm) are terminals too — declared by the hub's
-// serving registry, resolvable only from the hub. Scope note: a LOCAL row
-// onto one of those hub-loopback origins is exempted as well; the local
-// machine carries no such port today.
-const swarmPorts = [8901, 8902, 8903, 8906, 8907, 8912, 8913];
-const hubLoopback = [...Object.values(hubs)].flatMap((hub) =>
-	[...Object.values(hub.upstreams?.groups ?? {})]
-		.flat()
-		.map((row) => row?.url)
-		.filter(
-			(url): url is string =>
-				typeof url === "string" &&
-				/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\]):/.test(url),
-		),
-);
-const terminalOrigins = [
-	...swarmPorts.map((port) => `http://127.0.0.1:${port}`),
-	...hubLoopback,
 ];
 
 const { errors, checkedNodes } = validateRouteLadders({
 	buckles,
 	litellms,
 	belts,
-	terminalOrigins,
 	requestDeadlineMs:
 		deadline !== undefined && Number.isFinite(deadline) && deadline > 0
 			? deadline
 			: undefined,
 });
 
+// W1094 unverified face: rows onto engines this snapshot holds no config
+// for are REPORTED, never silently green — but non-gating (the proof lives
+// on another device). Gating findings fail the run; unverified ones do not.
+const unverified = errors.filter((e) => e.code.startsWith("unverified_"));
+const gating = errors.filter((e) => !e.code.startsWith("unverified_"));
+
 if (has("json"))
 	console.log(
-		JSON.stringify({ ok: errors.length === 0, checkedNodes, errors }, null, 2),
+		JSON.stringify(
+			{ ok: gating.length === 0, checkedNodes, errors: gating, unverified },
+			null,
+			2,
+		),
 	);
 else {
 	console.log(
 		`preflight: ${checkedNodes} route nodes checked (${baseFile}${hubOrigins.length ? `, ${hubOrigins.length} hub(s)` : ""})`,
 	);
-	if (errors.length === 0) console.log("preflight: clean");
-	else
-		for (const e of errors)
-			console.log(`FAIL ${e.code} [${e.layer}] ${e.path}: ${e.detail}`);
+	for (const e of gating)
+		console.log(`FAIL ${e.code} [${e.layer}] ${e.path}: ${e.detail}`);
+	for (const e of unverified)
+		console.log(`UNVERIFIED ${e.code} [${e.layer}] ${e.path}: ${e.detail}`);
+	if (gating.length === 0)
+		console.log(
+			unverified.length === 0
+				? "preflight: clean"
+				: `preflight: clean (${unverified.length} unverified — proof lives off this device)`,
+		);
 }
-process.exit(errors.length === 0 ? 0 : 1);
+process.exit(gating.length === 0 ? 0 : 1);

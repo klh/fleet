@@ -160,3 +160,88 @@ hubs:
 	expect(ok.exitCode).toBe(0);
 	expect(ok.stdout.toString()).toContain("1 hub(s)");
 });
+
+test("a hub-side engine never borrows this snapshot's config — its rows report unverified", () => {
+	const dir = mkdtempSync(join(tmpdir(), "buckle-preflight-"));
+	const fix = fixture(dir, true);
+	const stackPath = join(dir, "stack.yaml");
+	writeFileSync(
+		stackPath,
+		`version: "1"
+hubs:
+  nas:
+    host: nas.example
+    buckle_port: 4101
+    upstreams:
+      zai_litellm_url: http://nas.example:4111
+      groups:
+        relay:
+          - url: http://nas.example:4111
+            dialect: openai
+            adapter_config:
+              proxy_kind: litellm
+`,
+	);
+	const result = Bun.spawnSync({
+		cmd: ["bun", BIN, "--upstreams", fix.upstreamsPath, "--stack", stackPath],
+		env: { ...process.env, ...fix.env, BUCKLE_UPSTREAMS: "" },
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	expect(result.exitCode).toBe(0);
+	const out = result.stdout.toString();
+	expect(out).toContain("unverified_engine");
+	expect(out).not.toContain("unknown_engine_model");
+});
+
+test("a hub loopback leaf is a terminal only for the pool that declares it", () => {
+	const dir = mkdtempSync(join(tmpdir(), "buckle-preflight-"));
+	const fix = fixture(dir, true);
+	const stackPath = join(dir, "stack.yaml");
+	writeFileSync(
+		stackPath,
+		`version: "1"
+hubs:
+  nas:
+    host: nas.example
+    buckle_port: 4101
+    upstreams:
+      groups:
+        relay:
+          - url: http://127.0.0.1:9999
+            dialect: openai
+`,
+	);
+	writeFileSync(
+		join(dir, "local-row.yaml"),
+		`version: 1
+groups:
+  x:
+    - url: http://127.0.0.1:9999
+      dialect: openai
+`,
+	);
+	const flagged = Bun.spawnSync({
+		cmd: [
+			"bun",
+			BIN,
+			"--upstreams",
+			join(dir, "local-row.yaml"),
+			"--stack",
+			stackPath,
+		],
+		env: { ...process.env, ...fix.env, BUCKLE_UPSTREAMS: "" },
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	expect(flagged.exitCode).toBe(1);
+	expect(flagged.stdout.toString()).toContain("unmapped_local_target");
+	// The HUB's own row onto the same leaf resolves: its pool declares it.
+	const hubSide = Bun.spawnSync({
+		cmd: ["bun", BIN, "--upstreams", fix.upstreamsPath, "--stack", stackPath],
+		env: { ...process.env, ...fix.env, BUCKLE_UPSTREAMS: "" },
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	expect(hubSide.exitCode).toBe(0);
+});

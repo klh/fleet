@@ -438,6 +438,10 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 		}
 	}
 	for (const lite of inputs.litellms ?? []) {
+		// W1094: an unverified engine carries NO config in this snapshot —
+		// there is nothing to shape-check; its rows report unverified_engine
+		// in the buckle loop above.
+		if (lite.unverified) continue;
 		const doc = recordOf(lite.config);
 		const modelRows = doc?.model_list;
 		if (!Array.isArray(modelRows)) {
