@@ -339,9 +339,9 @@ var KCOLS = [
   { key: 'READY', label: 'ready', states: ['READY'] },
   { key: 'WAITING', label: 'waiting', states: ['WAITING', 'SHATTERED'], cap: 12 },
   { key: 'ACTIVE', label: 'claimed', states: ['CLAIMED', 'RUNNING'] },
-  { key: 'PAUSED', label: 'paused', states: ['PAUSED'] },
-  { key: 'BLOCKED', label: 'blocked', states: ['BLOCKED'] },
-  { key: 'FAILED', label: 'failed', states: ['FAILED'] },
+  { key: 'PAUSED', label: 'paused', states: ['PAUSED'], hideEmpty: true },
+  { key: 'BLOCKED', label: 'blocked', states: ['BLOCKED'], hideEmpty: true },
+  { key: 'FAILED', label: 'failed', states: ['FAILED'], hideEmpty: true },
   { key: 'DONE', label: 'done', states: ['DONE'], cap: 12 },
   { key: 'CANCELLED', label: 'cancelled', states: ['CANCELLED'], cap: 12 }
 ];
@@ -359,7 +359,8 @@ function ensureKstatusNav(){
   nav.addEventListener('click', function(e){
     var button = e.target.closest && e.target.closest('button[data-kcol]');
     if (!button) return;
-    var col = byId('kanban').querySelectorAll('.kcol')[Number(button.getAttribute('data-kcol'))];
+    var key = KCOLS[Number(button.getAttribute('data-kcol'))].key;
+    var col = byId('kanban').querySelector('.kcol[data-kcol-key="' + key + '"]');
     var wrap = byId('kanban').parentElement;
     if (!col || !wrap) return;
     wrap.scrollTo({ left: wrap.scrollLeft + col.getBoundingClientRect().left - wrap.getBoundingClientRect().left, behavior: 'smooth' });
@@ -679,8 +680,10 @@ function renderKanban(){
     for (var r = 0; r < items.length; r++) if (!fam.nested[String(items[r].id)]) resid.push(items[r]);
     var shown = col.cap ? resid.slice(0, col.cap) : resid;
     var jump = byId('kstatusnav').querySelectorAll('button')[c];
-    if (jump) jump.textContent = col.label + ' ' + resid.length;
-    html += '<div class="kcol" data-tone="' + workTone(col.states[0]) + '"><h3>' + esc(col.label) + '<span class="kcount">' + resid.length + '</span></h3>';
+    var visible = !col.hideEmpty || resid.length > 0;
+    if (jump) { jump.textContent = col.label + ' ' + resid.length; jump.hidden = !visible; }
+    if (!visible) continue;
+    html += '<div class="kcol" data-kcol-key="' + col.key + '" data-tone="' + workTone(col.states[0]) + '"><h3>' + esc(col.label) + '<span class="kcount">' + resid.length + '</span></h3>';
     for (var i = 0; i < shown.length; i++){
       shownAll.push(shown[i]);
       html += kanbanCard(shown[i], fam);
