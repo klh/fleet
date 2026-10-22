@@ -25,7 +25,7 @@ const git = (repo: string, ...args: string[]) => {
 		err: p.stderr.toString(),
 	};
 };
-function fixture(content: string, name = "change.ts") {
+async function fixture(content: string, name = "change.ts") {
 	const repo = mkdtempSync(join(tmpdir(), "fleet-merge-guard-"));
 	repos.push(repo);
 	git(repo, "init", "-b", "main");
@@ -45,8 +45,38 @@ function fixture(content: string, name = "change.ts") {
 	git(repo, "checkout", "main");
 	mkdirSync(join(repo, ".fleet"));
 	writeFileSync(join(repo, ".fleet/lanes.json"), "[]");
+	await closeGuard(repo);
 	return { repo, before };
 }
+
+// W1072.2 closure predicate: the ladder merges a branch ONLY when its graph
+// item is DONE with a result_sha resolving to the exact branch HEAD. The
+// fixture closes GUARD in the child's own scratch store (the ship() HOME)
+// so every security negative reaches its real validation instead of the
+// generic preflight defer "item GUARD is unknown to the graph".
+const REAL_HOME = process.env.HOME;
+async function closeGuard(repo: string): Promise<void> {
+	const home = join(repo, ".test-home");
+	const head = git(repo, "rev-parse", "suspenders/GUARD").out;
+	process.env.HOME = home;
+	try {
+		const govdb = await import(
+			`../hooks/lib/govdb.ts?guard=${encodeURIComponent(home)}`,
+		);
+		const db = govdb.openGovernorDb() as {
+			run: (sql: string, ...params: unknown[]) => unknown;
+			close: () => void;
+		};
+		db.run(
+			"INSERT OR REPLACE INTO work_items (project, id, title, description, state, result_sha, required, created_at, updated_at) VALUES (?, 'GUARD', 'merge guard fixture', 'fixture closes its lane before the ladder runs', 'DONE', ?, 1, ?, ?)",
+			[govdb.projectIdentity(repo), head, Date.now(), Date.now()],
+		);
+		db.close();
+	} finally {
+		process.env.HOME = REAL_HOME;
+	}
+}
+
 function ship(repo: string, ladder?: string, callerRepo = repo) {
 	return Bun.spawnSync(
 		[
