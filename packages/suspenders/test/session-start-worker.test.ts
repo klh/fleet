@@ -4,17 +4,18 @@
 // directive + the W892 report injection while the coordination context
 // (OWNED/READY/INBOX, RULES, GOVERNANCE, WS) stays live. Isolated temp HOME
 // + repo, spawns the real hook.
-import { describe, test, expect, afterAll } from "bun:test";
+
+import { Database } from "bun:sqlite";
+import { afterAll, describe, expect, test } from "bun:test";
 import {
-	mkdtempSync,
-	rmSync,
 	mkdirSync,
-	writeFileSync,
+	mkdtempSync,
 	realpathSync,
+	rmSync,
+	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Database } from "bun:sqlite";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-worker-"));
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-worker-repo-"));

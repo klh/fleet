@@ -8,7 +8,7 @@
 //      gets an {err} reply rather than closing the socket.
 // Runs store-server.ts as a real subprocess on an ephemeral port — no mocks,
 // the actual Bun.serve websocket wiring is what's under test.
-import { describe, test, expect, afterAll } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

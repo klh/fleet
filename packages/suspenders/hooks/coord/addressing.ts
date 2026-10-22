@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 import {
 	formatSessionLabel,
 	llmShorthand,
@@ -6,23 +7,22 @@ import {
 	slugifyLabelPart,
 } from "../lib/addressing.ts";
 import {
-	forwardDirectEvent,
 	foreignLaneMatch,
-	type RelayDeliveryStatus,
-	type RelayOutboxRow,
+	forwardDirectEvent,
 	normalizeHostLabel,
 	queryRelayStatus,
+	type RelayDeliveryStatus,
+	type RelayOutboxRow,
 	relayOutboxRecord,
 	sidResolvesLocally,
 } from "../lib/event-relay.ts";
 import { localHubLabel, workEdgeToken } from "../lib/federation-work.ts";
 import { loadLaneRegistry } from "../lib/lane-registry.ts";
-import { hostname } from "node:os";
 import { transcriptTail } from "../lib/transcript.ts";
 import { broadcastNote, emitEvent, isLiveSession } from "./bus.ts";
 import {
-	arg,
 	amber,
+	arg,
 	CAPABILITIES,
 	cyan,
 	db,

@@ -9,24 +9,24 @@
 // one-tab indent preserved, output byte-compatible.
 import { statSync } from "node:fs";
 import { hostname } from "node:os";
-import { resolveStoreHttpBase } from "../lib/govdb.ts";
 import { signalClaudeDirectEvent } from "../lib/claude-wake.ts";
 import {
 	codexThreadForSession,
 	deliverSubscribedCodexEvent,
 } from "../lib/codex-direct-delivery.ts";
 import { steerCodexDirectEvent } from "../lib/codex-steer.ts";
-import { type LaneRef, laneVerdict } from "../lib/lane-liveness.ts";
-import { loadLaneRegistry } from "../lib/lane-registry.ts";
 import {
-	forwardDirectEvent,
-	foreignLaneMatch,
-	sidResolvesLocally,
 	type ForeignLaneHit,
+	foreignLaneMatch,
+	forwardDirectEvent,
+	sidResolvesLocally,
 } from "../lib/event-relay.ts";
 import { localHubLabel } from "../lib/federation-work.ts";
+import { resolveStoreHttpBase } from "../lib/govdb.ts";
+import { type LaneRef, laneVerdict } from "../lib/lane-liveness.ts";
+import { loadLaneRegistry } from "../lib/lane-registry.ts";
+import { type EventPublication, emitStoredEvent } from "./event-publish.ts";
 import { advanceCursor, fetchEventsPaged } from "./event-scan.ts";
-import { emitStoredEvent, type EventPublication } from "./event-publish.ts";
 import {
 	amber,
 	arg,
