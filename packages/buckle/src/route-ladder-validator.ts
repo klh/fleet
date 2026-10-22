@@ -20,6 +20,11 @@ export interface LiteLlmRouteConfig {
 	id: string;
 	origins: string[];
 	config: unknown;
+	/** W1094: true = the origin is a known engine but this snapshot holds NO
+	 *  config proof (a hub-side engine seen from the Mac). Rows targeting it
+	 *  are reported unverified_engine — never silently green, never failed
+	 *  on checks the absent config cannot answer. */
+	unverified?: boolean;
 	/**
 	 * Deployment URLs the buckle front serves through this engine (W1094):
 	 * a row pointing at a litellm origin must declare
@@ -63,7 +68,20 @@ export interface RouteLadderFinding {
 		| "deadline_budget"
 		| "missing_proxy_kind"
 		| "unknown_engine_model"
-		| "invalid_config";
+		| "invalid_config"
+		/** W1094: one bounded ladder revisits an origin it already walked —
+		 *  the live walk re-enters a rate-limited origin (trace audit #55796:
+		 *  429 twice on one origin, then twice on the next). */
+		| "repeat_origin"
+		/** W1094: a group name that asserts a model family is served by a
+		 *  primary deployment of a DIFFERENT family — a pinned gpt-6-sol
+		 *  request silently rides zai-glm (trace audit #55799). */
+		| "model_family_mismatch"
+		/** W1094 unverified face — reported, never silently green, non-gating
+		 *  (the proof lives on another device). */
+		| "unverified_engine"
+		| "unverified_target"
+		| "unverified_catalog";
 	layer: "buckle" | "litellm" | "belt" | "fleet";
 	path: string;
 	detail: string;
@@ -99,6 +117,40 @@ function recordOf(value: unknown): Record<string, unknown> | null {
 	return value && typeof value === "object" && !Array.isArray(value)
 		? (value as Record<string, unknown>)
 		: null;
+}
+
+// W1094 model-family preflight (#55799): the family token a group name or
+// model id asserts — the first alpha segment that is not a provider prefix.
+// "gpt-6-sol" → gpt · "zai-glm-5.3-flash" → glm · "claude-sonnet-5" →
+// claude. Unmatched names derive nothing (no family asserted → no check).
+const PROVIDER_PREFIXES = new Set([
+	"openai",
+	"anthropic",
+	"azure",
+	"bedrock",
+	"vertex",
+	"openrouter",
+	"zai",
+	"github",
+	"copilot",
+	"litellm",
+	"aws",
+	"google",
+	"groq",
+	"together",
+	"fireworks",
+	"dashscope",
+	"local",
+]);
+
+/** The asserted model family of a group/model name, or null when the name
+ *  derives nothing (unknown tokens, bare ids). */
+export function familyOf(name: string): string | null {
+	for (const token of name.toLowerCase().split(/[-._/]/)) {
+		if (!/^[a-z]+$/.test(token) || PROVIDER_PREFIXES.has(token)) continue;
+		return token;
+	}
+	return null;
 }
 
 function fallbackRows(value: unknown): Record<string, string[]> {
@@ -184,8 +236,17 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 	for (const lite of inputs.litellms ?? [])
 		for (const origin of lite.origins.map(originOf))
 			if (origin !== null) engineOrigins.add(origin);
+	// W1094: a hub-side engine this snapshot has no config for is reported
+	// unverified, not silently treated as configured.
+	const unverifiedEngines = new Set<string>();
+	for (const lite of inputs.litellms ?? []) {
+		if (!lite.unverified) continue;
+		for (const origin of lite.origins.map(originOf))
+			if (origin !== null) unverifiedEngines.add(origin);
+	}
 	const engineModels = new Map<string, Set<string>>();
 	for (const lite of inputs.litellms ?? []) {
+		if (lite.unverified) continue;
 		const doc = recordOf(lite.config);
 		const rows = Array.isArray(doc?.model_list) ? doc?.model_list : [];
 		const names = new Set<string>();
@@ -199,6 +260,15 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 			for (const dep of buckle.pool.deployments(rung)) {
 				const origin = originOf(dep.url);
 				const kind = recordOf(dep.adapter_config)?.proxy_kind;
+				if (origin !== null && unverifiedEngines.has(origin)) {
+					finding(
+						"unverified_engine",
+						"buckle",
+						`buckle:${buckle.id}:${rung}`,
+						`engine row ${origin} has no config in this snapshot — membership unverified`,
+					);
+					continue;
+				}
 				if (origin !== null && engineOrigins.has(origin)) {
 					if (kind !== "litellm")
 						finding(
