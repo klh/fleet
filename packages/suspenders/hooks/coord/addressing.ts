@@ -22,6 +22,7 @@ import { transcriptTail } from "../lib/transcript.ts";
 import { broadcastNote, emitEvent, isLiveSession } from "./bus.ts";
 import {
 	arg,
+	amber,
 	CAPABILITIES,
 	cyan,
 	db,
@@ -422,7 +423,10 @@ export async function cmdMessage(rest: string[]): Promise<void> {
 	// store for a foreign lane is a black hole: the lane reads its own hub's
 	// store. Local routing keeps the existing behavior untouched.
 	const relay = await maybeForwardToForeignLane(needle, text, source);
-	if (relay) return;
+	if (relay) {
+		for (const line of relay) console.log(line);
+		return;
+	}
 	const { target, deferred } = resolveMessageTarget(needle);
 	const id = emitEvent({
 		kind: DIRECT_MESSAGE_KIND,
@@ -484,9 +488,9 @@ async function maybeForwardToForeignLane(
 			`foreign lane @${hit.sid.slice(0, 8)} on host ${hit.host}: ${result.why} — not queued locally (a directed event in this store never reaches a foreign lane); re-run when the hub resolves, or coord emit --to ${hit.sid} for a local record`,
 		);
 	return [
-		`${green("✓")} ${dim(`message forwarded → ${result.hub} lane @${hit.sid.slice(0, 8)} delivery ${result.deliveryId.slice(0, 8)}`)}`,
+		`${green("✓")} ${dim(`message forwarded → ${result.hub} lane @${hit.sid.slice(0, 8)} delivery ${result.deliveryId}`)}`,
 		dim(
-			`receipt face: coord delivery ${result.deliveryId.slice(0, 8)} — remote SEEN/ACCEPTED lands there`,
+			`receipt face: coord delivery ${result.deliveryId} — remote SEEN/ACCEPTED lands there`,
 		),
 	];
 }

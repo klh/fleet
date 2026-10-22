@@ -97,8 +97,13 @@ test("wire shape: exact keys, uuid id, kind allowlist, bounded text", () => {
 	expect(
 		shapeRelayDirectEvent({ ...wire(), targetSid: "bad\u0000sid" }),
 	).toBeNull();
-	// every text field is control-char-free — steering rides one line
-	expect(shapeRelayDirectEvent({ ...wire(), note: "line1\nline2" })).toBeNull();
+	// Layout belongs to the message body, while identity fields stay strict.
+	expect(
+		shapeRelayDirectEvent({ ...wire(), note: "line1\n\tline2\r\n" })?.note,
+	).toBe("line1\n\tline2\r\n");
+	expect(
+		shapeRelayDirectEvent({ ...wire(), note: "line1\u0000line2" }),
+	).toBeNull();
 });
 
 test("receiver inserts one directed event, receipt row, and notifies WS", async () => {
