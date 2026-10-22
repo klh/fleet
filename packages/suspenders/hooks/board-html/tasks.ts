@@ -17,7 +17,7 @@ try {
   var savedOwner = localStorage.getItem('sb.taskOwner');
   if (savedOwner) taskOwner = String(savedOwner);
   var savedFocus = localStorage.getItem('sb.taskFocus');
-  if (['all', 'attention', 'working', 'ready', 'waiting'].includes(savedFocus)) taskFocus = savedFocus;
+  if (['all', 'attention', 'working', 'paused', 'ready', 'waiting'].includes(savedFocus)) taskFocus = savedFocus;
   taskExpanded = localStorage.getItem('sb.taskExpanded') === '1';
 } catch (e) {}
 function saveTaskView(){
@@ -81,6 +81,7 @@ function sortTasks(arr){
 }
 function taskBucket(t){
   var state = displayState(t);
+  if (state === 'PAUSED') return 'paused';
   if (state === 'FAILED' || state === 'BLOCKED' || Number(t.open_decisions || 0) > 0) return 'attention';
   if (state === 'CLAIMED' || state === 'RUNNING') return 'working';
   if (state === 'READY') return 'ready';
@@ -88,7 +89,7 @@ function taskBucket(t){
 }
 function taskRank(t){
   var bucket = taskBucket(t);
-  return bucket === 'attention' ? 0 : bucket === 'working' ? 1 : bucket === 'ready' ? 2 : 3;
+  return bucket === 'attention' ? 0 : bucket === 'working' ? 1 : bucket === 'paused' ? 2 : bucket === 'ready' ? 3 : 4;
 }
 function taskGroupKey(t){ return String(t.project || '') + '\u0000' + String(t.id); }
 function taskGroups(ts){ // fragments nest under their parent row, scoped by project
@@ -222,6 +223,7 @@ function spendStripHtml(t, cls){
   return '<div class="kspend' + (cls ? ' ' + cls : '') + ' dim"><div class="ksparkplot"><span class="kspark" data-spark="' + key + '"></span><div class="ksparkaxis"><span>first request</span><span>latest</span></div></div><span class="kspendtxt" title="Attributed totals for this work item">' + esc(inner) + '</span></div>';
 }
 function displayState(t){
+  if ((t.state === 'CLAIMED' || t.state === 'RUNNING') && t.execution && t.execution.state === 'paused') return 'PAUSED';
   return t.state === 'READY' && t.blocked_by && t.blocked_by.length ? 'BLOCKED' : t.state;
 }
 function laneStamp(s){
@@ -294,7 +296,7 @@ function renderTasks(){
   try { showDone = localStorage.getItem('taskShowDone') === '1'; } catch(e) {}
   var cb = byId('taskDone'); if (cb) cb.checked = showDone;
   var open = own.filter(function(t){ return t.state !== 'DONE' && t.state !== 'CANCELLED'; });
-  var counts = {all: open.length, attention: 0, working: 0, ready: 0, waiting: 0};
+  var counts = {all: open.length, attention: 0, working: 0, paused: 0, ready: 0, waiting: 0};
   for (var i = 0; i < open.length; i++) counts[taskBucket(open[i])]++;
   var focus = byId('taskFocus');
   if (focus) {
@@ -328,7 +330,8 @@ var KCOLS = [
   { key: 'READY', label: 'ready', states: ['READY'] },
   { key: 'WAITING', label: 'waiting', states: ['WAITING', 'SHATTERED'], cap: 12 },
   { key: 'ACTIVE', label: 'claimed', states: ['CLAIMED', 'RUNNING'] },
-  { key: 'BLOCKED', label: 'blocked', states: ['BLOCKED', 'PAUSED'] },
+  { key: 'PAUSED', label: 'paused', states: ['PAUSED'] },
+  { key: 'BLOCKED', label: 'blocked', states: ['BLOCKED'] },
   { key: 'FAILED', label: 'failed', states: ['FAILED'] },
   { key: 'DONE', label: 'done', states: ['DONE'], cap: 12 },
   { key: 'CANCELLED', label: 'cancelled', states: ['CANCELLED'], cap: 12 }
@@ -599,6 +602,7 @@ function kanbanFamilies(pool){
   var idx = kanbanFamIndex(pool), byId = idx.byId, anch = idx.anch;
   var nested = {}, kidsOf = {};
   function resolve(t){
+    if (displayState(t) === 'PAUSED') return null;
     if (t.state === 'DONE' || t.state === 'CANCELLED') return null;
     var id2 = String(t.id), dot = id2.lastIndexOf('.'), pid = dot > 0 ? id2.slice(0, dot) : null;
     if (!pid) return null;
