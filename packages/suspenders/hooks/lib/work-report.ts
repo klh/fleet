@@ -46,6 +46,9 @@ export interface ReportRow {
 	lastOutAgoMs: number | null;
 	stalled: boolean;
 	decision: boolean;
+	/** §5 unknown ≠ zero: false = no attribution rows — metrics are
+	 *  unreported (render as em-dash), never a measured 0. */
+	spendReported: boolean;
 	/** --all scope only: which project the row came from. */
 	project: string | null;
 }
@@ -313,6 +316,7 @@ export const toReportRows = (
 			lastOutAgoMs: lastOutAgo,
 			stalled,
 			decision,
+			spendReported: a !== undefined,
 			project: it.project == null ? null : String(it.project),
 		};
 	});
@@ -410,6 +414,59 @@ export const reportRows = (
 		missing,
 	};
 };
+
+/** W1131 §9: the ONE item deep-link — every view renders links FROM this
+ *  helper so CLI, md, tree and the board share one URL shape. */
+export const urlFor = (id: string, project: string, base?: string): string =>
+	`${base ?? reportLinkBase()}/#task=${id}&proj=${encodeURIComponent(project)}`;
+
+/** One item of the versioned report contract (§1). */
+export interface ReportItem {
+	id: string;
+	project: string | null;
+	glyph: string;
+	status: string;
+	section: ReportSection;
+	needs_you_reason: "decision" | "failed" | "stalled" | null;
+	title: string;
+	age_ms: number | null;
+	last_activity_ms_ago: number | null;
+	last_output_ms_ago: number | null;
+	hub: string | null;
+	stalled: boolean;
+	requests: number | null;
+	links: { task: string };
+}
+
+/** OTel GenAI usage keys (§1) — the contract's ONLY token vocabulary.
+ *  input_tokens INCLUDES cached; cache share = cache_read ÷ input_tokens. */
+export type UsageMetrics = {
+	"gen_ai.usage.input_tokens": number | null;
+	"gen_ai.usage.cache_read.input_tokens": number | null;
+	"gen_ai.usage.cache_creation.input_tokens": number | null;
+	"gen_ai.usage.output_tokens": number | null;
+};
+
+/** The W1131 contract: the one object every view renders from (§1). */
+export interface ReportContract {
+	schema_version: 1;
+	generated_at: string;
+	project: string;
+	scope: "project" | "mine" | "all";
+	now_ms: number;
+	stall_ms: number;
+	items: ReportItem[];
+	needs_you: { count: number; ids: string[] };
+	totals: {
+		input_tokens: number;
+		output_tokens: number;
+		cache_read_tokens: number;
+		cache_creation_tokens: number;
+		requests: number;
+		lanes_per_hub: Record<string, number>;
+	};
+	footer: { lanes_other_projects: number | null };
+}
 
 const COLUMNS = [
 	"ITEM",
