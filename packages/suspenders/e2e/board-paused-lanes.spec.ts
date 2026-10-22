@@ -77,7 +77,8 @@ test("paused execution has its own column, navigation and filter without changin
 	await expect(page.locator(`#kanban [data-kid="${item}"]`)).toHaveCount(1);
 	await expect(
 		page.locator("#kstatusnav button").filter({ hasText: /^paused 0$/ }),
-	).toHaveCount(1);
+	).toBeHidden();
+	await expect(paused).toHaveCount(0);
 	const payload = await (
 		await page.request.get(`${board.BASE}/api/tasks`)
 	).json();

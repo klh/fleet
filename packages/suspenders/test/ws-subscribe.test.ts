@@ -8,10 +8,11 @@
 //      gets an {err} reply rather than closing the socket.
 // Runs store-server.ts as a real subprocess on an ephemeral port — no mocks,
 // the actual Bun.serve websocket wiring is what's under test.
-import { describe, test, expect, afterAll } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { afterAll, describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { projectIdentity } from "../hooks/lib/govdb-project.ts";
 
 const SERVER = join(import.meta.dir, "..", "hooks", "bin", "store-server.ts");
@@ -160,6 +161,143 @@ describe("WS /subscribe (W303 push + W305 bidirectional RPC)", () => {
 		} finally {
 			expertWs.close();
 			askerWs.close();
+		}
+	});
+	test("failed recipient discovery cannot masquerade as a broadcast consult; exact SID retries deliver", async () => {
+		const url = await startServer(await freePort());
+		const expert = "discovery-expert";
+		const asker = "discovery-asker";
+		const rpc = async (mode: string, sql: string, params: unknown[] = []) =>
+			(
+				await fetch(`${url}/rpc`, {
+					method: "POST",
+					body: JSON.stringify({ mode, sql, params }),
+				})
+			).json();
+		for (const sid of [expert, asker])
+			await rpc(
+				"run",
+				"INSERT INTO sessions (sid,project,started_at,hb,state,tags) VALUES (?,?,?,?,'RUNNING','{}')",
+				[sid, projectIdentity(), Date.now(), Date.now()],
+			);
+		await rpc(
+			"run",
+			"INSERT INTO claims(sid,scope,intent,hot,ts) VALUES (?,'fixture','review questions',0,?)",
+			[expert, Date.now()],
+		);
+		await rpc(
+			"run",
+			"INSERT INTO facts(key,value,source,ts) VALUES ('integration.head',?,'fixture',?)",
+			["1234567890123456789012345678901234567890", Date.now()],
+		);
+		const ws = new WebSocket(
+			`${url.replace(/^http/, "ws")}/subscribe?as=${expert}`,
+		);
+		await new Promise<void>((resolve) =>
+			ws.addEventListener("open", () => resolve()),
+		);
+		const next = messageQueue(ws);
+		try {
+			const failed = await cli(url, [
+				"consult",
+				"@missing-head",
+				"Please adjudicate the work",
+				"--no-kb",
+				"--as",
+				asker,
+			]);
+			expect(failed.code).not.toBe(0);
+			expect(failed.err).toContain("coord fleet --json");
+			expect(failed.err).toContain("Do not substitute a broadcast");
+			expect(
+				(
+					await rpc(
+						"get",
+						"SELECT COUNT(*) AS n FROM consults WHERE asker_sid = ?",
+						[asker],
+					)
+				).row.n,
+			).toBe(0);
+			expect(
+				(
+					await rpc(
+						"get",
+						"SELECT COUNT(*) AS n FROM direct_message_receipts r JOIN events e ON e.id = r.event_id WHERE e.source = ?",
+						[asker],
+					)
+				).row.n,
+			).toBe(0);
+			const broadcast = await cli(url, [
+				"emit",
+				"BROADCAST",
+				"--note",
+				"@missing-head adjudication request",
+				"--as",
+				asker,
+			]);
+			expect(broadcast.code).toBe(0);
+			expect(broadcast.out).toContain("BROADCAST event queued");
+			expect(broadcast.out).toContain("target=none; no consult opened");
+			expect(broadcast.out).toContain("Inline @mentions do not route");
+			const notice = await next();
+			expect(notice.kind).toBe("BROADCAST");
+			expect(notice.target).toBeNull();
+			expect(
+				(
+					await rpc(
+						"get",
+						"SELECT COUNT(*) AS n FROM consults WHERE asker_sid = ?",
+						[asker],
+					)
+				).row.n,
+			).toBe(0);
+			expect(
+				(
+					await rpc(
+						"get",
+						"SELECT COUNT(*) AS n FROM direct_message_receipts r JOIN events e ON e.id = r.event_id WHERE e.source = ?",
+						[asker],
+					)
+				).row.n,
+			).toBe(0);
+			const fleet = await cli(url, ["fleet"]);
+			expect(fleet.out).toContain("HEAD 1234567");
+			expect(fleet.out).not.toContain("@1234567");
+			const copied = /\[sid=([^\]]+)\]/.exec(fleet.out)?.[1];
+			expect(copied).toBe(expert);
+			const opened = await cli(url, [
+				"consult",
+				String(copied),
+				"Please adjudicate the work",
+				"--no-kb",
+				"--as",
+				asker,
+			]);
+			expect(opened.code).toBe(0);
+			const question = await next();
+			expect(question.kind).toBe("consult");
+			expect(question.target).toBe(expert);
+			expect(JSON.parse(String(question.payload)).consult).toMatch(/^C\d+$/);
+			expect(
+				(
+					await rpc(
+						"get",
+						"SELECT expert_sid,state FROM consults WHERE asker_sid = ?",
+						[asker],
+					)
+				).row,
+			).toMatchObject({ expert_sid: expert, state: "OPEN" });
+			expect(
+				(
+					await rpc(
+						"get",
+						"SELECT r.sid FROM direct_message_receipts r JOIN events e ON e.id = r.event_id WHERE e.source = ?",
+						[asker],
+					)
+				).row.sid,
+			).toBe(expert);
+		} finally {
+			ws.close();
 		}
 	});
 	test("HTTP insert is pushed to a matching subscriber", async () => {
@@ -407,4 +545,104 @@ describe("WS /subscribe (W303 push + W305 bidirectional RPC)", () => {
 		expect(row?.n).toBe(1);
 		ws.close();
 	});
+});
+
+test("real subscriber catches an already committed resume control without accepting it", async () => {
+	const url = await startServer(await freePort());
+	const sid = "ws-paused-resume-catchup";
+	const rpc = async (sql: string, params: unknown[]) => {
+		const response = await fetch(`${url}/rpc`, {
+			method: "POST",
+			body: JSON.stringify({ mode: "run", sql, params }),
+		});
+		expect(response.ok).toBe(true);
+		const result = await response.json();
+		expect(result.err).toBeUndefined();
+		return result;
+	};
+	await rpc(
+		"INSERT INTO sessions(sid,project,started_at,hb,state) VALUES(?,?,?,?,'RUNNING')",
+		[sid, projectIdentity(), Date.now(), Date.now()],
+	);
+	await rpc(
+		"INSERT INTO facts(key,value,source,version,ts) VALUES(?,'RESUME_READY','test',1,?)",
+		[`lane.${sid}.state`, Date.now()],
+	);
+	const emitted = await cli(url, [
+		"emit",
+		"resume_ready",
+		"--to",
+		sid,
+		"--onto=abcdef",
+		"--note",
+		"real disconnected resume",
+		"--as",
+		"test-owner",
+	]);
+	expect(emitted.code).toBe(0);
+	const newer = await cli(url, [
+		"emit",
+		"resume_ready",
+		"--to",
+		sid,
+		"--onto=newer-cut",
+		"--note",
+		"newest disconnected resume",
+		"--as",
+		"test-owner",
+	]);
+	expect(newer.code).toBe(0);
+	const sub = Bun.spawn([process.execPath, COORD, "subscribe", "--as", sid], {
+		env: { ...process.env, HOME: home, GOVERNOR_STORE_URL: url },
+		stdout: "ignore",
+		stderr: "ignore",
+	});
+	procs.push(sub);
+	const file = join(
+		home,
+		".claude-insights",
+		"coord-claude-wake",
+		`${createHash("sha256").update(sid).digest("hex")}.json`,
+	);
+	const deadline = Date.now() + 5000;
+	while (!existsSync(file) && Date.now() < deadline) await Bun.sleep(20);
+	expect(existsSync(file)).toBe(true);
+	const queued = JSON.parse(readFileSync(file, "utf8"));
+	expect(queued.kind).toBe("resume_ready");
+	expect(queued.sid).toBe(sid);
+	expect(queued.text).toContain("newest disconnected resume");
+	const receipt = await fetch(`${url}/rpc`, {
+		method: "POST",
+		body: JSON.stringify({
+			mode: "get",
+			sql: "SELECT state FROM direct_message_receipts WHERE event_id=? AND sid=?",
+			params: [queued.id, sid],
+		}),
+	});
+	const body = await receipt.json();
+	expect(JSON.stringify(body)).not.toContain("ACCEPTED");
+	const inbox = await cli(url, ["inbox", "--as", sid]);
+	expect(inbox.out).toContain("real disconnected resume");
+	const state = await cli(url, ["state", "--as", sid]);
+	expect(state.out).toContain("RESUME_READY");
+	// Accept the newest control while the lifecycle fact still awaits the
+	// worker. A reconnect must not fall back to the older unaccepted cut.
+	sub.kill();
+	await sub.exited;
+	await rpc(
+		"INSERT OR REPLACE INTO direct_message_receipts(event_id,sid,state,queued_at,accepted_at) VALUES(?,?,'ACCEPTED',?,?)",
+		[queued.id, sid, Date.now(), Date.now()],
+	);
+	rmSync(file);
+	const reconnect = Bun.spawn(
+		[process.execPath, COORD, "subscribe", "--as", sid],
+		{
+			env: { ...process.env, HOME: home, GOVERNOR_STORE_URL: url },
+			stdout: "ignore",
+			stderr: "ignore",
+		},
+	);
+	procs.push(reconnect);
+	await Bun.sleep(300);
+	expect(existsSync(file)).toBe(false);
 });
