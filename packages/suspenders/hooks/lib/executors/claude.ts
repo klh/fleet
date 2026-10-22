@@ -52,6 +52,10 @@ export const CLAUDE_ALLOWED_TOOLS = [
 	"Bash(sed:*)",
 	// Prefix, not the old bare exact rule that rejected `diff a b`.
 	"Bash(diff:*)",
+	// A lane reaches a minted worktree only via compound `cd <tree> && <cmd>`
+	// (the audit's composite cd+test wall) — cd matches nothing else, every
+	// tail subcommand still needs its own grant.
+	"Bash(cd:*)",
 	// Read-only stream helpers lanes chain into pipelines.
 	"Bash(head:*)",
 	"Bash(tail:*)",
