@@ -60,6 +60,8 @@ export class ProviderAdmissionCore {
 	private feedbackEpoch = 0;
 	private rateLimitedTotal = 0;
 	private recoverySuccesses = 0;
+	private congestionUntilMs = 0;
+	private recoveredAtMs = 0;
 	private resumeTimer?: ReturnType<typeof setTimeout>;
 	constructor(private readonly policy: ProviderPoolPolicy) {
 		assertProviderPoolPolicy(policy);
@@ -106,9 +108,11 @@ export class ProviderAdmissionCore {
 
 	private feedback(
 		epoch: number,
+		startedAt: number,
 		status: number,
 		retryAfterS: number | null,
 	): void {
+		const now = Date.now();
 		if (status === 429) {
 			this.rateLimitedTotal++;
 			if (
@@ -121,8 +125,18 @@ export class ProviderAdmissionCore {
 					Math.min(Number.MAX_SAFE_INTEGER, Date.now() + retryAfterS * 1000),
 				);
 			// One old in-flight burst is one capacity signal, not forty doublings.
-			if (epoch === this.feedbackEpoch) {
+			if (epoch === this.feedbackEpoch && now >= this.congestionUntilMs) {
 				this.feedbackEpoch++;
+				// Use the configured evidence sample horizon on both sides of the
+				// controller. One RTT alone lets delayed waves create new epochs
+				// faster than enough healthy observations can disprove pressure.
+				this.congestionUntilMs =
+					now +
+					Math.min(
+						this.policy.queueWaitMs,
+						this.policy.recovery.successWindow *
+							Math.max(this.baseGapMs, now - startedAt),
+					);
 				this.adaptiveGapMs = Math.min(
 					Math.max(
 						this.baseGapMs,
@@ -134,17 +148,29 @@ export class ProviderAdmissionCore {
 					this.notBeforeMs,
 					Date.now() + this.adaptiveGapMs,
 				);
-				this.recoverySuccesses = 0;
 			}
+			// Even a coalesced 429 invalidates the healthy streak. It must not
+			// leave seven successes poised to erase a new pressure signal.
+			this.recoverySuccesses = 0;
+			this.recoveredAtMs = now;
 			this.scheduleStarts();
 		} else if (
 			status >= 200 &&
 			status < 300 &&
 			epoch === this.feedbackEpoch &&
+			now >= this.congestionUntilMs &&
+			now >= this.notBeforeMs &&
 			this.adaptiveGapMs > this.baseGapMs
 		) {
-			if (++this.recoverySuccesses >= this.policy.recovery.successWindow) {
-				this.recoverySuccesses = 0;
+			this.recoverySuccesses = Math.min(
+				this.policy.recovery.successWindow,
+				this.recoverySuccesses + 1,
+			);
+			if (
+				this.recoverySuccesses >= this.policy.recovery.successWindow &&
+				now - this.recoveredAtMs >= this.baseGapMs
+			) {
+				this.recoveredAtMs = now;
 				this.adaptiveGapMs = Math.max(
 					this.baseGapMs,
 					this.adaptiveGapMs * (1 - this.policy.recovery.decreasePercent / 100),
@@ -166,6 +192,7 @@ export class ProviderAdmissionCore {
 			recoverySuccessWindow: this.policy.recovery.successWindow,
 			recoveryDecreasePercent: this.policy.recovery.decreasePercent,
 			feedbackEpoch: this.feedbackEpoch,
+			congestionUntilMs: this.congestionUntilMs,
 		};
 	}
 
@@ -216,10 +243,11 @@ export class ProviderAdmissionCore {
 					};
 					signal.addEventListener("abort", release, { once: true });
 					const epoch = this.feedbackEpoch;
+					const startedAt = Date.now();
 					grant({
 						release,
 						feedback: (status, retryAfterS) =>
-							this.feedback(epoch, status, retryAfterS),
+							this.feedback(epoch, startedAt, status, retryAfterS),
 					});
 					await held;
 				},
