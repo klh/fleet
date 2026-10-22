@@ -357,6 +357,27 @@ export async function cmdTargets(rest: string[]): Promise<void> {
 }
 
 export async function cmdMessage(rest: string[]): Promise<void> {
+	// W1147: needle and text are RAW positional slots — the malformed
+	// `message <target> --as <sid> "text"` order published the option token
+	// itself as the note body and silently dropped the real text. The
+	// verb-kit parser is order-free on flags, so it cannot reject this shape
+	// while preserving the documented order — reject option tokens here,
+	// before resolving a target or emitting any event.
+	const misplacedFlag = (value: string | undefined): boolean =>
+		value !== undefined &&
+		["--as", "--all", "--note", "--help", "-h"].includes(
+			value.split("=", 1)[0],
+		);
+	const badToken =
+		misplacedFlag(rest[0]) && rest[0] !== "--all"
+			? rest[0]
+			: misplacedFlag(rest[1])
+				? rest[1]
+				: null;
+	if (badToken)
+		die(
+			`option token ${JSON.stringify(badToken)} in a message positional slot — needle and text are positional: coord message <target> "text" [--as sid] | coord message --all "text" [--as sid]; flags ride AFTER the text`,
+		);
 	const source = arg("--as") ?? "unknown";
 	const all = rest[0] === "--all";
 	if (all) {
