@@ -330,12 +330,30 @@ function laneCompletionLocked(
 	// ownership transfer override a same-turn refusal replay.
 	const turn = completionTurn(hook, context);
 	const sameTurn = previous.turnId === turn.id;
-	// W1124.13 review fix 1 — the replay is bounded by the no-new-assistant
-	// deadline (the episode TTL): an empty-API shape that never appends a new
-	// assistant row must not replay the cached refusal forever. Past the
-	// deadline the same turn goes TERMINAL: a typed TRANSPORT_BLOCKED
-	// allow-exit — never DONE, never a disobedience FAILED, no attempt spent.
-	if (sameTurn && stale && Object.hasOwn(previous, "reply")) {
+	// W1124.13 review fixes 1+2 consolidated: BOTH no-output classes — a
+	// non-usable frame and a same turn replaying past the no-new-assistant
+	// deadline (the episode TTL) — take ONE typed publish+receipt path before
+	// any cached replay: published durably once per incident (sent is
+	// same-turn scoped, so a second empty turn id publishes its own event),
+	// operational refusal on a failed durable write, terminal TRANSPORT_BLOCKED
+	// persist — never DONE, never a disobedience FAILED, no attempt spent.
+	const transportReason =
+		sameTurn && stale && Object.hasOwn(previous, "reply")
+			? "turn_deadline_exceeded"
+			: turn.usable
+				? null
+				: turn.reason;
+	if (transportReason !== null) {
+		let sent = sameTurn && previous.transportNoticeSent === true;
+		if (!sent)
+			sent = publishTurnNotice(
+				row.project,
+				context.item,
+				context.sid,
+				`${context.item}: lane_turn_no_output (${transportReason}); no completion attempt consumed. Inspect route/stream and transcript delivery.`,
+			);
+		if (!sent)
+			return `STOP-GATE: ${context.item} lane_turn_no_output (${transportReason}) could not be published — the control plane is unreachable. No attempt consumed; restore the store and stop again to record the diagnostic.`;
 		writeCompletionTurn(
 			marker,
 			{
@@ -343,48 +361,20 @@ function laneCompletionLocked(
 				...context,
 				ts: Date.now(),
 				outcome: "TRANSPORT_BLOCKED",
-				transportNoticeSent: previous.transportNoticeSent === true,
-				diagnostic: "turn_deadline_exceeded",
+				transportNoticeSent: true,
+				diagnostic: transportReason,
 			},
 			turn,
 			null,
 		);
 		return null;
 	}
+	// W1124.13 review fix 1 — the replay is bounded by the no-new-assistant
+	// deadline: an empty-API shape that never appends a new assistant row
+	// must not replay the cached refusal forever — the ONE transport block
+	// above owns that case; the replay only serves fresh same-turn decisions.
 	if (sameTurn && Object.hasOwn(previous, "reply"))
 		return typeof previous.reply === "string" ? previous.reply : null;
-	if (!turn.usable) {
-		// No new productive assistant turn (API-error/empty frame, missing or
-		// oversize transcript): a typed operational diagnostic published once
-		// per logical turn — never a completion-disobedience attempt.
-		// Publication rides the coord subprocess with the store-port events
-		// insert as the in-process fallback — a failed subprocess is never a
-		// lost notice; only an unreachable store leaves the marker unpublished.
-		let sent = previous.transportNoticeSent === true;
-		if (!sent)
-			sent = publishTurnNotice(
-				row.project,
-				context.item,
-				context.sid,
-				`${context.item}: lane_turn_no_output (${turn.reason}); no completion attempt consumed. Inspect route/stream and transcript delivery.`,
-			);
-		if (!sent)
-			return `STOP-GATE: ${context.item} lane_turn_no_output (${turn.reason}) could not be published — the control plane is unreachable. No attempt consumed; restore the store and stop again to record the diagnostic.`;
-		writeCompletionTurn(
-			marker,
-			{
-				...previous,
-				...context,
-				ts: Date.now(),
-				outcome: "TRANSPORT_BLOCKED",
-				transportNoticeSent: sent,
-				diagnostic: turn.reason,
-			},
-			turn,
-			sent ? null : undefined,
-		);
-		return null;
-	}
 	// W642 reinforcement classes (research-oh-my-claudecode §1.7): the
 	// continuation budget was a hardcoded 2; classes scale it by item
 	// priority (>=2 heavy / 1 medium / else light; SUSPENDERS_REINFORCEMENT_CLASS

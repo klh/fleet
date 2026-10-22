@@ -677,6 +677,42 @@ test("concurrent duplicate native Stop hooks atomically spend exactly one attemp
 	expect(JSON.parse(readFileSync(marker, "utf8")).tries).toBe(1);
 });
 
+test("distinct no-output turns each publish one event; same-turn duplicates stay silent", () => {
+	const f = fixture();
+	const transcript = join(f.cwd, ".fleet/native-transcript.jsonl");
+	const emptyTurn = (id: string) =>
+		writeFileSync(
+			transcript,
+			`${JSON.stringify({
+				type: "assistant",
+				uuid: `block-${id}`,
+				timestamp: new Date().toISOString(),
+				isApiErrorMessage: true,
+				message: { id, role: "assistant", content: [] },
+			})}\n`,
+		);
+	emptyTurn("error-a");
+	expect(f.stopSame().code).toBe(0); // incident A: publishes
+	expect(f.stopSame().code).toBe(0); // same-turn duplicate: silent
+	emptyTurn("error-b");
+	expect(f.stopSame().code).toBe(0); // incident B (new id): publishes
+	expect(f.stopSame().code).toBe(0); // same-turn duplicate: silent
+	// item ids are per-project: scope the count to THIS fixture's graph
+	const row = JSON.parse(f.work("show", f.id, "--json").out);
+	const db = new Database(join(home, ".cache/claude-governor/governor.db"));
+	try {
+		expect(
+			db
+				.query(
+					"SELECT COUNT(*) AS n FROM events WHERE kind='NEED_DECISION' AND json_extract(payload, '$.project')=? AND json_extract(payload, '$.item')=?",
+				)
+				.get(row.project, f.id),
+		).toEqual({ n: 2 });
+	} finally {
+		db.close();
+	}
+});
+
 test("same-turn replay is bounded: past the no-new-assistant deadline the stop allows, typed and terminal", () => {
 	const f = fixture();
 	const first = f.stop();
@@ -700,4 +736,18 @@ test("same-turn replay is bounded: past the no-new-assistant deadline the stop a
 	// terminal: further duplicates stay allowed and silent, no new spend
 	expect(f.stopSame().code).toBe(0);
 	expect(JSON.parse(readFileSync(marker, "utf8")).tries).toBe(1);
+	// the deadline incident published exactly ONE durable event
+	const row = JSON.parse(f.work("show", f.id, "--json").out);
+	const db = new Database(join(home, ".cache/claude-governor/governor.db"));
+	try {
+		expect(
+			db
+				.query(
+					"SELECT COUNT(*) AS n FROM events WHERE kind='NEED_DECISION' AND json_extract(payload, '$.project')=? AND json_extract(payload, '$.item')=?",
+				)
+				.get(row.project, f.id),
+		).toEqual({ n: 1 });
+	} finally {
+		db.close();
+	}
 });
