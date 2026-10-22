@@ -357,3 +357,38 @@ describe("provider-account admission", () => {
 		).toBeNull();
 	});
 });
+
+test("same-walk account skip preserves shared backoff for the next request", async () => {
+	const calls: string[] = [];
+	const router = new Router(
+		{ ...POLICY, fallbacks: { primary: ["alias", "local"] } },
+		{
+			pool: poolOf([
+				dep("https://primary.example.invalid", "primary", "zai-main"),
+				dep("https://alias.example.invalid", "alias", "zai-main"),
+				dep("https://local.example.invalid", "local"),
+			]),
+			fetchImpl: async (deployment) => {
+				calls.push(deployment.group);
+				return deployment.group === "local"
+					? new Response("ok")
+					: new Response("limited", {
+							status: 429,
+							headers: { "retry-after": "60" },
+						});
+			},
+		},
+	);
+	const first = await router.execute(req("primary"));
+	expect(first.kind).toBe("upstream");
+	expect(calls).toEqual(["primary", "local"]);
+	expect(
+		router.providerAdmissionSnapshot()["zai-main"]?.notBeforeMs,
+	).toBeGreaterThan(Date.now() + 50000);
+	const controller = new AbortController();
+	const second = router.execute(req("alias", controller.signal));
+	await Bun.sleep(25);
+	expect(calls).toEqual(["primary", "local"]);
+	controller.abort();
+	expect((await second).kind).toBe("aborted");
+});
