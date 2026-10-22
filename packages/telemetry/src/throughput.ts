@@ -217,6 +217,31 @@ export interface ThroughputEvaluation {
 	reason: string | null;
 }
 
+function evidenceReason(
+	b: ThroughputBucket,
+	p: ThroughputPolicy,
+	now: number,
+	rate: number | null,
+	endToEndRate: number | null,
+): string | null {
+	if (b.bucket + p.bucketMs > now) return "open_bucket";
+	if (b.saturated) return "capacity_lost";
+	if (now - b.lastAt > p.bucketMs * 2) return "stale";
+	if (b.paused) return "paused";
+	if (!b.model || !b.provider) return "unknown_route";
+	if (!b.demandSamples) return "no_observed_demand";
+	if (
+		b.serviceSamples < p.minSamples ||
+		b.knownUsage !== b.requests ||
+		rate === null ||
+		rate <= 0 ||
+		endToEndRate === null ||
+		endToEndRate <= 0
+	)
+		return "insufficient_reported_samples";
+	return null;
+}
+
 /** A capacity comparison needs offered demand, enough successful reported
  * usage and a known route. No idle decay, stale training or zero-fill. */
 export function evaluateThroughput(
@@ -229,6 +254,7 @@ export function evaluateThroughput(
 		b.knownServiceMs > 0 ? (b.serviceTokens * 1000) / b.knownServiceMs : null;
 	const endToEndRate =
 		b.matchedTotalMs > 0 ? (b.serviceTokens * 1000) / b.matchedTotalMs : null;
+	const invalidReason = evidenceReason(b, p, now, rate, endToEndRate);
 	const unknown = (reason: string): ThroughputEvaluation => ({
 		baseline:
 			previous && b.bucket + p.bucketMs <= now
@@ -250,7 +276,7 @@ export function evaluateThroughput(
 		return {
 			baseline: previous,
 			state:
-				now - b.lastAt > p.bucketMs * 2
+				invalidReason !== null
 					? "unknown"
 					: previous.incident
 						? "degraded"
@@ -267,22 +293,11 @@ export function evaluateThroughput(
 							rate / previous.rate,
 							endToEndRate / previous.endToEndRate,
 						),
-			reason: "already_processed",
+			reason: invalidReason ?? "already_processed",
 		};
-	if (b.bucket + p.bucketMs > now) return unknown("open_bucket");
-	if (b.saturated) return unknown("capacity_lost");
-	if (now - b.lastAt > p.bucketMs * 2) return unknown("stale");
-	if (b.paused) return unknown("paused");
-	if (!b.model || !b.provider) return unknown("unknown_route");
-	if (!b.demandSamples) return unknown("no_observed_demand");
-	if (
-		b.serviceSamples < p.minSamples ||
-		b.knownUsage !== b.requests ||
-		rate === null ||
-		rate <= 0 ||
-		endToEndRate === null ||
-		endToEndRate <= 0
-	)
+	if (invalidReason !== null) return unknown(invalidReason);
+	// These checks narrow the nullable rates after the evidence classification.
+	if (rate === null || endToEndRate === null)
 		return unknown("insufficient_reported_samples");
 	const n: ThroughputBaseline = previous
 		? { ...previous }

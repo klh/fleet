@@ -17,6 +17,9 @@ function bucketValues(
 		reported_usage_samples: b.knownUsage,
 		unknown_usage_samples: b.unknownUsage,
 		reported_output_tokens: b.knownUsage ? b.outTokens : null,
+		reported_output_tokens_per_second: b.knownUsage
+			? (b.outTokens * 1000) / windowMs
+			: null,
 		service_output_tokens_per_second: b.knownServiceMs
 			? (b.serviceTokens * 1000) / b.knownServiceMs
 			: null,

@@ -159,6 +159,15 @@ test("healthy idle missing-route missing-usage stale and paused evidence never w
 		expect(r.state).toBe("unknown");
 		expect(r.transition).toBeNull();
 		expect(r.baseline?.low).toBe(0);
+		const repeated = evaluateThroughput(
+			transform(bucket(4000, 30)),
+			r.baseline,
+			p,
+			5001,
+		);
+		expect(repeated.state).toBe("unknown");
+		expect(repeated.reason).toBe(r.reason);
+		expect(repeated.baseline).toEqual(r.baseline);
 	}
 	expect(evaluateThroughput(bucket(0), null, p, 9000).reason).toBe("stale");
 });

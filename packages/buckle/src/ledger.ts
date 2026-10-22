@@ -917,6 +917,7 @@ export class Ledger {
 		const rows = this.db
 			.query(`SELECT a.rid,a.trace_id,a.dialect,a.settled_at,a.requested_group,a.requested_effort,a.served_model,a.served_provider,a.served_provider_profile,a.ok,a.attempts,a.duration_ms,a.out_tok,a.in_tok,a.demand_observed,
 		 (SELECT sum(queue_wait_ms) FROM route_attempt t WHERE t.rid=a.rid) AS queue_ms,
+		 (SELECT call_id FROM route_attempt t WHERE t.rid=a.rid AND t.status>=200 AND t.status<300 ORDER BY ordinal DESC LIMIT 1) AS call_id,
 		 (SELECT duration_ms-coalesce(queue_wait_ms,0) FROM route_attempt t WHERE t.rid=a.rid AND t.status>=200 AND t.status<300 ORDER BY ordinal DESC LIMIT 1) AS service_ms
 		 FROM route_audit a WHERE a.settled_at>=? AND a.traffic_kind='inference'
 		 AND NOT EXISTS(SELECT 1 FROM throughput_seen s WHERE s.id=json_array(?,a.rid))
@@ -928,6 +929,7 @@ export class Ledger {
 			) as Array<{
 			rid: string;
 			trace_id: string | null;
+			call_id: string | null;
 			dialect: string;
 			settled_at: number;
 			requested_group: string | null;
@@ -959,7 +961,7 @@ export class Ledger {
 				store.observe({
 					id: r.rid,
 					traceId: r.trace_id,
-					callId: null,
+					callId: r.call_id,
 					node,
 					at: r.settled_at,
 					requestedGroup: r.requested_group,
