@@ -54,7 +54,7 @@ test("authoritative pool configuration refuses omitted recovery instead of choos
 	).toEqual({ successWindow: 8, decreasePercent: 5 });
 });
 
-test("two isolated rate-limit epochs retain most pacing after forty fast successes", async () => {
+test("rolling healthy evidence recovers pacing without an idle reset", async () => {
 	// 1:100 time scale of the installed 500ms base; no provider or machine state.
 	const core = new ProviderAdmissionCore({
 		concurrency: 50,
@@ -68,6 +68,9 @@ test("two isolated rate-limit epochs retain most pacing after forty fast success
 		const lease = await core.acquire();
 		lease.feedback?.(429, null);
 		lease.release();
+		await Bun.sleep(
+			Math.max(0, core.snapshot().congestionUntilMs - Date.now()) + 1,
+		);
 	}
 	expect(core.snapshot().adaptiveGapMs).toBe(20);
 	let peakActive = 0;
@@ -83,10 +86,10 @@ test("two isolated rate-limit epochs retain most pacing after forty fast success
 		}),
 	);
 	await Bun.sleep(5);
-	expect(core.snapshot().adaptiveGapMs).toBeCloseTo(20 * 0.95 ** 5, 8);
+	expect(core.snapshot().adaptiveGapMs).toBe(5);
 	expect(core.snapshot().outstanding).toBe(0);
 	expect(peakActive).toBeLessThan(50);
-	expect(Math.max(...waits)).toBeGreaterThan(500);
+	expect(Math.max(...waits)).toBeLessThan(800);
 }, 5000);
 
 async function compareRun(decreasePercent: number, providerGapMs = 0) {
