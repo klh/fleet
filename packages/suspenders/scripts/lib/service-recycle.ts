@@ -64,3 +64,50 @@ export const processRecycleHooks = (): RecycleHooks => ({
 	sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 	now: () => Date.now(),
 });
+
+// distinct pids on the port that were NOT the pre-install holders
+const freshHolders = (
+	hooks: RecycleHooks,
+	port: number,
+	oldPids: number[],
+): number[] =>
+	hooks
+		.listenerPids(port)
+		.filter((pid) => !oldPids.includes(pid))
+		.filter((pid, i, all) => all.indexOf(pid) === i);
+
+// Recycle one declared child listener: kill the pre-install holders, then
+// poll a bounded window for a NEW pid on the LISTEN socket — the old pid is
+// never accepted back, the whole point is a respawn from the synced code.
+export async function recycleChildListener(
+	req: RecycleRequest,
+	hooks: RecycleHooks = processRecycleHooks(),
+): Promise<RecycleResult> {
+	const deadlineMs = req.deadlineMs ?? RECYCLE_DEADLINE_MS;
+	const graceMs = req.graceMs ?? RECYCLE_GRACE_MS;
+	const oldPids = hooks.listenerPids(req.port);
+	const terminated: number[] = [];
+	for (const pid of oldPids) {
+		if (hooks.signal(pid, "SIGTERM")) terminated.push(pid);
+	}
+	const graceEnd = hooks.now() + graceMs;
+	while (hooks.now() < graceEnd) {
+		const fresh = freshHolders(hooks, req.port, oldPids);
+		if (fresh.length > 0)
+			return { ok: true, pid: fresh[0] as number, oldPids };
+		await hooks.sleep(100);
+	}
+	for (const pid of terminated) hooks.signal(pid, "SIGKILL");
+	const hardEnd = hooks.now() + deadlineMs;
+	while (hooks.now() < hardEnd) {
+		const fresh = freshHolders(hooks, req.port, oldPids);
+		if (fresh.length > 0)
+			return { ok: true, pid: fresh[0] as number, oldPids };
+		await hooks.sleep(250);
+	}
+	return {
+		ok: false,
+		reason: `port ${req.port}: no fresh listener within ${deadlineMs}ms after recycling ${oldPids.length > 0 ? `pids ${oldPids.join(",")}` : "the port"}`,
+		oldPids,
+	};
+}
