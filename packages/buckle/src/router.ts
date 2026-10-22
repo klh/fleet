@@ -835,6 +835,19 @@ export class Router {
 							),
 			};
 			if (this.walkExpired(st)) break;
+			if (r.kind === "network" || r.kind === "timeout") {
+				// A peer transport failure has the same walk semantics as a
+				// local fetch timeout. Do not queue its account again after
+				// already spending admission dwell; independent tiers need
+				// the remainder of the original first-byte budget.
+				timedOutOrigins.add(new URL(dep.url).origin);
+				const account = providerPoolIdOf(dep);
+				if (account !== null && (r.queueWaitMs ?? 0) > 0) {
+					st.unavailablePools ??= new Set();
+					st.unavailablePools.add(account);
+				}
+				continue;
+			}
 			if (r.kind === "rate_limited") {
 				if (!st.rateLimit)
 					st.rateLimit = { response: r.response, tier, source: "upstream" };
