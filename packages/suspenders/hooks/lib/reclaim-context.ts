@@ -6,15 +6,15 @@ import {
 	realpathSync,
 	renameSync,
 	rmSync,
-	writeFileSync,
 	type Stats,
+	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 import type { GovernorStore } from "./govdb.ts";
 import { projectIdentity, projectRootOf } from "./govdb-project.ts";
+import { verifyOperatorContextEvidence } from "./reclaim-context-evidence.ts";
 import { claimTokenHash } from "./work-fence.ts";
 import { registryWorktrees, resolveItemWorktree } from "./worktree-lookup.ts";
-import { verifyOperatorContextEvidence } from "./reclaim-context-evidence.ts";
 
 type Binding = {
 	sid: string;
