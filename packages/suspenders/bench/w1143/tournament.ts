@@ -49,7 +49,7 @@ export const parsePair = (raw: string): PairVerdict | null => {
 	const w = String(j.winner ?? "").toLowerCase();
 	if (w !== "a" && w !== "b" && w !== "tie") return null;
 	return {
-		winner: w,
+		winner: w === "a" ? "A" : w === "b" ? "B" : "tie",
 		reason: String(j.reason ?? "").slice(0, 240),
 	};
 };
@@ -71,10 +71,10 @@ export const parseSkeptic = (raw: string): SkepticVerdict | null => {
 	};
 };
 export interface Comparison {
-	aId: string;
-	bId: string;
-	/** which attempt id sat in the (randomized) A slot */
+	/** attempt id in the (randomized) A slot */
 	aSlot: string;
+	/** attempt id in the (randomized) B slot */
+	bSlot: string;
 	winner: "A" | "B" | "tie";
 	reason: string;
 	error?: string;
@@ -115,9 +115,8 @@ const comparePair = async (
 		wins.set(y.id, (wins.get(y.id) ?? 0) + 0.5);
 	}
 	comparisons.push({
-		aId: x.id,
-		bId: y.id,
 		aSlot: a.id,
+		bSlot: b.id,
 		winner: v?.winner ?? "tie",
 		reason: v?.reason ?? "unparseable judge output",
 		...(v ? {} : { error: raw.slice(0, 120) }),
