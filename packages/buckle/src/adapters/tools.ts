@@ -388,11 +388,7 @@ export function responseAnthropicToOpenAI(msg: AnyRec): {
  *  2026-10-21` header or an explicit `strip_sampling_params: true` removes
  *  the three from the wire body (W1080 honest-degrade class); unpinned rows
  *  keep today's verbatim forward (copilot et al. still accept them). */
-const REMOVED_SAMPLING_2026_10_21 = new Set([
-	"temperature",
-	"top_p",
-	"top_k",
-]);
+const REMOVED_SAMPLING_2026_10_21 = new Set(["temperature", "top_p", "top_k"]);
 
 export function stripRemovedSampling(
 	body: AnyRec,

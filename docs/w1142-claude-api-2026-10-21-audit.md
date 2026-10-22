@@ -45,13 +45,40 @@ client sends nothing.
   `temperature: 0` for determinism; these are OUR calls to OUR upstreams, in
   scope only if they ride an anthropic-dialect leg.
 
+## Probe evidence (live, 2026-10-22, one tiny request per leg, redacted)
+
+| leg | request | verdict |
+| --- | --- | --- |
+| belt router :4000 → local swarm :8902 (anthropic wire, MLX openai-compat upstream) | `claude-sonnet-4`, temperature 0.5 + top_p 0.9 + top_k 40 | **200** — accepted; routed SIMPLE/extract (Qwen3-4B). Router pins `anthropic-version: 2023-06-01` (router-swarm.ts). |
+| buckle front :4101 `/w/<sid>` → glm-5.3-flash → z.ai via litellm (a→o bridge) | `glm-5.3-flash`, temperature 0.5 + top_p 0.9 + top_k 40 | **200** in 105 s (thinking burn, not a compat failure). a→o PASS_THROUGH forwarded temperature/top_p; top_k honestly degraded. z.ai accepts the params today. |
+| buckle front :4101 → `claude-sonnet-5` → IKEA copilot seat | same body | **429** rate_limit in 1.4 s — the W695.6 quota wall (to ~2026-11-01). Died before param validation: copilot param acceptance UNVERIFIED live. |
+| api.anthropic.com (direct) ×3 | temperature 0.5 with {} / 2023-06-01 / 2026-10-21 headers, bogus marked key | **401** authentication_error all three — auth precedes version validation; the missing-header default is unobservable without a live key. Machine carries no api.anthropic.com credential. |
+
+## Fix shipped (this branch)
+
+- `stripRemovedSampling` (adapters/tools.ts): a row pinning
+  `anthropic-version: 2026-10-21` or setting `adapter_config.strip_sampling_params:
+  true` loses temperature/top_p/top_k from its wire body — W1080
+  honest-degrade class, config-over-code. Unpinned rows keep today's
+  verbatim forward (copilot et al. still accept the params).
+- Applied in `ANTHROPIC.buildCall` (adapters/anthropic.ts): one strip point
+  covers both the same-dialect pass-through and the o→a bridged hop (bridged
+  bodies flow through buildCall via defaultFetch).
+- Regression: `test/adapters-sampling-strip.test.ts` — 7 cases: pinned strip
+  ×2, header pin ride-along, unpinned preserve, old-version preserve, o→a
+  bridge hop into a pinned row (all three gone), a→o bridge unchanged
+  (temperature/top_p forward, top_k degrade). 21 pass across the two
+  adapter-wire specs.
+- belt needs NO code change: its explicit anthropic outbounds pin
+  `2023-06-01` (escalate.ts, router-swarm.ts, m365, bench-cache); the
+  `body.temperature ?? 0.7` default-fill feeds only openai-dialect local legs
+  (router-shim.ts:737), which accept it. The residual risk is a future row
+  moved to the new wire without its adapter_config pin — the strip then fires
+  by the pin, never by guesswork.
+
 ## Pending (resume from here)
 
-1. Live probes, one tiny request per leg, redacted keys: direct Anthropic
-   (new version header vs 2023-06-01), z.ai via litellm :4100, copilot seat —
-   does each still accept temperature/top_p/top_k on the wire today?
-2. Remove-or-degrade: params the target wire dropped must leave the forwarded
-   body (honest-degrade, W1080 style) or clamp per-row via adapter config.
-3. Regression test: the three params through every dialect bridge assert no
-   hard 400 (i.e. stripped/degraded, never forwarded to a 2026-10-21 leg).
-4. Record probe evidence per leg in this file (audit row).
+1. ~~Live probes~~ done — table above.
+2. ~~Remove-or-degrade~~ done — strip shipped.
+3. ~~Regression test~~ done — 7 cases green.
+4. ~~Record probe evidence per leg~~ done — table above.
