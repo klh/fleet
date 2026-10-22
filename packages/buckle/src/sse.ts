@@ -8,6 +8,7 @@
 // message_delta. Keep-alive comment lines (`: ping`) pass through the
 // client branch verbatim and are ignored here.
 import type { Dialect } from "./upstreams.ts";
+import { EMPTY_STREAM_KINDS, StreamSemantics } from "./stream-semantics.ts";
 import {
 	type EmptyStreamKind,
 	EMPTY_STREAM_KINDS,
