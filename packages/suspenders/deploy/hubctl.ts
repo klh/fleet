@@ -41,6 +41,11 @@ import {
 	STACK_PATH,
 	type StackConfig,
 } from "../hooks/lib/stack-config.ts";
+import {
+	PROVIDER_ENV_FILENAME,
+	renderProviderEnv,
+	requiredProviders,
+} from "../hooks/lib/hub-providers.ts";
 import { composeUpArgv, sshOpts } from "./hub-remote.ts";
 import { mergedHubUpstreams } from "./openrouter-free.ts";
 import { mergeZaiHubUpstreams } from "./zai-catalog.ts";
@@ -411,6 +416,34 @@ function pushUpstreamEnv(hub: HubProfile, dir: string): void {
 	runOnHub(hub, `/bin/sh -c ${quote(UPSTREAM_ENV_SCRIPT)} sh ${args}`);
 }
 
+/** W1124.8.2.1: materialize `<dir>/provider.env` ON the hub (0600 compose
+ *  env_file) from the profile's required CENTRAL provider profiles. The
+ *  rendered body rides stdin over the ssh path (values never enter argv,
+ *  never print); no requirements = an empty file (env_file stays valid). */
+function pushProviderEnv(hub: HubProfile, dir: string): void {
+	const required = requiredProviders(hub);
+	const destination = `${dir}/${PROVIDER_ENV_FILENAME}`;
+	const body = renderProviderEnv(required);
+	if (hub.deploy?.ssh) {
+		execFileSync(
+			"ssh",
+			[
+				...sshOpts(hub),
+				hub.deploy.ssh,
+				`/bin/sh -c 'umask 077; cat > ${JSON.stringify(destination)}'`,
+			],
+			{ input: body, timeout: 30_000 },
+		);
+	} else {
+		writeFileSync(destination, body, { mode: 0o600 });
+		chmodSync(destination, 0o600);
+	}
+	const names = required.map((r) => r.env).join(",");
+	console.log(
+		`+ ${destination} (${required.length} provider profile${required.length === 1 ? "" : "s"}: ${names || "none"})`,
+	);
+}
+
 /** Refresh only the Buckle ladder and its key environment. The container is
  *  recreated (not merely restarted) because Compose must reread env_file. */
 function reloadUpstreams(
@@ -483,6 +516,8 @@ function pushConfig(
 		writeFileSync(`${dir}/upstreams.hub.yaml`, renderUpstreams(hub));
 	}
 	pushUpstreamEnv(hub, dir);
+	// W1124.8.2.1: central provider profiles → the 0600 provider.env
+	pushProviderEnv(hub, dir);
 	// W983: the 0600 owner-prefs file (compose binds it at BUCKLE_PREFS)
 	if (hub.deploy?.ssh) {
 		execFileSync(

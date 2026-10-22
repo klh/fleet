@@ -127,6 +127,13 @@ export interface HubProfile {
 	/** Display-only provider placement while its credential-gated route is
 	 *  being prepared. This never enables a Buckle upstream or draws a path. */
 	provider_intents?: string[];
+	/** W1124.8.2.1: central provider profiles this hub REQUIRES (stack.yaml
+	 *  `providers` map names — the shared resolver lives in
+	 *  speedy/src/provider-config.ts). hubctl push resolves each and
+	 *  materializes the 0600 provider.env ON the hub (key → profile env
+	 *  binding, never printed). Unset/empty = no central delivery — the
+	 *  ladder-key path (secrets.upstream_keys) stands unchanged. */
+	provider_requirements?: string[];
 	/** W983: this hub's Buckle owner prefs — the allow_cloud / cost_speed
 	 *  switches the routing decision gates every cloud hop behind (decide.ts
 	 *  precedence 1). hubctl push materializes them into the 0600
