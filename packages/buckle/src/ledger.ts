@@ -482,10 +482,14 @@ export class Ledger {
 			);
 		}
 		if (op.t === "upd")
-			return 64 + op.rid.length + (op.out.err?.length ?? 0) +
+			return (
+				64 +
+				op.rid.length +
+				(op.out.err?.length ?? 0) +
 				(op.out.stream_receipt
 					? JSON.stringify(op.out.stream_receipt).length
-					: 0);
+					: 0)
+			);
 		if (op.t === "attempt") {
 			const r = op.row;
 			return (
@@ -742,7 +746,12 @@ export class Ledger {
 
 	/** W1086: one settle row per rid — the final settle stands, retries
 	 *  REPLACE. Fields arrive pre-bounded via buildSettleFact. */
-	private insertSettle(op: { rid: string; s: StreamSettle; ts: string }): void {
+	private insertSettle(op: {
+		rid: string;
+		traceId: string;
+		s: StreamSettle;
+		ts: string;
+	}): void {
 		this.insSettle.run(
 			safeCorrelationId(op.rid) ?? "unknown",
 			safeCorrelationId(op.traceId) ?? "unknown",
@@ -969,7 +978,7 @@ export class Ledger {
 	 *  body-free. */
 	traceRead(traceId: string): {
 		trace_id: string;
-		requests: Array<Record<string, unknown>>;
+		requests: RequestReadRow[];
 		attempts: Array<Record<string, unknown>>;
 		settle: Record<string, unknown> | null;
 	} {
