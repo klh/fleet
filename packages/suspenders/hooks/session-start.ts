@@ -7,7 +7,12 @@
 import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { renderFleetReport } from "../scripts/lib/fleet-report.ts";
 import { checkpointPath } from "./lib/checkpoint.ts";
+// W1124.12: an explicit worker role skips the SUPERVISOR DEFAULT + report
+// injection — a managed lane is not a loop-arming runtime (same ruling as
+// the isSubagent branch, source of truth = lane-settings.ts role marker).
+import { sessionRole } from "./lib/coordinator-edit-gate.ts";
 import {
 	CAPABILITIES,
 	openStore,
@@ -18,14 +23,6 @@ import { enrollTopLevel } from "./lib/hook-scripts.ts";
 import { run } from "./lib/run.ts";
 import { checkSessionPolicies } from "./lib/session-policy.ts";
 import { attachSubscribe, subagentLaneSuffix } from "./lib/subscribe-attach.ts";
-// W1124.12: an explicit worker role skips the SUPERVISOR DEFAULT + report
-// injection — a managed lane is not a loop-arming runtime (same ruling as
-// the isSubagent branch, source of truth = lane-settings.ts role marker).
-import { sessionRole } from "./lib/coordinator-edit-gate.ts";
-import {
-	seedSupervisorRefill,
-	supervisorRefillDirective,
-} from "./lib/supervisor-refill.ts";
 import {
 	canonicalRepo,
 	launchctlTable,
@@ -33,7 +30,10 @@ import {
 	supervisorFactLine,
 	supervisorRows,
 } from "./lib/supervisor.ts";
-import { renderFleetReport } from "../scripts/lib/fleet-report.ts";
+import {
+	seedSupervisorRefill,
+	supervisorRefillDirective,
+} from "./lib/supervisor-refill.ts";
 
 type In = {
 	session_id?: string;
