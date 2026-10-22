@@ -18,12 +18,19 @@ import type {
 } from "../hooks/lib/govdb.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-surface-"));
+// restore before afterAll cleanup: the rest of the suite shares this process —
+// a leaked fixture HOME rides later spawns' {...process.env} spreads (W1124.11)
+const REAL_HOME = process.env.HOME;
 process.env.HOME = HOME; // govdb computes REG from HOME at module load — set before the dynamic import
 // ?query busts bun's module cache (shared registry across test files) so this
 // file's instance binds to the temp HOME, never the production DB.
 const govdb = await import(
 	`../hooks/lib/govdb.ts?home=${encodeURIComponent(HOME)}`
 );
+// file-scope env restore — the rest of the suite shares this process (W1124.11)
+afterAll(() => {
+	process.env.HOME = REAL_HOME;
+});
 
 const VALUE_SYMBOLS = [
 	"projectIdentity",

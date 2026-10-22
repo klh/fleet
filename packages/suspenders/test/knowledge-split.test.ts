@@ -13,8 +13,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { unusedPort } from "./helpers/board-fixture.ts";
 
+const REAL_HOME = process.env.HOME;
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-split-"));
 process.env.HOME = HOME;
+// the rest of the suite shares this process: a leaked fixture HOME would
+// ride later spawns' {...process.env} spreads (W1124.11)
+afterAll(() => {
+	process.env.HOME = REAL_HOME;
+});
 const REGD = join(HOME, ".cache", "claude-governor");
 mkdirSync(REGD, { recursive: true });
 

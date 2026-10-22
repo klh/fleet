@@ -3,7 +3,7 @@
 // (FAILED→dead, pid-less→unknown), fail guards (refuse absent, refuse thin
 // evidence, idempotent on already-FAILED), the wedge fix (unknown + evidence
 // → FAILED + evidence banked as a bus event), and the CLI door (exit codes).
-import { afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,6 +23,9 @@ import {
 
 const dirs: string[] = [];
 const HOME = mkdtempSync(join(tmpdir(), "fleet-intent-cli-home-"));
+// restore at teardown: the rest of the suite shares this process — a leaked
+// fixture HOME rides later spawns' {...process.env} spreads (W1124.11)
+const REAL_HOME = process.env.HOME;
 process.env.HOME = HOME;
 const govdb = await import(
 	`../hooks/lib/govdb.ts?home=${encodeURIComponent(HOME)}`
@@ -31,6 +34,11 @@ const { openStore, projectIdentity } = govdb;
 
 afterEach(() => {
 	for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+
+afterAll(() => {
+	process.env.HOME = REAL_HOME;
+	rmSync(HOME, { recursive: true, force: true });
 });
 
 /** Fixture store: the module-scope ?home= import pinned REG to the fixture
