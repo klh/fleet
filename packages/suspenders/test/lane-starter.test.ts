@@ -8,11 +8,12 @@ import {
 	chmodSync,
 	existsSync,
 	mkdirSync,
+	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
 	assertNoSecrets,
 	dispatchStarterFork,
@@ -426,16 +427,25 @@ describe("lane-starter", () => {
 
 	// W1124.12.1: the seed turn hangs for real when the executor wedges —
 	// the NATIVE `timeout` option enforces the deadline (the old `timeoutMs`
-	// field was silently ignored). NARROW contract: the SIGTERM lands on the
-	// DIRECT child (the fixture sh wrapper); descendants are NOT guaranteed
-	// to die with it — the test reaps the fixture's survivor itself.
+	// field was silently ignored). NARROW contract, tested exactly: the
+	// fixture is a direct bun child (no shell, no sleep descendant) that
+	// records its own PID and hangs; the deadline SIGTERMs that PID and the
+	// test proves the captured child is gone. No fixture leak.
 	test("the direct seed child is killed within the declared budget", () => {
 		// afterEach removed the shared fleet dir — ensureStarter spawns with
 		// cwd: fleet, so it must exist for the real spawnSync.
 		mkdirSync(fleet, { recursive: true });
 		const d = scratch();
-		const hung = join(d, "hung-seed.sh");
-		writeFileSync(hung, "#!/bin/sh\nsleep 30\n");
+		const pidFile = join(d, "seed.pid");
+		const hung = join(d, "hung-seed.ts");
+		writeFileSync(
+			hung,
+			`#!/usr/bin/env bun
+import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+await new Promise(() => {});
+`,
+		);
 		chmodSync(hung, 0o700);
 		const seedMs = 1_000;
 		const t0 = Date.now();
@@ -443,7 +453,10 @@ describe("lane-starter", () => {
 			fleet,
 			"claude",
 			hung,
-			{ PATH: "/usr/bin:/bin" },
+			{
+				// env must carry bun's dir — the shebang /usr/bin/env resolves it
+				PATH: `${dirname(process.execPath)}:/usr/bin:/bin`,
+			},
 			{
 				timeoutMs: seedMs,
 			},
@@ -451,11 +464,13 @@ describe("lane-starter", () => {
 		const elapsed = Date.now() - t0;
 		// the hung seed prints no session id → the failure record
 		expect(r?.kind).toBe("failure");
-		// budget + SIGTERM overhead — NOT the fixture's full 30s runtime
+		// budget + bun startup + SIGTERM — NOT an unbounded hang
 		expect(elapsed).toBeLessThan(10_000);
 		expect(elapsed).toBeGreaterThanOrEqual(seedMs);
-		// narrow-contract hygiene: reap the wrapper's surviving descendant
-		Bun.spawnSync(["/usr/bin/pkill", "-f", hung]);
+		// the captured direct child is dead: kill -0 fails on a reaped PID
+		const pid = readFileSync(pidFile, "utf8").trim();
+		expect(pid).toMatch(/^\d+$/);
+		expect(Bun.spawnSync(["/bin/kill", "-0", pid]).exitCode).not.toBe(0);
 		rmSync(d, { recursive: true, force: true });
 	}, 15_000);
 });
