@@ -10,9 +10,8 @@ import {
 } from "node:fs";
 import { hostname } from "node:os";
 import { resolve } from "node:path";
-// W254: pointer-grade injection — file-map + done-definition digest for the
-// brief, gated per W113 on repo size (hooks/lib/brief-intel.ts)
 import { capsuleValidity } from "../hooks/lib/capsule-fence.ts";
+import { verifiedContextContinuation } from "../hooks/lib/reclaim-context.ts";
 import { BIN, composeBrief } from "./lib/brief.ts";
 import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
 
@@ -223,12 +222,8 @@ const sh = (cmd: string[], cwd = REPO): string => shShared(cmd, cwd);
 const run = (cmd: string[], cwd = REPO): { code: number; out: string } =>
 	runShared(cmd, cwd);
 
-// W349 residue probe: git-state dirt the lane did NOT make — hoisted to
-// lib/lane.ts (W911 1500-law decomposition); re-exported for importers.
 export { residueOf };
 
-// W349: retire+recreate a wrong-branch leftover — hoisted to lib/lane.ts
-// (W911 1500-law decomposition).
 const recreateWorktree = (
 	item: string,
 	owner: string,
@@ -660,9 +655,6 @@ const dispatchItem = async (
 			}
 			// claimed by this sid from a previous dispatch attempt — resume
 		}
-		// W643: capture the take-minted claim token — the env pin below and the
-		// lane-context claimToken carry it to the closing work done. A resume
-		// (no fresh take) has no token here; the context keeps the original.
 		const takeToken =
 			take.code === 0
 				? (/claim token: ([0-9a-f]{48})/.exec(take.out)?.[1] ?? null)
@@ -694,11 +686,6 @@ const dispatchItem = async (
 		recordLaneExecutor(store, sid, pick.name, pick.model);
 		recordPlaidTrace(store, sid, POSTURE, routeName);
 
-		// W349: a leftover worktree never reaches the lane — W219 inherited a
-		// W229-era tree. Verify branch == suspenders/<item> before spawn:
-		// wrong branch → recreate (clean trees only; residue is never
-		// silently discarded); right branch + unbanked residue on a fresh
-		// spawn → skip loud. A resume's own tree stands (resume context).
 		const expected = `suspenders/${item}`;
 		let cur = existsSync(wt)
 			? sh(["git", "-C", wt, "branch", "--show-current"])
@@ -733,7 +720,21 @@ const dispatchItem = async (
 				`NOTE — recreated ${wt} (was on ${cur || "(detached)"}) before spawn (W349)`,
 			);
 			cur = expected;
-		} else if (!resume && residueOf(wt)) {
+		} else if (
+			!resume &&
+			residueOf(wt) &&
+			!(
+				takeToken &&
+				verifiedContextContinuation(store, {
+					project,
+					item,
+					sid,
+					token: takeToken,
+					revision: claimRevision,
+					tree: wt,
+				})
+			)
+		) {
 			console.log(
 				`SKIP ${item} — worktree holds unbanked residue on the item branch — never spawn into unbanked state; worktree.ts retire ${item} --force, then re-dispatch`,
 			);

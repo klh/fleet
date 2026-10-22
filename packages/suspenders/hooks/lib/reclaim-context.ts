@@ -36,6 +36,95 @@ export type ContextTransfer = {
 	rollback(): void;
 };
 
+/** A canonical retake may continue its own dirty tree without resuming a
+ * transcript. The immutable claim receipt, current token and registered tree
+ * must agree; merely finding a lane-context file is never authority. */
+export function verifiedContextContinuation(
+	store: GovernorStore,
+	args: {
+		project: string;
+		item: string;
+		sid: string;
+		token: string;
+		revision: number;
+		tree: string;
+	},
+): boolean {
+	try {
+		const { project, item, sid, token, revision, tree } = args;
+		const registered = resolveItemWorktree(projectRootOf(project), item);
+		if (!registered || realpathSync(registered) !== realpathSync(tree))
+			return false;
+		const path = join(tree, ".fleet", "lane-context.json");
+		if (
+			!lstatSync(path).isFile() ||
+			lstatSync(path).isSymbolicLink() ||
+			lstatSync(dirname(path)).isSymbolicLink()
+		)
+			return false;
+		const context = JSON.parse(readFileSync(path, "utf8")) as Context;
+		if (
+			context.sid !== sid ||
+			context.item !== item ||
+			context.claimToken !== token
+		)
+			return false;
+		const hash = claimTokenHash(token);
+		const claim = store
+			.query(
+				"SELECT owner_sid,claim_token_hash,updated_at,state FROM work_items WHERE project=? AND id=?",
+			)
+			.get(project, item) as {
+			owner_sid: string;
+			claim_token_hash: string;
+			updated_at: number;
+			state: string;
+		} | null;
+		if (
+			!claim ||
+			claim.owner_sid !== sid ||
+			claim.claim_token_hash !== hash ||
+			claim.updated_at !== revision ||
+			!["CLAIMED", "RUNNING"].includes(claim.state)
+		)
+			return false;
+		const row = store
+			.query(
+				"SELECT payload FROM events WHERE kind='work.claimed' AND project=? AND work=? ORDER BY id DESC LIMIT 1",
+			)
+			.get(project, item) as { payload: string } | null;
+		if (!row) return false;
+		const receipt = JSON.parse(row.payload) as {
+			by?: string;
+			claim_token_hash?: string;
+			context_origin?: Binding;
+		};
+		if (
+			receipt.by !== sid ||
+			receipt.claim_token_hash !== hash ||
+			receipt.context_origin?.baseline !== context.baseline ||
+			receipt.context_origin.launchedAt !== context.launchedAt
+		)
+			return false;
+		return (
+			Bun.spawnSync(
+				[
+					"git",
+					"-C",
+					tree,
+					"merge-base",
+					"--is-ancestor",
+					context.baseline,
+					"HEAD",
+				],
+				{ stdout: "ignore", stderr: "ignore" },
+			).exitCode === 0
+		);
+	} catch {
+		return false;
+	}
+}
+
 /** Validate before rotating the row. Neither a conventional directory nor a
  * caller-provided SID is ownership proof: Git registration, claim hash and
  * immutable commit ancestry must all agree. */
