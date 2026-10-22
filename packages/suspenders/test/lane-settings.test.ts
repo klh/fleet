@@ -82,10 +82,46 @@ describe("lane-settings (W512)", () => {
 			),
 		) as { env: Record<string, string> };
 		expect(withEffort.env.SUSPENDERS_LANE_EFFORT).toBe("high");
+		expect(withEffort.env.CLAUDE_CODE_EFFORT_LEVEL).toBe("high");
 		const clean = JSON.parse(
 			laneSettingsData(env, "glm-5.3-flash", "/p/bin"),
 		) as { env: Record<string, string> };
 		expect(clean.env.SUSPENDERS_LANE_EFFORT).toBeUndefined();
+		expect(clean.env.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined();
+	});
+	test.each(["low", "medium", "high", "xhigh", "max"])(
+		"resolved %s effort reaches the native Claude control and the report identically",
+		(effort) => {
+			const settings = JSON.parse(
+				laneSettingsData(env, "glm-5.3-flash", "/p/bin", effort),
+			);
+			expect(settings.env.SUSPENDERS_LANE_EFFORT).toBe(effort);
+			expect(settings.env.CLAUDE_CODE_EFFORT_LEVEL).toBe(effort);
+			const overridden = JSON.parse(
+				laneSettingsData(
+					{
+						...env,
+						SUSPENDERS_LANE_EFFORT: "low",
+						CLAUDE_CODE_EFFORT_LEVEL: "max",
+					},
+					"glm-5.3-flash",
+					"/p/bin",
+					effort,
+				),
+			);
+			expect(overridden.env.SUSPENDERS_LANE_EFFORT).toBe("low");
+			expect(overridden.env.CLAUDE_CODE_EFFORT_LEVEL).toBe("low");
+		},
+	);
+	test("unsupported native effort refuses dispatch rather than reporting a false pin", () => {
+		expect(() =>
+			laneSettingsData(
+				{ ...env, SUSPENDERS_LANE_EFFORT: "unsupported" },
+				"glm-5.3-flash",
+				"/p/bin",
+				"low",
+			),
+		).toThrow("Unsupported Claude lane effort");
 	});
 
 	test("selected .prefer rule joins Claude requests without replacing operator headers", () => {
