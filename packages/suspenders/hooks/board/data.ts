@@ -1,9 +1,9 @@
 import { usableRecommendation } from "../lib/advice-quality.ts";
+import { completionTail } from "../lib/work-completion-record.ts";
+import { claimWindows, type TimingEventRow } from "../lib/work-timing.ts";
 // W858.7.21: the hub reachability check + its probe bundle moved to
 // hub-check.ts (1500-line decompose); setupChecks imports it below.
 import { hubCheck } from "./hub-check.ts";
-import { completionTail } from "../lib/work-completion-record.ts";
-import { claimWindows, type TimingEventRow } from "../lib/work-timing.ts";
 
 // hooks/board/data.ts — the /api data builders: tasks, board, claims, decisions, activity (W157 board split).
 // Pieces moved verbatim from bin/fleet-board.ts; exports widened so
@@ -48,13 +48,13 @@ import {
 	payloadOf,
 	projOf,
 	signalMaps,
-	subscribeTail,
 	syncDecisions,
 	type TaskSignal,
-	transcriptTail,
 	unblockedBy,
 } from "./lanes.ts";
 import { getObservationRelayStatus } from "./observation-relay.ts";
+import { taskExecutionSnapshot } from "./task-execution.ts";
+import { taskTailSnapshot } from "./task-tail.ts";
 
 export function taskShape(
 	w: WorkItemRow,
@@ -68,6 +68,7 @@ export function taskShape(
 	failureNote: string | null = null,
 	completion?: Map<string, { text: string; ts: string; source: string }>,
 	signal?: TaskSignal | null,
+	taskTail?: ReturnType<typeof taskTailSnapshot>,
 ): Record<string, unknown> {
 	// W517 — .prefer tree identity: the stamped tag wins, live resolve
 	// covers rows added before coverage; color is a tree attribute, always
@@ -114,8 +115,11 @@ export function taskShape(
 		signal: signal ?? null,
 		tail:
 			done ??
-			transcriptTail(w.owner_sid, w.state === "FAILED" ? 320 : 110) ??
-			subscribeTail(w.owner_sid),
+			(taskTail ?? taskTailSnapshot(db, [w]))(
+				w,
+				w.state === "FAILED" ? 320 : 110,
+			)[0] ??
+			null,
 		...laneModelOf(w.owner_sid),
 		unblocked_by:
 			w.state === "READY"
@@ -431,6 +435,8 @@ export function tasks(
 	}
 	const completion = completionTailMap();
 	const signals = signalMaps();
+	const execution = taskExecutionSnapshot(db, feed);
+	const tail = taskTailSnapshot(db, feed);
 	const failures = new Map<string, string>();
 	for (const row of db
 		.query(
@@ -447,8 +453,8 @@ export function tasks(
 			if (!failures.has(key)) failures.set(key, event.note);
 		}
 	}
-	return feed.map((w) =>
-		taskShape(
+	return feed.map((w) => ({
+		...taskShape(
 			w,
 			openByTask.get(`${w.project}\u0000${w.id}`) ?? 0,
 			unblocked,
@@ -457,8 +463,13 @@ export function tasks(
 			failures.get(`${w.project}\u0000${w.id}`) ?? null,
 			completion,
 			signals.get(`${w.project}\u0000${w.id}`) ?? null,
+			tail,
 		),
-	);
+		execution: execution({
+			...w,
+			open_decisions: openByTask.get(`${w.project}\u0000${w.id}`) ?? 0,
+		}),
+	}));
 }
 
 // the drawer's event feed: last 50 events tied to the item — payload.work
