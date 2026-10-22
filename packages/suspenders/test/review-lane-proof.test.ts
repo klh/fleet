@@ -11,9 +11,16 @@ import {
 	test,
 } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { guardedMerge } from "../hooks/lib/merge-guard.ts";
+import {
+	checkReviewReceipt,
+	reviewContext,
+	recordLanding,
+} from "../hooks/lib/review-receipt.ts";
+import type { GovernorStore } from "../hooks/lib/govdb-store.ts";
 
 setDefaultTimeout(120_000);
 
@@ -237,5 +244,70 @@ describe("W634 review-lane coverage proof (Sinai rule)", () => {
 		const payload = JSON.parse(ev.payload) as Record<string, unknown>;
 		expect(payload.verdict).toBe("FAIL");
 		expect(String(payload.note)).toContain("coverage-proof (no-coverage)");
+	});
+
+	test("actual review-lane receipt authorizes exact merge and separate landing", () => {
+		const item = ids.proved;
+		const repo = realpathSync(REPO);
+		const context = reviewContext(repo, `suspenders/${item}`);
+		const db = new Database(DB_PATH);
+		try {
+			const event = db
+				.query(
+					"SELECT source,payload FROM events WHERE kind='work.review' AND json_extract(payload,'$.work')=? ORDER BY id DESC LIMIT 1",
+				)
+				.get(item) as { source: string; payload: string };
+			const receipt = JSON.parse(JSON.parse(event.payload).receipt);
+			expect(receipt).toMatchObject({
+				commit: context.commit,
+				base: context.base,
+				reviewer: event.source,
+				instructions: context.instructions,
+				verdict: "PASS",
+			});
+			expect(
+				db
+					.query("SELECT sid FROM sessions WHERE sid=? AND project=?")
+					.get(event.source, MY_PROJ),
+			).toBeTruthy();
+			db.exec(
+				"CREATE TABLE IF NOT EXISTS work_completion_records(project TEXT,item TEXT,summary TEXT,summary_hash TEXT,commit_sha TEXT,baseline_sha TEXT,completed_by TEXT,completed_at INTEGER,capsule_json TEXT,evidence_json TEXT)",
+			);
+			db.query(
+				"INSERT INTO work_completion_records(project,item,summary,summary_hash,commit_sha,baseline_sha,completed_by,completed_at,capsule_json,evidence_json) VALUES (?,?,'fixture',?,?,?,'fixture-author',?,'{}','{}')",
+			).run(
+				MY_PROJ,
+				item,
+				"0".repeat(64),
+				context.commit,
+				context.base,
+				Date.now(),
+			);
+			db.query(
+				"UPDATE work_items SET state='DONE',result_sha=? WHERE project=? AND id=?",
+			).run(context.commit, MY_PROJ, item);
+			const store = db as unknown as GovernorStore;
+			const result = guardedMerge({
+				repo,
+				callerRepo: repo,
+				branch: `suspenders/${item}`,
+				timeoutMs: 10_000,
+				verifyReview: () => checkReviewReceipt(store, MY_PROJ, item, context),
+			});
+			expect(result).toEqual({ code: 0, tail: "" });
+			const landed = recordLanding(
+				store,
+				repo,
+				MY_PROJ,
+				item,
+				`suspenders/${item}`,
+				context.commit,
+			);
+			expect(
+				db.query("SELECT kind FROM events WHERE id=?").get(landed),
+			).toEqual({ kind: "work.landed" });
+		} finally {
+			db.close();
+		}
 	});
 });

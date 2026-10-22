@@ -14,6 +14,7 @@ import { existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
+import { reviewContext, publishReviewReceipt } from "../lib/review-receipt.ts";
 
 // ---- args (W820: verb-kit owns parsing — W651 law) -------------------------
 // W820: verb-kit owns parsing (W651 law) — reqFlags --item/--project; the
@@ -80,14 +81,13 @@ const gitRun = (args: string[], cwd = repo): { code: number; out: string } => {
 };
 
 // the branch diff vs main — capped; absent branch = claims-only review
-function gitDiff(): string {
-	const branch = `suspenders/${item}`;
-	if (
-		gitRun(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])
-			.code !== 0
-	)
-		return "";
-	return gitRun(["diff", `main...${branch}`]).out.slice(0, 60_000);
+function gitDiff(base: string, commit: string): string {
+	const result = gitRun(["diff", `${base}...${commit}`]);
+	if (result.code !== 0 || result.out.length > 512_000)
+		throw new Error(
+			"review-lane: full exact diff unavailable or exceeds review budget; decompose before approval",
+		);
+	return result.out;
 }
 
 // the coord thread: last 20 events on the item (work + project stamped)
@@ -105,10 +105,17 @@ const thread: string[] = (
 );
 
 // ---- the review prompt ------------------------------------------------------
-const diff = gitDiff();
+const boundContext = reviewContext(repo, `suspenders/${item}`);
+const diff = gitDiff(boundContext.base, boundContext.commit);
+const reviewerSid = `review-${crypto.randomUUID()}`;
+db.query(
+	"INSERT INTO sessions (sid, project, role, started_at, hb, state) VALUES (?, ?, 'reviewer', ?, ?, 'RUNNING')",
+).run(reviewerSid, project, Date.now(), Date.now());
 const prompt = [
 	`You are a read-only second-opinion reviewer for Work Graph item ${item} in ${repo}.`,
 	`Verify the work against the mission; you are auditing, NOT re-doing it. Do not edit anything.`,
+	`REVIEWED COMMIT ${boundContext.commit}; INTEGRATION BASE ${boundContext.base}`,
+	boundContext.text,
 	``,
 	`PROTOCOL (Sinai rule): a mechanical coverage proof backs this review — on PASS the diff is reverted in a scratch checkout and the branch's new tests are required to fail there; tests that pass without the change mean no coverage and downgrade the verdict to FAIL.`,
 	`MISSION (work show):`,
@@ -118,10 +125,11 @@ const prompt = [
 	`ITEM THREAD (newest first, last 20):`,
 	...(thread.length ? thread : ["(no events)"]),
 	``,
-	`BRANCH DIFF (main...suspenders/${item}, capped):`,
+	`EXACT BRANCH DIFF (${boundContext.base}...${boundContext.commit}):`,
 	diff || "(no branch — review the thread/claims only)",
 	``,
 	`Report findings as terse bullets; every finding carries a stable ID — B<round>-<slug> (blocker) or N<round>-<slug> (note) — round = the round that FIRST reported it; IDs are never renumbered.`,
+	`Explicitly resolved prior findings use a separate line RESOLVED: B<round>-<slug> followed by evidence. Unresolved blocker IDs prevent merge even with a PASS final line.`,
 	`Evidence-kind caps severity: a file:line-only claim caps at blocker(high); a runtime-behavior claim without a trigger path caps at note(low).`,
 	`End your reply with ONE machine-parseable final line:`,
 	`VERDICT: PASS | VERDICT: FAIL - <reason>`,
@@ -422,20 +430,31 @@ const noteArgs = [
 ];
 emitCli(noteArgs);
 
-// the verdict event: work.review, payload stamped work+project so the drawer
-// timeline picks it up; the findings body rides the note (capped)
-emitCli([
-	"emit",
-	"work.review",
-	`--work=${item}`,
-	`--project=${project}`,
-	`--executor=${executor}`,
-	`--verdict=${effective}`,
-	"--note",
-	`${headline}\n\n${proofNote}\n\n${(findings ?? "").slice(0, 3000)}`,
-	"--as",
-	`review:${executor}`,
-]);
+// One bound work.review event; the board still reads its top-level verdict.
+publishReviewReceipt(db, project, item, {
+	version: 1,
+	commit: boundContext.commit,
+	base: boundContext.base,
+	instructions: boundContext.instructions,
+	reviewer: reviewerSid,
+	verdict: effective,
+	blocking: [
+		...new Set(
+			(findings ?? "")
+				.split("\n")
+				.filter((line) => !line.startsWith("RESOLVED:"))
+				.flatMap((line) => line.match(/\bB\d+-[a-zA-Z0-9-]+/g) ?? []),
+		),
+	],
+	resolved: [
+		...(findings ?? "").matchAll(/^RESOLVED:\s+(B\d+-[a-zA-Z0-9-]+)\s+\S.+$/gm),
+	].map((m) => m[1]),
+	evidence: `${headline}\n${proofNote}\n${(findings ?? "").slice(0, 3000)}`,
+});
+db.query("UPDATE sessions SET state = 'DONE', hb = ? WHERE sid = ?").run(
+	Date.now(),
+	reviewerSid,
+);
 console.log(
 	`review-lane: ${item} reviewed by ${executor} — ${effective}: ${headline.slice(0, 120)}`,
 );
