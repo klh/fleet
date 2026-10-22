@@ -132,6 +132,36 @@ describe("W789 buffered tool_calls", () => {
 });
 
 describe("W789 SSE tool stream", () => {
+	test("discarded reasoning and non-selected choices cannot license an empty success", async () => {
+		for (const choices of [
+			[{ delta: { reasoning_content: "hidden reasoning" } }],
+			[
+				{ delta: {} },
+				{
+					delta: {
+						content: "discarded",
+						tool_calls: [{ function: { name: "discarded_tool" } }],
+					},
+				},
+			],
+		]) {
+			const upstream = new ReadableStream<Uint8Array>({
+				start(c) {
+					c.enqueue(
+						new TextEncoder().encode(
+							`data: ${JSON.stringify({ choices })}\n\ndata: [DONE]\n\n`,
+						),
+					);
+					c.close();
+				},
+			});
+			const out = await new Response(
+				anthropicSseFromOpenAi(upstream, { id: "discarded", model: "fixture" }),
+			).text();
+			expect(out).toContain('"code":"empty_response"');
+			expect(out).not.toContain("event: message_delta");
+		}
+	});
 	test("backend SSE error survives instead of becoming empty end-turn", async () => {
 		for (const error of [
 			{ type: "internal_error", message: "Internal error during streaming" },

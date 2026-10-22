@@ -1017,18 +1017,6 @@ export function anthropicSseFromOpenAi(
 			sourceFailure = String(error.code ?? error.type);
 			return sseEvent("error", { type: "error", error });
 		}
-		// Count only text actually emitted after think-filtering; named tools
-		// and explicit reasoning fields still use the shared wire observer.
-		semantics.observe(
-			{
-				...j,
-				choices: j.choices?.map((choice) => ({
-					...choice,
-					delta: { ...choice.delta, content: null },
-				})),
-			},
-			"openai",
-		);
 		if (j.usage?.completion_tokens) outTokens = j.usage.completion_tokens;
 		const ch = j.choices?.[0];
 		if (ch?.finish_reason) finish = ch.finish_reason;
@@ -1060,6 +1048,10 @@ export function anthropicSseFromOpenAi(
 					}
 					blockIndex += 1;
 					acc.started = true;
+					semantics.observe(
+						{ content_block: { type: "tool_use", name: acc.name } },
+						"anthropic",
+					);
 					out.push(
 						sseEvent("content_block_start", {
 							type: "content_block_start",
@@ -1115,6 +1107,10 @@ export function anthropicSseFromOpenAi(
 						if (eof) {
 							const timings = composeTimings();
 							const last = handleLine(buf);
+							semantics.observe(
+								{ delta: { stop_reason: stopReason(finish) } },
+								"anthropic",
+							);
 							if (sourceFailure) {
 								if (!clientGone) {
 									if (last) c.enqueue(enc.encode(last));

@@ -196,3 +196,44 @@ test("OpenAI source error and truncated EOF never release held successful finish
 		expect(seen.filter((part) => part.finish)).toEqual([]);
 	}
 });
+
+test("OpenAI held terminal keeps choice metadata and usage exactly once", async () => {
+	const logprobs = {
+		content: [
+			{ token: "ok", logprob: -0.1, bytes: [111, 107], top_logprobs: [] },
+		],
+	};
+	for (const content of ["", "ok"]) {
+		const terminal = {
+			id: "fixture",
+			choices: [
+				{
+					index: 0,
+					delta: content ? { content } : {},
+					finish_reason: "stop",
+					logprobs,
+					custom_terminal: "preserved",
+				},
+			],
+			usage: { completion_tokens: 1 },
+		};
+		const input =
+			(content ? "" : chunk("ok")) +
+			`data: ${JSON.stringify(terminal)}\n\ndata: [DONE]\n\n`;
+		const out = await response(input, "openai").text();
+		const frames = out
+			.split("\n")
+			.filter((line) => line.startsWith("data: {"))
+			.map((line) => JSON.parse(line.slice(6)));
+		const successes = frames
+			.flatMap((frame) => frame.choices ?? [])
+			.filter((choice: { finish_reason?: string }) => choice.finish_reason);
+		expect(successes).toHaveLength(1);
+		expect(successes[0]).toMatchObject({
+			logprobs,
+			custom_terminal: "preserved",
+		});
+		expect(frames.filter((frame) => frame.usage)).toHaveLength(1);
+		expect(out.match(/custom_terminal/g)).toHaveLength(1);
+	}
+});

@@ -463,21 +463,24 @@ export function sseReframer(
 					choices: choices
 						.filter((choice) => choice.finish_reason != null)
 						.map((choice) => ({
-							index: choice.index,
+							...choice,
 							delta: {},
-							finish_reason: choice.finish_reason,
 						})),
 				};
 				if (!hold(JSON.stringify(terminal))) return;
 				if (
 					choices.some(
-						(choice) => Object.keys((choice.delta ?? {}) as AnyRec).length > 0,
+						(choice) =>
+							choice.finish_reason == null ||
+							Object.keys((choice.delta ?? {}) as AnyRec).length > 0,
 					)
 				) {
 					const live = {
 						...parsed,
 						choices: choices.map((choice) => ({
-							...choice,
+							...(choice.finish_reason == null
+								? choice
+								: { index: choice.index, delta: choice.delta }),
 							finish_reason: null,
 						})),
 					};
