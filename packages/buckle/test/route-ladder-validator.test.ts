@@ -438,3 +438,72 @@ test("a belt escalation back into the same buckle is a repeat_origin re-ingress"
 		expect.objectContaining({ code: "repeat_origin", layer: "fleet" }),
 	);
 });
+
+test("an engine's internal fallback walk is not a repeat_origin re-ingress", () => {
+	const result = validateRouteLadders({
+		buckles: [],
+		litellms: [
+			{
+				id: "engine",
+				origins: ["http://127.0.0.1:4100"],
+				config: {
+					model_list: ["a", "b"].map((model_name) => ({
+						model_name,
+						litellm_params: { api_base: `https://${model_name}.example` },
+					})),
+					litellm_settings: { fallbacks: [{ a: ["b"] }] },
+				},
+			},
+		],
+	});
+	expect(result.errors).toEqual([]);
+});
+
+test("a primary rung serving a different family than the group asserts mismatches", () => {
+	const result = validateRouteLadders({
+		buckles: [
+			{
+				id: "local",
+				origins: ["http://127.0.0.1:4101"],
+				policy: { ...policy, fallbacks: {} },
+				pool: pool({
+					"gpt-6-sol": [
+						{ url: "https://provider.example/v1", model: "zai-glm-5.3-flash" },
+					],
+				}),
+			},
+		],
+	});
+	expect(result.errors).toContainEqual(
+		expect.objectContaining({ code: "model_family_mismatch", layer: "buckle" }),
+	);
+});
+
+test("an engine row serving a different family than its group name asserts mismatches", () => {
+	const result = validateRouteLadders({
+		buckles: [],
+		litellms: [
+			{
+				id: "engine",
+				origins: ["http://127.0.0.1:4100"],
+				config: {
+					model_list: [
+						{
+							model_name: "gpt-6-sol",
+							litellm_params: {
+								model: "zai/glm-5.3-flash",
+								api_base: "https://zai.example",
+							},
+						},
+					],
+				},
+			},
+		],
+	});
+	expect(result.errors).toContainEqual(
+		expect.objectContaining({
+			code: "model_family_mismatch",
+			layer: "litellm",
+		}),
+	);
+});
