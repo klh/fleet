@@ -101,6 +101,25 @@ const mint = (repo: string): string => {
 const take = (repo: string, item: string) =>
 	run(repo, [WORK, "take", item, "--as", "flushlane"]);
 
+// W1124.16 fixture: a foreign-host lane entry — no process-table trust on
+// this host, so its liveness reads true/false ONLY via the claimant
+// transcript (which is why it is the honest UNKNOWN shape when absent)
+const foreignLane = (repo: string, item: string, sid: string) =>
+	writeFileSync(
+		join(repo, ".fleet", "lanes.json"),
+		JSON.stringify([
+			{
+				sid,
+				item,
+				branch: `suspenders/${item}`,
+				pid: 999_997,
+				worktree: join(repo, ".worktrees", item),
+				host: "some-other-host",
+				launchedAt: Date.now() - 11 * 60_000,
+			},
+		]),
+	);
+
 // close via the plane itself so result_sha lands exactly as production writes it
 const close = (repo: string, item: string, sha: string) => {
 	const t = take(repo, item);
@@ -309,6 +328,45 @@ describe("fleet-loop flush mode (W641)", () => {
 		expect(r.code).toBe(0);
 		expect(log(repo)).toContain(`MERGED suspenders/${item}`);
 		expect(branchGone(repo, item)).toBe(true);
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	// W1124.16: the merge gate is tri-state honest — an UNKNOWN liveness probe
+	// (foreign-host lane with no transcript: no process-table trust) defers;
+	// ONLY a proven-dead lane merges.
+	test("cycle mergeOne defers lane liveness UNKNOWN (foreign-host lane, no transcript)", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const head = await laneBranch(repo, item);
+		close(repo, item, head);
+		foreignLane(repo, item, "w1616lane");
+		const r = once(repo);
+		expect(r.code).toBe(0);
+		expect(log(repo)).toContain(
+			`MERGE-DEFER suspenders/${item} — lane liveness unknown`,
+		);
+		expect(branchGone(repo, item)).toBe(false);
+		expect(events(repo, "work.landed")).toBe(0);
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	// W1124.16: a LIVE lane still defers (preserved behavior, now through the
+	// explicit tri-state) — a fresh claimant transcript is the foreign lane's
+	// only liveness term.
+	test("cycle mergeOne defers a LIVE lane (foreign-host lane, fresh transcript)", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const head = await laneBranch(repo, item);
+		close(repo, item, head);
+		const projects = join(repo, ".test-home", ".claude", "projects", "p");
+		mkdirSync(projects, { recursive: true });
+		await Bun.write(Bun.file(join(projects, "w1616lane.jsonl")), "fake\n");
+		foreignLane(repo, item, "w1616lane");
+		const r = once(repo);
+		expect(r.code).toBe(0);
+		expect(log(repo)).not.toContain(`MERGED suspenders/${item}`);
+		expect(branchGone(repo, item)).toBe(false);
+		expect(events(repo, "work.landed")).toBe(0);
 		rmSync(repo, { recursive: true, force: true });
 	});
 

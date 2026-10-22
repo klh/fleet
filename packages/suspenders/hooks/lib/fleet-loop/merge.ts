@@ -118,8 +118,18 @@ export function createMergeLadder(
 		// never merge a branch a live lane still owns (gaps 2026-09-30: autow351
 		// was merged mid-flight with 3 live pids in its worktree — the ladder
 		// treated ahead>0 as ready and its retire swept the worktree out from
-		// under the agents)
-		if (laneIsAlive(b)) return;
+		// under the agents). W1124.16: the veto is tri-state honest — ONLY a
+		// proven-dead lane (explicit false) lets the merge through; live defers
+		// silently (the mid-flight norm), unknown defers loudly (a failed probe
+		// is never death — monitor doctrine W51).
+		const live = laneIsAlive(b);
+		if (live === true) return;
+		if (live === null) {
+			log(
+				`MERGE-DEFER ${b} — lane liveness unknown (probe failure is never death); deferring`,
+			);
+			return;
+		}
 		// W641 ladder lease: the govdb lease outranks every liveness signal — a
 		// branch whose item is CLAIMED/RUNNING never merges, even with its lane
 		// process dead (pre-reclaim window) or unregistered. A store failure makes
