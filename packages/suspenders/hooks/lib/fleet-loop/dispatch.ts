@@ -5,7 +5,7 @@
 // (W740 split: block body verbatim from the entrypoint; the dialect wire
 // path anchors at the entrypoint's binDir, not import.meta.dir.)
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { symlinkBuildDirs } from "../builddirs.ts";
 import { openStore, projectIdentity } from "../govdb.ts";
@@ -38,6 +38,10 @@ import {
 	type LaunchIntent,
 } from "../../../scripts/lib/launch-fencing.ts";
 import { launchParent } from "../../../scripts/lib/launch-parent.ts";
+import {
+	ensureLaneKey,
+	laneKeyMetaPath,
+} from "../../../scripts/lib/lane-auth.ts";
 import { laneAttemptLimit } from "../../../scripts/lib/lane-retry-budget.ts";
 import {
 	parkExhaustedLaunch,
@@ -46,7 +50,11 @@ import {
 } from "../../../scripts/lib/launch-backoff.ts";
 import { reproGateForItem } from "../repro-gate.ts";
 import { adapterFor } from "../executors/registry.ts";
-import { executorLaunch } from "../../../scripts/lib/lane.ts";
+import {
+	applyLaneAttribution,
+	executorLaunch,
+	probeBuckleFront,
+} from "../../../scripts/lib/lane.ts";
 // W254: pointer-grade injection — file-map + done-definition digest for the
 // direct-launch brief, gated per W113 on repo size (hooks/lib/brief-intel.ts)
 import { briefIntel, renderIntel } from "../brief-intel.ts";
@@ -296,8 +304,27 @@ export async function runDispatch(
 			env.SUSPENDERS_SID = sid;
 			env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL = "canonical-v1";
 		}
-		delete env.ANTHROPIC_BASE_URL;
-		delete env.ANTHROPIC_AUTH_TOKEN;
+		// W1119.2 single-buckle-inference: a fleet-loop lane rides the buckle
+		// front attributed — probe + scoped-key mint fail CLOSED (no solo/
+		// ungoverned bypass on this verb): a miss throws into the catch below
+		// (REFUSED; the finally releases the claim back to READY).
+		const buckleFront = await probeBuckleFront();
+		if (!buckleFront)
+			throw new Error(
+				"buckle front unreachable — lanes dispatch only through the buckle front (single-buckle-inference W1119)",
+			);
+		const minted = await ensureLaneKey(sid);
+		if (!minted)
+			throw new Error(
+				"buckle lane-key mint failed — check belt.env BUCKLE_ADMIN_KEY (fail-closed W463)",
+			);
+		applyLaneAttribution(env, sid, undefined, minted.key);
+		const keyMeta = laneKeyMetaPath(`${REPO}/.fleet`, sid);
+		writeFileSync(
+			keyMeta,
+			`${JSON.stringify({ sid, key_id: minted.keyId, mintedAt: Date.now() }, null, 2)}\n`,
+		);
+		chmodSync(keyMeta, 0o600);
 		// model overrides must not ride the coordinator's env into lanes — a
 		// dispatch from a GLM-routed shell hung W57 at model init
 		// (claude-code:unrecognized_model, 2026-09-28)
