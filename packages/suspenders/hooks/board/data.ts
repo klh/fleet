@@ -55,6 +55,7 @@ import {
 	unblockedBy,
 } from "./lanes.ts";
 import { getObservationRelayStatus } from "./observation-relay.ts";
+import { taskExecutionSnapshot } from "./task-execution.ts";
 
 export function taskShape(
 	w: WorkItemRow,
@@ -431,6 +432,7 @@ export function tasks(
 	}
 	const completion = completionTailMap();
 	const signals = signalMaps();
+	const execution = taskExecutionSnapshot(db, feed);
 	const failures = new Map<string, string>();
 	for (const row of db
 		.query(
@@ -447,8 +449,8 @@ export function tasks(
 			if (!failures.has(key)) failures.set(key, event.note);
 		}
 	}
-	return feed.map((w) =>
-		taskShape(
+	return feed.map((w) => ({
+		...taskShape(
 			w,
 			openByTask.get(`${w.project}\u0000${w.id}`) ?? 0,
 			unblocked,
@@ -458,7 +460,11 @@ export function tasks(
 			completion,
 			signals.get(`${w.project}\u0000${w.id}`) ?? null,
 		),
-	);
+		execution: execution({
+			...w,
+			open_decisions: openByTask.get(`${w.project}\u0000${w.id}`) ?? 0,
+		}),
+	}));
 }
 
 // the drawer's event feed: last 50 events tied to the item — payload.work

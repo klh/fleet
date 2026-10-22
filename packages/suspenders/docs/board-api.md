@@ -32,6 +32,23 @@ frontend consumes in `hooks/bin/fleet-board-html.ts`. All endpoints return JSON 
 
 ## GET /api/tasks?project=
 
+Each task's `execution` separates work ownership from observed execution.
+`state` is `live-harness`, `paused`, `transitioning`, `blocked`, `dead`,
+`unknown`, `completed`, or `inactive`. A claim, spend, or fresh transcript
+lease never proves productive work. Exact project/item/owner registry
+binding and a current process inspection establish only harness presence.
+`observed_at` and `process_observed_at` timestamp that snapshot;
+`lifecycle_observed_at` retains the canonical lifecycle fact's timestamp.
+Missing/remote registry evidence remains unknown. A lifecycle fact older
+than the registered launch cannot pause a newer incarnation.
+
+`progress` is null or a timestamped completion/review/landing event bound
+to the item's exact result commit, drawn from the newest 5000 artifact
+events. It is evidence recorded at that time, not a claim of current
+review validity, publication, or deployment. `landed` means verified Git
+integration; it does not mean pushed. The board labels the active column
+**claimed** and separately counts distinct project/owner harness identities.
+
 `{ ok, projects, tasks: [...] }` — every work_item not SUPERSEDED/DONE-with-owner,
 newest activity first:
 
