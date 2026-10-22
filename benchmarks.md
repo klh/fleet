@@ -857,3 +857,13 @@ cell (glm cloud, cold, n=12 — noise floor).
   starves under any concurrent lane load; bench-grade runs need a quiet
   window or a reserved slot.
 - Judge pass (W748) not run — quality signal is mechanical-only at n=12.
+
+## W1170 — review-skill documentation contract (2026-10-22)
+
+The W1144 checks in `tests/skills-catalog.test.ts` match documentation
+markers against `tests/fixtures/review-eval/seed.ts`. They do not invoke
+an agent or measure defect detection. No matched agent experiment or
+review-quality improvement was established. W1170 corrects that claim and
+removes raw argument/path logging from skill instrumentation; the focused
+documentation/privacy suite passed 14 tests and 68 assertions. These are
+contract and privacy results, not a model-performance benchmark.
