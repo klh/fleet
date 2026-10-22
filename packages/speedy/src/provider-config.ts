@@ -229,3 +229,19 @@ export function profileForEnv(
 	}
 	return null;
 }
+
+/** The first profile whose `endpoints[dialect]` equals `url` — endpoint
+ *  match, not name match: zai-coding (not zai-general) is whichever
+ *  profile actually declares the endpoint a generated row rides. Belt's
+ *  contract twin carries the same lookup (provider-profiles.ts). */
+export function profileForEndpoint(
+	dialect: keyof ProviderEndpoints,
+	url: string,
+	providers: Record<string, ProviderEntry>,
+): ResolvedProvider | null {
+	for (const [name, entry] of Object.entries(providers)) {
+		if (entry.endpoints?.[dialect] !== url) continue;
+		return resolveProvider(name, providers);
+	}
+	return null;
+}

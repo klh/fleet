@@ -1,11 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-	chmodSync,
-	mkdtempSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HubProfile } from "../hooks/lib/stack-config.ts";
@@ -53,14 +47,19 @@ const zaiSnapshot = (model_ids: string[]): ZaiCatalogSnapshot => ({
 const poolFor = (groups: Record<string, Array<Record<string, unknown>>>) => ({
 	groups: () => Object.keys(groups),
 	deployments: (name: string) =>
-		(groups[name] ?? []).map((row) => ({ ...row, group: name })) as Deployment[],
+		(groups[name] ?? []).map((row) => ({
+			...row,
+			group: name,
+		})) as Deployment[],
 });
 
 const litellmWithModel = (model_name: string) => ({
 	id: "engine",
 	origins: ["http://host.docker.internal:4100"],
 	config: {
-		model_list: [{ model_name, litellm_params: { api_base: "https://api.z.ai" } }],
+		model_list: [
+			{ model_name, litellm_params: { api_base: "https://api.z.ai" } },
+		],
 	},
 });
 
@@ -91,12 +90,10 @@ describe("Z.ai account catalog", () => {
 		});
 	});
 
-	test("authenticates without retaining the key and keeps a valid old snapshot on fetch failure", async () => {
+	test("authenticates with the resolved key, never retains it, and keeps a valid old snapshot on fetch failure", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "zai-catalog-test-"));
 		try {
-			const keyFile = join(dir, "zai.key");
 			const snapshotFile = join(dir, "zai-models.json");
-			writeFileSync(keyFile, "test-secret\n", { mode: 0o600 });
 			const fetcher = (async (
 				_url: string | URL | Request,
 				init?: RequestInit,
@@ -106,21 +103,20 @@ describe("Z.ai account catalog", () => {
 				);
 				return Response.json(catalog);
 			}) as typeof fetch;
-			const snapshot = await fetchZaiCatalog(keyFile, fetcher);
+			const snapshot = await fetchZaiCatalog("test-secret", fetcher);
 			expect(snapshot.source).toBe(ZAI_CATALOG_URL);
 			expect(writeZaiSnapshot(snapshotFile, snapshot)).toBe(true);
 			expect(writeZaiSnapshot(snapshotFile, snapshot)).toBe(false);
 			const before = readFileSync(snapshotFile, "utf8");
 			await expect(
 				fetchZaiCatalog(
-					keyFile,
+					"test-secret",
 					(async () => new Response(null, { status: 429 })) as typeof fetch,
 				),
 			).rejects.toThrow("HTTP 429");
 			expect(readFileSync(snapshotFile, "utf8")).not.toContain("test-secret");
 			expect(readFileSync(snapshotFile, "utf8")).toBe(before);
-			chmodSync(keyFile, 0o644);
-			await expect(fetchZaiCatalog(keyFile, fetcher)).rejects.toThrow("0600");
+			await expect(fetchZaiCatalog("  ", fetcher)).rejects.toThrow("empty");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}

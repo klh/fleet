@@ -1,7 +1,15 @@
 // Browser-safe account inventory. A CLI sign-in and a direct API key are
 // different routes; neither is inferred from the other's health probe.
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+// W1124.8.4: the Copilot seat PAT resolves from the inherited env or the
+// CENTRAL provider profile bound to GITHUB_COPILOT_PAT — the implicit
+// copilot.key file read is retired here (belt twin loader; fixture-pinnable
+// via the home param like every other model-access input).
+import {
+	loadProviderProfiles,
+	providerStackPath,
+	profileForEnv,
+} from "./provider-profiles.ts";
 
 export interface SeatModel {
 	id: string;
@@ -366,7 +374,10 @@ const cliStatus = async (
 	}
 };
 
-export const modelAccess = async (home: string): Promise<ModelAccess> => {
+export const modelAccess = async (
+	home: string,
+	stackPath: string = providerStackPath(home),
+): Promise<ModelAccess> => {
 	const [groups, claude, chatgpt, openrouter, zai, zaiAccount] =
 		await Promise.all([
 			configuredGroups(home),
@@ -403,7 +414,12 @@ export const modelAccess = async (home: string): Promise<ModelAccess> => {
 	};
 	let token: string;
 	try {
-		token = (await readFile(join(LOCAL(home), "copilot.key"), "utf8")).trim();
+		// W1124.8.4: env override, then the central GITHUB_COPILOT_PAT profile.
+		token =
+			process.env.GITHUB_COPILOT_PAT?.trim() ||
+			profileForEnv("GITHUB_COPILOT_PAT", loadProviderProfiles(stackPath))
+				?.key ||
+			"";
 		if (!token) return result;
 	} catch {
 		return result;

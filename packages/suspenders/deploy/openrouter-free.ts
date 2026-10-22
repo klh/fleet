@@ -1,16 +1,20 @@
 // OpenRouter's public catalog and account-filtered catalog jointly determine
-// the free routes. The key is read from a local 0600 file and never stored in
-// the snapshot. Buckle forwards through the owned LiteLLM engine.
+// the free routes. The inference key resolves from the inherited env or the
+// CENTRAL provider profile (W1124.8.4) and is never stored in the snapshot.
+// Buckle forwards through the owned LiteLLM engine.
 import {
 	lstatSync,
 	readFileSync,
 	renameSync,
-	statSync,
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import {
+	PROVIDER_STACK_PATH,
+	loadProviderConfig,
+	profileForEnv,
+} from "../../speedy/src/provider-config.ts";
 import type { HubProfile } from "../hooks/lib/stack-config.ts";
 
 export const OPENROUTER_CATALOG_URL =
@@ -171,19 +175,23 @@ export function snapshotFromCatalog(
 	};
 }
 
-const readInferenceKey = (): string => {
-	const path = join(
-		process.env.HOME ?? homedir(),
-		".claude/local-llm/openrouter.key",
+/** W1124.8.4: the OpenRouter inference key resolves from the inherited env
+ *  or the CENTRAL provider profile bound to OPENROUTER_API_KEY (env NAME,
+ *  never a path convention). A missing binding names the migration — this
+ *  is the explicit-CLI-only legacy read surface. */
+export const readInferenceKey = (
+	stackPath: string = PROVIDER_STACK_PATH(),
+): string => {
+	if (process.env.OPENROUTER_API_KEY?.trim())
+		return process.env.OPENROUTER_API_KEY.trim();
+	const profile = profileForEnv(
+		"OPENROUTER_API_KEY",
+		loadProviderConfig(stackPath),
 	);
-	const stat = statSync(path);
-	if (!stat.isFile() || (stat.mode & 0o777) !== 0o600)
-		throw new Error(
-			"OpenRouter inference key file must be a mode-0600 regular file",
-		);
-	const key = readFileSync(path, "utf8").trim();
-	if (!key) throw new Error("OpenRouter inference key file is empty");
-	return key;
+	if (profile?.key) return profile.key;
+	throw new Error(
+		"OpenRouter inference key: set OPENROUTER_API_KEY in the environment or a provider profile (stack.yaml providers, env: OPENROUTER_API_KEY)",
+	);
 };
 
 const readBoundedCatalog = async (

@@ -19,15 +19,14 @@ import type { HubProfile } from "../hooks/lib/stack-config.ts";
 
 const MAX_CATALOG_BYTES = 1024 * 1024;
 
+/** W1124.8.4: the account key is a resolved central-profile value (env
+ *  override or the profile bound to Z_AI_API_KEY) — the caller resolves it;
+ *  the per-file 0600 read is gone from this consumer. */
 export async function fetchZaiCatalog(
-	keyFile: string,
+	key: string,
 	fetcher: typeof fetch = fetch,
 ): Promise<ZaiCatalogSnapshot> {
-	const stat = lstatSync(keyFile);
-	if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0)
-		throw new Error("Z.ai key file must be a private regular file (0600)");
-	const key = readFileSync(keyFile, "utf8").trim();
-	if (!key) throw new Error("Z.ai key file is empty");
+	if (!key.trim()) throw new Error("Z.ai account key is empty");
 	const response = await fetcher(ZAI_CATALOG_URL, {
 		headers: { authorization: `Bearer ${key}`, accept: "application/json" },
 		signal: AbortSignal.timeout(10_000),

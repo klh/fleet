@@ -1,22 +1,35 @@
 // Fleet-loop's config-gated refresh. The applied marker advances only after
 // LiteLLM and Buckle accept the new model list; failed activation retries.
+// W1124.8.4: the inference key comes from the inherited env or the CENTRAL
+// provider profile (OPENROUTER_API_KEY) — the legacy openrouter.key file
+// gate is retired.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+	PROVIDER_STACK_PATH,
+	loadProviderConfig,
+	profileForEnv,
+} from "../../speedy/src/provider-config.ts";
 import type { StackConfig } from "../hooks/lib/stack-config.ts";
 import { fetchFreeSnapshot, writeFreeSnapshot } from "./openrouter-free.ts";
 
 const home = process.env.HOME ?? homedir();
-const keyFile = join(home, ".claude/local-llm/openrouter.key");
 const generator = join(home, ".claude/local-llm/gateway-config.ts");
 const liteKeyFile = join(home, ".claude/local-llm/litellm.key");
 
-const keyFileReady = (): boolean => {
+/** W1124.8.4: true when an OPENROUTER_API_KEY binding exists — the
+ *  inherited env value or the central profile bound to that env NAME. */
+export const inferenceKeyReady = (
+	stackPath: string = PROVIDER_STACK_PATH(),
+): boolean => {
+	if (process.env.OPENROUTER_API_KEY?.trim()) return true;
 	try {
-		const key = statSync(keyFile);
-		return key.isFile() && (key.mode & 0o777) === 0o600 && key.size > 0;
+		return Boolean(
+			profileForEnv("OPENROUTER_API_KEY", loadProviderConfig(stackPath)),
+		);
 	} catch {
 		return false;
 	}
@@ -116,8 +129,10 @@ export async function refreshConfiguredOpenRouter(
 		([, hub]) => hub.upstreams?.openrouter_free_catalog_file,
 	);
 	if (configured.length === 0) return [];
-	if (!keyFileReady())
-		return ["OpenRouter refresh idle: inference key missing or not mode 0600"];
+	if (!inferenceKeyReady())
+		return [
+			"OpenRouter refresh idle: no OPENROUTER_API_KEY binding (env or provider profile)",
+		];
 	const eligible = configured.filter(
 		([, hub]) =>
 			hub.buckle_prefs?.allow_cloud === true &&

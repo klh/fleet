@@ -14,6 +14,12 @@ import {
 import { homedir } from "node:os";
 import { chatGptSubscriptionRows } from "./chatgpt-subscription-rows.ts";
 import {
+	type ProviderEntry,
+	loadProviderProfiles,
+	profileForEndpoint,
+	profileForEnv,
+} from "./provider-profiles.ts";
+import {
 	emitClassTiers,
 	emitLiteLlmSettings,
 	emitRouterSettings,
@@ -27,6 +33,17 @@ import { openRouterFreeRows } from "./openrouter-free-rows.ts";
 import { readZaiSnapshot, zaiLiteLlmRows } from "./zai-catalog-rows.ts";
 
 const HOME = process.env.HOME ?? homedir();
+// W1124.8.4: the central provider profiles — loaded once, at the top, with
+// every failure (absent/malformed/mode != 600) degrading to {} so the
+// generator still renders local + remote rows; profile-driven rows below
+// simply stay out of the model list.
+const PROFILES: Record<string, ProviderEntry> = (() => {
+	try {
+		return loadProviderProfiles();
+	} catch {
+		return {};
+	}
+})();
 const REMOTES_PATH = `${HOME}/.claude/local-llm/remotes.json`;
 const OPENROUTER_FREE_CATALOG =
 	process.env.OPENROUTER_FREE_CATALOG ??
@@ -98,18 +115,13 @@ if (existsSync(zaiCatalogPath)) {
 		...zaiLiteLlmRows(readZaiSnapshot(zaiCatalogPath), template, names),
 	);
 }
-// An inference key is the activation gate. A management key is not usable
-// here; the LiteLLM supervisor injects only OPENROUTER_API_KEY.
+// W1124.8.4: an OPENROUTER_API_KEY binding is the activation gate — the
+// inherited env value or the central stack.yaml profile bound to that env
+// NAME (the implicit openrouter.key file read is retired; the key still
+// reaches the engine via loadKeys, never this generator).
 const openRouterKeyPresent = Boolean(
-	process.env.OPENROUTER_API_KEY?.trim() ||
-		(() => {
-			try {
-				const key = statSync(`${HOME}/.claude/local-llm/openrouter.key`);
-				return key.isFile() && (key.mode & 0o777) === 0o600 && key.size > 0;
-			} catch {
-				return false;
-			}
-		})(),
+	profileForEnv("OPENROUTER_API_KEY", PROFILES) ||
+		process.env.OPENROUTER_API_KEY?.trim(),
 );
 if (openRouterKeyPresent)
 	entries.push(...openRouterFreeRows(OPENROUTER_FREE_CATALOG));
@@ -129,9 +141,35 @@ if (existsSync(chatGptModelsPath)) {
 // merged there; this block intentionally removed)
 
 // Anthropic-dialect upstreams — the Claude-Code drop-in path. model_name
-// MUST equal the id Claude sends verbatim ([1m] included). z.ai anthropic
-// endpoint is keyed today; api.anthropic.com activates when ANTHROPIC_API_KEY
-// lands. Appended AFTER the yaml build above? No — rebuild with both lists:
+// MUST equal the id Claude sends verbatim ([1m] included). W1124.8.4: the
+// credential each row rides comes from the CENTRAL provider profiles — an
+// inherited env value wins; else the profile bound to the row's env NAME
+// supplies it (profile endpoints carry the base). A row with neither
+// binding generates NO row — an endpoint with no credential is never
+// decorative metadata. Appended AFTER the yaml build above? No —
+// rebuild with both lists:
+const ENV_OF: Record<string, string> = {
+	"https://api.z.ai/api/anthropic": "Z_AI_API_KEY",
+	"https://api.anthropic.com": "ANTHROPIC_API_KEY",
+	"https://api.openai.com/v1": "OPENAI_API_KEY",
+};
+// W1124.8.4: the z.ai credential rides the profile that DECLARES the
+// endpoint (zai-coding, not a sibling zai-general sharing the family) —
+// endpoint match, never a name convention; the other dialects keep their
+// canonical env bindings. Env value present → ride it; else the profile's
+// OUTPUT binding names the env the engine materializes. Neither → no row
+// (an endpoint with no credential is never decorative metadata).
+const anthBase = (
+	base: string,
+): { api_base: string; api_key: string } | null => {
+	const profile = profileForEndpoint("anthropic", base, PROFILES);
+	const env = profile?.env ?? ENV_OF[base];
+	if (!env) return null;
+	if (process.env[env]?.trim())
+		return { api_base: base, api_key: `os.environ/${env}` };
+	if (!profile) return null;
+	return { api_base: base, api_key: `os.environ/${profile.env}` };
+};
 const anth = [
 	// [1m] never hits the wire — Claude Code strips it client-side as a
 	// context hint; the wire id is bare (proven: [1m] 1211s on z.ai directly,
@@ -140,59 +178,63 @@ const anth = [
 	{
 		name: "glm-5.3-flash",
 		model: "anthropic/glm-5.3-flash",
-		base: "https://api.z.ai/api/anthropic",
-		key: "os.environ/Z_AI_API_KEY",
+		...anthBase("https://api.z.ai/api/anthropic"),
 	},
 	{
 		name: "glm-5.3",
 		model: "anthropic/glm-5.3",
-		base: "https://api.z.ai/api/anthropic",
-		key: "os.environ/Z_AI_API_KEY",
+		...anthBase("https://api.z.ai/api/anthropic"),
 	},
 	{
 		name: "glm-5.2",
 		model: "anthropic/glm-5.2",
-		base: "https://api.z.ai/api/anthropic",
-		key: "os.environ/Z_AI_API_KEY",
+		...anthBase("https://api.z.ai/api/anthropic"),
 	},
 	{
 		name: "claude-sonnet-5",
 		model: "anthropic/claude-sonnet-5",
-		base: "https://api.anthropic.com",
-		key: "os.environ/ANTHROPIC_API_KEY",
+		...anthBase("https://api.anthropic.com"),
 	},
 	{
 		name: "claude-haiku-4-5",
 		model: "anthropic/claude-haiku-4-5",
-		base: "https://api.anthropic.com",
-		key: "os.environ/ANTHROPIC_API_KEY",
+		...anthBase("https://api.anthropic.com"),
 	},
 	{
 		// Degradation tier: the local swarm ingress (:4000). LiteLLM POSTs
-		// Anthropic-shape requests to any base — the shim accepts glm ids and
-		// routes by complexity (audit row: anthropic/<name> + api_base).
+		// Anthropic-shape requests to a loopback base — the shim accepts glm
+		// ids and routes by complexity (audit row: anthropic/<name> +
+		// api_base); never credential-gated.
 		name: ROUTER.gatewayAlias,
 		model: `anthropic/${ROUTER.gatewayAlias}`,
-		base: "http://127.0.0.1:4000",
-		key: "dummy",
+		api_base: "http://127.0.0.1:4000",
+		api_key: "dummy",
 	},
 	{
-		// Dormant until OPENAI_API_KEY lands; ladder falls through a group
-		// whose upstream fails, so the empty key just skips this tier.
+		// Dormant until an OPENAI_API_KEY binding lands; a missing row just
+		// skips this tier (the ladder falls through an absent group).
 		name: "gpt-5.2",
 		model: "openai/gpt-5.2",
-		base: "https://api.openai.com/v1",
-		key: "os.environ/OPENAI_API_KEY",
+		...anthBase("https://api.openai.com/v1"),
 	},
-];
+].filter(
+	(
+		row,
+	): row is {
+		name: string;
+		model: string;
+		api_base: string;
+		api_key: string;
+	} => typeof row.api_base === "string" && typeof row.api_key === "string",
+);
 const anthEntries = anth
 	.map(
 		(a) =>
 			`  - model_name: ${a.name}\n` +
 			`    litellm_params:\n` +
 			`      model: ${a.model}\n` +
-			`      api_base: ${a.base}\n` +
-			`      api_key: ${a.key}`,
+			`      api_base: ${a.api_base}\n` +
+			`      api_key: ${a.api_key}`,
 	)
 	.join("\n");
 // Router policy (retries, outlier ejection) + the fallback ladders come from

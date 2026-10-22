@@ -6,17 +6,32 @@
 // no_routes at attempts=0 (finding.w695.6.2). Secrets (root key, PAT) stay
 // inside this process and are never printed. PASS = a tool_use block comes
 // back through the full stack.
-import { readFileSync } from "node:fs";
 import { resolvePort, startServer } from "../src/server.ts";
+// W1124.8.4: the Copilot PAT resolves from the inherited env or the CENTRAL
+// provider profile bound to GITHUB_COPILOT_PAT — the implicit copilot.key
+// file read is retired (the secret stays inside this process, never printed).
+import {
+	PROVIDER_STACK_PATH,
+	loadProviderConfig,
+	profileForEnv,
+} from "../../speedy/src/provider-config.ts";
 
 const LLM = `${process.env.HOME}/.claude/local-llm`;
 const PORT = resolvePort(4104);
 const rootKey = `bkroot_${crypto.randomUUID().replaceAll("-", "")}`;
 process.env.BUCKLE_ROOT_KEY = rootKey;
-process.env.GITHUB_COPILOT_PAT = readFileSync(
-	`${LLM}/copilot.key`,
-	"utf8",
-).trim();
+const pat =
+	process.env.GITHUB_COPILOT_PAT?.trim() ||
+	profileForEnv("GITHUB_COPILOT_PAT", loadProviderConfig(PROVIDER_STACK_PATH()))
+		?.key ||
+	"";
+if (!pat) {
+	console.log(
+		"Copilot PAT: set GITHUB_COPILOT_PAT in the environment or a provider profile (stack.yaml providers, env: GITHUB_COPILOT_PAT)",
+	);
+	process.exit(1);
+}
+process.env.GITHUB_COPILOT_PAT = pat;
 
 const server = startServer({
 	port: PORT,
