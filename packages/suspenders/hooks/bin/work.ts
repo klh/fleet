@@ -27,11 +27,7 @@ import {
 	projectRootOf,
 	resolveSidOf,
 } from "../lib/govdb.ts";
-import {
-	recordKnowledgeSuggestion,
-	renderKnowledgeSuggestion,
-	suggestKnowledge,
-} from "../lib/kev-curation.ts";
+import { curateCompletionKnowledge } from "../lib/completion-curation.ts";
 import { rebindKeptLaneContext } from "../lib/lane-context.ts";
 import { doneSpendStamp, parseDoneSpend } from "../lib/lane-done-spend.ts";
 import { doneEffortStamp } from "../lib/lane-effort.ts";
@@ -45,6 +41,7 @@ import {
 import { itemAttribution, renderAttribution } from "../lib/lane-spend.ts";
 import { triggerMergeOnDone } from "../lib/merge-on-done.ts";
 import { preferTagFor } from "../lib/prefer.ts";
+import { writeReportArtifact } from "../lib/report-html.ts";
 import {
 	claimantLanes,
 	matchingClaimantLane,
@@ -78,7 +75,6 @@ import {
 } from "../lib/work-completion-record.ts";
 import { EFFORTS } from "../lib/work-effort.ts";
 import { evidencePatternsOf } from "../lib/work-fence.ts";
-import { queueCompletionKnowledge } from "../lib/work-knowledge.ts";
 import { runMigrateLedger } from "../lib/work-migrate-ledger.ts";
 import { exportMirror, MIRROR_NAME, mirrorOrNull } from "../lib/work-mirror.ts";
 import { releaseWorkClaim } from "../lib/work-release.ts";
@@ -966,38 +962,45 @@ const dispatchVerb = async (
 		// detached flush waits out this lane's exit and merges seconds later,
 		// instead of at the next watch cycle. Manual closes (no lane entry) skip.
 		triggerMergeOnDone(projectRootOf(PROJECT), id);
+		// W1199: a lane closing with review-shaped output (audits, reviews,
+		// investigations) may attach a single-file HTML report — the lane writes
+		// the markdown DATA, the generator fills the shell. The artifact is a
+		// view under .fleet/reports/; the markdown ledger stays authoritative.
+		const reportMd = flag("--report");
+		if (reportMd) {
+			try {
+				const artifact = writeReportArtifact({
+					project: PROJECT,
+					item: id,
+					title: String(it.title ?? id),
+					markdown: await Bun.file(reportMd).text(),
+					sha: record?.commit_sha ?? sha ?? null,
+					source: reportMd,
+				});
+				emit("work.report", id, {
+					sha256: artifact.sha256,
+					bytes: String(artifact.bytes),
+					note: "HTML view of the markdown record",
+				});
+				console.log(`${green("▸")} report → ${artifact.path}`);
+			} catch (error) {
+				console.error(
+					`report artifact failed (closure stands): ${error instanceof Error ? error.message : String(error)}`,
+				);
+			}
+		}
 		// Curation is advisory and runs after the durable completion transaction.
-		// A cold or unavailable Kev cannot reopen or lose completed work.
-		const verdict = await suggestKnowledge({
-			kind: "work",
+		// A cold or unavailable Kev cannot reopen or lose completed work (the
+		// block lives in lib/completion-curation.ts — W1199 decomposition).
+		await curateCompletionKnowledge({
+			db: db(),
+			record: record ?? null,
+			item: id,
 			title: String(it.title ?? id),
 			text: record?.summary ?? String(it.description ?? ""),
-			reference: id,
-			timeoutMs: 1500,
+			sid: String(it.owner_sid ?? as ?? ""),
+			project: PROJECT,
 		});
-		try {
-			recordKnowledgeSuggestion(db(), verdict, {
-				sid: String(it.owner_sid ?? as ?? ""),
-				project: PROJECT,
-			});
-		} catch {
-			// Curation telemetry does not affect an already durable completion.
-		}
-		console.log(renderKnowledgeSuggestion(verdict));
-		if (record) {
-			const knowledge = await queueCompletionKnowledge(
-				db(),
-				record,
-				String(it.title ?? id),
-				verdict,
-			);
-			if (knowledge.status === "queued")
-				console.log(`knowledge candidate queued #${knowledge.qid}`);
-			else if (knowledge.status === "failed")
-				console.error(
-					`knowledge enqueue failed for ${id}; completion remains done`,
-				);
-		}
 	} else if (name === "fail") {
 		const id = pos[0];
 		const note = flag("--note") ?? "";
