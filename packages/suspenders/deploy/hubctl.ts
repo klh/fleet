@@ -56,6 +56,7 @@ import {
 import { composeUpArgv, sshOpts } from "./hub-remote.ts";
 import { mergedHubUpstreams } from "./openrouter-free.ts";
 import { mergeZaiHubUpstreams } from "./zai-catalog.ts";
+import { renderHubPolicy } from "./hub-policy.ts";
 import {
 	mintServiceKey,
 	runMintOnHub,
@@ -441,6 +442,30 @@ function pushUpstreamEnv(hub: HubProfile, dir: string): void {
 	runOnHub(hub, `/bin/sh -c ${quote(UPSTREAM_ENV_SCRIPT)} sh ${args}`);
 }
 
+/** Write the required policy before either fresh activation or reload. */
+function pushGatewayPolicy(hub: HubProfile, dir: string): void {
+	// Materialize policy beside the ladder: defaults preserved, overrides validated.
+	const policyText = renderHubPolicy(
+		readFileSync(
+			join(import.meta.dir, "../../buckle/routing-policy.yaml"),
+			"utf8",
+		),
+		hub.buckle_gateway,
+	);
+	if (hub.deploy?.ssh) {
+		runOnHub(
+			hub,
+			`umask 077; cat > ${JSON.stringify(`${dir}/routing-policy.hub.yaml`)}`,
+			{ input: policyText },
+		);
+	} else {
+		writeFileSync(`${dir}/routing-policy.hub.yaml`, policyText, {
+			mode: 0o600,
+		});
+		chmodSync(`${dir}/routing-policy.hub.yaml`, 0o600);
+	}
+}
+
 /** Refresh only the Buckle ladder and its key environment. The container is
  *  recreated (not merely restarted) because Compose must reread env_file. */
 function reloadUpstreams(
@@ -455,6 +480,7 @@ function reloadUpstreams(
 			`hubctl reload-upstreams refused: ${name} has stale or unpinned deploy ref; run hubctl push ${name} first`,
 		);
 	const rendered = renderUpstreams(hub);
+	pushGatewayPolicy(hub, dir);
 	pushUpstreamEnv(hub, dir);
 	const destination = `${dir}/upstreams.hub.yaml`;
 	if (hub.deploy?.ssh) {
@@ -512,6 +538,7 @@ function pushConfig(
 	} else {
 		writeFileSync(`${dir}/upstreams.hub.yaml`, renderUpstreams(hub));
 	}
+	pushGatewayPolicy(hub, dir);
 	pushUpstreamEnv(hub, dir);
 	// W983: the 0600 owner-prefs file (compose binds it at BUCKLE_PREFS)
 	if (hub.deploy?.ssh) {

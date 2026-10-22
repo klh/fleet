@@ -6,8 +6,11 @@ import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { parse } from "yaml";
+import type { GatewayPolicy } from "../../../buckle/src/policy.ts";
 
 export interface HubProfile {
+	/** Per-hub Buckle gateway overrides; policy data only, never credentials. */
+	buckle_gateway?: GatewayPolicy;
 	/** Reviewed canary ref for this hub only. Keeps the shared stack version
 	 * pinned for other hubs while one hub validates a new public base. */
 	version_override?: string;
