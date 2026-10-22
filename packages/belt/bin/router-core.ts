@@ -16,6 +16,7 @@ import {
 	emptyStreamError,
 	StreamSemantics,
 } from "../../buckle/src/stream-semantics.ts";
+import { primeLocalStream } from "./stream-prelude.ts";
 import { upstreamErrorDetail } from "../../buckle/src/error-detail.ts";
 
 // ─── 7-dimension complexity scoring (LiteLLM Auto Router pattern) ───
@@ -743,16 +744,24 @@ export async function openLocalStream(
 		// headers in — disarm; a late fire would abort the live body (the
 		// signal stays bound to the fetch). On a failed open the stale fire
 		// aborts an orphaned controller: harmless no-op.
-		clearTimeout(ttfb);
 		const ct = res.headers.get("content-type") ?? "";
-		if (res.ok && res.body && ct.includes("text/event-stream"))
+		if (res.ok && res.body && ct.includes("text/event-stream")) {
+			const primed = await primeLocalStream(res.body, ctrl.signal);
+			clearTimeout(ttfb);
+			if (!primed.ok) {
+				status = primed.status;
+				failureKind = "http";
+				return primed;
+			}
 			return {
 				ok: true,
-				body: res.body,
+				body: primed.body,
 				...(opts.startedAt !== undefined
 					? { openedAt: performance.now() }
 					: {}),
 			};
+		}
+		clearTimeout(ttfb);
 		failureKind = res.ok ? "decode" : "http";
 		// W732: post-header non-SSE bodies have no pump/client-cancel owner —
 		// a header-then-stall upstream hung this drain (and the request)
@@ -1104,6 +1113,7 @@ export function anthropicSseFromOpenAi(
 				try {
 					for (;;) {
 						const { value, done: eof } = await reader.read();
+						if (clientGone) return;
 						if (eof) {
 							const timings = composeTimings();
 							const last = handleLine(buf);
@@ -1191,10 +1201,13 @@ export function anthropicSseFromOpenAi(
 				}
 			})();
 		},
-		cancel(reason) {
+		async cancel(reason) {
 			clientGone = true;
-			done("client cancelled");
-			return reader.cancel(reason);
+			try {
+				await reader.cancel(reason);
+			} finally {
+				done("client cancelled");
+			}
 		},
 	});
 }
