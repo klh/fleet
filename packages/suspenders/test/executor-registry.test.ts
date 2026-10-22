@@ -10,7 +10,10 @@ import {
 	adapterForExact,
 	isSpawnableExecutor,
 } from "../hooks/lib/executors/registry.ts";
-import { CLAUDE_ALLOWED_TOOLS } from "../hooks/lib/executors/claude.ts";
+import {
+	CLAUDE_ALLOWED_TOOLS,
+	workerManagedArgs,
+} from "../hooks/lib/executors/claude.ts";
 import { DEFAULT_ALLOWED_TOOLS, executorLaunch } from "../scripts/lib/lane.ts";
 
 describe("W422 executor-adapter registry", () => {
@@ -69,6 +72,8 @@ describe("W422 executor-adapter registry", () => {
 	});
 	test("starter seed grammar is adapter data — only claude carries it (W918.3)", () => {
 		expect(adapterForExact("claude")?.starterSeedArgs?.("<seed>")).toEqual([
+			// W1124.12: the seed rides the managed worker profile first.
+			...workerManagedArgs(),
 			"-p",
 			"<seed>",
 			"--output-format",
@@ -121,6 +126,7 @@ describe("W422 executor-adapter registry", () => {
 			CLAUDE_ALLOWED_TOOLS,
 			"--permission-mode",
 			"acceptEdits",
+			...workerManagedArgs(),
 			"--fallback-model",
 			"glm-flash2",
 			"--settings",
