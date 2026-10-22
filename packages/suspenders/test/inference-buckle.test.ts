@@ -93,6 +93,26 @@ describe("buckleChat", () => {
 		expect(result.model).toBe("served-id");
 	});
 
+	test("result carries prompt/completion usage when the wire reports it", async () => {
+		const result = await buckleChat(
+			{
+				model: "m",
+				user: "u",
+				fetcher: (async () =>
+					new Response(
+						JSON.stringify({
+							content: [{ type: "text", text: "x" }],
+							usage: { input_tokens: 11, output_tokens: 7 },
+						}),
+						{ status: 200 },
+					)) as unknown as typeof fetch,
+			},
+			ENV,
+		);
+		expect(result.pt).toBe(11);
+		expect(result.ct).toBe(7);
+	});
+
 	test("throws (no fallback) on gate HTTP failure", async () => {
 		let calls = 0;
 		await expect(
@@ -135,6 +155,41 @@ describe("buckleChat", () => {
 			ENV,
 		);
 		expect(seenUrl).toBe("http://127.0.0.1:4101/v1/chat/completions");
+	});
+
+	test("openai usage aliases map onto pt/ct; absent usage stays zero", async () => {
+		const withUsage = await buckleChat(
+			{
+				model: "m",
+				user: "u",
+				wire: "openai",
+				fetcher: (async () =>
+					new Response(
+						JSON.stringify({
+							choices: [{ message: { content: "ok" } }],
+							usage: { prompt_tokens: 5, completion_tokens: 3 },
+						}),
+						{ status: 200 },
+					)) as unknown as typeof fetch,
+			},
+			ENV,
+		);
+		expect(withUsage.pt).toBe(5);
+		expect(withUsage.ct).toBe(3);
+		const silent = await buckleChat(
+			{
+				model: "m",
+				user: "u",
+				fetcher: (async () =>
+					new Response(
+						JSON.stringify({ content: [{ type: "text", text: "x" }] }),
+						{ status: 200 },
+					)) as unknown as typeof fetch,
+			},
+			ENV,
+		);
+		expect(silent.pt).toBe(0);
+		expect(silent.ct).toBe(0);
 	});
 
 	test("result carries buckle's x-klh-trace-id response identity", async () => {
