@@ -1,17 +1,13 @@
 import { expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { signalClaudeDirectEvent } from "../hooks/lib/claude-wake.ts";
+import { pausedLaneFixture } from "./helpers/paused-lane.ts";
 
 test("managed pause checkpoints through canonical CLI, waits idle, and resumes the same native process", async () => {
-	const home = mkdtempSync(join(tmpdir(), "claude-pause-runtime-"));
-	const sid = "pause-runtime-fixture";
+	const { home, cwd, sid, env: fixtureEnv } = pausedLaneFixture();
 	const env = {
-		...process.env,
-		HOME: home,
-		GOVERNOR_STORE_URL: "local",
-		SUSPENDERS_SID: sid,
+		...fixtureEnv,
 		SUSPENDERS_CLAUDE_NATIVE_BIN: join(
 			import.meta.dir,
 			"fixtures/claude-stream-pause.ts",
@@ -21,6 +17,7 @@ test("managed pause checkpoints through canonical CLI, waits idle, and resumes t
 	const coord = join(import.meta.dir, "../hooks/bin/coord.ts");
 	const call = async (args: string[]) => {
 		const p = Bun.spawn([process.execPath, coord, ...args, "--as", sid], {
+			cwd,
 			env,
 			stdout: "pipe",
 			stderr: "pipe",
@@ -39,7 +36,7 @@ test("managed pause checkpoints through canonical CLI, waits idle, and resumes t
 			"-p",
 			"original",
 		],
-		{ env, stdout: "pipe", stderr: "pipe" },
+		{ cwd, env, stdout: "pipe", stderr: "pipe" },
 	);
 	const timer = setTimeout(() => child.kill(), 8000);
 	const frames: Record<string, unknown>[] = [];
@@ -92,6 +89,12 @@ test("managed pause checkpoints through canonical CLI, waits idle, and resumes t
 		await read;
 		expect(await errors).toBe("");
 		expect(paused).toBe(true);
+		expect(
+			frames.some(
+				(f) =>
+					f.type === "fleet.fixture.stop" && f.state === "allowed-after-pause",
+			),
+		).toBe(true);
 		expect(
 			frames.some(
 				(f) => f.type === "fleet.claude.pause" && f.state === "resumed",
