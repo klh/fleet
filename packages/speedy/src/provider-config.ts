@@ -60,9 +60,23 @@ const MAX_STACK_BYTES = 1024 * 1024;
 const ENV_NAME_RE = /^[A-Z][A-Z0-9_]*$/;
 const ENDPOINT_FIELDS = ["openai", "anthropic", "catalog"] as const;
 
-const isHttpUrl = (v: unknown): v is string =>
-	typeof v === "string" &&
-	(v.startsWith("http://") || v.startsWith("https://"));
+/** Real URL parse — http(s) scheme, non-empty host, no embedded
+ *  credentials, no fragment. A bare `http://` or a `user:pass@host` URL
+ *  never passes; key material must not ride inside endpoint URLs. */
+const isHttpUrl = (v: unknown): v is string => {
+	if (typeof v !== "string") return false;
+	let url: URL;
+	try {
+		url = new URL(v);
+	} catch {
+		return false;
+	}
+	if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+	if (url.hostname.length === 0) return false;
+	if (url.username.length > 0 || url.password.length > 0) return false;
+	if (url.hash.length > 0) return false;
+	return true;
+};
 
 function fail(msg: string): never {
 	throw new Error(`provider config: ${msg}`);
@@ -93,6 +107,13 @@ export function validateProviderConfig(
 		if (typeof row.key !== "string" || row.key.trim().length === 0) {
 			fail(`profile ${name}: key must be a non-empty central value`);
 		}
+		for (const legacy of ["key_file", "key_name", "base_url"] as const) {
+			if (row[legacy] !== undefined) {
+				fail(
+					`profile ${name}: legacy ${legacy} declaration — key is the central value, env is the OUTPUT binding`,
+				);
+			}
+		}
 		let env: string | undefined;
 		if (row.env !== undefined) {
 			if (typeof row.env !== "string" || !ENV_NAME_RE.test(row.env)) {
@@ -106,6 +127,13 @@ export function validateProviderConfig(
 				fail(`profile ${name}: endpoints must be a mapping`);
 			}
 			const eps = row.endpoints;
+			for (const field of Object.keys(eps)) {
+				if (!(ENDPOINT_FIELDS as readonly string[]).includes(field)) {
+					fail(
+						`profile ${name}: endpoints.${field} is not a known endpoint field`,
+					);
+				}
+			}
 			for (const field of ENDPOINT_FIELDS) {
 				const v = eps[field];
 				if (v === undefined) continue;
@@ -158,6 +186,9 @@ export function loadProviderConfig(
 		parsed = parse(readFileSync(path, "utf8"));
 	} catch {
 		fail(`stack config ${path} is not parseable YAML`);
+	}
+	if (parsed !== undefined && parsed !== null && !isRecord(parsed)) {
+		fail(`stack config ${path} must be a YAML mapping`);
 	}
 	const providers = isRecord(parsed)
 		? (parsed as { providers?: unknown }).providers

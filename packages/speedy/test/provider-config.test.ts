@@ -87,6 +87,11 @@ describe("loadProviderConfig", () => {
 		expect(() => loadProviderConfig()).toThrow(/not parseable YAML/);
 	});
 
+	test("non-mapping YAML body (bare scalar) throws, never silent {}", () => {
+		writeStack("just-a-string\n");
+		expect(() => loadProviderConfig()).toThrow(/must be a YAML mapping/);
+	});
+
 	test("PROVIDER_STACK_PATH honors KLH_STACK", () => {
 		expect(PROVIDER_STACK_PATH()).toBe(stackPath);
 	});
@@ -142,15 +147,64 @@ describe("validateProviderConfig (pure, parsed slice)", () => {
 		expect(() => validateProviderConfig(dup)).toThrow(/both bind env/);
 	});
 
-	test("unknown endpoint fields are dropped, known ones kept", () => {
-		const cfg = validateProviderConfig({
+	test("legacy key_file/key_name/base_url declarations are rejected", () => {
+		const legacy: Record<string, unknown> = {
+			p: {
+				provider: "zai",
+				key: "k",
+				key_file: "~/.claude/local-llm/belt.env",
+			},
+		};
+		expect(() => validateProviderConfig(legacy)).toThrow(/legacy key_file/);
+		const mixed: Record<string, unknown> = {
+			p: { provider: "zai", key: "k", base_url: "https://x" },
+		};
+		expect(() => validateProviderConfig(mixed)).toThrow(/legacy base_url/);
+	});
+
+	test("malformed endpoint URLs fail real URL parsing", () => {
+		const cases: Array<Record<string, unknown>> = [
+			{ p: { provider: "zai", key: "k", endpoints: { openai: "http://" } } },
+			{
+				p: {
+					provider: "zai",
+					key: "k",
+					endpoints: { anthropic: "not a url at all" },
+				},
+			},
+			{
+				p: {
+					provider: "zai",
+					key: "k",
+					endpoints: { catalog: "https://user:pass@host" },
+				},
+			},
+			{
+				p: {
+					provider: "zai",
+					key: "k",
+					endpoints: { openai: "https://x#frag" },
+				},
+			},
+		];
+		for (const c of cases) {
+			expect(() => validateProviderConfig(c)).toThrow(
+				/must be an http\(s\) URL/,
+			);
+		}
+	});
+
+	test("unknown endpoint fields are rejected, not dropped", () => {
+		const rogue: Record<string, unknown> = {
 			p: {
 				provider: "zai",
 				key: "k",
 				endpoints: { openai: "https://ok", rogue: "https://x" },
 			},
-		});
-		expect(cfg.p.endpoints).toEqual({ openai: "https://ok" });
+		};
+		expect(() => validateProviderConfig(rogue)).toThrow(
+			/endpoints.rogue is not a known endpoint field/,
+		);
 	});
 
 	test("error messages never carry key material", () => {
