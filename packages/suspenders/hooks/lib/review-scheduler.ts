@@ -8,6 +8,7 @@ interface Request {
 	leaseUntil: number;
 	token: string;
 	nextAt: number;
+	error?: string;
 }
 export const reviewRequestKey = (
 	project: string,
@@ -23,6 +24,7 @@ export function finishReviewRequest(
 	key: string,
 	token: string,
 	failed: boolean,
+	reason?: string,
 ): void {
 	db.transaction(() => {
 		const row = db.query("SELECT value FROM facts WHERE key = ?").get(key) as {
@@ -32,6 +34,9 @@ export function finishReviewRequest(
 		const request = JSON.parse(row.value) as Request;
 		if (request.token !== token) return;
 		request.state = failed ? "ERROR" : "DONE";
+		request.error = failed
+			? (reason ?? "review transport unavailable")
+			: undefined;
 		request.leaseUntil = 0;
 		request.nextAt =
 			Date.now() + Math.min(900_000, 60_000 * 2 ** request.attempts);

@@ -11,7 +11,7 @@ import {
 	test,
 } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync, realpathSync } from "node:fs";
+import { mkdtempSync, rmSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { guardedMerge } from "../hooks/lib/merge-guard.ts";
@@ -22,6 +22,10 @@ import {
 	type ReviewContext,
 } from "../hooks/lib/review-receipt.ts";
 import type { GovernorStore } from "../hooks/lib/govdb-store.ts";
+import {
+	scheduleReview,
+	reviewRequestKey,
+} from "../hooks/lib/review-scheduler.ts";
 
 function seedCompletion(
 	db: Database,
@@ -436,6 +440,80 @@ describe("W634 review-lane coverage proof (Sinai rule)", () => {
 				inferred: 1,
 				revoked: 1,
 			});
+		} finally {
+			db.close();
+			server.stop(true);
+		}
+	});
+
+	test("base changed at spawn releases old review lease as ERROR before any mint", async () => {
+		const item = addWork("stale scheduled review fixture");
+		git(["checkout", "-b", `suspenders/${item}`]);
+		await Bun.write(join(REPO, "stale.md"), "Candidate fixture.\n");
+		git(["add", "stale.md"]);
+		git(["commit", "-m", "stale fixture"]);
+		git(["checkout", "main"]);
+		const repo = realpathSync(REPO),
+			context = reviewContext(repo, `suspenders/${item}`);
+		const db = new Database(DB_PATH);
+		seedCompletion(db, item, context);
+		let calls = 0;
+		const server = Bun.serve({
+			port: 0,
+			fetch: () => {
+				calls += 1;
+				return new Response("must not be called", { status: 500 });
+			},
+		});
+		let child: ReturnType<typeof Bun.spawn> | undefined;
+		try {
+			scheduleReview({
+				db: db as unknown as GovernorStore,
+				project: MY_PROJ,
+				item,
+				repo,
+				context,
+				env: {
+					...env,
+					GOVERNOR_STORE_URL: "",
+					SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${server.port}`,
+					BUCKLE_ADMIN_KEY: "fixture-admin",
+				},
+				spawn: (args, childEnv) => {
+					writeFileSync(
+						join(REPO, "REVIEW.md"),
+						"New instruction after reservation.\n",
+					);
+					git(["add", "REVIEW.md"]);
+					git(["commit", "-m", "changed integration base"]);
+					child = Bun.spawn(args, {
+						cwd: repo,
+						env: childEnv,
+						stdout: "pipe",
+						stderr: "pipe",
+					});
+				},
+			});
+			if (!child) throw new Error("review was not scheduled");
+			await new Response(child.stderr).text();
+			await child.exited;
+			expect(child.exitCode).toBe(2);
+			expect(calls).toBe(0);
+			const row = db
+				.query("SELECT value FROM facts WHERE key=?")
+				.get(reviewRequestKey(MY_PROJ, item, context)) as { value: string };
+			expect(JSON.parse(row.value)).toMatchObject({
+				state: "ERROR",
+				leaseUntil: 0,
+				error: "review context changed before scheduled runner started",
+			});
+			expect(
+				db
+					.query(
+						"SELECT id FROM events WHERE kind='work.review' AND json_extract(payload,'$.work')=?",
+					)
+					.get(item),
+			).toBeNull();
 		} finally {
 			db.close();
 			server.stop(true);

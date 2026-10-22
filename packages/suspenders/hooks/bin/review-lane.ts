@@ -78,9 +78,19 @@ const requestKey = parsedArgs.parsed.flag("--request-key");
 const requestToken = parsedArgs.parsed.flag("--request-token");
 if (Boolean(requestKey) !== Boolean(requestToken))
 	throw new Error("scheduled review requires request key and token together");
-const failedEarly = () => {
+const reviewFailureReason = (error: unknown): string =>
+	(error instanceof Error ? error.message : String(error))
+		.replace(/\bbksk_[A-Za-z0-9_-]+|\bsk-[A-Za-z0-9_-]+/g, "[redacted]")
+		.slice(0, 250);
+const failedEarly = (error: unknown) => {
 	if (requestKey && requestToken)
-		finishReviewRequest(db, requestKey, requestToken, true);
+		finishReviewRequest(
+			db,
+			requestKey,
+			requestToken,
+			true,
+			reviewFailureReason(error),
+		);
 	console.error(
 		"review-lane: runner failed before a bound receipt; scheduled retry retained",
 	);
@@ -223,16 +233,23 @@ async function runLeg(): Promise<string> {
 		if (!admin) throw new Error("Buckle review admin credential unavailable");
 		const scoped = await mintLaneKey(reviewerSid, admin);
 		if (!scoped) throw new Error("Buckle review scoped key mint refused");
+		let result = "";
+		let failed = false;
+		let failure: unknown;
 		try {
-			return await requestLlm(
+			result = await requestLlm(
 				`${BUCKLE_FRONT}/w/${reviewerSid}/v1/chat/completions`,
 				leg.model,
 				scoped.key,
 			);
-		} finally {
-			if (!(await revokeLaneKey(scoped.keyId, admin)))
-				throw new Error("Buckle review scoped key revocation failed");
+		} catch (error) {
+			failed = true;
+			failure = error;
 		}
+		if (!(await revokeLaneKey(scoped.keyId, admin)))
+			throw new Error("Buckle review scoped key revocation failed");
+		if (failed) throw failure;
+		return result;
 	}
 	if (leg?.kind === "bin") {
 		const p = Bun.spawn([leg.bin, "-p", prompt], {
@@ -401,9 +418,7 @@ const noteFor = (headline: string): string =>
 
 let legFailure = "leg failed";
 const findings = await runLeg().catch((e: unknown) => {
-	legFailure = (e instanceof Error ? e.message : String(e))
-		.replace(/\bbksk_[A-Za-z0-9_-]+|\bsk-[A-Za-z0-9_-]+/g, "[redacted]")
-		.slice(0, 250);
+	legFailure = reviewFailureReason(e);
 	console.error(
 		`review-lane ${item}: leg failed: ${e instanceof Error ? e.message : String(e)}`,
 	);
@@ -517,7 +532,13 @@ db.query("UPDATE sessions SET state = 'DONE', hb = ? WHERE sid = ?").run(
 	reviewerSid,
 );
 if (requestKey && requestToken)
-	finishReviewRequest(db, requestKey, requestToken, effective === "ERROR");
+	finishReviewRequest(
+		db,
+		requestKey,
+		requestToken,
+		effective === "ERROR",
+		headline,
+	);
 console.log(
 	`review-lane: ${item} reviewed by ${executor} — ${effective}: ${headline.slice(0, 120)}`,
 );
