@@ -384,6 +384,67 @@ function tryRunOnHub(hub: HubProfile, script: string): string | null {
  *  (ssh when the hub declares it, local /bin/sh otherwise). */
 export const serviceKeyRunner: ServiceKeyRunner = runOnHub;
 
+/** W1156: the deployment-drain pre-signal, run ON the hub before compose
+ *  recreates the gateway container. The root credential is read on-device
+ *  and never transported (the mint script's posture); every in-flight SSE
+ *  stream receives its dialect gateway_restarting terminal, then the
+ *  script HOLDS the recreate for the bounded grace so clients actually
+ *  receive it. Best-effort by law: a first deploy has no gateway to drain,
+ *  and a failed signal must never block a deploy — logged, never thrown. */
+const DRAIN_SIGNAL_SCRIPT = [
+	"K=$(sed -n 's/^BUCKLE_ROOT_KEY=//p' \"$1\" | head -n1 | tr -d '\\r\\n')",
+	'if [ -z "$K" ]; then echo "hubctl drain: root key missing at $1" >&2; exit 0; fi',
+	"R=$(curl --max-time 5 -sS -X POST \\",
+	'  -H "Authorization: Bearer $K" -H "content-type: application/json" \\',
+	'  -d "$2" -w \'\\n%{http_code}\' "http://127.0.0.1:$3/v1/admin/drain" 2>&1) || true',
+	'echo "$R"',
+	'sleep "$4"',
+	"echo drained",
+].join("\n");
+
+/** The bounded on-hub grace: HUBCTL_DRAIN_GRACE_S (machine env knob),
+ *  default 3s, clamped 1..10 — how long the recreate waits for terminals. */
+export function drainGraceSeconds(): number {
+	const raw = process.env.HUBCTL_DRAIN_GRACE_S?.trim() ?? "";
+	const n = raw.length > 0 ? Number(raw) : Number.NaN;
+	return Number.isFinite(n) ? Math.min(Math.max(Math.trunc(n), 1), 10) : 3;
+}
+
+/** Fire the drain pre-signal (runner-injected for tests; defaults to the
+ *  real hub exec). Skipped with a log when the hub declares no buckle
+ *  front to drain. */
+export function drainGatewayBeforeRecreate(
+	hub: HubProfile,
+	name: string,
+	runner: ServiceKeyRunner = runOnHub,
+	log: (line: string) => void = console.log,
+): void {
+	const port = hub.buckle_port;
+	const root = hub.secrets?.buckle_root_key;
+	if (!port || !root) {
+		log(
+			`hubctl drain: ${name} has no buckle_port/secrets.buckle_root_key — no pre-signal`,
+		);
+		return;
+	}
+	const graceS = drainGraceSeconds();
+	const body = JSON.stringify({
+		reason: `deployment:hubctl:${name}`,
+		grace_ms: graceS * 1000,
+	});
+	const quote = (a: string): string => `'${a.replace(/'/g, `'\\''`)}'`;
+	const script = `/bin/sh -c ${quote(DRAIN_SIGNAL_SCRIPT)} sh ${quote(root)} ${quote(body)} ${quote(String(port))} ${quote(String(graceS))}`;
+	try {
+		log(runner(hub, script).trim());
+	} catch (e) {
+		log(
+			`hubctl drain: pre-signal failed (deploy continues): ${
+				e instanceof Error ? e.message : String(e)
+			}`,
+		);
+	}
+}
+
 /** Copy a file to the hub host (scp legacy protocol — Synology sshd has no
  *  SFTP subsystem; the hub's deploy.dir must exist). */
 function copyToHub(hub: HubProfile, src: string, dest: string): void {
@@ -497,6 +558,9 @@ function reloadUpstreams(
 		writeFileSync(destination, rendered, { mode: 0o600 });
 	}
 	const docker = hub.deploy?.docker ?? "docker";
+	// W1156: the gateway redeploy drains first — every in-flight stream gets
+	// its truthful gateway_restarting terminal before the recreate lands.
+	drainGatewayBeforeRecreate(hub, name);
 	const command = `${docker} compose -f ${JSON.stringify(`${dir}/hub-compose.yaml`)} --project-directory ${JSON.stringify(dir)} up -d --force-recreate --no-deps buckle-hub`;
 	console.log(runOnHub(hub, command, { timeout: 120_000 }).trim());
 }
@@ -584,9 +648,13 @@ function requireDir(hub: HubProfile): string {
 }
 
 /** docker compose up -d on the hub — the argv lives in hub-remote.ts so
- *  belt's hub heal spawns byte-identical commands. */
-function composeUp(hub: HubProfile): void {
+ *  belt's hub heal spawns byte-identical commands. W1156: the compose
+ *  recreate is preceded by the drain pre-signal + bounded on-hub grace so
+ *  in-flight streams get their truthful gateway_restarting terminal —
+ *  ONE shutdown path, never a duplicate. */
+function composeUp(hub: HubProfile, name: string): void {
 	requireDir(hub); // the declared-dir gate + its stack-path error
+	drainGatewayBeforeRecreate(hub, name);
 	const [bin, ...rest] = composeUpArgv(hub);
 	// W820: the NAS daemon lags bulk-recreate removals — "removal of
 	// container ... is already in progress" clears in seconds; bounded retry.
@@ -642,7 +710,7 @@ function upHub(
 	const dir = requireDir(hub);
 	const ref = hubEnvRef(hub, dir);
 	if (ref !== null && version !== undefined && ref === version) {
-		composeUp(hub);
+		composeUp(hub, name);
 		return;
 	}
 	const reason =
@@ -656,7 +724,7 @@ function upHub(
 			`hubctl up refused: ${reason} (override: hubctl up ${name} --force)`,
 		);
 	console.log(`! up --force: proceeding on a stale env — ${reason}`);
-	composeUp(hub);
+	composeUp(hub, name);
 }
 
 /** Probe every service port; exit non-zero when any probe fails. */
@@ -789,7 +857,7 @@ function deployHub(
 	renderEnv(hub, name, auth, version);
 	mintRootKey(hub);
 	pushConfig(hub, name, auth, version);
-	composeUp(hub);
+	composeUp(hub, name);
 	const failed = status(hub);
 	if (failed > 0) {
 		console.log(
