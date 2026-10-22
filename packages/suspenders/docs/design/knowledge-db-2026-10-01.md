@@ -2,7 +2,9 @@
 
 Date: 2026-10-01 · Lane: w99-tuning · Status: measured + designed; the
 extraction itself is **phase 2** (a follow-up lane; W100 landed 2026-10-01,
-extraction not yet scheduled).
+extraction not yet scheduled). *(Update, W1000 audit 2026-10-23: phase 2
+landed — `knowledge.db` is live via `openKnowledgeDb()` in
+`hooks/lib/govdb.ts`; the measurement record below stands.)*
 
 ## Context
 
