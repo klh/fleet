@@ -143,6 +143,18 @@ export interface HubProfile {
 	};
 	secrets?: {
 		buckle_root_key?: string;
+		/** W1124.15: PATH (on this device) to the 0600 env file holding the
+		 *  PERSISTENT proxy-only service credential this device's spoke links
+		 *  use toward the hub — distinct from short-lived expiring lane keys.
+		 *  hubctl deploy verifies it against the hub's verify API and fails
+		 *  with the hub's actual expired/revoked code; values never live in
+		 *  config, only this PATH (plus, optionally, the env NAME to select
+		 *  inside a multi-variable file). */
+		buckle_service_key?: string;
+		/** W1124.15: env NAME of the service credential inside
+		 *  buckle_service_key when that file carries several variables (spoke
+		 *  env files start with the ROOT key — never guess a line). */
+		buckle_service_key_env?: string;
 		/** Ladder key env NAME → key-file PATH on the hub device. hubctl push
 		 *  materializes them into the 0600 `upstream.env` ON the hub (the
 		 *  value is read there, never printed or transported); values never

@@ -89,6 +89,16 @@ hubs:
       docker: /usr/local/bin/docker
     secrets:
       buckle_root_key: /volume1/docker/hub/buckle/buckle.env
+    # W1124.15: optional — PATH on THIS device to the 0600 env file holding
+    # the PERSISTENT proxy-only service credential this device's spoke links
+    # use toward the hub (never the root key, never an expiring lane key).
+    # hubctl deploy verifies it against the hub's verify API and fails with
+    # the hub's actual expired/revoked code. Mint:
+    #   hubctl mint-service-key <hub> --name <service-name> --out <file>
+    # When that file carries several variables (spoke env files start with
+    # the ROOT key), name the one to verify:
+    #   buckle_service_key_env: BUCKLE_SERVICE_DESKTOP
+    # buckle_service_key: /path/on/this/device/desktop-service.env
     # W983: this hub's Buckle owner prefs (hubctl renders the 0600
     # buckle-prefs.json the container mounts at BUCKLE_PREFS) — the
     # allow_cloud/cost_speed switches the routing decision gates every cloud
