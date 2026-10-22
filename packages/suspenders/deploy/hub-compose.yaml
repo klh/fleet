@@ -199,6 +199,10 @@ services:
       # W688.7.1: ladder key values (LITELLM_KEY …) — hubctl push builds
       # this 0600 file ON the hub from stack.yaml secrets.upstream_keys paths
       - ./upstream.env
+      # W1124.8.2.1: central provider profiles (stack.yaml
+      # provider_requirements) — hubctl push builds this 0600 file ON the
+      # hub; profile keys bind to their declared env names
+      - ./provider.env
     environment:
       FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HOME: /state/hub-home
