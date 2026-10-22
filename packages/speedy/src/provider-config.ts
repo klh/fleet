@@ -214,3 +214,18 @@ export function resolveProvider(
 		endpoints: p.endpoints ?? {},
 	};
 }
+
+/** The profile whose OUTPUT binding names `env` — the explicit env-binding
+ *  lookup a gateway key injection rides (env NAME, never a path
+ *  convention). W1124.8.4 consumer seam; first declaration wins (the
+ *  validator already refuses a second profile binding the same env). */
+export function profileForEnv(
+	env: string,
+	providers: Record<string, ProviderEntry>,
+): ResolvedProvider | null {
+	for (const [name, entry] of Object.entries(providers)) {
+		if (entry.env !== env) continue;
+		return resolveProvider(name, providers);
+	}
+	return null;
+}
