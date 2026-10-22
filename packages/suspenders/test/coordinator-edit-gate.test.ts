@@ -52,6 +52,15 @@ function gitSync(args: string[]): string {
 }
 gitSync(["init", root]);
 
+// W1042: an enrolled EXTERNAL Git repo — no monorepo shape, but its
+// .fleet/ carries control-plane claim state (the dispatch lane registry
+// here), so the gate treats it as governed fleet surface.
+const ext = join(tmp, "ext-enrolled");
+mkdirSync(join(ext, ".fleet"), { recursive: true });
+mkdirSync(join(ext, "src"), { recursive: true });
+writeFileSync(join(ext, ".fleet", "lanes.json"), "[]\n");
+gitSync(["init", ext]);
+
 // ---- pure helpers ----
 
 describe("fleetRootFor", () => {
@@ -75,6 +84,45 @@ describe("fleetRootFor", () => {
 		mkdirSync(plain, { recursive: true });
 		gitSync(["init", plain]);
 		expect(fleetRootFor(plain)).toBe("");
+	});
+	test("W1042: an enrolled external repo gates at its git toplevel", () => {
+		expect(fleetRootFor(ext)).toBe(ext);
+		expect(fleetRootFor(join(ext, "src"))).toBe(ext);
+	});
+	test("W1042: a linked worktree of an enrolled project gates at itself", () => {
+		gitSync([
+			"-C",
+			ext,
+			"-c",
+			"user.email=t@t",
+			"-c",
+			"user.name=t",
+			"commit",
+			"--allow-empty",
+			"-m",
+			"init",
+		]);
+		const wt = join(tmp, "ext-worktree");
+		gitSync(["-C", ext, "worktree", "add", "-b", "ext-w", wt]);
+		// the worktree has NO .fleet of its own — the project evidence sits
+		// at the main checkout root (one identity per common git dir, W624)
+		expect(existsSync(join(wt, ".fleet"))).toBe(false);
+		expect(fleetRootFor(wt)).toBe(wt);
+	});
+	test("W1042: the explicit ungoverned marker opts the project out", () => {
+		const off = join(tmp, "ext-ungoverned");
+		mkdirSync(join(off, ".fleet"), { recursive: true });
+		writeFileSync(join(off, ".fleet", "lanes.json"), "[]\n");
+		writeFileSync(join(off, ".fleet", "ungoverned"), "\n");
+		gitSync(["init", off]);
+		expect(fleetRootFor(off)).toBe("");
+	});
+	test("W1042: a hand-made .fleet without claim state is no evidence", () => {
+		const look = join(tmp, "ext-lookalike");
+		mkdirSync(join(look, ".fleet"), { recursive: true });
+		writeFileSync(join(look, ".fleet", "notes.txt"), "not fleet state\n");
+		gitSync(["init", look]);
+		expect(fleetRootFor(look)).toBe("");
 	});
 	test("W1124.9: the real Fleet linked worktree resolves to itself", () => {
 		const top = gitSync([
@@ -244,6 +292,30 @@ describe("coordinatorEditGate (gate-level)", () => {
 		const r = spawnGate(
 			other,
 			join(other, "src", "plain.ts"),
+			envRole(undefined),
+		);
+		expect(r.decision).toBe("allow");
+	});
+	test("W1042: coordinator structural write in an enrolled external repo denies", () => {
+		const r = spawnGate(ext, join(ext, "src", "main.ts"), envRole(undefined));
+		expect(r.decision).toBe("deny");
+		expect(r.reason).toContain("coordinator-edit-gate");
+	});
+	test("W1042: enrolled external repo doc write allows (review/exploration surface)", () => {
+		const r = spawnGate(ext, join(ext, "docs", "plan.md"), envRole(undefined));
+		expect(r.decision).toBe("allow");
+	});
+	test("W1042: enrolled external repo lane role keeps the write surface", () => {
+		const r = spawnGate(ext, join(ext, "src", "lane.ts"), envRole("lane"));
+		expect(r.decision).toBe("allow");
+	});
+	test("W1042: a genuinely ungoverned repo never gates", () => {
+		const plain = join(tmp, "plain-repo");
+		mkdirSync(plain, { recursive: true });
+		if (!existsSync(join(plain, ".git"))) gitSync(["init", plain]);
+		const r = spawnGate(
+			plain,
+			join(plain, "src", "plain.ts"),
 			envRole(undefined),
 		);
 		expect(r.decision).toBe("allow");

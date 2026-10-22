@@ -296,6 +296,26 @@ Poll your inbox at session start
 		expect(args).toContain(join(realpathSync(root), "skills"));
 		expect(args).toContain("claude-code");
 	});
+
+	test("skills runner is npx — bunx never invoked (W1044)", async () => {
+		const { root, ctx } = fixture();
+		addSkill(root, "fleet");
+		const fakeBin = join(root, "fakebin");
+		const ran = join(root, "npx-ran.txt");
+		stubExec(
+			fakeBin,
+			"npx",
+			`#!/bin/sh\nprintf npx > ${JSON.stringify(ran)}\nmkdir -p "$HOME/.claude/skills/fleet"\nprintf installed > "$HOME/.claude/skills/fleet/SKILL.md"\nexit 0\n`,
+		);
+		// A bunx invocation fails the step: the W1044 defect shipped the
+		// register step through a bunx cache that lacked yaml/index.js.
+		stubExec(fakeBin, "bunx", "#!/bin/sh\nexit 3\n");
+		await withPath(fakeBin, async () => {
+			const res = await registerSkills(ctx);
+			expect(res.status).toBe("ok");
+		});
+		expect(readFileSync(ran, "utf8")).toBe("npx");
+	});
 });
 
 describe("releaseNotify", () => {

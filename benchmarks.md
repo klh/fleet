@@ -14,6 +14,21 @@ model bump.
 
 ---
 
+## Lane effort — classification-driven two-stage vs uniform pin (W1140, 2026-10-22; design evidence, fleet A/B pending W1140.1)
+
+Decision the row supports: pin SUSPENDERS_LANE_EFFORT by verification need
+(classify rules in machine conf), never uniformly. Source numbers are
+external — SlopCodeBench (via claude.dev/blog/spending-your-effort, read
+2026-10-22): verification-shaped tasks gain hugely from effort (security
+64→87%, hardware 34→75% low→max) while wrong-approach tasks get WORSE at
+max (wrong-reading failures 25→47) and a detailed spec converges effort
+levels. Fleet posture after 1b88d58a (dispatch --dry-run over the live READY
+pool, 2026-10-22): verification-tagged W1094/W1141 → high; research
+W1075/W1143 → medium; unmatched items → two-stage default (implement low
+with the brief front-loading spec completeness, verification rides its own
+classify:high lane — W1140.1 is the first such item). The fleet-side A/B vs
+the W776 attribution ledger is W1140.1's acceptance, not this row.
+
 ## W960 harness self-improvement smoke (2026-10-20; AC)
 
 The W958 loop ran one propose/probe/compose step, then three distinct private-judged
@@ -842,3 +857,13 @@ cell (glm cloud, cold, n=12 — noise floor).
   starves under any concurrent lane load; bench-grade runs need a quiet
   window or a reserved slot.
 - Judge pass (W748) not run — quality signal is mechanical-only at n=12.
+
+## W1170 — review-skill documentation contract (2026-10-22)
+
+The W1144 checks in `tests/skills-catalog.test.ts` match documentation
+markers against `tests/fixtures/review-eval/seed.ts`. They do not invoke
+an agent or measure defect detection. No matched agent experiment or
+review-quality improvement was established. W1170 corrects that claim and
+removes raw argument/path logging from skill instrumentation; the focused
+documentation/privacy suite passed 14 tests and 68 assertions. These are
+contract and privacy results, not a model-performance benchmark.

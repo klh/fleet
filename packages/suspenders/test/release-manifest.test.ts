@@ -14,12 +14,18 @@ import {
 import { parseBunLock, parseImagePins } from "../deploy/sbom.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "fleet-w698-"));
+// restore before afterAll cleanup: the rest of the suite shares this process —
+// a leaked fixture HOME rides later spawns' {...process.env} spreads (W1124.11)
+const REAL_HOME = process.env.HOME;
 process.env.HOME = HOME; // govdb pins REG from HOME at module load
 const govdb = await import(
 	`../hooks/lib/govdb.ts?home=${encodeURIComponent(HOME)}`
 );
 const REGDIR = join(HOME, ".cache/claude-governor");
-afterAll(() => rmSync(HOME, { recursive: true, force: true }));
+afterAll(() => {
+	process.env.HOME = REAL_HOME;
+	rmSync(HOME, { recursive: true, force: true });
+});
 beforeEach(() => {
 	for (const f of ["governor.db", "governor.db-wal", "governor.db-shm"])
 		rmSync(join(REGDIR, f), { force: true });

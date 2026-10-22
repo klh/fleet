@@ -1,7 +1,9 @@
 // test/fleet-capabilities.test.ts — W918: evidence-backed capability catalog
 // over the vendored skills registry. Honesty law under test: skills-dir
 // detection and skill-installability are never runnable evidence.
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	capabilityCatalog,
@@ -11,6 +13,12 @@ import {
 } from "../hooks/lib/targets.ts";
 
 const REPO = join(import.meta.dir, "..");
+// fixture home for the CLI smoke: detection inputs are pinned, never ambient
+const HOME = mkdtempSync(join(tmpdir(), "suspenders-fleet-caps-"));
+
+afterAll(() => {
+	rmSync(HOME, { recursive: true, force: true });
+});
 
 test("every catalog row exposes all seven evidence states", async () => {
 	const rows = await capabilityCatalog(REPO);
@@ -93,12 +101,22 @@ test("defaultBinProbe resolves bun, refuses nonsense", () => {
 });
 
 test("fleet-install --capabilities prints the live catalog", () => {
+	// hermetic child: CLAUDE_CONFIG_DIR pins the one detection input this smoke
+	// depends on — the suite shares one process, so an ambient fixture HOME
+	// (or a bare machine) must not zero the detection (W1124.11). The honesty
+	// law still holds: this asserts the CLI PRINTS the catalog row, not that
+	// any capability is runnable — states stay covered by the tests above.
+	mkdirSync(join(HOME, ".claude"), { recursive: true });
 	const r = Bun.spawnSync(
 		["bun", "hooks/bin/fleet-install.ts", "--capabilities"],
 		{
 			cwd: REPO,
 			encoding: "utf8",
-			env: { ...process.env },
+			env: {
+				...process.env,
+				HOME: HOME,
+				CLAUDE_CONFIG_DIR: join(HOME, ".claude"),
+			},
 		},
 	);
 	const out = `${r.stdout ?? ""}`;

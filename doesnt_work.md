@@ -29,6 +29,14 @@ decision-grade: it has to change what you would do. When a verdict flips
 
 ## Fleet coordination
 
+- **Priority-derived lane effort (W923 pin, retired by W1140)** — the
+  dispatch effort pin read `item.priority` off a string item id, so every
+  lane pinned "medium" regardless of graph state (dead code), and priority
+  alone is the wrong signal anyway — effort does not rescue wrong approaches
+  (SlopCodeBench wrong-reading failures rose 25→47 at max). Replaced by:
+  classification-driven pin from the machine-conf lane-effort policy
+  (verification-shaped → high, research → medium, unmatched → two-stage
+  implement low / verify high).
 - **Unbounded supervisor consult (W977.2)** — re-asking the coordination
   ledger per step (3 asks/item, retry budget 4) returned identical
   outcomes to 1 ask/item at 2.3× the consult volume (21 vs 9 calls,
@@ -148,3 +156,14 @@ decision-grade: it has to change what you would do. When a verdict flips
 - **Composite FK-less rekey without `PRAGMA defer_foreign_keys`** — W428:
   rekeying work-graph identity hits composite FKs 500 without it;
   children-first in one transaction.
+
+## W1170 — regex fixture coverage is not a review-quality evaluation
+
+W1144 treated matching trap names in skill text and the seeded examples in
+`tests/fixtures/review-eval/seed.ts` as evidence of better agent reviews.
+`tests/skills-catalog.test.ts` only checks text markers: no reviewer ran,
+no matched comparison was performed, and no quality improvement was proved.
+W1170 retains the documentation contract while correcting its description.
+Skill invocation counts also require no raw arguments or working-directory
+paths; storing those in a mode-644 log added disclosure risk without
+measurement value. The corrected logger keeps minimal metadata at mode 0600.

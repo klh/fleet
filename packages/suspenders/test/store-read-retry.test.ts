@@ -24,7 +24,10 @@ afterAll(() => {
 
 // refuse(body) → true counts a hit and answers the busy refusal; anything
 // else gets the default success shape for its mode.
-const makeStub = (refuse: (body: { mode: string; sql: string }) => boolean) => {
+const makeStub = (
+	refuse: (body: { mode: string; sql: string }) => boolean,
+	receipt: Record<string, unknown> = {},
+) => {
 	let hits = 0;
 	const server = Bun.serve({
 		port: 0,
@@ -34,7 +37,7 @@ const makeStub = (refuse: (body: { mode: string; sql: string }) => boolean) => {
 			const body = (await req.json()) as { mode: string; sql: string };
 			if (refuse(body)) {
 				hits++;
-				return Response.json({ err: BUSY });
+				return Response.json({ err: BUSY, ...receipt });
 			}
 			if (body.mode === "get") return Response.json({ row: { one: 1 } });
 			if (body.mode === "all") return Response.json({ rows: [] });
@@ -114,7 +117,10 @@ describe("W716 — HttpGovernorStore read retry on serialized-tx refusal", () =>
 			return false;
 		});
 		const r = await runChild(
-			childProbe(`console.log(JSON.stringify({ row: s.query("SELECT 42 AS v").get() }));`, stub.url),
+			childProbe(
+				`console.log(JSON.stringify({ row: s.query("SELECT 42 AS v").get() }));`,
+				stub.url,
+			),
 			stub.url,
 		);
 		expect(r.code).toBe(0);
@@ -144,6 +150,22 @@ describe("W716 — HttpGovernorStore read retry on serialized-tx refusal", () =>
 		);
 		expect(r.code).toBe(0);
 		expect(parseOut(r.out, r.err)).toEqual({ busy: true });
+		expect(stub.hits()).toBe(1);
+	});
+	test("writes never replay when a busy-looking receipt does not prove nonexecution", async () => {
+		const stub = makeStub((body) => body.mode === "run", {
+			code: "store_tx_busy",
+			executed: true,
+		});
+		const result = await runChild(
+			childProbe(
+				`s.run("INSERT INTO events(kind) VALUES ('ambiguous')");`,
+				stub.url,
+			),
+			stub.url,
+		);
+		expect(result.code).toBe(0);
+		expect(parseOut(result.out, result.err)).toEqual({ busy: true });
 		expect(stub.hits()).toBe(1);
 	});
 });

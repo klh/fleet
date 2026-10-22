@@ -1,4 +1,5 @@
-import{r}from"./lit-nenj1r4j.js";var a=r`
+// Vendored from the Lit monorepo (lit, lit-html, lit-element, @lit/reactive-element) — BSD-3-Clause License (https://github.com/lit/lit); bundled offline.
+import{r}from"./lit-ec6b45c34eb5ebcc.js";var a=r`
 	:host {
 		display: block;
 		background: var(--klh-surface);

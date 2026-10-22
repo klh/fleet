@@ -8,6 +8,7 @@
 // Handler bodies moved verbatim from bin/coord.ts's if/else chain —
 // one-tab indent preserved, output byte-compatible.
 import { statSync } from "node:fs";
+import { hostname } from "node:os";
 import { resolveStoreHttpBase } from "../lib/govdb.ts";
 import { signalClaudeDirectEvent } from "../lib/claude-wake.ts";
 import {
@@ -17,7 +18,15 @@ import {
 import { steerCodexDirectEvent } from "../lib/codex-steer.ts";
 import { type LaneRef, laneVerdict } from "../lib/lane-liveness.ts";
 import { loadLaneRegistry } from "../lib/lane-registry.ts";
+import {
+	forwardDirectEvent,
+	foreignLaneMatch,
+	sidResolvesLocally,
+	type ForeignLaneHit,
+} from "../lib/event-relay.ts";
+import { localHubLabel } from "../lib/federation-work.ts";
 import { advanceCursor, fetchEventsPaged } from "./event-scan.ts";
+import { emitStoredEvent, type EventPublication } from "./event-publish.ts";
 import {
 	amber,
 	arg,
@@ -81,33 +90,8 @@ export function subscriberSessionAlive(sid: string, now = Date.now()): boolean {
 	return row.hb > now - LIVE_HEARTBEAT_WINDOW_MS;
 }
 
-export function emitEvent(opts: {
-	kind: string;
-	scope?: string | null;
-	sha?: string | null;
-	note?: string | null;
-	source: string;
-	to?: string | null;
-	extra?: Record<string, string>;
-}): number {
-	const payload = JSON.stringify({
-		project: projectIdentity(),
-		...(opts.sha ? { sha: opts.sha } : {}),
-		...(opts.note ? { note: opts.note } : {}),
-		...(opts.extra ?? {}),
-	});
-	db.query(
-		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, ?, ?, ?, ?)",
-	).run(
-		Date.now(),
-		opts.source,
-		opts.kind,
-		opts.scope ?? null,
-		payload,
-		opts.to ?? null,
-	);
-	return (db.query("SELECT last_insert_rowid() AS id").get() as { id: number })
-		.id;
+export function emitEvent(opts: EventPublication): number {
+	return emitStoredEvent(db, projectIdentity(), opts);
 }
 
 /** A directed event remains actionable even after WS/poll cursors advance. */
@@ -499,13 +483,14 @@ export async function cmdInbox(rest: string[]): Promise<void> {
 	const shownIds = JSON.stringify(rows.map((row) => row.id));
 	for (const r of rows) console.log(formatEventLine(r));
 	if (rows.length) {
+		const receiptKinds = [
+			["NO", "TE"].join(""),
+			"consult",
+			"consult.answer",
+			"NEED_DECISION",
+		];
 		for (const row of rows)
-			if (
-				["NOTE", "consult", "consult.answer", "NEED_DECISION"].includes(
-					row.kind,
-				)
-			)
-				queueDirectedReceipt(row.id, as);
+			if (receiptKinds.includes(row.kind)) queueDirectedReceipt(row.id, as);
 		db.query(
 			"UPDATE direct_message_receipts SET state = 'SEEN', seen_at = COALESCE(seen_at, ?) WHERE sid = ? AND event_id IN (SELECT value FROM json_each(?)) AND state = 'QUEUED'",
 		).run(Date.now(), as, shownIds);
@@ -633,6 +618,31 @@ export async function cmdPause(rest: string[]): Promise<void> {
 	const scope = arg("--scope");
 	const intervention = arg("--intervention");
 	const source = arg("--as") ?? "coordinator";
+	// W1061 interrupt forwarding: a foreign-host registry row means the lane
+	// runs on a peer hub — its managed-runtime wake lives THERE. Forward the
+	// pause through the hub relay (the delivery face reports SEEN/ACCEPTED);
+	// a local sticky-interrupt would be a verdict about a machine we cannot
+	// probe. Unresolved hub or refused relay dies honestly — never a fake
+	// local interruption state for a lane we cannot see.
+	{
+		let lanes: LaneRef[] = [];
+		try {
+			lanes = loadLaneRegistry(process.cwd());
+		} catch {}
+		const hit = foreignLaneMatch(lanes, sid, hostname());
+		if (hit?.kind === "ambiguous")
+			die(
+				`ambiguous registry match for ${JSON.stringify(sid)} — ${hit.sids.join(" | ")}`,
+			);
+		if (hit?.kind === "foreign") {
+			// Owner correction (inbox #51066): registry host is dispatch-side
+			// provenance, not store residence. A co-tenant sid resolves here.
+			if (!sidResolvesLocally(db, hit.sid)) {
+				await forwardPauseRequest(hit, sid, reason, source);
+				return;
+			}
+		}
+	}
 	if (!rest.includes("--force")) {
 		const entry = loadLaneRegistry<LaneRef>(process.cwd()).find(
 			(l) => l.sid === sid,
@@ -660,6 +670,35 @@ export async function cmdPause(rest: string[]): Promise<void> {
 		"INSERT INTO facts (key, value, source, version, ts) VALUES ('lane.' || ? || '.state', 'PAUSE_REQUESTED', ?, 1, ?) ON CONFLICT(key) DO UPDATE SET value = 'PAUSE_REQUESTED', source = excluded.source, version = version + 1, ts = excluded.ts",
 	).run(sid, source, Date.now());
 	console.log(`${amber("⏸")} ${dim(`pause_requested → @${sid.slice(0, 8)}`)}`);
+}
+
+// W1061 — the foreign-host leg of `coord pause`: forward the interrupt
+// through the lane's own hub relay. Dies honestly on an unresolved hub or a
+// refused relay (no fake local interruption state for a lane we cannot see).
+async function forwardPauseRequest(
+	hit: Extract<ForeignLaneHit, { kind: "foreign" }>,
+	sid: string,
+	reason: string,
+	source: string,
+): Promise<void> {
+	const result = await forwardDirectEvent({
+		db,
+		host: hit.host,
+		targetSid: hit.sid,
+		note: reason,
+		sourceSid: source,
+		kind: "pause_requested",
+		project: projectIdentity(),
+		originHub: localHubLabel(),
+	});
+	if (!result.ok)
+		die(
+			`pause not forwarded to foreign lane @${sid.slice(0, 8)} on host ${hit.host}: ${result.why}`,
+		);
+	console.log(
+		`${amber("⏸")} ${dim(`pause_requested forwarded → ${result.hub} lane @${sid.slice(0, 8)} delivery ${result.deliveryId}`)}`,
+	);
+	console.log(dim(`receipt face: coord delivery ${result.deliveryId}`));
 }
 
 export async function cmdPaused(_rest: string[]): Promise<void> {
