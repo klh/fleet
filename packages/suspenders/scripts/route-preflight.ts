@@ -185,29 +185,68 @@ export function routeInputsByMachine(
 		},
 		...beltModels,
 	];
-	return {
-		buckles,
-		litellms: [
-			{
-				id: "local",
-				origins: ["http://127.0.0.1:4100", "http://host.docker.internal:4100"],
-				config: source.litellm,
+	const views: MachineRouteInputs[] = [
+		{
+			id: "local",
+			inputs: {
+				buckles,
+				litellms,
+				belts,
+				terminalOrigins: [...specialistOrigins, ...(terminals as string[])],
+				requestDeadlineMs: source.deadlineMs,
 			},
-		],
-		belts: [
-			{
-				id: "local",
-				origins: ["http://127.0.0.1:4000"],
-				noEscalationModels: [ROUTER.gatewayAlias],
-				...(escalationUrl && escalationModel
-					? { escalation: { url: escalationUrl, model: escalationModel } }
-					: {}),
+		},
+	];
+	for (const [name, raw] of Object.entries(hubs)) {
+		const hub = record(raw);
+		views.push({
+			id: name,
+			inputs: {
+				buckles,
+				litellms,
+				belts,
+				terminalOrigins: [
+					...(terminals as string[]),
+					...hubTerminals(name, hub),
+				],
 			},
-			...beltModels,
-		],
-		terminalOrigins: [...specialistOrigins, ...(terminals as string[])],
-		requestDeadlineMs: source.deadlineMs,
-	};
+		});
+	}
+	return views;
+}
+
+function hubPolicy(
+	source: RoutePreflightSources,
+	name: string,
+	hub: RecordValue,
+): GatewayPolicy {
+	if (!source.basePolicyText)
+		throw new Error(
+			`hub ${name} gateway policy cannot render: no base policy text (fail closed on missing config)`,
+		);
+	return parsePolicy(
+		renderHubPolicy(
+			source.basePolicyText,
+			hub.buckle_gateway as GatewayPolicy | undefined,
+		),
+	);
+}
+
+function hubTerminals(name: string, hub: RecordValue): string[] {
+	const declared = record(hub.route_preflight).terminal_origins;
+	if (declared === undefined) return [];
+	if (!Array.isArray(declared) || declared.some((item) => !string(item)))
+		throw new Error(
+			`hub ${name} route_preflight.terminal_origins must be an array of URLs`,
+		);
+	return declared as string[];
+}
+
+/** The local machine's own route view (Mac specialists terminate here). */
+export function routeInputs(source: RoutePreflightSources): RouteLadderInputs {
+	const local = routeInputsByMachine(source).find((run) => run.id === "local");
+	if (!local) throw new Error("route preflight: local route view missing");
+	return local.inputs;
 }
 
 async function reachable(raw: string, timeoutMs: number): Promise<boolean> {
