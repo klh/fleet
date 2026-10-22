@@ -14,11 +14,6 @@ import { hostname } from "node:os";
 // (the isDecisionKind accept-set note below mirrors govdb.ts — not imported
 // on purpose: lanes.ts never calls it, the two lists just change together)
 import { tagNameOf } from "../lib/govdb.ts";
-import {
-	laneStopNotice,
-	laneStopTarget,
-	operationalLaneStopNotice,
-} from "../lib/lane-stop-decision.ts";
 import { gitObservation, type LaneGitObservation } from "../lib/lane-git.ts";
 import {
 	type LaneRef,
@@ -29,6 +24,11 @@ import {
 	verdictBySid,
 } from "../lib/lane-liveness.ts";
 import { loadLaneRegistry } from "../lib/lane-registry.ts";
+import {
+	laneStopNotice,
+	laneStopTarget,
+	operationalLaneStopNotice,
+} from "../lib/lane-stop-decision.ts";
 import { coordSubscribeLog } from "../lib/subscribe-attach.ts";
 import { db, type EventRow } from "./context.ts";
 import { chunked } from "./helpers.ts";
@@ -821,6 +821,7 @@ export function transcriptTailAll(
 	sid: string | null | undefined,
 	max: number,
 	maxChars = TAIL_MAX,
+	since?: number,
 ): { text: string; ts: string | null }[] {
 	if (!sid) return [];
 	const row = db
@@ -865,6 +866,13 @@ export function transcriptTailAll(
 			continue;
 		}
 		const msg = j?.message;
+		if (
+			since !== undefined &&
+			(!j?.timestamp ||
+				!Number.isFinite(Date.parse(j.timestamp)) ||
+				Date.parse(j.timestamp) < since)
+		)
+			continue;
 		if (msg?.role !== "assistant" || !Array.isArray(msg.content)) continue;
 		for (let k = msg.content.length - 1; k >= 0 && out.length < max; k--) {
 			const b = msg.content[k];
