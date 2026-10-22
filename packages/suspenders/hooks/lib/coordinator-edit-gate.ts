@@ -23,6 +23,13 @@
 //     main checkouts and linked worktrees verify; temp dirs never do.
 //   - canonical installed closure: cwd under $SUSPENDERS_PREFIX (default
 //     ~/.claude/hooks/suspenders) with the pinned harness-receipt.json.
+//   - project enrollment/claim context (W1042): any Git repo whose project
+//     .fleet/ carries control-plane runtime state — the dispatch lane
+//     registry (lanes.json), a worktree claim context (lane-context.json),
+//     or per-session enrollment files (lane-key-*/lane-settings-*) — gates
+//     at its own git toplevel, worktrees included. An explicit
+//     `.fleet/ungoverned` marker opts the project OUT (wins over every
+//     signal); a hand-made .fleet/ with unrelated contents is no evidence.
 // Only targets INSIDE that root gate; machine config (~/.config/klh,
 // belt.env) and other repos stay untouched: that is the coordinator's ops
 // surface (the design question's "this coord session does real ops edits").
@@ -30,10 +37,11 @@
 // — the superlite incidents.jsonl analog — and the deny text is the
 // dispatch-it-instead redirect. SUSPENDERS_COORD_EDIT_GATE=0 disables
 // (owner kill switch, the scrub-gate pattern).
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { RECEIPT_FILE } from "./harness-manifest.ts";
 import { resolveFleetLane } from "./fleetlane.ts";
+import { resolveProject } from "./govdb-project.ts";
 import { deny, type HookInput } from "./hookio.ts";
 
 const EDIT_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
@@ -55,11 +63,41 @@ function canonicalTargetPath(path: string): string {
 	}
 }
 
+// W1042: enrollment/claim evidence — the control-plane-authored runtime
+// state a governed project's .fleet/ carries. An explicit `ungoverned`
+// marker opts the project OUT and wins over every other signal; a hand-made
+// .fleet/ with unrelated contents is no evidence.
+const CLAIM_STATE_RE = /^lane-(key|settings)-.+/;
+
+function fleetStateAt(fleetDir: string): boolean {
+	if (existsSync(join(fleetDir, "ungoverned"))) return false;
+	if (existsSync(join(fleetDir, "lanes.json"))) return true;
+	if (existsSync(join(fleetDir, "lane-context.json"))) return true;
+	try {
+		return readdirSync(fleetDir).some((f) => CLAIM_STATE_RE.test(f));
+	} catch {
+		return false; // .fleet absent/unreadable — no signal either way
+	}
+}
+
+// The third verified identity: an enrolled EXTERNAL project (no monorepo
+// shape, no installed closure). Evidence sits at the project's .fleet/ —
+// the cwd toplevel for a main checkout, the main checkout root when cwd is
+// a linked worktree (one project identity per common git dir, W624). The
+// gate root stays cwd's own toplevel (W1124.9: verified boundary only).
+function enrolledProjectRootFor(dir: string, top: string): string {
+	if (!top) return "";
+	if (fleetStateAt(join(top, ".fleet"))) return top;
+	const { root } = resolveProject(dir);
+	return root !== top && fleetStateAt(join(root, ".fleet")) ? top : "";
+}
+
 // Fleet repo root for cwd — verified identity, never the bare directory-
 // shape ancestor walk (W1124.9): the shape must sit at a VERIFIED boundary.
 // Git identity first (`git rev-parse --show-toplevel`; real main checkouts
 // and linked worktrees verify, temp dirs never do), then the canonical
-// installed closure. "" = not fleet — never gated.
+// installed closure, then the enrollment/claim context (W1042).
+// "" = not fleet — never gated.
 export function fleetRootFor(cwd: string): string {
 	const dir = resolve(cwd);
 	const top = gitToplevelFor(dir);
@@ -69,7 +107,9 @@ export function fleetRootFor(cwd: string): string {
 	) {
 		return top;
 	}
-	return installedClosureRootFor(dir);
+	const installed = installedClosureRootFor(dir);
+	if (installed) return installed;
+	return enrolledProjectRootFor(dir, top);
 }
 
 // `git rev-parse` is the authority for repository identity (worktree .git
