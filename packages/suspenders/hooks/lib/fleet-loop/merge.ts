@@ -28,6 +28,7 @@ import {
 	recordLanding,
 } from "../review-receipt.ts";
 import type { LoopDeps } from "./runtime.ts";
+import { scheduleReview } from "../review-scheduler.ts";
 
 export type MergeLadder = {
 	mergeOne: (b: string) => void;
@@ -210,6 +211,16 @@ export function createMergeLadder(
 		const review = verifyReview();
 		if (!review.ok) {
 			log(`MERGE-DEFER ${b} — review required: ${review.why}`);
+			const store = openStore();
+			try {
+				log(
+					`REVIEW ${b} — ${scheduleReview({ db: store, project: projectIdentity(REPO), item: claim.item, repo: REPO, context: reviewContext(REPO, b) })}`,
+				);
+			} catch (error) {
+				log(`REVIEW-DEFER ${b} — ${String(error).slice(0, 300)}`);
+			} finally {
+				store.close();
+			}
 			return;
 		}
 		// liveness marker: a crash between --no-commit and commit leaves

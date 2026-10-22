@@ -15,6 +15,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 import { reviewContext, publishReviewReceipt } from "../lib/review-receipt.ts";
+import {
+	finishReviewRequest,
+	reviewRequestKey,
+} from "../lib/review-scheduler.ts";
+import {
+	adminKey,
+	BUCKLE_FRONT,
+	mintLaneKey,
+	revokeLaneKey,
+} from "../../scripts/lib/lane-auth.ts";
 
 // ---- args (W820: verb-kit owns parsing — W651 law) -------------------------
 // W820: verb-kit owns parsing (W651 law) — reqFlags --item/--project; the
@@ -22,7 +32,7 @@ import { reviewContext, publishReviewReceipt } from "../lib/review-receipt.ts";
 const spec = defineVerb({
 	name: "review",
 	usage:
-		"usage: bun review-lane.ts --item <Wn> --project <p> --executor <name> (--bin <path> | --belt <m>:<p>[:<model>] | --llm-url <url> [--llm-model <m>])",
+		"usage: bun review-lane.ts --item <Wn> --project <p> --executor <name> (--buckle <model> | --bin <path> | --belt <m>:<p>[:<model>] | --llm-url <url> [--llm-model <m>])",
 	flags: [
 		"--item",
 		"--project",
@@ -31,6 +41,9 @@ const spec = defineVerb({
 		"--belt",
 		"--llm-url",
 		"--llm-model",
+		"--buckle",
+		"--request-key",
+		"--request-token",
 	],
 	reqFlags: ["--item", "--project"],
 });
@@ -61,6 +74,30 @@ if (!repo || repo.includes("..") || !repo.startsWith("/")) {
 
 // ---- context: the item, its thread, the diff -------------------------------
 const db = openStore();
+const requestKey = parsedArgs.parsed.flag("--request-key");
+const requestToken = parsedArgs.parsed.flag("--request-token");
+if (Boolean(requestKey) !== Boolean(requestToken))
+	throw new Error("scheduled review requires request key and token together");
+const reviewFailureReason = (error: unknown): string =>
+	(error instanceof Error ? error.message : String(error))
+		.replace(/\bbksk_[A-Za-z0-9_-]+|\bsk-[A-Za-z0-9_-]+/g, "[redacted]")
+		.slice(0, 250);
+const failedEarly = (error: unknown) => {
+	if (requestKey && requestToken)
+		finishReviewRequest(
+			db,
+			requestKey,
+			requestToken,
+			true,
+			reviewFailureReason(error),
+		);
+	console.error(
+		"review-lane: runner failed before a bound receipt; scheduled retry retained",
+	);
+	process.exit(2);
+};
+process.on("uncaughtException", failedEarly);
+process.on("unhandledRejection", failedEarly);
 type Row = Record<string, unknown>;
 const w = db
 	.query("SELECT * FROM work_items WHERE project = ? AND id = ?")
@@ -106,6 +143,8 @@ const thread: string[] = (
 
 // ---- the review prompt ------------------------------------------------------
 const boundContext = reviewContext(repo, `suspenders/${item}`);
+if (requestKey && requestKey !== reviewRequestKey(project, item, boundContext))
+	throw new Error("review context changed before scheduled runner started");
 const diff = gitDiff(boundContext.base, boundContext.commit);
 const reviewerSid = `review-${crypto.randomUUID()}`;
 db.query(
@@ -137,10 +176,13 @@ const prompt = [
 
 // ---- executor legs ----------------------------------------------------------
 type Leg =
+	| { kind: "buckle"; model: string }
 	| { kind: "bin"; bin: string }
 	| { kind: "belt"; target: string }
 	| { kind: "llm"; url: string; model: string };
 const leg: Leg | null = (() => {
+	const buckle = parsedArgs.parsed.flag("--buckle");
+	if (buckle) return { kind: "buckle", model: buckle };
 	const bin = parsedArgs.parsed.flag("--bin");
 	if (bin) return { kind: "bin", bin };
 	const belt = parsedArgs.parsed.flag("--belt");
@@ -160,7 +202,55 @@ const leg: Leg | null = (() => {
 
 // ---- run the leg ------------------------------------------------------------
 const LEG_TIMEOUT_MS = 15 * 60_000;
+async function requestLlm(
+	url: string,
+	model: string,
+	key?: string,
+): Promise<string> {
+	const response = await fetch(url, {
+		method: "POST",
+		headers: {
+			"content-type": "application/json",
+			...(key ? { authorization: `Bearer ${key}` } : {}),
+		},
+		body: JSON.stringify({
+			model,
+			messages: [{ role: "user", content: prompt }],
+			max_tokens: 1500,
+			temperature: 0.2,
+		}),
+		signal: AbortSignal.timeout(LEG_TIMEOUT_MS),
+	});
+	if (!response.ok) throw new Error(`Review LLM HTTP ${response.status}`);
+	const body = (await response.json()) as {
+		choices?: { message?: { content?: string } }[];
+	};
+	return body.choices?.[0]?.message?.content ?? "";
+}
 async function runLeg(): Promise<string> {
+	if (leg?.kind === "buckle") {
+		const admin = adminKey();
+		if (!admin) throw new Error("Buckle review admin credential unavailable");
+		const scoped = await mintLaneKey(reviewerSid, admin);
+		if (!scoped) throw new Error("Buckle review scoped key mint refused");
+		let result = "";
+		let failed = false;
+		let failure: unknown;
+		try {
+			result = await requestLlm(
+				`${BUCKLE_FRONT}/w/${reviewerSid}/v1/chat/completions`,
+				leg.model,
+				scoped.key,
+			);
+		} catch (error) {
+			failed = true;
+			failure = error;
+		}
+		if (!(await revokeLaneKey(scoped.keyId, admin)))
+			throw new Error("Buckle review scoped key revocation failed");
+		if (failed) throw failure;
+		return result;
+	}
 	if (leg?.kind === "bin") {
 		const p = Bun.spawn([leg.bin, "-p", prompt], {
 			stdin: "ignore",
@@ -196,30 +286,9 @@ async function runLeg(): Promise<string> {
 		return c.stdout.toString();
 	}
 	if (leg?.kind === "llm") {
-		const r = await fetch(leg.url, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				...(process.env.SUSPENDERS_LLM_KEY
-					? { authorization: `Bearer ${process.env.SUSPENDERS_LLM_KEY}` }
-					: {}),
-			},
-			body: JSON.stringify({
-				model: leg.model,
-				messages: [{ role: "user", content: prompt }],
-				max_tokens: 1500,
-				temperature: 0.2,
-			}),
-			signal: AbortSignal.timeout(LEG_TIMEOUT_MS),
-		});
-		if (!r.ok)
-			throw new Error(`LLM ${r.status}: ${(await r.text()).slice(0, 200)}`);
-		const j = (await r.json()) as {
-			choices?: { message?: { content?: string } }[];
-		};
-		return j.choices?.[0]?.message?.content ?? "";
+		return requestLlm(leg.url, leg.model, process.env.SUSPENDERS_LLM_KEY);
 	}
-	throw new Error("no executor leg (--bin | --belt | --llm-url)");
+	throw new Error("no executor leg (--buckle | --bin | --belt | --llm-url)");
 }
 
 // ---- coverage proof (W634, Sinai rule) --------------------------------------
@@ -347,7 +416,9 @@ const emitCli = (args: string[]): void => {
 const noteFor = (headline: string): string =>
 	`review ${item} by ${executor} — ${headline}`;
 
+let legFailure = "leg failed";
 const findings = await runLeg().catch((e: unknown) => {
+	legFailure = reviewFailureReason(e);
 	console.error(
 		`review-lane ${item}: leg failed: ${e instanceof Error ? e.message : String(e)}`,
 	);
@@ -365,7 +436,7 @@ const verdict =
 			: "FAIL"
 		: "ERROR";
 const reviewerHeadline = (
-	verdictLine ?? (findings ? "no verdict line in reply" : "leg failed")
+	verdictLine ?? (findings ? "no verdict line in reply" : legFailure)
 ).slice(0, 300);
 
 // Sinai proof gates the approval: a PASS stands only when the branch's new
@@ -381,7 +452,12 @@ const proofHeadline =
 			: proof.status === "no-coverage"
 				? "coverage-proof FAIL: all new tests pass without the change — no coverage"
 				: `coverage-proof ${proof.status}: ${proof.detail}`;
-const effective = proof?.status === "no-coverage" ? "FAIL" : verdict;
+const effective =
+	proof?.status === "error"
+		? "ERROR"
+		: proof?.status === "no-coverage"
+			? "FAIL"
+			: verdict;
 const headline = proofHeadline
 	? `${proofHeadline} | ${reviewerHeadline}`
 	: reviewerHeadline;
@@ -455,6 +531,14 @@ db.query("UPDATE sessions SET state = 'DONE', hb = ? WHERE sid = ?").run(
 	Date.now(),
 	reviewerSid,
 );
+if (requestKey && requestToken)
+	finishReviewRequest(
+		db,
+		requestKey,
+		requestToken,
+		effective === "ERROR",
+		headline,
+	);
 console.log(
 	`review-lane: ${item} reviewed by ${executor} — ${effective}: ${headline.slice(0, 120)}`,
 );
