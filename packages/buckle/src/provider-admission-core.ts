@@ -1,4 +1,14 @@
 import PQueue from "p-queue";
+import {
+	assertProviderConcurrencyErrorCodes,
+	type ProviderPressure,
+} from "./provider-pressure.ts";
+
+export {
+	assertProviderConcurrencyErrorCodes,
+	type ProviderPressure,
+	providerPressureOf,
+} from "./provider-pressure.ts";
 
 export interface ProviderPoolPolicy {
 	concurrency: number;
@@ -11,19 +21,12 @@ export interface ProviderPoolPolicy {
 	concurrencyErrorCodes?: string[];
 }
 
-export type ProviderPressure = "concurrency" | "rate";
-export const providerPressureOf = (
-	policy: ProviderPoolPolicy | undefined,
-	code: string | number | null,
-): ProviderPressure =>
-	code !== null && policy?.concurrencyErrorCodes?.includes(String(code))
-		? "concurrency"
-		: "rate";
-
 export function assertProviderPoolPolicy(
 	value: unknown,
 ): asserts value is ProviderPoolPolicy {
 	const p = value as ProviderPoolPolicy | null;
+	if (p?.concurrencyErrorCodes !== undefined)
+		assertProviderConcurrencyErrorCodes(p.concurrencyErrorCodes);
 	const positive = (n: unknown) => Number.isSafeInteger(n) && Number(n) > 0;
 	if (
 		!p ||
@@ -41,15 +44,6 @@ export function assertProviderPoolPolicy(
 					"concurrencyErrorCodes",
 				].includes(key),
 		) ||
-		(p.concurrencyErrorCodes !== undefined &&
-			(!Array.isArray(p.concurrencyErrorCodes) ||
-				p.concurrencyErrorCodes.length > 16 ||
-				new Set(p.concurrencyErrorCodes).size !==
-					p.concurrencyErrorCodes.length ||
-				p.concurrencyErrorCodes.some(
-					(code) =>
-						typeof code !== "string" || !/^[A-Za-z0-9_.:-]{1,64}$/.test(code),
-				))) ||
 		![
 			p.concurrency,
 			p.intervalCap,

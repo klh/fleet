@@ -29,6 +29,7 @@ import { Cooldowns, retryAfterS, retryDelayS } from "./cooldown.ts";
 import { mayEscalate, type RouteSelection } from "./decide.ts";
 import { FLASHX, type GatewayPolicy } from "./policy.ts";
 import {
+	assertProviderConcurrencyErrorCodes,
 	bindProviderLease,
 	ProviderAdmissionCore,
 	ProviderAdmissionFull,
@@ -339,6 +340,7 @@ export class Router {
 		);
 		for (const group of deps.pool.groups())
 			for (const dep of deps.pool.deployments(group)) {
+				providerConcurrencyCodesOf(dep, policy);
 				if (dep.adapter_config?.provider_pool === undefined) continue;
 				const id = providerPoolIdOf(dep);
 				if (id === null || !this.pools.has(id))
@@ -457,14 +459,11 @@ export class Router {
 				resp,
 			);
 			const ra = err.retryAfterS ?? retryAfterS(resp.headers, this.now);
-			lease?.feedback?.(
-				resp.status,
-				ra,
-				providerPressureOf(
-					poolId === null ? undefined : this.policy.provider_pools?.[poolId],
-					err.providerCode,
-				),
+			const pressure = providerPressureOf(
+				{ concurrencyErrorCodes: providerConcurrencyCodesOf(dep, this.policy) },
+				err.providerCode,
 			);
+			lease?.feedback?.(resp.status, ra, pressure);
 			const base = {
 				providerPool: poolId,
 				queueWaitMs: lease ? queueWaitMs : null,
@@ -537,11 +536,15 @@ export class Router {
 					refusalSource: "upstream",
 				};
 			}
-			this.cooldowns.failure(
-				dep,
-				err.kind === "rate_limited" ? "rate_limited" : "other",
-			);
-			this.metrics?.cooldown(`${dep.group}|${dep.url}`);
+			// Account occupancy is not deployment health. Keep the real refusal
+			// and provider Retry-After; never synthesize an outage/cooldown for it.
+			if (!(resp.status === 429 && pressure === "concurrency")) {
+				this.cooldowns.failure(
+					dep,
+					err.kind === "rate_limited" ? "rate_limited" : "other",
+				);
+				this.metrics?.cooldown(`${dep.group}|${dep.url}`);
+			}
 			return {
 				...base,
 				error: `upstream ${dep.url} returned ${String(resp.status)}`,
@@ -1192,6 +1195,29 @@ export function providerPoolIdOf(dep: Deployment): string | null {
 	const cfg = dep.adapter_config?.provider_pool;
 	if (typeof cfg !== "string") return null;
 	return /^[\w.-]{1,64}$/.test(cfg) ? cfg : null;
+}
+
+function providerConcurrencyCodesOf(
+	dep: Deployment,
+	policy: GatewayPolicy,
+): string[] | undefined {
+	const explicit = dep.adapter_config?.provider_concurrency_error_codes;
+	const pool = providerPoolIdOf(dep);
+	const inherited =
+		pool === null
+			? undefined
+			: policy.provider_pools?.[pool]?.concurrencyErrorCodes;
+	if (explicit === undefined) return inherited;
+	assertProviderConcurrencyErrorCodes(explicit);
+	if (
+		inherited &&
+		(explicit.length !== inherited.length ||
+			explicit.some((code) => !inherited.includes(code)))
+	)
+		throw new Error(
+			"Deployment concurrency error codes conflict with its provider pool policy",
+		);
+	return explicit;
 }
 
 /** W1078 local admission refusal: a LOCAL queue decision, never an upstream
