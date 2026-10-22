@@ -853,6 +853,9 @@ export class AnthropicToOpenAIStream {
 	 *  for an unterminated stream does NOT count — the bridge's [DONE]
 	 *  sentinel must mirror source completion, never a generated one). */
 	private stopSeen = false;
+	/** W1124.4: an in-band source failure (event:error) poisons the terminal —
+	 *  error+message_stop never translates into a success finish frame. */
+	private failed = false;
 	private inTok: unknown = null;
 	private outTok: unknown = null;
 	private finish: string | null = null;
@@ -888,6 +891,10 @@ export class AnthropicToOpenAIStream {
 		const d = data as AnyRec;
 		if (d.type === "ping") return out;
 		if (d.type === "error") {
+			// W1124.4: in-band source failure poisons the terminal — an error
+			// event (even followed by message_stop) never licenses a success
+			// finish frame.
+			this.failed = true;
 			const err = (d.error ?? {}) as AnyRec;
 			out.push(
 				this.frame({
@@ -927,23 +934,27 @@ export class AnthropicToOpenAIStream {
 	}
 
 	/** W1106.2: true once a SOURCE message_stop was observed — the license
-	 *  for the bridge's [DONE] sentinel. */
+	 *  for the bridge's [DONE] sentinel. W1124.4: an in-band source failure
+	 *  revokes it (error + message_stop never mirrors as [DONE]). */
 	sawStop(): boolean {
-		return this.stopSeen;
+		return this.stopSeen && !this.failed;
 	}
 
 	/** End of stream: the finish chunk, then the terminal usage chunk —
 	 *  emitted at message_stop (upstreams always send it), retried once at
-	 *  flush for a stream the upstream never terminated. */
+	 *  flush for a stream the upstream never terminated. W1124.4: a
+	 *  truncated source (no message_stop) or a failed source flushes EMPTY —
+	 *  no finish frame, no usage chunk: never a synthesized success. */
 	flush(): AnyRec[] {
 		const out: AnyRec[] = [];
 		if (!this.started) return out;
+		if (!this.stopSeen || this.failed) return out;
 		this.emitFinish(out);
 		return out;
 	}
 
 	private emitFinish(out: AnyRec[]): void {
-		if (this.stopped) return;
+		if (this.stopped || this.failed) return; // W1124.4: failure revokes the terminal
 		this.stopped = true;
 		out.push(this.frame({ choices: [choice({}, this.finish ?? "stop")] }));
 		const u = this.seenUsage();

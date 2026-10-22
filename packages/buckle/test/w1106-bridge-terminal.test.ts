@@ -16,8 +16,6 @@ import { startMockUpstream } from "./mock.ts";
 
 const sseHeaders = { "content-type": "text/event-stream" };
 
-type AnyRec = Record<string, unknown>;
-
 const receiptOf = (audit: Record<string, unknown>): Record<string, unknown> =>
 	JSON.parse(String(audit.stream_receipt ?? "{}")) as Record<string, unknown>;
 
@@ -102,16 +100,31 @@ describe("W1106.2 AnthropicToOpenAIStream source-fidelity", () => {
 		});
 		expect(s.sawStop()).toBe(false);
 		const f = s.flush();
-		// the flush-RETRIED finish (unterminated stream) still emits — the
-		// openai wire needs ONE finish frame — but it is not a license:
-		// sawStop() stays false so the [DONE] sentinel never fabricates.
-		expect(
-			f.map(
-				(c) =>
-					((c as AnyRec).choices as Array<{ finish_reason?: string }>)[0]
-						?.finish_reason ?? "usage",
-			),
-		).toEqual(["stop", "usage"]);
+		// W1124.4: a truncated source flushes EMPTY — no synthesized finish
+		// frame, no usage chunk. sawStop() stays false so the [DONE] sentinel
+		// never fabricates either.
+		expect(f).toEqual([]);
+	});
+
+	test("in-band error + message_stop → NO finish frame, sawStop revoked", () => {
+		const s = new AnthropicToOpenAIStream();
+		s.push({
+			event: "message_start",
+			data: {
+				type: "message_start",
+				message: { id: "m1", model: "claude-x", usage: { input_tokens: 1 } },
+			},
+		});
+		s.push({
+			event: "error",
+			data: { type: "error", error: { type: "api_error", message: "boom" } },
+		});
+		s.push({ event: "message_stop", data: { type: "message_stop" } });
+		// the failure poisons the terminal: the source's message_stop after an
+		// error is NOT a success license — finish_reason and [DONE] never fire.
+		expect(s.sawStop()).toBe(false);
+		const f = s.flush();
+		expect(f).toEqual([]);
 	});
 
 	test("message_stop → finish frame + sawStop true (the [DONE] license)", () => {
@@ -162,10 +175,26 @@ describe("W1106.2 SSE bridge terminals", () => {
 		const res = new Response(upstreamBody, { headers: sseHeaders });
 		const translated = bodyOf(res).pipeThrough(anthropicToOpenAISse());
 		const text = await new Response(translated).text();
-		// the flush-RETRIED finish frame keeps the wire valid, but the
-		// [DONE] sentinel — the openai success marker — must NOT fabricate.
+		// W1124.4: a truncated source leaves the target equally truncated —
+		// no synthesized finish frame AND no [DONE] sentinel.
 		expect(text).not.toContain("data: [DONE]");
-		expect(text).toContain('"finish_reason":"stop"'); // retried finish
+		expect(text).not.toContain('"finish_reason":"stop"');
+	});
+
+	test("anthropic→openai: in-band error + message_stop → error chunk, NO finish/DONE", async () => {
+		const upstreamBody =
+			'event: message_start\ndata: {"type":"message_start","message":{"id":"m1","model":"claude-x","usage":{"input_tokens":1}}}\n\n' +
+			'event: error\ndata: {"type":"error","error":{"type":"api_error","message":"boom"}}\n\n' +
+			'event: message_stop\ndata: {"type":"message_stop"}\n\n';
+		const res = new Response(upstreamBody, { headers: sseHeaders });
+		const translated = bodyOf(res).pipeThrough(anthropicToOpenAISse());
+		const text = await new Response(translated).text();
+		// the failure poisons the terminal — the trailing message_stop is not
+		// a success license: error chunk passes through, finish_reason and
+		// [DONE] never fabricate.
+		expect(text).toContain('"error"');
+		expect(text).not.toContain('"finish_reason":"stop"');
+		expect(text).not.toContain("data: [DONE]");
 	});
 
 	test("anthropic→openai: full source (message_stop) → [DONE] sentinel", async () => {
