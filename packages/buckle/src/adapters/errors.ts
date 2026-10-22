@@ -38,6 +38,8 @@ export class RouterError extends Error {
 		public readonly retryAfterS: number | null = null,
 		public readonly contextWindow = false,
 		public readonly providerCode: string | number | null = null,
+		public readonly providerType: string | null = null,
+		public readonly traceId: string | null = null,
 	) {
 		super(message);
 	}
@@ -185,10 +187,66 @@ function retryAfterOf(headers: Headers | null, wire: unknown): number | null {
 	return null;
 }
 
-function errorMessage(wire: unknown, status: number): string {
-	const e = errorOf(wire);
-	const msg = str(e?.message) || str((wire as AnyRec)?.message);
-	return msg.length > 0 ? msg : `upstream error ${String(status)}`;
+/** Shared HTTP/SSE extraction: bounded, allowlisted fields, never raw payloads. */
+export function upstreamErrorDetail(
+	wire: unknown,
+	fallback = "upstream stream error",
+): {
+	message: string;
+	type: string;
+	code?: string | number;
+	trace_id?: string;
+} {
+	const records: AnyRec[] = [];
+	let cursor = wire;
+	for (
+		let depth = 0;
+		depth < 5 && cursor && typeof cursor === "object" && !Array.isArray(cursor);
+		depth++
+	) {
+		const record = cursor as AnyRec;
+		records.unshift(record);
+		cursor = record.error ?? record.cause;
+	}
+	const clean = (value: string): string =>
+		value
+			.slice(0, 4096)
+			.replace(/\/Users\/[^/\s'"]+/g, "~")
+			.replace(/\b(?:sk-|bksk_|ghp_)[A-Za-z0-9_-]+/g, "[redacted]")
+			.replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
+			.slice(0, 1024);
+	const pick = (...keys: string[]): string => {
+		for (const record of records)
+			for (const key of keys) {
+				const value = str(record[key]);
+				if (value.trim()) return clean(value);
+			}
+		return "";
+	};
+	const rawType = pick("type");
+	const code = records
+		.map((record) => record.code)
+		.find(
+			(value) =>
+				typeof value === "string" ||
+				(typeof value === "number" && Number.isFinite(value)),
+		);
+	const trace = pick("trace_id", "traceId");
+	return {
+		message: pick("message", "detail", "why", "title") || fallback,
+		type:
+			rawType &&
+			!["error", "response.failed", "response.incomplete"].includes(rawType) &&
+			!rawType.includes("://")
+				? rawType
+				: "api_error",
+		...(typeof code === "string"
+			? { code: clean(code) }
+			: typeof code === "number"
+				? { code }
+				: {}),
+		...(trace ? { trace_id: trace } : {}),
+	};
 }
 
 /** status/body/headers → RouterError. Precedence: body signature → status
@@ -214,17 +272,17 @@ export function normalizeUpstreamError(
 		fromStatus ??
 		(status >= 500 || status < 400 ? "server" : "bad_request");
 	const contextWindow = kind === "bad_request" && isContextWindow(wire);
+	const detail = upstreamErrorDetail(wire, `upstream error ${String(status)}`);
 	return new RouterError(
 		kind,
 		status,
-		errorMessage(wire, status),
+		detail.message,
 		family,
 		retryAfterOf(headers, wire),
 		contextWindow,
-		typeof errorOf(wire)?.code === "string" ||
-			typeof errorOf(wire)?.code === "number"
-			? (errorOf(wire)?.code as string | number)
-			: null,
+		detail.code ?? null,
+		detail.type === "api_error" ? null : detail.type,
+		detail.trace_id ?? null,
 	);
 }
 
@@ -235,9 +293,12 @@ export function routerErrorEnvelope(
 	message = error.message,
 ): Record<string, unknown> {
 	const detail = {
-		type: error.kind === "rate_limited" ? "rate_limit_error" : "api_error",
+		type:
+			error.providerType ??
+			(error.kind === "rate_limited" ? "rate_limit_error" : "api_error"),
 		message,
 		...(error.providerCode === null ? {} : { code: error.providerCode }),
+		...(error.traceId === null ? {} : { trace_id: error.traceId }),
 	};
 	return dialect === "anthropic"
 		? { type: "error", error: detail }
