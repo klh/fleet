@@ -29,6 +29,14 @@ decision-grade: it has to change what you would do. When a verdict flips
 
 ## Fleet coordination
 
+- **Priority-derived lane effort (W923 pin, retired by W1140)** — the
+  dispatch effort pin read `item.priority` off a string item id, so every
+  lane pinned "medium" regardless of graph state (dead code), and priority
+  alone is the wrong signal anyway — effort does not rescue wrong approaches
+  (SlopCodeBench wrong-reading failures rose 25→47 at max). Replaced by:
+  classification-driven pin from the machine-conf lane-effort policy
+  (verification-shaped → high, research → medium, unmatched → two-stage
+  implement low / verify high).
 - **Unbounded supervisor consult (W977.2)** — re-asking the coordination
   ledger per step (3 asks/item, retry budget 4) returned identical
   outcomes to 1 ask/item at 2.3× the consult volume (21 vs 9 calls,

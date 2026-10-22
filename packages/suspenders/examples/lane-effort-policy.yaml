@@ -1,0 +1,31 @@
+# lane-effort-policy.yaml — W1140: lane effort pinned by verification need,
+# never priority alone. First matching classify rule wins; unmatched items
+# ride the two-stage default (implement low → verify high — verification
+# runs in its own classify:high lane). Edit the RUNTIME copy at
+# ~/.claude/local-llm/lane-effort-policy.yaml (mode 600), never code.
+# Chain: SUSPENDERS_EFFORT_POLICY env pin → runtime .yaml/.json → built-in
+# defaults (hooks/lib/lane-effort-policy.ts EFFORT_POLICY_DEFAULTS — this
+# file mirrors them). Invalid conf = defaults + a surfaced warning.
+version: 1
+default: two-stage
+single_effort: medium
+classify:
+  - when: { tags_any: [verification, security, edgecase, hardware] }
+    effort: high
+  - when:
+      title_re: "\\b(verif|audit|security|edge[- ]?case|claim[- ]?check|hardware|reject|malformed|valid)\\w*"
+    effort: high
+  - when:
+      title_re: "\\b(research|explor|investigat|spike|compare|benchmark)\\b"
+    effort: medium
+  - when: { tags_any: [research, exploration] }
+    effort: medium
+  - when: { tags_any: [crud, rulebook, mechanical] }
+    effort: low
+two_stage:
+  implement: low
+  verify: high
+budgets:
+  low: 100000
+  medium: 200000
+  high: 300000
