@@ -24,6 +24,7 @@ import { attachSubscribe, subagentLaneSuffix } from "./lib/subscribe-attach.ts";
 import { sessionRole } from "./lib/coordinator-edit-gate.ts";
 import {
 	seedSupervisorRefill,
+	supervisorContractNotice,
 	supervisorRefillDirective,
 } from "./lib/supervisor-refill.ts";
 import {
@@ -360,11 +361,23 @@ if (mine.length || inbox > 0 || readyN > 0 || head) {
 	// sessions only: a subagent lane is not a loop-arming runtime, and a
 	// W1124.12 worker-role lane (the dispatch settings marker) is neither —
 	// it executes its claim instead of arming the refill loop.
+	// W1069: the contract body renders at EVERY top-level bootstrap from the
+	// one in-repo source — a fresh session in any project (fleet or not)
+	// receives the live supervisor contract, so stale prose in non-synced
+	// homes (global CLAUDE.md, repo AGENTS.md) can never arm a shallow loop.
+	// READY>0 keeps the arming header + W892 table; subagent and worker-role
+	// lanes stay exempt (neither is a loop-arming runtime, W1124.12).
+	if (!isSubagent && !isWorkerRole) {
+		out.push(
+			readyN > 0
+				? supervisorRefillDirective(readyN)
+				: supervisorContractNotice(),
+		);
+	}
 	if (readyN > 0 && !isSubagent && !isWorkerRole) {
 		// W899: the SUPERVISOR DEFAULT contract EMITS the W892 table —
 		// session-start only CALLS the one implementation (lib/work-report.ts),
 		// the same shape the install tail and lane briefs carry.
-		out.push(supervisorRefillDirective(readyN));
 		out.push(renderFleetReport(db as unknown as Database, project));
 	}
 }

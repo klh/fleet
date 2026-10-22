@@ -22,8 +22,26 @@ function lastEventId(db: Database, project: string): number {
 	return (db.query(EVENT_SQL).get(project) as { id: number }).id;
 }
 
+// W1069: the supervisor contract body — THE single source. The SessionStart
+// bootstrap emits it at every top-level session (READY pool empty or not),
+// the arm-line composes it when READY>0, and the push gate re-emits the
+// composed form mid-session. Prose homes outside the installed hook (the
+// global CLAUDE.md paragraph, repo AGENTS.md) are pointers, never copies:
+// edit here, install, and every session's next bootstrap carries the change.
+function contractBody(): string {
+	return `Tick: dispatch registry prune --all-dead, then work reclaim all — dead lanes' claims return to READY; steer live lanes before reclaiming: new owner instructions reach an active lane through coord message <sid> (or consult for a question), confirm receipt and let it adapt — never cancel the lane just to revise its prompt, and never reclaim a lane that is still alive. SUSPENDERS_LANE_MAX_ATTEMPTS bounds each item's relaunches (default 3). Follow up the same lane after completion if it can update the result; create a new lane only for a separate redo. Verify finished lanes and close with work done --sha if the lane didn't. Merges are adversarial: confirm the branch's evidence (result sha resolves, gates green) before merging — never ship your own riding branch on trust. dispatch (no --item) fills every free slot; if READY=0 and all lanes are done, CronDelete + report the drain; else reply: run bun ~/.claude/hooks/suspenders/bin/fleet-report.ts (one call, the installed face of the work report verb, W906) and emit its table verbatim in a fenced block, headed by one status line (lanes live x/N, READY n, dispatched); item numbers double as the #lanes?w=<id> deep-links (W890). Keep working owned items when slots are full.`;
+}
+
 export function supervisorRefillDirective(ready: number): string {
-	return `SUPERVISOR DEFAULT: READY ${ready} > 0 — arm the refill loop now (once per session, skip if one is armed): /loop refill: keep this project's lanes full until the READY pool is drained. Tick: deliver new owner instructions to an active lane through coord message <sid> (or consult for a question), confirm receipt and let it adapt; never cancel the lane just to revise its prompt. Follow up the same lane after completion if it can update the result; create a new lane only for a separate redo. Verify finished lanes and close with work done --sha if the lane didn't; dispatch (no --item) to fill every free slot; if READY=0 and all lanes are done, CronDelete + report the drain; else reply: run bun ~/.claude/hooks/suspenders/bin/fleet-report.ts (one call, the installed face of the work report verb, W906) and emit its table verbatim in a fenced block, headed by one status line (lanes live x/N, READY n, dispatched); item numbers double as the #lanes?w=<id> deep-links (W890). Keep working owned items when slots are full.`;
+	return `SUPERVISOR DEFAULT: READY ${ready} > 0 — arm the refill loop now (once per session, skip if one is armed): /loop refill: keep this project's lanes full until the READY pool is drained. ${contractBody()}`;
+}
+
+// W1069: the READY=0 bootstrap face — same body, neutral header. Every
+// top-level session (any project) receives the live contract at bootstrap,
+// so a fresh non-fleet session supervising future work never falls back to
+// stale prose recalled from a global config file.
+export function supervisorContractNotice(): string {
+	return `SUPERVISOR CONTRACT (the live in-repo text, injected at every bootstrap — prose copies elsewhere are pointers): when this session supervises lanes, arm the refill loop the moment READY>0 (/loop refill: keep this project's lanes full until the READY pool is drained). ${contractBody()}`;
 }
 
 export function seedSupervisorRefill(
