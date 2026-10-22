@@ -22,7 +22,7 @@ export { composeBrief };
 // — dispatch composes adapter.spawnArgs/verifyBrief-harness, no per-agent
 // branches. The spawn-args INTERFACE lives in scripts/lib/lane.ts.
 import { adapterFor } from "../hooks/lib/executors/registry.ts";
-import { effortForPriority } from "../hooks/lib/lane-effort.ts";
+import { dispatchLaneEffort } from "../hooks/lib/lane-effort-policy.ts";
 // W157 decomposition: the pure governance decisions live in their module;
 // re-exported so existing importers (tests, scripts) keep their path.
 import {
@@ -1049,7 +1049,7 @@ const dispatchItem = async (
 			env,
 			m,
 			BIN,
-			effortForPriority(item.priority),
+			dispatchLaneEffort(store, project, item),
 			pick.preference,
 			ROUTING_PREFER,
 		);

@@ -6,6 +6,7 @@
 import { existsSync } from "node:fs";
 import { briefIntel } from "../../hooks/lib/brief-intel.ts";
 import { projectIdentity } from "../../hooks/lib/govdb.ts";
+import { laneEffortBriefLine } from "../../hooks/lib/lane-effort-policy.ts";
 import { effortFromShow } from "../../hooks/lib/work-effort.ts";
 import { plaidPickOf, plaidRoutes } from "../../hooks/lib/plaid.ts";
 import { adapterFor } from "../../hooks/lib/executors/registry.ts";
@@ -65,6 +66,7 @@ export const composeDispatchBrief = (
 		itemCapsule: d.itemCapsuleGet(a.item),
 		agent: a.pick.agent,
 		effort: effortFromShow(a.show.out),
+		effortPolicy: laneEffortBriefLine(d.REPO, a.item),
 		...(a.landing !== undefined ? { landing: a.landing } : {}),
 		intel,
 		fleetReport: fleetReport(d.REPO),
