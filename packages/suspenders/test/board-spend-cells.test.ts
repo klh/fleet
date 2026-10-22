@@ -26,10 +26,14 @@ const esc = (s: unknown): string =>
 
 const taskPill = (state: unknown): string =>
 	`<span class="pill ${String(state).toLowerCase()}">${esc(state)}</span>`;
-const agoShort = (s: unknown): string => `${s || 0}s`;
-const workTone = new Function(`${CORE}\nreturn workTone;`)() as (
-	state: string,
-) => string;
+// W998: ago/agoShort/msAgo now eval from the CORE chunk bytes (the workTone
+// idiom) — kanbanCard's compact stamp rides them, so mirrors would drift.
+const coreFn = (name: string) =>
+	new Function(`${CORE}\nreturn ${name};`)() as (...args: unknown[]) => unknown;
+const agoShort = coreFn("agoShort") as (s: unknown) => string;
+const ago = coreFn("ago") as (s: unknown) => string;
+const msAgo = coreFn("msAgo") as (ts: number) => number;
+const workTone = coreFn("workTone") as (state: string) => string;
 
 type Item = Record<string, unknown>;
 
@@ -43,11 +47,13 @@ function chunkSandbox(): {
 		"esc",
 		"taskPill",
 		"agoShort",
+		"ago",
 		"workTone",
+		"msAgo",
 		"window",
 		`${TASKS}\nreturn { taskRow, taskTreeHtml, kanbanCard, laneStamp };`,
 	);
-	return fn(esc, taskPill, agoShort, workTone, {
+	return fn(esc, taskPill, agoShort, ago, workTone, msAgo, {
 		__execPrefs: [],
 		addEventListener: () => {},
 	});
@@ -103,18 +109,31 @@ describe("board spend cells (W776)", () => {
 		expect(row).toContain("322 tok/m · 18% cache");
 	});
 
-	test("lane timestamps show compact local time and preserve the full instant on hover", () => {
+	test("card dates compact to a relative update age with the full instant on hover (W998)", () => {
 		const { laneStamp, kanbanCard } = chunkSandbox();
-		const stamp = laneStamp("2026-10-19T15:44:54Z");
-		expect(stamp).toMatch(
+		// the tasks TABLE keeps the absolute compact stamp
+		expect(laneStamp("2026-10-19T15:44:54Z")).toMatch(
 			/<time datetime="2026-10-19T15:44:54\.000Z" title="[^"]*UTC 2026-10-19T15:44:54\.000Z">\d{2}\.\d{2}\.26 \d{2}:\d{2}<\/time>/,
 		);
+		// the kanban CARD swaps the wide DD.MM.YY HH:MM stamp for a relative
+		// age; the full instant survives on the <time> title
 		const card = kanbanCard({
 			...IKEA_ROW,
-			updated_at_utc: "2026-10-19T15:44:54Z",
+			updated_at_utc: new Date(Date.now() - 3 * 3_600_000).toISOString(),
 		});
-		expect(card).toContain(stamp);
-		expect(card).not.toContain("(local ");
+		expect(card).toMatch(
+			/<span class="kcardstamp dim"><time datetime="[^"]+" title="updated [^"]+ · UTC [^"]+">3h<\/time><\/span>/,
+		);
+		expect(card).not.toMatch(/\d{2}\.\d{2}\.\d{2} \d{2}:\d{2}/);
+	});
+
+	test("card age keeps its open-age label with the update stamp separate (W998)", () => {
+		const { kanbanCard } = chunkSandbox();
+		const card = kanbanCard({
+			...IKEA_ROW,
+			updated_at_utc: new Date(Date.now() - 3_600_000).toISOString(),
+		});
+		expect(card).toContain('title="open 10s ago">10s</span>');
 	});
 
 	test("Tasks keeps deep children under their own project parent", () => {
@@ -242,6 +261,13 @@ describe("board spend cells (W776)", () => {
 		expect(tip?.hidden).toBe(false);
 		const left = (tip?.style as { left: string } | undefined)?.left;
 		expect(Number.parseInt(String(left), 10)).toBeLessThan(180);
+	});
+
+	test("drawer failure detail renders the full note while the card keeps its compact first segment (W998)", () => {
+		// drawer path never slices the note (unclamped .failure-detail p,
+		// scrollable drawer); the card path keeps split(';')[0]
+		expect(TASKS).toContain("esc(String(t.failure_note))");
+		expect(TASKS).toContain(".split(';')[0]");
 	});
 });
 
