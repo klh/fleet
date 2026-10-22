@@ -484,6 +484,17 @@ export function renderDarwin(spec: ServiceSpec, values: RenderValues): string {
 		);
 	const env = {
 		...spec.env,
+		// launchd does not inherit an interactive shell's utility paths. Every
+		// service needs the system administration tools used for supervision.
+		PATH: [
+			...new Set([
+				...(spec.env.PATH ?? "").split(":").filter(Boolean),
+				"/usr/bin",
+				"/bin",
+				"/usr/sbin",
+				"/sbin",
+			]),
+		].join(":"),
 		...(existsSync(localCa) ? { NODE_EXTRA_CA_CERTS: localCa } : {}),
 	};
 	const envKeys = Object.keys(env);

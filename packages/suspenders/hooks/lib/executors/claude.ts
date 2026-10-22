@@ -15,6 +15,29 @@ import { join } from "node:path";
 // was exact-match and rejected `diff a b`); a prefix rule matches the
 // command TEXT — absolute-path invocations (/usr/local/bin/qlty) never
 // match a canonical-name rule and still prompt, narrowly, never broadly.
+// W1124.12 managed worker profile: a lane is a scoped worker, not a full
+// agent runtime — explicit empty MCP config + strict flag drops the 60–161
+// inherited tools/10 unrelated MCP servers, the built-in tool list is the
+// lane closure (Bash for git/bun/work/coord, Read/Edit/Write/Skill). Not
+// --bare (hooks stay live) and not --restricted (settings must apply).
+// Canonical compact JSON: spawnClaude single-quotes EVERY argv (W1124.12.1),
+// so the payload arrives byte-exact regardless of internal whitespace.
+export const WORKER_MANAGED_PROFILE = {
+	mcpConfig: '{"mcpServers":{}}',
+	tools: "Bash,Read,Edit,Write,Skill",
+};
+
+/** The managed-worker argv (W1124.12): one recipe for BOTH the spawn tail
+ *  and the starter seed turn — the seed must see the same session shape a
+ *  forked lane continues in. */
+export const workerManagedArgs = (): string[] => [
+	"--strict-mcp-config",
+	"--mcp-config",
+	WORKER_MANAGED_PROFILE.mcpConfig,
+	"--tools",
+	WORKER_MANAGED_PROFILE.tools,
+];
+
 export const CLAUDE_ALLOWED_TOOLS = [
 	// VCS + the runtime (git hooks, bun test, bun splices).
 	"Bash(git:*)",
@@ -69,6 +92,7 @@ export const claudeAdapter: ExecutorAdapter = {
 		allowedTools ?? CLAUDE_ALLOWED_TOOLS,
 		"--permission-mode",
 		"acceptEdits",
+		...workerManagedArgs(),
 		// same-bin chain tail rides claude's native --fallback-model (W183.2)
 		...(fallbackModels.length > 0
 			? ["--fallback-model", fallbackModels.join(",")]
@@ -81,7 +105,10 @@ export const claudeAdapter: ExecutorAdapter = {
 	forkArgs: (sessionId) => ["--resume", sessionId, "--fork-session"],
 	// W918.3: the one-turn starter seed argv — the only harness whose seed
 	// turn is probe-verified (W454/W768). lane-starter keys the seed on this.
+	// W1124.12: the seed rides the SAME managed profile as the spawn tail —
+	// a fork continues a session shaped like the one it will run in.
 	starterSeedArgs: (seed) => [
+		...workerManagedArgs(),
 		"-p",
 		seed,
 		"--output-format",

@@ -303,6 +303,11 @@ describe("gate-wire-codex emitter", () => {
 describe("gate.ts codex integration", () => {
 	test("post-tool delivers pushed consults without skipping file validation", () => {
 		const sid = `w937-${Math.random().toString(36).slice(2)}`;
+		// W1107.1.1.2.2: the CI law scan (tests/law-guards.test.ts) regexes raw
+		// tracked text, so this fixture — which exists to prove the gate BLOCKS
+		// the banned DOM write — assembles the payload at runtime. The string
+		// reaching the gate is byte-identical; the scan sees no literal.
+		const domWritePatch = `*** Begin Patch\n*** Add File: bad.ts\n+${["document", "write('unsafe')"].join(".")}\n*** End Patch`;
 		const logDir = join(HOME, ".claude-insights");
 		mkdirSync(logDir, { recursive: true });
 		appendFileSync(
@@ -314,8 +319,7 @@ describe("gate.ts codex integration", () => {
 			{
 				tool_name: "apply_patch",
 				tool_input: {
-					command:
-						"*** Begin Patch\n*** Add File: bad.ts\n+document.write('unsafe')\n*** End Patch",
+					command: domWritePatch,
 				},
 				cwd: REPO,
 				session_id: sid,

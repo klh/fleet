@@ -22,7 +22,7 @@ export { composeBrief };
 // — dispatch composes adapter.spawnArgs/verifyBrief-harness, no per-agent
 // branches. The spawn-args INTERFACE lives in scripts/lib/lane.ts.
 import { adapterFor } from "../hooks/lib/executors/registry.ts";
-import { effortForPriority } from "../hooks/lib/lane-effort.ts";
+import { dispatchLaneEffort } from "../hooks/lib/lane-effort-policy.ts";
 // W157 decomposition: the pure governance decisions live in their module;
 // re-exported so existing importers (tests, scripts) keep their path.
 import {
@@ -96,9 +96,6 @@ import {
 	readPosture,
 	recordPlaidTrace,
 } from "../hooks/lib/plaid.ts";
-// W1102.1: the plaid launch preflight (host-pressure hold + pool plan +
-// route pick) — its own module per the 1500-line law
-import { plaidLaunchPreflight } from "../scripts/lib/plaid-launch.ts";
 // W862: policy provenance rides the brief — read-only graph read, the
 // compliance check itself re-runs at the lane's session bootstrap
 import { policyBriefLines } from "../hooks/lib/session-policy.ts";
@@ -107,8 +104,12 @@ import {
 	policyForRepo,
 	tryLoadStack,
 } from "../hooks/lib/stack-config.ts";
+// W1102.1: the plaid launch preflight (host-pressure hold + pool plan +
+// route pick) — its own module per the 1500-line law
+import { plaidLaunchPreflight } from "../scripts/lib/plaid-launch.ts";
 import { recoverOrphanClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
+import { deferItem, isDeferredItem } from "./lib/dispatch-defers.ts";
 import { execPick, posturePreference } from "./lib/exec-chain.ts";
 import { fleetReport } from "./lib/fleet-report.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
@@ -653,9 +654,9 @@ const dispatchItem = async (
 			const show = run(workCli("show", item, "--json"));
 			if (show.code !== 0 || !isResumableClaim(show.out, item, sid)) {
 				console.log(
-					`SKIP ${item} — claimed elsewhere: ${take.out.split("\n")[0]}`,
+					`SKIP ${item} — claim could not be taken or resumed: ${take.out.split("\n")[0]}`,
 				);
-				return null;
+				return deferItem(item, show, sid);
 			}
 			// claimed by this sid from a previous dispatch attempt — resume
 		}
@@ -721,7 +722,7 @@ const dispatchItem = async (
 				console.log(
 					`SKIP ${item} — leftover worktree sits on ${cur || "(detached)"} AND is dirty — residue is never silently discarded; worktree.ts retire ${item} --force, then re-dispatch`,
 				);
-				return null;
+				return deferItem(item);
 			}
 			const skip = recreateWorktree(item, sid, claimRevision);
 			if (skip) {
@@ -736,7 +737,7 @@ const dispatchItem = async (
 			console.log(
 				`SKIP ${item} — worktree holds unbanked residue on the item branch — never spawn into unbanked state; worktree.ts retire ${item} --force, then re-dispatch`,
 			);
-			return null;
+			return deferItem(item);
 		}
 		const branch = cur || expected;
 		const show = run(workCli("show", item));
@@ -807,7 +808,7 @@ const dispatchItem = async (
 			console.log(
 				`SKIP ${item} — brief refused by ${adapter.briefHarness} verification: ${why} — launch refused; claim cleanup follows, nothing spawned`,
 			);
-			return null;
+			return deferItem(item);
 		}
 		if (!verdict.ok)
 			console.log(
@@ -985,8 +986,8 @@ const dispatchItem = async (
 		// .fleet/brief-<sid>.md is invisible to them. The .fleet copy stays for
 		// the orchestrator/board; the worktree copy is what the lane actually gets.
 		const prompt = `Lane ${sid}. Read ${wt}/.klh-brief.md (your readable worktree copy of the mission brief — canonical: ${briefFile}) and execute it fully.`;
-		// W454 starter sessions (default on since W768 — SUSPENDERS_LANE_STARTER
-		// =off cold-starts): fork a versioned shared-prefix starter session
+		// W454 starter sessions (W1124.12.1: default OFF — SUSPENDERS_LANE_STARTER
+		// =on/1 opts in): fork a versioned shared-prefix starter session
 		// instead of cold orientation; the seed
 		// rides a fleet identity (fleet-starter attribution slug), never the
 		// lane's minted key. Wiring lives in scripts/lib/lane-starter.ts.
@@ -1048,7 +1049,7 @@ const dispatchItem = async (
 			env,
 			m,
 			BIN,
-			effortForPriority(item.priority),
+			dispatchLaneEffort(store, project, item),
 			pick.preference,
 			ROUTING_PREFER,
 		);
@@ -1360,7 +1361,8 @@ const main = async (): Promise<void> => {
 		if (!canLaunch()) break;
 		const out = await dispatchItem(resume.item, live, resume);
 		if (out) dispatched.push(out);
-		else if (POSTURE === "plaid") {
+		// W1145: item-local deferrals don't stop the refill; global holds do.
+		else if (POSTURE === "plaid" && !isDeferredItem(resume.item)) {
 			plaidRefused = true;
 			break;
 		}
@@ -1427,7 +1429,7 @@ const main = async (): Promise<void> => {
 		if (!canLaunch()) break;
 		const out = await dispatchItem(r.id, live, undefined, dispatched.length);
 		if (out) dispatched.push(out);
-		else if (POSTURE === "plaid") {
+		else if (POSTURE === "plaid" && !isDeferredItem(r.id)) {
 			plaidRefused = true;
 			break;
 		}

@@ -27,6 +27,9 @@ const env: Record<string, string | undefined> = { ...process.env, HOME };
 env.TMPDIR = HOME;
 delete env.SUSPENDERS_SID;
 delete env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
+// W1124.12: a lane-role session never renders the supervisor directive —
+// strip the ambient role marker so a harness lane cannot leak it in.
+delete env.KLH_SESSION_ROLE;
 env.SUSPENDERS_BUCKLE_FRONT = "http://127.0.0.1:1";
 env.SUSPENDERS_BELT_ENV = join(HOME, "absent-belt.env");
 const hook = join(import.meta.dir, "..", "hooks", "session-start.ts");

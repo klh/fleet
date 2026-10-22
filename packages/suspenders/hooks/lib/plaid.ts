@@ -1,10 +1,12 @@
-// hooks/lib/plaid.ts — the plaid posture. Copilot and Z.ai are distinct
-// provider pools. Baselines guide fair initial fill, then each healthy pool
-// can keep growing; there is no numerical lane ceiling. One provider never
-// impersonates the other's route; a fully walled provider contributes zero
-// lanes (surfaced loudly). Every lane rides a real, quota-aware,
-// traced route; personal ChatGPT/Claude CLI seats are never labeled IKEA —
-// the ikea-* prefix is reserved for Copilot-provider routes, and only
+// hooks/lib/plaid.ts — the plaid posture. Copilot, Z.ai and the host's own
+// Belt models (provider `local`) are distinct provider pools. Baselines
+// guide fair initial fill, then each healthy pool can keep growing; there
+// is no numerical lane ceiling. One provider never impersonates the
+// other's route (a local lane is never copilot/zai capacity); a fully
+// walled provider contributes zero lanes (surfaced loudly). Every lane
+// rides a real, quota-aware, traced route; personal ChatGPT/Claude CLI
+// seats are never labeled IKEA — the ikea-* prefix is reserved for
+// Copilot-provider routes, `local-*` for the host's Belt models, and only
 // plaid-dispatched lanes carry a route fact at all.
 //
 // State: `.fleet/posture` (steady|plaid, parked/W503 file, fail-safe narrow
@@ -19,6 +21,13 @@ import type { ProviderPenalty } from "./exec-quota.ts";
 import { quotaProviderPenalty } from "./exec-quota.ts";
 import { adapterFor } from "./executors/registry.ts";
 import type { GovernorStore } from "./govdb.ts";
+import { readBoardSettings } from "./board-config.ts";
+import {
+	PLAID_PROVIDERS,
+	PLAID_ROUTES,
+	type PlaidRoute,
+	parsePlaidRoutes,
+} from "./plaid-route-config.ts";
 
 // ── posture file (.fleet/posture) ─────────────────────────────────────────
 
@@ -53,9 +62,18 @@ export const PLAID = {
 	baseline: 6,
 } as const;
 
-/** The two plaid provider pools (owner-named). */
-export const POOL_PROVIDERS = ["copilot", "zai"] as const;
+/** The plaid provider pools (owner-named; `local` = this host's Buckle-
+ *  backed Belt models — config-declared, never a default row, its own
+ *  attribution: local lanes are never copilot/zai capacity). */
+export const POOL_PROVIDERS = PLAID_PROVIDERS;
 export type PoolProvider = (typeof POOL_PROVIDERS)[number];
+
+/** Type-guard over the pool set (the routePin admission and the healthy-
+ *  pools filter read the same truth). */
+export const isPoolProvider = (
+	p: string | null | undefined,
+): p is PoolProvider =>
+	typeof p === "string" && (POOL_PROVIDERS as readonly string[]).includes(p);
 
 /** Steady uses its requested target; plaid has no total-width target. */
 export const postureWidth = (p: Posture, target: number): number | null =>
@@ -64,81 +82,11 @@ export const postureWidth = (p: Posture, target: number): number | null =>
 // ── routes: the owner-defined ride table (config-over-code: the machine
 // suspenders-board.json `plaid_routes` overrides these rows) ──────────────
 
-export interface PlaidRoute {
-	/** Route key — `ikea-*` is reserved for Copilot-provider rides. */
-	name: string;
-	/** Honest human label (the board shows it verbatim). */
-	label: string;
-	/** Executor chain token ("codex", "claude"); adapterFor resolves the bin. */
-	executor: string;
-	/** Belt model/group pin; null = the executor CLI rides its own config. */
-	model: string | null;
-	/** exec-quota provider key the route's health reads; null = exempt. */
-	provider: string | null;
-}
-
-/** Owner definition 2026-10-19; W989 truthfulness pass 2026-10-20: the
- *  codex executor rides the PERSONAL Codex CLI seat — it never touches the
- *  Copilot provider through Buckle — so it carries no ikea-* name and no
- *  pool provider (a personal seat is never pool capacity; bin-probed only,
- *  dispatchable only where a route pick reaches it outside the pools). The
- *  Copilot ride is the claude CLI pinned to claude-sonnet-5 (the Copilot
- *  seat serves the Anthropic wire). Table order IS the defined fallback:
- *  Copilot → glm (glm-flash the floor) → personal codex. */
-export const PLAID_ROUTES: PlaidRoute[] = [
-	{
-		name: "ikea-sonnet",
-		label: "IKEA Copilot Sonnet",
-		executor: "claude",
-		model: "claude-sonnet-5",
-		provider: "copilot",
-	},
-	{
-		name: "glm-5.3-flash",
-		label: "GLM 5.3 Flash",
-		executor: "claude",
-		model: "glm-5.3-flash",
-		provider: "zai",
-	},
-	{
-		name: "codex-personal",
-		label: "Codex (personal seat)",
-		executor: "codex",
-		model: null,
-		provider: null,
-	},
-];
-
-/** Route rows → validated table; junk rows/fields fall back to defaults
- *  (fail-safe narrow, same doctrine as readPosture). */
-export const plaidRoutes = (rows?: unknown): PlaidRoute[] => {
-	if (!Array.isArray(rows) || rows.length === 0) return PLAID_ROUTES;
-	const out: PlaidRoute[] = [];
-	for (const raw of rows) {
-		const r = raw as Partial<PlaidRoute>;
-		if (typeof r.name !== "string" || !r.name.trim()) return PLAID_ROUTES;
-		if (typeof r.executor !== "string" || !r.executor.trim())
-			return PLAID_ROUTES;
-		if (r.name.toLowerCase().startsWith("ikea-") && r.provider !== "copilot")
-			return PLAID_ROUTES; // the IKEA label is reserved (honesty law)
-		const label =
-			typeof r.label === "string" && r.label.trim()
-				? r.label.trim()
-				: r.name.trim();
-		out.push({
-			name: r.name.trim(),
-			label,
-			executor: r.executor.trim(),
-			model:
-				typeof r.model === "string" && r.model.trim() ? r.model.trim() : null,
-			provider:
-				typeof r.provider === "string" && r.provider.trim()
-					? r.provider.trim()
-					: null,
-		});
-	}
-	return out;
-};
+export { PLAID_ROUTES } from "./plaid-route-config.ts";
+export type { PlaidRoute } from "./plaid-route-config.ts";
+/** No argument reads the same live configuration used by health, planning and preview. */
+export const plaidRoutes = (rows?: unknown): PlaidRoute[] =>
+	rows === undefined ? plaidRouteTable() : parsePlaidRoutes(rows);
 
 // ── health, load, assignment ──────────────────────────────────────────────
 
@@ -163,15 +111,20 @@ export const plaidHealth = (
 	return health;
 };
 
-// machine-level override hook — plaidRoutes(rows) is pure; the board and
-// dispatch both read the same machine file so config and UI agree by
-// construction. Junk machine config = the committed defaults (fail-safe).
+// One runtime route source for board, dispatch, health and preview.
+// Test overrides are explicit; malformed operator configuration fails closed.
 let tableOverride: (() => PlaidRoute[]) | null = null;
 /** Set the route-table source (board-config's validated rows). */
 export const setPlaidRouteSource = (src: () => PlaidRoute[]): void => {
 	tableOverride = src;
 };
-const plaidRouteTable = (): PlaidRoute[] => tableOverride?.() ?? PLAID_ROUTES;
+const plaidRouteTable = (): PlaidRoute[] => {
+	if (tableOverride) return tableOverride();
+	const configured = readBoardSettings();
+	if (configured.error)
+		throw new Error(`Plaid route configuration: ${configured.error}`);
+	return configured.settings.plaid_routes ?? PLAID_ROUTES;
+};
 
 // ── W989: the configured-model probe (routes must reach their model
 // through the buckle front — W1019 lesson: a pin the front can't serve
@@ -337,9 +290,7 @@ export const plaidHealthyPools = (
 				.filter((r) => !health.get(r.name) && r.provider)
 				.map((r) => r.provider as PoolProvider),
 		),
-	].filter((p): p is PoolProvider =>
-		(POOL_PROVIDERS as readonly string[]).includes(p),
-	);
+	].filter(isPoolProvider);
 
 /** Next-lane allocation: fill healthy provider baselines, then pick the
  *  emptiest healthy pool indefinitely. Refusal/quota health is the stop. */
@@ -418,10 +369,10 @@ export interface PlaidStatus {
 	posture: Posture;
 	/** Null means dispatch continues while healthy READY work exists. */
 	width: null;
-	/** Live lanes per pool: copilot + zai. */
-	live: { copilot: number; zai: number };
+	/** Live lanes per pool: copilot + zai + local. */
+	live: { copilot: number; zai: number; local: number };
 	/** Baseline minimums still to fill, per pool. */
-	baselineOpen: { copilot: number; zai: number };
+	baselineOpen: { copilot: number; zai: number; local: number };
 	/** true when NO route is healthy anywhere. */
 	fallback: boolean;
 	routes: PlaidRouteView[];
@@ -444,19 +395,19 @@ export const plaidStatus = (
 	const quota = quotaProviderPenalty(store);
 	const health = plaidHealth(quota);
 	const load = routeLoadOf(store, liveSids);
+	const total = (p: PoolProvider): number => poolTotalOf(routes, load, p);
 	return {
 		posture: postureFactOf(store),
 		width: null,
 		live: {
-			copilot: poolTotalOf(routes, load, "copilot"),
-			zai: poolTotalOf(routes, load, "zai"),
+			copilot: total("copilot"),
+			zai: total("zai"),
+			local: total("local"),
 		},
 		baselineOpen: {
-			copilot: Math.max(
-				0,
-				PLAID.baseline - poolTotalOf(routes, load, "copilot"),
-			),
-			zai: Math.max(0, PLAID.baseline - poolTotalOf(routes, load, "zai")),
+			copilot: Math.max(0, PLAID.baseline - total("copilot")),
+			zai: Math.max(0, PLAID.baseline - total("zai")),
+			local: Math.max(0, PLAID.baseline - total("local")),
 		},
 		fallback: plaidHealthyPools(routes, health).length === 0,
 		routes: routes.map((r) => ({
@@ -589,10 +540,7 @@ export const plaidDispatch = (o: {
 		};
 	if (o.routePin) {
 		const route = g.routes.find((r) => r.name === o.routePin);
-		if (
-			!route?.provider ||
-			!(POOL_PROVIDERS as readonly string[]).includes(route.provider)
-		)
+		if (!route?.provider || !isPoolProvider(route.provider))
 			return {
 				skip: `plaid route ${o.routePin} is not a configured pool route`,
 				pick: {},

@@ -334,4 +334,41 @@ describe("merge-on-done units (W249)", () => {
 		).toBe("gone");
 		rmSync(repo, { recursive: true, force: true });
 	});
+
+	// W1124.16: the wait authorizes a merge — only a PROVEN-dead lane (explicit
+	// false) reads ready; an unknown probe (null) is never death: it waits out
+	// the deadline and lands as timeout (the loud defer).
+	test("awaitLaneExit: UNKNOWN (null) is never ready — waits out the deadline as timeout", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const wt = join(repo, ".worktrees", item);
+		g(repo, ["worktree", "add", "-b", `suspenders/${item}`, wt]);
+		mkdirSync(join(repo, ".fleet"), { recursive: true });
+		writeFileSync(join(repo, ".fleet", "lanes.json"), "[]");
+		expect(
+			await awaitLaneExit(repo, `suspenders/${item}`, 60, () => null, 20),
+		).toBe("timeout");
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	test("awaitLaneExit: unknown→proven-dead flip reads ready (null keeps polling)", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const wt = join(repo, ".worktrees", item);
+		g(repo, ["worktree", "add", "-b", `suspenders/${item}`, wt]);
+		mkdirSync(join(repo, ".fleet"), { recursive: true });
+		writeFileSync(join(repo, ".fleet", "lanes.json"), "[]");
+		let calls = 0;
+		expect(
+			await awaitLaneExit(
+				repo,
+				`suspenders/${item}`,
+				5_000,
+				() => (calls++ < 2 ? null : false),
+				20,
+			),
+		).toBe("ready");
+		expect(calls).toBeGreaterThanOrEqual(3);
+		rmSync(repo, { recursive: true, force: true });
+	});
 });

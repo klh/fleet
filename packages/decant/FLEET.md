@@ -56,7 +56,7 @@ rule set.
   (default: `work` on PATH).
 - `fleet/confidence.ts` — the ingest-time confidence stamp (owner addendum,
   2026-10-19): every ingested session gets `{value: 0.4, setter:
-  "mechanical:decant", verdict: "fresh"}` written by a fleet-owned AFTER
+"mechanical:decant", verdict: "fresh"}` written by a fleet-owned AFTER
   INSERT trigger on the `session` table — same transaction as the rows it
   grades, append-only history in `confidence_stamp`. Unit = the session
   derivation; consumers resolve row confidence through the session join.
@@ -84,6 +84,13 @@ carry W950 edits, all in the CLI/watch boundary layer:
    auto-sync injects the registry source list.
 3. `src/watch.ts` — `runSyncOnce()` opens its own database handle: installs
    the trigger there and injects the registry source list per sweep.
+
+One UI fix carries a fleet divergence (W1107.1.1.2.1, 2026-10-22):
+`src/ui/report-export.tsx` replaces upstream's `document.write` popup flow
+with the native fetch → `Blob` → object-URL navigation → print path (fleet
+UI law: never `document.write`; the report endpoint serves
+`content-disposition: attachment`, so fetch+blob is what keeps the popup
+on-screen). Re-apply on re-sync.
 
 Plus a fleet section added to `README.md` (the unencrypted-archive caveat).
 

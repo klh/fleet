@@ -113,6 +113,46 @@ export function offlineResolveArgs(): string[] {
 	];
 }
 
+/** The frozen production materialization: the exact graph the resolved
+ *  lock pins, scripts disabled. The same argv minus --offline is the one
+ *  bounded cold-cache archive fetch. */
+export function productionInstallArgs(): string[] {
+	return [
+		process.execPath,
+		"install",
+		"--production",
+		"--offline",
+		"--ignore-scripts",
+		"--frozen-lockfile",
+	];
+}
+
+export function productionFetchArgs(): string[] {
+	return productionInstallArgs().filter((arg) => arg !== "--offline");
+}
+
+/** W1124.6 cold-cache archive fallback: the W1050 resolver legs cache
+ *  manifests only — the frozen offline production install still needs the
+ *  locked package archives. On an offline materialization failure fetch
+ *  that exact frozen graph once (network, scripts disabled, no lock
+ *  drift) and retry offline; a failed fetch surfaces the ORIGINAL error
+ *  so an existing prefix is never replaced by a failed sync. */
+export async function materializeProduction(
+	stage: string,
+	run: (argv: string[], cwd: string) => Promise<void> = command,
+): Promise<void> {
+	try {
+		await run(productionInstallArgs(), stage);
+	} catch (offlineMaterializationError) {
+		try {
+			await run(productionFetchArgs(), stage);
+		} catch {
+			throw offlineMaterializationError;
+		}
+		await run(productionInstallArgs(), stage);
+	}
+}
+
 /** W1050 fail-early verdict: both ladder legs failed — name the remedy. */
 export function coldCacheVerdict(offline: unknown, fetch: unknown): Error {
 	const text = (error: unknown): string =>
@@ -382,17 +422,7 @@ export async function syncHarness(
 		// offline leg fetches once via the network and re-verifies offline; both
 		// legs failing fails the sync early with the remedy.
 		await materializeDependencies(stage);
-		await command(
-			[
-				process.execPath,
-				"install",
-				"--production",
-				"--offline",
-				"--ignore-scripts",
-				"--frozen-lockfile",
-			],
-			stage,
-		);
+		await materializeProduction(stage);
 		mkdirSync(join(stage, "node_modules"), { recursive: true });
 		// blam's package name is scoped (@klh/blam) — the link must sit at the
 		// scoped path or every `@klh/blam/...` import in the staged harness

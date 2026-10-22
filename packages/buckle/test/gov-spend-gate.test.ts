@@ -8,7 +8,10 @@ import { startMockUpstream } from "./mock.ts";
 
 const ROOT = "buckle-test-root";
 
-async function startGate(upstreamUrl: string): Promise<{
+async function startGate(
+	upstreamUrl: string,
+	ingressBodyTimeoutMs?: number,
+): Promise<{
 	base: string;
 	stop(): void;
 }> {
@@ -24,6 +27,7 @@ async function startGate(upstreamUrl: string): Promise<{
 		upstreamsPath: `${dir}.yaml`,
 		dbPath: ":memory:",
 		auth: { rootKey: ROOT },
+		...(ingressBodyTimeoutMs ? { ingressBodyTimeoutMs } : {}),
 	});
 	return {
 		base: `http://127.0.0.1:${server.port}`,
@@ -115,4 +119,32 @@ describe("gate: W843 team spend ceiling and the per-team report", () => {
 		gate.stop();
 		upstream.close();
 	});
+});
+
+// W1118: the bounded ingress body reader guards EVERY body path — a
+// stalled admin POST body must 408 under the shared deadline, proving
+// readBoundedJson owns the read (never an unbounded req.json() buffer).
+describe("gate: W1118 bounded ingress on the secondary body paths", () => {
+	test("stalled admin body answers 408, not an unbounded read", async () => {
+		const upstream = await startMockUpstream(() =>
+			Response.json({ id: "x", choices: [], usage: {} }),
+		);
+		const gate = await startGate(upstream.url, 100);
+		const body = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(
+					new TextEncoder().encode('{"team_id":"ops","name":'),
+				);
+			},
+		});
+		const res = await fetch(`${gate.base}/v1/admin/teams`, {
+			method: "POST",
+			headers: { authorization: `Bearer ${ROOT}` },
+			body,
+			duplex: "half",
+		});
+		expect(res.status).toBe(408);
+		gate.stop();
+		upstream.close();
+	}, 5_000);
 });

@@ -11,6 +11,8 @@
   <!-- W103: resolution root for source_ref hashing (trust markers on
        /search hits) + the default repo for POST /curate -->
   <key>EnvironmentVariables</key><dict>
+		<key>PATH</key>
+		<string>/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>KNOWLEDGE_REPO_ROOT</key><string>__REPO__</string>
   </dict>
   <key>StandardOutPath</key><string>__HOME__/.claude-insights/suspenders-knowledge-api.log</string>

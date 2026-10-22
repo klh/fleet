@@ -32,6 +32,7 @@ import {
 	overlayModuleGovSeam,
 } from "./gov/overlay-loader.ts";
 import { type AppDeps, createApp } from "./handlers.ts";
+import { MAX_REQUEST_BODY_BYTES } from "./ingress-body.ts";
 import type { RouteHint } from "./hints.ts";
 import { Ledger } from "./ledger.ts";
 import { ObservationOutbox } from "./observe.ts";
@@ -49,24 +50,20 @@ import { loadUpstreams } from "./upstreams.ts";
 export const SHADOW_PORT = 4101;
 export const FORBIDDEN_PORT = 4100;
 
-/** W450: Bun's connection idle timeout applies to quiet SSE streams — the
- *  10s default can kill a slow-generation body mid-flight. 0-255s per Bun's
- *  contract (0 disables); BUCKLE_IDLE_TIMEOUT_S overrides; default 120s. */
-export function resolveIdleTimeout(v?: string): number {
-	const raw = v ?? process.env.BUCKLE_IDLE_TIMEOUT_S;
-	const n = Number(raw);
-	if (raw === undefined || raw === "" || !Number.isFinite(n)) return 120;
-	return Math.min(255, Math.max(0, Math.floor(n)));
-}
+/** W1106 (owner directive 2026-10-21): Bun's HTTP idle timeout is DISABLED
+ *  globally — 0 for every request, no env knob, no per-request bypass. Bun
+ *  ignores outgoing bytes when arming the timer (real-Bun canary), so any
+ *  fixed value cuts quiet SSE turns (the ~120s fleet outage). Deadlines are
+ *  Buckle's own: the wire.ts upstream idle/total guards + first-byte budget
+ *  arbitrate every stream; this server imposes no connection timer. */
+export const BUN_IDLE_TIMEOUT = 0;
 
-/** W199.2 request-body cap: Bun's silent default is 128 MiB — an unbounded
- *  LLM ingress invites memory-hangup abuse. 32 MiB bounds a request while
- *  never touching a legitimate payload (200k-token contexts ≈ 1 MiB, image
- *  base64 well under); Bun answers 413 before the gate or ledger see it. */
-export const MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024;
+export { MAX_REQUEST_BODY_BYTES } from "./ingress-body.ts";
 
 export interface ServerOpts {
 	port?: number;
+	/** Test seam for the app-owned request-body deadline; production uses 120s. */
+	ingressBodyTimeoutMs?: number;
 	hostname?: string;
 	dbPath?: string;
 	policyPath?: string;
@@ -241,6 +238,7 @@ export function buildDeps(
 	const dbPath = opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db";
 	const federation = new Federation({
 		dbPath,
+		ingressBodyTimeoutMs: opts.ingressBodyTimeoutMs,
 		policy,
 		pool,
 		policyPath: opts.policyPath,
@@ -302,6 +300,7 @@ export function buildDeps(
 		prefixLedger,
 		diet,
 		observations,
+		ingressBodyTimeoutMs: opts.ingressBodyTimeoutMs,
 		hubId: process.env.BUCKLE_HUB_ID ?? "local",
 	};
 }
@@ -328,8 +327,10 @@ export function startServer(
 			jwt: opts.auth?.jwt ?? oidcGateOptsFromEnv() ?? undefined,
 			federation: deps.federation,
 			slots: opts.auth?.slots,
+			ingressBodyTimeoutMs: opts.ingressBodyTimeoutMs,
 			adaptation: opts.auth?.adaptation,
 			metrics: opts.auth?.metrics,
+			providerAdmission: () => deps.router.providerAdmissionSnapshot(),
 		},
 	);
 	const gated = authOn ? gov.gate(app.fetch) : app.fetch;
@@ -354,9 +355,12 @@ export function startServer(
 		// W199.2: the explicit body cap — over-cap requests get Bun's 413 and
 		// never reach the governance gate, the ledger or the pool.
 		maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
-		// W450: quiet streams survive longer than Bun's 10s connection-idle
-		// default (see resolveIdleTimeout for the knob and the range law).
-		idleTimeout: resolveIdleTimeout(),
+		// W1106 (owner directive 2026-10-21): Bun's HTTP idle timer is OFF
+		// for every request — a fixed connection cutoff cannot arbitrate
+		// quiet LLM streams (Bun ignores outgoing bytes; the ~120s fleet
+		// outage). Buckle's own guards (wire.ts upstream idle/total,
+		// first-byte budget) are the ONLY deadlines.
+		idleTimeout: BUN_IDLE_TIMEOUT,
 		fetch: inner,
 	});
 	return Object.assign(server, { gov }) as ReturnType<typeof Bun.serve> & {

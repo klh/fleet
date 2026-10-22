@@ -100,6 +100,9 @@ describe("AnthropicToOpenAIStream", () => {
 				}),
 			),
 			...tx.push(ev("message_delta", { delta: { stop_reason: "tool_use" } })),
+			// W1124.4: a complete source turn ends in message_stop — flush no
+			// longer retries the finish for a stream the source never terminated.
+			...tx.push(ev("message_stop", {})),
 			...tx.flush(),
 		];
 		const all = [...chunks, ...tail];

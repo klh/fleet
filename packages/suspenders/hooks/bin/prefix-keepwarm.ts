@@ -478,4 +478,8 @@ const main = async (): Promise<number> => {
 	return w.verdict === "fail" ? 1 : 0;
 };
 
-await main();
+// W1124.14: import-safe — llm-keepwarm.ts imports this module for the warm
+// helpers; the CLI warm pass must run only on DIRECT invocation, never as an
+// import side effect (the autonomous keepwarm pass would double-warm and
+// bypass its opt-in gate).
+if (import.meta.main) await main();

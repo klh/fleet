@@ -8,6 +8,7 @@ import { YAML } from "bun";
 import { ROUTER, SPECIALISTS } from "../../belt/bin/registry.ts";
 import { STACK_PATH } from "../hooks/lib/stack-config.ts";
 import { parseEnvBody } from "../hooks/lib/hub-provider-keys.ts";
+import { providerPoolIdOf } from "../../buckle/src/router.ts";
 import { runForcedFailoverDrill } from "../../buckle/src/forced-failover-drill.ts";
 import {
 	loadGatewayPolicy,
@@ -216,11 +217,26 @@ export async function checkRoutePreflight(
 	for (const [group, fallbacks] of Object.entries(
 		local.policy.fallbacks ?? {},
 	)) {
-		const fallback = fallbacks.find(
-			(name) => local.pool.deployments(name).length > 0,
+		const primary = local.pool.deployments(group);
+		if (primary.length === 0) continue;
+		const accounts = new Set(
+			primary.map(providerPoolIdOf).filter((id) => id !== null),
 		);
-		if (!fallback || local.pool.deployments(group).length === 0) continue;
 		for (const failureStatus of [429, 503] as const) {
+			// A 429 blocks the explicitly shared account, including its aliases.
+			// Prove delivery through an independent configured rung, not the alias.
+			const fallback =
+				fallbacks.find((name) =>
+					local.pool.deployments(name).some((dep) => {
+						const account = providerPoolIdOf(dep);
+						return (
+							failureStatus !== 429 ||
+							account === null ||
+							!accounts.has(account)
+						);
+					}),
+				) ?? fallbacks.find((name) => local.pool.deployments(name).length > 0);
+			if (!fallback) continue;
 			const report = await runForcedFailoverDrill({
 				policy: local.policy,
 				pool: local.pool,

@@ -26,6 +26,8 @@ export interface RemoteTraceAttempt {
 	duration_ms: number | null;
 	retry_after_ms: number | null;
 	call_id: string | null;
+	provider_pool: string | null;
+	queue_wait_ms: number | null;
 }
 
 export interface RemoteTraceResult {
@@ -33,6 +35,21 @@ export interface RemoteTraceResult {
 	status: "ok" | "unavailable" | "http_error" | "invalid_response";
 	http_status?: number;
 	attempts: RemoteTraceAttempt[];
+}
+
+/** W1097: the per-read coverage contract — what the connector ATTEMPTED for
+ *  this trace and what answered. Counts + status strings only (body-free:
+ *  no receipt rows, no tokens, no URLs). Present in every readRemoteTraces
+ *  answer so consumers get one uniform shape. */
+export interface RemoteTraceCoverage {
+	/** Configured peers evaluated this read (0 when unconfigured/invalid). */
+	hubs: number;
+	/** Peers that answered ok (with or without attempts for this trace). */
+	ok: number;
+	/** Peers that did not answer ok: unavailable, http_error, invalid. */
+	degraded: number;
+	/** Hub id → per-peer status, bounded by the 8-peer cap. */
+	by_hub: Record<string, string>;
 }
 
 function privateText(path: string, limit: number): string {
@@ -45,8 +62,12 @@ function privateText(path: string, limit: number): string {
 	return readFileSync(path, "utf8");
 }
 
-function peers(path: string): Peer[] {
-	const parsed = JSON.parse(privateText(path, 32_768)) as unknown;
+/** W1097: the peer-config law as a function of TEXT — the ONE validator both
+ *  the connector read path and the hubctl peers-file merge run before bytes
+ *  land (hubctl validates the merged file with the exact code that reads it).
+ *  Throws with the violation when any row breaks the law. */
+export function parsePeers(text: string): Peer[] {
+	const parsed = JSON.parse(text) as unknown;
 	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
 		throw new Error("invalid trace peers");
 	const rows = (parsed as { peers?: unknown }).peers;
@@ -82,6 +103,10 @@ function peers(path: string): Peer[] {
 	if (new Set(out.map((peer) => peer.hubId)).size !== out.length)
 		throw new Error("duplicate trace peer");
 	return out;
+}
+
+function peers(path: string): Peer[] {
+	return parsePeers(privateText(path, 32_768));
 }
 
 function safeInt(value: unknown, max: number): number | null {
@@ -187,12 +212,30 @@ async function readPeer(
 				duration_ms: safeInt(row.duration_ms, 3_600_000),
 				retry_after_ms: safeInt(row.retry_after_ms, 3_600_000),
 				call_id: label(row.call_id),
+				provider_pool: label(row.provider_pool),
+				queue_wait_ms: safeInt(row.queue_wait_ms, 3_600_000),
 			});
 		}
 		return { hub_id: peer.hubId, status: "ok", attempts };
 	} catch {
 		return empty;
 	}
+}
+
+/** The coverage block for one read — counts + status strings only. */
+export function coverageOf(peers: RemoteTraceResult[]): RemoteTraceCoverage {
+	const by_hub: Record<string, string> = {};
+	let ok = 0;
+	for (const peer of peers) {
+		by_hub[peer.hub_id] = peer.status;
+		if (peer.status === "ok") ok++;
+	}
+	return {
+		hubs: peers.length,
+		ok,
+		degraded: peers.length - ok,
+		by_hub,
+	};
 }
 
 /** Local Buckle calls all fixed peers; remote hubs are never selected by a
@@ -205,19 +248,20 @@ export async function readRemoteTraces(
 ): Promise<{
 	status: "ok" | "not_configured" | "invalid_config";
 	peers: RemoteTraceResult[];
+	coverage: RemoteTraceCoverage;
 }> {
-	if (!configPath) return { status: "not_configured", peers: [] };
-	if (!TRACE_ID.test(traceId)) return { status: "invalid_config", peers: [] };
+	if (!configPath)
+		return { status: "not_configured", peers: [], coverage: coverageOf([]) };
+	if (!TRACE_ID.test(traceId))
+		return { status: "invalid_config", peers: [], coverage: coverageOf([]) };
 	let configured: Peer[];
 	try {
 		configured = peers(configPath);
 	} catch {
-		return { status: "invalid_config", peers: [] };
+		return { status: "invalid_config", peers: [], coverage: coverageOf([]) };
 	}
-	return {
-		status: "ok",
-		peers: await Promise.all(
-			configured.map((peer) => readPeer(peer, traceId, request)),
-		),
-	};
+	const resolved = await Promise.all(
+		configured.map((peer) => readPeer(peer, traceId, request)),
+	);
+	return { status: "ok", peers: resolved, coverage: coverageOf(resolved) };
 }
