@@ -19,8 +19,11 @@ version: 1
 gateway:
   # Account pools are operator-owned. Every configured pool MUST explicitly
   # declare recovery, e.g. recovery: {successWindow: 8, decreasePercent: 20}.
-  # This experimental horizon removes one doubled gap after 32 healthy
-  # starts; it is not evidence of provider capacity. Limits remain separate.
+  # successWindow is the consecutive healthy evidence threshold, retained
+  # while healthy; each subsequent success can decrease pacing once per base
+  # start interval. It also bounds congestion episodes in observed feedback
+  # RTT samples. No idle decay; provider Retry-After always remains binding.
+  # These feedback controls do not establish provider capacity.
   num_retries: 1
   allowed_fails: 3
   cooldown_time: 30
