@@ -344,7 +344,7 @@ describe("ask-gate answer delivery (W861)", () => {
 	});
 });
 
-// ---- W860: the --wire install merge must land + converge the ask group ----
+// ---- W860: the wireSettings install merge must land + converge the ask group ----
 // W817 shipped the gate + the example group, but the live machine's
 // ~/.claude/settings.json never got it: the per-event merge had no
 // convergence beyond exact-JSON equality, and nothing covered the wire
@@ -353,19 +353,22 @@ describe("ask-gate answer delivery (W861)", () => {
 const INSTALL = join(import.meta.dir, "..", "scripts", "install.ts");
 
 function wireHome(home: string): { code: number; out: string; err: string } {
-	const p = Bun.spawnSync(["bun", INSTALL, "--wire", "--json"], {
-		cwd: join(import.meta.dir, ".."),
-		env: {
-			...process.env,
-			HOME: home,
-			// pin the companion wires' targets — the extras legs must never
-			// touch ambient machine state from a fixture test
-			SUSPENDERS_CODEX_HOOKS: join(home, ".codex", "hooks.json"),
-			SUSPENDERS_COPILOT_SETTINGS: join(home, ".copilot", "settings.json"),
+	const p = Bun.spawnSync(
+		["bun", INSTALL, "--step", "wireSettings", "--yes", "--json"],
+		{
+			cwd: join(import.meta.dir, ".."),
+			env: {
+				...process.env,
+				HOME: home,
+				// pin the companion wires' targets — the extras legs must never
+				// touch ambient machine state from a fixture test
+				SUSPENDERS_CODEX_HOOKS: join(home, ".codex", "hooks.json"),
+				SUSPENDERS_COPILOT_SETTINGS: join(home, ".copilot", "settings.json"),
+			},
+			stdout: "pipe",
+			stderr: "pipe",
 		},
-		stdout: "pipe",
-		stderr: "pipe",
-	});
+	);
 	return {
 		code: p.exitCode,
 		out: p.stdout.toString(),
@@ -378,7 +381,20 @@ function upsGroups(home: string): unknown[] {
 	) as { hooks?: { UserPromptSubmit?: unknown[] } };
 	return doc.hooks?.UserPromptSubmit ?? [];
 }
-describe("ask-gate --wire install merge (W860)", () => {
+// countCmd — hook-role counting, not group counting: the example file's
+// group set grows with the fleet (W860 landed ask alone; claude-wake rides
+// alongside since W1124) — assertions pin roles, never the total.
+function countCmd(groups: unknown[], needle: string): number {
+	return groups.flatMap((g) => {
+		const hooks = (g as { hooks?: unknown }).hooks;
+		return Array.isArray(hooks)
+			? hooks.filter((h) =>
+					String((h as { command?: unknown }).command ?? "").includes(needle),
+				)
+			: [];
+	}).length;
+}
+describe("ask-gate wireSettings install merge (W860)", () => {
 	// the live-machine shape: 3 unrelated UPS groups from other tooling —
 	// --wire adds exactly the 4th (ask)
 	const preseed = {
@@ -405,13 +421,16 @@ describe("ask-gate --wire install merge (W860)", () => {
 	afterAll(() => {
 		for (const h of homes) rmSync(h, { recursive: true, force: true });
 	});
-	test("fresh --wire lands the ask group: 4 UPS groups incl. ask", () => {
+	test("fresh wireSettings lands the ask group: 3 unrelated + ask + claude-wake", () => {
 		const home = homeWith(preseed);
 		const r = wireHome(home);
 		expect(r.code).toBe(0);
 		const groups = upsGroups(home);
-		expect(groups).toHaveLength(4);
-		expect(JSON.stringify(groups)).toContain("gate.ts ask");
+		// role-counted, never group-counted: the example ships ask AND
+		// claude-wake since W1124 — both must land exactly once each
+		expect(countCmd(groups, "gate.ts ask")).toBe(1);
+		expect(countCmd(groups, "gate.ts claude-wake")).toBe(1);
+		expect(countCmd(groups, "echo unrelated")).toBe(3);
 	}, 20000);
 	test("re-run is idempotent: wire-written doc adds nothing", () => {
 		const home = homeWith(preseed);
@@ -420,7 +439,9 @@ describe("ask-gate --wire install merge (W860)", () => {
 		expect(second.code).toBe(0);
 		const doc = JSON.parse(second.out) as { steps?: { note?: string }[] };
 		expect(doc.steps?.[0]?.note).toContain("0 new hook entries");
-		expect(upsGroups(home)).toHaveLength(4);
+		const groups = upsGroups(home);
+		expect(countCmd(groups, "gate.ts ask")).toBe(1);
+		expect(countCmd(groups, "gate.ts claude-wake")).toBe(1);
 	}, 20000);
 	test("hand-healed ask group converges — never duplicated on wire", () => {
 		const home = mkdtempSync(join(tmpdir(), "suspenders-w860-"));
@@ -451,19 +472,10 @@ describe("ask-gate --wire install merge (W860)", () => {
 		const r = wireHome(home);
 		expect(r.code).toBe(0);
 		const groups = upsGroups(home);
-		expect(groups).toHaveLength(4);
-		// merge, never clobber: the hand-healed form survives untouched
-		expect(JSON.stringify(groups)).toContain("/gate.ts ask");
-		const askCommands = groups.flatMap((g) => {
-			const hooks = (g as { hooks?: unknown }).hooks;
-			return Array.isArray(hooks)
-				? hooks.filter((h) =>
-						String((h as { command?: unknown }).command ?? "").includes(
-							"gate.ts ask",
-						),
-					)
-				: [];
-		});
-		expect(askCommands).toHaveLength(1);
+		// merge, never clobber: the hand-healed form survives untouched and
+		// un-duplicated; unrelated groups still present
+		expect(countCmd(groups, "gate.ts ask")).toBe(1);
+		expect(countCmd(groups, "/gate.ts ask")).toBe(1);
+		expect(countCmd(groups, "echo unrelated")).toBe(3);
 	}, 20000);
 });

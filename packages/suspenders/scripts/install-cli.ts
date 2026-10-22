@@ -92,7 +92,6 @@ export function parseFlags(
 	const rawProfile = raw.profile;
 	const profile =
 		rawProfile === "spoke" || rawProfile === "hub" ? rawProfile : undefined;
-	const effectiveStep = wire && step === null ? "wireSettings" : step;
 	const hub =
 		typeof raw.hub === "string" && raw.hub.trim() !== "" ? raw.hub : null;
 	const confirm =
@@ -109,7 +108,7 @@ export function parseFlags(
 		yes: bool("yes") || wire,
 		verbose: bool("verbose"),
 		wire,
-		step: effectiveStep,
+		step,
 		wireRepo,
 		profile: profile ?? "hub",
 		prune: bool("prune"),
@@ -173,13 +172,7 @@ export function parseFlags(
 			flags,
 		};
 	}
-	if (wire && step !== null && step !== "wireSettings") {
-		return {
-			error: "--wire is only valid with --step wireSettings",
-			flags,
-		};
-	}
-	if (wireRepo !== null && effectiveStep !== "wireSettings") {
+	if (wireRepo !== null && step !== "wireSettings") {
 		return {
 			error: "--wire-repo is only valid with --step wireSettings",
 			flags,
