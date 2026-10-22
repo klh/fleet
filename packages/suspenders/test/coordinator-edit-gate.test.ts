@@ -7,12 +7,14 @@
 // (W1124.9).
 import { afterAll, describe, expect, test } from "bun:test";
 import {
+	existsSync,
 	mkdirSync,
 	readFileSync,
 	realpathSync,
 	readdirSync,
 	mkdtempSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -162,9 +164,12 @@ function spawnGate(
 	cwd: string,
 	target: string,
 	env: Record<string, string>,
+	createTarget = true,
 ): { code: number; decision: string; reason: string } {
-	mkdirSync(join(target, ".."), { recursive: true });
-	writeFileSync(target, "placeholder\n");
+	if (createTarget) {
+		mkdirSync(join(target, ".."), { recursive: true });
+		writeFileSync(target, "placeholder\n");
+	}
 	const payload = {
 		tool_name: "Write",
 		tool_input: { file_path: target, content: "export const x = 1;\n" },
@@ -199,6 +204,18 @@ const envRole = (role?: string) => ({
 });
 
 describe("coordinatorEditGate (gate-level)", () => {
+	test("coordinator new structural target through a symlinked checkout denies", () => {
+		const alias = join(tmp, "fleet-alias");
+		symlinkSync(root, alias, "dir");
+		// Neither the leaf nor its parent directories exist: resolve the
+		// nearest existing ancestor without materializing the target first.
+		const target = join(alias, "new-directory", "deeper", "new.ts");
+		expect(existsSync(target)).toBe(false);
+		const r = spawnGate(alias, target, envRole("coordinator"), false);
+		expect(r.decision).toBe("deny");
+		expect(r.reason).toContain("coordinator-edit-gate");
+		expect(existsSync(target)).toBe(false);
+	});
 	test("coordinator structural write denies with the redirect", () => {
 		const r = spawnGate(root, join(root, "src", "main.ts"), envRole(undefined));
 		expect(r.decision).toBe("deny");

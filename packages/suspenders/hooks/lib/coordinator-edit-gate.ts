@@ -31,12 +31,29 @@
 // dispatch-it-instead redirect. SUSPENDERS_COORD_EDIT_GATE=0 disables
 // (owner kill switch, the scrub-gate pattern).
 import { existsSync, realpathSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { RECEIPT_FILE } from "./harness-manifest.ts";
 import { resolveFleetLane } from "./fleetlane.ts";
 import { deny, type HookInput } from "./hookio.ts";
 
 const EDIT_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
+
+/** Resolve existing ancestors too: Write may create a file or directory tree
+ * that does not exist yet, beneath a symlink spelling of a verified root. */
+function canonicalTargetPath(path: string): string {
+	let ancestor = path;
+	const missing: string[] = [];
+	for (;;) {
+		try {
+			return resolve(realpathSync(ancestor), ...missing.toReversed());
+		} catch {
+			const parent = dirname(ancestor);
+			if (parent === ancestor) return path;
+			missing.push(basename(ancestor));
+			ancestor = parent;
+		}
+	}
+}
 
 // Fleet repo root for cwd — verified identity, never the bare directory-
 // shape ancestor walk (W1124.9): the shape must sit at a VERIFIED boundary.
@@ -130,7 +147,7 @@ export function coordinatorEditGate(hook: HookInput): void {
 	const abs = isAbsolute(f) ? resolve(f) : resolve(root, f);
 	// The root is real (git resolves symlinks); compare the target's real
 	// path too so /tmp-style spellings of an in-root target still gate.
-	const real = existsSync(abs) ? realpathSync(abs) : abs;
+	const real = canonicalTargetPath(abs);
 	if (!abs.startsWith(`${root}/`) && !real.startsWith(`${root}/`)) {
 		return; // outside the repo: ops surface
 	}
