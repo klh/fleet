@@ -52,7 +52,7 @@ async function measure(page: Page, board: Board) {
 		);
 		await route.fulfill({ response, json: payload });
 	});
-	await page.goto(`${mustBoard().BASE}/#lanes`);
+	await page.goto(`${board.BASE}/#lanes`);
 	// the kanban renders after the polled fetch — wait for the injected cards
 	await page
 		.locator('.kcard[data-kid^="W90"]')
