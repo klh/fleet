@@ -79,18 +79,20 @@ describe("W468 admission-control slots", () => {
 		const limits = { global: 1, perTeam: 0 };
 		const a = new Slots(db, limits);
 		const b = new Slots(db, limits);
-		expect(a.acquire(null)).toBe(true);
-		expect(b.acquire(null)).toBe(false);
-		a.release(null);
-		expect(b.acquire(null)).toBe(true);
+		const la = a.acquire(null);
+		expect(la).not.toBeNull();
+		expect(b.acquire(null)).toBeNull();
+		la?.release();
+		expect(b.acquire(null)).not.toBeNull();
 	});
 
 	test("per-team cap isolates the noisy team", () => {
 		const { db } = fileDb();
 		const s = new Slots(db, { global: 0, perTeam: 1 });
-		expect(s.acquire("noisy")).toBe(true);
-		expect(s.acquire("noisy")).toBe(false);
-		expect(s.acquire("quiet")).toBe(true);
+		const ln = s.acquire("noisy");
+		expect(ln).not.toBeNull();
+		expect(s.acquire("noisy")).toBeNull();
+		expect(s.acquire("quiet")).not.toBeNull();
 		expect(s.held().teams).toEqual({ noisy: 1, quiet: 1 });
 	});
 
@@ -99,11 +101,77 @@ describe("W468 admission-control slots", () => {
 		const { db } = fileDb();
 		const limits = { global: 1, perTeam: 0 };
 		const holder = new Slots(db, limits, () => t, 60_000);
-		expect(holder.acquire(null)).toBe(true);
+		expect(holder.acquire(null)).not.toBeNull();
 		t += 61_000;
 		const next = new Slots(db, limits, () => t, 60_000);
-		expect(next.acquire(null)).toBe(true);
+		expect(next.acquire(null)).not.toBeNull();
 		expect(next.held().global).toBe(1);
+	});
+
+	test("W1118: a live stream that renews is NEVER swept (per-holder rows)", () => {
+		let t = 1_000_000;
+		const { db } = fileDb();
+		const limits = { global: 1, perTeam: 0 };
+		const s = new Slots(db, limits, () => t, 60_000);
+		const live = s.acquire(null);
+		expect(live).not.toBeNull();
+		// the aggregate repro: a live stream left untouched while the sweep
+		// ran used to free its slot; per-holder rows + renew keep it exact
+		t += 61_000;
+		live?.renew();
+		t += 1_000;
+		expect(s.acquire(null)).toBeNull(); // global=1, the live stream holds it
+		expect(s.held().global).toBe(1);
+		live?.release();
+		expect(s.acquire(null)).not.toBeNull();
+	});
+
+	test("W1118: a non-renewing holder ages out as a whole row", () => {
+		let t = 2_000_000;
+		const { db } = fileDb();
+		const limits = { global: 1, perTeam: 0 };
+		const s = new Slots(db, limits, () => t, 60_000);
+		const stale = s.acquire(null);
+		expect(stale).not.toBeNull();
+		t += 61_000; // no renew — the holder is dead
+		expect(s.acquire(null)).not.toBeNull(); // sweep freed the slot
+		expect(s.held().global).toBe(1);
+		stale?.release(); // late release is a no-op on swept rows
+		expect(s.held().global).toBe(1);
+	});
+
+	test("W1118: a quiet stream holds past leaseMs via hold() — bounded when holds stop", () => {
+		let t = 3_000_000;
+		const { db } = fileDb();
+		const limits = { global: 1, perTeam: 0 };
+		const s = new Slots(db, limits, () => t, 60_000);
+		const quiet = s.acquire(null);
+		expect(quiet).not.toBeNull();
+		t += 61_000; // past the base lease with ZERO chunks (the W1106 canary)
+		quiet?.hold(60_000); // the middleware heartbeat move: deadline re-arms
+		t += 5_000;
+		expect(s.acquire(null)).toBeNull(); // quiet stream still holds the slot
+		expect(s.held().global).toBe(1);
+		t += 120_000; // holds stop (crash) — the deadline ages out
+		expect(s.acquire(null)).not.toBeNull(); // sweep reclaimed it
+		expect(s.held().global).toBe(1);
+	});
+
+	test("W1118: separate WAL connections cannot both take the last slot", () => {
+		const { path } = fileDb();
+		const limits = { global: 1, perTeam: 0 };
+		const open = (): Database => {
+			const d = new Database(path);
+			d.exec("PRAGMA busy_timeout = 5000");
+			return d;
+		};
+		const a = new Slots(open(), limits);
+		const b = new Slots(open(), limits);
+		const la = a.acquire(null);
+		expect(la).not.toBeNull();
+		expect(b.acquire(null)).toBeNull();
+		la?.release();
+		expect(b.acquire(null)).not.toBeNull();
 	});
 
 	test("slotsFromEnv: defaults shape a bare install, 0 disables", () => {

@@ -60,12 +60,27 @@ export function resolveIdleTimeout(v?: string): number {
 	return Math.min(255, Math.max(0, Math.floor(n)));
 }
 
+/** W1118 #55606: admission slot lease — the sweep deadline a slot holder
+ *  keeps without renewing. BUCKLE_SLOT_LEASE_MS overrides; default 120s;
+ *  nonsense values fall back to the default (never 0 — a 0 lease would
+ *  sweep live holders immediately). */
+export function resolveSlotLeaseMs(v?: string): number {
+	const raw = v ?? process.env.BUCKLE_SLOT_LEASE_MS;
+	const n = Number(raw);
+	if (raw === undefined || raw === "" || !Number.isFinite(n) || n <= 0)
+		return 120_000;
+	return Math.floor(n);
+}
+
 export { MAX_REQUEST_BODY_BYTES } from "./ingress-body.ts";
 
 export interface ServerOpts {
 	port?: number;
 	/** Test seam for the app-owned request-body deadline; production uses 120s. */
 	ingressBodyTimeoutMs?: number;
+	/** W1118 #55606: admission slot lease (ms) — BUCKLE_SLOT_LEASE_MS
+	 *  overrides; default 120s. Tests shrink it for deterministic sweeps. */
+	slotLeaseMs?: number;
 	hostname?: string;
 	dbPath?: string;
 	policyPath?: string;
@@ -329,6 +344,7 @@ export function startServer(
 			jwt: opts.auth?.jwt ?? oidcGateOptsFromEnv() ?? undefined,
 			federation: deps.federation,
 			slots: opts.auth?.slots,
+			slotLeaseMs: opts.slotLeaseMs ?? resolveSlotLeaseMs(),
 			ingressBodyTimeoutMs: opts.ingressBodyTimeoutMs,
 			adaptation: opts.auth?.adaptation,
 			metrics: opts.auth?.metrics,
