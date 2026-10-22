@@ -19,8 +19,35 @@ import {
 	checkReviewReceipt,
 	reviewContext,
 	recordLanding,
+	type ReviewContext,
 } from "../hooks/lib/review-receipt.ts";
 import type { GovernorStore } from "../hooks/lib/govdb-store.ts";
+
+function seedCompletion(
+	db: Database,
+	item: string,
+	context: ReviewContext,
+): void {
+	db.exec(
+		"CREATE TABLE IF NOT EXISTS work_completion_records(project TEXT,item TEXT,summary TEXT,summary_hash TEXT,commit_sha TEXT,baseline_sha TEXT,completed_by TEXT,completed_at INTEGER,capsule_json TEXT,evidence_json TEXT)",
+	);
+	db.query(
+		"INSERT INTO work_completion_records(project,item,summary,summary_hash,commit_sha,baseline_sha,completed_by,completed_at,capsule_json,evidence_json) VALUES (?,?,'fixture',?,?,?,'fixture-author',?,'{}','{}')",
+	).run(
+		MY_PROJ,
+		item,
+		"0".repeat(64),
+		context.commit,
+		context.base,
+		Date.now(),
+	);
+	db.query(
+		"UPDATE work_items SET state='DONE',result_sha=? WHERE project=? AND id=?",
+	).run(context.commit, MY_PROJ, item);
+	db.query(
+		"INSERT OR REPLACE INTO facts(key,value,source,version,ts) VALUES ('lane.fixture-author.model','fixture-model','fixture',1,?)",
+	).run(Date.now());
+}
 
 setDefaultTimeout(120_000);
 
@@ -270,22 +297,7 @@ describe("W634 review-lane coverage proof (Sinai rule)", () => {
 					.query("SELECT sid FROM sessions WHERE sid=? AND project=?")
 					.get(event.source, MY_PROJ),
 			).toBeTruthy();
-			db.exec(
-				"CREATE TABLE IF NOT EXISTS work_completion_records(project TEXT,item TEXT,summary TEXT,summary_hash TEXT,commit_sha TEXT,baseline_sha TEXT,completed_by TEXT,completed_at INTEGER,capsule_json TEXT,evidence_json TEXT)",
-			);
-			db.query(
-				"INSERT INTO work_completion_records(project,item,summary,summary_hash,commit_sha,baseline_sha,completed_by,completed_at,capsule_json,evidence_json) VALUES (?,?,'fixture',?,?,?,'fixture-author',?,'{}','{}')",
-			).run(
-				MY_PROJ,
-				item,
-				"0".repeat(64),
-				context.commit,
-				context.base,
-				Date.now(),
-			);
-			db.query(
-				"UPDATE work_items SET state='DONE',result_sha=? WHERE project=? AND id=?",
-			).run(context.commit, MY_PROJ, item);
+			seedCompletion(db, item, context);
 			const store = db as unknown as GovernorStore;
 			const result = guardedMerge({
 				repo,
@@ -308,6 +320,125 @@ describe("W634 review-lane coverage proof (Sinai rule)", () => {
 			).toEqual({ kind: "work.landed" });
 		} finally {
 			db.close();
+		}
+	});
+
+	test("canonical missing review schedules existing runner through scoped Buckle then lands", async () => {
+		const item = addWork("automatic review fixture");
+		expect(git(["checkout", "-b", `suspenders/${item}`]).code).toBe(0);
+		await Bun.write(join(REPO, "automatic.md"), "Documented fixture change.\n");
+		git(["add", "automatic.md"]);
+		git(["commit", "-m", "automatic fixture"]);
+		git(["checkout", "main"]);
+		const context = reviewContext(realpathSync(REPO), `suspenders/${item}`);
+		const db = new Database(DB_PATH);
+		seedCompletion(db, item, context);
+		let minted = 0,
+			inferred = 0,
+			revoked = 0;
+		const server = Bun.serve({
+			port: 0,
+			fetch: async (req) => {
+				const path = new URL(req.url).pathname;
+				if (path === "/v1/admin/keys") {
+					minted += 1;
+					return Response.json({
+						key: "bksk_fixture_review",
+						key_id: "fixture-review-key",
+					});
+				}
+				if (path.endsWith("/revoke")) {
+					revoked += 1;
+					return Response.json({ ok: true });
+				}
+				if (/^\/w\/review-[^/]+\/v1\/chat\/completions$/.test(path)) {
+					inferred += 1;
+					expect(req.headers.get("authorization")).toBe(
+						"Bearer bksk_fixture_review",
+					);
+					const body = (await req.json()) as {
+						model: string;
+						messages: { content: string }[];
+					};
+					expect(body.model).toBe("fixture-model");
+					expect(body.messages[0].content).toContain(context.commit);
+					return Response.json({
+						choices: [
+							{ message: { content: "No blocking findings.\nVERDICT: PASS" } },
+						],
+					});
+				}
+				return new Response("unexpected endpoint", { status: 404 });
+			},
+		});
+		const ship = async () => {
+			const p = Bun.spawn(
+				[
+					"bun",
+					join(BIN, "fleet-loop.ts"),
+					"ship",
+					"--repo",
+					realpathSync(REPO),
+					"--branch",
+					`suspenders/${item}`,
+				],
+				{
+					cwd: REPO,
+					env: {
+						...env,
+						GOVERNOR_STORE_URL: "",
+						FLEET_UNTRACKED_GRACE_MS: "0",
+						SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${server.port}`,
+						BUCKLE_ADMIN_KEY: "fixture-admin",
+					},
+					stdout: "pipe",
+					stderr: "pipe",
+				},
+			);
+			await new Response(p.stdout).text();
+			await p.exited;
+		};
+		try {
+			await Bun.write(join(REPO, ".fleet/lanes.json"), "[]");
+			await ship();
+			expect(git(["rev-parse", "HEAD"]).out.trim()).toBe(context.base);
+			for (
+				let i = 0;
+				i < 100 &&
+				!db
+					.query(
+						"SELECT id FROM events WHERE kind='work.review' AND json_extract(payload,'$.work')=?",
+					)
+					.get(item);
+				i += 1
+			)
+				await Bun.sleep(50);
+			expect(
+				db
+					.query(
+						"SELECT id FROM events WHERE kind='work.review' AND json_extract(payload,'$.work')=?",
+					)
+					.get(item),
+			).toBeTruthy();
+			await ship();
+			expect(
+				git(["merge-base", "--is-ancestor", context.commit, "HEAD"]).code,
+			).toBe(0);
+			expect(
+				db
+					.query(
+						"SELECT id FROM events WHERE kind='work.landed' AND json_extract(payload,'$.work')=?",
+					)
+					.get(item),
+			).toBeTruthy();
+			expect({ minted, inferred, revoked }).toEqual({
+				minted: 1,
+				inferred: 1,
+				revoked: 1,
+			});
+		} finally {
+			db.close();
+			server.stop(true);
 		}
 	});
 });

@@ -135,6 +135,13 @@ same commit; a later empty PASS cannot erase it.
 The canonical Fleet merge ladder defers missing, stale or blocked receipts,
 and rechecks immediately before publication. Changing the candidate, moving
 the integration base or changing applicable instructions requires fresh review.
+On deferral it schedules the existing second-opinion runner through Buckle,
+using a minted proxy-only key revoked after the request. Model selection uses
+`SUSPENDERS_REVIEW_MODEL` or the completion author's existing lane model fact;
+missing model/auth stays explicitly deferred. One durable request lease covers
+each exact context. `SUSPENDERS_REVIEW_CONCURRENCY` defaults to two reviewers;
+transport errors back off and stop after three attempts. An unchanged failing
+review is not repeatedly sampled until a model happens to approve it.
 Unreviewed branches remain available; missing review does not consume the
 three-strike parking budget. `work done` remains branch completion, not landing.
 The separate idempotent `work.landed` event is written only after the exact
