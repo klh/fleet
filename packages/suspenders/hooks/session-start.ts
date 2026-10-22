@@ -7,7 +7,12 @@
 import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { renderFleetReport } from "../scripts/lib/fleet-report.ts";
 import { checkpointPath } from "./lib/checkpoint.ts";
+// W1124.12: an explicit worker role skips the SUPERVISOR DEFAULT + report
+// injection — a managed lane is not a loop-arming runtime (same ruling as
+// the isSubagent branch, source of truth = lane-settings.ts role marker).
+import { sessionRole } from "./lib/coordinator-edit-gate.ts";
 import {
 	CAPABILITIES,
 	openStore,
@@ -18,15 +23,6 @@ import { enrollTopLevel } from "./lib/hook-scripts.ts";
 import { run } from "./lib/run.ts";
 import { checkSessionPolicies } from "./lib/session-policy.ts";
 import { attachSubscribe, subagentLaneSuffix } from "./lib/subscribe-attach.ts";
-// W1124.12: an explicit worker role skips the SUPERVISOR DEFAULT + report
-// injection — a managed lane is not a loop-arming runtime (same ruling as
-// the isSubagent branch, source of truth = lane-settings.ts role marker).
-import { sessionRole } from "./lib/coordinator-edit-gate.ts";
-import {
-	seedSupervisorRefill,
-	supervisorContractNotice,
-	supervisorRefillDirective,
-} from "./lib/supervisor-refill.ts";
 import {
 	canonicalRepo,
 	launchctlTable,
@@ -34,7 +30,11 @@ import {
 	supervisorFactLine,
 	supervisorRows,
 } from "./lib/supervisor.ts";
-import { renderFleetReport } from "../scripts/lib/fleet-report.ts";
+import {
+	seedSupervisorRefill,
+	supervisorContractNotice,
+	supervisorRefillDirective,
+} from "./lib/supervisor-refill.ts";
 
 type In = {
 	session_id?: string;
@@ -423,8 +423,11 @@ if (!isSubagent && input.cwd) {
 				.query("SELECT value FROM facts WHERE key = ?")
 				.get(`broadcast.seen.${sid}`) as { value: string } | null;
 			if (b.ts > Number(seen?.value ?? 0)) {
+				// a broadcast note is event context, not a briefing — cap it so one
+				// verbose notice (quota-sweep dumps) cannot flood the resume packet
+				const note = b.note.replace(/\s+/g, " ").trim();
 				out.push(
-					`HISTORICAL FLEET NOTICE (${new Date(b.ts).toISOString().slice(0, 16).replace("T", " ")} UTC; recorded event, not current capability): ${b.note.replace(/\s+/g, " ").trim()} — this does not establish a current transport.`,
+					`HISTORICAL FLEET NOTICE (${new Date(b.ts).toISOString().slice(0, 16).replace("T", " ")} UTC; recorded event, not current capability): ${note.length > 300 ? `${note.slice(0, 300)}…` : note} — this does not establish a current transport.`,
 				);
 				db.query(
 					"INSERT INTO facts (key, value, ts) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, ts = excluded.ts",

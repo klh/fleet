@@ -186,6 +186,162 @@ describe("WS /subscribe (W303 push + W305 bidirectional RPC)", () => {
 		ws.close();
 	});
 
+	test.each(["http", "ws"])(
+		"transactional events publish only after commit through %s",
+		async (transport) => {
+			const url = await startServer(await freePort());
+			const ws = new WebSocket(
+				`${url.replace(/^http/, "ws")}/subscribe?as=tx-review`,
+			);
+			await new Promise<void>((resolve) =>
+				ws.addEventListener("open", () => resolve()),
+			);
+			const messages: Record<string, unknown>[] = [];
+			ws.addEventListener("message", (event) =>
+				messages.push(JSON.parse(String(event.data))),
+			);
+			let serial = 0;
+			const rpc = async (body: Record<string, unknown>) => {
+				if (transport === "http")
+					return await (
+						await fetch(`${url}/rpc`, {
+							method: "POST",
+							body: JSON.stringify(body),
+						})
+					).json();
+				const id = `tx-rpc-${++serial}`;
+				const reply = new Promise<Record<string, unknown>>((resolve) => {
+					const receive = (event: MessageEvent) => {
+						const frame = JSON.parse(String(event.data));
+						if (frame.id === id) {
+							ws.removeEventListener("message", receive);
+							resolve(frame);
+						}
+					};
+					ws.addEventListener("message", receive);
+				});
+				ws.send(JSON.stringify({ ...body, id }));
+				return await reply;
+			};
+			const insert = async (txid: string, kind: string) =>
+				rpc({
+					mode: "run",
+					txid,
+					sql: "INSERT INTO events (ts,source,kind,payload,target) VALUES (?, ?, ?, ?, ?)",
+					params: [Date.now(), "tx-review", kind, "{}", "tx-review"],
+				});
+			try {
+				expect(
+					await rpc({ mode: "tx", sql: "begin", txid: "commit-proof" }),
+				).toMatchObject({ ok: true });
+				await insert("commit-proof", "work.done");
+				await insert("commit-proof", "work.landed");
+				await Bun.sleep(20);
+				expect(messages.filter((m) => m.kind)).toEqual([]);
+				expect(
+					await rpc({ mode: "tx", sql: "commit", txid: "commit-proof" }),
+				).toMatchObject({ ok: true });
+				await Bun.sleep(30);
+				expect(messages.filter((m) => m.kind).map((m) => m.kind)).toEqual([
+					"work.done",
+					"work.landed",
+				]);
+				expect(
+					await rpc({ mode: "tx", sql: "begin", txid: "rolled-back" }),
+				).toMatchObject({ ok: true });
+				await insert("rolled-back", "never.rolled-back");
+				await rpc({ mode: "tx", sql: "rollback", txid: "rolled-back" });
+				await rpc({ mode: "tx", sql: "begin", txid: "later" });
+				await insert("later", "later.committed");
+				await rpc({ mode: "tx", sql: "commit", txid: "later" });
+				await Bun.sleep(30);
+				expect(messages.filter((m) => m.kind).map((m) => m.kind)).toEqual([
+					"work.done",
+					"work.landed",
+					"later.committed",
+				]);
+				await rpc({
+					mode: "run",
+					sql: "CREATE TABLE IF NOT EXISTS tx_pub_parent(id INTEGER PRIMARY KEY)",
+					params: [],
+				});
+				await rpc({
+					mode: "run",
+					sql: "CREATE TABLE IF NOT EXISTS tx_pub_child(parent_id INTEGER REFERENCES tx_pub_parent(id) DEFERRABLE INITIALLY DEFERRED)",
+					params: [],
+				});
+				await rpc({ mode: "tx", sql: "begin", txid: "failed-commit" });
+				await insert("failed-commit", "never.failed-commit");
+				await rpc({
+					mode: "run",
+					txid: "failed-commit",
+					sql: "INSERT INTO tx_pub_child(parent_id) VALUES (-999)",
+					params: [],
+				});
+				expect(
+					await rpc({ mode: "tx", sql: "commit", txid: "failed-commit" }),
+				).toMatchObject({ err: expect.stringContaining("commit failed") });
+				await Bun.sleep(25);
+				expect(messages.filter((m) => m.kind).map((m) => m.kind)).toEqual([
+					"work.done",
+					"work.landed",
+					"later.committed",
+				]);
+			} finally {
+				ws.close();
+			}
+		},
+	);
+
+	test("idle-healed transaction emits nothing and does not replay into the next transaction", async () => {
+		const url = await startServer(await freePort());
+		const ws = new WebSocket(
+			`${url.replace(/^http/, "ws")}/subscribe?as=idle-event-proof`,
+		);
+		await new Promise<void>((resolve) =>
+			ws.addEventListener("open", () => resolve()),
+		);
+		const messages: Record<string, unknown>[] = [];
+		ws.addEventListener("message", (event) =>
+			messages.push(JSON.parse(String(event.data))),
+		);
+		const rpc = async (body: Record<string, unknown>) =>
+			(
+				await fetch(`${url}/rpc`, {
+					method: "POST",
+					body: JSON.stringify(body),
+				})
+			).json();
+		const insert = (kind: string) =>
+			rpc({
+				mode: "run",
+				txid: "reused-id",
+				sql: "INSERT INTO events (ts,source,kind,payload,target) VALUES (?, ?, ?, ?, ?)",
+				params: [
+					Date.now(),
+					"idle-event-proof",
+					kind,
+					"{}",
+					"idle-event-proof",
+				],
+			});
+		try {
+			await rpc({ mode: "tx", sql: "begin", txid: "reused-id" });
+			await insert("never.idle-rollback");
+			await Bun.sleep(10100);
+			await rpc({ mode: "get", sql: "SELECT 1", params: [] }); // actual rollIdle boundary
+			await rpc({ mode: "tx", sql: "begin", txid: "reused-id" });
+			await insert("fresh.after-idle");
+			await rpc({ mode: "tx", sql: "commit", txid: "reused-id" });
+			await Bun.sleep(25);
+			expect(messages.filter((m) => m.kind).map((m) => m.kind)).toEqual([
+				"fresh.after-idle",
+			]);
+		} finally {
+			ws.close();
+		}
+	}, 15000);
+
 	test("a subscribed socket can send its own RPC and get a correlated reply", async () => {
 		const url = await startServer(await freePort());
 		const wsUrl = `${url.replace(/^http/, "ws")}/subscribe?as=lane-ws2`;
