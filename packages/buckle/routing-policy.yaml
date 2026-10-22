@@ -17,6 +17,10 @@
 version: 1
 
 gateway:
+  # Account pools are operator-owned. Every configured pool MUST explicitly
+  # declare recovery, e.g. recovery: {successWindow: 8, decreasePercent: 20}.
+  # This experimental horizon removes one doubled gap after 32 healthy
+  # starts; it is not evidence of provider capacity. Limits remain separate.
   num_retries: 1
   allowed_fails: 3
   cooldown_time: 30
