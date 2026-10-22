@@ -78,6 +78,7 @@ export const BODY = String.raw`
     <button type="button" data-focus="all">All open <span data-count="all">0</span></button>
     <button type="button" data-focus="attention">Needs attention <span data-count="attention">0</span></button>
     <button type="button" data-focus="working">Claimed <span data-count="working">0</span></button>
+    <button type="button" data-focus="paused">Paused <span data-count="paused">0</span></button>
     <button type="button" data-focus="ready">Ready <span data-count="ready">0</span></button>
     <button type="button" data-focus="waiting">Waiting <span data-count="waiting">0</span></button>
   </nav>
