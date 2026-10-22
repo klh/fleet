@@ -25,6 +25,7 @@ import {
 	cmdResumeSession,
 } from "../coord/bus.ts";
 import { cmdTargets, cmdMessage, cmdDelivery } from "../coord/addressing.ts";
+import { cmdSteer } from "../coord/steer.ts";
 import { cmdExecutorCv } from "../coord/executor-cv.ts";
 import { cmdWisdom } from "../coord/wisdom.ts";
 import {
@@ -390,6 +391,13 @@ const VERBS: VerbSpec[] = [
 			'usage: message <target-label-or-sid-or-substring> "text" [--as sid] | message --all "text" [--as sid]',
 		lax: true,
 		run: (p) => cmdMessage(p.rest),
+	}),
+	defineVerb({
+		name: "steer",
+		usage:
+			'usage: steer <sid|label> "input" [--as sid] | steer <sid|label> --decide — steer a RUNNING lane mid-turn (accepted | pending | failed), or render the advisory kev steer-vs-redo verdict',
+		lax: true,
+		run: (p) => cmdSteer(p.rest),
 	}),
 	defineVerb({
 		name: "delivery",
