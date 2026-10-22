@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import {
 	type HopReceipt,
 	safeCorrelationId,
+	safeProviderErrorToken,
 	safeRefusalCode,
 	traceIdOf,
 } from "../../telemetry/src/http-trace.ts";
@@ -117,6 +118,8 @@ export interface RouterMetrics {
 export type TryOutcome = {
 	providerPool?: string | null;
 	queueWaitMs?: number | null;
+	providerErrorCode?: string | null;
+	providerErrorType?: string | null;
 } & (
 	| { ok: true; response: Response }
 	| {
@@ -458,6 +461,8 @@ export class Router {
 			const base = {
 				providerPool: poolId,
 				queueWaitMs: lease ? queueWaitMs : null,
+				providerErrorCode: safeProviderErrorToken(err.providerCode),
+				providerErrorType: safeProviderErrorToken(err.providerType),
 				ok: false as const,
 				response:
 					err.kind === "rate_limited"
@@ -578,7 +583,10 @@ export class Router {
 		callId?: string,
 		upstreamRefusalCode: string | null = null,
 		refusalOrigin: HopReceipt["refusalOrigin"] = null,
-		provider?: { providerPool?: string | null; queueWaitMs?: number | null },
+		provider?: Pick<
+			TryOutcome,
+			"providerPool" | "queueWaitMs" | "providerErrorCode" | "providerErrorType"
+		>,
 	): void {
 		const retryAfterMs =
 			retryAfterS === null || !Number.isFinite(retryAfterS)
@@ -610,6 +618,8 @@ export class Router {
 			callId: callId ?? null,
 			upstreamRefusalCode,
 			refusalOrigin,
+			providerErrorCode: safeProviderErrorToken(provider?.providerErrorCode),
+			providerErrorType: safeProviderErrorToken(provider?.providerErrorType),
 			...{
 				providerPool: provider?.providerPool ?? providerPoolIdOf(dep),
 				queueWaitMs: provider?.queueWaitMs ?? null,
