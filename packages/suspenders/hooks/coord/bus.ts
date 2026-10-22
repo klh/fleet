@@ -20,6 +20,7 @@ import { type LaneRef, laneVerdict } from "../lib/lane-liveness.ts";
 import { loadLaneRegistry } from "../lib/lane-registry.ts";
 import {
 	forwardDirectEvent,
+	foreignLaneMatch,
 	sidResolvesLocally,
 	type ForeignLaneHit,
 } from "../lib/event-relay.ts";
@@ -719,11 +720,9 @@ async function forwardPauseRequest(
 			`pause not forwarded to foreign lane @${sid.slice(0, 8)} on host ${hit.host}: ${result.why}`,
 		);
 	console.log(
-		`${amber("⏸")} ${dim(`pause_requested forwarded → ${result.hub} lane @${sid.slice(0, 8)} delivery ${result.deliveryId.slice(0, 8)}`)}`,
+		`${amber("⏸")} ${dim(`pause_requested forwarded → ${result.hub} lane @${sid.slice(0, 8)} delivery ${result.deliveryId}`)}`,
 	);
-	console.log(
-		dim(`receipt face: coord delivery ${result.deliveryId.slice(0, 8)}`),
-	);
+	console.log(dim(`receipt face: coord delivery ${result.deliveryId}`));
 }
 
 export async function cmdPaused(_rest: string[]): Promise<void> {

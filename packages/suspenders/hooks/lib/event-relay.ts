@@ -60,12 +60,13 @@ export interface RelayDeliveryStatus {
 const UUID =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const controlChars = (value: string): boolean =>
+const controlChars = (value: string, note = false): boolean =>
 	[...value].some(
 		(char) =>
-			char.charCodeAt(0) === 0 ||
-			char.charCodeAt(0) < 32 ||
-			char.charCodeAt(0) === 127,
+			!(note && [9, 10, 13].includes(char.charCodeAt(0))) &&
+			(char.charCodeAt(0) === 0 ||
+				char.charCodeAt(0) < 32 ||
+				char.charCodeAt(0) === 127),
 	);
 
 const boundedText = (value: unknown, max: number): string | null =>
@@ -116,7 +117,7 @@ export function shapeRelayDirectEvent(
 	};
 	for (const [key, max] of sized) {
 		const value = boundedText(record[key], max);
-		if (value === null || controlChars(value)) return null;
+		if (value === null || controlChars(value, key === "note")) return null;
 		out[key] = value;
 	}
 	return out as unknown as RelayDirectEventWire;
@@ -197,6 +198,17 @@ export async function handleEventRelay(
 	notify?: (eventId: number) => void,
 	now = Date.now(),
 ): Promise<Response | null> {
+	if (url.pathname.startsWith("/event-relay/")) {
+		if (req.method !== "GET")
+			return Response.json(
+				{ error: "GET required" },
+				{ status: 405, headers: { Allow: "GET" } },
+			);
+		const id = url.pathname.slice("/event-relay/".length);
+		if (!UUID.test(id))
+			return Response.json({ error: "Invalid delivery ID" }, { status: 400 });
+		return handleRelayStatus(db, id.toLowerCase());
+	}
 	if (url.pathname !== "/event-relay") return null;
 	if (req.method !== "POST")
 		return Response.json(
