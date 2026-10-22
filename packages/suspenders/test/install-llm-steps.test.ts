@@ -227,9 +227,18 @@ describe("seedLocalLlm never clobbers", () => {
 		);
 		const res = await seedLocalLlm(ctxFor(home));
 		expect(res.status).toBe("ok");
-		expect(readFileSync(join(home, "belt.env"), "utf8")).toBe(
-			"OPERATOR=belt\nBELT_WIRED_GUARD_GB=73\n",
+		// W1124.2: the sentinel survives AND the fresh-install mint appends
+		// exactly one BELT_UPSTREAM_KEY line — operator bytes otherwise kept.
+		const beltEnv = readFileSync(join(home, "belt.env"), "utf8");
+		expect(beltEnv.startsWith("OPERATOR=belt\nBELT_WIRED_GUARD_GB=73\n")).toBe(
+			true,
 		);
+		expect(
+			beltEnv.split("\n").filter((l) => l.startsWith("BELT_UPSTREAM_KEY=")),
+		).toHaveLength(1);
+		expect(
+			beltEnv.split("\n").find((l) => l.startsWith("BELT_UPSTREAM_KEY=")),
+		).toMatch(/^BELT_UPSTREAM_KEY=[0-9a-f]{48}$/);
 		const swarm = readFileSync(join(home, "swarm.ts"), "utf8");
 		expect(swarm).toContain('from "./supervisor.ts"');
 		expect(swarm).toContain('case "supervise"');

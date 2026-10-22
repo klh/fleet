@@ -31,6 +31,7 @@ import {
 import { refreshFlatHome, smokeRouter } from "./belt-bin-overlay.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
 import { validateBeltWiredGuard } from "./lib/belt-wired-guard.ts";
+import { ensureBeltUpstreamKey } from "./lib/belt-upstream-key.ts";
 
 const kitDir = (ctx: StepContext): string => join(ctx.repo, "..", "local-llm");
 const beltBin = (ctx: StepContext): string =>
@@ -210,6 +211,12 @@ export async function seedLocalLlm(ctx: StepContext): Promise<StepResult> {
 			status: "failed",
 			note: `${guard.reason}; configure ${beltEnv} before install`,
 		};
+	// W1124.2: the authenticated Buckle→Belt peer key lives in belt.env
+	// (0600, idempotent mint) — fail forward, no open-mode fallback.
+	const peer = ensureBeltUpstreamKey(beltEnv);
+	if (peer.status === "failed")
+		return { status: "failed", note: `belt peer key: ${peer.note}` };
+	log(`+ ${peer.note}`);
 	if (ctx.llmHome === join(process.env.HOME ?? "", ".claude", "local-llm")) {
 		try {
 			const state = await ensureLiteLlmMetricsDependency();
