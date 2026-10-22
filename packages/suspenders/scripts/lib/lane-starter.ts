@@ -337,11 +337,14 @@ export const ensureStarter = async (
 	// → grace → SIGKILL) with a verified group-down verdict. A spawnSync
 	// `timeout` SIGTERMs the direct child only and can never prove the tree
 	// terminated (killTree is absent from the installed API) — retired here.
-	const run = options.run ?? ((bin, args, e) => runSeedGroup(bin, args, {
-		cwd: fleet,
-		env: e,
-		timeoutMs: options.timeoutMs ?? STARTER_SEED_TIMEOUT_MS,
-	}));
+	const run =
+		options.run ??
+		((bin, args, e) =>
+			runSeedGroup(bin, args, {
+				cwd: fleet,
+				env: e,
+				timeoutMs: options.timeoutMs ?? STARTER_SEED_TIMEOUT_MS,
+			}));
 	const seedArgs = seedArgsOf(seed);
 	const seedStartedAt = Date.now();
 	const res = await run(executorBin, seedArgs, env);

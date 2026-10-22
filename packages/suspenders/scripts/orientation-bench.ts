@@ -246,8 +246,7 @@ if (import.meta.main) {
 				log: (l) => console.log(`[starter] ${l}`),
 			})
 		: null;
-	const fork =
-		starterOutcome?.kind === "fork" ? starterOutcome.fork : null;
+	const fork = starterOutcome?.kind === "fork" ? starterOutcome.fork : null;
 	if (starterOutcome?.kind === "failure")
 		console.log(
 			`[starter] seed failed (code ${starterOutcome.failure.code}, phase ${starterOutcome.failure.phase}): ${starterOutcome.failure.stderrTail}`,
