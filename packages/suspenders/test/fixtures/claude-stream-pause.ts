@@ -26,6 +26,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 		const sha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 		call(["capsule", "set", `--checkpoint=${sha}`, "--done=fixture checkpoint", "--next=fixture continuation"]);
 		call(["paused", "--sha", sha]);
+		execFileSync(process.execPath, [new URL("../../hooks/gate.ts", import.meta.url).pathname, "stop"], { encoding: "utf8", input: JSON.stringify({ cwd: process.cwd(), session_id: "native-uuid-not-fleet-sid", stop_hook_active: true }) });
+		emit({ type: "fleet.fixture.stop", state: "allowed-after-pause" });
 		emit({ type: "result", subtype: "success", result: "CHECKPOINTED", pid: process.pid });
 	} else if (text.includes("FLEET_MANAGED_RESUME:")) {
 		call(["resumed"]);

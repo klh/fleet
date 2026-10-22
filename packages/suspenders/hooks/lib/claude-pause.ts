@@ -1,5 +1,58 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { run as gateRun } from "./run.ts";
+
+/** Shared git proof for runtime and synchronous Stop; never opens a store. */
+export function verifiedPauseCheckpoint(
+	capsule: unknown,
+	cwd: string,
+): { checkpoint: string } | null {
+	const checkpoint =
+		capsule && typeof capsule === "object"
+			? (capsule as { checkpoint?: unknown }).checkpoint
+			: null;
+	if (typeof checkpoint !== "string" || !/^[a-f0-9]{40}$/.test(checkpoint))
+		return null;
+	if (!gateRun("git", ["cat-file", "-e", `${checkpoint}^{commit}`], { cwd }).ok)
+		return null;
+	if (
+		!gateRun("git", ["merge-base", "--is-ancestor", checkpoint, "HEAD"], {
+			cwd,
+		}).ok
+	)
+		return null;
+	return { checkpoint };
+}
+
+/** A pause is a lifecycle boundary, not a completed/failed work claim. */
+export function claudeStopPause(
+	store: { query(sql: string): { get(...args: unknown[]): unknown } },
+	sid: string,
+	cwd: string,
+): "paused" | string | null {
+	const state = (
+		store
+			.query("SELECT value FROM facts WHERE key = ?")
+			.get(`lane.${sid}.state`) as { value?: unknown } | null
+	)?.value;
+	if (state === "RESUME_READY")
+		return `STOP-GATE: resume reconciliation is pending for ${sid}. Preserve your work claim. Read the resume_ready event and continuation capsule, reconcile the requested revision safely without discarding edits, run the required checks, then coord resumed --as ${sid}. Do not finish or fail the work item merely to resume.`;
+	if (state !== "PAUSED" && state !== "PAUSE_REQUESTED") return null;
+	let capsule: unknown;
+	try {
+		const raw = (
+			store
+				.query("SELECT value FROM facts WHERE key = ?")
+				.get(`lane.${sid}.capsule`) as { value?: unknown } | null
+		)?.value;
+		capsule = typeof raw === "string" ? JSON.parse(raw) : null;
+	} catch {
+		capsule = null;
+	}
+	if (state === "PAUSED" && verifiedPauseCheckpoint(capsule, cwd))
+		return "paused";
+	return `STOP-GATE: pause checkpoint is not verified for ${sid}. Preserve your work claim. Commit safe progress, bank coord capsule set --as ${sid} --checkpoint=<real-full-ancestor-sha> --done=<progress> --next=<continuation>, then coord paused --as ${sid} --sha <same-full-sha>. Do not finish or fail the work item merely to pause.`;
+}
 
 const run = promisify(execFile);
 const coord = new URL("../bin/coord.ts", import.meta.url).pathname;
@@ -33,20 +86,7 @@ export async function claudePauseProof(
 		const capsule = JSON.parse(await read(sid, ["capsule", "get"])) as {
 			checkpoint?: unknown;
 		};
-		if (
-			typeof capsule.checkpoint !== "string" ||
-			!/^[a-f0-9]{40}$/.test(capsule.checkpoint)
-		)
-			return null;
-		await run("git", ["cat-file", "-e", `${capsule.checkpoint}^{commit}`], {
-			timeout: 10_000,
-		});
-		await run(
-			"git",
-			["merge-base", "--is-ancestor", capsule.checkpoint, "HEAD"],
-			{ timeout: 10_000 },
-		);
-		return { checkpoint: capsule.checkpoint };
+		return verifiedPauseCheckpoint(capsule, process.cwd());
 	} catch {
 		return null;
 	}
