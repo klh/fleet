@@ -73,6 +73,13 @@ decision-grade: it has to change what you would do. When a verdict flips
 
 ## Context / token economy
 
+- **Quoting a context A/B before the AFTER arm accrues** — W1138: the
+  rightsizing lands ON the fleet, so no lane can run rightsized law text
+  before the landing commit; a same-day before/after is structurally
+  impossible. context-rightsizing-ab.ts answers `AFTER ARM PENDING` and
+  refuses a verdict until AFTER n ≥ 10, and the zero-out attribution mass
+  floors med_out_per_min (0*) — both read as floors, never rates. See
+  [W1138 arms](benchmarks.md#context-engineering-rightsizing--ledger-ab-arms-w1138-2026-10-22).
 - **W960 self-improvement on the pinned local GLM/Claude route** — the
   2026-10-20 AC smoke generated a candidate but both arms failed all three
   private judges: the executor made empty patches, and Claude reported zero

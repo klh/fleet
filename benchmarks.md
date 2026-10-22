@@ -842,3 +842,27 @@ cell (glm cloud, cold, n=12 — noise floor).
   starves under any concurrent lane load; bench-grade runs need a quiet
   window or a reserved slot.
 - Judge pass (W748) not run — quality signal is mechanical-only at n=12.
+
+## Context-engineering rightsizing — ledger A/B arms (W1138, 2026-10-22)
+
+Anthropic's Claude-5 context-engineering rules cut Claude Code's system
+prompt >80% with no coding-eval loss; W1138 applied the
+delete-rules-for-judgement pass to fleet's AGENTS.md stack (1136→597 lines
+across the root + 5 package files; secrets/scrub/config-over-code laws kept)
+and landed `packages/suspenders/scripts/context-rightsizing-ab.ts` as the
+comparison instrument: arms = DONE/FAILED items closing in the 72h windows
+on either side of the landing commit `ba6f85c0`, spend via the W776
+attribution. Alternatives: old-rules law text vs rightsized rules — this
+row decides nothing until the AFTER arm holds ≥10 closed lanes.
+
+| Arm | n | completion | med tokens/lane | med cache share | med out/min | agent hours | done/failed |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| BEFORE (2026-10-19T17:29Z → landing 2026-10-22T17:29:40Z) | 318 | 100% | 7.6M | 96% | 0* | 384.5 | 318/0 |
+| AFTER (accruing) | 0 at landing | — | — | — | — | 0.0 | 0/0 |
+
+\* floor, not a rate: 164/308 measured rows carry out=0 attribution
+(W943.1 cache-floor convention; positive-rows median ~1,450/min). The
+AFTER arm structurally cannot exist at landing — no lane runs rightsized
+text before the commit. Re-run later with
+`bun packages/suspenders/scripts/context-rightsizing-ab.ts --landing 2026-10-22T19:29:40+02:00`;
+it prints `A/B COMPARABLE` only at AFTER n ≥ 10.
