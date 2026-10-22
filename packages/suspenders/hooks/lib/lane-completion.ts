@@ -6,6 +6,8 @@ import { openGovernorDb } from "./govdb.ts";
 import { projectIdentity } from "./govdb-project.ts";
 import { itemCapsuleKey } from "./capsule-fence.ts";
 import type { HookInput } from "./hookio.ts";
+import { FileLockUnavailable, withFileLock } from "./file-lock.ts";
+import { completionTurn, writeCompletionTurn } from "./lane-completion-turn.ts";
 
 type Context = {
 	sid: string;
@@ -75,11 +77,7 @@ export function capsuleEvidence(
 /** The one capsule checkpoint allowed to park: fresh, owner-banked on the
  * item key, and git-proven strictly-new progress over the dispatch baseline. */
 function parkedCheckpoint(wt: string, context: Context): string | null {
-	const cap = capsuleEvidence(
-		context.item,
-		context.sid,
-		projectIdentity(wt),
-	);
+	const cap = capsuleEvidence(context.item, context.sid, projectIdentity(wt));
 	if (!cap) return null;
 	const sha =
 		typeof cap.checkpoint === "string" && CAPSULE_SHA.test(cap.checkpoint)
@@ -130,8 +128,28 @@ export function laneContext(wt: string): Context | undefined {
  *  stop-gate turn-boundary drain — one resolution, two spellings. */
 export const resolveLaneContext = laneContext;
 
-/** Claimed lane completion is separate from formatter/knowledge loop guards. */
+/** Claimed lane completion is separate from formatter/knowledge loop guards.
+ * W1124.13: the whole read/compute/write decision runs under the ONE shared
+ * cross-process file lock, so concurrent duplicate Stops cannot double-spend
+ * an attempt or tear the completion marker. */
 export function laneCompletion(
+	hook: HookInput & { last_assistant_message?: string },
+): string | null {
+	if (!hook.cwd || !existsSync(hook.cwd)) return null;
+	const top = run("git", ["rev-parse", "--show-toplevel"], { cwd: hook.cwd });
+	if (!top.ok) return null;
+	try {
+		return withFileLock(
+			join(top.out.trim(), ".fleet/completion-attempt.json"),
+			() => laneCompletionLocked(hook),
+		);
+	} catch (error) {
+		if (!(error instanceof FileLockUnavailable)) throw error;
+		return "STOP-GATE: continuation_lock_unavailable; no attempt consumed. Inspect the lock owner before recovery.";
+	}
+}
+
+function laneCompletionLocked(
 	hook: HookInput & { last_assistant_message?: string },
 ): string | null {
 	const cwd = hook.cwd;
@@ -255,6 +273,52 @@ export function laneCompletion(
 	// un-park or re-fail on stale evidence; the claim belongs to the reaper.
 	if (previous.outcome === "PARKED" || previous.outcome === "FAILED")
 		return null;
+	// W1124.13: the logical assistant turn key. Terminal/ownership verification
+	// above deliberately outranks a cached reply — newly saved work done and
+	// ownership transfer override a same-turn refusal replay.
+	const turn = completionTurn(hook, context);
+	if (previous.turnId === turn.id && Object.hasOwn(previous, "reply"))
+		return typeof previous.reply === "string" ? previous.reply : null;
+	if (!turn.usable) {
+		// No new productive assistant turn (API-error/empty frame, missing or
+		// oversize transcript): a typed operational diagnostic published once
+		// per logical turn — never a completion-disobedience attempt. An
+		// unpublished notice leaves the cached reply unwritten so duplicate
+		// Stops keep the durable publication retry alive without spinning.
+		let sent = previous.transportNoticeSent === true;
+		if (!sent)
+			sent = run(
+				process.execPath,
+				[
+					join(bin, "coord.ts"),
+					"emit",
+					"NEED_DECISION",
+					"--scope",
+					"suspenders",
+					"--as",
+					context.sid,
+					`--project=${row.project}`,
+					`--item=${context.item}`,
+					"--note",
+					`${context.item}: lane_turn_no_output (${turn.reason}); no completion attempt consumed. Inspect route/stream and transcript delivery.`,
+				],
+				{ cwd: wt },
+			).ok;
+		writeCompletionTurn(
+			marker,
+			{
+				...previous,
+				...context,
+				ts: Date.now(),
+				outcome: "TRANSPORT_BLOCKED",
+				transportNoticeSent: sent,
+				diagnostic: turn.reason,
+			},
+			turn,
+			sent ? null : undefined,
+		);
+		return null;
+	}
 	// W642 reinforcement classes (research-oh-my-claudecode §1.7): the
 	// continuation budget was a hardcoded 2; classes scale it by item
 	// priority (>=2 heavy / 1 medium / else light; SUSPENDERS_REINFORCEMENT_CLASS
@@ -354,35 +418,29 @@ export function laneCompletion(
 			return null;
 		}
 		if (tries < budget.max && hook.stop_hook_active !== true) {
-			writeFileSync(
+			const reply = `STOP-GATE: ${context.item} remains ${row.state} by ${context.sid}. One bounded continuation before re-asks resume — DO NOT re-read the brief, re-reading is not progress. Edits and commits are progress, not completion.\n${program}`;
+			writeCompletionTurn(
 				marker,
-				JSON.stringify({
-					...context,
-					tries: tries + 1,
-					sig,
-					stall,
-					ts: Date.now(),
-				}),
+				{ ...context, tries: tries + 1, sig, stall, ts: Date.now() },
+				turn,
+				reply,
 			);
-			return `STOP-GATE: ${context.item} remains ${row.state} by ${context.sid}. One bounded continuation before re-asks resume — DO NOT re-read the brief, re-reading is not progress. Edits and commits are progress, not completion.\n${program}`;
+			return reply;
 		}
 	}
 	if (tries < budget.max && !declared) {
-		writeFileSync(
-			marker,
-			JSON.stringify({
-				...context,
-				tries: tries + 1,
-				sig,
-				stall,
-				ts: Date.now(),
-			}),
-		);
 		const stallNote =
 			stall >= 2
 				? ` STALL: ${stall} consecutive continuations changed nothing in this worktree — reads are not progress; execute the program below NOW.`
 				: "";
-		return `STOP-GATE: ${context.item} remains ${row.state} by ${context.sid}. Re-ask ${tries + 1}/${budget.max}; exhaustion records FAILED, never DONE.${stallNote} Edits and commits are progress, not completion.\n${program}`;
+		const reply = `STOP-GATE: ${context.item} remains ${row.state} by ${context.sid}. Re-ask ${tries + 1}/${budget.max}; exhaustion records FAILED, never DONE.${stallNote} Edits and commits are progress, not completion.\n${program}`;
+		writeCompletionTurn(
+			marker,
+			{ ...context, tries: tries + 1, sig, stall, ts: Date.now() },
+			turn,
+			reply,
+		);
+		return reply;
 	}
 	const reason = declared
 		? (declaration?.[0] ?? "declared blocked")

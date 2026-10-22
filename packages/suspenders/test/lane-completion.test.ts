@@ -74,12 +74,46 @@ function fixture(priority?: number) {
 			claimToken: /claim token: ([0-9a-f]{48})/.exec(takeOut.out)?.[1],
 		}),
 	);
+	let nativeTurn = 0;
+	const transcript = join(cwd, ".fleet/native-transcript.jsonl");
+	// W1124.13: every intended-new turn emits a normalized native assistant row
+	// (real native row shape, synthetic identity/times) so each stop consumes
+	// the budget exactly as before; stopSame replays the same assistant turn.
+	const nativeTranscript = (): string => {
+		nativeTurn++;
+		writeFileSync(
+			transcript,
+			`${JSON.stringify({
+				type: "assistant",
+				uuid: `fixture-block-${nativeTurn}`,
+				parentUuid: "fixture-parent",
+				timestamp: new Date().toISOString(),
+				message: {
+					id: `fixture-message-${nativeTurn}`,
+					role: "assistant",
+					stop_reason: "tool_use",
+					content: [
+						{ type: "tool_use", id: "fixture-tool", name: "Edit", input: {} },
+					],
+				},
+			})}\n`,
+		);
+		return transcript;
+	};
+	const stopSame = () =>
+		command(cwd, [process.execPath, join(source, "gate.ts"), "stop"], {
+			cwd,
+			session_id: "harness-uuid-different-from-owner",
+			stop_hook_active: true,
+			transcript_path: transcript,
+		});
 	const stop = (message?: string) =>
 		command(cwd, [process.execPath, join(source, "gate.ts"), "stop"], {
 			cwd,
 			session_id: "harness-uuid-different-from-owner",
 			stop_hook_active: true,
 			last_assistant_message: message,
+			transcript_path: nativeTranscript(),
 		});
 	const stopFresh = (message?: string) =>
 		command(cwd, [process.execPath, join(source, "gate.ts"), "stop"], {
@@ -87,10 +121,11 @@ function fixture(priority?: number) {
 			session_id: "harness-uuid-different-from-owner",
 			stop_hook_active: false,
 			last_assistant_message: message,
+			transcript_path: nativeTranscript(),
 		});
 	const coord = (...args: string[]) =>
 		command(cwd, [process.execPath, join(source, "bin/coord.ts"), ...args]);
-	return { cwd, git, work, id, stop, stopFresh, coord };
+	return { cwd, git, work, id, stop, stopFresh, stopSame, coord };
 }
 
 test("direct messages take priority without spending the lane continuation budget", () => {
@@ -569,4 +604,75 @@ test("two unchanged continuations re-anchor with STALL; work breaks the streak",
 	const next = f.stop();
 	expect(next.err).toContain("Re-ask 1/3");
 	expect(next.err).not.toContain("STALL");
+});
+
+test("duplicate native Stop decisions replay without consuming another attempt", () => {
+	const f = fixture();
+	const first = f.stop();
+	const marker = join(f.cwd, ".fleet/completion-attempt.json");
+	expect(JSON.parse(readFileSync(marker, "utf8")).tries).toBe(1);
+	// the SAME assistant turn re-fires the hook: the stored decision replays
+	// verbatim, the attempt counter never moves
+	expect(f.stopSame().err).toBe(first.err);
+	expect(f.stopSame().err).toBe(first.err);
+	expect(JSON.parse(readFileSync(marker, "utf8")).tries).toBe(1);
+	// a genuinely new assistant turn consumes the next legitimate attempt
+	expect(f.stop().err).toContain("Re-ask 2/3");
+});
+
+test("same assistant cannot cache a refusal over newly verified work done", () => {
+	const f = fixture();
+	f.stop();
+	writeFileSync(join(f.cwd, "README.md"), "delivered documentation\n");
+	f.git("add", "README.md");
+	f.git("commit", "-qm", "delivered");
+	const sha = f.git("rev-parse", "HEAD").out.trim();
+	expect(
+		f.work(
+			"done",
+			f.id,
+			"--sha",
+			sha,
+			"--summary",
+			"Delivered the documentation update and verified the saved completion record.",
+		).code,
+	).toBe(0);
+	// terminal verification outranks the cached same-turn reply
+	expect(f.stopSame().code).toBe(0);
+});
+
+test("concurrent duplicate native Stop hooks atomically spend exactly one attempt", async () => {
+	const f = fixture();
+	f.stop(); // seeds the normalized native transcript shape
+	const marker = join(f.cwd, ".fleet/completion-attempt.json");
+	rmSync(marker);
+	const payload = join(f.cwd, ".fleet/concurrent-stop.json");
+	writeFileSync(
+		payload,
+		JSON.stringify({
+			cwd: f.cwd,
+			session_id: "harness-uuid-different-from-owner",
+			stop_hook_active: true,
+			transcript_path: join(f.cwd, ".fleet/native-transcript.jsonl"),
+		}),
+	);
+	const children = [0, 1].map(() =>
+		Bun.spawn([process.execPath, join(source, "gate.ts"), "stop"], {
+			cwd: f.cwd,
+			env,
+			stdin: Bun.file(payload),
+			stdout: "pipe",
+			stderr: "pipe",
+		}),
+	);
+	const results = await Promise.all(
+		children.map(async (child) => ({
+			error: await new Response(child.stderr).text(),
+			code: await child.exited,
+		})),
+	);
+	// the file lock serializes the pair: one decides, the other replays
+	expect(results[0]?.error).toContain("Re-ask 1/3");
+	expect(results[1]?.error).toBe(results[0]?.error);
+	expect(JSON.parse(readFileSync(marker, "utf8")).tries).toBe(1);
 });
