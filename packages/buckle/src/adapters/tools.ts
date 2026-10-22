@@ -11,6 +11,7 @@
 // same table the other way — openai chunk frames + a terminal include_usage
 // chunk, [DONE] emitted by the bridge.
 import { type Usage, usageFromAnthropic, usageFromOpenAI } from "../usage.ts";
+import { emptyStreamError, StreamSemantics } from "../stream-semantics.ts";
 
 export interface TransformWarning {
 	field: string;
@@ -579,6 +580,9 @@ export class OpenAIToAnthropicStream {
 	 *  response.failed|incomplete) — never translated into success, even
 	 *  when a [DONE] follows it. */
 	private failed = false;
+	/** W1106 empty-stream guard: semantic observation of every source frame —
+	 *  a [DONE] WITHOUT usable output is a typed empty failure, not success. */
+	private readonly semantics = new StreamSemantics();
 	/** Anomaly ledger for the bridge to warn on post-stream. */
 	readonly warnings: TransformWarning[] = [];
 
@@ -605,6 +609,7 @@ export class OpenAIToAnthropicStream {
 		this.sawPing = (r as { type?: unknown }).type === "ping";
 		if (this.sawPing) return out;
 		if (r.usage !== undefined) this.usage = r.usage;
+		this.semantics.observe(r, "openai");
 		if (r.error !== undefined) {
 			const err = r.error as AnyRec;
 			this.failed = true; // W1106.2: in-band failure poisons the terminal
@@ -741,6 +746,17 @@ export class OpenAIToAnthropicStream {
 		this.finished = true;
 		this.closeActive(out);
 		if (!this.doneSeen || this.failed) return out;
+		// W1106 empty-stream guard: the source said DONE, but said NOTHING —
+		// a protocol terminal without usable output is a typed in-band error,
+		// never a synthesized success terminal (the 483-byte class).
+		const empty = this.semantics.failure();
+		if (empty !== null) {
+			out.push({
+				event: "error",
+				data: { type: "error", error: emptyStreamError(empty) },
+			});
+			return out;
+		}
 		const u = this.seenUsage();
 		out.push({
 			event: "message_delta",
@@ -856,6 +872,9 @@ export class AnthropicToOpenAIStream {
 	/** W1124.4: an in-band source failure (event:error) poisons the terminal —
 	 *  error+message_stop never translates into a success finish frame. */
 	private failed = false;
+	/** W1106 empty-stream guard: semantic observation of every source event —
+	 *  a message_stop WITHOUT usable output is a typed empty failure. */
+	private readonly semantics = new StreamSemantics();
 	private inTok: unknown = null;
 	private outTok: unknown = null;
 	private finish: string | null = null;
@@ -889,6 +908,7 @@ export class AnthropicToOpenAIStream {
 		const data = (evt as AnyRec).data;
 		if (!data || typeof data !== "object") return out;
 		const d = data as AnyRec;
+		this.semantics.observe(d, "anthropic");
 		if (d.type === "ping") return out;
 		if (d.type === "error") {
 			// W1124.4: in-band source failure poisons the terminal — an error
@@ -955,6 +975,16 @@ export class AnthropicToOpenAIStream {
 
 	private emitFinish(out: AnyRec[]): void {
 		if (this.stopped || this.failed) return; // W1124.4: failure revokes the terminal
+		// W1106 empty-stream guard: the source said message_stop, but said
+		// NOTHING — a terminal without usable output poisons the terminal
+		// (error chunk only; [DONE]/finish never fabricate) — the 483-byte
+		// class on the mirror side.
+		const empty = this.semantics.failure();
+		if (empty !== null) {
+			this.failed = true;
+			out.push(this.frame({ error: emptyStreamError(empty) }));
+			return;
+		}
 		this.stopped = true;
 		out.push(this.frame({ choices: [choice({}, this.finish ?? "stop")] }));
 		const u = this.seenUsage();

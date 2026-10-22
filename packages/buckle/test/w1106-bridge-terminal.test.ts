@@ -10,6 +10,7 @@ import {
 	OpenAIToAnthropicStream,
 } from "../src/adapters/tools.ts";
 import { anthropicToOpenAISse, openAIToAnthropicSse } from "../src/bridge.ts";
+import { SseSniffer } from "../src/sse.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
 import { testDeps } from "./deps.ts";
 import { startMockUpstream } from "./mock.ts";
@@ -127,7 +128,7 @@ describe("W1106.2 AnthropicToOpenAIStream source-fidelity", () => {
 		expect(f).toEqual([]);
 	});
 
-	test("message_stop → finish frame + sawStop true (the [DONE] license)", () => {
+	test("message_stop after real output → finish frame + sawStop true (the [DONE] license)", () => {
 		const s = new AnthropicToOpenAIStream();
 		s.push({
 			event: "message_start",
@@ -136,11 +137,46 @@ describe("W1106.2 AnthropicToOpenAIStream source-fidelity", () => {
 				message: { id: "m1", model: "claude-x", usage: { input_tokens: 1 } },
 			},
 		});
+		// W1106 empty-stream guard: the success fixture carries REAL output —
+		// a terminal-only turn now poisons the terminal instead.
+		s.push({
+			event: "content_block_delta",
+			data: {
+				type: "content_block_delta",
+				index: 0,
+				delta: { type: "text_delta", text: "he" },
+			},
+		});
 		s.push({ event: "message_stop", data: { type: "message_stop" } });
 		expect(s.sawStop()).toBe(true);
 		const f = s.flush();
 		// finish already emitted at message_stop; flush is idempotent
 		expect(f).toEqual([]);
+	});
+
+	test("W1106: terminal-only turn (usage, no output) → error chunk, sawStop revoked", () => {
+		const s = new AnthropicToOpenAIStream();
+		s.push({
+			event: "message_start",
+			data: {
+				type: "message_start",
+				message: {
+					id: "m1",
+					model: "claude-x",
+					usage: { input_tokens: 33341 },
+				},
+			},
+		});
+		const out = s.push({
+			event: "message_stop",
+			data: { type: "message_stop" },
+		});
+		// the empty guard poisons the terminal at message_stop — error chunk
+		// there, flush EMPTY (W1124.4 shape), no [DONE] license
+		expect(s.sawStop()).toBe(false);
+		expect(out).toHaveLength(1);
+		expect(out[0]?.error).toMatchObject({ code: "empty_response" });
+		expect(s.flush()).toEqual([]);
 	});
 });
 
