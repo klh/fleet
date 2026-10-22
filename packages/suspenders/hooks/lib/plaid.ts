@@ -1,10 +1,12 @@
-// hooks/lib/plaid.ts — the plaid posture. Copilot and Z.ai are distinct
-// provider pools. Baselines guide fair initial fill, then each healthy pool
-// can keep growing; there is no numerical lane ceiling. One provider never
-// impersonates the other's route; a fully walled provider contributes zero
-// lanes (surfaced loudly). Every lane rides a real, quota-aware,
-// traced route; personal ChatGPT/Claude CLI seats are never labeled IKEA —
-// the ikea-* prefix is reserved for Copilot-provider routes, and only
+// hooks/lib/plaid.ts — the plaid posture. Copilot, Z.ai and the host's own
+// Belt models (provider `local`) are distinct provider pools. Baselines
+// guide fair initial fill, then each healthy pool can keep growing; there
+// is no numerical lane ceiling. One provider never impersonates the
+// other's route (a local lane is never copilot/zai capacity); a fully
+// walled provider contributes zero lanes (surfaced loudly). Every lane
+// rides a real, quota-aware, traced route; personal ChatGPT/Claude CLI
+// seats are never labeled IKEA — the ikea-* prefix is reserved for
+// Copilot-provider routes, `local-*` for the host's Belt models, and only
 // plaid-dispatched lanes carry a route fact at all.
 //
 // State: `.fleet/posture` (steady|plaid, parked/W503 file, fail-safe narrow
@@ -21,6 +23,7 @@ import { adapterFor } from "./executors/registry.ts";
 import type { GovernorStore } from "./govdb.ts";
 import { readBoardSettings } from "./board-config.ts";
 import {
+	PLAID_PROVIDERS,
 	PLAID_ROUTES,
 	type PlaidRoute,
 	parsePlaidRoutes,
@@ -59,9 +62,18 @@ export const PLAID = {
 	baseline: 6,
 } as const;
 
-/** The two plaid provider pools (owner-named). */
-export const POOL_PROVIDERS = ["copilot", "zai"] as const;
+/** The plaid provider pools (owner-named; `local` = this host's Buckle-
+ *  backed Belt models — config-declared, never a default row, its own
+ *  attribution: local lanes are never copilot/zai capacity). */
+export const POOL_PROVIDERS = PLAID_PROVIDERS;
 export type PoolProvider = (typeof POOL_PROVIDERS)[number];
+
+/** Type-guard over the pool set (the routePin admission and the healthy-
+ *  pools filter read the same truth). */
+export const isPoolProvider = (
+	p: string | null | undefined,
+): p is PoolProvider =>
+	typeof p === "string" && (POOL_PROVIDERS as readonly string[]).includes(p);
 
 /** Steady uses its requested target; plaid has no total-width target. */
 export const postureWidth = (p: Posture, target: number): number | null =>
@@ -278,9 +290,7 @@ export const plaidHealthyPools = (
 				.filter((r) => !health.get(r.name) && r.provider)
 				.map((r) => r.provider as PoolProvider),
 		),
-	].filter((p): p is PoolProvider =>
-		(POOL_PROVIDERS as readonly string[]).includes(p),
-	);
+	].filter(isPoolProvider);
 
 /** Next-lane allocation: fill healthy provider baselines, then pick the
  *  emptiest healthy pool indefinitely. Refusal/quota health is the stop. */
@@ -359,10 +369,10 @@ export interface PlaidStatus {
 	posture: Posture;
 	/** Null means dispatch continues while healthy READY work exists. */
 	width: null;
-	/** Live lanes per pool: copilot + zai. */
-	live: { copilot: number; zai: number };
+	/** Live lanes per pool: copilot + zai + local. */
+	live: { copilot: number; zai: number; local: number };
 	/** Baseline minimums still to fill, per pool. */
-	baselineOpen: { copilot: number; zai: number };
+	baselineOpen: { copilot: number; zai: number; local: number };
 	/** true when NO route is healthy anywhere. */
 	fallback: boolean;
 	routes: PlaidRouteView[];
@@ -385,19 +395,19 @@ export const plaidStatus = (
 	const quota = quotaProviderPenalty(store);
 	const health = plaidHealth(quota);
 	const load = routeLoadOf(store, liveSids);
+	const total = (p: PoolProvider): number => poolTotalOf(routes, load, p);
 	return {
 		posture: postureFactOf(store),
 		width: null,
 		live: {
-			copilot: poolTotalOf(routes, load, "copilot"),
-			zai: poolTotalOf(routes, load, "zai"),
+			copilot: total("copilot"),
+			zai: total("zai"),
+			local: total("local"),
 		},
 		baselineOpen: {
-			copilot: Math.max(
-				0,
-				PLAID.baseline - poolTotalOf(routes, load, "copilot"),
-			),
-			zai: Math.max(0, PLAID.baseline - poolTotalOf(routes, load, "zai")),
+			copilot: Math.max(0, PLAID.baseline - total("copilot")),
+			zai: Math.max(0, PLAID.baseline - total("zai")),
+			local: Math.max(0, PLAID.baseline - total("local")),
 		},
 		fallback: plaidHealthyPools(routes, health).length === 0,
 		routes: routes.map((r) => ({
@@ -530,10 +540,7 @@ export const plaidDispatch = (o: {
 		};
 	if (o.routePin) {
 		const route = g.routes.find((r) => r.name === o.routePin);
-		if (
-			!route?.provider ||
-			!(POOL_PROVIDERS as readonly string[]).includes(route.provider)
-		)
+		if (!route?.provider || !isPoolProvider(route.provider))
 			return {
 				skip: `plaid route ${o.routePin} is not a configured pool route`,
 				pick: {},
