@@ -3,15 +3,32 @@
 // place; the binding swap changes the constructor, not the SQL shape).
 // Key ids are a truncated SHA-256 of the bearer token — token material never
 // touches the ledger (SECURITY: nothing hashable → empty string).
-import { Database } from "bun:sqlite";
+import { Database, type Statement } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import {
-	type HopReceipt,
+	buildSettleFact,
 	safeCorrelationId,
 	safeRefusalCode,
+	type HopReceipt,
+	type StreamSettle,
+	type StreamCloser,
 } from "../../telemetry/src/http-trace.ts";
 import type { HopKind } from "./hop.ts";
 import type { Usage } from "./usage.ts";
+
+/** W1086 settle receipt: the caller hands raw timings; the ledger validates
+ *  + bounds every field before anything durable is written. */
+export interface SettleReceipt {
+	rid: string;
+	traceId: string;
+	firstByteAt: number | null;
+	lastByteAt: number | null;
+	closer: StreamCloser;
+	error?: unknown;
+	/** Pre-typed failure kind from the close site (RouterError.kind,
+	 *  in_band:<type>, stream_truncated) — clamped, never re-derived. */
+	failureKind?: string | null;
+}
 
 export interface UsageRecord {
 	key: string;
@@ -69,6 +86,24 @@ export interface RouteAuditOutcome {
 	/** W824: ladder-walk attempt count at settle (null = not recorded —
 	 *  denial rows, aborted walks). */
 	attempts?: number | null;
+	/** W1106 body-free stream termination receipt: typed terminal + progress
+	 *  counters, never payload. null/absent = the request did not stream. */
+	stream_receipt?: StreamReceipt | null;
+}
+
+/** W1106: how a streaming body actually ended — typed terminal, upstream
+ *  progress counters, last-chunk timestamp (ms from t0). Body-free: no
+ *  prompt or completion content ever rides this. */
+export interface StreamReceipt {
+	/** upstream_eof = clean provider close; upstream_error:<kind> = the
+	 *  provider died mid-stream; downstream_cancel = the client hung up;
+	 *  upstream_idle/total_deadline = the wire guards fired. */
+	terminal: string;
+	/** bytes/chunks seen FROM the upstream (activity evidence). */
+	bytes_in: number;
+	chunks_in: number;
+	/** ms from request start to the last upstream chunk (null = none). */
+	last_chunk_ms: number | null;
 }
 
 /** W457 cache telemetry: provider-reported cache numbers joined onto the
@@ -136,6 +171,8 @@ export interface RequestReadRow {
 	out_tok: number | null;
 	/** W921 traffic kind: 'readiness' | 'inference'; NULL = legacy row. */
 	traffic_kind: string | null;
+	/** W1106 typed stream terminal (null = non-stream row / legacy). */
+	stream_receipt: StreamReceipt | null;
 	upstream_refusal_code: string | null;
 	refusal_origin: "upstream" | "bridged-upstream" | "network" | null;
 	retry_after_ms: number | null;
@@ -218,6 +255,16 @@ CREATE TABLE IF NOT EXISTS route_attempt (
   PRIMARY KEY (rid, ordinal)
 );
 CREATE INDEX IF NOT EXISTS route_attempt_trace ON route_attempt(trace_id, ts);
+CREATE TABLE IF NOT EXISTS stream_settle (
+  rid TEXT PRIMARY KEY,
+  trace_id TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  first_byte_ms INTEGER,
+  last_byte_ms INTEGER,
+  closer TEXT NOT NULL,
+  failure_kind TEXT
+);
+CREATE INDEX IF NOT EXISTS stream_settle_trace ON stream_settle(trace_id, ts);
 `;
 
 const UPSERT = `
@@ -240,6 +287,7 @@ type AuditOp =
 	| { t: "ins"; row: RouteAuditDecision }
 	| { t: "upd"; rid: string; out: RouteAuditOutcome }
 	| { t: "attempt"; row: HopReceipt; ts: string }
+	| { t: "settle"; rid: string; traceId: string; s: StreamSettle; ts: string }
 	| {
 			t: "use";
 			rid: string;
@@ -257,7 +305,8 @@ WHERE rid = ?
 const UPDATE_AUDIT = `
 UPDATE route_audit SET status = ?, duration_ms = ?, ok = ?, err = ?,
   decision = COALESCE(?, decision), error_code = COALESCE(?, error_code),
-  attempts = COALESCE(?, attempts)
+  attempts = COALESCE(?, attempts),
+  stream_receipt = COALESCE(?, stream_receipt)
 WHERE rid = ?
 `;
 
@@ -292,6 +341,8 @@ export class Ledger {
 	private readonly updAudit: ReturnType<Database["query"]>;
 	private readonly updUsage: ReturnType<Database["query"]>;
 	private readonly insAttempt: ReturnType<Database["query"]>;
+	/** W1086 settle statement — beside insAttempt (same flush path). */
+	private readonly insSettle: Statement;
 	private readonly flushMs: number;
 	private readonly flushRows: number;
 	private readonly maxAttempts: number;
@@ -364,6 +415,11 @@ export class Ledger {
 		// the row predates the column — unmarked legacy).
 		if (!auditCols.includes("traffic_kind"))
 			this.db.run("ALTER TABLE route_audit ADD COLUMN traffic_kind TEXT");
+		// W1106: body-free stream termination receipt — JSON {bytes_in,
+		// chunks_in, last_chunk_ms, terminal}; NULL = the row predates the
+		// column or the request never streamed.
+		if (!auditCols.includes("stream_receipt"))
+			this.db.run("ALTER TABLE route_audit ADD COLUMN stream_receipt TEXT");
 		this.db.run(
 			"CREATE INDEX IF NOT EXISTS route_audit_trace ON route_audit(trace_id, ts)",
 		);
@@ -386,6 +442,9 @@ export class Ledger {
 			refusal, duration_ms, retry_after_ms, upstream_id, call_id,
 			upstream_refusal_code, refusal_origin)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+		this.insSettle = this.db.query(`INSERT OR REPLACE INTO stream_settle
+			(rid, trace_id, ts, first_byte_ms, last_byte_ms, closer, failure_kind)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`);
 		this.flushMs = opts.flushMs ?? 5000;
 		this.flushRows = opts.flushRows ?? 256;
 		this.maxAttempts = Math.max(1, opts.maxFlushAttempts ?? 5);
@@ -422,7 +481,15 @@ export class Ledger {
 				r.why.length
 			);
 		}
-		if (op.t === "upd") return 64 + op.rid.length + (op.out.err?.length ?? 0);
+		if (op.t === "upd")
+			return (
+				64 +
+				op.rid.length +
+				(op.out.err?.length ?? 0) +
+				(op.out.stream_receipt
+					? JSON.stringify(op.out.stream_receipt).length
+					: 0)
+			);
 		if (op.t === "attempt") {
 			const r = op.row;
 			return (
@@ -437,6 +504,15 @@ export class Ledger {
 				(r.callId?.length ?? 0)
 			);
 		}
+		if (op.t === "settle")
+			return (
+				64 +
+				op.rid.length +
+				op.traceId.length +
+				op.ts.length +
+				op.s.closer.length +
+				(op.s.failureKind?.length ?? 0)
+			);
 		return 32 + op.rid.length;
 	}
 
@@ -527,6 +603,7 @@ export class Ledger {
 					if (op.t === "ins") this.insertAudit(op.row);
 					else if (op.t === "upd") this.updateAudit(op.rid, op.out);
 					else if (op.t === "attempt") this.insertAttempt(op.row, op.ts);
+					else if (op.t === "settle") this.insertSettle(op);
 					else
 						this.updateUsageRow(
 							op.rid,
@@ -609,6 +686,31 @@ export class Ledger {
 		if (this.auditRing.length >= this.flushRows) this.flushSoon();
 	}
 
+	/** W1086 stream settle: the caller observes the close and hands raw
+	 *  timings; every field is validated + bounded HERE (closer enum, ms
+	 *  clamp, failure kind reduced via buildSettleFact). One row per rid —
+	 *  the final settle stands, retries REPLACE. */
+	auditSettle(receipt: SettleReceipt, t0: number): void {
+		if (!/^[0-9a-f]{32}$/.test(receipt.traceId)) return;
+		if (!safeCorrelationId(receipt.rid)) return;
+		const s = buildSettleFact({
+			t0,
+			firstByteAt: receipt.firstByteAt,
+			lastByteAt: receipt.lastByteAt,
+			closer: receipt.closer,
+			error: receipt.error,
+			failureKind: receipt.failureKind,
+		});
+		this.pushAudit({
+			t: "settle",
+			rid: receipt.rid,
+			traceId: receipt.traceId,
+			s,
+			ts: this.now().toISOString(),
+		});
+		if (this.auditRing.length >= this.flushRows) this.flushSoon();
+	}
+
 	private insertAttempt(row: HopReceipt, ts: string): void {
 		this.insAttempt.run(
 			row.rid,
@@ -639,6 +741,25 @@ export class Ledger {
 				row.refusalOrigin === "network"
 				? row.refusalOrigin
 				: null,
+		);
+	}
+
+	/** W1086: one settle row per rid — the final settle stands, retries
+	 *  REPLACE. Fields arrive pre-bounded via buildSettleFact. */
+	private insertSettle(op: {
+		rid: string;
+		traceId: string;
+		s: StreamSettle;
+		ts: string;
+	}): void {
+		this.insSettle.run(
+			safeCorrelationId(op.rid) ?? "unknown",
+			safeCorrelationId(op.traceId) ?? "unknown",
+			op.ts,
+			op.s.firstByteMs,
+			op.s.lastByteMs,
+			op.s.closer,
+			op.s.failureKind,
 		);
 	}
 
@@ -699,6 +820,11 @@ export class Ledger {
 			out.decision ?? null,
 			out.error_code ?? null,
 			out.attempts ?? null,
+			out.stream_receipt === undefined
+				? null
+				: out.stream_receipt === null
+					? null
+					: JSON.stringify(out.stream_receipt),
 			rid,
 		);
 	}
@@ -830,6 +956,7 @@ export class Ledger {
 				...r,
 				err: capRequestText(r.err),
 				why: capRequestText(r.why) ?? "",
+				stream_receipt: parseStreamReceipt(r.stream_receipt),
 				upstream_refusal_code: failedResponse
 					? (refusal?.upstream_refusal_code ?? null)
 					: null,
@@ -843,6 +970,34 @@ export class Ledger {
 				selected_target_attempted: selectedTargetExact && attempts.length > 0,
 			};
 		});
+	}
+
+	/** W1086 trace-centric read: the per-request audit rows + hop attempts +
+	 *  the stream settle row for ONE trace — the LiteLLM call id joins by
+	 *  trace_id (route_attempt.call_id), never by probing. Bounded,
+	 *  body-free. */
+	traceRead(traceId: string): {
+		trace_id: string;
+		requests: RequestReadRow[];
+		attempts: Array<Record<string, unknown>>;
+		settle: Record<string, unknown> | null;
+	} {
+		if (!/^[0-9a-f]{32}$/.test(traceId))
+			return { trace_id: traceId, requests: [], attempts: [], settle: null };
+		this.flush();
+		const settle = (
+			this.db
+				.query(`SELECT rid, trace_id, ts, first_byte_ms, last_byte_ms,
+			closer, failure_kind FROM stream_settle WHERE trace_id = ?
+			ORDER BY ts DESC LIMIT 1`)
+				.all(traceId) as Array<Record<string, unknown>>
+		)[0];
+		return {
+			trace_id: traceId,
+			requests: this.requestsRead({ limit: 200, trace_id: traceId }),
+			attempts: this.traceAttempts(traceId),
+			settle: settle ?? null,
+		};
 	}
 
 	close(): void {
@@ -875,9 +1030,30 @@ function requestsReadSql(where: string[], limit: number): string {
 		target_port, target_model, decision, latency_class, tier,
 		allow_cloud, hop, error_code, why, status, duration_ms, ok, err,
 		attempts, cache_r, cache_c, cache_reported, cache_c_reported, in_tok, out_tok,
-		traffic_kind
+		traffic_kind, stream_receipt
 		FROM route_audit ${clause}
 		ORDER BY ts DESC, rid DESC LIMIT ${limit}`;
+}
+
+/** W1106: the stored receipt JSON → typed value (null = absent/legacy/
+ *  corrupt — a bad row never kills the read surface). */
+function parseStreamReceipt(raw: unknown): StreamReceipt | null {
+	if (typeof raw !== "string" || raw.length === 0) return null;
+	try {
+		const j: unknown = JSON.parse(raw);
+		if (!j || typeof j !== "object") return null;
+		const r = j as Record<string, unknown>;
+		if (typeof r.terminal !== "string") return null;
+		return {
+			terminal: r.terminal,
+			bytes_in: typeof r.bytes_in === "number" ? r.bytes_in : 0,
+			chunks_in: typeof r.chunks_in === "number" ? r.chunks_in : 0,
+			last_chunk_ms:
+				typeof r.last_chunk_ms === "number" ? r.last_chunk_ms : null,
+		};
+	} catch {
+		return null;
+	}
 }
 
 /** Presented credential → truncated sha-256 hex id (12 chars). */

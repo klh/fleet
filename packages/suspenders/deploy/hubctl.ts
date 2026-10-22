@@ -284,11 +284,17 @@ function redactedRender(envText: string): string {
 }
 
 /** W688.7.1: the hub's upstream ladder file — stack.yaml `upstreams:` in
- *  buckle's upstreams.yaml shape; empty groups = the committed ladder stands
- *  (merge-over-base is by group name). Always rendered: compose mounts it. */
+ *  buckle's upstreams.yaml shape. W1123 hub identity: always stamped
+ *  `inherit_defaults: false` (fail-forward, no operator escape — an opt-in
+ *  would re-import the committed Mac local-swarm :890x onto a remote hub).
+ *  A Docker/remote hub exposes ONLY its configured + generated groups; empty
+ *  groups = an empty pool, not a silent inheritance. The local Mac spoke
+ *  keeps merge-over-base through its own UNFLAGGED override file. Always
+ *  rendered: compose mounts it. */
 function renderUpstreams(hub: HubProfile): string {
 	return stringify({
 		version: 1,
+		inherit_defaults: false,
 		groups: mergeZaiHubUpstreams(hub, mergedHubUpstreams(hub)),
 	});
 }

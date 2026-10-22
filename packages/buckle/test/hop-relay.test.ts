@@ -89,7 +89,16 @@ async function hub(
 		hubId,
 		observations: new ObservationOutbox({ path: obsPath, hubId }),
 	};
-	return { app: createApp(deps), ledger: deps.ledger, outboxPath: obsPath };
+	// Serve through the production seam (server.ts wraps the gate in sm.fetch):
+	// the W706 relay pre-flight grades a buckle peer on GET /status, which the
+	// servicemon wrapper answers — a raw app.fetch 405s it and every relay leg
+	// would die as HubConnectError before the first hop forwarded.
+	const app = createApp(deps);
+	return {
+		app: { fetch: deps.sm.fetch(app.fetch) },
+		ledger: deps.ledger,
+		outboxPath: obsPath,
+	};
 }
 
 /** The outbox flush is async — poll until the expected event count lands. */
