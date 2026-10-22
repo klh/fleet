@@ -24,7 +24,7 @@ import {
 	cmdResumed,
 	cmdResumeSession,
 } from "../coord/bus.ts";
-import { cmdTargets, cmdMessage } from "../coord/addressing.ts";
+import { cmdTargets, cmdMessage, cmdDelivery } from "../coord/addressing.ts";
 import { cmdExecutorCv } from "../coord/executor-cv.ts";
 import { cmdWisdom } from "../coord/wisdom.ts";
 import {
@@ -390,6 +390,13 @@ const VERBS: VerbSpec[] = [
 			'usage: message <target-label-or-sid-or-substring> "text" [--as sid] | message --all "text" [--as sid]',
 		lax: true,
 		run: (p) => cmdMessage(p.rest),
+	}),
+	defineVerb({
+		name: "delivery",
+		usage: "usage: delivery <delivery-id> [--json]",
+		minPos: 1,
+		switches: ["--json"],
+		run: (p) => cmdDelivery(p.rest),
 	}),
 	defineVerb({
 		name: "wisdom",

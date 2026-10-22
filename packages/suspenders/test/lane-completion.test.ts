@@ -677,6 +677,48 @@ test("concurrent duplicate native Stop hooks atomically spend exactly one attemp
 	expect(JSON.parse(readFileSync(marker, "utf8")).tries).toBe(1);
 });
 
+test("bound parent receives no-output notice without restarting the stopped child", () => {
+	const f = fixture();
+	expect(
+		f.coord(
+			"bootstrap",
+			"--as",
+			"completion-supervisor",
+			"--role",
+			"coordinator",
+		).code,
+	).toBe(0);
+	expect(
+		f.coord(
+			"bootstrap",
+			"--as",
+			"dispatch-owner",
+			"--parent",
+			"completion-supervisor",
+		).code,
+	).toBe(0);
+	const transcript = join(f.cwd, ".fleet/native-transcript.jsonl");
+	writeFileSync(
+		transcript,
+		`${JSON.stringify({ type: "assistant", uuid: "parent-notice", timestamp: new Date().toISOString(), isApiErrorMessage: true, message: { id: "parent-notice", role: "assistant", content: [] } })}\n`,
+	);
+	expect(f.stopSame().code).toBe(0);
+	expect(f.stopSame().code).toBe(0);
+	const row = JSON.parse(f.work("show", f.id, "--json").out);
+	const db = new Database(join(home, ".cache/claude-governor/governor.db"));
+	try {
+		expect(
+			db
+				.query(
+					"SELECT source,target FROM events WHERE kind='NEED_DECISION' AND json_extract(payload,'$.project')=? AND json_extract(payload,'$.item')=?",
+				)
+				.all(row.project, f.id),
+		).toEqual([{ source: "dispatch-owner", target: "completion-supervisor" }]);
+	} finally {
+		db.close();
+	}
+});
+
 test("distinct no-output turns each publish one event; same-turn duplicates stay silent", () => {
 	const f = fixture();
 	const transcript = join(f.cwd, ".fleet/native-transcript.jsonl");
@@ -708,6 +750,16 @@ test("distinct no-output turns each publish one event; same-turn duplicates stay
 				)
 				.get(row.project, f.id),
 		).toEqual({ n: 2 });
+		expect(
+			db
+				.query(
+					"SELECT source,target,json_extract(payload,'$.work') AS work FROM events WHERE kind='NEED_DECISION' AND json_extract(payload,'$.project')=? AND json_extract(payload,'$.item')=?",
+				)
+				.all(row.project, f.id),
+		).toEqual([
+			{ source: row.owner_sid, target: row.owner_sid, work: f.id },
+			{ source: row.owner_sid, target: row.owner_sid, work: f.id },
+		]);
 	} finally {
 		db.close();
 	}

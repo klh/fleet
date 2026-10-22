@@ -2,6 +2,7 @@
 // Peer addresses and read keys come only from a private machine-owned file.
 import { lstatSync, readFileSync } from "node:fs";
 import { isAbsolute } from "node:path";
+import { safeProviderErrorToken } from "./http-trace.ts";
 
 const TRACE_ID = /^[0-9a-f]{32}$/;
 const HUB_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -26,6 +27,10 @@ export interface RemoteTraceAttempt {
 	duration_ms: number | null;
 	retry_after_ms: number | null;
 	call_id: string | null;
+	provider_pool: string | null;
+	queue_wait_ms: number | null;
+	provider_error_code: string | null;
+	provider_error_type: string | null;
 }
 
 export interface RemoteTraceResult {
@@ -210,6 +215,10 @@ async function readPeer(
 				duration_ms: safeInt(row.duration_ms, 3_600_000),
 				retry_after_ms: safeInt(row.retry_after_ms, 3_600_000),
 				call_id: label(row.call_id),
+				provider_pool: label(row.provider_pool),
+				queue_wait_ms: safeInt(row.queue_wait_ms, 3_600_000),
+				provider_error_code: safeProviderErrorToken(row.provider_error_code),
+				provider_error_type: safeProviderErrorToken(row.provider_error_type),
 			});
 		}
 		return { hub_id: peer.hubId, status: "ok", attempts };

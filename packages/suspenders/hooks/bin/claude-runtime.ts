@@ -5,6 +5,13 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { ClaudeControl, claudeStreamArguments } from "../lib/claude-control.ts";
 import {
+	claudeLaneState,
+	claudePausePrompt,
+	claudePauseProof,
+	claudeResumePrompt,
+	claudeWakeControl,
+} from "../lib/claude-pause.ts";
+import {
 	consumeClaudeWake,
 	proveClaudeWake,
 	releaseClaudeWake,
@@ -40,7 +47,21 @@ async function run(args: string[]): Promise<number> {
 		process.stdout.write(`${JSON.stringify(frame)}\n`);
 	const lines = createInterface({ input: child.stdout });
 	let closing = false;
+	let pauseMode: "running" | "checkpointing" | "paused" | "resuming" =
+		"running";
+	let pauseCheckpoint: string | null = null;
+	let verifyingPause: Promise<void> | undefined;
 	let finishTimer: ReturnType<typeof setTimeout> | undefined;
+	const finishWhenIdle = () => {
+		clearTimeout(finishTimer);
+		finishTimer = setTimeout(() => {
+			if (!control.active && !control.busy && pauseMode === "running") {
+				closing = true;
+				abort.abort();
+				child.stdin.end();
+			}
+		}, 25);
+	};
 	lines.on("line", (line) => {
 		if (!process.stdout.write(`${line}\n`)) {
 			lines.pause();
@@ -49,22 +70,55 @@ async function run(args: string[]): Promise<number> {
 		try {
 			const frame = JSON.parse(line);
 			control.receive(frame);
+			if (
+				frame.type === "result" &&
+				!control.busy &&
+				!control.interruptBoundaryResult &&
+				pauseMode === "checkpointing"
+			) {
+				verifyingPause = (async () => {
+					const proof = await claudePauseProof(sid);
+					if (proof) {
+						pauseMode = "paused";
+						pauseCheckpoint = proof.checkpoint;
+					}
+					emit({
+						type: "fleet.claude.pause",
+						sid,
+						state: proof ? "paused" : "checkpoint-unconfirmed",
+						checkpoint: proof?.checkpoint ?? null,
+					});
+				})();
+			}
+			if (
+				frame.type === "result" &&
+				!control.busy &&
+				!control.interruptBoundaryResult &&
+				pauseMode === "resuming"
+			) {
+				void (async () => {
+					const resumed = (await claudeLaneState(sid)) === "RUNNING";
+					if (resumed) {
+						pauseMode = "running";
+						finishWhenIdle();
+					}
+					emit({
+						type: "fleet.claude.pause",
+						sid,
+						state: resumed ? "resumed" : "resume-unconfirmed",
+					});
+				})();
+			}
 			// W1035.1: a result closing an interrupted turn is an internal
 			// boundary — the injected turn follows in the same conversation, so
 			// the end-of-session close waits for the NEXT result instead.
 			if (
 				frame.type === "result" &&
+				pauseMode === "running" &&
 				!control.busy &&
 				!control.interruptBoundaryResult
 			) {
-				clearTimeout(finishTimer);
-				finishTimer = setTimeout(() => {
-					if (!control.active && !control.busy) {
-						closing = true;
-						abort.abort();
-						child.stdin.end();
-					}
-				}, 25);
+				finishWhenIdle();
 			}
 		} catch {
 			// Non-JSON diagnostics remain visible, never become protocol input.
@@ -92,9 +146,43 @@ async function run(args: string[]): Promise<number> {
 				abort: abort.signal,
 			});
 			if (!text || closing) break;
+			const kind = claudeWakeControl(text);
+			if ((pauseMode === "checkpointing" || pauseMode === "paused") && !kind) {
+				// Checkpointing and PAUSED remain silent. RESUMING is an active
+				// native turn, so direct messages use the ordinary proven interrupt.
+				// Keep the unproved claim: no busy-spin and no fake delivery. A
+				// subsequent resume has a higher event ID and wakes this watcher.
+				emit({
+					type: "fleet.claude.delivery",
+					sid,
+					state: "deferred-while-paused",
+				});
+				continue;
+			}
 			const wasActive = control.active;
+			const previousPauseMode = pauseMode;
 			try {
-				await control.steer(text);
+				if (kind === "resume_ready") {
+					await verifyingPause;
+					const proof = await claudePauseProof(sid, "RESUME_READY");
+					if (
+						pauseMode !== "paused" ||
+						!proof ||
+						proof.checkpoint !== pauseCheckpoint
+					)
+						throw new Error(
+							"resume unsupported until canonical PAUSED checkpoint proof and matching RESUME_READY exist",
+						);
+				}
+				if (kind === "pause_requested") pauseMode = "checkpointing";
+				await control.steer(
+					kind === "pause_requested"
+						? claudePausePrompt(sid, text)
+						: kind === "resume_ready"
+							? claudeResumePrompt(sid, text)
+							: text,
+				);
+				if (kind === "resume_ready") pauseMode = "resuming";
 				// W1035.1: the watermark moves only after a proven injection.
 				proveClaudeWake(sid, undefined, "managed");
 				consumeClaudeWake(sid, undefined, "boundary");
@@ -105,13 +193,14 @@ async function run(args: string[]): Promise<number> {
 					event: text.match(/^Fleet direct event #(\d+)/)?.[1] ?? null,
 				});
 			} catch (error) {
+				pauseMode = previousPauseMode;
 				// Interrupt refused/timeout: requeue — the durable event must not
 				// sit behind an advanced watermark.
 				releaseClaudeWake(sid, undefined, "managed");
 				emit({
 					type: "fleet.claude.delivery",
 					sid,
-					state: "queued",
+					state: kind ? "unsupported" : "queued",
 					reason: String(error),
 				});
 				break;

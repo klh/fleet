@@ -12,7 +12,8 @@ import type { Page } from "@playwright/test";
 const ORDER = [
 	"ready",
 	"waiting",
-	"working",
+	"claimed",
+	"paused",
 	"blocked",
 	"failed",
 	"done",

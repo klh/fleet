@@ -1,3 +1,5 @@
+import { safeRefusalCode } from "../../../telemetry/src/http-trace.ts";
+import { upstreamErrorDetail } from "../error-detail.ts";
 // src/adapters/errors.ts — the RouterError taxonomy (W134 §1): seven
 // normalized kinds with per-family mappings — family exception types never
 // leak past this file (LiteLLM exceptions.py anchors :131/:355/:441/:534/
@@ -188,69 +190,10 @@ function retryAfterOf(headers: Headers | null, wire: unknown): number | null {
 }
 
 /** Shared HTTP/SSE extraction: bounded, allowlisted fields, never raw payloads. */
-export function upstreamErrorDetail(
-	wire: unknown,
-	fallback = "upstream stream error",
-): {
-	message: string;
-	type: string;
-	code?: string | number;
-	trace_id?: string;
-} {
-	const records: AnyRec[] = [];
-	let cursor = wire;
-	for (
-		let depth = 0;
-		depth < 5 && cursor && typeof cursor === "object" && !Array.isArray(cursor);
-		depth++
-	) {
-		const record = cursor as AnyRec;
-		records.unshift(record);
-		cursor = record.error ?? record.cause;
-	}
-	const clean = (value: string): string =>
-		value
-			.slice(0, 4096)
-			.replace(/\/Users\/[^/\s'"]+/g, "~")
-			.replace(/\b(?:sk-|bksk_|ghp_)[A-Za-z0-9_-]+/g, "[redacted]")
-			.replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
-			.slice(0, 1024);
-	const pick = (...keys: string[]): string => {
-		for (const record of records)
-			for (const key of keys) {
-				const value = str(record[key]);
-				if (value.trim()) return clean(value);
-			}
-		return "";
-	};
-	const rawType = pick("type");
-	const code = records
-		.map((record) => record.code)
-		.find(
-			(value) =>
-				typeof value === "string" ||
-				(typeof value === "number" && Number.isFinite(value)),
-		);
-	const trace = pick("trace_id", "traceId");
-	return {
-		message: pick("message", "detail", "why", "title") || fallback,
-		type:
-			rawType &&
-			!["error", "response.failed", "response.incomplete"].includes(rawType) &&
-			!rawType.includes("://")
-				? rawType
-				: "api_error",
-		...(typeof code === "string"
-			? { code: clean(code) }
-			: typeof code === "number"
-				? { code }
-				: {}),
-		...(trace ? { trace_id: trace } : {}),
-	};
-}
+export { upstreamErrorDetail } from "../error-detail.ts";
 
-/** status/body/headers → RouterError. Precedence: body signature → status
- *  map → 5xx/short-fallback (5xx→server, other→bad_request). */
+/** status/body/headers → RouterError. Auth/rate-limit status wins, then
+ *  typed peer transport, body signature, and ordinary status fallback. */
 export function normalizeUpstreamError(
 	family: AdapterFamily,
 	status: number,
@@ -262,12 +205,24 @@ export function normalizeUpstreamError(
 	const fromSig = sig.length > 0 && table ? table[sig] : undefined;
 	const fromStatus: ErrorKind | undefined =
 		STATUS_KINDS[family]?.[status] ?? TIER2_STATUS[family]?.[status];
+	// A peer gateway can report a transport failure as an HTTP error. Preserve
+	// its bounded typed refusal, without overriding real auth/rate-limit status.
+	const refusal = safeRefusalCode(headers?.get("x-klh-refusal"));
+	const peerTransport: ErrorKind | undefined =
+		status >= 500 && status <= 599
+			? refusal === "network" || refusal === "connect_unreachable"
+				? "network"
+				: refusal === "timeout"
+					? "timeout"
+					: undefined
+			: undefined;
 	const kind: ErrorKind =
 		(status === 429
 			? "rate_limited"
 			: status === 401 || status === 403
 				? "auth"
 				: undefined) ??
+		peerTransport ??
 		fromSig ??
 		fromStatus ??
 		(status >= 500 || status < 400 ? "server" : "bad_request");

@@ -22,7 +22,7 @@ export { composeBrief };
 // — dispatch composes adapter.spawnArgs/verifyBrief-harness, no per-agent
 // branches. The spawn-args INTERFACE lives in scripts/lib/lane.ts.
 import { adapterFor } from "../hooks/lib/executors/registry.ts";
-import { effortForPriority } from "../hooks/lib/lane-effort.ts";
+import { dispatchLaneEffort } from "../hooks/lib/lane-effort-policy.ts";
 // W157 decomposition: the pure governance decisions live in their module;
 // re-exported so existing importers (tests, scripts) keep their path.
 import {
@@ -96,9 +96,6 @@ import {
 	readPosture,
 	recordPlaidTrace,
 } from "../hooks/lib/plaid.ts";
-// W1102.1: the plaid launch preflight (host-pressure hold + pool plan +
-// route pick) — its own module per the 1500-line law
-import { plaidLaunchPreflight } from "../scripts/lib/plaid-launch.ts";
 // W862: policy provenance rides the brief — read-only graph read, the
 // compliance check itself re-runs at the lane's session bootstrap
 import { policyBriefLines } from "../hooks/lib/session-policy.ts";
@@ -107,6 +104,9 @@ import {
 	policyForRepo,
 	tryLoadStack,
 } from "../hooks/lib/stack-config.ts";
+// W1102.1: the plaid launch preflight (host-pressure hold + pool plan +
+// route pick) — its own module per the 1500-line law
+import { plaidLaunchPreflight } from "../scripts/lib/plaid-launch.ts";
 import { recoverOrphanClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import { deferItem, isDeferredItem } from "./lib/dispatch-defers.ts";
@@ -1049,7 +1049,7 @@ const dispatchItem = async (
 			env,
 			m,
 			BIN,
-			effortForPriority(item.priority),
+			dispatchLaneEffort(store, project, item),
 			pick.preference,
 			ROUTING_PREFER,
 		);
