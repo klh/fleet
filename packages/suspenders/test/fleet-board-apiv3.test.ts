@@ -84,6 +84,7 @@ describe("board api v3 (docs/board-api.md)", () => {
 				"age_s",
 				"blocked_by",
 				"created_at_utc",
+				"execution",
 				"executor",
 				"failure_note",
 				"id",
@@ -106,6 +107,9 @@ describe("board api v3 (docs/board-api.md)", () => {
 				"title",
 				"unblocked_by",
 				"updated_at_utc",
+				"wait_kind",
+				"wait_reason",
+				"wait_until_utc",
 				"waiting_on",
 			]);
 		}
@@ -117,6 +121,8 @@ describe("board api v3 (docs/board-api.md)", () => {
 		);
 		expect(beta.state).toBe("CLAIMED");
 		expect(beta.owner_sid).toBe("board-lane");
+		expect(beta.execution.state).toBe("unknown");
+		expect(beta.execution.source).toBe("work-claim-only");
 		expect(beta.owner_label).toBe("tasks lane"); // claim intent, not the raw sid
 		expect(beta.requires).toBe("shell");
 		expect(beta.scope).toBe("tb");

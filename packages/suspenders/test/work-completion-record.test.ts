@@ -311,6 +311,35 @@ test("done refuses a closing diff that adds fake-completion markers (W511)", () 
 	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("CLAIMED");
 });
 
+test("completion preserves honest proposal documentation in its immutable baseline diff", () => {
+	const f = fixture();
+	const prose = [
+		"The proposals below remain un",
+		"implemented unless stated otherwise.\n",
+	].join("");
+	writeFileSync(join(f.repo, "how-to-review.md"), prose);
+	const git = (...args: string[]) => {
+		const p = Bun.spawnSync(["git", "-C", f.repo, ...args], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		expect(p.exitCode).toBe(0);
+		return p.stdout.toString().trim();
+	};
+	git("add", "how-to-review.md");
+	git("commit", "-m", "document future review proposals honestly");
+	const done = f.work(
+		"done",
+		f.id,
+		"--sha",
+		git("rev-parse", "HEAD"),
+		"--summary",
+		summary,
+	);
+	expect(done.code).toBe(0);
+	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("DONE");
+});
+
 test("done refuses a bench-shaped item without its ledgers (W951)", () => {
 	const f = fixture({ title: "bench: A/B retrieval verdict" });
 	const git = (...args: string[]) => {
