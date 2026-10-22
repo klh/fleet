@@ -148,6 +148,7 @@ test("actual work done context refusal reaches board, retries dedupe, retakes cr
 	writeFileSync(join(f.GREPO, "README.md"), "Fixture baseline\n");
 	expect(cmd(["git", "add", "README.md"]).exitCode).toBe(0);
 	expect(cmd(["git", "commit", "-qm", "Fixture baseline"]).exitCode).toBe(0);
+	const baseline = cmd(["git", "rev-parse", "HEAD"]).stdout.toString().trim();
 	const cli = (...args: string[]) =>
 		cmd([process.execPath, join(f.bin, "work.ts"), ...args]);
 	const added = cli("add", "Completion context fixture");
@@ -182,14 +183,108 @@ test("actual work done context refusal reaches board, retries dedupe, retakes cr
 		target: "completion-fixture",
 		task_id: item,
 	});
-	db.query(
-		"UPDATE work_items SET claim_token_hash='new-fixture-claim' WHERE project=? AND id=?",
-	).run(row.project, item);
+	expect(cli("release", item, "--as", "completion-fixture").exitCode).toBe(0);
+	const retake = cli("take", item, "--as", "completion-fixture");
+	expect(retake.exitCode).toBe(0);
+	expect(
+		(await feed(row.project)).find((card) => card.id === ids()[0]?.id),
+	).toMatchObject({ state: "CANCELLED" });
 	expect(cli("done", item, "--as", "completion-fixture").exitCode).not.toBe(0);
 	expect(ids()).toHaveLength(2);
+	expect(
+		(await feed(row.project)).find((card) => card.id === ids()[1]?.id),
+	).toMatchObject({ state: "OPEN" });
+	work(item, foreign, "DONE");
+	expect(
+		(await feed(row.project)).find((card) => card.id === ids()[1]?.id),
+	).toMatchObject({ state: "OPEN" });
 	writeFileSync(join(f.GREPO, ".fleet/lane-context.json"), "{");
 	expect(cli("done", item, "--as", "completion-fixture").exitCode).not.toBe(0);
 	expect(ids()).toHaveLength(2);
+	const token = /claim token: ([0-9a-f]{48})/.exec(
+		retake.stdout.toString(),
+	)?.[1];
+	if (!token) throw new Error("missing retake claim token");
+	writeFileSync(
+		join(f.GREPO, ".fleet/lane-context.json"),
+		JSON.stringify({
+			sid: "completion-fixture",
+			item,
+			baseline,
+			claimToken: token,
+		}),
+	);
+	writeFileSync(
+		join(f.GREPO, "implemented.ts"),
+		"export const fixtureResult = () => 42;\n",
+	);
+	expect(cmd(["git", "add", "implemented.ts"]).exitCode).toBe(0);
+	expect(
+		cmd(["git", "commit", "-qm", "Implement fixture result"]).exitCode,
+	).toBe(0);
+	const sha = cmd(["git", "rev-parse", "HEAD"]).stdout.toString().trim();
+	const done = cli(
+		"done",
+		item,
+		"--as",
+		"completion-fixture",
+		"--sha",
+		sha,
+		"--summary",
+		"Implemented the fixture result function and verified the bound claim completion evidence.",
+	);
+	expect(done.exitCode).toBe(0);
+	expect(
+		(await feed(row.project))
+			.filter((card) => ids().some((event) => event.id === card.id))
+			.map((card) => card.state),
+	).toEqual(["CANCELLED", "CANCELLED"]);
+	const open = await fetch(
+		`${f.BASE}/api/decisions?project=${encodeURIComponent(row.project)}`,
+	).then((response) => response.json());
+	expect(open).toMatchObject({ count: 0, decisions: [] });
+});
+
+test("retakes retire typed legacy incidents only in their project and preserve generic questions", async () => {
+	for (const item of ["W41", "W42", "W43"]) work(item);
+	const generic = Number(
+		db
+			.query(
+				"INSERT INTO events (ts,source,target,kind,payload) VALUES (?,'stopped-lane','stopped-lane','NEED_DECISION',?)",
+			)
+			.run(
+				Date.now(),
+				JSON.stringify({
+					project,
+					work: "W41",
+					note: "Should the new policy be approved?",
+				}),
+			).lastInsertRowid,
+	);
+	const foreignIncident = event("W42"),
+		legacy = event("W43");
+	await feed();
+	const claim = (p: string, item: string) =>
+		db
+			.query(
+				"INSERT INTO events (ts,source,kind,payload) VALUES (?,'stopped-lane','work.claimed',?)",
+			)
+			.run(
+				Date.now(),
+				JSON.stringify({ project: p, work: item, by: "stopped-lane" }),
+			);
+	claim(project, "W41");
+	claim(foreign, "W42");
+	claim(project, "W43");
+	const latest = event("W43");
+	const rows = await feed();
+	for (const id of [generic, foreignIncident, latest])
+		expect(rows.find((card) => card.id === id)).toMatchObject({
+			state: "OPEN",
+		});
+	expect(rows.find((card) => card.id === legacy)).toMatchObject({
+		state: "CANCELLED",
+	});
 });
 test("only latest active owned typed legacy incident backfills once, without emitting", async () => {
 	for (const item of ["W7", "W8", "W9"]) work(item);

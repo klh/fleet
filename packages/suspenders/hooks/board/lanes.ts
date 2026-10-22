@@ -14,7 +14,11 @@ import { hostname } from "node:os";
 // (the isDecisionKind accept-set note below mirrors govdb.ts — not imported
 // on purpose: lanes.ts never calls it, the two lists just change together)
 import { tagNameOf } from "../lib/govdb.ts";
-import { laneStopNotice, laneStopTarget } from "../lib/lane-stop-decision.ts";
+import {
+	laneStopNotice,
+	laneStopTarget,
+	operationalLaneStopNotice,
+} from "../lib/lane-stop-decision.ts";
 import { gitObservation, type LaneGitObservation } from "../lib/lane-git.ts";
 import {
 	type LaneRef,
@@ -219,6 +223,25 @@ function backfillLaneStopDecisions(): void {
 export function syncDecisions(): void {
 	const now = Date.now();
 	backfillLaneStopDecisions();
+	// A later claim starts a new activation. Retire only typed operational
+	// incidents from the earlier activation, never a generic human decision.
+	for (const event of db
+		.query(`SELECT e.id,e.source,e.target,e.kind,e.payload FROM decisions d
+	 JOIN events e ON e.id=d.event_id WHERE d.state='OPEN' AND EXISTS
+	 (SELECT 1 FROM events claim WHERE claim.kind='work.claimed' AND claim.id > e.id
+	 AND claim.project=d.project AND claim.work=d.task_id)`)
+		.all() as {
+		id: number;
+		source: string;
+		target: string | null;
+		kind: string;
+		payload: string | null;
+	}[]) {
+		if (!operationalLaneStopNotice(event)) continue;
+		db.query(
+			"UPDATE decisions SET state='CANCELLED',closed_at=?,answer_token=? WHERE event_id=? AND state='OPEN'",
+		).run(now, crypto.randomUUID(), event.id);
+	}
 	// old DISMISSED rows keep their meaning under the v2 name (board dismiss = CANCELLED)
 	db.run("UPDATE decisions SET state = 'CANCELLED' WHERE state = 'DISMISSED'");
 	for (const r of db

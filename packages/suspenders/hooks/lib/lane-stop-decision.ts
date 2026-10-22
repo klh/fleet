@@ -84,15 +84,16 @@ export function laneStopDecision(
 	};
 }
 
-/** Internal operational notices remain board incidents, not work for their author. */
-export function selfLaneStopNotice(event: {
+/** Strict recognition also permits the original untargeted transport notice. */
+export function operationalLaneStopNotice(event: {
 	kind: string;
 	source: string;
 	target?: string | null;
 	payload: string | null;
 }): boolean {
-	if (event.kind !== "NEED_DECISION" || event.source !== event.target)
-		return false;
+	if (event.kind !== "NEED_DECISION") return false;
+	if (event.target == null && laneStopNotice(event.payload, event.source))
+		return true;
 	let payload: Record<string, unknown>;
 	try {
 		payload = JSON.parse(event.payload ?? "{}");
@@ -114,6 +115,13 @@ export function selfLaneStopNotice(event: {
 		payload.work === payload.item &&
 		(transport || completion)
 	);
+}
+
+/** Internal operational notices remain board incidents, not work for their author. */
+export function selfLaneStopNotice(
+	event: Parameters<typeof operationalLaneStopNotice>[0],
+): boolean {
+	return event.source === event.target && operationalLaneStopNotice(event);
 }
 
 /** Resolve the bound upstream session, retaining dead identities for rulings. */
