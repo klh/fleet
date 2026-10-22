@@ -3,7 +3,7 @@
 // route assignment and status.
 
 import { Database } from "bun:sqlite";
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -32,6 +32,8 @@ import {
 	writePosture,
 } from "../hooks/lib/plaid.ts";
 
+// Unit planning cases pin their route fixture instead of reading the operator HOME.
+beforeEach(() => setPlaidRouteSource(() => PLAID_ROUTES));
 const dbs: Database[] = [];
 const dirs: string[] = [];
 afterEach(() => {

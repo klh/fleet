@@ -109,6 +109,7 @@ import {
 } from "../hooks/lib/stack-config.ts";
 import { recoverOrphanClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
+import { deferItem, isDeferredItem } from "./lib/dispatch-defers.ts";
 import { execPick, posturePreference } from "./lib/exec-chain.ts";
 import { fleetReport } from "./lib/fleet-report.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
@@ -653,9 +654,9 @@ const dispatchItem = async (
 			const show = run(workCli("show", item, "--json"));
 			if (show.code !== 0 || !isResumableClaim(show.out, item, sid)) {
 				console.log(
-					`SKIP ${item} — claimed elsewhere: ${take.out.split("\n")[0]}`,
+					`SKIP ${item} — claim could not be taken or resumed: ${take.out.split("\n")[0]}`,
 				);
-				return null;
+				return deferItem(item, show, sid);
 			}
 			// claimed by this sid from a previous dispatch attempt — resume
 		}
@@ -721,7 +722,7 @@ const dispatchItem = async (
 				console.log(
 					`SKIP ${item} — leftover worktree sits on ${cur || "(detached)"} AND is dirty — residue is never silently discarded; worktree.ts retire ${item} --force, then re-dispatch`,
 				);
-				return null;
+				return deferItem(item);
 			}
 			const skip = recreateWorktree(item, sid, claimRevision);
 			if (skip) {
@@ -736,7 +737,7 @@ const dispatchItem = async (
 			console.log(
 				`SKIP ${item} — worktree holds unbanked residue on the item branch — never spawn into unbanked state; worktree.ts retire ${item} --force, then re-dispatch`,
 			);
-			return null;
+			return deferItem(item);
 		}
 		const branch = cur || expected;
 		const show = run(workCli("show", item));
@@ -807,7 +808,7 @@ const dispatchItem = async (
 			console.log(
 				`SKIP ${item} — brief refused by ${adapter.briefHarness} verification: ${why} — launch refused; claim cleanup follows, nothing spawned`,
 			);
-			return null;
+			return deferItem(item);
 		}
 		if (!verdict.ok)
 			console.log(
@@ -1360,7 +1361,8 @@ const main = async (): Promise<void> => {
 		if (!canLaunch()) break;
 		const out = await dispatchItem(resume.item, live, resume);
 		if (out) dispatched.push(out);
-		else if (POSTURE === "plaid") {
+		// W1145: item-local deferrals don't stop the refill; global holds do.
+		else if (POSTURE === "plaid" && !isDeferredItem(resume.item)) {
 			plaidRefused = true;
 			break;
 		}
@@ -1427,7 +1429,7 @@ const main = async (): Promise<void> => {
 		if (!canLaunch()) break;
 		const out = await dispatchItem(r.id, live, undefined, dispatched.length);
 		if (out) dispatched.push(out);
-		else if (POSTURE === "plaid") {
+		else if (POSTURE === "plaid" && !isDeferredItem(r.id)) {
 			plaidRefused = true;
 			break;
 		}
