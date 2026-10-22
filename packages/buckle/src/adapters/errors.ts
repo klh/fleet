@@ -1,3 +1,4 @@
+import { safeRefusalCode } from "../../../telemetry/src/http-trace.ts";
 import { upstreamErrorDetail } from "../error-detail.ts";
 // src/adapters/errors.ts — the RouterError taxonomy (W134 §1): seven
 // normalized kinds with per-family mappings — family exception types never
@@ -191,8 +192,8 @@ function retryAfterOf(headers: Headers | null, wire: unknown): number | null {
 /** Shared HTTP/SSE extraction: bounded, allowlisted fields, never raw payloads. */
 export { upstreamErrorDetail } from "../error-detail.ts";
 
-/** status/body/headers → RouterError. Precedence: body signature → status
- *  map → 5xx/short-fallback (5xx→server, other→bad_request). */
+/** status/body/headers → RouterError. Auth/rate-limit status wins, then
+ *  typed peer transport, body signature, and ordinary status fallback. */
 export function normalizeUpstreamError(
 	family: AdapterFamily,
 	status: number,
@@ -204,12 +205,24 @@ export function normalizeUpstreamError(
 	const fromSig = sig.length > 0 && table ? table[sig] : undefined;
 	const fromStatus: ErrorKind | undefined =
 		STATUS_KINDS[family]?.[status] ?? TIER2_STATUS[family]?.[status];
+	// A peer gateway can report a transport failure as an HTTP error. Preserve
+	// its bounded typed refusal, without overriding real auth/rate-limit status.
+	const refusal = safeRefusalCode(headers?.get("x-klh-refusal"));
+	const peerTransport: ErrorKind | undefined =
+		status >= 500 && status <= 599
+			? refusal === "network" || refusal === "connect_unreachable"
+				? "network"
+				: refusal === "timeout"
+					? "timeout"
+					: undefined
+			: undefined;
 	const kind: ErrorKind =
 		(status === 429
 			? "rate_limited"
 			: status === 401 || status === 403
 				? "auth"
 				: undefined) ??
+		peerTransport ??
 		fromSig ??
 		fromStatus ??
 		(status >= 500 || status < 400 ? "server" : "bad_request");

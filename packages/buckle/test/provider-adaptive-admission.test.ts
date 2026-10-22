@@ -8,6 +8,7 @@ const policy = {
 	intervalMs: 40,
 	maxOutstanding: 80,
 	queueWaitMs: 2000,
+	recovery: { successWindow: 8, decreasePercent: 5 },
 };
 test("one forty-response 429 burst coalesces and stale successes cannot undo it", async () => {
 	const core = new ProviderAdmissionCore(policy);
@@ -91,6 +92,7 @@ test("forty concurrent callers share adaptive pacing against a real-clock one-re
 					intervalMs: 500,
 					maxOutstanding: 80,
 					queueWaitMs: 90_000,
+					recovery: { successWindow: 8, decreasePercent: 5 },
 				},
 			},
 		},
