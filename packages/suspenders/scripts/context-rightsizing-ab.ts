@@ -54,6 +54,18 @@ export const armStats = (
 	};
 };
 
+/** Share of exact-zero out/min readings among measured rows — the ledger's
+ *  zero-out attribution mass (rows with attribution but no out tokens).
+ *  High share = the median is a floor, not a rate (W943.1 cache-floor
+ *  convention, `*` in the report). */
+export const zeroOutShare = (rows: LaneArmRow[]): number => {
+	const vals = rows
+		.map((r) => r.outPerMin)
+		.filter((v): v is number => v !== null);
+	if (vals.length === 0) return 0;
+	return vals.filter((v) => v === 0).length / vals.length;
+};
+
 interface DoneItem {
 	id: string;
 	title: string;
@@ -149,18 +161,23 @@ const main = (): number => {
 		s: ArmStats,
 		done: number,
 		failed: number,
+		rows: LaneArmRow[],
 	): string => {
 		const pct = (v: number | null, mul = 1): string =>
 			v === null ? "-" : `${Math.round(v * 100 * mul)}`;
 		const completion =
 			done + failed > 0 ? Math.round((done / (done + failed)) * 100) : -1;
+		const outMin =
+			s.medianOutPerMin === null
+				? "-"
+				: `${Math.round(s.medianOutPerMin)}${zeroOutShare(rows) > 0.5 ? "*" : ""}`;
 		return [
 			name.padEnd(8),
 			`n=${String(s.n).padStart(3)}`,
 			`completion=${completion < 0 ? "-" : `${completion}%`}`,
 			`med_tokens=${s.medianTokens === null ? "-" : compact(s.medianTokens)}`,
 			`med_cache=${pct(s.medianCacheShare)}%`,
-			`med_out_per_min=${s.medianOutPerMin === null ? "-" : String(Math.round(s.medianOutPerMin))}`,
+			`med_out_per_min=${outMin}`,
 			`agent_h=${s.agentHours.toFixed(1)}`,
 			`done=${done}`,
 			`failed=${failed}`,
@@ -172,6 +189,7 @@ const main = (): number => {
 			armStats(before.rows, before.agentMsTotal),
 			before.done,
 			before.failed,
+			before.rows,
 		),
 	);
 	console.log(
@@ -180,6 +198,7 @@ const main = (): number => {
 			armStats(after.rows, after.agentMsTotal),
 			after.done,
 			after.failed,
+			after.rows,
 		),
 	);
 	const verdict =
@@ -187,6 +206,10 @@ const main = (): number => {
 			? "A/B COMPARABLE"
 			: `AFTER ARM PENDING (n=${after.rows.length} < ${minN}) — accrues as post-landing lanes close; quote neither arm until then`;
 	console.log(verdict);
+	if (zeroOutShare(before.rows) > 0.5 || zeroOutShare(after.rows) > 0.5)
+		console.log(
+			"(* = the median sits in the zero-out attribution mass — read as a floor, not a rate; W943.1)",
+		);
 	return 0;
 };
 

@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { armStats, type LaneArmRow } from "./context-rightsizing-ab.ts";
+import {
+	armStats,
+	zeroOutShare,
+	type LaneArmRow,
+} from "./context-rightsizing-ab.ts";
 
 const row = (
 	tokens: number,
@@ -29,6 +33,18 @@ describe("context-rightsizing-ab armStats", () => {
 		expect(s.medianTokens).toBe(2_000_000);
 		expect(s.medianCacheShare).toBe(0.6);
 		expect(s.medianOutPerMin).toBe(400);
+	});
+
+	test("zeroOutShare — zeros over non-null out/min values, empty-safe", () => {
+		expect(
+			zeroOutShare([
+				row(1_000, 0.5, 0),
+				row(2_000, 0.5, 0),
+				row(3_000, 0.5, 300),
+			]),
+		).toBe(2 / 3);
+		expect(zeroOutShare([row(1_000, 0.5, null)])).toBe(0);
+		expect(zeroOutShare([])).toBe(0);
 	});
 
 	test("zero-token rows keep n but never enter the token median", () => {
