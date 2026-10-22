@@ -52,6 +52,7 @@ import {
 	cmdKnowledgeNote,
 	cmdKnowledgeVerify,
 	cmdKnowledgeCurate,
+	cmdKnowledgeReprocess,
 	cmdKnowledgePropose,
 	cmdKnowledgeProposals,
 	cmdKnowledgeDispose,
@@ -306,6 +307,13 @@ const VERBS: VerbSpec[] = [
 			'usage: knowledge-dispose <proposalId> approve|dismiss [--as sid] [--note "why"] [--superseded-by <id>]',
 		flags: ["--as", "--note", "--superseded-by"],
 		run: (p) => cmdKnowledgeDispose(p.rest),
+	}),
+	defineVerb({
+		name: "knowledge-reprocess",
+		usage: "usage: knowledge-reprocess [--apply]",
+		switches: ["--apply"],
+		lax: true,
+		run: (p) => cmdKnowledgeReprocess(p.rest),
 	}),
 	defineVerb({
 		name: "bootstrap",

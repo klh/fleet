@@ -146,7 +146,9 @@ const stub = Bun.serve({
 						? w103Items()
 						: text.includes("w103-curate-bait")
 							? baitItem()
-							: distillArr(u.searchParams.get("echo") ?? "");
+							: text.includes("w1113-stamp")
+								? w1113StampItems()
+								: distillArr(u.searchParams.get("echo") ?? "");
 			return Response.json({
 				choices: [{ message: { content: JSON.stringify(items) } }],
 			});
@@ -256,6 +258,24 @@ afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO, { recursive: true, force: true });
 });
+
+// ─── W1113 stamp-contract fixture: a HIGH-confidence distillation (0.85) ───
+// the ingest stamp must still land doctrine-valid: single-model anchor 0.6,
+// setter mechanical:knowledge-worker. Discriminator: "w1113-stamp" payload.
+function w1113StampItems(): unknown[] {
+	return [
+		{
+			topic: "ingest stamp ceiling probe",
+			fact: "distilled confidence is capped at the single-model anchor on ingest. zqw1113",
+			confidence: 0.85,
+			domain: "suspenders",
+			area: "gates",
+			origin_kind: "lesson",
+			origin_system: null,
+			source_ref: null,
+		},
+	];
+}
 
 // ─── W112 pointer-row fixtures ───
 // one payload shape, three model behaviors; the facts stay below the
@@ -382,6 +402,38 @@ describe("knowledge ingest pipeline", () => {
 		const w = await runWorker(INGEST_ENV);
 		expect(w.code).toBe(0);
 		expect(w.out).toContain("queue empty");
+	});
+
+	// W1113 behavioral contract: a HIGH-confidence distillation (0.85) still
+	// lands doctrine-valid. The regression this pins: the ingest stamp threw
+	// at distilled 0.8+, the job failed 3x and poisoned the payload — ingest
+	// went silent for any payload the distiller rated >=0.8.
+	test("ingest stamps distilled rows at the single-model ceiling", async () => {
+		const e = run([
+			"knowledge-enqueue",
+			"--source",
+			"w1113 stamp contract",
+			"--payload",
+			"w1113-stamp probe payload",
+		]);
+		expect(e.code).toBe(0);
+		const w = await runWorker(INGEST_ENV);
+		expect(w.out).toContain("1 written, 0 skipped");
+		const row = q<{
+			confidence: number;
+			confidence_stamp: string;
+			state: string;
+		}>(
+			"SELECT confidence, confidence_stamp, state FROM knowledge WHERE topic = 'ingest stamp ceiling probe'",
+		)[0];
+		expect(row.state).toBe("candidate");
+		expect(row.confidence).toBe(0.6);
+		const stamp = JSON.parse(row.confidence_stamp) as {
+			value: number;
+			setter: string;
+		};
+		expect(stamp.value).toBe(0.6);
+		expect(stamp.setter).toBe("mechanical:knowledge-worker");
 	});
 });
 
@@ -852,11 +904,13 @@ describe("W100 enqueue-time source hashing", () => {
 
 describe("W245 search stage", () => {
 	// minimal column subset — the search SQL only touches these columns
+	// (W953: the confidence floor needs the confidence column too)
 	const KSCHEMA = `CREATE TABLE knowledge (
 	id INTEGER PRIMARY KEY,
 	ts INTEGER NOT NULL,
 	topic TEXT NOT NULL,
 	fact TEXT NOT NULL,
+	confidence REAL,
 	domain TEXT,
 	area TEXT,
 	origin_kind TEXT,
