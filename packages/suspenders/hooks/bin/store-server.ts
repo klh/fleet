@@ -25,6 +25,10 @@ import {
 	handleConsultRelay,
 } from "../lib/consult-relay-receiver.ts";
 import {
+	ensureEventRelayReceipts,
+	handleEventRelay,
+} from "../lib/event-relay.ts";
+import {
 	type GovernorStore,
 	knowledgeSqlViolation,
 	openGovernorDb,
@@ -80,6 +84,7 @@ const sm = servicemon({ service: "store-server", port: PORT });
 const db = openGovernorDb();
 const INSTANCE_ID = consultStoreId(db);
 ensureConsultRelayReceipts(db as unknown as GovernorStore);
+ensureEventRelayReceipts(db as unknown as GovernorStore);
 const txDb = openGovernorDb() as unknown as GovernorStore;
 const TX_IDLE_MS = 10_000;
 
@@ -512,6 +517,36 @@ const base = {
 						{ status: 503 },
 					);
 				return handleConsultRelay(
+					req,
+					url,
+					db as unknown as GovernorStore,
+					(eventId) => maybeBroadcastInsert("INSERT INTO events", eventId),
+				);
+			});
+		}
+		// W1061 — cross-hub direct event relay: same gate shape, same serial
+		// chain, same targeted WS notify as /consult-relay; the inserted event
+		// rides the lane's own subscribe push (managed-runtime wake) and its
+		// inbox/ack path stamps the SEEN/ACCEPTED receipts the status GET reads.
+		if (
+			url.pathname === "/event-relay" ||
+			url.pathname.startsWith("/event-relay/")
+		) {
+			if (!RELAY_TOKEN)
+				return Response.json(
+					{ error: "Event relay requires a configured server token" },
+					{ status: 503 },
+				);
+			if (req.headers.get("x-governor-token") !== RELAY_TOKEN)
+				return new Response("forbidden", { status: 403 });
+			return serialGov(() => {
+				rollIdle(govCell, txDb);
+				if (govCell.v)
+					return Response.json(
+						{ error: "Store transaction is active" },
+						{ status: 503 },
+					);
+				return handleEventRelay(
 					req,
 					url,
 					db as unknown as GovernorStore,
