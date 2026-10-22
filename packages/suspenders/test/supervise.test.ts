@@ -28,10 +28,18 @@ import { inScope } from "../scripts/supervise.ts";
 const HOME = mkdtempSync(join(tmpdir(), "claude-w146-sup-home-"));
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-w146-sup-repo-"));
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
+// W1124.10: a dispatched lane's own KLH_CLAIM_TOKEN must not leak into the
+// child CLIs — work done prefers the env token over the durable context
+// channel (W643) and reads this suite's fixture claims as stale writers.
+const { KLH_CLAIM_TOKEN: _laneClaimToken, ...laneEnv } = process.env;
 const env = {
-	...process.env,
+	...laneEnv,
 	HOME,
 	PATH: `${join(HOME, "bin")}:${process.env.PATH}`,
+	// W1124.10: merge-on-done's detached flush merges a closed lane's branch
+	// seconds after done — it races this suite's explicit integration runs
+	// (verify must see the sha UNMERGED). The knob is the operator switch.
+	FLEET_MERGE_ON_DONE: "0",
 };
 
 mkdirSync(join(HOME, ".claude", "hooks", "suspenders"), { recursive: true });
@@ -102,6 +110,20 @@ const sup = (...args: string[]) => {
 		],
 		{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
 	);
+	return {
+		out: p.stdout.toString(),
+		err: p.stderr.toString(),
+		code: p.exitCode ?? 1,
+	};
+};
+// raw variant for negative assertions — a REFUSED CLI is the expectation here
+const attempt = (bin: string, ...args: string[]) => {
+	const p = Bun.spawnSync([process.execPath, join(BIN, bin), ...args], {
+		cwd: REPO,
+		env,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
 	return {
 		out: p.stdout.toString(),
 		err: p.stderr.toString(),
@@ -346,11 +368,9 @@ describe("W146 micro-supervisor", () => {
 		const rows = registryRows().filter((l) => l.sid === sidOf(c1));
 		expect(rows).toHaveLength(1);
 		expect(rows[0].attempt).toBe(1); // attempt is 0-based: first launch 0, resume 1
-		// the lane finishes: commit on its branch, mark DONE (landing chain)
-		writeFileSync(
-			join(REPO, ".worktrees", c1, "oversized.ts"),
-			"// line\n".repeat(1501),
-		);
+		// the lane finishes: valid product artifact on its branch, then the
+		// landing chain — commit, capsule, done (patch-first stays green: the
+		// oversize rejection is exercised by its own test below, W1124.10)
 		const sha1 = commitIn(join(REPO, ".worktrees", c1), "first child work");
 		// completion law: a dispatched close needs the final capsule checkpoint
 		tool(
@@ -378,17 +398,6 @@ describe("W146 micro-supervisor", () => {
 		expect(r4.out).toContain("integrating");
 		expect(ancestorOfMain(sha1)).toBe(true);
 		expect(factValue(`supervise.${p.toLowerCase()}.integrated`)).toContain(c1);
-		const checkDb = db();
-		const followup = checkDb
-			.query(
-				"SELECT id, description FROM work_items WHERE project = ? AND title = 'DRY and decompose oversized.ts'",
-			)
-			.all(PROJECT) as { id: string; description: string }[];
-		expect(followup).toHaveLength(1);
-		expect(followup[0].description).toContain(
-			"import them from the original entrypoint",
-		);
-		checkDb.close();
 		// run 5: with the dep merged, the blocked child is now dispatchable
 		const r5 = sup(p, "--once", "--integrate", "merge");
 		expect(r5.out).toContain(`dispatched ${c2}`);
@@ -427,6 +436,42 @@ describe("W146 micro-supervisor", () => {
 		expect(brief).toContain("SUPERVISION:");
 		expect(brief).toContain("aids: (preseeding placeholder");
 	}, 120000);
+
+	// W1124.10: the restart-resumes fixture ships valid product artifacts —
+	// a 1501-line .ts closing diff is CORRECTLY refused by patch-first (W744)
+	// at done; this keeps that rejection covered separately.
+	test("W744: an oversized closing diff refuses done and keeps the claim", async () => {
+		const p = addItem("oversize fixture parent");
+		tool("work.ts", "add", "big", "--parent", p);
+		expect(sup(p, "--once").out).toContain(`dispatched ${p}.1`);
+		await killLanes();
+		const wt1 = join(REPO, ".worktrees", `${p}.1`);
+		writeFileSync(join(wt1, "oversized.ts"), "// line\n".repeat(1501));
+		const sha1 = commitIn(wt1, "oversized work");
+		tool(
+			"coord.ts",
+			"capsule",
+			"set",
+			"--as",
+			sidOf(`${p}.1`),
+			`--checkpoint=${sha1}`,
+			"--done=oversized branch work landed on its own claim, integration pending",
+			"--file=oversized.ts",
+			"--next=none",
+		);
+		const refused = attempt(
+			"work.ts",
+			"done",
+			`${p}.1`,
+			"--sha",
+			sha1,
+			"--as",
+			sidOf(`${p}.1`),
+		);
+		expect(refused.code).not.toBe(0);
+		expect(refused.err).toContain("patch-first (W744)");
+		expect(state(`${p}.1`).state).toBe("CLAIMED");
+	}, 60000);
 
 	// W576.1: two supervise processes race for the same child pool — the
 	// governed launch authority (lease + claim CAS + intent fence) keeps

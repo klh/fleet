@@ -61,7 +61,7 @@ async function closeGuard(repo: string): Promise<void> {
 	process.env.HOME = home;
 	try {
 		const govdb = await import(
-			`../hooks/lib/govdb.ts?guard=${encodeURIComponent(home)}`,
+			`../hooks/lib/govdb.ts?guard=${encodeURIComponent(home)}`
 		);
 		const db = govdb.openGovernorDb() as {
 			run: (sql: string, ...params: unknown[]) => unknown;
@@ -115,15 +115,15 @@ afterEach(() => {
 		rmSync(repo, { recursive: true, force: true });
 });
 
-test("clean Git merge cannot publish already committed conflict markers", () => {
-	const { repo, before } = fixture(
+test("clean Git merge cannot publish already committed conflict markers", async () => {
+	const { repo, before } = await fixture(
 		"<<<<<<< ours\nconst a=1;\n=======\nconst a=2;\n>>>>>>> theirs\n",
 	);
 	ship(repo);
 	rejected(repo, before);
 });
-test("preflight refuses a branch that replaces substantial documentation with a stub", () => {
-	const { repo } = fixture("export const valid = 1;\n");
+test("preflight refuses a branch that replaces substantial documentation with a stub", async () => {
+	const { repo } = await fixture("export const valid = 1;\n");
 	writeFileSync(
 		join(repo, "README.md"),
 		`${"Documented capability and contract.\n".repeat(230)}`,
@@ -137,27 +137,32 @@ test("preflight refuses a branch that replaces substantial documentation with a 
 	git(repo, "add", "README.md");
 	git(repo, "commit", "-m", "replace docs");
 	git(repo, "checkout", "main");
+	// the branch moved after fixture() — re-close GUARD at the new HEAD
+	await closeGuard(repo);
 	ship(repo);
 	rejected(repo, before);
 	expect(readFileSync(join(repo, ".fleet/loop.log"), "utf8")).toContain(
 		"candidate removes",
 	);
 });
-test("preflight rejects diff3 markers in a renamed-looking newline path", () => {
-	const { repo, before } = fixture("||||||| base\n", "space and\nnewline.txt");
+test("preflight rejects diff3 markers in a renamed-looking newline path", async () => {
+	const { repo, before } = await fixture(
+		"||||||| base\n",
+		"space and\nnewline.txt",
+	);
 	ship(repo, 'git merge --no-ff {branch} -m "custom merge"');
 	rejected(repo, before);
 });
-test("syntax-broken TypeScript is rejected without conflict markers", () => {
-	const { repo, before } = fixture("export const broken = ;\n");
+test("syntax-broken TypeScript is rejected without conflict markers", async () => {
+	const { repo, before } = await fixture("export const broken = ;\n");
 	ship(repo);
 	rejected(repo, before);
 	expect(readFileSync(join(repo, ".fleet/loop.log"), "utf8")).toContain(
 		"syntax rejected",
 	);
 });
-test("postflight isolates markers introduced by an immediately committing custom ladder", () => {
-	const { repo, before } = fixture("export const valid = 1;\n");
+test("postflight isolates markers introduced by an immediately committing custom ladder", async () => {
+	const { repo, before } = await fixture("export const valid = 1;\n");
 	ship(
 		repo,
 		"git merge --no-ff {branch} -m custom && printf '<<<<<<< injected\\n' > injected.txt && git add injected.txt && git commit -m injected",
@@ -167,8 +172,8 @@ test("postflight isolates markers introduced by an immediately committing custom
 		"injected.txt",
 	);
 });
-test("validation failure preserves unrelated staged and unstaged main changes", () => {
-	const { repo, before } = fixture("<<<<<<< bad\n");
+test("validation failure preserves unrelated staged and unstaged main changes", async () => {
+	const { repo, before } = await fixture("<<<<<<< bad\n");
 	writeFileSync(join(repo, "base.ts"), "export const base = 2;\n");
 	git(repo, "add", "base.ts");
 	writeFileSync(join(repo, "base.ts"), "export const base = 3;\n");
@@ -181,8 +186,8 @@ test("validation failure preserves unrelated staged and unstaged main changes", 
 	);
 });
 
-test("successful custom ladder preserves package cwd and unrelated dirty main", () => {
-	const { repo, before } = fixture("export const valid = 1;\n");
+test("successful custom ladder preserves package cwd and unrelated dirty main", async () => {
+	const { repo, before } = await fixture("export const valid = 1;\n");
 	writeFileSync(join(repo, "base.ts"), "export const base = 2;\n");
 	git(repo, "add", "base.ts");
 	writeFileSync(join(repo, "base.ts"), "export const base = 3;\n");
@@ -205,8 +210,8 @@ test("successful custom ladder preserves package cwd and unrelated dirty main", 
 	);
 });
 
-test("commented TypeScript config follows JSONC syntax", () => {
-	const { repo, before } = fixture(
+test("commented TypeScript config follows JSONC syntax", async () => {
+	const { repo, before } = await fixture(
 		'{ // valid TypeScript config\n"compilerOptions": { "strict": true, },\n}\n',
 		"tsconfig.json",
 	);
@@ -217,8 +222,8 @@ test("commented TypeScript config follows JSONC syntax", () => {
 	);
 });
 
-test("malformed ordinary JSON is rejected", () => {
-	const { repo, before } = fixture('{ "name": }\n', "package.json");
+test("malformed ordinary JSON is rejected", async () => {
+	const { repo, before } = await fixture('{ "name": }\n', "package.json");
 	ship(repo);
 	rejected(repo, before);
 	expect(readFileSync(join(repo, ".fleet/loop.log"), "utf8")).toContain(
@@ -226,8 +231,8 @@ test("malformed ordinary JSON is rejected", () => {
 	);
 });
 
-test("preparation filesystem failures return rejection without throwing", () => {
-	const { repo, before } = fixture("export const valid = 1;\n");
+test("preparation filesystem failures return rejection without throwing", async () => {
+	const { repo, before } = await fixture("export const valid = 1;\n");
 	rmSync(join(repo, ".fleet"), { recursive: true });
 	writeFileSync(join(repo, ".fleet"), "blocking file");
 	const result = guardedMerge({
@@ -241,8 +246,8 @@ test("preparation filesystem failures return rejection without throwing", () => 
 	expect(git(repo, "rev-parse", "HEAD").out).toBe(before);
 });
 
-test("option-looking branch is rejected before any ladder executes", () => {
-	const { repo, before } = fixture("export const valid = 1;\n");
+test("option-looking branch is rejected before any ladder executes", async () => {
+	const { repo, before } = await fixture("export const valid = 1;\n");
 	const result = guardedMerge({
 		repo,
 		callerRepo: repo,
@@ -255,8 +260,8 @@ test("option-looking branch is rejected before any ladder executes", () => {
 	expect(git(repo, "rev-parse", "HEAD").out).toBe(before);
 });
 
-test("preflight scrub denies a home-path leak in the lane content", () => {
-	const { repo, before } = fixture(`export const p = "${MERGE_LEAK}";\n`);
+test("preflight scrub denies a home-path leak in the lane content", async () => {
+	const { repo, before } = await fixture(`export const p = "${MERGE_LEAK}";\n`);
 	ship(repo);
 	rejected(repo, before);
 	expect(readFileSync(join(repo, ".fleet/loop.log"), "utf8")).toContain(
@@ -264,8 +269,8 @@ test("preflight scrub denies a home-path leak in the lane content", () => {
 	);
 });
 
-test("postflight scrub denies a leak a committing ladder injects", () => {
-	const { repo, before } = fixture("export const valid = 1;\n");
+test("postflight scrub denies a leak a committing ladder injects", async () => {
+	const { repo, before } = await fixture("export const valid = 1;\n");
 	ship(
 		repo,
 		`git merge --no-ff {branch} -m custom && printf '%s\\n' ${JSON.stringify(`${MERGE_LEAK} cache`)} > injected.md && git add injected.md && git commit -m injected`,
