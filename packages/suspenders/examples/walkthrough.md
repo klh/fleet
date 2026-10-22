@@ -77,8 +77,8 @@ from the human.
 ## 5. When a lane dies mid-flight
 
 A lane frozen by a usage cliff stops heartbeating while its claim keeps going.
-The monitor (or launchd agent) flags it — two stale signals = ZOMBIE, one =
-SUSPECT:
+The monitor (a W779 fleet-loop maintenance task) flags it — two stale signals
+= ZOMBIE, one = SUSPECT:
 
 ```bash
 bun ~/.claude/hooks/suspenders/bin/monitor.ts          # read-only health
