@@ -654,9 +654,9 @@ const dispatchItem = async (
 			const show = run(workCli("show", item, "--json"));
 			if (show.code !== 0 || !isResumableClaim(show.out, item, sid)) {
 				console.log(
-					`SKIP ${item} — claimed elsewhere: ${take.out.split("\n")[0]}`,
+					`SKIP ${item} — claim could not be taken or resumed: ${take.out.split("\n")[0]}`,
 				);
-				return deferItem(item);
+				return deferItem(item, show, sid);
 			}
 			// claimed by this sid from a previous dispatch attempt — resume
 		}
@@ -714,7 +714,7 @@ const dispatchItem = async (
 				console.log(
 					`SKIP ${item} — worktree create failed: ${created.out.split("\n")[0]}`,
 				);
-				return deferItem(item);
+				return null;
 			}
 		} else if (cur !== expected) {
 			// wrong branch = another lifecycle's tree; never spawn into it
