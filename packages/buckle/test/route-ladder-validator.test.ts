@@ -412,3 +412,29 @@ test("duplicate service origins are rejected instead of silently selecting one B
 	});
 	expect(result.errors.map((error) => error.code)).toContain("invalid_config");
 });
+
+test("a belt escalation back into the same buckle is a repeat_origin re-ingress", () => {
+	const result = validateRouteLadders({
+		buckles: [
+			{
+				id: "local",
+				origins: ["http://127.0.0.1:4101"],
+				policy,
+				pool: pool({
+					primary: [{ url: "http://127.0.0.1:4000" }],
+					backup: [{ url: "https://provider.example/v1" }],
+				}),
+			},
+		],
+		belts: [
+			{
+				id: "router",
+				origins: ["http://127.0.0.1:4000"],
+				escalation: { url: "http://127.0.0.1:4101", model: "backup" },
+			},
+		],
+	});
+	expect(result.errors).toContainEqual(
+		expect.objectContaining({ code: "repeat_origin", layer: "fleet" }),
+	);
+});

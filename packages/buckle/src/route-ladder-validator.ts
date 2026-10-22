@@ -175,6 +175,13 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 } {
 	const errors: RouteLadderFinding[] = [];
 	const services = new Map<string, Target>();
+	// W1094 repeat_origin: prefix (layer:id) -> the origins that serve it.
+	// The walk flags a RE-ingress: leaving a service and entering it again
+	// later in one walk is the recursive gateway visit owner law forbids.
+	const serviceOrigins = new Map<string, Set<string>>();
+	// Full node string -> its service prefix (ids embed ":port", so the
+	// prefix cannot be re-derived from the node by splitting).
+	const nodePrefix = new Map<string, string>();
 	const terminals = new Set(
 		(inputs.terminalOrigins ?? [])
 			.map(originOf)
@@ -221,7 +228,13 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 							item.id,
 							`service origin ${origin} is ambiguous with ${previous.layer}:${previous.id}`,
 						);
-					else services.set(origin, { layer, id: item.id });
+					else {
+						services.set(origin, { layer, id: item.id });
+						const prefix = `${layer}:${item.id}`;
+						const known = serviceOrigins.get(prefix);
+						if (known) known.add(origin);
+						else serviceOrigins.set(prefix, new Set([origin]));
+					}
 				}
 			}
 	}
@@ -349,12 +362,14 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 				`target buckle ${service.id} has no group ${model}`,
 			);
 		const to = `${service.layer}:${service.id}:${model}`;
+		nodePrefix.set(to, `${service.layer}:${service.id}`);
 		addEdge(from, to);
 	};
 	for (const buckle of inputs.buckles) {
 		const groups = new Set(buckle.pool.groups());
 		for (const group of groups) {
 			const node = `buckle:${buckle.id}:${group}`;
+			nodePrefix.set(node, `buckle:${buckle.id}`);
 			addNode(node);
 			const ladder = [group, ...(buckle.policy.fallbacks?.[group] ?? [])];
 			let configured = 0;
@@ -370,6 +385,20 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 				}
 				for (const dep of buckle.pool.deployments(rung)) {
 					configured++;
+					// W1094 (#55799): the PRIMARY rung serves the group's own
+					// asserted family — a pinned gpt-6-sol request must never
+					// silently ride zai-glm. Fallback rungs may cross families.
+					if (rung === group) {
+						const asserted = familyOf(group);
+						const served = familyOf(dep.model ?? rung);
+						if (asserted && served && served !== asserted)
+							finding(
+								"model_family_mismatch",
+								"buckle",
+								node,
+								`primary rung serves family ${served} for group ${group} (asserts ${asserted})`,
+							);
+					}
 					link(
 						node,
 						dep.url,
@@ -422,6 +451,7 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 			if (typeof group !== "string") continue;
 			models.add(group);
 			const node = `litellm:${lite.id}:${group}`;
+			nodePrefix.set(node, `litellm:${lite.id}`);
 			addNode(node);
 			const params = recordOf(row?.litellm_params);
 			if (typeof params?.api_base === "string") {
@@ -430,6 +460,21 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 						? params.model.replace(/^[^/]+\//, "")
 						: group;
 				link(node, params.api_base, upstreamModel);
+			}
+			// W1094 (#55799): an engine row whose wire model serves a different
+			// family than its group name asserts — the pinned request rides the
+			// wrong family INSIDE the engine, where this ladder cannot see it.
+			const wire = typeof params?.model === "string" ? params.model : null;
+			if (wire !== null) {
+				const asserted = familyOf(group);
+				const served = familyOf(wire);
+				if (asserted && served && served !== asserted)
+					finding(
+						"model_family_mismatch",
+						"litellm",
+						node,
+						`engine row ${group} serves family ${served} (asserts ${asserted})`,
+					);
 			}
 		}
 		const settings = recordOf(doc?.litellm_settings);
@@ -494,7 +539,7 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 	}
 	const seen = new Set<string>();
 	const stack = new Set<string>();
-	const visit = (node: string, path: string[]) => {
+	const visit = (node: string, path: string[], origins: string[]): void => {
 		if (stack.has(node)) {
 			const cycle = [...path.slice(path.indexOf(node)), node];
 			finding(
@@ -508,11 +553,33 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 			return;
 		}
 		if (seen.has(node)) return;
+		// W1094 repeat_origin (#55796): flag a RE-ingress — leaving a service
+		// and entering it again later in one walk. Consecutive hops on the
+		// same service are one visit (an engine's internal fallback list),
+		// not a repeat.
+		const prefix = nodePrefix.get(node);
+		const own =
+			prefix === undefined ? null : (serviceOrigins.get(prefix) ?? null);
+		const last = origins[origins.length - 1];
+		if (own !== null && own.size > 0 && !own.has(last)) {
+			const repeated = [...own].find((origin) => origins.includes(origin));
+			if (repeated !== undefined) {
+				finding(
+					"repeat_origin",
+					"fleet",
+					node,
+					`walk re-enters ${repeated}: ${[...path, node].join(" -> ")}`,
+				);
+				return;
+			}
+		}
 		seen.add(node);
 		stack.add(node);
-		for (const next of edges.get(node) ?? []) visit(next, [...path, node]);
+		const fresh = own === null ? [] : [...own].filter((o) => o !== last);
+		for (const next of edges.get(node) ?? [])
+			visit(next, [...path, node], [...origins, ...fresh]);
 		stack.delete(node);
 	};
-	for (const node of edges.keys()) visit(node, []);
+	for (const node of edges.keys()) visit(node, [], []);
 	return { errors, checkedNodes: edges.size };
 }
