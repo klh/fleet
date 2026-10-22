@@ -107,7 +107,7 @@ cat-7-core and stays.
 - **Meta skills** (find-skills, skill-lookup, using-agent-skills) sit outside
   the taxonomy; the W1144 invocation log will show whether they ever fire.
 
-## Verification-skill investment (the proven lever, made measurable)
+## Verification-skill documentation changes
 
 The article: verification skills have had the most measurable impact on
 output quality — worth a disproportionate share of skill effort. W1144
@@ -119,12 +119,12 @@ read-status per file, machine-parseable `VERDICT:` final line) and eight
 fleet-documented trap gotchas (A/B baseline, pipe-to-tail, shared stash,
 read-what-you-cite, bun:sqlite null-vs-undefined, empty-string env knobs).
 
-Measurable form: `tests/skills-catalog.test.ts` holds trap coverage at six
-named classes, each proven two ways — named in the skill text AND planted as
-a mechanically-flaggable instance in the seeded fixture
-`tests/fixtures/review-eval/seed.ts`. Coverage was 0 before W1144; the test
-makes regression visible on the next audit. Fleet-pulse verification and the
-find-bugs/verify lanes stay open candidates for the same treatment.
+`tests/skills-catalog.test.ts` checks that the skill documentation names
+trap classes also represented in `tests/fixtures/review-eval/seed.ts`.
+This is a documentation contract: it does not run a reviewer, detect the
+seeded defects, or measure an improvement in review quality. An agent
+quality evaluation remains outstanding; Fleet-pulse verification and the
+find-bugs/verify lanes remain candidates for that work.
 
 ## Tools become constraints — the gate re-verification pass
 

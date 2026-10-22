@@ -7,7 +7,16 @@
 // and the never-triggered set against the installed catalog. Streams law:
 // append-only NDJSON, fire-and-forget — a logging failure NEVER blocks the
 // tool call (same advisory law as the denied-calls audit, hookio.ts).
-import { existsSync, appendFileSync, mkdirSync, readdirSync } from "node:fs";
+import {
+	existsSync,
+	openSync,
+	closeSync,
+	fchmodSync,
+	writeSync,
+	constants,
+	mkdirSync,
+	readdirSync,
+} from "node:fs";
 import { dirname } from "node:path";
 import { resolveFleetLane } from "./fleetlane.ts";
 import type { HookInput } from "./hookio.ts";
@@ -24,18 +33,16 @@ export function shouldLogSkill(): boolean {
 	return process.env.SUSPENDERS_SKILL_LOG !== "0";
 }
 
-// one line per Skill-tool call; `skill` is the invoked name, `args` the
-// free-text argument slice (truncated), lane attributes to the fleet sid
+// One private metadata record per Skill call. Never persist arguments or
+// working-directory paths; neither is needed to count invocations.
 export type SkillInvocation = {
 	at: string;
 	skill: string;
-	args: string;
-	cwd: string;
 	lane: string;
 };
 
 // fire-and-forget append — mirrors auditLine() in hookio.ts: mkdir -p the
-// insights dir, truncate the arg slice, swallow every failure
+// insights dir, enforce private file permissions, swallow every failure
 export function appendSkillInvocation(hook: HookInput, home?: string): void {
 	try {
 		const skill = String(hook.tool_input?.skill ?? "").slice(0, 120);
@@ -44,11 +51,22 @@ export function appendSkillInvocation(hook: HookInput, home?: string): void {
 		const line: SkillInvocation = {
 			at: new Date().toISOString(),
 			skill,
-			args: String(hook.tool_input?.args ?? "").slice(0, 200),
-			cwd: process.cwd(),
 			lane: resolveFleetLane(hook.cwd ?? process.cwd())?.sid ?? "",
 		};
-		appendFileSync(file, `${JSON.stringify(line)}\n`);
+		const fd = openSync(
+			file,
+			constants.O_WRONLY |
+				constants.O_APPEND |
+				constants.O_CREAT |
+				constants.O_NOFOLLOW,
+			0o600,
+		);
+		try {
+			fchmodSync(fd, 0o600); // tighten an existing older log before writing
+			writeSync(fd, `${JSON.stringify(line)}\n`);
+		} finally {
+			closeSync(fd);
+		}
 	} catch {
 		// advisory: never block the Skill call on a logging failure
 	}
@@ -62,7 +80,11 @@ export function parseSkillLog(text: string): SkillInvocation[] {
 		try {
 			const row = JSON.parse(line) as SkillInvocation;
 			if (typeof row.skill === "string" && typeof row.at === "string")
-				out.push(row);
+				out.push({
+					at: row.at,
+					skill: row.skill,
+					lane: typeof row.lane === "string" ? row.lane : "",
+				});
 		} catch {
 			// corrupt line: skip, keep the rest
 		}

@@ -1,8 +1,9 @@
 // tests/fixtures/review-eval/seed.ts — W1144 review-skill eval fixture.
 // Three fleet-documented trap classes, planted verbatim. The
 // skills-catalog contract test proves the improved `review` skill names
-// every class and that a mechanical pass over THIS file flags each
-// planted instance. Fixture code is intentionally wrong — never import it.
+// every class and that this fixture contains the corresponding examples.
+// It does not run an agent or establish detection quality. Fixture code is
+// intentionally wrong — never import it.
 import { existsSync, readFileSync } from "node:fs";
 
 export function trapPipeToTail(): boolean {

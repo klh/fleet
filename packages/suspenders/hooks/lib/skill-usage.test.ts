@@ -6,6 +6,8 @@
 import { describe, expect, test } from "bun:test";
 import {
 	appendFileSync,
+	chmodSync,
+	statSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -29,7 +31,7 @@ function fixtureHome(): string {
 	return mkdtempSync(join(tmpdir(), "w1144-skill-usage-"));
 }
 function inv(skill: string, at = "t0") {
-	return { at, skill, args: "", cwd: "", lane: "" };
+	return { at, skill, lane: "" };
 }
 
 describe("skill-usage", () => {
@@ -50,8 +52,28 @@ describe("skill-usage", () => {
 		const rows = parseSkillLog(readFileSync(skillUsagePath(home), "utf8"));
 		expect(rows).toHaveLength(2);
 		expect(rows[0]?.skill).toBe("review");
-		expect(rows[0]?.args).toBe("focus correctness");
-		expect(rows[1]?.args).toBe("");
+		expect(rows[0]).not.toHaveProperty("args");
+		expect(rows[0]).not.toHaveProperty("cwd");
+		rmSync(home, { recursive: true, force: true });
+	});
+
+	test("private metadata excludes synthetic secrets and paths and tightens existing logs", () => {
+		const home = fixtureHome();
+		const hook = {
+			tool_input: { skill: "review", args: "SYNTHETIC_PRIVATE_ARGUMENT_734" },
+			cwd: "/synthetic/private/project",
+		};
+		appendSkillInvocation(hook, home);
+		const file = skillUsagePath(home);
+		expect(statSync(file).mode & 0o777).toBe(0o600);
+		chmodSync(file, 0o644);
+		appendSkillInvocation(hook, home);
+		expect(statSync(file).mode & 0o777).toBe(0o600);
+		const raw = readFileSync(file, "utf8");
+		expect(raw).not.toContain("SYNTHETIC_PRIVATE_ARGUMENT_734");
+		expect(raw).not.toContain("/synthetic/private/project");
+		for (const row of parseSkillLog(raw))
+			expect(Object.keys(row).sort()).toEqual(["at", "lane", "skill"]);
 		rmSync(home, { recursive: true, force: true });
 	});
 
