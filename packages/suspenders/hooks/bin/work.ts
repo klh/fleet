@@ -35,6 +35,7 @@ import {
 import { rebindKeptLaneContext } from "../lib/lane-context.ts";
 import { doneSpendStamp, parseDoneSpend } from "../lib/lane-done-spend.ts";
 import { doneEffortStamp } from "../lib/lane-effort.ts";
+import { publishCompletionBlock } from "../lib/lane-stop-publisher.ts";
 import { gitBadge, gitObservation, mergeReadyWhy } from "../lib/lane-git.ts";
 import { laneAlive } from "../lib/lane-liveness.ts";
 import {
@@ -876,6 +877,22 @@ const dispatchVerb = async (
 				token: tok,
 			});
 		} catch (error) {
+			try {
+				publishCompletionBlock(
+					db(),
+					{
+						project: PROJECT,
+						item: id,
+						sid: String(it.owner_sid ?? as ?? "manual"),
+						revision: it.claim_token_hash ?? null,
+					},
+					error,
+				);
+			} catch (publicationError) {
+				console.error(
+					`Completion blocker could not be published: ${publicationError instanceof Error ? publicationError.message : String(publicationError)}`,
+				);
+			}
 			die(error instanceof Error ? error.message : String(error));
 		}
 		const tx = db().transaction(() => {
