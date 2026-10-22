@@ -22,6 +22,9 @@ gateway:
       intervalMs: 50
       maxOutstanding: 3
       queueWaitMs: 1000
+      recovery:
+        successWindow: 8
+        decreasePercent: 5
 `);
 
 function poolOf(deps: Deployment[]): UpstreamPool {
@@ -112,6 +115,9 @@ describe("provider-account admission", () => {
       intervalMs: 60
       maxOutstanding: 4
       queueWaitMs: 1000
+      recovery:
+        successWindow: 8
+        decreasePercent: 5
 `);
 		const executed: number[] = [];
 		let end1!: () => void;
@@ -335,8 +341,11 @@ describe("provider-account admission", () => {
       intervalMs: 1
       maxOutstanding: 1
       queueWaitMs: 1
+      recovery:
+        successWindow: 8
+        decreasePercent: 5
 `),
-		).toThrow(/exactly five positive integers/);
+		).toThrow(/explicit bounded recovery/);
 	});
 
 	test("bound successes carry pool canary metadata; unbound stay clean", async () => {
