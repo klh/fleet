@@ -17,6 +17,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { createHash } from "node:crypto";
 
 const ROOT = resolve(import.meta.dir, "..");
 const DEFAULT_OUTDIR = join(ROOT, "hooks/board-html/vendor");
@@ -46,6 +47,43 @@ const BANNER =
 
 export function buildVendorArgv(outdir: string): string[] {
 	return ["build", ...SOURCES, ...FLAGS, "--outdir", outdir];
+}
+
+/** Bun's chunk IDs include module resolution paths, so linked worktrees can
+ * name byte-identical runtime chunks differently. Name the emitted DAG by
+ * content after resolving dependency names, keeping imports and bytes sealed
+ * together. Cycles fail closed rather than producing unstable references. */
+export function canonicalizeChunks(outdir: string): void {
+	const files = new Map(
+		readdirSync(outdir).map((name) => [
+			name,
+			readFileSync(join(outdir, name), "utf8"),
+		]),
+	);
+	const names = new Map<string, string>();
+	const output = new Map<string, string>();
+	const visiting = new Set<string>();
+	const rewrite = (body: string): string =>
+		body.replace(/\.\/(lit-[A-Za-z0-9]+\.js)/g, (full, dependency: string) =>
+			files.has(dependency) ? `./${visit(dependency)}` : full,
+		);
+	const visit = (name: string): string => {
+		const known = names.get(name);
+		if (known) return known;
+		if (visiting.has(name)) throw new Error(`Cyclic vendor chunk: ${name}`);
+		visiting.add(name);
+		const body = rewrite(files.get(name) ?? "");
+		const canonical = `lit-${createHash("sha256").update(body).digest("hex").slice(0, 16)}.js`;
+		names.set(name, canonical);
+		output.set(canonical, body);
+		visiting.delete(name);
+		return canonical;
+	};
+	for (const name of files.keys()) if (name.startsWith("lit-")) visit(name);
+	for (const [name, body] of files)
+		if (!name.startsWith("lit-")) output.set(name, rewrite(body));
+	for (const name of files.keys()) rmSync(join(outdir, name));
+	for (const [name, body] of output) writeFileSync(join(outdir, name), body);
 }
 
 // Prepend the banner to the minified third-party lit chunks. Idempotent: an
@@ -98,6 +136,7 @@ export function buildVendor(outdir: string): {
 	});
 	if (p.exitCode !== 0)
 		throw new Error(`bun build failed with exit ${p.exitCode}`);
+	canonicalizeChunks(staging);
 	mkdirSync(outdir, { recursive: true });
 	const fresh = new Set(readdirSync(staging).sort());
 	const bannered = bannerLitChunks(staging);
