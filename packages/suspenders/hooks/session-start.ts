@@ -240,6 +240,7 @@ out.push(
 		`coord consult <target-sid> "<question>" --as ${lane} asks a registered peer; ` +
 		`coord message <target-sid> "<update>" --as ${lane} updates a live lane; ` +
 		`coord inbox --as ${lane} reads replies. Use coord --help and coord <verb> --help to discover supported coordination verbs; use work --help and work <verb> --help to discover supported work-graph verbs; never guess a transport or read governor.db directly for live coordination.`,
+	`CONSULT DELIVERY: copy the exact recipient SID from coord fleet --json (lanes[].sid), or the text [sid=...] field. HEAD is a Git commit, not a session address. If a directed consult target is unresolved, discover the correct SID and retry or report the unresolved recipient. Never substitute BROADCAST: inline @mentions do not route, open a consult, or request a direct interrupt.`,
 );
 
 // W253 compact checkpoint: a pre-compact roll (hooks/pre-compact.ts) or an
