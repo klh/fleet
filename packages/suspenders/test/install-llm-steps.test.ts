@@ -13,10 +13,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { INSTALL_CONTRACT } from "../scripts/install-contract.ts";
 import {
+	defaultRun,
+	diagnosticTail,
 	downloadModels,
 	ensureLiteLlmMetricsDependency,
 	gatewayConfigStale,
 	refreshSupervisor,
+	sanitizeDiagnostic,
 	seedLocalLlm,
 } from "../scripts/install-llm-steps.ts";
 import type { StepContext } from "../scripts/install-run.ts";
@@ -437,7 +440,7 @@ describe("W889 gateway-config regen", () => {
 		expect(res.note).toContain("gateway config regenerated");
 	});
 
-	test("generator failure degrades to a note; last good yaml stays", async () => {
+	test("generator failure fails the step; bounded diagnostic retained, last good yaml stays", async () => {
 		const root = tmpHome("w889-fail-root");
 		const home = join(root, ".claude", "local-llm");
 		mkdirSync(home, { recursive: true });
@@ -448,8 +451,11 @@ describe("W889 gateway-config regen", () => {
 		// no remotes.json under the fixture HOME — the generator exits 1
 		writeGuard(home);
 		const res = await seedLocalLlm(ctxFor(home));
-		expect(res.status).toBe("ok");
+		expect(res.status).toBe("failed");
 		expect(res.note).toContain("gateway config regen FAILED");
+		// W1205: the actual cause rides the note, sanitized of the fixture HOME
+		expect(res.note).toContain("unreadable or invalid JSON");
+		expect(res.note).not.toContain(root);
 		expect(readFileSync(join(home, "litellm.yaml"), "utf8")).toContain(
 			"old: yaml",
 		);
@@ -461,5 +467,60 @@ describe("W889 gateway-config regen", () => {
 		const res = await seedLocalLlm(ctxFor(home));
 		expect(res.status).toBe("ok");
 		expect(res.note).not.toContain("gateway config");
+	});
+});
+
+describe("W1205 truthful regen failure diagnostics", () => {
+	test("defaultRun keeps a bounded multi-line stderr tail (a81: last line was noise)", async () => {
+		const dir = tmp("w1205-gen");
+		const gen = join(dir, "gen.ts");
+		const homePath = ["/Users", "fixuser", ".claude"].join("/");
+		writeFileSync(
+			gen,
+			[
+				`console.error(\`gateway-config: cannot read ${homePath}/remotes.json (ENOENT)\`);`,
+				'console.error("gateway-config: routing-policy.yaml: bad indent at line 4");',
+				'console.error("Bun v1.2.23");',
+				"process.exit(1);",
+			].join("\n"),
+		);
+		const err = await defaultRun([process.execPath, gen], dir).then(
+			() => null,
+			(e: Error) => e,
+		);
+		expect(err).toBeInstanceOf(Error);
+		const msg = (err as Error).message;
+		expect(msg).toContain("rc=1");
+		expect(msg).toContain("ENOENT"); // cause survives the noise footer
+		expect(msg).toContain("bad indent");
+		expect(msg).toContain("Bun v1.2.23");
+		expect(msg).not.toContain("fixuser"); // sanitized: /Users/<user> → ~
+		expect(msg).toContain("~/.claude");
+	});
+
+	test("stderr tail is bounded: last 8 lines, char-capped from the front", () => {
+		const lines = Array.from(
+			{ length: 20 },
+			(_, i) => `l${String(i + 1).padStart(2, "0")}`,
+		);
+		expect(diagnosticTail(lines.join("\n"))).toBe(
+			"l13 | l14 | l15 | l16 | l17 | l18 | l19 | l20",
+		);
+		const capped = diagnosticTail("x".repeat(1000), 8, 100);
+		expect(capped.startsWith("…x")).toBe(true);
+		expect(capped.length).toBeLessThanOrEqual(101);
+	});
+
+	test("sanitizeDiagnostic strips ANSI, redacts, rewrites home paths", () => {
+		const homePath = ["/Users", "fixuser"].join("/");
+		expect(sanitizeDiagnostic(`at ${homePath}/x`)).toBe("at ~/x");
+		const esc = String.fromCharCode(27);
+		expect(sanitizeDiagnostic(`${esc}[31mboom${esc}[0m`)).toBe("boom");
+		expect(sanitizeDiagnostic(`key sk-${"a".repeat(20)}`)).toContain(
+			`sk-${"a".repeat(5)}…`,
+		);
+		expect(sanitizeDiagnostic("keep // scrub:allow")).toBe(
+			"keep // scrub:allow",
+		);
 	});
 });
