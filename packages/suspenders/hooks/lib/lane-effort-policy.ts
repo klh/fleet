@@ -14,10 +14,11 @@
 // Fail-soft: unreadable/invalid conf = built-in defaults + a surfaced
 // warning — never a dispatch blocker. Budgets are brief-surfaced baselines,
 // not caps.
-import { YAML } from "bun";
+
 import { existsSync, readFileSync } from "node:fs";
-import { effortForPriority } from "./lane-effort.ts";
+import { YAML } from "bun";
 import { openStore, projectIdentity } from "./govdb.ts";
+import { effortForPriority } from "./lane-effort.ts";
 
 export type EffortWord = "low" | "medium" | "high";
 export const EFFORT_WORDS: readonly EffortWord[] = ["low", "medium", "high"];

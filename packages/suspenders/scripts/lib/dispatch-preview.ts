@@ -5,18 +5,18 @@
 // arrive as a deps bag; bodies moved from dispatch-next.ts.
 import { existsSync } from "node:fs";
 import { briefIntel } from "../../hooks/lib/brief-intel.ts";
+import { adapterFor } from "../../hooks/lib/executors/registry.ts";
 import { projectIdentity } from "../../hooks/lib/govdb.ts";
 import { laneEffortBriefLine } from "../../hooks/lib/lane-effort-policy.ts";
-import { effortFromShow } from "../../hooks/lib/work-effort.ts";
 import { plaidPickOf, plaidRoutes } from "../../hooks/lib/plaid.ts";
-import { adapterFor } from "../../hooks/lib/executors/registry.ts";
+import { effortFromShow } from "../../hooks/lib/work-effort.ts";
 import { composeBrief } from "./brief.ts";
-import { execPick } from "./exec-chain.ts";
-import { cvSnapshot, quotaSnapshot } from "./dispatch-admission.ts";
-import { landingRedirect } from "./landing-redirect.ts";
-import { fleetReport } from "./fleet-report.ts";
-import { decisionFor, resumeBriefLine } from "./resume-from.ts";
 import { briefVerdictLine, verifyBrief } from "./brief-verify.ts";
+import { cvSnapshot, quotaSnapshot } from "./dispatch-admission.ts";
+import { execPick } from "./exec-chain.ts";
+import { fleetReport } from "./fleet-report.ts";
+import { landingRedirect } from "./landing-redirect.ts";
+import { decisionFor, resumeBriefLine } from "./resume-from.ts";
 
 /** The dispatch-next entrypoint's bound closures, threaded instead of closed
  * over: run/sh/workCli/coordCli are BIN/REPO-bound, the getters compose

@@ -1,13 +1,14 @@
 // lane-effort-policy.test.ts — W1140: the lane effort policy — parse, conf
 // chain, classification, the two-stage default, and the dispatch pin.
 import { Database } from "bun:sqlite";
+import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { effortForPriority } from "../hooks/lib/lane-effort.ts";
 import {
-	EFFORT_POLICY_DEFAULTS,
 	dispatchLaneEffort,
+	EFFORT_POLICY_DEFAULTS,
 	effortDecision,
 	effortItemFromStore,
 	effortPolicyLine,
@@ -15,7 +16,6 @@ import {
 	loadEffortPolicy,
 	parseEffortPolicy,
 } from "../hooks/lib/lane-effort-policy.ts";
-import { effortForPriority } from "../hooks/lib/lane-effort.ts";
 
 describe("parseEffortPolicy", () => {
 	test("parses a full YAML policy with flow mappings and regex rules", () => {

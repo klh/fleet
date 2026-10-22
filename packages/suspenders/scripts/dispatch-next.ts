@@ -96,9 +96,6 @@ import {
 	readPosture,
 	recordPlaidTrace,
 } from "../hooks/lib/plaid.ts";
-// W1102.1: the plaid launch preflight (host-pressure hold + pool plan +
-// route pick) — its own module per the 1500-line law
-import { plaidLaunchPreflight } from "../scripts/lib/plaid-launch.ts";
 // W862: policy provenance rides the brief — read-only graph read, the
 // compliance check itself re-runs at the lane's session bootstrap
 import { policyBriefLines } from "../hooks/lib/session-policy.ts";
@@ -107,6 +104,9 @@ import {
 	policyForRepo,
 	tryLoadStack,
 } from "../hooks/lib/stack-config.ts";
+// W1102.1: the plaid launch preflight (host-pressure hold + pool plan +
+// route pick) — its own module per the 1500-line law
+import { plaidLaunchPreflight } from "../scripts/lib/plaid-launch.ts";
 import { recoverOrphanClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import { deferItem, isDeferredItem } from "./lib/dispatch-defers.ts";
