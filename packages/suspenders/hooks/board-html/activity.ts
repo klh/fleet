@@ -1,6 +1,7 @@
 // hooks/board-html/activity.ts — activity feed (W157 client chunk).
 // String.raw matches the original single-template semantics; bun's
 // non-ASCII escaping in String.raw reproduces the served page bytes.
+import { embedDualShort } from "../lib/wallclock.ts";
 // biome-ignore lint/complexity/noUselessStringRaw: byte-compat (W157)
 export const ACTIVITY = String.raw`// --- 5: activity feed (Activity tab, /api/activity, newest first) ---
 function pollAct(){
@@ -94,7 +95,7 @@ function renderActHist(el, ev){
     }
   });
   var max = Math.max(1, ...bins.map(function(b){ return b.landed + b.failed + b.decision + b.other; }));
-  var fmt = function(t){ return new Date(t).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); };
+  var fmt = ${embedDualShort.toString()}; // W902: shared dense stamp — chunk scopes cannot import the lib
   var html = '<div class="acthist-head"><span>Activity · ' + ev.length + (actData.events.length >= 300 ? ' latest events (limit 300)' : ' events') + '</span><span>' + Math.round(step / 60000) + ' min / bar</span></div>';
   html += '<div class="acthist-bars" role="group" aria-label="Activity timeline">';
   bins.forEach(function(b, i){

@@ -103,11 +103,11 @@ describe("board spend cells (W776)", () => {
 		expect(row).toContain("322 tok/m · 18% cache");
 	});
 
-	test("lane timestamps show compact local time and preserve the full instant on hover", () => {
+	test("lane timestamps ride the shared dual-stamp vocabulary (W902)", () => {
 		const { laneStamp, kanbanCard } = chunkSandbox();
 		const stamp = laneStamp("2026-10-19T15:44:54Z");
 		expect(stamp).toMatch(
-			/<time datetime="2026-10-19T15:44:54\.000Z" title="[^"]*UTC 2026-10-19T15:44:54\.000Z">\d{2}\.\d{2}\.26 \d{2}:\d{2}<\/time>/,
+			/<time datetime="2026-10-19T15:44:54\.000Z" title="2026-10-19T15:44:54Z \(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}\)">10-19T15:44:54Z \(\d{2}:\d{2} local\)<\/time>/,
 		);
 		const card = kanbanCard({
 			...IKEA_ROW,
