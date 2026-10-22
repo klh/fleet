@@ -15,6 +15,7 @@ import {
 	itemAttribution,
 } from "./lane-spend.ts";
 import type { LaneLive } from "./work-report-live.ts";
+import { reportBoardBase } from "./work-report-live.ts";
 
 /** One table row: graph state joined to its spend attribution. */
 export interface ReportRow {
@@ -467,6 +468,97 @@ export interface ReportContract {
 	};
 	footer: { lanes_other_projects: number | null };
 }
+
+/** rows → the versioned contract (§1). Every view renders FROM this — the
+ *  table/md/plain renderers and tree/delta/statusline/watch never re-derive
+ *  state, so board and CLI cannot disagree. */
+export const buildReportContract = (
+	rows: ReportRow[],
+	opts: {
+		project: string;
+		scope?: "project" | "mine" | "all";
+		now?: number;
+		boardBase?: string;
+		lanesOtherProjects?: number | null;
+	},
+): ReportContract => {
+	const now = opts.now ?? Date.now();
+	const ctx = {
+		project: opts.project,
+		base: opts.boardBase ?? reportBoardBase(),
+	};
+	const items = rows.map((r) => contractItemOf(r, ctx));
+	const lanesPerHub: Record<string, number> = {};
+	for (const i of items) {
+		if (i.section !== "working" || !i.hub) continue;
+		lanesPerHub[i.hub] = (lanesPerHub[i.hub] ?? 0) + 1;
+	}
+	const needsYou = items.filter((i) => i.section === "needs_you");
+	const sum = (f: (r: ReportRow) => number): number =>
+		rows.reduce((s, r) => s + f(r), 0);
+	return {
+		schema_version: 1,
+		generated_at: new Date(now).toISOString(),
+		project: opts.project,
+		scope: opts.scope ?? "project",
+		now_ms: now,
+		stall_ms: stallThresholdMs(),
+		items,
+		needs_you: { count: needsYou.length, ids: needsYou.map((i) => i.id) },
+		totals: {
+			input_tokens: sum((r) => (r.spendReported ? r.fresh + r.cached : 0)),
+			output_tokens: sum((r) => (r.spendReported ? r.out : 0)),
+			cache_read_tokens: sum((r) => r.cacheRead ?? 0),
+			cache_creation_tokens: sum((r) => r.cacheCreation ?? 0),
+			requests: sum((r) => r.requests ?? 0),
+			lanes_per_hub: lanesPerHub,
+		},
+		footer: { lanes_other_projects: opts.lanesOtherProjects ?? null },
+	};
+};
+
+/** One row → one contract item (§1): board glyph, needs-you reason, §9
+ *  deep-link; usage filled by the builder (§5 null = unreported). */
+const contractItemOf = (
+	r: ReportRow,
+	ctx: { project: string; base: string },
+): ReportItem => {
+	const reason = needsYouReason(r.state, r.stalled, r.decision);
+	const section = reportSection(r.state, r.stalled, r.decision);
+	const proj = r.project ?? ctx.project;
+	const head = {
+		id: r.id,
+		project: proj,
+		glyph: reason === "decision" ? REPORT_GLYPHS.blocked : reportGlyph(r.state),
+		status: reason === "decision" ? "blocked" : reportStatus(r.state),
+		section,
+		needs_you_reason: reason,
+		title: r.title,
+		age_ms: r.agentMs > 0 ? r.agentMs : null,
+		last_activity_ms_ago: r.lastActivityAgoMs,
+		last_output_ms_ago: r.lastOutAgoMs,
+		hub: r.hub,
+		stalled: r.stalled,
+		requests: r.requests,
+	};
+	const input = r.spendReported ? r.fresh + r.cached : null;
+	return {
+		...head,
+		usage: {
+			"gen_ai.usage.input_tokens": input,
+			"gen_ai.usage.cache_read.input_tokens": r.cacheRead,
+			"gen_ai.usage.cache_creation.input_tokens": r.cacheCreation,
+			"gen_ai.usage.output_tokens": r.spendReported ? r.out : null,
+		},
+		cache_share:
+			input && input > 0 ? Math.round((r.cached / input) * 100) / 100 : null,
+		blind_cache: r.blindCache,
+		model: r.model,
+		effort: r.effort,
+		consult: r.consulted,
+		links: { task: urlFor(r.id, proj, ctx.base) },
+	};
+};
 
 const COLUMNS = [
 	"ITEM",
