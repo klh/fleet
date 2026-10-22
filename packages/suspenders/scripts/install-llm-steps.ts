@@ -28,6 +28,7 @@ import {
 	prismaPreflight,
 	prometheusPreflight,
 } from "../../belt/bin/litellm-target.ts";
+import { scrubRules } from "../hooks/lib/scrub.ts";
 import { refreshFlatHome, smokeRouter } from "./belt-bin-overlay.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
 import { validateBeltWiredGuard } from "./lib/belt-wired-guard.ts";
@@ -127,7 +128,60 @@ export interface RegenDeps {
 	run?: (argv: string[], homeRoot: string) => Promise<void>;
 }
 
-const defaultRun = async (argv: string[], homeRoot: string): Promise<void> => {
+// W1205: regeneration diagnostics stay bounded + sanitized — the a81
+// install kept only the final stderr line ("Bun version"), losing the
+// actual cause printed above it. ANSI is stripped and matches are redacted
+// per the scrub rule set (hooks/lib/scrub.ts — the classes the pre-push
+// gate enforces). Runtime text cannot grant source-code scrub waivers.
+// Home paths rewrite to `~`; sensitive matches are fully removed rather
+// than using the source finding preview, which preserves short matches.
+// stripAnsi — ESC[…m color sequences out of generator stderr without a
+// control character in a regex literal (biome noControlCharactersInRegex).
+const stripAnsi = (line: string): string =>
+	line
+		.split(String.fromCharCode(27))
+		.map((part) => part.replace(/^\[[0-9;]*m/, ""))
+		.join("");
+
+export const sanitizeDiagnostic = (text: string): string => {
+	const rules = scrubRules();
+	return text
+		.split("\n")
+		.map((line) => {
+			let out = stripAnsi(line);
+			for (const r of rules) {
+				r.re.lastIndex = 0;
+				out = out.replace(r.re, (m) =>
+					r.name === "home-path"
+						? m.replace(/^\/Users\/[^/]+/, "~")
+						: "[redacted]",
+				);
+			}
+			return out;
+		})
+		.join("\n");
+};
+
+/** Bounded single-line stderr tail: the last non-empty sanitized lines
+ *  joined " | ", char-capped from the front (keep the END — bun crash
+ *  footers trail). */
+export const diagnosticTail = (
+	stderr: string,
+	maxLines = 8,
+	maxChars = 600,
+): string => {
+	const lines = stderr
+		.split("\n")
+		.map((l) => sanitizeDiagnostic(l).trim())
+		.filter(Boolean);
+	const tail = lines.slice(-maxLines).join(" | ");
+	return tail.length <= maxChars ? tail : `…${tail.slice(-maxChars)}`;
+};
+
+export const defaultRun = async (
+	argv: string[],
+	homeRoot: string,
+): Promise<void> => {
 	const child = Bun.spawn(argv, {
 		env: { ...process.env, HOME: homeRoot },
 		stdin: "ignore",
@@ -140,8 +194,8 @@ const defaultRun = async (argv: string[], homeRoot: string): Promise<void> => {
 		new Response(child.stderr).text(),
 	]);
 	if (code !== 0) {
-		const tail = err.trim().split("\n").filter(Boolean).slice(-1)[0];
-		throw new Error(`rc=${code}${tail ? ` ${tail}` : ""}`);
+		const tail = diagnosticTail(err);
+		throw new Error(`rc=${code}${tail ? ` ${tail}` : " (no stderr captured)"}`);
 	}
 };
 
@@ -149,13 +203,19 @@ const defaultRun = async (argv: string[], homeRoot: string): Promise<void> => {
  *  the no-closure generator files kit→home, then re-runs the home
  *  generator when the yaml's GENERATED stamp trails an input mtime. Only
  *  fires on the canonical flat home (`<root>/.claude/local-llm`) — the
- *  generator derives its own paths from HOME. Failure degrades to a note:
- *  the last good yaml stays, activation stays the kill-:4100 operator
- *  action. */
+ *  generator derives its own paths from HOME. W1205: failure returns a
+ *  RegenOutcome with ok:false — seedLocalLlm propagates it as a FAILED
+ *  step (the a81 install painted ok over an rc1 regen). The last good
+ *  yaml stays; activation stays the kill-:4100 operator action. */
+export interface RegenOutcome {
+	ok: boolean;
+	note: string;
+}
+
 export async function regenGatewayConfig(
 	ctx: StepContext,
 	deps: RegenDeps = {},
-): Promise<string | null> {
+): Promise<RegenOutcome | null> {
 	const parent = dirname(ctx.llmHome);
 	if (basename(parent) !== ".claude") return null; // non-canonical home
 	const kitBin = beltBin(ctx);
@@ -175,9 +235,15 @@ export async function regenGatewayConfig(
 			dirname(parent),
 		);
 	} catch (err) {
-		return `gateway config regen FAILED (${err instanceof Error ? err.message : String(err)}) — last good litellm.yaml stays`;
+		return {
+			ok: false,
+			note: `gateway config regen FAILED (${err instanceof Error ? err.message : String(err)}) — last good litellm.yaml stays`,
+		};
 	}
-	return `gateway config regenerated from the healed kit (${join(ctx.llmHome, "litellm.yaml")}; activate: kill :4100 between fan-outs)`;
+	return {
+		ok: true,
+		note: `gateway config regenerated from the healed kit (${join(ctx.llmHome, "litellm.yaml")}; activate: kill :4100 between fan-outs)`,
+	};
 }
 
 // ─── seedLocalLlm ───
@@ -295,11 +361,15 @@ export async function seedLocalLlm(ctx: StepContext): Promise<StepResult> {
 	// fix sat present-not-live in litellm.yaml for days (yaml generated
 	// 10-15, heal 10-19 15:30). Post-copy: sync the no-closure generator
 	// files, staleness-guard the yaml, regenerate when inputs moved.
+	// W1205: a failed regen is a FAILED step — never ok-with-note (a81).
 	const regen = await regenGatewayConfig(ctx);
-	if (regen) log(regen);
+	if (regen) log(regen.note);
+	if (regen && !regen.ok) {
+		return { status: "failed", note: regen.note };
+	}
 	return {
 		status: "ok",
-		note: `belt kit seeded at ${ctx.llmHome} (supervise closure healed; router smoke ok)${regen ? `; ${regen}` : ""}`,
+		note: `belt kit seeded at ${ctx.llmHome} (supervise closure healed; router smoke ok)${regen ? `; ${regen.note}` : ""}`,
 	};
 }
 
