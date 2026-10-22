@@ -52,7 +52,27 @@ export const die = (m: string): never => {
 	process.exit(2);
 };
 
-export const db: GovernorStore = openStore();
+// Help/grammar inspection must not acquire a store connection. Stateful
+// verbs retain the same one canonical handle, initialized on first use.
+let store: GovernorStore | undefined;
+const activeStore = (): GovernorStore => (store ??= openStore());
+export const db: GovernorStore = {
+	get local() {
+		return activeStore().local;
+	},
+	query(sql) {
+		return activeStore().query(sql);
+	},
+	run(sql, ...params) {
+		return activeStore().run(sql, ...params);
+	},
+	transaction<T>(fn: () => T) {
+		return activeStore().transaction(fn);
+	},
+	close() {
+		store?.close();
+	},
+};
 
 // dispatcher-owned: the entry parses argv and pins it here so `arg()`
 // keeps closing over one `rest` exactly as the monolith did

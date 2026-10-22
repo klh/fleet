@@ -8,6 +8,7 @@
 import { existsSync } from "node:fs";
 import type { HookInput } from "./hookio.ts";
 import { resolveLaneContext } from "./lane-completion.ts";
+import { selfLaneStopNotice } from "./lane-stop-decision.ts";
 import { run } from "./run.ts";
 
 export interface TurnMessage {
@@ -51,24 +52,26 @@ export function pendingTurnMessages(
 		kind: string;
 		payload: string | null;
 	}[];
-	return rows.map((r) => {
-		let note = "";
-		try {
-			const payload = JSON.parse(r.payload ?? "{}") as {
-				note?: string;
-				q?: string;
-				answer?: string;
-				consult?: string;
-			};
-			note =
-				r.kind === "consult"
-					? `${payload.consult ?? "consult"} asks: ${payload.q ?? ""}`
-					: r.kind === "consult.answer"
-						? `${payload.consult ?? "consult"} answered: ${payload.answer ?? ""}`
-						: String(payload.note ?? "");
-		} catch {}
-		return { id: r.id, source: r.source, note };
-	});
+	return rows
+		.filter((r) => !selfLaneStopNotice({ ...r, target: sid }))
+		.map((r) => {
+			let note = "";
+			try {
+				const payload = JSON.parse(r.payload ?? "{}") as {
+					note?: string;
+					q?: string;
+					answer?: string;
+					consult?: string;
+				};
+				note =
+					r.kind === "consult"
+						? `${payload.consult ?? "consult"} asks: ${payload.q ?? ""}`
+						: r.kind === "consult.answer"
+							? `${payload.consult ?? "consult"} answered: ${payload.answer ?? ""}`
+							: String(payload.note ?? "");
+			} catch {}
+			return { id: r.id, source: r.source, note };
+		});
 }
 
 /** The stop-gate feedback that drains the queue: the messages ARE the next

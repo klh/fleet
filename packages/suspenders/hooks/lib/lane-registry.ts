@@ -91,12 +91,20 @@ export function loadLaneRegistry<T extends RegistryLane>(input: string): T[] {
 }
 
 export function newerLane<T extends RegistryLane>(current: T, incoming: T): T {
+	// Attempts count retries within an incarnation and may reset on a cold
+	// launch. Launch time therefore orders incarnations before retry count.
+	// Missing/invalid times cannot displace a known launch; ties retain the
+	// existing attempt ordering and incoming-row refresh behavior.
+	const time = (row: RegistryLane): number =>
+		typeof row.launchedAt === "number" &&
+		Number.isFinite(row.launchedAt) &&
+		row.launchedAt > 0
+			? row.launchedAt
+			: 0;
+	const launches = time(incoming) - time(current);
+	if (launches !== 0) return launches > 0 ? incoming : current;
 	const attempts = (incoming.attempt ?? 0) - (current.attempt ?? 0);
-	if (
-		attempts < 0 ||
-		(attempts === 0 && (incoming.launchedAt ?? 0) < (current.launchedAt ?? 0))
-	)
-		return current;
+	if (attempts < 0) return current;
 	return incoming;
 }
 

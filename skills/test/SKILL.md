@@ -1,6 +1,6 @@
 ---
 name: test
-description: Run TDD workflow — write failing tests, implement, verify. For bugs, use the Prove-It pattern.
+description: Use when implementing features or fixing bugs test-first (TDD); for bugs use the Prove-It pattern. Fire before writing implementation code; not for merely running an existing suite or one-off REPL checks.
 ---
 
 Invoke the test-driven-development skill. For Jest work, also use klh-testing-patterns.
@@ -20,3 +20,10 @@ For bug fixes (Prove-It pattern):
 5. Run the full test suite for regressions (`npm test` / `dotnet test` — both allowlisted, no prompts)
 
 For browser-related issues, use the browser-testing-with-devtools skill with the chrome-devtools MCP. Evidence before assertions: attach real command output when declaring anything green.
+
+## Gotchas
+
+- Spawn-heavy suites need a file-level `setDefaultTimeout` (bun:test) — and async `describe` wrappers drop the timeout silently; set both or neither.
+- Copied `/bin/sleep` fixtures die as fake zombies (liveness red with zero delta) — spawn the real binary or a bun-native sleeper.
+- In-process hub wire tests hang on this macOS (spawned child → parent loopback) — probe by importing the real functions in-process instead.
+- A/B against the branch baseline before claiming a failure (~52 pre-existing fails in the suspenders suite); a flaky spec re-runs solo before triage.

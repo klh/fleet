@@ -1,7 +1,8 @@
 // hooks/lib/runaway.ts — W830: the runaway-guard breaker logic. Pure and
 // unit-testable; the gate (gates/runaway.ts) owns IO and verdicts. Three
-// breakers read the session transcript before each call: same-tool
-// same-args repeat, consecutive tool failures, and a session dollar cap
+// breakers read the session transcript before each call: a back-to-back
+// same-tool same-args repeat run (W1079: consecutive, not tail-wide),
+// consecutive tool failures, and a session dollar cap
 // (transcript usage × operator rates — the stack has no hardcoded pricing,
 // so rates ride SUSPENDERS_RUNAWAY_USD_RATES and cap 0 disables the
 // dollar breaker). Advisory law: every read/state failure fails OPEN —
@@ -98,9 +99,12 @@ function stableStringify(v: unknown): string {
 export type TailVerdict = { repeats: number; failStreak: number };
 
 // text is a bounded transcript tail (transcriptTail) — the first line may be
-// partial and is dropped. repeats counts PAST calls identical to the pending
-// one; failStreak counts trailing consecutive is_error results (noise
-// classes are transparent: neither counted nor streak-breaking).
+// partial and is dropped. repeats counts the trailing RUN of PAST calls
+// identical to the pending one (W1079: any different tool+args call breaks
+// the run — spaced reruns of a legit TDD loop never trip the breaker;
+// tool_result rows between identical calls do not break it); failStreak
+// counts trailing consecutive is_error results (noise classes are
+// transparent: neither counted nor streak-breaking).
 export function scanTail(
 	text: string,
 	tool: string,
@@ -109,7 +113,7 @@ export function scanTail(
 	const key = `${tool}:${inputKey}`;
 	const pending = new Map<string, string>(); // tool_use id → bash command
 	const results: { err: boolean; cmd: string | undefined; text: string }[] = [];
-	let repeats = 0;
+	let repeats = 0; // trailing run of calls identical to the pending one
 	// every line parses on its own: a tail-starting partial line just fails
 	// JSON.parse and is skipped, complete lines always count
 	for (const line of text.split("\n")) {
@@ -138,7 +142,11 @@ export function scanTail(
 		if (row?.type === "assistant") {
 			for (const c of content) {
 				if (c?.type !== "tool_use") continue;
+				// W1079: the run breaks on any different tool+args call, so only
+				// back-to-back identical calls accumulate — a rerun after other
+				// work is a fresh call, not a loop
 				if (`${c.name}:${stableKey(c.input)}` === key) repeats++;
+				else repeats = 0;
 				if (
 					c.input &&
 					typeof c.input === "object" &&

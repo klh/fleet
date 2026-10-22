@@ -9,6 +9,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { openStore } from "../lib/govdb.ts";
+import { claudeStopPause } from "../lib/claude-pause.ts";
 import { allow, feedback, type HookInput } from "../lib/hookio.ts";
 import { laneCompletion } from "../lib/lane-completion.ts";
 import { run } from "../lib/run.ts";
@@ -128,8 +129,12 @@ export function stopGate(hook: HookInput): never {
 		const laneSid = turnBoundarySid(hook);
 		if (laneSid) {
 			try {
+				const store = openStore();
+				const pause = claudeStopPause(store, laneSid, drainCwd);
+				if (pause === "paused") allow();
+				if (pause) feedback(pause);
 				const f = turnBoundaryFeedback(
-					pendingTurnMessages(openStore(), laneSid),
+					pendingTurnMessages(store, laneSid),
 					laneSid,
 				);
 				if (f) feedback(f);

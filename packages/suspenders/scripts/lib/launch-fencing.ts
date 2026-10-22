@@ -64,6 +64,12 @@ export function assertLaunchClaim(
 /** Durable intent precedes fork; an unregistered intent is uncertainty, never
  * proof of death. The item budget survives claim transfers and SID changes. */
 export function launchSchema(store: GovernorStore): void {
+	const tables = store
+		.query(
+			"SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name IN ('lane_launch_intents','lane_launch_budgets')",
+		)
+		.get() as { n: number };
+	if (tables.n === 2) return;
 	store.run(
 		`CREATE TABLE IF NOT EXISTS ${TABLE}(project TEXT NOT NULL,item TEXT NOT NULL,sid TEXT NOT NULL,nonce TEXT NOT NULL,revision INTEGER NOT NULL,executor TEXT NOT NULL,host TEXT NOT NULL,attempt INTEGER NOT NULL,state TEXT NOT NULL,pid INTEGER,birth TEXT,PRIMARY KEY(project,item))`,
 	);
