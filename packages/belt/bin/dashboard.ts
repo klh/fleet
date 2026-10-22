@@ -23,6 +23,11 @@ import { capabilityPayload } from "./catalog-capability.ts";
 import { endpointState, supervisorSource } from "./dashboard-state.ts";
 import { endpointPassed, livenessResponse } from "./health.ts";
 import {
+	inferenceProbePath,
+	projectInferenceState,
+	readInferenceProbeFeed,
+} from "./inference-probe-state.ts";
+import {
 	citizenshipGate,
 	etagJson,
 	problem,
@@ -857,6 +862,21 @@ const topologyContext = async (): Promise<Response> => {
 	} finally {
 		clearTimeout(timeout);
 	}
+	// W1040: outside-process inference probe verdicts, TTL-projected at read
+	// time — kept strictly separate from catalog reachability and traffic.
+	const now = Date.now();
+	const feed = readInferenceProbeFeed(inferenceProbePath(), now);
+	const inference: Record<string, Record<string, unknown>> = {};
+	for (const [key, record] of Object.entries(feed)) {
+		inference[key] = {
+			state: projectInferenceState(record, now),
+			checkedAt: record.checkedAt,
+			latencyMs: record.latencyMs,
+			model: record.model,
+			detail: record.detail,
+			httpStatus: record.httpStatus,
+		};
+	}
 	return json({
 		ok: true,
 		localConsoleUrl: browserConsoleUrl(
@@ -866,6 +886,7 @@ const topologyContext = async (): Promise<Response> => {
 		hubConsoles: hubConsoleLinks(),
 		hubRoutes,
 		hubProviderObservations: await providerObservations,
+		inference,
 		work,
 	});
 };
