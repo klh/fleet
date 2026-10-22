@@ -1067,7 +1067,7 @@ test("failed claim transaction restores context bytes and released ownership", (
 	}
 });
 
-test("explicit operator evidence repairs an old rotated claim and rejects stale or unsafe attestations", () => {
+function operatorEvidenceCase(released: boolean) {
 	const f = fixture();
 	const tree = join(f.repo, ".worktrees", f.id);
 	const contextPath = join(tree, ".fleet", "lane-context.json");
@@ -1096,7 +1096,19 @@ test("explicit operator evidence repairs an old rotated claim and rejects stale 
 	).toBe(0);
 	const taken = f.work("take", f.id, "--as", "replacement-lane");
 	expect(taken.code).toBe(0);
-	const token = taken.out.match(/claim token: ([0-9a-f]{48})/)?.[1] ?? "";
+	let token = taken.out.match(/claim token: ([0-9a-f]{48})/)?.[1] ?? "";
+	if (released)
+		expect(
+			f.work(
+				"reclaim",
+				f.id,
+				"--reason",
+				"user",
+				"--force",
+				"--expect-owner",
+				"replacement-lane",
+			).code,
+		).toBe(0);
 	const current = JSON.parse(f.work("show", f.id, "--json").out);
 	writeFileSync(contextPath, original);
 	const db = new Database(
@@ -1143,8 +1155,7 @@ test("explicit operator evidence repairs an old rotated claim and rejects stale 
 		f.id,
 		"--as",
 		"replacement-lane",
-		"--token",
-		token,
+		...(released ? [] : ["--token", token]),
 		"--expect-updated-at",
 		String(current.updated_at),
 		"--reconcile-context",
@@ -1165,7 +1176,29 @@ test("explicit operator evidence repairs an old rotated claim and rejects stale 
 	expect(f.work(...args, evidencePath).code).not.toBe(0);
 	expect(readFileSync(contextPath, "utf8")).toBe(original);
 	writeFileSync(evidencePath, JSON.stringify(evidence));
-	expect(f.work(...args, evidencePath).code).toBe(0);
+	const repaired = f.work(...args, evidencePath);
+	expect(repaired.code).toBe(0);
+	if (released)
+		token = repaired.out.match(/claim token: ([0-9a-f]{48})/)?.[1] ?? "";
+	const afterRepair = readFileSync(contextPath, "utf8");
+	if (released) {
+		expect(f.work(...args, evidencePath).code).not.toBe(0);
+		expect(
+			f.work(
+				"take",
+				f.id,
+				"--as",
+				"competing-owner",
+				"--expect-updated-at",
+				String(current.updated_at),
+				"--reconcile-context",
+				"--force",
+				"--evidence",
+				evidencePath,
+			).code,
+		).not.toBe(0);
+		expect(readFileSync(contextPath, "utf8")).toBe(afterRepair);
+	}
 	expect(JSON.parse(readFileSync(contextPath, "utf8")).sid).toBe(
 		"replacement-lane",
 	);
@@ -1205,7 +1238,11 @@ test("explicit operator evidence repairs an old rotated claim and rejects stale 
 	} finally {
 		records.close();
 	}
-});
+}
+test("explicit operator evidence repairs an old rotated claim and rejects stale or unsafe attestations", () =>
+	operatorEvidenceCase(false));
+test("lost-token operator reclaim and attested READY retake mint a fresh token for normal completion", () =>
+	operatorEvidenceCase(true));
 
 test("an unregistered surviving directory cannot transfer completion identity", () => {
 	const f = fixture();

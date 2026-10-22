@@ -420,6 +420,16 @@ export function assignTask(
 		}
 		if (it.state !== "READY")
 			return { ok: false, why: `not READY (${it.state})` };
+		if (
+			args.reconcileEvidence &&
+			(!Number.isSafeInteger(args.expectedRevision) ||
+				args.expectedRevision !== it.updated_at ||
+				it.owner_sid !== null)
+		)
+			return {
+				ok: false,
+				why: "operator retake requires the exact released READY claim revision",
+			};
 		const depRows = store
 			.query(
 				"SELECT d.depends_on, w.state, w.result_sha FROM work_deps d LEFT JOIN work_items w ON w.id = d.depends_on AND w.project = d.project WHERE d.project = ? AND d.work_id = ?",
@@ -437,10 +447,19 @@ export function assignTask(
 			it.claim_token_hash,
 			args.sid,
 			token,
+			Boolean(args.reconcileEvidence),
+			args.reconcileEvidence
+				? { evidence: args.reconcileEvidence, revision: it.updated_at }
+				: undefined,
 		);
+		if (args.reconcileEvidence && !transfer?.operatorReceipt)
+			return {
+				ok: false,
+				why: "operator retake requires verified historical context evidence",
+			};
 		const r = store
 			.query(
-				"UPDATE work_items SET state = 'CLAIMED', owner_sid = ?, alloc_reason = ?, origin = COALESCE(?, origin), updated_at = ? WHERE project = ? AND id = ? AND state = 'READY'",
+				"UPDATE work_items SET state = 'CLAIMED', owner_sid = ?, alloc_reason = ?, origin = COALESCE(?, origin), updated_at = ? WHERE project = ? AND id = ? AND state = 'READY' AND updated_at = ?",
 			)
 			.run(
 				args.sid,
@@ -449,6 +468,7 @@ export function assignTask(
 				Date.now(),
 				project,
 				args.id,
+				it.updated_at,
 			);
 		if (r.changes === 0) return { ok: false, why: "race lost" };
 		// W643 claim-token fence: every successful take mints a fresh token —
@@ -486,6 +506,24 @@ export function assignTask(
 				args.id,
 			);
 		transfer?.replace();
+		if (transfer?.operatorReceipt)
+			store
+				.query(
+					"INSERT INTO events(ts,source,kind,scope,payload,target) VALUES (?,'work','work.context-reconciled',?,?,?)",
+				)
+				.run(
+					Date.now(),
+					it.scope,
+					JSON.stringify({
+						project,
+						work: args.id,
+						by: args.sid,
+						claim_revision: it.updated_at,
+						context_origin: transfer.receipt,
+						...transfer.operatorReceipt,
+					}),
+					args.sid,
+				);
 		return { ok: true, token };
 	});
 	try {
