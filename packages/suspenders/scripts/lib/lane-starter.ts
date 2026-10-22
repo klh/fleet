@@ -36,8 +36,13 @@ import {
 	laneEnv,
 	probeBuckleFront,
 } from "./lane.ts";
+import { runSeedGroup } from "./seed-group-run.ts";
 
 export const STARTER_FLAG = "SUSPENDERS_LANE_STARTER";
+/** W1124.12.2: the opt-in seed deadline. Firing it runs bounded process-group
+ *  cancellation (seed-group-run.ts) — it does NOT by itself prove the seed's
+ *  descendants died; only the verified group verdict does. */
+export const STARTER_SEED_TIMEOUT_MS = 180_000;
 // Registry cap — bounded history means bounded REGISTRY too: retired starter
 // sessions are never reseeded, a new version supersedes them.
 export const STARTER_REGISTRY_CAP = 8;
@@ -74,6 +79,15 @@ export type StarterSeedFailure = {
 	/** Verdict of the belt-front health probe taken BEFORE the seed ran
 	 *  (undefined when the probe was skipped — --no-belt). */
 	preflight?: string;
+	/** W1124.12.2: the deadline fired and bounded process-group cancellation
+	 *  ran (seed-group-run.ts). Never a termination claim by itself. */
+	timedOut?: boolean;
+	/** W1124.12.2: verified AFTER cancellation — no live member of the seed's
+	 *  process group remained (kill(-pgid, 0) → ESRCH). */
+	verifiedDown?: boolean;
+	/** W1124.12.2: cancellation ran but bounded cleanup could NOT verify the
+	 *  group dead — live descendants may remain. */
+	survivors?: boolean;
 };
 
 export type StarterSeedOutcome =
@@ -261,11 +275,10 @@ const pruneRegistry = (fleet: string): void => {
 };
 
 /** Seed a starter session ONCE per (harness, seed-prompt version) and persist
- *  its session id. The seed run is synchronous and short-lived: one turn,
- *  one JSON result. Returns null when the harness has no fork support (cold
- *  start, nothing attempted); a FAILED seed attempt returns the failure
- *  record instead of a fork. */
-export const ensureStarter = (
+ *  its session id. The seed run is one turn, one JSON result. Returns null
+ *  when the harness has no fork support (cold start, nothing attempted); a
+ *  FAILED seed attempt returns the failure record instead of a fork. */
+export const ensureStarter = async (
 	fleet: string,
 	harness: string,
 	executorBin: string,
@@ -274,17 +287,28 @@ export const ensureStarter = (
 		model?: string;
 		log?: (line: string) => void;
 		timeoutMs?: number;
+		/** Test seam: sync stubs stay supported; the default is the W1124.12.2
+		 *  bounded process-group runner (seed-group-run.ts). */
 		run?: (
 			bin: string,
 			args: string[],
 			env: Record<string, string>,
-		) => {
-			code: number;
-			out: string;
-			err?: string;
-		};
+		) =>
+			| {
+					code: number;
+					out: string;
+					err?: string;
+			  }
+			| Promise<{
+					code: number | null;
+					out: string;
+					err?: string;
+					timedOut?: boolean;
+					verifiedDown?: boolean | null;
+					survivors?: boolean;
+			  }>;
 	} = {},
-): StarterSeedOutcome | null => {
+): Promise<StarterSeedOutcome | null> => {
 	const forkArgsOf = forkArgsFor(harness, "SEED");
 	if (forkArgsOf === null) return null;
 	// W918.3: the seed TURN grammar is adapter data too — a harness with
@@ -308,34 +332,23 @@ export const ensureStarter = (
 			},
 		};
 	}
-	const run =
-		options.run ??
-		((bin, args, e) => {
-			const p = Bun.spawnSync([bin, ...args], {
-				cwd: fleet,
-				env: e,
-				stdout: "pipe",
-				stderr: "pipe",
-				// W1124.12.1: the native knob is `timeout` (ms) — `timeoutMs` is
-				// not a Bun.spawnSync field and was silently ignored, so a wedged
-				// seed hung for the full default. NARROW contract: the deadline
-				// SIGTERMs the DIRECT seed child only; a shell wrapper's
-				// descendants are not guaranteed to die (killTree is absent from
-				// the installed Bun types and does not reap the tree — review-
-				// verified). Process-group cleanup needs an async spawn rewrite,
-				// out of scope here.
-				timeout: options.timeoutMs ?? 180_000,
-			});
-			return {
-				code: p.exitCode ?? 1,
-				out: p.stdout ? new TextDecoder().decode(p.stdout) : "",
-				err: p.stderr ? new TextDecoder().decode(p.stderr) : "",
-			};
-		});
+	// W1124.12.2: the default seed ride is runSeedGroup — the child leads its
+	// own POSIX process group; the deadline cancels the WHOLE group (SIGTERM
+	// → grace → SIGKILL) with a verified group-down verdict. A spawnSync
+	// `timeout` SIGTERMs the direct child only and can never prove the tree
+	// terminated (killTree is absent from the installed API) — retired here.
+	const run = options.run ?? ((bin, args, e) => runSeedGroup(bin, args, {
+		cwd: fleet,
+		env: e,
+		timeoutMs: options.timeoutMs ?? STARTER_SEED_TIMEOUT_MS,
+	}));
 	const seedArgs = seedArgsOf(seed);
 	const seedStartedAt = Date.now();
-	const res = run(executorBin, seedArgs, env);
+	const res = await run(executorBin, seedArgs, env);
 	const seedMs = Date.now() - seedStartedAt;
+	const timedOut = res.timedOut === true;
+	const verifiedDown = res.verifiedDown === true;
+	const survivors = res.survivors === true;
 	// Session-id presence is the success criterion, NOT the exit code: the CLI
 	// can exit 1 on trailing diagnostics (observed live 2026-10-07: the
 	// unrecognized_model line) while the session + usage are perfectly valid.
@@ -343,11 +356,18 @@ export const ensureStarter = (
 	if (!sessionId) {
 		const failure: StarterSeedFailure = {
 			phase: "starter-seed",
-			code: res.code,
+			// signal-cancelled seeds never exited — the spawnSync shape also
+			// degraded a null exit code to 1
+			code: res.code ?? 1,
 			stderrTail: flattenTail(res.err || res.out),
 		};
+		if (timedOut) {
+			failure.timedOut = true;
+			failure.verifiedDown = verifiedDown;
+			failure.survivors = survivors;
+		}
 		options.log?.(
-			`starter seed failed (${harness}, phase ${failure.phase}, code ${failure.code}): ${failure.stderrTail}`,
+			`starter seed failed (${harness}, phase ${failure.phase}, code ${failure.code}${timedOut ? `, timed out, ${survivors ? `survivors possible (verifiedDown=${verifiedDown})` : "group verified down"}` : ""}): ${failure.stderrTail}`,
 		);
 		return { kind: "failure", failure };
 	}
@@ -463,7 +483,7 @@ export const dispatchStarterFork = async (o: {
 			? `belt-front up: ${front}`
 			: `belt-front down: ${BUCKLE_FRONT} did not answer /status`;
 	if (front) applyLaneAttribution(seedEnv, "fleet-starter", front);
-	const starter = ensureStarter(o.fleet, o.harness, o.bin, seedEnv, {
+	const starter = await ensureStarter(o.fleet, o.harness, o.bin, seedEnv, {
 		...o.ensureOpts,
 		model: o.model,
 	});
