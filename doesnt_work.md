@@ -179,3 +179,12 @@ refusal could be masked by an occupancy refusal in the same burst, producing
 with a global stale-success fence corrected that specific defect; it does not
 prove an optimal controller or real-account capacity. Healthy EOF means
 transport completion, not semantic model quality or verified provider cleanup.
+# W1124.24.1 — spoke-only classification loses remote pressure provenance
+
+The two-hop regression in
+`packages/buckle/test/provider-pressure-health-http.test.ts` shows that configuring
+only the spoke's occupancy classification is insufficient. A remote deployment
+health circuit can replace a real typed refusal with an untyped synthetic 429
+and a long Retry-After. The fixture retains that failing arm alongside recovery
+with explicit remote metadata. Unknown 429, auth, server and network failures
+remain circuit-protected; no provider-capacity increase was demonstrated.
