@@ -174,7 +174,12 @@ export interface RequestReadRow {
 	/** W1106 typed stream terminal (null = non-stream row / legacy). */
 	stream_receipt: StreamReceipt | null;
 	upstream_refusal_code: string | null;
-	refusal_origin: "upstream" | "bridged-upstream" | "network" | null;
+	refusal_origin:
+		| "upstream"
+		| "bridged-upstream"
+		| "network"
+		| "local-admission"
+		| null;
 	retry_after_ms: number | null;
 	selected_target_exact: boolean;
 	selected_target_attempted: boolean;
