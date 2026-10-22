@@ -21,7 +21,7 @@ const NOW = 1_790_000_000_000;
 // relay kind literal, joined so the ripgrep rule stays quiet
 const DIRECT_KIND = ["NO", "TE"].join("");
 
-function fixture() {
+function fixture(hb: number = NOW) {
 	const db = new Database(":memory:") as unknown as GovernorStore;
 	db.run("PRAGMA foreign_keys = ON");
 	db.run(
@@ -35,7 +35,7 @@ function fixture() {
 	);
 	db.run(
 		"INSERT INTO sessions VALUES ('lane-remote', '/hub', 'RUNNING', ?)",
-		NOW,
+		hb,
 	);
 	db.run(
 		"INSERT INTO sessions VALUES ('lane-dead', '/hub', 'RUNNING', ?)",
@@ -381,4 +381,23 @@ test("forwardDirectEvent: hub refusal records FAILED with the relay reason", asy
 	const row = relayOutboxRecord(db, result.deliveryId);
 	expect(row?.state).toBe("FAILED");
 	expect(row?.url).toBe("https://hub.test");
+});
+
+// W1163 — the receiver-never-saw-it path stays fresh-mintable: an attempt
+// that died before contacting any hub records a NULL envelope.
+test("W1163: unresolved-hub attempt stores no envelope — retry may mint fresh", async () => {
+	const db = fixture();
+	const result = await forwardDirectEvent({
+		db,
+		host: "nowhere-host",
+		targetSid: "lane-remote",
+		note: "steer",
+		sourceSid: "coord",
+		kind: DIRECT_KIND,
+		project: "/origin",
+		deliveryId: crypto.randomUUID(),
+		resolve: () => Promise.resolve(null),
+		timeoutMs: 500,
+	});
+	expect(relayOutboxRecord(db, result.deliveryId)?.envelope).toBeNull();
 });
