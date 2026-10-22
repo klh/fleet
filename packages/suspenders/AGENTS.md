@@ -162,7 +162,10 @@ under the limit).
 dispatch briefs for file maps that surface one carry a patch-only directive
 (hooks/lib/patch-first.ts), and `work done` verifies the diff shape: churn
 beyond 300 added+removed lines on that file refuses closure unless the item IS
-a decomposition (title/description declares it). `SUSPENDERS_PATCH_FIRST=0`
+a decomposition (title/description declares it). Test files are inside the
+contract, not outside it: a near-cap `*.test.ts` draws the same brief directive
+and done-gate churn budget (W1137: dispatch-next.test.ts landed at 1602 lines
+because nothing pinned it). `SUSPENDERS_PATCH_FIRST=0`
 disables the done-gate check; the benchmark is `bun scripts/edit-precision.ts`.
 
 Integration supervisors also apply a **soft post-merge cap**: changed code files

@@ -35,6 +35,7 @@ const write = (name: string, lines: number): void => {
 };
 mkdirSync(join(REPO, "src"), { recursive: true });
 write("src/big.ts", 12);
+write("src/big.test.ts", 12);
 write("src/small.ts", 4);
 g(["init", "-b", "main"]);
 g(["config", "user.email", "t@threads.dk"]);
@@ -121,6 +122,51 @@ describe("verdict", () => {
 			disabled: false,
 		});
 		expect(ok.ok).toBe(true);
+	});
+
+	// W1137: dispatch-next.test.ts landed at 1602 lines because nothing
+	// pinned the contract onto test files — they ride the same .ts gate.
+	test("near-cap test files ride the same patch-first contract", () => {
+		// the brief directive names a near-cap .test.ts like any code file
+		const brief = briefPatchFirstLines([
+			{ path: "test/foo.test.ts", lines: 1300 },
+		]);
+		expect(brief.join("\n")).toContain("test/foo.test.ts is 1300 lines");
+
+		// the done-gate refuses a test-file rewrite churn; the decomposition
+		// exemption applies to test files too
+		write("src/big.test.ts", 5);
+		g(["add", "-A"]);
+		g(["commit", "-m", "rewrite test file"]);
+		const rewrite = spawnSync("git", ["rev-parse", "HEAD"], {
+			cwd: REPO,
+			encoding: "utf8",
+		}).stdout.trim();
+		const v = patchFirstVerdict({
+			repo: REPO,
+			paths: ["src/big.test.ts"],
+			baseline: BASE,
+			sha: rewrite,
+			title: "polish big.test.ts",
+			threshold: 3,
+			budget: 4,
+			disabled: false,
+		});
+		expect(v.ok).toBe(false);
+		expect(v.why).toContain("patch-first (W744)");
+
+		// the decomposition exemption covers test files too
+		const exempt = patchFirstVerdict({
+			repo: REPO,
+			paths: ["src/big.test.ts"],
+			baseline: BASE,
+			sha: rewrite,
+			title: "decompose big.test.ts",
+			threshold: 3,
+			budget: 4,
+			disabled: false,
+		});
+		expect(exempt.ok).toBe(true);
 	});
 
 	test("under threshold / disabled / fail-open all pass", () => {
