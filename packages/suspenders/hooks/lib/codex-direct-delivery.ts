@@ -26,10 +26,23 @@ export function codexThreadForSession(
 	return row?.value && UUID.test(row.value) ? row.value : null;
 }
 
+/** Managed lanes (W1052.2.2) bank the per-lane steer socket next to the
+ * thread fact; a path, not a UUID — absent for detached exec lanes. */
+export function codexSockForSession(
+	store: DeliveryStore,
+	sid: string,
+): string | null {
+	const row = store
+		.query("SELECT value FROM facts WHERE key = ?")
+		.get(`codex.sock.${sid}`) as { value?: string } | undefined;
+	return row?.value ?? null;
+}
+
 export async function deliverSubscribedCodexEvent(
 	event: CoordDirectEvent,
 	as: string,
 	threadId: string | null,
+	sock: string | null = null,
 	steer: typeof steerCodexDirectEvent = steerCodexDirectEvent,
 ): Promise<CodexDelivery> {
 	if (event.target !== as || !DIRECT_KINDS.has(event.kind))
@@ -39,5 +52,5 @@ export async function deliverSubscribedCodexEvent(
 			state: "unsupported",
 			reason: "session has no Codex thread mapping",
 		};
-	return steer(event, { threadId });
+	return steer(event, sock ? { threadId, sock } : { threadId });
 }

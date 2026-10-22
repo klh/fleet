@@ -11,6 +11,8 @@
 // land as facts (`codex.thread.<sid>` / `codex.sock.<sid>`), and any
 // managed-init failure falls back to the verbatim `codex exec` argv.
 import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, unlinkSync } from "node:fs";
+import { dirname } from "node:path";
 import { createInterface } from "node:readline";
 import { openStore } from "../lib/govdb.ts";
 import { defineVerb, runCli } from "../lib/verb-kit.ts";
@@ -160,17 +162,19 @@ async function run(args: string[]): Promise<number> {
 			thread: threadId,
 			sock: listen,
 		});
-		serve(listen, managed);
+		const closeSteer = serve(listen, managed);
 		await managed.rpc("turn/start", {
 			threadId,
 			input: [{ type: "text", text: prompt }],
 		});
 		const status = await managed.completed;
 		managed.kill();
+		closeSteer();
 		return status === "completed" ? 0 : 1;
 	} catch (error) {
 		// Pre-turn failures only — once turn/start is accepted the mission is
 		// in flight and a fallback would rerun it from scratch.
+		managed?.kill();
 		emit({
 			"fleet.codex.managed": "fallback",
 			reason: error instanceof Error ? error.message : String(error),
@@ -214,10 +218,12 @@ function bankFacts(
 // The per-lane steer socket speaks the subscriber's JSON-RPC face: every
 // request is remapped onto the app-server child's id space, the response
 // routed back to its connection.
-function serve(listen: string, managed: ManagedTurn): void {
+function serve(listen: string, managed: ManagedTurn): () => void {
 	const routed = new Map<number, { conn: ServerConn; id: number }>();
 	let nextRoute = 0;
-	Bun.listen({
+	mkdirSync(dirname(listen), { recursive: true });
+	if (existsSync(listen)) unlinkSync(listen); // crashed prior lane's socket
+	const server = Bun.listen({
 		unix: listen,
 		socket: {
 			open: (socket) => {
@@ -268,6 +274,11 @@ function serve(listen: string, managed: ManagedTurn): void {
 			},
 		},
 	});
+	// The listener pins the event loop; the turn's end closes it so the
+	// process can exit with the mission's exit code.
+	return (): void => {
+		server.stop(true);
+	};
 }
 
 if (import.meta.main)
