@@ -16,6 +16,13 @@ import {
 } from "../../telemetry/src/http-trace.ts";
 import type { HopKind } from "./hop.ts";
 import type { Usage } from "./usage.ts";
+import type { ServedIdentity } from "./served-identity.ts";
+import { ThroughputStore } from "../../telemetry/src/throughput-store.ts";
+import { throughputMetrics } from "./throughput-metrics.ts";
+import {
+	DEFAULT_THROUGHPUT_POLICY,
+	type ThroughputPolicy,
+} from "../../telemetry/src/throughput.ts";
 
 /** W1086 settle receipt: the caller hands raw timings; the ledger validates
  *  + bounds every field before anything durable is written. */
@@ -44,6 +51,8 @@ export interface UsageRecord {
 
 /** W136 §6 decision row (the outcome fields ride the same table row). */
 export interface RouteAuditDecision {
+	requested_group?: string | null;
+	requested_effort?: string | null;
 	rid: string;
 	/** W3C trace ID from the accepted inbound traceparent (or generated root). */
 	trace_id?: string | null;
@@ -78,6 +87,8 @@ export interface RouteAuditDecision {
 }
 
 export interface RouteAuditOutcome {
+	demand?: boolean;
+	served?: ServedIdentity;
 	status: number;
 	duration_ms: number;
 	ok: boolean;
@@ -137,6 +148,11 @@ export interface RequestReadQuery {
 /** One per-request inspection row (W824): decision + outcome + usage,
  *  key NAME joined by the caller (never key material). */
 export interface RequestReadRow {
+	requested_group: string | null;
+	served_model: string | null;
+	served_provider: string | null;
+	served_provider_profile: string | null;
+	served_evidence: string | null;
 	rid: string;
 	trace_id: string | null;
 	ts: string;
@@ -200,8 +216,8 @@ INSERT INTO route_audit (
   candidates_seen, candidates_top,
   target_kind, target_host, target_port, target_model,
   decision, latency_class, tier, allow_cloud, error_code, why, hop,
-  traffic_kind
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  traffic_kind, requested_group, requested_effort
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 const SCHEMA = `
@@ -317,10 +333,15 @@ UPDATE route_audit SET status = ?, duration_ms = ?, ok = ?, err = ?,
   decision = COALESCE(?, decision), error_code = COALESCE(?, error_code),
   attempts = COALESCE(?, attempts),
   stream_receipt = COALESCE(?, stream_receipt)
+  , settled_at = ?
+  , demand_observed = ?
+  , served_model = COALESCE(?, served_model), served_provider = COALESCE(?, served_provider),
+  served_provider_profile = COALESCE(?, served_provider_profile), served_evidence = COALESCE(?, served_evidence)
 WHERE rid = ?
 `;
 
 export interface LedgerOptions {
+	throughputPolicy?: ThroughputPolicy;
 	/** async flush cadence (W143 speed §3; default 5s) */
 	flushMs?: number;
 	/** flush trigger by pending rows (default 256) */
@@ -342,6 +363,8 @@ export interface LedgerOptions {
 type Pending<T> = { v: T; tries: number; b: number };
 
 export class Ledger {
+	private readonly throughputPolicy: ThroughputPolicy;
+	private throughputStore?: ThroughputStore;
 	private readonly db: Database;
 	private readonly upsert: ReturnType<Database["query"]>;
 	// W450: audit statements prepared once (measured ~5%/op over the cached
@@ -376,6 +399,7 @@ export class Ledger {
 		private readonly now: () => Date = () => new Date(),
 		opts: LedgerOptions = {},
 	) {
+		this.throughputPolicy = opts.throughputPolicy ?? DEFAULT_THROUGHPUT_POLICY;
 		this.db = new Database(path, { create: true });
 		this.db.exec("PRAGMA journal_mode = WAL");
 		this.db.exec(SCHEMA);
@@ -396,6 +420,24 @@ export class Ledger {
 				.query("SELECT name FROM pragma_table_info('route_audit')")
 				.all() as Array<{ name: string }>
 		).map((r) => r.name);
+		for (const column of [
+			"requested_group",
+			"requested_effort",
+			"served_model",
+			"served_provider",
+			"served_provider_profile",
+			"served_evidence",
+		]) {
+			if (!auditCols.includes(column))
+				this.db.run(`ALTER TABLE route_audit ADD COLUMN ${column} TEXT`);
+		}
+		if (!auditCols.includes("settled_at"))
+			this.db.run("ALTER TABLE route_audit ADD COLUMN settled_at INTEGER");
+		if (!auditCols.includes("demand_observed"))
+			this.db.run("ALTER TABLE route_audit ADD COLUMN demand_observed INTEGER");
+		this.db.exec(
+			"CREATE INDEX IF NOT EXISTS route_audit_settled ON route_audit(settled_at)",
+		);
 		if (!auditCols.includes("cache_r"))
 			this.db.run("ALTER TABLE route_audit ADD COLUMN cache_r INTEGER");
 		if (!auditCols.includes("cache_c"))
@@ -826,6 +868,8 @@ export class Ledger {
 			row.why,
 			row.hop,
 			row.traffic_kind ?? null,
+			row.requested_group ?? null,
+			row.requested_effort ?? null,
 		);
 	}
 
@@ -851,8 +895,93 @@ export class Ledger {
 				: out.stream_receipt === null
 					? null
 					: JSON.stringify(out.stream_receipt),
+			this.now().getTime(),
+			out.demand === undefined ? null : out.demand ? 1 : 0,
+			out.served?.model ?? null,
+			out.served?.provider ?? null,
+			out.served?.providerProfile ?? null,
+			out.served?.evidence ?? null,
 			rid,
 		);
+	}
+
+	/** One read-barrier collector over canonical settled evidence. Raw traces
+	 * retain join IDs; these durable buckets explicitly represent this node. */
+	throughput(node = "local", now = this.now().getTime()): string {
+		this.flush();
+		this.throughputStore ??= new ThroughputStore(
+			this.db,
+			this.throughputPolicy,
+		);
+		const store = this.throughputStore;
+		const rows = this.db
+			.query(`SELECT a.rid,a.trace_id,a.dialect,a.settled_at,a.requested_group,a.requested_effort,a.served_model,a.served_provider,a.served_provider_profile,a.ok,a.attempts,a.duration_ms,a.out_tok,a.in_tok,a.demand_observed,
+		 (SELECT sum(queue_wait_ms) FROM route_attempt t WHERE t.rid=a.rid) AS queue_ms,
+		 (SELECT duration_ms-coalesce(queue_wait_ms,0) FROM route_attempt t WHERE t.rid=a.rid AND t.status>=200 AND t.status<300 ORDER BY ordinal DESC LIMIT 1) AS service_ms
+		 FROM route_audit a WHERE a.settled_at>=? AND a.traffic_kind='inference'
+		 AND NOT EXISTS(SELECT 1 FROM throughput_seen s WHERE s.id=json_array(?,a.rid))
+		 ORDER BY a.settled_at,a.rid LIMIT ?`)
+			.all(
+				now - store.policy.bucketMs * 2,
+				node,
+				store.policy.maxSamplesPerBucket * 2,
+			) as Array<{
+			rid: string;
+			trace_id: string | null;
+			dialect: string;
+			settled_at: number;
+			requested_group: string | null;
+			requested_effort: string | null;
+			served_model: string | null;
+			served_provider: string | null;
+			served_provider_profile: string | null;
+			ok: number;
+			attempts: number | null;
+			duration_ms: number;
+			out_tok: number | null;
+			in_tok: number | null;
+			queue_ms: number | null;
+			service_ms: number | null;
+			demand_observed: number | null;
+		}>;
+		return this.db.transaction(() => {
+			if (rows.length === store.policy.maxSamplesPerBucket * 2)
+				for (
+					let bucket =
+						Math.floor(
+							(now - store.policy.bucketMs * 2) / store.policy.bucketMs,
+						) * store.policy.bucketMs;
+					bucket <= now;
+					bucket += store.policy.bucketMs
+				)
+					store.noteCapacity(node, bucket);
+			for (const r of rows)
+				store.observe({
+					id: r.rid,
+					traceId: r.trace_id,
+					callId: null,
+					node,
+					at: r.settled_at,
+					requestedGroup: r.requested_group,
+					model: r.served_model,
+					provider: r.served_provider,
+					providerProfile: r.served_provider_profile,
+					effort: r.requested_effort,
+					context:
+						r.in_tok === null
+							? null
+							: `${r.dialect}:reported-input:${2 ** Math.ceil(Math.log2(Math.max(1, r.in_tok)))}`,
+					ok: r.ok === 1,
+					attempts: r.attempts ?? 0,
+					queueMs: r.queue_ms,
+					serviceMs: r.service_ms,
+					totalMs: r.duration_ms,
+					outTokens: r.out_tok,
+					demand: r.demand_observed === 1 || (r.queue_ms ?? 0) > 0,
+					paused: false,
+				});
+			return throughputMetrics(store, now);
+		})();
 	}
 
 	/** W457: provider-reported cache usage onto the per-request audit row
@@ -1056,7 +1185,7 @@ function requestsReadSql(where: string[], limit: number): string {
 		target_port, target_model, decision, latency_class, tier,
 		allow_cloud, hop, error_code, why, status, duration_ms, ok, err,
 		attempts, cache_r, cache_c, cache_reported, cache_c_reported, in_tok, out_tok,
-		traffic_kind, stream_receipt
+		traffic_kind, stream_receipt, requested_group, served_model, served_provider, served_provider_profile, served_evidence
 		FROM route_audit ${clause}
 		ORDER BY ts DESC, rid DESC LIMIT ${limit}`;
 }

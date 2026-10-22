@@ -124,6 +124,7 @@ export function buildDeps(
 		opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db",
 		undefined,
 		{
+			throughputPolicy: policy.throughput,
 			onDrop: (kind, n) =>
 				sm
 					.counter(

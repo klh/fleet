@@ -12,6 +12,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { YAML } from "bun";
 import {
+	assertThroughputPolicy,
+	type ThroughputPolicy,
+} from "../../telemetry/src/throughput.ts";
+import {
 	assertProviderPoolPolicy,
 	type ProviderPoolPolicy,
 } from "./provider-admission-core.ts";
@@ -23,6 +27,7 @@ import {
 export const FLASHX = /flashx/i;
 
 export interface GatewayPolicy {
+	throughput?: ThroughputPolicy;
 	num_retries?: number;
 	allowed_fails?: number;
 	cooldown_time?: number;
@@ -190,6 +195,8 @@ export function parsePolicy(
 	// A malformed policy refuses startup (fail-closed), never degrades to
 	// unbounded forwarding.
 	const pools = policy.provider_pools ?? {};
+	if (policy.throughput !== undefined)
+		assertThroughputPolicy(policy.throughput);
 	for (const [id, pool] of Object.entries(pools)) {
 		try {
 			assertProviderPoolPolicy(pool);

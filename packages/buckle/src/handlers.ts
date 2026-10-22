@@ -80,6 +80,12 @@ import type { RepoPolicyRow } from "./repo-policy.ts";
 import { repoPolicyRoutes } from "./repo-policy-routes.ts";
 import { type ExecuteResult, type Router, UpstreamError } from "./router.ts";
 import type { Servicemon } from "./servicemon.ts";
+import {
+	servedIdentity,
+	requestedEffort,
+	stampServedIdentity,
+	type ServedIdentity,
+} from "./served-identity.ts";
 import { SseSniffer, sseReframer } from "./sse.ts";
 import {
 	allowlistedBaggage,
@@ -243,6 +249,15 @@ function stamped(
 		callId: route.callId,
 	});
 	for (const [k, v] of hs) resp.headers.set(k, v);
+	stampServedIdentity(
+		resp.headers,
+		ctx.served ?? {
+			model: null,
+			provider: null,
+			providerProfile: null,
+			evidence: "unknown",
+		},
+	);
 	resp.headers.delete(PREFER_HEADER);
 	if (ctx.preference) resp.headers.set(PREFER_HEADER, ctx.preference);
 	return resp;
@@ -281,6 +296,8 @@ export function trafficKindOf(req: Request): string {
 }
 
 interface Ctx {
+	demand?: boolean;
+	served?: ServedIdentity;
 	key: string;
 	group: string;
 	model: string;
@@ -337,6 +354,7 @@ function deny(
 ): Response {
 	deps.ledger.auditDecision({
 		rid: ctx.rid,
+		requested_group: ctx.sel ? ctx.group : null,
 		trace_id: ctx.trace.traceparent.split("-")[1],
 		ts: new Date().toISOString(),
 		actor: ctx.key,
@@ -552,6 +570,8 @@ async function runExecute(
 	}
 	deps.ledger.auditDecision({
 		rid: ctx.rid,
+		requested_group: ctx.group,
+		requested_effort: requestedEffort(body),
 		trace_id: ctx.trace.traceparent.split("-")[1],
 		ts: new Date().toISOString(),
 		actor: ctx.key,
@@ -615,6 +635,7 @@ async function runExecute(
 	ctx.prefixFp = deps.prefixLedger ? prefixFingerprintOf(body) : null;
 	let result: ExecuteResult;
 	// W461 stage 2: started — the upstream dispatch begins.
+	ctx.demand = (deps.admission?.inflight(ctx.group) ?? 0) > 1;
 	observe(deps, ctx, "lane.request.started");
 	try {
 		result = await deps.router.execute({
@@ -643,6 +664,8 @@ async function runExecute(
 			return deny(deps, ctx, 502, e.message, "no_route", "errored");
 		throw e;
 	}
+	if (result.kind === "upstream")
+		ctx.served = servedIdentity(result.deployment, result.response.headers);
 	let resp: Response;
 	try {
 		resp = await handleResult(deps, ctx, result);
@@ -705,6 +728,8 @@ function finishResponse(
 		deps.affinity.bind(ctx.affKey, result.candidateId);
 	if (!streaming)
 		deps.ledger.auditOutcome(ctx.rid, {
+			served: ctx.served,
+			demand: ctx.demand,
 			status: resp.status,
 			duration_ms: ms,
 			ok,
@@ -952,6 +977,8 @@ function streamResponse(
 		if (success && ctx.affKey && deps.affinity && affinityOn())
 			deps.affinity.bind(ctx.affKey, result.candidateId);
 		deps.ledger.auditOutcome(ctx.rid, {
+			served: ctx.served,
+			demand: ctx.demand,
 			// Headers have already been sent; ok/error_code carry the later
 			// stream failure without pretending the HTTP status was 502.
 			status: 200,
