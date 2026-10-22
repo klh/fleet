@@ -263,7 +263,16 @@ describe("provider-account admission", () => {
 
 	test("a provider 429 is never a local admission refusal", async () => {
 		let fetches = 0;
-		const router = new Router(POLICY, {
+		const policy = {
+			...POLICY,
+			provider_pools: Object.fromEntries(
+				Object.entries(POLICY.provider_pools ?? {}).map(([id, value]) => [
+					id,
+					{ ...value, queueWaitMs: 4000 },
+				]),
+			),
+		};
+		const router = new Router(policy, {
 			pool: poolOf([dep("http://a", "m1", "zai-main")]),
 			sleepMs: async () => {},
 			fetchImpl: async () => {
@@ -281,7 +290,8 @@ describe("provider-account admission", () => {
 			expect(r1.response.status).toBe(429);
 		}
 		const r2 = await router.execute(req("m1"));
-		// the drained error body released the slot: the next start fetches
+		// The error body releases the lease, but the shared pool must still
+		// honor the provider's Retry-After before starting another request.
 		expect(fetches).toBe(2);
 		expect(r2.kind).toBe("client-error");
 	});

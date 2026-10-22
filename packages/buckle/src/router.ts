@@ -114,7 +114,10 @@ export interface RouterMetrics {
 }
 
 /** A single upstream attempt's classified outcome. */
-export type TryOutcome =
+export type TryOutcome = {
+	providerPool?: string | null;
+	queueWaitMs?: number | null;
+} & (
 	| { ok: true; response: Response }
 	| {
 			ok: false;
@@ -145,7 +148,8 @@ export type TryOutcome =
 			/** bad_request subclass: the prompt overflowed this deployment's
 			 *  window — fail over (a bigger window may fit), never bench */
 			contextWindow: boolean;
-	  };
+	  }
+);
 
 /** Walk state threaded through the ladder. ctxWindow keeps the last
  *  context-window rejection: if every rung overflows, the client gets that
@@ -351,6 +355,11 @@ export class Router {
 		return [...same, ...cross];
 	}
 
+	providerAdmissionSnapshot() {
+		return Object.fromEntries(
+			[...this.pools].map(([id, core]) => [id, core.snapshot()]),
+		);
+	}
 	/** One upstream attempt, outcome classified for the walk. */
 	private async tryOnce(
 		req: UpstreamRequest,
@@ -393,6 +402,7 @@ export class Router {
 			const raw = await this.fetchImpl(dep, wireReq, timeoutMs, stream);
 			const resp = lease === undefined ? raw : bindProviderLease(raw, lease);
 			if (resp.ok) {
+				lease?.feedback?.(resp.status, null);
 				this.cooldowns.success(dep);
 				const response = bridged
 					? bridgeResponse(resp, req.dialect, req.body.stream === true)
@@ -408,14 +418,22 @@ export class Router {
 						String(queueWaitMs),
 					);
 				}
-				return { ok: true, response };
+				return {
+					ok: true,
+					response,
+					providerPool: poolId,
+					queueWaitMs: lease ? queueWaitMs : null,
+				};
 			}
 			const { err, replay, requestId, callId } = await classifyFailure(
 				dep,
 				resp,
 			);
 			const ra = err.retryAfterS ?? retryAfterS(resp.headers, this.now);
+			lease?.feedback?.(resp.status, ra);
 			const base = {
+				providerPool: poolId,
+				queueWaitMs: lease ? queueWaitMs : null,
 				ok: false as const,
 				response:
 					err.kind === "rate_limited"
@@ -534,6 +552,7 @@ export class Router {
 		callId?: string,
 		upstreamRefusalCode: string | null = null,
 		refusalOrigin: HopReceipt["refusalOrigin"] = null,
+		provider?: { providerPool?: string | null; queueWaitMs?: number | null },
 	): void {
 		const retryAfterMs =
 			retryAfterS === null || !Number.isFinite(retryAfterS)
@@ -560,6 +579,10 @@ export class Router {
 			callId: callId ?? null,
 			upstreamRefusalCode,
 			refusalOrigin,
+			...{
+				providerPool: provider?.providerPool ?? providerPoolIdOf(dep),
+				queueWaitMs: provider?.queueWaitMs ?? null,
+			},
 		};
 		try {
 			this.metrics?.attempt?.(receipt);
@@ -683,6 +706,9 @@ export class Router {
 					null,
 					upstreamId,
 					callId,
+					null,
+					null,
+					r,
 				);
 				return {
 					kind: "upstream",
@@ -725,6 +751,7 @@ export class Router {
 				r.callId,
 				r.upstreamRefusalCode ?? null,
 				r.refusalSource,
+				r,
 			);
 			st.status = r.status;
 			st.error = r.error;
