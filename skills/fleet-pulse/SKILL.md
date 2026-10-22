@@ -18,3 +18,9 @@ Read-only fleet pulse ($ARGUMENTS — optional: a lane, item id, or tail count).
    fleet-loop churn: surface prominently and probe further.
 5. **Recent commits** — `git log -3 --oneline`.
 6. **Verdict** — close with one line: healthy, or what needs eyes.
+
+## Gotchas
+
+- Keep renders bounded — per-sid payload loops once made a board API take a minute (W663 payload storm); aggregate, don't fan out.
+- WS feed ids are not event ids: the inbox hook numbers its own lines and a replay fakes live churn — check the events-table timestamp.
+- `work report` is the ONE supervisor table (item/TOKENS/CACHE/OUT-MIN/AGENT/…); never hand-roll a Markdown status list beside it.

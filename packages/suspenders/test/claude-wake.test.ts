@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	consumeClaudeWake,
+	proveClaudeWake,
 	signalClaudeDirectEvent,
 	waitForClaudeWake,
 } from "../hooks/lib/claude-wake.ts";
@@ -19,6 +20,26 @@ const event = (id: number, target: string, kind = "NOTE") => ({
 });
 
 describe("Claude native hook wake bridge", () => {
+	test("pause and resume are directed controls that ordinary notes cannot overwrite before injection", () => {
+		const sid = "pause-priority";
+		expect(
+			signalClaudeDirectEvent(event(10, sid, "pause_requested"), sid, home),
+		).toBe(true);
+		expect(signalClaudeDirectEvent(event(11, sid), sid, home)).toBe(false);
+		expect(consumeClaudeWake(sid, home, "managed")).toContain(
+			"(pause_requested)",
+		);
+		expect(proveClaudeWake(sid, home, "managed")).toBe(true);
+		expect(signalClaudeDirectEvent(event(11, sid), sid, home)).toBe(true);
+		expect(
+			signalClaudeDirectEvent(event(12, sid, "resume_ready"), sid, home),
+		).toBe(true);
+		expect(signalClaudeDirectEvent(event(13, sid), sid, home)).toBe(false);
+		expect(consumeClaudeWake(sid, home, "managed")).toContain("(resume_ready)");
+		expect(
+			signalClaudeDirectEvent(event(14, "other", "pause_requested"), sid, home),
+		).toBe(false);
+	});
 	test("managed and native consumers have separate locks and shutdown cancels a watcher", async () => {
 		const sid = "managed-and-native";
 		const native = waitForClaudeWake(sid, { home, timeoutMs: 1000 });

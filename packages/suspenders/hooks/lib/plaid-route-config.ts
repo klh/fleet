@@ -7,18 +7,31 @@ export interface PlaidRoute {
 	executor: string;
 	/** Belt model/group pin; null = the executor CLI rides its own config. */
 	model: string | null;
-	/** exec-quota provider key the route's health reads; null = exempt. */
+	/** exec-quota provider key the route's health reads; null = exempt.
+	 *  Known set: copilot | zai | local — anything else is a junk row.
+	 *  `local` = a Buckle-backed ride on THIS host's Belt models: it MUST
+	 *  pin a model (the model IS the ride — nothing unpinned is verifiable
+	 *  through the front's catalog) and its health is the live model probe
+	 *  plus the measured host-capacity gate, never a copilot/zai quota
+	 *  fact. Local lanes are their own pool — never copilot/zai capacity. */
 	provider: string | null;
 }
+
+/** The pool provider set a route may declare (schema truth — plaid.ts's
+ *  POOL_PROVIDERS is this tuple; one source, DRY). */
+export const PLAID_PROVIDERS = ["copilot", "zai", "local"] as const;
 
 /** Owner definition 2026-10-19; W989 truthfulness pass 2026-10-20: the
  *  codex executor rides the PERSONAL Codex CLI seat — it never touches the
  *  Copilot provider through Buckle — so it carries no ikea-* name and no
  *  pool provider (a personal seat is never pool capacity; bin-probed only,
  *  dispatchable only where a route pick reaches it outside the pools). The
- *  Copilot ride is the claude CLI pinned to claude-sonnet-5 (the Copilot
- *  seat serves the Anthropic wire). Table order IS the defined fallback:
- *  Copilot → glm (glm-flash the floor) → personal codex. */
+ *  Copilot ride is the claude CLI via the Buckle front, pinned to
+ *  claude-sonnet-5 (the Copilot seat serves the Anthropic wire). Table order
+ *  IS the defined fallback: Copilot → glm (glm-flash the floor) → personal
+ *  codex. The host's Belt local coder is NOT a default row — operator
+ *  config (suspenders-board.json plaid_routes) declares it when the host
+ *  carries the capacity; a declared local route is a full pool member. */
 export const PLAID_ROUTES: PlaidRoute[] = [
 	{
 		name: "ikea-sonnet",
@@ -57,6 +70,24 @@ export const parsePlaidRoutes = (rows?: unknown): PlaidRoute[] => {
 			return PLAID_ROUTES;
 		if (r.name.toLowerCase().startsWith("ikea-") && r.provider !== "copilot")
 			return PLAID_ROUTES; // the IKEA label is reserved (honesty law)
+		const model =
+			typeof r.model === "string" && r.model.trim() ? r.model.trim() : null;
+		const provider =
+			typeof r.provider === "string" && r.provider.trim()
+				? r.provider.trim()
+				: null;
+		// honesty law, symmetric to the ikea- reservation: a `local-` name
+		// never rides a cloud provider, and a provider outside the known set
+		// is a junk row (an unknown pool is a dead route, never capacity)
+		if (r.name.toLowerCase().startsWith("local-") && provider !== "local")
+			return PLAID_ROUTES;
+		if (
+			provider !== null &&
+			!(PLAID_PROVIDERS as readonly string[]).includes(provider)
+		)
+			return PLAID_ROUTES;
+		// a local route is Buckle-backed: unpinned = unverifiable = junk
+		if (provider === "local" && !model) return PLAID_ROUTES;
 		const label =
 			typeof r.label === "string" && r.label.trim()
 				? r.label.trim()
@@ -65,12 +96,8 @@ export const parsePlaidRoutes = (rows?: unknown): PlaidRoute[] => {
 			name: r.name.trim(),
 			label,
 			executor: r.executor.trim(),
-			model:
-				typeof r.model === "string" && r.model.trim() ? r.model.trim() : null,
-			provider:
-				typeof r.provider === "string" && r.provider.trim()
-					? r.provider.trim()
-					: null,
+			model,
+			provider,
 		});
 	}
 	return out;
@@ -101,6 +128,33 @@ export function validatePlaidRoutes(value: unknown): PlaidRoute[] {
 				(typeof row[key] !== "string" || row[key].length > 200)
 			)
 				throw new Error(`plaid_routes: invalid ${key}`);
+		const provider =
+			typeof row.provider === "string" && row.provider.trim()
+				? row.provider.trim()
+				: null;
+		if (
+			provider !== null &&
+			!(PLAID_PROVIDERS as readonly string[]).includes(provider)
+		)
+			throw new Error(
+				`plaid_routes: provider must be one of ${PLAID_PROVIDERS.join(", ")} (or null)`,
+			);
+		const model =
+			typeof row.model === "string" && row.model.trim()
+				? row.model.trim()
+				: null;
+		if (provider === "local" && !model)
+			throw new Error(
+				'plaid_routes: provider "local" must pin a model (the Belt/Buckle-served model id the health probe verifies)',
+			);
+		if (
+			typeof row.name === "string" &&
+			row.name.toLowerCase().startsWith("local-") &&
+			provider !== "local"
+		)
+			throw new Error(
+				"plaid_routes: a local-* route name is reserved for provider local (honesty law)",
+			);
 	}
 	const routes = parsePlaidRoutes(value);
 	if (

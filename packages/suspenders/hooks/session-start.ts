@@ -7,7 +7,12 @@
 import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { renderFleetReport } from "../scripts/lib/fleet-report.ts";
 import { checkpointPath } from "./lib/checkpoint.ts";
+// W1124.12: an explicit worker role skips the SUPERVISOR DEFAULT + report
+// injection — a managed lane is not a loop-arming runtime (same ruling as
+// the isSubagent branch, source of truth = lane-settings.ts role marker).
+import { sessionRole } from "./lib/coordinator-edit-gate.ts";
 import {
 	CAPABILITIES,
 	openStore,
@@ -18,14 +23,6 @@ import { enrollTopLevel } from "./lib/hook-scripts.ts";
 import { run } from "./lib/run.ts";
 import { checkSessionPolicies } from "./lib/session-policy.ts";
 import { attachSubscribe, subagentLaneSuffix } from "./lib/subscribe-attach.ts";
-// W1124.12: an explicit worker role skips the SUPERVISOR DEFAULT + report
-// injection — a managed lane is not a loop-arming runtime (same ruling as
-// the isSubagent branch, source of truth = lane-settings.ts role marker).
-import { sessionRole } from "./lib/coordinator-edit-gate.ts";
-import {
-	seedSupervisorRefill,
-	supervisorRefillDirective,
-} from "./lib/supervisor-refill.ts";
 import {
 	canonicalRepo,
 	launchctlTable,
@@ -33,7 +30,10 @@ import {
 	supervisorFactLine,
 	supervisorRows,
 } from "./lib/supervisor.ts";
-import { renderFleetReport } from "../scripts/lib/fleet-report.ts";
+import {
+	seedSupervisorRefill,
+	supervisorRefillDirective,
+} from "./lib/supervisor-refill.ts";
 
 type In = {
 	session_id?: string;
@@ -239,6 +239,7 @@ out.push(
 		`coord consult <target-sid> "<question>" --as ${lane} asks a registered peer; ` +
 		`coord message <target-sid> "<update>" --as ${lane} updates a live lane; ` +
 		`coord inbox --as ${lane} reads replies. Use coord --help and coord <verb> --help to discover supported coordination verbs; use work --help and work <verb> --help to discover supported work-graph verbs; never guess a transport or read governor.db directly for live coordination.`,
+	`CONSULT DELIVERY: copy the exact recipient SID from coord fleet --json (lanes[].sid), or the text [sid=...] field. HEAD is a Git commit, not a session address. If a directed consult target is unresolved, discover the correct SID and retry or report the unresolved recipient. Never substitute BROADCAST: inline @mentions do not route, open a consult, or request a direct interrupt.`,
 );
 
 // W253 compact checkpoint: a pre-compact roll (hooks/pre-compact.ts) or an
@@ -406,8 +407,11 @@ if (!isSubagent && input.cwd) {
 				.query("SELECT value FROM facts WHERE key = ?")
 				.get(`broadcast.seen.${sid}`) as { value: string } | null;
 			if (b.ts > Number(seen?.value ?? 0)) {
+				// a broadcast note is event context, not a briefing — cap it so one
+				// verbose notice (quota-sweep dumps) cannot flood the resume packet
+				const note = b.note.replace(/\s+/g, " ").trim();
 				out.push(
-					`HISTORICAL FLEET NOTICE (${new Date(b.ts).toISOString().slice(0, 16).replace("T", " ")} UTC; recorded event, not current capability): ${b.note.replace(/\s+/g, " ").trim()} — this does not establish a current transport.`,
+					`HISTORICAL FLEET NOTICE (${new Date(b.ts).toISOString().slice(0, 16).replace("T", " ")} UTC; recorded event, not current capability): ${note.length > 300 ? `${note.slice(0, 300)}…` : note} — this does not establish a current transport.`,
 				);
 				db.query(
 					"INSERT INTO facts (key, value, ts) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, ts = excluded.ts",

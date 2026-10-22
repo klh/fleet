@@ -6,6 +6,10 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { openGovernorDb } from "./govdb-open.ts";
 import { REG } from "./govdb-util.ts";
 import { openIdentityDb } from "./identity-db.ts";
+import {
+	StoreAdmissionError,
+	isStoreAdmissionRefusal,
+} from "./store-admission.ts";
 
 // ─── W92 store port ──────────────────────────────────────────────────────────
 // The control-plane seam: consumers bind to GovernorStore, never to the DB
@@ -108,11 +112,20 @@ export class HttpGovernorStore implements GovernorStore {
 		const isBegin = mode === "tx" && sql === "begin";
 		const tries = reads || isBegin ? 3 : 1;
 		const beginDeadline = isBegin ? Date.now() + TX_BEGIN_WAIT_MS : 0;
+		const admissionDeadline = Date.now() + TX_BEGIN_WAIT_MS;
 		for (let attempt = 1; ; attempt++) {
 			try {
 				return this.rpcOnce(mode, sql, params);
 			} catch (e) {
 				const msg = String(e);
+				if (e instanceof StoreAdmissionError) {
+					const remaining = admissionDeadline - Date.now();
+					if (remaining <= 0) throw e;
+					Bun.sleepSync(
+						Math.min(remaining, 100 + Math.floor(Math.random() * 150)),
+					);
+					continue;
+				}
 				if (isBegin && TX_ALREADY_OPEN_RE.test(msg)) {
 					const remaining = beginDeadline - Date.now();
 					if (remaining <= 0) throw e;
@@ -175,7 +188,11 @@ export class HttpGovernorStore implements GovernorStore {
 		}
 		const out = JSON.parse(bodyText);
 		// server-side refusals ride a 200 body ({err}) — curl -f cannot see them
-		if (out.err) throw new Error(`governor store: ${out.err}`);
+		if (out.err) {
+			if (isStoreAdmissionRefusal(out))
+				throw new StoreAdmissionError(`governor store: ${out.err}`);
+			throw new Error(`governor store: ${out.err}`);
+		}
 		return out;
 	}
 
