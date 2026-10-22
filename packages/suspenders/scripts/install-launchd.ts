@@ -177,6 +177,16 @@ export async function verifiedLoad(
 	return { ok: true };
 }
 
+// W1073 B1: the child recycle binds to an explicit bootstrap — a reviewed-
+// retained generation never reloaded the unit, so its child must not be
+// killed (the surviving old supervisor would respawn the old code). Only a
+// unit that actually bootstrapped this install recycles its declared child.
+export const recycleOnBootstrap = (
+	childPort: number | undefined,
+	bootstrapped: boolean,
+): number | null =>
+	childPort !== undefined && bootstrapped ? childPort : null;
+
 export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 	if (process.platform !== "darwin") {
 		return {
@@ -398,11 +408,17 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 					refused.push(`${label} — ${verified.reason}`);
 					continue;
 				}
-				// W1073: recycle the declared abandoned child listener — supervise
-				// respawns it from the freshly synced runtime home; a stale holder
-				// (or no fresh listener within the window) fails the unit.
-				const childPort = declaredChildPorts.get(label);
-				if (childPort !== undefined) {
+				// W1073: recycle the declared abandoned child listener post-
+				// bootstrap — supervise respawns it from the freshly synced
+				// runtime home; a stale holder (or no fresh listener within the
+				// window) fails the unit. B1: only a unit that actually
+				// bootstrapped this install recycles (reviewed-retained units
+				// never reloaded, their child stays with the old supervisor).
+				const childPort = recycleOnBootstrap(
+					declaredChildPorts.get(label),
+					reviewed === undefined,
+				);
+				if (childPort !== null) {
 					const recycle = await recycleChildListener(
 						{ port: childPort },
 						processRecycleHooks(),

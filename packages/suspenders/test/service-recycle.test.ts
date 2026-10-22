@@ -11,6 +11,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { recycleOnBootstrap } from "../scripts/install-launchd.ts";
 import { loadManifest } from "../scripts/install-services.ts";
 import {
 	processRecycleHooks,
@@ -57,7 +58,7 @@ describe("recycleChildListener (W1073, scripted hooks)", () => {
 		if (!res.ok) {
 			expect(res.oldPids).toEqual([4100]);
 			expect(res.reason).toContain("port 4000");
-			expect(res.reason).toContain("no fresh listener");
+			expect(res.reason).toContain("no verified fresh listener");
 		}
 		expect(log).toEqual(["SIGTERM:4100", "SIGKILL:4100"]);
 	});
@@ -70,6 +71,62 @@ describe("recycleChildListener (W1073, scripted hooks)", () => {
 		);
 		expect(res).toEqual({ ok: true, pid: 4242, oldPids: [] });
 		expect(log).toEqual([]);
+	});
+
+	test("B3 negative: a fresh pid beside a surviving old holder is refused", async () => {
+		const log: string[] = [];
+		// 222 appears immediately but 111 never leaves — never a recycle
+		const res = await recycleChildListener(
+			{ port: 4000, deadlineMs: 30_000, graceMs: 3_000 },
+			tickingHooks([[111], [111, 222]], log),
+		);
+		expect(res.ok).toBe(false);
+		if (!res.ok) expect(res.oldPids).toEqual([111]);
+	});
+
+	test("B3: ok only after the last old holder leaves the port", async () => {
+		const log: string[] = [];
+		const res = await recycleChildListener(
+			{ port: 4000, deadlineMs: 30_000, graceMs: 3_000 },
+			tickingHooks([[111], [111, 222], [222]], log),
+		);
+		expect(res).toEqual({ ok: true, pid: 222, oldPids: [111] });
+	});
+});
+
+describe("recycle identity proof (W1073 B2, scripted hooks)", () => {
+	test("an unverified holder is never signaled and fails the window", async () => {
+		const log: string[] = [];
+		const hooks = tickingHooks([[555]], log);
+		hooks.identity = (pid) => (pid === 555 ? "sshd" : null);
+		const res = await recycleChildListener(
+			{ port: 4000, deadlineMs: 30_000, graceMs: 3_000 },
+			hooks,
+		);
+		expect(res.ok).toBe(false);
+		if (!res.ok)
+			expect(res.reason).toContain("unverified holders left untouched: 555");
+		expect(log).toEqual([]);
+	});
+
+	test("a holder proving the expected child class is signaled", async () => {
+		const log: string[] = [];
+		const hooks = tickingHooks([[111], [4242]], log);
+		hooks.identity = (pid) => (pid === 111 ? "/opt/homebrew/bin/bun" : "bun");
+		const res = await recycleChildListener(
+			{ port: 4000, deadlineMs: 30_000, graceMs: 3_000 },
+			hooks,
+		);
+		expect(res).toEqual({ ok: true, pid: 4242, oldPids: [111] });
+		expect(log).toEqual(["SIGTERM:111"]);
+	});
+});
+
+describe("recycle binds to an explicit bootstrap (W1073 B1)", () => {
+	test("a declared child recycles only when the unit actually bootstrapped", () => {
+		expect(recycleOnBootstrap(4000, true)).toBe(4000);
+		expect(recycleOnBootstrap(4000, false)).toBe(null);
+		expect(recycleOnBootstrap(undefined, true)).toBe(null);
 	});
 });
 
