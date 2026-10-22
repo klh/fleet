@@ -8,7 +8,8 @@ import {
 import { db } from "./context.ts";
 import { projectRootOf } from "../lib/govdb.ts";
 import { json } from "./helpers.ts";
-import { LANE_TAIL_BYTES, transcriptTail, transcriptTailAll } from "./lanes.ts";
+import { LANE_TAIL_BYTES } from "./lanes.ts";
+import { taskTailSnapshot } from "./task-tail.ts";
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 
 export async function handleDrawer(
@@ -142,14 +143,15 @@ export async function handleDrawer(
 				text,
 			};
 		}
-		const recent = transcriptTailAll(w.owner_sid, 12).reverse();
+		const tail = taskTailSnapshot(db, [{ ...w, id }]);
+		const recent = tail({ ...w, id }, 110, 12).reverse();
 		return json({
 			ok: true,
 			id,
 			project: w.project,
 			sid: w.owner_sid,
 			log,
-			transcript: transcriptTail(w.owner_sid),
+			transcript: recent.at(-1) ?? null,
 			recent,
 		});
 	}

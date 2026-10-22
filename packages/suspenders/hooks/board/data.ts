@@ -48,14 +48,13 @@ import {
 	payloadOf,
 	projOf,
 	signalMaps,
-	subscribeTail,
 	syncDecisions,
 	type TaskSignal,
-	transcriptTail,
 	unblockedBy,
 } from "./lanes.ts";
 import { getObservationRelayStatus } from "./observation-relay.ts";
 import { taskExecutionSnapshot } from "./task-execution.ts";
+import { taskTailSnapshot } from "./task-tail.ts";
 
 export function taskShape(
 	w: WorkItemRow,
@@ -69,6 +68,7 @@ export function taskShape(
 	failureNote: string | null = null,
 	completion?: Map<string, { text: string; ts: string; source: string }>,
 	signal?: TaskSignal | null,
+	taskTail?: ReturnType<typeof taskTailSnapshot>,
 ): Record<string, unknown> {
 	// W517 — .prefer tree identity: the stamped tag wins, live resolve
 	// covers rows added before coverage; color is a tree attribute, always
@@ -115,8 +115,11 @@ export function taskShape(
 		signal: signal ?? null,
 		tail:
 			done ??
-			transcriptTail(w.owner_sid, w.state === "FAILED" ? 320 : 110) ??
-			subscribeTail(w.owner_sid),
+			(taskTail ?? taskTailSnapshot(db, [w]))(
+				w,
+				w.state === "FAILED" ? 320 : 110,
+			)[0] ??
+			null,
 		...laneModelOf(w.owner_sid),
 		unblocked_by:
 			w.state === "READY"
@@ -433,6 +436,7 @@ export function tasks(
 	const completion = completionTailMap();
 	const signals = signalMaps();
 	const execution = taskExecutionSnapshot(db, feed);
+	const tail = taskTailSnapshot(db, feed);
 	const failures = new Map<string, string>();
 	for (const row of db
 		.query(
@@ -459,6 +463,7 @@ export function tasks(
 			failures.get(`${w.project}\u0000${w.id}`) ?? null,
 			completion,
 			signals.get(`${w.project}\u0000${w.id}`) ?? null,
+			tail,
 		),
 		execution: execution({
 			...w,

@@ -821,6 +821,7 @@ export function transcriptTailAll(
 	sid: string | null | undefined,
 	max: number,
 	maxChars = TAIL_MAX,
+	since?: number,
 ): { text: string; ts: string | null }[] {
 	if (!sid) return [];
 	const row = db
@@ -865,6 +866,13 @@ export function transcriptTailAll(
 			continue;
 		}
 		const msg = j?.message;
+		if (
+			since !== undefined &&
+			(!j?.timestamp ||
+				!Number.isFinite(Date.parse(j.timestamp)) ||
+				Date.parse(j.timestamp) < since)
+		)
+			continue;
 		if (msg?.role !== "assistant" || !Array.isArray(msg.content)) continue;
 		for (let k = msg.content.length - 1; k >= 0 && out.length < max; k--) {
 			const b = msg.content[k];
