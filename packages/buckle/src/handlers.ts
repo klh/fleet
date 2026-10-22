@@ -904,6 +904,10 @@ function streamResponse(
 	let streamDrained = false;
 	const offDrain = onDrain(() => {
 		streamDrained = writeDrainTerminal(drainCtl, ctx.dialect, ctx.rid);
+		// A delivered cut tears the tee + upstream now (bounded grace), but
+		// through the abort bus's pipes only — streamCancelled stays false so
+		// the receipt keeps the drained cause, never downstream_cancel.
+		if (streamDrained) downstreamAbort.abort();
 	});
 	let streamFailed = false;
 	let streamFailureKind: string | null = null;
@@ -1085,6 +1089,15 @@ function streamResponse(
 			signal: downstreamAbort.signal,
 		})
 		.then(finish, (err: unknown) => {
+			// W1156: the drain cut itself terminates the transform (Bun has no
+			// TransformStreamDefaultController.close), so this rejection IS the
+			// drain's own signature — the terminal is already queued ahead of
+			// the close. Keep the drained cause; classifying it as an upstream
+			// failure would mislabel the receipt and double-write an error.
+			if (streamDrained) {
+				finish();
+				return;
+			}
 			// W1106: classify BEFORE the receipt lands. The request signal is
 			// the honest cancel evidence (real-Bun probe: pipeTo rejects
 			// LAZILY — on the next failed write, or carrying the upstream's
@@ -1165,11 +1178,15 @@ function once(fn: () => void): () => void {
 	};
 }
 
-/** W1156: enqueue the drain terminal + close, from the captured transform
- *  controller (the pipe keeps its own writer — never fight it with a
- *  second one). Returns whether the terminal was actually handed to the
- *  client stream: a drain racing an already-closed/cancelled stream
- *  delivers nothing and the receipt keeps the real cause. */
+/** W1156: enqueue the drain terminal + terminate the transform — the only
+ *  termination TransformStreamDefaultController actually has in Bun
+ *  (typeof close === "undefined"; probe 2026-10-22). terminate() delivers
+ *  the queued terminal then closes the readable; the writable side errors,
+ *  so the client pipe rejects with the drain's own signature (recognized
+ *  via streamDrained — never mislabeled an upstream failure). Returns
+ *  whether the terminal was actually handed to the client stream: a drain
+ *  racing an already-closed/errored/cancelled stream throws synchronously,
+ *  delivers nothing, and the receipt keeps the real cause. */
 function writeDrainTerminal(
 	ctl: TransformStreamDefaultController<Uint8Array> | null,
 	dialect: Dialect,
@@ -1178,7 +1195,7 @@ function writeDrainTerminal(
 	if (ctl === null) return false;
 	try {
 		ctl.enqueue(enc.encode(drainTerminalFrame(dialect, rid)));
-		ctl.close();
+		ctl.terminate();
 		return true;
 	} catch {
 		return false;

@@ -4,6 +4,7 @@
 // READ_ for GET, WRITE_ for mutations); raw key material appears exactly
 // once — the issue response — and verify answers valid/revoked/expired
 // without echoing hashes.
+import { beginDrain, drainInfo } from "../drain.ts";
 import { allowOf, methodNotAllowed, problem } from "../citizenship.ts";
 import { readBoundedJson } from "../ingress-body.ts";
 import { readBeltTrace } from "../../../telemetry/src/trace-log.ts";
@@ -56,6 +57,36 @@ function scopeFilter(scopes: string[]): {
 	return { scopes: valid, dropped };
 }
 
+/** W1156 POST /v1/admin/drain — the ONE arming surface for a planned
+ *  deployment drain: beginDrain fires every in-flight stream's dialect
+ *  gateway_restarting terminal immediately and arms the bounded force-exit
+ *  backstop. First intent wins: a second signal is refused 409 with the
+ *  ACTIVE drain, never a silent overwrite. */
+async function drainGateway(req: Request, gov: Governance): Promise<Response> {
+	const read = await readBoundedJson(req, gov.ingressBodyTimeoutMs);
+	if (!read.ok) return bad(read.status, read.code, read.why);
+	const body = read.body as Record<string, unknown> | null;
+	const reason = str(body?.reason);
+	if (reason === null) return bad(400, "buckle.bad_body", "missing reason");
+	const grace = Math.min(Math.max(num(body?.grace_ms) ?? 3000, 0), 60_000);
+	const info = beginDrain(reason, grace);
+	if (info === null) {
+		const active = drainInfo();
+		return bad(
+			409,
+			"buckle.already_draining",
+			`drain already active since ${active?.sinceMs} (${active?.reason})`,
+			"/v1/admin/drain",
+		);
+	}
+	return ok({
+		draining: true,
+		reason: info.reason,
+		since_ms: info.sinceMs,
+		deadline_ms: info.deadlineMs,
+	});
+}
+
 async function verifyKey(req: Request, gov: Governance): Promise<Response> {
 	const read = await readBoundedJson(req, gov.ingressBodyTimeoutMs);
 	if (!read.ok) return bad(read.status, read.code, read.why);
@@ -93,6 +124,12 @@ export async function handleAdmin(
 	const revoke = /^\/v1\/admin\/keys\/([0-9a-f]{12})\/revoke$/.exec(path);
 	if (method === "POST" && revoke !== null) {
 		return revokeKey(req, revoke[1] ?? "", p, gov);
+	}
+	// W1156: THE arming surface — explicit deploy intent marks the process
+	// positively draining (a bare SIGTERM is never proof, root #57093). The
+	// gate already demanded buckle:admin:WRITE_ for this POST.
+	if (method === "POST" && path === "/v1/admin/drain") {
+		return drainGateway(req, gov);
 	}
 	// W703: walk the auth_events hash chain; ?head=<hex> pins the tail
 	if (method === "GET" && path === "/v1/admin/audit/verify") {

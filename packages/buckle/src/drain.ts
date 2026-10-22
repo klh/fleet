@@ -17,6 +17,11 @@ export interface DrainInfo {
 
 let state: DrainInfo | null = null;
 const listeners = new Set<(info: DrainInfo) => void>();
+/** The bounded-grace backstop: at deadline the process force-exits so a
+ *  drain can never outlive its grace (the deployer recreates the container
+ *  anyway; the deadline is the truth of the contract). Unref'd — it holds
+ *  nothing open, it only bounds. */
+let exitBackstop: ReturnType<typeof setTimeout> | null = null;
 
 /** Mark the process positively draining and notify every in-flight stream
  *  listener once. Idempotent: the first reason wins, a second signal is a
@@ -25,6 +30,14 @@ export function beginDrain(reason: string, graceMs: number): DrainInfo | null {
 	if (state !== null) return null;
 	const now = Date.now();
 	state = { reason, sinceMs: now, deadlineMs: now + graceMs };
+	exitBackstop = setTimeout(
+		() => {
+			exitBackstop = null;
+			process.exit(0);
+		},
+		Math.max(0, graceMs),
+	);
+	exitBackstop.unref?.();
 	for (const fn of listeners) {
 		try {
 			fn(state);
@@ -79,8 +92,12 @@ export function drainTerminalFrame(dialect: Dialect, rid: string): string {
 		: `data: ${JSON.stringify(envelope)}\n\n`;
 }
 
-/** Test seam: the drain is process-global module state. */
+/** Test seam: the drain is process-global module state. Clears the armed
+ *  force-exit backstop with the state — a leaked timer would kill the test
+ *  run at its deadline. */
 export function resetDrainForTest(): void {
+	if (exitBackstop !== null) clearTimeout(exitBackstop);
+	exitBackstop = null;
 	state = null;
 	listeners.clear();
 }
