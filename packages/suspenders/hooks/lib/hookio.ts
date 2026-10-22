@@ -21,6 +21,8 @@ export type HookInput = {
 		notebook_path?: string;
 		old_string?: string;
 		new_string?: string;
+		skill?: string; // Skill tool (W1144 invocation log)
+		args?: string;
 	};
 	cwd?: string;
 	stop_hook_active?: boolean;
