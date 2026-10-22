@@ -26,6 +26,8 @@ export interface RemoteTraceAttempt {
 	duration_ms: number | null;
 	retry_after_ms: number | null;
 	call_id: string | null;
+	provider_pool: string | null;
+	queue_wait_ms: number | null;
 }
 
 export interface RemoteTraceResult {
@@ -210,6 +212,8 @@ async function readPeer(
 				duration_ms: safeInt(row.duration_ms, 3_600_000),
 				retry_after_ms: safeInt(row.retry_after_ms, 3_600_000),
 				call_id: label(row.call_id),
+				provider_pool: label(row.provider_pool),
+				queue_wait_ms: safeInt(row.queue_wait_ms, 3_600_000),
 			});
 		}
 		return { hub_id: peer.hubId, status: "ok", attempts };

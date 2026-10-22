@@ -252,6 +252,8 @@ CREATE TABLE IF NOT EXISTS route_attempt (
   call_id TEXT,
 	upstream_refusal_code TEXT,
 	refusal_origin TEXT,
+	provider_pool TEXT,
+	queue_wait_ms INTEGER,
   PRIMARY KEY (rid, ordinal)
 );
 CREATE INDEX IF NOT EXISTS route_attempt_trace ON route_attempt(trace_id, ts);
@@ -433,6 +435,10 @@ export class Ledger {
 			);
 		if (!attemptCols.includes("refusal_origin"))
 			this.db.run("ALTER TABLE route_attempt ADD COLUMN refusal_origin TEXT");
+		if (!attemptCols.includes("provider_pool"))
+			this.db.run("ALTER TABLE route_attempt ADD COLUMN provider_pool TEXT");
+		if (!attemptCols.includes("queue_wait_ms"))
+			this.db.run("ALTER TABLE route_attempt ADD COLUMN queue_wait_ms INTEGER");
 		this.upsert = this.db.query(UPSERT);
 		this.insAudit = this.db.query(INSERT_AUDIT);
 		this.updAudit = this.db.query(UPDATE_AUDIT);
@@ -440,8 +446,8 @@ export class Ledger {
 		this.insAttempt = this.db.query(`INSERT OR REPLACE INTO route_attempt
 			(rid, ordinal, trace_id, ts, service, hop, candidate, status,
 			refusal, duration_ms, retry_after_ms, upstream_id, call_id,
-			upstream_refusal_code, refusal_origin)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+			upstream_refusal_code, refusal_origin, provider_pool, queue_wait_ms)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 		this.insSettle = this.db.query(`INSERT OR REPLACE INTO stream_settle
 			(rid, trace_id, ts, first_byte_ms, last_byte_ms, closer, failure_kind)
 			VALUES (?, ?, ?, ?, ?, ?, ?)`);
@@ -741,6 +747,10 @@ export class Ledger {
 				row.refusalOrigin === "network"
 				? row.refusalOrigin
 				: null,
+			safeCorrelationId(row.providerPool) ?? null,
+			Number.isSafeInteger(row.queueWaitMs) && (row.queueWaitMs ?? -1) >= 0
+				? row.queueWaitMs
+				: null,
 		);
 	}
 
@@ -771,7 +781,7 @@ export class Ledger {
 		return this.db
 			.query(`SELECT rid, ordinal, trace_id, ts, service, hop,
 			candidate, status, refusal, duration_ms, retry_after_ms, upstream_id,
-			call_id, upstream_refusal_code, refusal_origin FROM route_attempt WHERE trace_id = ?
+			call_id, upstream_refusal_code, refusal_origin, provider_pool, queue_wait_ms FROM route_attempt WHERE trace_id = ?
 			ORDER BY ts, rid, ordinal LIMIT 500`)
 			.all(traceId) as Array<Record<string, unknown>>;
 	}

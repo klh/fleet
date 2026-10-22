@@ -5,6 +5,10 @@
 // denial audits a route_audit row (denied audits too, W136 doctrine) and
 // rejected authentications land in auth_events. PUBLIC routes: /health,
 // /status, /metrics (service telemetry, not LLM ingress).
+import {
+	providerAdmissionMetrics,
+	type ProviderAdmissionSnapshots,
+} from "../provider-admission-metrics.ts";
 import { Database } from "bun:sqlite";
 import { timingSafeEqual } from "node:crypto";
 import {
@@ -56,6 +60,7 @@ export interface GovernanceOpts {
 	adaptation?: AdaptationConfig;
 	/** Machine-owned LiteLLM metrics URL and 0600 key path. */
 	metrics?: MetricsConnectorOpts;
+	providerAdmission?: () => ProviderAdmissionSnapshots;
 	/** W1118: the shared request-body deadline — the gate's bounded JSON
 	 *  reads (admin/federation) honor the same knob the proxy path uses. */
 	ingressBodyTimeoutMs?: number;
@@ -91,6 +96,7 @@ export class Governance {
 	readonly db: Database;
 	private readonly sm: Servicemon;
 	private readonly metricsConnector: MetricsConnector;
+	private readonly providerAdmission: () => ProviderAdmissionSnapshots;
 	/** W824: public — the /v1/admin/requests read rides the ledger's own
 	 *  connection (read barrier + capped per-request SELECT). */
 	readonly ledger: Ledger;
@@ -106,6 +112,7 @@ export class Governance {
 
 	constructor(deps: GovernanceDeps, opts: GovernanceOpts) {
 		this.sm = deps.sm;
+		this.providerAdmission = opts.providerAdmission ?? (() => ({}));
 		this.metricsConnector = new MetricsConnector({
 			url: opts.metrics?.url ?? process.env.BUCKLE_LITELLM_METRICS_URL,
 			keyFile:
@@ -127,7 +134,8 @@ export class Governance {
 		this.keys = new KeyStore(this.db);
 		this.budgets = new Budgets(this.db);
 		this.slots = new Slots(this.db, opts.slots ?? slotsFromEnv());
-		this.ingressBodyTimeoutMs = opts.ingressBodyTimeoutMs ?? INGRESS_BODY_TIMEOUT_MS;
+		this.ingressBodyTimeoutMs =
+			opts.ingressBodyTimeoutMs ?? INGRESS_BODY_TIMEOUT_MS;
 		this.jwtValidator = opts.jwt ? createJwtValidator(opts.jwt) : null;
 		this.rootHash = opts.rootKey ? hashKey(opts.rootKey) : null;
 		this.federation = opts.federation ?? null;
@@ -140,7 +148,13 @@ export class Governance {
 
 	/** Admin-only joined scrape. Public /metrics remains Buckle-only. */
 	metrics(): Promise<Response> {
-		return this.metricsConnector.expose(this.sm.expose());
+		return this.metricsConnector.expose(
+			this.sm.expose() + providerAdmissionMetrics(this.providerPools()),
+		);
+	}
+
+	providerPools(): ProviderAdmissionSnapshots {
+		return this.providerAdmission();
 	}
 
 	/** Denial audit: route_audit row (denied audits too — W136) + counter. */
