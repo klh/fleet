@@ -45,7 +45,9 @@ for (const r of results)
 	);
 const ok = results.filter((r) => r.status === 200).length;
 const refused = results.filter((r) => r.status === 429).length;
-const other = results.filter((r) => r.status !== 200 && r.status !== 429).length;
+const other = results.filter(
+	(r) => r.status !== 200 && r.status !== 429,
+).length;
 console.log(
 	`SUMMARY ${ok}x200 ${refused}x429 ${other}xother of ${n} in ${Math.round(performance.now() - t0)}ms`,
 );
