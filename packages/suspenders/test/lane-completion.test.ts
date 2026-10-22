@@ -676,3 +676,28 @@ test("concurrent duplicate native Stop hooks atomically spend exactly one attemp
 	expect(results[1]?.error).toBe(results[0]?.error);
 	expect(JSON.parse(readFileSync(marker, "utf8")).tries).toBe(1);
 });
+
+test("same-turn replay is bounded: past the no-new-assistant deadline the stop allows, typed and terminal", () => {
+	const f = fixture();
+	const first = f.stop();
+	const marker = join(f.cwd, ".fleet/completion-attempt.json");
+	expect(JSON.parse(readFileSync(marker, "utf8")).tries).toBe(1);
+	// inside the deadline: idempotent replay
+	expect(f.stopSame().err).toBe(first.err);
+	// advance the clock past the light class's 5-minute no-new-assistant
+	// deadline with the SAME turn id
+	const state = JSON.parse(readFileSync(marker, "utf8"));
+	state.ts = Date.now() - 6 * 60_000;
+	writeFileSync(marker, JSON.stringify(state));
+	const late = f.stopSame();
+	// terminal typed allow-exit: never a re-ask, never DONE/FAILED, no spend
+	expect(late.code).toBe(0);
+	expect(late.err).not.toContain("Re-ask");
+	const typed = JSON.parse(readFileSync(marker, "utf8"));
+	expect(typed.outcome).toBe("TRANSPORT_BLOCKED");
+	expect(typed.diagnostic).toBe("turn_deadline_exceeded");
+	expect(typed.tries).toBe(1);
+	// terminal: further duplicates stay allowed and silent, no new spend
+	expect(f.stopSame().code).toBe(0);
+	expect(JSON.parse(readFileSync(marker, "utf8")).tries).toBe(1);
+});
