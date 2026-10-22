@@ -9,6 +9,7 @@
 // `applied`.
 import { describe, expect, test } from "bun:test";
 import { startServer } from "../../buckle/src/server.ts";
+import { createReferenceGovSeam } from "../../buckle/src/gov/reference-seam.ts";
 import {
 	declareWorkCr,
 	ensureDelegatedItem,
@@ -46,7 +47,10 @@ async function startFed(): Promise<{ base: string; stop: () => void }> {
 		policyPath: `${dir}.policy.yaml`,
 		upstreamsPath: `${dir}.upstreams.yaml`,
 		dbPath: ":memory:",
-		auth: { rootKey: ROOT },
+		// W1114: the CR lifecycle needs the hub-side provider — wired via the
+		// reference gov seam (the overlay's factories, same contract), never
+		// a route alias; provider-less solo posture still answers 501s.
+		auth: { rootKey: ROOT, ...createReferenceGovSeam() },
 	});
 	return {
 		base: `http://127.0.0.1:${srv.port}`,
