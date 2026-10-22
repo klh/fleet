@@ -65,6 +65,15 @@ function fact(db: Database, key: string, value: string) {
 	).run(key, value, Date.now());
 }
 
+// W1147: row count for one event kind against the fixture DB — the
+// malformed-order guard must leave the events table untouched.
+function eventsOf(kind: string): unknown[] {
+	const db = new Database(DB, { readonly: true });
+	const rows = db.query("SELECT id FROM events WHERE kind = ?").all(kind);
+	db.close();
+	return rows as unknown[];
+}
+
 function seedSessions() {
 	const db = new Database(DB);
 	db.query("DELETE FROM events").run();
@@ -322,5 +331,60 @@ describe("coord message", () => {
 		).map((row) => row.target);
 		db.close();
 		expect(targets).toEqual(["lane-claude-11111111", "lane-copilot-22222222"]);
+	});
+
+	// W1147: the malformed `message <target> --as <sid> "text"` order reads
+	// "--as" as the text slot and publishes it as the note body — reject the
+	// option token BEFORE resolving a target or emitting any event.
+	test("malformed flag-first text slot is rejected without emitting", () => {
+		seedSessions();
+		const r = run([
+			"message",
+			"lane-copilot-22222222",
+			"--as",
+			"caller-99999999",
+			"steer with the documented order",
+		]);
+		expect(r.code).toBe(2);
+		expect(r.err).toContain("option token");
+		expect(r.err).toContain(JSON.stringify("--as"));
+		expect(r.err).toContain("flags ride AFTER the text");
+		expect(eventsOf(DIRECT_KIND)).toHaveLength(0);
+	});
+
+	test("--note in the text slot is rejected the same way", () => {
+		seedSessions();
+		const r = run(["message", "lane-claude-11111111", "--note", "real body"]);
+		expect(r.code).toBe(2);
+		expect(r.err).toContain("option token");
+		expect(eventsOf(DIRECT_KIND)).toHaveLength(0);
+	});
+
+	test("--all broadcast rejects a flag in the text slot", () => {
+		seedSessions();
+		const r = run(["message", "--all", "--as", "caller-x", "fleet text"]);
+		expect(r.code).toBe(2);
+		expect(r.err).toContain("option token");
+		const db = new Database(DB, { readonly: true });
+		const rows = db
+			.query("SELECT id FROM events WHERE kind = 'BROADCAST'")
+			.all();
+		db.close();
+		expect(rows).toHaveLength(0);
+	});
+
+	test("documented order preserves the exact unicode multiline body", () => {
+		seedSessions();
+		const body = "steer now:\n• line two ✓ — 测试\n\ttabbed";
+		const r = run(["message", "ikea-opus", body, "--as", "caller-99999999"]);
+		expect(r.code).toBe(0);
+		const db = new Database(DB, { readonly: true });
+		const row = db
+			.query(
+				"SELECT payload FROM events WHERE kind = ? ORDER BY id DESC LIMIT 1",
+			)
+			.get(DIRECT_KIND) as { payload: string };
+		db.close();
+		expect((JSON.parse(row.payload) as { note: string }).note).toBe(body);
 	});
 });
