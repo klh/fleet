@@ -98,6 +98,8 @@ test("resume labels old notices as history and states current Fleet coordination
 	const output = start("resume");
 	expect(output).toContain("CURRENT COORDINATION:");
 	expect(output).toContain("coord consult");
+	expect(output).toContain("HEAD is a Git commit, not a session address");
+	expect(output).toContain("Never substitute BROADCAST");
 	expect(output).toContain("coord message");
 	expect(output).toContain("coord --help");
 	expect(output).toContain("work --help and work <verb> --help");
