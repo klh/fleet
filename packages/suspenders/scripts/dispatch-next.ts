@@ -116,9 +116,10 @@ import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
 import { dispatchStarterFork, starterStartLine } from "./lib/lane-starter.ts";
 import {
 	activeRateLimitWalls,
+	launchFailBackoff,
+	launchLogSize,
 	parkExhaustedLaunch,
 	readLaunchBackoff,
-	scheduleLaunchBackoff,
 } from "./lib/launch-backoff.ts";
 import { launchCleanup } from "./lib/launch-cleanup.ts";
 import {
@@ -413,13 +414,7 @@ const dispatchItem = async (
 	if (resume && !DRY && hold?.attempt !== resume.attempt) {
 		const store = openStore();
 		try {
-			hold = scheduleLaunchBackoff(
-				store,
-				project,
-				item,
-				laneLog,
-				resume.attempt,
-			);
+			hold = rearmLaunchHold(store, project, item, laneLog, resume.attempt);
 		} finally {
 			store.close();
 		}
@@ -555,6 +550,7 @@ const dispatchItem = async (
 	let claimRevision: number | undefined;
 	let committedLaunch = false;
 	let launchedProc: ReturnType<typeof spawnClaude> | undefined;
+	let logAtSpawn = 0;
 	let ownedKeyId: string | undefined;
 	/** W615: set when the lane key was minted AT a hub — launch-cleanup
 	 *  revokes there with the hub credential, not against the local front. */
@@ -1104,6 +1100,7 @@ const dispatchItem = async (
 			throw new Error("claim changed before executor spawn");
 		if (!renewLaunchLease(store, project, sid, nonce))
 			throw new Error("launch lease replaced before spawn");
+		logAtSpawn = launchLogSize(laneLog);
 		const proc = spawnClaude({
 			bin: fencedExecutor(FLEET, intent),
 			prompt: lanePrompt,
@@ -1174,7 +1171,7 @@ const dispatchItem = async (
 		governanceRefusals.push(item);
 		const backoff =
 			launchedProc?.exitCode !== null && launchedProc !== undefined
-				? scheduleLaunchBackoff(store, project, item, laneLog, attempt)
+				? launchFailBackoff(store, project, item, laneLog, attempt, logAtSpawn)
 				: null;
 		console.log(
 			`REFUSED ${item} — launch failed: ${String(error)}${backoff ? `; ${backoff.kind} retry after ${new Date(backoff.eligibleAt).toISOString()}` : ""}`,
