@@ -29,9 +29,12 @@ export const plaidLaunchPreflight = async (o: {
 	fleetDir: string;
 	/** injected model-health map (tests); default null = run probe */
 	modelHealth?: Map<string, string | null> | null;
+	/** injected host-pressure hold (tests); default = the live gate */
+	hostHold?: string | null;
 }): Promise<PlaidLaunchPreflight> => {
 	// 1. host pressure BEFORE any claim/take — fail-closed, no numeric cap
-	const hold = plaidLaunchHold(o.fleetDir);
+	const hold =
+		o.hostHold !== undefined ? o.hostHold : plaidLaunchHold(o.fleetDir);
 	if (hold) return { skip: hold, pick: {}, routeName: null, note: null };
 	// 2. pool plan + route pick (the W911 override). modelHealth semantics
 	//    pass through untouched: null = probe RAN, catalog unavailable →

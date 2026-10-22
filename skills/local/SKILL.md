@@ -1,6 +1,6 @@
 ---
 name: local
-description: Local-only LLM mode — swarm only, zero cloud, no silent escalation
+description: Use when the operator asks for local-only LLM mode — swarm only, zero cloud, no silent escalation, for this session and the router config. Not for restoring cloud afterwards (that is the cloud skill).
 ---
 
 Activate local-only mode. Do each step, in order:
@@ -19,3 +19,9 @@ Activate local-only mode. Do each step, in order:
      will not escalate; do not bypass it by calling cloud endpoints directly.
    - If a task genuinely exceeds local model capability, STOP and tell me —
      do not escalate on your own.
+
+## Gotchas
+
+- Direct :890x tiers 404 model ALIASES — the wire id is the live `/v1/models` id, not the friendly name.
+- Unprivileged binds of ports <1024 on 127.0.0.1/::1 fail EACCES on macOS — probe ports above the privileged range.
+- An empty-string env override counts as set (`ORACLE_ROUTE_MODEL=""` once 400'd the whole :8903 pool to k=1) — trim-guard operator knobs before trusting a fallback.

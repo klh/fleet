@@ -15,7 +15,14 @@ import { join } from "node:path";
 import type { CoordDirectEvent } from "./codex-steer.ts";
 import { readSessionState, writeSessionState } from "./session-state.ts";
 
-const DIRECT_KINDS = new Set(["NOTE", "consult", "consult.answer"]);
+const DIRECT_KINDS = new Set([
+	"NOTE",
+	"consult",
+	"consult.answer",
+	"pause_requested",
+	"resume_ready",
+]);
+const CONTROL_KINDS = new Set(["pause_requested", "resume_ready"]);
 const MAX_TEXT = 16_384;
 const WAIT_MS = 86_400_000;
 type Consumer = "native" | "boundary" | "managed";
@@ -42,11 +49,26 @@ export function signalClaudeDirectEvent(
 		return false;
 	try {
 		const files = paths(sid, home);
-		const prev = readSessionState<{ id?: number }>(files.pending)?.id ?? 0;
+		const pending = readSessionState<{ id?: number; kind?: string }>(
+			files.pending,
+		);
+		const prev = pending?.id ?? 0;
 		if (event.id <= prev) return false;
+		// A generic notification cannot overwrite an unconsumed pause/resume.
+		// Its durable inbox row remains queued and the control prompt reads it.
+		const proved =
+			readSessionState<{ id?: number }>(files.emitted("managed"))?.id ?? 0;
+		if (
+			pending?.kind &&
+			CONTROL_KINDS.has(pending.kind) &&
+			prev > proved &&
+			!CONTROL_KINDS.has(event.kind)
+		)
+			return false;
 		mkdirSync(files.dir, { recursive: true, mode: 0o700 });
 		return writeSessionState(files.pending, {
 			id: event.id,
+			kind: event.kind,
 			sid,
 			text: `Fleet direct event #${event.id} (${event.kind}) from ${event.source}:\n${(event.payload ?? "null").slice(0, MAX_TEXT)}\nProcess this coordination now. Read all queued events with coord inbox --as ${sid}; acknowledge each only after acting.`,
 		});

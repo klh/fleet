@@ -6,7 +6,9 @@
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>10</integer>
-  <key>EnvironmentVariables</key><dict><key>HOME</key><string>__HOME__</string></dict>
+  <key>EnvironmentVariables</key><dict>
+		<key>PATH</key>
+		<string>/usr/bin:/bin:/usr/sbin:/sbin</string><key>HOME</key><string>__HOME__</string></dict>
   <key>StandardOutPath</key><string>__HOME__/.local/state/klh-local/dns.log</string>
   <key>StandardErrorPath</key><string>__HOME__/.local/state/klh-local/dns.log</string>
 </dict></plist>

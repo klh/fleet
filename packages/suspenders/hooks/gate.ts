@@ -25,6 +25,7 @@ import { pushGate } from "./gates/push.ts";
 import { preCompactGate } from "./gates/precompact.ts";
 import { preFilesChain } from "./gates/chain.ts";
 import { runawayGate } from "./gates/runaway.ts";
+import { skillLogGate } from "./gates/skill-log.ts";
 
 const hook = await readHook();
 const event = process.argv[2] ?? "";
@@ -36,6 +37,9 @@ switch (event) {
 	// biome-ignore lint/suspicious/noFallthroughSwitchClause: runawayGate is `: never` — the call ends the case
 	case "runaway":
 		runawayGate(hook); // W830: transcript-backed repeat/fail-streak/dollar breaker (lanes)
+	// biome-ignore lint/suspicious/noFallthroughSwitchClause: skillLogGate is `: never` — the call ends the case
+	case "pre-skill":
+		skillLogGate(hook); // W1144: Skill-invocation instrumentation (NDJSON append, always allows)
 	// biome-ignore lint/suspicious/noFallthroughSwitchClause: preFilesChain is `: never` — the call ends the case
 	case "pre-files":
 		preFilesChain(hook); // W14 chain — one process, allow() closes

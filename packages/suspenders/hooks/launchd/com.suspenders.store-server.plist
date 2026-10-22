@@ -16,6 +16,8 @@
        GOVERNOR_STORE_URL pointing at this host (env→config chain legs:
        env→store.url now, .local/mDNS later). -->
   <key>EnvironmentVariables</key><dict>
+		<key>PATH</key>
+		<string>/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>GOVERNOR_STORE_PORT</key><string>7794</string>
   </dict>
   <key>StandardOutPath</key><string>/tmp/suspenders-store-server.log</string>

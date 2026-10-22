@@ -1,6 +1,6 @@
 // test/plaid.test.ts — the uncapped plaid posture. Covers posture parse,
-// provider fairness, quota walling, route-table honesty (ikea-* ⇒ copilot),
-// route assignment and status.
+// provider fairness, quota walling, route-table honesty (ikea-* ⇒ copilot,
+// local-* ⇒ local), route assignment and status.
 
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
@@ -283,6 +283,75 @@ test("explicit route pin keeps GLM under plaid and removes model fallbacks", () 
 			routePin: "missing",
 		}).skip,
 	).toContain("missing");
+});
+
+const LOCAL_CODER: PlaidRoute = {
+	name: "local-coder",
+	label: "Belt local coder",
+	executor: "claude",
+	model: "local-coder",
+	provider: "local",
+};
+
+test("local pool: a config-declared local-coder is its own truthful pool", () => {
+	const routes = [LOCAL_CODER, ...PLAID_ROUTES];
+	setPlaidRouteSource(() => routes);
+	// the local route joins the plan: emptiest-first, fixture table order
+	const plan = plaidPlan(routes, healthy2(routes), new Map());
+	expect(plan).toEqual({
+		open: true,
+		provider: "local",
+		phase: "baseline",
+		reason: null,
+	});
+	const assign = plaidAssign(routes, healthy2(routes), new Map(), "local", 0);
+	expect(assign.route.name).toBe("local-coder");
+});
+
+test("local pool: no fake attribution — local lanes never count as copilot/zai", () => {
+	const db = store();
+	setPlaidRouteSource(() => [LOCAL_CODER]);
+	recordLaneRoute(db, "s1", "local-coder");
+	const st = plaidStatus(db, ["s1"]);
+	expect(st.live.local).toBe(1);
+	expect(st.live.copilot).toBe(0);
+	expect(st.live.zai).toBe(0);
+	expect(st.baselineOpen.local).toBe(5);
+	// no quota fact exists for local — the copilot/zai walls never apply
+	const health = plaidHealth(
+		new Map([
+			["copilot", "credit headroom low"],
+			["zai", "cooldown"],
+		]),
+	);
+	expect(health.get("local-coder")).toBeNull();
+});
+
+test("pinned local-coder: MUST ride, fail closed on an unserved/unavailable model", () => {
+	const routes = [LOCAL_CODER];
+	setPlaidRouteSource(() => routes);
+	const pin = (modelHealth: Map<string, string | null> | null | undefined) =>
+		plaidDispatch({
+			store: store(),
+			sids: [],
+			quota: new Map(),
+			ordinal: 0,
+			hub: null,
+			routePin: "local-coder",
+			modelHealth,
+		});
+	// served model → rides; a pin is a MUST: no same-bin fallback tail
+	const ok = pin(plaidModelHealth(routes, ["local-coder"]));
+	expect(ok.skip).toBeNull();
+	expect(ok.pick.model).toBe("local-coder");
+	expect(ok.pick.fallbackModels).toEqual([]);
+	// reachable front, model unserved → walls the pin (honest evidence)
+	expect(pin(plaidModelHealth(routes, [])).skip).toContain("not served");
+	// catalog UNAVAILABLE → the loud fail-closed hold
+	expect(pin(null).skip).toContain("catalog unavailable");
+	// no probe ran (dry-run / --no-belt): the explicit pin stands, live
+	// health checks at launch (W1102.1 override semantics preserved)
+	expect(pin(undefined).skip).toBeNull();
 });
 
 test("route-table override: machine config flows through health", () => {

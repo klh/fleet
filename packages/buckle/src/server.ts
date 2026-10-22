@@ -330,6 +330,7 @@ export function startServer(
 			ingressBodyTimeoutMs: opts.ingressBodyTimeoutMs,
 			adaptation: opts.auth?.adaptation,
 			metrics: opts.auth?.metrics,
+			providerAdmission: () => deps.router.providerAdmissionSnapshot(),
 		},
 	);
 	const gated = authOn ? gov.gate(app.fetch) : app.fetch;
