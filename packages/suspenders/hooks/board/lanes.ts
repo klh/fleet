@@ -14,6 +14,7 @@ import { hostname } from "node:os";
 // (the isDecisionKind accept-set note below mirrors govdb.ts — not imported
 // on purpose: lanes.ts never calls it, the two lists just change together)
 import { tagNameOf } from "../lib/govdb.ts";
+import { laneStopNotice, laneStopTarget } from "../lib/lane-stop-decision.ts";
 import { gitObservation, type LaneGitObservation } from "../lib/lane-git.ts";
 import {
 	type LaneRef,
@@ -173,8 +174,51 @@ export function enrich(
 // sync: backfill new NEED% forks, then apply the best-effort transitions —
 // delivery degradation, work supersede/cancel → CANCELLED, lane activity
 // after an answer → ACKNOWLEDGED. Idempotent + monotonic; safe on every poll.
+// Recover only the latest typed stop for a still-owned, unfinished item. Generic
+// untargeted broadcasts and historical/retaken activations remain untouched.
+function backfillLaneStopDecisions(): void {
+	const seen = new Set<string>();
+	const events = db
+		.query(`SELECT e.id,e.ts,e.source,e.payload FROM events e
+ WHERE e.kind='NEED_DECISION' AND e.target IS NULL AND json_valid(e.payload)
+ AND EXISTS (SELECT 1 FROM work_items w
+ WHERE w.project=json_extract(e.payload,'$.project')
+ AND w.id=json_extract(e.payload,'$.item') AND w.owner_sid=e.source
+ AND w.state IN ('CLAIMED','RUNNING','BLOCKED'))
+ AND NOT EXISTS (SELECT 1 FROM events claim
+ WHERE claim.kind='work.claimed' AND claim.id > e.id
+ AND claim.project=json_extract(e.payload,'$.project')
+ AND claim.work=json_extract(e.payload,'$.item')) ORDER BY e.id DESC`)
+		.all() as {
+		id: number;
+		ts: number;
+		source: string;
+		payload: string | null;
+	}[];
+	for (const event of events) {
+		const notice = laneStopNotice(event.payload, event.source);
+		if (!notice) continue;
+		const key = JSON.stringify([notice.project, notice.item]);
+		if (seen.has(key)) continue;
+		seen.add(key);
+		db.query(`INSERT OR IGNORE INTO decisions
+  (event_id,target,asked_by,project,task_id,question,state,delivery,created_at,answer_token)
+  VALUES (?,?,?,?,?,?,'OPEN','FAILED',?,?)`).run(
+			event.id,
+			laneStopTarget(db, notice.project, event.source),
+			event.source,
+			notice.project,
+			notice.item,
+			notice.note,
+			event.ts,
+			crypto.randomUUID(),
+		);
+	}
+}
+
 export function syncDecisions(): void {
 	const now = Date.now();
+	backfillLaneStopDecisions();
 	// old DISMISSED rows keep their meaning under the v2 name (board dismiss = CANCELLED)
 	db.run("UPDATE decisions SET state = 'CANCELLED' WHERE state = 'DISMISSED'");
 	for (const r of db
@@ -241,7 +285,7 @@ export function syncDecisions(): void {
 	for (const d of db
 		.query(
 			`SELECT d.event_id AS id FROM decisions d WHERE d.state = 'OPEN' AND d.task_id IS NOT NULL AND EXISTS (SELECT 1 FROM events e
-			WHERE e.kind IN ('work.superseded','work.cancelled','work.supersede','work.cancel') AND e.work = d.task_id)`,
+			WHERE e.kind IN ('work.superseded','work.cancelled','work.supersede','work.cancel') AND e.work = d.task_id AND e.project = d.project)`,
 		)
 		.all() as { id: number }[])
 		db.query(
@@ -252,7 +296,7 @@ export function syncDecisions(): void {
 	for (const d of db
 		.query(
 			`SELECT d.event_id AS id FROM decisions d WHERE d.state = 'OPEN' AND d.task_id IS NOT NULL AND EXISTS (SELECT 1 FROM work_items w
-			WHERE w.id = d.task_id AND w.state = 'DONE')`,
+			WHERE w.id = d.task_id AND w.project = d.project AND w.state = 'DONE')`,
 		)
 		.all() as { id: number }[])
 		db.query(

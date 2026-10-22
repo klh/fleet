@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { run } from "./run.ts";
 import { openGovernorDb } from "./govdb.ts";
 import { emitEvent } from "../coord/bus.ts";
+import { laneStopDecision, laneStopTarget } from "./lane-stop-decision.ts";
 import { projectIdentity } from "./govdb-project.ts";
 import { itemCapsuleKey } from "./capsule-fence.ts";
 import type { HookInput } from "./hookio.ts";
@@ -143,13 +144,8 @@ function publishTurnNotice(
 	note: string,
 ): boolean {
 	try {
-		const id = emitEvent({
-			kind: "NEED_DECISION",
-			scope: "suspenders",
-			source: sid,
-			note,
-			extra: { project, item },
-		});
+		const target = laneStopTarget(openGovernorDb(), project, sid);
+		const id = emitEvent(laneStopDecision(project, item, sid, note, target));
 		return typeof id === "number" && id > 0;
 	} catch {
 		return false;

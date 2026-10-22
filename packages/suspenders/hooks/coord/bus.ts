@@ -18,6 +18,7 @@ import { steerCodexDirectEvent } from "../lib/codex-steer.ts";
 import { type LaneRef, laneVerdict } from "../lib/lane-liveness.ts";
 import { loadLaneRegistry } from "../lib/lane-registry.ts";
 import { advanceCursor, fetchEventsPaged } from "./event-scan.ts";
+import { emitStoredEvent, type EventPublication } from "./event-publish.ts";
 import {
 	amber,
 	arg,
@@ -81,33 +82,8 @@ export function subscriberSessionAlive(sid: string, now = Date.now()): boolean {
 	return row.hb > now - LIVE_HEARTBEAT_WINDOW_MS;
 }
 
-export function emitEvent(opts: {
-	kind: string;
-	scope?: string | null;
-	sha?: string | null;
-	note?: string | null;
-	source: string;
-	to?: string | null;
-	extra?: Record<string, string>;
-}): number {
-	const payload = JSON.stringify({
-		project: projectIdentity(),
-		...(opts.sha ? { sha: opts.sha } : {}),
-		...(opts.note ? { note: opts.note } : {}),
-		...(opts.extra ?? {}),
-	});
-	db.query(
-		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, ?, ?, ?, ?)",
-	).run(
-		Date.now(),
-		opts.source,
-		opts.kind,
-		opts.scope ?? null,
-		payload,
-		opts.to ?? null,
-	);
-	return (db.query("SELECT last_insert_rowid() AS id").get() as { id: number })
-		.id;
+export function emitEvent(opts: EventPublication): number {
+	return emitStoredEvent(db, projectIdentity(), opts);
 }
 
 /** A directed event remains actionable even after WS/poll cursors advance. */
