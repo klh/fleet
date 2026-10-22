@@ -156,3 +156,11 @@ decision-grade: it has to change what you would do. When a verdict flips
 - **Composite FK-less rekey without `PRAGMA defer_foreign_keys`** — W428:
   rekeying work-graph identity hits composite FKs 500 without it;
   children-first in one transaction.
+- **Adopting a 2026 agent-management tool as fleet's operator surface**
+  (W1133 survey, 10 tools: Vibe Kanban, Conductor, Claude Squad, Nimbalyst,
+  Superset, Paneflow, Sculptor, Xum/Mux, Opcode, tmux-DIY) — rejected for
+  adoption on mechanism: any wrapper forks the one work-graph ledger, and
+  Vibe Kanban/Opcode are sunsetting or unmaintained. Standing rule: extend
+  the plane instead — four buildable gaps in the W1133 benchmarks.md row
+  (diff-inline feedback, remote-hub lanes, container-per-lane enterprise
+  tier, session replay).
