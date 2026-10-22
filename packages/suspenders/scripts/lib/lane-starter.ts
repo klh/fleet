@@ -28,6 +28,7 @@ import { dirname, join } from "node:path";
 // W422: fork support per harness is adapter data (exact lookup — an unknown
 // harness cold-starts, it never inherits claude's fork grammar).
 import { adapterForExact } from "../../hooks/lib/executors/registry.ts";
+import { assertStablePrefix } from "./lane-layout.ts";
 import { listStarters } from "../../hooks/lib/starter-artifacts.ts";
 import { readStarterAuthorized } from "../../hooks/lib/starter-distribution.ts";
 import {
@@ -293,7 +294,10 @@ export const ensureStarter = (
 	const seedArgsOf = adapterForExact(harness)?.starterSeedArgs;
 	if (!seedArgsOf) return null;
 	const seed = starterSeedPrompt(fleet, options.model);
+	// W1139.2 layout law: the seed IS the shared cached prefix — churn hazards
+	// (timestamps, per-lane paths/sids) refuse at seed time, before versioning.
 	assertNoSecrets(seed);
+	assertStablePrefix(seed);
 	const version = starterVersion(seed);
 	const cached = readStarter(fleet, harness, version);
 	if (cached) {
