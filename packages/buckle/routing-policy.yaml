@@ -24,6 +24,12 @@ gateway:
   # start interval. It also bounds congestion episodes in observed feedback
   # RTT samples. No idle decay; provider Retry-After always remains binding.
   # These feedback controls do not establish provider capacity.
+  # Optional concurrencyErrorCodes: ["documented-provider-code"] classifies
+  # account-specific 429 codes as concurrent-occupancy pressure; every other
+  # 429 retains rate pacing. Never infer this from a model or provider name.
+  # Occupancy feedback lowers the SAME queue's concurrency without cancelling
+  # active leases. Healthy transport EOF with queued demand gradually probes
+  # back toward the configured ceiling; headers/cancel are not healthy evidence.
   num_retries: 1
   allowed_fails: 3
   cooldown_time: 30

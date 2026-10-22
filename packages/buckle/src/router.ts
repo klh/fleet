@@ -29,11 +29,12 @@ import { Cooldowns, retryAfterS, retryDelayS } from "./cooldown.ts";
 import { mayEscalate, type RouteSelection } from "./decide.ts";
 import { FLASHX, type GatewayPolicy } from "./policy.ts";
 import {
-	type ProviderLease,
+	bindProviderLease,
 	ProviderAdmissionCore,
 	ProviderAdmissionFull,
-	bindProviderLease,
+	type ProviderLease,
 	type ProviderPoolPolicy,
+	providerPressureOf,
 } from "./provider-admission-core.ts";
 import type { TraceContext } from "./trace.ts";
 import type { Deployment, Dialect, UpstreamPool } from "./upstreams.ts";
@@ -429,7 +430,6 @@ export class Router {
 			const raw = await this.fetchImpl(dep, wireReq, timeoutMs, stream);
 			const resp = lease === undefined ? raw : bindProviderLease(raw, lease);
 			if (resp.ok) {
-				lease?.feedback?.(resp.status, null);
 				this.cooldowns.success(dep);
 				const response = bridged
 					? bridgeResponse(resp, req.dialect, req.body.stream === true)
@@ -457,7 +457,14 @@ export class Router {
 				resp,
 			);
 			const ra = err.retryAfterS ?? retryAfterS(resp.headers, this.now);
-			lease?.feedback?.(resp.status, ra);
+			lease?.feedback?.(
+				resp.status,
+				ra,
+				providerPressureOf(
+					poolId === null ? undefined : this.policy.provider_pools?.[poolId],
+					err.providerCode,
+				),
+			);
 			const base = {
 				providerPool: poolId,
 				queueWaitMs: lease ? queueWaitMs : null,

@@ -167,3 +167,15 @@ W1170 retains the documentation contract while correcting its description.
 Skill invocation counts also require no raw arguments or working-directory
 paths; storing those in a mode-644 log added disclosure risk without
 measurement value. The corrected logger keeps minimal metadata at mode 0600.
+# W1124.24 — occupancy adaptation is not free throughput
+
+The matched synthetic controller fixture
+`packages/buckle/test/provider-pressure-diagnosis.test.ts` retains tradeoffs:
+at 20 ms mixed pressure the candidate completed in 633 ms versus 917 ms but
+issued 12 refusals versus 9; at 8 ms occupancy pressure it issued 7 versus 5.
+An earlier candidate used one pressure epoch for both dimensions: a rate
+refusal could be masked by an occupancy refusal in the same burst, producing
+61 versus 38 refusals in the 50 ms mixed arm. Independent per-kind coalescing
+with a global stale-success fence corrected that specific defect; it does not
+prove an optimal controller or real-account capacity. Healthy EOF means
+transport completion, not semantic model quality or verified provider cleanup.

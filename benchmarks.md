@@ -867,3 +867,18 @@ review-quality improvement was established. W1170 corrects that claim and
 removes raw argument/path logging from skill instrumentation; the focused
 documentation/privacy suite passed 14 tests and 68 assertions. These are
 contract and privacy results, not a model-performance benchmark.
+# W1124.24 — isolated admission pressure diagnosis
+
+`packages/buckle/test/provider-pressure-diagnosis.test.ts` compares the same
+PQueue controller with unclassified 429 pacing versus explicit account-code
+classification into rate and occupancy pressure. Forty callers each complete
+two turns against three synthetic provider shapes; service is 8/20/50 ms with
+deterministic jitter, and refusals take 7–19% of service time. This is a scaled
+controller experiment, **not a provider-capacity or agent-productivity test**.
+
+One local run at 50 ms service: occupancy baseline/candidate elapsed 2177/1399
+ms, p95 queue 1062/607 ms, refusals 27/14; mixed pressure 2210/1423 ms,
+1069/607 ms, refusals 37/19. Both completed 80 turns. Timing is scheduler
+sensitive: retain refusal counts and negative arms, not just elapsed time.
+Unknown-code rate pressure follows the existing rate controller. No live
+provider limits, lane count, start ceiling or runtime policy was changed.
