@@ -1,48 +1,48 @@
-import { capsuleProjectTag } from "../lib/capsule-fence.ts";
-import { ensureCompletionIdentityMigration } from "../lib/work-completion-record.ts";
-import {
-	itemSpend,
-	laneSpendRows,
-	resolveBuckleDb,
-	type ItemSpend,
-} from "../lib/lane-spend.ts";
-import { claimWindows } from "../lib/work-timing.ts";
-// hooks/coord/fleet.ts — fleet-wide reads: bootstrap, fleet, metrics, doctor-session, diff (W157 command modules).
-// Handler bodies moved verbatim from bin/coord.ts's if/else chain —
-// one-tab indent preserved, output byte-compatible.
-import {
-	die,
-	arg,
-	db,
-	green,
-	dim,
-	cyan,
-	amber,
-	red,
-	projectIdentity,
-	CAPABILITIES,
-	workTiming,
-	tokenUsage,
-	sweepStaleSessions,
-	tagNameOf,
-	realpathSync,
-	resolve,
-} from "./shared.ts";
-import type { Database, Ev } from "./shared.ts";
-import { ageOf, formatEventLine } from "./bus.ts";
-import { cmdBind, cmdEnroll, cmdVerify } from "./identity.ts";
-import { type LaneVerdict, verdictBySid } from "../lib/lane-liveness.ts";
-import { hbFresh } from "../lib/reclaim-liveness.ts";
-import { loadLaneRegistry } from "../lib/lane-registry.ts";
 import { homedir } from "node:os";
-import { attachSubscribe } from "../lib/subscribe-attach.ts";
 import {
 	type BriefWeight,
 	buckleLaneTokens,
 	type LaneTokens,
 	measureBriefWeight,
 } from "../../scripts/lib/brief-weight.ts";
+import { capsuleProjectTag } from "../lib/capsule-fence.ts";
+import { type LaneVerdict, verdictBySid } from "../lib/lane-liveness.ts";
+import { loadLaneRegistry } from "../lib/lane-registry.ts";
+import {
+	type ItemSpend,
+	itemSpend,
+	laneSpendRows,
+	resolveBuckleDb,
+} from "../lib/lane-spend.ts";
+import { hbFresh } from "../lib/reclaim-liveness.ts";
 import { renameSession } from "../lib/session-rename.ts";
+import { attachSubscribe } from "../lib/subscribe-attach.ts";
+import { ensureCompletionIdentityMigration } from "../lib/work-completion-record.ts";
+import { claimWindows } from "../lib/work-timing.ts";
+import { ageOf, formatEventLine } from "./bus.ts";
+import { cmdBind, cmdEnroll, cmdVerify } from "./identity.ts";
+import type { Database, Ev } from "./shared.ts";
+// hooks/coord/fleet.ts — fleet-wide reads: bootstrap, fleet, metrics, doctor-session, diff (W157 command modules).
+// Handler bodies moved verbatim from bin/coord.ts's if/else chain —
+// one-tab indent preserved, output byte-compatible.
+import {
+	amber,
+	arg,
+	CAPABILITIES,
+	cyan,
+	db,
+	die,
+	dim,
+	green,
+	projectIdentity,
+	realpathSync,
+	red,
+	resolve,
+	sweepStaleSessions,
+	tagNameOf,
+	tokenUsage,
+	workTiming,
+} from "./shared.ts";
 
 export async function cmdBootstrap(_rest: string[]): Promise<void> {
 	// the session-start ritual: identity + owned work + ready pool + inbox,
@@ -352,10 +352,10 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 									? red("⚠")
 									: green("▶");
 		const nm = sessionNames.get(l);
-		return `${g} ${nm ? `${trunc(nm)} ${dim(`(${l.slice(0, 8)})`)}` : dim(names.get(l) ?? l.slice(0, 8))}`;
+		return `${g} ${nm ? `${trunc(nm)} ${dim(`(${l.slice(0, 8)})`)}` : dim(names.get(l) ?? l.slice(0, 8))} ${dim(`[sid=${l}]`)}`;
 	});
 	console.log(
-		`${head ? `${dim(`@${head.slice(0, 7)}`)}  ` : ""}${parts.join("  ") || dim("(no claimed lanes)")}`,
+		`${head ? `${dim(`HEAD ${head.slice(0, 7)}`)}  ` : ""}${parts.join("  ") || dim("(no claimed lanes)")}`,
 	);
 }
 
