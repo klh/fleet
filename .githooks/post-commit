@@ -7,6 +7,7 @@ const root = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], {
 	stdout: "pipe",
 }).stdout.toString().trim();
 const suite = [
+	"help-no-store.test.ts",
 	"verb-surface.test.ts",
 	"verb-kit.test.ts",
 	"coord-addressing.test.ts",
