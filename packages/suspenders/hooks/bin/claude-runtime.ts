@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { ClaudeControl, claudeStreamArguments } from "../lib/claude-control.ts";
 import {
+	claudeLaneState,
 	claudePauseProof,
 	claudePausePrompt,
 	claudeResumePrompt,
@@ -46,10 +47,21 @@ async function run(args: string[]): Promise<number> {
 		process.stdout.write(`${JSON.stringify(frame)}\n`);
 	const lines = createInterface({ input: child.stdout });
 	let closing = false;
-	let pauseMode: "running" | "checkpointing" | "paused" = "running";
+	let pauseMode: "running" | "checkpointing" | "paused" | "resuming" =
+		"running";
 	let pauseCheckpoint: string | null = null;
 	let verifyingPause: Promise<void> | undefined;
 	let finishTimer: ReturnType<typeof setTimeout> | undefined;
+	const finishWhenIdle = () => {
+		clearTimeout(finishTimer);
+		finishTimer = setTimeout(() => {
+			if (!control.active && !control.busy && pauseMode === "running") {
+				closing = true;
+				abort.abort();
+				child.stdin.end();
+			}
+		}, 25);
+	};
 	lines.on("line", (line) => {
 		if (!process.stdout.write(`${line}\n`)) {
 			lines.pause();
@@ -78,6 +90,25 @@ async function run(args: string[]): Promise<number> {
 					});
 				})();
 			}
+			if (
+				frame.type === "result" &&
+				!control.busy &&
+				!control.interruptBoundaryResult &&
+				pauseMode === "resuming"
+			) {
+				void (async () => {
+					const resumed = (await claudeLaneState(sid)) === "RUNNING";
+					if (resumed) {
+						pauseMode = "running";
+						finishWhenIdle();
+					}
+					emit({
+						type: "fleet.claude.pause",
+						sid,
+						state: resumed ? "resumed" : "resume-unconfirmed",
+					});
+				})();
+			}
 			// W1035.1: a result closing an interrupted turn is an internal
 			// boundary — the injected turn follows in the same conversation, so
 			// the end-of-session close waits for the NEXT result instead.
@@ -87,14 +118,7 @@ async function run(args: string[]): Promise<number> {
 				!control.busy &&
 				!control.interruptBoundaryResult
 			) {
-				clearTimeout(finishTimer);
-				finishTimer = setTimeout(() => {
-					if (!control.active && !control.busy && pauseMode === "running") {
-						closing = true;
-						abort.abort();
-						child.stdin.end();
-					}
-				}, 25);
+				finishWhenIdle();
 			}
 		} catch {
 			// Non-JSON diagnostics remain visible, never become protocol input.
@@ -156,7 +180,7 @@ async function run(args: string[]): Promise<number> {
 							? claudeResumePrompt(sid, text)
 							: text,
 				);
-				if (kind === "resume_ready") pauseMode = "running";
+				if (kind === "resume_ready") pauseMode = "resuming";
 				// W1035.1: the watermark moves only after a proven injection.
 				proveClaudeWake(sid, undefined, "managed");
 				consumeClaudeWake(sid, undefined, "boundary");

@@ -3,29 +3,50 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 const coord = new URL("../bin/coord.ts", import.meta.url).pathname;
+const read = async (sid: string, args: string[]) =>
+	(
+		await run(process.execPath, [coord, ...args, "--as", sid], {
+			timeout: 10_000,
+			maxBuffer: 32_768,
+		})
+	).stdout;
+
+export async function claudeLaneState(sid: string): Promise<string | null> {
+	try {
+		return (
+			/^([A-Z_]+) \(v\d+\)/.exec(
+				await read(sid, ["fact", "get", `lane.${sid}.state`]),
+			)?.[1] ?? null
+		);
+	} catch {
+		return null;
+	}
+}
 
 /** Read the canonical pause proof through the supported CLI, never its DB. */
 export async function claudePauseProof(
 	sid: string,
 	expectedState: "PAUSED" | "RESUME_READY" = "PAUSED",
 ): Promise<{ checkpoint: string } | null> {
-	const read = async (args: string[]) =>
-		(
-			await run(process.execPath, [coord, ...args, "--as", sid], {
-				timeout: 10_000,
-				maxBuffer: 32_768,
-			})
-		).stdout;
 	try {
-		const state = await read(["fact", "get", `lane.${sid}.state`]);
-		if (!state.startsWith(`${expectedState} (v`)) return null;
-		const capsule = JSON.parse(await read(["capsule", "get"])) as {
+		if ((await claudeLaneState(sid)) !== expectedState) return null;
+		const capsule = JSON.parse(await read(sid, ["capsule", "get"])) as {
 			checkpoint?: unknown;
 		};
-		return typeof capsule.checkpoint === "string" &&
-			/^[a-f0-9]{40}$/.test(capsule.checkpoint)
-			? { checkpoint: capsule.checkpoint }
-			: null;
+		if (
+			typeof capsule.checkpoint !== "string" ||
+			!/^[a-f0-9]{40}$/.test(capsule.checkpoint)
+		)
+			return null;
+		await run("git", ["cat-file", "-e", `${capsule.checkpoint}^{commit}`], {
+			timeout: 10_000,
+		});
+		await run(
+			"git",
+			["merge-base", "--is-ancestor", capsule.checkpoint, "HEAD"],
+			{ timeout: 10_000 },
+		);
+		return { checkpoint: capsule.checkpoint };
 	} catch {
 		return null;
 	}

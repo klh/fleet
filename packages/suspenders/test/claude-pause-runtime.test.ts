@@ -92,6 +92,11 @@ test("managed pause checkpoints through canonical CLI, waits idle, and resumes t
 		await read;
 		expect(await errors).toBe("");
 		expect(paused).toBe(true);
+		expect(
+			frames.some(
+				(f) => f.type === "fleet.claude.pause" && f.state === "resumed",
+			),
+		).toBe(true);
 		expect(frames.some((f) => f.state === "deferred-while-paused")).toBe(true);
 		expect(
 			frames.some(
