@@ -882,3 +882,13 @@ ms, p95 queue 1062/607 ms, refusals 27/14; mixed pressure 2210/1423 ms,
 sensitive: retain refusal counts and negative arms, not just elapsed time.
 Unknown-code rate pressure follows the existing rate controller. No live
 provider limits, lane count, start ceiling or runtime policy was changed.
+# W1124.24.1 — two-hop occupancy refusal contract
+
+`packages/buckle/test/provider-pressure-health-http.test.ts` runs two actual
+Buckle HTTP servers and an isolated provider. Six delayed capacity refusals
+precede an available provider; its inventory endpoint remains unavailable.
+Without explicit remote classification, request seven returns a synthetic
+429 after the three-second inventory timeout and applies a 27-second account
+embargo. With classification, request seven reaches the provider and returns
+semantic `recovered` output. The final two tests passed 31 assertions in
+3.29 seconds. This is protocol regression evidence, not measured live capacity.

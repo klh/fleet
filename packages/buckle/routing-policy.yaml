@@ -30,6 +30,10 @@ gateway:
   # Occupancy feedback lowers the SAME queue's concurrency without cancelling
   # active leases. Healthy transport EOF with queued demand gradually probes
   # back toward the configured ceiling; headers/cancel are not healthy evidence.
+  # An unbound hub deployment can declare adapter_config.
+  # provider_concurrency_error_codes with the same bounded code list, without
+  # creating another account queue. Known occupancy pressure then does not
+  # bench a healthy deployment; real provider Retry-After remains unchanged.
   num_retries: 1
   allowed_fails: 3
   cooldown_time: 30
