@@ -443,6 +443,18 @@ test("real subscriber catches an already committed resume control without accept
 		"test-owner",
 	]);
 	expect(emitted.code).toBe(0);
+	const newer = await cli(url, [
+		"emit",
+		"resume_ready",
+		"--to",
+		sid,
+		"--onto=newer-cut",
+		"--note",
+		"newest disconnected resume",
+		"--as",
+		"test-owner",
+	]);
+	expect(newer.code).toBe(0);
 	const sub = Bun.spawn([process.execPath, COORD, "subscribe", "--as", sid], {
 		env: { ...process.env, HOME: home, GOVERNOR_STORE_URL: url },
 		stdout: "ignore",
@@ -461,7 +473,7 @@ test("real subscriber catches an already committed resume control without accept
 	const queued = JSON.parse(readFileSync(file, "utf8"));
 	expect(queued.kind).toBe("resume_ready");
 	expect(queued.sid).toBe(sid);
-	expect(queued.text).toContain("real disconnected resume");
+	expect(queued.text).toContain("newest disconnected resume");
 	const receipt = await fetch(`${url}/rpc`, {
 		method: "POST",
 		body: JSON.stringify({
@@ -476,4 +488,24 @@ test("real subscriber catches an already committed resume control without accept
 	expect(inbox.out).toContain("real disconnected resume");
 	const state = await cli(url, ["state", "--as", sid]);
 	expect(state.out).toContain("RESUME_READY");
+	// Accept the newest control while the lifecycle fact still awaits the
+	// worker. A reconnect must not fall back to the older unaccepted cut.
+	sub.kill();
+	await sub.exited;
+	await rpc(
+		"INSERT OR REPLACE INTO direct_message_receipts(event_id,sid,state,queued_at,accepted_at) VALUES(?,?,'ACCEPTED',?,?)",
+		[queued.id, sid, Date.now(), Date.now()],
+	);
+	rmSync(file);
+	const reconnect = Bun.spawn(
+		[process.execPath, COORD, "subscribe", "--as", sid],
+		{
+			env: { ...process.env, HOME: home, GOVERNOR_STORE_URL: url },
+			stdout: "ignore",
+			stderr: "ignore",
+		},
+	);
+	procs.push(reconnect);
+	await Bun.sleep(300);
+	expect(existsSync(file)).toBe(false);
 });
