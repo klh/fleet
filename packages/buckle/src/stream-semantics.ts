@@ -11,7 +11,6 @@
 // Usage counters are deliberately NOT evidence of output (out_tok 0 is the
 // symptom, not the proof; the 483-byte envelope carried usage 33341/0).
 // No text is ever stored — three booleans, whole-stream, body-free.
-import type { Dialect } from "./upstreams.ts";
 
 type AnyRec = Record<string, unknown>;
 
@@ -49,7 +48,7 @@ export class StreamSemantics {
 
 	/** Observe one parsed SSE data frame. Transport-only frames (pings) are
 	 *  never handed here — callers filter them before observing. */
-	observe(value: unknown, dialect: Dialect): void {
+	observe(value: unknown, dialect: "anthropic" | "openai"): void {
 		const r = rec(value);
 		if (dialect === "anthropic") {
 			const block = rec(r.content_block);

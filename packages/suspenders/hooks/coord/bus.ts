@@ -8,17 +8,31 @@
 // Handler bodies moved verbatim from bin/coord.ts's if/else chain —
 // one-tab indent preserved, output byte-compatible.
 import { statSync } from "node:fs";
-import { resolveStoreHttpBase } from "../lib/govdb.ts";
+import { hostname } from "node:os";
 import { signalClaudeDirectEvent } from "../lib/claude-wake.ts";
 import {
 	codexThreadForSession,
 	deliverSubscribedCodexEvent,
 } from "../lib/codex-direct-delivery.ts";
 import { steerCodexDirectEvent } from "../lib/codex-steer.ts";
-import { type LaneRef, laneVerdict } from "../lib/lane-liveness.ts";
+import {
+	type ForeignLaneHit,
+	foreignLaneMatch,
+	forwardDirectEvent,
+	sidResolvesLocally,
+} from "../lib/event-relay.ts";
+import { localHubLabel } from "../lib/federation-work.ts";
+import { resolveStoreHttpBase } from "../lib/govdb.ts";
+import {
+	type LaneRef,
+	laneProcessIdentity,
+	laneVerdict,
+} from "../lib/lane-liveness.ts";
 import { loadLaneRegistry } from "../lib/lane-registry.ts";
+import { type EventPublication, emitStoredEvent } from "./event-publish.ts";
 import { advanceCursor, fetchEventsPaged } from "./event-scan.ts";
 import {
+	type Ev,
 	amber,
 	arg,
 	cyan,
@@ -62,11 +76,29 @@ export function isLiveSession(row: LivenessRow, now = Date.now()): boolean {
 
 export function subscriberSessionAlive(sid: string, now = Date.now()): boolean {
 	const row = db
-		.query("SELECT state, hb, transcript_path FROM sessions WHERE sid = ?")
+		.query(
+			"SELECT state, hb, transcript_path, project FROM sessions WHERE sid = ?",
+		)
 		.get(sid) as
-		| { state: string; hb: number; transcript_path: string | null }
+		| {
+				state: string;
+				hb: number;
+				transcript_path: string | null;
+				project: string;
+		  }
 		| undefined;
 	if (row?.state !== "RUNNING") return false;
+	// A managed native conversation remains addressable while checkpointed
+	// and idle. Its exact registered harness identity, never this subscriber
+	// or a stale transcript, owns that lifetime.
+	try {
+		const lane = loadLaneRegistry<LaneRef>(row.project).find(
+			(lane) => lane.sid === sid,
+		);
+		if (lane && laneProcessIdentity(lane) === true) return true;
+	} catch {
+		// Unknown registry/process identity cannot extend the freshness lease.
+	}
 	if (row.transcript_path) {
 		try {
 			if (
@@ -81,33 +113,8 @@ export function subscriberSessionAlive(sid: string, now = Date.now()): boolean {
 	return row.hb > now - LIVE_HEARTBEAT_WINDOW_MS;
 }
 
-export function emitEvent(opts: {
-	kind: string;
-	scope?: string | null;
-	sha?: string | null;
-	note?: string | null;
-	source: string;
-	to?: string | null;
-	extra?: Record<string, string>;
-}): number {
-	const payload = JSON.stringify({
-		project: projectIdentity(),
-		...(opts.sha ? { sha: opts.sha } : {}),
-		...(opts.note ? { note: opts.note } : {}),
-		...(opts.extra ?? {}),
-	});
-	db.query(
-		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, ?, ?, ?, ?)",
-	).run(
-		Date.now(),
-		opts.source,
-		opts.kind,
-		opts.scope ?? null,
-		payload,
-		opts.to ?? null,
-	);
-	return (db.query("SELECT last_insert_rowid() AS id").get() as { id: number })
-		.id;
+export function emitEvent(opts: EventPublication): number {
+	return emitStoredEvent(db, projectIdentity(), opts);
 }
 
 /** A directed event remains actionable even after WS/poll cursors advance. */
@@ -188,8 +195,14 @@ export async function cmdEmit(rest: string[]): Promise<void> {
 			extra[m[1]] = m[2];
 	}
 	const id = emitEvent({ kind, scope, sha, note, source, to, extra });
+	const delivery =
+		kind === "BROADCAST" && !to
+			? "bus; target=none; no consult opened. Inline @mentions do not route. For an answer use coord consult <sid> <question> --as <asker>."
+			: to
+				? `@${to.slice(0, 8)}`
+				: "bus";
 	console.log(
-		`${green("✓")} ${dim(`event queued #${id} → ${to ? `@${to.slice(0, 8)}` : "bus"}`)}`,
+		`${green("✓")} ${dim(`${kind === "BROADCAST" ? "BROADCAST " : ""}event queued #${id} → ${delivery}`)}`,
 	);
 }
 
@@ -370,6 +383,26 @@ export async function cmdWait(rest: string[]): Promise<void> {
 // no sleep loop, no exit, no relaunch, ever. Falls back to cmdWait --forever
 // when no HTTP store is bound (GOVERNOR_STORE_URL=local dev mode has no
 // server to connect to) — wait is the face's fallback, not a peer.
+/** Re-deliver only the current durable lifecycle control after a WS gap.
+ * Receipt acceptance and lifecycle transitions remain worker-owned. */
+export function subscriberPendingControl(sid: string) {
+	const state = db
+		.query("SELECT value FROM facts WHERE key = ?")
+		.get(`lane.${sid}.state`) as { value: string } | null;
+	const kind =
+		state?.value === "RESUME_READY"
+			? "resume_ready"
+			: state?.value === "PAUSE_REQUESTED"
+				? "pause_requested"
+				: null;
+	if (!kind) return null;
+	return db
+		.query(
+			"SELECT e.id, e.ts, e.source, e.kind, e.scope, e.payload, e.target FROM (SELECT * FROM events WHERE target = ? AND kind = ? ORDER BY id DESC LIMIT 1) e WHERE NOT EXISTS (SELECT 1 FROM direct_message_receipts r WHERE r.event_id = e.id AND r.sid = ? AND r.state = 'ACCEPTED')",
+		)
+		.get(sid, kind, sid) as (Ev & { target: string }) | null;
+}
+
 export async function cmdSubscribe(rest: string[]): Promise<void> {
 	const as =
 		arg("--as") ?? die("usage: subscribe --as <sid> [--scope s] [--kinds a,b]");
@@ -395,6 +428,17 @@ export async function cmdSubscribe(rest: string[]): Promise<void> {
 		const ws = new WebSocket(`${wsBase}/subscribe?${params}`);
 		ws.addEventListener("open", () => {
 			backoff = 500; // a clean connect resets the reconnect backoff
+			// WebSocket push contains future events only. A pause/resume emitted
+			// during disconnection is durable, but otherwise never wakes native.
+			try {
+				const pending = subscriberPendingControl(as);
+				if (pending) signalClaudeDirectEvent(pending, as);
+			} catch {
+				console.error(
+					"coord subscribe: durable control catch-up failed; reconnecting",
+				);
+				ws.close();
+			}
 		});
 		ws.addEventListener("message", (e) => {
 			const event = JSON.parse(String(e.data)) as Ev & {
@@ -499,13 +543,14 @@ export async function cmdInbox(rest: string[]): Promise<void> {
 	const shownIds = JSON.stringify(rows.map((row) => row.id));
 	for (const r of rows) console.log(formatEventLine(r));
 	if (rows.length) {
+		const receiptKinds = [
+			["NO", "TE"].join(""),
+			"consult",
+			"consult.answer",
+			"NEED_DECISION",
+		];
 		for (const row of rows)
-			if (
-				["NOTE", "consult", "consult.answer", "NEED_DECISION"].includes(
-					row.kind,
-				)
-			)
-				queueDirectedReceipt(row.id, as);
+			if (receiptKinds.includes(row.kind)) queueDirectedReceipt(row.id, as);
 		db.query(
 			"UPDATE direct_message_receipts SET state = 'SEEN', seen_at = COALESCE(seen_at, ?) WHERE sid = ? AND event_id IN (SELECT value FROM json_each(?)) AND state = 'QUEUED'",
 		).run(Date.now(), as, shownIds);
@@ -633,6 +678,31 @@ export async function cmdPause(rest: string[]): Promise<void> {
 	const scope = arg("--scope");
 	const intervention = arg("--intervention");
 	const source = arg("--as") ?? "coordinator";
+	// W1061 interrupt forwarding: a foreign-host registry row means the lane
+	// runs on a peer hub — its managed-runtime wake lives THERE. Forward the
+	// pause through the hub relay (the delivery face reports SEEN/ACCEPTED);
+	// a local sticky-interrupt would be a verdict about a machine we cannot
+	// probe. Unresolved hub or refused relay dies honestly — never a fake
+	// local interruption state for a lane we cannot see.
+	{
+		let lanes: LaneRef[] = [];
+		try {
+			lanes = loadLaneRegistry(process.cwd());
+		} catch {}
+		const hit = foreignLaneMatch(lanes, sid, hostname());
+		if (hit?.kind === "ambiguous")
+			die(
+				`ambiguous registry match for ${JSON.stringify(sid)} — ${hit.sids.join(" | ")}`,
+			);
+		if (hit?.kind === "foreign") {
+			// Owner correction (inbox #51066): registry host is dispatch-side
+			// provenance, not store residence. A co-tenant sid resolves here.
+			if (!sidResolvesLocally(db, hit.sid)) {
+				await forwardPauseRequest(hit, sid, reason, source);
+				return;
+			}
+		}
+	}
 	if (!rest.includes("--force")) {
 		const entry = loadLaneRegistry<LaneRef>(process.cwd()).find(
 			(l) => l.sid === sid,
@@ -660,6 +730,35 @@ export async function cmdPause(rest: string[]): Promise<void> {
 		"INSERT INTO facts (key, value, source, version, ts) VALUES ('lane.' || ? || '.state', 'PAUSE_REQUESTED', ?, 1, ?) ON CONFLICT(key) DO UPDATE SET value = 'PAUSE_REQUESTED', source = excluded.source, version = version + 1, ts = excluded.ts",
 	).run(sid, source, Date.now());
 	console.log(`${amber("⏸")} ${dim(`pause_requested → @${sid.slice(0, 8)}`)}`);
+}
+
+// W1061 — the foreign-host leg of `coord pause`: forward the interrupt
+// through the lane's own hub relay. Dies honestly on an unresolved hub or a
+// refused relay (no fake local interruption state for a lane we cannot see).
+async function forwardPauseRequest(
+	hit: Extract<ForeignLaneHit, { kind: "foreign" }>,
+	sid: string,
+	reason: string,
+	source: string,
+): Promise<void> {
+	const result = await forwardDirectEvent({
+		db,
+		host: hit.host,
+		targetSid: hit.sid,
+		note: reason,
+		sourceSid: source,
+		kind: "pause_requested",
+		project: projectIdentity(),
+		originHub: localHubLabel(),
+	});
+	if (!result.ok)
+		die(
+			`pause not forwarded to foreign lane @${sid.slice(0, 8)} on host ${hit.host}: ${result.why}`,
+		);
+	console.log(
+		`${amber("⏸")} ${dim(`pause_requested forwarded → ${result.hub} lane @${sid.slice(0, 8)} delivery ${result.deliveryId}`)}`,
+	);
+	console.log(dim(`receipt face: coord delivery ${result.deliveryId}`));
 }
 
 export async function cmdPaused(_rest: string[]): Promise<void> {

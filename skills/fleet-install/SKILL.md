@@ -1,6 +1,6 @@
 ---
 name: fleet-install
-description: Install and wire the klh fleet agent stack on a machine — install.sh (harness + launchd + skills registration), fleet-install.ts (per-CLI hook-dialect wiring across 70+ detected agent targets), and hubctl hub deploys. Use when onboarding a machine or agent CLI to the fleet, adding a hook-dialect adapter, refreshing the vendored agent registry, or deploying to a hub.
+description: Install and wire the klh fleet agent stack on a machine — install.sh (harness + launchd + skills registration), fleet-install.ts (per-CLI hook-dialect wiring across 70+ detected agent targets), and hubctl hub deploys. Use when onboarding a machine or agent CLI to the fleet, adding a hook-dialect adapter, refreshing the vendored agent registry, or deploying to a hub. Not for runtime ops on an already-installed machine — that is fleet/fleet-pulse territory.
 ---
 
 # fleet-install
@@ -42,3 +42,9 @@ claude-code`; one parent-dir add discovers every skill (never cp'd into one
 - [ ] `fleet-install.ts --dry-run` prints the wiring plan, nothing written
 - [ ] `install.ts --json --dry-run` exits ok
 - [ ] `work lanes --json` shows live lanes after a real install
+
+## Gotchas
+
+- Testing the installer with a swapped HOME still registers REAL launchd agents if `--with-launchd` runs — use `--dry-run` or a harness that stubs `launchctl`.
+- The install tail runs `work report` through the PATH shim — a missing `~/.local/bin` on PATH makes that section fail; that is the shim, not the install.
+- Old checkouts are push-dead: every sync lands in THIS repo at `packages/<name>/*` — never re-anchor an archived repo.

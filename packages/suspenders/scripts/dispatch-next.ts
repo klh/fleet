@@ -10,9 +10,8 @@ import {
 } from "node:fs";
 import { hostname } from "node:os";
 import { resolve } from "node:path";
-// W254: pointer-grade injection — file-map + done-definition digest for the
-// brief, gated per W113 on repo size (hooks/lib/brief-intel.ts)
 import { capsuleValidity } from "../hooks/lib/capsule-fence.ts";
+import { verifiedContextContinuation } from "../hooks/lib/reclaim-context.ts";
 import { BIN, composeBrief } from "./lib/brief.ts";
 import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
 
@@ -22,7 +21,7 @@ export { composeBrief };
 // — dispatch composes adapter.spawnArgs/verifyBrief-harness, no per-agent
 // branches. The spawn-args INTERFACE lives in scripts/lib/lane.ts.
 import { adapterFor } from "../hooks/lib/executors/registry.ts";
-import { effortForPriority } from "../hooks/lib/lane-effort.ts";
+import { dispatchLaneEffort } from "../hooks/lib/lane-effort-policy.ts";
 // W157 decomposition: the pure governance decisions live in their module;
 // re-exported so existing importers (tests, scripts) keep their path.
 import {
@@ -96,9 +95,6 @@ import {
 	readPosture,
 	recordPlaidTrace,
 } from "../hooks/lib/plaid.ts";
-// W1102.1: the plaid launch preflight (host-pressure hold + pool plan +
-// route pick) — its own module per the 1500-line law
-import { plaidLaunchPreflight } from "../scripts/lib/plaid-launch.ts";
 // W862: policy provenance rides the brief — read-only graph read, the
 // compliance check itself re-runs at the lane's session bootstrap
 import { policyBriefLines } from "../hooks/lib/session-policy.ts";
@@ -107,8 +103,12 @@ import {
 	policyForRepo,
 	tryLoadStack,
 } from "../hooks/lib/stack-config.ts";
+// W1102.1: the plaid launch preflight (host-pressure hold + pool plan +
+// route pick) — its own module per the 1500-line law
+import { plaidLaunchPreflight } from "../scripts/lib/plaid-launch.ts";
 import { recoverOrphanClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
+import { deferItem, isDeferredItem } from "./lib/dispatch-defers.ts";
 import { execPick, posturePreference } from "./lib/exec-chain.ts";
 import { fleetReport } from "./lib/fleet-report.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
@@ -222,12 +222,8 @@ const sh = (cmd: string[], cwd = REPO): string => shShared(cmd, cwd);
 const run = (cmd: string[], cwd = REPO): { code: number; out: string } =>
 	runShared(cmd, cwd);
 
-// W349 residue probe: git-state dirt the lane did NOT make — hoisted to
-// lib/lane.ts (W911 1500-law decomposition); re-exported for importers.
 export { residueOf };
 
-// W349: retire+recreate a wrong-branch leftover — hoisted to lib/lane.ts
-// (W911 1500-law decomposition).
 const recreateWorktree = (
 	item: string,
 	owner: string,
@@ -653,15 +649,12 @@ const dispatchItem = async (
 			const show = run(workCli("show", item, "--json"));
 			if (show.code !== 0 || !isResumableClaim(show.out, item, sid)) {
 				console.log(
-					`SKIP ${item} — claimed elsewhere: ${take.out.split("\n")[0]}`,
+					`SKIP ${item} — claim could not be taken or resumed: ${take.out.split("\n")[0]}`,
 				);
-				return null;
+				return deferItem(item, show, sid);
 			}
 			// claimed by this sid from a previous dispatch attempt — resume
 		}
-		// W643: capture the take-minted claim token — the env pin below and the
-		// lane-context claimToken carry it to the closing work done. A resume
-		// (no fresh take) has no token here; the context keeps the original.
 		const takeToken =
 			take.code === 0
 				? (/claim token: ([0-9a-f]{48})/.exec(take.out)?.[1] ?? null)
@@ -693,11 +686,6 @@ const dispatchItem = async (
 		recordLaneExecutor(store, sid, pick.name, pick.model);
 		recordPlaidTrace(store, sid, POSTURE, routeName);
 
-		// W349: a leftover worktree never reaches the lane — W219 inherited a
-		// W229-era tree. Verify branch == suspenders/<item> before spawn:
-		// wrong branch → recreate (clean trees only; residue is never
-		// silently discarded); right branch + unbanked residue on a fresh
-		// spawn → skip loud. A resume's own tree stands (resume context).
 		const expected = `suspenders/${item}`;
 		let cur = existsSync(wt)
 			? sh(["git", "-C", wt, "branch", "--show-current"])
@@ -721,7 +709,7 @@ const dispatchItem = async (
 				console.log(
 					`SKIP ${item} — leftover worktree sits on ${cur || "(detached)"} AND is dirty — residue is never silently discarded; worktree.ts retire ${item} --force, then re-dispatch`,
 				);
-				return null;
+				return deferItem(item);
 			}
 			const skip = recreateWorktree(item, sid, claimRevision);
 			if (skip) {
@@ -732,11 +720,25 @@ const dispatchItem = async (
 				`NOTE — recreated ${wt} (was on ${cur || "(detached)"}) before spawn (W349)`,
 			);
 			cur = expected;
-		} else if (!resume && residueOf(wt)) {
+		} else if (
+			!resume &&
+			residueOf(wt) &&
+			!(
+				takeToken &&
+				verifiedContextContinuation(store, {
+					project,
+					item,
+					sid,
+					token: takeToken,
+					revision: claimRevision,
+					tree: wt,
+				})
+			)
+		) {
 			console.log(
 				`SKIP ${item} — worktree holds unbanked residue on the item branch — never spawn into unbanked state; worktree.ts retire ${item} --force, then re-dispatch`,
 			);
-			return null;
+			return deferItem(item);
 		}
 		const branch = cur || expected;
 		const show = run(workCli("show", item));
@@ -807,7 +809,7 @@ const dispatchItem = async (
 			console.log(
 				`SKIP ${item} — brief refused by ${adapter.briefHarness} verification: ${why} — launch refused; claim cleanup follows, nothing spawned`,
 			);
-			return null;
+			return deferItem(item);
 		}
 		if (!verdict.ok)
 			console.log(
@@ -1048,7 +1050,7 @@ const dispatchItem = async (
 			env,
 			m,
 			BIN,
-			effortForPriority(item.priority),
+			dispatchLaneEffort(store, project, item),
 			pick.preference,
 			ROUTING_PREFER,
 		);
@@ -1360,7 +1362,8 @@ const main = async (): Promise<void> => {
 		if (!canLaunch()) break;
 		const out = await dispatchItem(resume.item, live, resume);
 		if (out) dispatched.push(out);
-		else if (POSTURE === "plaid") {
+		// W1145: item-local deferrals don't stop the refill; global holds do.
+		else if (POSTURE === "plaid" && !isDeferredItem(resume.item)) {
 			plaidRefused = true;
 			break;
 		}
@@ -1427,7 +1430,7 @@ const main = async (): Promise<void> => {
 		if (!canLaunch()) break;
 		const out = await dispatchItem(r.id, live, undefined, dispatched.length);
 		if (out) dispatched.push(out);
-		else if (POSTURE === "plaid") {
+		else if (POSTURE === "plaid" && !isDeferredItem(r.id)) {
 			plaidRefused = true;
 			break;
 		}

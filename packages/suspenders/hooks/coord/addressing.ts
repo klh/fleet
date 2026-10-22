@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 import {
 	formatSessionLabel,
 	llmShorthand,
@@ -5,9 +6,32 @@ import {
 	parseSessionTags,
 	slugifyLabelPart,
 } from "../lib/addressing.ts";
+import {
+	foreignLaneMatch,
+	forwardDirectEvent,
+	normalizeHostLabel,
+	queryRelayStatus,
+	type RelayDeliveryStatus,
+	type RelayOutboxRow,
+	relayOutboxRecord,
+	sidResolvesLocally,
+} from "../lib/event-relay.ts";
+import { localHubLabel, workEdgeToken } from "../lib/federation-work.ts";
+import { loadLaneRegistry } from "../lib/lane-registry.ts";
 import { transcriptTail } from "../lib/transcript.ts";
 import { broadcastNote, emitEvent, isLiveSession } from "./bus.ts";
-import { arg, CAPABILITIES, cyan, db, die, dim, green } from "./shared.ts";
+import {
+	amber,
+	arg,
+	CAPABILITIES,
+	cyan,
+	db,
+	die,
+	dim,
+	green,
+	projectIdentity,
+	red,
+} from "./shared.ts";
 
 interface SessionRow {
 	sid: string;
@@ -298,7 +322,9 @@ export function resolveTarget(needle: string, project?: string): SessionTarget {
 	const matches = live.filter((target) => matchesNeedle(target, q));
 	if (matches.length === 1) return matches[0];
 	if (matches.length === 0)
-		die(`no live session target matching ${JSON.stringify(needle)}`);
+		die(
+			`no live session target matching ${JSON.stringify(needle)}; no directed request delivered. Discover the exact recipient with coord fleet --json (lanes[].sid), then retry. Do not substitute a broadcast.`,
+		);
 	die(
 		`ambiguous target ${JSON.stringify(needle)} — ${matches
 			.map((target) => `${target.label} ${target.sid}`)
@@ -357,6 +383,27 @@ export async function cmdTargets(rest: string[]): Promise<void> {
 }
 
 export async function cmdMessage(rest: string[]): Promise<void> {
+	// W1147: needle and text are RAW positional slots — the malformed
+	// `message <target> --as <sid> "text"` order published the option token
+	// itself as the note body and silently dropped the real text. The
+	// verb-kit parser is order-free on flags, so it cannot reject this shape
+	// while preserving the documented order — reject option tokens here,
+	// before resolving a target or emitting any event.
+	const misplacedFlag = (value: string | undefined): boolean =>
+		value !== undefined &&
+		["--as", "--all", "--note", "--help", "-h"].includes(
+			value.split("=", 1)[0],
+		);
+	const badToken =
+		misplacedFlag(rest[0]) && rest[0] !== "--all"
+			? rest[0]
+			: misplacedFlag(rest[1])
+				? rest[1]
+				: null;
+	if (badToken)
+		die(
+			`option token ${JSON.stringify(badToken)} in a message positional slot — needle and text are positional: coord message <target> "text" [--as sid] | coord message --all "text" [--as sid]; flags ride AFTER the text`,
+		);
 	const source = arg("--as") ?? "unknown";
 	const all = rest[0] === "--all";
 	if (all) {
@@ -371,7 +418,17 @@ export async function cmdMessage(rest: string[]): Promise<void> {
 	const needle = rest[0];
 	const text = rest[1];
 	if (!needle || !text)
-		die('usage: message <target-label-or-sid-or-substring> "text" [--as sid]');
+		die('usage: message <target-label-sid-or-substring> "text" [--as sid]');
+	// W1061 cross-hub forwarding: an exact SID that matches no live local
+	// session may be a live lane on a peer hub (the lane registry stamps
+	// `host`). Forward instead of queueing locally — a directed event in THIS
+	// store for a foreign lane is a black hole: the lane reads its own hub's
+	// store. Local routing keeps the existing behavior untouched.
+	const relay = await maybeForwardToForeignLane(needle, text, source);
+	if (relay) {
+		for (const line of relay) console.log(line);
+		return;
+	}
 	const { target, deferred } = resolveMessageTarget(needle);
 	const id = emitEvent({
 		kind: DIRECT_MESSAGE_KIND,
@@ -388,5 +445,108 @@ export async function cmdMessage(rest: string[]): Promise<void> {
 				? "This exact session is inactive; the message is queued until it resumes and remains unaccepted until it acknowledges it."
 				: "A queued message does not wake an idle CLI session. It is shown on its next turn and remains unaccepted until that session acknowledges it.",
 		),
+	);
+}
+
+// W1061 — resolve the needle against the lane registry's FOREIGN rows and
+// forward through the hub relay when it names one uniquely. Returns the
+// rendered handoff lines when handled (caller prints and returns), or null
+// when the needle is not a foreign lane (local resolution proceeds).
+async function maybeForwardToForeignLane(
+	needle: string,
+	text: string,
+	source: string,
+): Promise<string[] | null> {
+	let registry: { sid: string; host?: string }[] = [];
+	try {
+		registry = loadLaneRegistry(process.cwd());
+	} catch {
+		return null; // registry missing/unreadable — local resolution decides
+	}
+	const hit = foreignLaneMatch(registry, needle, hostname());
+	if (!hit) return null;
+	if (hit.kind === "ambiguous") {
+		die(
+			`ambiguous registry match for ${JSON.stringify(needle)} — ${hit.sids.join(" | ")}`,
+		);
+	}
+	// Owner correction (inbox #51066): the registry host stamp records the
+	// dispatching coordinator, not the store the lane reads. An exact sid
+	// present in THIS store's sessions table is a store co-tenant — local
+	// resolution decides, forwarding would strand the event.
+	if (sidResolvesLocally(db, hit.sid)) return null;
+	const result = await forwardDirectEvent({
+		db,
+		host: hit.host,
+		targetSid: hit.sid,
+		note: text,
+		sourceSid: source,
+		kind: DIRECT_MESSAGE_KIND,
+		project: projectIdentity(),
+		originHub: localHubLabel(),
+	});
+	if (!result.ok)
+		die(
+			`foreign lane @${hit.sid.slice(0, 8)} on host ${hit.host}: ${result.why} — not queued locally (a directed event in this store never reaches a foreign lane); re-run when the hub resolves, or coord emit --to ${hit.sid} for a local record`,
+		);
+	return [
+		`${green("✓")} ${dim(`message forwarded → ${result.hub} lane @${hit.sid.slice(0, 8)} delivery ${result.deliveryId}`)}`,
+		dim(
+			`receipt face: coord delivery ${result.deliveryId} — remote SEEN/ACCEPTED lands there`,
+		),
+	];
+}
+
+// W1061 — the cross-hub receipt face: one delivery id → the hub's live
+// QUEUED/SEEN/ACCEPTED state. Tokens never ride the outbox row; they resolve
+// through the same per-label chain the forward used.
+export async function cmdDelivery(rest: string[]): Promise<void> {
+	const raw = rest[0]?.replace(/^#/, "");
+	if (!raw) die("usage: delivery <delivery-id> [--json]");
+	const id = raw.toLowerCase();
+	const row = relayOutboxRecord(db, id);
+	if (!row) die(`no relay delivery ${raw.slice(0, 8)} in this store's outbox`);
+	if (row.state === "FAILED") {
+		console.log(
+			`${red("✖")} delivery ${row.delivery_id.slice(0, 8)} FAILED → @${row.target_sid.slice(0, 8)}${row.why ? ` — ${row.why}` : ""}`,
+		);
+		return;
+	}
+	const token = workEdgeToken(
+		normalizeHostLabel(row.hub),
+		{ label: row.hub, url: row.url, via: row.via },
+		process.env,
+	);
+	const status = await queryRelayStatus({
+		url: row.url,
+		token,
+		deliveryId: row.delivery_id,
+	});
+	if (!status.ok) {
+		console.log(
+			`${amber("●")} delivery ${row.delivery_id.slice(0, 8)} SENT via ${row.hub} (${row.via}) — receipt unreadable: ${status.why}`,
+		);
+		return;
+	}
+	renderDelivery(row, status.status, rest.includes("--json"));
+}
+
+function renderDelivery(
+	row: RelayOutboxRow,
+	status: RelayDeliveryStatus,
+	asJson: boolean,
+): void {
+	if (asJson) {
+		console.log(JSON.stringify({ ...status, hub: row.hub, via: row.via }));
+		return;
+	}
+	const glyph =
+		status.state === "ACCEPTED"
+			? green("✓")
+			: status.state === "SEEN"
+				? green("●")
+				: amber("●");
+	console.log(
+		`${glyph} #${status.eventId} ${row.kind} ${status.state} → @${status.target.slice(0, 8)} via ${row.hub}`,
 	);
 }

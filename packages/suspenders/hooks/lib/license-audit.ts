@@ -229,6 +229,9 @@ export interface VendoredEntry {
 	marker: string;
 }
 
+/** Repo-relative vendor dir holding the hash-named board lit chunks. */
+export const BOARD_VENDOR_DIR = "packages/suspenders/hooks/board-html/vendor";
+
 /** The committed third-party bundles. First-party compiled chunks that
  *  happen to live in vendor/ dirs (klh-*.js, usage-panels.js) are NOT
  *  third-party — the root Fleet LICENSE covers them. */
@@ -243,22 +246,38 @@ export const VENDORED: VendoredEntry[] = [
 		license: "BSD-3-Clause",
 		marker: "Vendored from the Lit monorepo",
 	},
-	...[
-		"lit-aqxetgnz.js",
-		"lit-rppg1wh3.js",
-		"lit-sq0mv1by.js",
-		"lit-ztzmytvz.js",
-	].map((f) => ({
-		path: `packages/suspenders/hooks/board-html/vendor/${f}`,
-		license: "BSD-3-Clause",
-		marker: "Vendored from the Lit monorepo",
-	})),
 	{
 		path: "packages/suspenders/hooks/lib/vendor/skills-agents.ts",
 		license: "MIT",
 		marker: "vercel-labs/skills",
 	},
 ];
+
+/** The board lit chunks are content-hash named (lit-[hash].js — the names
+ *  rotate every build), so the manifest cannot pin them: the pinned list
+ *  rotted within one build (W1107.2.2 — it named lit-ztzmytvz.js, a chunk
+ *  no build ever produced). Audit-time discovery instead: every lit-*.js in
+ *  the vendor dir is third-party Lit runtime, banner-checked like the
+ *  static bundles above. */
+export function vendoredLitChunks(root: string): VendoredEntry[] {
+	try {
+		return readdirSync(join(root, BOARD_VENDOR_DIR))
+			.filter((f) => /^lit-[^/]+\.js$/.test(f))
+			.sort()
+			.map((f) => ({
+				path: `${BOARD_VENDOR_DIR}/${f}`,
+				license: "BSD-3-Clause",
+				marker: "Vendored from the Lit monorepo",
+			}));
+	} catch {
+		return [];
+	}
+}
+
+/** The audit set: static bundles + hash-named chunks discovered on disk. */
+export function vendoredEntries(root: string): VendoredEntry[] {
+	return [...VENDORED, ...vendoredLitChunks(root)];
+}
 
 export interface VendoredRow {
 	path: string;
@@ -268,9 +287,9 @@ export interface VendoredRow {
 
 export function verifyVendorHeaders(
 	root: string,
-	vendored: VendoredEntry[] = VENDORED,
+	vendored?: VendoredEntry[],
 ): VendoredRow[] {
-	return vendored.map((v) => {
+	return (vendored ?? vendoredEntries(root)).map((v) => {
 		let ok = false;
 		try {
 			ok =

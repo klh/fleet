@@ -13,9 +13,12 @@ test("buffered and streamed local calls create distinct child spans", async () =
 			seen.push(req.headers.get("traceparent") ?? "");
 			preferences.push(req.headers.get("x-klh-prefer"));
 			if ((req.headers.get("accept") ?? "").includes("text/event-stream"))
-				return new Response("data: [DONE]\n\n", {
-					headers: { "content-type": "text/event-stream" },
-				});
+				return new Response(
+					'data: {"choices":[{"delta":{"content":"OK"}}]}\n\ndata: [DONE]\n\n',
+					{
+						headers: { "content-type": "text/event-stream" },
+					},
+				);
 			return Response.json({
 				choices: [{ message: { content: "OK" }, finish_reason: "stop" }],
 			});

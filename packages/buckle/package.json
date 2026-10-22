@@ -12,7 +12,9 @@
 		"start": "bun run src/server.ts"
 	},
 	"devDependencies": {
-		"@types/bun": "latest"
+		"@anthropic-ai/sdk": "^1.1.0",
+		"@types/bun": "latest",
+		"openai": "^7.42.0"
 	},
 	"peerDependencies": {
 		"typescript": "^7"

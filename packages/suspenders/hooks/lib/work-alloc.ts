@@ -21,6 +21,10 @@ import { laneAlive, transcriptPath, type LaneRef } from "./lane-liveness.ts";
 import type { GovernorStore } from "./govdb.ts";
 import { clearReclaimMarker } from "./reclaim-sticky.ts";
 import { claimTokenHash, claimTokenMint } from "./work-fence.ts";
+import {
+	prepareContextTransfer,
+	type ContextTransfer,
+} from "./reclaim-context.ts";
 
 // the verified oh-my-codex weights (W515 brief description)
 export const ROLE_BONUS = 18; // +18 role-grouping
@@ -336,8 +340,17 @@ export type AssignOutcome = {
 export function assignTask(
 	store: GovernorStore,
 	project: string,
-	args: { id: string; sid: string; reason: string; origin?: string | null },
+	args: {
+		id: string;
+		sid: string;
+		reason: string;
+		origin?: string | null;
+		token?: string | null;
+		expectedRevision?: number;
+		reconcileEvidence?: string;
+	},
 ): AssignOutcome {
+	let transfer: ContextTransfer | null = null;
 	const claim = store.transaction((): AssignOutcome => {
 		const it = store
 			.query("SELECT * FROM work_items WHERE project = ? AND id = ?")
@@ -346,11 +359,77 @@ export function assignTask(
 					state: string;
 					owner_sid: string | null;
 					scope: string | null;
+					claim_token_hash: string | null;
 			  })
 			| undefined;
 		if (!it) return { ok: false, why: "no such work item" };
+		if (
+			["CLAIMED", "RUNNING"].includes(it.state) &&
+			it.owner_sid === args.sid &&
+			args.token
+		) {
+			if (
+				!Number.isSafeInteger(args.expectedRevision) ||
+				args.expectedRevision !== it.updated_at
+			)
+				return {
+					ok: false,
+					why: "exact current claim revision required for context reconciliation",
+				};
+			if (
+				!it.claim_token_hash ||
+				claimTokenHash(args.token) !== it.claim_token_hash
+			)
+				return {
+					ok: false,
+					why: "current claim token required for context reconciliation",
+				};
+			transfer = prepareContextTransfer(
+				store,
+				project,
+				args.id,
+				it.claim_token_hash,
+				args.sid,
+				args.token,
+				true,
+				args.reconcileEvidence
+					? { evidence: args.reconcileEvidence, revision: it.updated_at }
+					: undefined,
+			);
+			if (!transfer)
+				return { ok: false, why: "no dispatched context to reconcile" };
+			transfer.replace();
+			store
+				.query(
+					"INSERT INTO events(ts,source,kind,scope,payload,target) VALUES (?,'work','work.context-reconciled',?,?,?)",
+				)
+				.run(
+					Date.now(),
+					it.scope,
+					JSON.stringify({
+						project,
+						work: args.id,
+						by: args.sid,
+						claim_revision: it.updated_at,
+						context_origin: transfer.receipt,
+						...(transfer.operatorReceipt ?? {}),
+					}),
+					args.sid,
+				);
+			return { ok: true };
+		}
 		if (it.state !== "READY")
 			return { ok: false, why: `not READY (${it.state})` };
+		if (
+			args.reconcileEvidence &&
+			(!Number.isSafeInteger(args.expectedRevision) ||
+				args.expectedRevision !== it.updated_at ||
+				it.owner_sid !== null)
+		)
+			return {
+				ok: false,
+				why: "operator retake requires the exact released READY claim revision",
+			};
 		const depRows = store
 			.query(
 				"SELECT d.depends_on, w.state, w.result_sha FROM work_deps d LEFT JOIN work_items w ON w.id = d.depends_on AND w.project = d.project WHERE d.project = ? AND d.work_id = ?",
@@ -360,9 +439,27 @@ export function assignTask(
 			return { ok: false, why: "unmet dependencies" };
 		if (unmergedDeps(depRows, project).length)
 			return { ok: false, why: "dep done but sha not merged to main" };
+		const token = claimTokenMint();
+		transfer = prepareContextTransfer(
+			store,
+			project,
+			args.id,
+			it.claim_token_hash,
+			args.sid,
+			token,
+			Boolean(args.reconcileEvidence),
+			args.reconcileEvidence
+				? { evidence: args.reconcileEvidence, revision: it.updated_at }
+				: undefined,
+		);
+		if (args.reconcileEvidence && !transfer?.operatorReceipt)
+			return {
+				ok: false,
+				why: "operator retake requires verified historical context evidence",
+			};
 		const r = store
 			.query(
-				"UPDATE work_items SET state = 'CLAIMED', owner_sid = ?, alloc_reason = ?, origin = COALESCE(?, origin), updated_at = ? WHERE project = ? AND id = ? AND state = 'READY'",
+				"UPDATE work_items SET state = 'CLAIMED', owner_sid = ?, alloc_reason = ?, origin = COALESCE(?, origin), updated_at = ? WHERE project = ? AND id = ? AND state = 'READY' AND updated_at = ?",
 			)
 			.run(
 				args.sid,
@@ -371,12 +468,12 @@ export function assignTask(
 				Date.now(),
 				project,
 				args.id,
+				it.updated_at,
 			);
 		if (r.changes === 0) return { ok: false, why: "race lost" };
 		// W643 claim-token fence: every successful take mints a fresh token —
 		// a re-take after reclaim invalidates the previous claimant's token, so
 		// a stale writer mismatches at done instead of clobbering the row.
-		const token = claimTokenMint();
 		store
 			.query(
 				"UPDATE work_items SET claim_token_hash = ? WHERE project = ? AND id = ?",
@@ -402,13 +499,42 @@ export function assignTask(
 					project,
 					by: args.sid,
 					alloc_reason: args.reason,
+					claim_token_hash: claimTokenHash(token),
+					...(transfer ? { context_origin: transfer.receipt } : {}),
 				}),
 				project,
 				args.id,
 			);
+		transfer?.replace();
+		if (transfer?.operatorReceipt)
+			store
+				.query(
+					"INSERT INTO events(ts,source,kind,scope,payload,target) VALUES (?,'work','work.context-reconciled',?,?,?)",
+				)
+				.run(
+					Date.now(),
+					it.scope,
+					JSON.stringify({
+						project,
+						work: args.id,
+						by: args.sid,
+						claim_revision: it.updated_at,
+						context_origin: transfer.receipt,
+						...transfer.operatorReceipt,
+					}),
+					args.sid,
+				);
 		return { ok: true, token };
-	})();
-	return claim;
+	});
+	try {
+		return claim();
+	} catch (error) {
+		transfer?.rollback();
+		return {
+			ok: false,
+			why: error instanceof Error ? error.message : String(error),
+		};
+	}
 }
 
 // human-readable plan: one line per decision, ready order preserved

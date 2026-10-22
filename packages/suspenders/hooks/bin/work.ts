@@ -35,6 +35,7 @@ import {
 import { rebindKeptLaneContext } from "../lib/lane-context.ts";
 import { doneSpendStamp, parseDoneSpend } from "../lib/lane-done-spend.ts";
 import { doneEffortStamp } from "../lib/lane-effort.ts";
+import { publishCompletionBlock } from "../lib/lane-stop-publisher.ts";
 import { gitBadge, gitObservation, mergeReadyWhy } from "../lib/lane-git.ts";
 import { laneAlive } from "../lib/lane-liveness.ts";
 import {
@@ -710,6 +711,13 @@ const dispatchVerb = async (
 		const id = pos[0];
 		let as = flag("--as");
 		const origin = flag("--origin");
+		if (
+			rest.includes("--reconcile-context") &&
+			(!flag("--evidence") || !rest.includes("--force"))
+		)
+			die(
+				"take --reconcile-context requires --force --evidence <0600-json>; this is an explicit local operator repair, not SID authentication",
+			);
 		if (!id || !as) die("usage: take <id> --as <sid> [--origin <host:agent>]");
 		// truncated-sid guard: a display slice (e.g. 'visual-c') must not become
 		// the owner of record — expand a unique session-sid prefix to the full sid
@@ -755,6 +763,13 @@ const dispatchVerb = async (
 			sid: as,
 			reason: "manual take",
 			origin: origin ?? null,
+			token: flag("--token") ?? process.env.KLH_CLAIM_TOKEN ?? null,
+			expectedRevision: flag("--expect-updated-at")
+				? Number(flag("--expect-updated-at"))
+				: undefined,
+			reconcileEvidence: rest.includes("--reconcile-context")
+				? (flag("--evidence") ?? undefined)
+				: undefined,
 		});
 		if (!claimed.ok)
 			die(
@@ -862,6 +877,22 @@ const dispatchVerb = async (
 				token: tok,
 			});
 		} catch (error) {
+			try {
+				publishCompletionBlock(
+					db(),
+					{
+						project: PROJECT,
+						item: id,
+						sid: String(it.owner_sid ?? as ?? "manual"),
+						revision: it.claim_token_hash ?? null,
+					},
+					error,
+				);
+			} catch (publicationError) {
+				console.error(
+					`Completion blocker could not be published: ${publicationError instanceof Error ? publicationError.message : String(publicationError)}`,
+				);
+			}
 			die(error instanceof Error ? error.message : String(error));
 		}
 		const tx = db().transaction(() => {

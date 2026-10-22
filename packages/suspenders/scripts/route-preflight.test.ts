@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { UpstreamPool } from "../../buckle/src/upstreams.ts";
+import type { Deployment, UpstreamPool } from "../../buckle/src/upstreams.ts";
 import { ROUTER } from "../../belt/bin/registry.ts";
 import {
 	checkRoutePreflight,
@@ -8,7 +8,7 @@ import {
 } from "./route-preflight.ts";
 
 const pool = (
-	groups: Record<string, Array<{ url: string; dialect: "openai" }>>,
+	groups: Record<string, Array<Omit<Deployment, "group">>>,
 ): UpstreamPool => ({
 	groups: () => Object.keys(groups),
 	deployments: (name) =>
@@ -86,6 +86,51 @@ describe("route preflight before activation", () => {
 		expect(result.drills.map((drill) => drill.failureStatus)).toEqual([
 			429, 503,
 		]);
+	});
+
+	test("shared-account aliases do not masquerade as independent 429 fallbacks", async () => {
+		const source = fixture();
+		source.localPool = pool({
+			model: [
+				{
+					url: "https://provider.example/v1",
+					dialect: "openai",
+					adapter_config: { provider_pool: "shared" },
+				},
+			],
+			alias: [
+				{
+					url: "https://provider.example/alias",
+					dialect: "openai",
+					adapter_config: { provider_pool: "shared" },
+				},
+			],
+			local: [{ url: "https://independent.example/v1", dialect: "openai" }],
+		});
+		source.policy = {
+			num_retries: 0,
+			fallbacks: { model: ["alias", "local"] },
+			provider_pools: {
+				shared: {
+					concurrency: 1,
+					intervalCap: 100,
+					intervalMs: 50,
+					maxOutstanding: 3,
+					queueWaitMs: 1000,
+					recovery: { successWindow: 8, decreasePercent: 5 },
+				},
+			},
+		};
+		const result = await checkRoutePreflight(source, async () => true);
+		expect(result.ok).toBe(true);
+		expect(result.drills).toEqual([
+			{ group: "model", fallback: "local", failureStatus: 429, ok: true },
+			{ group: "model", fallback: "alias", failureStatus: 503, ok: true },
+		]);
+		source.policy.fallbacks = { model: ["alias"] };
+		const blocked = await checkRoutePreflight(source, async () => true);
+		expect(blocked.ok).toBe(false);
+		expect(blocked.drills.find((d) => d.failureStatus === 429)?.ok).toBe(false);
 	});
 
 	test("hub Belt model proxy is a configured transit to its declared model server", async () => {

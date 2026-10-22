@@ -1,3 +1,5 @@
+import { safeRefusalCode } from "../../../telemetry/src/http-trace.ts";
+import { upstreamErrorDetail } from "../error-detail.ts";
 // src/adapters/errors.ts — the RouterError taxonomy (W134 §1): seven
 // normalized kinds with per-family mappings — family exception types never
 // leak past this file (LiteLLM exceptions.py anchors :131/:355/:441/:534/
@@ -38,6 +40,8 @@ export class RouterError extends Error {
 		public readonly retryAfterS: number | null = null,
 		public readonly contextWindow = false,
 		public readonly providerCode: string | number | null = null,
+		public readonly providerType: string | null = null,
+		public readonly traceId: string | null = null,
 	) {
 		super(message);
 	}
@@ -185,14 +189,11 @@ function retryAfterOf(headers: Headers | null, wire: unknown): number | null {
 	return null;
 }
 
-function errorMessage(wire: unknown, status: number): string {
-	const e = errorOf(wire);
-	const msg = str(e?.message) || str((wire as AnyRec)?.message);
-	return msg.length > 0 ? msg : `upstream error ${String(status)}`;
-}
+/** Shared HTTP/SSE extraction: bounded, allowlisted fields, never raw payloads. */
+export { upstreamErrorDetail } from "../error-detail.ts";
 
-/** status/body/headers → RouterError. Precedence: body signature → status
- *  map → 5xx/short-fallback (5xx→server, other→bad_request). */
+/** status/body/headers → RouterError. Auth/rate-limit status wins, then
+ *  typed peer transport, body signature, and ordinary status fallback. */
 export function normalizeUpstreamError(
 	family: AdapterFamily,
 	status: number,
@@ -204,27 +205,39 @@ export function normalizeUpstreamError(
 	const fromSig = sig.length > 0 && table ? table[sig] : undefined;
 	const fromStatus: ErrorKind | undefined =
 		STATUS_KINDS[family]?.[status] ?? TIER2_STATUS[family]?.[status];
+	// A peer gateway can report a transport failure as an HTTP error. Preserve
+	// its bounded typed refusal, without overriding real auth/rate-limit status.
+	const refusal = safeRefusalCode(headers?.get("x-klh-refusal"));
+	const peerTransport: ErrorKind | undefined =
+		status >= 500 && status <= 599
+			? refusal === "network" || refusal === "connect_unreachable"
+				? "network"
+				: refusal === "timeout"
+					? "timeout"
+					: undefined
+			: undefined;
 	const kind: ErrorKind =
 		(status === 429
 			? "rate_limited"
 			: status === 401 || status === 403
 				? "auth"
 				: undefined) ??
+		peerTransport ??
 		fromSig ??
 		fromStatus ??
 		(status >= 500 || status < 400 ? "server" : "bad_request");
 	const contextWindow = kind === "bad_request" && isContextWindow(wire);
+	const detail = upstreamErrorDetail(wire, `upstream error ${String(status)}`);
 	return new RouterError(
 		kind,
 		status,
-		errorMessage(wire, status),
+		detail.message,
 		family,
 		retryAfterOf(headers, wire),
 		contextWindow,
-		typeof errorOf(wire)?.code === "string" ||
-			typeof errorOf(wire)?.code === "number"
-			? (errorOf(wire)?.code as string | number)
-			: null,
+		detail.code ?? null,
+		detail.type === "api_error" ? null : detail.type,
+		detail.trace_id ?? null,
 	);
 }
 
@@ -235,9 +248,12 @@ export function routerErrorEnvelope(
 	message = error.message,
 ): Record<string, unknown> {
 	const detail = {
-		type: error.kind === "rate_limited" ? "rate_limit_error" : "api_error",
+		type:
+			error.providerType ??
+			(error.kind === "rate_limited" ? "rate_limit_error" : "api_error"),
 		message,
 		...(error.providerCode === null ? {} : { code: error.providerCode }),
+		...(error.traceId === null ? {} : { trace_id: error.traceId }),
 	};
 	return dialect === "anthropic"
 		? { type: "error", error: detail }
