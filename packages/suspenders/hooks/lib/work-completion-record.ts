@@ -189,6 +189,26 @@ const tryGit = (cwd: string, ...args: string[]): boolean => {
 		return false;
 	}
 };
+/** Proven lane-branch scope, shared by cross-repo evidence and the same-repo
+ * evidence guard. An unresolved or already-integrated scope returns unknown;
+ * callers retain the full original evidence window rather than skip checks. */
+const laneBranchDiffBase = (
+	shaRepo: string,
+	item: string,
+	sha: string,
+): string | null => {
+	const branch = `suspenders/${item}`;
+	if (
+		!hasCommit(shaRepo, `refs/heads/${branch}`) ||
+		!tryGit(shaRepo, "merge-base", "--is-ancestor", sha, branch)
+	)
+		return null;
+	const head = ["main", "master"].find((ref) => hasCommit(shaRepo, ref));
+	if (!head) return null;
+	const base = git(shaRepo, "merge-base", sha, head);
+	return base === sha ? null : base;
+};
+
 /** W601: cross-repo closure evidence — the scope repo's own lane-branch diff
  * (suspenders/<item> vs merge-base with the default head), degrading to the
  * single closure commit when no branch resolves. */
@@ -197,18 +217,7 @@ const crossRepoEvidence = (
 	item: string,
 	sha: string,
 ): { paths: string[]; diffText: string; diffBase: string | null } => {
-	const branch = `suspenders/${item}`;
-	let diffBase: string | null = null;
-	if (
-		hasCommit(shaRepo, `refs/heads/${branch}`) &&
-		tryGit(shaRepo, "merge-base", "--is-ancestor", sha, branch)
-	) {
-		const head = ["main", "master"].find((ref) => hasCommit(shaRepo, ref));
-		if (head) {
-			diffBase = git(shaRepo, "merge-base", sha, head);
-			if (diffBase === sha) diffBase = null;
-		}
-	}
+	const diffBase = laneBranchDiffBase(shaRepo, item, sha);
 	return {
 		diffBase,
 		paths: (diffBase
@@ -518,7 +527,16 @@ export function prepareCompletion(
 	// must ride a real passing run that predates the claim, with no
 	// test-affecting file changed since, and the closing diff must not
 	// erode the suite (deleted tests, focused/expected-failure gates,
-	// loosened assertions). SUSPENDERS_CLAIM_CHECK=0 disables.
+	// loosened assertions). Imported main changes are not attributed to this
+	// lane when the exact lane branch and original-baseline ancestry prove it.
+	const branchBase =
+		!crossRepo && baseline ? laneBranchDiffBase(shaRepo, o.item, sha) : null;
+	const claimCheckBase =
+		branchBase &&
+		baseline &&
+		tryGit(shaRepo, "merge-base", "--is-ancestor", baseline, branchBase)
+			? branchBase
+			: null;
 	const cc = claimCheckVerdict({
 		transcriptPath:
 			resolveTranscriptPath({ session_id: o.sid, cwd: o.cwd }) ?? undefined,
@@ -530,7 +548,9 @@ export function prepareCompletion(
 		capsuleTs: typeof capsule.ts === "number" ? capsule.ts : undefined,
 		claimStartedAt: claimEvidenceStart(db, o.project, o.item, o.sid),
 		paths,
-		diffText,
+		diffText: claimCheckBase
+			? git(shaRepo, "diff", "-U0", claimCheckBase, sha)
+			: diffText,
 		statRoot: shaRepo,
 	});
 	if (!cc.ok) throw new Error(cc.why ?? "claim-check refusal");
@@ -557,6 +577,7 @@ export function prepareCompletion(
 			origin_project: o.project,
 			paths: paths.filter(productPath),
 			verified_at: completedAt,
+			...(claimCheckBase ? { claim_check_diff_base: claimCheckBase } : {}),
 			...(crossRepo
 				? { scope, verify_repo: shaRepo, diff_base: diffBase }
 				: {}),
