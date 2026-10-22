@@ -33,6 +33,13 @@ frontend consumes in `hooks/bin/fleet-board-html.ts`. All endpoints return JSON 
 ## GET /api/tasks?project=
 
 Each task's `execution` separates work ownership from observed execution.
+Task `tail` text is scoped to the exact project, item, and current claimant
+dispatch binding. Only assistant records timestamped within that registered
+attempt are eligible. A touched transcript file is insufficient. Session-wide
+coordination inbox messages never substitute for task progress; unbound or
+older observations yield null. The drawer's `transcript` and `recent` use the
+same rule; its separate `log` field remains the explicit lane log history.
+
 `state` is `live-harness`, `paused`, `transitioning`, `blocked`, `dead`,
 `unknown`, `completed`, or `inactive`. A claim, spend, or fresh transcript
 lease never proves productive work. Exact project/item/owner registry
