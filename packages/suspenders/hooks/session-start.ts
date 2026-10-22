@@ -367,12 +367,8 @@ if (mine.length || inbox > 0 || readyN > 0 || head) {
 	// homes (global CLAUDE.md, repo AGENTS.md) can never arm a shallow loop.
 	// READY>0 keeps the arming header + W892 table; subagent and worker-role
 	// lanes stay exempt (neither is a loop-arming runtime, W1124.12).
-	if (!isSubagent && !isWorkerRole) {
-		out.push(
-			readyN > 0
-				? supervisorRefillDirective(readyN)
-				: supervisorContractNotice(),
-		);
+	if (!isSubagent && !isWorkerRole && readyN > 0) {
+		out.push(supervisorRefillDirective(readyN));
 	}
 	if (readyN > 0 && !isSubagent && !isWorkerRole) {
 		// W899: the SUPERVISOR DEFAULT contract EMITS the W892 table —
@@ -380,6 +376,14 @@ if (mine.length || inbox > 0 || readyN > 0 || head) {
 		// the same shape the install tail and lane briefs carry.
 		out.push(renderFleetReport(db as unknown as Database, project));
 	}
+}
+
+// W1069: the READY=0 contract notice renders OUTSIDE the owned/inbox/head
+// guard — a fresh session in a non-fleet project (no owned items, empty
+// inbox, READY=0, no integration head) receives the live contract too, so
+// acceptance is every top-level bootstrap, fleet project or not.
+if (!isSubagent && !isWorkerRole && readyN === 0) {
+	out.push(supervisorContractNotice());
 }
 
 // W422.17.1 interactive-session enrollment — top-level sessions mint (or

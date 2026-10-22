@@ -118,10 +118,17 @@ afterAll(() => {
 });
 
 describe("supervisor-default directive (W637)", () => {
-	test("no READY work — no directive", () => {
+	test("W1069: fresh non-fleet session (READY=0) receives the contract notice", () => {
 		const r = runHook(REPO_A, join(HOME, "tp-a.jsonl"));
 		expect(r.code).toBe(0);
 		expect(r.out).not.toContain("SUPERVISOR DEFAULT");
+		expect(r.out).toContain("SUPERVISOR CONTRACT");
+		// the live body rides the notice: refill tick, adversarial merge,
+		// drain clause — the acceptance is the FULL current contract
+		expect(r.out).toContain("/loop refill");
+		expect(r.out).toContain("work reclaim all");
+		expect(r.out).toContain("Merges are adversarial");
+		expect(r.out).toContain("CronDelete");
 	});
 
 	test("work added after empty SessionStart arms once through PostToolUse", () => {
@@ -221,5 +228,7 @@ describe("supervisor-default directive (W637)", () => {
 		);
 		expect(r.out).toContain("SUBAGENT LANE");
 		expect(r.out).not.toContain("SUPERVISOR DEFAULT");
+		// W1069: a subagent is not a loop-arming runtime — neither face
+		expect(r.out).not.toContain("SUPERVISOR CONTRACT");
 	});
 });
