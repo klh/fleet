@@ -22,6 +22,11 @@ import {
 } from "../ladder-lease.ts";
 import { flagIntegratedCode } from "../decomposition.ts";
 import { guardedMerge } from "../merge-guard.ts";
+import {
+	checkReviewReceipt,
+	reviewContext,
+	recordLanding,
+} from "../review-receipt.ts";
 import type { LoopDeps } from "./runtime.ts";
 
 export type MergeLadder = {
@@ -112,6 +117,25 @@ export function createMergeLadder(
 			return;
 		}
 		if (n === 0) {
+			const integrated = itemClaimOf(REPO, b);
+			if (integrated.state === "DONE" && integrated.resultSha) {
+				const store = openStore();
+				try {
+					recordLanding(
+						store,
+						REPO,
+						projectIdentity(REPO),
+						integrated.item,
+						b,
+						integrated.resultSha,
+					);
+				} catch (error) {
+					log(`LANDING-DEFER ${b} — ${String(error).slice(0, 300)}`);
+					return;
+				} finally {
+					store.close();
+				}
+			}
 			retireMerged(b);
 			return;
 		}
@@ -158,6 +182,36 @@ export function createMergeLadder(
 			log(`MERGE-DEFER ${b} — ${exact.why}`);
 			return;
 		}
+		const verifyReview = (candidate?: string) => {
+			const store = openStore();
+			try {
+				const context = reviewContext(REPO, b);
+				if (
+					candidate &&
+					JSON.stringify(reviewContext(REPO, candidate).instructions) !==
+						JSON.stringify(context.instructions)
+				)
+					return {
+						ok: false,
+						why: "integration changed reviewed instructions",
+					};
+				return checkReviewReceipt(
+					store,
+					projectIdentity(REPO),
+					claim.item,
+					context,
+				);
+			} catch (error) {
+				return { ok: false, why: String(error).slice(0, 300) };
+			} finally {
+				store.close();
+			}
+		};
+		const review = verifyReview();
+		if (!review.ok) {
+			log(`MERGE-DEFER ${b} — review required: ${review.why}`);
+			return;
+		}
 		// liveness marker: a crash between --no-commit and commit leaves
 		// MERGE_HEAD + staged debris that plain merge --abort cannot clear (the
 		// 2026-09-28 gaps stall). The marker tells the next cycle whether a
@@ -184,6 +238,7 @@ export function createMergeLadder(
 			branch: b,
 			ladder: LADDER,
 			timeoutMs: LADDER_TIMEOUT_MS,
+			verifyReview,
 		});
 		if (mv.code === 0) {
 			let after = sh(["git", "rev-parse", "--short", "HEAD"]);
@@ -222,15 +277,31 @@ export function createMergeLadder(
 			// work.landed on the bus: waiting lanes use `coord wait --kinds
 			// work.landed --scope <item>` instead of /tmp poll scripts
 			try {
-				openStore()
-					.query(
-						"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'fleet-loop', 'work.landed', ?, ?, NULL)",
-					)
-					.run(Date.now(), b, JSON.stringify({ work: b, sha: after }));
-			} catch {}
+				const store = openStore();
+				try {
+					recordLanding(
+						store,
+						REPO,
+						projectIdentity(REPO),
+						claim.item,
+						b,
+						claim.resultSha ?? b,
+					);
+				} finally {
+					store.close();
+				}
+			} catch (error) {
+				log(`LANDING-DEFER ${b} — ${String(error).slice(0, 300)}`);
+				try {
+					rmSync(marker);
+				} catch {}
+				return;
+			}
 			clearFail(b);
 		} else {
-			mergeFail(b, mv.tail);
+			if (mv.tail.startsWith("review required:"))
+				log(`MERGE-DEFER ${b} — ${mv.tail}`);
+			else mergeFail(b, mv.tail);
 		}
 		try {
 			rmSync(`${REPO}/.fleet/merge-active`);
