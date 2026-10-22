@@ -113,6 +113,40 @@ describe("runaway lib units", () => {
 		expect(v.failStreak).toBe(0);
 	});
 
+	test("W1079: a different call breaks the run — spaced rerun counts 1", async () => {
+		const { scanTail, stableKey } = await import("../hooks/lib/runaway.ts");
+		// TDD loop: test → edit → test → edit → test; the two edits break
+		// both runs, so the pending rerun rides a trailing run of 1
+		const t =
+			use("t1", "Bash", { command: "bun test" }) +
+			res("t1", false, "ok") +
+			use("e1", "Edit", { file_path: "a.ts" }) +
+			res("e1", false, "ok") +
+			use("t2", "Bash", { command: "bun test" }) +
+			res("t2", false, "ok") +
+			use("e2", "Edit", { file_path: "a.ts" }) +
+			res("e2", false, "ok") +
+			use("t3", "Bash", { command: "bun test" }) +
+			res("t3", false, "ok");
+		const v = scanTail(t, "Bash", stableKey({ command: "bun test" }));
+		expect(v.repeats).toBe(1);
+	});
+
+	test("W1079: a later different call caps the run at zero for a rerun", async () => {
+		const { scanTail, stableKey } = await import("../hooks/lib/runaway.ts");
+		const t =
+			use("t1", "Bash", { command: "bun test" }) +
+			res("t1", false, "ok") +
+			use("t2", "Bash", { command: "bun test" }) +
+			res("t2", false, "ok") +
+			use("t3", "Bash", { command: "bun test" }) +
+			res("t3", false, "ok") +
+			use("e1", "Edit", { file_path: "a.ts" }) +
+			res("e1", false, "ok");
+		const v = scanTail(t, "Bash", stableKey({ command: "bun test" }));
+		expect(v.repeats).toBe(0);
+	});
+
 	test("scanTail drops a partial first line", async () => {
 		const { scanTail, stableKey } = await import("../hooks/lib/runaway.ts");
 		const t =
@@ -257,6 +291,22 @@ describe("runaway gate: repeat + streak breakers", () => {
 		expect(r.json?.hookSpecificOutput?.permissionDecisionReason).toContain(
 			"runaway-guard",
 		);
+	});
+
+	test("W1079: spaced reruns of a TDD loop allow — interleaved edits break the run", () => {
+		const t =
+			use("t1", "Bash", cmd) +
+			res("t1", false, "ok") +
+			use("e1", "Edit", { file_path: "a.ts" }) +
+			res("e1", false, "ok") +
+			use("t2", "Bash", cmd) +
+			res("t2", false, "ok") +
+			use("e2", "Edit", { file_path: "a.ts" }) +
+			res("e2", false, "ok") +
+			use("t3", "Bash", cmd) +
+			res("t3", false, "ok");
+		const r = runGate(t, { tool_name: "Bash", tool_input: cmd });
+		expect(r.out.trim()).toBe("{}");
 	});
 
 	test("fail streak at cap blocks; below cap allows", () => {

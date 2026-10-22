@@ -16,6 +16,7 @@ import {
 	emptyStreamError,
 	StreamSemantics,
 } from "../../buckle/src/stream-semantics.ts";
+import { primeLocalStream } from "./stream-prelude.ts";
 import { upstreamErrorDetail } from "../../buckle/src/error-detail.ts";
 
 // ─── 7-dimension complexity scoring (LiteLLM Auto Router pattern) ───
@@ -683,7 +684,13 @@ export type StreamOpen =
 			/** W257: performance.now() when the upstream opened (headers in). */
 			openedAt?: number;
 	  }
-	| { ok: false; error: string; status?: number; retryAfterMs?: number };
+	| {
+			ok: false;
+			error: string;
+			status?: number;
+			retryAfterMs?: number;
+			cleanup?: Promise<void>;
+	  };
 
 export async function openLocalStream(
 	r: { port: number; model: string },
@@ -703,6 +710,7 @@ export async function openLocalStream(
 	// open-success path — a failed open (ECONNREFUSED) left it armed for the
 	// full window. Self-expiring, but ref'd; clear on every exit path.
 	let ttfb: ReturnType<typeof setTimeout> | undefined;
+	let cleanup: Promise<void> | undefined;
 	try {
 		// W278: connect/TTFB-only timeout — AbortSignal.timeout stayed armed
 		// through the body and cut healthy streams >120s mid-generation. Once
@@ -740,19 +748,33 @@ export async function openLocalStream(
 			},
 		);
 		status = res.status;
-		// headers in — disarm; a late fire would abort the live body (the
-		// signal stays bound to the fetch). On a failed open the stale fire
-		// aborts an orphaned controller: harmless no-op.
-		clearTimeout(ttfb);
+		// Keep the original open deadline through metadata-only SSE: a backend
+		// may reject admission inside the generator after sending HTTP 200.
 		const ct = res.headers.get("content-type") ?? "";
-		if (res.ok && res.body && ct.includes("text/event-stream"))
+		if (res.ok && res.body && ct.includes("text/event-stream")) {
+			const primed = await primeLocalStream(
+				res.body,
+				ctrl.signal,
+				(pending) => {
+					cleanup = pending;
+				},
+			);
+			clearTimeout(ttfb);
+			if (!primed.ok) {
+				status = primed.status;
+				failureKind = "http";
+				retryAfter = retryAfterMs(res.headers.get("retry-after"));
+				return { ...primed, retryAfterMs: retryAfter, cleanup };
+			}
 			return {
 				ok: true,
-				body: res.body,
+				body: primed.body,
 				...(opts.startedAt !== undefined
 					? { openedAt: performance.now() }
 					: {}),
 			};
+		}
+		clearTimeout(ttfb);
 		failureKind = res.ok ? "decode" : "http";
 		// W732: post-header non-SSE bodies have no pump/client-cancel owner —
 		// a header-then-stall upstream hung this drain (and the request)
@@ -784,7 +806,11 @@ export async function openLocalStream(
 	} catch (e) {
 		failureKind = status === undefined ? "transport" : "decode";
 		if (ttfb) clearTimeout(ttfb);
-		return { ok: false, error: e instanceof Error ? e.message : String(e) };
+		return {
+			ok: false,
+			error: e instanceof Error ? e.message : String(e),
+			cleanup,
+		};
 	} finally {
 		opts.onAttempt?.({
 			hop: "local-specialist",
@@ -1104,6 +1130,7 @@ export function anthropicSseFromOpenAi(
 				try {
 					for (;;) {
 						const { value, done: eof } = await reader.read();
+						if (clientGone) return;
 						if (eof) {
 							const timings = composeTimings();
 							const last = handleLine(buf);
@@ -1191,10 +1218,13 @@ export function anthropicSseFromOpenAi(
 				}
 			})();
 		},
-		cancel(reason) {
+		async cancel(reason) {
 			clientGone = true;
-			done("client cancelled");
-			return reader.cancel(reason);
+			try {
+				await reader.cancel(reason);
+			} finally {
+				done("client cancelled");
+			}
 		},
 	});
 }
