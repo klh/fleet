@@ -59,6 +59,10 @@ export interface GatewayPolicy {
 	// adapter_config.provider_pool; an unbound pool id or malformed binding
 	// is startup-fatal in the router (fail-closed, never silently off).
 	provider_pools?: Record<string, ProviderPoolPolicy>;
+	// W1118.1: the attempt budget this gateway roots into a fresh hop
+	// contract (x-klh-hop-contract) when a request enters the fleet here.
+	// The deadline rides first_byte_budget_s; belt ignores unknown keys.
+	hop_contract_root_budget?: number;
 }
 
 /** W142 aids policy (routing-policy.yaml `aids:` block). Belt ignores the

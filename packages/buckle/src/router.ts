@@ -27,7 +27,7 @@ import { bridgeRequest, bridgeResponse } from "./bridge.ts";
 import { type CandidateRow, candIdOf } from "./candidates.ts";
 import { Cooldowns, retryAfterS, retryDelayS } from "./cooldown.ts";
 import { mayEscalate, type RouteSelection } from "./decide.ts";
-import type { HopContract } from "./hop-deadline.ts";
+import { hopContractRoot, type HopContract } from "./hop-deadline.ts";
 import { FLASHX, type GatewayPolicy } from "./policy.ts";
 import {
 	type ProviderLease,
@@ -373,6 +373,17 @@ export class Router {
 	providerAdmissionSnapshot() {
 		return Object.fromEntries(
 			[...this.pools].map(([id, core]) => [id, core.snapshot()]),
+		);
+	}
+	/** W1118.1: the contract this gateway roots for a fresh fleet entry —
+	 *  the local walk budget in attempts and the local walk deadline, so
+	 *  the child chain is bounded by exactly what this hop would have
+	 *  spent anyway. */
+	hopContractRoot(now: number): HopContract {
+		return hopContractRoot(
+			now,
+			now + (this.policy.first_byte_budget_s ?? 240) * 1000,
+			this.policy.hop_contract_root_budget ?? 4,
 		);
 	}
 	/** One upstream attempt, outcome classified for the walk. */

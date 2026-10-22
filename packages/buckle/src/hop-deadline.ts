@@ -40,7 +40,7 @@ export interface HopContractDenial {
 }
 
 export type HopContractAdmission =
-	| { ok: true; contract: HopContract }
+	| { ok: true; contract: HopContract | null }
 	| { ok: false; denial: HopContractDenial };
 
 /** A child contract that cannot encode refuses the leg (never a
@@ -85,17 +85,19 @@ function denialOf(
 	return null;
 }
 
-/** Parse a hop contract from a raw header value. Only an ARRIVING contract
- *  is validated — an absent header means a fresh fleet entry (root below);
- *  it is never a refusal. The repeated-rung check tests the receiver's own
- *  rung against the visited path: a retry of the same rung never re-appends
- *  (the path carries the sender chain, not this receiver), so an immediate
- *  cycle is the only repeat. */
+/** Parse a hop contract from a raw header value. An ABSENT header admits
+ *  with a null contract (a fresh fleet entry — the caller roots one); any
+ *  PRESENT but failed verdict refuses typed. The repeated-rung check tests
+ *  the receiver's own rung against the visited path: a retry of the same
+ *  rung never re-appends (the path carries the sender chain, not this
+ *  receiver), so an immediate cycle is the only repeat. */
 export function admitHopContract(
 	value: string | null | undefined,
 	now: number,
 	ownRung: string,
 ): HopContractAdmission {
+	if (value === null || value === undefined || value === "")
+		return { ok: true, contract: null };
 	const parsed = parseHopContract(value, now);
 	const denial = denialOf(parsed, ownRung);
 	if (denial !== null) return { ok: false, denial };

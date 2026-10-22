@@ -60,6 +60,12 @@ import {
 	laneFromBaggage,
 	type HopContext,
 } from "./hop.ts";
+import {
+	admitHopContract,
+	HOP_CONTRACT_HEADER,
+	type HopContract,
+} from "./hop-deadline.ts";
+import { rungIdOf } from "../../telemetry/src/hop-contract.ts";
 import { keyIdFromToken, type Ledger, tokenFromHeaders } from "./ledger.ts";
 import {
 	IngressBodyError,
@@ -309,6 +315,10 @@ interface Ctx {
 	/** W706: hop attribution — origin (self when entered here) + the
 	 *  immediate peer (null = entered the fleet at this hub). */
 	hop: HopContext;
+	/** W1118.1: the admitted (or freshly rooted) hop contract this hop
+	 *  threads onto every fleet-leg attempt. Set after body admission —
+	 *  refusals before the model parse never hold one. */
+	hopContract?: HopContract;
 	/** W921 traffic kind: 'readiness' when a ROOT-authenticated request
 	 *  carries the x-klh-traffic: readiness mark (the healthcheck sidecar's
 	 *  synthetic full-chain poll); 'inference' otherwise. */
@@ -486,6 +496,30 @@ async function proxy(
 	const model = typeof body.model === "string" ? body.model : "";
 	if (model.length === 0)
 		return deny(deps, ctx, 400, "missing model", null, "denied");
+	// W1118.1: admit the arriving hop contract — expired/malformed/empty-
+	// budget/repeated-rung refuse as typed traced failures — or root one
+	// for a fresh fleet entry. ownRung derives from the URL the caller
+	// addressed this hop by + the wire model (the candIdOf recipe), so a
+	// retry stays the same rung and an immediate cycle repeats its rung.
+	const selfUrl = new URL(req.url);
+	const ownRung = rungIdOf(
+		selfUrl.hostname,
+		Number(selfUrl.port) || (selfUrl.protocol === "https:" ? 443 : 80),
+		model,
+	);
+	const rawContract = req.headers.get(HOP_CONTRACT_HEADER);
+	const admitted = admitHopContract(rawContract, Date.now(), ownRung);
+	if (!admitted.ok)
+		return deny(
+			deps,
+			ctx,
+			admitted.denial.status,
+			admitted.denial.why,
+			admitted.denial.code,
+			"denied",
+		);
+	const contract = admitted.contract ?? deps.router.hopContractRoot(Date.now());
+	ctx.hopContract = { ...contract, ownRung };
 	// W461 stage 2: admitted — unsampled, published before any routing.
 	ctx.admitted = true;
 	observe(deps, ctx, "lane.request.admitted");
@@ -630,6 +664,8 @@ async function runExecute(
 				deps.hubId ?? "local",
 				ctx.lane,
 			),
+			hopContract: ctx.hopContract,
+			ownRung: ctx.hopContract?.ownRung,
 			preference: ctx.preference,
 			signal: req.signal,
 			sel,
