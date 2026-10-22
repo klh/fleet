@@ -4,7 +4,13 @@
 // dispatch-facing dispatchStarterFork wiring (flag off / claude fork /
 // unsupported harness / seed failure fallback).
 import { describe, expect, test, afterEach } from "bun:test";
-import { mkdirSync, existsSync, rmSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -191,10 +197,10 @@ describe("lane-starter", () => {
 		});
 	});
 
-	test("W768: default-on — bare env forks the claude executor", async () => {
+	test("W1124.12.1: opt-in — flag on forks; bare env cold-starts", async () => {
 		const logs: string[] = [];
 		const r = await dispatchStarterFork({
-			env: {},
+			env: { [STARTER_FLAG]: "on" },
 			noBelt: true,
 			harness: "claude",
 			fleet,
@@ -214,7 +220,8 @@ describe("lane-starter", () => {
 		expect(r.forkArgs).toEqual(["--resume", "seed-768", "--fork-session"]);
 		expect(r.prompt).toContain("s768");
 		expect(logs.join(" ")).toMatch(/forked/);
-		expect(starterEnabled({})).toBe(true);
+		expect(starterEnabled({ [STARTER_FLAG]: "on" })).toBe(true);
+		expect(starterEnabled({})).toBe(false);
 		expect(starterEnabled({ [STARTER_FLAG]: "0" })).toBe(false);
 	});
 
@@ -416,4 +423,39 @@ describe("lane-starter", () => {
 			"STARTER W818 — forked starter f4dae8ae032c (cached, session e02f5a14; saved ≈60.3s vs cold, W768 bench)",
 		);
 	});
+
+	// W1124.12.1: the seed turn hangs for real when the executor wedges —
+	// the NATIVE `timeout` option enforces the deadline (the old `timeoutMs`
+	// field was silently ignored). NARROW contract: the SIGTERM lands on the
+	// DIRECT child (the fixture sh wrapper); descendants are NOT guaranteed
+	// to die with it — the test reaps the fixture's survivor itself.
+	test("the direct seed child is killed within the declared budget", () => {
+		// afterEach removed the shared fleet dir — ensureStarter spawns with
+		// cwd: fleet, so it must exist for the real spawnSync.
+		mkdirSync(fleet, { recursive: true });
+		const d = scratch();
+		const hung = join(d, "hung-seed.sh");
+		writeFileSync(hung, "#!/bin/sh\nsleep 30\n");
+		chmodSync(hung, 0o700);
+		const seedMs = 1_000;
+		const t0 = Date.now();
+		const r = ensureStarter(
+			fleet,
+			"claude",
+			hung,
+			{ PATH: "/usr/bin:/bin" },
+			{
+				timeoutMs: seedMs,
+			},
+		);
+		const elapsed = Date.now() - t0;
+		// the hung seed prints no session id → the failure record
+		expect(r?.kind).toBe("failure");
+		// budget + SIGTERM overhead — NOT the fixture's full 30s runtime
+		expect(elapsed).toBeLessThan(10_000);
+		expect(elapsed).toBeGreaterThanOrEqual(seedMs);
+		// narrow-contract hygiene: reap the wrapper's surviving descendant
+		Bun.spawnSync(["/usr/bin/pkill", "-f", hung]);
+		rmSync(d, { recursive: true, force: true });
+	}, 15_000);
 });

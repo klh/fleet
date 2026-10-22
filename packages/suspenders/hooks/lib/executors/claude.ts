@@ -20,11 +20,10 @@ import { join } from "node:path";
 // inherited tools/10 unrelated MCP servers, the built-in tool list is the
 // lane closure (Bash for git/bun/work/coord, Read/Edit/Write/Skill). Not
 // --bare (hooks stay live) and not --restricted (settings must apply).
-// The space after the colon is LOAD-BEARING: spawnClaude's sh -c layer only
-// single-quotes args containing a space, so the compact form arrived at the
-// CLI shell-stripped as invalid JSON (caught live by the dispatch e2e).
+// Canonical compact JSON: spawnClaude single-quotes EVERY argv (W1124.12.1),
+// so the payload arrives byte-exact regardless of internal whitespace.
 export const WORKER_MANAGED_PROFILE = {
-	mcpConfig: '{"mcpServers": {}}',
+	mcpConfig: '{"mcpServers":{}}',
 	tools: "Bash,Read,Edit,Write,Skill",
 };
 

@@ -985,8 +985,8 @@ const dispatchItem = async (
 		// .fleet/brief-<sid>.md is invisible to them. The .fleet copy stays for
 		// the orchestrator/board; the worktree copy is what the lane actually gets.
 		const prompt = `Lane ${sid}. Read ${wt}/.klh-brief.md (your readable worktree copy of the mission brief — canonical: ${briefFile}) and execute it fully.`;
-		// W454 starter sessions (default on since W768 — SUSPENDERS_LANE_STARTER
-		// =off cold-starts): fork a versioned shared-prefix starter session
+		// W454 starter sessions (W1124.12.1: default OFF — SUSPENDERS_LANE_STARTER
+		// =on/1 opts in): fork a versioned shared-prefix starter session
 		// instead of cold orientation; the seed
 		// rides a fleet identity (fleet-starter attribution slug), never the
 		// lane's minted key. Wiring lives in scripts/lib/lane-starter.ts.

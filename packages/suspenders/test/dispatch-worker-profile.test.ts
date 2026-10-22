@@ -2,19 +2,35 @@
 // ACTUAL spawn argv rides the managed worker profile — strict MCP config
 // with an explicit empty server map (no inherited MCP schemas) and the
 // scoped built-in tool list. E2E over the real dispatch-next CLI: a capture
-// stub replaces the executor and records every argv line.
+// stub replaces the executor and records every argv NUL-delimited —
+// W1124.12.1: flattened `echo "$@"` is NOT boundary proof, so assertions
+// read the per-argument array, never one joined string.
 import { describe, expect, test, afterAll } from "bun:test";
-import { readFileSync } from "node:fs";
+import {
+	chmodSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { dispatchHarness } from "./helpers/dispatch-harness.ts";
+import { spawnClaude } from "../scripts/lib/lane.ts";
 import { WORKER_MANAGED_PROFILE } from "../hooks/lib/executors/claude.ts";
+
+// NUL-delimited capture: each argv element lands byte-exact, so the test
+// can pin argument BOUNDARIES (empty args, embedded newlines, quotes).
+const argvBody = `#!/bin/sh
+for a in "$@"; do
+  printf '%s\\0' "$a" >> "$HOME/claude-args.nul"
+done
+sleep 2
+`;
 
 const h = dispatchHarness(afterAll, {
 	tag: "w1124-worker-profile",
-	executorBody: `#!/bin/sh
-echo "$@" >> "$HOME/claude-args.log"
-sleep 2
-`,
+	executorBody: argvBody,
 });
 
 describe("W1124.12 fresh worker rides the managed profile", () => {
@@ -29,13 +45,51 @@ describe("W1124.12 fresh worker rides the managed profile", () => {
 			"--no-belt",
 		);
 		expect(result.out).toContain(`dispatched ${id}`);
-		const argsLog = readFileSync(join(h.HOME, "claude-args.log"), "utf8");
-		expect(argsLog).toContain("--strict-mcp-config");
-		// the sh -c layer single-quotes args containing a space — the space
-		// after the colon is load-bearing; assert the JSON survives the shell
-		expect(argsLog).toContain(WORKER_MANAGED_PROFILE.mcpConfig);
-		expect(argsLog).toContain(`--tools ${WORKER_MANAGED_PROFILE.tools}`);
+		const argv = readFileSync(join(h.HOME, "claude-args.nul"), "utf8")
+			.split("\0")
+			.slice(0, -1);
+		expect(argv).toContain("--strict-mcp-config");
+		// boundary proof: the JSON arrives as ONE argument, byte-exact —
+		// canonical compact form, never shell-stripped
+		const mcpAt = argv.indexOf("--mcp-config");
+		expect(mcpAt).toBeGreaterThanOrEqual(0);
+		expect(argv[mcpAt + 1]).toBe(WORKER_MANAGED_PROFILE.mcpConfig);
+		const toolsAt = argv.indexOf("--tools");
+		expect(argv[toolsAt + 1]).toBe(WORKER_MANAGED_PROFILE.tools);
 		// hooks stay live — never --bare, never a bypass
-		expect(argsLog).not.toContain("--bare");
+		expect(argv).not.toContain("--bare");
 	}, 30000);
+});
+
+// W1124.12.1: the serializer quotes EVERY argument (not only space-bearing
+// ones) — prove it at the spawn layer with the hostile charset the review
+// flagged: apostrophe, dollar, parentheses, newline, empty arg, and a
+// space-free JSON payload (the exact shape the old quoting mangled).
+describe("W1124.12.1 spawnClaude argv fidelity", () => {
+	test("every argument survives sh -c with boundaries intact", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "argv-fidelity-"));
+		const stub = join(dir, "capture.sh");
+		writeFileSync(stub, argvBody);
+		chmodSync(stub, 0o700);
+		const proc = spawnClaude({
+			bin: stub,
+			prompt: "it's $HOME (x)\nline2",
+			cwd: dir,
+			logFile: join(dir, "lane.log"),
+			env: { HOME: dir, PATH: "/usr/bin:/bin" },
+			cliArgs: ["", "a b", '{"k":"v"}'],
+		});
+		await proc.exited;
+		const argv = readFileSync(join(dir, "claude-args.nul"), "utf8")
+			.split("\0")
+			.slice(0, -1);
+		expect(argv).toEqual([
+			"-p",
+			"it's $HOME (x)\nline2",
+			"",
+			"a b",
+			'{"k":"v"}',
+		]);
+		rmSync(dir, { recursive: true, force: true });
+	}, 20000);
 });

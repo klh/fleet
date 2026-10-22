@@ -128,10 +128,11 @@ export const flattenTail = (s: string, cap = 220): string => {
 export const starterEnabled = (
 	env: Record<string, string | undefined>,
 ): boolean => {
-	// W768: default ON (the W454 bench measured the fork win — 90%→98% cache
-	// share, 10.4k→1.1k fresh input) — an operator opts OUT explicitly.
+	// W1124.12.1: default OFF — a stalled seed turn (the timeout knob was
+	// silently ignored, six warm seeds hung for hours) must never wedge a
+	// dispatch. Operators opt IN explicitly ("on"/"1"); "off"/"0" stays off.
 	const v = env[STARTER_FLAG];
-	return v !== "off" && v !== "0";
+	return v === "on" || v === "1";
 };
 
 // The STABLE shared prefix. Repo-local protocol only — no sid, no item, no
@@ -315,7 +316,15 @@ export const ensureStarter = (
 				env: e,
 				stdout: "pipe",
 				stderr: "pipe",
-				timeoutMs: options.timeoutMs ?? 180_000,
+				// W1124.12.1: the native knob is `timeout` (ms) — `timeoutMs` is
+				// not a Bun.spawnSync field and was silently ignored, so a wedged
+				// seed hung for the full default. NARROW contract: the deadline
+				// SIGTERMs the DIRECT seed child only; a shell wrapper's
+				// descendants are not guaranteed to die (killTree is absent from
+				// the installed Bun types and does not reap the tree — review-
+				// verified). Process-group cleanup needs an async spawn rewrite,
+				// out of scope here.
+				timeout: options.timeoutMs ?? 180_000,
 			});
 			return {
 				code: p.exitCode ?? 1,
