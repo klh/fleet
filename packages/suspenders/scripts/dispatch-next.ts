@@ -117,6 +117,7 @@ import { dispatchStarterFork, starterStartLine } from "./lib/lane-starter.ts";
 import {
 	activeRateLimitWalls,
 	parkExhaustedLaunch,
+	launchLogTail,
 	readLaunchBackoff,
 	scheduleLaunchBackoff,
 } from "./lib/launch-backoff.ts";
@@ -410,20 +411,18 @@ const dispatchItem = async (
 	let hold = readConfiguredLaunches((store) =>
 		readLaunchBackoff(store, project, item),
 	);
-	if (resume && !DRY && hold?.attempt !== resume.attempt) {
-		const store = openStore();
-		try {
-			hold = scheduleLaunchBackoff(
-				store,
-				project,
-				item,
-				laneLog,
-				resume.attempt,
-			);
-		} finally {
-			store.close();
-		}
-	}
+	// W1150: re-derive a resume's hold ONLY from observed failure evidence —
+	// an empty tail minted an "unknown" backoff the same pass then waited on
+	// it, self-starving the resume before its spawn (W349 residue fixture).
+	if (
+		resume &&
+		!DRY &&
+		hold?.attempt !== resume.attempt &&
+		launchLogTail(laneLog).trim() !== ""
+	)
+		hold = readConfiguredLaunches((store) =>
+			scheduleLaunchBackoff(store, project, item, laneLog, resume.attempt),
+		);
 	if (hold && Date.now() < hold.eligibleAt) {
 		launchWaits.push(item);
 		console.log(

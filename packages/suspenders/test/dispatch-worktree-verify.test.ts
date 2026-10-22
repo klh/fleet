@@ -116,7 +116,9 @@ describe("leftover worktree verification before spawn (W349)", () => {
 			]),
 		);
 		const resumed = await dispatchA(env2, "--item", id);
-		expect(resumed.out).not.toContain("unbanked residue");
+		// the SKIP refusal is the fresh-spawn-only failure; the dispatch tail's
+		// report row echoes the fixture TITLE, so match the refusal phrase
+		expect(resumed.out).not.toContain("worktree holds unbanked residue");
 		expect(existsSync(join(dir, "residue.txt"))).toBe(true); // resume keeps it
 		expect(existsSync(join(dir, ".klh-brief.md"))).toBe(true);
 		stub.stop();

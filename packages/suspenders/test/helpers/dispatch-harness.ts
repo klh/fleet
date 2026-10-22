@@ -105,8 +105,14 @@ export const dispatchHarness = (
 	const executor = join(HOME, "test-claude");
 	writeFileSync(executor, opts.executorBody ?? "#!/bin/sh\nexit 0\n");
 	chmodSync(executor, 0o700);
+	// W1150: a suite run FROM a dispatch lane leaks that lane's own
+	// KLH_CLAIM_TOKEN into spawned work children — `work done` then prefers
+	// it over the fixture's lane-context token and refuses with "claim was
+	// re-taken" (W643 precedence). Strip it so fixtures close their own.
+	const laneEnv: Record<string, string | undefined> = { ...process.env };
+	delete laneEnv.KLH_CLAIM_TOKEN;
 	const env: Record<string, string | undefined> = {
-		...process.env,
+		...laneEnv,
 		HOME,
 		SUSPENDERS_CLAUDE_BIN: executor,
 		SUSPENDERS_BUCKLE_FRONT: "http://127.0.0.1:1",
