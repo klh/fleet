@@ -7,7 +7,12 @@
 import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { renderFleetReport } from "../scripts/lib/fleet-report.ts";
 import { checkpointPath } from "./lib/checkpoint.ts";
+// W1124.12: an explicit worker role skips the SUPERVISOR DEFAULT + report
+// injection — a managed lane is not a loop-arming runtime (same ruling as
+// the isSubagent branch, source of truth = lane-settings.ts role marker).
+import { sessionRole } from "./lib/coordinator-edit-gate.ts";
 import {
 	CAPABILITIES,
 	openStore,
@@ -19,17 +24,16 @@ import { run } from "./lib/run.ts";
 import { checkSessionPolicies } from "./lib/session-policy.ts";
 import { attachSubscribe, subagentLaneSuffix } from "./lib/subscribe-attach.ts";
 import {
-	seedSupervisorRefill,
-	supervisorRefillDirective,
-} from "./lib/supervisor-refill.ts";
-import {
 	canonicalRepo,
 	launchctlTable,
 	liveStates,
 	supervisorFactLine,
 	supervisorRows,
 } from "./lib/supervisor.ts";
-import { renderFleetReport } from "../scripts/lib/fleet-report.ts";
+import {
+	seedSupervisorRefill,
+	supervisorRefillDirective,
+} from "./lib/supervisor-refill.ts";
 
 type In = {
 	session_id?: string;
@@ -57,6 +61,10 @@ const now = Date.now();
 const suffix = subagentLaneSuffix(input.transcript_path ?? "");
 const isSubagent = suffix !== "";
 let lane = `${sid}${suffix}`; // suffix re-derived in the canonical branch below
+// W1124.12: an explicit worker role — the dispatch-written lane-settings.ts
+// marker — skips the SUPERVISOR DEFAULT + report injection below: a managed
+// lane is not a loop-arming runtime (same ruling as the isSubagent branch).
+const isWorkerRole = sessionRole(input.cwd ?? process.cwd()) === "lane";
 
 function pname(p: string): string {
 	const parts = p.split("/");
@@ -315,7 +323,8 @@ const readyN = (
 		)
 		.get(project) as { n: number }
 ).n;
-if (!isSubagent) seedSupervisorRefill(db as Database, project, sid, readyN);
+if (!isSubagent && !isWorkerRole)
+	seedSupervisorRefill(db as Database, project, sid, readyN);
 const cur = db
 	.query("SELECT event_id FROM cursors WHERE sid = ?")
 	.get(lane) as { event_id: number } | null;
@@ -348,8 +357,10 @@ if (mine.length || inbox > 0 || readyN > 0 || head) {
 	// W637 supervisor default (owner law 2026-10-11): when the pool holds
 	// READY work, the arm-loop directive renders here — compliance by
 	// injection, not model-recall of the global CLAUDE.md rule. Top-level
-	// sessions only: a subagent lane is not a loop-arming runtime.
-	if (readyN > 0 && !isSubagent) {
+	// sessions only: a subagent lane is not a loop-arming runtime, and a
+	// W1124.12 worker-role lane (the dispatch settings marker) is neither —
+	// it executes its claim instead of arming the refill loop.
+	if (readyN > 0 && !isSubagent && !isWorkerRole) {
 		// W899: the SUPERVISOR DEFAULT contract EMITS the W892 table —
 		// session-start only CALLS the one implementation (lib/work-report.ts),
 		// the same shape the install tail and lane briefs carry.
@@ -395,8 +406,11 @@ if (!isSubagent && input.cwd) {
 				.query("SELECT value FROM facts WHERE key = ?")
 				.get(`broadcast.seen.${sid}`) as { value: string } | null;
 			if (b.ts > Number(seen?.value ?? 0)) {
+				// a broadcast note is event context, not a briefing — cap it so one
+				// verbose notice (quota-sweep dumps) cannot flood the resume packet
+				const note = b.note.replace(/\s+/g, " ").trim();
 				out.push(
-					`HISTORICAL FLEET NOTICE (${new Date(b.ts).toISOString().slice(0, 16).replace("T", " ")} UTC; recorded event, not current capability): ${b.note.replace(/\s+/g, " ").trim()} — this does not establish a current transport.`,
+					`HISTORICAL FLEET NOTICE (${new Date(b.ts).toISOString().slice(0, 16).replace("T", " ")} UTC; recorded event, not current capability): ${note.length > 300 ? `${note.slice(0, 300)}…` : note} — this does not establish a current transport.`,
 				);
 				db.query(
 					"INSERT INTO facts (key, value, ts) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, ts = excluded.ts",

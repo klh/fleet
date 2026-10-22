@@ -15,6 +15,7 @@ type Options = {
 	branch: string;
 	ladder?: string;
 	timeoutMs: number;
+	verifyReview?: (candidate?: string) => { ok: boolean; why: string };
 };
 const MARKERS = "^([<]{7,}|[=]{7,}|[>]{7,}|[|]{7,})([[:space:]].*)?$";
 const SOURCE = /\.(?:[cm]?[jt]s|[jt]sx)$/i;
@@ -215,6 +216,8 @@ function mergeCandidate(options: Options): Result {
 		return fail("merge guard: invalid candidate tree");
 	const preflight = validateTree(repo, head, tree);
 	if (preflight.code !== 0) return preflight;
+	const review = options.verifyReview?.();
+	if (review && !review.ok) return fail(`review required: ${review.why}`);
 	const dir = join(repo, ".fleet");
 	mkdirSync(dir, { recursive: true });
 	const scratch = join(
@@ -280,6 +283,9 @@ function mergeCandidate(options: Options): Result {
 			return fail(
 				"merge guard: integration HEAD changed during verification; retry",
 			);
+		const finalReview = options.verifyReview?.(sha);
+		if (finalReview && !finalReview.ok)
+			return fail(`review required: ${finalReview.why}`);
 		const publish = command(
 			repo,
 			["git", "merge", "--ff-only", "--no-edit", sha],

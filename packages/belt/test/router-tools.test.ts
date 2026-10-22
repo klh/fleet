@@ -132,6 +132,96 @@ describe("W789 buffered tool_calls", () => {
 });
 
 describe("W789 SSE tool stream", () => {
+	test("discarded reasoning and non-selected choices cannot license an empty success", async () => {
+		for (const choices of [
+			[{ delta: { reasoning_content: "hidden reasoning" } }],
+			[
+				{ delta: {} },
+				{
+					delta: {
+						content: "discarded",
+						tool_calls: [{ function: { name: "discarded_tool" } }],
+					},
+				},
+			],
+		]) {
+			const upstream = new ReadableStream<Uint8Array>({
+				start(c) {
+					c.enqueue(
+						new TextEncoder().encode(
+							`data: ${JSON.stringify({ choices })}\n\ndata: [DONE]\n\n`,
+						),
+					);
+					c.close();
+				},
+			});
+			const out = await new Response(
+				anthropicSseFromOpenAi(upstream, { id: "discarded", model: "fixture" }),
+			).text();
+			expect(out).toContain('"code":"empty_response"');
+			expect(out).not.toContain("event: message_delta");
+		}
+	});
+	test("backend SSE error survives instead of becoming empty end-turn", async () => {
+		for (const error of [
+			{ type: "internal_error", message: "Internal error during streaming" },
+			{
+				type: "rate_limit_error",
+				code: "backpressure",
+				message: "capacity exhausted",
+			},
+		]) {
+			let outcome: { error?: string } | undefined;
+			const upstream = new ReadableStream<Uint8Array>({
+				start(c) {
+					c.enqueue(
+						new TextEncoder().encode(
+							`data: ${JSON.stringify({ error })}\n\ndata: [DONE]\n\n`,
+						),
+					);
+					c.close();
+				},
+			});
+			const out = await new Response(
+				anthropicSseFromOpenAi(
+					upstream,
+					{ id: "error", model: "fixture" },
+					(result) => {
+						outcome = result;
+					},
+				),
+			).text();
+			const payload = out
+				.split("\n")
+				.find((line) => line.startsWith('data: {"type":"error"'));
+			expect(JSON.parse(payload?.slice(6) ?? "null").error).toEqual(error);
+			expect(out).not.toContain("event: message_delta");
+			expect(out).not.toContain('"type":"message_stop"');
+			expect(outcome?.error).toBe("code" in error ? error.code : error.type);
+		}
+	});
+	test("empty backend EOF is an error before any success stop delta", async () => {
+		let outcome: { error?: string } | undefined;
+		const upstream = new ReadableStream<Uint8Array>({
+			start(c) {
+				c.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
+				c.close();
+			},
+		});
+		const out = await new Response(
+			anthropicSseFromOpenAi(
+				upstream,
+				{ id: "empty", model: "fixture" },
+				(result) => {
+					outcome = result;
+				},
+			),
+		).text();
+		expect(out).toContain('"code":"empty_response"');
+		expect(out).not.toContain("event: message_delta");
+		expect(out).not.toContain('"type":"message_stop"');
+		expect(outcome?.error).toBe("empty_response");
+	});
 	test("pump emits tool_use blocks", async () => {
 		const sse = [
 			'data: {"choices":[{"delta":{"content":"checking"}}]}',

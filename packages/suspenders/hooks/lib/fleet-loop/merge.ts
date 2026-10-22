@@ -22,7 +22,13 @@ import {
 } from "../ladder-lease.ts";
 import { flagIntegratedCode } from "../decomposition.ts";
 import { guardedMerge } from "../merge-guard.ts";
+import {
+	checkReviewReceipt,
+	reviewContext,
+	recordLanding,
+} from "../review-receipt.ts";
 import type { LoopDeps } from "./runtime.ts";
+import { scheduleReview } from "../review-scheduler.ts";
 
 export type MergeLadder = {
 	mergeOne: (b: string) => void;
@@ -112,14 +118,43 @@ export function createMergeLadder(
 			return;
 		}
 		if (n === 0) {
+			const integrated = itemClaimOf(REPO, b);
+			if (integrated.state === "DONE" && integrated.resultSha) {
+				const store = openStore();
+				try {
+					recordLanding(
+						store,
+						REPO,
+						projectIdentity(REPO),
+						integrated.item,
+						b,
+						integrated.resultSha,
+					);
+				} catch (error) {
+					log(`LANDING-DEFER ${b} — ${String(error).slice(0, 300)}`);
+					return;
+				} finally {
+					store.close();
+				}
+			}
 			retireMerged(b);
 			return;
 		}
 		// never merge a branch a live lane still owns (gaps 2026-09-30: autow351
 		// was merged mid-flight with 3 live pids in its worktree — the ladder
 		// treated ahead>0 as ready and its retire swept the worktree out from
-		// under the agents)
-		if (laneIsAlive(b)) return;
+		// under the agents). W1124.16: the veto is tri-state honest — ONLY a
+		// proven-dead lane (explicit false) lets the merge through; live defers
+		// silently (the mid-flight norm), unknown defers loudly (a failed probe
+		// is never death — monitor doctrine W51).
+		const live = laneIsAlive(b);
+		if (live === true) return;
+		if (live === null) {
+			log(
+				`MERGE-DEFER ${b} — lane liveness unknown (probe failure is never death); deferring`,
+			);
+			return;
+		}
 		// W641 ladder lease: the govdb lease outranks every liveness signal — a
 		// branch whose item is CLAIMED/RUNNING never merges, even with its lane
 		// process dead (pre-reclaim window) or unregistered. A store failure makes
@@ -148,6 +183,46 @@ export function createMergeLadder(
 			log(`MERGE-DEFER ${b} — ${exact.why}`);
 			return;
 		}
+		const verifyReview = (candidate?: string) => {
+			const store = openStore();
+			try {
+				const context = reviewContext(REPO, b);
+				if (
+					candidate &&
+					JSON.stringify(reviewContext(REPO, candidate).instructions) !==
+						JSON.stringify(context.instructions)
+				)
+					return {
+						ok: false,
+						why: "integration changed reviewed instructions",
+					};
+				return checkReviewReceipt(
+					store,
+					projectIdentity(REPO),
+					claim.item,
+					context,
+				);
+			} catch (error) {
+				return { ok: false, why: String(error).slice(0, 300) };
+			} finally {
+				store.close();
+			}
+		};
+		const review = verifyReview();
+		if (!review.ok) {
+			log(`MERGE-DEFER ${b} — review required: ${review.why}`);
+			const store = openStore();
+			try {
+				log(
+					`REVIEW ${b} — ${scheduleReview({ db: store, project: projectIdentity(REPO), item: claim.item, repo: REPO, context: reviewContext(REPO, b) })}`,
+				);
+			} catch (error) {
+				log(`REVIEW-DEFER ${b} — ${String(error).slice(0, 300)}`);
+			} finally {
+				store.close();
+			}
+			return;
+		}
 		// liveness marker: a crash between --no-commit and commit leaves
 		// MERGE_HEAD + staged debris that plain merge --abort cannot clear (the
 		// 2026-09-28 gaps stall). The marker tells the next cycle whether a
@@ -174,6 +249,7 @@ export function createMergeLadder(
 			branch: b,
 			ladder: LADDER,
 			timeoutMs: LADDER_TIMEOUT_MS,
+			verifyReview,
 		});
 		if (mv.code === 0) {
 			let after = sh(["git", "rev-parse", "--short", "HEAD"]);
@@ -212,15 +288,31 @@ export function createMergeLadder(
 			// work.landed on the bus: waiting lanes use `coord wait --kinds
 			// work.landed --scope <item>` instead of /tmp poll scripts
 			try {
-				openStore()
-					.query(
-						"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'fleet-loop', 'work.landed', ?, ?, NULL)",
-					)
-					.run(Date.now(), b, JSON.stringify({ work: b, sha: after }));
-			} catch {}
+				const store = openStore();
+				try {
+					recordLanding(
+						store,
+						REPO,
+						projectIdentity(REPO),
+						claim.item,
+						b,
+						claim.resultSha ?? b,
+					);
+				} finally {
+					store.close();
+				}
+			} catch (error) {
+				log(`LANDING-DEFER ${b} — ${String(error).slice(0, 300)}`);
+				try {
+					rmSync(marker);
+				} catch {}
+				return;
+			}
 			clearFail(b);
 		} else {
-			mergeFail(b, mv.tail);
+			if (mv.tail.startsWith("review required:"))
+				log(`MERGE-DEFER ${b} — ${mv.tail}`);
+			else mergeFail(b, mv.tail);
 		}
 		try {
 			rmSync(`${REPO}/.fleet/merge-active`);

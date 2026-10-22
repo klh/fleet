@@ -288,9 +288,13 @@ describe("console routes (real board, temp config)", () => {
 		expect(home).toContain('href="/console/buckle"');
 		expect(home).toContain('href="/console/local"');
 		expect(home).toContain('src="/vendor/klh-topbar.js"');
+		// W995/W1149: /usage serves a client redirect into the shell's hash
+		// navigation; the usage surface itself renders inside the shell at
+		// /#usage — hash never reaches the server, so the / fetch above is
+		// the shell assertion.
 		const usage = await (await fetch(`${BASE}/usage`)).text();
-		expect(usage).toContain("<klh-topbar");
-		expect(usage).toContain('src="/vendor/klh-topbar.js"');
+		expect(usage).toContain("<title>Opening Usage</title>");
+		expect(usage).toContain('href="/#usage"');
 		const belt = await (await fetch(`${BASE}/console/buckle`)).text();
 		expect(belt).toContain("Routing policy");
 		expect(belt).toContain("glm-5.3-flash");

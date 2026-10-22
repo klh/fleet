@@ -16,7 +16,10 @@ import { executePlan, type StepContext } from "../scripts/install-run.ts";
 import {
 	coldCacheVerdict,
 	materializeDependencies,
+	materializeProduction,
 	offlineResolveArgs,
+	productionFetchArgs,
+	productionInstallArgs,
 	syncHarness,
 } from "../scripts/sync-harness.ts";
 
@@ -443,6 +446,62 @@ test("cold-cache ladder fails early naming the remedy when both legs fail (W1050
 	expect(error?.message).toContain("network unreachable");
 	// the verdict is the shared builder — same shape for direct callers
 	expect(coldCacheVerdict("a", "b").message).toContain("fetch: b");
+});
+
+test("cold-cache production materialization succeeds offline when archives are cached (W1124.6)", async () => {
+	const f = fixture();
+	const calls: string[][] = [];
+	const run = async (argv: string[]): Promise<void> => {
+		calls.push(argv);
+	};
+	await materializeProduction(join(f.root, "stage"), run);
+	expect(calls).toHaveLength(1);
+	expect(calls[0]).toEqual(productionInstallArgs());
+});
+
+test("cold-cache production materialization fetches missing archives once and retries offline (W1124.6)", async () => {
+	const f = fixture();
+	const calls: string[][] = [];
+	const run = async (argv: string[]): Promise<void> => {
+		calls.push(argv);
+		if (argv.includes("--offline") && calls.length === 1)
+			throw new Error("ENOENT: cache miss dns-packet");
+	};
+	await materializeProduction(join(f.root, "stage"), run);
+	expect(calls).toHaveLength(3);
+	expect(calls[0]).toEqual(productionInstallArgs());
+	// the one bounded fetch: same frozen graph, network, scripts disabled
+	expect(calls[1]).toEqual(productionFetchArgs());
+	expect(calls[2]).toEqual(productionInstallArgs());
+});
+
+test("failed archive fetch leaves the original error intact (W1124.6)", async () => {
+	const f = fixture();
+	const run = async (argv: string[]): Promise<void> => {
+		if (argv.includes("--offline"))
+			throw new Error("ENOENT: cache miss emoji-regex");
+		throw new Error("network unreachable");
+	};
+	const error = await materializeProduction(join(f.root, "stage"), run).then(
+		() => null,
+		(e: Error) => e,
+	);
+	expect(error?.message).toContain("cache miss emoji-regex");
+	expect(error?.message).not.toContain("network unreachable");
+});
+
+test("productionInstallArgs is the frozen offline materialization shape (W1124.6)", () => {
+	const install = productionInstallArgs();
+	expect(install[1]).toBe("install");
+	expect(install).toContain("--production");
+	expect(install).toContain("--offline");
+	expect(install).toContain("--ignore-scripts");
+	expect(install).toContain("--frozen-lockfile");
+	// the fetch is the identical argv minus --offline: same frozen lock, no drift
+	expect(productionFetchArgs()).toEqual(
+		install.filter((a) => a !== "--offline"),
+	);
+	expect(productionFetchArgs()).not.toContain("--offline");
 });
 
 test("exclusive synchronization lock prevents simultaneous installers from publishing twice", async () => {

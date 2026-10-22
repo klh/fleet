@@ -21,6 +21,7 @@
 // path the operator already owns). Invalid config = rejected with the parse
 // error; nothing partial ever lands (validate-then-atomic-write).
 import { YAML } from "bun";
+import { type PlaidRoute, validatePlaidRoutes } from "./plaid-route-config.ts";
 import {
 	chmodSync,
 	existsSync,
@@ -366,6 +367,8 @@ export function diffLines(a: string, b: string): string[] {
 
 // ─── suspenders-board.json (the board's own knobs) ────────────────────────
 export interface BoardSettings {
+	/** Explicit route rows constrain both dispatcher and board; [] disables all routes. */
+	plaid_routes?: PlaidRoute[];
 	status_refresh_s?: number;
 	harvest_ttl_s?: number;
 	default_actor?: string;
@@ -418,6 +421,8 @@ export function validateBoardSettings(v: unknown): BoardSettings {
 		throw new ConfigError("board settings must be a JSON object");
 	const o = v as Record<string, unknown>;
 	const out: BoardSettings = {};
+	if (Object.hasOwn(o, "plaid_routes"))
+		out.plaid_routes = validatePlaidRoutes(o.plaid_routes);
 	const sr = numKnob(o, "status_refresh_s", 0);
 	if (sr !== undefined) out.status_refresh_s = sr;
 	const ht = numKnob(o, "harvest_ttl_s", 1);

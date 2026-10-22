@@ -9,6 +9,10 @@
 // models never appear —
 // structural (hub cannot see them) + defensive `visibility: spoke-private`.
 import { Database } from "bun:sqlite";
+import {
+	INGRESS_BODY_TIMEOUT_MS,
+	readBoundedJson,
+} from "../ingress-body.ts";
 import type { GatewayPolicy } from "../policy.ts";
 import type { UpstreamPool } from "../upstreams.ts";
 
@@ -60,6 +64,8 @@ export interface FederationOpts {
 	/** W165: which variant this gateway runs — the manifest advertises it
 	 *  (hub = full: identity, issuance, admin; default). */
 	profile?: "hub" | "spoke";
+	/** W1118: the shared request-body deadline for the federation POST reads. */
+	ingressBodyTimeoutMs?: number;
 }
 
 /** The principal a gate-authenticated request carries (WeakMap stash — no
@@ -92,6 +98,8 @@ export class Federation {
 	private readonly pool: UpstreamPool;
 	/** W165: the hub's own profile — manifest capability flags ride it. */
 	readonly profile: "hub" | "spoke";
+	/** W1118: shared body-read deadline for the federation POST paths. */
+	readonly ingressBodyTimeoutMs: number;
 	/** W193: the hub signing identity (JWKS + manifest signatures). */
 	readonly signer: ManifestSigner | null;
 	/** W233 seam: spoke enrollment + fleet registry — provider-less in solo
@@ -114,6 +122,7 @@ export class Federation {
 		this.policy = opts.policy;
 		this.pool = opts.pool;
 		this.profile = opts.profile ?? "hub";
+		this.ingressBodyTimeoutMs = opts.ingressBodyTimeoutMs ?? INGRESS_BODY_TIMEOUT_MS;
 		this.signer = opts.signer ?? null;
 		this.spokes = opts.spokeEnrollment?.(this.db) ?? null;
 		this.usage = opts.usageIngest?.(this.db, this.policy) ?? null;
@@ -236,11 +245,9 @@ export class Federation {
 	 *  success 201 {spoke_id, key_id, key, scopes, expires_at}. Raw key
 	 *  material exists exactly once — this response. */
 	private async enroll(req: Request): Promise<Response> {
-		const body = (await req.json().catch(() => null)) as Record<
-			string,
-			unknown
-		> | null;
-		if (body === null) return bad(400, "buckle.bad_body", "invalid JSON body");
+		const read = await readBoundedJson(req, this.ingressBodyTimeoutMs);
+		if (!read.ok) return bad(read.status, read.code, read.why);
+		const body = read.body as Record<string, unknown> | null;
 		const code = str(body.code);
 		if (code === null) return bad(400, "buckle.bad_body", "missing code");
 		if (this.spokes === null)
@@ -276,11 +283,9 @@ export class Federation {
 	): Promise<Response> {
 		if (p === null)
 			return authError(401, "buckle.auth_missing", "missing bearer token");
-		const body = (await req.json().catch(() => null)) as Record<
-			string,
-			unknown
-		> | null;
-		if (body === null) return bad(400, "buckle.bad_body", "invalid JSON body");
+		const read = await readBoundedJson(req, this.ingressBodyTimeoutMs);
+		if (!read.ok) return bad(read.status, read.code, read.why);
+		const body = read.body as Record<string, unknown> | null;
 		const state = typeof body.state === "string" ? body.state : "";
 		const note = typeof body.note === "string" ? body.note : null;
 		if (this.cr === null)
@@ -336,11 +341,9 @@ export class Federation {
 				"buckle.no_federation",
 				"no CR surface on this gate (solo posture)",
 			);
-		const body = (await req.json().catch(() => null)) as Record<
-			string,
-			unknown
-		> | null;
-		if (body === null) return bad(400, "buckle.bad_body", "invalid JSON body");
+		const read = await readBoundedJson(req, this.ingressBodyTimeoutMs);
+		if (!read.ok) return bad(read.status, read.code, read.why);
+		const body = read.body as Record<string, unknown> | null;
 		const action = str(body.action);
 		const target = str(body.target);
 		if (action === null || target === null)
@@ -439,7 +442,9 @@ export class Federation {
 				"buckle.no_federation",
 				"no usage ingest surface on this gate (solo posture)",
 			);
-		const body = (await req.json().catch(() => null)) as unknown;
+		const read = await readBoundedJson(req, this.ingressBodyTimeoutMs);
+		if (!read.ok) return bad(read.status, read.code, read.why);
+		const body = read.body;
 		// spoke label = the minted key's name (operator infrastructure
 		// naming, readable on the dashboard); opaque keyId fallback.
 		const keyRow = this.db

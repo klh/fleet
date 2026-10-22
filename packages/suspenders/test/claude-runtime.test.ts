@@ -78,3 +78,59 @@ test("managed runtime cancels active native work and injects into the same conve
 		),
 	).toBe(true);
 });
+
+test("native exit during interrupt leaves the direct event replayable, not watermarked", async () => {
+	const fixture = join(
+		import.meta.dir,
+		"fixtures/claude-stream-native-exit.ts",
+	);
+	chmodSync(fixture, 0o700);
+	const sid = "managed-runtime-exit-test";
+	const child = Bun.spawn(
+		[
+			"bun",
+			join(import.meta.dir, "../hooks/bin/claude-runtime.ts"),
+			"-p",
+			"original",
+		],
+		{
+			env: {
+				...process.env,
+				HOME: home,
+				SUSPENDERS_SID: sid,
+				SUSPENDERS_CLAUDE_NATIVE_BIN: fixture,
+			},
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
+	let output = "";
+	let signalled = false;
+	const read = (async () => {
+		for await (const chunk of child.stdout) {
+			output += new TextDecoder().decode(chunk);
+			if (!signalled && output.includes('"subtype":"init"')) {
+				signalled = true;
+				signalClaudeDirectEvent(
+					{ id: 7, target: sid, source: "peer", kind: "NOTE", payload: "{}" },
+					sid,
+					home,
+				);
+			}
+		}
+	})();
+	const code = await child.exited;
+	await read;
+	expect(code).toBe(0);
+	expect(signalled).toBe(true);
+	// the runtime reported the delivery failure, never a terminal result
+	expect(output).toContain('"state":"queued"');
+	expect(output).not.toContain('"state":"interrupted-and-injected"');
+	// replay, exactly once, no churn: the claim was released, so the next
+	// consumer re-reads the SAME event (watermark untouched); proof retires
+	// it and a further read is null
+	const wake = await import("../hooks/lib/claude-wake.ts");
+	expect(wake.consumeClaudeWake(sid, home, "managed")).toContain("#7");
+	expect(wake.proveClaudeWake(sid, home, "managed")).toBe(true);
+	expect(wake.consumeClaudeWake(sid, home, "managed")).toBeNull();
+});

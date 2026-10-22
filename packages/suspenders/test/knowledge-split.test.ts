@@ -13,8 +13,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { unusedPort } from "./helpers/board-fixture.ts";
 
+const REAL_HOME = process.env.HOME;
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-split-"));
 process.env.HOME = HOME;
+// the rest of the suite shares this process: a leaked fixture HOME would
+// ride later spawns' {...process.env} spreads (W1124.11)
+afterAll(() => {
+	process.env.HOME = REAL_HOME;
+});
 const REGD = join(HOME, ".cache", "claude-governor");
 mkdirSync(REGD, { recursive: true });
 
@@ -132,7 +138,15 @@ const QUERIES: [
 // — the raw v9 fixture handle predates them. They are orthogonal to the
 // v10 SPLIT this pin guards, so both sides strip them before the byte
 // comparison; the trust schema itself is pinned in w836-graveyard.test.ts.
-const TRUST_KEYS = ["rating", "evidence", "researched_at", "graveyard_reason"];
+// W1113: confidence_stamp rides the same healing (W953 doctrine column) —
+// stripped for the same reason.
+const TRUST_KEYS = [
+	"rating",
+	"evidence",
+	"researched_at",
+	"graveyard_reason",
+	"confidence_stamp",
+];
 const stripTrust = (hits: unknown[]): unknown[] =>
 	hits.map((h) =>
 		h && typeof h === "object"

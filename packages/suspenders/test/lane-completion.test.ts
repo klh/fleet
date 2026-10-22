@@ -74,12 +74,46 @@ function fixture(priority?: number) {
 			claimToken: /claim token: ([0-9a-f]{48})/.exec(takeOut.out)?.[1],
 		}),
 	);
+	let nativeTurn = 0;
+	const transcript = join(cwd, ".fleet/native-transcript.jsonl");
+	// W1124.13: every intended-new turn emits a normalized native assistant row
+	// (real native row shape, synthetic identity/times) so each stop consumes
+	// the budget exactly as before; stopSame replays the same assistant turn.
+	const nativeTranscript = (): string => {
+		nativeTurn++;
+		writeFileSync(
+			transcript,
+			`${JSON.stringify({
+				type: "assistant",
+				uuid: `fixture-block-${nativeTurn}`,
+				parentUuid: "fixture-parent",
+				timestamp: new Date().toISOString(),
+				message: {
+					id: `fixture-message-${nativeTurn}`,
+					role: "assistant",
+					stop_reason: "tool_use",
+					content: [
+						{ type: "tool_use", id: "fixture-tool", name: "Edit", input: {} },
+					],
+				},
+			})}\n`,
+		);
+		return transcript;
+	};
+	const stopSame = () =>
+		command(cwd, [process.execPath, join(source, "gate.ts"), "stop"], {
+			cwd,
+			session_id: "harness-uuid-different-from-owner",
+			stop_hook_active: true,
+			transcript_path: transcript,
+		});
 	const stop = (message?: string) =>
 		command(cwd, [process.execPath, join(source, "gate.ts"), "stop"], {
 			cwd,
 			session_id: "harness-uuid-different-from-owner",
 			stop_hook_active: true,
 			last_assistant_message: message,
+			transcript_path: nativeTranscript(),
 		});
 	const stopFresh = (message?: string) =>
 		command(cwd, [process.execPath, join(source, "gate.ts"), "stop"], {
@@ -87,10 +121,11 @@ function fixture(priority?: number) {
 			session_id: "harness-uuid-different-from-owner",
 			stop_hook_active: false,
 			last_assistant_message: message,
+			transcript_path: nativeTranscript(),
 		});
 	const coord = (...args: string[]) =>
 		command(cwd, [process.execPath, join(source, "bin/coord.ts"), ...args]);
-	return { cwd, git, work, id, stop, stopFresh, coord };
+	return { cwd, git, work, id, stop, stopFresh, stopSame, coord };
 }
 
 test("direct messages take priority without spending the lane continuation budget", () => {
@@ -569,4 +604,202 @@ test("two unchanged continuations re-anchor with STALL; work breaks the streak",
 	const next = f.stop();
 	expect(next.err).toContain("Re-ask 1/3");
 	expect(next.err).not.toContain("STALL");
+});
+
+test("duplicate native Stop decisions replay without consuming another attempt", () => {
+	const f = fixture();
+	const first = f.stop();
+	const marker = join(f.cwd, ".fleet/completion-attempt.json");
+	expect(JSON.parse(readFileSync(marker, "utf8")).tries).toBe(1);
+	// the SAME assistant turn re-fires the hook: the stored decision replays
+	// verbatim, the attempt counter never moves
+	expect(f.stopSame().err).toBe(first.err);
+	expect(f.stopSame().err).toBe(first.err);
+	expect(JSON.parse(readFileSync(marker, "utf8")).tries).toBe(1);
+	// a genuinely new assistant turn consumes the next legitimate attempt
+	expect(f.stop().err).toContain("Re-ask 2/3");
+});
+
+test("same assistant cannot cache a refusal over newly verified work done", () => {
+	const f = fixture();
+	f.stop();
+	writeFileSync(join(f.cwd, "README.md"), "delivered documentation\n");
+	f.git("add", "README.md");
+	f.git("commit", "-qm", "delivered");
+	const sha = f.git("rev-parse", "HEAD").out.trim();
+	expect(
+		f.work(
+			"done",
+			f.id,
+			"--sha",
+			sha,
+			"--summary",
+			"Delivered the documentation update and verified the saved completion record.",
+		).code,
+	).toBe(0);
+	// terminal verification outranks the cached same-turn reply
+	expect(f.stopSame().code).toBe(0);
+});
+
+test("concurrent duplicate native Stop hooks atomically spend exactly one attempt", async () => {
+	const f = fixture();
+	f.stop(); // seeds the normalized native transcript shape
+	const marker = join(f.cwd, ".fleet/completion-attempt.json");
+	rmSync(marker);
+	const payload = join(f.cwd, ".fleet/concurrent-stop.json");
+	writeFileSync(
+		payload,
+		JSON.stringify({
+			cwd: f.cwd,
+			session_id: "harness-uuid-different-from-owner",
+			stop_hook_active: true,
+			transcript_path: join(f.cwd, ".fleet/native-transcript.jsonl"),
+		}),
+	);
+	const children = [0, 1].map(() =>
+		Bun.spawn([process.execPath, join(source, "gate.ts"), "stop"], {
+			cwd: f.cwd,
+			env,
+			stdin: Bun.file(payload),
+			stdout: "pipe",
+			stderr: "pipe",
+		}),
+	);
+	const results = await Promise.all(
+		children.map(async (child) => ({
+			error: await new Response(child.stderr).text(),
+			code: await child.exited,
+		})),
+	);
+	// the file lock serializes the pair: one decides, the other replays
+	expect(results[0]?.error).toContain("Re-ask 1/3");
+	expect(results[1]?.error).toBe(results[0]?.error);
+	expect(JSON.parse(readFileSync(marker, "utf8")).tries).toBe(1);
+});
+
+test("bound parent receives no-output notice without restarting the stopped child", () => {
+	const f = fixture();
+	expect(
+		f.coord(
+			"bootstrap",
+			"--as",
+			"completion-supervisor",
+			"--role",
+			"coordinator",
+		).code,
+	).toBe(0);
+	expect(
+		f.coord(
+			"bootstrap",
+			"--as",
+			"dispatch-owner",
+			"--parent",
+			"completion-supervisor",
+		).code,
+	).toBe(0);
+	const transcript = join(f.cwd, ".fleet/native-transcript.jsonl");
+	writeFileSync(
+		transcript,
+		`${JSON.stringify({ type: "assistant", uuid: "parent-notice", timestamp: new Date().toISOString(), isApiErrorMessage: true, message: { id: "parent-notice", role: "assistant", content: [] } })}\n`,
+	);
+	expect(f.stopSame().code).toBe(0);
+	expect(f.stopSame().code).toBe(0);
+	const row = JSON.parse(f.work("show", f.id, "--json").out);
+	const db = new Database(join(home, ".cache/claude-governor/governor.db"));
+	try {
+		expect(
+			db
+				.query(
+					"SELECT source,target FROM events WHERE kind='NEED_DECISION' AND json_extract(payload,'$.project')=? AND json_extract(payload,'$.item')=?",
+				)
+				.all(row.project, f.id),
+		).toEqual([{ source: "dispatch-owner", target: "completion-supervisor" }]);
+	} finally {
+		db.close();
+	}
+});
+
+test("distinct no-output turns each publish one event; same-turn duplicates stay silent", () => {
+	const f = fixture();
+	const transcript = join(f.cwd, ".fleet/native-transcript.jsonl");
+	const emptyTurn = (id: string) =>
+		writeFileSync(
+			transcript,
+			`${JSON.stringify({
+				type: "assistant",
+				uuid: `block-${id}`,
+				timestamp: new Date().toISOString(),
+				isApiErrorMessage: true,
+				message: { id, role: "assistant", content: [] },
+			})}\n`,
+		);
+	emptyTurn("error-a");
+	expect(f.stopSame().code).toBe(0); // incident A: publishes
+	expect(f.stopSame().code).toBe(0); // same-turn duplicate: silent
+	emptyTurn("error-b");
+	expect(f.stopSame().code).toBe(0); // incident B (new id): publishes
+	expect(f.stopSame().code).toBe(0); // same-turn duplicate: silent
+	// item ids are per-project: scope the count to THIS fixture's graph
+	const row = JSON.parse(f.work("show", f.id, "--json").out);
+	const db = new Database(join(home, ".cache/claude-governor/governor.db"));
+	try {
+		expect(
+			db
+				.query(
+					"SELECT COUNT(*) AS n FROM events WHERE kind='NEED_DECISION' AND json_extract(payload, '$.project')=? AND json_extract(payload, '$.item')=?",
+				)
+				.get(row.project, f.id),
+		).toEqual({ n: 2 });
+		expect(
+			db
+				.query(
+					"SELECT source,target,json_extract(payload,'$.work') AS work FROM events WHERE kind='NEED_DECISION' AND json_extract(payload,'$.project')=? AND json_extract(payload,'$.item')=?",
+				)
+				.all(row.project, f.id),
+		).toEqual([
+			{ source: row.owner_sid, target: row.owner_sid, work: f.id },
+			{ source: row.owner_sid, target: row.owner_sid, work: f.id },
+		]);
+	} finally {
+		db.close();
+	}
+});
+
+test("same-turn replay is bounded: past the no-new-assistant deadline the stop allows, typed and terminal", () => {
+	const f = fixture();
+	const first = f.stop();
+	const marker = join(f.cwd, ".fleet/completion-attempt.json");
+	expect(JSON.parse(readFileSync(marker, "utf8")).tries).toBe(1);
+	// inside the deadline: idempotent replay
+	expect(f.stopSame().err).toBe(first.err);
+	// advance the clock past the light class's 5-minute no-new-assistant
+	// deadline with the SAME turn id
+	const state = JSON.parse(readFileSync(marker, "utf8"));
+	state.ts = Date.now() - 6 * 60_000;
+	writeFileSync(marker, JSON.stringify(state));
+	const late = f.stopSame();
+	// terminal typed allow-exit: never a re-ask, never DONE/FAILED, no spend
+	expect(late.code).toBe(0);
+	expect(late.err).not.toContain("Re-ask");
+	const typed = JSON.parse(readFileSync(marker, "utf8"));
+	expect(typed.outcome).toBe("TRANSPORT_BLOCKED");
+	expect(typed.diagnostic).toBe("turn_deadline_exceeded");
+	expect(typed.tries).toBe(1);
+	// terminal: further duplicates stay allowed and silent, no new spend
+	expect(f.stopSame().code).toBe(0);
+	expect(JSON.parse(readFileSync(marker, "utf8")).tries).toBe(1);
+	// the deadline incident published exactly ONE durable event
+	const row = JSON.parse(f.work("show", f.id, "--json").out);
+	const db = new Database(join(home, ".cache/claude-governor/governor.db"));
+	try {
+		expect(
+			db
+				.query(
+					"SELECT COUNT(*) AS n FROM events WHERE kind='NEED_DECISION' AND json_extract(payload, '$.project')=? AND json_extract(payload, '$.item')=?",
+				)
+				.get(row.project, f.id),
+		).toEqual({ n: 1 });
+	} finally {
+		db.close();
+	}
 });
