@@ -8,6 +8,12 @@
 // navigation (no console-error/pageerror escape); the usage-server child
 // process stays (it serves the page builders directly, not a fleet-board).
 import { expect, test } from "./fixtures";
+
+// the usage stub serves only /api/usage/cache-drill + /api/usage/monitor —
+// the page's other designed /api/usage/* fallback probes 404 here on
+// purpose (their honest empty-states are the fixture), so those
+// resource-load console lines are declared, URL-scoped, watcher-exempt
+test.use({ watcherAllow404: [/\/api\/usage\//] });
 import {
 	copyFileSync,
 	mkdtempSync,

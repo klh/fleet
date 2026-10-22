@@ -99,9 +99,9 @@ export const test = base.extend<TestFixtures & WorkerFixtures & TestOptions>({
 	],
 
 	pageWatcher: [
-		async ({ page, watcherIgnore }, use) => {
+		async ({ page, watcherIgnore, watcherAllow404 }, use) => {
 			const pageErrors: string[] = [];
-			const consoleErrors: string[] = [];
+			const consoleErrors: { text: string; url: string }[] = [];
 			// the W775.1 ent-zone probes /api/entitlements + /api/enterprise at
 			// connect and polls them for the life of the page — provider-less
 			// those answer the DESIGNED honest 501 (the GUI probe keys on the
@@ -110,22 +110,45 @@ export const test = base.extend<TestFixtures & WorkerFixtures & TestOptions>({
 			// is one of them
 			const entProbe = /\/api\/(entitlements|enterprise)(\?|$)/;
 			const seen501: string[] = [];
+			const seen404: string[] = [];
 			page.on("response", (r) => {
 				if (r.status() === 501) seen501.push(r.url());
+				else if (r.status() === 404) seen404.push(r.url());
 			});
 			page.on("pageerror", (e) => pageErrors.push(String(e)));
 			page.on("console", (m) => {
-				if (m.type() === "error") consoleErrors.push(m.text());
+				if (m.type() === "error")
+					consoleErrors.push({ text: m.text(), url: m.location().url });
 			});
 			await use();
 			expect(pageErrors, "uncaught page exceptions").toEqual([]);
-			const rogue = consoleErrors.filter(
-				(t) =>
-					!(
-						t.includes("status of 501") && seen501.some((u) => entProbe.test(u))
-					) && !watcherIgnore.some((rx) => rx.test(t)),
-			);
-			expect(rogue, "console errors (ent-zone 501 noise exempted)").toEqual([]);
+			// browser resource-load lines ("Failed to load resource") are the
+			// network's honest trace, not page-code defects: 501s pass only when
+			// the wire carried one on the ent-zone probe endpoints; 404s pass
+			// only on a spec-declared designed fallback URL. Every non-resource
+			// console.error stays a GUI defect.
+			const rogue = consoleErrors
+				.filter(({ text, url }) => {
+					if (text.startsWith("Failed to load resource")) {
+						if (
+							text.includes("status of 501") &&
+							seen501.some((u) => entProbe.test(u))
+						)
+							return false;
+						if (
+							text.includes("status of 404") &&
+							watcherAllow404.some((re) => re.test(url))
+						)
+							return false;
+						return true;
+					}
+					return !watcherIgnore.some((rx) => rx.test(text));
+				})
+				.map(({ text, url }) => `${text} [${url}]`);
+			expect(
+				rogue,
+				`console errors (404s seen: ${seen404.join(" ") || "none"})`,
+			).toEqual([]);
 			expect(
 				seen501.filter((u) => !entProbe.test(u)),
 				"501s outside the ent-zone probe endpoints",

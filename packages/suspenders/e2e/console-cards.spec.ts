@@ -69,7 +69,7 @@ test("local page: registry card upgrades; settings: knobs + audit cards", async 
 	await expect(evidence.locator(".evidenceBody")).toContainText("Source:");
 	await page.screenshot({ path: `${SHOTS}/local-cards.png`, fullPage: true });
 
-	await page.goto(`${B.BASE}/console/settings`);
+	await page.goto(`${board.BASE}/console/settings`);
 	const knobs = page.locator("klh-knobs-card");
 	await expect(knobs).toBeVisible();
 	await expect(knobs.getByText(/suspenders-board\.json · /)).toBeVisible();

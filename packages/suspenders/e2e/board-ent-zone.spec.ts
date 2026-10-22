@@ -34,8 +34,8 @@ test("core SKU: page hides the zone and coerces the deep-link", async ({
 	await page.goto(`${board.BASE}/`);
 	const tabs = page.locator("klh-board-tabs");
 	await expect(tabs).toBeVisible();
-	// the six core tabs only — the enterprise tab never appears
-	await expect(tabs.getByRole("button")).toHaveCount(6);
+	// the seven core tabs only — the enterprise tab never appears
+	await expect(tabs.getByRole("button")).toHaveCount(7);
 	// the section exists but stays hidden
 	await expect(page.locator("#tab-enterprise")).toBeHidden();
 

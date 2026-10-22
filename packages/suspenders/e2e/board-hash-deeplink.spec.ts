@@ -61,6 +61,9 @@ test("?project=<alias> selects the global scope", async ({
 	page,
 	cleanBoard,
 }) => {
+	// the scope select only lists RESIDENT projects — mint one first so the
+	// virgin board's option list carries this world's project
+	cleanBoard.workOk(["add", "project scope probe"], "mint a project resident");
 	await page.goto(`${cleanBoard.BASE}/#tasks?project=${cleanBoard.projShort}`);
 	await expect(page.locator("klh-board-tabs button[aria-current]")).toHaveText(
 		"Tasks",

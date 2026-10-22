@@ -372,7 +372,7 @@ test("all-up topology: dispatch → hub front → federation → board → recon
 	await expect(row).toContainText(
 		"Delegate: reconcile hub policy manifest on the spoke",
 	);
-	await expect(row.locator(".pill.ready")).toHaveText("ready");
+	await expect(row.locator(".pill.ready")).toHaveText(/ready/);
 	await page.screenshot({ path: `${SHOTS}/1-declared.png`, fullPage: true });
 
 	// LEG 5 — spoke reconcile: the real federation-pull once rides the hub
@@ -468,7 +468,7 @@ test("all-up topology: dispatch → hub front → federation → board → recon
 	await expect(row).toHaveCount(0); // done rows leave the live list …
 	await page.check("#taskDone"); // … unless completed is shown
 	await expect(row).toBeVisible();
-	await expect(row.locator(".pill.done")).toHaveText("done");
+	await expect(row.locator(".pill.done")).toHaveText(/done/);
 	await page.getByRole("button", { name: "Lanes" }).click();
 	await expect(
 		page

@@ -13,6 +13,7 @@
 // pageWatcher guards every navigation. Still serial: the lane/registry
 // lifecycle below is stateful.
 import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -177,7 +178,7 @@ test.afterAll(async () => {
 	for (const s of stops.reverse()) s.stop();
 });
 
-const leafClass = (label: string) =>
+const leafClass = (page: Page, label: string) =>
 	page.evaluate((label) => {
 		const span = [...document.querySelectorAll(".leaf span")].find((n) =>
 			(n.textContent ?? "").includes(label),
@@ -185,7 +186,7 @@ const leafClass = (label: string) =>
 		return span ? span.className : "absent";
 	}, label);
 
-const refresh = async () => {
+const refresh = async (page: Page) => {
 	await Promise.all([
 		page.waitForResponse((r) => r.url().includes("refresh=1")),
 		page.getByRole("button", { name: "refresh" }).click(),
@@ -230,14 +231,14 @@ test("W565 demo roots stay namespaced and unprobed leaves stay neutral", async (
 	expect(labels.demo).toContain("nas (demo)");
 	expect(labels.demo).toContain("shadow-prod (simulation)");
 	// unprobed demo leaves render neutral, never as verified live capacity
-	expect(await leafClass("sim-model-a")).toBe("tier");
-	expect(await leafClass("demo-nas-model")).toBe("tier");
+	expect(await leafClass(page, "sim-model-a")).toBe("tier");
+	expect(await leafClass(page, "demo-nas-model")).toBe("tier");
 	// provenance note retained on every demo root, live leaves stay green
 	expect(
 		(t.match(/display simulation only · no live routes or health/g) ?? [])
 			.length,
 	).toBe(2);
-	expect(await leafClass("coder :")).toContain("up");
+	expect(await leafClass(page, "coder :")).toContain("up");
 	await page.screenshot({
 		path: "e2e/test-results/w565-demo-namespace.png",
 		fullPage: true,
@@ -248,7 +249,7 @@ test("W569 authorized discovery renders authorized, denied and unknown hubs", as
 	page,
 }) => {
 	await page.goto(`${BASE}/fleet-tree`);
-	await refresh();
+	await refresh(page);
 	const t = await page.locator("#tree").innerText();
 	expect(seenAuth).toContain("Bearer bksk_e2e_good");
 	expect(seenAuth).toContain("Bearer bksk_e2e_wrong");
@@ -268,8 +269,8 @@ test("lane stop/start transition flips the leaf on the next sweep", async ({
 }) => {
 	await page.goto(`${BASE}/fleet-tree`);
 	laneSrv.stop(true);
-	await refresh();
-	expect(await leafClass("coder :")).toContain("downleaf");
+	await refresh(page);
+	expect(await leafClass(page, "coder :")).toContain("downleaf");
 	await page.screenshot({
 		path: "e2e/test-results/w5302-b-stop.png",
 		fullPage: true,
@@ -279,8 +280,8 @@ test("lane stop/start transition flips the leaf on the next sweep", async ({
 		port: LANE,
 		fetch: () => new Response("ok"),
 	});
-	await refresh();
-	expect(await leafClass("coder :")).toContain("up");
+	await refresh(page);
+	expect(await leafClass(page, "coder :")).toContain("up");
 	await page.screenshot({
 		path: "e2e/test-results/w5302-b-restart.png",
 		fullPage: true,
@@ -295,7 +296,7 @@ test("inaccessible registry serves last-good snapshot with the stale badge", asy
 	nas.stop(true);
 	vault.stop(true);
 	guarded.stop(true);
-	await refresh();
+	await refresh(page);
 	await expect(page.locator("#stamp")).toContainText("stale — last good");
 	const t = await page.locator("#tree").innerText();
 	expect(t).toContain("nas");

@@ -35,7 +35,7 @@ function seedSpend(b: Board, n: number): string {
 	d.run("INSERT OR IGNORE INTO api_keys VALUES (?, ?)", [`k${n}`, sid]);
 	d.run(
 		"INSERT INTO router_usage VALUES (?, ?, 'glm-5.3-flash', 'glm-5.3-flash', 500, 100, 50, 10, 3)",
-		[`${new Date().toISOString().slice(0, 13)}:00`],
+		[`${new Date().toISOString().slice(0, 13)}:00`, `k${n}`],
 	);
 	d.close();
 	return wId;
@@ -76,7 +76,7 @@ test("gui: lanes kanban paints the micro-strip sparkline + strip text", async ({
 		1,
 	);
 	// the tasks table carries the strip as the tok cell tooltip
-	await page.goto(`${b.BASE}/#tasks`);
+	await page.goto(`${board.BASE}/#tasks`);
 	await expect(
 		page.locator('#tasksBody td.num[title*="tok/m"]').first(),
 	).toContainText(/\d/);

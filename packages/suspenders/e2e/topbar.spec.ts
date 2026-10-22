@@ -47,7 +47,7 @@ test("klh-topbar upgrades on the board, belt console and usage page", async ({
 	// belt console — server-rendered me attr rides the same component
 	await page.goto(`${board.BASE}/console/buckle`);
 	await expect(bar(page).locator(".cavbtn")).toBeVisible();
-	await expect(page.locator("h1.ptitle")).toHaveText("Belt gateway");
+	await expect(page.locator("h1.ptitle")).toHaveText("Buckle gateway");
 	await page.screenshot({ path: `${SHOTS}/2-belt.png`, fullPage: true });
 
 	// usage — no me attr, the component fetches again
@@ -86,7 +86,7 @@ test("settings gear: theme radios flip data-theme on the document", async ({
 // carries the console-settings link too (parity with the console pages).
 const NAV_VIEWS = [
 	"Models",
-	"Gateway",
+	"Routes",
 	"Workflows",
 	"Services",
 	"Metrics",
@@ -98,7 +98,7 @@ const NAV_VIEWS = [
 // single test with a manual for-loop over path/current pairs)
 const SURFACES = [
 	["/", "Workflows"],
-	["/console/buckle", "Gateway"],
+	["/console/buckle", "Routes"],
 	["/console/local", "Services"],
 	["/console/hub", "Hub"],
 	["/console/settings", "Settings"],
