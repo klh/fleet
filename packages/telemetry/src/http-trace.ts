@@ -45,7 +45,12 @@ export interface HopReceipt {
 	/** Origin's bounded refusal code, as received on the upstream response. */
 	upstreamRefusalCode?: string | null;
 	/** Which layer produced the attempted refusal; never inferred from status. */
-	refusalOrigin?: "upstream" | "bridged-upstream" | "network" | null;
+	refusalOrigin?:
+		| "upstream"
+		| "bridged-upstream"
+		| "network"
+		| "local-admission"
+		| null;
 	/** Configured account pool and measured local queue dwell; absent is unknown. */
 	providerPool?: string | null;
 	queueWaitMs?: number | null;
