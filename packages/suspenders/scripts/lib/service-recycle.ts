@@ -93,16 +93,14 @@ export async function recycleChildListener(
 	const graceEnd = hooks.now() + graceMs;
 	while (hooks.now() < graceEnd) {
 		const fresh = freshHolders(hooks, req.port, oldPids);
-		if (fresh.length > 0)
-			return { ok: true, pid: fresh[0] as number, oldPids };
+		if (fresh.length > 0) return { ok: true, pid: fresh[0] as number, oldPids };
 		await hooks.sleep(100);
 	}
 	for (const pid of terminated) hooks.signal(pid, "SIGKILL");
 	const hardEnd = hooks.now() + deadlineMs;
 	while (hooks.now() < hardEnd) {
 		const fresh = freshHolders(hooks, req.port, oldPids);
-		if (fresh.length > 0)
-			return { ok: true, pid: fresh[0] as number, oldPids };
+		if (fresh.length > 0) return { ok: true, pid: fresh[0] as number, oldPids };
 		await hooks.sleep(250);
 	}
 	return {
