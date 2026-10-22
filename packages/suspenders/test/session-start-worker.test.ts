@@ -79,6 +79,10 @@ describe("worker-role lane bootstrap (W1124.12)", () => {
 		expect(r.code).toBe(0);
 		expect(r.out).toContain(`SESSION ${SID.slice(0, 8)}`);
 		expect(r.out).toContain("CURRENT COORDINATION");
+		expect(r.out).toContain(
+			"copy the exact recipient SID from coord fleet --json",
+		);
+		expect(r.out).toContain("inline @mentions do not route");
 		expect(r.out).toContain("coord subscribe");
 	});
 

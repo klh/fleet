@@ -352,10 +352,10 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 									? red("⚠")
 									: green("▶");
 		const nm = sessionNames.get(l);
-		return `${g} ${nm ? `${trunc(nm)} ${dim(`(${l.slice(0, 8)})`)}` : dim(names.get(l) ?? l.slice(0, 8))}`;
+		return `${g} ${nm ? `${trunc(nm)} ${dim(`(${l.slice(0, 8)})`)}` : dim(names.get(l) ?? l.slice(0, 8))} ${dim(`[sid=${l}]`)}`;
 	});
 	console.log(
-		`${head ? `${dim(`@${head.slice(0, 7)}`)}  ` : ""}${parts.join("  ") || dim("(no claimed lanes)")}`,
+		`${head ? `${dim(`HEAD ${head.slice(0, 7)}`)}  ` : ""}${parts.join("  ") || dim("(no claimed lanes)")}`,
 	);
 }
 

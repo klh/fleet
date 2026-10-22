@@ -162,6 +162,143 @@ describe("WS /subscribe (W303 push + W305 bidirectional RPC)", () => {
 			askerWs.close();
 		}
 	});
+	test("failed recipient discovery cannot masquerade as a broadcast consult; exact SID retries deliver", async () => {
+		const url = await startServer(await freePort());
+		const expert = "discovery-expert";
+		const asker = "discovery-asker";
+		const rpc = async (mode: string, sql: string, params: unknown[] = []) =>
+			(
+				await fetch(`${url}/rpc`, {
+					method: "POST",
+					body: JSON.stringify({ mode, sql, params }),
+				})
+			).json();
+		for (const sid of [expert, asker])
+			await rpc(
+				"run",
+				"INSERT INTO sessions (sid,project,started_at,hb,state,tags) VALUES (?,?,?,?,'RUNNING','{}')",
+				[sid, projectIdentity(), Date.now(), Date.now()],
+			);
+		await rpc(
+			"run",
+			"INSERT INTO claims(sid,scope,intent,hot,ts) VALUES (?,'fixture','review questions',0,?)",
+			[expert, Date.now()],
+		);
+		await rpc(
+			"run",
+			"INSERT INTO facts(key,value,source,ts) VALUES ('integration.head',?,'fixture',?)",
+			["1234567890123456789012345678901234567890", Date.now()],
+		);
+		const ws = new WebSocket(
+			`${url.replace(/^http/, "ws")}/subscribe?as=${expert}`,
+		);
+		await new Promise<void>((resolve) =>
+			ws.addEventListener("open", () => resolve()),
+		);
+		const next = messageQueue(ws);
+		try {
+			const failed = await cli(url, [
+				"consult",
+				"@missing-head",
+				"Please adjudicate the work",
+				"--no-kb",
+				"--as",
+				asker,
+			]);
+			expect(failed.code).not.toBe(0);
+			expect(failed.err).toContain("coord fleet --json");
+			expect(failed.err).toContain("Do not substitute a broadcast");
+			expect(
+				(
+					await rpc(
+						"get",
+						"SELECT COUNT(*) AS n FROM consults WHERE asker_sid = ?",
+						[asker],
+					)
+				).row.n,
+			).toBe(0);
+			expect(
+				(
+					await rpc(
+						"get",
+						"SELECT COUNT(*) AS n FROM direct_message_receipts r JOIN events e ON e.id = r.event_id WHERE e.source = ?",
+						[asker],
+					)
+				).row.n,
+			).toBe(0);
+			const broadcast = await cli(url, [
+				"emit",
+				"BROADCAST",
+				"--note",
+				"@missing-head adjudication request",
+				"--as",
+				asker,
+			]);
+			expect(broadcast.code).toBe(0);
+			expect(broadcast.out).toContain("BROADCAST event queued");
+			expect(broadcast.out).toContain("target=none; no consult opened");
+			expect(broadcast.out).toContain("Inline @mentions do not route");
+			const notice = await next();
+			expect(notice.kind).toBe("BROADCAST");
+			expect(notice.target).toBeNull();
+			expect(
+				(
+					await rpc(
+						"get",
+						"SELECT COUNT(*) AS n FROM consults WHERE asker_sid = ?",
+						[asker],
+					)
+				).row.n,
+			).toBe(0);
+			expect(
+				(
+					await rpc(
+						"get",
+						"SELECT COUNT(*) AS n FROM direct_message_receipts r JOIN events e ON e.id = r.event_id WHERE e.source = ?",
+						[asker],
+					)
+				).row.n,
+			).toBe(0);
+			const fleet = await cli(url, ["fleet"]);
+			expect(fleet.out).toContain("HEAD 1234567");
+			expect(fleet.out).not.toContain("@1234567");
+			const copied = /\[sid=([^\]]+)\]/.exec(fleet.out)?.[1];
+			expect(copied).toBe(expert);
+			const opened = await cli(url, [
+				"consult",
+				String(copied),
+				"Please adjudicate the work",
+				"--no-kb",
+				"--as",
+				asker,
+			]);
+			expect(opened.code).toBe(0);
+			const question = await next();
+			expect(question.kind).toBe("consult");
+			expect(question.target).toBe(expert);
+			expect(JSON.parse(String(question.payload)).consult).toMatch(/^C\d+$/);
+			expect(
+				(
+					await rpc(
+						"get",
+						"SELECT expert_sid,state FROM consults WHERE asker_sid = ?",
+						[asker],
+					)
+				).row,
+			).toMatchObject({ expert_sid: expert, state: "OPEN" });
+			expect(
+				(
+					await rpc(
+						"get",
+						"SELECT r.sid FROM direct_message_receipts r JOIN events e ON e.id = r.event_id WHERE e.source = ?",
+						[asker],
+					)
+				).row.sid,
+			).toBe(expert);
+		} finally {
+			ws.close();
+		}
+	});
 	test("HTTP insert is pushed to a matching subscriber", async () => {
 		const url = await startServer(await freePort());
 		const wsUrl = `${url.replace(/^http/, "ws")}/subscribe?as=lane-ws1`;
