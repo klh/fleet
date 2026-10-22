@@ -185,13 +185,30 @@ export function routeInputsByMachine(
 		},
 		...beltModels,
 	];
+	// W1094.1: a hub WITHOUT deploy.ssh rides this host's network namespace
+	// (network_mode: host on local Docker) — its container loopback IS this
+	// machine's loopback, so it validates with the local specialist evidence.
+	// A remote hub (deploy.ssh) judges only its own declared terminals.
+	const coHosted = new Set(
+		Object.entries(hubs)
+			.filter(([, raw]) => !string(record(record(raw).deploy).ssh))
+			.map(([name]) => name),
+	);
+	const hostIds = new Set([
+		"local",
+		...[...coHosted].flatMap((name) => [name, `${name}-model`]),
+	]);
 	const views: MachineRouteInputs[] = [
 		{
 			id: "local",
 			inputs: {
-				buckles,
+				buckles: buckles.map((service) =>
+					hostIds.has(service.id) ? service : targetOnlyBuckle(service),
+				),
 				litellms,
-				belts,
+				belts: belts.map((service) =>
+					hostIds.has(service.id) ? service : targetOnlyBelt(service),
+				),
 				terminalOrigins: [...specialistOrigins, ...(terminals as string[])],
 				requestDeadlineMs: source.deadlineMs,
 			},
@@ -199,13 +216,20 @@ export function routeInputsByMachine(
 	];
 	for (const [name, raw] of Object.entries(hubs)) {
 		const hub = record(raw);
+		const shared = coHosted.has(name);
+		const full = shared ? hostIds : new Set([name, `${name}-model`]);
 		views.push({
 			id: name,
 			inputs: {
-				buckles,
-				litellms,
-				belts,
+				buckles: buckles.map((service) =>
+					full.has(service.id) ? service : targetOnlyBuckle(service),
+				),
+				litellms: shared ? litellms : litellms.map(targetOnlyLitellm),
+				belts: belts.map((service) =>
+					full.has(service.id) ? service : targetOnlyBelt(service),
+				),
 				terminalOrigins: [
+					...(shared ? specialistOrigins : []),
 					...(terminals as string[]),
 					...hubTerminals(name, hub),
 				],
@@ -240,6 +264,30 @@ function hubTerminals(name: string, hub: RecordValue): string[] {
 			`hub ${name} route_preflight.terminal_origins must be an array of URLs`,
 		);
 	return declared as string[];
+}
+
+/** Target-only service views: origins stay resolvable for cross-machine
+ * hops, but another machine's edges are NOT re-judged in this run — each
+ * machine's ladder is validated with its own terminal/policy evidence. */
+function targetOnlyBuckle(service: BuckleRouteConfig): BuckleRouteConfig {
+	return {
+		id: service.id,
+		origins: service.origins,
+		pool: { groups: () => [], deployments: () => [] },
+		policy: {},
+	};
+}
+
+function targetOnlyBelt(service: BeltRouteConfig): BeltRouteConfig {
+	return { id: service.id, origins: service.origins };
+}
+
+function targetOnlyLitellm(service: LiteLlmRouteConfig): LiteLlmRouteConfig {
+	return {
+		id: service.id,
+		origins: service.origins,
+		config: { model_list: [] },
+	};
 }
 
 /** The local machine's own route view (Mac specialists terminate here). */
@@ -281,8 +329,30 @@ export async function checkRoutePreflight(
 	probe = reachable,
 	options: { probeHubs?: boolean } = {},
 ): Promise<RoutePreflightResult> {
-	const inputs = routeInputs(source);
-	const graph = validateRouteLadders(inputs);
+	// W1094.1: every machine view validates in full — findings union with
+	// dedup (shared services re-resolve in each run), terminal evidence stays
+	// machine-scoped.
+	const runs = routeInputsByMachine(source);
+	const localRun = runs.find((run) => run.id === "local");
+	if (!localRun) throw new Error("route preflight: local route view missing");
+	const inputs = localRun.inputs;
+	const findings: RouteLadderFinding[] = [];
+	let checkedNodes = 0;
+	for (const run of runs) {
+		const graph = validateRouteLadders(run.inputs);
+		checkedNodes += graph.checkedNodes;
+		for (const item of graph.errors)
+			if (
+				!findings.some(
+					(row) =>
+						row.code === item.code &&
+						row.layer === item.layer &&
+						row.path === item.path &&
+						row.detail === item.detail,
+				)
+			)
+				findings.push(item);
+	}
 	const origins = new Set(
 		inputs.buckles.flatMap((buckle) => buckle.origins).slice(1),
 	);
@@ -336,12 +406,12 @@ export async function checkRoutePreflight(
 	return {
 		mode: options.probeHubs === false ? "static" : "live",
 		ok:
-			graph.errors.length === 0 &&
+			findings.length === 0 &&
 			probes.every((item) => item.reachable) &&
 			drills.length > 0 &&
 			drills.every((item) => item.ok),
-		checkedNodes: graph.checkedNodes,
-		findings: graph.errors,
+		checkedNodes,
+		findings,
 		probes,
 		drills,
 	};
@@ -379,6 +449,12 @@ export async function machineRoutePreflight(
 			policy: loadGatewayPolicy(),
 			litellm,
 			deadlineMs,
+			// W1094.1: hub gateway policies render from the SAME committed base
+			// hubctl pushes — read-only, repo-local, no machine overrides here.
+			basePolicyText: readFileSync(
+				join(import.meta.dir, "../../buckle/routing-policy.yaml"),
+				"utf8",
+			),
 			beltEscalation: {
 				url: beltEnv.BELT_ESCALATE_URL ?? process.env.BELT_ESCALATE_URL,
 				model: beltEnv.BELT_ESCALATE_MODEL ?? process.env.BELT_ESCALATE_MODEL,
