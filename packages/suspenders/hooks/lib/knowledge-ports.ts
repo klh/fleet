@@ -615,11 +615,15 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 
 	async upsert(row: KnowledgeUpsert): Promise<number> {
 		const now = Date.now();
-		// W953: worker upserts are machine-derived candidates — the row's own
-		// model-assigned confidence rides the doctrine scale (floor 0.1),
-		// stamped mechanical:knowledge-worker.
+		// W953 doctrine: a distilled row is a SINGLE-MODEL pass — the distiller
+		// self-assesses 0..1, but 0.8+ claims model-reviewed/consensus bands a
+		// first stamp can never make (makeStamp throws → the job fails and the
+		// payload poisons). Stamp (and store) at the single-model anchor 0.6 —
+		// the consult-answer precedent — a low model value keeps its machine
+		// band. Independent review raises the stamp later, with evidence.
+		const value = Math.max(CONFIDENCE_MIN, Math.min(row.confidence, 0.6));
 		const stamp = makeStamp({
-			value: Math.max(CONFIDENCE_MIN, row.confidence),
+			value,
 			setter: "mechanical:knowledge-worker",
 			evidence: row.sourceRef ?? undefined,
 		});
@@ -631,7 +635,7 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 				now,
 				row.topic,
 				row.fact,
-				row.confidence,
+				value,
 				row.domain,
 				row.area,
 				row.originKind,
