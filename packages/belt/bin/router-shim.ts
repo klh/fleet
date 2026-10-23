@@ -590,7 +590,10 @@ Bun.serve({
 					{ status: auth.verdict === "unconfigured" ? 503 : 401 },
 				),
 				"ingress",
-				{ refusal: auth.verdict === "unconfigured" ? "unconfigured" : "unauthorized" },
+				{
+					refusal:
+						auth.verdict === "unconfigured" ? "unconfigured" : "unauthorized",
+				},
 			);
 
 		let body: AnthropicBody;

@@ -43,12 +43,12 @@ export function createModelProxy(options: { upstream: string }) {
 				headers: upstreamHeaders,
 				body: chat ? request.body : undefined,
 				signal: inventory
-					// inventory: fixed 3s — a catalog poll, not a stream (#55405)
-					? AbortSignal.any([request.signal, AbortSignal.timeout(3000)])
-					// W1106: chat streams carry NO fixed client-side cutoff — the
-					// client's abort (Buckle's wire guards upstream of this hop)
-					// is the deadline authority, propagated via request.signal.
-					: request.signal,
+					? // inventory: fixed 3s — a catalog poll, not a stream (#55405)
+						AbortSignal.any([request.signal, AbortSignal.timeout(3000)])
+					: // W1106: chat streams carry NO fixed client-side cutoff — the
+						// client's abort (Buckle's wire guards upstream of this hop)
+						// is the deadline authority, propagated via request.signal.
+						request.signal,
 				redirect: "manual",
 			});
 			const contentType = response.headers.get("content-type");
