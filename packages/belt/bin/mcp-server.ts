@@ -20,6 +20,11 @@ import {
 } from "./mcp-auth.ts";
 import { SERVER_INFO, TOOLS, callTool } from "./mcp-tools.ts";
 import {
+	HOP_CONTRACT_HEADER,
+	inheritDeadline,
+	type InheritedDeadline,
+} from "./hop-deadline.ts";
+import {
 	citizenshipGate,
 	methodNotAllowed,
 	problem,
@@ -116,7 +121,11 @@ const rpcResult = (id: RpcMsg["id"], result: unknown) =>
 const rpcError = (id: RpcMsg["id"], code: number, message: string) =>
 	({ jsonrpc: "2.0", id, error: { code, message } }) as const;
 
-async function dispatch(msg: RpcMsg, signal: AbortSignal): Promise<unknown> {
+async function dispatch(
+	msg: RpcMsg,
+	signal: AbortSignal,
+	inherited: InheritedDeadline,
+): Promise<unknown> {
 	switch (msg.method) {
 		case "initialize": {
 			const asked = msg.params?.protocolVersion;
@@ -147,7 +156,7 @@ async function dispatch(msg: RpcMsg, signal: AbortSignal): Promise<unknown> {
 					: {};
 			if (name !== "knowledge_search" && name !== "belt_infer")
 				return rpcError(msg.id, -32602, `unknown tool: ${name}`);
-			const { text, isError } = await callTool(name, args, signal);
+			const { text, isError } = await callTool(name, args, signal, inherited);
 			return { content: [{ type: "text", text }], isError };
 		}
 		default:
@@ -242,6 +251,7 @@ async function readRpc(req: Request, signal: AbortSignal): Promise<RpcMsg> {
 async function handleMcpPost(
 	req: Request,
 	signal: AbortSignal,
+	inherited: InheritedDeadline,
 ): Promise<Response> {
 	let msg: RpcMsg;
 	try {
@@ -282,7 +292,7 @@ async function handleMcpPost(
 	const isNotification = msg.id === undefined || msg.id === null;
 	let out: unknown;
 	try {
-		out = await withAbort(dispatch(msg, signal), signal);
+		out = await withAbort(dispatch(msg, signal, inherited), signal);
 	} catch {
 		return problem(
 			504,
@@ -319,10 +329,6 @@ const server = Bun.serve({
 	hostname: BIND,
 	idleTimeout: 180, // belt_infer can legitimately run long on the swarm
 	async fetch(req): Promise<Response> {
-		const signal = AbortSignal.any([
-			req.signal,
-			AbortSignal.timeout(MCP_REQUEST_MS),
-		]);
 		const pathname = new URL(req.url).pathname;
 		if (!AUTH && !DEV) {
 			if (pathname === "/" && req.method === "GET")
@@ -368,7 +374,33 @@ const server = Bun.serve({
 			);
 		const authFail = await authGate(req, pathname);
 		if (authFail) return authFail;
-		if (req.method === "POST") return handleMcpPost(req, signal);
+		// W1117: consume the inbound hop contract at POST ingress — an expired
+		// contract is a 504 verdict (a past deadline is never re-based);
+		// absent/invalid keeps the local default, which can only tighten.
+		if (req.method === "POST") {
+			const inherited = inheritDeadline(
+				req.headers.get(HOP_CONTRACT_HEADER),
+				false,
+				Date.now(),
+				MCP_REQUEST_MS,
+			);
+			if (inherited === "expired")
+				return problem(
+					504,
+					"Gateway Timeout",
+					"belt.mcp.deadline_expired",
+					"MCP hop-contract deadline already expired",
+					pathname,
+				);
+			// W1117: the request signal rides the inherited deadline — the
+			// contract's absolute ceiling, else the local default. Never a
+			// fresh clock that outlives the caller's contract.
+			const signal = AbortSignal.any([
+				req.signal,
+				AbortSignal.timeout(Math.max(1, inherited.deadlineMs - Date.now())),
+			]);
+			return handleMcpPost(req, signal, inherited);
+		}
 		if (req.method === "GET")
 			return methodNotAllowed("/mcp", ROUTES["/mcp"] ?? ["POST"]);
 		// DELETE — session termination; we accept and drop nothing stateful

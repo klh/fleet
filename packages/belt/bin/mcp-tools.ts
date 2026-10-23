@@ -8,6 +8,13 @@
 // Tool EXECUTION failures surface inside the result (isError) per the MCP
 // spec; protocol errors (unknown tool) are the server's JSON-RPC problem.
 import { searchKnowledge, type KnowledgeCard } from "./mcp-knowledge.ts";
+import type { InheritedDeadline } from "./hop-deadline.ts";
+import {
+	childHopContract,
+	encodeHopContract,
+	HOP_CONTRACT_HEADER,
+	rungIdOf,
+} from "../../telemetry/src/hop-contract.ts";
 
 export const SERVER_INFO = { name: "belt-mcp", version: "0.1.0" } as const;
 
@@ -123,6 +130,7 @@ async function knowledgeSearch(args: Record<string, unknown>): Promise<string> {
 async function beltInfer(
 	args: Record<string, unknown>,
 	signal?: AbortSignal,
+	inherited?: InheritedDeadline,
 ): Promise<string> {
 	const prompt = typeof args.prompt === "string" ? args.prompt : "";
 	if (!prompt.trim()) throw new Error("prompt is required");
@@ -133,6 +141,29 @@ async function beltInfer(
 	};
 	if (typeof args.system === "string") body.system = args.system;
 	const leg = inferLeg();
+	// W1117: emit the child hop contract on the Buckle leg — deadline is
+	// absolute passthrough, belt's rung appends, budget counts DOWN. No
+	// inherited contract → belt is the contract root (budget 99, empty path).
+	const deadlineMs = inherited?.deadlineMs ?? Date.now() + 120_000;
+	const rung = encodeHopContract(
+		childHopContract(
+			{
+				status: "ok",
+				deadlineMs,
+				budget: inherited?.contract?.budget ?? 99,
+				path: inherited?.contract?.path ?? [],
+			},
+			rungIdOf(
+				new URL(leg.url).hostname,
+				new URL(leg.url).port
+					? Number(new URL(leg.url).port)
+					: new URL(leg.url).protocol === "https:"
+						? 443
+						: 80,
+				"belt-router",
+			),
+		),
+	);
 	const res = await fetch(`${leg.url}/v1/messages`, {
 		method: "POST",
 		headers: {
@@ -140,11 +171,15 @@ async function beltInfer(
 			"x-api-key": leg.key,
 			authorization: `Bearer ${leg.key}`,
 			"anthropic-version": "2023-06-01",
+			...(rung ? { [HOP_CONTRACT_HEADER]: rung } : {}),
 		},
 		body: JSON.stringify(body),
-		signal: signal
-			? AbortSignal.any([signal, AbortSignal.timeout(120_000)])
-			: AbortSignal.timeout(120_000),
+		// W1117: the inherited absolute deadline is the ceiling — never a
+		// fresh 120s at this hop; the caller's abort still cancels first.
+		signal: AbortSignal.any([
+			...(signal ? [signal] : []),
+			AbortSignal.timeout(Math.max(1, deadlineMs - Date.now())),
+		]),
 	});
 	if (!res.ok) {
 		// no upstream-text echo: the body may carry prompt/key material
@@ -166,12 +201,13 @@ export const callTool = async (
 	name: string,
 	args: Record<string, unknown>,
 	signal?: AbortSignal,
+	inherited?: InheritedDeadline,
 ): Promise<{ text: string; isError: boolean }> => {
 	try {
 		if (name === "knowledge_search")
 			return { text: await knowledgeSearch(args), isError: false };
 		if (name === "belt_infer")
-			return { text: await beltInfer(args, signal), isError: false };
+			return { text: await beltInfer(args, signal, inherited), isError: false };
 		throw new Error(`unknown tool: ${name}`);
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);

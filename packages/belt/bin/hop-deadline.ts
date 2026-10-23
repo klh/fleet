@@ -32,14 +32,16 @@ export function inheritDeadline(
 	headerValue: string | null | undefined,
 	stream: boolean,
 	now = Date.now(),
+	/** The receiver's policy ceiling — a caller with its own bounded default
+	 *  (e.g. MCP's BELT_MCP_REQUEST_MS) passes it here; the clamp is min(). */
+	localDefaultMs = stream ? ROUTER_STREAM_TOTAL_MS : ROUTER_EXCHANGE_MS,
 ): InheritedDeadline | "expired" {
 	const parsed = parseHopContract(headerValue, now);
 	if (parsed.status === "expired") return "expired";
-	const localDefault = stream ? ROUTER_STREAM_TOTAL_MS : ROUTER_EXCHANGE_MS;
 	if (parsed.status !== "ok")
-		return { deadlineMs: now + localDefault, source: "local-default" };
+		return { deadlineMs: now + localDefaultMs, source: "local-default" };
 	return {
-		deadlineMs: Math.min(now + localDefault, parsed.deadlineMs),
+		deadlineMs: Math.min(now + localDefaultMs, parsed.deadlineMs),
 		source: "hop-contract",
 		contract: parsed,
 	};

@@ -17,6 +17,7 @@ import { createAdmission, overloaded, parsePortCaps } from "./admission.ts";
 import { audioSpeech, audioTranscribe } from "./audio.ts";
 import { HOP_CONTRACT_HEADER, inheritDeadline } from "./hop-deadline.ts";
 import { livenessResponse } from "./health.ts";
+import { verifyUpstreamAuth } from "./router-auth.ts";
 import { promptFingerprint } from "./prompt-fingerprint.ts";
 import {
 	byPort,
@@ -567,6 +568,24 @@ Bun.serve({
 				{ refusal: "no_route" },
 			);
 		}
+
+		// W1117.5 (owner law, #55681): first ingress is authenticated Buckle —
+		// the hop header alone is not auth. Fail-closed: key unset = 503.
+		const auth = verifyUpstreamAuth(req);
+		if (auth.verdict !== "ok")
+			return stamped(
+				Response.json(
+					{
+						error:
+							auth.verdict === "unconfigured"
+								? "belt router unconfigured: BELT_UPSTREAM_KEY required"
+								: "unauthorized",
+					},
+					{ status: auth.verdict === "unconfigured" ? 503 : 401 },
+				),
+				"ingress",
+				{ refusal: auth.verdict === "unconfigured" ? "unconfigured" : "unauthorized" },
+			);
 
 		let body: AnthropicBody;
 		try {

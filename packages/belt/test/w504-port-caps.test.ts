@@ -136,7 +136,10 @@ const waitHealthy = async (): Promise<boolean> => {
 const post = (body: unknown): Promise<Response> =>
 	fetch(`${BASE}/v1/messages`, {
 		method: "POST",
-		headers: { "content-type": "application/json" },
+		headers: {
+			"content-type": "application/json",
+			authorization: "Bearer bksk_test-scoped-fake",
+		},
 		body: JSON.stringify(body),
 	});
 
@@ -147,6 +150,7 @@ beforeAll(async () => {
 		env: {
 			...process.env,
 			BELT_ROUTER_PORT: String(port),
+			BELT_UPSTREAM_KEY: "bksk_test-scoped-fake",
 			BELT_UPSTREAM_BASE: `http://127.0.0.1:${stub.port}`,
 			BELT_PORT_CAPS: "8902:1", // the SIMPLE tier routes here (parity-proven)
 			HOME,

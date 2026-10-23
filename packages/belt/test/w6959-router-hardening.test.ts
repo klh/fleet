@@ -184,6 +184,7 @@ describe("_force_dead_port env gate", () => {
 				...process.env,
 				HOME: home,
 				BELT_ROUTER_PORT: String(port),
+				BELT_UPSTREAM_KEY: "bksk_test-scoped-fake",
 				BELT_UPSTREAM_BASE: stubBase,
 				BELT_RETRY_WAIT_CAP_MS: "500",
 				BELT_SELFTEST: armed,
@@ -206,7 +207,10 @@ describe("_force_dead_port env gate", () => {
 	const post = (base: string) =>
 		fetch(`${base}/v1/messages`, {
 			method: "POST",
-			headers: { "content-type": "application/json" },
+			headers: {
+				"content-type": "application/json",
+				authorization: "Bearer bksk_test-scoped-fake",
+			},
 			body: JSON.stringify({
 				model: "glm-5.3-flash",
 				max_tokens: 32,

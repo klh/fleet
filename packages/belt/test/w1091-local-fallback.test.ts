@@ -116,6 +116,7 @@ beforeAll(async () => {
 			HOME: home,
 			BELT_TIER: "minimal",
 			BELT_ROUTER_PORT: String(port),
+			BELT_UPSTREAM_KEY: "bksk_test-scoped-fake",
 			BELT_UPSTREAM_BASE: `http://127.0.0.1:${local.port}`,
 			BELT_ESCALATE_URL: `http://127.0.0.1:${cloud.port}`,
 			BELT_ESCALATE_KEY: "fixture-key",
@@ -148,7 +149,10 @@ async function route(
 ): Promise<{ status: number; port?: number }> {
 	const response = await fetch(`${base}/v1/messages`, {
 		method: "POST",
-		headers: { "content-type": "application/json" },
+		headers: {
+			"content-type": "application/json",
+			authorization: "Bearer bksk_test-scoped-fake",
+		},
 		body: JSON.stringify({
 			model: "local-swarm",
 			max_tokens: 32,
