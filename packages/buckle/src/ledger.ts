@@ -7,13 +7,14 @@ import { Database, type Statement } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import {
 	buildSettleFact,
+	type HopReceipt,
+	type StreamCloser,
+	type StreamSettle,
 	safeCorrelationId,
 	safeProviderErrorToken,
 	safeRefusalCode,
-	type HopReceipt,
-	type StreamSettle,
-	type StreamCloser,
 } from "../../telemetry/src/http-trace.ts";
+import { safeTransportEvidence } from "../../telemetry/src/transport-evidence.ts";
 import type { HopKind } from "./hop.ts";
 import type { Usage } from "./usage.ts";
 
@@ -262,6 +263,7 @@ CREATE TABLE IF NOT EXISTS route_attempt (
 	queue_wait_ms INTEGER,
 	provider_error_code TEXT,
 	provider_error_type TEXT,
+	transport_json TEXT,
   PRIMARY KEY (rid, ordinal)
 );
 CREATE INDEX IF NOT EXISTS route_attempt_trace ON route_attempt(trace_id, ts);
@@ -451,6 +453,8 @@ export class Ledger {
 			if (!attemptCols.includes(column))
 				this.db.run(`ALTER TABLE route_attempt ADD COLUMN ${column} TEXT`);
 		}
+		if (!attemptCols.includes("transport_json"))
+			this.db.run("ALTER TABLE route_attempt ADD COLUMN transport_json TEXT");
 		this.upsert = this.db.query(UPSERT);
 		this.insAudit = this.db.query(INSERT_AUDIT);
 		this.updAudit = this.db.query(UPDATE_AUDIT);
@@ -459,8 +463,8 @@ export class Ledger {
 			(rid, ordinal, trace_id, ts, service, hop, candidate, status,
 			refusal, duration_ms, retry_after_ms, upstream_id, call_id,
 			upstream_refusal_code, refusal_origin, provider_pool, queue_wait_ms,
-			provider_error_code, provider_error_type)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+			provider_error_code, provider_error_type, transport_json)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 		this.insSettle = this.db.query(`INSERT OR REPLACE INTO stream_settle
 			(rid, trace_id, ts, first_byte_ms, last_byte_ms, closer, failure_kind)
 			VALUES (?, ?, ?, ?, ?, ?, ?)`);
@@ -766,6 +770,7 @@ export class Ledger {
 				: null,
 			safeProviderErrorToken(row.providerErrorCode),
 			safeProviderErrorToken(row.providerErrorType),
+			JSON.stringify(safeTransportEvidence(row.transport)),
 		);
 	}
 
@@ -793,13 +798,22 @@ export class Ledger {
 	traceAttempts(traceId: string): Array<Record<string, unknown>> {
 		if (!/^[0-9a-f]{32}$/.test(traceId)) return [];
 		this.flush();
-		return this.db
+		const rows = this.db
 			.query(`SELECT rid, ordinal, trace_id, ts, service, hop,
 			candidate, status, refusal, duration_ms, retry_after_ms, upstream_id,
 			call_id, upstream_refusal_code, refusal_origin, provider_pool, queue_wait_ms,
-			provider_error_code, provider_error_type FROM route_attempt WHERE trace_id = ?
+			provider_error_code, provider_error_type, transport_json FROM route_attempt WHERE trace_id = ?
 			ORDER BY ts, rid, ordinal LIMIT 500`)
 			.all(traceId) as Array<Record<string, unknown>>;
+		return rows.map(({ transport_json, ...row }) => {
+			let transport = null;
+			try {
+				transport = safeTransportEvidence(JSON.parse(String(transport_json)));
+			} catch {
+				/* absent/invalid remains unknown */
+			}
+			return { ...row, transport };
+		});
 	}
 
 	/** The flush-time INSERT (extracted from the old inline body). */

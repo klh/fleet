@@ -1,3 +1,6 @@
+import { PREFER_HEADER } from "../../telemetry/src/prefer-header.ts";
+import type { TransportEvidence } from "../../telemetry/src/transport-evidence.ts";
+import { RouterError } from "./adapters/errors.ts";
 // src/wire.ts — upstream request construction, now through the adapter
 // registry (W134 §4.1): the deployment's family adapter builds the wire
 // call (model alias patch + dialect patches + auth); responses are never
@@ -6,12 +9,10 @@
 // .include_usage injection; LiteLLM streaming_handler.py semantics, MIT) —
 // the 37-test regression net pins the bytes.
 import { resolveAdapter } from "./adapters/index.ts";
-import { RouterError } from "./adapters/errors.ts";
-import type { Deployment } from "./upstreams.ts";
-import type { UpstreamRequest } from "./router.ts";
 import { poolWarm } from "./pool-warm.ts";
+import type { UpstreamRequest } from "./router.ts";
 import { childSpanOf, stripPrivateTrace } from "./trace.ts";
-import { PREFER_HEADER } from "../../telemetry/src/prefer-header.ts";
+import type { Deployment } from "./upstreams.ts";
 
 /** A preference decision may cross Fleet-owned hops but not provider egress. */
 export function mayRelayPrefer(dep: Deployment): boolean {
@@ -123,31 +124,77 @@ export async function defaultFetch(
 	}
 	poolWarm.observe(wire.url);
 	const t0 = Date.now();
+	const evidence: TransportEvidence = {
+		requestBodyBytes: Buffer.byteLength(wire.body),
+		headersMs: null,
+		firstBodyByteMs: null,
+		timeoutBudgetMs: null,
+		bodyBytes: 0,
+		bodyChunks: 0,
+		timeoutPhase: null,
+		cancellation: null,
+		providerCancellationAcknowledged: null,
+	};
+	const observe = () => req.transport?.observe(evidence);
 	const ctrl = new AbortController();
 	// TTFB guard — removed at headers so a streaming body can outlive it
 	// (the old single AbortSignal.timeout killed healthy streams at the cap).
 	const ttfb = AbortSignal.timeout(timeoutMs);
-	const ttfbAbort = () => ctrl.abort(ttfb.reason);
+	const ttfbAbort = () => {
+		if (ctrl.signal.aborted) return;
+		evidence.timeoutPhase = "headers";
+		evidence.timeoutBudgetMs = Math.ceil(timeoutMs);
+		evidence.cancellation = "requested";
+		observe();
+		ctrl.abort(ttfb.reason);
+	};
 	ttfb.addEventListener("abort", ttfbAbort);
-	req.signal?.addEventListener("abort", () => ctrl.abort(req.signal?.reason), {
-		once: true,
-	});
-	const resp = await fetch(wire.url, {
-		method: "POST",
-		headers: wire.headers,
-		body: wire.body,
-		signal: ctrl.signal,
-	});
+	const callerAbort = () => {
+		if (ctrl.signal.aborted) return;
+		evidence.cancellation = "requested";
+		observe();
+		ctrl.abort(req.signal?.reason);
+	};
+	req.signal?.addEventListener("abort", callerAbort, { once: true });
+	if (req.signal?.aborted) callerAbort();
+	let resp: Response;
+	try {
+		resp = await fetch(wire.url, {
+			method: "POST",
+			headers: wire.headers,
+			body: wire.body,
+			signal: ctrl.signal,
+		});
+	} catch (error) {
+		if (ctrl.signal.aborted) evidence.cancellation = "local_settled";
+		observe();
+		req.signal?.removeEventListener("abort", callerAbort);
+		throw error;
+	} finally {
+		ttfb.removeEventListener("abort", ttfbAbort);
+	}
+	evidence.headersMs = Date.now() - t0;
+	observe();
+	const bodyObservation = {
+		evidence,
+		observe,
+		t0,
+		cleanup: () => req.signal?.removeEventListener("abort", callerAbort),
+	};
 	ttfb.removeEventListener("abort", ttfbAbort);
 	const elapsedMs = Date.now() - t0;
 	if (stream) {
 		return guardedBody(resp, {
 			idleMs: stream.idleMs,
 			totalMs: Math.max(stream.totalMs - elapsedMs, 1),
+			...bodyObservation,
 		});
 	}
 	// preserve the old whole-exchange cap on the remaining budget
-	return guardedBody(resp, { totalMs: Math.max(timeoutMs - elapsedMs, 1) });
+	return guardedBody(resp, {
+		totalMs: Math.max(timeoutMs - elapsedMs, 1),
+		...bodyObservation,
+	});
 }
 
 /** Wrap a response body with the W450 deadline guards: every arriving chunk
@@ -160,59 +207,115 @@ export async function defaultFetch(
  *  arrayBuffer()). */
 function guardedBody(
 	resp: Response,
-	g: { idleMs?: number; totalMs: number },
+	g: {
+		idleMs?: number;
+		totalMs: number;
+		evidence: TransportEvidence;
+		observe: () => void;
+		t0: number;
+		cleanup: () => void;
+	},
 ): Response {
-	if (!resp.body) return resp;
-	let idle: ReturnType<typeof setTimeout> | null = null;
+	if (!resp.body) {
+		g.cleanup();
+		return resp;
+	}
+	const reader = resp.body.getReader();
+	let idle: ReturnType<typeof setTimeout> | undefined;
+	let total: ReturnType<typeof setTimeout> | undefined;
 	let done = false;
-	let fail: ((e: unknown) => void) | null = null;
+	let controller: ReadableStreamDefaultController<Uint8Array>;
 	const clear = () => {
 		done = true;
-		if (idle) clearTimeout(idle);
+		clearTimeout(idle);
 		clearTimeout(total);
+		g.cleanup();
 	};
-	const deadline = (what: string) => {
-		if (done) return;
-		clear();
-		fail?.(
-			new RouterError("timeout", 504, `upstream ${what} deadline exceeded`),
+	const cancel = (reason: unknown) => {
+		g.evidence.cancellation = "requested";
+		g.observe();
+		// Settlement proves only the local reader cancellation, never provider cleanup.
+		return reader.cancel(reason).then(
+			() => {
+				g.evidence.cancellation = "local_settled";
+				g.observe();
+			},
+			() => {
+				g.evidence.cancellation = "local_failed";
+				g.observe();
+			},
 		);
 	};
+	const deadline = (phase: TransportEvidence["timeoutPhase"]) => {
+		if (done) return;
+		g.evidence.timeoutPhase = phase;
+		g.evidence.timeoutBudgetMs = Math.ceil(
+			phase === "stream_idle" ? (g.idleMs ?? g.totalMs) : g.totalMs,
+		);
+		clear();
+		const error = new RouterError(
+			"timeout",
+			504,
+			`upstream ${phase} deadline exceeded`,
+		);
+		controller.error(error);
+		void cancel(error);
+	};
 	const armIdle = () => {
-		if (done || g.idleMs === undefined) return;
-		if (idle) clearTimeout(idle);
-		idle = setTimeout(() => deadline("idle"), g.idleMs);
+		if (g.idleMs === undefined || done) return;
+		clearTimeout(idle);
+		idle = setTimeout(() => deadline("stream_idle"), g.idleMs);
 		idle.unref?.();
 	};
-	armIdle();
-	const total = setTimeout(() => deadline("total"), g.totalMs);
-	total.unref?.();
-	return guardedPipe(resp, armIdle, clear, (f) => {
-		fail = f;
-	});
-}
-
-/** The guarded pipe: an identity transform that rearms the idle timer per
- *  arriving chunk and clears the timers at completion/cancellation, then
- *  returns a Response copy carrying the guarded stream (the original's body
- *  slot is single-use — see guardedBody). */
-function guardedPipe(
-	resp: Response,
-	armIdle: () => void,
-	clear: () => void,
-	setFail: (f: (e: unknown) => void) => void,
-): Response {
-	const out = resp.body.pipeThrough(
-		new TransformStream<Uint8Array, Uint8Array>({
-			start: (c) => setFail((e: unknown) => c.error(e)),
-			transform: (chunk, controller) => {
+	const out = new ReadableStream<Uint8Array>({
+		start(c) {
+			controller = c;
+			armIdle();
+			total = setTimeout(
+				() =>
+					deadline(g.idleMs === undefined ? "exchange_total" : "stream_total"),
+				g.totalMs,
+			);
+			total.unref?.();
+		},
+		async pull(c) {
+			try {
+				const part = await reader.read();
+				if (done) return;
+				if (part.done) {
+					clear();
+					g.observe();
+					c.close();
+					return;
+				}
+				g.evidence.bodyBytes = Math.min(
+					Number.MAX_SAFE_INTEGER,
+					g.evidence.bodyBytes + part.value.byteLength,
+				);
+				g.evidence.bodyChunks = Math.min(
+					Number.MAX_SAFE_INTEGER,
+					g.evidence.bodyChunks + 1,
+				);
+				if (g.evidence.firstBodyByteMs === null && part.value.byteLength > 0) {
+					g.evidence.firstBodyByteMs = Date.now() - g.t0;
+					g.observe();
+				}
 				armIdle();
-				controller.enqueue(chunk);
-			},
-			flush: clear,
-			cancel: clear,
-		}),
-	);
+				c.enqueue(part.value);
+			} catch (error) {
+				if (done) return;
+				clear();
+				if (g.evidence.cancellation === "requested")
+					g.evidence.cancellation = "local_settled";
+				g.observe();
+				c.error(error);
+			}
+		},
+		cancel(reason) {
+			clear();
+			return cancel(reason);
+		},
+	});
 	return new Response(out, {
 		status: resp.status,
 		statusText: resp.statusText,

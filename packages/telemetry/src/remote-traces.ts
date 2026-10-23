@@ -3,6 +3,10 @@
 import { lstatSync, readFileSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { safeProviderErrorToken } from "./http-trace.ts";
+import {
+	safeTransportEvidence,
+	type TransportEvidence,
+} from "./transport-evidence.ts";
 
 const TRACE_ID = /^[0-9a-f]{32}$/;
 const HUB_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -31,6 +35,7 @@ export interface RemoteTraceAttempt {
 	queue_wait_ms: number | null;
 	provider_error_code: string | null;
 	provider_error_type: string | null;
+	transport: TransportEvidence | null;
 }
 
 export interface RemoteTraceResult {
@@ -219,6 +224,7 @@ async function readPeer(
 				queue_wait_ms: safeInt(row.queue_wait_ms, 3_600_000),
 				provider_error_code: safeProviderErrorToken(row.provider_error_code),
 				provider_error_type: safeProviderErrorToken(row.provider_error_type),
+				transport: safeTransportEvidence(row.transport),
 			});
 		}
 		return { hub_id: peer.hubId, status: "ok", attempts };

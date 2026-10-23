@@ -16,6 +16,11 @@ import {
 	traceIdOf,
 } from "../../telemetry/src/http-trace.ts";
 import {
+	safeTimeoutPhase,
+	type TransportEvidence,
+	TransportObservation,
+} from "../../telemetry/src/transport-evidence.ts";
+import {
 	type ErrorKind,
 	normalizeUpstreamError,
 	RouterError,
@@ -81,6 +86,7 @@ interface FailureProvenance {
 	callId?: string;
 	retryAfterS?: number;
 	upstreamRefusalCode?: string | null;
+	transportTimeoutPhase?: TransportEvidence["timeoutPhase"];
 }
 
 export interface UpstreamRequest {
@@ -100,6 +106,8 @@ export interface UpstreamRequest {
 	/** Canonicalized .prefer selection, diagnostic only. */
 	preference?: string | null;
 	signal?: AbortSignal;
+	/** Internal, attempt-local observer; never constructed from client headers/body. */
+	transport?: TransportObservation;
 	// W140 routing laws: the pure decision result (handlers decided via the
 	// candidate table before dispatch) + the complexity tier + the raw hint,
 	// threaded for the escalation gate and audit echo.
@@ -118,6 +126,7 @@ export interface RouterMetrics {
 
 /** A single upstream attempt's classified outcome. */
 export type TryOutcome = {
+	transportTimeoutPhase?: TransportEvidence["timeoutPhase"];
 	providerPool?: string | null;
 	queueWaitMs?: number | null;
 	providerErrorCode?: string | null;
@@ -465,6 +474,9 @@ export class Router {
 			);
 			lease?.feedback?.(resp.status, ra, pressure);
 			const base = {
+				transportTimeoutPhase: dep.buckle
+					? safeTimeoutPhase(resp.headers.get("x-klh-transport-timeout-phase"))
+					: null,
 				providerPool: poolId,
 				queueWaitMs: lease ? queueWaitMs : null,
 				providerErrorCode: safeProviderErrorToken(err.providerCode),
@@ -635,11 +647,18 @@ export class Router {
 				queueWaitMs: provider?.queueWaitMs ?? null,
 			},
 		};
-		try {
-			this.metrics?.attempt?.(receipt);
-		} catch {
-			// The receipt sink is observability, never a routing dependency.
-		}
+		const publish = () => {
+			try {
+				this.metrics?.attempt?.({
+					...receipt,
+					transport: req.transport?.snapshot() ?? null,
+				});
+			} catch {
+				// The receipt sink is observability, never a routing dependency.
+			}
+		};
+		req.transport?.bind(publish);
+		publish();
 	}
 
 	/** Same-tier retry loop (num_retries + 1 attempts across candidates). */
@@ -701,17 +720,29 @@ export class Router {
 			);
 			st.attempts++;
 			const startedAt = this.now();
+			const observedReq = { ...req, transport: new TransportObservation() };
 			let r: TryOutcome;
 			try {
 				r = await this.tryOnce(
-					req,
+					observedReq,
 					dep,
 					timeoutMs,
 					stream,
 					st.deadlineMs - startedAt,
 				);
 			} catch (error) {
-				if (req.signal?.aborted) return { kind: "aborted" };
+				if (req.signal?.aborted) {
+					this.reportAttempt(
+						observedReq,
+						dep,
+						st.attempts,
+						startedAt,
+						null,
+						"downstream_cancel",
+						null,
+					);
+					return { kind: "aborted" };
+				}
 				if (!(error instanceof UpstreamError)) throw error;
 				if (error.timedOut) {
 					timedOutOrigins.add(new URL(dep.url).origin);
@@ -721,7 +752,7 @@ export class Router {
 					}
 				}
 				this.reportAttempt(
-					req,
+					observedReq,
 					dep,
 					st.attempts,
 					startedAt,
@@ -746,6 +777,8 @@ export class Router {
 					source: "network",
 					status: error.status,
 					kind: "network",
+					transportTimeoutPhase:
+						observedReq.transport.snapshot()?.timeoutPhase ?? null,
 				};
 				// A failed network exchange already spent this row's entire
 				// request timeout. Repeating the same last row cannot improve
@@ -762,7 +795,7 @@ export class Router {
 					r.response.headers.get("x-litellm-call-id"),
 				);
 				this.reportAttempt(
-					req,
+					observedReq,
 					dep,
 					st.attempts,
 					startedAt,
@@ -792,7 +825,7 @@ export class Router {
 					st.unavailablePools.add(account);
 				}
 				this.reportAttempt(
-					req,
+					observedReq,
 					dep,
 					st.attempts,
 					startedAt,
@@ -824,7 +857,7 @@ export class Router {
 				continue;
 			}
 			this.reportAttempt(
-				req,
+				observedReq,
 				dep,
 				st.attempts,
 				startedAt,
@@ -843,6 +876,7 @@ export class Router {
 				source: r.refusalSource,
 				status: r.status,
 				kind: r.kind,
+				transportTimeoutPhase: r.transportTimeoutPhase,
 				requestId: r.requestId,
 				callId: r.callId,
 				upstreamRefusalCode: r.upstreamRefusalCode ?? null,

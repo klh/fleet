@@ -1,6 +1,10 @@
 // Shared HTTP trace contract for Fleet services. Only opaque IDs and bounded
 // diagnostic enums cross service boundaries; prompt and error bodies do not.
 import { randomBytes, randomUUID } from "node:crypto";
+import {
+	safeTimeoutPhase,
+	type TransportEvidence,
+} from "./transport-evidence.ts";
 
 const TRACEPARENT = /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/;
 const SAFE_ID = /^[A-Za-z0-9._-]{1,128}$/;
@@ -24,6 +28,7 @@ export interface HopFields {
 	attempts?: number;
 	upstreamStatus?: number;
 	upstreamKind?: string;
+	transportTimeoutPhase?: TransportEvidence["timeoutPhase"];
 	upstreamId?: string;
 	callId?: string;
 }
@@ -60,6 +65,7 @@ export interface HopReceipt {
 	/** W1086: rides the FINAL serving attempt only. Absent = not
 	 *  instrumented at that layer — readers see NULL, never a guess. */
 	settle?: StreamSettle;
+	transport?: TransportEvidence | null;
 }
 
 /** Upstream metadata is untrusted. Persist only a short diagnostic token. */
@@ -206,6 +212,7 @@ function setLabel(
 }
 
 const OWNED_HEADERS = [
+	"x-klh-transport-timeout-phase",
 	"x-klh-service",
 	"x-klh-hop",
 	"x-klh-refusal",
@@ -226,6 +233,8 @@ export function stampHopHeaders(headers: Headers, fields: HopFields): void {
 	setLabel(headers, "x-klh-hop", fields.hop);
 	setLabel(headers, "x-klh-refusal", fields.refusal);
 	setLabel(headers, "x-klh-upstream-kind", fields.upstreamKind);
+	const phase = safeTimeoutPhase(fields.transportTimeoutPhase);
+	if (phase) headers.set("x-klh-transport-timeout-phase", phase);
 	if (fields.traceId && /^[0-9a-f]{32}$/.test(fields.traceId))
 		headers.set("x-klh-trace-id", fields.traceId);
 	const requestId = safeCorrelationId(fields.requestId);

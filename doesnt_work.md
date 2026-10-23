@@ -199,3 +199,18 @@ work is only cancelled after its delayed headers arrive around 600 ms.
 Midstream cleanup already works in both arms. This demonstrates a local
 accounting gap, not a measured real-provider concurrency limit or proof of
 historical abandoned Z.ai requests.
+
+# W1124.40 - a network failure is not a provider diagnosis
+
+Observed 35-second preheader failures had no provider call ID or input usage.
+Success-only TTFB percentiles are censored by that deadline and cannot establish
+why those requests stalled. The transport fixture preserves unknown provider
+acknowledgment even when local cancellation settles. A remote timeout phase is
+accepted only from declared Buckle peers; arbitrary provider headers cannot
+assert trusted phases. No timeout policy was increased by this work.
+
+W1124.40 review followup: the first local implementation omitted the existing
+remote trace connector's allowlisted projection, which would have hidden remote
+transport evidence at the origin. The corrected projection uses the same bounded
+validator, tested over actual authenticated HTTP against the real hop ledger.
+The caller/timer race fixture also preserves the first local cancellation cause.
