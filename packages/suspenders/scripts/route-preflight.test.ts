@@ -373,9 +373,7 @@ describe("route preflight before activation", () => {
 		};
 		const result = await checkRoutePreflight(source, async () => true);
 		expect(result.ok).toBe(false);
-		const cycle = result.findings.find(
-			(finding) => finding.code === "cycle",
-		);
+		const cycle = result.findings.find((finding) => finding.code === "cycle");
 		expect(cycle?.layer).toBe("fleet");
 	});
 });

@@ -41,6 +41,10 @@ export type FreeRoute = {
 	dialect: "openai";
 	adapter: "openai-compat";
 	api_key_env: "LITELLM_KEY";
+	/** W1094.1: generated rows ride the LiteLLM engine — declare it so Buckle
+	 * applies bounded proxy behavior (zero inner retries, bounded first-byte
+	 * headers) and route preflight validates the hop (zai-catalog parity). */
+	adapter_config: { proxy_kind: "litellm" };
 	model: string;
 };
 
@@ -60,6 +64,7 @@ const routeForId = (id: string): FreeRoute => ({
 	dialect: "openai",
 	adapter: "openai-compat",
 	api_key_env: "LITELLM_KEY",
+	adapter_config: { proxy_kind: "litellm" },
 	model: groupForId(id),
 });
 
