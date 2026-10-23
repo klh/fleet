@@ -101,3 +101,29 @@ export function resetDrainForTest(): void {
 	state = null;
 	listeners.clear();
 }
+
+const enc = new TextEncoder();
+
+/** W1156: enqueue the drain terminal + terminate the transform — the only
+ *  termination TransformStreamDefaultController actually has in Bun
+ *  (typeof close === "undefined"; probe 2026-10-22). terminate() delivers
+ *  the queued terminal then closes the readable; the writable side errors,
+ *  so the client pipe rejects with the drain's own signature (recognized
+ *  via streamDrained — never mislabeled an upstream failure). Returns
+ *  whether the terminal was actually handed to the client stream: a drain
+ *  racing an already-closed/errored/cancelled stream throws synchronously,
+ *  delivers nothing, and the receipt keeps the real cause. */
+export function writeDrainTerminal(
+	ctl: TransformStreamDefaultController<Uint8Array> | null,
+	dialect: Dialect,
+	rid: string,
+): boolean {
+	if (ctl === null) return false;
+	try {
+		ctl.enqueue(enc.encode(drainTerminalFrame(dialect, rid)));
+		ctl.terminate();
+		return true;
+	} catch {
+		return false;
+	}
+}

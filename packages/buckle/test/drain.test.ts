@@ -88,6 +88,34 @@ const startHeldUpstream = async () => {
 	return { upstream, releases };
 };
 
+/** W1156.1 held upstream variant: the first frame, then a typed in-band
+ *  overloaded_error, then the stream HOLDS (no protocol terminal) until
+ *  the test releases it. */
+const startHeldErrorUpstream = async () => {
+	const releases: Array<() => void> = [];
+	const upstream = await startMockUpstream(() => {
+		const body = new ReadableStream<Uint8Array>({
+			start(c) {
+				c.enqueue(enc.encode(FIRST_FRAME));
+				c.enqueue(
+					enc.encode(
+						'event: error\ndata: {"type":"error","error":{"type":"overloaded_error","message":"original provider failure"}}\n\n',
+					),
+				);
+				releases.push(() => {
+					try {
+						c.close();
+					} catch {
+						// already closed by the drain/teardown
+					}
+				});
+			},
+		});
+		return new Response(body, { headers: sseHeaders });
+	});
+	return { upstream, releases };
+};
+
 /** Read the streamed body, accumulating text; stop as soon as `until`
  *  matches so the test can act mid-stream. */
 async function readStream(
@@ -238,6 +266,36 @@ describe("W1156 in-flight stream interruption", () => {
 			expect(audit.error_code).toBe("gateway_restarting");
 			expect(audit.err).toBe("gateway_restarting");
 			expect(receiptOf(audit).terminal).toBe("gateway_restarting");
+		} finally {
+			for (const release of releases) release();
+			upstream.close();
+		}
+	});
+
+	test("in-band failure then later drain: first cause kept, no second restart error", async () => {
+		const { upstream, releases } = await startHeldErrorUpstream();
+		try {
+			const deps = testDeps(poolOf(upstream.url));
+			const res = await createApp(deps).fetch(streamReq(upstream.url));
+			expect(res.status).toBe(200);
+			// The real error reaches the client BEFORE any drain exists.
+			const head = await readStream(res, (a) => a.includes("overloaded_error"));
+			expect(head).toContain("overloaded_error");
+			await Bun.sleep(80); // the sniffer branch settles before the drain fires
+			expect(beginDrain("deployment:test", 5000)).not.toBeNull();
+			const tail = await readStream(res);
+			// The drain appends NOTHING after the real error the client holds.
+			expect(tail).not.toContain("gateway_restarting");
+			await Bun.sleep(80);
+			const audit = deps.ledger.auditRows()[0] ?? {};
+			expect(audit.ok).toBe(0);
+			expect(audit.decision).toBe("errored");
+			// The durable receipt keeps the observed provider cause, not the drain.
+			expect(audit.err).toBe("stream_failed:in_band:overloaded_error");
+			expect(audit.error_code).toBe("stream_failed");
+			expect(receiptOf(audit).terminal).toBe(
+				"in_band_error:in_band:overloaded_error",
+			);
 		} finally {
 			for (const release of releases) release();
 			upstream.close();
