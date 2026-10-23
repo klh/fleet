@@ -127,6 +127,24 @@ export class Slots {
 		}
 		let released = false;
 		let deadline = Math.max(t + this.leaseMs, holdUntil ?? 0);
+		// W1118 #57099: the heartbeat timer calls renew/hold — a DB fault
+		// (closed handle, SQLITE_BUSY) must log observably and NEVER throw
+		// into the timer/stream. A failed touch leaves the last COMMITTED
+		// deadline standing (the sweep reads the DB, not this closure), so
+		// the lease degrades honestly: it may be swept at that deadline and
+		// the next successful touch re-arms. Same never-throw contract as
+		// the release() closure below.
+		const touch = (next: number): void => {
+			deadline = next;
+			try {
+				for (const scope of scopes)
+					this.db.query(TOUCH_HOLDER).run(deadline, scope, holder);
+			} catch (e) {
+				console.error(
+					`buckle: slot touch failed (holder=${holder}), keeping last committed deadline: ${String(e)}`,
+				);
+			}
+		};
 		return {
 			release: () => {
 				// W1118 #55798: `released` flips only AFTER a committed DELETE —
@@ -157,15 +175,11 @@ export class Slots {
 			// deadline forward for a quiet stream: one bounded push per call.
 			renew: () => {
 				if (released) return;
-				deadline = this.now() + this.leaseMs;
-				for (const scope of scopes)
-					this.db.query(TOUCH_HOLDER).run(deadline, scope, holder);
+				touch(this.now() + this.leaseMs);
 			},
 			hold: (untilMs: number) => {
 				if (released) return;
-				deadline = Math.max(deadline, this.now() + Math.max(0, untilMs));
-				for (const scope of scopes)
-					this.db.query(TOUCH_HOLDER).run(deadline, scope, holder);
+				touch(Math.max(deadline, this.now() + Math.max(0, untilMs)));
 			},
 		};
 	}

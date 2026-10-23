@@ -653,7 +653,17 @@ export class Governance {
 	 *  bounded — a crashed replica stops beating and is reclaimed. */
 	private startLeaseHeartbeat(lease: SlotLease): () => void {
 		const hb = setInterval(
-			() => lease.hold(this.slots.leaseMs),
+			() => {
+				// W1118 #57099: an uncaught throw in a timer callback kills the
+				// process. The lease's own no-throw contract (slots.ts touch)
+				// covers DB faults; this guard keeps ANY fault from a lease
+				// implementation from reaching the event loop.
+				try {
+					lease.hold(this.slots.leaseMs);
+				} catch (e) {
+					console.error(`buckle: lease heartbeat hold failed: ${String(e)}`);
+				}
+			},
 			Math.max(1, Math.floor(this.slots.leaseMs / 2)),
 		);
 		return (): void => clearInterval(hb);

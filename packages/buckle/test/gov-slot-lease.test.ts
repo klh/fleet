@@ -4,6 +4,8 @@
 // the slot immediately. Real Bun.serve on a scratch port, 50ms lease so
 // the sweep windows are deterministic.
 import { describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { Slots } from "../src/gov/slots.ts";
 import { startServer } from "../src/server.ts";
 import { startMockUpstream } from "./mock.ts";
 
@@ -145,5 +147,41 @@ describe("gate: W1118 slot lease across quiet streams and aborts", () => {
 		await aborted.then((r) => r.arrayBuffer()).catch(() => {});
 		gate.stop();
 		upstream.close();
+	});
+
+	test("a DB fault under the lease logs and survives (W1118 #57099)", async () => {
+		// the reviewer's fixture: acquire a real lease, then kill the DB
+		// under a live heartbeat cadence. Before the fix the uncaught
+		// RangeError out of the timer terminated Bun; now the touch logs
+		// observably and the process (and this suite) survives.
+		const db = new Database(":memory:");
+		db.exec(
+			"CREATE TABLE admission_slot_holders (scope TEXT NOT NULL, holder TEXT NOT NULL, touched INTEGER NOT NULL, PRIMARY KEY (scope, holder)); CREATE INDEX admission_slot_holders_touched ON admission_slot_holders (touched);",
+		);
+		const slots = new Slots(db, { global: 1, perTeam: 0 }, Date.now, 120_000);
+		const lease = slots.acquire(null);
+		if (lease === null) {
+			throw new Error("acquire must succeed against an empty pool");
+		}
+		const errors: string[] = [];
+		const orig = console.error;
+		console.error = (...args: unknown[]) => {
+			errors.push(args.map(String).join(" "));
+		};
+		try {
+			db.close();
+			lease.renew(); // the same fault class via the renew face
+			// the heartbeat's exact call shape — an uncaught throw here
+			// would fail this suite from inside the timer
+			const hb = setInterval(() => lease.hold(120_000), 5);
+			await Bun.sleep(30);
+			clearInterval(hb);
+		} finally {
+			console.error = orig;
+		}
+		expect(
+			errors.some((m) => m.includes("slot touch failed (holder=")),
+		).toBeTrue();
+		lease.release(); // the settle face stays no-throw after the fault
 	});
 });
