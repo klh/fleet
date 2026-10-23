@@ -52,6 +52,20 @@ test("live harness has no invented progress; fresh transcript lease is not execu
 	expect(
 		workExecution(claim, { ...evidence, process: false }, [], 100).state,
 	).toBe("unknown");
+	// W1232: probe UNAVAILABLE (null) + the reclaim-trusted lease says alive —
+	// the transcript rescues presence (host flip / ps wobble cannot blank the
+	// board); probe unavailable + unknown lease stays unknown
+	expect(
+		workExecution(claim, { ...evidence, process: null }, [], 100).state,
+	).toBe("live-harness");
+	expect(
+		workExecution(
+			claim,
+			{ ...evidence, process: null, lease: "unknown" },
+			[],
+			100,
+		).state,
+	).toBe("unknown");
 	expect(
 		workExecution(
 			claim,

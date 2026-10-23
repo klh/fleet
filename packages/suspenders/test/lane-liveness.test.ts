@@ -4,9 +4,11 @@
 // need process-identity or a fresh heartbeat inside the 15-min reclaim lease.
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
+import { hostname } from "node:os";
 import {
 	transcriptAlive,
 	laneAlive,
+	laneProcessIdentity,
 	worktreeLive,
 	HARNESS_ARG_RE,
 } from "../hooks/lib/lane-liveness.ts";
@@ -129,6 +131,39 @@ describe("lane-liveness surface", () => {
 			proc.kill();
 			Bun.spawnSync(["/bin/rm", "-rf", base]);
 		}
+	});
+
+	test("host flip stays probeable: .local ↔ .localdomain rows keep process trust (W1232)", () => {
+		const real = hostname();
+		const flipped = real.endsWith(".localdomain")
+			? real.replace(/\.localdomain$/, ".local")
+			: `${real}.local`;
+		const args = `/opt/klh/bin/claude --as autowflip-p98b319584008df14 -p mission`;
+		const inspect = () => ({ exitCode: 0, stdout: `4242 ${args}\n` });
+		expect(
+			laneProcessIdentity(
+				{
+					sid: "autowflip-p98b319584008df14",
+					item: "W1",
+					pid: 4242,
+					host: flipped,
+				},
+				inspect,
+			),
+		).toBe(true);
+		// control: a genuinely foreign host stays probe-blind (null) — the
+		// flip normalization must not widen trust to real remotes
+		expect(
+			laneProcessIdentity(
+				{
+					sid: "autowflip-p98b319584008df14",
+					item: "W1",
+					pid: 4242,
+					host: "nas.threads.dk",
+				},
+				inspect,
+			),
+		).toBe(null);
 	});
 
 	test("harness anchor (W494): coord-subscribe phantoms read dead, real lanes live", () => {
