@@ -11,6 +11,10 @@
 //             process dies mid-run the next run sees the marker, knows the
 //             previous outcome is unclear, and re-mines from the last
 //             confirmed cursor. Early runs repeat, gaps do not.
+//             W1201.1: the maybe-ran evidence is a SEPARATE pending file
+//             (<cursor>-pending.json) — a confirmed bookmark survives any
+//             pending/crash, and the confirmed position is read BEFORE the
+//             run acts.
 //   notice  — bounded one-line-per-failed-source channel the W822 pulse
 //             section reads (readSweepNotices). A failed source is never a
 //             quiet skip: the notice names the task and the failure; the
@@ -21,7 +25,13 @@
 //             task, says why, and ops clears it by deleting the marker.
 // Reader-owned conf is NOT stored here — config is re-read fresh every run
 // from its own surface (env / notify.yaml / knowledge-sync.json).
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -30,7 +40,14 @@ export interface SweepCursorOk {
 	lastMs: number;
 	runId: string;
 }
-export type SweepCursor = SweepCursorOk | { state: "maybe-ran"; runId: string };
+/** W1201.1: pending evidence lives in its OWN file (see markMaybeRan) — a
+ *  single-file maybe-ran row carried no position, so one crash between the
+ *  stamp and the confirm destroyed the last confirmed bookmark (B1). */
+export interface SweepPending {
+	state: "maybe-ran";
+	runId: string;
+	at: number;
+}
 
 /** SUSPENDERS_MAINTENANCE_STATE relocates the agent-state dir (tests/ops);
  *  default ~/.claude-insights/maintenance. */
@@ -44,6 +61,9 @@ export const noticesPath = (dir = sweepStateDir()): string =>
 	join(dir, "notices.jsonl");
 export const pausePath = (name: string, dir = sweepStateDir()): string =>
 	join(dir, "pause", `${name}.json`);
+/** The pending-evidence file that pairs with a cursor path (W1201.1). */
+export const pendingPath = (cursorPath: string): string =>
+	`${cursorPath.replace(/\.json$/, "")}-pending.json`;
 
 function writeJsonAtomic(path: string, value: unknown): boolean {
 	try {
@@ -69,38 +89,65 @@ function readJson<T>(path: string): T | null {
 
 /** The last CONFIRMED cursor position; fallback when absent/unclear. */
 export function confirmedMs(
-	cursor: SweepCursor | null,
+	cursor: SweepCursorOk | null,
 	fallbackMs: number,
 ): number {
-	return cursor?.state === "ok" &&
-		Number.isFinite(cursor.lastMs) &&
-		cursor.lastMs > 0
+	return cursor !== null && Number.isFinite(cursor.lastMs) && cursor.lastMs > 0
 		? cursor.lastMs
 		: fallbackMs;
 }
 
-export function readCursor(path: string): SweepCursor | null {
-	const c = readJson<SweepCursor>(path);
+/** The CONFIRMED bookmark only — null = none (fallback applies). Legacy
+ *  single-file maybe-ran rows read as absent: pending evidence never
+ *  carried a position (W1201.1). */
+export function readCursor(path: string): SweepCursorOk | null {
+	const c = readJson<SweepCursorOk>(path);
 	if (c === null) return null;
-	if (c.state === "ok") {
-		return Number.isFinite(c.lastMs) && c.lastMs > 0 ? c : null;
-	}
-	if (c.state === "maybe-ran" && typeof c.runId === "string") return c;
-	return null;
+	return c.state === "ok" &&
+		Number.isFinite(c.lastMs) &&
+		c.lastMs > 0 &&
+		typeof c.runId === "string"
+		? c
+		: null;
 }
 
-/** Stamp BEFORE the run acts: outcome unclear until the cursor confirms. */
-export function markMaybeRan(path: string, runId: string): boolean {
-	return writeJsonAtomic(path, { state: "maybe-ran", runId });
+/** The unclear-outcome evidence of an in-flight or crashed run, or null. */
+export function readPending(cursorPath: string): SweepPending | null {
+	const p = readJson<SweepPending>(pendingPath(cursorPath));
+	return p !== null &&
+		p.state === "maybe-ran" &&
+		typeof p.runId === "string" &&
+		typeof p.at === "number"
+		? p
+		: null;
 }
 
-/** Advance ONLY on confirmed success (output written and verified). */
+/** Stamp BEFORE the run acts — in a SEPARATE pending file, so the
+ *  confirmed bookmark stays durable across a pending/crash (B1). */
+export function markMaybeRan(
+	cursorPath: string,
+	runId: string,
+	nowMs = Date.now(),
+): boolean {
+	return writeJsonAtomic(pendingPath(cursorPath), {
+		state: "maybe-ran",
+		runId,
+		at: nowMs,
+	});
+}
+
+/** Advance ONLY on confirmed success (output written and verified); the
+ *  run's pending evidence is cleared with the confirmation. */
 export function confirmCursor(
 	path: string,
 	lastMs: number,
 	runId: string,
 ): boolean {
-	return writeJsonAtomic(path, { state: "ok", lastMs, runId });
+	if (!writeJsonAtomic(path, { state: "ok", lastMs, runId })) return false;
+	try {
+		rmSync(pendingPath(path), { force: true });
+	} catch {}
+	return true;
 }
 
 // ---- failure notices (failed source != quiet skip) -------------------------

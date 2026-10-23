@@ -48,11 +48,14 @@ const mining = defineVerb({
 /** Rank lanes: ≥ MIN_REQUESTS in the window, worst warm-rate first, cost
  *  index as the tiebreak (equal coldness — the expensive one mines first).
  *  W1201 window: [fromMs, nowMs] — the confirmed-cursor window; the legacy
- *  7d fallback applies only before the first confirmed run. */
+ *  7d fallback applies only before the first confirmed run.
+ *  W1201.1 (B2): an unavailable ledger is a FAILED SOURCE — null return,
+ *  a sweep notice, and NO artifact write / NO cursor advance (the buggy
+ *  form mined an empty artifact and confirmed NOW over data nobody read). */
 export function mineOffenders(
 	nowMs = Date.now(),
 	fromMs?: number,
-): MiningArtifact {
+): MiningArtifact | null {
 	const from = fromMs ?? nowMs - FALLBACK_WINDOW_MS;
 	const rep = drilldownReport(
 		resolveBuckleDb(),
