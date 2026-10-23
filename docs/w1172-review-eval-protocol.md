@@ -66,8 +66,9 @@ W1172_GATE=open … bun tests/review-eval/run.ts --run
 
 ## Receipts
 
-`runMode` writes `~/.claude/local-llm/blam/w1172/runs/<runId>.json`, mode
-0600, never committed: runId/ts, gate marker, corpusSha, task ids, both arm
+`runMode` writes `~/.claude/local-llm/blam/w1172/runs/<runId>.json`, file
+mode 0600 inside a 0700 runs dir, never committed: runId/ts, gate marker,
+corpusSha, task ids, both arm
 receipts (rev, commit, skill sha256), pins (executor/settings/judge
 url+model), per-run records (exit, duration, output, usage, cost, judge
 score) and per-arm totals (found/planted/falsePositives + tokens + cost).

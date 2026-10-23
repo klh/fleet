@@ -50,11 +50,13 @@ export type ArmBundle = {
 
 /** Resolve one skill arm from git history (byte-exact, sha-pinned). */
 export function resolveArm(rev: string, skillPath: string): ArmBundle {
-	const commit = Bun.spawnSync(["git", "rev-parse", rev], {
+	const revParse = Bun.spawnSync(["git", "rev-parse", rev], {
 		cwd: REPO_ROOT,
-	})
-		.stdout.toString()
-		.trim();
+	});
+	const commit = revParse.stdout.toString().trim();
+	if (revParse.exitCode !== 0 || !/^[0-9a-f]{40}$/.test(commit)) {
+		throw new Error(`cannot resolve commit for ${rev}`);
+	}
 	const show = Bun.spawnSync(["git", "show", `${rev}:${skillPath}`], {
 		cwd: REPO_ROOT,
 	});
@@ -339,9 +341,9 @@ function addTotals(manifest: Manifest, inv: Inventory): void {
 	}
 }
 
-/** Write the 0600 receipt manifest under the out dir. */
+/** Write the 0600 receipt manifest under a 0700 out dir. */
 function writeManifest(args: ParsedArgs, manifest: Manifest): string {
-	mkdirSync(args.out, { recursive: true });
+	mkdirSync(args.out, { recursive: true, mode: 0o700 });
 	const path = join(args.out, `${manifest.runId}.json`);
 	writeFileSync(path, `${JSON.stringify(manifest, null, "\t")}\n`, {
 		mode: 0o600,

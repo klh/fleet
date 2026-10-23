@@ -28,7 +28,9 @@ zero-load plan validation green 2026-10-23 (`--plan` ok, `--run` refuses
 gate-shut, exit 2, zero spawns). Batches deferred by owner ruling
 (#59851): `W1172_GATE=hold` until the W1124 productive-rollout
 verification closes. **NO improvement claim exists** — the regex/doc
-fixture proves the doc contract only, never quality (doesnt_work.md row).
+fixture proves the doc contract only, never quality (see
+[doesnt_work.md](doesnt_work.md), "Documentation/regex fixtures as
+review-quality evidence (W1144 → W1172)").
 
 ---
 

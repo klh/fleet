@@ -313,6 +313,7 @@ describe("w1172 planState", () => {
 describe("w1172 stubbed e2e", () => {
 	test("runMode builds the manifest, judges, writes a 0600 receipt", async () => {
 		const dir = tmpDir();
+		const outDir = join(dir, "runs");
 		const invPath = writePin(dir, "inventory.json", JSON.stringify(synthInv));
 		const jpPath = writePin(dir, "judge-prompt.md", "RUBRIC-BYTES");
 		const stPath = writePin(dir, "settings.json", "{}");
@@ -384,7 +385,7 @@ describe("w1172 stubbed e2e", () => {
 				"--settings",
 				stPath,
 				"--out",
-				dir,
+				outDir,
 				"--judge-url",
 				`http://127.0.0.1:${judge.port}/v1/chat/completions`,
 				"--before",
@@ -417,9 +418,10 @@ describe("w1172 stubbed e2e", () => {
 		expect(judgeAuth).toBe("Bearer test-key");
 		expect(judgeModelSeen).toBe("test-judge-model");
 		expect(judgePacket).toBeGreaterThan(0);
-		const mpath = join(dir, `${manifest.runId}.json`);
+		const mpath = join(outDir, `${manifest.runId}.json`);
 		expect(existsSync(mpath)).toBe(true);
 		expect(statSync(mpath).mode & 0o777).toBe(0o600);
+		expect(statSync(outDir).mode & 0o777).toBe(0o700);
 		judge.stop(true);
 	});
 });
