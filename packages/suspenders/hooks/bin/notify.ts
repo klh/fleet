@@ -26,6 +26,7 @@ import {
 import { sendersFor } from "../lib/notify-adapters.ts";
 import { firePulse, PULSE_STATE_PATH } from "../lib/pulse.ts";
 import { fleetWarm, readMiningLines } from "../lib/cache-drilldown.ts";
+import { readCostLines } from "../lib/cost-alerts.ts";
 import { readLicenseLines } from "../lib/license-audit.ts";
 import { defineVerb, runCli } from "../lib/verb-kit.ts";
 
@@ -144,6 +145,7 @@ async function runPulse(fleetFlag: string | undefined): Promise<void> {
 		warm: () => fleetWarm(),
 		mining: () => readMiningLines(),
 		license: () => readLicenseLines(),
+		cost: () => readCostLines(),
 		log,
 	});
 	for (const [c, r] of Object.entries(res.channels)) log(`pulse ${c}: ${r}`);

@@ -6,6 +6,8 @@
 import { usagePayload } from "../bin/usage-page-html.ts";
 import { activityReport } from "../lib/activity-harvest.ts";
 import { cacheDrillParams, cacheDrillReport } from "../lib/cache-drill.ts";
+import { costSweepInputs } from "../lib/cost-alerts.ts";
+import { costByModel, resolveBuckleDb } from "../lib/lane-spend.ts";
 import { type CrossHubReport, crossHubRollup } from "../lib/cross-hub-usage.ts";
 import {
 	type LaneWork,
@@ -16,6 +18,7 @@ import {
 import { buildUsageReport } from "../lib/usage.ts";
 import { maybeHarvest } from "../lib/usage-harvest.ts";
 import { db } from "./context.ts";
+import { workAttribution } from "./data.ts";
 import { json } from "./helpers.ts";
 
 export async function handleUsage(
@@ -181,6 +184,47 @@ export async function handleUsage(
 				requests: local.totals.rq,
 				cache_read_tokens: local.totals.cr,
 			},
+		});
+	}
+	if (url.pathname === "/api/usage/cost") {
+		// W1132: the cost surface — hourly priced trend, per-model-group rollup
+		// and per-item attribution over the buckle ledger. days clamps 1..30;
+		// unpriced history reads null (unknown), never zero. Keyless lanes
+		// count in trend + byModel (direct router_usage reads).
+		const days = Math.min(
+			30,
+			Math.max(1, Number(url.searchParams.get("days") ?? 7) || 7),
+		);
+		const ledger = resolveBuckleDb();
+		if (!ledger) {
+			return json({
+				ok: true,
+				ledger: null,
+				days,
+				trend: [],
+				byModel: [],
+				byItem: [],
+			});
+		}
+		const fromBucket = `${new Date(Date.now() - days * 86_400_000)
+			.toISOString()
+			.slice(0, 13)}:00`;
+		const byItem = Array.from(workAttribution(), ([key, a]) => ({
+			id: key.split("\u0000")[1] ?? key,
+			cost_usd: a.costUsd,
+			requests: a.requests,
+			tokens: a.fresh + a.cached + a.out,
+			model_groups: a.groups,
+		}))
+			.sort((x, y) => (y.cost_usd ?? -1) - (x.cost_usd ?? -1))
+			.slice(0, 50);
+		return json({
+			ok: true,
+			ledger,
+			days,
+			trend: costSweepInputs(ledger, { days }).hours,
+			byModel: costByModel(ledger, fromBucket),
+			byItem,
 		});
 	}
 	return null;

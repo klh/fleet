@@ -125,6 +125,7 @@ export function taskShape(
 		waiting_on: edges.waiting_on,
 		// W776 per-item attribution (buckle spend ⋈ claim windows + wall):
 		// raw numbers — the client formats; null when nothing to attribute.
+		// W1132: cost_usd rides the priced rows (null = unknown, never zero).
 		spend: attribution
 			? {
 					fresh: attribution.fresh,
@@ -133,6 +134,7 @@ export function taskShape(
 					requests: attribution.requests,
 					wall_ms: attribution.wallMs,
 					agent_ms: attribution.agentMs,
+					cost_usd: attribution.costUsd,
 					model_groups: attribution.groups,
 				}
 			: null,
@@ -187,7 +189,7 @@ function claimEventScan(): TimingEventRow[] {
 // read per TTL window. Keys are project\0id — W318 id collision.
 let _wAttr: { at: number; m: Map<string, ItemAttribution> } | null = null;
 const ATTR_TTL_MS = 5_000;
-function workAttribution(): Map<string, ItemAttribution> {
+export function workAttribution(): Map<string, ItemAttribution> {
 	if (_wAttr && Date.now() - _wAttr.at < ATTR_TTL_MS) return _wAttr.m;
 	const m = new Map<string, ItemAttribution>();
 	// W682: ONE claim-replay bus scan feeds every project's replay — the

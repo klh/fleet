@@ -209,6 +209,7 @@ function spendStripText(sp){
   var s = fmtWall(sp.wall_ms);
   if (rpm != null) s += ' · ' + fmtRate(rpm) + ' tok/m';
   if (cp != null) s += ' · ' + Math.round(cp) + '% cache';
+  if (sp.cost_usd != null) s += ' · $' + sp.cost_usd.toFixed(sp.cost_usd < 0.01 ? 4 : 2);
   return s;
 }
 function spendStripHtml(t, cls){

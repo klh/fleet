@@ -131,6 +131,9 @@ export interface PulseDeps {
 	mining?: () => string[];
 	/** W828 license-health lines (default: none). */
 	license?: () => string[];
+	/** W1132 cost-alert lines — the ledger sweep's renderCostAlert
+	 *  one-liners (default: none; no ledger, no section). */
+	cost?: () => string[];
 }
 
 export interface PulseDigest {
@@ -229,6 +232,7 @@ function sectionsOf(args: {
 	commits: string[];
 	mining: string[];
 	license: string[];
+	cost: string[];
 }): string[] {
 	const out: string[] = [];
 	if (args.done.length > 0) {
@@ -259,6 +263,8 @@ function sectionsOf(args: {
 			"license perimeter (daily audit):",
 			...args.license.map((l) => `  ${l}`),
 		);
+	if (args.cost.length > 0)
+		out.push("cost alerts:", ...args.cost.map((c) => `  ${c}`));
 	if (args.commits.length > 0) {
 		out.push("commits:");
 		for (const c of args.commits) out.push(`  ${c}`);
@@ -287,6 +293,7 @@ export function composePulse(deps: PulseDeps): PulseDigest {
 	const warm = deps.warm?.() ?? null;
 	const mining = deps.mining?.() ?? [];
 	const license = deps.license?.() ?? [];
+	const cost = deps.cost?.() ?? [];
 	const warmFrag =
 		warm !== null ? ` · warm ${(warm.rate * 100).toFixed(1)}%` : "";
 	// W902: the report header carries its own generated-at stamp — UTC Z first,
@@ -303,6 +310,7 @@ export function composePulse(deps: PulseDeps): PulseDigest {
 		commits,
 		mining,
 		license,
+		cost,
 	});
 	const digestKey = digestKeyOf(sections.join("\n"));
 	const deltas =
