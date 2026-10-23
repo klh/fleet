@@ -102,6 +102,7 @@ async function main(): Promise<void> {
 		prune: flags.prune,
 		skipModels: flags.skipModels,
 		noLlm: flags.noLlm,
+		withLaunchd: flags.withLaunchd,
 		...paths,
 	};
 	// W771.3: the bash front's targeted routes absorbed as early exits —

@@ -23,6 +23,7 @@ import {
 	type StepStatus,
 } from "./install-contract.ts";
 import { registerLaunchd } from "./install-launchd.ts";
+import { registerLaunchdPreflight } from "./install-preflight.ts";
 import {
 	downloadModels,
 	refreshSupervisor,
@@ -59,6 +60,11 @@ export interface StepContext {
 	skipModels?: boolean;
 	/** --no-llm: the local-llm baseline skips entirely (CI/containers) */
 	noLlm?: boolean;
+	/** W1195.1: plan mode with --with-launchd — registerLaunchd rides this
+	 *  run, so the plan preflights its refusal conditions BEFORE the first
+	 *  mutating step (a late refusal after syncHarness published is the
+	 *  2026-10-23 incident). */
+	withLaunchd?: boolean;
 }
 
 export interface StepResult {
@@ -437,6 +443,25 @@ export async function executePlan(
 		onRow(row);
 	};
 	let outcome: OutcomeStatus = "ok";
+	// W1195.1: BEFORE the first mutating step, detect steps that will refuse.
+	// The 2026-10-23 incident: --with-launchd from a linked item worktree
+	// published worktree code into the live prefix via syncHarness and only
+	// then hit the W631 stable-worktree activation guard. The preflight is
+	// read-only (dry-run keeps its zero-side-effect guarantee and still
+	// previews the refusal), and a failed preflight runs nothing.
+	if (mode === "plan" && ctx.withLaunchd === true) {
+		for (const finding of registerLaunchdPreflight(ctx)) {
+			emit({
+				name: finding.step,
+				status: "failed",
+				note: `mutation preflight — will refuse: ${finding.refusal}`,
+				detail:
+					"preflighted before any persistent mutation; rerun from a stable checkout or repair the guard input",
+			});
+			outcome = "failed";
+		}
+		if (outcome === "failed") return { rows, pauses, outcome };
+	}
 	const selected: ReadonlySet<StepName> = new Set<StepName>(
 		mode === "step" && stepName !== null
 			? INSTALL_CONTRACT.steps
