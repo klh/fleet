@@ -12,6 +12,8 @@ import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { resolveFleetLane } from "./fleetlane.ts";
 import type { HookInput } from "./hookio.ts";
+import { loadLaneRegistry, newerLane } from "./lane-registry.ts";
+import { laneProcessIdentity, type LaneRef } from "./lane-liveness.ts";
 export {
 	codexEventText,
 	steerCodexDirectEvent,
@@ -116,13 +118,53 @@ export const reapDeadSubscribes = (
 };
 
 // W418 reap-on-idle: when a work item closes (done) or is given back
-// (release) and its owner holds no other unfinished item, the lane's WS
-// subscribe has nothing left to push to — reap it. The store comes in as a
+// (release) and its owner holds no other unfinished item or managed
+// conversation, the lane's WS subscribe can be reaped. The store comes in as a
 // parameter so this lifecycle file stays DB-free; the SQL mirrors
 // releaseWorkClaim's unfinished set (CLAIMED/RUNNING/ORPHANED).
 type Storeish = {
 	query: (sql: string) => { get: (...params: unknown[]) => unknown };
 };
+
+/** A conversation owns its push channel independently of its current claim.
+ * Unknown identity cannot authorize reaping or starting another native lane. */
+export function managedSubscriberIdentity(
+	project: string,
+	sid: string,
+): boolean | null {
+	try {
+		const lane = loadLaneRegistry<LaneRef>(project)
+			.filter((candidate) => candidate.sid === sid)
+			.reduce<LaneRef | undefined>(
+				(latest, candidate) =>
+					latest ? newerLane(latest, candidate) : candidate,
+				undefined,
+			);
+		return lane ? laneProcessIdentity(lane) : false;
+	} catch {
+		return null;
+	}
+}
+
+function managedSessionIdentity(store: Storeish, sid: string): boolean | null {
+	const session = store
+		.query("SELECT state, project FROM sessions WHERE sid = ?")
+		.get(sid) as { state: string; project: string } | undefined;
+	return session?.state === "RUNNING"
+		? managedSubscriberIdentity(session.project, sid)
+		: false;
+}
+
+/** Take may reuse a native conversation after a previous claim was released.
+ * Repair only its existing subscription; never adopt or launch a native CLI. */
+export function attachManagedSubscribe(store: Storeish, sid: string): boolean {
+	try {
+		return managedSessionIdentity(store, sid) === true && attachSubscribe(sid);
+	} catch {
+		return false;
+	}
+}
+
 export const reapIfIdle = (store: Storeish, sid: string): boolean => {
 	if (!sid) return false;
 	const busy = store
@@ -131,5 +173,12 @@ export const reapIfIdle = (store: Storeish, sid: string): boolean => {
 		)
 		.get(sid);
 	if (busy) return false;
+	try {
+		if (managedSessionIdentity(store, sid) !== false) return false;
+	} catch {
+		// The claim was already released. Failed lifetime inspection is not
+		// permission to destroy its delivery channel or report release failure.
+		return false;
+	}
 	return reapSubscribe(sid);
 };

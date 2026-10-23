@@ -23,12 +23,9 @@ import {
 } from "../lib/event-relay.ts";
 import { localHubLabel } from "../lib/federation-work.ts";
 import { resolveStoreHttpBase } from "../lib/govdb.ts";
-import {
-	type LaneRef,
-	laneProcessIdentity,
-	laneVerdict,
-} from "../lib/lane-liveness.ts";
+import { type LaneRef, laneVerdict } from "../lib/lane-liveness.ts";
 import { loadLaneRegistry } from "../lib/lane-registry.ts";
+import { managedSubscriberIdentity } from "../lib/subscribe-attach.ts";
 import { type EventPublication, emitStoredEvent } from "./event-publish.ts";
 import { advanceCursor, fetchEventsPaged } from "./event-scan.ts";
 import {
@@ -91,14 +88,7 @@ export function subscriberSessionAlive(sid: string, now = Date.now()): boolean {
 	// A managed native conversation remains addressable while checkpointed
 	// and idle. Its exact registered harness identity, never this subscriber
 	// or a stale transcript, owns that lifetime.
-	try {
-		const lane = loadLaneRegistry<LaneRef>(row.project).find(
-			(lane) => lane.sid === sid,
-		);
-		if (lane && laneProcessIdentity(lane) === true) return true;
-	} catch {
-		// Unknown registry/process identity cannot extend the freshness lease.
-	}
+	if (managedSubscriberIdentity(row.project, sid) !== false) return true;
 	if (row.transcript_path) {
 		try {
 			if (

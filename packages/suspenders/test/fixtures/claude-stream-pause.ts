@@ -49,6 +49,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 			"--next=fixture continuation",
 		]);
 		call(["paused", "--sha", sha]);
+		if (process.env.SUSPENDERS_FIXTURE_ACK_PAUSE === "1") {
+			const event = text.match(/^Fleet direct event #(\d+)/)?.[1];
+			if (!event) throw Error("pause fixture requires a real directed event");
+			call(["ack", event]);
+		}
 		execFileSync(
 			process.execPath,
 			[new URL("../../hooks/gate.ts", import.meta.url).pathname, "stop"],
