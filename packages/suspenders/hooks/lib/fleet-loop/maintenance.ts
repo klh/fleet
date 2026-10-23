@@ -163,6 +163,26 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		cwd: (repo) => repo,
 	},
 	{
+		// W1247: the .fleet launch-debris janitor — dispatch/supervise fence
+		// every lane launch with launch-<nonce>.{json,sh,json.registered} in
+		// <REPO>/.fleet and nothing removed them (6,805-file backlog,
+		// 2026-10-23). Prunes debris older than 7 days UNLESS the nonce is
+		// the item's registered-current launch (lane_launch_intents + process
+		// birth — uncertainty keeps, mid-flight launches are safe). Daily
+		// 04:40 fire; `.fleet/launch-janitor-paused` pauses.
+		name: "launch-janitor",
+		calendar: { hour: 4, minute: 40 },
+		nice: 10,
+		timeoutMs: 120_000,
+		argv: (root, repo) => [
+			join(root, "hooks/bin/launch-janitor.ts"),
+			"--act",
+			"--repo",
+			repo,
+		],
+		cwd: (repo) => repo,
+	},
+	{
 		// W828: the Fleet personal-use license perimeter — walks the repo's
 		// node_modules license fields against the permissive allowlist,
 		// verifies vendored-bundle banners, records swarm model licenses,
