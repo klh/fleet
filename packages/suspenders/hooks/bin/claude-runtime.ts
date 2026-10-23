@@ -19,6 +19,7 @@ import {
 } from "../lib/claude-wake.ts";
 // W1035.1: interrupt results are internal turn boundaries — never terminal.
 import { defineVerb, runCli } from "../lib/verb-kit.ts";
+import { restartBootstrap } from "../lib/claude-restart.ts";
 
 async function run(args: string[]): Promise<number> {
 	const nativeBin = process.env.SUSPENDERS_CLAUDE_NATIVE_BIN;
@@ -28,6 +29,14 @@ async function run(args: string[]): Promise<number> {
 			"SUSPENDERS_CLAUDE_NATIVE_BIN and SUSPENDERS_SID are required",
 		);
 	const stream = claudeStreamArguments(args);
+	const restart = process.env.SUSPENDERS_CLAUDE_RESTART_JOURNAL
+		? restartBootstrap(process.env.SUSPENDERS_CLAUDE_RESTART_JOURNAL, sid, args)
+		: null;
+	if (
+		restart &&
+		(await claudePauseProof(sid))?.checkpoint !== restart.checkpoint
+	)
+		throw new Error("Restart pause checkpoint is no longer verified");
 	const child = spawn(nativeBin, stream.args, {
 		stdio: ["pipe", "pipe", "pipe"],
 		env: { ...process.env, SUSPENDERS_CLAUDE_WAKE: "0" },
@@ -47,9 +56,10 @@ async function run(args: string[]): Promise<number> {
 		process.stdout.write(`${JSON.stringify(frame)}\n`);
 	const lines = createInterface({ input: child.stdout });
 	let closing = false;
-	let pauseMode: "running" | "checkpointing" | "paused" | "resuming" =
-		"running";
-	let pauseCheckpoint: string | null = null;
+	let pauseMode: "running" | "checkpointing" | "paused" | "resuming" = restart
+		? "paused"
+		: "running";
+	let pauseCheckpoint: string | null = restart?.checkpoint ?? null;
 	let verifyingPause: Promise<void> | undefined;
 	let finishTimer: ReturnType<typeof setTimeout> | undefined;
 	const finishWhenIdle = () => {
@@ -69,6 +79,16 @@ async function run(args: string[]): Promise<number> {
 		}
 		try {
 			const frame = JSON.parse(line);
+			if (
+				restart &&
+				frame.type === "system" &&
+				frame.subtype === "init" &&
+				frame.session_id !== restart.nativeSession
+			) {
+				emit({ type: "fleet.claude.restart", state: "identity-refused", sid });
+				child.kill("SIGTERM");
+				return;
+			}
 			control.receive(frame);
 			if (
 				frame.type === "result" &&
@@ -207,7 +227,15 @@ async function run(args: string[]): Promise<number> {
 			}
 		}
 	})();
-	control.start(stream.prompt);
+	if (!restart) control.start(stream.prompt);
+	else
+		emit({
+			type: "fleet.claude.restart",
+			state: "waiting-paused",
+			id: restart.id,
+			sid,
+			checkpoint: restart.checkpoint,
+		});
 	const code = await exited;
 	// W1035.1: a native exit with an unproven injection requeues the claim —
 	// the resume path replays the directed event instead of it being lost
@@ -230,6 +258,53 @@ if (import.meta.main)
 		about: "claude-runtime — Fleet managed Claude stream-json runtime.",
 		defaultVerb: "run",
 		verbs: [
+			defineVerb({
+				name: "restart-verify",
+				usage:
+					"usage: claude-runtime restart-verify --sid <sid> --fleet <root> — verify native continuation and accepted interrupt",
+				flags: ["--sid", "--fleet"],
+				reqFlags: ["--sid", "--fleet"],
+				run: async (parsed) => {
+					const { verifyManagedClaudeRestart } = await import(
+						"../../scripts/lib/claude-restart-operation.ts"
+					);
+					console.log(
+						JSON.stringify(
+							verifyManagedClaudeRestart(
+								parsed.flag("--fleet") ?? "",
+								parsed.flag("--sid") ?? "",
+							),
+						),
+					);
+				},
+			}),
+			defineVerb({
+				name: "restart",
+				usage:
+					"usage: claude-runtime restart --sid <sid> --fleet <root> [--apply] — checkpointed managed restart; default previews",
+				flags: ["--sid", "--fleet"],
+				reqFlags: ["--sid", "--fleet"],
+				switches: ["--apply"],
+				run: async (parsed) => {
+					const { restartManagedClaude } = await import(
+						"../../scripts/lib/claude-restart-operation.ts"
+					);
+					const result = await restartManagedClaude(
+						parsed.flag("--fleet") ?? "",
+						parsed.flag("--sid") ?? "",
+						parsed.rest.includes("--apply"),
+					);
+					console.log(
+						JSON.stringify({
+							phase: result.phase,
+							sid: result.snapshot.sid,
+							nativeSession: result.snapshot.nativeSession,
+							checkpoint: result.snapshot.checkpoint,
+							newWrapper: result.newWrapper ?? null,
+						}),
+					);
+				},
+			}),
 			defineVerb({
 				name: "run",
 				usage:

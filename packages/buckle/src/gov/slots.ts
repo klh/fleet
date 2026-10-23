@@ -5,6 +5,10 @@
 // slot) and released when the response settles. A holder that dies without
 // releasing is reclaimed once its touched stamp ages past the lease, so a
 // crashed replica cannot permanently leak the pool. 0 disables a pool.
+// W1068 (owner doctrine 2026-10-20): OPT-IN throttling only — the bare
+// install defaults both pools to 0 (off); the gate never proactively
+// throttles cloud-bound traffic, upstream 429 + Retry-After stay the only
+// reactive throttle.
 import type { Database } from "bun:sqlite";
 
 export interface SlotLimits {
@@ -12,8 +16,11 @@ export interface SlotLimits {
 	perTeam: number;
 }
 
-/** Config-over-code: machine config carries the real numbers; these
- *  defaults only shape a bare install. 0 disables the pool. */
+/** Config-over-code: machine config carries the real numbers. W1068 (owner
+ *  doctrine 2026-10-20): the gate does NOT proactively throttle — default is
+ *  max throughput, throttling is REACTIVE to upstream signals (429 +
+ *  Retry-After). Both pools default 0 = DISABLED; BUCKLE_SLOTS_GLOBAL /
+ *  BUCKLE_SLOTS_PER_TEAM are the opt-in corporate team-level knobs. */
 export function slotsFromEnv(
 	env: Record<string, string | undefined> = process.env,
 ): SlotLimits {
@@ -22,8 +29,8 @@ export function slotsFromEnv(
 		return Number.isFinite(n) && n >= 0 ? Math.floor(n) : d;
 	};
 	return {
-		global: num(env.BUCKLE_SLOTS_GLOBAL, 64),
-		perTeam: num(env.BUCKLE_SLOTS_PER_TEAM, 16),
+		global: num(env.BUCKLE_SLOTS_GLOBAL, 0),
+		perTeam: num(env.BUCKLE_SLOTS_PER_TEAM, 0),
 	};
 }
 

@@ -19,6 +19,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import type { GovernorStore } from "../../hooks/lib/govdb.ts";
+import { compareProcessBirth } from "./process-birth.ts";
 import {
 	type ProcessBirth,
 	processBirth,
@@ -120,7 +121,9 @@ export function controllerHolderLiveness(
 	const current = inspect(holder.pid);
 	if (current === false) return "dead";
 	if (!current) return "unknown";
-	if (current.birth !== holder.birth) return "dead";
+	const comparison = compareProcessBirth(holder.birth, current.birth);
+	if (comparison === "unknown") return "unknown";
+	if (comparison === "different") return "dead";
 	return "alive";
 }
 

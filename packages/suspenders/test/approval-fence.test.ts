@@ -24,6 +24,33 @@ const LABEL = "com.suspenders.buckle-spoke";
 const TOKEN = "a".repeat(64);
 const live = () => ({ birth: "birth-a", command: "writer" });
 
+test("obsolete wall-clock birth is unknown and cannot stale-break a live approval fence", () => {
+	const f = staging();
+	try {
+		seedFence(f.staging, {
+			birth: "{ sec = 1, usec = 2 }:100:200",
+			acquiredAt: 0,
+			expiresAt: 1,
+		});
+		const inspect = () => ({
+			birth: "darwin:12345678-1234-1234-1234-123456789abc:100:200",
+			command: "writer",
+		});
+		expect(() =>
+			acquireApprovalFence(f.staging, LABEL, TOKEN, { inspect }),
+		).toThrow("identity unknown");
+		expect(() =>
+			assertFenceForLifecycle(f.staging, LABEL, { inspect }),
+		).toThrow("identity unknown");
+		expect(
+			JSON.parse(readFileSync(approvalFencePath(f.staging, LABEL), "utf8"))
+				.birth,
+		).toBe("{ sec = 1, usec = 2 }:100:200");
+	} finally {
+		f.clean();
+	}
+});
+
 /** Seed a valid foreign-owner record; pid 999999 is never this writer. */
 function seedFence(staging: string, overrides: Partial<ApprovalFence>): void {
 	writeFileSync(
