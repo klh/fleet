@@ -286,7 +286,9 @@ if (MODE === "flush") {
 	);
 	if (doneWait.exit) process.exit(0);
 	let merged = 0;
+	let integrated = 0;
 	let deferred = 0;
+	let failed = 0;
 	const sweep = new Set(
 		sh(["git", "branch", "--list", GLOB, "--format", "%(refname:short)"])
 			.split("\n")
@@ -315,10 +317,17 @@ if (MODE === "flush") {
 			deferred++;
 			continue;
 		}
-		mergeOne(b);
-		merged++;
+		// W1183: the receipt is the outcome — a defer/live/review/ladder-fail
+		// can no longer pass as merged. Count what actually happened.
+		const receipt = mergeOne(b);
+		if (receipt.outcome === "merged") merged++;
+		else if (receipt.outcome === "integrated") integrated++;
+		else if (receipt.outcome === "failed") failed++;
+		else deferred++;
 	}
-	log(`FLUSH merged=${merged} deferred=${deferred}`);
+	log(
+		`FLUSH merged=${merged} integrated=${integrated} deferred=${deferred} failed=${failed}`,
+	);
 	process.exit(0);
 }
 
@@ -355,7 +364,12 @@ if (MODE === "ship") {
 			);
 		else healCrashedMerge();
 	}
-	mergeOne(b);
+	// W1183: ship reports the ACTUAL outcome — a defer/live/review/ladder-fail
+	// never passes as merged. Exit codes unchanged (board contract).
+	const receipt = mergeOne(b);
+	log(
+		`SHIP ${b} ${receipt.outcome}${receipt.head ? ` ${receipt.head}` : ""}${receipt.why ? ` — ${receipt.why}` : ""}`,
+	);
 	process.exit(0);
 }
 

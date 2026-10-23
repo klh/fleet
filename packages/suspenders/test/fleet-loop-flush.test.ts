@@ -140,8 +140,31 @@ const close = (repo: string, item: string, sha: string) => {
 	if (done.code !== 0) throw new Error(`work done failed: ${done.out}`);
 };
 
-const flush = (repo: string) =>
-	run(repo, [LOOP, "flush", "--repo", repo, "--glob", "suspenders/*"]);
+const flush = (repo: string, extra: string[] = []) =>
+	run(repo, [LOOP, "flush", "--repo", repo, "--glob", "suspenders/*", ...extra]);
+
+// W1124.36 review gate: mergeOne defers any DONE branch without a bound
+// independent PASS receipt — seed one so fixtures can reach the ladder
+// (same recipe as merge-guard.test.ts: registered reviewer session + receipt
+// bound to the branch's review context AT SEED TIME).
+const seedReview = (repo: string, item: string) => {
+	const seeded = Bun.spawnSync(
+		[
+			"bun",
+			"-e",
+			`
+import {openStore,projectIdentity} from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/govdb.ts"))};
+import {reviewContext,publishReviewReceipt} from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/review-receipt.ts"))};
+const db=openStore(), project=projectIdentity(), c=reviewContext(process.cwd(),"suspenders/${item}");
+db.query("INSERT OR IGNORE INTO sessions(sid,project,role,started_at,hb,state) VALUES ('fixture-reviewer',?,'reviewer',?,?,'DONE')").run(project,Date.now(),Date.now());
+publishReviewReceipt(db,project,${JSON.stringify(item)},{version:1,commit:c.commit,base:c.base,instructions:c.instructions,reviewer:'fixture-reviewer',verdict:'PASS',blocking:[],evidence:'fixture independent review'});
+db.close();
+`,
+		],
+		{ cwd: repo, env: testEnv(repo), stdout: "pipe", stderr: "pipe" },
+	);
+	if (seeded.exitCode !== 0) throw new Error(seeded.stderr.toString());
+};
 
 // once — a single full cycle through mergeOne (the ladder the daemon runs)
 const once = (repo: string) =>
@@ -185,9 +208,18 @@ describe("fleet-loop flush mode (W641)", () => {
 		const item = mint(repo);
 		const head = await laneBranch(repo, item);
 		close(repo, item, head);
+		seedReview(repo, item);
 		const r = flush(repo);
 		expect(r.code).toBe(0);
 		expect(log(repo)).toContain(`MERGED suspenders/${item}`);
+		// W1183: the summary reports the ACTUAL outcome mix, and "merged" means
+		// real integration — the closed result sha is an ancestor of main
+		expect(log(repo)).toContain(
+			`FLUSH merged=1 integrated=0 deferred=0 failed=0`,
+		);
+		expect(
+			g(repo, ["merge-base", "--is-ancestor", head, "main"]).exitCode,
+		).toBe(0);
 		expect(branchGone(repo, item)).toBe(true);
 		expect(g(repo, ["log", "--format=%s", "-1"]).stdout.toString()).toContain(
 			`Merge suspenders/${item}`,
@@ -195,7 +227,11 @@ describe("fleet-loop flush mode (W641)", () => {
 		rmSync(repo, { recursive: true, force: true });
 	});
 
-	test("conflicted verified branch: refused, NEED_DECISION, strike — never auto-resolved", async () => {
+	// W1124.36 gate ordering: a conflicted merge preview makes reviewContext's
+	// merge-tree throw, so the branch defers at the review gate BEFORE the
+	// ladder — never merged, never struck, no decision requested. The real
+	// ladder-fail strike path is covered by the exit-7 test below.
+	test("conflicted verified branch: review-deferred before the ladder — never merged", async () => {
 		const repo = await base();
 		const item = mint(repo);
 		const head = await laneBranch(repo, item);
@@ -209,8 +245,39 @@ describe("fleet-loop flush mode (W641)", () => {
 			.trim();
 		const r = flush(repo);
 		expect(r.code).toBe(0);
+		expect(log(repo)).toContain(
+			`MERGE-DEFER suspenders/${item} — review required:`,
+		);
+		// hands-off: branch + main preserved, no strike, no decision requested
+		expect(branchGone(repo, item)).toBe(false);
+		expect(
+			g(repo, ["rev-list", "--count", "main"]).stdout.toString().trim(),
+		).toBe(mainCount);
+		expect(existsSync(join(repo, ".fleet", "merge-fails.json"))).toBe(false);
+		expect(events(repo, "NEED_DECISION")).toBe(0);
+		expect(log(repo)).toContain(
+			`FLUSH merged=0 integrated=0 deferred=1 failed=0`,
+		);
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	// W1183 negative: a seeded, review-approved branch whose LADDER fails is
+	// counted failed — never as merged — and keeps the strike/decision path.
+	test("failed ladder: FAIL, strike, NEED_DECISION, FLUSH failed=1", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const head = await laneBranch(repo, item);
+		close(repo, item, head);
+		seedReview(repo, item);
+		const mainCount = g(repo, ["rev-list", "--count", "main"])
+			.stdout.toString()
+			.trim();
+		const r = flush(repo, ["--ladder", "exit 7"]);
+		expect(r.code).toBe(0);
 		expect(log(repo)).toContain(`FAIL suspenders/${item}`);
-		// hands-off: branch + main preserved, one strike, decision requested
+		expect(log(repo)).toContain(
+			`FLUSH merged=0 integrated=0 deferred=0 failed=1`,
+		);
 		expect(branchGone(repo, item)).toBe(false);
 		expect(
 			g(repo, ["rev-list", "--count", "main"]).stdout.toString().trim(),
@@ -324,6 +391,7 @@ describe("fleet-loop flush mode (W641)", () => {
 		const item = mint(repo);
 		const head = await laneBranch(repo, item);
 		close(repo, item, head);
+		seedReview(repo, item);
 		const r = once(repo);
 		expect(r.code).toBe(0);
 		expect(log(repo)).toContain(`MERGED suspenders/${item}`);
@@ -403,6 +471,57 @@ describe("fleet-loop flush mode (W641)", () => {
 		rmSync(repo, { recursive: true, force: true });
 	});
 
+	// W1183: the exact regression the item reports — a DONE branch parked by
+	// the review gate is reported as DEFERRED, never as merged. Pre-fix this
+	// logged `FLUSH merged=1` while the candidate sat unmerged.
+	test("flush reports a review-deferred DONE as deferred, never merged (W1183)", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const head = await laneBranch(repo, item);
+		close(repo, item, head);
+		// NO review receipt seeded — the W1124.36 review gate holds the branch
+		const r = flush(repo);
+		expect(r.code).toBe(0);
+		expect(log(repo)).toContain(
+			`MERGE-DEFER suspenders/${item} — review required: independent review receipt missing for exact commit`,
+		);
+		expect(log(repo)).toContain(
+			`FLUSH merged=0 integrated=0 deferred=1 failed=0`,
+		);
+		expect(branchGone(repo, item)).toBe(false);
+		expect(
+			g(repo, ["merge-base", "--is-ancestor", head, "main"]).exitCode,
+		).not.toBe(0);
+		expect(events(repo, "work.landed")).toBe(0);
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	// W1183: a LIVE lane's branch passes the exact-closure pre-gate and is
+	// then held by mergeOne's liveness veto — reported deferred, not merged.
+	test("flush reports a LIVE lane's branch as deferred, never merged (W1183)", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const head = await laneBranch(repo, item);
+		close(repo, item, head);
+		seedReview(repo, item);
+		const projects = join(repo, ".test-home", ".claude", "projects", "p");
+		mkdirSync(projects, { recursive: true });
+		await Bun.write(Bun.file(join(projects, "w1616lane.jsonl")), "fake\n");
+		foreignLane(repo, item, "w1616lane");
+		const r = flush(repo);
+		expect(r.code).toBe(0);
+		expect(log(repo)).not.toContain(`MERGED suspenders/${item}`);
+		expect(log(repo)).toContain(
+			`FLUSH merged=0 integrated=0 deferred=1 failed=0`,
+		);
+		expect(branchGone(repo, item)).toBe(false);
+		expect(
+			g(repo, ["merge-base", "--is-ancestor", head, "main"]).exitCode,
+		).not.toBe(0);
+		expect(events(repo, "work.landed")).toBe(0);
+		rmSync(repo, { recursive: true, force: true });
+	});
+
 	// W1072.2: the operator merge hold — explicit marker, distinct from the
 	// dispatch pause; defers merges AND retirement, never strikes/decides.
 	test("operator merge-hold defers flush merges and retirement", async () => {
@@ -416,7 +535,7 @@ describe("fleet-loop flush mode (W641)", () => {
 		expect(log(repo)).toContain(
 			`FLUSH-DEFER suspenders/${item} — operator merge hold (.fleet/merge-hold)`,
 		);
-		expect(log(repo)).toContain("FLUSH merged=0 deferred=1");
+		expect(log(repo)).toContain("FLUSH merged=0 integrated=0 deferred=1 failed=0");
 		expect(branchGone(repo, item)).toBe(false);
 		rmSync(repo, { recursive: true, force: true });
 	});
@@ -491,6 +610,7 @@ describe("fleet-loop flush mode (W641)", () => {
 		const item = mint(repo);
 		const head = await laneBranch(repo, item);
 		close(repo, item, head);
+		seedReview(repo, item);
 		const child = Bun.spawn(
 			[
 				"bun",

@@ -164,6 +164,37 @@ function liveMarker(repo: string): ReturnType<typeof Bun.spawn> {
 	return dummy;
 }
 
+// W1124.36 review gate: mergeOne defers any DONE branch without a bound
+// independent PASS receipt — seed one so fixtures reach the ladder (same
+// recipe as merge-guard.test.ts + fleet-loop-flush.test.ts seedReview).
+function seedReview(repo: string) {
+	const seeded = Bun.spawnSync(
+		[
+			"bun",
+			"-e",
+			`
+import {openStore,projectIdentity} from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/govdb.ts"))};
+import {reviewContext,publishReviewReceipt} from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/review-receipt.ts"))};
+const db=openStore(), project=projectIdentity(), c=reviewContext(process.cwd(),"suspenders/SHIP1");
+db.query("INSERT OR IGNORE INTO sessions(sid,project,role,started_at,hb,state) VALUES ('fixture-reviewer',?,'reviewer',?,?,'DONE')").run(project,Date.now(),Date.now());
+publishReviewReceipt(db,project,'SHIP1',{version:1,commit:c.commit,base:c.base,instructions:c.instructions,reviewer:'fixture-reviewer',verdict:'PASS',blocking:[],evidence:'fixture independent review'});
+db.close();
+`,
+		],
+		{
+			cwd: repo,
+			env: {
+				...env,
+				HOME: join(repo, ".test-home"),
+				GOVERNOR_STORE_URL: "",
+			},
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
+	if (seeded.exitCode !== 0) throw new Error(seeded.stderr.toString());
+}
+
 describe("fleet-loop ship mode (W64)", () => {
 	test("merges one branch through the ladder, retires branch + worktree", async () => {
 		const repo = await scratchRepo();
@@ -172,9 +203,18 @@ describe("fleet-loop ship mode (W64)", () => {
 			"SHIP1",
 			g(repo, ["rev-parse", "suspenders/SHIP1"]).stdout.toString().trim(),
 		);
+		seedReview(repo);
+		const head = g(repo, ["rev-parse", "suspenders/SHIP1"])
+			.stdout.toString()
+			.trim();
 		const r = ship(repo, ["--branch", "suspenders/SHIP1"]);
 		expect(r.code).toBe(0);
 		expect(log(repo)).toContain("MERGED suspenders/SHIP1");
+		// W1183: ship names the ACTUAL outcome and the landed head
+		expect(log(repo)).toMatch(/SHIP suspenders\/SHIP1 merged [0-9a-f]+/);
+		expect(
+			g(repo, ["merge-base", "--is-ancestor", head, "main"]).exitCode,
+		).toBe(0);
 		// plain-merge default: merge commit exists, branch retired
 		expect(g(repo, ["log", "--format=%s", "-1"]).stdout.toString()).toContain(
 			"Merge suspenders/SHIP1",
@@ -195,6 +235,7 @@ describe("fleet-loop ship mode (W64)", () => {
 			"SHIP1",
 			g(repo, ["rev-parse", "suspenders/SHIP1"]).stdout.toString().trim(),
 		);
+		seedReview(repo);
 		const r = ship(repo, [
 			"--branch",
 			"suspenders/SHIP1",
@@ -226,6 +267,8 @@ describe("fleet-loop ship mode (W64)", () => {
 			g(repo, ["rev-list", "--count", "main"]).stdout.toString().trim(),
 		).toBe("3");
 		expect(log(repo)).not.toContain("MERGED suspenders/SHIP1");
+		// W1183: already-integrated reports integrated, never merged
+		expect(log(repo)).toContain("SHIP suspenders/SHIP1 integrated");
 		rmSync(repo, { recursive: true, force: true });
 	});
 
@@ -236,6 +279,7 @@ describe("fleet-loop ship mode (W64)", () => {
 			"SHIP1",
 			g(repo, ["rev-parse", "suspenders/SHIP1"]).stdout.toString().trim(),
 		);
+		seedReview(repo);
 		const r = ship(repo, [
 			"--branch",
 			"suspenders/SHIP1",
@@ -244,6 +288,10 @@ describe("fleet-loop ship mode (W64)", () => {
 		]);
 		expect(r.code).toBe(0);
 		expect(log(repo)).toContain("FAIL suspenders/SHIP1");
+		// W1183: the ladder rejection is reported as failed, never merged
+		expect(log(repo)).toContain(
+			"SHIP suspenders/SHIP1 failed — isolated ladder failed",
+		);
 		// branch still exists, main untouched, one strike recorded
 		expect(
 			g(repo, ["branch", "--list", "suspenders/SHIP1"]).stdout.toString(),
