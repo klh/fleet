@@ -24,15 +24,32 @@ import { readSyncConfig } from "../hooks/lib/knowledge-sync-policy.ts";
 
 // ─── claim identity ────────────────────────────────────────────────────────
 
-test("claimHash: same evidence+claim hashes identically from any pusher", () => {
-	expect(claimHash("ev-1", "the build is green")).toBe(
-		claimHash("ev-1", "the build is green"),
+test("claimHash: same fleet identity hashes identically from any pusher", () => {
+	expect(claimHash("ev-1", "the build is green", "fleet")).toBe(
+		claimHash("ev-1", "the build is green", "fleet"),
+	);
+	// the tenant is deliberately NOT a fleet-row key dim — that shared plane
+	// IS the cross-machine aggregation
+	expect(claimHash("ev-1", "c", "fleet", "machine-a")).toBe(
+		claimHash("ev-1", "c", "fleet", "machine-z"),
 	);
 });
 
-test("claimHash: differing evidence or claim → different hash", () => {
-	expect(claimHash("ev-1", "c")).not.toBe(claimHash("ev-2", "c"));
-	expect(claimHash("ev-1", "c")).not.toBe(claimHash("ev-1", "c2"));
+test("claimHash: scope and (machine-scope) tenant are key dimensions", () => {
+	expect(claimHash("ev-1", "c", "fleet")).not.toBe(
+		claimHash("ev-1", "c", "machine", "machine-a"),
+	);
+	expect(claimHash("ev-1", "c", "machine", "machine-a")).not.toBe(
+		claimHash("ev-1", "c", "machine", "machine-b"),
+	);
+	expect(claimHash("ev-1", "c", "fleet")).not.toBe(
+		claimHash("ev-2", "c", "fleet"),
+	);
+	expect(claimHash("ev-1", "c", "fleet")).not.toBe(
+		claimHash("ev-1", "c2", "fleet"),
+	);
+	// a machine-scope key without its tenant is refused, never silently shared
+	expect(() => claimHash("ev-1", "c", "machine")).toThrow(/tenant required/);
 });
 
 // ─── the facts-row parser ───────────────────────────────────────────────────
@@ -304,7 +321,7 @@ test("readerMachine bounds the view: own machine + fleet, never foreign machine 
 	]);
 });
 
-test("scope escalates fleet→machine on conflicting re-assertion, never loosens", () => {
+test("aggregate: a foreign re-assertion never merges into a private row (W1213.1.1)", () => {
 	const db = new Database(":memory:");
 	const body = {
 		evidenceId: "ev-s1",
@@ -312,18 +329,51 @@ test("scope escalates fleet→machine on conflicting re-assertion, never loosens
 		confidence: 0.5,
 		ts: 100,
 	};
-	aggregateClaims(db, [{ ...body, scope: "fleet" }], "machine-a", {
+	// tenant-a keeps the claim private; tenant-b then asserts the same
+	// content — first publicly, then privately.
+	aggregateClaims(db, [{ ...body, scope: "machine" }], "machine-a", {
 		now: 1000,
 	});
-	aggregateClaims(db, [{ ...body, scope: "machine" }], "machine-b", {
-		now: 2000,
-	});
-	const view = claimAggregateView(db);
-	expect(view.claims[0].scope).toBe("machine");
-	aggregateClaims(db, [{ ...body, scope: "fleet" }], "machine-c", {
-		now: 3000,
-	});
-	expect(claimAggregateView(db).claims[0].scope).toBe("machine");
+	const foreignPublic = aggregateClaims(
+		db,
+		[{ ...body, scope: "fleet" }],
+		"machine-b",
+		{
+			now: 2000,
+		},
+	);
+	const foreignPrivate = aggregateClaims(
+		db,
+		[{ ...body, scope: "machine" }],
+		"machine-b",
+		{
+			now: 2500,
+		},
+	);
+	// both foreign assertions land as NEW rows — neither counts as a merge
+	// into tenant-a's private row, and neither widens it
+	expect(foreignPublic.counts?.versions).toBe(1);
+	expect(foreignPublic.counts?.merged).toBe(0);
+	expect(foreignPrivate.counts?.versions).toBe(1);
+	expect(foreignPrivate.counts?.merged).toBe(0);
+	// tenant-b's reader view: only its own rows — the machine-a private row is
+	// absent, and every visible row carries ONLY machine-b provenance
+	const bView = claimAggregateView(db, { readerMachine: "machine-b" });
+	expect(bView.claims).toHaveLength(2);
+	expect(bView.claims.every((c) => c.originMachine === "machine-b")).toBe(true);
+	expect(
+		bView.claims.every((c) =>
+			c.provenance.every((p) => p.machine === "machine-b"),
+		),
+	).toBe(true);
+	expect(bView.claims.map((c) => c.scope).sort()).toEqual(["fleet", "machine"]);
+	// tenant-a still sees its own private row (plus B's fleet row from the
+	// shared plane), and the private row is untouched
+	const aView = claimAggregateView(db, { readerMachine: "machine-a" });
+	expect(aView.claims).toHaveLength(2);
+	const aPrivate = aView.claims.find((c) => c.scope === "machine");
+	expect(aPrivate?.originMachine).toBe("machine-a");
+	expect(aPrivate?.provenance).toEqual([{ machine: "machine-a", ts: 100 }]);
 });
 
 test("collectClaims: claim.* rows → entries; cursor skips; cap applies", () => {

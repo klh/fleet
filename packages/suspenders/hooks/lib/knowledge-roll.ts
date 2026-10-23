@@ -4,11 +4,15 @@
 // module carries the claim roll UP: machine → hub knowledge-api → the
 // hub-side aggregate.
 //
-//   identity — a claim is hashed over (evidence-id + claim text): two
-//     machines asserting the same evidence-id + claim collapse into ONE
-//     aggregated row whose provenance counts the asserters; a DIFFERENT
-//     claim about the same evidence-id is a new VERSION, never an overwrite
-//     and never a dupe.
+//   identity — a claim is hashed over (evidence-id + claim text + scope +
+//     tenant): two machines asserting the same FLEET-scope evidence+claim
+//     collapse into ONE aggregated row whose provenance counts the asserters;
+//     a machine-scope assertion is keyed per tenant, so it can only ever be
+//     merged by its own tenant; a DIFFERENT claim (or a different scope)
+//     about the same evidence-id is a new VERSION, never an overwrite and
+//     never a dupe. W1213.1.1: scope/tenant being key dimensions makes the
+//     read boundary immutable — a foreign assertion cannot widen a private
+//     row because it cannot even reach it.
 //   retractions — a tombstone entry rides the SAME hash (the facts row's
 //     latest-per-key value carries tombstone: true next to the original
 //     claim text); the aggregate flips to tombstoned and stops appearing —
@@ -75,12 +79,32 @@ const ENTRY_FIELDS: ReadonlySet<string> = new Set([
 	"scope",
 ]);
 
-/** The CAS/content key: sha256 over (evidence-id + claim text). NUL
- *  separator keeps the two fields unambiguous. Stable across machines —
- *  the same evidence+claim hashes identically on every pusher. */
-export function claimHash(evidenceId: string, claim: string): string {
+/** The CAS identity key: sha256 over (evidence-id + claim text + scope +
+ *  tenant). NUL separator keeps the fields unambiguous. W1213.1.1: scope is
+ *  an IMMUTABLE key dimension — a fleet-scope assertion and a machine-scope
+ *  assertion of the same evidence+claim are different rows, so a foreign
+ *  tenant's public re-assertion can never land on (and widen) a private row.
+ *  Machine-scope rows are further keyed per tenant, so even a foreign
+ *  machine-scope assertion lands on its own private row, never the origin's.
+ *  Fleet rows deliberately leave the tenant out: the shared plane IS the
+ *  cross-machine aggregation. Stable across pushers — the same identity
+ *  hashes identically on every hub. */
+export function claimHash(
+	evidenceId: string,
+	claim: string,
+	scope: ClaimScope = DEFAULT_CLAIM_SCOPE,
+	tenant?: string,
+): string {
+	if (scope === "machine" && !(typeof tenant === "string" && tenant.trim()))
+		throw new Error(
+			"claimHash: machine-scope claims are tenant-keyed — tenant required",
+		);
 	return createHash("sha256")
-		.update(`${evidenceId}\u0000${claim}`)
+		.update(
+			`${evidenceId}\u0000${claim}\u0000${scope}\u0000${
+				scope === "machine" ? tenant : ""
+			}`,
+		)
 		.digest("hex");
 }
 
@@ -269,7 +293,7 @@ export function aggregateClaims(
 	try {
 		for (const raw of entries) {
 			const e = raw as RollEntry;
-			const h = claimHash(e.evidenceId, e.claim);
+			const h = claimHash(e.evidenceId, e.claim, e.scope, machine);
 			const row = db
 				.query("SELECT * FROM knowledge_claims WHERE claim_hash = ?")
 				.get(h) as ClaimRow | undefined;
@@ -334,15 +358,9 @@ function applyKnown(
 	} catch {
 		prov = [];
 	}
-	// W1213.1: scope escalation only — a re-assertion under the tighter scope
-	// tightens the row (fleet → machine) and can never loosen it.
-	if (row.scope !== e.scope && row.scope !== "machine") {
-		db.run(
-			"UPDATE knowledge_claims SET scope = 'machine' WHERE id = ?",
-			row.id,
-		);
-		row.scope = "machine";
-	}
+	// W1213.1.1: scope is an immutable key dimension (it rides claimHash), so
+	// a row's scope can never change after landing — a re-assertion under a
+	// different scope lands as its own row instead of mutating this one.
 	if (e.tombstone) {
 		if (!row.tombstone) {
 			// retraction wins regardless of ts (a machine retracting its own

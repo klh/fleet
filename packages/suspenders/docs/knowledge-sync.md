@@ -77,9 +77,13 @@ Rides the W264 perimeter (host allowlist + x-klh-write-token for non-GET),
 ## Upward claim roll (W1213 — CAS aggregate on the hub)
 
 Machines push their claim.* facts UP as a content-addressed roll. Identity
-is the CAS key: sha256(evidenceId + NUL + claim) — the same evidence+claim
-from any two machines hashes identically, so the aggregate dedupes by
-content, not by sender.
+is the CAS key: sha256(evidenceId + NUL + claim + NUL + scope + NUL + tenant
+when machine-scoped) — the same FLEET-scope evidence+claim from any two
+machines hashes identically, so the aggregate dedupes public content, not
+by sender. Scope and (for machine-scope rows) tenant are IMMUTABLE key
+dimensions (W1213.1.1): a foreign assertion — public or private — lands as
+its own row and can never merge into (or widen) another tenant's private
+row; the fleet plane stays the cross-machine aggregation.
 
 - Collect (machine): `collectClaims` reads facts rows in the `claim.*`
   namespace (JSON `{claim, confidence?, tombstone?}`; plain text degrades

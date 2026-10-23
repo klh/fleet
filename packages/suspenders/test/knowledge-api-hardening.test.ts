@@ -427,6 +427,84 @@ describe("POST/GET /roll scope boundary (W1213.1)", () => {
 		expect(aClaims.some((c) => c.evidenceId === priv.evidenceId)).toBe(true);
 	});
 
+	test("W1213.1.1: foreign public re-assertion cannot widen a private row", async () => {
+		const priv = {
+			evidenceId: "w121311-ev-leak",
+			claim: "tenant-a private finding",
+			confidence: 0.7,
+			ts: 300,
+			scope: "machine",
+		};
+		// tenant-a keeps the claim private (machine scope)
+		const put = await rollFetch("POST", { claims: [priv] }, KEY_A);
+		expect(put.status).toBe(200);
+		// tenant-b's initial read: the private row is invisible (read 0)
+		const before = await rollFetch("GET", undefined, KEY_B);
+		expect(
+			(before.data.claims as { evidenceId: string }[]).some(
+				(c) => c.evidenceId === priv.evidenceId,
+			),
+		).toBe(false);
+		// tenant-b self-asserts the SAME content at fleet scope
+		const self = await rollFetch(
+			"POST",
+			{ claims: [{ ...priv, ts: 400, scope: "fleet" }] },
+			KEY_B,
+		);
+		expect(self.status).toBe(200);
+		const selfLands = self.data.counts as { versions: number; merged: number };
+		expect(selfLands.versions).toBe(1); // a separate NEW row — not a merge
+		expect(selfLands.merged).toBe(0);
+		// tenant-b's post-assertion read: still no machine-a private row —
+		// only its own fleet row, carrying only machine-b provenance
+		const after = await rollFetch("GET", undefined, KEY_B);
+		const foreign = (
+			after.data.claims as {
+				evidenceId: string;
+				scope: string;
+				originMachine: string;
+				provenance: { machine: string }[];
+			}[]
+		).filter((c) => c.evidenceId === priv.evidenceId);
+		expect(foreign).toHaveLength(1);
+		expect(foreign[0]?.scope).toBe("fleet");
+		expect(foreign[0]?.originMachine).toBe("machine-b");
+		expect(foreign[0]?.provenance.every((p) => p.machine === "machine-b")).toBe(
+			true,
+		);
+		// the stored state: the hub SQLite rows prove the private row never
+		// gained foreign provenance (the exact regression was SQLite-visible)
+		const hub = new Database(
+			join(HOME, ".cache", "claude-governor", "knowledge.db"),
+			{ readonly: true },
+		);
+		try {
+			const rows = hub
+				.query(
+					"SELECT scope, origin_machine, provenance FROM knowledge_claims WHERE evidence_id = ? ORDER BY id",
+				)
+				.all(priv.evidenceId) as {
+				scope: string;
+				origin_machine: string;
+				provenance: string;
+			}[];
+			expect(rows).toHaveLength(2);
+			expect(rows[0]).toMatchObject({
+				scope: "machine",
+				origin_machine: "machine-a",
+			});
+			expect(JSON.parse(rows[0]?.provenance ?? "[]")).toEqual([
+				{ machine: "machine-a", ts: 300 },
+			]);
+			expect(rows[1]).toMatchObject({
+				scope: "fleet",
+				origin_machine: "machine-b",
+			});
+		} finally {
+			hub.close();
+		}
+	});
+
 	test("fleet claim rolls up across machines with provenance 2", async () => {
 		const p1 = await rollFetch("POST", { claims: [fleetEntry] }, KEY_A);
 		expect(p1.status).toBe(200);
