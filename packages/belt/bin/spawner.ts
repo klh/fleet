@@ -21,6 +21,7 @@
 import { closeSync, mkdirSync, openSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { serverKvArgs } from "./kv-prefix.ts";
+import { modelEndpointHealth } from "./health.ts";
 import {
 	coldLoadTimeoutMs,
 	modelBudgetGb,
@@ -173,7 +174,27 @@ export const loadingRetryAfterMs = (
 export async function ensureAvailable(
 	s: Specialist,
 ): Promise<QuickEnsureResult> {
-	if (await isUp(s.port)) return { up: true, warming: false, retryAfterMs: 0 };
+	const health = await modelEndpointHealth(s.port);
+	if (health.up) return { up: true, warming: false, retryAfterMs: 0 };
+	if (
+		health.lifecycle &&
+		["error", "failed", "unavailable"].includes(health.lifecycle)
+	)
+		return {
+			up: false,
+			warming: false,
+			retryAfterMs: 0,
+			error: `model :${s.port} lifecycle ${health.lifecycle}; not a cold load`,
+		};
+	// An existing listener owns its lifecycle, even when no spawn ledger row
+	// survived. Never launch a second process over a not-ready engine.
+	if (health.reachable)
+		return {
+			up: false,
+			warming: health.lifecycle === "loading",
+			retryAfterMs: health.lifecycle === "loading" ? coldRetryAfterMs() : 0,
+			error: `model :${s.port} lifecycle ${health.lifecycle ?? "unknown"}; existing listener is not ready`,
+		};
 	const retryAfterMs = coldRetryAfterMs();
 	const row = readLedger()[String(s.port)];
 	if (row && pidAlive(row.pid)) {

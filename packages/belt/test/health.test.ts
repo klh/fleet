@@ -1,7 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { endpointPassed, livenessResponse } from "../bin/health.ts";
+import {
+	endpointPassed,
+	livenessResponse,
+	modelEndpointHealth,
+} from "../bin/health.ts";
 import { httpProbe } from "../bin/supervisor.ts";
 import { probeEndpoint } from "../bin/remotes.ts";
+import { localProbe } from "../bin/route-policy.ts";
+import { ensureAvailable } from "../bin/spawner.ts";
+import { SPECIALISTS } from "../bin/registry.ts";
 
 describe("process liveness contract", () => {
 	for (const path of ["/health", "/health/liveness", "/health/liveliness"]) {
@@ -33,6 +40,138 @@ describe("process liveness contract", () => {
 });
 
 describe("bounded endpoint verdicts", () => {
+	test("models fallback is only for an absent health route, never an unhealthy engine", async () => {
+		let status = 404;
+		let modelReads = 0;
+		const server = Bun.serve({
+			hostname: "127.0.0.1",
+			port: 0,
+			fetch(request) {
+				if (new URL(request.url).pathname === "/health")
+					return new Response(null, { status });
+				modelReads++;
+				return Response.json({ data: [{ id: "fixture" }] });
+			},
+		});
+		try {
+			expect(await modelEndpointHealth(server.port)).toMatchObject({
+				up: true,
+				reachable: true,
+			});
+			expect(modelReads).toBe(1);
+			status = 503;
+			expect(await modelEndpointHealth(server.port)).toMatchObject({
+				up: false,
+				reachable: true,
+			});
+			expect(modelReads).toBe(1);
+		} finally {
+			server.stop(true);
+		}
+	});
+	test("captured failed MLX lifecycle overrides healthy process and advertised models", async () => {
+		const captured = {
+			status: "healthy",
+			ready: true,
+			model_loaded: false,
+			model_lifecycle: {
+				state: "error",
+				model_loaded: false,
+				error: "ImportError",
+				active_request_owners: 0,
+			},
+		};
+		const server = Bun.serve({
+			hostname: "127.0.0.1",
+			port: 0,
+			fetch: (request) =>
+				Response.json(
+					new URL(request.url).pathname === "/health"
+						? captured
+						: { data: [{ id: "fixture" }] },
+				),
+		});
+		try {
+			expect(await endpointPassed(Response.json(captured))).toBe(false);
+			expect(await localProbe(server.port)).toBe(false);
+			const specialist = SPECIALISTS[0];
+			if (!specialist) throw Error("specialist missing");
+			const availability = await ensureAvailable({
+				...specialist,
+				port: server.port,
+			});
+			expect(availability.up).toBe(false);
+			expect(availability.warming).toBe(false);
+			expect(availability.error).toContain("error");
+		} finally {
+			server.stop(true);
+		}
+	});
+	test("unloaded alone is not an error, while explicit not-ready is unavailable", async () => {
+		expect(
+			await endpointPassed(
+				Response.json({
+					status: "healthy",
+					ready: true,
+					model_loaded: false,
+					model_lifecycle: {
+						state: "unloaded",
+						model_loaded: false,
+						error: null,
+					},
+				}),
+			),
+		).toBe(true);
+		expect(
+			await endpointPassed(
+				Response.json({
+					status: "healthy",
+					ready: false,
+					model_lifecycle: { state: "loading", model_loaded: false },
+				}),
+			),
+		).toBe(false);
+		expect(
+			await endpointPassed(
+				Response.json({
+					status: "healthy",
+					ready: true,
+					model_loaded: true,
+					model_lifecycle: { state: "loaded", model_loaded: true },
+				}),
+			),
+		).toBe(true);
+	});
+	test("real engine cold, loading and warm states do not launch a duplicate listener", async () => {
+		let state = "loading";
+		const server = Bun.serve({
+			hostname: "127.0.0.1",
+			port: 0,
+			fetch: () =>
+				Response.json({
+					status: "healthy",
+					ready: state !== "loading",
+					model_loaded: state === "loaded",
+					model_lifecycle: { state, error: null },
+				}),
+		});
+		try {
+			const specialist = SPECIALISTS[0];
+			if (!specialist) throw Error("specialist missing");
+			const row = { ...specialist, port: server.port };
+			expect(await ensureAvailable(row)).toMatchObject({
+				up: false,
+				warming: true,
+			});
+			for (state of ["unloaded", "loaded"])
+				expect(await ensureAvailable(row)).toMatchObject({
+					up: true,
+					warming: false,
+				});
+		} finally {
+			server.stop(true);
+		}
+	});
 	test("remote routing candidates require a passing check, including authenticated models", async () => {
 		let status = 200;
 		let body = { ok: true };
