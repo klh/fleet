@@ -13,9 +13,19 @@
 // pinned inside the fixture (GIT_CONFIG_GLOBAL/SYSTEM) + identity via env,
 // and a pre-mutation scope guard (assertGitScope) that refuses to run a git
 // command whose resolved git dir escapes the fixture root.
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+
+// git reports realpath'd git dirs (macOS /var → /private/var) — compare
+// real paths on both sides or every tmp fixture false-positives
+const realPath = (p: string): string => {
+	try {
+		return realpathSync(p);
+	} catch {
+		return resolve(p);
+	}
+};
 
 type Env = Record<string, string | undefined>;
 
@@ -79,14 +89,17 @@ export function assertGitScope(
 	cwd: string,
 	env: Env = process.env,
 ): void {
-	const scoped = resolve(root);
-	const resolved = Bun.spawnSync(["git", "-C", cwd, "rev-parse", "--absolute-git-dir"], {
-		env,
-		stdout: "pipe",
-		stderr: "pipe",
-	});
+	const resolved = Bun.spawnSync(
+		["git", "-C", cwd, "rev-parse", "--absolute-git-dir"],
+		{
+			env,
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
 	if (resolved.exitCode !== 0) return; // pre-init: no git dir to guard
-	const gitDir = resolved.stdout.toString().trim();
+	const gitDir = realPath(resolved.stdout.toString().trim());
+	const scoped = realPath(root);
 	const inside =
 		isAbsolute(gitDir) &&
 		(gitDir === scoped || gitDir.startsWith(`${scoped}/`));
