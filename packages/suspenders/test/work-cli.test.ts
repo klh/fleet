@@ -806,12 +806,14 @@ describe("report — W892 supervisor micro-metrics", () => {
 		const dn = idOf(work("add", "report done item", "--by", "t").out);
 		expect(finish(dn, "lane-r2").code).toBe(0);
 		const out = work("report").out;
-		expect(out).toContain("TOKENS  CACHE  OUT/MIN");
+		// W1131: board-vocabulary glyphs + §4 section headers replace letters
+		expect(out).toContain("working (");
+		expect(out).toContain("recent done (");
 		const rowOf = (id: string): string =>
 			out.split("\n").find((l) => l.startsWith(id)) ?? "";
-		expect(rowOf(a)).toMatch(/\bR\b/);
-		expect(rowOf(q)).toMatch(/\bQ\b/);
-		expect(rowOf(dn)).toMatch(/\bD\b/);
+		expect(rowOf(a)).toContain("◐");
+		expect(rowOf(q)).toContain("·");
+		expect(rowOf(dn)).toContain("✓");
 		const ids = work("report", "--ids", `${a},${dn}`);
 		expect(ids.code).toBe(0);
 		const idRows = ids.out

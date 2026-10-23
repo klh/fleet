@@ -5,10 +5,10 @@
 // kills a dispatch) with a once-per-process NOTE.
 import type { Database } from "bun:sqlite";
 import {
-	buildReportTable,
 	reportRows,
 	reportTableLinkOpts,
 } from "../../hooks/lib/work-report.ts";
+import { buildReportTable } from "../../hooks/lib/work-report-render.ts";
 import { openStore, projectIdentity } from "../../hooks/lib/govdb.ts";
 
 let noteShown = false;

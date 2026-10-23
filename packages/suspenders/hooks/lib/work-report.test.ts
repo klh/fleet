@@ -4,7 +4,6 @@ import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import {
 	agentClock,
-	buildReportTable,
 	CACHE_LEGEND,
 	CACHE_MARK,
 	compactTokens,
@@ -26,6 +25,7 @@ import {
 	reportTableLinkOpts,
 	TASK_CAP,
 } from "./work-report.ts";
+import { buildReportTable } from "./work-report-render.ts";
 
 const T0 = 1_700_000_000_000;
 /** W910: ESC/BEL built at runtime — never source-literal control bytes. */
@@ -111,6 +111,22 @@ const proto = (p: Record<string, unknown>): ReportRow =>
 		effort: null,
 		consulted: false,
 		blindCache: false,
+		// W1131 contract fields: spendReported derives from the fixture spend
+		// (override with an explicit false to force §5 dashes)
+		cacheRead: p.cached ? (p.cached as number) : null,
+		cacheCreation: null,
+		requests: null,
+		hub: null,
+		lastActivityAgoMs: null,
+		lastOutAgoMs: null,
+		stalled: false,
+		decision: false,
+		project: null,
+		spendReported:
+			((p.fresh ?? 0) as number) +
+				((p.cached ?? 0) as number) +
+				((p.out ?? 0) as number) >
+			0,
 		...p,
 	}) as ReportRow;
 
@@ -123,15 +139,6 @@ describe("buildReportTable — the prototype golden", () => {
 				fresh: 172000,
 				out: 69000,
 				agentMs: 12 * 60000,
-			}),
-			proto({
-				id: "W843",
-				state: "DONE",
-				title: "Buckle: reconcile provider ledger",
-				fresh: 176000,
-				cached: 8624000,
-				out: 29988,
-				agentMs: 36 * 60000,
 			}),
 			proto({
 				id: "W552",
@@ -160,6 +167,15 @@ describe("buildReportTable — the prototype golden", () => {
 				agentMs: (9 * 1440 + 22 * 60) * 60000,
 			}),
 			proto({
+				id: "W843",
+				state: "DONE",
+				title: "Buckle: reconcile provider ledger",
+				fresh: 176000,
+				cached: 8624000,
+				out: 29988,
+				agentMs: 36 * 60000,
+			}),
+			proto({
 				id: "W688.7.1",
 				state: "DONE",
 				title: "hub serves the enterprise tier",
@@ -171,15 +187,19 @@ describe("buildReportTable — the prototype golden", () => {
 		]);
 		expect(table).toBe(
 			[
-				"ITEM      ST  TASK                        TOKENS  CACHE  OUT/MIN   AGENT  MODEL  EFFORT  CONSULT",
-				"--------  --  --------------------------  ------  -----  -------  ------  -----  ------  -------",
-				"W887      ◐   board micro-metrics: spark    172k     0%     5750     12m      -       -        N",
-				"W843      ✓   Buckle: reconcile provider    8.8M    98%      833     36m      -       -        N",
-				"W552      ◐   Save governed IKEA recordi    5.2M    90%       76  21h37m      -       -        N",
-				"W688.4    ◐   Enterprise W235 packaging:     60k     0%      207   1h56m      -       -        N",
-				"W782      ◐   review: skipped/postponed/       -      -        0   1h30m      -       -        N",
-				"W179.2    ·   notification fan-out — NEE       -      -        0   9d22h      -       -        N",
-				"W688.7.1  ✓   hub serves the enterprise    17.1M    39%     3364     55m      -       -        N",
+				"ITEM      ST  TASK                        TOKENS  CACHE  OUT/MIN     AGE",
+				"--------  --  --------------------------  ------  -----  -------  ------",
+				"working (4)",
+				"W887      ◐   board micro-metrics: spark    172k     0%     5750     12m",
+				"W552      ◐   Save governed IKEA record…    5.2M    90%       76  21h37m",
+				"W688.4    ◐   Enterprise W235 packaging…     60k     0%      207   1h56m",
+				"W782      ◐   review: skipped/postponed…       —      —        —   1h30m",
+				"waiting (1)",
+				"W179.2    ·   notification fan-out — NE…       —      —        —   9d22h",
+				"recent done (2)",
+				"W843      ✓   Buckle: reconcile provide…    8.8M    98%      833     36m",
+				"W688.7.1  ✓   hub serves the enterprise…   17.1M    39%     3364     55m",
+				"tokens 31.3M · out 407k · cache saved 20.0M · hidden: LAST/MODEL",
 			].join("\n"),
 		);
 	});
@@ -187,6 +207,7 @@ describe("buildReportTable — the prototype golden", () => {
 	test("W943.1 blindCache: `*` marks the CACHE cell + legend line rides the table", () => {
 		const spend = {
 			fresh: 172000,
+			cached: 60000,
 			out: 69000,
 			agentMs: 12 * 60000,
 		};
@@ -197,22 +218,31 @@ describe("buildReportTable — the prototype golden", () => {
 			proto({ id: "W887", ...spend, blindCache: true }),
 		]);
 		const lines = marked.split("\n");
-		expect(lines[2]?.includes("0%*")).toBe(true);
-		expect(lines.at(-1)).toBe(CACHE_LEGEND);
+		// §4: the section header line sits between the separator and row 0;
+		// the §6 footer line is the table's last line, legend just above it
+		expect(lines[3]?.includes("26%*")).toBe(true);
+		expect(lines.at(-2)).toBe(CACHE_LEGEND);
+		expect(lines.at(-1)?.startsWith("tokens ")).toBe(true);
 		expect(marked).toContain("CACHE is a floor");
 	});
 
-	test("TASK truncates at 26 with no ellipsis; zero-spend shows dashes", () => {
+	test("TASK truncates at 26 with ellipsis; zero-spend rows dash, never zero", () => {
 		const t = buildReportTable([
 			proto({ id: "WA", title: "x".repeat(40) }),
 			proto({ id: "WB", state: "FAILED", title: "short" }),
 		]);
 		const lines = t.split("\n");
 		expect(TASK_CAP).toBe(26);
-		expect(lines[2].includes(`${"x".repeat(TASK_CAP)}  `)).toBe(true);
-		// W1131: FAILED renders the board glyph, not the W892 letter
-		expect(lines[3]).toContain(REPORT_GLYPHS.failed);
-		expect(lines[3]).toContain("  -  ");
+		// the compat face renders caller order: WA (working) first, then the
+		// needs_you FAILED row — sorting is reportRows' job (W964)
+		expect(lines[2]).toBe("working (1)");
+		// §12: the cap INCLUDES the … (25 chars + ellipsis)
+		expect(lines[3].includes(`${"x".repeat(TASK_CAP - 1)}…`)).toBe(true);
+		expect(lines[4]).toBe("needs you (1)");
+		// §3: FAILED renders the board glyph; §5/§6: unreported spend renders
+		// NO measured zero — the all-dash columns hide entirely on this row
+		expect(lines[5]).toContain(REPORT_GLYPHS.failed);
+		expect(lines[5]).not.toMatch(/\d/);
 	});
 });
 
@@ -220,8 +250,9 @@ describe("item hyperlinks (W910)", () => {
 	test("links on: ITEM ids wrapped in OSC 8 deep-links, alignment intact", () => {
 		const plain = buildReportTable([proto({ id: "W887" })]);
 		const linked = buildReportTable([proto({ id: "W887" })], { links: true });
+		// §9: the board task deep-link carries the (empty, compat-face) project
 		expect(linked).toContain(
-			`${esc}]8;http://suspenders.local/#lanes?w=W887${bel}W887`,
+			`${esc}]8;http://suspenders.local/#task=W887&proj=${bel}W887`,
 		);
 		expect(linked).toContain(`W887${esc}]8;${bel}`);
 		// stripping the escapes must land byte-identical on the plain table
@@ -239,7 +270,7 @@ describe("item hyperlinks (W910)", () => {
 			links: true,
 			baseUrl: "http://board.lan:7799",
 		});
-		expect(t).toContain(`${esc}]8;http://board.lan:7799/#lanes?w=W1${bel}`);
+		expect(t).toContain(`${esc}]8;http://board.lan:7799/#task=W1&proj=${bel}`);
 	});
 
 	test("reportTableLinkOpts — TTY gate, NO_HYPERLINK kill switch, env base", () => {
@@ -433,8 +464,8 @@ describe("W909 — MODEL / EFFORT / CONSULT columns", () => {
 	});
 });
 
-describe("W976 — cli-table3 alignment", () => {
-	test("mixed-width rows: every line the same length", () => {
+describe("W1131 — width-fn alignment (§12)", () => {
+	test("mixed-width rows: header/sep/data rows share one length; section + footer lines ride between", () => {
 		const rows = [
 			proto({ id: "W1", title: "short" }),
 			proto({
@@ -450,9 +481,11 @@ describe("W976 — cli-table3 alignment", () => {
 			}),
 		];
 		const plain = buildReportTable(rows);
-		const [head, sep, ...body] = plain.split("\n");
-		expect(body.length).toBe(2);
-		expect(body.every((l) => l.length === head?.length)).toBe(true);
+		const [head, sep, section, ...body] = plain.split("\n");
+		expect(section).toBe("working (2)");
+		expect(body.length).toBe(3); // two data rows + footer
+		const data = body.slice(0, 2);
+		expect(data.every((l) => l.length === head?.length)).toBe(true);
 		expect(sep?.length).toBe(head?.length);
 	});
 
@@ -466,7 +499,7 @@ describe("W976 — cli-table3 alignment", () => {
 			}),
 		];
 		const plain = buildReportTable(rows);
-		const [head, sep, ...body] = plain.split("\n");
+		const [head, sep, , ...body] = plain.split("\n");
 		// column right-edges derived from the separator's dash runs, NOT from
 		// the implementation — an off-by-N pad shifts the edge and fails here
 		const edges: number[] = [];
@@ -476,13 +509,14 @@ describe("W976 — cli-table3 alignment", () => {
 			edges.push(i);
 			i += 2;
 		}
-		expect(edges.length).toBe(10);
+		// shown columns: ITEM/ST/TASK/TOKENS/CACHE only (§6 autohide: OUT/MIN,
+		// AGE, MODEL, LAST all-dash → hidden; REQ/EFFORT/CONSULT --wide-only)
+		expect(edges.length).toBe(5);
 		// header cells end at the shared edges (right-aligned cols ≥ 3)
 		const at = (line: string, c: number, text: string): boolean =>
 			line.slice(edges[c] - text.length, edges[c]) === text;
 		expect(at(head ?? "", 3, "TOKENS")).toBe(true);
-		expect(at(head ?? "", 5, "OUT/MIN")).toBe(true);
-		expect(at(head ?? "", 9, "CONSULT")).toBe(true);
+		expect(at(head ?? "", 4, "CACHE")).toBe(true);
 		expect(body[1]?.length).toBe(head?.length);
 	});
 
@@ -503,14 +537,15 @@ describe("W976 — cli-table3 alignment", () => {
 		];
 		const plain = buildReportTable(rows);
 		const [_head, _sep, ...body] = plain.split("\n");
-		// 7-digit fresh + cache share → 14.1M; zero-spend row renders dashes
-		expect(body[0]?.trim().endsWith("N")).toBe(true);
-		expect(body[1]?.includes("14.1M")).toBe(true);
-		expect(body[1]?.includes("50%")).toBe(true);
-		expect(body[1]?.includes("2h07m")).toBe(true);
-		expect(body[1]?.includes("glm-5.3-flash")).toBe(true);
-		expect(body[1]?.includes("medium")).toBe(true);
-		expect(body[1]?.trim().endsWith("Y")).toBe(true);
+		// 7-digit fresh + cache share → 14.1M; zero-spend row renders dashes.
+		// body = [section, W1, W858, footer]; REQ/EFFORT/CONSULT hide (§6).
+		expect(body[0]).toBe("working (2)");
+		expect(body[1]?.includes("—")).toBe(true);
+		expect(body[2]?.includes("14.1M")).toBe(true);
+		expect(body[2]?.includes("50%")).toBe(true);
+		expect(body[2]?.includes("2h07m")).toBe(true);
+		expect(body[2]?.includes("2000")).toBe(true);
+		expect(body[2]?.trim().endsWith("glm-5.3-flash")).toBe(true);
 	});
 
 	test("OSC 8 on/off: stripping escapes lands byte-identical on the plain table", () => {

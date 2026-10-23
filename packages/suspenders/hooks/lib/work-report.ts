@@ -8,7 +8,6 @@
 // metrics render as UNKNOWN (—), never a measured 0 (W1131 §5).
 
 import type { Database } from "bun:sqlite";
-import Table from "cli-table3";
 import {
 	type GroupSpend,
 	type ItemAttribution,
@@ -317,7 +316,10 @@ export const toReportRows = (
 			lastOutAgoMs: lastOutAgo,
 			stalled,
 			decision,
-			spendReported: a !== undefined,
+			// §5: attribution with every figure zero = NOT reported (unknown ≠
+			// measured zero); a real report carries tokens or requests
+			spendReported:
+				a !== undefined && a.fresh + a.cached + a.out + a.requests > 0,
 			project: it.project == null ? null : String(it.project),
 		};
 	});
@@ -436,6 +438,14 @@ export interface ReportItem {
 	hub: string | null;
 	stalled: boolean;
 	requests: number | null;
+	/** §5: null = unreported, never a measured zero (W1070 stamp keeps the
+	 *  merged `cached` as the cache-share truth). */
+	usage: UsageMetrics;
+	cache_share: number | null;
+	blind_cache: boolean;
+	model: string;
+	effort: string | null;
+	consult: boolean;
 	links: { task: string };
 }
 
@@ -508,7 +518,12 @@ export const buildReportContract = (
 		totals: {
 			input_tokens: sum((r) => (r.spendReported ? r.fresh + r.cached : 0)),
 			output_tokens: sum((r) => (r.spendReported ? r.out : 0)),
-			cache_read_tokens: sum((r) => r.cacheRead ?? 0),
+			// §5: unreported OTel split falls back to the merged `cached` (the
+			// W1070 stamp truth) — totals never render a measured 0 for a
+			// cache figure the cells DO report.
+			cache_read_tokens: sum((r) =>
+				r.cacheRead ?? (r.spendReported ? r.cached : 0),
+			),
 			cache_creation_tokens: sum((r) => r.cacheCreation ?? 0),
 			requests: sum((r) => r.requests ?? 0),
 			lanes_per_hub: lanesPerHub,
@@ -560,19 +575,6 @@ const contractItemOf = (
 	};
 };
 
-const COLUMNS = [
-	"ITEM",
-	"ST",
-	"TASK",
-	"TOKENS",
-	"CACHE",
-	"OUT/MIN",
-	"AGENT",
-	"MODEL",
-	"EFFORT",
-	"CONSULT",
-];
-
 /** W910: board deep-link base — env override, default the .local front
  *  (config-over-code: hosts live in machine conf, never code). */
 export const DEFAULT_REPORT_LINK_BASE = "http://suspenders.local";
@@ -613,91 +615,6 @@ export const CACHE_MARK = "*";
 export const CACHE_LEGEND =
 	"* CACHE is a floor: ledger rows before 2026-10-19T10Z dropped cached_tokens (W943.1 era gap — docs/decant-crosscheck-2026-10-19.md)";
 
-/** W976: the ONE cli-table3 config — borderless (empty border chars emit no
- *  lines), two-space gutters via the `middle` char, zero cell padding. The
- *  separator row of per-column dashes is pushed as a plain data row; escapes
- *  (OSC 8) are width-zero in the lib's ANSI-aware math. */
-const REPORT_TABLE_CHARS = {
-	top: "",
-	"top-mid": "",
-	"top-left": "",
-	"top-right": "",
-	bottom: "",
-	"bottom-mid": "",
-	"bottom-left": "",
-	"bottom-right": "",
-	left: "",
-	"left-mid": "",
-	mid: "",
-	"mid-mid": "",
-	right: "",
-	"right-mid": "",
-	middle: "  ",
-};
-
-/** ITEM/ST/TASK left, the rest (numeric + MODEL/EFFORT/CONSULT, W909) right. */
-const REPORT_TABLE_ALIGN: ("left" | "right")[] = [
-	"left",
-	"left",
-	"left",
-	"right",
-	"right",
-	"right",
-	"right",
-	"right",
-	"right",
-	"right",
-];
-
-/** The prototype table (W892): pads delegated to cli-table3 (W976) —
- *  ITEM/ST/TASK left, the rest (numeric + MODEL/EFFORT/CONSULT, W909) right;
- *  separator =
- *  per-column dashes. Zero-spend rows show `-` for TOKENS/CACHE and 0 for
- *  OUT/MIN; no data = `-` for MODEL/EFFORT and N for CONSULT. */
-export const buildReportTable = (
-	rows: ReportRow[],
-	opts: ReportTableOpts = {},
-): string => {
-	const base = opts.baseUrl ?? reportLinkBase();
-	const cells = rows.map((r) => {
-		const tokens = r.fresh + r.cached;
-		return [
-			r.id,
-			reportGlyph(r.state),
-			r.title.slice(0, TASK_CAP),
-			tokens > 0 ? compactTokens(tokens) : "-",
-			tokens > 0
-				? `${Math.round((r.cached / tokens) * 100)}%${r.blindCache ? CACHE_MARK : ""}`
-				: "-",
-			`${r.agentMs > 0 ? Math.round(r.out / (r.agentMs / 60_000)) : 0}`,
-			agentClock(r.agentMs),
-			r.model || "-",
-			r.effort ?? "-",
-			r.consulted ? "Y" : "N",
-		];
-	});
-	const ids = rows.map((r) => r.id);
-	// separator = per-column dashes; widths come from the PLAIN cells (links
-	// wrap later — the lib's ANSI-aware math counts escapes as width-zero).
-	const widths = COLUMNS.map((h, c) =>
-		Math.max(h.length, ...cells.map((row) => row[c].length)),
-	);
-	const table = new Table({
-		chars: REPORT_TABLE_CHARS,
-		colAligns: REPORT_TABLE_ALIGN,
-		style: { head: [], border: [], "padding-left": 0, "padding-right": 0 },
-	});
-	table.push(COLUMNS);
-	table.push(widths.map((w) => "-".repeat(w)));
-	rows.forEach((_r, i) => {
-		table.push(
-			cells[i].map((v, c) =>
-				// W910: wrap column 0's id; the lib pads the wrapped content
-				// (escapes width-zero), piped output stays escape-free.
-				c === 0 && opts.links ? osc8Link(v, `${base}/#lanes?w=${ids[i]}`) : v,
-			),
-		);
-	});
-	const body = table.toString();
-	return rows.some((r) => r.blindCache) ? `${body}\n${CACHE_LEGEND}` : body;
-};
+// W1131: the cli-table3 renderer retired — the ONE tty face is
+// buildReportTable in ./work-report-render.ts, rendering FROM the §1
+// versioned contract. Consumers import it from there.

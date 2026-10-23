@@ -81,10 +81,8 @@ const tokensCell = (i: ReportItem): string => {
 };
 
 const cacheCell = (i: ReportItem): string => {
-	const inp = i.usage["gen_ai.usage.input_tokens"];
-	const rd = i.usage["gen_ai.usage.cache_read.input_tokens"];
-	if (inp == null || rd == null || inp === 0) return UNKNOWN;
-	return `${Math.round((rd / inp) * 100)}%${i.blind_cache ? CACHE_MARK : ""}`;
+	if (i.cache_share == null) return UNKNOWN;
+	return `${Math.round(i.cache_share * 100)}%${i.blind_cache ? CACHE_MARK : ""}`;
 };
 
 const outMinCell = (i: ReportItem): string => {

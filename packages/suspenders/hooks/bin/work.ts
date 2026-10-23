@@ -84,11 +84,11 @@ import { exportMirror, MIRROR_NAME, mirrorOrNull } from "../lib/work-mirror.ts";
 import { releaseWorkClaim } from "../lib/work-release.ts";
 import { GLYPH, renderRow, renderTimestamps } from "../lib/work-render.ts";
 import {
-	buildReportTable,
 	parseReportWindow,
 	reportRows,
 	reportTableLinkOpts,
 } from "../lib/work-report.ts";
+import { buildReportTable } from "../lib/work-report-render.ts";
 import { retryFailedItem } from "../lib/work-retry.ts";
 import { mergeTags, validateTags } from "../lib/work-tags.ts";
 import { VERBS } from "../lib/work-verbs.ts";
