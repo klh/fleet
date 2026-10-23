@@ -1,10 +1,10 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { admitSpawn } from "../bin/spawn-admission.ts";
-const root = mkdtempSync(join(tmpdir(), "fleet-admission-"));
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+import { scratchWorld } from "../../test-kit/src/index.ts";
+const { home: root, clean } = scratchWorld({ prefix: "fleet-admission-" });
+afterAll(() => clean());
 
 test("parallel processes cannot spend one memory budget twice", async () => {
 	const modulePath = join(import.meta.dir, "../bin/spawn-admission.ts");

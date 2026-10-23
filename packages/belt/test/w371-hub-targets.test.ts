@@ -2,23 +2,23 @@
 // declaring deploy.dir carries heal + quietHours + the hub bind budget;
 // profile-less or stack-less machines stay probe-only (W351 unchanged).
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
 	snapshotFromCatalog,
 	writeFreeSnapshot,
 } from "../../suspenders/deploy/openrouter-free.ts";
+import { scratchWorld } from "../../test-kit/src/index.ts";
 import { ZAI_CATALOG_URL } from "../bin/zai-catalog-rows.ts";
 import { hubConsoleLinks, hubGatewayRoutes, hubTargets } from "../bin/hubs.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "w371t-"));
+const { home: dir, clean } = scratchWorld({ prefix: "w371t-" });
 const stackPath = join(dir, "stack.yaml");
 const hubsPath = join(dir, "hubs.json");
 afterAll(() => {
 	delete process.env.KLH_STACK;
 	delete process.env.SUSPENDERS_HUBS_FILE;
-	rmSync(dir, { recursive: true, force: true });
+	clean();
 });
 
 const STACK = `version: 0000000000000000000000000000000000000001
