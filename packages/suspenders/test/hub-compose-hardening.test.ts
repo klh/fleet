@@ -27,6 +27,8 @@ const RUNTIME = [
 	"belt-health",
 	"model-store-hub",
 	"model-store-health",
+	"knowledge-sink",
+	"knowledge-health",
 	"mdns-announce",
 	"mdns-health",
 	"peer-pull",
@@ -38,6 +40,7 @@ const STATEFUL = [
 	"store-hub",
 	"belt-hub",
 	"model-store-hub",
+	"knowledge-sink",
 	"peer-pull",
 ];
 

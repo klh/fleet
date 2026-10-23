@@ -60,6 +60,14 @@ hubs:
     board_health_port: 7798
     store_health_port: 7793
     belt_health_port: 7789
+    # W1217 knowledge sink — uncomment on the hub designated THE fleet
+    # knowledge sink: the knowledge-api container serves the aggregated claim
+    # store (W1213 upward machine rolls land here) + a health probe sidecar.
+    # SQLite WAL rides the hub-state named volume; ports are template
+    # defaults (7802 face / 7803 health) — declare to pin.
+    # knowledge:
+    #   port: 7802
+    #   health_port: 7803
     allowed_hosts: [nas-hub.local]
     peers:
       - desktop # first topology edge (W322): nas declares desktop as peer.

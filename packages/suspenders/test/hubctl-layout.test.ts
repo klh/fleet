@@ -125,7 +125,8 @@ test("all hub services share one pinned monorepo with prepared dependencies", ()
 		`\${HUB_FLEET_SRC:-/src/fleet/packages}/buckle`,
 	);
 	expect(compose.services["buckle-hub"].environment.BUCKLE_POLICY).toBe(
-		`\${HUB_FLEET_SRC:-/src/fleet/packages}/buckle/routing-policy.yaml`,
+		// W1152.1 renders the typed per-hub policy at the materialized path
+		"/etc/klh/routing-policy.hub.yaml",
 	);
 	expect(cmd("board-hub")).toContain(
 		`\${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/hooks/bin/fleet-board.ts`,

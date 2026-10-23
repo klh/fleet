@@ -642,6 +642,78 @@ services:
       retries: 3
       start_period: 15s
 
+  # W1217 knowledge sink: the hub-side knowledge-api serving the aggregated
+  # claim store — machines roll claims UPWARD here (W1213 /roll), the sink
+  # aggregates with hash dedupe + provenance. Config-over-code: a hub runs it
+  # only when its stack.yaml profile declares `knowledge:` (renderEnv then
+  # puts `knowledge` into COMPOSE_PROFILES). SQLite WAL rides the hub-state
+  # named volume (no host-path deploys) at the HOME-derived knowledge.db path;
+  # the LAN bind opts in via KNOWLEDGE_API_BIND while the host allowlist
+  # (SUSPENDERS_ALLOWED_HOSTS) still gates every request.
+  knowledge-sink:
+    profiles: [knowledge]
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+    container_name: ${HUB_NAME:-desktop}-knowledge-sink
+    logging: *default-logging
+    <<: *runtime-hardening
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          pids: 256
+    network_mode: host
+    restart: unless-stopped
+    command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/hooks/bin/knowledge-api.ts
+    depends_on:
+      fleet-deps:
+        condition: service_completed_successfully
+      hub-init:
+        condition: service_completed_successfully
+    environment:
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
+      HOME: /state/hub-home
+      KNOWLEDGE_API_PORT: ${HUB_KNOWLEDGE_SINK_PORT:-7802}
+      KNOWLEDGE_API_BIND: 0.0.0.0
+      SUSPENDERS_ALLOWED_HOSTS: ${HUB_ALLOWED_HOSTS:-suspenders.local}
+      HUB_KNOWLEDGE_SINK_PORT: ${HUB_KNOWLEDGE_SINK_PORT:-7802}
+    volumes:
+      - fleet-repo:/src/fleet:ro
+      - hub-state:/state/hub-home
+
+  # Health rides a probe sidecar (owner law): poll the sink's /status over
+  # the network, serve the verdict, degrade on consecutive misses.
+  knowledge-health:
+    profiles: [knowledge]
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+    container_name: ${HUB_NAME:-desktop}-knowledge-health
+    logging: *default-logging
+    <<: *runtime-hardening
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          pids: 256
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      knowledge-sink:
+        condition: service_started
+    command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_KNOWLEDGE_SINK_PORT:-7802}/status --listen ${HUB_KNOWLEDGE_SINK_HEALTH_PORT:-7803}
+    environment:
+      HOME: /tmp
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
+      HUB_KNOWLEDGE_SINK_HEALTH_PORT: ${HUB_KNOWLEDGE_SINK_HEALTH_PORT:-7803}
+    volumes:
+      - fleet-repo:/src/fleet:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.HUB_KNOWLEDGE_SINK_HEALTH_PORT ?? "7803") + "/healthz"); if (!r.ok) process.exit(1);'
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
   # W854: mDNS advertisement — the hub announces ITSELF on the LAN
   # (_klh-hub._tcp, instance = HUB_NAME). hub-locate's dns-sd discovery leg
   # browses this exact service type; until now the browse came back EMPTY.
