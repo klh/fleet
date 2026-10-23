@@ -69,9 +69,10 @@ export function intentSettingsHash(path: string): string {
 
 /** Operator-only repair evidence, derived from the same current authority and
  * paused native boundary as restart. No equality fallback blesses old births. */
-export function captureIntentBirthEvidence(
+export function captureManagedPauseEvidence(
 	root: string,
 	item: string,
+	expectedState: "PAUSED" | "PAUSE_REQUESTED",
 ): IntentBirthEvidence {
 	root = canonicalProjectRoot(root);
 	const lane = loadLaneRegistry<LaneRef>(root).find((row) => row.item === item);
@@ -82,6 +83,7 @@ export function captureIntentBirthEvidence(
 		lane.sid,
 		item,
 		worktree,
+		expectedState,
 	);
 	const store = openStore();
 	let intent: LaunchIntent | null;
@@ -101,9 +103,11 @@ export function captureIntentBirthEvidence(
 	const start = obsoleteProcessStart(intent.birth);
 	const wrapper = processBirth(lane.pid) || null;
 	if (
-		!start ||
 		!wrapper?.birth.startsWith("darwin:") ||
-		!wrapper.birth.endsWith(`:${start}`)
+		!(
+			intent.birth === wrapper.birth ||
+			(start && wrapper.birth.endsWith(`:${start}`))
+		)
 	)
 		throw Error("Original microsecond process start is not proven");
 	if (inspectLaunchIntent({ ...intent, birth: wrapper.birth }) !== "alive")
@@ -140,6 +144,17 @@ export function captureIntentBirthEvidence(
 		newBirth: wrapper.birth,
 		native: { pid: nativePids[0], birth: native.birth },
 	};
+}
+
+/** The existing birth repair stays limited to obsolete recorded births. */
+export function captureIntentBirthEvidence(
+	root: string,
+	item: string,
+): IntentBirthEvidence {
+	const evidence = captureManagedPauseEvidence(root, item, "PAUSED");
+	if (!obsoleteProcessStart(evidence.intent.birth ?? ""))
+		throw Error("Original microsecond process start is not proven");
+	return evidence;
 }
 
 /** One fenced row update plus immutable event. Revalidation stays inside the

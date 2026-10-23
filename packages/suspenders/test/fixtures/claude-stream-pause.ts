@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { createInterface } from "node:readline";
 
 const sid = process.env.SUSPENDERS_SID ?? "";
+const nativeSession = process.env.SUSPENDERS_FIXTURE_NATIVE_UUID ?? "pause-native-session";
 const coord = new URL("../../hooks/bin/coord.ts", import.meta.url).pathname;
 const call = (args: string[]) =>
 	execFileSync(process.execPath, [coord, ...args, "--as", sid], {
@@ -30,7 +31,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 		emit({
 			type: "system",
 			subtype: "init",
-			session_id: "pause-native-session",
+			session_id: nativeSession,
 			pid: process.pid,
 		});
 		timer = setTimeout(
@@ -71,6 +72,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 			type: "result",
 			subtype: "success",
 			result: "CHECKPOINTED",
+			session_id: nativeSession,
 			pid: process.pid,
 		});
 	} else if (text.includes("FLEET_MANAGED_RESUME:")) {
@@ -81,7 +83,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 				subtype: "success",
 				result: "RESUMED",
 				pid: process.pid,
-				session_id: "pause-native-session",
+				session_id: nativeSession,
 			});
 		if (process.env.SUSPENDERS_FIXTURE_RESUME_ACTIVE === "1") {
 			emit({ type: "fleet.fixture.resume", state: "active", pid: process.pid });

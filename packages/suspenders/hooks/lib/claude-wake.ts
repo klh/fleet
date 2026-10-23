@@ -12,6 +12,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { setTimeout as retryDelay } from "node:timers/promises";
 import type { CoordDirectEvent } from "./codex-steer.ts";
 import { readSessionState, writeSessionState } from "./session-state.ts";
 
@@ -205,15 +206,21 @@ function lockWatcher(path: string): boolean {
 
 /** Filesystem notifications, not a poll loop. Every later hook invocation
  * re-arms after an emission; simultaneous invocations exit quietly. */
-export async function waitForClaudeWake(
+type WakeOptions = {
+	home?: string;
+	timeoutMs?: number;
+	consumer?: Consumer;
+	abort?: AbortSignal;
+};
+export type ClaudeWakeOutcome =
+	| { state: "event"; text: string }
+	| { state: "closed"; reason: "aborted" | "disabled" }
+	| { state: "retry"; reason: "watcher-busy" | "watcher-error" | "timeout" };
+
+export async function waitForClaudeWakeOutcome(
 	sid: string,
-	opts: {
-		home?: string;
-		timeoutMs?: number;
-		consumer?: Consumer;
-		abort?: AbortSignal;
-	} = {},
-): Promise<string | null> {
+	opts: WakeOptions = {},
+): Promise<ClaudeWakeOutcome> {
 	const home = opts.home ?? process.env.HOME ?? "";
 	const consumer = opts.consumer ?? "native";
 	if (
@@ -222,40 +229,88 @@ export async function waitForClaudeWake(
 		opts.abort?.aborted ||
 		(consumer !== "managed" && process.env.SUSPENDERS_CLAUDE_WAKE === "0")
 	)
-		return null;
+		return {
+			state: "closed",
+			reason: opts.abort?.aborted ? "aborted" : "disabled",
+		};
 	const files = paths(sid, home);
 	const lock = files.lock(consumer);
 	let owned = false;
 	try {
 		mkdirSync(files.dir, { recursive: true, mode: 0o700 });
 		owned = lockWatcher(lock);
-		if (!owned) return null;
-		return await new Promise<string | null>((resolve) => {
+		if (!owned) return { state: "retry", reason: "watcher-busy" };
+		return await new Promise<ClaudeWakeOutcome>((resolve) => {
 			let settled = false;
-			const finish = (text: string | null) => {
+			const finish = (outcome: ClaudeWakeOutcome) => {
 				if (settled) return;
 				settled = true;
 				clearTimeout(timer);
 				watcher.close();
 				opts.abort?.removeEventListener("abort", onAbort);
-				resolve(text);
+				resolve(outcome);
 			};
 			const check = () => {
 				const text = consumeClaudeWake(sid, home, consumer);
-				if (text) finish(text);
+				if (text) finish({ state: "event", text });
 			};
-			const onAbort = () => finish(null);
+			const onAbort = () => finish({ state: "closed", reason: "aborted" });
 			const watcher = watch(files.dir, check);
-			watcher.on("error", () => finish(null));
-			const timer = setTimeout(() => finish(null), opts.timeoutMs ?? WAIT_MS);
+			watcher.on("error", () =>
+				finish({ state: "retry", reason: "watcher-error" }),
+			);
+			const timer = setTimeout(
+				() => finish({ state: "retry", reason: "timeout" }),
+				opts.timeoutMs ?? WAIT_MS,
+			);
 			opts.abort?.addEventListener("abort", onAbort, { once: true });
 			check(); // covers events queued before this watcher was armed
 		});
 	} catch {
-		return null;
+		return { state: "retry", reason: "watcher-error" };
 	} finally {
 		// Only the process that owns the lock can remove it.
 		if (owned && readSessionState<{ pid?: number }>(lock)?.pid === process.pid)
 			release(lock);
+	}
+}
+
+/** Native one-shot hooks keep their nullable contract; only the lifetime-owning
+ * managed runtime supervises retryable watcher termination. */
+export async function waitForClaudeWake(
+	sid: string,
+	opts: WakeOptions = {},
+): Promise<string | null> {
+	const result = await waitForClaudeWakeOutcome(sid, opts);
+	return result.state === "event" ? result.text : null;
+}
+
+/** Re-arm the existing filesystem watcher with bounded, abortable backoff.
+ * This does not poll the coordination store or advance delivery receipts. */
+export async function waitForManagedClaudeWake(
+	sid: string,
+	opts: WakeOptions & {
+		onRetry?: (reason: string, attempt: number) => void;
+	} = {},
+): Promise<string | null> {
+	let attempt = 0;
+	for (;;) {
+		const result = await waitForClaudeWakeOutcome(sid, {
+			...opts,
+			consumer: "managed",
+		});
+		if (result.state === "event") return result.text;
+		if (result.state === "closed") return null;
+		attempt++;
+		opts.onRetry?.(result.reason, attempt);
+		try {
+			await retryDelay(
+				Math.min(100 * 2 ** Math.min(attempt - 1, 6), 5000),
+				undefined,
+				{ signal: opts.abort },
+			);
+		} catch {
+			return null;
+		}
 	}
 }

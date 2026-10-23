@@ -7,6 +7,8 @@ import {
 	proveClaudeWake,
 	signalClaudeDirectEvent,
 	waitForClaudeWake,
+	waitForClaudeWakeOutcome,
+	waitForManagedClaudeWake,
 } from "../hooks/lib/claude-wake.ts";
 
 const home = mkdtempSync(join(tmpdir(), "fleet-claude-wake-"));
@@ -20,6 +22,39 @@ const event = (id: number, target: string, kind = "NOTE") => ({
 });
 
 describe("Claude native hook wake bridge", () => {
+	test("managed supervision distinguishes live lock contention and aborts its backoff", async () => {
+		const sid = "typed-managed-rearm";
+		const owner = new AbortController();
+		const waiting = waitForClaudeWakeOutcome(sid, {
+			home,
+			consumer: "managed",
+			abort: owner.signal,
+		});
+		expect(
+			await waitForClaudeWakeOutcome(sid, { home, consumer: "managed" }),
+		).toEqual({ state: "retry", reason: "watcher-busy" });
+		const retry = new AbortController();
+		const attempts: string[] = [];
+		const result = await waitForManagedClaudeWake(sid, {
+			home,
+			abort: retry.signal,
+			onRetry(reason) {
+				attempts.push(reason);
+				retry.abort();
+			},
+		});
+		expect(result).toBeNull();
+		expect(attempts).toEqual(["watcher-busy"]);
+		owner.abort();
+		expect(await waiting).toEqual({ state: "closed", reason: "aborted" });
+		expect(
+			await waitForClaudeWakeOutcome(sid, {
+				home,
+				consumer: "managed",
+				timeoutMs: 5,
+			}),
+		).toEqual({ state: "retry", reason: "timeout" });
+	});
 	test("pause and resume are directed controls that ordinary notes cannot overwrite before injection", () => {
 		const sid = "pause-priority";
 		expect(
