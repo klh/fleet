@@ -50,6 +50,7 @@ import {
 	type RouteSelection,
 } from "./decide.ts";
 import { type DietStore, dietRoutes } from "./diet.ts";
+import { drainTerminalFrame, onDrain } from "./drain.ts";
 import type { Expander } from "./expand.ts";
 import { type Federation, principalOf } from "./gov/federation.ts";
 import { hintFromHeaders, type RouteHint } from "./hints.ts";
@@ -885,8 +886,28 @@ function streamResponse(
 		streamCancelled = true;
 		downstreamAbort.abort();
 	};
+	// W1156: the transform controller is captured so the drain can enqueue a
+	// terminal straight into the client queue — the pipe keeps its own
+	// writer; never fight it with a second one.
+	let drainCtl: TransformStreamDefaultController<Uint8Array> | null = null;
 	const downstream = new TransformStream<Uint8Array, Uint8Array>({
+		start: (c) => {
+			drainCtl = c;
+		},
 		cancel: () => cancelDownstream(),
+	});
+	// W1156: a positively-known deployment drain ends this stream with a
+	// dialect-correct gateway_restarting terminal. Delivered marks truth —
+	// only a terminal the client stream actually accepted re-banks the
+	// receipt (a drain racing an already-closed/cancelled stream keeps the
+	// real cause). A stream born mid-drain fires immediately.
+	let streamDrained = false;
+	const offDrain = onDrain(() => {
+		streamDrained = writeDrainTerminal(drainCtl, ctx.dialect, ctx.rid);
+		// A delivered cut tears the tee + upstream now (bounded grace), but
+		// through the abort bus's pipes only — streamCancelled stays false so
+		// the receipt keeps the drained cause, never downstream_cancel.
+		if (streamDrained) downstreamAbort.abort();
 	});
 	let streamFailed = false;
 	let streamFailureKind: string | null = null;
@@ -910,13 +931,19 @@ function streamResponse(
 		lastChunkMs = Date.now() - t0;
 	};
 	const finish = once(() => {
+		offDrain();
 		sniffer.flush();
 		// W1106 (#55419/#55420): the sniffer saw the full body — did the
 		// dialect's protocol terminal arrive? A CLEAN EOF without it is a
 		// truncated turn; a failed pipe keeps its failure kind as the cause
 		// (the guard's deadline outranks the missing terminal), and an abort
 		// never counts as truncation.
-		streamTruncated = !sniffer.completed() && !streamCancelled && !streamFailed;
+		// W1156: a drain terminal that cut a live turn short is the honest
+		// non-success; a drain AFTER the dialect terminal is a cosmetic close
+		// (the turn completed) and never re-labels the receipt.
+		const drainedCut = streamDrained && !sniffer.completed();
+		streamTruncated =
+			!sniffer.completed() && !streamCancelled && !streamFailed && !drainedCut;
 		// W1106 (#55446/#55461): an IN-BAND failure (anthropic event:error /
 		// openai response.failed|incomplete) is non-success even when a
 		// terminal marker follows it.
@@ -936,6 +963,7 @@ function streamResponse(
 			streamFailed ||
 			streamCancelled ||
 			streamTruncated ||
+			drainedCut ||
 			streamInBand !== null
 				? "errored"
 				: result.candidateId === selected
@@ -945,6 +973,7 @@ function streamResponse(
 			!streamFailed &&
 			!streamCancelled &&
 			!streamTruncated &&
+			!drainedCut &&
 			streamInBand === null;
 		const duration = Date.now() - ctx.t0;
 		if (selected) deps.table.inflight(selected, -1);
@@ -960,30 +989,35 @@ function streamResponse(
 			attempts: result.attempts,
 			err: streamCancelled
 				? "downstream_cancel"
-				: success
-					? null
-					: streamInBand !== null
-						? `stream_failed:${streamInBand}`
-						: streamTruncated
-							? "stream_truncated"
-							: `stream_failed:${streamFailureKind ?? "unknown"}`,
+				: drainedCut
+					? "gateway_restarting"
+					: success
+						? null
+						: streamInBand !== null
+							? `stream_failed:${streamInBand}`
+							: streamTruncated
+								? "stream_truncated"
+								: `stream_failed:${streamFailureKind ?? "unknown"}`,
 			...(success
 				? {}
 				: {
 						decision: "errored",
 						error_code: streamCancelled
 							? "downstream_cancel"
-							: streamInBand !== null
-								? "stream_failed"
-								: streamTruncated
-									? "stream_truncated"
-									: "stream_failed",
+							: drainedCut
+								? "gateway_restarting"
+								: streamInBand !== null
+									? "stream_failed"
+									: streamTruncated
+										? "stream_truncated"
+										: "stream_failed",
 					}),
 			stream_receipt: {
 				terminal: terminalOf(
 					streamFailed,
 					streamFailureKind,
 					streamCancelled,
+					drainedCut,
 					streamTruncated,
 					streamInBand,
 				),
@@ -1055,6 +1089,15 @@ function streamResponse(
 			signal: downstreamAbort.signal,
 		})
 		.then(finish, (err: unknown) => {
+			// W1156: the drain cut itself terminates the transform (Bun has no
+			// TransformStreamDefaultController.close), so this rejection IS the
+			// drain's own signature — the terminal is already queued ahead of
+			// the close. Keep the drained cause; classifying it as an upstream
+			// failure would mislabel the receipt and double-write an error.
+			if (streamDrained) {
+				finish();
+				return;
+			}
 			// W1106: classify BEFORE the receipt lands. The request signal is
 			// the honest cancel evidence (real-Bun probe: pipeTo rejects
 			// LAZILY — on the next failed write, or carrying the upstream's
@@ -1099,10 +1142,12 @@ function terminalOf(
 	failed: boolean,
 	kind: string | null,
 	cancelled: boolean,
+	drained: boolean,
 	truncated: boolean,
 	inBand: string | null,
 ): string {
 	if (cancelled) return "downstream_cancel";
+	if (drained) return "gateway_restarting";
 	if (inBand !== null) return `in_band_error:${inBand}`;
 	if (!failed) return truncated ? "upstream_eof_truncated" : "upstream_eof";
 	if (kind === "timeout") return "upstream_deadline";
@@ -1131,6 +1176,30 @@ function once(fn: () => void): () => void {
 		called = true;
 		fn();
 	};
+}
+
+/** W1156: enqueue the drain terminal + terminate the transform — the only
+ *  termination TransformStreamDefaultController actually has in Bun
+ *  (typeof close === "undefined"; probe 2026-10-22). terminate() delivers
+ *  the queued terminal then closes the readable; the writable side errors,
+ *  so the client pipe rejects with the drain's own signature (recognized
+ *  via streamDrained — never mislabeled an upstream failure). Returns
+ *  whether the terminal was actually handed to the client stream: a drain
+ *  racing an already-closed/errored/cancelled stream throws synchronously,
+ *  delivers nothing, and the receipt keeps the real cause. */
+function writeDrainTerminal(
+	ctl: TransformStreamDefaultController<Uint8Array> | null,
+	dialect: Dialect,
+	rid: string,
+): boolean {
+	if (ctl === null) return false;
+	try {
+		ctl.enqueue(enc.encode(drainTerminalFrame(dialect, rid)));
+		ctl.terminate();
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 /** Mid-stream upstream death: append a dialect error event, close. */
