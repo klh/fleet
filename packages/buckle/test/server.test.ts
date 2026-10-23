@@ -9,6 +9,7 @@ import {
 	SHADOW_PORT,
 	startServer,
 } from "../src/server.ts";
+import { POLICY_DEFAULTS, parsePolicy } from "../src/policy.ts";
 import { startMockUpstream } from "./mock.ts";
 
 describe("resolvePort guard", () => {
@@ -33,6 +34,27 @@ describe("resolvePort guard", () => {
 // guards are the only deadlines.
 describe("BUN_IDLE_TIMEOUT (W1106)", () => {
 	test("zero for every request — the knob is retired", () => {
+		expect(BUN_IDLE_TIMEOUT).toBe(0);
+	});
+});
+
+// The retired knob's coverage, re-pinned on its successors (W1106): the
+// wire guards ride the policy contract, Bun's HTTP timer stays 0.
+describe("stream guard policy (W1106 successors)", () => {
+	test("defaults pin the wire deadlines", () => {
+		expect(BUN_IDLE_TIMEOUT).toBe(0);
+		expect(POLICY_DEFAULTS.stream_idle_timeout_s).toBe(60);
+		expect(POLICY_DEFAULTS.stream_total_timeout_s).toBe(900);
+		expect(POLICY_DEFAULTS.first_byte_budget_s).toBe(240);
+		expect(POLICY_DEFAULTS.request_timeout_s).toBe(120);
+	});
+
+	test("parsePolicy re-arms the guards, never the HTTP timer", () => {
+		const policy = parsePolicy(
+			"gateway:\n  stream_idle_timeout_s: 45\n  stream_total_timeout_s: 600\n",
+		);
+		expect(policy.stream_idle_timeout_s).toBe(45);
+		expect(policy.stream_total_timeout_s).toBe(600);
 		expect(BUN_IDLE_TIMEOUT).toBe(0);
 	});
 });

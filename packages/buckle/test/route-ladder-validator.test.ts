@@ -81,7 +81,7 @@ test("a configured LiteLLM target requires its explicit engine marker", () => {
 	});
 	expect(validateRouteLadders(makeInputs()).errors).toContainEqual(
 		expect.objectContaining({
-			code: "invalid_config",
+			code: "missing_proxy_kind",
 			layer: "buckle",
 			path: "buckle:spoke:primary",
 		}),
@@ -411,4 +411,161 @@ test("duplicate service origins are rejected instead of silently selecting one B
 		],
 	});
 	expect(result.errors.map((error) => error.code)).toContain("invalid_config");
+});
+
+test("a belt escalation back into the same buckle is a repeat_origin re-ingress", () => {
+	const result = validateRouteLadders({
+		buckles: [
+			{
+				id: "local",
+				origins: ["http://127.0.0.1:4101"],
+				policy,
+				pool: pool({
+					primary: [{ url: "http://127.0.0.1:4000" }],
+					backup: [{ url: "https://provider.example/v1" }],
+				}),
+			},
+		],
+		belts: [
+			{
+				id: "router",
+				origins: ["http://127.0.0.1:4000"],
+				escalation: { url: "http://127.0.0.1:4101", model: "backup" },
+			},
+		],
+	});
+	expect(result.errors).toContainEqual(
+		expect.objectContaining({ code: "repeat_origin", layer: "fleet" }),
+	);
+});
+
+test("an engine's internal fallback walk is not a repeat_origin re-ingress", () => {
+	const result = validateRouteLadders({
+		buckles: [],
+		litellms: [
+			{
+				id: "engine",
+				origins: ["http://127.0.0.1:4100"],
+				config: {
+					model_list: ["a", "b"].map((model_name) => ({
+						model_name,
+						litellm_params: { api_base: `https://${model_name}.example` },
+					})),
+					litellm_settings: { fallbacks: [{ a: ["b"] }] },
+				},
+			},
+		],
+	});
+	expect(result.errors).toEqual([]);
+});
+
+test("a primary rung serving a different family than the group asserts mismatches", () => {
+	const result = validateRouteLadders({
+		buckles: [
+			{
+				id: "local",
+				origins: ["http://127.0.0.1:4101"],
+				policy: { ...policy, fallbacks: {} },
+				pool: pool({
+					"gpt-6-sol": [
+						{ url: "https://provider.example/v1", model: "zai-glm-5.3-flash" },
+					],
+				}),
+			},
+		],
+	});
+	expect(result.errors).toContainEqual(
+		expect.objectContaining({ code: "model_family_mismatch", layer: "buckle" }),
+	);
+});
+
+test("an engine row serving a different family than its group name asserts mismatches", () => {
+	const result = validateRouteLadders({
+		buckles: [],
+		litellms: [
+			{
+				id: "engine",
+				origins: ["http://127.0.0.1:4100"],
+				config: {
+					model_list: [
+						{
+							model_name: "gpt-6-sol",
+							litellm_params: {
+								model: "zai/glm-5.3-flash",
+								api_base: "https://zai.example",
+							},
+						},
+					],
+				},
+			},
+		],
+	});
+	expect(result.errors).toContainEqual(
+		expect.objectContaining({
+			code: "model_family_mismatch",
+			layer: "litellm",
+		}),
+	);
+});
+
+test("a role-named group may serve a specialist family without a mismatch", () => {
+	const result = validateRouteLadders({
+		buckles: [
+			{
+				id: "local",
+				origins: ["http://127.0.0.1:4101"],
+				policy,
+				pool: pool({
+					"local-coder": [
+						{ url: "https://mlx.example/v1", model: "mlx-coder" },
+					],
+				}),
+			},
+		],
+	});
+	expect(result.errors).toEqual([]);
+});
+
+test("an engine row under a role-named group may serve a specialist family", () => {
+	const result = validateRouteLadders({
+		buckles: [],
+		litellms: [
+			{
+				id: "engine",
+				origins: ["http://127.0.0.1:4100"],
+				terminals: ["http://127.0.0.1:8902"],
+				config: {
+					model_list: [
+						{
+							model_name: "local-coder",
+							litellm_params: {
+								model: "openai/mlx-coder",
+								api_base: "http://127.0.0.1:8902",
+							},
+						},
+					],
+				},
+			},
+		],
+	});
+	expect(result.errors).toEqual([]);
+});
+
+test("a fallback rung may cross families without a mismatch finding", () => {
+	const result = validateRouteLadders({
+		buckles: [
+			{
+				id: "local",
+				origins: ["http://127.0.0.1:4101"],
+				policy: { ...policy, fallbacks: { "gpt-6-sol": ["glm-relay"] } },
+				pool: pool({
+					"gpt-6-sol": [{ url: "https://provider.example/v1" }],
+					"glm-relay": [
+						{ url: "https://other.example/v1", model: "zai-glm-5.3-flash" },
+					],
+				}),
+			},
+		],
+	});
+	expect(result.errors).toEqual([]);
 });
