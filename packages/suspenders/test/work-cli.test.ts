@@ -28,6 +28,24 @@ const gitInit = (dir: string): void => {
 		stderr: "ignore",
 	});
 	if (r.exitCode !== 0) throw new Error(`git init failed in ${dir}`);
+	const baseline = Bun.spawnSync(
+		[
+			"git",
+			"-C",
+			dir,
+			"-c",
+			"user.name=Fixture",
+			"-c",
+			"user.email=fixture@example.invalid",
+			"commit",
+			"--allow-empty",
+			"-qm",
+			"Fixture baseline",
+		],
+		{ stdout: "pipe", stderr: "pipe" },
+	);
+	if (baseline.exitCode !== 0)
+		throw new Error("Fixture baseline commit failed");
 };
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-work-cli-repo-"));
 gitInit(REPO);
@@ -69,36 +87,71 @@ function finish(
 	id: string,
 	sid: string,
 ): { code: number; out: string; err: string } {
-	const t = work("take", id, "--as", sid);
-	if (t.code !== 0) return t;
-	const tok = /claim token: ([0-9a-f]{48})/.exec(t.out)?.[1];
-	return work(
-		"done",
-		id,
-		"--sha",
-		`sha-${sid}`,
-		...(tok ? ["--token", tok] : []),
+	return finishAs(id, sid);
+}
+
+let productRevision = 0;
+function productCommit(label: string): string {
+	writeFileSync(
+		join(REPO, "fixture-product.ts"),
+		`export const revision = ${++productRevision};\n`,
 	);
+	for (const args of [
+		["add", "fixture-product.ts"],
+		[
+			"-c",
+			"user.name=Fixture",
+			"-c",
+			"user.email=fixture@example.invalid",
+			"commit",
+			"-qm",
+			label,
+		],
+	]) {
+		const result = Bun.spawnSync(["git", "-C", REPO, ...args], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		if (result.exitCode !== 0) throw new Error(result.stderr.toString());
+	}
+	return Bun.spawnSync(["git", "-C", REPO, "rev-parse", "HEAD"], {
+		stdout: "pipe",
+	})
+		.stdout.toString()
+		.trim();
 }
 
 /** W643: claim-and-close in one — take mints the token, done must carry it. */
 function finishAs(
 	id: string,
 	sid: string,
-	sha: string,
+	sha?: string,
 ): { code: number; out: string; err: string } {
 	const t = work("take", id, "--as", sid);
 	if (t.code !== 0) return t;
 	const tok = /claim token: ([0-9a-f]{48})/.exec(t.out)?.[1];
-	return work(
+	if (!tok) throw new Error("Fixture take must mint its original claim token");
+	const commit = sha ?? productCommit(`Implement fixture product for ${id}`);
+	const result = work(
 		"done",
 		id,
 		"--as",
 		sid,
 		"--sha",
-		sha,
-		...(tok ? ["--token", tok] : []),
+		commit,
+		"--summary",
+		`Implemented the isolated fixture product for ${id} to verify work graph state transitions with real commit evidence.`,
+		"--token",
+		tok,
 	);
+	if (result.code === 0) {
+		const completed = JSON.parse(work("show", id, "--json").out);
+		expect(completed.completion).toMatchObject({
+			commit_sha: commit,
+			completed_by: sid,
+		});
+	}
+	return result;
 }
 
 afterAll(() => {
@@ -345,9 +398,9 @@ describe("done — roll-up for shattered parents", () => {
 			work("split", p, "c1", "c2", "--reason", "independent-scopes").code,
 		).toBe(0);
 		expect(work("done", `${p}.1`, "--sha", "s1").code).not.toBe(0); // this repo: READY work cannot be marked done...
-		expect(finishAs(`${p}.1`, "lane-r1", "s1").code).toBe(0);
+		expect(finishAs(`${p}.1`, "lane-r1").code).toBe(0);
 		expect(firstLine(work("show", p).out)).toContain("SHATTERED");
-		expect(finishAs(`${p}.2`, "lane-r2", "s2").code).toBe(0);
+		expect(finishAs(`${p}.2`, "lane-r2").code).toBe(0);
 		expect(firstLine(work("show", p).out)).toContain("DONE");
 	});
 
@@ -360,11 +413,11 @@ describe("done — roll-up for shattered parents", () => {
 			work("split", `${q}.1`, "x1", "x2", "--reason", "independent-scopes")
 				.code,
 		).toBe(0);
-		expect(finishAs(`${q}.2`, "lane-n2", "s").code).toBe(0);
+		expect(finishAs(`${q}.2`, "lane-n2").code).toBe(0);
 		expect(firstLine(work("show", q).out)).toContain("SHATTERED");
-		expect(finishAs(`${q}.1.1`, "lane-n11", "s").code).toBe(0);
+		expect(finishAs(`${q}.1.1`, "lane-n11").code).toBe(0);
 		expect(firstLine(work("show", q).out)).toContain("SHATTERED");
-		expect(finishAs(`${q}.1.2`, "lane-n12", "s").code).toBe(0);
+		expect(finishAs(`${q}.1.2`, "lane-n12").code).toBe(0);
 		expect(firstLine(work("show", `${q}.1`).out)).toContain("DONE");
 		expect(firstLine(work("show", q).out)).toContain("DONE");
 	});
@@ -420,7 +473,7 @@ describe("cancel — W182 CANCELLED terminal state", () => {
 
 	test("terminal states refuse cancel; list/mine hide CANCELLED", () => {
 		const t = idOf(work("add", "already closed").out);
-		expect(finishAs(t, "lane-t1", "s").code).toBe(0);
+		expect(finishAs(t, "lane-t1").code).toBe(0);
 		const again = work("cancel", t, "--note", "x");
 		expect(again.code).toBe(2);
 		expect(again.err).toContain("already closed");
@@ -450,7 +503,7 @@ describe("ready — dependency gating", () => {
 		expect(ready).toContain(a);
 		expect(ready).not.toContain(b);
 		expect(work("show", b).out).toContain(`depends on: ${a}(READY)`);
-		expect(finishAs(a, "lane-gate", "s").code).toBe(0); // claim before done (transition guard)
+		expect(finishAs(a, "lane-gate").code).toBe(0); // claim before done (transition guard)
 		ready = work("ready").out;
 		expect(ready).toContain(b);
 	});
@@ -755,11 +808,11 @@ describe("dep-merge ancestor gate (W60)", () => {
 	test("DONE dep with a sha not on main gates ready/take/done; merge opens it; unverifiable sha fails open", () => {
 		g("symbolic-ref", "HEAD", "refs/heads/main");
 		writeFileSync(join(REPO, "w60-base.txt"), "base");
-		g("add", "-A");
+		g("add", "w60-base.txt");
 		commit("w60 base");
 		g("checkout", "-q", "-b", "w60-side");
 		writeFileSync(join(REPO, "w60-side.txt"), "side");
-		g("add", "-A");
+		g("add", "w60-side.txt");
 		commit("w60 side");
 		const sha = g("rev-parse", "HEAD").stdout.toString().trim();
 		g("checkout", "-q", "main");
@@ -788,8 +841,26 @@ describe("dep-merge ancestor gate (W60)", () => {
 		const dep2 = idOf(work("add", "failopen dep lane").out);
 		const depOn2 = idOf(work("add", "failopen dependent lane").out);
 		expect(work("block", depOn2, "--on", dep2).code).toBe(0);
-		const d2 = finishAs(dep2, "lane-w60c", "0123456789abcdef0123456987654321");
-		expect(d2.out).toContain("startable now");
+		g("checkout", "-q", "-b", "w60-missing-object");
+		const missingSha = productCommit(
+			"Real dependency product before object loss",
+		);
+		g("checkout", "-q", "main");
+		const d2 = finishAs(dep2, "lane-w60c", missingSha);
+		expect(d2.code).toBe(0);
+		// Model unavailable Git evidence AFTER a genuine verified completion,
+		// rather than accepting an invented SHA at the completion boundary.
+		rmSync(
+			join(
+				REPO,
+				".git",
+				"objects",
+				missingSha.slice(0, 2),
+				missingSha.slice(2),
+			),
+		);
+		const available = work("ready");
+		expect(available.out).toContain(depOn2);
 		expect(work("take", depOn2, "--as", "lane-w60d").code).toBe(0);
 
 		// merging the side branch makes the sha an ancestor — gate opens
