@@ -234,6 +234,15 @@ function laneStamp(s){
   var full = d.toLocaleString('da-DK', {dateStyle:'full', timeStyle:'long'}) + ' · UTC ' + d.toISOString();
   return '<time datetime="' + esc(d.toISOString()) + '" title="' + esc(full) + '">' + esc(short) + '</time>';
 }
+// W998 — card dates compact to a relative update age; the full instant stays
+// on hover (same <time> contract as laneStamp). msAgo/agoShort ride the CORE
+// chunk globals at board runtime.
+function compactStamp(s){
+  if (!s) return '';
+  var d = new Date(s); if (isNaN(d.getTime())) return esc(s);
+  var full = 'updated ' + d.toLocaleString('da-DK', {dateStyle:'full', timeStyle:'long'}) + ' · UTC ' + d.toISOString();
+  return '<time datetime="' + esc(d.toISOString()) + '" title="' + esc(full) + '">' + esc(agoShort(msAgo(d.getTime()))) + '</time>';
+}
 function taskRow(t, parentId, depth){
   var owner = ownerName(t);
   var prefer = preferOf(t);
@@ -497,9 +506,9 @@ function kanbanCard(t, fam){
   if (kid) html += '<span class="kidmark">↳</span>';
   html += '<div class="krow">' + taskPill(displayState(t)) +
     (od ? '<span class="kdec">needs you</span>' : '') +
-    (t.updated_at_utc ? '<span class="kcardstamp dim">' + laneStamp(t.updated_at_utc) + '</span>' : '') + '</div>' +
+    (t.updated_at_utc ? '<span class="kcardstamp dim">' + compactStamp(t.updated_at_utc) + '</span>' : '') + '</div>' +
     '<div class="kcardident"><button type="button" class="tidbtn mono" data-task="' + esc(t.id) + '" data-proj="' + esc(t.project || '') + '" aria-haspopup="dialog">' + esc(t.id) + '</button>' +
-    '<span class="kage dim">' + agoShort(t.age_s) + '</span></div>';
+    '<span class="kage dim" title="open ' + esc(ago(t.age_s)) + '">' + esc(agoShort(t.age_s)) + '</span></div>';
   html += '<div class="ktitle">' + esc(String(t.title || '(untitled)')).slice(0, 140) + '</div>';
   if (t.execution) {
     var ex = t.execution;
@@ -710,6 +719,8 @@ function updateKanbanVolatile(el, shownAll){
     if (c.getAttribute('data-kid') !== t.id) continue;
     var ageEl = c.querySelector('.kage');
     if (ageEl) ageEl.textContent = agoShort(t.age_s);
+    var stampEl = c.querySelector('.kcardstamp time');
+    if (stampEl && t.updated_at_utc) stampEl.textContent = agoShort(msAgo(new Date(t.updated_at_utc).getTime()));
     var tailEl = c.querySelector('.ktail');
     if (tailEl) tailEl.textContent = (t.tail && t.tail.text) ? t.tail.text : '';
     var sigEl = c.querySelector('.ksignal');
