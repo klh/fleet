@@ -221,21 +221,18 @@ export const laneEnv = (
 // W1 dispatch-side adoption (finding.w1): lanes ride the buckle front with a
 // /w/<slug> prefix so usage attributes per lane (route_audit.lane). Opt-in
 // per dispatch: only when the front answers and no hub redirect won.
-export const BUCKLE_FRONT =
-	process.env.SUSPENDERS_BUCKLE_FRONT ?? "http://127.0.0.1:4101";
-
-export const probeBuckleFront = async (
-	front = BUCKLE_FRONT,
-): Promise<string | null> => {
-	try {
-		const r = await fetch(`${front}/status`, {
-			signal: AbortSignal.timeout(600),
-		});
-		return r.ok ? front : null;
-	} catch {
-		return null;
-	}
-};
+// W1124.43: the probe itself (and its attributable verdict form) live in
+// scripts/lib/front-probe.ts — re-exported here so every W1 importer stays
+// byte-stable (contract: front URL on 2xx /status, else null).
+import { BUCKLE_FRONT } from "./front-probe.ts";
+export {
+	BUCKLE_FRONT,
+	FRONT_PROBE_TIMEOUT_MS,
+	frontTimeoutBound,
+	type FrontProbeVerdict,
+	probeBuckleFront,
+	probeBuckleFrontVerdict,
+} from "./front-probe.ts";
 
 // The base-URL union (buckle laneEnv grammar, buckle/src/agents.ts): the
 // anthropic root gets /w/<slug>; the openai-dialect bases add /v1.

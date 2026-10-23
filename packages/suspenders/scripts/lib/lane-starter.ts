@@ -34,7 +34,8 @@ import {
 	applyLaneAttribution,
 	BUCKLE_FRONT,
 	laneEnv,
-	probeBuckleFront,
+	probeBuckleFrontVerdict,
+	type FrontProbeVerdict,
 } from "./lane.ts";
 
 export const STARTER_FLAG = "SUSPENDERS_LANE_STARTER";
@@ -421,9 +422,10 @@ export const dispatchStarterFork = async (o: {
 	log: (line: string) => void;
 	/** Test seam: forwarded to ensureStarter (run stub + log capture). */
 	ensureOpts?: Parameters<typeof ensureStarter>[4];
-	/** W695.1 test seam: the preflight probe (default: the W454 buckle-front
-	 *  probe). Injecting `async () => null` pins the "belt-front down" verdict. */
-	probe?: () => Promise<string | null>;
+	/** W695.1 test seam: the preflight probe (default: the W1124.43
+	 *  attributable front-verdict probe). Injecting a down verdict (front
+	 *  null, kind timeout|status|unreachable) pins "belt-front down". */
+	probe?: () => Promise<FrontProbeVerdict>;
 }): Promise<{
 	forkArgs: string[];
 	prompt: string;
@@ -456,13 +458,13 @@ export const dispatchStarterFork = async (o: {
 	// rides every seed failure (a seed is a belt-shaped HTTP call; a down
 	// front is the first suspect). One probe answers both attribution and
 	// the failure marker.
-	const front = o.noBelt ? null : await (o.probe ?? probeBuckleFront)();
+	const front = o.noBelt ? null : await (o.probe ?? probeBuckleFrontVerdict)();
 	const preflight = o.noBelt
 		? undefined
-		: front
-			? `belt-front up: ${front}`
-			: `belt-front down: ${BUCKLE_FRONT} did not answer /status`;
-	if (front) applyLaneAttribution(seedEnv, "fleet-starter", front);
+		: front?.ok
+			? `belt-front up: ${front.front}`
+			: `belt-front down: ${BUCKLE_FRONT} did not answer /status (${front?.note})`;
+	if (front?.front) applyLaneAttribution(seedEnv, "fleet-starter", front.front);
 	const starter = ensureStarter(o.fleet, o.harness, o.bin, seedEnv, {
 		...o.ensureOpts,
 		model: o.model,

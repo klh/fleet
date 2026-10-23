@@ -309,12 +309,21 @@ describe("lane-starter", () => {
 			wt: "/wt4",
 			coldPrompt: "COLD",
 			log: () => {},
-			probe: async () => null,
+			probe: async () => ({
+				front: null,
+				ok: false,
+				kind: "timeout",
+				status: 0,
+				ms: 612,
+				boundMs: 600,
+				note: "timeout after 612ms (bound 600ms)",
+			}),
 			ensureOpts: {
 				run: () => ({ code: 1, err: "seed died" }),
 			},
 		});
 		expect(r.seedError?.preflight).toContain("belt-front down");
+		expect(r.seedError?.preflight).toContain("timeout after 612ms");
 	});
 
 	test("dispatchStarterFork: preflight up verdict rides the seedError", async () => {
@@ -329,7 +338,15 @@ describe("lane-starter", () => {
 			wt: "/wt5",
 			coldPrompt: "COLD",
 			log: () => {},
-			probe: async () => "http://127.0.0.1:4101",
+			probe: async () => ({
+				front: "http://127.0.0.1:4101",
+				ok: true,
+				kind: "ok",
+				status: 200,
+				ms: 3,
+				boundMs: 600,
+				note: "",
+			}),
 			ensureOpts: {
 				run: () => ({ code: 1, err: "seed died" }),
 			},
