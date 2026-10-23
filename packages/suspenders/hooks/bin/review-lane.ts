@@ -127,18 +127,36 @@ function gitDiff(base: string, commit: string): string {
 	return result.out;
 }
 
-// the coord thread: last 20 events on the item (work + project stamped)
+// the coord thread: last 20 events on the item (work + project stamped);
+// W1236.1: each line also carries the event's note text (parsed from the
+// payload JSON, capped) — prior review findings and their B-IDs live there,
+// and a reviewer who cannot see them can never emit the RESOLVED lines the
+// receipt contract demands.
+const noteOf = (payload: unknown): string => {
+	try {
+		return String(
+			(JSON.parse(String(payload)) as { note?: unknown }).note ?? "",
+		).slice(0, 400);
+	} catch {
+		return "";
+	}
+};
 const thread: string[] = (
 	db
 		.query(
 			"SELECT ts, source, kind, payload FROM events WHERE work = ? AND project = ? ORDER BY id DESC LIMIT 20",
 		)
 		.all(item, project) as Row[]
-).map(
-	(e) =>
-		`${new Date(Number(e.ts)).toISOString()} ${e.source} ${e.kind} ${String(
-			e.payload,
-		).slice(0, 200)}`,
+).map((e) =>
+	[
+		new Date(Number(e.ts)).toISOString(),
+		e.source,
+		e.kind,
+		String(e.payload).slice(0, 200),
+		noteOf(e.payload),
+	]
+		.filter(Boolean)
+		.join(" "),
 );
 
 // ---- the review prompt ------------------------------------------------------
@@ -448,21 +466,29 @@ const verdictLineOf = (reply: string | null): string | undefined =>
 // W1236: one leg attempt is not a verdict — 429 waves drain and thinking
 // models sometimes reply without the machine-parseable line. Two bounded
 // attempts with a short backoff before the ERROR receipt records why.
+// W1236.1: findings ACCUMULATE across attempts — a retry that produces the
+// verdict line must not silently erase substantive findings from the earlier
+// attempt (FAIL60967: first reply carried a blocker, second was a bare PASS;
+// the blocker vanished). Blocker IDs ride the combined text into the
+// receipt, so a PASS over preserved blockers fails the contract check
+// instead of landing clean.
+const legParts: string[] = [];
 let legFailure = "leg failed";
-let findings: string | null = null;
 let verdictLine = verdictLineOf(null);
 for (let legAttempt = 1; legAttempt <= 2; legAttempt++) {
-	findings = await runLeg().catch((e: unknown) => {
+	const attemptText = await runLeg().catch((e: unknown) => {
 		legFailure = reviewFailureReason(e);
 		console.error(
 			`review-lane ${item}: leg attempt ${legAttempt} failed: ${e instanceof Error ? e.message : String(e)}`,
 		);
 		return null;
 	});
-	verdictLine = verdictLineOf(findings);
+	if (attemptText) legParts.push(attemptText);
+	verdictLine = verdictLineOf(legParts.join("\n\n"));
 	if (verdictLine || legAttempt === 2) break;
 	await new Promise((resolve) => setTimeout(resolve, 20_000));
 }
+const findings = legParts.length ? legParts.join("\n\n") : null;
 const verdict =
 	findings && verdictLine
 		? verdictLine.startsWith("PASS")
