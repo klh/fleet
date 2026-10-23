@@ -63,7 +63,7 @@ test("abandoned verdict lands and rides the admin read", () => {
 	expect(r.verdict.at).toBe(new Date(NOW).toISOString());
 	expect(r.verdict.age_ms).toBe(NOW - Date.parse(OLD_TS));
 	expect(r.verdict.boot_origin).toBe(BOOT);
-	const row = l.requestsRead({ lane: "lane-x" })[0];
+	const row = l.requestsRead({ lane: "lane-x", limit: 50 })[0];
 	expect(row?.reconciled?.verdict).toBe("abandoned");
 	expect(row?.status).toBeNull();
 	expect(row?.ok).toBeNull();
@@ -71,13 +71,14 @@ test("abandoned verdict lands and rides the admin read", () => {
 
 test("verdicts are immutable — second reconcile refuses", () => {
 	const l = ledger();
-	l.auditDecision(decision());
+	const d = decision();
+	l.auditDecision(d);
 	l.reconcileAbandoned(
-		{ rid: "rid0001", lane: "lane-x", actor: "a", reason: "drain" },
+		{ rid: d.rid, lane: "lane-x", actor: "a", reason: "drain" },
 		{ now: NOW, bootOrigin: BOOT },
 	);
 	const again = l.reconcileAbandoned(
-		{ rid: "rid0001", lane: "lane-x", actor: "a", reason: "drain" },
+		{ rid: d.rid, lane: "lane-x", actor: "a", reason: "drain" },
 		{ now: NOW, bootOrigin: BOOT },
 	);
 	expect(again.ok).toBe(false);
@@ -95,59 +96,78 @@ test("every fail-closed refusal code fires on its proof failure", () => {
 	expect(none.ok).toBe(false);
 	if (!none.ok) expect(none.code).toBe("buckle.no_such_receipt");
 	// lane mismatch (exact-lane guard)
-	l.auditDecision(decision());
+	const d1 = decision();
+	l.auditDecision(d1);
 	const wrongLane = l.reconcileAbandoned(
-		{ rid: "rid0002", lane: "other", actor: "a", reason: "d" },
+		{ rid: d1.rid, lane: "other", actor: "a", reason: "d" },
 		{ now: NOW, bootOrigin: BOOT },
 	);
-	if (!wrongLane.ok) expect(wrongLane.code).toBe("buckle.receipt_lane_mismatch");
+	expect(wrongLane.ok).toBe(false);
+	if (!wrongLane.ok)
+		expect(wrongLane.code).toBe("buckle.receipt_lane_mismatch");
 	// trace/ts exact-match refusals
-	l.auditDecision(decision({ trace_id: TRACE }));
+	const d2 = decision({ trace_id: TRACE });
+	l.auditDecision(d2);
 	const wrongTrace = l.reconcileAbandoned(
-		{ rid: "rid0003", lane: "lane-x", trace_id: "b".repeat(32), actor: "a", reason: "d" },
+		{
+			rid: d2.rid,
+			lane: "lane-x",
+			trace_id: "b".repeat(32),
+			actor: "a",
+			reason: "d",
+		},
 		{ now: NOW, bootOrigin: BOOT },
 	);
+	expect(wrongTrace.ok).toBe(false);
 	if (!wrongTrace.ok) expect(wrongTrace.code).toBe("buckle.receipt_mismatch");
 });
 
 test("settled, non-inference and live rows refuse", () => {
 	const l = ledger();
 	// settled row (outcome landed)
-	l.auditDecision(decision());
-	l.auditOutcome("rid0004", { status: 200, duration_ms: 5, ok: true, err: null });
+	const d1 = decision();
+	l.auditDecision(d1);
+	l.auditOutcome(d1.rid, { status: 200, duration_ms: 5, ok: true, err: null });
 	const settled = l.reconcileAbandoned(
-		{ rid: "rid0004", lane: "lane-x", actor: "a", reason: "d" },
+		{ rid: d1.rid, lane: "lane-x", actor: "a", reason: "d" },
 		{ now: NOW, bootOrigin: BOOT },
 	);
+	expect(settled.ok).toBe(false);
 	if (!settled.ok) expect(settled.code).toBe("buckle.receipt_settled");
 	// non-inference row (no target model)
-	l.auditDecision(decision({ target_model: null }));
+	const d2 = decision({ target_model: null });
+	l.auditDecision(d2);
 	const bare = l.reconcileAbandoned(
-		{ rid: "rid0005", lane: "lane-x", actor: "a", reason: "d" },
+		{ rid: d2.rid, lane: "lane-x", actor: "a", reason: "d" },
 		{ now: NOW, bootOrigin: BOOT },
 	);
+	expect(bare.ok).toBe(false);
 	if (!bare.ok) expect(bare.code).toBe("buckle.receipt_not_inference");
 	// live incarnation: row postdates this gate's boot
 	const liveTs = new Date(Date.now() - 1000).toISOString();
-	l.auditDecision(decision({ ts: liveTs }));
+	const d3 = decision({ ts: liveTs });
+	l.auditDecision(d3);
 	const live = l.reconcileAbandoned(
-		{ rid: "rid0006", lane: "lane-x", actor: "a", reason: "d" },
+		{ rid: d3.rid, lane: "lane-x", actor: "a", reason: "d" },
 		{ now: Date.now(), bootOrigin: Date.parse(liveTs) - 500 },
 	);
+	expect(live.ok).toBe(false);
 	if (!live.ok) expect(live.code).toBe("buckle.receipt_live_incarnation");
 });
 
 test("transport-bound rows refuse and the parser is fail-closed", () => {
 	const l = ledger();
-	l.auditDecision(decision());
-	// age within the live-stream guard (900s)
+	const d = decision();
+	l.auditDecision(d);
+	// age within the live-stream guard (900s): now barely past the row's ts
 	const bound = l.reconcileAbandoned(
-		{ rid: "rid0008", lane: "lane-x", actor: "a", reason: "d" },
-		{ now: BOOT + 100, bootOrigin: BOOT },
+		{ rid: d.rid, lane: "lane-x", actor: "a", reason: "d" },
+		{ now: Date.parse(OLD_TS) + 100, bootOrigin: BOOT },
 	);
+	expect(bound.ok).toBe(false);
 	if (!bound.ok) expect(bound.code).toBe("buckle.receipt_transport_bound");
 	const r = l.reconcileAbandoned(
-		{ rid: "rid0008", lane: "lane-x", actor: "a", reason: "x".repeat(400) },
+		{ rid: d.rid, lane: "lane-x", actor: "a", reason: "x".repeat(400) },
 		{ now: NOW, bootOrigin: BOOT },
 	);
 	if (!r.ok) return;

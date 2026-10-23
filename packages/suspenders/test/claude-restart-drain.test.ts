@@ -49,7 +49,7 @@ function startDrainMock(
 					const body = (await request.json()) as Record<string, unknown>;
 					posts.push(body);
 					if (opts.reconcileMode === "netfail")
-						throw new Error("conn reset");
+						return new Response(null, { status: 503 });
 					if (opts.reconcileMode === "ok")
 						return Response.json({ reconciled: body.rid, verdict: {} });
 					if (opts.reconcileMode === "already")
@@ -78,6 +78,13 @@ function startDrainMock(
 
 function probe(m: ReturnType<typeof startDrainMock>) {
 	return verifyRestartDrain(`http://127.0.0.1:${m.server.port}`, SID, {});
+}
+
+/** count rows with DISTINCT per-ms timestamps ending at endMs (ts DESC). */
+function spread(count: number, endMs: number, idBase: number): Row[] {
+	return Array.from({ length: count }, (_, i) =>
+		row(idBase + i, new Date(endMs - i).toISOString(), 200),
+	);
 }
 
 test("settled single page passes with exact lane filter and no POSTs", async () => {
@@ -155,6 +162,65 @@ test("reconcile POST network failure refuses the restart", async () => {
 	const m = startDrainMock([row(1, T1, null)], { reconcileMode: "netfail" });
 	try {
 		await expect(probe(m)).rejects.toThrow("not drained");
+	} finally {
+		m.server.stop(true);
+	}
+});
+
+test("saturated lane paginates to complete coverage and passes", async () => {
+	const m = startDrainMock([
+		...spread(500, Date.parse(T1), 1),
+		...spread(3, Date.parse(T1) - 600_000, 501),
+	]);
+	try {
+		await probe(m);
+		expect(m.queries.length).toBe(2);
+		expect(m.queries[0]?.get("until")).toBe(null);
+		expect(m.queries[1]?.get("until")).toBe(
+			new Date(Date.parse(T1) - 498).toISOString(),
+		);
+	} finally {
+		m.server.stop(true);
+	}
+});
+
+test("page budget exhaustion refuses coverage-unknown", async () => {
+	const m = startDrainMock(spread(4200, Date.parse(T1), 1));
+	try {
+		await expect(probe(m)).rejects.toThrow("coverage is unknown");
+		expect(m.queries.length).toBe(8);
+	} finally {
+		m.server.stop(true);
+	}
+});
+
+test("same-millisecond group larger than a page refuses coverage-unknown", async () => {
+	const m = startDrainMock(
+		Array.from({ length: 505 }, (_, i) => row(i + 1, T1, 200)),
+	);
+	try {
+		await expect(probe(m)).rejects.toThrow("coverage is unknown");
+	} finally {
+		m.server.stop(true);
+	}
+});
+
+test("foreign-lane row refuses coverage-unknown (exact-lane guard intact)", async () => {
+	const m = startDrainMock([
+		row(1, T1, 200),
+		{ ...row(2, T0, 200), lane: "unrelated-lane" },
+	]);
+	try {
+		await expect(probe(m)).rejects.toThrow("coverage is unknown");
+	} finally {
+		m.server.stop(true);
+	}
+});
+
+test("failed read refuses coverage-unknown", async () => {
+	const m = startDrainMock([row(1, T1, 200)], { readFail: true });
+	try {
+		await expect(probe(m)).rejects.toThrow("coverage is unknown");
 	} finally {
 		m.server.stop(true);
 	}
