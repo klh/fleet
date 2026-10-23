@@ -75,6 +75,10 @@
         "acorn": "^8.18.0",
       },
     },
+    "packages/test-kit": {
+      "name": "@klh/test-kit",
+      "version": "2.0.0",
+    },
   },
   "packages": {
     "@anthropic-ai/sdk": ["@anthropic-ai/sdk@1.1.0", "", { "dependencies": { "@opentelemetry/api": "^1.4.1", "json-schema-to-ts": "^3.1.1", "standardwebhooks": "^1.0.0" }, "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["zod"], "bin": { "anthropic-ai-sdk": "bin/cli" } }, "sha512-Op/fKMsfVwFCfObc87leLOFlORE0RjOvLzRzPCWWLI7Ww6bobpKR6YmYC8ZYgulRh+m2a/3/61VUXoWHFtCXIw=="],
@@ -100,6 +104,8 @@
     "@klh/speedy": ["@klh/speedy@workspace:packages/speedy"],
 
     "@klh/suspenders": ["@klh/suspenders@workspace:packages/suspenders"],
+
+    "@klh/test-kit": ["@klh/test-kit@workspace:packages/test-kit"],
 
     "@leichtgewicht/ip-codec": ["@leichtgewicht/ip-codec@2.0.5", "", {}, "sha512-Vo+PSpZG2/fmgmiNzYK9qWRh8h/CHrwD0mo1h1DzL4yzHNSfWYujGTYsWGreD000gcgmZ7K4Ys6Tx9TxtsKdDw=="],
 
