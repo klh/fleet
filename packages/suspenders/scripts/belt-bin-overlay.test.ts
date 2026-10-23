@@ -106,6 +106,27 @@ test("flatHomeSource resolves real modules over shims", async () => {
 	expect(await flatHomeSource(ROOT, "health.ts")).toBe(join(ROOT, "health.ts"));
 });
 
+// W1250 successor of the retired never-clobber test: a runtime copy is
+// NEVER the authority — the refresh verb reconciles it to the pinned face.
+test("refresh reconciles a present runtime copy (never-clobber retired)", async () => {
+	const runtime = await mkdtemp(join(tmpdir(), "fleet-refresh-reconcile-"));
+	try {
+		await writeFile(join(runtime, "registry.ts"), "// operator sentinel\n");
+		const externals = await flatExternals(ENTRY, ROOT);
+		await refreshFlatHome(runtime, ENTRY, ROOT);
+		const have = normalizeSource(
+			await readFile(join(runtime, "registry.ts"), "utf8"),
+		);
+		const want = normalizeSource(
+			await pinnedFaceText(join(ROOT, "registry.ts"), externals, ROOT),
+		);
+		expect(have).toBe(want);
+		expect(have).not.toContain("operator sentinel");
+	} finally {
+		await rm(runtime, { recursive: true, force: true });
+	}
+});
+
 test("refresh heals missing, diverged and shim-broken flat homes", async () => {
 	const runtime = await mkdtemp(join(tmpdir(), "fleet-refresh-heal-"));
 	try {
