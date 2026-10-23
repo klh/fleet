@@ -39,6 +39,7 @@ import {
 	laneAuditFor,
 	laneEnv,
 	probeBuckleFront,
+	probeBuckleFrontVerdict,
 	recreateWorktreeFor,
 	residueOf,
 	run as runShared,
@@ -883,21 +884,16 @@ const dispatchItem = async (
 				}
 			}
 			applyInsertion(env, pick.bin, ctx);
-			// W1 dispatch-side adoption (finding.w1): the lane rides the buckle
-			// front with /w/<sid> so usage attributes per lane (route_audit.lane).
-			// W463 fail-closed: the gate demands bksk_ keys, so a mint failure
-			// REFUSES the lane — governance must not silently vanish — and only
-			// the explicit --allow-ungoverned override rides belt direct.
-			// W422.17: probe once — front up rides the W463 governed mint path,
-			// front down branches on the governance mode (strict refuses, solo
-			// keeps the belt-direct fallback). undefined = hub won, hub branch.
-			// W615: a winning hub redirect NO LONGER skips attribution (the
-			// identity-doc gap): the lane mints its key AT the hub and rides
-			// <hub-url>/w/<sid>, so hub-routed usage lands in the hub's own
-			// route_audit.lane. Credential + posture = hubAttributionDecision.
-			const frontUp: string | null | undefined = resolvedHub
-				? undefined
-				: await probeBuckleFront();
+			// W1: lanes ride the buckle front /w/<sid> (route_audit.lane). W463
+			// fail-closed: a mint failure REFUSES the lane — governance never
+			// silently vanishes; only --allow-ungoverned rides belt direct.
+			// W422.17: probe once — front up rides the governed mint path, front
+			// down branches on governance mode (strict refuses, solo belt-direct);
+			// W1124.43: the verdict (timeout|status|unreachable) rides the note.
+			// undefined = hub won. W615: a winning hub redirect still mints AT
+			// the hub (<hub-url>/w/<sid>). Credential + posture = hubAttributionDecision.
+			const frontProbe = resolvedHub ? null : await probeBuckleFrontVerdict();
+			const frontUp = resolvedHub ? undefined : frontProbe.front;
 			if (resolvedHub) {
 				// W615 (lib/hub-lane.ts): mint AT the hub, ride <hub>/w/<sid> —
 				// governed → env attribution + 0600 meta; override/refuse → the
@@ -965,7 +961,11 @@ const dispatchItem = async (
 				// W422.17 probe-false: the buckle front did not answer. Strict (the
 				// default) refuses the lane with the same machinery as a mint
 				// failure; solo keeps the belt-direct fallback — loud, disclosed.
-				const probe = probeFrontDecision(ALLOW_UNGOVERNED, governanceMode());
+				const probe = probeFrontDecision(
+					ALLOW_UNGOVERNED,
+					governanceMode(),
+					frontProbe?.note,
+				);
 				if (probe.mode === "refuse") {
 					governanceRefusals.push(item);
 					console.log(
