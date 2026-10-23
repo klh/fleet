@@ -62,6 +62,8 @@ describe("retained-completion fences (W1173)", () => {
 		expect(r.ok).toBe(false);
 		expect(r.error).toContain("immutable completion record");
 		expect(r.error).toContain("@0daf6a49");
+		// W1173 typed refusal: callers key on the stable code, never SQL text
+		expect(r.code).toBe("WORK_COMPLETION_RECORD_EXISTS");
 	});
 
 	test("retry of a DONE completed item refuses (guard precedes state logic)", () => {
@@ -157,12 +159,30 @@ const s = openStore();
 const row = s.query("SELECT project FROM work_items WHERE id='W1'").get();
 await persistCompletion(s, { project: row.project, item: "W1", summary: "x".repeat(40), summary_hash: "h", commit_sha: "0daf6a49000000000000", baseline_sha: null, completed_by: "lane-a", completed_at: Date.now(), capsule_json: "{}", evidence_json: "{}" });
 console.log("seeded");`);
+		// capture the exact pre-attempt state: the immutable receipt and the
+		// item's row (the current claim) must survive the refusals byte-identical
+		const before = seed(`const { openStore } = await import(${storeLib});
+const s = openStore();
+const rec = s.query("SELECT * FROM work_completion_records WHERE item='W1'").get();
+const it = s.query("SELECT * FROM work_items WHERE id='W1'").get();
+console.log(JSON.stringify({ rec, it }));`);
 		const fail = work(["fail", "W1"]);
 		expect(fail.code).not.toBe(0);
 		expect(fail.err).toContain("immutable completion record");
+		// the typed refusal code is the machine key (never a raw SQL string)
+		expect(fail.err).toContain("WORK_COMPLETION_RECORD_EXISTS");
 		const retry = work(["retry", "W1"]);
 		expect(retry.code).not.toBe(0);
 		expect(retry.err).toContain("immutable completion record");
+		expect(retry.err).toContain("WORK_COMPLETION_RECORD_EXISTS");
+		const after = seed(`const { openStore } = await import(${storeLib});
+const s = openStore();
+const rec = s.query("SELECT * FROM work_completion_records WHERE item='W1'").get();
+const it = s.query("SELECT * FROM work_items WHERE id='W1'").get();
+console.log(JSON.stringify({ rec, it }));`);
+		// claim rollback: the refused attempts advance nothing — the item row
+		// and the immutable receipt are byte-identical across both refusals
+		expect(JSON.parse(after)).toEqual(JSON.parse(before));
 		// the immutable evidence itself must stand untouched after both refusals
 		expect(
 			seed(`const { openStore } = await import(${storeLib});

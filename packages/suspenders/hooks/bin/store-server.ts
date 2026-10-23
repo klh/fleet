@@ -41,6 +41,7 @@ import {
 	readCapabilities,
 } from "../lib/profile.ts";
 import { servicemon } from "../lib/servicemon.ts";
+import { classifySqlFailure } from "../lib/store-sql-error.ts";
 import {
 	beginWithHeal,
 	sweepOrphanTxn,
@@ -280,13 +281,22 @@ const exec = (
 	params: unknown[],
 	conn: GovernorStore,
 ): Record<string, unknown> => {
-	const st = conn.query(sql);
-	if (mode === "get") return { row: st.get(...params) ?? null };
-	if (mode === "all") return { rows: st.all(...params) };
-	const r = st.run(...params);
-	const lastInsertRowid = Number(r.lastInsertRowid);
-	maybeBroadcastInsert(sql, lastInsertRowid);
-	return { changes: r.changes, lastInsertRowid };
+	// W1173 — a SQL failure is a typed refusal body, never a bare 500 or a raw
+	// thrown string: one envelope on both transports (W716 admission-refusal
+	// shape). `executed: false` — a refused statement never proves execution.
+	try {
+		const st = conn.query(sql);
+		if (mode === "get") return { row: st.get(...params) ?? null };
+		if (mode === "all") return { rows: st.all(...params) };
+		const r = st.run(...params);
+		const lastInsertRowid = Number(r.lastInsertRowid);
+		maybeBroadcastInsert(sql, lastInsertRowid);
+		return { changes: r.changes, lastInsertRowid };
+	} catch (e) {
+		const refusal = classifySqlFailure(e);
+		if (refusal) return refusal;
+		throw e;
+	}
 };
 
 // plane-generic tx ops (W156): op rides the sql field — begin | commit |

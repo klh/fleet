@@ -31,7 +31,7 @@ export function retryFailedItem(
 	store: GovernorStore,
 	project: string,
 	id: string,
-): { ok: boolean; error?: string } {
+): { ok: boolean; error?: string; code?: string } {
 	return store.transaction(() => {
 		const it = store
 			.query("SELECT * FROM work_items WHERE project=? AND id=?")
@@ -40,7 +40,12 @@ export function retryFailedItem(
 		// W1173: a retained completion record is completed history — retry is
 		// the reactivation gate and refuses with the deterministic diagnostic.
 		const reactivation = reactivationRefusal(store, project, id);
-		if (reactivation) return { ok: false, error: reactivation };
+		if (reactivation)
+			return {
+				ok: false,
+				error: reactivation.message,
+				code: reactivation.code,
+			};
 		if (it.state !== "FAILED") {
 			// W787: a READY item with a launch-budget reservation is the same
 			// environment-killed class — dispatch refuses it every cycle (and

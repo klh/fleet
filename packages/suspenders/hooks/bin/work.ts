@@ -1008,7 +1008,7 @@ const dispatchVerb = async (
 			// W1173: failing completed work is the first step of the unsupported
 			// reactivation chain — refuse on the retained record, caller ignored.
 			const reactivation = reactivationRefusal(db(), PROJECT, id ?? "");
-			if (reactivation) die(reactivation);
+			if (reactivation) die(reactivation.message);
 			if (
 				as &&
 				(it.owner_sid !== resolveSidOf(db(), String(as)) ||

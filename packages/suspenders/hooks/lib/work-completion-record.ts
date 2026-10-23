@@ -106,15 +106,38 @@ export function completionRecord(
 /** W1173 — immutable-evidence fence: an item holding a completion record is
  * completed history. Reactivating it (fail → retry → re-claim) strands the
  * graph against its own permanent record, and a re-close collides with the
- * record's PK — refused with one deterministic message at every gate. */
+ * record's PK — refused with one deterministic message at every gate. The
+ * refusal is typed (stable code + the record's identity fields) so callers
+ * and tests key on the code, never a raw SQL string. */
+export const WORK_COMPLETION_RECORD_EXISTS = "WORK_COMPLETION_RECORD_EXISTS";
+
+export interface ReactivationRefusal {
+	code: typeof WORK_COMPLETION_RECORD_EXISTS;
+	project: string;
+	item: string;
+	commit_sha: string;
+	completed_at: number;
+	completed_by: string;
+	/** Wire-stable diagnostic (code-prefixed). */
+	message: string;
+}
+
 export function reactivationRefusal(
 	db: CompletionStore,
 	project: string,
 	item: string,
-): string | null {
+): ReactivationRefusal | null {
 	const record = completionRecord(db, project, item);
 	if (!record) return null;
-	return `${item} holds an immutable completion record (@${record.commit_sha.slice(0, 8)}, completed ${new Date(record.completed_at).toISOString()} by ${record.completed_by}) — reactivation is refused; completed work never re-opens and no revision contract exists`;
+	return {
+		code: WORK_COMPLETION_RECORD_EXISTS,
+		project,
+		item,
+		commit_sha: record.commit_sha,
+		completed_at: record.completed_at,
+		completed_by: record.completed_by,
+		message: `${WORK_COMPLETION_RECORD_EXISTS}: ${item} holds an immutable completion record (@${record.commit_sha.slice(0, 8)}, completed ${new Date(record.completed_at).toISOString()} by ${record.completed_by}) — reactivation is refused; completed work never re-opens and no revision contract exists`,
+	};
 }
 const git = (cwd: string, ...args: string[]) => {
 	const result = Bun.spawnSync(["git", ...args], {
@@ -268,7 +291,7 @@ export function prepareCompletion(
 	// W1173 preflight: the deterministic refusal precedes every gate and any
 	// git exec — a re-close of retained evidence never reaches the INSERT.
 	const prior = reactivationRefusal(db, o.project, o.item);
-	if (prior) throw new Error(prior);
+	if (prior) throw new Error(prior.message);
 	let context: LaneContext | null = null;
 	let top = o.cwd;
 	try {
@@ -589,7 +612,7 @@ export function persistCompletion(
 	// prepare-time preflight, or a direct caller) refuses instead of surfacing
 	// the raw PK collision.
 	const prior = reactivationRefusal(db, record.project, record.item);
-	if (prior) throw new Error(prior);
+	if (prior) throw new Error(prior.message);
 	db.query(
 		"INSERT INTO work_completion_records (project,item,summary,summary_hash,commit_sha,baseline_sha,completed_by,completed_at,capsule_json,evidence_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 	).run(
