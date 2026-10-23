@@ -350,3 +350,51 @@ test("gate: unique tmp name — no shared-tmp interleave, no *.tmp residue", () 
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+// W1235 bounded override (independent-review REQUEST CHANGES): env=0 removes
+// ONLY the swapout-delta leg; the free% floor stays fail-closed.
+test("SUSPENDERS_PLAID_PRESSURE_HOLD=0 disables ONLY the swapout delta; free% stays fail-closed", () => {
+	const dir = mkdtempSync(join(tmpdir(), "w1235-hold-"));
+	const good = guardFixture("BELT_WIRED_GUARD_GB=90\n");
+	const prev = process.env.SUSPENDERS_PLAID_PRESSURE_HOLD;
+	process.env.SUSPENDERS_PLAID_PRESSURE_HOLD = "0";
+	try {
+		const spiked = hostPressureSampleOf(
+			parseFreePct(HEALTHY_MP),
+			parseWiredPages(HEALTHY_VM),
+			(parseSwapouts(HEALTHY_VM) ?? 0) + 50_000,
+			"fixture",
+			parsePageSizeBytes(HEALTHY_VM),
+		);
+		// default policy still holds on a 50k delta…
+		expect(
+			hostPressureDecision(spiked, parseSwapouts(HEALTHY_VM), POLICY).open,
+		).toBe(false);
+		// …the bounded override opens the delta leg…
+		expect(
+			hostPressureDecision(spiked, parseSwapouts(HEALTHY_VM), {
+				...POLICY,
+				maxSwapoutDelta: null,
+			}).open,
+		).toBe(true);
+		// …but the free% floor holds even under the override (fail-closed)
+		const lowFree = hostPressureSampleOf(
+			10,
+			parseWiredPages(HEALTHY_VM),
+			(parseSwapouts(HEALTHY_VM) ?? 0) + 50_000,
+			"fixture",
+			parsePageSizeBytes(HEALTHY_VM),
+		);
+		const held = plaidLaunchHold(
+			dir,
+			lowFree,
+			launchPressurePolicy(good),
+			good,
+		);
+		expect(held).not.toBeNull();
+	} finally {
+		if (prev === undefined) delete process.env.SUSPENDERS_PLAID_PRESSURE_HOLD;
+		else process.env.SUSPENDERS_PLAID_PRESSURE_HOLD = prev;
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
