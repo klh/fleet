@@ -215,11 +215,16 @@ function spendStripText(sp){
   if (cp != null) s += ' · ' + Math.round(cp) + '% cache';
   return s;
 }
+// W998.3 — ONE builder for the kspendtxt strip text, shared by the render
+// path and the volatile refresh so the two cannot drift (stampFull idiom).
+function spendStripInner(sp){
+  return fmtTokShort(sp.fresh + sp.cached + sp.out) + ' tok · ' + spendStripText(sp);
+}
 function spendStripHtml(t, cls){
   var sp = t && t.spend ? t.spend : null;
   if (!sp) return '';
   var key = esc(String(t.project || '')) + '|' + esc(String(t.id));
-  var inner = fmtTokShort(sp.fresh + sp.cached + sp.out) + ' tok · ' + spendStripText(sp);
+  var inner = spendStripInner(sp);
   return '<div class="kspend' + (cls ? ' ' + cls : '') + ' dim"><div class="ksparkplot"><span class="kspark" data-spark="' + key + '"></span><div class="ksparkaxis"><span>first request</span><span>latest</span></div></div><span class="kspendtxt" title="Attributed totals for this work item">' + esc(inner) + '</span></div>';
 }
 function displayState(t){
@@ -237,11 +242,16 @@ function laneStamp(s){
 // W998 — card dates compact to a relative update age; the full instant stays
 // on hover (same <time> contract as laneStamp). msAgo/agoShort ride the CORE
 // chunk globals at board runtime.
+// W998.3 — stampFull is the ONE tooltip builder, shared by the render path
+// (compactStamp) and the in-place volatile refresh (updateKanbanVolatile) so
+// the two cannot drift.
+function stampFull(d){
+  return 'updated ' + d.toLocaleString('da-DK', {dateStyle:'full', timeStyle:'long'}) + ' · UTC ' + d.toISOString();
+}
 function compactStamp(s){
   if (!s) return '';
   var d = new Date(s); if (isNaN(d.getTime())) return esc(s);
-  var full = 'updated ' + d.toLocaleString('da-DK', {dateStyle:'full', timeStyle:'long'}) + ' · UTC ' + d.toISOString();
-  return '<time datetime="' + esc(d.toISOString()) + '" title="' + esc(full) + '">' + esc(agoShort(msAgo(d.getTime()))) + '</time>';
+  return '<time datetime="' + esc(d.toISOString()) + '" title="' + esc(stampFull(d)) + '">' + esc(agoShort(msAgo(d.getTime()))) + '</time>';
 }
 function taskRow(t, parentId, depth){
   var owner = ownerName(t);
@@ -648,6 +658,27 @@ function kanbanFamilies(pool){
   }
   return {nested: nested, under: under};
 }
+// W998.3 — the kanban structural signature: card html with every volatile
+// age/stamp element reduced to its shell (attributes tolerated — W998 put a
+// tooltip on the kage span and a <time datetime title> inside kcardstamp).
+// The kage/kcardstamp/ktail SHELLS stay, so a card gaining or losing a stamp
+// or tail div still counts as structural; only per-second content churn is
+// excluded. Beyond the card markup, three per-poll observation instants ride
+// the page and would churn the signature every second: the summary's checked
+// suffix, the execution klane's observed tooltip and the spend strip's live
+// wall age (rate + cache % stay structural — they are real spend facts).
+// One function so tests eval the shipped bytes.
+function kanbanStructural(html){
+  return html
+    .replace(/<span class="kage dim"[^>]*>[^<]*<\/span>/g, '<span class="kage dim"></span>')
+    .replace(/<span class="kcardstamp dim">(<time[^>]*>[^<]*<\/time>|[^<]*)?<\/span>/g, '<span class="kcardstamp dim"></span>')
+    .replace(/<div class="ktail"[^>]*>[^<]*<\/div>/g, '<div class="ktail"></div>')
+    // per-poll observation instants: the summary's checked suffix, the
+    // execution klane's observed tooltip, the spend strip's live wall age
+    .replace(/(<p class="dim" title="Harness presence is not productive output">[^<]*) · checked [^<]*/g, '$1 · checked')
+    .replace(/· observed [^"<]*/g, '· observed')
+    .replace(/(<span class="kspendtxt"[^>]*>[^<]*? tok · )([^<·]+?)( · [^<]*)?<\/span>/g, '$1$3</span>');
+}
 function renderKanban(){
   if (curTab !== 'lanes') return;
   var el = byId('kanban');
@@ -698,7 +729,7 @@ function renderKanban(){
   // W104: the card html embeds per-second data (age ticks, live tails) — a
   // full sigSet at 1Hz destroys an open executor dropdown mid-pick. Rebuild
   // only when the STRUCTURE changed; refresh ages + tails in place otherwise.
-  var kstruct = html.replace(/<span class="kage dim">[^<]*<\/span>/g, '').replace(/<div class="ktail">[^<]*<\/div>/g, '');
+  var kstruct = kanbanStructural(html);
   var prevStructural = el.getAttribute('data-ksig') || '';
   if (prevStructural === kstruct) { updateKanbanVolatile(el, shownAll); paintSparks(el); return; }
   if (el.contains(document.activeElement) && document.activeElement.classList && (document.activeElement.classList.contains('kexecsel') || document.activeElement.classList.contains('keffortsel'))) return; // picking — defer the swap, next render applies it
@@ -718,11 +749,26 @@ function updateKanbanVolatile(el, shownAll){
     var t = shownAll[i], c = cards[i];
     if (c.getAttribute('data-kid') !== t.id) continue;
     var ageEl = c.querySelector('.kage');
-    if (ageEl) ageEl.textContent = agoShort(t.age_s);
+    if (ageEl) {
+      ageEl.textContent = agoShort(t.age_s);
+      ageEl.setAttribute('title', 'open ' + ago(t.age_s));
+    }
     var stampEl = c.querySelector('.kcardstamp time');
-    if (stampEl && t.updated_at_utc) stampEl.textContent = agoShort(msAgo(new Date(t.updated_at_utc).getTime()));
+    if (stampEl && t.updated_at_utc) {
+      var sd = new Date(t.updated_at_utc);
+      if (!isNaN(sd.getTime())) {
+        stampEl.setAttribute('datetime', sd.toISOString());
+        stampEl.setAttribute('title', stampFull(sd));
+        stampEl.textContent = agoShort(msAgo(sd.getTime()));
+      }
+    }
     var tailEl = c.querySelector('.ktail');
     if (tailEl) tailEl.textContent = (t.tail && t.tail.text) ? t.tail.text : '';
+    var spendEl = c.querySelector('.kspendtxt');
+    if (spendEl && t.spend) {
+      spendEl.textContent = spendStripInner(t.spend);
+      spendEl.setAttribute('title', 'Attributed totals for this work item');
+    }
     var sigEl = c.querySelector('.ksignal');
     if (sigEl) sigEl.textContent = t.signal ? '⚑ ' + t.signal.class + ' · ' + Math.round((t.signal.confidence || 0) * 100) + '%' : '';
   }
