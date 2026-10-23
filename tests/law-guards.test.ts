@@ -127,13 +127,10 @@ const NEAR_CAP_PINNED: Record<string, number> = {
 	"packages/decant/src/buckets.ts": 1489,
 	"packages/decant/src/query.ts": 1409,
 	"packages/decant/src/token-economics.ts": 1427,
-	"packages/suspenders/hooks/bin/work.ts": 1496,
 	"packages/suspenders/hooks/board/data.ts": 1483,
 	"packages/suspenders/hooks/board-html/usage-panels.ts": 1385,
 	"packages/suspenders/hooks/board/routes-actions.ts": 1337,
-	"packages/suspenders/hooks/lib/knowledge-ports.ts": 1333,
 	"packages/suspenders/scripts/dispatch-next.ts": 1501,
-	"packages/suspenders/test/work-completion-record.test.ts": 1396,
 };
 
 test("the 1200-line band stays pinned: shrink-only, no new entrants (W1238.6)", () => {

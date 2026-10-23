@@ -242,7 +242,9 @@ const STORE_OWNERS = [
 	"/lib/govdb-open.ts",
 	"/lib/govdb-store.ts",
 	"/bin/store-server.ts",
-	"/lib/knowledge-ports.ts",
+	// W1238.6.6 decomposition — the SqliteKnowledgeStore owner moved here
+	// from knowledge-ports.ts (which keeps only the distill/client layer).
+	"/lib/knowledge-store-sqlite.ts",
 ];
 const GRANDFATHERED = [
 	// W92.3's in-flight scope — these leave the list when that child lands.
