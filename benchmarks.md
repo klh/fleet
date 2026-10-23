@@ -867,3 +867,37 @@ review-quality improvement was established. W1170 corrects that claim and
 removes raw argument/path logging from skill instrumentation; the focused
 documentation/privacy suite passed 14 tests and 68 assertions. These are
 contract and privacy results, not a model-performance benchmark.
+# W1124.24 — isolated admission pressure diagnosis
+
+`packages/buckle/test/provider-pressure-diagnosis.test.ts` compares the same
+PQueue controller with unclassified 429 pacing versus explicit account-code
+classification into rate and occupancy pressure. Forty callers each complete
+two turns against three synthetic provider shapes; service is 8/20/50 ms with
+deterministic jitter, and refusals take 7–19% of service time. This is a scaled
+controller experiment, **not a provider-capacity or agent-productivity test**.
+
+One local run at 50 ms service: occupancy baseline/candidate elapsed 2177/1399
+ms, p95 queue 1062/607 ms, refusals 27/14; mixed pressure 2210/1423 ms,
+1069/607 ms, refusals 37/19. Both completed 80 turns. Timing is scheduler
+sensitive: retain refusal counts and negative arms, not just elapsed time.
+Unknown-code rate pressure follows the existing rate controller. No live
+provider limits, lane count, start ceiling or runtime policy was changed.
+# W1124.24.1 — two-hop occupancy refusal contract
+
+`packages/buckle/test/provider-pressure-health-http.test.ts` runs two actual
+Buckle HTTP servers and an isolated provider. Six delayed capacity refusals
+precede an available provider; its inventory endpoint remains unavailable.
+Without explicit remote classification, request seven returns a synthetic
+429 after the three-second inventory timeout and applies a 27-second account
+embargo. With classification, request seven reaches the provider and returns
+semantic `recovered` output. The final two tests passed 31 assertions in
+3.29 seconds. This is protocol regression evidence, not measured live capacity.
+# W1124.28 — installed LiteLLM cancellation contract
+
+`packages/belt/test/litellm-cancellation.test.ts` drives actual Buckle HTTP,
+the installed LiteLLM proxy and an isolated cancellable provider. Six arms
+compare disconnect monitoring off/on for nonstream pre-header, stream
+pre-header and midstream aborts. With monitoring enabled, every arm observes
+the provider's real HTTP abort and zero active work within 150 ms; the two
+tests passed 46 assertions in 13.29 seconds. No external provider was called;
+this establishes transport propagation, not Z.ai server-side cancellation.

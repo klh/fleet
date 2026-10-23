@@ -126,6 +126,8 @@ export interface HubProfile {
 		zai_catalog_file?: string;
 		/** LiteLLM URL reachable from this hub. */
 		zai_litellm_url?: string;
+		/** Operator-declared pressure codes for generated catalog deployments. */
+		zai_concurrency_error_codes?: string[];
 		// W1123: no operator inherit escape — hubctl always stamps
 		// `inherit_defaults: false` into the rendered hub ladder (an opt-in
 		// would re-import the committed Mac local-swarm :890x onto a remote

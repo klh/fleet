@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { processBirth, type ProcessBirth } from "./launch-fencing.ts";
+import { compareProcessBirth } from "./process-birth.ts";
 
 /** Serialize reviewed gateway approval against competing supported writers.
  * The fence is the single lease authority for BOTH the receipt/unit publish
@@ -119,11 +120,14 @@ function assessHeld(
 	current: ProcessBirth | false | null,
 	now: () => number,
 ): void {
-	if (current === false || (current && current.birth !== held.birth)) {
+	const comparison = current
+		? compareProcessBirth(held.birth, current.birth)
+		: "unknown";
+	if (current === false || comparison === "different") {
 		staleBreak(path);
 		return;
 	}
-	if (!current)
+	if (!current || comparison === "unknown")
 		throw new Error(
 			"approval fence owner identity unknown; observation required",
 		);
@@ -245,9 +249,12 @@ export function assertFenceForLifecycle(
 	const inspect = options.inspect ?? processBirth;
 	const now = options.now ?? Date.now;
 	const current = inspect(held.pid);
-	if (current === false || (current && current.birth !== held.birth))
+	const comparison = current
+		? compareProcessBirth(held.birth, current.birth)
+		: "unknown";
+	if (current === false || comparison === "different")
 		throw new Error("gateway approval fence owner is dead; bootout refused");
-	if (!current)
+	if (!current || comparison === "unknown")
 		throw new Error(
 			"gateway approval fence owner identity unknown; bootout refused",
 		);

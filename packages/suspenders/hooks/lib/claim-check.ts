@@ -18,7 +18,7 @@
 //
 // Fail-open: an unreadable/absent transcript yields no transcript claims
 // (capsule text still counts), untimestamped events are dropped, and stat
-// failures skip a path. SUSPENDERS_CLAIM_CHECK=0 disables the probe.
+// failures skip a path. Completion callers cannot disable this evidence check.
 import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -480,7 +480,7 @@ const statMtime = (p: string): number | null => {
  *  final capsule claim must follow its evidence. Test-affecting files must
  *  remain unchanged after that run, and the closing
  *  diff free of suite erosion. Fails open on missing/unreadable evidence;
- *  SUSPENDERS_CLAIM_CHECK=0 disables. */
+ *  Completion evidence is mandatory, independent of the caller's environment. */
 export const claimCheckVerdict = (o: {
 	transcriptPath?: string;
 	transcriptText?: string;
@@ -492,15 +492,9 @@ export const claimCheckVerdict = (o: {
 	diffText: string;
 	statRoot?: string;
 	now?: number;
-	disabled?: boolean;
 	scanBytes?: number;
 	graceMs?: number;
 }): ClaimCheckVerdict => {
-	const disabled = o.disabled ?? process.env.SUSPENDERS_CLAIM_CHECK === "0";
-	if (disabled) return { ok: true };
-	// renamed from `escape` (W917): the bare name shadows the global and
-	// qlty/biome blocks the file under noShadowRestrictedNames
-	const escapeNote = "Escape hatch: SUSPENDERS_CLAIM_CHECK=0.";
 	const diffHits = scanClosingDiff(o.diffText);
 	if (diffHits.length)
 		return {
@@ -512,7 +506,7 @@ export const claimCheckVerdict = (o: {
 					.map((h) => `  ${h.path}:${h.line} [${h.kind}] ${h.text}`)
 					.join("\n") +
 				(diffHits.length > 10 ? `\n  … ${diffHits.length - 10} more` : "") +
-				`\n${escapeNote}`,
+				"\nRetain the claim and correct the attributed diff or evidence before completing.",
 		};
 	const text =
 		o.transcriptText ??
@@ -575,7 +569,7 @@ export const claimCheckVerdict = (o: {
 	if (miss)
 		return {
 			ok: false,
-			why: `claim-check (W833): test-pass claim not backed by evidence — ${miss.why}\n  claim: "${miss.claim.text.replace(/\s+/g, " ").trim().slice(0, 120)}"\n${escapeNote}`,
+			why: `claim-check (W833): test-pass claim not backed by evidence — ${miss.why}\n  claim: "${miss.claim.text.replace(/\s+/g, " ").trim().slice(0, 120)}"\nRetain the claim and supply the missing verification evidence.`,
 		};
 	return { ok: true };
 };
