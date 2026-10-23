@@ -27,17 +27,18 @@ interface FakeBeltState {
 	routeStatus?: number;
 }
 
-// a belt that answers /api/health + /api/route and counts every hit
+// a belt that answers /api/status (belt-side probe) + a gate that answers
+// /v1/chat/completions (the buckle openai wire) — counts every hit
 const beltFetcher =
 	(state: FakeBeltState) =>
 	async (url: string | URL | Request): Promise<Response> => {
 		state.calls += 1;
 		const u = String(url);
 		if (u.endsWith("/api/status")) return jsonRes({ ok: true });
-		if (u.endsWith("/api/route")) {
+		if (u.endsWith("/v1/chat/completions")) {
 			const body: Record<string, unknown> = {
-				reply: "ok",
-				target: { model: state.model ?? "glm-5.3-flash" },
+				choices: [{ message: { content: "ok" } }],
+				model: state.model ?? "glm-5.3-flash",
 			};
 			if (state.usage !== undefined) body.usage = state.usage;
 			return jsonRes(body, state.routeStatus ?? 200);
@@ -62,6 +63,10 @@ const mkDeps = (
 	},
 	table: DEFAULT_PRICES,
 	fetcher,
+	env: {
+		SUSPENDERS_BUCKLE_URL: "http://gate.test",
+		SUSPENDERS_BUCKLE_TOKEN: "bksk_soak_test",
+	},
 	now: () => clock.t,
 	sleep: async () => {},
 });
@@ -168,7 +173,10 @@ test("meter: caps trip as usd-cap and token-cap", () => {
 
 describe("runSoak", () => {
 	test("happy path: all iters run, usage meters, stop=completed", async () => {
-		const state = { calls: 0, usage: { input_tokens: 10, output_tokens: 5 } };
+		const state = {
+			calls: 0,
+			usage: { prompt_tokens: 10, completion_tokens: 5 },
+		};
 		const r = await runSoak(mkDeps(beltFetcher(state), { iters: 3 }));
 		expect(r.stop).toBe("completed");
 		expect(r.meter.calls).toBe(3);
@@ -201,7 +209,7 @@ describe("runSoak", () => {
 	});
 
 	test("token cap trips mid-run and stops scheduling", async () => {
-		const state = { calls: 0, usage: { output_tokens: 15 } };
+		const state = { calls: 0, usage: { completion_tokens: 15 } };
 		const r = await runSoak(
 			mkDeps(beltFetcher(state), { iters: 10, maxTokens: 25 }),
 		);
@@ -214,7 +222,7 @@ describe("runSoak", () => {
 	test("usd cap trips on priced spend", async () => {
 		const state = {
 			calls: 0,
-			usage: { input_tokens: 100_000, output_tokens: 100_000 },
+			usage: { prompt_tokens: 100_000, completion_tokens: 100_000 },
 		};
 		const table = [{ match: "glm", price: { in: 1, out: 1 } }];
 		const r = await runSoak({

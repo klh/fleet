@@ -10,9 +10,14 @@ import {
 	drillFallback,
 	drillFloor,
 	drillRoutes,
-	resolveMasterKey,
 	zaiDark,
 } from "../hooks/bin/fallback-drill.ts";
+
+/** The stub buckle gate pair every governed drill leg resolves through. */
+const GATE_ENV = {
+	SUSPENDERS_BUCKLE_URL: "http://gate.test",
+	SUSPENDERS_BUCKLE_TOKEN: "bksk_drill_test",
+};
 
 const OK_BODY = {
 	model: "glm-5.3-flash",
@@ -64,7 +69,7 @@ describe("zaiDark (W219.2)", () => {
 describe("drillFallback (W219.2)", () => {
 	test("z.ai dark + gateway 200 = pass, local rung answered", async () => {
 		const r = await drillFallback({
-			key: "k",
+			env: GATE_ENV,
 			fetchImpl: stubFetch({
 				zai: { throw: new Error("tls") },
 				gw: { status: 200 },
@@ -79,7 +84,7 @@ describe("drillFallback (W219.2)", () => {
 
 	test("z.ai dark + gateway error = the 2026-10-06 incident, fail", async () => {
 		const r = await drillFallback({
-			key: "k",
+			env: GATE_ENV,
 			fetchImpl: stubFetch({
 				zai: { throw: new Error("tls") },
 				gw: { status: 500 },
@@ -93,7 +98,7 @@ describe("drillFallback (W219.2)", () => {
 
 	test("z.ai reachable + gateway 200 = pass (drill doubles as serve proof)", async () => {
 		const r = await drillFallback({
-			key: "k",
+			env: GATE_ENV,
 			fetchImpl: stubFetch({ zai: { status: 401 }, gw: { status: 200 } }),
 			readConfig: () => WITH_LADDERS,
 		});
@@ -102,9 +107,9 @@ describe("drillFallback (W219.2)", () => {
 		expect(r.laddersPresent).toBe(true);
 	});
 
-	test("gateway unreachable = fail with the throw surfaced", async () => {
+	test("gate throw = fail with the reason surfaced", async () => {
 		const r = await drillFallback({
-			key: "k",
+			env: GATE_ENV,
 			fetchImpl: stubFetch({
 				zai: { status: 200 },
 				gw: { status: 200, throw: new Error("refused") },
@@ -112,28 +117,17 @@ describe("drillFallback (W219.2)", () => {
 			readConfig: () => WITH_LADDERS,
 		});
 		expect(r.verdict).toBe("fail");
-		expect(r.why).toContain("gateway unreachable");
+		expect(r.why).toContain("gate failed");
+		expect(r.why).toContain("refused");
 	});
 
-	test("no key anywhere = skipped, never a fake pass/fail", async () => {
+	test("no buckle route = FAIL (the ungoverned skip posture retired)", async () => {
 		const r = await drillFallback({
-			key: null,
+			env: { SUSPENDERS_BUCKLE_URL: "http://gate.test" }, // no token
 			fetchImpl: stubFetch({ gw: { status: 200 } }),
 		});
-		expect(r.verdict).toBe("skipped");
-	});
-});
-
-describe("resolveMasterKey (W219.2)", () => {
-	test("env wins over the file; neither = null", () => {
-		const readThrows = () => {
-			throw new Error("nope");
-		};
-		expect(resolveMasterKey({ LITELLM_KEY: "  env-key " }, readThrows)).toBe(
-			"env-key",
-		);
-		expect(resolveMasterKey({}, readThrows)).toBeNull();
-		expect(resolveMasterKey({}, () => "file-key\n")).toBe("file-key");
+		expect(r.verdict).toBe("fail");
+		expect(r.why).toContain("buckle route missing");
 	});
 });
 
@@ -173,7 +167,7 @@ describe("checkFallbacksPresent (W878)", () => {
 describe("drillFallback ladder assertion (W878)", () => {
 	test("z.ai up + gw 200 but no ladders in config = fail (F2 gap closed)", async () => {
 		const r = await drillFallback({
-			key: "k",
+			env: GATE_ENV,
 			fetchImpl: stubFetch({ zai: { status: 401 }, gw: { status: 200 } }),
 			readConfig: () => "router_settings:\n  num_retries: 1\n",
 		});
@@ -185,7 +179,7 @@ describe("drillFallback ladder assertion (W878)", () => {
 
 	test("gateway config unreadable = fail even while the gateway answers", async () => {
 		const r = await drillFallback({
-			key: "k",
+			env: GATE_ENV,
 			fetchImpl: stubFetch({ zai: { status: 401 }, gw: { status: 200 } }),
 			readConfig: () => {
 				throw new Error("EACCES");
@@ -195,15 +189,16 @@ describe("drillFallback ladder assertion (W878)", () => {
 		expect(r.why).toContain("unreadable");
 	});
 
-	test("skipped (no key) never reads the config", async () => {
+	test("missing buckle route fails BEFORE the config is read", async () => {
 		const r = await drillFallback({
-			key: null,
+			env: { SUSPENDERS_BUCKLE_URL: "http://gate.test" }, // no token
 			fetchImpl: stubFetch({ gw: { status: 200 } }),
 			readConfig: () => {
 				throw new Error("must not be called");
 			},
 		});
-		expect(r.verdict).toBe("skipped");
+		expect(r.verdict).toBe("fail");
+		expect(r.why).toContain("buckle route missing");
 	});
 });
 
