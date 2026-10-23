@@ -183,4 +183,30 @@ describe("executePlan --with-launchd mutation preflight", () => {
 		expect(result.rows[0]?.note).toContain("linked git worktree");
 		assertUntouched(f, before);
 	});
+
+	test("dry-run previews the same refusal with zero side effects", async () => {
+		const f = buildFixture("worktree");
+		const before = seededBytes(f);
+		const result = await executePlan(
+			"plan",
+			null,
+			planCtx(f, { dryRun: true, yes: true }),
+			() => {},
+		);
+		expect(result.outcome).toBe("failed");
+		expect(result.rows.map((row) => row.name)).toEqual(["registerLaunchd"]);
+		assertUntouched(f, before);
+	});
+
+	test("valid pinned plan still runs its normal steps", async () => {
+		const f = buildFixture("pinned");
+		const before = seededBytes(f);
+		const result = await executePlan("plan", null, planCtx(f), () => {});
+		// no consent → every mutating step pauses, none fails: the preflight
+		// is transparent for a valid plan
+		expect(result.outcome).toBe("need_user_action");
+		expect(result.rows.some((row) => row.status === "failed")).toBe(false);
+		expect(result.pauses.length).toBeGreaterThan(0);
+		assertUntouched(f, before);
+	});
 });
