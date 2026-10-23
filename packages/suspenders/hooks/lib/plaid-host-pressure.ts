@@ -350,14 +350,18 @@ export const plaidLaunchHold = (
 	policy: HostPressurePolicy = launchPressurePolicy(),
 	guardPath: string = beltEnvGuardPath(),
 ): string | null => {
-	// Owner override (2026-10-23 max-capacity order): SUSPENDERS_PLAID_PRESSURE_HOLD=0
-	// disables the host-pressure hold for this dispatch; the hardware truth is
-	// the operators own spend decision. Any other value keeps the gate armed.
-	if (process.env.SUSPENDERS_PLAID_PRESSURE_HOLD === "0") return null;
+	// Owner override (2026-10-23, bounded per independent review REQUEST CHANGES):
+	// SUSPENDERS_PLAID_PRESSURE_HOLD=0 disables ONLY the swapout-delta leg (the
+	// stale-scar throttle); the wired-guard evidence check, the free% floor and the
+	// wired ceiling stay fail-closed. Any other value keeps the full gate armed.
+	const gatedPolicy =
+		process.env.SUSPENDERS_PLAID_PRESSURE_HOLD === "0"
+			? { ...policy, maxSwapoutDelta: null }
+			: policy;
 	// the wired policy must be evidence-backed: an unresolvable guard is a
 	// distinct fail-closed hold, not a silent skip of the wired check
 	if (launchWiredCeilingBytes(guardPath) === null)
 		return "plaid host pressure: belt.env BELT_WIRED_GUARD_GB missing/invalid — wired ceiling unresolvable — hold";
-	const d = hostPressureGate(fleetDir, sample, policy);
+	const d = hostPressureGate(fleetDir, sample, gatedPolicy);
 	return d.open ? null : (d.reason ?? "plaid host pressure: hold");
 };
