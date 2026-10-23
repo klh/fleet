@@ -38,6 +38,7 @@ import {
 } from "../../hooks/lib/lane-liveness.ts";
 import { processBirth, launchIntent } from "./launch-fencing.ts";
 import { adminKey, BUCKLE_FRONT } from "./lane-auth.ts";
+import { verifyRestartDrain } from "./claude-restart-drain.ts";
 import { adapterForExact } from "../../hooks/lib/executors/registry.ts";
 import { materializeRestartSettings } from "./claude-restart-settings.ts";
 import { readLaneContextFile } from "../../hooks/lib/lane-context.ts";
@@ -160,33 +161,6 @@ export function children(pid: number): number[] {
 		.split(/\s+/)
 		.filter(Boolean)
 		.map(Number);
-}
-export async function verifyRestartDrain(
-	front: string,
-	sid: string,
-	headers: Record<string, string>,
-): Promise<void> {
-	const query = new URLSearchParams({
-		limit: "500",
-		inference: "true",
-		lane: sid,
-	});
-	const response = await fetch(`${front}/v1/admin/requests?${query}`, {
-		headers,
-		signal: AbortSignal.timeout(5000),
-	});
-	const body = (await response.json()) as {
-		requests?: Array<{ lane?: string; status?: number | null }>;
-	};
-	if (
-		!response.ok ||
-		!Array.isArray(body.requests) ||
-		body.requests.length >= 500 ||
-		body.requests.some((row) => row.lane !== sid)
-	)
-		throw new Error("Restart scoped inference coverage is unknown");
-	if (body.requests.some((row) => row.status == null))
-		throw new Error("Restart lane inference has not drained");
 }
 async function verifyRoute(sid: string, settings: string): Promise<void> {
 	const config = privateJson<{ env?: Record<string, string> }>(settings);
