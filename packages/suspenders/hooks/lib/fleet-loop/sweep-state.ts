@@ -21,12 +21,7 @@
 //             task, says why, and ops clears it by deleting the marker.
 // Reader-owned conf is NOT stored here — config is re-read fresh every run
 // from its own surface (env / notify.yaml / knowledge-sync.json).
-import {
-	mkdirSync,
-	readFileSync,
-	renameSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -41,8 +36,7 @@ export type SweepCursor = SweepCursorOk | { state: "maybe-ran"; runId: string };
  *  default ~/.claude-insights/maintenance. */
 export function sweepStateDir(): string {
 	const override = process.env.SUSPENDERS_MAINTENANCE_STATE;
-	if (override !== undefined && override.trim() !== "")
-		return override.trim();
+	if (override !== undefined && override.trim() !== "") return override.trim();
 	return join(homedir(), ".claude-insights", "maintenance");
 }
 
@@ -74,7 +68,10 @@ function readJson<T>(path: string): T | null {
 }
 
 /** The last CONFIRMED cursor position; fallback when absent/unclear. */
-export function confirmedMs(cursor: SweepCursor | null, fallbackMs: number): number {
+export function confirmedMs(
+	cursor: SweepCursor | null,
+	fallbackMs: number,
+): number {
 	return cursor?.state === "ok" &&
 		Number.isFinite(cursor.lastMs) &&
 		cursor.lastMs > 0
@@ -98,7 +95,11 @@ export function markMaybeRan(path: string, runId: string): boolean {
 }
 
 /** Advance ONLY on confirmed success (output written and verified). */
-export function confirmCursor(path: string, lastMs: number, runId: string): boolean {
+export function confirmCursor(
+	path: string,
+	lastMs: number,
+	runId: string,
+): boolean {
 	return writeJsonAtomic(path, { state: "ok", lastMs, runId });
 }
 
@@ -117,11 +118,9 @@ export function appendSweepNotice(
 		mkdirSync(dir, { recursive: true, mode: 0o700 });
 		const prior = readSweepNotices(dir, Number.MAX_SAFE_INTEGER);
 		const next = [...prior, entry].slice(-NOTICE_KEEP);
-		writeFileSync(
-			join(dir, "notices.jsonl"),
-			`${next.join("\n")}\n`,
-			{ mode: 0o600 },
-		);
+		writeFileSync(join(dir, "notices.jsonl"), `${next.join("\n")}\n`, {
+			mode: 0o600,
+		});
 	} catch {}
 	return entry;
 }
@@ -151,7 +150,10 @@ export interface SweepPause {
 	at: number;
 }
 
-export function readPause(name: string, dir = sweepStateDir()): SweepPause | null {
+export function readPause(
+	name: string,
+	dir = sweepStateDir(),
+): SweepPause | null {
 	const p = readJson<SweepPause>(pausePath(name, dir));
 	if (p === null) return null;
 	return typeof p.reason === "string" && typeof p.at === "number" ? p : null;

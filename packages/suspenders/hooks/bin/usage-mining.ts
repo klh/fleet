@@ -35,7 +35,8 @@ const MIN_REQUESTS = 20;
 const TOP_N = 5;
 const FACT_KEY = "finding.usage-mining";
 const FALLBACK_WINDOW_MS = 7 * 86_400_000;
-const cursorPath = (): string => join(sweepStateDir(), "usage-mining-cursor.json");
+const cursorPath = (): string =>
+	join(sweepStateDir(), "usage-mining-cursor.json");
 
 // W669.12.3: the --no-emit switch parses through verb-kit (W651).
 const mining = defineVerb({
@@ -146,7 +147,10 @@ async function main(): Promise<void> {
 		// record-only-after-confirmation: the cursor advances ONLY here
 		confirmCursor(cPath, now, runId);
 	} else {
-		appendSweepNotice("usage-mining", "fail(artifact-write) — cursor NOT advanced");
+		appendSweepNotice(
+			"usage-mining",
+			"fail(artifact-write) — cursor NOT advanced",
+		);
 	}
 	const digest = line(artifact);
 	console.log(digest);
