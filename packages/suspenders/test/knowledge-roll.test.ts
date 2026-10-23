@@ -6,7 +6,7 @@
 // machine-side collection pass. Aggregate cores are db-injected — in-memory
 // Database, no board/db fixtures.
 import { Database } from "bun:sqlite";
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,6 +21,13 @@ import {
 	rollKeyOk,
 } from "../hooks/lib/knowledge-roll.ts";
 import { readSyncConfig } from "../hooks/lib/knowledge-sync-policy.ts";
+import {
+	postRoll,
+	readSyncState,
+	syncOnce,
+	type SyncTarget,
+} from "../hooks/lib/knowledge-sync.ts";
+import { unusedPort } from "./helpers/board-fixture.ts";
 
 // ─── claim identity ────────────────────────────────────────────────────────
 
@@ -292,3 +299,299 @@ test("policy: rollUrl + rollKeyFile together parse; rollUrl origin-normalized", 
 	expect(cfg?.targets[0]?.rollKeyFile).toBe("/home/me/.config/klh/roll-key");
 	rmSync(dir, { recursive: true, force: true });
 });
+
+// ─── W1213.2.1: the ACTUAL knowledge roll endpoint, real HTTP ───────────────
+// The spawned bin is the real knowledge-api (isolated HOME + keys file); the
+// roll client rides it exactly as the sync rides the hub. A loopback
+// receiver fixture covers ack bodies the real endpoint cannot produce
+// (malformed) at the syncOnce cursor seam. ──────────────────────────────────
+
+const ROLL_HOME = mkdtempSync(join(tmpdir(), "w121321-roll-home-"));
+const ROLL_KEYS_FILE = join(ROLL_HOME, "roll-keys.json");
+const ROLL_API_TS = join(
+	import.meta.dir,
+	"..",
+	"hooks",
+	"bin",
+	"knowledge-api.ts",
+);
+const ROLL_PORT = unusedPort();
+const ROLL_BASE = `http://127.0.0.1:${ROLL_PORT}`;
+const ROLL_ENV = {
+	...process.env,
+	HOME: ROLL_HOME,
+	SUSPENDERS_ROLL_KEYS_FILE: ROLL_KEYS_FILE,
+};
+
+const mintedProc = Bun.spawnSync(
+	["bun", ROLL_API_TS, "--mint-roll-key", "w121321-test-machine"],
+	{ env: ROLL_ENV, stdout: "pipe", stderr: "pipe" },
+);
+const ROLL_KEY = (JSON.parse(mintedProc.stdout.toString()) as { key: string })
+	.key;
+writeFileSync(join(ROLL_HOME, "roll-key.secret"), ROLL_KEY, { mode: 0o600 });
+
+const rollApiProc = Bun.spawn(["bun", ROLL_API_TS], {
+	env: { ...ROLL_ENV, KNOWLEDGE_API_PORT: String(ROLL_PORT) },
+	cwd: ROLL_HOME,
+	stdout: "pipe",
+	stderr: "pipe",
+});
+
+const rollKeyTarget = (): SyncTarget => ({
+	url: ROLL_BASE,
+	writeTokenFile: join(ROLL_HOME, "hub.token"),
+	rollUrl: ROLL_BASE,
+	rollKeyFile: join(ROLL_HOME, "roll-key.secret"),
+});
+
+afterAll(() => {
+	rollApiProc.kill();
+	rmSync(ROLL_HOME, { recursive: true, force: true });
+});
+
+/** Wait for the spawned endpoint to answer /health. */
+const rollUp = async (): Promise<boolean> => {
+	for (let i = 0; i < 60; i++) {
+		if (
+			await fetch(`${ROLL_BASE}/health`)
+				.then((r) => r.ok)
+				.catch(() => false)
+		)
+			return true;
+		await Bun.sleep(150);
+	}
+	return false;
+};
+
+/** The claims db one sync pass collects from: two claim.* facts — a
+ *  plain-text row and a JSON-shaped row with explicit confidence. */
+const claimsDb = (dir: string): string => {
+	const dbPath = join(dir, "governor.db");
+	const db = new Database(dbPath);
+	db.run(
+		"CREATE TABLE facts (key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER NOT NULL, ts INTEGER NOT NULL, confidence REAL)",
+	);
+	db.run(
+		"INSERT INTO facts (key, value, source, version, ts, confidence) VALUES ('claim.w121321-a', 'positive acks land the claim roll', 'lane', 1, 11, 0.8)",
+	);
+	db.run(
+		"INSERT INTO facts (key, value, source, version, ts, confidence) VALUES ('claim.w121321-b', '{\"claim\":\"json-shaped claim rides too\",\"confidence\":0.9}', 'lane', 2, 22, 0.9)",
+	);
+	db.close();
+	return dbPath;
+};
+
+/** The loopback roll receiver: records each landed roll and answers with
+ *  the ack body the test set — covers bodies the real endpoint cannot
+ *  produce (malformed, counter overshoot). */
+const rollReceiver = (): {
+	received: number[];
+	setAck: (body: (sent: number) => string) => void;
+	stop: () => void;
+	url: string;
+} => {
+	const received: number[] = [];
+	let ackBody: (sent: number) => string = (s) =>
+		JSON.stringify({
+			ok: true,
+			counts: { merged: s, versions: 0, tombstoned: 0, stale: 0, dupes: 0 },
+		});
+	const server = Bun.serve({
+		port: 0,
+		fetch: async (req) => {
+			const p = (await req.json()) as { claims: unknown[] };
+			received.push(p.claims.length);
+			return new Response(ackBody(p.claims.length), {
+				headers: { "content-type": "application/json" },
+			});
+		},
+	});
+	return {
+		received,
+		setAck: (body) => {
+			ackBody = body;
+		},
+		stop: () => server.stop(true),
+		url: `http://127.0.0.1:${server.port}`,
+	};
+};
+
+/** The sync fixture: temp dir + roll key file + 0600 config (claims-only
+ *  policy, roll target = the receiver) + claims db. */
+const rollSyncHarness = (rx: ReturnType<typeof rollReceiver>) => {
+	const dir = mkdtempSync(join(tmpdir(), "w121321-sync-"));
+	const keyPath = join(dir, "roll-key.secret");
+	writeFileSync(keyPath, "klhroll_fixture", { mode: 0o600 });
+	const cfgPath = join(dir, "knowledge-sync.json");
+	const target = {
+		url: rx.url,
+		writeTokenFile: join(dir, "hub.token"),
+		rollUrl: rx.url,
+		rollKeyFile: keyPath,
+	};
+	const policy = {
+		facts: false,
+		metrics: false,
+		metricsSessions: false,
+		claims: true,
+	};
+	writeFileSync(
+		cfgPath,
+		JSON.stringify({
+			localHub: "w121321-devbox",
+			targets: [target],
+			policy,
+			decantBin: "decant",
+		}),
+		{ mode: 0o600 },
+	);
+	return {
+		received: rx.received,
+		setAck: rx.setAck,
+		cfgPath,
+		statePath: join(dir, "state.json"),
+		dbPath: claimsDb(dir),
+		close: () => {
+			rx.stop();
+			rmSync(dir, { recursive: true, force: true });
+		},
+	};
+};
+
+/** A valid roll ack for `sent` claims, stringified. */
+const rollAck = (sent: number): string =>
+	JSON.stringify({
+		ok: true,
+		counts: { merged: sent, versions: 0, tombstoned: 0, stale: 0, dupes: 0 },
+	});
+
+test("postRoll vs the actual endpoint: validated positive ack lands the roll", async () => {
+	expect(await rollUp()).toBe(true);
+	const outcome = await postRoll(rollKeyTarget(), [
+		{
+			evidenceId: "ev-pos-1",
+			claim: "positive acks land",
+			confidence: 0.7,
+			ts: 1,
+		},
+		{
+			evidenceId: "ev-pos-2",
+			claim: "counts validate",
+			confidence: 0.6,
+			ts: 2,
+		},
+	]);
+	expect(outcome.ok).toBe(true);
+	expect(outcome.error).toBeNull();
+	const view = (await (await fetch(`${ROLL_BASE}/roll`)).json()) as {
+		claims: { evidenceId: string }[];
+	};
+	expect(view.claims.map((c) => c.evidenceId)).toContain("ev-pos-1");
+	expect(view.claims.map((c) => c.evidenceId)).toContain("ev-pos-2");
+});
+
+test("postRoll vs the actual endpoint: HTTP 200 {ok:false} is a non-ack", async () => {
+	const outcome = await postRoll(rollKeyTarget(), [
+		{ evidenceId: "ev-bad", claim: "invalid confidence", confidence: 2, ts: 3 },
+	]);
+	// the exact FAIL61405 seam: the hub's 200 rejection names itself in the
+	// client outcome — it is never read as acceptance (cursor never stamps)
+	expect(outcome.ok).toBe(false);
+	expect(outcome.error).toContain("invalid claim entry");
+});
+
+test("syncOnce vs the actual endpoint: positive ack advances the claims cursor", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "w121321-real-"));
+	const keyPath = join(dir, "roll-key.secret");
+	writeFileSync(keyPath, ROLL_KEY, { mode: 0o600 });
+	const statePath = join(dir, "state.json");
+	const policy = {
+		facts: false,
+		metrics: false,
+		metricsSessions: false,
+		claims: true,
+	};
+	const target = {
+		url: ROLL_BASE,
+		writeTokenFile: join(dir, "hub.token"),
+		rollUrl: ROLL_BASE,
+		rollKeyFile: keyPath,
+	};
+	writeFileSync(
+		join(dir, "knowledge-sync.json"),
+		JSON.stringify({
+			localHub: "w121321-devbox",
+			targets: [target],
+			policy,
+			decantBin: "decant",
+		}),
+		{ mode: 0o600 },
+	);
+	await syncOnce({
+		configPath: join(dir, "knowledge-sync.json"),
+		statePath,
+		dbPath: claimsDb(dir),
+	});
+	const st = readSyncState(statePath);
+	expect(Object.keys(st.claims).sort()).toEqual([
+		"claim.w121321-a",
+		"claim.w121321-b",
+	]);
+	const view = (await (await fetch(`${ROLL_BASE}/roll`)).json()) as {
+		claims: { evidenceId: string }[];
+	};
+	const ids = view.claims.map((c) => c.evidenceId);
+	expect(ids).toContain("w121321-a");
+	expect(ids).toContain("w121321-b");
+	rmSync(dir, { recursive: true, force: true });
+});
+
+test("syncOnce: non-positive, malformed, and overshooting 200 roll acks retain the cursor; the retry re-sends the same batch", async () => {
+	const h = rollSyncHarness(rollReceiver());
+	// every non-ack shape the client seam must refuse: an explicit hub
+	// rejection, an unparseable body, and counters exceeding the batch
+	h.setAck(() => JSON.stringify({ ok: false, error: "claims must be a list" }));
+	const r1 = await syncOnce({
+		configPath: h.cfgPath,
+		statePath: h.statePath,
+		dbPath: h.dbPath,
+	});
+	expect(r1.outcomes).toHaveLength(1); // ingest face 404s on the roll-only receiver
+	expect(readSyncState(h.statePath).claims).toEqual({});
+	h.setAck(() => "not-json{{");
+	await syncOnce({
+		configPath: h.cfgPath,
+		statePath: h.statePath,
+		dbPath: h.dbPath,
+	});
+	expect(readSyncState(h.statePath).claims).toEqual({});
+	h.setAck(() =>
+		JSON.stringify({
+			ok: true,
+			counts: { merged: 9, versions: 0, tombstoned: 0, stale: 0, dupes: 0 },
+		}),
+	);
+	await syncOnce({
+		configPath: h.cfgPath,
+		statePath: h.statePath,
+		dbPath: h.dbPath,
+	});
+	expect(readSyncState(h.statePath).claims).toEqual({});
+	// flip to a matched positive ack: the SAME two claims re-send, then stamp
+	h.setAck((sent) => rollAck(sent));
+	await syncOnce({
+		configPath: h.cfgPath,
+		statePath: h.statePath,
+		dbPath: h.dbPath,
+	});
+	const st = readSyncState(h.statePath);
+	expect(Object.keys(st.claims).sort()).toEqual([
+		"claim.w121321-a",
+		"claim.w121321-b",
+	]);
+	// four passes, each carrying the identical two-claim batch — the hub-side
+	// idempotency makes the retries dupe-safe
+	expect(h.received).toEqual([2, 2, 2, 2]);
+	h.close();
+}, 30_000);
