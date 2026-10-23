@@ -37,7 +37,11 @@ depends on fleet; local-only until its GitHub push — W422.9/W422.1).
   formatting; prettier owns markdown only.
 - **1500-line hard limit** on any .ts — decompose, DRY the second
   duplicate, ast-grep for shareable patterns before adding near the limit.
-  The on-write gate blocks past 1500; CI gates every commit
+  **1200-line stop rule (W1238.6)**: 1200 is the stop-and-decompose point —
+  at 1200 lines, stop adding and decompose by responsibility; the existing
+  band is grandfathered pinned in tests/law-guards.test.ts (files may
+  shrink, never grow; no new file may join the band). The on-write gate
+  warns at 1200 and blocks past 1500; CI gates every commit
   (tests/law-guards.test.ts).
 - **Shell scripts are banned** — TypeScript on Bun is the automation
   surface (LaunchAgent→bun entry points, one-line aliases only). The
