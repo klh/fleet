@@ -1,10 +1,26 @@
 // hooks/lib/decant-daily.ts — W1212: the daily decant→facts distiller.
+// W1212.1: evidence is project-scoped and machine-stamped, collection rides
+// the canonical store port (never a raw DB file), and the collection cursor
+// is bounded — it advances only to the LAST PROCESSED claim's position, so
+// a capped pass resumes instead of stranding unprocessed claims.
 //
-// One pass: machine-local evidence (THIS machine's work graph rows + THIS
-// machine's decant archive) → mechanical claims → content-addressed coord
-// facts. The runner reads local stores only and never touches the network,
-// so it is credential-free by construction and hub-executable (W1211).
-// Machines never overlap: each store is machine-local — the first dedup.
+// One pass: THIS project's work-graph rows + THIS machine's decant archive
+// → mechanical claims → content-addressed coord facts. Work rows come off
+// the canonical GovernorStore port (GOVERNOR_STORE_URL → store.url →
+// in-process), scoped WHERE project = ?; the decant archive stays a local
+// headless ls. Credential-free by construction, hub-executable (W1211).
+//
+// Evidence identity includes project + origin (FAIL61346: work ids collide
+// across projects — work_items is keyed (project, id), so a bare
+// `work:<id>` evidence id made two projects' identical ids CAS-dedupe each
+// other's REAL evidence away):
+//   work:<projectKey>:<host>:<id>   session:<host>:<sessionId>
+//
+// The cursor (W1212.1) stores ONLY last-processed stream positions, per
+// stream, in tuple order (row ts, row id); the next feed resumes strictly
+// after it. A pass capped by --limit advances the cursor to the cut, never
+// past unprocessed rows — the limit-2-of-4 rerun proof: run → 2 land,
+// rerun → the remaining 2 land, nothing skipped forever.
 //
 // Degradation: a decant outage never blocks the work-store half — the pass
 // degrades (work claims land, session tombstones defer) and the cursor
@@ -28,8 +44,10 @@
 import { Database } from "bun:sqlite";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { join, resolve } from "node:path";
+import { projectIdentity, projectRootOf } from "./govdb-project.ts";
+import { openStore } from "./govdb-store.ts";
 import { REG } from "./govdb-util.ts";
 import { redactSecrets } from "./knowledge.ts";
 import {
@@ -67,13 +85,60 @@ export interface DailyClaim {
 	key: string;
 	evidenceId: string;
 	value: string;
+	/** stream position of the evidence row — the cursor advances only to
+	 *  the LAST PROCESSED claim's position, never past unprocessed rows. */
+	pos?: CursorPos;
+}
+
+// ─── evidence identity: project + origin provenance (W1212.1) ───────────────
+
+/** machine provenance of every claim this runner stamps (os hostname — the
+ *  same vocabulary the graph's `origin "<host>:<agent>"` stamps use). */
+export const evidenceHost = (): string => hostname();
+
+/** stable compound evidence id — project-scoped, host-stamped. Bare
+ *  `work:<id>` collided across projects (work_items is keyed (project, id));
+ *  the full project key in the id makes cross-project collision impossible. */
+export function workEvidenceId(
+	project: string,
+	host: string,
+	id: string,
+): string {
+	return `work:${project}:${host}:${id}`;
+}
+
+/** session ids are unique per machine, so host + opaque id is the stable
+ *  session evidence identity (sessions carry no project axis). */
+export function sessionEvidenceId(host: string, sessionId: string): string {
+	return `session:${host}:${sessionId}`;
+}
+
+/** readable repo tail for claim values — provenance at a glance; uniqueness
+ *  rides the FULL project key inside the evidence id, never this slug. */
+export function projectSlug(project: string): string {
+	return projectRootOf(project).split("/").filter(Boolean).pop() ?? project;
+}
+
+/** a stream position: (row ts, row id) — the total order the cursor
+ *  resumes by. ts = updated_at (work) or endedAt-ms (session). */
+export interface CursorPos {
+	ts: number;
+	id: string;
+}
+
+/** bounded collection cursor — ONLY last-processed positions, per stream.
+ *  The next feed resumes strictly after it; absent/null = initial window. */
+export interface DailyCursor {
+	work: CursorPos | null;
+	session: CursorPos | null;
 }
 
 // ─── evidence → claims (the distillation) ───────────────────────────────────
 
-/** DONE work rows in the window → claims. The title passes the mechanical
+/** THIS project's DONE work rows → claims. The title passes the mechanical
  *  redaction gate before it lands anywhere; the result sha rides the claim
- *  so the completion is verifiable from the fact alone. */
+ *  so the completion is verifiable from the fact alone. Rows arrive in
+ *  cursor order (updated_at, id) off the store port. */
 export function distillWorkClaims(
 	rows: {
 		id: string;
@@ -81,20 +146,26 @@ export function distillWorkClaims(
 		result_sha: string | null;
 		updated_at: number;
 	}[],
+	prov: { project: string; host: string },
 	windowStartMs: number,
 ): { claims: DailyClaim[]; skipped: string[] } {
 	const claims: DailyClaim[] = [];
 	const skipped: string[] = [];
 	for (const r of rows) {
 		if (r.updated_at < windowStartMs) continue;
-		const evidenceId = `work:${r.id}`;
+		const evidenceId = workEvidenceId(prov.project, prov.host, r.id);
 		const red = redactSecrets(r.title);
 		if (red.rejected || red.hits.length > 0) {
 			skipped.push(`${evidenceId}: secret pattern (${red.hits.join(", ")})`);
 			continue;
 		}
-		const value = `done work item ${r.id} "${r.title}" → sha ${r.result_sha ?? "none"}`;
-		claims.push({ key: claimKey(evidenceId, value), evidenceId, value });
+		const value = `done work item ${r.id} (${projectSlug(prov.project)}) "${r.title}" → sha ${r.result_sha ?? "none"}`;
+		claims.push({
+			key: claimKey(evidenceId, value),
+			evidenceId,
+			value,
+			pos: { ts: r.updated_at, id: r.id },
+		});
 	}
 	return { claims, skipped };
 }
@@ -105,6 +176,7 @@ export function distillWorkClaims(
  *  content deny is structural: the projector cannot emit content). */
 export function distillSessionClaims(
 	rows: SessionMetrics[],
+	prov: { host: string },
 	windowStartMs: number,
 ): { claims: DailyClaim[]; skipped: string[] } {
 	const claims: DailyClaim[] = [];
@@ -113,13 +185,18 @@ export function distillSessionClaims(
 		if (!s.sessionId || !s.endedAt) continue;
 		const endedMs = Date.parse(s.endedAt);
 		if (!Number.isFinite(endedMs) || endedMs < windowStartMs) continue;
-		const evidenceId = `session:${s.sessionId}`;
+		const evidenceId = sessionEvidenceId(prov.host, s.sessionId);
 		const dur =
 			s.durationMs === null ? "-" : `${Math.round(s.durationMs / 1000)}s`;
 		const value =
 			`session ${s.tool ?? "-"} ${s.model ?? "-"} ran ${dur}, ` +
 			`${s.messageCount ?? 0} msgs, ${s.inputTokens ?? 0}+${s.outputTokens ?? 0} tok`;
-		claims.push({ key: claimKey(evidenceId, value), evidenceId, value });
+		claims.push({
+			key: claimKey(evidenceId, value),
+			evidenceId,
+			value,
+			pos: { ts: endedMs, id: s.sessionId },
+		});
 	}
 	return { claims, skipped };
 }
@@ -315,7 +392,14 @@ export interface DailyRunOpts {
 	decantBin?: string;
 	cwd?: string;
 	coordBin?: string;
-	/** override the cursor window (ms back from now). */
+	/** collection store — the canonical GovernorStore port (defaults to
+	 *  openStore(): GOVERNOR_STORE_URL → store.url → in-process). */
+	store?: DailyStore | null;
+	/** project scope override (default projectIdentity(cwd)). */
+	project?: string;
+	/** machine provenance override (default os hostname). */
+	host?: string;
+	/** INITIAL lookback (ms back from now) before a cursor exists. */
 	windowMs?: number;
 	/** max fact children per run — bounds the fan-out. */
 	limit?: number;
@@ -331,6 +415,8 @@ export interface DailyRunResult {
 	deduped: string[];
 	reclaimed: string[];
 	tombstoned: string[];
+	/** CAS-refused stale writes (W1212.2) — dirty for the state stamp. */
+	stale: string[];
 	/** dry-run view: the decision (modes + keys) that would fire. */
 	planned: string[];
 	skipped: string[];
@@ -344,6 +430,10 @@ type ApplyOutcome = {
 	reclaimed: string[];
 	tombstoned: string[];
 	deduped: string[];
+	/** CAS-refused stale writes (W1212.2 seam) — a lost race, never an error;
+	 *  stale holds the state stamp. Seeded by this module, classified by the
+	 *  canonical version-CAS seam. */
+	stale: string[];
 	errors: string[];
 };
 
@@ -360,6 +450,7 @@ function applyFactWrites(
 		reclaimed: [],
 		tombstoned: [],
 		deduped: [],
+		stale: [],
 		errors: [],
 	};
 	for (const w of writes) {
@@ -397,16 +488,25 @@ export interface CollectedDaily {
 	/** the work-store leg answered — children may fire even when decant degraded. */
 	workOk: boolean;
 	errors: string[];
+	/** last-processed positions per stream — the ONLY thing the cursor may
+	 *  advance to. A limit cut lands here, never past unprocessed rows. */
+	cursor: DailyCursor;
 }
 
-/** the machine-local collect + distill half of a run. */
+/** the collect + distill half of a run: THIS project's work rows off the
+ *  canonical store port, THIS machine's decant archive, one bounded feed. */
 export function collectDaily(
-	windowStartMs: number,
+	prov: { project: string; host: string },
 	limit: number,
-	opts: { dbPath?: string | null; decantBin?: string; cwd?: string } = {},
+	opts: {
+		store: DailyStore | null;
+		cursor?: DailyCursor;
+		workStartMs: number;
+		sessStartMs: number;
+		decantBin?: string;
+		cwd?: string;
+	},
 ): CollectedDaily {
-	const dbPath =
-		opts.dbPath !== undefined ? opts.dbPath : `${REG()}/governor.db`;
 	const bin = opts.decantBin ?? DECANT_DEFAULT_BIN;
 	const cwd = opts.cwd ?? process.cwd();
 	const out: CollectedDaily = {
@@ -416,8 +516,15 @@ export function collectDaily(
 		presenceExact: true,
 		workOk: false,
 		errors: [],
+		cursor: {
+			work: opts.cursor?.work ?? null,
+			session: opts.cursor?.session ?? null,
+		},
 	};
-	const work = collectWorkRows(dbPath, windowStartMs);
+	const work = collectWorkRows(opts.store, prov, {
+		cursor: opts.cursor?.work ?? null,
+		windowStartMs: opts.workStartMs,
+	});
 	// the work leg is the fatal one: empty presence + dead store must never
 	// reach the tombstone half (that would retract everything inventoried)
 	out.workOk = work.error === null;
@@ -426,17 +533,41 @@ export function collectDaily(
 	if (sessions.error) out.errors.push(sessions.error);
 	// an errored listing is as inexact as a truncated one — tombstones defer
 	out.presenceExact = sessions.error === null && !sessions.truncated;
-	const workDistilled = distillWorkClaims(work.rows, windowStartMs);
-	const sessDistilled = distillSessionClaims(sessions.sessions, windowStartMs);
-	for (const e of work.doneIds) out.presentEvidence.add(`work:${e}`);
-	for (const id of sessions.presentIds)
-		out.presentEvidence.add(`session:${id}`);
-	out.skipped.push(...workDistilled.skipped, ...sessDistilled.skipped);
-	out.claims.push(...workDistilled.claims, ...sessDistilled.claims);
-	if (out.claims.length > limit) {
-		out.skipped.push(`+${out.claims.length - limit} beyond limit ${limit}`);
-		out.claims.length = limit;
+	const workDistilled = distillWorkClaims(work.rows, prov, opts.workStartMs);
+	const sessDistilled = distillSessionClaims(
+		sessions.sessions,
+		prov,
+		opts.sessStartMs,
+	);
+	for (const e of work.doneIds) {
+		out.presentEvidence.add(workEvidenceId(prov.project, prov.host, e));
 	}
+	for (const id of sessions.presentIds) {
+		out.presentEvidence.add(sessionEvidenceId(prov.host, id));
+	}
+	out.skipped.push(...workDistilled.skipped, ...sessDistilled.skipped);
+	// one bounded feed, work stream first: the limit cut falls where it
+	// falls, and the cursor records the LAST PROCESSED position per stream
+	// so the next fire resumes instead of stranding the unprocessed tail.
+	const nWork = Math.min(workDistilled.claims.length, limit);
+	const nSess = Math.min(
+		sessDistilled.claims.length,
+		Math.max(0, limit - nWork),
+	);
+	out.claims.push(
+		...workDistilled.claims.slice(0, nWork),
+		...sessDistilled.claims.slice(0, nSess),
+	);
+	const total = workDistilled.claims.length + sessDistilled.claims.length;
+	if (total > limit) {
+		out.skipped.push(
+			`+${total - limit} beyond limit ${limit} — cursor resumes next fire`,
+		);
+	}
+	const lastWork = workDistilled.claims[nWork - 1];
+	if (lastWork?.pos) out.cursor.work = lastWork.pos;
+	const lastSess = sessDistilled.claims[nSess - 1];
+	if (lastSess?.pos) out.cursor.session = lastSess.pos;
 	return out;
 }
 
@@ -502,6 +633,7 @@ function emptyResult(windowStartMs: number): DailyRunResult {
 		deduped: [],
 		reclaimed: [],
 		tombstoned: [],
+		stale: [],
 		planned: [],
 		skipped: [],
 		errors: [],
@@ -510,16 +642,13 @@ function emptyResult(windowStartMs: number): DailyRunResult {
 
 /** the write half: fire the fact children — never on dry-run or a dead work
  *  store; a decant outage DEGRADES the pass (work claims still land, session
- *  tombstones defer via the inexact presence flag). The cursor/inventory
- *  advance only on a clean pass: a degraded pass re-collects next fire, and
- *  CAS dedupe keeps the re-fires duplicate-free. */
+ *  tombstones defer via the inexact presence flag). Outcome classification
+ *  only — the clean/dirty STATE STAMP lives in runDaily (cursor + inventory
+ *  advance together, or nothing advances). */
 function applyDaily(
-	state: DailyState,
-	statePath: string,
 	decision: DecideResult,
 	r: DailyRunResult,
 	opts: DailyRunOpts,
-	nowMs: number,
 	workOk: boolean,
 ): void {
 	r.deduped = decision.deduped;
@@ -537,32 +666,38 @@ function applyDaily(
 	r.tombstoned = applied.tombstoned;
 	r.deduped = [...decision.deduped, ...applied.deduped];
 	r.errors.push(...applied.errors);
-	const clean = r.errors.length === 0;
-	writeState(statePath, {
-		lastRunMs: clean ? nowMs : state.lastRunMs,
-		inventory: clean ? decision.inventory : state.inventory,
-	});
+	r.stale.push(...applied.stale);
 }
 
-/** One daily pass: cursor → window → collect → decide → children → stamp.
- *  Cursor advances only on a clean pass (failure re-collects, CAS-idempotent). */
+/** One daily pass: state → windows → collect → decide → children → stamp.
+ *  The state stamp (lastRunMs + inventory + CURSOR) advances only on a
+ *  clean pass (errors 0 && stale 0): a dirty pass leaves the file alone —
+ *  the next fire re-collects, CAS-idempotent. */
 export function runDaily(opts: DailyRunOpts = {}): DailyRunResult {
 	const nowMs = (opts.now ?? Date.now)();
 	const statePath = opts.statePath ?? decantDailyStatePath();
 	const state = readState(statePath);
-	const windowStartMs =
-		opts.windowMs !== undefined
-			? nowMs - opts.windowMs
-			: state.lastRunMs > 0
-				? state.lastRunMs
-				: nowMs - 24 * 3600_000;
+	const initialStart = nowMs - (opts.windowMs ?? 24 * 3600_000);
+	const workStartMs = state.cursor?.work?.ts ?? initialStart;
+	const sessStartMs = state.cursor?.session?.ts ?? initialStart;
 	const limit = opts.limit ?? DAILY_LIMIT;
-	const r = emptyResult(windowStartMs);
-	const collected = collectDaily(windowStartMs, limit, {
-		dbPath: opts.dbPath,
-		decantBin: opts.decantBin,
-		cwd: opts.cwd,
-	});
+	const r = emptyResult(Math.min(workStartMs, sessStartMs));
+	const store = opts.store !== undefined ? opts.store : openStore();
+	const collected = collectDaily(
+		{
+			project: opts.project ?? projectIdentity(opts.cwd ?? process.cwd()),
+			host: opts.host ?? evidenceHost(),
+		},
+		limit,
+		{
+			store,
+			cursor: state.cursor,
+			workStartMs,
+			sessStartMs,
+			decantBin: opts.decantBin,
+			cwd: opts.cwd,
+		},
+	);
 	r.skipped.push(...collected.skipped);
 	r.errors.push(...collected.errors);
 	const decision = decide(
@@ -575,8 +710,17 @@ export function runDaily(opts: DailyRunOpts = {}): DailyRunResult {
 	);
 	for (const w of decision.writes) r.planned.push(`${w.mode}:${w.claim.key}`);
 	for (const t of decision.tombstones) r.planned.push(`tombstone:${t.key}`);
-	applyDaily(state, statePath, decision, r, opts, nowMs, collected.workOk);
-	r.ok = r.errors.length === 0;
+	applyDaily(decision, r, opts, collected.workOk);
+	r.ok = r.errors.length === 0 && r.stale.length === 0;
+	if (!opts.dryRun && r.ok) {
+		// clean-pass stamp: the cursor advances to the last-processed
+		// positions only — a capped cut resumes, nothing strands
+		writeState(statePath, {
+			lastRunMs: nowMs,
+			inventory: decision.inventory,
+			cursor: collected.cursor,
+		});
+	}
 	return r;
 }
 
@@ -587,12 +731,15 @@ export interface InventoryEntry {
 	ts: number;
 }
 
-/** 0600 cursor + inventory: lastRunMs windows the next collect; inventory
+/** 0600 cursor + inventory: the collection cursor carries ONLY the
+ *  last-processed stream positions (the next feed resumes after them);
+ *  lastRunMs is a write-only freshness stamp, never a window. Inventory
  *  maps every key this runner wrote to its evidenceId — the bounded,
  *  exact candidate set for the tombstone scan. */
 export interface DailyState {
 	lastRunMs: number;
 	inventory: Record<string, InventoryEntry>;
+	cursor?: DailyCursor;
 }
 
 export const decantDailyStatePath = (): string =>
@@ -617,13 +764,35 @@ export function readState(path: string): DailyState {
 				if (typeof e.evidenceId === "string" && typeof e.ts === "number")
 					inventory[k] = { evidenceId: e.evidenceId, ts: e.ts };
 			}
-		return {
+		const st: DailyState = {
 			lastRunMs: typeof s.lastRunMs === "number" ? s.lastRunMs : 0,
 			inventory,
 		};
+		const cursor = parseCursor(s.cursor);
+		if (cursor) st.cursor = cursor;
+		return st;
 	} catch {
 		return { lastRunMs: 0, inventory: {} };
 	}
+}
+
+/** tolerant cursor parse: keep the valid halves, drop the field entirely
+ *  when neither stream position survives (absent = initial window). */
+function parseCursor(v: unknown): DailyCursor | undefined {
+	if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+	const c = v as Record<string, unknown>;
+	const work = posOf(c.work);
+	const sess = posOf(c.session);
+	if (!work && !sess) return undefined;
+	return { work, session: sess };
+}
+
+function posOf(v: unknown): CursorPos | null {
+	if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+	const p = v as Record<string, unknown>;
+	return typeof p.ts === "number" && typeof p.id === "string"
+		? { ts: p.ts, id: p.id }
+		: null;
 }
 
 export function writeState(path: string, state: DailyState): void {
@@ -648,43 +817,55 @@ export interface WorkRow {
 
 export interface CollectedWork {
 	rows: WorkRow[];
-	/** every DONE id, window-less — the work-evidence presence oracle. */
+	/** every DONE id in THIS project, window-less — presence oracle. */
 	doneIds: Set<string>;
 	error: string | null;
 }
 
-/** THIS machine's DONE work rows: windowed for claims, full DONE set for
- *  presence. Readonly open, fail-soft (error note; sessions still distill). */
+/** structural slice of the canonical GovernorStore port this module reads
+ *  through — a bun:sqlite Database satisfies it, and so does the HTTP
+ *  binding, so collection rides GOVERNOR_STORE_URL / store.url unchanged
+ *  (W92: consumers bind to the store, never to a DB file path). */
+export interface DailyStore {
+	query(sql: string): {
+		all(...params: unknown[]): unknown[];
+	};
+}
+
+/** THIS project's DONE work rows through the CANONICAL store port: feed =
+ *  the cursor-resumable claim window in tuple order (updated_at, id),
+ *  presence = the full project DONE set. Fail-soft (error note; sessions
+ *  still distill); never opens a raw DB file. */
 export function collectWorkRows(
-	dbPath: string | null,
-	windowStartMs: number,
+	store: DailyStore | null,
+	prov: { project: string; host: string },
+	feed: { cursor: CursorPos | null; windowStartMs: number },
 ): CollectedWork {
 	const out: CollectedWork = { rows: [], doneIds: new Set(), error: null };
-	if (!dbPath) {
+	if (!store) {
 		out.error = "work store unavailable";
 		return out;
 	}
-	let db: Database | null = null;
 	try {
-		db = new Database(dbPath, { readonly: true, create: false });
-	} catch {
-		out.error = "work store not readable";
-		return out;
-	}
-	try {
-		out.rows = db
-			.query(
-				"SELECT id, title, result_sha, updated_at FROM work_items WHERE state = 'DONE' AND updated_at >= ? ORDER BY updated_at",
-			)
-			.all(windowStartMs) as WorkRow[];
-		const ids = db
-			.query("SELECT id FROM work_items WHERE state = 'DONE'")
-			.all() as { id: string }[];
+		out.rows = (
+			feed.cursor
+				? store
+						.query(
+							"SELECT id, title, result_sha, updated_at FROM work_items WHERE state = 'DONE' AND project = ? AND (updated_at > ? OR (updated_at = ? AND id > ?)) ORDER BY updated_at, id",
+						)
+						.all(prov.project, feed.cursor.ts, feed.cursor.ts, feed.cursor.id)
+				: store
+						.query(
+							"SELECT id, title, result_sha, updated_at FROM work_items WHERE state = 'DONE' AND project = ? AND updated_at >= ? ORDER BY updated_at, id",
+						)
+						.all(prov.project, feed.windowStartMs)
+		) as WorkRow[];
+		const ids = store
+			.query("SELECT id FROM work_items WHERE state = 'DONE' AND project = ?")
+			.all(prov.project) as { id: string }[];
 		for (const r of ids) out.doneIds.add(r.id);
 	} catch (e) {
 		out.error = `work store query failed: ${e instanceof Error ? e.message : String(e)}`;
-	} finally {
-		if (db) db.close();
 	}
 	return out;
 }
@@ -736,7 +917,23 @@ export function collectSessions(
 	if (!Array.isArray(rows)) return fail("decant ls: not a list");
 	out.truncated = rows.length >= limit;
 	absorbSessionRows(rows, out);
+	// deterministic claim-feed order: (endedAt ms, sessionId) — the session
+	// cursor resumes by this total order, so equal-ended rows cannot skip
+	out.sessions.sort((a, b) => {
+		const da = endedMsOf(a);
+		const db = endedMsOf(b);
+		if (da !== db) return da - db;
+		return a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0;
+	});
 	return out;
+}
+
+/** endedAt ms with unparseable/absent stamps sorted last (they never claim,
+ *  but must not disturb the deterministic order of the rows that do). */
+function endedMsOf(s: SessionMetrics): number {
+	if (!s.endedAt) return Number.MAX_SAFE_INTEGER;
+	const ms = Date.parse(s.endedAt);
+	return Number.isFinite(ms) ? ms : Number.MAX_SAFE_INTEGER;
 }
 
 /** row projection into the collector: opaque ids into the presence set,
