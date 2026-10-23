@@ -477,3 +477,127 @@ test("recent completions have a single global bound and recency order", () => {
 	)();
 	expect(browserSelector(projects, "all")).toEqual(all);
 });
+
+/** W1196: minimal served-script harness — renderFleet against hold rows only. */
+const renderFleetHarness = (holds: unknown[], selValue = "all") => {
+	const ids = [
+		"fleetBody",
+		"fleetLine",
+		"fleetWorking",
+		"fleetWaiting",
+		"fleetBlocked",
+		"fleetRecentCount",
+		"fleetContext",
+		"stamp",
+		"blockedn",
+	];
+	const roots = Object.fromEntries(ids.map((id) => [id, new Element()]));
+	const document = {
+		createElement: (tag: string) => new Element(tag),
+		createDocumentFragment: () => new Element("fragment"),
+		createTextNode: (text: string) =>
+			Object.assign(new Element("text"), { textContent: text }),
+	};
+	const render = new Function(
+		"document",
+		"byId",
+		"lastData",
+		"sel",
+		"setText",
+		"openDecs",
+		"ago",
+		"stateLabel",
+		"zombieFor",
+		fleetRenderScript,
+	)(
+		document,
+		(id: string) => {
+			const visit = (el: Element): Element | undefined =>
+				el.id === id ? el : el.children.map(visit).find(Boolean);
+			return roots[id] ?? Object.values(roots).map(visit).find(Boolean);
+		},
+		{ ts: 0, sessions: [], projects: [], dispatchHolds: holds },
+		{ value: selValue },
+		(el: Element | undefined, text: string) => {
+			if (el) el.textContent = text;
+		},
+		() => [],
+		String,
+		String,
+		() => false,
+	);
+	return { render, roots };
+};
+
+test("fleet line names the hold holder, reason and expiry (W1196)", () => {
+	const { render, roots } = renderFleetHarness([
+		{
+			project: "/fleet/.git",
+			by: "operator@mac",
+			reason: "deploy freeze",
+			set_at: "2026-10-23T08:00:00.000Z",
+			expires_at: "2026-10-23T12:00:00.000Z",
+			remaining_min: 240,
+			legacy: false,
+		},
+		{
+			project: "/other/.git",
+			by: "(legacy marker)",
+			reason: "bare dispatch-paused file",
+			set_at: "",
+			expires_at: null,
+			remaining_min: null,
+			legacy: true,
+		},
+	]);
+	render();
+	expect(roots.fleetLine.textContent).toContain(
+		"hold by operator@mac — deploy freeze · expires 2026-10-23T12:00:00.000Z (240 min left)",
+	);
+	expect(roots.fleetLine.textContent).toContain("+1 more hold(s)");
+	expect(roots.fleetContext.textContent).toBe(
+		"Live = RUNNING with a heartbeat within 5 min; claimed work is on Tasks   ·   Dispatch hold by operator@mac · expires 2026-10-23T12:00:00.000Z · deploy freeze",
+	);
+});
+
+test("hold lines scope to the selected project", () => {
+	const foreign = renderFleetHarness(
+		[
+			{
+				project: "/other/.git",
+				by: "elsewhere",
+				reason: "other tree",
+				set_at: "2026-10-23T08:00:00.000Z",
+				expires_at: "2026-10-23T12:00:00.000Z",
+				remaining_min: 240,
+				legacy: false,
+			},
+		],
+		"/fleet/.git",
+	);
+	foreign.render();
+	expect(foreign.roots.fleetLine.textContent).not.toContain("hold by");
+});
+
+test("legacy holds render without an expiry (W1196)", () => {
+	const legacy = renderFleetHarness(
+		[
+			{
+				project: "/other/.git",
+				by: "(legacy marker)",
+				reason: "bare dispatch-paused file",
+				set_at: "",
+				expires_at: null,
+				remaining_min: null,
+				legacy: true,
+			},
+		],
+		"/other/.git",
+	);
+	legacy.render();
+	expect(legacy.roots.fleetLine.textContent).toContain(
+		"hold by (legacy marker) — bare dispatch-paused file · legacy marker, no expiry",
+	);
+	expect(legacy.roots.fleetLine.textContent).not.toContain("min left");
+	expect(legacy.roots.fleetContext.textContent).toContain("legacy bare marker");
+});

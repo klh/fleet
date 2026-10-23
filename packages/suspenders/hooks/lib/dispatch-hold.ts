@@ -5,7 +5,14 @@
 // set it or WHEN it expires. One module owns the file format, the NDJSON
 // audit log and the observe/expire decisions so fleet-loop, the dispatcher
 // and the board read ONE shape and every writer lands here with attribution.
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	appendFileSync,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 /** The recorded hold — the bare `dispatch-paused` marker is deprecated. */
@@ -62,7 +69,9 @@ const parseHold = (raw: string): DispatchHold | null => {
 			reason: j.reason,
 			set_at: new Date(at).toISOString(),
 			ttl_hours:
-				typeof j.ttl_hours === "number" && Number.isFinite(j.ttl_hours) && j.ttl_hours > 0
+				typeof j.ttl_hours === "number" &&
+				Number.isFinite(j.ttl_hours) &&
+				j.ttl_hours > 0
 					? j.ttl_hours
 					: HOLD_TTL_HOURS_DEFAULT,
 		};
@@ -107,7 +116,8 @@ export const setHold = (
 
 /** Lift the hold (recorded or legacy relic); returns true when one existed. */
 export const releaseHold = (fleetDir: string, by: string): boolean => {
-	const had = existsSync(holdPath(fleetDir)) || existsSync(join(fleetDir, LEGACY_MARKER));
+	const had =
+		existsSync(holdPath(fleetDir)) || existsSync(join(fleetDir, LEGACY_MARKER));
 	if (!had) return false;
 	rmSync(holdPath(fleetDir), { force: true });
 	rmSync(join(fleetDir, LEGACY_MARKER), { force: true });
@@ -128,7 +138,8 @@ export const dispatchHoldActive = (
 	if (existsSync(path)) {
 		const hold = parseHold(readFileSync(path, "utf8"));
 		if (hold) {
-			const remainingMs = Date.parse(hold.set_at) + hold.ttl_hours * HOUR_MS - now;
+			const remainingMs =
+				Date.parse(hold.set_at) + hold.ttl_hours * HOUR_MS - now;
 			if (remainingMs <= 0) {
 				rmSync(path, { force: true });
 				logHold(fleetDir, {

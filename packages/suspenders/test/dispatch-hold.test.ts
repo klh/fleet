@@ -121,7 +121,7 @@ test("a bare legacy marker still holds with the deprecation WAIT line", () => {
 		expect(obs?.remainingMs).toBe(Number.POSITIVE_INFINITY);
 		const gate = dispatchHoldGate(fleet);
 		expect(gate).toContain("bare .fleet/dispatch-paused marker");
-		expect(gate).toContain('dispatch hold --reason');
+		expect(gate).toContain("dispatch hold --reason");
 		expect(lastRow(fleet).kind).toBe("hold.legacy-warn");
 	} finally {
 		rmSync(fleet, { recursive: true, force: true });
@@ -166,11 +166,15 @@ test("default ttl is HOLD_TTL_HOURS_DEFAULT when omitted", () => {
 test("holdMain sets a hold, refuses anonymous, rejects junk ttl", () => {
 	const fleet = scratch();
 	try {
-		expect(holdMain(["--reason", "hub rollout", "--ttl-hours", "2"], { fleet })).toBe(0);
+		expect(
+			holdMain(["--reason", "hub rollout", "--ttl-hours", "2"], { fleet }),
+		).toBe(0);
 		expect(existsSync(join(fleet, HOLD_FILE))).toBe(true);
 		expect(lastRow(fleet).kind).toBe("hold.set");
 		expect(holdMain(["hold", "--ttl-hours", "2"], { fleet })).toBe(2);
-		expect(holdMain(["--reason", "x", "--ttl-hours", "junk"], { fleet })).toBe(2);
+		expect(holdMain(["--reason", "x", "--ttl-hours", "junk"], { fleet })).toBe(
+			2,
+		);
 		expect(holdMain(["--reason", "x", "--ttl-hours", "0"], { fleet })).toBe(2);
 		expect(holdMain(["--help"], { fleet })).toBe(0);
 	} finally {

@@ -175,7 +175,9 @@ const argv = process.argv.slice(2);
 // `registry <verb> --help` belongs to the registry verb below, not this usage.
 if (
 	import.meta.main &&
-	argv[0] !== "registry" && argv[0] !== "hold" && argv[0] !== "release" &&
+	argv[0] !== "registry" &&
+	argv[0] !== "hold" &&
+	argv[0] !== "release" &&
 	(argv.includes("--help") || argv.includes("-h"))
 ) {
 	console.log(`Usage: dispatch [options]
@@ -289,7 +291,9 @@ if (import.meta.main && argv[0] === "intent") {
 // W1196: holds ride the CLI with attribution — never touch the files by hand.
 if (import.meta.main && (argv[0] === "hold" || argv[0] === "release")) {
 	const { holdMain } = await import("./lib/dispatch-hold-cli.ts");
-	process.exit(holdMain(argv.slice(1), { fleet: FLEET, release: argv[0] === "release" }));
+	process.exit(
+		holdMain(argv.slice(1), { fleet: FLEET, release: argv[0] === "release" }),
+	);
 }
 const LOOP_LOG = `${FLEET}/loop.log`;
 // W463: mint failures refuse the dispatch (fail-closed). Collected so main()
