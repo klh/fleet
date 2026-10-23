@@ -35,6 +35,10 @@ export interface LiteLlmRouteConfig {
 	 * engine and strands the ladder).
 	 */
 	litellmOriginUrls?: string[];
+	/** W1094: loopback serving leaves the engine ITSELF resolves (model_list
+	 *  api_bases onto local specialists) — exempt for this engine's rows
+	 *  only, never a global pass (review #55637). */
+	terminals?: string[];
 }
 
 export interface BeltRouteConfig {
@@ -151,6 +155,30 @@ export function familyOf(name: string): string | null {
 		return token;
 	}
 	return null;
+}
+
+// W1094 (#55799): families a group name can ASSERT for the mismatch check.
+// Role names (local-coder, relay) derive no family — an mlx mapping behind
+// them is legitimate serving, not a pinned-family betrayal.
+const MODEL_FAMILIES = new Set([
+	"gpt",
+	"glm",
+	"claude",
+	"qwen",
+	"llama",
+	"gemini",
+	"deepseek",
+	"mistral",
+	"kimi",
+	"grok",
+	"phi",
+]);
+
+/** The asserted model family of a name when it names a KNOWN model family,
+ *  else null (no assertion → no mismatch check). */
+function assertedFamily(name: string): string | null {
+	const family = familyOf(name);
+	return family !== null && MODEL_FAMILIES.has(family) ? family : null;
 }
 
 function fallbackRows(value: unknown): Record<string, string[]> {
@@ -389,8 +417,8 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 					// asserted family — a pinned gpt-6-sol request must never
 					// silently ride zai-glm. Fallback rungs may cross families.
 					if (rung === group) {
-						const asserted = familyOf(group);
-						const served = familyOf(dep.model ?? rung);
+						const asserted = assertedFamily(group);
+						const served = assertedFamily(dep.model ?? rung);
 						if (asserted && served && served !== asserted)
 							finding(
 								"model_family_mismatch",
@@ -442,6 +470,14 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 		// there is nothing to shape-check; its rows report unverified_engine
 		// in the buckle loop above.
 		if (lite.unverified) continue;
+		// W1094: loopback serving leaves the engine ITSELF resolves — its
+		// model_list api_bases land on the specialists it fronts. This is a
+		// per-engine pass, never a global one (review #55637).
+		const ownTerminals = new Set(
+			(lite.terminals ?? [])
+				.map(originOf)
+				.filter((origin): origin is string => origin !== null),
+		);
 		const doc = recordOf(lite.config);
 		const modelRows = doc?.model_list;
 		if (!Array.isArray(modelRows)) {
@@ -463,15 +499,16 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 					typeof params.model === "string"
 						? params.model.replace(/^[^/]+\//, "")
 						: group;
-				link(node, params.api_base, upstreamModel);
+				link(node, params.api_base, upstreamModel, false, ownTerminals);
 			}
 			// W1094 (#55799): an engine row whose wire model serves a different
-			// family than its group name asserts — the pinned request rides the
-			// wrong family INSIDE the engine, where this ladder cannot see it.
+			// KNOWN family than its group name asserts — the pinned request
+			// rides the wrong family INSIDE the engine, where this ladder
+			// cannot see it.
 			const wire = typeof params?.model === "string" ? params.model : null;
 			if (wire !== null) {
-				const asserted = familyOf(group);
-				const served = familyOf(wire);
+				const asserted = assertedFamily(group);
+				const served = assertedFamily(wire);
 				if (asserted && served && served !== asserted)
 					finding(
 						"model_family_mismatch",

@@ -508,6 +508,49 @@ test("an engine row serving a different family than its group name asserts misma
 	);
 });
 
+test("a role-named group may serve a specialist family without a mismatch", () => {
+	const result = validateRouteLadders({
+		buckles: [
+			{
+				id: "local",
+				origins: ["http://127.0.0.1:4101"],
+				policy,
+				pool: pool({
+					"local-coder": [
+						{ url: "https://mlx.example/v1", model: "mlx-coder" },
+					],
+				}),
+			},
+		],
+	});
+	expect(result.errors).toEqual([]);
+});
+
+test("an engine row under a role-named group may serve a specialist family", () => {
+	const result = validateRouteLadders({
+		buckles: [],
+		litellms: [
+			{
+				id: "engine",
+				origins: ["http://127.0.0.1:4100"],
+				terminals: ["http://127.0.0.1:8902"],
+				config: {
+					model_list: [
+						{
+							model_name: "local-coder",
+							litellm_params: {
+								model: "openai/mlx-coder",
+								api_base: "http://127.0.0.1:8902",
+							},
+						},
+					],
+				},
+			},
+		],
+	});
+	expect(result.errors).toEqual([]);
+});
+
 test("a fallback rung may cross families without a mismatch finding", () => {
 	const result = validateRouteLadders({
 		buckles: [

@@ -135,6 +135,11 @@ const hubOrigins = [...Object.values(hubs)]
 // Hub-side engines (zai_litellm_url) are NEVER credited this snapshot's
 // config — the Mac holds no hub model_list — so each registers unverified
 // and its rows report unverified_engine (never silently green).
+// The belt swarm's pinned specialist ports (belt bin/router-shim.ts
+// registry rows) — the LOCAL pool's AND the local engine's terminals,
+// resolved on this device. Hub inventories never vouch for them (review
+// #55637).
+const swarmPorts = [8901, 8902, 8903, 8906, 8907, 8912, 8913];
 let litellms: LiteLlmRouteConfig[] = [];
 if (existsSync(litellmPath)) {
 	try {
@@ -142,6 +147,10 @@ if (existsSync(litellmPath)) {
 			{
 				id: "engine",
 				origins: ["http://127.0.0.1:4100"],
+				// W1094: the engine's own model_list api_bases land on the
+				// swarm specialists it fronts — this engine's rows resolve
+				// loopback onto THIS device's pinned set.
+				terminals: swarmPorts.map((port) => `http://127.0.0.1:${port}`),
 				config: Bun.YAML.parse(readFileSync(litellmPath, "utf8")),
 			},
 		];
@@ -166,10 +175,6 @@ const belts: BeltRouteConfig[] = [
 		origins: [beltOrigin],
 	},
 ];
-// The belt swarm's pinned specialist ports (belt bin/router-shim.ts
-// registry rows) — the LOCAL pool's terminals, resolved on this device.
-// Hub inventories never vouch for them (review #55637).
-const swarmPorts = [8901, 8902, 8903, 8906, 8907, 8912, 8913];
 const buckles: BuckleRouteConfig[] = [
 	{
 		id: "local",
