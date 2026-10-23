@@ -16,10 +16,7 @@ const streamOf = (...chunks: Uint8Array[]): ReadableStream<Uint8Array> =>
 
 describe("readBoundedTail", () => {
 	test("small stream passes through whole", async () => {
-		const res = await readBoundedTail(
-			streamOf(Buffer.from("abc\ndef\n")),
-			16,
-		);
+		const res = await readBoundedTail(streamOf(Buffer.from("abc\ndef\n")), 16);
 		expect(res.text).toBe("abc\ndef\n");
 		expect(res.dropped).toBe(0);
 	});
@@ -53,7 +50,9 @@ describe("readBoundedTail", () => {
 
 	test("chunk boundaries do not shift the byte window", async () => {
 		const payload = Buffer.from(
-			[...Array(30).keys()].map((i) => `l${String(i).padStart(2, "0")}\n`).join(""),
+			[...Array(30).keys()]
+				.map((i) => `l${String(i).padStart(2, "0")}\n`)
+				.join(""),
 		);
 		const one = await readBoundedTail(streamOf(payload), 12);
 		const split = await readBoundedTail(
