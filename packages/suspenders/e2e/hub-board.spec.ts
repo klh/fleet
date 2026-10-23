@@ -72,7 +72,7 @@ test("delegated item rides declare → reconcile → done on the hub board GUI",
 	const card = page.locator(`#kanban .kcard[data-kid="${id}"]`);
 	await expect(card).toBeVisible();
 	const working = page.locator("#kanban .kcol", {
-		has: page.locator("h3", { hasText: "working" }),
+		has: page.locator("h3", { hasText: "claimed" }),
 	});
 	await expect(working.locator(`.kcard[data-kid="${id}"]`)).toBeVisible();
 	await expect(card).toContainText(ORIGIN); // delegation provenance, on the card

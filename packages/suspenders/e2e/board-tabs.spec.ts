@@ -99,7 +99,16 @@ test("lane status rail reaches offscreen columns by mouse and keyboard", async (
 	await page.setViewportSize({ width: 960, height: 700 });
 	await page.goto(`${board.BASE}/#lanes`);
 	const rail = page.locator("#kstatusnav");
-	await expect(rail.getByRole("button")).toHaveCount(7);
+	// one button per KCOLS status (8); the hideEmpty ones (paused/blocked/
+	// failed) hide while empty, so visible buttons track the rendered 1:1
+	await expect(rail.locator("button")).toHaveCount(8);
+	await expect
+		.poll(
+			async () =>
+				(await rail.getByRole("button").count()) -
+				(await page.locator("#kanban .kcol").count()),
+		)
+		.toBe(0);
 	const wrap = page.locator(".kwrap");
 	expect(await wrap.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(
 		true,

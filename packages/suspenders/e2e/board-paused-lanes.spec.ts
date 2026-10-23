@@ -1,20 +1,31 @@
-import { expect, test } from "@playwright/test";
+// W1136: rides the shared fixtures — the test-scoped cleanBoard gives the
+// paused-lane world its own scratch HOME/repo (the beforeAll startBoard copy
+// is gone); afterEach kills the seeded keepalive worker.
+import { expect, test } from "./fixtures";
 import { Database } from "bun:sqlite";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { startBoard, type Board } from "./harness";
+import type { Board } from "./harness";
 
-let board: Board;
-let worker: ReturnType<typeof Bun.spawn>;
+let worker: ReturnType<typeof Bun.spawn> | undefined;
+
+test.afterEach(async () => {
+	if (worker) {
+		worker.kill();
+		await worker.exited;
+		worker = undefined;
+	}
+});
 const sid = "paused-fixture-worker";
 const item = "WPAUSE.1";
 
-test.beforeAll(async () => {
-	board = await startBoard("paused-lanes");
+/** Seed the paused-lane world: a live keepalive worker + lanes.json + the
+ *  graph rows (SHATTERED parent, CLAIMED child, PAUSED lane fact). */
+function seedPausedWorld(board: Board): ReturnType<typeof Bun.spawn> {
 	const now = Date.now();
 	const runtime = join(board.HOME, "claude-runtime.ts");
 	writeFileSync(runtime, "setInterval(() => {}, 1000);\n");
-	worker = Bun.spawn([process.execPath, runtime, sid], {
+	const worker = Bun.spawn([process.execPath, runtime, sid], {
 		stdout: "ignore",
 		stderr: "ignore",
 	});
@@ -35,16 +46,15 @@ test.beforeAll(async () => {
 		"INSERT INTO facts(key,value,source,ts) VALUES (?,'PAUSED','fixture',?)",
 	).run(`lane.${sid}.state`, now);
 	db.close();
-});
-test.afterAll(async () => {
-	worker?.kill();
-	if (worker) await worker.exited;
-	await board?.stop();
-});
+	return worker;
+}
 
 test("paused execution has its own column, navigation and filter without changing its claim", async ({
 	page,
+	cleanBoard,
 }) => {
+	const board = cleanBoard;
+	worker = seedPausedWorld(board);
 	await page.goto(`${board.BASE}/#lanes`);
 	const paused = page
 		.locator(".kcol")
