@@ -51,7 +51,10 @@ const SOURCE_PATHS = [
 	"packages/blam/bench/improve",
 	"packages/blam/package.json",
 ];
-const ENTRYPOINTS = [
+/** Faces the installer bundle-validates in the staged payload (validate()).
+ *  Exported for the W1119.2 installer/runtime-parity guard
+ *  (test/bypass-gate.test.ts). */
+export const ENTRYPOINTS = [
 	"hooks/gate.ts",
 	"hooks/session-start.ts",
 	"hooks/session-end.ts",
@@ -64,6 +67,11 @@ const ENTRYPOINTS = [
 	"hooks/bin/fleet-watch.ts",
 	"hooks/bin/fleet-board.ts", // W630: the board graph is the one that crash-looped unaudited
 	"hooks/bin/morph.ts",
+	// W1119.2: the gated inference runtime faces ride the same install-time
+	// graph validation — what fleet-loop fires is what the installer proves.
+	"hooks/bin/llm-keepwarm.ts",
+	"hooks/bin/fallback-drill.ts",
+	"hooks/bin/soak.ts",
 	"scripts/dispatch-next.ts",
 	"scripts/supervise.ts",
 ];
