@@ -163,6 +163,15 @@ describe("seedLocalLlm", () => {
 			expect(existsSync(join(home, file))).toBe(true);
 		}
 		expect(existsSync(join(home, "tier.json"))).toBe(true);
+		// W1087: the stub belt.env pre-wires the spoke's joined LiteLLM scrape;
+		// the key row names the FILE, never a value.
+		const beltEnv = readFileSync(join(home, "belt.env"), "utf8");
+		expect(beltEnv).toContain(
+			"BUCKLE_LITELLM_METRICS_URL=http://127.0.0.1:4100/metrics/",
+		);
+		expect(beltEnv).toContain(
+			"BUCKLE_LITELLM_METRICS_KEY_FILE=$HOME/.claude/local-llm/litellm.key",
+		);
 		// W284: serve-family kit files are retired — never seeded fresh.
 		for (const retired of ["gateway-supervision.ts", "serve-observation.ts"]) {
 			expect(existsSync(join(home, retired))).toBe(false);
