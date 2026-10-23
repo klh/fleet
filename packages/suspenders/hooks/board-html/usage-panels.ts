@@ -16,14 +16,7 @@
 // CSS must reach them), absorbing the retired bin/usage-charts.ts classic
 // script: the component mounts the charts itself in firstUpdated, so the
 // page carries one host and no inline render script.
-import {
-	type CSSResultGroup,
-	css,
-	html,
-	LitElement,
-	nothing,
-	type TemplateResult,
-} from "lit";
+import { css, html, LitElement, nothing, type TemplateResult } from "lit";
 import type {
 	UsageActivityCell,
 	UsageActivityLane,
@@ -36,6 +29,15 @@ import type {
 	UsageSeg,
 } from "../bin/usage-chrome.ts";
 import type { UsageReport } from "../lib/usage.ts";
+import {
+	fmtTok,
+	panelCss,
+	pct1,
+	readPanels,
+	readPayload,
+	readSlot,
+	slotColor,
+} from "./usage-shared.ts";
 // W695.3.5: the page head rides the same bundle (side-effect registers it)
 import "./klh-usage-head.ts";
 // W825: the cache drilldown rides the same bundle (side-effect registers it)
@@ -44,121 +46,8 @@ import "./usage-cache-drill.ts";
 import "./usage-coverage.ts";
 // W995: the drilldown monitor rides the same bundle (side-effect registers it)
 import "./usage-monitor.ts";
-
-// ─── shared payload read ──────────────────────────────────────────────────
-interface PanelRoot {
-	slot: Record<string, string>;
-	groups?: string[];
-	timeline?: number[][];
-	byHour?: number[][];
-	panels?: UsagePanels;
-}
-const readPayload = (): Partial<PanelRoot> | null => {
-	const el = document.getElementById("usage-data");
-	if (!el) return null;
-	try {
-		return JSON.parse(el.textContent ?? "") as Partial<PanelRoot>;
-	} catch {
-		return null;
-	}
-};
-const readPanels = (): UsagePanels | null => readPayload()?.panels ?? null;
-const readSlot = (): Record<string, string> => readPayload()?.slot ?? {};
-
-// ─── client-side formatting (payload carries honest numbers) ──────────────
-// exported for the sibling client components (usage-cache-drill) — one
-// formatting ramp across the usage bundle
-export const fmtTok = (n: number): string =>
-	n >= 1e9
-		? `${(n / 1e9).toFixed(1)}B`
-		: n >= 1e6
-			? `${(n / 1e6).toFixed(1)}M`
-			: n >= 1e3
-				? `${(n / 1e3).toFixed(1)}K`
-				: String(Math.round(n));
-const fmtChartValue = (n: number | null | undefined): string =>
-	n == null || !Number.isFinite(n) ? "—" : fmtTok(n);
-export const pct1 = (x: number): string => `${(x * 100).toFixed(1)}%`;
-
-// ─── shadow-scoped panel chrome (the u* classes each panel needs) ─────────
-const panelCss: CSSResultGroup = css`
-	.upanel {
-		display: block;
-		background: var(--klh-surface, #1c1b19);
-		border: 1px solid var(--klh-edge-soft, rgba(255, 255, 255, 0.08));
-		border-radius: 3px;
-		padding: 12px 14px 10px;
-		margin-bottom: 14px;
-	}
-	.upanel h2 {
-		margin: 0 0 6px;
-		font-size: 11px;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		color: var(--klh-dim, #98958e);
-	}
-	.uhead {
-		display: flex;
-		align-items: baseline;
-		gap: 12px;
-	}
-	.uhead .ufoot {
-		margin: 0;
-	}
-	.uempty {
-		color: var(--klh-dim, #98958e);
-		font-size: 12px;
-	}
-	.ufoot {
-		font-size: 10.5px;
-		color: var(--klh-dim, #98958e);
-		margin: 2px 0 8px;
-	}
-	table.uacts {
-		width: 100%;
-		border-collapse: collapse;
-		font-size: 12px;
-	}
-	table.uacts td,
-	table.uacts th {
-		padding: 6px 8px;
-		border-bottom: 1px solid var(--klh-rule, rgba(255, 255, 255, 0.06));
-		text-align: left;
-	}
-	.unum {
-		text-align: right;
-		font-variant-numeric: tabular-nums;
-		color: var(--klh-ink-2, #c9c6bf);
-		white-space: nowrap;
-	}
-	.uchip {
-		font-size: 10px;
-		color: var(--klh-dim, #98958e);
-		border: 1px solid var(--klh-edge, rgba(255, 255, 255, 0.12));
-		border-radius: 2px;
-		padding: 1px 6px;
-		margin-left: 6px;
-	}
-	.ubar {
-		display: flex;
-		height: 12px;
-		border-radius: 3px;
-		overflow: hidden;
-		min-width: 2px;
-	}
-	.ubar i {
-		display: block;
-		height: 100%;
-	}
-	.udot {
-		display: inline-block;
-		width: 8px;
-		height: 8px;
-		border-radius: 2px;
-		margin-right: 6px;
-	}
-`;
+// W658.4: the uPlot chart panels ride the same bundle via usage-charts.ts
+import "./usage-charts.ts";
 
 // ─── <klh-usage-header> — back bar, title, filter chips (W695.3.4) ─────────
 // Chip links stay native <a href> (the query string is the view state and
@@ -339,8 +228,6 @@ KlhUsageTiles.styles = css`
 `;
 
 // ─── <klh-usage-actors> — per-actor table with segmented bars + drill-down ─
-const slotColor = (slot: Record<string, string>, g: string): string =>
-	slot[g] ?? "#888";
 
 // one segmented-bar <i> segment; actors + spokes share the shape
 const segT = (
@@ -1131,234 +1018,6 @@ KlhUsageDrilldown.styles = [
 `,
 ];
 
-// ─── <klh-usage-charts> — the uPlot panels (timeline + hour histogram) ─────
-// Light DOM by exception: uPlot builds its own canvas DOM inside the mount
-// divs and the document-level uPlot chrome CSS must reach it —
-// createRenderRoot returns the element itself. Absorbs the retired
-// bin/usage-charts.ts: one host, no inline render script on the page.
-// Titles ride the tl/hours attributes (the fed page passes its own).
-interface UPlotChart {
-	width: number;
-	redraw(resetScales: boolean, recreate: boolean): void;
-	setSize(size: { width: number; height: number }): void;
-}
-interface UPlotCtor {
-	new (
-		opts: Record<string, unknown>,
-		data: unknown[][],
-		target: HTMLElement,
-	): UPlotChart;
-	paths?: { bars(opts: { size: [number, number] }): unknown };
-}
-
-export class KlhUsageCharts extends LitElement {
-	static properties = {
-		tl: { type: String },
-		hours: { type: String },
-	};
-
-	declare tl: string;
-	declare hours: string;
-	private slot: Record<string, string> = {};
-	private groups: string[] = [];
-	private timeline: number[][] = [];
-	private byHour: number[][] = [];
-	private charts: UPlotChart[] = [];
-	private ros: ResizeObserver[] = [];
-	private resizes: (() => void)[] = [];
-	private onTheme: (() => void) | null = null;
-
-	constructor() {
-		super();
-		this.tl = "TOKENS · STACKED BY MODEL GROUP";
-		this.hours = "WHEN THE FLEET WORKS · HOUR OF DAY (LOCAL)";
-	}
-
-	protected connectedCallback(): void {
-		super.connectedCallback();
-		this.tl = this.getAttribute("tl") ?? this.tl;
-		this.hours = this.getAttribute("hours") ?? this.hours;
-		const root = readPayload();
-		this.slot = root?.slot ?? {};
-		this.groups = root?.groups ?? [];
-		this.timeline = root?.timeline ?? [];
-		this.byHour = root?.byHour ?? [];
-		if (this.onTheme === null) {
-			this.onTheme = () => {
-				for (const c of this.charts) c.redraw(false, true);
-			};
-			document.addEventListener("klh-themechange", this.onTheme);
-		}
-	}
-
-	protected disconnectedCallback(): void {
-		super.disconnectedCallback();
-		for (const ro of this.ros) ro.disconnect();
-		this.ros = [];
-		for (const fn of this.resizes) window.removeEventListener("resize", fn);
-		this.resizes = [];
-		if (this.onTheme !== null) {
-			document.removeEventListener("klh-themechange", this.onTheme);
-			this.onTheme = null;
-		}
-	}
-
-	// uPlot paints into the light-DOM mount divs — see the block comment
-	protected createRenderRoot(): HTMLElement {
-		return this;
-	}
-
-	protected render(): TemplateResult {
-		if (!this.timeline.length && !this.byHour.length) return html``;
-		return html`<div class="usage-chart-grid"><div class="upanel">
-				<div class="uhead">
-					<h2>${this.tl}</h2>
-					<p class="ufoot">hover = values · drag = zoom · double-click = reset</p>
-				</div>
-				<div class="ulegend">
-					${this.groups.map(
-						(g) =>
-							html`<span><i style=${`background:${slotColor(this.slot, g)}`}></i
-								>${g}</span>`,
-					)}
-				</div>
-				<div id="u-timeline" class="uchart"></div>
-			</div>
-			<div class="upanel">
-				<h2>${this.hours}</h2>
-				<div id="u-hours" class="uchart"></div>
-			</div></div>`;
-	}
-
-	protected firstUpdated(): void {
-		const uPlot = (globalThis as { uPlot?: UPlotCtor }).uPlot;
-		if (!uPlot) return; // vendor inline absent — degrade honestly
-		// chart chrome follows the klh theme tokens; uPlot calls the stroke fns
-		// on every draw, so a klh-themechange only needs a redraw (W269)
-		const tok = (name: string, dflt: string): string => {
-			const v = getComputedStyle(document.documentElement)
-				.getPropertyValue(name)
-				.trim();
-			return v || dflt;
-		};
-		const grid = (): string => tok("--klh-chart-grid", "#2c2c2a");
-		const hair = (): string => tok("--klh-chart-hair", "#383835");
-		const axis = (): string => tok("--klh-chart-axis", "#898781");
-		const yVals = (_u: unknown, splits: number[]): string[] =>
-			splits.map((v) => fmtTok(v));
-		const mkAxis = (
-			side: number,
-			values?: (u: unknown, splits: number[]) => string[],
-		): Record<string, unknown> => {
-			const a: Record<string, unknown> = {
-				side,
-				// The default left gutter clips the leading digit at 100M+.
-				...(side === 3 ? { size: 72 } : {}),
-				stroke: axis,
-				grid: { show: true, stroke: grid, width: 1 },
-				ticks: { show: true, stroke: hair, width: 1 },
-			};
-			if (values) a.values = values;
-			return a;
-		};
-		const tEl = this.querySelector<HTMLElement>("#u-timeline");
-		if (tEl && this.groups.length) {
-			// series order IS the fixed group order, so a group keeps its color
-			// everywhere it appears on the page
-			const series: Record<string, unknown>[] = [{}];
-			for (const g of this.groups) {
-				const c = slotColor(this.slot, g);
-				series.push({
-					label: g,
-					stacked: true,
-					stroke: c,
-					fill: c,
-					width: 1,
-					points: { show: false },
-					value: (_u: unknown, v: number | null): string => fmtChartValue(v),
-				});
-			}
-			this.chart(
-				tEl,
-				uPlot,
-				{
-					width: tEl.clientWidth,
-					height: 300,
-					legend: { show: true, live: true },
-					scales: { x: { time: true } },
-					series,
-					axes: [mkAxis(2), mkAxis(3, yVals)],
-				},
-				this.timeline,
-				300,
-			);
-		}
-		// hour-of-day histogram — single-series distribution, slot 1 (flash blue)
-		const hEl = this.querySelector<HTMLElement>("#u-hours");
-		if (hEl) {
-			this.chart(
-				hEl,
-				uPlot,
-				{
-					width: hEl.clientWidth,
-					height: 190,
-					legend: { show: false },
-					scales: { x: { time: false } },
-					series: [
-						{},
-						{
-							label: "tokens",
-							stroke: slotColor(this.slot, "flash"),
-							fill: slotColor(this.slot, "flash"),
-							paths: uPlot.paths?.bars({ size: [0.72, 100] }),
-							points: { show: false },
-							value: (_u: unknown, v: number | null): string =>
-								fmtChartValue(v),
-						},
-					],
-					axes: [
-						mkAxis(2, (_u, splits) =>
-							splits.map((v) => String(Math.round(v)).padStart(2, "0")),
-						),
-						mkAxis(3, yVals),
-					],
-				},
-				this.byHour,
-				190,
-			);
-		}
-	}
-
-	private chart(
-		el: HTMLElement,
-		uPlot: UPlotCtor,
-		opts: Record<string, unknown>,
-		data: unknown[][],
-		height: number,
-	): void {
-		const u = new uPlot(opts, data, el);
-		this.charts.push(u);
-		const fit = (): void => {
-			const w = el.clientWidth;
-			if (w > 0 && w !== u.width) u.setSize({ width: w, height });
-		};
-		if (typeof ResizeObserver === "function") {
-			const ro = new ResizeObserver(fit);
-			ro.observe(el);
-			this.ros.push(ro);
-		} else {
-			this.resizes.push(fit);
-			window.addEventListener("resize", fit);
-		}
-	}
-}
-
-KlhUsageCharts.styles = css`
-	:host {
-		display: block;
-	}
-`;
-
 customElements.define("klh-usage-header", KlhUsageHeader);
 customElements.define("klh-usage-tiles", KlhUsageTiles);
 customElements.define("klh-usage-actors", KlhUsageActors);
@@ -1379,6 +1038,5 @@ declare global {
 		"klh-usage-spokes": KlhUsageSpokes;
 		"klh-usage-crosshub": KlhUsageCrossHub;
 		"klh-usage-drilldown": KlhUsageDrilldown;
-		"klh-usage-charts": KlhUsageCharts;
 	}
 }

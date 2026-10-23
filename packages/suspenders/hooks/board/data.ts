@@ -1,38 +1,18 @@
 import { usableRecommendation } from "../lib/advice-quality.ts";
 import { completionTail } from "../lib/work-completion-record.ts";
-import { claimWindows, type TimingEventRow } from "../lib/work-timing.ts";
-// W858.7.21: the hub reachability check + its probe bundle moved to
-// hub-check.ts (1500-line decompose); setupChecks imports it below.
-import { hubCheck } from "./hub-check.ts";
 
 // hooks/board/data.ts — the /api data builders: tasks, board, claims, decisions, activity (W157 board split).
 // Pieces moved verbatim from bin/fleet-board.ts; exports widened so
 // sibling modules and the route modules import them.
 
-import type { Database } from "bun:sqlite";
-import { existsSync, readFileSync } from "node:fs";
-import {
-	type ItemAttribution,
-	type ItemSpendPoint,
-	itemAttribution,
-	itemRequestSpendSeries,
-	type LaneRequestSpendRow,
-	laneRequestSpendRows,
-	resolveBuckleDb,
-} from "../lib/lane-spend.ts";
+import type { ItemAttribution } from "../lib/lane-spend.ts";
 import { observation } from "../lib/observation.ts";
 // W911: the plaid UI-agreement view — one shape for dispatch + board.
 import { plaidStatus } from "../lib/plaid.ts";
 import { preferForProject } from "../lib/prefer.ts";
 import { utcZ } from "../lib/wallclock.ts";
-import {
-	BIND,
-	db,
-	gatePath,
-	LLM_ORIGIN,
-	REG_DIR,
-	sessionStartPath,
-} from "./context.ts";
+import { db } from "./context.ts";
+import { workAttribution } from "./data-spend.ts";
 import { collapseDups } from "./decision-dups.ts";
 import { chunked } from "./helpers.ts";
 import { laneObservationSnapshot } from "./lane-observations.ts";
@@ -55,6 +35,14 @@ import {
 import { getObservationRelayStatus } from "./observation-relay.ts";
 import { taskExecutionSnapshot } from "./task-execution.ts";
 import { taskTailSnapshot } from "./task-tail.ts";
+
+export {
+	llmCheck,
+	settingsCommands,
+	setupChecks,
+	tierFacts,
+} from "./data-checks.ts";
+export { workSpendSeries, workSpendSeriesPayload } from "./data-spend.ts";
 
 export function taskShape(
 	w: WorkItemRow,
@@ -171,141 +159,6 @@ export function depEdges(): Map<
 		const e = out.get(k) ?? { blocked_by: [], waiting_on: [] };
 		e.waiting_on.push(r.id);
 		out.set(k, e);
-	}
-	return out;
-}
-
-// ONE claim-replay event scan (the W635/W776/W887 attribution inputs) —
-// shared by workAttribution + workSpendSeries so each memo window pays a
-// single read.
-function claimEventScan(): TimingEventRow[] {
-	return db
-		.query(
-			"SELECT project, id, ts, kind, payload FROM events WHERE kind IN ('work.claimed','work.released','work.done','work.failed') ORDER BY ts, id",
-		)
-		.all() as TimingEventRow[];
-}
-
-// W776 — per-item attribution (spend + wall) for the tasks feed, memoized
-// 5s: the /api/tasks poll storm rides the cache (W663 doctrine), one ledger
-// read per TTL window. Keys are project\0id — W318 id collision.
-let _wAttr: { at: number; m: Map<string, ItemAttribution> } | null = null;
-const ATTR_TTL_MS = 5_000;
-function workAttribution(): Map<string, ItemAttribution> {
-	if (_wAttr && Date.now() - _wAttr.at < ATTR_TTL_MS) return _wAttr.m;
-	const m = new Map<string, ItemAttribution>();
-	// W682: ONE claim-replay bus scan feeds every project's replay — the
-	// per-project pair of events scans (25 projects × 2 = 50 store round
-	// trips per TTL window) collapses into this single read.
-	const evs = claimEventScan();
-	for (const { project } of db
-		.query("SELECT DISTINCT project FROM work_items")
-		.all() as { project: string }[]) {
-		for (const [id, a] of itemAttribution(
-			db as unknown as Database,
-			project,
-			Date.now(),
-			undefined,
-			evs,
-		)) {
-			m.set(`${project}\u0000${id}`, a);
-		}
-	}
-	_wAttr = { at: Date.now(), m };
-	return m;
-}
-
-// Per-item one-minute request series for /api/spend-series, memoized 5s like
-// workAttribution. Each refresh replaces recent buckets with absolute audit
-// totals. The histogram table retains older buckets across board restarts.
-let _wSeries: { at: number; m: Map<string, ItemSpendPoint[]> } | null = null;
-export function workSpendSeries(): Map<string, ItemSpendPoint[]> {
-	if (_wSeries && Date.now() - _wSeries.at < ATTR_TTL_MS) return _wSeries.m;
-	const evs = claimEventScan();
-	const lastBucket = Number(
-		(
-			db
-				.query("SELECT MAX(bucket_ms) AS t FROM work_spend_histogram")
-				.get() as {
-				t: number | null;
-			} | null
-		)?.t ?? 0,
-	);
-	const fromMs = Math.max(
-		Date.now() - 24 * 3_600_000,
-		lastBucket ? lastBucket - 2 * 3_600_000 : 0,
-	);
-	const fromIso = new Date(fromMs).toISOString();
-	let rows: LaneRequestSpendRow[] = [];
-	try {
-		const ledger = resolveBuckleDb();
-		rows = ledger ? laneRequestSpendRows(ledger, fromIso) : [];
-	} catch {
-		rows = []; // unreadable ledger — fail-soft (coord fleet parity)
-	}
-	const m = new Map<string, ItemSpendPoint[]>();
-	const write = db.query(
-		"INSERT INTO work_spend_histogram (project,work_id,bucket_ms,fresh,cached,out_tok) VALUES (?,?,?,?,?,?) ON CONFLICT(project,work_id,bucket_ms) DO UPDATE SET fresh=excluded.fresh,cached=excluded.cached,out_tok=excluded.out_tok",
-	);
-	const newest = db.query(
-		"SELECT MAX(bucket_ms) AS t FROM work_spend_histogram WHERE project=? AND work_id=?",
-	);
-	for (const { project } of db
-		.query("SELECT DISTINCT project FROM work_items")
-		.all() as { project: string }[]) {
-		const { windows } = claimWindows(
-			db as unknown as Database,
-			project,
-			Date.now(),
-			evs,
-		);
-		for (const [id, points] of itemRequestSpendSeries(
-			rows,
-			windows,
-			Number.MAX_SAFE_INTEGER,
-		)) {
-			const lastWritten = Number(
-				(newest.get(project, id) as { t: number | null } | null)?.t ?? 0,
-			);
-			for (const p of points)
-				if (p.t >= lastWritten - 120_000)
-					write.run(project, id, p.t, p.fresh, p.cached, p.out);
-		}
-	}
-	for (const r of db
-		.query(
-			"SELECT project,work_id,bucket_ms,fresh,cached,out_tok FROM work_spend_histogram ORDER BY project,work_id,bucket_ms",
-		)
-		.all() as {
-		project: string;
-		work_id: string;
-		bucket_ms: number;
-		fresh: number;
-		cached: number;
-		out_tok: number;
-	}[]) {
-		const key = `${r.project}\u0000${r.work_id}`;
-		const points = m.get(key) ?? [];
-		points.push({
-			t: r.bucket_ms,
-			fresh: r.fresh,
-			cached: r.cached,
-			out: r.out_tok,
-		});
-		m.set(key, points);
-	}
-	_wSeries = { at: Date.now(), m };
-	return m;
-}
-
-/** Persisted per-item one-minute [t, fresh, cached, out] tuples, keyed project\0id. */
-export function workSpendSeriesPayload(): Record<
-	string,
-	[number, number, number, number][]
-> {
-	const out: Record<string, [number, number, number, number][]> = {};
-	for (const [k, points] of workSpendSeries()) {
-		out[k] = points.map((p) => [p.t, p.fresh, p.cached, p.out]);
 	}
 	return out;
 }
@@ -562,210 +415,6 @@ export function activity(
 		events: rows,
 		nextCursor: evs.length === limit ? (evs[evs.length - 1]?.id ?? null) : null,
 	};
-}
-
-// advisory wiring checks — never throw; a failed check is information, not an
-// error. settings.json hook commands may spell $HOME literally — expand before
-// comparing against this install's script paths.
-export function settingsCommands(kind: string): string[] {
-	try {
-		const s = JSON.parse(
-			readFileSync(`${process.env.HOME}/.claude/settings.json`, "utf8"),
-		) as {
-			hooks?: Record<string, { hooks?: { command?: string }[] }[]>;
-		};
-		return (s?.hooks?.[kind] ?? [])
-			.flatMap((m) => (m?.hooks ?? []).map((h) => String(h?.command ?? "")))
-			.map((c) => c.replaceAll("$HOME", process.env.HOME ?? "~"));
-	} catch {
-		return [];
-	}
-}
-
-// W852: the advice endpoint is a belt specialist whose residency is the
-// machine's tier manifest (belt bin/registry-emit.ts `tier` → tier.json,
-// warm_ports; llm-keepwarm reads the same file). At BELT_TIER=minimal the
-// default :8901 coder is NOT resident, so a healthy minimal fleet painted
-// FAIL — the endpoint loads on first use instead. Precedence mirrors belt's
-// resolveTier: BELT_TIER env → manifest → full.
-const TIER_MANIFEST_PATH = () =>
-	process.env.BELT_TIER_MANIFEST ??
-	`${process.env.HOME}/.claude/local-llm/tier.json`;
-
-// keepwarm's fail-safe set (hooks/bin/llm-keepwarm.ts) — the ≤4GB residents
-const MINIMAL_FALLBACK_PORTS = [8902, 8913];
-
-export function tierFacts(): { tier: string; warmPorts: number[] } {
-	let tier =
-		process.env.BELT_TIER === "minimal" || process.env.BELT_TIER === "full"
-			? process.env.BELT_TIER
-			: "full";
-	let warmPorts: number[] = [];
-	try {
-		const doc = JSON.parse(readFileSync(TIER_MANIFEST_PATH(), "utf8")) as {
-			tier?: string;
-			warm_ports?: unknown;
-		};
-		if (tier === "full" && (doc.tier === "minimal" || doc.tier === "full"))
-			tier = doc.tier;
-		if (Array.isArray(doc.warm_ports))
-			warmPorts = doc.warm_ports.filter(
-				(p): p is number => typeof p === "number" && p > 0 && p < 65536,
-			);
-	} catch {
-		// no manifest / unreadable → env tier or full, no on-demand excuse
-	}
-	if (tier === "minimal" && !warmPorts.length)
-		warmPorts = MINIMAL_FALLBACK_PORTS;
-	return { tier, warmPorts };
-}
-
-const probeModels = async (origin: string, ms: number): Promise<boolean> => {
-	try {
-		const r = await fetch(`${origin}/v1/models`, {
-			signal: AbortSignal.timeout(ms),
-		});
-		return r.ok;
-	} catch {
-		return false;
-	}
-};
-
-export async function llmCheck(): Promise<{ ok: boolean; detail: string }> {
-	const direct = await probeModels(LLM_ORIGIN, 1500);
-	if (direct) return { ok: true, detail: `${LLM_ORIGIN} answers` };
-	const { tier, warmPorts } = tierFacts();
-	// full tier: the endpoint IS resident, when a resident endpoint is down
-	// it is down. minimal tier: the advice target loads on demand — the
-	// resident swarm answering is what matters (W852 owner complaint).
-	if (tier !== "minimal" || !warmPorts.length)
-		return { ok: false, detail: `no answer from ${LLM_ORIGIN} within 1.5s` };
-	const up = (
-		await Promise.all(
-			warmPorts.map((p) => probeModels(`http://127.0.0.1:${p}`, 1000)),
-		)
-	)
-		.map((ok, i) => (ok ? warmPorts[i] : 0))
-		.filter(Boolean);
-	if (!up.length)
-		return {
-			ok: false,
-			detail: `${LLM_ORIGIN} down and the resident swarm (${warmPorts.join(", ")}) silent`,
-		};
-	return {
-		ok: true,
-		detail: `${LLM_ORIGIN} is on-demand (tier manifest) — resident swarm ${up.join(", ")} answers; advice works, first use pays a model-load stall`,
-	};
-}
-
-export async function setupChecks(): Promise<unknown[]> {
-	const [llm, hubs] = await Promise.all([llmCheck(), hubCheck()]);
-	// wired = a registered command runs the hook BY NAME — the install layout
-	// varies (namespaced suspenders/ vs legacy hooks/), so a literal-path match
-	// false-negatived every non-namespaced machine
-	const hookOk = settingsCommands("PreToolUse").some((c) =>
-		c.includes("gate.ts"),
-	);
-	const startOk = settingsCommands("SessionStart").some((c) =>
-		c.includes("session-start.ts"),
-	);
-	// W852 — the install's activation receipt (~/.config/klh/service-activation.json,
-	// SERVICE-ACTIVATION.md): blessed intent for every launchd unit this install
-	// registered. Unreadable/empty = install-grade wiring is missing.
-	const ACTIVATION_RECEIPT = `${process.env.HOME}/.config/klh/service-activation.json`;
-	let activationOk = false;
-	let activationDetail =
-		"no readable receipt at ~/.config/klh/service-activation.json";
-	try {
-		const doc = JSON.parse(readFileSync(ACTIVATION_RECEIPT, "utf8")) as {
-			services?: unknown[];
-		};
-		const n = Array.isArray(doc.services) ? doc.services.length : 0;
-		if (n > 0) {
-			activationOk = true;
-			activationDetail = `receipt blessed ${n} services`;
-		}
-	} catch {
-		// missing/unreadable — surfaced as the check's FAIL + fix
-	}
-	// W852 — the board's own launchd unit: a server cannot paint itself
-	// healthy (owner law), so the check is the UNIT is installed, not the
-	// process — the answering process IS this board.
-	const boardPlist = `${process.env.HOME}/Library/LaunchAgents/com.suspenders.board.plist`;
-	const boardOk = existsSync(boardPlist);
-	// W882 — the W779 heartbeat fold: maintenance cadence lives in the ONE
-	// com.suspenders.fleet-loop unit (services.yaml:144). The retired
-	// monitor-agent plists ride the legacyLabels boot-out list
-	// (services.yaml:292) — installs remove them, so they are never checked.
-	const fleetLoopPlist = `${process.env.HOME}/Library/LaunchAgents/com.suspenders.fleet-loop.plist`;
-	const fleetLoopOk = existsSync(fleetLoopPlist);
-	return [
-		{
-			id: "db",
-			label: "Control-plane database",
-			ok: true,
-			detail: `${REG_DIR}/governor.db`,
-			fix: null,
-		},
-		{
-			id: "hooks-wired",
-			label: "Hook gates wired",
-			ok: hookOk,
-			detail: hookOk
-				? gatePath
-				: `PreToolUse hooks in ~/.claude/settings.json do not reference ${gatePath}`,
-			fix: hookOk ? null : "./install.sh --wire",
-		},
-		{
-			id: "session-start",
-			label: "Session injection wired",
-			ok: startOk,
-			detail: startOk
-				? sessionStartPath
-				: `SessionStart hooks in ~/.claude/settings.json do not reference ${sessionStartPath}`,
-			fix: startOk ? null : "./install.sh --wire",
-		},
-		{
-			id: "fleet-loop",
-			label: "Fleet-loop heartbeat unit",
-			ok: fleetLoopOk,
-			detail: fleetLoopOk
-				? "com.suspenders.fleet-loop launchd unit installed"
-				: "no com.suspenders.fleet-loop plist in ~/Library/LaunchAgents",
-			fix: fleetLoopOk ? null : "./install.sh --with-launchd",
-		},
-		{
-			id: "activation",
-			label: "Service activation receipt",
-			ok: activationOk,
-			detail: activationDetail,
-			fix: activationOk ? null : "./install.sh --with-launchd",
-		},
-		{
-			id: "board-unit",
-			label: "Board service unit",
-			ok: boardOk,
-			detail: boardOk
-				? "com.suspenders.board launchd unit installed"
-				: "no com.suspenders.board plist in ~/Library/LaunchAgents",
-			fix: boardOk ? null : "./install.sh --with-launchd",
-		},
-		{
-			id: "llm",
-			label: "Advice LLM endpoint",
-			ok: llm.ok,
-			detail: llm.detail,
-			fix: llm.ok ? null : "local LLM stack docs",
-		},
-		{
-			id: "hubs",
-			label: "Hub reachability",
-			ok: hubs.ok,
-			detail: hubs.detail,
-			fix: hubs.fix,
-		},
-		{ id: "bind", label: "LAN binding", ok: true, detail: BIND, fix: null },
-	];
 }
 
 // session registry row + the API view the /api/data feed serves
