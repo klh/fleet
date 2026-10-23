@@ -349,6 +349,184 @@ test("aggregate: high-water advance is idempotent under replay", () => {
 	expect(row.tombstone_ts).toBe(400);
 });
 
+// ─── W1213.3.1.1: the assert side of the dedupe-vs-causality contract ──────
+
+// one roll event: a machine pushing one claim entry (optionally a tombstone)
+interface RollEvent {
+	machine: string;
+	entry: { ts: number; tombstone?: boolean };
+}
+
+const ROLL_BODY = {
+	evidenceId: "ev-set",
+	claim: "contested claim",
+	confidence: 0.8,
+};
+
+const rollVerdict = (db: Database): "visible" | "hidden" => {
+	const view = claimAggregateView(db, { includeTombstones: true });
+	expect(view.claims).toHaveLength(1);
+	return view.claims[0].tombstone ? "hidden" : "visible";
+};
+
+/** every order of the event set must land the SAME visibility — arrival
+ *  order is transport reality, convergence is the contract. */
+function assertConvergent(
+	events: RollEvent[],
+	want: "visible" | "hidden",
+): void {
+	const perms: number[][] = [];
+	const permute = (xs: number[], acc: number[]): void => {
+		if (xs.length === 0) {
+			perms.push(acc);
+			return;
+		}
+		for (let i = 0; i < xs.length; i++)
+			permute([...xs.slice(0, i), ...xs.slice(i + 1)], [...acc, xs[i]]);
+	};
+	permute(
+		events.map((_, i) => i),
+		[],
+	);
+	for (const order of perms) {
+		const db = new Database(":memory:");
+		for (const i of order) {
+			const ev = events[i];
+			const r = aggregateClaims(
+				db,
+				[{ ...ROLL_BODY, ...ev.entry }],
+				ev.machine,
+				{ now: 1000 },
+			);
+			expect(r.ok).toBe(true);
+		}
+		expect(rollVerdict(db)).toBe(want);
+		db.close();
+	}
+}
+
+test("aggregate: convergence table — assert/retract/dupes under every order (1/2)", () => {
+	// later assert beats the tombstone; the tombstone-first order revives
+	assertConvergent(
+		[
+			{ machine: "m-a", entry: { ts: 100 } },
+			{ machine: "m-b", entry: { ts: 400, tombstone: true } },
+			{ machine: "m-a", entry: { ts: 500 } },
+		],
+		"visible",
+	);
+	// later retract hides the claim from every arrival order
+	assertConvergent(
+		[
+			{ machine: "m-a", entry: { ts: 100 } },
+			{ machine: "m-b", entry: { ts: 400, tombstone: true } },
+		],
+		"hidden",
+	);
+	// equal clocks: the retraction wins the tie from every order
+	assertConvergent(
+		[
+			{ machine: "m-a", entry: { ts: 200 } },
+			{ machine: "m-b", entry: { ts: 200, tombstone: true } },
+		],
+		"hidden",
+	);
+});
+
+test("aggregate: convergence table — assert/retract/dupes under every order (2/2)", () => {
+	// FAIL61611 exactly: the identical-payload dupe dropped ts 500, so the
+	// stale tomb 400 slid behind the dedupe and hid a claim the set holds
+	// visible. The dupe must carry time for convergence to hold.
+	assertConvergent(
+		[
+			{ machine: "m-a", entry: { ts: 100 } },
+			{ machine: "m-b", entry: { ts: 400, tombstone: true } },
+			{ machine: "m-a", entry: { ts: 500 } },
+		],
+		"visible",
+	);
+	// independent origins asserting the same payload: the newest assert wins
+	assertConvergent(
+		[
+			{ machine: "m-a", entry: { ts: 100 } },
+			{ machine: "m-b", entry: { ts: 500 } },
+			{ machine: "m-c", entry: { ts: 400, tombstone: true } },
+		],
+		"visible",
+	);
+	// dupes on both sides: the newest assert still wins
+	assertConvergent(
+		[
+			{ machine: "m-a", entry: { ts: 100 } },
+			{ machine: "m-a", entry: { ts: 500 } },
+			{ machine: "m-b", entry: { ts: 400, tombstone: true } },
+			{ machine: "m-b", entry: { ts: 450, tombstone: true } },
+		],
+		"visible",
+	);
+});
+
+test("aggregate: assert dupe advances the machine's standing ts in place", () => {
+	const db = new Database(":memory:");
+	const body = {
+		evidenceId: "ev-adv",
+		claim: "contested claim",
+		confidence: 0.8,
+	};
+	aggregateClaims(db, [{ ...body, ts: 100 }], "m-a", { now: 1000 });
+	// identical payload, NEWER ts: deduped, no provenance APPEND — the
+	// machine's standing entry moves forward (per-origin monotonic)
+	const dupe = aggregateClaims(db, [{ ...body, ts: 500 }], "m-a", {
+		now: 2000,
+	});
+	expect(dupe.counts?.dupes).toBe(1);
+	expect(dupe.counts?.merged).toBe(0);
+	const row = db
+		.query("SELECT provenance, updated_at FROM knowledge_claims")
+		.get() as { provenance: string; updated_at: number };
+	expect(JSON.parse(row.provenance)).toEqual([{ machine: "m-a", ts: 500 }]);
+	expect(row.updated_at).toBe(2000);
+});
+
+test("aggregate: same-ts assert replay is exact — zero writes", () => {
+	const db = new Database(":memory:");
+	const body = {
+		evidenceId: "ev-exact",
+		claim: "contested claim",
+		confidence: 0.8,
+	};
+	aggregateClaims(db, [{ ...body, ts: 100 }], "m-a", { now: 1000 });
+	const replay = aggregateClaims(db, [{ ...body, ts: 100 }], "m-a", {
+		now: 9999,
+	});
+	expect(replay.counts?.dupes).toBe(1);
+	const row = db
+		.query("SELECT provenance, updated_at FROM knowledge_claims")
+		.get() as { provenance: string; updated_at: number };
+	expect(JSON.parse(row.provenance)).toEqual([{ machine: "m-a", ts: 100 }]);
+	expect(row.updated_at).toBe(1000);
+});
+
+test("aggregate: stale dupe on a hidden row cannot bypass the revive gate", () => {
+	const db = new Database(":memory:");
+	const body = {
+		evidenceId: "ev-gate",
+		claim: "contested claim",
+		confidence: 0.8,
+	};
+	aggregateClaims(db, [{ ...body, ts: 100 }], "m-a", { now: 1000 });
+	aggregateClaims(db, [{ ...body, ts: 400, tombstone: true }], "m-b", {
+		now: 2000,
+	});
+	// the asserter's own stale re-push rides the tombstone gate, not the dupe
+	const dupe = aggregateClaims(db, [{ ...body, ts: 300 }], "m-a", {
+		now: 3000,
+	});
+	expect(dupe.counts?.stale).toBe(1);
+	expect(dupe.counts?.dupes).toBe(0);
+	expect(claimAggregateView(db).claims).toHaveLength(0);
+});
+
 // ─── machine-side collection (the spoke pass) ───────────────────────────────
 
 test("collectClaims: claim.* rows → entries; cursor skips; cap applies", () => {
