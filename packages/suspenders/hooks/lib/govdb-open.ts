@@ -468,6 +468,13 @@ export function openGovernorDb(): Database {
 			db.run("ALTER TABLE facts ADD COLUMN confidence REAL");
 		if (!factsCols.includes("confidence_stamp"))
 			db.run("ALTER TABLE facts ADD COLUMN confidence_stamp TEXT");
+		// W1228 invalidation: set when a landed change (work.done/merge)
+		// touched the fact's source — the review flag rides the row, read
+		// faces render it; never a delete.
+		if (!factsCols.includes("stale_at"))
+			db.run("ALTER TABLE facts ADD COLUMN stale_at INTEGER");
+		if (!factsCols.includes("stale_reason"))
+			db.run("ALTER TABLE facts ADD COLUMN stale_reason TEXT");
 	}
 	const ckCols = columnNames(db, "consult_kb");
 	if (ckCols.length) {

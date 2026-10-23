@@ -78,7 +78,7 @@ import {
 } from "../lib/work-completion-record.ts";
 import { EFFORTS } from "../lib/work-effort.ts";
 import { evidencePatternsOf } from "../lib/work-fence.ts";
-import { queueCompletionKnowledge } from "../lib/work-knowledge.ts";
+import { landCompletionKnowledge } from "../lib/work-knowledge.ts";
 import { runMigrateLedger } from "../lib/work-migrate-ledger.ts";
 import { exportMirror, MIRROR_NAME, mirrorOrNull } from "../lib/work-mirror.ts";
 import { releaseWorkClaim } from "../lib/work-release.ts";
@@ -986,11 +986,12 @@ const dispatchVerb = async (
 		}
 		console.log(renderKnowledgeSuggestion(verdict));
 		if (record) {
-			const knowledge = await queueCompletionKnowledge(
+			const knowledge = await landCompletionKnowledge(
 				db(),
 				record,
 				String(it.title ?? id),
 				verdict,
+				{ repo: process.cwd() },
 			);
 			if (knowledge.status === "queued")
 				console.log(`knowledge candidate queued #${knowledge.qid}`);

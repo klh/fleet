@@ -199,7 +199,8 @@ const VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "gc",
-		usage: "usage: gc — governor.db housekeeping (archives audit/usage tables)",
+		usage:
+			"usage: gc — governor.db housekeeping (archives audit/usage tables; --forget prefix:days forgets a facts namespace by age)",
 		lax: true,
 		run: (p) => cmdGc(p.rest),
 	}),
