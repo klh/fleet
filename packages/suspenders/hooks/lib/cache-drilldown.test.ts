@@ -233,8 +233,8 @@ describe("mineOffenders + readMiningLines", () => {
 		process.env.SUSPENDERS_BUCKLE_DB = path;
 		try {
 			const a = mineOffenders(T0 + 3_600_000);
-			expect(a.offenders.map((o) => o.lane)).toEqual(["laneX", "laneY"]);
-			expect(a.offenders[0]?.topReason).toBe("streak");
+			expect(a?.offenders.map((o) => o.lane)).toEqual(["laneX", "laneY"]);
+			expect(a?.offenders[0]?.topReason).toBe("streak");
 			// deterministic artifact age: pinned at T0, not wall now (the
 			// wall-now build rotted 2026-10-19: T0+9d stopped exceeding maxAge)
 			const art = { at: T0, days: 7, offenders: a.offenders };
