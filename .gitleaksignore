@@ -78,3 +78,8 @@ packages/suspenders/test/hub-providers.test.ts:generic-api-key:42
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:102
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:163
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:189
+# W1238.4: migrate-provider-keys fixture, first-hand read 2026-10-23 —
+# synthetic "sk-value-12345678" written into a temp belt.env for the
+# migration roundtrip test, already marked scrub:allow on the same line
+# (W1124.8.2.2) — not a secret
+packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83
