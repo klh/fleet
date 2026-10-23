@@ -36,6 +36,46 @@ test("manual completion without summary or capsule refuses instead of writing un
 	expect(item.completion).toBeNull();
 });
 
+test("advertised two-token capsule closes a manual claim with an immutable completion record", () => {
+	const f = fixture();
+	const context = join(f.repo, ".fleet/lane-context.json");
+	const { claimToken } = JSON.parse(readFileSync(context, "utf8"));
+	rmSync(context);
+	const result = Bun.spawnSync(
+		[
+			process.execPath,
+			join(import.meta.dir, "../hooks/bin/coord.ts"),
+			"capsule",
+			"set",
+			"--as",
+			"completion-lane",
+			"--item",
+			f.id,
+			"--checkpoint",
+			f.sha,
+			"--done",
+			summary,
+			"--next",
+			"Independent review and merge",
+		],
+		{
+			cwd: f.repo,
+			env: { ...f.env, SUSPENDERS_KEV_URL: "http://127.0.0.1:1" },
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
+	expect(result.exitCode).toBe(0);
+	const done = f.work("done", f.id, "--sha", f.sha, "--token", claimToken);
+	expect(done.code).toBe(0);
+	const item = JSON.parse(f.work("show", f.id, "--json").out);
+	expect(item.state).toBe("DONE");
+	expect(item.completion.commit_sha).toBe(f.sha);
+	expect(item.completion.summary).toBe(summary);
+	expect(item.completion.completed_by).toBe("completion-lane");
+	expect(JSON.parse(item.completion.capsule_json).checkpoint).toBe(f.sha);
+});
+
 test("completion persists a paragraph with immutable commit evidence after owner is cleared", () => {
 	const f = fixture();
 	f.env.SUSPENDERS_KEV_URL = "http://127.0.0.1:1";
