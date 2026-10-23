@@ -4,5 +4,9 @@ node_modules/
 .fleet/
 .workgraph.jsonl
 .pilot-measure/
+*.db
+*.db-shm
+*.db-wal
+*.lane-cache.jsonl
 
 .worktrees/

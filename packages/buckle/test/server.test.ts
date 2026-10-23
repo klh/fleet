@@ -3,6 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	BUN_IDLE_TIMEOUT,
+	defaultDbPath,
 	FORBIDDEN_PORT,
 	MAX_REQUEST_BODY_BYTES,
 	resolvePort,
@@ -10,6 +11,27 @@ import {
 	startServer,
 } from "../src/server.ts";
 import { startMockUpstream } from "./mock.ts";
+
+// W1246: the dbPath default rides the runtime home — a bare "buckle.db"
+// (cwd-relative) is how the repo root grew db junk. env wins, home next,
+// bare fallback only when HOME is absent (test/CI conditions).
+describe("defaultDbPath (W1246)", () => {
+	test("BUCKLE_DB wins over the runtime home", () => {
+		expect(defaultDbPath({ BUCKLE_DB: "/x/y.db", HOME: "/tmp/h" })).toBe(
+			"/x/y.db",
+		);
+	});
+
+	test("runtime home default", () => {
+		expect(defaultDbPath({ HOME: "/tmp/h" })).toBe(
+			"/tmp/h/.claude/local-llm/buckle.db",
+		);
+	});
+
+	test("bare cwd fallback only without HOME", () => {
+		expect(defaultDbPath({})).toBe("buckle.db");
+	});
+});
 
 describe("resolvePort guard", () => {
 	test("4100 refused from explicit arg", () => {
