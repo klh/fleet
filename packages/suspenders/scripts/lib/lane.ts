@@ -11,6 +11,7 @@ import {
 	mergeLaneRegistry,
 } from "../../hooks/lib/lane-registry.ts";
 import { attachSubscribe } from "../../hooks/lib/subscribe-attach.ts";
+import { recordPhase, timedDispatchSpawn } from "./dispatch-phase-timing.ts";
 import { jobslabEnv, jobslabFor, jobslabPrefix } from "./jobslab.ts";
 
 // W422 surface consolidation law: the spawn-args adapter INTERFACE. Core
@@ -80,10 +81,15 @@ export function executorLaunch(
 		: { bin: nativeBin, env: {} };
 }
 
-export const sh = (cmd: string[], cwd = process.cwd()): string => {
+const shRaw = (cmd: string[], cwd = process.cwd()): string => {
 	const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
 	return `${p.stdout ? new TextDecoder().decode(p.stdout) : ""}`.trim();
 };
+
+// W1176: dispatch subprocess phase timing rides the shared helpers — every
+// caller (dispatch-next, supervise) is phase-attributed at no call-site cost.
+export const sh = (cmd: string[], cwd?: string): string =>
+	timedDispatchSpawn(shRaw, cmd, cwd);
 
 // W911 decomposition (dispatch-next hit the 1500-line law): the CLI prefix
 // builders + the residue probe hoist here — the shared fleet-script plumbing.
@@ -169,7 +175,7 @@ export const residueOf = (wt: string): string =>
 		})
 		.join("\n");
 
-export const run = (
+const runRaw = (
 	cmd: string[],
 	cwd = process.cwd(),
 ): { code: number; out: string } => {
@@ -179,6 +185,11 @@ export const run = (
 		out: `${p.stdout ? new TextDecoder().decode(p.stdout) : ""}${p.stderr ? new TextDecoder().decode(p.stderr) : ""}`.trim(),
 	};
 };
+
+export const run = (
+	cmd: string[],
+	cwd?: string,
+): { code: number; out: string } => timedDispatchSpawn(runRaw, cmd, cwd);
 
 // ONE liveness surface (W494.1): the hooks/lib probe replaced lane.ts's
 // inline ps/lsof folk-magic copy (which matched /claude|codex/ comms only,
@@ -227,13 +238,17 @@ export const BUCKLE_FRONT =
 export const probeBuckleFront = async (
 	front = BUCKLE_FRONT,
 ): Promise<string | null> => {
+	const t = performance.now();
 	try {
 		const r = await fetch(`${front}/status`, {
 			signal: AbortSignal.timeout(600),
 		});
-		return r.ok ? front : null;
+		const ok = r.ok;
+		return ok ? front : null;
 	} catch {
 		return null;
+	} finally {
+		recordPhase("probe.buckle-front", performance.now() - t);
 	}
 };
 

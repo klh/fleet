@@ -8,6 +8,7 @@ import { quotaProviderPenalty } from "../../hooks/lib/exec-quota.ts";
 import { cvMap } from "../../hooks/lib/executor-cv.ts";
 import { openStore } from "../../hooks/lib/govdb.ts";
 import type { StarterSeedFailure } from "./lane-starter.ts";
+import { recordPhase } from "./dispatch-phase-timing.ts";
 import { ANSI } from "./ready-pool.ts";
 
 export type DispatchLane = {
@@ -142,11 +143,17 @@ export class RouteAdmission {
 		model: string | null,
 	): Promise<{ pause: boolean; failures: number; reason?: string | null }> {
 		if (!this.enabled || !model) return { pause: false, failures: 0 };
-		if (!this.rows.has(model))
-			this.rows.set(
-				model,
-				await fetchBuckleRouteAudit(await this.front(), this.token(), model),
-			);
+		if (!this.rows.has(model)) {
+			const t = performance.now();
+			try {
+				this.rows.set(
+					model,
+					await fetchBuckleRouteAudit(await this.front(), this.token(), model),
+				);
+			} finally {
+				recordPhase("admission.audit", performance.now() - t);
+			}
+		}
 		const rows = this.rows.get(model) ?? null;
 		// null = front down/401/timeout/odd shape — no evidence, not an empty
 		// history (a reachable authenticated `requests: []` is rows === [])

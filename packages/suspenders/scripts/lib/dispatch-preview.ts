@@ -12,6 +12,7 @@ import { plaidPickOf, plaidRoutes } from "../../hooks/lib/plaid.ts";
 import { effortFromShow } from "../../hooks/lib/work-effort.ts";
 import { composeBrief } from "./brief.ts";
 import { briefVerdictLine, verifyBrief } from "./brief-verify.ts";
+import { recordPhase } from "./dispatch-phase-timing.ts";
 import { cvSnapshot, quotaSnapshot } from "./dispatch-admission.ts";
 import { execPick } from "./exec-chain.ts";
 import { fleetReport } from "./fleet-report.ts";
@@ -55,28 +56,33 @@ export const composeDispatchBrief = (
 	d: DispatchPreviewDeps,
 	a: DispatchBriefArgs,
 ): { brief: string; intel: ReturnType<typeof briefIntel> } => {
-	const intel = briefIntel(d.REPO, `${a.item} ${a.show.out}`);
-	const brief = composeBrief({
-		item: a.item,
-		showOut: a.show.out,
-		sid: a.sid,
-		branch: a.branch,
-		worktree: a.wt,
-		capsule: a.capsule,
-		itemCapsule: d.itemCapsuleGet(a.item),
-		agent: a.pick.agent,
-		effort: effortFromShow(a.show.out),
-		effortPolicy: laneEffortBriefLine(d.REPO, a.item),
-		...(a.landing !== undefined ? { landing: a.landing } : {}),
-		intel,
-		fleetReport: fleetReport(d.REPO),
-		extra: [
-			...d.routingExtra(),
-			...a.resumeBrief,
-			...d.policyBriefExtra(projectIdentity(d.REPO)),
-		],
-	});
-	return { brief, intel };
+	const t = performance.now();
+	try {
+		const intel = briefIntel(d.REPO, `${a.item} ${a.show.out}`);
+		const brief = composeBrief({
+			item: a.item,
+			showOut: a.show.out,
+			sid: a.sid,
+			branch: a.branch,
+			worktree: a.wt,
+			capsule: a.capsule,
+			itemCapsule: d.itemCapsuleGet(a.item),
+			agent: a.pick.agent,
+			effort: effortFromShow(a.show.out),
+			effortPolicy: laneEffortBriefLine(d.REPO, a.item),
+			...(a.landing !== undefined ? { landing: a.landing } : {}),
+			intel,
+			fleetReport: fleetReport(d.REPO),
+			extra: [
+				...d.routingExtra(),
+				...a.resumeBrief,
+				...d.policyBriefExtra(projectIdentity(d.REPO)),
+			],
+		});
+		return { brief, intel };
+	} finally {
+		recordPhase("brief.compose", performance.now() - t);
+	}
 };
 
 /** The --dry-run branch of dispatchItem, moved from dispatch-next.ts:
