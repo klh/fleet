@@ -32,6 +32,7 @@ import {
 } from "../lib/event-relay.ts";
 import {
 	type GovernorStore,
+	type GovernorStatement,
 	knowledgeSqlViolation,
 	openGovernorDb,
 } from "../lib/govdb.ts";
@@ -290,9 +291,20 @@ const exec = (
 ): Record<string, unknown> => {
 	// W1173 — a SQL failure is a typed refusal body, never a bare 500 or a raw
 	// thrown string: one envelope on both transports (W716 admission-refusal
-	// shape). `executed: false` — a refused statement never proves execution.
+	// shape). W1173.1 — the executed evidence is PHASE-TRUTHFUL: a prepare-time
+	// refusal proves the statement never stepped (executed:false); a run-time
+	// failure does NOT (SQLite conflict clauses — UPDATE OR FAIL — keep the
+	// failing statement's own pre-error row changes), so it reports
+	// executed:"unknown" and never reads as a blind-retry invitation.
+	let st: GovernorStatement;
 	try {
-		const st = conn.query(sql);
+		st = conn.query(sql);
+	} catch (e) {
+		const refusal = classifySqlFailure(e);
+		if (!refusal) throw e;
+		return { ...refusal, executed: false };
+	}
+	try {
 		if (mode === "get") return { row: st.get(...params) ?? null };
 		if (mode === "all") return { rows: st.all(...params) };
 		const r = st.run(...params);
@@ -302,8 +314,8 @@ const exec = (
 		return { changes: r.changes, lastInsertRowid };
 	} catch (e) {
 		const refusal = classifySqlFailure(e);
-		if (refusal) return refusal;
-		throw e;
+		if (!refusal) throw e;
+		return { ...refusal, executed: "unknown" };
 	}
 };
 
