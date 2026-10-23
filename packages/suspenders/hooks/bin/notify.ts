@@ -98,7 +98,7 @@ function load(): NotifyConfig | null {
 async function run(): Promise<void> {
 	const cfg = load();
 	if (!cfg) {
-		log("no notify.yaml — idle (see examples/notify.example.yaml)");
+		log("no notify.yaml — idle (see docs/notify.example.yaml)");
 		await new Promise<void>(() => {});
 		return;
 	}
