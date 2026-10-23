@@ -4,6 +4,7 @@
 // against an isolated temp HOME (never the live governor.db) and must behave
 // byte-compatibly with the pre-port file binding; GOVERNOR_STORE_URL is
 // pinned empty so a dev-shell remote binding cannot leak into the children.
+import { freePort } from "@klh/test-kit";
 import { describe, test, expect, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -53,12 +54,6 @@ const run = (
 
 // W92.3: HTTP-transport proof — the store server under this temp HOME, so the
 // consumer children can bind GOVERNOR_STORE_URL to a live wire binding.
-const freePort = async (): Promise<number> => {
-	const s = Bun.serve({ port: 0, fetch: () => new Response("ok") });
-	const p = s.port;
-	s.stop(true);
-	return p;
-};
 const startServer = async (port: number): Promise<string> => {
 	const p = Bun.spawn(["bun", SERVER, "--port", String(port)], {
 		env: childEnv(),

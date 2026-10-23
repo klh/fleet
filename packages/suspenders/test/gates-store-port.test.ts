@@ -5,6 +5,7 @@
 // same port, and the lock row lands in the SERVER's governor.db. Every
 // child gets an isolated temp HOME (never the live governor.db); the server
 // owns that HOME's db file, the children never open it locally.
+import { freePort } from "@klh/test-kit";
 import { describe, test, expect, afterAll, beforeAll } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -26,13 +27,6 @@ afterAll(() => {
 	rmSync(home, { recursive: true, force: true });
 	rmSync(repo, { recursive: true, force: true });
 });
-
-const freePort = async (): Promise<number> => {
-	const s = Bun.serve({ port: 0, fetch: () => new Response("ok") });
-	const p = s.port;
-	s.stop(true);
-	return p;
-};
 
 let url = "";
 const boot = async (): Promise<void> => {

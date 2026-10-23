@@ -6,6 +6,7 @@
 // mock LLM that answers SLOWER than the default idle window (12s) still
 // returns 200 to the client. The application deadlines are untouched —
 // orch.ts AbortSignal.timeout(120_000) and the UI's 130s stand.
+import { waitUp } from "@klh/test-kit";
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 // spawn-heavy suite: the mock holds 12s of socket silence past Bun's 10s
@@ -90,23 +91,9 @@ afterAll(async () => {
 	rmSync(REPO, { recursive: true, force: true });
 });
 
-async function waitUp(): Promise<void> {
-	for (let i = 0; i < 150; i++) {
-		try {
-			if (
-				(await fetch(`${BASE}/api/data`, { signal: AbortSignal.timeout(500) }))
-					.ok
-			)
-				return;
-		} catch {}
-		await new Promise((r) => setTimeout(r, 100));
-	}
-	throw new Error(`board did not start on ${BASE}: ${output}`);
-}
-
 describe("board transport: no idle cutoff on slow agent paths (W1114)", () => {
 	test("a 12s LLM proposal (past Bun's 10s default idle) still returns 200", async () => {
-		await waitUp();
+		await waitUp(`${BASE}/api/data`, { tries: 150 });
 		const token = readFileSync(
 			join(HOME, ".cache", "claude-governor", "write-token"),
 			"utf8",

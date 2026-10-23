@@ -3,6 +3,7 @@
 // the seeded ledger + projection dbs (honest sections, no fabricated zeros),
 // /console/buckle renders the klh-network-card host with the SSR seed, and
 // /api/lane-routes stops 404ing once the projection db resolves.
+import { waitUp } from "@klh/test-kit";
 import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -102,17 +103,7 @@ const proc = Bun.spawn(
 		stderr: "pipe",
 	},
 );
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-async function waitUp() {
-	for (let i = 0; i < 100; i++) {
-		try {
-			if ((await fetch(`${BASE}/api/data`)).ok) return;
-		} catch {}
-		await sleep(100);
-	}
-	throw new Error("network test board did not start");
-}
-await waitUp();
+await waitUp(`${BASE}/api/data`);
 
 afterAll(async () => {
 	proc.kill();

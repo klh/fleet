@@ -4,6 +4,7 @@
 // HOME and BELT_POLICY pinned to a TEMP COPY of the policy — never the live
 // belt policy, never the committed default.
 
+import { waitUp } from "@klh/test-kit";
 import { afterAll, describe, expect, test } from "bun:test";
 import {
 	mkdirSync,
@@ -74,17 +75,7 @@ const proc = Bun.spawn(
 	["bun", join(bin, "fleet-board.ts"), "--port", String(PORT)],
 	{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
 );
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-async function waitUp() {
-	for (let i = 0; i < 100; i++) {
-		try {
-			if ((await fetch(`${BASE}/api/data`)).ok) return;
-		} catch {}
-		await sleep(100);
-	}
-	throw new Error("console test board did not start");
-}
-await waitUp();
+await waitUp(`${BASE}/api/data`);
 
 afterAll(async () => {
 	proc.kill();

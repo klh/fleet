@@ -7,6 +7,7 @@
 // Every subprocess runs against an isolated temp HOME created under the repo
 // (never /tmp — the bash gate exempts /tmp paths by design) and never opens
 // the live governor.db.
+import { freePort } from "@klh/test-kit";
 import { describe, test, expect, afterAll, beforeAll } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -59,13 +60,6 @@ const runIn = (code: string, env: Record<string, string> = {}): string => {
 	});
 	if (p.exitCode !== 0) throw new Error(`spawn failed: ${p.stderr.toString()}`);
 	return p.stdout.toString();
-};
-
-const freePort = async (): Promise<number> => {
-	const s = Bun.serve({ port: 0, fetch: () => new Response("ok") });
-	const p = s.port;
-	s.stop(true);
-	return p;
 };
 
 const startServer = async (

@@ -8,6 +8,7 @@ export {
 export { type CliResult, type RunCliOpts, runCli } from "./run-cli.ts";
 export {
 	freePort,
+	freePortSync,
 	type WaitUpOpts,
 	waitUp,
 } from "./ports.ts";

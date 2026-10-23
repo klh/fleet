@@ -4,6 +4,7 @@
 // test file awaits its own instance via top-level await, so hooks stay
 // bound to the importing file. Bodies moved verbatim from
 // fleet-board.test.ts lines 22-157.
+import { freePortSync as unusedPort, waitUp as kitWaitUp } from "@klh/test-kit";
 import { expect } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
@@ -25,16 +26,7 @@ type Row = Record<string, unknown>;
 
 // Let the OS choose an unused loopback port; fixed test ports can silently
 // attach to a board left by another run and use its unrelated write token.
-export function unusedPort(): number {
-	const server = Bun.serve({
-		hostname: "127.0.0.1",
-		port: 0,
-		fetch: () => new Response(),
-	});
-	const port = server.port;
-	server.stop(true);
-	return port;
-}
+export { unusedPort };
 
 export async function boardFixture(
 	PORT: number,
@@ -251,22 +243,7 @@ export async function boardFixture(
 	function setDemoProc(p: Bun.Subprocess | null): void {
 		demoProc = p;
 	}
-	async function waitUp(base: string) {
-		for (let i = 0; i < 100; i++) {
-			try {
-				if (
-					(
-						await fetch(`${base}/api/data`, {
-							signal: AbortSignal.timeout(500),
-						})
-					).ok
-				)
-					return;
-			} catch {}
-			await sleep(100);
-		}
-		throw new Error(`fleet board did not start on ${base}: ${output}`);
-	}
+	const waitUp = (base: string): Promise<void> => kitWaitUp(`${base}/api/data`);
 	afterAll(async () => {
 		proc.kill();
 		await proc.exited;
