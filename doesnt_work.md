@@ -188,3 +188,14 @@ health circuit can replace a real typed refusal with an untyped synthetic 429
 and a long Retry-After. The fixture retains that failing arm alongside recovery
 with explicit remote metadata. Unknown 429, auth, server and network failures
 remain circuit-protected; no provider-capacity increase was demonstrated.
+# W1124.28 — local lease release is not provider cancellation
+
+The actual-proxy fixture in
+`packages/belt/test/litellm-cancellation.test.ts` reproduces a missing
+`general_settings.cancel_on_disconnect` setting. With monitoring off, Buckle
+has zero held leases 150 ms after caller abort while pre-header provider work
+remains active. Nonstream work finishes at its 1200 ms deadline; streaming
+work is only cancelled after its delayed headers arrive around 600 ms.
+Midstream cleanup already works in both arms. This demonstrates a local
+accounting gap, not a measured real-provider concurrency limit or proof of
+historical abandoned Z.ai requests.
