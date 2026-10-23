@@ -279,25 +279,23 @@ export function testRelocationDelta(
 	while (p < parts.length) {
 		const status = parts[p++];
 		if (status === "") continue;
-		let path = parts[p++];
-		// R/C rows carry <status><score>\0<src>\0<dst>
-		const score = status.slice(1);
-		if (score !== "" && !/^\d+$/.test(score)) {
-			// not a rename row after all: treat as path-less stray and stop
-			return { balanced: false, why: "cannot parse candidate name-status" };
-		}
-		let srcPath = path;
-		if (status.startsWith("R") || status.startsWith("C")) {
-			srcPath = parts[p++]; // not used beyond parsing; dst is authoritative
+		// -z name-status: M/A/D rows carry one path; R/C rows carry src, dst
+		const renamed = status.startsWith("R") || status.startsWith("C");
+		let srcPath: string;
+		let path: string;
+		if (renamed) {
+			srcPath = parts[p++];
 			path = parts[p++];
+		} else {
+			srcPath = path = parts[p++];
 		}
+		const score = renamed ? status.slice(1) : "";
 		if (TEST_FILE.test(path)) {
 			if (++scanned > MAX_TEST_FILES)
 				return {
-					bedrock: undefined,
 					balanced: false,
 					why: "cannot prove relocation within 400 changed test files",
-				} as never;
+				};
 			const oldSrc = blobText(repo, before, path);
 			const newSrc = blobText(repo, tree, path);
 			totalBytes += (oldSrc?.length ?? 0) + (newSrc?.length ?? 0);

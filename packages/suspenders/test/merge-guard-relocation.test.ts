@@ -12,7 +12,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
 	TEST_FILE,
 	testEvidence,
@@ -56,8 +56,10 @@ function fixture(files: Record<string, string>): {
 	git(repo, "config", "user.email", "test@example.invalid");
 	mkdirSync(dirOf(repo), { recursive: true });
 	writeFileSync(join(repo, "base.ts"), "export const base = 1;\n");
-	for (const [name, content] of Object.entries(files))
+	for (const [name, content] of Object.entries(files)) {
+		mkdirSync(dirname(join(repo, name)), { recursive: true });
 		writeFileSync(join(repo, name), content);
+	}
 	git(repo, "add", "-A");
 	git(repo, "commit", "-m", "base");
 	return { repo, before: git(repo, "rev-parse", "HEAD").out };
@@ -316,7 +318,7 @@ test("POSITIVE against the actual W1216 split: 30 tests preserved verbatim", () 
 	const head = lane(repo, (r) => {
 		for (const f of suiteFiles)
 			writeFileSync(
-				join(r, f),
+				join(r, TESTDIR, f),
 				git(".", "show", `${base}:${TESTDIR}/${f}`).out,
 			);
 		mkdirSync(join(r, TESTDIR, "helpers"), { recursive: true });
@@ -353,6 +355,8 @@ test("guard integration: eroded relocation rejects the candidate merge", () => {
 			names.map((n) => `test(${JSON.stringify(n)}, () => {});\n`).join(""),
 		);
 	});
+	// the guard resolves `before` from HEAD — it must merge INTO main
+	git(repo, "checkout", "-q", "main");
 	const result = guardedMerge({
 		repo,
 		callerRepo: repo,
@@ -384,6 +388,8 @@ test("guard integration: proven relocation publishes the candidate merge", () =>
 				.join(""),
 		);
 	});
+	// the guard resolves `before` from HEAD — it must merge INTO main
+	git(repo, "checkout", "-q", "main");
 	const result = guardedMerge({
 		repo,
 		callerRepo: repo,
