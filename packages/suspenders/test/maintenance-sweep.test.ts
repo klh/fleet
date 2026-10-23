@@ -8,6 +8,7 @@ import { join } from "node:path";
 import {
 	createMaintenanceSweep,
 	isDue,
+	MAINTENANCE_TASKS,
 	missingRunners,
 	readStamps,
 	suspendersRoot,
@@ -150,6 +151,12 @@ describe("maintenance sweep (W779)", () => {
 	test("registry guard: every folded runner resolves at the package root", () => {
 		expect(missingRunners()).toEqual([]);
 		expect(suspendersRoot()).toContain("suspenders");
+	});
+	test("registry order: zai-catalog-refresh directly after openrouter-free-refresh (W1029.1 serialization contract)", () => {
+		const names = MAINTENANCE_TASKS.map((task) => task.name);
+		expect(names.indexOf("zai-catalog-refresh")).toBe(
+			names.indexOf("openrouter-free-refresh") + 1,
+		);
 	});
 	test("stamps: corrupt or absent file reads as never-ran", () => {
 		writeFileSync(stampsPath, "not-json{");
