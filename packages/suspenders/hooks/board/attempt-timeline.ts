@@ -222,9 +222,11 @@ export function attemptTimelines(
 		for (const [id, wins] of windows) {
 			const cur = wins[wins.length - 1];
 			if (!cur) continue;
-			const lo = Math.max(cur.start, windowStart);
+			// The sweep ALWAYS spans the common window — pre-claim minutes stay
+			// in it as queue/unknown — or the timelines would not be comparable.
+			const lo = windowStart;
 			const hi = Math.min(cur.end || now, now);
-			if (lo >= hi) continue;
+			if (hi <= lo) continue;
 			const rows = bySid.get(cur.sid) ?? [];
 			const firstByteAt = rows.length ? rows[0].ts : null;
 			const pauseSpans: [number, number][] = [...(pauses.get(cur.sid) ?? [])];
@@ -247,7 +249,7 @@ export function attemptTimelines(
 					start: cur.start,
 					end: firstByteAt,
 				});
-			for (const [s, e] of toolSpans(rows, lo, hi))
+			for (const [s, e] of toolSpans(rows, windowStart, hi))
 				cands.push({ kind: "tool", prio: 2, start: s, end: e });
 			for (const [s, e] of pauseSpans)
 				cands.push({ kind: "pause", prio: 3, start: s, end: e });
@@ -270,7 +272,7 @@ export function attemptTimelines(
 						(a) =>
 							a.project === project &&
 							a.item === id &&
-							a.ts >= lo &&
+							a.ts >= windowStart &&
 							a.ts <= hi,
 					)
 					.map((a) => ({ ts: a.ts, commit: a.commit, stage: a.stage }))

@@ -29,9 +29,19 @@ test.beforeAll(async () => {
 		"CREATE TABLE router_usage (hour_bucket TEXT, key TEXT, model_group TEXT, model TEXT DEFAULT '', in_tok INTEGER DEFAULT 0, out_tok INTEGER DEFAULT 0, cache_r INTEGER DEFAULT 0, cache_c INTEGER DEFAULT 0, requests INTEGER DEFAULT 0)",
 	);
 	d.run("INSERT INTO api_keys VALUES ('k1', 'autow887-x')");
+	// route_audit is the per-request attribution source (workSpendSeries
+	// fails soft to no-points without it — the hourly router_usage row alone
+	// stopped producing a series when attribution moved to per-request rows).
+	d.run(
+		"CREATE TABLE route_audit (ts TEXT, lane TEXT, in_tok INTEGER, out_tok INTEGER, cache_r INTEGER, cache_c INTEGER)",
+	);
+	d.run(
+		"INSERT INTO route_audit VALUES (?, 'autow887-x', 500, 100, 50, 10)",
+		new Date().toISOString(),
+	);
 	d.run(
 		"INSERT INTO router_usage VALUES (?, 'k1', 'glm-5.3-flash', 'glm-5.3-flash', 500, 100, 50, 10, 3)",
-		[new Date().toISOString().slice(0, 13) + ":00"],
+		[`${new Date().toISOString().slice(0, 13)}:00`],
 	);
 	d.close();
 });
@@ -63,9 +73,9 @@ test("gui: lanes kanban paints the micro-strip sparkline + strip text", async ({
 		timeout: 20_000,
 	});
 	await expect(page.locator(".kspend .kspendtxt")).toContainText("% cache");
-	// the sparkline painted as inline SVG (fresh + cached polylines)
-	await expect(page.locator(".kspark svg polyline.spark-fresh")).toHaveCount(1);
-	await expect(page.locator(".kspark svg polyline.spark-cached")).toHaveCount(1);
+	// the sparkline painted as stacked inline-SVG bars (fresh + cached)
+	await expect(page.locator(".kspark svg rect.spark-fresh")).toHaveCount(1);
+	await expect(page.locator(".kspark svg rect.spark-cached")).toHaveCount(1);
 	// the tasks table carries the strip as the tok cell tooltip
 	await page.goto(`${b.BASE}/#tasks`);
 	await expect(
