@@ -806,21 +806,20 @@ describe("report — W892 supervisor micro-metrics", () => {
 		const dn = idOf(work("add", "report done item", "--by", "t").out);
 		expect(finish(dn, "lane-r2").code).toBe(0);
 		const out = work("report").out;
-		// W1131: board-vocabulary glyphs + §4 section headers replace letters
-		expect(out).toContain("working (");
-		expect(out).toContain("recent done (");
-		const rowOf = (id: string): string =>
-			out.split("\n").find((l) => l.startsWith(id)) ?? "";
-		expect(rowOf(a)).toContain("◐");
-		expect(rowOf(q)).toContain("·");
-		expect(rowOf(dn)).toContain("✓");
+		// W1131 §2: a piped call renders the markdown list (format by MEDIUM)
+		expect(out).toContain("**working (");
+		expect(out).toContain("**recent done (");
+		const lineOf = (id: string): string =>
+			out.split("\n").find((l) => l.includes(`[${id}]`)) ?? "";
+		expect(lineOf(a)).toContain("◐ working");
+		expect(lineOf(q)).toContain("· ready");
+		expect(lineOf(dn)).toContain("✓ done");
 		const ids = work("report", "--ids", `${a},${dn}`);
 		expect(ids.code).toBe(0);
-		const idRows = ids.out
-			.split("\n")
-			.filter((l) => l.startsWith(a) || l.startsWith(dn));
-		expect(idRows.length).toBe(2);
-		expect(ids.out.split("\n").some((l) => l.startsWith(q))).toBe(false);
+		const idLines = ids.out.split("\n");
+		expect(idLines.filter((l) => l.includes(`[${a}]`)).length).toBe(1);
+		expect(idLines.filter((l) => l.includes(`[${dn}]`)).length).toBe(1);
+		expect(idLines.some((l) => l.includes(`[${q}]`))).toBe(false);
 		const miss = work("report", "--ids", "W99999999");
 		expect(miss.code).toBe(2);
 		expect(miss.err).toContain("no such work item");

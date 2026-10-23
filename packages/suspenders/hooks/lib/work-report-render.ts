@@ -57,8 +57,7 @@ const padCell = (s: string, w: number, right = false): string => {
 
 /** §6 narrow default: a column whose cells are ALL empty hides; --wide
  *  shows everything. Empty = the —/- placeholder, never a measured 0. */
-const emptyCell = (v: string): boolean =>
-	v === "—" || v === "-" || v === "";
+const emptyCell = (v: string): boolean => v === "—" || v === "-" || v === "";
 
 interface Col {
 	header: string;
@@ -118,7 +117,8 @@ const COLUMNS: Col[] = [
 	{ header: "CONSULT", wide: true, cell: (i) => (i.consult ? "Y" : "N") },
 ];
 
-const SECTION_LABEL: Record<string, string> = {
+/** §4 section display labels — shared by every mode renderer. */
+export const SECTION_LABEL: Record<string, string> = {
 	needs_you: "needs you",
 	working: "working",
 	waiting: "waiting",
@@ -139,9 +139,11 @@ export interface RenderOpts {
  *  widths from the §12 cell fn; footer carries totals + the §6 summary. */
 export const renderTty = (c: ReportContract, o: RenderOpts): string => {
 	const cols = COLUMNS.filter((col) => Boolean(o.wide) || !col.wide);
-	const shown = cols.filter((col) =>
-		c.items.some((i) => !emptyCell(col.cell(i))),
-	);
+	// §6: narrow default hides columns empty on EVERY row; --wide shows all
+	// (the brief's "wide shows all" — empties render as — placeholders).
+	const shown = o.wide
+		? cols
+		: cols.filter((col) => c.items.some((i) => !emptyCell(col.cell(i))));
 	const hidden = cols.filter((col) => !shown.includes(col));
 	const widths = shown.map((col) =>
 		Math.max(col.header.length, ...c.items.map((i) => cellWidth(col.cell(i)))),
@@ -166,7 +168,13 @@ export const renderTty = (c: ReportContract, o: RenderOpts): string => {
 	for (const i of c.items) {
 		if (i.section !== prev) {
 			prev = i.section;
-			lines.push(ansi("2", `${SECTION_LABEL[i.section]} (${c.items.filter((x) => x.section === prev).length})`, Boolean(o.color)));
+			lines.push(
+				ansi(
+					"2",
+					`${SECTION_LABEL[i.section]} (${c.items.filter((x) => x.section === prev).length})`,
+					Boolean(o.color),
+				),
+			);
 		}
 		lines.push(row(i));
 	}
@@ -176,18 +184,14 @@ export const renderTty = (c: ReportContract, o: RenderOpts): string => {
 };
 
 /** §6/§7 footer: totals, lanes per hub, and the hidden-column summary. */
-export const footerLine = (
-	c: ReportContract,
-	hidden: Col[],
-): string => {
+export const footerLine = (c: ReportContract, hidden: Col[]): string => {
 	const bits = [
 		`tokens ${compactTokens(c.totals.input_tokens)}`,
 		`out ${compactTokens(c.totals.output_tokens)}`,
 		`cache saved ${compactTokens(c.totals.cache_read_tokens)}`,
 	];
 	const hubs = Object.entries(c.totals.lanes_per_hub);
-	if (hubs.length)
-		bits.push(hubs.map(([h, n]) => `${h}×${n}`).join(" "));
+	if (hubs.length) bits.push(hubs.map(([h, n]) => `${h}×${n}`).join(" "));
 	if (c.footer.lanes_other_projects)
 		bits.push(`+${c.footer.lanes_other_projects} in other repos`);
 	if (hidden.length)
@@ -202,7 +206,9 @@ export const renderMd = (c: ReportContract): string => {
 	for (const i of c.items) {
 		if (i.section !== prev) {
 			prev = i.section;
-			lines.push(`**${SECTION_LABEL[prev]} (${c.items.filter((x) => x.section === prev).length})**`);
+			lines.push(
+				`**${SECTION_LABEL[prev]} (${c.items.filter((x) => x.section === prev).length})**`,
+			);
 		}
 		const bits = [
 			`[${i.id}](${i.links.task})`,

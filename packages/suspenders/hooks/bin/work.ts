@@ -83,12 +83,7 @@ import { runMigrateLedger } from "../lib/work-migrate-ledger.ts";
 import { exportMirror, MIRROR_NAME, mirrorOrNull } from "../lib/work-mirror.ts";
 import { releaseWorkClaim } from "../lib/work-release.ts";
 import { GLYPH, renderRow, renderTimestamps } from "../lib/work-render.ts";
-import {
-	parseReportWindow,
-	reportRows,
-	reportTableLinkOpts,
-} from "../lib/work-report.ts";
-import { buildReportTable } from "../lib/work-report-render.ts";
+import { runReportVerb } from "../lib/work-report-verb.ts";
 import { retryFailedItem } from "../lib/work-retry.ts";
 import { mergeTags, validateTags } from "../lib/work-tags.ts";
 import { VERBS } from "../lib/work-verbs.ts";
@@ -687,22 +682,17 @@ const dispatchVerb = async (
 			}),
 		);
 	} else if (name === "report") {
-		// W892: the supervisor micro-metrics table — the ONE reply table
-		// (supersedes the W865 prose list). Riding + queued + recent-done,
-		// or strict --ids. A bad window dies at the parse boundary.
-		const winRaw = flag("--done-window");
-		const doneWindowMs = winRaw ? parseReportWindow(winRaw) : null;
-		if (winRaw && doneWindowMs === null)
-			die("report: bad --done-window — try 45m | 12h | 2d (s/m/h/d, ≤30d)");
-		const ids = idList([...pos, ...(flag("--ids") ?? "").split(",")]);
-		const { rows, missing } = reportRows(db() as unknown as Database, PROJECT, {
-			ids,
-			doneWindowMs: doneWindowMs ?? undefined,
-			now: Date.now(),
+		// W1131: the §2/§10/§11 verb body lives in hooks/lib/work-report-verb.ts
+		// (work.ts is pinned near the 1500-line cap) — the thin door hands the
+		// parsed face over; every die path + render comes from the library.
+		await runReportVerb({
+			db: db() as unknown as Database,
+			project: PROJECT,
+			pos,
+			flag,
+			rest,
+			die,
 		});
-		if (missing.length > 0)
-			die(`no such work item in this project: ${missing[0]}`);
-		console.log(buildReportTable(rows, reportTableLinkOpts()));
 	} else if (name === "show") {
 		const json = flag("--json");
 		for (const id of idList(pos)) showOne(id, Boolean(json));

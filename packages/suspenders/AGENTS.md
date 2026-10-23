@@ -22,9 +22,13 @@ consulted (the event payloads carry the item link, W909). A CACHE cell
 suffixed `*` = the item's attributed spend includes cache-blind-era ledger
 rows (pre-2026-10-19T10Z `router_usage` carries cache≈0 — W943.1): read
 that number as a floor, never a measurement
-(docs/decant-crosscheck-2026-10-19.md). ST: R riding · Q queued · D done · F failed. Item ids double as
-`#lanes?w=<id>` deep-links (W890). Do not hand-roll the table — the
-reporter computes the pads; prose tick lines are a regression.
+(docs/decant-crosscheck-2026-10-19.md). ST glyphs (W1131 §3, board
+vocabulary): · ready · ○ waiting · ◐ working · ⊘ blocked · ✗ failed ·
+✓ done · – cancelled — glyph + word, never colour alone; unreported
+metrics render `—` (unknown ≠ measured 0, §5). Item ids double as
+`#task=<id>&proj=<project>` deep-links (W890/W1131 §9). Do not hand-roll
+the table — the reporter computes the pads; prose tick lines are a
+regression.
 (The installed face `bun ~/.claude/hooks/suspenders/bin/fleet-report.ts` is a verbatim shim over the verb — W913.)
 
 ## Protocol

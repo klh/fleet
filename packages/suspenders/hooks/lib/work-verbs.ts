@@ -222,7 +222,17 @@ export const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "report",
 		usage:
-			"usage: report [--ids w1,w2] [--done-window 2d] — the supervisor micro-metrics table (ITEM/ST/TASK/TOKENS/CACHE/OUT-MIN/AGENT); rows = riding+queued+recent-done (default window 48h) or strict --ids",
-		flags: ["--ids", "--done-window"],
+			"usage: report [--ids w1,w2] [--done-window 2d] [--format tty|md|plain|json] [--tree|--delta|--statusline|--watch] [--mine|--all] [--wide] [--no-color] — the ONE shared lane report (W1131): §1 contract, §2 format-by-MEDIUM, §10 modes, §11 scoping",
+		flags: ["--ids", "--done-window", "--format", "--as"],
+		switches: [
+			"--tree",
+			"--delta",
+			"--statusline",
+			"--watch",
+			"--wide",
+			"--no-color",
+			"--mine",
+			"--all",
+		],
 	}),
 ];

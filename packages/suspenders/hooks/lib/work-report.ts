@@ -388,7 +388,7 @@ export const reportRows = (
 		);
 	}
 	const liveMap = new Map(opts.live?.map((l) => [l.sid, l]));
-	const rows = toReportRows(
+	const builtRows = toReportRows(
 		items,
 		itemAttribution(
 			db,
@@ -402,6 +402,12 @@ export const reportRows = (
 		opts.stallMs ?? stallThresholdMs(),
 		now,
 	);
+	// §11 --mine: keep only rows claimed by this sid (the owner_sid join);
+	// unset/null keeps the whole pool.
+	const rows =
+		opts.mineSid == null
+			? builtRows
+			: builtRows.filter((r) => r.ownerSid === opts.mineSid);
 	// §4 actionable-first: needs_you (decision > failed > stalled) → working →
 	// waiting → done; id ascending inside each section (W964 stability).
 	// --ids strict mode keeps CALLER order — only the pool sorts.
@@ -521,8 +527,8 @@ export const buildReportContract = (
 			// §5: unreported OTel split falls back to the merged `cached` (the
 			// W1070 stamp truth) — totals never render a measured 0 for a
 			// cache figure the cells DO report.
-			cache_read_tokens: sum((r) =>
-				r.cacheRead ?? (r.spendReported ? r.cached : 0),
+			cache_read_tokens: sum(
+				(r) => r.cacheRead ?? (r.spendReported ? r.cached : 0),
 			),
 			cache_creation_tokens: sum((r) => r.cacheCreation ?? 0),
 			requests: sum((r) => r.requests ?? 0),

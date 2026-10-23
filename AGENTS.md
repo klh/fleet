@@ -67,6 +67,15 @@ depends on fleet; local-only until its GitHub push — W422.9/W422.1).
 
 ## Supervisor reporting (W892, installed face W899/W906)
 
+W1131 (2026-10-23): the verb renders FROM one versioned JSON contract
+(`--format json`, schema_version 1, OTel GenAI usage keys) and every other
+view — the tty/md/plain table, --tree, --delta, --statusline, --watch —
+renders FROM that same contract, so CLI and board cannot disagree. Formats
+choose by MEDIUM (tty on a terminal, md on a pipe, plain = TSV); scoping =
+project default / --mine / --all; unreported metrics render `—` (unknown
+≠ measured 0); §4 actionable-first sections (needs you → working → waiting
+→ recent done) surface the stalled lanes a flat R list buries.
+
 `work report` (verb) — with `bun ~/.claude/hooks/suspenders/bin/fleet-report.ts`
 as its installed-face shim (argv-verbatim passthrough, W913) — renders THE
 supervisor reply table (owner GO 2026-10-19): rows = riding + queued +
