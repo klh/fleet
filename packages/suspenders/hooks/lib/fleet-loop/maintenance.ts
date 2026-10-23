@@ -119,10 +119,15 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		name: "auto-install",
 		everySeconds: 300,
 		timeoutMs: 300_000,
+		// W1243: auto-install's --repo is the PACKAGE root install.sh lives in
+		// (it derives the fleet root itself); the heartbeat's repo is the
+		// fleet root — passing it verbatim left install.sh a 127-forever
+		// no-op (2026-10-23: the stale-harness poisoning stood unhealed all
+		// day because the self-heal never ran).
 		argv: (root, repo) => [
 			join(root, "scripts/auto-install.ts"),
 			"--repo",
-			repo,
+			join(repo, "packages/suspenders"),
 		],
 		cwd: (repo) => repo,
 	},
