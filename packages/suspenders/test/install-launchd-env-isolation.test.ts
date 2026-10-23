@@ -9,6 +9,7 @@ import {
 	validateSpec,
 } from "../scripts/install-services.ts";
 import { clearInheritedLaunchctlEnv } from "../scripts/install-launchd.ts";
+import { readActivation } from "../scripts/lib/service-drift.ts";
 
 const NAMES = ["BELT_ESCALATE_URL", "BELT_ESCALATE_KEY", "BELT_ESCALATE_MODEL"];
 
@@ -106,4 +107,104 @@ test("installer clears stale global values without printing their contents", asy
 		stdout: args[0] === "getenv" ? "still-set" : "",
 	});
 	expect(await clearInheritedLaunchctlEnv([NAMES[0]], stuck)).toBe(false);
+});
+
+// W1104: a stale launchctl global that cannot be cleared must refuse the unit
+// AND leave the activation receipt without a false activation record.
+const activationFixture = (root: string): string => {
+	const repo = join(root, "repo");
+	mkdirSync(join(repo, ".git"), { recursive: true });
+	mkdirSync(join(repo, "deploy"), { recursive: true });
+	writeFileSync(join(repo, "deploy/services.yaml"), "fixture manifest");
+	return JSON.stringify({
+		repo,
+		prefix: join(root, "prefix"),
+		shimBin: join(root, "bin"),
+		llmHome: join(root, "models"),
+		yes: true,
+		dryRun: false,
+		json: true,
+		verbose: true,
+	});
+};
+
+const staleActivationScript = `import {mock} from "bun:test";import{mkdirSync,writeFileSync}from"node:fs";import{join}from"node:path";import{createRequire}from"node:module";
+const home=process.env.HOME;const agents=join(home,"Library/LaunchAgents");mkdirSync(agents,{recursive:true});
+const stale=new Map([["BELT_ESCALATE_URL","http://stale:4100"]]);
+mock.module(createRequire(process.argv[1]).resolve("execa"),()=>({execa:async(command,args)=>{
+ if(command===process.execPath&&args[0].endsWith("/scripts/route-preflight.ts"))return{exitCode:0,stdout:JSON.stringify({ok:true,mode:"live",findings:[],probes:[{reachable:true}],drills:[{ok:true}]})};
+ if(command===process.execPath){writeFileSync(join(agents,"com.suspenders.board.plist"),"board");return{stdout:JSON.stringify({services:[{service:"board",files:["com.suspenders.board.plist"],clearInheritedEnv:["BELT_ESCALATE_URL"]}]})};}
+ if(command==="bash")return{exitCode:0};
+ if(command==="/usr/bin/plutil")return{stdout:JSON.stringify({ProgramArguments:["/bun","/board.ts"],KeepAlive:true})};
+ if(command==="/bin/launchctl"){
+  if(args[0]==="print")return{exitCode:0,stdout:process.env.PRINT_OUT||""};
+  if(args[0]==="getenv")return{exitCode:0,stdout:process.env.STUCK==="1"?(stale.get(args[1])??""):(stale.delete(args[1]),"")};
+  if(args[0]==="unsetenv"){if(process.env.STUCK!=="1")stale.delete(args[1]);return{exitCode:0,stdout:""};}
+ }
+ if(command==="launchctl")return{exitCode:0};
+ throw Error("unexpected subprocess");}}));
+const{registerLaunchd}=await import(process.argv[1]);const result=await registerLaunchd(JSON.parse(process.argv[2]));console.log(JSON.stringify(result));`;
+
+const runStaleActivation = async (
+	home: string,
+	fixture: string,
+	stuck: boolean,
+) => {
+	const child = Bun.spawn(
+		[
+			process.execPath,
+			"-e",
+			staleActivationScript,
+			join(import.meta.dir, "../scripts/install-launchd.ts"),
+			fixture,
+		],
+		{
+			env: {
+				...process.env,
+				HOME: home,
+				PRINT_OUT: "\n\targuments = {\n\t\t/bun\n\t\t/board.ts\n\t}\n",
+				STUCK: stuck ? "1" : "",
+			},
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
+	const [code, out, error] = await Promise.all([
+		child.exited,
+		new Response(child.stdout).text(),
+		new Response(child.stderr).text(),
+	]);
+	return { code, out, error };
+};
+
+test("unclearable stale launchctl global refuses activation and records no receipt service", async () => {
+	const root = mkdtempSync(join(tmpdir(), "w1104-receipt-"));
+	try {
+		const fixture = activationFixture(root);
+		const stuckHome = join(root, "stuck");
+		const stuck = await runStaleActivation(stuckHome, fixture, true);
+		expect(stuck.code).toBe(0);
+		const stuckResult = JSON.parse(stuck.out);
+		expect(stuckResult.status).toBe("failed");
+		expect(stuckResult.detail).toContain(
+			"stale launchctl environment could not be cleared",
+		);
+		const stuckReceipt = readActivation(
+			join(stuckHome, ".config/klh/service-activation.json"),
+		);
+		expect(stuckReceipt.services).toHaveLength(0);
+		// positive control: clearable stale globals proceed and get recorded
+		const honestHome = join(root, "honest");
+		const honest = await runStaleActivation(honestHome, fixture, false);
+		expect(honest.code).toBe(0);
+		expect(JSON.parse(honest.out).status).toBe("ok");
+		const honestReceipt = readActivation(
+			join(honestHome, ".config/klh/service-activation.json"),
+		);
+		expect(honestReceipt.services.map((service) => service.label)).toEqual([
+			"com.suspenders.board",
+		]);
+	} finally {
+		rmSync(root, { recursive: true, now: true });
+	}
 });
