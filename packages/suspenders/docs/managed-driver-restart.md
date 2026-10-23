@@ -17,6 +17,25 @@ No directory is deleted or silently discarded. The existing runtime
 artifacts `.fleet/`, `.klh-brief.md` and `node_modules` path segments remain
 excluded; similarly named source files remain included.
 
+## Missing registry after intentional retirement
+
+A pending managed restart journal prevents canonical registry pruning even
+when the retired wrapper PID is absent. Unreadable journals remain uncertain.
+After durable STARTED registration, ordinary dead-lane pruning is available
+again only when the exact new wrapper PID/birth matches the canonical intent
+and journal SID/item/tree match the registry. Observational verification does
+not need to mutate the journal. Missing or contradictory proof stays protected.
+
+If a registry row was already pruned, the same restart command can locate
+the original retired journal through the current exact claimant and Git's
+registered item worktree. Preview changes no registry records. Recovery still
+requires the original claim token/context, PAUSED Git checkpoint, native UUID,
+settings/key, transcript and runtime hashes, and both old PIDs proven absent.
+Only the actual new silently paused wrapper is registered; an immutable audit
+event binds its new identity to the original journal. No old row is invented,
+claim retaken, key replaced, or uncertain starting phase replayed. A competing
+registry incarnation or changed evidence refuses recovery.
+
 Updating subscribers does not replace code already loaded by a managed lane
 driver. Use the installed runtime's canonical restart operation after the lane
 has reached a verified pause boundary.

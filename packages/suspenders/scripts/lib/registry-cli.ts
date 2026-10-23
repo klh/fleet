@@ -16,7 +16,10 @@ import {
 	type Parsed,
 	type VerbSpec,
 } from "../../hooks/lib/verb-kit.ts";
-import { pruneLaneRegistry } from "../../hooks/lib/lane-registry.ts";
+import {
+	pruneLaneRegistry,
+	pendingManagedRestart,
+} from "../../hooks/lib/lane-registry.ts";
 import { openStore } from "../../hooks/lib/govdb.ts";
 import { captureLaneDeaths } from "./lane-death-capture.ts";
 import {
@@ -101,6 +104,7 @@ export const pruneWarrant = (
 	/** W777: injected kill -0 probe result for row.pid — undefined = unprobed. */
 	pidLive?: boolean,
 ): PruneWarrant | null => {
+	if (pendingManagedRestart(row)) return null;
 	if (v === "dead") return "dead";
 	if (v !== "unknown") return null;
 	if (!row.pid)
@@ -200,6 +204,10 @@ const printPruneVerdict = (
 		);
 	else if (c.class === "refused-live")
 		console.log(`RETAINED ${sid} — live lane (probe confirmed); entry stays`);
+	else if (c.row && pendingManagedRestart(c.row))
+		console.log(
+			`RETAINED ${sid} — managed restart journal owns the continuation; use canonical restart recovery`,
+		);
 	else
 		console.log(
 			`RETAINED ${sid} — unknown liveness (probe uncertain; never force-pruned)`,
