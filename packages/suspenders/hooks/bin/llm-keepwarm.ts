@@ -8,55 +8,72 @@
 // `tier` → ~/.claude/local-llm/tier.json) — ONE emission for the swarm AND
 // this script, so the lockstep that was comment-only (the W500 crash root
 // cause: this list hardcoding the FULL tier) is structural now. 8912 Kev
-// excluded: launchd-managed separately. Missing/unreadable manifest fails
-// safe to the ≤4GB set — under-warming heals in one pass, warming past the
+// excluded: launchd-managed separately. Missing/unreadable manifest warms
+// nothing this pass — under-warming heals in one pass, warming past the
 // tier re-loads the 22GB reasoner forever.
+// W1119.2 single-buckle-inference: the warm completion rides the buckle gate
+// (model-as-data + prefer-local hint) — the direct :890x chat wire is
+// retired. Aliases resolve from the emitted direct-tiers catalog (port →
+// alias via base URL); tier ports with no chat alias (the rerank rung) drop
+// — the gate owns inference, a bare port cannot be warmed through it.
+// Default-on: this leg is local liveness (W1124.14 gates CLOUD legs, not
+// these).
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { buckleChat } from "../lib/inference-buckle.ts";
 
 const TIER_PATH =
 	process.env.BELT_TIER_MANIFEST ??
 	join(homedir(), ".claude", "local-llm", "tier.json");
-const PORTS: number[] = (() => {
+const TIERS_CATALOG = join(
+	homedir(),
+	".claude",
+	"local-llm",
+	"direct-tiers.json",
+);
+const tierDoc = (() => {
 	try {
-		const doc = JSON.parse(readFileSync(TIER_PATH, "utf8")) as {
+		return JSON.parse(readFileSync(TIER_PATH, "utf8")) as {
 			warm_ports?: unknown;
 		};
-		if (
-			Array.isArray(doc.warm_ports) &&
-			doc.warm_ports.every((p) => typeof p === "number" && p > 0 && p < 65536)
-		)
-			return doc.warm_ports as number[];
 	} catch {
-		// fall through to the fail-safe set
+		console.error(`keepwarm: no tier manifest at ${TIER_PATH} — no warm pass`);
+		return {};
 	}
-	console.error(`keepwarm: no tier manifest at ${TIER_PATH} — minimal set`);
-	return [8902, 8913];
 })();
+const catalogDoc = (() => {
+	try {
+		return JSON.parse(readFileSync(TIERS_CATALOG, "utf8")) as Record<
+			string,
+			unknown
+		>;
+	} catch {
+		return {};
+	}
+})();
+const targets = warmTargets(tierDoc, catalogDoc);
 
-async function ping(port: number): Promise<number> {
+async function warm(alias: string): Promise<number> {
 	const t0 = Date.now();
 	try {
-		const r = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({
-				messages: [{ role: "user", content: `warm ${Date.now()}` }],
-				max_tokens: 1,
-				temperature: 0,
-			}),
-			signal: AbortSignal.timeout(30_000),
-		});
-		if (!r.ok) throw new Error(String(r.status));
-		await r.text(); // consume the body so the connection closes cleanly
+		await buckleChat(
+			{
+				model: alias,
+				user: `warm ${String(Date.now())}`,
+				maxTokens: 1,
+				hint: "prefer local",
+				timeoutMs: 30_000,
+			},
+			process.env,
+		);
 		return Date.now() - t0;
 	} catch {
 		return -1;
 	}
 }
 
-const results = await Promise.all(PORTS.map(ping));
+const results = await Promise.all(targets.map((t) => warm(t.alias)));
 const tty = process.stdout.isTTY && !process.env.NO_COLOR;
 const paint =
 	(code: string) =>
@@ -67,11 +84,17 @@ const green = paint("32");
 const red = paint("31");
 const fmtMs = (ms: number) =>
 	ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
-const parts = PORTS.map((p, i) =>
+const parts = targets.map((t, i) =>
 	results[i] < 0
-		? red(`✗ :${p} down`)
-		: `${green("✓")} ${dim(`:${p}`)} ${dim(fmtMs(results[i]))}`,
+		? red(`✗ :${t.port} ${t.alias} down`)
+		: `${green("✓")} ${dim(`:${t.port} ${t.alias}`)} ${dim(fmtMs(results[i]))}`,
 );
+if (targets.length === 0)
+	console.log(
+		dim(
+			"keepwarm: no warmable tier aliases (manifest/catalog absent or disjoint)",
+		),
+	);
 console.log(
 	`${dim(`keepwarm ${new Date().toISOString()}`)}  ${parts.join("  ")}`,
 );
@@ -143,6 +166,7 @@ import {
 	cacheDrillEnabled,
 	fallbackDrillEnabled,
 	prefixWarmEnabled,
+	warmTargets,
 } from "../lib/keepwarm-gate.ts";
 
 {
