@@ -174,7 +174,12 @@ const prompt = [
 	`REVIEWED COMMIT ${boundContext.commit}; INTEGRATION BASE ${boundContext.base}`,
 	boundContext.text,
 	``,
-	`PROTOCOL (Sinai rule): a mechanical coverage proof backs this review — on PASS the diff is reverted in a scratch checkout and the branch's new tests are required to fail there; tests that pass without the change mean no coverage and downgrade the verdict to FAIL.`,
+	// W1243.1.1 (FAIL62885): the old sentence implied the reviewer would see
+	// proof output and the model refused PASS citing its absence. The ordering
+	// is binding and must be unambiguous: the proof is harness-run AFTER the
+	// provisional PASS; absent pre-verdict proof is not a finding.
+	`PROOF ORDERING (Sinai rule, binding): the coverage proof is mechanical and runs in this harness, AFTER your verdict. You may emit a provisional PASS first; the harness then reverts the branch diff in a scratch checkout and requires the branch's new tests to fail there — tests that pass without the change downgrade the final verdict to FAIL.`,
+	`No proof command or proof output appears in this prompt, by design. The absence of pre-verdict proof output is NOT a finding — do not open a blocker for missing coverage proof; fail-closed enforcement of the proof is the harness's job, not yours.`,
 	`MISSION (work show):`,
 	`${String(w.title)}${w.description ? ` — ${String(w.description)}` : ""}`,
 	`state: ${String(w.state)}; owner: ${String(w.owner_sid ?? "none")}`,
