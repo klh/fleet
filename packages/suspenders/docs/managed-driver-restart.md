@@ -4,7 +4,10 @@
 
 A pending managed restart journal prevents canonical registry pruning even
 when the retired wrapper PID is absent. Unreadable journals remain uncertain.
-After verification, ordinary dead-lane pruning is available again.
+After durable STARTED registration, ordinary dead-lane pruning is available
+again only when the exact new wrapper PID/birth matches the canonical intent
+and journal SID/item/tree match the registry. Observational verification does
+not need to mutate the journal. Missing or contradictory proof stays protected.
 
 If a registry row was already pruned, the same restart command can locate
 the original retired journal through the current exact claimant and Git's

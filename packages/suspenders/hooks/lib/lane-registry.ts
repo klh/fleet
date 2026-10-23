@@ -12,6 +12,8 @@ import {
 import { withFileLock } from "./file-lock.ts";
 import { isHarnessProcess } from "./lane-liveness.ts";
 import { basename, dirname, join, resolve } from "node:path";
+import { openStore } from "./govdb-store.ts";
+import { projectIdentity } from "./govdb-project.ts";
 import {
 	restartJournalPath,
 	privateJson,
@@ -24,6 +26,7 @@ export interface RegistryLane {
 	launchedAt?: number;
 	worktree?: string;
 	item?: string;
+	pid?: number;
 }
 
 /** Git's common directory identifies the primary checkout, including linked worktrees. */
@@ -126,12 +129,40 @@ export function pendingManagedRestart(row: RegistryLane): boolean {
 	if (!existsSync(path)) return false;
 	try {
 		const journal = privateJson<ClaudeRestartJournal>(path);
-		return (
-			journal.phase !== "verified" ||
+		if (
 			journal.snapshot.sid !== row.sid ||
 			journal.snapshot.item !== row.item ||
 			journal.snapshot.worktree !== row.worktree
-		);
+		)
+			return true;
+		if (
+			(journal.phase !== "started" && journal.phase !== "verified") ||
+			!journal.newWrapper ||
+			journal.newWrapper.pid !== row.pid
+		)
+			return true;
+		const store = openStore();
+		try {
+			const intent = store
+				.query(
+					"SELECT sid,pid,birth,state FROM lane_launch_intents WHERE project=? AND item=?",
+				)
+				.get(projectIdentity(row.worktree), row.item) as {
+				sid: string;
+				pid: number;
+				birth: string;
+				state: string;
+			} | null;
+			return (
+				!intent ||
+				intent.sid !== row.sid ||
+				intent.state !== "REGISTERED" ||
+				intent.pid !== journal.newWrapper.pid ||
+				intent.birth !== journal.newWrapper.birth
+			);
+		} finally {
+			store.close();
+		}
 	} catch {
 		return true;
 	}

@@ -112,6 +112,8 @@ test("canonical prune retains pending and uncertain restart journals under its l
 				snapshot: { sid: row.sid, item: row.item, worktree },
 			}),
 		);
+		expect(pruneLaneRegistry(root, [row.sid], () => true).removed).toEqual([]);
+		rmSync(path);
 		expect(pruneLaneRegistry(root, [row.sid], () => true).removed).toEqual([
 			row,
 		]);
@@ -300,6 +302,60 @@ test("missing registry binding comes only from original retired journal and real
 		writeFileSync(contextPath, context);
 		f.coord(["fact", "set", `lane.${f.sid}.state`, "RUNNING"]);
 		expect(read().error).toContain("canonical PAUSED");
+	} finally {
+		rmSync(f.home, { recursive: true, force: true });
+	}
+}, 10000);
+
+test("real checkpointed STARTED registration permits dead pruning without fabricated verification", () => {
+	const f = pausedLaneFixture();
+	const sourceRoot = new URL("../", import.meta.url).pathname;
+	const script = `
+const root=process.env.FIXTURE_ROOT, tree=process.cwd(), sid=process.env.FIXTURE_SID, item=process.env.FIXTURE_ITEM;
+const {openStore,projectIdentity}=await import(process.env.FIXTURE_SOURCE+"hooks/lib/govdb.ts");
+const {acquireLaunchLease}=await import(process.env.FIXTURE_SOURCE+"scripts/lib/launch-preflight.ts");
+const {reserveLaunchIntent,registerLaunch,processBirth}=await import(process.env.FIXTURE_SOURCE+"scripts/lib/launch-fencing.ts");
+const {checkpointedClaudeRestart,restartJournalPath,restartHash}=await import(process.env.FIXTURE_SOURCE+"hooks/lib/claude-restart.ts");
+const {mergeLaneRegistry,pendingManagedRestart,pruneLaneRegistry}=await import(process.env.FIXTURE_SOURCE+"hooks/lib/lane-registry.ts");
+const store=openStore(), project=projectIdentity(tree), nonce=crypto.randomUUID();
+const claim=store.query("SELECT updated_at FROM work_items WHERE project=? AND id=?").get(project,item);
+acquireLaunchLease(store,project,sid,nonce);
+const intent=reserveLaunchIntent(store,{project,item,sid,nonce,revision:claim.updated_at,executor:process.execPath},3);
+const transcript=tree+"/.fleet/fixture-transcript.jsonl"; await Bun.write(transcript,"fixture conversation\\n");
+const snapshot={version:1,id:crypto.randomUUID(),sid,item,worktree:tree,nativeSession:crypto.randomUUID(),transcript,transcriptHash:restartHash(await Bun.file(transcript).bytes()),oldWrapper:{pid:2000000000,birth:"old"},oldNative:{pid:1999999999,birth:"old-native"}};
+const {writeFileSync}=await import("node:fs");writeFileSync(restartJournalPath(tree),JSON.stringify({phase:"retired",snapshot}),{mode:0o600});
+let child, row;
+try{
+const journal=await checkpointedClaudeRestart(restartJournalPath(tree),snapshot,{validate:async()=>{},identity:(pid)=>{const p=processBirth(pid);return p&&{pid,birth:p.birth}},retire:async()=>{},start:async()=>{child=Bun.spawn([process.execPath,"-e","setInterval(()=>{},1000)"],{stdout:"ignore",stderr:"ignore"});const p=processBirth(child.pid);if(!p)throw Error("child birth unavailable");return{pid:child.pid,birth:p.birth}},register:async(_s,fresh)=>{registerLaunch(store,intent,fresh.pid);row={sid,item,worktree:tree,pid:fresh.pid};mergeLaneRegistry(root,[row]);}});
+if(journal.phase!=="started")throw Error("actual state transition missing");
+if(pendingManagedRestart(row))throw Error("published canonical STARTED incorrectly protected");
+const bytes=await Bun.file(restartJournalPath(tree)).text();
+const bad=JSON.parse(bytes);bad.newWrapper.birth="forged";await Bun.write(restartJournalPath(tree),JSON.stringify(bad));
+if(!pendingManagedRestart(row))throw Error("forged birth not protected");await Bun.write(restartJournalPath(tree),bytes);
+child.kill();await child.exited;
+const removed=pruneLaneRegistry(root,[sid],r=>processBirth(r.pid)===false).removed;
+console.log(JSON.stringify({phase:journal.phase,removed:removed.map(r=>r.sid)}));
+}finally{if(child&&child.exitCode===null){child.kill();await child.exited;}store.close();}
+`;
+	try {
+		const child = Bun.spawnSync([process.execPath, "-e", script], {
+			cwd: f.cwd,
+			env: {
+				...f.env,
+				FIXTURE_ROOT: join(f.home, "repo"),
+				FIXTURE_SID: f.sid,
+				FIXTURE_ITEM: f.id,
+				FIXTURE_SOURCE: sourceRoot,
+			},
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		expect(child.stderr.toString()).toBe("");
+		expect(child.exitCode).toBe(0);
+		expect(JSON.parse(child.stdout.toString())).toEqual({
+			phase: "started",
+			removed: [f.sid],
+		});
 	} finally {
 		rmSync(f.home, { recursive: true, force: true });
 	}
