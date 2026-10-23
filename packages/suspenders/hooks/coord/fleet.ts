@@ -20,6 +20,7 @@ import { attachSubscribe } from "../lib/subscribe-attach.ts";
 import { ensureCompletionIdentityMigration } from "../lib/work-completion-record.ts";
 import { claimWindows } from "../lib/work-timing.ts";
 import { ageOf, formatEventLine } from "./bus.ts";
+import { listLiveTargets } from "./addressing.ts";
 import { cmdBind, cmdEnroll, cmdVerify } from "./identity.ts";
 import type { Database, Ev } from "./shared.ts";
 // hooks/coord/fleet.ts — fleet-wide reads: bootstrap, fleet, metrics, doctor-session, diff (W157 command modules).
@@ -264,9 +265,39 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 	// projection lives in subagent-statusline.ts; the CLI inline rows are
 	// harness-owned and ignore it)
 	const crows = db
-		.query("SELECT sid, intent FROM claims ORDER BY sid")
-		.all() as { sid: string; intent: string | null }[];
-	const lanes = [...new Set(crows.map((c) => c.sid))].sort();
+		.query("SELECT sid, scope, intent FROM claims ORDER BY sid, scope")
+		.all() as { sid: string; scope: string; intent: string | null }[];
+	// File leases, work ownership and registered peers are distinct sources.
+	// Reuse the direct-addressing live projection so discovery cannot hide a
+	// registered worker merely because it has not acquired a file lease yet.
+	const targets = listLiveTargets();
+	const targetSids = new Set(targets.map((target) => target.sid));
+	const work = db
+		.query(
+			"SELECT w.owner_sid AS sid, w.project, w.id, w.title, w.state FROM work_items w LEFT JOIN sessions s ON s.sid = w.owner_sid WHERE w.owner_sid IS NOT NULL AND w.state IN ('CLAIMED','RUNNING','ORPHANED') AND (s.sid IS NULL OR s.project = w.project) ORDER BY w.project,w.id",
+		)
+		.all() as {
+		sid: string;
+		project: string;
+		id: string;
+		title: string;
+		state: string;
+	}[];
+	const sessions = new Map(
+		(
+			db.query("SELECT sid,state FROM sessions").all() as {
+				sid: string;
+				state: string;
+			}[]
+		).map((session) => [session.sid, session.state]),
+	);
+	const lanes = [
+		...new Set([
+			...crows.map((claim) => claim.sid),
+			...work.map((item) => item.sid),
+			...targetSids,
+		]),
+	].sort();
 	// W652.1: liveness delegates to the shared verdict (lib/lane-liveness.ts)
 	// — state glyphs say what a lane CLAIMS (lane.<sid>.state facts); only
 	// positive death evidence flips the glyph to ×. Unknown keeps the state
@@ -278,7 +309,8 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 	// unknown. An unevidenced claim never paints ▶ again (the W378 board
 	// lie: 30 running-markers, 1 real lane).
 	const verdictOf = (sid: string): LaneVerdict =>
-		verdicts.get(sid) ?? (hbFresh(db, sid) ? "alive" : "unknown");
+		verdicts.get(sid) ??
+		(targetSids.has(sid) || hbFresh(db, sid) ? "alive" : "unknown");
 	const states = db
 		.query("SELECT key, value FROM facts WHERE key LIKE 'lane.%.state'")
 		.all() as { key: string; value: string }[];
@@ -291,6 +323,8 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 				c.intent.length > 14 ? `${c.intent.slice(0, 13)}…` : c.intent,
 			);
 	}
+	for (const item of work)
+		if (!names.has(item.sid)) names.set(item.sid, `${item.id} ${item.title}`);
 	// W293 session-name bridge: a user-facing name (sessions.tags JSON, stamped
 	// by `coord bootstrap --name`) leads the lane label with the short sid next
 	// to it; unnamed lanes keep the claim-intent → sid fallback.
@@ -323,7 +357,19 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 					sid: l,
 					name: sessionNames.get(l) ?? null,
 					intent: names.get(l) ?? null,
-					state: byKey.get(`lane.${l}.state`) ?? "RUNNING",
+					state: byKey.get(`lane.${l}.state`) ?? sessions.get(l) ?? "UNKNOWN",
+					sessionState: sessions.get(l) ?? null,
+					fileClaims: crows
+						.filter((claim) => claim.sid === l)
+						.map(({ scope, intent }) => ({ scope, intent })),
+					workItems: work
+						.filter((item) => item.sid === l)
+						.map(({ project, id, title, state }) => ({
+							project,
+							id,
+							title,
+							state,
+						})),
 					verdict: verdictOf(l),
 					live: verdictOf(l) === "alive",
 				})),

@@ -263,7 +263,11 @@ describe("WS /subscribe (W303 push + W305 bidirectional RPC)", () => {
 			const fleet = await cli(url, ["fleet"]);
 			expect(fleet.out).toContain("HEAD 1234567");
 			expect(fleet.out).not.toContain("@1234567");
-			const copied = /\[sid=([^\]]+)\]/.exec(fleet.out)?.[1];
+			const listed = [...fleet.out.matchAll(/\[sid=([^\]]+)\]/g)].map(
+				(match) => match[1],
+			);
+			expect(listed).toContain(asker);
+			const copied = listed.find((sid) => sid === expert);
 			expect(copied).toBe(expert);
 			const opened = await cli(url, [
 				"consult",
