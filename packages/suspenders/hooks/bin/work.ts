@@ -60,7 +60,7 @@ import {
 	reclaimGateDecision,
 } from "../lib/reclaim-sticky.ts";
 import { reproGateRefusal } from "../lib/repro-gate.ts";
-import { reapIfIdle } from "../lib/subscribe-attach.ts";
+import { attachManagedSubscribe, reapIfIdle } from "../lib/subscribe-attach.ts";
 import { dieFor, idList, type Parsed, runCli } from "../lib/verb-kit.ts";
 import {
 	applyAllocations,
@@ -787,6 +787,7 @@ const dispatchVerb = async (
 				`worktree mint FAILED (${prov.err}) — ${id} stays claimed but TREELESS; fix the git failure, then worktree.ts retire ${id} and re-take to attach`,
 			);
 		console.log(`worktree: ${prov.path}${prov.attached ? " (attached)" : ""}`);
+		attachManagedSubscribe(db(), as);
 		// W643: the raw token prints ONCE — channels for lanes: KLH_CLAIM_TOKEN
 		// env (dispatch/supervise pin it) + .fleet/lane-context.json claimToken.
 		if (claimed.token)
@@ -810,8 +811,8 @@ const dispatchVerb = async (
 			);
 		if (!releaseObserved(it, owner, "owner-release"))
 			die(`${id} claim changed — release refused; inspect before retrying`);
-		// W418: an idle owner's WS subscribe is reaped — no unfinished item, no
-		// inbox to push to (subscribe lifecycle rides the work graph)
+		// W418/W1124.38: release may outlive the claim's managed conversation.
+		// Reap only when neither owns the delivery channel.
 		reapIfIdle(db(), owner);
 		console.log(`${cyan("·")} ${dim(`${id} → READY`)}`);
 	} else if (name === "start") {

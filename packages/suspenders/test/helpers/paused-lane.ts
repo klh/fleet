@@ -4,11 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /** Isolated real claimed work graph shared by Stop and managed-runtime tests. */
-export function pausedLaneFixture() {
+export function pausedLaneFixture(sid = "pause-runtime-fixture") {
 	const home = mkdtempSync(join(tmpdir(), "claimed-pause-"));
 	const repo = join(home, "repo");
 	mkdirSync(repo);
-	const sid = "pause-runtime-fixture";
 	const env = {
 		...process.env,
 		HOME: home,
