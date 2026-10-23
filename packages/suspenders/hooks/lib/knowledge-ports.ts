@@ -35,6 +35,12 @@ import {
 	type Dismissal,
 	type DecayOpts,
 } from "./knowledge-curate.ts";
+import {
+	consolidateDisposeTx,
+	consolidateSweep,
+	type ConsolidateOpts,
+	type ConsolidationSweep,
+} from "./knowledge-consolidate.ts";
 import { CONFIDENCE_MIN, makeStamp } from "./confidence.ts";
 import { knowledgeBuckleRoute } from "./knowledge-buckle.ts";
 
@@ -120,6 +126,10 @@ export interface KnowledgeProposalView {
 	decidedAt: number | null;
 	topic: string;
 	fact: string;
+	// W1227: consolidate-* rows render their kind + payload so the dispose
+	// gate reviews the exact minted action
+	kind: string;
+	payload: string | null;
 }
 
 // W381 (from parked/W208): one decay sweep's outcome — proposed are the
@@ -227,6 +237,12 @@ export interface KnowledgeStore {
 		decision: "approve" | "dismiss",
 		opts?: { by?: string; note?: string; supersededBy?: number | null },
 	): Promise<{ ok: boolean; retired: boolean }>;
+	// W1227 consolidation: similarity proposes (never auto-deletes); the
+	// dispose gate executes via disposeProposal's kind dispatch. No inference
+	// leg today — when one lands it rides Buckle only.
+	consolidate(
+		opts?: ConsolidateOpts & { by?: string },
+	): Promise<ConsolidationSweep>;
 }
 
 // W244 — outcome of one reprocessCheck pass. requeued/marked are did-counts
@@ -401,7 +417,7 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 		return (
 			this.db
 				.query(
-					"UPDATE knowledge SET state = 'retired', superseded_by = COALESCE(?, superseded_by) WHERE id = ? AND state != 'retired'",
+					"UPDATE knowledge SET state = 'retired', superseded_by = COALESCE(?, superseded_by), version = COALESCE(version, 1) + 1 WHERE id = ? AND state != 'retired'",
 				)
 				.run(supersededBy, id).changes > 0
 		);
@@ -426,7 +442,7 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 		if (!cur) return false;
 		this.db
 			.query(
-				"UPDATE knowledge SET rating = COALESCE(?, rating), evidence = COALESCE(?, evidence), researched_at = COALESCE(?, researched_at) WHERE id = ?",
+				"UPDATE knowledge SET rating = COALESCE(?, rating), evidence = COALESCE(?, evidence), researched_at = COALESCE(?, researched_at), version = COALESCE(version, 1) + 1 WHERE id = ?",
 			)
 			.run(
 				fields.rating ?? null,
@@ -449,7 +465,7 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 		const ok =
 			this.db
 				.query(
-					"UPDATE knowledge SET state = 'graveyard', graveyard_reason = ? WHERE id = ? AND state != 'graveyard'",
+					"UPDATE knowledge SET state = 'graveyard', graveyard_reason = ?, version = COALESCE(version, 1) + 1 WHERE id = ? AND state != 'graveyard'",
 				)
 				.run(reason.slice(0, 300), id).changes > 0;
 		if (!ok) return false;
@@ -477,7 +493,7 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 		contributors.push({ sid, ts: Date.now(), what });
 		this.db
 			.query(
-				"UPDATE knowledge SET contributors = ?, updated_at = ? WHERE id = ?",
+				"UPDATE knowledge SET contributors = ?, updated_at = ?, version = COALESCE(version, 1) + 1 WHERE id = ?",
 			)
 			.run(JSON.stringify(contributors), Date.now(), id);
 		return contributors.length;
@@ -629,7 +645,7 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 		});
 		const ins = this.db
 			.query(
-				"INSERT INTO knowledge (ts, topic, fact, confidence, domain, area, origin_kind, origin_system, code_origin, origin_sid, contributors, duplicate_of, supersedes_id, source_ref, source_hash, source, state, created_at, updated_at, hub_eligible, confidence_stamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 'knowledge-worker', 'candidate', ?, ?, ?, ?)",
+				"INSERT INTO knowledge (ts, topic, fact, confidence, domain, area, origin_kind, origin_system, code_origin, origin_sid, contributors, duplicate_of, supersedes_id, source_ref, source_hash, source, state, created_at, updated_at, hub_eligible, confidence_stamp, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 'knowledge-worker', 'candidate', ?, ?, ?, ?, 1)",
 			)
 			.run(
 				now,
@@ -839,7 +855,7 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 		const params = state === "all" ? [] : [state];
 		return this.db
 			.query(
-				`SELECT p.id, p.knowledge_id AS knowledgeId, p.state, p.score, p.age_days AS ageDays, p.reason, p.ts, p.decided_by AS decidedBy, p.decided_at AS decidedAt, k.topic, k.fact FROM knowledge_proposals p JOIN knowledge k ON k.id = p.knowledge_id WHERE ${where} ORDER BY p.score, p.id`,
+				`SELECT p.id, p.knowledge_id AS knowledgeId, p.state, p.score, p.age_days AS ageDays, p.reason, p.ts, p.decided_by AS decidedBy, p.decided_at AS decidedAt, k.topic, k.fact, p.kind, p.payload FROM knowledge_proposals p JOIN knowledge k ON k.id = p.knowledge_id WHERE ${where} ORDER BY p.score, p.id`,
 			)
 			.all(...params) as KnowledgeProposalView[];
 	}
@@ -853,6 +869,15 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 		decision: "approve" | "dismiss",
 		opts: { by?: string; note?: string; supersededBy?: number | null } = {},
 	): Promise<{ ok: boolean; retired: boolean }> {
+		// W1227: consolidation proposals (kind consolidate-*) execute through
+		// their own CAS transaction — approve applies the MINTED payload.
+		const head = this.db
+			.query(
+				"SELECT kind FROM knowledge_proposals WHERE id = ? AND state = 'open'",
+			)
+			.get(id) as { kind: string } | undefined;
+		if (head?.kind?.startsWith("consolidate-"))
+			return consolidateDisposeTx(this.db, this.bus(), id, decision, opts);
 		const row = this.db
 			.query(
 				"SELECT knowledge_id FROM knowledge_proposals WHERE id = ? AND state = 'open'",
@@ -875,7 +900,7 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 			retired =
 				this.db
 					.query(
-						"UPDATE knowledge SET state = 'retired', superseded_by = COALESCE(?, superseded_by) WHERE id = ? AND state != 'retired'",
+						"UPDATE knowledge SET state = 'retired', superseded_by = COALESCE(?, superseded_by), version = COALESCE(version, 1) + 1 WHERE id = ? AND state != 'retired'",
 					)
 					.run(opts.supersededBy ?? null, row.knowledge_id).changes > 0;
 		this.appendNote(
@@ -891,6 +916,14 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 		});
 		return { ok: true, retired };
 	}
+	// W1227: the consolidation sweep (propose-only). Planner + SQL live in
+	// ./knowledge-consolidate.ts — this file is near the 1500 cap.
+	consolidate(
+		opts?: ConsolidateOpts & { by?: string },
+	): Promise<ConsolidationSweep> {
+		return Promise.resolve(consolidateSweep(this.db, this.bus(), opts));
+	}
+
 	// W166: merge FTS5 segments — keeps the index bounded from row one.
 	async optimize(): Promise<void> {
 		this.db

@@ -18,6 +18,7 @@ import {
 	projectIdentity,
 } from "./shared.ts";
 import { claimedWorkOf } from "../lib/lane-effort.ts";
+import { CONSOLIDATE_MAX_ROWS } from "../lib/knowledge-consolidate.ts";
 
 export async function cmdKnowledge(rest: string[]): Promise<void> {
 	// W91 — ranked FTS5 search over the knowledge layer: distilled knowledge
@@ -142,7 +143,7 @@ export async function cmdKnowledgeGrade(rest: string[]): Promise<void> {
 		: null;
 	if (!id || Number.isNaN(researchedAt ?? 0))
 		die(
-			'usage: knowledge-grade <id> --rating <s> [--evidence <file:line|URL>] [--researched <date|ms>] --as <sid>',
+			"usage: knowledge-grade <id> --rating <s> [--evidence <file:line|URL>] [--researched <date|ms>] --as <sid>",
 		);
 	const ok = await makeStore().grade(
 		id,
@@ -150,7 +151,9 @@ export async function cmdKnowledgeGrade(rest: string[]): Promise<void> {
 		as ?? undefined,
 	);
 	if (!ok) die(`knowledge #${id} is retired/graveyard (or missing)`);
-	console.log(`${green("✓")} knowledge #${id} graded${rating ? ` ${rating}` : ""}`);
+	console.log(
+		`${green("✓")} knowledge #${id} graded${rating ? ` ${rating}` : ""}`,
+	);
 }
 
 export async function cmdKnowledgeGraveyard(rest: string[]): Promise<void> {
@@ -254,6 +257,40 @@ export async function cmdKnowledgePropose(_rest: string[]): Promise<void> {
 		);
 	console.log(
 		`${green("✓")} propose: ${res.proposed.length} new, ${res.refreshed} refreshed, ${res.stale} stale-closed (checked ${res.checked})`,
+	);
+}
+
+// W1227 consolidation sweep: similarity PROPOSES — never auto-deletes.
+// Deletes/merges ride knowledge_proposals (kind consolidate-*) into the human
+// dispose gate; competing explanations are reported retained.
+export async function cmdKnowledgeConsolidate(_rest: string[]): Promise<void> {
+	const num = (f: string): number | undefined => {
+		const v = arg(f);
+		return v ? Number(v) : undefined;
+	};
+	const res = await makeStore().consolidate({
+		minUpdate: num("--min-update"),
+		minDelete: num("--min-delete"),
+		by: arg("--as") as string | undefined,
+	});
+	if (res.overCap)
+		console.log(
+			`${amber("⚠")} consolidate: live rows past the ${CONSOLIDATE_MAX_ROWS} sweep cap — no pass ran; trim the corpus first`,
+		);
+	for (const p of res.propose)
+		console.log(
+			`${amber("⚠")} k#${p.nominee.id} "${p.nominee.topic.slice(0, 48)}" — ${p.action} vs k#${p.winner.id} (overlap ${p.sim.toFixed(2)})`,
+		);
+	for (const c of res.retainedCompeting.slice(0, 10))
+		console.log(
+			dim(
+				`  retained competing: k#${c.aId} ↔ k#${c.bId} (overlap ${c.sim.toFixed(2)})`,
+			),
+		);
+	if (res.retainedCompeting.length > 10)
+		console.log(dim(`  … +${res.retainedCompeting.length - 10} more retained`));
+	console.log(
+		`${green("✓")} consolidate: ${res.propose.length} proposed, ${res.skipped} skipped, ${res.retainedCompeting.length} competing pair(s) retained (checked ${res.checked} rows, ${res.pairs} similar pairs)`,
 	);
 }
 

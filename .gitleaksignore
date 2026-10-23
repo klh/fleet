@@ -78,3 +78,7 @@ packages/suspenders/test/hub-providers.test.ts:generic-api-key:42
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:102
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:163
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:189
+# W1227: migrate-provider-keys sighting fixtures — invented "sk-value-87654321"
+# test keys carrying scrub:allow markers; already pushed on suspenders/W1124.8.2.2
+# (shared object store re-scan), first-hand read 2026-10-23 — not secrets
+packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83

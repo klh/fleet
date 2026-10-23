@@ -56,6 +56,7 @@ import {
 	cmdKnowledgePropose,
 	cmdKnowledgeProposals,
 	cmdKnowledgeDispose,
+	cmdKnowledgeConsolidate,
 } from "../coord/knowledge.ts";
 import {
 	cmdBootstrap,
@@ -307,6 +308,13 @@ const VERBS: VerbSpec[] = [
 			'usage: knowledge-dispose <proposalId> approve|dismiss [--as sid] [--note "why"] [--superseded-by <id>]',
 		flags: ["--as", "--note", "--superseded-by"],
 		run: (p) => cmdKnowledgeDispose(p.rest),
+	}),
+	defineVerb({
+		name: "knowledge-consolidate",
+		usage:
+			"usage: knowledge-consolidate [--min-update n] [--min-delete n] [--as sid]",
+		flags: ["--min-update", "--min-delete", "--as"],
+		run: (p) => cmdKnowledgeConsolidate(p.rest),
 	}),
 	defineVerb({
 		name: "knowledge-reprocess",

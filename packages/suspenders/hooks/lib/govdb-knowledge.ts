@@ -252,6 +252,12 @@ export function openKnowledgeDb(): Database {
 	db.run(
 		"CREATE UNIQUE INDEX IF NOT EXISTS knowledge_proposals_one_open ON knowledge_proposals (knowledge_id) WHERE state = 'open'",
 	);
+	// W1227 consolidation: the minted payload (action, both sides' minted
+	// versions, merged fact, provenance carry) rides the proposal verbatim —
+	// approve executes THIS JSON under CAS, never a re-derivation.
+	const kpCols = columnNames(db, "knowledge_proposals");
+	if (kpCols.length && !kpCols.includes("payload"))
+		db.run("ALTER TABLE knowledge_proposals ADD COLUMN payload TEXT");
 	// W244 — parser-change reprocess checkpoint. Guarded ALTERs heal every
 	// pre-W244 knowledge.db (CREATE TABLE IF NOT EXISTS cannot upgrade a live
 	// table); a fresh file without knowledge_queue is skipped — its schema
@@ -285,6 +291,12 @@ export function openKnowledgeDb(): Database {
 		// scalar confidence column (present since the v6 schema).
 		if (!kCols.includes("confidence_stamp"))
 			db.run("ALTER TABLE knowledge ADD COLUMN confidence_stamp TEXT");
+		// W1227 consolidation CAS: a per-row mutation version (the facts.ts
+		// casWrite doctrine) — every row mutation bumps it; NULL (raw
+		// pre-column writers) heals to 1 on every open.
+		if (!kCols.includes("version"))
+			db.run("ALTER TABLE knowledge ADD COLUMN version INTEGER");
+		db.run("UPDATE knowledge SET version = 1 WHERE version IS NULL");
 	}
 	db.run(CONFIDENCE_HISTORY_DDL);
 	db.run(CONFIDENCE_HISTORY_INDEX_DDL);

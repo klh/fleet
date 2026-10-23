@@ -178,6 +178,15 @@ LIMIT ?`,
 // up to `limit` hits ranked by its own bm25 (ranks are NOT comparable across
 // stores, so the merged array keeps the stores grouped: knowledge, then
 // facts, then consult_kb — consumers render the kind field).
+// W1227: the CAS `version` column is internal plumbing — `SELECT k.*` would
+// leak it into the search face (the W166 byte-identity contract). Stripped
+// at the source, on every knowledge-shaped hit.
+function stripCas(h: KnowledgeHit): KnowledgeHit {
+	const out = { ...h } as Record<string, unknown>;
+	delete out.version;
+	return out as KnowledgeHit;
+}
+
 export function knowledgeSearch(
 	db: Database,
 	query: string,
@@ -235,12 +244,14 @@ export function knowledgeSearch(
 					snip?: string;
 					updated_at?: number | null;
 				})[]
-			).map((r) => ({
-				...r,
-				kind: "knowledge" as const,
-				snippet: r.snip ?? "",
-				ageDays: ageDaysOf(r),
-			})),
+			).map((r) =>
+				stripCas({
+					...r,
+					kind: "knowledge" as const,
+					snippet: r.snip ?? "",
+					ageDays: ageDaysOf(r),
+				}),
+			),
 		);
 		// W245: 1-hop pointer-graph neighbors ride along AFTER the text matches
 		if (out.length)
@@ -250,14 +261,17 @@ export function knowledgeSearch(
 					out.map((h) => h.id),
 					{ dom, area, kind, sys, minConf },
 					limit,
-				).map((r) => ({
-					...r,
-					kind: "knowledge" as const,
-					snippet: r.fact ?? "",
-					ageDays: ageDaysOf(r),
-					hop: 1,
-					via: r.via === "pointer" ? ("pointer" as const) : ("domain" as const),
-				})),
+				).map((r) =>
+					stripCas({
+						...r,
+						kind: "knowledge" as const,
+						snippet: r.fact ?? "",
+						ageDays: ageDaysOf(r),
+						hop: 1,
+						via:
+							r.via === "pointer" ? ("pointer" as const) : ("domain" as const),
+					}),
+				),
 			);
 	} catch {} // pre-v6 db opened raw — skip honestly
 	// 2. facts (key+value) — first search index for facts; ranked, no gate.
@@ -282,7 +296,10 @@ export function knowledgeSearch(
 							confidence: number | null;
 							snip?: string;
 						};
-						if (minConf != null && (o.confidence == null || o.confidence < minConf))
+						if (
+							minConf != null &&
+							(o.confidence == null || o.confidence < minConf)
+						)
 							return null;
 						return {
 							kind: "fact" as const,

@@ -234,8 +234,17 @@ export function sweep(
 	}
 	let changes = 0;
 	if (opts.write) {
+		// W1227: the raw open bypasses the store's self-heal — a pre-version
+		// -column knowledge.db gets the column (and its v1 backfill) before the
+		// --write UPDATE bumps it (the W1227 consolidation CAS ledger).
+		const cols = db.query("PRAGMA table_info(knowledge)").all() as {
+			name: string;
+		}[];
+		if (cols.length && !cols.some((c) => c.name === "version"))
+			db.run("ALTER TABLE knowledge ADD COLUMN version INTEGER");
+		db.run("UPDATE knowledge SET version = 1 WHERE version IS NULL");
 		const upd = db.query(
-			"UPDATE knowledge SET source_ref = ?, source_hash = ?, updated_at = ? WHERE id = ? AND (source_ref IS NULL OR source_ref = '') AND state != 'retired'",
+			"UPDATE knowledge SET source_ref = ?, source_hash = ?, updated_at = ?, version = COALESCE(version, 1) + 1 WHERE id = ? AND (source_ref IS NULL OR source_ref = '') AND state != 'retired'",
 		);
 		for (const p of planned) {
 			changes += upd.run(p.ref, p.hash, Date.now(), p.id).changes;
