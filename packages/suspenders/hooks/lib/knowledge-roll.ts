@@ -288,9 +288,20 @@ function applyKnown(
 	}
 	if (e.tombstone) {
 		if (row.tombstone) {
-			// W1213.3 idempotency: the standing retraction already covers this
-			// event — the replay counts a dupe, never duplicating retract
-			// provenance and never re-bumping tombstone_ts
+			// W1213.3 idempotency: the replay never duplicates retract
+			// provenance and never re-flips the standing retraction.
+			// W1213.3.1: the row's monotonic causal high-water advances BEFORE
+			// the dupe — a NEWER identical-payload retraction moves the mark so
+			// a stale assertion cannot slip in behind the dedupe and revive.
+			const standing = row.tombstone_ts ?? 0;
+			if (e.ts > standing) {
+				db.run(
+					"UPDATE knowledge_claims SET tombstone_ts = ?, updated_at = ? WHERE id = ?",
+					e.ts,
+					now,
+					row.id,
+				);
+			}
 			counts.dupes++;
 			return;
 		}

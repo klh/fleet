@@ -286,6 +286,69 @@ test("aggregate: a tombstone replay on a hidden row is an idempotent dupe", () =
 	expect(withT.claims[0].provenance.filter((p) => p.retract)).toHaveLength(1);
 });
 
+test("aggregate: identical-payload tombstone at a newer ts advances the high-water — stale assert cannot revive", () => {
+	const db = new Database(":memory:");
+	const body = {
+		evidenceId: "ev-hwm",
+		claim: "contested claim",
+		confidence: 0.8,
+	};
+	aggregateClaims(db, [{ ...body, ts: 100 }], "machine-a", { now: 1000 });
+	aggregateClaims(db, [{ ...body, ts: 200, tombstone: true }], "machine-b", {
+		now: 2000,
+	});
+	// identical payload, NEWER ts: deduped (no provenance churn) but the
+	// standing mark must advance — the dupe path never leaves the gate behind
+	const newer = aggregateClaims(
+		db,
+		[{ ...body, ts: 400, tombstone: true }],
+		"machine-b",
+		{ now: 3000 },
+	);
+	expect(newer.counts?.dupes).toBe(1);
+	expect(newer.counts?.tombstoned).toBe(0);
+	// stale assert 300: BEHIND the advanced mark → cannot revive
+	const stale = aggregateClaims(db, [{ ...body, ts: 300 }], "machine-a", {
+		now: 4000,
+	});
+	expect(stale.counts?.stale).toBe(1);
+	expect(claimAggregateView(db).claims).toHaveLength(0);
+	// monotonicity retained: a NEWER assertion still revives
+	const live = aggregateClaims(db, [{ ...body, ts: 450 }], "machine-a", {
+		now: 5000,
+	});
+	expect(live.counts?.merged).toBe(1);
+	expect(claimAggregateView(db).claims).toHaveLength(1);
+});
+
+test("aggregate: high-water advance is idempotent under replay", () => {
+	const db = new Database(":memory:");
+	const body = {
+		evidenceId: "ev-hwm-replay",
+		claim: "contested claim",
+		confidence: 0.5,
+	};
+	aggregateClaims(db, [{ ...body, ts: 100 }], "machine-a", { now: 1000 });
+	aggregateClaims(db, [{ ...body, ts: 200, tombstone: true }], "machine-b", {
+		now: 2000,
+	});
+	aggregateClaims(db, [{ ...body, ts: 400, tombstone: true }], "machine-b", {
+		now: 3000,
+	});
+	// replaying the same 400 tombstone: dupe, the mark stays put
+	const again = aggregateClaims(
+		db,
+		[{ ...body, ts: 400, tombstone: true }],
+		"machine-b",
+		{ now: 4000 },
+	);
+	expect(again.counts?.dupes).toBe(1);
+	const row = db.query("SELECT tombstone_ts FROM knowledge_claims").get() as {
+		tombstone_ts: number;
+	};
+	expect(row.tombstone_ts).toBe(400);
+});
+
 // ─── machine-side collection (the spoke pass) ───────────────────────────────
 
 test("collectClaims: claim.* rows → entries; cursor skips; cap applies", () => {
