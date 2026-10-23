@@ -25,6 +25,14 @@
 // Confidence mirrors the decant ingest floor (W950, decant/fleet/confidence.ts
 // INGEST_STAMP): value 0.4, mechanical setter, verdict fresh — every write
 // rides the fact-set CAS seam and appends to confidence_history.
+//
+// W1212.2 fence (FAIL61346 B3): EVERY write mode is version-pinned — creates
+// ride --if-version 0 (create-only), reclaims and tombstones pin the EXACT
+// version read this pass, so a human or newer edit that lands between the
+// read and the write refuses the child instead of being overwritten. A
+// stale refusal is a first-class outcome (never an error, never a silent
+// overwrite): the pass holds its cursor and the next fire re-reads and
+// re-decides on the moved row.
 import { Database } from "bun:sqlite";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -131,12 +139,17 @@ export type WriteMode = "create" | "reclaim";
 export interface ClaimWrite {
 	claim: DailyClaim;
 	mode: WriteMode;
+	/** the fact row version this decision pinned — creates expect 0
+	 *  (create-only), reclaims the version read this pass. */
+	expectedVersion: number;
 }
 
 export interface Tombstone {
 	key: string;
 	evidenceId: string;
 	value: string;
+	/** the fact row version read this pass — the exact CAS pin. */
+	expectedVersion: number;
 }
 
 export interface ClaimState {
@@ -158,11 +171,16 @@ export interface ExistingClaim {
 	verdict: string | null;
 	setter: string | null;
 	value: string | null;
+	/** the facts row version at read time — the exact CAS pin for
+	 *  reclaim/tombstone (FAIL61346 B3: reads that omit version cannot
+	 *  fence their writes). */
+	version: number | null;
 }
 
 /** claim half of the table: create (absent) / reclaim (own retraction,
  *  evidence back) / dedupe (anything else — incl. a human-setter verdict,
- *  which a mechanical run never overwrites). */
+ *  which a mechanical run never overwrites). Reclaims pin the read version
+ *  (exact CAS): a row that moved between read and write refuses the child. */
 function decideClaims(
 	claims: DailyClaim[],
 	existing: Record<string, ExistingClaim>,
@@ -178,12 +196,14 @@ function decideClaims(
 	for (const c of claims) {
 		const cur = existing[c.key];
 		if (!cur) {
-			writes.push({ claim: c, mode: "create" });
+			writes.push({ claim: c, mode: "create", expectedVersion: 0 });
 		} else if (
 			cur.setter === DAILY_CLAIM_STAMP.setter &&
-			cur.verdict === "retracted"
+			cur.verdict === "retracted" &&
+			cur.version != null
 		) {
-			writes.push({ claim: c, mode: "reclaim" });
+			// a row without a readable version stays deduped: no pin, no write
+			writes.push({ claim: c, mode: "reclaim", expectedVersion: cur.version });
 		} else {
 			deduped.push(c.key);
 		}
@@ -197,7 +217,8 @@ function decideClaims(
 
 /** tombstone half: an inventoried row whose evidence no longer presents
  *  retracts (never deletes). Work evidence checks the live DONE set;
- *  session evidence trusts only an exact (untruncated) listing. */
+ *  session evidence trusts only an exact (untruncated) listing. A row
+ *  without a readable version is never retracted — no pin, no write. */
 function decideTombstones(
 	state: DailyState,
 	existing: Record<string, ExistingClaim>,
@@ -212,10 +233,15 @@ function decideTombstones(
 		if (!cur) continue;
 		if (cur.setter !== DAILY_CLAIM_STAMP.setter) continue;
 		if (cur.verdict === "retracted") continue;
-		if (cur.value == null) continue;
+		if (cur.value == null || cur.version == null) continue;
 		if (presentEvidence.has(entry.evidenceId)) continue;
 		if (entry.evidenceId.startsWith("session:") && !presenceExact) continue;
-		tombstones.push({ key, evidenceId: entry.evidenceId, value: cur.value });
+		tombstones.push({
+			key,
+			evidenceId: entry.evidenceId,
+			value: cur.value,
+			expectedVersion: cur.version,
+		});
 	}
 	return tombstones;
 }
@@ -224,7 +250,9 @@ function decideTombstones(
  *  inventory. Creates are CAS create-only (--if-version 0) — a lost race
  *  against a concurrent run IS the dedupe, never a duplicate; a row this
  *  runner retracted comes back fresh when its evidence returns (reclaim);
- *  a human-setter verdict is never overwritten. */
+ *  a human-setter verdict is never overwritten. Reclaims and tombstones
+ *  pin the version read THIS pass (W1212.2): a row that moved between the
+ *  read and the write refuses the child — the human/newer edit survives. */
 export function decide(
 	claims: DailyClaim[],
 	existing: Record<string, ExistingClaim>,
@@ -251,14 +279,17 @@ export function decide(
 
 // ─── the coord fact-set child (CAS seam) ────────────────────────────────────
 
-/** argv for ONE fact write. Creates ride --if-version 0 (create-only CAS);
- *  reclaims re-stamp fresh; tombstones re-stamp retracted with the evidence
- *  as ref. Confidence/setter mirror DAILY_CLAIM_STAMP every time. */
+/** argv for ONE fact write. EVERY mode is version-pinned (W1212.2): creates
+ *  ride --if-version 0 (create-only CAS); reclaims re-stamp fresh and
+ *  tombstones re-stamp retracted with the evidence as ref — both pin the
+ *  EXACT version the decision read, so a human/newer edit that lands in
+ *  between refuses the child. Confidence/setter mirror DAILY_CLAIM_STAMP. */
 export function factSetArgs(
 	key: string,
 	value: string,
 	evidenceId: string,
 	mode: "create" | "reclaim" | "tombstone",
+	expectedVersion: number,
 ): string[] {
 	const args = [
 		"fact",
@@ -276,8 +307,17 @@ export function factSetArgs(
 		evidenceId,
 	];
 	if (mode === "create") args.push("--if-version", "0");
-	else if (mode === "reclaim") args.push("--verdict", "fresh");
-	else args.push("--verdict", "retracted", "--ref", evidenceId);
+	else if (mode === "reclaim")
+		args.push("--if-version", String(expectedVersion), "--verdict", "fresh");
+	else
+		args.push(
+			"--if-version",
+			String(expectedVersion),
+			"--verdict",
+			"retracted",
+			"--ref",
+			evidenceId,
+		);
 	return args;
 }
 
@@ -293,6 +333,10 @@ export const defaultFactSpawn: FactSpawn = (cmd, timeoutMs) => {
 		stdout: "pipe",
 		stderr: "pipe",
 		timeout: timeoutMs,
+		// explicit env: Bun children inherit the START-time environ, never the
+		// live process.env — a store redirect (GOVERNOR_STORE_URL) set after
+		// start silently never reaches the child (W1212.2 fixture catch)
+		env: { ...process.env },
 	});
 	const out =
 		`${p.stdout ? new TextDecoder().decode(p.stdout) : ""}${p.stderr ? new TextDecoder().decode(p.stderr) : ""}`
@@ -331,6 +375,9 @@ export interface DailyRunResult {
 	deduped: string[];
 	reclaimed: string[];
 	tombstoned: string[];
+	/** reclaim/tombstone writes the store CAS-refused (W1212.2) — the row
+	 *  moved under us and the human/newer edit survived. Holds the cursor. */
+	stale: string[];
 	/** dry-run view: the decision (modes + keys) that would fire. */
 	planned: string[];
 	skipped: string[];
@@ -344,11 +391,17 @@ type ApplyOutcome = {
 	reclaimed: string[];
 	tombstoned: string[];
 	deduped: string[];
+	/** reclaim/tombstone children the store CAS-refused (W1212.2): the row
+	 *  moved between the read and the write — a human/newer edit survived.
+	 *  Never an error, never retried in-pass; the next fire re-reads it. */
+	stale: string[];
 	errors: string[];
 };
 
 /** fires the fact children. A create refused by the CAS (version moved —
- *  a concurrent run won) counts as dedupe, not failure. */
+ *  a concurrent run won) counts as dedupe, not failure; a reclaim or
+ *  tombstone refused counts as stale — the fence doing its job, never an
+ *  overwrite. Any other non-zero exit is an error. */
 function applyFactWrites(
 	spawn: FactSpawn,
 	cmdOf: (args: string[]) => string[],
@@ -360,29 +413,46 @@ function applyFactWrites(
 		reclaimed: [],
 		tombstoned: [],
 		deduped: [],
+		stale: [],
 		errors: [],
 	};
 	for (const w of writes) {
 		const res = spawn(
 			cmdOf(
-				factSetArgs(w.claim.key, w.claim.value, w.claim.evidenceId, w.mode),
+				factSetArgs(
+					w.claim.key,
+					w.claim.value,
+					w.claim.evidenceId,
+					w.mode,
+					w.expectedVersion,
+				),
 			),
 			60_000,
 		);
 		if (res.code === 0) {
 			(w.mode === "create" ? r.created : r.reclaimed).push(w.claim.key);
-		} else if (w.mode === "create" && res.out.includes("refused")) {
-			r.deduped.push(w.claim.key);
+		} else if (res.out.includes("refused")) {
+			if (w.mode === "create") r.deduped.push(w.claim.key);
+			else r.stale.push(w.claim.key);
 		} else {
 			r.errors.push(`${w.claim.key}: ${res.out.slice(0, 200)}`);
 		}
 	}
 	for (const t of tombstones) {
 		const res = spawn(
-			cmdOf(factSetArgs(t.key, t.value, t.evidenceId, "tombstone")),
+			cmdOf(
+				factSetArgs(
+					t.key,
+					t.value,
+					t.evidenceId,
+					"tombstone",
+					t.expectedVersion,
+				),
+			),
 			60_000,
 		);
 		if (res.code === 0) r.tombstoned.push(t.key);
+		else if (res.out.includes("refused")) r.stale.push(t.key);
 		else r.errors.push(`${t.key}: ${res.out.slice(0, 200)}`);
 	}
 	return r;
@@ -456,11 +526,12 @@ export function readExistingClaims(
 	try {
 		const rows = db
 			.query(
-				"SELECT key, value, confidence_stamp FROM facts WHERE key LIKE 'decant.claim.%'",
+				"SELECT key, value, version, confidence_stamp FROM facts WHERE key LIKE 'decant.claim.%'",
 			)
 			.all() as {
 			key: string;
 			value: string | null;
+			version: number | null;
 			confidence_stamp: string | null;
 		}[];
 		for (const row of rows) existing[row.key] = stampOf(row);
@@ -474,6 +545,7 @@ export function readExistingClaims(
 
 function stampOf(row: {
 	value: string | null;
+	version: number | null;
 	confidence_stamp: string | null;
 }): ExistingClaim {
 	let stamp: { verdict?: string; setter?: string } | null = null;
@@ -491,6 +563,7 @@ function stampOf(row: {
 		verdict: stamp?.verdict ?? null,
 		setter: stamp?.setter ?? null,
 		value: row.value,
+		version: row.version,
 	};
 }
 
@@ -502,6 +575,7 @@ function emptyResult(windowStartMs: number): DailyRunResult {
 		deduped: [],
 		reclaimed: [],
 		tombstoned: [],
+		stale: [],
 		planned: [],
 		skipped: [],
 		errors: [],
@@ -510,16 +584,12 @@ function emptyResult(windowStartMs: number): DailyRunResult {
 
 /** the write half: fire the fact children — never on dry-run or a dead work
  *  store; a decant outage DEGRADES the pass (work claims still land, session
- *  tombstones defer via the inexact presence flag). The cursor/inventory
- *  advance only on a clean pass: a degraded pass re-collects next fire, and
- *  CAS dedupe keeps the re-fires duplicate-free. */
+ *  tombstones defer via the inexact presence flag). Clean/stale classification
+ *  is the outcome; the state stamp itself rides runDaily (W1212.1 cursor). */
 function applyDaily(
-	state: DailyState,
-	statePath: string,
 	decision: DecideResult,
 	r: DailyRunResult,
 	opts: DailyRunOpts,
-	nowMs: number,
 	workOk: boolean,
 ): void {
 	r.deduped = decision.deduped;
@@ -536,12 +606,8 @@ function applyDaily(
 	r.reclaimed = applied.reclaimed;
 	r.tombstoned = applied.tombstoned;
 	r.deduped = [...decision.deduped, ...applied.deduped];
+	r.stale = applied.stale;
 	r.errors.push(...applied.errors);
-	const clean = r.errors.length === 0;
-	writeState(statePath, {
-		lastRunMs: clean ? nowMs : state.lastRunMs,
-		inventory: clean ? decision.inventory : state.inventory,
-	});
 }
 
 /** One daily pass: cursor → window → collect → decide → children → stamp.
@@ -575,8 +641,18 @@ export function runDaily(opts: DailyRunOpts = {}): DailyRunResult {
 	);
 	for (const w of decision.writes) r.planned.push(`${w.mode}:${w.claim.key}`);
 	for (const t of decision.tombstones) r.planned.push(`tombstone:${t.key}`);
-	applyDaily(state, statePath, decision, r, opts, nowMs, collected.workOk);
-	r.ok = r.errors.length === 0;
+	applyDaily(decision, r, opts, collected.workOk);
+	// W1212.2 clean gate: errors AND stale refusals both hold the cursor —
+	// a refused write (the row moved under us) re-reads and re-decides next
+	// fire. runDaily owns the state stamp (W1212.1 cursor advance).
+	const clean = r.errors.length === 0 && r.stale.length === 0;
+	if (clean && !opts.dryRun && collected.workOk) {
+		writeState(statePath, {
+			lastRunMs: nowMs,
+			inventory: decision.inventory,
+		});
+	}
+	r.ok = clean;
 	return r;
 }
 

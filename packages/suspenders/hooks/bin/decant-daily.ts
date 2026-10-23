@@ -62,6 +62,8 @@ if (json) {
 	for (const k of result.reclaimed) console.log(`✓ reclaimed ${k}`);
 	for (const k of result.tombstoned) console.log(`✓ retracted ${k}`);
 	for (const k of result.deduped) console.log(`= deduped ${k}`);
+	for (const k of result.stale)
+		console.log(`! stale ${k} (row moved — CAS refused; re-reads next fire)`);
 	for (const k of result.planned) console.log(`· planned ${k}`);
 	for (const s of result.skipped) console.error(`skip ${s}`);
 	for (const e of result.errors) console.error(`✗ ${e}`);
