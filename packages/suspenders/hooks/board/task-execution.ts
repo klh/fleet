@@ -7,20 +7,13 @@ import {
 } from "../lib/lane-liveness.ts";
 import { newerLane, readLaneRegistry } from "../lib/lane-registry.ts";
 import {
-	type ArtifactEvidence,
 	type ExecutionClaim,
 	type ExecutionEvidence,
 	workExecution,
 } from "../lib/work-execution.ts";
+import { artifactEvidence } from "./artifact-events.ts";
 
 type Registered = LaneRef & { attempt?: number };
-type Event = {
-	ts: number;
-	kind: string;
-	project: string | null;
-	work: string | null;
-	payload: string | null;
-};
 
 /** One read snapshot for the whole feed. No per-card process/store probe. */
 export function taskExecutionSnapshot(
@@ -79,50 +72,7 @@ export function taskExecutionSnapshot(
 			/* Missing/remote registry remains unknown, never dead. */
 		}
 	}
-	const artifacts: ArtifactEvidence[] = [];
-	for (const event of db
-		.query(
-			"SELECT ts, kind, project, work, payload FROM events WHERE kind IN ('work.done','work.review','work.landed') ORDER BY id DESC LIMIT 5000",
-		)
-		.all() as Event[]) {
-		try {
-			const payload = JSON.parse(event.payload ?? "{}");
-			const receipt =
-				event.kind === "work.review"
-					? JSON.parse(payload.receipt ?? "null")
-					: null;
-			const commit = receipt?.commit ?? payload.commit ?? payload.sha;
-			const project = event.project ?? payload.project;
-			const item = event.work ?? payload.work;
-			if (
-				typeof commit !== "string" ||
-				typeof project !== "string" ||
-				typeof item !== "string"
-			)
-				continue;
-			if (
-				event.kind === "work.review" &&
-				!["PASS", "FAIL", "ERROR"].includes(receipt?.verdict)
-			)
-				continue;
-			artifacts.push({
-				project,
-				item,
-				commit,
-				ts: event.ts,
-				stage:
-					event.kind === "work.landed"
-						? "landed"
-						: event.kind === "work.done"
-							? "completed"
-							: receipt.verdict === "PASS"
-								? "reviewed"
-								: "review-blocked",
-			});
-		} catch {
-			/* Unbound/legacy prose cannot become artifact evidence. */
-		}
-	}
+	const artifacts = artifactEvidence(db);
 	return (claim: ExecutionClaim) =>
 		workExecution(
 			claim,
