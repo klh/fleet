@@ -87,6 +87,7 @@ const proc = Bun.spawn(["bun", SHIM], {
 	env: {
 		...process.env,
 		BELT_ROUTER_PORT: String(PORT),
+		BELT_UPSTREAM_KEY: "bksk_test-scoped-fake",
 		BELT_UPSTREAM_BASE: `http://127.0.0.1:${stub.port}`,
 		HOME,
 	},
@@ -111,7 +112,10 @@ const waitHealthy = async (): Promise<boolean> => {
 const post = (body: unknown): Promise<Response> =>
 	fetch(`${BASE}/v1/messages`, {
 		method: "POST",
-		headers: { "content-type": "application/json" },
+		headers: {
+			"content-type": "application/json",
+			authorization: "Bearer bksk_test-scoped-fake",
+		},
 		body: JSON.stringify(body),
 	});
 
@@ -220,7 +224,10 @@ describe("W465 router-shim surfaces (liveness, registry, refusal shapes)", () =>
 		expect(get.status).toBe(404);
 		const bad = await fetch(`${BASE}/v1/messages`, {
 			method: "POST",
-			headers: { "content-type": "application/json" },
+			headers: {
+				"content-type": "application/json",
+				authorization: "Bearer bksk_test-scoped-fake",
+			},
 			body: "{broken",
 		});
 		expect(bad.status).toBe(400);

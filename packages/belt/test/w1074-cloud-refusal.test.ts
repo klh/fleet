@@ -76,6 +76,7 @@ beforeAll(async () => {
 				...process.env,
 				HOME: home,
 				BELT_ROUTER_PORT: String(port),
+				BELT_UPSTREAM_KEY: "bksk_test-scoped-fake",
 				BELT_UPSTREAM_BASE: `http://127.0.0.1:${local.port}`,
 				BELT_PORT_CAPS: "8902:1",
 				BELT_ESCALATE_URL: `http://127.0.0.1:${cloud.port}`,
@@ -108,6 +109,7 @@ const post = () =>
 		method: "POST",
 		headers: {
 			"content-type": "application/json",
+			authorization: "Bearer bksk_test-scoped-fake",
 			traceparent: "00-11111111111111111111111111111111-2222222222222222-01",
 			"x-klh-request-id": "lane-request-1",
 			"x-klh-prefer":

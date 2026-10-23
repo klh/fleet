@@ -453,6 +453,7 @@ beforeAll(async () => {
 			...process.env,
 			HOME: home,
 			BELT_ROUTER_PORT: String(port),
+			BELT_UPSTREAM_KEY: "bksk_test-scoped-fake",
 			BELT_UPSTREAM_BASE: stubBase,
 			BELT_RETRY_WAIT_CAP_MS: "500",
 		},
@@ -476,7 +477,10 @@ afterAll(() => {
 const post = (body: Record<string, unknown>) =>
 	fetch(`${shimBase}/v1/messages`, {
 		method: "POST",
-		headers: { "content-type": "application/json" },
+		headers: {
+			"content-type": "application/json",
+			authorization: "Bearer bksk_test-scoped-fake",
+		},
 		body: JSON.stringify({
 			model: "glm-5.3-flash",
 			max_tokens: 2048,

@@ -37,6 +37,7 @@ beforeAll(async () => {
 				...process.env,
 				HOME: home,
 				BELT_ROUTER_PORT: String(port),
+				BELT_UPSTREAM_KEY: "bksk_test-scoped-fake",
 			},
 			stdout: "ignore",
 			stderr: "pipe",
@@ -80,7 +81,10 @@ test("W1081 chain-walk: health envelope names the belt probe face", async () => 
 test("W1081 chain-walk: bad json → 400 attributed to belt ingress", async () => {
 	const r = await fetch(`${base}/v1/messages`, {
 		method: "POST",
-		headers: { "content-type": "application/json" },
+		headers: {
+			"content-type": "application/json",
+			authorization: "Bearer bksk_test-scoped-fake",
+		},
 		body: "{not json",
 	});
 	expect(r.status).toBe(400);

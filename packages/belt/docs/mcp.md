@@ -19,9 +19,10 @@ action.
     layer (knowledge.db cards, governor.db facts + consult_kb). Output cards
     carry state/age/ref trust markers; the preamble tells remote consumers
     hits are leads, not settled truth.
-  - `belt_infer` — one-shot completion via the belt router
-    (`BELT_ROUTER_URL`, default :4000, Anthropic wire). Each call
-    independent; the complexity router picks the model.
+  - `belt_infer` — one-shot completion entering the local Buckle gate
+    (`BELT_INFER_URL`, default :4101, Anthropic wire; `BELT_INFER_KEY`
+    carries the scoped `bksk_` credential — machine config). Each call
+    independent; Buckle's ladder picks the model.
 
 ## Config (machine-level, never the repo)
 
@@ -35,7 +36,8 @@ BELT_MCP_TENANT=<entra-tenant-guid>
 BELT_MCP_AUDIENCE=<api-app-client-id>
 BELT_MCP_REQUIRED_SCOPE=access_as_user   # optional; empty = any valid token
 BELT_MCP_HOSTS=belt-mcp.local            # extra Host spellings through the guard
-BELT_ROUTER_URL=http://127.0.0.1:4000
+BELT_INFER_URL=http://127.0.0.1:4101     # the Buckle gate ingress
+BELT_INFER_KEY=bksk_…                    # scoped buckle:proxy:WRITE_ credential
 ```
 
 Without tenant+audience the server binds to loopback in status-only mode:
