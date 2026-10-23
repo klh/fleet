@@ -1,8 +1,10 @@
 // test/egress.test.ts — review #13 §1.3 SSRF / credential hygiene: token
 // endpoints https + allowlisted; loopback mocks only behind the explicit
 // opt-in; upstream base URLs https or loopback http (or operator-listed).
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { AZURE_OPENAI } from "../src/adapters/azure-openai.ts";
 import {
 	AZURE_TOKEN_HOSTS,
@@ -12,6 +14,12 @@ import {
 } from "../src/adapters/egress.ts";
 import { gcpToken } from "../src/adapters/vertex.ts";
 import { loadUpstreams } from "../src/upstreams.ts";
+
+// W1135.1.7: scratch config dirs go to mkdtemp, cleaned after the suite.
+const tmpDirs: string[] = [];
+afterAll(() => {
+	for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+});
 
 const ENV = [
 	"BUCKLE_TOKEN_HOST_LOOPBACK",
@@ -187,8 +195,8 @@ describe("upstream base URL law", () => {
 	});
 
 	test("loadUpstreams fails closed naming the group", () => {
-		const dir = `/tmp/buckle-egress-${Date.now()}-${process.pid}`;
-		mkdirSync(dir, { recursive: true });
+		const dir = mkdtempSync(join(tmpdir(), "buckle-egress-"));
+		tmpDirs.push(dir);
 		const p = `${dir}/u.yaml`;
 		writeFileSync(
 			p,

@@ -2,11 +2,20 @@
 // scratch port: stable 401/403/429 shapes, key lifecycle over the admin
 // API, team ceilings, budget 429s with retry-after, and the JWT validator
 // seam against a locally-hosted JWKS endpoint (RS256, WebCrypto-signed).
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { startServer } from "../src/server.ts";
 import { startMockUpstream } from "./mock.ts";
 
 const ROOT = "buckle-test-root";
+
+// W1135.1.7: scratch config dirs go to mkdtemp, cleaned after the suite.
+const tmpDirs: string[] = [];
+afterAll(() => {
+	for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+});
 
 interface GateServer {
 	base: string;
@@ -22,14 +31,15 @@ async function startGate(
 	cfgOverride?: string,
 	slots?: { global: number; perTeam: number },
 ): Promise<GateServer> {
-	const dir = `/tmp/buckle-gate-${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 6)}`;
+	const dir = mkdtempSync(join(tmpdir(), "buckle-gate-"));
+	tmpDirs.push(dir);
 	const cfg =
 		cfgOverride ??
 		`groups:\n  glm-5.3-flash:\n    - url: ${upstreamUrl}\n      dialect: openai\n`;
-	await Bun.write(`${dir}.yaml`, cfg);
+	await Bun.write(`${dir}/upstreams.yaml`, cfg);
 	const server = startServer({
 		port: 0,
-		upstreamsPath: `${dir}.yaml`,
+		upstreamsPath: `${dir}/upstreams.yaml`,
 		dbPath: ":memory:",
 		auth: { rootKey: ROOT, jwt, slots },
 	});

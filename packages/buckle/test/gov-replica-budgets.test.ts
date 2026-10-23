@@ -3,16 +3,25 @@
 // single authority and admission is one BEGIN IMMEDIATE transaction), and
 // the slot pools bound simultaneous generations, with lease reclaim so a
 // dead holder cannot leak the pool.
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Budgets } from "../src/gov/budgets.ts";
 import { Slots, slotsFromEnv } from "../src/gov/slots.ts";
 import { applyGovernanceSchema } from "../src/gov/schema.ts";
 
+// W1135.1.7: scratch db dirs go to mkdtemp, cleaned after the suite.
+const tmpDirs: string[] = [];
+afterAll(() => {
+	for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+});
+
 function fileDb(): { db: Database; path: string } {
-	const path = `/tmp/w468-replica-${Date.now()}-${process.pid}-${Math.random()
-		.toString(36)
-		.slice(2, 8)}.db`;
+	const dir = mkdtempSync(join(tmpdir(), "w468-replica-"));
+	tmpDirs.push(dir);
+	const path = `${dir}/budgets.db`;
 	const db = new Database(path, { create: true });
 	db.exec("PRAGMA journal_mode = WAL");
 	db.exec("PRAGMA busy_timeout = 5000");

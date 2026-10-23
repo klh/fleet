@@ -5,7 +5,10 @@
 // metering covers the Responses wire's nested usage slot (top-level on the
 // response object; streaming rides response.completed), trace ids ride the
 // W461 seam, budgets gate the route through the standard proxy class.
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { startMockUpstream } from "./mock.ts";
 import { testDeps } from "./deps.ts";
 import { createApp, type AppDeps } from "../src/handlers.ts";
@@ -226,8 +229,16 @@ describe("responses ingress through the governance gate (W912)", () => {
 
 const ROOT = "buckle-test-root";
 
+// W1135.1.7: scratch config dirs go to mkdtemp, cleaned after the suite.
+const tmpDirs: string[] = [];
+afterAll(() => {
+	for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+});
+
 async function gateCfg(upstreamUrl: string): Promise<string> {
-	const p = `/tmp/buckle-resp-gate-${Date.now()}-${process.pid}.yaml`;
+	const dir = mkdtempSync(join(tmpdir(), "buckle-resp-gate-"));
+	tmpDirs.push(dir);
+	const p = `${dir}/upstreams.yaml`;
 	await Bun.write(
 		p,
 		`groups:\n  gpt-5.3-codex:\n    - url: ${upstreamUrl}\n      dialect: openai\n`,

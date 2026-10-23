@@ -10,7 +10,7 @@
 // face is running different logic than the repo claims, and the fix is the
 // belt-bin-overlay.ts refresh verb (heals real modules for re-export shims),
 // never to edit around it.
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { expect, setDefaultTimeout, test as baseTest } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -25,8 +25,14 @@ const RUNTIME = join(homedir(), ".claude", "local-llm");
 
 setDefaultTimeout(15_000);
 
+// W1135.1.7: a missing runtime home SKIPS with a visible reason instead of
+// silently self-passing on a non-operator machine. Bound through a `test`
+// alias so the suite still declares the same named test everywhere
+// (W833 claim-check diffs test names against the claim baseline).
+const isOperatorMachine = existsSync(RUNTIME);
+const test = baseTest.skipIf(!isOperatorMachine);
+
 test("runtime-home overlays agree with the repo copies (normalized)", async () => {
-	if (!existsSync(RUNTIME)) return; // not an operator machine
 	const entry = join(ROOT, "router-shim.ts");
 	const closure = await beltBinClosure(entry, ROOT);
 	expect(closure.length).toBeGreaterThan(5);

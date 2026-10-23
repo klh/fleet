@@ -158,9 +158,26 @@ test("unparseable reply degrades honestly: nothing cached, regex stands", async 
 	expect(FC.lookupFitVerdict(sig)).toBeNull();
 });
 
-test("cache round-trips through disk for a fresh module instance", async () => {
-	const again = await import(`../bin/fit-classifier.ts?reload=${Date.now()}`);
+test("cache round-trips through disk into a fresh process", () => {
 	const sig = FC.taskSignature("prefer local reasoning");
-	// the same normalized hint in a brand-new process/module instance hits disk
-	expect(again.lookupFitVerdict(sig)?.placement).toBe("remote");
+	// a brand-new PROCESS reads the verdict from disk — the query-param
+	// re-import this replaces resolved to the same in-memory module and
+	// proved nothing about persistence
+	const modPath = join(import.meta.dir, "..", "bin", "fit-classifier.ts");
+	const probe = Bun.spawnSync(
+		[
+			"bun",
+			"-e",
+			`import(${JSON.stringify(modPath)}).then((m) => {
+			const v = m.lookupFitVerdict(${JSON.stringify(sig)});
+			console.log(v === null ? "null" : v.placement);
+		});`,
+		],
+		{
+			env: { ...process.env, FIT_VERDICTS_PATH: CACHE },
+			stdout: "pipe",
+		},
+	);
+	expect(probe.exitCode).toBe(0);
+	expect(probe.stdout.toString().trim()).toBe("remote");
 });

@@ -72,7 +72,11 @@ describe("tier manifest (W507)", () => {
 		const prevManifest = process.env.BELT_TIER_MANIFEST;
 		const prevTier = process.env.BELT_TIER;
 		delete process.env.BELT_TIER;
-		process.env.BELT_TIER_MANIFEST = "/tmp/w507-kein-manifest.json";
+		// W1135.1.7: computed unique nonexistent path, never a fixed /tmp name.
+		process.env.BELT_TIER_MANIFEST = join(
+			tmpdir(),
+			`w507-kein-manifest-${process.pid}.json`,
+		);
 		try {
 			const doc = JSON.parse(emitTierManifest()) as {
 				tier: string;

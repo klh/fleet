@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +6,16 @@ import { openRouterFreeRows } from "../bin/openrouter-free-rows.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "openrouter-rows-"));
 const file = join(dir, "catalog.json");
+afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+// W1135.1.7: the old cleanup "test" only rmSync'd the fixture (no
+// assertions, order-dependent teardown — that job is afterAll's now). It
+// carries a real assertion instead: the fixture stays an mkdtemp dir under
+// the OS tmpdir, never a fixed path or a repo-tree write.
+test("cleanup", () => {
+	expect(dir.startsWith(tmpdir())).toBe(true);
+	expect(dir).toMatch(/openrouter-rows-/);
+});
 const now = Date.parse("2026-10-20T10:00:00Z");
 const valid = {
 	version: 1,
@@ -67,5 +77,3 @@ test("free router is a distinct LiteLLM alias for the OpenRouter meta model", ()
 		'  - model_name: "openrouter/free"\n    litellm_params:\n      model: "openrouter/openrouter/free"\n      api_key: os.environ/OPENROUTER_API_KEY',
 	]);
 });
-
-test("cleanup", () => rmSync(dir, { recursive: true, force: true }));

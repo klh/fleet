@@ -2,8 +2,8 @@
 //   1. pure: readCapBytes parsing + fatReadDeny decision core
 //   2. gate-level: real `bun hooks/gate.ts pre-read` spawns — deny carries the
 //      size and the bounded retry; 3rd same-path read emits additionalContext
-// Fixtures: mkdtemp under cwd, unique path per test, TMPDIR isolated per run
-// so the re-read counters never leak between runs.
+// Fixtures: mkdtemp under the OS tmpdir (W1135.1.7 — never inside the repo
+// tree), unique path per run, so the re-read counters never leak between runs.
 import { describe, test, expect, afterAll } from "bun:test";
 import {
 	fatReadDeny,
@@ -13,9 +13,10 @@ import {
 } from "../hooks/gates/read.ts";
 import { clampHeadTail, readSliceLines } from "../hooks/lib/clamp.ts";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const tmp = mkdtempSync(join(process.cwd(), ".read-test-"));
+const tmp = mkdtempSync(join(tmpdir(), "gates-read-"));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
 function sizedFixture(name: string, bytes: number): string {

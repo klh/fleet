@@ -5,11 +5,20 @@
 // W233.3: the manifest pull + CR lifecycle ride the ManifestCrProvider seam
 // — solo posture answers honest 501s; the serving e2e re-homes to the
 // enterprise overlay.
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { HubEntitlementsFactory } from "../src/gov/hub-seam.ts";
 import { startServer } from "../src/server.ts";
 
 const ROOT = "buckle-test-root";
+
+// W1135.1.7: scratch config dirs go to mkdtemp, cleaned after the suite.
+const tmpDirs: string[] = [];
+afterAll(() => {
+	for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+});
 
 /** Hub with a scratch pool: one live loopback group, one dormant cloud tier,
  *  one spoke-private group that must never leak into entitlements. */
@@ -20,7 +29,8 @@ async function startFed(
 	srv: ReturnType<typeof startServer>;
 	stop: () => void;
 }> {
-	const dir = `/tmp/w154-fed-${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 6)}`;
+	const dir = mkdtempSync(join(tmpdir(), "w154-fed-"));
+	tmpDirs.push(dir);
 	const policy = [
 		"version: 1",
 		"gateway:",
@@ -48,12 +58,12 @@ async function startFed(
 		"  gpt-5.2: []",
 		"",
 	].join("\n");
-	await Bun.write(`${dir}.policy.yaml`, policy);
-	await Bun.write(`${dir}.upstreams.yaml`, upstreams);
+	await Bun.write(`${dir}/policy.yaml`, policy);
+	await Bun.write(`${dir}/upstreams.yaml`, upstreams);
 	const srv = startServer({
 		port: 0,
-		policyPath: `${dir}.policy.yaml`,
-		upstreamsPath: `${dir}.upstreams.yaml`,
+		policyPath: `${dir}/policy.yaml`,
+		upstreamsPath: `${dir}/upstreams.yaml`,
 		dbPath: ":memory:",
 		auth: { rootKey: ROOT, ...opts },
 	});

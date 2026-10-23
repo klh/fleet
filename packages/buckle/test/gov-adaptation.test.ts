@@ -6,7 +6,10 @@
 // audit tap rides the denied-audits-too stream, and registration is
 // fail-closed at boot. The REAL SSO/enterprise implementations live in the
 // enterprise overlay.
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	principalFromSso,
 	type SsoIdentity,
@@ -17,6 +20,12 @@ import {
 import { startServer } from "../src/server.ts";
 
 const ROOT = "buckle-test-root";
+
+// W1135.1.7: scratch config dirs go to mkdtemp, cleaned after the suite.
+const tmpDirs: string[] = [];
+afterAll(() => {
+	for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+});
 
 type AdaptCfg = NonNullable<
 	NonNullable<Parameters<typeof startServer>[0]["auth"]>["adaptation"]
@@ -29,7 +38,8 @@ async function startFed(opts: { adaptation?: AdaptCfg }): Promise<{
 	base: string;
 	stop: () => void;
 }> {
-	const dir = `/tmp/w235-adapt-${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 6)}`;
+	const dir = mkdtempSync(join(tmpdir(), "w235-adapt-"));
+	tmpDirs.push(dir);
 	const policy = [
 		"version: 1",
 		"gateway:",
@@ -47,12 +57,12 @@ async function startFed(opts: { adaptation?: AdaptCfg }): Promise<{
 		"  local-swarm: []",
 		"",
 	].join("\n");
-	await Bun.write(`${dir}.policy.yaml`, policy);
-	await Bun.write(`${dir}.upstreams.yaml`, upstreams);
+	await Bun.write(`${dir}/policy.yaml`, policy);
+	await Bun.write(`${dir}/upstreams.yaml`, upstreams);
 	const srv = startServer({
 		port: 0,
-		policyPath: `${dir}.policy.yaml`,
-		upstreamsPath: `${dir}.upstreams.yaml`,
+		policyPath: `${dir}/policy.yaml`,
+		upstreamsPath: `${dir}/upstreams.yaml`,
 		dbPath: ":memory:",
 		auth: { rootKey: ROOT, ...opts },
 	});
@@ -71,7 +81,7 @@ const ROLE_MAP = { engineer: ["buckle:proxy:READ_"] };
 
 /** Claims carried as JSON in a test header (mock of the signed-identity
  *  header the Caddy forward_auth chain would present). */
-const identityHook = (claims: unknown) => (req: Request) => {
+const identityHook = (_claims: unknown) => (req: Request) => {
 	const raw = req.headers.get("x-test-identity");
 	if (raw === null) return null;
 	return JSON.parse(raw) as unknown;
