@@ -276,7 +276,9 @@ class BeltTopology extends LitElement {
 	edge(path, link) {
 		const description =
 			link.evidence === "observed"
-				? `${link.requests15} local Buckle requests · hop not verified by the trace topology`
+				? link.source === "hub Buckle ledger"
+					? `${link.successes15 ?? 0} succeeded · ${link.failures15 ?? 0} failed past 15 minutes · ${link.hub} Buckle ledger`
+					: `${link.requests15} local Buckle requests · hop not verified by the trace topology`
 				: link.evidence === "probe"
 					? `Hub reachability probe · ${link.source}`
 					: `Configured path · ${link.source}`;
@@ -621,19 +623,34 @@ class BeltTopology extends LitElement {
 		const hubs = [...(data?.hubs ?? [])].sort((a, b) =>
 			a.name.localeCompare(b.name),
 		);
+		const observedHubFor = (key) =>
+			(data?.hubProviderLinks ?? [])
+				.filter((link) => link.provider === key)
+				.map((link) => link.hub.toLowerCase());
+		const observedLinkFor = (key, hubName) =>
+			(data?.hubProviderLinks ?? []).find(
+				(link) =>
+					link.provider === key &&
+					link.hub.toLowerCase() === hubName.toLowerCase(),
+			);
 		const hubForProvider = (key) =>
-			hubs
-				.filter(
-					(hub) =>
-						hub.providerKeys?.includes(key) ||
-						hub.providerIntents?.includes(key),
-				)
-				.sort(
-					(a, b) =>
-						Number(Boolean(b.providerKeys?.includes(key))) -
-							Number(Boolean(a.providerKeys?.includes(key))) ||
-						(b.providerCounts?.[key] ?? 0) - (a.providerCounts?.[key] ?? 0),
-				)[0];
+			hubs.filter(
+				(hub) =>
+					observedHubFor(key).includes(hub.name.toLowerCase()) ||
+					hub.providerKeys?.includes(key) ||
+					hub.providerIntents?.includes(key),
+			);
+		const hubForProviderSorted = (key) => {
+			const observed = observedHubFor(key);
+			return hubForProvider(key).sort(
+				(a, b) =>
+					Number(observed.includes(b.name.toLowerCase())) -
+						Number(observed.includes(a.name.toLowerCase())) ||
+					Number(Boolean(b.providerKeys?.includes(key))) -
+						Number(Boolean(a.providerKeys?.includes(key))) ||
+					(b.providerCounts?.[key] ?? 0) - (a.providerCounts?.[key] ?? 0),
+			)[0];
+		};
 		const models = data?.specialists.models ?? [];
 		const clouds = [...(data?.providers ?? [])].sort((a, b) =>
 			a.key === "copilot"
@@ -672,7 +689,7 @@ class BeltTopology extends LitElement {
 			};
 			card.height += card.services.length * 28;
 			const pairedProviders = clouds.filter(
-				(provider) => hubForProvider(provider.key)?.name === item.name,
+				(provider) => hubForProviderSorted(provider.key)?.name === item.name,
 			);
 			hubY += Math.max(card.height, pairedProviders.length * 94 - 8) + 12;
 			return card;
@@ -681,14 +698,14 @@ class BeltTopology extends LitElement {
 		let unpairedY = hubY;
 		const cloudCards = clouds.map((item) => {
 			const pairedHub = hubCards.find(
-				(hub) => hubForProvider(item.key)?.name === hub.name,
+				(hub) => hubForProviderSorted(item.key)?.name === hub.name,
 			);
 			if (pairedHub) {
 				const preceding = clouds.filter(
 					(provider) =>
 						provider.key !== item.key &&
 						clouds.indexOf(provider) < clouds.indexOf(item) &&
-						hubForProvider(provider.key)?.name === pairedHub.name,
+						hubForProviderSorted(provider.key)?.name === pairedHub.name,
 				).length;
 				return { ...item, y: pairedHub.y + preceding * 94 };
 			}
@@ -737,7 +754,7 @@ class BeltTopology extends LitElement {
 					const link = data.links.find(
 						(entry) => entry.target === `provider:${item.key}`,
 					);
-					if (hubForProvider(item.key) && link?.evidence !== "observed")
+					if (hubForProviderSorted(item.key) && link?.evidence !== "observed")
 						return "";
 					return link
 						? this.edge(`M386 113 H403 V51 H742 V${item.y + 42} H770`, link)
@@ -747,18 +764,25 @@ class BeltTopology extends LitElement {
 					cloudCards
 						.filter(
 							(item) =>
-								hubForProvider(item.key)?.name === hub.name &&
-								(hub.providerKeys?.includes(item.key) ||
-									hub.providerIntents?.includes(item.key)),
+								Boolean(observedLinkFor(item.key, hub.name)) ||
+								(hubForProviderSorted(item.key)?.name === hub.name &&
+									(hub.providerKeys?.includes(item.key) ||
+										hub.providerIntents?.includes(item.key))),
 						)
-						.map((item) =>
-							this.edge(`M705 ${hub.y + 54} H738 V${item.y + 42} H770`, {
-								evidence: "configured",
-								source: hub.providerKeys?.includes(item.key)
-									? `${hub.displayName || hub.name} configured upstream`
-									: `${hub.displayName || hub.name} declared provider intent`,
-							}),
-						),
+						.map((item) => {
+							const observed = observedLinkFor(item.key, hub.name);
+							return this.edge(
+								`M705 ${hub.y + 54} H738 V${item.y + 42} H770`,
+								observed
+									? { ...observed, hub: hub.displayName || hub.name }
+									: {
+											evidence: "configured",
+											source: hub.providerKeys?.includes(item.key)
+												? `${hub.displayName || hub.name} configured upstream`
+												: `${hub.displayName || hub.name} declared provider intent`,
+										},
+							);
+						}),
 				)}
 				${this.machine(16, 65, 370, localHeight, "This Mac", `local spoke · :4101 · ${data.gateway === "unknown" ? "unobserved" : data.gateway}`, data.gateway, models, true, data.localConsoleUrl, data.work)}
 		${hubCards.map((item) => this.machine(430, item.y, 275, item.height, item.displayName || item.name, `:${item.port} · ${item.state} probe`, item.state, item.models, false, item.consoleUrl, null, item.gatewayModels, item.gatewayModelTargets, item.name, item.gatewayModelAliases, item.gatewayRouteCount, item.gatewayUnresolvedRoutes, item.gatewayModelCosts, item.services, item.gatewayModelPorts, item.beltModels))}
@@ -769,11 +793,12 @@ class BeltTopology extends LitElement {
 							275,
 							item,
 							data.links.find((link) => link.target === `provider:${item.key}`),
-							hubForProvider(item.key)?.displayName ||
-								hubForProvider(item.key)?.name ||
+							hubForProviderSorted(item.key)?.displayName ||
+								hubForProviderSorted(item.key)?.name ||
 								null,
-							hubForProvider(item.key)?.providerKeys?.includes(item.key) ??
-								false,
+							hubForProviderSorted(item.key)?.providerKeys?.includes(
+								item.key,
+							) ?? false,
 						),
 					)}
 			</svg></div>`
@@ -808,6 +833,10 @@ class BeltTopologyDetails extends LitElement {
 		const data = this.topology;
 		const observed = data?.observedGraph;
 		const audit = data?.audit15;
+		const hubDisplay = (name) =>
+			data?.hubs?.find(
+				(hub) => hub.name.toLowerCase() === String(name).toLowerCase(),
+			)?.displayName ?? name;
 		return html`<section aria-label="Network route details">
 			<div class="heading"><h2>Network route details</h2></div>
 			<p class="legend">Solid blue: observed successful routes in the past 15 minutes. Dashed: configured provider path or hub probe. Hub route counts use its observation feed. Local model loads count Belt router calls.</p>
@@ -819,9 +848,9 @@ class BeltTopologyDetails extends LitElement {
 			</details>`
 					: ""
 			}
-			<details><summary>Connection data · ${data?.links.length ?? 0} paths</summary>
+			<details><summary>Connection data · ${(data?.links?.length ?? 0) + (data?.hubProviderLinks?.length ?? 0)} paths</summary>
 				<table><thead><tr><th scope="col">Target</th><th scope="col">Path</th><th scope="col">Successful / 15m</th><th scope="col">Target failures / 15m</th><th scope="col">Source</th><th scope="col">Last evidence</th></tr></thead>
-				<tbody>${(data?.links ?? []).map((link) => html`<tr><td>${link.target.replace(/^hub:|^provider:/, "")}</td><td>${link.evidence}</td><td>${link.requests15 ?? "—"}</td><td>${link.failures15 ?? "—"}</td><td>${link.source}</td><td title=${link.lastSeen ? new Date(link.lastSeen).toISOString() : "No observed route"}>${localTime(link.lastSeen)}</td></tr>`)}</tbody></table>
+				<tbody>${(data?.links ?? []).concat(data?.hubProviderLinks ?? []).map((link) => html`<tr><td>${link.hub ? `${hubDisplay(link.hub)} → ${link.provider}` : link.target.replace(/^hub:|^provider:/, "")}</td><td>${link.evidence}</td><td>${link.hub ? link.successes15 : (link.requests15 ?? "—")}</td><td>${link.hub ? link.failures15 : (link.failures15 ?? "—")}</td><td>${link.source}</td><td title=${link.lastSeen ? new Date(link.lastSeen).toISOString() : "No observed route"}>${localTime(link.lastSeen)}</td></tr>`)}</tbody></table>
 				${audit?.unattributedFailed ? html`<p>${audit.unattributedFailed} failed requests have no target attribution in the Buckle ledger.</p>` : ""}
 				${audit?.failures?.length ? html`<h3>Failed Buckle attempts · recorded target</h3><table><thead><tr><th scope="col">Target</th><th scope="col">Failures / 15m</th><th scope="col">Last failure</th></tr></thead><tbody>${audit.failures.map((row) => html`<tr><td>${row.host ? `${row.kind} · ${row.host}${row.port ? `:${row.port}` : ""}` : "Target unrecorded"}</td><td>${row.count}</td><td title=${row.lastAt}>${localTime(row.lastAt)}</td></tr>`)}</tbody></table>` : ""}
 			</details>
