@@ -89,7 +89,7 @@ test("canonical prune retains pending and uncertain restart journals under its l
 	}
 });
 
-test("actual new wrapper publication preserves other rows and rolls back exact bytes with store errors", () => {
+test("registry publication holds DB before file lock and restores exact bytes on body errors", () => {
 	const root = mkdtempSync(join(tmpdir(), "restart-register-"));
 	const db = new Database(":memory:");
 	db.run("CREATE TABLE registration(id TEXT)");
@@ -105,18 +105,22 @@ test("actual new wrapper publication preserves other rows and rolls back exact b
 		const file = join(root, ".fleet", "lanes.json");
 		const bytes = readFileSync(file);
 		expect(() =>
-			registerMissingRestartLane(
-				root,
-				fresh,
-				() => true,
-				(publish) =>
-					db.transaction(() => {
+			db.transaction(() =>
+				registerMissingRestartLane(
+					root,
+					fresh,
+					() => {
+						expect(db.inTransaction).toBe(true);
+						return true;
+					},
+					(publish) => {
 						db.run("INSERT INTO registration VALUES ('new')");
 						publish();
-						throw Error("store commit refused");
-					})(),
-			),
-		).toThrow("store commit refused");
+						throw Error("store body refused");
+					},
+				),
+			)(),
+		).toThrow("store body refused");
 		expect(readFileSync(file)).toEqual(bytes);
 		expect(db.query("SELECT * FROM registration").all()).toEqual([]);
 		expect(() =>
@@ -127,16 +131,20 @@ test("actual new wrapper publication preserves other rows and rolls back exact b
 				() => {},
 			),
 		).toThrow("process identity changed");
-		registerMissingRestartLane(
-			root,
-			fresh,
-			() => true,
-			(publish) =>
-				db.transaction(() => {
+		db.transaction(() =>
+			registerMissingRestartLane(
+				root,
+				fresh,
+				() => {
+					expect(db.inTransaction).toBe(true);
+					return true;
+				},
+				(publish) => {
 					db.run("INSERT INTO registration VALUES ('new')");
 					publish();
-				})(),
-		);
+				},
+			),
+		)();
 		expect(readLaneRegistry(root).lanes).toEqual([other, fresh]);
 		expect(() =>
 			registerMissingRestartLane(

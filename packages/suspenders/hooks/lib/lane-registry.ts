@@ -153,9 +153,10 @@ function writeRegistryBytes(file: string, bytes: string | Buffer): void {
 	}
 }
 
-/** Only the actual new wrapper is inserted. Hold the registry lock across
- * the caller's fenced store transaction; restore bytes on transaction error.
- * A process crash remains journal-owned uncertainty, never a retry permit. */
+/** Only the actual new wrapper is inserted. The caller acquires its store
+ * transaction BEFORE this file lock (the same order as ordinary PID repair).
+ * Body/audit errors restore bytes; final commit/crash uncertainty remains
+ * journal-owned and never permits a second launch. */
 export function registerMissingRestartLane<T extends RegistryLane>(
 	input: string,
 	row: T,
