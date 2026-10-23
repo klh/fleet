@@ -70,3 +70,85 @@ describe("beltChat final-text validation", () => {
 		expect(await withBelt({ error: "no healthy fit" }, 503)).toBeNull();
 	});
 });
+
+// W1119.1.1 successors (consult C89): the advise-child integration block that
+// stood here retired with the direct legs — wire contract + failure pins.
+describe("beltChat wire contract (W1119.1.1)", () => {
+	test("the /api/route wire carries the bearer credential and route shape", async () => {
+		// the seam surface: beltChat is the ONE governed-gateway chat export
+		expect(beltChat).toBeFunction();
+		expect(beltChat.name).toBe("beltChat");
+		expect(beltChat.length).toBe(1);
+		const priorUrl = process.env.SUSPENDERS_BELT_URL;
+		const priorToken = process.env.SUSPENDERS_BELT_TOKEN;
+		const mock = Bun.serve({
+			hostname: "127.0.0.1",
+			port: 0,
+			async fetch(req) {
+				// the wire contract pins fire on the real request, in the handler
+				expect(req.method).toBe("POST");
+				expect(new URL(req.url).pathname).toBe("/api/route");
+				expect(req.headers.get("authorization")).toBe("Bearer belt-tok-1");
+				const body = (await req.json()) as Record<string, unknown>;
+				expect(body.role).toBe("reasoning");
+				expect(body.execute).toBe(true);
+				expect(body.max_tokens).toBe(500);
+				expect(body.temperature).toBe(0.2);
+				return Response.json({ reply: "wire ok" });
+			},
+		});
+		process.env.SUSPENDERS_BELT_URL = `http://127.0.0.1:${mock.port}`;
+		process.env.SUSPENDERS_BELT_TOKEN = "belt-tok-1";
+		try {
+			const r = await beltChat({ user: "wire probe" });
+			expect(r?.text).toBe("wire ok");
+		} finally {
+			mock.stop(true);
+			if (priorUrl === undefined) delete process.env.SUSPENDERS_BELT_URL;
+			else process.env.SUSPENDERS_BELT_URL = priorUrl;
+			if (priorToken === undefined) delete process.env.SUSPENDERS_BELT_TOKEN;
+			else process.env.SUSPENDERS_BELT_TOKEN = priorToken;
+		}
+	});
+});
+
+test("message assembly rides system-first with the 500/0.2 defaults", async () => {
+	const priorUrl = process.env.SUSPENDERS_BELT_URL;
+	const mock = Bun.serve({
+		hostname: "127.0.0.1",
+		port: 0,
+		async fetch(req) {
+			const body = (await req.json()) as Record<string, unknown>;
+			const msgs = body.messages as { role: string; content: string }[];
+			// the assembly pins fire on the real request, in the handler
+			expect(msgs).toHaveLength(2);
+			expect(msgs[0]?.role).toBe("system");
+			expect(msgs[0]?.content).toBe("be terse");
+			expect(msgs[1]?.role).toBe("user");
+			expect(msgs[1]?.content).toBe("wire probe");
+			expect(body.max_tokens).toBe(500);
+			expect(body.temperature).toBe(0.2);
+			return Response.json({ reply: "assembled" });
+		},
+	});
+	process.env.SUSPENDERS_BELT_URL = `http://127.0.0.1:${mock.port}`;
+	try {
+		const r = await beltChat({ user: "wire probe", system: "be terse" });
+		expect(r?.text).toBe("assembled");
+	} finally {
+		mock.stop(true);
+		if (priorUrl === undefined) delete process.env.SUSPENDERS_BELT_URL;
+		else process.env.SUSPENDERS_BELT_URL = priorUrl;
+	}
+});
+
+test("an unreachable belt degrades to null on the network path (never throws)", async () => {
+	const priorUrl = process.env.SUSPENDERS_BELT_URL;
+	process.env.SUSPENDERS_BELT_URL = "http://127.0.0.1:1";
+	try {
+		expect(await beltChat({ user: "dead wire probe" })).toBeNull();
+	} finally {
+		if (priorUrl === undefined) delete process.env.SUSPENDERS_BELT_URL;
+		else process.env.SUSPENDERS_BELT_URL = priorUrl;
+	}
+});

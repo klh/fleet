@@ -191,6 +191,42 @@ test("review pins the fixed frame + payload to the configured gate", async () =>
 	}
 });
 
+// W1119.1.1 successor (consult C89) for the retired /models-probe test: model
+// choice never depends on a discovery round-trip — a failing /v1/models
+// endpoint rescues nothing and the default data model rides.
+test("no /models discovery rides the gated leg — discovery failure rescues nothing", async () => {
+	const seen: string[] = [];
+	const srv = Bun.serve({
+		hostname: "127.0.0.1",
+		port: 0,
+		fetch: async (req) => {
+			const path = new URL(req.url).pathname;
+			seen.push(path);
+			if (path === "/v1/models")
+				return Response.json({ data: [] }, { status: 500 });
+			return Response.json({
+				content: [{ type: "text", text: "ok\nBUGS: none" }],
+			});
+		},
+	});
+	try {
+		const r = await run(["bugs"], {
+			env: {
+				SUSPENDERS_BUCKLE_URL: `http://127.0.0.1:${srv.port}`,
+				SUSPENDERS_BUCKLE_TOKEN: "bksk_fixt",
+			},
+			stdin: "for (let i = 0; i <= n; i++) {}\n",
+		});
+		expect(r.code).toBe(0);
+		expect(r.err).toContain("model=local-reason");
+		expect(r.out).toContain("BUGS: none");
+		expect(seen).not.toContain("/v1/models");
+		expect(seen).toEqual(["/v1/messages"]);
+	} finally {
+		srv.stop(true);
+	}
+});
+
 // c4 — model preference stays DATA: the ORACLE_ROUTE_MODEL pin wins, the
 // "local-reason" default rides otherwise; NO discovery probe ever fires
 test("model pin rides as data — ORACLE_ROUTE_MODEL, else local-reason, no probe", async () => {
