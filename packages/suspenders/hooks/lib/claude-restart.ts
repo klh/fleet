@@ -39,6 +39,7 @@ export type ClaudeRestartSnapshot = {
 };
 export type ClaudeRestartJournal = {
 	snapshot: ClaudeRestartSnapshot;
+	shutdownTranscript?: { hash: string; bytes: number };
 	phase:
 		| "prepared"
 		| "retiring"
@@ -65,6 +66,81 @@ export type RestartDependencies = {
 
 export const restartHash = (data: string | Buffer): string =>
 	createHash("sha256").update(data).digest("hex");
+
+/** Resume only a durably retired operation; uncertain launches never retry. */
+export function retiredRestartSnapshot(
+	path: string,
+	lane: { sid: string; item: string; worktree: string; pid: number },
+	identity: RestartDependencies["identity"],
+): ClaudeRestartSnapshot | null {
+	if (!existsSync(path)) return null;
+	const prior = privateJson<ClaudeRestartJournal>(path);
+	if (prior.phase !== "retired")
+		throw new Error(`Restart ${prior.phase}; reconcile before retry`);
+	const value = prior.snapshot;
+	if (
+		value.sid !== lane.sid ||
+		value.item !== lane.item ||
+		value.worktree !== lane.worktree ||
+		value.oldWrapper.pid !== lane.pid ||
+		identity(value.oldWrapper.pid) !== false ||
+		identity(value.oldNative.pid) !== false
+	)
+		throw new Error("Retired restart binding or process absence is not proven");
+	return value;
+}
+
+/** Claude flushes these two bookkeeping rows when its process exits. The
+ * conversation prefix must remain byte-exact; no message row is admissible. */
+export function restartTranscriptMatches(
+	data: Buffer,
+	expectedHash: string,
+	nativeSession: string,
+	oldProcessesAbsent: boolean,
+): boolean {
+	if (restartHash(data) === expectedHash) return true;
+	if (!oldProcessesAbsent || data.at(-1) !== 10) return false;
+	const allowed: Record<string, Set<string>> = {
+		"last-prompt": new Set(["type", "sessionId", "lastPrompt", "leafUuid"]),
+		"cost-state": new Set([
+			"type",
+			"sessionId",
+			"totalCostUSD",
+			"totalAPIDuration",
+			"totalAPIDurationWithoutRetries",
+			"totalToolDuration",
+			"totalLinesAdded",
+			"totalLinesRemoved",
+			"totalDuration",
+			"startTime",
+			"modelUsage",
+			"hasUnknownModelCost",
+		]),
+	};
+	let end = data.length - 1;
+	const seen = new Set<string>();
+	for (let rows = 0; rows < 2; rows++) {
+		const start = data.lastIndexOf(10, end - 1) + 1;
+		if (data.length - start > 65_536) return false;
+		try {
+			const row = JSON.parse(data.subarray(start, end).toString("utf8"));
+			if (
+				!row ||
+				row.sessionId !== nativeSession ||
+				!allowed[row.type] ||
+				seen.has(row.type) ||
+				Object.keys(row).some((key) => !allowed[row.type].has(key))
+			)
+				return false;
+			seen.add(row.type);
+		} catch {
+			return false;
+		}
+		if (restartHash(data.subarray(0, start)) === expectedHash) return true;
+		end = start - 1;
+	}
+	return false;
+}
 
 export async function validateRestartBoundary(
 	snapshot: ClaudeRestartSnapshot,
@@ -144,6 +220,20 @@ export async function checkpointedClaudeRestart(
 		deps.identity(snapshot.oldNative.pid) !== false
 	)
 		throw new Error("Old incarnation is not proven absent");
+	const transcript = readFileSync(snapshot.transcript);
+	if (
+		!restartTranscriptMatches(
+			transcript,
+			snapshot.transcriptHash,
+			snapshot.nativeSession,
+			true,
+		)
+	)
+		throw new Error("Native shutdown changed the conversation transcript");
+	journal.shutdownTranscript = {
+		hash: restartHash(transcript),
+		bytes: transcript.length,
+	};
 	withFileLock(path, () => {
 		if (privateJson<ClaudeRestartJournal>(path).phase !== "retired")
 			throw new Error("Restart already owned by another operation");

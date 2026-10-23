@@ -17,6 +17,8 @@ import {
 	checkpointedClaudeRestart,
 	privateJson,
 	restartHash,
+	restartTranscriptMatches,
+	retiredRestartSnapshot,
 	restartJournalPath,
 	restartContinuationProof,
 	pausedNativeBoundary,
@@ -132,7 +134,7 @@ export function claudeRestartAuthority(
 		store.close();
 	}
 }
-function readFrames(path: string): Array<Record<string, unknown>> {
+export function readFrames(path: string): Array<Record<string, unknown>> {
 	if (statSync(path).size > 128 * 1024 * 1024)
 		throw new Error("Restart log exceeds bounded evidence limit");
 	return readFileSync(path, "utf8")
@@ -145,7 +147,7 @@ function readFrames(path: string): Array<Record<string, unknown>> {
 			}
 		});
 }
-function children(pid: number): number[] {
+export function children(pid: number): number[] {
 	const result = Bun.spawnSync(["/usr/bin/pgrep", "-P", String(pid)], {
 		stdout: "pipe",
 		stderr: "pipe",
@@ -233,9 +235,21 @@ export async function restartManagedClaude(
 ): Promise<ClaudeRestartJournal> {
 	const root = canonicalProjectRoot(fleet);
 	const lane = loadLaneRegistry<LaneRef>(root).find((row) => row.sid === sid);
-	if (!lane?.worktree || !lane.pid || laneProcessIdentity(lane) !== true)
+	if (!lane?.worktree || !lane.pid)
 		throw new Error("Restart requires exact live managed registry identity");
 	const journalPath = restartJournalPath(lane.worktree);
+	const retired = retiredRestartSnapshot(
+		journalPath,
+		{
+			sid,
+			item: lane.item,
+			worktree: lane.worktree,
+			pid: lane.pid,
+		},
+		identity,
+	);
+	if (!retired && laneProcessIdentity(lane) !== true)
+		throw new Error("Restart requires exact live managed registry identity");
 	const sourceSettings = join(root, ".fleet", `lane-settings-${sid}.json`);
 	const settings = join(
 		lane.worktree,
@@ -243,8 +257,9 @@ export async function restartManagedClaude(
 		`restart-settings-${sid}.json`,
 	);
 	const log = join(root, ".fleet", `lane-${sid}.log`);
-	const runtime = new URL("../../hooks/bin/claude-runtime.ts", import.meta.url)
-		.pathname;
+	const runtime =
+		retired?.runtime ??
+		new URL("../../hooks/bin/claude-runtime.ts", import.meta.url).pathname;
 	currentSettings(sourceSettings, dirname(runtime));
 	privateJson(sourceSettings);
 	const sourceData = readFileSync(sourceSettings, "utf8");
@@ -267,11 +282,17 @@ export async function restartManagedClaude(
 	);
 	if (!pausedNativeBoundary(frames, checkpoint))
 		throw new Error("Managed native result did not confirm current pause");
-	const wrapper = identity(lane.pid);
-	const nativePids = children(lane.pid);
-	const native = nativePids.length === 1 ? identity(nativePids[0]) : null;
+	const wrapper = retired?.oldWrapper ?? identity(lane.pid);
+	const nativePids = retired ? [] : children(lane.pid);
+	const native =
+		retired?.oldNative ??
+		(nativePids.length === 1 ? identity(nativePids[0]) : null);
 	const nativeProcess = native && processBirth(native.pid);
-	if (!wrapper || !native || !nativeProcess?.command.includes(sourceSettings))
+	if (
+		!wrapper ||
+		!native ||
+		(!retired && !nativeProcess?.command.includes(sourceSettings))
+	)
 		throw new Error("Managed child identity unavailable");
 	const controlRecord = () => {
 		const current = loadLaneRegistry<LaneRef>(root).find(
@@ -295,7 +316,7 @@ export async function restartManagedClaude(
 		}
 	};
 	controlRecord();
-	const binary = nativeProcess.command.split(/\s+/)[0];
+	const binary = retired?.nativeBin ?? nativeProcess?.command.split(/\s+/)[0];
 	if (!binary || !/^\//.test(binary))
 		throw new Error("Native executable is not absolute");
 	const transcripts = Array.from(
@@ -306,7 +327,7 @@ export async function restartManagedClaude(
 	if (transcripts.length !== 1)
 		throw new Error("Exact durable native transcript is not proven");
 	const transcript = join(homedir(), ".claude", "projects", transcripts[0]);
-	const snapshot: ClaudeRestartSnapshot = {
+	const snapshot: ClaudeRestartSnapshot = retired ?? {
 		version: 1,
 		id: crypto.randomUUID(),
 		sid,
@@ -332,6 +353,15 @@ export async function restartManagedClaude(
 		oldWrapper: wrapper,
 		oldNative: native,
 	};
+	if (
+		retired &&
+		(retired.nativeSession !== session ||
+			retired.transcript !== transcript ||
+			retired.sourceSettings !== sourceSettings ||
+			retired.settings !== settings ||
+			retired.settingsHash !== restartHash(generated.data))
+	)
+		throw new Error("Retired restart execution projection changed");
 	const assertLocal = (value: ClaudeRestartSnapshot) => {
 		controlRecord();
 		const now = claudeRestartAuthority(value.sid, value.item, value.worktree);
@@ -344,7 +374,13 @@ export async function restartManagedClaude(
 			treeHash(value.worktree) !== value.treeHash ||
 			restartHash(readFileSync(value.sourceSettings)) !==
 				value.sourceSettingsHash ||
-			restartHash(readFileSync(value.transcript)) !== value.transcriptHash
+			!restartTranscriptMatches(
+				readFileSync(value.transcript),
+				value.transcriptHash,
+				value.nativeSession,
+				identity(value.oldWrapper.pid) === false &&
+					identity(value.oldNative.pid) === false,
+			)
 		)
 			throw new Error(
 				"Restart authority, checkpoint, edits or settings changed",
@@ -354,6 +390,8 @@ export async function restartManagedClaude(
 			restartHash(readFileSync(value.settings)) !== value.settingsHash
 		)
 			throw new Error("Materialized settings changed");
+		if (restartHash(readFileSync(value.runtime)) !== value.runtimeHash)
+			throw new Error("Restart runtime generation changed");
 		if (
 			identity(value.oldWrapper.pid) !== false &&
 			!pausedNativeBoundary(readFrames(log), value.checkpoint)
@@ -366,7 +404,7 @@ export async function restartManagedClaude(
 		);
 	};
 	await validate(snapshot);
-	if (!apply) return { snapshot, phase: "prepared" };
+	if (!apply) return { snapshot, phase: retired ? "retired" : "prepared" };
 	const temporary = `${settings}.${process.pid}.tmp`;
 	writeFileSync(temporary, generated.data, { mode: 0o600, flag: "wx" });
 	renameSync(temporary, settings);
