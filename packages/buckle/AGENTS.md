@@ -11,6 +11,14 @@ structurally ineligible).
 Companion of belt (fleet) + suspenders (control plane). Design docs
 live in suspenders `docs/design/buckle/`.
 
+## Schema law
+
+Every `/v1/admin/*` POST body safeParses through the named zod schemas in
+`src/gov/admin-schemas.ts` — never a hand `as Record<string, unknown>`
+cast (root AGENTS.md, Schema law; W1238.4). New wire-facing bodies add a
+schema there first, then consume `adminBody(read.body, Schema)` in the
+route.
+
 ## UI law
 
 NEVER `innerHTML` / `document.write` (blocked by the write-gate).
