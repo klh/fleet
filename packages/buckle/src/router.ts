@@ -386,7 +386,11 @@ export class Router {
 		const wireReq = bridgeRequest(req, dep);
 		if (wireReq === null)
 			throw new UpstreamError(502, `upstream ${dep.url} not bridgeable`);
-		const bridged = wireReq !== req;
+		// W1124.27: "bridged" means the DIALECT changed — a same-dialect body
+		// normalize (chatgpt seam) returns a new req object but the response
+		// speaks this dialect, so it must not be re-framed or its refusals
+		// re-attributed as bridge artifacts.
+		const bridged = wireReq.dialect !== req.dialect;
 		// W1078: admission at the selected-attempt seam — after bridge
 		// eligibility, before the fetch. The queue wait is capped by the
 		// remaining walk budget (deadlines only shrink); a granted lease
