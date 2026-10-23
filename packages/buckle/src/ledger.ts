@@ -170,6 +170,11 @@ export interface RequestReadRow {
 	cache_c_reported: number | null;
 	in_tok: number | null;
 	out_tok: number | null;
+	/** W1132 computed cost (null = unpriced row: no rate, legacy, or no
+	 *  table — unknown spend, never zero). */
+	cost_usd: number | null;
+	/** W1132 the rate version that priced this row ('' = unpriced/legacy). */
+	rate_version: string;
 	/** W921 traffic kind: 'readiness' | 'inference'; NULL = legacy row. */
 	traffic_kind: string | null;
 	/** W1106 typed stream terminal (null = non-stream row / legacy). */
@@ -1088,7 +1093,7 @@ function requestsReadSql(where: string[], limit: number): string {
 		target_port, target_model, decision, latency_class, tier,
 		allow_cloud, hop, error_code, why, status, duration_ms, ok, err,
 		attempts, cache_r, cache_c, cache_reported, cache_c_reported, in_tok, out_tok,
-		traffic_kind, stream_receipt
+		cost_usd, rate_version, traffic_kind, stream_receipt
 		FROM route_audit ${clause}
 		ORDER BY ts DESC, rid DESC LIMIT ${limit}`;
 }

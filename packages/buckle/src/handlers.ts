@@ -1166,7 +1166,14 @@ function record(
 	cacheWriteReported: boolean,
 ): void {
 	// W457 cache telemetry: joined onto the route_audit row by rid.
-	deps.ledger.auditUsage(ctx.rid, usage, cacheReported, cacheWriteReported);
+	// W1132: ctx.model names the model so the ledger prices at enqueue.
+	deps.ledger.auditUsage(
+		ctx.rid,
+		usage,
+		cacheReported,
+		cacheWriteReported,
+		ctx.model,
+	);
 	// W458.4 per-lane cache telemetry: attributed lanes append the row with
 	// the boundary the request actually rode (the delivered head). Usage
 	// null = honest unknown — the request still counts, tokens stay zero.

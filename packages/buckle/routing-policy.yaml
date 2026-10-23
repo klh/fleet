@@ -100,3 +100,25 @@ aids:
   #   self_report:
   #     teams: []   # e.g. [platform, gaps]
 
+# W1132 cost monitoring: the versioned price table. Rates are OPERATOR
+# CONFIG — this block ships COMMENTED-OUT and EMPTY (config-over-code law:
+# no real rates in the repo). Uncomment on the machine and fill `models:`
+# to switch pricing ON; absent or empty models = nothing prices (ledger
+# rows keep cost_usd NULL, never silently zero). `version` stamps every
+# priced row (Helicone pattern) so historical repricing stays possible.
+# cache_read_mult/cache_write_mult default to 1.0 — no savings claimed
+# until the operator MEASURES a discount (ZAI implicit prefix caching
+# stays unpriced-as-savings until then).
+# cost:
+#   version: "rates-2026-10"
+#   models:
+#     glm-5.3-flash:
+#       in_per_tok: 0.0000001
+#       out_per_tok: 0.0000004
+#       in_tok_includes_cache: false
+#     claude-sonnet-5.5:
+#       in_per_tok: 0.000003
+#       out_per_tok: 0.000015
+#       cache_read_mult: 0.1
+#       in_tok_includes_cache: false
+

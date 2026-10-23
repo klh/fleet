@@ -11,6 +11,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { YAML } from "bun";
+import { buildCostPolicy, type CostPolicy } from "./cost.ts";
 import type { ProviderPoolPolicy } from "./provider-admission-core.ts";
 
 /** OWNER DIRECTIVE (W124, lesson.fanout-rate-budget): flashx appears in no
@@ -56,6 +57,10 @@ export interface GatewayPolicy {
 	// adapter_config.provider_pool; an unbound pool id or malformed binding
 	// is startup-fatal in the router (fail-closed, never silently off).
 	provider_pools?: Record<string, ProviderPoolPolicy>;
+	// W1132 cost monitoring: the versioned price table (rates are OPERATOR
+	// CONFIG — no rates ship in-repo). null = absent block, nothing prices;
+	// a malformed table is startup-fatal (fail-closed like provider_pools).
+	cost?: CostPolicy | null;
 }
 
 /** W142 aids policy (routing-policy.yaml `aids:` block). Belt ignores the
@@ -113,6 +118,7 @@ interface PolicyDoc {
 	gateway?: GatewayPolicy;
 	tags?: Record<string, string[]>;
 	aids?: AidsPolicy;
+	cost?: unknown;
 }
 
 /** Native-free defaults; the committed YAML carries the same values. */
@@ -169,6 +175,7 @@ export function parsePolicy(
 		...gateway,
 		tags: doc?.tags ?? {},
 		aids: doc?.aids ?? {},
+		cost: buildCostPolicy(doc?.cost),
 	};
 	const attempt = policy.request_timeout_s ?? POLICY_DEFAULTS.request_timeout_s;
 	const walk =

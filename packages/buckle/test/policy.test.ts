@@ -133,3 +133,20 @@ test("runtime JSON wins over runtime YAML", () => {
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+test("parsePolicy: cost block parses into the versioned price table", () => {
+	const p = parsePolicy(
+		'cost:\n  version: "rates-2026-10"\n  models:\n    m:\n      in_per_tok: 0.000002\n      out_per_tok: 0.00001\n      cache_read_mult: 0.1\n',
+	);
+	expect(p.cost?.version).toBe("rates-2026-10");
+	expect(p.cost?.models?.m?.in_per_tok).toBe(0.000002);
+	expect(p.cost?.models?.m?.cache_read_mult).toBe(0.1);
+});
+
+test("parsePolicy: absent cost block → null (nothing prices, rows stay NULL)", () => {
+	expect(parsePolicy("version: 1\n").cost).toBeNull();
+});
+
+test("parsePolicy: cost block without a version refuses startup (fail-closed)", () => {
+	expect(() => parsePolicy("cost:\n  models: {}\n")).toThrow(/cost\.version/);
+});
