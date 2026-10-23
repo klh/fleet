@@ -57,7 +57,7 @@ const age = (value) => {
 	return `${Math.floor(elapsed / 60_000)}m ago`;
 };
 
-class BeltTopology extends LitElement {
+export class BeltTopology extends LitElement {
 	static properties = {
 		topology: { state: true },
 		error: { state: true },
@@ -336,6 +336,7 @@ class BeltTopology extends LitElement {
 							usage15: Number.isFinite(item.requests15)
 								? item.requests15
 								: null,
+							ports: [],
 						})),
 				].sort(
 					(a, b) =>
