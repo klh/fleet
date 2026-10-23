@@ -227,6 +227,11 @@ services:
       # hosts listed here; empty = loopback only (the public default)
       BUCKLE_HTTP_UPSTREAM_HOSTS: ${HUB_HTTP_UPSTREAM_HOSTS:-}
       BUCKLE_SECRETS_HOME: /state/secrets
+      # Native metrics share the already-private upstream.env credential.
+      # No engine on this hub = leave the operator block undeclared.
+      BUCKLE_LITELLM_METRICS_URL: ${HUB_LITELLM_METRICS_URL:-}
+      BUCKLE_LITELLM_METRICS_KEY_ENV: ${HUB_LITELLM_METRICS_KEY_ENV:-}
+      BUCKLE_LITELLM_METRICS_SOURCE_ID: ${HUB_LITELLM_METRICS_SOURCE_ID:-}
       BUCKLE_AUTH: ${HUB_BUCKLE_AUTH:-on}
       # W372: stack.yaml auth.oidc/auth.tokens → env (Entra-ready, config-only
       # — the gate builds its JWT validator from these when present; empty =

@@ -43,7 +43,10 @@ export function livenessResponse(
 }
 
 /** Respect explicit health failures without buffering arbitrary model payloads. */
-export async function endpointPassed(response: Response): Promise<boolean> {
+export async function endpointPassed(
+	response: Response,
+	onLifecycle?: (state: string) => void,
+): Promise<boolean> {
 	if (!response.ok) {
 		await response.body?.cancel();
 		return false;
@@ -70,9 +73,16 @@ export async function endpointPassed(response: Response): Promise<boolean> {
 		const value = JSON.parse(body);
 		if (value === null || typeof value !== "object" || Array.isArray(value))
 			return false;
+		const lifecycle = value.model_lifecycle;
+		const state =
+			typeof lifecycle?.state === "string" ? lifecycle.state : undefined;
+		if (state) onLifecycle?.(state);
 		return (
 			value?.ok !== false &&
 			value?.healthy !== false &&
+			value?.ready !== false &&
+			!lifecycle?.error &&
+			!["error", "failed", "unavailable"].includes(state ?? "") &&
 			![
 				"down",
 				"unhealthy",
@@ -88,5 +98,35 @@ export async function endpointPassed(response: Response): Promise<boolean> {
 		return false;
 	} finally {
 		await reader.cancel().catch(() => {});
+	}
+}
+
+/** Prefer the engine health contract over its static model advertisement.
+ * A server without that route may use the existing models contract. Cold
+ * lazy-load engines remain available when explicitly ready; not warm. */
+export async function modelEndpointHealth(
+	port: number,
+): Promise<{ up: boolean; reachable: boolean; lifecycle?: string }> {
+	try {
+		const signal = AbortSignal.timeout(1200);
+		const base = `http://127.0.0.1:${port}`;
+		let response = await fetch(`${base}/health`, {
+			signal,
+			redirect: "manual",
+		});
+		if (response.status === 404) {
+			await response.body?.cancel();
+			response = await fetch(`${base}/v1/models`, {
+				signal,
+				redirect: "manual",
+			});
+		}
+		let lifecycle: string | undefined;
+		const up = await endpointPassed(response, (state) => {
+			lifecycle = state;
+		});
+		return { up, reachable: true, lifecycle };
+	} catch {
+		return { up: false, reachable: false };
 	}
 }

@@ -9,6 +9,8 @@ import { parse } from "yaml";
 import type { GatewayPolicy } from "../../../buckle/src/policy.ts";
 
 export interface HubProfile {
+	/** Private native metrics; credential NAME must bind an existing upstream key. */
+	metrics?: { litellm: { url: string; key_env: string; source_id: string } };
 	/** Per-hub Buckle gateway overrides; policy data only, never credentials. */
 	buckle_gateway?: GatewayPolicy;
 	/** Reviewed canary ref for this hub only. Keeps the shared stack version
@@ -126,6 +128,8 @@ export interface HubProfile {
 		zai_catalog_file?: string;
 		/** LiteLLM URL reachable from this hub. */
 		zai_litellm_url?: string;
+		/** Operator-declared pressure codes for generated catalog deployments. */
+		zai_concurrency_error_codes?: string[];
 		// W1123: no operator inherit escape — hubctl always stamps
 		// `inherit_defaults: false` into the rendered hub ladder (an opt-in
 		// would re-import the committed Mac local-swarm :890x onto a remote

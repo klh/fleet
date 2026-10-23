@@ -22,6 +22,7 @@ import {
 import { archiveAndPrune, pruneArchiveFiles } from "../lib/retention.ts";
 import { run } from "../lib/run.ts";
 import { reapDeadSubscribes } from "../lib/subscribe-attach.ts";
+import { parseVerb } from "../lib/verb-kit.ts";
 import { isLiveSession, type LivenessRow } from "./bus.ts";
 import { ensureConsultTrust } from "./consult-trust.ts";
 import type { Database } from "./shared.ts";
@@ -295,30 +296,57 @@ export async function cmdCapsule(rest: string[]): Promise<void> {
 	// itemCapsuleKey, W687 — item ids are per-project sequences) alongside the
 	// lane-scoped lane.<sid>.capsule — an item reclaimed and re-taken by a
 	// fresh lane resumes from it instead of starting blind.
-	const item = arg("--item");
-	const as = arg("--as") ?? rest[0];
-	if (!as || rest[0] === "get") {
+	const payloadFlags = [
+		"--checkpoint",
+		"--done",
+		"--next",
+		"--step",
+		"--assumptions",
+		"--file",
+		"--files",
+		"--snippets",
+		"--todos",
+		"--conditions",
+		"--work",
+		"--project",
+		"--resume",
+	];
+	const flags = ["--as", "--item", "--if-version", ...payloadFlags];
+	const parsed = parseVerb(
+		{ name: "capsule", flags, switches: ["--verify"] },
+		rest,
+	);
+	if (!parsed.ok) die(parsed.message);
+	const p = parsed.parsed;
+	if (p.pos.length !== 1 || !["set", "get"].includes(p.pos[0]))
+		die(
+			"usage: capsule set|get --as <sid> [--item <id>] [--checkpoint <sha|none>] [--done <text>] [--next <text>]",
+		);
+	for (const flag of flags)
+		if (p.all(flag).some((value) => !value.trim() || value.startsWith("--")))
+			die(`capsule: ${flag} requires a non-empty value`);
+	const item = p.flag("--item");
+	const as = p.flag("--as");
+	if (!as && (!item || p.pos[0] === "set")) die("capsule: --as is required");
+	if (p.pos[0] === "get") {
 		const key = item
 			? itemCapsuleKey(projectIdentity(), item)
-			: `lane.${as ?? ""}.capsule`;
+			: `lane.${as}.capsule`;
 		const cap = db.query("SELECT value FROM facts WHERE key = ?").get(key) as {
 			value: string;
 		} | null;
 		// W516 --verify: re-check the schema-delta fields against the disk
 		// (files exist? snippet ranges inside the file?) — a successor lane
 		// verifies instead of trusting prose
-		if (cap && rest.includes("--verify"))
+		if (cap && p.flag("--verify"))
 			console.log(renderCapsuleVerified(cap.value));
 		else console.log(cap?.value ?? dim("(no capsule)"));
 	} else {
+		if (!as) die("capsule: --as is required");
 		const extra: Record<string, unknown> = {};
-		let iv: string | null = null;
-		for (const t of process.argv.slice(2)) {
-			const m = /^--([\w-]+)=(.+)$/.exec(t);
-			if (!m) continue;
-			// W606: --if-version=N is the CAS expectation, not capsule payload
-			if (m[1] === "if-version") iv = m[2];
-			else if (m[1] !== "as" && m[1] !== "item") extra[m[1]] = m[2];
+		for (const flag of payloadFlags) {
+			const value = p.flag(flag);
+			if (value !== null) extra[flag.slice(2)] = value;
 		}
 		if (item) extra.item = item;
 		// W516 capsule schema delta (amp handoff lift, research-ampcode.md
@@ -358,18 +386,13 @@ export async function cmdCapsule(rest: string[]): Promise<void> {
 			if (ckptTs.ok) extra.checkpoint_ts = ckptTs.out.trim();
 		}
 		// arg() fallback covers the two-token form --if-version N
-		const expected = parseIfVersion(iv ?? arg("--if-version"));
+		const expected = parseIfVersion(p.flag("--if-version"));
 		const upsert = (key: string) =>
 			db
 				.query(
 					"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, ?, 1, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, version = version + 1, ts = excluded.ts",
 				)
-				.run(
-					key,
-					assertCapsuleBounds(extra, Date.now()),
-					arg("--as") ?? as,
-					Date.now(),
-				);
+				.run(key, assertCapsuleBounds(extra, Date.now()), as, Date.now());
 		// with --item the CAS expectation guards the item key — that is the
 		// key successive lane writers race over the item's life; the lane key
 		// stays single-writer and rides along unconditionally

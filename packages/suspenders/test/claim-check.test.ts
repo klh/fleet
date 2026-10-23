@@ -137,7 +137,7 @@ const codexSay = (text: string, min: number): string =>
 	});
 
 const v = (o: Partial<Parameters<typeof claimCheckVerdict>[0]> = {}) =>
-	claimCheckVerdict({ paths: [], diffText: "", disabled: false, ...o });
+	claimCheckVerdict({ paths: [], diffText: "", ...o });
 
 describe("claim and run detection", () => {
 	test("claims match assistant-style prose, negations void", () => {
@@ -681,20 +681,24 @@ describe("diff erosion", () => {
 	});
 });
 
-describe("fail-open and the knob", () => {
+describe("missing evidence and mandatory enforcement", () => {
 	test("missing transcript and no capsule claim → ok", () => {
 		expect(v({ transcriptPath: "/nonexistent/transcript.jsonl" }).ok).toBe(
 			true,
 		);
 	});
 
-	test("SUSPENDERS_CLAIM_CHECK=0 disables every half", () => {
-		const r = v({
-			transcriptText: assistantSay("suite is green", -2),
-			diffText: "diff --git a/src/calc.test.ts b/src/calc.test.ts",
-			disabled: true,
-		});
-		expect(r.ok).toBe(true);
+	test("the former environment opt-out cannot disable evidence verification", () => {
+		const previous = process.env.SUSPENDERS_CLAIM_CHECK;
+		process.env.SUSPENDERS_CLAIM_CHECK = "0";
+		try {
+			const r = v({ transcriptText: assistantSay("suite is green", -2) });
+			expect(r.ok).toBe(false);
+			expect(r.why).not.toContain("Escape hatch");
+		} finally {
+			if (previous === undefined) delete process.env.SUSPENDERS_CLAIM_CHECK;
+			else process.env.SUSPENDERS_CLAIM_CHECK = previous;
+		}
 	});
 
 	test("constants hold the calibration", () => {

@@ -1,4 +1,14 @@
 import PQueue from "p-queue";
+import {
+	assertProviderConcurrencyErrorCodes,
+	type ProviderPressure,
+} from "./provider-pressure.ts";
+
+export {
+	assertProviderConcurrencyErrorCodes,
+	type ProviderPressure,
+	providerPressureOf,
+} from "./provider-pressure.ts";
 
 export interface ProviderPoolPolicy {
 	concurrency: number;
@@ -7,17 +17,33 @@ export interface ProviderPoolPolicy {
 	maxOutstanding: number;
 	queueWaitMs: number;
 	recovery: { successWindow: number; decreasePercent: number };
+	/** Explicit account/operator classification, never inferred from provider names. */
+	concurrencyErrorCodes?: string[];
 }
 
 export function assertProviderPoolPolicy(
 	value: unknown,
 ): asserts value is ProviderPoolPolicy {
 	const p = value as ProviderPoolPolicy | null;
+	if (p?.concurrencyErrorCodes !== undefined)
+		assertProviderConcurrencyErrorCodes(p.concurrencyErrorCodes);
 	const positive = (n: unknown) => Number.isSafeInteger(n) && Number(n) > 0;
 	if (
 		!p ||
 		typeof p !== "object" ||
-		Object.keys(p).length !== 6 ||
+		Object.keys(p).length !== (p.concurrencyErrorCodes === undefined ? 6 : 7) ||
+		Object.keys(p).some(
+			(key) =>
+				![
+					"concurrency",
+					"intervalCap",
+					"intervalMs",
+					"maxOutstanding",
+					"queueWaitMs",
+					"recovery",
+					"concurrencyErrorCodes",
+				].includes(key),
+		) ||
 		![
 			p.concurrency,
 			p.intervalCap,
@@ -40,7 +66,11 @@ export function assertProviderPoolPolicy(
 }
 export interface ProviderLease {
 	release(): void;
-	feedback?(status: number, retryAfterS: number | null): void;
+	feedback?(
+		status: number,
+		retryAfterS: number | null,
+		pressure?: ProviderPressure,
+	): void;
 }
 export class ProviderAdmissionFull extends Error {}
 
@@ -58,7 +88,12 @@ export class ProviderAdmissionCore {
 	private notBeforeMs = 0;
 	private lastStartedAt = 0;
 	private feedbackEpoch = 0;
+	private readonly pressureEpoch = { rate: 0, concurrency: 0 };
+	private readonly pressureUntil = { rate: 0, concurrency: 0 };
 	private rateLimitedTotal = 0;
+	private concurrencyLimitedTotal = 0;
+	private adaptiveConcurrency: number;
+	private concurrencySuccesses = 0;
 	private recoverySuccesses = 0;
 	private congestionUntilMs = 0;
 	private recoveredAtMs = 0;
@@ -73,6 +108,7 @@ export class ProviderAdmissionCore {
 		});
 		this.baseGapMs = Math.max(1, policy.intervalMs / policy.intervalCap);
 		this.adaptiveGapMs = this.baseGapMs;
+		this.adaptiveConcurrency = policy.concurrency;
 		this.queue.on("active", () => {
 			this.lastStartedAt = Date.now();
 			if (
@@ -108,13 +144,17 @@ export class ProviderAdmissionCore {
 
 	private feedback(
 		epoch: number,
+		pressureEpoch: Record<ProviderPressure, number>,
 		startedAt: number,
+		startedOccupancy: number,
 		status: number,
 		retryAfterS: number | null,
+		pressure: ProviderPressure,
 	): void {
 		const now = Date.now();
 		if (status === 429) {
 			this.rateLimitedTotal++;
+			if (pressure === "concurrency") this.concurrencyLimitedTotal++;
 			if (
 				retryAfterS !== null &&
 				Number.isFinite(retryAfterS) &&
@@ -125,33 +165,54 @@ export class ProviderAdmissionCore {
 					Math.min(Number.MAX_SAFE_INTEGER, Date.now() + retryAfterS * 1000),
 				);
 			// One old in-flight burst is one capacity signal, not forty doublings.
-			if (epoch === this.feedbackEpoch && now >= this.congestionUntilMs) {
+			if (
+				pressureEpoch[pressure] === this.pressureEpoch[pressure] &&
+				now >= this.pressureUntil[pressure]
+			) {
+				this.pressureEpoch[pressure]++;
 				this.feedbackEpoch++;
 				// Use the configured evidence sample horizon on both sides of the
 				// controller. One RTT alone lets delayed waves create new epochs
 				// faster than enough healthy observations can disprove pressure.
-				this.congestionUntilMs =
+				this.pressureUntil[pressure] =
 					now +
 					Math.min(
 						this.policy.queueWaitMs,
 						this.policy.recovery.successWindow *
 							Math.max(this.baseGapMs, now - startedAt),
 					);
-				this.adaptiveGapMs = Math.min(
-					Math.max(
-						this.baseGapMs,
-						Math.min(MAX_ADAPTIVE_GAP_MS, this.policy.queueWaitMs / 4),
-					),
-					this.adaptiveGapMs * 2,
+				// Independent pressure dimensions must not mask one another in
+				// the same in-flight burst. Successes retain a global epoch fence.
+				this.congestionUntilMs = Math.max(
+					this.pressureUntil.rate,
+					this.pressureUntil.concurrency,
 				);
-				this.notBeforeMs = Math.max(
-					this.notBeforeMs,
-					Date.now() + this.adaptiveGapMs,
-				);
+				if (pressure === "concurrency") {
+					// Refused-lease occupancy is an upper bound, not a provider limit.
+					// Lower the local window without cancelling any active lease.
+					this.adaptiveConcurrency = Math.max(
+						1,
+						Math.min(this.adaptiveConcurrency, startedOccupancy - 1),
+					);
+					this.queue.concurrency = this.adaptiveConcurrency;
+				} else {
+					this.adaptiveGapMs = Math.min(
+						Math.max(
+							this.baseGapMs,
+							Math.min(MAX_ADAPTIVE_GAP_MS, this.policy.queueWaitMs / 4),
+						),
+						this.adaptiveGapMs * 2,
+					);
+					this.notBeforeMs = Math.max(
+						this.notBeforeMs,
+						Date.now() + this.adaptiveGapMs,
+					);
+				}
 			}
 			// Even a coalesced 429 invalidates the healthy streak. It must not
 			// leave seven successes poised to erase a new pressure signal.
 			this.recoverySuccesses = 0;
+			this.concurrencySuccesses = 0;
 			this.recoveredAtMs = now;
 			this.scheduleStarts();
 		} else if (
@@ -159,9 +220,20 @@ export class ProviderAdmissionCore {
 			status < 300 &&
 			epoch === this.feedbackEpoch &&
 			now >= this.congestionUntilMs &&
-			now >= this.notBeforeMs &&
-			this.adaptiveGapMs > this.baseGapMs
+			now >= this.notBeforeMs
 		) {
+			if (
+				this.adaptiveConcurrency < this.policy.concurrency &&
+				this.queue.size > 0
+			) {
+				this.concurrencySuccesses++;
+				if (this.concurrencySuccesses >= this.policy.recovery.successWindow) {
+					this.adaptiveConcurrency++;
+					this.queue.concurrency = this.adaptiveConcurrency;
+					this.concurrencySuccesses = 0;
+				}
+			}
+			if (this.adaptiveGapMs <= this.baseGapMs) return;
 			this.recoverySuccesses = Math.min(
 				this.policy.recovery.successWindow,
 				this.recoverySuccesses + 1,
@@ -184,6 +256,10 @@ export class ProviderAdmissionCore {
 			outstanding: this.outstanding,
 			queued: this.queue.size,
 			active: this.queue.pending,
+			adaptiveConcurrency: this.adaptiveConcurrency,
+			concurrencyCeiling: this.policy.concurrency,
+			concurrencyLimitedTotal: this.concurrencyLimitedTotal,
+			concurrencyRecoverySuccesses: this.concurrencySuccesses,
 			baseGapMs: this.baseGapMs,
 			adaptiveGapMs: this.adaptiveGapMs,
 			notBeforeMs: this.notBeforeMs,
@@ -243,11 +319,26 @@ export class ProviderAdmissionCore {
 					};
 					signal.addEventListener("abort", release, { once: true });
 					const epoch = this.feedbackEpoch;
+					const pressureEpoch = { ...this.pressureEpoch };
 					const startedAt = Date.now();
+					const startedOccupancy = this.queue.pending;
 					grant({
 						release,
-						feedback: (status, retryAfterS) =>
-							this.feedback(epoch, startedAt, status, retryAfterS),
+						feedback: (status, retryAfterS, pressure = "rate") => {
+							// An aborted lease cannot become healthy if its transport
+							// later reaches EOF. Error bodies may settle before parsing
+							// their pressure feedback, so refusals remain observable.
+							if (released && status >= 200 && status < 300) return;
+							this.feedback(
+								epoch,
+								pressureEpoch,
+								startedAt,
+								startedOccupancy,
+								status,
+								retryAfterS,
+								pressure,
+							);
+						},
 					});
 					await held;
 				},
@@ -289,6 +380,7 @@ export function bindProviderLease(
 			try {
 				const next = await reader.read();
 				if (next.done) {
+					if (response.ok) lease.feedback?.(response.status, null);
 					release();
 					controller.close();
 				} else controller.enqueue(next.value);

@@ -8,9 +8,8 @@ import { readRemoteTraces } from "../../telemetry/src/remote-traces.ts";
 test("a real provider refusal retains bounded code type and call id in the admin trace", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "provider-feedback-"));
 	let error: Record<string, unknown> = {
-		code: 1302,
 		type: "rate_limit_error",
-		message: "synthetic provider capacity refusal",
+		message: `litellm.RateLimitError: AnthropicException - ${JSON.stringify({ type: "error", error: { code: "1302", type: "rate_limit_error", message: "synthetic provider capacity refusal" } })}. Received Model Group=fixture\nAvailable Model Group Fallbacks=[]`,
 	};
 	const upstream = Bun.serve({
 		hostname: "127.0.0.1",
