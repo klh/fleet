@@ -1,5 +1,29 @@
 # deploy/ — hub deployment (W310)
 
+## Private native LiteLLM metrics
+
+For a hub serving a LiteLLM transport, declare `metrics.litellm` in the
+machine stack profile with `url`, `key_env` and `source_id`. The credential
+name must already exist in `secrets.upstream_keys`; its on-device key file
+must hold the engine's metrics authority, not a provider API key. The
+existing private `upstream.env` supplies it to Buckle. No secret value is
+rendered into the compose environment template or diagnostics.
+
+The URL must be HTTPS or loopback HTTP and use `/metrics/` (LiteLLM's native
+path). A Docker hostname over plain HTTP remains refused. Verify that the
+declared endpoint is reachable from the hub's host-network container; do
+not change URL security or start another engine to make a scrape green.
+Hubs with no LiteLLM transport leave the block absent and correctly report
+`not_configured`.
+
+Authenticated `GET /v1/admin/metrics` remains the single combined read.
+Its `x-buckle-litellm-metrics-source-id` header names the operator's engine
+identity. Use the **same** identifier on every hub/spoke reading one engine;
+those native counters and in-flight gauges must not be summed across
+scrapes. A missing identifier is unknown provenance, not a unique engine.
+Local file credentials keep the existing 0600/owner checks; local spokes
+can declare the same identity with `BUCKLE_LITELLM_METRICS_SOURCE_ID`.
+
 One parameterized compose (`hub-compose.yaml`) + the runtime-config shape
 (`stack.example.yaml`). The topology law: **start topology, not hardcoded
 one-offs** — a local user runs several hubs, hubs declare peers (sub-hubs),

@@ -117,6 +117,11 @@ export class Governance {
 			url: opts.metrics?.url ?? process.env.BUCKLE_LITELLM_METRICS_URL,
 			keyFile:
 				opts.metrics?.keyFile ?? process.env.BUCKLE_LITELLM_METRICS_KEY_FILE,
+			keyEnv:
+				opts.metrics?.keyEnv ?? process.env.BUCKLE_LITELLM_METRICS_KEY_ENV,
+			sourceId:
+				opts.metrics?.sourceId ??
+				(process.env.BUCKLE_LITELLM_METRICS_SOURCE_ID || undefined),
 			fetcher: opts.metrics?.fetcher,
 			timeoutMs: opts.metrics?.timeoutMs,
 			maxBytes: opts.metrics?.maxBytes,

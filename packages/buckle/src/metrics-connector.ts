@@ -6,10 +6,16 @@ import { isAbsolute } from "node:path";
 
 const MAX_BYTES = 2_000_000;
 const TIMEOUT_MS = 2_000;
+export const validMetricsSourceId = (value: string): boolean =>
+	/^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$/.test(value);
 
 export interface MetricsConnectorOpts {
 	url?: string;
 	keyFile?: string;
+	/** Operator-selected credential already supplied by the private runtime. */
+	keyEnv?: string;
+	/** Stable operator engine identity: shared scrapes are not additive. */
+	sourceId?: string;
 	/** Narrow test seam; production uses fetch. */
 	fetcher?: (url: URL, init: RequestInit) => Promise<Response>;
 	timeoutMs?: number;
@@ -34,7 +40,7 @@ interface UpstreamResult {
 	httpStatus?: number;
 }
 
-function validatedUrl(raw: string): URL | null {
+export function validatedMetricsUrl(raw: string): URL | null {
 	let url: URL;
 	try {
 		url = new URL(raw);
@@ -115,12 +121,30 @@ export class MetricsConnector {
 	}
 
 	private async upstream(): Promise<UpstreamResult> {
+		if (
+			this.opts.sourceId !== undefined &&
+			!validMetricsSourceId(this.opts.sourceId)
+		)
+			return { status: "invalid_config", text: "" };
 		const raw = this.opts.url?.trim();
 		const path = this.opts.keyFile?.trim();
-		if (!raw && !path) return { status: "not_configured", text: "" };
-		const url = raw ? validatedUrl(raw) : null;
-		if (!url || !path) return { status: "invalid_config", text: "" };
-		const key = readPrivateKey(path);
+		const envName = this.opts.keyEnv?.trim();
+		if (!raw && !path && !envName)
+			return { status: "not_configured", text: "" };
+		const url = raw ? validatedMetricsUrl(raw) : null;
+		if (
+			!url ||
+			(!path && !envName) ||
+			(path && envName) ||
+			(envName && !/^[A-Z_][A-Z0-9_]*$/.test(envName))
+		)
+			return { status: "invalid_config", text: "" };
+		const selected = envName ? process.env[envName]?.trim() : null;
+		const key = path
+			? readPrivateKey(path)
+			: selected && selected.length <= 4096 && !/[\r\n]/.test(selected)
+				? selected
+				: null;
 		if (!key) return { status: "key_unavailable", text: "" };
 		const timeout = Math.min(
 			Math.max(this.opts.timeoutMs ?? TIMEOUT_MS, 1),
@@ -176,6 +200,9 @@ export class MetricsConnector {
 				"content-type": "text/plain; version=0.0.4; charset=utf-8",
 				"cache-control": "no-store",
 				"x-buckle-litellm-metrics-status": upstream.status,
+				...(this.opts.sourceId && validMetricsSourceId(this.opts.sourceId)
+					? { "x-buckle-litellm-metrics-source-id": this.opts.sourceId }
+					: {}),
 				...(upstream.httpStatus
 					? {
 							"x-buckle-litellm-metrics-http-status": String(
