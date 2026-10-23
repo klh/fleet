@@ -107,6 +107,77 @@ test("line-limit scan has teeth (real tracked .ts population)", () => {
 	expect(tracked("*.ts").length).toBeGreaterThan(500);
 });
 
+// W1238.6 — the 1200-line stop rule: 1200 is the stop-and-decompose point
+// (AGENTS.md "1500-line hard limit" law). The whole >1200 population is
+// PINNED here by exact line count at the 2026-10-23 sweep baseline: a
+// pinned file may never GROW past its pin; a shrink tightens its pin in the
+// same commit; a file dropping below 1200 drops its entry in the same
+// commit; and no unpinned file may cross 1200. This is the sweep's teeth —
+// the population can only ratchet DOWN. (The two >1500 pins are the L4
+// over-cap pair: L4 reds their size today, the pin adds shrink-only
+// pressure so a decompose-in-flight reads as shrink, not entry.)
+const NEAR_CAP_LIMIT = 1200;
+const NEAR_CAP_PINNED: Record<string, number> = {
+	"packages/decant/src/ingest.ts": 1982,
+	"packages/suspenders/test/dispatch-next.test.ts": 1603,
+	"packages/belt/bin/router-core.ts": 1233,
+	"packages/belt/bin/router-shim.ts": 1215,
+	"packages/buckle/src/handlers.ts": 1490,
+	"packages/buckle/src/router.ts": 1334,
+	"packages/decant/src/buckets.ts": 1489,
+	"packages/decant/src/query.ts": 1409,
+	"packages/decant/src/token-economics.ts": 1427,
+	"packages/suspenders/hooks/bin/work.ts": 1496,
+	"packages/suspenders/hooks/board/data.ts": 1483,
+	"packages/suspenders/hooks/board-html/usage-panels.ts": 1385,
+	"packages/suspenders/hooks/board/routes-actions.ts": 1337,
+	"packages/suspenders/hooks/lib/knowledge-ports.ts": 1333,
+	"packages/suspenders/scripts/dispatch-next.ts": 1501,
+	"packages/suspenders/test/work-completion-record.test.ts": 1396,
+};
+
+test("the 1200-line band stays pinned: shrink-only, no new entrants (W1238.6)", () => {
+	const counts = new Map(
+		tracked("*.ts").map(
+			(f) =>
+				[f, readFileSync(join(ROOT, f), "utf8").split("\n").length] as const,
+		),
+	);
+	const offenders: string[] = [];
+	for (const [f, n] of counts) {
+		const pin = NEAR_CAP_PINNED[f];
+		if (pin === undefined && n >= NEAR_CAP_LIMIT)
+			offenders.push(
+				`${f}: ${n} crossed the 1200-line stop rule — decompose, do not grow into the band`,
+			);
+		else if (pin !== undefined && n > pin)
+			offenders.push(
+				`${f}: ${n} grew past its ${pin}-line pin — decompose, do not grow the band`,
+			);
+		else if (pin !== undefined && n < pin && n >= NEAR_CAP_LIMIT)
+			offenders.push(
+				`${f}: ${n} shrank inside the band — tighten its NEAR_CAP_PINNED pin to ${n} in tests/law-guards.test.ts`,
+			);
+		else if (pin !== undefined && n < NEAR_CAP_LIMIT)
+			offenders.push(
+				`${f}: ${n} left the band — drop its NEAR_CAP_PINNED entry in tests/law-guards.test.ts`,
+			);
+	}
+	expect(
+		offenders,
+		"1200-line stop-rule ratchet: band files shrink only — decompose, never grow",
+	).toEqual([]);
+	for (const f of Object.keys(NEAR_CAP_PINNED))
+		expect(
+			counts.has(f),
+			`pinned band file ${f} is gone — drop its NEAR_CAP_PINNED entry`,
+		).toBe(true);
+});
+
+test("1200-line band ratchet has teeth (real pinned population)", () => {
+	expect(Object.keys(NEAR_CAP_PINNED).length).toBeGreaterThan(10);
+});
+
 test("tracked .sh files match the pinned allowlist exactly", () => {
 	expect(
 		tracked("*.sh").sort(),
