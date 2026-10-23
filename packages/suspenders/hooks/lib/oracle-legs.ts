@@ -83,7 +83,7 @@ export const cloudLeg = async (
 	const leg = await resolveEscalationLeg(process.env);
 	if (!leg)
 		throw new Error(
-			"no cloud leg configured — set BELT_ESCALATE_URL/KEY (or legacy settings.json creds)",
+			"no cloud leg configured — set BELT_ESCALATE_URL and a scoped Buckle BELT_ESCALATE_KEY",
 		);
 	const body: AnthropicBody = { messages: [{ role: "user", content: prompt }] };
 	const t0 = Date.now();

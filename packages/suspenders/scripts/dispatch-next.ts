@@ -92,12 +92,13 @@ import {
 import { laneSid } from "../hooks/lib/laneslug.ts";
 // W911: the bounded plaid posture — the ONE override of the execPick chain.
 import {
-	plaidDispatch,
-	plaidGate,
 	plaidProbeHealth,
 	readPosture,
 	recordPlaidTrace,
 } from "../hooks/lib/plaid.ts";
+// W1102.1: the plaid launch preflight (host-pressure hold + pool plan +
+// route pick) — its own module per the 1500-line law
+import { plaidLaunchPreflight } from "../scripts/lib/plaid-launch.ts";
 // W862: policy provenance rides the brief — read-only graph read, the
 // compliance check itself re-runs at the lane's session bootstrap
 import { policyBriefLines } from "../hooks/lib/session-policy.ts";
@@ -274,16 +275,15 @@ if (argv.includes("--route") && (!ROUTE || !ITEM || POSTURE !== "plaid"))
 	throw new Error("--route requires --item in plaid posture");
 // W989: one catalog probe per run — plaid lanes only ride models the buckle
 // front actually serves (a pin the front can't serve launches a lane that
-// 502s on its first request, W1019). The /v1/models read is auth-gated:
-// the machine conf's admin key (belt.env, 0600) authenticates it; absent
-// key/front = no evidence, never a demotion (quota + bin stay authority).
-// W1063 DRY: the one lane-auth admin-key reader (env-first over belt.env —
-// the same precedence every other governance consumer uses)
-const plaidFrontToken = (): string | null => adminKey();
+// 502s on its first request, W1019). The /v1/models read is auth-gated by
+// the one lane-auth admin-key reader (W1063, env-first over belt.env).
+// W1102.1: the probe result (null = catalog unavailable) rides the plaid
+// launch preflight — an unavailable catalog holds EVERY plaid launch
+// (fail-closed); reachable-empty `[]` stays valid evidence.
 const PLAID_MODEL_HEALTH =
 	POSTURE === "plaid" && !NO_BELT && !DRY
-		? await plaidProbeHealth(await probeBuckleFront(), plaidFrontToken())
-		: null;
+		? await plaidProbeHealth(await probeBuckleFront(), adminKey())
+		: undefined;
 // W636: `registry` verb family — liveness-guarded operator cleanup of the
 // durable lane registry (list/prune/forget); command discovery precedes the
 // dispatch pipeline exactly like --help above. Dynamic import: the verb
@@ -308,6 +308,9 @@ const routeAdmission = new RouteAdmission(
 	!DRY && !NO_BELT,
 	probeBuckleFront,
 	adminKey,
+	// W1102.1: plaid posture fails closed on an UNAVAILABLE audit read
+	// (front down/401/timeout); steady keeps missing-evidence-never-blocks
+	POSTURE === "plaid",
 );
 
 // .prefer routing errors are loud; valid soft and reserved rules ride the brief.
@@ -597,31 +600,24 @@ const dispatchItem = async (
 			return null;
 		}
 		// Plaid picks the least-loaded healthy provider. Steady uses .prefer.
+		// W1102.1: the plaid preflight (host-pressure hold + pool plan +
+		// route pick) moved to scripts/lib/plaid-launch.ts (1500-line law).
 		if (POSTURE === "plaid") {
-			const g = plaidGate(
-				store,
-				lanes.map((l) => l.sid),
-				quota,
-				PLAID_MODEL_HEALTH,
-			);
-			if (!g.plan.open) {
-				console.log(`SKIP ${item} — ${g.plan.reason}`);
-				return null;
-			}
-			const pd = plaidDispatch({
+			const pre = await plaidLaunchPreflight({
 				store,
 				sids: lanes.map((l) => l.sid),
 				quota,
 				ordinal,
 				hub: pick.hub,
-				modelHealth: PLAID_MODEL_HEALTH,
 				routePin: ROUTE,
+				fleetDir: FLEET,
+				modelHealth: PLAID_MODEL_HEALTH,
 			});
-			if (pd.skip) {
-				console.log(`SKIP ${item} — ${pd.skip}`);
+			if (pre.skip) {
+				console.log(`SKIP ${item} — ${pre.skip}`);
 				return null;
 			}
-			pick = { ...pick, ...pd.pick };
+			pick = { ...pick, ...pre.pick };
 			pick.preference = posturePreference(
 				pick.preference,
 				pick.name,
@@ -639,14 +635,15 @@ const dispatchItem = async (
 				store.close();
 				return null;
 			}
-			routeName = pd.routeName;
-			if (pd.note) console.log(`NOTE — ${pd.note}`);
+			routeName = pre.routeName;
+			if (pre.note) console.log(`NOTE — ${pre.note}`);
 		}
 		const route = await routeAdmission.check(pick.model);
 		if (route.pause) {
-			console.log(
-				`WAIT ${item} — ${pick.model} has ${route.failures} recent, exactly attributed route refusals; retry when evidence clears`,
-			);
+			const why =
+				route.reason ??
+				`${pick.model} has ${route.failures} recent, exactly attributed route refusals; retry when evidence clears`;
+			console.log(`WAIT ${item} — ${why}`);
 			return null;
 		}
 		const take = run(

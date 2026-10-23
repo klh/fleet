@@ -3,7 +3,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { needsDemandStart, SPECIALISTS } from "../bin/registry.ts";
-import { ensureAvailable } from "../bin/spawner.ts";
+import {
+	coldTimeoutMs,
+	ensureAvailable,
+	loadingRetryAfterMs,
+} from "../bin/spawner.ts";
 
 const reason = SPECIALISTS.find((row) => row.role === "reason");
 
@@ -19,6 +23,18 @@ test("minimal tier demand-starts a heavy registered resident", () => {
 		if (prior === undefined) delete process.env.BELT_TIER;
 		else process.env.BELT_TIER = prior;
 	}
+});
+
+test("loading retry hint tracks remaining cold-load time and spreads re-probes", () => {
+	if (!reason) throw new Error("reason registry row missing");
+	const now = 1_000_000;
+	const budget = coldTimeoutMs(reason);
+	expect(loadingRetryAfterMs(reason, now, now, 0)).toBe(budget);
+	expect(loadingRetryAfterMs(reason, now - 60_000, now, 0)).toBe(
+		budget - 60_000,
+	);
+	expect(loadingRetryAfterMs(reason, now, now, 1)).toBeGreaterThan(budget);
+	expect(loadingRetryAfterMs(reason, now - budget - 1_000, now, 0)).toBe(1_000);
 });
 
 test("four concurrent cold admissions refuse promptly with a shared retry hint", async () => {

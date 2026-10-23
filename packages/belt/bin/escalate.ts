@@ -5,10 +5,8 @@
 // operator sets BELT_ESCALATE_URL + BELT_ESCALATE_KEY (a machine-config
 // bksk_ key scoped buckle:proxy:WRITE_ — never the admin key), escalation
 // POSTs to the buckle front in gate mode and lands in route_audit like every
-// other rider. With the env unset the legacy leg stands (settings.json
-// ANTHROPIC_BASE_URL/AUTH_TOKEN — the litellm engine behind the gate) so a
-// not-yet-enrolled machine keeps escalation; enrollment = filling two env
-// names, never a code change.
+// other rider. Missing or non-scoped gate credentials disable cloud egress;
+// settings.json must never reopen a direct LiteLLM path around Buckle.
 import type { AnthropicBody } from "./router-core.ts";
 import { applyBudget, retryAfterMs } from "./router-core.ts";
 import {
@@ -71,9 +69,9 @@ function upstreamError(raw: string, status: number): string {
 	return raw.trim().slice(0, 512) || `HTTP ${status}`;
 }
 
-/** The escalation leg the operator's machine config selects. */
+/** The Buckle escalation leg the operator's machine config selects. */
 export interface EscalationLeg {
-	mode: "gate" | "legacy";
+	mode: "gate";
 	url: string;
 	key: string;
 	/** gate-mode model pin (BELT_ESCALATE_MODEL); legacy keeps the wire pins. */
@@ -82,51 +80,16 @@ export interface EscalationLeg {
 
 type Env = Record<string, string | undefined>;
 
-/** Legacy source of truth: the harness settings env (litellm engine). */
-export type SettingsLoader = () => Promise<{
-	tok?: string;
-	base?: string;
-}>;
-
-export const defaultSettingsLoader: SettingsLoader = async () => {
-	const home = process.env.HOME;
-	if (!home) return {};
-	try {
-		const s = JSON.parse(
-			await Bun.file(`${home}/.claude/settings.json`).text(),
-		) as {
-			env?: { ANTHROPIC_AUTH_TOKEN?: string; ANTHROPIC_BASE_URL?: string };
-		};
-		return {
-			tok: s.env?.ANTHROPIC_AUTH_TOKEN,
-			base: s.env?.ANTHROPIC_BASE_URL,
-		};
-	} catch {
-		return {};
-	}
-};
-
-/** Gate env beats legacy creds; neither → null (escalation disabled). */
-export async function resolveEscalationLeg(
-	env: Env,
-	settings: SettingsLoader = defaultSettingsLoader,
-): Promise<EscalationLeg | null> {
+/** A scoped Buckle credential is mandatory. No direct LiteLLM fallback. */
+export function resolveEscalationLeg(env: Env): EscalationLeg | null {
 	const url = env.BELT_ESCALATE_URL?.trim();
 	const key = env.BELT_ESCALATE_KEY?.trim();
-	if (url && key) {
+	if (url && key?.startsWith("bksk_")) {
 		return {
 			mode: "gate",
 			url: url.replace(/\/+$/, ""),
 			key,
 			modelOverride: env.BELT_ESCALATE_MODEL?.trim() || undefined,
-		};
-	}
-	const s = await settings();
-	if (s.tok && s.base) {
-		return {
-			mode: "legacy",
-			url: s.base.replace(/\/+$/, ""),
-			key: s.tok,
 		};
 	}
 	return null;
@@ -140,7 +103,6 @@ export async function escalate(
 		maxTokens: number;
 		wantFast: boolean;
 		env?: Env;
-		settings?: SettingsLoader;
 		fetcher?: typeof fetch;
 		policyPath?: string;
 		traceparent?: string;
@@ -161,11 +123,14 @@ export async function escalate(
 	},
 ): Promise<EscalateResult> {
 	const wantFastModel = opts.wantFast ? "glm-5.3-flash" : "glm-5.3";
-	const leg = await resolveEscalationLeg(
-		opts.env ?? process.env,
-		opts.settings,
-	);
-	if (!leg) return { text: "", model: wantFastModel };
+	const leg = resolveEscalationLeg(opts.env ?? process.env);
+	if (!leg)
+		return {
+			text: "",
+			model: wantFastModel,
+			status: 503,
+			error: "buckle_gate_unconfigured: scoped BELT_ESCALATE_URL/KEY required",
+		};
 	const model = leg.modelOverride ?? wantFastModel;
 	const budget = applyBudget(model, opts.maxTokens);
 	const effort = resolveReasoningEffort(
@@ -198,14 +163,12 @@ export async function escalate(
 			},
 			signal: AbortSignal.timeout(120_000),
 			body: JSON.stringify({
-				// litellm group names — the [1m] 1M-context ids exist in no litellm
-				// model_list; lanes 400'd on unrecognized_model through this path
+				// Buckle group names — [1m] context aliases are not configured groups.
 				model,
 				max_tokens: budget.maxTokens,
 				// W770 reasoning pin on both carriers: thinking rides the anthropic
-				// wire (legacy litellm-direct hop buckets it to the same effort);
-				// reasoning_effort rides top-level (gate hop — buckle forwards
-				// verbatim). Both drop harmlessly until the operator's litellm.yaml
+				// wire; reasoning_effort rides top-level through Buckle. Both drop
+				// harmlessly until the operator's litellm.yaml
 				// zai rows carry allowed_openai_params: [reasoning_effort].
 				thinking: { type: "enabled", budget_tokens: THINKING_BUDGET[pinned] },
 				reasoning_effort: pinned,
@@ -254,7 +217,7 @@ export async function escalate(
 		throw error;
 	} finally {
 		opts.onAttempt?.({
-			hop: leg.mode === "gate" ? "buckle-gate" : "litellm",
+			hop: "buckle-gate",
 			traceparent: attemptTrace,
 			requestId: opts.requestId ?? null,
 			attemptId,

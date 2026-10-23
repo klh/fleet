@@ -14,14 +14,14 @@ import {
 } from "../lib/confidence.ts";
 import { expireConsults } from "../lib/consult-expiry.ts";
 import { openIdentity } from "../lib/govdb.ts";
-import { archiveAndPrune, pruneArchiveFiles } from "../lib/retention.ts";
-import { run } from "../lib/run.ts";
-import { reapDeadSubscribes } from "../lib/subscribe-attach.ts";
 import {
 	recordKnowledgeSuggestion,
 	renderKnowledgeSuggestion,
 	suggestKnowledge,
 } from "../lib/kev-curation.ts";
+import { archiveAndPrune, pruneArchiveFiles } from "../lib/retention.ts";
+import { run } from "../lib/run.ts";
+import { reapDeadSubscribes } from "../lib/subscribe-attach.ts";
 import { isLiveSession, type LivenessRow } from "./bus.ts";
 import { ensureConsultTrust } from "./consult-trust.ts";
 import type { Database } from "./shared.ts";
@@ -320,6 +320,7 @@ export async function cmdCapsule(rest: string[]): Promise<void> {
 			if (m[1] === "if-version") iv = m[2];
 			else if (m[1] !== "as" && m[1] !== "item") extra[m[1]] = m[2];
 		}
+		if (item) extra.item = item;
 		// W516 capsule schema delta (amp handoff lift, research-ampcode.md
 		// §M1): checkable fields — files-touched list, snippet paths WITH line
 		// ranges, todo list — stored as arrays so a successor lane can

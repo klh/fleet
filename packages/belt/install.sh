@@ -2,7 +2,7 @@
 # belt installer — deploys the local-LLM fleet scripts to ~/.claude/local-llm
 # (the stable runtime path shared with suspenders + speedy) and
 # optionally: --with-models runs setup/llm-stack.ts (deps, model downloads,
-# metal check, per-port plists), --with-launchd loads the macOS KeepAlive
+# metal check), --with-launchd loads the macOS KeepAlive
 # agents and supersedes the legacy labels.
 # Idempotent: re-running just refreshes the files.
 #   ./install.sh [--with-models] [--with-launchd] [--skip-download] [--tier minimal|full]
@@ -47,6 +47,18 @@ fi
 
 echo "→ installing to $PREFIX"
 mkdir -p "$PREFIX"
+# W1104.1: the runtime-revision hash (router-runtime-revision.ts) treats a
+# runtime holding .belt-overlay.lock as "refresh in progress" and reports no
+# revision, so the supervisor keeps serving a healthy router until the copy
+# is complete. Fail closed on a concurrent owner; release on success AND
+# failure (the EXIT trap covers the runtime-heal failure path below).
+LOCK="$PREFIX/.belt-overlay.lock"
+if ! mkdir "$LOCK" 2>/dev/null; then
+  echo "✗ $LOCK exists — another belt install/refresh owns the runtime;" >&2
+  echo "  remove it only once no installer is running" >&2
+  exit 1
+fi
+trap 'rm -rf "$LOCK"' EXIT
 for item in "$REPO_DIR"/bin/*; do
   # W284: belt kit is the source — swarm.ts (supervise) refreshes the home
   # copy unconditionally; the W556 keep-rule retired with the suspenders
@@ -61,6 +73,11 @@ cp "$REPO_DIR/../local-llm/observation.ts" "$PREFIX/observation.ts"
 # and PROBES the supervised closure — a broken runtime import fails the
 # install here, loudly, not the swarm supervisor at boot.
 bun "$REPO_DIR/bin/runtime-heal.ts" "$PREFIX" "$REPO_DIR/../.." || exit 1
+# W1104.1 (review #55056): closure is verified — release the revision lock
+# NOW, before the tier manifest, model setup and launchd activation. An
+# interrupted install still releases via the EXIT trap above.
+rm -rf "$LOCK"
+trap - EXIT
 echo "→ fleet scripts in place"
 
 # W507: the tier choice is machine config, not launchd env — emit the tier
@@ -72,7 +89,8 @@ bun "$REPO_DIR/bin/registry-emit.ts" tier --out "$PREFIX/tier.json"
 
 # --with-models / --with-launchd: setup/llm-stack.ts handles homebrew deps
 # (bun/uv), the python tooling (mlx-lm, rapid-mlx), model downloads, the Metal
-# smoke check, per-port rapid plists and the coordination-plane verification.
+# smoke check and the coordination-plane verification. The swarm supervisor
+# owns model processes; direct per-port launchd units are retired.
 # A --with-launchd-only run skips the weight download (add --with-models for
 # the ~40-60 GB); --skip-download always passes through.
 if $WITH_MODELS || $WITH_LAUNCHD; then
@@ -107,7 +125,7 @@ if $WITH_LAUNCHD; then
     # com.belt.gateway (retired :4100 wrapper) joins. W640: the old hand-written
     # com.belt.swarm label joins — the kit installs com.suspenders.belt-swarm,
     # the same unit the suspenders manifest renders (no :4000 fight).
-    for legacy in com.klh.local-llm com.klh.kev com.suspenders.local-llm com.belt.gateway com.belt.swarm; do
+    for legacy in com.klh.local-llm com.klh.kev com.suspenders.local-llm com.belt.gateway com.belt.swarm com.belt.llm-8901 com.belt.llm-8902 com.belt.llm-8903 com.belt.llm-8913; do
       launchctl bootout "gui/$bUid/$legacy" 2>/dev/null || true
       if [ -f "$HOME/Library/LaunchAgents/$legacy.plist" ]; then
         rm "$HOME/Library/LaunchAgents/$legacy.plist"

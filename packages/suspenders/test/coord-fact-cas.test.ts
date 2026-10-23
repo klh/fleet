@@ -2,7 +2,7 @@
 // set --if-version=N` compare-and-set guards. Temp HOME under tmpdir; every CLI
 // run happens in a bun subprocess so the parent test process never opens the
 // real governor.db (coord-events.test.ts recipe).
-import { describe, expect, test, afterAll, setDefaultTimeout } from "bun:test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -179,10 +179,11 @@ describe("capsule set --item <W-id> — the item-scoped capsule", () => {
 		const gi = runCli(["capsule", "get", "--item", "W617"]);
 		const cap = JSON.parse(gi.out.trim()) as Record<string, string>;
 		expect(cap.checkpoint).toBe("none");
-		expect(cap.item).toBeUndefined(); // the flag is a destination, not payload
+		expect(cap.item).toBe("W617"); // item identity binds later completion checks
 		// lane key got the same payload
 		const gl = runCli(["capsule", "get", "--as", "w617lane"]);
 		expect(JSON.parse(gl.out.trim()).checkpoint).toBe("none");
+		expect(JSON.parse(gl.out.trim()).item).toBe("W617");
 	});
 
 	test("--if-version guards the ITEM key (successive lane writers)", () => {

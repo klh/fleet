@@ -79,7 +79,7 @@ beforeAll(async () => {
 				BELT_UPSTREAM_BASE: `http://127.0.0.1:${local.port}`,
 				BELT_PORT_CAPS: "8902:1",
 				BELT_ESCALATE_URL: `http://127.0.0.1:${cloud.port}`,
-				BELT_ESCALATE_KEY: "test-scoped-key",
+				BELT_ESCALATE_KEY: "bksk_test-scoped-key",
 			},
 			stdout: "ignore",
 			stderr: "pipe",

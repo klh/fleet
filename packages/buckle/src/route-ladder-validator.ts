@@ -200,6 +200,17 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 				}
 				for (const dep of buckle.pool.deployments(rung)) {
 					configured++;
+					const target = services.get(originOf(dep.url) ?? "");
+					if (
+						target?.layer === "litellm" &&
+						dep.adapter_config?.proxy_kind !== "litellm"
+					)
+						finding(
+							"invalid_config",
+							"buckle",
+							node,
+							`deployment ${dep.url} targets configured LiteLLM ${target.id} without adapter_config.proxy_kind: litellm`,
+						);
 					link(node, dep.url, dep.model ?? rung, dep.buckle === true);
 				}
 			}
@@ -285,6 +296,16 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 	for (const belt of inputs.belts ?? []) {
 		const prefix = `belt:${belt.id}:`;
 		const localOnly = new Set(belt.noEscalationModels ?? []);
+		if (belt.escalation) {
+			const target = services.get(originOf(belt.escalation.url) ?? "");
+			if (target?.layer !== "buckle")
+				finding(
+					"invalid_config",
+					"belt",
+					belt.id,
+					`cloud escalation target ${belt.escalation.url} must be a configured Buckle gate`,
+				);
+		}
 		for (const node of [...edges.keys()]) {
 			if (!node.startsWith(prefix)) continue;
 			if (belt.upstream) link(node, belt.upstream, node.slice(prefix.length));

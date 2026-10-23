@@ -1,4 +1,5 @@
 import type { SpawnLedger } from "../../../belt/bin/spawn-admission.ts";
+import { byPort } from "../../../belt/bin/registry.ts";
 import {
 	coldLoadTimeoutMs,
 	wiredGuardGb,
@@ -20,6 +21,10 @@ export const loadingReservation = (
 			row.pid === pid &&
 			Number.isFinite(row.startedAt) &&
 			row.startedAt <= now &&
-			now - row.startedAt < coldLoadTimeoutMs(row.ram_gb ?? 22) + 60_000,
+			// The ledger stores the admission budget, while the timeout uses
+			// checkpoint weights. Unknown ports keep the budget as a conservative
+			// upper bound so an unregistered active load is never reaped early.
+			now - row.startedAt <
+				coldLoadTimeoutMs(byPort(port)?.ram_gb ?? row.ram_gb ?? 40) + 60_000,
 	);
 };

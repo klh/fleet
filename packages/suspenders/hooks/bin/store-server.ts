@@ -181,8 +181,14 @@ setInterval(() => {
 		{ label: "identity", cell: idbCell, txConn: txIdb, conn: idb },
 	]) {
 		const events = [
-			sweepStaleTxn({ label: plane.label, cell: plane.cell, txConn: plane.txConn }),
-			plane.cell.v ? null : sweepOrphanTxn({ label: plane.label, conn: plane.conn }),
+			sweepStaleTxn({
+				label: plane.label,
+				cell: plane.cell,
+				txConn: plane.txConn,
+			}),
+			plane.cell.v
+				? null
+				: sweepOrphanTxn({ label: plane.label, conn: plane.conn }),
 		];
 		for (const e of events) {
 			if (!e) continue;
@@ -343,7 +349,7 @@ const makePlaneRpc =
 		conn: GovernorStore,
 		txConn: GovernorStore,
 		serial: <T>(fn: () => T) => Promise<T>,
-		reject: (sql: string) => string | null,
+		_reject: (sql: string) => string | null,
 		cell: TxCell,
 	) =>
 	async (body: RpcBody): Promise<Record<string, unknown>> => {
@@ -361,11 +367,22 @@ const makePlaneRpc =
 			rollIdle(cell, txConn);
 			const t = cell.v;
 			if (t) {
-				if (!payload.txid) return { err: "a transaction is open — retry" };
-				if (payload.txid !== t.id) return { err: "no such transaction" };
-				t.last = Date.now();
+				// WAL lets outside reads use the plane's main connection while the
+				// tagged writer owns txConn. Only outside writes must wait for the
+				// transaction to end; blocking reads also breaks the HTTP client's
+				// eager SELECT 1 probe under normal concurrent lane starts.
+				if (!payload.txid && payload.mode === "run")
+					return { err: "a transaction is open — retry" };
+				if (payload.txid && payload.txid !== t.id)
+					return { err: "no such transaction" };
+				if (payload.txid) t.last = Date.now();
 			}
-			return exec(payload.mode, payload.sql, payload.params, t ? txConn : conn);
+			return exec(
+				payload.mode,
+				payload.sql,
+				payload.params,
+				t && payload.txid ? txConn : conn,
+			);
 		});
 	};
 
