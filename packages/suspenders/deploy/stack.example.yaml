@@ -60,6 +60,24 @@ hubs:
     board_health_port: 7798
     store_health_port: 7793
     belt_health_port: 7789
+    # W1092 Belt-owned model wire (optional): Belt fronts the hub's local
+    # model server — live /v1/models inventory, outside-process liveness on
+    # the health sidecar, model ids pass through unchanged. Buckle groups
+    # then point at Belt's endpoint instead of the model server directly
+    # (the Ollama upstream below is hub-device loopback, not a secret):
+    #   upstreams:
+    #     groups:
+    #       qwen2.5:0.5b:
+    #         - url: http://127.0.0.1:8914
+    #           dialect: openai
+    #           adapter: openai-compat
+    #           model: qwen2.5:0.5b
+    # Declaring belt_model flips COMPOSE_PROFILES to activate the
+    # belt-model + belt-model-health services on the next hubctl push+up.
+    # belt_model:
+    #   port: 8914
+    #   health_port: 8915
+    #   upstream: http://127.0.0.1:11434
     allowed_hosts: [nas-hub.local]
     peers:
       - desktop # first topology edge (W322): nas declares desktop as peer.

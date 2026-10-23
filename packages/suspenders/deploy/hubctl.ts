@@ -539,7 +539,12 @@ function reloadUpstreams(
 ): void {
 	const dir = requireDir(hub);
 	const ref = hubEnvRef(hub, dir);
-	if (!ref || !version || ref !== version)
+	// W1092: overlay hubs pin their OWN deployable ref — the .env rides
+	// repos.ref (renderEnv W422.7), never the shared stack version, so the
+	// gate accepts the hub's effective ref and the ladder reload works on
+	// overlay origins too.
+	const expected = hub.repos?.ref ?? version;
+	if (!ref || !expected || ref !== expected)
 		throw new Error(
 			`hubctl reload-upstreams refused: ${name} has stale or unpinned deploy ref; run hubctl push ${name} first`,
 		);
