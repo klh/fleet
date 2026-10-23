@@ -47,17 +47,9 @@ export function isDecisionKind(kind: string): boolean {
 	return kind.toUpperCase().startsWith("NEED");
 }
 
-// W846 — normalize a --requires csv against the capability vocabulary;
-// throws with the offending token (callers die()), returns the trimmed csv.
-export function assertCaps(raw: string): string {
-	const caps = raw.split(",").map((c) => c.trim());
-	const bad = caps.filter((c) => !CAPABILITIES.includes(c));
-	if (bad.length > 0)
-		throw new Error(
-			`unknown capability: ${bad.join(",")} — vocabulary: ${CAPABILITIES.join(",")}`,
-		);
-	return caps.join(",");
-}
+// W1211 — the --requires vocabulary (runtime caps + credential scopes)
+// lives in cred-scope.ts (assertRequires); govdb owns the runtime grammar
+// CAPABILITIES it builds on, cred-scope imports it — one direction, no cycle.
 
 export { pruneDeltas } from "./govdb-deltas.ts";
 export { migrateKnowledgeSplit, openKnowledgeDb } from "./govdb-knowledge.ts";

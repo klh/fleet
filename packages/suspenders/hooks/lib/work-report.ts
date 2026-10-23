@@ -368,3 +368,23 @@ export const buildReportTable = (
 	const body = table.toString();
 	return rows.some((r) => r.blindCache) ? `${body}\n${CACHE_LEGEND}` : body;
 };
+
+/** `work stats` body (W1211 lift — the 1500-line law left bin/work.ts no
+ *  headroom): one JSON blob of state counts + latest DONE instant. */
+export function runStats(db: Database, project: string): string {
+	const counts = db
+		.query(
+			"SELECT state, COUNT(*) AS n FROM work_items WHERE project = ? GROUP BY state",
+		)
+		.all(project) as { state: string; n: number }[];
+	const done = db
+		.query(
+			"SELECT MAX(updated_at) AS latest_done FROM work_items WHERE project = ? AND state = 'DONE'",
+		)
+		.get(project) as { latest_done: number | null };
+	return JSON.stringify({
+		project,
+		counts: Object.fromEntries(counts.map((r) => [r.state, r.n])),
+		latest_done: done.latest_done,
+	});
+}

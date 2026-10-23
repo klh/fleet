@@ -18,9 +18,13 @@ import { basename } from "node:path";
 import { automaticRecoveryCheck } from "../lib/automatic-recovery.ts";
 import { budgetFlagClear } from "../lib/budget-flag.ts";
 import { itemCapsuleKey } from "../lib/capsule-fence.ts";
+import {
+	assertRequires,
+	machineCredScope,
+	stampRequires,
+} from "../lib/cred-scope.ts";
 import { unmergedDeps, unmergedNote } from "../lib/dep-merge-gate.ts";
 import {
-	assertCaps,
 	type GovernorStore,
 	openStore,
 	projectIdentity,
@@ -88,6 +92,7 @@ import {
 	parseReportWindow,
 	reportRows,
 	reportTableLinkOpts,
+	runStats,
 } from "../lib/work-report.ts";
 import { retryFailedItem } from "../lib/work-retry.ts";
 import { mergeTags, validateTags } from "../lib/work-tags.ts";
@@ -197,6 +202,7 @@ const MUTATING_CMDS = new Set([
 	"split",
 	"reclaim",
 	"migrate-ledger",
+	"stamp",
 ]);
 
 type Item = Record<string, string | number | null>;
@@ -559,7 +565,7 @@ const dispatchVerb = async (
 		const reqRaw = flag("--requires");
 		if (reqRaw) {
 			try {
-				requires = assertCaps(reqRaw);
+				requires = assertRequires(reqRaw);
 			} catch (error) {
 				die(
 					`requires: ${error instanceof Error ? error.message : String(error)}`,
@@ -669,23 +675,8 @@ const dispatchVerb = async (
 			.all(PROJECT) as Item[];
 		console.log(rows.map(renderRow).join("\n") || dim("(nothing owned)"));
 	} else if (name === "stats") {
-		const counts = db()
-			.query(
-				"SELECT state, COUNT(*) AS n FROM work_items WHERE project = ? GROUP BY state",
-			)
-			.all(PROJECT) as { state: string; n: number }[];
-		const done = db()
-			.query(
-				"SELECT MAX(updated_at) AS latest_done FROM work_items WHERE project = ? AND state = 'DONE'",
-			)
-			.get(PROJECT) as { latest_done: number | null };
-		console.log(
-			JSON.stringify({
-				project: PROJECT,
-				counts: Object.fromEntries(counts.map((r) => [r.state, r.n])),
-				latest_done: done.latest_done,
-			}),
-		);
+		// W1211 lift: runStats moved to lib/work-report.ts (1500-line law)
+		console.log(runStats(db() as unknown as Database, PROJECT));
 	} else if (name === "report") {
 		// W892: the supervisor micro-metrics table — the ONE reply table
 		// (supersedes the W865 prose list). Riding + queued + recent-done,
@@ -724,26 +715,29 @@ const dispatchVerb = async (
 		as = resolveSidOf(db(), as);
 		const it = get(id);
 		// capability-aware dispatch (v2): requires ⊆ capabilities or refuse —
-		// kills the W28/W29-class NO-SHELL dead spawn at the CLI boundary
-		const caps = (
-			(
-				db()
-					.query("SELECT capabilities FROM sessions WHERE sid = ?")
-					.get(as) as {
-					capabilities: string | null;
-				} | null
-			)?.capabilities ?? ""
-		)
-			.split(",")
-			.filter(Boolean);
+		// kills the W28/W29-class NO-SHELL dead spawn at the CLI boundary.
+		// W1211: the machine's DECLARED credential scope unions in — credential
+		// requires (gh, az, cloud-*, tool-*) refuse on machines that never
+		// declared them (hubs), live-read so stale session rows cannot widen.
+		const caps = advertisedCaps(
+			db().query("SELECT capabilities FROM sessions WHERE sid = ?").get(as) as {
+				capabilities: string | null;
+			} | null,
+			machineCredScope(),
+		);
 		const missing = ((it.requires as string | null) ?? "")
 			.split(",")
 			.filter(Boolean)
 			.filter((r) => !caps.includes(r));
-		if (missing.length)
+		if (missing.length) {
+			emit("requires.gap", id, {
+				missing: missing.join(","),
+				advertised: caps.join(","),
+			});
 			die(
 				`${id} requires [${missing.join(",")}] — session ${as.slice(0, 8)} advertises [${caps.join(",") || "none"}] — dispatch to a capable agent`,
 			);
+		}
 		if (!depsMet(id)) {
 			const unmet = deps(id)
 				.filter((d) => d.state !== "DONE")
@@ -1474,6 +1468,11 @@ const dispatchVerb = async (
 				insertItem(id, parentId, title, null, 0, by, null),
 			emit: (kind, id) => emit(kind, id),
 		});
+	} else if (name === "stamp") {
+		// W1211 audit face: set an existing item's requires set
+		console.log(
+			stampRequires(db(), PROJECT, pos[0], flag("--requires"), { die, emit }),
+		);
 	}
 };
 
