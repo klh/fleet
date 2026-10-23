@@ -1,4 +1,8 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { readRemoteTraces } from "../../telemetry/src/remote-traces.ts";
 import {
 	safeTransportEvidence,
 	TransportObservation,
@@ -67,6 +71,42 @@ test("actual preheader stall records local timeout/cancel with no invented provi
 			expect(result.lastFailure?.transportTimeoutPhase).toBe("headers");
 		expect(JSON.stringify(rows)).not.toContain("synthetic private prompt");
 		expect(JSON.stringify(rows)).not.toContain("synthetic-auth");
+		const traceServer = Bun.serve({
+			hostname: "127.0.0.1",
+			port: 0,
+			fetch: (req) =>
+				req.headers.get("authorization") === "Bearer synthetic-read-key"
+					? Response.json(ledger.traceRead(traceId))
+					: new Response(null, { status: 401 }),
+		});
+		const dir = mkdtempSync(join(tmpdir(), "fleet-transport-join-"));
+		try {
+			const tokenFile = join(dir, "read.key"),
+				configFile = join(dir, "peers.json");
+			writeFileSync(tokenFile, "synthetic-read-key", { mode: 0o600 });
+			writeFileSync(
+				configFile,
+				JSON.stringify({
+					peers: [
+						{
+							hubId: "synthetic-hub",
+							url: `http://127.0.0.1:${traceServer.port}/`,
+							tokenFile,
+						},
+					],
+				}),
+				{ mode: 0o600 },
+			);
+			const joined = await readRemoteTraces(configFile, traceId);
+			expect(joined.peers[0]?.status).toBe("ok");
+			expect(joined.peers[0]?.attempts[0]?.transport).toEqual(
+				rows[0]?.transport,
+			);
+			expect(JSON.stringify(joined)).not.toContain("synthetic-read-key");
+		} finally {
+			traceServer.stop(true);
+			rmSync(dir, { recursive: true, force: true });
+		}
 	} finally {
 		upstream.close();
 		ledger.close();
@@ -326,5 +366,42 @@ test("healthy body chunks cannot reset stream total deadline", async () => {
 		expect(transport.snapshot()?.bodyBytes).toBeGreaterThan(1);
 	} finally {
 		upstream.close();
+	}
+});
+
+test("a later timeout cannot overwrite an already requested caller cancellation", async () => {
+	const transport = new TransportObservation(),
+		caller = new AbortController();
+	// Controlled local fetch settlement delay isolates the timer/abort race;
+	// the other fixtures exercise actual sockets and the production connector.
+	const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(
+		(_input, init) =>
+			new Promise((_resolve, reject) => {
+				init?.signal?.addEventListener(
+					"abort",
+					() => {
+						setTimeout(() => reject(init.signal?.reason), 40);
+					},
+					{ once: true },
+				);
+			}),
+	);
+	try {
+		const pending = defaultFetch(
+			{ group: "g", url: "https://example.invalid", dialect: "openai" },
+			{ ...request(caller.signal), transport },
+			10,
+		);
+		await Bun.sleep(1);
+		caller.abort();
+		await expect(pending).rejects.toThrow();
+		expect(transport.snapshot()).toMatchObject({
+			timeoutPhase: null,
+			timeoutBudgetMs: null,
+			cancellation: "local_settled",
+			providerCancellationAcknowledged: null,
+		});
+	} finally {
+		fetchSpy.mockRestore();
 	}
 });

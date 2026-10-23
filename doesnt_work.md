@@ -208,3 +208,9 @@ why those requests stalled. The transport fixture preserves unknown provider
 acknowledgment even when local cancellation settles. A remote timeout phase is
 accepted only from declared Buckle peers; arbitrary provider headers cannot
 assert trusted phases. No timeout policy was increased by this work.
+
+W1124.40 review followup: the first local implementation omitted the existing
+remote trace connector's allowlisted projection, which would have hidden remote
+transport evidence at the origin. The corrected projection uses the same bounded
+validator, tested over actual authenticated HTTP against the real hop ledger.
+The caller/timer race fixture also preserves the first local cancellation cause.

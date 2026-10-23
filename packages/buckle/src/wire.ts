@@ -141,6 +141,7 @@ export async function defaultFetch(
 	// (the old single AbortSignal.timeout killed healthy streams at the cap).
 	const ttfb = AbortSignal.timeout(timeoutMs);
 	const ttfbAbort = () => {
+		if (ctrl.signal.aborted) return;
 		evidence.timeoutPhase = "headers";
 		evidence.timeoutBudgetMs = Math.ceil(timeoutMs);
 		evidence.cancellation = "requested";
@@ -149,6 +150,7 @@ export async function defaultFetch(
 	};
 	ttfb.addEventListener("abort", ttfbAbort);
 	const callerAbort = () => {
+		if (ctrl.signal.aborted) return;
 		evidence.cancellation = "requested";
 		observe();
 		ctrl.abort(req.signal?.reason);

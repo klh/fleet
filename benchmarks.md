@@ -910,3 +910,8 @@ and total deadlines, downstream cancellation, and trusted peer propagation.
 The focused seven-file regression run passed 40 tests / 124 assertions in
 4.23 seconds. This proves bounded, body-free trace observations and same-attempt
 updates; it does not measure external provider cancellation or lane capacity.
+
+W1124.40 central-join followup: 13 tests / 45 assertions passed in 246 ms,
+including actual HTTP transport-evidence retrieval through the canonical remote
+connector and a controlled delayed-fetch cancellation/timer race. The controlled
+race is a scheduling test; it is not evidence of provider-side cancellation.
