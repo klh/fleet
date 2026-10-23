@@ -12,6 +12,7 @@
 		"start": "bun run src/server.ts"
 	},
 	"devDependencies": {
+		"@klh/test-kit": "workspace:*",
 		"@anthropic-ai/sdk": "^1.1.0",
 		"@types/bun": "latest",
 		"openai": "^7.42.0"

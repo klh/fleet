@@ -33,6 +33,7 @@
 		"bun": ">=1.2"
 	},
 	"devDependencies": {
+		"@klh/test-kit": "workspace:*",
 		"@playwright/test": "^1.63.0",
 		"acorn": "^8.18.0"
 	}
