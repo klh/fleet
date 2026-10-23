@@ -12,6 +12,7 @@ export const BOARD_TABS: ReadonlyArray<readonly [string, string]> = [
 	["tasks", "Tasks"],
 	["lanes", "Lanes"],
 	["activity", "Activity"],
+	["report", "Report"],
 	["governor", "Governor"],
 	["setup", "Setup"],
 	["usage", "Usage"],

@@ -29,7 +29,13 @@ import { localSwarmEntries } from "./local-swarm.ts";
 import { orchTargets } from "./orch-targets.ts";
 import { traceForWork } from "./orch-trace.ts";
 import { recoverySnapshot } from "./recovery.ts";
+import {
+	reportDefaultProject,
+	reportFace,
+	reportRowDetail,
+} from "../lib/report-face.ts";
 import { setupFeed } from "./setup-cache.ts";
+import { transcriptTailAll } from "./lanes.ts";
 import { executionTraceForWork } from "./work-execution-trace.ts";
 
 // W183.1 — plane-labeled executor feed. Four planes (provenance.ts/
@@ -322,5 +328,52 @@ export async function handleData(
 		// id an endpoint answers with is its own pick (buildBeltEntries).
 		return json({ ok: true, executors: await executorFeed() });
 	}
+	if (url.pathname === "/api/report") {
+		// W1198 live agent-status table: THE work-report renderer over the
+		// graph, 3s single-slot memo so N board clients share one compute —
+		// the W663 class stays flat (no per-sid loops, one bounded SQL set).
+		return json({
+			ok: true,
+			...reportFaceMemo(
+				db as unknown as Database,
+				url.searchParams.get("project"),
+			),
+		});
+	}
+	if (url.pathname === "/api/report-row") {
+		// W1198 per-row expand: item + last event ts + the lane's current
+		// turn/tool. Demand-driven (one row, only while expanded) — never
+		// part of the 1s poll.
+		const project = url.searchParams.get("project") ?? "";
+		const id = url.searchParams.get("id") ?? "";
+		if (!project || !id)
+			return json({ ok: false, error: "project and id required" }, 400);
+		const detail = reportRowDetail(
+			db as unknown as Database,
+			project,
+			id,
+			(sid) => transcriptTailAll(sid, 3, 220),
+		);
+		return detail
+			? json({ ok: true, ...detail })
+			: json({ ok: false, error: `no work item ${id} in ${project}` }, 404);
+	}
 	return null;
+}
+
+// W1198: one 3s memo for the table payload (compute = the CLI's own SQL set).
+let reportMemo: { at: number; key: string; data: unknown } | null = null;
+const REPORT_TTL_MS = 3_000;
+function reportFaceMemo(db: Database, project: string | null): unknown {
+	const key = project ?? "";
+	if (
+		reportMemo &&
+		reportMemo.key === key &&
+		Date.now() - reportMemo.at < REPORT_TTL_MS
+	)
+		return reportMemo.data;
+	const scope = project ?? reportDefaultProject(db) ?? "";
+	const data = reportFace(db, scope);
+	reportMemo = { at: Date.now(), key, data };
+	return data;
 }

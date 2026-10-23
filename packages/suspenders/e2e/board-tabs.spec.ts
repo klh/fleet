@@ -30,7 +30,7 @@ test("tabs component drives sections, hash and aria-current", async ({
 	await page.goto(`${mustBoard().BASE}/`);
 	const tabs = page.locator("klh-board-tabs");
 	await expect(tabs).toBeVisible();
-	await expect(tabs.getByRole("button")).toHaveCount(7);
+	await expect(tabs.getByRole("button")).toHaveCount(8); // W1198: + Report
 	const cur = tabs.locator("button[aria-current]");
 	await expect(cur).toHaveText("Decisions");
 	await expect(page.locator("#tab-decisions")).toBeVisible();
@@ -114,7 +114,9 @@ test("lane status rail reaches offscreen columns by mouse and keyboard", async (
 	await page.setViewportSize({ width: 960, height: 700 });
 	await page.goto(`${mustBoard().BASE}/#lanes`);
 	const rail = page.locator("#kstatusnav");
-	await expect(rail.getByRole("button")).toHaveCount(7);
+	// 8 KCOLS minus the 3 hideEmpty columns (paused/blocked/failed) that an
+	// empty fixture graph hides — visible rail buttons only
+	await expect(rail.getByRole("button")).toHaveCount(5);
 	const wrap = page.locator(".kwrap");
 	expect(await wrap.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(
 		true,
