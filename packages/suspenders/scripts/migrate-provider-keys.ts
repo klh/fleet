@@ -268,15 +268,25 @@ const SPEC = defineVerb({
 });
 
 export function runMigration(argv: readonly string[]): number {
-	const outcome = parseVerb(SPEC, [...argv]);
+	const rest = [...argv];
+	// --help anywhere wins before any parsing that could reject it (verb-kit
+	// dispatch-tail convention: parseVerb dies on the unknown option first)
+	if (rest.includes("--help") || rest.includes("-h")) {
+		console.log(renderVerbHelp(SPEC));
+		return 0;
+	}
+	const outcome = parseVerb(SPEC, rest);
 	if (!outcome.ok) {
 		console.error(`migrate-provider-keys: ${outcome.message}`);
 		return 2;
 	}
 	const p = outcome.parsed;
-	if (p.rest.includes("--help") || p.rest.includes("-h")) {
-		console.log(renderVerbHelp(SPEC));
-		return 0;
+	let map: Record<string, string>;
+	try {
+		map = parseMapEntries(p.all("--map"));
+	} catch (e) {
+		console.error(`migrate-provider-keys: ${(e as Error).message}`);
+		return 2;
 	}
 	const home = p.flag("--home") ?? join(homedir(), ".claude", "local-llm");
 	const opts: MigrationOptions = {
@@ -286,7 +296,7 @@ export function runMigration(argv: readonly string[]): number {
 			join(homedir(), ".config", "klh", "stack.yaml"),
 		localLlmHome: home,
 		apply: p.flag("--apply") === "true",
-		map: parseMapEntries(p.all("--map")),
+		map,
 	};
 	const planned = planMigration(opts);
 	if (!planned.ok) {

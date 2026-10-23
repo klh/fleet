@@ -170,6 +170,9 @@ routes in `hooks/board/routes-*.ts`.
 - `CLAUDE.md` files are law for lanes: streams over buffers, Lit for UI
   (never `innerHTML`), 1500-line hard limit, qlty quality gates.
 - Config over code: machine facts ride `~/.claude/local-llm/*.json`
-  (never committed); repos carry placeholders only.
+  (never committed); repos carry placeholders only. Upstream provider keys
+  are central in the machine `stack.yaml` `providers:` block (0600) —
+  `bun scripts/migrate-provider-keys.ts` is the explicit one-time migration
+  from the old `*.env`/env-var sources (dry-run default, refuses ambiguity).
 
 License: see [LICENSE](LICENSE).

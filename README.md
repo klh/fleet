@@ -312,7 +312,7 @@ supplies examples and defaults.
 
 | Location                                  | Purpose                                                     |
 | :---------------------------------------- | :---------------------------------------------------------- |
-| `~/.config/klh/stack.yaml`                | Hub profiles, deployment settings and the stack version pin |
+| `~/.config/klh/stack.yaml`                | Hub profiles, deployment settings, the stack version pin and the central `providers:` key block |
 | `~/.claude/local-llm/belt.env`            | Runtime provider settings and buckle admin credential       |
 | `~/.claude/local-llm/hubs.json`           | Hub labels and candidate URLs                               |
 | `~/.claude/local-llm/routing-policy.yaml` | Operator-owned routing ladder                               |

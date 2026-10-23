@@ -50,7 +50,10 @@ flowchart LR
   `openai-compat` catch-all with `adapter_config`.
 - **Cloud rows ship dormant** — committed rows are env-gated: a deployment
   with `api_key_env: ANTHROPIC_API_KEY` activates only when that variable
-  exists at runtime. Keys never live in committed files.
+  exists at runtime. Keys never live in committed files: the central home
+  is the machine `stack.yaml` `providers:` block (0600), filled once by
+  `suspenders scripts/migrate-provider-keys.ts` (dry-run default, refuses
+  ambiguity).
 - **Ladder routing** — ordered fallback walk per `routing-policy.yaml`,
   retry with retry-after honoring, cooldown ejection after repeated
   failures, hour-bucket usage ledger.

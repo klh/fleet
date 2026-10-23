@@ -39,6 +39,24 @@ placeholders here show the shape only. `~/.claude/local-llm/hubs.json` holds
 the label → candidate-URL registry `resolveHub` walks (candidates give the
 fault tolerance: several URLs per hub label, first healthy wins).
 
+## Central provider keys
+
+Upstream API keys are declared once, in the machine `stack.yaml`
+`providers:` block — a profile row is `{provider, key, env?, endpoints?}`:
+`key` is the central inline value (machine file only), `env` is the
+declared runtime binding it is served under, never an ambient read.
+Legacy declarations (`key_file`, `key_name`, `base_url`) are rejected.
+One-time migration gathers the old sources (the `~/.claude/local-llm/*.env`
+provider vars and the process environment), writes each profile's `key`
+inline, and touches nothing else:
+
+    bun scripts/migrate-provider-keys.ts            # dry-run plan, masked
+    bun scripts/migrate-provider-keys.ts --apply    # 0600 backup + atomic write
+
+Disagreeing sources for one profile are ambiguous: the apply refuses until
+an explicit `--map profile=<file:VAR|ENV_NAME>` pins the source. The run is
+idempotent — profiles already carrying `key` are skipped.
+
 ## OpenRouter free routes on a hub
 
 `openrouter-free-sync.ts sync --output <absolute-path>` reads the public
