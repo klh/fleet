@@ -1,6 +1,12 @@
 import { afterAll, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { itemCapsuleKey } from "../hooks/lib/capsule-fence.ts";
@@ -46,7 +52,9 @@ function coord(...args: string[]) {
 	};
 }
 function row(key: string) {
-	const db = new Database(join(home, ".cache/claude-governor/governor.db"));
+	const path = join(home, ".cache/claude-governor/governor.db");
+	if (!existsSync(path)) return undefined;
+	const db = new Database(path);
 	try {
 		return db
 			.query("SELECT value, source, ts FROM facts WHERE key = ?")
@@ -60,6 +68,54 @@ test("a capsule checkpoint must be a 40-hex sha or none", () => {
 	const r = coord("capsule", "set", "--as", "lane-x", "--checkpoint=head");
 	expect(r.code).not.toBe(0);
 	expect(r.err).toContain("40-hex");
+});
+
+test("capsule rejects empty, missing and unknown payload flags without writing", () => {
+	for (const payload of [
+		["--done"],
+		["--done="],
+		["--done", ""],
+		["--done", "--next", "later"],
+		["--typo", "lost"],
+		["--typo=lost"],
+	]) {
+		const result = coord(
+			"capsule",
+			"set",
+			"--as",
+			"invalid-payload",
+			...payload,
+		);
+		expect(result.code).not.toBe(0);
+		expect(row("lane.invalid-payload.capsule")).toBeUndefined();
+	}
+});
+
+test("equal and two-token payloads preserve exactly the same capsule fields", () => {
+	for (const equals of [true, false]) {
+		const args = [
+			"--checkpoint",
+			sha,
+			"--done",
+			"Progress with = and spaces",
+			"--next",
+			"Continue\ncarefully",
+		];
+		const flags = equals
+			? args
+					.filter((_, index) => index % 2 === 0)
+					.map((key, index) => `${key}=${args[index * 2 + 1]}`)
+			: args;
+		expect(
+			coord("capsule", "set", "--as", "matching-payload", ...flags).code,
+		).toBe(0);
+		const value = JSON.parse(
+			row("lane.matching-payload.capsule")?.value ?? "{}",
+		);
+		expect(value.checkpoint).toBe(sha);
+		expect(value.done).toBe("Progress with = and spaces");
+		expect(value.next).toBe("Continue\ncarefully");
+	}
 });
 
 test("a capsule checkpoint must resolve to a commit in the caller's repo", () => {

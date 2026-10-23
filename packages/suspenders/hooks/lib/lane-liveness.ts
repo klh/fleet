@@ -19,6 +19,7 @@ import { basename, dirname, resolve } from "node:path";
 // W422: harness names come from the executor-adapter registry (shared
 // surface for hooks + scripts trees; adapters are runtime-independent data).
 import {
+	EXECUTOR_ADAPTERS,
 	HARNESS_INSTALL_PATHS,
 	HARNESS_PROCESS_NAMES,
 } from "./executors/registry.ts";
@@ -313,6 +314,42 @@ function legacyLaneReference(args: string, lane: LaneRef): boolean {
 	return new RegExp(`${reference}($|[\\s"'),:])`).test(args);
 }
 
+/** Managed restarts carry identity in a settings argv, not the prompt. Keep
+ * this separate from SID text matching: hyphenated filenames are not SID tokens. */
+function managedRestartReference(args: string, lane: LaneRef): boolean {
+	if (!lane.worktree || basename(lane.worktree) !== lane.item) return false;
+	const executable = commandToken(args);
+	if (!executable || !/^(?:node|nodejs|bun)$/.test(basename(executable.token)))
+		return false;
+	const entrypoint = commandToken(executable.rest);
+	if (
+		!entrypoint ||
+		!EXECUTOR_ADAPTERS.some(
+			(adapter) =>
+				adapter.managedRuntime &&
+				basename(adapter.managedRuntime.entrypoint) ===
+					basename(entrypoint.token),
+		)
+	)
+		return false;
+	const expected = resolve(
+		lane.worktree,
+		".fleet",
+		`restart-settings-${lane.sid}.json`,
+	);
+	let rest = entrypoint.rest;
+	let found = false;
+	for (let arg = commandToken(rest); arg; arg = commandToken(rest)) {
+		rest = arg.rest;
+		if (arg.token !== "--settings") continue;
+		const value = commandToken(rest);
+		if (found || value?.token !== expected) return false;
+		found = true;
+		rest = value.rest;
+	}
+	return found;
+}
+
 /** True = this lane's harness; false = observed absent/reused PID; null = unknown.
  * Unknown never authorizes another spawn or filesystem retirement. */
 export function laneProcessIdentity(
@@ -334,6 +371,7 @@ export function laneProcessIdentity(
 		const args = row.replace(/^\s*\d+\s+/, "");
 		const harness = isHarnessProcess(args);
 		if (harness === false) return false;
+		if (managedRestartReference(args, lane)) return harness;
 		const sid = escapePattern(lane.sid);
 		const referencesSid = new RegExp(
 			`(^|[^A-Za-z0-9_-])${sid}([^A-Za-z0-9_-]|$)`,

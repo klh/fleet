@@ -57,6 +57,7 @@ import { composeUpArgv, sshOpts } from "./hub-remote.ts";
 import { mergedHubUpstreams } from "./openrouter-free.ts";
 import { mergeZaiHubUpstreams } from "./zai-catalog.ts";
 import { renderHubPolicy } from "./hub-policy.ts";
+import { hubMetricsEnv } from "./hub-metrics.ts";
 import {
 	mintServiceKey,
 	runMintOnHub,
@@ -204,6 +205,8 @@ function renderEnv(
 	if (!overlay && hub.repos?.ref && hub.repos.ref !== version)
 		throw new Error("hub repo ref must match the shared stack version");
 	const lines = [`HUB_NAME=${name}`];
+	for (const [key, value] of Object.entries(hubMetricsEnv(hub)))
+		lines.push(`${key}=${value}`);
 	const kv = (key: string, v: unknown): void => {
 		if (v !== undefined) lines.push(`${key}=${String(v)}`);
 	};

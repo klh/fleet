@@ -1,15 +1,24 @@
 // W661: closure walk + never-clobber overlay + scratch-port router smoke.
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
 	beltBinClosure,
+	flatExternals,
 	flatHomeSource,
 	normalizeSource,
 	overlayBeltBin,
 	refreshFlatHome,
 	relativeImports,
+	rewriteExternalSpecs,
 	shimRealSource,
 	smokeRouter,
 	verifyFlatHome,
@@ -79,9 +88,7 @@ test("overlay seeds an empty runtime with the full closure", async () => {
 
 test("normalizeSource strips comments and blank lines", () => {
 	expect(
-		normalizeSource(
-			"// header\nconst a = 1; // trailing\n\nconst b = 2;\n",
-		),
+		normalizeSource("// header\nconst a = 1; // trailing\n\nconst b = 2;\n"),
 	).toBe("const a = 1;\nconst b = 2;");
 });
 
@@ -134,6 +141,50 @@ test("refresh heals missing, diverged and shim-broken flat homes", async () => {
 		);
 		// a second pass agrees everywhere — nothing left to heal
 		const again = await refreshFlatHome(runtime, ENTRY, ROOT);
+		expect(again.healed).toEqual([]);
+	} finally {
+		await rm(runtime, { recursive: true, force: true });
+	}
+});
+
+test("rewriteExternalSpecs flattens a back-import into belt/bin to the member sibling", () => {
+	const deployDir = resolve(import.meta.dir, "../deploy");
+	const externals = new Map([
+		[join(deployDir, "zai-catalog.ts"), "zai-catalog.ts"],
+	]);
+	expect(
+		rewriteExternalSpecs(
+			'import { x } from "../../belt/bin/zai-catalog-rows.ts";',
+			deployDir,
+			externals,
+			ROOT,
+		),
+	).toBe('import { x } from "./zai-catalog-rows.ts";');
+});
+
+test("refresh flattens a cross-package external's back-imports into belt/bin (W1047)", async () => {
+	const runtime = await mkdtemp(join(tmpdir(), "fleet-refresh-external-"));
+	try {
+		// seedLocalLlm rides the prefix's node_modules for the flat home's npm
+		// imports (stack-config.ts → yaml) — mirror that so the closure proves.
+		await symlink(
+			resolve(import.meta.dir, "../../../node_modules"),
+			join(runtime, "node_modules"),
+		);
+		const swarm = join(ROOT, "swarm.ts");
+		const zai = resolve(import.meta.dir, "../deploy/zai-catalog.ts");
+		expect((await flatExternals(swarm, ROOT)).has(zai)).toBe(true);
+		const report = await refreshFlatHome(runtime, swarm, ROOT);
+		expect(report.healed).toContain("zai-catalog.ts (external)");
+		const flat = await readFile(join(runtime, "zai-catalog.ts"), "utf8");
+		expect(flat).toContain('from "./zai-catalog-rows.ts"');
+		expect(flat).not.toContain('from "../');
+		// the seed's second leg: the router entry resolves in the SAME home
+		await refreshFlatHome(runtime, ENTRY, ROOT);
+		await verifyFlatHome(runtime, "swarm.ts");
+		await verifyFlatHome(runtime, "router-shim.ts");
+		// a second pass agrees everywhere — nothing left to heal
+		const again = await refreshFlatHome(runtime, swarm, ROOT);
 		expect(again.healed).toEqual([]);
 	} finally {
 		await rm(runtime, { recursive: true, force: true });

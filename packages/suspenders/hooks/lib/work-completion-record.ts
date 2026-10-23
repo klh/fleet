@@ -115,6 +115,24 @@ const git = (cwd: string, ...args: string[]) => {
 		);
 	return result.stdout.toString().trim();
 };
+
+/** A Fleet SID may differ from its native CLI UUID. Only the canonical
+ * session row for this claimant and project may supply that native path. */
+export function completionTranscriptPath(
+	db: CompletionStore,
+	project: string,
+	sid: string,
+	cwd: string,
+): string | null {
+	const session = db
+		.query("SELECT transcript_path FROM sessions WHERE sid = ? AND project = ?")
+		.get(sid, project) as { transcript_path?: string | null } | null;
+	return resolveTranscriptPath({
+		session_id: sid,
+		cwd,
+		transcript_path: session?.transcript_path ?? undefined,
+	});
+}
 const productPath = (path: string): boolean =>
 	!/^((\.fleet|\.claude|\.agents|node_modules)(\/|$)|\.klh-(brief|done)\.md$|\.workgraph\.jsonl$)/.test(
 		path,
@@ -260,7 +278,7 @@ export function prepareCompletion(
 		/** W643: --token / KLH_CLAIM_TOKEN as passed by work done. */
 		token?: string | null;
 	},
-): CompletionRecord | null {
+): CompletionRecord {
 	let context: LaneContext | null = null;
 	let top = o.cwd;
 	try {
@@ -358,9 +376,6 @@ export function prepareCompletion(
 	}
 	const raw =
 		o.summary ?? (typeof capsule.done === "string" ? capsule.done : null);
-	// Compatibility: older manual ledger closures remain explicitly unverified.
-	// Every dispatched lane and every summary-bearing closure uses verified evidence.
-	if (!context && !raw) return null;
 	const summary = raw?.trim().replace(/\s+/g, " ") ?? "";
 	if (summary.length < 40 || summary.length > 4000)
 		throw new Error(
@@ -539,7 +554,7 @@ export function prepareCompletion(
 			: null;
 	const cc = claimCheckVerdict({
 		transcriptPath:
-			resolveTranscriptPath({ session_id: o.sid, cwd: o.cwd }) ?? undefined,
+			completionTranscriptPath(db, o.project, o.sid, o.cwd) ?? undefined,
 		capsuleDone:
 			(capsule.item === o.item || (!o.summary && !capsule.item)) &&
 			typeof capsule.done === "string"

@@ -9,6 +9,8 @@ import { parse } from "yaml";
 import type { GatewayPolicy } from "../../../buckle/src/policy.ts";
 
 export interface HubProfile {
+	/** Private native metrics; credential NAME must bind an existing upstream key. */
+	metrics?: { litellm: { url: string; key_env: string; source_id: string } };
 	/** Per-hub Buckle gateway overrides; policy data only, never credentials. */
 	buckle_gateway?: GatewayPolicy;
 	/** Reviewed canary ref for this hub only. Keeps the shared stack version

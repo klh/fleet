@@ -861,7 +861,7 @@ const dispatchVerb = async (
 		// prepareCompletion so the durable lane-context channel is consulted
 		// before anything is refused; the CAS UPDATE then closes the race.
 		const tok = flag("--token") ?? process.env.KLH_CLAIM_TOKEN ?? null;
-		let record: CompletionRecord | null;
+		let record: CompletionRecord;
 		try {
 			record = prepareCompletion(db(), {
 				project: PROJECT,
@@ -892,7 +892,7 @@ const dispatchVerb = async (
 			die(error instanceof Error ? error.message : String(error));
 		}
 		const tx = db().transaction(() => {
-			if (record) persistCompletion(db(), record);
+			persistCompletion(db(), record);
 			// W643 CAS: the write lands ONLY on the exact claim the token opened
 			// — state + owner + token-hash in the WHERE; a reclaim+re-take in
 			// flight changes the hash → 0 rows → refused (never clobber).
@@ -901,7 +901,7 @@ const dispatchVerb = async (
 					"UPDATE work_items SET state = 'DONE', owner_sid = NULL, result_sha = ?, updated_at = ? WHERE project = ? AND id = ? AND state IN ('CLAIMED','RUNNING') AND owner_sid IS ? AND claim_token_hash IS ?",
 				)
 				.run(
-					record?.commit_sha ?? sha ?? null,
+					record.commit_sha,
 					Date.now(),
 					PROJECT,
 					id,
@@ -913,9 +913,9 @@ const dispatchVerb = async (
 					`${id} claim changed — stale writer refused (never clobber)`,
 				);
 			emit("work.done", id, {
-				sha: record?.commit_sha ?? sha ?? "",
-				verified: !!record,
-				summary: record?.summary ?? null,
+				sha: record.commit_sha,
+				verified: true,
+				summary: record.summary,
 				// W909: the lane's effort level rides the done event (reporter EFFORT column)
 				...doneEffortStamp(
 					`${projectRootOf(PROJECT)}/.fleet`,
@@ -943,7 +943,7 @@ const dispatchVerb = async (
 		console.log(
 			`${green("✓")} ${cyan(id)} DONE${sha ? ` @${sha.slice(0, 8)}` : ""}`,
 		);
-		if (record) console.log(record.summary);
+		console.log(record.summary);
 		if (freed.length)
 			console.log(
 				`${amber("▶")} startable now: ${cyan(freed.join(", "))} ${dim(`— unblocked by ${id}`)}`,
