@@ -3,9 +3,9 @@
 // end-to-end (_routing.category + cloud-first escalation) against stub
 // servers only — never the live :890x fleet.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { freePort, scratchWorld, waitUp } from "../../test-kit/src/index.ts";
 import {
 	classifyELabel,
 	eLabelSpecial,
@@ -129,6 +129,7 @@ describe("routedTier category-first scoring (W279)", () => {
 let shim: ReturnType<typeof Bun.spawn> | undefined;
 let shimBase = "";
 let home = "";
+let clean = (): void => {};
 let cloudHits = 0;
 let upHits = 0;
 let cloudGate: Promise<void> | null = null;
@@ -147,7 +148,9 @@ function stubServe(handlers: {
 }
 
 beforeAll(async () => {
-	home = makePrefsHome();
+	const world = makePrefsWorld();
+	home = world.home;
+	clean = world.clean;
 	const { up, cloud } = await startStubs();
 	const port = await freePort();
 	shimBase = `http://127.0.0.1:${port}`;
@@ -157,8 +160,7 @@ beforeAll(async () => {
 			new URL("../bin/router-shim.ts", import.meta.url).pathname,
 		],
 		env: {
-			...process.env,
-			HOME: home,
+			...world.env,
 			BELT_ROUTER_PORT: String(port),
 			BELT_UPSTREAM_BASE: `http://127.0.0.1:${up}`,
 			BELT_RETRY_WAIT_CAP_MS: "500",
@@ -169,30 +171,30 @@ beforeAll(async () => {
 		stdout: "ignore",
 		stderr: "ignore",
 	});
-	for (let i = 0; i < 100; i++) {
-		const live = await fetch(`${shimBase}/health/liveliness`)
-			.then((r) => r.ok)
-			.catch(() => false);
-		if (live) return;
-		await Bun.sleep(50);
+	try {
+		await waitUp(`${shimBase}/health/liveliness`, {
+			tries: 100,
+			intervalMs: 50,
+		});
+	} catch {
+		throw new Error("router-shim did not come up");
 	}
-	throw new Error("router-shim did not come up");
 });
 
 afterAll(() => {
 	shim?.kill();
-	if (home) rmSync(home, { recursive: true, force: true });
+	clean();
 });
 
 // hoisted helpers — beforeAll above consumes them after module load
-function makePrefsHome(): string {
-	const h = mkdtempSync(join(tmpdir(), "w279-"));
-	mkdirSync(join(h, ".claude", "local-llm"), { recursive: true });
+function makePrefsWorld() {
+	const world = scratchWorld({ prefix: "w279-" });
+	mkdirSync(join(world.home, ".claude", "local-llm"), { recursive: true });
 	writeFileSync(
-		join(h, ".claude", "local-llm", "prefs.json"),
+		join(world.home, ".claude", "local-llm", "prefs.json"),
 		JSON.stringify({ allow_cloud: false, kev: { enabled: false } }),
 	);
-	return h;
+	return world;
 }
 
 function startStubs(): { up: number; cloud: number } {
@@ -214,13 +216,6 @@ function startStubs(): { up: number; cloud: number } {
 		},
 	});
 	return { up: up.port, cloud: cloud.port };
-}
-
-async function freePort(): Promise<number> {
-	const s = Bun.serve({ port: 0, fetch: () => new Response("") });
-	const p = s.port ?? 0;
-	s.stop(true);
-	return p;
 }
 
 const post = (body: Record<string, unknown>) =>
