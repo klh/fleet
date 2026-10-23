@@ -108,10 +108,12 @@ describe("measured route performance", () => {
 		expect(slow?.avgLatencyMs.value).toBe(900);
 		// order independence: both records keep their own values regardless of
 		// Object.entries order — no overwrite, no cross-route aggregation
-		expect(registry.all().map((r) => r.avgLatencyMs.value).sort()).toEqual([
-			100,
-			900,
-		]);
+		expect(
+			registry
+				.all()
+				.map((r) => r.avgLatencyMs.value)
+				.sort(),
+		).toEqual([100, 900]);
 	});
 
 	test("merges newer observations per route without touching siblings", () => {
@@ -272,21 +274,112 @@ describe("measured route performance", () => {
 		const script = join(home, "wire.ts");
 		await writeFile(
 			script,
-			`import { mkdirSync, writeFileSync } from "node:fs/promises";
+			`import { mkdirSync, writeFileSync } from "node:fs";
 const llm = process.env.HOME + "/.claude/local-llm";
 mkdirSync(llm, { recursive: true });
-const ts = new Date(Date.now() - 60_000).toISOString();
-const row = (endpoint: string, ms: number): string =>
-	JSON.stringify({ ts, machine: "macbook", endpoint, model: "glm-5.3-flash", duration_ms: ms, ok: true });
-writeFileSync(llm + "/remotes-routes.log", row("macbook:4000", 100) + "\\n" + row("macbook:4100", 900) + "\\n");
+const nowMs = Date.now();
+const iso = (offsetMs: number): string =>
+	new Date(nowMs + offsetMs).toISOString();
+const row = (endpoint: string, ts: string, ms: number, ok: boolean): string =>
+	JSON.stringify({ ts, machine: "macbook", endpoint, model: "glm-5.3-flash", duration_ms: ms, ok });
+const lines = [
+	row("macbook:4000", iso(-60_000), 100, true),
+	row("macbook:4100", iso(-20 * 60_000), 900, true),
+	row("macbook:4100", iso(-30_000), 0, false),
+	"",
+].join("\\n");
+writeFileSync(llm + "/remotes-routes.log", lines);
 const { metricsSnapshot } = await import(${JSON.stringify(join(bin, "metrics.ts"))});
 const { collectRoutePerformance, readRoutePerformanceSnapshot } = await import(${JSON.stringify(join(bin, "route-performance.ts"))});
 const snap = metricsSnapshot();
-const feed = await collectRoutePerformance({ tallies: snap.endpoints, path: llm + "/route-performance.json", now: Date.now() });
+const feed = await collectRoutePerformance({ tallies: snap.endpoints, path: llm + "/route-performance.json", now: nowMs });
 const persisted = await readRoutePerformanceSnapshot(llm + "/route-performance.json");
-console.log(JSON.stringify({ keys: Object.keys(snap.endpoints).sort(), feed, persistedState: persisted.state }));
+const stored = persisted.state === "available" ? persisted.registry.all() : [];
+console.log(JSON.stringify({
+	keys: Object.keys(snap.endpoints).sort(),
+	tallies: {
+		fresh: snap.endpoints["macbook:4000:glm-5.3-flash"],
+		stale: snap.endpoints["macbook:4100:glm-5.3-flash"],
+	},
+	ts: { fresh: iso(-60_000), stale: iso(-20 * 60_000), failed: iso(-30_000) },
+	feed,
+	persistedState: persisted.state,
+	stored,
+}));
 `,
 		);
+		const child = Bun.spawnSync([process.execPath, script], {
+			env: { ...process.env, HOME: home },
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		expect(child.exitCode, child.stderr.toString()).toBe(0);
+		const out = JSON.parse(child.stdout.toString());
+		// B1: same host, different ports — two independent tallies, port kept.
+		expect(out.keys).toEqual([
+			"macbook:4000:glm-5.3-flash",
+			"macbook:4100:glm-5.3-flash",
+		]);
+		expect(out.tallies.fresh).toMatchObject({
+			calls: 1,
+			errors: 0,
+			measured: 1,
+			avg_ms: 100,
+			last_used: out.ts.fresh,
+			measured_last: out.ts.fresh,
+			measured_first: out.ts.fresh,
+		});
+		expect(out.tallies.stale).toMatchObject({
+			calls: 2,
+			errors: 1,
+			measured: 1,
+			avg_ms: 900,
+			last_used: out.ts.failed,
+			measured_last: out.ts.stale,
+			measured_first: out.ts.stale,
+		});
+		const byEndpoint = new Map(
+			out.feed.records.map((r: { endpoint: string }) => [r.endpoint, r]),
+		);
+		const freshRoute = byEndpoint.get("macbook:4000");
+		const staleRoute = byEndpoint.get("macbook:4100");
+		// B1: provider stays UNKNOWN — the host is never promoted to provider.
+		expect(freshRoute?.provider).toBe(UNKNOWN_PROVIDER);
+		expect(staleRoute?.provider).toBe(UNKNOWN_PROVIDER);
+		expect(freshRoute?.avgLatencyMs).toEqual({
+			value: 100,
+			source: "belt:metrics:macbook:4000",
+			observedAt: out.ts.fresh,
+		});
+		expect(freshRoute?.sampleWindow).toEqual({
+			value: { first: out.ts.fresh, last: out.ts.fresh },
+			source: "belt:metrics:macbook:4000",
+			observedAt: out.ts.fresh,
+		});
+		// B2: the latency sample expires on its own measured timestamp while
+		// the fresh duration-less failure keeps errorRate fresh.
+		expect(staleRoute?.avgLatencyMs).toEqual({
+			value: null,
+			source: "belt:metrics:macbook:4100",
+			observedAt: out.ts.stale,
+		});
+		expect(staleRoute?.errorRate).toEqual({
+			value: 0.5,
+			source: "belt:metrics:macbook:4100",
+			observedAt: out.ts.failed,
+		});
+		expect(staleRoute?.sampleWindow?.value).toBeNull();
+		// Persistence roundtrip: the stored record keeps the value the feed
+		// expires — freshness is applied at read time, never erased.
+		const storedStale = out.stored.find(
+			(r: { endpoint: string }) => r.endpoint === "macbook:4100",
+		);
+		expect(storedStale?.avgLatencyMs).toEqual({
+			value: 900,
+			source: "belt:metrics:macbook:4100",
+			observedAt: out.ts.stale,
+		});
+		expect(out.persistedState).toBe("available");
 	});
 
 	test("reports partial when the snapshot path cannot persist", async () => {
