@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
 	checkpointedClaudeRestart,
 	restartBootstrap,
@@ -9,6 +9,8 @@ import {
 	restartContinuationProof,
 	pausedNativeBoundary,
 	validateRestartBoundary,
+	restartTranscriptMatches,
+	retiredRestartSnapshot,
 	type ClaudeRestartSnapshot,
 	type RestartDependencies,
 } from "../hooks/lib/claude-restart.ts";
@@ -310,4 +312,169 @@ test("a settings mutation during async drain is refused by the final local snaps
 			writeFileSync(f.snapshot.settings, "changed while draining");
 		}),
 	).rejects.toThrow("local snapshot changed");
+});
+
+const shutdownRows = (session: string) =>
+	`${[
+		JSON.stringify({
+			type: "last-prompt",
+			sessionId: session,
+			lastPrompt: "pause",
+			leafUuid: "leaf",
+		}),
+		JSON.stringify({
+			type: "cost-state",
+			sessionId: session,
+			totalCostUSD: 1,
+			modelUsage: {},
+		}),
+	].join("\n")}\n`;
+test("shutdown transcript permits only bounded same-session bookkeeping after both processes exit", () => {
+	const prefix = Buffer.from(
+		`${JSON.stringify({ type: "assistant", message: "checkpoint" })}\n`,
+	);
+	const session = "7cb949c4-36d5-4db8-b426-84f47a733220",
+		hash = restartHash(prefix);
+	const valid = Buffer.concat([prefix, Buffer.from(shutdownRows(session))]);
+	expect(restartTranscriptMatches(valid, hash, session, true)).toBe(true);
+	expect(restartTranscriptMatches(valid, hash, session, false)).toBe(false);
+	expect(restartTranscriptMatches(prefix, hash, session, false)).toBe(true);
+	const invalid = [
+		Buffer.from(valid.toString().replace("checkpoint", "rewritten")),
+		Buffer.from(valid.toString().trimEnd()),
+		Buffer.concat([prefix, Buffer.from(shutdownRows("foreign"))]),
+		...["user", "assistant", "tool"].map((type) =>
+			Buffer.concat([
+				prefix,
+				Buffer.from(`${JSON.stringify({ type, sessionId: session })}\n`),
+			]),
+		),
+		Buffer.concat([prefix, Buffer.from(shutdownRows(session).repeat(2))]),
+		Buffer.concat([
+			prefix,
+			Buffer.from(
+				`${JSON.stringify({
+					type: "last-prompt",
+					sessionId: session,
+					message: "injected",
+				})}\n`,
+			),
+		]),
+		Buffer.concat([
+			prefix,
+			Buffer.from(
+				`${JSON.stringify({
+					type: "last-prompt",
+					sessionId: session,
+					lastPrompt: "x".repeat(65536),
+				})}\n`,
+			),
+		]),
+	];
+	for (const bytes of invalid)
+		expect(restartTranscriptMatches(bytes, hash, session, true)).toBe(false);
+});
+test("retired journal is loaded without a live old wrapper and refuses uncertain phases or reused identity", async () => {
+	const f = fixture();
+	f.live.clear();
+	writeFileSync(
+		f.path,
+		JSON.stringify({ snapshot: f.snapshot, phase: "retired" }),
+		{ mode: 0o600 },
+	);
+	const lane = {
+		sid: f.snapshot.sid,
+		item: f.snapshot.item,
+		worktree: f.snapshot.worktree,
+		pid: 100,
+	};
+	expect(retiredRestartSnapshot(f.path, lane, f.deps.identity)).toEqual(
+		f.snapshot,
+	);
+	expect(() =>
+		retiredRestartSnapshot(
+			f.path,
+			{ ...lane, sid: "foreign" },
+			f.deps.identity,
+		),
+	).toThrow("binding");
+	expect(() => retiredRestartSnapshot(f.path, lane, () => null)).toThrow(
+		"absence",
+	);
+	f.live.set(100, "reused-pid");
+	expect(() => retiredRestartSnapshot(f.path, lane, f.deps.identity)).toThrow(
+		"absence",
+	);
+	f.live.clear();
+	for (const phase of ["retiring", "starting", "started"]) {
+		writeFileSync(f.path, JSON.stringify({ snapshot: f.snapshot, phase }), {
+			mode: 0o600,
+		});
+		expect(() => retiredRestartSnapshot(f.path, lane, f.deps.identity)).toThrow(
+			"reconcile",
+		);
+	}
+});
+test("retired retry preserves the original snapshot and launches once after a native shutdown footer", async () => {
+	const f = fixture(),
+		transcript = join(dirname(f.path), "transcript.jsonl");
+	const prefix =
+		JSON.stringify({ type: "assistant", sessionId: f.snapshot.nativeSession }) +
+		"\n";
+	writeFileSync(transcript, prefix);
+	f.snapshot.transcript = transcript;
+	f.snapshot.transcriptHash = restartHash(prefix);
+	let refuse = true;
+	f.deps.validate = async (value) => {
+		expect(
+			restartTranscriptMatches(
+				readFileSync(value.transcript),
+				value.transcriptHash,
+				value.nativeSession,
+				f.live.size === 0,
+			),
+		).toBe(true);
+		if (f.live.size === 0 && refuse) throw Error("temporary drain unavailable");
+	};
+	f.deps.retire = async () => {
+		f.actions.push("retire");
+		f.live.clear();
+		writeFileSync(transcript, prefix + shutdownRows(f.snapshot.nativeSession));
+	};
+	await expect(
+		checkpointedClaudeRestart(f.path, f.snapshot, f.deps),
+	).rejects.toThrow("temporary drain");
+	const old = JSON.parse(readFileSync(f.path, "utf8"));
+	expect(old.phase).toBe("retired");
+	const snapshot = retiredRestartSnapshot(
+		f.path,
+		{
+			sid: f.snapshot.sid,
+			item: f.snapshot.item,
+			worktree: f.snapshot.worktree,
+			pid: 100,
+		},
+		f.deps.identity,
+	);
+	if (!snapshot) throw new Error("Retired snapshot missing");
+	refuse = false;
+	const result = await checkpointedClaudeRestart(f.path, snapshot, f.deps);
+	expect(result.snapshot).toEqual(f.snapshot);
+	expect(result.phase).toBe("started");
+	expect(result.shutdownTranscript).toEqual({
+		hash: restartHash(readFileSync(transcript)),
+		bytes: readFileSync(transcript).length,
+	});
+	expect(
+		restartBootstrap(f.path, snapshot.sid, [
+			"--resume",
+			snapshot.nativeSession,
+			"--settings",
+			snapshot.settings,
+		]),
+	).toEqual(snapshot);
+	expect(f.actions).toEqual(["retire", "start", "register"]);
+	await expect(
+		checkpointedClaudeRestart(f.path, snapshot, f.deps),
+	).rejects.toThrow("reconcile");
 });
