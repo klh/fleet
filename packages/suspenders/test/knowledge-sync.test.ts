@@ -320,7 +320,17 @@ test("e2e: syncOnce posts decant metrics + facts to a local receiver", async () 
 		port: 0,
 		fetch: async (req) => {
 			captured = await req.text();
-			return Response.json({ ok: true });
+			// W1213.2: the receiver acks like the real hub — explicit ok:true
+			// plus counters matched to the batch it just landed.
+			const p = JSON.parse(captured) as {
+				facts: unknown[];
+				metrics: Record<string, unknown[]>;
+			};
+			const rows = Object.values(p.metrics).reduce(
+				(n, rows) => n + rows.length,
+				0,
+			);
+			return Response.json(JSON.parse(ingestAck(p.facts.length, rows)));
 		},
 	});
 	const tokenPath = join(dir, "hub.token");
@@ -396,3 +406,34 @@ test("landKnowledgeIngest: out-of-vocabulary keys rejected, bad payloads 400-sha
 	});
 	expect(badHub.ok).toBe(false);
 });
+
+// ─── W1213.2: the cursor advances only on an explicit, validated,
+// batch-matched positive ack (real-HTTP receiver cases below). ──────────────
+
+/** The ack body the real hub returns for a landed batch, stringified. */
+const ingestAck = (
+	facts: number,
+	metrics: number,
+	over: Partial<{
+		ok: unknown;
+		error: string;
+		landed: number;
+		dupes: number;
+		rejected: number;
+	}> = {},
+): string =>
+	JSON.stringify(
+		over.ok !== undefined || over.error !== undefined
+			? { ok: over.ok ?? false, error: over.error ?? null }
+			: {
+					ok: true,
+					counts: {
+						facts: {
+							landed: over.landed ?? facts,
+							dupes: over.dupes ?? 0,
+							rejected: over.rejected ?? 0,
+						},
+						metrics,
+					},
+				},
+	);
