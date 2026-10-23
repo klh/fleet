@@ -235,6 +235,18 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		cwd: (repo) => repo,
 	},
 	{
+		// W1212: the daily decant→facts distiller — machine-local evidence
+		// (THIS machine's DONE work rows + decant archive) → content-addressed
+		// coord facts (CAS create-only, confidence-stamped at ingest). Idle
+		// between fires is fine: same-day re-runs dedupe by key, never
+		// duplicate. Credential-free by construction — hub-executable (W1211).
+		name: "decant-daily",
+		calendar: { hour: 4, minute: 30 },
+		nice: 10,
+		timeoutMs: 300_000,
+		argv: (root) => [join(root, "hooks/bin/decant-daily.ts")],
+	},
+	{
 		// W969 Signals-lite — per-run silent-failure scan of closed lanes
 		// through the pinned oracle leg (:8903 default): bounded evidence
 		// (transcript tail + capsule + done payload), fixed four-class prompt,
