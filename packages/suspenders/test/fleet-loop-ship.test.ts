@@ -165,9 +165,10 @@ function liveMarker(repo: string): ReturnType<typeof Bun.spawn> {
 }
 
 // W1124.36 review gate: mergeOne defers any DONE branch without a bound
-// independent PASS receipt — seed one so fixtures reach the ladder (same
-// recipe as merge-guard.test.ts + fleet-loop-flush.test.ts seedReview).
-function seedReview(repo: string) {
+// independent PASS receipt — seed one so fixtures reach the ladder. The
+// receipt is looked up under the CLAIMED ITEM id (claim.item), never the
+// branch suffix: seedClosure mints the item, so the minted id rides in.
+function seedReview(repo: string, item: string) {
 	const seeded = Bun.spawnSync(
 		[
 			"bun",
@@ -177,7 +178,7 @@ import {openStore,projectIdentity} from ${JSON.stringify(join(import.meta.dir, "
 import {reviewContext,publishReviewReceipt} from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/review-receipt.ts"))};
 const db=openStore(), project=projectIdentity(), c=reviewContext(process.cwd(),"suspenders/SHIP1");
 db.query("INSERT OR IGNORE INTO sessions(sid,project,role,started_at,hb,state) VALUES ('fixture-reviewer',?,'reviewer',?,?,'DONE')").run(project,Date.now(),Date.now());
-publishReviewReceipt(db,project,'SHIP1',{version:1,commit:c.commit,base:c.base,instructions:c.instructions,reviewer:'fixture-reviewer',verdict:'PASS',blocking:[],evidence:'fixture independent review'});
+publishReviewReceipt(db,project,${JSON.stringify(item)},{version:1,commit:c.commit,base:c.base,instructions:c.instructions,reviewer:'fixture-reviewer',verdict:'PASS',blocking:[],evidence:'fixture independent review'});
 db.close();
 `,
 		],
@@ -198,12 +199,12 @@ db.close();
 describe("fleet-loop ship mode (W64)", () => {
 	test("merges one branch through the ladder, retires branch + worktree", async () => {
 		const repo = await scratchRepo();
-		seedClosure(
+		const item = seedClosure(
 			repo,
 			"SHIP1",
 			g(repo, ["rev-parse", "suspenders/SHIP1"]).stdout.toString().trim(),
 		);
-		seedReview(repo);
+		seedReview(repo, item);
 		const head = g(repo, ["rev-parse", "suspenders/SHIP1"])
 			.stdout.toString()
 			.trim();
@@ -230,12 +231,12 @@ describe("fleet-loop ship mode (W64)", () => {
 
 	test("ladder template substitution runs and clears prior strikes", async () => {
 		const repo = await scratchRepo();
-		seedClosure(
+		const item = seedClosure(
 			repo,
 			"SHIP1",
 			g(repo, ["rev-parse", "suspenders/SHIP1"]).stdout.toString().trim(),
 		);
-		seedReview(repo);
+		seedReview(repo, item);
 		const r = ship(repo, [
 			"--branch",
 			"suspenders/SHIP1",
@@ -274,12 +275,12 @@ describe("fleet-loop ship mode (W64)", () => {
 
 	test("failed ladder: FAIL, merge aborted, branch kept, strike counted", async () => {
 		const repo = await scratchRepo();
-		seedClosure(
+		const item = seedClosure(
 			repo,
 			"SHIP1",
 			g(repo, ["rev-parse", "suspenders/SHIP1"]).stdout.toString().trim(),
 		);
-		seedReview(repo);
+		seedReview(repo, item);
 		const r = ship(repo, [
 			"--branch",
 			"suspenders/SHIP1",
