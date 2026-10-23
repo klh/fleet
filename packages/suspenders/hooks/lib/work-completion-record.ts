@@ -260,7 +260,7 @@ export function prepareCompletion(
 		/** W643: --token / KLH_CLAIM_TOKEN as passed by work done. */
 		token?: string | null;
 	},
-): CompletionRecord | null {
+): CompletionRecord {
 	let context: LaneContext | null = null;
 	let top = o.cwd;
 	try {
@@ -358,9 +358,6 @@ export function prepareCompletion(
 	}
 	const raw =
 		o.summary ?? (typeof capsule.done === "string" ? capsule.done : null);
-	// Compatibility: older manual ledger closures remain explicitly unverified.
-	// Every dispatched lane and every summary-bearing closure uses verified evidence.
-	if (!context && !raw) return null;
 	const summary = raw?.trim().replace(/\s+/g, " ") ?? "";
 	if (summary.length < 40 || summary.length > 4000)
 		throw new Error(
