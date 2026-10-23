@@ -25,6 +25,7 @@ import { BOOT } from "../board-html/boot.ts";
 import { CORE } from "../board-html/core.ts";
 import { DECISIONS } from "../board-html/decisions.ts";
 import { DIFF } from "../board-html/diff.ts";
+import { LAUNCH } from "../board-html/launch.ts";
 import { HISTORY } from "../board-html/history.ts";
 import { ORCH } from "../board-html/orch.ts";
 import { RENDERS } from "../board-html/renders.ts";
@@ -446,7 +447,9 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 #drawerClose:hover { color:var(--klh-ink); border-color:var(--klh-edge-hover); }
 .dd { padding:4px 0; border-bottom:1px solid var(--klh-edge-faint); font-size:12px; }
 .dd:last-child { border-bottom:none; }
-#taskDiff { margin-top:10px; }
+#taskLaunch { margin-top:10px; }
+.launchfeed h2 { margin-bottom:6px; }
+.launchText { display:block; width:100%; box-sizing:border-box; min-height:340px; background:var(--klh-bg); color:var(--klh-ink); border:1px solid var(--klh-edge); border-radius:2px; padding:6px 8px; font:11px/1.5 var(--klh-font-mono); white-space:pre-wrap; overflow:auto; resize:vertical; }
 .diffbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px; }
 .diffbtn { background:none; border:1px solid var(--klh-edge-strong); color:var(--klh-dim); border-radius:2px; padding:3px 10px; font:inherit; font-size:10px; text-transform:uppercase; letter-spacing:.06em; cursor:pointer; }
 .diffbtn:hover { color:var(--klh-ink); border-color:var(--klh-edge-hover); }
@@ -490,7 +493,7 @@ button.lanesend:disabled { opacity:.45; cursor:default; }
 ${fleetNav("suspenders", "suspenders")}
 <klh-topbar><a slot="settings-extra" href="/console/settings">all console settings &rarr;</a></klh-topbar>
 <script>/*SETUP_SEED*/</script>
-${BODY}${CORE}${RENDERS}${DECISIONS}${HISTORY}${TASKS}${DIFF}${SHIP}${TAIL}${ACTIVITY}${SETUP}${USAGE}${TABS}${ORCH}${BOOT}</script>
+${BODY}${CORE}${RENDERS}${DECISIONS}${HISTORY}${TASKS}${DIFF}${LAUNCH}${SHIP}${TAIL}${ACTIVITY}${SETUP}${USAGE}${TABS}${ORCH}${BOOT}</script>
 <script>${UPLOT_SRC}</script>
 <script type="module" src="/vendor/klh-components.js"></script>
 <script type="module" src="/vendor/klh-topbar.js"></script>
