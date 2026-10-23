@@ -4,9 +4,13 @@ This survey covers every surface named in W296: Claude Code, Codex CLI,
 Copilot CLI, grok-cli, Cline, Hermes, and VS Code.
 
 > Snapshot note (W1000 audit, 2026-10-23): the adapter-status column below is
-> the W296-era survey state — all surveyed non-native CLIs since shipped as
-> dialects under `hooks/dialects/<cli>/` (see `docs/cli-dialect-pattern.md`);
-> per-surface statuses here are historical, not live.
+> the W296-era survey state — Codex CLI, Copilot CLI, grok-cli, and Cline have
+> since shipped as dialects under `hooks/dialects/<cli>/` — slugs `codex`,
+> `copilot`, `grok`, `cline` (see `docs/cli-dialect-pattern.md`); Hermes
+> remains unsupported (no adapter exists), and VS Code is a host, not an
+> adapter target: provider harnesses ride the provider adapters, while the
+> VS Code Local harness is its own separate surface. Per-surface statuses
+> here are historical, not live.
 
 ## Executive summary
 
