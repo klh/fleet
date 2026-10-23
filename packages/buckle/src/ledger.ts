@@ -14,6 +14,7 @@ import {
 	type StreamCloser,
 } from "../../telemetry/src/http-trace.ts";
 import type { HopKind } from "./hop.ts";
+import type { CostOf, Pricer } from "./cost.ts";
 import type { Usage } from "./usage.ts";
 
 /** W1086 settle receipt: the caller hands raw timings; the ledger validates
@@ -209,6 +210,8 @@ CREATE TABLE IF NOT EXISTS router_usage (
   cache_r INTEGER NOT NULL DEFAULT 0,
   cache_c INTEGER NOT NULL DEFAULT 0,
   requests INTEGER NOT NULL DEFAULT 0,
+  cost_usd REAL,
+  rate_version TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (hour_bucket, key, model_group, model)
 );
 CREATE TABLE IF NOT EXISTS route_audit (
@@ -233,6 +236,8 @@ CREATE TABLE IF NOT EXISTS route_audit (
   cache_r INTEGER, cache_c INTEGER, cache_reported INTEGER,
   cache_c_reported INTEGER,
   in_tok INTEGER, out_tok INTEGER,
+  cost_usd REAL,
+  rate_version TEXT NOT NULL DEFAULT '',
   hop TEXT,
   traffic_kind TEXT
 );
@@ -270,14 +275,21 @@ CREATE INDEX IF NOT EXISTS stream_settle_trace ON stream_settle(trace_id, ts);
 const UPSERT = `
 INSERT INTO router_usage (
   hour_bucket, key, model_group, model,
-  in_tok, out_tok, cache_r, cache_c, requests
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  in_tok, out_tok, cache_r, cache_c, requests, cost_usd, rate_version
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(hour_bucket, key, model_group, model) DO UPDATE SET
   in_tok = in_tok + excluded.in_tok,
   out_tok = out_tok + excluded.out_tok,
   cache_r = cache_r + excluded.cache_r,
   cache_c = cache_c + excluded.cache_c,
-  requests = requests + excluded.requests
+  requests = requests + excluded.requests,
+  cost_usd = CASE
+    WHEN excluded.cost_usd IS NULL THEN cost_usd
+    WHEN cost_usd IS NULL THEN excluded.cost_usd
+    ELSE cost_usd + excluded.cost_usd END,
+  rate_version = CASE
+    WHEN excluded.rate_version = '' THEN rate_version
+    ELSE excluded.rate_version END
 `;
 
 /** One pending audit operation, applied in order at flush time (the
@@ -294,11 +306,14 @@ type AuditOp =
 			u: RouteAuditUsage;
 			cacheReported: boolean | null;
 			cacheWriteReported: boolean | null;
+			/** W1132: computed at enqueue (write-time pricing); null = the model
+			 *  is unsupported or no pricer is wired — NULL stays NULL. */
+			cost: CostOf;
 	  };
 
 const UPDATE_USAGE = `
 UPDATE route_audit SET cache_r = ?, cache_c = ?, cache_reported = ?, cache_c_reported = ?,
-  in_tok = ?, out_tok = ?
+  in_tok = ?, out_tok = ?, cost_usd = ?, rate_version = ?
 WHERE rid = ?
 `;
 
@@ -325,6 +340,10 @@ export interface LedgerOptions {
 	maxPendingBytes?: number;
 	/** drop observer — the servicemon counter seam (buckle_ledger_dropped_total) */
 	onDrop?: (kind: "usage" | "audit", n: number) => void;
+	/** W1132 price seam: model + usage → cost at write time (null = the
+	 *  model is cost-unsupported → NULL cost / '' version, never zero).
+	 *  Absent = legacy-honest: the columns stay NULL on every row. */
+	pricer?: Pricer;
 }
 
 /** A ring entry with its failed-flush count (bounded retry) and its byte
@@ -349,7 +368,11 @@ export class Ledger {
 	private readonly maxPending: number;
 	private readonly maxPendingBytes: number;
 	private readonly onDrop?: (kind: "usage" | "audit", n: number) => void;
-	private usageRing: Array<Pending<UsageRecord & { bucket: string }>> = [];
+	/** W1132 write-time pricer (absent = price nothing). */
+	private readonly pricer: Pricer;
+	private usageRing: Array<
+		Pending<UsageRecord & { bucket: string; cost: CostOf }>
+	> = [];
 	private auditRing: Array<Pending<AuditOp>> = [];
 	/** W450 ring byte loads (sum of the entries' `b`). */
 	private usageBytes = 0;
@@ -420,6 +443,26 @@ export class Ledger {
 		// column or the request never streamed.
 		if (!auditCols.includes("stream_receipt"))
 			this.db.run("ALTER TABLE route_audit ADD COLUMN stream_receipt TEXT");
+		// W1132: cost columns heal onto pre-cost databases the same way —
+		// NULL cost + '' version = the row predates pricing (honest unknown,
+		// never zero-faked).
+		if (!auditCols.includes("cost_usd"))
+			this.db.run("ALTER TABLE route_audit ADD COLUMN cost_usd REAL");
+		if (!auditCols.includes("rate_version"))
+			this.db.run(
+				"ALTER TABLE route_audit ADD COLUMN rate_version TEXT NOT NULL DEFAULT ''",
+			);
+		const usageCols = (
+			this.db
+				.query("SELECT name FROM pragma_table_info('router_usage')")
+				.all() as Array<{ name: string }>
+		).map((r) => r.name);
+		if (!usageCols.includes("cost_usd"))
+			this.db.run("ALTER TABLE router_usage ADD COLUMN cost_usd REAL");
+		if (!usageCols.includes("rate_version"))
+			this.db.run(
+				"ALTER TABLE router_usage ADD COLUMN rate_version TEXT NOT NULL DEFAULT ''",
+			);
 		this.db.run(
 			"CREATE INDEX IF NOT EXISTS route_audit_trace ON route_audit(trace_id, ts)",
 		);
@@ -451,6 +494,7 @@ export class Ledger {
 		this.maxPending = Math.max(1, opts.maxPendingEntries ?? 4096);
 		this.maxPendingBytes = Math.max(1, opts.maxPendingBytes ?? 4 * 1024 * 1024);
 		this.onDrop = opts.onDrop;
+		this.pricer = opts.pricer ?? (() => null);
 		this.timer = setInterval(() => this.flush(), this.flushMs);
 		// never holds the process open (bun test, the bench harness)
 		this.timer.unref?.();
@@ -460,7 +504,9 @@ export class Ledger {
 	 *  strings count as UTF-16 length (an honest over-count of UTF-8). The
 	 *  upd estimate skips decision/error_code — router-bounded small; err is
 	 *  the only unbounded string (readCapped error bodies reach 256 KiB). */
-	private usageRecBytes(r: UsageRecord & { bucket: string }): number {
+	private usageRecBytes(
+		r: UsageRecord & { bucket: string; cost: CostOf },
+	): number {
 		return 96 + r.key.length + r.group.length + r.model.length;
 	}
 	private auditOpBytes(op: AuditOp): number {
@@ -517,7 +563,7 @@ export class Ledger {
 	}
 
 	/** Enqueue a usage row / audit op, then enforce the ring caps. */
-	private pushUsage(v: UsageRecord & { bucket: string }): void {
+	private pushUsage(v: UsageRecord & { bucket: string; cost: CostOf }): void {
 		const b = this.usageRecBytes(v);
 		this.usageBytes += b;
 		this.usageRing.push({ v, tries: 0, b });
@@ -553,10 +599,12 @@ export class Ledger {
 	}
 
 	/** Upsert-add into the hour bucket for now(): enqueued (bounded by the
-	 *  5s timer / the row threshold — never on the request's stack). */
+	 *  5s timer / the row threshold — never on the request's stack). W1132:
+	 *  cost prices at enqueue (write-time rate version stamped per row). */
 	record(rec: UsageRecord): void {
 		const bucket = `${this.now().toISOString().slice(0, 13)}:00`;
-		this.pushUsage({ ...rec, bucket });
+		const cost = this.pricer(rec.model, rec);
+		this.pushUsage({ ...rec, bucket, cost });
 		if (this.usageRing.length >= this.flushRows) this.flushSoon();
 	}
 
@@ -598,6 +646,8 @@ export class Ledger {
 						r.cache_r,
 						r.cache_c,
 						r.requests,
+						r.cost?.cost_usd ?? null,
+						r.cost?.rate_version ?? "",
 					);
 				for (const { v: op } of audit) {
 					if (op.t === "ins") this.insertAudit(op.row);
@@ -610,6 +660,7 @@ export class Ledger {
 							op.u,
 							op.cacheReported,
 							op.cacheWriteReported,
+							op.cost,
 						);
 				}
 			})();
@@ -832,12 +883,15 @@ export class Ledger {
 	/** W457: provider-reported cache usage onto the per-request audit row
 	 *  (joined by rid): enqueued. A null Usage is honest unknown — the
 	 *  UPDATE is skipped so the columns stay NULL, never estimated. W824:
-	 *  the full Usage joins (tokens in/out ride the same op). */
+	 *  the full Usage joins (tokens in/out ride the same op). W1132: when
+	 *  the caller names the model, cost prices at enqueue (write-time rate
+	 *  version); null cost = unsupported/absent pricer — NULL, never zero. */
 	auditUsage(
 		rid: string,
 		u: Usage | null,
 		cacheReported: boolean | null = null,
 		cacheWriteReported: boolean | null = null,
+		model?: string,
 	): void {
 		if (u === null) return;
 		this.pushAudit({
@@ -846,6 +900,7 @@ export class Ledger {
 			u: { ...u },
 			cacheReported,
 			cacheWriteReported,
+			cost: model === undefined ? null : this.pricer(model, u),
 		});
 	}
 
@@ -855,6 +910,7 @@ export class Ledger {
 		u: RouteAuditUsage,
 		cacheReported: boolean | null,
 		cacheWriteReported: boolean | null,
+		cost: CostOf,
 	): void {
 		this.updUsage.run(
 			u.cache_r,
@@ -863,6 +919,8 @@ export class Ledger {
 			cacheWriteReported === null ? null : cacheWriteReported ? 1 : 0,
 			u.in_tok,
 			u.out_tok,
+			cost?.cost_usd ?? null,
+			cost?.rate_version ?? "",
 			rid,
 		);
 	}
