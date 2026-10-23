@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterAll, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
@@ -21,27 +21,30 @@ const {
 } = fixture;
 
 test("decision evaluation finishes across a board restart", async () => {
-	const model = Bun.serve({
+	// W1119: the eval leg enters the Buckle gate — the mock gate answers the
+	// scoped-key pair and the credential rides the 0600 knowledge-buckle.json
+	// file contract (re-read at call time, so the restarted board's recovery
+	// worker resolves it too).
+	const gate = Bun.serve({
 		hostname: "127.0.0.1",
 		port: 0,
 		async fetch() {
 			await sleep(1_500);
 			return Response.json({
-				choices: [{ message: { content: "Keep the reviewed option." } }],
+				content: [{ type: "text", text: "Keep the reviewed option." }],
 			});
 		},
 	});
+	const configDir = join(HOME, ".claude", "local-llm");
+	mkdirSync(configDir, { recursive: true });
+	const credPath = join(configDir, "knowledge-buckle.json");
+	writeFileSync(
+		credPath,
+		JSON.stringify({ url: `http://127.0.0.1:${gate.port}`, token: "bksk_restart_test" }),
+	);
+	chmodSync(credPath, 0o600);
 	let restarted: Bun.Subprocess | null = null;
 	try {
-		const configDir = join(HOME, ".claude", "local-llm");
-		mkdirSync(configDir, { recursive: true });
-		writeFileSync(
-			join(configDir, "suspenders-board.json"),
-			JSON.stringify({
-				recommendation_url: `http://127.0.0.1:${model.port}/v1/chat/completions`,
-				recommendation_model: "test",
-			}),
-		);
 		expect(
 			run("coord.ts", [
 				"emit",
@@ -160,6 +163,6 @@ test("decision evaluation finishes across a board restart", async () => {
 	} finally {
 		restarted?.kill();
 		await restarted?.exited;
-		model.stop(true);
+		gate.stop(true);
 	}
 });

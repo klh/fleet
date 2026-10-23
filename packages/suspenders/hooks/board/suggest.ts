@@ -1,18 +1,15 @@
-// hooks/board/suggest.ts — W163 composer suggest: the local minimal model
-// (the :8902-class resident — smallest model that fits the job) expands a
-// terse draft from the orchestrate box into a brief-shaped prompt. Context =
-// the running lanes (sessions + claims + owned work items — the same plane
-// `coord fleet` reads). On-demand spawn via local-llm/spawner (single-flight;
-// skipped when SUSPENDERS_SUGGEST_URL overrides the endpoint). Responses are
-// cached draft-for-prompt so a re-click never re-bills the model.
+// hooks/board/suggest.ts — W163 composer suggest: the smallest fitting
+// specialist expands a terse draft from the orchestrate box into a
+// brief-shaped prompt. Context = the running lanes (sessions + claims +
+// owned work items — the same plane `coord fleet` reads). W1119
+// decision.single-buckle-inference: the call enters the shared Buckle
+// client — the model preference rides as request metadata (the W136 hint
+// grammar), never as a direct :8902/:890x endpoint; the gate is down → an
+// honest 502, no solo reroute. Responses are cached draft-for-prompt so a
+// re-click never re-bills the model.
 
 import { db } from "./context.ts";
-import {
-	byPort,
-	residentSet,
-	type Specialist,
-} from "../../../local-llm/registry.ts";
-import { ensureUp } from "../../../local-llm/spawner.ts";
+import { buckleChat } from "../lib/inference-buckle.ts";
 
 export const SUGGEST = {
 	DRAFT_MIN: 8,
@@ -26,45 +23,17 @@ export const SUGGEST = {
 	MAX_TOKENS: 700,
 } as const;
 
-// registry-first: :8902 extract (2GB resident, "fast cheap drafting") IS the
-// two-stage fit for a composer expansion — a bigger resident is the fallback,
-// never the default (the fit law: smallest model that fits the job).
-export function suggestSpec(): Specialist | undefined {
-	return (
-		byPort(8902) ??
-		residentSet().find((s) => s.role === "extract") ??
-		residentSet()[0]
-	);
+// registry fit stays DATA: the extract specialist is the smallest fitting
+// model, expressed as a hint (W136 grammar) — never as a direct endpoint.
+export function suggestSpec(): string {
+	return "prefer local extract";
 }
 
-const ENV_URL = process.env.SUSPENDERS_SUGGEST_URL ?? "";
-const URL_OVERRIDE = ENV_URL.length > 0;
-export const SUGGEST_URL =
-	ENV_URL ||
-	`http://127.0.0.1:${suggestSpec()?.port ?? 8902}/v1/chat/completions`;
-export const SUGGEST_HOST = (() => {
-	try {
-		return new URL(SUGGEST_URL).host;
-	} catch {
-		return "(unparseable SUSPENDERS_SUGGEST_URL)";
-	}
-})();
+const SUGGEST_MODEL = process.env.SUSPENDERS_SUGGEST_MODEL ?? "local-extract";
 
 let sugModel: string | null = null;
 export async function suggestModelResolve(): Promise<string> {
-	if (sugModel) return sugModel;
-	try {
-		const r = await fetch(
-			SUGGEST_URL.replace(/\/chat\/completions$/, "/models"),
-			{ signal: AbortSignal.timeout(5000) },
-		);
-		if (r.ok) {
-			const j = (await r.json()) as { data?: { id?: string }[] };
-			sugModel = j.data?.[0]?.id ?? suggestSpec()?.model ?? "local";
-			return sugModel;
-		}
-	} catch {}
-	sugModel = suggestSpec()?.model ?? "local";
+	if (sugModel === null) sugModel = SUGGEST_MODEL;
 	return sugModel;
 }
 
@@ -150,9 +119,16 @@ export function suggestTelemetry(payload: Record<string, unknown>): void {
 	).run(Date.now(), JSON.stringify(payload));
 }
 
+/** One gated suggest round-trip. The seam the caller-level test drives:
+ *  `deps.env` substitutes the credential pair, `deps.fetcher` the wire —
+ *  production resolves both from the process env / global fetch. */
 export async function suggest(
 	project: string,
 	draft: string,
+	deps: {
+		env?: NodeJS.ProcessEnv;
+		fetcher?: typeof fetch;
+	} = {},
 ): Promise<{ status: number; body: Record<string, unknown> }> {
 	const key = `${project}\u0000${draft}`;
 	const hit = cacheGet(key);
@@ -169,74 +145,37 @@ export async function suggest(
 		};
 	const ctx = laneContext(project);
 	const t0 = Date.now();
-	let cold = false;
-	if (!URL_OVERRIDE) {
-		// the registry port is the real target — spawn the resident on demand
-		// (single-flight; an already-warm :8902 returns immediately)
-		const spec = suggestSpec();
-		if (spec) {
-			const up = await ensureUp(spec);
-			if (!up.up)
-				return {
-					status: 502,
-					body: {
-						ok: false,
-						error: `local model :${spec.port} not up: ${up.error ?? "no readiness"}`,
-					},
-				};
-			cold = up.cold;
-		}
-	}
 	const model = await suggestModelResolve();
 	let content = "";
-	let pt = 0;
-	let ct = 0;
-	let tt = 0;
 	let llmError: string | null = null;
+	let traceId: string | null = null;
 	try {
-		const r = await fetch(SUGGEST_URL, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({
+		// W1119: the one gated leg — fail closed (throws) on a down gate or
+		// missing scoped key; the honest 502 below is the caller's surface.
+		const r = await buckleChat(
+			{
 				model,
-				messages: [
-					{ role: "system", content: SUGGEST_SYS },
-					{
-						role: "user",
-						content: `DRAFT:\n${draft}\n\n${ctx}`,
-					},
-				],
-				max_tokens: SUGGEST.MAX_TOKENS,
+				system: SUGGEST_SYS,
+				user: `DRAFT:\n${draft}\n\n${ctx}`,
+				maxTokens: SUGGEST.MAX_TOKENS,
 				temperature: 0.3,
-			}),
-			signal: AbortSignal.timeout(SUGGEST.TIMEOUT_MS),
-		});
-		if (!r.ok)
-			throw new Error(`LLM ${r.status}: ${(await r.text()).slice(0, 200)}`);
-		const j = (await r.json()) as {
-			choices?: { message?: { content?: string } }[];
-			usage?: {
-				prompt_tokens?: number;
-				completion_tokens?: number;
-				total_tokens?: number;
-			};
-		};
-		content = j.choices?.[0]?.message?.content ?? "";
-		pt = j.usage?.prompt_tokens ?? 0;
-		ct = j.usage?.completion_tokens ?? 0;
-		tt = j.usage?.total_tokens ?? pt + ct;
+				hint: suggestSpec(),
+				timeoutMs: SUGGEST.TIMEOUT_MS,
+				...(deps.fetcher ? { fetcher: deps.fetcher } : {}),
+			},
+			deps.env ?? process.env,
+		);
+		content = r.text;
+		traceId = r.traceId;
 	} catch (e) {
 		llmError = e instanceof Error ? e.message : String(e);
 	}
 	suggestTelemetry({
 		for: "suggest",
 		model,
-		host: SUGGEST_HOST,
-		pt,
-		ct,
-		tt,
+		host: "buckle",
 		ms: Date.now() - t0,
-		...(cold ? { cold } : {}),
+		...(traceId ? { traceId } : {}),
 		...(llmError ? { error: llmError.slice(0, 200) } : {}),
 	});
 	if (llmError)
@@ -259,7 +198,6 @@ export async function suggest(
 			prompt,
 			model,
 			ms: Date.now() - t0,
-			...(cold ? { cold } : {}),
 		},
 	};
 }

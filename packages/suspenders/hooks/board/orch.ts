@@ -5,6 +5,7 @@
 import { CLI, db } from "./context.ts";
 import { existsSync, readdirSync } from "node:fs";
 import { readBoardSettings } from "../lib/board-config.ts";
+import { buckleChat } from "../lib/inference-buckle.ts";
 import {
 	byteLen,
 	enhancePrompt,
@@ -32,33 +33,17 @@ export const ORCH = {
 	CTX_ENTRIES: 60,
 };
 
-// same endpoint contract as advise.ts (full chat-completions URL)
-export const ORCH_URL =
-	process.env.SUSPENDERS_LLM_URL ?? "http://127.0.0.1:8901/v1/chat/completions";
-export const ORCH_KEY = process.env.SUSPENDERS_LLM_KEY;
-export const ORCH_HOST = (() => {
-	try {
-		return new URL(ORCH_URL).host;
-	} catch {
-		return "(unparseable SUSPENDERS_LLM_URL)";
-	}
-})();
-export let orchModel: string | null = null;
+// W1119: the plan leg rides the shared Buckle client — model preference is
+// data (SUSPENDERS_ORCH_MODEL, hint 'prefer local coder'), never an endpoint
+// pin; the gate + scoped key resolve fail-closed at call time.
+export const ORCH_MODEL = process.env.SUSPENDERS_ORCH_MODEL ?? "local-coder";
+export const ORCH_HINT = "prefer local coder";
+export const ORCH_HOST = "buckle";
 export async function orchModelResolve(): Promise<string> {
-	if (orchModel) return orchModel;
-	try {
-		const r = await fetch(ORCH_URL.replace(/\/chat\/completions$/, "/models"), {
-			headers: ORCH_KEY ? { authorization: `Bearer ${ORCH_KEY}` } : {},
-			signal: AbortSignal.timeout(5000),
-		});
-		if (r.ok) {
-			const j = (await r.json()) as { data?: { id?: string }[] };
-			orchModel = j.data?.[0]?.id ?? "local";
-			return orchModel;
-		}
-	} catch {}
-	return "local";
+	return ORCH_MODEL;
 }
+/** env seam for the gated leg — tests substitute a stub credential pair */
+export const orchEnv = process.env;
 export const ORCH_SYS = `You propose work decompositions for a coding-agent fleet. From the goal and repo context, output STRICT JSON only — no prose, no markdown fences:
 {"title": "<plan title, imperative, <=120 chars>", "children": [{"title": "<child task title, imperative, independently actionable, <=120 chars>", "brief": "<one sentence of scope guidance, <=400 chars>"}]}
 Rules: 2-6 children; children run in parallel — no shared-file edits, no ordering between them; never invent ids.`;
@@ -174,8 +159,6 @@ export async function orchPrepare(
 		enhance: async (text) => {
 			const r = await enhancePrompt(text, {
 				model: target.model,
-				url: target.url,
-				wire: target.wire,
 				...(traceId ? { traceparent: orchTraceparent(traceId) } : {}),
 			});
 			orchTelemetry({
@@ -183,9 +166,7 @@ export async function orchPrepare(
 				traceId,
 				project: projectIdentity(repo),
 				model: r.model,
-				...(target.alias ? { alias: target.alias } : {}),
-				host: new URL(target.url).host,
-				...(target.mode === "direct" ? { direct: true } : {}),
+				host: "buckle",
 				ms: r.ms,
 				...(r.ok ? {} : { error: r.note.slice(0, 200) }),
 			});
@@ -194,10 +175,10 @@ export async function orchPrepare(
 					traceId,
 					at: Date.now(),
 					phase: "prompt.enhance",
-					service: target.mode === "direct" ? "local model" : "buckle gateway",
+					service: "buckle gateway",
 					status: r.ok ? "ok" : "error",
 					model: r.model,
-					endpoint: new URL(target.url).host,
+					endpoint: "buckle",
 					ms: r.ms,
 				});
 			return r;
@@ -255,41 +236,23 @@ export async function orchestrate(
 	let tt = 0;
 	let llmError: string | null = null;
 	try {
-		const r = await fetch(ORCH_URL, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				...(traceId ? { traceparent: orchTraceparent(traceId) } : {}),
-				...(ORCH_KEY ? { authorization: `Bearer ${ORCH_KEY}` } : {}),
-			},
-			body: JSON.stringify({
+		// W1119: the one gated leg — fail closed on a down gate / absent key.
+		const r = await buckleChat(
+			{
 				model,
-				messages: [
-					{ role: "system", content: ORCH_SYS },
-					{
-						role: "user",
-						content: orchUserMessage(goal, ctx),
-					},
-				],
-				max_tokens: 1200,
+				system: ORCH_SYS,
+				user: orchUserMessage(goal, ctx),
+				maxTokens: 1200,
 				temperature: 0.2,
-			}),
-			signal: AbortSignal.timeout(120_000),
-		});
-		if (!r.ok)
-			throw new Error(`LLM ${r.status}: ${(await r.text()).slice(0, 200)}`);
-		const j = (await r.json()) as {
-			choices?: { message?: { content?: string } }[];
-			usage?: {
-				prompt_tokens?: number;
-				completion_tokens?: number;
-				total_tokens?: number;
-			};
-		};
-		content = j.choices?.[0]?.message?.content ?? "";
-		pt = j.usage?.prompt_tokens ?? 0;
-		ct = j.usage?.completion_tokens ?? 0;
-		tt = j.usage?.total_tokens ?? pt + ct;
+				hint: ORCH_HINT,
+				...(traceId ? { traceparent: orchTraceparent(traceId) } : {}),
+			},
+			orchEnv,
+		);
+		content = r.text;
+		pt = r.pt;
+		ct = r.ct;
+		tt = pt + ct;
 	} catch (e) {
 		llmError = e instanceof Error ? e.message : String(e);
 	}

@@ -1,15 +1,12 @@
 // hooks/board/prompt-transform.ts — W270 orchestrate prompt transforms.
-// The prompt condenser (deterministic, clean-room), the optional local-LLM
-// enhance pass (belt router :4000, Anthropic wire, graceful fallback), the
-// injected-context disclosure and secret redaction for the debug/log
-// preview. Pure module: no db, no board context — deps are injected so the
-// unit tests drive every branch without a live board.
-import { readFileSync } from "node:fs";
+// The prompt condenser (deterministic, clean-room), the optional LLM
+// enhance pass (W1119: the shared Buckle client, gated + fail-closed,
+// graceful skip on a down gate), the injected-context disclosure and
+// secret redaction for the debug/log preview. Pure module: no db, no
+// board context — deps are injected so the unit tests drive every branch
+// without a live board.
 import { condenseTier } from "@klh/blam/src/condense/tiers.ts";
-import {
-	parseDirectTiersArtifact,
-	resolveTarget,
-} from "../../../belt/bin/router-policy.ts";
+import { buckleChat } from "../lib/inference-buckle.ts";
 import { scrub } from "../lib/servicemon.ts";
 
 // ─── settings (persisted in suspenders-board.json, W269-compatible keys) ──
@@ -57,126 +54,38 @@ export function condensePrompt(text: string): string {
 	return condenseTier("caveman", text).text;
 }
 
-// ─── enhance (opt-in local LLM rewrite) ──────────────────────────────────
-// W288: the default target is a belt DIRECT TIER by registry alias —
-// local-extract (:8902), local-reason (:8903) as the heavier fallback —
-// resolved from belt's EMITTED direct-tiers.json (the gateway-config
-// emission; never a YAML re-parse). Loopback-validated + OpenAI wire + no
-// complexity router: the goal text cannot escalate off-box, and telemetry
-// records the alias that actually served. Operator pins keep gateway mode
-// (buckle front, Anthropic wire): SUSPENDERS_PROMPT_ENHANCE_URL /
-// SUSPENDERS_PROMPT_MODEL; SUSPENDERS_PROMPT_ENHANCE_KEY carries the
-// operator-minted scoped key (buckle:proxy:WRITE_ — never the admin key).
-// A down specialist / closed gate / absent key → the enhance pass honestly
-// skips (same graceful fallback as any router error); the goal text is
-// never lost to an enhancement outage.
-export const ENHANCE_URL =
-	process.env.SUSPENDERS_PROMPT_ENHANCE_URL ??
-	"http://127.0.0.1:4101/v1/messages";
-export const ENHANCE_KEY = process.env.SUSPENDERS_PROMPT_ENHANCE_KEY ?? "";
+// ─── enhance (opt-in LLM rewrite, W1119 gated leg) ───────────────────────
+// decision.single-buckle-inference: ONE inference boundary. The direct-tier
+// openai leg (belt's emitted direct-tiers.json, live /v1/models probe) and
+// the SUSPENDERS_PROMPT_ENHANCE_URL endpoint pin are retired — the rewrite
+// rides the shared Buckle client (anthropic wire) with the W136 hint
+// 'prefer local extract' carrying the model preference as DATA. The gate +
+// scoped key resolve fail-closed at call time (the knowledge-buckle pair);
+// a down gate / absent key → the enhance pass honestly skips (same graceful
+// skip as any old router error) — the goal text is never lost to an
+// enhancement outage.
+export const ENHANCE_HINT = "prefer local extract";
+export const ENHANCE_MODEL = "local-extract";
+/** SUSPENDERS_PROMPT_MODEL pin resolves at CALL time (env seam) — a const
+ *  would snapshot the import-time env and pin changes would never land. */
+export function enhanceModel(env: NodeJS.ProcessEnv = process.env): string {
+	return env.SUSPENDERS_PROMPT_MODEL ?? ENHANCE_MODEL;
+}
 export const ENHANCE_MAX_TOKENS = 400;
 export const ENHANCE_TIMEOUT_MS = 15_000;
 export const ENHANCE_SYS =
 	"Rewrite the user's task prompt for a coding-agent fleet so it is clearer and unambiguous. Keep every technical term, identifier, path and constraint exactly. Keep imperative voice. Do not add requirements, do not answer the task. Output ONLY the rewritten prompt.";
 
-// W288 — default alias preference: extract first (registry good_at: "fast
-// cheap drafting"; the 2.5 GB row stays resident even on minimal-tier
-// machines), reason only as the heavier fallback.
-export const ENHANCE_DIRECT_ALIASES = ["local-extract", "local-reason"];
-
-// belt's emitted alias → loopback base map (gateway-config.ts emission)
-const DIRECT_TIERS_PATH = () =>
-	`${
-		process.env.SUSPENDERS_HOME ?? process.env.HOME
-	}/.claude/local-llm/direct-tiers.json`;
-
-// parseDirect (belt bin/router-policy.ts) only ever emits loopback http
-// bases — parseDirectTiersArtifact re-validates on read: the file is data,
-// trust nothing.
-
 export interface EnhanceTarget {
-	mode: "direct" | "gateway";
-	alias: string;
-	/** the real serving model id (live-probed for direct tiers — the alias
-	 *  is the POLICY key, the id is what the specialist serves) */
+	mode: "buckle";
 	model: string;
-	url: string;
-	wire: "openai" | "anthropic";
 }
 
-/** W288 — the enhance target, resolved once per call:
- *  SUSPENDERS_PROMPT_MODEL pin → gateway with the pinned model;
- *  SUSPENDERS_PROMPT_ENHANCE_URL pin → gateway on the pinned endpoint
- *  (model = the direct alias, an honest id); else the first direct-tier
- *  alias whose specialist answers /v1/models (OpenAI wire, loopback) —
- *  the live id rides the wire and the result records it; nothing
- *  resolvable → the buckle-front default with the alias as the id. */
-export async function resolveEnhanceTarget(deps?: {
-	readFile?: (path: string) => string;
-	probe?: (base: string) => Promise<string | null>;
-}): Promise<EnhanceTarget> {
-	const modelPin = process.env.SUSPENDERS_PROMPT_MODEL;
-	const urlPin = process.env.SUSPENDERS_PROMPT_ENHANCE_URL;
-	const read = deps?.readFile ?? ((p: string) => readFileSync(p, "utf8"));
-	const probe =
-		deps?.probe ??
-		(async (base: string): Promise<string | null> => {
-			try {
-				const r = await fetch(`${base}/models`, {
-					signal: AbortSignal.timeout(3000),
-				});
-				if (!r.ok) return null;
-				const j = (await r.json()) as { data?: { id?: string }[] };
-				return j.data?.[0]?.id ?? null;
-			} catch {
-				return null;
-			}
-		});
-	if (modelPin)
-		return {
-			mode: "gateway",
-			alias: "",
-			model: modelPin,
-			url: urlPin ?? ENHANCE_URL,
-			wire: "anthropic",
-		};
-	if (urlPin)
-		return {
-			mode: "gateway",
-			alias: "",
-			model: ENHANCE_DIRECT_ALIASES[0],
-			url: urlPin,
-			wire: "anthropic",
-		};
-	try {
-		const tiers = parseDirectTiersArtifact(read(DIRECT_TIERS_PATH()));
-		if (tiers)
-			for (const alias of ENHANCE_DIRECT_ALIASES) {
-				// resolveTarget IS the W726 adoption: the board client picks the
-				// specialist leg through the belt resolver, not a hand-rolled
-				// row lookup — the parser already validated the base.
-				const { base, direct } = resolveTarget(alias, ENHANCE_URL, tiers);
-				if (!direct) continue;
-				const id = await probe(base);
-				if (!id) continue;
-				return {
-					mode: "direct",
-					alias,
-					model: id,
-					url: `${base}/chat/completions`,
-					wire: "openai",
-				};
-			}
-	} catch {
-		// no map / unreadable → the gateway default below
-	}
-	return {
-		mode: "gateway",
-		alias: "",
-		model: ENHANCE_DIRECT_ALIASES[0],
-		url: ENHANCE_URL,
-		wire: "anthropic",
-	};
+/** W1119 — the enhance target describes the ONE gated leg: the model id
+ *  (SUSPENDERS_PROMPT_MODEL pin or the extract preference) rides the
+ *  shared Buckle client as data; there is no endpoint to resolve. */
+export async function resolveEnhanceTarget(): Promise<EnhanceTarget> {
+	return { mode: "buckle", model: enhanceModel() };
 }
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
@@ -192,88 +101,44 @@ export interface EnhanceResult {
 export async function enhancePrompt(
 	text: string,
 	opts: {
-		model: string;
-		url?: string;
-		key?: string;
-		wire?: "openai" | "anthropic";
+		model?: string;
+		env?: NodeJS.ProcessEnv;
 		fetcher?: Fetcher;
-		timeoutMs?: number;
 		traceparent?: string;
 	},
 ): Promise<EnhanceResult> {
 	const t0 = Date.now();
-	const f = opts.fetcher ?? fetch;
+	const model = opts.model ?? enhanceModel(opts.env);
 	const done = (ok: boolean, out: string, note: string): EnhanceResult => ({
 		text: out,
 		ok,
 		note,
-		model: opts.model,
+		model,
 		ms: Date.now() - t0,
 	});
-	const key = opts.key ?? ENHANCE_KEY;
-	const endpoint = opts.url ?? ENHANCE_URL;
-	const openai = (opts.wire ?? "anthropic") === "openai";
 	try {
-		const r = await f(endpoint, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
+		// the one gated leg — buckleChat throws on absent/unsafe config or a
+		// non-2xx gate; the bounded error text carries status + trace only.
+		const r = await buckleChat(
+			{
+				model,
+				system: ENHANCE_SYS,
+				user: text,
+				maxTokens: ENHANCE_MAX_TOKENS,
+				hint: ENHANCE_HINT,
+				timeoutMs: ENHANCE_TIMEOUT_MS,
 				...(opts.traceparent ? { traceparent: opts.traceparent } : {}),
-				// anthropic-version rides the anthropic wire only; direct tiers
-				// are loopback + keyless (no credential on the openai wire)
-				...(openai ? {} : { "anthropic-version": "2023-06-01" }),
-				// gate credentials: the scoped bksk_ key, both wire forms (belt
-				// :4000 ignores them; buckle accepts either)
-				...(openai || !key
-					? {}
-					: { "x-api-key": key, authorization: `Bearer ${key}` }),
+				...(opts.fetcher ? { fetcher: opts.fetcher } : {}),
 			},
-			body: openai
-				? JSON.stringify({
-						model: opts.model,
-						max_tokens: ENHANCE_MAX_TOKENS,
-						messages: [
-							{ role: "system", content: ENHANCE_SYS },
-							{ role: "user", content: text },
-						],
-					})
-				: JSON.stringify({
-						model: opts.model,
-						max_tokens: ENHANCE_MAX_TOKENS,
-						system: ENHANCE_SYS,
-						messages: [{ role: "user", content: text }],
-					}),
-			signal: AbortSignal.timeout(opts.timeoutMs ?? ENHANCE_TIMEOUT_MS),
-		});
-		if (!r.ok)
-			return done(false, text, `enhance skipped: router HTTP ${r.status}`);
-		const j = await r.json();
-		const raw = openai
-			? String(
-					(j as { choices?: { message?: { content?: string } }[] }).choices?.[0]
-						?.message?.content ?? "",
-				)
-			: ((j as { content?: { type?: string; text?: string }[] }).content ?? []);
-		const out = (
-			openai
-				? raw
-				: (raw as { type?: string; text?: string }[])
-						.filter((c) => c.type === "text" && typeof c.text === "string")
-						.map((c) => c.text)
-						.join("")
-		)
-			.replace(/<think>[\s\S]*?<\/think>/gi, "")
-			.trim();
+			opts.env ?? process.env,
+		);
+		const out = r.text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
 		if (!out)
-			return done(false, text, "enhance skipped: router returned no text");
+			return done(false, text, "enhance skipped: gate returned no text");
 		return done(true, out, "enhanced");
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
-		return done(
-			false,
-			text,
-			`enhance skipped: router unreachable (${msg.slice(0, 120)})`,
-		);
+		return done(false, text, `enhance skipped: ${msg.slice(0, 140)}`);
 	}
 }
 

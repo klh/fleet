@@ -25,7 +25,7 @@ Board: http://127.0.0.1:7799 (LAN: http://suspenders.local:7799 via klh-local's 
 - GET /api/activity   newest-first coord bus feed (?project=<path>&limit=<n>; default 80, cap 300; ?before=<id> keyset-drains older pages — a partial page means the end)
 - GET /api/events     W451 bounded event deltas — the WS cursor contract over HTTP: ?since=<id>&limit=<n> (strict id > since, ascending, cap 300); response {events[], cursor} — cursor = last shown id, drain with ?since=<cursor>
 - GET /api/setup      advisory wiring checks (db, hooks, activation receipt, board unit, advice LLM tier-aware, hubs, bind) served from a stale-while-revalidate cache; payload carries the snapshot ts
-- GET /api/executors  dispatch targets for the READY-card dropdown: claude, codex, copilot (W223.1), then belt's live openai endpoints as llm:<machine>:<model or port> (belt's registry at the resolveBelt chain + CLI fallback, cached 60s; failed probes included; each entry carries its model id and a local/remote locality marker — W105). W224: every openai row also lists its LIVE /v1/models catalog as one llm:<machine>:<model id> pick per model — the user picks from everything the endpoint serves; dispatch routes the picked model via belt's route-to --model override (garbage tails still 409).
+- GET /api/executors  dispatch targets for the READY-card dropdown: claude, codex, copilot (W223.1), then belt's live openai endpoints as llm:<machine>:<model or port> (belt's registry at the resolveBelt chain + CLI fallback, cached 60s; failed probes included; each entry carries its model id and a local/remote locality marker — W105). W224: every openai row also lists its LIVE /v1/models catalog as one llm:<machine>:<model id> pick per model — the user picks from everything the endpoint serves; W1119: dispatch rides the shared Buckle client with the picked machine+model as hint data (garbage tails still 409).
 - GET /api/diff       per-item branch diff for the drawer: repo + branch suspenders/<id> (worktree.ts naming), base = merge-base with main (fallback master); JSON {ok,id,branch,base,stat,diff}, patch tail-capped at 200KB
 - GET /api/tail       live lane tail for the drawer: the owning lane's .fleet/lane-<sid>.log (last 32KB) + transcript recent lines; JSON {ok,id,sid,log,transcript,recent}
 - GET /console        redirect to /console/buckle (the klh console shell: klh·fleet strip linking the belt.local · suspenders.local · bar.local sites, then the belt gateway | fleet board | local services menu + settings gear + actor avatar)
@@ -65,14 +65,14 @@ Examples: #lanes?w=W890 · #tasks?project=fleet&q=deep · #task=<id>&proj=<path>
 - POST /api/advise    fire the advice worker for a fork (async; lands as fact advice.<id>)
 - POST /api/comment   route a review line-comment to a work item's owning lane (coord NOTE; id, file, line, note required — note capped at 2000)
 - POST /api/message   message a work item's owning lane as the coordinator (coord NOTE; id, note required — note capped at 2000)
-- POST /api/start     start a lane on a READY work item (fleet-loop dispatch; project, id required — 409 when claimed, not a READY item, demo, or agent missing; agent=llm:machine:model routes through belt's remotes router instead: claim as the board lane, remotes.ts route the title+description, llm.result on the item thread, claim released)
+- POST /api/start     start a lane on a READY work item (fleet-loop dispatch; project, id required — 409 when claimed, not a READY item, demo, or agent missing; agent=llm:machine:model routes through the W1119 gated Buckle client instead: claim as the board lane, machine+model ride the W136 hint, llm.result on the item thread, claim released)
 - POST /api/ship      one-click ship for a work item's suspenders/<id> branch: live-lane + owner-liveness + merge-ladder guards, then the repo's .fleet/ship.json ladder runs detached via fleet-loop ship (409 without a configured ladder, on demo, while a lane lives, or while a daemon merge ladder is mid-flight)
 - POST /api/release   release a claim without closing the item (project, id required; force=true first signals a live lane to bank its capsule and exit — CAS reclaim, item back to READY; 409 {live:true} when the lane looks alive and force is unset)
 - POST /api/reassign  change the executor on a live claim keeping thread + capsule (project, id required; release + re-dispatch composed — deterministic lane sid means the coord thread and capsule fact carry over; dispatched:false = the old lane was signalled, re-dispatch after it retires; READY items dispatch via /api/start)
 - POST /api/cancel    owner-override close with a required reason (project, id, reason required — work cancel lands the terminal CANCELLED state, releases the claim, retires the worktree; 409 when already terminal)
 - POST /api/second-opinion  spawn a read-only REVIEW lane (no claim) on the item's diff + claims (project, id, executor required — W105 executor routing; runner lands coord NOTE(s), a work.review event and fact review.<id>.<executor>; works on DONE items)
 - POST /api/orchestrate            LLM proposes a plan item + parallel children from a goal (project, goal required; optional previewId dispatches the previewed prompt verbatim, else the prompt transforms run first; read-only — nothing registers, 502 when no parseable plan comes back)
-- POST /api/orchestrate/preview    W270 prompt-transform preview: runs condense (default off, W287) / enhance (opt-in, rides a belt direct tier by registry alias — local-extract/local-reason from belt's emitted direct-tiers.json, OpenAI wire, loopback-only, never off-box; SUSPENDERS_PROMPT_ENHANCE_URL/_MODEL pins keep gateway mode on the buckle front with the scoped key) on the goal and returns what WILL be dispatched (debug: final prompt; log: every stage + injected context with byte counts; secrets redacted) + a one-shot previewId; no plan LLM call, nothing written
+- POST /api/orchestrate/preview    W270 prompt-transform preview: runs condense (default off, W287) / enhance (opt-in, W1119: the shared Buckle client — gated anthropic leg, hint 'prefer local extract', SUSPENDERS_PROMPT_MODEL pin rides as data; a down gate degrades to the un-enhanced goal, never reroutes) on the goal and returns what WILL be dispatched (debug: final prompt; log: every stage + injected context with byte counts; secrets redacted) + a one-shot previewId; no plan LLM call, nothing written
 - GET|POST /api/prompt/settings     W270 prompt toggles persisted in suspenders-board.json: prompt.condense (default ON, 2026-10-03 owner reversal — W287 politeness-only), prompt.enhance, prompt.debug, prompt.log (default false); POST takes booleans only
 - POST /api/orchestrate/files      W858.8 attach files to the orchestrator: multipart/form-data (field files, max 8 per batch, per-file byte cap SUSPENDERS_DROP_MAX_BYTES default 4 MiB), extension allowlist, stored 0600 under the governor cache with expiry (SUSPENDERS_DROP_TTL_HOURS default 24 h) — response carries exact resolvable ref URLs for local + remote lanes
 - GET|DELETE /api/files/<id>?k=<secret>  capability-URL retrieval: the secret IS the credential (wrong/missing answers 404, no list endpoint), ?meta=1 = JSON meta, DELETE removes early (write-token guarded); expired answers 410 and purges on touch; served content-disposition: attachment + nosniff
@@ -88,11 +88,13 @@ Examples: #lanes?w=W890 · #tasks?project=fleet&q=deep · #task=<id>&proj=<path>
 
 ## Advice LLM
 
-SUSPENDERS_LLM_URL points at an OpenAI-compatible chat endpoint used by the
-advice worker and the orchestrate box (default http://127.0.0.1:8901 —
-belt's code specialist). If the endpoint is unreachable, advice is marked
-unavailable and the fork stays open for the human; orchestrate answers 502
-and nothing registers. Nothing else on the board depends on it.
+W1119: the orchestrate box (plan leg) enters the shared Buckle client —
+gated, fail-closed; a down gate answers 502 and nothing registers. The
+advice worker keeps its OpenAI-compatible chat endpoint (SUSPENDERS_LLM_URL,
+default http://127.0.0.1:8901 — belt's code specialist) until child
+W1119.1 migrates it: if the endpoint is unreachable, advice is marked
+unavailable and the fork stays open for the human. Nothing else on the
+board depends on it.
 
 ## Companion repos
 

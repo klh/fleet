@@ -1,11 +1,12 @@
 // hooks/board/decide-eval.ts — W217 decision re-evaluation. Each click on a
 // decision card's re-evaluate button runs a FRESH evaluation through the
-// local belt (:4000 shim — the proven anthropic→swarm path; W201: local/z.ai
-// only), appends it to facts decision.eval.<event_id> (JSON array, capped),
-// and returns the latest. No rate limit (owner: ad nauseum) — every click is
-// stamped and kept so the owner can compare evaluations over time.
+// shared Buckle client (W1119 decision.single-buckle-inference — the gated
+// anthropic leg; hint 'prefer local reasoning'), appends it to facts
+// decision.eval.<event_id> (JSON array, capped), and returns the latest.
+// No rate limit (owner: ad nauseum) — every click is stamped and kept so
+// the owner can compare evaluations over time.
 
-import { beltChat } from "../lib/belt-chat.ts";
+import { buckleChat } from "../lib/inference-buckle.ts";
 import { readBoardSettings } from "../lib/board-config.ts";
 import {
 	kevProbabilityLines,
@@ -16,35 +17,50 @@ import { CLI, db } from "./context.ts";
 
 const CAP = 10;
 
-// model discovery fallback (mirrors advise.ts defaultModel): an explicit
-// SUSPENDERS_LLM_MODEL wins; otherwise ask the endpoint what it serves
-let cachedModel: string | null = null;
-async function evalModel(): Promise<string> {
-	const want = readBoardSettings().settings.recommendation_model;
-	if (want) return want;
-	if (process.env.SUSPENDERS_LLM_MODEL) return process.env.SUSPENDERS_LLM_MODEL;
-	if (cachedModel) return cachedModel;
-	const base = llmBase();
-	try {
-		const r = await fetch(`${base}/models`, {
-			signal: AbortSignal.timeout(5_000),
-		});
-		if (r.ok) {
-			const d = (await r.json()) as { data?: { id?: string }[] };
-			cachedModel = d.data?.[0]?.id ?? null;
-		}
-	} catch {
-		// discovery failed — fall through to the generic id
-	}
-	return cachedModel ?? "default";
+// model preference stays DATA (W1119): the board settings pin
+// (recommendation_model) or SUSPENDERS_LLM_MODEL rides the gated leg as
+// the model id — no /models discovery probe, no endpoint to resolve.
+export const EVAL_HINT = "prefer local reasoning";
+export function evalModel(deps?: {
+	settings?: { recommendation_model?: string };
+	env?: NodeJS.ProcessEnv;
+}): string {
+	const pin = (
+		deps?.settings?.recommendation_model ??
+		(deps?.env ?? process.env).SUSPENDERS_LLM_MODEL ??
+		""
+	).trim();
+	return pin || "local-reason";
 }
 
-function llmBase(): string {
-	const u =
-		readBoardSettings().settings.recommendation_url ??
-		process.env.SUSPENDERS_LLM_URL ??
-		"http://127.0.0.1:8901/v1/chat/completions";
-	return u.replace(/\/chat\/completions$/, "");
+/** The one gated evaluation leg (the seam caller-level tests drive):
+ *  `deps.env` substitutes the credential pair, `deps.fetcher` the wire.
+ *  Throws fail-closed — the worker records the bounded error, never a
+ *  placeholder evaluation. */
+export async function gatedEval(
+	prompt: string,
+	deps: {
+		env?: NodeJS.ProcessEnv;
+		fetcher?: typeof fetch;
+		model?: string;
+	} = {},
+): Promise<string> {
+	const r = await buckleChat(
+		{
+			model:
+				deps.model ??
+				evalModel({ settings: readBoardSettings().settings, env: deps.env }),
+			user: prompt,
+			maxTokens: 600,
+			hint: EVAL_HINT,
+			timeoutMs: 45_000,
+			...(deps.fetcher ? { fetcher: deps.fetcher } : {}),
+		},
+		deps.env ?? process.env,
+	);
+	const text = r.text.trim();
+	if (!text) throw new Error("eval gate returned no text");
+	return text;
 }
 
 type EvalEntry = { ts: number; text: string };
@@ -251,8 +267,6 @@ export async function evaluateDecision(id: number): Promise<EvalEntry> {
 		"Be specific to this decision, not generic. Max ~200 words.",
 	].join("\n");
 
-	const actor = readBoardSettings().settings.default_actor ?? "unassigned";
-
 	// W225 kev-class typed pass first: a decision storing structured options
 	// gets one systemone choice pass on the local model (~70 input tokens)
 	// before the chat upstream is touched; null (kev down, <2 options,
@@ -278,46 +292,11 @@ export async function evaluateDecision(id: number): Promise<EvalEntry> {
 			);
 		}
 	}
-	// W552.6.1: the governed gateway FIRST — belt picks the best healthy
-	// target from its own metrics; the shared belt-chat leg validates the
-	// reply, so a "(empty response)" placeholder is never stored as an
-	// evaluation. Null (belt down, non-200, placeholder reply) degrades to
-	// the direct SUSPENDERS_LLM_URL leg below, unchanged.
-	const gw = await beltChat({
-		role: "reasoning",
-		user: prompt,
-		maxTokens: 600,
-		timeoutMs: 45_000,
-	});
-	if (gw) return persistEval(id, gw.text);
-	// same executor contract as hooks/bin/advise.ts: SUSPENDERS_LLM_URL/KEY/
-	// MODEL (openai-compat — the local swarm / z.ai path, W201 policy)
-	const llmUrl = `${llmBase()}/chat/completions`;
-	const headers: Record<string, string> = {
-		"content-type": "application/json",
-	};
-	if (process.env.SUSPENDERS_LLM_KEY)
-		headers.authorization = `Bearer ${process.env.SUSPENDERS_LLM_KEY}`;
-	const res = await fetch(llmUrl, {
-		method: "POST",
-		headers: headers,
-		signal: AbortSignal.timeout(60_000),
-		body: JSON.stringify({
-			model: await evalModel(),
-			max_tokens: 600,
-			messages: [{ role: "user", content: prompt }],
-			user: actor,
-		}),
-	});
-	if (!res.ok) {
-		const t = await res.text().catch(() => "");
-		throw new Error(`eval upstream ${res.status}: ${t.slice(0, 200)}`);
-	}
-	const wire = (await res.json()) as {
-		choices?: { message?: { content?: string } }[];
-	};
-	const text = (wire.choices?.[0]?.message?.content ?? "").trim();
-	if (!text) throw new Error("eval upstream returned no text");
-
-	return persistEval(id, text);
+	// W552.6.1 validation contract kept: a "(empty response)" placeholder is
+	// never stored as an evaluation. W1119: the ONE gated leg — the shared
+	// Buckle client (anthropic wire, hint 'prefer local reasoning'); throws
+	// fail-closed on a down gate / absent scoped key and the worker records
+	// the bounded error. The beltChat-then-direct-SUSPENDERS_LLM_URL chain
+	// is retired: no solo reroute, no unauthenticated direct-tier leg.
+	return persistEval(id, await gatedEval(prompt));
 }

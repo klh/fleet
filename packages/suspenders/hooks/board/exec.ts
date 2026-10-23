@@ -2,7 +2,8 @@
 // Pieces moved verbatim from bin/fleet-board.ts; exports widened so
 // sibling modules and the route modules import them.
 
-import { db, BELT_REPO, WORK_CLI, COORD_CLI } from "./context.ts";
+import { buckleChat } from "../lib/inference-buckle.ts";
+import { db, WORK_CLI, COORD_CLI } from "./context.ts";
 
 export const runCli = (
 	args: string[],
@@ -39,10 +40,33 @@ export const laneExecFacts = (
 			"INSERT OR REPLACE INTO facts (key, value, source, ts) VALUES (?, ?, 'fleet-board', ?)",
 		).run(`lane.${sid}.${k}`, v, Date.now());
 };
-// one llm:* dispatch: route the item's title+description to the PICKED
-// endpoint over belt's targeted route-to (W224 — the user picks machine +
-// model from the feed; the role-first router could land on a different
-// machine than the one picked), land the answer on the item's coord
+// W1119 — the ONE gated leg for board llm:* dispatches: the machine/model
+// preference rides the W136 hint grammar as DATA ('prefer host:<machine>
+// model:<id>' / 'prefer local model:<id>'), never a belt route-to shell or
+// a direct :890x socket. Throws fail-closed (bounded error) — the caller
+// lands llm.error on the thread and releases either way.
+export async function gatedLlmAnswer(opts: {
+	model: string;
+	prompt: string;
+	hint: string;
+	env?: NodeJS.ProcessEnv;
+	fetcher?: typeof fetch;
+}): Promise<string> {
+	const r = await buckleChat(
+		{
+			model: opts.model,
+			user: opts.prompt,
+			hint: opts.hint,
+			timeoutMs: 120_000,
+			...(opts.fetcher ? { fetcher: opts.fetcher } : {}),
+		},
+		opts.env ?? process.env,
+	);
+	return r.text.trim();
+}
+// one llm:* dispatch: route the item's title+description through the gate
+// with the user's machine+model pick riding as hint data (W224 — the user
+// picks machine + model from the feed), land the answer on the item's coord
 // thread, release the board claim either way. Fire-and-forget — the HTTP
 // answer returns while belt routes. cwd = the item's repo: coord stamps
 // payload.project from the cwd and the drawer timeline matches on it.
@@ -51,7 +75,7 @@ export const llmRoute = async (job: {
 	repo: string;
 	machine: string;
 	port: number;
-	model?: string; // W224 catalog pick — rides route-to's --model override
+	model: string; // W224 catalog pick — the preference id on the wire
 	target: string;
 	sid: string;
 	title: string;
@@ -64,30 +88,15 @@ export const llmRoute = async (job: {
 	let ok = false;
 	let answer = "";
 	try {
-		const cmd = [
-			process.execPath,
-			`${BELT_REPO}/bin/remotes.ts`,
-			"route-to",
-			job.machine,
-			String(job.port),
+		// W1119: the gated leg — the machine/model preference rides as the
+		// W136 hint ('prefer host:<machine> model:<id>'), never a belt
+		// route-to shell or a direct endpoint.
+		answer = await gatedLlmAnswer({
+			model: job.model,
 			prompt,
-		];
-		if (job.model) cmd.push("--model", job.model);
-		const p = Bun.spawn(cmd, {
-			stdin: "ignore",
-			stdout: "pipe",
-			stderr: "pipe",
-			cwd: job.repo,
+			hint: `prefer host:${job.machine} model:${job.model}`,
 		});
-		const [out, err] = await Promise.all([
-			new Response(p.stdout).text(),
-			new Response(p.stderr).text(),
-		]);
-		await p.exited;
-		ok = p.exitCode === 0;
-		answer = ok
-			? out.trim()
-			: `route failed: ${(err.trim() || out.trim() || `exit ${p.exitCode}`).slice(0, 400)}`;
+		ok = true;
 	} catch (e) {
 		answer = `route failed: ${e instanceof Error ? e.message : String(e)}`;
 	}
@@ -108,11 +117,11 @@ export const llmRoute = async (job: {
 	);
 	runCli([WORK_CLI, "release", job.item, "--as", job.sid], job.repo);
 };
-// W183.1 — one llm:local:<port> dispatch: unlike llmRoute() (which shells
-// to belt's role router), this machine's own swarm specialists are spoken
-// to directly over their OpenAI-compatible /v1/chat/completions — there is
-// no belt hop to make, the port<->model pair IS the route. Same
-// land-the-answer-on-the-thread, release-either-way contract as llmRoute().
+// W183.1 — one llm:local:<port> dispatch: the local-swarm preference rides
+// the W136 hint ('prefer local model:<id>') through the same gated leg as
+// llmRoute() — no direct :890x socket (W1119 decision.single-buckle-
+// inference), the model id IS the selector data. Same
+// land-the-answer-on-the-thread, release-either-way contract.
 export const localSwarmChat = async (job: {
 	item: string;
 	repo: string;
@@ -129,29 +138,17 @@ export const localSwarmChat = async (job: {
 	let ok = false;
 	let answer = "";
 	try {
-		const res = await fetch(
-			`http://127.0.0.1:${String(job.port)}/v1/chat/completions`,
-			{
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({
-					model: job.model,
-					messages: [{ role: "user", content: prompt }],
-				}),
-				signal: AbortSignal.timeout(120_000),
-			},
-		);
-		const body = (await res.json()) as {
-			choices?: { message?: { content?: string } }[];
-		};
-		ok = res.ok;
-		answer = ok
-			? (body.choices?.[0]?.message?.content ?? "").trim()
-			: `route failed: HTTP ${String(res.status)}`;
+		// W1119: the gated leg — the local preference rides as hint data.
+		answer = await gatedLlmAnswer({
+			model: job.model,
+			prompt,
+			hint: `prefer local model:${job.model}`,
+		});
+		ok = true;
 	} catch (e) {
 		answer = `route failed: ${e instanceof Error ? e.message : String(e)}`;
 	}
-	const note = `${ok ? "llm.answer" : "llm.error"} (local:${String(job.port)}): ${answer.slice(0, 1800)}`;
+	const note = `${ok ? "llm.answer" : "llm.error"} (local:${job.model}): ${answer.slice(0, 1800)}`;
 	runCli(
 		[
 			COORD_CLI,
