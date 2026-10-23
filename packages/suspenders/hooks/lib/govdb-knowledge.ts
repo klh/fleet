@@ -9,6 +9,7 @@ import {
 	CONFIDENCE_HISTORY_DDL,
 	CONFIDENCE_HISTORY_INDEX_DDL,
 } from "./confidence.ts";
+import { ensureRollTables } from "./knowledge-roll.ts";
 
 // The knowledge FTS shape in its three historical variants (v6 fresh create,
 // v10 kb.-qualified split, W91 external-content convergence): one builder so
@@ -291,5 +292,8 @@ export function openKnowledgeDb(): Database {
 	db.run(
 		"CREATE TABLE IF NOT EXISTS queue_checkpoint (id INTEGER PRIMARY KEY CHECK (id = 1), prompt_hash TEXT NOT NULL, ts INTEGER NOT NULL)",
 	);
+	// W1213 — the upward claim-roll aggregate (self-healing CREATE, same
+	// doctrine as every table above; hub-side landing is lib/knowledge-roll).
+	ensureRollTables(db);
 	return db;
 }

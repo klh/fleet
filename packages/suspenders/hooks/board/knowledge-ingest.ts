@@ -17,6 +17,7 @@ import { openKnowledgeDb } from "../lib/govdb.ts";
 import { makeStamp } from "../lib/confidence.ts";
 import { json } from "./helpers.ts";
 import { SYNCABLE_FACT, MAX_FACT_VALUE } from "../lib/knowledge-sync.ts";
+import { claimAggregateView } from "../lib/knowledge-roll.ts";
 
 let kdbSingleton: Database | null = null;
 export function boardKnowledgeDb(): Database {
@@ -282,6 +283,20 @@ async function landFromRequest(chunks: Uint8Array[]): Promise<Response> {
 	const input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
 	const result = landKnowledgeIngest(boardKnowledgeDb(), input);
 	return json(result, result.ok ? 200 : 400);
+}
+
+/** W1213 — GET /api/knowledge-roll: the aggregated claim roll (dedupe by
+ *  content hash, provenance counts per machine, confidence-ranked;
+ *  tombstoned rows hidden). Same W264 perimeter as the ingest handler ran
+ *  in fleet-board.ts before this — read-only, no extra auth. */
+export async function handleKnowledgeRoll(
+	req: Request,
+	url: URL,
+): Promise<Response | null> {
+	if (url.pathname !== "/api/knowledge-roll") return null;
+	if (req.method !== "GET")
+		return new Response(null, { status: 405, headers: { Allow: "GET" } });
+	return json(claimAggregateView(boardKnowledgeDb()));
 }
 
 const DIMS = ["day", "tool", "model", "session"] as const;

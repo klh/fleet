@@ -7,6 +7,14 @@ import {
 } from "../lib/knowledge.ts";
 import { servicemon } from "../lib/servicemon.ts";
 import { hostGuard, tokenOk, writeToken } from "../lib/host-guard.ts";
+import {
+	aggregateClaims,
+	claimAggregateView,
+	mintRollKey,
+	rollKeyOk,
+	ROLL_KEY_HEADER,
+} from "../lib/knowledge-roll.ts";
+import { openKnowledgeDb } from "../lib/govdb-knowledge.ts";
 // knowledge-api.ts — W91 #9b: the knowledge port's HTTP face. The SAME store
 // handlers, second transport: a consumer on another machine calls
 // http://<knowledge-api>/search instead of importing the lib. Thin by design
@@ -65,6 +73,35 @@ const scrubHit = (h: KnowledgeHit): KnowledgeHit => {
 // resolution root for source_ref hashing (trust markers) + /curate doc scans
 const API_ROOT = process.env.KNOWLEDGE_REPO_ROOT ?? process.cwd();
 
+// W1213 — scoped TTL roll keys: minted PER MACHINE, printed once at mint
+// time, only the sha256 stored (0600 keys file). The key IS the credential:
+// it binds provenance (the machine field the roll lands under), so spokes
+// never hold the install write token. Absent on serve mode — usage:
+//   knowledge-api.ts --mint-roll-key <machine> [--ttl-hours N]
+const mintIdx = process.argv.indexOf("--mint-roll-key");
+if (mintIdx !== -1) {
+	const machine = process.argv[mintIdx + 1];
+	if (!machine || machine.startsWith("--")) {
+		console.error(
+			"usage: knowledge-api.ts --mint-roll-key <machine> [--ttl-hours N]",
+		);
+		process.exit(1);
+	}
+	const ttlIdx = process.argv.indexOf("--ttl-hours");
+	const ttl = ttlIdx !== -1 ? Number(process.argv[ttlIdx + 1]) : 24;
+	const minted = mintRollKey(
+		machine,
+		Number.isFinite(ttl) && ttl > 0 ? ttl : 24,
+	);
+	console.log(JSON.stringify(minted));
+	process.exit(0);
+}
+
+// W1213 — the claim-roll aggregate rides its own handle: the roll is a
+// second concern on the same knowledge.db (WAL + BEGIN IMMEDIATE keep the
+// two connections honest), never squeezed through the store port.
+const rollDb = openKnowledgeDb();
+
 // W125 — shared /status + /metrics (lib/servicemon.ts). No token dimension on
 // this service: search/enqueue never see usage, so tokens_total is omitted
 // honestly rather than served as fake zeros.
@@ -102,12 +139,54 @@ const base = {
 				{ headers },
 			);
 		}
-		// anonymous reads get scrubbed output; the install token unlocks refs
-		const authed = tokenOk(req);
+		// W1213 — the upward claim roll. POST: credential-free transport — a
+		// machine-scoped TTL key (mintRollKey) binds the provenance machine, so
+		// a spoke never holds the install write token; the write token stays a
+		// valid OPERATOR path (machine then rides body.machine). GET: the
+		// aggregated view (confidence-ranked, tombstoned hidden).
 		const body =
 			req.method === "POST"
 				? ((await req.json().catch(() => ({}))) as Record<string, unknown>)
 				: {};
+		if (path === "/roll") {
+			if (req.method === "GET") {
+				// W1213.1 bounded read: anonymous callers get NOTHING (the aggregate
+				// discloses tenant intel — the B1 finding); a roll key reads its own
+				// machine's claims plus the fleet plane; the write token is the
+				// operator full view.
+				const key = req.headers.get(ROLL_KEY_HEADER) ?? "";
+				const keyed = key ? rollKeyOk(key) : { ok: false, machine: null };
+				if (keyed.ok && keyed.machine)
+					return json(
+						claimAggregateView(rollDb, {
+							readerMachine: keyed.machine,
+						}),
+					);
+				if (tokenOk(req)) return json(claimAggregateView(rollDb));
+				return json({ error: "roll auth required" }, 403);
+			}
+			if (req.method !== "POST")
+				return new Response(null, {
+					status: 405,
+					headers: { allow: "GET, POST" },
+				});
+			const key = req.headers.get(ROLL_KEY_HEADER) ?? "";
+			const keyed = key ? rollKeyOk(key) : { ok: false, machine: null };
+			const machine = keyed.ok
+				? keyed.machine
+				: tokenOk(req)
+					? str(body.machine)
+					: null;
+			if (!machine) return json({ error: "roll key required" }, 403);
+			// W1213.1 (B2 server half): a rejected roll NEVER 200s — the spoke
+			// (W1213.2) reads the status to retain its cursor on rejection.
+			const landed = aggregateClaims(rollDb, body.claims, machine);
+			if (!landed.ok)
+				return json({ error: landed.error ?? "roll rejected" }, 422);
+			return json(landed);
+		}
+		// anonymous reads get scrubbed output; the install token unlocks refs
+		const authed = tokenOk(req);
 		try {
 			if (req.method === "POST" && path === "/search") {
 				const query = str(body.query) ?? "";
