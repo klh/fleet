@@ -131,6 +131,46 @@ describe("drillFallback (W219.2)", () => {
 	});
 });
 
+// W1119.2 master-key retirement, pinned where its tests stood: the drill
+// consults NO master key — env and config file are inert; the completion
+// rides the buckle route or fails closed.
+describe("master-key bypass retirement (W1119.2)", () => {
+	test("valid gate route: legacy master-key env is inert — drill passes on the route alone", async () => {
+		const r = await drillFallback({
+			env: { ...GATE_ENV, LITELLM_KEY: "lit-master-should-be-inert" },
+			fetchImpl: stubFetch({ zai: { status: 401 }, gw: { status: 200 } }),
+			readConfig: () => WITH_LADDERS,
+		});
+		expect(r.dark).toBe(false);
+		expect(r.verdict).toBe("pass");
+		expect(r.laddersPresent).toBe(true);
+	});
+
+	test("missing route: master key in env rescues nothing (fail closed)", async () => {
+		const r = await drillFallback({
+			env: { LITELLM_KEY: "lit-master-should-not-rescue" },
+			fetchImpl: stubFetch({ gw: { status: 200 } }),
+			readConfig: () => WITH_LADDERS,
+		});
+		expect(r.verdict).toBe("fail");
+		expect(r.why).toContain("buckle route missing");
+	});
+
+	test("missing route: the master-key config file is never read (route check fires first)", async () => {
+		let reads = 0;
+		const r = await drillFallback({
+			env: {},
+			fetchImpl: stubFetch({ gw: { status: 200 } }),
+			readConfig: () => {
+				reads += 1;
+				return WITH_LADDERS;
+			},
+		});
+		expect(reads).toBe(0);
+		expect(r.verdict).toBe("fail");
+	});
+});
+
 describe("checkFallbacksPresent (W878)", () => {
 	test("emitted shape: single-key map rows → groups extracted", () => {
 		const c = checkFallbacksPresent(WITH_LADDERS);
