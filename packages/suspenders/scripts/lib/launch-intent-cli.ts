@@ -36,6 +36,13 @@ const VERBS: VerbSpec[] = [
 		lax: true,
 	}),
 	defineVerb({
+		name: "reconcile-birth",
+		usage:
+			"usage: reconcile-birth --item <Wn> --evidence <0600-json> [--apply] — local OS operator prepares then explicitly applies audited birth repair for an exact live PAUSED claim; never authenticates a caller-supplied SID",
+		flags: ["--item", "--evidence"],
+		switches: ["--apply"],
+	}),
+	defineVerb({
 		name: "fail",
 		usage:
 			"usage: fail --item <Wn> --evidence <why> — mark a wedged intent FAILED, never a live lane",
@@ -167,6 +174,19 @@ export const intentMain = (
 	if (!outcome.ok) {
 		console.log(HELP);
 		return 2;
+	}
+	if (spec.name === "reconcile-birth") {
+		const item = outcome.parsed.flag("--item");
+		const evidence = outcome.parsed.flag("--evidence");
+		if (!item || !evidence) {
+			console.log(renderVerbHelp(spec));
+			return 2;
+		}
+		// Lazy import keeps ordinary inspection/help free of restart authority.
+		const { intentBirthReconcile } =
+			require("./intent-birth-reconcile.ts") as typeof import("./intent-birth-reconcile.ts");
+		intentBirthReconcile(ctx.repo, item, evidence, args.includes("--apply"));
+		return 0;
 	}
 	const store = ctx.store ?? openStore();
 	let code: number;
