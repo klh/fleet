@@ -67,6 +67,15 @@ describe("RpcAdmission", () => {
 		expect(a.total()).toBe(1);
 	});
 
+	test("W1118 #55680: the global cap binds ACROSS groups", () => {
+		// BUCKLE_MAX_INFLIGHT=1 with two groups: one in-flight in A must
+		// refuse B — per-group caps never multiply the global bound
+		const a = new RpcAdmission(1, 3, { gA: 4, gB: 4 });
+		expect(a.tryAcquire("gA")).not.toBeNull();
+		expect(a.tryAcquire("gB")).toBeNull();
+		expect(a.tryAcquire("gA")).toBeNull();
+	});
+
 	test("parseGroupCaps: malformed entries dropped", () => {
 		expect(parseGroupCaps("a:1,b, c:2,:3,d:x")).toEqual({ a: 1, c: 2 });
 	});

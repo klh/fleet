@@ -21,6 +21,7 @@ async function startGate(
 	},
 	cfgOverride?: string,
 	slots?: { global: number; perTeam: number },
+	slotLeaseMs?: number,
 ): Promise<GateServer> {
 	const dir = `/tmp/buckle-gate-${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 6)}`;
 	const cfg =
@@ -32,6 +33,7 @@ async function startGate(
 		upstreamsPath: `${dir}.yaml`,
 		dbPath: ":memory:",
 		auth: { rootKey: ROOT, jwt, slots },
+		slotLeaseMs,
 	});
 	return {
 		base: `http://127.0.0.1:${server.port}`,

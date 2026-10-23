@@ -78,4 +78,6 @@ packages/suspenders/test/hub-providers.test.ts:generic-api-key:42
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:102
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:163
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:189
+# W1226: provider-keys migration CLI test fixture row (invented key, asserted to
+# never reach an output surface), first-hand read 2026-10-23 — not a secret
 05177bc10f165d2e06e5278067c6c34487e80b51:packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83

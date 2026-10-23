@@ -64,6 +64,14 @@ CREATE TABLE IF NOT EXISTS admission_slots (
   held INTEGER NOT NULL DEFAULT 0,
   touched INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS admission_slot_holders (
+  scope TEXT NOT NULL,
+  holder TEXT NOT NULL,
+  touched INTEGER NOT NULL,
+  PRIMARY KEY (scope, holder)
+);
+CREATE INDEX IF NOT EXISTS admission_slot_holders_touched
+  ON admission_slot_holders(touched);
 CREATE TABLE IF NOT EXISTS auth_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts INTEGER NOT NULL,

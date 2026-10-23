@@ -62,8 +62,12 @@ export class RpcAdmission {
 		return n;
 	}
 
-	/** Take a slot on `group`; returns a release fn, or null when full. */
+	/** Take a slot on `group`; returns a release fn, or null when full.
+	 *  W1118 #55680: the per-group cap AND the global max both bind — a
+	 *  group cap above `max` can never multiply the global bound past it
+	 *  (BUCKLE_MAX_INFLIGHT=1 admits one across ALL groups, not one each). */
 	tryAcquire(group: string): (() => void) | null {
+		if (this.total() >= this.max) return null;
 		const n = this.counts.get(group) ?? 0;
 		if (n >= this.capOf(group)) return null;
 		this.counts.set(group, n + 1);
