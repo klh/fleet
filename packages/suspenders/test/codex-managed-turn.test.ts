@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { steerCodexDirectEvent } from "../hooks/lib/codex-steer.ts";
@@ -156,18 +156,22 @@ test("managed turn hosts the mission, banks facts, and stays steerable", async (
 		expect(out).toContain('"fleet.codex.turn":"completed"');
 		const threadRow = await rpc(
 			url,
-			"get",
+			"all",
 			"SELECT value FROM facts WHERE key = ?",
 			["codex.thread.managed-turn-lane"],
 		);
 		const sockRow = await rpc(
 			url,
-			"get",
+			"all",
 			"SELECT value FROM facts WHERE key = ?",
 			["codex.sock.managed-turn-lane"],
 		);
 		expect(threadRow.rows?.[0]?.value).toBe(THREAD);
-		expect(sockRow.rows?.[0]?.value).toBe(sock);
+		// The wrapper banks process.cwd(), which macOS realpaths through the
+		// /var → /private/var symlink; compare the resolved expectation.
+		expect(sockRow.rows?.[0]?.value).toBe(
+			`${realpathSync(wt)}/.fleet/codex-appserver.sock`,
+		);
 	} finally {
 		lane.kill();
 		rmSync(wt, { recursive: true, force: true });

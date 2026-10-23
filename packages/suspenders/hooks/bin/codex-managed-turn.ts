@@ -56,9 +56,6 @@ class ManagedTurn {
 		const lines = createInterface({ input: this.child.stdout });
 		lines.on("line", (line) => this.onLine(line));
 		this.child.stderr.on("data", () => {});
-		this.completed = new Promise((resolve) => {
-			this.resolveCompleted = resolve;
-		});
 	}
 
 	private failWaiters(error: Error): void {
