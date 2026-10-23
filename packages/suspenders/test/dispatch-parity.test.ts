@@ -42,6 +42,8 @@ const IMPORTS_SCRIPTS =
 	/(?:from\s+|import\(\s*)["'][^"']*(?:^|\/)scripts\/[^"']*["']/;
 
 test("the moved lane kit is self-contained — no scripts/ imports inside it", () => {
+	const missing = KIT.filter((f) => !existsSync(join(HOOKS_LIB, f)));
+	expect(missing).toEqual([]);
 	const offenders = KIT.map((f) => join(HOOKS_LIB, f))
 		.map((p) => [p, readFileSync(p, "utf8")] as const)
 		.filter(([, src]) => IMPORTS_SCRIPTS.test(src));
@@ -49,6 +51,7 @@ test("the moved lane kit is self-contained — no scripts/ imports inside it", (
 });
 
 test("the shared lane kit lives only in hooks/lib — no scripts/lib copies remain", () => {
+	expect(KIT).toHaveLength(6);
 	const remaining = KIT.filter((f) => existsSync(join(SCRIPTS_LIB, f)));
 	expect(remaining).toEqual([]);
 });
@@ -64,7 +67,7 @@ test("scripts/ consumers reach the lane kit through hooks/lib, not local copies"
 			)
 		);
 	});
-	expect(localKitImports).toBeInstanceOf(Array);
+	expect(Array.isArray(localKitImports)).toBe(true);
 	expect(localKitImports).toEqual([]);
 });
 
