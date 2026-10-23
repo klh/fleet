@@ -78,3 +78,4 @@ packages/suspenders/test/hub-providers.test.ts:generic-api-key:42
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:102
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:163
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:189
+packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83
