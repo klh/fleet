@@ -16,6 +16,74 @@ export interface BoundedTail {
 	dropped: number;
 }
 
+/** Owned bounded window of retained stream bytes (W1205.2.1): front cuts copy
+ *  the kept suffix into owned storage (never a view retaining the flooding
+ *  child's source ArrayBuffer); zero-byte reads are skipped so metadata
+ *  cannot accumulate while a pipe trickles toward EOF. */
+export class BoundedTailWindow {
+	private readonly parts: Uint8Array[] = [];
+	private kept = 0;
+	dropped = 0;
+
+	constructor(private readonly maxBytes: number) {}
+
+	push(chunk: Uint8Array): void {
+		// a zero-byte read carries no bytes — don't bank its metadata
+		if (chunk.byteLength === 0) return;
+		this.parts.push(chunk);
+		this.kept += chunk.byteLength;
+		while (this.kept > this.maxBytes && this.parts.length > 0) {
+			const front = this.parts[0];
+			if (front === undefined) break;
+			const size = front.byteLength;
+			if (this.kept - size >= this.maxBytes) {
+				this.parts.shift();
+				this.kept -= size;
+				this.dropped += size;
+				continue;
+			}
+			const cut = this.kept - this.maxBytes;
+			this.dropped += cut;
+			this.kept -= cut;
+			this.parts[0] = suffixCopy(front, cut);
+			break;
+		}
+	}
+
+	/** Diagnostic view: the retained pieces — owned copies after any cut. */
+	pieces(): readonly Uint8Array[] {
+		return this.parts;
+	}
+
+	keptBytes(): number {
+		return this.kept;
+	}
+
+	/** Line-aligned decode per the W1205.2 truncation contract. */
+	finish(): BoundedTail {
+		const buf = Buffer.concat(this.parts);
+		if (this.dropped > 0 && buf.byteLength > 0) {
+			const nl = buf.indexOf(0x0a);
+			if (nl === -1) {
+				return { text: "", dropped: this.dropped + buf.byteLength };
+			}
+			return {
+				text: decodeTail(buf.subarray(nl + 1)),
+				dropped: this.dropped + nl + 1,
+			};
+		}
+		return { text: decodeTail(buf), dropped: this.dropped };
+	}
+}
+
+/** Fresh-storage copy of the kept suffix — Uint8Array#slice would stay a
+ *  view on node Buffer inputs, silently retaining the source ArrayBuffer. */
+const suffixCopy = (front: Uint8Array, cut: number): Uint8Array => {
+	const copy = new Uint8Array(front.byteLength - cut);
+	copy.set(front.subarray(cut));
+	return copy;
+};
+
 /** Read a child pipe to EOF keeping only the last `maxBytes`. The window is
  *  line-aligned: truncation drops through the first newline of the kept
  *  window (the whole window when it holds no newline), so per-line
@@ -25,45 +93,18 @@ export const readBoundedTail = async (
 	maxBytes = DIAGNOSTIC_TAIL_BYTES,
 ): Promise<BoundedTail> => {
 	const reader = stream.getReader();
-	const parts: Uint8Array[] = [];
-	let kept = 0;
-	let dropped = 0;
+	const win = new BoundedTailWindow(maxBytes);
 	try {
 		for (;;) {
 			const { done, value } = await reader.read();
 			if (done) break;
 			if (value === undefined) continue;
-			parts.push(value);
-			kept += value.byteLength;
-			while (kept > maxBytes && parts.length > 0) {
-				const front = parts[0];
-				if (front === undefined) break;
-				const size = front.byteLength;
-				if (kept - size >= maxBytes) {
-					parts.shift();
-					kept -= size;
-					dropped += size;
-					continue;
-				}
-				const cut = kept - maxBytes;
-				dropped += cut;
-				kept -= cut;
-				parts[0] = front.subarray(cut);
-				break;
-			}
+			win.push(value);
 		}
 	} finally {
 		reader.releaseLock();
 	}
-	const buf = Buffer.concat(parts);
-	// line-align a truncated window: drop through the first newline
-	if (dropped > 0 && kept > 0) {
-		const nl = buf.indexOf(0x0a);
-		if (nl === -1) return { text: "", dropped: dropped + kept };
-		dropped += nl + 1;
-		return { text: decodeTail(buf.subarray(nl + 1)), dropped };
-	}
-	return { text: decodeTail(buf), dropped };
+	return win.finish();
 };
 
 const decodeTail = (buf: Uint8Array): string =>

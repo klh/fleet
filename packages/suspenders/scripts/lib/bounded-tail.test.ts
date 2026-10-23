@@ -4,7 +4,11 @@
 // safety of generator diagnostics).
 import { describe, expect, test } from "bun:test";
 import { Buffer } from "node:buffer";
-import { DIAGNOSTIC_TAIL_BYTES, readBoundedTail } from "./bounded-tail.ts";
+import {
+	BoundedTailWindow,
+	DIAGNOSTIC_TAIL_BYTES,
+	readBoundedTail,
+} from "./bounded-tail.ts";
 
 const streamOf = (...chunks: Uint8Array[]): ReadableStream<Uint8Array> =>
 	new ReadableStream({
@@ -64,6 +68,51 @@ describe("readBoundedTail", () => {
 		// last 12B = "l27\nl28\nl29\n"; the window front starts mid-stream,
 		// so alignment drops l27's whole line through its newline
 		expect(one.text).toBe("l28\nl29\n");
+	});
+
+	test("zero-byte chunks accumulate no window metadata before EOF", () => {
+		const win = new BoundedTailWindow(64);
+		for (let i = 0; i < 10_000; i++) win.push(new Uint8Array(0));
+		expect(win.pieces().length).toBe(0);
+		expect(win.keptBytes()).toBe(0);
+		expect(win.dropped).toBe(0);
+	});
+
+	test("a flooding single chunk leaves bounded owned storage before EOF", () => {
+		const max = 1024;
+		const win = new BoundedTailWindow(max);
+		// one 1 MiB source chunk: after the cut, no retained piece may still
+		// be a view whose buffer spans the flood (a subarray would)
+		win.push(new Uint8Array(1024 * 1024));
+		win.push(Buffer.from("tail\n"));
+		let bytes = 0;
+		for (const piece of win.pieces()) {
+			expect(piece.buffer.byteLength).toBeLessThanOrEqual(max);
+			bytes += piece.byteLength;
+		}
+		expect(bytes).toBeLessThanOrEqual(max);
+		expect(win.keptBytes()).toBe(bytes);
+	});
+
+	test("interleaved zero-byte chunks do not shift the byte window", async () => {
+		const payload = Buffer.from(
+			[...Array(30).keys()]
+				.map((i) => `l${String(i).padStart(2, "0")}\n`)
+				.join(""),
+		);
+		const one = await readBoundedTail(streamOf(payload), 12);
+		const split = await readBoundedTail(
+			streamOf(
+				new Uint8Array(0),
+				payload.subarray(0, 17),
+				new Uint8Array(0),
+				payload.subarray(17),
+				new Uint8Array(0),
+			),
+			12,
+		);
+		expect(one.text).toBe(split.text);
+		expect(one.dropped).toBe(split.dropped);
 	});
 
 	test("default cap matches the shared diagnostic constant", async () => {
