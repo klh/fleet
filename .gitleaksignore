@@ -78,3 +78,6 @@ packages/suspenders/test/hub-providers.test.ts:generic-api-key:42
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:102
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:163
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:189
+# W1212: fake fixture on the published sibling branch suspenders/W1124.8.2.2
+# (05177bc1) — every lane's --all scan trips on it; short-form fingerprint.
+packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83
