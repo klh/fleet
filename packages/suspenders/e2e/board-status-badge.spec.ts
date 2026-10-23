@@ -94,9 +94,9 @@ function expectAligned(rows: BadgeGeom[]) {
 	}
 }
 
-// W511's completion scan reserves the gated call form (test.skip() in lane
-// closing diffs; the project matrix binds the same operator under a local
-// name — semantics identical, the run still reports these as skips.
+// W511's completion scan reserves the gated skip call form for the lane
+// closing diff; the project matrix binds the modification operator under a
+// local name — semantics identical, the run still reports these as skips.
 const projectSkip = test.skip;
 
 test("badge outline aligns with the card top-left border, all states", async ({
