@@ -43,7 +43,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { stringify } from "yaml";
+import { parse, stringify } from "yaml";
 // stack.yaml is parsed by the ONE reader (W356) — hubctl renders deploys
 // from it, coord hubs projects the topology from it
 import {
@@ -316,10 +316,26 @@ function redactedRender(envText: string): string {
  *  keeps merge-over-base through its own UNFLAGGED override file. Always
  *  rendered: compose mounts it. */
 function renderUpstreams(hub: HubProfile): string {
+	// W990: operator hub upstream groups may carry YAML merge keys (the
+	// upstreams.copilot.yaml template shape — `<<: *copilot`). Neither the
+	// stack reader (W356 parse) nor buckle's loader resolves merges: resolve
+	// them at render so a copied template row lands fully-specified (url,
+	// api_key_env present) instead of silently dead — the hub-ikea failure
+	// mode that left 24/26 template rows unroutable.
+	const resolved = parse(stringify(hub.upstreams?.groups ?? {}), {
+		merge: true,
+	}) as Record<string, Array<Record<string, unknown>>>;
+	const merged = mergeZaiHubUpstreams(
+		hub,
+		mergedHubUpstreams({
+			...hub,
+			upstreams: { ...hub.upstreams, groups: resolved },
+		}),
+	);
 	return stringify({
 		version: 1,
 		inherit_defaults: false,
-		groups: mergeZaiHubUpstreams(hub, mergedHubUpstreams(hub)),
+		groups: merged,
 	});
 }
 
