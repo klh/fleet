@@ -21,8 +21,12 @@
 //     secret on the wire from spokes.
 //   ladder — CAS dedupe now (this file); Merkle anti-entropy (W1214) and
 //     CRDT provenance counters are the Phase2/3 follow-ups. Interim ordering
-//     is last-timestamp-wins: an assertion newer than a row's tombstone
-//     revives it; a stale assertion against a tombstone is ignored.
+//     is last-timestamp-wins with a MONOTONIC tombstone gate (W1213.3): an
+//     assertion newer than a row's tombstone revives it; a stale assertion
+//     against a tombstone is ignored; a retraction applies only while it is
+//     not older than the row's provenance high-water mark — a replay of an
+//     already-applied retraction is an idempotent dupe that never re-hides a
+//     revived claim and never duplicates retract provenance.
 import { Database } from "bun:sqlite";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -116,9 +120,12 @@ export interface RollCounts {
 	versions: number;
 	/** rows flipped to tombstoned */
 	tombstoned: number;
-	/** assertions older than an existing tombstone (ignored, recorded) */
+	/** events older than the row's current state (ignored, recorded): stale
+	 *  assertions against a tombstone and stale retraction replays against a
+	 *  live row (the W1213.3 monotonic gate) */
 	stale: number;
-	/** machine already in the row's provenance (idempotent re-push) */
+	/** idempotent re-push: the machine already asserted this content, or the
+	 *  retraction is already standing (W1213.3 — a replay never re-flips) */
 	dupes: number;
 }
 
@@ -280,19 +287,33 @@ function applyKnown(
 		prov = [];
 	}
 	if (e.tombstone) {
-		if (!row.tombstone) {
-			// retraction wins regardless of ts (a machine retracting its own
-			// assertion is authoritative over the aggregate's stored state)
-			db.run(
-				"UPDATE knowledge_claims SET tombstone = 1, tombstone_ts = ?, updated_at = ?, provenance = ? WHERE id = ?",
-				e.ts,
-				now,
-				JSON.stringify([...prov, { machine, ts: e.ts, retract: true }]),
-				row.id,
-			);
-			counts.tombstoned++;
+		if (row.tombstone) {
+			// W1213.3 idempotency: the standing retraction already covers this
+			// event — the replay counts a dupe, never duplicating retract
+			// provenance and never re-bumping tombstone_ts
+			counts.dupes++;
+			return;
 		}
-		// a tombstone for an already-tombstoned row is an idempotent no-op
+		// W1213.3 monotonicity: the retraction applies only while it is not
+		// older than every event the row has seen (the provenance high-water
+		// mark). B3: after assert 100 → tombstone 200 → revive 300, a replay
+		// of the 200 tombstone is stale — no re-hide, no provenance churn.
+		const hwm = prov.reduce((m, p) => Math.max(m, p.ts), 0);
+		if (e.ts < hwm) {
+			counts.stale++;
+			return;
+		}
+		// a current retraction flips the row and records the retractor — it
+		// wins ties with the row's last event (a machine retracting its own
+		// assertion is authoritative over the aggregate's stored state)
+		db.run(
+			"UPDATE knowledge_claims SET tombstone = 1, tombstone_ts = ?, updated_at = ?, provenance = ? WHERE id = ?",
+			e.ts,
+			now,
+			JSON.stringify([...prov, { machine, ts: e.ts, retract: true }]),
+			row.id,
+		);
+		counts.tombstoned++;
 		return;
 	}
 	if (row.tombstone) {
