@@ -133,6 +133,9 @@ import {
 	reserveLaunchIntent,
 } from "./lib/launch-fencing.ts";
 import { launchParent } from "./lib/launch-parent.ts";
+// W1124.33: root usage + verb-head discovery live with the family doors'
+// root entries (lib/dispatch-usage.ts — schema discovery, 1500-law split).
+import { dispatchRootHelp, verbHeadIndex } from "./lib/dispatch-usage.ts";
 import {
 	acquireLaunchLease,
 	renewLaunchLease,
@@ -174,41 +177,21 @@ import {
 export { parseCapsuleGet };
 
 const argv = process.argv.slice(2);
-// Command discovery must precede repo lookup, claims, registry writes and spawn.
-// `registry <verb> --help` belongs to the registry verb below, not this usage.
+// W1124.33: the verb head is the first token that is neither a flag nor a
+// value-taking global flag's value (lib/dispatch-usage.ts), so `--repo <dir>
+// intent ...` routes identically to verb-first argv. Command discovery must
+// precede repo lookup, claims, registry writes and spawn; `registry <verb>
+// --help` and `intent <verb> --help` belong to their family doors below, not
+// this usage.
+const headIndex = verbHeadIndex(argv);
+const HEAD = headIndex >= 0 ? argv[headIndex] : undefined;
 if (
 	import.meta.main &&
-	argv[0] !== "registry" &&
+	HEAD !== "registry" &&
+	HEAD !== "intent" &&
 	(argv.includes("--help") || argv.includes("-h"))
 ) {
-	console.log(`Usage: dispatch [options]
-
-Refill agent lanes from READY work and resume unfinished claims.
-
-  --repo <dir>             Project checkout (default: Git root)
-  --target <N>             Steady posture live lane target (default: 6);
-                           plaid grows one attempted launch per cycle
-  --dry-run                Preview without launching or changing claims
-  --item <Wn>              Dispatch one specific work item
-  --route <name>           Pin a plaid route for --item; no model fallback
-  --no-belt                Skip belt executor selection
-  --allow-ungoverned       Explicitly allow a surfaced governance bypass
-  --show-capsule <sid>      Print a lane's saved continuation capsule
-  --resume-from <sid>       With --item: resume the prior lane's transcript
-                            (claude --resume --fork-session). Policy-gated:
-                            SUSPENDERS_RESUME_RETAKE=on + cache-warm
-                            transcript fence; any miss = fresh + capsule.
-  registry list|prune|forget  Inspect the durable lane registry; prune removes
-                            entries whose lane is provably dead (liveness-
-                            guarded; live/unknown entries are retained)
-  intent inspect|fail      Inspect launch intents (+liveness verdicts) or mark a
-                            wedged intent FAILED — liveness-guarded, --evidence
-                            required, never a live lane
-  -h, --help               Print this help without dispatching
-
-Crash recovery defaults to three total launches per lane.
-Set SUSPENDERS_CLAUDE_BIN or SUSPENDERS_COPILOT_BIN to an absolute executable path.
-Set SUSPENDERS_LANE_MAX_ATTEMPTS to a value from 1 to 100 to override.`);
+	console.log(dispatchRootHelp());
 	process.exit(0);
 }
 const val = (flag: string): string | undefined => {
@@ -284,13 +267,16 @@ const PLAID_MODEL_HEALTH =
 // durable lane registry (list/prune/forget); command discovery precedes the
 // dispatch pipeline exactly like --help above. Dynamic import: the verb
 // module costs nothing on a normal dispatch run.
-if (import.meta.main && argv[0] === "registry") {
+// W1124.33: family doors route by the discovered verb head, so flag-first
+// argv (`--repo <dir> intent inspect`) reaches the verb module too — the
+// head-first slice hands the family door its own tokens verbatim.
+if (import.meta.main && HEAD === "registry") {
 	const { registryMain } = await import("./lib/registry-cli.ts");
-	process.exit(await registryMain(argv.slice(1), { fleet: FLEET }));
+	process.exit(await registryMain(argv.slice(headIndex + 1), { fleet: FLEET }));
 }
-if (import.meta.main && argv[0] === "intent") {
+if (import.meta.main && HEAD === "intent") {
 	const { intentMain } = await import("./lib/launch-intent-cli.ts");
-	process.exit(intentMain(argv.slice(1), { repo: REPO }));
+	process.exit(intentMain(argv.slice(headIndex + 1), { repo: REPO }));
 }
 const LOOP_LOG = `${FLEET}/loop.log`;
 // W463: mint failures refuse the dispatch (fail-closed). Collected so main()

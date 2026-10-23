@@ -53,6 +53,19 @@ const VERBS: VerbSpec[] = [
 
 const HELP = VERBS.map((v) => renderVerbHelp(v) ?? "").join("\n");
 
+// W1124.33: the dispatch ROOT usage entry for this verb family — the verb
+// enumeration derives from the shipped specs (schema discovery), and the
+// dispatch root help interpolates the entry verbatim, so a new intent verb
+// can never silently drop out of root help again (the b336 drift: root help
+// kept listing intent inspect|fail after reconcile-birth shipped). The prose
+// carries the family's prepare/apply evidence + safety semantics.
+export const INTENT_ROOT_HELP_ENTRY = `  intent ${VERBS.map((v) => v.name).join("|")}
+                           Inspect launch intents (+liveness verdicts), reconcile a
+                           wedged PAUSED birth claim (prepare with --evidence
+                           <0600-json>, commit with --apply), or mark a wedged
+                           intent FAILED — liveness-guarded, evidence required,
+                           never a live lane`;
+
 /** Verdicts for every intent of one project, plus the raw row. */
 export const inspectIntents = (
 	store: Parameters<typeof launchSchema>[0],
@@ -157,7 +170,10 @@ export const intentMain = (
 ): number => {
 	const project = projectIdentity(ctx.repo);
 	const [verb = "", ...rest] = args;
-	if (!verb || verb === "help") {
+	// `intent --help`/`-h` answers with the family help (exit 0) — the head
+	// is a help request, not an unknown verb (W1124.33: the root door exempts
+	// the intent head, so this door owns family help end to end).
+	if (!verb || verb === "help" || verb === "--help" || verb === "-h") {
 		console.log(HELP);
 		return verb ? 0 : 2;
 	}
