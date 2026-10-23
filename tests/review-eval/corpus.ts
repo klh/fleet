@@ -25,8 +25,7 @@ export const ISSUE_CLASSES = {
 		"a plain logic bug (off-by-one, wrong comparison, inverted condition)",
 	"unbounded-buffer":
 		"data accumulates without bound relative to an untrusted or unbounded input",
-	"secret-in-source":
-		"credential-looking material hardcoded in source",
+	"secret-in-source": "credential-looking material hardcoded in source",
 } as const;
 
 export type IssueClass = keyof typeof ISSUE_CLASSES;
@@ -199,9 +198,9 @@ export function taskById(id: string): ReviewTask | undefined {
 }
 
 /** Deterministic content hash of the whole corpus (tasks + asks + bytes). */
-export function corpusSha(): string {
+export function corpusSha(tasks: ReviewTask[] = TASKS): string {
 	const h = new Bun.CryptoHasher("sha256");
-	for (const t of TASKS) {
+	for (const t of tasks) {
 		h.update(t.id);
 		h.update("\x1f");
 		h.update(t.name);

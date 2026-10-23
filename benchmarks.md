@@ -14,6 +14,24 @@ model bump.
 
 ---
 
+## Review-skill effectiveness — matched held-out agent eval (W1172; harness landed 2026-10-23, matched batches PENDING)
+
+Decision the row will support once run: does the W1144 review-skill change
+improve real held-out review-agent quality vs the pre-W1144 skill —
+measured by private judge over planted-issue recall and false positives
+with token/cost totals, NOT by documentation fixtures or usage counts.
+Status: harness + protocol landed (tests/review-eval/, 18-test suite,
+docs/w1172-review-eval-protocol.md); 6 held-out tasks + clean control;
+arms pinned `b0cd7fb6` (pre-W1144) vs HEAD; corpusSha
+`18ff5658927819964c599acdeeb1680753f6b650af14917699ee1dfb11614606`;
+zero-load plan validation green 2026-10-23 (`--plan` ok, `--run` refuses
+gate-shut, exit 2, zero spawns). Batches deferred by owner ruling
+(#59851): `W1172_GATE=hold` until the W1124 productive-rollout
+verification closes. **NO improvement claim exists** — the regex/doc
+fixture proves the doc contract only, never quality (doesnt_work.md row).
+
+---
+
 ## Lane effort — classification-driven two-stage vs uniform pin (W1140, 2026-10-22; design evidence, fleet A/B pending W1140.1)
 
 Decision the row supports: pin SUSPENDERS_LANE_EFFORT by verification need

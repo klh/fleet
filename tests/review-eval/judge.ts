@@ -36,7 +36,7 @@ export function parseJudgeJson(text: string): JudgeScore | null {
 			if (depth === 0) {
 				try {
 					return JSON.parse(text.slice(start, i + 1)) as JudgeScore;
-		} catch {
+				} catch {
 					return null;
 				}
 			}

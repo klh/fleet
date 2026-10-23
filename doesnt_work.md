@@ -49,6 +49,14 @@ decision-grade: it has to change what you would do. When a verdict flips
   30 lane-min on pressure. Replaced by: consult-then-claim with clean
   yields on foreign claims; consult is the capacity defense, the
   transactional ledger is the correctness backstop.
+- **Documentation/regex fixtures as review-quality evidence (W1144 →
+  W1172)** — the skills-catalog fixture proves the review skill NAMES the
+  trap classes; that says nothing about whether agents reviewing WITH the
+  skill find more real defects. Text-presence checks and usage counts
+  cannot support an improvement claim. Replaced by: W1172 matched
+  before/after held-out agent runs with a private judge (harness landed,
+  gate-held until W1124 closes; protocol
+  docs/w1172-review-eval-protocol.md).
 
 - **Parallel burst lane spawn** — cold-start contention killed lanes
   (2026-10-15 mass lane death). Serial cadence + fenced registration
