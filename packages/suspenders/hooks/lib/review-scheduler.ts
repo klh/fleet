@@ -1,4 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
+import { dirname, join } from "node:path";
+import { mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
+import { homedir } from "node:os";
 import type { GovernorStore } from "./govdb-store.ts";
 import type { ReviewContext } from "./review-receipt.ts";
 
@@ -41,6 +44,10 @@ export function finishReviewRequest(
 		if (!row) return;
 		const request = JSON.parse(row.value) as Request;
 		if (request.token !== token) return;
+		// W1243.1: a finished request is never re-finished — the runner's own
+		// receipt and the scheduler's launch-exit watchdog must not corrupt
+		// each other (a DONE flipped to ERROR, a double attempt refund).
+		if (request.state !== "RUNNING") return;
 		request.state = failed ? "ERROR" : "DONE";
 		request.error = failed
 			? (reason ?? "review transport unavailable")
@@ -61,6 +68,60 @@ export function finishReviewRequest(
 		).run(JSON.stringify(request), Date.now(), key);
 	})();
 }
+
+/** W1243.1 (#62654): machine-local stderr capture for detached reviewers —
+ * the 2026-10-23 scheduler launches died at launch with stderr ignored, so
+ * the only evidence was a stranded RUNNING lease. SUSPENDERS_REVIEW_LAUNCH_LOG
+ * overrides the path (tests, alternate homes). */
+export const reviewLaunchLogPath = (): string =>
+	process.env.SUSPENDERS_REVIEW_LAUNCH_LOG ??
+	join(homedir(), ".claude-insights", "review-lane-stderr.log");
+
+/** W1243.1 (#62654): launch the reviewer DETACHED — `child.unref()` alone
+ * still kills the child when the parent CLI exits (controlled Bun marker
+ * probe, finding.review-launch-499-20261023); `detached: true` survives,
+ * as other Fleet spawns already do. stderr rides an appended fd, not a
+ * pipe: a pipe's read end dies with the parent and would EPIPE-kill the
+ * detached reviewer, so the fd keeps evidence readable post-parent. */
+export function launchDetachedReview(
+	args: string[],
+	env: NodeJS.ProcessEnv,
+	cwd: string,
+) {
+	let stderr: "ignore" | number = "ignore";
+	try {
+		const log = reviewLaunchLogPath();
+		mkdirSync(dirname(log), { recursive: true });
+		stderr = openSync(log, "a");
+	} catch {
+		// diagnostics are best-effort — the launch must not depend on them
+	}
+	const child = Bun.spawn(args, {
+		cwd,
+		env,
+		stdin: "ignore",
+		stdout: "ignore",
+		stderr,
+		detached: true,
+	});
+	if (typeof stderr === "number")
+		writeSync(
+			stderr,
+			`\n[${new Date().toISOString()}] review launch pid=${child.pid}\n`,
+		);
+	child.unref();
+	return child;
+}
+
+/** Last ≤200 chars of the captured launch log — the finish-reason evidence
+ * for a reviewer that died at launch (#62654). Absent file = empty string. */
+const stderrTail = (path: string): string => {
+	try {
+		return readFileSync(path, "utf8").trimEnd().slice(-200);
+	} catch {
+		return "";
+	}
+};
 
 /** One durable lease per exact review context; same-commit FAIL is never
  * retried as a lottery. Verdicts spend the 3-attempt budget; transport
@@ -182,14 +243,22 @@ export function scheduleReview(o: {
 	try {
 		if (o.spawn) o.spawn(args, env);
 		else {
-			const child = Bun.spawn(args, {
-				cwd: o.repo,
-				env,
-				stdin: "ignore",
-				stdout: "ignore",
-				stderr: "ignore",
+			const child = launchDetachedReview(args, env, o.repo);
+			// W1243.1 (#62654): a reviewer that dies at launch must not strand
+			// its RUNNING lease for the full 25-minute expiry — finish it here,
+			// with the captured stderr tail as the reason, while this parent
+			// still lives. If the parent is already gone the expired-lease
+			// refund path recovers the lease on the next schedule call.
+			void child.exited.then((code) => {
+				if (code === 0) return;
+				finishReviewRequest(
+					o.db,
+					key,
+					token,
+					true,
+					`reviewer exited ${code} at launch: ${stderrTail(reviewLaunchLogPath())}`,
+				);
 			});
-			child.unref();
 		}
 		return `review requested through Buckle (${model})`;
 	} catch {

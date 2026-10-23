@@ -139,13 +139,29 @@ On deferral it schedules the existing second-opinion runner through Buckle,
 using a minted proxy-only key revoked after the request. Model selection uses
 `SUSPENDERS_REVIEW_MODEL` or the completion author's existing lane model fact;
 missing model/auth stays explicitly deferred. One durable request lease covers
-each exact context. `SUSPENDERS_REVIEW_CONCURRENCY` defaults to two reviewers;
-transport errors back off and stop after three attempts. An unchanged failing
-review is not repeatedly sampled until a model happens to approve it.
-Unreviewed branches remain available; missing review does not consume the
-three-strike parking budget. `work done` remains branch completion, not landing.
-The separate idempotent `work.landed` event is written only after the exact
-DONE commit is verified as an ancestor of the integration checkout's HEAD.
+each exact context. `SUSPENDERS_REVIEW_CONCURRENCY` is an explicit operator cap
+only — unset means unbounded (the reviewer is not the scarce resource; upstream
+capacity is). Verdicts spend a three-attempt budget; transport failures (dead
+leg, 429/503 waves) and expired RUNNING leases (crashed runner) are not
+verdicts: they refund their attempt and defer with capped backoff (1 min
+doubling to a 15 min ceiling), indefinitely — a route outage can never exhaust
+the budget nor starve the merge ladder. A true FAIL verdict stays terminal —
+never retried, never re-rolled — and a transport ERROR never produces a
+mergeable PASS. Scheduler-spawned reviewers run detached (`detached: true`) so
+a short-lived parent CLI cannot take them down; a reviewer that dies before
+finishing refunds its lease the same way (launch stderr lands in
+`~/.claude-insights/review-lane-stderr.log`). An unchanged failing review is
+not repeatedly sampled until a model happens to approve it. Unreviewed
+branches remain available; missing review does not consume the three-strike
+parking budget. `work done` remains branch completion, not landing. The
+separate idempotent `work.landed` event is written only after the exact DONE
+commit is verified as an ancestor of the integration checkout's HEAD.
+
+Install-grade harness sync refuses sources behind or diverged from main;
+`SUSPENDERS_SYNC_ALLOW_BRANCH=1` is the explicit escape for an intentional
+non-main test install (a lane installing from its own worktree to verify a
+change), never for the shared runner — the 2026-10-23 outage was a lane
+installing a pre-W1236 harness over the shared runner.
 
 These are machine-review receipts. Session registration is Fleet's existing
 local coordination identity boundary, not cryptographic proof of a human or
