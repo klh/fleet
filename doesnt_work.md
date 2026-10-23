@@ -224,3 +224,17 @@ item and would reproduce the original backend refusal. All-system input has a
 separate native fallback with the same outcome. Six new regression cases failed
 before the correction; these orders now typed-refuse before fetch rather than
 folding, reordering or dropping instructions. No provider probe was used.
+
+# W1244 - empty-content review legs are a reasoning-budget shape, not a model defect
+
+glm-5.3-flash review legs fail with HTTP 200 + empty content on large
+diffs — but the W1244 live probe (benchmarks.md "Review-leg carrier")
+showed the failure is budget-shaped: glm returns content at max_tokens 8000
+(no verdict line → still contract FAIL), and kimi-k3.1-pro reproduces the
+SAME empty-content failure at 1500 and 8000 by default (7997/8000 tokens
+burned in reasoning). The generic `include_reasoning:false` OpenRouter
+param is ignored by the kimi provider route. Only the W770 lever works:
+`reasoning: {effort: "low"}` @ max_tokens ≥ 8000 yields a parseable VERDICT
+(108 s, $0.068). `git show <merge-commit>` emits an empty combined patch —
+probe prompts silently carried frame-only diffs until the first-parent
+`git diff <sha>^1 <sha>` fix (carrier-probe.ts gitDiff).
