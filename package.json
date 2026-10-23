@@ -4,6 +4,7 @@
 	"private": true,
 	"license": "SEE LICENSE IN LICENSE",
 	"description": "the klh agent stack — one monorepo, one version, every service",
+	"packageManager": "bun@1.4.2",
 	"workspaces": [
 		"packages/*",
 		"!packages/decant"

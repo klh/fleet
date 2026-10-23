@@ -43,8 +43,11 @@ const SOURCE_PATHS = [
 	"packages/buckle/package.json",
 	// W1081: the shared HTTP identity-header seam — buckle src + belt bin and
 	// the suspenders servicemon wrap all import it; the prefix must ship it
-	// or every stamped service dies on its installed copy.
+	// or every stamped service dies on its installed copy. W1238.3: the
+	// manifest rides along so the payload is a workspace member and the
+	// scoped @klh/* node_modules links resolve it by name.
 	"packages/telemetry/src",
+	"packages/telemetry/package.json",
 	"packages/local-llm",
 	"packages/blam/src",
 	"packages/blam/bench/paired",
@@ -374,7 +377,13 @@ export async function syncHarness(
 				dependencies[name] = version;
 			}
 		}
-		for (const name of ["suspenders", "belt", "local-llm", "blam"]) {
+		for (const name of [
+			"suspenders",
+			"belt",
+			"telemetry",
+			"local-llm",
+			"blam",
+		]) {
 			const path = join(packageRoot, name, "package.json");
 			const item = JSON.parse(readFileSync(path, "utf8"));
 			delete item.devDependencies;
@@ -431,6 +440,17 @@ export async function syncHarness(
 		// link content is relative to the link's own dir (node_modules/@klh):
 		// up two to stage/, then into .harness/packages/blam
 		link("../../.harness/packages/blam", join(stage, "node_modules/@klh/blam"));
+		// W1238.3: the declared cross-package graph resolves through the same
+		// scoped links — named @klh/* imports in shipped code (servicemon →
+		// telemetry, buckle → telemetry, stack-config → buckle) resolve during
+		// the staged build validation and at runtime. Remaining relative
+		// edges are the documented deviation (docs/decision-w1238.3-*.md).
+		for (const member of ["belt", "buckle", "telemetry"]) {
+			link(
+				`../../.harness/packages/${member}`,
+				join(stage, `node_modules/@klh/${member}`),
+			);
+		}
 		for (const item of HOOK_ITEMS) {
 			if (!existsSync(join(suspenders, "hooks", item)))
 				throw new Error(`Missing harness payload: ${item}`);

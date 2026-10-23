@@ -5,6 +5,7 @@
 	"type": "module",
 	"license": "SEE LICENSE IN LICENSE",
 	"private": true,
+	"packageManager": "bun@1.4.2",
 	"engines": {
 		"bun": ">=1.2"
 	},
@@ -14,6 +15,6 @@
 	"dependencies": {
 		"@klh/blam": "workspace:*",
 		"bonjour-service": "1.4.4",
-		"lit": "^3.3.3"
+		"lit": "3.3.3"
 	}
 }

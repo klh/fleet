@@ -6,7 +6,7 @@ import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { parse } from "yaml";
-import type { GatewayPolicy } from "../../../buckle/src/policy.ts";
+import type { GatewayPolicy } from "@klh/buckle/src/policy.ts";
 
 export interface HubProfile {
 	/** Private native metrics; credential NAME must bind an existing upstream key. */

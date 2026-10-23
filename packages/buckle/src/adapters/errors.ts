@@ -1,4 +1,4 @@
-import { safeRefusalCode } from "../../../telemetry/src/http-trace.ts";
+import { safeRefusalCode } from "@klh/telemetry/src/http-trace.ts";
 import { upstreamErrorDetail } from "../error-detail.ts";
 // src/adapters/errors.ts — the RouterError taxonomy (W134 §1): seven
 // normalized kinds with per-family mappings — family exception types never

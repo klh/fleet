@@ -93,3 +93,108 @@ test("the guard has teeth: the known cross-package edges are detected", () => {
 		).toBe(true);
 	}
 });
+
+// W1238.3 relative-import guard: production .ts reaches into another
+// package by relative path ONLY through the pinned allowlist below
+// (file -> reached packages, equality-checked). A new cross-package
+// relative import must either land here RELATIVE_CROSS_PACKAGE_ALLOWLIST or
+// convert to a named @klh/<pkg> import with the edge declared in
+// package.json (checked by the guard above). The remaining edges are the
+// recorded deviation (docs/decision-w1238.3-strict-install-conformance.md):
+// the harness payload preserves the packages/ layout under .harness/, so
+// the relative depth is an install invariant — proven every CI run by the
+// artifact-roundtrip job, which builds every installed entrypoint.
+const RELATIVE_CROSS_PACKAGE_ALLOWLIST: Record<string, string[]> = {
+	"belt/bench/arena/review-pipeline.ts": ["suspenders"],
+	"belt/bench/arena/transforms.ts": ["blam"],
+	"belt/bin/dashboard.ts": ["telemetry"],
+	"belt/bin/escalate.ts": ["telemetry"],
+	"belt/bin/health.ts": ["telemetry"],
+	"belt/bin/http-citizenship.ts": ["telemetry"],
+	"belt/bin/hubs.ts": ["suspenders"],
+	"belt/bin/memory-policy.ts": ["local-llm"],
+	"belt/bin/model-store-lib.ts": ["local-llm"],
+	"belt/bin/model-store.ts": ["buckle", "local-llm", "suspenders"],
+	"belt/bin/observation.ts": ["local-llm"],
+	"belt/bin/router-core.ts": ["buckle", "telemetry"],
+	"belt/bin/router-shim.ts": ["telemetry"],
+	"belt/bin/stream-prelude.ts": ["buckle"],
+	"blam/bench/improve/loop.ts": ["suspenders"],
+	"buckle/src/citizenship.ts": ["telemetry"],
+	"buckle/src/forced-failover-drill.ts": ["telemetry"],
+	"buckle/src/handlers.ts": ["telemetry"],
+	"buckle/src/ledger.ts": ["telemetry"],
+	"buckle/src/router.ts": ["telemetry"],
+	"buckle/src/wire.ts": ["telemetry"],
+	"decant/fleet/after-sync.ts": ["suspenders"],
+	"decant/fleet/registry.ts": ["suspenders"],
+	"local-llm/litellm-target.ts": ["belt"],
+	"local-llm/models.catalog.ts": ["belt"],
+	"local-llm/registry.ts": ["belt"],
+	"local-llm/spawner.ts": ["belt"],
+	"local/bin/observation.ts": ["local-llm"],
+	"suspenders/deploy/hub-metrics.ts": ["buckle"],
+	"suspenders/deploy/hub-policy.ts": ["buckle"],
+	"suspenders/deploy/trace-tunnel.ts": ["telemetry"],
+	"suspenders/deploy/zai-catalog.ts": ["belt", "buckle"],
+	"suspenders/e2e/console-network-hours.spec.ts": ["buckle"],
+	"suspenders/e2e/ent-fixture-module.ts": ["hooks"],
+	"suspenders/hooks/bin/fallback-drill.ts": ["buckle"],
+	"suspenders/hooks/bin/prefix-keepwarm.ts": ["buckle"],
+	"suspenders/hooks/board/buckle-observation-relay.ts": ["buckle"],
+	"suspenders/hooks/board/network-overview.ts": ["buckle"],
+	"suspenders/hooks/board/prompt-transform.ts": ["belt"],
+	"suspenders/hooks/board/routes-observations.ts": ["buckle"],
+	"suspenders/hooks/board/suggest.ts": ["local-llm"],
+	"suspenders/hooks/lib/inventory-probe.ts": ["belt"],
+	"suspenders/hooks/lib/observation.ts": ["local-llm"],
+	"suspenders/hooks/lib/oracle-legs.ts": ["belt"],
+	"suspenders/hooks/lib/service-inventory.ts": ["belt"],
+	"suspenders/scripts/dispatch-watchdog.ts": ["belt"],
+	"suspenders/scripts/install-llm-steps.ts": ["belt"],
+	"suspenders/scripts/lib/lane-settings.ts": ["telemetry"],
+	"suspenders/scripts/lib/watchdog-memory.ts": ["belt", "local-llm"],
+	"suspenders/scripts/prompt-bench.ts": ["belt"],
+	"suspenders/scripts/route-preflight.ts": ["belt", "buckle"],
+	"suspenders/sim/ikea-pilot.ts": ["buckle"],
+};
+
+test("cross-package relative imports stay within the pinned allowlist", () => {
+	const seen = new Map<string, Set<string>>();
+	for (const pkg of readdirSync(PACKAGES).sort()) {
+		const files = [
+			...new Bun.Glob("**/*.ts").scanSync({
+				cwd: join(PACKAGES, pkg),
+				onlyFiles: true,
+			}),
+		].filter((f) => !f.includes("node_modules") && !f.endsWith(".test.ts"));
+		for (const file of files) {
+			const src = readFileSync(join(PACKAGES, pkg, file), "utf8");
+			for (const m of src.matchAll(
+				/(?:from|import)\s*\(?\s*["']([.][/.][^"']+)["']/g,
+			)) {
+				// join() normalizes the ../ segments; the first segment under
+				// packages/ names the package reached into (".." escapes above)
+				const target = join(join(PACKAGES, pkg, file), "..", m[1]);
+				const reached = target.startsWith(`${PACKAGES}/`)
+					? target.slice(PACKAGES.length + 1).split("/")[0]
+					: "..";
+				if (reached === pkg) continue;
+				const set = seen.get(`${pkg}/${file}`) ?? new Set<string>();
+				set.add(reached);
+				seen.set(`${pkg}/${file}`, set);
+			}
+		}
+	}
+	// equality, not subset: a missing allowlist row means the scan rotted;
+	// an unexpected row means a NEW undeclared cross-package relative edge —
+	// convert it to a named @klh/<pkg> import or pin it here consciously
+	const seenRows: Record<string, string[]> = {};
+	for (const [file, set] of [...seen].sort((a, b) => a[0].localeCompare(b[0])))
+		seenRows[file] = [...set].sort();
+	expect(
+		Object.keys(RELATIVE_CROSS_PACKAGE_ALLOWLIST).length,
+		"allowlist rotted to zero rows; the scan regex broke",
+	).toBeGreaterThanOrEqual(40);
+	expect(seenRows).toEqual(RELATIVE_CROSS_PACKAGE_ALLOWLIST);
+});
