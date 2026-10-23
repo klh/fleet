@@ -16,10 +16,10 @@ export interface BoundedTail {
 	dropped: number;
 }
 
-/** Owned bounded window of retained stream bytes (W1205.2.1): front cuts copy
- *  the kept suffix into owned storage (never a view retaining the flooding
- *  child's source ArrayBuffer); zero-byte reads are skipped so metadata
- *  cannot accumulate while a pipe trickles toward EOF. */
+/** Owned bounded window of retained stream bytes (W1205.2.1.1): every
+ *  retained chunk is copied into owned exact-size storage — a below-cap view
+ *  must not pin its oversized source ArrayBuffer; zero-byte reads are skipped
+ *  so metadata cannot accumulate while a pipe trickles toward EOF. */
 export class BoundedTailWindow {
 	private readonly parts: Uint8Array[] = [];
 	private kept = 0;
@@ -30,7 +30,9 @@ export class BoundedTailWindow {
 	push(chunk: Uint8Array): void {
 		// a zero-byte read carries no bytes — don't bank its metadata
 		if (chunk.byteLength === 0) return;
-		this.parts.push(chunk);
+		// review 59258: a below-cap chunk may still be a 1-byte view into a
+		// 16 MiB source — retained as-is it pins the whole source ArrayBuffer.
+		this.parts.push(ownedCopy(chunk, 0));
 		this.kept += chunk.byteLength;
 		while (this.kept > this.maxBytes && this.parts.length > 0) {
 			const front = this.parts[0];
@@ -45,7 +47,7 @@ export class BoundedTailWindow {
 			const cut = this.kept - this.maxBytes;
 			this.dropped += cut;
 			this.kept -= cut;
-			this.parts[0] = suffixCopy(front, cut);
+			this.parts[0] = ownedCopy(front, cut);
 			break;
 		}
 	}
@@ -76,11 +78,11 @@ export class BoundedTailWindow {
 	}
 }
 
-/** Fresh-storage copy of the kept suffix — Uint8Array#slice would stay a
- *  view on node Buffer inputs, silently retaining the source ArrayBuffer. */
-const suffixCopy = (front: Uint8Array, cut: number): Uint8Array => {
-	const copy = new Uint8Array(front.byteLength - cut);
-	copy.set(front.subarray(cut));
+/** Fresh-storage copy — Uint8Array#slice/subarray would stay a view on node
+ *  Buffer inputs, silently retaining the source ArrayBuffer. */
+const ownedCopy = (src: Uint8Array, from: number): Uint8Array => {
+	const copy = new Uint8Array(src.byteLength - from);
+	copy.set(src.subarray(from));
 	return copy;
 };
 
