@@ -226,3 +226,48 @@ try {
 		expect(body.executed).toBe(false);
 	});
 });
+
+// ── W1173.1 B1: run-time SQL failures can carry partial statement effects ───
+// SQLite conflict clauses (UPDATE OR FAIL keeps the failing statement's own
+// pre-error row changes) mean a refused statement is NOT always a statement
+// with no effects — the envelope must never claim provable non-execution.
+describe("partial statement effects (W1173.1 B1)", () => {
+	let url = "";
+	beforeAll(async () => {
+		url = await startServer(await freePort());
+		childWire.url = url;
+	});
+
+	test("UPDATE OR FAIL reports unknown execution, partial effect persists", async () => {
+		// the B1 shape: unique rows 1,2,3; one UPDATE sets row 1 to 10, then
+		// row 2 collides — OR FAIL preserves the statement's own row change.
+		await rpc(
+			url,
+			"run",
+			"CREATE TABLE w1173_partial (id INTEGER PRIMARY KEY, v INTEGER UNIQUE)",
+		);
+		for (const v of [1, 2, 3])
+			await rpc(url, "run", "INSERT INTO w1173_partial (v) VALUES (?)", [v]);
+		const fail = await rpc(
+			url,
+			"run",
+			"UPDATE OR FAIL w1173_partial SET v = 10",
+		);
+		expect(fail.status).toBe(200);
+		expect(fail.body.code).toBe(STORE_SQL_FAIL);
+		expect(fail.body.sqlite_code).toBe("SQLITE_CONSTRAINT_UNIQUE");
+		// B1: non-execution is NOT provable here — the SELECT below proves the
+		// statement's own pre-error row change persisted.
+		expect(fail.body.executed).toBe("unknown");
+		const after = await rpc(
+			url,
+			"all",
+			"SELECT id, v FROM w1173_partial ORDER BY id",
+		);
+		expect(after.body.rows).toEqual([
+			{ id: 1, v: 10 },
+			{ id: 2, v: 2 },
+			{ id: 3, v: 3 },
+		]);
+	});
+});
