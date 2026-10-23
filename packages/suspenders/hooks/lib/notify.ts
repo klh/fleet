@@ -3,7 +3,7 @@
 // to a notification class, deduped, rate-limited per class, scrubbed and
 // handed to channel adapters (notify-adapters.ts). Config is machine-level
 // (~/.config/klh/notify.yaml, KLH_NOTIFY overrides) — the repo carries only
-// examples/notify.example.yaml. Pure + injectable: no I/O except the loader.
+// docs/notify.example.yaml. Pure + injectable: no I/O except the loader.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
