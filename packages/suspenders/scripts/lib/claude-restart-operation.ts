@@ -47,6 +47,7 @@ import {
 import { adminKey, BUCKLE_FRONT } from "./lane-auth.ts";
 import { adapterForExact } from "../../hooks/lib/executors/registry.ts";
 import { materializeRestartSettings } from "./claude-restart-settings.ts";
+import { restartTreeHash as treeHash } from "./restart-tree-snapshot.ts";
 import { readLaneContextFile } from "../../hooks/lib/lane-context.ts";
 import { claimTokenVerdict } from "../../hooks/lib/work-fence.ts";
 
@@ -72,41 +73,6 @@ export function assertLocalRestartIntent(
 		!sameMachine(intent.host, hostname())
 	)
 		throw Error("Restart registered local launch intent is not proven");
-}
-function git(cwd: string, args: string[]): string {
-	const result = Bun.spawnSync(["git", ...args], {
-		cwd,
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	if (result.exitCode !== 0)
-		throw new Error("Restart Git evidence unavailable");
-	return result.stdout.toString();
-}
-function treeHash(cwd: string): string {
-	const untracked = git(cwd, [
-		"ls-files",
-		"--others",
-		"--exclude-standard",
-		"-z",
-	])
-		.split("\0")
-		.filter(
-			(name) =>
-				name &&
-				!name.startsWith(".fleet/") &&
-				!name.includes("node_modules") &&
-				name !== ".klh-brief.md",
-		);
-	return restartHash(
-		JSON.stringify([
-			git(cwd, ["rev-parse", "HEAD"]).trim(),
-			git(cwd, ["diff", "--binary", "HEAD"]),
-			...untracked
-				.sort()
-				.map((name) => [name, restartHash(readFileSync(join(cwd, name)))]),
-		]),
-	);
 }
 type Claim = {
 	owner_sid: string;
