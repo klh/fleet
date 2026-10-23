@@ -13,6 +13,7 @@ import type { GovernorStore } from "../hooks/lib/govdb.ts";
 import {
 	reconcileIntentBirth,
 	intentBirthReconcile,
+	intentSettingsHash,
 	type IntentBirthEvidence,
 } from "../scripts/lib/intent-birth-reconcile.ts";
 
@@ -62,6 +63,7 @@ const evidence = (): IntentBirthEvidence => ({
 	},
 	registryHash: "registry",
 	contextHash: "context",
+	settingsHash: "settings",
 	claimRevision: 9,
 	checkpoint: "checkpoint",
 	nativeSession: "00000000-0000-0000-0000-000000000001",
@@ -127,6 +129,7 @@ test("explicit repair CAS preserves claim/context and records one immutable even
 test("stale native/registry/claim evidence cannot mutate the old intent", () => {
 	for (const mutation of [
 		"contextHash",
+		"settingsHash",
 		"registryHash",
 		"checkpoint",
 		"nativeSession",
@@ -149,6 +152,23 @@ test("stale native/registry/claim evidence cannot mutate the old intent", () => 
 		} finally {
 			db.close();
 		}
+	}
+});
+
+test("same settings pathname with changed private contents invalidates sealed evidence", () => {
+	const root = mkdtempSync(join(tmpdir(), "birth-reconcile-settings-"));
+	const path = join(root, "settings.json");
+	try {
+		writeFileSync(path, JSON.stringify({ model: "synthetic-a" }), {
+			mode: 0o600,
+		});
+		const first = intentSettingsHash(path);
+		writeFileSync(path, JSON.stringify({ model: "synthetic-b" }));
+		expect(intentSettingsHash(path)).not.toBe(first);
+		chmodSync(path, 0o644);
+		expect(() => intentSettingsHash(path)).toThrow("0600");
+	} finally {
+		rmSync(root, { recursive: true, force: true });
 	}
 });
 

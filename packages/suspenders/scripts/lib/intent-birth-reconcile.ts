@@ -45,12 +45,27 @@ export type IntentBirthEvidence = {
 	intent: LaunchIntent;
 	registryHash: string;
 	contextHash: string;
+	settingsHash: string;
 	claimRevision: number;
 	checkpoint: string;
 	nativeSession: string;
 	newBirth: string;
 	native: { pid: number; birth: string };
 };
+
+export function intentSettingsHash(path: string): string {
+	const stat = lstatSync(path);
+	if (
+		!stat.isFile() ||
+		stat.isSymbolicLink() ||
+		(stat.mode & 0o777) !== 0o600 ||
+		stat.size > 1024 * 1024
+	)
+		throw Error("Exact native settings must be a regular bounded 0600 file");
+	const data = readFileSync(path, "utf8");
+	JSON.parse(data);
+	return hash(data);
+}
 
 /** Operator-only repair evidence, derived from the same current authority and
  * paused native boundary as restart. No equality fallback blesses old births. */
@@ -118,6 +133,7 @@ export function captureIntentBirthEvidence(
 		contextHash: hash(
 			readFileSync(join(worktree, ".fleet", "lane-context.json"), "utf8"),
 		),
+		settingsHash: intentSettingsHash(settings),
 		claimRevision: claim.updated_at,
 		checkpoint,
 		nativeSession: session,
