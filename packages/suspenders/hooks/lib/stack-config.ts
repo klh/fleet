@@ -21,6 +21,10 @@ export interface HubProfile {
 	display_name?: string;
 	/** Browser-facing console. Never inferred from the Buckle probe URL. */
 	console_url?: string;
+	/** W1094.1: hub-machine terminal endpoints (model engines etc.) the route
+	 * preflight gate may treat as leaves ON THIS HUB — never inherited from
+	 * the Mac specialist registry. */
+	route_preflight?: { terminal_origins?: string[] };
 	buckle_port?: number;
 	board_port?: number;
 	store_port?: number;
