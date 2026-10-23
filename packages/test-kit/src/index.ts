@@ -18,3 +18,14 @@ export {
 	type StubHandler,
 	type StubRequest,
 } from "./serve-stub.ts";
+export {
+	candidateRow,
+	type KitCandidateRow,
+	type KitPoolDeployment,
+	type KitUpstreamPool,
+	poolOf,
+	type PoolOfUrlOpts,
+	poolOfUrl,
+	sseEnc,
+	sseHeaders,
+} from "./router-fixtures.ts";

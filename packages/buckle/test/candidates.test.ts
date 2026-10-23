@@ -1,6 +1,7 @@
 // test/candidates.test.ts — the candidate table: structural flashx absence,
 // own-outcome health (cooldown feeds it), EWMA from outcomes, cloud kinds,
 // background refresh.
+import { poolOf as kitPoolOf } from "@klh/test-kit";
 import { describe, expect, test } from "bun:test";
 import { CandidateTable } from "../src/candidates.ts";
 import { Cooldowns } from "../src/cooldown.ts";
@@ -17,18 +18,8 @@ tags:
   local-swarm: [local, code, reasoning]
 `);
 
-const poolOf = (entries: Array<[string, string[]]>): UpstreamPool => {
-	const map = new Map(entries);
-	return {
-		groups: () => [...map.keys()],
-		deployments: (g) =>
-			(map.get(g) ?? []).map((url) => ({
-				group: g,
-				url,
-				dialect: "openai" as const,
-			})),
-	};
-};
+const poolOf = (entries: Array<[string, string[]]>): UpstreamPool =>
+	kitPoolOf(entries);
 
 describe("candidate table", () => {
 	const cd = new Cooldowns(3, 30);

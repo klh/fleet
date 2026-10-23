@@ -3,19 +3,18 @@
 // deadline on a silent upstream) + the streamResponse MIME contract
 // (SSE forced on classified streams only; JSON/client-error keep their
 // own MIME — the shared SSE_HEADERS helper stays untouched).
+import {
+	poolOfUrl as kitPoolOfUrl,
+	sseEnc as enc,
+	sseHeaders,
+} from "@klh/test-kit";
 import { describe, expect, test } from "bun:test";
 import { createApp } from "../src/handlers.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
 import { testDeps } from "./deps.ts";
 import { startMockUpstream } from "./mock.ts";
 
-const poolOf = (url: string): UpstreamPool => ({
-	groups: () => ["claude-sonnet-5"],
-	deployments: (group) => [{ group, url, dialect: "anthropic" as const }],
-});
-
-const sseHeaders = { "content-type": "text/event-stream" };
-const enc = new TextEncoder();
+const poolOf = (url: string): UpstreamPool => kitPoolOfUrl(url);
 
 /** One-chunk SSE body with a cancel observer (#55505 teardown seam). */
 const readableWithCancel = (chunk: Uint8Array, onCancel: () => void) =>
@@ -30,48 +29,48 @@ const readableWithCancel = (chunk: Uint8Array, onCancel: () => void) =>
 const receiptOf = (audit: Record<string, unknown>): Record<string, unknown> =>
 	JSON.parse(String(audit.stream_receipt ?? "{}")) as Record<string, unknown>;
 
-	// #55505: reader.cancel WITHOUT Request abort must bank downstream_cancel
-	// (real Bun TCP wires reader.cancel → Request abort; the direct path is
-	// caught by the TransformStream cancel hook — never misattributed to the
-	// upstream).
-	test("#55505 reader.cancel WITHOUT Request abort → downstream_cancel", async () => {
-		let upstreamCancelled = false;
-		const upstream = await startMockUpstream(
-			() =>
-				new Response(
-					readableWithCancel(
-						enc.encode(
-							'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":1}}}\n\n',
-						),
-						() => (upstreamCancelled = true),
+// #55505: reader.cancel WITHOUT Request abort must bank downstream_cancel
+// (real Bun TCP wires reader.cancel → Request abort; the direct path is
+// caught by the TransformStream cancel hook — never misattributed to the
+// upstream).
+test("#55505 reader.cancel WITHOUT Request abort → downstream_cancel", async () => {
+	let upstreamCancelled = false;
+	const upstream = await startMockUpstream(
+		() =>
+			new Response(
+				readableWithCancel(
+					enc.encode(
+						'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":1}}}\n\n',
 					),
-					{ headers: sseHeaders },
+					() => (upstreamCancelled = true),
 				),
+				{ headers: sseHeaders },
+			),
+	);
+	try {
+		const deps = testDeps(poolOf(upstream.url));
+		const res = await createApp(deps).fetch(
+			new Request(`${upstream.url}/v1/messages`, {
+				method: "POST",
+				body: JSON.stringify({ model: "claude-sonnet-5", stream: true }),
+			}),
 		);
-		try {
-			const deps = testDeps(poolOf(upstream.url));
-			const res = await createApp(deps).fetch(
-				new Request(`${upstream.url}/v1/messages`, {
-					method: "POST",
-					body: JSON.stringify({ model: "claude-sonnet-5", stream: true }),
-				}),
-			);
-			expect(res.status).toBe(200);
-			const reader = res.body?.getReader();
-			expect(reader).toBeDefined();
-			await reader?.read(); // first chunk delivered
-			await reader?.cancel("client gone"); // no Request.signal abort
-			await Bun.sleep(80); // cancel hook + pipes settle
-			const audit = deps.ledger.auditRows()[0] ?? {};
-			expect(audit.ok).toBe(0);
-			expect(audit.decision).toBe("errored");
-			expect(audit.error_code).toBe("downstream_cancel");
-			expect(audit.err).toBe("downstream_cancel");
-			expect(receiptOf(audit).terminal).toBe("downstream_cancel");
-		} finally {
-			upstream.close();
-		}
-	});
+		expect(res.status).toBe(200);
+		const reader = res.body?.getReader();
+		expect(reader).toBeDefined();
+		await reader?.read(); // first chunk delivered
+		await reader?.cancel("client gone"); // no Request.signal abort
+		await Bun.sleep(80); // cancel hook + pipes settle
+		const audit = deps.ledger.auditRows()[0] ?? {};
+		expect(audit.ok).toBe(0);
+		expect(audit.decision).toBe("errored");
+		expect(audit.error_code).toBe("downstream_cancel");
+		expect(audit.err).toBe("downstream_cancel");
+		expect(receiptOf(audit).terminal).toBe("downstream_cancel");
+	} finally {
+		upstream.close();
+	}
+});
 
 describe("W1106 stream receipts", () => {
 	test("client abort → terminal downstream_cancel, ok:0, decision errored", async () => {
