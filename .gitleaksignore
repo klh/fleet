@@ -78,3 +78,6 @@ packages/suspenders/test/hub-providers.test.ts:generic-api-key:42
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:102
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:163
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:189
+# W1124.8.2.2: migration-test fixture value (fake key written by writeFileSync
+# in the sightings test; the suite asserts masking, never a real credential)
+packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83
