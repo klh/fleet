@@ -25,6 +25,7 @@ import {
 } from "../lib/notify.ts";
 import { sendersFor } from "../lib/notify-adapters.ts";
 import { firePulse, PULSE_STATE_PATH } from "../lib/pulse.ts";
+import { readSweepNotices } from "../lib/fleet-loop/sweep-state.ts";
 import { fleetWarm, readMiningLines } from "../lib/cache-drilldown.ts";
 import { readLicenseLines } from "../lib/license-audit.ts";
 import { defineVerb, runCli } from "../lib/verb-kit.ts";
@@ -140,10 +141,12 @@ async function runPulse(fleetFlag: string | undefined): Promise<void> {
 		fleetRoot,
 		statePath: PULSE_STATE_PATH(),
 		// W826: live ledger reads — warm-rate rides the heartbeat, mining
-		// offenders are a delta section; both fail soft to absent
+		// offenders are a delta section; both fail soft to absent. W1201:
+		// fresh maintenance-failure notices ride the same delta sections.
 		warm: () => fleetWarm(),
 		mining: () => readMiningLines(),
 		license: () => readLicenseLines(),
+		maintenance: () => readSweepNotices(),
 		log,
 	});
 	for (const [c, r] of Object.entries(res.channels)) log(`pulse ${c}: ${r}`);

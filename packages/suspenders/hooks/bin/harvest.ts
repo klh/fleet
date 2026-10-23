@@ -70,7 +70,13 @@ for (const r of db
 
 // ---- pass 1: parse new transcript content since each file's cursor ----
 
-const refs = await discoverTranscripts(repo, homedir(), days);
+// W1201 cursor-aware discovery: a stored cursor holding unread bytes keeps
+// its transcript in the scan set even when idle past the mtime window
+const keep = new Map<string, number>();
+for (const [k, v] of cursors)
+	if (k.startsWith("harvest.cursor."))
+		keep.set(k.slice("harvest.cursor.".length), v);
+const refs = await discoverTranscripts(repo, homedir(), days, keep);
 const signals: Signal[] = [];
 const newOffsets = new Map<string, number>();
 let scanned = 0;
@@ -152,7 +158,14 @@ const applyTx = db.transaction(() => {
 			.query(
 				"INSERT INTO consult_kb (problem, solution, project, asked_by, answered_by, consult_id, created_at, confidence, confidence_stamp) VALUES (?, ?, ?, 'harvest', 'harvest', NULL, ?, ?, ?)",
 			)
-			.run(problem, solution.slice(0, 600), project, now, stamp.value, JSON.stringify(stamp));
+			.run(
+				problem,
+				solution.slice(0, 600),
+				project,
+				now,
+				stamp.value,
+				JSON.stringify(stamp),
+			);
 		// FTS index row — without it consult lookup never self-serves this row
 		db.query("INSERT INTO consult_kb_fts (rowid, problem) VALUES (?, ?)").run(
 			kr.lastInsertRowid,

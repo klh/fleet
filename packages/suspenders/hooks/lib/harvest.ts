@@ -247,10 +247,15 @@ export function clusterSignals(signals: Signal[]): Cluster[] {
 
 // ---- transcript discovery + append-cursor reading ----
 
+/** W1201: `keep` maps a transcript's munged path key to its stored byte
+ *  cursor — a transcript whose cursor holds unread bytes is discovered even
+ *  when idle past the mtime window (the bookmark wins over the window; the
+ *  cursor still bounds what gets re-read). */
 export async function discoverTranscripts(
 	repo: string,
 	home: string,
 	days = 7,
+	keep?: Map<string, number>,
 ): Promise<TranscriptRef[]> {
 	const refs: TranscriptRef[] = [];
 	const floor = Date.now() - days * 86_400_000;
@@ -265,8 +270,11 @@ export async function discoverTranscripts(
 				if (!f.endsWith(".jsonl")) continue;
 				const path = join(projDir, d, f);
 				try {
-					if (statSync(path).mtimeMs < floor) continue; // idle window
-					if (statSync(path).size > 64 * 1024 * 1024) continue; // guard
+					const st = statSync(path);
+					const held = keep?.get(mungePath(path));
+					if (st.mtimeMs < floor && (held === undefined || held >= st.size))
+						continue; // idle window — unless a cursor holds unread bytes
+					if (st.size > 64 * 1024 * 1024) continue; // guard
 					refs.push({ backend: "claude", path, item });
 				} catch {}
 			}
@@ -306,8 +314,14 @@ export async function discoverTranscripts(
 							if (!f.endsWith(".jsonl")) continue;
 							const path = join(dir, f);
 							try {
-								if (statSync(path).mtimeMs < floor) continue;
-								if (statSync(path).size > 64 * 1024 * 1024) continue;
+								const st = statSync(path);
+								const held = keep?.get(mungePath(path));
+								if (
+									st.mtimeMs < floor &&
+									(held === undefined || held >= st.size)
+								)
+									continue;
+								if (st.size > 64 * 1024 * 1024) continue;
 							} catch {
 								continue;
 							}

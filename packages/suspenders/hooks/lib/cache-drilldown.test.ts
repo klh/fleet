@@ -235,7 +235,9 @@ describe("mineOffenders + readMiningLines", () => {
 			const a = mineOffenders(T0 + 3_600_000);
 			expect(a.offenders.map((o) => o.lane)).toEqual(["laneX", "laneY"]);
 			expect(a.offenders[0]?.topReason).toBe("streak");
-			const art = { at: Date.now(), days: 7, offenders: a.offenders };
+			// deterministic artifact age: pinned at T0, not wall now (the
+			// wall-now build rotted 2026-10-19: T0+9d stopped exceeding maxAge)
+			const art = { at: T0, days: 7, offenders: a.offenders };
 			const tmp = `${import.meta.dir}/w826-mining-artifact.json`;
 			writeFileSync(tmp, JSON.stringify(art));
 			expect(readMiningLines(Date.now(), 8 * 86_400_000, tmp)[0]).toContain(
