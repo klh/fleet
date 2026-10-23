@@ -7,6 +7,14 @@ import {
 
 const now = Date.parse("2026-10-19T12:00:00Z");
 const observation = { expiresAt: now + 10_000 };
+const hubObs = (hub: string, provider: string, ageMinutes: number) => ({
+	hub,
+	provider,
+	successes15: 2,
+	failures15: 0,
+	lastStatus: 200,
+	lastAt: new Date(now - ageMinutes * 60_000).toISOString(),
+});
 
 const snapshot = {
 	ok: true,
@@ -1140,6 +1148,67 @@ describe("Belt topology", () => {
 			model.providers.find((provider) => provider.key === "copilot")
 				?.hubRequest,
 		).toBeUndefined();
+	});
+
+	test("keeps every observed hub link independent of card placement", () => {
+		const model = buildTopology(
+			{},
+			{ ts: new Date(now).toISOString(), rows: [] },
+			{
+				observation,
+				targets: [
+					{ kind: "hub", name: "alpha", state: "up", port: 4101 },
+					{ kind: "hub", name: "beta", state: "up", port: 4111 },
+				],
+			},
+			now,
+			null,
+			null,
+			{
+				hubRoutes: [
+					{ name: "alpha", providerIntents: ["copilot"] },
+					{ name: "beta", providerIntents: ["copilot"] },
+				],
+				hubProviderObservations: [
+					hubObs("alpha", "copilot", 1),
+					hubObs("beta", "copilot", 2),
+				],
+			},
+		);
+		expect(model.hubProviderLinks).toMatchObject([
+			{ hub: "alpha", provider: "copilot", evidence: "observed" },
+			{ hub: "beta", provider: "copilot", evidence: "observed" },
+		]);
+	});
+
+	test("drops a stale hub's link while a peer hub stays observed", () => {
+		const model = buildTopology(
+			{},
+			{ ts: new Date(now).toISOString(), rows: [] },
+			{
+				observation,
+				targets: [
+					{ kind: "hub", name: "alpha", state: "up", port: 4101 },
+					{ kind: "hub", name: "beta", state: "up", port: 4111 },
+				],
+			},
+			now,
+			null,
+			null,
+			{
+				hubRoutes: [
+					{ name: "alpha", providerIntents: ["copilot"] },
+					{ name: "beta", providerIntents: ["copilot"] },
+				],
+				hubProviderObservations: [
+					hubObs("alpha", "copilot", 16),
+					hubObs("beta", "copilot", 1),
+				],
+			},
+		);
+		expect(model.hubProviderLinks).toMatchObject([
+			{ hub: "beta", provider: "copilot", evidence: "observed" },
+		]);
 	});
 
 	test("keeps the hub indicator intent-gated while the observed link renders", () => {

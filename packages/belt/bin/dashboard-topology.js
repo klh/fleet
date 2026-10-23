@@ -764,10 +764,10 @@ class BeltTopology extends LitElement {
 					cloudCards
 						.filter(
 							(item) =>
-								hubForProviderSorted(item.key)?.name === hub.name &&
-								(hub.providerKeys?.includes(item.key) ||
-									hub.providerIntents?.includes(item.key) ||
-									Boolean(observedLinkFor(item.key, hub.name))),
+								Boolean(observedLinkFor(item.key, hub.name)) ||
+								(hubForProviderSorted(item.key)?.name === hub.name &&
+									(hub.providerKeys?.includes(item.key) ||
+										hub.providerIntents?.includes(item.key))),
 						)
 						.map((item) => {
 							const observed = observedLinkFor(item.key, hub.name);
