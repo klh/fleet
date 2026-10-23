@@ -70,10 +70,17 @@ test("local page: registry card upgrades; settings: knobs + audit cards", async 
 	await page.screenshot({ path: `${SHOTS}/local-cards.png`, fullPage: true });
 
 	await page.goto(`${board.BASE}/console/settings`);
-	const knobs = page.locator("klh-knobs-card");
-	await expect(knobs).toBeVisible();
-	await expect(knobs.getByText(/suspenders-board\.json · /)).toBeVisible();
-	await expect(knobs.getByText(/STATUS_REFRESH_S/)).toBeVisible();
+	// W1136: the klh-knobs-card retired — the settings page serves the plain
+	// panel form (Board and agents section) + klh-audit-list; assert the
+	// current DOM: the board.json hint + the status refresh field
+	const boardPanel = page
+		.locator("section.settings-section")
+		.filter({ hasText: "Board and agents" });
+	await expect(boardPanel).toBeVisible();
+	await expect(boardPanel.getByText(/suspenders-board\.json/)).toBeVisible();
+	await expect(
+		boardPanel.locator('input[name="status_refresh_s"]'),
+	).toBeVisible();
 	const audit = page.locator("klh-audit-list");
 	await expect(audit).toBeVisible();
 	await expect(audit.getByText(/no admin actions recorded yet/)).toBeVisible();

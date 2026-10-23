@@ -23,20 +23,19 @@ function seedSpend(b: Board, n: number): string {
 	// ledger keys its spend to
 	const sid = `autow1136-${n}`;
 	b.workOk(["take", wId, "--as", sid], "take");
+	// W1136: the live attribution source is the route_audit ledger
+	// (laneRequestSpendRows: ts, lane, in/out/cache tokens) — the old
+	// router_usage⋈api_keys hourly shape no longer joins claims
 	const ledger = join(b.HOME, ".claude/local-llm/buckle.db");
 	mkdirSync(dirname(ledger), { recursive: true });
 	const d = new Database(ledger);
 	d.run(
-		"CREATE TABLE IF NOT EXISTS api_keys (key_id TEXT PRIMARY KEY, name TEXT)",
+		"CREATE TABLE IF NOT EXISTS route_audit (ts TEXT, lane TEXT, model TEXT DEFAULT '', in_tok INTEGER DEFAULT 0, out_tok INTEGER DEFAULT 0, cache_r INTEGER DEFAULT 0, cache_c INTEGER DEFAULT 0, latency_ms INTEGER DEFAULT 0)",
 	);
-	d.run(
-		"CREATE TABLE IF NOT EXISTS router_usage (hour_bucket TEXT, key TEXT, model_group TEXT, model TEXT DEFAULT '', in_tok INTEGER DEFAULT 0, out_tok INTEGER DEFAULT 0, cache_r INTEGER DEFAULT 0, cache_c INTEGER DEFAULT 0, requests INTEGER DEFAULT 0)",
-	);
-	d.run("INSERT OR IGNORE INTO api_keys VALUES (?, ?)", [`k${n}`, sid]);
-	d.run(
-		"INSERT INTO router_usage VALUES (?, ?, 'glm-5.3-flash', 'glm-5.3-flash', 500, 100, 50, 10, 3)",
-		[`${new Date().toISOString().slice(0, 13)}:00`, `k${n}`],
-	);
+	d.run("INSERT INTO route_audit VALUES (?, ?, '', 500, 100, 50, 10, 3)", [
+		new Date().toISOString(),
+		sid,
+	]);
 	d.close();
 	return wId;
 }

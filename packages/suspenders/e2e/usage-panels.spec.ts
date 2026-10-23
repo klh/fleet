@@ -13,7 +13,7 @@ import { expect, test } from "./fixtures";
 // the page's other designed /api/usage/* fallback probes 404 here on
 // purpose (their honest empty-states are the fixture), so those
 // resource-load console lines are declared, URL-scoped, watcher-exempt
-test.use({ watcherAllow404: [/\/api\/usage\//] });
+test.use({ watcherAllow404: /\/api\/(usage\/|theme|console\/me)/ });
 import {
 	copyFileSync,
 	mkdtempSync,

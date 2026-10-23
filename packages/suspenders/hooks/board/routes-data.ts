@@ -194,8 +194,24 @@ export async function handleData(
 	if (url.pathname === "/api/task") {
 		// detail drawer feed: the item, its bus events, its decisions
 		syncDecisions();
-		const p = url.searchParams.get("project") ?? "";
+		let p = url.searchParams.get("project") ?? "";
 		const id = url.searchParams.get("id") ?? "";
+		// legacy #task=<id> deep links carry no ?project (W1136): resolve a
+		// UNIQUE id across projects; ambiguity stays a 404 that names the cure
+		if (!p && id) {
+			const hits = db
+				.query("SELECT project FROM work_items WHERE id = ?")
+				.all(id) as { project: string }[];
+			if (hits.length === 1) p = hits[0].project;
+			else if (hits.length > 1)
+				return json(
+					{
+						ok: false,
+						error: `work item ${id} is ambiguous across projects; pass ?project=`,
+					},
+					404,
+				);
+		}
 		const w = db
 			.query("SELECT * FROM work_items WHERE project = ? AND id = ?")
 			.get(p, id) as WorkItemRow | null;

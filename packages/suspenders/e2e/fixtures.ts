@@ -34,11 +34,13 @@ type TestOptions = {
 	/** console-error texts matching any of these are watcher-exempt (designed
 	 *  noise only — a spec must name its exemptions in its header comment). */
 	watcherIgnore: RegExp[];
-	/** resource-load 404s on URLs matching any of these are watcher-exempt
-	 *  (designed fallback probes on partial stub servers) — the browser's
-	 *  "Failed to load resource" line still requires the wire to have REALLY
-	 *  carried that 404, and every other 404 stays a failure. */
-	watcherAllow404: RegExp[];
+	/** resource-load 404s on URLs matching this are watcher-exempt (designed
+	 *  fallback probes on partial stub servers) — the browser's "Failed to
+	 *  load resource" line still requires the wire to have REALLY carried
+	 *  that 404, and every other 404 stays a failure. PASS A SINGLE REGEX:
+	 *  a 2-element array override reads as Playwright's fixture tuple
+	 *  [value, options] and silently degrades to element 0. */
+	watcherAllow404: RegExp | RegExp[];
 };
 
 type WorkerFixtures = {
@@ -100,6 +102,11 @@ export const test = base.extend<TestFixtures & WorkerFixtures & TestOptions>({
 
 	pageWatcher: [
 		async ({ page, watcherIgnore, watcherAllow404 }, use) => {
+			// single-regex or array override both accepted (see TestOptions —
+			// a 2-element array override collides with PW's fixture tuple form)
+			const allow404 = Array.isArray(watcherAllow404)
+				? watcherAllow404
+				: [watcherAllow404];
 			const pageErrors: string[] = [];
 			const consoleErrors: { text: string; url: string }[] = [];
 			// the W775.1 ent-zone probes /api/entitlements + /api/enterprise at
@@ -137,7 +144,7 @@ export const test = base.extend<TestFixtures & WorkerFixtures & TestOptions>({
 							return false;
 						if (
 							text.includes("status of 404") &&
-							watcherAllow404.some((re) => re.test(url))
+							allow404.some((re) => re.test(url))
 						)
 							return false;
 						return true;

@@ -19,6 +19,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { handleFleetTree } from "../hooks/board/routes-fleet-tree.ts";
 
+// the fleet-tree stub serves ONLY /fleet-tree — the shared klh-topbar's
+// designed probes (/api/theme, /api/theme/events, /api/console/me) 404
+// here on purpose, so those resource-load console lines are declared,
+// URL-scoped, watcher-exempt (W1136)
+test.use({ watcherAllow404: /\/api\/(theme|console\/me)/ });
+
 let BASE = "";
 let HOME = "";
 const stops: { stop: () => void }[] = [];
