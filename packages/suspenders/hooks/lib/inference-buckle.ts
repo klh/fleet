@@ -94,8 +94,10 @@ export interface BuckleChatResult {
 	ct: number;
 }
 
-/** One gated chat call. Throws on absent config or a non-2xx/timed-out gate
- *  (fail closed — the error is the caller's to surface; no solo reroute).
+/** One gated chat call. Throws on absent config, a non-2xx/timed-out gate,
+ *  or a gate that answers with a redirect (W1119.1.1: redirects are refused
+ *  at this boundary — the scoped key and prompt never follow a hop).
+ *  Fail-closed: the error is the caller's to surface; no solo reroute.
  *  Errors carry bounded status + trace identity only — never the upstream
  *  body, which can echo prompt/key material. */
 export async function buckleChat(
@@ -129,6 +131,13 @@ export async function buckleChat(
 			`${base.origin}${openai ? BUCKLE_CHAT_PATH : BUCKLE_MESSAGES_PATH}`,
 			{
 				method: "POST",
+				// W1119.1.1 redirect boundary: a 3xx from the gate is never
+				// followed. A cross-origin hop would carry the scoped bksk_
+				// key (authorization + x-api-key) and the prompt to an
+				// attacker sink and accept its answer as Buckle's; redirect:
+				// "error" fails closed through the same catch/error semantics
+				// as an unreachable gate.
+				redirect: "error",
 				headers: inferenceHeaders({
 					token,
 					wire,

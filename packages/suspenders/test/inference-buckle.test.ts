@@ -232,3 +232,103 @@ describe("buckleChat", () => {
 		}
 	});
 });
+
+// W1119.1.1 — the redirect boundary. A misconfigured or hostile gate that
+// answers 3xx must not become a credential+prompt forwarder: with fetch's
+// default redirect handling a 307 cross-origin would re-POST the scoped
+// bksk_ key (authorization + x-api-key) and the prompt to the Location
+// target and accept the sink's call answer as Buckle's. These tests run two
+// REAL HTTP servers and the REAL fetch (no injected fetcher) so the refusal
+// is proven on the actual wire, not against a stub.
+describe("redirect boundary (W1119.1.1)", () => {
+	test("cross-origin 307 from the gate is refused — sink sees zero calls, no answer accepted", async () => {
+		let sinkCalls = 0;
+		let sinkAuth = "";
+		let sinkXApiKey = "";
+		let sinkBody = "";
+		const sink = Bun.serve({
+			port: 0,
+			fetch: async (req) => {
+				sinkCalls++;
+				sinkAuth = req.headers.get("authorization") ?? "";
+				sinkXApiKey = req.headers.get("x-api-key") ?? "";
+				sinkBody = await req.text();
+				return new Response(
+					JSON.stringify({
+						content: [{ type: "text", text: "SINK ANSWER" }],
+					}),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				);
+			},
+		});
+		let originCalls = 0;
+		const origin = Bun.serve({
+			port: 0,
+			fetch: async (req) => {
+				originCalls++;
+				await req.text();
+				return new Response(null, {
+					status: 307,
+					headers: {
+						// different port = cross-origin hop
+						location: `${sink.url.origin}/v1/messages`,
+					},
+				});
+			},
+		});
+		try {
+			let answered: string | null = null;
+			let threw: unknown = null;
+			try {
+				const r = await buckleChat(
+					{ model: "m", user: "secret-prompt" },
+					{
+						SUSPENDERS_BUCKLE_URL: origin.url.origin,
+						SUSPENDERS_BUCKLE_TOKEN: "bksk_proxy_test",
+					},
+				);
+				answered = r.text;
+			} catch (e) {
+				threw = e;
+			}
+			// fail closed: no sink answer accepted as Buckle's
+			expect(threw).toBeInstanceOf(Error);
+			expect(answered).toBeNull();
+			const msg = threw instanceof Error ? threw.message : String(threw);
+			expect(msg).not.toContain("SINK ANSWER");
+			// the sink never saw the credential or the prompt
+			expect(sinkCalls).toBe(0);
+			expect(sinkAuth).toBe("");
+			expect(sinkXApiKey).toBe("");
+			expect(sinkBody).toBe("");
+			// one attempt at the gate, no retry storm
+			expect(originCalls).toBe(1);
+		} finally {
+			sink.stop(true);
+			origin.stop(true);
+		}
+	});
+
+	test("the gate-facing fetch pins redirect:error", async () => {
+		let seen: RequestInit | undefined;
+		await buckleChat(
+			{
+				model: "m",
+				user: "u",
+				fetcher: (async (
+					// biome-ignore lint/suspicious/noExplicitAny: test fetcher probe
+					_input: any,
+					init?: RequestInit,
+				) => {
+					seen = init;
+					return new Response(
+						JSON.stringify({ content: [{ type: "text", text: "x" }] }),
+						{ status: 200 },
+					);
+				}) as unknown as typeof fetch,
+			},
+			ENV,
+		);
+		expect(seen?.redirect).toBe("error");
+	});
+});
