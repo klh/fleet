@@ -3,12 +3,12 @@
 // x-klh-refusal). Spawns the real :4000 shim and walks the early paths —
 // no upstream needed for 404, health, or bad-json.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { routerRuntimeRevision } from "../bin/router-runtime-revision.ts";
+import { freePort, scratchWorld, waitUp } from "../../test-kit/src/index.ts";
 
-const home = mkdtempSync(join(tmpdir(), "w1081-router-"));
+const { home, env, clean } = scratchWorld({ prefix: "w1081-router-" });
 mkdirSync(join(home, ".claude", "local-llm"), { recursive: true });
 mkdirSync(join(home, ".claude-insights"), { recursive: true });
 writeFileSync(
@@ -16,16 +16,7 @@ writeFileSync(
 	JSON.stringify({ allow_cloud: false, cost_speed: "balanced" }),
 );
 
-const port = (() => {
-	const server = Bun.serve({
-		port: 0,
-		hostname: "127.0.0.1",
-		fetch: () => new Response(),
-	});
-	const free = server.port;
-	server.stop(true);
-	return free;
-})();
+const port = await freePort();
 const base = `http://127.0.0.1:${port}`;
 let proc: Bun.Subprocess<"ignore", "ignore", "pipe">;
 
@@ -34,27 +25,19 @@ beforeAll(async () => {
 		["bun", new URL("../bin/router-shim.ts", import.meta.url).pathname],
 		{
 			env: {
-				...process.env,
-				HOME: home,
+				...env,
 				BELT_ROUTER_PORT: String(port),
 			},
 			stdout: "ignore",
 			stderr: "pipe",
 		},
 	);
-	for (let attempt = 0; attempt < 100; attempt++) {
-		try {
-			if ((await fetch(`${base}/health`)).ok) return;
-		} catch {
-			// Waiting for the child to bind.
-		}
-		await Bun.sleep(50);
-	}
-	throw new Error("router did not start");
+	await waitUp(`${base}/health`);
 });
 
 afterAll(() => {
 	proc?.kill();
+	clean();
 });
 
 test("W1081 chain-walk: unknown path → 404 attributed to belt ingress", async () => {

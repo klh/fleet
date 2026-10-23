@@ -9,10 +9,14 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import YAML from "yaml";
+import { freePort, scratchWorld } from "../../test-kit/src/index.ts";
 import { startServer } from "../../buckle/src/server.ts";
 
 test("the real gateway generator enables cancellation in private YAML without changing authentication", async () => {
-	const home = mkdtempSync("/tmp/gateway-cancel-config-");
+	const { home, env, clean } = scratchWorld({
+		dir: "/tmp",
+		prefix: "gateway-cancel-config-",
+	});
 	try {
 		const runtime = join(home, ".claude", "local-llm");
 		mkdirSync(runtime, { recursive: true });
@@ -29,8 +33,7 @@ test("the real gateway generator enables cancellation in private YAML without ch
 		);
 		const proc = Bun.spawn([process.execPath, entry], {
 			env: {
-				...process.env,
-				HOME: home,
+				...env,
 				BELT_POLICY: new URL("../bin/routing-policy.yaml", import.meta.url)
 					.pathname,
 			},
@@ -47,7 +50,7 @@ test("the real gateway generator enables cancellation in private YAML without ch
 		expect(config.general_settings.master_key).toBe("os.environ/LITELLM_KEY");
 		expect(statSync(output).mode & 0o777).toBe(0o600);
 	} finally {
-		rmSync(home, { recursive: true, force: true });
+		clean();
 	}
 });
 
@@ -59,12 +62,6 @@ test("actual LiteLLM cancels pre-header provider work only when disconnect handl
 		);
 	const dir = mkdtempSync("/tmp/litellm-cancel-");
 	const pause = (ms: number) => Bun.sleep(ms);
-	const port = () => {
-		const s = Bun.serve({ port: 0, fetch: () => new Response() });
-		const p = s.port;
-		s.stop(true);
-		return p;
-	};
 	const results = [];
 	for (const enabled of [false, true]) {
 		let active = 0,
@@ -140,7 +137,7 @@ test("actual LiteLLM cancels pre-header provider work only when disconnect handl
 				});
 			},
 		});
-		const proxyPort = port();
+		const proxyPort = await freePort();
 		const config = `${dir}/proxy-${enabled}.yaml`;
 		writeFileSync(
 			config,
