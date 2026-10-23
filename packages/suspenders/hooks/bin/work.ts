@@ -41,7 +41,7 @@ import {
 import { itemAttribution, renderAttribution } from "../lib/lane-spend.ts";
 import { triggerMergeOnDone } from "../lib/merge-on-done.ts";
 import { preferTagFor } from "../lib/prefer.ts";
-import { writeReportArtifact } from "../lib/report-html.ts";
+import { attachCloseReport, regenReport } from "../lib/work-report-cli.ts";
 import {
 	claimantLanes,
 	matchingClaimantLane,
@@ -962,33 +962,18 @@ const dispatchVerb = async (
 		// detached flush waits out this lane's exit and merges seconds later,
 		// instead of at the next watch cycle. Manual closes (no lane entry) skip.
 		triggerMergeOnDone(projectRootOf(PROJECT), id);
-		// W1199: a lane closing with review-shaped output (audits, reviews,
-		// investigations) may attach a single-file HTML report — the lane writes
-		// the markdown DATA, the generator fills the shell. The artifact is a
-		// view under .fleet/reports/; the markdown ledger stays authoritative.
+		// W1199: review-shaped closes may attach a single-file HTML report
+		// (advisory — a broken artifact never fails closure; work-report-cli.ts).
 		const reportMd = flag("--report");
-		if (reportMd) {
-			try {
-				const artifact = writeReportArtifact({
-					project: PROJECT,
-					item: id,
-					title: String(it.title ?? id),
-					markdown: await Bun.file(reportMd).text(),
-					sha: record?.commit_sha ?? sha ?? null,
-					source: reportMd,
-				});
-				emit("work.report", id, {
-					sha256: artifact.sha256,
-					bytes: String(artifact.bytes),
-					note: "HTML view of the markdown record",
-				});
-				console.log(`${green("▸")} report → ${artifact.path}`);
-			} catch (error) {
-				console.error(
-					`report artifact failed (closure stands): ${error instanceof Error ? error.message : String(error)}`,
-				);
-			}
-		}
+		if (reportMd)
+			await attachCloseReport({
+				db: db(),
+				project: PROJECT,
+				item: id,
+				title: String(it.title ?? id),
+				mdPath: reportMd,
+				sha: record?.commit_sha ?? sha ?? null,
+			});
 		// Curation is advisory and runs after the durable completion transaction.
 		// A cold or unavailable Kev cannot reopen or lose completed work (the
 		// block lives in lib/completion-curation.ts — W1199 decomposition).
@@ -1001,6 +986,23 @@ const dispatchVerb = async (
 			sid: String(it.owner_sid ?? as ?? ""),
 			project: PROJECT,
 		});
+	} else if (name === "report-regen") {
+		// W1199 post-close face (`report` is the W892 supervisor table) — strict.
+		const id = pos[0];
+		const it = get(id ?? "");
+		if (it.state !== "DONE" && it.state !== "SUPERSEDED")
+			die(`${String(id)} is ${String(it.state)} — needs DONE/SUPERSEDED`);
+		const mdPath = flag("--file");
+		if (!mdPath) die("usage: report-regen <id> --file <md-file> [--sha <sha>]");
+		const artifact = await regenReport({
+			db: db(),
+			project: PROJECT,
+			item: String(id),
+			title: String(it.title ?? id),
+			mdPath: mdPath,
+			sha: flag("--sha") ?? (it.result_sha as string | null),
+		});
+		console.log(`${green("▸")} report → ${artifact.path}`);
 	} else if (name === "fail") {
 		const id = pos[0];
 		const note = flag("--note") ?? "";

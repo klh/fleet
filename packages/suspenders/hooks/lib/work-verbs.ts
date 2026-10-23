@@ -107,7 +107,7 @@ export const VERBS: VerbSpec[] = [
 		name: "done",
 		usage:
 			"usage: done <id> [--as sid] --sha <sha> [--summary paragraph] [--spend fresh=N,cache=N,out=N,model=<group>] [--report md-file]",
-		flags: [...ITEM_FLAGS, "--summary", "--spend"],
+		flags: [...ITEM_FLAGS, "--summary", "--spend", "--report"],
 		minPos: 1,
 	}),
 	defineVerb({
@@ -224,5 +224,12 @@ export const VERBS: VerbSpec[] = [
 		usage:
 			"usage: report [--ids w1,w2] [--done-window 2d] — the supervisor micro-metrics table (ITEM/ST/TASK/TOKENS/CACHE/OUT-MIN/AGENT); rows = riding+queued+recent-done (default window 48h) or strict --ids",
 		flags: ["--ids", "--done-window"],
+	}),
+	defineVerb({
+		name: "report-regen",
+		usage:
+			"usage: report-regen <id> --file <md-file> [--sha <sha>] — (re)generate the single-file HTML report view of a DONE/SUPERSEDED item's markdown record (W1199); the graph gets a work.report provenance event, the artifact lands under .fleet/reports/",
+		flags: [...ITEM_FLAGS, "--file", "--sha"],
+		minPos: 1,
 	}),
 ];

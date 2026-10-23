@@ -7,7 +7,7 @@
 // (centralized-ledger law). Generated static file, not a component: the Lit
 // DOM-ownership law is untouched.
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { projectRootOf } from "./govdb-project.ts";
 
@@ -64,9 +64,7 @@ export function reportRecordFor(
 		.get(project, id) as { payload: string | null } | null;
 	if (!row?.payload) return null;
 	const ev = JSON.parse(row.payload) as { sha256?: string };
-	return typeof ev.sha256 === "string"
-		? { sha256: ev.sha256, ts: 0 }
-		: null;
+	return typeof ev.sha256 === "string" ? { sha256: ev.sha256, ts: 0 } : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -97,7 +95,9 @@ export function esc(s: string): string {
 // text, so the url can carry no quotes; only http(s) or same-page anchors.
 function inline(s: string): string {
 	let out = s.replace(/\[([A-Z]+)\]/g, (m, word: string) =>
-		SEVERITY.has(word) ? `<span class="sev sev-${word.toLowerCase()}">${word}</span>` : m,
+		SEVERITY.has(word)
+			? `<span class="sev sev-${word.toLowerCase()}">${word}</span>`
+			: m,
 	);
 	out = out.replace(/`([^`]+)`/g, (_m, code: string) => `<code>${code}</code>`);
 	out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
@@ -165,7 +165,9 @@ function parseBlocks(md: string): Block[] {
 			// the `---` separator row (if present) is the header, not data
 			const sep = rows.findIndex((r) => r.every((c) => /^:?-{2,}:?$/.test(c)));
 			const head = sep > 0 ? rows[sep - 1] : null;
-			const data = rows.filter((_r, n) => sep < 0 || n !== sep && n !== sep - 1);
+			const data = rows.filter(
+				(_r, n) => sep < 0 || (n !== sep && n !== sep - 1),
+			);
 			blocks.push({ kind: "table", head: head ?? [], rows: data });
 			continue;
 		}
@@ -207,11 +209,11 @@ function renderCode(block: Extract<Block, { kind: "code" }>): string {
 		const rows = block.lines
 			.map((l) => {
 				const cls = l.startsWith("+")
-					? " add"
+					? "add"
 					: l.startsWith("-")
-						? " del"
+						? "del"
 						: l.startsWith("@@")
-							? " hunk"
+							? "hunk"
 							: "";
 				return `<tr class="d${cls}"><td>${
 					cls ? esc(l.slice(0, 1)) : ""
@@ -238,9 +240,7 @@ function renderBlocks(blocks: Block[]): {
 				toc.push({ id, text: b.text });
 				parts.push(`<h2 id="${id}">${inline(esc(b.text))}</h2>`);
 			} else {
-				parts.push(
-					`<h${b.level}>${inline(esc(b.text))}</h${b.level}>`,
-				);
+				parts.push(`<h${b.level}>${inline(esc(b.text))}</h${b.level}>`);
 			}
 			continue;
 		}
@@ -263,9 +263,7 @@ function renderBlocks(blocks: Block[]): {
 			const rows = b.rows
 				.map(
 					(r) =>
-						`<tr>${r
-							.map((c) => `<td>${inline(esc(c))}</td>`)
-							.join("")}</tr>`,
+						`<tr>${r.map((c) => `<td>${inline(esc(c))}</td>`).join("")}</tr>`,
 				)
 				.join("");
 			parts.push(`<table class="data">${head}<tbody>${rows}</tbody></table>`);
@@ -327,7 +325,9 @@ export function renderReportHtml(meta: ReportMeta, markdown: string): string {
 				.map((t) => `<li><a href="#${t.id}">${esc(t.text)}</a></li>`)
 				.join("")}</ol></nav>`
 		: "";
-	const shaBit = meta.sha ? ` · close <code>${esc(meta.sha.slice(0, 12))}</code>` : "";
+	const shaBit = meta.sha
+		? ` · close <code>${esc(meta.sha.slice(0, 12))}</code>`
+		: "";
 	const srcBit = meta.source
 		? ` · source <code>${esc(meta.source)}</code>`
 		: "";
@@ -378,4 +378,71 @@ export function writeReportArtifact(args: {
 		bytes: Buffer.byteLength(html),
 		sha256: createHash("sha256").update(html).digest("hex"),
 	};
+}
+
+// Render + persist + stamp: the ONE report entry both faces share —
+// `work done --report <md>` at close time and `work report <id> --file <md>`
+// for a closed item (regeneration without re-closing). Inserts the same
+// work.report event the done-path stamps (the trigger shreds project/work
+// columns from the payload, same as every emitter).
+export async function emitReportFromMd(args: {
+	db: { query: (sql: string) => { run: (...p: unknown[]) => unknown } };
+	project: string;
+	item: string;
+	title: string;
+	mdPath: string;
+	sha?: string | null;
+}): Promise<{ path: string; bytes: number; sha256: string }> {
+	const markdown = await Bun.file(args.mdPath).text();
+	const artifact = writeReportArtifact({
+		project: args.project,
+		item: args.item,
+		title: args.title,
+		markdown: markdown,
+		sha: args.sha ?? null,
+		source: args.mdPath,
+	});
+	args.db
+		.query(
+			"INSERT INTO events (ts, source, kind, scope, payload, target) SELECT ?, 'work', 'work.report', scope, ?, NULL FROM work_items WHERE project = ? AND id = ?",
+		)
+		.run(
+			Date.now(),
+			JSON.stringify({
+				work: args.item,
+				project: args.project,
+				sha256: artifact.sha256,
+				bytes: artifact.bytes,
+				note: "HTML view of the markdown record",
+			}),
+			args.project,
+			args.item,
+		);
+	return artifact;
+}
+
+// Pure board-serving face (routes-reports.ts wraps it with the live db): the
+// artifact path is DERIVED (never taken from the event payload) — a report
+// route can only ever serve the item's own .fleet/reports/<id>.html. Returns
+// null for unknown items, missing artifacts, or malformed ids (the caller 404s).
+export function serveReport(
+	gov: Parameters<typeof reportRecordFor>[0],
+	project: string,
+	id: string,
+): Response | null {
+	if (!project || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) return null;
+	const rec = reportRecordFor(gov, project, id);
+	if (!rec) return null;
+	const path = reportArtifactPath(projectRootOf(project), id);
+	if (!existsSync(path)) return null;
+	try {
+		const headers: Record<string, string> = {
+			"content-type": "text/html; charset=utf-8",
+			"x-content-type-options": "nosniff",
+			"cache-control": "no-store",
+		};
+		return new Response(readFileSync(path, "utf8"), { headers: headers });
+	} catch {
+		return null;
+	}
 }
