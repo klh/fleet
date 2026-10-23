@@ -367,7 +367,12 @@ export class Router {
 		const live = this.deps.pool
 			.deployments(tier)
 			.filter((d) => !this.cooldowns.benched(d));
-		const same = live.filter((d) => d.dialect === req.dialect);
+		// W1124.27: same-dialect is no longer auto-eligible — a chatgpt rung
+		// whose body the native bridge refuses is skipped like any
+		// unbridgeable hop (skip-not-fail), falling to the next rung verbatim.
+		const same = live.filter(
+			(d) => d.dialect === req.dialect && bridgeRequest(req, d) !== null,
+		);
 		const cross = live.filter(
 			(d) => d.dialect !== req.dialect && bridgeRequest(req, d) !== null,
 		);
@@ -390,7 +395,11 @@ export class Router {
 		const wireReq = bridgeRequest(req, dep);
 		if (wireReq === null)
 			throw new UpstreamError(502, `upstream ${dep.url} not bridgeable`);
-		const bridged = wireReq !== req;
+		// W1124.27: "bridged" means the DIALECT changed — a same-dialect body
+		// normalize (chatgpt seam) returns a new req object but the response
+		// speaks this dialect, so it must not be re-framed or its refusals
+		// re-attributed as bridge artifacts.
+		const bridged = wireReq.dialect !== req.dialect;
 		// W1078: admission at the selected-attempt seam — after bridge
 		// eligibility, before the fetch. The queue wait is capped by the
 		// remaining walk budget (deadlines only shrink); a granted lease

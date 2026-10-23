@@ -17,8 +17,9 @@ import {
 	responseAnthropicToOpenAI,
 	responseOpenAIToAnthropic,
 } from "./adapters/tools.ts";
-import { SSE_KEEPALIVE } from "./sse.ts";
+import { chatgptSafeBody, isChatgptGroupModel } from "./chatgpt-bridge.ts";
 import type { UpstreamRequest } from "./router.ts";
+import { SSE_KEEPALIVE } from "./sse.ts";
 import type { Deployment, Dialect } from "./upstreams.ts";
 
 type AnyRec = Record<string, unknown>;
@@ -36,7 +37,21 @@ export function bridgeRequest(
 	req: UpstreamRequest,
 	dep: Deployment,
 ): UpstreamRequest | null {
-	if (dep.dialect === req.dialect) return req;
+	if (dep.dialect === req.dialect) {
+		// The native ChatGPT converter extracts only a leading string SYSTEM
+		// prefix. Normalize equivalent text shapes, preserving roles/order;
+		// unsupported instruction shapes make this rung ineligible and the
+		// walk falls back verbatim (skip-not-fail, W426 law).
+		if (
+			req.dialect === "openai" &&
+			req.path === PATH.openai &&
+			isChatgptGroupModel(dep.model ?? req.group)
+		) {
+			const body = chatgptSafeBody(req.body);
+			return body === null ? null : { ...req, body };
+		}
+		return req;
+	}
 	if (req.path !== PATH[req.dialect]) return null; // count_tokens etc.
 	if (req.dialect === "anthropic") {
 		const t = requestAnthropicToOpenAI(req.body);

@@ -915,3 +915,13 @@ W1124.40 central-join followup: 13 tests / 45 assertions passed in 246 ms,
 including actual HTTP transport-evidence retrieval through the canonical remote
 connector and a controlled delayed-fetch cancellation/timer race. The controlled
 race is a scheduling test; it is not evidence of provider-side cancellation.
+
+# W1124.27.1 - native instruction-order refusal
+
+The installed LiteLLM converter was exercised offline with synthetic inputs:
+`developer/system/user` and `system/developer/system/user` retain a forbidden
+system-role input item; its full request transform also emits one for all-system
+input. The local HTTP gate regression now mirrors those converter boundaries,
+asserts raw fixture refusal, zero additional ChatGPT fetches and verbatim fallback.
+The correction preserves supported leading instruction order and tool turns;
+it does not demonstrate new provider capacity or model quality.
