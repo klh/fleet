@@ -73,12 +73,17 @@ decision-grade: it has to change what you would do. When a verdict flips
 
 ## Context / token economy
 
-- **Quoting a context A/B before the AFTER arm accrues** — W1138: the
-  rightsizing lands ON the fleet, so no lane can run rightsized law text
-  before the landing commit; a same-day before/after is structurally
-  impossible. context-rightsizing-ab.ts answers `AFTER ARM PENDING` and
-  refuses a verdict until AFTER n ≥ 10, and the zero-out attribution mass
-  floors med_out_per_min (0*) — both read as floors, never rates. See
+- **Quoting a context A/B from cohort bookkeeping alone** — W1138, twice
+  over: (1) the rightsizing lands ON the fleet, so no lane runs rightsized
+  law text before the landing commit AND before root deploys it as the
+  live instruction surface — until then every "AFTER" lane is unexposed;
+  (2) close-time membership with a DONE/FAILED-only cohort renders
+  survivorship completion (the 2026-10-22 bank printed 100% while 29
+  churned items were invisible). context-rightsizing-ab.ts now cohorts by
+  last-claim instant (the exposure proxy), counts churn against
+  completion, prints `ARMS MEASURED` at AFTER n ≥ 10 and never declares
+  the arms comparable; the zero-out attribution mass still floors
+  med_out_per_min (0*) — all floors, never rates. See
   [W1138 arms](benchmarks.md#context-engineering-rightsizing--ledger-ab-arms-w1138-2026-10-22).
 - **W960 self-improvement on the pinned local GLM/Claude route** — the
   2026-10-20 AC smoke generated a candidate but both arms failed all three

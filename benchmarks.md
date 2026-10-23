@@ -850,19 +850,27 @@ prompt >80% with no coding-eval loss; W1138 applied the
 delete-rules-for-judgement pass to fleet's AGENTS.md stack (1136→597 lines
 across the root + 5 package files; secrets/scrub/config-over-code laws kept)
 and landed `packages/suspenders/scripts/context-rightsizing-ab.ts` as the
-comparison instrument: arms = DONE/FAILED items closing in the 72h windows
-on either side of the landing commit `ba6f85c0`, spend via the W776
-attribution. Alternatives: old-rules law text vs rightsized rules — this
-row decides nothing until the AFTER arm holds ≥10 closed lanes.
+measurement instrument. Cohort = items whose LAST claim falls in the 72h
+windows on either side of the landing commit `ba6f85c0` (claim instant =
+the exposure proxy — a close time is not: a lane briefed pre-change can
+close post-change), spend via the W776 attribution. Alternatives:
+old-rules law text vs rightsized rules — this row decides nothing until
+the rightsized text is the fleet's live instruction surface (root-owned
+deploy) AND a post-exposure arm accrues ≥10 lanes; until both hold the
+arms are measured, not comparable.
 
-| Arm | n | completion | med tokens/lane | med cache share | med out/min | agent hours | done/failed |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| BEFORE (2026-10-19T17:29Z → landing 2026-10-22T17:29:40Z) | 318 | 100% | 7.6M | 96% | 0* | 384.5 | 318/0 |
-| AFTER (accruing) | 0 at landing | — | — | — | — | 0.0 | 0/0 |
+| Arm (point-in-time 2026-10-23 ~13:00 CET) | n | completion | churn | med tokens/lane | med cache share | med out/min | agent hours | done/failed |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| BEFORE (2026-10-19T17:29Z → landing 2026-10-22T17:29:40Z) | 339 | 91% | 29 | 7.6M | 96% | 0* | 1117.7 | 310/0 |
+| AFTER (not yet exposure-matched — text not deployed) | 156 | 70% | 45 | 11.0M | 91% | 20 | 3592.5 | 109/2 |
 
-\* floor, not a rate: 164/308 measured rows carry out=0 attribution
-(W943.1 cache-floor convention; positive-rows median ~1,450/min). The
-AFTER arm structurally cannot exist at landing — no lane runs rightsized
-text before the commit. Re-run later with
+\* floor, not a rate (W943.1 cache-floor convention). Completion
+denominators include churn — claimed items released, reclaimed, or still
+running count against DONE, so no survivorship 100%. The first table row
+predates the review fix: the 2026-10-22 bank (n=318, completion=100%,
+done/failed only) was a close-time survivorship cohort — superseded here,
+kept as the documented anti-pattern. Re-run with
 `bun packages/suspenders/scripts/context-rightsizing-ab.ts --landing 2026-10-22T19:29:40+02:00`;
-it prints `A/B COMPARABLE` only at AFTER n ≥ 10.
+the tool prints `ARMS MEASURED` at AFTER n ≥ 10 and never declares the
+arms comparable — matched state mix + exposure discipline is judged, not
+computed.

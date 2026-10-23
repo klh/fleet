@@ -1,15 +1,20 @@
 #!/usr/bin/env bun
 // scripts/context-rightsizing-ab.ts — W1138 context-rightsizing A/B arms.
 // The W1138 rightsizing pass has a landing instant; the fleet ledger
-// (W776 attribution) measures lanes closed BEFORE it (old rule text) and
-// AFTER it (rightsized text) — task completion, token burn per lane, cache
+// (W776 attribution) measures lanes CLAIMED before it (old rule text) and
+// after it (rightsized text) — task completion, token burn per lane, cache
 // share, output rate. Report tool: exit 0 always; the AFTER arm reports
-// PENDING until it holds --min-n lanes, so nobody quotes a 3-lane arm as a
-// verdict. No dispatch, no mutation.
+// PENDING until it holds --min-n exposure-matched lanes. Cohort = items
+// whose LAST claim falls in the arm window (the brief is minted at claim
+// time — close time is NOT exposure), ALL states in the denominator, churn
+// counted against completion. The tool reports arms; it never declares an
+// A/B verdict comparable.
 // usage: bun packages/suspenders/scripts/context-rightsizing-ab.ts
 //        --landing <iso> [--min-n 10] [--window-hours 72]
 import { itemAttribution } from "../hooks/lib/lane-spend.ts";
+import { claimWindows } from "../hooks/lib/work-timing.ts";
 import { openGovernorDb, projectIdentity } from "../hooks/lib/govdb.ts";
+import { defineVerb, renderVerbHelp, runCli } from "../hooks/lib/verb-kit.ts";
 
 /** One lane's attributed spend, normalized for arm math. */
 export interface LaneArmRow {
@@ -26,6 +31,18 @@ export interface ArmStats {
 	medianCacheShare: number | null;
 	medianOutPerMin: number | null;
 	agentHours: number;
+}
+
+/** Per-arm cohort outcome: full claim-cohort accounting — churn (claimed,
+ *  not yet DONE/FAILED: released, reclaimed, still running) counts against
+ *  completion. A DONE/(DONE+FAILED) survivorship rate is exactly the lie
+ *  the independent review rejected (100% while churn exists). */
+export interface CohortOutcome {
+	rows: LaneArmRow[];
+	agentMsTotal: number;
+	done: number;
+	failed: number;
+	churn: number;
 }
 
 const median = (xs: number[]): number | null => {
@@ -66,111 +83,123 @@ export const zeroOutShare = (rows: LaneArmRow[]): number => {
 	return vals.filter((v) => v === 0).length / vals.length;
 };
 
-interface DoneItem {
-	id: string;
-	title: string;
-	state: string;
-	updated_at: number;
+interface AttributionLike {
+	fresh: number;
+	cached: number;
+	out: number;
+	agentMs: number;
 }
 
-/** Pull one arm: DONE/FAILED items closing inside [from, to), joined to the
- *  W776 attribution as of the arm boundary. */
-export const armRows = (
-	db: import("bun:sqlite").Database,
-	project: string,
+/** Build one arm from the exposure-matched cohort. Membership = the item's
+ *  LAST claim instant falls in [from, to) — the brief the closing lane read
+ *  was minted at claim time, so claim-instant is the exposure proxy (an
+ *  item's close time is NOT exposure: a lane briefed pre-change can close
+ *  post-change). Every state is in the cohort; churn counts against
+ *  completion. Pure over replayed inputs — tests pin this. */
+export const cohortArm = (
+	lastClaims: { work: string; lastClaim: number }[],
+	states: Map<string, string>,
+	attr: Map<string, AttributionLike>,
 	from: number,
 	to: number,
-): {
-	rows: LaneArmRow[];
-	agentMsTotal: number;
-	done: number;
-	failed: number;
-} => {
-	const attr = itemAttribution(db, project, to);
-	const items = db
-		.query(
-			`SELECT id, title, state, updated_at FROM work_items
-			 WHERE project = ? AND state IN ('DONE','FAILED')
-			 AND updated_at >= ? AND updated_at < ?`,
-		)
-		.all(project, from, to) as DoneItem[];
+): CohortOutcome => {
 	let agentMsTotal = 0;
 	let done = 0;
 	let failed = 0;
+	let churn = 0;
 	const rows: LaneArmRow[] = [];
-	for (const it of items) {
-		if (it.state === "DONE") done += 1;
-		else failed += 1;
-		const a = attr.get(it.id);
+	for (const { work, lastClaim } of lastClaims) {
+		if (lastClaim < from || lastClaim >= to) continue;
+		const state = states.get(work) ?? "READY";
+		if (state === "DONE") done += 1;
+		else if (state === "FAILED") failed += 1;
+		else churn += 1;
+		const a = attr.get(work);
 		if (a) agentMsTotal += a.agentMs;
 		const tokens = (a?.fresh ?? 0) + (a?.cached ?? 0);
 		rows.push({
-			work: it.id,
+			work,
 			tokens,
 			cacheShare: tokens > 0 ? (a?.cached ?? 0) / tokens : null,
 			outPerMin: a && a.agentMs > 0 ? a.out / (a.agentMs / 60_000) : null,
 		});
 	}
-	return { rows, agentMsTotal, done, failed };
+	return { rows, agentMsTotal, done, failed, churn };
 };
 
-const usage = (): void => {
-	console.log(
-		"usage: context-rightsizing-ab.ts --landing <iso> [--min-n 10] [--window-hours 72]",
-	);
-};
-
-const main = (): number => {
-	const args = process.argv.slice(2);
-	let landing = "";
-	let minN = 10;
-	let windowHours = 72;
-	for (let i = 0; i < args.length; i += 2) {
-		const flag = args[i];
-		const v = args[i + 1];
-		if (flag === "--landing" && typeof v === "string") landing = v;
-		else if (flag === "--min-n" && typeof v === "string") minN = Number(v);
-		else if (flag === "--window-hours" && typeof v === "string")
-			windowHours = Number(v);
+/** The arm's last-claim instants, replayed from the bus (lib/work-timing).
+ *  An item with no claim events (auto-rollup parents) never joins a cohort. */
+export const lastClaims = (
+	db: import("bun:sqlite").Database,
+	project: string,
+): { work: string; lastClaim: number }[] => {
+	const { windows } = claimWindows(db, project);
+	const out: { work: string; lastClaim: number }[] = [];
+	for (const [work, ws] of windows) {
+		let last = 0;
+		for (const w of ws) if (w.start > last) last = w.start;
+		if (last > 0) out.push({ work, lastClaim: last });
 	}
-	if (!landing || Number.isNaN(minN) || Number.isNaN(windowHours)) {
-		usage();
+	return out;
+};
+
+/** Verdict line. Below the floor: PENDING, quote nothing. At the floor:
+ *  MEASURED — the tool reports; comparability (matched state mix, equal
+ *  exposure discipline) is judged by the reader, never declared by n alone. */
+export const armVerdict = (afterN: number, minN: number): string =>
+	afterN < minN
+		? `AFTER ARM PENDING (n=${afterN} < ${minN}) — accrues as post-landing lanes claim; quote neither arm until then`
+		: `ARMS MEASURED (AFTER n=${afterN} ≥ ${minN}) — report only: comparability needs matched state mix + exposure discipline; judge it, the tool does not declare it`;
+
+export const spec = defineVerb({
+	name: "context-rightsizing-ab",
+	usage:
+		"usage: context-rightsizing-ab.ts --landing <iso> [--min-n 10] [--window-hours 72]",
+	flags: ["--landing", "--min-n", "--window-hours"],
+	reqFlags: ["--landing"],
+});
+
+const main = (p: { flag: (n: string) => string | null }): number => {
+	const landing = p.flag("--landing") ?? "";
+	const minN = Number(p.flag("--min-n") ?? "10");
+	const windowHours = Number(p.flag("--window-hours") ?? "72");
+	if (Number.isNaN(minN) || Number.isNaN(windowHours) || minN < 1) {
+		console.error(
+			`context-rightsizing-ab: --min-n/--window-hours must be numbers (min-n ≥ 1), got ${p.flag("--min-n")} / ${p.flag("--window-hours")}`,
+		);
+		console.error(renderVerbHelp(spec));
 		return 1;
 	}
 	const landingMs = Date.parse(landing);
 	if (Number.isNaN(landingMs)) {
-		usage();
+		console.error(
+			`context-rightsizing-ab: --landing must be an ISO instant, got "${landing}"`,
+		);
+		console.error(renderVerbHelp(spec));
 		return 1;
 	}
 	const db = openGovernorDb();
 	const project = projectIdentity();
-	const before = armRows(
-		db,
-		project,
-		landingMs - windowHours * 3_600_000,
-		landingMs,
+	const claims = lastClaims(db, project);
+	const states = new Map(
+		(
+			db
+				.query("SELECT id, state FROM work_items WHERE project = ?")
+				.all(project) as { id: string; state: string }[]
+		).map((r) => [r.id, r.state]),
 	);
-	const after = armRows(
-		db,
-		project,
-		landingMs,
-		landingMs + windowHours * 3_600_000,
-	);
-	const render = (
-		name: string,
-		s: ArmStats,
-		done: number,
-		failed: number,
-		rows: LaneArmRow[],
-	): string => {
-		const pct = (v: number | null, mul = 1): string =>
-			v === null ? "-" : `${Math.round(v * 100 * mul)}`;
-		const completion =
-			done + failed > 0 ? Math.round((done / (done + failed)) * 100) : -1;
+	const arm = (from: number, to: number): CohortOutcome =>
+		cohortArm(claims, states, itemAttribution(db, project, to), from, to);
+	const before = arm(landingMs - windowHours * 3_600_000, landingMs);
+	const after = arm(landingMs, landingMs + windowHours * 3_600_000);
+	const render = (name: string, s: ArmStats, c: CohortOutcome): string => {
+		const pct = (v: number | null): string =>
+			v === null ? "-" : `${Math.round(v * 100)}`;
+		const completion = s.n > 0 ? Math.round((c.done / s.n) * 100) : -1;
 		const outMin =
 			s.medianOutPerMin === null
 				? "-"
-				: `${Math.round(s.medianOutPerMin)}${zeroOutShare(rows) > 0.5 ? "*" : ""}`;
+				: `${Math.round(s.medianOutPerMin)}${zeroOutShare(c.rows) > 0.5 ? "*" : ""}`;
 		return [
 			name.padEnd(8),
 			`n=${String(s.n).padStart(3)}`,
@@ -179,33 +208,19 @@ const main = (): number => {
 			`med_cache=${pct(s.medianCacheShare)}%`,
 			`med_out_per_min=${outMin}`,
 			`agent_h=${s.agentHours.toFixed(1)}`,
-			`done=${done}`,
-			`failed=${failed}`,
+			`done=${c.done}`,
+			`failed=${c.failed}`,
+			`churn=${c.churn}`,
 		].join(" ");
 	};
 	console.log(
-		render(
-			"BEFORE",
-			armStats(before.rows, before.agentMsTotal),
-			before.done,
-			before.failed,
-			before.rows,
-		),
+		"cohort = items whose LAST claim falls in the arm window (exposure proxy: the brief was minted at claim time); churn counts against completion",
 	);
 	console.log(
-		render(
-			"AFTER",
-			armStats(after.rows, after.agentMsTotal),
-			after.done,
-			after.failed,
-			after.rows,
-		),
+		render("BEFORE", armStats(before.rows, before.agentMsTotal), before),
 	);
-	const verdict =
-		after.rows.length >= minN
-			? "A/B COMPARABLE"
-			: `AFTER ARM PENDING (n=${after.rows.length} < ${minN}) — accrues as post-landing lanes close; quote neither arm until then`;
-	console.log(verdict);
+	console.log(render("AFTER", armStats(after.rows, after.agentMsTotal), after));
+	console.log(armVerdict(after.rows.length, minN));
 	if (zeroOutShare(before.rows) > 0.5 || zeroOutShare(after.rows) > 0.5)
 		console.log(
 			"(* = the median sits in the zero-out attribution mass — read as a floor, not a rate; W943.1)",
@@ -218,5 +233,13 @@ const compact = (n: number): string =>
 		? `${(n / 1_000_000).toFixed(1)}M`
 		: `${Math.round(n / 1000)}k`;
 
-// report tool: never a gate — process door only when run directly
-if (import.meta.main) process.exit(main());
+// report tool: never a gate — process door via the verb kit (W651: strict
+// parse, unknown options die, per-verb --help)
+if (import.meta.main)
+	await runCli({
+		prog: "context-rightsizing-ab",
+		about: "W1138 rightsizing A/B arms — report, never a verdict",
+		verbs: [spec],
+		defaultVerb: "context-rightsizing-ab",
+		dispatch: (_name, parsed) => main(parsed),
+	});
