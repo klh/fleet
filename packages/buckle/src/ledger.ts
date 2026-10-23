@@ -15,6 +15,13 @@ import {
 	type StreamCloser,
 } from "../../telemetry/src/http-trace.ts";
 import type { HopKind } from "./hop.ts";
+import {
+	parseAbandonedReceipt,
+	reconcileAbandonedReceipt,
+	type AbandonedReceipt,
+	type ReconcileInput,
+	type ReconcileResult,
+} from "./reconcile.ts";
 import type { Usage } from "./usage.ts";
 
 /** W1086 settle receipt: the caller hands raw timings; the ledger validates
@@ -174,6 +181,9 @@ export interface RequestReadRow {
 	traffic_kind: string | null;
 	/** W1106 typed stream terminal (null = non-stream row / legacy). */
 	stream_receipt: StreamReceipt | null;
+	/** W1124.31 audited abandoned verdict (null = never reconciled — the
+	 *  receipt may still be live). */
+	reconciled: AbandonedReceipt | null;
 	upstream_refusal_code: string | null;
 	refusal_origin:
 		| "upstream"
@@ -335,6 +345,10 @@ export interface LedgerOptions {
 	maxPendingBytes?: number;
 	/** drop observer — the servicemon counter seam (buckle_ledger_dropped_total) */
 	onDrop?: (kind: "usage" | "audit", n: number) => void;
+	/** W1124.31: the longest live-transport bound for the abandoned-receipt
+	 *  reconcile (the wire's total stream guard, ms). Default 900s — the
+	 *  policy stream_total_timeout_s default. */
+	maxStreamMs?: number;
 }
 
 /** A ring entry with its failed-flush count (bounded retry) and its byte
@@ -358,6 +372,8 @@ export class Ledger {
 	private readonly maxAttempts: number;
 	private readonly maxPending: number;
 	private readonly maxPendingBytes: number;
+	/** W1124.31: the abandoned-receipt live-transport bound (see LedgerOptions). */
+	private readonly maxStreamMs: number;
 	private readonly onDrop?: (kind: "usage" | "audit", n: number) => void;
 	private usageRing: Array<Pending<UsageRecord & { bucket: string }>> = [];
 	private auditRing: Array<Pending<AuditOp>> = [];
@@ -430,6 +446,12 @@ export class Ledger {
 		// column or the request never streamed.
 		if (!auditCols.includes("stream_receipt"))
 			this.db.run("ALTER TABLE route_audit ADD COLUMN stream_receipt TEXT");
+		// W1124.31: audited abandoned-receipt verdict — JSON {verdict:"abandoned",
+		// at, actor, reason, age_ms, boot_origin}; NULL = never reconciled (the
+		// receipt may still be live). A reconciled row keeps status/ok NULL:
+		// no invented HTTP code, no retrospective provider blame.
+		if (!auditCols.includes("reconciled"))
+			this.db.run("ALTER TABLE route_audit ADD COLUMN reconciled TEXT");
 		this.db.run(
 			"CREATE INDEX IF NOT EXISTS route_audit_trace ON route_audit(trace_id, ts)",
 		);
@@ -469,6 +491,7 @@ export class Ledger {
 		this.maxAttempts = Math.max(1, opts.maxFlushAttempts ?? 5);
 		this.maxPending = Math.max(1, opts.maxPendingEntries ?? 4096);
 		this.maxPendingBytes = Math.max(1, opts.maxPendingBytes ?? 4 * 1024 * 1024);
+		this.maxStreamMs = opts.maxStreamMs ?? 900_000;
 		this.onDrop = opts.onDrop;
 		this.timer = setInterval(() => this.flush(), this.flushMs);
 		// never holds the process open (bun test, the bench harness)
@@ -983,6 +1006,7 @@ export class Ledger {
 				err: capRequestText(r.err),
 				why: capRequestText(r.why) ?? "",
 				stream_receipt: parseStreamReceipt(r.stream_receipt),
+				reconciled: parseAbandonedReceipt(r.reconciled),
 				upstream_refusal_code: failedResponse
 					? (refusal?.upstream_refusal_code ?? null)
 					: null,
@@ -996,6 +1020,21 @@ export class Ledger {
 				selected_target_attempted: selectedTargetExact && attempts.length > 0,
 			};
 		});
+	}
+
+	/** W1124.31: the supported audited abandoned-receipt reconciliation —
+	 *  see src/reconcile.ts for the proof contract. The read barrier flushes
+	 *  pending audit ops first, so a receipt accepted in-ring is visible. */
+	reconcileAbandoned(
+		input: ReconcileInput,
+		proofs?: { now?: number; bootOrigin?: number },
+	): ReconcileResult {
+		this.flush();
+		return reconcileAbandonedReceipt(this.db, {
+			maxStreamMs: this.maxStreamMs,
+			now: proofs?.now,
+			bootOrigin: proofs?.bootOrigin,
+		}, input);
 	}
 
 	/** W1086 trace-centric read: the per-request audit rows + hop attempts +
@@ -1056,7 +1095,7 @@ function requestsReadSql(where: string[], limit: number): string {
 		target_port, target_model, decision, latency_class, tier,
 		allow_cloud, hop, error_code, why, status, duration_ms, ok, err,
 		attempts, cache_r, cache_c, cache_reported, cache_c_reported, in_tok, out_tok,
-		traffic_kind, stream_receipt
+		traffic_kind, stream_receipt, reconciled
 		FROM route_audit ${clause}
 		ORDER BY ts DESC, rid DESC LIMIT ${limit}`;
 }

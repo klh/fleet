@@ -124,6 +124,9 @@ export function buildDeps(
 		opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db",
 		undefined,
 		{
+			// W1124.31: the abandoned-receipt reconcile's live-transport bound
+			// rides the operator's own stream total guard (config-over-code).
+			maxStreamMs: (policy.stream_total_timeout_s ?? 900) * 1000,
 			onDrop: (kind, n) =>
 				sm
 					.counter(
