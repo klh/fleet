@@ -307,6 +307,58 @@ export function collectPayload(
 
 // ─── transport: the W491 relay posture ──────────────────────────────────────
 
+const isNum = (v: unknown): v is number =>
+	typeof v === "number" && Number.isFinite(v);
+
+/** W1213.2: HTTP 200 alone is not acceptance — the cursor advances only on
+ *  an explicit, validated positive ack MATCHED to the batch: body parses as
+ *  an object, ok === true, fact counters account for every sent fact with
+ *  none rejected, plus the landed metrics row count. Anything else — a
+ *  rejected batch ({ok:false}, e.g. invalid confidence), an unparseable
+ *  body, missing or mismatched counters — is a non-ack: the cursor is
+ *  retained and the batch re-sends next pass (hub side idempotent by
+ *  topic-skip, so the retry cannot duplicate rows). */
+export function validateIngestAck(
+	body: string,
+	batch: { sentFacts: number; sentMetrics: number },
+): { ok: boolean; error: string | null } {
+	let ack: unknown;
+	try {
+		ack = JSON.parse(body);
+	} catch {
+		return { ok: false, error: "ingest ack unparseable" };
+	}
+	if (!ack || typeof ack !== "object" || Array.isArray(ack))
+		return { ok: false, error: "ingest ack not an object" };
+	const a = ack as Record<string, unknown>;
+	if (a.ok !== true) {
+		const why = typeof a.error === "string" ? a.error : "no positive ok flag";
+		return { ok: false, error: `ingest ack not positive: ${why}` };
+	}
+	const c = a.counts as Record<string, unknown> | undefined;
+	if (!c || typeof c !== "object" || Array.isArray(c))
+		return { ok: false, error: "ingest ack carries no counters" };
+	const f = c.facts as Record<string, unknown> | undefined;
+	if (!f || typeof f !== "object" || Array.isArray(f))
+		return { ok: false, error: "ingest ack carries no fact counters" };
+	if (!isNum(f.landed) || !isNum(f.dupes) || !isNum(f.rejected))
+		return { ok: false, error: "ingest ack fact counters not numeric" };
+	if (f.rejected > 0)
+		return { ok: false, error: `ingest ack rejects ${f.rejected} fact(s)` };
+	const counted = f.landed + f.dupes + f.rejected;
+	if (counted !== batch.sentFacts)
+		return {
+			ok: false,
+			error: `ingest ack accounts for ${counted} of ${batch.sentFacts} sent facts`,
+		};
+	if (!isNum(c.metrics) || c.metrics !== batch.sentMetrics)
+		return {
+			ok: false,
+			error: `ingest ack accounts for ${String(c.metrics)} of ${batch.sentMetrics} sent metrics rows`,
+		};
+	return { ok: true, error: null };
+}
+
 export async function postTarget(
 	target: SyncTarget,
 	payload: SyncPayload,
@@ -334,6 +386,14 @@ export async function postTarget(
 			body: JSON.stringify(payload),
 		});
 		if (!res.ok) return { ...base, ok: false, error: `HTTP ${res.status}` };
+		// W1213.2: a 2xx status alone is not acceptance — only an explicit,
+		// validated, batch-matched positive ack advances the cursor.
+		const ack = validateIngestAck(await res.text(), {
+			sentFacts,
+			sentMetrics,
+		});
+		if (!ack.ok)
+			return { ...base, ok: false, error: ack.error ?? "ingest ack rejected" };
 		return { ...base, ok: true, error: null };
 	} catch (e) {
 		return {
