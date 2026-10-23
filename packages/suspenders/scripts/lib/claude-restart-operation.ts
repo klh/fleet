@@ -31,7 +31,9 @@ import {
 	canonicalProjectRoot,
 	loadLaneRegistry,
 	repairLaneRegistryPid,
+	registerMissingRestartLane,
 } from "../../hooks/lib/lane-registry.ts";
+import { registryWorktrees } from "../../hooks/lib/worktree-lookup.ts";
 import {
 	laneProcessIdentity,
 	type LaneRef,
@@ -228,13 +230,67 @@ function currentSettings(settings: string, installedBin: string): void {
 			}
 }
 
+export function missingRetiredLane(
+	root: string,
+	sid: string,
+): LaneRef | undefined {
+	const store = openStore();
+	let item: string;
+	try {
+		const claims = store
+			.query(
+				"SELECT id FROM work_items WHERE project=? AND owner_sid=? AND state='CLAIMED'",
+			)
+			.all(projectIdentity(root), sid) as Array<{ id: string }>;
+		if (claims.length !== 1)
+			throw Error("Missing registry recovery requires one exact current claim");
+		item = claims[0].id;
+	} finally {
+		store.close();
+	}
+	const trees = registryWorktrees(root).filter(
+		(entry) => entry.branch === `suspenders/${item}`,
+	);
+	if (trees.length !== 1)
+		throw Error(
+			"Missing registry recovery requires one exact Git-registered item tree",
+		);
+	const worktree = trees[0].path;
+	const path = restartJournalPath(worktree);
+	if (!existsSync(path)) return undefined;
+	const journal = privateJson<ClaudeRestartJournal>(path);
+	const lane = { sid, item, worktree, pid: journal.snapshot?.oldWrapper?.pid };
+	if (!lane.pid) throw Error("Original retired wrapper binding unavailable");
+	const snapshot = retiredRestartSnapshot(
+		path,
+		{ ...lane, pid: lane.pid },
+		identity,
+	);
+	if (!snapshot) throw Error("Original retired journal unavailable");
+	// Proves original token, capsule and checkpoint before any route probe or
+	// process action; full snapshot hashes are validated again by the caller.
+	const authority = claudeRestartAuthority(sid, item, worktree);
+	if (
+		authority.claim.updated_at !== snapshot.claimRevision ||
+		authority.checkpoint !== snapshot.checkpoint
+	)
+		throw Error("Missing registry original claim or checkpoint changed");
+	return lane;
+}
+
 export async function restartManagedClaude(
 	fleet: string,
 	sid: string,
 	apply: boolean,
 ): Promise<ClaudeRestartJournal> {
 	const root = canonicalProjectRoot(fleet);
-	const lane = loadLaneRegistry<LaneRef>(root).find((row) => row.sid === sid);
+	const recordedLane = loadLaneRegistry<LaneRef>(root).find(
+		(row) => row.sid === sid,
+	);
+	// A retired journal is the original continuation authority. Do not invent
+	// an old registry row: carry its binding only until the real new wrapper
+	// can be registered under the original claim and journal.
+	const lane = recordedLane ?? missingRetiredLane(root, sid);
 	if (!lane?.worktree || !lane.pid)
 		throw new Error("Restart requires exact live managed registry identity");
 	const journalPath = restartJournalPath(lane.worktree);
@@ -295,11 +351,19 @@ export async function restartManagedClaude(
 	)
 		throw new Error("Managed child identity unavailable");
 	const controlRecord = () => {
-		const current = loadLaneRegistry<LaneRef>(root).find(
-			(row) => row.sid === sid,
-		);
-		if (JSON.stringify(current) !== JSON.stringify(lane))
+		const rows = loadLaneRegistry<LaneRef>(root);
+		const current = rows.find((row) => row.sid === sid);
+		if (JSON.stringify(current) !== JSON.stringify(recordedLane))
 			throw new Error("Restart registry snapshot changed");
+		if (
+			!recordedLane &&
+			rows.some(
+				(row) => row.item === lane.item || row.worktree === lane.worktree,
+			)
+		)
+			throw Error(
+				"Missing restart registry scope was claimed by another incarnation",
+			);
 		const store = openStore();
 		try {
 			const intent = launchIntent(store, claim.project, lane.item);
@@ -498,43 +562,85 @@ export async function restartManagedClaude(
 					intent.birth !== wrapper.birth
 				)
 					throw new Error("Restart launch intent binding changed");
-				store.transaction(() => {
-					const liveClaim = store
-						.query(
-							"SELECT 1 FROM work_items WHERE project=? AND id=? AND owner_sid=? AND state='CLAIMED' AND updated_at=?",
+				const commit = (publishMissing?: () => void) =>
+					store.transaction(() => {
+						const liveClaim = store
+							.query(
+								"SELECT 1 FROM work_items WHERE project=? AND id=? AND owner_sid=? AND state='CLAIMED' AND updated_at=?",
+							)
+							.get(claim.project, lane.item, sid, snapshot.claimRevision);
+						const paused = store
+							.query("SELECT 1 FROM facts WHERE key=? AND value='PAUSED'")
+							.get(`lane.${sid}.state`);
+						if (!liveClaim || !paused)
+							throw new Error("Restart authority changed before registration");
+						const result = store
+							.query(
+								"UPDATE lane_launch_intents SET pid=?,birth=? WHERE project=? AND item=? AND nonce=? AND pid=? AND birth=? AND sid=? AND state='REGISTERED'",
+							)
+							.run(
+								fresh.pid,
+								fresh.birth,
+								claim.project,
+								lane.item,
+								intent.nonce,
+								wrapper.pid,
+								wrapper.birth,
+								sid,
+							);
+						if (result.changes !== 1)
+							throw new Error("Restart launch incarnation CAS failed");
+						if (publishMissing) {
+							publishMissing();
+							store.run(
+								"INSERT INTO events(ts,source,kind,scope,payload,target) VALUES (?,?,?,?,?,?)",
+								Date.now(),
+								"managed-restart",
+								"lane.restart.registry-recovered",
+								lane.item,
+								JSON.stringify({
+									project: claim.project,
+									item: lane.item,
+									sid,
+									journalId: snapshot.id,
+									checkpoint: snapshot.checkpoint,
+									claimRevision: snapshot.claimRevision,
+									oldWrapper: snapshot.oldWrapper,
+									newWrapper: fresh,
+									contextHash: snapshot.contextHash,
+									snapshotHash: restartHash(JSON.stringify(snapshot)),
+								}),
+								sid,
+							);
+						} else if (
+							!repairLaneRegistryPid(
+								root,
+								lane,
+								fresh.pid,
+								() => sameIdentity(fresh) && identity(wrapper.pid) === false,
+								Date.now(),
+							)
 						)
-						.get(claim.project, lane.item, sid, snapshot.claimRevision);
-					const paused = store
-						.query("SELECT 1 FROM facts WHERE key=? AND value='PAUSED'")
-						.get(`lane.${sid}.state`);
-					if (!liveClaim || !paused)
-						throw new Error("Restart authority changed before registration");
-					const result = store
-						.query(
-							"UPDATE lane_launch_intents SET pid=?,birth=? WHERE project=? AND item=? AND nonce=? AND pid=? AND birth=?",
-						)
-						.run(
-							fresh.pid,
-							fresh.birth,
-							claim.project,
-							lane.item,
-							intent.nonce,
-							wrapper.pid,
-							wrapper.birth,
-						);
-					if (result.changes !== 1)
-						throw new Error("Restart launch incarnation CAS failed");
-					if (
-						!repairLaneRegistryPid(
-							root,
-							lane,
-							fresh.pid,
-							() => sameIdentity(fresh) && identity(wrapper.pid) === false,
-							Date.now(),
-						)
-					)
-						throw new Error("Restart registry incarnation changed");
-				})();
+							throw new Error("Restart registry incarnation changed");
+					})();
+				if (recordedLane) commit();
+				else
+					registerMissingRestartLane(
+						root,
+						{
+							...lane,
+							pid: fresh.pid,
+							branch: `suspenders/${snapshot.item}`,
+							host: intent.host,
+							launchedAt: Date.now(),
+							attempt: intent.attempt,
+						},
+						() =>
+							sameIdentity(fresh) &&
+							identity(wrapper.pid) === false &&
+							identity(snapshot.oldNative.pid) === false,
+						commit,
+					);
 			} finally {
 				store.close();
 			}

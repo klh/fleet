@@ -12,11 +12,18 @@ import {
 import { withFileLock } from "./file-lock.ts";
 import { isHarnessProcess } from "./lane-liveness.ts";
 import { basename, dirname, join, resolve } from "node:path";
+import {
+	restartJournalPath,
+	privateJson,
+	type ClaudeRestartJournal,
+} from "./claude-restart.ts";
 
 export interface RegistryLane {
 	sid: string;
 	attempt?: number;
 	launchedAt?: number;
+	worktree?: string;
+	item?: string;
 }
 
 /** Git's common directory identifies the primary checkout, including linked worktrees. */
@@ -110,6 +117,83 @@ export function newerLane<T extends RegistryLane>(current: T, incoming: T): T {
 
 /** W1124.13: the registry rides the ONE shared cross-process lock (file-lock.ts). */
 const withRegistryLock = withFileLock;
+
+/** Intentional retirement is a continuation, not abandoned ownership. A
+ * malformed journal is uncertainty and cannot warrant deletion either. */
+export function pendingManagedRestart(row: RegistryLane): boolean {
+	if (!row.worktree) return false;
+	const path = restartJournalPath(row.worktree);
+	if (!existsSync(path)) return false;
+	try {
+		const journal = privateJson<ClaudeRestartJournal>(path);
+		return (
+			journal.phase !== "verified" ||
+			journal.snapshot.sid !== row.sid ||
+			journal.snapshot.item !== row.item ||
+			journal.snapshot.worktree !== row.worktree
+		);
+	} catch {
+		return true;
+	}
+}
+
+function writeRegistryBytes(file: string, bytes: string | Buffer): void {
+	const temp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
+	try {
+		const fd = openSync(temp, "wx", 0o600);
+		try {
+			writeFileSync(fd, bytes);
+			fsyncSync(fd);
+		} finally {
+			closeSync(fd);
+		}
+		renameSync(temp, file);
+	} finally {
+		rmSync(temp, { force: true });
+	}
+}
+
+/** Only the actual new wrapper is inserted. Hold the registry lock across
+ * the caller's fenced store transaction; restore bytes on transaction error.
+ * A process crash remains journal-owned uncertainty, never a retry permit. */
+export function registerMissingRestartLane<T extends RegistryLane>(
+	input: string,
+	row: T,
+	guard: () => boolean,
+	commit: (publish: () => void) => void,
+): void {
+	withRegistryLock(laneRegistryFile(input), (file) => {
+		const state = readFile<T>(file);
+		if (
+			!state.known ||
+			state.lanes.some(
+				(current) =>
+					current.sid === row.sid ||
+					current.item === row.item ||
+					current.worktree === row.worktree,
+			)
+		)
+			throw Error("Restart registry absence changed or unavailable");
+		if (!guard())
+			throw Error("Restart process identity changed before registration");
+		const original = readFileSync(file);
+		let published = false;
+		try {
+			commit(() => {
+				if (published) throw Error("Restart registry already published");
+				writeRegistryBytes(
+					file,
+					JSON.stringify([...state.lanes, row], null, 2),
+				);
+				published = true;
+			});
+			if (!published) throw Error("Restart registry publication missing");
+		} catch (error) {
+			if (published) writeRegistryBytes(file, original);
+			throw error;
+		}
+	});
+}
 
 /** Snapshots are upserts, never deletion authority. Re-read under the cross-process lock. */
 export function mergeLaneRegistry<T extends RegistryLane>(
@@ -212,7 +296,8 @@ export function pruneLaneRegistry<T extends RegistryLane>(
 			const removed: T[] = [];
 			const kept: T[] = [];
 			for (const row of state.lanes) {
-				if (wanted.has(row.sid) && guard(row)) removed.push(row);
+				if (wanted.has(row.sid) && guard(row) && !pendingManagedRestart(row))
+					removed.push(row);
 				else kept.push(row);
 			}
 			if (!removed.length) return { removed, kept };
