@@ -119,7 +119,6 @@ test("line-limit scan has teeth (real tracked .ts population)", () => {
 const NEAR_CAP_LIMIT = 1200;
 const NEAR_CAP_PINNED: Record<string, number> = {
 	"packages/decant/src/ingest.ts": 1982,
-	"packages/suspenders/test/dispatch-next.test.ts": 1603,
 	"packages/belt/bin/router-core.ts": 1233,
 	"packages/belt/bin/router-shim.ts": 1215,
 	"packages/buckle/src/handlers.ts": 1490,
@@ -132,7 +131,6 @@ const NEAR_CAP_PINNED: Record<string, number> = {
 	"packages/suspenders/hooks/board-html/usage-panels.ts": 1385,
 	"packages/suspenders/hooks/board/routes-actions.ts": 1337,
 	"packages/suspenders/hooks/lib/knowledge-ports.ts": 1333,
-	"packages/suspenders/scripts/dispatch-next.ts": 1501,
 	"packages/suspenders/test/work-completion-record.test.ts": 1396,
 };
 
