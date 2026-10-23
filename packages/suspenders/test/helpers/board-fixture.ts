@@ -17,24 +17,16 @@ import {
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { unusedPort } from "./board-harness.ts";
 
 // rows off the board's JSON feeds — Record<string, unknown> keeps the feed
 // callbacks honest without modeling every endpoint (the wire data is
 // untrusted until the assertion pins it)
 type Row = Record<string, unknown>;
 
-// Let the OS choose an unused loopback port; fixed test ports can silently
-// attach to a board left by another run and use its unrelated write token.
-export function unusedPort(): number {
-	const server = Bun.serve({
-		hostname: "127.0.0.1",
-		port: 0,
-		fetch: () => new Response(),
-	});
-	const port = server.port;
-	server.stop(true);
-	return port;
-}
+// W1135.1.6: unusedPort lives in board-harness.ts (the ONE board-bootstrap
+// module) — re-exported so the unit import surface is unchanged.
+export { unusedPort };
 
 export async function boardFixture(
 	PORT: number,

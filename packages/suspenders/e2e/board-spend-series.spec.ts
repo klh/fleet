@@ -8,7 +8,7 @@ import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { startBoard } from "./harness.ts";
+import { startBoard } from "../test/helpers/board-harness";
 
 test.describe.configure({ mode: "serial" });
 
@@ -31,7 +31,7 @@ test.beforeAll(async () => {
 	d.run("INSERT INTO api_keys VALUES ('k1', 'autow887-x')");
 	d.run(
 		"INSERT INTO router_usage VALUES (?, 'k1', 'glm-5.3-flash', 'glm-5.3-flash', 500, 100, 50, 10, 3)",
-		[new Date().toISOString().slice(0, 13) + ":00"],
+		[`${new Date().toISOString().slice(0, 13)}:00`],
 	);
 	d.close();
 });
@@ -65,7 +65,9 @@ test("gui: lanes kanban paints the micro-strip sparkline + strip text", async ({
 	await expect(page.locator(".kspend .kspendtxt")).toContainText("% cache");
 	// the sparkline painted as inline SVG (fresh + cached polylines)
 	await expect(page.locator(".kspark svg polyline.spark-fresh")).toHaveCount(1);
-	await expect(page.locator(".kspark svg polyline.spark-cached")).toHaveCount(1);
+	await expect(page.locator(".kspark svg polyline.spark-cached")).toHaveCount(
+		1,
+	);
 	// the tasks table carries the strip as the tok cell tooltip
 	await page.goto(`${b.BASE}/#tasks`);
 	await expect(

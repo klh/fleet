@@ -1,7 +1,7 @@
 // e2e/board-orchestrate.spec.ts — W875: the Orchestrate panel expands on
 // CLICK only (no hover-open), and shows a minus control that collapses it.
 import { expect, test } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
+import { startBoard, type Board } from "../test/helpers/board-harness";
 
 test.describe.configure({ mode: "serial" });
 

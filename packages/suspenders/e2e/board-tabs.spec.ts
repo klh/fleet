@@ -3,7 +3,7 @@
 // aria-current marker, the visible section and location.hash; a hash
 // deep-link lands on the right tab; Usage stays inside the board shell.
 import { expect, test } from "@playwright/test";
-import { type Board, startBoard } from "./harness";
+import { type Board, startBoard } from "../test/helpers/board-harness";
 
 test.describe.configure({ mode: "serial" });
 

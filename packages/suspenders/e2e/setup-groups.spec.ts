@@ -7,7 +7,7 @@ import { expect, test } from "@playwright/test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startBoard, type Board } from "./harness";
+import { startBoard, type Board } from "../test/helpers/board-harness";
 
 test.describe.configure({ mode: "serial" });
 

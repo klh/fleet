@@ -6,7 +6,7 @@
 // honest empty-state.
 import { expect, test } from "@playwright/test";
 import { join } from "node:path";
-import { startBoard, type Board } from "./harness";
+import { startBoard, type Board } from "../test/helpers/board-harness";
 
 test.describe.configure({ mode: "serial" });
 
@@ -60,9 +60,9 @@ test("core SKU: page hides the zone and coerces the deep-link", async ({
 
 	// a #enterprise deep-link on a core board lands on Decisions
 	await page.goto(`${mustBoard().BASE}/#enterprise`);
-	await expect(
-		page.locator("klh-board-tabs button[aria-current]"),
-	).toHaveText("Decisions");
+	await expect(page.locator("klh-board-tabs button[aria-current]")).toHaveText(
+		"Decisions",
+	);
 	await expect(page.locator("#tab-enterprise")).toBeHidden();
 });
 
@@ -110,7 +110,9 @@ test("entitled: tab appears, zone renders the seven panels", async ({
 	await expect(
 		identity.locator(".chip", { hasText: "contractor" }),
 	).toBeVisible();
-	await expect(identity.locator(".chip", { hasText: "enforced" })).toBeVisible();
+	await expect(
+		identity.locator(".chip", { hasText: "enforced" }),
+	).toBeVisible();
 
 	// usage anomaly flags
 	await expect(

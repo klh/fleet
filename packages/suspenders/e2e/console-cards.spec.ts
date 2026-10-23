@@ -6,7 +6,7 @@
 // fixture). Screenshots land in /tmp/w66911-shots.
 import { mkdirSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
+import { startBoard, type Board } from "../test/helpers/board-harness";
 
 test.describe.configure({ mode: "serial" });
 

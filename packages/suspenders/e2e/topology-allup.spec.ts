@@ -28,7 +28,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startBoard, unusedPort, type Board } from "./harness";
+import {
+	startBoard,
+	unusedPort,
+	type Board,
+} from "../test/helpers/board-harness";
 import { dispatchHarness } from "../test/helpers/dispatch-harness.ts";
 import { laneSid } from "../hooks/lib/laneslug.ts";
 import { projectIdentity } from "../hooks/lib/govdb.ts";

@@ -19,20 +19,15 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { handleFleetTree } from "../hooks/board/routes-fleet-tree.ts";
+import { unusedPort } from "../test/helpers/board-harness";
 
 let browser: Browser;
 let page: Page;
 let HOME: string;
 const stops: { stop: () => void }[] = [];
 
-// dead port: bind, read the OS-picked port, release
-const dead = Bun.serve({
-	hostname: "127.0.0.1",
-	port: 0,
-	fetch: () => new Response(),
-});
-const DEAD = dead.port;
-dead.stop(true);
+// dead port: the shared bind-:0 idiom (W1135.1.6 board harness)
+const DEAD = unusedPort();
 
 // the stoppable lane leaf (scenario B)
 let laneSrv = Bun.serve({
@@ -93,7 +88,12 @@ const guarded = Bun.serve({
 			? Response.json({
 					router: { port: LANE },
 					entries: [
-						{ alias: "vault-coder", label: "vault coder", port: LANE, tier: "coder" },
+						{
+							alias: "vault-coder",
+							label: "vault coder",
+							port: LANE,
+							tier: "coder",
+						},
 					],
 				})
 			: new Response("denied", { status: 401 });
@@ -237,7 +237,7 @@ test("W565 demo roots stay namespaced and unprobed leaves stay neutral", async (
 	expect(await leafClass("coder :")).toContain("up");
 	await page.screenshot({
 		path: "e2e/test-results/w565-demo-namespace.png",
-	fullPage: true,
+		fullPage: true,
 	});
 });
 

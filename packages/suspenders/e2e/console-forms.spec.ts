@@ -4,7 +4,7 @@
 // carries; the preview page renders the diff in shadow DOM. Real
 // fleet-board.ts on a scratch HOME (harness.ts).
 import { expect, test } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
+import { startBoard, type Board } from "../test/helpers/board-harness";
 
 test.describe.configure({ mode: "serial" });
 

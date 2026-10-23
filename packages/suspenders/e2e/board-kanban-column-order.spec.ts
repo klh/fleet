@@ -4,7 +4,7 @@
 // follow the same order (keyboard order = column order).
 import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
-import { startBoard, type Board } from "./harness";
+import { startBoard, type Board } from "../test/helpers/board-harness";
 
 let board: Board | null = null;
 
