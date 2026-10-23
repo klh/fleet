@@ -185,3 +185,53 @@ test("configured push refspecs and mirror mode cannot omit outgoing secret refs"
 		f.cleanup();
 	}
 });
+
+test("real gate scans the same clean push through redirections and pipelines", () => {
+	const f = fixture();
+	try {
+		f.commit("safe outgoing\n");
+		for (const command of [
+			"git push origin main",
+			"git push origin main 2>&1 | tail -5",
+			"git push origin main >out 2>>err",
+			"git push origin main &>out",
+			"git push origin main 2>&1>out",
+			"git push origin 'main' >'output with spaces'",
+			"sh -c 'git push origin main 2>&1 | tail -5'",
+		])
+			expect(gate(f.repo, command), command).toBe("{}");
+	} finally {
+		f.cleanup();
+	}
+});
+
+test("real gate retains numeric and quoted ref arguments beside redirections", () => {
+	const f = fixture();
+	try {
+		f.git(["checkout", "-qb", "2"]);
+		f.commit(secret);
+		for (const command of [
+			"git push origin 2 >out",
+			"git push origin '2'>out",
+			'git push origin "2" 2>&1 | tail -5',
+		])
+			expect(gate(f.repo, command), command).toContain(
+				"gitleaks rejected outgoing",
+			);
+		f.git(["checkout", "-q", "main"]);
+		for (const command of [
+			"git push origin main 2>&1 | tail -5",
+			"git push origin main >out",
+		])
+			expect(gate(f.repo, command), command).toBe("{}");
+		for (const command of [
+			"git push origin main >",
+			"git push origin main <<EOF",
+		])
+			expect(gate(f.repo, command), command).toContain(
+				'"permissionDecision":"deny"',
+			);
+	} finally {
+		f.cleanup();
+	}
+});

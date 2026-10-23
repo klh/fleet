@@ -233,11 +233,16 @@ export function shCString(w: string[]): string {
 
 /** The gate's canonical segment view: quote-aware split + backtick rewrite
  *  + sh -c unwrapping, recursive (inner commands become scannable segments). */
-export function gateSegments(CMD: string): string[][] {
+export function gateSegments(
+	CMD: string,
+	transform: (source: string) => string = (source) => source,
+): string[][] {
 	const out: string[][] = [];
 	const walk = (s: string, depth: number) => {
 		if (depth > GATE_DEPTH_CAP) return;
-		for (const seg of segments(parse(backticksToSubshells(s)) as Tok[])) {
+		for (const seg of segments(
+			parse(backticksToSubshells(transform(s))) as Tok[],
+		)) {
 			const w = words(seg);
 			out.push(w);
 			const inner = shCString(w);

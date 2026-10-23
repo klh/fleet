@@ -29,6 +29,7 @@ import {
 } from "../lib/hookio.ts";
 import { have, run } from "../lib/run.ts";
 import { scanPushSecrets } from "../lib/push-secrets.ts";
+import { withoutPushRedirections } from "../lib/push-shell-argv.ts";
 import {
 	canonPath,
 	collectWriteTargets,
@@ -184,8 +185,18 @@ export function bashGate(hook: HookInput): never {
 	// the full-history scan against repoB (owner 2026-09-26: the deny was real
 	// output from the wrong repo — repoB holds secrets and must never push).
 	if (have("gitleaks")) {
+		let scanSegments = SEGS;
+		if (SEGS.some((w) => verb(w) === "git" && gitSub(w) === "push")) {
+			try {
+				scanSegments = gateSegments(CMD, withoutPushRedirections);
+			} catch {
+				deny(
+					"secrets-gate: shell push arguments are ambiguous; use literal remote/refspec arguments and complete redirections.",
+				);
+			}
+		}
 		let segCwd = CWD;
-		for (const w of SEGS) {
+		for (const w of scanSegments) {
 			const v = verb(w);
 			// track cd segments: `cd X && git push` must scan X, not hook.cwd
 			// (the session-cwd repo may hold secrets the pushed repo does not)
