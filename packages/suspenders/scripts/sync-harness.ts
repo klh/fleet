@@ -288,6 +288,34 @@ export async function syncHarness(
 		throw new Error(
 			"Source revision changed during dashboard refresh; rerun from a consistent capture",
 		);
+	// W1243: the prefix is a shared runtime — only main (or a descendant of
+	// it) may be published. 2026-10-23 outage: a lane ran install.sh from its
+	// pre-W1236 worktree branch and the shared harness regressed, silently
+	// reverting the review-runner fixes fleet-wide. Behind and diverged
+	// sources both refuse; SUSPENDERS_SYNC_ALLOW_BRANCH=1 is the explicit
+	// lane-testing escape.
+	if (process.env.SUSPENDERS_SYNC_ALLOW_BRANCH !== "1") {
+		const probe = (args: string[]): number =>
+			Bun.spawnSync(["git", "-C", repo, ...args], {
+				stdout: "pipe",
+				stderr: "pipe",
+			}).exitCode ?? 1;
+		const mainSha = (() => {
+			const r = Bun.spawnSync(
+				["git", "-C", repo, "rev-parse", "--verify", "main"],
+				{ stdout: "pipe", stderr: "pipe" },
+			);
+			return r.exitCode === 0 ? r.stdout.toString().trim() : null;
+		})();
+		if (
+			mainSha &&
+			mainSha !== revision &&
+			probe(["merge-base", "--is-ancestor", mainSha, revision]) !== 0
+		)
+			throw new Error(
+				`Refusing to sync a source behind or diverged from main (${revision.slice(0, 12)} vs main ${mainSha.slice(0, 12)}); install from the pinned checkout or set SUSPENDERS_SYNC_ALLOW_BRANCH=1`,
+			);
+	}
 	// W780: name the offending files — the bare "working payload is dirty"
 	// verdict forced a stash-dance to find them. diff --name-only: one path
 	// per line, no porcelain status columns to mis-slice.

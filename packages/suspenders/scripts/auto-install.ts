@@ -13,6 +13,7 @@ import { homedir } from "node:os";
 import {
 	decideAutoInstall,
 	fleetRootOf,
+	installScriptDir,
 	isVolumeMounted,
 	readStamp,
 	writeStamp,
@@ -118,8 +119,12 @@ const main = (): number => {
 		logPath,
 		`${new Date().toISOString()} install.sh start (main ${headSha})\n`,
 	);
+	// W1243: the caller may pass the fleet root where install.sh does not
+	// live (the W779 heartbeat used to) — fall back to the package root
+	// instead of a 127-forever tick.
+	const installDir = installScriptDir(repo);
 	const install = Bun.spawnSync(["bash", "install.sh"], {
-		cwd: repo,
+		cwd: installDir,
 		stdout: "inherit",
 		stderr: "inherit",
 	});
