@@ -23,6 +23,8 @@ import {
 import { observation } from "../lib/observation.ts";
 // W911: the plaid UI-agreement view — one shape for dispatch + board.
 import { plaidStatus } from "../lib/plaid.ts";
+// W1196: dispatch holds — named, TTL'd pause state (same lib as dispatch).
+import { dispatchHoldRows } from "../lib/dispatch-hold.ts";
 import { preferForProject } from "../lib/prefer.ts";
 import { utcZ } from "../lib/wallclock.ts";
 import {
@@ -1430,6 +1432,7 @@ function buildPayload(): unknown {
 		kbSolutions: kbRow.n,
 		kbHits: kbRow.hits,
 	};
+	const projects = board();
 	return {
 		ts: Date.now(),
 		observation: observation(
@@ -1445,7 +1448,10 @@ function buildPayload(): unknown {
 		sessions: ss,
 		sessionsTotal: allSessions.length,
 		labels,
-		projects: board(),
+		projects,
+		// W1196: named dispatch holds — the same lib the dispatcher reads, so
+		// the board and the WAIT line cannot disagree about who holds dispatch.
+		dispatchHolds: dispatchHoldRows(projects),
 		claims: claims(),
 		events: events(),
 		// decisions live in /api/decisions now — this ts lets the UI mark the
