@@ -34,8 +34,9 @@ windows are the same semantics).
 
 ## Backup
 
-`hooks/bin/db-backup.ts` (launchd `com.suspenders.db-backup`, daily 10:00 +
-RunAtLoad; log `/tmp/governor-backup.log`):
+`hooks/bin/db-backup.ts` (W779: a fleet-loop maintenance task — daily 10:00
+calendar fire, the retired `com.suspenders.db-backup` launchd unit is
+booted out; log `/tmp/governor-backup.log`):
 
 - governor.db via `VACUUM INTO` (consistent incl. WAL) → integrity check +
   row-count sanity line, red exit code on integrity failure.

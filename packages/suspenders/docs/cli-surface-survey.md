@@ -3,6 +3,11 @@
 This survey covers every surface named in W296: Claude Code, Codex CLI,
 Copilot CLI, grok-cli, Cline, Hermes, and VS Code.
 
+> Snapshot note (W1000 audit, 2026-10-23): the adapter-status column below is
+> the W296-era survey state — all surveyed non-native CLIs since shipped as
+> dialects under `hooks/dialects/<cli>/` (see `docs/cli-dialect-pattern.md`);
+> per-surface statuses here are historical, not live.
+
 ## Executive summary
 
 | Surface | What it is | Hook / lifecycle surface | Suspenders adapter status |

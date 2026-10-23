@@ -111,12 +111,12 @@ coord subscribe --as <sid>       # THE face — live WebSocket push (W303)
 coord wait --as <sid>            # fallback — adaptive long-poll (--forever = persistent)
 coord poll --as <sid>            # one-shot manual read; advances past SHOWN
 coord inbox --as <sid>           # directed catch-up read (--ack to advance cursor)
-coord message --to <sid> --note "…" --as <sid>   # interrupts only
+coord message <sid> "…" --as <sid>               # interrupts only
 coord broadcast --note "…" --as <sid>            # fleet-wide
-coord consult --to <ikea-opus> --note "question" --as <sid>
-coord consult-reply --reply-id <id> --note "…" --as <sid>
+coord consult <sid> "question" --as <sid>        # or --best for fleet-wide
+coord consult-reply <C##> "<answer>" --as <sid>  # (+ --feedback to close the loop)
 coord fact get lesson.<topic>    # painful knowledge, fleet-shared
-coord fact set lesson.<topic> --note "…"         # write back a lesson
+coord fact set lesson.<topic> "…"                # write back a lesson
 coord emit NEED_DECISION --to <coordinator> --note "q + options" --as <sid>
 coord gc                         # settle dead sessions
 coord doctor-session <sid>       # rebind a resumed session
@@ -140,7 +140,8 @@ bun hooks/bin/fleet-loop.ts watch \
 bun hooks/bin/quota-sweep.ts           # report: quota hits per claimant sid
 bun hooks/bin/quota-sweep.ts --act     # pickup: reclaim dead sid's claims →
                                        # READY + coord emit + broadcast
-                                       # (launchd, every 15 min)
+                                       # (W779: a fleet-loop maintenance task,
+                                       # not a launchd unit)
 ```
 
 ### Premium-credit headroom — `bun hooks/bin/credit-forecast.ts`
