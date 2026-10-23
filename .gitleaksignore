@@ -1,3 +1,14 @@
+# assertions), first-hand read 2026-10-22 — not secrets
+# every test asserts the raw value NEVER reaches an output surface (leak-negative
+# negative-assertion string, policy-advisor:186 is a synthetic PEM body "abc" — not secrets
+# test asserts it is scrubbed), first-hand read 2026-10-19 — not a secret
+# W1124.8.2.1: hub provider-delivery fixtures — invented "zk-live-…" profile keys;
+# W307: BELT_MCP_DEV=1 env knob in prose (owner commit 6e98a89) — not a secret
+# W689: scrub-gate test fixture (fake mxoxb token, asserts the deny path) — not a secret
+# W689: scrub/advisor test fixtures, first-hand read 2026-10-12 — hub-admin:179 is a
+# W950: vendored decant snapshot — upstream redaction-test fixture (fake key, the
+01eb8c6b9e7df98cc8f219093a28e49c639cb868:packages/suspenders/test/prompt-transform.test.ts:generic-api-key:405
+05177bc10f165d2e06e5278067c6c34487e80b51:packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83
 224eec380a292ff421d4abfc02060ee11345b1b4:test/fleet-board-flows.test.ts:generic-api-key:393
 224eec380a292ff421d4abfc02060ee11345b1b4:test/fleet-board-flows.test.ts:generic-api-key:414
 224eec380a292ff421d4abfc02060ee11345b1b4:test/fleet-board-flows.test.ts:generic-api-key:421
@@ -34,10 +45,10 @@
 37b8f6a6d505db273aea8df322b301a11595f42c:docs/providers/manus.md:curl-auth-header:298
 37b8f6a6d505db273aea8df322b301a11595f42c:docs/providers/manus.md:curl-auth-header:315
 37b8f6a6d505db273aea8df322b301a11595f42c:docs/providers/manus.md:curl-auth-header:98
-37b8f6a6d505db273aea8df322b301a11595f42c:docs/providers/meta.md:curl-auth-header:407
-37b8f6a6d505db273aea8df322b301a11595f42c:docs/providers/meta.md:curl-auth-header:422
 37b8f6a6d505db273aea8df322b301a11595f42c:docs/providers/meta_llama.md:curl-auth-header:287
 37b8f6a6d505db273aea8df322b301a11595f42c:docs/providers/meta_llama.md:curl-auth-header:297
+37b8f6a6d505db273aea8df322b301a11595f42c:docs/providers/meta.md:curl-auth-header:407
+37b8f6a6d505db273aea8df322b301a11595f42c:docs/providers/meta.md:curl-auth-header:422
 37b8f6a6d505db273aea8df322b301a11595f42c:docs/providers/moonshot.md:curl-auth-header:205
 37b8f6a6d505db273aea8df322b301a11595f42c:docs/providers/moonshot.md:curl-auth-header:215
 37b8f6a6d505db273aea8df322b301a11595f42c:docs/providers/nebius.md:curl-auth-header:145
@@ -55,26 +66,22 @@
 37b8f6a6d505db273aea8df322b301a11595f42c:docs/providers/vertex_ocr.md:curl-auth-header:77
 37b8f6a6d505db273aea8df322b301a11595f42c:docs/providers/wandb_inference.md:curl-auth-header:133
 5c32bc10d6518074cc9a438abd24032d46a23d1f:test/fleet-board-flows.test.ts:generic-api-key:422
-f8b9e2e28002f9984dab57a1bbd9abb6ac963d50:bench/arena/gen.ts:generic-api-key:936
-test/fleet-board-flows.test.ts:generic-api-key:422
-# W307: BELT_MCP_DEV=1 env knob in prose (owner commit 6e98a89) — not a secret
-packages/belt/docs/mcp.md:generic-api-key:13
 6e98a892c95d850eed8f6282b419059bec056698:packages/belt/docs/mcp.md:generic-api-key:13
-# W689: scrub-gate test fixture (fake mxoxb token, asserts the deny path) — not a secret
-packages/suspenders/test/scrub-gate.test.ts:generic-api-key:30
-# W689: scrub/advisor test fixtures, first-hand read 2026-10-12 — hub-admin:179 is a
-# negative-assertion string, policy-advisor:186 is a synthetic PEM body "abc" — not secrets
-packages/suspenders/test/hub-admin.test.ts:sk-key:179
-packages/suspenders/test/policy-advisor.test.ts:private-key:186
-packages/suspenders/test/prompt-transform.test.ts:generic-api-key:405
-# W950: vendored decant snapshot — upstream redaction-test fixture (fake key, the
-# test asserts it is scrubbed), first-hand read 2026-10-19 — not a secret
+c484e03c7178f330ec6814a28077aef6bed8593e:packages/suspenders/test/hub-providers.test.ts:generic-api-key:102
+c484e03c7178f330ec6814a28077aef6bed8593e:packages/suspenders/test/hub-providers.test.ts:generic-api-key:163
+c484e03c7178f330ec6814a28077aef6bed8593e:packages/suspenders/test/hub-providers.test.ts:generic-api-key:189
+c484e03c7178f330ec6814a28077aef6bed8593e:packages/suspenders/test/hub-providers.test.ts:generic-api-key:29
+c484e03c7178f330ec6814a28077aef6bed8593e:packages/suspenders/test/hub-providers.test.ts:generic-api-key:42
+f8b9e2e28002f9984dab57a1bbd9abb6ac963d50:bench/arena/gen.ts:generic-api-key:936
+packages/belt/docs/mcp.md:generic-api-key:13
 packages/decant/test/distill.test.ts:curl-auth-header:169
-# W1124.8.2.1: hub provider-delivery fixtures — invented "zk-live-…" profile keys;
-# every test asserts the raw value NEVER reaches an output surface (leak-negative
-# assertions), first-hand read 2026-10-22 — not secrets
-packages/suspenders/test/hub-providers.test.ts:generic-api-key:29
-packages/suspenders/test/hub-providers.test.ts:generic-api-key:42
+packages/suspenders/test/hub-admin.test.ts:sk-key:179
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:102
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:163
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:189
+packages/suspenders/test/hub-providers.test.ts:generic-api-key:29
+packages/suspenders/test/hub-providers.test.ts:generic-api-key:42
+packages/suspenders/test/policy-advisor.test.ts:private-key:186
+packages/suspenders/test/prompt-transform.test.ts:generic-api-key:405
+packages/suspenders/test/scrub-gate.test.ts:generic-api-key:30
+test/fleet-board-flows.test.ts:generic-api-key:422
