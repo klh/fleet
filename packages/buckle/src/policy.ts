@@ -34,6 +34,11 @@ export interface GatewayPolicy {
 	retry_max_delay_s?: number;
 	retry_after_cap_s?: number;
 	request_timeout_s?: number;
+	/** W1096: bound on the connect/reachability probe that runs before each
+	 *  model attempt. A dead origin fails within this window (immediate
+	 *  per-candidate ejection); a live one keeps its full model deadlines —
+	 *  legitimate slow inference is never cut off by this knob. */
+	connect_timeout_s?: number;
 	/** Maximum time to obtain response headers across the entire selected
 	 *  candidate and fallback walk. Active streaming bodies use their own
 	 *  idle/total guards after headers arrive. */
@@ -117,6 +122,7 @@ export const POLICY_DEFAULTS: Required<
 		| "retry_max_delay_s"
 		| "retry_after_cap_s"
 		| "request_timeout_s"
+		| "connect_timeout_s"
 		| "first_byte_budget_s"
 		| "stream_idle_timeout_s"
 		| "stream_total_timeout_s"
@@ -126,6 +132,7 @@ export const POLICY_DEFAULTS: Required<
 	retry_max_delay_s: number;
 	retry_after_cap_s: number;
 	request_timeout_s: number;
+	connect_timeout_s: number;
 	first_byte_budget_s: number;
 	stream_idle_timeout_s: number;
 	stream_total_timeout_s: number;
@@ -136,6 +143,7 @@ export const POLICY_DEFAULTS: Required<
 	retry_max_delay_s: 8,
 	retry_after_cap_s: 60,
 	request_timeout_s: 120,
+	connect_timeout_s: 5,
 	first_byte_budget_s: 240,
 	stream_idle_timeout_s: 60,
 	stream_total_timeout_s: 900,

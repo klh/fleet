@@ -238,6 +238,7 @@ export interface RouterDeps {
 		req: UpstreamRequest,
 		timeoutMs: number,
 		stream?: { idleMs: number; totalMs: number },
+		connectMs: number,
 	) => Promise<Response>;
 	metrics?: RouterMetrics;
 	/** W1077: injectable liveness probe (tests stub it; default = a plain
@@ -255,6 +256,7 @@ export class Router {
 		req: UpstreamRequest,
 		timeoutMs: number,
 		stream?: { idleMs: number; totalMs: number },
+		connectMs: number,
 	) => Promise<Response>;
 	private readonly metrics?: RouterMetrics;
 
@@ -305,19 +307,28 @@ export class Router {
 		return [...same, ...cross];
 	}
 
-	/** One upstream attempt, outcome classified for the walk. */
+	/** One upstream attempt, outcome classified for the walk. connectMs
+	 *  bounds only the wire's pre-flight reachability probe (W1096), never
+	 *  the model first-byte deadlines. */
 	private async tryOnce(
 		req: UpstreamRequest,
 		dep: Deployment,
 		timeoutMs: number,
 		stream?: { idleMs: number; totalMs: number },
+		connectMs?: number,
 	): Promise<TryOutcome> {
 		const wireReq = bridgeRequest(req, dep);
 		if (wireReq === null)
 			throw new UpstreamError(502, `upstream ${dep.url} not bridgeable`);
 		const bridged = wireReq !== req;
 		try {
-			const resp = await this.fetchImpl(dep, wireReq, timeoutMs, stream);
+			const resp = await this.fetchImpl(
+				dep,
+				wireReq,
+				timeoutMs,
+				stream,
+				connectMs ?? 5_000,
+			);
 			if (resp.ok) {
 				this.cooldowns.success(dep);
 				const response = bridged
@@ -439,6 +450,7 @@ export class Router {
 		retryAfterS: number | null,
 		requestId?: string,
 		callId?: string,
+		layer: "connect" | "network" | "upstream" | "gateway" = "upstream",
 	): void {
 		const retryAfterMs =
 			retryAfterS === null || !Number.isFinite(retryAfterS)
@@ -459,6 +471,7 @@ export class Router {
 				.slice(0, 16),
 			status,
 			refusal,
+			layer,
 			durationMs: Math.max(0, this.now() - startedAt),
 			retryAfterMs,
 			upstreamId: requestId ?? null,
@@ -520,11 +533,22 @@ export class Router {
 				1,
 				Math.min(perAttemptMs, st.deadlineMs - this.now()),
 			);
+			// W1096: the reachability probe bound (policy connect_timeout_s,
+			// clamped to the walk remainder) — a dead origin resolves within
+			// this window as a connect-layer failure, never at the model
+			// first-byte deadline.
+			const connectMs = Math.max(
+				1,
+				Math.min(
+					(this.policy.connect_timeout_s ?? 5) * 1000,
+					st.deadlineMs - this.now(),
+				),
+			);
 			st.attempts++;
 			const startedAt = this.now();
 			let r: TryOutcome;
 			try {
-				r = await this.tryOnce(req, dep, timeoutMs, stream);
+				r = await this.tryOnce(req, dep, timeoutMs, stream, connectMs);
 			} catch (error) {
 				if (req.signal?.aborted) return { kind: "aborted" };
 				if (!(error instanceof UpstreamError)) throw error;
@@ -536,6 +560,9 @@ export class Router {
 					null,
 					error.layer === "connect" ? "connect_unreachable" : "network",
 					error.layer === "connect" ? this.cooldowns.remainingS(dep) : null,
+					undefined,
+					undefined,
+					error.layer === "connect" ? "connect" : "network",
 				);
 				// W985 skip-not-fail: an unreachable rung (ECONNREFUSED, timeout)
 				// must not kill the ladder — record it and walk on to the next
@@ -563,6 +590,9 @@ export class Router {
 					504,
 					"walk_deadline",
 					null,
+					undefined,
+					undefined,
+					"gateway",
 				);
 				break;
 			}
@@ -970,7 +1000,8 @@ async function defaultFetchImpl(
 	req: UpstreamRequest,
 	timeoutMs: number,
 	stream?: { idleMs: number; totalMs: number },
+	connectMs?: number,
 ): Promise<Response> {
 	const { defaultFetch } = await import("./wire.ts");
-	return defaultFetch(dep, req, timeoutMs, stream);
+	return defaultFetch(dep, req, timeoutMs, stream, connectMs);
 }

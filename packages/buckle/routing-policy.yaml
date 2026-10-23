@@ -37,6 +37,11 @@ gateway:
   # stream uses the independent idle and total deadlines above.
   request_timeout_s: 120
   first_byte_budget_s: 240
+  # W1096: bound on the per-attempt reachability probe. A dead origin
+  # (refused/unroutable/blackholed) resolves as a connect-layer failure
+  # inside this window and its candidate is ejected immediately; a live one
+  # keeps every model deadline — slow inference is never cut off by this.
+  connect_timeout_s: 5
 
 # W136 §3.2 capability tags — the string hint tag regexps match against
 # (capability_text = tags + wire id). The fix for a must-miss is data, not

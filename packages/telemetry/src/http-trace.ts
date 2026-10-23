@@ -35,6 +35,11 @@ export interface HopReceipt {
 	candidate: string;
 	status: number | null;
 	refusal: string | null;
+	/** W1096: where the attempt's outcome originated — "connect" (the
+	 *  bounded reachability probe), "network" (transport failure on the
+	 *  model call), "upstream" (an HTTP answer), "gateway" (a walk-level
+	 *  deadline the gateway itself ended). */
+	layer: "connect" | "network" | "upstream" | "gateway";
 	durationMs: number;
 	retryAfterMs: number | null;
 	upstreamId: string | null;

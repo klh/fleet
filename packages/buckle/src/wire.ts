@@ -12,6 +12,7 @@ import type { UpstreamRequest } from "./router.ts";
 import { poolWarm } from "./pool-warm.ts";
 import { childSpanOf, stripPrivateTrace } from "./trace.ts";
 import { PREFER_HEADER } from "../../telemetry/src/prefer-header.ts";
+import { connect as netConnect } from "node:net";
 
 /** A preference decision may cross Fleet-owned hops but not provider egress. */
 export function mayRelayPrefer(dep: Deployment): boolean {
@@ -62,15 +63,53 @@ async function hubResponds(
 	}
 }
 
+/** W1096 bounded TCP connect check for plain (non-buckle) upstream rows —
+ *  the gap trace 1d57145a exposed: a dead origin consumed the full 120s
+ *  attempt timeout twice before local fallback. An established TCP
+ *  connection proves the network path answers; inference speed stays owned
+ *  by the model deadlines, never this bound. */
+export async function tcpConnects(
+	url: string,
+	connectMs: number,
+	signal?: AbortSignal,
+): Promise<boolean> {
+	let u: URL;
+	try {
+		u = new URL(url);
+	} catch {
+		return false;
+	}
+	const host = u.hostname.replace(/^\[(.+)\]$/, "$1");
+	const port = Number(u.port) || (u.protocol === "https:" ? 443 : 80);
+	return new Promise<boolean>((resolve) => {
+		const socket = netConnect({ host, port });
+		const finish = (ok: boolean) => {
+			clearTimeout(timer);
+			socket.removeAllListeners();
+			socket.destroy();
+			resolve(ok);
+		};
+		const timer = setTimeout(() => finish(false), Math.max(1, connectMs));
+		const onAbort = () => finish(false);
+		signal?.addEventListener("abort", onAbort, { once: true });
+		socket.once("connect", () => finish(true));
+		socket.once("error", () => finish(false));
+	});
+}
+
 /** Default upstream transport: adapter-built wire call + fetch with
  *  timeout + caller-signal abort. `timeoutMs` bounds time-to-headers (and
  *  the WHOLE non-streaming exchange); streaming bodies get the W450 idle +
- *  total guards so a healthy long generation is never killed mid-flight. */
+ *  total guards so a healthy long generation is never killed mid-flight.
+ *  `connectMs` bounds ONLY the pre-flight reachability probe (W1096) — a
+ *  dead origin throws HubConnectError inside that window instead of
+ *  consuming the model deadline; a live one keeps every model deadline. */
 export async function defaultFetch(
 	dep: Deployment,
 	req: UpstreamRequest,
 	timeoutMs: number,
 	stream?: StreamGuards,
+	connectMs?: number,
 ): Promise<Response> {
 	const adapter = resolveAdapter(dep);
 	const wire = await adapter.buildCall(dep, req, req.body);
@@ -106,6 +145,21 @@ export async function defaultFetch(
 	if (
 		dep.buckle &&
 		!(await hubResponds(wire.url, Math.min(timeoutMs, 3_000), req.signal))
+	) {
+		if (req.signal?.aborted) throw req.signal.reason;
+		throw new HubConnectError();
+	}
+	// W1096: plain rows get the same bounded reachability check as buckle
+	// peers — connect-layer failure resolves inside connectMs (never the
+	// model first-byte deadline) as HubConnectError, which ejects the
+	// candidate immediately and walks on to the next rung.
+	if (
+		!dep.buckle &&
+		!(await tcpConnects(
+			wire.url,
+			Math.max(1, Math.min(connectMs ?? 5_000, timeoutMs)),
+			req.signal,
+		))
 	) {
 		if (req.signal?.aborted) throw req.signal.reason;
 		throw new HubConnectError();

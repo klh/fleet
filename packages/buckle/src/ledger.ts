@@ -194,6 +194,7 @@ CREATE TABLE IF NOT EXISTS route_attempt (
   candidate TEXT NOT NULL,
   status INTEGER,
   refusal TEXT,
+  layer TEXT,
   duration_ms INTEGER NOT NULL,
   retry_after_ms INTEGER,
   upstream_id TEXT,
@@ -347,6 +348,15 @@ export class Ledger {
 		// the row predates the column — unmarked legacy).
 		if (!auditCols.includes("traffic_kind"))
 			this.db.run("ALTER TABLE route_audit ADD COLUMN traffic_kind TEXT");
+		// W1096: failure layer on attempt receipts (pre-W1096 databases heal
+		// the same way; NULL layer = the row predates the column).
+		const attemptCols = (
+			this.db
+				.query("SELECT name FROM pragma_table_info('route_attempt')")
+				.all() as Array<{ name: string }>
+		).map((r) => r.name);
+		if (!attemptCols.includes("layer"))
+			this.db.run("ALTER TABLE route_attempt ADD COLUMN layer TEXT");
 		this.db.run(
 			"CREATE INDEX IF NOT EXISTS route_audit_trace ON route_audit(trace_id, ts)",
 		);
@@ -356,8 +366,8 @@ export class Ledger {
 		this.updUsage = this.db.query(UPDATE_USAGE);
 		this.insAttempt = this.db.query(`INSERT OR REPLACE INTO route_attempt
 			(rid, ordinal, trace_id, ts, service, hop, candidate, status,
-			refusal, duration_ms, retry_after_ms, upstream_id, call_id)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+			refusal, layer, duration_ms, retry_after_ms, upstream_id, call_id)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 		this.flushMs = opts.flushMs ?? 5000;
 		this.flushRows = opts.flushRows ?? 256;
 		this.maxAttempts = Math.max(1, opts.maxFlushAttempts ?? 5);
@@ -405,6 +415,7 @@ export class Ledger {
 				r.hop.length +
 				r.candidate.length +
 				(r.refusal?.length ?? 0) +
+				(r.layer?.length ?? 0) +
 				(r.upstreamId?.length ?? 0) +
 				(r.callId?.length ?? 0)
 			);
@@ -597,6 +608,7 @@ export class Ledger {
 				? row.status
 				: null,
 			safeCorrelationId(row.refusal) ?? null,
+			safeCorrelationId(row.layer) ?? null,
 			Number.isFinite(row.durationMs)
 				? Math.max(0, Math.floor(row.durationMs))
 				: 0,
@@ -615,8 +627,8 @@ export class Ledger {
 		this.flush();
 		return this.db
 			.query(`SELECT rid, ordinal, trace_id, ts, service, hop,
-			candidate, status, refusal, duration_ms, retry_after_ms, upstream_id,
-			call_id FROM route_attempt WHERE trace_id = ?
+			candidate, status, refusal, layer, duration_ms, retry_after_ms,
+			upstream_id, call_id FROM route_attempt WHERE trace_id = ?
 			ORDER BY ts, rid, ordinal LIMIT 500`)
 			.all(traceId) as Array<Record<string, unknown>>;
 	}

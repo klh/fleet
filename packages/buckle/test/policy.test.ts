@@ -65,6 +65,8 @@ test("POLICY_DEFAULTS: fixed constants from the ported semantics", () => {
 		retry_after_cap_s: 60,
 		request_timeout_s: 120,
 		first_byte_budget_s: 240,
+		// W1096: reachability probe bound (dead origin, never slow inference)
+		connect_timeout_s: 5,
 		// W450 long-generation deadlines
 		stream_idle_timeout_s: 60,
 		stream_total_timeout_s: 900,
