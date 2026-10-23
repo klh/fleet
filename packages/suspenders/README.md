@@ -104,7 +104,7 @@ work migrate-ledger                                 # import a - [ ] list
 ### Coord bus — `bun hooks/bin/coord.ts <verb>`
 
 ```sh
-coord fleet                      # who is working (sessions + claims)
+coord fleet                      # registered peers + work owners + file claims
 coord state --as <sid>           # your session view
 # event reads (W652.2 relationship):
 coord subscribe --as <sid>       # THE face — live WebSocket push (W303)
@@ -121,6 +121,12 @@ coord emit NEED_DECISION --to <coordinator> --note "q + options" --as <sid>
 coord gc                         # settle dead sessions
 coord doctor-session <sid>       # rebind a resumed session
 ```
+
+`coord fleet --json` shares registered-peer discovery with `coord targets`.
+Each lane distinguishes `fileClaims`, `workItems`, and `sessionState`; a work
+owner needs no file lease to appear. Ownership is not execution proof:
+`verdict`/`live` retain the shared process and session liveness checks, and
+uncertain or closed owners are not counted as live.
 
 ### Dispatch + fleet loop
 
