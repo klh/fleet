@@ -7,10 +7,14 @@ import {
 } from "../lib/knowledge.ts";
 import { servicemon } from "../lib/servicemon.ts";
 import { hostGuard, tokenOk, writeToken } from "../lib/host-guard.ts";
-// W1213 pause checkpoint: the /roll route wiring (aggregateClaims +
-// claimAggregateView + rollKeyOk + the rollDb handle) lands on resume —
-// the mint verb below is live; lib/knowledge-roll.ts holds the core.
-import { mintRollKey } from "../lib/knowledge-roll.ts";
+import {
+	aggregateClaims,
+	claimAggregateView,
+	mintRollKey,
+	rollKeyOk,
+	ROLL_KEY_HEADER,
+} from "../lib/knowledge-roll.ts";
+import { openKnowledgeDb } from "../lib/govdb-knowledge.ts";
 // knowledge-api.ts — W91 #9b: the knowledge port's HTTP face. The SAME store
 // handlers, second transport: a consumer on another machine calls
 // http://<knowledge-api>/search instead of importing the lib. Thin by design
@@ -93,11 +97,10 @@ if (mintIdx !== -1) {
 	process.exit(0);
 }
 
-// W1213 resume note — the claim-roll aggregate rides its own handle (re-add
-// `const rollDb = openKnowledgeDb()` WITH the /roll routes: aggregateClaims +
-// claimAggregateView + rollKeyOk from lib/knowledge-roll.ts; POST /roll auth
-// = x-klh-roll-key (machine from the key) or install write token (machine
-// from body.machine); GET /roll = claimAggregateView).
+// W1213 — the claim-roll aggregate rides its own handle: the roll is a
+// second concern on the same knowledge.db (WAL + BEGIN IMMEDIATE keep the
+// two connections honest), never squeezed through the store port.
+const rollDb = openKnowledgeDb();
 
 // W125 — shared /status + /metrics (lib/servicemon.ts). No token dimension on
 // this service: search/enqueue never see usage, so tokens_total is omitted
@@ -136,12 +139,34 @@ const base = {
 				{ headers },
 			);
 		}
-		// anonymous reads get scrubbed output; the install token unlocks refs
-		const authed = tokenOk(req);
+		// W1213 — the upward claim roll. POST: credential-free transport — a
+		// machine-scoped TTL key (mintRollKey) binds the provenance machine, so
+		// a spoke never holds the install write token; the write token stays a
+		// valid OPERATOR path (machine then rides body.machine). GET: the
+		// aggregated view (confidence-ranked, tombstoned hidden).
 		const body =
 			req.method === "POST"
 				? ((await req.json().catch(() => ({}))) as Record<string, unknown>)
 				: {};
+		if (path === "/roll") {
+			if (req.method === "GET") return json(claimAggregateView(rollDb));
+			if (req.method !== "POST")
+				return new Response(null, {
+					status: 405,
+					headers: { allow: "GET, POST" },
+				});
+			const key = req.headers.get(ROLL_KEY_HEADER) ?? "";
+			const keyed = key ? rollKeyOk(key) : { ok: false, machine: null };
+			const machine = keyed.ok
+				? keyed.machine
+				: tokenOk(req)
+					? str(body.machine)
+					: null;
+			if (!machine) return json({ error: "roll key required" }, 403);
+			return json(aggregateClaims(rollDb, body.claims, machine));
+		}
+		// anonymous reads get scrubbed output; the install token unlocks refs
+		const authed = tokenOk(req);
 		try {
 			if (req.method === "POST" && path === "/search") {
 				const query = str(body.query) ?? "";

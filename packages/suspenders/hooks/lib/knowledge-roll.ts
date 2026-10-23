@@ -35,6 +35,10 @@ import { REG } from "./govdb-util.ts";
 /** The machine facts namespace the roll collects (W1212's claim keys). */
 export const CLAIM_FACT = /^claim\./;
 
+/** The scoped TTL key header (both transport faces — api validation and
+ *  the spoke push — import the ONE name). */
+export const ROLL_KEY_HEADER = "x-klh-roll-key";
+
 /** Wire clamp: claim text ≤ 2000 chars (the W944 fact-value bound). */
 export const MAX_CLAIM_TEXT = 2000;
 /** Wire clamp: evidence ids are short keys. */
@@ -490,6 +494,9 @@ export function rollKeyOk(
 export interface CollectedClaims {
 	send: RollEntry[];
 	skipped: string[];
+	/** facts-key → version for the sent set — the cursor the sync stamps only
+	 *  when every roll target accepted the pass. */
+	cursor: Record<string, number>;
 }
 
 /** The claim pass: facts rows in the claim.* namespace → roll entries.
@@ -502,13 +509,18 @@ export function collectClaims(
 ): CollectedClaims {
 	const send: RollEntry[] = [];
 	const skipped: string[] = [];
-	if (opts.dbPath === null) return { send, skipped };
+	const cursor: Record<string, number> = {};
+	if (opts.dbPath === null) return { send, skipped, cursor: {} };
 	const dbPath = opts.dbPath ?? `${REG()}/governor.db`;
 	let db: Database | null = null;
 	try {
 		db = new Database(dbPath, { readonly: true, create: false });
 	} catch {
-		return { send, skipped: ["claims: governor.db not readable"] };
+		return {
+			send,
+			skipped: ["claims: governor.db not readable"],
+			cursor: {},
+		};
 	}
 	if (db) {
 		const rows = db
@@ -540,6 +552,7 @@ export function collectClaims(
 				confidence: e.confidence || r.confidence || 0.5,
 				ts: r.ts,
 			});
+			cursor[r.key] = r.version;
 			if (send.length >= 50) {
 				skipped.push("claims: pass cap (50) — remainder rides the next pass");
 				break;
@@ -547,5 +560,5 @@ export function collectClaims(
 		}
 	}
 	db?.close();
-	return { send, skipped };
+	return { send, skipped, cursor };
 }
