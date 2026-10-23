@@ -83,6 +83,8 @@ export const parseVerb = (spec: VerbSpec, rest: string[]): ParseOutcome => {
 	let endOfFlags = false;
 	for (let i = 0; i < rest.length; i++) {
 		const t = rest[i];
+		const equals = t.indexOf("=");
+		const option = equals > 0 ? t.slice(0, equals) : t;
 		if (!endOfFlags && t === "--") {
 			endOfFlags = true; // end-of-options: the rest are positionals
 			continue;
@@ -91,11 +93,11 @@ export const parseVerb = (spec: VerbSpec, rest: string[]): ParseOutcome => {
 			vals.set(t, "true");
 			continue;
 		}
-		if (!endOfFlags && flags.includes(t)) {
-			const v = rest[i + 1] ?? null;
-			if (!vals.has(t)) vals.set(t, v);
-			seen.set(t, [...(seen.get(t) ?? []), v ?? ""]);
-			i++;
+		if (!endOfFlags && flags.includes(option)) {
+			const v = equals > 0 ? t.slice(equals + 1) : (rest[i + 1] ?? null);
+			if (!vals.has(option)) vals.set(option, v);
+			seen.set(option, [...(seen.get(option) ?? []), v ?? ""]);
+			if (equals < 0) i++;
 			continue;
 		}
 		if (!endOfFlags && t.startsWith("--")) {
