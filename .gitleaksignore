@@ -73,3 +73,13 @@ packages/decant/test/distill.test.ts:curl-auth-header:169
 # W1124.8.2.2: migration-test fixture value (fake key written by writeFileSync
 # in the sightings test; the suite asserts masking, never a real credential)
 packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83
+# W1124.8.2.2 note: the five rows below are W1124.8.2.1's fixture values in
+# test/hub-providers.test.ts (zk-live-0123456789abcdef — fake, scrub:allow-
+# marked, asserted never echoed), verified first-hand in c484e03c 2026-10-23;
+# a full-history gitleaks scan (as the push gate runs it) flags them and
+# blocks unrelated lanes' pushes until allowlisted
+packages/suspenders/test/hub-providers.test.ts:generic-api-key:29
+packages/suspenders/test/hub-providers.test.ts:generic-api-key:42
+packages/suspenders/test/hub-providers.test.ts:generic-api-key:102
+packages/suspenders/test/hub-providers.test.ts:generic-api-key:163
+packages/suspenders/test/hub-providers.test.ts:generic-api-key:189
