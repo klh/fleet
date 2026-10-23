@@ -17,258 +17,52 @@ import {
 } from "../../telemetry/src/http-trace.ts";
 import {
 	safeTimeoutPhase,
-	type TransportEvidence,
 	TransportObservation,
 } from "../../telemetry/src/transport-evidence.ts";
-import {
-	type ErrorKind,
-	normalizeUpstreamError,
-	RouterError,
-	routerErrorEnvelope,
-} from "./adapters/errors.ts";
-import { resolveAdapter } from "./adapters/index.ts";
-import { deriveAdapter } from "./adapters/types.ts";
+import { RouterError, routerErrorEnvelope } from "./adapters/errors.ts";
 import { bridgeRequest, bridgeResponse } from "./bridge.ts";
 import { type CandidateRow, candIdOf } from "./candidates.ts";
 import { Cooldowns, retryAfterS, retryDelayS } from "./cooldown.ts";
 import { mayEscalate, type RouteSelection } from "./decide.ts";
 import { FLASHX, type GatewayPolicy } from "./policy.ts";
 import {
-	assertProviderConcurrencyErrorCodes,
 	bindProviderLease,
 	ProviderAdmissionCore,
 	ProviderAdmissionFull,
 	type ProviderLease,
-	type ProviderPoolPolicy,
 	providerPressureOf,
 } from "./provider-admission-core.ts";
-import type { TraceContext } from "./trace.ts";
-import type { Deployment, Dialect, UpstreamPool } from "./upstreams.ts";
+import type { Deployment, UpstreamPool } from "./upstreams.ts";
 import { HubConnectError } from "./wire.ts";
+import type {
+	ExecuteResult,
+	RouterMetrics,
+	TryOutcome,
+	UpstreamRequest,
+	WalkState,
+} from "./router-types.ts";
+import {
+	UpstreamError,
+	admissionRefusal,
+	classifyFailure,
+	defaultFetchImpl,
+	exhausted,
+	providerConcurrencyCodesOf,
+	providerPoolIdOf,
+} from "./router-outcome.ts";
 
 export { FLASHX };
-
-export type ExecuteResult =
-	| {
-			kind: "upstream";
-			response: Response;
-			deployment: Deployment;
-			candidateId: string; // delivered candidate (W136 audit join)
-			tier: string;
-			attempts: number;
-			stream: boolean;
-	  }
-	| {
-			kind: "client-error";
-			response: Response;
-			tier: string;
-			attempts: number;
-			refusalSource: "upstream" | "cooldown";
-			failureKind: ErrorKind;
-	  }
-	| {
-			kind: "aborted";
-	  }
-	| {
-			kind: "exhausted";
-			status: number;
-			error: string;
-			attempts: number;
-			lastFailure?: FailureProvenance;
-			retryAfterS?: number;
-	  };
-
-interface FailureProvenance {
-	source: "upstream" | "bridged-upstream" | "network" | "local-admission";
-	status: number;
-	kind: string;
-	requestId?: string;
-	callId?: string;
-	retryAfterS?: number;
-	upstreamRefusalCode?: string | null;
-	transportTimeoutPhase?: TransportEvidence["timeoutPhase"];
-}
-
-export interface UpstreamRequest {
-	group: string;
-	dialect: Dialect;
-	path: string;
-	body: Record<string, unknown>;
-	key: string;
-	/** The Buckle audit join key; no credential or request body rides telemetry. */
-	rid?: string;
-	/** W461 stage 1: request-scoped W3C trace context (correlation only —
-	 *  never identity/authz). Absent → the wire roots a fresh trace. */
-	trace?: TraceContext;
-	/** W706: the outbound baggage for a relay leg to a buckle-marked peer
-	 *  (origin passed through + peer=self). Absent/non-buckle → the strip. */
-	relayBaggage?: string;
-	/** Canonicalized .prefer selection, diagnostic only. */
-	preference?: string | null;
-	signal?: AbortSignal;
-	/** Internal, attempt-local observer; never constructed from client headers/body. */
-	transport?: TransportObservation;
-	// W140 routing laws: the pure decision result (handlers decided via the
-	// candidate table before dispatch) + the complexity tier + the raw hint,
-	// threaded for the escalation gate and audit echo.
-	sel?: RouteSelection;
-	tier?: string;
-	hintRaw?: string;
-}
-
-export interface RouterMetrics {
-	fallback(tier: string): void;
-	cooldown(dep: string): void;
-	refused(tier: string): void;
-	/** Every attempted rung, including network failures and later fallbacks. */
-	attempt?(receipt: HopReceipt): void;
-}
-
-/** A single upstream attempt's classified outcome. */
-export type TryOutcome = {
-	transportTimeoutPhase?: TransportEvidence["timeoutPhase"];
-	providerPool?: string | null;
-	queueWaitMs?: number | null;
-	providerErrorCode?: string | null;
-	providerErrorType?: string | null;
-} & (
-	| { ok: true; response: Response }
-	| {
-			ok: false;
-			/** W1078 local admission refusal: the bounded account-pool queue
-			 *  refused (full or wait expired) BEFORE any upstream attempt —
-			 *  no fetch happened, nothing benched, no provider cooldown. */
-			localAdmission: true;
-			status: 503;
-			error: string;
-			/** Window-derived floor from the pool policy — config, never a
-			 *  fabricated provider verdict. */
-			retryAfterS: number;
-	  }
-	| {
-			ok: false;
-			response: Response;
-			status: number;
-			error: string;
-			retryAfterS: number | null;
-			clientFault: boolean;
-			exhaustTier: boolean;
-			refusalSource: "upstream" | "bridged-upstream";
-			requestId?: string;
-			callId?: string;
-			upstreamRefusalCode?: string | null;
-			/** W134 §1 normalized kind (adapters/errors.ts) */
-			kind: ErrorKind;
-			/** bad_request subclass: the prompt overflowed this deployment's
-			 *  window — fail over (a bigger window may fit), never bench */
-			contextWindow: boolean;
-	  }
-);
-
-/** Walk state threaded through the ladder. ctxWindow keeps the last
- *  context-window rejection: if every rung overflows, the client gets that
- *  upstream 4xx (actionable) instead of a generic 502. */
-interface WalkState {
-	attempts: number;
-	status: number;
-	error: string;
-	deadlineMs: number;
-	/** Account Retry-After or admission timeout cannot heal through an alias. */
-	unavailablePools?: Set<string>;
-	ctxWindow?: Response;
-	rateLimit?: {
-		response: Response;
-		tier: string;
-		source: "upstream" | "cooldown";
-	};
-	lastFailure?: FailureProvenance;
-}
-
-/** Error bodies are small; never buffer an unbounded one. */
-const ERROR_BODY_CAP = 256 * 1024;
-
-async function readCapped(resp: Response): Promise<string> {
-	const reader = resp.body?.getReader();
-	if (!reader) return "";
-	const parts: Uint8Array[] = [];
-	let n = 0;
-	try {
-		while (n < ERROR_BODY_CAP) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			parts.push(value);
-			n += value.byteLength;
-		}
-	} catch {
-		// truncated body: classify on what arrived
-	} finally {
-		reader.cancel().catch(() => {});
-	}
-	return new TextDecoder().decode(Buffer.concat(parts));
-}
-
-/** Non-ok upstream reply → normalized RouterError (status + body signature
- *  + retry-after header/body) and a replayable copy of the response. */
-async function classifyFailure(dep: Deployment, resp: Response) {
-	const text = await readCapped(resp);
-	let wire: unknown = null;
-	try {
-		wire = JSON.parse(text);
-	} catch {
-		// non-JSON error body: status-driven classification
-	}
-	let family: Parameters<typeof normalizeUpstreamError>[0];
-	try {
-		family = resolveAdapter(dep).family;
-	} catch {
-		family = deriveAdapter(dep.dialect);
-	}
-	const err = normalizeUpstreamError(family, resp.status, wire, resp.headers);
-	const record =
-		wire && typeof wire === "object" ? (wire as Record<string, unknown>) : null;
-	const detail =
-		record?.error && typeof record.error === "object"
-			? (record.error as Record<string, unknown>)
-			: null;
-	const requestId = safeCorrelationId(
-		resp.headers.get("x-request-id") ??
-			detail?.request_id ??
-			record?.request_id,
-	);
-	const callId = safeCorrelationId(resp.headers.get("x-litellm-call-id"));
-	// the body is now decoded text: length/encoding headers no longer apply
-	const headers = new Headers(resp.headers);
-	headers.delete("content-length");
-	headers.delete("content-encoding");
-	// LiteLLM's api-base header may contain an operator URL. It belongs in
-	// internal hop logs, never a client-facing error response.
-	headers.delete("x-litellm-model-api-base");
-	if (!requestId) headers.delete("x-request-id");
-	if (!callId) headers.delete("x-litellm-call-id");
-	if (requestId) headers.set("x-klh-upstream-request-id", requestId);
-	if (callId) headers.set("x-litellm-call-id", callId);
-	const replay = new Response(text, {
-		status: resp.status,
-		statusText: resp.statusText,
-		headers,
-	});
-	return { err, replay, requestId, callId };
-}
-
-/** Thrown when an upstream is unreachable (network/timeout); the walk
- *  catches it and keeps going (ladder), rethrows on caller abort. */
-export class UpstreamError extends Error {
-	constructor(
-		public readonly status: number,
-		message: string,
-		public readonly layer: "connect" | "upstream" = "upstream",
-		public readonly timedOut = false,
-		public readonly providerPool: string | null = null,
-		public readonly queueWaitMs: number | null = null,
-	) {
-		super(message);
-	}
-}
+export type {
+	ExecuteResult,
+	RouterMetrics,
+	TryOutcome,
+	UpstreamRequest,
+	WalkState,
+} from "./router-types.ts";
+export {
+	UpstreamError,
+	providerPoolIdOf,
+} from "./router-outcome.ts";
 
 export interface RouterDeps {
 	pool: UpstreamPool;
@@ -1229,105 +1023,4 @@ export class Router {
 		this.walkExpired(st);
 		return exhausted(st);
 	}
-}
-
-/** W1078: the explicit account binding on a deployment — a bounded pool id
- *  into gateway.provider_pools, operator config, never derived from host,
- *  model name or secret bytes (admission-core notes). */
-export function providerPoolIdOf(dep: Deployment): string | null {
-	const cfg = dep.adapter_config?.provider_pool;
-	if (typeof cfg !== "string") return null;
-	return /^[\w.-]{1,64}$/.test(cfg) ? cfg : null;
-}
-
-function providerConcurrencyCodesOf(
-	dep: Deployment,
-	policy: GatewayPolicy,
-): string[] | undefined {
-	const explicit = dep.adapter_config?.provider_concurrency_error_codes;
-	const pool = providerPoolIdOf(dep);
-	const inherited =
-		pool === null
-			? undefined
-			: policy.provider_pools?.[pool]?.concurrencyErrorCodes;
-	if (explicit === undefined) return inherited;
-	assertProviderConcurrencyErrorCodes(explicit);
-	if (
-		inherited &&
-		(explicit.length !== inherited.length ||
-			explicit.some((code) => !inherited.includes(code)))
-	)
-		throw new Error(
-			"Deployment concurrency error codes conflict with its provider pool policy",
-		);
-	return explicit;
-}
-
-/** W1078 local admission refusal: a LOCAL queue decision, never an upstream
- *  verdict — no bench, no provider cooldown, no fabricated 429. The 503
- *  carries the pool's window-derived Retry-After floor (config, not a
- *  provider claim). */
-function admissionRefusal(
-	dep: Deployment,
-	policy: ProviderPoolPolicy,
-	cause: "full" | "expired",
-	providerPool: string,
-	queueWaitMs: number,
-): TryOutcome {
-	return {
-		ok: false,
-		localAdmission: true,
-		providerPool,
-		queueWaitMs,
-		status: 503,
-		error:
-			cause === "full"
-				? `provider account pool for ${dep.url} is saturated — admission refused locally (W1078)`
-				: `provider account pool wait expired for ${dep.url} — admission timed out locally (W1078)`,
-		retryAfterS: Math.ceil(policy.intervalMs / 1000),
-	};
-}
-
-/** End of a walk with nothing delivered: an all-rungs context-window
- *  overflow answers the upstream's 4xx; anything else is exhausted. */
-function exhausted(st: WalkState): ExecuteResult {
-	if (st.rateLimit)
-		return {
-			kind: "client-error",
-			response: st.rateLimit.response,
-			tier: st.rateLimit.tier,
-			attempts: st.attempts,
-			refusalSource: st.rateLimit.source,
-			failureKind: "rate_limited",
-		};
-	if (st.ctxWindow)
-		return {
-			kind: "client-error",
-			response: st.ctxWindow,
-			tier: "",
-			attempts: st.attempts,
-			refusalSource: "upstream",
-			failureKind: "bad_request",
-		};
-	return {
-		kind: "exhausted",
-		status: st.status,
-		error: st.error,
-		attempts: st.attempts,
-		lastFailure: st.lastFailure,
-		...(st.lastFailure?.status === 503 &&
-		st.lastFailure.retryAfterS !== undefined
-			? { retryAfterS: st.lastFailure.retryAfterS }
-			: {}),
-	};
-}
-
-async function defaultFetchImpl(
-	dep: Deployment,
-	req: UpstreamRequest,
-	timeoutMs: number,
-	stream?: { idleMs: number; totalMs: number },
-): Promise<Response> {
-	const { defaultFetch } = await import("./wire.ts");
-	return defaultFetch(dep, req, timeoutMs, stream);
 }
