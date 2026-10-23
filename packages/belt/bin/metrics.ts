@@ -25,6 +25,12 @@ export interface EndpointMetrics {
 	measured: number;
 	avg_ms: number | null;
 	last_used: string | null;
+	/** Last ts among rows carrying a real duration sample — the latency
+	 *  sample-freshness bound (W1030.2.1); a fresh duration-less failure
+	 *  never rejuvenates the measured sample. */
+	measured_last: string | null;
+	/** Earliest ts in the measured sample window (null with no samples). */
+	measured_first: string | null;
 	load_5m: number;
 	last_error?: string | null;
 }
@@ -304,7 +310,9 @@ const agg = `
 	       SUM(ok = 0) AS errors,
 	       SUM(duration_ms > 0) AS measured,
 	       AVG(CASE WHEN duration_ms > 0 THEN duration_ms END) AS avg_ms,
-	       MAX(ts) AS last_used
+	       MAX(ts) AS last_used,
+	       MAX(CASE WHEN duration_ms > 0 THEN ts END) AS measured_last,
+	       MIN(CASE WHEN duration_ms > 0 THEN ts END) AS measured_first
 	FROM routes GROUP BY machine, port, model`;
 
 const loadQ = `
