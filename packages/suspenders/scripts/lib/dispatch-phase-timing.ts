@@ -49,6 +49,14 @@ export const dispatchToolName = (cmd: string[]): string => {
 	return verb ? `${base} ${verb}` : base;
 };
 
+/** Cycle/test support: drop accumulated spans + the dropped count. A
+ *  long-lived supervise process resets at each cycle boundary so spans never
+ *  bridge unrelated dispatch cycles. */
+export const resetDispatchPhases = (): void => {
+	spans.length = 0;
+	dropped = 0;
+};
+
 /** Timed spawn wrapper — wraps the shared lane.ts run/sh so every dispatch
  *  subprocess (work take/show/ready, coord bootstrap/capsule, worktree
  *  create/retire, git reads) is phase-attributed without touching call
