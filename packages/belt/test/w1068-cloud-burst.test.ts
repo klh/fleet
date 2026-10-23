@@ -83,6 +83,7 @@ beforeAll(async () => {
 				...process.env,
 				HOME: home,
 				BELT_ROUTER_PORT: String(port),
+				BELT_UPSTREAM_KEY: "bksk_test-scoped-fake",
 				BELT_UPSTREAM_BASE: `http://127.0.0.1:${local.port}`,
 				BELT_PORT_CAPS: "8903:1", // the local reason tier stays capped at 1
 				BELT_ESCALATE_URL: `http://127.0.0.1:${gate.port}`,
@@ -123,6 +124,7 @@ const post = (traceId: string) =>
 		method: "POST",
 		headers: {
 			"content-type": "application/json",
+			authorization: "Bearer bksk_test-scoped-fake",
 			traceparent: `00-${traceId}-aaaaaaaaaaaaaaaa-01`,
 			"x-klh-request-id": `w1068-${traceId.slice(0, 8)}`,
 		},
