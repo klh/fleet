@@ -1,6 +1,6 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { scratchWorld } from "../../test-kit/src/index.ts";
 import { describe, expect, test } from "bun:test";
 import {
 	emitClassTiers,
@@ -203,7 +203,7 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 	});
 
 	test("runtime copy overrides the committed default", () => {
-		const dir = mkdtempSync(join(tmpdir(), "w124-policy-"));
+		const { home: dir, clean } = scratchWorld({ prefix: "w124-policy-" });
 		const path = join(dir, "routing-policy.yaml");
 		writeFileSync(
 			path,
@@ -222,11 +222,13 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		expect(p.allowed_fails).toBe(5);
 		expect(p.cooldown_time).toBe(60);
 		expect(p.fallbacks).toEqual({ "glm-5.3-flash": ["local-swarm"] });
-		rmSync(dir, { recursive: true, force: true });
+		clean();
 	});
 
 	test("JSON sibling of a pinned YAML policy wins, then legacy YAML remains readable", () => {
-		const dir = mkdtempSync(join(tmpdir(), "w975-belt-policy-"));
+		const { home: dir, clean } = scratchWorld({
+			prefix: "w975-belt-policy-",
+		});
 		const yaml = join(dir, "routing-policy.yaml");
 		const json = join(dir, "routing-policy.json");
 		try {
@@ -245,12 +247,14 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 			rmSync(json);
 			expect(loadGatewayPolicy(yaml).num_retries).toBe(2);
 		} finally {
-			rmSync(dir, { recursive: true, force: true });
+			clean();
 		}
 	});
 
 	test("runtime JSON wins over runtime YAML", () => {
-		const dir = mkdtempSync(join(tmpdir(), "w975-belt-home-"));
+		const { home: dir, clean } = scratchWorld({
+			prefix: "w975-belt-home-",
+		});
 		const runtime = join(dir, ".claude", "local-llm");
 		const previous = process.env.HOME;
 		const previousPin = process.env.BELT_POLICY;
@@ -272,7 +276,7 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 			else process.env.HOME = previous;
 			if (previousPin === undefined) delete process.env.BELT_POLICY;
 			else process.env.BELT_POLICY = previousPin;
-			rmSync(dir, { recursive: true, force: true });
+			clean();
 		}
 	});
 

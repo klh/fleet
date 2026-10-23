@@ -4,15 +4,9 @@
 // checkAll rows carry models[] — proven against a real stub endpoint (Bun
 // .serve) and real CLI spawns with a scratch HOME, not mocks.
 import { afterAll, expect, test } from "bun:test";
-import {
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { scratchWorld, serveStub } from "../../test-kit/src/index.ts";
 import {
 	catalogFor,
 	catalogEvidenceFor,
@@ -31,41 +25,33 @@ const HOSTILE_MODELS: unknown[] = [
 	123, // not a string
 	"x\ny", // control char — validModel rejects
 ];
-const stub = Bun.serve({
-	port: 0,
-	fetch: async (req) => {
-		const url = new URL(req.url);
-		SEEN_AUTH.push(req.headers.get("authorization"));
-		if (url.pathname === "/v1/models")
-			return Response.json({ data: ECHO_MODELS.map((id) => ({ id })) });
-		if (url.pathname === "/paas/models")
-			return Response.json({ data: [{ id: "cloud-only" }] });
-		if (url.pathname === "/v1/chat/completions") {
-			const body = (await req.json()) as { model?: string };
-			return Response.json({
-				choices: [{ message: { content: `ECHO:${body.model ?? "?"}` } }],
-			});
-		}
-		return new Response("nope", { status: 400 });
-	},
+const stub = serveStub((req, body) => {
+	const url = new URL(req.url);
+	SEEN_AUTH.push(req.headers.get("authorization"));
+	if (url.pathname === "/v1/models")
+		return Response.json({ data: ECHO_MODELS.map((id) => ({ id })) });
+	if (url.pathname === "/paas/models")
+		return Response.json({ data: [{ id: "cloud-only" }] });
+	if (url.pathname === "/v1/chat/completions") {
+		const model = (body as { model?: string } | null)?.model;
+		return Response.json({
+			choices: [{ message: { content: `ECHO:${model ?? "?"}` } }],
+		});
+	}
+	return new Response("nope", { status: 400 });
 });
-const hostile = Bun.serve({
-	port: 0,
-	fetch: (req) => {
-		const url = new URL(req.url);
-		if (url.pathname === "/v1/models")
-			return Response.json({ data: HOSTILE_MODELS.map((id) => ({ id })) });
-		return new Response("nope", { status: 404 });
-	},
+const hostile = serveStub((req) => {
+	const url = new URL(req.url);
+	if (url.pathname === "/v1/models")
+		return Response.json({ data: HOSTILE_MODELS.map((id) => ({ id })) });
+	return new Response("nope", { status: 404 });
 });
-const belt = Bun.serve({
-	port: 0,
-	fetch: () =>
-		Response.json(
-			{ data: [{ id: "live-belt-model" }] },
-			{ headers: { "x-klh-hop": "belt" } },
-		),
-});
+const belt = serveStub(() =>
+	Response.json(
+		{ data: [{ id: "live-belt-model" }] },
+		{ headers: { "x-klh-hop": "belt" } },
+	),
+);
 const machine = (port: number): RemoteMachine => ({
 	name: "w224stub",
 	host: "stub.invalid",
@@ -80,12 +66,18 @@ const ep = (port: number): RemoteEndpoint => ({
 	roles: ["general"],
 	model: "m-default",
 });
-const HOME = mkdtempSync(join(tmpdir(), "belt-w224-"));
+const {
+	home: HOME,
+	env: worldEnv,
+	clean,
+} = scratchWorld({
+	prefix: "belt-w224-",
+});
 afterAll(() => {
-	stub.stop(true);
-	hostile.stop(true);
-	belt.stop(true);
-	rmSync(HOME, { recursive: true, force: true });
+	stub.close();
+	hostile.close();
+	belt.close();
+	clean();
 });
 
 test("catalog evidence reports Belt ownership only from the live endpoint", async () => {
@@ -187,7 +179,7 @@ test("CLI route-to: targeted route with --model override (scratch HOME)", async 
 			"hello",
 			"there",
 		],
-		{ env: { ...process.env, HOME }, stdout: "pipe", stderr: "pipe" },
+		{ env: worldEnv, stdout: "pipe", stderr: "pipe" },
 	);
 	const out = (await new Response(p.stdout).text()).trim();
 	await p.exited;
@@ -221,7 +213,7 @@ test("route log: direct role + recorded override", () => {
 test("CLI route-to: unknown machine:port exits 1", async () => {
 	const cli = join(import.meta.dir, "..", "bin", "remotes.ts");
 	const p = Bun.spawn([process.execPath, cli, "route-to", "nope", "1", "hi"], {
-		env: { ...process.env, HOME },
+		env: worldEnv,
 		stdout: "pipe",
 		stderr: "pipe",
 	});
@@ -233,7 +225,7 @@ test("CLI route-to: unknown machine:port exits 1", async () => {
 test("CLI check --json: rows carry the live models catalog", async () => {
 	const cli = join(import.meta.dir, "..", "bin", "remotes.ts");
 	const p = Bun.spawn([process.execPath, cli, "check", "--json"], {
-		env: { ...process.env, HOME },
+		env: worldEnv,
 		stdout: "pipe",
 		stderr: "pipe",
 	});

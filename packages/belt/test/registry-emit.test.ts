@@ -2,9 +2,9 @@
 // shape, /registry.json (ETag, 304, HEAD) via the handler AND the real
 // router shim on a scratch port (never :4000, never touches :890x).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { freePort, scratchWorld, waitUp } from "../../test-kit/src/index.ts";
 import {
 	emitBuckleUpstreams,
 	emitDirectTiers,
@@ -83,7 +83,8 @@ describe("emitters (W271)", () => {
 	});
 
 	test("CLI: two `all --out` runs are byte-identical", () => {
-		const dirs = [0, 1].map(() => mkdtempSync(join(tmpdir(), "w271-")));
+		const worlds = [0, 1].map(() => scratchWorld({ prefix: "w271-" }));
+		const dirs = worlds.map((w) => w.home);
 		try {
 			for (const d of dirs) {
 				const r = Bun.spawnSync(["bun", EMIT, "all", "--out", d]);
@@ -98,7 +99,7 @@ describe("emitters (W271)", () => {
 			expect(readdirSync(dirs[0] ?? "").length).toBe(5);
 			expect(a).toBe(b);
 		} finally {
-			for (const d of dirs) rmSync(d, { recursive: true, force: true });
+			for (const w of worlds) w.clean();
 		}
 	});
 
@@ -218,32 +219,28 @@ describe("/registry.json handler (W271)", () => {
 describe("router shim serves /registry.json (scratch port)", () => {
 	let proc: ReturnType<typeof Bun.spawn> | undefined;
 	let base = "";
-	let home = "";
+	let clean = (): void => {};
 
 	beforeAll(async () => {
-		const probe = Bun.serve({ port: 0, fetch: () => new Response() });
-		const port = probe.port;
-		probe.stop(true);
-		home = mkdtempSync(join(tmpdir(), "w271-home-"));
+		const port = await freePort();
+		const world = scratchWorld({ prefix: "w271-home-" });
+		clean = world.clean;
 		proc = Bun.spawn(["bun", SHIM], {
-			env: { ...process.env, HOME: home, BELT_ROUTER_PORT: String(port) },
+			env: { ...world.env, BELT_ROUTER_PORT: String(port) },
 			stdout: "ignore",
 			stderr: "ignore",
 		});
 		base = `http://127.0.0.1:${port}`;
-		for (let i = 0; i < 100; i++) {
-			try {
-				const r = await fetch(`${base}/health/liveliness`);
-				if (r.ok) return;
-			} catch {}
-			await Bun.sleep(50);
+		try {
+			await waitUp(`${base}/health/liveliness`, { tries: 100, intervalMs: 50 });
+		} catch {
+			throw new Error("shim did not start");
 		}
-		throw new Error("shim did not start");
 	});
 
 	afterAll(() => {
 		proc?.kill();
-		rmSync(home, { recursive: true, force: true });
+		clean();
 	});
 
 	test("GET → 200 + ETag; conditional GET → 304", async () => {
