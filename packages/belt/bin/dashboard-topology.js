@@ -773,12 +773,14 @@ class BeltTopology extends LitElement {
 							const observed = observedLinkFor(item.key, hub.name);
 							return this.edge(
 								`M705 ${hub.y + 54} H738 V${item.y + 42} H770`,
-								observed ?? {
-									evidence: "configured",
-									source: hub.providerKeys?.includes(item.key)
-										? `${hub.displayName || hub.name} configured upstream`
-										: `${hub.displayName || hub.name} declared provider intent`,
-								},
+								observed
+									? { ...observed, hub: hub.displayName || hub.name }
+									: {
+											evidence: "configured",
+											source: hub.providerKeys?.includes(item.key)
+												? `${hub.displayName || hub.name} configured upstream`
+												: `${hub.displayName || hub.name} declared provider intent`,
+										},
 							);
 						}),
 				)}
@@ -831,6 +833,10 @@ class BeltTopologyDetails extends LitElement {
 		const data = this.topology;
 		const observed = data?.observedGraph;
 		const audit = data?.audit15;
+		const hubDisplay = (name) =>
+			data?.hubs?.find(
+				(hub) => hub.name.toLowerCase() === String(name).toLowerCase(),
+			)?.displayName ?? name;
 		return html`<section aria-label="Network route details">
 			<div class="heading"><h2>Network route details</h2></div>
 			<p class="legend">Solid blue: observed successful routes in the past 15 minutes. Dashed: configured provider path or hub probe. Hub route counts use its observation feed. Local model loads count Belt router calls.</p>
@@ -844,7 +850,7 @@ class BeltTopologyDetails extends LitElement {
 			}
 			<details><summary>Connection data · ${(data?.links?.length ?? 0) + (data?.hubProviderLinks?.length ?? 0)} paths</summary>
 				<table><thead><tr><th scope="col">Target</th><th scope="col">Path</th><th scope="col">Successful / 15m</th><th scope="col">Target failures / 15m</th><th scope="col">Source</th><th scope="col">Last evidence</th></tr></thead>
-				<tbody>${(data?.links ?? []).concat(data?.hubProviderLinks ?? []).map((link) => html`<tr><td>${link.hub ? `${link.hub} → ${link.provider}` : link.target.replace(/^hub:|^provider:/, "")}</td><td>${link.evidence}</td><td>${link.hub ? link.successes15 : (link.requests15 ?? "—")}</td><td>${link.hub ? link.failures15 : (link.failures15 ?? "—")}</td><td>${link.source}</td><td title=${link.lastSeen ? new Date(link.lastSeen).toISOString() : "No observed route"}>${localTime(link.lastSeen)}</td></tr>`)}</tbody></table>
+				<tbody>${(data?.links ?? []).concat(data?.hubProviderLinks ?? []).map((link) => html`<tr><td>${link.hub ? `${hubDisplay(link.hub)} → ${link.provider}` : link.target.replace(/^hub:|^provider:/, "")}</td><td>${link.evidence}</td><td>${link.hub ? link.successes15 : (link.requests15 ?? "—")}</td><td>${link.hub ? link.failures15 : (link.failures15 ?? "—")}</td><td>${link.source}</td><td title=${link.lastSeen ? new Date(link.lastSeen).toISOString() : "No observed route"}>${localTime(link.lastSeen)}</td></tr>`)}</tbody></table>
 				${audit?.unattributedFailed ? html`<p>${audit.unattributedFailed} failed requests have no target attribution in the Buckle ledger.</p>` : ""}
 				${audit?.failures?.length ? html`<h3>Failed Buckle attempts · recorded target</h3><table><thead><tr><th scope="col">Target</th><th scope="col">Failures / 15m</th><th scope="col">Last failure</th></tr></thead><tbody>${audit.failures.map((row) => html`<tr><td>${row.host ? `${row.kind} · ${row.host}${row.port ? `:${row.port}` : ""}` : "Target unrecorded"}</td><td>${row.count}</td><td title=${row.lastAt}>${localTime(row.lastAt)}</td></tr>`)}</tbody></table>` : ""}
 			</details>
