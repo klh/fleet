@@ -28,10 +28,14 @@ const esc = (s: unknown): string =>
 
 const taskPill = (state: unknown): string =>
 	`<span class="pill ${String(state).toLowerCase()}">${esc(state)}</span>`;
-const agoShort = (s: unknown): string => `${s || 0}s`;
-const workTone = new Function(`${CORE}\nreturn workTone;`)() as (
-	state: string,
-) => string;
+// W998: ago/agoShort/msAgo eval from the CORE chunk bytes (the workTone
+// idiom) — kanbanCard's compact stamp rides them, so mirrors would drift.
+const coreFn = (name: string) =>
+	new Function(`${CORE}\nreturn ${name};`)() as (...args: unknown[]) => unknown;
+const agoShort = coreFn("agoShort") as (s: unknown) => string;
+const ago = coreFn("ago") as (s: unknown) => string;
+const msAgo = coreFn("msAgo") as (ts: number) => number;
+const workTone = coreFn("workTone") as (state: string) => string;
 
 type Item = Record<string, unknown>;
 
@@ -44,11 +48,13 @@ function chunkSandbox(): {
 		"esc",
 		"taskPill",
 		"agoShort",
+		"ago",
 		"workTone",
+		"msAgo",
 		"window",
 		`${TASKS}\nreturn { taskRow, kanbanCard, preferOf };`,
 	);
-	return fn(esc, taskPill, agoShort, workTone, {
+	return fn(esc, taskPill, agoShort, ago, workTone, msAgo, {
 		__execPrefs: [],
 		addEventListener: () => {},
 	});
