@@ -1,4 +1,6 @@
-// W661: closure walk + never-clobber overlay + scratch-port router smoke.
+// W661: closure walk + refresh (verified reconciliation) + scratch-port
+// router smoke. W1250: the never-clobber overlay is retired — the refresh
+// verb is the only reconciliation and the pinned face is the only authority.
 import { expect, setDefaultTimeout, test } from "bun:test";
 import {
 	mkdir,
@@ -15,7 +17,7 @@ import {
 	flatExternals,
 	flatHomeSource,
 	normalizeSource,
-	overlayBeltBin,
+	pinnedFaceText,
 	refreshFlatHome,
 	relativeImports,
 	rewriteExternalSpecs,
@@ -65,22 +67,20 @@ test("closure ships the full router-shim import closure, not a hardcoded list", 
 		expect(rel).not.toContain("..");
 		expect(rel.endsWith(".ts")).toBe(true);
 	}
+	// closure ≠ wholesale: belt/bin files the router never imports stay out
+	expect(names).not.toContain("dashboard.ts");
 });
 
-test("overlay seeds an empty runtime with the full closure", async () => {
-	const runtime = await mkdtemp(join(tmpdir(), "fleet-overlay-empty-"));
+test("pinnedFaceText is the exact bytes the refresh verb materializes", async () => {
+	const externals = await flatExternals(ENTRY, ROOT);
+	const rel = "memory-policy.ts";
+	const source = await flatHomeSource(ROOT, rel);
+	const want = normalizeSource(await pinnedFaceText(source, externals, ROOT));
+	const runtime = await mkdtemp(join(tmpdir(), "fleet-pinned-face-"));
 	try {
-		const report = await overlayBeltBin(runtime, ENTRY, ROOT);
-		expect(report.copied.length).toBe(
-			(await beltBinClosure(ENTRY, ROOT)).length,
-		);
-		for (const rel of report.copied)
-			expect(await Bun.file(join(runtime, rel)).exists()).toBe(true);
-		// closure ≠ wholesale: belt/bin files the router never imports stay out
-		expect(report.copied).not.toContain("dashboard.ts");
-		const report2 = await overlayBeltBin(runtime, ENTRY, ROOT);
-		expect(report2.copied).toEqual([]);
-		expect(report2.kept.length).toBe(report.copied.length);
+		await refreshFlatHome(runtime, ENTRY, ROOT);
+		const have = normalizeSource(await readFile(join(runtime, rel), "utf8"));
+		expect(have).toBe(want);
 	} finally {
 		await rm(runtime, { recursive: true, force: true });
 	}
@@ -106,16 +106,22 @@ test("flatHomeSource resolves real modules over shims", async () => {
 	expect(await flatHomeSource(ROOT, "health.ts")).toBe(join(ROOT, "health.ts"));
 });
 
-test("overlay never clobbers a present runtime copy", async () => {
-	const runtime = await mkdtemp(join(tmpdir(), "fleet-overlay-kept-"));
+// W1250 successor of the retired never-clobber test: a runtime copy is
+// NEVER the authority — the refresh verb reconciles it to the pinned face.
+test("refresh reconciles a present runtime copy (never-clobber retired)", async () => {
+	const runtime = await mkdtemp(join(tmpdir(), "fleet-refresh-reconcile-"));
 	try {
 		await writeFile(join(runtime, "registry.ts"), "// operator sentinel\n");
-		const report = await overlayBeltBin(runtime, ENTRY, ROOT);
-		expect(report.kept).toContain("registry.ts");
-		expect(report.copied).not.toContain("dashboard.ts");
-		expect(await readFile(join(runtime, "registry.ts"), "utf8")).toBe(
-			"// operator sentinel\n",
+		const externals = await flatExternals(ENTRY, ROOT);
+		await refreshFlatHome(runtime, ENTRY, ROOT);
+		const have = normalizeSource(
+			await readFile(join(runtime, "registry.ts"), "utf8"),
 		);
+		const want = normalizeSource(
+			await pinnedFaceText(join(ROOT, "registry.ts"), externals, ROOT),
+		);
+		expect(have).toBe(want);
+		expect(have).not.toContain("operator sentinel");
 	} finally {
 		await rm(runtime, { recursive: true, force: true });
 	}

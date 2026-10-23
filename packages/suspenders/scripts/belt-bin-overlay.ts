@@ -1,13 +1,17 @@
 // W661: the belt/bin overlay must ship router-shim's FULL import closure and
 // prove it. 2026-10-11 incident: a hardcoded overlay list shipped
 // router-shim.ts without ./audio.ts + ./escalate.ts — :4000 died on every
-// spawn and launchd revived it ~95 times over 4h. Three verbs:
+// spawn and launchd revived it ~95 times over 4h. W1250: the never-clobber
+// overlay verb is retired — a runtime copy kept over a diverged artifact is
+// a second mutable source of truth; the ONLY reconciliation is the refresh
+// verb (verified reconciliation against the pinned artifact face). Verbs:
 //   closure  print the transitively-closed set of belt/bin files
-//   overlay  copy missing closure files into the runtime home (never clobber)
+//   refresh  reconcile the flat home to the pinned face (missing AND
+//            diverged), then prove resolution
 //   smoke    spawn the FLATTENED runtime on a scratch port and require
 //            /health 200 — a missing module fails the install loudly here
 //            instead of looping the launchd revive on :4000
-import { copyFile, mkdir, rm } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 
 /** `./`-relative specifiers from static/dynamic import + re-export lines. */
@@ -149,32 +153,24 @@ export function rewriteExternalSpecs(
 	});
 }
 
-export interface OverlayReport {
-	copied: string[];
-	kept: string[];
-}
-
-/** Copy missing closure files into the runtime home; never clobber. */
-export async function overlayBeltBin(
-	runtime: string,
-	entry: string,
-	root = dirname(entry),
-	log: (line: string) => void = console.log,
-): Promise<OverlayReport> {
-	const report: OverlayReport = { copied: [], kept: [] };
-	for (const rel of await beltBinClosure(entry, root)) {
-		const target = join(runtime, rel);
-		if (await Bun.file(target).exists()) {
-			report.kept.push(rel);
-			log(`= ${target} kept (runtime copy is source of truth)`);
-			continue;
-		}
-		await mkdir(dirname(target), { recursive: true });
-		await copyFile(join(root, rel), target);
-		report.copied.push(rel);
-		log(`+ ${target} (from belt/bin)`);
-	}
-	return report;
+/**
+ * The pinned artifact face of one flat-home file: the real module over a
+ * re-export shim, with cross-package specifiers rewritten to flat sibling
+ * basenames — byte-for-byte what refreshFlatHome materializes. The one
+ * comparison face for drift probes (W1250: drift is measured against the
+ * pinned artifact, never against raw checkout text).
+ */
+export async function pinnedFaceText(
+	sourceFile: string,
+	externals: Map<string, string>,
+	memberRoot: string,
+): Promise<string> {
+	return rewriteExternalSpecs(
+		await Bun.file(sourceFile).text(),
+		dirname(sourceFile),
+		externals,
+		memberRoot,
+	);
 }
 
 /** Strip comments and blank lines — the drift-tripwire normalization. */
@@ -267,12 +263,7 @@ export async function refreshFlatHome(
 		const externals = await flatExternals(entry, root);
 		for (const rel of [relative(root, entry), ...closure]) {
 			const source = await flatHomeSource(root, rel);
-			const wantText = rewriteExternalSpecs(
-				await Bun.file(source).text(),
-				dirname(source),
-				externals,
-				root,
-			);
+			const wantText = await pinnedFaceText(source, externals, root);
 			const want = normalizeSource(wantText);
 			const target = join(runtime, rel);
 			const have = (await Bun.file(target).exists())
@@ -289,12 +280,7 @@ export async function refreshFlatHome(
 		}
 		for (const [file, base] of externals) {
 			const target = join(runtime, base);
-			const wantText = rewriteExternalSpecs(
-				await Bun.file(file).text(),
-				dirname(file),
-				externals,
-				root,
-			);
+			const wantText = await pinnedFaceText(file, externals, root);
 			const want = normalizeSource(wantText);
 			const have = (await Bun.file(target).exists())
 				? normalizeSource(await Bun.file(target).text())
@@ -442,8 +428,6 @@ if (import.meta.main) {
 		}
 	} else if (verb === "closure") {
 		for (const rel of await beltBinClosure(entry)) console.log(rel);
-	} else if (verb === "overlay") {
-		await overlayBeltBin(runtime, entry);
 	} else if (verb === "smoke") {
 		try {
 			const { port } = await smokeRouter(runtime);
@@ -458,7 +442,7 @@ if (import.meta.main) {
 		}
 	} else {
 		console.error(
-			`usage: bun belt-bin-overlay.ts <closure|overlay|refresh|smoke> [--runtime <dir>] [--entry <file>]`,
+			`usage: bun belt-bin-overlay.ts <closure|refresh|smoke> [--runtime <dir>] [--entry <file>]`,
 		);
 		process.exit(2);
 	}

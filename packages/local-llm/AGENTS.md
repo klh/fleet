@@ -19,10 +19,11 @@ subtree's canonical law; the fleet-wide shape rules live in
   the port↔model registry and the spawner lifecycle have ONE home, belt's.
 - Shipping is an explicit allowlist + closure walk, never a copy-all:
   `packages/suspenders/install.sh` seeds the config stubs when absent, and
-  `scripts/belt-bin-overlay.ts overlay` ships the router-shim import
-  closure from `belt/bin` (W661) with a `smoke` verb that spawns the
-  flattened home on a scratch port and requires /health 200. `*.test.ts`
-  appears in no copy path — tests never ship.
+  `scripts/belt-bin-overlay.ts refresh` reconciles the home to the pinned
+  belt/bin artifact face (W1250 — the router-shim + swarm import closures,
+  real modules over re-export shims, externals flattened) with a `smoke`
+  verb that spawns the flattened home on a scratch port and requires
+  /health 200. `*.test.ts` appears in no copy path — tests never ship.
 - New kit file → add it to the install.sh allowlist or it never reaches the
   runtime home. New import edge from a shipped file → it must ride the
   overlay closure (or the allowlist), or the smoke check fails the install
