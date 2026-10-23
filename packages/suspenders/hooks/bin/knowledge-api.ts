@@ -7,6 +7,10 @@ import {
 } from "../lib/knowledge.ts";
 import { servicemon } from "../lib/servicemon.ts";
 import { hostGuard, tokenOk, writeToken } from "../lib/host-guard.ts";
+// W1213 pause checkpoint: the /roll route wiring (aggregateClaims +
+// claimAggregateView + rollKeyOk + the rollDb handle) lands on resume —
+// the mint verb below is live; lib/knowledge-roll.ts holds the core.
+import { mintRollKey } from "../lib/knowledge-roll.ts";
 // knowledge-api.ts — W91 #9b: the knowledge port's HTTP face. The SAME store
 // handlers, second transport: a consumer on another machine calls
 // http://<knowledge-api>/search instead of importing the lib. Thin by design
@@ -64,6 +68,36 @@ const scrubHit = (h: KnowledgeHit): KnowledgeHit => {
 };
 // resolution root for source_ref hashing (trust markers) + /curate doc scans
 const API_ROOT = process.env.KNOWLEDGE_REPO_ROOT ?? process.cwd();
+
+// W1213 — scoped TTL roll keys: minted PER MACHINE, printed once at mint
+// time, only the sha256 stored (0600 keys file). The key IS the credential:
+// it binds provenance (the machine field the roll lands under), so spokes
+// never hold the install write token. Absent on serve mode — usage:
+//   knowledge-api.ts --mint-roll-key <machine> [--ttl-hours N]
+const mintIdx = process.argv.indexOf("--mint-roll-key");
+if (mintIdx !== -1) {
+	const machine = process.argv[mintIdx + 1];
+	if (!machine || machine.startsWith("--")) {
+		console.error(
+			"usage: knowledge-api.ts --mint-roll-key <machine> [--ttl-hours N]",
+		);
+		process.exit(1);
+	}
+	const ttlIdx = process.argv.indexOf("--ttl-hours");
+	const ttl = ttlIdx !== -1 ? Number(process.argv[ttlIdx + 1]) : 24;
+	const minted = mintRollKey(
+		machine,
+		Number.isFinite(ttl) && ttl > 0 ? ttl : 24,
+	);
+	console.log(JSON.stringify(minted));
+	process.exit(0);
+}
+
+// W1213 resume note — the claim-roll aggregate rides its own handle (re-add
+// `const rollDb = openKnowledgeDb()` WITH the /roll routes: aggregateClaims +
+// claimAggregateView + rollKeyOk from lib/knowledge-roll.ts; POST /roll auth
+// = x-klh-roll-key (machine from the key) or install write token (machine
+// from body.machine); GET /roll = claimAggregateView).
 
 // W125 — shared /status + /metrics (lib/servicemon.ts). No token dimension on
 // this service: search/enqueue never see usage, so tokens_total is omitted
