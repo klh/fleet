@@ -28,12 +28,20 @@ export interface InferenceBuckleRoute {
 }
 
 /** Fail-closed route resolution: throws when Buckle or the scoped key is
- *  unavailable — callers surface the error, never fall back solo. */
+ *  unavailable — callers surface the error, never fall back solo. The
+ *  underlying credential contract's errors ride wrapped so every failure
+ *  carries this client's vocabulary (W1119.1). */
 export function inferenceBuckleRoute(
 	env: NodeJS.ProcessEnv = process.env,
 ): InferenceBuckleRoute {
-	const { front, token } = knowledgeBuckleRoute(env);
-	return { base: front, token };
+	try {
+		const { front, token } = knowledgeBuckleRoute(env);
+		return { base: front, token };
+	} catch (error) {
+		throw new Error(
+			`buckle inference unavailable: ${error instanceof Error ? error.message : String(error)}`,
+		);
+	}
 }
 
 /** Headers for one gated inference call. Both credential forms ride (belt
