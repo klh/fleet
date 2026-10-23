@@ -94,6 +94,17 @@ rows and receive `OPENROUTER_API_KEY` at spawn. A restricted inference key
 and a verified deployed route are required before the dashboard should
 report an OpenRouter model as reachable.
 
+### Deploy ordering: snapshot refresh vs the pinned-ref gates
+
+After a stack `version:` bump, `hubctl deploy <hub>` is the verb that moves
+the hub's deploy ref. When its push refuses a stale catalog snapshot, run
+`openrouter-free-sync.ts refresh-configured` first: it writes the fresh
+snapshot, but its activation tail exits non-zero mid version-bump — ssh hubs
+throw "automatic LiteLLM reload currently requires a local macOS hub" and a
+local hub still on the old pin fails the `reload-upstreams` ref gate. That
+tail refusal is expected; the snapshot is already on disk, so proceed with
+`hubctl deploy <hub>`, which re-checks the gate itself.
+
 ## Z.ai account models on a hub
 
 The Z.ai hub inventory comes from the account's authenticated
