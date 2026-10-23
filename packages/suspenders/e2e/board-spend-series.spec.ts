@@ -23,14 +23,25 @@ function seedSpend(b: Board, n: number): string {
 	// ledger keys its spend to
 	const sid = `autow1136-${n}`;
 	b.workOk(["take", wId, "--as", sid], "take");
-	// W1136: the live attribution source is the route_audit ledger
-	// (laneRequestSpendRows: ts, lane, in/out/cache tokens) — the old
-	// router_usage⋈api_keys hourly shape no longer joins claims
+	// W1136: the series reads the route_audit ledger (laneRequestSpendRows);
+	// the kanban strip totals read the hourly router_usage⋈api_keys join
+	// (laneSpendRows/itemAttribution) — seed BOTH faces with the same numbers
 	const ledger = join(b.HOME, ".claude/local-llm/buckle.db");
 	mkdirSync(dirname(ledger), { recursive: true });
 	const d = new Database(ledger);
 	d.run(
+		"CREATE TABLE IF NOT EXISTS api_keys (key_id TEXT PRIMARY KEY, name TEXT)",
+	);
+	d.run(
+		"CREATE TABLE IF NOT EXISTS router_usage (hour_bucket TEXT, key TEXT, model_group TEXT, model TEXT DEFAULT '', in_tok INTEGER DEFAULT 0, out_tok INTEGER DEFAULT 0, cache_r INTEGER DEFAULT 0, cache_c INTEGER DEFAULT 0, requests INTEGER DEFAULT 0)",
+	);
+	d.run(
 		"CREATE TABLE IF NOT EXISTS route_audit (ts TEXT, lane TEXT, model TEXT DEFAULT '', in_tok INTEGER DEFAULT 0, out_tok INTEGER DEFAULT 0, cache_r INTEGER DEFAULT 0, cache_c INTEGER DEFAULT 0, latency_ms INTEGER DEFAULT 0)",
+	);
+	d.run("INSERT OR IGNORE INTO api_keys VALUES (?, ?)", [`k${n}`, sid]);
+	d.run(
+		"INSERT INTO router_usage (hour_bucket, key, model_group, model, in_tok, out_tok, cache_r, cache_c, requests) VALUES (?, ?, 'glm-5.3-flash', 'glm-5.3-flash', 500, 100, 50, 10, 3)",
+		[`${new Date().toISOString().slice(0, 13)}:00`, `k${n}`],
 	);
 	d.run("INSERT INTO route_audit VALUES (?, ?, '', 500, 100, 50, 10, 3)", [
 		new Date().toISOString(),
@@ -60,22 +71,27 @@ test("api: spend-series attributes the claimed item's ledger row", async ({
 
 test("gui: lanes kanban paints the micro-strip sparkline + strip text", async ({
 	page,
-	board,
+	cleanBoard,
 }) => {
-	seedSpend(board, 2);
-	await page.goto(`${board.BASE}/#lanes`);
+	// a fresh board process: the spend-series memo boots cold so the seeded
+	// item's series is in the FIRST /api/spend-series payload (the worker
+	// board's 5s memo still held the api test's W1-only series at goto)
+	const wId = seedSpend(cleanBoard, 2);
+	await page.goto(`${cleanBoard.BASE}/#lanes`);
+	// scope to the seeded card — the worker board may carry earlier claimed
+	// items whose strips paint too (strict mode)
+	const card = page.locator(`.kcard[data-kid="${wId}"]`);
 	// the strip text (fresh 500 · cached 60 → 11% cache) rides the card
-	await expect(page.locator(".kspend .kspendtxt")).toContainText("tok/m", {
+	await expect(card.locator(".kspend .kspendtxt")).toContainText("tok/m", {
 		timeout: 20_000,
 	});
-	await expect(page.locator(".kspend .kspendtxt")).toContainText("% cache");
-	// the sparkline painted as inline SVG (fresh + cached polylines)
-	await expect(page.locator(".kspark svg polyline.spark-fresh")).toHaveCount(1);
-	await expect(page.locator(".kspark svg polyline.spark-cached")).toHaveCount(
-		1,
-	);
+	await expect(card.locator(".kspend .kspendtxt")).toContainText("% cache");
+	// the sparkline painted as inline SVG (fresh + cached bars — the
+	// renderer draws stacked rect bars, not polylines)
+	await expect(card.locator(".kspark svg rect.spark-fresh")).toHaveCount(1);
+	await expect(card.locator(".kspark svg rect.spark-cached")).toHaveCount(1);
 	// the tasks table carries the strip as the tok cell tooltip
-	await page.goto(`${board.BASE}/#tasks`);
+	await page.goto(`${cleanBoard.BASE}/#tasks`);
 	await expect(
 		page.locator('#tasksBody td.num[title*="tok/m"]').first(),
 	).toContainText(/\d/);

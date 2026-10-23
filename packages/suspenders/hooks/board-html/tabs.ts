@@ -61,7 +61,7 @@ function applyHashTask(){
   if (m && openTask) {
     var id = decodeURIComponent(m[1]), project = m[2] ? decodeURIComponent(m[2]) : null;
     if (task.id !== id || task.proj !== project) openTask(id, project, null);
-  } else if (task.id) closeTask(true);
+  } else if (task.id && !/[?&](w|task|id)=/.test(location.hash || '')) closeTask(true); // a query-style item hash opened the drawer above — never re-hide it (W1136)
 }
 byId('hashChipBar').addEventListener('click', function(e){
   var b = e.target.closest && e.target.closest('.hfclear');
