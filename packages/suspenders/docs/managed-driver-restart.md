@@ -49,3 +49,13 @@ The private journal reserves retirement and launch before their effects.
 Uncertain `retiring` or `starting` phases refuse retries: reconcile the recorded
 incarnation before attempting another launch. Never remove the journal, revoke
 the lane key or reclaim its work to conceal an uncertain restart.
+
+A durably `retired` operation can be retried through the same command. It uses
+the original snapshot and its pinned driver/settings generation, rechecks all
+authority and drain proofs, and requires both recorded processes to be absent.
+Claude may append at most two bounded, same-conversation `last-prompt` and
+`cost-state` bookkeeping records while shutting down. The prior transcript
+prefix must remain byte-exact; messages, unknown fields, partial records and
+foreign conversation IDs are refused. The journal records the verified final
+transcript hash and byte count before starting the replacement. Uncertain
+`starting` operations still require explicit reconciliation and never relaunch.
