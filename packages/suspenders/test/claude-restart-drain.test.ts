@@ -87,6 +87,35 @@ function spread(count: number, endMs: number, idBase: number): Row[] {
 	);
 }
 
+test("restart drain uses exact server-side lane filter and refuses incomplete or foreign coverage", async () => {
+	// exact server-side filter params on the first read
+	const m = startDrainMock([row(1, T1, 200)]);
+	try {
+		await probe(m);
+	} finally {
+		m.server.stop(true);
+	}
+	expect(m.queries[0]?.get("lane")).toBe(SID);
+	expect(m.queries[0]?.get("inference")).toBe("true");
+	// incomplete coverage: an unsettled row the gate refuses → not drained
+	const refuser = startDrainMock([row(1, T1, null)]);
+	try {
+		await expect(probe(refuser)).rejects.toThrow("not drained");
+	} finally {
+		refuser.server.stop(true);
+	}
+	// foreign-lane row inside the covered window → coverage unknown
+	const foreign = startDrainMock([
+		row(1, T1, 200),
+		{ ...row(2, T0, 200), lane: "unrelated-lane" },
+	]);
+	try {
+		await expect(probe(foreign)).rejects.toThrow("coverage is unknown");
+	} finally {
+		foreign.server.stop(true);
+	}
+});
+
 test("settled single page passes with exact lane filter and no POSTs", async () => {
 	const m = startDrainMock([row(1, T1, 200), row(2, T0, 200)]);
 	try {
