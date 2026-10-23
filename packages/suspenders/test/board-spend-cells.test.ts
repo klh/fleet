@@ -245,6 +245,179 @@ describe("board spend cells (W776)", () => {
 	});
 });
 
+// W1203: sparklines derive bins + time window from the MEASURED track.
+describe("measured-width spark windows (W1203)", () => {
+	type SparkNode = {
+		tag: string;
+		attrs: Record<string, string>;
+		children: SparkNode[];
+		setAttribute: (key: string, value: string) => void;
+		appendChild: (node: SparkNode) => void;
+		addEventListener: () => void;
+	};
+	const createElementNS = (_ns: string, tag: string): SparkNode => ({
+		tag,
+		attrs: {},
+		children: [],
+		setAttribute(key, value) {
+			this.attrs[key] = String(value);
+		},
+		getAttribute(key: string) {
+			return key in this.attrs ? this.attrs[key] : null;
+		},
+		appendChild(node) {
+			this.children.push(node);
+		},
+		addEventListener() {},
+	});
+	const evalSpark = <T>(expr: string, extra: Record<string, unknown> = {}): T =>
+		new Function(
+			"document",
+			"window",
+			...Object.keys(extra),
+			`${TASKS}\nreturn ${expr};`,
+		)(
+			{ createElementNS },
+			{ __execPrefs: [], addEventListener: () => {} },
+			...Object.values(extra),
+		) as T;
+	const paintHarness = () => {
+		const axis = {
+			style: {} as Record<string, string>,
+			firstElementChild: { textContent: "" },
+			lastElementChild: { textContent: "" },
+		};
+		const painted: SparkNode[] = [];
+		const attrs: Record<string, string> = { "data-spark": "p\u0000W9" };
+		let track = 180;
+		const el = {
+			getAttribute: (n: string) => (n in attrs ? attrs[n] : null),
+			setAttribute: (n: string, v: string) => {
+				attrs[n] = v;
+			},
+			get clientWidth() {
+				return track;
+			},
+			closest: () => null,
+			contains: () => false,
+			get firstChild(): null {
+				return null;
+			},
+			appendChild: (n: SparkNode) => {
+				painted.push(n);
+			},
+			parentElement: {
+				querySelector: (s: string) => (s === ".ksparkaxis" ? axis : null),
+			},
+		};
+		const root = {
+			querySelectorAll: (s: string) => (s === ".kspark" ? [el] : []),
+		};
+		const faces = evalSpark<{
+			paintSparks: (r: unknown) => void;
+			spendSeries: Record<string, number[][]>;
+		}>("({ paintSparks, spendSeries })", { byId: () => null });
+		faces.spendSeries["p\u0000W9"] = [
+			[Date.now() - 90 * 60_000, 10, 0, 0],
+			[Date.now(), 0, 5, 1],
+		];
+		return {
+			paint: faces.paintSparks,
+			root,
+			axis,
+			painted,
+			setTrack: (w: number) => {
+				track = w;
+			},
+		};
+	};
+
+	test("window length derives from the measured width: wider track, longer window", () => {
+		const sparkSvg =
+			evalSpark<(p: number[][], w: number, h: number) => SparkNode>("sparkSvg");
+		const last = Date.now();
+		const pts: number[][] = [
+			[last - 16 * 60 * 60_000, 100, 0, 0],
+			[last - 8 * 60 * 60_000, 30, 0, 0],
+			[last, 0, 40, 10],
+		];
+		const narrow = sparkSvg(pts, 180, 28); // 30 bins x 3m → the newest 90m
+		const wide = sparkSvg(pts, 360, 28); // 60 bins x 3m → the newest 180m
+		expect(narrow.attrs["data-bin-min"]).toBe("3");
+		expect(wide.attrs["data-bin-min"]).toBe("3");
+		// the first bar's data-at IS the window start — wider track, more history
+		const nb = narrow.children.filter((n) => n.tag === "rect");
+		const wb = wide.children.filter((n) => n.tag === "rect");
+		expect(Number(nb[0].attrs["data-at"])).toBe(last - 90 * 60_000);
+		expect(Number(wb[0].attrs["data-at"])).toBe(last - 180 * 60_000);
+		expect(narrow.attrs["data-window-end"]).toBe(String(last));
+		expect(wide.attrs["data-window-end"]).toBe(String(last));
+		expect(wide.attrs.width).toBe("360");
+		expect(wide.attrs.viewBox).toBe("0 0 360 28");
+	});
+
+	test("the newest point rides the last bin when the span divides the window", () => {
+		const sparkSvg =
+			evalSpark<(p: number[][], w: number, h: number) => SparkNode>("sparkSvg");
+		const t0 = Date.now() - 90 * 60_000;
+		const pts: number[][] = [
+			[t0, 10, 0, 0],
+			[t0 + 90 * 60_000, 0, 5, 1],
+		];
+		const chart = sparkSvg(pts, 180, 28); // 30 bins × 3m = the 90m span
+		const bars = chart.children.filter((n) => n.tag === "rect");
+		expect(bars).toHaveLength(2);
+		// unclamped slot 30 would drop the newest point (pre-W1203 behavior)
+		expect(bars[1].attrs.x).toBe("175.0"); // 29×6 + (6−4)/2
+		expect(chart.attrs["data-window-end"]).toBe(String(t0 + 90 * 60_000));
+	});
+
+	test("bars keep a fixed pixel width at every track width", () => {
+		const sparkSvg =
+			evalSpark<(p: number[][], w: number, h: number) => SparkNode>("sparkSvg");
+		const t0 = Date.now() - 16 * 60 * 60_000;
+		const pts: number[][] = [
+			[t0, 100, 0, 0],
+			[t0 + 8 * 60 * 60_000, 30, 0, 0],
+			[t0 + 16 * 60 * 60_000, 0, 40, 10],
+		];
+		for (const w of [180, 224, 360]) {
+			const chart = sparkSvg(pts, w, 28);
+			const bars = chart.children.filter((n) => n.tag === "rect");
+			expect(bars.length).toBeGreaterThan(0);
+			for (const bar of bars) expect(bar.attrs.width).toBe("4.0");
+		}
+	});
+
+	test("a track narrower than one bin paints nothing", () => {
+		const sparkSvg =
+			evalSpark<(p: number[][], w: number, h: number) => SparkNode>("sparkSvg");
+		const t0 = Date.now() - 90 * 60_000;
+		const chart = sparkSvg([[t0, 10, 0, 0]], 3, 28);
+		expect(chart.children).toHaveLength(0);
+		expect(chart.attrs.width).toBe("3");
+	});
+
+	test("paintSparks sizes to the measured track and labels the window", () => {
+		const h = paintHarness();
+		h.paint(h.root);
+		expect(h.painted).toHaveLength(1);
+		expect(h.painted[0].attrs.width).toBe("180");
+		expect(h.axis.style.display).toBe("flex");
+		expect(h.axis.firstElementChild.textContent).toMatch(/\d/);
+		expect(h.axis.lastElementChild.textContent).toMatch(/m\/bin$/);
+	});
+
+	test("a narrow track repaint hides the sparkline and drops the axis", () => {
+		const h = paintHarness();
+		h.paint(h.root); // paints at the 180px stub track
+		h.setTrack(3);
+		h.paint(h.root); // width rides the sig — the resize pass hides instead
+		expect(h.painted).toHaveLength(1); // no second chart
+		expect(h.axis.style.display).toBe("none");
+	});
+});
+
 const IKEA_ROW = {
 	id: "W9",
 	title: "ikea item",

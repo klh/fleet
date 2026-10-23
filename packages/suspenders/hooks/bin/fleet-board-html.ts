@@ -335,9 +335,11 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .lmodel { display:inline-block; border:1px solid var(--klh-danger); border-radius:2px; padding:0 6px; font-size:9.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--klh-danger-ink); }
 .lmodel { margin-top:0; margin-left:6px; }
 .lmodel.loc { border-color:var(--klh-ok); color:var(--klh-ok-ink); }
-/* Hourly input-token bars; numbers sit beneath the chart. */
+/* Hourly input-token bars; numbers sit beneath the chart. W1203: the plot
+   fills the card and the JS sizes the bars from the MEASURED track — no
+   fixed-width plot leaving dead space beside a wider card. */
 .kspend { display:flex; flex-direction:column; align-items:flex-start; gap:2px; margin-top:6px; }
-.ksparkplot { width:180px; max-width:100%; }
+.ksparkplot { width:100%; }
 .kspark { display:block; }
 .kspark svg { display:block; max-width:100%; }
 .kspark .spark-fresh { fill:var(--klh-accent); }
@@ -347,8 +349,7 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .ksparkaxis { display:none; justify-content:space-between; font-size:7px; line-height:1.2; }
 .kspendtxt { display:block; font-size:7px; line-height:1.25; letter-spacing:.01em; }
 .kspend-drawer .kspark { margin-top:6px; }
-.kspend-drawer .ksparkplot { width:240px; }
-.kspend-drawer .kspark svg { width:240px; height:36px; }
+.kspend-drawer .ksparkplot { width:100%; }
 .ttitle { word-break:break-word; max-width:480px; }
 .tail { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:480px; }
 .akind { display:inline-block; border:1px solid var(--klh-edge-mid); border-radius:2px; padding:0 6px; font-size:9.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--klh-dim); }
