@@ -262,6 +262,130 @@ describe("W634 review-lane coverage proof (Sinai rule)", () => {
 		});
 	}
 
+	test("W1236: empty-content 200 is a diagnosed failure, not opaque leg-failed", async () => {
+		// the exact glm thinking-budget failure: HTTP 200 with content:"" and
+		// finish_reason=length — every merge-ladder receipt on 2026-10-23
+		const id = addWork("w634 proof empty-content diagnostics");
+		const branch = `suspenders/${id}`;
+		expect(git(["checkout", "-b", branch]).code).toBe(0);
+		await Bun.write(join(REPO, "docs.md"), "w1236 empty-content case\n");
+		expect(git(["add", "-A"]).code).toBe(0);
+		expect(git(["commit", "-m", "w1236 case"]).code).toBe(0);
+		git(["checkout", "main"]);
+		const stub = Bun.serve({
+			port: 0,
+			fetch: async () =>
+				Response.json({
+					choices: [
+						{
+							finish_reason: "length",
+							message: { content: "" },
+						},
+					],
+					usage: { completion_tokens: 1500 },
+				}),
+		});
+		const p = Bun.spawn(
+			[
+				"bun",
+				join(BIN, "review-lane.ts"),
+				"--item",
+				id,
+				"--project",
+				MY_PROJ,
+				"--executor",
+				"glm-w634",
+				"--llm-url",
+				`http://127.0.0.1:${stub.port}/v1/chat/completions`,
+				"--llm-model",
+				"glm-w634-model",
+			],
+			{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
+		);
+		await p.exited;
+		stub.stop(true);
+		expect(p.exitCode).toBe(2);
+		const db = new Database(DB_PATH, { readonly: true });
+		const fact = db
+			.query("SELECT value FROM facts WHERE key = ?")
+			.get(`review.${id}.glm-w634`) as { value: string } | null;
+		db.close();
+		if (!fact) throw new Error(`no review fact for ${id}`);
+		const parsed = JSON.parse(fact.value) as Record<string, unknown>;
+		expect(parsed.verdict).toBe("ERROR");
+		expect(String(parsed.headline)).toContain("empty content");
+		expect(String(parsed.headline)).toContain("finish_reason=length");
+	});
+
+	test("W1236.1: a retry PASS cannot erase the first attempt's blocking findings", async () => {
+		// FAIL60967: the first reply carries a blocker without a verdict line;
+		// a retry PASS must not wash the blocker out of the receipt.
+		const id = addWork("w634 proof retry erases findings");
+		const branch = `suspenders/${id}`;
+		expect(git(["checkout", "-b", branch]).code).toBe(0);
+		await Bun.write(join(REPO, "docs.md"), "w1236.1 retry case\n");
+		expect(git(["add", "-A"]).code).toBe(0);
+		expect(git(["commit", "-m", "w1236.1 case"]).code).toBe(0);
+		git(["checkout", "main"]);
+		let calls = 0;
+		const replies = [
+			{
+				choices: [
+					{
+						message: {
+							content:
+								"B1-erase-guard: the retry path drops a prior attempt's blocker.\n",
+						},
+					},
+				],
+			},
+			{
+				choices: [
+					{ message: { content: "No blocking findings.\nVERDICT: PASS" } },
+				],
+			},
+		];
+		const stub = Bun.serve({
+			port: 0,
+			fetch: async () =>
+				Response.json(replies[Math.min(calls++, replies.length - 1)]),
+		});
+		const p = Bun.spawn(
+			[
+				"bun",
+				join(BIN, "review-lane.ts"),
+				"--item",
+				id,
+				"--project",
+				MY_PROJ,
+				"--executor",
+				"glm-w634",
+				"--llm-url",
+				`http://127.0.0.1:${stub.port}/v1/chat/completions`,
+				"--llm-model",
+				"glm-w634-model",
+			],
+			{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
+		);
+		await p.exited;
+		stub.stop(true);
+		expect(p.exitCode).toBe(0);
+		const db = new Database(DB_PATH, { readonly: true });
+		const event = db
+			.query(
+				"SELECT payload FROM events WHERE kind = 'work.review' AND json_extract(payload, '$.work') = ? ORDER BY id DESC LIMIT 1",
+			)
+			.get(id) as { payload: string } | null;
+		db.close();
+		if (!event) throw new Error(`no work.review event for ${id}`);
+		const receipt = JSON.parse(
+			JSON.parse(event.payload).receipt as string,
+		) as Record<string, unknown>;
+		expect(receipt.verdict).toBe("PASS");
+		expect(receipt.blocking).toEqual(["B1-erase-guard"]);
+		expect(String(receipt.evidence)).toContain("B1-erase-guard");
+	});
+
 	test("downgrade reaches the work.review event (drawer timeline)", () => {
 		expect(results["no-coverage"]).toBeTruthy();
 		const db = new Database(DB_PATH, { readonly: true });
