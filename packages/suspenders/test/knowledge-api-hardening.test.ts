@@ -202,6 +202,38 @@ const search = async (
 	};
 };
 
+// W1213.1: /roll roundtrip helpers — the same spawned server, real HTTP.
+const rollFetch = async (
+	method: "GET" | "POST",
+	body?: Record<string, unknown>,
+	key?: string,
+): Promise<{ status: number; data: Record<string, unknown> }> => {
+	const res = await fetch(`${BASE}/roll`, {
+		method,
+		headers: {
+			"content-type": "application/json",
+			...(key ? { "x-klh-roll-key": key } : {}),
+		},
+		body: body === undefined ? undefined : JSON.stringify(body),
+	});
+	return {
+		status: res.status,
+		data: (await res.json().catch(() => ({}))) as Record<string, unknown>,
+	};
+};
+
+// the REAL mint face: a subprocess of the same bin, same isolated HOME, so
+// the server and the tests share one 0600 key file.
+const mintKey = (machine: string): string => {
+	const r = Bun.spawnSync(
+		["bun", API_TS, "--mint-roll-key", machine, "--ttl-hours", "1"],
+		{ env: { ...process.env, HOME }, stdout: "pipe", stderr: "pipe" },
+	);
+	return (JSON.parse(r.stdout.toString()) as { key: string }).key;
+};
+const KEY_A = mintKey("machine-a");
+const KEY_B = mintKey("machine-b");
+
 afterAll(() => {
 	proc.kill();
 	rmSync(HOME, { recursive: true, force: true });
@@ -332,5 +364,94 @@ describe("knowledge-api live face (W181 F2)", () => {
 		const empty = await search({ query: "w203zq", domain: "buckle" });
 		expect(empty.status).toBe(200);
 		expect(empty.data.hits).toEqual([]);
+	});
+});
+
+describe("POST/GET /roll scope boundary (W1213.1)", () => {
+	const fleetEntry = {
+		evidenceId: "w12131-ev-fleet",
+		claim: "boundary fleet assertion",
+		confidence: 0.6,
+		ts: 100,
+		scope: "fleet",
+	};
+	test("unknown scope fails closed over real HTTP", async () => {
+		const p = await rollFetch(
+			"POST",
+			{ claims: [{ ...fleetEntry, scope: "unknown-private-scope" }] },
+			KEY_A,
+		);
+		expect(p.status).toBe(422);
+	});
+
+	test("anonymous read AND write are refused", async () => {
+		const g = await rollFetch("GET");
+		expect(g.status).toBe(403);
+		expect(g.data.claims).toBeUndefined();
+		const p = await rollFetch("POST", { claims: [fleetEntry] });
+		expect(p.status).toBe(403);
+	});
+
+	test("missing scope and unknown entry fields fail closed", async () => {
+		const noScope = await rollFetch(
+			"POST",
+			{
+				claims: [{ ...fleetEntry, scope: undefined as unknown as string }],
+			},
+			KEY_A,
+		);
+		expect(noScope.status).toBe(422);
+		const extra = await rollFetch(
+			"POST",
+			{ claims: [{ ...fleetEntry, tenant: "machine-z" }] },
+			KEY_A,
+		);
+		expect(extra.status).toBe(422);
+	});
+
+	test("machine-scoped claim: origin reads it, foreign machine cannot", async () => {
+		const priv = {
+			evidenceId: "w12131-ev-priv",
+			claim: "private to machine-a",
+			confidence: 0.7,
+			ts: 150,
+			scope: "machine",
+		};
+		const put = await rollFetch("POST", { claims: [priv] }, KEY_A);
+		expect(put.status).toBe(200);
+		const bView = await rollFetch("GET", undefined, KEY_B);
+		const bClaims = bView.data.claims as { evidenceId: string }[];
+		expect(bClaims.some((c) => c.evidenceId === priv.evidenceId)).toBe(false);
+		const aView = await rollFetch("GET", undefined, KEY_A);
+		const aClaims = aView.data.claims as { evidenceId: string }[];
+		expect(aClaims.some((c) => c.evidenceId === priv.evidenceId)).toBe(true);
+	});
+
+	test("fleet claim rolls up across machines with provenance 2", async () => {
+		const p1 = await rollFetch("POST", { claims: [fleetEntry] }, KEY_A);
+		expect(p1.status).toBe(200);
+		const p2 = await rollFetch("POST", { claims: [fleetEntry] }, KEY_B);
+		expect(p2.status).toBe(200);
+		const aView = await rollFetch("GET", undefined, KEY_A);
+		const hit = (
+			aView.data.claims as { evidenceId: string; provenanceCount: number }[]
+		).find((c) => c.evidenceId === fleetEntry.evidenceId);
+		expect(hit?.provenanceCount).toBe(2);
+	});
+
+	test("invalid confidence is a 422, never a silent ok:false 200", async () => {
+		const bad = await rollFetch(
+			"POST",
+			{
+				claims: [
+					{ ...fleetEntry, confidence: 99, evidenceId: "w12131-ev-bad" },
+				],
+			},
+			KEY_A,
+		);
+		expect(bad.status).toBe(422);
+		const view = await rollFetch("GET", undefined, KEY_A);
+		const claims = view.data.claims as { evidenceId: string }[];
+		expect(claims.some((c) => c.evidenceId === "w12131-ev-bad")).toBe(false);
 	});
 });

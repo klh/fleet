@@ -68,6 +68,22 @@ test("parseClaimRow: non-claim keys, empties, oversize text refuse", () => {
 	expect(parseClaimRow("claim.ok", JSON.stringify({ claim: "  " }))).toBeNull();
 });
 
+test("parseClaimRow: declared scope parses; unknown scope refuses the row", () => {
+	const ok = parseClaimRow(
+		"claim.s1",
+		JSON.stringify({ claim: "scoped", scope: "machine" }),
+	);
+	expect(ok?.scope).toBe("machine");
+	const def = parseClaimRow("claim.s2", JSON.stringify({ claim: "plain" }));
+	expect(def?.scope).toBe("fleet");
+	expect(
+		parseClaimRow(
+			"claim.s3",
+			JSON.stringify({ claim: "x", scope: "unknown-private-scope" }),
+		),
+	).toBeNull();
+});
+
 // ─── the aggregate: the four acceptance criteria ───────────────────────────
 
 test("aggregate: two machines, same evidence+claim → ONE fact, provenance 2", () => {
@@ -77,6 +93,7 @@ test("aggregate: two machines, same evidence+claim → ONE fact, provenance 2", 
 		claim: "auth is ldap-backed",
 		confidence: 0.8,
 		ts: 100,
+		scope: "fleet",
 	};
 	const r1 = aggregateClaims(db, [claim], "machine-a", { now: 1000 });
 	expect(r1.ok).toBe(true);
@@ -99,12 +116,28 @@ test("aggregate: differing claims to the same evidence → two VERSIONS", () => 
 	const db = new Database(":memory:");
 	const r1 = aggregateClaims(
 		db,
-		[{ evidenceId: "ev-9", claim: "v1 text", confidence: 0.6, ts: 100 }],
+		[
+			{
+				evidenceId: "ev-9",
+				claim: "v1 text",
+				confidence: 0.6,
+				ts: 100,
+				scope: "fleet",
+			},
+		],
 		"machine-a",
 	);
 	const r2 = aggregateClaims(
 		db,
-		[{ evidenceId: "ev-9", claim: "v2 text", confidence: 0.9, ts: 200 }],
+		[
+			{
+				evidenceId: "ev-9",
+				claim: "v2 text",
+				confidence: 0.9,
+				ts: 200,
+				scope: "fleet",
+			},
+		],
 		"machine-a",
 	);
 	expect(r1.ok && r2.ok).toBe(true);
@@ -121,6 +154,7 @@ test("aggregate: tombstone hides the claim without deleting the row", () => {
 		claim: "stale claim",
 		confidence: 0.7,
 		ts: 100,
+		scope: "fleet",
 	};
 	aggregateClaims(db, [body], "machine-a", { now: 1000 });
 	// a SECOND machine retracts — the tombstone propagates to the aggregate
@@ -141,6 +175,7 @@ test("aggregate: re-push from the same machine = idempotent dupe", () => {
 		claim: "same content",
 		confidence: 0.5,
 		ts: 100,
+		scope: "fleet",
 	};
 	aggregateClaims(db, [body], "machine-a", { now: 1000 });
 	const again = aggregateClaims(db, [body], "machine-a", { now: 2000 });
@@ -156,6 +191,7 @@ test("aggregate: newer assertion revives; stale assertion does not", () => {
 		claim: "contested claim",
 		confidence: 0.8,
 		ts: 500,
+		scope: "fleet",
 	};
 	aggregateClaims(db, [body], "machine-a", { now: 1000 });
 	aggregateClaims(db, [{ ...body, tombstone: true }], "machine-b", {
@@ -174,7 +210,121 @@ test("aggregate: newer assertion revives; stale assertion does not", () => {
 	expect(claimAggregateView(db).claims).toHaveLength(1);
 });
 
-// ─── machine-side collection (the spoke pass) ───────────────────────────────
+// ─── W1213.1 — the scope boundary (fail closed) ─────────────────────────────
+
+test("aggregate: unknown scope fails closed — roll rejected, nothing stored", () => {
+	const db = new Database(":memory:");
+	const r = aggregateClaims(
+		db,
+		[
+			{
+				evidenceId: "ev-b1",
+				claim: "probe claim",
+				confidence: 0.5,
+				ts: 100,
+				scope: "unknown-private-scope",
+			},
+		],
+		"machine-a",
+	);
+	expect(r.ok).toBe(false);
+	expect(r.error).toBe("invalid claim entry");
+	expect(claimAggregateView(db).claims).toHaveLength(0);
+});
+
+test("aggregate: missing scope fails closed", () => {
+	const db = new Database(":memory:");
+	const r = aggregateClaims(
+		db,
+		[{ evidenceId: "ev-b2", claim: "probe", confidence: 0.5, ts: 100 }],
+		"machine-a",
+	);
+	expect(r.ok).toBe(false);
+	expect(claimAggregateView(db).claims).toHaveLength(0);
+});
+
+test("aggregate: unknown entry field fails closed (strict wire schema)", () => {
+	const db = new Database(":memory:");
+	const entry = {
+		evidenceId: "ev-b3",
+		claim: "probe",
+		confidence: 0.5,
+		ts: 100,
+		scope: "fleet",
+		tenant: "machine-z",
+	};
+	const r = aggregateClaims(db, [entry], "machine-a");
+	expect(r.ok).toBe(false);
+	expect(claimAggregateView(db).claims).toHaveLength(0);
+});
+
+test("readerMachine bounds the view: own machine + fleet, never foreign machine scopes", () => {
+	const db = new Database(":memory:");
+	const fleetClaim = {
+		evidenceId: "ev-f1",
+		claim: "shared assertion",
+		confidence: 0.6,
+		ts: 100,
+		scope: "fleet",
+	};
+	aggregateClaims(db, [fleetClaim], "machine-a", { now: 1000 });
+	aggregateClaims(db, [fleetClaim], "machine-b", { now: 2000 });
+	aggregateClaims(
+		db,
+		[
+			{
+				evidenceId: "ev-p1",
+				claim: "private to machine-a",
+				confidence: 0.7,
+				ts: 150,
+				scope: "machine",
+			},
+		],
+		"machine-a",
+		{ now: 3000 },
+	);
+	const bView = claimAggregateView(db, { readerMachine: "machine-b" });
+	expect(bView.claims.map((c) => c.evidenceId)).toEqual(["ev-f1"]);
+	const aView = claimAggregateView(db, { readerMachine: "machine-a" });
+	expect(aView.claims.map((c) => c.evidenceId).sort()).toEqual([
+		"ev-f1",
+		"ev-p1",
+	]);
+	const opView = claimAggregateView(db);
+	expect(opView.claims.map((c) => c.evidenceId).sort()).toEqual([
+		"ev-f1",
+		"ev-p1",
+	]);
+	// the tenant roll-up derives from the visible set only — machine-b's view
+	// knows machine-a only through the fleet claim's provenance, and the
+	// private row's tenant data never leaks into it
+	expect(bView.tenants.map((t) => t.machine).sort()).toEqual([
+		"machine-a",
+		"machine-b",
+	]);
+});
+
+test("scope escalates fleet→machine on conflicting re-assertion, never loosens", () => {
+	const db = new Database(":memory:");
+	const body = {
+		evidenceId: "ev-s1",
+		claim: "same content",
+		confidence: 0.5,
+		ts: 100,
+	};
+	aggregateClaims(db, [{ ...body, scope: "fleet" }], "machine-a", {
+		now: 1000,
+	});
+	aggregateClaims(db, [{ ...body, scope: "machine" }], "machine-b", {
+		now: 2000,
+	});
+	const view = claimAggregateView(db);
+	expect(view.claims[0].scope).toBe("machine");
+	aggregateClaims(db, [{ ...body, scope: "fleet" }], "machine-c", {
+		now: 3000,
+	});
+	expect(claimAggregateView(db).claims[0].scope).toBe("machine");
+});
 
 test("collectClaims: claim.* rows → entries; cursor skips; cap applies", () => {
 	const dir = mkdtempSync(join(tmpdir(), "w1213-cl-"));
@@ -196,6 +346,7 @@ test("collectClaims: claim.* rows → entries; cursor skips; cap applies", () =>
 	expect(out.send[0].evidenceId).toBe("ev-1");
 	expect(out.send[0].confidence).toBe(0.4);
 	expect(out.send[0].ts).toBe(500);
+	expect(out.send[0].scope).toBe("fleet");
 	expect(out.cursor).toEqual({ "claim.ev-1": 3 });
 	db.close();
 	rmSync(dir, { recursive: true, force: true });

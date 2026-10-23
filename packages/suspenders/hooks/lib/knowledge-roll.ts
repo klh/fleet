@@ -46,6 +46,35 @@ export const MAX_EVIDENCE_ID = 256;
 /** Wire clamp: one roll carries at most 200 entries (per-pass cap). */
 export const MAX_ROLL_ENTRIES = 200;
 
+// ─── claim scope (W1213.1 — the B1 review boundary) ─────────────────────────
+
+/** The closed scope vocabulary a claim may declare. The scope IS the read
+ *  boundary: `fleet` claims land in the shared aggregate every authenticated
+ *  caller reads; `machine` claims stay visible only to their origin machine
+ *  (plus the operator). Machine-key identity alone is not authorization — a
+ *  key proves WHO rolls, the scope declares WHO may read. Unknown OR missing
+ *  scope fails closed at the door (the B1 finding: an unknown-private-scope
+ *  probe rode a lax schema straight into storage). */
+export const CLAIM_SCOPES = ["fleet", "machine"] as const;
+export type ClaimScope = (typeof CLAIM_SCOPES)[number];
+/** Machine-collected facts rows roll into the shared aggregate by default. */
+export const DEFAULT_CLAIM_SCOPE: ClaimScope = "fleet";
+export function isClaimScope(v: unknown): v is ClaimScope {
+	return (
+		typeof v === "string" && (CLAIM_SCOPES as readonly string[]).includes(v)
+	);
+}
+
+/** The strict wire schema: exactly these fields, nothing extra. */
+const ENTRY_FIELDS: ReadonlySet<string> = new Set([
+	"evidenceId",
+	"claim",
+	"confidence",
+	"ts",
+	"tombstone",
+	"scope",
+]);
+
 /** The CAS/content key: sha256 over (evidence-id + claim text). NUL
  *  separator keeps the two fields unambiguous. Stable across machines —
  *  the same evidence+claim hashes identically on every pusher. */
@@ -62,6 +91,8 @@ export interface RollEntry {
 	confidence: number;
 	ts: number;
 	tombstone?: boolean;
+	/** W1213.1: required, closed-set (fleet | machine). The read boundary. */
+	scope: ClaimScope;
 }
 
 /** facts value → roll entry. The value is JSON
@@ -77,6 +108,9 @@ export function parseClaimRow(key: string, value: string): RollEntry | null {
 	let claim = text;
 	let confidence: number | null = null;
 	let tombstone = false;
+	// W1213.1: a facts stamp may declare its read scope; an unknown one makes
+	// the row NOT a well-formed claim (fail closed — it never ships).
+	let scope: ClaimScope = DEFAULT_CLAIM_SCOPE;
 	const trimmed = text.trim();
 	if (trimmed.startsWith("{")) {
 		try {
@@ -92,6 +126,10 @@ export function parseClaimRow(key: string, value: string): RollEntry | null {
 			)
 				confidence = j.confidence;
 			if (j.tombstone === true) tombstone = true;
+			if (j.scope !== undefined) {
+				if (!isClaimScope(j.scope)) return null;
+				scope = j.scope;
+			}
 		} catch {
 			// JSON-shaped but unparseable → treat the whole value as claim text
 		}
@@ -104,6 +142,7 @@ export function parseClaimRow(key: string, value: string): RollEntry | null {
 		confidence: confidence ?? 0.5,
 		ts: 0,
 		tombstone,
+		scope,
 	};
 }
 
@@ -127,11 +166,20 @@ export interface RollCounts {
  *  rows keep everything (claims never delete). */
 export function ensureRollTables(db: Database): void {
 	db.run(
-		"CREATE TABLE IF NOT EXISTS knowledge_claims (id INTEGER PRIMARY KEY AUTOINCREMENT, claim_hash TEXT NOT NULL UNIQUE, evidence_id TEXT NOT NULL, claim TEXT NOT NULL, confidence REAL NOT NULL DEFAULT 0.5, version INTEGER NOT NULL DEFAULT 1, tombstone INTEGER NOT NULL DEFAULT 0, ts INTEGER NOT NULL, updated_at INTEGER NOT NULL, origin_machine TEXT NOT NULL, provenance TEXT NOT NULL, tombstone_ts INTEGER)",
+		"CREATE TABLE IF NOT EXISTS knowledge_claims (id INTEGER PRIMARY KEY AUTOINCREMENT, claim_hash TEXT NOT NULL UNIQUE, evidence_id TEXT NOT NULL, claim TEXT NOT NULL, confidence REAL NOT NULL DEFAULT 0.5, version INTEGER NOT NULL DEFAULT 1, tombstone INTEGER NOT NULL DEFAULT 0, ts INTEGER NOT NULL, updated_at INTEGER NOT NULL, origin_machine TEXT NOT NULL, provenance TEXT NOT NULL, tombstone_ts INTEGER, scope TEXT NOT NULL DEFAULT 'fleet')",
 	);
 	db.run(
 		"CREATE INDEX IF NOT EXISTS knowledge_claims_evidence ON knowledge_claims (evidence_id, version)",
 	);
+	// W1213.1: guarded heal for live hub DBs created pre-scope (CREATE IF NOT
+	// EXISTS cannot upgrade a live table) — same doctrine as the W244 ALTERs.
+	const cols = db.query("PRAGMA table_info(knowledge_claims)").all() as {
+		name: string;
+	}[];
+	if (cols.length && !cols.some((c) => c.name === "scope"))
+		db.run(
+			"ALTER TABLE knowledge_claims ADD COLUMN scope TEXT NOT NULL DEFAULT 'fleet'",
+		);
 }
 
 /** One provenance entry: a machine asserting (or retracting) the claim. */
@@ -154,11 +202,17 @@ interface ClaimRow {
 	origin_machine: string;
 	provenance: string;
 	tombstone_ts: number | null;
+	/** W1213.1: the stored read boundary (fleet | machine). */
+	scope: string;
 }
 
 function validEntry(e: unknown): e is RollEntry {
 	if (!e || typeof e !== "object" || Array.isArray(e)) return false;
 	const r = e as Record<string, unknown>;
+	// W1213.1 strict schema: every field must be a declared one — an unknown
+	// field (the reviewer's scope probe rode a lax schema) fails the roll.
+	for (const k of Object.keys(r)) if (!ENTRY_FIELDS.has(k)) return false;
+	if (!isClaimScope(r.scope)) return false;
 	if (
 		typeof r.evidenceId !== "string" ||
 		!r.evidenceId.trim() ||
@@ -233,7 +287,7 @@ export function aggregateClaims(
 				.get(e.evidenceId) as { v: number };
 			const version = (maxV.v ?? 0) + 1;
 			db.run(
-				"INSERT INTO knowledge_claims (claim_hash, evidence_id, claim, confidence, version, tombstone, ts, updated_at, origin_machine, provenance, tombstone_ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+				"INSERT INTO knowledge_claims (claim_hash, evidence_id, claim, confidence, version, tombstone, ts, updated_at, origin_machine, provenance, tombstone_ts, scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 				h,
 				e.evidenceId,
 				e.claim,
@@ -247,6 +301,7 @@ export function aggregateClaims(
 					{ machine, ts: e.ts, ...(e.tombstone ? { retract: true } : {}) },
 				]),
 				e.tombstone ? e.ts : null,
+				e.scope,
 			);
 			if (e.tombstone) counts.tombstoned++;
 			else counts.versions++;
@@ -278,6 +333,15 @@ function applyKnown(
 		prov = JSON.parse(row.provenance) as typeof prov;
 	} catch {
 		prov = [];
+	}
+	// W1213.1: scope escalation only — a re-assertion under the tighter scope
+	// tightens the row (fleet → machine) and can never loosen it.
+	if (row.scope !== e.scope && row.scope !== "machine") {
+		db.run(
+			"UPDATE knowledge_claims SET scope = 'machine' WHERE id = ?",
+			row.id,
+		);
+		row.scope = "machine";
 	}
 	if (e.tombstone) {
 		if (!row.tombstone) {
@@ -335,6 +399,8 @@ export interface ClaimView {
 	ts: number;
 	updatedAt: number;
 	originMachine: string;
+	/** W1213.1: the stored read boundary (fleet | machine). */
+	scope: string;
 	provenance: ProvenanceEntry[];
 	provenanceCount: number;
 }
@@ -347,12 +413,17 @@ export interface AggregateView {
 
 /** The read surface: aggregated facts, confidence-ranked (confidence DESC,
  *  then provenance breadth, then evidence). Tombstoned claims do NOT appear
- *  unless includeTombstones lifts them (ops/verify — the rows still exist). */
+ *  unless includeTombstones lifts them (ops/verify — the rows still exist).
+ *  W1213.1 tenant read boundary: `readerMachine` bounds the view to that
+ *  machine's own claims plus the fleet plane — a machine-scoped claim from
+ *  another origin (or one it never asserted) never leaves the db, and the
+ *  tenant roll-up is derived from the visible set only. */
 export function claimAggregateView(
 	db: Database,
-	opts: { includeTombstones?: boolean } = {},
+	opts: { includeTombstones?: boolean; readerMachine?: string } = {},
 ): AggregateView {
 	ensureRollTables(db);
+	const reader = opts.readerMachine ?? null;
 	const rows = db
 		.query(
 			`SELECT * FROM knowledge_claims ${opts.includeTombstones ? "" : "WHERE tombstone = 0"} ORDER BY id`,
@@ -367,6 +438,15 @@ export function claimAggregateView(
 		} catch {
 			prov = [];
 		}
+		// W1213.1: the tenant read boundary bites HERE — a machine-scoped row
+		// is skipped for readers it does not belong to (origin or asserted-by).
+		if (
+			reader !== null &&
+			r.scope === "machine" &&
+			r.origin_machine !== reader &&
+			!prov.some((p) => p.machine === reader)
+		)
+			continue;
 		for (const p of prov) {
 			if (!tenants.has(p.machine))
 				tenants.set(p.machine, { asserted: 0, retracted: 0 });
@@ -385,6 +465,7 @@ export function claimAggregateView(
 			ts: r.ts,
 			updatedAt: r.updated_at,
 			originMachine: r.origin_machine,
+			scope: r.scope,
 			provenance: prov,
 			provenanceCount: prov.filter((p) => !p.retract).length,
 		});

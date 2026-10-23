@@ -149,7 +149,22 @@ const base = {
 				? ((await req.json().catch(() => ({}))) as Record<string, unknown>)
 				: {};
 		if (path === "/roll") {
-			if (req.method === "GET") return json(claimAggregateView(rollDb));
+			if (req.method === "GET") {
+				// W1213.1 bounded read: anonymous callers get NOTHING (the aggregate
+				// discloses tenant intel — the B1 finding); a roll key reads its own
+				// machine's claims plus the fleet plane; the write token is the
+				// operator full view.
+				const key = req.headers.get(ROLL_KEY_HEADER) ?? "";
+				const keyed = key ? rollKeyOk(key) : { ok: false, machine: null };
+				if (keyed.ok && keyed.machine)
+					return json(
+						claimAggregateView(rollDb, {
+							readerMachine: keyed.machine,
+						}),
+					);
+				if (tokenOk(req)) return json(claimAggregateView(rollDb));
+				return json({ error: "roll auth required" }, 403);
+			}
 			if (req.method !== "POST")
 				return new Response(null, {
 					status: 405,
@@ -163,7 +178,12 @@ const base = {
 					? str(body.machine)
 					: null;
 			if (!machine) return json({ error: "roll key required" }, 403);
-			return json(aggregateClaims(rollDb, body.claims, machine));
+			// W1213.1 (B2 server half): a rejected roll NEVER 200s — the spoke
+			// (W1213.2) reads the status to retain its cursor on rejection.
+			const landed = aggregateClaims(rollDb, body.claims, machine);
+			if (!landed.ok)
+				return json({ error: landed.error ?? "roll rejected" }, 422);
+			return json(landed);
 		}
 		// anonymous reads get scrubbed output; the install token unlocks refs
 		const authed = tokenOk(req);
