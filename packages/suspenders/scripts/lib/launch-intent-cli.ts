@@ -185,7 +185,12 @@ export const intentMain = (
 		// Lazy import keeps ordinary inspection/help free of restart authority.
 		const { intentBirthReconcile } =
 			require("./intent-birth-reconcile.ts") as typeof import("./intent-birth-reconcile.ts");
-		intentBirthReconcile(ctx.repo, item, evidence, args.includes("--apply"));
+		intentBirthReconcile(
+			ctx.repo,
+			item,
+			evidence,
+			outcome.parsed.flag("--apply") === "true",
+		);
 		return 0;
 	}
 	const store = ctx.store ?? openStore();
