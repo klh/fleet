@@ -16,8 +16,18 @@ import {
 	type CapabilityFact,
 } from "./model-capabilities.ts";
 
-/** One measured performance facet for a (provider, modelId) route. */
+/** Provider sentinel stamped when the metrics source reports no real
+ *  provider — the host is never promoted to a provider (W1030.2.1). */
+export const UNKNOWN_PROVIDER = "unknown";
+
+/** One measured performance facet for a (endpoint, provider, modelId) route. */
 export interface RoutePerformanceRecord {
+	/** Canonical deployment identity the samples were measured on —
+	 *  machine:port for metrics-sourced records. Part of the route key, so
+	 *  same-host-different-port deployments never collapse into one record. */
+	endpoint: string;
+	/** Real provider serving the route — UNKNOWN_PROVIDER when metrics
+	 *  report none. */
 	provider: string;
 	modelId: string;
 	/** Measured wall latency per call, in milliseconds. */
@@ -26,6 +36,9 @@ export interface RoutePerformanceRecord {
 	errorRate: CapabilityFact<number>;
 	/** Measured call count backing the latency sample. */
 	sampleCount: CapabilityFact<number>;
+	/** First→last span of the measured samples actually backing the latency
+	 *  fact — honest lookback/coverage, not any-call activity. */
+	sampleWindow: CapabilityFact<{ first: string; last: string }>;
 }
 
 export interface RoutePerformanceSnapshot {
@@ -59,28 +72,42 @@ export const routePerformanceFromTallies = (
 		const machine = parts[0] ?? "";
 		const port = parts[1] ?? "";
 		const modelId = parts.slice(2).join(":");
-		const observedAt =
-			tally.last_used !== null && validObservedAt(tally.last_used)
-				? tally.last_used
-				: null;
+		const iso = (value: string | null): string | null =>
+			value !== null && validObservedAt(value) ? value : null;
+		const observedAt = iso(tally.last_used);
+		const measuredLast = iso(tally.measured_last);
+		const measuredFirst = iso(tally.measured_first);
 		if (!machine || !port || !modelId || !observedAt) continue;
 		const source = `${METRICS_SOURCE_PREFIX}:${machine}:${port}`;
 		const measured = positiveInteger(tally.measured);
 		const avg = measured !== null ? finite(tally.avg_ms) : null;
+		// The measured sample set: avg + window exist only when real duration
+		// rows carry a parseable sample timestamp — a duration-less failure
+		// never dates the latency fact (W1030.2.1 B2).
+		const samples: { avgMs: number; first: string; last: string } | null =
+			avg !== null && measuredLast !== null && measuredFirst !== null
+				? { avgMs: Math.round(avg), first: measuredFirst, last: measuredLast }
+				: null;
 		records.push({
-			provider: machine,
+			endpoint: `${machine}:${port}`,
+			provider: UNKNOWN_PROVIDER,
 			modelId,
 			avgLatencyMs: fact(
-				avg === null ? null : Math.round(avg),
+				samples === null ? null : samples.avgMs,
 				source,
-				observedAt,
+				samples === null ? observedAt : samples.last,
 			),
 			errorRate: fact(
 				tally.calls > 0 ? tally.errors / tally.calls : null,
 				source,
 				observedAt,
 			),
-			sampleCount: fact(measured, source, observedAt),
+			sampleCount: fact(measured, source, measuredLast ?? observedAt),
+			sampleWindow: fact(
+				samples === null ? null : { first: samples.first, last: samples.last },
+				source,
+				measuredLast ?? observedAt,
+			),
 		});
 	}
 	return records;
@@ -96,10 +123,14 @@ export const currentRoutePerformance = (
 	avgLatencyMs: fresh(record.avgLatencyMs, maxAgeMs, now),
 	errorRate: fresh(record.errorRate, maxAgeMs, now),
 	sampleCount: fresh(record.sampleCount, maxAgeMs, now),
+	sampleWindow: fresh(record.sampleWindow, maxAgeMs, now),
 });
 
-const routeKey = (provider: string, modelId: string): string =>
-	JSON.stringify([provider, modelId]);
+const routeKey = (
+	endpoint: string,
+	provider: string,
+	modelId: string,
+): string => JSON.stringify([endpoint, provider, modelId]);
 
 export class RoutePerformanceRegistry {
 	private readonly records = new Map<string, RoutePerformanceRecord>();
@@ -109,9 +140,9 @@ export class RoutePerformanceRegistry {
 	}
 
 	upsert(record: RoutePerformanceRecord): void {
-		if (!record.provider || !record.modelId)
-			throw new Error("provider and modelId are required");
-		const composite = routeKey(record.provider, record.modelId);
+		if (!record.endpoint || !record.provider || !record.modelId)
+			throw new Error("endpoint, provider and modelId are required");
+		const composite = routeKey(record.endpoint, record.provider, record.modelId);
 		const previous = this.records.get(composite);
 		const merged = previous
 			? {
@@ -119,20 +150,33 @@ export class RoutePerformanceRegistry {
 					avgLatencyMs: newerFact(previous.avgLatencyMs, record.avgLatencyMs),
 					errorRate: newerFact(previous.errorRate, record.errorRate),
 					sampleCount: newerFact(previous.sampleCount, record.sampleCount),
+					sampleWindow: newerFact(previous.sampleWindow, record.sampleWindow),
 				}
 			: record;
 		this.records.set(composite, structuredClone(merged));
 	}
 
+	/** Exact route lookup by deployment identity + model. Same endpoint+model
+	 *  may carry several provider identities (UNKNOWN until resolved) — the
+	 *  most-recently-observed record speaks, insertion order breaks ties. */
 	get(
-		provider: string,
+		endpoint: string,
 		modelId: string,
 		maxAgeMs: number,
 		now = Date.now(),
 	): RoutePerformanceRecord | null {
-		const record = this.records.get(routeKey(provider, modelId));
-		return record
-			? currentRoutePerformance(structuredClone(record), maxAgeMs, now)
+		let best: RoutePerformanceRecord | null = null;
+		for (const record of this.records.values()) {
+			if (record.endpoint !== endpoint || record.modelId !== modelId) continue;
+			if (
+				best === null ||
+				Date.parse(record.avgLatencyMs.observedAt ?? "") >
+					Date.parse(best.avgLatencyMs.observedAt ?? "")
+			)
+				best = record;
+		}
+		return best
+			? currentRoutePerformance(structuredClone(best), maxAgeMs, now)
 			: null;
 	}
 
@@ -166,17 +210,31 @@ const validFact = (
 	);
 };
 
+const validSampleWindow = (value: unknown): boolean => {
+	const window = object(value);
+	return (
+		!!window &&
+		typeof window.first === "string" &&
+		validObservedAt(window.first) &&
+		typeof window.last === "string" &&
+		validObservedAt(window.last)
+	);
+};
+
 const validRecord = (value: unknown): value is RoutePerformanceRecord => {
 	const row = object(value);
 	return (
 		!!row &&
+		typeof row.endpoint === "string" &&
+		!!row.endpoint &&
 		typeof row.provider === "string" &&
 		!!row.provider &&
 		typeof row.modelId === "string" &&
 		!!row.modelId &&
 		validFact(row.avgLatencyMs, nonNegative) &&
 		validFact(row.errorRate, (value) => unitRate(value) !== null) &&
-		validFact(row.sampleCount, (value) => positiveInteger(value) !== null)
+		validFact(row.sampleCount, (value) => positiveInteger(value) !== null) &&
+		validFact(row.sampleWindow, validSampleWindow)
 	);
 };
 

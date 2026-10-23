@@ -282,6 +282,8 @@ function mergeMetrics(list: EndpointMetrics[]): EndpointMetrics {
 	let measured = 0;
 	let lastUsed: string | null = null;
 	let lastError: string | null = null;
+	let measuredLast: string | null = null;
+	let measuredFirst: string | null = null;
 	for (const e of list) {
 		calls += e.calls;
 		errors += e.errors;
@@ -290,6 +292,11 @@ function mergeMetrics(list: EndpointMetrics[]): EndpointMetrics {
 		totalMs += (e.avg_ms ?? 0) * e.measured;
 		if ((e.last_used ?? "") > (lastUsed ?? "")) lastUsed = e.last_used;
 		if ((e.last_error ?? "") > (lastError ?? "")) lastError = e.last_error;
+		if ((e.measured_last ?? "") > (measuredLast ?? ""))
+			measuredLast = e.measured_last;
+		// earliest measured sample across the fold (null when none carry samples)
+		if (measuredFirst === null || (e.measured_first ?? "") < measuredFirst)
+			measuredFirst = e.measured_first ?? measuredFirst;
 	}
 	return {
 		calls,
@@ -298,6 +305,8 @@ function mergeMetrics(list: EndpointMetrics[]): EndpointMetrics {
 		load_5m: load,
 		avg_ms: measured ? Math.round(totalMs / measured) : null,
 		last_used: lastUsed,
+		measured_last: measuredLast,
+		measured_first: measuredFirst,
 		last_error: lastError,
 	};
 }
@@ -344,6 +353,8 @@ function buildSnapshot(): MetricsSnapshot {
 		measured: number;
 		avg_ms: number | null;
 		last_used: string;
+		measured_last: string | null;
+		measured_first: string | null;
 	}[]) {
 		endpoints[key(r.machine, r.port, r.model)] = {
 			calls: r.calls,
@@ -351,6 +362,8 @@ function buildSnapshot(): MetricsSnapshot {
 			measured: r.measured,
 			avg_ms: r.avg_ms === null ? null : Math.round(r.avg_ms),
 			last_used: r.last_used,
+			measured_last: r.measured_last,
+			measured_first: r.measured_first,
 			load_5m: 0,
 			last_error: null,
 		};
@@ -505,6 +518,8 @@ const EMPTY: EndpointMetrics = {
 	measured: 0,
 	avg_ms: null,
 	last_used: null,
+	measured_last: null,
+	measured_first: null,
 	load_5m: 0,
 	last_error: null,
 };
