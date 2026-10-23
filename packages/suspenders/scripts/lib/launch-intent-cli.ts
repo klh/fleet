@@ -43,6 +43,13 @@ const VERBS: VerbSpec[] = [
 		switches: ["--apply"],
 	}),
 	defineVerb({
+		name: "reconcile-pause",
+		usage:
+			"usage: reconcile-pause --item <Wn> --evidence <0600-json> [--apply] — operator reconciles a proven quiet native pause; never fabricates delivery",
+		flags: ["--item", "--evidence"],
+		switches: ["--apply"],
+	}),
+	defineVerb({
 		name: "fail",
 		usage:
 			"usage: fail --item <Wn> --evidence <why> — mark a wedged intent FAILED, never a live lane",
@@ -175,12 +182,23 @@ export const intentMain = (
 		console.log(HELP);
 		return 2;
 	}
-	if (spec.name === "reconcile-birth") {
+	if (spec.name === "reconcile-birth" || spec.name === "reconcile-pause") {
 		const item = outcome.parsed.flag("--item");
 		const evidence = outcome.parsed.flag("--evidence");
 		if (!item || !evidence) {
 			console.log(renderVerbHelp(spec));
 			return 2;
+		}
+		if (spec.name === "reconcile-pause") {
+			const { reconcilePause } =
+				require("./pause-reconcile.ts") as typeof import("./pause-reconcile.ts");
+			reconcilePause(
+				ctx.repo,
+				item,
+				evidence,
+				outcome.parsed.flag("--apply") === "true",
+			);
+			return 0;
 		}
 		// Lazy import keeps ordinary inspection/help free of restart authority.
 		const { intentBirthReconcile } =

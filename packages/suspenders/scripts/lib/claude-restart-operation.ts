@@ -85,6 +85,7 @@ export function claudeRestartAuthority(
 	sid: string,
 	item: string,
 	cwd: string,
+	expectedState: "PAUSED" | "PAUSE_REQUESTED" = "PAUSED",
 ): { claim: Claim; checkpoint: string } {
 	const context = readLaneContextFile(cwd);
 	if (context?.sid !== sid || context.item !== item)
@@ -107,8 +108,8 @@ export function claudeRestartAuthority(
 					value: string;
 				} | null
 			)?.value;
-		if (fact(`lane.${sid}.state`) !== "PAUSED")
-			throw new Error("Restart requires canonical PAUSED");
+		if (fact(`lane.${sid}.state`) !== expectedState)
+			throw new Error(`Restart requires canonical ${expectedState}`);
 		const proof = verifiedPauseCheckpoint(
 			JSON.parse(fact(`lane.${sid}.capsule`) ?? "null"),
 			cwd,

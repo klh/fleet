@@ -15,7 +15,7 @@ import {
 	consumeClaudeWake,
 	proveClaudeWake,
 	releaseClaudeWake,
-	waitForClaudeWake,
+	waitForManagedClaudeWake,
 } from "../lib/claude-wake.ts";
 // W1035.1: interrupt results are internal turn boundaries — never terminal.
 import { defineVerb, runCli } from "../lib/verb-kit.ts";
@@ -161,9 +161,16 @@ async function run(args: string[]): Promise<number> {
 	});
 	const delivery = (async () => {
 		while (!closing) {
-			const text = await waitForClaudeWake(sid, {
-				consumer: "managed",
+			const text = await waitForManagedClaudeWake(sid, {
 				abort: abort.signal,
+				onRetry: (reason, attempt) =>
+					emit({
+						type: "fleet.claude.watcher",
+						sid,
+						state: "rearming",
+						reason,
+						attempt,
+					}),
 			});
 			if (!text || closing) break;
 			const kind = claudeWakeControl(text);
