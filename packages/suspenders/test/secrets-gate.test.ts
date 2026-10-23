@@ -7,12 +7,14 @@
 // a real `git push` in the same repo still denies. Skipped when gitleaks is
 // absent (CI image parity is not guaranteed).
 import { describe, test, expect, afterAll } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-secrets-"));
-const REPO = mkdtempSync(join(tmpdir(), "suspenders-secrets-repo-"));
+const REPO = realpathSync(
+	mkdtempSync(join(tmpdir(), "suspenders-secrets-repo-")),
+);
 const env = {
 	...process.env,
 	HOME,
@@ -88,11 +90,17 @@ afterAll(() => {
 	// then land in the SUSPENDERS repo (five stray c1 commits, 2026-09-26).
 	// The toplevel guard below fails loudly if isolation ever breaks again.
 	Bun.spawnSync(["git", "init", REPO], { env });
+	const remote = join(HOME, "remote.git");
+	Bun.spawnSync(["git", "init", "--bare", remote], { env });
+	Bun.spawnSync(["git", "-C", REPO, "remote", "add", "origin", remote], {
+		env,
+	});
 	writeFileSync(join(REPO, "k.txt"), `${FAKE}\n`);
 	Bun.spawnSync(["git", "-C", REPO, "add", "k.txt"], { env });
 	Bun.spawnSync(["git", "-C", REPO, "commit", "-m", "c1"], {
 		env: { ...env, cwd: REPO },
 	});
+	Bun.spawnSync(["git", "-C", REPO, "branch", "-M", "main"], { env });
 	const top = new TextDecoder()
 		.decode(
 			Bun.spawnSync(["git", "-C", REPO, "rev-parse", "--show-toplevel"], {

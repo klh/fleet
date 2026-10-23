@@ -28,6 +28,7 @@ import {
 	nudge,
 } from "../lib/hookio.ts";
 import { have, run } from "../lib/run.ts";
+import { scanPushSecrets } from "../lib/push-secrets.ts";
 import {
 	canonPath,
 	collectWriteTargets,
@@ -213,16 +214,20 @@ export function bashGate(hook: HookInput): never {
 				deny(
 					"gitleaks found secrets in STAGED content. Remove the secret (rotate if real). --no-verify is not available to agents.",
 				);
-			if (
-				gitSub(w) === "push" &&
-				inRepo &&
-				!run("gitleaks", ["git", ".", "--redact", "--no-banner"], {
-					cwd: gitToplevel(repoDir),
-				}).ok
-			)
-				deny(
-					"gitleaks found secrets in commit history headed for the remote. Rotate the credential and rewrite/purge history. --no-verify is not available to agents.",
-				);
+			if (gitSub(w) === "push" && inRepo) {
+				// A global config override can change the remote independently of
+				// the parsed push args. Unknown context must never scan another repo.
+				const prefix = w.slice(1, gitSubIndex(w).idx);
+				if (prefix.length && !(prefix.length === 2 && prefix[0] === "-C"))
+					deny(
+						"secrets-gate: unsupported Git push context; use one -C directory and explicit remote/refspec.",
+					);
+				const scan = scanPushSecrets(gitToplevel(repoDir), pushArgs(w));
+				if (!scan.ok)
+					deny(
+						`secrets-gate: ${scan.why}. --no-verify is not available to agents.`,
+					);
+			}
 		}
 	}
 
