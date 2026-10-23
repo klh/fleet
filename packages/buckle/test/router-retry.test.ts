@@ -68,6 +68,9 @@ describe("retry + cooldown in the walk", () => {
 			results.every((r) => r.kind === "upstream" && r.tier === "local"),
 		).toBe(true);
 		expect(attempted.filter((g) => g === "local")).toHaveLength(4);
+		// no spin: exactly one primary refusal per request — with num_retries=0
+		// the Retry-After must never buy a same-tier retry loop or a wait.
+		expect(attempted.filter((g) => g === "primary")).toHaveLength(4);
 		expect(slept).toEqual([]);
 	});
 
