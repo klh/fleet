@@ -9,7 +9,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { openStore } from "../../hooks/lib/govdb.ts";
 import { projectIdentity } from "../../hooks/lib/govdb-project.ts";
 import { verifiedPauseCheckpoint } from "../../hooks/lib/claude-pause.ts";
@@ -38,7 +38,12 @@ import {
 	laneProcessIdentity,
 	type LaneRef,
 } from "../../hooks/lib/lane-liveness.ts";
-import { processBirth, launchIntent } from "./launch-fencing.ts";
+import {
+	processBirth,
+	launchIntent,
+	sameMachine,
+	type LaunchIntent,
+} from "./launch-fencing.ts";
 import { adminKey, BUCKLE_FRONT } from "./lane-auth.ts";
 import { adapterForExact } from "../../hooks/lib/executors/registry.ts";
 import { materializeRestartSettings } from "./claude-restart-settings.ts";
@@ -53,6 +58,21 @@ const sameIdentity = (expected: RestartIdentity): boolean => {
 	const found = identity(expected.pid);
 	return !!found && found.birth === expected.birth;
 };
+export function assertLocalRestartIntent(
+	intent: LaunchIntent | null,
+	sid: string,
+	wrapper: RestartIdentity,
+): asserts intent is LaunchIntent {
+	if (
+		!intent ||
+		intent.sid !== sid ||
+		intent.state !== "REGISTERED" ||
+		intent.pid !== wrapper.pid ||
+		intent.birth !== wrapper.birth ||
+		!sameMachine(intent.host, hostname())
+	)
+		throw Error("Restart registered local launch intent is not proven");
+}
 function git(cwd: string, args: string[]): string {
 	const result = Bun.spawnSync(["git", ...args], {
 		cwd,
@@ -367,14 +387,7 @@ export async function restartManagedClaude(
 		const store = openStore();
 		try {
 			const intent = launchIntent(store, claim.project, lane.item);
-			if (
-				!intent ||
-				intent.sid !== sid ||
-				intent.state !== "REGISTERED" ||
-				intent.pid !== wrapper.pid ||
-				intent.birth !== wrapper.birth
-			)
-				throw new Error("Restart registered launch intent is not proven");
+			assertLocalRestartIntent(intent, sid, wrapper);
 		} finally {
 			store.close();
 		}
@@ -554,14 +567,7 @@ export async function restartManagedClaude(
 			const store = openStore();
 			try {
 				const intent = launchIntent(store, claim.project, lane.item);
-				if (
-					!intent ||
-					intent.sid !== sid ||
-					intent.state !== "REGISTERED" ||
-					intent.pid !== wrapper.pid ||
-					intent.birth !== wrapper.birth
-				)
-					throw new Error("Restart launch intent binding changed");
+				assertLocalRestartIntent(intent, sid, wrapper);
 				const commit = (publishMissing?: () => void) => {
 					const liveClaim = store
 						.query(
@@ -631,7 +637,7 @@ export async function restartManagedClaude(
 								...lane,
 								pid: fresh.pid,
 								branch: `suspenders/${snapshot.item}`,
-								host: intent.host,
+								host: hostname(),
 								launchedAt: Date.now(),
 								attempt: intent.attempt,
 							},

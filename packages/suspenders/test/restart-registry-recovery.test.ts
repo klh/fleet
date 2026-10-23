@@ -7,7 +7,7 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, hostname } from "node:os";
 import { join } from "node:path";
 import {
 	mergeLaneRegistry,
@@ -19,6 +19,37 @@ import {
 import { restartJournalPath } from "../hooks/lib/claude-restart.ts";
 import { classifyPrune } from "../scripts/lib/registry-cli.ts";
 import { pausedLaneFixture } from "./helpers/paused-lane.ts";
+import { assertLocalRestartIntent } from "../scripts/lib/claude-restart-operation.ts";
+import type { LaunchIntent } from "../scripts/lib/launch-fencing.ts";
+
+test("restart intent proves local host, original owner and exact incarnation", () => {
+	const wrapper = { pid: process.pid, birth: "original" };
+	const intent: LaunchIntent = {
+		project: "fixture",
+		item: "W1",
+		sid: "original",
+		nonce: "nonce",
+		revision: 1,
+		executor: process.execPath,
+		host: hostname(),
+		attempt: 0,
+		state: "REGISTERED",
+		...wrapper,
+	};
+	expect(() =>
+		assertLocalRestartIntent(intent, "original", wrapper),
+	).not.toThrow();
+	for (const changed of [
+		{ host: "remote.example.invalid" },
+		{ sid: "foreign" },
+		{ state: "FAILED" },
+		{ pid: process.pid + 1 },
+		{ birth: "reused" },
+	])
+		expect(() =>
+			assertLocalRestartIntent({ ...intent, ...changed }, "original", wrapper),
+		).toThrow("local launch intent");
+});
 
 test("canonical prune retains pending and uncertain restart journals under its lock", () => {
 	const root = mkdtempSync(join(tmpdir(), "restart-prune-"));
