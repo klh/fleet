@@ -2,7 +2,7 @@
 // supervise.ts — W146: the shattering planner becomes its subtree's
 // MICRO-SUPERVISOR. Coordinator responsibilities, scoped to one parent
 // item's descendants: dispatch READY children (W145 lane-spawn machinery,
-// shared via scripts/lib/lane.ts), watch the graph, dispatch newly-unblocked
+// shared via hooks/lib/lane.ts), watch the graph, dispatch newly-unblocked
 // children in dependency order (`work ready` IS the dep-order source — the
 // W60 dep-merge gate keeps a child out of the pool until its deps are DONE
 // and merged), integrate DONE children per the plan contract (verify the
@@ -51,7 +51,7 @@ import {
 	sidOf,
 } from "./dispatch-next.ts";
 // W177: the resolved slab class is stamped into the lanes.json entry.
-import { laneClassOf } from "./lib/jobslab.ts";
+import { laneClassOf } from "../hooks/lib/jobslab.ts";
 import {
 	type Lane,
 	laneEnv,
@@ -59,8 +59,8 @@ import {
 	saveLanes,
 	spawnClaude,
 	worktreeLive,
-} from "./lib/lane.ts";
-import { laneAttemptLimit } from "./lib/lane-retry-budget.ts";
+} from "../hooks/lib/lane.ts";
+import { laneAttemptLimit } from "../hooks/lib/lane-retry-budget.ts";
 import {
 	assertLaunchClaim,
 	awaitLaunchRegistration,

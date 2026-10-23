@@ -1,4 +1,4 @@
-// scripts/lib/lane-auth.ts — per-lane buckle keys. The buckle governance gate
+// hooks/lib/lane-auth.ts — per-lane buckle keys. The buckle governance gate
 // demands bksk_ keys; a lane riding the /w/<sid> front needs its own scoped
 // key (buckle:proxy:WRITE_), minted at dispatch time by the admin key that
 // lives in belt.env (0600, machine-level .env law). Lane keys are EPHEMERAL
@@ -17,7 +17,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { readRegistry } from "../../hooks/lib/hub-locate.ts";
+import { readRegistry } from "./hub-locate.ts";
 
 export const BELT_ENV_PATH =
 	process.env.SUSPENDERS_BELT_ENV ??

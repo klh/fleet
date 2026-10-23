@@ -1,8 +1,8 @@
-// scripts/lib/jobslab.ts — W177: per-class resource ceilings for fleet lanes.
+// hooks/lib/jobslab.ts — W177: per-class resource ceilings for fleet lanes.
 // A runaway lane could forkbomb the user machine — the don't-overtax law
 // (heavy work lands where it does not overtax the system; belt placement
 // already obeys it for LLMs) now covers local lanes too. Every local lane
-// spawn drives exactly two recipes: spawnClaude (scripts/lib/lane.ts →
+// spawn drives exactly two recipes: spawnClaude (hooks/lib/lane.ts →
 // dispatch-next + supervise) and fleet-loop's dispatch verb (claude + codex;
 // board /api/start is a child of it). Both wrap the agent in a sh -c
 // preamble: ulimit ceilings + a nice increment, per lane class, overridable

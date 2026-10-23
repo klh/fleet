@@ -31,14 +31,14 @@ import {
 	laneKeyMetaPath,
 	laneSettingsPath,
 	retireLaneKey,
-} from "./lib/lane-auth.ts";
+} from "../hooks/lib/lane-auth.ts";
 import {
 	applyLaneAttribution,
 	laneEnv,
 	probeBuckleFront,
 	spawnClaude,
 	DEFAULT_ALLOWED_TOOLS,
-} from "./lib/lane.ts";
+} from "../hooks/lib/lane.ts";
 import { transcriptAlive } from "../hooks/lib/lane-liveness.ts";
 import { canonicalProjectRoot } from "../hooks/lib/lane-registry.ts";
 

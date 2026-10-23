@@ -7,8 +7,8 @@ import {
 	frontTimeoutBound,
 	probeBuckleFront,
 	probeBuckleFrontVerdict,
-} from "../scripts/lib/front-probe.ts";
-import { probeBuckleFront as laneProbe } from "../scripts/lib/lane.ts";
+} from "../hooks/lib/front-probe.ts";
+import { probeBuckleFront as laneProbe } from "../hooks/lib/lane.ts";
 import { probeFrontDecision } from "../scripts/lib/governance-decide.ts";
 
 /** One real server on an ephemeral loopback port; returns its base URL and

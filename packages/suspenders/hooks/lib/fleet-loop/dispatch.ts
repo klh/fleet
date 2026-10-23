@@ -18,7 +18,7 @@ import {
 	jobslabPrefix,
 	jobslabTag,
 	laneClassOf,
-} from "../../../scripts/lib/jobslab.ts";
+} from "../../jobslab.ts";
 import {
 	acquireLaunchLease,
 	releaseFailedLaunch,
@@ -37,8 +37,8 @@ import {
 	terminateOwnLaunch,
 	type LaunchIntent,
 } from "../../../scripts/lib/launch-fencing.ts";
-import { launchParent } from "../../../scripts/lib/launch-parent.ts";
-import { laneAttemptLimit } from "../../../scripts/lib/lane-retry-budget.ts";
+import { launchParent } from "../../launch-parent.ts";
+import { laneAttemptLimit } from "../../lane-retry-budget.ts";
 import {
 	parkExhaustedLaunch,
 	readLaunchBackoff,
@@ -46,7 +46,7 @@ import {
 } from "../../../scripts/lib/launch-backoff.ts";
 import { reproGateForItem } from "../repro-gate.ts";
 import { adapterFor } from "../executors/registry.ts";
-import { executorLaunch } from "../../../scripts/lib/lane.ts";
+import { executorLaunch } from "../../lane.ts";
 // W254: pointer-grade injection — file-map + done-definition digest for the
 // direct-launch brief, gated per W113 on repo size (hooks/lib/brief-intel.ts)
 import { briefIntel, renderIntel } from "../brief-intel.ts";

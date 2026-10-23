@@ -24,7 +24,7 @@ import {
 	BUCKLE_FRONT,
 	mintLaneKey,
 	revokeLaneKey,
-} from "../../scripts/lib/lane-auth.ts";
+} from "../lib/lane-auth.ts";
 
 // ---- args (W820: verb-kit owns parsing — W651 law) -------------------------
 // W820: verb-kit owns parsing (W651 law) — reqFlags --item/--project; the
