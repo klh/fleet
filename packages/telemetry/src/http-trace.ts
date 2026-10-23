@@ -75,6 +75,40 @@ export function safeRefusalCode(value: unknown): string | null {
 		: null;
 }
 
+/** Credential-shaped prefixes a diagnostic field must never carry — key
+ *  namespaces (W1124.42.1): a match is redacted to null, never truncated. */
+const CREDENTIAL_PREFIX = /^(?:sk-|bksk_|ghp_|AKIA|Bearer)/i;
+
+function credentialShaped(value: string): boolean {
+	return CREDENTIAL_PREFIX.test(value);
+}
+
+/** Hostname-shape guard for projected target hosts (W1124.42.1): DNS labels
+ *  or IPv4 dotted quads, bracketed IPv6 allowed — underscore-bearing tokens
+ *  (credential namespaces) fail the shape; credential prefixes are redacted. */
+export function safeHost(value: unknown): string | null {
+	if (typeof value !== "string" || value.length > 253) return null;
+	if (credentialShaped(value)) return null;
+	return /^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(value) ||
+		/^\[[0-9A-Fa-f:]+\]$/.test(value)
+		? value
+		: null;
+}
+
+/** Model-id guard for projected target models (W1124.42.1): the label charset
+ *  with single-slash provider qualification (`chatgpt/gpt-6-sol` rides); a
+ *  credential-shaped value is redacted to null, never projected. */
+export function safeModel(value: unknown): string | null {
+	if (typeof value !== "string" || value.length === 0 || value.length > 128)
+		return null;
+	if (credentialShaped(value)) return null;
+	return value
+		.split("/")
+		.every((segment) => /^[A-Za-z0-9._:-]{1,128}$/.test(segment))
+		? value
+		: null;
+}
+
 /** Shape and length guard for correlation IDs. This does not establish who
  *  authored the value or whether it is unique. */
 export function safeCorrelationId(value: unknown): string | undefined {
@@ -90,7 +124,7 @@ export function safeProviderErrorToken(value: unknown): string | null {
 			: value;
 	return typeof token === "string" &&
 		/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(token) &&
-		!/^(?:sk-|bksk_|ghp_|AKIA|Bearer)/i.test(token)
+		!credentialShaped(token)
 		? token
 		: null;
 }

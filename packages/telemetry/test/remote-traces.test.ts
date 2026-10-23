@@ -128,6 +128,58 @@ test("fixed private peer returns bounded, body-free remote attempts", async () =
 	expect(JSON.stringify(read)).not.toContain("private-admin-read-key");
 });
 
+test("request projection keeps slash models and redacts credential-shaped values", async () => {
+	const { configFile } = fixture();
+	const slashRow = {
+		rid: "req-slash",
+		ts: "2026-10-21T11:00:00.000Z",
+		ok: 0,
+		status: 499,
+		attempts: 1,
+		target_kind: "local",
+		target_host: "127.0.0.1",
+		target_port: 1,
+		target_model: "chatgpt/gpt-6-sol",
+	};
+	const read = await readRemoteTraces(configFile, traceId, async () =>
+		Response.json({
+			trace_id: traceId,
+			attempts: [],
+			requests: [slashRow],
+		}),
+	);
+	const rows = read.peers[0]?.requests ?? [];
+	expect(rows).toHaveLength(1);
+	expect(rows[0]).toMatchObject({ target_model: "chatgpt/gpt-6-sol" });
+	// credential-shaped host AND model both redact to null (W1124.42.1)
+	const secretRow = {
+		rid: "req-secret",
+		ts: "2026-10-21T11:00:01.000Z",
+		ok: 0,
+		status: 499,
+		attempts: 1,
+		target_kind: "local",
+		target_host: "bksk_fixture_secret",
+		target_port: 1,
+		target_model: "bksk_fixture_secret",
+	};
+	const secretRead = await readRemoteTraces(configFile, traceId, async () =>
+		Response.json({
+			trace_id: traceId,
+			attempts: [],
+			requests: [secretRow],
+		}),
+	);
+	const secretRows = secretRead.peers[0]?.requests ?? [];
+	expect(secretRows).toHaveLength(1);
+	expect(secretRows[0]).toMatchObject({
+		rid: "req-secret",
+		target_host: null,
+		target_model: null,
+	});
+	expect(JSON.stringify(secretRead)).not.toContain("bksk_fixture_secret");
+});
+
 test("missing, loose, and unsafe peer config fail closed", async () => {
 	expect(await readRemoteTraces(undefined, traceId)).toEqual({
 		status: "not_configured",

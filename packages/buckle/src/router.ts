@@ -68,6 +68,9 @@ export type ExecuteResult =
 	  }
 	| {
 			kind: "aborted";
+			/** W1124.42.1: the walk's real attempt count at the hangup — a
+			 *  cancellation never erases the attempts it interrupted. */
+			attempts: number;
 	  }
 	| {
 			kind: "exhausted";
@@ -697,7 +700,8 @@ export class Router {
 		const timedOutOrigins = new Set<string>();
 		let pendingRetry: { candidateId: string; delayMs: number } | undefined;
 		for (let attempt = 0; attempt <= retries; attempt++) {
-			if (req.signal?.aborted) return { kind: "aborted" };
+			if (req.signal?.aborted)
+				return { kind: "aborted", attempts: st.attempts };
 			if (this.walkExpired(st)) break;
 			const raw = attempt + skipped;
 			const nextIndex = candidates.findIndex(
@@ -719,7 +723,8 @@ export class Router {
 					req.signal,
 					remainingMs,
 				);
-				if (req.signal?.aborted) return { kind: "aborted" };
+				if (req.signal?.aborted)
+					return { kind: "aborted", attempts: st.attempts };
 				if (this.walkExpired(st)) break;
 			}
 			pendingRetry = undefined;
@@ -762,7 +767,7 @@ export class Router {
 						upstream !== null || timedOutPhase !== null ? "network" : null,
 						upstream ?? undefined,
 					);
-					return { kind: "aborted" };
+					return { kind: "aborted", attempts: st.attempts };
 				}
 				if (!(error instanceof UpstreamError)) throw error;
 				if (error.timedOut) {
@@ -1081,7 +1086,7 @@ export class Router {
 	 *  matching deployments — e.g. cloud tiers with no BUCKLE_UPSTREAMS
 	 *  override) are skipped as skip-not-failure. */
 	async execute(req: UpstreamRequest): Promise<ExecuteResult> {
-		if (req.signal?.aborted) return { kind: "aborted" };
+		if (req.signal?.aborted) return { kind: "aborted", attempts: 0 };
 		const deadlineMs =
 			this.now() + (this.policy.first_byte_budget_s ?? 240) * 1000;
 		if (req.sel)
@@ -1169,7 +1174,8 @@ export class Router {
 							cloudGroups: sel.cloudGroups,
 						}));
 		for (const row of ordered) {
-			if (req.signal?.aborted) return { kind: "aborted" };
+			if (req.signal?.aborted)
+				return { kind: "aborted", attempts: st.attempts };
 			if (this.walkExpired(st)) break;
 			if (gate(row)) continue;
 			if (this.cooldowns.rateLimitRemainingS(row.dep) !== null) {

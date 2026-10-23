@@ -177,6 +177,74 @@ test("request audit marks selected target exact only when every attempt matches"
 	}
 });
 
+test("a cancel whose settle never landed still projects attempted truth", () => {
+	const db = new Ledger(":memory:");
+	try {
+		// W1124.42.1: NULL attempts column + one matching downstream_cancel
+		// receipt — attempted projects TRUE from the receipt alone.
+		db.auditDecision(decision("legacy-cancel"));
+		db.auditAttempt({
+			rid: "legacy-cancel",
+			traceId,
+			ordinal: 1,
+			service: "buckle",
+			hop: "upstream",
+			candidate,
+			status: null,
+			refusal: "downstream_cancel",
+			durationMs: 1,
+			retryAfterMs: null,
+			upstreamId: null,
+			callId: null,
+			refusalOrigin: null,
+		});
+		db.auditOutcome("legacy-cancel", {
+			status: 499,
+			duration_ms: 1,
+			ok: false,
+			err: null,
+		});
+		const rows = new Map(
+			db.requestsRead({ limit: 10 }).map((row) => [row.rid, row]),
+		);
+		expect(rows.get("legacy-cancel")).toMatchObject({
+			selected_target_exact: false,
+			selected_target_attempted: true,
+		});
+		// a settled 1 with a NON-selected receipt stays FALSE
+		db.auditDecision(decision("mismatch"));
+		db.auditAttempt({
+			rid: "mismatch",
+			traceId,
+			ordinal: 1,
+			service: "buckle",
+			hop: "upstream",
+			candidate: "b".repeat(16),
+			status: null,
+			refusal: "downstream_cancel",
+			durationMs: 1,
+			retryAfterMs: null,
+			upstreamId: null,
+			callId: null,
+			refusalOrigin: null,
+		});
+		db.auditOutcome("mismatch", {
+			status: 499,
+			duration_ms: 1,
+			ok: false,
+			err: null,
+			attempts: 1,
+		});
+		const all = db.requestsRead({ limit: 10 });
+		expect(all.find((row) => row.rid === "mismatch")).toMatchObject({
+			selected_target_exact: false,
+			selected_target_attempted: false,
+		});
+	} finally {
+		db.close();
+	}
+});
+
 test("existing attempt ledger migrates provenance columns without losing receipts", () => {
 	const dir = mkdtempSync(join(tmpdir(), "buckle-attempt-migrate-"));
 	const path = join(dir, "ledger.db");
