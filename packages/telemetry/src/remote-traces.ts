@@ -2,7 +2,7 @@
 // Peer addresses and read keys come only from a private machine-owned file.
 import { lstatSync, readFileSync } from "node:fs";
 import { isAbsolute } from "node:path";
-import { safeProviderErrorToken } from "./http-trace.ts";
+import { safeProviderErrorToken, safeRefusalCode } from "./http-trace.ts";
 import {
 	safeTransportEvidence,
 	type TransportEvidence,
@@ -28,6 +28,12 @@ export interface RemoteTraceAttempt {
 	ts: string;
 	hop: string | null;
 	status: number | null;
+	/** W1124.42: who was attempted (candidate hash) and where a refusal
+	 *  originated — the attribution the joined trace previously dropped. */
+	candidate: string | null;
+	refusal: string | null;
+	upstream_refusal_code: string | null;
+	refusal_origin: string | null;
 	duration_ms: number | null;
 	retry_after_ms: number | null;
 	call_id: string | null;
@@ -38,11 +44,28 @@ export interface RemoteTraceAttempt {
 	transport: TransportEvidence | null;
 }
 
+/** W1124.42: the peer's own per-request audit row, projected to the safe
+ *  target + outcome subset only — origin/model of what was attempted, no
+ *  bodies, no error text, no key material. */
+export interface RemoteTraceRequest {
+	rid: string | null;
+	ts: string | null;
+	lane: string | null;
+	ok: number | null;
+	status: number | null;
+	attempts: number | null;
+	target_kind: string | null;
+	target_host: string | null;
+	target_port: number | null;
+	target_model: string | null;
+}
+
 export interface RemoteTraceResult {
 	hub_id: string;
 	status: "ok" | "unavailable" | "http_error" | "invalid_response";
 	http_status?: number;
 	attempts: RemoteTraceAttempt[];
+	requests: RemoteTraceRequest[];
 }
 
 /** W1097: the per-read coverage contract — what the connector ATTEMPTED for
@@ -130,6 +153,16 @@ function label(value: unknown): string | null {
 	return typeof value === "string" && LABEL.test(value) ? value : null;
 }
 
+/** The refusal-origin enum route_attempt persists (local-admission rides
+ *  the hop column, never this field) — anything else is unknown. */
+const REFUSAL_ORIGINS = ["upstream", "bridged-upstream", "network"] as const;
+
+function refusalOrigin(value: unknown): string | null {
+	return (REFUSAL_ORIGINS as readonly string[]).includes(value as string)
+		? (value as string)
+		: null;
+}
+
 async function boundedJson(response: Response): Promise<unknown> {
 	const declared = Number(response.headers.get("content-length"));
 	if (Number.isFinite(declared) && declared > MAX_BYTES)
@@ -164,6 +197,7 @@ async function readPeer(
 		hub_id: peer.hubId,
 		status: "unavailable",
 		attempts: [],
+		requests: [],
 	};
 	let token: string;
 	try {
@@ -190,7 +224,11 @@ async function readPeer(
 		const payload = await boundedJson(response);
 		if (!payload || typeof payload !== "object" || Array.isArray(payload))
 			return { ...empty, status: "invalid_response" };
-		const body = payload as { trace_id?: unknown; attempts?: unknown };
+		const body = payload as {
+			trace_id?: unknown;
+			attempts?: unknown;
+			requests?: unknown;
+		};
 		if (
 			body.trace_id !== traceId ||
 			!Array.isArray(body.attempts) ||
@@ -217,6 +255,10 @@ async function readPeer(
 				ts: row.ts.slice(0, 32),
 				hop: label(row.hop),
 				status: safeInt(row.status, 599),
+				candidate: label(row.candidate),
+				refusal: label(row.refusal),
+				upstream_refusal_code: safeRefusalCode(row.upstream_refusal_code),
+				refusal_origin: refusalOrigin(row.refusal_origin),
 				duration_ms: safeInt(row.duration_ms, 3_600_000),
 				retry_after_ms: safeInt(row.retry_after_ms, 3_600_000),
 				call_id: label(row.call_id),
@@ -227,10 +269,46 @@ async function readPeer(
 				transport: safeTransportEvidence(row.transport),
 			});
 		}
-		return { hub_id: peer.hubId, status: "ok", attempts };
+		const requests = requestsOf(body);
+		return { hub_id: peer.hubId, status: "ok", attempts, requests };
 	} catch {
 		return empty;
 	}
+}
+
+/** W1124.42: the peer's own request rows — the safe target subset only
+ *  (origin/port/model of what the remote hub attempted), capped like the
+ *  attempts array. A missing/oversized requests array is a legacy peer:
+ *  empty, never an error. */
+function requestsOf(body: { requests?: unknown }): RemoteTraceRequest[] {
+	if (!Array.isArray(body.requests)) return [];
+	const requests: RemoteTraceRequest[] = [];
+	for (const raw of body.requests) {
+		if (requests.length >= 500) break;
+		if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+		const row = raw as Record<string, unknown>;
+		// fail-closed like the attempts loop: an unidentifiable row is not a
+		// request row — skip, never project an all-null placeholder
+		if (label(row.rid) === null) continue;
+		if (typeof row.ts !== "string" || !/^\d{4}-\d\d-\d\dT/.test(row.ts))
+			continue;
+		requests.push({
+			rid: label(row.rid),
+			ts:
+				typeof row.ts === "string" && /^\d{4}-\d\d-\d\dT/.test(row.ts)
+					? row.ts.slice(0, 32)
+					: null,
+			lane: label(row.lane),
+			ok: row.ok === 0 || row.ok === 1 ? row.ok : null,
+			status: safeInt(row.status, 599),
+			attempts: safeInt(row.attempts, 1000),
+			target_kind: label(row.target_kind),
+			target_host: label(row.target_host),
+			target_port: safeInt(row.target_port, 65_535),
+			target_model: label(row.target_model),
+		});
+	}
+	return requests;
 }
 
 /** The coverage block for one read — counts + status strings only. */
