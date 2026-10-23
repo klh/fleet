@@ -254,4 +254,29 @@ describe("kanban volatile signature (W998.3)", () => {
 		expect(stampEl.getAttribute("title")).toMatch(/^updated /);
 		expect(stampEl.textContent).toBe("8m");
 	});
+
+	test("updateKanbanVolatile keeps the execution klane tooltip accurate in place", () => {
+		const { updateKanbanVolatile } = chunkSandbox();
+		const klaneEl = stubEl();
+		const card = {
+			getAttribute: (name: string) => (name === "data-kid" ? ITEM.id : null),
+			querySelector: (sel: string) => (sel === ".klane" ? klaneEl : null),
+		};
+		const container = { querySelectorAll: () => [card] };
+		const observedAt = 1792739145955;
+		updateKanbanVolatile(container, [
+			{
+				...ITEM,
+				execution: {
+					state: "unknown",
+					observed_at: observedAt,
+					source: "work-claim-only",
+					progress: null,
+				},
+			},
+		]);
+		expect(klaneEl.getAttribute("title")).toBe(
+			`work-claim-only · observed ${new Date(observedAt).toISOString()}`,
+		);
+	});
 });

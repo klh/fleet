@@ -2,9 +2,13 @@
 // NOT rebuild the work card — the same DOM nodes survive, keyboard focus and
 // hover state persist across the 1Hz volatile refresh, and the ages still
 // tick in place; a real status/product change (claim move, new card) still
-// re-renders. Real board + scratch HOME via the startBoard harness
-// (w998-card-drawer.spec.ts pattern).
+// re-renders. W998.3.1: a rename containing the '· observed' marker is a
+// REAL structural change — the W998.3 global marker regex normalized it
+// away (identical signature, stale title forever); the live board must
+// rebuild and show the new title. Real board + scratch HOME via the
+// startBoard harness (w998-card-drawer.spec.ts pattern).
 import { expect, test } from "@playwright/test";
+import { Database } from "bun:sqlite";
 import { startBoard } from "./harness.ts";
 
 test.describe.configure({ mode: "serial" });
@@ -96,4 +100,49 @@ test("gui: real status and product changes still render", async ({ page }) => {
 	// product change: a freshly minted sibling renders as a new card
 	const w2 = b.mintedId(b.workOk(["add", "w998.3 real-change sibling"], "add"));
 	await expect(page.locator(`.kcard[data-kid="${w2}"]`)).toBeVisible();
+});
+
+test("gui: rename containing '· observed' re-renders the stale card title", async ({
+	page,
+}) => {
+	const oldTitle = "rename probe · observed old finding";
+	const wId = b.mintedId(b.workOk(["add", oldTitle], "add"));
+	await page.goto(`${b.BASE}/#lanes`);
+	const card = page.locator(`.kcard[data-kid="${wId}"]`).first();
+	await expect(card).toBeVisible({ timeout: 20_000 });
+	const title = card.locator(".ktitle");
+	await expect(title).toHaveText(oldTitle);
+	// hold the pre-rename card node — the rename must be a REAL structural
+	// rebuild (fresh node), not a stale card keeping the old title
+	await page.evaluate((id) => {
+		const w = window as unknown as { __w99831?: { card: Element } };
+		w.__w99831 = {
+			card: document.querySelector(`.kcard[data-kid="${id}"]`) as Element,
+		};
+	}, wId);
+	// rename the SAME item (scratch graph, board-kanban-column-order pattern)
+	const newTitle = "rename probe · observed new finding";
+	const db = new Database(`${b.HOME}/.cache/claude-governor/governor.db`);
+	db.query("UPDATE work_items SET title=? WHERE project=? AND id=?").run(
+		newTitle,
+		b.MY_PROJ,
+		wId,
+	);
+	db.close();
+	// the W998.3 global marker regex collapsed both titles to one signature —
+	// the card never rebuilt and this expectation timed out; the scoped
+	// normalization keeps the rename structural, so the live board shows it
+	await expect(title).toHaveText(newTitle, { timeout: 15_000 });
+	// and the refresh was a structural rebuild: the held pre-rename node is
+	// detached, the live card is a fresh node
+	const replaced = await page.evaluate((id) => {
+		const w = window as unknown as { __w99831?: { card: Element } };
+		const live = document.querySelector(`.kcard[data-kid="${id}"]`);
+		return (
+			live !== null &&
+			live !== w?.__w99831.card &&
+			w?.__w99831.card?.isConnected === false
+		);
+	}, wId);
+	expect(replaced).toBe(true);
 });
