@@ -18,9 +18,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { INSTALL_CONTRACT } from "../scripts/install-contract.ts";
 import {
+	BELT_ROW_URL,
 	BELT_UPSTREAM_KEY_VAR,
 	ensureBeltUpstreamKey,
 	readBeltEnvVar,
+	verifyBeltPeerWiring,
+	wireBeltRow,
+	wireBuckleUpstreamsEnv,
 } from "../scripts/lib/belt-upstream-key.ts";
 import { parsePlistXml } from "./plist-fields.ts";
 
@@ -132,4 +136,96 @@ describe("W1124.2 belt peer key (installer face)", () => {
 			existsSync(join(LAUNCHD_DIR, "com.suspenders.belt-swarm.plist")),
 		).toBe(true);
 	});
+
+	test("belt row: seeds an absent override and preserves operator bytes", () => {
+		const home = tmp();
+		const override = join(home, "upstreams.yaml");
+		const existing =
+			"# operator rows\nversion: 1\ngroups:\n  glm-local:\n    - url: http://127.0.0.1:8902\n      dialect: openai\n";
+		writeFileSync(override, existing, { mode: 0o600 });
+		const res = wireBeltRow(override);
+		expect(res.status).toBe("wired");
+		const body = readFileSync(override, "utf8");
+		expect(body.startsWith("# operator rows\nversion: 1\ngroups:\n")).toBe(
+			true,
+		);
+		expect(body).toContain(
+			"  glm-local:\n    - url: http://127.0.0.1:8902\n      dialect: openai\n",
+		);
+		expect(body).toContain(BELT_ROW_URL);
+		expect(body).toContain(`api_key_env: ${BELT_UPSTREAM_KEY_VAR}`);
+		const groups = (Bun.YAML.parse(body) as { groups: Record<string, unknown> })
+			.groups;
+		expect(Object.keys(groups).sort()).toEqual(["belt", "glm-local"]);
+		scrub();
+	});
+
+	test("belt row: patches a wrong row; kept when wired; unparseable refused", () => {
+		const home = tmp();
+		const override = join(home, "upstreams.yaml");
+		writeFileSync(
+			override,
+			`groups:\n  belt:\n    - url: ${BELT_ROW_URL}\n      dialect: anthropic\n`,
+			{ mode: 0o600 },
+		);
+		expect(wireBeltRow(override).status).toBe("wired");
+		const patched = readFileSync(override, "utf8");
+		expect(patched).toContain(`api_key_env: ${BELT_UPSTREAM_KEY_VAR}`);
+		expect(patched.split("- url:").length).toBe(2);
+		writeFileSync(override, `${beltRowBlockText()}`, { mode: 0o600 });
+		expect(wireBeltRow(override).status).toBe("kept");
+		const broken = join(home, "broken.yaml");
+		writeFileSync(broken, "groups: [unclosed\n", { mode: 0o600 });
+		const refused = wireBeltRow(broken);
+		expect(refused.status).toBe("failed");
+		expect(readFileSync(broken, "utf8")).toBe("groups: [unclosed\n");
+		scrub();
+	});
+
+	test("BUCKLE_UPSTREAMS env: appends once, replaces stale, refuses duplicates", () => {
+		const home = tmp();
+		const beltEnv = writeBeltEnv(home, "A=1\n", 0o600);
+		const override = join(home, "upstreams.yaml");
+		expect(wireBuckleUpstreamsEnv(beltEnv, override).status).toBe("wired");
+		expect(readBeltEnvVar(beltEnv, "BUCKLE_UPSTREAMS")).toBe(override);
+		const bytes = readFileSync(beltEnv, "utf8");
+		expect(wireBuckleUpstreamsEnv(beltEnv, override).status).toBe("kept");
+		expect(readFileSync(beltEnv, "utf8")).toBe(bytes);
+		const stale = wireBuckleUpstreamsEnv(beltEnv, join(home, "other.yaml"));
+		expect(stale.status).toBe("wired");
+		expect(readBeltEnvVar(beltEnv, "BUCKLE_UPSTREAMS")).toBe(
+			join(home, "other.yaml"),
+		);
+		const dupes = writeBeltEnv(
+			home,
+			"BUCKLE_UPSTREAMS=/a\nBUCKLE_UPSTREAMS=/b\n",
+			0o600,
+		);
+		expect(wireBuckleUpstreamsEnv(dupes, override).status).toBe("failed");
+		scrub();
+	});
+
+	test("verifyBeltPeerWiring: names every unwired face", () => {
+		const home = tmp();
+		const beltEnv = writeBeltEnv(home, "A=1\n", 0o644);
+		const override = join(home, "upstreams.yaml");
+		const before = verifyBeltPeerWiring(
+			{ beltEnvPath: beltEnv, overridePath: override },
+			{},
+		);
+		expect(before.ok).toBe(false);
+		expect(before.reasons.length).toBe(4);
+		ensureBeltUpstreamKey(beltEnv);
+		wireBeltRow(override);
+		wireBuckleUpstreamsEnv(beltEnv, override);
+		const after = verifyBeltPeerWiring(
+			{ beltEnvPath: beltEnv, overridePath: override },
+			{ BUCKLE_UPSTREAMS: override },
+		);
+		expect(after.ok).toBe(true);
+		scrub();
+	});
 });
+
+const beltRowBlockText = (): string =>
+	`groups:\n  belt:\n    - url: ${BELT_ROW_URL}\n      dialect: anthropic\n      adapter: anthropic\n      api_key_env: ${BELT_UPSTREAM_KEY_VAR}\n`;

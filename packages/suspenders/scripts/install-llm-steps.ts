@@ -30,8 +30,12 @@ import {
 } from "../../belt/bin/litellm-target.ts";
 import { refreshFlatHome, smokeRouter } from "./belt-bin-overlay.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
+import {
+	ensureBeltUpstreamKey,
+	wireBeltRow,
+	wireBuckleUpstreamsEnv,
+} from "./lib/belt-upstream-key.ts";
 import { validateBeltWiredGuard } from "./lib/belt-wired-guard.ts";
-import { ensureBeltUpstreamKey } from "./lib/belt-upstream-key.ts";
 
 const kitDir = (ctx: StepContext): string => join(ctx.repo, "..", "local-llm");
 const beltBin = (ctx: StepContext): string =>
@@ -217,6 +221,18 @@ export async function seedLocalLlm(ctx: StepContext): Promise<StepResult> {
 	if (peer.status === "failed")
 		return { status: "failed", note: `belt peer key: ${peer.note}` };
 	log(`+ ${peer.note}`);
+	// W1124.2: the Buckle Belt-row (machine BUCKLE_UPSTREAMS override) names
+	// the same var via api_key_env; BUCKLE_UPSTREAMS in belt.env makes the
+	// plist-sourced spoke load the override.
+	const override = join(ctx.llmHome, "upstreams.yaml");
+	const row = wireBeltRow(override);
+	if (row.status === "failed")
+		return { status: "failed", note: `belt peer row: ${row.note}` };
+	log(`+ ${row.note}`);
+	const upEnv = wireBuckleUpstreamsEnv(beltEnv, override);
+	if (upEnv.status === "failed")
+		return { status: "failed", note: `belt peer override env: ${upEnv.note}` };
+	if (upEnv.status === "wired") log(`+ ${upEnv.note}`);
 	if (ctx.llmHome === join(process.env.HOME ?? "", ".claude", "local-llm")) {
 		try {
 			const state = await ensureLiteLlmMetricsDependency();
