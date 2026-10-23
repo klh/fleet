@@ -16,6 +16,8 @@ const ASSET_PATHS = new Set([
 	"/dashboard-topology.js",
 	"/dashboard-model-access.js",
 	"/dashboard-topology-model.js",
+	"/dashboard-topology-hubs.js",
+	"/dashboard-topology-hubs-model.js",
 	"/dashboard-observability.js",
 	"/dashboard-state.js",
 	"/observation.js",
