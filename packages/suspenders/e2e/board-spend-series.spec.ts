@@ -127,12 +127,14 @@ test("gui: spark bars span the measured track edge-to-edge at both widths", asyn
 	expect(drawer.trackW - drawer.lastRight).toBeLessThanOrEqual(2);
 	expect(drawer.axisLabel).toBe(drawer.axisExpected);
 	const wideDrawerTrack = drawer.trackW;
-	// narrow/mobile: the drawer re-derives its window from the shrunken panel
+	// narrow/mobile: the drawer re-derives its window from the shrunken panel.
+	// Poll on BAR WIDTH: a not-yet-repainted svg CSS-squeezes (max-width:100%)
+	// and would pass a width-equality poll — fixed pixels are the contract.
 	await page.setViewportSize({ width: 320, height: 800 });
 	await expect
 		.poll(async () => {
 			const g = await measureSpark(page, "#drawerBody");
-			return Math.abs(g.svgW - g.trackW);
+			return g.barWidths.length > 0 ? Math.abs(g.barWidths[0] - 5) : 99;
 		})
 		.toBeLessThanOrEqual(0.6);
 	const narrow = await measureSpark(page, "#drawerBody");

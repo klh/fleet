@@ -791,7 +791,7 @@ function sparkSvg(points, w, h, barPx){
   for (i = 0; i < points.length; i++){
     var slot = Math.floor((Number(points[i][0]) - start) / slotMs);
     if (slot > count - 1) slot = count - 1; // the newest point rides the last bin — never dropped
-    if (slot < 0) slot = 0;
+    if (slot < 0) continue; // pre-window points drop — never pile into the first bin
     var b = bins[slot] || (bins[slot] = [0, 0, 0]);
     b[0] += Number(points[i][1]) || 0;
     b[1] += Number(points[i][2]) || 0;
