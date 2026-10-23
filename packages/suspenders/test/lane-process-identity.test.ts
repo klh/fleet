@@ -124,6 +124,38 @@ test("managed Claude wrapper is the SID-bearing lane identity, not its native ch
 	expect(laneProcessIdentity({ ...lane, pid: 3719 }, rows)).toBe(false);
 });
 
+test("restarted managed identity binds the exact settings argument to its worktree and SID", () => {
+	const scoped = { ...lane, worktree: "/project/.worktrees/W562" };
+	const settings = `${scoped.worktree}/.fleet/restart-settings-${lane.sid}.json`;
+	const wrapper = "/generation/hooks/bin/claude-runtime.ts";
+	for (const argument of [settings, `"${settings}"`, `'${settings}'`])
+		expect(
+			laneProcessIdentity(
+				scoped,
+				roster(
+					`562 bun ${wrapper} -p Await resume --settings ${argument} --resume uuid`,
+				),
+			),
+		).toBe(true);
+	for (const args of [
+		`bun ${wrapper} -p Await resume --settings ${settings.replace("W562", "W563")}`,
+		`bun ${wrapper} -p Await resume --settings ${settings.replace("autow562", "autow562-other")}`,
+		`bun ${wrapper} -p Await resume --settings ${settings}.backup`,
+		`bun ${wrapper} -p Read ${settings}`,
+		`bun ${wrapper} -p "Read --settings ${settings}"`,
+		`bun ${wrapper} --settings ${settings} --settings ${settings}`,
+		`bun /review.ts -p Read ${wrapper} --settings ${settings}`,
+		`claude -p Await resume --settings ${settings}`,
+	])
+		expect(laneProcessIdentity(scoped, roster(`562 ${args}`))).toBe(false);
+	expect(
+		laneProcessIdentity(
+			lane,
+			roster(`562 bun ${wrapper} --settings ${settings}`),
+		),
+	).toBe(false);
+});
+
 test("canonical symlink resolution recognizes native upgrades and actual Node entrypoints", () => {
 	const root = mkdtempSync(join(tmpdir(), "fleet-executable-"));
 	roots.push(root);
