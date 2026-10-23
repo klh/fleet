@@ -120,8 +120,6 @@ const NEAR_CAP_LIMIT = 1200;
 const NEAR_CAP_PINNED: Record<string, number> = {
 	"packages/decant/src/ingest.ts": 1982,
 	"packages/suspenders/test/dispatch-next.test.ts": 1603,
-	"packages/belt/bin/router-core.ts": 1233,
-	"packages/belt/bin/router-shim.ts": 1215,
 	"packages/buckle/src/handlers.ts": 1490,
 	"packages/buckle/src/router.ts": 1334,
 	"packages/decant/src/buckets.ts": 1489,
