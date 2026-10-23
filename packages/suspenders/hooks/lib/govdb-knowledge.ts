@@ -283,6 +283,10 @@ export function openKnowledgeDb(): Database {
 			db.run("ALTER TABLE knowledge ADD COLUMN graveyard_reason TEXT");
 		// W953 confidence doctrine: the stamp JSON rides the row next to the
 		// scalar confidence column (present since the v6 schema).
+		// W1226 fact provenance crosses the sync as structured evidence — the
+		// hub-side knowledge row carries it alongside the W953 stamp JSON.
+		if (!kCols.includes("provenance"))
+			db.run("ALTER TABLE knowledge ADD COLUMN provenance TEXT");
 		if (!kCols.includes("confidence_stamp"))
 			db.run("ALTER TABLE knowledge ADD COLUMN confidence_stamp TEXT");
 	}

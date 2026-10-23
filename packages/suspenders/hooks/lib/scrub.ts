@@ -245,6 +245,19 @@ export function scrubText(
 	return out;
 }
 
+// W1226 transport redaction: replace every rule match with a `[scrubbed:<rule>]`
+// marker and return the scrubbed text. Unlike scanLine there is NO `scrub:allow`
+// exemption — the allow marker is a commit-gate escape hatch, never a transport
+// one: content crossing to a remote hub must not opt itself out of redaction.
+export function redactMatches(text: string, rules: ScrubRule[]): string {
+	let out = text;
+	for (const r of rules) {
+		r.re.lastIndex = 0;
+		out = out.replace(r.re, `[scrubbed:${r.name}]`);
+	}
+	return out;
+}
+
 // ≤20 findings one per line, overflow counted — a deny names the leaks
 // without flooding context.
 export const findingsText = (fs: ScrubFinding[], cap = 20): string =>
