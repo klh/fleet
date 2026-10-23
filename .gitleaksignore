@@ -70,3 +70,6 @@ packages/suspenders/test/prompt-transform.test.ts:generic-api-key:405
 # W950: vendored decant snapshot — upstream redaction-test fixture (fake key, the
 # test asserts it is scrubbed), first-hand read 2026-10-19 — not a secret
 packages/decant/test/distill.test.ts:curl-auth-header:169
+# W1124.8.2.2: migration-test fixture value (fake key written by writeFileSync
+# in the sightings test; the suite asserts masking, never a real credential)
+packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83
