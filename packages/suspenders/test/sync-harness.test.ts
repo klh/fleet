@@ -703,3 +703,105 @@ test("registerGitHooks fails loud when a committed stub is missing", async () =>
 		"committed .githooks/pre-commit missing",
 	);
 });
+
+test("sync refuses a source behind main — the shared runtime cannot regress (W1243)", async () => {
+	const f = fixture();
+	f.git("update-ref", "refs/heads/main", "HEAD");
+	const base = f.git("rev-parse", "HEAD");
+	f.git("checkout", "--detach");
+	f.put(
+		"packages/suspenders/scripts/lib/guard-fixture.ts",
+		"export const value = 2;",
+	);
+	f.git("add", ".");
+	f.git(
+		"-c",
+		"user.name=Fixture",
+		"-c",
+		"user.email=fixture@example.invalid",
+		"commit",
+		"-m",
+		"advance main past the stale source",
+	);
+	// main takes the advance; the tree parks behind it
+	f.git("update-ref", "refs/heads/main", "HEAD");
+	f.git("checkout", "--detach", base);
+	await expect(syncHarness(f.ctx)).rejects.toThrow(
+		"Refusing to sync a source behind or diverged from main",
+	);
+	expect(lstatSync(f.ctx.prefix).isDirectory()).toBe(true);
+	expect(readFileSync(join(f.ctx.prefix, "operator.env"), "utf8")).toBe(
+		"private-preserved",
+	);
+});
+
+test("a diverged source is refused the same way (W1243)", async () => {
+	const f = fixture();
+	const commit = (msg: string): void => {
+		f.git(
+			"-c",
+			"user.name=Fixture",
+			"-c",
+			"user.email=fixture@example.invalid",
+			"commit",
+			"-m",
+			msg,
+		);
+	};
+	f.git("update-ref", "refs/heads/main", "HEAD");
+	const base = f.git("rev-parse", "HEAD");
+	f.git("checkout", "--detach");
+	f.put(
+		"packages/suspenders/scripts/lib/guard-fixture.ts",
+		"export const value = 2;",
+	);
+	f.git("add", ".");
+	commit("main advance");
+	f.git("update-ref", "refs/heads/main", "HEAD");
+	// park at base and grow a parallel line — neither descends from the other
+	f.git("checkout", "--detach", base);
+	f.put(
+		"packages/suspenders/scripts/lib/guard-fixture.ts",
+		"export const value = 3;",
+	);
+	f.git("add", ".");
+	commit("parallel line");
+	await expect(syncHarness(f.ctx)).rejects.toThrow(
+		"Refusing to sync a source behind or diverged from main",
+	);
+	expect(lstatSync(f.ctx.prefix).isDirectory()).toBe(true);
+});
+
+test("SUSPENDERS_SYNC_ALLOW_BRANCH=1 is the explicit lane-testing escape (W1243)", async () => {
+	const f = fixture();
+	f.git("update-ref", "refs/heads/main", "HEAD");
+	const base = f.git("rev-parse", "HEAD");
+	f.git("checkout", "--detach");
+	f.put(
+		"packages/suspenders/scripts/lib/guard-fixture.ts",
+		"export const value = 2;",
+	);
+	f.git("add", ".");
+	f.git(
+		"-c",
+		"user.name=Fixture",
+		"-c",
+		"user.email=fixture@example.invalid",
+		"commit",
+		"-m",
+		"advance main past the stale source",
+	);
+	f.git("checkout", "--detach", base);
+	const prev = process.env.SUSPENDERS_SYNC_ALLOW_BRANCH;
+	process.env.SUSPENDERS_SYNC_ALLOW_BRANCH = "1";
+	try {
+		await syncHarness(f.ctx);
+	} finally {
+		if (prev === undefined) delete process.env.SUSPENDERS_SYNC_ALLOW_BRANCH;
+		else process.env.SUSPENDERS_SYNC_ALLOW_BRANCH = prev;
+	}
+	const receipt = JSON.parse(
+		readFileSync(join(f.ctx.prefix, "harness-receipt.json"), "utf8"),
+	);
+	expect(receipt.revision).toBe(base);
+});
