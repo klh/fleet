@@ -40,15 +40,15 @@ const UNKNOWN: CapabilityFact<never> = {
 	observedAt: null,
 };
 
-const fact = <T>(
+export const fact = <T>(
 	value: T | null,
 	source: string,
 	observedAt: string,
 ): CapabilityFact<T> => ({ value, source, observedAt });
 
-const unknown = <T>(): CapabilityFact<T> => ({ ...UNKNOWN });
+export const unknown = <T>(): CapabilityFact<T> => ({ ...UNKNOWN });
 
-const positiveInteger = (value: unknown): number | null =>
+export const positiveInteger = (value: unknown): number | null =>
 	typeof value === "number" && Number.isSafeInteger(value) && value > 0
 		? value
 		: null;
@@ -65,7 +65,7 @@ const object = (value: unknown): Record<string, unknown> | null =>
 		? (value as Record<string, unknown>)
 		: null;
 
-const validObservedAt = (value: string): boolean =>
+export const validObservedAt = (value: string): boolean =>
 	Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
 
 export const emptyCapability = (
@@ -186,7 +186,7 @@ export const fromRemoteCatalogId = (
 	return record;
 };
 
-const fresh = <T>(
+export const fresh = <T>(
 	field: CapabilityFact<T>,
 	maxAgeMs: number,
 	now: number,
@@ -233,7 +233,7 @@ export const currentCapability = (
 const key = (provider: string, modelId: string): string =>
 	JSON.stringify([provider, modelId]);
 
-const newerFact = <T>(
+export const newerFact = <T>(
 	previous: CapabilityFact<T>,
 	next: CapabilityFact<T>,
 ): CapabilityFact<T> => {
