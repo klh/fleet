@@ -1,3 +1,4 @@
+import type { TransportEvidence } from "../../telemetry/src/transport-evidence.ts";
 // src/handlers.ts — wire handlers: the two ingress dialects (POST
 // /v1/chat/completions openai-shape, POST /v1/messages anthropic-shape) plus
 // /v1/messages/count_tokens and GET /v1/models. SSE responses pass through
@@ -12,8 +13,8 @@ import {
 	stampHopHeaders,
 } from "../../telemetry/src/http-trace.ts";
 import {
-	parsePreferHeader,
 	PREFER_HEADER,
+	parsePreferHeader,
 } from "../../telemetry/src/prefer-header.ts";
 import { RouterError, routerErrorEnvelope } from "./adapters/errors.ts";
 import { resolveAdapter } from "./adapters/index.ts";
@@ -54,19 +55,19 @@ import type { Expander } from "./expand.ts";
 import { type Federation, principalOf } from "./gov/federation.ts";
 import { hintFromHeaders, type RouteHint } from "./hints.ts";
 import {
+	type HopContext,
 	hopBaggageOf,
 	hopFromBaggage,
 	hopKindOf,
 	laneFromBaggage,
-	type HopContext,
 } from "./hop.ts";
-import { keyIdFromToken, type Ledger, tokenFromHeaders } from "./ledger.ts";
 import {
-	IngressBodyError,
 	INGRESS_BODY_TIMEOUT_MS,
+	IngressBodyError,
 	MAX_REQUEST_BODY_BYTES,
 	readIngressJson,
 } from "./ingress-body.ts";
+import { keyIdFromToken, type Ledger, tokenFromHeaders } from "./ledger.ts";
 import type {
 	ObservationData,
 	ObservationOutbox,
@@ -207,6 +208,7 @@ function stamped(
 		requestId?: string;
 		callId?: string;
 		upstreamKind?: string;
+		transportTimeoutPhase?: TransportEvidence["timeoutPhase"];
 	},
 ): Response {
 	const payload: Record<string, unknown> = {
@@ -239,6 +241,7 @@ function stamped(
 		attempts: route.attempts,
 		upstreamStatus: route.upstreamStatus,
 		upstreamKind: route.upstreamKind,
+		transportTimeoutPhase: route.transportTimeoutPhase,
 		upstreamId: route.requestId,
 		callId: route.callId,
 	});
@@ -773,6 +776,10 @@ function finishResponse(
 				: result.kind === "client-error"
 					? (result.response.headers.get("x-litellm-call-id") ?? undefined)
 					: undefined,
+		transportTimeoutPhase:
+			result.kind === "exhausted"
+				? result.lastFailure?.transportTimeoutPhase
+				: null,
 		upstreamKind:
 			result.kind === "exhausted"
 				? result.lastFailure?.kind

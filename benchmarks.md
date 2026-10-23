@@ -901,3 +901,12 @@ pre-header and midstream aborts. With monitoring enabled, every arm observes
 the provider's real HTTP abort and zero active work within 150 ms; the two
 tests passed 46 assertions in 13.29 seconds. No external provider was called;
 this establishes transport propagation, not Z.ai server-side cancellation.
+
+# W1124.40 - observed transport phases, not provider capacity
+
+`packages/buckle/test/transport-evidence.test.ts` uses actual HTTP stalls and
+an actual two-Buckle request to distinguish preheader timeout, postheader idle
+and total deadlines, downstream cancellation, and trusted peer propagation.
+The focused seven-file regression run passed 40 tests / 124 assertions in
+4.23 seconds. This proves bounded, body-free trace observations and same-attempt
+updates; it does not measure external provider cancellation or lane capacity.
