@@ -40,6 +40,7 @@ import {
 	maskSecret,
 	parseEnvBody,
 	PROVIDER_ENV_FILES,
+	PROVIDER_KEY_RE,
 } from "../hooks/lib/hub-provider-keys.ts";
 import {
 	defineVerb,
