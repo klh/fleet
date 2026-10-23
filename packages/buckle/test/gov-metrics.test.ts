@@ -2,7 +2,10 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MetricsConnector } from "../src/metrics-connector.ts";
+import {
+	MetricsConnector,
+	type MetricsConnectorOpts,
+} from "../src/metrics-connector.ts";
 import { startServer } from "../src/server.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "buckle-metrics-"));
@@ -10,7 +13,7 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }));
 const keyFile = join(dir, "litellm.key");
 writeFileSync(keyFile, "metrics-test-token\n", { mode: 0o600 });
 
-function gate(metrics: { url: string; keyFile: string }) {
+function gate(metrics: MetricsConnectorOpts) {
 	const cfg = join(dir, `upstreams-${crypto.randomUUID()}.yaml`);
 	writeFileSync(
 		cfg,
@@ -29,6 +32,93 @@ function gate(metrics: { url: string; keyFile: string }) {
 }
 
 describe("Buckle private metrics connector", () => {
+	test("private runtime credential joins actual HTTP metrics without disclosing it", async () => {
+		const name = "FIXTURE_LITELLM_METRICS_KEY";
+		const prior = process.env[name];
+		process.env[name] = "fixture-private-metrics-authority";
+		let calls = 0;
+		const upstream = Bun.serve({
+			hostname: "127.0.0.1",
+			port: 0,
+			fetch(req) {
+				calls++;
+				if (
+					req.headers.get("authorization") !==
+					"Bearer fixture-private-metrics-authority"
+				)
+					return new Response("denied", { status: 401 });
+				return new Response(
+					"litellm_requests_metric 7\nlitellm_in_flight_requests 11\n",
+					{
+						headers: { "content-type": "text/plain" },
+					},
+				);
+			},
+		});
+		const runtime = {
+			BUCKLE_LITELLM_METRICS_URL: `http://127.0.0.1:${upstream.port}/metrics/`,
+			BUCKLE_LITELLM_METRICS_KEY_ENV: name,
+			BUCKLE_LITELLM_METRICS_SOURCE_ID: "shared-engine",
+		};
+		const previous = Object.fromEntries(
+			Object.keys(runtime).map((key) => [key, process.env[key]]),
+		);
+		Object.assign(process.env, runtime);
+		const app = gate({});
+		try {
+			const denied = await fetch(`${app.base}/v1/admin/metrics`);
+			expect(denied.status).toBe(401);
+			expect(calls).toBe(0);
+			const response = await fetch(`${app.base}/v1/admin/metrics`, {
+				headers: { authorization: "Bearer fixture-root-key" },
+			});
+			expect(response.headers.get("x-buckle-litellm-metrics-status")).toBe(
+				"ok",
+			);
+			const body = await response.text();
+			expect(response.headers.get("x-buckle-litellm-metrics-source-id")).toBe(
+				"shared-engine",
+			);
+			expect(body).toContain("litellm_requests_metric 7");
+			expect(body).toContain("litellm_in_flight_requests 11");
+			expect(body).not.toContain(process.env[name] as string);
+			expect(calls).toBe(1);
+		} finally {
+			app.stop();
+			upstream.stop(true);
+			if (prior === undefined) delete process.env[name];
+			else process.env[name] = prior;
+			for (const [key, value] of Object.entries(previous)) {
+				if (value === undefined) delete process.env[key];
+				else process.env[key] = value;
+			}
+		}
+	});
+	test("ambiguous, invalid and missing runtime credentials fail before any request", async () => {
+		let calls = 0;
+		for (const auth of [
+			{ keyEnv: "NOT VALID" },
+			{ keyEnv: "FIXTURE_MISSING_METRICS_KEY" },
+			{ keyEnv: "FIXTURE_KEY", keyFile },
+			{ keyEnv: "FIXTURE_KEY", sourceId: "bad\r\nheader" },
+		]) {
+			const connector = new MetricsConnector({
+				url: "http://127.0.0.1:9/metrics",
+				...auth,
+				fetcher: async () => {
+					calls++;
+					throw Error("not reached");
+				},
+			});
+			const response = await connector.expose("buckle_counter 1\n");
+			expect(response.headers.get("x-buckle-litellm-metrics-status")).toBe(
+				auth.keyEnv === "FIXTURE_MISSING_METRICS_KEY"
+					? "key_unavailable"
+					: "invalid_config",
+			);
+		}
+		expect(calls).toBe(0);
+	});
 	test("admin GET joins Buckle and native LiteLLM metrics; public scrape stays Buckle-only", async () => {
 		let upstreamAuth = "";
 		const upstream = Bun.serve({

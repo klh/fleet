@@ -7,6 +7,10 @@ const FIELDS = {
 	outstanding: "outstanding",
 	baseGapMs: "base_gap_ms",
 	adaptiveGapMs: "adaptive_gap_ms",
+	adaptiveConcurrency: "adaptive_concurrency",
+	concurrencyCeiling: "concurrency_ceiling",
+	concurrencyLimitedTotal: "concurrency_limited_total",
+	concurrencyRecoverySuccesses: "concurrency_recovery_successes",
 	notBeforeMs: "not_before_ms",
 	rateLimitedTotal: "rate_limited_total",
 	recoverySuccesses: "recovery_successes",
@@ -21,7 +25,7 @@ export function providerAdmissionMetrics(
 	for (const [field, suffix] of Object.entries(FIELDS)) {
 		const name = `buckle_provider_pool_${suffix}`;
 		lines.push(
-			`# TYPE ${name} ${field === "rateLimitedTotal" ? "counter" : "gauge"}`,
+			`# TYPE ${name} ${suffix.endsWith("_total") ? "counter" : "gauge"}`,
 		);
 		for (const [pool, snapshot] of Object.entries(pools)) {
 			const value = snapshot[field];

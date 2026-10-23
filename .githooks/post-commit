@@ -20,7 +20,16 @@ const suite = [
 	"coord-capsule-project-scope.test.ts",
 ];
 if (process.argv.includes("--full"))
-	suite.push("work-cli.test.ts", "work-completion-record.test.ts");
+	suite.push(
+		"work-cli.test.ts",
+		// W1216 decomposition: the three completion siblings ride the full
+		// push gate too (B1-W1216-fullgate-coverage) — all 4 suites, 30 tests.
+		"work-completion-record.test.ts",
+		"completion-native-transcript.test.ts",
+		"work-completion-claim-context.test.ts",
+		"work-completion-cross-repo.test.ts",
+		"work-completion-split-context.test.ts",
+	);
 const tests = suite.map((name) =>
 	resolve(root, "packages/suspenders/test", name),
 );

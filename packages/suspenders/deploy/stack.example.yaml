@@ -37,6 +37,11 @@ hubs:
     # secrets:
     #   upstream_keys:
     #     LITELLM_KEY: /path/on/hub/litellm.key
+    # metrics:
+    #   litellm:
+    #     url: http://127.0.0.1:4100/metrics/
+    #     key_env: LITELLM_KEY # engine metrics authority, NOT vendor API key
+    #     source_id: shared-engine # SAME id for every hub reading this engine
     # upstreams:
     #   openrouter_free_catalog_file: /absolute/machine/path/openrouter-free.desktop.json
     # Refresh that snapshot with:

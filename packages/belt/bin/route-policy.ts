@@ -34,7 +34,7 @@ import {
 import { metricsFor, auditRoute, LOCAL_NAME } from "./metrics.ts";
 // W986.4: locals share the remote health contract — a non-2xx /v1/models
 // (or an "unhealthy" JSON body) is a dead candidate, not a healthy one.
-import { endpointPassed } from "./health.ts";
+import { modelEndpointHealth } from "./health.ts";
 import {
 	applyLawStack,
 	composeLawPlan,
@@ -252,16 +252,7 @@ function audit(
 
 /** /v1/models liveness for a local specialist port (exported for tests). */
 export const localProbe = async (port: number): Promise<boolean> => {
-	try {
-		const r = await fetch(`http://127.0.0.1:${port}/v1/models`, {
-			signal: AbortSignal.timeout(1200),
-		});
-		// W986.4: non-2xx /v1/models is unhealthy — the old probe answered
-		// true for any response, so a 500ing local ranked as a full healthy fit
-		return await endpointPassed(r);
-	} catch {
-		return false;
-	}
+	return (await modelEndpointHealth(port)).up;
 };
 
 async function localCandidates(): Promise<Candidate[]> {
