@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import {
 	type BriefWeight,
@@ -18,6 +19,11 @@ import { hbFresh } from "../lib/reclaim-liveness.ts";
 import { renameSession } from "../lib/session-rename.ts";
 import { attachSubscribe } from "../lib/subscribe-attach.ts";
 import { ensureCompletionIdentityMigration } from "../lib/work-completion-record.ts";
+import {
+	buildReportTable,
+	reportRows,
+	reportTableLinkOpts,
+} from "../lib/work-report.ts";
 import { claimWindows } from "../lib/work-timing.ts";
 import { ageOf, formatEventLine } from "./bus.ts";
 import { listLiveTargets } from "./addressing.ts";
@@ -213,13 +219,7 @@ export async function cmdBootstrap(_rest: string[]): Promise<void> {
 			.query("SELECT value FROM facts WHERE key = 'integration.head'")
 			.get() as { value: string } | null
 	)?.value;
-	const pname =
-		project
-			.split("/")
-			.pop()
-			?.replace(/\.git$/, "") ||
-		project.split("/").slice(-2, -1).pop() ||
-		project;
+	const pname = projectDisplayName(project);
 	console.log(`SESSION ${as.slice(0, 8)}  project=${pname}  role=${role}`);
 	console.log(
 		`OWNED ${mine.length}${mine.length ? `: ${mine.map((w) => `${w.id} ${w.state}`).join(", ")}` : ""}  READY ${readyN}  INBOX ${inbox}${head ? `  head=${head.slice(0, 7)}` : ""}`,
@@ -260,7 +260,50 @@ export async function cmdRename(_rest: string[]): Promise<void> {
 	);
 }
 
+/** display name of a project key: basename with a trailing .git stripped
+ *  (…/fleet/.git → fleet; bare keys pass through). */
+export const projectDisplayName = (project: string): string =>
+	project
+		.split("/")
+		.pop()
+		?.replace(/\.git$/, "") ||
+	project.split("/").slice(-2, -1).pop() ||
+	project;
+
+/** W1242 --project <path|name>: a path (contains "/", or "." / "..") resolves
+ *  through the ONE identity resolver (projectIdentity — the coord project
+ *  resolution every other verb rides); a bare name matches the graph's
+ *  distinct project keys by display name. Misses die with the known set. */
+export const resolveProjectArg = (ref: string): string => {
+	if (ref.includes("/") || ref === "." || ref === "..") {
+		const p = resolve(ref);
+		if (!existsSync(p)) die(`fleet --project: no such path: ${ref}`);
+		return projectIdentity(p);
+	}
+	const byName = new Map<string, string[]>();
+	for (const r of db.query("SELECT DISTINCT project FROM work_items").all() as {
+		project: string;
+	}[]) {
+		const k = projectDisplayName(r.project);
+		byName.set(k, [...(byName.get(k) ?? []), r.project]);
+	}
+	const hits = byName.get(ref);
+	if (hits?.length === 1) return hits[0];
+	if (hits)
+		die(
+			`fleet --project: ambiguous name ${JSON.stringify(ref)} — candidates: ${hits.join(", ")}`,
+		);
+	die(
+		`fleet --project: no project ${JSON.stringify(ref)} — known: ${[...byName.keys()].sort().join(", ") || "(none)"}`,
+	);
+};
+
 export async function cmdFleet(_rest: string[]): Promise<void> {
+	// W1242 --project <path|name> filter: resolved up front so a bad ref dies
+	// loud before either face renders; default = the cwd project identity.
+	const projArg = arg("--project");
+	const project =
+		projArg == null ? projectIdentity() : resolveProjectArg(projArg);
 	// one-line fleet projection for a terminal pane (the Desktop panel
 	// projection lives in subagent-statusline.ts; the CLI inline rows are
 	// harness-owned and ignore it)
@@ -400,9 +443,18 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 		const nm = sessionNames.get(l);
 		return `${g} ${nm ? `${trunc(nm)} ${dim(`(${l.slice(0, 8)})`)}` : dim(names.get(l) ?? l.slice(0, 8))} ${dim(`[sid=${l}]`)}`;
 	});
-	console.log(
-		`${head ? `${dim(`HEAD ${head.slice(0, 7)}`)}  ` : ""}${parts.join("  ") || dim("(no claimed lanes)")}`,
-	);
+	// W1242: the human face is the ONE supervisor table — the W892 renderer
+	// (hooks/lib/work-report.ts, the same source `work report` rides), so the
+	// CLI face cannot drift from the board/brief faces. --project selects the
+	// graph (resolved up front, above); the lane projection line (W378
+	// honesty glyphs) stays beneath it; --json above stays the machine face.
+	// Attribution-absent columns degrade inside the shared renderer.
+	const { rows } = reportRows(db as unknown as Database, project, {
+		now: Date.now(),
+	});
+	if (head) console.log(dim(`HEAD ${head.slice(0, 7)}`));
+	console.log(buildReportTable(rows, reportTableLinkOpts()));
+	console.log(parts.join("  ") || dim("(no claimed lanes)"));
 }
 
 export async function cmdMetrics(rest: string[]): Promise<void> {
@@ -435,13 +487,7 @@ export async function cmdMetrics(rest: string[]): Promise<void> {
 			? realpathSync(resolve(projArgs[0], dir))
 			: realpathSync(projArgs[0]);
 	}
-	const name =
-		project
-			.split("/")
-			.pop()
-			?.replace(/\.git$/, "") ||
-		project.split("/").slice(-2, -1).pop() ||
-		project;
+	const name = projectDisplayName(project);
 	const runs = db
 		.query(
 			"SELECT role, COUNT(*) AS n FROM sessions WHERE project = ? AND started_at >= ? GROUP BY role ORDER BY n DESC",

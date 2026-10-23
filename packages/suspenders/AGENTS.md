@@ -25,7 +25,7 @@ that number as a floor, never a measurement
 (docs/decant-crosscheck-2026-10-19.md). ST: R riding · Q queued · D done · F failed. Item ids double as
 `#lanes?w=<id>` deep-links (W890). Do not hand-roll the table — the
 reporter computes the pads; prose tick lines are a regression.
-(The installed face `bun ~/.claude/hooks/suspenders/bin/fleet-report.ts` is a verbatim shim over the verb — W913.)
+(The installed face `bun ~/.claude/hooks/suspenders/bin/fleet-report.ts` is a verbatim shim over the verb — W913. `coord fleet` renders the SAME library as its human face, `--project <path|name>` selects the graph, W1242.)
 
 ## Protocol
 

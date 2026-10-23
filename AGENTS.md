@@ -143,7 +143,9 @@ Coordination (`coord`):
 - `coord coordinate` — bounded peer-coordination round (W977.1, topics
   work|claims|capacity; singleflight + rate-capped, Kev `--classify`
   outbound-only; docs/design/supervisor-coordination.md)
-- `coord fleet` — who is working (sessions + claims; never /tmp files)
+- `coord fleet` — the W892 supervisor table (`--project <path|name>` selects
+  the graph; attribution-absent cols degrade) over the lane liveness line;
+  `--json` for machines; never /tmp files
 - `coord rename --as <sid> <name> [--force]` — the ONE shared rename (W930):
   stamps sessions.tags `name` for every @name resolution; the stop gate
   syncs native CLI /rename (claude-code `custom-title`) through the same

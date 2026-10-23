@@ -331,6 +331,7 @@ const VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "fleet",
+		usage: "usage: fleet [--project <path|name>] [--json]",
 		lax: true,
 		run: (p) => cmdFleet(p.rest),
 	}),
