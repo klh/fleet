@@ -29,6 +29,11 @@ import {
 	type SyncTarget,
 } from "./knowledge-sync-policy.ts";
 import { redactSecrets } from "./knowledge.ts";
+import {
+	collectClaims,
+	ROLL_KEY_HEADER,
+	type RollEntry,
+} from "./knowledge-roll.ts";
 
 export interface SyncPayload {
 	originHub: string;
@@ -39,6 +44,9 @@ export interface SyncPayload {
 		sessions?: SessionMetrics[];
 	};
 	facts: SyncFact[];
+	/** W1213: the CAS'd claim roll — posts to the target's knowledge-api
+	 *  /roll face under the scoped TTL key, NOT the board ingest. */
+	claims: RollEntry[];
 }
 
 export interface SyncFact {
@@ -64,6 +72,8 @@ export interface SyncOutcome {
 // relocates it (tests).
 export interface SyncState {
 	facts: Record<string, number>;
+	/** W1213: versions of claim.* facts already accepted by every roll target */
+	claims: Record<string, number>;
 	metricsAt: number;
 }
 
@@ -81,12 +91,17 @@ export function readSyncState(path: string): SyncState {
 		if (s.facts && typeof s.facts === "object" && !Array.isArray(s.facts))
 			for (const [k, v] of Object.entries(s.facts))
 				if (typeof v === "number") facts[k] = v;
+		const claims: Record<string, number> = {};
+		if (s.claims && typeof s.claims === "object" && !Array.isArray(s.claims))
+			for (const [k, v] of Object.entries(s.claims))
+				if (typeof v === "number") claims[k] = v;
 		return {
 			facts,
+			claims,
 			metricsAt: typeof s.metricsAt === "number" ? s.metricsAt : 0,
 		};
 	} catch {
-		return { facts: {}, metricsAt: 0 };
+		return { facts: {}, claims: {}, metricsAt: 0 };
 	}
 }
 
@@ -252,6 +267,8 @@ export interface CollectedPayload {
 	payload: SyncPayload;
 	skipped: string[];
 	decantOk: boolean;
+	/** W1213: facts-key → version for the collected claims (cursor fodder) */
+	claimsCursor: Record<string, number>;
 }
 
 /** One collection pass: decant refresh + policy-gated projections + the
@@ -264,9 +281,15 @@ export function collectPayload(
 ): CollectedPayload {
 	const skipped: string[] = [];
 	const cwd = opts.cwd ?? process.cwd();
-	const metrics: SyncPayload["metrics"] = { days: [], tools: [], models: [] };
+	const metrics: {
+		days: StatsMetrics[];
+		tools: StatsMetrics[];
+		models: StatsMetrics[];
+		sessions?: SessionMetrics[];
+	} = { days: [], tools: [], models: [] };
 	let decantOk = false;
 	let facts: SyncFact[] = [];
+	let claimsCursor: Record<string, number> = {};
 	if (config.policy.metrics) {
 		// headless refresh first — best-effort, its failure never fabricates
 		runDecant(config.decantBin, ["sync", "-q"], cwd);
@@ -294,18 +317,72 @@ export function collectPayload(
 		skipped.push(...cf.skipped);
 		facts = cf.send;
 	}
+	// W1213: the claim roll rides only when a roll-capable target exists —
+	// collection without a destination is wasted redaction work.
+	let claims: RollEntry[] = [];
+	const rollTargets = config.targets.filter((t) => t.rollUrl && t.rollKeyFile);
+	if (config.policy.claims && rollTargets.length > 0) {
+		const cc = collectClaims(state, { dbPath: opts.dbPath });
+		skipped.push(...cc.skipped);
+		claims = cc.send;
+		claimsCursor = cc.cursor;
+	}
 	return {
 		payload: {
 			originHub: config.localHub,
 			metrics,
 			facts,
+			claims,
 		},
 		skipped,
 		decantOk,
+		claimsCursor,
 	};
 }
 
 // ─── transport: the W491 relay posture ──────────────────────────────────────
+
+// ─── W1213: the upward claim roll (credential-free transport) ───────────────
+
+export interface RollOutcome {
+	target: string;
+	ok: boolean;
+	sentClaims: number;
+	error: string | null;
+}
+
+/** One roll push: POST {rollUrl}/roll with the machine-scoped TTL key —
+ *  the hub resolves provenance FROM the key, so the payload carries no
+ *  identity at all. */
+export async function postRoll(
+	target: SyncTarget,
+	claims: RollEntry[],
+): Promise<RollOutcome> {
+	const sent = claims.length;
+	const base = { target: String(target.rollUrl), sentClaims: sent };
+	const rollKeyFile = target.rollKeyFile;
+	if (!target.rollUrl || !rollKeyFile)
+		return { ...base, ok: false, error: "roll not configured" };
+	try {
+		const token = readSyncToken(rollKeyFile);
+		const res = await fetch(`${target.rollUrl}/roll`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				[ROLL_KEY_HEADER]: token,
+			},
+			body: JSON.stringify({ claims }),
+		});
+		if (!res.ok) return { ...base, ok: false, error: `HTTP ${res.status}` };
+		return { ...base, ok: true, error: null };
+	} catch (e) {
+		return {
+			...base,
+			ok: false,
+			error: e instanceof Error ? e.message : String(e),
+		};
+	}
+}
 
 export async function postTarget(
 	target: SyncTarget,
@@ -383,14 +460,27 @@ export async function syncOnce(
 		dbPath: opts.dbPath,
 	});
 	const outcomes: SyncOutcome[] = [];
+	const rollOutcomes: RollOutcome[] = [];
 	for (const target of config.targets) {
 		if (target.hubId && target.hubId === config.localHub) continue;
 		outcomes.push(await postTarget(target, collected.payload));
+		// W1213: roll-capable targets ALSO take the claim roll — the board
+		// ingest and the knowledge-api roll are separate faces, separate auth.
+		if (target.rollUrl && target.rollKeyFile)
+			rollOutcomes.push(await postRoll(target, collected.payload.claims));
 	}
 	const allOk = outcomes.length > 0 && outcomes.every((o) => o.ok === true);
 	if (allOk) {
 		for (const f of collected.payload.facts) state.facts[f.key] = f.version;
 		state.metricsAt = Date.now();
+		writeSyncState(statePath, state);
+	}
+	// W1213: the claims cursor stamps only when EVERY roll-capable target
+	// accepted the pass (partial passes re-send; the hub side is idempotent).
+	const rollAllOk =
+		rollOutcomes.length > 0 && rollOutcomes.every((o) => o.ok === true);
+	if (rollAllOk) {
+		Object.assign(state.claims, collected.claimsCursor);
 		writeSyncState(statePath, state);
 	}
 	return {
