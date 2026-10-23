@@ -6,22 +6,15 @@
 // POST /v1/messages (JSON + SSE + the arithmetic lane), liveness — plus
 // belt's superset (/registry.json) and the W204 loopback-only bind law.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
+import {
+	freePort,
+	scratchWorld,
+	serveStub,
+	waitUp,
+} from "../../test-kit/src/index.ts";
 
 const SHIM = new URL("../bin/router-shim.ts", import.meta.url).pathname;
-
-const findFreePort = (): number => {
-	const s = Bun.serve({
-		port: 0,
-		hostname: "127.0.0.1",
-		fetch: () => new Response(null),
-	});
-	const p = s.port ?? 0;
-	s.stop(true);
-	return p;
-};
 
 interface StubCall {
 	path: string;
@@ -32,37 +25,30 @@ interface StubCall {
 
 // The stub MLX specialist: OpenAI wire, JSON or SSE per the request.
 const stubCalls: StubCall[] = [];
-const stub = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	async fetch(req) {
-		const url = new URL(req.url);
-		if (req.method !== "POST" || url.pathname !== "/v1/chat/completions")
-			return Response.json({ error: "not found" }, { status: 404 });
-		const body = (await req.json().catch(() => ({}))) as {
-			model?: string;
-			stream?: boolean;
-		};
-		stubCalls.push({
-			path: url.pathname,
-			model: body.model ?? null,
-			stream: body.stream === true,
-			auth: req.headers.get("authorization"),
-		});
-		if (body.stream === true) {
-			return openaiSse();
-		}
-		return Response.json({
-			id: "s1",
-			choices: [
-				{
-					index: 0,
-					message: { role: "assistant", content: "stub says hi" },
-					finish_reason: "stop",
-				},
-			],
-		});
-	},
+const stub = serveStub((req, body) => {
+	const url = new URL(req.url);
+	if (req.method !== "POST" || url.pathname !== "/v1/chat/completions")
+		return Response.json({ error: "not found" }, { status: 404 });
+	const b = (body ?? {}) as { model?: string; stream?: boolean };
+	stubCalls.push({
+		path: url.pathname,
+		model: b.model ?? null,
+		stream: b.stream === true,
+		auth: req.headers.get("authorization"),
+	});
+	if (b.stream === true) {
+		return openaiSse();
+	}
+	return Response.json({
+		id: "s1",
+		choices: [
+			{
+				index: 0,
+				message: { role: "assistant", content: "stub says hi" },
+				finish_reason: "stop",
+			},
+		],
+	});
 });
 
 /** The openai SSE the stub replays for stream:true requests. */
@@ -81,14 +67,13 @@ const openaiSse = (): Response =>
 // ─── the shim subprocess (W270 env seams: BELT_ROUTER_PORT for the
 // side-by-side run, BELT_UPSTREAM_BASE for the stub tier, sandboxed HOME) ──
 
-const PORT = findFreePort();
-const HOME = mkdtempSync(join(tmpdir(), "w465-shim-home-"));
+const PORT = await freePort();
+const { env: worldEnv, clean } = scratchWorld({ prefix: "w465-shim-home-" });
 const proc = Bun.spawn(["bun", SHIM], {
 	env: {
-		...process.env,
+		...worldEnv,
 		BELT_ROUTER_PORT: String(PORT),
 		BELT_UPSTREAM_BASE: `http://127.0.0.1:${stub.port}`,
-		HOME,
 	},
 	stdout: "ignore",
 	stderr: "pipe",
@@ -96,16 +81,12 @@ const proc = Bun.spawn(["bun", SHIM], {
 const BASE = `http://127.0.0.1:${PORT}`;
 
 const waitHealthy = async (): Promise<boolean> => {
-	for (let i = 0; i < 100; i++) {
-		try {
-			const r = await fetch(`${BASE}/health`);
-			if (r.ok) return true;
-		} catch {
-			// not bound yet
-		}
-		await Bun.sleep(100);
+	try {
+		await waitUp(`${BASE}/health`, { tries: 100, intervalMs: 100 });
+		return true;
+	} catch {
+		return false;
 	}
-	return false;
 };
 
 const post = (body: unknown): Promise<Response> =>
@@ -122,7 +103,8 @@ beforeAll(async () => {
 
 afterAll(() => {
 	proc.kill();
-	stub.stop(true);
+	stub.close();
+	clean();
 });
 
 describe("W465 router-shim wire contract (the one router)", () => {

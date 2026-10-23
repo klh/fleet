@@ -7,18 +7,19 @@
 import { describe, expect, test } from "bun:test";
 import {
 	chmodSync,
-	mkdtempSync,
 	readdirSync,
 	readFileSync,
 	statSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deepMergePrefs, mergeWritePrefs } from "../bin/prefs-lib.ts";
+import { scratchWorld } from "../../test-kit/src/index.ts";
 
-const tmpPrefs = (): string =>
-	join(mkdtempSync(join(tmpdir(), "w791-prefs-")), "prefs.json");
+const tmpPrefs = (): string => {
+	const { home } = scratchWorld({ prefix: "w791-prefs-" });
+	return join(home, "prefs.json");
+};
 
 // the 2026-09-21-era shape the stale writer held — no escalate_gate, no
 // condense section, no cost_speed: exactly what the incident clobbered
@@ -96,7 +97,7 @@ describe("mergeWritePrefs (W791 stale-snapshot guard)", () => {
 	});
 
 	test("atomic commit: no tmp leftovers, mode preserved, new files land 0600", () => {
-		const dir = mkdtempSync(join(tmpdir(), "w791-prefs-"));
+		const { home: dir, clean } = scratchWorld({ prefix: "w791-prefs-" });
 		const p = join(dir, "prefs.json");
 		mergeWritePrefs(p, { cost_speed: "quality" });
 		expect(statSync(p).mode & 0o777).toBe(0o600);
@@ -107,6 +108,7 @@ describe("mergeWritePrefs (W791 stale-snapshot guard)", () => {
 		chmodSync(p, 0o644); // explicit — a strict umask masks writeFileSync's mode arg
 		mergeWritePrefs(p, { updated: "2026-10-18" });
 		expect(statSync(p).mode & 0o777).toBe(0o644);
+		clean();
 	});
 
 	test("written bytes: 2-space indent + trailing newline", () => {

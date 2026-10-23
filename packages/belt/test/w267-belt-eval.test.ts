@@ -2,9 +2,9 @@
 // admission control (concurrent → 429 + Retry-After), prompt fingerprinting,
 // and the registry schema (contextTokens, declared external members).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { scratchWorld } from "../../test-kit/src/index.ts";
 import { admit, createAdmission } from "../bin/admission.ts";
 import {
 	buildPrompt,
@@ -91,7 +91,7 @@ describe("bench-suite --ttft (stub server)", () => {
 	});
 
 	test("ttftMain logs cold/cached/prefill medians per size with meta", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "belt-ttft-"));
+		const { home: dir, clean } = scratchWorld({ prefix: "belt-ttft-" });
 		const flag = join(dir, "bench-ac-ok");
 		writeFileSync(flag, "");
 		const rows: Array<{
@@ -105,7 +105,7 @@ describe("bench-suite --ttft (stub server)", () => {
 			["--ttft", "--port", "8903", "--sizes", "2000,8000", "--reps", "3"],
 			{ acFlag: flag, log, baseUrl: base },
 		);
-		rmSync(dir, { recursive: true });
+		clean();
 		expect(code).toBe(0);
 		const metrics = rows.map((r) => r.metric);
 		for (const s of [2000, 8000]) {
