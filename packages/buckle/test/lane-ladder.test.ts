@@ -5,10 +5,13 @@
 // fast 502 no_route naming the group when every rung of the walk is dead
 // (the spawn-fast-fail shape dispatch parses).
 import { afterAll, describe, expect, test } from "bun:test";
-import { startServer } from "../src/server.ts";
 import { startMockUpstream } from "./mock.ts";
-
-const ROOT = "buckle-test-root";
+import {
+	type GateServer,
+	issueViaAdmin,
+	ROOT,
+	startGate as bootGate,
+} from "./gate.ts";
 
 /** A loopback port with no listener: ECONNREFUSED = the unreachable rung. */
 function deadUrl(): string {
@@ -22,54 +25,30 @@ function deadUrl(): string {
 	return url;
 }
 
-interface Gate {
-	base: string;
-	stop(): void;
-}
+type Gate = GateServer;
 
 async function startGate(
 	dead: string,
 	fallbackUrl: string | null,
 ): Promise<Gate> {
-	const dir = `/tmp/buckle-ladder-${String(Date.now())}-${String(process.pid)}-${Math.random().toString(36).slice(2, 6)}`;
 	const fallbackGroup =
 		fallbackUrl === null
 			? ""
 			: `  fallback:\n    - url: ${fallbackUrl}\n      dialect: anthropic\n`;
 	const ladder =
 		fallbackUrl === null ? "" : `  fallbacks:\n    primary: [fallback]\n`;
-	await Bun.write(
-		`${dir}-upstreams.yaml`,
-		`groups:\n  primary:\n    - url: ${dead}\n      dialect: anthropic\n${fallbackGroup}`,
-	);
-	await Bun.write(
-		`${dir}-policy.yaml`,
-		`gateway:\n  num_retries: 0\n  allowed_fails: 1\n${ladder}`,
-	);
-	const server = startServer({
-		port: 0,
-		upstreamsPath: `${dir}-upstreams.yaml`,
-		policyPath: `${dir}-policy.yaml`,
-		dbPath: ":memory:",
-		auth: { rootKey: ROOT },
+	return bootGate({
+		yaml: `groups:\n  primary:\n    - url: ${dead}\n      dialect: anthropic\n${fallbackGroup}`,
+		policyYaml: `gateway:\n  num_retries: 0\n  allowed_fails: 1\n${ladder}`,
 	});
-	return {
-		base: `http://127.0.0.1:${String(server.port)}`,
-		stop: () => server.stop(true),
-	};
 }
 
 async function mintScoped(base: string): Promise<string> {
-	const res = await fetch(`${base}/v1/admin/keys`, {
-		method: "POST",
-		headers: { authorization: `Bearer ${ROOT}` },
-		body: JSON.stringify({
-			name: "lane-w985",
-			scopes: ["buckle:proxy:WRITE_"],
-		}),
+	const { key } = await issueViaAdmin(base, {
+		name: "lane-w985",
+		scopes: ["buckle:proxy:WRITE_"],
 	});
-	const out = (await res.json()) as { key: string };
-	return out.key;
+	return key;
 }
 
 const BODY = JSON.stringify({
@@ -184,21 +163,8 @@ describe("auth-failing rungs walk on (W987)", () => {
 
 /** W987 gate with an explicit group yaml (multi-leg legs under test). */
 async function startGateLegs(upstreamsYaml: string): Promise<Gate> {
-	const dir = `/tmp/buckle-ladder-${String(Date.now())}-${String(process.pid)}-${Math.random().toString(36).slice(2, 6)}`;
-	await Bun.write(`${dir}-upstreams.yaml`, upstreamsYaml);
-	await Bun.write(
-		`${dir}-policy.yaml`,
-		`gateway:\n  num_retries: 1\n  allowed_fails: 3\n`,
-	);
-	const server = startServer({
-		port: 0,
-		upstreamsPath: `${dir}-upstreams.yaml`,
-		policyPath: `${dir}-policy.yaml`,
-		dbPath: ":memory:",
-		auth: { rootKey: ROOT },
+	return bootGate({
+		yaml: upstreamsYaml,
+		policyYaml: `gateway:\n  num_retries: 1\n  allowed_fails: 3\n`,
 	});
-	return {
-		base: `http://127.0.0.1:${String(server.port)}`,
-		stop: () => server.stop(true),
-	};
 }

@@ -44,7 +44,10 @@ const yamlFor = (opts: StartGateOptions): string => {
 };
 
 /** One real gate on a scratch port: writes the upstreams (+policy) yaml
- *  to /tmp, boots startServer with an in-memory ledger. */
+ *  to /tmp, boots startServer with an in-memory ledger. The policy file is
+ *  ALWAYS explicit — explicit path wins the loadGatewayPolicy chain over
+ *  BUCKLE_POLICY/BELT_POLICY env and the machine routing-policy, so the
+ *  suite is hermetic to operator knobs. */
 export async function startGate(
 	opts: StartGateOptions = {},
 ): Promise<GateServer> {
@@ -52,11 +55,14 @@ export async function startGate(
 		.toString(36)
 		.slice(2, 6)}`;
 	await Bun.write(`${dir}.yaml`, yamlFor(opts));
-	if (opts.policyYaml) await Bun.write(`${dir}-policy.yaml`, opts.policyYaml);
+	await Bun.write(
+		`${dir}-policy.yaml`,
+		opts.policyYaml ?? "gateway:\n  num_retries: 1\n  allowed_fails: 3\n",
+	);
 	const server = startServer({
 		port: 0,
 		upstreamsPath: `${dir}.yaml`,
-		...(opts.policyYaml ? { policyPath: `${dir}-policy.yaml` } : {}),
+		policyPath: `${dir}-policy.yaml`,
 		dbPath: ":memory:",
 		auth: {
 			rootKey: ROOT,

@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "../src/server.ts";
 import { startMockUpstream, type MockUpstream } from "./mock.ts";
+import { issueViaAdmin } from "./gate.ts";
 
 const ROOT = "buckle-litellm-root";
 
@@ -129,19 +130,6 @@ gateway:
 	};
 }
 
-async function issueViaAdmin(
-	base: string,
-	body: Record<string, unknown>,
-): Promise<{ key: string; keyId: string }> {
-	const res = await fetch(`${base}/v1/admin/keys`, {
-		method: "POST",
-		headers: { authorization: `Bearer ${ROOT}` },
-		body: JSON.stringify(body),
-	});
-	const out = (await res.json()) as { key: string; key_id: string };
-	return { key: out.key, keyId: out.key_id };
-}
-
 /** The ledger flush timer is 5s; one wait past it lets a second connection
  *  see the committed route_audit rows on the shared db file. */
 async function auditRowsOf(
@@ -178,14 +166,22 @@ describe("W219.1 litellm-as-engine", () => {
 		);
 		const gate = await startEngineGate(engine.up, direct);
 		try {
-			const { key } = await issueViaAdmin(gate.base, {
-				name: "lane",
-				scopes: ["buckle:proxy:WRITE_"],
-			});
-			const { key: roKey } = await issueViaAdmin(gate.base, {
-				name: "ro",
-				scopes: ["buckle:proxy:READ_"],
-			});
+			const { key } = await issueViaAdmin(
+				gate.base,
+				{
+					name: "lane",
+					scopes: ["buckle:proxy:WRITE_"],
+				},
+				ROOT,
+			);
+			const { key: roKey } = await issueViaAdmin(
+				gate.base,
+				{
+					name: "ro",
+					scopes: ["buckle:proxy:READ_"],
+				},
+				ROOT,
+			);
 			const post = (token: string) =>
 				fetch(`${gate.base}${CHAT}`, {
 					method: "POST",

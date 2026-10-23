@@ -3,66 +3,15 @@
 // admission even when every window limit is null (the skip must not strand
 // the book), and GET /v1/admin/teams/report reads the per-team view back.
 import { describe, expect, test } from "bun:test";
-import { startServer } from "../src/server.ts";
 import { startMockUpstream } from "./mock.ts";
-
-const ROOT = "buckle-test-root";
-
-async function startGate(
-	upstreamUrl: string,
-	ingressBodyTimeoutMs?: number,
-): Promise<{
-	base: string;
-	stop(): void;
-}> {
-	const dir = `/tmp/buckle-spend-gate-${Date.now()}-${process.pid}-${Math.random()
-		.toString(36)
-		.slice(2, 6)}`;
-	await Bun.write(
-		`${dir}.yaml`,
-		`groups:\n  glm-5.3-flash:\n    - url: ${upstreamUrl}\n      dialect: openai\n`,
-	);
-	const server = startServer({
-		port: 0,
-		upstreamsPath: `${dir}.yaml`,
-		dbPath: ":memory:",
-		auth: { rootKey: ROOT },
-		...(ingressBodyTimeoutMs ? { ingressBodyTimeoutMs } : {}),
-	});
-	return {
-		base: `http://127.0.0.1:${server.port}`,
-		stop: () => server.stop(true),
-	};
-}
-
-async function issueViaAdmin(
-	base: string,
-	body: Record<string, unknown>,
-): Promise<{ key: string }> {
-	const res = await fetch(`${base}/v1/admin/keys`, {
-		method: "POST",
-		headers: { authorization: `Bearer ${ROOT}` },
-		body: JSON.stringify(body),
-	});
-	const out = (await res.json()) as { key: string };
-	return { key: out.key };
-}
-
-const CHAT_BODY = JSON.stringify({ model: "glm-5.3-flash", stream: false });
-
-const chat = (base: string, token: string): Promise<Response> =>
-	fetch(`${base}/v1/chat/completions`, {
-		method: "POST",
-		headers: { authorization: `Bearer ${token}` },
-		body: CHAT_BODY,
-	});
+import { chat, issueViaAdmin, ROOT, startGate } from "./gate.ts";
 
 describe("gate: W843 team spend ceiling and the per-team report", () => {
 	test("team spend ceiling denies at admission (est tokens > ceiling) → 429", async () => {
 		const upstream = await startMockUpstream(() =>
 			Response.json({ id: "x", choices: [], usage: {} }),
 		);
-		const gate = await startGate(upstream.url);
+		const gate = await startGate({ upstreamUrl: upstream.url });
 		await fetch(`${gate.base}/v1/admin/teams`, {
 			method: "POST",
 			headers: { authorization: `Bearer ${ROOT}` },
@@ -90,7 +39,7 @@ describe("gate: W843 team spend ceiling and the per-team report", () => {
 				usage: { prompt_tokens: 10, completion_tokens: 20 },
 			}),
 		);
-		const gate = await startGate(upstream.url);
+		const gate = await startGate({ upstreamUrl: upstream.url });
 		await fetch(`${gate.base}/v1/admin/teams`, {
 			method: "POST",
 			headers: { authorization: `Bearer ${ROOT}` },
@@ -129,7 +78,10 @@ describe("gate: W1118 bounded ingress on the secondary body paths", () => {
 		const upstream = await startMockUpstream(() =>
 			Response.json({ id: "x", choices: [], usage: {} }),
 		);
-		const gate = await startGate(upstream.url, 100);
+		const gate = await startGate({
+			upstreamUrl: upstream.url,
+			ingressBodyTimeoutMs: 100,
+		});
 		const body = new ReadableStream<Uint8Array>({
 			start(controller) {
 				controller.enqueue(
