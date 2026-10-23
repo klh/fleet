@@ -34,6 +34,58 @@ describe("resolvePort guard", () => {
 describe("BUN_IDLE_TIMEOUT (W1106)", () => {
 	test("zero for every request — the knob is retired", () => {
 		expect(BUN_IDLE_TIMEOUT).toBe(0);
+		expect(Object.is(BUN_IDLE_TIMEOUT, 0)).toBe(true);
+		expect(typeof BUN_IDLE_TIMEOUT).toBe("number");
+	});
+
+	// W1092 closing window: the W450 suite (120s default + 0-255 clamp) is
+	// retired with the knob — prove the retired env value cannot re-arm the
+	// timer and a response slower than it completes intact.
+	test("a response slower than the retired BUCKLE_IDLE_TIMEOUT_S knob completes", async () => {
+		const prior = process.env.BUCKLE_IDLE_TIMEOUT_S;
+		process.env.BUCKLE_IDLE_TIMEOUT_S = "1";
+		const upstream = await startMockUpstream(async () => {
+			await Bun.sleep(1500);
+			return Response.json({
+				id: "srv-2",
+				choices: [],
+				usage: { prompt_tokens: 1, completion_tokens: 1 },
+			});
+		});
+		const dir = `/tmp/buckle-idle-${Date.now()}-${process.pid}`;
+		const cfg = `groups:\n  glm-5.3-flash:\n    - url: ${upstream.url}\n      dialect: openai\n`;
+		await Bun.write(`${dir}/upstreams.yaml`, cfg);
+		const server = startServer({
+			port: 0,
+			upstreamsPath: `${dir}/upstreams.yaml`,
+			dbPath: ":memory:",
+			auth: { rootKey: "idle-key" },
+		});
+		const base = `http://127.0.0.1:${server.port}`;
+		const res = await fetch(`${base}/v1/chat/completions`, {
+			method: "POST",
+			headers: { authorization: "Bearer idle-key" },
+			body: JSON.stringify({ model: "glm-5.3-flash", stream: false }),
+		});
+		expect(res.ok).toBe(true);
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-type")).toContain("application/json");
+		const out = (await res.json()) as { id: string };
+		expect(out.id).toBe("srv-2");
+		const models = await fetch(`${base}/v1/models`, {
+			headers: { authorization: "Bearer idle-key" },
+		});
+		expect(models.ok).toBe(true);
+		const list = (await models.json()) as { data: Array<{ id: string }> };
+		expect(list.data.map((m) => m.id)).toContain("glm-5.3-flash");
+		const status = await fetch(`${base}/status`);
+		expect(status.ok).toBe(true);
+		const st = (await status.json()) as { service: string };
+		expect(st.service).toBe("buckle");
+		if (prior === undefined) delete process.env.BUCKLE_IDLE_TIMEOUT_S;
+		else process.env.BUCKLE_IDLE_TIMEOUT_S = prior;
+		server.stop(true);
+		upstream.close();
 	});
 });
 
