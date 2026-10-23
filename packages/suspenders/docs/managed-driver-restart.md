@@ -1,5 +1,22 @@
 # Checkpointed managed Claude restart
 
+## Preserved tree snapshot
+
+Restart hashes HEAD, tracked binary diff and untracked bytes. An embedded
+Git repository may appear as one directory in the outer Git listing: the
+shared snapshot walks its contents, including nested worktree metadata,
+without executing that repository's Git configuration. Files are streamed
+in 64 KiB chunks. The snapshot checks file identity/content stamps and repeats
+the outer Git evidence before accepting a digest.
+
+The walk is bounded to 10,000 entries, 256 MiB, depth 48 and ten seconds;
+Git output is bounded separately. Exhausted bounds or concurrent mutations
+refuse restart. Internal links bind link text and target bytes; external
+links/references, cycles, special files and symlinked Git metadata refuse.
+No directory is deleted or silently discarded. The existing runtime
+artifacts `.fleet/`, `.klh-brief.md` and `node_modules` path segments remain
+excluded; similarly named source files remain included.
+
 ## Missing registry after intentional retirement
 
 A pending managed restart journal prevents canonical registry pruning even
