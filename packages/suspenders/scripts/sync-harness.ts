@@ -27,8 +27,9 @@ import {
 	writeShims,
 } from "./ensure-shims.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
+import { payloadCoverage } from "./lib/source-closure.ts";
 
-const SOURCE_PATHS = [
+export const SOURCE_PATHS = [
 	".githooks",
 	"packages/suspenders/hooks",
 	"packages/suspenders/scripts",
@@ -66,6 +67,17 @@ const ENTRYPOINTS = [
 	"hooks/bin/morph.ts",
 	"scripts/dispatch-next.ts",
 	"scripts/supervise.ts",
+];
+// W1256.1: the payload's import-graph faces (repo-relative). The closure
+// walk (lib/source-closure.ts — the beltBinClosure walker) proves SOURCE_PATHS
+// covers the real import graph at every sync: the W661 class (a hand list
+// silently missing a file the graph needs) refuses HERE, naming the file.
+export const CLOSURE_ENTRIES = [
+	...ENTRYPOINTS.map((entry) => `packages/suspenders/${entry}`),
+	"packages/buckle/src/server.ts",
+	"packages/belt/bin/router-shim.ts",
+	"packages/belt/bin/supervisor.ts",
+	"packages/belt/bin/dashboard.ts",
 ];
 
 function git(repo: string, args: string[]): string {
@@ -301,6 +313,23 @@ export async function syncHarness(
 	if (dirty)
 		throw new Error(
 			`Commit reviewed harness changes before code-only sync; working payload is dirty: ${dirty.split("\n").join(", ")}`,
+		);
+	// W1256.1 W661 tripwire: the computed import closure must be covered by
+	// SOURCE_PATHS. A new cross-package import reaching outside the payload
+	// (the W1081 telemetry class of miss) refuses the sync with the offending
+	// paths named instead of shipping a payload the graph outgrew.
+	const coverage = await payloadCoverage({
+		repoRoot: repo,
+		entries: CLOSURE_ENTRIES,
+		payload: SOURCE_PATHS,
+	});
+	if (coverage.missing.length > 0)
+		throw new Error(
+			`Payload entrypoints vanished from the working tree: ${coverage.missing.join(", ")}`,
+		);
+	if (coverage.outside.length > 0)
+		throw new Error(
+			`The import closure leaves SOURCE_PATHS — ship the paths or extend the payload: ${coverage.outside.join(", ")}`,
 		);
 	const prefix = resolve(ctx.prefix),
 		parent = dirname(prefix);
