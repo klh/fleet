@@ -37,6 +37,7 @@ import {
 } from "./knowledge-curate.ts";
 import { CONFIDENCE_MIN, makeStamp } from "./confidence.ts";
 import { knowledgeBuckleRoute } from "./knowledge-buckle.ts";
+import { LifecycleInference } from "./knowledge-inference.ts";
 
 export type { KnowledgeHit };
 
@@ -1192,7 +1193,11 @@ export class LocalLlmDistillClient implements DistillClient {
 }
 
 export class BuckleDistillClient implements DistillClient {
-	// Buckle accepts the W96 hint and routes local-swarm among Belt specialists.
+	// W1229: distill rides the ONE lifecycle transport — scoped bksk_ key,
+	// explicit budget admission, W3C traceparent (route_audit trace_id join),
+	// the W96 hint and local-swarm group unchanged.
+	#inf = new LifecycleInference();
+
 	async distill(
 		payload: string,
 		hints: {
@@ -1202,44 +1207,16 @@ export class BuckleDistillClient implements DistillClient {
 			originSid: string | null;
 		},
 	): Promise<DistillItem[]> {
-		const { front, token } = knowledgeBuckleRoute();
 		const sys = activePrompt();
 		const user = `payload:\n${payload}\n\nenqueue hints: domain=${hints.domain ?? "null"}, area=${hints.area ?? "null"}, code_origin=${hints.codeOrigin ?? "null"}`;
-		return this.route(user, sys, front, token);
-	}
-
-	private async route(
-		user: string,
-		sys: string,
-		front: URL,
-		token: string,
-	): Promise<DistillItem[]> {
-		const r = await fetch(new URL("/v1/chat/completions", front), {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				authorization: `Bearer ${token}`,
-				"x-belt-hint": "prefer local distill reasoning",
-			},
-			body: JSON.stringify({
-				model: "local-swarm",
-				max_tokens: 1600,
-				temperature: 0.2,
-				messages: [
-					{ role: "system", content: sys },
-					{ role: "user", content: user },
-				],
-			}),
-			signal: AbortSignal.timeout(300_000),
+		const out = await this.#inf.chat({
+			kind: "distill",
+			hint: "prefer local distill reasoning",
+			maxTokens: 1600,
+			system: sys,
+			user,
 		});
-		if (!r.ok)
-			throw new Error(
-				`Buckle distill route ${r.status}: ${(await r.text().catch(() => "")).slice(0, 200)}`,
-			);
-		const j = (await r.json()) as {
-			choices?: Array<{ message?: { content?: string } }>;
-		};
-		return parseDistill(j.choices?.[0]?.message?.content ?? "");
+		return parseDistill(out.content);
 	}
 }
 
