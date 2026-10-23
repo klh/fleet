@@ -5,7 +5,7 @@
 // the transport while the app waits. Proof: a REAL fleet-board.ts against a
 // mock LLM that answers SLOWER than the default idle window (12s) still
 // returns 200 to the client. The application deadlines are untouched —
-// orch.ts AbortSignal.timeout(120_000) and the UI's 130s stand.
+// buckleChat's 120s budget and the UI's 130s stand.
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 // spawn-heavy suite: the mock holds 12s of socket silence past Bun's 10s
@@ -22,8 +22,8 @@ const PORT = unusedPort();
 const BASE = `http://127.0.0.1:${String(PORT)}`;
 const bin = join(import.meta.dir, "..", "hooks", "bin");
 
-// mock LLM: instant /models resolve, then a proposal that arrives after 12s
-// of socket silence — 2s PAST Bun's 10s default idle cutoff
+// mock gate: the proposal arrives after 12s of socket silence on
+// /v1/messages — 2s PAST Bun's 10s default idle cutoff
 const MPORT = unusedPort();
 const MB = `http://127.0.0.1:${String(MPORT)}`;
 const PROPOSAL = {
@@ -36,30 +36,35 @@ const PROPOSAL = {
 const mock = Bun.serve({
 	port: MPORT,
 	fetch: async (req) => {
-		const path = new URL(req.url).pathname;
-		if (path === "/v1/models")
-			return Response.json({ data: [{ id: "mock-slow" }] });
-		if (path === "/v1/chat/completions") {
-			await new Promise((r) => setTimeout(r, 12_000));
+		if (new URL(req.url).pathname !== "/v1/messages")
+			return new Response("no route", { status: 404 });
+		const body = await req.text();
+		// only the plan leg sleeps past the idle window; an enhance aid on
+		// the same route answers instantly so the proof stays a clean 12s
+		if (!body.includes("propose work decompositions"))
 			return Response.json({
-				choices: [
-					{
-						message: {
-							content: `\`\`\`json\n${JSON.stringify(PROPOSAL)}\n\`\`\``,
-						},
-					},
-				],
-				usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+				content: [{ type: "text", text: "tidied goal" }],
+				model: "mock-slow",
 			});
-		}
-		return new Response("no route", { status: 404 });
+		await new Promise((r) => setTimeout(r, 12_000));
+		return Response.json({
+			content: [
+				{
+					type: "text",
+					text: `\`\`\`json\n${JSON.stringify(PROPOSAL)}\n\`\`\``,
+				},
+			],
+			model: "mock-slow",
+			usage: { input_tokens: 1, output_tokens: 2 },
+		});
 	},
 });
 
 const env: Record<string, string | undefined> = {
 	...process.env,
 	HOME,
-	SUSPENDERS_LLM_URL: `${MB}/v1/chat/completions`,
+	SUSPENDERS_BUCKLE_URL: MB,
+	SUSPENDERS_BUCKLE_TOKEN: "bksk_test-scoped-fake",
 	SUSPENDERS_MDNS: "0",
 	SUSPENDERS_BELT_URL: "http://127.0.0.1:1",
 	SUSPENDERS_KEV_URL: "http://127.0.0.1:1",
