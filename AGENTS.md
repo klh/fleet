@@ -140,6 +140,11 @@ Coordination (`coord`):
   only after acting on it; reading or receiving a WS push is delivery, not
   acceptance. `coord inbox --ack` accepts the entire pending inbox, so use it
   only after processing every displayed event.
+- `coord steer <sid|label> "input" [--decide]` — steer a RUNNING lane
+  mid-turn instead of kill+relaunch: accepted (queued) / pending (lane
+  mid-tool) / failed (lane dead) acks; gates = one per sid per hour, the
+  scrub ruleset, `.fleet/steer-paused` kill switch; `--decide` renders the
+  advisory kev steer-vs-redo verdict (steer/redo/let-ride)
 - `coord coordinate` — bounded peer-coordination round (W977.1, topics
   work|claims|capacity; singleflight + rate-capped, Kev `--classify`
   outbound-only; docs/design/supervisor-coordination.md)
