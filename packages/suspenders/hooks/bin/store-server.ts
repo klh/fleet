@@ -32,6 +32,7 @@ import {
 } from "../lib/event-relay.ts";
 import {
 	type GovernorStore,
+	type GovernorStatement,
 	knowledgeSqlViolation,
 	openGovernorDb,
 } from "../lib/govdb.ts";
@@ -42,6 +43,7 @@ import {
 	readCapabilities,
 } from "../lib/profile.ts";
 import { servicemon } from "../lib/servicemon.ts";
+import { classifySqlFailure } from "../lib/store-sql-error.ts";
 import {
 	beginWithHeal,
 	sweepOrphanTxn,
@@ -287,14 +289,34 @@ const exec = (
 	conn: GovernorStore,
 	transaction: object | null = null,
 ): Record<string, unknown> => {
-	const st = conn.query(sql);
-	if (mode === "get") return { row: st.get(...params) ?? null };
-	if (mode === "all") return { rows: st.all(...params) };
-	const r = st.run(...params);
-	const lastInsertRowid = Number(r.lastInsertRowid);
-	if (EVENTS_INSERT_RE.test(sql))
-		transactionEvents.inserted(transaction, lastInsertRowid);
-	return { changes: r.changes, lastInsertRowid };
+	// W1173 — a SQL failure is a typed refusal body, never a bare 500 or a raw
+	// thrown string: one envelope on both transports (W716 admission-refusal
+	// shape). W1173.1 — the executed evidence is PHASE-TRUTHFUL: a prepare-time
+	// refusal proves the statement never stepped (executed:false); a run-time
+	// failure does NOT (SQLite conflict clauses — UPDATE OR FAIL — keep the
+	// failing statement's own pre-error row changes), so it reports
+	// executed:"unknown" and never reads as a blind-retry invitation.
+	let st: GovernorStatement;
+	try {
+		st = conn.query(sql);
+	} catch (e) {
+		const refusal = classifySqlFailure(e);
+		if (!refusal) throw e;
+		return { ...refusal, executed: false };
+	}
+	try {
+		if (mode === "get") return { row: st.get(...params) ?? null };
+		if (mode === "all") return { rows: st.all(...params) };
+		const r = st.run(...params);
+		const lastInsertRowid = Number(r.lastInsertRowid);
+		if (EVENTS_INSERT_RE.test(sql))
+			transactionEvents.inserted(transaction, lastInsertRowid);
+		return { changes: r.changes, lastInsertRowid };
+	} catch (e) {
+		const refusal = classifySqlFailure(e);
+		if (!refusal) throw e;
+		return { ...refusal, executed: "unknown" };
+	}
 };
 
 // plane-generic tx ops (W156): op rides the sql field — begin | commit |
