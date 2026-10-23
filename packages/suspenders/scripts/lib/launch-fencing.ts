@@ -9,6 +9,7 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 import { dlopen, FFIType, ptr } from "bun:ffi";
 import { openStore, type GovernorStore } from "../../hooks/lib/govdb.ts";
+import { compareProcessBirth, darwinProcessBirth } from "./process-birth.ts";
 
 export type LaunchIntent = {
 	project: string;
@@ -188,11 +189,12 @@ export function processBirth(pid: number): ProcessBirth | false | null {
 		}
 		const state = command(["/bin/ps", "-p", String(pid), "-o", "stat="]);
 		if (state?.startsWith("Z")) return false;
-		const boot = command(["/usr/sbin/sysctl", "-n", "kern.boottime"]);
+		const boot = command(["/usr/sbin/sysctl", "-n", "kern.bootsessionuuid"]);
 		const argv = command(["/bin/ps", "-p", String(pid), "-o", "command="]);
 		const again = darwinBirth(pid);
-		return boot && argv && again === birth
-			? { birth: `${boot}:${birth}`, command: argv }
+		const stable = darwinProcessBirth(boot, birth);
+		return stable && argv && again === birth
+			? { birth: stable, command: argv }
 			: null;
 	} catch (error) {
 		return (error as NodeJS.ErrnoException).code === "ENOENT" ? false : null;
@@ -218,7 +220,9 @@ export function inspectLaunchIntent(
 	const current = inspect(intent.pid);
 	if (current === false) return "dead";
 	if (!current) return "unknown";
-	if (current.birth !== intent.birth) return "dead";
+	const comparison = compareProcessBirth(intent.birth, current.birth);
+	if (comparison === "unknown") return "unknown";
+	if (comparison === "different") return "dead";
 	// Executable must occupy argv[0], or the entrypoint following an interpreter.
 	// A matching word anywhere in an untrusted prompt cannot establish identity.
 	const exe = intent.executor;
