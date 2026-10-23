@@ -11,11 +11,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { GovernorStore } from "../hooks/lib/govdb.ts";
 import {
+	CompletionLookupUnavailableError,
+	completionRecord,
+	completionRecordStrict,
+	completionTail,
 	persistCompletion,
 	prepareCompletion,
 	reactivationRefusal,
 } from "../hooks/lib/work-completion-record.ts";
 import { retryFailedItem } from "../hooks/lib/work-retry.ts";
+import {
+	StoreSqlError,
+	knownAbsentTable,
+} from "../hooks/lib/store-sql-error.ts";
 
 const recordOf = (item: string, sha: string) => ({
 	project: "p",
@@ -94,6 +102,65 @@ describe("retained-completion fences (W1173)", () => {
 	test("legacy stores without the record table see no refusal (no false positive)", () => {
 		const db = new Database(":memory:") as unknown as GovernorStore;
 		expect(reactivationRefusal(db, "p", "W1")).toBeNull();
+	});
+});
+
+describe("strict vs reader completion lookup (W1173.1.1)", () => {
+	test("strict lookup reads the row and proves no-row as null", () => {
+		const store = retryFixture("FAILED");
+		expect(completionRecordStrict(store, "p", "W1")).not.toBeNull();
+		expect(completionRecordStrict(store, "p", "W2")).toBeNull();
+	});
+	test("strict lookup throws the typed error; the loose reader still fails soft", () => {
+		const store = busyLookup(retryFixture("FAILED"));
+		expect(() => completionRecordStrict(store, "p", "W1")).toThrow(
+			CompletionLookupUnavailableError,
+		);
+		// benign optional readers keep their fail-open behavior (W1173.1.1
+		// preserves them separately): null, never a thrown refusal
+		expect(completionRecord(store, "p", "W1")).toBeNull();
+		expect(completionTail(store, "p", "W1")).toBeNull();
+	});
+	test("known-absent table: the strict lookup returns null on a legacy store", () => {
+		const db = new Database(":memory:") as unknown as GovernorStore;
+		expect(completionRecordStrict(db, "p", "W1")).toBeNull();
+	});
+	test("knownAbsentTable discriminates absence proofs from unknown failures", () => {
+		const absent = Object.assign(
+			new Error("no such table: work_completion_records"),
+			{ code: "SQLITE_ERROR" },
+		);
+		const busy = Object.assign(new Error("database is locked"), {
+			code: "SQLITE_BUSY",
+		});
+		const wireAbsent = new StoreSqlError(
+			"governor store: no such table: work_completion_records",
+			{
+				err: "no such table: work_completion_records",
+				code: "store_sql_fail",
+				sqlite_code: "SQLITE_ERROR",
+				executed: false,
+			},
+		);
+		expect(knownAbsentTable(absent, "work_completion_records")).toBe(true);
+		expect(knownAbsentTable(busy, "work_completion_records")).toBe(false);
+		expect(knownAbsentTable(wireAbsent, "work_completion_records")).toBe(true);
+	});
+	test("prepare + persist gates fail closed with the typed error", () => {
+		const store = busyLookup(retryFixture("FAILED"));
+		expect(() =>
+			prepareCompletion(store, {
+				project: "p",
+				item: "W1",
+				sid: "manual",
+				cwd: process.cwd(),
+				sha: null,
+				summary: null,
+			}),
+		).toThrow(CompletionLookupUnavailableError);
+		expect(() =>
+			persistCompletion(store, recordOf("W1", "0daf6a49000000000000")),
+		).toThrow(CompletionLookupUnavailableError);
 	});
 });
 

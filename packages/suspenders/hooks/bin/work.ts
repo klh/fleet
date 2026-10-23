@@ -75,7 +75,7 @@ import {
 	completionRecord,
 	persistCompletion,
 	prepareCompletion,
-	reactivationRefusal,
+	reactivationRefusalMessage,
 } from "../lib/work-completion-record.ts";
 import { EFFORTS } from "../lib/work-effort.ts";
 import { evidencePatternsOf } from "../lib/work-fence.ts";
@@ -1006,10 +1006,10 @@ const dispatchVerb = async (
 		const as = flag("--as");
 		db().transaction(() => {
 			const it = get(id ?? "");
-			// W1173: failing completed work is the first step of the unsupported
-			// reactivation chain — refuse on the retained record, caller ignored.
-			const reactivation = reactivationRefusal(db(), PROJECT, id ?? "");
-			if (reactivation) die(reactivation.message);
+			// W1173/W1173.1.1: refuse on the retained record (caller ignored) —
+			// an unavailable lookup dies too, never reads as "no record".
+			const refusal = reactivationRefusalMessage(db(), PROJECT, id ?? "");
+			if (refusal) die(refusal);
 			if (
 				as &&
 				(it.owner_sid !== resolveSidOf(db(), String(as)) ||

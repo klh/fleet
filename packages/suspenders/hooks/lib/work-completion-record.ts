@@ -5,6 +5,7 @@ import { benchDocsVerdict } from "./bench-docs-gate.ts";
 import { claimCheckVerdict } from "./claim-check.ts";
 import { scanCompletionDiff } from "./fake-completion.ts";
 import { type GovernorStore, projectRootOf } from "./govdb.ts";
+import { knownAbsentTable } from "./store-sql-error.ts";
 import { patchFirstVerdict } from "./patch-first.ts";
 import { resolveTranscriptPath } from "./transcript.ts";
 import {
@@ -88,21 +89,72 @@ export function ensureCompletionIdentityMigration(db: CompletionStore): void {
  OR NEW.capsule_json IS NOT OLD.capsule_json OR NEW.evidence_json IS NOT OLD.evidence_json
  BEGIN SELECT RAISE(ABORT, 'completion records are immutable'); END`);
 }
+export const COMPLETION_LOOKUP_UNAVAILABLE = "COMPLETION_LOOKUP_UNAVAILABLE";
+
+/** W1173.1.1 — the authority lookup could not prove absence: the store was
+ * unavailable or the lookup failed for a reason other than proven no-row /
+ * known-absent table. Reactivation gates fail closed on it; display readers
+ * may still catch it (completionRecord does exactly that). */
+export class CompletionLookupUnavailableError extends Error {
+	constructor(cause: unknown) {
+		super(
+			`${COMPLETION_LOOKUP_UNAVAILABLE}: the immutable completion-record lookup failed (${cause instanceof Error ? cause.message : String(cause)}) — absence of a completion record is unproven, so reactivation gates fail closed`,
+		);
+	}
+}
+
+/** W1173.1.1 — authority lookup: null ONLY on proven absence (no row, or the
+ * known-absent record table). Any other failure — SQLITE_BUSY, SQLITE_IOERR,
+ * an unreachable/pressured store transport — throws the typed error, never a
+ * null that an authority gate would read as "no record". */
+export function completionRecordStrict(
+	db: CompletionStore,
+	project: string,
+	item: string,
+): CompletionRecord | null {
+	let row: unknown;
+	try {
+		row = db
+			.query(
+				"SELECT * FROM work_completion_records WHERE project = ? AND item = ?",
+			)
+			.get(project, item);
+	} catch (e) {
+		if (knownAbsentTable(e, "work_completion_records")) return null;
+		throw new CompletionLookupUnavailableError(e);
+	}
+	return (row as CompletionRecord | null) ?? null;
+}
+
+/** Benign optional reader (display/tails): fail soft — null on any lookup
+ * failure. Authority gates use completionRecordStrict; this thin catch is
+ * deliberately the ONLY place the strict lookup is swallowed. */
 export function completionRecord(
 	db: CompletionStore,
 	project: string,
 	item: string,
 ): CompletionRecord | null {
 	try {
-		return db
-			.query(
-				"SELECT * FROM work_completion_records WHERE project = ? AND item = ?",
-			)
-			.get(project, item) as CompletionRecord | null;
+		return completionRecordStrict(db, project, item);
 	} catch {
 		return null;
 	}
 }
+
+/** CLI door (work fail): the refusal message to die on — a standing record's
+ * refusal OR the typed unavailable diagnostic; foreign errors keep moving. */
+export const reactivationRefusalMessage = (
+	db: CompletionStore,
+	project: string,
+	item: string,
+): string | null => {
+	try {
+		return reactivationRefusal(db, project, item)?.message ?? null;
+	} catch (e) {
+		if (e instanceof CompletionLookupUnavailableError) return e.message;
+		throw e;
+	}
+};
 /** W1173 — immutable-evidence fence: an item holding a completion record is
  * completed history. Reactivating it (fail → retry → re-claim) strands the
  * graph against its own permanent record, and a re-close collides with the
@@ -127,7 +179,7 @@ export function reactivationRefusal(
 	project: string,
 	item: string,
 ): ReactivationRefusal | null {
-	const record = completionRecord(db, project, item);
+	const record = completionRecordStrict(db, project, item);
 	if (!record) return null;
 	return {
 		code: WORK_COMPLETION_RECORD_EXISTS,
@@ -643,12 +695,12 @@ export function persistCompletion(
 	db: CompletionStore,
 	record: CompletionRecord,
 ): void {
-	ensureRecords(db);
-	// W1173: the INSERT is fenced — a record already standing (a race past the
-	// prepare-time preflight, or a direct caller) refuses instead of surfacing
-	// the raw PK collision.
+	// W1173/W1173.1.1: the INSERT is fenced and the fence PRECEDES ensureRecords
+	// — a record already standing refuses, and an unavailable store surfaces the
+	// typed diagnostic instead of a raw CREATE failure.
 	const prior = reactivationRefusal(db, record.project, record.item);
 	if (prior) throw new Error(prior.message);
+	ensureRecords(db);
 	db.query(
 		"INSERT INTO work_completion_records (project,item,summary,summary_hash,commit_sha,baseline_sha,completed_by,completed_at,capsule_json,evidence_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 	).run(

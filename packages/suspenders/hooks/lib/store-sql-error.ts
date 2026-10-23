@@ -66,3 +66,20 @@ export const classifySqlFailure = (e: unknown): StoreSqlRefusal | null => {
 
 export const isStoreSqlRefusal = (body: { code?: unknown }): boolean =>
 	body.code === STORE_SQL_FAIL;
+
+/** W1173.1.1 — PROVEN table absence: both transports report "no such table"
+ * on SQLITE_ERROR (the local driver throws it; the store RPC carries it in
+ * the typed envelope's sqlite_code + err). Every other failure class —
+ * SQLITE_BUSY, SQLITE_IOERR, transport refusals — is unknown/unavailable and
+ * never reads as proof of absence. */
+export const knownAbsentTable = (e: unknown, table: string): boolean => {
+	const message = e instanceof Error ? e.message : String(e);
+	const code =
+		e instanceof StoreSqlError
+			? e.refusal.sqlite_code
+			: (classifySqlFailure(e)?.sqlite_code ?? null);
+	return (
+		code === "SQLITE_ERROR" &&
+		new RegExp(`no such table: ${table}\\b`, "i").test(message)
+	);
+};
