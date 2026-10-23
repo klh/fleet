@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, spyOn, test } from "bun:test";
 import {
 	existsSync,
 	mkdirSync,
@@ -193,6 +193,59 @@ test("holdMain release: exit 1 with no hold, 0 after a set; sid attribution", ()
 	} finally {
 		delete process.env.SUSPENDERS_SID;
 		rmSync(fleet, { recursive: true, force: true });
+	}
+});
+
+test("holdMain --fleet lands the hold in the override dir, not the canonical", () => {
+	const canon = scratch();
+	const smoke = scratch();
+	try {
+		expect(
+			holdMain(["--reason", "smoke", "--fleet", smoke], { fleet: canon }),
+		).toBe(0);
+		expect(existsSync(join(smoke, HOLD_FILE))).toBe(true);
+		expect(existsSync(join(canon, HOLD_FILE))).toBe(false);
+		expect(dispatchHoldActive(smoke)?.hold.reason).toBe("smoke");
+	} finally {
+		rmSync(canon, { recursive: true, force: true });
+		rmSync(smoke, { recursive: true, force: true });
+	}
+});
+
+test("holdMain release honors --fleet and the redirect is never silent", () => {
+	const canon = scratch();
+	const smoke = scratch();
+	const logs: string[] = [];
+	const spy = spyOn(console, "log").mockImplementation(
+		(...msgs: unknown[]) => {
+			logs.push(msgs.join(" "));
+		},
+	);
+	try {
+		setHold(smoke, "lane-x", "smoke hold", 1);
+		expect(
+			holdMain(["--fleet", smoke, "--by", "op"], {
+				fleet: canon,
+				release: true,
+			}),
+		).toBe(0);
+		expect(existsSync(join(smoke, HOLD_FILE))).toBe(false);
+		expect(logs.join("\n")).toContain(`fleet ${smoke}`);
+	} finally {
+		spy.mockRestore();
+		rmSync(canon, { recursive: true, force: true });
+		rmSync(smoke, { recursive: true, force: true });
+	}
+});
+
+test("holdMain refuses a valueless --fleet before touching any fleet dir", () => {
+	const canon = scratch();
+	try {
+		expect(holdMain(["--reason", "x", "--fleet"], { fleet: canon })).toBe(2);
+		expect(holdMain(["--fleet", "--reason", "x"], { fleet: canon })).toBe(2);
+		expect(existsSync(join(canon, HOLD_FILE))).toBe(false);
+	} finally {
+		rmSync(canon, { recursive: true, force: true });
 	}
 });
 

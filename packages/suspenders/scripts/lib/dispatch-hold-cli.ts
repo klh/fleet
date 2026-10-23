@@ -5,6 +5,7 @@
 // marker has no CLI — release clears both shapes; log evidence accrues in
 // .fleet/dispatch-hold.log.
 import { hostname } from "node:os";
+import { resolve } from "node:path";
 import {
 	type DispatchHold,
 	dispatchHoldActive,
@@ -27,7 +28,8 @@ const val = (argv: string[], flag: string): string | undefined => {
 
 const usage = (): string[] => [
 	"Usage: dispatch hold --reason <why> [--ttl-hours N] [--by <who>]",
-	"       dispatch release [--by <who>]",
+	"                      [--fleet <dir>]",
+	"       dispatch release [--by <who>] [--fleet <dir>]",
 	"",
 	"Set or lift the dispatch hold. A hold is recorded state",
 	"(.fleet/dispatch-paused.json: by, reason, set_at, ttl_hours), never a",
@@ -35,6 +37,10 @@ const usage = (): string[] => [
 	"board shows by+reason+expiry, and an expired hold auto-lifts and logs.",
 	`Default ttl is ${HOLD_TTL_HOURS_DEFAULT}h; the bare dispatch-paused marker is deprecated`,
 	"(still held, logged as a deprecation on observe).",
+	"",
+	"--fleet <dir> redirects the door's writes to that dir (default: the",
+	"canonical checkout's .fleet); a redirected hold/release names the dir in",
+	"its output — smoke tests never touch live dispatch (W1235).",
 ];
 
 /** Embedded main: the dispatch door owns argv and exit codes (W651). */
@@ -43,13 +49,24 @@ export const holdMain = (argv: string[], opts: HoldDoorOpts): number => {
 		for (const line of usage()) console.log(line);
 		return 0;
 	}
+	// W1235: --fleet <dir> redirects the door's writes off the canonical .fleet
+	// (the smoke-hold lesson — a worktree invocation must never throttle live
+	// dispatch). Absent flag keeps opts.fleet; a valueless flag refuses.
+	const fleetPath = val(argv, "--fleet");
+	if (argv.includes("--fleet") && (fleetPath?.startsWith("--") ?? true)) {
+		console.log("REFUSED — --fleet needs a directory path");
+		return 2;
+	}
+	const fleetDir = fleetPath === undefined ? opts.fleet : resolve(fleetPath);
+	const overridden = fleetPath !== undefined;
+	const where = (): string => (overridden ? ` — fleet ${fleetDir}` : "");
 	const by =
 		val(argv, "--by") ?? process.env.SUSPENDERS_SID ?? `operator@${hostname()}`;
 	if (opts.release) {
-		const lifted = releaseHold(opts.fleet, by);
+		const lifted = releaseHold(fleetDir, by);
 		console.log(
 			lifted
-				? `RELEASED — dispatch hold lifted by ${by}`
+				? `RELEASED — dispatch hold lifted by ${by}${where()}`
 				: "no active dispatch hold",
 		);
 		return lifted ? 0 : 1;
@@ -68,9 +85,9 @@ export const holdMain = (argv: string[], opts: HoldDoorOpts): number => {
 		console.log("REFUSED — --ttl-hours must be 0 < ttl <= 720");
 		return 2;
 	}
-	const hold: DispatchHold = setHold(opts.fleet, by, reason, ttl);
+	const hold: DispatchHold = setHold(fleetDir, by, reason, ttl);
 	console.log(
-		`HOLD — dispatch paused by ${hold.by} until ${holdExpiresAt(hold)} (${hold.ttl_hours}h): ${hold.reason}`,
+		`HOLD — dispatch paused by ${hold.by} until ${holdExpiresAt(hold)} (${hold.ttl_hours}h): ${hold.reason}${where()}`,
 	);
 	return 0;
 };
