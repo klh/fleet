@@ -91,6 +91,22 @@ listed in `BUCKLE_HTTP_UPSTREAM_HOSTS`. Azure/Vertex `token_host` must be
 https and on the family allowlist (extend with `BUCKLE_TOKEN_HOSTS`);
 loopback token mocks need `BUCKLE_TOKEN_HOST_LOOPBACK=on`.
 
+## Transport evidence
+
+The existing admin trace join returns each attempt's `transport` observation:
+wire request byte count, response header/first-byte offsets, response bytes and
+chunks, and the locally observed timeout phase/budget and cancellation state.
+Unknown or custom transports remain `null`. Boundaries update the same attempt
+row; chunks do not create a new log or metric series. These are wire byte counts,
+not prompt tokens or model prefill timing.
+
+`x-klh-transport-timeout-phase` carries a bounded local timeout phase on failure;
+only explicitly configured Buckle peers may relay it. Stream-close evidence is
+available in the trace after headers, never retroactively promised in headers.
+`local_settled` means the local fetch/reader cancellation promise settled. It
+never proves that LiteLLM or the external provider stopped work:
+`providerCancellationAcknowledged` remains `null`.
+
 ## Design sources
 
 - `packages/suspenders/docs/design/buckle/routing-laws-2026-10-01.md` —
