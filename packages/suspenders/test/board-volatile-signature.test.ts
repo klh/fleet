@@ -128,6 +128,29 @@ describe("kanban volatile signature (W998.3)", () => {
 		).not.toBe(base);
 	});
 
+	test("rename containing '· observed' stays structural (W998.3.1)", () => {
+		const { kanbanCard, kanbanStructural } = chunkSandbox();
+		// the W998.3 global '· observed' regex collapsed BOTH of these to one
+		// signature — the stale card never rebuilt and the title never refreshed
+		const oldFinding = kanbanStructural(
+			kanbanCard({ ...ITEM, title: "Product · observed old finding" }),
+		);
+		expect(
+			kanbanStructural(
+				kanbanCard({ ...ITEM, title: "Product · observed new finding" }),
+			),
+		).not.toBe(oldFinding);
+		// even an ISO-looking tail in TITLE TEXT stays structural: only the
+		// execution klane's title attribute normalizes
+		const isoTitle = (iso: string) =>
+			kanbanStructural(
+				kanbanCard({ ...ITEM, title: `Product · observed ${iso}` }),
+			);
+		expect(isoTitle("2026-10-23T05:00:00.000Z")).not.toBe(
+			isoTitle("2026-10-23T05:00:05.000Z"),
+		);
+	});
+
 	test("per-poll observation instants stay out of the signature", () => {
 		const { kanbanCard, kanbanStructural } = chunkSandbox();
 		// execution evidence is re-observed every poll: the klane tooltip's
@@ -151,6 +174,29 @@ describe("kanban volatile signature (W998.3)", () => {
 			`<p class="dim" title="Harness presence is not productive output">1 claims · 1 owners · 0 live harnesses · 0 paused · 0 blocked · 0 dead · 1 unknown · 0 transitioning · checked ${iso}</p>`;
 		expect(kanbanStructural(summary("2026-10-23T07:05:41.834Z"))).toBe(
 			kanbanStructural(summary("2026-10-23T07:05:45.834Z")),
+		);
+	});
+
+	test("only the ISO tail of the execution klane tooltip normalizes (W998.3.1)", () => {
+		const { kanbanCard, kanbanStructural } = chunkSandbox();
+		const exec = (src: string, ms: number) =>
+			kanbanCard({
+				...ITEM,
+				execution: {
+					state: "unknown",
+					observed_at: ms,
+					source: src,
+					progress: null,
+				},
+			});
+		// the observed instant churns per poll — volatile, tooltip refreshes in place
+		expect(kanbanStructural(exec("work-claim-only", 1792739145955))).toBe(
+			kanbanStructural(exec("work-claim-only", 1792739149169)),
+		);
+		// arbitrary attribute content stays structural — a different source
+		// (or any non-ISO tail) is a real change
+		expect(kanbanStructural(exec("work-claim-only", 1))).not.toBe(
+			kanbanStructural(exec("dispatch", 1)),
 		);
 	});
 

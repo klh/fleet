@@ -501,6 +501,12 @@ function execOptions(pick){
   }
   return opts;
 }
+// W998.3.1 — ONE builder for the execution klane's observed tooltip, shared
+// by the render path (kanbanCard) and the in-place volatile refresh
+// (updateKanbanVolatile) so the two cannot drift (stampFull idiom).
+function klaneObservedTitle(ex){
+  return esc(ex.source + ' · observed ' + new Date(ex.observed_at).toISOString());
+}
 function kanbanCard(t, fam){
   var od = t.open_decisions || 0;
   var tone = workTone(displayState(t));
@@ -523,7 +529,7 @@ function kanbanCard(t, fam){
   if (t.execution) {
     var ex = t.execution;
     var proof = ex.progress ? ex.progress.stage + ' · ' + new Date(ex.progress.ts).toISOString() : 'no artifact evidence in snapshot';
-    html += '<div class="klane dim" title="' + esc(ex.source + ' · observed ' + new Date(ex.observed_at).toISOString()) + '">' + esc(ex.state + ' · ' + proof) + '</div>';
+    html += '<div class="klane dim" title="' + klaneObservedTitle(ex) + '">' + esc(ex.state + ' · ' + proof) + '</div>';
   }
   if (displayState(t) === 'BLOCKED' && t.blocked_by && t.blocked_by.length)
     html += '<div class="klane dim">waiting on ' + esc(t.blocked_by.join(', ')) + '</div>';
@@ -667,6 +673,12 @@ function kanbanFamilies(pool){
 // the page and would churn the signature every second: the summary's checked
 // suffix, the execution klane's observed tooltip and the spend strip's live
 // wall age (rate + cache % stay structural — they are real spend facts).
+// W998.3.1 — the observed normalization is scoped to the execution klane's
+// title ATTRIBUTE and strips only the ISO instant tail: arbitrary card text
+// or attribute content ("· observed <anything>") stays structural, so a
+// rename is never hidden behind an identical signature (the W998.3 global
+// '· observed' regex gave two different titles one signature and the stale
+// card never rebuilt).
 // One function so tests eval the shipped bytes.
 function kanbanStructural(html){
   return html
@@ -676,7 +688,7 @@ function kanbanStructural(html){
     // per-poll observation instants: the summary's checked suffix, the
     // execution klane's observed tooltip, the spend strip's live wall age
     .replace(/(<p class="dim" title="Harness presence is not productive output">[^<]*) · checked [^<]*/g, '$1 · checked')
-    .replace(/· observed [^"<]*/g, '· observed')
+    .replace(/(<div class="klane dim" title="[^"]* · observed )\d{4}-\d{2}-\d{2}T[^"]*/g, '$1')
     .replace(/(<span class="kspendtxt"[^>]*>[^<]*? tok · )([^<·]+?)( · [^<]*)?<\/span>/g, '$1$3</span>');
 }
 function renderKanban(){
@@ -764,6 +776,8 @@ function updateKanbanVolatile(el, shownAll){
     }
     var tailEl = c.querySelector('.ktail');
     if (tailEl) tailEl.textContent = (t.tail && t.tail.text) ? t.tail.text : '';
+    var klaneEl = c.querySelector('.klane');
+    if (klaneEl && t.execution) klaneEl.setAttribute('title', klaneObservedTitle(t.execution));
     var spendEl = c.querySelector('.kspendtxt');
     if (spendEl && t.spend) {
       spendEl.textContent = spendStripInner(t.spend);
