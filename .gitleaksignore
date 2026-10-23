@@ -78,3 +78,7 @@ packages/suspenders/test/hub-providers.test.ts:generic-api-key:42
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:102
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:163
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:189
+# W1183 (port of W1196 942f8bf1 / cf. W1176 3a604e5c): migrate-provider-keys
+# fixture placeholder the test writes to a temp home, scrub:allow-marked at the
+# commit gate — not a secret
+packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83
