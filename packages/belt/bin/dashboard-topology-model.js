@@ -514,15 +514,28 @@ export function buildTopology(
 			if (entries.length) provider.models = entries.map((record) => record.id);
 		}
 	}
+	const hubProviderLinks = [];
 	for (const row of context?.hubProviderObservations ?? []) {
 		const hub = hubCards.find(
 			(item) => item.name.toLowerCase() === String(row.hub).toLowerCase(),
 		);
 		const provider = providers.find((item) => item.key === row.provider);
-		if (!hub || !provider || !hub.providerIntents?.includes(row.provider))
-			continue;
-		if (!isFresh(row.lastAt, now, ROUTE_MS)) continue;
-		provider.hubRequest = row;
+		if (!hub || !provider || !isFresh(row.lastAt, now, ROUTE_MS)) continue;
+		hubProviderLinks.push({
+			hub: hub.name,
+			provider: row.provider,
+			evidence: "observed",
+			requests15:
+				(Number.isFinite(row.successes15) ? row.successes15 : 0) +
+				(Number.isFinite(row.failures15) ? row.failures15 : 0),
+			successes15: Number.isFinite(row.successes15) ? row.successes15 : 0,
+			failures15: Number.isFinite(row.failures15) ? row.failures15 : 0,
+			lastStatus: Number.isFinite(row.lastStatus) ? row.lastStatus : null,
+			source: "hub Buckle ledger",
+			lastSeen: row.lastAt,
+		});
+		// The indicator stays intent-gated; the observed link itself is not.
+		if (hub.providerIntents?.includes(row.provider)) provider.hubRequest = row;
 	}
 	const hops =
 		networkFresh &&
@@ -639,6 +652,7 @@ export function buildTopology(
 		machines: machineCards,
 		providers,
 		links,
+		hubProviderLinks,
 		copilot,
 		fresh: { local: localFresh, hubs: hubFresh, remotes: remoteFresh },
 	};

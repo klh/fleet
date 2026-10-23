@@ -1035,4 +1035,188 @@ describe("Belt topology", () => {
 			false,
 		);
 	});
+
+	test("renders hub-ledger provider moves as observed edges", () => {
+		const obs = {
+			hub: "desktop",
+			provider: "copilot",
+			successes15: 9,
+			failures15: 3,
+			lastStatus: 200,
+			lastAt: new Date(now).toISOString(),
+		};
+		const model = buildTopology(
+			{},
+			{ ts: new Date(now).toISOString(), rows: [] },
+			{
+				observation,
+				targets: [
+					{ kind: "hub", name: "desktop", state: "up", port: 4111 },
+					{ kind: "hub", name: "ikea", state: "up", port: 4101 },
+				],
+			},
+			now,
+			null,
+			null,
+			{
+				hubRoutes: [
+					{ name: "desktop", providerIntents: ["copilot"] },
+					{ name: "ikea", providerIntents: ["zai"] },
+				],
+				hubProviderObservations: [obs],
+			},
+		);
+		expect(model.hubProviderLinks).toEqual([
+			{
+				hub: "desktop",
+				provider: "copilot",
+				evidence: "observed",
+				requests15: 12,
+				successes15: 9,
+				failures15: 3,
+				lastStatus: 200,
+				source: "hub Buckle ledger",
+				lastSeen: new Date(now).toISOString(),
+			},
+		]);
+	});
+
+	test("attaches the hub indicator to the observed provider card", () => {
+		const obs = {
+			hub: "desktop",
+			provider: "copilot",
+			successes15: 9,
+			failures15: 3,
+			lastStatus: 200,
+			lastAt: new Date(now).toISOString(),
+		};
+		const model = buildTopology(
+			{},
+			{ ts: new Date(now).toISOString(), rows: [] },
+			{
+				observation,
+				targets: [{ kind: "hub", name: "desktop", state: "up", port: 4111 }],
+			},
+			now,
+			null,
+			null,
+			{
+				hubRoutes: [{ name: "desktop", providerIntents: ["copilot"] }],
+				hubProviderObservations: [obs],
+			},
+		);
+		expect(
+			model.providers.find((provider) => provider.key === "copilot")
+				?.hubRequest,
+		).toEqual(obs);
+	});
+
+	test("drops stale hub-ledger observations from links and indicators", () => {
+		const stale = {
+			hub: "desktop",
+			provider: "copilot",
+			successes15: 1,
+			failures15: 0,
+			lastStatus: 200,
+			lastAt: new Date(now - 16 * 60_000).toISOString(),
+		};
+		const model = buildTopology(
+			{},
+			{ ts: new Date(now).toISOString(), rows: [] },
+			{
+				observation,
+				targets: [{ kind: "hub", name: "desktop", state: "up", port: 4111 }],
+			},
+			now,
+			null,
+			null,
+			{
+				hubRoutes: [{ name: "desktop", providerIntents: ["copilot"] }],
+				hubProviderObservations: [stale],
+			},
+		);
+		expect(model.hubProviderLinks).toEqual([]);
+		expect(
+			model.providers.find((provider) => provider.key === "copilot")
+				?.hubRequest,
+		).toBeUndefined();
+	});
+
+	test("keeps the hub indicator intent-gated while the observed link renders", () => {
+		const obs = {
+			hub: "desktop",
+			provider: "copilot",
+			successes15: 2,
+			failures15: 0,
+			lastStatus: 200,
+			lastAt: new Date(now).toISOString(),
+		};
+		const model = buildTopology(
+			{},
+			{
+				ts: new Date(now).toISOString(),
+				rows: [{ machine: "copilot", host: "api.githubcopilot.com", ok: true }],
+			},
+			{
+				observation,
+				targets: [{ kind: "hub", name: "desktop", state: "up", port: 4111 }],
+			},
+			now,
+			null,
+			null,
+			{ hubProviderObservations: [obs] },
+		);
+		expect(model.hubProviderLinks).toEqual([
+			{
+				hub: "desktop",
+				provider: "copilot",
+				evidence: "observed",
+				requests15: 2,
+				successes15: 2,
+				failures15: 0,
+				lastStatus: 200,
+				source: "hub Buckle ledger",
+				lastSeen: new Date(now).toISOString(),
+			},
+		]);
+		expect(
+			model.providers.find((provider) => provider.key === "copilot")
+				?.hubRequest,
+		).toBeUndefined();
+	});
+
+	test("does not infer a hub hop from local provider counters", () => {
+		const model = buildTopology(
+			{},
+			{ ts: new Date(now).toISOString(), rows: [] },
+			{
+				observation,
+				targets: [{ kind: "hub", name: "desktop", state: "up", port: 4111 }],
+			},
+			now,
+			{
+				ok: true,
+				ts: new Date(now).toISOString(),
+				network: {
+					ok: true,
+					throughput: {
+						interfaces: [
+							{
+								kind: "cloud",
+								host: "api.githubcopilot.com",
+								model: "claude-opus-5.5",
+								req15: 7,
+								req60: 2,
+								lastOkAt: new Date(now).toISOString(),
+							},
+						],
+					},
+				},
+			},
+			null,
+			{},
+		);
+		expect(model.hubProviderLinks).toEqual([]);
+		expect(model.links.some((link) => link.hub)).toBe(false);
+	});
 });
