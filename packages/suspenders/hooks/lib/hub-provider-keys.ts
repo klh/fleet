@@ -12,7 +12,7 @@ import { join } from "node:path";
  *  narrower than "*_KEY": the admin plane's own secrets (BUCKLE_ADMIN_KEY,
  *  LITELLM_KEY, hub tokens) are identity, not providers — they stay out of
  *  this listing. */
-const PROVIDER_KEY_RE = /^[A-Z][A-Z0-9_]*_API_KEY$/;
+export const PROVIDER_KEY_RE = /^[A-Z][A-Z0-9_]*_API_KEY$/;
 
 /** The sanctioned env homes, in listing order. Absent files are skipped —
  *  a spoke without belt.env simply reports fewer sources. */
