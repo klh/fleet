@@ -46,7 +46,14 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		mkdirSync(join(file, ".."), { recursive: true });
 		writeFileSync(file, value);
 	};
-	for (const name of ["suspenders", "belt", "local-llm", "blam", "buckle"])
+	for (const name of [
+		"suspenders",
+		"belt",
+		"telemetry",
+		"local-llm",
+		"blam",
+		"buckle",
+	])
 		put(
 			`packages/${name}/package.json`,
 			JSON.stringify({
