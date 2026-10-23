@@ -10,7 +10,11 @@ const upstream = Bun.serve({
 			return new Response(
 				new ReadableStream<Uint8Array>({
 					start(controller) {
-						controller.enqueue(new TextEncoder().encode("data: {}\n\n"));
+						controller.enqueue(
+							new TextEncoder().encode(
+								'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
+							),
+						);
 					},
 				}),
 				{ headers: { "content-type": "text/event-stream" } },

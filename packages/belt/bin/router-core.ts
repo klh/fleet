@@ -765,7 +765,7 @@ export async function openLocalStream(
 		if (res.ok && res.body && ct.includes("text/event-stream")) {
 			const primed = await primeLocalStream(
 				res.body,
-				ctrl.signal,
+				opts.signal ? AbortSignal.any([ctrl.signal, opts.signal]) : ctrl.signal,
 				(pending) => {
 					cleanup = pending;
 				},

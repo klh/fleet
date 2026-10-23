@@ -27,12 +27,27 @@ export async function primeLocalStream(
 			onCleanup?.(cleanup);
 		}
 	};
-	const abort = () => cancel(signal.reason);
+	// W1117×primeLocalStream merge: the abort listener lives for the returned
+	// stream's whole life — a caller abort AFTER priming must still error the
+	// re-emitted body (during priming the fetch signal errors the raw body
+	// natively; post-prime nothing else owns the cancel path).
+	let abortReject: ((reason: unknown) => void) | undefined;
+	const aborted: Promise<never> = new Promise((_, reject) => {
+		abortReject = reject;
+	});
+	aborted.catch(() => {}); // a lone abort with no pending pull is not an error
+	const abort = () => {
+		abortReject?.(signal.reason);
+		cancel(signal.reason);
+	};
 	signal.addEventListener("abort", abort, { once: true });
 	try {
 		for (;;) {
 			signal.throwIfAborted();
-			const next = await reader.read();
+			// abort-interruptible: Bun does not settle a reader.cancel() against
+			// an already-parked read, so the race (not the cancel) is what wakes
+			// the loop on a caller abort mid-prime.
+			const next = await Promise.race([reader.read(), aborted]);
 			signal.throwIfAborted();
 			if (next.done) sniff.flush();
 			else {
@@ -61,8 +76,6 @@ export async function primeLocalStream(
 	} catch (error) {
 		cancel(error);
 		throw error;
-	} finally {
-		signal.removeEventListener("abort", abort);
 	}
 	return {
 		ok: true,
@@ -71,14 +84,17 @@ export async function primeLocalStream(
 				const chunk = chunks.shift();
 				if (chunk) return controller.enqueue(chunk);
 				try {
-					const next = await reader.read();
+					const next = await Promise.race([reader.read(), aborted]);
 					if (next.done) controller.close();
 					else controller.enqueue(next.value);
 				} catch (error) {
 					controller.error(error);
 				}
 			},
-			cancel: (reason) => reader.cancel(reason),
+			cancel: (reason) => {
+				signal.removeEventListener("abort", abort);
+				return reader.cancel(reason);
+			},
 		}),
 	};
 }
