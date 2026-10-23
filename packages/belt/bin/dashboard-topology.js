@@ -276,7 +276,9 @@ class BeltTopology extends LitElement {
 	edge(path, link) {
 		const description =
 			link.evidence === "observed"
-				? `${link.requests15} local Buckle requests · hop not verified by the trace topology`
+				? link.from
+					? `${link.requests15} requests, ${link.failures15} failures from ${link.source} · 15-minute window`
+					: `${link.requests15} local Buckle requests · hop not verified by the trace topology`
 				: link.evidence === "probe"
 					? `Hub reachability probe · ${link.source}`
 					: `Configured path · ${link.source}`;
@@ -751,14 +753,22 @@ class BeltTopology extends LitElement {
 								(hub.providerKeys?.includes(item.key) ||
 									hub.providerIntents?.includes(item.key)),
 						)
-						.map((item) =>
-							this.edge(`M705 ${hub.y + 54} H738 V${item.y + 42} H770`, {
-								evidence: "configured",
-								source: hub.providerKeys?.includes(item.key)
-									? `${hub.displayName || hub.name} configured upstream`
-									: `${hub.displayName || hub.name} declared provider intent`,
-							}),
-						),
+						.map((item) => {
+							// W993: the model emits one hub→provider link per configured
+							// upstream or declared intent; observed upgrades carry the
+							// hub's ledger counts. The card layout is unchanged.
+							const link = data.links.find(
+								(entry) =>
+									entry.from === `hub:${hub.name.toLowerCase()}` &&
+									entry.target === `provider:${item.key}`,
+							);
+							return link
+								? this.edge(
+										`M705 ${hub.y + 54} H738 V${item.y + 42} H770`,
+										link,
+									)
+								: "";
+						}),
 				)}
 				${this.machine(16, 65, 370, localHeight, "This Mac", `local spoke · :4101 · ${data.gateway === "unknown" ? "unobserved" : data.gateway}`, data.gateway, models, true, data.localConsoleUrl, data.work)}
 		${hubCards.map((item) => this.machine(430, item.y, 275, item.height, item.displayName || item.name, `:${item.port} · ${item.state} probe`, item.state, item.models, false, item.consoleUrl, null, item.gatewayModels, item.gatewayModelTargets, item.name, item.gatewayModelAliases, item.gatewayRouteCount, item.gatewayUnresolvedRoutes, item.gatewayModelCosts, item.services, item.gatewayModelPorts, item.beltModels))}
@@ -821,7 +831,7 @@ class BeltTopologyDetails extends LitElement {
 			}
 			<details><summary>Connection data · ${data?.links.length ?? 0} paths</summary>
 				<table><thead><tr><th scope="col">Target</th><th scope="col">Path</th><th scope="col">Successful / 15m</th><th scope="col">Target failures / 15m</th><th scope="col">Source</th><th scope="col">Last evidence</th></tr></thead>
-				<tbody>${(data?.links ?? []).map((link) => html`<tr><td>${link.target.replace(/^hub:|^provider:/, "")}</td><td>${link.evidence}</td><td>${link.requests15 ?? "—"}</td><td>${link.failures15 ?? "—"}</td><td>${link.source}</td><td title=${link.lastSeen ? new Date(link.lastSeen).toISOString() : "No observed route"}>${localTime(link.lastSeen)}</td></tr>`)}</tbody></table>
+				<tbody>${(data?.links ?? []).map((link) => html`<tr><td>${link.from ? `${link.from.replace(/^hub:/, "")} → ` : ""}${link.target.replace(/^hub:|^provider:/, "")}</td><td>${link.evidence}</td><td>${link.requests15 ?? "—"}</td><td>${link.failures15 ?? "—"}</td><td>${link.source}</td><td title=${link.lastSeen ? new Date(link.lastSeen).toISOString() : "No observed route"}>${localTime(link.lastSeen)}</td></tr>`)}</tbody></table>
 				${audit?.unattributedFailed ? html`<p>${audit.unattributedFailed} failed requests have no target attribution in the Buckle ledger.</p>` : ""}
 				${audit?.failures?.length ? html`<h3>Failed Buckle attempts · recorded target</h3><table><thead><tr><th scope="col">Target</th><th scope="col">Failures / 15m</th><th scope="col">Last failure</th></tr></thead><tbody>${audit.failures.map((row) => html`<tr><td>${row.host ? `${row.kind} · ${row.host}${row.port ? `:${row.port}` : ""}` : "Target unrecorded"}</td><td>${row.count}</td><td title=${row.lastAt}>${localTime(row.lastAt)}</td></tr>`)}</tbody></table>` : ""}
 			</details>
