@@ -2,6 +2,7 @@ import {
 	buildTopology,
 	observedGraphLayout,
 } from "./dashboard-topology-model.js";
+import { dualStamp } from "./dashboard-wallclock.js"; // W902: one stamp vocabulary
 import { css, html, LitElement, svg } from "./vendor/lit.js";
 
 const readApi = (path) => `${globalThis.KLH_GATEWAY_READ_BASE ?? ""}${path}`;
@@ -19,16 +20,7 @@ const colour = (state) =>
 
 const localTime = (value) => {
 	const time = typeof value === "number" ? value : Date.parse(value);
-	return Number.isFinite(time)
-		? new Date(time).toLocaleString("da-DK", {
-				day: "2-digit",
-				month: "2-digit",
-				year: "2-digit",
-				hour: "2-digit",
-				minute: "2-digit",
-				hour12: false,
-			})
-		: "never observed";
+	return Number.isFinite(time) ? dualStamp(time) : "never observed";
 };
 
 const measure = (value) =>

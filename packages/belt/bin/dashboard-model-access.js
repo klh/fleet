@@ -1,4 +1,6 @@
 // Buckle model catalog renderer; live data comes from Belt's read-only feeds.
+import { dualStamp as dual } from "./dashboard-wallclock.js"; // W902: one stamp vocabulary
+
 const DATA_BASE = globalThis.KLH_GATEWAY_READ_BASE ?? "";
 function age(iso, now) {
 	if (!iso) return "—";
@@ -6,21 +8,6 @@ function age(iso, now) {
 	if (t < 3600) return `${Math.max(1, Math.round(t / 60))}m`;
 	if (t < 86400) return `${Math.round(t / 3600)}h`;
 	return `${Math.round(t / 86400)}d`;
-}
-function dual(ts) {
-	var d = new Date(ts);
-	if (Number.isNaN(d)) return String(ts);
-	var p = (n) => (n < 10 ? "0" : "") + n;
-	return (
-		d.toISOString().replace(/\\.\\d{3}Z$/, "Z") +
-		"  (" +
-		p(d.getHours()) +
-		":" +
-		p(d.getMinutes()) +
-		":" +
-		p(d.getSeconds()) +
-		" local)"
-	);
 }
 function tickAccess() {
 	Promise.all(
@@ -61,11 +48,11 @@ function tickAccess() {
 					return "context unknown · max output unknown · input unknown · output unknown · tools unknown · structured output unknown";
 				var context = fact(
 					row.contextTokens,
-					(n) => `${Number(n).toLocaleString()} tokens`,
+					(n) => `${Number(n).toLocaleString("en-US")} tokens`,
 				);
 				var output = fact(
 					row.maxOutputTokens,
-					(n) => `${Number(n).toLocaleString()} tokens`,
+					(n) => `${Number(n).toLocaleString("en-US")} tokens`,
 				);
 				return (
 					"context " +
@@ -171,7 +158,7 @@ function tickAccess() {
 				if (value === null || value === undefined) return "unreported";
 				return (
 					"$" +
-					Number(value).toLocaleString(undefined, { maximumFractionDigits: 4 })
+					Number(value).toLocaleString("en-US", { maximumFractionDigits: 4 })
 				);
 			}
 			function rate(price) {

@@ -894,6 +894,7 @@ const ROUTES: RouteMethods = {
 	"/dashboard-model-access.js": ["GET", "HEAD"],
 	"/dashboard-topology.js": ["GET", "HEAD"],
 	"/dashboard-topology-model.js": ["GET", "HEAD"],
+	"/dashboard-wallclock.js": ["GET", "HEAD"],
 	"/dashboard-state.js": ["GET", "HEAD"],
 	"/vendor/lit.js": ["GET", "HEAD"],
 	"/vendor/uPlot.iife.min.js": ["GET", "HEAD"],
@@ -1033,7 +1034,8 @@ Bun.serve({
 		if (
 			path === "/dashboard-model-access.js" ||
 			path === "/dashboard-topology.js" ||
-			path === "/dashboard-topology-model.js"
+			path === "/dashboard-topology-model.js" ||
+			path === "/dashboard-wallclock.js"
 		)
 			return new Response(Bun.file(`${import.meta.dir}${path}`), {
 				headers: { "content-type": "text/javascript; charset=utf-8" },
