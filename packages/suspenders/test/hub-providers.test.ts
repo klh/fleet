@@ -17,6 +17,7 @@ import { join } from "node:path";
 import {
 	PROVIDER_ENV_FILENAME,
 	centralProviderProfiles,
+	providerIdentityByEnv,
 	renderProviderEnv,
 	requiredProviders,
 	tryLoadProviderConfig,
@@ -140,6 +141,34 @@ test("centralProviderProfiles exposes names/bindings/endpoints — never key mat
 		},
 	]);
 	expect(JSON.stringify(rows)).not.toContain("zk-live"); // scrub:allow
+});
+
+test("providerIdentityByEnv maps env bindings to non-secret identity — never keys", () => {
+	const id = providerIdentityByEnv(
+		{ provider_requirements: ["zai-coding"] },
+		PROVIDERS,
+	);
+	expect(id).toEqual({
+		Z_AI_API_KEY: { provider: "zai", providerProfile: "zai-coding" },
+	});
+	expect(JSON.stringify(id)).not.toContain("zk-"); // scrub:allow
+	// soft: unknown, unbound, or absent config contribute no identity
+	expect(
+		providerIdentityByEnv({ provider_requirements: ["ghost"] }, PROVIDERS),
+	).toEqual({});
+	expect(
+		providerIdentityByEnv(
+			{ provider_requirements: ["keyless"] },
+			{ keyless: { provider: "zai", key: "zk-x" } },
+		),
+	).toEqual({});
+	expect(providerIdentityByEnv({})).toEqual({});
+	expect(
+		providerIdentityByEnv(
+			{ provider_requirements: ["zai-coding"] },
+			{} as never,
+		),
+	).toEqual({});
 });
 
 test("hubctl push materializes provider.env ON the target — 0600, env names, no key on stdout", () => {

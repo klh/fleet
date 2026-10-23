@@ -55,6 +55,7 @@ import {
 } from "../hooks/lib/stack-config.ts";
 import {
 	PROVIDER_ENV_FILENAME,
+	providerIdentityByEnv,
 	renderProviderEnv,
 	requiredProviders,
 } from "../hooks/lib/hub-providers.ts";
@@ -318,11 +319,30 @@ function redactedRender(envText: string): string {
  *  keeps merge-over-base through its own UNFLAGGED override file. Always
  *  rendered: compose mounts it. */
 function renderUpstreams(hub: HubProfile): string {
-	return stringify({
-		version: 1,
-		inherit_defaults: false,
-		groups: mergeZaiHubUpstreams(hub, mergedHubUpstreams(hub)),
-	});
+	// W1124.8.2.1 / C74: stamp non-secret central-provider identity onto
+	// deployment rows whose key env matches a required profile's binding
+	// (soft — unknown/unbound profiles leave rows untouched, never keys).
+	const identity = providerIdentityByEnv(hub);
+	const groups = Object.fromEntries(
+		Object.entries(mergeZaiHubUpstreams(hub, mergedHubUpstreams(hub))).map(
+			([group, rows]) => [
+				group,
+				rows.map((row) => {
+					const env =
+						typeof row.api_key_env === "string" ? row.api_key_env : null;
+					const id = env ? identity[env] : undefined;
+					return id
+						? {
+								...row,
+								provider: id.provider,
+								providerProfile: id.providerProfile,
+							}
+						: row;
+				}),
+			],
+		),
+	);
+	return stringify({ version: 1, inherit_defaults: false, groups });
 }
 
 /** W983: the hub's Buckle owner prefs in loadPrefs' exact shape (buckle

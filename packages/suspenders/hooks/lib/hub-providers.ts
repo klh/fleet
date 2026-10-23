@@ -84,3 +84,25 @@ export function centralProviderProfiles(
 		endpoints: { ...(p.endpoints ?? {}) },
 	}));
 }
+
+/** C74 (W1124.23.1): non-secret provider identity per env binding — the
+ *  generator-side stamp for upstreams.hub.yaml deployment rows. SOFT: an
+ *  unknown profile, an unbound profile, or an unloadable provider config
+ *  simply contributes no identity (render never dies on operator config);
+ *  raw key material never enters the map. */
+export function providerIdentityByEnv(
+	hub: Pick<HubProfile, "provider_requirements">,
+	providers?: Record<string, ProviderEntry>,
+): Record<string, { provider: string; providerProfile: string }> {
+	const names = hub.provider_requirements ?? [];
+	if (names.length === 0) return {};
+	const map = providers ?? tryLoadProviderConfig();
+	if (!map) return {};
+	const out: Record<string, { provider: string; providerProfile: string }> = {};
+	for (const name of names) {
+		const r = resolveProvider(name, map);
+		if (!r?.env) continue;
+		out[r.env] = { provider: r.provider, providerProfile: r.name };
+	}
+	return out;
+}
