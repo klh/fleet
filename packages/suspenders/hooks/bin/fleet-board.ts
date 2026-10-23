@@ -33,7 +33,10 @@ import { recoverDecisionEvals } from "../board/decide-eval.ts";
 import { setEnterpriseProvider } from "../board/ent-seam.ts";
 import { enforceIam } from "../board/iam-enforce.ts";
 import { getIamGate, setIamGate } from "../board/iam-seam.ts";
-import { handleKnowledgeIngest } from "../board/knowledge-ingest.ts";
+import {
+	handleKnowledgeIngest,
+	handleKnowledgeRoll,
+} from "../board/knowledge-ingest.ts";
 import { ensureLaneObservations } from "../board/lane-observations.ts";
 import { ensureLaneReadModel } from "../board/lane-read-model.ts";
 import { startObservationRelay } from "../board/observation-relay.ts";
@@ -146,6 +149,7 @@ const base = {
 			handleLaneModel,
 			handleObservations,
 			handleKnowledgeIngest,
+			handleKnowledgeRoll,
 			handleFleetTree,
 			handleData,
 			handleUsage,
