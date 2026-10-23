@@ -214,3 +214,13 @@ remote trace connector's allowlisted projection, which would have hidden remote
 transport evidence at the origin. The corrected projection uses the same bounded
 validator, tested over actual authenticated HTTP against the real hop ledger.
 The caller/timer race fixture also preserves the first local cancellation cause.
+
+# W1124.27.1 - a fixture cannot broaden the native connector contract
+
+W1124.27's first fixture treated every leading system/developer run as supported,
+but the actual installed converter extracts only a contiguous system prefix.
+Developer then system, or system/developer/system, still became a system input
+item and would reproduce the original backend refusal. All-system input has a
+separate native fallback with the same outcome. Six new regression cases failed
+before the correction; these orders now typed-refuse before fetch rather than
+folding, reordering or dropping instructions. No provider probe was used.

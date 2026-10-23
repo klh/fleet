@@ -17,10 +17,10 @@ import {
 	responseAnthropicToOpenAI,
 	responseOpenAIToAnthropic,
 } from "./adapters/tools.ts";
-import { SSE_KEEPALIVE } from "./sse.ts";
-import type { UpstreamRequest } from "./router.ts";
-import type { Deployment, Dialect } from "./upstreams.ts";
 import { chatgptSafeBody, isChatgptGroupModel } from "./chatgpt-bridge.ts";
+import type { UpstreamRequest } from "./router.ts";
+import { SSE_KEEPALIVE } from "./sse.ts";
+import type { Deployment, Dialect } from "./upstreams.ts";
 
 type AnyRec = Record<string, unknown>;
 
@@ -38,15 +38,10 @@ export function bridgeRequest(
 	dep: Deployment,
 ): UpstreamRequest | null {
 	if (dep.dialect === req.dialect) {
-		// W1124.27: same-dialect openai hops toward a LiteLLM chatgpt group
-		// (native provider, mode: responses — chat completions bridge) pass
-		// the client body through the native converter, which maps ONLY
-		// leading string system/developer to `instructions`; every other
-		// system-class shape rides input[].role=system and the codex backend
-		// 400s it. Normalize the native-equivalent shapes; a body the native
-		// connector has no equivalent for (mid-turn instructions, non-text
-		// instruction content) makes the hop ineligible — null = the walk
-		// skips this rung and falls back verbatim (skip-not-fail, W426 law).
+		// The native ChatGPT converter extracts only a leading string SYSTEM
+		// prefix. Normalize equivalent text shapes, preserving roles/order;
+		// unsupported instruction shapes make this rung ineligible and the
+		// walk falls back verbatim (skip-not-fail, W426 law).
 		if (
 			req.dialect === "openai" &&
 			req.path === PATH.openai &&

@@ -1,29 +1,13 @@
-// src/chatgpt-bridge.ts — W1124.27: keep instruction authority through the
-// native ChatGPT Responses fallback conversion. LiteLLM's native chatgpt
-// bridge maps ONLY leading STRING system/developer content to Responses
-// `instructions`; block-valued leading content and mid-turn system/developer
-// messages stay `input[].role=system`, which the ChatGPT codex backend
-// rejects with 400 {"detail":"System messages are not allowed"} (live-probed
-// against chatgpt/gpt-6-sol via :4100, 2026-10-23: leading string 200,
-// leading block 400, mid-turn system 400, mid-turn developer 400, leading
-// developer 200, tools 200 with a real function_call).
+// Native ChatGPT Responses fallback: the installed LiteLLM converter extracts
+// only a contiguous leading string SYSTEM run into instructions. Developer
+// messages retain their role in input and end that extraction prefix. Any
+// later/non-string system remains a system input item, which the backend
+// refuses. With no other input, all-system instructions also become such an
+// item (the native empty-input fallback).
 //
-// Mapping law (owner correction 2026-10-23): normalize ONLY where the native
-// documented semantics are equivalent — a leading run of string/pure-text-
-// block instructions keeps role and order and lands in `instructions` either
-// way, so flattening pure `type:"text"` blocks to their joined string is
-// textual. Everything the native connector has no equivalent for — mid-turn
-// instructions (position would change) and non-text instruction content —
-// is TYPED-REFUSED: the hop is ineligible, the walk falls to the next rung,
-// nothing is mangled and nothing is dropped.
-//
-// The native connector supports two instruction faces (instructions field,
-// plus string leading system/developer that becomes it) and passes tool
-// definitions through verbatim. It offers NO system-class input slot — the
-// backend refuses developer-in-input too. So mid-turn system/developer text
-// cannot keep its turn position natively; folding it into the instructions
-// block is the only mapping that never demotes it to user authority and
-// never drops it. Turn order of user/assistant/tool messages is untouched.
+// Normalize pure text blocks only while retaining message role and order.
+// Unsupported order/content typed-refuses this rung before fetch; the next
+// rung receives the untouched request. Never fold, demote or drop instructions.
 type AnyRec = Record<string, unknown>;
 
 export type ChatgptInstructionPlan =
@@ -31,7 +15,11 @@ export type ChatgptInstructionPlan =
 	| { kind: "normalize"; messages: unknown[]; flattened: number }
 	| {
 			kind: "refuse";
-			reason: "mid-turn-instruction" | "non-text-instruction-content";
+			reason:
+				| "mid-turn-instruction"
+				| "non-text-instruction-content"
+				| "system-after-developer"
+				| "system-only-input";
 	  };
 
 /** Text of a string or pure `type:"text"` block content; null = the native
@@ -64,16 +52,21 @@ export function chatgptInstructionPlan(
 	if (!Array.isArray(messages)) return { kind: "passthrough" };
 	const out: AnyRec[] = [];
 	let sawTurn = false;
+	let hasNativeInput = false;
 	let flattened = 0;
 	let changed = false;
 	for (const message of messages) {
 		const rec = message as AnyRec | null;
 		if (!isInstructionRole(rec?.role)) {
 			sawTurn = true;
+			hasNativeInput = true;
 			out.push(rec);
 			continue;
 		}
 		if (sawTurn) return { kind: "refuse", reason: "mid-turn-instruction" };
+		if (rec.role === "system" && hasNativeInput)
+			return { kind: "refuse", reason: "system-after-developer" };
+		if (rec.role === "developer") hasNativeInput = true;
 		const text = textOfContent(rec.content);
 		if (text === null)
 			return { kind: "refuse", reason: "non-text-instruction-content" };
@@ -83,6 +76,8 @@ export function chatgptInstructionPlan(
 			out.push({ ...rec, content: text });
 		} else out.push(rec);
 	}
+	if (messages.length > 0 && !hasNativeInput)
+		return { kind: "refuse", reason: "system-only-input" };
 	if (!changed) return { kind: "passthrough" };
 	return { kind: "normalize", messages: out, flattened };
 }

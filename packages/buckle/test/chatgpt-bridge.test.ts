@@ -1,5 +1,5 @@
 // test/chatgpt-bridge.test.ts — W1124.27 instruction-plan unit contract:
-// leading string system/developer passes through (native instructions path),
+// leading string system/developer passes through (roles/order unchanged),
 // leading pure-text-block content flattens textually, mid-turn
 // system/developer and non-text instruction content TYPED-REFUSE the hop
 // (the backend offers no system-class input slot — live probes 2026-10-23:
@@ -136,4 +136,83 @@ describe("chatgpt-bridge body + group detection", () => {
 		expect(isChatgptGroupModel("gpt-6-sol")).toBe(false);
 		expect(isChatgptGroupModel(undefined)).toBe(false);
 	});
+});
+
+test.each([
+	[
+		"developer then system",
+		[
+			{ role: "developer", content: "A" },
+			{ role: "system", content: "B" },
+			{ role: "user", content: "hello" },
+		],
+	],
+	[
+		"system/developer/system",
+		[
+			{ role: "system", content: "A" },
+			{ role: "developer", content: "B" },
+			{ role: "system", content: "C" },
+			{ role: "user", content: "hello" },
+		],
+	],
+])("refuses %s without changing instruction chronology", (_name, messages) => {
+	const before = structuredClone(messages);
+	expect(chatgptInstructionPlan(messages)).toEqual({
+		kind: "refuse",
+		reason: "system-after-developer",
+	});
+	expect(messages).toEqual(before);
+});
+
+test("all-system input refuses the native connector's system-input fallback", () => {
+	expect(chatgptInstructionPlan([{ role: "system", content: "A" }])).toEqual({
+		kind: "refuse",
+		reason: "system-only-input",
+	});
+	expect(
+		chatgptInstructionPlan([
+			{ role: "system", content: [{ type: "text", text: "A" }] },
+		]),
+	).toEqual({ kind: "refuse", reason: "system-only-input" });
+});
+
+test("supported leading system/developer run preserves all tool turns and definitions", () => {
+	const tail = [
+		{ role: "user", content: "hello" },
+		{
+			role: "assistant",
+			content: null,
+			tool_calls: [
+				{
+					id: "call1",
+					type: "function",
+					function: { name: "lookup", arguments: '{"q":"x"}' },
+				},
+			],
+		},
+		{ role: "tool", tool_call_id: "call1", content: "result" },
+	];
+	const tools = [
+		{
+			type: "function",
+			function: { name: "lookup", parameters: { type: "object" } },
+		},
+	];
+	const body = {
+		messages: [
+			{ role: "system", content: [{ type: "text", text: "A" }] },
+			{ role: "developer", content: "B" },
+			...tail,
+		],
+		tools,
+	};
+	const normalized = chatgptSafeBody(body);
+	expect(normalized?.messages).toEqual([
+		{ role: "system", content: "A" },
+		{ role: "developer", content: "B" },
+		...tail,
+	]);
+	expect(normalized?.tools).toBe(tools);
+	expect((normalized?.messages as unknown[])?.slice(2)).toEqual(tail);
 });

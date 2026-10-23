@@ -10,7 +10,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "../src/server.ts";
-import { startMockUpstream, type MockUpstream } from "./mock.ts";
+import { type MockUpstream, startMockUpstream } from "./mock.ts";
 
 const PRIOR_LITELLM_KEY = process.env.LITELLM_KEY;
 const ENGINE_KEY = "litellm-master-key-fixture";
@@ -30,16 +30,22 @@ const CHATGPT_REFUSAL =
 const codexRefusal = (body: Record<string, unknown> | null): boolean => {
 	const messages = body?.messages;
 	if (!Array.isArray(messages)) return false;
-	let sawTurn = false;
-	for (const m of messages as Array<Record<string, unknown>>) {
-		const role = m?.role;
-		if (role !== "system" && role !== "developer") {
-			sawTurn = true;
-			continue;
+	// Mirrors installed LiteLLM's leading_system_count, not a broader
+	// system/developer run. A developer goes into input and ends extraction.
+	let leadingSystems = true;
+	let inputItems = 0;
+	for (const raw of messages) {
+		const m = raw as Record<string, unknown>;
+		if (m.role === "system") {
+			if (!leadingSystems || typeof m.content !== "string") return true;
+		} else {
+			leadingSystems = false;
+			inputItems++;
 		}
-		if (sawTurn || typeof m.content !== "string") return true;
 	}
-	return false;
+	// transform_request moves all-system instructions back into input when
+	// no other input remains; the backend rejects this system-role item too.
+	return messages.length > 0 && inputItems === 0;
 };
 
 // ─── fixtures ───────────────────────────────────────────────────────────────
@@ -284,3 +290,60 @@ describe("W1124.27 chatgpt native bridge regression", () => {
 		}
 	});
 });
+
+test.each([
+	[
+		"developer/system",
+		[
+			{ role: "developer", content: "A" },
+			{ role: "system", content: "B" },
+			{ role: "user", content: "hi" },
+		],
+	],
+	[
+		"system/developer/system",
+		[
+			{ role: "system", content: "A" },
+			{ role: "developer", content: "B" },
+			{ role: "system", content: "C" },
+			{ role: "user", content: "hi" },
+		],
+	],
+	["all system strings", [{ role: "system", content: "A" }]],
+	["all system", [{ role: "system", content: [{ type: "text", text: "A" }] }]],
+])(
+	"native-unsupported %s is skipped BEFORE fetch and falls back verbatim",
+	async (_name, messages) => {
+		const engine = await startChatgptEngineFixture(),
+			control = await startFallbackFixture();
+		const gate = await startGate(engine.up, control);
+		try {
+			const body = { model: CHATGPT_MODEL, messages };
+			const raw = await fetch(`${engine.up.url}${CHAT}`, {
+				method: "POST",
+				headers: { authorization: `Bearer ${ENGINE_KEY}` },
+				body: JSON.stringify(body),
+			});
+			expect(raw.status).toBe(400);
+			const key = await issueViaAdmin(gate.base, {
+				name: "ordering-regression",
+				scopes: ["buckle:proxy:WRITE_"],
+			});
+			const response = await fetch(`${gate.base}${CHAT}`, {
+				method: "POST",
+				headers: { authorization: `Bearer ${key}` },
+				body: JSON.stringify(body),
+			});
+			expect(response.status).toBe(200);
+			expect(
+				((await response.json()) as ChatOut).choices[0]?.message?.content,
+			).toBe("fallback");
+			expect(chatCalls(engine.up)).toHaveLength(1); // only the deliberate raw negative, no gate fetch
+			expect(chatCalls(control)[0]?.body?.messages).toEqual(messages);
+		} finally {
+			gate.stop();
+			engine.up.close();
+			control.close();
+		}
+	},
+);
