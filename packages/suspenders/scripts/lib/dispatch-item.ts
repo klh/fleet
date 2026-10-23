@@ -24,7 +24,7 @@ import {
 // — dispatch composes adapter.spawnArgs/verifyBrief-harness, no per-agent
 // branches. The spawn-args INTERFACE lives in scripts/lib/lane.ts.
 import { adapterFor } from "../../hooks/lib/executors/registry.ts";
-import { openStore } from "../../hooks/lib/govdb.ts";
+import { openStore, projectIdentity } from "../../hooks/lib/govdb.ts";
 import { resolveHub } from "../../hooks/lib/hub-locate.ts";
 import { dispatchLaneEffort } from "../../hooks/lib/lane-effort-policy.ts";
 import { laneProcessIdentity } from "../../hooks/lib/lane-liveness.ts";
@@ -43,6 +43,7 @@ import {
 // W422: BIN is the installed suspenders prefix — the worktree/work CLI spawn
 // tail and the lane --settings builder both need it here.
 import { BIN } from "./brief.ts";
+import { briefVerdictLine, verifyBrief } from "./brief-verify.ts";
 import type {
 	DispatchLane as Lane,
 	RouteAdmission,
@@ -61,12 +62,14 @@ import {
 	applyLaneAttribution,
 	executorLaunch,
 	laneEnv,
+	probeBuckleFront,
 	recreateWorktreeFor,
 	residueOf,
 	spawnClaude,
 } from "./lane.ts";
 import { ensureLaneKey, LANE_KEY_TTL_S, laneKeyMetaPath } from "./lane-auth.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lane-retry-budget.ts";
+import { laneSettingsData } from "./lane-settings.ts";
 import { dispatchStarterFork, starterStartLine } from "./lane-starter.ts";
 import {
 	parkExhaustedLaunch,
@@ -138,6 +141,7 @@ const recreateWorktree = (
 /** one item → claim, worktree, brief, daemonized lane. Returns the summary
  *  fragment or null when the item cannot be taken (claimed elsewhere). */
 export const dispatchItem = async (
+	deps: DispatchItemDeps,
 	item: string,
 	lanes: Lane[],
 	resume?: Lane,
