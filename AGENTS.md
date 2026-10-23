@@ -64,6 +64,10 @@ depends on fleet; local-only until its GitHub push — W422.9/W422.1).
   that affect lanes (what/who/exact command).
 - Per-package AGENTS.md files are each subtree's canonical docs — they are
   the package-level truth; this root file is the stack-wide law.
+- Tests ride the kit: new tests MUST use the kit (`packages/test-kit/` —
+  `scratchWorld`/`runCli`/`freePort`/`waitUp`/`serveStub`) instead of
+  hand-rolled mkdtemp/spawn/port/stub helpers (W1135.1.3; migrating the
+  existing suites is W1135.1.4/.1.5).
 
 ## Supervisor reporting (W892, installed face W899/W906)
 
