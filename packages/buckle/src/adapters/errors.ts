@@ -1,31 +1,28 @@
-import { safeRefusalCode } from "../../../telemetry/src/http-trace.ts";
-import { upstreamErrorDetail } from "../error-detail.ts";
 // src/adapters/errors.ts — the RouterError taxonomy (W134 §1): seven
 // normalized kinds with per-family mappings — family exception types never
 // leak past this file (LiteLLM exceptions.py anchors :131/:355/:441/:534/
 // :663/:852). retry-after is honored from the header (both forms) or the
 // body error.metadata; the ladder keys retry policy on kind + retryable.
+import { safeRefusalCode } from "../../../telemetry/src/http-trace.ts";
+import { upstreamErrorDetail } from "../error-detail.ts";
+import { KINDS } from "../../../telemetry/src/http-kit.ts";
+import type { SemanticKind } from "../../../telemetry/src/http-kit.ts";
 import { retryAfterS } from "../cooldown.ts";
 import type { AdapterFamily } from "./types.ts";
 
-export type ErrorKind =
+/** The adapter ladder's kinds are the shared kit's failure kinds (W1238.5):
+ *  one vocabulary from service to HTTP to UI; provider detail rides beside
+ *  the kind, never instead of it. */
+export type ErrorKind = Extract<
+	SemanticKind,
 	| "rate_limited"
 	| "overloaded"
 	| "timeout"
 	| "network"
 	| "auth"
 	| "bad_request"
-	| "server";
-
-const RETRYABLE: Record<ErrorKind, boolean> = {
-	rate_limited: true,
-	overloaded: true,
-	timeout: true,
-	network: true,
-	server: true,
-	auth: false,
-	bad_request: false,
-};
+	| "server"
+>;
 
 /** One upstream failure, normalized. kind + retryable drive the ladder;
  *  contextWindow flags the bad_request subclass the ladder reacts to
@@ -46,10 +43,11 @@ export class RouterError extends Error {
 		super(message);
 	}
 
-	/** retryable per the W134 §1 table: rate_limited/overloaded/timeout/
-	 *  network/server yes; auth/bad_request no. */
+	/** retryable per the W134 §1 table, derived from the kit's ONE kind
+	 *  table: rate_limited/overloaded/timeout/network/server yes;
+	 *  auth/bad_request no. */
 	get retryable(): boolean {
-		return RETRYABLE[this.kind];
+		return KINDS[this.kind].retryable;
 	}
 }
 

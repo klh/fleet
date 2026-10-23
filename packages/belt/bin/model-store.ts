@@ -43,6 +43,7 @@ import {
 	type SyncReport,
 } from "./model-store-lib.ts";
 import { loadCatalog } from "../../local-llm/models.catalog.ts";
+import { capRetryAfterS } from "../../telemetry/src/http-kit.ts";
 
 // ─── knobs (config-over-code: env names here, values in machine config) ───
 
@@ -248,8 +249,9 @@ export function createApp(deps: AppDeps): {
 			const v = deps.authorizer.authorize(req.headers);
 			if (!v.ok) {
 				const h: Record<string, string> = {};
+				// W1238.5: the kit's ONE cap bounds a quota-wall hint
 				if (v.retryAfterS !== null && v.retryAfterS !== undefined)
-					h["retry-after"] = String(v.retryAfterS);
+					h["retry-after"] = String(capRetryAfterS(v.retryAfterS));
 				return Response.json(
 					{ error: v.why, code: v.code },
 					{ status: v.status, headers: h },

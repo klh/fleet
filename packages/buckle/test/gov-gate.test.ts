@@ -441,7 +441,8 @@ describe("gate: W468 admission-control slots", () => {
 		);
 		expect(second.headers.get("retry-after")).toBe("2");
 		expect(second.headers.get("x-klh-service")).toBe("buckle");
-		expect(second.headers.get("x-klh-refusal")).toBe("buckle");
+		// W1238.5: one kit — refusal = the stable code's suffix
+		expect(second.headers.get("x-klh-refusal")).toBe("slot_exhausted");
 		expect(second.headers.get("x-klh-upstream-status")).toBeNull();
 		release();
 		expect((await first).status).toBe(200);

@@ -8,6 +8,7 @@
 // outlier ejection (allowed_fails consecutive failures bench a deployment
 // for cooldown_time seconds; success resets the counter — cooldown_cache /
 // cooldown_handlers semantics at fixed-policy scale).
+import { parseRetryAfterS } from "../../telemetry/src/http-kit.ts";
 import type { Deployment } from "./upstreams.ts";
 
 /** Backoff delay in seconds before the next same-tier attempt. The provider
@@ -33,18 +34,13 @@ export function retryDelayS(
 }
 
 /** retry-after header value in delta seconds, honoring both forms LiteLLM
- *  accepts: delta-seconds and HTTP-date form. */
+ *  accepts: delta-seconds and HTTP-date form. Parses via the shared kit
+ *  (W1238.5) — one rule fleet-wide: negative/garbage hints are no hint. */
 export function retryAfterS(
 	h: Headers,
 	now: () => number = Date.now,
 ): number | null {
-	const raw = h.get("retry-after");
-	if (raw === null) return null;
-	const delta = Number(raw);
-	if (Number.isFinite(delta)) return Math.max(0, delta);
-	const at = Date.parse(raw);
-	if (Number.isFinite(at)) return Math.max(0, (at - now()) / 1000);
-	return null;
+	return parseRetryAfterS(h, now);
 }
 
 /** Consecutive-failure ejection state (allowed_fails: consecutive failures

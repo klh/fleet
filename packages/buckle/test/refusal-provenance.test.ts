@@ -65,14 +65,15 @@ function expectCorrelation(response: Response): void {
 	expect(response.headers.get("x-klh-attempts")).not.toBeNull();
 }
 
-test("generated local refusal says buckle and carries no upstream status", async () => {
+test("generated local refusal names the code suffix and carries no upstream status", async () => {
 	const response = problem({
 		status: 429,
 		code: "buckle.overloaded",
 		why: "local cap",
 	});
 	expect(response.headers.get("x-klh-service")).toBe("buckle");
-	expect(response.headers.get("x-klh-refusal")).toBe("buckle");
+	// W1238.5: one kit — refusal = the stable code's suffix (belt's W1081 rule)
+	expect(response.headers.get("x-klh-refusal")).toBe("overloaded");
 	expect(response.headers.get("x-klh-upstream-status")).toBeNull();
 });
 

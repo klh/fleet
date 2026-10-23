@@ -6,6 +6,7 @@
 // without echoing hashes.
 import { beginDrain, drainInfo } from "../drain.ts";
 import { allowOf, methodNotAllowed, problem } from "../citizenship.ts";
+import { idempotentPost } from "../../../telemetry/src/http-kit.ts";
 import { readBoundedJson } from "../ingress-body.ts";
 import { readBeltTrace } from "../../../telemetry/src/trace-log.ts";
 import { readRemoteTraces } from "../../../telemetry/src/remote-traces.ts";
@@ -113,7 +114,9 @@ export async function handleAdmin(
 	const path = url.pathname;
 	const method = req.method;
 	if (method === "POST" && path === "/v1/admin/keys") {
-		return issueKey(req, p, gov);
+		// W1238.5 Idempotency-Key replay: a timed-out mint retry must never
+		// double-mint — the kit stores the first JSON answer and replays it.
+		return idempotentPost(req, "buckle", (r) => issueKey(r, p, gov));
 	}
 	if (method === "GET" && path === "/v1/admin/keys") {
 		return ok({ keys: gov.keys.listKeys() });

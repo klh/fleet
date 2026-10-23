@@ -65,7 +65,9 @@ describe("problem+json (RFC 9457)", () => {
 		expect(res.headers.get("retry-after")).toBe("7");
 		const body = (await res.json()) as Record<string, unknown>;
 		expect(body).toEqual({
-			type: "about:blank",
+			// W1238.5: the kit's semantic kind rides type + kind on every body
+			type: "/problems/rate_limited",
+			kind: "rate_limited",
 			title: "Too Many Requests",
 			status: 429,
 			detail: "slow down",

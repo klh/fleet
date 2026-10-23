@@ -12,6 +12,7 @@ import { envInt } from "./admission.ts";
 import { EXTERNAL, type Specialist } from "./registry.ts";
 import { anthropicMessagesToOpenAi } from "./router-tools.ts";
 import { childTraceparent } from "../../telemetry/src/http-trace.ts";
+import { parseRetryAfterS } from "../../telemetry/src/http-kit.ts";
 import {
 	emptyStreamError,
 	StreamSemantics,
@@ -435,16 +436,15 @@ export const RETRY_WAIT_CAP_MS = envInt(
 	0,
 );
 
-/** Retry-After (delta-seconds or HTTP-date) → ms; undefined when absent/bad. */
+/** Retry-After (delta-seconds or HTTP-date) → ms; undefined when absent/bad.
+ *  W1238.5: the kit owns the parse rule (negative/garbage = no hint); belt
+ *  widens null → undefined and scales seconds → ms. */
 export function retryAfterMs(
 	h: string | null,
 	now = Date.now(),
 ): number | undefined {
-	if (h === null || h.trim() === "") return undefined;
-	const s = Number(h);
-	if (Number.isFinite(s)) return s >= 0 ? Math.round(s * 1000) : undefined;
-	const at = Date.parse(h);
-	return Number.isNaN(at) ? undefined : Math.max(0, at - now);
+	const s = parseRetryAfterS(h, () => now);
+	return s === null ? undefined : Math.round(s * 1000);
 }
 
 // ─── per-request timings (W257) ───

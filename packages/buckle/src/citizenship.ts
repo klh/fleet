@@ -1,10 +1,13 @@
-// src/citizenship.ts — the http-citizenship standard's shared seams
-// (docs/design/http-citizenship.md, W155): problem+json bodies carrying the
-// stable buckle.* code in `code`, method introspection (OPTIONS 204, 405 +
-// Allow) off ONE route table, and the rate-limit header trio in both
-// families. The gate (gov/middleware.ts), the wire handlers, the admin API
-// and servicemon all code to this module — one source of truth per pattern.
-import { stampHopHeaders } from "../../telemetry/src/http-trace.ts";
+// src/citizenship.ts — buckle's face of the shared HTTP-citizenship kit
+// (packages/telemetry/src/http-kit.ts, W1238.5): problem+json bodies carry
+// the stable buckle.* code in `code` plus the shared semantic `kind`, method
+// introspection (OPTIONS 204, 405 + Allow) off ONE route table, and the
+// rate-limit header trio in both families. The gate (gov/middleware.ts), the
+// wire handlers, the admin API and servicemon all code to this module — one
+// source of truth per pattern; the wire shape and the kind vocabulary live
+// in the kit.
+import { problem as kitProblem } from "../../telemetry/src/http-kit.ts";
+import type { SemanticKind } from "../../telemetry/src/http-kit.ts";
 
 export const PROBLEM_SLUGS: Record<number, string> = {
 	400: "bad_request",
@@ -21,23 +24,10 @@ export const PROBLEM_SLUGS: Record<number, string> = {
 	504: "upstream_timeout",
 };
 
-const TITLES: Record<number, string> = {
-	400: "Bad Request",
-	401: "Unauthorized",
-	403: "Forbidden",
-	404: "Not Found",
-	405: "Method Not Allowed",
-	409: "Conflict",
-	422: "Unprocessable Content",
-	429: "Too Many Requests",
-	500: "Internal Server Error",
-	502: "Bad Gateway",
-	503: "Service Unavailable",
-	504: "Gateway Timeout",
-};
-
 export interface ProblemInput {
 	status: number;
+	/** Semantic kind (the kit's vocabulary). Defaults from the status. */
+	kind?: SemanticKind;
 	/** Stable machine code — buckle.* for the gate/admin family, the W140
 	 *  route codes (bad_hint, no_healthy_fit, cloud_forbidden, no_route)
 	 *  for router refusals. Never renamed, only added to. */
@@ -50,26 +40,21 @@ export interface ProblemInput {
 }
 
 /** RFC 9457 problem+json with the fleet extensions: `code` (stable machine
- *  code), `why` (human detail), `agent_next_steps` (machine-actionable
- *  recovery). Curated strings only — internals never leak. */
+ *  code), `why` (human detail), `kind` (the shared semantic kind, identical
+ *  at every hop) and `agent_next_steps` (machine-actionable recovery).
+ *  Delegates to the kit's ONE builder — buckle passes its identity only. */
 export function problem(p: ProblemInput): Response {
-	const body = {
-		type: `/problems/${PROBLEM_SLUGS[p.status] ?? "problem"}`,
-		title: TITLES[p.status] ?? "Problem",
+	return kitProblem({
+		service: "buckle",
 		status: p.status,
-		detail: p.why,
-		...(p.instance === undefined ? {} : { instance: p.instance }),
+		kind: p.kind,
 		code: p.code,
 		why: p.why,
-		...(p.next === undefined ? {} : { agent_next_steps: p.next }),
-	};
-	const h = new Headers({
-		"content-type": "application/problem+json",
-		...(p.challenge === undefined ? {} : { "www-authenticate": p.challenge }),
+		instance: p.instance,
+		next: p.next,
+		challenge: p.challenge,
+		headers: p.headers,
 	});
-	for (const [k, v] of Object.entries(p.headers ?? {})) h.set(k, v);
-	stampHopHeaders(h, { service: "buckle", refusal: "buckle" });
-	return new Response(JSON.stringify(body), { status: p.status, headers: h });
 }
 
 /** The wire route table: path → Allow value. null = unknown path (404).

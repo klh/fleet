@@ -1,15 +1,17 @@
-// http-citizenship.ts — W155.3: belt's own endpoints code to the fleet HTTP
-// citizenship standard (suspenders docs/design/http-citizenship.md):
-// OPTIONS → 204 + Allow, 405 + Allow on known paths (problem+json bodies),
-// strong ETag + 304 on GET-able JSON, and the rate-limit trio (IETF draft +
-// de-facto families) on the authenticated /api/route. Pure helpers plus a
-// method gate; dashboard.ts owns the routes and passes its method map in —
-// one source of truth, no route table duplicated here.
+// http-citizenship.ts — belt's face of the shared HTTP-citizenship kit
+// (packages/telemetry/src/http-kit.ts, W1238.5): problem+json via the kit's
+// ONE builder (belt identity: service belt, hop ingress), conditional GET
+// re-exported from the kit, and the rate-limit trio on the authenticated
+// /api/route with the kit's capped Retry-After. The method gate stays local
+// — dashboard.ts owns the routes and passes its method map in.
 
 // ─── problem+json (RFC 9457) — error bodies for the gate and the limiter ───
 // W1081: every problem envelope names its emitter — x-klh-service is fixed
 // (belt owns this module), callers pass more identity via `headers`.
-import { stampHopHeaders } from "../../telemetry/src/http-trace.ts";
+import {
+	capRetryAfterS,
+	problem as kitProblem,
+} from "../../telemetry/src/http-kit.ts";
 
 export const problem = (
 	status: number,
@@ -20,35 +22,19 @@ export const problem = (
 	why?: string,
 	headers?: Record<string, string>,
 ): Response => {
-	const res = new Response(
-		JSON.stringify(
-			{
-				type: "about:blank",
-				title,
-				status,
-				detail,
-				instance,
-				code,
-				...(why ? { why } : {}),
-			},
-			null,
-			2,
-		),
-		{
-			status,
-			headers: {
-				"content-type": "application/problem+json",
-				...(headers ?? {}),
-			},
-		},
-	);
-	// W1081: refusal codes name the refusing belt face — the envelope is
-	// attributable from headers alone (x-klh-refusal = the stable code).
-	stampHopHeaders(res.headers, {
+	const res = kitProblem({
 		service: "belt",
 		hop: "ingress",
-		refusal: code.split(".").pop(),
+		status,
+		code,
+		why: why ?? detail,
+		detail,
+		instance,
+		title,
+		headers,
 	});
+	// W1081: refusal codes name the refusing belt face — the kit stamps
+	// x-klh-refusal = the stable code's suffix.
 	return res;
 };
 
@@ -94,35 +80,12 @@ export const citizenshipGate = (
 };
 
 // ─── conditional GET — strong ETag (content hash), weak If-None-Match ───
-export const etagOf = (body: string): string =>
-	`"${new Bun.CryptoHasher("sha256").update(body).digest("hex").slice(0, 32)}"`;
-
-/** If-None-Match weak comparison (RFC 7232 §2.3): the W/ prefix is ignored
- *  and any list entry (or `*`) matches. */
-export const ifNoneMatchHits = (
-	header: string | null,
-	etag: string,
-): boolean => {
-	if (header === null) return false;
-	const bare = etag.replace(/^W\//, "");
-	return header
-		.split(",")
-		.map((t) => t.trim().replace(/^W\//, ""))
-		.some((t) => t === "*" || t === bare);
-};
-
-/** JSON response with a strong ETag; an If-None-Match hit answers 304 with
- *  the ETag echo and no body (the standard's conditional-GET row). */
-export const etagJson = (req: Request, body: string): Response => {
-	const etag = etagOf(body);
-	const headers: Record<string, string> = {
-		"content-type": "application/json",
-		etag,
-	};
-	if (ifNoneMatchHits(req.headers.get("if-none-match"), etag))
-		return new Response(null, { status: 304, headers });
-	return new Response(body, { status: 200, headers });
-};
+// W1238.5: the kit owns these now; belt re-exports for its callers.
+export {
+	etagJson,
+	etagOf,
+	ifNoneMatchHits,
+} from "../../telemetry/src/http-kit.ts";
 
 // ─── rate limiting — fixed 60s window per bearer token on /api/route.
 // Budget name `rpm` mirrors the govdb budget shapes (W155 standard). ───
@@ -161,7 +124,9 @@ export const rateLimiter = (limit: number, now: () => number = Date.now) => {
 			"x-ratelimit-reset": String(Math.ceil(w.resetAt / 1000)),
 		};
 		if (w.count > limit) {
-			const retryAfter = resetIn + Math.floor(Math.random() * 3);
+			// the kit's ONE cap rule bounds the jittered reset remainder
+			const retryAfter =
+				capRetryAfterS(resetIn + Math.floor(Math.random() * 3)) ?? 1;
 			return {
 				ok: false,
 				retryAfter,
