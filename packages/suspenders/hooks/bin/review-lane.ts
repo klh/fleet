@@ -168,6 +168,7 @@ const prompt = [
 	diff || "(no branch — review the thread/claims only)",
 	``,
 	`Report findings as terse bullets; every finding carries a stable ID — B<round>-<slug> (blocker) or N<round>-<slug> (note) — round = the round that FIRST reported it; IDs are never renumbered.`,
+	`Review silently: do not announce next steps or ask to continue — your whole reply is findings bullets plus the verdict line.`,
 	`Explicitly resolved prior findings use a separate line RESOLVED: B<round>-<slug> followed by evidence. Unresolved blocker IDs prevent merge even with a PASS final line.`,
 	`Evidence-kind caps severity: a file:line-only claim caps at blocker(high); a runtime-behavior claim without a trigger path caps at note(low).`,
 	`End your reply with ONE machine-parseable final line:`,
@@ -216,16 +217,38 @@ async function requestLlm(
 		body: JSON.stringify({
 			model,
 			messages: [{ role: "user", content: prompt }],
-			max_tokens: 1500,
+			// W1236: glm-5.3-flash reasoning burned the whole 1500 budget before
+			// any final text — HTTP 200 with content:"" — on every merge-ladder
+			// receipt 2026-10-23. 8000 covers thinking headroom + the write-up.
+			max_tokens: 8000,
 			temperature: 0.2,
 		}),
 		signal: AbortSignal.timeout(LEG_TIMEOUT_MS),
 	});
 	if (!response.ok) throw new Error(`Review LLM HTTP ${response.status}`);
 	const body = (await response.json()) as {
-		choices?: { message?: { content?: string } }[];
+		choices?: {
+			finish_reason?: string;
+			message?: { content?: string | null };
+		}[];
+		usage?: { completion_tokens?: number };
 	};
-	return body.choices?.[0]?.message?.content ?? "";
+	// W1236: an HTTP 200 with empty content is a leg FAILURE — finish_reason
+	// "length" means the thinking budget ate the completion. Returning "" here
+	// is the opaque "leg failed" receipt (verdict ERROR, no diagnostics).
+	const choice = body.choices?.[0];
+	const content = choice?.message?.content ?? "";
+	if (!content.trim())
+		throw new Error(
+			`review leg returned empty content (finish_reason=${
+				choice?.finish_reason ?? "unknown"
+			}${
+				body.usage?.completion_tokens === undefined
+					? ""
+					: `, completion_tokens=${body.usage.completion_tokens}`
+			})`,
+		);
+	return content;
 }
 async function runLeg(): Promise<string> {
 	if (leg?.kind === "buckle") {
@@ -416,19 +439,30 @@ const emitCli = (args: string[]): void => {
 const noteFor = (headline: string): string =>
 	`review ${item} by ${executor} — ${headline}`;
 
-let legFailure = "leg failed";
-const findings = await runLeg().catch((e: unknown) => {
-	legFailure = reviewFailureReason(e);
-	console.error(
-		`review-lane ${item}: leg failed: ${e instanceof Error ? e.message : String(e)}`,
-	);
-	return null;
-});
-
 // verdict line: the LAST VERDICT: match wins (models restate headers)
-const verdictLine = [
-	...(findings ?? "").matchAll(/VERDICT: (PASS|FAIL[^\n]*)/g),
-].at(-1)?.[1];
+const verdictLineOf = (reply: string | null): string | undefined =>
+	reply
+		? [...reply.matchAll(/VERDICT: (PASS|FAIL[^\n]*)/g)].at(-1)?.[1]
+		: undefined;
+
+// W1236: one leg attempt is not a verdict — 429 waves drain and thinking
+// models sometimes reply without the machine-parseable line. Two bounded
+// attempts with a short backoff before the ERROR receipt records why.
+let legFailure = "leg failed";
+let findings: string | null = null;
+let verdictLine = verdictLineOf(null);
+for (let legAttempt = 1; legAttempt <= 2; legAttempt++) {
+	findings = await runLeg().catch((e: unknown) => {
+		legFailure = reviewFailureReason(e);
+		console.error(
+			`review-lane ${item}: leg attempt ${legAttempt} failed: ${e instanceof Error ? e.message : String(e)}`,
+		);
+		return null;
+	});
+	verdictLine = verdictLineOf(findings);
+	if (verdictLine || legAttempt === 2) break;
+	await new Promise((resolve) => setTimeout(resolve, 20_000));
+}
 const verdict =
 	findings && verdictLine
 		? verdictLine.startsWith("PASS")
