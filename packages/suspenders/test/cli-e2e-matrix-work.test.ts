@@ -247,6 +247,19 @@ describe("work verb matrix — reclaim", () => {
 	});
 });
 
+describe("work verb matrix — stamp (W1211 credential requires)", () => {
+	test("stamp sets the requires set and show renders it", () => {
+		const id = idOf(work("add", "matrix cred item").out);
+		const s = work("stamp", id, "--requires", "gh,tool-jq");
+		expect(s.code).toBe(0);
+		expect(s.out).toContain(`stamped ${id} requires [gh,tool-jq]`);
+		expect(JSON.parse(work("show", id, "--json").out).requires).toBe(
+			"gh,tool-jq",
+		);
+		cover("stamp");
+	});
+});
+
 describe("work verb matrix — registry parity (must stay last)", () => {
 	test("every verb on the --help door face has a matrix scenario", () => {
 		expect(covered).not.toBe(new Set());

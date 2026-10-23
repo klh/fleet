@@ -43,6 +43,7 @@ import {
 	tokenUsage,
 	workTiming,
 } from "./shared.ts";
+import { validScopeToken } from "../lib/cred-scope.ts";
 
 export async function cmdBootstrap(_rest: string[]): Promise<void> {
 	// the session-start ritual: identity + owned work + ready pool + inbox,
@@ -95,10 +96,15 @@ export async function cmdBootstrap(_rest: string[]): Promise<void> {
 	// NO-SHELL agent type can then never take shell-requiring work twice
 	let caps: string | null = arg("--caps") ?? null;
 	if (caps) {
-		const bad = caps.split(",").filter((c) => !CAPABILITIES.includes(c.trim()));
+		// W1211: session caps may also advertise credential scopes (gh, az,
+		// cloud-*, tool-*) — the machine-declared provider truth.
+		const bad = caps
+			.split(",")
+			.map((c) => c.trim())
+			.filter((c) => c.length > 0 && !validScopeToken(c));
 		if (bad.length)
 			die(
-				`unknown capability: ${bad.join(",")} — vocabulary: ${CAPABILITIES.join(",")}`,
+				`unknown capability: ${bad.join(",")} — vocabulary: ${CAPABILITIES.join(",")}, gh, az, cloud-<provider>, tool-<cli>`,
 			);
 		caps = caps
 			.split(",")

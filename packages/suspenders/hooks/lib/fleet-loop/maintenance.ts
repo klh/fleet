@@ -74,6 +74,15 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		argv: (root) => [join(root, "hooks/bin/quota-sweep.ts"), "--act"],
 	},
 	{
+		// W1211 misroute detection: a lane log auth/credential hit emits
+		// requires.gap and stamps the item's requires set, so the next dispatch
+		// briefs the real scope and routes to a machine that declared it.
+		name: "cred-gap-scan",
+		everySeconds: 600,
+		timeoutMs: 60_000,
+		argv: (root) => [join(root, "hooks/bin/cred-gap-scan.ts"), "--act"],
+	},
+	{
 		// W804/W782.1: the parked Copilot-quota triplet — W738 opus-5-5
 		// re-review, W695.6.2 tool_use proof, W731 copilot digest — FAILED has
 		// no reclaim path, so the heartbeat requeues them at the monthly seat

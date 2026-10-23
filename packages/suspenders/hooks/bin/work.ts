@@ -19,6 +19,7 @@ import { automaticRecoveryCheck } from "../lib/automatic-recovery.ts";
 import { budgetFlagClear } from "../lib/budget-flag.ts";
 import { itemCapsuleKey } from "../lib/capsule-fence.ts";
 import {
+	advertisedCaps,
 	assertRequires,
 	machineCredScope,
 	stampRequires,
