@@ -5,20 +5,18 @@
 // is a local Bun.serve stub, so no real model is needed.
 import { describe, test, expect, afterAll } from "bun:test";
 import {
-	mkdtempSync,
-	rmSync,
 	mkdirSync,
 	readFileSync,
 	realpathSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Database } from "bun:sqlite";
+import { cleanupDirs, tmpDir } from "./helpers/fixture-kit.ts";
 import { knowledgeSearch, type KnowledgeHit } from "../hooks/lib/knowledge.ts";
 
-const HOME = mkdtempSync(join(tmpdir(), "suspenders-knowledge-"));
-const REPO = mkdtempSync(join(tmpdir(), "suspenders-knowledge-repo-"));
+const HOME = tmpDir("suspenders-knowledge-");
+const REPO = tmpDir("suspenders-knowledge-repo-");
 mkdirSync(join(REPO, ".git"), { recursive: true });
 const env = { ...process.env, HOME };
 const coord = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
@@ -255,8 +253,7 @@ function w100Items(text: string): unknown[] {
 
 afterAll(() => {
 	stub.stop(true);
-	rmSync(HOME, { recursive: true, force: true });
-	rmSync(REPO, { recursive: true, force: true });
+	cleanupDirs(HOME, REPO);
 });
 
 // ─── W1113 stamp-contract fixture: a HIGH-confidence distillation (0.85) ───

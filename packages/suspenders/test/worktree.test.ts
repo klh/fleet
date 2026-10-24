@@ -6,7 +6,6 @@
 import { describe, test, expect, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
-	mkdtempSync,
 	rmSync,
 	existsSync,
 	readFileSync,
@@ -16,18 +15,16 @@ import {
 	appendFileSync,
 	realpathSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+	cleanupDirs,
+	gitInit as kitGitInit,
+	tmpDir,
+} from "./helpers/fixture-kit.ts";
 
-const HOME = mkdtempSync(join(tmpdir(), "claude-worktree-home-"));
-const gitInit = (dir: string): void => {
-	mkdirSync(dir, { recursive: true });
-	Bun.spawnSync(["git", "init", "-q", dir], {
-		stdout: "ignore",
-		stderr: "ignore",
-	});
-};
-const REPO = mkdtempSync(join(tmpdir(), "suspenders-worktree-repo-"));
+const HOME = tmpDir("claude-worktree-home-");
+const gitInit = kitGitInit;
+const REPO = tmpDir("suspenders-worktree-repo-");
 gitInit(REPO);
 const env = { ...process.env, HOME };
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
@@ -65,8 +62,7 @@ const retireForClaim = (id: string, owner: string) => {
 };
 
 afterAll(() => {
-	rmSync(HOME, { recursive: true, force: true });
-	rmSync(REPO, { recursive: true, force: true });
+	cleanupDirs(HOME, REPO);
 	// the W211 parked-tree fixture sits OUTSIDE the mkdtemp REPO (shared
 	// tmpdir root) — remove it or the next run's worktree add collides
 	rmSync(join(REPO, "..", "w211-parked"), { recursive: true, force: true });
@@ -399,7 +395,7 @@ describe("worktree sweep (W494.2.2)", () => {
 		// the live incident: 6+ codex trees at ~/.codex/worktrees/<hash>/fleet
 		// (basename 'fleet', foreign branch, unmerged work) — a basename wid
 		// bypassed the claim guard and NEED_DECISION'd them every sweep
-		const codexRoot = mkdtempSync(join(tmpdir(), "codex-worktrees-"));
+		const codexRoot = tmpDir("codex-worktrees-");
 		const parked = join(codexRoot, "abc123", "fleet");
 		mkdirSync(join(parked, ".."), { recursive: true });
 		expect(

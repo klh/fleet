@@ -8,26 +8,13 @@
 // (NEVER /tmp — the bash gate exempts /tmp by design, so a /tmp checkout
 // would silently test nothing).
 import { describe, test, expect, afterAll } from "bun:test";
-import {
-	mkdtempSync,
-	rmSync,
-	mkdirSync,
-	writeFileSync,
-	readFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync, writeFileSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { realpathSync } from "node:fs";
+import { cleanupDirs, gitInit as kitGitInit, tmpDir } from "./helpers/fixture-kit.ts";
 
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
-const gitInit = (dir: string): void => {
-	mkdirSync(dir, { recursive: true });
-	const r = Bun.spawnSync(["git", "init", "-q", dir], {
-		stdout: "ignore",
-		stderr: "ignore",
-	});
-	if (r.exitCode !== 0) throw new Error(`git init failed in ${dir}`);
-};
+const gitInit = kitGitInit;
 const pid = (repo: string): string => {
 	const r = Bun.spawnSync(
 		["git", "-C", repo, "rev-parse", "--git-common-dir"],
@@ -65,7 +52,7 @@ const seedMirror = (
 ): void =>
 	writeFileSync(
 		join(repo, ".workgraph.jsonl"),
-		[
+		`${[
 			...items.map((i) => JSON.stringify(i)),
 			JSON.stringify({
 				type: "meta",
@@ -74,23 +61,23 @@ const seedMirror = (
 				count: items.length,
 				...meta,
 			}),
-		].join("\n") + "\n",
+		].join("\n")}\n`,
 	);
 
 // home A: working DB (the mirror-writing path); repos live under the checkout
-const HOME = mkdtempSync(join(tmpdir(), "claude-work-mirror-home-"));
-const REPO = mkdtempSync(join(tmpdir(), "suspenders-work-mirror-repo-"));
+const HOME = tmpDir("claude-work-mirror-home-");
+const REPO = tmpDir("suspenders-work-mirror-repo-");
 gitInit(REPO);
 const work = (...args: string[]) => run(REPO, HOME, ...args);
 
 // home B: fresh machine — no governor.db at all (the beads use case)
-const HOME_FRESH = mkdtempSync(join(tmpdir(), "claude-work-mirror-fresh-"));
+const HOME_FRESH = tmpDir("claude-work-mirror-fresh-");
 // home C: broken registry — $HOME/.cache is a file, so openGovernorDb throws
-const HOME_BROKEN = mkdtempSync(join(tmpdir(), "claude-work-mirror-broken-"));
+const HOME_BROKEN = tmpDir("claude-work-mirror-broken-");
 writeFileSync(join(HOME_BROKEN, ".cache"), "not a directory");
 
 // repo 2 carries only a hand-seeded mirror — never a single work command
-const REPO2 = mkdtempSync(join(tmpdir(), "suspenders-work-mirror-repo2-"));
+const REPO2 = tmpDir("suspenders-work-mirror-repo2-");
 gitInit(REPO2);
 const MIRROR_ITEM = {
 	id: "W1",
@@ -106,10 +93,7 @@ const MIRROR_ITEM = {
 	deps: [],
 };
 
-afterAll(() => {
-	for (const d of [HOME, HOME_FRESH, HOME_BROKEN, REPO, REPO2])
-		rmSync(d, { recursive: true, force: true });
-});
+afterAll(() => cleanupDirs(HOME, HOME_FRESH, HOME_BROKEN, REPO, REPO2));
 
 describe("mirror writer — mutating commands export the graph", () => {
 	test("add writes a valid jsonl mirror with a matching meta count", () => {
@@ -183,7 +167,7 @@ describe("mirror reader — fallback when governor.db cannot serve the project",
 	});
 
 	test("fresh clone with an empty partition and no mirror stays quiet", () => {
-		const repo3 = mkdtempSync(join(tmpdir(), "suspenders-work-mirror-repo3-"));
+		const repo3 = tmpDir("suspenders-work-mirror-repo3-");
 		gitInit(repo3);
 		try {
 			const r = run(repo3, HOME_FRESH, "list");
