@@ -7,6 +7,7 @@ import {
 } from "../../scripts/lib/brief-weight.ts";
 import { capsuleProjectTag } from "../lib/capsule-fence.ts";
 import { type LaneVerdict, verdictBySid } from "../lib/lane-liveness.ts";
+import { buildFleetTable, fleetGlyph } from "./fleet-table.ts";
 import { loadLaneRegistry } from "../lib/lane-registry.ts";
 import {
 	type ItemSpend,
@@ -339,8 +340,6 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 		);
 		if (n) sessionNames.set(l, n);
 	}
-	const trunc = (s: string): string =>
-		s.length > 24 ? `${s.slice(0, 23)}…` : s;
 	const head = (
 		db
 			.query("SELECT value FROM facts WHERE key = 'integration.head'")
@@ -348,60 +347,63 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 	)?.value;
 	// W522 fleet-watch feed — the same projection, machine-readable: lane
 	// state facts + session names + claim intents, no ANSI. Undefined state
-	// facts mean a fresh claim (text path paints ▶ too).
+	// facts mean a fresh claim (text path paints ▶ too). W1258: --njson adds
+	// the same lane entries as NDJSON, one fleet entry per line; the --json
+	// contract is unchanged.
+	const laneEntry = (l: string) => {
+		const v = verdictOf(l);
+		return {
+			sid: l,
+			name: sessionNames.get(l) ?? null,
+			intent: names.get(l) ?? null,
+			state: byKey.get(`lane.${l}.state`) ?? sessions.get(l) ?? "UNKNOWN",
+			sessionState: sessions.get(l) ?? null,
+			fileClaims: crows
+				.filter((claim) => claim.sid === l)
+				.map(({ scope, intent }) => ({ scope, intent })),
+			workItems: work
+				.filter((item) => item.sid === l)
+				.map(({ project, id, title, state }) => ({
+					project,
+					id,
+					title,
+					state,
+				})),
+			verdict: v,
+			live: v === "alive",
+		};
+	};
+	if (_rest.includes("--njson")) {
+		for (const l of lanes) console.log(JSON.stringify(laneEntry(l)));
+		return;
+	}
 	if (_rest.includes("--json")) {
 		console.log(
 			JSON.stringify({
 				head: head?.slice(0, 7) ?? null,
-				lanes: lanes.map((l) => ({
-					sid: l,
-					name: sessionNames.get(l) ?? null,
-					intent: names.get(l) ?? null,
-					state: byKey.get(`lane.${l}.state`) ?? sessions.get(l) ?? "UNKNOWN",
-					sessionState: sessions.get(l) ?? null,
-					fileClaims: crows
-						.filter((claim) => claim.sid === l)
-						.map(({ scope, intent }) => ({ scope, intent })),
-					workItems: work
-						.filter((item) => item.sid === l)
-						.map(({ project, id, title, state }) => ({
-							project,
-							id,
-							title,
-							state,
-						})),
-					verdict: verdictOf(l),
-					live: verdictOf(l) === "alive",
-				})),
+				lanes: lanes.map(laneEntry),
 			}),
 		);
 		return;
 	}
-	const parts = lanes.map((l) => {
-		const st = byKey.get(`lane.${l}.state`);
-		// W652.1: positive death flips ×. W378: unknown is its own glyph — an
-		// unevidenced claimant reads ? (never a running marker); only evidence
-		// (registry verdict or fresh heartbeat) paints ▶.
-		const v = verdictOf(l);
-		const g =
-			v === "dead"
-				? red("×")
-				: v === "unknown"
-					? dim("?")
-					: st === "PAUSE_REQUESTED"
-						? amber("◐")
-						: st === "PAUSED"
-							? amber("⏸")
-							: st === "RESUME_READY"
-								? cyan("↻")
-								: st === "BLOCKED"
-									? red("⚠")
-									: green("▶");
-		const nm = sessionNames.get(l);
-		return `${g} ${nm ? `${trunc(nm)} ${dim(`(${l.slice(0, 8)})`)}` : dim(names.get(l) ?? l.slice(0, 8))} ${dim(`[sid=${l}]`)}`;
-	});
+	// W1258 text face: the fixed-width fleet table (hooks/coord/fleet-table.ts)
+	// — one lane per row; HEAD stays its own dim line and the `[sid=...]`
+	// recipient field survives as the SID column. W652.1/W378 glyph honesty
+	// is unchanged (fleet-table.ts fleetGlyph).
+	if (!lanes.length) {
+		console.log(dim("(no claimed lanes)"));
+		return;
+	}
+	if (head) console.log(dim(`HEAD ${head.slice(0, 7)}`));
 	console.log(
-		`${head ? `${dim(`HEAD ${head.slice(0, 7)}`)}  ` : ""}${parts.join("  ") || dim("(no claimed lanes)")}`,
+		buildFleetTable(
+			lanes.map((l) => ({
+				lane: sessionNames.get(l) ?? names.get(l) ?? l.slice(0, 8),
+				st: fleetGlyph(verdictOf(l), byKey.get(`lane.${l}.state`)),
+				task: names.get(l) ?? "",
+				sid: l,
+			})),
+		),
 	);
 }
 

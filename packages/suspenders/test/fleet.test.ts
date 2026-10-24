@@ -115,7 +115,7 @@ describe("W293 session-name bridge", () => {
 		expect(tagsOf("lane293")).toEqual({ team: "ikea", name: "ikea-opus-2" });
 	});
 
-	test("coord fleet shows the name next to the short sid", () => {
+	test("coord fleet table shows the name on the lane's row", () => {
 		// claim row seeded directly (claim.ts validates live transcripts, which
 		// a temp HOME lacks — same recipe as the board tests)
 		const db = new Database(DB);
@@ -126,7 +126,10 @@ describe("W293 session-name bridge", () => {
 		db.close();
 		const f = run(["fleet"]);
 		expect(f.code).toBe(0);
-		expect(f.out).toContain("ikea-opus-2 (lane293)");
+		// W1258: the fixed-width table — the row carrying the lane's
+		// [sid=...] recipient field leads with the user-facing name
+		const row = f.out.split("\n").find((l) => l.includes("[sid=lane293]"));
+		expect(row?.includes("ikea-opus-2")).toBe(true);
 	});
 
 	test("board label helpers surface tags.name", async () => {
