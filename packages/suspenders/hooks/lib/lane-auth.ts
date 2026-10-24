@@ -18,6 +18,7 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { readRegistry } from "./hub-locate.ts";
+import { loopbackUrl, BUCKLE_SPOKE_PORT } from "./loopback.ts";
 
 export const BELT_ENV_PATH =
 	process.env.SUSPENDERS_BELT_ENV ??
@@ -25,7 +26,7 @@ export const BELT_ENV_PATH =
 
 /** The buckle front mint/revoke talk to (same env override lane.ts pins). */
 export const BUCKLE_FRONT =
-	process.env.SUSPENDERS_BUCKLE_FRONT ?? "http://127.0.0.1:4101";
+	process.env.SUSPENDERS_BUCKLE_FRONT ?? loopbackUrl(BUCKLE_SPOKE_PORT);
 
 /** Lane keys are ephemeral: revoke-on-retire is the primary lifecycle; the
  *  TTL is the backstop for lanes that die un-retired. 24h bounds every

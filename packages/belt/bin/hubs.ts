@@ -23,6 +23,7 @@ import {
 	tryLoadStack,
 	type HubProfile,
 } from "../../suspenders/hooks/lib/stack-config.ts";
+import { isLoopbackHostname } from "../../suspenders/hooks/lib/loopback.ts";
 import type { Target } from "./supervisor.ts";
 
 const HUBS_PATH = () =>
@@ -70,8 +71,7 @@ export function browserConsoleUrl(
 			return null;
 		if (
 			remote &&
-			(url.hostname.endsWith(".local") ||
-				["localhost", "127.0.0.1", "::1"].includes(url.hostname))
+			(url.hostname.endsWith(".local") || isLoopbackHostname(url.hostname))
 		)
 			return null;
 		return url.href;

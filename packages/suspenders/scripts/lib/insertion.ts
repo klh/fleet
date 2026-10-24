@@ -4,9 +4,14 @@
 // the executor honors, it lands on the stack. Config over code:
 // KLH_ENGINE_BASE / KLH_DEFAULT_MODEL override the constants; pre-set env
 // always wins (the applicator only fills unset vars). W230: the executors
-// rows of the ONE stack config (~/.config/klh/stack.json) are the base
+// rows of the ONE stack config (~/.config/klh/stack.yaml) are the base
 // layer the constants fall back to; env stays the override layer.
 import type { StackConfig } from "../../hooks/lib/stack-config.ts";
+import {
+	loopbackUrl,
+	LITELLM_PORT,
+	ROUTER_PORT,
+} from "../../hooks/lib/loopback.ts";
 
 export interface InsertionCtx {
 	anthropicBase: string;
@@ -61,11 +66,11 @@ export const insertionCtx = (
 		: ex?.default;
 	return {
 		anthropicBase:
-			env.ANTHROPIC_BASE_URL ?? row?.anthropic_base ?? "http://127.0.0.1:4000",
+			env.ANTHROPIC_BASE_URL ?? row?.anthropic_base ?? loopbackUrl(ROUTER_PORT),
 		openaiBase:
 			process.env.KLH_ENGINE_BASE ??
 			row?.openai_base ??
-			"http://127.0.0.1:4100/v1",
+			`${loopbackUrl(LITELLM_PORT)}/v1`,
 		model,
 		defaultModel:
 			process.env.KLH_DEFAULT_MODEL ??

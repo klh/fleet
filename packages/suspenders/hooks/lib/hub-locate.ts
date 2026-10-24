@@ -13,6 +13,7 @@
 // null (callers degrade to local belt — never a silent wrong hub).
 import { readFileSync } from "node:fs";
 import { darkHubNow, loadStack } from "./stack-config.ts";
+import { BUCKLE_SPOKE_PORT } from "./loopback.ts";
 
 export interface HubLocation {
 	label: string;
@@ -141,7 +142,9 @@ export async function resolveHub(
 		// no/bad stack.json — the chain continues to the registry
 	}
 	// 3. global registry (mode 600, never committed — operator config, same
-	// trust class as belt.json/belt-tokens.json)
+	// trust class as belt.json/belt-tokens.json). W1256.2: this file is a
+	// GENERATED projection of the stack config (hooks/lib/hub-registry.ts,
+	// written at install) — the hand-maintained second registry retires.
 	const reg = readRegistry()[norm] ?? readRegistry()[norm.toUpperCase()];
 	for (const cand of reg?.candidates ?? []) {
 		if (await alive(cand))
@@ -159,12 +162,12 @@ export async function resolveHub(
 	const sdUrl = await discoverHub(norm);
 	if (sdUrl) return { label: norm, url: sdUrl, via: "dns-sd _klh-hub._tcp" };
 	// 5. mDNS guess (last resort) — the suspenders.local/belt.local
-	// precedent, one guess at the buckle shadow port (4101) and the bare
+	// precedent, one guess at the buckle shadow port and the bare
 	// name, for hubs that run a plain Bonjour hostname with no SRV record.
 	const guessHost = norm.toLowerCase().replace(/[^a-z0-9-]/g, "");
 	for (const cand of [
-		`https://${guessHost}.local:4101`,
-		`http://${guessHost}.local:4101`,
+		`https://${guessHost}.local:${BUCKLE_SPOKE_PORT}`,
+		`http://${guessHost}.local:${BUCKLE_SPOKE_PORT}`,
 	]) {
 		if (await alive(cand)) return { label: norm, url: cand, via: "mdns guess" };
 	}

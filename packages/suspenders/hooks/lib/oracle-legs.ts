@@ -11,9 +11,11 @@
 //   ORACLE_ROUTE_MODEL optional model id (else GET /models probe, else "local")
 import { escalate, resolveEscalationLeg } from "../../../belt/bin/escalate.ts";
 import type { AnthropicBody } from "../../../belt/bin/router-core.ts";
+import { loopbackUrl, MLX_REASON_PORT } from "./loopback.ts";
 
 export const ROUTE_URL =
-	process.env.ORACLE_ROUTE_URL ?? "http://127.0.0.1:8903/v1/chat/completions";
+	process.env.ORACLE_ROUTE_URL ??
+	loopbackUrl(MLX_REASON_PORT, "/v1/chat/completions");
 export const ROUTE_KEY = process.env.ORACLE_ROUTE_KEY;
 export const ROUTE_MODEL = process.env.ORACLE_ROUTE_MODEL;
 
