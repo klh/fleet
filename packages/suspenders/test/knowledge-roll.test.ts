@@ -19,6 +19,7 @@ import {
 	parseClaimRow,
 	mintRollKey,
 	rollKeyOk,
+	ROLL_KEY_HEADER,
 } from "../hooks/lib/knowledge-roll.ts";
 import { readSyncConfig } from "../hooks/lib/knowledge-sync-policy.ts";
 import {
@@ -390,6 +391,7 @@ test("aggregate: stale tombstone replay cannot re-hide a revived claim (B3)", ()
 		evidenceId: "ev-b3",
 		claim: "contested claim",
 		confidence: 0.8,
+		scope: "fleet",
 	};
 	aggregateClaims(db, [{ ...body, ts: 100 }], "machine-a", { now: 1000 });
 	aggregateClaims(db, [{ ...body, ts: 200, tombstone: true }], "machine-b", {
@@ -430,6 +432,7 @@ test("aggregate: the B3 event set is monotone under every permutation", () => {
 		evidenceId: "ev-perm",
 		claim: "contested claim",
 		confidence: 0.8,
+		scope: "fleet",
 	};
 	const events = [
 		{ machine: "m-assert", entry: { ...body, ts: 100 } },
@@ -468,6 +471,7 @@ test("aggregate: a tombstone replay on a hidden row is an idempotent dupe", () =
 		evidenceId: "ev-idem",
 		claim: "retracted claim",
 		confidence: 0.5,
+		scope: "fleet",
 	};
 	aggregateClaims(db, [{ ...body, ts: 100 }], "machine-a", { now: 1000 });
 	aggregateClaims(db, [{ ...body, ts: 200, tombstone: true }], "machine-b", {
@@ -500,6 +504,7 @@ test("aggregate: identical-payload tombstone at a newer ts advances the high-wat
 		evidenceId: "ev-hwm",
 		claim: "contested claim",
 		confidence: 0.8,
+		scope: "fleet",
 	};
 	aggregateClaims(db, [{ ...body, ts: 100 }], "machine-a", { now: 1000 });
 	aggregateClaims(db, [{ ...body, ts: 200, tombstone: true }], "machine-b", {
@@ -535,6 +540,7 @@ test("aggregate: high-water advance is idempotent under replay", () => {
 		evidenceId: "ev-hwm-replay",
 		claim: "contested claim",
 		confidence: 0.5,
+		scope: "fleet",
 	};
 	aggregateClaims(db, [{ ...body, ts: 100 }], "machine-a", { now: 1000 });
 	aggregateClaims(db, [{ ...body, ts: 200, tombstone: true }], "machine-b", {
@@ -851,17 +857,25 @@ test("postRoll vs the actual endpoint: validated positive ack lands the roll", a
 			claim: "positive acks land",
 			confidence: 0.7,
 			ts: 1,
+			scope: "fleet",
 		},
 		{
 			evidenceId: "ev-pos-2",
 			claim: "counts validate",
 			confidence: 0.6,
 			ts: 2,
+			scope: "fleet",
 		},
 	]);
 	expect(outcome.ok).toBe(true);
 	expect(outcome.error).toBeNull();
-	const view = (await (await fetch(`${ROLL_BASE}/roll`)).json()) as {
+	// W1213.1 bounded read: anonymous callers get nothing — the view rides
+	// the roll key (its own machine's claims + the fleet plane)
+	const view = (await (
+		await fetch(`${ROLL_BASE}/roll`, {
+			headers: { [ROLL_KEY_HEADER]: ROLL_KEY },
+		})
+	).json()) as {
 		claims: { evidenceId: string }[];
 	};
 	expect(view.claims.map((c) => c.evidenceId)).toContain("ev-pos-1");
@@ -870,12 +884,20 @@ test("postRoll vs the actual endpoint: validated positive ack lands the roll", a
 
 test("postRoll vs the actual endpoint: HTTP 200 {ok:false} is a non-ack", async () => {
 	const outcome = await postRoll(rollKeyTarget(), [
-		{ evidenceId: "ev-bad", claim: "invalid confidence", confidence: 2, ts: 3 },
+		{
+			evidenceId: "ev-bad",
+			claim: "invalid confidence",
+			confidence: 2,
+			ts: 3,
+			scope: "fleet",
+		},
 	]);
-	// the exact FAIL61405 seam: the hub's 200 rejection names itself in the
-	// client outcome — it is never read as acceptance (cursor never stamps)
+	// the FAIL61405 seam, B2 server half: a rejected roll never 200s — the
+	// hub answers 422 and the client outcome stays a NON-ACK (the cursor
+	// never stamps); the 200 {ok:false} body shape is covered by the loopback
+	// receiver test below
 	expect(outcome.ok).toBe(false);
-	expect(outcome.error).toContain("invalid claim entry");
+	expect(outcome.error).toContain("422");
 });
 
 test("syncOnce vs the actual endpoint: positive ack advances the claims cursor", async () => {
@@ -915,7 +937,12 @@ test("syncOnce vs the actual endpoint: positive ack advances the claims cursor",
 		"claim.w121321-a",
 		"claim.w121321-b",
 	]);
-	const view = (await (await fetch(`${ROLL_BASE}/roll`)).json()) as {
+	// the keyed view (anonymous reads get nothing — W1213.1 bounded read)
+	const view = (await (
+		await fetch(`${ROLL_BASE}/roll`, {
+			headers: { [ROLL_KEY_HEADER]: ROLL_KEY },
+		})
+	).json()) as {
 		claims: { evidenceId: string }[];
 	};
 	const ids = view.claims.map((c) => c.evidenceId);
