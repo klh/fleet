@@ -4,7 +4,10 @@
 // READ_ for GET, WRITE_ for mutations); raw key material appears exactly
 // once — the issue response — and verify answers valid/revoked/expired
 // without echoing hashes.
+import { beginDrain, drainInfo } from "../drain.ts";
+import { inflightIndex } from "./inflight.ts";
 import { allowOf, methodNotAllowed, problem } from "../citizenship.ts";
+import { readBoundedJson } from "../ingress-body.ts";
 import { readBeltTrace } from "../../../telemetry/src/trace-log.ts";
 import { readRemoteTraces } from "../../../telemetry/src/remote-traces.ts";
 import type { RequestReadQuery } from "../ledger.ts";
@@ -55,12 +58,40 @@ function scopeFilter(scopes: string[]): {
 	return { scopes: valid, dropped };
 }
 
+/** W1156 POST /v1/admin/drain — the ONE arming surface for a planned
+ *  deployment drain: beginDrain fires every in-flight stream's dialect
+ *  gateway_restarting terminal immediately and arms the bounded force-exit
+ *  backstop. First intent wins: a second signal is refused 409 with the
+ *  ACTIVE drain, never a silent overwrite. */
+async function drainGateway(req: Request, gov: Governance): Promise<Response> {
+	const read = await readBoundedJson(req, gov.ingressBodyTimeoutMs);
+	if (!read.ok) return bad(read.status, read.code, read.why);
+	const body = read.body as Record<string, unknown> | null;
+	const reason = str(body?.reason);
+	if (reason === null) return bad(400, "buckle.bad_body", "missing reason");
+	const grace = Math.min(Math.max(num(body?.grace_ms) ?? 3000, 0), 60_000);
+	const info = beginDrain(reason, grace);
+	if (info === null) {
+		const active = drainInfo();
+		return bad(
+			409,
+			"buckle.already_draining",
+			`drain already active since ${active?.sinceMs} (${active?.reason})`,
+			"/v1/admin/drain",
+		);
+	}
+	return ok({
+		draining: true,
+		reason: info.reason,
+		since_ms: info.sinceMs,
+		deadline_ms: info.deadlineMs,
+	});
+}
+
 async function verifyKey(req: Request, gov: Governance): Promise<Response> {
-	const body = (await req.json().catch(() => null)) as Record<
-		string,
-		unknown
-	> | null;
-	if (body === null) return bad(400, "buckle.bad_body", "invalid JSON body");
+	const read = await readBoundedJson(req, gov.ingressBodyTimeoutMs);
+	if (!read.ok) return bad(read.status, read.code, read.why);
+	const body = read.body as Record<string, unknown> | null;
 	const key = str(body.key);
 	if (key === null) return bad(400, "buckle.bad_body", "missing key");
 	const v = gov.keys.verify(key);
@@ -95,6 +126,12 @@ export async function handleAdmin(
 	if (method === "POST" && revoke !== null) {
 		return revokeKey(req, revoke[1] ?? "", p, gov);
 	}
+	// W1156: THE arming surface — explicit deploy intent marks the process
+	// positively draining (a bare SIGTERM is never proof, root #57093). The
+	// gate already demanded buckle:admin:WRITE_ for this POST.
+	if (method === "POST" && path === "/v1/admin/drain") {
+		return drainGateway(req, gov);
+	}
 	// W703: walk the auth_events hash chain; ?head=<hex> pins the tail
 	if (method === "GET" && path === "/v1/admin/audit/verify") {
 		const head = url.searchParams.get("head") ?? undefined;
@@ -116,7 +153,14 @@ export async function handleAdmin(
 		return ok({ windows: gov.budgets.snapshot() });
 	}
 	if (method === "GET" && path === "/v1/admin/slots") {
-		return ok({ held: gov.slots.held() });
+		return ok({ held: gov.slots.held(), provider_pools: gov.providerPools() });
+	}
+	// W1259: the exact in-flight index — active LLM request rows (rid, trace
+	// id, account, lane, model, upstream, hop, start/age, state), CONNECT
+	// tunnel rows (W1260.2 seam), the bounded settled ring and aggregate
+	// counts. Admin READ_ gate class; no key material, no prompts.
+	if (method === "GET" && path === "/v1/admin/inflight") {
+		return ok(inflightIndex());
 	}
 	// W824 per-request inspection over the usage ledger: capped, filtered,
 	// read-only (gate class enforces buckle:admin:READ_); key NAME/team join
@@ -203,11 +247,9 @@ async function issueKey(
 	p: Principal,
 	gov: Governance,
 ): Promise<Response> {
-	const body = (await req.json().catch(() => null)) as Record<
-		string,
-		unknown
-	> | null;
-	if (body === null) return bad(400, "buckle.bad_body", "invalid JSON body");
+	const read = await readBoundedJson(req, gov.ingressBodyTimeoutMs);
+	if (!read.ok) return bad(read.status, read.code, read.why);
+	const body = read.body as Record<string, unknown> | null;
 	const name = str(body.name);
 	if (name === null) return bad(400, "buckle.bad_body", "missing name");
 	const scopes = Array.isArray(body.scopes)
@@ -276,11 +318,9 @@ async function mintEnrollCode(
 			"buckle.no_federation",
 			"no enrollment surface on this gate (solo posture)",
 		);
-	const body = (await req.json().catch(() => null)) as Record<
-		string,
-		unknown
-	> | null;
-	if (body === null) return bad(400, "buckle.bad_body", "invalid JSON body");
+	const read = await readBoundedJson(req, gov.ingressBodyTimeoutMs);
+	if (!read.ok) return bad(read.status, read.code, read.why);
+	const body = read.body as Record<string, unknown> | null;
 	const spokeId = str(body.spoke_id);
 	if (spokeId === null) return bad(400, "buckle.bad_body", "missing spoke_id");
 	const out = sp.mint({
@@ -366,11 +406,9 @@ function listRequests(gov: Governance, url: URL): Response {
 }
 
 async function upsertTeam(req: Request, gov: Governance): Promise<Response> {
-	const body = (await req.json().catch(() => null)) as Record<
-		string,
-		unknown
-	> | null;
-	if (body === null) return bad(400, "buckle.bad_body", "invalid JSON body");
+	const read = await readBoundedJson(req, gov.ingressBodyTimeoutMs);
+	if (!read.ok) return bad(read.status, read.code, read.why);
+	const body = read.body as Record<string, unknown> | null;
 	const teamId = str(body.team_id);
 	if (teamId === null) return bad(400, "buckle.bad_body", "missing team_id");
 	gov.keys.upsertTeam({

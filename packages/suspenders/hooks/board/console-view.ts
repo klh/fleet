@@ -51,16 +51,16 @@ export const consoleMe = (): ConsoleMe => {
 	};
 };
 
-// buckle upstreams.yaml (read-only display): group name == wire id; an empty
+// buckle upstreams.json (read-only display): group name == wire id; an empty
 // group is DORMANT — in the ladder but resolving to zero deployments.
 const upstreamSnapshot = () =>
 	readEffectiveUpstreams({
 		basePath: process.env.BUCKLE_REPO
-			? `${process.env.BUCKLE_REPO}/upstreams.yaml`
-			: new URL("../../../buckle/upstreams.yaml", import.meta.url).pathname,
+			? `${process.env.BUCKLE_REPO}/upstreams.json`
+			: new URL("../../../buckle/upstreams.json", import.meta.url).pathname,
 		overridePath:
 			process.env.BUCKLE_UPSTREAMS ??
-			`${process.env.HOME}/.claude/local-llm/upstreams.yaml`,
+			`${process.env.HOME}/.claude/local-llm/upstreams.json`,
 	});
 export const readUpstreams = (): UpstreamGroup[] | null =>
 	upstreamSnapshot()?.groups ?? null;

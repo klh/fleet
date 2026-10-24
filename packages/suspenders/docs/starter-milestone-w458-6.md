@@ -98,4 +98,3 @@ PASS  acceptance: metrics survive hub failover, per-lane attribution kept
   exercised.
 - A `--bench` live option considered in planning was dropped on purpose —
   a live model bench would make the proof nondeterministic.
-```

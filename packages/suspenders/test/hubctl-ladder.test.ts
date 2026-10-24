@@ -13,7 +13,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parse } from "yaml";
 
 const dir = mkdtempSync(join(tmpdir(), "fleet-hub-ladder-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -88,8 +87,8 @@ test("hub Buckle stamps its profile identity on relayed requests", () => {
 test("push writes the ladder file and a 0600 upstream.env built on-device", () => {
 	const r = hubctl("push", "ent");
 	expect(r.code).toBe(0);
-	const ladder = parse(
-		readFileSync(join(deployDir, "upstreams.hub.yaml"), "utf8"),
+	const ladder = JSON.parse(
+		readFileSync(join(deployDir, "upstreams.hub.json"), "utf8"),
 	);
 	expect(ladder.groups["claude-haiku-4-5"][0].api_key_env).toBe("LITELLM_KEY");
 	expect(JSON.stringify(ladder)).not.toContain("sk-fixture");
@@ -160,15 +159,55 @@ test("render hides Git origin credentials while pushed env stays private", () =>
 
 test("solo push renders an empty ladder + empty upstream.env (compose stays valid)", () => {
 	expect(hubctl("push", "solo").code).toBe(0);
-	const ladder = parse(
-		readFileSync(join(deployDir, "upstreams.hub.yaml"), "utf8"),
+	const ladder = JSON.parse(
+		readFileSync(join(deployDir, "upstreams.hub.json"), "utf8"),
 	);
 	expect(ladder.groups).toEqual({});
+	// W1123: fail-forward — an unconfigured hub never inherits the committed
+	// Mac local-swarm (:890x); Buckle sees an empty pool, not fake local rows.
+	expect(ladder.inherit_defaults).toBe(false);
 	expect(readFileSync(join(deployDir, "upstream.env"), "utf8")).toBe("");
 	// W983: undeclared buckle_prefs → the conservative defaults
 	expect(readFileSync(join(deployDir, "buckle-prefs.json"), "utf8")).toBe(
 		'{"allow_cloud":false,"cost_speed":"balanced"}\n',
 	);
+});
+
+test("rendered ladder stamps inherit_defaults false unconditionally — no operator escape (W1123)", () => {
+	// even an operator-declared inherit_defaults: true must not render true —
+	// an opt-in would re-import the committed Mac local-swarm onto a hub
+	const optStack = join(dir, "opt-stack.json");
+	writeFileSync(
+		optStack,
+		JSON.stringify({
+			version: "v9-w6887",
+			hubs: {
+				opt: {
+					host: "127.0.0.1",
+					deploy: { dir: deployDir },
+					upstreams: { inherit_defaults: true, groups: {} },
+				},
+			},
+		}),
+	);
+	const r = Bun.spawnSync(
+		[
+			process.execPath,
+			join(import.meta.dir, "../deploy/hubctl.ts"),
+			"push",
+			"opt",
+		],
+		{
+			env: { ...process.env, KLH_STACK: optStack },
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
+	expect(r.exitCode).toBe(0);
+	const opted = JSON.parse(
+		readFileSync(join(deployDir, "upstreams.hub.json"), "utf8"),
+	);
+	expect(opted.inherit_defaults).toBe(false);
 });
 
 test("compose binds the prefs file at BUCKLE_PREFS (W983)", () => {

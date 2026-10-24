@@ -3,6 +3,7 @@
 // server-shaped). e2e tests build deps through here.
 
 import { AidsLedger } from "../src/aids.ts";
+import type { AccountPolicyDoc } from "../src/account-policy.ts";
 import { CandidateTable } from "../src/candidates.ts";
 import { Cooldowns } from "../src/cooldown.ts";
 import { decideRoute } from "../src/decide.ts";
@@ -21,6 +22,7 @@ export function testDeps(
 		policy?: GatewayPolicy;
 		prefs?: Prefs;
 		sleepMs?: (ms: number) => Promise<void>;
+		accountPolicy?: AccountPolicyDoc | null;
 	},
 ): AppDeps {
 	const policy: GatewayPolicy = opts?.policy ?? {
@@ -48,13 +50,19 @@ export function testDeps(
 		hint: RouteHint | null;
 		hintRaw: string;
 		allowCross: boolean;
-	}) =>
-		decideRoute({
-			...input,
-			candidates: table.snapshot(),
+		providerPin?: string;
+	}) => {
+		const { providerPin, ...rest } = input;
+		return decideRoute({
+			...rest,
+			candidates:
+				providerPin === undefined
+					? table.snapshot()
+					: table.snapshot().filter((r) => r.dep.adapter === providerPin),
 			prefs,
-			fallbackGroups: input.allowCross ? policy.fallbacks?.[input.group] : [],
+			fallbackGroups: rest.allowCross ? policy.fallbacks?.[rest.group] : [],
 		});
+	};
 	const aidsPolicy = policy.aids ?? {};
 	return {
 		router,
@@ -69,5 +77,6 @@ export function testDeps(
 		pool,
 		decide,
 		table,
+		accountPolicy: opts?.accountPolicy,
 	};
 }

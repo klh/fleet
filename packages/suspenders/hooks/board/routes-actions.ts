@@ -1285,6 +1285,10 @@ export async function handleActions(
 				stderr: "ignore",
 				env: env2,
 				cwd: repo,
+				// W1243.1: a reviewer must survive the board restarting —
+				// unref alone kills the child with the parent (finding
+				// .review-launch-499-20261023, same class as the scheduler)
+				detached: true,
 			},
 		);
 		child.unref();

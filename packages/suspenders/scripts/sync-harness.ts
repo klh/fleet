@@ -27,8 +27,9 @@ import {
 	writeShims,
 } from "./ensure-shims.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
+import { payloadCoverage } from "./lib/source-closure.ts";
 
-const SOURCE_PATHS = [
+export const SOURCE_PATHS = [
 	".githooks",
 	"packages/suspenders/hooks",
 	"packages/suspenders/scripts",
@@ -36,9 +37,9 @@ const SOURCE_PATHS = [
 	"packages/suspenders/package.json",
 	"packages/belt/bin",
 	"packages/belt/package.json",
-	"packages/buckle/upstreams.yaml",
-	"packages/buckle/routing-policy.yaml",
-	"packages/buckle/repo-policy.yaml",
+	"packages/buckle/upstreams.json",
+	"packages/buckle/routing-policy.json",
+	"packages/buckle/repo-policy.json",
 	"packages/buckle/src",
 	"packages/buckle/package.json",
 	// W1081: the shared HTTP identity-header seam — buckle src + belt bin and
@@ -51,7 +52,10 @@ const SOURCE_PATHS = [
 	"packages/blam/bench/improve",
 	"packages/blam/package.json",
 ];
-const ENTRYPOINTS = [
+/** Faces the installer bundle-validates in the staged payload (validate()).
+ *  Exported for the W1119.2 installer/runtime-parity guard
+ *  (test/bypass-gate.test.ts). */
+export const ENTRYPOINTS = [
 	"hooks/gate.ts",
 	"hooks/session-start.ts",
 	"hooks/session-end.ts",
@@ -64,8 +68,24 @@ const ENTRYPOINTS = [
 	"hooks/bin/fleet-watch.ts",
 	"hooks/bin/fleet-board.ts", // W630: the board graph is the one that crash-looped unaudited
 	"hooks/bin/morph.ts",
+	// W1119.2: the gated inference runtime faces ride the same install-time
+	// graph validation — what fleet-loop fires is what the installer proves.
+	"hooks/bin/llm-keepwarm.ts",
+	"hooks/bin/fallback-drill.ts",
+	"hooks/bin/soak.ts",
 	"scripts/dispatch-next.ts",
 	"scripts/supervise.ts",
+];
+// W1256.1: the payload's import-graph faces (repo-relative). The closure
+// walk (lib/source-closure.ts — the beltBinClosure walker) proves SOURCE_PATHS
+// covers the real import graph at every sync: the W661 class (a hand list
+// silently missing a file the graph needs) refuses HERE, naming the file.
+export const CLOSURE_ENTRIES = [
+	...ENTRYPOINTS.map((entry) => `packages/suspenders/${entry}`),
+	"packages/buckle/src/server.ts",
+	"packages/belt/bin/router-shim.ts",
+	"packages/belt/bin/supervisor.ts",
+	"packages/belt/bin/dashboard.ts",
 ];
 
 function git(repo: string, args: string[]): string {
@@ -111,6 +131,46 @@ export function offlineResolveArgs(): string[] {
 		"--lockfile-only",
 		"--save-text-lockfile",
 	];
+}
+
+/** The frozen production materialization: the exact graph the resolved
+ *  lock pins, scripts disabled. The same argv minus --offline is the one
+ *  bounded cold-cache archive fetch. */
+export function productionInstallArgs(): string[] {
+	return [
+		process.execPath,
+		"install",
+		"--production",
+		"--offline",
+		"--ignore-scripts",
+		"--frozen-lockfile",
+	];
+}
+
+export function productionFetchArgs(): string[] {
+	return productionInstallArgs().filter((arg) => arg !== "--offline");
+}
+
+/** W1124.6 cold-cache archive fallback: the W1050 resolver legs cache
+ *  manifests only — the frozen offline production install still needs the
+ *  locked package archives. On an offline materialization failure fetch
+ *  that exact frozen graph once (network, scripts disabled, no lock
+ *  drift) and retry offline; a failed fetch surfaces the ORIGINAL error
+ *  so an existing prefix is never replaced by a failed sync. */
+export async function materializeProduction(
+	stage: string,
+	run: (argv: string[], cwd: string) => Promise<void> = command,
+): Promise<void> {
+	try {
+		await run(productionInstallArgs(), stage);
+	} catch (offlineMaterializationError) {
+		try {
+			await run(productionFetchArgs(), stage);
+		} catch {
+			throw offlineMaterializationError;
+		}
+		await run(productionInstallArgs(), stage);
+	}
 }
 
 /** W1050 fail-early verdict: both ladder legs failed — name the remedy. */
@@ -248,6 +308,34 @@ export async function syncHarness(
 		throw new Error(
 			"Source revision changed during dashboard refresh; rerun from a consistent capture",
 		);
+	// W1243: the prefix is a shared runtime — only main (or a descendant of
+	// it) may be published. 2026-10-23 outage: a lane ran install.sh from its
+	// pre-W1236 worktree branch and the shared harness regressed, silently
+	// reverting the review-runner fixes fleet-wide. Behind and diverged
+	// sources both refuse; SUSPENDERS_SYNC_ALLOW_BRANCH=1 is the explicit
+	// lane-testing escape.
+	if (process.env.SUSPENDERS_SYNC_ALLOW_BRANCH !== "1") {
+		const probe = (args: string[]): number =>
+			Bun.spawnSync(["git", "-C", repo, ...args], {
+				stdout: "pipe",
+				stderr: "pipe",
+			}).exitCode ?? 1;
+		const mainSha = (() => {
+			const r = Bun.spawnSync(
+				["git", "-C", repo, "rev-parse", "--verify", "main"],
+				{ stdout: "pipe", stderr: "pipe" },
+			);
+			return r.exitCode === 0 ? r.stdout.toString().trim() : null;
+		})();
+		if (
+			mainSha &&
+			mainSha !== revision &&
+			probe(["merge-base", "--is-ancestor", mainSha, revision]) !== 0
+		)
+			throw new Error(
+				`Refusing to sync a source behind or diverged from main (${revision.slice(0, 12)} vs main ${mainSha.slice(0, 12)}); install from the pinned checkout or set SUSPENDERS_SYNC_ALLOW_BRANCH=1`,
+			);
+	}
 	// W780: name the offending files — the bare "working payload is dirty"
 	// verdict forced a stash-dance to find them. diff --name-only: one path
 	// per line, no porcelain status columns to mis-slice.
@@ -261,6 +349,23 @@ export async function syncHarness(
 	if (dirty)
 		throw new Error(
 			`Commit reviewed harness changes before code-only sync; working payload is dirty: ${dirty.split("\n").join(", ")}`,
+		);
+	// W1256.1 W661 tripwire: the computed import closure must be covered by
+	// SOURCE_PATHS. A new cross-package import reaching outside the payload
+	// (the W1081 telemetry class of miss) refuses the sync with the offending
+	// paths named instead of shipping a payload the graph outgrew.
+	const coverage = await payloadCoverage({
+		repoRoot: repo,
+		entries: CLOSURE_ENTRIES,
+		payload: SOURCE_PATHS,
+	});
+	if (coverage.missing.length > 0)
+		throw new Error(
+			`Payload entrypoints vanished from the working tree: ${coverage.missing.join(", ")}`,
+		);
+	if (coverage.outside.length > 0)
+		throw new Error(
+			`The import closure leaves SOURCE_PATHS — ship the paths or extend the payload: ${coverage.outside.join(", ")}`,
 		);
 	const prefix = resolve(ctx.prefix),
 		parent = dirname(prefix);
@@ -382,17 +487,7 @@ export async function syncHarness(
 		// offline leg fetches once via the network and re-verifies offline; both
 		// legs failing fails the sync early with the remedy.
 		await materializeDependencies(stage);
-		await command(
-			[
-				process.execPath,
-				"install",
-				"--production",
-				"--offline",
-				"--ignore-scripts",
-				"--frozen-lockfile",
-			],
-			stage,
-		);
+		await materializeProduction(stage);
 		mkdirSync(join(stage, "node_modules"), { recursive: true });
 		// blam's package name is scoped (@klh/blam) — the link must sit at the
 		// scoped path or every `@klh/blam/...` import in the staged harness

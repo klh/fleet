@@ -5,11 +5,13 @@
 // via --step; the contract flags and meow's flags never drift.
 import { describe, expect, test } from "bun:test";
 import {
+	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	readdirSync,
 	rmSync,
 	statSync,
+	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -75,7 +77,7 @@ describe("install --json outcomes (W490.1)", () => {
 			expect(doc.contract.flags[key].flag).toBe(kebab(key));
 		}
 		expect(doc.contract.name).toBe("suspenders-install");
-		expect(doc.contract.steps).toHaveLength(15);
+		expect(doc.contract.steps).toHaveLength(16);
 	});
 
 	test("plan without consent pauses (exit 0, never blocks)", async () => {
@@ -197,20 +199,68 @@ describe("install --json outcomes (W490.1)", () => {
 		expect(loudDoc.steps[0].detail).toContain("bun");
 	});
 
-	test("user-level wireSettings --wire wires a temp HOME's settings.json", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "w7713-wire-"));
-		const { code, stdout } = await run(["--wire", "--json"], { HOME: dir });
+	test("--wire runs the FULL default plan (never wire-only), temp HOME untouched in dry-run", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "w1124-wire-"));
+		const { code, stdout } = await run(["--wire", "--json", "--dry-run"], {
+			HOME: dir,
+		});
 		expect(code).toBe(0);
 		const doc = JSON.parse(stdout);
-		expect(doc.mode).toBe("step");
-		// --wire implies consent and selects the wireSettings step
+		// W1124.6: --wire is consent for the full default plan, not a step alias
+		expect(doc.mode).toBe("plan");
 		expect(doc.flags.wire).toBe(true);
-		expect(doc.flags.step).toBe("wireSettings");
+		expect(doc.flags.step).toBeNull();
+		const wireRow = doc.steps.find(
+			(s: { name: string }) => s.name === "wireSettings",
+		);
+		expect(wireRow.status).toBe("planned");
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	test("default plan includes wireSettings (planned without any --wire flag)", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "w1124-full-"));
+		const { code, stdout } = await run(["--json", "--dry-run"], { HOME: dir });
+		expect(code).toBe(0);
+		const doc = JSON.parse(stdout);
+		expect(doc.flags.wire).toBe(false);
+		const wireRow = doc.steps.find(
+			(s: { name: string }) => s.name === "wireSettings",
+		);
+		expect(wireRow.status).toBe("planned");
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	test("wireSettings preserves existing settings env/auth (W1124.6)", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "w1124-env-"));
+		const settingsDir = join(dir, ".claude");
+		mkdirSync(settingsDir, { recursive: true });
+		writeFileSync(
+			join(settingsDir, "settings.json"),
+			`${JSON.stringify(
+				{
+					env: {
+						ANTHROPIC_BASE_URL: "http://127.0.0.1:4101",
+						ANTHROPIC_AUTH_TOKEN: "claude-cli-interactive",
+					},
+				},
+				null,
+				2,
+			)}\n`,
+		);
+		const { code, stdout } = await run(
+			["--step", "wireSettings", "--yes", "--json"],
+			{ HOME: dir },
+		);
+		expect(code).toBe(0);
+		const doc = JSON.parse(stdout);
 		expect(doc.steps[0].status).toBe("ok");
 		const settings = JSON.parse(
-			readFileSync(join(dir, ".claude", "settings.json"), "utf8"),
+			readFileSync(join(settingsDir, "settings.json"), "utf8"),
 		);
+		// hooks merged in, the operator's env/auth route untouched
 		expect(Array.isArray(settings.hooks.SessionStart)).toBe(true);
+		expect(settings.env.ANTHROPIC_BASE_URL).toBe("http://127.0.0.1:4101");
+		expect(settings.env.ANTHROPIC_AUTH_TOKEN).toBe("claude-cli-interactive");
 		rmSync(dir, { recursive: true, force: true });
 	});
 

@@ -206,7 +206,7 @@ const drillRows = [
 // Env fully isolated before any lib call: the stack path points nowhere and
 // the fixture registry carries ONE label — the drill never reads the
 // machine's real hub config (tryLoadStack reads process env).
-process.env.KLH_STACK = "/nonexistent-w825-e2e-stack.yaml";
+process.env.KLH_STACK = "/nonexistent-w825-e2e-stack.json";
 process.env.SUSPENDERS_HUBS_FILE = join(
 	import.meta.dir,
 	"w825-drill-hubs.json",

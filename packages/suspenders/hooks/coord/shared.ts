@@ -8,7 +8,8 @@ import {
 	projectIdentity,
 } from "../lib/govdb.ts";
 import { trustOf, withTrust } from "../lib/knowledge.ts";
-import { type KnowledgeHit, makeStore } from "../lib/knowledge-ports.ts";
+import type { KnowledgeHit } from "../lib/store-schema.ts";
+import { makeStore } from "../lib/sqlite-store.ts";
 import { ensureConsultTrust } from "./consult-trust.ts";
 
 export {
@@ -20,11 +21,8 @@ export {
 	tokenUsage,
 	workTiming,
 } from "../lib/govdb.ts";
-export {
-	currentPromptHash,
-	enqueueKnowledge,
-	makeStore,
-} from "../lib/knowledge-ports.ts";
+export { currentPromptHash } from "../lib/prompt-policy.ts";
+export { enqueueKnowledge, makeStore } from "../lib/sqlite-store.ts";
 export { createHash, readFileSync, realpathSync, resolve };
 
 export interface Ev {
@@ -52,7 +50,27 @@ export const die = (m: string): never => {
 	process.exit(2);
 };
 
-export const db: GovernorStore = openStore();
+// Help/grammar inspection must not acquire a store connection. Stateful
+// verbs retain the same one canonical handle, initialized on first use.
+let store: GovernorStore | undefined;
+const activeStore = (): GovernorStore => (store ??= openStore());
+export const db: GovernorStore = {
+	get local() {
+		return activeStore().local;
+	},
+	query(sql) {
+		return activeStore().query(sql);
+	},
+	run(sql, ...params) {
+		return activeStore().run(sql, ...params);
+	},
+	transaction<T>(fn: () => T) {
+		return activeStore().transaction(fn);
+	},
+	close() {
+		store?.close();
+	},
+};
 
 // dispatcher-owned: the entry parses argv and pins it here so `arg()`
 // keeps closing over one `rest` exactly as the monolith did

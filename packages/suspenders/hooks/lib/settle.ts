@@ -14,10 +14,8 @@
 // hub-ward transfer rides the existing feed filtering hub only.
 import type { Database } from "bun:sqlite";
 import { openGovernorDb, openKnowledgeDb } from "./govdb.ts";
-import {
-	SqliteKnowledgeStore,
-	type KnowledgeStore,
-} from "./knowledge-ports.ts";
+import { SqliteKnowledgeStore } from "./sqlite-store.ts";
+import type { KnowledgeStore } from "./store-schema.ts";
 import { restrictiveDomain, type DataDomain } from "./provenance.ts";
 
 export interface SettleResult {

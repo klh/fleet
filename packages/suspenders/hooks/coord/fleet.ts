@@ -1,48 +1,50 @@
-import { capsuleProjectTag } from "../lib/capsule-fence.ts";
-import { ensureCompletionIdentityMigration } from "../lib/work-completion-record.ts";
-import {
-	itemSpend,
-	laneSpendRows,
-	resolveBuckleDb,
-	type ItemSpend,
-} from "../lib/lane-spend.ts";
-import { claimWindows } from "../lib/work-timing.ts";
-// hooks/coord/fleet.ts — fleet-wide reads: bootstrap, fleet, metrics, doctor-session, diff (W157 command modules).
-// Handler bodies moved verbatim from bin/coord.ts's if/else chain —
-// one-tab indent preserved, output byte-compatible.
-import {
-	die,
-	arg,
-	db,
-	green,
-	dim,
-	cyan,
-	amber,
-	red,
-	projectIdentity,
-	CAPABILITIES,
-	workTiming,
-	tokenUsage,
-	sweepStaleSessions,
-	tagNameOf,
-	realpathSync,
-	resolve,
-} from "./shared.ts";
-import type { Database, Ev } from "./shared.ts";
-import { ageOf, formatEventLine } from "./bus.ts";
-import { cmdBind, cmdEnroll, cmdVerify } from "./identity.ts";
-import { type LaneVerdict, verdictBySid } from "../lib/lane-liveness.ts";
-import { hbFresh } from "../lib/reclaim-liveness.ts";
-import { loadLaneRegistry } from "../lib/lane-registry.ts";
 import { homedir } from "node:os";
-import { attachSubscribe } from "../lib/subscribe-attach.ts";
 import {
 	type BriefWeight,
 	buckleLaneTokens,
 	type LaneTokens,
 	measureBriefWeight,
 } from "../../scripts/lib/brief-weight.ts";
+import { capsuleProjectTag } from "../lib/capsule-fence.ts";
+import { type LaneVerdict, verdictBySid } from "../lib/lane-liveness.ts";
+import { buildFleetTable, fleetGlyph } from "./fleet-table.ts";
+import { loadLaneRegistry } from "../lib/lane-registry.ts";
+import {
+	type ItemSpend,
+	itemSpend,
+	laneSpendRows,
+	resolveBuckleDb,
+} from "../lib/lane-spend.ts";
+import { hbFresh } from "../lib/reclaim-liveness.ts";
 import { renameSession } from "../lib/session-rename.ts";
+import { attachSubscribe } from "../lib/subscribe-attach.ts";
+import { ensureCompletionIdentityMigration } from "../lib/work-completion-record.ts";
+import { claimWindows } from "../lib/work-timing.ts";
+import { ageOf, formatEventLine } from "./bus.ts";
+import { listLiveTargets } from "./addressing.ts";
+import { cmdBind, cmdEnroll, cmdVerify } from "./identity.ts";
+import type { Database, Ev } from "./shared.ts";
+// hooks/coord/fleet.ts — fleet-wide reads: bootstrap, fleet, metrics, doctor-session, diff (W157 command modules).
+// Handler bodies moved verbatim from bin/coord.ts's if/else chain —
+// one-tab indent preserved, output byte-compatible.
+import {
+	amber,
+	arg,
+	CAPABILITIES,
+	cyan,
+	db,
+	die,
+	dim,
+	green,
+	projectIdentity,
+	realpathSync,
+	red,
+	resolve,
+	sweepStaleSessions,
+	tagNameOf,
+	tokenUsage,
+	workTiming,
+} from "./shared.ts";
 
 export async function cmdBootstrap(_rest: string[]): Promise<void> {
 	// the session-start ritual: identity + owned work + ready pool + inbox,
@@ -264,9 +266,39 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 	// projection lives in subagent-statusline.ts; the CLI inline rows are
 	// harness-owned and ignore it)
 	const crows = db
-		.query("SELECT sid, intent FROM claims ORDER BY sid")
-		.all() as { sid: string; intent: string | null }[];
-	const lanes = [...new Set(crows.map((c) => c.sid))].sort();
+		.query("SELECT sid, scope, intent FROM claims ORDER BY sid, scope")
+		.all() as { sid: string; scope: string; intent: string | null }[];
+	// File leases, work ownership and registered peers are distinct sources.
+	// Reuse the direct-addressing live projection so discovery cannot hide a
+	// registered worker merely because it has not acquired a file lease yet.
+	const targets = listLiveTargets();
+	const targetSids = new Set(targets.map((target) => target.sid));
+	const work = db
+		.query(
+			"SELECT w.owner_sid AS sid, w.project, w.id, w.title, w.state FROM work_items w LEFT JOIN sessions s ON s.sid = w.owner_sid WHERE w.owner_sid IS NOT NULL AND w.state IN ('CLAIMED','RUNNING','ORPHANED') AND (s.sid IS NULL OR s.project = w.project) ORDER BY w.project,w.id",
+		)
+		.all() as {
+		sid: string;
+		project: string;
+		id: string;
+		title: string;
+		state: string;
+	}[];
+	const sessions = new Map(
+		(
+			db.query("SELECT sid,state FROM sessions").all() as {
+				sid: string;
+				state: string;
+			}[]
+		).map((session) => [session.sid, session.state]),
+	);
+	const lanes = [
+		...new Set([
+			...crows.map((claim) => claim.sid),
+			...work.map((item) => item.sid),
+			...targetSids,
+		]),
+	].sort();
 	// W652.1: liveness delegates to the shared verdict (lib/lane-liveness.ts)
 	// — state glyphs say what a lane CLAIMS (lane.<sid>.state facts); only
 	// positive death evidence flips the glyph to ×. Unknown keeps the state
@@ -278,7 +310,8 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 	// unknown. An unevidenced claim never paints ▶ again (the W378 board
 	// lie: 30 running-markers, 1 real lane).
 	const verdictOf = (sid: string): LaneVerdict =>
-		verdicts.get(sid) ?? (hbFresh(db, sid) ? "alive" : "unknown");
+		verdicts.get(sid) ??
+		(targetSids.has(sid) || hbFresh(db, sid) ? "alive" : "unknown");
 	const states = db
 		.query("SELECT key, value FROM facts WHERE key LIKE 'lane.%.state'")
 		.all() as { key: string; value: string }[];
@@ -291,6 +324,8 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 				c.intent.length > 14 ? `${c.intent.slice(0, 13)}…` : c.intent,
 			);
 	}
+	for (const item of work)
+		if (!names.has(item.sid)) names.set(item.sid, `${item.id} ${item.title}`);
 	// W293 session-name bridge: a user-facing name (sessions.tags JSON, stamped
 	// by `coord bootstrap --name`) leads the lane label with the short sid next
 	// to it; unnamed lanes keep the claim-intent → sid fallback.
@@ -305,8 +340,6 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 		);
 		if (n) sessionNames.set(l, n);
 	}
-	const trunc = (s: string): string =>
-		s.length > 24 ? `${s.slice(0, 23)}…` : s;
 	const head = (
 		db
 			.query("SELECT value FROM facts WHERE key = 'integration.head'")
@@ -314,48 +347,63 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 	)?.value;
 	// W522 fleet-watch feed — the same projection, machine-readable: lane
 	// state facts + session names + claim intents, no ANSI. Undefined state
-	// facts mean a fresh claim (text path paints ▶ too).
+	// facts mean a fresh claim (text path paints ▶ too). W1258: --njson adds
+	// the same lane entries as NDJSON, one fleet entry per line; the --json
+	// contract is unchanged.
+	const laneEntry = (l: string) => {
+		const v = verdictOf(l);
+		return {
+			sid: l,
+			name: sessionNames.get(l) ?? null,
+			intent: names.get(l) ?? null,
+			state: byKey.get(`lane.${l}.state`) ?? sessions.get(l) ?? "UNKNOWN",
+			sessionState: sessions.get(l) ?? null,
+			fileClaims: crows
+				.filter((claim) => claim.sid === l)
+				.map(({ scope, intent }) => ({ scope, intent })),
+			workItems: work
+				.filter((item) => item.sid === l)
+				.map(({ project, id, title, state }) => ({
+					project,
+					id,
+					title,
+					state,
+				})),
+			verdict: v,
+			live: v === "alive",
+		};
+	};
+	if (_rest.includes("--njson")) {
+		for (const l of lanes) console.log(JSON.stringify(laneEntry(l)));
+		return;
+	}
 	if (_rest.includes("--json")) {
 		console.log(
 			JSON.stringify({
 				head: head?.slice(0, 7) ?? null,
-				lanes: lanes.map((l) => ({
-					sid: l,
-					name: sessionNames.get(l) ?? null,
-					intent: names.get(l) ?? null,
-					state: byKey.get(`lane.${l}.state`) ?? "RUNNING",
-					verdict: verdictOf(l),
-					live: verdictOf(l) === "alive",
-				})),
+				lanes: lanes.map(laneEntry),
 			}),
 		);
 		return;
 	}
-	const parts = lanes.map((l) => {
-		const st = byKey.get(`lane.${l}.state`);
-		// W652.1: positive death flips ×. W378: unknown is its own glyph — an
-		// unevidenced claimant reads ? (never a running marker); only evidence
-		// (registry verdict or fresh heartbeat) paints ▶.
-		const v = verdictOf(l);
-		const g =
-			v === "dead"
-				? red("×")
-				: v === "unknown"
-					? dim("?")
-					: st === "PAUSE_REQUESTED"
-						? amber("◐")
-						: st === "PAUSED"
-							? amber("⏸")
-							: st === "RESUME_READY"
-								? cyan("↻")
-								: st === "BLOCKED"
-									? red("⚠")
-									: green("▶");
-		const nm = sessionNames.get(l);
-		return `${g} ${nm ? `${trunc(nm)} ${dim(`(${l.slice(0, 8)})`)}` : dim(names.get(l) ?? l.slice(0, 8))}`;
-	});
+	// W1258 text face: the fixed-width fleet table (hooks/coord/fleet-table.ts)
+	// — one lane per row; HEAD stays its own dim line and the `[sid=...]`
+	// recipient field survives as the SID column. W652.1/W378 glyph honesty
+	// is unchanged (fleet-table.ts fleetGlyph).
+	if (!lanes.length) {
+		console.log(dim("(no claimed lanes)"));
+		return;
+	}
+	if (head) console.log(dim(`HEAD ${head.slice(0, 7)}`));
 	console.log(
-		`${head ? `${dim(`@${head.slice(0, 7)}`)}  ` : ""}${parts.join("  ") || dim("(no claimed lanes)")}`,
+		buildFleetTable(
+			lanes.map((l) => ({
+				lane: sessionNames.get(l) ?? names.get(l) ?? l.slice(0, 8),
+				st: fleetGlyph(verdictOf(l), byKey.get(`lane.${l}.state`)),
+				task: names.get(l) ?? "",
+				sid: l,
+			})),
+		),
 	);
 }
 

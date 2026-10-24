@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // deploy/hubctl.ts — the hub deployment control surface. Reads the machine-level
-// stack config (~/.config/klh/stack.yaml, mode 600 — hubs, ports, connection
+// stack config (~/.config/klh/stack.json, mode 600 — hubs, ports, connection
 // URIs, secret PATHS never values), then materializes deploys from it:
 // nothing hub-specific is hardcoded here; undeclared knobs fall through to the
 // hub-compose.yaml template defaults. Secrets are minted ON the hub device
@@ -19,6 +19,18 @@
 //                                     # W484.1.1: mint a short-lived bksk_ lane
 //                                     #   key ON the hub — the root credential
 //                                     #   never leaves the device
+//   bun deploy/hubctl.ts mint-service-key <hub> --name <name> --out <keyfile>
+//                                     # W1124.15: mint a PERSISTENT proxy-only
+//                                     #   service credential (no expiry) for
+//                                     #   spoke/persistent hub links — audited,
+//                                     #   distinct from expiring lane keys; the
+//                                     #   raw key lands in --out (0600), stdout
+//                                     #   carries metadata only
+//   bun deploy/hubctl.ts verify-key <hub> --file <path>
+//                                     # W1124.15: verify a configured cross-hub
+//                                     #   key against the hub's verify API —
+//                                     #   exit 1 with the hub's actual
+//                                     #   expired/revoked code on a dead key
 // Config: KLH_STACK env overrides the stack path (tests).
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -31,8 +43,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { stringify } from "yaml";
-// stack.yaml is parsed by the ONE reader (W356) — hubctl renders deploys
+// stack.json is parsed by the ONE reader (W356) — hubctl renders deploys
 // from it, coord hubs projects the topology from it
 import {
 	type HubProfile,
@@ -44,6 +55,16 @@ import {
 import { composeUpArgv, sshOpts } from "./hub-remote.ts";
 import { mergedHubUpstreams } from "./openrouter-free.ts";
 import { mergeZaiHubUpstreams } from "./zai-catalog.ts";
+import { renderHubPolicy } from "./hub-policy.ts";
+import { hubMetricsEnv } from "./hub-metrics.ts";
+import {
+	mintServiceKey,
+	runMintOnHub,
+	verifyConfiguredServiceKey as serviceKeyVerdict,
+	verifyKeyFile,
+	type ServiceKeyRunner,
+} from "./service-key.ts";
+import { traceTunnelVerb } from "./trace-tunnel.ts";
 
 import {
 	buildRelease,
@@ -138,7 +159,7 @@ function assertLocalPortReservations(hub: HubProfile, name: string): void {
 		const conflict = services.find((service) => Number(service.port) === port);
 		if (conflict)
 			throw new Error(
-				`${name} ${kind}_port ${port} conflicts with ${conflict.name ?? "a registered .local service"}; choose another port in stack.yaml`,
+				`${name} ${kind}_port ${port} conflicts with ${conflict.name ?? "a registered .local service"}; choose another port in stack.json`,
 			);
 	}
 }
@@ -183,6 +204,8 @@ function renderEnv(
 	if (!overlay && hub.repos?.ref && hub.repos.ref !== version)
 		throw new Error("hub repo ref must match the shared stack version");
 	const lines = [`HUB_NAME=${name}`];
+	for (const [key, value] of Object.entries(hubMetricsEnv(hub)))
+		lines.push(`${key}=${value}`);
 	const kv = (key: string, v: unknown): void => {
 		if (v !== undefined) lines.push(`${key}=${String(v)}`);
 	};
@@ -195,7 +218,7 @@ function renderEnv(
 	if (auth?.required !== undefined)
 		kv("HUB_BUCKLE_AUTH", auth.required ? "on" : "off");
 	// W372: the auth.oidc/auth.tokens blocks materialize as env — Entra-ready
-	// by config (values live ONLY in the machine stack.yaml; partial blocks
+	// by config (values live ONLY in the machine stack.json; partial blocks
 	// fail closed at render, a hub never ships a half-declared posture).
 	if (auth?.tokens?.ttlHours !== undefined)
 		kv("HUB_BUCKLE_AUTH_TTL_HOURS", auth.tokens.ttlHours);
@@ -203,7 +226,7 @@ function renderEnv(
 		const o = auth.oidc;
 		if (!o.issuer || !o.audience)
 			throw new Error(
-				"auth.oidc requires issuer + audience (Entra values live in the machine stack.yaml, never in the repo)",
+				"auth.oidc requires issuer + audience (Entra values live in the machine stack.json, never in the repo)",
 			);
 		kv("HUB_BUCKLE_OIDC_ENFORCED", o.enforced === false ? "off" : "on");
 		kv("HUB_BUCKLE_OIDC_ISSUER", o.issuer);
@@ -215,12 +238,15 @@ function renderEnv(
 	kv("HUB_BOARD_BIND", hub.board_bind);
 	kv("HUB_ALLOWED_HOSTS", hub.allowed_hosts?.join(","));
 	// W362: peer edge labels — the start-topology as data; hosts/ports/keys
-	// resolve at runtime behind the labels (resolveHub chain / stack.yaml).
+	// resolve at runtime behind the labels (resolveHub chain / stack.json).
 	kv("HUB_PEERS", hub.peers?.join(","));
 	kv("HUB_SERVICES_JSON", hub.services_json);
 	kv("HUB_STORE_PORT", hub.store_port);
 	kv("HUB_BELT_BIND", hub.belt_bind);
 	kv("HUB_BELT_PORT", hub.belt_port);
+	// Compose profiles accumulate: each optional service appends its own, and
+	// one declaration never clobbers another (W1217).
+	const profiles: string[] = [];
 	if (hub.belt_model) {
 		const upstream = new URL(hub.belt_model.upstream);
 		if (
@@ -231,11 +257,20 @@ function renderEnv(
 			throw new Error(
 				"belt_model.upstream must be an HTTP URL without credentials",
 			);
-		kv("COMPOSE_PROFILES", "belt-model");
+		profiles.push("belt-model");
 		kv("HUB_BELT_MODEL_PORT", hub.belt_model.port);
 		kv("HUB_BELT_MODEL_HEALTH_PORT", hub.belt_model.health_port);
 		kv("HUB_BELT_MODEL_UPSTREAM", upstream.href.replace(/\/$/, ""));
 	}
+	// W1217: the knowledge sink — declaring `knowledge:` enables the profile
+	// (knowledge-api container + its health probe sidecar); undeclared knobs
+	// fall through to the template defaults, solo posture stays unchanged.
+	if (hub.knowledge) {
+		profiles.push("knowledge");
+		kv("HUB_KNOWLEDGE_SINK_PORT", hub.knowledge.port);
+		kv("HUB_KNOWLEDGE_SINK_HEALTH_PORT", hub.knowledge.health_port);
+	}
+	if (profiles.length > 0) kv("COMPOSE_PROFILES", profiles.join(","));
 	// health sidecar ports (W422.10) — compose health hits the SIDECAR
 	kv("HUB_BUCKLE_HEALTH_PORT", hub.buckle_health_port);
 	kv("HUB_BOARD_HEALTH_PORT", hub.board_health_port);
@@ -283,14 +318,24 @@ function redactedRender(envText: string): string {
 	});
 }
 
-/** W688.7.1: the hub's upstream ladder file — stack.yaml `upstreams:` in
- *  buckle's upstreams.yaml shape; empty groups = the committed ladder stands
- *  (merge-over-base is by group name). Always rendered: compose mounts it. */
-function renderUpstreams(hub: HubProfile): string {
-	return stringify({
-		version: 1,
-		groups: mergeZaiHubUpstreams(hub, mergedHubUpstreams(hub)),
-	});
+/** W688.7.1: the hub's upstream ladder file — stack.json `upstreams:` in
+ *  buckle's upstreams.json shape. W1123 hub identity: always stamped
+ *  `inherit_defaults: false` (fail-forward, no operator escape — an opt-in
+ *  would re-import the committed Mac local-swarm :890x onto a remote hub).
+ *  A Docker/remote hub exposes ONLY its configured + generated groups; empty
+ *  groups = an empty pool, not a silent inheritance. The local Mac spoke
+ *  keeps merge-over-base through its own UNFLAGGED override file. Always
+ *  rendered: compose mounts it. */
+export function renderUpstreams(hub: HubProfile): string {
+	return `${JSON.stringify(
+		{
+			version: 1,
+			inherit_defaults: false,
+			groups: mergeZaiHubUpstreams(hub, mergedHubUpstreams(hub)),
+		},
+		null,
+		"\t",
+	)}\n`;
 }
 
 /** W983: the hub's Buckle owner prefs in loadPrefs' exact shape (buckle
@@ -353,6 +398,71 @@ function tryRunOnHub(hub: HubProfile, script: string): string | null {
 	}
 }
 
+/** The service-key module's injected hub exec face — hubctl's own runOnHub
+ *  (ssh when the hub declares it, local /bin/sh otherwise). */
+export const serviceKeyRunner: ServiceKeyRunner = runOnHub;
+
+/** W1156: the deployment-drain pre-signal, run ON the hub before compose
+ *  recreates the gateway container. The root credential is read on-device
+ *  and never transported (the mint script's posture); every in-flight SSE
+ *  stream receives its dialect gateway_restarting terminal, then the
+ *  script HOLDS the recreate for the bounded grace so clients actually
+ *  receive it. Best-effort by law: a first deploy has no gateway to drain,
+ *  and a failed signal must never block a deploy — logged, never thrown. */
+const DRAIN_SIGNAL_SCRIPT = [
+	"K=$(sed -n 's/^BUCKLE_ROOT_KEY=//p' \"$1\" | head -n1 | tr -d '\\r\\n')",
+	'if [ -z "$K" ]; then echo "hubctl drain: root key missing at $1" >&2; exit 0; fi',
+	"R=$(curl --max-time 5 -sS -X POST \\",
+	'  -H "Authorization: Bearer $K" -H "content-type: application/json" \\',
+	'  -d "$2" -w \'\\n%{http_code}\' "http://127.0.0.1:$3/v1/admin/drain" 2>&1) || true',
+	'echo "$R"',
+	'sleep "$4"',
+	"echo drained",
+].join("\n");
+
+/** The bounded on-hub grace: HUBCTL_DRAIN_GRACE_S (machine env knob),
+ *  default 3s, clamped 1..10 — how long the recreate waits for terminals. */
+export function drainGraceSeconds(): number {
+	const raw = process.env.HUBCTL_DRAIN_GRACE_S?.trim() ?? "";
+	const n = raw.length > 0 ? Number(raw) : Number.NaN;
+	return Number.isFinite(n) ? Math.min(Math.max(Math.trunc(n), 1), 10) : 3;
+}
+
+/** Fire the drain pre-signal (runner-injected for tests; defaults to the
+ *  real hub exec). Skipped with a log when the hub declares no buckle
+ *  front to drain. */
+export function drainGatewayBeforeRecreate(
+	hub: HubProfile,
+	name: string,
+	runner: ServiceKeyRunner = runOnHub,
+	log: (line: string) => void = console.log,
+): void {
+	const port = hub.buckle_port;
+	const root = hub.secrets?.buckle_root_key;
+	if (!port || !root) {
+		log(
+			`hubctl drain: ${name} has no buckle_port/secrets.buckle_root_key — no pre-signal`,
+		);
+		return;
+	}
+	const graceS = drainGraceSeconds();
+	const body = JSON.stringify({
+		reason: `deployment:hubctl:${name}`,
+		grace_ms: graceS * 1000,
+	});
+	const quote = (a: string): string => `'${a.replace(/'/g, `'\\''`)}'`;
+	const script = `/bin/sh -c ${quote(DRAIN_SIGNAL_SCRIPT)} sh ${quote(root)} ${quote(body)} ${quote(String(port))} ${quote(String(graceS))}`;
+	try {
+		log(runner(hub, script).trim());
+	} catch (e) {
+		log(
+			`hubctl drain: pre-signal failed (deploy continues): ${
+				e instanceof Error ? e.message : String(e)
+			}`,
+		);
+	}
+}
+
 /** Copy a file to the hub host (scp legacy protocol — Synology sshd has no
  *  SFTP subsystem; the hub's deploy.dir must exist). */
 function copyToHub(hub: HubProfile, src: string, dest: string): void {
@@ -411,6 +521,30 @@ function pushUpstreamEnv(hub: HubProfile, dir: string): void {
 	runOnHub(hub, `/bin/sh -c ${quote(UPSTREAM_ENV_SCRIPT)} sh ${args}`);
 }
 
+/** Write the required policy before either fresh activation or reload. */
+function pushGatewayPolicy(hub: HubProfile, dir: string): void {
+	// Materialize policy beside the ladder: defaults preserved, overrides validated.
+	const policyText = renderHubPolicy(
+		readFileSync(
+			join(import.meta.dir, "../../buckle/routing-policy.json"),
+			"utf8",
+		),
+		hub.buckle_gateway,
+	);
+	if (hub.deploy?.ssh) {
+		runOnHub(
+			hub,
+			`umask 077; cat > ${JSON.stringify(`${dir}/routing-policy.hub.json`)}`,
+			{ input: policyText },
+		);
+	} else {
+		writeFileSync(`${dir}/routing-policy.hub.json`, policyText, {
+			mode: 0o600,
+		});
+		chmodSync(`${dir}/routing-policy.hub.json`, 0o600);
+	}
+}
+
 /** Refresh only the Buckle ladder and its key environment. The container is
  *  recreated (not merely restarted) because Compose must reread env_file. */
 function reloadUpstreams(
@@ -425,8 +559,9 @@ function reloadUpstreams(
 			`hubctl reload-upstreams refused: ${name} has stale or unpinned deploy ref; run hubctl push ${name} first`,
 		);
 	const rendered = renderUpstreams(hub);
+	pushGatewayPolicy(hub, dir);
 	pushUpstreamEnv(hub, dir);
-	const destination = `${dir}/upstreams.hub.yaml`;
+	const destination = `${dir}/upstreams.hub.json`;
 	if (hub.deploy?.ssh) {
 		execFileSync(
 			"ssh",
@@ -441,6 +576,9 @@ function reloadUpstreams(
 		writeFileSync(destination, rendered, { mode: 0o600 });
 	}
 	const docker = hub.deploy?.docker ?? "docker";
+	// W1156: the gateway redeploy drains first — every in-flight stream gets
+	// its truthful gateway_restarting terminal before the recreate lands.
+	drainGatewayBeforeRecreate(hub, name);
 	const command = `${docker} compose -f ${JSON.stringify(`${dir}/hub-compose.yaml`)} --project-directory ${JSON.stringify(dir)} up -d --force-recreate --no-deps buckle-hub`;
 	console.log(runOnHub(hub, command, { timeout: 120_000 }).trim());
 }
@@ -475,13 +613,16 @@ function pushConfig(
 			[
 				...sshOpts(hub),
 				hub.deploy.ssh,
-				`/bin/sh -c 'cat > ${JSON.stringify(`${dir}/upstreams.hub.yaml`)}'`,
+				`/bin/sh -c 'umask 077; cat > ${JSON.stringify(`${dir}/upstreams.hub.json`)}'`,
 			],
 			{ input: renderUpstreams(hub) },
 		);
 	} else {
-		writeFileSync(`${dir}/upstreams.hub.yaml`, renderUpstreams(hub));
+		writeFileSync(`${dir}/upstreams.hub.json`, renderUpstreams(hub), {
+			mode: 0o600,
+		});
 	}
+	pushGatewayPolicy(hub, dir);
 	pushUpstreamEnv(hub, dir);
 	// W983: the 0600 owner-prefs file (compose binds it at BUCKLE_PREFS)
 	if (hub.deploy?.ssh) {
@@ -527,9 +668,13 @@ function requireDir(hub: HubProfile): string {
 }
 
 /** docker compose up -d on the hub — the argv lives in hub-remote.ts so
- *  belt's hub heal spawns byte-identical commands. */
-function composeUp(hub: HubProfile): void {
+ *  belt's hub heal spawns byte-identical commands. W1156: the compose
+ *  recreate is preceded by the drain pre-signal + bounded on-hub grace so
+ *  in-flight streams get their truthful gateway_restarting terminal —
+ *  ONE shutdown path, never a duplicate. */
+function composeUp(hub: HubProfile, name: string): void {
 	requireDir(hub); // the declared-dir gate + its stack-path error
+	drainGatewayBeforeRecreate(hub, name);
 	const [bin, ...rest] = composeUpArgv(hub);
 	// W820: the NAS daemon lags bulk-recreate removals — "removal of
 	// container ... is already in progress" clears in seconds; bounded retry.
@@ -585,21 +730,21 @@ function upHub(
 	const dir = requireDir(hub);
 	const ref = hubEnvRef(hub, dir);
 	if (ref !== null && version !== undefined && ref === version) {
-		composeUp(hub);
+		composeUp(hub, name);
 		return;
 	}
 	const reason =
 		ref === null
 			? `no HUB_FLEET_REF in ${dir}/.env — re-render: hubctl push ${name}`
 			: version === undefined
-				? `hub .env pins ${ref} but stack.yaml has no pinned version — set version: then hubctl push ${name}`
-				: `hub .env pins ${ref} but stack.yaml pins ${version} — re-render: hubctl push ${name}`;
+				? `hub .env pins ${ref} but stack.json has no pinned version — set version: then hubctl push ${name}`
+				: `hub .env pins ${ref} but stack.json pins ${version} — re-render: hubctl push ${name}`;
 	if (!force)
 		throw new Error(
 			`hubctl up refused: ${reason} (override: hubctl up ${name} --force)`,
 		);
 	console.log(`! up --force: proceeding on a stale env — ${reason}`);
-	composeUp(hub);
+	composeUp(hub, name);
 }
 
 /** Probe every service port; exit non-zero when any probe fails. */
@@ -732,7 +877,7 @@ function deployHub(
 	renderEnv(hub, name, auth, version);
 	mintRootKey(hub);
 	pushConfig(hub, name, auth, version);
-	composeUp(hub);
+	composeUp(hub, name);
 	const failed = status(hub);
 	if (failed > 0) {
 		console.log(
@@ -740,6 +885,10 @@ function deployHub(
 		);
 		process.exit(1);
 	}
+	// W1124.15: a full install validates the configured cross-hub key
+	// lifecycle — a declared key must be VALID on the hub it points at;
+	// expired/revoked fails the install with the hub's actual code.
+	if (!verifyConfiguredServiceKey(hub, name)) process.exit(1);
 	console.log(`deploy: ${name} all healthy`);
 }
 
@@ -833,15 +982,6 @@ function execHub(hub: HubProfile, name: string, cmd: string[]): void {
 // it lives, POSTs the hub's own admin API from inside the device, and
 // prints the mint response + http code. The root credential is used in a
 // header variable and never printed or transported off the hub.
-const MINT_LANE_KEY_SCRIPT = [
-	"umask 077",
-	"K=$(sed -n 's/^BUCKLE_ROOT_KEY=//p' \"$1\" | head -n1 | tr -d '\\r\\n')",
-	'[ -n "$K" ] || { echo "hub root key missing at $1" >&2; exit 3; }',
-	"curl --max-time 15 -sS -X POST \\",
-	'  -H "Authorization: Bearer $K" -H "content-type: application/json" \\',
-	'  -d "$2" -w \'\\n%{http_code}\' "http://127.0.0.1:$3/v1/admin/keys"',
-].join("\n");
-
 /** sid charset: sids ride a JSON body key name + the ssh string — bare
  *  word, no separators, ≥3 chars. */
 function validSid(s: string | undefined): s is string {
@@ -860,53 +1000,33 @@ function flagVal(flags: string[], f: string): string | undefined {
 	return i >= 0 ? flags[i + 1] : undefined;
 }
 
+/** W1124.15: the deploy-gate face — nothing declared = nothing to check;
+ *  declared-and-failed fails the install with the evidence printed above.
+ *  (The verification core lives in deploy/service-key.ts; this thin export
+ *  binds hubctl's hub-exec runner.) */
+export function verifyConfiguredServiceKey(
+	hub: HubProfile,
+	name: string,
+): boolean {
+	return serviceKeyVerdict(serviceKeyRunner, hub, name);
+}
+
 function mintLaneKey(
 	hub: HubProfile,
 	name: string,
 	sid: string,
 	ttl: number,
 ): void {
-	const port = hub.buckle_port;
-	const root = hub.secrets?.buckle_root_key;
-	if (!port || !root)
-		throw new Error(
-			`hub ${name} needs buckle_port + secrets.buckle_root_key in stack.yaml`,
-		);
-	const body = JSON.stringify({
-		name: sid,
-		scopes: ["buckle:proxy:WRITE_"],
-		expires_in_s: ttl,
-	});
-	const quote = (a: string): string => `'${a.replace(/'/g, `'\\''`)}'`;
-	let out: string;
-	try {
-		out = runOnHub(
-			hub,
-			// script args: $1=root-key file, $2=curl body, $3=gate port —
-			// the script reads -d "$2" and port "$3" (W974: was swapped, every
-			// mint 400'd on a JSON-body URL)
-			`/bin/sh -c ${quote(MINT_LANE_KEY_SCRIPT)} sh ${quote(root)} ${quote(body)} ${quote(String(port))}`,
-		);
-	} catch (e) {
-		// the hub-side script's diagnostic (e.g. root key missing) rides stderr
-		const err = e as { stderr?: unknown; message?: unknown };
-		const hint =
-			typeof err.stderr === "string" && err.stderr.trim().length > 0
-				? err.stderr.trim()
-				: typeof err.message === "string"
-					? err.message
-					: String(e);
-		console.log(`hubctl mint-lane-key: ${hint}`);
-		process.exit(1);
-	}
-	const lines = out.trimEnd().split("\n");
-	const status = Number(lines.at(-1));
-	const payload = lines.slice(0, -1).join("\n");
-	if (!(status >= 200 && status < 300)) {
-		console.log(payload || `hub gate answered ${status} — key not minted`);
-		process.exit(1);
-	}
-	console.log(payload);
+	runMintOnHub(
+		serviceKeyRunner,
+		hub,
+		name,
+		JSON.stringify({
+			name: sid,
+			scopes: ["buckle:proxy:WRITE_"],
+			expires_in_s: ttl,
+		}),
+	);
 }
 
 function main(): void {
@@ -916,10 +1036,17 @@ function main(): void {
 	const auth = stack.auth;
 	if (!hubName || verb === "--help" || verb === "-h") {
 		console.log(
-			"usage: hubctl <render|mint|push|up|status|deploy|reload-upstreams|manifest|exec|mint-lane-key> <hub> — config: ~/.config/klh/stack.yaml\n" +
+			"usage: hubctl <render|mint|push|up|status|deploy|reload-upstreams|manifest|exec|mint-lane-key> <hub> — config: ~/.config/klh/stack.json\n" +
 				"       up accepts --force: proceed on a stale/unpinned hub .env (refused by default)\n" +
 				"       exec runs allowlisted read-only probes; mint-lane-key mints a\n" +
-				"       short-lived lane key ON the hub (root credential never leaves it)",
+				"       short-lived lane key ON the hub (root credential never leaves it)\n" +
+				"       mint-service-key mints a PERSISTENT proxy-only service credential\n" +
+				"       (no expiry, --out keyfile at 0600, metadata only on stdout) for\n" +
+				"       spoke/persistent links; verify-key checks a\n" +
+				"       configured cross-hub key and fails on expired/revoked with the\n" +
+				"       hub's actual code; trace-tunnel <hub> up|status|down|peer runs\n" +
+				"       the W1097 managed ssh tunnel for the bounded trace connector\n" +
+				"       (hubs.<label>.trace_tunnel in stack.json)",
 		);
 		process.exit(hubName ? 0 : 2);
 	}
@@ -977,9 +1104,40 @@ function main(): void {
 			mintLaneKey(hub, hubName, sid, ttl);
 			return;
 		}
+		case "mint-service-key": {
+			const name = flagVal(flags, "--name");
+			const out = flagVal(flags, "--out");
+			if (!validSid(name) || !out) {
+				console.log(
+					"usage: hubctl mint-service-key <hub> --name <service-name> --out <keyfile> — the raw key lands in --out (0600, never printed)",
+				);
+				process.exit(2);
+			}
+			mintServiceKey(serviceKeyRunner, hub, hubName, name, out);
+			return;
+		}
+		case "verify-key": {
+			const file = flagVal(flags, "--file");
+			const envName = flagVal(flags, "--env");
+			if (!file) {
+				console.log(
+					"usage: hubctl verify-key <hub> --file <key-env-path> [--env NAME] — --env selects inside a multi-variable file",
+				);
+				process.exit(2);
+			}
+			process.exit(
+				verifyKeyFile(serviceKeyRunner, hub, hubName, file, envName) ? 0 : 1,
+			);
+			return;
+		}
+		case "trace-tunnel":
+			// the verb owns its exit codes (0 ok · 1 failed · 2 usage) and
+			// process.exit()s on every path — never returns here
+			void traceTunnelVerb(hub, hubName, flags);
+			return;
 		default:
 			console.log(
-				`hubctl: unknown verb "${verb}" — render|mint|push|up|status|deploy|reload-upstreams|manifest|exec|mint-lane-key`,
+				`hubctl: unknown verb "${verb}" — render|mint|push|up|status|deploy|reload-upstreams|manifest|exec|mint-lane-key|mint-service-key|verify-key|trace-tunnel`,
 			);
 			process.exit(2);
 	}

@@ -1,7 +1,7 @@
 // hooks/bin/federation-peers.ts — W362 peer policy propagation entry.
 // Loop mode by default (FEDERATION_PEERS_INTERVAL_S, default 300s); --once
 // for the sim and tests. Peer labels from HUB_PEERS (the hubctl-rendered,
-// compose-forwarded form) or stack.yaml hubs.<KLH_HUB_NAME>.peers. Every
+// compose-forwarded form) or stack.json hubs.<KLH_HUB_NAME>.peers. Every
 // peer degrades independently: a failed pull logs one honest line, keeps
 // last-known, never blocks the hub. --once exits 2 when any peer degraded
 // (honest signal for the caller), loop mode never exits on peer-down.
@@ -14,7 +14,7 @@ async function cycle(): Promise<boolean> {
 	const labels = resolvePeerLabels();
 	if (labels.length === 0) {
 		console.log(
-			"[federation-peers] no peer edges declared (HUB_PEERS / stack.yaml hubs.<me>.peers) — idle",
+			"[federation-peers] no peer edges declared (HUB_PEERS / stack.json hubs.<me>.peers) — idle",
 		);
 		return true;
 	}

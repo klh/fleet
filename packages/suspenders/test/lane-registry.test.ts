@@ -1,6 +1,10 @@
 import { Database } from "bun:sqlite";
 import { existsSync, realpathSync } from "node:fs";
-import { readLaneRegistry, safeToRetire } from "../hooks/lib/lane-registry.ts";
+import {
+	newerLane,
+	readLaneRegistry,
+	safeToRetire,
+} from "../hooks/lib/lane-registry.ts";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,7 +14,7 @@ import {
 	loadLanes,
 	saveLanes,
 	type Lane,
-} from "../scripts/lib/lane.ts";
+} from "../hooks/lib/lane.ts";
 
 const roots: string[] = [];
 function repo() {
@@ -58,13 +62,48 @@ test("stale snapshots preserve newer generations and unseen lanes", () => {
 	expect(loadLanes(fleet).find((l) => l.sid === "a")?.launchedAt).toBe(30);
 });
 
+test("a later cold launch replaces yesterday's higher attempt and stale snapshots cannot restore its PID", () => {
+	const root = repo();
+	const fleet = join(root, ".fleet");
+	const old = { ...lane("same-session", 2, 100), pid: 36066 };
+	const fresh = { ...lane("same-session", 0, 200), pid: 19394 };
+	saveLanes([old], fleet);
+	saveLanes([fresh], fleet);
+	expect(loadLanes(fleet)[0]).toEqual(fresh);
+	saveLanes([{ ...old, attempt: 99 }], fleet);
+	expect(loadLanes(fleet)[0]).toEqual(fresh);
+});
+
+test("same-launch attempts, unknown times and equal-row refresh remain deterministic", () => {
+	const current = lane("same", 2, 100);
+	expect(newerLane(current, lane("same", 1, 100))).toBe(current);
+	const retry = lane("same", 3, 100);
+	expect(newerLane(current, retry)).toBe(retry);
+	const refresh = { ...current, pid: 5 };
+	expect(newerLane(current, refresh)).toBe(refresh);
+	for (const launchedAt of [
+		undefined,
+		Number.NaN,
+		Number.POSITIVE_INFINITY,
+		-1,
+	]) {
+		expect(newerLane(current, { ...current, attempt: 99, launchedAt })).toBe(
+			current,
+		);
+	}
+	const unknown = { sid: "same", attempt: 2 };
+	const unknownRetry = { sid: "same", attempt: 3 };
+	expect(newerLane(unknown, unknownRetry)).toBe(unknownRetry);
+	expect(newerLane(unknown, current)).toBe(current);
+});
+
 test("independent processes cannot overwrite simultaneous launches", async () => {
 	const root = repo();
 	const fleet = join(root, ".fleet");
 	const helper = join(root, "writer.ts");
 	writeFileSync(
 		helper,
-		`import { loadLanes, saveLanes } from ${JSON.stringify(join(import.meta.dir, "..", "scripts", "lib", "lane.ts"))};
+		`import { loadLanes, saveLanes } from ${JSON.stringify(join(import.meta.dir, "..", "hooks", "lib", "lane.ts"))};
 const fleet=process.argv[2], sid=process.argv[3]; const snapshot=loadLanes(fleet); await Bun.sleep(150); saveLanes([...snapshot,{sid,item:sid,pid:1,branch:sid,worktree:"/unused",launchedAt:Date.now(),attempt:1}],fleet);`,
 	);
 	const children = Array.from({ length: 12 }, (_, i) =>

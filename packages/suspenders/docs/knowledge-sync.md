@@ -74,6 +74,51 @@ Rides the W264 perimeter (host allowlist + x-klh-write-token for non-GET),
   idempotent; day/tool/model/session dimensions, re-sent snapshots replace.
 - `GET /api/knowledge-ingest` — landed counts summary.
 
+## Upward claim roll (W1213 — CAS aggregate on the hub)
+
+Machines push their claim.* facts UP as a content-addressed roll. Identity
+is the CAS key: sha256(evidenceId + NUL + claim + NUL + scope + NUL + tenant
+when machine-scoped) — the same FLEET-scope evidence+claim from any two
+machines hashes identically, so the aggregate dedupes public content, not
+by sender. Scope and (for machine-scope rows) tenant are IMMUTABLE key
+dimensions (W1213.1.1): a foreign assertion — public or private — lands as
+its own row and can never merge into (or widen) another tenant's private
+row; the fleet plane stays the cross-machine aggregation.
+
+- Collect (machine): `collectClaims` reads facts rows in the `claim.*`
+  namespace (JSON `{claim, confidence?, tombstone?}`; plain text degrades
+  to claim text), redactSecrets with a REJECT posture (any hit skips the
+  row, cursor never advances), version-delta against the sync cursor
+  (`state.claims`), 50 entries per pass. Rides only when a target is
+  configured with `rollUrl` + `rollKeyFile` (policy `claims: true`
+  default) — and the two are configured TOGETHER (the validator refuses
+  one without the other).
+- Transport (credential-free): POST `{rollUrl}/roll` with the scoped TTL
+  key header `x-klh-roll-key`. The key is minted PER MACHINE on the hub:
+  `bun hooks/bin/knowledge-api.ts --mint-roll-key <machine> [--ttl-hours N]`
+  prints it once, only its sha256 is stored (0600 `~/.cache/claude-governor/roll-keys.json`,
+  SUSPENDERS_ROLL_KEYS_FILE relocates). Provenance resolves FROM the key —
+  the payload carries no machine identity. The install write token stays a
+  valid OPERATOR push path (machine then rides `body.machine`).
+- Ack contract (W1213.2.1): a 2xx status alone is not acceptance — the
+  claims cursor advances only on an explicit, validated positive ack
+  matched to the batch (`ok:true` + counters accounting for at most the
+  sent set; the idempotent tombstone re-push counts nothing, so exact-sum
+  would wedge the cursor). Rejections delivered as HTTP 200 `{ok:false}`,
+  malformed bodies, or counter overshoot retain the cursor; the hub side is
+  idempotent, so the retry re-sends without dupes.
+- Aggregate (hub): `aggregateClaims` lands in `knowledge_claims`
+  (knowledge.db, self-healing CREATE) under ONE BEGIN IMMEDIATE per roll.
+  Same hash → provenance merge (counts stay per-machine; re-push = dupe).
+  Different claim, same evidence → a NEW VERSION (MAX(version)+1 — the
+  versioning guard: restatement versions, never overwrites). A tombstone
+  entry (same hash, `tombstone: true`) flips the row without deleting it;
+  a newer assertion revives (last-timestamp-wins interim; W1214 replaces
+  this with anti-entropy). Confidence = MAX asserted.
+- Read: GET `/roll` on the knowledge-api and GET `/api/knowledge-roll` on
+  the board — confidence-ranked, per-machine provenance counts, tenants
+  roll-up, tombstoned rows hidden by default.
+
 ## Operations
 
 - Heartbeat task: `knowledge-sync` (W779 fleet-loop, 1800s cadence, nice 10,

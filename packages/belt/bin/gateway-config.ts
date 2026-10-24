@@ -13,6 +13,10 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { chatGptSubscriptionRows } from "./chatgpt-subscription-rows.ts";
+import { openRouterFreeRows } from "./openrouter-free-rows.ts";
+import { chatEntries, ROUTER } from "./registry.ts";
+import { litellmRows } from "./registry-emit.ts";
+import { buildRemoteEntries } from "./remotes-validate.ts";
 import {
 	emitClassTiers,
 	emitLiteLlmSettings,
@@ -20,10 +24,6 @@ import {
 	loadDirectTiers,
 	loadGatewayPolicy,
 } from "./router-policy.ts";
-import { buildRemoteEntries } from "./remotes-validate.ts";
-import { chatEntries, ROUTER } from "./registry.ts";
-import { litellmRows } from "./registry-emit.ts";
-import { openRouterFreeRows } from "./openrouter-free-rows.ts";
 import { readZaiSnapshot, zaiLiteLlmRows } from "./zai-catalog-rows.ts";
 
 const HOME = process.env.HOME ?? homedir();
@@ -196,7 +196,7 @@ const anthEntries = anth
 	)
 	.join("\n");
 // Router policy (retries, outlier ejection) + the fallback ladders come from
-// bin/routing-policy.yaml — operators edit the YAML, never code. Ladders
+// bin/routing-policy.json — operators edit the JSON, never code. Ladders
 // land under litellm_settings.fallbacks (W219.2): the placement the
 // installed litellm reads; router_settings.model_group_fallbacks is a dead
 // key (warned + ignored — the 2026-10-06 z.ai TLS outage hard-failed lanes
@@ -211,7 +211,9 @@ const fullYaml =
 	emitRouterSettings(policy) +
 	"\n" +
 	emitLiteLlmSettings(policy) +
-	`general_settings:\n  master_key: os.environ/LITELLM_KEY\n`;
+	// Cancel abandoned pre-header provider work, not just the client socket.
+	// LiteLLM's separate streaming finalizer still owns post-header cleanup.
+	`general_settings:\n  master_key: os.environ/LITELLM_KEY\n  cancel_on_disconnect: true\n`;
 const out = `${HOME}/.claude/local-llm/litellm.yaml`;
 const temp = `${out}.${crypto.randomUUID()}.tmp`;
 try {

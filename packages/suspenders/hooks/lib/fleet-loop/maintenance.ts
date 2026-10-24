@@ -119,10 +119,15 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		name: "auto-install",
 		everySeconds: 300,
 		timeoutMs: 300_000,
+		// W1243: auto-install's --repo is the PACKAGE root install.sh lives in
+		// (it derives the fleet root itself); the heartbeat's repo is the
+		// fleet root — passing it verbatim left install.sh a 127-forever
+		// no-op (2026-10-23: the stale-harness poisoning stood unhealed all
+		// day because the self-heal never ran).
 		argv: (root, repo) => [
 			join(root, "scripts/auto-install.ts"),
 			"--repo",
-			repo,
+			join(repo, "packages/suspenders"),
 		],
 		cwd: (repo) => repo,
 	},
@@ -156,6 +161,26 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		timeoutMs: 120_000,
 		argv: (root, repo) => [
 			join(root, "hooks/bin/rogue-reap.ts"),
+			"--act",
+			"--repo",
+			repo,
+		],
+		cwd: (repo) => repo,
+	},
+	{
+		// W1247: the .fleet launch-debris janitor — dispatch/supervise fence
+		// every lane launch with launch-<nonce>.{json,sh,json.registered} in
+		// <REPO>/.fleet and nothing removed them (6,805-file backlog,
+		// 2026-10-23). Prunes debris older than 7 days UNLESS the nonce is
+		// the item's registered-current launch (lane_launch_intents + process
+		// birth — uncertainty keeps, mid-flight launches are safe). Daily
+		// 04:40 fire; `.fleet/launch-janitor-paused` pauses.
+		name: "launch-janitor",
+		calendar: { hour: 4, minute: 40 },
+		nice: 10,
+		timeoutMs: 120_000,
+		argv: (root, repo) => [
+			join(root, "hooks/bin/launch-janitor.ts"),
 			"--act",
 			"--repo",
 			repo,
@@ -233,6 +258,18 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 			repo,
 		],
 		cwd: (repo) => repo,
+	},
+	{
+		// W1212: the daily decant→facts distiller — machine-local evidence
+		// (THIS machine's DONE work rows + decant archive) → content-addressed
+		// coord facts (CAS create-only, confidence-stamped at ingest). Idle
+		// between fires is fine: same-day re-runs dedupe by key, never
+		// duplicate. Credential-free by construction — hub-executable (W1211).
+		name: "decant-daily",
+		calendar: { hour: 4, minute: 30 },
+		nice: 10,
+		timeoutMs: 300_000,
+		argv: (root) => [join(root, "hooks/bin/decant-daily.ts")],
 	},
 	{
 		// W969 Signals-lite — per-run silent-failure scan of closed lanes

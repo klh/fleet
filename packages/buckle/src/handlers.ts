@@ -1,3 +1,4 @@
+import type { TransportEvidence } from "../../telemetry/src/transport-evidence.ts";
 // src/handlers.ts — wire handlers: the two ingress dialects (POST
 // /v1/chat/completions openai-shape, POST /v1/messages anthropic-shape) plus
 // /v1/messages/count_tokens and GET /v1/models. SSE responses pass through
@@ -12,10 +13,17 @@ import {
 	stampHopHeaders,
 } from "../../telemetry/src/http-trace.ts";
 import {
-	parsePreferHeader,
 	PREFER_HEADER,
+	parsePreferHeader,
 } from "../../telemetry/src/prefer-header.ts";
-import { RouterError, routerErrorEnvelope } from "./adapters/errors.ts";
+import { RouterError } from "./adapters/errors.ts";
+import {
+	type AcctContext,
+	type AccountPolicyDoc,
+	applyAccountPolicy,
+	REPO_CLAIM_HEADER,
+	scopeSelection,
+} from "./account-policy.ts";
 import { resolveAdapter } from "./adapters/index.ts";
 import type { RpcAdmission } from "./admission.ts";
 import {
@@ -39,9 +47,9 @@ import {
 	lanePrefixOf,
 	methodNotAllowed,
 	options204,
-	PROBLEM_SLUGS,
 	problem,
 } from "./citizenship.ts";
+import { errorResponse } from "./error-response.ts";
 import { scoreComplexity, textFromMessages } from "./complexity.ts";
 import {
 	type DecideResult,
@@ -50,16 +58,30 @@ import {
 	type RouteSelection,
 } from "./decide.ts";
 import { type DietStore, dietRoutes } from "./diet.ts";
+import { onDrain, writeDrainTerminal } from "./drain.ts";
 import type { Expander } from "./expand.ts";
 import { type Federation, principalOf } from "./gov/federation.ts";
 import { hintFromHeaders, type RouteHint } from "./hints.ts";
 import {
+	type HopContext,
 	hopBaggageOf,
 	hopFromBaggage,
 	hopKindOf,
 	laneFromBaggage,
-	type HopContext,
 } from "./hop.ts";
+import {
+	beginInflight,
+	endInflight,
+	markInflight,
+	settleInflight,
+} from "./gov/inflight.ts";
+import {
+	INGRESS_BODY_TIMEOUT_MS,
+	IngressBodyError,
+	MAX_REQUEST_BODY_BYTES,
+	readIngressJson,
+} from "./ingress-body.ts";
+import { handleNamedIngress, namedIngressOf } from "./ingress-routes.ts";
 import { keyIdFromToken, type Ledger, tokenFromHeaders } from "./ledger.ts";
 import type {
 	ObservationData,
@@ -75,6 +97,13 @@ import { repoPolicyRoutes } from "./repo-policy-routes.ts";
 import { type ExecuteResult, type Router, UpstreamError } from "./router.ts";
 import type { Servicemon } from "./servicemon.ts";
 import { SseSniffer, sseReframer } from "./sse.ts";
+import {
+	blackHole,
+	once,
+	scrubText,
+	terminalOf,
+	writeErrorEvent,
+} from "./stream-terminal.ts";
 import {
 	allowlistedBaggage,
 	newTraceparent,
@@ -103,6 +132,9 @@ export interface AppDeps {
 		hint: RouteHint | null;
 		hintRaw: string;
 		allowCross: boolean;
+		/** W1265: scope the candidate set to this catalog provider
+		 *  (dep.adapter) only — a pinned route never substitutes. */
+		providerPin?: string;
 	}) => DecideResult;
 	table: CandidateTable;
 	// W142 knowledge aids: the metering ledger, the preseed builder, and the
@@ -125,6 +157,10 @@ export interface AppDeps {
 	// W7 repo-policy gate: the loaded rows (absent/empty = engine inert);
 	// the route 404s honestly when unwired.
 	repoPolicy?: RepoPolicyRow[];
+	// W1265.1 account policy: the loaded repo-tier class table (null = the
+	// boundary is inert — no policy configured; gate-off + active policy is
+	// still fail-closed in proxy()). Optional — bare deps (testDeps, dev).
+	accountPolicy?: AccountPolicyDoc | null;
 	// W237 prefix-affinity: the prefix → candidate memo. Optional — bare
 	// deps (testDeps, dev) route without affinity and the seam no-ops.
 	affinity?: PrefixAffinity;
@@ -138,6 +174,8 @@ export interface AppDeps {
 	// W450 bounded RPC admission: in-flight slot bound over the proxy path.
 	// Optional — bare deps (testDeps, dev) admit unbounded (current shape).
 	admission?: RpcAdmission;
+	/** Injection seam for the 120s ingress body deadline. */
+	ingressBodyTimeoutMs?: number;
 	// W461 stage 2: the bounded observation outbox. Optional — absent =
 	// observations inert (bare deps, or BUCKLE_OBSERVATIONS_PATH unset).
 	observations?: ObservationOutbox;
@@ -164,8 +202,6 @@ const SSE_HEADERS = (h: Headers): Headers => {
 	return out;
 };
 
-const enc = new TextEncoder();
-
 /** Short request id — the audit join key echoed as x-belt-rid. */
 function newRid(): string {
 	return `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -187,6 +223,7 @@ function stamped(
 	route: {
 		decision: string;
 		row?: CandidateRow;
+		streaming?: boolean;
 		code?: string | null;
 		refusal?:
 			| "buckle"
@@ -199,6 +236,7 @@ function stamped(
 		requestId?: string;
 		callId?: string;
 		upstreamKind?: string;
+		transportTimeoutPhase?: TransportEvidence["timeoutPhase"];
 	},
 ): Response {
 	const payload: Record<string, unknown> = {
@@ -231,34 +269,15 @@ function stamped(
 		attempts: route.attempts,
 		upstreamStatus: route.upstreamStatus,
 		upstreamKind: route.upstreamKind,
+		transportTimeoutPhase: route.transportTimeoutPhase,
 		upstreamId: route.requestId,
 		callId: route.callId,
 	});
 	for (const [k, v] of hs) resp.headers.set(k, v);
 	resp.headers.delete(PREFER_HEADER);
 	if (ctx.preference) resp.headers.set(PREFER_HEADER, ctx.preference);
+	settleInflight(ctx, resp, route); // W1259: hold streams, settle the rest
 	return resp;
-}
-
-/** Buckle-GENERATED error body: problem+json with the stable code in `code`
- *  (http-citizenship). Two documented exceptions: upstream pass-through
- *  errors ride the upstream's body verbatim (client-error), and mid-stream
- *  failures speak SSE (the status is already sent). */
-export function errorResponse(
-	status: number,
-	why: string,
-	code?: string | null,
-): Response {
-	return problem({
-		status,
-		code: code ?? `buckle.${PROBLEM_SLUGS[status] ?? "problem"}`,
-		why: code ? `belt: ${code} — ${scrubText(why)}` : scrubText(why),
-	});
-}
-
-/** /Users/<name> paths and key material never leave through an error. */
-export function scrubText(text: string): string {
-	return text.replace(/\/Users\/[^/\s'"]+/g, "~");
 }
 
 /** W921 traffic kind: a request is READINESS traffic only when a
@@ -285,6 +304,9 @@ interface Ctx {
 	tier: string;
 	t0: number;
 	sel?: RouteSelection;
+	/** W1265.1: the resolved account context (undefined = policy inert for
+	 *  this request — no class table, no pin). */
+	acct?: AcctContext;
 	/** W5: the request declared `condense-in` in its x-belt-aids stanza. */
 	condenseIn: boolean;
 	/** W237: packet-prefix key (null = no packet block, no affinity). */
@@ -305,6 +327,11 @@ interface Ctx {
 	 *  carries the x-klh-traffic: readiness mark (the healthcheck sidecar's
 	 *  synthetic full-chain poll); 'inference' otherwise. */
 	trafficKind: string;
+	/** W1106: the request's abort signal — the honest downstream_cancel
+	 *  evidence for stream receipts (Bun surfaces destination death lazily:
+	 *  a pipeTo only rejects on the NEXT failed write, so a quiet abort
+	 *  after the last chunk would otherwise bank as upstream_eof). */
+	signal?: AbortSignal;
 	/** Canonicalized executor intent; diagnostic only, never a route hint. */
 	preference: string | null;
 	/** W461 stage 2: set once the admitted observation is published —
@@ -344,6 +371,9 @@ function deny(
 		why,
 		hop: hopKindOf(ctx.hop),
 		traffic_kind: ctx.trafficKind,
+		repo_hash: ctx.acct?.repoHash ?? null,
+		account_tier: ctx.acct?.tier ?? null,
+		key_name: ctx.acct?.keyName ?? null,
 	});
 	if (ctx.admitted)
 		observe(deps, ctx, "lane.request.ended", { outcome: decision, status });
@@ -402,6 +432,7 @@ async function proxy(
 	path: string,
 	deps: AppDeps,
 	lane = "",
+	pin?: string,
 ): Promise<Response> {
 	const hubId = deps.hubId ?? "local";
 	const baggage = allowlistedBaggage(req.headers.get("baggage"));
@@ -436,13 +467,39 @@ async function proxy(
 		},
 	};
 	ctx.trafficKind = trafficKindOf(req);
+	ctx.signal = req.signal;
 	ctx.t0 = Date.now();
+	beginInflight(ctx); // W1259: the exact in-flight index starts here
 	const hint = hintFromHeaders(req.headers);
 	if (!hint.ok) return deny(deps, ctx, 400, hint.why, "bad_hint", "denied");
 	let body: Record<string, unknown>;
 	try {
-		body = (await req.json()) as Record<string, unknown>;
-	} catch {
+		body = (await readIngressJson(
+			req,
+			deps.ingressBodyTimeoutMs ?? INGRESS_BODY_TIMEOUT_MS,
+			MAX_REQUEST_BODY_BYTES,
+		)) as Record<string, unknown>;
+	} catch (error) {
+		if (error instanceof IngressBodyError) {
+			if (error.code === "timeout")
+				return deny(
+					deps,
+					ctx,
+					408,
+					"request body deadline exceeded",
+					"body_timeout",
+					"denied",
+				);
+			if (error.code === "too_large")
+				return deny(
+					deps,
+					ctx,
+					413,
+					"request body too large",
+					"body_too_large",
+					"denied",
+				);
+		}
 		return deny(deps, ctx, 400, "invalid JSON body", null, "denied");
 	}
 	const model = typeof body.model === "string" ? body.model : "";
@@ -466,21 +523,54 @@ async function proxy(
 	ctx.hint = hint.hint;
 	ctx.hintRaw = hint.raw;
 	ctx.tier = scoreComplexity(textFromMessages(body.messages)).tier;
+	// W1265.1 account policy: resolve the verified repo/workspace identity +
+	// allowed account tier from the AUTHENTICATED key (the trusted mint name
+	// — never the client-supplied claim header, never process/TLS inference)
+	// BEFORE any routing. A refusal here is a typed local 4xx, zero outbound.
+	const principal = principalOf(req);
+	const verdict = applyAccountPolicy(deps.accountPolicy ?? null, {
+		kind: principal?.kind ?? null,
+		keyName: principal?.name ?? null,
+		claimRepo: req.headers.get(REPO_CLAIM_HEADER),
+		pin: pin ?? null,
+		group: model,
+	});
+	if (!verdict.ok)
+		return deny(deps, ctx, verdict.status, verdict.why, verdict.code, "denied");
+	if (verdict.acct !== undefined) ctx.acct = verdict.acct;
 	const sel = deps.decide({
 		group: model,
 		dialect,
 		hint: ctx.hint,
 		hintRaw: ctx.hintRaw,
-		// count_tokens never bridges (openai wire has no count endpoint)
-		allowCross: path !== "/v1/messages/count_tokens",
+		// count_tokens never bridges (openai wire has no count endpoint); a
+		// provider-pinned route never bridges either (W1265)
+		allowCross: pin === undefined && path !== "/v1/messages/count_tokens",
+		providerPin: pin,
 	});
 	if (!sel.ok) {
 		deps.sm
 			.counter("buckle_route_decisions_total", "Routing decisions.")
 			.inc({ decision: "errored", dialect });
-		return deny(deps, ctx, 503, sel.err.why, sel.err.code, "errored");
+		return deny(
+			deps,
+			ctx,
+			503,
+			pin === undefined
+				? sel.err.why
+				: `provider pin '${pin}' on '${path}': ${sel.err.why}`,
+			sel.err.code,
+			"errored",
+		);
 	}
-	ctx.sel = sel.sel;
+	// W1265.1: confine the walked selection to entitled rows — the router
+	// walks sel.ordered, so a scoped list makes cross-boundary fallback
+	// structurally impossible (no entitled-set exit crossing the class
+	// boundary). Scoped to zero = typed refusal, zero outbound.
+	const scoped = scopeSelection(sel.sel, ctx.acct);
+	if (!scoped.ok)
+		return deny(deps, ctx, scoped.status, scoped.why, scoped.code, "errored");
+	ctx.sel = scoped.sel;
 	return runExecute(req, ctx, path, body, deps);
 }
 
@@ -534,10 +624,15 @@ async function runExecute(
 		why: sel.why,
 		hop: hopKindOf(ctx.hop),
 		traffic_kind: ctx.trafficKind,
+		repo_hash: ctx.acct?.repoHash ?? null,
+		account_tier: ctx.acct?.tier ?? null,
+		key_name: ctx.acct?.keyName ?? null,
 	});
 	deps.table.inflight(sel.head.candidate_id, 1);
+	markInflight(ctx); // W1259: model + selected upstream visible mid-flight
 	// W450 bounded RPC admission: one slot per in-flight upstream RPC; past
-	// the cap the gateway 429s + Retry-After (never queues blindly).
+	// the cap the gateway answers a typed local 503 + Retry-After (never
+	// queues blindly, never fabricates the provider's 429 — W1257).
 	if (deps.admission) {
 		const release = deps.admission.tryAcquire(ctx.group);
 		if (release === null) {
@@ -550,8 +645,8 @@ async function runExecute(
 			const resp = deny(
 				deps,
 				ctx,
-				429,
-				`gateway at max in-flight for ${ctx.group} (${String(deps.admission.capOf(ctx.group))})`,
+				503,
+				`gateway at max in-flight for ${ctx.group} (${String(deps.admission.capOf(ctx.group))}) — admission refused locally (W450)`,
 				"overloaded",
 				"errored",
 			);
@@ -715,6 +810,7 @@ function finishResponse(
 		row,
 		code,
 		refusal,
+		streaming,
 		attempts: result.kind === "aborted" ? 0 : result.attempts,
 		upstreamStatus:
 			result.kind === "exhausted" && result.lastFailure?.source !== "network"
@@ -735,6 +831,10 @@ function finishResponse(
 				: result.kind === "client-error"
 					? (result.response.headers.get("x-litellm-call-id") ?? undefined)
 					: undefined,
+		transportTimeoutPhase:
+			result.kind === "exhausted"
+				? result.lastFailure?.transportTimeoutPhase
+				: null,
 		upstreamKind:
 			result.kind === "exhausted"
 				? result.lastFailure?.kind
@@ -836,11 +936,114 @@ function streamResponse(
 	if (!upstream.body) return jsonResponse(deps, ctx, result);
 	const sniffer = new SseSniffer(ctx.dialect);
 	const [sniffBranch, clientBranch] = upstream.body.tee();
-	const downstream = new TransformStream<Uint8Array, Uint8Array>();
+	// W1106 (#55505): ONE cancel bus — a Request abort AND a downstream
+	// reader.cancel (direct body cancel, no Request signal) both feed it;
+	// both pipes ride its signal so either path tears the tee + upstream
+	// down and the receipt banks downstream_cancel, never a misattributed
+	// upstream error.
+	let streamCancelled = false;
+	const downstreamAbort = new AbortController();
+	const cancelDownstream = (): void => {
+		streamCancelled = true;
+		downstreamAbort.abort();
+	};
+	// W1156: the transform controller is captured so the drain can enqueue a
+	// terminal straight into the client queue — the pipe keeps its own
+	// writer; never fight it with a second one.
+	let drainCtl: TransformStreamDefaultController<Uint8Array> | null = null;
+	const downstream = new TransformStream<Uint8Array, Uint8Array>({
+		start: (c) => {
+			drainCtl = c;
+		},
+		cancel: () => cancelDownstream(),
+	});
+	// W1156: a positively-known deployment drain ends this stream with a
+	// dialect-correct gateway_restarting terminal. Delivered marks truth —
+	// only a terminal the client stream actually accepted re-banks the
+	// receipt (a drain racing an already-closed/cancelled stream keeps the
+	// real cause). A stream born mid-drain fires immediately.
+	// W1106: declared ahead of the W1156 drain listener — a stream born
+	// mid-drain fires that listener synchronously and it reads these.
 	let streamFailed = false;
 	let streamFailureKind: string | null = null;
+	let streamDrained = false;
+	/** W1156.1: has this stream already observed its real cause — an in-band
+	 *  error frame (the client holds it), a terminal pipe failure, or the
+	 *  dialect's protocol terminal? */
+	const causeObserved = (): boolean =>
+		streamFailed || sniffer.failureKind() !== null || sniffer.completed();
+	const offDrain = onDrain(() => {
+		// W1156.1: a stream that ALREADY observed its real failure keeps it.
+		// The drain never appends a second, misleading gateway_restarting
+		// after the real error the client already holds — it only cuts the
+		// stream through the abort bus, and the receipt keeps the first
+		// cause. A cause-free live stream still gets the restart terminal.
+		if (causeObserved()) {
+			// Close the client side WITHOUT a new frame — the real error the
+			// client already holds stays the last error on the wire. The same
+			// terminate() teardown as the terminal path: the readable closes
+			// (clean EOF), the writable errors, and the pipe rejection is
+			// recognized via streamDrained — never downstream_cancel.
+			try {
+				drainCtl?.terminate();
+			} catch {
+				// already closing/closed — the stream was already ending
+			}
+			streamDrained = true; // the drain cut it — never downstream_cancel
+			downstreamAbort.abort();
+			return;
+		}
+		streamDrained = writeDrainTerminal(drainCtl, ctx.dialect, ctx.rid);
+		// A delivered cut tears the tee + upstream now (bounded grace), but
+		// through the abort bus's pipes only — streamCancelled stays false so
+		// the receipt keeps the drained cause, never downstream_cancel.
+		if (streamDrained) downstreamAbort.abort();
+	});
+	// W1106: body-free stream progress counters — terminal receipts answer
+	// "who closed this stream" without ever logging payload.
+	let bytesIn = 0;
+	let chunksIn = 0;
+	let lastChunkMs: number | null = null;
+	// W1106 (#55419/#55420): EOF without the dialect's protocol terminal
+	// (anthropic message_stop / openai [DONE] / response.completed) is a
+	// TRUNCATED turn — never a completed success.
+	let streamTruncated = false;
+	// W1106 (#55446/#55461): typed in-band failure from the body (anthropic
+	// event:error, openai response.failed/incomplete) — non-success even
+	// when a terminal marker follows. null = none seen.
+	let streamInBand: string | null = null;
+	const t0 = ctx.t0;
+	const progress = (chunk: Uint8Array): void => {
+		chunksIn++;
+		bytesIn += chunk.byteLength;
+		lastChunkMs = Date.now() - t0;
+	};
 	const finish = once(() => {
+		offDrain();
 		sniffer.flush();
+		// W1106 (#55419/#55420): the sniffer saw the full body — did the
+		// dialect's protocol terminal arrive? A CLEAN EOF without it is a
+		// truncated turn; a failed pipe keeps its failure kind as the cause
+		// (the guard's deadline outranks the missing terminal), and an abort
+		// never counts as truncation.
+		// W1156: a drain terminal that cut a live turn short is the honest
+		// non-success; a drain AFTER the dialect terminal is a cosmetic close
+		// (the turn completed) and never re-labels the receipt.
+		// W1156.1: gateway_restarting is the cause ONLY for a stream with no
+		// earlier observed failure — an in-band error or pipe failure observed
+		// before the drain outranks it in the durable receipt (first cause
+		// wins, never overwritten by the later drain).
+		const drainedCut =
+			streamDrained &&
+			!sniffer.completed() &&
+			sniffer.failureKind() === null &&
+			!streamFailed;
+		streamTruncated =
+			!sniffer.completed() && !streamCancelled && !streamFailed && !drainedCut;
+		// W1106 (#55446/#55461): an IN-BAND failure (anthropic event:error /
+		// openai response.failed|incomplete) is non-success even when a
+		// terminal marker follows it.
+		streamInBand = sniffer.failureKind();
 		record(
 			deps,
 			ctx,
@@ -849,12 +1052,25 @@ function streamResponse(
 			sniffer.cacheWriteReported(),
 		);
 		const selected = ctx.sel?.head.candidate_id;
-		const decision = streamFailed
-			? "errored"
-			: result.candidateId === selected
-				? (ctx.sel?.decision ?? "errored")
-				: "fallback";
-		const success = !streamFailed;
+		// W1106 (#55344): a downstream cancel is a DISTINCT non-success —
+		// ok:0/decision errored, no affinity bind, no candidate success
+		// credit; the receipt's terminal carries downstream_cancel.
+		const decision =
+			streamFailed ||
+			streamCancelled ||
+			streamTruncated ||
+			drainedCut ||
+			streamInBand !== null
+				? "errored"
+				: result.candidateId === selected
+					? (ctx.sel?.decision ?? "errored")
+					: "fallback";
+		const success =
+			!streamFailed &&
+			!streamCancelled &&
+			!streamTruncated &&
+			!drainedCut &&
+			streamInBand === null;
 		const duration = Date.now() - ctx.t0;
 		if (selected) deps.table.inflight(selected, -1);
 		deps.table.recordOutcome(result.candidateId, duration, success);
@@ -867,8 +1083,44 @@ function streamResponse(
 			duration_ms: duration,
 			ok: success,
 			attempts: result.attempts,
-			err: success ? null : `stream_failed:${streamFailureKind ?? "unknown"}`,
-			...(success ? {} : { decision: "errored", error_code: "stream_failed" }),
+			err: streamCancelled
+				? "downstream_cancel"
+				: drainedCut
+					? "gateway_restarting"
+					: success
+						? null
+						: streamInBand !== null
+							? `stream_failed:${streamInBand}`
+							: streamTruncated
+								? "stream_truncated"
+								: `stream_failed:${streamFailureKind ?? "unknown"}`,
+			...(success
+				? {}
+				: {
+						decision: "errored",
+						error_code: streamCancelled
+							? "downstream_cancel"
+							: drainedCut
+								? "gateway_restarting"
+								: streamInBand !== null
+									? "stream_failed"
+									: streamTruncated
+										? "stream_truncated"
+										: "stream_failed",
+					}),
+			stream_receipt: {
+				terminal: terminalOf(
+					streamFailed,
+					streamFailureKind,
+					streamCancelled,
+					drainedCut,
+					streamTruncated,
+					streamInBand,
+				),
+				bytes_in: bytesIn,
+				chunks_in: chunksIn,
+				last_chunk_ms: lastChunkMs,
+			},
 		});
 		deps.sm
 			.counter("buckle_route_decisions_total", "Routing decisions.")
@@ -879,85 +1131,104 @@ function streamResponse(
 				status: 200,
 				attempts: result.attempts,
 			});
+		endInflight(ctx.rid, 200, success, decision, null); // W1259: stream settle
 		ctx.slot?.(); // W450: the drain settled — the upstream slot frees
 	});
-	sniffBranch.pipeTo(blackHole(sniffer)).catch(() => {
-		// the sniff branch failing must not affect the client branch
-	});
-	// W616.1: anthropic clients get the re-framer — canonical frames, pings
+	sniffBranch
+		.pipeTo(blackHole(sniffer, progress), { signal: downstreamAbort.signal })
+		.catch(() => {
+			// the sniff branch failing (or aborting) must not affect the client
+		});
+	// W1106: a quiet abort never rejects the pipe on its own (real-Bun
+	// probe — Bun surfaces destination death only on the next failed
+	// write), so the request signal drives BOTH pipes: pipeTo cancels its
+	// source when the signal fires, which tears the tee branches down and
+	// with them the upstream body (#55399: a client walk must free the
+	// in-flight upstream slot, not leak it). The rejections land in the
+	// handlers above — no branch.cancel() from outside a locked pipe (#55409:
+	// that rejects a promise try/catch never sees).
+	if (ctx.signal?.aborted === true) cancelDownstream();
+	else
+		ctx.signal?.addEventListener(
+			"abort",
+			() => {
+				if (!streamCancelled) cancelDownstream();
+			},
+			{ once: true },
+		);
+	// W616.1: every SSE client gets the re-framer — canonical frames, pings
 	// dropped, corrupt events quarantined (litellm's keepalive ping splices
 	// mid-line under load; byte-identity forwarded the defect to the lane).
-	const sanitized =
-		ctx.dialect === "anthropic"
-			? clientBranch.pipeThrough(
-					sseReframer((reason, preview) => {
-						deps.sm
-							.counter(
-								"buckle_sse_reframe_dropped_total",
-								"SSE events dropped by the re-framer (ping keepalives, quarantined upstream framing defects).",
-							)
-							.inc({ reason });
-						console.warn(`buckle: sse reframe dropped (${reason}): ${preview}`);
-					}),
-				)
-			: clientBranch;
+	// W1106 (#56010): the reframer also carries the empty-stream guard for
+	// BOTH dialects — a success terminal without usable output reaches the
+	// native client as the typed in-band error, matching the ledger.
+	const sanitized = clientBranch.pipeThrough(
+		sseReframer(
+			(reason, preview) => {
+				deps.sm
+					.counter(
+						"buckle_sse_reframe_dropped_total",
+						"SSE events dropped by the re-framer (ping keepalives, quarantined upstream framing defects).",
+					)
+					.inc({ reason });
+				console.warn(`buckle: sse reframe dropped (${reason}): ${preview}`);
+			},
+			ctx.dialect,
+			(kind) => {
+				streamFailed = true;
+				streamFailureKind = kind;
+			},
+		),
+	);
 	sanitized
-		.pipeTo(downstream.writable, { preventAbort: true })
+		.pipeTo(downstream.writable, {
+			preventAbort: true,
+			signal: downstreamAbort.signal,
+		})
 		.then(finish, (err: unknown) => {
-			streamFailed = true;
-			streamFailureKind = safeFailureKind(err);
+			// W1156: the drain cut itself terminates the transform (Bun has no
+			// TransformStreamDefaultController.close), so this rejection IS the
+			// drain's own signature — the terminal is already queued ahead of
+			// the close. Keep the drained cause; classifying it as an upstream
+			// failure would mislabel the receipt and double-write an error.
+			if (streamDrained) {
+				finish();
+				return;
+			}
+			// W1106: classify BEFORE the receipt lands. The request signal is
+			// the honest cancel evidence (real-Bun probe: pipeTo rejects
+			// LAZILY — on the next failed write, or carrying the upstream's
+			// own error object — so rejection identity cannot separate a
+			// client abort from an upstream death). A downstream reader.cancel
+			// rides the same bus via the TransformStream cancel hook (#55505).
+			if (downstreamAbort.signal.aborted) {
+				streamCancelled = true;
+			} else {
+				streamFailed = true;
+				// W1106: RouterError.kind is the typed taxonomy (wire guards
+				// throw RouterError "timeout" at their deadlines); telemetry's
+				// safeFailureKind is generic and would bucket it "error".
+				streamFailureKind =
+					err instanceof RouterError ? err.kind : safeFailureKind(err);
+			}
 			finish();
-			writeErrorEvent(downstream.writable, ctx.dialect, err);
+			if (!streamCancelled)
+				writeErrorEvent(downstream.writable, ctx.dialect, err);
+		})
+		.catch(() => {
+			// W1106: the error-event write failed = the client is gone; the
+			// receipt already banked the upstream failure — terminal stands.
 		});
+	// W1106: the SSE contract is ours — a classified stream whose provider
+	// omitted or mislabeled content-type must still carry the exact MIME the
+	// server.ts per-request idle bypass keys on (scoped HERE, never in the
+	// shared helper: jsonResponse/client-error pass through other bodies).
+	const headers = SSE_HEADERS(upstream.headers);
+	headers.set("content-type", "text/event-stream");
 	return new Response(downstream.readable, {
 		status: 200,
-		headers: SSE_HEADERS(upstream.headers),
+		headers,
 	});
-}
-
-/** Sink for the sniff branch: bytes in, usage extraction, nothing out. */
-function blackHole(sniffer: SseSniffer): WritableStream<Uint8Array> {
-	return new WritableStream({
-		write(chunk) {
-			sniffer.push(chunk);
-		},
-	});
-}
-
-/** Run fn once; later callers are no-ops (stream finalization guard). */
-function once(fn: () => void): () => void {
-	let called = false;
-	return () => {
-		if (called) return;
-		called = true;
-		fn();
-	};
-}
-
-/** Mid-stream upstream death: append a dialect error event, close. */
-function writeErrorEvent(
-	writable: WritableStream<Uint8Array>,
-	dialect: Dialect,
-	err: unknown,
-): void {
-	const message = scrubText(
-		err instanceof Error ? err.message : "upstream stream failed",
-	);
-	const w = writable.getWriter();
-	const envelope =
-		err instanceof RouterError
-			? routerErrorEnvelope(err, dialect, message)
-			: { error: { message, type: "api_error", code: "stream_failed" } };
-	const body =
-		dialect === "anthropic"
-			? `event: error\ndata: ${JSON.stringify({ type: "error", ...envelope })}\n\n`
-			: `data: ${JSON.stringify(envelope)}\n\n`;
-	void w
-		.write(enc.encode(body))
-		.then(() => w.close())
-		.catch(() => {
-			// client already gone — nothing to write to
-		});
 }
 
 /** One completed proxied request → ledger row + servicemon token counters.
@@ -1077,6 +1348,11 @@ export function createApp(deps: AppDeps): App {
 		// x-belt-route header; the upstream sees the bare path. Other
 		// surfaces (federation/admin/aids) stay unprefixed — a lane prefix
 		// never widens surface.
+		// W1265 named bases (/anthropic, /openai, /zai/*) — guard answers first
+		// (typed local 4xx, zero outbound), legacy bare /v1 paths verbatim.
+		const named = namedIngressOf(path);
+		if (named !== null)
+			return handleNamedIngress(named, req, method, deps, proxy);
 		const laneRoute = lanePrefixOf(path);
 		if (laneRoute.lane !== "") {
 			const inner = laneRoute.path;

@@ -77,7 +77,7 @@ describe("RpcAdmission", () => {
 });
 
 describe("admission at the wire (e2e)", () => {
-	test("full group answers 429 + retry-after, not a queue", async () => {
+	test("full group answers a typed local 503 + retry-after, never a fabricated 429", async () => {
 		const upstream = await startMockUpstream(() =>
 			Response.json({ id: "1", usage: { prompt_tokens: 1 } }),
 		);
@@ -93,7 +93,9 @@ describe("admission at the wire (e2e)", () => {
 		const slot = deps.admission.tryAcquire("glm-5.3-flash"); // the bound
 		const app = createApp(deps);
 		const res = await postChat(app, upstream.url);
-		expect(res.status).toBe(429);
+		// W1257: local admission refusals are typed local 503s — the
+		// provider's 429 is never fabricated at the wire
+		expect(res.status).toBe(503);
 		expect(res.headers.get("retry-after")).toBe("3");
 		slot?.();
 		const res2 = await postChat(app, upstream.url);

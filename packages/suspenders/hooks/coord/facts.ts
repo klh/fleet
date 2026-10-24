@@ -22,6 +22,7 @@ import {
 import { archiveAndPrune, pruneArchiveFiles } from "../lib/retention.ts";
 import { run } from "../lib/run.ts";
 import { reapDeadSubscribes } from "../lib/subscribe-attach.ts";
+import { parseVerb } from "../lib/verb-kit.ts";
 import { isLiveSession, type LivenessRow } from "./bus.ts";
 import { ensureConsultTrust } from "./consult-trust.ts";
 import type { Database } from "./shared.ts";
@@ -95,7 +96,78 @@ function casWrite(
 // shape knowledge-bearing facts the same way: a JSON value with the fields
 // below; rejected entries NEVER get deleted, they graveyard in kb.
 export const FACT_SCHEMA_NOTE =
-	"schema note: knowledge-bearing facts carry {rating, detail, evidence (file:line|URL), researched} JSON — rejected entries move to the knowledge graveyard, never deleted";
+	"schema note: knowledge-bearing facts carry {rating, detail, evidence (file:line|URL), researched} JSON — rejected entries move to the knowledge graveyard, never deleted · provenance (W1226): evidence fields (--trigger/--explanation/--procedure/--verification/--source-commit/--applicability) ride the fact separate from the value (the interpretation); repo+branch derive from the caller's session record, never flags";
+
+// W1226 provenance vocabulary — the evidence fields a fact may carry, and the
+// exact flag spelling for each. One source: the set-side parser, the get-side
+// renderer, the sync payload, and the hub landing all derive from this table.
+export const PROVENANCE_FIELDS = [
+	"trigger",
+	"explanation",
+	"procedure",
+	"verification",
+	"source_commit",
+	"applicability",
+] as const;
+export type ProvenanceField = (typeof PROVENANCE_FIELDS)[number];
+export type ProvenanceRecord = Partial<
+	Record<ProvenanceField | "repo" | "branch" | "session" | "ts", string>
+>;
+
+/** W1226: repo/branch attribution is derived from the caller's SESSION record
+ *  (the Dosu pattern) — never from a model-supplied flag. The sid (the --as
+ *  writer, else the --source lane id the landing chain stamps) must resolve
+ *  to a REGISTERED sessions row — that row is the mechanical gate; a typed
+ *  sid with no session cannot mint attribution. The row's worktree (else
+ *  project path) resolves to the git toplevel and the branch reads off HEAD
+ *  there. No resolvable session → null attribution (a fact without a session
+ *  carries no attribution rather than a guessed one). */
+export function sessionAttribution(sid: string | null): {
+	repo: string | null;
+	branch: string | null;
+	sid: string | null;
+} {
+	if (!sid) return { repo: null, branch: null, sid: null };
+	const row = db
+		.query("SELECT project, worktree FROM sessions WHERE sid = ?")
+		.get(sid) as
+		| { project: string | null; worktree: string | null }
+		| undefined;
+	const base = row?.worktree || row?.project;
+	if (!base) return { repo: null, branch: null, sid: null };
+	const top = run("git", ["-C", base, "rev-parse", "--show-toplevel"]);
+	const repo = top.ok && top.out.trim() ? top.out.trim() : base;
+	const br = run("git", ["-C", base, "rev-parse", "--abbrev-ref", "HEAD"]);
+	const branch = br.ok && br.out.trim() ? br.out.trim() : null;
+	return { repo, branch, sid };
+}
+
+/** W1226: the get-side render — value (interpretation) first, then the
+ *  evidence record one field per line, then the attribution tail. Unparsable
+ *  or absent provenance renders nothing (legacy rows stay byte-compatible). */
+export function renderProvenance(raw: string | null | undefined): string[] {
+	if (!raw) return [];
+	let p: Record<string, unknown>;
+	try {
+		p = JSON.parse(raw) as Record<string, unknown>;
+	} catch {
+		return [`  · evidence: (unparsable provenance record)`];
+	}
+	const out: string[] = [];
+	for (const field of PROVENANCE_FIELDS) {
+		const v = p[field];
+		if (typeof v === "string" && v) out.push(`  · ${field}: ${v}`);
+	}
+	const parts: string[] = [];
+	if (typeof p.repo === "string" && p.repo)
+		parts.push(
+			`${p.repo}${typeof p.branch === "string" && p.branch ? `@${p.branch}` : ""}`,
+		);
+	if (typeof p.session === "string" && p.session)
+		parts.push(`session ${p.session}`);
+	if (parts.length) out.push(`  · attribution: ${parts.join(" · ")}`);
+	return out;
+}
 
 export async function cmdFact(rest: string[]): Promise<void> {
 	const sub = rest[0];
@@ -120,7 +192,7 @@ export async function cmdFact(rest: string[]): Promise<void> {
 			value.startsWith("--")
 		)
 			die(
-				"usage: fact set <key> <value> | fact set <key> --text <text> [--source s] [--if-version n]",
+				"usage: fact set <key> <value> | fact set <key> --text <text> [--source s] [--if-version n] [--trigger t] [--explanation e] [--procedure p] [--verification v] [--source-commit sha] [--applicability a]",
 			);
 		const src = arg("--source") ?? "coord";
 		// W953 confidence doctrine: --confidence REQUIRES --setter (provenance
@@ -143,6 +215,40 @@ export async function cmdFact(rest: string[]): Promise<void> {
 				die(`fact set: --confidence must be a number, got "${confArg}"`);
 		}
 		const expected = parseIfVersion(arg("--if-version"));
+		// W1226: the provenance record — evidence fields from flags, repo/branch
+		// attribution derived from the caller's session record (never flags).
+		// A new interpretation overwrites stale evidence: fields absent this
+		// write are dropped, not inherited.
+		const provFlags: Partial<Record<ProvenanceField, string>> = {};
+		for (const field of PROVENANCE_FIELDS)
+			provFlags[field] = arg(`--${field.replaceAll("_", "-")}`) ?? undefined;
+		// source commit is CHECKABLE evidence, not prose: 7-40 hex or refuse
+		// (the capsule checkpoint doctrine — evidence must re-verify on disk)
+		if (
+			provFlags.source_commit != null &&
+			!/^[a-f0-9]{7,40}$/i.test(provFlags.source_commit)
+		)
+			die(
+				`fact set: --source-commit must be 7-40 hex, got "${provFlags.source_commit}"`,
+			);
+		const attribution = sessionAttribution(arg("--as") ?? arg("--source"));
+		const hasProv = Object.values(provFlags).some((v) => v != null);
+		const provenance =
+			hasProv || attribution.repo
+				? JSON.stringify({
+						...Object.fromEntries(
+							Object.entries(provFlags).filter(([, v]) => v != null),
+						),
+						...(attribution.repo
+							? {
+									repo: attribution.repo,
+									branch: attribution.branch,
+									session: attribution.sid,
+								}
+							: {}),
+						ts: `${Date.now()}`,
+					})
+				: null;
 		const r = casWrite(key, expected, () => {
 			const cur = db
 				.query("SELECT confidence_stamp FROM facts WHERE key = ?")
@@ -165,8 +271,8 @@ export async function cmdFact(rest: string[]): Promise<void> {
 				}
 			}
 			db.query(
-				"INSERT INTO facts (key, value, source, version, ts, confidence, confidence_stamp) VALUES (?, ?, ?, 1, ?, ?, ?) " +
-					"ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, version = version + 1, ts = excluded.ts, confidence = excluded.confidence, confidence_stamp = excluded.confidence_stamp",
+				"INSERT INTO facts (key, value, source, version, ts, confidence, confidence_stamp, provenance) VALUES (?, ?, ?, 1, ?, ?, ?, ?) " +
+					"ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, version = version + 1, ts = excluded.ts, confidence = excluded.confidence, confidence_stamp = excluded.confidence_stamp, provenance = excluded.provenance",
 			).run(
 				key,
 				value,
@@ -174,6 +280,7 @@ export async function cmdFact(rest: string[]): Promise<void> {
 				Date.now(),
 				stamp?.value ?? null,
 				stamp ? JSON.stringify(stamp) : null,
+				provenance,
 			);
 			if (stamp)
 				db.query(
@@ -210,7 +317,7 @@ export async function cmdFact(rest: string[]): Promise<void> {
 	} else if (sub === "get") {
 		const r = db
 			.query(
-				"SELECT value, version, ts, confidence, confidence_stamp FROM facts WHERE key = ?",
+				"SELECT value, version, ts, confidence, confidence_stamp, provenance FROM facts WHERE key = ?",
 			)
 			.get(rest[1] ?? "") as
 			| {
@@ -219,9 +326,11 @@ export async function cmdFact(rest: string[]): Promise<void> {
 					ts: number;
 					confidence: number | null;
 					confidence_stamp: string | null;
+					provenance: string | null;
 			  }
 			| undefined;
 		console.log(r ? `${r.value} (v${r.version})` : "(unset)");
+		for (const line of renderProvenance(r?.provenance)) console.log(dim(line));
 		const st = parseStamp(r?.confidence_stamp);
 		if (st) console.log(dim(`  ${renderStamp(st)}`));
 		console.log(dim(FACT_SCHEMA_NOTE));
@@ -295,30 +404,57 @@ export async function cmdCapsule(rest: string[]): Promise<void> {
 	// itemCapsuleKey, W687 — item ids are per-project sequences) alongside the
 	// lane-scoped lane.<sid>.capsule — an item reclaimed and re-taken by a
 	// fresh lane resumes from it instead of starting blind.
-	const item = arg("--item");
-	const as = arg("--as") ?? rest[0];
-	if (!as || rest[0] === "get") {
+	const payloadFlags = [
+		"--checkpoint",
+		"--done",
+		"--next",
+		"--step",
+		"--assumptions",
+		"--file",
+		"--files",
+		"--snippets",
+		"--todos",
+		"--conditions",
+		"--work",
+		"--project",
+		"--resume",
+	];
+	const flags = ["--as", "--item", "--if-version", ...payloadFlags];
+	const parsed = parseVerb(
+		{ name: "capsule", flags, switches: ["--verify"] },
+		rest,
+	);
+	if (!parsed.ok) die(parsed.message);
+	const p = parsed.parsed;
+	if (p.pos.length !== 1 || !["set", "get"].includes(p.pos[0]))
+		die(
+			"usage: capsule set|get --as <sid> [--item <id>] [--checkpoint <sha|none>] [--done <text>] [--next <text>]",
+		);
+	for (const flag of flags)
+		if (p.all(flag).some((value) => !value.trim() || value.startsWith("--")))
+			die(`capsule: ${flag} requires a non-empty value`);
+	const item = p.flag("--item");
+	const as = p.flag("--as");
+	if (!as && (!item || p.pos[0] === "set")) die("capsule: --as is required");
+	if (p.pos[0] === "get") {
 		const key = item
 			? itemCapsuleKey(projectIdentity(), item)
-			: `lane.${as ?? ""}.capsule`;
+			: `lane.${as}.capsule`;
 		const cap = db.query("SELECT value FROM facts WHERE key = ?").get(key) as {
 			value: string;
 		} | null;
 		// W516 --verify: re-check the schema-delta fields against the disk
 		// (files exist? snippet ranges inside the file?) — a successor lane
 		// verifies instead of trusting prose
-		if (cap && rest.includes("--verify"))
+		if (cap && p.flag("--verify"))
 			console.log(renderCapsuleVerified(cap.value));
 		else console.log(cap?.value ?? dim("(no capsule)"));
 	} else {
+		if (!as) die("capsule: --as is required");
 		const extra: Record<string, unknown> = {};
-		let iv: string | null = null;
-		for (const t of process.argv.slice(2)) {
-			const m = /^--([\w-]+)=(.+)$/.exec(t);
-			if (!m) continue;
-			// W606: --if-version=N is the CAS expectation, not capsule payload
-			if (m[1] === "if-version") iv = m[2];
-			else if (m[1] !== "as" && m[1] !== "item") extra[m[1]] = m[2];
+		for (const flag of payloadFlags) {
+			const value = p.flag(flag);
+			if (value !== null) extra[flag.slice(2)] = value;
 		}
 		if (item) extra.item = item;
 		// W516 capsule schema delta (amp handoff lift, research-ampcode.md
@@ -358,18 +494,13 @@ export async function cmdCapsule(rest: string[]): Promise<void> {
 			if (ckptTs.ok) extra.checkpoint_ts = ckptTs.out.trim();
 		}
 		// arg() fallback covers the two-token form --if-version N
-		const expected = parseIfVersion(iv ?? arg("--if-version"));
+		const expected = parseIfVersion(p.flag("--if-version"));
 		const upsert = (key: string) =>
 			db
 				.query(
 					"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, ?, 1, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, version = version + 1, ts = excluded.ts",
 				)
-				.run(
-					key,
-					assertCapsuleBounds(extra, Date.now()),
-					arg("--as") ?? as,
-					Date.now(),
-				);
+				.run(key, assertCapsuleBounds(extra, Date.now()), as, Date.now());
 		// with --item the CAS expectation guards the item key — that is the
 		// key successive lane writers race over the item's life; the lane key
 		// stays single-writer and rides along unconditionally
@@ -741,7 +872,7 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 	const rs = reapDeadSubscribes((sid) => {
 		const row = db
 			.query(
-				"SELECT hb, parent_sid, role, transcript_path, state FROM sessions WHERE sid = ?",
+				"SELECT sid, project, hb, parent_sid, role, transcript_path, state FROM sessions WHERE sid = ?",
 			)
 			.get(sid) as (LivenessRow & { state: string }) | undefined;
 		return !row || row.state === "CLOSED" || !isLiveSession(row);

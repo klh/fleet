@@ -41,13 +41,13 @@ Options
   --gateway-review <sha>  Approve the staged gateway upgrade candidate
   --step <name>   Run one step by frozen name (contract.steps[].name)
   --profile <p>   hub (default) = full; spoke ships no auth issuance/identity/key-custody code (W165)
-  --wire          Merge hooks into ~/.claude/settings.json (+ adapters, gate wires)
+  --wire          Full plan including the settings.json wire (env/auth preserved)
   --wire-repo <path>  With --step wireSettings: wire a repo's project settings
   --prune         Mirror-mode sync — drop unmanaged prefix entries (W420)
   --skip-models   Skip the model download (offline installs)
   --no-llm        Skip the local-llm baseline (CI/containers)
   --with-launchd  Full plan, then registerLaunchd
-  --hub <name>    Hub deploy from ~/.config/klh/stack.yaml (--dry-run renders the .env)
+  --hub <name>    Hub deploy from ~/.config/klh/stack.json (--dry-run renders the .env)
   --re-bless-activation [--confirm <sha>]  Owner-gated receipt re-bless (W640)
 
 Exit codes

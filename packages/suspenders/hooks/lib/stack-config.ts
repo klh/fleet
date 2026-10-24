@@ -1,13 +1,20 @@
-// hooks/lib/stack-config.ts — the ONE stack.yaml reader (config-over-code:
-// real hosts, ports, secret PATHS live only in ~/.config/klh/stack.yaml,
-// mode 600). deploy/hubctl.ts renders deploys from it; coord hubs (W356)
-// projects the topology from it. KLH_STACK overrides the path (tests).
+// hooks/lib/stack-config.ts — the ONE stack config reader (config-over-code:
+// real hosts, ports, secret PATHS live only in ~/.config/klh/stack.json,
+// mode 600; the legacy stack.yaml name is honored read-only until the
+// install migrate step runs — W1253 Amendment A: fleet config is JSON).
+// deploy/hubctl.ts renders deploys from it; coord hubs (W356) projects the
+// topology from it. KLH_STACK overrides the path (tests).
 import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
-import { parse } from "yaml";
+import { readJsonConfEither } from "./kernel-conf.ts";
+import type { GatewayPolicy } from "../../../buckle/src/policy.ts";
 
 export interface HubProfile {
+	/** Private native metrics; credential NAME must bind an existing upstream key. */
+	metrics?: { litellm: { url: string; key_env: string; source_id: string } };
+	/** Per-hub Buckle gateway overrides; policy data only, never credentials. */
+	buckle_gateway?: GatewayPolicy;
 	/** Reviewed canary ref for this hub only. Keeps the shared stack version
 	 * pinned for other hubs while one hub validates a new public base. */
 	version_override?: string;
@@ -16,6 +23,10 @@ export interface HubProfile {
 	display_name?: string;
 	/** Browser-facing console. Never inferred from the Buckle probe URL. */
 	console_url?: string;
+	/** W1094.1: hub-machine terminal endpoints (model engines etc.) the route
+	 * preflight gate may treat as leaves ON THIS HUB — never inherited from
+	 * the Mac specialist registry. */
+	route_preflight?: { terminal_origins?: string[] };
 	buckle_port?: number;
 	board_port?: number;
 	store_port?: number;
@@ -37,6 +48,12 @@ export interface HubProfile {
 	/** W763 hub model store — the face port + its health sidecar. */
 	model_store_port?: number;
 	model_store_health_port?: number;
+	/** W1217: the hub knowledge sink — the knowledge-api container serving the
+	 *  aggregated claim store (W1213 upward rolls land here; SQLite WAL on the
+	 *  hub-state volume). Declaring it enables the `knowledge` compose profile
+	 *  (sink + its health probe sidecar); undeclared knobs fall through to the
+	 *  template defaults (7802 face / 7803 health). */
+	knowledge?: { port?: number; health_port?: number };
 	/** Synthetic readiness (W467): where the buckle-ready sidecar serves the
 	 *  completion-leg verdict, and which model the synthetic 1-token request
 	 *  names (must be one the hub's routing ladder actually serves). */
@@ -123,6 +140,13 @@ export interface HubProfile {
 		zai_catalog_file?: string;
 		/** LiteLLM URL reachable from this hub. */
 		zai_litellm_url?: string;
+		/** Operator-declared pressure codes for generated catalog deployments. */
+		zai_concurrency_error_codes?: string[];
+		// W1123: no operator inherit escape — hubctl always stamps
+		// `inherit_defaults: false` into the rendered hub ladder (an opt-in
+		// would re-import the committed Mac local-swarm :890x onto a remote
+		// hub). The Mac spoke keeps merge-over-base via its own unflagged
+		// BUCKLE_UPSTREAMS override.
 	};
 	/** Display-only provider placement while its credential-gated route is
 	 *  being prepared. This never enables a Buckle upstream or draws a path. */
@@ -138,6 +162,18 @@ export interface HubProfile {
 	};
 	secrets?: {
 		buckle_root_key?: string;
+		/** W1124.15: PATH (on this device) to the 0600 env file holding the
+		 *  PERSISTENT proxy-only service credential this device's spoke links
+		 *  use toward the hub — distinct from short-lived expiring lane keys.
+		 *  hubctl deploy verifies it against the hub's verify API and fails
+		 *  with the hub's actual expired/revoked code; values never live in
+		 *  config, only this PATH (plus, optionally, the env NAME to select
+		 *  inside a multi-variable file). */
+		buckle_service_key?: string;
+		/** W1124.15: env NAME of the service credential inside
+		 *  buckle_service_key when that file carries several variables (spoke
+		 *  env files start with the ROOT key — never guess a line). */
+		buckle_service_key_env?: string;
 		/** Ladder key env NAME → key-file PATH on the hub device. hubctl push
 		 *  materializes them into the 0600 `upstream.env` ON the hub (the
 		 *  value is read there, never printed or transported); values never
@@ -148,6 +184,26 @@ export interface HubProfile {
 	 *  hub is EXPECTED down in it (NAS DSM poweroff). Routing skips, dispatch
 	 *  falls back to local belt, monitoring suppresses instead of paging. */
 	quiet_hours?: string;
+	/** W1097: the trusted transport THIS device uses to read the hub's trace
+	 *  receipts (the bounded trace connector, telemetry/remote-traces.ts).
+	 *  The hub gate is plain HTTP on the LAN and its TLS front carries an
+	 *  untrusted certificate — direct HTTP would carry the read key in the
+	 *  clear, HTTPS would need trust weakened. The managed ssh tunnel is the
+	 *  trusted front: the read key rides the ssh channel, the connector
+	 *  fetches loopback on this device (http://127.0.0.1:<listen_port>/ — the
+	 *  one non-https form the connector's URL law admits). Requires the
+	 *  hub's deploy.ssh target. hubctl trace-tunnel <hub> up|status|down|peer
+	 *  is the managed face. */
+	trace_tunnel?: {
+		/** Loopback port bound on THIS device (never the hub's — the Mac
+		 *  spoke itself serves 4101). Operator-chosen, 1024–65535. */
+		listen_port: number;
+		/** Port on the HUB the forward targets; default = buckle_port. */
+		target_port?: number;
+		/** PATH (on this device) to the 0600 read key minted ON the hub —
+		 *  the connector's tokenFile. Values never live in config. */
+		read_key: string;
+	};
 }
 
 export interface StackConfig {
@@ -188,7 +244,7 @@ export interface StackConfig {
 }
 
 export const STACK_PATH = (): string =>
-	process.env.KLH_STACK ?? join(homedir(), ".config", "klh", "stack.yaml");
+	process.env.KLH_STACK ?? join(homedir(), ".config", "klh", "stack.json");
 
 // ---- W230: providers / executors / policies --------------------------------
 
@@ -231,9 +287,11 @@ export interface RepoPolicy {
 
 /** Parse the machine-level stack config — W230: the ONE user-editable
  *  surface (providers/executors/policies join hubs; every section is
- *  optional, an empty file is a valid empty config). */
+ *  optional, an empty file is a valid empty config). JSON only (W1253
+ *  Amendment A); the legacy stack.yaml name parses when its content is
+ *  already JSON — real yaml needs the install migrate step first. */
 export function loadStack(): StackConfig {
-	const raw = parse(readFileSync(STACK_PATH(), "utf8")) as StackConfig | null;
+	const raw = readJsonConfEither(STACK_PATH()) as StackConfig | null;
 	return { ...(raw ?? {}), hubs: raw?.hubs ?? {} };
 }
 

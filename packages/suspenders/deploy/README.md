@@ -1,13 +1,37 @@
 # deploy/ — hub deployment (W310)
 
+## Private native LiteLLM metrics
+
+For a hub serving a LiteLLM transport, declare `metrics.litellm` in the
+machine stack profile with `url`, `key_env` and `source_id`. The credential
+name must already exist in `secrets.upstream_keys`; its on-device key file
+must hold the engine's metrics authority, not a provider API key. The
+existing private `upstream.env` supplies it to Buckle. No secret value is
+rendered into the compose environment template or diagnostics.
+
+The URL must be HTTPS or loopback HTTP and use `/metrics/` (LiteLLM's native
+path). A Docker hostname over plain HTTP remains refused. Verify that the
+declared endpoint is reachable from the hub's host-network container; do
+not change URL security or start another engine to make a scrape green.
+Hubs with no LiteLLM transport leave the block absent and correctly report
+`not_configured`.
+
+Authenticated `GET /v1/admin/metrics` remains the single combined read.
+Its `x-buckle-litellm-metrics-source-id` header names the operator's engine
+identity. Use the **same** identifier on every hub/spoke reading one engine;
+those native counters and in-flight gauges must not be summed across
+scrapes. A missing identifier is unknown provenance, not a unique engine.
+Local file credentials keep the existing 0600/owner checks; local spokes
+can declare the same identity with `BUCKLE_LITELLM_METRICS_SOURCE_ID`.
+
 One parameterized compose (`hub-compose.yaml`) + the runtime-config shape
-(`stack.example.yaml`). The topology law: **start topology, not hardcoded
+(`stack.example.json`). The topology law: **start topology, not hardcoded
 one-offs** — a local user runs several hubs, hubs declare peers (sub-hubs),
 everything is data in runtime config.
 
 ## Deploy a hub
 
-One command, any hub (W363) — the hub's section in the machine stack.yaml is
+One command, any hub (W363) — the hub's section in the machine stack.json is
 the whole brief; the installer materializes it (mint → push → up, probe-gated
 status):
 
@@ -20,7 +44,7 @@ no ssh target is declared, so mint/push/up run locally. NAS ($NAS_HOST —
 same template, compose-managed via `--hub`; retires the W310 Docker Desktop
 one-off and the W318-era docker-run rows):
 
-    # the machine config (~/.config/klh/stack.yaml) declares the hub: ports,
+    # the machine config (~/.config/klh/stack.json) declares the hub: ports,
     # binds, repo trees, deploy transport (ssh/dir/docker), secret PATHS.
     # hubctl materializes everything from it — nothing hand-typed:
     #   bun deploy/hubctl.ts mint <hub>     # secrets ON the hub (0600, idempotent)
@@ -34,7 +58,7 @@ one-off and the W318-era docker-run rows):
     # Verified: boot log "root-keyed", /status 200, mint-test via
     # /v1/admin/keys (statuses only — key material never echoed).
 
-Ports per hub live in `~/.config/klh/stack.yaml` (mode 600) — the
+Ports per hub live in `~/.config/klh/stack.json` (mode 600) — the
 placeholders here show the shape only. `~/.claude/local-llm/hubs.json` holds
 the label → candidate-URL registry `resolveHub` walks (candidates give the
 fault tolerance: several URLs per hub label, first healthy wins).
@@ -54,7 +78,7 @@ the snapshot. The full catalog includes paid, audio, and image models, so its
 total is not a free chat route count. A failed or empty catalog fetch preserves
 the previous file.
 
-The hub's machine-level `stack.yaml` points
+The hub's machine-level `stack.json` points
 `hubs.<name>.upstreams.openrouter_free_catalog_file` at that snapshot,
 sets `buckle_prefs.allow_cloud: true`, and declares its existing
 `secrets.upstream_keys.LITELLM_KEY` as the **path on that hub** to the local
@@ -79,8 +103,18 @@ succeed. Public pricing also lists image, audio, and other models that may
 not appear in this account's chat catalog. They are not added as Buckle chat
 routes.
 
+Inference must target the Coding Plan wire bases — Anthropic Messages
+`https://api.z.ai/api/anthropic`, OpenAI Chat Completions
+`https://api.z.ai/api/coding/paas/v4`, OpenAI Responses
+`https://api.z.ai/api/v1` — never the general `/api/paas/v4`. Buckle's
+outbound guard (`adapter_config.blocked_outbound`) refuses the general
+endpoint for guarded deployments before any network call, but a hub riding
+LiteLLM hides its outbound leg behind the proxy, so the LiteLLM `api_base`
+of the zai remote must itself stay on a Coding Plan base — the generated
+rows carry the operator's base verbatim.
+
 On a local Docker hub, declare these machine-level fields in its
-`stack.yaml` profile:
+`stack.json` profile:
 
 ```yaml
 http_upstream_hosts: [host.docker.internal]
@@ -116,7 +150,7 @@ POSTs a 1-token chat completion through the hub's own front every 10 minutes
 and serves the verdict on its own port (`/healthz`,
 `/status` — same wire contract as the *-health sidecars):
 
-- the model is machine-level config: `ready_model:` in the hub's stack.yaml
+- the model is machine-level config: `ready_model:` in the hub's stack.json
   section (`HUB_READY_MODEL`, template default `general`) — it must name a
   model the hub's routing ladder actually serves;
 - the request rides the same break-glass root credential as the gate
@@ -154,7 +188,7 @@ hub's label): the `mdns-announce` service runs the pure-TS announcer
 `buckle-health` proves the gate healthy. This is what hub-locate's dns-sd
 discovery leg (`resolveHub` step 4) browses — until W854 the browse came
 back EMPTY and `<label>.local` resolved only via per-machine loopback
-mappings. Knobs live in the hub's stack.yaml `mdns:` block (`port`, `addr`,
+mappings. Knobs live in the hub's stack.json `mdns:` block (`port`, `addr`,
 `hostname`, `interval_ms`, `health_port`, `sidecar_port`; undeclared =
 template defaults; the advertised port defaults to `buckle_port`). The
 announcer serves its real state on `:4114/healthz`; the OUTSIDE-PROCESS
@@ -172,7 +206,7 @@ the compose `fleet-repo` sidecar clones `$HUB_FLEET_REPO_URL` at
 both from the stack's `version:` — a hub deploy without a pinned version
 (a branch name, `main`) is refused, per-package refs/origins are rejected,
 and the archived `klh/{buckle,suspenders,belt}` origins cannot deploy the
-monorepo. One version string pins the whole hub (stack.yaml law).
+monorepo. One version string pins the whole hub (stack.json law).
 
 ## Runtime + embedded SQLite verification (W443)
 
@@ -205,7 +239,7 @@ evidence (`SQLITE_PATCH_EVIDENCE` env).
 The private `*-remote` overlays (buckle-remote, belt-remote,
 suspenders-remote) are config-over-code: the public bases run, the overlay
 profiles set auth.required, tokens.ttlHours, oidc.enforced (W191 lives in
-the base), admin.gui. Entra ID tenant/app values live only in stack.yaml.
+the base), admin.gui. Entra ID tenant/app values live only in stack.json.
 W372: the deploy path consumes the whole auth block — hubctl render
 materializes auth.oidc/auth.tokens into the .env (fail-closed on a partial
 oidc block) and the buckle gate builds its JWT validator from the
@@ -223,10 +257,10 @@ public repo changes to flip.
 
 Hubs declare peers in runtime config: `hubs.<label>.peers` lists hub LABELS
 this hub reaches directly — the start-topology graph is data, never
-hardcoded (hubctl reads it; `deploy/stack.example.yaml` shows the shape).
+hardcoded (hubctl reads it; `deploy/stack.example.json` shows the shape).
 First edge (W322): the nas hub declares `desktop`. The belt-remote hub
 profile mirrors its hub's edges as `federation.peers` — labels only, the
-host/port/key values stay behind the labels in stack.yaml.
+host/port/key values stay behind the labels in stack.json.
 
 Propagation (W362): a hub pulls each declared peer's
 `/federation/policy-manifest` on an interval (`hooks/bin/federation-peers.ts`;
@@ -265,3 +299,40 @@ Deterministic (no clock): same checkout → same bytes. CI job
 `release-manifest` uploads all three and fails on a floating image. The
 schema upgrade / migration-failure / rollback-compat contract is
 `test/release-manifest.test.ts`.
+
+## Trace receipts over a managed ssh tunnel (W1097)
+
+A hub's trace-receipt plane (the buckle gate's
+`/v1/admin/traces?trace_id=<32-hex>`) is plain HTTP on the LAN, and the
+hub's TLS front carries an untrusted certificate — so the bounded trace
+connector (packages/telemetry/src/remote-traces.ts) never points at the hub
+directly: direct HTTP would carry the read key in the clear and HTTPS would
+need trust weakened. `hubs.<label>.trace_tunnel` declares the trusted
+transport instead: a managed ssh tunnel. The read key rides the ssh
+channel; the connector fetches `http://127.0.0.1:<listen_port>/` on this
+device — the one non-https form its URL law admits.
+
+    # ~/.config/klh/stack.json (mode 600, placeholders here)
+    hubs:
+      nas:
+        trace_tunnel:
+          listen_port: 14101   # on THIS device, 1024–65535
+          # target_port: 4101  # default = buckle_port
+          read_key: /path/on/this/device/nas-trace-read.key  # 0600
+
+    bun deploy/hubctl.ts trace-tunnel nas up      # ssh -N -L, 0600 state, wait for forward
+    bun deploy/hubctl.ts trace-tunnel nas status  # banked verdict (exit 1 = down)
+    bun deploy/hubctl.ts trace-tunnel nas down    # SIGTERM + reap state (idempotent)
+    bun deploy/hubctl.ts trace-tunnel nas peer --file ~/.config/klh/trace-peers.json
+
+`peer` renders the connector peer row into the private 0600 peers file —
+the merged bytes are validated with the connector's OWN law (parsePeers)
+before they land, so hubctl never writes a file the reader would reject.
+Every readRemoteTraces answer carries a coverage block
+({hubs, ok, degraded, by_hub}) — per-read proof of what was attempted and
+what answered, counts + status strings only. Plan law: undeclared =
+not configured (null, never an error); a declaration without `deploy.ssh`
+refuses — the tunnel IS the trusted transport. Tests:
+deploy/trace-tunnel.test.ts (plan law, argv shape, peers merge, lifecycle
+with an injected child, e2e through a real loopback server) and
+telemetry/test/remote-traces.test.ts (connector law + coverage).

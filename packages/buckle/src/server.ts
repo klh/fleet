@@ -12,6 +12,7 @@ import { LaneTelemetryLog } from "./cache-boundary.ts";
 import { PrefixLedger } from "./cache-fingerprint.ts";
 import { AidsLedger } from "./aids.ts";
 import { CandidateTable } from "./candidates.ts";
+import { startConnectEgress, type ConnectEgress } from "./connect-egress.ts";
 import { Cooldowns } from "./cooldown.ts";
 import { decideRoute } from "./decide.ts";
 import { DietStore } from "./diet.ts";
@@ -32,10 +33,12 @@ import {
 	overlayModuleGovSeam,
 } from "./gov/overlay-loader.ts";
 import { type AppDeps, createApp } from "./handlers.ts";
+import { loadAccountPolicy } from "./account-policy.ts";
+import { MAX_REQUEST_BODY_BYTES } from "./ingress-body.ts";
 import type { RouteHint } from "./hints.ts";
 import { Ledger } from "./ledger.ts";
 import { ObservationOutbox } from "./observe.ts";
-import { loadGatewayPolicy, loadPrefs } from "./policy.ts";
+import { loadGatewayPolicy, loadPrefs, type GatewayPolicy } from "./policy.ts";
 import { poolWarm, prewarm } from "./pool-warm.ts";
 import { Preseeder } from "./preseed.ts";
 import { LaneProjection, OutboxTailer } from "./projection.ts";
@@ -49,24 +52,34 @@ import { loadUpstreams } from "./upstreams.ts";
 export const SHADOW_PORT = 4101;
 export const FORBIDDEN_PORT = 4100;
 
-/** W450: Bun's connection idle timeout applies to quiet SSE streams — the
- *  10s default can kill a slow-generation body mid-flight. 0-255s per Bun's
- *  contract (0 disables); BUCKLE_IDLE_TIMEOUT_S overrides; default 120s. */
-export function resolveIdleTimeout(v?: string): number {
-	const raw = v ?? process.env.BUCKLE_IDLE_TIMEOUT_S;
-	const n = Number(raw);
-	if (raw === undefined || raw === "" || !Number.isFinite(n)) return 120;
-	return Math.min(255, Math.max(0, Math.floor(n)));
-}
+/** W1106 (owner directive 2026-10-21): Bun's HTTP idle timeout is DISABLED
+ *  globally — 0 for every request, no env knob, no per-request bypass. Bun
+ *  ignores outgoing bytes when arming the timer (real-Bun canary), so any
+ *  fixed value cuts quiet SSE turns (the ~120s fleet outage). Deadlines are
+ *  Buckle's own: the wire.ts upstream idle/total guards + first-byte budget
+ *  arbitrate every stream; this server imposes no connection timer. */
+export const BUN_IDLE_TIMEOUT = 0;
 
-/** W199.2 request-body cap: Bun's silent default is 128 MiB — an unbounded
- *  LLM ingress invites memory-hangup abuse. 32 MiB bounds a request while
- *  never touching a legitimate payload (200k-token contexts ≈ 1 MiB, image
- *  base64 well under); Bun answers 413 before the gate or ledger see it. */
-export const MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024;
+export { MAX_REQUEST_BODY_BYTES } from "./ingress-body.ts";
+
+/** W1246: dbPath default rides the runtime home (resolveNetworkDbPaths
+ *  precedent) — a bare "buckle.db" resolves against the process cwd, which
+ *  is how stray runs seeded repo-root junk. opts.dbPath and BUCKLE_DB win. */
+export function defaultDbPath(
+	env: { BUCKLE_DB?: string; HOME?: string } = process.env,
+): string {
+	return (
+		env.BUCKLE_DB ??
+		(env.HOME
+			? join(env.HOME, ".claude", "local-llm", "buckle.db")
+			: "buckle.db")
+	);
+}
 
 export interface ServerOpts {
 	port?: number;
+	/** Test seam for the app-owned request-body deadline; production uses 120s. */
+	ingressBodyTimeoutMs?: number;
 	hostname?: string;
 	dbPath?: string;
 	policyPath?: string;
@@ -75,6 +88,11 @@ export interface ServerOpts {
 	/** W7 repo-policy gate: explicit path for the row file; defaults chain
 	 *  BUCKLE_REPO_POLICY → local-llm dir → the committed repo-policy.yaml. */
 	repoPolicyPath?: string;
+	/** W1265.1 account policy: explicit path for the repo-tier class table;
+	 *  defaults chain BUCKLE_REPO_TIER_POLICY → ~/.claude/local-llm/
+	 *  repo-tier-policy.yaml → none (the boundary is inert). A CONFIGURED
+	 *  path that cannot load is startup fatal (fail closed). */
+	accountPolicyPath?: string;
 	/** W193: secrets home for the manifest-signing key (hub-only key law).
 	 *  Defaults: BUCKLE_SECRETS_HOME env, else ~/.claude/local-llm. */
 	secretsHome?: string;
@@ -118,39 +136,33 @@ export function resolvePort(explicit?: number): number {
 export function buildDeps(
 	opts: ServerOpts,
 	port: number = SHADOW_PORT,
-): AppDeps & { router: Router } {
+): AppDeps & { router: Router; policy: GatewayPolicy } {
 	const policy = loadGatewayPolicy(opts.policyPath);
 	const pool = loadUpstreams(opts.upstreamsPath);
 	const prefs = loadPrefs(opts.prefsPath);
 	const sm = servicemon({ service: "buckle", port });
-	const ledger = new Ledger(
-		opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db",
-		undefined,
-		{
-			onDrop: (kind, n) =>
-				sm
-					.counter(
-						"buckle_ledger_dropped_total",
-						"Ledger rows dropped after bounded flush retries.",
-					)
-					.inc({ kind }, n),
-		},
-	);
+	const ledger = new Ledger(opts.dbPath ?? defaultDbPath(), undefined, {
+		onDrop: (kind, n) =>
+			sm
+				.counter(
+					"buckle_ledger_dropped_total",
+					"Ledger rows dropped after bounded flush retries.",
+				)
+				.inc({ kind }, n),
+	});
 	// W458.4 per-lane cache telemetry: append-only NDJSON next to the ledger
 	// db (BUCKLE_LANE_CACHE_LOG overrides). Rows ride real lane-attributed
 	// requests only — bare ingress appends nothing.
 	const laneCache = new LaneTelemetryLog(
 		process.env.BUCKLE_LANE_CACHE_LOG ??
-			`${opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db"}.lane-cache.jsonl`,
+			`${opts.dbPath ?? defaultDbPath()}.lane-cache.jsonl`,
 	);
 	// W926: per-boundary+lane prefix-fingerprint references — miss
 	// classification rides the lane-cache rows (null causes when unwired).
 	const prefixLedger = new PrefixLedger();
 	// W142 knowledge aids: metering ledger + preseed builder on the same db
-	// file (W133 wiring); policy slice from the shared routing-policy.yaml.
-	const aids = new AidsLedger(
-		opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db",
-	);
+	// file (W133 wiring); policy slice from the shared routing-policy.json.
+	const aids = new AidsLedger(opts.dbPath ?? defaultDbPath());
 	const aidsPolicy = policy.aids ?? {};
 	const preseeder = new Preseeder({
 		policy: aidsPolicy,
@@ -231,16 +243,23 @@ export function buildDeps(
 		hint: RouteHint | null;
 		hintRaw: string;
 		allowCross: boolean;
-	}) =>
-		decideRoute({
-			...input,
-			candidates: table.snapshot(),
+		providerPin?: string;
+	}) => {
+		const { providerPin, ...rest } = input;
+		return decideRoute({
+			...rest,
+			candidates:
+				providerPin === undefined
+					? table.snapshot()
+					: table.snapshot().filter((r) => r.dep.adapter === providerPin),
 			prefs,
-			fallbackGroups: input.allowCross ? policy.fallbacks?.[input.group] : [],
+			fallbackGroups: rest.allowCross ? policy.fallbacks?.[rest.group] : [],
 		});
-	const dbPath = opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db";
+	};
+	const dbPath = opts.dbPath ?? defaultDbPath();
 	const federation = new Federation({
 		dbPath,
+		ingressBodyTimeoutMs: opts.ingressBodyTimeoutMs,
 		policy,
 		pool,
 		policyPath: opts.policyPath,
@@ -257,6 +276,16 @@ export function buildDeps(
 	// W7 repo-policy gate: the row file loads once at boot; absent file =
 	// zero rows = engine inert (a fresh spoke without rows is valid).
 	const repoPolicy = loadRepoPolicies(opts.repoPolicyPath);
+	// W1265.1 account policy: the repo-tier class table loads once at boot
+	// (config-over-code; absent config = inert posture, logged per the
+	// log-at-startup law so the operator SEES the boundary state).
+	const accountPolicy = loadAccountPolicy(opts.accountPolicyPath);
+	console.log(
+		`buckle: account policy ` +
+			(accountPolicy.source === "none"
+				? "inert — no repo-tier-policy configured (the boundary is off)"
+				: `active from ${accountPolicy.source} (${String(accountPolicy.doc.classes.length)} classes)`),
+	);
 	// W207 trajectory pruning: the diet sidestore rides the shared buckle db
 	// (the AidsLedger wiring precedent); policy still gates the pass OFF.
 	const diet = new DietStore(dbPath);
@@ -285,6 +314,7 @@ export function buildDeps(
 	}
 	return {
 		router,
+		policy,
 		ledger,
 		admission,
 		aids,
@@ -292,6 +322,7 @@ export function buildDeps(
 		aidsPolicy,
 		expander,
 		repoPolicy: repoPolicy.rows,
+		accountPolicy: accountPolicy.doc,
 		sm,
 		pool,
 		decide,
@@ -302,15 +333,19 @@ export function buildDeps(
 		prefixLedger,
 		diet,
 		observations,
+		ingressBodyTimeoutMs: opts.ingressBodyTimeoutMs,
 		hubId: process.env.BUCKLE_HUB_ID ?? "local",
 	};
 }
 
 /** Start buckle on the shadow port. Returns the Bun server for tests, with
  *  `.gov` attached (W154: tests and W160 seed/read the CR queue through it). */
-export function startServer(
-	opts: ServerOpts = {},
-): ReturnType<typeof Bun.serve> & { gov: ReturnType<typeof createGovernance> } {
+export function startServer(opts: ServerOpts = {}): ReturnType<
+	typeof Bun.serve
+> & {
+	gov: ReturnType<typeof createGovernance>;
+	connectEgress?: ConnectEgress;
+} {
 	const port = resolvePort(opts.port);
 	const deps = buildDeps(opts, port);
 	const app = createApp(deps);
@@ -321,15 +356,17 @@ export function startServer(
 	const gov = createGovernance(
 		{ ledger: deps.ledger, sm: deps.sm },
 		{
-			dbPath: opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db",
+			dbPath: opts.dbPath ?? defaultDbPath(),
 			rootKey: opts.auth?.rootKey,
-			// W372: env-driven OIDC gate (stack.yaml auth.oidc materialized by
+			// W372: env-driven OIDC gate (stack.json auth.oidc materialized by
 			// hubctl) — programmatic opts win, env next, base posture last.
 			jwt: opts.auth?.jwt ?? oidcGateOptsFromEnv() ?? undefined,
 			federation: deps.federation,
 			slots: opts.auth?.slots,
+			ingressBodyTimeoutMs: opts.ingressBodyTimeoutMs,
 			adaptation: opts.auth?.adaptation,
 			metrics: opts.auth?.metrics,
+			providerAdmission: () => deps.router.providerAdmissionSnapshot(),
 		},
 	);
 	const gated = authOn ? gov.gate(app.fetch) : app.fetch;
@@ -354,20 +391,33 @@ export function startServer(
 		// W199.2: the explicit body cap — over-cap requests get Bun's 413 and
 		// never reach the governance gate, the ledger or the pool.
 		maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
-		// W450: quiet streams survive longer than Bun's 10s connection-idle
-		// default (see resolveIdleTimeout for the knob and the range law).
-		idleTimeout: resolveIdleTimeout(),
+		// W1106 (owner directive 2026-10-21): Bun's HTTP idle timer is OFF
+		// for every request — a fixed connection cutoff cannot arbitrate
+		// quiet LLM streams (Bun ignores outgoing bytes; the ~120s fleet
+		// outage). Buckle's own guards (wire.ts upstream idle/total,
+		// first-byte budget) are the ONLY deadlines.
+		idleTimeout: BUN_IDLE_TIMEOUT,
 		fetch: inner,
 	});
-	return Object.assign(server, { gov }) as ReturnType<typeof Bun.serve> & {
+	// W1260.2: the authenticated CONNECT egress (opaque AI TLS relay). Inert
+	// unless policy enables it AND BUCKLE_CONNECT_TOKEN is set AND allow is
+	// non-empty; attaches when live so tests can stop it.
+	const connectEgress = startConnectEgress(deps.policy, port, { sm: deps.sm });
+	return Object.assign(server, { gov, connectEgress }) as ReturnType<
+		typeof Bun.serve
+	> & {
 		gov: ReturnType<typeof createGovernance>;
+		connectEgress?: ConnectEgress;
 	};
 }
 
 /** W235 boot: overlay load (fail-closed) BEFORE the server starts; unset =
  *  solo posture; what loaded is logged (log-at-startup law). */
 export async function boot(): Promise<
-	ReturnType<typeof Bun.serve> & { gov: ReturnType<typeof createGovernance> }
+	ReturnType<typeof Bun.serve> & {
+		gov: ReturnType<typeof createGovernance>;
+		connectEgress?: ConnectEgress;
+	}
 > {
 	const port = resolvePort();
 	// break-glass root credential (2026-10-05): hub deploys run the governance

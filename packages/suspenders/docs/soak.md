@@ -29,10 +29,10 @@ unknown → counted, not costed. Cloud pricing goes in the owner-pinned
 
 ## Scheduling
 
-`hooks/launchd/com.suspenders.soak.plist` — nightly 03:15, RunAtLoad false,
-no KeepAlive, Nice 10, logs `/tmp/soak.log`. DELIVERED NOT INSTALLED (W145):
-activate with `SUSPENDERS_PREFIX=~/.claude/hooks/suspenders ./install.sh
---with-launchd`.
+W779: the soak rides the ONE fleet-loop cycle as a typed maintenance task
+(`hooks/lib/fleet-loop/maintenance.ts`, nightly 03:15 calendar fire, nice 10,
+logs `/tmp/soak.log`); the `com.suspenders.soak` launchd unit is retired and
+booted out by the installers.
 
 Manual probe: `bun hooks/bin/soak.ts --iters 1 --max-tokens 2000`.
 

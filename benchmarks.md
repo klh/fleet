@@ -14,6 +14,21 @@ model bump.
 
 ---
 
+## Lane effort — classification-driven two-stage vs uniform pin (W1140, 2026-10-22; design evidence, fleet A/B pending W1140.1)
+
+Decision the row supports: pin SUSPENDERS_LANE_EFFORT by verification need
+(classify rules in machine conf), never uniformly. Source numbers are
+external — SlopCodeBench (via claude.dev/blog/spending-your-effort, read
+2026-10-22): verification-shaped tasks gain hugely from effort (security
+64→87%, hardware 34→75% low→max) while wrong-approach tasks get WORSE at
+max (wrong-reading failures 25→47) and a detailed spec converges effort
+levels. Fleet posture after 1b88d58a (dispatch --dry-run over the live READY
+pool, 2026-10-22): verification-tagged W1094/W1141 → high; research
+W1075/W1143 → medium; unmatched items → two-stage default (implement low
+with the brief front-loading spec completeness, verification rides its own
+classify:high lane — W1140.1 is the first such item). The fleet-side A/B vs
+the W776 attribution ledger is W1140.1's acceptance, not this row.
+
 ## W960 harness self-improvement smoke (2026-10-20; AC)
 
 The W958 loop ran one propose/probe/compose step, then three distinct private-judged
@@ -842,3 +857,71 @@ cell (glm cloud, cold, n=12 — noise floor).
   starves under any concurrent lane load; bench-grade runs need a quiet
   window or a reserved slot.
 - Judge pass (W748) not run — quality signal is mechanical-only at n=12.
+
+## W1170 — review-skill documentation contract (2026-10-22)
+
+The W1144 checks in `tests/skills-catalog.test.ts` match documentation
+markers against `tests/fixtures/review-eval/seed.ts`. They do not invoke
+an agent or measure defect detection. No matched agent experiment or
+review-quality improvement was established. W1170 corrects that claim and
+removes raw argument/path logging from skill instrumentation; the focused
+documentation/privacy suite passed 14 tests and 68 assertions. These are
+contract and privacy results, not a model-performance benchmark.
+# W1124.24 — isolated admission pressure diagnosis
+
+`packages/buckle/test/provider-pressure-diagnosis.test.ts` compares the same
+PQueue controller with unclassified 429 pacing versus explicit account-code
+classification into rate and occupancy pressure. Forty callers each complete
+two turns against three synthetic provider shapes; service is 8/20/50 ms with
+deterministic jitter, and refusals take 7–19% of service time. This is a scaled
+controller experiment, **not a provider-capacity or agent-productivity test**.
+
+One local run at 50 ms service: occupancy baseline/candidate elapsed 2177/1399
+ms, p95 queue 1062/607 ms, refusals 27/14; mixed pressure 2210/1423 ms,
+1069/607 ms, refusals 37/19. Both completed 80 turns. Timing is scheduler
+sensitive: retain refusal counts and negative arms, not just elapsed time.
+Unknown-code rate pressure follows the existing rate controller. No live
+provider limits, lane count, start ceiling or runtime policy was changed.
+# W1124.24.1 — two-hop occupancy refusal contract
+
+`packages/buckle/test/provider-pressure-health-http.test.ts` runs two actual
+Buckle HTTP servers and an isolated provider. Six delayed capacity refusals
+precede an available provider; its inventory endpoint remains unavailable.
+Without explicit remote classification, request seven returns a synthetic
+429 after the three-second inventory timeout and applies a 27-second account
+embargo. With classification, request seven reaches the provider and returns
+semantic `recovered` output. The final two tests passed 31 assertions in
+3.29 seconds. This is protocol regression evidence, not measured live capacity.
+# W1124.28 — installed LiteLLM cancellation contract
+
+`packages/belt/test/litellm-cancellation.test.ts` drives actual Buckle HTTP,
+the installed LiteLLM proxy and an isolated cancellable provider. Six arms
+compare disconnect monitoring off/on for nonstream pre-header, stream
+pre-header and midstream aborts. With monitoring enabled, every arm observes
+the provider's real HTTP abort and zero active work within 150 ms; the two
+tests passed 46 assertions in 13.29 seconds. No external provider was called;
+this establishes transport propagation, not Z.ai server-side cancellation.
+
+# W1124.40 - observed transport phases, not provider capacity
+
+`packages/buckle/test/transport-evidence.test.ts` uses actual HTTP stalls and
+an actual two-Buckle request to distinguish preheader timeout, postheader idle
+and total deadlines, downstream cancellation, and trusted peer propagation.
+The focused seven-file regression run passed 40 tests / 124 assertions in
+4.23 seconds. This proves bounded, body-free trace observations and same-attempt
+updates; it does not measure external provider cancellation or lane capacity.
+
+W1124.40 central-join followup: 13 tests / 45 assertions passed in 246 ms,
+including actual HTTP transport-evidence retrieval through the canonical remote
+connector and a controlled delayed-fetch cancellation/timer race. The controlled
+race is a scheduling test; it is not evidence of provider-side cancellation.
+
+# W1124.27.1 - native instruction-order refusal
+
+The installed LiteLLM converter was exercised offline with synthetic inputs:
+`developer/system/user` and `system/developer/system/user` retain a forbidden
+system-role input item; its full request transform also emits one for all-system
+input. The local HTTP gate regression now mirrors those converter boundaries,
+asserts raw fixture refusal, zero additional ChatGPT fetches and verbatim fallback.
+The correction preserves supported leading instruction order and tool turns;
+it does not demonstrate new provider capacity or model quality.

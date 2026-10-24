@@ -11,7 +11,7 @@
 		"test": "bun test test/",
 		"test:e2e": "playwright test --config e2e/playwright.config.ts",
 		"ci": "bun install && bun test test/",
-		"build:vendor": "bun build hooks/board-html/klh-components.ts hooks/board-html/klh-service-row.ts hooks/board-html/klh-recovery.ts hooks/board-html/klh-hub-admin.ts hooks/board-html/klh-topbar.ts hooks/board-html/klh-board-tabs.ts hooks/board-html/usage-panels.ts hooks/board-html/klh-console-cards.ts hooks/board-html/klh-console-forms.ts hooks/board-html/klh-ent-zone.ts --root hooks/board-html --minify --production --splitting --chunk-naming lit-[hash].[ext] --outdir hooks/board-html/vendor"
+		"build:vendor": "bun scripts/build-vendor.ts"
 	},
 	"dependencies": {
 		"@clack/prompts": "^1.8.1",
@@ -26,13 +26,13 @@
 		"shell-quote": "^1.12.0",
 		"ts-morph": "^28.0.0",
 		"xdg-basedir": "^5.1.0",
-		"yaml": "^2.9.1",
 		"zod": "^4.0.0"
 	},
 	"engines": {
 		"bun": ">=1.2"
 	},
 	"devDependencies": {
-		"@playwright/test": "^1.63.0"
+		"@playwright/test": "^1.63.0",
+		"acorn": "^8.18.0"
 	}
 }

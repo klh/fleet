@@ -39,6 +39,14 @@ describe("idList — W795 multi-positional id lists", () => {
 });
 
 describe("parseVerb — the one parser", () => {
+	test("equal flags use the same value channel and preserve embedded equals", () => {
+		const r = parseVerb(spec(), ["a", "--on=one=two"]);
+		expect(r.ok).toBe(true);
+		if (r.ok) {
+			expect(r.parsed.flag("--on")).toBe("one=two");
+			expect(r.parsed.all("--on")).toEqual(["one=two"]);
+		}
+	});
 	test("flags consume the next token; first occurrence wins; all() collects", () => {
 		const r = parseVerb(spec(), ["a", "--on", "one", "--on", "two", "b"]);
 		expect(r.ok).toBe(true);

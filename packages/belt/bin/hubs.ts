@@ -7,7 +7,7 @@
 // label into a supervisor Target so the dashboard's Supervisor section and
 // /llms.txt can surface the hubs visibly.
 //
-// W371: a hub whose stack.yaml profile declares deploy.dir is RESTARTABLE —
+// W371: a hub whose stack.json profile declares deploy.dir is RESTARTABLE —
 // belt runs docker compose up on the hub when it is down (ssh-wrapped for a
 // remote deploy.ssh target, local /bin/sh for a local-docker hub). Labels
 // join case-insensitively (coord hubs precedent); a hub without a profile
@@ -23,6 +23,7 @@ import {
 	tryLoadStack,
 	type HubProfile,
 } from "../../suspenders/hooks/lib/stack-config.ts";
+import { isLoopbackHostname } from "../../suspenders/hooks/lib/loopback.ts";
 import type { Target } from "./supervisor.ts";
 
 const HUBS_PATH = () =>
@@ -70,8 +71,7 @@ export function browserConsoleUrl(
 			return null;
 		if (
 			remote &&
-			(url.hostname.endsWith(".local") ||
-				["localhost", "127.0.0.1", "::1"].includes(url.hostname))
+			(url.hostname.endsWith(".local") || isLoopbackHostname(url.hostname))
 		)
 			return null;
 		return url.href;
@@ -144,7 +144,14 @@ const sameConfiguredCandidate = (
 	const keys = Object.keys(actual).sort();
 	return (
 		JSON.stringify(keys) === JSON.stringify(Object.keys(generated).sort()) &&
-		keys.every((key) => actual[key] === generated[key])
+		keys.every((key) => {
+			const a = actual[key];
+			const b = generated[key];
+			// adapter_config (W1122) nests an object — compare structurally.
+			return typeof a === "object" && a !== null
+				? JSON.stringify(a) === JSON.stringify(b)
+				: a === b;
+		})
 	);
 };
 
@@ -437,7 +444,7 @@ export function hubHeal(profile: HubProfile): () => Promise<string | null> {
 }
 
 /** Supervisor targets for the registry. Probe-only by default; rows whose
- *  stack.yaml profile declares deploy.dir carry a heal closure + quiet-hours
+ *  stack.json profile declares deploy.dir carry a heal closure + quiet-hours
  *  hold (W483: a hub is EXPECTED down in its window — no restart attempts,
  *  no paging). */
 export function hubTargets(): Target[] {

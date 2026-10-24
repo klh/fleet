@@ -7,7 +7,12 @@
 import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { renderFleetReport } from "../scripts/lib/fleet-report.ts";
 import { checkpointPath } from "./lib/checkpoint.ts";
+// W1124.12: an explicit worker role skips the SUPERVISOR DEFAULT + report
+// injection — a managed lane is not a loop-arming runtime (same ruling as
+// the isSubagent branch, source of truth = lane-settings.ts role marker).
+import { sessionRole } from "./lib/coordinator-edit-gate.ts";
 import {
 	CAPABILITIES,
 	openStore,
@@ -19,17 +24,18 @@ import { run } from "./lib/run.ts";
 import { checkSessionPolicies } from "./lib/session-policy.ts";
 import { attachSubscribe, subagentLaneSuffix } from "./lib/subscribe-attach.ts";
 import {
-	seedSupervisorRefill,
-	supervisorRefillDirective,
-} from "./lib/supervisor-refill.ts";
-import {
 	canonicalRepo,
 	launchctlTable,
 	liveStates,
 	supervisorFactLine,
 	supervisorRows,
 } from "./lib/supervisor.ts";
-import { renderFleetReport } from "../scripts/lib/fleet-report.ts";
+import {
+	seedSupervisorRefill,
+	supervisorContractNotice,
+	supervisorControlStatus,
+	supervisorRefillDirective,
+} from "./lib/supervisor-refill.ts";
 
 type In = {
 	session_id?: string;
@@ -57,6 +63,10 @@ const now = Date.now();
 const suffix = subagentLaneSuffix(input.transcript_path ?? "");
 const isSubagent = suffix !== "";
 let lane = `${sid}${suffix}`; // suffix re-derived in the canonical branch below
+// W1124.12: an explicit worker role — the dispatch-written lane-settings.ts
+// marker — skips the SUPERVISOR DEFAULT + report injection below: a managed
+// lane is not a loop-arming runtime (same ruling as the isSubagent branch).
+const isWorkerRole = sessionRole(input.cwd ?? process.cwd()) === "lane";
 
 function pname(p: string): string {
 	const parts = p.split("/");
@@ -231,6 +241,7 @@ out.push(
 		`coord consult <target-sid> "<question>" --as ${lane} asks a registered peer; ` +
 		`coord message <target-sid> "<update>" --as ${lane} updates a live lane; ` +
 		`coord inbox --as ${lane} reads replies. Use coord --help and coord <verb> --help to discover supported coordination verbs; use work --help and work <verb> --help to discover supported work-graph verbs; never guess a transport or read governor.db directly for live coordination.`,
+	`CONSULT DELIVERY: copy the exact recipient SID from coord fleet --json (lanes[].sid), or the text [sid=...] field. HEAD is a Git commit, not a session address. If a directed consult target is unresolved, discover the correct SID and retry or report the unresolved recipient. Never substitute BROADCAST: inline @mentions do not route, open a consult, or request a direct interrupt.`,
 );
 
 // W253 compact checkpoint: a pre-compact roll (hooks/pre-compact.ts) or an
@@ -315,7 +326,8 @@ const readyN = (
 		)
 		.get(project) as { n: number }
 ).n;
-if (!isSubagent) seedSupervisorRefill(db as Database, project, sid, readyN);
+if (!isSubagent && !isWorkerRole)
+	seedSupervisorRefill(db as Database, project, sid, readyN);
 const cur = db
 	.query("SELECT event_id FROM cursors WHERE sid = ?")
 	.get(lane) as { event_id: number } | null;
@@ -346,16 +358,36 @@ if (mine.length || inbox > 0 || readyN > 0 || head) {
 			: "GOVERNANCE: strict — lanes dispatch only through buckle (probe-false = refusal; solo mode via: coord governance solo)",
 	);
 	// W637 supervisor default (owner law 2026-10-11): when the pool holds
-	// READY work, the arm-loop directive renders here — compliance by
-	// injection, not model-recall of the global CLAUDE.md rule. Top-level
-	// sessions only: a subagent lane is not a loop-arming runtime.
-	if (readyN > 0 && !isSubagent) {
+	// READY work, current advisory guidance renders here. It never grants
+	// controller authority or arms another loop. Top-level sessions only:
+	// a subagent lane is not a controller, and a
+	// W1124.12 worker-role lane (the dispatch settings marker) is neither —
+	// it executes its claim instead of arming the refill loop.
+	// W1069: the contract body renders at EVERY top-level bootstrap from the
+	// one in-repo source — a fresh session in any project (fleet or not)
+	// receives the live supervisor contract, so stale prose in non-synced
+	// homes (global CLAUDE.md, repo AGENTS.md) can never arm a shallow loop.
+	// READY>0 keeps the arming header + W892 table; subagent and worker-role
+	// lanes stay exempt (neither is a loop-arming runtime, W1124.12).
+	if (!isSubagent && !isWorkerRole && readyN > 0) {
+		out.push(
+			supervisorRefillDirective(readyN, supervisorControlStatus(db, project)),
+		);
+	}
+	if (readyN > 0 && !isSubagent && !isWorkerRole) {
 		// W899: the SUPERVISOR DEFAULT contract EMITS the W892 table —
 		// session-start only CALLS the one implementation (lib/work-report.ts),
 		// the same shape the install tail and lane briefs carry.
-		out.push(supervisorRefillDirective(readyN));
 		out.push(renderFleetReport(db as unknown as Database, project));
 	}
+}
+
+// W1069: the READY=0 contract notice renders OUTSIDE the owned/inbox/head
+// guard — a fresh session in a non-fleet project (no owned items, empty
+// inbox, READY=0, no integration head) receives the live contract too, so
+// acceptance is every top-level bootstrap, fleet project or not.
+if (!isSubagent && !isWorkerRole && readyN === 0) {
+	out.push(supervisorContractNotice(supervisorControlStatus(db, project)));
 }
 
 // W422.17.1 interactive-session enrollment — top-level sessions mint (or
@@ -395,8 +427,11 @@ if (!isSubagent && input.cwd) {
 				.query("SELECT value FROM facts WHERE key = ?")
 				.get(`broadcast.seen.${sid}`) as { value: string } | null;
 			if (b.ts > Number(seen?.value ?? 0)) {
+				// a broadcast note is event context, not a briefing — cap it so one
+				// verbose notice (quota-sweep dumps) cannot flood the resume packet
+				const note = b.note.replace(/\s+/g, " ").trim();
 				out.push(
-					`HISTORICAL FLEET NOTICE (${new Date(b.ts).toISOString().slice(0, 16).replace("T", " ")} UTC; recorded event, not current capability): ${b.note.replace(/\s+/g, " ").trim()} — this does not establish a current transport.`,
+					`HISTORICAL FLEET NOTICE (${new Date(b.ts).toISOString().slice(0, 16).replace("T", " ")} UTC; recorded event, not current capability): ${note.length > 300 ? `${note.slice(0, 300)}…` : note} — this does not establish a current transport.`,
 				);
 				db.query(
 					"INSERT INTO facts (key, value, ts) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, ts = excluded.ts",

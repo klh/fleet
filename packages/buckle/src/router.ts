@@ -11,13 +11,18 @@ import { createHash } from "node:crypto";
 import {
 	type HopReceipt,
 	safeCorrelationId,
+	safeProviderErrorToken,
 	safeRefusalCode,
 	traceIdOf,
 } from "../../telemetry/src/http-trace.ts";
 import {
+	safeTimeoutPhase,
+	type TransportEvidence,
+	TransportObservation,
+} from "../../telemetry/src/transport-evidence.ts";
+import {
 	type ErrorKind,
 	normalizeUpstreamError,
-	RouterError,
 	routerErrorEnvelope,
 } from "./adapters/errors.ts";
 import { resolveAdapter } from "./adapters/index.ts";
@@ -27,6 +32,15 @@ import { type CandidateRow, candIdOf } from "./candidates.ts";
 import { Cooldowns, retryAfterS, retryDelayS } from "./cooldown.ts";
 import { mayEscalate, type RouteSelection } from "./decide.ts";
 import { FLASHX, type GatewayPolicy } from "./policy.ts";
+import {
+	assertProviderConcurrencyErrorCodes,
+	bindProviderLease,
+	ProviderAdmissionCore,
+	ProviderAdmissionFull,
+	type ProviderLease,
+	type ProviderPoolPolicy,
+	providerPressureOf,
+} from "./provider-admission-core.ts";
 import type { TraceContext } from "./trace.ts";
 import type { Deployment, Dialect, UpstreamPool } from "./upstreams.ts";
 import { HubConnectError } from "./wire.ts";
@@ -64,13 +78,14 @@ export type ExecuteResult =
 	  };
 
 interface FailureProvenance {
-	source: "upstream" | "bridged-upstream" | "network";
+	source: "upstream" | "bridged-upstream" | "network" | "local-admission";
 	status: number;
 	kind: string;
 	requestId?: string;
 	callId?: string;
 	retryAfterS?: number;
 	upstreamRefusalCode?: string | null;
+	transportTimeoutPhase?: TransportEvidence["timeoutPhase"];
 }
 
 export interface UpstreamRequest {
@@ -90,6 +105,8 @@ export interface UpstreamRequest {
 	/** Canonicalized .prefer selection, diagnostic only. */
 	preference?: string | null;
 	signal?: AbortSignal;
+	/** Internal, attempt-local observer; never constructed from client headers/body. */
+	transport?: TransportObservation;
 	// W140 routing laws: the pure decision result (handlers decided via the
 	// candidate table before dispatch) + the complexity tier + the raw hint,
 	// threaded for the escalation gate and audit echo.
@@ -107,8 +124,26 @@ export interface RouterMetrics {
 }
 
 /** A single upstream attempt's classified outcome. */
-export type TryOutcome =
+export type TryOutcome = {
+	transportTimeoutPhase?: TransportEvidence["timeoutPhase"];
+	providerPool?: string | null;
+	queueWaitMs?: number | null;
+	providerErrorCode?: string | null;
+	providerErrorType?: string | null;
+} & (
 	| { ok: true; response: Response }
+	| {
+			ok: false;
+			/** W1078 local admission refusal: the bounded account-pool queue
+			 *  refused (full or wait expired) BEFORE any upstream attempt —
+			 *  no fetch happened, nothing benched, no provider cooldown. */
+			localAdmission: true;
+			status: 503;
+			error: string;
+			/** Window-derived floor from the pool policy — config, never a
+			 *  fabricated provider verdict. */
+			retryAfterS: number;
+	  }
 	| {
 			ok: false;
 			response: Response;
@@ -126,7 +161,8 @@ export type TryOutcome =
 			/** bad_request subclass: the prompt overflowed this deployment's
 			 *  window — fail over (a bigger window may fit), never bench */
 			contextWindow: boolean;
-	  };
+	  }
+);
 
 /** Walk state threaded through the ladder. ctxWindow keeps the last
  *  context-window rejection: if every rung overflows, the client gets that
@@ -136,6 +172,8 @@ interface WalkState {
 	status: number;
 	error: string;
 	deadlineMs: number;
+	/** Account Retry-After or admission timeout cannot heal through an alias. */
+	unavailablePools?: Set<string>;
 	ctxWindow?: Response;
 	rateLimit?: {
 		response: Response;
@@ -224,6 +262,8 @@ export class UpstreamError extends Error {
 		message: string,
 		public readonly layer: "connect" | "upstream" = "upstream",
 		public readonly timedOut = false,
+		public readonly providerPool: string | null = null,
+		public readonly queueWaitMs: number | null = null,
 	) {
 		super(message);
 	}
@@ -261,6 +301,10 @@ export class Router {
 		stream?: { idleMs: number; totalMs: number },
 	) => Promise<Response>;
 	private readonly metrics?: RouterMetrics;
+	/** W1078: one admission core per explicitly configured account pool —
+	 *  every deployment bound to the id shares the SAME instance (one
+	 *  configured authority counts each actual provider attempt once). */
+	private readonly pools: Map<string, ProviderAdmissionCore>;
 
 	constructor(
 		private readonly policy: GatewayPolicy,
@@ -292,6 +336,26 @@ export class Router {
 				}));
 		this.fetchImpl = deps.fetchImpl ?? defaultFetchImpl;
 		this.metrics = deps.metrics;
+		// W1078: instantiate one core per explicitly configured account pool.
+		// Bindings validate fail-closed here: a deployment bound to a pool
+		// with no policy (or a malformed id) refuses startup — admission is
+		// never silently disabled once configured.
+		this.pools = new Map(
+			Object.entries(policy.provider_pools ?? {}).map(([id, p]) => [
+				id,
+				new ProviderAdmissionCore(p),
+			]),
+		);
+		for (const group of deps.pool.groups())
+			for (const dep of deps.pool.deployments(group)) {
+				providerConcurrencyCodesOf(dep, policy);
+				if (dep.adapter_config?.provider_pool === undefined) continue;
+				const id = providerPoolIdOf(dep);
+				if (id === null || !this.pools.has(id))
+					throw new Error(
+						`router: deployment ${dep.group}/${dep.url} binds provider_pool "${String(dep.adapter_config?.provider_pool)}" with no matching gateway.provider_pools policy (W1078 admission is fail-closed)`,
+					);
+			}
 	}
 
 	/** Same-dialect deployments first (pass-through precedence); the
@@ -302,39 +366,140 @@ export class Router {
 		const live = this.deps.pool
 			.deployments(tier)
 			.filter((d) => !this.cooldowns.benched(d));
-		const same = live.filter((d) => d.dialect === req.dialect);
+		// W1124.27: same-dialect is no longer auto-eligible — a chatgpt rung
+		// whose body the native bridge refuses is skipped like any
+		// unbridgeable hop (skip-not-fail), falling to the next rung verbatim.
+		const same = live.filter(
+			(d) => d.dialect === req.dialect && bridgeRequest(req, d) !== null,
+		);
 		const cross = live.filter(
 			(d) => d.dialect !== req.dialect && bridgeRequest(req, d) !== null,
 		);
 		return [...same, ...cross];
 	}
 
+	providerAdmissionSnapshot() {
+		return Object.fromEntries(
+			[...this.pools].map(([id, core]) => [id, core.snapshot()]),
+		);
+	}
 	/** One upstream attempt, outcome classified for the walk. */
 	private async tryOnce(
 		req: UpstreamRequest,
 		dep: Deployment,
 		timeoutMs: number,
 		stream?: { idleMs: number; totalMs: number },
+		walkRemainingMs = timeoutMs,
 	): Promise<TryOutcome> {
 		const wireReq = bridgeRequest(req, dep);
 		if (wireReq === null)
 			throw new UpstreamError(502, `upstream ${dep.url} not bridgeable`);
-		const bridged = wireReq !== req;
+		// W1124.27: "bridged" means the DIALECT changed — a same-dialect body
+		// normalize (chatgpt seam) returns a new req object but the response
+		// speaks this dialect, so it must not be re-framed or its refusals
+		// re-attributed as bridge artifacts.
+		const bridged = wireReq.dialect !== req.dialect;
+		// W1078: admission at the selected-attempt seam — after bridge
+		// eligibility, before the fetch. The queue wait is capped by the
+		// remaining walk budget (deadlines only shrink); a granted lease
+		// clears the wait timer, so active streams keep their own guards.
+		const poolId = providerPoolIdOf(dep);
+		const admission = poolId === null ? undefined : this.pools.get(poolId);
+		let lease: ProviderLease | undefined;
+		let queueWaitMs = 0;
+		if (admission !== undefined && poolId !== null) {
+			const queuedAt = this.now();
+			try {
+				// Admission may use its configured wait inside the remaining
+				// walk, leaving a minimum fetch opportunity. The network timeout
+				// is an upper bound, never a second budget beyond the walk.
+				lease = await admission.acquire(
+					req.signal,
+					Math.max(1, walkRemainingMs - 1),
+				);
+			} catch (error) {
+				if (req.signal?.aborted) throw error;
+				const expired = error instanceof Error && error.name === "TimeoutError";
+				if (error instanceof ProviderAdmissionFull || expired) {
+					return admissionRefusal(
+						dep,
+						this.policy.provider_pools?.[poolId],
+						error instanceof ProviderAdmissionFull ? "full" : "expired",
+						poolId,
+						Math.max(0, Math.round(this.now() - queuedAt)),
+					);
+				}
+				throw error;
+			}
+			queueWaitMs = Math.max(0, Math.round(this.now() - queuedAt));
+			const remainingMs = walkRemainingMs - queueWaitMs;
+			if (remainingMs <= 0) {
+				lease.release();
+				return admissionRefusal(
+					dep,
+					this.policy.provider_pools?.[poolId],
+					"expired",
+					poolId,
+					queueWaitMs,
+				);
+			}
+			timeoutMs = Math.min(timeoutMs, remainingMs);
+		}
 		try {
-			const resp = await this.fetchImpl(dep, wireReq, timeoutMs, stream);
+			const raw = await this.fetchImpl(dep, wireReq, timeoutMs, stream);
+			const resp = lease === undefined ? raw : bindProviderLease(raw, lease);
 			if (resp.ok) {
 				this.cooldowns.success(dep);
 				const response = bridged
 					? bridgeResponse(resp, req.dialect, req.body.stream === true)
 					: resp;
-				return { ok: true, response };
+				// W1078 canary metadata (body-free, set AFTER the bridge so both
+				// dialects preserve it): proves which configured pool served the
+				// alias and separates queue dwell from provider latency. Local
+				// refusal metadata stays typed-local (never this header path).
+				if (lease !== undefined && poolId !== null) {
+					response.headers.set("x-klh-provider-pool", poolId);
+					response.headers.set(
+						"x-klh-provider-queue-wait-ms",
+						String(queueWaitMs),
+					);
+				}
+				return {
+					ok: true,
+					response,
+					providerPool: poolId,
+					queueWaitMs: lease ? queueWaitMs : null,
+				};
 			}
 			const { err, replay, requestId, callId } = await classifyFailure(
 				dep,
 				resp,
 			);
 			const ra = err.retryAfterS ?? retryAfterS(resp.headers, this.now);
+			const pressure = providerPressureOf(
+				{ concurrencyErrorCodes: providerConcurrencyCodesOf(dep, this.policy) },
+				err.providerCode,
+				err.message,
+			);
+			lease?.feedback?.(resp.status, ra, pressure);
+			// W1257: bank the provider's own refusal words at every rate-limit
+			// rung — a later bench-window hold answers with THE PROVIDER's
+			// last-seen code/type/message as attributed context, never silence.
+			if (err.kind === "rate_limited")
+				this.cooldowns.noteRateLimitDetail(dep, {
+					code: err.providerCode,
+					type: err.providerType,
+					message: err.message,
+					retryAfterS: ra,
+				});
 			const base = {
+				transportTimeoutPhase: dep.buckle
+					? safeTimeoutPhase(resp.headers.get("x-klh-transport-timeout-phase"))
+					: null,
+				providerPool: poolId,
+				queueWaitMs: lease ? queueWaitMs : null,
+				providerErrorCode: safeProviderErrorToken(err.providerCode),
+				providerErrorType: safeProviderErrorToken(err.providerType),
 				ok: false as const,
 				response:
 					err.kind === "rate_limited"
@@ -402,11 +567,15 @@ export class Router {
 					refusalSource: "upstream",
 				};
 			}
-			this.cooldowns.failure(
-				dep,
-				err.kind === "rate_limited" ? "rate_limited" : "other",
-			);
-			this.metrics?.cooldown(`${dep.group}|${dep.url}`);
+			// Account occupancy is not deployment health. Keep the real refusal
+			// and provider Retry-After; never synthesize an outage/cooldown for it.
+			if (!(resp.status === 429 && pressure === "concurrency")) {
+				this.cooldowns.failure(
+					dep,
+					err.kind === "rate_limited" ? "rate_limited" : "other",
+				);
+				this.metrics?.cooldown(`${dep.group}|${dep.url}`);
+			}
 			return {
 				...base,
 				error: `upstream ${dep.url} returned ${String(resp.status)}`,
@@ -419,6 +588,9 @@ export class Router {
 				exhaustTier: err.kind !== "auth" && !err.retryable,
 			};
 		} catch (e) {
+			// W1078: no Response exists to hold the lease — release before any
+			// classification/wrap so a failed fetch never leaks its slot.
+			lease?.release();
 			if (req.signal?.aborted) throw e;
 			const connectFailure = e instanceof HubConnectError;
 			const timedOut =
@@ -432,6 +604,8 @@ export class Router {
 				`upstream ${dep.url} unreachable`,
 				connectFailure ? "connect" : "upstream",
 				timedOut,
+				poolId,
+				lease ? queueWaitMs : null,
 			);
 		}
 	}
@@ -450,6 +624,10 @@ export class Router {
 		callId?: string,
 		upstreamRefusalCode: string | null = null,
 		refusalOrigin: HopReceipt["refusalOrigin"] = null,
+		provider?: Pick<
+			TryOutcome,
+			"providerPool" | "queueWaitMs" | "providerErrorCode" | "providerErrorType"
+		>,
 	): void {
 		const retryAfterMs =
 			retryAfterS === null || !Number.isFinite(retryAfterS)
@@ -463,7 +641,12 @@ export class Router {
 			traceId: traceIdOf(req.trace?.traceparent ?? null) ?? "",
 			ordinal,
 			service: "buckle",
-			hop: dep.dialect === req.dialect ? "upstream" : "bridged-upstream",
+			hop:
+				refusalOrigin === "local-admission"
+					? "local-admission"
+					: dep.dialect === req.dialect
+						? "upstream"
+						: "bridged-upstream",
 			candidate: createHash("sha256")
 				.update(candIdOf(dep))
 				.digest("hex")
@@ -476,12 +659,25 @@ export class Router {
 			callId: callId ?? null,
 			upstreamRefusalCode,
 			refusalOrigin,
+			providerErrorCode: safeProviderErrorToken(provider?.providerErrorCode),
+			providerErrorType: safeProviderErrorToken(provider?.providerErrorType),
+			...{
+				providerPool: provider?.providerPool ?? providerPoolIdOf(dep),
+				queueWaitMs: provider?.queueWaitMs ?? null,
+			},
 		};
-		try {
-			this.metrics?.attempt?.(receipt);
-		} catch {
-			// The receipt sink is observability, never a routing dependency.
-		}
+		const publish = () => {
+			try {
+				this.metrics?.attempt?.({
+					...receipt,
+					transport: req.transport?.snapshot() ?? null,
+				});
+			} catch {
+				// The receipt sink is observability, never a routing dependency.
+			}
+		};
+		req.transport?.bind(publish);
+		publish();
 	}
 
 	/** Same-tier retry loop (num_retries + 1 attempts across candidates). */
@@ -517,7 +713,8 @@ export class Router {
 			const nextIndex = candidates.findIndex(
 				(candidate, index) =>
 					index >= Math.min(raw, candidates.length - 1) &&
-					!timedOutOrigins.has(new URL(candidate.url).origin),
+					!timedOutOrigins.has(new URL(candidate.url).origin) &&
+					!st.unavailablePools?.has(providerPoolIdOf(candidate) ?? ""),
 			);
 			if (nextIndex > raw) skipped += nextIndex - raw;
 			const dep = nextIndex < 0 ? undefined : candidates[nextIndex];
@@ -542,15 +739,39 @@ export class Router {
 			);
 			st.attempts++;
 			const startedAt = this.now();
+			const observedReq = { ...req, transport: new TransportObservation() };
 			let r: TryOutcome;
 			try {
-				r = await this.tryOnce(req, dep, timeoutMs, stream);
+				r = await this.tryOnce(
+					observedReq,
+					dep,
+					timeoutMs,
+					stream,
+					st.deadlineMs - startedAt,
+				);
 			} catch (error) {
-				if (req.signal?.aborted) return { kind: "aborted" };
+				if (req.signal?.aborted) {
+					this.reportAttempt(
+						observedReq,
+						dep,
+						st.attempts,
+						startedAt,
+						null,
+						"downstream_cancel",
+						null,
+					);
+					return { kind: "aborted" };
+				}
 				if (!(error instanceof UpstreamError)) throw error;
-				if (error.timedOut) timedOutOrigins.add(new URL(dep.url).origin);
+				if (error.timedOut) {
+					timedOutOrigins.add(new URL(dep.url).origin);
+					if (error.providerPool !== null && (error.queueWaitMs ?? 0) > 0) {
+						st.unavailablePools ??= new Set();
+						st.unavailablePools.add(error.providerPool);
+					}
+				}
 				this.reportAttempt(
-					req,
+					observedReq,
 					dep,
 					st.attempts,
 					startedAt,
@@ -561,6 +782,7 @@ export class Router {
 					undefined,
 					null,
 					"network",
+					error,
 				);
 				// W985 skip-not-fail: an unreachable rung (ECONNREFUSED, timeout)
 				// must not kill the ladder — record it and walk on to the next
@@ -574,6 +796,8 @@ export class Router {
 					source: "network",
 					status: error.status,
 					kind: "network",
+					transportTimeoutPhase:
+						observedReq.transport.snapshot()?.timeoutPhase ?? null,
 				};
 				// A failed network exchange already spent this row's entire
 				// request timeout. Repeating the same last row cannot improve
@@ -590,7 +814,7 @@ export class Router {
 					r.response.headers.get("x-litellm-call-id"),
 				);
 				this.reportAttempt(
-					req,
+					observedReq,
 					dep,
 					st.attempts,
 					startedAt,
@@ -599,6 +823,9 @@ export class Router {
 					null,
 					upstreamId,
 					callId,
+					null,
+					null,
+					r,
 				);
 				return {
 					kind: "upstream",
@@ -610,8 +837,46 @@ export class Router {
 					stream: req.body.stream === true,
 				};
 			}
+			if ("localAdmission" in r) {
+				const account = providerPoolIdOf(dep);
+				if (account !== null) {
+					st.unavailablePools ??= new Set();
+					st.unavailablePools.add(account);
+				}
+				this.reportAttempt(
+					observedReq,
+					dep,
+					st.attempts,
+					startedAt,
+					r.status,
+					"local_admission",
+					r.retryAfterS,
+					undefined,
+					undefined,
+					null,
+					"local-admission",
+					r,
+				);
+				// W1078 skip-grade: the local account pool is shared across the
+				// tier's rows, so repeating a refused row inside this tier cannot
+				// heal — advance to the next candidate / fallback rung FREE (no
+				// bench, no cooldown metric, no retry budget, no rate-limit
+				// memory). The refusal becomes the walk's lastFailure, so an
+				// exhausted ladder answers 503 + window-derived Retry-After.
+				st.status = r.status;
+				st.error = r.error;
+				st.lastFailure = {
+					source: "local-admission",
+					status: r.status,
+					kind: "local_admission",
+					retryAfterS: r.retryAfterS,
+				};
+				if (raw + 1 >= candidates.length) break;
+				skipped++;
+				continue;
+			}
 			this.reportAttempt(
-				req,
+				observedReq,
 				dep,
 				st.attempts,
 				startedAt,
@@ -622,6 +887,7 @@ export class Router {
 				r.callId,
 				r.upstreamRefusalCode ?? null,
 				r.refusalSource,
+				r,
 			);
 			st.status = r.status;
 			st.error = r.error;
@@ -629,6 +895,7 @@ export class Router {
 				source: r.refusalSource,
 				status: r.status,
 				kind: r.kind,
+				transportTimeoutPhase: r.transportTimeoutPhase,
 				requestId: r.requestId,
 				callId: r.callId,
 				upstreamRefusalCode: r.upstreamRefusalCode ?? null,
@@ -641,8 +908,32 @@ export class Router {
 							),
 			};
 			if (this.walkExpired(st)) break;
-			if (r.kind === "rate_limited" && !st.rateLimit)
-				st.rateLimit = { response: r.response, tier, source: "upstream" };
+			if (r.kind === "network" || r.kind === "timeout") {
+				// A peer transport failure has the same walk semantics as a
+				// local fetch timeout. Do not queue its account again after
+				// already spending admission dwell; independent tiers need
+				// the remainder of the original first-byte budget.
+				timedOutOrigins.add(new URL(dep.url).origin);
+				const account = providerPoolIdOf(dep);
+				if (account !== null && (r.queueWaitMs ?? 0) > 0) {
+					st.unavailablePools ??= new Set();
+					st.unavailablePools.add(account);
+				}
+				continue;
+			}
+			if (r.kind === "rate_limited") {
+				if (!st.rateLimit)
+					st.rateLimit = { response: r.response, tier, source: "upstream" };
+				// An explicit provider not-before applies to every alias of the
+				// account. Skip it within this walk; the shared core retains the
+				// backoff for subsequent requests. Without Retry-After, keep the
+				// configured adaptive retry policy for transient burst feedback.
+				const account = providerPoolIdOf(dep);
+				if (account !== null && r.retryAfterS !== null && r.retryAfterS > 0) {
+					st.unavailablePools ??= new Set();
+					st.unavailablePools.add(account);
+				}
+			}
 			if (r.contextWindow) st.ctxWindow = r.response;
 			if (r.exhaustTier) break;
 			// A provider that asks us to wait beyond the configured retry cap is
@@ -753,34 +1044,60 @@ export class Router {
 	}
 
 	/** A temporarily ejected rate-limited tier still has an actionable
-	 * outcome. The response is synthetic: a previous provider body must not
-	 * be replayed into a different request. */
+	 * outcome: a typed LOCAL hold — never a fabricated provider 429 (W1257).
+	 * The provider's own last-seen refusal words ride as attributed context;
+	 * a real upstream rung later in the walk still outranks the memory. */
 	private rememberCooledRateLimit(
 		tier: string,
 		req: UpstreamRequest,
 		st: WalkState,
 	): void {
-		if (st.rateLimit) return;
-		const remaining = this.deps.pool
+		const legs = this.deps.pool
 			.deployments(tier)
 			.filter((dep) => bridgeRequest(req, dep) !== null)
-			.map((dep) => this.cooldowns.rateLimitRemainingS(dep))
-			.filter((seconds): seconds is number => seconds !== null);
-		if (remaining.length === 0) return;
-		const retryAfter = Math.min(...remaining);
-		const error = new RouterError(
-			"rate_limited",
-			429,
-			"Upstream rate limited; retry after cooldown",
+			.map((dep) => ({
+				dep,
+				seconds: this.cooldowns.rateLimitRemainingS(dep),
+				detail: this.cooldowns.rateLimitDetail(dep),
+			}))
+			.filter((leg) => leg.seconds !== null);
+		if (legs.length === 0) return;
+		const soonest = legs.reduce((a, b) =>
+			(a.seconds ?? 0) <= (b.seconds ?? 0) ? a : b,
 		);
-		st.rateLimit = {
-			tier,
-			source: "cooldown",
-			response: Response.json(routerErrorEnvelope(error, req.dialect), {
-				status: 429,
-				headers: { "retry-after": String(retryAfter) },
-			}),
+		const d = soonest.detail;
+		const words = d
+			? `; last provider refusal: code ${String(d.code ?? "unknown")} ${d.type ?? "type unknown"} "${d.message.slice(0, 240)}"`
+			: "";
+		st.status = 503;
+		st.error = `provider ${tier} rate-limit cooldown — answered from gateway cooldown, not the provider (${String(soonest.seconds)}s left; W1257)${words}`;
+		st.lastFailure = {
+			source: "local-admission",
+			status: 503,
+			kind: "local_admission",
+			retryAfterS: soonest.seconds,
 		};
+		// one local-admission attempt receipt with the banked provider tokens,
+		// so the trace tells the truth about where this answer came from
+		this.reportAttempt(
+			req,
+			soonest.dep,
+			st.attempts,
+			this.now(),
+			503,
+			"rate_limited",
+			soonest.seconds,
+			undefined,
+			undefined,
+			null,
+			"local-admission",
+			{
+				providerPool: null,
+				queueWaitMs: null,
+				providerErrorCode: safeProviderErrorToken(d?.code ?? null),
+				providerErrorType: safeProviderErrorToken(d?.type ?? null),
+			},
+		);
 	}
 
 	/** Ladder walk: requested group first, then the policy fallback list.
@@ -934,8 +1251,18 @@ export class Router {
 				})
 			)
 				continue; // gate closed: SIMPLE/MEDIUM never leave the machine
+			// W1265.1 account boundary: when the selection carries the mark, the
+			// ladder's rungs are confined to the entitled domain — a tier with no
+			// entitled candidate is skipped, never substituted across the class
+			// boundary (the cross-boundary e2e proves zero foreign outbound).
+			const entitled =
+				sel.accountScoped === true
+					? new Set(sel.ordered.map((r) => r.candidate_id))
+					: null;
 			const candidates = this.tierCandidates(tier, req).filter(
-				(d) => !tried.has(candIdOf(d)),
+				(d) =>
+					!tried.has(candIdOf(d)) &&
+					(entitled === null || entitled.has(candIdOf(d))),
 			);
 			if (candidates.length === 0) {
 				this.rememberCooledRateLimit(tier, req, st);
@@ -948,6 +1275,63 @@ export class Router {
 		this.walkExpired(st);
 		return exhausted(st);
 	}
+}
+
+/** W1078: the explicit account binding on a deployment — a bounded pool id
+ *  into gateway.provider_pools, operator config, never derived from host,
+ *  model name or secret bytes (admission-core notes). */
+export function providerPoolIdOf(dep: Deployment): string | null {
+	const cfg = dep.adapter_config?.provider_pool;
+	if (typeof cfg !== "string") return null;
+	return /^[\w.-]{1,64}$/.test(cfg) ? cfg : null;
+}
+
+function providerConcurrencyCodesOf(
+	dep: Deployment,
+	policy: GatewayPolicy,
+): string[] | undefined {
+	const explicit = dep.adapter_config?.provider_concurrency_error_codes;
+	const pool = providerPoolIdOf(dep);
+	const inherited =
+		pool === null
+			? undefined
+			: policy.provider_pools?.[pool]?.concurrencyErrorCodes;
+	if (explicit === undefined) return inherited;
+	assertProviderConcurrencyErrorCodes(explicit);
+	if (
+		inherited &&
+		(explicit.length !== inherited.length ||
+			explicit.some((code) => !inherited.includes(code)))
+	)
+		throw new Error(
+			"Deployment concurrency error codes conflict with its provider pool policy",
+		);
+	return explicit;
+}
+
+/** W1078 local admission refusal: a LOCAL queue decision, never an upstream
+ *  verdict — no bench, no provider cooldown, no fabricated 429. The 503
+ *  carries the pool's window-derived Retry-After floor (config, not a
+ *  provider claim). */
+function admissionRefusal(
+	dep: Deployment,
+	policy: ProviderPoolPolicy,
+	cause: "full" | "expired",
+	providerPool: string,
+	queueWaitMs: number,
+): TryOutcome {
+	return {
+		ok: false,
+		localAdmission: true,
+		providerPool,
+		queueWaitMs,
+		status: 503,
+		error:
+			cause === "full"
+				? `provider account pool for ${dep.url} is saturated — admission refused locally (W1078)`
+				: `provider account pool wait expired for ${dep.url} — admission timed out locally (W1078)`,
+		retryAfterS: Math.ceil(policy.intervalMs / 1000),
+	};
 }
 
 /** End of a walk with nothing delivered: an all-rungs context-window

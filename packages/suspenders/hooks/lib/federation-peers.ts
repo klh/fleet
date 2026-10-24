@@ -1,5 +1,5 @@
 // hooks/lib/federation-peers.ts — W362 peer-to-peer policy propagation.
-// The start-topology edges (hubs.<me>.peers in stack.yaml, mirrored by the
+// The start-topology edges (hubs.<me>.peers in stack.json, mirrored by the
 // an overlay profile's federation.peers) are the seam: each hub pulls its
 // declared peers' /federation/policy-manifest and keeps a per-peer
 // last-known store under the federation home. The manifest's
@@ -13,7 +13,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { parse } from "yaml";
+import { readJsonConfEither } from "./kernel-conf.ts";
 import { atomicWrite } from "./board-config.ts";
 import {
 	type FederationEnv,
@@ -53,9 +53,9 @@ export interface PeerLastKnown {
 /** Env knobs beyond the shared FederationEnv. */
 export interface PeersEnv extends FederationEnv {
 	/** Comma-separated peer labels — the hubctl-rendered, compose-forwarded
-	 *  form (hubctl render emits HUB_PEERS from stack.yaml). */
+	 *  form (hubctl render emits HUB_PEERS from stack.json). */
 	HUB_PEERS?: string;
-	/** This machine's own hub label — selects hubs.<me>.peers in stack.yaml. */
+	/** This machine's own hub label — selects hubs.<me>.peers in stack.json. */
 	KLH_HUB_NAME?: string;
 }
 
@@ -86,7 +86,7 @@ export function loadPeerLastKnown(
 
 /** The peer labels this machine propagates from, in precedence order:
  *  explicit call argument → HUB_PEERS env (hubctl renders it from
- *  stack.yaml into the hub .env; compose forwards it) → stack.yaml
+ *  stack.json into the hub .env; compose forwards it) → stack.json
  *  hubs.<KLH_HUB_NAME>.peers (the machine-level truth). Empty = no edges
  *  declared — nothing to propagate, never an error. */
 export function resolvePeerLabels(
@@ -105,10 +105,10 @@ export function resolvePeerLabels(
 	const path =
 		opts.stackPath ??
 		process.env.KLH_STACK ??
-		join(env.HOME ?? homedir(), ".config", "klh", "stack.yaml");
+		join(env.HOME ?? homedir(), ".config", "klh", "stack.json");
 	if (!existsSync(path)) return [];
 	try {
-		const stack = parse(readFileSync(path, "utf8")) as {
+		const stack = readJsonConfEither(path) as {
 			hubs?: Record<string, { peers?: unknown }>;
 		} | null;
 		const peers = stack?.hubs?.[me]?.peers ?? [];

@@ -2,7 +2,6 @@ import {
 	closeSync,
 	existsSync,
 	fsyncSync,
-	mkdirSync,
 	openSync,
 	readFileSync,
 	realpathSync,
@@ -10,13 +9,24 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
+import { withFileLock } from "./file-lock.ts";
 import { isHarnessProcess } from "./lane-liveness.ts";
 import { basename, dirname, join, resolve } from "node:path";
+import { openStore } from "./govdb-store.ts";
+import { projectIdentity } from "./govdb-project.ts";
+import {
+	restartJournalPath,
+	privateJson,
+	type ClaudeRestartJournal,
+} from "./claude-restart.ts";
 
 export interface RegistryLane {
 	sid: string;
 	attempt?: number;
 	launchedAt?: number;
+	worktree?: string;
+	item?: string;
+	pid?: number;
 }
 
 /** Git's common directory identifies the primary checkout, including linked worktrees. */
@@ -91,44 +101,130 @@ export function loadLaneRegistry<T extends RegistryLane>(input: string): T[] {
 }
 
 export function newerLane<T extends RegistryLane>(current: T, incoming: T): T {
+	// Attempts count retries within an incarnation and may reset on a cold
+	// launch. Launch time therefore orders incarnations before retry count.
+	// Missing/invalid times cannot displace a known launch; ties retain the
+	// existing attempt ordering and incoming-row refresh behavior.
+	const time = (row: RegistryLane): number =>
+		typeof row.launchedAt === "number" &&
+		Number.isFinite(row.launchedAt) &&
+		row.launchedAt > 0
+			? row.launchedAt
+			: 0;
+	const launches = time(incoming) - time(current);
+	if (launches !== 0) return launches > 0 ? incoming : current;
 	const attempts = (incoming.attempt ?? 0) - (current.attempt ?? 0);
-	if (
-		attempts < 0 ||
-		(attempts === 0 && (incoming.launchedAt ?? 0) < (current.launchedAt ?? 0))
-	)
-		return current;
+	if (attempts < 0) return current;
 	return incoming;
 }
 
-/** Cross-process registry lock: mkdir-atomic, owner.json discloses the pid.
- * fn's return value passes through; the lock is always released. */
-function withRegistryLock<T>(file: string, fn: (file: string) => T): T {
-	const lock = `${file}.lock`;
-	mkdirSync(dirname(file), { recursive: true });
-	const deadline = Date.now() + 5000;
-	for (;;) {
-		try {
-			mkdirSync(lock);
-			break;
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-			if (Date.now() >= deadline)
-				throw new Error(
-					`Lane registry lock unavailable: ${lock}; inspect its owner before recovery`,
-				);
-			Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 15);
-		}
-	}
+/** W1124.13: the registry rides the ONE shared cross-process lock (file-lock.ts). */
+const withRegistryLock = withFileLock;
+
+/** Intentional retirement is a continuation, not abandoned ownership. A
+ * malformed journal is uncertainty and cannot warrant deletion either. */
+export function pendingManagedRestart(row: RegistryLane): boolean {
+	if (!row.worktree) return false;
+	const path = restartJournalPath(row.worktree);
+	if (!existsSync(path)) return false;
 	try {
-		writeFileSync(
-			join(lock, "owner.json"),
-			JSON.stringify({ pid: process.pid, acquiredAt: Date.now() }),
-			{ mode: 0o600 },
-		);
-		return fn(file);
-	} finally {
-		rmSync(lock, { recursive: true, force: true });
+		const journal = privateJson<ClaudeRestartJournal>(path);
+		if (
+			journal.snapshot.sid !== row.sid ||
+			journal.snapshot.item !== row.item ||
+			journal.snapshot.worktree !== row.worktree
+		)
+			return true;
+		if (
+			(journal.phase !== "started" && journal.phase !== "verified") ||
+			!journal.newWrapper ||
+			journal.newWrapper.pid !== row.pid
+		)
+			return true;
+		const store = openStore();
+		try {
+			const intent = store
+				.query(
+					"SELECT sid,pid,birth,state FROM lane_launch_intents WHERE project=? AND item=?",
+				)
+				.get(projectIdentity(row.worktree), row.item) as {
+				sid: string;
+				pid: number;
+				birth: string;
+				state: string;
+			} | null;
+			return (
+				!intent ||
+				intent.sid !== row.sid ||
+				intent.state !== "REGISTERED" ||
+				intent.pid !== journal.newWrapper.pid ||
+				intent.birth !== journal.newWrapper.birth
+			);
+		} finally {
+			store.close();
+		}
+	} catch {
+		return true;
 	}
+}
+
+function writeRegistryBytes(file: string, bytes: string | Buffer): void {
+	const temp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
+	try {
+		const fd = openSync(temp, "wx", 0o600);
+		try {
+			writeFileSync(fd, bytes);
+			fsyncSync(fd);
+		} finally {
+			closeSync(fd);
+		}
+		renameSync(temp, file);
+	} finally {
+		rmSync(temp, { force: true });
+	}
+}
+
+/** Only the actual new wrapper is inserted. The caller acquires its store
+ * transaction BEFORE this file lock (the same order as ordinary PID repair).
+ * Body/audit errors restore bytes; final commit/crash uncertainty remains
+ * journal-owned and never permits a second launch. */
+export function registerMissingRestartLane<T extends RegistryLane>(
+	input: string,
+	row: T,
+	guard: () => boolean,
+	commit: (publish: () => void) => void,
+): void {
+	withRegistryLock(laneRegistryFile(input), (file) => {
+		const state = readFile<T>(file);
+		if (
+			!state.known ||
+			state.lanes.some(
+				(current) =>
+					current.sid === row.sid ||
+					current.item === row.item ||
+					current.worktree === row.worktree,
+			)
+		)
+			throw Error("Restart registry absence changed or unavailable");
+		if (!guard())
+			throw Error("Restart process identity changed before registration");
+		const original = readFileSync(file);
+		let published = false;
+		try {
+			commit(() => {
+				if (published) throw Error("Restart registry already published");
+				writeRegistryBytes(
+					file,
+					JSON.stringify([...state.lanes, row], null, 2),
+				);
+				published = true;
+			});
+			if (!published) throw Error("Restart registry publication missing");
+		} catch (error) {
+			if (published) writeRegistryBytes(file, original);
+			throw error;
+		}
+	});
 }
 
 /** Snapshots are upserts, never deletion authority. Re-read under the cross-process lock. */
@@ -170,7 +266,13 @@ export function mergeLaneRegistry<T extends RegistryLane>(
  * this lock is held; a changed registry row or process cannot be adopted. */
 export function repairLaneRegistryPid<
 	T extends RegistryLane & { pid?: number },
->(input: string, expected: T, pid: number, guard: () => boolean): boolean {
+>(
+	input: string,
+	expected: T,
+	pid: number,
+	guard: () => boolean,
+	launchedAt?: number,
+): boolean {
 	return withRegistryLock(laneRegistryFile(input), (file) => {
 		const state = readFile<T>(file);
 		if (!state.known) return false;
@@ -183,7 +285,11 @@ export function repairLaneRegistryPid<
 		if (!guard()) return false;
 		const temp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
 		try {
-			state.lanes[index] = { ...expected, pid };
+			state.lanes[index] = {
+				...expected,
+				pid,
+				...(launchedAt === undefined ? {} : { launchedAt }),
+			};
 			const fd = openSync(temp, "wx", 0o600);
 			try {
 				writeFileSync(fd, JSON.stringify(state.lanes, null, 2));
@@ -222,7 +328,8 @@ export function pruneLaneRegistry<T extends RegistryLane>(
 			const removed: T[] = [];
 			const kept: T[] = [];
 			for (const row of state.lanes) {
-				if (wanted.has(row.sid) && guard(row)) removed.push(row);
+				if (wanted.has(row.sid) && guard(row) && !pendingManagedRestart(row))
+					removed.push(row);
 				else kept.push(row);
 			}
 			if (!removed.length) return { removed, kept };

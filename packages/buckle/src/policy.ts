@@ -1,6 +1,7 @@
 // src/policy.ts — port of belt bin/router-policy.ts (W124): same policy
-// override chain. Runtime JSON takes precedence over legacy YAML, and
-// BUCKLE_POLICY / BELT_POLICY override both. Operators edit machine config.
+// override chain. Fleet policy is JSON (W1253 Amendment A; the legacy .yaml
+// name parses only while its content is JSON) and BUCKLE_POLICY /
+// BELT_POLICY override it. Operators edit machine config.
 //
 // Everything the policy expresses is native-router behavior ported from
 // LiteLLM 1.103.0 (MIT; pinned-source verified W126/W129): fallbacks =
@@ -10,7 +11,10 @@
 // (utils.py::_calculate_retry_after semantics).
 
 import { existsSync, readFileSync } from "node:fs";
-import { YAML } from "bun";
+import {
+	assertProviderPoolPolicy,
+	type ProviderPoolPolicy,
+} from "./provider-admission-core.ts";
 
 /** OWNER DIRECTIVE (W124, lesson.fanout-rate-budget): flashx appears in no
  *  group, no ladder, no alias — same upstream family saturates together and
@@ -49,6 +53,17 @@ export interface GatewayPolicy {
 	// DEFAULT-OFF per the W137 economics (cache reads are 0.1x — compression
 	// must prove ROI on cache-miss traffic before an operator flips it).
 	aids?: AidsPolicy;
+	// W1078 provider-account admission: pool id -> bounded pacing policy,
+	// EXPLICIT machine config (no account limit is ever inferred — every
+	// number is operator-owned). A deployment binds to one pool via
+	// adapter_config.provider_pool; an unbound pool id or malformed binding
+	// is startup-fatal in the router (fail-closed, never silently off).
+	provider_pools?: Record<string, ProviderPoolPolicy>;
+	// W1260.2 authenticated CONNECT egress (opaque AI TLS relay). Belt
+	// ignores the block (unknown keys tolerated — shared file stays
+	// compatible); buckle starts the endpoint only when enabled AND
+	// BUCKLE_CONNECT_TOKEN is set AND allow is non-empty.
+	connect?: ConnectPolicyBlock;
 }
 
 /** W142 aids policy (routing-policy.yaml `aids:` block). Belt ignores the
@@ -101,6 +116,24 @@ export interface FederationPolicy {
 	self_report?: { teams?: string[] };
 }
 
+/** W1260.2: routing-policy.yaml `gateway.connect` — the loopback-only
+ *  authenticated CONNECT egress knobs (opaque AI TLS relay for Sing http
+ *  outbounds; C111/C114 contract). Absent = fully inert. */
+export interface ConnectPolicyBlock {
+	enabled?: boolean;
+	port?: number;
+	/** Allowed CONNECT destination ports; the fleet default is 443 only. */
+	ports?: number[];
+	/** AI destination allowlist — "host.tld" matches the host and its
+	 *  subdomains (suffix with boundary). */
+	allow?: string[];
+	idle_timeout_s?: number;
+	max_tunnels?: number;
+	/** SSRF/private/metadata denial. Defaults true; the only sanctioned
+	 *  false is a deliberate machine-config act (fleet E2E harnesses). */
+	deny_private?: boolean;
+}
+
 interface PolicyDoc {
 	version?: number;
 	gateway?: GatewayPolicy;
@@ -121,6 +154,7 @@ export const POLICY_DEFAULTS: Required<
 		| "stream_idle_timeout_s"
 		| "stream_total_timeout_s"
 		| "aids"
+		| "provider_pools"
 	>
 > & {
 	retry_max_delay_s: number;
@@ -141,18 +175,19 @@ export const POLICY_DEFAULTS: Required<
 	stream_total_timeout_s: 900,
 };
 
-/** Parse a policy file: gateway knobs + the W136 tags block. */
+/** Parse a policy file: gateway knobs + the W136 tags block. JSON only
+ *  (W1253 Amendment A: fleet config is JSON, JSON.parse is the ONE parser —
+ *  the legacy .yaml name parses when its content is JSON). */
 export function parsePolicy(
 	text: string,
 	format: "auto" | "json" | "yaml" = "auto",
 ): GatewayPolicy {
-	const trimmed = text.trimStart();
-	const isJson =
-		format === "json" ||
-		(format === "auto" && (trimmed.startsWith("{") || trimmed.startsWith("[")));
-	const doc = (
-		isJson ? JSON.parse(text) : YAML.parse(text)
-	) as PolicyDoc | null;
+	if (format === "yaml") {
+		throw new Error(
+			"policy: yaml policy format retired (W1253) — fleet routing policy is JSON",
+		);
+	}
+	const doc = JSON.parse(text) as PolicyDoc | null;
 	if (doc === null || typeof doc !== "object" || Array.isArray(doc))
 		throw new Error("policy: policy must be an object");
 	const gateway = doc?.gateway ?? {};
@@ -174,6 +209,18 @@ export function parsePolicy(
 		throw new Error(
 			"policy: first_byte_budget_s must be at least request_timeout_s",
 		);
+	// W1078: every configured pool policy must be complete and bounded — the
+	// explicit limits and recovery policy, shared with the admission core.
+	// A malformed policy refuses startup (fail-closed), never degrades to
+	// unbounded forwarding.
+	const pools = policy.provider_pools ?? {};
+	for (const [id, pool] of Object.entries(pools)) {
+		try {
+			assertProviderPoolPolicy(pool);
+		} catch (error) {
+			throw new Error(`policy: provider_pools."${id}": ${String(error)}`);
+		}
+	}
 	return policy;
 }
 
@@ -184,7 +231,9 @@ const formatOf = (path: string): "json" | "yaml" =>
 	path.endsWith(".json") ? "json" : "yaml";
 
 /** Resolution order: explicit path → BUCKLE_POLICY → BELT_POLICY → runtime
- *  copy in the local-llm dir → the committed default in the repo root. */
+ *  copy in the local-llm dir → the committed default in the repo root.
+ *  Candidates whose content does not parse (a legacy yaml awaiting the
+ *  install migrate step) are skipped, never fatal mid-chain. */
 export function loadGatewayPolicy(explicitPath?: string): GatewayPolicy {
 	const pinned = [
 		explicitPath,
@@ -197,14 +246,18 @@ export function loadGatewayPolicy(explicitPath?: string): GatewayPolicy {
 		`${home}/.claude/local-llm/routing-policy.json`,
 		`${home}/.claude/local-llm/routing-policy.yaml`,
 		new URL("../routing-policy.json", import.meta.url).pathname,
-		new URL("../routing-policy.yaml", import.meta.url).pathname,
 	];
+	let last: unknown;
 	for (const p of candidates) {
 		if (!existsSync(p)) continue;
-		return parsePolicy(readFileSync(p, "utf8"), formatOf(p));
+		try {
+			return parsePolicy(readFileSync(p, "utf8"), formatOf(p));
+		} catch (error) {
+			last = error;
+		}
 	}
 	throw new Error(
-		"policy: no routing-policy.json or legacy YAML (BUCKLE_POLICY/BELT_POLICY, ~/.claude/local-llm/, repo root)",
+		`policy: no readable routing-policy.json (W1253: fleet policy is JSON — run the install migrate step for a legacy yaml): ${last instanceof Error ? last.message : "no candidate on disk"}`,
 	);
 }
 

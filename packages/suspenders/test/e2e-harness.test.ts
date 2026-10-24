@@ -54,7 +54,7 @@ describe("W234 e2e harness (no-daemon fixtures)", () => {
 	});
 
 	test("buckle ladder override walks the gate's loopback tier (kind local)", () => {
-		const up = read("upstreams.e2e.yaml");
+		const up = read("upstreams.e2e.json");
 		expect(up.match(/http:\/\/127\.0\.0\.1:8902/g)?.length).toBe(2);
 		// the stub shares the gate netns — a service-DNS name would classify
 		// "cloud" (kindOfHost) and the W136 escalation gate would skip it

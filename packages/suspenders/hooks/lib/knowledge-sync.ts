@@ -29,6 +29,12 @@ import {
 	type SyncTarget,
 } from "./knowledge-sync-policy.ts";
 import { redactSecrets } from "./knowledge.ts";
+import { redactMatches, scrubRules } from "./scrub.ts";
+import {
+	collectClaims,
+	ROLL_KEY_HEADER,
+	type RollEntry,
+} from "./knowledge-roll.ts";
 
 export interface SyncPayload {
 	originHub: string;
@@ -39,6 +45,24 @@ export interface SyncPayload {
 		sessions?: SessionMetrics[];
 	};
 	facts: SyncFact[];
+	/** W1213: the CAS'd claim roll — posts to the target's knowledge-api
+	 *  /roll face under the scoped TTL key, NOT the board ingest. */
+	claims: RollEntry[];
+}
+
+/** W1226: the fact provenance record — evidence fields (the model's declared
+ *  trigger/procedure/etc.) plus the SESSION-DERIVED repo/branch attribution.
+ *  One shape across facts.ts, the sync payload, and the hub landing. */
+export interface FactProvenance {
+	trigger?: string;
+	explanation?: string;
+	procedure?: string;
+	verification?: string;
+	source_commit?: string;
+	applicability?: string;
+	repo?: string;
+	branch?: string;
+	session?: string;
 }
 
 export interface SyncFact {
@@ -47,6 +71,8 @@ export interface SyncFact {
 	source: string | null;
 	version: number;
 	ts: number;
+	/** W1226: the fact's provenance record, already scrubbed. Null when none. */
+	prov: FactProvenance | null;
 }
 
 export interface SyncOutcome {
@@ -64,6 +90,8 @@ export interface SyncOutcome {
 // relocates it (tests).
 export interface SyncState {
 	facts: Record<string, number>;
+	/** W1213: versions of claim.* facts already accepted by every roll target */
+	claims: Record<string, number>;
 	metricsAt: number;
 }
 
@@ -81,12 +109,17 @@ export function readSyncState(path: string): SyncState {
 		if (s.facts && typeof s.facts === "object" && !Array.isArray(s.facts))
 			for (const [k, v] of Object.entries(s.facts))
 				if (typeof v === "number") facts[k] = v;
+		const claims: Record<string, number> = {};
+		if (s.claims && typeof s.claims === "object" && !Array.isArray(s.claims))
+			for (const [k, v] of Object.entries(s.claims))
+				if (typeof v === "number") claims[k] = v;
 		return {
 			facts,
+			claims,
 			metricsAt: typeof s.metricsAt === "number" ? s.metricsAt : 0,
 		};
 	} catch {
-		return { facts: {}, metricsAt: 0 };
+		return { facts: {}, claims: {}, metricsAt: 0 };
 	}
 }
 
@@ -189,6 +222,78 @@ function decantSessions(config: SyncConfig, cwd: string): SessionMetrics[] {
 export const SYNCABLE_FACT = /^(lesson|finding)\./;
 export const MAX_FACT_VALUE = 2000;
 
+/** W1226: the provenance fields that cross the sync, with the per-field cap.
+ *  Keys mirror the stored facts.provenance JSON exactly; anything else in the
+ *  stored record never leaves the machine. */
+export const PROVENANCE_KEYS = [
+	"trigger",
+	"explanation",
+	"procedure",
+	"verification",
+	"source_commit",
+	"applicability",
+	"repo",
+	"branch",
+	"session",
+] as const;
+export const MAX_PROV_FIELD = 600;
+
+/** Safe parse of a stored facts.provenance JSON string; null on absence or
+ *  unparsable JSON (legacy rows, junk writes). Unknown keys drop; strings
+ *  clamp at MAX_PROV_FIELD. */
+export function parseProvenance(raw: string | null): FactProvenance | null {
+	if (!raw) return null;
+	try {
+		const p: unknown = JSON.parse(raw);
+		if (!p || typeof p !== "object" || Array.isArray(p)) return null;
+		const out: FactProvenance = {};
+		for (const [k, v] of Object.entries(p)) {
+			if (!(PROVENANCE_KEYS as readonly string[]).includes(k)) continue;
+			if (typeof v !== "string" || !v) continue;
+			out[k as keyof FactProvenance] = v.slice(0, MAX_PROV_FIELD);
+		}
+		return out;
+	} catch {
+		return null;
+	}
+}
+
+/** W1226 redact-before-remote: the OUTBOUND copy runs the W236 rule set —
+ *  contextual leaks (home paths, LAN addrs, denylist hosts) get redacted from
+ *  value and provenance fields before anything leaves the machine. No
+ *  `scrub:allow` exemption applies here: the allow marker is a commit-gate
+ *  escape hatch, never a transport one. (Key material upstream stays a hard
+ *  skip via redactSecrets — redaction never launders a key.) */
+export function scrubSyncFact(
+	r: {
+		key: string;
+		value: string;
+		source: string | null;
+		version: number;
+		ts: number;
+	},
+	provRaw: FactProvenance | null,
+): SyncFact {
+	const rules = scrubRules();
+	const value = redactMatches(r.value, rules);
+	const prov: FactProvenance | null = provRaw
+		? Object.fromEntries(
+				Object.entries(provRaw).map(([k, v]) => [
+					k,
+					typeof v === "string" ? redactMatches(v, rules) : v,
+				]),
+			)
+		: null;
+	return {
+		key: r.key,
+		value,
+		source: r.source,
+		version: r.version,
+		ts: r.ts,
+		prov,
+	};
+}
+
 export interface CollectedFacts {
 	send: SyncFact[];
 	skipped: string[];
@@ -212,9 +317,16 @@ export function collectFacts(
 		return { send, skipped: ["facts: governor.db not readable"] };
 	}
 	if (db) {
+		// W1226: the provenance column rides the guarded-ALTER heal — but the
+		// sync opens the db READONLY (no migration on that path), so a
+		// pre-W1226 spoke db is legal. Probe the column once; legacy shapes
+		// sync with prov null (parseProvenance tolerates absence).
+		const hasProv = (
+			db.query("PRAGMA table_info(facts)").all() as { name: string }[]
+		).some((c) => c.name === "provenance");
 		const rows = db
 			.query(
-				"SELECT key, value, source, version, ts FROM facts WHERE key LIKE 'lesson.%' OR key LIKE 'finding.%' ORDER BY key",
+				`SELECT key, value, source, version, ts${hasProv ? ", provenance" : ""} FROM facts WHERE key LIKE 'lesson.%' OR key LIKE 'finding.%' ORDER BY key`,
 			)
 			.all() as {
 			key: string;
@@ -222,24 +334,28 @@ export function collectFacts(
 			source: string | null;
 			version: number;
 			ts: number;
+			provenance?: string | null;
 		}[];
 		for (const r of rows) {
 			if (!SYNCABLE_FACT.test(r.key)) continue;
 			if (state.facts[r.key] === r.version) continue;
-			const red = redactSecrets(r.value ?? "");
+			// W1226: the provenance record rides the SAME verification chain —
+			// a secret anywhere in value OR evidence skips the row (the evidence
+			// never outranks the secret gate).
+			const provRaw = parseProvenance(r.provenance ?? null);
+			const provText = provRaw
+				? Object.values(provRaw)
+						.filter((v): v is string => typeof v === "string")
+						.join("\n")
+				: "";
+			const red = redactSecrets(`${r.value ?? ""}\n${provText}`);
 			if (!r.value) continue;
 			if (r.value.length > MAX_FACT_VALUE) continue;
 			if (red.rejected || red.hits.length > 0) {
 				skipped.push(`${r.key}: secret pattern (${red.hits.join(", ")})`);
 				continue;
 			}
-			send.push({
-				key: r.key,
-				value: red.text,
-				source: r.source,
-				version: r.version,
-				ts: r.ts,
-			});
+			send.push(scrubSyncFact(r, provRaw));
 		}
 		// the hub caps 50 facts/payload — overflow waits for the next pass
 		if (send.length > 50) send.length = 50;
@@ -252,6 +368,8 @@ export interface CollectedPayload {
 	payload: SyncPayload;
 	skipped: string[];
 	decantOk: boolean;
+	/** W1213: facts-key → version for the collected claims (cursor fodder) */
+	claimsCursor: Record<string, number>;
 }
 
 /** One collection pass: decant refresh + policy-gated projections + the
@@ -264,9 +382,15 @@ export function collectPayload(
 ): CollectedPayload {
 	const skipped: string[] = [];
 	const cwd = opts.cwd ?? process.cwd();
-	const metrics: SyncPayload["metrics"] = { days: [], tools: [], models: [] };
+	const metrics: {
+		days: StatsMetrics[];
+		tools: StatsMetrics[];
+		models: StatsMetrics[];
+		sessions?: SessionMetrics[];
+	} = { days: [], tools: [], models: [] };
 	let decantOk = false;
 	let facts: SyncFact[] = [];
+	let claimsCursor: Record<string, number> = {};
 	if (config.policy.metrics) {
 		// headless refresh first — best-effort, its failure never fabricates
 		runDecant(config.decantBin, ["sync", "-q"], cwd);
@@ -294,18 +418,184 @@ export function collectPayload(
 		skipped.push(...cf.skipped);
 		facts = cf.send;
 	}
+	// W1213: the claim roll rides only when a roll-capable target exists —
+	// collection without a destination is wasted redaction work.
+	let claims: RollEntry[] = [];
+	const rollTargets = config.targets.filter((t) => t.rollUrl && t.rollKeyFile);
+	if (config.policy.claims && rollTargets.length > 0) {
+		const cc = collectClaims(state, { dbPath: opts.dbPath });
+		skipped.push(...cc.skipped);
+		claims = cc.send;
+		claimsCursor = cc.cursor;
+	}
 	return {
 		payload: {
 			originHub: config.localHub,
 			metrics,
 			facts,
+			claims,
 		},
 		skipped,
 		decantOk,
+		claimsCursor,
 	};
 }
 
 // ─── transport: the W491 relay posture ──────────────────────────────────────
+
+const isNum = (v: unknown): v is number =>
+	typeof v === "number" && Number.isFinite(v);
+
+/** W1213.2: HTTP 200 alone is not acceptance — the cursor advances only on
+ *  an explicit, validated positive ack MATCHED to the batch: body parses as
+ *  an object, ok === true, fact counters account for every sent fact with
+ *  none rejected, plus the landed metrics row count. Anything else — a
+ *  rejected batch ({ok:false}, e.g. invalid confidence), an unparseable
+ *  body, missing or mismatched counters — is a non-ack: the cursor is
+ *  retained and the batch re-sends next pass (hub side idempotent by
+ *  topic-skip, so the retry cannot duplicate rows). */
+export function validateIngestAck(
+	body: string,
+	batch: { sentFacts: number; sentMetrics: number },
+): { ok: boolean; error: string | null } {
+	let ack: unknown;
+	try {
+		ack = JSON.parse(body);
+	} catch {
+		return { ok: false, error: "ingest ack unparseable" };
+	}
+	if (!ack || typeof ack !== "object" || Array.isArray(ack))
+		return { ok: false, error: "ingest ack not an object" };
+	const a = ack as Record<string, unknown>;
+	if (a.ok !== true) {
+		const why = typeof a.error === "string" ? a.error : "no positive ok flag";
+		return { ok: false, error: `ingest ack not positive: ${why}` };
+	}
+	const c = a.counts as Record<string, unknown> | undefined;
+	if (!c || typeof c !== "object" || Array.isArray(c))
+		return { ok: false, error: "ingest ack carries no counters" };
+	const f = c.facts as Record<string, unknown> | undefined;
+	if (!f || typeof f !== "object" || Array.isArray(f))
+		return { ok: false, error: "ingest ack carries no fact counters" };
+	if (!isNum(f.landed) || !isNum(f.dupes) || !isNum(f.rejected))
+		return { ok: false, error: "ingest ack fact counters not numeric" };
+	if (f.rejected > 0)
+		return { ok: false, error: `ingest ack rejects ${f.rejected} fact(s)` };
+	const counted = f.landed + f.dupes + f.rejected;
+	if (counted !== batch.sentFacts)
+		return {
+			ok: false,
+			error: `ingest ack accounts for ${counted} of ${batch.sentFacts} sent facts`,
+		};
+	if (!isNum(c.metrics) || c.metrics !== batch.sentMetrics)
+		return {
+			ok: false,
+			error: `ingest ack accounts for ${String(c.metrics)} of ${batch.sentMetrics} sent metrics rows`,
+		};
+	return { ok: true, error: null };
+}
+
+/** W1213.2.1: HTTP 200 alone is not acceptance on the roll face either —
+ *  postRoll mirrors the ingest ack contract (W1213.2): the claims cursor
+ *  advances only on an explicit, validated positive ack matched to the
+ *  batch. The hub acks with counts {merged, versions, tombstoned, stale,
+ *  dupes}; every entry lands in exactly one bucket except an idempotent
+ *  no-op — the re-push of a retraction onto an already-tombstoned row counts
+ *  nothing (exact-sum would wedge the cursor on a version-bumped re-set of
+ *  the same retraction), so the counters must account for AT MOST the sent
+ *  batch. Anything else — a rejected roll ({ok:false}, e.g. invalid claim
+ *  entry), an unparseable body, a bare {ok:true} without counters,
+ *  non-numeric counters, or counters exceeding the batch — is a non-ack: the
+ *  cursor is retained and the roll re-sends next pass (hub side idempotent
+ *  by claim hash + provenance, so the retry cannot duplicate rows). */
+export function validateRollAck(
+	body: string,
+	batch: { sentClaims: number },
+): { ok: boolean; error: string | null } {
+	let ack: unknown;
+	try {
+		ack = JSON.parse(body);
+	} catch {
+		return { ok: false, error: "roll ack unparseable" };
+	}
+	if (!ack || typeof ack !== "object" || Array.isArray(ack))
+		return { ok: false, error: "roll ack not an object" };
+	const a = ack as Record<string, unknown>;
+	if (a.ok !== true) {
+		const why = typeof a.error === "string" ? a.error : "no positive ok flag";
+		return { ok: false, error: `roll ack not positive: ${why}` };
+	}
+	const c = a.counts as Record<string, unknown> | undefined;
+	if (!c || typeof c !== "object" || Array.isArray(c))
+		return { ok: false, error: "roll ack carries no counts" };
+	let counted = 0;
+	for (const k of [
+		"merged",
+		"versions",
+		"tombstoned",
+		"stale",
+		"dupes",
+	] as const) {
+		if (!isNum(c[k]))
+			return { ok: false, error: `roll ack ${k} counter not numeric` };
+		counted += c[k];
+	}
+	if (counted > batch.sentClaims)
+		return {
+			ok: false,
+			error: `roll ack accounts for ${counted} of ${batch.sentClaims} sent claims`,
+		};
+	return { ok: true, error: null };
+}
+
+// ─── W1213: the upward claim roll (credential-free transport) ───────────────
+
+export interface RollOutcome {
+	target: string;
+	ok: boolean;
+	sentClaims: number;
+	error: string | null;
+}
+
+/** One roll push: POST {rollUrl}/roll with the machine-scoped TTL key —
+ *  the hub resolves provenance FROM the key, so the payload carries no
+ *  identity at all. W1213.2.1: a 2xx status alone is not acceptance — only
+ *  an explicit, validated, batch-matched positive ack advances the cursor. */
+export async function postRoll(
+	target: SyncTarget,
+	claims: RollEntry[],
+): Promise<RollOutcome> {
+	const sent = claims.length;
+	const base = { target: String(target.rollUrl), sentClaims: sent };
+	const rollKeyFile = target.rollKeyFile;
+	if (!target.rollUrl || !rollKeyFile)
+		return { ...base, ok: false, error: "roll not configured" };
+	try {
+		const token = readSyncToken(rollKeyFile);
+		const res = await fetch(`${target.rollUrl}/roll`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				[ROLL_KEY_HEADER]: token,
+			},
+			body: JSON.stringify({ claims }),
+		});
+		if (!res.ok) return { ...base, ok: false, error: `HTTP ${res.status}` };
+		// W1213.2.1: the roll seam gets the same ack validation as ingest —
+		// a hub rejection delivered as HTTP 200 {ok:false} must retain the
+		// cursor, never stamp it.
+		const ack = validateRollAck(await res.text(), { sentClaims: sent });
+		if (!ack.ok)
+			return { ...base, ok: false, error: ack.error ?? "roll ack rejected" };
+		return { ...base, ok: true, error: null };
+	} catch (e) {
+		return {
+			...base,
+			ok: false,
+			error: e instanceof Error ? e.message : String(e),
+		};
+	}
+}
 
 export async function postTarget(
 	target: SyncTarget,
@@ -334,6 +624,14 @@ export async function postTarget(
 			body: JSON.stringify(payload),
 		});
 		if (!res.ok) return { ...base, ok: false, error: `HTTP ${res.status}` };
+		// W1213.2: a 2xx status alone is not acceptance — only an explicit,
+		// validated, batch-matched positive ack advances the cursor.
+		const ack = validateIngestAck(await res.text(), {
+			sentFacts,
+			sentMetrics,
+		});
+		if (!ack.ok)
+			return { ...base, ok: false, error: ack.error ?? "ingest ack rejected" };
 		return { ...base, ok: true, error: null };
 	} catch (e) {
 		return {
@@ -383,14 +681,27 @@ export async function syncOnce(
 		dbPath: opts.dbPath,
 	});
 	const outcomes: SyncOutcome[] = [];
+	const rollOutcomes: RollOutcome[] = [];
 	for (const target of config.targets) {
 		if (target.hubId && target.hubId === config.localHub) continue;
 		outcomes.push(await postTarget(target, collected.payload));
+		// W1213: roll-capable targets ALSO take the claim roll — the board
+		// ingest and the knowledge-api roll are separate faces, separate auth.
+		if (target.rollUrl && target.rollKeyFile)
+			rollOutcomes.push(await postRoll(target, collected.payload.claims));
 	}
 	const allOk = outcomes.length > 0 && outcomes.every((o) => o.ok === true);
 	if (allOk) {
 		for (const f of collected.payload.facts) state.facts[f.key] = f.version;
 		state.metricsAt = Date.now();
+		writeSyncState(statePath, state);
+	}
+	// W1213: the claims cursor stamps only when EVERY roll-capable target
+	// accepted the pass (partial passes re-send; the hub side is idempotent).
+	const rollAllOk =
+		rollOutcomes.length > 0 && rollOutcomes.every((o) => o.ok === true);
+	if (rollAllOk) {
+		Object.assign(state.claims, collected.claimsCursor);
 		writeSyncState(statePath, state);
 	}
 	return {

@@ -104,6 +104,9 @@ const run = async (): Promise<0 | 1 | 2> => {
 		caps,
 		table,
 		role: p.flag("--role") ?? undefined,
+		// W1119.2: the completion leg rides the buckle gate — pass the process
+		// env so inferenceBuckleRoute resolves (fail-closed without it)
+		env: process.env,
 		log: (row) => {
 			console.log(`[${row.out.toLowerCase()}] ${row.name} — ${row.note}`);
 		},

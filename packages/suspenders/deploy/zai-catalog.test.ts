@@ -8,17 +8,19 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+	parseZaiModelIds,
+	ZAI_CATALOG_URL,
+	type ZaiCatalogSnapshot,
+} from "../../belt/bin/zai-catalog-rows.ts";
+import { validateRouteLadders } from "../../buckle/src/route-ladder-validator.ts";
+import type { Deployment } from "../../buckle/src/upstreams.ts";
 import type { HubProfile } from "../hooks/lib/stack-config.ts";
 import {
 	fetchZaiCatalog,
 	mergeZaiHubUpstreams,
 	writeZaiSnapshot,
 } from "./zai-catalog.ts";
-import {
-	parseZaiModelIds,
-	ZAI_CATALOG_URL,
-	type ZaiCatalogSnapshot,
-} from "../../belt/bin/zai-catalog-rows.ts";
 
 const catalog = {
 	data: [
@@ -28,6 +30,44 @@ const catalog = {
 		{ id: "glm-5.3", object: "model" },
 	],
 };
+
+const hubWithCatalog = (path: string) =>
+	({
+		http_upstream_hosts: ["host.docker.internal"],
+		buckle_prefs: { allow_cloud: true },
+		secrets: { upstream_keys: { LITELLM_KEY: "/private/litellm.key" } },
+		upstreams: {
+			zai_catalog_file: path,
+			zai_litellm_url: "http://host.docker.internal:4100",
+		},
+	}) as HubProfile;
+
+const zaiSnapshot = (model_ids: string[]): ZaiCatalogSnapshot => ({
+	version: 1,
+	source: ZAI_CATALOG_URL,
+	generated_at: new Date().toISOString(),
+	model_ids,
+	excluded_model_ids: [],
+});
+
+const poolFor = (groups: Record<string, Array<Record<string, unknown>>>) => ({
+	groups: () => Object.keys(groups),
+	deployments: (name: string) =>
+		(groups[name] ?? []).map((row) => ({
+			...row,
+			group: name,
+		})) as Deployment[],
+});
+
+const litellmWithModel = (model_name: string) => ({
+	id: "engine",
+	origins: ["http://host.docker.internal:4100"],
+	config: {
+		model_list: [
+			{ model_name, litellm_params: { api_base: "https://api.z.ai" } },
+		],
+	},
+});
 
 describe("Z.ai account catalog", () => {
 	test("deduplicates and sorts account-visible model IDs", () => {
@@ -103,15 +143,7 @@ describe("Z.ai account catalog", () => {
 				excluded_model_ids: [],
 			};
 			writeZaiSnapshot(path, snapshot);
-			const hub = {
-				http_upstream_hosts: ["host.docker.internal"],
-				buckle_prefs: { allow_cloud: true },
-				secrets: { upstream_keys: { LITELLM_KEY: "/private/litellm.key" } },
-				upstreams: {
-					zai_catalog_file: path,
-					zai_litellm_url: "http://host.docker.internal:4100",
-				},
-			} as HubProfile;
+			const hub = hubWithCatalog(path);
 			const explicit = { "glm-5.3": [{ model: "operator-model" }] };
 			const merged = mergeZaiHubUpstreams(hub, explicit);
 			expect(merged["glm-4.7"]).toEqual([
@@ -120,10 +152,38 @@ describe("Z.ai account catalog", () => {
 					dialect: "openai",
 					adapter: "openai-compat",
 					model: "zai-glm-4.7",
+					adapter_config: { proxy_kind: "litellm" },
 					api_key_env: "LITELLM_KEY",
 				},
 			]);
 			expect(merged["glm-5.3"]).toEqual(explicit["glm-5.3"]);
+			const classified = mergeZaiHubUpstreams(
+				{
+					...hub,
+					upstreams: {
+						...hub.upstreams,
+						zai_concurrency_error_codes: ["capacity"],
+					},
+				},
+				explicit,
+			);
+			expect(classified["glm-4.7"][0].adapter_config).toEqual({
+				proxy_kind: "litellm",
+				provider_concurrency_error_codes: ["capacity"],
+			});
+			expect(classified["glm-5.3"]).toEqual(explicit["glm-5.3"]);
+			expect(() =>
+				mergeZaiHubUpstreams(
+					{
+						...hub,
+						upstreams: {
+							...hub.upstreams,
+							zai_concurrency_error_codes: ["capacity", "capacity"],
+						},
+					},
+					explicit,
+				),
+			).toThrow("unique bounded tokens");
 			expect(() =>
 				mergeZaiHubUpstreams({ ...hub, http_upstream_hosts: [] }, explicit),
 			).toThrow("allowed LiteLLM host");
@@ -132,6 +192,29 @@ describe("Z.ai account catalog", () => {
 					"glm-5.3": [{ url: "https://api.z.ai", model: "glm-5.3" }],
 				}),
 			).toThrow("direct provider route");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("generated LiteLLM rows pass the Buckle route preflight", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zai-catalog-test-"));
+		try {
+			const catalogPath = join(dir, "models.json");
+			writeZaiSnapshot(catalogPath, zaiSnapshot(["glm-5.3-flash"]));
+			const generated = mergeZaiHubUpstreams(hubWithCatalog(catalogPath), {});
+			const result = validateRouteLadders({
+				buckles: [
+					{
+						id: "hub",
+						origins: ["http://hub.local:4101"],
+						policy: { num_retries: 1, request_timeout_s: 30 },
+						pool: poolFor(generated),
+					},
+				],
+				litellms: [litellmWithModel("zai-glm-5.3-flash")],
+			});
+			expect(result.errors).toEqual([]);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}

@@ -1,11 +1,10 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { YAML } from "bun";
 
 /** Isolate hubctl lifecycle tests from the operator's live route policy. */
 export function hubctlRouteFixture(dir: string): Record<string, string> {
-	const basePath = join(import.meta.dir, "../../../buckle/upstreams.yaml");
-	const base = YAML.parse(readFileSync(basePath, "utf8")) as {
+	const basePath = join(import.meta.dir, "../../../buckle/upstreams.json");
+	const base = JSON.parse(readFileSync(basePath, "utf8")) as {
 		groups: Record<string, unknown>;
 	};
 	const groups = Object.fromEntries(

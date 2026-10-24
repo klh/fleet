@@ -38,7 +38,6 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { parse } from "yaml";
 import {
 	DEFAULT_PULSE_INTERVAL_S,
 	loadNotifyConfig,
@@ -276,7 +275,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 export function loadManifest(path = MANIFEST_PATH): ServiceSpec[] {
-	const raw = parse(readFileSync(path, "utf8")) as ManifestFile;
+	const raw = Bun.YAML.parse(readFileSync(path, "utf8")) as ManifestFile;
 	if (!isPlainObject(raw))
 		throw new Error(`${path}: manifest must be a mapping`);
 	for (const k of Object.keys(raw)) {
@@ -372,7 +371,7 @@ export function loadManifest(path = MANIFEST_PATH): ServiceSpec[] {
 // W779: the boot-out list reads from the manifest — the retired-labels
 // const in install-launchd.ts is gone (one source, config-over-code).
 export function loadLegacyLabels(path = MANIFEST_PATH): string[] {
-	const raw = parse(readFileSync(path, "utf8")) as ManifestFile;
+	const raw = Bun.YAML.parse(readFileSync(path, "utf8")) as ManifestFile;
 	const labels = raw.legacyLabels;
 	if (labels === undefined) return [];
 	if (!Array.isArray(labels))
@@ -484,6 +483,17 @@ export function renderDarwin(spec: ServiceSpec, values: RenderValues): string {
 		);
 	const env = {
 		...spec.env,
+		// launchd does not inherit an interactive shell's utility paths. Every
+		// service needs the system administration tools used for supervision.
+		PATH: [
+			...new Set([
+				...(spec.env.PATH ?? "").split(":").filter(Boolean),
+				"/usr/bin",
+				"/bin",
+				"/usr/sbin",
+				"/sbin",
+			]),
+		].join(":"),
 		...(existsSync(localCa) ? { NODE_EXTRA_CA_CERTS: localCa } : {}),
 	};
 	const envKeys = Object.keys(env);

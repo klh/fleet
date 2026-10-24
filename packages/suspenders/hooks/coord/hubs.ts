@@ -1,7 +1,7 @@
 // hooks/coord/hubs.ts — `coord hubs` (W356): the hub topology read verb.
 // Merges the two operator configs — the label→candidates lookup
 // (~/.claude/local-llm/hubs.json, what resolveHub walks) and the deploy
-// truth (~/.config/klh/stack.yaml, what hubctl renders) — and health-probes
+// truth (~/.config/klh/stack.json, what hubctl renders) — and health-probes
 // every declared candidate so lanes and users SEE the topology instead of
 // guessing which label reaches what. Read-only: probes, never mutates.
 //   coord hubs [--label name] [--json]
@@ -55,7 +55,7 @@ const stackCandidates = (hub: HubProfile): Candidate[] => {
 		if (typeof port === "number")
 			out.push({
 				url: `http://${host}:${port}`,
-				source: `stack.yaml ${svc}`,
+				source: `stack.json ${svc}`,
 				up: false,
 				ms: 0,
 			});
@@ -70,7 +70,7 @@ const probe = async (c: Candidate): Promise<Candidate> => {
 };
 
 /** Merge both configs into per-label candidate lists (case-insensitive
- *  labels, resolveHub precedent). stack.yaml first (the truth), then
+ *  labels, resolveHub precedent). stack.json first (the truth), then
  *  registry-only labels; registry candidates walk before stack-derived
  *  ones — same precedence the resolver uses. */
 export function hubTopology(): {
@@ -85,7 +85,7 @@ export function hubTopology(): {
 	try {
 		stackHubs = loadStack().hubs;
 		stackLoaded = true;
-	} catch {} // missing/unparseable stack.yaml = a registry-only machine
+	} catch {} // missing/unparseable stack.json = a registry-only machine
 	const key = (l: string): string => l.toLowerCase();
 	const labels = new Map<string, string>();
 	const candidates = new Map<string, Candidate[]>();
@@ -110,7 +110,7 @@ export async function cmdHubs(rest: string[]): Promise<void> {
 	const { labels, candidates, stackLoaded } = hubTopology();
 	if (wantLabel && !labels.has(wantLabel.toLowerCase()))
 		die(
-			`hub "${wantLabel}" not in hubs.json or stack.yaml — known: ${[...labels.values()].join(", ") || "none"}`,
+			`hub "${wantLabel}" not in hubs.json or stack.json — known: ${[...labels.values()].join(", ") || "none"}`,
 		);
 
 	const probed: HubView[] = [];
@@ -142,7 +142,7 @@ export async function cmdHubs(rest: string[]): Promise<void> {
 	}
 	if (!probed.length) {
 		console.log(
-			dim("no hubs declared — hubs.json and stack.yaml missing or empty"),
+			dim("no hubs declared — hubs.json and stack.json missing or empty"),
 		);
 		return;
 	}

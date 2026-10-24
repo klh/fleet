@@ -123,8 +123,53 @@ trivial diff.
 
 ## Harness integration
 
-PROPOSALS ONLY — nothing in this section is implemented; each bullet would be its
-own work item.
+### Implemented machine-review and landing receipts (W1130)
+
+The existing second-opinion runner loads applicable root/package `AGENTS.md`
+and `REVIEW.md` from the immutable candidate merge tree. Its `work.review`
+receipt binds the full candidate commit, integration base, instruction hashes,
+independent registered reviewer session, verdict, blocking IDs and evidence.
+An explicit `RESOLVED: B1-id <evidence>` line resolves a prior finding on the
+same commit; a later empty PASS cannot erase it.
+
+The canonical Fleet merge ladder defers missing, stale or blocked receipts,
+and rechecks immediately before publication. Changing the candidate, moving
+the integration base or changing applicable instructions requires fresh review.
+On deferral it schedules the existing second-opinion runner through Buckle,
+using a minted proxy-only key revoked after the request. Model selection uses
+`SUSPENDERS_REVIEW_MODEL` or the completion author's existing lane model fact;
+missing model/auth stays explicitly deferred. One durable request lease covers
+each exact context. `SUSPENDERS_REVIEW_CONCURRENCY` is an explicit operator cap
+only — unset means unbounded (the reviewer is not the scarce resource; upstream
+capacity is). Verdicts spend a three-attempt budget; transport failures (dead
+leg, 429/503 waves) and expired RUNNING leases (crashed runner) are not
+verdicts: they refund their attempt and defer with capped backoff (1 min
+doubling to a 15 min ceiling), indefinitely — a route outage can never exhaust
+the budget nor starve the merge ladder. A true FAIL verdict stays terminal —
+never retried, never re-rolled — and a transport ERROR never produces a
+mergeable PASS. Scheduler-spawned reviewers run detached (`detached: true`) so
+a short-lived parent CLI cannot take them down; a reviewer that dies before
+finishing refunds its lease the same way (launch stderr lands in
+`~/.claude-insights/review-lane-stderr.log`). An unchanged failing review is
+not repeatedly sampled until a model happens to approve it. Unreviewed
+branches remain available; missing review does not consume the three-strike
+parking budget. `work done` remains branch completion, not landing. The
+separate idempotent `work.landed` event is written only after the exact DONE
+commit is verified as an ancestor of the integration checkout's HEAD.
+
+Install-grade harness sync refuses sources behind or diverged from main;
+`SUSPENDERS_SYNC_ALLOW_BRANCH=1` is the explicit escape for an intentional
+non-main test install (a lane installing from its own worktree to verify a
+change), never for the shared runner — the 2026-10-23 outage was a lane
+installing a pre-W1236 harness over the shared runner.
+
+These are machine-review receipts. Session registration is Fleet's existing
+local coordination identity boundary, not cryptographic proof of a human or
+organizational independence. The risk-tier human requirements above remain
+an operator obligation; no trusted human-approval connector exists here, and
+the machine receipt must not be presented as satisfying those requirements.
+
+The proposals below remain unimplemented unless stated otherwise.
 
 ### a. What the harness could add to support the practice
 

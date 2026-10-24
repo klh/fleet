@@ -15,12 +15,14 @@ export const INSTALL_CONTRACT_VERSION = 2;
 export type StepName =
 	| "probeEnvironment"
 	| "syncHarness"
+	| "migrateConf"
 	| "registerGitHooks"
 	| "refreshSupervisor"
 	| "ensureShims"
 	| "seedLocalLlm"
 	| "downloadModels"
 	| "wireSettings"
+	| "wireConnections"
 	| "upgradeGateway"
 	| "registerLaunchd"
 	| "registerCaddy"
@@ -105,6 +107,8 @@ export interface InstallContract {
 	/** environment knobs, PATH/default pointers only — never values */
 	env: {
 		SUSPENDERS_PREFIX: ContractEnv;
+		SUSPENDERS_CONNECTIONS_FILE: ContractEnv;
+		SUSPENDERS_DEFAULT_HUB: ContractEnv;
 		SUSPENDERS_SHIM_BIN: ContractEnv;
 		BELT_URL: ContractEnv;
 		BELT_TOKEN: ContractEnv;
@@ -154,7 +158,13 @@ export const INSTALL_CONTRACT = {
 			{
 				prompt: "wire hooks into ~/.claude/settings.json?",
 				unattended:
-					"native: --wire (or --step wireSettings --yes) merges user-level settings; --wire-repo <path> wires a repo's project settings",
+					"native: the default plan merges user-level settings (env/auth preserved); --wire consents to that plan in one flag; --wire-repo <path> wires a repo's project settings",
+			},
+			{
+				prompt:
+					"Proxy desktop GUIs (VS Code, ChatGPT, Claude) through the hub? [Y/n]",
+				unattended:
+					"the wireConnections step answers it: existing connections.json is never overwritten (face re-applies only); absent file + --yes writes the mode-600 template (default hub = SUSPENDERS_DEFAULT_HUB or the first stack.yaml profile; all four apps default-ON per W1260.1 — CONNECT relay, TLS opaque, never MITM); without --yes the step pauses with a resume_command",
 			},
 			{
 				prompt: "install the macOS launchd agents?",
@@ -208,7 +218,7 @@ export const INSTALL_CONTRACT = {
 		wire: {
 			flag: "--wire",
 			meaning:
-				"user-level wire — merge the hooks block into ~/.claude/settings.json (policy adapters + gate wires ride along); consented on its own, implies --step wireSettings",
+				"user-level wire — run the full default plan INCLUDING wireSettings (hooks merge into ~/.claude/settings.json, env/auth preserved); consented on its own, never a wire-only action",
 		},
 		gatewayReview: {
 			flag: "--gateway-review",
@@ -247,7 +257,7 @@ export const INSTALL_CONTRACT = {
 		hub: {
 			flag: "--hub",
 			meaning:
-				"hub deploy from ~/.config/klh/stack.yaml (hubctl mint → push → up → status); --dry-run renders the hub .env only",
+				"hub deploy from ~/.config/klh/stack.json (hubctl mint → push → up → status); --dry-run renders the hub .env only",
 		},
 		withLaunchd: {
 			flag: "--with-launchd",
@@ -269,6 +279,16 @@ export const INSTALL_CONTRACT = {
 		SUSPENDERS_PREFIX: {
 			meaning: "harness install target",
 			default: "~/.claude/hooks/suspenders",
+		},
+		SUSPENDERS_CONNECTIONS_FILE: {
+			meaning:
+				"W1234 connections.json PATH override (default ~/.fleet/config/connections.json, mode 600)",
+			default: "~/.fleet/config/connections.json",
+		},
+		SUSPENDERS_DEFAULT_HUB: {
+			meaning:
+				"default hub label stamped into a freshly written connections.json (else the first stack.yaml hub profile)",
+			default: "",
 		},
 		SUSPENDERS_SHIM_BIN: {
 			meaning: "where the coord/work/dispatch shims are written",
@@ -319,6 +339,14 @@ export const INSTALL_CONTRACT = {
 			v1: "real",
 		},
 		{
+			name: "migrateConf",
+			oneLiner:
+				"one-time machine-conf yaml→json cutover (W1253 Amendment A): stack/notify/chatgpt-coordinate/routing-policy/upstreams/repo-policy — .json written 0600 atomically, original kept as .yaml.bak; idempotent (json present = kept)",
+			mutates: true,
+			optIn: false,
+			v1: "real",
+		},
+		{
 			name: "registerGitHooks",
 			oneLiner:
 				"set the source repo's core.hooksPath=.githooks so bare-git commits run the committed W236 scrub-gate stubs (fail-inert without the stack); stub publication rides syncHarness",
@@ -361,9 +389,17 @@ export const INSTALL_CONTRACT = {
 		{
 			name: "wireSettings",
 			oneLiner:
-				"merge the hooks block into ~/.claude/settings.json (--wire, policy adapters + gate wires ride along) or a repo's project settings (--wire-repo <path>) — per-event merge, never clobber",
+				"merge the hooks block into ~/.claude/settings.json (default-plan step: hooks merge only — existing env/auth is preserved, never rewritten) or a repo's project settings (--wire-repo <path>) — per-event merge, never clobber",
 			mutates: true,
-			optIn: true,
+			optIn: false,
+			v1: "real",
+		},
+		{
+			name: "wireConnections",
+			oneLiner:
+				"ask 'Proxy desktop GUIs (VS Code, ChatGPT, Claude) through the hub? [Y/n]': yes writes ~/.fleet/config/connections.json (mode 600, NEVER overwritten when present) + applies the launchctl setenv face; idempotent",
+			mutates: true,
+			optIn: false,
 			v1: "real",
 		},
 		{
@@ -417,7 +453,7 @@ export const INSTALL_CONTRACT = {
 		{
 			name: "deployHub",
 			oneLiner:
-				"deploy one hub from the machine stack.yaml — mint secrets, push compose+env, docker compose up, probe-gated status (early exit --hub <name>)",
+				"deploy one hub from the machine stack.json — mint secrets, push compose+env, docker compose up, probe-gated status (early exit --hub <name>)",
 			mutates: true,
 			optIn: true,
 			v1: "stub",
@@ -437,8 +473,8 @@ export const INSTALL_CONTRACT = {
 		shimBin: "~/.local/bin (override: SUSPENDERS_SHIM_BIN)",
 		llmHome: "~/.claude/local-llm/",
 		beltEnv: "~/.claude/local-llm/belt.env",
-		routingPolicy: "~/.claude/local-llm/routing-policy.yaml",
-		stackYaml: "~/.config/klh/stack.yaml",
+		routingPolicy: "~/.claude/local-llm/routing-policy.json",
+		stackYaml: "~/.config/klh/stack.json",
 		claudeSettings: "~/.claude/settings.json",
 		insightsDir: "~/.claude-insights",
 		launchAgentsDir: "~/Library/LaunchAgents",

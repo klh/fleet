@@ -2,9 +2,9 @@
 // Read/validate/preview/apply for the two real config files the console
 // manages, config-over-code, never a code edit:
 //
-//   routing-policy.yaml  — the shared belt+buckle routing policy. Chain
+//   routing-policy.json  — the shared belt+buckle routing policy. Chain
 //     (belt bin/router-policy.ts pattern): BELT_POLICY/BUCKLE_POLICY env →
-//     ~/.claude/local-llm/routing-policy.yaml (runtime) → committed default.
+//     ~/.claude/local-llm/routing-policy.json (runtime) → committed default.
 //     The console DISPLAYS the resolved file and WRITES the runtime copy
 //     (or the env-named file when the operator pinned one) — never the
 //     committed default. Apply is atomic (tmp + rename). Activation is NOT
@@ -20,7 +20,7 @@
 // Every write path here is an allowlisted constant (or the env-pinned policy
 // path the operator already owns). Invalid config = rejected with the parse
 // error; nothing partial ever lands (validate-then-atomic-write).
-import { YAML } from "bun";
+import { type PlaidRoute, validatePlaidRoutes } from "./plaid-route-config.ts";
 import {
 	chmodSync,
 	existsSync,
@@ -36,7 +36,7 @@ import { scrub } from "./servicemon.ts";
 // ─── errors ───────────────────────────────────────────────────────────────
 export class ConfigError extends Error {}
 
-// ─── routing-policy.yaml (belt + buckle share one file) ───────────────────
+// ─── routing-policy.json (belt + buckle share one file) ───────────────────
 export interface PolicyGateway {
 	num_retries?: number;
 	allowed_fails?: number;
@@ -68,7 +68,7 @@ export interface PolicyGatewayParsed {
 const isIntGte0 = (v: unknown): v is number =>
 	typeof v === "number" && Number.isInteger(v) && v >= 0;
 
-// Owner directive (belt bin/routing-policy.yaml + buckle): NEVER flashx —
+// Owner directive (belt bin/routing-policy.json + buckle): NEVER flashx —
 // same upstream family saturates together, and flashx is too expensive.
 const validateLadder = (fallbacks: Record<string, string[]>): string | null => {
 	for (const [model, tiers] of Object.entries(fallbacks)) {
@@ -86,11 +86,11 @@ const validateLadder = (fallbacks: Record<string, string[]>): string | null => {
 
 // Shape + version checks shared by parse (read) and patch (validate-after).
 function policyDoc(text: string): PolicyDoc {
+	// W1253: JSON is the ONE parser — yaml bytes under any name are skipped
+	// (a legacy .yaml candidate only counts when its content is already JSON).
 	let doc: PolicyDoc;
 	try {
-		doc = (
-			text.trimStart().startsWith("{") ? JSON.parse(text) : YAML.parse(text)
-		) as PolicyDoc;
+		doc = JSON.parse(text) as PolicyDoc;
 	} catch (e) {
 		throw new ConfigError(
 			`policy parse failed: ${e instanceof Error ? e.message : String(e)}`,
@@ -171,13 +171,13 @@ export function resolvePolicy(opts?: {
 			source: "runtime",
 		},
 		{
-			path: `${home}/.claude/local-llm/routing-policy.yaml`,
+			path: `${home}/.claude/local-llm/routing-policy.json`,
 			source: "legacy",
 		},
 		{ path: `${beltRepo}/bin/routing-policy.json`, source: "default" },
 		{ path: `${buckleRepo}/routing-policy.json`, source: "default" },
-		{ path: `${beltRepo}/bin/routing-policy.yaml`, source: "default" },
-		{ path: `${buckleRepo}/routing-policy.yaml`, source: "default" },
+		{ path: `${beltRepo}/bin/routing-policy.json`, source: "default" },
+		{ path: `${buckleRepo}/routing-policy.json`, source: "default" },
 	];
 	for (const c of cands) {
 		if (!c.path || !existsSync(c.path)) continue;
@@ -366,6 +366,8 @@ export function diffLines(a: string, b: string): string[] {
 
 // ─── suspenders-board.json (the board's own knobs) ────────────────────────
 export interface BoardSettings {
+	/** Explicit route rows constrain both dispatcher and board; [] disables all routes. */
+	plaid_routes?: PlaidRoute[];
 	status_refresh_s?: number;
 	harvest_ttl_s?: number;
 	default_actor?: string;
@@ -418,6 +420,8 @@ export function validateBoardSettings(v: unknown): BoardSettings {
 		throw new ConfigError("board settings must be a JSON object");
 	const o = v as Record<string, unknown>;
 	const out: BoardSettings = {};
+	if (Object.hasOwn(o, "plaid_routes"))
+		out.plaid_routes = validatePlaidRoutes(o.plaid_routes);
 	const sr = numKnob(o, "status_refresh_s", 0);
 	if (sr !== undefined) out.status_refresh_s = sr;
 	const ht = numKnob(o, "harvest_ttl_s", 1);

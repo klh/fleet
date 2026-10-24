@@ -4,9 +4,16 @@
 // dispatch-facing dispatchStarterFork wiring (flag off / claude fork /
 // unsupported harness / seed failure fallback).
 import { describe, expect, test, afterEach } from "bun:test";
-import { mkdirSync, existsSync, rmSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
 	assertNoSecrets,
 	dispatchStarterFork,
@@ -22,6 +29,7 @@ import {
 	STARTER_FLAG,
 	STARTER_SAVED_S,
 } from "../scripts/lib/lane-starter.ts";
+import { WORKER_MANAGED_PROFILE } from "../hooks/lib/executors/claude.ts";
 
 const scratch = (): string => {
 	const d = join(
@@ -52,6 +60,26 @@ describe("lane-starter", () => {
 	test("starter version is content-derived and stable", () => {
 		expect(starterVersion("same text")).toBe(starterVersion("same text"));
 		expect(starterVersion("same text")).not.toBe(starterVersion("other"));
+	});
+
+	// W1124.12: the managed worker profile is part of the version hash — a
+	// profile change supersedes every cached starter session without touching
+	// the seed prompt text.
+	test("starter version invalidates when the managed profile changes", () => {
+		const before = starterVersion("seed");
+		const savedMcp = WORKER_MANAGED_PROFILE.mcpConfig;
+		const savedTools = WORKER_MANAGED_PROFILE.tools;
+		try {
+			WORKER_MANAGED_PROFILE.mcpConfig = `{"mcpServers":{"drifted":{}}}`;
+			expect(starterVersion("seed")).not.toBe(before);
+			WORKER_MANAGED_PROFILE.mcpConfig = savedMcp;
+			WORKER_MANAGED_PROFILE.tools = "Bash";
+			expect(starterVersion("seed")).not.toBe(before);
+		} finally {
+			WORKER_MANAGED_PROFILE.mcpConfig = savedMcp;
+			WORKER_MANAGED_PROFILE.tools = savedTools;
+		}
+		expect(starterVersion("seed")).toBe(before);
 	});
 
 	test("ensureStarter seeds once then reuses the registry", () => {
@@ -170,10 +198,10 @@ describe("lane-starter", () => {
 		});
 	});
 
-	test("W768: default-on — bare env forks the claude executor", async () => {
+	test("W1124.12.1: opt-in — flag on forks; bare env cold-starts", async () => {
 		const logs: string[] = [];
 		const r = await dispatchStarterFork({
-			env: {},
+			env: { [STARTER_FLAG]: "on" },
 			noBelt: true,
 			harness: "claude",
 			fleet,
@@ -193,7 +221,8 @@ describe("lane-starter", () => {
 		expect(r.forkArgs).toEqual(["--resume", "seed-768", "--fork-session"]);
 		expect(r.prompt).toContain("s768");
 		expect(logs.join(" ")).toMatch(/forked/);
-		expect(starterEnabled({})).toBe(true);
+		expect(starterEnabled({ [STARTER_FLAG]: "on" })).toBe(true);
+		expect(starterEnabled({})).toBe(false);
 		expect(starterEnabled({ [STARTER_FLAG]: "0" })).toBe(false);
 	});
 
@@ -280,12 +309,21 @@ describe("lane-starter", () => {
 			wt: "/wt4",
 			coldPrompt: "COLD",
 			log: () => {},
-			probe: async () => null,
+			probe: async () => ({
+				front: null,
+				ok: false,
+				kind: "timeout",
+				status: 0,
+				ms: 612,
+				boundMs: 600,
+				note: "timeout after 612ms (bound 600ms)",
+			}),
 			ensureOpts: {
 				run: () => ({ code: 1, err: "seed died" }),
 			},
 		});
 		expect(r.seedError?.preflight).toContain("belt-front down");
+		expect(r.seedError?.preflight).toContain("timeout after 612ms");
 	});
 
 	test("dispatchStarterFork: preflight up verdict rides the seedError", async () => {
@@ -300,7 +338,15 @@ describe("lane-starter", () => {
 			wt: "/wt5",
 			coldPrompt: "COLD",
 			log: () => {},
-			probe: async () => "http://127.0.0.1:4101",
+			probe: async () => ({
+				front: "http://127.0.0.1:4101",
+				ok: true,
+				kind: "ok",
+				status: 200,
+				ms: 3,
+				boundMs: 600,
+				note: "",
+			}),
 			ensureOpts: {
 				run: () => ({ code: 1, err: "seed died" }),
 			},
@@ -395,4 +441,53 @@ describe("lane-starter", () => {
 			"STARTER W818 — forked starter f4dae8ae032c (cached, session e02f5a14; saved ≈60.3s vs cold, W768 bench)",
 		);
 	});
+
+	// W1124.12.1: the seed turn hangs for real when the executor wedges —
+	// the NATIVE `timeout` option enforces the deadline (the old `timeoutMs`
+	// field was silently ignored). NARROW contract, tested exactly: the
+	// fixture is a direct bun child (no shell, no sleep descendant) that
+	// records its own PID and hangs; the deadline SIGTERMs that PID and the
+	// test proves the captured child is gone. No fixture leak.
+	test("the direct seed child is killed within the declared budget", () => {
+		// afterEach removed the shared fleet dir — ensureStarter spawns with
+		// cwd: fleet, so it must exist for the real spawnSync.
+		mkdirSync(fleet, { recursive: true });
+		const d = scratch();
+		const pidFile = join(d, "seed.pid");
+		const hung = join(d, "hung-seed.ts");
+		writeFileSync(
+			hung,
+			`#!/usr/bin/env bun
+import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+await new Promise(() => {});
+`,
+		);
+		chmodSync(hung, 0o700);
+		const seedMs = 1_000;
+		const t0 = Date.now();
+		const r = ensureStarter(
+			fleet,
+			"claude",
+			hung,
+			{
+				// env must carry bun's dir — the shebang /usr/bin/env resolves it
+				PATH: `${dirname(process.execPath)}:/usr/bin:/bin`,
+			},
+			{
+				timeoutMs: seedMs,
+			},
+		);
+		const elapsed = Date.now() - t0;
+		// the hung seed prints no session id → the failure record
+		expect(r?.kind).toBe("failure");
+		// budget + bun startup + SIGTERM — NOT an unbounded hang
+		expect(elapsed).toBeLessThan(10_000);
+		expect(elapsed).toBeGreaterThanOrEqual(seedMs);
+		// the captured direct child is dead: kill -0 fails on a reaped PID
+		const pid = readFileSync(pidFile, "utf8").trim();
+		expect(pid).toMatch(/^\d+$/);
+		expect(Bun.spawnSync(["/bin/kill", "-0", pid]).exitCode).not.toBe(0);
+		rmSync(d, { recursive: true, force: true });
+	}, 15_000);
 });

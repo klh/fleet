@@ -84,10 +84,12 @@ export async function boardFixture(
 		...process.env,
 		HOME,
 		SUSPENDERS_LLM_URL: "http://127.0.0.1:1/v1/chat/completions",
-		// W810: the advise panel's pinned oracle leg defaults to :8903 — on a
-		// machine with the local-reason specialist resident it ANSWERS, the
-		// panel succeeds, and the dead-LLM error-fact contracts never run
-		ORACLE_ROUTE_URL: "http://127.0.0.1:1/v1/chat/completions",
+		// W810 → W1119.1: the advise panel's oracle legs ride the gated Buckle
+		// client — on a machine with a live gate they would ANSWER, the panel
+		// succeeds, and the dead-LLM error-fact contracts never run; pin the
+		// credential pair to a dead port so the legs fail closed
+		SUSPENDERS_BUCKLE_URL: "http://127.0.0.1:1",
+		SUSPENDERS_BUCKLE_TOKEN: "bksk_fixture_dead",
 		SUSPENDERS_MDNS: "0",
 		SUSPENDERS_BELT_URL: "http://127.0.0.1:1",
 		SUSPENDERS_KEV_URL: "http://127.0.0.1:1",

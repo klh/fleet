@@ -13,12 +13,18 @@ import { join } from "node:path";
 import type { Database } from "bun:sqlite";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-w244-"));
+// restore before afterAll cleanup: the rest of the suite shares this
+// process — a leaked fixture HOME rides later spawns' {...process.env}
+const REAL_HOME = process.env.HOME;
 process.env.HOME = HOME;
 const { openGovernorDb, openKnowledgeDb } = await import(
 	`../hooks/lib/govdb.ts?w244=${encodeURIComponent(HOME)}`
 );
-const { SqliteKnowledgeStore, currentPromptHash } = await import(
-	`../hooks/lib/knowledge-ports.ts?w244=${encodeURIComponent(HOME)}`
+const { SqliteKnowledgeStore } = await import(
+	`../hooks/lib/sqlite-store.ts?w244=${encodeURIComponent(HOME)}`
+);
+const { currentPromptHash } = await import(
+	`../hooks/lib/prompt-policy.ts?w244=${encodeURIComponent(HOME)}`
 );
 
 const GOV = join(HOME, ".cache", "claude-governor", "governor.db");
@@ -120,6 +126,7 @@ function runCli(args: string[]): { out: string; code: number } {
 }
 
 afterAll(() => {
+	process.env.HOME = REAL_HOME;
 	stub.stop(true);
 	rmSync(HOME, { recursive: true, force: true });
 });

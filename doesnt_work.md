@@ -29,6 +29,14 @@ decision-grade: it has to change what you would do. When a verdict flips
 
 ## Fleet coordination
 
+- **Priority-derived lane effort (W923 pin, retired by W1140)** — the
+  dispatch effort pin read `item.priority` off a string item id, so every
+  lane pinned "medium" regardless of graph state (dead code), and priority
+  alone is the wrong signal anyway — effort does not rescue wrong approaches
+  (SlopCodeBench wrong-reading failures rose 25→47 at max). Replaced by:
+  classification-driven pin from the machine-conf lane-effort policy
+  (verification-shaped → high, research → medium, unmatched → two-stage
+  implement low / verify high).
 - **Unbounded supervisor consult (W977.2)** — re-asking the coordination
   ledger per step (3 asks/item, retry budget 4) returned identical
   outcomes to 1 ask/item at 2.3× the consult volume (21 vs 9 calls,
@@ -148,3 +156,71 @@ decision-grade: it has to change what you would do. When a verdict flips
 - **Composite FK-less rekey without `PRAGMA defer_foreign_keys`** — W428:
   rekeying work-graph identity hits composite FKs 500 without it;
   children-first in one transaction.
+
+## W1170 — regex fixture coverage is not a review-quality evaluation
+
+W1144 treated matching trap names in skill text and the seeded examples in
+`tests/fixtures/review-eval/seed.ts` as evidence of better agent reviews.
+`tests/skills-catalog.test.ts` only checks text markers: no reviewer ran,
+no matched comparison was performed, and no quality improvement was proved.
+W1170 retains the documentation contract while correcting its description.
+Skill invocation counts also require no raw arguments or working-directory
+paths; storing those in a mode-644 log added disclosure risk without
+measurement value. The corrected logger keeps minimal metadata at mode 0600.
+# W1124.24 — occupancy adaptation is not free throughput
+
+The matched synthetic controller fixture
+`packages/buckle/test/provider-pressure-diagnosis.test.ts` retains tradeoffs:
+at 20 ms mixed pressure the candidate completed in 633 ms versus 917 ms but
+issued 12 refusals versus 9; at 8 ms occupancy pressure it issued 7 versus 5.
+An earlier candidate used one pressure epoch for both dimensions: a rate
+refusal could be masked by an occupancy refusal in the same burst, producing
+61 versus 38 refusals in the 50 ms mixed arm. Independent per-kind coalescing
+with a global stale-success fence corrected that specific defect; it does not
+prove an optimal controller or real-account capacity. Healthy EOF means
+transport completion, not semantic model quality or verified provider cleanup.
+# W1124.24.1 — spoke-only classification loses remote pressure provenance
+
+The two-hop regression in
+`packages/buckle/test/provider-pressure-health-http.test.ts` shows that configuring
+only the spoke's occupancy classification is insufficient. A remote deployment
+health circuit can replace a real typed refusal with an untyped synthetic 429
+and a long Retry-After. The fixture retains that failing arm alongside recovery
+with explicit remote metadata. Unknown 429, auth, server and network failures
+remain circuit-protected; no provider-capacity increase was demonstrated.
+# W1124.28 — local lease release is not provider cancellation
+
+The actual-proxy fixture in
+`packages/belt/test/litellm-cancellation.test.ts` reproduces a missing
+`general_settings.cancel_on_disconnect` setting. With monitoring off, Buckle
+has zero held leases 150 ms after caller abort while pre-header provider work
+remains active. Nonstream work finishes at its 1200 ms deadline; streaming
+work is only cancelled after its delayed headers arrive around 600 ms.
+Midstream cleanup already works in both arms. This demonstrates a local
+accounting gap, not a measured real-provider concurrency limit or proof of
+historical abandoned Z.ai requests.
+
+# W1124.40 - a network failure is not a provider diagnosis
+
+Observed 35-second preheader failures had no provider call ID or input usage.
+Success-only TTFB percentiles are censored by that deadline and cannot establish
+why those requests stalled. The transport fixture preserves unknown provider
+acknowledgment even when local cancellation settles. A remote timeout phase is
+accepted only from declared Buckle peers; arbitrary provider headers cannot
+assert trusted phases. No timeout policy was increased by this work.
+
+W1124.40 review followup: the first local implementation omitted the existing
+remote trace connector's allowlisted projection, which would have hidden remote
+transport evidence at the origin. The corrected projection uses the same bounded
+validator, tested over actual authenticated HTTP against the real hop ledger.
+The caller/timer race fixture also preserves the first local cancellation cause.
+
+# W1124.27.1 - a fixture cannot broaden the native connector contract
+
+W1124.27's first fixture treated every leading system/developer run as supported,
+but the actual installed converter extracts only a contiguous system prefix.
+Developer then system, or system/developer/system, still became a system input
+item and would reproduce the original backend refusal. All-system input has a
+separate native fallback with the same outcome. Six new regression cases failed
+before the correction; these orders now typed-refuse before fetch rather than
+folding, reordering or dropping instructions. No provider probe was used.

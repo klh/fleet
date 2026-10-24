@@ -2,7 +2,7 @@
 // supervise.ts — W146: the shattering planner becomes its subtree's
 // MICRO-SUPERVISOR. Coordinator responsibilities, scoped to one parent
 // item's descendants: dispatch READY children (W145 lane-spawn machinery,
-// shared via scripts/lib/lane.ts), watch the graph, dispatch newly-unblocked
+// shared via hooks/lib/lane.ts), watch the graph, dispatch newly-unblocked
 // children in dependency order (`work ready` IS the dep-order source — the
 // W60 dep-merge gate keeps a child out of the pool until its deps are DONE
 // and merged), integrate DONE children per the plan contract (verify the
@@ -39,6 +39,7 @@ import {
 import { hostname } from "node:os";
 import { resolve } from "node:path";
 import { flagIntegratedCode } from "../hooks/lib/decomposition.ts";
+import { shaOnMain as gateShaOnMain } from "../hooks/lib/dep-merge-gate.ts";
 import { openStore } from "../hooks/lib/govdb.ts";
 import { laneAlive } from "../hooks/lib/lane-liveness.ts";
 import { supSid } from "../hooks/lib/laneslug.ts";
@@ -51,7 +52,7 @@ import {
 	sidOf,
 } from "./dispatch-next.ts";
 // W177: the resolved slab class is stamped into the lanes.json entry.
-import { laneClassOf } from "./lib/jobslab.ts";
+import { laneClassOf } from "../hooks/lib/jobslab.ts";
 import {
 	type Lane,
 	laneEnv,
@@ -59,8 +60,8 @@ import {
 	saveLanes,
 	spawnClaude,
 	worktreeLive,
-} from "./lib/lane.ts";
-import { laneAttemptLimit } from "./lib/lane-retry-budget.ts";
+} from "../hooks/lib/lane.ts";
+import { laneAttemptLimit } from "../hooks/lib/lane-retry-budget.ts";
 import {
 	assertLaunchClaim,
 	awaitLaunchRegistration,
@@ -224,14 +225,11 @@ const main = async (): Promise<void> => {
 		run([process.execPath, `${BIN}/${bin}`, ...args]);
 	const headSha = (): string => gitOut(["rev-parse", "HEAD"]) || "none";
 	// W60 semantics: exit 0 = ancestor of main, exit 1 = NOT, >1 = cannot
-	// know — only a verified negative gates, never a lookup failure.
-	const shaOnMain = (sha: string): boolean | null => {
-		const r = Bun.spawnSync(
-			["git", "-C", REPO, "merge-base", "--is-ancestor", sha, "main"],
-			{ stdout: "ignore", stderr: "ignore" },
-		);
-		return r.exitCode === 0 ? true : r.exitCode === 1 ? false : null;
-	};
+	// know — only a verified negative gates, never a lookup failure. W1206:
+	// rides the shared dep-merge-gate snapshot (one bounded rev-list fork per
+	// worktree per process) instead of a fork per candidate per cycle.
+	const shaOnMain = (sha: string): boolean | null =>
+		gateShaOnMain(sha, PROJECT);
 
 	// crash-safe journal: escalation + resume dedupe across restarts (graph
 	// state is the truth; this only stops repeat NEED_DECISION spam)

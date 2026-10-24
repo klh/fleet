@@ -56,31 +56,73 @@ db.query("INSERT INTO claims (sid, scope, intent, hot, ts) VALUES ('closed-claim
 db.close();
 `);
 
-// the fleet line is ONE line of `glyph label` segments joined by two spaces
+// W1258: the fleet text face is the fixed-width table — one lane per ROW;
+// honesty assertions read the row carrying the lane's [sid=...] field
 const segmentFor = (out: string, needle: string): string | undefined =>
-	out
-		.trim()
-		.split(/\s{2,}/)
-		.find((seg) => seg.includes(needle));
+	out.split("\n").find((line) => line.includes(needle));
 
 describe("coord fleet honesty (W378)", () => {
+	test("registered work owners and target sessions need no file claim to be discoverable", () => {
+		runIn(`
+const { openGovernorDb } = await import(${JSON.stringify(GOVDB)});
+const db = openGovernorDb();
+const now = Date.now();
+for (const [sid,state,hb] of [['work-only-owner','RUNNING',now],['session-only-peer','RUNNING',now],['closed-work-owner','CLOSED',now],['stale-work-owner','RUNNING',now-3600000]]) {
+ db.query("INSERT INTO sessions (sid,project,role,started_at,hb,state) VALUES (?,'work-project','worker',?,?,?)").run(sid,now,hb,state);
+}
+for (const [id,sid,project] of [['W41','work-only-owner','work-project'],['W42','closed-work-owner','work-project'],['W43','stale-work-owner','work-project'],['W44','work-only-owner','foreign-project']]) {
+ db.query("INSERT INTO work_items(project,id,title,state,owner_sid,created_at,updated_at) VALUES (?,?,?,'CLAIMED',?,?,?)").run(project,id,'Owned '+id,sid,now,now);
+}
+db.close();`);
+		const fleet = runCli(["fleet", "--json"]);
+		const targets = runCli(["targets", "--json"]);
+		expect(fleet.code).toBe(0);
+		expect(targets.code).toBe(0);
+		const lanes = JSON.parse(fleet.out).lanes;
+		const owner = lanes.find(
+			(row: { sid: string }) => row.sid === "work-only-owner",
+		);
+		expect(owner).toBeDefined();
+		expect(owner.live).toBe(true);
+		expect(owner.fileClaims).toEqual([]);
+		expect(owner.workItems.map((row: { id: string }) => row.id)).toEqual([
+			"W41",
+		]);
+		const targetSids = JSON.parse(targets.out).map(
+			(row: { sid: string }) => row.sid,
+		);
+		for (const sid of ["work-only-owner", "session-only-peer"])
+			expect(lanes.some((row: { sid: string }) => row.sid === sid)).toBe(
+				targetSids.includes(sid),
+			);
+		for (const sid of ["closed-work-owner", "stale-work-owner"]) {
+			const row = lanes.find((entry: { sid: string }) => entry.sid === sid);
+			expect(row.live).toBe(false);
+			expect(row.verdict).toBe("unknown");
+		}
+		expect(
+			lanes.find((row: { sid: string }) => row.sid === "closed-work-owner")
+				.sessionState,
+		).toBe("CLOSED");
+	});
+
 	test("stale unregistered claimant reads ?, never ▶", () => {
 		const { code, out, err } = runCli(["fleet"]);
 		expect(code).toBe(0);
-		const seg = segmentFor(out, "W378 stale");
-		expect(seg).toBeDefined();
-		expect(seg?.trim().startsWith("?")).toBe(true);
-		expect(seg?.includes("▶")).toBe(false);
-		expect(seg?.includes("×")).toBe(false);
+		const row = segmentFor(out, "W378 stale");
+		expect(row).toBeDefined();
+		expect(row?.includes("?")).toBe(true);
+		expect(row?.includes("▶")).toBe(false);
+		expect(row?.includes("×")).toBe(false);
 		expect(err).toBe("");
 	});
 
 	test("fresh-heartbeat claimant keeps ▶", () => {
 		const { code, out } = runCli(["fleet"]);
 		expect(code).toBe(0);
-		const seg = segmentFor(out, "W378 fresh");
-		expect(seg).toBeDefined();
-		expect(seg?.trim().startsWith("▶")).toBe(true);
+		const row = segmentFor(out, "W378 fresh");
+		expect(row).toBeDefined();
+		expect(row?.includes("▶")).toBe(true);
 	});
 
 	test("--json: tri-state verdict + collapsed live", () => {

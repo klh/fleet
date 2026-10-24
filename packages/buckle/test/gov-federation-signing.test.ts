@@ -25,29 +25,25 @@ async function testHub(secretsHome: string): Promise<{
 	stop: () => void;
 }> {
 	const dir = scratchHome();
-	const policy = [
-		"version: 1",
-		"gateway:",
-		"  num_retries: 1",
-		"  allowed_fails: 3",
-		"  cooldown_time: 30",
-		"  fallbacks:",
-		"    glm-5.3-flash: [gpt-5.2]",
-		"tags:",
-		"  glm-5.3-flash: [fast, general]",
-		"",
-	].join("\n");
-	const upstreams = [
-		"version: 1",
-		"groups:",
-		"  glm-5.3-flash:",
-		"    - url: http://127.0.0.1:8501",
-		"      dialect: openai",
-		"  gpt-5.2: []",
-		"",
-	].join("\n");
-	const wp = `${dir}/policy.yaml`;
-	const wu = `${dir}/upstreams.yaml`;
+	const policy = JSON.stringify({
+		version: 1,
+		gateway: {
+			num_retries: 1,
+			allowed_fails: 3,
+			cooldown_time: 30,
+			fallbacks: { "glm-5.3-flash": ["gpt-5.2"] },
+		},
+		tags: { "glm-5.3-flash": ["fast", "general"] },
+	});
+	const upstreams = JSON.stringify({
+		version: 1,
+		groups: {
+			"glm-5.3-flash": [{ url: "http://127.0.0.1:8501", dialect: "openai" }],
+			"gpt-5.2": [],
+		},
+	});
+	const wp = `${dir}/policy.json`;
+	const wu = `${dir}/upstreams.json`;
 	await Bun.write(wp, policy);
 	await Bun.write(wu, upstreams);
 	const srv = startServer({

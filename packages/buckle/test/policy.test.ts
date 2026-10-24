@@ -10,7 +10,7 @@ import {
 } from "../src/policy.ts";
 
 test("parsePolicy: defaults when gateway section absent", () => {
-	const p = parsePolicy("version: 1\n");
+	const p = parsePolicy("{}");
 	expect(p.num_retries).toBe(1);
 	expect(p.allowed_fails).toBe(3);
 	expect(p.cooldown_time).toBe(30);
@@ -21,16 +21,22 @@ test("parsePolicy: defaults when gateway section absent", () => {
 });
 
 test("parsePolicy: W124 ladder verbatim", () => {
-	const yaml =
-		"gateway:\n  fallbacks:\n    glm-5.3-flash: [local-swarm, gpt-5.2, claude-sonnet-5]\n";
-	const p = parsePolicy(yaml);
+	const p = parsePolicy(
+		JSON.stringify({
+			gateway: {
+				fallbacks: {
+					"glm-5.3-flash": ["local-swarm", "gpt-5.2", "claude-sonnet-5"],
+				},
+			},
+		}),
+	);
 	const ladder = p.fallbacks ? p.fallbacks["glm-5.3-flash"] : undefined;
 	expect(ladder).toEqual(["local-swarm", "gpt-5.2", "claude-sonnet-5"]);
 });
 
 test("committed Claude fallback names GLM as a separate group", () => {
 	const policy = loadGatewayPolicy(
-		new URL("../routing-policy.yaml", import.meta.url).pathname,
+		new URL("../routing-policy.json", import.meta.url).pathname,
 	);
 	expect(policy.fallbacks?.["claude-sonnet-5"]).toEqual([
 		"glm-5.3-flash",
@@ -40,7 +46,14 @@ test("committed Claude fallback names GLM as a separate group", () => {
 
 test("parsePolicy: buckle knobs survive the shared-file shape", () => {
 	const p = parsePolicy(
-		"gateway:\n  retry_max_delay_s: 4\n  retry_after_cap_s: 30\n  request_timeout_s: 60\n  first_byte_budget_s: 150\n",
+		JSON.stringify({
+			gateway: {
+				retry_max_delay_s: 4,
+				retry_after_cap_s: 30,
+				request_timeout_s: 60,
+				first_byte_budget_s: 150,
+			},
+		}),
 	);
 	expect(p.retry_max_delay_s).toBe(4);
 	expect(p.retry_after_cap_s).toBe(30);
@@ -51,7 +64,9 @@ test("parsePolicy: buckle knobs survive the shared-file shape", () => {
 test("parsePolicy rejects a walk budget shorter than one primary attempt", () => {
 	expect(() =>
 		parsePolicy(
-			"gateway:\n  request_timeout_s: 120\n  first_byte_budget_s: 60\n",
+			JSON.stringify({
+				gateway: { request_timeout_s: 120, first_byte_budget_s: 60 },
+			}),
 		),
 	).toThrow("first_byte_budget_s");
 });
@@ -86,24 +101,30 @@ test("JSON policy retains Buckle-specific tags and aids", () => {
 	expect(policy.aids?.["cache-align"]?.default).toBe("off");
 });
 
-test("JSON sibling of a pinned YAML policy wins, with YAML fallback", () => {
+test("JSON sibling of a pinned legacy name wins; a yaml-bytes sibling is skipped (W1253)", () => {
 	const dir = mkdtempSync(join(tmpdir(), "w975-buckle-policy-"));
 	const yaml = join(dir, "routing-policy.yaml");
 	const json = join(dir, "routing-policy.json");
+	const previousHome = process.env.HOME;
 	try {
+		process.env.HOME = dir;
 		writeFileSync(yaml, "gateway:\n  num_retries: 2\n");
 		writeFileSync(json, JSON.stringify({ gateway: { num_retries: 3 } }));
 		expect(loadGatewayPolicy(yaml).num_retries).toBe(3);
+		// a legacy name whose sibling went yaml-bytes is skipped mid-chain —
+		// the ONE-parser law has no yaml leg, so the committed default rides
 		writeFileSync(json, "gateway:\n  num_retries: 4\n");
-		expect(() => loadGatewayPolicy(yaml)).toThrow();
+		expect(loadGatewayPolicy(yaml).num_retries).toBe(1);
 		rmSync(json);
-		expect(loadGatewayPolicy(yaml).num_retries).toBe(2);
+		expect(loadGatewayPolicy(yaml).num_retries).toBe(1);
 	} finally {
+		if (previousHome === undefined) delete process.env.HOME;
+		else process.env.HOME = previousHome;
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
 
-test("runtime JSON wins over runtime YAML", () => {
+test("runtime JSON beats the legacy yaml name (never parsed)", () => {
 	const dir = mkdtempSync(join(tmpdir(), "w975-buckle-home-"));
 	const runtime = join(dir, ".claude", "local-llm");
 	const previousHome = process.env.HOME;

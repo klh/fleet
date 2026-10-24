@@ -53,7 +53,8 @@ describe("v17 identity split — copy path", () => {
 		const uv = (
 			db2.query("PRAGMA user_version").get() as { user_version: number }
 		).user_version;
-		expect(uv).toBe(17);
+		// the split stamps 17 mid-ladder; later steps (v18/v19) keep climbing
+		expect(uv).toBeGreaterThanOrEqual(17);
 		const idb = new Database(IDB);
 		const k = idb
 			.query("SELECT key_id FROM api_keys WHERE key_id = 'k1'")

@@ -3,8 +3,8 @@
 // nothing below declares a port, model id or alias of its own.
 //
 //   bun bin/registry-emit.ts litellm   # LiteLLM model_list (the :4100 engine)
-//   bun bin/registry-emit.ts direct    # routing-policy `direct:` tiers
-//   bun bin/registry-emit.ts buckle    # buckle upstreams.yaml model section
+//   bun bin/registry-emit.ts direct    # routing-policy `direct:` tiers (JSON)
+//   bun bin/registry-emit.ts buckle    # buckle upstreams.json model section
 //   bun bin/registry-emit.ts json      # the registry document (= /registry.json)
 //   bun bin/registry-emit.ts tier      # tier manifest (tier + warm_ports → tier.json)
 //   bun bin/registry-emit.ts all --out DIR   # all five into DIR
@@ -61,48 +61,56 @@ export const emitLitellmModelList = (
 ): string => `model_list:\n${litellmRows(entries, host).join("\n")}\n`;
 
 /** routing-policy `direct:` tiers — every servable row, keyed by alias, so a
- *  router can address any fleet member directly without a gateway hop. */
+ *  router can address any fleet member directly without a gateway hop. JSON
+ *  (W1253: fleet config is JSON; writers write the .json law name only). */
 export function emitDirectTiers(
 	entries: RegistryEntry[] = registryEntries(),
 	host = DEFAULT_HOST,
 ): string {
-	const rows = entries.map((e) =>
-		[
-			`  ${q(e.alias)}:`,
-			`    url: ${q(baseUrl(e, host))}`,
-			`    model: ${q(e.model)}`,
-			`    class: ${e.class}`,
-			`    role: ${q(e.role)}`,
-			`    protocol: ${q(e.protocol)}`,
-			`    context_tokens: ${e.contextTokens}`,
-			`    tier: ${e.tier}`,
-			`    engine: ${e.engine}`,
-			...(e.spec_dec ? [`    spec_dec: ${e.spec_dec}`] : []),
-			`    external: ${e.external}`,
-			`    source: ${q(e.source)}`,
-		].join("\n"),
-	);
-	return `direct:\n${rows.join("\n")}\n`;
+	const direct: Record<string, unknown> = {};
+	for (const e of entries) {
+		direct[e.alias] = {
+			url: baseUrl(e, host),
+			model: e.model,
+			class: e.class,
+			role: e.role,
+			protocol: e.protocol,
+			context_tokens: e.contextTokens,
+			tier: e.tier,
+			engine: e.engine,
+			...(e.spec_dec ? { spec_dec: e.spec_dec } : {}),
+			external: e.external,
+			source: e.source,
+		};
+	}
+	return `${JSON.stringify({ direct }, null, "\t")}\n`;
 }
 
-/** buckle upstreams.yaml `groups:` model section — one group per chat alias
+/** buckle upstreams.json `groups:` model section — one group per chat alias
  *  plus the `local-swarm` pool. Merge it over buckle's committed default via
- *  BUCKLE_UPSTREAMS (same-named groups are replaced). */
+ *  BUCKLE_UPSTREAMS (same-named groups are replaced). JSON (W1253). */
 export function emitBuckleUpstreams(
 	entries: RegistryEntry[] = registryEntries(),
 	host = DEFAULT_HOST,
 ): string {
 	const chat = chatEntries(entries);
-	const dep = (e: RegistryEntry): string =>
-		[
-			`    - url: ${q(`http://${host}:${e.port}`)}`,
-			"      dialect: openai",
-			"      adapter: openai-compat",
-			`      model: ${q(e.model)}`,
-		].join("\n");
-	const groups = chat.map((e) => `  ${q(e.alias)}:\n${dep(e)}`);
-	groups.push(`  local-swarm:\n${chat.map(dep).join("\n")}`);
-	return `version: 1\n\ngroups:\n${groups.join("\n")}\n`;
+	const dep = (e: RegistryEntry): Record<string, unknown> => ({
+		url: `http://${host}:${e.port}`,
+		dialect: "openai",
+		adapter: "openai-compat",
+		model: e.model,
+	});
+	return `${JSON.stringify(
+		{
+			version: 1,
+			groups: {
+				...Object.fromEntries(chat.map((e) => [e.alias, [dep(e)]])),
+				"local-swarm": chat.map(dep),
+			},
+		},
+		null,
+		"\t",
+	)}\n`;
 }
 
 /** Canonical registry JSON — the /registry.json body. */
@@ -152,8 +160,10 @@ export function registryResponse(
 
 export const EMITTERS = {
 	litellm: (): string => `${HEADER}\n${emitLitellmModelList()}`,
-	direct: (): string => `${HEADER}\n${emitDirectTiers()}`,
-	buckle: (): string => `${HEADER}\n${emitBuckleUpstreams()}`,
+	// W1253: the JSON surfaces carry no `#` header — JSON has no comments and
+	// both artifacts are machine-read (parseDirect / BUCKLE_UPSTREAMS merge).
+	direct: (): string => emitDirectTiers(),
+	buckle: (): string => emitBuckleUpstreams(),
 	json: (): string => registryJson(),
 	tier: (): string => emitTierManifest(),
 } as const;
@@ -161,8 +171,8 @@ type Kind = keyof typeof EMITTERS;
 
 const FILES: Record<Kind, string> = {
 	litellm: "litellm-models.yaml",
-	direct: "routing-direct.yaml",
-	buckle: "upstreams.models.yaml",
+	direct: "routing-direct.json",
+	buckle: "upstreams.models.json",
 	json: "registry.json",
 	tier: "tier.json",
 };

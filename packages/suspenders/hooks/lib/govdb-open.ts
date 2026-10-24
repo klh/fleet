@@ -468,6 +468,12 @@ export function openGovernorDb(): Database {
 			db.run("ALTER TABLE facts ADD COLUMN confidence REAL");
 		if (!factsCols.includes("confidence_stamp"))
 			db.run("ALTER TABLE facts ADD COLUMN confidence_stamp TEXT");
+		// W1226 fact provenance: trigger/explanation/procedure/verification/
+		// source-commit/applicability ride ONE JSON record — evidence kept
+		// separate from the value (the interpretation). repo+branch inside the
+		// record are session-derived at write time, never a flag.
+		if (!factsCols.includes("provenance"))
+			db.run("ALTER TABLE facts ADD COLUMN provenance TEXT");
 	}
 	const ckCols = columnNames(db, "consult_kb");
 	if (ckCols.length) {

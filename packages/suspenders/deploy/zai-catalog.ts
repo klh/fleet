@@ -15,6 +15,7 @@ import {
 	ZAI_CATALOG_URL,
 	type ZaiCatalogSnapshot,
 } from "../../belt/bin/zai-catalog-rows.ts";
+import { assertProviderConcurrencyErrorCodes } from "../../buckle/src/provider-pressure.ts";
 import type { HubProfile } from "../hooks/lib/stack-config.ts";
 
 const MAX_CATALOG_BYTES = 1024 * 1024;
@@ -126,6 +127,9 @@ export function mergeZaiHubUpstreams(
 			"Z.ai catalog routes require allowed LiteLLM host, key, and cloud permission",
 		);
 	const snapshot = readZaiSnapshot(path, now);
+	const pressureCodes = hub.upstreams?.zai_concurrency_error_codes;
+	if (pressureCodes !== undefined)
+		assertProviderConcurrencyErrorCodes(pressureCodes);
 	for (const deployments of Object.values(groups)) {
 		for (const deployment of deployments) {
 			if (
@@ -146,6 +150,15 @@ export function mergeZaiHubUpstreams(
 					dialect: "openai",
 					adapter: "openai-compat",
 					model: `zai-${id}`,
+					// W1122: generated rows ride the LiteLLM engine — declare it so
+					// Buckle applies bounded proxy behavior (zero inner retries,
+					// bounded first-byte headers) and route preflight passes.
+					adapter_config: {
+						proxy_kind: "litellm",
+						...(pressureCodes === undefined
+							? {}
+							: { provider_concurrency_error_codes: pressureCodes }),
+					},
 					api_key_env: "LITELLM_KEY",
 				},
 			],

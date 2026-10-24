@@ -7,6 +7,7 @@
 // owner-report path (bin/repo-policy.ts), never on the wire.
 import { statSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { readBoundedJson } from "./ingress-body.ts";
 import type { RepoPolicyRow, RepoPolicyReport } from "./repo-policy.ts";
 import { runRepoPolicies } from "./repo-policy.ts";
 import { problem } from "./citizenship.ts";
@@ -80,17 +81,15 @@ export async function repoPolicyRoutes(
 		);
 	}
 	if (req.method !== "POST" || path !== "/repo-policy/check") return null;
-	let raw: AnyRec;
-	try {
-		raw = (await req.json()) as AnyRec;
-	} catch {
+	const read = await readBoundedJson(req);
+	if (!read.ok)
 		return problem({
-			status: 400,
-			code: "buckle.bad_request",
-			why: "invalid JSON body",
+			status: read.status,
+			code: read.code,
+			why: read.why,
 			instance: path,
 		});
-	}
+	const raw = read.body as AnyRec;
 	const parsed = parseBody(raw);
 	if (!parsed.ok || !parsed.req)
 		return problem({

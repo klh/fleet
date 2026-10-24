@@ -4,12 +4,16 @@
 // REFUSE: no scopes, no attribution, no budgets — governance never silently
 // vanishes; belt-direct survives only as the explicit, loud, audited
 // --allow-ungoverned operator override.
-import type { MintedLaneKey } from "./lane-auth.ts";
+// W1119.2 (single-buckle-inference): the governance:solo belt-direct
+// fallback at the front probe is RETIRED — an unreachable front refuses the
+// lane in BOTH modes; solo relents nowhere (sessions still fold belt-direct
+// loud via lane-auth session enrollment — the owner keeps working, lanes
+// don't dispatch ungoverned).
+import type { MintedLaneKey } from "../../hooks/lib/lane-auth.ts";
 
 export type GovernanceDecision =
 	| { mode: "governed"; key: string; keyId: string }
 	| { mode: "ungoverned-override"; note: string }
-	| { mode: "belt-direct"; note: string }
 	| { mode: "refuse"; why: string };
 
 /** W463 fail-closed governance (pure — unit-testable): given the lane-key
@@ -76,9 +80,10 @@ export const parseGovernanceMode = (factOut: string): "strict" | "solo" => {
 };
 
 /** W422.17 probe-false decision (pure — unit-testable): the buckle front did
- *  not answer the probe. --allow-ungoverned overrides BOTH modes; solo keeps
- *  the belt-direct fallback (loud, disclosed); strict refuses the lane with
- *  the same machinery as a W463 mint failure. */
+ *  not answer the probe. W1119.2 owner law (single-buckle-inference): the
+ *  solo belt-direct fallback is retired — an unreachable front refuses the
+ *  lane in BOTH governance modes; --allow-ungoverned stays the one explicit
+ *  per-invocation override. */
 export const probeFrontDecision = (
 	allowUngoverned: boolean,
 	govMode: "strict" | "solo",
@@ -88,13 +93,8 @@ export const probeFrontDecision = (
 			mode: "ungoverned-override",
 			note: "UNGOVERNED DISPATCH — operator override (--allow-ungoverned): buckle front unreachable; lane rides belt direct with no buckle scopes, attribution or budgets",
 		};
-	if (govMode === "solo")
-		return {
-			mode: "belt-direct",
-			note: "BELT-DIRECT DISPATCH — buckle front unreachable (governance:solo): lane rides belt direct with no buckle scopes, attribution or budgets",
-		};
 	return {
 		mode: "refuse",
-		why: "buckle front unreachable + governance:strict — lanes dispatch only through the buckle front (W422.17; --allow-ungoverned overrides per-invocation, coord governance solo relents)",
+		why: `buckle front unreachable + governance:${govMode} — lanes dispatch only through the buckle front (single-buckle-inference W1119; --allow-ungoverned overrides per-invocation)`,
 	};
 };

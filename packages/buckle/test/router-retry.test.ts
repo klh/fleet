@@ -201,7 +201,7 @@ describe("retry + cooldown in the walk", () => {
 		expect(slept).toEqual([]);
 	});
 
-	test("a rate-limited deployment stays a 429 while benched, then recovers", async () => {
+	test("a rate-limited deployment answers a typed local 503 hold while benched, then recovers", async () => {
 		let now = 1_000;
 		let calls = 0;
 		const router = new Router(
@@ -229,11 +229,16 @@ describe("retry + cooldown in the walk", () => {
 		};
 		const first = await router.execute(req);
 		expect(first.kind).toBe("client-error");
+		// W1257: inside the bench window the gateway answers a typed LOCAL
+		// 503 hold carrying the provider's last-seen refusal words as
+		// attributed context — never a fabricated provider 429
 		const benched = await router.execute(req);
-		expect(benched.kind).toBe("client-error");
-		if (benched.kind !== "client-error") throw new Error("rate limit lost");
-		expect(benched.response.status).toBe(429);
-		expect(benched.response.headers.get("retry-after")).toBe("30");
+		expect(benched.kind).toBe("exhausted");
+		if (benched.kind !== "exhausted") throw new Error("rate limit lost");
+		expect(benched.status).toBe(503);
+		expect(benched.retryAfterS).toBe(30);
+		expect(benched.error).toContain("gateway cooldown");
+		expect(benched.error).toContain("not the provider");
 		expect(calls).toBe(1);
 		now += 30_000;
 		expect((await router.execute(req)).kind).toBe("upstream");

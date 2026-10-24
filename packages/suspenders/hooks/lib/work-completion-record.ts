@@ -115,6 +115,24 @@ const git = (cwd: string, ...args: string[]) => {
 		);
 	return result.stdout.toString().trim();
 };
+
+/** A Fleet SID may differ from its native CLI UUID. Only the canonical
+ * session row for this claimant and project may supply that native path. */
+export function completionTranscriptPath(
+	db: CompletionStore,
+	project: string,
+	sid: string,
+	cwd: string,
+): string | null {
+	const session = db
+		.query("SELECT transcript_path FROM sessions WHERE sid = ? AND project = ?")
+		.get(sid, project) as { transcript_path?: string | null } | null;
+	return resolveTranscriptPath({
+		session_id: sid,
+		cwd,
+		transcript_path: session?.transcript_path ?? undefined,
+	});
+}
 const productPath = (path: string): boolean =>
 	!/^((\.fleet|\.claude|\.agents|node_modules)(\/|$)|\.klh-(brief|done)\.md$|\.workgraph\.jsonl$)/.test(
 		path,
@@ -189,6 +207,26 @@ const tryGit = (cwd: string, ...args: string[]): boolean => {
 		return false;
 	}
 };
+/** Proven lane-branch scope, shared by cross-repo evidence and the same-repo
+ * evidence guard. An unresolved or already-integrated scope returns unknown;
+ * callers retain the full original evidence window rather than skip checks. */
+const laneBranchDiffBase = (
+	shaRepo: string,
+	item: string,
+	sha: string,
+): string | null => {
+	const branch = `suspenders/${item}`;
+	if (
+		!hasCommit(shaRepo, `refs/heads/${branch}`) ||
+		!tryGit(shaRepo, "merge-base", "--is-ancestor", sha, branch)
+	)
+		return null;
+	const head = ["main", "master"].find((ref) => hasCommit(shaRepo, ref));
+	if (!head) return null;
+	const base = git(shaRepo, "merge-base", sha, head);
+	return base === sha ? null : base;
+};
+
 /** W601: cross-repo closure evidence — the scope repo's own lane-branch diff
  * (suspenders/<item> vs merge-base with the default head), degrading to the
  * single closure commit when no branch resolves. */
@@ -197,18 +235,7 @@ const crossRepoEvidence = (
 	item: string,
 	sha: string,
 ): { paths: string[]; diffText: string; diffBase: string | null } => {
-	const branch = `suspenders/${item}`;
-	let diffBase: string | null = null;
-	if (
-		hasCommit(shaRepo, `refs/heads/${branch}`) &&
-		tryGit(shaRepo, "merge-base", "--is-ancestor", sha, branch)
-	) {
-		const head = ["main", "master"].find((ref) => hasCommit(shaRepo, ref));
-		if (head) {
-			diffBase = git(shaRepo, "merge-base", sha, head);
-			if (diffBase === sha) diffBase = null;
-		}
-	}
+	const diffBase = laneBranchDiffBase(shaRepo, item, sha);
 	return {
 		diffBase,
 		paths: (diffBase
@@ -251,7 +278,7 @@ export function prepareCompletion(
 		/** W643: --token / KLH_CLAIM_TOKEN as passed by work done. */
 		token?: string | null;
 	},
-): CompletionRecord | null {
+): CompletionRecord {
 	let context: LaneContext | null = null;
 	let top = o.cwd;
 	try {
@@ -349,9 +376,6 @@ export function prepareCompletion(
 	}
 	const raw =
 		o.summary ?? (typeof capsule.done === "string" ? capsule.done : null);
-	// Compatibility: older manual ledger closures remain explicitly unverified.
-	// Every dispatched lane and every summary-bearing closure uses verified evidence.
-	if (!context && !raw) return null;
 	const summary = raw?.trim().replace(/\s+/g, " ") ?? "";
 	if (summary.length < 40 || summary.length > 4000)
 		throw new Error(
@@ -518,10 +542,19 @@ export function prepareCompletion(
 	// must ride a real passing run that predates the claim, with no
 	// test-affecting file changed since, and the closing diff must not
 	// erode the suite (deleted tests, focused/expected-failure gates,
-	// loosened assertions). SUSPENDERS_CLAIM_CHECK=0 disables.
+	// loosened assertions). Imported main changes are not attributed to this
+	// lane when the exact lane branch and original-baseline ancestry prove it.
+	const branchBase =
+		!crossRepo && baseline ? laneBranchDiffBase(shaRepo, o.item, sha) : null;
+	const claimCheckBase =
+		branchBase &&
+		baseline &&
+		tryGit(shaRepo, "merge-base", "--is-ancestor", baseline, branchBase)
+			? branchBase
+			: null;
 	const cc = claimCheckVerdict({
 		transcriptPath:
-			resolveTranscriptPath({ session_id: o.sid, cwd: o.cwd }) ?? undefined,
+			completionTranscriptPath(db, o.project, o.sid, o.cwd) ?? undefined,
 		capsuleDone:
 			(capsule.item === o.item || (!o.summary && !capsule.item)) &&
 			typeof capsule.done === "string"
@@ -530,7 +563,9 @@ export function prepareCompletion(
 		capsuleTs: typeof capsule.ts === "number" ? capsule.ts : undefined,
 		claimStartedAt: claimEvidenceStart(db, o.project, o.item, o.sid),
 		paths,
-		diffText,
+		diffText: claimCheckBase
+			? git(shaRepo, "diff", "-U0", claimCheckBase, sha)
+			: diffText,
 		statRoot: shaRepo,
 	});
 	if (!cc.ok) throw new Error(cc.why ?? "claim-check refusal");
@@ -557,6 +592,7 @@ export function prepareCompletion(
 			origin_project: o.project,
 			paths: paths.filter(productPath),
 			verified_at: completedAt,
+			...(claimCheckBase ? { claim_check_diff_base: claimCheckBase } : {}),
 			...(crossRepo
 				? { scope, verify_repo: shaRepo, diff_base: diffBase }
 				: {}),

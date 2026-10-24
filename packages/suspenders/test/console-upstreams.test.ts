@@ -2,10 +2,24 @@ import { expect, test } from "bun:test";
 import { readEffectiveUpstreams } from "../hooks/board/console-upstreams.ts";
 
 test("machine override replaces groups, adds aliases, preserves defaults and never exposes credentials", () => {
-	const base =
-		"groups:\n  flash: [{url: 'http://base', dialect: anthropic}]\n  local: [{url: 'http://local', dialect: openai}]\n";
-	const override =
-		"groups:\n  flash: [{url: 'http://a'}, {url: 'http://b'}, {url: 'http://c'}, {url: 'http://d'}]\n  zai-fast: [{api_key: private-secret, url: 'https://provider'}]\n  dormant: []\n";
+	const base = JSON.stringify({
+		groups: {
+			flash: [{ url: "http://base", dialect: "anthropic" }],
+			local: [{ url: "http://local", dialect: "openai" }],
+		},
+	});
+	const override = JSON.stringify({
+		groups: {
+			flash: [
+				{ url: "http://a" },
+				{ url: "http://b" },
+				{ url: "http://c" },
+				{ url: "http://d" },
+			],
+			"zai-fast": [{ api_key: "private-secret", url: "https://provider" }],
+			dormant: [],
+		},
+	});
 	const result = readEffectiveUpstreams({
 		basePath: "base",
 		overridePath: "runtime",
@@ -24,14 +38,16 @@ test("machine override replaces groups, adds aliases, preserves defaults and nev
 });
 
 test("unreadable or malformed selected override never silently shows the base as effective", () => {
-	for (const override of ["groups: invalid", "groups: {broken: nope}"]) {
+	for (const override of ["{broken json", "no groups here"]) {
 		expect(
 			readEffectiveUpstreams({
 				basePath: "base",
 				overridePath: "runtime",
 				hasFile: () => true,
 				readFile: (path) =>
-					path === "base" ? "groups: {default: []}" : override,
+					path === "base"
+						? JSON.stringify({ groups: { default: [] } })
+						: override,
 			}),
 		).toBeNull();
 	}
@@ -42,7 +58,7 @@ test("unreadable or malformed selected override never silently shows the base as
 			hasFile: () => true,
 			readFile: (path) => {
 				if (path === "runtime") throw new Error("unreadable");
-				return "groups: {default: []}";
+				return JSON.stringify({ groups: { default: [] } });
 			},
 		}),
 	).toBeNull();
@@ -54,7 +70,7 @@ test("absent override retains base including explicit dormant groups", () => {
 			basePath: "base",
 			overridePath: "absent",
 			hasFile: () => false,
-			readFile: () => "groups: {disabled: []}",
+			readFile: () => JSON.stringify({ groups: { disabled: [] } }),
 		}),
 	).toEqual({
 		groups: [

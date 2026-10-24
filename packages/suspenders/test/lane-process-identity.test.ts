@@ -14,7 +14,7 @@ import {
 	type ProcessInspector,
 } from "../hooks/lib/lane-liveness.ts";
 import { safeToRetire } from "../hooks/lib/lane-registry.ts";
-import { alive } from "../scripts/lib/lane.ts";
+import { alive } from "../hooks/lib/lane.ts";
 
 const lane = { sid: "autow562", item: "W562", pid: 562 };
 const roster =
@@ -122,6 +122,83 @@ test("managed Claude wrapper is the SID-bearing lane identity, not its native ch
 	);
 	expect(laneProcessIdentity({ ...lane, pid: 3654 }, rows)).toBe(true);
 	expect(laneProcessIdentity({ ...lane, pid: 3719 }, rows)).toBe(false);
+});
+
+test("restarted managed identity binds the exact settings argument to its worktree and SID", () => {
+	const scoped = { ...lane, worktree: "/project/.worktrees/W562" };
+	const settings = `${scoped.worktree}/.fleet/restart-settings-${lane.sid}.json`;
+	const wrapper = "/generation/hooks/bin/claude-runtime.ts";
+	for (const argument of [settings, `"${settings}"`, `'${settings}'`])
+		expect(
+			laneProcessIdentity(
+				scoped,
+				roster(
+					`562 bun ${wrapper} -p Await resume --settings ${argument} --resume uuid`,
+				),
+			),
+		).toBe(true);
+	for (const args of [
+		`bun ${wrapper} -p Await resume --settings ${settings.replace("W562", "W563")}`,
+		`bun ${wrapper} -p Await resume --settings ${settings.replace("autow562", "autow562-other")}`,
+		`bun ${wrapper} -p Await resume --settings ${settings}.backup`,
+		`bun ${wrapper} -p Read ${settings}`,
+		`bun ${wrapper} -p "Read --settings ${settings}"`,
+		`bun ${wrapper} --settings ${settings} --settings ${settings}`,
+		`bun /review.ts -p Read ${wrapper} --settings ${settings}`,
+		`claude -p Await resume --settings ${settings}`,
+	])
+		expect(laneProcessIdentity(scoped, roster(`562 ${args}`))).toBe(false);
+	expect(
+		laneProcessIdentity(
+			lane,
+			roster(`562 bun ${wrapper} --settings ${settings}`),
+		),
+	).toBe(false);
+});
+
+test("a real managed Bun process retains restart identity without inference", async () => {
+	const root = mkdtempSync(join(tmpdir(), "fleet-real-restart-"));
+	roots.push(root);
+	const worktree = join(root, ".worktrees", lane.item);
+	mkdirSync(join(worktree, ".fleet"), { recursive: true });
+	const runtime = join(root, "claude-runtime.ts");
+	const settings = join(
+		worktree,
+		".fleet",
+		`restart-settings-${lane.sid}.json`,
+	);
+	writeFileSync(settings, "{}");
+	writeFileSync(runtime, "console.log('ready'); await Bun.sleep(60000);");
+	const child = Bun.spawn(
+		[process.execPath, runtime, "-p", "Await resume", "--settings", settings],
+		{
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
+	try {
+		const reader = child.stdout.getReader();
+		const first = await reader.read();
+		expect(new TextDecoder().decode(first.value)).toContain("ready");
+		reader.releaseLock();
+		expect(laneProcessIdentity({ ...lane, pid: child.pid, worktree })).toBe(
+			true,
+		);
+		expect(
+			laneProcessIdentity({
+				...lane,
+				sid: `${lane.sid}-other`,
+				pid: child.pid,
+				worktree,
+			}),
+		).toBe(false);
+	} finally {
+		child.kill();
+		await child.exited;
+	}
+	expect(laneProcessIdentity({ ...lane, pid: child.pid, worktree })).toBe(
+		false,
+	);
 });
 
 test("canonical symlink resolution recognizes native upgrades and actual Node entrypoints", () => {

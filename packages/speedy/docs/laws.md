@@ -101,7 +101,7 @@ Source: external — federation spoke-install design (2026-10-01).
 
 ## One version
 
-`version:` in `~/.config/klh/stack.yaml` pins buckle + suspenders + belt;
+`version:` in `~/.config/klh/stack.json` pins buckle + suspenders + belt;
 hubctl renders it as the git ref every hub pulls. One monorepo, one
 version, every service.
 
@@ -109,8 +109,15 @@ Source: AGENTS.md §One version.
 
 ## Config-over-code
 
-Real hosts, keys, OIDC values live ONLY in machine-level runtime config
-(`~/.config/klh/stack.yaml`, mode 600) — repos carry placeholders only.
+Fleet config is JSON (W1253 Amendment A): JSON.parse is the ONE parser for
+every fleet config read, the yaml npm dependency is gone, and real hosts,
+keys, OIDC values live ONLY in machine-level runtime config
+(`~/.config/klh/stack.json`, mode 600) — repos carry placeholders only.
+Legacy `.yaml` names stay readable during the transition only while their
+content is already JSON; the install migrateConf step cuts machine conf
+over once (0600, original kept as .yaml.bak). Deploy contracts that are
+not fleet config (compose, litellm, the launchd services manifest) keep
+their yaml FILES.
 
 Source: AGENTS.md §Config-over-code.
 
@@ -170,3 +177,15 @@ All 9 original repos (suspenders, belt, buckle, local, speedy, blam + the
 gh). Every commit lands in THIS repo at `packages/<name>/*`.
 
 Source: AGENTS.md §Old repos are push-dead.
+
+## Import law (W1249)
+
+Cross-package imports ride package names (`@klh/*`), never relative
+reach-ins — the 112 inherited edges are ratcheted shrink-only in the guard
+(close an edge = delete its pin line). Imported names must be declared
+(runtime files need `dependencies`; test/content files accept devDeps).
+kernel imports nothing in fleet; domain packages may import kernel once it
+lands. The fleet import graph and entry-point map live in
+docs/fleet.entry-points.map.md.
+
+Source: AGENTS.md §Import law (W1249); tests/fleet.import-law.guard.test.ts

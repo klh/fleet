@@ -6,8 +6,8 @@
 // request time.
 
 import { existsSync, readFileSync } from "node:fs";
-import { YAML } from "bun";
 import { validateDeploymentEgress } from "./adapters/egress.ts";
+import { validateOutboundGuardConfig } from "./outbound-guard.ts";
 import { resolveAdapter } from "./adapters/index.ts";
 import { deriveAdapter } from "./adapters/types.ts";
 
@@ -46,6 +46,11 @@ export interface Deployment {
 interface UpstreamsDoc {
 	version?: number;
 	groups: Record<string, DeploymentSpec[]>;
+	// W1123 hub identity: false = this file is the WHOLE pool — the committed
+	// base ladder never merges underneath. A Docker/remote hub renders it so
+	// an empty/unconfigured ladder exposes zero fake local rows (no :890x).
+	// Absent (the Mac spoke override) = merge-over-base, as always.
+	inherit_defaults?: boolean;
 }
 
 interface DeploymentSpec {
@@ -65,21 +70,28 @@ export interface UpstreamPool {
 	deployments(group: string): Deployment[];
 }
 
-const DEFAULT_UPSTREAMS = new URL("../upstreams.yaml", import.meta.url)
+const DEFAULT_UPSTREAMS = new URL("../upstreams.json", import.meta.url)
 	.pathname;
 
+/** Parse an upstreams doc — JSON only (W1253 Amendment A: fleet config is
+ *  JSON; a legacy .yaml path parses when its content is JSON). */
 function parseUpstreams(text: string, source: string): UpstreamsDoc {
-	const doc = YAML.parse(text) as UpstreamsDoc | null;
+	const doc = JSON.parse(text) as UpstreamsDoc | null;
 	if (!doc || typeof doc !== "object" || !doc.groups)
 		throw new Error(`upstreams: ${source} has no groups mapping`);
 	return doc;
 }
 
-/** Merge override groups over base groups (same-named group is replaced). */
+/** Merge override groups over base groups (same-named group is replaced).
+ *  W1123: `inherit_defaults: false` on the override declares it the WHOLE
+ *  pool — the base ladder never merges underneath (a hub exposes only its
+ *  configured + generated rows, never the committed Mac specialists). */
 export function mergeUpstreams(
 	base: UpstreamsDoc,
 	over: UpstreamsDoc,
 ): UpstreamsDoc {
+	if (over.inherit_defaults === false)
+		return { version: 1, groups: { ...(over.groups ?? {}) } };
 	return {
 		version: 1,
 		groups: { ...base.groups, ...over.groups },
@@ -107,6 +119,7 @@ function poolFrom(doc: UpstreamsDoc): UpstreamPool {
 				if (dep.adapter === undefined) dep.adapter = deriveAdapter(dep.dialect);
 				try {
 					validateDeploymentEgress(resolveAdapter(dep).family, dep);
+					validateOutboundGuardConfig(dep.adapter_config);
 				} catch (e) {
 					throw new Error(
 						`upstreams: group "${group}": ${e instanceof Error ? e.message : String(e)}`,
@@ -122,16 +135,35 @@ function poolFrom(doc: UpstreamsDoc): UpstreamPool {
 	};
 }
 
+/** The .json twin of a configured path (upstreams.hub.yaml → upstreams.hub.json):
+ *  hubctl writes the .json name since W1253, so a rolling deploy where the
+ *  env still names the legacy .yaml resolves the twin when it is on disk. */
+const jsonSiblingOf = (path: string): string =>
+	path.replace(/\.ya?ml$/i, ".json");
+
 /** Resolution: explicit path → BUCKLE_UPSTREAMS → committed default (the
- *  override file merges over the default; groups it declares win). */
+ *  override file merges over the default; groups it declares win). W1123
+ *  fail-forward: a CONFIGURED override that cannot load is startup fatal —
+ *  a hub with a broken mount must never silently fall back to the committed
+ *  Mac ladder (:890x). Unset env = base-only, as always. */
 export function loadUpstreams(explicitPath?: string): UpstreamPool {
 	const basePath = explicitPath ?? DEFAULT_UPSTREAMS;
 	let doc = parseUpstreams(readFileSync(basePath, "utf8"), basePath);
 	const overPath = process.env.BUCKLE_UPSTREAMS;
-	if (overPath && existsSync(overPath)) {
+	if (overPath) {
+		// read-both (W1253): hubctl writes the .json twin, so a rolling deploy
+		// where the env still names the legacy .yaml resolves the twin on disk.
+		const resolved =
+			!existsSync(overPath) && existsSync(jsonSiblingOf(overPath))
+				? jsonSiblingOf(overPath)
+				: overPath;
+		if (!existsSync(resolved))
+			throw new Error(
+				`upstreams: BUCKLE_UPSTREAMS=${overPath} is configured but missing — refusing to fall back to the committed ladder (W1123)`,
+			);
 		doc = mergeUpstreams(
 			doc,
-			parseUpstreams(readFileSync(overPath, "utf8"), overPath),
+			parseUpstreams(readFileSync(resolved, "utf8"), resolved),
 		);
 	}
 	return poolFrom(doc);

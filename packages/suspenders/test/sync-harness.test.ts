@@ -16,7 +16,10 @@ import { executePlan, type StepContext } from "../scripts/install-run.ts";
 import {
 	coldCacheVerdict,
 	materializeDependencies,
+	materializeProduction,
 	offlineResolveArgs,
+	productionFetchArgs,
+	productionInstallArgs,
 	syncHarness,
 } from "../scripts/sync-harness.ts";
 
@@ -82,6 +85,9 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		"bin/fleet-watch.ts",
 		"bin/fleet-board.ts",
 		"bin/morph.ts",
+		"bin/llm-keepwarm.ts",
+		"bin/fallback-drill.ts",
+		"bin/soak.ts",
 		"lib/morph.ts",
 		"board/prompt-transform.ts",
 	])
@@ -120,6 +126,10 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 			"packages/suspenders/hooks/board/prompt-transform.ts",
 			'throw new Error("bad runtime import");',
 		);
+	// W1256.1: the closure-walk entry faces (sync-harness CLOSURE_ENTRIES) must
+	// exist for the tripwire walk — fake faces, same paths as the real payload.
+	for (const file of ["router-shim.ts", "supervisor.ts", "dashboard.ts"])
+		put(`packages/belt/bin/${file}`, "export const value = 1;");
 	put("packages/belt/bin/fixture.ts", "export const value = 1;");
 	put(
 		"packages/buckle/upstreams.yaml",
@@ -445,6 +455,62 @@ test("cold-cache ladder fails early naming the remedy when both legs fail (W1050
 	expect(coldCacheVerdict("a", "b").message).toContain("fetch: b");
 });
 
+test("cold-cache production materialization succeeds offline when archives are cached (W1124.6)", async () => {
+	const f = fixture();
+	const calls: string[][] = [];
+	const run = async (argv: string[]): Promise<void> => {
+		calls.push(argv);
+	};
+	await materializeProduction(join(f.root, "stage"), run);
+	expect(calls).toHaveLength(1);
+	expect(calls[0]).toEqual(productionInstallArgs());
+});
+
+test("cold-cache production materialization fetches missing archives once and retries offline (W1124.6)", async () => {
+	const f = fixture();
+	const calls: string[][] = [];
+	const run = async (argv: string[]): Promise<void> => {
+		calls.push(argv);
+		if (argv.includes("--offline") && calls.length === 1)
+			throw new Error("ENOENT: cache miss dns-packet");
+	};
+	await materializeProduction(join(f.root, "stage"), run);
+	expect(calls).toHaveLength(3);
+	expect(calls[0]).toEqual(productionInstallArgs());
+	// the one bounded fetch: same frozen graph, network, scripts disabled
+	expect(calls[1]).toEqual(productionFetchArgs());
+	expect(calls[2]).toEqual(productionInstallArgs());
+});
+
+test("failed archive fetch leaves the original error intact (W1124.6)", async () => {
+	const f = fixture();
+	const run = async (argv: string[]): Promise<void> => {
+		if (argv.includes("--offline"))
+			throw new Error("ENOENT: cache miss emoji-regex");
+		throw new Error("network unreachable");
+	};
+	const error = await materializeProduction(join(f.root, "stage"), run).then(
+		() => null,
+		(e: Error) => e,
+	);
+	expect(error?.message).toContain("cache miss emoji-regex");
+	expect(error?.message).not.toContain("network unreachable");
+});
+
+test("productionInstallArgs is the frozen offline materialization shape (W1124.6)", () => {
+	const install = productionInstallArgs();
+	expect(install[1]).toBe("install");
+	expect(install).toContain("--production");
+	expect(install).toContain("--offline");
+	expect(install).toContain("--ignore-scripts");
+	expect(install).toContain("--frozen-lockfile");
+	// the fetch is the identical argv minus --offline: same frozen lock, no drift
+	expect(productionFetchArgs()).toEqual(
+		install.filter((a) => a !== "--offline"),
+	);
+	expect(productionFetchArgs()).not.toContain("--offline");
+});
+
 test("exclusive synchronization lock prevents simultaneous installers from publishing twice", async () => {
 	const f = fixture();
 	const results = await Promise.allSettled([
@@ -643,4 +709,106 @@ test("registerGitHooks fails loud when a committed stub is missing", async () =>
 	expect(result.rows[0].note).toContain(
 		"committed .githooks/pre-commit missing",
 	);
+});
+
+test("sync refuses a source behind main — the shared runtime cannot regress (W1243)", async () => {
+	const f = fixture();
+	f.git("update-ref", "refs/heads/main", "HEAD");
+	const base = f.git("rev-parse", "HEAD");
+	f.git("checkout", "--detach");
+	f.put(
+		"packages/suspenders/scripts/lib/guard-fixture.ts",
+		"export const value = 2;",
+	);
+	f.git("add", ".");
+	f.git(
+		"-c",
+		"user.name=Fixture",
+		"-c",
+		"user.email=fixture@example.invalid",
+		"commit",
+		"-m",
+		"advance main past the stale source",
+	);
+	// main takes the advance; the tree parks behind it
+	f.git("update-ref", "refs/heads/main", "HEAD");
+	f.git("checkout", "--detach", base);
+	await expect(syncHarness(f.ctx)).rejects.toThrow(
+		"Refusing to sync a source behind or diverged from main",
+	);
+	expect(lstatSync(f.ctx.prefix).isDirectory()).toBe(true);
+	expect(readFileSync(join(f.ctx.prefix, "operator.env"), "utf8")).toBe(
+		"private-preserved",
+	);
+});
+
+test("a diverged source is refused the same way (W1243)", async () => {
+	const f = fixture();
+	const commit = (msg: string): void => {
+		f.git(
+			"-c",
+			"user.name=Fixture",
+			"-c",
+			"user.email=fixture@example.invalid",
+			"commit",
+			"-m",
+			msg,
+		);
+	};
+	f.git("update-ref", "refs/heads/main", "HEAD");
+	const base = f.git("rev-parse", "HEAD");
+	f.git("checkout", "--detach");
+	f.put(
+		"packages/suspenders/scripts/lib/guard-fixture.ts",
+		"export const value = 2;",
+	);
+	f.git("add", ".");
+	commit("main advance");
+	f.git("update-ref", "refs/heads/main", "HEAD");
+	// park at base and grow a parallel line — neither descends from the other
+	f.git("checkout", "--detach", base);
+	f.put(
+		"packages/suspenders/scripts/lib/guard-fixture.ts",
+		"export const value = 3;",
+	);
+	f.git("add", ".");
+	commit("parallel line");
+	await expect(syncHarness(f.ctx)).rejects.toThrow(
+		"Refusing to sync a source behind or diverged from main",
+	);
+	expect(lstatSync(f.ctx.prefix).isDirectory()).toBe(true);
+});
+
+test("SUSPENDERS_SYNC_ALLOW_BRANCH=1 is the explicit lane-testing escape (W1243)", async () => {
+	const f = fixture();
+	f.git("update-ref", "refs/heads/main", "HEAD");
+	const base = f.git("rev-parse", "HEAD");
+	f.git("checkout", "--detach");
+	f.put(
+		"packages/suspenders/scripts/lib/guard-fixture.ts",
+		"export const value = 2;",
+	);
+	f.git("add", ".");
+	f.git(
+		"-c",
+		"user.name=Fixture",
+		"-c",
+		"user.email=fixture@example.invalid",
+		"commit",
+		"-m",
+		"advance main past the stale source",
+	);
+	f.git("checkout", "--detach", base);
+	const prev = process.env.SUSPENDERS_SYNC_ALLOW_BRANCH;
+	process.env.SUSPENDERS_SYNC_ALLOW_BRANCH = "1";
+	try {
+		await syncHarness(f.ctx);
+	} finally {
+		if (prev === undefined) delete process.env.SUSPENDERS_SYNC_ALLOW_BRANCH;
+		else process.env.SUSPENDERS_SYNC_ALLOW_BRANCH = prev;
+	}
+	const receipt = JSON.parse(
+		readFileSync(join(f.ctx.prefix, "harness-receipt.json"), "utf8"),
+	);
+	expect(receipt.revision).toBe(base);
 });

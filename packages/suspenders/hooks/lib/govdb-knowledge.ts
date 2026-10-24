@@ -9,6 +9,7 @@ import {
 	CONFIDENCE_HISTORY_DDL,
 	CONFIDENCE_HISTORY_INDEX_DDL,
 } from "./confidence.ts";
+import { ensureRollTables } from "./knowledge-roll.ts";
 
 // The knowledge FTS shape in its three historical variants (v6 fresh create,
 // v10 kb.-qualified split, W91 external-content convergence): one builder so
@@ -283,6 +284,10 @@ export function openKnowledgeDb(): Database {
 			db.run("ALTER TABLE knowledge ADD COLUMN graveyard_reason TEXT");
 		// W953 confidence doctrine: the stamp JSON rides the row next to the
 		// scalar confidence column (present since the v6 schema).
+		// W1226 fact provenance crosses the sync as structured evidence — the
+		// hub-side knowledge row carries it alongside the W953 stamp JSON.
+		if (!kCols.includes("provenance"))
+			db.run("ALTER TABLE knowledge ADD COLUMN provenance TEXT");
 		if (!kCols.includes("confidence_stamp"))
 			db.run("ALTER TABLE knowledge ADD COLUMN confidence_stamp TEXT");
 	}
@@ -291,5 +296,8 @@ export function openKnowledgeDb(): Database {
 	db.run(
 		"CREATE TABLE IF NOT EXISTS queue_checkpoint (id INTEGER PRIMARY KEY CHECK (id = 1), prompt_hash TEXT NOT NULL, ts INTEGER NOT NULL)",
 	);
+	// W1213 — the upward claim-roll aggregate (self-healing CREATE, same
+	// doctrine as every table above; hub-side landing is lib/knowledge-roll).
+	ensureRollTables(db);
 	return db;
 }

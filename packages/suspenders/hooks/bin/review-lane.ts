@@ -14,6 +14,26 @@ import { existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
+import {
+	reviewContext,
+	publishReviewReceipt,
+	reviewFindingIds,
+} from "../lib/review-receipt.ts";
+import {
+	finishReviewRequest,
+	reviewRequestKey,
+} from "../lib/review-scheduler.ts";
+import {
+	TEST_FILE,
+	missingImportsExplained,
+	type Proof,
+} from "../lib/coverage-proof.ts";
+import {
+	adminKey,
+	BUCKLE_FRONT,
+	mintLaneKey,
+	revokeLaneKey,
+} from "../lib/lane-auth.ts";
 
 // ---- args (W820: verb-kit owns parsing — W651 law) -------------------------
 // W820: verb-kit owns parsing (W651 law) — reqFlags --item/--project; the
@@ -21,7 +41,7 @@ import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 const spec = defineVerb({
 	name: "review",
 	usage:
-		"usage: bun review-lane.ts --item <Wn> --project <p> --executor <name> (--bin <path> | --belt <m>:<p>[:<model>] | --llm-url <url> [--llm-model <m>])",
+		"usage: bun review-lane.ts --item <Wn> --project <p> --executor <name> (--buckle <model> | --bin <path> | --belt <m>:<p>[:<model>] | --llm-url <url> [--llm-model <m>])",
 	flags: [
 		"--item",
 		"--project",
@@ -30,6 +50,9 @@ const spec = defineVerb({
 		"--belt",
 		"--llm-url",
 		"--llm-model",
+		"--buckle",
+		"--request-key",
+		"--request-token",
 	],
 	reqFlags: ["--item", "--project"],
 });
@@ -60,6 +83,30 @@ if (!repo || repo.includes("..") || !repo.startsWith("/")) {
 
 // ---- context: the item, its thread, the diff -------------------------------
 const db = openStore();
+const requestKey = parsedArgs.parsed.flag("--request-key");
+const requestToken = parsedArgs.parsed.flag("--request-token");
+if (Boolean(requestKey) !== Boolean(requestToken))
+	throw new Error("scheduled review requires request key and token together");
+const reviewFailureReason = (error: unknown): string =>
+	(error instanceof Error ? error.message : String(error))
+		.replace(/\bbksk_[A-Za-z0-9_-]+|\bsk-[A-Za-z0-9_-]+/g, "[redacted]")
+		.slice(0, 250);
+const failedEarly = (error: unknown) => {
+	if (requestKey && requestToken)
+		finishReviewRequest(
+			db,
+			requestKey,
+			requestToken,
+			true,
+			reviewFailureReason(error),
+		);
+	console.error(
+		"review-lane: runner failed before a bound receipt; scheduled retry retained",
+	);
+	process.exit(2);
+};
+process.on("uncaughtException", failedEarly);
+process.on("unhandledRejection", failedEarly);
 type Row = Record<string, unknown>;
 const w = db
 	.query("SELECT * FROM work_items WHERE project = ? AND id = ?")
@@ -80,37 +127,68 @@ const gitRun = (args: string[], cwd = repo): { code: number; out: string } => {
 };
 
 // the branch diff vs main — capped; absent branch = claims-only review
-function gitDiff(): string {
-	const branch = `suspenders/${item}`;
-	if (
-		gitRun(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])
-			.code !== 0
-	)
-		return "";
-	return gitRun(["diff", `main...${branch}`]).out.slice(0, 60_000);
+function gitDiff(base: string, commit: string): string {
+	const result = gitRun(["diff", `${base}...${commit}`]);
+	if (result.code !== 0 || result.out.length > 512_000)
+		throw new Error(
+			"review-lane: full exact diff unavailable or exceeds review budget; decompose before approval",
+		);
+	return result.out;
 }
 
-// the coord thread: last 20 events on the item (work + project stamped)
+// the coord thread: last 20 events on the item (work + project stamped);
+// W1236.1: each line also carries the event's note text (parsed from the
+// payload JSON, capped) — prior review findings and their B-IDs live there,
+// and a reviewer who cannot see them can never emit the RESOLVED lines the
+// receipt contract demands.
+const noteOf = (payload: unknown): string => {
+	try {
+		return String(
+			(JSON.parse(String(payload)) as { note?: unknown }).note ?? "",
+		).slice(0, 400);
+	} catch {
+		return "";
+	}
+};
 const thread: string[] = (
 	db
 		.query(
 			"SELECT ts, source, kind, payload FROM events WHERE work = ? AND project = ? ORDER BY id DESC LIMIT 20",
 		)
 		.all(item, project) as Row[]
-).map(
-	(e) =>
-		`${new Date(Number(e.ts)).toISOString()} ${e.source} ${e.kind} ${String(
-			e.payload,
-		).slice(0, 200)}`,
+).map((e) =>
+	[
+		new Date(Number(e.ts)).toISOString(),
+		e.source,
+		e.kind,
+		String(e.payload).slice(0, 200),
+		noteOf(e.payload),
+	]
+		.filter(Boolean)
+		.join(" "),
 );
 
 // ---- the review prompt ------------------------------------------------------
-const diff = gitDiff();
+const boundContext = reviewContext(repo, `suspenders/${item}`);
+if (requestKey && requestKey !== reviewRequestKey(project, item, boundContext))
+	throw new Error("review context changed before scheduled runner started");
+const diff = gitDiff(boundContext.base, boundContext.commit);
+const reviewerSid = `review-${crypto.randomUUID()}`;
+db.query(
+	"INSERT INTO sessions (sid, project, role, started_at, hb, state) VALUES (?, ?, 'reviewer', ?, ?, 'RUNNING')",
+).run(reviewerSid, project, Date.now(), Date.now());
 const prompt = [
 	`You are a read-only second-opinion reviewer for Work Graph item ${item} in ${repo}.`,
 	`Verify the work against the mission; you are auditing, NOT re-doing it. Do not edit anything.`,
+	`REVIEWED COMMIT ${boundContext.commit}; INTEGRATION BASE ${boundContext.base}`,
+	boundContext.text,
 	``,
-	`PROTOCOL (Sinai rule): a mechanical coverage proof backs this review — on PASS the diff is reverted in a scratch checkout and the branch's new tests are required to fail there; tests that pass without the change mean no coverage and downgrade the verdict to FAIL.`,
+	// W1243.1.1 (FAIL62885): the old sentence implied the reviewer would see
+	// proof output and the model refused PASS citing its absence. The ordering
+	// is binding and must be unambiguous: the proof is harness-run AFTER the
+	// provisional PASS; absent pre-verdict proof is not a finding.
+	`PROOF ORDERING (Sinai rule, binding): the coverage proof is mechanical and runs in this harness, AFTER your verdict. You may emit a provisional PASS first; the harness then reverts the branch diff in a scratch checkout and requires the branch's new tests to fail there — tests that pass without the change downgrade the final verdict to FAIL.`,
+	`No proof command or proof output appears in this prompt, by design. The absence of pre-verdict proof output is NOT a finding — do not open a blocker for missing coverage proof; fail-closed enforcement of the proof is the harness's job, not yours.`,
 	`MISSION (work show):`,
 	`${String(w.title)}${w.description ? ` — ${String(w.description)}` : ""}`,
 	`state: ${String(w.state)}; owner: ${String(w.owner_sid ?? "none")}`,
@@ -118,10 +196,14 @@ const prompt = [
 	`ITEM THREAD (newest first, last 20):`,
 	...(thread.length ? thread : ["(no events)"]),
 	``,
-	`BRANCH DIFF (main...suspenders/${item}, capped):`,
+	`EXACT BRANCH DIFF (${boundContext.base}...${boundContext.commit}):`,
 	diff || "(no branch — review the thread/claims only)",
 	``,
 	`Report findings as terse bullets; every finding carries a stable ID — B<round>-<slug> (blocker) or N<round>-<slug> (note) — round = the round that FIRST reported it; IDs are never renumbered.`,
+	`ID discipline (W1263): B-prefix = merge-blocking defect, N-prefix = advisory. NEVER label advisory content with a B-prefix — every B-ID you emit blocks the merge until a reviewer explicitly resolves it, and advisory B-IDs accumulate a blocking union across review rounds that starves the merge ladder. When in doubt, use N.`,
+	`Review silently: do not announce next steps or ask to continue — your whole reply is findings bullets plus the verdict line.`,
+	`Explicitly resolved prior findings use a separate line RESOLVED: B<round>-<slug> followed by evidence. Unresolved blocker IDs prevent merge even with a PASS final line.`,
+	`Prior blocking IDs (W1263): when the ITEM THREAD shows earlier B-IDs for this exact commit, your reply must carry one line PER prior ID — either re-open it (state it as a finding bullet) or close it (RESOLVED: B<id> <one-line evidence>). A clean PASS with prior IDs silently absent is not a resolution and will be rejected by the receipt contract.`,
 	`Evidence-kind caps severity: a file:line-only claim caps at blocker(high); a runtime-behavior claim without a trigger path caps at note(low).`,
 	`End your reply with ONE machine-parseable final line:`,
 	`VERDICT: PASS | VERDICT: FAIL - <reason>`,
@@ -129,10 +211,13 @@ const prompt = [
 
 // ---- executor legs ----------------------------------------------------------
 type Leg =
+	| { kind: "buckle"; model: string }
 	| { kind: "bin"; bin: string }
 	| { kind: "belt"; target: string }
 	| { kind: "llm"; url: string; model: string };
 const leg: Leg | null = (() => {
+	const buckle = parsedArgs.parsed.flag("--buckle");
+	if (buckle) return { kind: "buckle", model: buckle };
 	const bin = parsedArgs.parsed.flag("--bin");
 	if (bin) return { kind: "bin", bin };
 	const belt = parsedArgs.parsed.flag("--belt");
@@ -152,7 +237,97 @@ const leg: Leg | null = (() => {
 
 // ---- run the leg ------------------------------------------------------------
 const LEG_TIMEOUT_MS = 15 * 60_000;
+// W1263: the SERVED wire model of the last OpenAI-wire leg attempt — receipts
+// never recorded which upstream actually answered, so the review-leg route
+// was untraceable from the receipt alone. Stamp it into the review fact.
+let legWireModel: string | undefined;
+async function requestLlm(
+	url: string,
+	model: string,
+	key?: string,
+): Promise<string> {
+	const response = await fetch(url, {
+		method: "POST",
+		headers: {
+			"content-type": "application/json",
+			...(key ? { authorization: `Bearer ${key}` } : {}),
+		},
+		body: JSON.stringify({
+			model,
+			messages: [{ role: "user", content: prompt }],
+			// W1236: glm-5.3-flash reasoning burned the whole 1500 budget before
+			// any final text — HTTP 200 with content:"" — on every merge-ladder
+			// receipt 2026-10-23. 8000 covers thinking headroom + the write-up.
+			max_tokens: 8000,
+			temperature: 0.2,
+		}),
+		signal: AbortSignal.timeout(LEG_TIMEOUT_MS),
+	});
+	if (!response.ok) throw new Error(`Review LLM HTTP ${response.status}`);
+	const body = (await response.json()) as {
+		model?: string;
+		choices?: {
+			finish_reason?: string;
+			message?: {
+				content?: string | null;
+				reasoning_content?: string | null;
+				reasoning?: string | null;
+			};
+		}[];
+		usage?: { completion_tokens?: number };
+	};
+	// W1236: an HTTP 200 with empty content is a leg FAILURE — finish_reason
+	// "length" means the thinking budget ate the completion. Returning "" here
+	// is the opaque "leg failed" receipt (verdict ERROR, no diagnostics).
+	// W1263: reasoning legs (GLM family) fill reasoning_content and can stop
+	// with content:"" while usage.completion_tokens>0 — the review text rides
+	// the reasoning field. Recovering it is diagnosis, not fabrication: the
+	// verdict parse and the Sinai coverage proof still gate the verdict.
+	const choice = body.choices?.[0];
+	const msg = choice?.message;
+	if (typeof body.model === "string" && body.model) legWireModel = body.model;
+	const content = msg?.content ?? "";
+	const reasoning = msg?.reasoning_content ?? msg?.reasoning ?? "";
+	if (content.trim()) return content;
+	if (reasoning.trim()) return reasoning;
+	// W1263: BOTH fields empty = upstream empty (not parser loss). The throw
+	// carries the SERVED wire model + full payload shape, so the ERROR receipt
+	// self-describes the exact review-leg route for the operator.
+	const wire = typeof body.model === "string" ? body.model : "unknown";
+	throw new Error(
+		`review leg returned empty content (model=${wire} finish_reason=${
+			choice?.finish_reason ?? "unknown"
+		}${
+			body.usage?.completion_tokens === undefined
+				? ""
+				: `, completion_tokens=${body.usage.completion_tokens}`
+		}, content_len=0, reasoning_len=0)`,
+	);
+}
 async function runLeg(): Promise<string> {
+	if (leg?.kind === "buckle") {
+		const admin = adminKey();
+		if (!admin) throw new Error("Buckle review admin credential unavailable");
+		const scoped = await mintLaneKey(reviewerSid, admin);
+		if (!scoped) throw new Error("Buckle review scoped key mint refused");
+		let result = "";
+		let failed = false;
+		let failure: unknown;
+		try {
+			result = await requestLlm(
+				`${BUCKLE_FRONT}/w/${reviewerSid}/v1/chat/completions`,
+				leg.model,
+				scoped.key,
+			);
+		} catch (error) {
+			failed = true;
+			failure = error;
+		}
+		if (!(await revokeLaneKey(scoped.keyId, admin)))
+			throw new Error("Buckle review scoped key revocation failed");
+		if (failed) throw failure;
+		return result;
+	}
 	if (leg?.kind === "bin") {
 		const p = Bun.spawn([leg.bin, "-p", prompt], {
 			stdin: "ignore",
@@ -188,30 +363,9 @@ async function runLeg(): Promise<string> {
 		return c.stdout.toString();
 	}
 	if (leg?.kind === "llm") {
-		const r = await fetch(leg.url, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				...(process.env.SUSPENDERS_LLM_KEY
-					? { authorization: `Bearer ${process.env.SUSPENDERS_LLM_KEY}` }
-					: {}),
-			},
-			body: JSON.stringify({
-				model: leg.model,
-				messages: [{ role: "user", content: prompt }],
-				max_tokens: 1500,
-				temperature: 0.2,
-			}),
-			signal: AbortSignal.timeout(LEG_TIMEOUT_MS),
-		});
-		if (!r.ok)
-			throw new Error(`LLM ${r.status}: ${(await r.text()).slice(0, 200)}`);
-		const j = (await r.json()) as {
-			choices?: { message?: { content?: string } }[];
-		};
-		return j.choices?.[0]?.message?.content ?? "";
+		return requestLlm(leg.url, leg.model, process.env.SUSPENDERS_LLM_KEY);
 	}
-	throw new Error("no executor leg (--bin | --belt | --llm-url)");
+	throw new Error("no executor leg (--buckle | --bin | --belt | --llm-url)");
 }
 
 // ---- coverage proof (W634, Sinai rule) --------------------------------------
@@ -219,16 +373,8 @@ async function runLeg(): Promise<string> {
 // the branch's new tests are run there: tests that pass without the change
 // are out of scope or wrong, so a PASS with no failing new test is downgraded
 // to FAIL. The evidence annotates the verdict.
-type Proof = {
-	status: "proved" | "no-coverage" | "skipped" | "error";
-	detail: string;
-	failed?: number;
-	passed?: number;
-};
-
-// test paths only: the proof keeps these, reverses everything else
-const TEST_FILE =
-	/(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(test|spec)_/;
+// W1262: Proof/TEST_FILE and the missing-module classification live in
+// hooks/lib/coverage-proof.ts (unit face for the classifier).
 
 const PROOF_TIMEOUT_MS = 5 * 60_000;
 
@@ -244,6 +390,20 @@ async function coverageProof(branch: string): Promise<Proof> {
 		.filter((f) => TEST_FILE.test(f));
 	if (testFiles.length === 0)
 		return { status: "skipped", detail: "no test files in diff" };
+	// W1262 (W1258 regression): reverse-applying the diff removes exactly the
+	// modules the diff ADDED — a restored new test importing one fails right
+	// there. That failure is the proof itself (the change is what provides the
+	// module), so it must not classify as an environmental error; only missing
+	// imports that resolve to NOTHING the diff added stay environmental.
+	const addedProd = gitRun([
+		"diff",
+		"--name-only",
+		"--diff-filter=A",
+		`main...${branch}`,
+	])
+		.out.trim()
+		.split("\n")
+		.filter((f) => f && !TEST_FILE.test(f));
 
 	const scratch = mkdtempSync(join(tmpdir(), "review-proof-"));
 	let added = false;
@@ -287,8 +447,16 @@ async function coverageProof(branch: string): Promise<Proof> {
 		clearTimeout(timer);
 		await p.exited;
 		const output = `${outText}\n${errText}`;
-		if (/Cannot find (package|module)/.test(output))
-			return { status: "error", detail: "scratch module resolution failed" };
+		if (/Cannot find (package|module)/.test(output)) {
+			// W1262 (W1258 regression): a missing import that names a module the
+			// diff ADDED means the reversed change is what provides the module —
+			// the failure is the proof. Only an unexplained one is environmental.
+			if (!missingImportsExplained(output, addedProd, testFiles))
+				return {
+					status: "error",
+					detail: "scratch module resolution failed",
+				};
+		}
 		// the trailing bun summary is the machine-readable part
 		const counts = (word: string): number => {
 			const hits = [...output.matchAll(new RegExp(`(\\d+) ${word}\\b`, "g"))];
@@ -339,17 +507,38 @@ const emitCli = (args: string[]): void => {
 const noteFor = (headline: string): string =>
 	`review ${item} by ${executor} — ${headline}`;
 
-const findings = await runLeg().catch((e: unknown) => {
-	console.error(
-		`review-lane ${item}: leg failed: ${e instanceof Error ? e.message : String(e)}`,
-	);
-	return null;
-});
-
 // verdict line: the LAST VERDICT: match wins (models restate headers)
-const verdictLine = [
-	...(findings ?? "").matchAll(/VERDICT: (PASS|FAIL[^\n]*)/g),
-].at(-1)?.[1];
+const verdictLineOf = (reply: string | null): string | undefined =>
+	reply
+		? [...reply.matchAll(/VERDICT: (PASS|FAIL[^\n]*)/g)].at(-1)?.[1]
+		: undefined;
+
+// W1236: one leg attempt is not a verdict — 429 waves drain and thinking
+// models sometimes reply without the machine-parseable line. Two bounded
+// attempts with a short backoff before the ERROR receipt records why.
+// W1236.1: findings ACCUMULATE across attempts — a retry that produces the
+// verdict line must not silently erase substantive findings from the earlier
+// attempt (FAIL60967: first reply carried a blocker, second was a bare PASS;
+// the blocker vanished). Blocker IDs ride the combined text into the
+// receipt, so a PASS over preserved blockers fails the contract check
+// instead of landing clean.
+const legParts: string[] = [];
+let legFailure = "leg failed";
+let verdictLine = verdictLineOf(null);
+for (let legAttempt = 1; legAttempt <= 2; legAttempt++) {
+	const attemptText = await runLeg().catch((e: unknown) => {
+		legFailure = reviewFailureReason(e);
+		console.error(
+			`review-lane ${item}: leg attempt ${legAttempt} failed: ${e instanceof Error ? e.message : String(e)}`,
+		);
+		return null;
+	});
+	if (attemptText) legParts.push(attemptText);
+	verdictLine = verdictLineOf(legParts.join("\n\n"));
+	if (verdictLine || legAttempt === 2) break;
+	await new Promise((resolve) => setTimeout(resolve, 20_000));
+}
+const findings = legParts.length ? legParts.join("\n\n") : null;
 const verdict =
 	findings && verdictLine
 		? verdictLine.startsWith("PASS")
@@ -357,7 +546,7 @@ const verdict =
 			: "FAIL"
 		: "ERROR";
 const reviewerHeadline = (
-	verdictLine ?? (findings ? "no verdict line in reply" : "leg failed")
+	verdictLine ?? (findings ? "no verdict line in reply" : legFailure)
 ).slice(0, 300);
 
 // Sinai proof gates the approval: a PASS stands only when the branch's new
@@ -373,7 +562,12 @@ const proofHeadline =
 			: proof.status === "no-coverage"
 				? "coverage-proof FAIL: all new tests pass without the change — no coverage"
 				: `coverage-proof ${proof.status}: ${proof.detail}`;
-const effective = proof?.status === "no-coverage" ? "FAIL" : verdict;
+const effective =
+	proof?.status === "error"
+		? "ERROR"
+		: proof?.status === "no-coverage"
+			? "FAIL"
+			: verdict;
 const headline = proofHeadline
 	? `${proofHeadline} | ${reviewerHeadline}`
 	: reviewerHeadline;
@@ -392,6 +586,7 @@ db.query(
 	JSON.stringify({
 		verdict: effective,
 		headline,
+		wire_model: legWireModel ?? null,
 		ts: Date.now(),
 		coverage: proof ?? undefined,
 	}),
@@ -422,20 +617,31 @@ const noteArgs = [
 ];
 emitCli(noteArgs);
 
-// the verdict event: work.review, payload stamped work+project so the drawer
-// timeline picks it up; the findings body rides the note (capped)
-emitCli([
-	"emit",
-	"work.review",
-	`--work=${item}`,
-	`--project=${project}`,
-	`--executor=${executor}`,
-	`--verdict=${effective}`,
-	"--note",
-	`${headline}\n\n${proofNote}\n\n${(findings ?? "").slice(0, 3000)}`,
-	"--as",
-	`review:${executor}`,
-]);
+// One bound work.review event; the board still reads its top-level verdict.
+const { blocking, resolved } = reviewFindingIds(findings ?? "");
+publishReviewReceipt(db, project, item, {
+	version: 1,
+	commit: boundContext.commit,
+	base: boundContext.base,
+	instructions: boundContext.instructions,
+	reviewer: reviewerSid,
+	verdict: effective,
+	blocking,
+	resolved,
+	evidence: `${headline}\n${proofNote}\n${(findings ?? "").slice(0, 3000)}`,
+});
+db.query("UPDATE sessions SET state = 'DONE', hb = ? WHERE sid = ?").run(
+	Date.now(),
+	reviewerSid,
+);
+if (requestKey && requestToken)
+	finishReviewRequest(
+		db,
+		requestKey,
+		requestToken,
+		effective === "ERROR",
+		headline,
+	);
 console.log(
 	`review-lane: ${item} reviewed by ${executor} — ${effective}: ${headline.slice(0, 120)}`,
 );

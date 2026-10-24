@@ -1,10 +1,17 @@
 // Shared HTTP trace contract for Fleet services. Only opaque IDs and bounded
 // diagnostic enums cross service boundaries; prompt and error bodies do not.
 import { randomBytes, randomUUID } from "node:crypto";
+import {
+	safeTimeoutPhase,
+	type TransportEvidence,
+} from "./transport-evidence.ts";
 
 const TRACEPARENT = /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/;
 const SAFE_ID = /^[A-Za-z0-9._-]{1,128}$/;
 const SAFE_LABEL = /^[a-z][a-z0-9_-]{0,39}$/;
+/** Caller-typed failure kinds may carry a namespace colon (in_band:<type>)
+ *  and run longer than a plain label — same charset otherwise. */
+const SAFE_LABEL_TYPED = /^[a-z][a-z0-9_:-]{0,127}$/;
 
 export interface FleetTrace {
 	traceparent: string;
@@ -21,6 +28,7 @@ export interface HopFields {
 	attempts?: number;
 	upstreamStatus?: number;
 	upstreamKind?: string;
+	transportTimeoutPhase?: TransportEvidence["timeoutPhase"];
 	upstreamId?: string;
 	callId?: string;
 }
@@ -42,7 +50,22 @@ export interface HopReceipt {
 	/** Origin's bounded refusal code, as received on the upstream response. */
 	upstreamRefusalCode?: string | null;
 	/** Which layer produced the attempted refusal; never inferred from status. */
-	refusalOrigin?: "upstream" | "bridged-upstream" | "network" | null;
+	refusalOrigin?:
+		| "upstream"
+		| "bridged-upstream"
+		| "network"
+		| "local-admission"
+		| null;
+	/** Configured account pool and measured local queue dwell; absent is unknown. */
+	providerPool?: string | null;
+	queueWaitMs?: number | null;
+	/** Provider-reported bounded diagnostic tokens; never response messages. */
+	providerErrorCode?: string | null;
+	providerErrorType?: string | null;
+	/** W1086: rides the FINAL serving attempt only. Absent = not
+	 *  instrumented at that layer — readers see NULL, never a guess. */
+	settle?: StreamSettle;
+	transport?: TransportEvidence | null;
 }
 
 /** Upstream metadata is untrusted. Persist only a short diagnostic token. */
@@ -59,6 +82,80 @@ export function safeCorrelationId(value: unknown): string | undefined {
 }
 
 export const safeUpstreamId = safeCorrelationId;
+
+export function safeProviderErrorToken(value: unknown): string | null {
+	const token =
+		typeof value === "number" && Number.isSafeInteger(value)
+			? String(value)
+			: value;
+	return typeof token === "string" &&
+		/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(token) &&
+		!/^(?:sk-|bksk_|ghp_|AKIA|Bearer)/i.test(token)
+		? token
+		: null;
+}
+
+/** Who ended the stream, observed at the close site: 'upstream' = the
+ *  provider ended it, 'client' = the caller disconnected, 'buckle' = this
+ *  gateway enforced a deadline/guard, 'unknown' = the close was observed
+ *  without a direction probe. Uninstrumented layers must not claim one. */
+export type StreamCloser = "upstream" | "client" | "buckle" | "unknown";
+
+/** W1086 stream settle facts: body-free timing + close direction for the
+ *  stream that rode this attempt. NULL timestamps = the byte was never
+ *  observed (e.g. headers ok, zero body bytes). */
+export interface StreamSettle {
+	firstByteMs: number | null;
+	lastByteMs: number | null;
+	closer: StreamCloser;
+	failureKind: string | null;
+}
+
+export interface SettleInput {
+	/** Request start (epoch ms) — the offsets are relative to it. */
+	t0: number;
+	/** First upstream body byte observed (epoch ms), null = none seen. */
+	firstByteAt: number | null;
+	/** Last body byte observed (epoch ms), null = none seen. */
+	lastByteAt: number | null;
+	closer: StreamCloser;
+	/** The close error, if any — reduced to a bounded failure kind. */
+	error?: unknown;
+	/** A pre-typed failure kind from the close site — clamped, NOT
+	 *  re-derived, so the caller's taxonomy survives. Precedes `error`. */
+	failureKind?: string | null;
+}
+
+/** Build the settle block at a stream close site: clamps the offsets
+ *  (>= 0), keeps NULL for unobserved bytes, and reduces the close error
+ *  through safeFailureKind so no message text ever becomes durable. A
+ *  caller-supplied pre-typed failureKind wins verbatim (clamped). */
+export function buildSettleFact(input: SettleInput): StreamSettle {
+	const rel = (at: number | null): number | null => {
+		if (at === null || !Number.isFinite(at)) return null;
+		return Math.max(0, Math.floor(at - input.t0));
+	};
+	const kind = buildSettleKind(input);
+	return {
+		firstByteMs: rel(input.firstByteAt),
+		lastByteMs: rel(input.lastByteAt),
+		closer: input.closer,
+		failureKind: kind,
+	};
+}
+
+/** Reduce the settle input to one bounded failure kind: a pre-typed
+ *  caller kind wins (clamped through SAFE_LABEL_TYPED), an error reduces
+ *  through safeFailureKind, no error = null. */
+function buildSettleKind(input: SettleInput): string | null {
+	return input.failureKind !== undefined && input.failureKind !== null
+		? SAFE_LABEL_TYPED.test(input.failureKind.toLowerCase())
+			? input.failureKind.toLowerCase()
+			: null
+		: input.error === undefined
+			? null
+			: safeFailureKind(input.error);
+}
 
 /** A body-free failure class for hop logs. Error messages can contain prompt
  * text or credentials, so only a constrained error name and transport code
@@ -115,6 +212,7 @@ function setLabel(
 }
 
 const OWNED_HEADERS = [
+	"x-klh-transport-timeout-phase",
 	"x-klh-service",
 	"x-klh-hop",
 	"x-klh-refusal",
@@ -135,6 +233,8 @@ export function stampHopHeaders(headers: Headers, fields: HopFields): void {
 	setLabel(headers, "x-klh-hop", fields.hop);
 	setLabel(headers, "x-klh-refusal", fields.refusal);
 	setLabel(headers, "x-klh-upstream-kind", fields.upstreamKind);
+	const phase = safeTimeoutPhase(fields.transportTimeoutPhase);
+	if (phase) headers.set("x-klh-transport-timeout-phase", phase);
 	if (fields.traceId && /^[0-9a-f]{32}$/.test(fields.traceId))
 		headers.set("x-klh-trace-id", fields.traceId);
 	const requestId = safeCorrelationId(fields.requestId);

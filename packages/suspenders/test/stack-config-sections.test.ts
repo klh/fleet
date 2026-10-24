@@ -17,7 +17,7 @@ let path: string;
 
 beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), "w230-stack-"));
-	path = join(dir, "stack.yaml");
+	path = join(dir, "stack.json");
 	process.env.KLH_STACK = path;
 });
 
@@ -27,25 +27,26 @@ afterEach(() => {
 	rmSync(dir, { recursive: true, force: true });
 });
 
-const writeStack = (text: string): void => {
-	writeFileSync(path, text);
+const writeStack = (conf: unknown): void => {
+	writeFileSync(path, `${JSON.stringify(conf, null, "\t")}\n`);
 	chmodSync(path, 0o600);
 };
 
 describe("W230 stack sections", () => {
-	test("empty file = valid empty config", () => {
-		writeStack("");
+	test("empty config = valid empty config", () => {
+		writeStack({});
 		const s = tryLoadStack();
 		expect(s).not.toBeNull();
 		expect(s?.hubs).toEqual({});
 	});
 
 	test("executorConfig: id row, then default-row fallback", () => {
-		writeStack(
-			"executors:\n" +
-				"  default: { openai_base: 'http://d:1/v1', model: m-def }\n" +
-				"  claude: { anthropic_base: 'http://c:2', model: m-claude }\n",
-		);
+		writeStack({
+			executors: {
+				default: { openai_base: "http://d:1/v1", model: "m-def" },
+				claude: { anthropic_base: "http://c:2", model: "m-claude" },
+			},
+		});
 		expect(executorConfig("claude")?.model).toBe("m-claude");
 		expect(executorConfig("claude")?.anthropic_base).toBe("http://c:2");
 		expect(executorConfig("codex")?.model).toBe("m-def");
@@ -54,11 +55,12 @@ describe("W230 stack sections", () => {
 	});
 
 	test("policyForRepo: basename beats wildcard; missing row undefined", () => {
-		writeStack(
-			"policies:\n" +
-				"  fleet: { hub: nas, residency: [eu] }\n" +
-				"  '*': { prefer: local }\n",
-		);
+		writeStack({
+			policies: {
+				fleet: { hub: "nas", residency: ["eu"] },
+				"*": { prefer: "local" },
+			},
+		});
 		expect(policyForRepo("/x/y/fleet")?.hub).toBe("nas");
 		expect(policyForRepo("/x/y/FLEET")?.residency).toEqual(["eu"]);
 		expect(policyForRepo("/x/y/other")?.prefer).toBe("local");
@@ -70,16 +72,14 @@ describe("W230 stack sections", () => {
 		const secrets = join(dir, "secrets.env");
 		writeFileSync(secrets, 'OTHER=1\nFROM_FILE_API_KEY="file-value"\n');
 		chmodSync(secrets, 0o600);
-		writeStack(
-			[
-				"providers:",
-				"  inline: { key: inline-value }",
-				"  via-env: { env: W230_TEST_KEY_VAR }",
-				`  from-file: { key_file: "${secrets}" }`,
-				`  named: { key_file: "${secrets}", key_name: OTHER }`,
-				"",
-			].join("\n"),
-		);
+		writeStack({
+			providers: {
+				inline: { key: "inline-value" },
+				"via-env": { env: "W230_TEST_KEY_VAR" },
+				"from-file": { key_file: secrets },
+				named: { key_file: secrets, key_name: "OTHER" },
+			},
+		});
 		expect(providerKey("inline")).toBe("inline-value");
 		expect(providerKey("via-env")).toBe("env-value");
 		expect(providerKey("from-file")).toBe("file-value");
@@ -90,7 +90,7 @@ describe("W230 stack sections", () => {
 		const secrets = join(dir, "loose.env");
 		writeFileSync(secrets, "X_API_KEY=1\n");
 		chmodSync(secrets, 0o644);
-		writeStack("providers:\n  x: { key_file: \"" + secrets + "\" }\n");
+		writeStack({ providers: { x: { key_file: secrets } } });
 		expect(() => providerKey("x")).toThrow(/mode 600/);
 	});
 

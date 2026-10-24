@@ -292,6 +292,12 @@ console.log(createHash("sha256").update(readFileSync(${JSON.stringify(KDB)}, "ut
 		expect(coord("knowledge-verify").code).toBe(0);
 		cover("knowledge-curate");
 		expect(coord("knowledge-curate").code).toBe(0);
+		// W1113: the reprocess checkpoint verb is back on the door face — the
+		// dry-run reports honestly on whatever checkpoint state the fixture has.
+		cover("knowledge-reprocess");
+		const rp = coord("knowledge-reprocess");
+		expect(rp.code).toBe(0);
+		expect(rp.out).toMatch(/checkpoint current|would requeue/);
 	});
 	test("dispose dismisses a seeded proposal", () => {
 		insK(

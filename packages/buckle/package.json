@@ -12,13 +12,16 @@
 		"start": "bun run src/server.ts"
 	},
 	"devDependencies": {
-		"@types/bun": "latest"
+		"@anthropic-ai/sdk": "^1.1.0",
+		"@types/bun": "latest",
+		"openai": "^7.42.0"
 	},
 	"peerDependencies": {
 		"typescript": "^7"
 	},
 	"dependencies": {
-		"@klh/blam": "workspace:*"
+		"@klh/blam": "workspace:*",
+		"p-queue": "^9.3.3"
 	},
 	"license": "SEE LICENSE IN LICENSE"
 }

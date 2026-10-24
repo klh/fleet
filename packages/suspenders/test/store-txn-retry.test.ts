@@ -203,6 +203,8 @@ describe("concurrent tagged transactions", () => {
 		});
 		expect(await outsideWrite.json()).toEqual({
 			err: "a transaction is open — retry",
+			code: "store_tx_busy",
+			executed: false,
 		});
 		const waiting = runChild(txnChildCode(url), url);
 		await Bun.sleep(600);
@@ -212,6 +214,137 @@ describe("concurrent tagged transactions", () => {
 		expect(parseOut(r.out, r.err)).toEqual({ out: 42 });
 	}, 15_000);
 });
+
+test("standalone writes wait outside owner transaction execution and commit exactly once on both planes", async () => {
+	const url = await startRealServer(await freePort());
+	for (const plane of ["/rpc", "/identity"]) {
+		const txid = crypto.randomUUID();
+		const rpc = (
+			mode: string,
+			sql: string,
+			params: unknown[] = [],
+			tag: string | null = null,
+		) =>
+			fetch(`${url}${plane}`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ mode, sql, params, txid: tag }),
+			}).then((response) => response.json());
+		expect(
+			await rpc(
+				"run",
+				"CREATE TABLE IF NOT EXISTS rpc_admission_probe(id TEXT PRIMARY KEY)",
+			),
+		).not.toHaveProperty("err");
+		expect(await rpc("tx", "begin", [], txid)).toEqual({ ok: true });
+		const waiting = Array.from({ length: 40 }, (_, i) =>
+			runChild(
+				`
+const { HttpGovernorStore } = await import(${JSON.stringify(GOVDB)});
+const store = new HttpGovernorStore(${JSON.stringify(url)}, null, ${JSON.stringify(plane)});
+store.run("CREATE TABLE IF NOT EXISTS rpc_admission_probe(id TEXT PRIMARY KEY)");
+store.query("INSERT INTO rpc_admission_probe(id) VALUES (?)").run(${JSON.stringify(plane)} + ${i});
+console.log(JSON.stringify({ok:true}));
+`,
+				url,
+			),
+		);
+		await Bun.sleep(900);
+		expect(
+			await rpc("get", "SELECT COUNT(*) AS n FROM rpc_admission_probe"),
+		).toEqual({ row: { n: 0 } });
+		expect(await rpc("tx", "commit", [], txid)).toEqual({ ok: true });
+		const results = await Promise.all(waiting);
+		for (const result of results)
+			expect({
+				code: result.code,
+				out: parseOut(result.out, result.err),
+			}).toEqual({ code: 0, out: { ok: true } });
+		expect(
+			await rpc("get", "SELECT COUNT(*) AS n FROM rpc_admission_probe"),
+		).toEqual({ row: { n: 40 } });
+		expect(
+			await rpc(
+				"run",
+				"INSERT INTO rpc_admission_probe(id) VALUES ('escaped')",
+				[],
+				txid,
+			),
+		).toEqual({ err: "no such transaction" });
+		expect(
+			await rpc("get", "SELECT COUNT(*) AS n FROM rpc_admission_probe"),
+		).toEqual({ row: { n: 40 } });
+	}
+}, 30_000);
+
+test("an abandoned owner expires without replaying its tagged writes on the outside connection", async () => {
+	const url = await startRealServer(await freePort());
+	const txid = crypto.randomUUID();
+	const rpc = (mode: string, sql: string, tag: string | null = null) =>
+		fetch(`${url}/rpc`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ mode, sql, txid: tag }),
+		}).then((response) => response.json());
+	expect(await rpc("tx", "begin", txid)).toEqual({ ok: true });
+	const waiting = runChild(
+		`
+const { HttpGovernorStore } = await import(${JSON.stringify(GOVDB)});
+const store = new HttpGovernorStore(${JSON.stringify(url)}, null);
+store.run("CREATE TABLE IF NOT EXISTS dead_owner_probe(id TEXT PRIMARY KEY)");
+store.run("INSERT INTO dead_owner_probe(id) VALUES ('once')");
+console.log(JSON.stringify({ok:true}));
+`,
+		url,
+	);
+	const result = await waiting;
+	expect({ code: result.code, out: parseOut(result.out, result.err) }).toEqual({
+		code: 0,
+		out: { ok: true },
+	});
+	expect(
+		await rpc(
+			"run",
+			"INSERT INTO dead_owner_probe(id) VALUES ('escaped')",
+			txid,
+		),
+	).toEqual({ err: "no such transaction" });
+	expect(
+		await rpc("get", "SELECT COUNT(*) AS n FROM dead_owner_probe"),
+	).toEqual({ row: { n: 1 } });
+}, 20_000);
+
+test("launch inventory reads do not issue DDL while a peer transaction is open", async () => {
+	const url = await startRealServer(await freePort());
+	const launch = join(
+		import.meta.dir,
+		"..",
+		"scripts",
+		"lib",
+		"launch-fencing.ts",
+	);
+	const code = `
+const { HttpGovernorStore } = await import(${JSON.stringify(GOVDB)});
+const { launchIntent } = await import(${JSON.stringify(launch)});
+const store = new HttpGovernorStore(${JSON.stringify(url)}, null);
+console.log(JSON.stringify({intent:launchIntent(store,"fixture-project","W1")}));
+`;
+	expect((await runChild(code, url)).code).toBe(0);
+	const txid = crypto.randomUUID();
+	const rpc = (sql: string) =>
+		fetch(`${url}/rpc`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ mode: "tx", sql, txid }),
+		}).then((response) => response.json());
+	expect(await rpc("begin")).toEqual({ ok: true });
+	const result = await runChild(code, url);
+	expect({ code: result.code, out: parseOut(result.out, result.err) }).toEqual({
+		code: 0,
+		out: { intent: null },
+	});
+	expect(await rpc("commit")).toEqual({ ok: true });
+}, 15_000);
 
 test("a failed commit clears the client transaction id after rollback", async () => {
 	let outsideTxid: string | null | undefined;

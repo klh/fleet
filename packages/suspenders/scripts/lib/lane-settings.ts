@@ -11,6 +11,7 @@ import {
 	PREFER_HEADER,
 	type PreferHeaderDecision,
 } from "../../../telemetry/src/prefer-header.ts";
+import { join } from "node:path";
 import type { PreferRouting } from "./prefer-routing.ts";
 
 /** The Task-pin hook command written into the lane settings. process.execPath
@@ -33,12 +34,30 @@ const RUNAWAY_ENV_KEYS = [
 ] as const;
 
 export const runawayHookCommand = (bin: string): string =>
-	`${process.execPath} ${bin}/gate.ts runaway`;
+	`${process.execPath} ${join(bin, "..", "gate.ts")} runaway`;
 
 const runawayEnv = (env: Record<string, string>): Record<string, string> =>
 	Object.fromEntries(
 		RUNAWAY_ENV_KEYS.filter((k) => env[k]).map((k) => [k, env[k]] as const),
 	);
+
+/** Pin the resolved Fleet decision in Claude's native control as well as its
+ * report. A reporting label alone must never masquerade as a runtime pin. */
+function claudeEffortEnv(
+	env: Record<string, string>,
+	fallback: string | null,
+): Record<string, string> {
+	const resolved = env.SUSPENDERS_LANE_EFFORT || fallback;
+	if (!resolved) return {};
+	if (!["low", "medium", "high", "xhigh", "max"].includes(resolved))
+		throw new Error(
+			"Unsupported Claude lane effort; expected low, medium, high, xhigh, or max",
+		);
+	return {
+		SUSPENDERS_LANE_EFFORT: resolved,
+		CLAUDE_CODE_EFFORT_LEVEL: resolved,
+	};
+}
 
 function customHeaders(
 	existing: string | undefined,
@@ -96,9 +115,7 @@ export const laneSettingsData = (
 				// work.done event (lib/lane-effort.ts); the reporter renders it.
 				// W923: env wins; the priority-derived default (dispatch-next)
 				// fills the pin so EFFORT is never empty no-data in the report.
-				...(env.SUSPENDERS_LANE_EFFORT || effort
-					? { SUSPENDERS_LANE_EFFORT: env.SUSPENDERS_LANE_EFFORT || effort }
-					: {}),
+				...claudeEffortEnv(env, effort),
 				...runawayEnv(env),
 			},
 			hooks: {
