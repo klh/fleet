@@ -14,6 +14,7 @@ import {
 	checkReviewReceipt,
 	publishReviewReceipt,
 	reviewContext,
+	reviewFindingIds,
 	recordLanding,
 	type ReviewReceipt,
 } from "../hooks/lib/review-receipt.ts";
@@ -256,4 +257,40 @@ test("instruction reads reject oversized files and symlinks before loading conte
 	f.git("add", ".");
 	f.git("commit", "-m", "instruction symlink");
 	expect(() => reviewContext(f.repo, "suspenders/W1")).toThrow("regular file");
+});
+
+test("W1243.1.1.1: prose mention of a RESOLVED ID is not blocking", () => {
+	// #63141/#63152/#63155/#63159: independent PASS receipts carried the
+	// prior blocker ID in narrative prose next to a standalone RESOLVED line,
+	// and the parser recorded the mention as a live blocker.
+	const { blocking, resolved } = reviewFindingIds(
+		[
+			"The prior B1-no-coverage-proof is covered by the proved scratch run.",
+			"RESOLVED: B1-no-coverage-proof scratch revert failed 9 new test(s).",
+			"VERDICT: PASS - clean",
+		].join("\n"),
+	);
+	expect(blocking).toEqual([]);
+	expect(resolved).toEqual(["B1-no-coverage-proof"]);
+});
+
+test("W1243.1.1.1: unresolved mention and genuine finding stay fail-closed", () => {
+	// a narrative reference without the explicit RESOLVED line still blocks
+	const unresolved = reviewFindingIds(
+		"The prior B1-no-coverage-proof is covered by the proved scratch run.\n",
+	);
+	expect(unresolved.blocking).toEqual(["B1-no-coverage-proof"]);
+	expect(unresolved.resolved).toEqual([]);
+	// a declared finding with no resolution blocks too
+	const declared = reviewFindingIds(
+		"B2-erase-guard: the retry path drops a prior attempt's blocker.\n",
+	);
+	expect(declared.blocking).toEqual(["B2-erase-guard"]);
+	expect(declared.resolved).toEqual([]);
+	// mid-line RESOLVED is not the explicit declaration — stays blocking
+	const midline = reviewFindingIds(
+		"This is now RESOLVED: B1-no-coverage-proof — proof ran clean.\n",
+	);
+	expect(midline.blocking).toEqual(["B1-no-coverage-proof"]);
+	expect(midline.resolved).toEqual([]);
 });

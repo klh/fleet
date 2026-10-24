@@ -33,6 +33,30 @@ const git = (repo: string, args: string[]): string => {
 const hash = (s: string): string =>
 	createHash("sha256").update(s).digest("hex");
 
+// W1243.1.1.1: a B-ID on a non-RESOLVED line is a *mention*, not
+// automatically a live blocker. A standalone `RESOLVED: B<id> <evidence>`
+// line is the reviewer's explicit resolution and subtracts the ID from
+// blocking; an unresolved mention stays blocking (fail-closed) and the
+// prior-blocker guard below still demands the explicit RESOLVED line.
+const RESOLVED_LINE = /^RESOLVED:\s+(B\d+-[a-zA-Z0-9-]+)\s+\S.+$/gm;
+const MENTION = /\bB\d+-[a-zA-Z0-9-]+/g;
+
+export const reviewFindingIds = (
+	text: string,
+): { blocking: string[]; resolved: string[] } => {
+	const resolved = [...text.matchAll(RESOLVED_LINE)].map((m) => m[1]);
+	const resolvedSet = new Set(resolved);
+	const blocking = [
+		...new Set(
+			text
+				.split("\n")
+				.filter((line) => !line.startsWith("RESOLVED:"))
+				.flatMap((line) => line.match(MENTION) ?? []),
+		),
+	].filter((id) => !resolvedSet.has(id));
+	return { blocking, resolved };
+};
+
 /** Read instructions from immutable candidate Git objects, including absent
  * files so adding a package instruction invalidates an earlier approval. */
 export function reviewContext(
