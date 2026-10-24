@@ -54,6 +54,13 @@ depends on fleet; local-only until its GitHub push — W422.9/W422.1).
   (verified 2026-10-07 via gh). Every commit lands in THIS repo at
   `packages/<name>/*`; install.sh syncs the prefix from fleet
   (W422.4/W422.6 re-anchor landed).
+- **Import law (W1249)**: cross-package imports ride package names
+  (`@klh/*`), never relative reach-ins — the 112 inherited edges are
+  ratcheted shrink-only in tests/fleet.import-law.guard.test.ts. Imported
+  names must be declared (runtime files ⇒ `dependencies`; test/content
+  files ⇒ deps or devDeps). kernel imports nothing in fleet; domain
+  packages may import kernel once it lands. Graph + entry-point map:
+  docs/fleet.entry-points.map.md.
 
 ## Working agreements
 
