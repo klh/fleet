@@ -2,7 +2,7 @@
 // The ingest worker decides which parts become candidate knowledge.
 import type { Database } from "bun:sqlite";
 import type { KevCuration } from "./kev-curation.ts";
-import { enqueueKnowledge } from "./knowledge-ports.ts";
+import { enqueueKnowledge } from "./sqlite-store.ts";
 import type { CompletionRecord } from "./work-completion-record.ts";
 
 export async function queueCompletionKnowledge(

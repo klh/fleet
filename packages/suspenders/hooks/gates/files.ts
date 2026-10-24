@@ -74,7 +74,10 @@ export function filesCheck(hook: HookInput): FilesExit {
 					kind: "block",
 					err: `UI LAW: innerHTML/document.write are NEVER allowed — rewrite as lit-html templates in a web component. ${F}\n`,
 				};
-			if (!isWc && /document\.createElement\s*\(|createElementNS\s*\(/.test(payload))
+			if (
+				!isWc &&
+				/document\.createElement\s*\(|createElementNS\s*\(/.test(payload)
+			)
 				return {
 					kind: "block",
 					err: `UI LAW: document.createElement / createElementNS only inside web components (import lit / @customElement). ${F}\n`,
@@ -231,7 +234,7 @@ const STORE_OWNERS = [
 	"/lib/govdb-open.ts",
 	"/lib/govdb-store.ts",
 	"/bin/store-server.ts",
-	"/lib/knowledge-ports.ts",
+	"/lib/sqlite-store.ts",
 ];
 const GRANDFATHERED = [
 	// W92.3's in-flight scope — these leave the list when that child lands.

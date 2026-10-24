@@ -817,7 +817,7 @@ describe("W112 pointer rows through the worker", () => {
 
 // ─── W100 enqueue-time source hashing ───
 
-import { normalizeSourceRef } from "../hooks/lib/knowledge-ports.ts";
+import { normalizeSourceRef } from "../hooks/lib/sqlite-store.ts";
 
 describe("W100 normalizeSourceRef", () => {
 	test("strips explanatory suffixes, keeps the leading path", () => {

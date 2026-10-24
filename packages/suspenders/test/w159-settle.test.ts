@@ -22,7 +22,7 @@ const { openGovernorDb, openKnowledgeDb } = await import(
 // resolves through whatever plain govdb module the suite cached first
 // (load-time HOME pin), so each settle below injects its store explicitly.
 const { SqliteKnowledgeStore } = await import(
-	`../hooks/lib/knowledge-ports.ts?w159=${encodeURIComponent(HOME)}`
+	`../hooks/lib/sqlite-store.ts?w159=${encodeURIComponent(HOME)}`
 );
 const settleStore = (db: Database): InstanceType<typeof SqliteKnowledgeStore> =>
 	new SqliteKnowledgeStore(openKnowledgeDb(), db);
@@ -202,7 +202,7 @@ test("distill-time inheritance: claim surfaces hub_eligible, upsert stamps it", 
 	freshDb();
 	const kb = openKnowledgeDb();
 	const { SqliteKnowledgeStore } = await import(
-		`../hooks/lib/knowledge-ports.ts?w159=${encodeURIComponent(HOME)}`
+		`../hooks/lib/sqlite-store.ts?w159=${encodeURIComponent(HOME)}`
 	);
 	const store = new SqliteKnowledgeStore(kb);
 	const settled = queueRow("s-inh", 1);

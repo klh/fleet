@@ -20,8 +20,11 @@ process.env.HOME = HOME;
 const { openGovernorDb, openKnowledgeDb } = await import(
 	`../hooks/lib/govdb.ts?w244=${encodeURIComponent(HOME)}`
 );
-const { SqliteKnowledgeStore, currentPromptHash } = await import(
-	`../hooks/lib/knowledge-ports.ts?w244=${encodeURIComponent(HOME)}`
+const { SqliteKnowledgeStore } = await import(
+	`../hooks/lib/sqlite-store.ts?w244=${encodeURIComponent(HOME)}`
+);
+const { currentPromptHash } = await import(
+	`../hooks/lib/prompt-policy.ts?w244=${encodeURIComponent(HOME)}`
 );
 
 const GOV = join(HOME, ".cache", "claude-governor", "governor.db");
