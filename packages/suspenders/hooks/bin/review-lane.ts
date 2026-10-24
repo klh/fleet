@@ -6,10 +6,9 @@
 // work is the point. Spawned by the board's POST /api/second-opinion.
 // usage:
 //   bun review-lane.ts --item <Wn> --project <p> --executor <name> \
-//     (--bin <path> | --belt <machine>:<port>[:<model>] | --llm-url <url> [--llm-model <m>])
+//     (--buckle <model> | --bin <path>)
 // exits 0 on a landed verdict, 2 on a failed leg (verdict=error recorded).
 import { openStore, projectRootOf } from "../lib/govdb.ts";
-import { resolveBelt } from "../lib/belt-locate.ts";
 import { existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,15 +40,12 @@ import {
 const spec = defineVerb({
 	name: "review",
 	usage:
-		"usage: bun review-lane.ts --item <Wn> --project <p> --executor <name> (--buckle <model> | --bin <path> | --belt <m>:<p>[:<model>] | --llm-url <url> [--llm-model <m>])",
+		"usage: bun review-lane.ts --item <Wn> --project <p> --executor <name> (--buckle <model> | --bin <path>)",
 	flags: [
 		"--item",
 		"--project",
 		"--executor",
 		"--bin",
-		"--belt",
-		"--llm-url",
-		"--llm-model",
 		"--buckle",
 		"--request-key",
 		"--request-token",
@@ -71,7 +67,7 @@ const project = parsedArgs.parsed.flag("--project");
 const executor = parsedArgs.parsed.flag("--executor") ?? "claude";
 if (!item || !project) {
 	console.error(
-		"usage: bun review-lane.ts --item <Wn> --project <p> --executor <name> (--bin <path> | --belt <m>:<p>[:<model>] | --llm-url <url> [--llm-model <m>])",
+		"usage: bun review-lane.ts --item <Wn> --project <p> --executor <name> (--buckle <model> | --bin <path>)",
 	);
 	process.exit(1);
 }
@@ -210,28 +206,17 @@ const prompt = [
 ].join("\n");
 
 // ---- executor legs ----------------------------------------------------------
-type Leg =
-	| { kind: "buckle"; model: string }
-	| { kind: "bin"; bin: string }
-	| { kind: "belt"; target: string }
-	| { kind: "llm"; url: string; model: string };
+// W1119 decision.single-buckle-inference: the ONLY model leg is the gated
+// Buckle client (scoped key minted per review, revoked after). --bin spawns
+// an agent CLI — an agent runtime, not an inference call in this file. The
+// retired --belt (belt route-to) and --llm-url (direct tier socket) legs
+// carry no fallback: a review without Buckle refuses, fail-closed.
+type Leg = { kind: "buckle"; model: string } | { kind: "bin"; bin: string };
 const leg: Leg | null = (() => {
 	const buckle = parsedArgs.parsed.flag("--buckle");
 	if (buckle) return { kind: "buckle", model: buckle };
 	const bin = parsedArgs.parsed.flag("--bin");
 	if (bin) return { kind: "bin", bin };
-	const belt = parsedArgs.parsed.flag("--belt");
-	if (belt) return { kind: "belt", target: belt };
-	const url = parsedArgs.parsed.flag("--llm-url");
-	if (url)
-		return {
-			kind: "llm",
-			url,
-			model:
-				parsedArgs.parsed.flag("--llm-model") ??
-				process.env.SUSPENDERS_LLM_MODEL ??
-				"local",
-		};
 	return null;
 })();
 
@@ -342,30 +327,16 @@ async function runLeg(): Promise<string> {
 		return out;
 	}
 	if (leg?.kind === "belt") {
-		// belt targeting: remotes.ts route-to owns auth + model override
-		const belt = await resolveBelt();
-		if (!belt) throw new Error("belt repo not found (resolveBelt)");
-		const parts = leg.target.split(":");
-		const model = parts[2];
-		const c = Bun.spawnSync([
-			process.execPath,
-			`${belt}/bin/remotes.ts`,
-			"route-to",
-			parts[0],
-			parts[1],
-			prompt,
-			...(model ? ["--model", model] : []),
-		]);
-		if (c.exitCode !== 0)
-			throw new Error(
-				`belt route-to failed: ${c.stderr.toString().slice(0, 200)}`,
-			);
-		return c.stdout.toString();
+		// W1119: retired — the belt route-to subprocess was an ungoverned
+		// direct-tier path; the resolver emits --buckle <model> instead.
+		throw new Error("belt leg retired (W1119 single-buckle-inference)");
 	}
 	if (leg?.kind === "llm") {
-		return requestLlm(leg.url, leg.model, process.env.SUSPENDERS_LLM_KEY);
+		// W1119: retired — no direct completion socket; the resolver emits
+		// --buckle <model> instead.
+		throw new Error("llm-url leg retired (W1119 single-buckle-inference)");
 	}
-	throw new Error("no executor leg (--buckle | --bin | --belt | --llm-url)");
+	throw new Error("no executor leg (--buckle | --bin)");
 }
 
 // ---- coverage proof (W634, Sinai rule) --------------------------------------

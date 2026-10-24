@@ -42,44 +42,16 @@ const BYPASS_ALLOWLIST: Array<[string, string]> = [
 		"deploy e2e stub tier — fixture endpoint, never a real completion",
 	],
 	[
-		"hooks/bin/advise.ts",
-		"W1119.1 scope — advise migrates in its own lane; entry drops then",
-	],
-	[
 		"hooks/bin/fallback-drill.ts",
 		"zaiDark reachability probe (GET) + retired-leg comments; the completion rides buckleChat",
 	],
 	[
 		"hooks/bin/oracle.ts",
-		"W1119.1 scope — oracle migrates in its own lane; entry drops then",
-	],
-	[
-		"hooks/board/decide-eval.ts",
-		"W1119 parent scope — board migrations land with the parent item",
-	],
-	[
-		"hooks/board/orch.ts",
-		"W1119 parent scope — board migrations land with the parent item",
-	],
-	[
-		"hooks/board/prompt-transform.ts",
-		"W1119 parent scope — board migrations land with the parent item",
-	],
-	[
-		"hooks/board/routes-actions.ts",
-		"W1119 parent scope — board migrations land with the parent item",
-	],
-	[
-		"hooks/board/suggest.ts",
-		"W1119 parent scope — board migrations land with the parent item",
+		"usage/env doc comments carry the retired shapes; the legs ride pinnedLeg/cloudLeg → buckleChat",
 	],
 	[
 		"hooks/lib/inference-buckle.ts",
 		"THE boundary — direct ports appear only in the fail-closed law header comment",
-	],
-	[
-		"hooks/lib/oracle-legs.ts",
-		"W1119.1 scope — the pinned oracle route; entry drops when W1119.1 lands",
 	],
 	[
 		"scripts/dispatch-watchdog.ts",
@@ -120,9 +92,12 @@ test("no direct-tier completion leg outside the pinned allowlist (W1119.2)", () 
 });
 
 test("scan has teeth (real pinned population and retired shapes fire)", () => {
-	// the allowlist is not aspirational: every entry must keep firing
+	// the allowlist is not aspirational: every entry must keep firing. The
+	// W1119.1/W1119.2/parent migrations landed, so the list shrunk to the 6
+	// argued survivors (fixtures, the boundary, doc-comment carriers, liveness
+	// probes) — new bypasses still fail, migrated files still drop entries.
 	expect(trackedSuspendersTs().length).toBeGreaterThan(300);
-	expect(ALLOWED.length).toBeGreaterThanOrEqual(13);
+	expect(ALLOWED.length).toBeGreaterThanOrEqual(6);
 	// the retired shapes fire the detector
 	const retired = [
 		'fetch("http://127.0.0.1:8902/v1/chat/completions")',

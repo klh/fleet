@@ -185,9 +185,12 @@ function normalizeAgent(raw: string): string | null {
 }
 
 // W182 — llm:* leg resolution for /api/second-opinion: the same catalog the
-// ▶ dispatch uses, folded to review-lane args. Local swarm ports resolve
-// registry-side; other machines ride belt targeting. Throws LlmLegError —
-// the route turns it into a JSON error response.
+// ▶ dispatch uses, folded to review-lane args. Model preference stays data:
+// the machine/port pick resolves registry-side, then the completion rides
+// the ONE gated Buckle client (review-lane --buckle <model>, W1119
+// decision.single-buckle-inference) — no direct :890x socket, no belt
+// route-to. Throws LlmLegError — the route turns it into a JSON error
+// response.
 async function resolveLlmLeg(executor: string): Promise<string[]> {
 	const rest = executor.slice(4);
 	const c1 = rest.indexOf(":");
@@ -196,12 +199,7 @@ async function resolveLlmLeg(executor: string): Promise<string[]> {
 	if (machine === "local") {
 		const spec = await specialistByPort(Number(tail));
 		if (!spec) throw new LlmLegError(`unknown local swarm port ${tail}`, 409);
-		return [
-			"--llm-url",
-			`http://127.0.0.1:${spec.port}/v1/chat/completions`,
-			"--llm-model",
-			spec.model,
-		];
+		return ["--buckle", spec.model];
 	}
 	const target = resolveLlmTarget(await beltCheck(), machine, tail);
 	if (!target)
@@ -210,10 +208,7 @@ async function resolveLlmLeg(executor: string): Promise<string[]> {
 			409,
 		);
 	const { ep, override } = target;
-	return [
-		"--belt",
-		`${machine}:${ep.port ?? 0}:${override ?? ep.model ?? tail}`,
-	];
+	return ["--buckle", override ?? ep.model ?? tail];
 }
 
 // sentinel: the error class the route maps to JSON (kept tiny — the board

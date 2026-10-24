@@ -136,20 +136,32 @@ async function runCase(
 	expect(git(["commit", "-m", c.name]).code).toBe(0);
 	git(["checkout", "main"]); // the proof reads refs/heads/<branch>, not the checkout
 
+	// W1119: the review leg rides the scoped Buckle front — the stub serves
+	// the mint/revoke admin wire plus the completion.
+	const inner =
+		stubFetch ??
+		(async () =>
+			Response.json({
+				choices: [
+					{
+						message: {
+							content: "looked at the diff: fine\nVERDICT: PASS - clean",
+						},
+					},
+				],
+			}));
 	const stub = Bun.serve({
 		port: 0,
-		fetch:
-			stubFetch ??
-			(async () =>
-				Response.json({
-					choices: [
-						{
-							message: {
-								content: "looked at the diff: fine\nVERDICT: PASS - clean",
-							},
-						},
-					],
-				})),
+		fetch: async (req) => {
+			const path = new URL(req.url).pathname;
+			if (path === "/v1/admin/keys")
+				return Response.json({
+					key: "bksk_fixture_review",
+					key_id: "fixture-review-key",
+				});
+			if (path.endsWith("/revoke")) return Response.json({ ok: true });
+			return inner(req);
+		},
 	});
 	const p = Bun.spawn(
 		[
@@ -161,12 +173,19 @@ async function runCase(
 			MY_PROJ,
 			"--executor",
 			"glm-w634",
-			"--llm-url",
-			`http://127.0.0.1:${stub.port}/v1/chat/completions`,
-			"--llm-model",
+			"--buckle",
 			"glm-w634-model",
 		],
-		{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
+		{
+			cwd: REPO,
+			env: {
+				...env,
+				SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${stub.port}`,
+				BUCKLE_ADMIN_KEY: "fixture-admin",
+			},
+			stdout: "pipe",
+			stderr: "pipe",
+		},
 	);
 	const errText = await new Response(p.stderr).text();
 	await p.exited;
@@ -278,8 +297,15 @@ describe("W634 review-lane coverage proof (Sinai rule)", () => {
 		git(["checkout", "main"]);
 		const stub = Bun.serve({
 			port: 0,
-			fetch: async () =>
-				Response.json({
+			fetch: async (req) => {
+				const path = new URL(req.url).pathname;
+				if (path === "/v1/admin/keys")
+					return Response.json({
+						key: "bksk_fixture_review",
+						key_id: "fixture-review-key",
+					});
+				if (path.endsWith("/revoke")) return Response.json({ ok: true });
+				return Response.json({
 					choices: [
 						{
 							finish_reason: "length",
@@ -287,7 +313,8 @@ describe("W634 review-lane coverage proof (Sinai rule)", () => {
 						},
 					],
 					usage: { completion_tokens: 1500 },
-				}),
+				});
+			},
 		});
 		const p = Bun.spawn(
 			[
@@ -299,12 +326,19 @@ describe("W634 review-lane coverage proof (Sinai rule)", () => {
 				MY_PROJ,
 				"--executor",
 				"glm-w634",
-				"--llm-url",
-				`http://127.0.0.1:${stub.port}/v1/chat/completions`,
-				"--llm-model",
+				"--buckle",
 				"glm-w634-model",
 			],
-			{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
+			{
+				cwd: REPO,
+				env: {
+					...env,
+					SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${stub.port}`,
+					BUCKLE_ADMIN_KEY: "fixture-admin",
+				},
+				stdout: "pipe",
+				stderr: "pipe",
+			},
 		);
 		await p.exited;
 		stub.stop(true);
@@ -421,8 +455,16 @@ describe("W634 review-lane coverage proof (Sinai rule)", () => {
 		];
 		const stub = Bun.serve({
 			port: 0,
-			fetch: async () =>
-				Response.json(replies[Math.min(calls++, replies.length - 1)]),
+			fetch: async (req) => {
+				const path = new URL(req.url).pathname;
+				if (path === "/v1/admin/keys")
+					return Response.json({
+						key: "bksk_fixture_review",
+						key_id: "fixture-review-key",
+					});
+				if (path.endsWith("/revoke")) return Response.json({ ok: true });
+				return Response.json(replies[Math.min(calls++, replies.length - 1)]);
+			},
 		});
 		const p = Bun.spawn(
 			[
@@ -434,12 +476,19 @@ describe("W634 review-lane coverage proof (Sinai rule)", () => {
 				MY_PROJ,
 				"--executor",
 				"glm-w634",
-				"--llm-url",
-				`http://127.0.0.1:${stub.port}/v1/chat/completions`,
-				"--llm-model",
+				"--buckle",
 				"glm-w634-model",
 			],
-			{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
+			{
+				cwd: REPO,
+				env: {
+					...env,
+					SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${stub.port}`,
+					BUCKLE_ADMIN_KEY: "fixture-admin",
+				},
+				stdout: "pipe",
+				stderr: "pipe",
+			},
 		);
 		await p.exited;
 		stub.stop(true);

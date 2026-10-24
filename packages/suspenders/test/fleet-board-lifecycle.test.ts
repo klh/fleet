@@ -353,6 +353,13 @@ describe("W182 review-lane e2e (stub leg)", () => {
 		const stub = Bun.serve({
 			port: 0,
 			fetch: async (req) => {
+				const path = new URL(req.url).pathname;
+				if (path === "/v1/admin/keys")
+					return Response.json({
+						key: "bksk_fixture_review",
+						key_id: "fixture-review-key",
+					});
+				if (path.endsWith("/revoke")) return Response.json({ ok: true });
 				captured = await req.text();
 				return Response.json({
 					choices: [
@@ -376,12 +383,19 @@ describe("W182 review-lane e2e (stub leg)", () => {
 				MY_PROJ,
 				"--executor",
 				"glm-test",
-				"--llm-url",
-				`http://127.0.0.1:${stub.port}/v1/chat/completions`,
-				"--llm-model",
+				"--buckle",
 				"glm-test-model",
 			],
-			{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
+			{
+				cwd: REPO,
+				env: {
+					...env,
+					SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${stub.port}`,
+					BUCKLE_ADMIN_KEY: "fixture-admin",
+				},
+				stdout: "pipe",
+				stderr: "pipe",
+			},
 		);
 		const errText = await new Response(p.stderr).text();
 		await p.exited;
