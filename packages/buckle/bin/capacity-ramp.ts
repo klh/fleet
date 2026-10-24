@@ -120,6 +120,16 @@ const pathOf = (protocol: Protocol): string =>
 			? "/chat/completions"
 			: "/responses";
 
+/** Exact request URL for one leg: RETAINS the base's pathname prefix.
+ *  new URL("/v1/messages", "https://api.z.ai/api/anthropic") resolves to
+ *  https://api.z.ai/v1/messages — the leading slash discards /api/anthropic
+ *  and every direct Coding Plan request 404s (live 2026-10-24). */
+export const endpointOf = (base: string, protocol: Protocol): URL => {
+	const url = new URL(base);
+	url.pathname = `${url.pathname.replace(/\/$/, "")}${pathOf(protocol)}`;
+	return url;
+};
+
 const headersOf = (protocol: Protocol, key: string): Record<string, string> =>
 	protocol === "anthropic"
 		? {
@@ -413,7 +423,7 @@ const errorRow = (opts: FireOpts, t0: number): Row =>
 /** One genuinely concurrent request over its own socket (keepAlive=false,
  *  maxSockets=level) — the owner-verified Node agent method. */
 function fireRequest(opts: FireOpts): Promise<Row> {
-	const url = new URL(pathOf(opts.protocol), opts.base);
+	const url = endpointOf(opts.base, opts.protocol);
 	const body = bodyOf(
 		opts.protocol,
 		opts.model,
