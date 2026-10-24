@@ -1,18 +1,18 @@
 // advise.ts — LLM advisor for decision forks. Reads a NEED% event from
-// governor.db, gathers control-plane context, asks the configured
-// OpenAI-compatible endpoint for a recommendation, stores it as fact
+// governor.db, gathers control-plane context, asks the ONE gated Buckle
+// client (inference-buckle.ts) for a recommendation, stores it as fact
 // advice.<event-id> (+ ADVICE event back to the asker). The board renders
 // the advice inline; a HUMAN always accepts/edits before anything is sent —
 // this tool never answers a fork by itself.
 // usage: bun hooks/bin/advise.ts <event-id>
-// env:   SUSPENDERS_LLM_URL   (default http://127.0.0.1:8901/v1/chat/completions)
-//        SUSPENDERS_LLM_MODEL (default "local")
-//        SUSPENDERS_LLM_KEY   (optional bearer token)
+// env:   SUSPENDERS_LLM_MODEL (model pin, default "local-reason");
+//        endpoint + scoped key ride SUSPENDERS_BUCKLE_URL/TOKEN or the
+//        knowledge-buckle credential file — see inference-buckle.ts
 
 import { recommendationOf } from "../lib/advice-quality.ts";
-import { beltChat } from "../lib/belt-chat.ts";
 import { readBoardSettings } from "../lib/board-config.ts";
 import { isDecisionKind, openStore } from "../lib/govdb.ts";
+import { buckleChat, inferenceBuckleRoute } from "../lib/inference-buckle.ts";
 import {
 	type KevDecision,
 	type KevOption,
@@ -28,13 +28,6 @@ import {
 	PANEL_FRAME,
 	pinnedLeg,
 } from "../lib/oracle-legs.ts";
-import {
-	chatRemote,
-	endpointsWithRole,
-	ensureEndpoint,
-	type RemoteEndpoint,
-	type RemoteMachine,
-} from "../lib/remotes.ts";
 import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 
 // W656.2: kit-owned parse — the board's routes-actions spawns
@@ -58,87 +51,22 @@ if (!outcome.ok || !Number(outcome.parsed.pos[0])) {
 	process.exit(1);
 }
 const id = Number(outcome.parsed.pos[0]);
-// recommendation endpoint (W217 model map): user settings override env —
-// config-over-code; the hub-default tier is a later policy-manifest rule
+// model preference stays DATA (W1119.1): the board settings pin overrides
+// env — no endpoint URL or key is resolved here; the ONE gated Buckle client
+// owns endpoint + scoped key + trace (config-over-code)
 const SETTINGS = readBoardSettings().settings;
-const URL_ =
-	SETTINGS.recommendation_url ??
-	process.env.SUSPENDERS_LLM_URL ??
-	"http://127.0.0.1:8901/v1/chat/completions";
-// safe parse — a malformed SUSPENDERS_LLM_URL must not throw inside the catch
-// below: the failure path itself has to be throw-proof (same guard as the
-// board's LLM_ORIGIN)
-const LLM_HOST = (() => {
-	try {
-		return new URL(URL_).host;
-	} catch {
-		return "(unparseable SUSPENDERS_LLM_URL)";
-	}
-})();
-const KEY = process.env.SUSPENDERS_LLM_KEY;
-const MODEL =
-	SETTINGS.recommendation_model ??
-	process.env.SUSPENDERS_LLM_MODEL ??
-	(await defaultModel(URL_, KEY));
+export const ADVISE_HINT = "prefer local reasoning";
+export const adviseModel = (
+	settings: { recommendation_model?: string },
+	env: NodeJS.ProcessEnv = process.env,
+): string =>
+	settings.recommendation_model?.trim() ||
+	env.SUSPENDERS_LLM_MODEL?.trim() ||
+	"local-reason";
 const now = Date.now();
 
-// no model configured → ask the endpoint what it serves (first entry); works
-// for MLX server, llama.cpp, vLLM, or any OpenAI-compatible shim
-async function defaultModel(url: string, key?: string): Promise<string> {
-	try {
-		const r = await fetch(url.replace(/\/chat\/completions$/, "/models"), {
-			headers: key ? { authorization: `Bearer ${key}` } : {},
-			signal: AbortSignal.timeout(5000),
-		});
-		const j = (await r.json()) as { data?: { id: string }[] };
-		return j.data?.[0]?.id ?? "local";
-	} catch {
-		return "local";
-	}
-}
-
-// W850: the local-reason tier (:8903) takes max_concurrent_requests=2 — when
-// lanes/oracle saturate it the advice POST comes back 503 busy. ONE delayed
-// retry honors the server's Retry-After (capped) so advice degrades late
-// instead of instantly rendering 'advice failed' on the card.
-const BUSY_RETRY_CAP_MS = Math.max(
-	0,
-	Number(process.env.SUSPENDERS_ADVICE_RETRY_CAP_MS ?? 15_000) || 0,
-);
-
-/** Retry-After (delta-seconds or HTTP-date) → ms; undefined when absent/bad. */
-function retryAfterMs(h: string | null): number | undefined {
-	if (h === null || h.trim() === "") return undefined;
-	const s = Number(h);
-	if (Number.isFinite(s)) return s >= 0 ? Math.round(s * 1000) : undefined;
-	const at = Date.parse(h);
-	return Number.isNaN(at) ? undefined : Math.max(0, at - Date.now());
-}
-
-/** One advise POST; a 503 busy answer waits out Retry-After (capped,
- *  SUSPENDERS_ADVICE_RETRY_CAP_MS) and retries ONCE on the same endpoint. */
-async function fetchAdvise(body: string): Promise<Response> {
-	const post = () =>
-		fetch(URL_, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				...(KEY ? { authorization: `Bearer ${KEY}` } : {}),
-			},
-			body,
-			signal: AbortSignal.timeout(120_000),
-		});
-	const first = await post();
-	if (first.status !== 503) return first;
-	const wait = Math.min(
-		retryAfterMs(first.headers.get("retry-after")) ?? 2_000,
-		BUSY_RETRY_CAP_MS,
-	);
-	await first.body?.cancel();
-	console.error(`advise #${id}: 503 busy — one retry in ${wait}ms`);
-	await Bun.sleep(wait);
-	return post();
-}
+// W850's 503-busy retry retires with the direct URL leg (W1119.1): the gated
+// Buckle client owns the wire, and buckle/belt policy owns retries now.
 
 const db = openStore();
 const ev = db
@@ -220,6 +148,50 @@ RATIONALE: <2-4 short bullets, grounded in the context>
 RISK: <the main risk of your recommendation, one line>
 Be decisive. Never recommend "gather more information" unless the context is truly undecidable. Never invent facts.`;
 
+/** The ONE gated advise leg (W1119.1) — the seam caller-level tests drive:
+ *  `deps.env` substitutes the credential pair, `deps.fetcher` the wire.
+ *  Throws fail-closed; the caller records the bounded error, never a
+ *  placeholder recommendation. */
+type GatedAdvise = {
+	text: string;
+	model: string;
+	host: string;
+	pt: number;
+	ct: number;
+	ms: number;
+};
+
+async function gatedAdvise(
+	user: string,
+	deps: { env?: NodeJS.ProcessEnv; fetcher?: typeof fetch } = {},
+): Promise<GatedAdvise> {
+	const env = deps.env ?? process.env;
+	const r = await buckleChat(
+		{
+			model: adviseModel(SETTINGS, env),
+			system: sys,
+			user,
+			maxTokens: 500,
+			temperature: 0.2,
+			hint: ADVISE_HINT,
+			timeoutMs: 120_000,
+			...(deps.fetcher ? { fetcher: deps.fetcher } : {}),
+		},
+		env,
+	);
+	const text = r.text.trim();
+	if (!text) throw new Error("advise gate returned no text");
+	const { base } = inferenceBuckleRoute(env);
+	return {
+		text,
+		model: r.model,
+		host: `buckle(${base.host})`,
+		pt: r.pt,
+		ct: r.ct,
+		ms: r.ms,
+	};
+}
+
 // W742.2: --panel fans the SAME fork to BOTH oracle legs (W742.1 panel
 // contract); fact carries per-leg verdicts + consensus. A total miss may
 // produce explicitly degraded advice through an independent governed route.
@@ -247,18 +219,18 @@ if (argv.includes("--panel")) {
 				for: id,
 				model: r.model,
 				host: `panel:${r.name}`,
-				pt: 0,
-				ct: 0,
-				tt: 0,
+				pt: r.pt,
+				ct: r.ct,
+				tt: r.pt + r.ct,
 				ms: r.ms,
 				...(r.error ? { error: r.error.slice(0, 200) } : {}),
 			}),
 		);
 	}
 	const ok = rows.find((r) => r.ok && recommendationOf(r.text));
-	// A failed panel is still useful evidence. Try the typed Kev route when
-	// options are explicit, then the governed Belt route. Neither fallback is
-	// called panel consensus or allowed to answer the decision for the owner.
+	// A failed panel is still useful evidence. The typed Kev route rides when
+	// options are explicit (W1120 owns the Buckle-side Kev migration). Neither
+	// fallback is called panel consensus or answers the decision for the owner.
 	if (!ok) {
 		const msg = rows
 			.map((r) => `${r.name}: ${r.error ?? "no text"}`)
@@ -291,33 +263,10 @@ if (argv.includes("--panel")) {
 			storeKevAdvice(kev, { consensus: "degraded: Kev typed choice", legs });
 			process.exit(0);
 		}
-		const belt = await tryBeltRoute(sys, question, 90_000);
-		if (belt && recommendationOf(belt.text)) {
-			db.query(
-				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'advise', 'llm.call', NULL, ?, NULL)",
-			).run(
-				Date.now(),
-				JSON.stringify({
-					for: id,
-					model: belt.model,
-					host: belt.host,
-					pt: 0,
-					ct: 0,
-					tt: 0,
-					ms: belt.ms,
-				}),
-			);
-			storeAdvice(
-				belt.text,
-				{ model: belt.model, host: belt.host },
-				{ consensus: "degraded: governed route", legs },
-			);
-			process.exit(0);
-		}
-		// provider rejections are failures (exit 2); connection-class misses
+		// provider rejections are failures (exit 2); gate-unavailable misses
 		// degrade — same unavailable split as the single-leg path
 		const unavailable = rows.every(
-			(r) => !/^route \d|^cloud leg/.test(r.error ?? ""),
+			(r) => !/^buckle inference HTTP/.test(r.error ?? ""),
 		);
 		db.query(
 			"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, ?, 'advise', 1, ?)",
@@ -371,16 +320,6 @@ function storeKevAdvice(k: KevDecision, panel?: PanelMeta): void {
 	);
 }
 
-type LlmUsage = {
-	prompt_tokens?: number;
-	completion_tokens?: number;
-	total_tokens?: number;
-};
-
-let text = "";
-/** Parse the RECOMMENDATION/RATIONALE/RISK shape, persist the advice fact,
- *  and emit the ADVICE event — shared by the local and remote-fallback
- *  paths (W90). */
 /** W742.2: the panel verdict ride-along — per-leg verdicts + the consensus,
  *  rendered by the board card under the recommendation. */
 type PanelMeta = {
@@ -455,74 +394,10 @@ function storeAdvice(
 	console.log(`advised #${id}: ${rec.slice(0, 100)}`);
 }
 
-/** One remote advise attempt (W90): ensure (WoL if asleep), chat, record
- *  telemetry, store, exit 0. Throws past a dead endpoint → next candidate. */
-async function tryRemoteAdvise(
-	machine: RemoteMachine,
-	endpoint: RemoteEndpoint,
-) {
-	const h = await ensureEndpoint(machine, endpoint);
-	if (!h.alive) return;
-	const out = await chatRemote(
-		machine,
-		endpoint,
-		[
-			{ role: "system", content: sys },
-			{
-				role: "user",
-				content: `DECISION FORK:\n${question}\n\nCONTROL-PLANE CONTEXT:\n${ctx}`,
-			},
-		],
-		{ maxTokens: 500, timeoutMs: 300_000 },
-	);
-	// W552.6.1: a placeholder/empty remote reply is NOT an answer — skip to
-	// the next candidate instead of storing it
-	const text = out.text.trim();
-	if (!text || text === "(empty response)") return;
-	const host = `${machine.name}:${endpoint.port}`;
-	db.query(
-		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'advise', 'llm.call', NULL, ?, NULL)",
-	).run(
-		Date.now(),
-		JSON.stringify({
-			for: id,
-			model: out.model,
-			host,
-			pt: 0,
-			ct: 0,
-			tt: 0,
-			ms: out.ms,
-		}),
-	);
-	storeAdvice(text, { model: out.model, host });
-	console.error(`advise #${id}: local LLM down — answered by remote ${host}`);
-	process.exit(0);
-}
-
-/** W89.2 — belt as FIRST candidate: POST /api/route {execute:true} lets belt
- *  pick the best healthy target from its own metrics (local swarm, NAS,
- *  cloud). W552.6.1: the shared belt-chat leg validates the reply — a belt
- *  placeholder ("(empty response)") and empty text are NOT answers; they
- *  validate to null and the local + remote fallbacks below stay in charge.
- *  Null when belt is unreachable — same degrade contract as before. */
-async function tryBeltRoute(
-	sys: string,
-	question: string,
-	timeoutMs = 300_000,
-): Promise<{ text: string; model: string; host: string; ms: number } | null> {
-	return beltChat({
-		role: "reasoning", // an advise fork is a reasoning task — "advise" matches no registry role
-		system: sys,
-		user: `DECISION FORK:\n${question}\n\nCONTROL-PLANE CONTEXT:\n${ctx}`,
-		maxTokens: 500,
-		timeoutMs,
-	});
-}
-
 // W225 kev-class typed pass FIRST: a fork with structured options is a
 // typed decision — one systemone choice pass on the local 4B answers it
 // for ~70 input tokens, where the chat chain burns a full advise prompt.
-// Any failure returns null and falls through silently; the belt chain
+// Any failure returns null and falls through silently; the gated chain
 // below is unchanged.
 const kev = await kevTypedDecision({ state: ctx, question, options });
 if (kev) {
@@ -544,76 +419,17 @@ if (kev) {
 	process.exit(0);
 }
 
-// W89.2: belt picks first — metrics-based routing across the whole fleet;
-// local SUSPENDERS_LLM_URL and the remote registry stay as fallbacks
-const belt = await tryBeltRoute(sys, question);
-if (belt) {
-	db.query(
-		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'advise', 'llm.call', NULL, ?, NULL)",
-	).run(
-		Date.now(),
-		JSON.stringify({
-			for: id,
-			model: belt.model,
-			host: belt.host,
-			pt: 0,
-			ct: 0,
-			tt: 0,
-			ms: belt.ms,
-		}),
-	);
-	storeAdvice(belt.text, { model: belt.model, host: belt.host });
-	process.exit(0);
-}
-
+// W1119.1: the ONE gated advise leg — the kev typed pass stays ahead of it
+// (W1120 owns the Buckle-side Kev migration); the belt/URL/remote legs
+// retired with the direct-wire clients.
 const t0 = Date.now();
+let gated: GatedAdvise;
 try {
-	const r = await fetchAdvise(
-		JSON.stringify({
-			model: MODEL,
-			messages: [
-				{ role: "system", content: sys },
-				{
-					role: "user",
-					content: `DECISION FORK:\n${question}\n\nCONTROL-PLANE CONTEXT:\n${ctx}`,
-				},
-			],
-			max_tokens: 500,
-			temperature: 0.2,
-		}),
-	);
-	if (!r.ok)
-		throw new Error(`LLM ${r.status}: ${(await r.text()).slice(0, 200)}`);
-	const j = (await r.json()) as {
-		choices?: { message?: { content?: string } }[];
-		usage?: LlmUsage;
-	};
-	text = j.choices?.[0]?.message?.content ?? "";
-	// W552.6.1: empty content is a provider failure, not an empty success —
-	// throw into the failure-telemetry + error-fact path. The message keeps
-	// the "LLM " prefix so the catch treats it as a provider failure (not
-	// "unavailable") — no remote-fallback spin, honest exit 2.
-	if (!text.trim()) throw new Error("LLM answered with no content");
-	// W28 routing telemetry: every advise round-trip becomes an llm.call
-	// event — the board's LLM telemetry block sums today's tokens per model
-	// against optional llm.budget.<model> facts. Usage may be absent (some
-	// local servers omit it) — record zeros rather than skipping, so the
-	// routing log still shows the call. On failure: still logged, with error.
-	db.query(
-		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'advise', 'llm.call', NULL, ?, NULL)",
-	).run(
-		Date.now(),
-		JSON.stringify({
-			for: id,
-			model: MODEL,
-			host: LLM_HOST,
-			pt: j.usage?.prompt_tokens ?? 0,
-			ct: j.usage?.completion_tokens ?? 0,
-			tt:
-				j.usage?.total_tokens ??
-				(j.usage?.prompt_tokens ?? 0) + (j.usage?.completion_tokens ?? 0),
-			ms: Date.now() - t0,
-		}),
+	// W552.6.1 holds: an empty gate answer is a provider failure — gatedAdvise
+	// throws "advise gate returned no text" and the catch exits 2 on it.
+	// Fail closed: no belt/URL/remote fallback legs remain (W1119.1).
+	gated = await gatedAdvise(
+		`DECISION FORK:\n${question}\n\nCONTROL-PLANE CONTEXT:\n${ctx}`,
 	);
 } catch (e) {
 	const msg = e instanceof Error ? e.message : String(e);
@@ -624,8 +440,8 @@ try {
 		Date.now(),
 		JSON.stringify({
 			for: id,
-			model: MODEL,
-			host: LLM_HOST,
+			model: adviseModel(SETTINGS),
+			host: "buckle",
 			pt: 0,
 			ct: 0,
 			tt: 0,
@@ -633,29 +449,38 @@ try {
 			error: msg.slice(0, 200),
 		}),
 	);
-	// connection refused / timeout = no advice LLM reachable (machine without
-	// the local fleet, belt down): a graceful skip, not a failure. The fork
-	// stays open for the human; a cloud SUSPENDERS_LLM_URL unchanged —
-	// this branch is only the fetch throwing, i.e. no HTTP answer at all
-	// (HTTP failures throw the `LLM <status>` error above and stay failures).
-	const unavailable = !msg.startsWith("LLM ");
-	if (unavailable) {
-		// W90 remote fallback: local advice LLM down → route the fork to
-		// "advise"-role endpoints in the remote registry, WoL-ensure included.
-		for (const { machine, endpoint } of endpointsWithRole("advise")) {
-			await tryRemoteAdvise(machine, endpoint);
-		}
-	}
+	// W1119.1 fail-closed split: the gate ANSWERING (an HTTP status, or the
+	// W552.6.1 empty-answer throw) is a provider failure — exit 2. No gate
+	// answer at all — unreachable OR unconfigured — degrades: the route wrap
+	// guarantees both carry the "buckle inference unavailable" vocabulary.
+	// The fork stays open.
+	const unavailable = msg.startsWith("buckle inference unavailable");
 	db.query(
 		"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, ?, 'advise', 1, ?)",
 	).run(`${fk}.error`, unavailable ? `unavailable: ${msg}` : msg, Date.now());
 	db.query("DELETE FROM facts WHERE key = ?").run(`${fk}.requested`);
 	console.error(
 		unavailable
-			? `advise #${id}: no advice LLM at ${LLM_HOST} (${msg.slice(0, 120)}) — advice unavailable, fork stays open`
+			? `advise #${id}: gate unavailable (${msg.slice(0, 120)}) — advice unavailable, fork stays open`
 			: `advise #${id} failed: ${msg}`,
 	);
 	process.exit(unavailable ? 0 : 2);
 }
 
-storeAdvice(text, { model: MODEL, host: LLM_HOST });
+// W28 routing telemetry: the gate's real pt/ct ride the llm.call event;
+// the fork only closes once a recommendation is stored (storeAdvice).
+db.query(
+	"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'advise', 'llm.call', NULL, ?, NULL)",
+).run(
+	Date.now(),
+	JSON.stringify({
+		for: id,
+		model: gated.model,
+		host: gated.host,
+		pt: gated.pt,
+		ct: gated.ct,
+		tt: gated.pt + gated.ct,
+		ms: gated.ms,
+	}),
+);
+storeAdvice(gated.text, { model: gated.model, host: gated.host });

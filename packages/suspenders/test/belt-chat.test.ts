@@ -1,17 +1,15 @@
-// belt-chat.test.ts — W552.6.1: the shared governed-gateway chat leg.
-// Placeholder/empty belt replies validate to null (never an answer); the
-// advise.ts child then degrades to the direct SUSPENDERS_LLM_URL leg, and a
-// provider returning no content is an honest failure (exit 2), not a stored
-// empty advice fact.
+// belt-chat.test.ts — W552.6.1: the shared governed-gateway chat leg (kept
+// for decide-eval). Placeholder/empty belt replies validate to null (never
+// an answer). The advise chain retired its belt/direct legs in W1119.1 —
+// the empty-answer honest-failure contract now rides the gated client
+// (pinned in advise-gated.test.ts).
 import { afterAll, setDefaultTimeout, describe, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
-import { join } from "node:path";
-import { beltChat } from "../hooks/lib/belt-chat.ts";
 import { boardFixture } from "./helpers/board-fixture.ts";
+import { beltChat } from "../hooks/lib/belt-chat.ts";
 
 setDefaultTimeout(30_000);
 
-const { HOME, REPO, env, bin, run } = await boardFixture(0, afterAll);
+await boardFixture(0, afterAll);
 
 // ─── beltChat unit: reply validation at the seam ───
 describe("beltChat final-text validation", () => {
@@ -70,159 +68,5 @@ describe("beltChat final-text validation", () => {
 
 	test("belt erroring degrades to null (never throws)", async () => {
 		expect(await withBelt({ error: "no healthy fit" }, 503)).toBeNull();
-	});
-});
-
-// ─── advise.ts child: belt placeholder → direct leg, provider error stays ───
-describe("advise placeholder fallback (W552.6.1)", () => {
-	test("belt placeholder → direct leg answers; fact carries the real rec", async () => {
-		expect(
-			run("coord.ts", ["bootstrap", "--as", "w552-lane", "--role", "worker"])
-				.code,
-		).toBe(0);
-		expect(
-			run("coord.ts", [
-				"emit",
-				"need-decision",
-				"--to",
-				"w552-lane",
-				"--note",
-				"placeholder fallback probe",
-				"--as",
-				"w552-lane",
-			]).code,
-		).toBe(0);
-		const db = new Database(`${HOME}/.cache/claude-governor/governor.db`, {
-			readonly: true,
-		});
-		const ev = db
-			.query(
-				"SELECT id FROM events WHERE kind = 'need-decision' AND json_extract(payload, '$.note') = 'placeholder fallback probe'",
-			)
-			.get() as { id: number };
-		expect(ev?.id).toBeDefined();
-
-		let beltHits = 0;
-		const belt = Bun.serve({
-			hostname: "127.0.0.1",
-			port: 0,
-			fetch: () => {
-				beltHits++;
-				return Response.json({ reply: "(empty response)" });
-			},
-		});
-		const direct = Bun.serve({
-			hostname: "127.0.0.1",
-			port: 0,
-			fetch: () =>
-				Response.json({
-					choices: [
-						{
-							message: {
-								content:
-									"RECOMMENDATION: real answer from the direct leg\nRATIONALE: it works\nRISK: bounded",
-							},
-						},
-					],
-				}),
-		});
-		try {
-			const child = Bun.spawn(["bun", join(bin, "advise.ts"), String(ev.id)], {
-				cwd: REPO,
-				env: {
-					...env,
-					SUSPENDERS_BELT_URL: `http://127.0.0.1:${belt.port}`,
-					SUSPENDERS_LLM_URL: `http://127.0.0.1:${direct.port}/v1/chat/completions`,
-					SUSPENDERS_LLM_MODEL: "fixture",
-				},
-				stdout: "pipe",
-				stderr: "pipe",
-			});
-			const [code, out] = await Promise.all([
-				child.exited,
-				new Response(child.stdout).text(),
-			]);
-			expect(code).toBe(0);
-			expect(out).toContain("advised");
-			expect(beltHits).toBe(1); // belt leg attempted, rejected the placeholder
-			const fact = db
-				.query("SELECT value FROM facts WHERE key = ?")
-				.get(`advice.${ev.id}`) as { value: string };
-			expect(JSON.parse(fact.value).rec).toBe(
-				"real answer from the direct leg",
-			);
-			// the placeholder error fact must NOT exist — the direct leg won
-			expect(
-				db
-					.query("SELECT value FROM facts WHERE key = ?")
-					.get(`advice.${ev.id}.error`),
-			).toBeNull();
-		} finally {
-			belt.stop(true);
-			direct.stop(true);
-			db.close();
-		}
-	});
-
-	test("direct leg returning no content is an honest failure (exit 2 + error fact)", async () => {
-		expect(
-			run("coord.ts", [
-				"emit",
-				"need-decision",
-				"--to",
-				"w552-lane",
-				"--note",
-				"no-content failure probe",
-				"--as",
-				"w552-lane",
-			]).code,
-		).toBe(0);
-		const db = new Database(`${HOME}/.cache/claude-governor/governor.db`, {
-			readonly: true,
-		});
-		const ev = db
-			.query(
-				"SELECT id FROM events WHERE kind = 'need-decision' AND json_extract(payload, '$.note') = 'no-content failure probe'",
-			)
-			.get() as { id: number };
-		expect(ev?.id).toBeDefined();
-
-		const belt = Bun.serve({
-			hostname: "127.0.0.1",
-			port: 0,
-			fetch: () => Response.json({ reply: "(empty response)" }),
-		});
-		const direct = Bun.serve({
-			hostname: "127.0.0.1",
-			port: 0,
-			fetch: () => Response.json({ choices: [{ message: { content: "" } }] }),
-		});
-		try {
-			const child = Bun.spawn(["bun", join(bin, "advise.ts"), String(ev.id)], {
-				cwd: REPO,
-				env: {
-					...env,
-					SUSPENDERS_BELT_URL: `http://127.0.0.1:${belt.port}`,
-					SUSPENDERS_LLM_URL: `http://127.0.0.1:${direct.port}/v1/chat/completions`,
-					SUSPENDERS_LLM_MODEL: "fixture",
-				},
-				stdout: "pipe",
-				stderr: "pipe",
-			});
-			const [code, err] = await Promise.all([
-				child.exited,
-				new Response(child.stderr).text(),
-			]);
-			expect(code).toBe(2);
-			expect(err).toContain("LLM answered with no content");
-			const errorFact = db
-				.query("SELECT value FROM facts WHERE key = ?")
-				.get(`advice.${ev.id}.error`) as { value: string } | null;
-			expect(errorFact?.value).toContain("LLM answered with no content");
-		} finally {
-			belt.stop(true);
-			direct.stop(true);
-			db.close();
-		}
 	});
 });
