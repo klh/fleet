@@ -195,8 +195,10 @@ const prompt = [
 	diff || "(no branch — review the thread/claims only)",
 	``,
 	`Report findings as terse bullets; every finding carries a stable ID — B<round>-<slug> (blocker) or N<round>-<slug> (note) — round = the round that FIRST reported it; IDs are never renumbered.`,
+	`ID discipline (W1263): B-prefix = merge-blocking defect, N-prefix = advisory. NEVER label advisory content with a B-prefix — every B-ID you emit blocks the merge until a reviewer explicitly resolves it, and advisory B-IDs accumulate a blocking union across review rounds that starves the merge ladder. When in doubt, use N.`,
 	`Review silently: do not announce next steps or ask to continue — your whole reply is findings bullets plus the verdict line.`,
 	`Explicitly resolved prior findings use a separate line RESOLVED: B<round>-<slug> followed by evidence. Unresolved blocker IDs prevent merge even with a PASS final line.`,
+	`Prior blocking IDs (W1263): when the ITEM THREAD shows earlier B-IDs for this exact commit, your reply must carry one line PER prior ID — either re-open it (state it as a finding bullet) or close it (RESOLVED: B<id> <one-line evidence>). A clean PASS with prior IDs silently absent is not a resolution and will be rejected by the receipt contract.`,
 	`Evidence-kind caps severity: a file:line-only claim caps at blocker(high); a runtime-behavior claim without a trigger path caps at note(low).`,
 	`End your reply with ONE machine-parseable final line:`,
 	`VERDICT: PASS | VERDICT: FAIL - <reason>`,
@@ -230,6 +232,10 @@ const leg: Leg | null = (() => {
 
 // ---- run the leg ------------------------------------------------------------
 const LEG_TIMEOUT_MS = 15 * 60_000;
+// W1263: the SERVED wire model of the last OpenAI-wire leg attempt — receipts
+// never recorded which upstream actually answered, so the review-leg route
+// was untraceable from the receipt alone. Stamp it into the review fact.
+let legWireModel: string | undefined;
 async function requestLlm(
 	url: string,
 	model: string,
@@ -254,28 +260,44 @@ async function requestLlm(
 	});
 	if (!response.ok) throw new Error(`Review LLM HTTP ${response.status}`);
 	const body = (await response.json()) as {
+		model?: string;
 		choices?: {
 			finish_reason?: string;
-			message?: { content?: string | null };
+			message?: {
+				content?: string | null;
+				reasoning_content?: string | null;
+				reasoning?: string | null;
+			};
 		}[];
 		usage?: { completion_tokens?: number };
 	};
 	// W1236: an HTTP 200 with empty content is a leg FAILURE — finish_reason
 	// "length" means the thinking budget ate the completion. Returning "" here
 	// is the opaque "leg failed" receipt (verdict ERROR, no diagnostics).
+	// W1263: reasoning legs (GLM family) fill reasoning_content and can stop
+	// with content:"" while usage.completion_tokens>0 — the review text rides
+	// the reasoning field. Recovering it is diagnosis, not fabrication: the
+	// verdict parse and the Sinai coverage proof still gate the verdict.
 	const choice = body.choices?.[0];
-	const content = choice?.message?.content ?? "";
-	if (!content.trim())
-		throw new Error(
-			`review leg returned empty content (finish_reason=${
-				choice?.finish_reason ?? "unknown"
-			}${
-				body.usage?.completion_tokens === undefined
-					? ""
-					: `, completion_tokens=${body.usage.completion_tokens}`
-			})`,
-		);
-	return content;
+	const msg = choice?.message;
+	if (typeof body.model === "string" && body.model) legWireModel = body.model;
+	const content = msg?.content ?? "";
+	const reasoning = msg?.reasoning_content ?? msg?.reasoning ?? "";
+	if (content.trim()) return content;
+	if (reasoning.trim()) return reasoning;
+	// W1263: BOTH fields empty = upstream empty (not parser loss). The throw
+	// carries the SERVED wire model + full payload shape, so the ERROR receipt
+	// self-describes the exact review-leg route for the operator.
+	const wire = typeof body.model === "string" ? body.model : "unknown";
+	throw new Error(
+		`review leg returned empty content (model=${wire} finish_reason=${
+			choice?.finish_reason ?? "unknown"
+		}${
+			body.usage?.completion_tokens === undefined
+				? ""
+				: `, completion_tokens=${body.usage.completion_tokens}`
+		}, content_len=0, reasoning_len=0)`,
+	);
 }
 async function runLeg(): Promise<string> {
 	if (leg?.kind === "buckle") {
@@ -545,6 +567,7 @@ db.query(
 	JSON.stringify({
 		verdict: effective,
 		headline,
+		wire_model: legWireModel ?? null,
 		ts: Date.now(),
 		coverage: proof ?? undefined,
 	}),

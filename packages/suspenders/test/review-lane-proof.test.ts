@@ -125,6 +125,7 @@ interface Case {
 async function runCase(
 	c: Case,
 	stubFetch?: (req: Request) => Response | Promise<Response>,
+	wantExit = 0,
 ): Promise<{ id: string; fact: Record<string, unknown> }> {
 	const id = addWork(`w634 proof ${c.name}`);
 	const branch = `suspenders/${id}`;
@@ -172,7 +173,7 @@ async function runCase(
 	stub.stop(true);
 	if (p.exitCode !== 0)
 		console.error("review-lane stderr:", errText.slice(0, 800));
-	expect(p.exitCode).toBe(0);
+	expect(p.exitCode).toBe(wantExit);
 
 	const db = new Database(DB_PATH, { readonly: true });
 	const fact = db
@@ -318,6 +319,76 @@ describe("W634 review-lane coverage proof (Sinai rule)", () => {
 		expect(parsed.verdict).toBe("ERROR");
 		expect(String(parsed.headline)).toContain("empty content");
 		expect(String(parsed.headline)).toContain("finish_reason=length");
+	});
+
+	test("W1263: reasoning-only 200 (content empty) is recovered, not an ERROR", async () => {
+		const { id, fact } = await runCase(
+			{
+				name: "w1263-recovery",
+				files: { "docs.md": "w1263 reasoning-only case\n" },
+				want: "skipped",
+			},
+			async () =>
+				Response.json({
+					model: "stub-reasoner",
+					choices: [
+						{
+							finish_reason: "stop",
+							message: {
+								content: "",
+								reasoning_content:
+									"N1-recovered: advisory.\nVERDICT: PASS - recovered from reasoning_content",
+							},
+						},
+					],
+					usage: { completion_tokens: 1263 },
+				}),
+		);
+		expect(fact.verdict).toBe("PASS");
+		expect(fact.wire_model).toBe("stub-reasoner");
+		const db = new Database(DB_PATH, { readonly: true });
+		try {
+			const ev = db
+				.query(
+					"SELECT payload FROM events WHERE kind = 'work.review' AND json_extract(payload, '$.work') = ?",
+				)
+				.get(id) as { payload: string } | null;
+			if (!ev) throw new Error(`no work.review event for ${id}`);
+			const note = String(JSON.parse(ev.payload).note ?? "");
+			expect(note).toContain("recovered from reasoning_content");
+		} finally {
+			db.close();
+		}
+	});
+
+	test("W1263: both-empty 200 carries served-model payload diagnostics", async () => {
+		const { fact } = await runCase(
+			{
+				name: "w1263-both-empty",
+				files: { "docs.md": "w1263 both-empty case\n" },
+				want: "skipped",
+			},
+			async () =>
+				Response.json({
+					model: "zai-glm-5.3-flash",
+					choices: [
+						{
+							finish_reason: "stop",
+							message: { content: "" },
+						},
+					],
+					usage: { completion_tokens: 1427 },
+				}),
+			2,
+		);
+		expect(fact.verdict).toBe("ERROR");
+		const h = String(fact.headline);
+		expect(h).toContain("empty content");
+		expect(h).toContain("model=zai-glm-5.3-flash");
+		expect(h).toContain("finish_reason=stop");
+		expect(h).toContain("completion_tokens=1427");
+		expect(h).toContain("content_len=0");
+		expect(h).toContain("reasoning_len=0");
 	});
 
 	test("W1236.1: a retry PASS cannot erase the first attempt's blocking findings", async () => {
