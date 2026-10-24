@@ -13,8 +13,8 @@ import {
 	realpathSync,
 	rmSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { tmpDir } from "./helpers/fixture-kit.ts";
 import {
 	buildRootIndex,
 	candidateRoots,
@@ -23,7 +23,7 @@ import {
 } from "../hooks/bin/knowledge-resweep.ts";
 import { createHash } from "node:crypto";
 
-const WORK = mkdtempSync(join(tmpdir(), "suspenders-resweep-"));
+const WORK = tmpDir("suspenders-resweep-");
 // repo dir basename MUST equal the domain ("proj") — the domain arm matches
 // sessions.project basenames exactly (live evidence: gaps, hojtaler, …)
 const REPO_DIR = join(WORK, "proj");

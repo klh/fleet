@@ -7,8 +7,9 @@
 // real board db — landing is tested through the db-injected core.
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { tmpDir } from "./helpers/fixture-kit.ts";
 import { join } from "node:path";
 import {
 	DEFAULT_POLICY,
@@ -37,7 +38,7 @@ test("readSyncConfig: missing file = clean disabled (null)", () => {
 });
 
 test("readSyncConfig: enforces 0600 exactly", () => {
-	const dir = mkdtempSync(join(tmpdir(), "w944-cfg-"));
+	const dir = tmpDir("w944-cfg-");
 	const path = join(dir, "knowledge-sync.json");
 	writeFileSync(
 		path,
@@ -52,7 +53,7 @@ test("readSyncConfig: enforces 0600 exactly", () => {
 });
 
 test("readSyncConfig: unknown policy key refused (policy only toggles known classes)", () => {
-	const dir = mkdtempSync(join(tmpdir(), "w944-cfg-"));
+	const dir = tmpDir("w944-cfg-");
 	const path = join(dir, "knowledge-sync.json");
 	writeFileSync(
 		path,
@@ -68,7 +69,7 @@ test("readSyncConfig: unknown policy key refused (policy only toggles known clas
 });
 
 test("readSyncConfig: valid config parses with default policy + url rules", () => {
-	const dir = mkdtempSync(join(tmpdir(), "w944-cfg-"));
+	const dir = tmpDir("w944-cfg-");
 	const path = join(dir, "knowledge-sync.json");
 	writeFileSync(
 		path,
@@ -140,7 +141,7 @@ test("SYNCABLE_FACT matches the lesson/finding vocabulary only", () => {
 });
 
 test("collectFacts: vocabulary + secret + version gates on a fixture db", () => {
-	const dir = mkdtempSync(join(tmpdir(), "w944-facts-"));
+	const dir = tmpDir("w944-facts-");
 	const dbPath = join(dir, "governor.db");
 	const db = new Database(dbPath);
 	db.run(
@@ -162,7 +163,7 @@ test("collectFacts: vocabulary + secret + version gates on a fixture db", () => 
 });
 
 test("readSyncConfig: non-loopback http target refused", () => {
-	const dir = mkdtempSync(join(tmpdir(), "w944-cfg-"));
+	const dir = tmpDir("w944-cfg-");
 	const path = join(dir, "knowledge-sync.json");
 	writeFileSync(
 		path,
@@ -288,7 +289,7 @@ test("handleKnowledgeIngest: route shape guards", async () => {
 // content-free — the deny is structural. ────────────────────────────────────
 
 test("e2e: syncOnce posts decant metrics + facts to a local receiver", async () => {
-	const dir = mkdtempSync(join(tmpdir(), "w944-e2e-"));
+	const dir = tmpDir("w944-e2e-");
 	// the fake decant: one stats row per dim; the ls row carries content
 	const binPath = join(dir, "decant-fake");
 	// the fake decant: one stats row per dim; the ls row carries content
@@ -519,7 +520,7 @@ const ackSyncHarness = (): {
 	dbPath: string;
 	close: () => void;
 } => {
-	const dir = mkdtempSync(join(tmpdir(), "w12132-ack-"));
+	const dir = tmpDir("w12132-ack-");
 	const rx = ackReceiver();
 	const { cfgPath } = ackFixtureConfig(rx.url, dir);
 	const dbPath = ackFixtureDb(dir);

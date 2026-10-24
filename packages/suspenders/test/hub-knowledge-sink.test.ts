@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpDir } from "./helpers/fixture-kit.ts";
 import { join } from "node:path";
 import { parse } from "yaml";
 
@@ -11,7 +11,7 @@ import { parse } from "yaml";
 // the template defaults. The sink face is the existing knowledge-api —
 // W1213's /roll aggregation routes ride it once that branch integrates.
 
-const dir = mkdtempSync(join(tmpdir(), "hub-knowledge-sink-"));
+const dir = tmpDir("hub-knowledge-sink-");
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 type Svc = Record<string, unknown> & {
 	volumes?: unknown[];
