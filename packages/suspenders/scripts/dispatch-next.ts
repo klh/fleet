@@ -22,8 +22,8 @@ import {
 	run as runShared,
 	sh as shShared,
 	workCliFor,
-} from "./lib/lane.ts";
-import { adminKey } from "./lib/lane-auth.ts";
+} from "../hooks/lib/lane.ts";
+import { adminKey } from "../hooks/lib/lane-auth.ts";
 import { grinderGate } from "./lib/lane-death-capture.ts";
 // W519: .prefer prefer= soft routing — the brief carries the constraint
 import {

@@ -41,11 +41,7 @@ import {
 	applyInsertion,
 	insertionCtx,
 } from "../../../scripts/lib/insertion.ts";
-import {
-	jobslabFor,
-	jobslabTag,
-	laneClassOf,
-} from "../../../scripts/lib/jobslab.ts";
+import { jobslabFor, jobslabTag, laneClassOf } from "../jobslab.ts";
 import {
 	applyLaneAttribution,
 	executorLaunch,
@@ -54,16 +50,13 @@ import {
 	recreateWorktreeFor,
 	residueOf,
 	spawnClaude,
-} from "../../../scripts/lib/lane.ts";
+} from "../lane.ts";
 import {
 	ensureLaneKey,
 	LANE_KEY_TTL_S,
 	laneKeyMetaPath,
-} from "../../../scripts/lib/lane-auth.ts";
-import {
-	laneAttemptLimit,
-	nextLaneAttempt,
-} from "../../../scripts/lib/lane-retry-budget.ts";
+} from "../lane-auth.ts";
+import { laneAttemptLimit, nextLaneAttempt } from "../lane-retry-budget.ts";
 import { laneSettingsData } from "../../../scripts/lib/lane-settings.ts";
 import {
 	dispatchStarterFork,
@@ -86,7 +79,7 @@ import {
 	readConfiguredLaunches,
 	reserveLaunchIntent,
 } from "../../../scripts/lib/launch-fencing.ts";
-import { launchParent } from "../../../scripts/lib/launch-parent.ts";
+import { launchParent } from "../launch-parent.ts";
 import {
 	acquireLaunchLease,
 	renewLaunchLease,

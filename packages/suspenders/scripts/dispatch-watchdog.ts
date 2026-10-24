@@ -51,6 +51,7 @@ import {
 	type WatchdogDimension,
 	watchdogVerdict,
 } from "./lib/watchdog-verdict.ts";
+import { persistWatchdogState } from "./lib/watchdog-state.ts";
 
 const HOME = process.env.HOME ?? "";
 const REPO =
@@ -563,33 +564,23 @@ const run = async (): Promise<number> => {
 		memory,
 	});
 	// Preserve prior action history, but observation alone never increments restart counts.
-	writeFileSync2(
-		statePath,
-		JSON.stringify({
-			...nextState,
-			loopPid: pid,
-			serviceFingerprints: drift.fingerprints,
-			serviceCheckAt: drift.notifiedAt,
-			decisionEmits,
-			at: health.at,
-			health,
-			resourceActions,
-		}),
-	);
+	const exitCode = persistWatchdogState(statePath, {
+		...nextState,
+		loopPid: pid,
+		serviceFingerprints: drift.fingerprints,
+		serviceCheckAt: drift.notifiedAt,
+		decisionEmits,
+		at: health.at,
+		health,
+		resourceActions,
+	});
 	verdicts.unshift(`aggregate ${health.state}`);
 	log(verdicts.join(" | "));
 	if (repaired)
 		console.log(`watchdog: resource action sent (${verdicts.join(" | ")})`);
 	else console.log(`watchdog: ${verdicts.join(" | ")}`);
-	return health.exitCode;
+	return exitCode;
 };
-
-// writeFileSync with parents
-function writeFileSync2(p: string, data: string): void {
-	const { mkdirSync, writeFileSync } = require("node:fs");
-	mkdirSync(FLEET, { recursive: true });
-	writeFileSync(p, data);
-}
 
 const dry = process.argv.includes("--dry-run");
 if (dry) {
