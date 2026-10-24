@@ -47,12 +47,26 @@ export function retryAfterS(
 	return null;
 }
 
+/** The provider's own last-seen rate-limit words, banked at each rate-limit
+ *  rung (W1257): a bench window answers with the PROVIDER's code/type/
+ *  message — never a provenance-free synthetic envelope. */
+export interface ProviderRateLimitDetail {
+	code: string | number | null;
+	type: string | null;
+	message: string;
+	retryAfterS: number | null;
+}
+
 /** Consecutive-failure ejection state (allowed_fails: consecutive failures
  *  bench a deployment for the cooldown window; success resets). */
 export class Cooldowns {
 	private readonly fails = new Map<string, number>();
 	private readonly until = new Map<string, number>();
 	private readonly reasons = new Map<string, "rate_limited" | "other">();
+	private readonly rateLimitDetails = new Map<
+		string,
+		ProviderRateLimitDetail
+	>();
 
 	constructor(
 		private readonly allowedFails: number,
@@ -108,6 +122,21 @@ export class Cooldowns {
 		const k = Cooldowns.key(dep);
 		if (this.reasons.get(k) !== "rate_limited") return null;
 		return this.remainingS(dep);
+	}
+
+	/** Bank the provider's own refusal words at a rate-limit rung (W1257). */
+	noteRateLimitDetail(dep: Deployment, detail: ProviderRateLimitDetail): void {
+		this.rateLimitDetails.set(Cooldowns.key(dep), detail);
+	}
+
+	/** The banked words, valid only inside a rate-limited bench window. */
+	rateLimitDetail(dep: Deployment): ProviderRateLimitDetail | null {
+		const k = Cooldowns.key(dep);
+		if (this.rateLimitRemainingS(dep) === null) {
+			this.rateLimitDetails.delete(k);
+			return null;
+		}
+		return this.rateLimitDetails.get(k) ?? null;
 	}
 
 	benched(dep: Deployment): boolean {

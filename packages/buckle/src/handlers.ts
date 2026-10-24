@@ -579,7 +579,8 @@ async function runExecute(
 	});
 	deps.table.inflight(sel.head.candidate_id, 1);
 	// W450 bounded RPC admission: one slot per in-flight upstream RPC; past
-	// the cap the gateway 429s + Retry-After (never queues blindly).
+	// the cap the gateway answers a typed local 503 + Retry-After (never
+	// queues blindly, never fabricates the provider's 429 — W1257).
 	if (deps.admission) {
 		const release = deps.admission.tryAcquire(ctx.group);
 		if (release === null) {
@@ -592,8 +593,8 @@ async function runExecute(
 			const resp = deny(
 				deps,
 				ctx,
-				429,
-				`gateway at max in-flight for ${ctx.group} (${String(deps.admission.capOf(ctx.group))})`,
+				503,
+				`gateway at max in-flight for ${ctx.group} (${String(deps.admission.capOf(ctx.group))}) — admission refused locally (W450)`,
 				"overloaded",
 				"errored",
 			);
