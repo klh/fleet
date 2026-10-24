@@ -11,6 +11,30 @@ structurally ineligible).
 Companion of belt (fleet) + suspenders (control plane). Design docs
 live in suspenders `docs/design/buckle/`.
 
+## Account policy (W1265.1) — repo/tier boundary at ingress
+
+The authoritative repo→account-class→tier boundary rides the W1265 named
+ingress seam. Config-over-code: `~/.claude/local-llm/repo-tier-policy.yaml`
+(`BUCKLE_REPO_TIER_POLICY` overrides; `accountPolicyPath` server opt).
+Absent config = inert (logged at boot); a CONFIGURED path
+that fails to load is startup fatal (fail closed).
+
+- **Binding axis**: the credential's mint NAME (trusted installer/launcher
+  `fleet-ikea-*` vs `fleet-personal-*`) + an optional verified
+  `x-klh-repo` claim. A client-supplied repo header alone is never identity
+  — spoof = 403 `buckle.repo_claim_mismatch`; key outside every class = 403
+  `buckle.repo_unknown`. Decisions audit with a SAFE repo hash (16-hex of
+  class+binding — the path never lands), tier, key name.
+- **Enforcement**: 403 `buckle.tier_entitlement` (group outside the class
+  groups) and 503 `buckle.tier_no_upstream` (no entitled row after scoping)
+  both fire BEFORE routing with zero outbound. The scoped selection is
+  marked (`accountScoped`) and the router's gatedLadder confines its
+  tierCandidates pull to that set — fallback rungs never cross the class
+  boundary (the cross-boundary e2e proves zero foreign outbound).
+- **Simple disable**: remove/rename the policy file (or unset the env) and
+  reboot — the engine logs inert and the gateway behaves exactly as
+  pre-W1265.1.
+
 ## UI law
 
 NEVER `innerHTML` / `document.write` (blocked by the write-gate).

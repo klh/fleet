@@ -16,7 +16,14 @@ import {
 	PREFER_HEADER,
 	parsePreferHeader,
 } from "../../telemetry/src/prefer-header.ts";
-import { RouterError, routerErrorEnvelope } from "./adapters/errors.ts";
+import { RouterError } from "./adapters/errors.ts";
+import {
+	type AcctContext,
+	type AccountPolicyDoc,
+	applyAccountPolicy,
+	REPO_CLAIM_HEADER,
+	scopeSelection,
+} from "./account-policy.ts";
 import { resolveAdapter } from "./adapters/index.ts";
 import type { RpcAdmission } from "./admission.ts";
 import {
@@ -68,6 +75,7 @@ import {
 	MAX_REQUEST_BODY_BYTES,
 	readIngressJson,
 } from "./ingress-body.ts";
+import { handleNamedIngress, namedIngressOf } from "./ingress-routes.ts";
 import { keyIdFromToken, type Ledger, tokenFromHeaders } from "./ledger.ts";
 import type {
 	ObservationData,
@@ -83,6 +91,13 @@ import { repoPolicyRoutes } from "./repo-policy-routes.ts";
 import { type ExecuteResult, type Router, UpstreamError } from "./router.ts";
 import type { Servicemon } from "./servicemon.ts";
 import { SseSniffer, sseReframer } from "./sse.ts";
+import {
+	blackHole,
+	once,
+	scrubText,
+	terminalOf,
+	writeErrorEvent,
+} from "./stream-terminal.ts";
 import {
 	allowlistedBaggage,
 	newTraceparent,
@@ -111,6 +126,9 @@ export interface AppDeps {
 		hint: RouteHint | null;
 		hintRaw: string;
 		allowCross: boolean;
+		/** W1265: scope the candidate set to this catalog provider
+		 *  (dep.adapter) only — a pinned route never substitutes. */
+		providerPin?: string;
 	}) => DecideResult;
 	table: CandidateTable;
 	// W142 knowledge aids: the metering ledger, the preseed builder, and the
@@ -133,6 +151,10 @@ export interface AppDeps {
 	// W7 repo-policy gate: the loaded rows (absent/empty = engine inert);
 	// the route 404s honestly when unwired.
 	repoPolicy?: RepoPolicyRow[];
+	// W1265.1 account policy: the loaded repo-tier class table (null = the
+	// boundary is inert — no policy configured; gate-off + active policy is
+	// still fail-closed in proxy()). Optional — bare deps (testDeps, dev).
+	accountPolicy?: AccountPolicyDoc | null;
 	// W237 prefix-affinity: the prefix → candidate memo. Optional — bare
 	// deps (testDeps, dev) route without affinity and the seam no-ops.
 	affinity?: PrefixAffinity;
@@ -173,8 +195,6 @@ const SSE_HEADERS = (h: Headers): Headers => {
 	}
 	return out;
 };
-
-const enc = new TextEncoder();
 
 /** Short request id — the audit join key echoed as x-belt-rid. */
 function newRid(): string {
@@ -268,11 +288,6 @@ export function errorResponse(
 	});
 }
 
-/** /Users/<name> paths and key material never leave through an error. */
-export function scrubText(text: string): string {
-	return text.replace(/\/Users\/[^/\s'"]+/g, "~");
-}
-
 /** W921 traffic kind: a request is READINESS traffic only when a
  *  root-authenticated principal carries the healthcheck's
  *  `x-klh-traffic: readiness` mark — a lane key (or any non-root
@@ -297,6 +312,9 @@ interface Ctx {
 	tier: string;
 	t0: number;
 	sel?: RouteSelection;
+	/** W1265.1: the resolved account context (undefined = policy inert for
+	 *  this request — no class table, no pin). */
+	acct?: AcctContext;
 	/** W5: the request declared `condense-in` in its x-belt-aids stanza. */
 	condenseIn: boolean;
 	/** W237: packet-prefix key (null = no packet block, no affinity). */
@@ -361,6 +379,9 @@ function deny(
 		why,
 		hop: hopKindOf(ctx.hop),
 		traffic_kind: ctx.trafficKind,
+		repo_hash: ctx.acct?.repoHash ?? null,
+		account_tier: ctx.acct?.tier ?? null,
+		key_name: ctx.acct?.keyName ?? null,
 	});
 	if (ctx.admitted)
 		observe(deps, ctx, "lane.request.ended", { outcome: decision, status });
@@ -419,6 +440,7 @@ async function proxy(
 	path: string,
 	deps: AppDeps,
 	lane = "",
+	pin?: string,
 ): Promise<Response> {
 	const hubId = deps.hubId ?? "local";
 	const baggage = allowlistedBaggage(req.headers.get("baggage"));
@@ -508,21 +530,54 @@ async function proxy(
 	ctx.hint = hint.hint;
 	ctx.hintRaw = hint.raw;
 	ctx.tier = scoreComplexity(textFromMessages(body.messages)).tier;
+	// W1265.1 account policy: resolve the verified repo/workspace identity +
+	// allowed account tier from the AUTHENTICATED key (the trusted mint name
+	// — never the client-supplied claim header, never process/TLS inference)
+	// BEFORE any routing. A refusal here is a typed local 4xx, zero outbound.
+	const principal = principalOf(req);
+	const verdict = applyAccountPolicy(deps.accountPolicy ?? null, {
+		kind: principal?.kind ?? null,
+		keyName: principal?.name ?? null,
+		claimRepo: req.headers.get(REPO_CLAIM_HEADER),
+		pin: pin ?? null,
+		group: model,
+	});
+	if (!verdict.ok)
+		return deny(deps, ctx, verdict.status, verdict.why, verdict.code, "denied");
+	if (verdict.acct !== undefined) ctx.acct = verdict.acct;
 	const sel = deps.decide({
 		group: model,
 		dialect,
 		hint: ctx.hint,
 		hintRaw: ctx.hintRaw,
-		// count_tokens never bridges (openai wire has no count endpoint)
-		allowCross: path !== "/v1/messages/count_tokens",
+		// count_tokens never bridges (openai wire has no count endpoint); a
+		// provider-pinned route never bridges either (W1265)
+		allowCross: pin === undefined && path !== "/v1/messages/count_tokens",
+		providerPin: pin,
 	});
 	if (!sel.ok) {
 		deps.sm
 			.counter("buckle_route_decisions_total", "Routing decisions.")
 			.inc({ decision: "errored", dialect });
-		return deny(deps, ctx, 503, sel.err.why, sel.err.code, "errored");
+		return deny(
+			deps,
+			ctx,
+			503,
+			pin === undefined
+				? sel.err.why
+				: `provider pin '${pin}' on '${path}': ${sel.err.why}`,
+			sel.err.code,
+			"errored",
+		);
 	}
-	ctx.sel = sel.sel;
+	// W1265.1: confine the walked selection to entitled rows — the router
+	// walks sel.ordered, so a scoped list makes cross-boundary fallback
+	// structurally impossible (no entitled-set exit crossing the class
+	// boundary). Scoped to zero = typed refusal, zero outbound.
+	const scoped = scopeSelection(sel.sel, ctx.acct);
+	if (!scoped.ok)
+		return deny(deps, ctx, scoped.status, scoped.why, scoped.code, "errored");
+	ctx.sel = scoped.sel;
 	return runExecute(req, ctx, path, body, deps);
 }
 
@@ -576,6 +631,9 @@ async function runExecute(
 		why: sel.why,
 		hop: hopKindOf(ctx.hop),
 		traffic_kind: ctx.trafficKind,
+		repo_hash: ctx.acct?.repoHash ?? null,
+		account_tier: ctx.acct?.tier ?? null,
+		key_name: ctx.acct?.keyName ?? null,
 	});
 	deps.table.inflight(sel.head.candidate_id, 1);
 	// W450 bounded RPC admission: one slot per in-flight upstream RPC; past
@@ -1176,76 +1234,6 @@ function streamResponse(
 	});
 }
 
-/** W1106: typed stream terminal for the audit receipt — who ended the
- *  stream, from the body-free evidence at this hop. EOF without the
- *  dialect's protocol terminal banks upstream_eof_truncated (#55420); an
- *  in-band failure body outranks a terminal marker that follows (#55446). */
-function terminalOf(
-	failed: boolean,
-	kind: string | null,
-	cancelled: boolean,
-	drained: boolean,
-	truncated: boolean,
-	inBand: string | null,
-): string {
-	if (cancelled) return "downstream_cancel";
-	if (drained) return "gateway_restarting";
-	if (inBand !== null) return `in_band_error:${inBand}`;
-	if (!failed) return truncated ? "upstream_eof_truncated" : "upstream_eof";
-	if (kind === "timeout") return "upstream_deadline";
-	return `upstream_error:${kind ?? "unknown"}`;
-}
-
-/** Sink for the sniff branch: bytes in, usage extraction (+ the W1106
- *  progress counters), nothing out. */
-function blackHole(
-	sniffer: SseSniffer,
-	progress?: (chunk: Uint8Array) => void,
-): WritableStream<Uint8Array> {
-	return new WritableStream({
-		write(chunk) {
-			progress?.(chunk);
-			sniffer.push(chunk);
-		},
-	});
-}
-
-/** Run fn once; later callers are no-ops (stream finalization guard). */
-function once(fn: () => void): () => void {
-	let called = false;
-	return () => {
-		if (called) return;
-		called = true;
-		fn();
-	};
-}
-
-/** Mid-stream upstream death: append a dialect error event, close. */
-function writeErrorEvent(
-	writable: WritableStream<Uint8Array>,
-	dialect: Dialect,
-	err: unknown,
-): void {
-	const message = scrubText(
-		err instanceof Error ? err.message : "upstream stream failed",
-	);
-	const w = writable.getWriter();
-	const envelope =
-		err instanceof RouterError
-			? routerErrorEnvelope(err, dialect, message)
-			: { error: { message, type: "api_error", code: "stream_failed" } };
-	const body =
-		dialect === "anthropic"
-			? `event: error\ndata: ${JSON.stringify({ type: "error", ...envelope })}\n\n`
-			: `data: ${JSON.stringify(envelope)}\n\n`;
-	void w
-		.write(enc.encode(body))
-		.then(() => w.close())
-		.catch(() => {
-			// client already gone — nothing to write to
-		});
-}
-
 /** One completed proxied request → ledger row + servicemon token counters.
  *  usage null = honest unknown: the requests column still increments, token
  *  columns contribute nothing, servicemon gets an explicit counter.
@@ -1363,6 +1351,11 @@ export function createApp(deps: AppDeps): App {
 		// x-belt-route header; the upstream sees the bare path. Other
 		// surfaces (federation/admin/aids) stay unprefixed — a lane prefix
 		// never widens surface.
+		// W1265 named bases (/anthropic, /openai, /zai/*) — guard answers first
+		// (typed local 4xx, zero outbound), legacy bare /v1 paths verbatim.
+		const named = namedIngressOf(path);
+		if (named !== null)
+			return handleNamedIngress(named, req, method, deps, proxy);
 		const laneRoute = lanePrefixOf(path);
 		if (laneRoute.lane !== "") {
 			const inner = laneRoute.path;

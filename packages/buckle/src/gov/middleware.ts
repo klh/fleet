@@ -76,6 +76,10 @@ export interface Principal {
 	/** Key-carried budgets (null = unbounded at key level). */
 	rpm: number | null;
 	tpm: number | null;
+	/** W1265.1: the credential's mint NAME — the trusted installer/launcher
+	 *  binding axis the account-policy class lookup resolves. Null for
+	 *  root/jwt/sso (no mint name). */
+	name: string | null;
 }
 
 export type AuthResult =
@@ -256,6 +260,7 @@ export class Governance {
 				principal: {
 					kind: "root",
 					keyId: "root",
+					name: null,
 					team: null,
 					actor: "root",
 					scopes: [...ALL_SCOPES],
@@ -278,6 +283,7 @@ export class Governance {
 				principal: {
 					kind: "api_key",
 					keyId: v.key.key_id,
+					name: v.key.name,
 					team: v.key.team,
 					actor: v.key.actor,
 					scopes: parsed.scopes,
@@ -305,6 +311,7 @@ export class Governance {
 			principal: {
 				kind: "jwt",
 				keyId: `jwt:${j.sub ?? "unknown"}`,
+				name: null,
 				team: null,
 				actor: j.sub ?? null,
 				scopes: j.scopes ?? [],

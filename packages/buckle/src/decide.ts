@@ -41,6 +41,10 @@ export interface RouteSelection {
 	cloudGroups: Set<string>;
 	prefs: Prefs; // prefs state at decision time (audit + gate)
 	why: string;
+	/** W1265.1: an account boundary is active on this selection — ordered is
+	 *  the ENTIRE entitled domain, so the walk's ladder rungs must confine to
+	 *  it (gatedLadder reads this; tierCandidates alone re-pulls the table). */
+	accountScoped?: boolean;
 }
 
 export interface HintError {
