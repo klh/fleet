@@ -625,6 +625,44 @@ Mechanized (W295): `bun bin/fleet-refresh.ts status --gb <id>=<gb>,…` ·
 loser weights deleted automatically (self-A/B deletion guard, `--keep`
 override), verdict + medians + loadavg logged to benchmarks.jsonl.
 
+## ThinkingCap-gemma-4-26B-A4B local eval (W1245, 2026-10-24; smoke)
+
+Decision the row supports: does the open-weight ThinkingCap fine-tune
+(gemma-4-26B-A4B, 26B MoE ~4B active, GGUF) earn a resident swarm slot vs
+the :8903 (qwen3.5-35B-A3B-OptiQ-4bit) and :8906 (qwen3.5-9B-MLX-4bit)
+incumbents? Honesty: speed medians n=4 (350-tok temp-0 client-wall),
+quality n=5 fleet prompts at 700-tok budget plus 1500-tok re-asks of the
+empty legs — direction, not claim (quality claims need ≥130 paired).
+
+| Setup (llama.cpp 0.7.0, Metal, temp 0)  | median tok/s | quality@700tok | at adequate budget (≤1500)              |
+| --------------------------------------- | -----------: | -------------- | --------------------------------------- |
+| :8903 qwen3.5-35B-A3B-OptiQ-4bit (inc.) |         69.4 | 3/5 (2 LOOP)   | —                                       |
+| :8906 qwen3.5-9B-MLX-4bit (inc.)        |         73.7 | 3/5 (2 LOOP)   | —                                       |
+| ThinkingCap 26B-A4B Q4_K_M (17.0GB)     |        101.2 | 4/5            | 5/5 correct (fix-flaky thinks ~1100tok) |
+| ThinkingCap 26B-A4B MXFP4_MOE (16.6GB)  |         95.9 | 3/5            | 5/5 correct (2 legs think >700tok)      |
+
+**Provisional WIN** on this smoke: ~+38% tok/s over :8903 at equal-or-better
+completions on all five fleet prompts, and the thinking-token discipline is
+real (coherent final content; verbose thinking stays in reasoning_content).
+Both vendor quants produce identical temp-0 token trajectories (same
+fine-tune). Caveats: (1) at a tight 700-tok budget the verbose thinking can
+empty the final content — budget 1500 or disable thinking; (2) NOT a
+candidate for large-prompt review legs (AA-LCR regression, W1244 owns that
+decision). Recommended next step: swap one resident slot and re-run the
+mechanized fleet-refresh A/B (n≥12, nonce-cold) before promoting. Weights
+kept at /Volumes/Sensitive/models/w1245/ (ThinkingCap-q4km-0000{1..6}-of-00006.gguf,
+ThinkingCap-surgery-0000{1..5}-of-00005.gguf); eval scripts in .fleet/w1245/
+(probe.ts, assemble.ts, patch-parts.ts, gguf.ts).
+
+Pipeline note (the row's second finding): the host 4GiB per-file write
+rlimit makes single-file 17GB GGUFs on this host impossible, so both quants
+were served as llama.cpp split sets rebuilt from HF range-fetches. The
+earlier "vendor MXFP4 conversion is broken" reading was an assembly
+artifact — the parser computed the data section start from end-of-KVs
+instead of end-of-tensor-infos, misplacing every fetched tensor by 40,320
+bytes. Vendor quants work as shipped; byte-verified 18/18 (Q4_K_M) and
+14/15 (MXFP4) samples against the source after the fix.
+
 ## Rejection log
 
 | Date       | Model                                  | Verdict                                                                                                                                         |
