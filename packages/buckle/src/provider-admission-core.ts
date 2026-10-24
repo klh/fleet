@@ -100,12 +100,15 @@ export class ProviderAdmissionCore {
 	private readonly queue: PQueue;
 	private outstanding = 0;
 	private readonly baseGapMs: number;
-	/** W1273: the escalation ceiling is the pool's OWN interval contract —
-	 *  pacing a start wider than one full interval (or twice the base pace)
-	 *  would serialize the pool far below the entitlement the operator
-	 *  configured, which is how a burst of 1302s collapsed live slots to
-	 *  one active lease per 24s. The admission wait and MAX_ADAPTIVE_GAP_MS
-	 *  remain outer clamps only. */
+	/** W1273: the escalation ceiling is a bounded multiple of the pool's
+	 *  effective pace — enough doubling headroom to discover a refusal
+	 *  boundary above the contract pace (starving discovery below the
+	 *  provider's demonstrated need permanently 1302s every attempt), while
+	 *  bounding the recovery ladder to a few dozen successes. The incident
+	 *  ceiling was min(30s, queueWaitMs/4) ≈ 24s against a 20ms pace, which
+	 *  serialized live slots to one active lease per 24s with a multi-hour
+	 *  return. The admission wait and MAX_ADAPTIVE_GAP_MS remain outer
+	 *  clamps only. */
 	private readonly gapCeilingMs: number;
 	private adaptiveGapMs: number;
 	private notBeforeMs = 0;
@@ -133,7 +136,7 @@ export class ProviderAdmissionCore {
 		this.gapCeilingMs = Math.min(
 			MAX_ADAPTIVE_GAP_MS,
 			policy.queueWaitMs / 4,
-			Math.max(policy.intervalMs, this.baseGapMs * 2),
+			this.baseGapMs * 16,
 		);
 		this.adaptiveGapMs = this.baseGapMs;
 		this.adaptiveConcurrency = policy.concurrency;
@@ -224,10 +227,8 @@ export class ProviderAdmissionCore {
 					);
 					this.queue.concurrency = this.adaptiveConcurrency;
 				} else {
-					// W1273: escalate only up to the pool's own interval contract —
-					// a 1302 wave must pace starts, never serialize the pool below
-					// the configured entitlement (the incident ceiling was
-					// queueWaitMs/4 ≈ 24s against a 20ms base pace).
+					// W1273: escalation discovers the refusal boundary above the
+					// contract pace, then stops — pacing without serializing.
 					this.adaptiveGapMs = Math.min(
 						Math.max(this.baseGapMs, this.gapCeilingMs),
 						this.adaptiveGapMs * 2,
