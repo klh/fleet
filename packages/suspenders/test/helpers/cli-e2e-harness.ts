@@ -23,8 +23,14 @@ export interface CliResult {
 const BIN = join(import.meta.dir, "..", "..", "hooks", "bin");
 const GOVDB = join(import.meta.dir, "..", "..", "hooks", "lib", "govdb.ts");
 
-/** One isolated fixture: temp HOME (fresh governor.db) + git-inited repo. */
-export function cliFixture(label: string): {
+/** One isolated fixture: temp HOME (fresh governor.db) + git-inited repo.
+ *  opts.env rides LAST over the pinned base (dispatch-harness envOverrides
+ *  convention) — coord/gate suites pin GOVERNOR_STORE_URL=local so spawned
+ *  children cannot rebind the store onto the lane's own env. */
+export function cliFixture(
+	label: string,
+	opts: { env?: Record<string, string | undefined> } = {},
+): {
 	HOME: string;
 	REPO: string;
 	run: (file: string, args: string[]) => CliResult;
@@ -42,7 +48,7 @@ export function cliFixture(label: string): {
 	const HOME = mkdtempSync(join(tmpdir(), `w932-${label}-home-`));
 	const REPO = mkdtempSync(join(tmpdir(), `w932-${label}-repo-`));
 	mkdirSync(REPO, { recursive: true });
-	const env = { ...process.env, HOME };
+	const env = { ...process.env, HOME, ...(opts.env ?? {}) };
 	const spawn = (cwd: string, file: string, args: string[]): CliResult => {
 		const p = spawnSync("bun", [file, ...args], {
 			cwd,
@@ -105,7 +111,11 @@ openGovernorDb().query(${JSON.stringify(statement)}).run(...${JSON.stringify(par
 		const first = (r.out.split("\n")[0] ?? "").trim();
 		const at = first.lastIndexOf(". ");
 		if (at < 0) throw new Error(`${file} --help unparseable: ${first}`);
-		return first.slice(at + 2).split(" | ").map((s) => s.trim()).filter(Boolean);
+		return first
+			.slice(at + 2)
+			.split(" | ")
+			.map((s) => s.trim())
+			.filter(Boolean);
 	};
 	return {
 		HOME,

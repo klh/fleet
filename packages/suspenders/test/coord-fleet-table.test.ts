@@ -8,45 +8,31 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildFleetTable, fleetGlyph } from "../hooks/coord/fleet-table.ts";
+import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 
 const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
-const home = mkdtempSync(join(tmpdir(), "suspenders-w1258-fleet-table-"));
+const fx = cliFixture("w1258-fleet-table", {
+	env: { GOVERNOR_STORE_URL: "local" },
+});
 
-afterAll(() => rmSync(home, { recursive: true, force: true }));
+afterAll(() => fx.cleanup());
 
 // fleet lesson coord-child-store-binding: spawned coord children inherit
 // GOVERNOR_STORE_URL — without the pin a lane env's store URL silently
 // rebinds openStore() onto the REAL fleet store despite the temp HOME.
+// The fixture env above carries the pin; childEnv covers the standalone
+// home2 spawn in the empty-fleet leg.
 const childEnv = (h: string): NodeJS.ProcessEnv => ({
 	...process.env,
 	HOME: h,
 	GOVERNOR_STORE_URL: "local",
 });
 
-const runCli = (args: string[]): { code: number; out: string; err: string } => {
-	const p = Bun.spawnSync(["bun", COORD, ...args], {
-		env: childEnv(home),
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	return {
-		code: p.exitCode,
-		out: new TextDecoder().decode(p.stdout),
-		err: new TextDecoder().decode(p.stderr),
-	};
-};
+const runCli = (args: string[]): { code: number; out: string; err: string } =>
+	fx.run("coord.ts", args);
 
-const runIn = (code: string): string => {
-	const p = Bun.spawnSync(["bun", "-e", code], {
-		env: childEnv(home),
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	if (p.exitCode !== 0)
-		throw new Error(`spawn failed: ${new TextDecoder().decode(p.stderr)}`);
-	return new TextDecoder().decode(p.stdout);
-};
+const runIn = (code: string): string => fx.seed(code);
 
 const rowFor = (out: string, needle: string): string | undefined =>
 	out.split("\n").find((line) => line.includes(needle));
