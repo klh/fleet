@@ -2,12 +2,11 @@
 // events (NEED_DECISION, budget exhaustion, hub-down, lane-death) are mapped
 // to a notification class, deduped, rate-limited per class, scrubbed and
 // handed to channel adapters (notify-adapters.ts). Config is machine-level
-// (~/.config/klh/notify.yaml, KLH_NOTIFY overrides) — the repo carries only
-// examples/notify.example.yaml. Pure + injectable: no I/O except the loader.
-import { readFileSync } from "node:fs";
+// (~/.config/klh/notify.json, KLH_NOTIFY overrides) — the repo carries only
+// examples/notify.example.json. Pure + injectable: no I/O except the loader.
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { parse } from "yaml";
+import { readJsonConfEither } from "./kernel-conf.ts";
 import { scrubRules } from "./scrub.ts";
 
 export type NotifyClass =
@@ -64,11 +63,11 @@ const DEFAULT_POLICY: ClassPolicy = {
 	rate_limit: { max: 6, per_s: 3600 },
 };
 
-/** W822 fleet-pulse default cadence (4h) — notify.yaml pulse.interval_s wins. */
+/** W822 fleet-pulse default cadence (4h) — notify.json pulse.interval_s wins. */
 export const DEFAULT_PULSE_INTERVAL_S = 14400;
 
 export const NOTIFY_PATH = (): string =>
-	process.env.KLH_NOTIFY ?? join(homedir(), ".config", "klh", "notify.yaml");
+	process.env.KLH_NOTIFY ?? join(homedir(), ".config", "klh", "notify.json");
 
 const CLASSES: NotifyClass[] = [
 	"need-decision",
@@ -105,17 +104,17 @@ export function normalizeConfig(raw: unknown): NotifyConfig {
 	};
 }
 
-/** null when no notify.yaml exists — the daemon idles, never errors. */
+/** null when no notify.json exists — the daemon idles, never errors. */
 export function loadNotifyConfig(
 	path: string = NOTIFY_PATH(),
 ): NotifyConfig | null {
-	let text: string;
+	let raw: unknown;
 	try {
-		text = readFileSync(path, "utf8");
+		raw = readJsonConfEither(path);
 	} catch {
 		return null;
 	}
-	return normalizeConfig(parse(text));
+	return normalizeConfig(raw);
 }
 
 export interface BusEvent {

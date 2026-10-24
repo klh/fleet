@@ -104,7 +104,7 @@ export async function resolveHub(
 ): Promise<HubLocation | null> {
 	const norm = label.trim();
 	if (!norm) return null;
-	// 0. W483 quiet hours — a hub inside its stack.yaml dark window is
+	// 0. W483 quiet hours — a hub inside its stack.json dark window is
 	// EXPECTED down (NAS nightly poweroff); resolving it would pin lanes to
 	// a host that vanishes mid-flight. Degrade like any unresolved label.
 	if (darkHubNow(norm)) return null;
@@ -135,10 +135,10 @@ export async function resolveHub(
 				label: norm,
 				url: prof.url.replace(/\/$/, ""),
 				token: prof.token,
-				via: "stack.yaml",
+				via: "stack.json",
 			};
 	} catch {
-		// no/bad stack.yaml — the chain continues to the registry
+		// no/bad stack.json — the chain continues to the registry
 	}
 	// 3. global registry (mode 600, never committed — operator config, same
 	// trust class as belt.json/belt-tokens.json)

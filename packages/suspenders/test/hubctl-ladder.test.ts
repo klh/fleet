@@ -13,7 +13,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parse } from "yaml";
 
 const dir = mkdtempSync(join(tmpdir(), "fleet-hub-ladder-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -88,8 +87,8 @@ test("hub Buckle stamps its profile identity on relayed requests", () => {
 test("push writes the ladder file and a 0600 upstream.env built on-device", () => {
 	const r = hubctl("push", "ent");
 	expect(r.code).toBe(0);
-	const ladder = parse(
-		readFileSync(join(deployDir, "upstreams.hub.yaml"), "utf8"),
+	const ladder = JSON.parse(
+		readFileSync(join(deployDir, "upstreams.hub.json"), "utf8"),
 	);
 	expect(ladder.groups["claude-haiku-4-5"][0].api_key_env).toBe("LITELLM_KEY");
 	expect(JSON.stringify(ladder)).not.toContain("sk-fixture");
@@ -160,8 +159,8 @@ test("render hides Git origin credentials while pushed env stays private", () =>
 
 test("solo push renders an empty ladder + empty upstream.env (compose stays valid)", () => {
 	expect(hubctl("push", "solo").code).toBe(0);
-	const ladder = parse(
-		readFileSync(join(deployDir, "upstreams.hub.yaml"), "utf8"),
+	const ladder = JSON.parse(
+		readFileSync(join(deployDir, "upstreams.hub.json"), "utf8"),
 	);
 	expect(ladder.groups).toEqual({});
 	// W1123: fail-forward — an unconfigured hub never inherits the committed
@@ -205,8 +204,8 @@ test("rendered ladder stamps inherit_defaults false unconditionally — no opera
 		},
 	);
 	expect(r.exitCode).toBe(0);
-	const opted = parse(
-		readFileSync(join(deployDir, "upstreams.hub.yaml"), "utf8"),
+	const opted = JSON.parse(
+		readFileSync(join(deployDir, "upstreams.hub.json"), "utf8"),
 	);
 	expect(opted.inherit_defaults).toBe(false);
 });

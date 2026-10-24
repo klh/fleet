@@ -1,17 +1,16 @@
 // src/provider-config.ts — W1124.8.1: the ONE central provider schema +
 // resolver for the klh stack. Provider profiles live ONLY in the private
-// machine-level stack.yaml (mode 600): the raw operator key is the CENTRAL
+// machine-level stack.json (mode 600): the raw operator key is the CENTRAL
 // value; `env` is an OUTPUT binding — the env var NAME a gateway/hubctl
 // materializes into the target's 0600 env file at runtime. There is NO
 // ambient-env read and NO key_file fallback here: values flow one way,
 // private config → resolved profile → materialized runtime binding.
 // Consumers: hubctl secret delivery (W1124.8.2.1), belt runtime-heal,
-// buckle gateway bootstrap. Pure module — node:fs + yaml only, no
+// buckle gateway bootstrap. Pure module — node:fs only, no
 // fleet-internal imports (the file ports verbatim into DEPS closures).
 import { readFileSync, statSync, type Stats } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { parse } from "yaml";
 
 /** Wire dialect roots a profile may declare. Every value must be an
  *  http(s) URL. `catalog` points at PUBLIC model capability/cost data —
@@ -25,7 +24,7 @@ export interface ProviderEndpoints {
 	catalog?: string;
 }
 
-/** One named provider profile in the private stack.yaml `providers` map
+/** One named provider profile in the private stack.json `providers` map
  *  (e.g. zai-coding, zai-general). The raw key lives HERE — central,
  *  operator-owned; repos never carry it. */
 export interface ProviderEntry {
@@ -52,9 +51,9 @@ export interface ResolvedProvider {
 	endpoints: ProviderEndpoints;
 }
 
-/** Private stack.yaml location — KLH_STACK overrides (tests). */
+/** Private stack.json location — KLH_STACK overrides (tests). */
 export const PROVIDER_STACK_PATH = (): string =>
-	process.env.KLH_STACK ?? join(homedir(), ".config", "klh", "stack.yaml");
+	process.env.KLH_STACK ?? join(homedir(), ".config", "klh", "stack.json");
 
 const MAX_STACK_BYTES = 1024 * 1024;
 const ENV_NAME_RE = /^[A-Z][A-Z0-9_]*$/;
@@ -183,12 +182,12 @@ export function loadProviderConfig(
 	}
 	let parsed: unknown;
 	try {
-		parsed = parse(readFileSync(path, "utf8"));
+		parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
 	} catch {
-		fail(`stack config ${path} is not parseable YAML`);
+		fail(`stack config ${path} is not parseable JSON`);
 	}
 	if (parsed !== undefined && parsed !== null && !isRecord(parsed)) {
-		fail(`stack config ${path} must be a YAML mapping`);
+		fail(`stack config ${path} must be a JSON mapping`);
 	}
 	const providers = isRecord(parsed)
 		? (parsed as { providers?: unknown }).providers

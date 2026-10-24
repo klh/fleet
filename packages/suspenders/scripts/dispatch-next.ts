@@ -844,10 +844,10 @@ const dispatchItem = async (
 		// <label>.local guess → null (degrades to local belt/buckle, loud note,
 		// never a silent wrong hub).
 		let hubNote = "";
-		// W483: a hub inside its stack.yaml quiet-hours window is EXPECTED to
+		// W483: a hub inside its stack.json quiet-hours window is EXPECTED to
 		// vanish — place the lane on local belt instead of a host that powers
 		// off mid-flight (surfaced, never silent).
-		// W230: stack.yaml policies.<repo>.hub feeds the pick when the repo's
+		// W230: stack.json policies.<repo>.hub feeds the pick when the repo's
 		// own .prefer carries no hub= line (dotfiles-win: the dotfile wins).
 		const hubPick = pick.hub ?? policyForRepo(CALLER_REPO)?.hub ?? null;
 		const hubDark = hubPick ? darkHubNow(hubPick) : false;

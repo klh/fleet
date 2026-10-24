@@ -1,0 +1,107 @@
+{
+	"hubs": {
+		"desktop": {
+			"host": "127.0.0.1",
+			"display_name": "Workstation hub",
+			"buckle_port": 4111,
+			"board_port": 7809,
+			"store_port": 7796,
+			"belt_port": 7808,
+			"buckle_health_port": 4112,
+			"board_health_port": 7800,
+			"store_health_port": 7794,
+			"belt_health_port": 7790,
+			"allowed_hosts": ["suspenders.local"],
+			"peers": [],
+			"provider_intents": ["anthropic", "openai", "openrouter"]
+		},
+		"nas": {
+			"host": "nas.example",
+			"buckle_port": 4101,
+			"board_port": 7799,
+			"store_port": 7795,
+			"belt_port": 7791,
+			"buckle_health_port": 4111,
+			"board_health_port": 7798,
+			"store_health_port": 7793,
+			"belt_health_port": 7789,
+			"allowed_hosts": ["nas-hub.local"],
+			"peers": ["desktop"],
+			"bind": "0.0.0.0",
+			"board_bind": "0.0.0.0",
+			"belt_bind": "0.0.0.0",
+			"services_json": "/state/hub-home/services.json",
+			"repos": {
+				"ref": "0123456789abcdef0123456789abcdef01234567",
+				"buckle": "https://example.invalid/mirror/fleet.git",
+				"src": "/src/fleet/node_modules/fleet/packages"
+			},
+			"deploy": {
+				"ssh": "user@nas.example",
+				"connect_timeout": 10,
+				"dir": "/volume1/docker/hub",
+				"docker": "/usr/local/bin/docker"
+			},
+			"secrets": {
+				"buckle_root_key": "/volume1/docker/hub/buckle/buckle.env"
+			},
+			"buckle_prefs": {
+				"allow_cloud": false,
+				"cost_speed": "balanced"
+			},
+			"mdns": {
+				"port": 4101,
+				"hostname": "nas-hub",
+				"interval_ms": 15000,
+				"health_port": 4114,
+				"sidecar_port": 4115
+			}
+		}
+	},
+	"auth": {
+		"required": true,
+		"tokens": {
+			"ttlHours": 720
+		},
+		"oidc": {
+			"enforced": true
+		}
+	},
+	"admin": {
+		"gui": true
+	},
+	"providers": {
+		"openai": {
+			"env": "OPENAI_API_KEY"
+		},
+		"anthropic": {
+			"key_file": "~/.claude/local-llm/belt.env",
+			"key_name": "ANTHROPIC_API_KEY"
+		},
+		"openrouter": {
+			"env": "OPENROUTER_API_KEY"
+		},
+		"example-inline": {
+			"key": "REPLACE_ME"
+		}
+	},
+	"executors": {
+		"default": {
+			"anthropic_base": "http://127.0.0.1:4000",
+			"openai_base": "http://127.0.0.1:4100/v1",
+			"model": "REPLACE_ME_MODEL"
+		},
+		"claude": {
+			"anthropic_base": "http://127.0.0.1:4000",
+			"model": "REPLACE_ME_MODEL"
+		}
+	},
+	"policies": {
+		"fleet": {
+			"hub": "nas"
+		},
+		"*": {
+			"prefer": "local"
+		}
+	}
+}

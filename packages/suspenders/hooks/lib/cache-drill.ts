@@ -2,7 +2,7 @@
 // board. Consumes the W824 seam (GET /v1/admin/requests over the buckle
 // ledger's route_audit rows: lane, target_model, cache_r/cache_c per request)
 // with the cross-hub-usage pattern: the Mac spoke plus hub labels from
-// stack.yaml/hubs.json, per-source fetch + honest degrade, TTL-cached rows. It
+// stack.json/hubs.json, per-source fetch + honest degrade, TTL-cached rows. It
 // shapes (1) per-lane aggregates with the warm-cache ratio — share of a
 // lane's requests that HIT cache (cache_r > 0), the owner's clone-reuse
 // metric — and (2) miss-reason clusters: not just miss counts, the likely
@@ -614,7 +614,7 @@ async function rowsForLabel(
 	};
 	if (eps.length === 0) {
 		status.unresolved = true;
-		status.reason = "no url in stack.yaml/hubs.json for this label";
+		status.reason = "no url in stack.json/hubs.json for this label";
 		rowCache.set(key, { atMs: now, rows: [], status });
 		return { rows: [], status };
 	}

@@ -1,10 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
-import { YAML } from "bun";
 import type { UpstreamGroup } from "../bin/console-html.ts";
 
 type Groups = Record<string, unknown[]>;
 function parseGroups(text: string): Groups {
-	const doc = YAML.parse(text) as { groups?: unknown } | null;
+	// W1253: JSON is the ONE parser (a legacy .yaml NAME counts only when its
+	// content is already JSON — yaml bytes throw here and the card degrades).
+	const doc = JSON.parse(text) as { groups?: unknown } | null;
 	if (
 		!doc?.groups ||
 		typeof doc.groups !== "object" ||

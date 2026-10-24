@@ -47,7 +47,7 @@ Options
   --skip-models   Skip the model download (offline installs)
   --no-llm        Skip the local-llm baseline (CI/containers)
   --with-launchd  Full plan, then registerLaunchd
-  --hub <name>    Hub deploy from ~/.config/klh/stack.yaml (--dry-run renders the .env)
+  --hub <name>    Hub deploy from ~/.config/klh/stack.json (--dry-run renders the .env)
   --re-bless-activation [--confirm <sha>]  Owner-gated receipt re-bless (W640)
 
 Exit codes

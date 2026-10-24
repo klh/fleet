@@ -64,11 +64,13 @@ describe("e2e through Bun.serve", () => {
 			}),
 		);
 		const dir = `/tmp/buckle-test-${Date.now()}-${process.pid}`;
-		const cfg = `groups:\n  glm-5.3-flash:\n    - url: ${upstream.url}\n      dialect: openai\n`;
-		await Bun.write(`${dir}/upstreams.yaml`, cfg);
+		const cfg = JSON.stringify({
+			groups: { "glm-5.3-flash": [{ url: upstream.url, dialect: "openai" }] },
+		});
+		await Bun.write(`${dir}/upstreams.json`, cfg);
 		const server = startServer({
 			port: 0,
-			upstreamsPath: `${dir}/upstreams.yaml`,
+			upstreamsPath: `${dir}/upstreams.json`,
 			dbPath: ":memory:",
 			auth: { rootKey: "test-key" },
 		});
@@ -100,11 +102,13 @@ describe("e2e through Bun.serve", () => {
 			Response.json({ id: "x", choices: [], usage: {} }),
 		);
 		const dir = `/tmp/buckle-cap-${Date.now()}-${process.pid}`;
-		const cfg = `groups:\n  glm-5.3-flash:\n    - url: ${upstream.url}\n      dialect: openai\n`;
-		await Bun.write(`${dir}/upstreams.yaml`, cfg);
+		const cfg = JSON.stringify({
+			groups: { "glm-5.3-flash": [{ url: upstream.url, dialect: "openai" }] },
+		});
+		await Bun.write(`${dir}/upstreams.json`, cfg);
 		const server = startServer({
 			port: 0,
-			upstreamsPath: `${dir}/upstreams.yaml`,
+			upstreamsPath: `${dir}/upstreams.json`,
 			dbPath: ":memory:",
 			auth: { rootKey: "cap-key" },
 		});
@@ -125,11 +129,13 @@ describe("http citizenship at the observability seam (W155)", () => {
 	test("OPTIONS → 204 + Allow; wrong method → 405 + Allow on /status and /metrics", async () => {
 		const upstream = await startMockUpstream(() => Response.json({ id: "x" }));
 		const dir = `/tmp/buckle-cit-${Date.now()}-${process.pid}`;
-		const cfg = `groups:\n  glm-5.3-flash:\n    - url: ${upstream.url}\n      dialect: openai\n`;
-		await Bun.write(`${dir}/upstreams.yaml`, cfg);
+		const cfg = JSON.stringify({
+			groups: { "glm-5.3-flash": [{ url: upstream.url, dialect: "openai" }] },
+		});
+		await Bun.write(`${dir}/upstreams.json`, cfg);
 		const server = startServer({
 			port: 0,
-			upstreamsPath: `${dir}/upstreams.yaml`,
+			upstreamsPath: `${dir}/upstreams.json`,
 			dbPath: ":memory:",
 			auth: { rootKey: "cit-key" },
 		});
@@ -161,11 +167,13 @@ describe("http citizenship at the observability seam (W155)", () => {
 	test("GET /status carries a strong ETag; If-None-Match → 304", async () => {
 		const upstream = await startMockUpstream(() => Response.json({ id: "x" }));
 		const dir = `/tmp/buckle-etag-${Date.now()}-${process.pid}`;
-		const cfg = `groups:\n  glm-5.3-flash:\n    - url: ${upstream.url}\n      dialect: openai\n`;
-		await Bun.write(`${dir}/upstreams.yaml`, cfg);
+		const cfg = JSON.stringify({
+			groups: { "glm-5.3-flash": [{ url: upstream.url, dialect: "openai" }] },
+		});
+		await Bun.write(`${dir}/upstreams.json`, cfg);
 		const server = startServer({
 			port: 0,
-			upstreamsPath: `${dir}/upstreams.yaml`,
+			upstreamsPath: `${dir}/upstreams.json`,
 			dbPath: ":memory:",
 			auth: { rootKey: "cit-key" },
 		});

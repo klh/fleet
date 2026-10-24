@@ -1,11 +1,13 @@
-// hooks/lib/stack-config.ts — the ONE stack.yaml reader (config-over-code:
-// real hosts, ports, secret PATHS live only in ~/.config/klh/stack.yaml,
-// mode 600). deploy/hubctl.ts renders deploys from it; coord hubs (W356)
-// projects the topology from it. KLH_STACK overrides the path (tests).
+// hooks/lib/stack-config.ts — the ONE stack config reader (config-over-code:
+// real hosts, ports, secret PATHS live only in ~/.config/klh/stack.json,
+// mode 600; the legacy stack.yaml name is honored read-only until the
+// install migrate step runs — W1253 Amendment A: fleet config is JSON).
+// deploy/hubctl.ts renders deploys from it; coord hubs (W356) projects the
+// topology from it. KLH_STACK overrides the path (tests).
 import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
-import { parse } from "yaml";
+import { readJsonConfEither } from "./kernel-conf.ts";
 import type { GatewayPolicy } from "../../../buckle/src/policy.ts";
 
 export interface HubProfile {
@@ -232,7 +234,7 @@ export interface StackConfig {
 }
 
 export const STACK_PATH = (): string =>
-	process.env.KLH_STACK ?? join(homedir(), ".config", "klh", "stack.yaml");
+	process.env.KLH_STACK ?? join(homedir(), ".config", "klh", "stack.json");
 
 // ---- W230: providers / executors / policies --------------------------------
 
@@ -275,9 +277,11 @@ export interface RepoPolicy {
 
 /** Parse the machine-level stack config — W230: the ONE user-editable
  *  surface (providers/executors/policies join hubs; every section is
- *  optional, an empty file is a valid empty config). */
+ *  optional, an empty file is a valid empty config). JSON only (W1253
+ *  Amendment A); the legacy stack.yaml name parses when its content is
+ *  already JSON — real yaml needs the install migrate step first. */
 export function loadStack(): StackConfig {
-	const raw = parse(readFileSync(STACK_PATH(), "utf8")) as StackConfig | null;
+	const raw = readJsonConfEither(STACK_PATH()) as StackConfig | null;
 	return { ...(raw ?? {}), hubs: raw?.hubs ?? {} };
 }
 

@@ -1,7 +1,7 @@
 // hooks/board/hub-check.ts — W858.7.21: the Setup tab's hub reachability
 // check, extracted from data.ts (1500-line decompose). One bounded probe per
 // configured hub (first candidate — the registry is precedence-ordered);
-// hubs inside a stack.yaml dark window are EXPECTED down (NAS nightly
+// hubs inside a stack.json dark window are EXPECTED down (NAS nightly
 // poweroff, W483) and skip the probe. No registry = trivially ok.
 //
 // Failure UX (this item): the detail names the hub AND the measured probe
@@ -50,9 +50,19 @@ async function probeRow(
 ): Promise<HubProbeRow> {
 	const url = entry?.candidates?.[0];
 	if (!url)
-		return { label, url: null, ok: true, detail: `${label}: no candidates listed` };
+		return {
+			label,
+			url: null,
+			ok: true,
+			detail: `${label}: no candidates listed`,
+		};
 	if (darkHubNow(label))
-		return { label, url: null, ok: true, detail: `${label}: dark window (expected down)` };
+		return {
+			label,
+			url: null,
+			ok: true,
+			detail: `${label}: dark window (expected down)`,
+		};
 	const up = await probeHub(url);
 	return {
 		label,
@@ -77,8 +87,6 @@ async function probeHubRows(
 		detail:
 			down.map((r) => r.detail).join("; ") ||
 			rows.map((r) => r.detail).join("; "),
-		fix: firstDown
-			? `bun deploy/hubctl.ts status ${firstDown.label}`
-			: null,
+		fix: firstDown ? `bun deploy/hubctl.ts status ${firstDown.label}` : null,
 	};
 }

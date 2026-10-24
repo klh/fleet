@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // deploy/hubctl.ts — the hub deployment control surface. Reads the machine-level
-// stack config (~/.config/klh/stack.yaml, mode 600 — hubs, ports, connection
+// stack config (~/.config/klh/stack.json, mode 600 — hubs, ports, connection
 // URIs, secret PATHS never values), then materializes deploys from it:
 // nothing hub-specific is hardcoded here; undeclared knobs fall through to the
 // hub-compose.yaml template defaults. Secrets are minted ON the hub device
@@ -43,8 +43,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { stringify } from "yaml";
-// stack.yaml is parsed by the ONE reader (W356) — hubctl renders deploys
+// stack.json is parsed by the ONE reader (W356) — hubctl renders deploys
 // from it, coord hubs projects the topology from it
 import {
 	type HubProfile,
@@ -160,7 +159,7 @@ function assertLocalPortReservations(hub: HubProfile, name: string): void {
 		const conflict = services.find((service) => Number(service.port) === port);
 		if (conflict)
 			throw new Error(
-				`${name} ${kind}_port ${port} conflicts with ${conflict.name ?? "a registered .local service"}; choose another port in stack.yaml`,
+				`${name} ${kind}_port ${port} conflicts with ${conflict.name ?? "a registered .local service"}; choose another port in stack.json`,
 			);
 	}
 }
@@ -219,7 +218,7 @@ function renderEnv(
 	if (auth?.required !== undefined)
 		kv("HUB_BUCKLE_AUTH", auth.required ? "on" : "off");
 	// W372: the auth.oidc/auth.tokens blocks materialize as env — Entra-ready
-	// by config (values live ONLY in the machine stack.yaml; partial blocks
+	// by config (values live ONLY in the machine stack.json; partial blocks
 	// fail closed at render, a hub never ships a half-declared posture).
 	if (auth?.tokens?.ttlHours !== undefined)
 		kv("HUB_BUCKLE_AUTH_TTL_HOURS", auth.tokens.ttlHours);
@@ -227,7 +226,7 @@ function renderEnv(
 		const o = auth.oidc;
 		if (!o.issuer || !o.audience)
 			throw new Error(
-				"auth.oidc requires issuer + audience (Entra values live in the machine stack.yaml, never in the repo)",
+				"auth.oidc requires issuer + audience (Entra values live in the machine stack.json, never in the repo)",
 			);
 		kv("HUB_BUCKLE_OIDC_ENFORCED", o.enforced === false ? "off" : "on");
 		kv("HUB_BUCKLE_OIDC_ISSUER", o.issuer);
@@ -239,7 +238,7 @@ function renderEnv(
 	kv("HUB_BOARD_BIND", hub.board_bind);
 	kv("HUB_ALLOWED_HOSTS", hub.allowed_hosts?.join(","));
 	// W362: peer edge labels — the start-topology as data; hosts/ports/keys
-	// resolve at runtime behind the labels (resolveHub chain / stack.yaml).
+	// resolve at runtime behind the labels (resolveHub chain / stack.json).
 	kv("HUB_PEERS", hub.peers?.join(","));
 	kv("HUB_SERVICES_JSON", hub.services_json);
 	kv("HUB_STORE_PORT", hub.store_port);
@@ -307,8 +306,8 @@ function redactedRender(envText: string): string {
 	});
 }
 
-/** W688.7.1: the hub's upstream ladder file — stack.yaml `upstreams:` in
- *  buckle's upstreams.yaml shape. W1123 hub identity: always stamped
+/** W688.7.1: the hub's upstream ladder file — stack.json `upstreams:` in
+ *  buckle's upstreams.json shape. W1123 hub identity: always stamped
  *  `inherit_defaults: false` (fail-forward, no operator escape — an opt-in
  *  would re-import the committed Mac local-swarm :890x onto a remote hub).
  *  A Docker/remote hub exposes ONLY its configured + generated groups; empty
@@ -316,11 +315,15 @@ function redactedRender(envText: string): string {
  *  keeps merge-over-base through its own UNFLAGGED override file. Always
  *  rendered: compose mounts it. */
 function renderUpstreams(hub: HubProfile): string {
-	return stringify({
-		version: 1,
-		inherit_defaults: false,
-		groups: mergeZaiHubUpstreams(hub, mergedHubUpstreams(hub)),
-	});
+	return `${JSON.stringify(
+		{
+			version: 1,
+			inherit_defaults: false,
+			groups: mergeZaiHubUpstreams(hub, mergedHubUpstreams(hub)),
+		},
+		null,
+		"\t",
+	)}\n`;
 }
 
 /** W983: the hub's Buckle owner prefs in loadPrefs' exact shape (buckle
@@ -511,7 +514,7 @@ function pushGatewayPolicy(hub: HubProfile, dir: string): void {
 	// Materialize policy beside the ladder: defaults preserved, overrides validated.
 	const policyText = renderHubPolicy(
 		readFileSync(
-			join(import.meta.dir, "../../buckle/routing-policy.yaml"),
+			join(import.meta.dir, "../../buckle/routing-policy.json"),
 			"utf8",
 		),
 		hub.buckle_gateway,
@@ -519,14 +522,14 @@ function pushGatewayPolicy(hub: HubProfile, dir: string): void {
 	if (hub.deploy?.ssh) {
 		runOnHub(
 			hub,
-			`umask 077; cat > ${JSON.stringify(`${dir}/routing-policy.hub.yaml`)}`,
+			`umask 077; cat > ${JSON.stringify(`${dir}/routing-policy.hub.json`)}`,
 			{ input: policyText },
 		);
 	} else {
-		writeFileSync(`${dir}/routing-policy.hub.yaml`, policyText, {
+		writeFileSync(`${dir}/routing-policy.hub.json`, policyText, {
 			mode: 0o600,
 		});
-		chmodSync(`${dir}/routing-policy.hub.yaml`, 0o600);
+		chmodSync(`${dir}/routing-policy.hub.json`, 0o600);
 	}
 }
 
@@ -546,7 +549,7 @@ function reloadUpstreams(
 	const rendered = renderUpstreams(hub);
 	pushGatewayPolicy(hub, dir);
 	pushUpstreamEnv(hub, dir);
-	const destination = `${dir}/upstreams.hub.yaml`;
+	const destination = `${dir}/upstreams.hub.json`;
 	if (hub.deploy?.ssh) {
 		execFileSync(
 			"ssh",
@@ -598,12 +601,14 @@ function pushConfig(
 			[
 				...sshOpts(hub),
 				hub.deploy.ssh,
-				`/bin/sh -c 'cat > ${JSON.stringify(`${dir}/upstreams.hub.yaml`)}'`,
+				`/bin/sh -c 'umask 077; cat > ${JSON.stringify(`${dir}/upstreams.hub.json`)}'`,
 			],
 			{ input: renderUpstreams(hub) },
 		);
 	} else {
-		writeFileSync(`${dir}/upstreams.hub.yaml`, renderUpstreams(hub));
+		writeFileSync(`${dir}/upstreams.hub.json`, renderUpstreams(hub), {
+			mode: 0o600,
+		});
 	}
 	pushGatewayPolicy(hub, dir);
 	pushUpstreamEnv(hub, dir);
@@ -720,8 +725,8 @@ function upHub(
 		ref === null
 			? `no HUB_FLEET_REF in ${dir}/.env — re-render: hubctl push ${name}`
 			: version === undefined
-				? `hub .env pins ${ref} but stack.yaml has no pinned version — set version: then hubctl push ${name}`
-				: `hub .env pins ${ref} but stack.yaml pins ${version} — re-render: hubctl push ${name}`;
+				? `hub .env pins ${ref} but stack.json has no pinned version — set version: then hubctl push ${name}`
+				: `hub .env pins ${ref} but stack.json pins ${version} — re-render: hubctl push ${name}`;
 	if (!force)
 		throw new Error(
 			`hubctl up refused: ${reason} (override: hubctl up ${name} --force)`,
@@ -1019,7 +1024,7 @@ function main(): void {
 	const auth = stack.auth;
 	if (!hubName || verb === "--help" || verb === "-h") {
 		console.log(
-			"usage: hubctl <render|mint|push|up|status|deploy|reload-upstreams|manifest|exec|mint-lane-key> <hub> — config: ~/.config/klh/stack.yaml\n" +
+			"usage: hubctl <render|mint|push|up|status|deploy|reload-upstreams|manifest|exec|mint-lane-key> <hub> — config: ~/.config/klh/stack.json\n" +
 				"       up accepts --force: proceed on a stale/unpinned hub .env (refused by default)\n" +
 				"       exec runs allowlisted read-only probes; mint-lane-key mints a\n" +
 				"       short-lived lane key ON the hub (root credential never leaves it)\n" +
@@ -1029,7 +1034,7 @@ function main(): void {
 				"       configured cross-hub key and fails on expired/revoked with the\n" +
 				"       hub's actual code; trace-tunnel <hub> up|status|down|peer runs\n" +
 				"       the W1097 managed ssh tunnel for the bounded trace connector\n" +
-				"       (hubs.<label>.trace_tunnel in stack.yaml)",
+				"       (hubs.<label>.trace_tunnel in stack.json)",
 		);
 		process.exit(hubName ? 0 : 2);
 	}

@@ -15,6 +15,7 @@ export const INSTALL_CONTRACT_VERSION = 2;
 export type StepName =
 	| "probeEnvironment"
 	| "syncHarness"
+	| "migrateConf"
 	| "registerGitHooks"
 	| "refreshSupervisor"
 	| "ensureShims"
@@ -247,7 +248,7 @@ export const INSTALL_CONTRACT = {
 		hub: {
 			flag: "--hub",
 			meaning:
-				"hub deploy from ~/.config/klh/stack.yaml (hubctl mint → push → up → status); --dry-run renders the hub .env only",
+				"hub deploy from ~/.config/klh/stack.json (hubctl mint → push → up → status); --dry-run renders the hub .env only",
 		},
 		withLaunchd: {
 			flag: "--with-launchd",
@@ -314,6 +315,14 @@ export const INSTALL_CONTRACT = {
 			name: "syncHarness",
 			oneLiner:
 				"stage committed harness code and offline dependencies, validate imports, publish with rollback receipt; no services restarted",
+			mutates: true,
+			optIn: false,
+			v1: "real",
+		},
+		{
+			name: "migrateConf",
+			oneLiner:
+				"one-time machine-conf yaml→json cutover (W1253 Amendment A): stack/notify/chatgpt-coordinate/routing-policy/upstreams/repo-policy — .json written 0600 atomically, original kept as .yaml.bak; idempotent (json present = kept)",
 			mutates: true,
 			optIn: false,
 			v1: "real",
@@ -417,7 +426,7 @@ export const INSTALL_CONTRACT = {
 		{
 			name: "deployHub",
 			oneLiner:
-				"deploy one hub from the machine stack.yaml — mint secrets, push compose+env, docker compose up, probe-gated status (early exit --hub <name>)",
+				"deploy one hub from the machine stack.json — mint secrets, push compose+env, docker compose up, probe-gated status (early exit --hub <name>)",
 			mutates: true,
 			optIn: true,
 			v1: "stub",
@@ -437,8 +446,8 @@ export const INSTALL_CONTRACT = {
 		shimBin: "~/.local/bin (override: SUSPENDERS_SHIM_BIN)",
 		llmHome: "~/.claude/local-llm/",
 		beltEnv: "~/.claude/local-llm/belt.env",
-		routingPolicy: "~/.claude/local-llm/routing-policy.yaml",
-		stackYaml: "~/.config/klh/stack.yaml",
+		routingPolicy: "~/.claude/local-llm/routing-policy.json",
+		stackYaml: "~/.config/klh/stack.json",
 		claudeSettings: "~/.claude/settings.json",
 		insightsDir: "~/.claude-insights",
 		launchAgentsDir: "~/Library/LaunchAgents",

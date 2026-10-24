@@ -41,7 +41,7 @@ function textView(v: Awaited<ReturnType<typeof federatedWorkView>>): string {
 	}
 	if (v.peers.length === 0)
 		lines.push(
-			`no peer edges declared (${FEDERATION_WORK_TOKEN_ENV} + HUB_PEERS/stack.yaml peers.light edges up)`,
+			`no peer edges declared (${FEDERATION_WORK_TOKEN_ENV} + HUB_PEERS/stack.json peers.light edges up)`,
 		);
 	return lines.join("\n");
 }

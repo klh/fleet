@@ -144,7 +144,7 @@ export function buildDeps(
 	// classification rides the lane-cache rows (null causes when unwired).
 	const prefixLedger = new PrefixLedger();
 	// W142 knowledge aids: metering ledger + preseed builder on the same db
-	// file (W133 wiring); policy slice from the shared routing-policy.yaml.
+	// file (W133 wiring); policy slice from the shared routing-policy.json.
 	const aids = new AidsLedger(
 		opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db",
 	);
@@ -322,7 +322,7 @@ export function startServer(
 		{
 			dbPath: opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db",
 			rootKey: opts.auth?.rootKey,
-			// W372: env-driven OIDC gate (stack.yaml auth.oidc materialized by
+			// W372: env-driven OIDC gate (stack.json auth.oidc materialized by
 			// hubctl) — programmatic opts win, env next, base posture last.
 			jwt: opts.auth?.jwt ?? oidcGateOptsFromEnv() ?? undefined,
 			federation: deps.federation,

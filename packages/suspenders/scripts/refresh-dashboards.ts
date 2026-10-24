@@ -207,7 +207,7 @@ export async function refreshDashboards(
 		const beltBuild = await Bun.build({
 			entrypoints: [join(stage, "packages/belt/bin/dashboard.ts")],
 			target: "bun",
-			external: ["bonjour-service", "yaml"],
+			external: ["bonjour-service"],
 		});
 		if (!beltBuild.success)
 			throw new Error(beltBuild.logs.map(String).join("\n"));

@@ -6,7 +6,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { YAML } from "bun";
 import { ROUTER, SPECIALISTS } from "../../belt/bin/registry.ts";
-import { STACK_PATH } from "../hooks/lib/stack-config.ts";
+import { confCandidates } from "../hooks/lib/kernel-conf.ts";
+import { loadStack, STACK_PATH } from "../hooks/lib/stack-config.ts";
 import { parseEnvBody } from "../hooks/lib/hub-provider-keys.ts";
 import { providerPoolIdOf } from "../../buckle/src/router.ts";
 import { runForcedFailoverDrill } from "../../buckle/src/forced-failover-drill.ts";
@@ -85,7 +86,7 @@ export function routeInputs(source: RoutePreflightSources): RouteLadderInputs {
 	const hubs = record(stack.hubs);
 	if (Object.keys(hubs).length === 0)
 		throw new Error(
-			"stack.yaml has no hubs; route ownership cannot be checked",
+			"stack.json has no hubs; route ownership cannot be checked",
 		);
 	const preflight = record(stack.route_preflight);
 	const declared = preflight.terminal_origins;
@@ -271,13 +272,15 @@ export async function machineRoutePreflight(
 	const stackPath = STACK_PATH();
 	const llm = join(home, ".claude/local-llm");
 	const upstreamPath =
-		process.env.BUCKLE_UPSTREAMS ?? join(llm, "upstreams.yaml");
+		process.env.BUCKLE_UPSTREAMS ?? join(llm, "upstreams.json");
 	const litePath = process.env.LITELLM_CONFIG ?? join(llm, "litellm.yaml");
+	// Read-both pre-check (W1253): the .json law name or the legacy .yaml
+	// twin counts as present; the loaders below parse through the helpers.
 	for (const path of [stackPath, upstreamPath, litePath])
-		if (!existsSync(path))
+		if (!confCandidates(path).some((p) => existsSync(p)))
 			throw new Error(`required route config absent: ${path}`);
 	process.env.BUCKLE_UPSTREAMS = upstreamPath;
-	const stack = YAML.parse(readFileSync(stackPath, "utf8"));
+	const stack = loadStack();
 	const litellm = YAML.parse(readFileSync(litePath, "utf8"));
 	const beltEnvPath = join(llm, "belt.env");
 	const beltEnv: Record<string, string> = existsSync(beltEnvPath)

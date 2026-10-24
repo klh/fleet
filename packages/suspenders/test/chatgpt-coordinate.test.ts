@@ -90,13 +90,26 @@ describe("W1013 config", () => {
 		).toBeNull();
 	});
 
-	test("machine yaml keys map over the defaults", () => {
+	test("machine json keys map over the defaults", () => {
 		const dir = scratch();
 		dirs.push(dir);
-		const path = join(dir, "chatgpt-coordinate.yaml");
+		const path = join(dir, "chatgpt-coordinate.json");
 		writeFileSync(
 			path,
-			"enabled: true\ntarget: chatgpt-agent\nboard_url: http://b.local:7799\nasker_sid: cg-auto\ndedupe_s: 60\nfailed_relaunches: 3\nbrief_max_lines: 40\ntriggers:\n  need_decision: true\n  failed_relaunch: false\n  bench_row: false\n",
+			JSON.stringify({
+				enabled: true,
+				target: "chatgpt-agent",
+				board_url: "http://b.local:7799",
+				asker_sid: "cg-auto",
+				dedupe_s: 60,
+				failed_relaunches: 3,
+				brief_max_lines: 40,
+				triggers: {
+					need_decision: true,
+					failed_relaunch: false,
+					bench_row: false,
+				},
+			}),
 		);
 		const c = loadChatGptCoordConfig(path);
 		expect(c?.enabled).toBe(true);

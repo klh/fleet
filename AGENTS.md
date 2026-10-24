@@ -8,11 +8,20 @@ depends on fleet; local-only until its GitHub push — W422.9/W422.1).
 
 ## Laws (project-wide, every package)
 
-- **One version**: `version:` in `~/.config/klh/stack.yaml` pins buckle +
+- **One version**: `version:` in `~/.config/klh/stack.json` pins buckle +
   suspenders + belt; hubctl renders it as the git ref every hub pulls.
-- **Config-over-code**: real hosts, keys, OIDC values live ONLY in
-  machine-level runtime config (`~/.config/klh/stack.yaml`,
-  `~/.claude/local-llm/*.env`, mode 600) — repos carry placeholders only.
+- **Config-over-code**: fleet config is JSON (W1253 Amendment A) —
+  JSON.parse is the ONE parser for every fleet config read (no yaml pkg, no
+  Bun.YAML on config paths; the yaml npm dependency is gone). Real hosts,
+  keys, OIDC values live ONLY in machine-level runtime config
+  (`~/.config/klh/stack.json`, `~/.claude/local-llm/*.env`, mode 600,
+  atomic 0600 writes via the kernel helper) — repos carry placeholders
+  only. Deploy contracts that are NOT fleet config keep their yaml FILES
+  (compose, litellm, the launchd services manifest) — but nothing in fleet
+  code parses yaml config bytes. Readers keep both file NAMES during the
+  transition (.json law name first, legacy .yaml second — honored only
+  while its content is already JSON); the install `migrateConf` step cuts
+  machine conf over once (yaml → .json 0600, original kept as .yaml.bak).
 - **Health is outside-process** (owner law 2026-10-05): a server cannot
   paint itself healthy. Every hub service gets a `*-health` probe sidecar
   (deploy/healthcheck/probe.ts) that polls the real target over the
@@ -171,7 +180,7 @@ composed (caveman-condensed), per-lane `bksk_` key minted from
 per-lane `--settings` file. No admin key = belt direct, surfaced.
 
 Hubs (`bun deploy/hubctl.ts <verb> <hub>`) — config-over-code deploys from
-`~/.config/klh/stack.yaml` (hub = a profile: ports, binds, ssh/dir/docker,
+`~/.config/klh/stack.json` (hub = a profile: ports, binds, ssh/dir/docker,
 secret PATHS):
 
 - `render <hub>` — the compose .env (no secrets)
@@ -233,9 +242,9 @@ gui/$(id -u)/<label>` revives):
   - `com.suspenders.buckle-spoke` — buckle gateway :4101 (Mac spoke)
   - `com.suspenders.board` — fleet board :7799
   - `com.suspenders.fleet-pulse` — W822 periodic digest (StartInterval =
-    notify.yaml pulse.interval_s, default 14400): `notify.ts pulse` composes
+    notify.json pulse.interval_s, default 14400): `notify.ts pulse` composes
     lanes/READY/DONE/watchdog/decisions/commits into one notification via the
-    notify.yaml 'pulse' class; every install registers it post-install
+    notify.json 'pulse' class; every install registers it post-install
   - `com.klh-local.caddy` — the Caddy .local front
   - same namespace, no ports: knowledge-worker
   - LEGACY, never load: `com.klh.local-llm` / `com.klh.llm-keepwarm` /
@@ -263,12 +272,13 @@ gui/$(id -u)/<label>` revives):
 
 Machine-level config (the SOLE conf — repos carry placeholders only):
 
-- `~/.config/klh/stack.yaml` (mode 600): hub profiles + `version:` — the
-  one string that pins buckle+suspenders+belt
+- `~/.config/klh/stack.json` (mode 600): hub profiles + `version:` — the
+  one string that pins buckle+suspenders+belt (legacy `stack.yaml` is
+  honored read-only until the install migrateConf step runs)
 - `~/.claude/local-llm/`: `belt.env` (upstream keys, BUCKLE_ADMIN_KEY),
   `hubs.json` (label → candidate URLs resolveHub walks),
-  `routing-policy.yaml` (operator-owned ladder — edit THIS, never code),
-  `upstreams.yaml` (group overrides — per-model upstream ladders over
+  `routing-policy.json` (operator-owned ladder — edit THIS, never code),
+  `upstreams.json` (group overrides — per-model upstream ladders over
   swarm :8902 / router :4000 / litellm :4100),
   `buckle-spoke.env` / `buckle-desktop.env` (BUCKLE_ROOT_KEY; the spoke
   env also holds `GITHUB_COPILOT_PAT`, resolved from the 0600 `copilot.key`)
@@ -278,7 +288,7 @@ Machine-level config (the SOLE conf — repos carry placeholders only):
   `copilot-integration-id` via `adapter_config.headers`; tools+SSE on this
   wire unverified 2026-10-12, quota wall same day); group `claude-sonnet-5`
   → `model: claude-sonnet-5.5` (dots-to-dashes alias is data). Template:
-  `packages/buckle/upstreams.copilot.yaml` → merge into the machine
-  `upstreams.yaml`. The `:4102` ikea-shim is RETIRED (never activated);
+  `packages/buckle/upstreams.copilot.json` → merge into the machine
+  `upstreams.json`. The `:4102` ikea-shim is RETIRED (never activated);
   litellm copilot rows stay off (its /v1/messages bridge hits the Responses
   API Copilot rejects; its provider forces an interactive device flow)

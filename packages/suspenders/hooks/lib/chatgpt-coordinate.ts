@@ -15,7 +15,7 @@
 import { existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { parse } from "yaml";
+import { readJsonConfEither } from "./kernel-conf.ts";
 import { openStore, type GovernorStore } from "./govdb-store.ts";
 import { scrubOutbound } from "./notify.ts";
 
@@ -47,7 +47,7 @@ export interface ChatGptCoordConfig {
 
 export const CHATGPT_COORD_CONFIG_PATH = (): string =>
 	process.env.KLH_CHATGPT_COORDINATE ??
-	join(homedir(), ".config", "klh", "chatgpt-coordinate.yaml");
+	join(homedir(), ".config", "klh", "chatgpt-coordinate.json");
 
 export const DEFAULT_CONFIG: ChatGptCoordConfig = {
 	enabled: false,
@@ -103,13 +103,13 @@ export function normalizeConfig(raw: unknown): ChatGptCoordConfig {
 export function loadChatGptCoordConfig(
 	path: string = CHATGPT_COORD_CONFIG_PATH(),
 ): ChatGptCoordConfig | null {
-	let text: string;
+	let raw: unknown;
 	try {
-		text = readFileSync(path, "utf8");
+		raw = readJsonConfEither(path);
 	} catch {
 		return null;
 	}
-	return normalizeConfig(parse(text));
+	return normalizeConfig(raw);
 }
 
 export interface ChatGptCoordState {
