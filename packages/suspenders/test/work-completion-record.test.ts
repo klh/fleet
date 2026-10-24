@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
 	encodeProjectDir,
@@ -336,7 +336,7 @@ test("board card and drawer share the permanent summary after logs disappear", (
 		0,
 	);
 	rmSync(join(f.repo, ".fleet"), { recursive: true, force: true });
-	const dataPath = join(import.meta.dir, "..", "hooks", "board", "data.ts");
+	const dataPath = join(import.meta.dir, "..", "hooks", "board", "tasks.ts");
 	const drawerPath = join(
 		import.meta.dir,
 		"..",
