@@ -18,9 +18,10 @@
 //   launchctl face  the same pairs via `launchctl setenv` — Dock-launched
 //                   GUIs (vscode/chatgpt/claude) inherit them; survives until
 //                   reboot, the install re-applies.
-//   enforcement     OPTIONAL sing-box config (JSON, forward-proxy ONLY —
-//   face            relay, not wire-translation; W1231/W1233 boundary):
-//                   TUN + process_path_regex per enabled app → hub outbound.
+//   enforcement     OPTIONAL sing-box config (JSON, authenticated CONNECT
+//   face            relay ONLY — TLS opaque end-to-end, never MITM;
+//                   W1231/W1233/W1260.2): TUN + AI-qualified process rules
+//                   per enabled GUI app → per-app buckle-connect outbound.
 //
 // Config-over-code: real hosts live in the machine config + registry only;
 // this file carries none.
@@ -43,13 +44,25 @@ import {
 	defineVerb,
 	runCli,
 } from "../../hooks/lib/verb-kit.ts";
+import {
+	AI_DESTINATION_SUFFIXES,
+	CONNECT_PORT_DEFAULT,
+	CONNECT_UNKNOWN_USER,
+	connectTagOf,
+	guiTransports,
+} from "../../deploy/singbox/watched.ts";
 
 // ─── schema ──────────────────────────────────────────────────────────────────
 
-/** The supported GUI apps — the one set; unknown app keys are refused. */
-export type AppName = "claude" | "chatgpt" | "vscode";
+/** The supported apps — the one set; unknown app keys are refused. */
+export type AppName = "claude" | "chatgpt" | "vscode" | "codex";
 
-export const KNOWN_APPS: readonly AppName[] = ["claude", "chatgpt", "vscode"];
+export const KNOWN_APPS: readonly AppName[] = [
+	"claude",
+	"chatgpt",
+	"vscode",
+	"codex",
+];
 
 export const CONNECTIONS_PATH = (): string =>
 	process.env.SUSPENDERS_CONNECTIONS_FILE ??
@@ -272,25 +285,30 @@ export const enabledAppsOf = (
 	return only ? apps.filter((a) => a === only) : apps;
 };
 
-// process_path_regex per app — macOS GUI process paths. W1231: ChatGPT.app
-// rides the account session, not an API key; its rule lands ONLY when the
-// operator explicitly enabled it, and it is a forward-proxy relay — the
-// banned chatgpt.com MITM stays banned (W1231).
-const APP_PROCESS_REGEX: Record<AppName, string> = {
-	claude: "(?i)(/Claude\\.app/|/bin/claude$)",
-	chatgpt: "(?i)/ChatGPT\\.app/",
-	vscode: "(?i)(/Visual Studio Code\\.app/|/Code Helper)",
-};
+// Watch signatures — the ONE source is the TUN kit's GUI transport table
+// (deploy/singbox/watched.ts guiTransports()): GUI TRANSPORTS ONLY, the
+// install-detection boundary stays in the fleet-install catalog (owner
+// boundary: watched.ts never detects, never lists CLI paths). CLIs (claude/
+// codex) steer via user-level tool config (owner #67959 — never per-repo
+// .codex/config.toml); unknown processes' AI destinations ride the `buckle`
+// fallback rule (fail-closed CONNECT gate).
 
-/** OPTIONAL enforcement face: sing-box config, forward-proxy ONLY (relay,
- *  not wire-translation — W1231/W1233 boundary). TUN catches the enabled
- *  apps' processes; private ranges + LAN names stay direct; `final: direct`
- *  means the TUN routes the APPS, never the whole machine. */
+/** OPTIONAL enforcement face: sing-box config, authenticated CONNECT relay
+ *  ONLY (TLS opaque end-to-end — never MITM; W1231/W1233/W1260.2). Per-app
+ *  CONNECT outbounds (username = app identity, one shared BUCKLE_CONNECT_
+ *  TOKEN from env; conf written 0600). Ordering law: sniff → dns hijack →
+ *  private/LAN bypass FIRST, GUI app rules AI-destination-qualified, then
+ *  the unknown-process AI fallback as `buckle`, final direct. GUI transports
+ *  only — CLIs steer via user-level tool config (owner #67959). The server
+ *  is the resolved hub gateway host (machine TUN kit rides loopback instead). */
 export function singboxConfig(
 	enabled: AppName[],
 	url: string,
 ): Record<string, unknown> {
 	const u = new URL(url);
+	const port =
+		Number(process.env.BUCKLE_CONNECT_PORT ?? "") || CONNECT_PORT_DEFAULT;
+	const token = process.env.BUCKLE_CONNECT_TOKEN ?? "";
 	// sing-box direct ranges — the loopback/RFC1918/link-local space the TUN
 	// must never capture (routing table data, not host secrets — scrub:allow)
 	const direct = [
@@ -304,14 +322,44 @@ export function singboxConfig(
 		"fe80::/10",
 	];
 	const rules: Record<string, unknown>[] = [
+		{ action: "sniff" },
+		{ protocol: "dns", action: "hijack-dns" },
 		{ ip_cidr: direct, outbound: "direct" },
 		{ domain_suffix: [".local", ".lan"], outbound: "direct" },
 	];
-	for (const app of enabled)
+	// GUI-transport rules for the enabled apps — AI-destination-qualified,
+	// per-app CONNECT tags. Watched-app NON-AI traffic stays direct by law
+	// (final: direct); CONNECT is the fail-closed AI gate only.
+	const transports = guiTransports().filter((t) => enabled.includes(t.user));
+	const outbounds: Record<string, unknown>[] = transports.map((t) => ({
+		type: "http",
+		tag: connectTagOf(t.user),
+		server: u.hostname,
+		server_port: port,
+		username: t.user,
+		password: token,
+	}));
+	for (const t of transports)
 		rules.push({
-			process_path_regex: [APP_PROCESS_REGEX[app]],
-			outbound: "hub",
+			process_path_regex: [t.regex],
+			domain_suffix: [...AI_DESTINATION_SUFFIXES],
+			outbound: connectTagOf(t.user),
 		});
+	// unknown-process AI fallback — still authenticated CONNECT, still the
+	// shared token, bucket `buckle` (never a catch-all relay)
+	rules.push({
+		domain_suffix: [...AI_DESTINATION_SUFFIXES],
+		outbound: connectTagOf(CONNECT_UNKNOWN_USER),
+	});
+	outbounds.push({
+		type: "http",
+		tag: connectTagOf(CONNECT_UNKNOWN_USER),
+		server: u.hostname,
+		server_port: port,
+		username: CONNECT_UNKNOWN_USER,
+		password: token,
+	});
+	outbounds.push({ type: "direct", tag: "direct" });
 	return {
 		log: { level: "warn" },
 		inbounds: [
@@ -323,15 +371,7 @@ export function singboxConfig(
 				strict_route: true,
 			},
 		],
-		outbounds: [
-			{
-				type: "http",
-				tag: "hub",
-				server: u.hostname,
-				port: Number(u.port || (u.protocol === "https:" ? "443" : "80")),
-			},
-			{ type: "direct", tag: "direct" },
-		],
+		outbounds,
 		route: { rules, final: "direct", auto_detect_interface: true },
 	};
 }
@@ -490,6 +530,12 @@ async function dispatch(name: string, parsed: Parsed): Promise<number> {
 	if (!ep) {
 		console.error(
 			`connections: default hub '${cfg.default}' unresolved — fix the hubs registry or stack.yaml`,
+		);
+		return 1;
+	}
+	if (face === "singbox" && !process.env.BUCKLE_CONNECT_TOKEN) {
+		console.error(
+			"connections: BUCKLE_CONNECT_TOKEN missing — never a placeholdered CONNECT conf (W1233 lesson)",
 		);
 		return 1;
 	}

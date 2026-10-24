@@ -41,17 +41,21 @@ const realLaunchctlRun: LaunchctlRun = async (pairs) => {
 		await execa("launchctl", ["setenv", p.key, p.value], { reject: false });
 };
 
-/** The template written when connections.json is ABSENT. ChatGPT defaults
- *  OFF — W1231: ChatGPT.app rides the account session, not an API key; the
- *  only clean route is the banned chatgpt.com MITM. The operator opts in. */
+/** The template written when connections.json is ABSENT. Default-ON
+ *  (W1260.1): every detected GUI app's AI destinations route through the
+ *  authenticated Buckle CONNECT relay — TLS opaque end-to-end, never MITM
+ *  (the W1231 chatgpt.com ban is unaffected; the relay sees SNI only). The
+ *  operator opts OUT via connections.json. codex rides the `buckle`
+ *  fallback rule — its CLI steers via user-level config (owner #67959). */
 export function defaultTemplate(defaultHub: string): ConnectionsConfig {
 	return {
 		version: 1,
 		default: defaultHub,
 		apps: {
 			claude: { enabled: true },
-			chatgpt: { enabled: false },
+			chatgpt: { enabled: true },
 			vscode: { enabled: true },
+			codex: { enabled: true },
 		},
 		repos: {},
 	};

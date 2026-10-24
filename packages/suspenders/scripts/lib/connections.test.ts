@@ -24,6 +24,7 @@ import {
 	singboxConfig,
 	writeDefaultConfig,
 } from "./connections.ts";
+import { AI_DESTINATION_SUFFIXES } from "../../deploy/singbox/watched.ts";
 
 const cfg = (over: Partial<ConnectionsConfig> = {}): ConnectionsConfig => ({
 	version: 1,
@@ -133,25 +134,68 @@ test("app filtering: faces only carry enabled apps", () => {
 	expect(enabledAppsOf(c, "chatgpt")).toEqual([]);
 });
 
-test("sing-box rules only for enabled apps; hub outbound = hub url", () => {
-	const url = "http://hub.local:4101";
+test("sing-box: per-app CONNECT outbounds, AI-qualified rules, bypass-first", () => {
+	process.env.BUCKLE_CONNECT_TOKEN = "tok-fake000000000000";
+	delete process.env.BUCKLE_CONNECT_PORT;
+	const url = "https://gw.hub.local:4103";
 	const sb = singboxConfig(["claude", "vscode"], url);
-	const rules = (sb.route as { rules: Array<Record<string, unknown>> }).rules;
-	const blob = JSON.stringify(rules);
+	const route = sb.route as {
+		rules: Array<Record<string, unknown>>;
+		final: string;
+	};
+	// ordering: sniff → hijack-dns → bypass all precede the first connect rule
+	const firstConnect = route.rules.findIndex((r) =>
+		String(r.outbound ?? "").startsWith("buckle-connect-"),
+	);
+	expect(firstConnect).toBeGreaterThanOrEqual(4);
+	const blob = JSON.stringify(route.rules);
 	expect(blob).toContain("Claude");
 	expect(blob).toContain("Visual Studio Code");
 	expect(blob).not.toContain("ChatGPT");
-	const sb2 = singboxConfig(["chatgpt"], url);
-	expect(JSON.stringify(sb2)).toContain("ChatGPT");
-	const outbounds = sb.outbounds as Array<Record<string, unknown>>;
-	expect(outbounds[0]).toMatchObject({
+	expect(blob).not.toContain("/bin/claude");
+	// every GUI rule is AI-destination-qualified (the single-source AI set)
+	for (const r of route.rules) {
+		if (
+			!String(r.outbound ?? "").startsWith("buckle-connect-") ||
+			!r.process_path_regex
+		)
+			continue;
+		expect(r.domain_suffix).toEqual([...AI_DESTINATION_SUFFIXES]);
+	}
+	// fallback rule: unknown processes → buckle, full AI set, fail-closed
+	const fallback = route.rules[route.rules.length - 1];
+	expect(fallback.outbound).toBe("buckle-connect-buckle");
+	expect(fallback.process_path_regex).toBeUndefined();
+	// per-app CONNECT outbound: gateway host + Basic-auth identity + token
+	expect((sb.outbounds as Array<Record<string, unknown>>)[0]).toMatchObject({
 		type: "http",
-		tag: "hub",
-		server: "hub.local",
-		port: 4101,
+		tag: "buckle-connect-claude",
+		server: "gw.hub.local",
+		server_port: 4103,
+		username: "claude",
+		password: "tok-fake000000000000",
 	});
-	// final: direct — the TUN routes the apps, never the whole machine
-	expect((sb.route as { final: string }).final).toBe("direct");
+	// final: direct — watched-app non-AI traffic stays direct by law
+	expect(route.final).toBe("direct");
+	for (const k of ["BUCKLE_CONNECT_TOKEN", "BUCKLE_CONNECT_PORT"])
+		delete process.env[k];
+});
+
+test("sing-box: codex enabled emits NO GUI rule — CLI steers via user-level config", () => {
+	process.env.BUCKLE_CONNECT_TOKEN = "tok-fake000000000000";
+	process.env.BUCKLE_CONNECT_PORT = "4110";
+	const sb = singboxConfig(["codex"], "https://gw.hub.local:4103");
+	const rules = (sb.route as { rules: Array<Record<string, unknown>> }).rules;
+	expect(rules.find((r) => r.process_path_regex)).toBeUndefined();
+	// its AI destinations still ride CONNECT as `buckle` (fail-closed gate)
+	expect(rules[rules.length - 1].outbound).toBe("buckle-connect-buckle");
+	const fb = (sb.outbounds as Array<Record<string, unknown>>).find(
+		(o) => o.tag === "buckle-connect-buckle",
+	);
+	expect(fb).toBeDefined();
+	expect(fb).toMatchObject({ username: "buckle", server_port: 4110 });
+	for (const k of ["BUCKLE_CONNECT_TOKEN", "BUCKLE_CONNECT_PORT"])
+		delete process.env[k];
 });
 
 test("writeDefaultConfig lands at mode 600", () => {

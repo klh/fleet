@@ -1,87 +1,59 @@
-# sing-box TUN egress enforcement (W1233)
+# sing-box TUN + Buckle CONNECT egress (W1260.1)
 
-Per-process egress enforcement for Claude.app + ChatGPT.app on muramasa:
+Machine-level AI egress enforcement, operable end-to-end: every detected
+GUI app's AI destinations ride Buckle's authenticated HTTP CONNECT relay.
 sing-box TUN mode captures the apps' traffic at the kernel level
-(`auto_route` + `strict_route`) and `process_path_regex` rules pin it to
-the `hub-relay` forward proxy — even when apps ignore the system proxy
-(websockets, child processes, updaters).
+(`auto_route` + `strict_route`); `process_path_regex` + sniffed SNI pin it
+to per-app `buckle-connect-<app>` outbounds. Default-ON: the operator opts
+OUT via `connections.json` / the machine conf.
 
-## Layer law (complement, never replacement)
+## Ordering law (bypass BEFORE connect)
 
-- **sing-box** = network-layer enforcement/audit. Bytes flow through
-  muramasa's TUN; attribution is per-process.
-- **buckle** (W1230) = the inference-layer gateway for Claude Desktop
-  (`/v1/messages`). This kit never terminates or translates LLM wires.
-- The `hub-relay` outbound is a **forward proxy**: it relays the app's
-  TLS to its real destination (ChatGPT stays OpenAI-bound, W1231). It is
-  never a wire translation.
-- Enforcement is **fail-closed**: watched processes are pinned to the
-  `hub-relay` outbound — if the relay is down, their traffic fails rather
-  than falling back to direct.
+1. `{action: sniff}` — SNI populates the domain for later matches
+2. dns hijack
+3. `ip_is_private` + `.local`/`.lan` → direct (LAN never captured)
+4. GUI app rules: `process_path_regex` AND the full AI destination set
+   (`anthropic.com claude.ai openai.com chatgpt.com`) → `buckle-connect-<app>`
+5. AI fallback rule (no process match) → `buckle-connect-buckle` — the
+   fail-closed gate for unknown processes; NEVER a catch-all relay
+6. `final: direct` — watched-app NON-AI traffic stays direct by law
 
-## Layout (config-over-code)
+## The lifecycle CLI
 
-- Repo: `config.template.json` — the fleet-law reference shape with
-  `<PLACEHOLDER>`s. NOT runnable by design.
-- Machine: `~/.config/klh/singbox.json` — the real config, 0600
-  (`KLH_SINGBOX_CONF` overrides). Repos carry placeholders only.
+    bun deploy/singbox/lifecycle.ts fill    # template → ~/.config/klh/singbox.json (0600)
+    bun deploy/singbox/lifecycle.ts detect  # which GUI transports are present
+    bun deploy/singbox/lifecycle.ts on      # law → relay reach → plist → owner door
+    bun deploy/singbox/lifecycle.ts off     # ordered rollback: bootout → plist rm → env clear
+    bun deploy/singbox/lifecycle.ts status  # UP | DEGRADED | STAGED | DOWN composite
 
-## Usage
+- `fill` refuses without `BUCKLE_CONNECT_TOKEN` — never a placeholdered
+  conf (the W1233 not-runnable failure mode).
+- `on` never prompts for sudo: it prints the exact owner commands and
+  exits STAGED (exit 4) when bootstrap needs the privileged door.
+- `off` is the ordered rollback: bootout the daemon, remove the staged
+  plist, `launchctl unsetenv` the proxy pairs, report `scutil --proxy`.
+- `status` composes pgrep + relay TCP probe + clash-API answer + staged
+  plist into one verdict; a dead relay with a live daemon is DEGRADED,
+  never painted healthy (outside-process law).
 
-    bun deploy/singbox/singbox.ts seed              # template → machine conf, once
-    # fill every <PLACEHOLDER>, then:
-    bun deploy/singbox/singbox.ts check             # fleet-law validation
-    bun deploy/singbox/singbox.ts verify [--watch 30]
-    #   SINGBOX-VERIFY: PASS | FAIL - <reason> | INCONCLUSIVE - <reason>
-    #   exit: 0 PASS · 1 FAIL · 3 INCONCLUSIVE
+## Layer law + honesty limits
 
-`check` refuses: missing TUN capture (`auto_route`/`strict_route` off), a
-non-loopback clash API, a missing/broken `hub-relay` forward proxy, a
-catch-all routed anywhere but `direct`, missing DNS hijack, missing
-watched-process coverage for either bundle, and any unfilled placeholder.
+- The CONNECT outbound is a **relay**: TLS stays opaque end-to-end. The
+  stack sees SNI + per-app Basic-auth identity + byte counts — never
+  plaintext, never wire translation (W1231 ban unaffected).
+- Stock macOS TUN has no per-app BLOCKING beyond these routing rules;
+  per-app firewalling needs a network-extension product — out of scope.
+- `verify` (singbox.ts) rules on live clash-API rows; an empty window is
+  INCONCLUSIVE, never a pass.
 
-`verify` reads sing-box's clash API (`GET /connections`, loopback-only,
-bearer-authed) and rules on live rows: a watched process on `direct` is a
-leak (FAIL); watched traffic on `hub-relay` with per-process byte counts
-is the acceptance evidence; an empty window is INCONCLUSIVE, never a
-pass.
+## GUI vs CLI steering (owner #67959)
 
-## Bring-up (manual, root)
-
-TUN mode needs root; this kit does NOT automate privileged network
-changes on the owner's Mac:
-
-    brew install sing-box   # >= 1.12 (type-keyed DNS servers)
-    sudo sing-box run -c ~/.config/klh/singbox.json
-
-Run it as a root LaunchDaemon for persistence; `verify --watch` is the
-health check (run it from a non-root session — the outside-process law:
-the enforcement point never paints itself healthy).
-
-## Firewall complement — honest limits
-
-Stock macOS cannot block per-app OUTBOUND traffic (pf has no process
-match; the application firewall filters inbound). The enforcement
-guarantee therefore comes from the TUN itself: kernel-level capture means
-watched processes have no routable path around sing-box, the DNS hijack
-removes plain-DNS leaks, and `verify` detects any direct-egress hole.
-Per-app firewalling beyond this needs a network-extension product — out
-of scope here.
-
-## The hub relay endpoint — open decision
-
-The config names `hub-relay` but the stack does not yet run a generic
-forward relay on the hub (services.yaml has none; buckle is an LLM
-gateway, not a TCP relay). Candidates: a hub-side sing-box/mixed relay in
-hub-compose, or an ssh-forwarded proxy (the trace-tunnel pattern). Until
-one lands, point `hub-relay.server` at whatever forward proxy the owner
-designates; `verify` proves enforcement + attribution at muramasa either
-way.
-
-## Regex choice — claude CLI
-
-The template regexes anchor at `^/Applications/(Claude|ChatGPT)\.app/`:
-the claude CLI (`~/.claude/local/claude`) is EXCLUDED by construction
-(lanes must not detour through the hub relay). `check` verifies the
-exclusion holds; editing a rule to include the CLI is an explicit,
-auditable conf change.
+GUI transports (Claude.app, ChatGPT.app, VS Code.app) are watched HERE —
+`watched.ts` is the ONE signature source, shared by this kit and the W1234
+connections emitter. CLIs (claude, codex) are NOT watched: they steer via
+user-level tool config pointing at stable Buckle protocol endpoints (the
+W1264.2/W1265 render table), never per-repo `.codex/config.toml`. Tool
+detection/installation belongs to the Vercel skills catalog via
+`fleet-install` — this kit never detects tools. A CLI's AI destinations
+still hit the `buckle` fallback rule — CONNECT stays the fail-closed AI
+gate either way.
