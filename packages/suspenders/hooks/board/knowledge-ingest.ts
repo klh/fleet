@@ -16,7 +16,14 @@ import type { Database } from "bun:sqlite";
 import { openKnowledgeDb } from "../lib/govdb.ts";
 import { makeStamp } from "../lib/confidence.ts";
 import { json } from "./helpers.ts";
-import { SYNCABLE_FACT, MAX_FACT_VALUE } from "../lib/knowledge-sync.ts";
+import {
+	MAX_FACT_VALUE,
+	MAX_PROV_FIELD,
+	PROVENANCE_KEYS,
+	SYNCABLE_FACT,
+} from "../lib/knowledge-sync.ts";
+import { redactSecrets } from "../lib/knowledge.ts";
+import { BUILTIN_RULES, redactMatches } from "../lib/scrub.ts";
 
 let kdbSingleton: Database | null = null;
 export function boardKnowledgeDb(): Database {
@@ -126,6 +133,20 @@ function validSessionRow(row: unknown): boolean {
 	return true;
 }
 
+/** W1226: the optional provenance record — known keys only, string values,
+ *  per-field cap. Strict like the rest of the row validation. */
+function validProvenance(prov: unknown): boolean {
+	if (prov === null || prov === undefined) return true;
+	if (typeof prov !== "object" || Array.isArray(prov)) return false;
+	for (const [k, v] of Object.entries(prov)) {
+		if (!(PROVENANCE_KEYS as readonly string[]).includes(k)) return false;
+		if (v === null) continue;
+		if (typeof v !== "string") return false;
+		if (v.length > MAX_PROV_FIELD) return false;
+	}
+	return true;
+}
+
 function validFactRow(row: unknown): { ok: boolean; reason: string | null } {
 	if (!row || typeof row !== "object" || Array.isArray(row))
 		return { ok: false, reason: "not an object" };
@@ -144,6 +165,8 @@ function validFactRow(row: unknown): { ok: boolean; reason: string | null } {
 		return { ok: false, reason: "bad source" };
 	if (!isFiniteNumber(f.version) || !isFiniteNumber(f.ts))
 		return { ok: false, reason: "bad version/ts" };
+	if (!validProvenance(f.prov))
+		return { ok: false, reason: "bad provenance record" };
 	return { ok: true, reason: null };
 }
 
@@ -189,16 +212,38 @@ export function landKnowledgeIngest(
 			setter: "mechanical:knowledge-sync",
 			evidence: `hub:${p.originHub}`,
 		});
+		// W1226: defense in depth — the spoke already ran the full rule set
+		// (builtins + its local denylist); the hub re-runs the BUILTIN rules on
+		// landing (denylists are machine-local, the hub cannot know the
+		// origin's) and refuses key material outright.
+		const provFrom = (f.prov ?? null) as Record<string, string> | null;
+		const landedValue = redactMatches(f.value, BUILTIN_RULES);
+		const landedProv = provFrom
+			? Object.fromEntries(
+					Object.entries(provFrom).map(([k, v]) => [
+						k,
+						typeof v === "string" ? redactMatches(v, BUILTIN_RULES) : v,
+					]),
+				)
+			: null;
+		const keyScan = redactSecrets(
+			`${landedValue}\n${JSON.stringify(landedProv) ?? ""}`,
+		);
+		if (keyScan.rejected || keyScan.hits.length > 0) {
+			counts.facts.rejected++;
+			continue;
+		}
 		kdb.run(
-			"INSERT INTO knowledge (ts, topic, fact, confidence, origin_kind, origin_system, origin_sid, contributors, source, state, confidence_stamp) VALUES (?, ?, ?, ?, 'remote-fact', ?, ?, ?, 'knowledge-sync', 'candidate', ?)",
+			"INSERT INTO knowledge (ts, topic, fact, confidence, origin_kind, origin_system, origin_sid, contributors, source, state, confidence_stamp, provenance) VALUES (?, ?, ?, ?, 'remote-fact', ?, ?, ?, 'knowledge-sync', 'candidate', ?, ?)",
 			now,
 			topic,
-			f.value,
+			landedValue,
 			stamp.value,
 			p.originHub,
 			p.originHub,
 			JSON.stringify([{ sid: p.originHub, ts: now, what: "knowledge-sync" }]),
 			JSON.stringify(stamp),
+			landedProv ? JSON.stringify(landedProv) : null,
 		);
 		counts.facts.landed++;
 	}

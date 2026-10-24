@@ -29,6 +29,7 @@ import {
 	type SyncTarget,
 } from "./knowledge-sync-policy.ts";
 import { redactSecrets } from "./knowledge.ts";
+import { redactMatches, scrubRules } from "./scrub.ts";
 
 export interface SyncPayload {
 	originHub: string;
@@ -41,12 +42,29 @@ export interface SyncPayload {
 	facts: SyncFact[];
 }
 
+/** W1226: the fact provenance record — evidence fields (the model's declared
+ *  trigger/procedure/etc.) plus the SESSION-DERIVED repo/branch attribution.
+ *  One shape across facts.ts, the sync payload, and the hub landing. */
+export interface FactProvenance {
+	trigger?: string;
+	explanation?: string;
+	procedure?: string;
+	verification?: string;
+	source_commit?: string;
+	applicability?: string;
+	repo?: string;
+	branch?: string;
+	session?: string;
+}
+
 export interface SyncFact {
 	key: string;
 	value: string;
 	source: string | null;
 	version: number;
 	ts: number;
+	/** W1226: the fact's provenance record, already scrubbed. Null when none. */
+	prov: FactProvenance | null;
 }
 
 export interface SyncOutcome {
@@ -189,6 +207,78 @@ function decantSessions(config: SyncConfig, cwd: string): SessionMetrics[] {
 export const SYNCABLE_FACT = /^(lesson|finding)\./;
 export const MAX_FACT_VALUE = 2000;
 
+/** W1226: the provenance fields that cross the sync, with the per-field cap.
+ *  Keys mirror the stored facts.provenance JSON exactly; anything else in the
+ *  stored record never leaves the machine. */
+export const PROVENANCE_KEYS = [
+	"trigger",
+	"explanation",
+	"procedure",
+	"verification",
+	"source_commit",
+	"applicability",
+	"repo",
+	"branch",
+	"session",
+] as const;
+export const MAX_PROV_FIELD = 600;
+
+/** Safe parse of a stored facts.provenance JSON string; null on absence or
+ *  unparsable JSON (legacy rows, junk writes). Unknown keys drop; strings
+ *  clamp at MAX_PROV_FIELD. */
+export function parseProvenance(raw: string | null): FactProvenance | null {
+	if (!raw) return null;
+	try {
+		const p: unknown = JSON.parse(raw);
+		if (!p || typeof p !== "object" || Array.isArray(p)) return null;
+		const out: FactProvenance = {};
+		for (const [k, v] of Object.entries(p)) {
+			if (!(PROVENANCE_KEYS as readonly string[]).includes(k)) continue;
+			if (typeof v !== "string" || !v) continue;
+			out[k as keyof FactProvenance] = v.slice(0, MAX_PROV_FIELD);
+		}
+		return out;
+	} catch {
+		return null;
+	}
+}
+
+/** W1226 redact-before-remote: the OUTBOUND copy runs the W236 rule set —
+ *  contextual leaks (home paths, LAN addrs, denylist hosts) get redacted from
+ *  value and provenance fields before anything leaves the machine. No
+ *  `scrub:allow` exemption applies here: the allow marker is a commit-gate
+ *  escape hatch, never a transport one. (Key material upstream stays a hard
+ *  skip via redactSecrets — redaction never launders a key.) */
+export function scrubSyncFact(
+	r: {
+		key: string;
+		value: string;
+		source: string | null;
+		version: number;
+		ts: number;
+	},
+	provRaw: FactProvenance | null,
+): SyncFact {
+	const rules = scrubRules();
+	const value = redactMatches(r.value, rules);
+	const prov: FactProvenance | null = provRaw
+		? Object.fromEntries(
+				Object.entries(provRaw).map(([k, v]) => [
+					k,
+					typeof v === "string" ? redactMatches(v, rules) : v,
+				]),
+			)
+		: null;
+	return {
+		key: r.key,
+		value,
+		source: r.source,
+		version: r.version,
+		ts: r.ts,
+		prov,
+	};
+}
+
 export interface CollectedFacts {
 	send: SyncFact[];
 	skipped: string[];
@@ -212,9 +302,16 @@ export function collectFacts(
 		return { send, skipped: ["facts: governor.db not readable"] };
 	}
 	if (db) {
+		// W1226: the provenance column rides the guarded-ALTER heal — but the
+		// sync opens the db READONLY (no migration on that path), so a
+		// pre-W1226 spoke db is legal. Probe the column once; legacy shapes
+		// sync with prov null (parseProvenance tolerates absence).
+		const hasProv = (
+			db.query("PRAGMA table_info(facts)").all() as { name: string }[]
+		).some((c) => c.name === "provenance");
 		const rows = db
 			.query(
-				"SELECT key, value, source, version, ts FROM facts WHERE key LIKE 'lesson.%' OR key LIKE 'finding.%' ORDER BY key",
+				`SELECT key, value, source, version, ts${hasProv ? ", provenance" : ""} FROM facts WHERE key LIKE 'lesson.%' OR key LIKE 'finding.%' ORDER BY key`,
 			)
 			.all() as {
 			key: string;
@@ -222,24 +319,28 @@ export function collectFacts(
 			source: string | null;
 			version: number;
 			ts: number;
+			provenance?: string | null;
 		}[];
 		for (const r of rows) {
 			if (!SYNCABLE_FACT.test(r.key)) continue;
 			if (state.facts[r.key] === r.version) continue;
-			const red = redactSecrets(r.value ?? "");
+			// W1226: the provenance record rides the SAME verification chain —
+			// a secret anywhere in value OR evidence skips the row (the evidence
+			// never outranks the secret gate).
+			const provRaw = parseProvenance(r.provenance ?? null);
+			const provText = provRaw
+				? Object.values(provRaw)
+						.filter((v): v is string => typeof v === "string")
+						.join("\n")
+				: "";
+			const red = redactSecrets(`${r.value ?? ""}\n${provText}`);
 			if (!r.value) continue;
 			if (r.value.length > MAX_FACT_VALUE) continue;
 			if (red.rejected || red.hits.length > 0) {
 				skipped.push(`${r.key}: secret pattern (${red.hits.join(", ")})`);
 				continue;
 			}
-			send.push({
-				key: r.key,
-				value: red.text,
-				source: r.source,
-				version: r.version,
-				ts: r.ts,
-			});
+			send.push(scrubSyncFact(r, provRaw));
 		}
 		// the hub caps 50 facts/payload — overflow waits for the next pass
 		if (send.length > 50) send.length = 50;

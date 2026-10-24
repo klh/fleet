@@ -179,7 +179,7 @@ test("readSyncConfig: non-loopback http target refused", () => {
 function fixtureKb(): Database {
 	const kdb = new Database(":memory:");
 	kdb.run(
-		"CREATE TABLE knowledge (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, topic TEXT, fact TEXT, confidence REAL, origin_kind TEXT, origin_system TEXT, origin_sid TEXT, contributors TEXT, source TEXT, state TEXT, confidence_stamp TEXT)",
+		"CREATE TABLE knowledge (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, topic TEXT, fact TEXT, confidence REAL, origin_kind TEXT, origin_system TEXT, origin_sid TEXT, contributors TEXT, source TEXT, state TEXT, confidence_stamp TEXT, provenance TEXT)",
 	);
 	return kdb;
 }
