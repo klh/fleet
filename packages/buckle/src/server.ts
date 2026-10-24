@@ -228,13 +228,19 @@ export function buildDeps(
 		hint: RouteHint | null;
 		hintRaw: string;
 		allowCross: boolean;
-	}) =>
-		decideRoute({
-			...input,
-			candidates: table.snapshot(),
+		providerPin?: string;
+	}) => {
+		const { providerPin, ...rest } = input;
+		return decideRoute({
+			...rest,
+			candidates:
+				providerPin === undefined
+					? table.snapshot()
+					: table.snapshot().filter((r) => r.dep.adapter === providerPin),
 			prefs,
-			fallbackGroups: input.allowCross ? policy.fallbacks?.[input.group] : [],
+			fallbackGroups: rest.allowCross ? policy.fallbacks?.[rest.group] : [],
 		});
+	};
 	const dbPath = opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db";
 	const federation = new Federation({
 		dbPath,
