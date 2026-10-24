@@ -66,14 +66,14 @@ function rowState(id: number): string | undefined {
 
 let SqliteKnowledgeStore: new (
 	db: Database,
-) => import("../hooks/lib/knowledge-ports.ts").SqliteKnowledgeStore;
+) => import("../hooks/lib/sqlite-store.ts").SqliteKnowledgeStore;
 let decayScore: typeof import("../hooks/lib/knowledge-curate.ts").decayScore;
 let planDecayProposals: typeof import("../hooks/lib/knowledge-curate.ts").planDecayProposals;
 
 test("boot", async () => {
 	const kb = freshKb();
 	expect(kb).toBeDefined();
-	({ SqliteKnowledgeStore } = await import("../hooks/lib/knowledge-ports.ts"));
+	({ SqliteKnowledgeStore } = await import("../hooks/lib/sqlite-store.ts"));
 	({ decayScore, planDecayProposals } = await import(
 		"../hooks/lib/knowledge-curate.ts"
 	));
