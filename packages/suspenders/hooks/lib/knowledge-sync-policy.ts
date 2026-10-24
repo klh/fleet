@@ -27,6 +27,22 @@ export interface SyncPolicy {
 	metricsSessions: boolean;
 	/** verified facts (lesson. + finding. keys) cross as candidate rows */
 	facts: boolean;
+	/** W1213: CAS'd claim-roll entries (claim.* facts) ride UP to targets
+	 *  configured with rollUrl + rollKeyFile */
+	claims: boolean;
+}
+
+export interface SyncTarget {
+	url: string;
+	writeTokenFile: string;
+	/** W1213: the target's knowledge-api face for the upward claim roll —
+	 *  same origin rules as url; configured together with rollKeyFile. */
+	rollUrl?: string;
+	/** W1213: the machine-scoped TTL key file (0600, single-line) the hub's
+	 *  knowledge-api minted for THIS machine — the credential-free roll
+	 *  transport (provenance binds to the key, never the payload). */
+	rollKeyFile?: string;
+	hubId?: string;
 }
 
 export interface SyncConfig {
@@ -37,11 +53,13 @@ export interface SyncConfig {
 	decantBin: string;
 }
 
-/** The default policy — metrics-only (the sync-by-default class). */
+/** The default policy — metrics + facts + claims (the sync-by-default
+ *  classes). */
 export const DEFAULT_POLICY: SyncPolicy = {
 	metrics: true,
 	metricsSessions: false,
 	facts: true,
+	claims: true,
 };
 
 export const SYNC_CONFIG_PATH = (): string =>
@@ -97,9 +115,33 @@ function parseTarget(value: unknown): SyncTarget {
 		throw new Error("Invalid sync target");
 	const url = validTargetUrl(target.url);
 	if (!url) throw new Error("Invalid sync target");
+	// W1213: the optional claim-roll face — origin-only like the main url,
+	// with the machine-scoped TTL key file (0600, W1141 posture). Push happens
+	// only when BOTH are configured; a key-less rollUrl would just 403.
+	let roll: string | undefined;
+	if (target.rollUrl !== undefined) {
+		if (typeof target.rollUrl !== "string")
+			throw new Error("Invalid sync target");
+		const rollParsed = validTargetUrl(target.rollUrl);
+		if (!rollParsed) throw new Error("Invalid sync target");
+		roll = rollParsed.origin;
+	}
+	let rollKey: string | undefined;
+	if (target.rollKeyFile !== undefined) {
+		if (
+			typeof target.rollKeyFile !== "string" ||
+			target.rollKeyFile.length > 1024 ||
+			!isAbsolute(target.rollKeyFile)
+		)
+			throw new Error("Invalid sync target");
+		rollKey = target.rollKeyFile;
+	}
+	if ((roll === undefined) !== (rollKey === undefined))
+		throw new Error("rollUrl and rollKeyFile are configured together");
 	return {
 		url: url.origin,
 		writeTokenFile: target.writeTokenFile,
+		...(roll ? { rollUrl: roll, rollKeyFile: rollKey } : {}),
 		...(typeof target.hubId === "string" && identity(target.hubId)
 			? { hubId: target.hubId }
 			: {}),
@@ -131,6 +173,7 @@ function parsePolicy(value: unknown): SyncPolicy {
 		metrics: p.metrics ?? DEFAULT_POLICY.metrics,
 		metricsSessions: p.metricsSessions ?? DEFAULT_POLICY.metricsSessions,
 		facts: p.facts ?? DEFAULT_POLICY.facts,
+		claims: p.claims ?? DEFAULT_POLICY.claims,
 	};
 }
 
