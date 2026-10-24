@@ -16,7 +16,7 @@ const localTime = (value) => {
 				month: "2-digit",
 				year: "2-digit",
 				hour: "2-digit",
-			 minute: "2-digit",
+				minute: "2-digit",
 				hour12: false,
 			})
 		: "never observed";
@@ -219,7 +219,7 @@ class BeltTopologyHubs extends LitElement {
 				: `${measure(link.lanes)} in the window · ${link.activeLanes === null ? "active unreported" : `${measure(link.activeLanes)} active`}`;
 		return html`<h3>Link · ${fromLabel} → ${toLabel}</h3>
 			<dl>
-				<dt>Evidence</dt><dd>${link.evidence}${link.animate ? " · flow animating, speed bounded by the measured rate" : link.requests > 0 ? " · stale, flow off" : ""}</dd>
+				<dt>Evidence</dt><dd>${link.evidence}${link.animate ? " · flow animating, speed bounded by the measured rate" : link.requests > 0 && link.evidence !== "ledger" ? " · stale, flow off" : ""}</dd>
 				<dt>Hops</dt><dd>${measure(link.requests)} · ${perMinute}/min · width ${link.width}px</dd>
 				<dt>Failed hops</dt><dd>${measure(link.failed)}</dd>
 				<dt>Active requests</dt><dd>${measure(link.active)}</dd>
@@ -230,12 +230,14 @@ class BeltTopologyHubs extends LitElement {
 			${this.edgeChartSlot(link)}
 			<details>
 				<summary>Joined traces · ${link.traces.length}</summary>
-				${link.traces.length
-					? html`<ol class="trace-list">${link.traces.map(
-							(trace) =>
-								html`<li><code>${trace.id.slice(0, 12)}…</code> · ${trace.hops.join(" → ")} · ${trace.complete ? "complete" : "partial"}</li>`,
-						)}</ol>`
-					: html`<p>No joined W3C trace on this edge — a ledger target edge never claims a provider hop.</p>`}
+				${
+					link.traces.length
+						? html`<ol class="trace-list">${link.traces.map(
+								(trace) =>
+									html`<li><code>${trace.id.slice(0, 12)}…</code> · ${trace.hops.join(" → ")} · ${trace.complete ? "complete" : "partial"}</li>`,
+							)}</ol>`
+						: html`<p>No joined W3C trace on this edge — a ledger target edge never claims a provider hop.</p>`
+				}
 			</details>
 			${this.edgeGridTable(link)}`;
 	}
@@ -246,9 +248,7 @@ class BeltTopologyHubs extends LitElement {
 			<div class="edge-chart" role="img" aria-label=${`Hops per minute: ${link.series.map((bucket) => bucket.requests).join(", ")}`}></div>`;
 	}
 	edgeGridTable(link) {
-		const nonZero = (link.series ?? []).filter(
-			(bucket) => bucket.requests > 0,
-		);
+		const nonZero = (link.series ?? []).filter((bucket) => bucket.requests > 0);
 		if (!nonZero.length) return "";
 		return html`<details>
 			<summary>Non-zero minutes</summary>
@@ -283,28 +283,34 @@ class BeltTopologyHubs extends LitElement {
 			</dl>
 			<details>
 				<summary>Observed endpoints · ${selected.endpoints.length}</summary>
-				${selected.endpoints.length
-					? html`<ul class="trace-list">${selected.endpoints.map(
-							(item) =>
-								html`<li>${item.label} · ${measure(item.requests)} hops · ${age(item.lastSeenAt)}</li>`,
-						)}</ul>`
-					: html`<p>No endpoint traffic in this window.</p>`}
+				${
+					selected.endpoints.length
+						? html`<ul class="trace-list">${selected.endpoints.map(
+								(item) =>
+									html`<li>${item.label} · ${measure(item.requests)} hops · ${age(item.lastSeenAt)}</li>`,
+							)}</ul>`
+						: html`<p>No endpoint traffic in this window.</p>`
+				}
 			</details>
 			<details>
 				<summary>Model inventory · ${models.length}</summary>
-				${models.length
-					? html`<ul class="trace-list">${models.map(
-							(model) => html`<li>${model}</li>`,
-						)}</ul>`
-					: html`<p>No configured or Belt-served models reported.</p>`}
+				${
+					models.length
+						? html`<ul class="trace-list">${models.map(
+								(model) => html`<li>${model}</li>`,
+							)}</ul>`
+						: html`<p>No configured or Belt-served models reported.</p>`
+				}
 			</details>
 			<h3>Joined traces</h3>
-			${traces.length
-				? html`<ol class="trace-list">${traces.map(
-						(trace) =>
-							html`<li><code>${trace.id.slice(0, 12)}…</code> · ${trace.hops.join(" → ")} · ${trace.complete ? "complete" : "partial"}</li>`,
-					)}</ol>`
-				: html`<p>No joined trace for this hub.</p>`}
+			${
+				traces.length
+					? html`<ol class="trace-list">${traces.map(
+							(trace) =>
+								html`<li><code>${trace.id.slice(0, 12)}…</code> · ${trace.hops.join(" → ")} · ${trace.complete ? "complete" : "partial"}</li>`,
+						)}</ol>`
+					: html`<p>No joined trace for this hub.</p>`
+			}
 		`;
 	}
 
@@ -325,7 +331,9 @@ class BeltTopologyHubs extends LitElement {
 				</g>`;
 			})}
 			${layout.nodes.map(
-				(node) => svg`<g class="hub-item" role="button" tabindex="0" data-node=${node.id} aria-label=${`${node.label}, ${node.state}, ${node.requests} hops and ${node.failed} failures in the selected window, ${node.endpoints.length} observed endpoints`} @click=${() => this.select(node.id)} @keydown=${(event) => this.onKey(event, node.id)}>
+				(
+					node,
+				) => svg`<g class="hub-item" role="button" tabindex="0" data-node=${node.id} aria-label=${`${node.label}, ${node.state}, ${node.requests} hops and ${node.failed} failures in the selected window, ${node.endpoints.length} observed endpoints`} @click=${() => this.select(node.id)} @keydown=${(event) => this.onKey(event, node.id)}>
 					<rect class=${`hub-card ${node.state === "planned" ? "planned" : ""} ${this.selectedId === node.id ? "selected" : ""}`} x=${node.x} y=${node.y} width="190" height="64" rx="4"></rect>
 					<circle class="hub-dot" cx=${node.x + 14} cy=${node.y + 17} r="3.5" fill=${stateColour(node.state)}></circle>
 					<text class="hub-title" x=${node.x + 24} y=${node.y + 21}>${node.label.length > 21 ? `${node.label.slice(0, 20)}…` : node.label}</text>
@@ -382,8 +390,19 @@ class BeltTopologyHubs extends LitElement {
 
 	chartEdge(uPlot, link, times, mount) {
 		const theme = this.edgeChartTheme();
-		const data = [times, link.series.map((b) => b.requests), link.series.map((b) => b.failed)];
-		const series = (label, stroke, points) => ({ label, stroke, fill: () => `${stroke()}2e`, width: 1.5, points, value: theme.int });
+		const data = [
+			times,
+			link.series.map((b) => b.requests),
+			link.series.map((b) => b.failed),
+		];
+		const series = (label, stroke, points) => ({
+			label,
+			stroke,
+			fill: () => `${stroke()}2e`,
+			width: 1.5,
+			points,
+			value: theme.int,
+		});
 		const u = new uPlot(
 			{
 				width: mount.clientWidth || 280,
@@ -400,7 +419,10 @@ class BeltTopologyHubs extends LitElement {
 				],
 				series: [
 					{},
-					series("hops/min", theme.accent, { show: link.series.length < 16, size: 5 }),
+					series("hops/min", theme.accent, {
+						show: link.series.length < 16,
+						size: 5,
+					}),
 					series("failed", theme.danger, { show: false }),
 				],
 			},
@@ -453,7 +475,8 @@ class BeltTopologyHubs extends LitElement {
 		});
 		this._view = view;
 		const layout = hubOverviewLayout(view.hubs, view.links);
-		const selected = view.hubs.find((hub) => hub.id === this.selectedId) ?? null;
+		const selected =
+			view.hubs.find((hub) => hub.id === this.selectedId) ?? null;
 		return html`<section class=${this.flowPaused ? "flow-paused" : ""}>
 			<h2>Hub topology · ${this.layer} layer</h2>
 			<p role="status">${view.hubs.length} hubs · ${view.links.length} hub links · snapshot updated ${age(view.observedAt)}</p>
@@ -461,13 +484,20 @@ class BeltTopologyHubs extends LitElement {
 				<fieldset>
 					<legend>Layer radios: observed, connected, configured</legend>
 					${["observed", "connected", "configured"].map(
-						(name) => html`<label><input type="radio" name="layer" .checked=${this.layer === name} @change=${() => { this.layer = name; }} />${name}</label>`,
+						(name) =>
+							html`<label><input type="radio" name="layer" .checked=${this.layer === name} @change=${() => {
+								this.layer = name;
+							}} />${name}</label>`,
 					)}
 				</fieldset>
 				<fieldset>
 					<legend>Window radios: 1m, 15m live; 1h, 24h disabled</legend>
-					<label><input type="radio" name="window" .checked=${this.windowMs === 60_000} @change=${() => { this.windowMs = 60_000; }} />1m</label>
-					<label><input type="radio" name="window" .checked=${this.windowMs === 1000 * 900} @change=${() => { this.windowMs = 900_000; }} />15m</label>
+					<label><input type="radio" name="window" .checked=${this.windowMs === 60_000} @change=${() => {
+						this.windowMs = 60_000;
+					}} />1m</label>
+					<label><input type="radio" name="window" .checked=${this.windowMs === 1000 * 900} @change=${() => {
+						this.windowMs = 900_000;
+					}} />15m</label>
 					<label><input type="radio" name="window" disabled title="The snapshot covers a 15m window — longer windows stay disabled rather than guess." />1h</label>
 					<label><input type="radio" name="window" disabled title="The snapshot covers a 15m window — longer windows stay disabled rather than guess." />24h</label>
 				</fieldset>
@@ -475,11 +505,17 @@ class BeltTopologyHubs extends LitElement {
 					<input type="search" .value=${this.query} placeholder="hub or model name" @input=${(event) => this.onSearch(event)} />
 				</label>
 			</div>
-			${view.search.length
-				? html`<div class="results">Search hits: ${view.search.map(
-						(hit) => html`<button type="button" @click=${() => { this.select(hit.id); this.focusNode(hit.id); }}>${hit.label}${hit.kind === "model" ? ` via ${hit.via}` : ""}</button>`,
-					)}</div>`
-				: ""}
+			${
+				view.search.length
+					? html`<div class="results">Search hits: ${view.search.map(
+							(hit) =>
+								html`<button type="button" @click=${() => {
+									this.select(hit.id);
+									this.focusNode(hit.id);
+								}}>${hit.label}${hit.kind === "model" ? ` via ${hit.via}` : ""}</button>`,
+						)}</div>`
+					: ""
+			}
 			<p class="crumbs">Estate${selected ? ` › ${selected.label}` : ""}${this.selectedId ? html` <button type="button" @click=${() => this.select("")}>Back to estate</button> ` : ""}</p>
 			<div class="metrics" role="status">
 				<div><strong>${measure(view.estate.hubs)}</strong><small>hubs in view</small></div>
@@ -497,7 +533,8 @@ class BeltTopologyHubs extends LitElement {
 				<caption class="skip">All hubs with inspect buttons</caption>
 				<tbody>
 					${view.hubs.map(
-						(hub) => html`<tr><td>${hub.label}</td><td>${hub.state}</td><td>${measure(hub.requests)} hops</td><td><button type="button" @click=${() => this.select(hub.id)}>Inspect ${hub.label}</button></td></tr>`,
+						(hub) =>
+							html`<tr><td>${hub.label}</td><td>${hub.state}</td><td>${measure(hub.requests)} hops</td><td><button type="button" @click=${() => this.select(hub.id)}>Inspect ${hub.label}</button></td></tr>`,
 					)}
 				</tbody>
 			</table>
@@ -506,14 +543,14 @@ class BeltTopologyHubs extends LitElement {
 				<caption class="skip">All hub links with inspect buttons</caption>
 				<tbody>
 					${view.links.map(
-						(link) => html`<tr><td>${link.from.replace("hub:", "")}</td><td>${link.to.replace("hub:", "")}</td><td>${measure(link.requests)} hops · ${link.evidence}</td><td><button type="button" @click=${() => this.select(link.id)}>Inspect link</button></td></tr>`,
+						(link) =>
+							html`<tr><td>${link.from.replace("hub:", "")}</td><td>${link.to.replace("hub:", "")}</td><td>${measure(link.requests)} hops · ${link.evidence}</td><td><button type="button" @click=${() => this.select(link.id)}>Inspect link</button></td></tr>`,
 					)}
 				</tbody>
 			</table>
 			<p class="coverage">Snapshot window ${windowLabel(this.windowMs)} · projection ${graph.coverage?.projectionAvailable ? "available" : "unavailable"} · ledger ${graph.coverage?.ledgerAvailable ? "available" : "unavailable"} · ${measure(graph.coverage?.tracesReturned)} of ${measure(graph.coverage?.tracesTotal)} traces returned.</p>
 		</section>`;
 	}
-
 }
 
 customElements.define("belt-topology-hubs", BeltTopologyHubs);
