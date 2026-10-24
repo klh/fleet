@@ -29,15 +29,12 @@ import {
 	type SyncTarget,
 } from "./knowledge-sync-policy.ts";
 import { redactSecrets } from "./knowledge.ts";
-<<<<<<< HEAD
 import { redactMatches, scrubRules } from "./scrub.ts";
-=======
 import {
 	collectClaims,
 	ROLL_KEY_HEADER,
 	type RollEntry,
 } from "./knowledge-roll.ts";
->>>>>>> suspenders/W1213.1.1
 
 export interface SyncPayload {
 	originHub: string;
@@ -446,6 +443,111 @@ export function collectPayload(
 
 // ─── transport: the W491 relay posture ──────────────────────────────────────
 
+const isNum = (v: unknown): v is number =>
+	typeof v === "number" && Number.isFinite(v);
+
+/** W1213.2: HTTP 200 alone is not acceptance — the cursor advances only on
+ *  an explicit, validated positive ack MATCHED to the batch: body parses as
+ *  an object, ok === true, fact counters account for every sent fact with
+ *  none rejected, plus the landed metrics row count. Anything else — a
+ *  rejected batch ({ok:false}, e.g. invalid confidence), an unparseable
+ *  body, missing or mismatched counters — is a non-ack: the cursor is
+ *  retained and the batch re-sends next pass (hub side idempotent by
+ *  topic-skip, so the retry cannot duplicate rows). */
+export function validateIngestAck(
+	body: string,
+	batch: { sentFacts: number; sentMetrics: number },
+): { ok: boolean; error: string | null } {
+	let ack: unknown;
+	try {
+		ack = JSON.parse(body);
+	} catch {
+		return { ok: false, error: "ingest ack unparseable" };
+	}
+	if (!ack || typeof ack !== "object" || Array.isArray(ack))
+		return { ok: false, error: "ingest ack not an object" };
+	const a = ack as Record<string, unknown>;
+	if (a.ok !== true) {
+		const why = typeof a.error === "string" ? a.error : "no positive ok flag";
+		return { ok: false, error: `ingest ack not positive: ${why}` };
+	}
+	const c = a.counts as Record<string, unknown> | undefined;
+	if (!c || typeof c !== "object" || Array.isArray(c))
+		return { ok: false, error: "ingest ack carries no counters" };
+	const f = c.facts as Record<string, unknown> | undefined;
+	if (!f || typeof f !== "object" || Array.isArray(f))
+		return { ok: false, error: "ingest ack carries no fact counters" };
+	if (!isNum(f.landed) || !isNum(f.dupes) || !isNum(f.rejected))
+		return { ok: false, error: "ingest ack fact counters not numeric" };
+	if (f.rejected > 0)
+		return { ok: false, error: `ingest ack rejects ${f.rejected} fact(s)` };
+	const counted = f.landed + f.dupes + f.rejected;
+	if (counted !== batch.sentFacts)
+		return {
+			ok: false,
+			error: `ingest ack accounts for ${counted} of ${batch.sentFacts} sent facts`,
+		};
+	if (!isNum(c.metrics) || c.metrics !== batch.sentMetrics)
+		return {
+			ok: false,
+			error: `ingest ack accounts for ${String(c.metrics)} of ${batch.sentMetrics} sent metrics rows`,
+		};
+	return { ok: true, error: null };
+}
+
+/** W1213.2.1: HTTP 200 alone is not acceptance on the roll face either —
+ *  postRoll mirrors the ingest ack contract (W1213.2): the claims cursor
+ *  advances only on an explicit, validated positive ack matched to the
+ *  batch. The hub acks with counts {merged, versions, tombstoned, stale,
+ *  dupes}; every entry lands in exactly one bucket except an idempotent
+ *  no-op — the re-push of a retraction onto an already-tombstoned row counts
+ *  nothing (exact-sum would wedge the cursor on a version-bumped re-set of
+ *  the same retraction), so the counters must account for AT MOST the sent
+ *  batch. Anything else — a rejected roll ({ok:false}, e.g. invalid claim
+ *  entry), an unparseable body, a bare {ok:true} without counters,
+ *  non-numeric counters, or counters exceeding the batch — is a non-ack: the
+ *  cursor is retained and the roll re-sends next pass (hub side idempotent
+ *  by claim hash + provenance, so the retry cannot duplicate rows). */
+export function validateRollAck(
+	body: string,
+	batch: { sentClaims: number },
+): { ok: boolean; error: string | null } {
+	let ack: unknown;
+	try {
+		ack = JSON.parse(body);
+	} catch {
+		return { ok: false, error: "roll ack unparseable" };
+	}
+	if (!ack || typeof ack !== "object" || Array.isArray(ack))
+		return { ok: false, error: "roll ack not an object" };
+	const a = ack as Record<string, unknown>;
+	if (a.ok !== true) {
+		const why = typeof a.error === "string" ? a.error : "no positive ok flag";
+		return { ok: false, error: `roll ack not positive: ${why}` };
+	}
+	const c = a.counts as Record<string, unknown> | undefined;
+	if (!c || typeof c !== "object" || Array.isArray(c))
+		return { ok: false, error: "roll ack carries no counts" };
+	let counted = 0;
+	for (const k of [
+		"merged",
+		"versions",
+		"tombstoned",
+		"stale",
+		"dupes",
+	] as const) {
+		if (!isNum(c[k]))
+			return { ok: false, error: `roll ack ${k} counter not numeric` };
+		counted += c[k];
+	}
+	if (counted > batch.sentClaims)
+		return {
+			ok: false,
+			error: `roll ack accounts for ${counted} of ${batch.sentClaims} sent claims`,
+		};
+	return { ok: true, error: null };
+}
+
 // ─── W1213: the upward claim roll (credential-free transport) ───────────────
 
 export interface RollOutcome {
@@ -457,7 +559,8 @@ export interface RollOutcome {
 
 /** One roll push: POST {rollUrl}/roll with the machine-scoped TTL key —
  *  the hub resolves provenance FROM the key, so the payload carries no
- *  identity at all. */
+ *  identity at all. W1213.2.1: a 2xx status alone is not acceptance — only
+ *  an explicit, validated, batch-matched positive ack advances the cursor. */
 export async function postRoll(
 	target: SyncTarget,
 	claims: RollEntry[],
@@ -478,6 +581,12 @@ export async function postRoll(
 			body: JSON.stringify({ claims }),
 		});
 		if (!res.ok) return { ...base, ok: false, error: `HTTP ${res.status}` };
+		// W1213.2.1: the roll seam gets the same ack validation as ingest —
+		// a hub rejection delivered as HTTP 200 {ok:false} must retain the
+		// cursor, never stamp it.
+		const ack = validateRollAck(await res.text(), { sentClaims: sent });
+		if (!ack.ok)
+			return { ...base, ok: false, error: ack.error ?? "roll ack rejected" };
 		return { ...base, ok: true, error: null };
 	} catch (e) {
 		return {
@@ -515,6 +624,14 @@ export async function postTarget(
 			body: JSON.stringify(payload),
 		});
 		if (!res.ok) return { ...base, ok: false, error: `HTTP ${res.status}` };
+		// W1213.2: a 2xx status alone is not acceptance — only an explicit,
+		// validated, batch-matched positive ack advances the cursor.
+		const ack = validateIngestAck(await res.text(), {
+			sentFacts,
+			sentMetrics,
+		});
+		if (!ack.ok)
+			return { ...base, ok: false, error: ack.error ?? "ingest ack rejected" };
 		return { ...base, ok: true, error: null };
 	} catch (e) {
 		return {

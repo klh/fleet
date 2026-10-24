@@ -100,6 +100,13 @@ row; the fleet plane stays the cross-machine aggregation.
   SUSPENDERS_ROLL_KEYS_FILE relocates). Provenance resolves FROM the key —
   the payload carries no machine identity. The install write token stays a
   valid OPERATOR push path (machine then rides `body.machine`).
+- Ack contract (W1213.2.1): a 2xx status alone is not acceptance — the
+  claims cursor advances only on an explicit, validated positive ack
+  matched to the batch (`ok:true` + counters accounting for at most the
+  sent set; the idempotent tombstone re-push counts nothing, so exact-sum
+  would wedge the cursor). Rejections delivered as HTTP 200 `{ok:false}`,
+  malformed bodies, or counter overshoot retain the cursor; the hub side is
+  idempotent, so the retry re-sends without dupes.
 - Aggregate (hub): `aggregateClaims` lands in `knowledge_claims`
   (knowledge.db, self-healing CREATE) under ONE BEGIN IMMEDIATE per roll.
   Same hash → provenance merge (counts stay per-machine; re-push = dupe).

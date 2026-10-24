@@ -20,7 +20,9 @@ import {
 import {
 	SYNCABLE_FACT,
 	collectFacts,
+	readSyncState,
 	syncOnce,
+	type SyncOnceResult,
 	type SyncState,
 } from "../hooks/lib/knowledge-sync.ts";
 import {
@@ -320,7 +322,17 @@ test("e2e: syncOnce posts decant metrics + facts to a local receiver", async () 
 		port: 0,
 		fetch: async (req) => {
 			captured = await req.text();
-			return Response.json({ ok: true });
+			// W1213.2: the receiver acks like the real hub — explicit ok:true
+			// plus counters matched to the batch it just landed.
+			const p = JSON.parse(captured) as {
+				facts: unknown[];
+				metrics: Record<string, unknown[]>;
+			};
+			const rows = Object.values(p.metrics).reduce(
+				(n, rows) => n + rows.length,
+				0,
+			);
+			return Response.json(JSON.parse(ingestAck(p.facts.length, rows)));
 		},
 	});
 	const tokenPath = join(dir, "hub.token");
@@ -396,3 +408,193 @@ test("landKnowledgeIngest: out-of-vocabulary keys rejected, bad payloads 400-sha
 	});
 	expect(badHub.ok).toBe(false);
 });
+
+// ─── W1213.2: the cursor advances only on an explicit, validated,
+// batch-matched positive ack (real-HTTP receiver cases below). ──────────────
+
+/** The ack body the real hub returns for a landed batch, stringified. */
+const ingestAck = (
+	facts: number,
+	metrics: number,
+	over: Partial<{
+		ok: unknown;
+		error: string;
+		landed: number;
+		dupes: number;
+		rejected: number;
+	}> = {},
+): string =>
+	JSON.stringify(
+		over.ok !== undefined || over.error !== undefined
+			? { ok: over.ok ?? false, error: over.error ?? null }
+			: {
+					ok: true,
+					counts: {
+						facts: {
+							landed: over.landed ?? facts,
+							dupes: over.dupes ?? 0,
+							rejected: over.rejected ?? 0,
+						},
+						metrics,
+					},
+				},
+	);
+
+// ─── W1213.2 real-HTTP receiver cases: only a validated, batch-matched
+// positive ack advances the cursor — every other 200 keeps it for retry. ────
+
+/** The one-fact facts db the sync pass collects from. */
+const ackFixtureDb = (dir: string): string => {
+	const dbPath = join(dir, "governor.db");
+	const db = new Database(dbPath);
+	db.run(
+		"CREATE TABLE facts (key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER NOT NULL, ts INTEGER NOT NULL)",
+	);
+	db.run(
+		"INSERT INTO facts (key, value, source, version, ts) VALUES ('lesson.e2e', 'cursor only moves on a validated batch-matched ack', 'lane', 1, 1)",
+	);
+	db.close();
+	return dbPath;
+};
+
+/** The REAL loopback receiver: parses each landed batch, records the fact
+ *  keys+versions it received, and answers with the ack body the test set. */
+const ackReceiver = (): {
+	received: { key: string; version: number }[][];
+	setAck: (body: (sentFacts: number, sentMetrics: number) => string) => void;
+	stop: () => void;
+	url: string;
+} => {
+	const received: { key: string; version: number }[][] = [];
+	let ackBody: (sentFacts: number, sentMetrics: number) => string = (f, m) =>
+		ingestAck(f, m);
+	const server = Bun.serve({
+		port: 0,
+		fetch: async (req) => {
+			const p = (await req.json()) as {
+				facts: { key: string; version: number }[];
+			};
+			received.push(p.facts.map((f) => ({ key: f.key, version: f.version })));
+			return new Response(ackBody(p.facts.length, 0), {
+				headers: { "content-type": "application/json" },
+			});
+		},
+	});
+	return {
+		received,
+		setAck: (body) => {
+			ackBody = body;
+		},
+		stop: () => server.stop(true),
+		url: `http://127.0.0.1:${server.port}`,
+	};
+};
+
+/** The 0600 sync config: one loopback target, facts-only policy (no decant
+ *  spawn — the bare "decant" name passes validation and is never run). */
+const ackFixtureConfig = (url: string, dir: string): { cfgPath: string } => {
+	const tokenPath = join(dir, "hub.token");
+	writeFileSync(tokenPath, "e2e-token", { mode: 0o600 });
+	const cfgPath = join(dir, "knowledge-sync.json");
+	writeFileSync(
+		cfgPath,
+		JSON.stringify({
+			localHub: "w12132-devbox",
+			targets: [{ url, writeTokenFile: tokenPath }],
+			policy: { facts: true, metrics: false, metricsSessions: false },
+			decantBin: "decant",
+		}),
+		{ mode: 0o600 },
+	);
+	return { cfgPath };
+};
+
+/** One sync fixture riding the real receiver: fixture home + facts db +
+ *  0600 config, with a closer that stops the server and removes the dir. */
+const ackSyncHarness = (): {
+	received: { key: string; version: number }[][];
+	setAck: (body: (sentFacts: number, sentMetrics: number) => string) => void;
+	cfgPath: string;
+	statePath: string;
+	dbPath: string;
+	close: () => void;
+} => {
+	const dir = mkdtempSync(join(tmpdir(), "w12132-ack-"));
+	const rx = ackReceiver();
+	const { cfgPath } = ackFixtureConfig(rx.url, dir);
+	const dbPath = ackFixtureDb(dir);
+	return {
+		received: rx.received,
+		setAck: rx.setAck,
+		cfgPath,
+		statePath: join(dir, "state.json"),
+		dbPath,
+		close: () => {
+			rx.stop();
+			rmSync(dir, { recursive: true, force: true });
+		},
+	};
+};
+
+const ackPass = (
+	h: ReturnType<typeof ackSyncHarness>,
+): Promise<SyncOnceResult> =>
+	syncOnce({ configPath: h.cfgPath, statePath: h.statePath, dbPath: h.dbPath });
+
+test("syncOnce: 200 {ok:false} rejection retains the cursor; retry re-sends the same batch then stamps", async () => {
+	const h = ackSyncHarness();
+	h.setAck((f, m) =>
+		ingestAck(f, m, { ok: false, error: "confidence 99 invalid" }),
+	);
+	const r1 = await ackPass(h);
+	expect(r1.outcomes[0]?.ok).toBe(false);
+	expect(r1.outcomes[0]?.error).toContain("confidence 99 invalid");
+	// a rejection is a non-ack: the cursor stays where it was
+	expect(readSyncState(h.statePath).facts["lesson.e2e"]).toBeUndefined();
+	// flip to a matched ack: the SAME batch re-sends, then the cursor stamps
+	h.setAck((f, m) => ingestAck(f, m));
+	const r2 = await ackPass(h);
+	expect(r2.outcomes[0]?.ok).toBe(true);
+	expect(h.received.length).toBe(2);
+	expect(h.received[0]).toEqual(h.received[1]);
+	expect(readSyncState(h.statePath).facts["lesson.e2e"]).toBe(1);
+	h.close();
+}, 30_000);
+
+test("syncOnce: malformed 200 body retains the cursor", async () => {
+	const h = ackSyncHarness();
+	h.setAck(() => "not-json{{");
+	const r = await ackPass(h);
+	expect(r.outcomes[0]?.ok).toBe(false);
+	expect(r.outcomes[0]?.error).toBe("ingest ack unparseable");
+	expect(readSyncState(h.statePath).facts["lesson.e2e"]).toBeUndefined();
+	h.close();
+}, 30_000);
+
+test("syncOnce: counters not matching the batch retain the cursor", async () => {
+	const h = ackSyncHarness();
+	// under-count: the ack accounts for 0 of the 1 sent fact
+	h.setAck((f, m) => ingestAck(f, m, { landed: 0, dupes: 0, rejected: 0 }));
+	const r1 = await ackPass(h);
+	expect(r1.outcomes[0]?.ok).toBe(false);
+	expect(r1.outcomes[0]?.error).toBe(
+		"ingest ack accounts for 0 of 1 sent facts",
+	);
+	// exact accounting but one row rejected is still a non-ack
+	h.setAck((f, m) => ingestAck(f, m, { landed: 0, dupes: 0, rejected: 1 }));
+	const r2 = await ackPass(h);
+	expect(r2.outcomes[0]?.ok).toBe(false);
+	expect(r2.outcomes[0]?.error).toBe("ingest ack rejects 1 fact(s)");
+	expect(readSyncState(h.statePath).facts["lesson.e2e"]).toBeUndefined();
+	h.close();
+}, 30_000);
+
+test("syncOnce: bare 200 {ok:true} without counters retains the cursor", async () => {
+	const h = ackSyncHarness();
+	h.setAck(() => ingestAck(1, 0, { ok: true }));
+	const r = await ackPass(h);
+	expect(r.outcomes[0]?.ok).toBe(false);
+	expect(r.outcomes[0]?.error).toBe("ingest ack carries no counters");
+	expect(readSyncState(h.statePath).facts["lesson.e2e"]).toBeUndefined();
+	h.close();
+}, 30_000);
