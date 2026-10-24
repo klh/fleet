@@ -34,6 +34,9 @@ gateway:
   # provider_concurrency_error_codes with the same bounded code list, without
   # creating another account queue. Known occupancy pressure then does not
   # bench a healthy deployment; real provider Retry-After remains unchanged.
+  # W1267: Z.ai 1302/1305 are GENERIC rate/overload codes — never declare
+  # them account occupancy; declared-account codes are balance/entitlement
+  # classes (e.g. 1113/1311) and stay typed errors, never pacing.
   num_retries: 1
   allowed_fails: 3
   cooldown_time: 30
