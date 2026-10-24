@@ -2,45 +2,18 @@
 // (add --tag validation, show render, split inheritance) against a temp
 // project — same harness shape as work-effort.test.ts.
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 import { mergeTags, splitTags, validateTags } from "../hooks/lib/work-tags.ts";
 
-const HOME = mkdtempSync(join(tmpdir(), "claude-work-tags-home-"));
-const gitInit = (dir: string): void => {
-	mkdirSync(dir, { recursive: true });
-	const r = Bun.spawnSync(["git", "init", "-q", dir], {
-		stdout: "ignore",
-		stderr: "ignore",
-	});
-	if (r.exitCode !== 0) throw new Error(`git init failed in ${dir}`);
-};
-const REPO = mkdtempSync(join(tmpdir(), "work-tags-repo-"));
-gitInit(REPO);
-const env = { ...process.env, HOME };
-const BIN = join(import.meta.dir, "..", "hooks", "bin");
-
-const work = (...args: string[]): { out: string; err: string; code: number | null } => {
-	const p = Bun.spawnSync(["bun", join(BIN, "work.ts"), ...args], {
-		cwd: REPO,
-		env,
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	return {
-		out: `${p.stdout ?? ""}`,
-		err: `${p.stderr ?? ""}`,
-		code: p.exitCode,
-	};
-};
+const f = cliFixture("work-tags");
+const REPO = f.REPO;
+const work = (...args: string[]) => f.run("work.ts", args);
 const tagsLine = (out: string): string | undefined =>
 	/^ {2}tags: (.+)$/m.exec(out)?.[1];
 
-afterAll(() => {
-	rmSync(HOME, { recursive: true, force: true });
-	rmSync(REPO, { recursive: true, force: true });
-});
+afterAll(f.cleanup);
 
 describe("work-tags lib", () => {
 	test("splitTags trims and drops empties", () => {
