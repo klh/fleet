@@ -40,8 +40,10 @@ import { REG } from "./govdb-util.ts";
 
 // ─── claim identity ─────────────────────────────────────────────────────────
 
-/** The machine facts namespace the roll collects (W1212's claim keys). */
-export const CLAIM_FACT = /^claim\./;
+/** The machine facts namespaces the roll collects: the W1213 `claim.*` rows
+ *  AND the W1212 daily's `decant.claim.*` rows (W1220 bridged the daily's
+ *  CAS'd claims onto the same upward transport). */
+export const CLAIM_FACT = /^(?:decant\.)?claim\./;
 
 /** The scoped TTL key header (both transport faces — api validation and
  *  the spoke push — import the ONE name). */
@@ -129,7 +131,10 @@ export interface RollEntry {
  *  Returns null when the row is not a well-formed claim (caller skips). */
 export function parseClaimRow(key: string, value: string): RollEntry | null {
 	if (!CLAIM_FACT.test(key)) return null;
-	const evidenceId = key.slice("claim.".length).trim();
+	// W1220: both collected namespaces strip their own prefix — the evidence
+	// id is the key's suffix past `claim.` (or `decant.claim.`).
+	const prefix = key.startsWith("decant.claim.") ? "decant.claim." : "claim.";
+	const evidenceId = key.slice(prefix.length).trim();
 	if (!evidenceId || evidenceId.length > MAX_EVIDENCE_ID) return null;
 	const text = typeof value === "string" ? value : "";
 	if (!text.trim()) return null;
@@ -630,6 +635,24 @@ export interface CollectedClaims {
 	cursor: Record<string, number>;
 }
 
+/** The W1220 collector's stamp lift: the daily's retraction verdict and its
+ *  real evidence id ride the confidence_stamp (the value text is unchanged
+ *  and the key is content-addressed), so the collector re-reads them here. */
+function readStamp(
+	stamp: string | null,
+): { verdict?: string; evidence?: string } | null {
+	if (!stamp) return null;
+	try {
+		const j = JSON.parse(stamp) as { verdict?: unknown; evidence?: unknown };
+		return {
+			...(typeof j.verdict === "string" ? { verdict: j.verdict } : {}),
+			...(typeof j.evidence === "string" ? { evidence: j.evidence } : {}),
+		};
+	} catch {
+		return null;
+	}
+}
+
 /** The claim pass: facts rows in the claim.* namespace → roll entries.
  *  Same verification chain as the W944 facts pass — redactSecrets with a
  *  REJECT posture (stricter than local ingest), version-delta against the
@@ -656,7 +679,7 @@ export function collectClaims(
 	if (db) {
 		const rows = db
 			.query(
-				"SELECT key, value, version, ts, confidence FROM facts WHERE key LIKE 'claim.%' ORDER BY key",
+				"SELECT key, value, version, ts, confidence, confidence_stamp FROM facts WHERE key LIKE 'claim.%' OR key LIKE 'decant.claim.%' ORDER BY key",
 			)
 			.all() as {
 			key: string;
@@ -664,6 +687,7 @@ export function collectClaims(
 			version: number;
 			ts: number;
 			confidence: number | null;
+			confidence_stamp: string | null;
 		}[];
 		for (const r of rows) {
 			if (!r.value) continue;
@@ -673,6 +697,16 @@ export function collectClaims(
 				skipped.push(`${r.key}: not a well-formed claim row`);
 				continue;
 			}
+			// W1220: the daily's retraction rides the confidence_stamp verdict
+			// (the value text is unchanged), so the collector lifts it from the
+			// stamp — a retracted row rolls as a W1213.3 tombstone event, never
+			// as a live re-assertion (a delete must not leave a sink zombie).
+			const stamp = readStamp(r.confidence_stamp);
+			if (!e.tombstone && stamp?.verdict === "retracted") e.tombstone = true;
+			// the daily's key is content-addressed (decant.claim.<hash>) — the
+			// real evidence id rides the stamp; lift it when present so the
+			// sink-side aggregation keys on the evidence, not the local hash.
+			if (stamp?.evidence) e.evidenceId = stamp.evidence;
 			const red = redactSecrets(e.claim);
 			if (red.rejected || red.hits.length > 0) {
 				skipped.push(`${r.key}: secret pattern (${red.hits.join(", ")})`);

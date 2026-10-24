@@ -38,6 +38,7 @@ import {
 	type SessionMetrics,
 } from "./knowledge-sync-policy.ts";
 import { runDecant } from "./knowledge-sync.ts";
+import { pushDailyRoll, type DailyRollResult } from "./decant-roll.ts";
 
 // ─── the claim stamp + key ──────────────────────────────────────────────────
 
@@ -320,6 +321,11 @@ export interface DailyRunOpts {
 	/** max fact children per run — bounds the fan-out. */
 	limit?: number;
 	dryRun?: boolean;
+	/** W1220: fire the upward roll post-pass after the local writes (the
+	 *  bin turns it on; callers without it stay local-only — tests and the
+	 *  lib default never touch the network). The object form pins the roll
+	 *  pass's config/state paths (tests); true uses the machine defaults. */
+	roll?: boolean | { configPath?: string; statePath?: string };
 	now?: () => number;
 	spawn?: FactSpawn;
 }
@@ -335,6 +341,10 @@ export interface DailyRunResult {
 	planned: string[];
 	skipped: string[];
 	errors: string[];
+	/** W1220: the upward roll post-pass outcome — present only when the
+	 *  pass was requested (opts.roll) and not a dry run. Its errors NEVER
+	 *  touch `ok` (the exit code stays the LOCAL result only). */
+	roll?: DailyRollResult;
 }
 
 export const DAILY_LIMIT = 200;
@@ -545,8 +555,12 @@ function applyDaily(
 }
 
 /** One daily pass: cursor → window → collect → decide → children → stamp.
- *  Cursor advances only on a clean pass (failure re-collects, CAS-idempotent). */
-export function runDaily(opts: DailyRunOpts = {}): DailyRunResult {
+ *  Cursor advances only on a clean pass (failure re-collects, CAS-idempotent).
+ *  W1220: with opts.roll the upward roll post-pass rides AFTER the local
+ *  writes — fail-open, its errors never touch the local result's ok. */
+export async function runDaily(
+	opts: DailyRunOpts = {},
+): Promise<DailyRunResult> {
 	const nowMs = (opts.now ?? Date.now)();
 	const statePath = opts.statePath ?? decantDailyStatePath();
 	const state = readState(statePath);
@@ -576,6 +590,13 @@ export function runDaily(opts: DailyRunOpts = {}): DailyRunResult {
 	for (const w of decision.writes) r.planned.push(`${w.mode}:${w.claim.key}`);
 	for (const t of decision.tombstones) r.planned.push(`tombstone:${t.key}`);
 	applyDaily(state, statePath, decision, r, opts, nowMs, collected.workOk);
+	// W1220 dual-write: the LOCAL result is already banked (applyDaily); the
+	// upward roll rides after it — a sink outage lands in r.roll.errors and
+	// the next daily run retries; the local ok/exit never moves.
+	if (opts.roll && !opts.dryRun) {
+		const roll = typeof opts.roll === "object" ? opts.roll : {};
+		r.roll = await pushDailyRoll({ dbPath: opts.dbPath, ...roll });
+	}
 	r.ok = r.errors.length === 0;
 	return r;
 }

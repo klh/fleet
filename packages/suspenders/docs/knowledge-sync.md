@@ -118,6 +118,14 @@ row; the fleet plane stays the cross-machine aggregation.
 - Read: GET `/roll` on the knowledge-api and GET `/api/knowledge-roll` on
   the board — confidence-ranked, per-machine provenance counts, tenants
   roll-up, tombstoned rows hidden by default.
+- Daily dual-write (W1220): the W1212 decant daily rides a post-pass
+  (hooks/lib/decant-roll.ts) that rolls the same claims upward after its
+  LOCAL writes land — the lifecycle law (docs/knowledge-lifecycle.md, W1220
+  clause) holds: local primary + fail-open (an outage logs in the roll
+  result and retries next daily run; the daily's exit stays the LOCAL
+  result), idempotent (the shared state.claims cursor stamps on full ack —
+  whoever acks first wins, so the 30-min syncOnce and the daily never
+  double-push), retraction crosses as a tombstone (no sink zombie).
 
 ## Operations
 
