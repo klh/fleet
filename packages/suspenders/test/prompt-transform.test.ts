@@ -167,6 +167,127 @@ describe("enhance through the gate (W1119)", () => {
 		expect(r.ok).toBe(false);
 		expect(r.text).toBe("add csv");
 	});
+	test("HTTP error and empty text degrade", async () => {
+		const boom = await enhancePrompt("add csv", {
+			env: GATE_ENV,
+			fetcher: (async () =>
+				new Response('{"error":"boom"}', { status: 500 })) as unknown as typeof fetch,
+		});
+		expect(boom.ok).toBe(false);
+		expect(boom.note).toContain("HTTP 500");
+		const blank = await enhancePrompt("add csv", {
+			env: GATE_ENV,
+			fetcher: (async () =>
+				Response.json({
+					content: [{ type: "text", text: "" }],
+				})) as unknown as typeof fetch,
+		});
+		expect(blank.ok).toBe(false);
+		expect(blank.text).toBe("add csv");
+	});
+	test("W422.17.3: gate refusal degrades honestly, never invents text", async () => {
+		const r = await enhancePrompt("add csv", {
+			env: GATE_ENV,
+			fetcher: (async () =>
+				new Response('{"error":"denied"}', { status: 403 })) as unknown as typeof fetch,
+		});
+		expect(r.ok).toBe(false);
+		expect(r.text).toBe("add csv");
+		expect(r.note).toContain("HTTP 403");
+	});
+	test("W422.17.3: key rides both wire forms; keyless sends no credential", async () => {
+		let auth: string | null = null;
+		const keyed = await enhancePrompt("add csv", {
+			env: GATE_ENV,
+			fetcher: (async (_input: unknown, init?: RequestInit) => {
+				auth = new Headers(init?.headers).get("authorization");
+				return Response.json({
+					content: [{ type: "text", text: "Add CSV export." }],
+				});
+			}) as unknown as typeof fetch,
+		});
+		expect(keyed.ok).toBe(true);
+		expect(auth).toBe("Bearer bksk_pt_test");
+		const keyless = await enhancePrompt("add csv", {
+			env: { SUSPENDERS_BUCKLE_URL: "http://127.0.0.1:4101" },
+			fetcher: (async () => {
+				throw new Error("must never fetch");
+			}) as unknown as typeof fetch,
+		});
+		expect(keyless.ok).toBe(false);
+		expect(keyless.text).toBe("add csv");
+	});
+	test("posts system+user messages, parses choices[].message", async () => {
+		let body = "";
+		const r = await enhancePrompt("add csv", {
+			env: GATE_ENV,
+			fetcher: (async (_input: unknown, init?: RequestInit) => {
+				body = String(init?.body ?? "");
+				return Response.json({
+					content: [{ type: "text", text: "Add CSV export." }],
+				});
+			}) as unknown as typeof fetch,
+		});
+		expect(r.ok).toBe(true);
+		expect(r.text).toBe("Add CSV export.");
+		const wire = JSON.parse(body) as {
+			system?: string;
+			messages?: { role: string; content: unknown }[];
+		};
+		expect(typeof wire.system).toBe("string");
+		expect(wire.messages?.some((m) => m.role === "user")).toBe(true);
+	});
+	test("same degrade notes as the anthropic wire", async () => {
+		const noteFor = async (status: number) =>
+			(
+				await enhancePrompt("add csv", {
+					env: GATE_ENV,
+					fetcher: (async () =>
+						new Response('{"error":"x"}', {
+							status,
+						})) as unknown as typeof fetch,
+				})
+			).note ?? "";
+		const n401 = await noteFor(401);
+		const n500 = await noteFor(503);
+		expect(n401.split("HTTP")[0]).toBe(n500.split("HTTP")[0]);
+		expect(n401).toContain("HTTP 401");
+		expect(n500).toContain("HTTP 503");
+	});
+	test("model pin → gateway with the pinned id", async () => {
+		let pinned = "";
+		const r = await enhancePrompt("add csv", {
+			model: "glm-5.3-flash",
+			env: GATE_ENV,
+			fetcher: (async (_input: unknown, init?: RequestInit) => {
+				pinned = String(
+					(JSON.parse(String(init?.body ?? "{}")) as { model?: string })
+						.model ?? "",
+				);
+				return Response.json({
+					content: [{ type: "text", text: "Add CSV export." }],
+				});
+			}) as unknown as typeof fetch,
+		});
+		expect(r.ok).toBe(true);
+		expect(r.model).toBe("glm-5.3-flash");
+		expect(pinned).toBe("glm-5.3-flash");
+	});
+	test("url pin → gateway on the pin, alias id", async () => {
+		let url = "";
+		const r = await enhancePrompt("add csv", {
+			env: { ...GATE_ENV, SUSPENDERS_BUCKLE_URL: "http://127.0.0.1:4321" },
+			fetcher: (async (input: unknown) => {
+				url = String(input);
+				return Response.json({
+					content: [{ type: "text", text: "Add CSV export." }],
+				});
+			}) as unknown as typeof fetch,
+		});
+		expect(url).toBe("http://127.0.0.1:4321/v1/messages");
+		expect(r.ok).toBe(true);
+		expect(r.model).toBe(ENHANCE_MODEL);
+	});
 });
 
 describe("enhance target resolution (W1119)", () => {
