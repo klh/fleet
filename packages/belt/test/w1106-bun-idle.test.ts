@@ -106,28 +106,6 @@ function spawnProxyAsMain(
 	});
 }
 
-/** The quiet-turn probe: chat through the child proxy, read chunk one,
- *  hold silent past Bun's 10s idle default, receive chunk two. */
-async function probeQuietTurn(proxyPort: number, secondAt: () => number): Promise<void> {
-	const res = await fetch(
-		`http://127.0.0.1:${proxyPort}/v1/chat/completions`,
-		{
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ model: "m", stream: true }),
-		},
-	);
-	expect(res.status).toBe(200);
-	const reader = res.body?.getReader();
-	expect(reader).toBeDefined();
-	const first = await reader?.read();
-	expect(first?.done).toBe(false);
-	// the quiet window: no reads, no writes — 11s of silence
-	const second = await reader?.read();
-	expect(second?.done).toBe(false);
-	expect(secondAt()).toBeGreaterThan(0);
-}
-
 describe("W1106 Bun idle law on active inference hops", () => {
 	test("buckle arms idleTimeout 0 for real and serves health on :0", async () => {
 		const home = mkdtempSync(join(tmpdir(), "buckle-idle-"));
@@ -169,7 +147,7 @@ describe("W1106 Bun idle law on active inference hops", () => {
 		expect(String(mcpServeOpts?.hostname)).toBe("127.0.0.1");
 	});
 
-	test("mcp-server's captured handler answers a real Bun.serve socket", async () => {
+	test("the mcp-server handler answers a real Bun.serve socket", async () => {
 		const host = realServe({
 			hostname: "127.0.0.1",
 			port: 0,
@@ -188,9 +166,7 @@ describe("W1106 Bun idle law on active inference hops", () => {
 		}
 	});
 
-	test(
-		"model-proxy as MAIN: a quiet SSE turn past Bun's 10s default survives",
-		async () => {
+	test("model-proxy as MAIN survives a quiet SSE turn past the idle default", async () => {
 			const home = mkdtempSync(join(tmpdir(), "belt-model-proxy-"));
 			const upstream = quietSseUpstream();
 			const proxyPort = 21109 + (process.pid % 512);
@@ -207,7 +183,28 @@ describe("W1106 Bun idle law on active inference hops", () => {
 					const err = await new Response(child.stderr).text();
 					throw new Error(`model-proxy child never came up: ${err}`);
 				}
-				await probeQuietTurn(proxyPort, upstream.secondAt);
+				// quiet-turn probe, inline: chat through the child proxy, read
+				// chunk one, hold silent past Bun's 10s idle default, get chunk 2
+				const res = await fetch(
+					`http://127.0.0.1:${proxyPort}/v1/chat/completions`,
+					{
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({ model: "m", stream: true }),
+					},
+				);
+				expect(res.status).toBe(200);
+				expect(res.headers.get("content-type")).toContain(
+					"text/event-stream",
+				);
+				const reader = res.body?.getReader();
+				expect(reader).toBeDefined();
+				const first = await reader?.read();
+				expect(first?.done).toBe(false);
+				// the quiet window: no reads, no writes — 11s of silence
+				const second = await reader?.read();
+				expect(second?.done).toBe(false);
+				expect(upstream.secondAt()).toBeGreaterThan(0);
 			} finally {
 				child.kill();
 				await child.exited;

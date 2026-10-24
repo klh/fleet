@@ -154,9 +154,18 @@ export const targetStateLabel = () => "";`,
 		windowMs: number;
 	}
 
+	/** The captured belt-trends class, structural for the draw() probe. */
+	interface TrendCtor {
+		open: boolean;
+		hist: Hist;
+		querySelector(sel: string): unknown;
+		querySelectorAll(sel: string): Array<unknown>;
+		draw(uPlotCtor: unknown): void;
+	}
+
 	const NOTE = "Average latency spans measured samples only";
 
-	test("note explains measured-only averaging on a failure-only window", () => {
+	test("note explains measured-only averaging", () => {
 		// legacy zero-duration failure rows: requests/errors carry no sample
 		const text = renderTrends([
 			bucket(1800, 3, 3),
@@ -169,7 +178,25 @@ export const targetStateLabel = () => "";`,
 		);
 	});
 
-	test("empty state gates on measured > 0, never a 0 ms average", () => {
+	test("latency series is labelled measured and rides avg_ms null", () => {
+		// one measured bucket beside a failure-only one: the sparse table's
+		// Avg column reads its avg_ms value or "—", never a fabricated 0 ms
+		// average, and the chart (≥12 routes) mounts on the measured series
+		const sparse = renderTrends([
+			bucket(1800, 3, 3),
+			bucket(3600, 4, 4, 120, 4),
+		]);
+		expect(sparse).toContain("<td>120 ms</td>");
+		expect(sparse).toContain("<td>—</td>");
+		expect(sparse).not.toContain("<td>0 ms</td>");
+		const busy = renderTrends([
+			bucket(1800, 6, 6),
+			bucket(3600, 6, 6, 120, 6),
+		]);
+		expect(busy).toContain("bt-latency");
+	});
+
+	test("empty state when the window has no measured points", () => {
 		// 12 total requests across the window, every one a failure without a
 		// duration — the latency chart is replaced by the empty state
 		const empty = renderTrends([
@@ -187,18 +214,63 @@ export const targetStateLabel = () => "";`,
 		expect(measured).toContain("bt-latency");
 	});
 
+	test("tooltip carries measured/requests coverage", () => {
+		// draw() against stub elements (no ResizeObserver in bun:test, so
+		// chart() never touches the DOM): the REAL latency setCursor hook runs
+		// against a fake cursor — coverage "n/m measured", no 0 ms for null
+		const ctor = defined.get("belt-trends") as new () => TrendCtor;
+		const inst = new ctor();
+		inst.open = true;
+		inst.hist = hist([bucket(1800, 4, 4), bucket(3600, 4, 4, 120, 4)]);
+		const hover = { textContent: "", style: {}, offsetWidth: 0 };
+		const els: Record<string, unknown> = {
+			".bt-trend": { clientWidth: 640 },
+			".bt-latency": { clientWidth: 640 },
+			".bt-latency-hover": hover,
+		};
+		inst.querySelector = (sel) => els[sel];
+		inst.querySelectorAll = () => [];
+		const opts: unknown[] = [];
+		const g = globalThis as unknown as { uPlot?: unknown };
+		g.uPlot = class {
+			constructor(o: unknown) {
+				opts.push(o);
+			}
+		};
+		try {
+			inst.draw(g.uPlot);
+		} finally {
+			delete g.uPlot;
+		}
+		const latency = opts.find((o) =>
+			JSON.stringify(o).includes("avg ms (measured)"),
+		) as { hooks: { setCursor: Array<(plot: unknown) => void> } };
+		const hook = latency.hooks.setCursor[0];
+		hook({ cursor: { idx: 1, left: 0 } });
+		expect(hover.textContent).toContain("4/4 measured");
+		hook({ cursor: { idx: 0, left: 0 } });
+		expect(hover.textContent).toContain("no measured samples");
+		expect(hover.textContent).not.toContain("0ms avg");
+	});
+
 	test("sparse table explains the — cells", () => {
-		// total < 12 routes: the raster + table render, and a failure-only
-		// bucket's Avg response is "—", never a 0 ms readout
-		const text = renderTrends([
+		// total < 12 routes: the sparse table renders with its —-cell legend;
+		// a busy window (≥12 routes) takes the raster+chart path instead and
+		// never shows the sparse-table legend
+		const sparse = renderTrends([
 			bucket(1800, 3, 3),
 			bucket(3600, 4, 4, 120, 4),
 		]);
-		expect(text).toContain(
+		expect(sparse).toContain(
 			"Avg response “—” means no measured duration",
 		);
-		// the failure-only row renders "—"; the measured row renders its ms
-		expect(text).toContain("<td>—</td>");
-		expect(text).toContain("<td>120 ms</td>");
+		expect(sparse).toContain("<td>—</td>");
+		const busy = renderTrends([
+			bucket(1800, 6, 6),
+			bucket(3600, 6, 6, 120, 6),
+		]);
+		expect(busy).not.toContain(
+			"Avg response “—” means no measured duration",
+		);
 	});
 });

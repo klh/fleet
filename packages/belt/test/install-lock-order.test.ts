@@ -49,7 +49,7 @@ interface DryRun {
 }
 
 describe("belt installer lock order (real --dry-run)", () => {
-	test("emitted step order: lock → copy → heal → release → tier manifest", () => {
+	test("installer acquires the lock before the first copy and the heal", () => {
 		const run = dryRun();
 		expect(run.status).toBe(0);
 		const order = [
@@ -75,9 +75,12 @@ test("sandbox untouched: no copied runtime, no tier.json, no lock left", () => {
 	expect(run.status).toBe(0);
 	// the mkdtemp sandbox stays empty — the dry path never writes into it
 	expect(run.entriesAfter).toEqual([]);
+	// and the dry path completes its narration without an error word
+	expect(run.stdout).toContain("dry run — nothing was written");
+	expect(run.stderr).toBe("");
 });
 
-test("held lock refuses for real (exit 1 + owner message)", () => {
+test("installer refuses a concurrent lock owner", () => {
 	const run = dryRun([], { heldLock: true });
 	expect(run.status).toBe(1);
 	expect(run.stderr).toContain(

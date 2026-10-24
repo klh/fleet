@@ -10,7 +10,7 @@ import * as belt from "../belt/bin/spawner.ts";
 import * as kit from "./spawner.ts";
 
 describe("kit spawner is belt's lifecycle at runtime", () => {
-	test("every belt export is re-exported with belt's identity", () => {
+	test("every belt export is re-exported with belt identity", () => {
 		for (const [name, value] of Object.entries(belt)) {
 			expect((kit as Record<string, unknown>)[name]).toBe(value);
 		}
