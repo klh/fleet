@@ -539,11 +539,27 @@ async function proxy(
 		kind: principal?.kind ?? null,
 		keyName: principal?.name ?? null,
 		claimRepo: req.headers.get(REPO_CLAIM_HEADER),
+		lane: lane || null,
 		pin: pin ?? null,
 		group: model,
 	});
-	if (!verdict.ok)
+	if (!verdict.ok) {
+		// W1265.2: the refusal still audits the PROVEN binding identity —
+		// repo hash + tier + key name land on the decision row.
+		if (verdict.audit !== undefined)
+			ctx.acct = {
+				repoHash: null,
+				tier: null,
+				keyName: null,
+				pin: null,
+				allowedHosts: null,
+				deniedHosts: null,
+				allowedGroups: null,
+				claimRepo: null,
+				...verdict.audit,
+			};
 		return deny(deps, ctx, verdict.status, verdict.why, verdict.code, "denied");
+	}
 	if (verdict.acct !== undefined) ctx.acct = verdict.acct;
 	const sel = deps.decide({
 		group: model,
