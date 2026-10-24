@@ -3,15 +3,23 @@
 // implies READ_ (same resource); READ_ implies nothing. Root principals
 // get the explicit full list — no wildcard magic, inspectable strings only.
 
-export const SCOPE_RE = /^buckle:[a-z_]+:(READ_|WRITE_)$/;
+export const SCOPE_RE = /^buckle:[a-z_]+:(READ_|WRITE_|QUERY_)$/;
 
-export type BuckleResource = "proxy" | "admin" | "spoke" | "store";
+export type BuckleResource =
+	| "proxy"
+	| "admin"
+	| "spoke"
+	| "store"
+	| "knowledge";
 
 /** All concrete scopes; root = this exact list, no wildcards.
  *  W154 adds the spoke pair: federation pull surfaces (policy manifest,
  *  entitlements) and CR delivery confirmation read/write as a spoke.
  *  W764 adds the store pair: hub model-store pulls (READ_ = the dev-pull
- *  scope minted per dev device/lane; WRITE_ = hub-side sync verbs). */
+ *  scope minted per dev device/lane; WRITE_ = hub-side sync verbs).
+ *  W1218 adds the knowledge pair: READ_ = the /knowledge/sql direct
+ *  read-only face; QUERY_ = the /knowledge/query NL translator face
+ *  (implies nothing — a query key burns LLM tokens, minted deliberately). */
 export const ALL_SCOPES: readonly string[] = [
 	"buckle:proxy:READ_",
 	"buckle:proxy:WRITE_",
@@ -21,6 +29,8 @@ export const ALL_SCOPES: readonly string[] = [
 	"buckle:spoke:WRITE_",
 	"buckle:store:READ_",
 	"buckle:store:WRITE_",
+	"buckle:knowledge:READ_",
+	"buckle:knowledge:QUERY_",
 ];
 
 /** Normalize+validate one scope string; null when not buckle-shaped. */

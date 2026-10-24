@@ -14,7 +14,16 @@ import {
 	rollKeyOk,
 	ROLL_KEY_HEADER,
 } from "../lib/knowledge-roll.ts";
-import { openKnowledgeDb } from "../lib/govdb-knowledge.ts";
+import { knowledgeDbPath, openKnowledgeDb } from "../lib/govdb-knowledge.ts";
+import {
+	answerKnowledgeQuestion,
+	executeKnowledgeSql,
+	knowledgeQueryConf,
+	KNOWLEDGE_QUERY_SCOPE,
+	KNOWLEDGE_READ_SCOPE,
+	openKnowledgeQueryDb,
+	verifyKnowledgeKey,
+} from "../lib/knowledge-query.ts";
 // knowledge-api.ts — W91 #9b: the knowledge port's HTTP face. The SAME store
 // handlers, second transport: a consumer on another machine calls
 // http://<knowledge-api>/search instead of importing the lib. Thin by design
@@ -31,6 +40,13 @@ import { openKnowledgeDb } from "../lib/govdb-knowledge.ts";
 //   POST /retire   {id, superseded_by?}
 //   POST /note     {id, sid, what}
 //   GET  /verify[/<id>]
+// W1218: POST /knowledge/query {question, limit?} — NL in, the pinned SQL
+//   LLM translates, the SAME read-only lint executes; rows + sql + elapsed.
+//   POST /knowledge/sql {sql, params?, limit?} — direct parameterized
+//   read-only SQL. BOTH faces: SELECT/WITH-only single-statement lint,
+//   LIMIT enforced/capped, allowlisted fact tables, ro connection, and
+//   buckle-verified bksk_ keys (W1141 scoping: knowledge:QUERY_ / READ_);
+//   answers carry x-klh-face (W1081 face identity).
 // W264: loopback bind by default (KNOWLEDGE_API_BIND opts in to more); the
 // mutating routes need the per-install X-KLH-Write-Token (lib/host-guard.ts).
 const store = makeStore();
@@ -102,6 +118,55 @@ if (mintIdx !== -1) {
 // two connections honest), never squeezed through the store port.
 const rollDb = openKnowledgeDb();
 
+// W1218 — the query faces ride their OWN readonly handle on the same
+// knowledge.db (mode=ro is the engine-level backstop behind the lint) and
+// boot-resolved face conf (buckle front + admin + the pinned SQL LLM).
+const kqConf = knowledgeQueryConf();
+const queryDb = openKnowledgeQueryDb(knowledgeDbPath());
+const faceHeaders = (face: string): Record<string, string> => ({
+	"x-klh-face": `knowledge/${face}`,
+});
+const knowledgeFace = (
+	req: Request,
+	path: string,
+	body: Record<string, unknown>,
+): Promise<Response> =>
+	(async () => {
+		const face = path === "/knowledge/query" ? "query" : "sql";
+		const key =
+			(req.headers.get("authorization") ?? "")
+				.replace(/^Bearer\s+/i, "")
+				.trim() || null;
+		const needed =
+			face === "query" ? KNOWLEDGE_QUERY_SCOPE : KNOWLEDGE_READ_SCOPE;
+		const v = await verifyKnowledgeKey(key, needed, kqConf);
+		if (!v.ok)
+			return Response.json(
+				{ error: v.code ?? "knowledge.auth" },
+				{ status: v.status, headers: { "x-klh-face": `knowledge/${face}` } },
+			);
+		if (face === "sql") {
+			const out = executeKnowledgeSql(queryDb, str(body.sql) ?? "", {
+				limit: body.limit,
+				params: body.params,
+			});
+			return Response.json(out, {
+				status: out.status,
+				headers: faceHeaders(face),
+			});
+		}
+		const out = await answerKnowledgeQuestion(
+			queryDb,
+			str(body.question) ?? "",
+			kqConf,
+			{ limit: body.limit },
+		);
+		return Response.json(out, {
+			status: out.status,
+			headers: faceHeaders(face),
+		});
+	})();
+
 // W125 — shared /status + /metrics (lib/servicemon.ts). No token dimension on
 // this service: search/enqueue never see usage, so tokens_total is omitted
 // honestly rather than served as fake zeros.
@@ -134,7 +199,13 @@ const base = {
 				{
 					ok: true,
 					service: "suspenders-knowledge-api",
-					routes: ["/search", ...WRITE_ROUTES, "/verify"],
+					routes: [
+						"/search",
+						...WRITE_ROUTES,
+						"/verify",
+						"/knowledge/query",
+						"/knowledge/sql",
+					],
 				},
 				{ headers },
 			);
@@ -184,6 +255,16 @@ const base = {
 			if (!landed.ok)
 				return json({ error: landed.error ?? "roll rejected" }, 422);
 			return json(landed);
+		}
+		// W1218 — the query faces: buckle-verified bearer keys, read-only
+		// execution, face identity on every answer (x-klh-face).
+		if (path === "/knowledge/query" || path === "/knowledge/sql") {
+			if (req.method !== "POST")
+				return new Response(null, {
+					status: 405,
+					headers: { allow: "POST" },
+				});
+			return knowledgeFace(req, path, body);
 		}
 		// anonymous reads get scrubbed output; the install token unlocks refs
 		const authed = tokenOk(req);

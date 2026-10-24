@@ -237,6 +237,11 @@ export function migrateKnowledgeLayer(db: Database, uv: number): void {
 // shape — under contention the connection waits instead of throwing);
 // page_size is baked at file creation, so 8192 rides every open (decisive
 // on the first, a silent no-op once the file has pages).
+/** W1218: the knowledge.db path as the query faces resolve it — the same
+ *  home REG() the sink writes through, so a ro face handle reads what the
+ *  sink landed. */
+export const knowledgeDbPath = (): string => `${REG()}/knowledge.db`;
+
 export function openKnowledgeDb(): Database {
 	mkdirSync(REG(), { recursive: true });
 	const db = openWALDb(`${REG()}/knowledge.db`, "knowledge.db", 8192);
