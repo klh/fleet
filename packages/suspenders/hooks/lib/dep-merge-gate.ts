@@ -21,6 +21,38 @@ export type DepRow = {
 // per-run memo: one git probe per sha
 const _ancestry = new Map<string, boolean | null>();
 
+// W1206: one bounded exact-main ancestor snapshot per worktree per process —
+// `git rev-list -n <bound> main` is a single fork listing exactly main's
+// ancestors, so a hit is an EXACT positive verdict and the dispatch-startup
+// folds (executor-cv's historical replay) pay zero per-SHA forks for merged
+// shas. A miss is never a verdict: it falls through to the per-SHA probe
+// below, keeping the verified negative (the dep gate), the >1 fail-open and
+// shallow-clone behavior byte-identical; shas that land on main after the
+// snapshot simply take the probe path, so integration ref changes stay exact.
+const ANCESTRY_SNAPSHOT_BOUND = 20_000;
+const _mainAncestors = new Map<string, Set<string> | null>();
+
+const mainAncestors = (wt: string): Set<string> | null => {
+	const hit = _mainAncestors.get(wt);
+	if (hit !== undefined) return hit;
+	const r = Bun.spawnSync(
+		["git", "-C", wt, "rev-list", "-n", String(ANCESTRY_SNAPSHOT_BOUND), "main"],
+		{ stdout: "pipe", stderr: "ignore" },
+	);
+	// no main / git trouble — no snapshot; every sha keeps the per-SHA probe
+	const v =
+		r.exitCode === 0 && r.stdout
+			? new Set(
+					new TextDecoder()
+						.decode(r.stdout)
+						.split("\n")
+						.filter(Boolean),
+				)
+			: null;
+	_mainAncestors.set(wt, v);
+	return v;
+};
+
 export function projectWorktree(project: string): string | null {
 	// project is the git COMMON dir (<repo>/.git for a normal checkout) — the
 	// integration worktree lives beside it. Bare/odd layouts have none → null
@@ -32,6 +64,10 @@ export function projectWorktree(project: string): string | null {
 export function shaOnMain(sha: string, project: string): boolean | null {
 	const wt = projectWorktree(project);
 	if (!wt || !existsSync(wt)) return null; // no worktree to ask — fail-open
+	// exact positive straight off the snapshot — zero forks for merged shas
+	if (mainAncestors(wt)?.has(sha)) return true;
+	// snapshot miss (unmerged, shallow-grafted, or git trouble): the per-SHA
+	// probe keeps exit 1 = verified NOT on main and >1 = cannot know
 	const hit = _ancestry.get(sha);
 	if (hit !== undefined) return hit;
 	const r = Bun.spawnSync(
