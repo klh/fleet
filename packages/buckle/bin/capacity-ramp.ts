@@ -27,6 +27,8 @@ import http from "node:http";
 interface Args {
 	levels: number[];
 	gapMs: number;
+	/** bounded output budget per job (1..16384; owner steer 2026-10-24) */
+	maxTokens: number;
 	model: string;
 	buckle: string | null;
 	adminEnv: string;
@@ -123,10 +125,19 @@ const pathOf = (protocol: Protocol): string =>
 /** Exact request URL for one leg: RETAINS the base's pathname prefix.
  *  new URL("/v1/messages", "https://api.z.ai/api/anthropic") resolves to
  *  https://api.z.ai/v1/messages — the leading slash discards /api/anthropic
- *  and every direct Coding Plan request 404s (live 2026-10-24). */
-export const endpointOf = (base: string, protocol: Protocol): URL => {
+ *  and every direct Coding Plan request 404s (live 2026-10-24).
+ *  hop=true for buckle legs: the gate exposes /v1/chat/completions and
+ *  /v1/responses (handlers.ts), while the direct Z.ai bases already carry
+ *  their prefix (/api/coding/paas/v4, /api/v1) — bare suffix there. */
+export const endpointOf = (
+	base: string,
+	protocol: Protocol,
+	hop = false,
+): URL => {
 	const url = new URL(base);
-	url.pathname = `${url.pathname.replace(/\/$/, "")}${pathOf(protocol)}`;
+	const suffix = pathOf(protocol);
+	const path = hop && !suffix.startsWith("/v1") ? `/v1${suffix}` : suffix;
+	url.pathname = `${url.pathname.replace(/\/$/, "")}${path}`;
 	return url;
 };
 
@@ -152,12 +163,18 @@ interface Live {
 
 const errOf = (text: string): Pick<Row, "errCode" | "errType" | "errMsg"> => {
 	try {
-		const e = (JSON.parse(text) as { error?: Record<string, unknown> }).error;
-		if (e === undefined) return { errCode: null, errType: null, errMsg: null };
+		const j = JSON.parse(text) as {
+			error?: Record<string, unknown>;
+			code?: unknown;
+			type?: unknown;
+			message?: unknown;
+		};
+		// provider shape nests under error; problem+json (buckle) is top-level
+		const s: Record<string, unknown> = j.error ?? j;
 		return {
-			errCode: typeof e.code === "string" ? e.code : null,
-			errType: typeof e.type === "string" ? e.type : null,
-			errMsg: typeof e.message === "string" ? e.message.slice(0, 120) : null,
+			errCode: typeof s.code === "string" ? s.code : null,
+			errType: typeof s.type === "string" ? s.type : null,
+			errMsg: typeof s.message === "string" ? s.message.slice(0, 120) : null,
 		};
 	} catch {
 		return { errCode: null, errType: null, errMsg: null };
@@ -169,6 +186,7 @@ interface FireOpts {
 	base: string;
 	leg: string;
 	protocol: Protocol;
+	hop: boolean;
 	key: string;
 	model: string;
 	maxTokens: number;
@@ -208,18 +226,24 @@ const rowOf = (
 // A distinct bounded coding task per request; the answer must stream, carry
 // the unique MARKER-<seq> token, and reach a protocol terminal.
 const WORK_MIN_BYTES = 2_000;
+/** Sustained-output work prompt (owner steer 2026-10-24): the marker rides
+ *  the FIRST line (survives textSample truncation) and the deliverable is
+ *  explicitly exhaustive so jobs sustain minutes, not ~17s — paced ramps
+ *  must be able to hold 40-50 CONCURRENT productive streams. */
 const workPrompt = (seq: number): string =>
-	`Work item MARKER-${seq}: implement the classic programming exercise with ` +
-	`index ${seq} from the list [fizzbuzz-variant, prime-sieve, gcd-chain, ` +
-	`quicksort, bst-insert, word-frequency, roman-numerals, matrix-rotate, ` +
+	`Work item MARKER-${seq}. The very first line of your reply must be ` +
+	`exactly MARKER-${seq}. Then implement exercise index ${seq % 30} from ` +
+	`the list [fizzbuzz-variant, prime-sieve, gcd-chain, quicksort, ` +
+	`bst-insert, word-frequency, roman-numerals, matrix-rotate, ` +
 	`binary-search, anagram-group, rle-encode, caesar-cipher, hanoi-steps, ` +
 	`pig-latin, slope-validate, trie-prefix, kth-largest, dedupe-stream, ` +
 	`stock-profit, rotate-array, ip-validate, csv-parse, json-flatten, ` +
 	`lru-cache, bracket-balance, pascal-triangle, string-compress, ` +
-	`vowel-count, digit-sum, memo-fib] (use index ${seq % 30} for this ` +
-	`item). Write the implementation in TypeScript plus 3 test cases and a ` +
-	`short explanation. IMPORTANT: the literal token MARKER-${seq} must ` +
-	`appear exactly as written in your answer.`;
+	`vowel-count, digit-sum, memo-fib] exhaustively in TypeScript: full ` +
+	`implementation, 3 test cases with expected outputs, a line-by-line ` +
+	`complexity walkthrough, a table of at least 8 edge cases, and a ` +
+	`refactor discussion. Repeat the literal token MARKER-${seq} in every ` +
+	`section header. Be exhaustive and detailed; do not summarize.`;
 
 /** Parsed generation stats — counted from PARSED deltas only (owner #69067):
  *  raw SSE envelope bytes are not model output. */
@@ -230,6 +254,8 @@ interface GenStats {
 	genFirstMs: number | null;
 	genLastMs: number | null;
 	textSample: string;
+	/** reasoning sample: marker may ride reasoning when text is thin */
+	reasonSample: string;
 }
 
 /** Generated text/reasoning parsed out of one SSE data payload (#69067). */
@@ -303,6 +329,7 @@ function onResponse(
 		genFirstMs: null,
 		genLastMs: null,
 		textSample: "",
+		reasonSample: "",
 	};
 	const record = (text: string, reason: string): void => {
 		if (text.length === 0 && reason.length === 0) return;
@@ -312,6 +339,7 @@ function onResponse(
 		stats.textBytes += Buffer.byteLength(text);
 		stats.reasonBytes += Buffer.byteLength(reason);
 		if (stats.textSample.length < 16_384) stats.textSample += text;
+		if (stats.reasonSample.length < 16_384) stats.reasonSample += reason;
 		const sec = Math.floor(now / 1000);
 		const set = opts.live.deltaSecs.get(sec) ?? new Set<number>();
 		set.add(opts.seq);
@@ -363,24 +391,31 @@ function rowFor(
 	text: string,
 	stats: {
 		nChunks: number;
-		bytes: number;
+		textBytes: number;
+		reasonBytes: number;
 		genFirstMs: number | null;
 		genLastMs: number | null;
+		textSample: string;
+		reasonSample: string;
 	},
 ): Row {
+	// Terminal frames ride the stream TAIL (live probe 2026-10-24: a 17s
+	// thinking stream exceeds 64KB raw, so a clipped scan read terminal=null
+	// on every row); scan the FULL body, keep error JSON on the head clip.
 	const clipped = text.slice(0, 65_536);
-	const terminals = [...clipped.matchAll(/"type":"(response\.\w+)"/g)].map(
-		(m) => m[1],
-	);
+	const terminals = [
+		...text.matchAll(/"type":"((?:response|message|content_block)[._]\w+)"/g),
+	].map((m) => m[1]);
 	const stop =
-		/"finish_reason":"(\w+)"/.exec(clipped)?.[1] ??
-		/"stop_reason":"(\w+)"/.exec(clipped)?.[1] ??
+		/"finish_reason":"(\w+)"/.exec(text)?.[1] ??
+		/"stop_reason":"(\w+)"/.exec(text)?.[1] ??
 		null;
 	const terminal =
 		terminals.find((t) => t === "response.completed") ??
 		terminals.find((t) => t === "response.failed") ??
-		(clipped.includes("message_stop") ? "message_stop" : null) ??
-		(clipped.includes("[DONE]") ? "chat_done" : null);
+		terminals.find((t) => t === "response.incomplete") ??
+		(text.includes("message_stop") ? "message_stop" : null) ??
+		(text.includes("[DONE]") ? "chat_done" : null);
 	return rowOf({
 		leg: opts.leg,
 		protocol: opts.protocol,
@@ -393,7 +428,10 @@ function rowFor(
 		tEndMs: Date.now() - t0,
 		status,
 		marker: opts.work ? `MARKER-${opts.seq}` : null,
-		markerOk: opts.work && stats.textSample.includes(`MARKER-${opts.seq}`),
+		markerOk:
+			opts.work &&
+			(stats.textSample.includes(`MARKER-${opts.seq}`) ||
+				stats.reasonSample.includes(`MARKER-${opts.seq}`)),
 		textBytes: stats.textBytes,
 		reasonBytes: stats.reasonBytes,
 		chunks: stats.nChunks,
@@ -423,7 +461,7 @@ const errorRow = (opts: FireOpts, t0: number): Row =>
 /** One genuinely concurrent request over its own socket (keepAlive=false,
  *  maxSockets=level) — the owner-verified Node agent method. */
 function fireRequest(opts: FireOpts): Promise<Row> {
-	const url = endpointOf(opts.base, opts.protocol);
+	const url = endpointOf(opts.base, opts.protocol, opts.hop);
 	const body = bodyOf(
 		opts.protocol,
 		opts.model,
@@ -465,6 +503,7 @@ function fireRequest(opts: FireOpts): Promise<Row> {
 interface LevelOpts {
 	leg: string;
 	protocol: Protocol;
+	hop: boolean;
 	base: string;
 	key: string;
 	model: string;
@@ -543,8 +582,18 @@ interface HopSnap {
 	after: unknown;
 }
 
-/** Pool snapshot from one Buckle hop's admin surface (spoke + hub). */
-const fetchSlots = async (base: string, admin: string): Promise<unknown> => {
+/** Pool snapshot from one Buckle hop's admin surface. Each hop carries its
+ *  OWN credential env NAME (spoke vs hub keys differ — live 2026-10-24 the
+ *  hub 401'd the spoke admin). A missing/failed snapshot is recorded as
+ *  explicitly unavailable, never silently counted (owner steer #69168);
+ *  the token value itself is never printed or persisted. */
+const fetchSlots = async (
+	base: string,
+	admin: string | null,
+	envName: string,
+): Promise<unknown> => {
+	if (admin === null || admin.length === 0)
+		return { unavailable: `admin env ${envName} unset — hop count not taken` };
 	try {
 		const r = await fetch(`${base}/v1/admin/slots`, {
 			headers: { authorization: `Bearer ${admin}` },
@@ -555,6 +604,20 @@ const fetchSlots = async (base: string, admin: string): Promise<unknown> => {
 		return { error: String(e).slice(0, 120) };
 	}
 };
+
+/** One --admin-hops entry: url or url@ENV_NAME (default: --admin-env). */
+const hopSpecOf = (
+	spec: string,
+	defaultEnv: string,
+): { base: string; env: string } => {
+	const at = spec.lastIndexOf("@");
+	return at > 0
+		? { base: spec.slice(0, at), env: spec.slice(at + 1) }
+		: { base: spec, env: defaultEnv };
+};
+
+const slotOf = async (hop: { base: string; env: string }): Promise<unknown> =>
+	fetchSlots(hop.base, process.env[hop.env] ?? null, hop.env);
 
 const appendJsonl = (path: string, obj: unknown): void => {
 	appendFileSync(path, `${JSON.stringify(obj)}\n`);
@@ -652,7 +715,7 @@ function summarize(
 const renderLine = (s: LevelSummary): string =>
 	`[${s.leg} L${s.level} gap${s.gapMs}] att=${s.attempted} 2xx=${s.accepted2xx} ` +
 	`done=${s.terminalCompleted} f200fail=${s.http200Failed} ` +
-	`429=${s.provider429}(1302=${s.code1302}) 1311=${s.entitlement1311} ` +
+	`429=${s.provider429} rate1302=${s.code1302} 1311=${s.entitlement1311} ` +
 	`locrej=${s.localRefused} sock=${s.uniqueSockets}/${s.peakSockets} ` +
 	`acc=${s.peakAccepted} prod=${s.peakProducing} mrk=${s.markerOk} ` +
 	`sub=${s.substantive} tput=${s.throughputBps}B/s wall=${s.wallMs}ms`;
@@ -674,6 +737,23 @@ interface MintedKey {
 	key: string;
 }
 
+/** Mint-response shape: the gate maps `key_id` (live 2026-10-24: parsing
+ *  `id` left minted.id undefined, the revoke URL was invalid and the scoped
+ *  test key stayed ACTIVE until manual revocation). */
+export const mintedOf = (body: unknown): MintedKey | null => {
+	// null/undefined/non-object bodies (a 404 HTML page, an empty reply)
+	if (typeof body !== "object" || body === null) return null;
+	const j = body as { key?: unknown; key_id?: unknown; id?: unknown };
+	const id =
+		typeof j.key_id === "string"
+			? j.key_id
+			: typeof j.id === "string"
+				? j.id
+				: null;
+	const key = typeof j.key === "string" ? j.key : null;
+	return id !== null && key !== null ? { id, key } : null;
+};
+
 const mintLaneKey = async (
 	adminBase: string,
 	admin: string,
@@ -688,7 +768,7 @@ const mintLaneKey = async (
 			}),
 		});
 		if (!r.ok) return null;
-		return (await r.json()) as MintedKey;
+		return mintedOf(await r.json());
 	} catch {
 		return null;
 	}
@@ -714,6 +794,7 @@ interface LegSpec {
 	leg: string;
 	protocol: Protocol;
 	base: string;
+	hop: boolean;
 }
 
 /** Named leg sets; the official Coding Plan trio is the W1266 preset. */
@@ -723,12 +804,14 @@ const PRESETS: Record<string, LegSpec[]> = {
 			leg: "direct-anthropic",
 			protocol: "anthropic",
 			base: OFFICIAL.anthropic,
+			hop: false,
 		},
-		{ leg: "direct-chat", protocol: "chat", base: OFFICIAL.chat },
+		{ leg: "direct-chat", protocol: "chat", base: OFFICIAL.chat, hop: false },
 		{
 			leg: "direct-responses",
 			protocol: "responses",
 			base: OFFICIAL.responses,
+			hop: false,
 		},
 	],
 };
@@ -740,7 +823,12 @@ const legSpecOf = (spec: string): LegSpec | null => {
 	if (eq <= 0 || at <= eq) return null;
 	const p = spec.slice(eq + 1, at);
 	if (p !== "anthropic" && p !== "chat" && p !== "responses") return null;
-	return { leg: spec.slice(0, eq), protocol: p, base: spec.slice(at + 1) };
+	return {
+		leg: spec.slice(0, eq),
+		protocol: p,
+		base: spec.slice(at + 1),
+		hop: false,
+	};
 };
 
 const legSpecsOf = (preset: string, extra: string): LegSpec[] => {
@@ -760,7 +848,7 @@ interface RampCtx {
 	maxOutputTokens: number;
 	work: boolean;
 	admin: string | null;
-	hopBases: string[];
+	hops: { base: string; env: string }[];
 	out: string;
 	sums: LevelSummary[];
 }
@@ -773,13 +861,14 @@ async function runLevelOnce(
 	ctx: RampCtx,
 ): Promise<string | null> {
 	const before: { hop: string; slots: unknown }[] = [];
-	for (const h of ctx.hopBases)
-		before.push({ hop: h, slots: await fetchSlots(h, ctx.admin ?? "") });
+	for (const h of ctx.hops)
+		before.push({ hop: h.base, slots: await slotOf(h) });
 	const wall0 = Date.now();
 	const { rows, live } = await runLevel({
 		leg: leg.leg,
 		protocol: leg.protocol,
 		base: leg.base,
+		hop: leg.hop,
 		key,
 		model: ctx.model,
 		maxTokens: ctx.maxTokens,
@@ -798,11 +887,11 @@ const hopAfter = async (
 	before: { hop: string; slots: unknown }[],
 ): Promise<HopSnap[]> => {
 	const hops: HopSnap[] = [];
-	for (let i = 0; i < ctx.hopBases.length; i++)
+	for (let i = 0; i < ctx.hops.length; i++)
 		hops.push({
-			hop: ctx.hopBases[i],
+			hop: ctx.hops[i].base,
 			before: before[i]?.slots,
-			after: await fetchSlots(ctx.hopBases[i], ctx.admin ?? ""),
+			after: await slotOf(ctx.hops[i]),
 		});
 	return hops;
 };
@@ -858,6 +947,10 @@ const parseArgs = (argv: string[]): Args => ({
 		.map(Number)
 		.filter((n) => Number.isFinite(n) && n > 0),
 	gapMs: Number(argOf(argv, "--gap-ms") ?? "200"),
+	maxTokens: Math.min(
+		16384,
+		Math.max(1, Number(argOf(argv, "--max-tokens") ?? "1024") || 1024),
+	),
 	model: argOf(argv, "--model") ?? "glm-5.3-flash",
 	buckle: argOf(argv, "--buckle"),
 	adminEnv: argOf(argv, "--admin-env") ?? "BUCKLE_ADMIN_KEY",
@@ -884,17 +977,18 @@ async function main(): Promise<number> {
 		levels: args.levels,
 		gapMs: args.gapMs,
 		model: args.model,
-		maxTokens: 1024,
-		maxOutputTokens: 1024,
+		maxTokens: args.maxTokens,
+		maxOutputTokens: args.maxTokens,
 		work: args.work,
 		admin,
-		hopBases:
+		hops:
 			admin === null
 				? []
 				: args.adminHops
 						.split(",")
 						.map((s) => s.trim())
-						.filter((s) => s.length > 0),
+						.filter((s) => s.length > 0)
+						.map((s) => hopSpecOf(s, args.adminEnv)),
 		out: args.out,
 		sums: [],
 	};
@@ -921,6 +1015,7 @@ async function runRamps(
 				leg: `buckle-${p}`,
 				protocol: p,
 				base: args.buckle,
+				hop: true,
 			})),
 			key: minted.key,
 		});
@@ -942,12 +1037,12 @@ async function finishRamps(
 			if (why !== null) stops.push(why);
 			await Bun.sleep(LEG_SLEEP_MS);
 		}
-	if (args.buckle !== null && minted !== null && admin !== null)
-		console.error(
-			`buckle key revoke: ${
-				(await revokeLaneKey(args.buckle, admin, minted.id)) ? "ok" : "FAILED"
-			}`,
-		);
+	if (args.buckle !== null && minted !== null && admin !== null) {
+		const revoked = await revokeLaneKey(args.buckle, admin, minted.id);
+		console.error(`buckle key revoke: ${revoked ? "ok" : "FAILED"}`);
+		// fail-closed: a stranded scoped key must fail the run
+		if (!revoked) return 3;
+	}
 	console.error(
 		stops.length === 0
 			? "ramp complete: no provider pressure hit"
