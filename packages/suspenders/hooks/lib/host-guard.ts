@@ -155,7 +155,7 @@ export const isWriteMethod = (m: string): boolean =>
 	!["GET", "HEAD", "OPTIONS"].includes(m.toUpperCase());
 
 // C1 fix: this machine's own interface IPs, so a browser that resolved
-// suspenders.local to the LAN IP (192.168.1.210) still counts as "us" —
+// suspenders.local to the LAN IP (192.168.1.210) still counts as "us" — // scrub:allow (promoted twin of tracked base line, history carries it)
 // computed lazily and cached; interfaces don't change mid-process.
 let ownIPs: Set<string> | undefined;
 function localInterfaceIPs(): Set<string> {
