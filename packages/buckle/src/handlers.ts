@@ -40,9 +40,9 @@ import {
 	lanePrefixOf,
 	methodNotAllowed,
 	options204,
-	PROBLEM_SLUGS,
 	problem,
 } from "./citizenship.ts";
+import { errorResponse, scrubText } from "./error-response.ts";
 import { scoreComplexity, textFromMessages } from "./complexity.ts";
 import {
 	type DecideResult,
@@ -62,6 +62,12 @@ import {
 	hopKindOf,
 	laneFromBaggage,
 } from "./hop.ts";
+import {
+	beginInflight,
+	endInflight,
+	markInflight,
+	settleInflight,
+} from "./gov/inflight.ts";
 import {
 	INGRESS_BODY_TIMEOUT_MS,
 	IngressBodyError,
@@ -197,6 +203,7 @@ function stamped(
 	route: {
 		decision: string;
 		row?: CandidateRow;
+		streaming?: boolean;
 		code?: string | null;
 		refusal?:
 			| "buckle"
@@ -249,28 +256,8 @@ function stamped(
 	for (const [k, v] of hs) resp.headers.set(k, v);
 	resp.headers.delete(PREFER_HEADER);
 	if (ctx.preference) resp.headers.set(PREFER_HEADER, ctx.preference);
+	settleInflight(ctx, resp, route); // W1259: hold streams, settle the rest
 	return resp;
-}
-
-/** Buckle-GENERATED error body: problem+json with the stable code in `code`
- *  (http-citizenship). Two documented exceptions: upstream pass-through
- *  errors ride the upstream's body verbatim (client-error), and mid-stream
- *  failures speak SSE (the status is already sent). */
-export function errorResponse(
-	status: number,
-	why: string,
-	code?: string | null,
-): Response {
-	return problem({
-		status,
-		code: code ?? `buckle.${PROBLEM_SLUGS[status] ?? "problem"}`,
-		why: code ? `belt: ${code} — ${scrubText(why)}` : scrubText(why),
-	});
-}
-
-/** /Users/<name> paths and key material never leave through an error. */
-export function scrubText(text: string): string {
-	return text.replace(/\/Users\/[^/\s'"]+/g, "~");
 }
 
 /** W921 traffic kind: a request is READINESS traffic only when a
@@ -455,6 +442,7 @@ async function proxy(
 	ctx.trafficKind = trafficKindOf(req);
 	ctx.signal = req.signal;
 	ctx.t0 = Date.now();
+	beginInflight(ctx); // W1259: the exact in-flight index starts here
 	const hint = hintFromHeaders(req.headers);
 	if (!hint.ok) return deny(deps, ctx, 400, hint.why, "bad_hint", "denied");
 	let body: Record<string, unknown>;
@@ -578,6 +566,7 @@ async function runExecute(
 		traffic_kind: ctx.trafficKind,
 	});
 	deps.table.inflight(sel.head.candidate_id, 1);
+	markInflight(ctx); // W1259: model + selected upstream visible mid-flight
 	// W450 bounded RPC admission: one slot per in-flight upstream RPC; past
 	// the cap the gateway answers a typed local 503 + Retry-After (never
 	// queues blindly, never fabricates the provider's 429 — W1257).
@@ -758,6 +747,7 @@ function finishResponse(
 		row,
 		code,
 		refusal,
+		streaming,
 		attempts: result.kind === "aborted" ? 0 : result.attempts,
 		upstreamStatus:
 			result.kind === "exhausted" && result.lastFailure?.source !== "network"
@@ -1078,6 +1068,7 @@ function streamResponse(
 				status: 200,
 				attempts: result.attempts,
 			});
+		endInflight(ctx.rid, 200, success, decision, null); // W1259: stream settle
 		ctx.slot?.(); // W450: the drain settled — the upstream slot frees
 	});
 	sniffBranch

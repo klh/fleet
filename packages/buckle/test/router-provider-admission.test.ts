@@ -3,7 +3,7 @@
 // pace starts across aliases, bound streams hold their lease to EOF/cancel/
 // error, and a local queue refusal never masquerades as an upstream verdict.
 import { describe, expect, test } from "bun:test";
-import { errorResponse } from "../src/handlers.ts";
+import { errorResponse } from "../src/error-response.ts";
 import { parsePolicy } from "../src/policy.ts";
 import { Router } from "../src/router.ts";
 import type { Deployment, UpstreamPool } from "../src/upstreams.ts";
