@@ -14,6 +14,7 @@ import type { EgressTrustSource } from "../hooks/lib/egress-visibility.ts";
 import type { AgentType } from "../hooks/lib/vendor/skills-agents.ts";
 
 const trustAll: EgressTrustSource = {
+	requestCapableApps: new Set<AgentType>(["claude-code"]),
 	verifiedRoutes: new Set<AgentType>(["claude-code"]),
 	trustedApps: new Set<AgentType>(["claude-code"]),
 	pinnedDestinations: ["pinned.example"],

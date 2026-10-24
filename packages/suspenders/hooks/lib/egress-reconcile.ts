@@ -35,7 +35,8 @@ export interface GatewayRequestRow {
 	id: string;
 	/** Correlation id: the tunnel connection this request rode, when it rode one. */
 	tunnelConnId: string | null;
-	/** Request-aware metadata — present ONLY on genuinely request-aware rows. */
+	/** Decoded request metadata (model, …) — present ONLY on genuinely
+	 * request-aware rows, NEVER inferred from a CONNECT socket or an MCP call. */
 	model: string | null;
 	/** Epoch ms, when known. */
 	start: number | null;

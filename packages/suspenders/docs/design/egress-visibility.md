@@ -24,11 +24,26 @@ the design:
 | `pinning-fallback`  | trusted route, but the destination pins certs — TLS left end-to-end  |
 | `unattributed`      | seen at the tunnel; no catalog/process attribution — never guessed   |
 
-Trust evidence (`EgressTrustSource`): `verifiedRoutes` derives from the
-W918 catalog table (`targets.ts` `VERIFIED_BUCKLE_ROUTES`, one source of
-truth); `trustedApps` + `pinnedDestinations` are operator config-over-code.
-The honest default trusts nothing: until config deploys trust, verified
-routes still classify as `transport`.
+Trust evidence (`EgressTrustSource`) is three distinct gates, never merged:
+`requestCapableApps` — documented endpoint-override capability (owner-
+verified research 2026-10-24: claude-code, codex, grok Build,
+github-copilot/VS Code; native ChatGPT and Claude chat document only
+transport-proxy / MCP-connector routes and stay transport forever);
+`verifiedRoutes` derives from the W918 catalog table (`targets.ts`
+`VERIFIED_BUCKLE_ROUTES`, one source of truth); `trustedApps` +
+`pinnedDestinations` are operator config-over-code. The honest default
+trusts nothing: until config deploys trust, even capable, verified targets
+classify as `transport`. Capability ≠ trust ≠ a verified route.
+
+## Reconciliation (`hooks/lib/egress-reconcile.ts`)
+
+`reconcileConnections(tunnel, gateway)` joins the Sing `/connections`
+index (W1260.1 owns the live producer) with the Buckle request index
+(W1259 owns the live producer) by unique id only — the gateway row's
+`tunnelConnId` vs the tunnel row's `id`. No host/time heuristics; a
+decoded LLM request is NEVER inferred from a CONNECT socket or an MCP
+call. One tunnel connection may carry many requests (HTTP/2
+multiplexing), so
 
 ## Reconciliation (`hooks/lib/egress-reconcile.ts`)
 

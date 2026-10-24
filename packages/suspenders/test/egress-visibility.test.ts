@@ -17,6 +17,7 @@ import { agents, type AgentType } from "../hooks/lib/vendor/skills-agents.ts";
 
 /** One trusted catalog app with a pinned-host suffix for fallback proofs. */
 const trustRequest: EgressTrustSource = {
+	requestCapableApps: new Set<AgentType>(["claude-code"]),
 	verifiedRoutes: new Set<AgentType>(["claude-code"]),
 	trustedApps: new Set<AgentType>(["claude-code"]),
 	pinnedDestinations: ["pinned.example"],
@@ -47,6 +48,7 @@ describe("classifyVisibility transport gates", () => {
 		const verdict = classifyVisibility(
 			{ agentType: "claude-code", destinationHost: "api.anthropic.com" },
 			{
+				requestCapableApps: new Set<AgentType>(["claude-code"]),
 				verifiedRoutes: new Set<AgentType>(["claude-code"]),
 				trustedApps: new Set<AgentType>(),
 				pinnedDestinations: [],
@@ -60,6 +62,7 @@ describe("classifyVisibility transport gates", () => {
 		const verdict = classifyVisibility(
 			{ agentType: "codex", destinationHost: "api.openai.com" },
 			{
+				requestCapableApps: new Set<AgentType>(["codex"]),
 				verifiedRoutes: new Set<AgentType>(),
 				trustedApps: new Set<AgentType>(["codex"]),
 				pinnedDestinations: [],
@@ -67,6 +70,20 @@ describe("classifyVisibility transport gates", () => {
 		);
 		expect(verdict.tier).toBe("transport");
 		expect(verdict.reason).toContain("route");
+	});
+
+	test("capability-absent target stays transport even when trusted and verified", () => {
+		const verdict = classifyVisibility(
+			{ agentType: "cursor", destinationHost: "api.anthropic.com" },
+			{
+				requestCapableApps: new Set<AgentType>(),
+				verifiedRoutes: new Set<AgentType>(["cursor"]),
+				trustedApps: new Set<AgentType>(["cursor"]),
+				pinnedDestinations: [],
+			},
+		);
+		expect(verdict.tier).toBe("transport");
+		expect(verdict.reason).toContain("capability");
 	});
 });
 
@@ -87,6 +104,15 @@ describe("classifyVisibility attribution", () => {
 		);
 		expect(verdict.tier).toBe("transport");
 		expect(verdict.requestAware).toBe(false);
+	});
+
+	test("default capability set includes the four researched targets, trust still gates", () => {
+		const verdict = classifyVisibility(
+			{ agentType: "grok", destinationHost: "api.x.ai" },
+			DEFAULT_EGRESS_TRUST,
+		);
+		expect(verdict.tier).toBe("transport");
+		expect(verdict.reason).toContain("trust");
 	});
 });
 
@@ -118,6 +144,7 @@ describe("buckleRouteAdapters", () => {
 		expect(claude?.trusted).toBe(true);
 		expect(claude?.requestEligible).toBe(true);
 		const codex = rows.get("codex");
+		expect(codex?.requestCapable).toBe(false); // not in trustRequest's capable set
 		expect(codex?.routeVerified).toBe(false);
 		expect(codex?.trusted).toBe(false);
 		expect(codex?.requestEligible).toBe(false);

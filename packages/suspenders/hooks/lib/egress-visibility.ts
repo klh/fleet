@@ -26,15 +26,35 @@ export interface EgressTrustSource {
 	verifiedRoutes: ReadonlySet<AgentType>;
 	/** Operator trust: apps whose request-aware route config is deployed (config-over-code). */
 	trustedApps: ReadonlySet<AgentType>;
+	/** Documented request capability (owner-verified research 2026-10-24):
+	 * targets whose docs support pointing the model API URL at Buckle.
+	 * Absent = transport-proxy/MCP-connector routes only — rows stay
+	 * transport FOREVER, never request, regardless of trust. */
+	requestCapableApps: ReadonlySet<AgentType>;
 	/** Destination host suffixes that pin certificates — never inspected, always fallback. */
 	pinnedDestinations: readonly string[];
 }
+
+/** Owner-verified research (2026-10-24): targets whose DOCUMENTED surface
+ * can point the model API URL at Buckle — request-capable. Native ChatGPT
+ * and Claude chat apps document only transport-proxy / MCP-connector
+ * routes, so their egress stays transport-tier FOREVER. Codex model
+ * sampling may ride wss://chatgpt.com; ChatGPT/desktop TLS inspection may
+ * face pinning. Capability ≠ trust ≠ a verified route — three distinct
+ * gates, never merged. */
+export const REQUEST_CAPABLE_APPS: ReadonlySet<AgentType> = new Set([
+	"claude-code",
+	"codex",
+	"grok",
+	"github-copilot",
+] as const satisfies AgentType[]);
 
 /** Fleet default: W918 catalog evidence with EMPTY operator sets. Honest
  * default — until config-over-code deploys trust and pinning data, nothing
  * claims request-aware visibility it cannot prove. */
 export const DEFAULT_EGRESS_TRUST: EgressTrustSource = {
 	verifiedRoutes: VERIFIED_BUCKLE_ROUTES,
+	requestCapableApps: REQUEST_CAPABLE_APPS,
 	trustedApps: new Set<AgentType>(),
 	pinnedDestinations: [],
 };
@@ -46,11 +66,13 @@ export const DEFAULT_EGRESS_TRUST: EgressTrustSource = {
  * them plus operator trust and never conflates them. */
 export interface BuckleRouteAdapterMeta {
 	type: AgentType;
+	/** Documented endpoint-override capability (REQUEST_CAPABLE_APPS). */
+	requestCapable: boolean;
 	/** The target rides a verified buckle front route (targets.ts evidence). */
 	routeVerified: boolean;
 	/** Operator trust deployed for request-aware handling (config-over-code). */
 	trusted: boolean;
-	/** TRUE only when both hold; the classifier still refuses `request` on a pinned destination. */
+	/** TRUE only when ALL hold; the classifier still refuses `request` on a pinned destination. */
 	requestEligible: boolean;
 }
 
@@ -62,13 +84,15 @@ export function buckleRouteAdapters(
 	return (Object.keys(agents) as AgentType[])
 		.filter((type) => type !== "universal") // not a real install target
 		.map((type) => {
+			const requestCapable = trust.requestCapableApps.has(type);
 			const routeVerified = trust.verifiedRoutes.has(type);
 			const trusted = trust.trustedApps.has(type);
 			return {
 				type,
+				requestCapable,
 				routeVerified,
 				trusted,
-				requestEligible: routeVerified && trusted,
+				requestEligible: requestCapable && routeVerified && trusted,
 			};
 		});
 }
@@ -115,6 +139,14 @@ export function classifyVisibility(
 		return {
 			tier: "unattributed",
 			reason: "tunnel observation with no catalog/process attribution",
+			requestAware: false,
+		};
+	}
+	if (!trust.requestCapableApps.has(input.agentType)) {
+		return {
+			tier: "transport",
+			reason:
+				"no documented request capability — transport-proxy/MCP-connector routes only",
 			requestAware: false,
 		};
 	}
