@@ -60,6 +60,20 @@ export const BUN_IDLE_TIMEOUT = 0;
 
 export { MAX_REQUEST_BODY_BYTES } from "./ingress-body.ts";
 
+/** W1246: dbPath default rides the runtime home (resolveNetworkDbPaths
+ *  precedent) — a bare "buckle.db" resolves against the process cwd, which
+ *  is how stray runs seeded repo-root junk. opts.dbPath and BUCKLE_DB win. */
+export function defaultDbPath(
+	env: { BUCKLE_DB?: string; HOME?: string } = process.env,
+): string {
+	return (
+		env.BUCKLE_DB ??
+		(env.HOME
+			? join(env.HOME, ".claude", "local-llm", "buckle.db")
+			: "buckle.db")
+	);
+}
+
 export interface ServerOpts {
 	port?: number;
 	/** Test seam for the app-owned request-body deadline; production uses 120s. */
@@ -120,34 +134,28 @@ export function buildDeps(
 	const pool = loadUpstreams(opts.upstreamsPath);
 	const prefs = loadPrefs(opts.prefsPath);
 	const sm = servicemon({ service: "buckle", port });
-	const ledger = new Ledger(
-		opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db",
-		undefined,
-		{
-			onDrop: (kind, n) =>
-				sm
-					.counter(
-						"buckle_ledger_dropped_total",
-						"Ledger rows dropped after bounded flush retries.",
-					)
-					.inc({ kind }, n),
-		},
-	);
+	const ledger = new Ledger(opts.dbPath ?? defaultDbPath(), undefined, {
+		onDrop: (kind, n) =>
+			sm
+				.counter(
+					"buckle_ledger_dropped_total",
+					"Ledger rows dropped after bounded flush retries.",
+				)
+				.inc({ kind }, n),
+	});
 	// W458.4 per-lane cache telemetry: append-only NDJSON next to the ledger
 	// db (BUCKLE_LANE_CACHE_LOG overrides). Rows ride real lane-attributed
 	// requests only — bare ingress appends nothing.
 	const laneCache = new LaneTelemetryLog(
 		process.env.BUCKLE_LANE_CACHE_LOG ??
-			`${opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db"}.lane-cache.jsonl`,
+			`${opts.dbPath ?? defaultDbPath()}.lane-cache.jsonl`,
 	);
 	// W926: per-boundary+lane prefix-fingerprint references — miss
 	// classification rides the lane-cache rows (null causes when unwired).
 	const prefixLedger = new PrefixLedger();
 	// W142 knowledge aids: metering ledger + preseed builder on the same db
 	// file (W133 wiring); policy slice from the shared routing-policy.yaml.
-	const aids = new AidsLedger(
-		opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db",
-	);
+	const aids = new AidsLedger(opts.dbPath ?? defaultDbPath());
 	const aidsPolicy = policy.aids ?? {};
 	const preseeder = new Preseeder({
 		policy: aidsPolicy,
@@ -235,7 +243,7 @@ export function buildDeps(
 			prefs,
 			fallbackGroups: input.allowCross ? policy.fallbacks?.[input.group] : [],
 		});
-	const dbPath = opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db";
+	const dbPath = opts.dbPath ?? defaultDbPath();
 	const federation = new Federation({
 		dbPath,
 		ingressBodyTimeoutMs: opts.ingressBodyTimeoutMs,
@@ -320,7 +328,7 @@ export function startServer(
 	const gov = createGovernance(
 		{ ledger: deps.ledger, sm: deps.sm },
 		{
-			dbPath: opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db",
+			dbPath: opts.dbPath ?? defaultDbPath(),
 			rootKey: opts.auth?.rootKey,
 			// W372: env-driven OIDC gate (stack.yaml auth.oidc materialized by
 			// hubctl) — programmatic opts win, env next, base posture last.
