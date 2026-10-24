@@ -49,8 +49,9 @@ cannot be delivered. Spec: `supervise/scenario.md`. Run:
 
 ## Paired-arm eval suite (W612)
 
-`paired/` — deterministic, LLM-optional paired-arm runner per
-docs/harness-lift-research.md lift 5 (pi-mono packages/evals): three
+`paired/` — deterministic, LLM-optional paired-arm runner per the
+fleet-root `docs/harness-lift-research.md` lift 5 (pi-mono
+packages/evals): three
 brief/protocol comparisons (condense, consult-contract, steer-delivery)
 each run with+without arms over fixed repetition schedules; the report
 pairs arms per rep and computes lift — the defence against the

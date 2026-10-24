@@ -44,7 +44,8 @@ found zero peer-reviewed work on parallel agents + shared git state.
    coordination beats conventions (METR corroboration).
 8. **Limitations** — one machine, one control plane, sanitized single-fleet
    seeds, LLM-optional scenarios don't capture model-behavior classes.
-9. **Ethics & licensing** — sanitization protocol, CC-BY-4.0 data, MIT code.
+9. **Ethics & licensing** — sanitization protocol, CC-BY-4.0 data, Fleet
+   Personal Use License 1.0 code.
 
 ## Near-term work plan
 

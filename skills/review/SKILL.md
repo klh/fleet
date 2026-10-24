@@ -7,7 +7,7 @@ For deep reviews, dispatch the code-reviewer persona (and security-auditor for s
 
 ```bash
 qlty check            # diff-aware: only your branch's changes
-difft main...HEAD     # structural diff — moves/renames render correctly
+GIT_EXTERNAL_DIFF=difft git diff main...HEAD   # structural diff — moves/renames render correctly
 ```
 
 Review the current changes (staged or recent commits) across all five axes:
