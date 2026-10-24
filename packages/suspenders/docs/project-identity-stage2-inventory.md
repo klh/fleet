@@ -1,6 +1,6 @@
 # Project identity stage 2 — writer and namespace inventory
 
-Stage-2 deliverable of the [cross-hub identity migration](cross-hub-project-identity.md)
+Stage-2 deliverable of the [cross-hub identity migration](../../../docs/cross-hub-project-identity.md)
 (work item W459.2). Audit date: 7 October 2026. Source baseline: `0eb96b6`
 (packages/suspenders/). No database keys were changed by this audit alone —
 the code changes it ships are listed in §6 and ride the seam in §7.
