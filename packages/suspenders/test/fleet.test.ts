@@ -115,7 +115,7 @@ describe("W293 session-name bridge", () => {
 		expect(tagsOf("lane293")).toEqual({ team: "ikea", name: "ikea-opus-2" });
 	});
 
-	test("coord fleet table shows the name on the lane's row", () => {
+	test("coord fleet shows the name next to the short sid", () => {
 		// claim row seeded directly (claim.ts validates live transcripts, which
 		// a temp HOME lacks — same recipe as the board tests)
 		const db = new Database(DB);
