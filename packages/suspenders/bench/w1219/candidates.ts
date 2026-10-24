@@ -12,10 +12,7 @@ export interface Candidate {
 const TIMEOUT_MS = 120_000;
 
 /** NAS Ollama sqlcoder — /api/generate, template passthrough. */
-export function ollamaCandidate(
-	url: string,
-	model: string,
-): Candidate {
+export function ollamaCandidate(url: string, model: string): Candidate {
 	return {
 		name: `${model}@nas-ollama`,
 		kind: "local-nas",
@@ -90,16 +87,23 @@ export function anthropicCandidate(
 				},
 				body: JSON.stringify({
 					model,
-					max_tokens: 512,
+					// thinking headroom — a thinking model that exhausts the budget
+					// emits zero text blocks (the 512 run measured the budget)
+					max_tokens: 2048,
 					messages: [{ role: "user", content: prompt }],
 					temperature: 0,
 				}),
 				signal: AbortSignal.timeout(TIMEOUT_MS),
 			});
 			if (!r.ok) throw new Error(`anthropic-wire ${r.status}`);
-			const d = (await r.json()) as { content?: { text?: string }[] };
-			const t = d.content?.[0]?.text;
-			if (typeof t !== "string") throw new Error("anthropic-wire: no text");
+			const d = (await r.json()) as {
+				content?: { type?: string; text?: string }[];
+			};
+			const t = (d.content ?? [])
+				.filter((b) => b.type === "text")
+				.map((b) => b.text ?? "")
+				.join("");
+			if (!t) throw new Error("anthropic-wire: no text");
 			return t;
 		},
 	};

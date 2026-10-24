@@ -1,0 +1,109 @@
+[
+  {
+    "name": "glm-5.3-flash@cloud",
+    "kind": "cloud",
+    "execRate": 0.9166666666666666,
+    "matchRate": 0.75,
+    "p50Ms": 3348,
+    "p95Ms": 60017,
+    "attempts": [
+      {
+        "q": "Q01",
+        "lang": "en",
+        "ms": 1882,
+        "sql": "SELECT COUNT(*) FROM knowledge WHERE state = 'active'",
+        "valid": true,
+        "match": true
+      },
+      {
+        "q": "Q02",
+        "lang": "en",
+        "ms": 3348,
+        "sql": "SELECT COUNT(*) AS tombstoned_claims,\n       AVG(confidence) AS avg_confidence\nFROM knowledge_claims\nWHERE tombstone = 1",
+        "valid": true,
+        "match": true
+      },
+      {
+        "q": "Q03",
+        "lang": "en",
+        "ms": 2660,
+        "sql": "SELECT topic, fact\nFROM knowledge\nWHERE state = 'active'\nORDER BY confidence DESC\nLIMIT 5",
+        "valid": true,
+        "match": true
+      },
+      {
+        "q": "Q04",
+        "lang": "en",
+        "ms": 7968,
+        "sql": "SELECT origin_machine, COUNT(*) AS claims_rolled\nFROM knowledge_claims\nWHERE scope = 'sink'\nGROUP BY origin_machine\nORDER BY claims_rolled DESC",
+        "valid": true,
+        "match": false
+      },
+      {
+        "q": "Q05",
+        "lang": "da",
+        "ms": 4609,
+        "sql": "SELECT COUNT(*) AS total_claims, SUM(CASE WHEN tombstone = 0 THEN 1 ELSE 0 END) AS not_tombstoned_claims FROM knowledge_claims",
+        "valid": true,
+        "match": true
+      },
+      {
+        "q": "Q06",
+        "lang": "da",
+        "ms": 5201,
+        "sql": "SELECT topic\nFROM knowledge\nWHERE state = 'active'\nORDER BY ts DESC\nLIMIT 5",
+        "valid": true,
+        "match": true
+      },
+      {
+        "q": "Q07",
+        "lang": "en",
+        "ms": 29534,
+        "sql": "SELECT SUM(\n         CASE\n           WHEN json_valid(provenance) AND json_type(provenance) = 'array'\n             THEN json_array_length(provenance)\n           ELSE LENGTH(provenance) - LENGTH(REPLACE(provenance, ',', '')) + 1\n         END\n       ) AS total_provenance_entries\nFROM knowledge_claims\nWHERE evidence_id = 'w-l2'",
+        "valid": false,
+        "match": false,
+        "error": "lint: mutation word"
+      },
+      {
+        "q": "Q08",
+        "lang": "en",
+        "ms": 2217,
+        "sql": "SELECT COUNT(DISTINCT topic) FROM knowledge WHERE origin_kind = 'lane'",
+        "valid": true,
+        "match": true
+      },
+      {
+        "q": "Q09",
+        "lang": "da",
+        "ms": 6587,
+        "sql": "SELECT COUNT(*) AS open_retire_proposals, MAX(score) AS highest_score\nFROM knowledge_proposals\nWHERE state = 'open' AND kind = 'retire'",
+        "valid": true,
+        "match": true
+      },
+      {
+        "q": "Q10",
+        "lang": "en",
+        "ms": 2796,
+        "sql": "SELECT claim, confidence\nFROM knowledge_claims\nWHERE evidence_id = 'w-l1' AND tombstone = 0\nORDER BY confidence DESC\nLIMIT 3",
+        "valid": true,
+        "match": true
+      },
+      {
+        "q": "Q11",
+        "lang": "da",
+        "ms": 3032,
+        "sql": "SELECT source, COUNT(*) AS knowledge_count\nFROM knowledge\nGROUP BY source\nORDER BY knowledge_count DESC",
+        "valid": true,
+        "match": true
+      },
+      {
+        "q": "Q12",
+        "lang": "en",
+        "ms": 60017,
+        "sql": "SELECT kc.version,\n       kc.confidence,\n       k.topic\nFROM knowledge_claims kc\nJOIN knowledge k\n  ON k.id = CAST(TRIM(kc.evidence_id, 'abcdefghijklmnopqrstuvwxyz-') AS INTEGER)\nWHERE kc.evidence_id = 'w-l1'\nORDER BY kc.version",
+        "valid": true,
+        "match": false
+      }
+    ]
+  }
+]

@@ -12,14 +12,37 @@ import { buildReplica } from "./replica.ts";
 import { buildPrompt } from "./prompt.ts";
 import { extractSql, lintSql, execSql, rowsMatch } from "./kit.ts";
 import { QUESTIONS } from "./questions.ts";
-import {
-	adminKey,
-	mintLaneKey,
-	revokeLaneKey,
-	BUCKLE_FRONT,
-} from "../../hooks/lib/lane-auth.ts";
+import { mintLaneKey, revokeLaneKey } from "../../hooks/lib/lane-auth.ts";
 
 const PORT = 7819;
+// The e2e must ride a buckle that BOOTED with the pinned conf — the live
+// spoke may predate the pin (lanes hold no lifecycle authority to restart
+// it). Scratch instance on :7821: scratch ledger/secrets/observations, the
+// REAL machine conf verbatim (BUCKLE_UPSTREAMS), so the `sql` group rides
+// exactly what production will load at its next boot.
+const FRONT = "http://127.0.0.1:7919";
+const ROOT_KEY = `bksk-${crypto.randomUUID().replaceAll("-", "")}`;
+const UPSTREAMS = `${process.env.HOME}/.claude/local-llm/upstreams.json`;
+
+/** Scratch buckle on :7919 over the REAL machine conf. */
+function spawnBuckle(root: string) {
+	return spawn(
+		process.execPath,
+		[join(import.meta.dir, "../../../buckle/src/server.ts")],
+		{
+			env: {
+				...process.env,
+				BUCKLE_PORT: "7919",
+				BUCKLE_UPSTREAMS: UPSTREAMS,
+				BUCKLE_DB: join(root, "buckle.db"),
+				BUCKLE_ROOT_KEY: ROOT_KEY,
+				BUCKLE_SECRETS_HOME: root,
+				BUCKLE_OBSERVATIONS_PATH: join(root, "obs"),
+			},
+			stdio: ["ignore", "pipe", "pipe"],
+		},
+	);
+}
 
 /** Boot the REAL sink face (knowledge-api.ts) over the replica. */
 function spawnSink(root: string) {
@@ -52,46 +75,70 @@ const waitHealth = async (): Promise<boolean> => {
 	return false;
 };
 
+/** This buckle vintage has no /health — ANY http response (401/404 count)
+ *  proves the listener is up. */
+const waitBuckle = async (): Promise<boolean> => {
+	for (let i = 0; i < 60; i++) {
+		try {
+			await fetch(`${FRONT}/v1/models`, { signal: AbortSignal.timeout(1000) });
+			return true;
+		} catch {
+			await Bun.sleep(250);
+		}
+	}
+	return false;
+};
+
 if (import.meta.main) {
 	const root = mkdtempSync(join(tmpdir(), "w1219-e2e-"));
 	const rep = await buildReplica(root);
 	const child = spawnSink(root);
+	const buckle = spawnBuckle(root);
 	const ok = await waitHealth();
-	if (!ok) {
+	const buckOk = await waitBuckle();
+	if (!ok || !buckOk) {
 		console.error("sink face never went healthy");
 		child.kill();
+		buckle.kill();
 		process.exit(1);
 	}
 	// the question rides the REAL sink DB (the file the face serves)
 	const db = new Database(rep.dbPath, { readonly: true });
-	const admin = adminKey();
-	const minted = admin ? await mintLaneKey("w1219-sql-e2e", admin) : null;
+	// the scratch buckle's root key IS its admin — mint the e2e lane key there
+	const minted = await mintLaneKey("w1219-sql-e2e", ROOT_KEY, undefined, FRONT);
 	const q = QUESTIONS.find((x) => x.id === "Q02");
 	if (!q) {
 		console.error("Q02 missing");
 		process.exit(1);
 	}
-	void child;
 	const prompt = buildPrompt(rep.schemaText, q.q);
+	if (!minted) {
+		console.error("lane key mint from the scratch buckle failed");
+		child.kill();
+		buckle.kill();
+		process.exit(1);
+	}
 	const t0 = performance.now();
-	const r = await fetch(`${BUCKLE_FRONT}/v1/chat/completions`, {
+	const r = await fetch(`${FRONT}/v1/chat/completions`, {
 		method: "POST",
-		headers: minted
-			? {
-					"content-type": "application/json",
-					authorization: `Bearer ${minted.key}`,
-				}
-			: { "content-type": "application/json" },
+		headers: {
+			"content-type": "application/json",
+			authorization: `Bearer ${minted.key}`,
+		},
 		body: JSON.stringify({
 			model: "sql",
 			messages: [{ role: "user", content: prompt }],
+			max_tokens: 2048,
 			temperature: 0,
 		}),
 		signal: AbortSignal.timeout(60_000),
 	});
 	const d = (await r.json().catch(() => null)) as {
-		choices?: { message?: { content?: string } }[];
+		model?: string;
+		choices?: { message?: { content?: string }[] }[];
 	} | null;
+	// the pin contract: the scratch buckle must ride the sql group's wire id
+	const rodePin = typeof d?.model === "string" && d.model.includes("Qwen3-4B");
 	const sql = extractSql(d?.choices?.[0]?.message?.content ?? "");
 	const lint = lintSql(sql);
 	const res = lint.ok
@@ -104,9 +151,11 @@ if (import.meta.main) {
 		JSON.stringify(
 			{
 				question: q.q,
-				route: `${BUCKLE_FRONT} model=sql`,
+				route: `${FRONT} model=sql (scratch buckle over the machine conf)`,
 				http: r.status,
 				ms,
+				respModel: d?.model,
+				rodePin,
 				sql,
 				valid: res.ok,
 				match,
@@ -120,7 +169,8 @@ if (import.meta.main) {
 	);
 	db.close();
 	child.kill();
-	if (admin && minted) await revokeLaneKey(minted.keyId, admin);
+	buckle.kill();
+	if (minted) await revokeLaneKey(minted.keyId, ROOT_KEY, undefined, FRONT);
 	rep.close();
-	process.exit(res.ok && match ? 0 : 1);
+	process.exit(res.ok && match && rodePin ? 0 : 1);
 }

@@ -925,3 +925,30 @@ input. The local HTTP gate regression now mirrors those converter boundaries,
 asserts raw fixture refusal, zero additional ChatGPT fetches and verbatim fallback.
 The correction preserves supported leading instruction order and tool turns;
 it does not demonstrate new provider capacity or model quality.
+
+## W1219 — text-to-SQL over the sink: candidate benchmark + pin (2026-10-24; AC)
+
+Decision the row supports: the /knowledge/query ro-SQL translator
+upstream (groups.sql, machine conf). 12 NL questions (8 EN / 4 DA) with
+executable golds over the REAL sink schema (openKnowledgeDb-built
+replica, fixed seed), one prompt for all candidates (sqlcoder task
+shape, temp 0, cache-buster), Spider-convention value-only exec-match,
+p50/p95 over the 12 timed attempts after an untimed warmup. Protocol +
+raw rows: `packages/suspenders/bench/w1219/` (README.md, results/).
+
+| Candidate | exec | match | p50 | p95 |
+| --- | --- | --- | --- | --- |
+| sqlcoder 7B Q4_0 @ NAS ollama (CPU) | 0% | 0% | 120003 ms | 120004 ms |
+| **qwen3-4b @ swarm extract :8902** | **100%** | **75%** | **299 ms** | **676 ms** |
+| glm-5.3-flash @ cloud (budget-2048 re-run) | 92% | 75% | 3348 ms | 60017 ms |
+
+Winner: **qwen3-4b@swarm-extract** — the only row inside the W1218 face
+contract (p95 ≤ 2 s), 100% exec, ties the best match-rate at ~11× the
+cloud's p50; pinned as `groups.sql` in `~/.claude/local-llm/
+upstreams.json`. sqlcoder on NAS CPU is unpinnable for a live face —
+every attempt hit the 120 s bench cap. Cloud measurement note: the
+512-budget first run measured the budget, not the model (thinking
+model emitted zero text blocks); the counted row is the budget-2048
+re-run. n=12 = smoke-class by the fleet quality law — the pin decision
+rides the exec/p95 margins; match-rate miss modes recorded (state-
+filter + provenance-field nuance) in the bench README.
