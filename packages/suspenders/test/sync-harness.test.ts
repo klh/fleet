@@ -123,6 +123,10 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 			"packages/suspenders/hooks/board/prompt-transform.ts",
 			'throw new Error("bad runtime import");',
 		);
+	// W1256.1: the closure-walk entry faces (sync-harness CLOSURE_ENTRIES) must
+	// exist for the tripwire walk — fake faces, same paths as the real payload.
+	for (const file of ["router-shim.ts", "supervisor.ts", "dashboard.ts"])
+		put(`packages/belt/bin/${file}`, "export const value = 1;");
 	put("packages/belt/bin/fixture.ts", "export const value = 1;");
 	put(
 		"packages/buckle/upstreams.yaml",
