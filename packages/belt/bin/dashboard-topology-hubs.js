@@ -5,6 +5,8 @@
 import {
 	hubOverview,
 	hubOverviewLayout,
+	parseTopologyHash,
+	serializeTopologyHash,
 } from "./dashboard-topology-hubs-model.js";
 import { css, html, LitElement, svg } from "./vendor/lit.js";
 
@@ -16,7 +18,7 @@ const localTime = (value) => {
 				month: "2-digit",
 				year: "2-digit",
 				hour: "2-digit",
-			 minute: "2-digit",
+				minute: "2-digit",
 				hour12: false,
 			})
 		: "never observed";
@@ -49,6 +51,8 @@ class BeltTopologyHubs extends LitElement {
 		windowMs: { state: true },
 		query: { state: true },
 		selectedId: { state: true },
+		team: { state: true },
+		project: { state: true },
 	};
 	static styles = css`
 		:host { display:block; border-block:1px solid var(--klh-edge); margin-block:var(--klh-space-4); padding-block:var(--klh-space-3); }
@@ -108,15 +112,38 @@ class BeltTopologyHubs extends LitElement {
 		this.windowMs = 900_000;
 		this.query = "";
 		this.selectedId = null;
+		this.team = "";
+		this.project = "";
 		this.onData = (event) => {
 			this.topology = event.detail;
 		};
 	}
 	connectedCallback() {
 		super.connectedCallback();
+		// W858.7.33 deep link: the fragment restores layer/window/query/team/
+		// project/hub; the link stays shareable as the viewer navigates.
+		const fromHash = parseTopologyHash(location.hash);
+		if (fromHash.layer) this.layer = fromHash.layer;
+		if (fromHash.window === "1m") this.windowMs = 60_000;
+		if (fromHash.window === "15m") this.windowMs = 900_000;
+		if (fromHash.q) this.query = fromHash.q;
+		if (fromHash.team) this.team = fromHash.team;
+		if (fromHash.project) this.project = fromHash.project;
+		if (fromHash.hub) this.selectedId = fromHash.hub;
 		document.addEventListener("belt-topology-data", this.onData);
 		this.topology =
 			document.querySelector("belt-topology")?.topology ?? this.topology;
+	}
+	syncHash() {
+		const hash = serializeTopologyHash({
+			layer: this.layer,
+			window: this.windowMs === 60_000 ? "1m" : "15m",
+			q: this.query,
+			team: this.team,
+			project: this.project,
+			hub: this.selectedId ?? "",
+		});
+		history.replaceState(null, "", hash || location.pathname + location.search);
 	}
 	disconnectedCallback() {
 		super.disconnectedCallback();
@@ -124,14 +151,17 @@ class BeltTopologyHubs extends LitElement {
 	}
 	onSearch(event) {
 		this.query = event.target.value;
+		this.syncHash();
 	}
 	select(id) {
 		this.selectedId = id;
+		this.syncHash();
 	}
 	onKey(event, id) {
 		if (event.key !== "Enter" && event.key !== " ") return;
 		event.preventDefault();
 		this.selectedId = id;
+		this.syncHash();
 	}
 	focusNode(id) {
 		this.updateComplete.then(() => {
@@ -154,6 +184,11 @@ class BeltTopologyHubs extends LitElement {
 			state: hub.state,
 		}));
 	}
+	axisOptions(hubs, axis) {
+		const names = new Set();
+		for (const hub of hubs) for (const name of hub[axis] ?? []) names.add(name);
+		return [...names].sort((a, b) => a.localeCompare(b));
+	}
 	windowComplete(graph, windowMs) {
 		if (!graph) return false;
 		return windowMs <= 60_000 || graph.totals.requests !== null;
@@ -171,6 +206,10 @@ class BeltTopologyHubs extends LitElement {
 			.filter((trace) => trace.hops.includes(selected.label))
 			.slice(0, 5);
 		const models = this.hubModelsFor()[selected.label] ?? [];
+		// W858.7.33: the server answered 403 topology.scope_denied — say so
+		// instead of a misleading "none reported".
+		const withheld =
+			this.topology?.inventoryWithheld || this.topology?.supervisorWithheld;
 		const tokenNote =
 			selected.tokens.input === null && selected.tokens.output === null
 				? "unreported"
@@ -186,28 +225,36 @@ class BeltTopologyHubs extends LitElement {
 			</dl>
 			<details>
 				<summary>Observed endpoints · ${selected.endpoints.length}</summary>
-				${selected.endpoints.length
-					? html`<ul class="trace-list">${selected.endpoints.map(
-							(item) =>
-								html`<li>${item.label} · ${measure(item.requests)} hops · ${age(item.lastSeenAt)}</li>`,
-						)}</ul>`
-					: html`<p>No endpoint traffic in this window.</p>`}
+				${
+					selected.endpoints.length
+						? html`<ul class="trace-list">${selected.endpoints.map(
+								(item) =>
+									html`<li>${item.label} · ${measure(item.requests)} hops · ${age(item.lastSeenAt)}</li>`,
+							)}</ul>`
+						: html`<p>No endpoint traffic in this window.</p>`
+				}
 			</details>
 			<details>
 				<summary>Model inventory · ${models.length}</summary>
-				${models.length
-					? html`<ul class="trace-list">${models.map(
-							(model) => html`<li>${model}</li>`,
-						)}</ul>`
-					: html`<p>No configured or Belt-served models reported.</p>`}
+				${
+					models.length
+						? html`<ul class="trace-list">${models.map(
+								(model) => html`<li>${model}</li>`,
+							)}</ul>`
+						: withheld
+							? html`<p class="coverage">Local model/lane detail withheld — topology scope required.</p>`
+							: html`<p>No configured or Belt-served models reported.</p>`
+				}
 			</details>
 			<h3>Joined traces</h3>
-			${traces.length
-				? html`<ol class="trace-list">${traces.map(
-						(trace) =>
-							html`<li><code>${trace.id.slice(0, 12)}…</code> · ${trace.hops.join(" → ")} · ${trace.complete ? "complete" : "partial"}</li>`,
-					)}</ol>`
-				: html`<p>No joined trace for this hub.</p>`}
+			${
+				traces.length
+					? html`<ol class="trace-list">${traces.map(
+							(trace) =>
+								html`<li><code>${trace.id.slice(0, 12)}…</code> · ${trace.hops.join(" → ")} · ${trace.complete ? "complete" : "partial"}</li>`,
+						)}</ol>`
+					: html`<p>No joined trace for this hub.</p>`
+			}
 		`;
 	}
 
@@ -225,7 +272,9 @@ class BeltTopologyHubs extends LitElement {
 				</g>`;
 			})}
 			${layout.nodes.map(
-				(node) => svg`<g class="hub-item" role="button" tabindex="0" data-node=${node.id} aria-label=${`${node.label}, ${node.state}, ${node.requests} hops and ${node.failed} failures in the selected window, ${node.endpoints.length} observed endpoints`} @click=${() => this.select(node.id)} @keydown=${(event) => this.onKey(event, node.id)}>
+				(
+					node,
+				) => svg`<g class="hub-item" role="button" tabindex="0" data-node=${node.id} aria-label=${`${node.label}, ${node.state}, ${node.requests} hops and ${node.failed} failures in the selected window, ${node.endpoints.length} observed endpoints`} @click=${() => this.select(node.id)} @keydown=${(event) => this.onKey(event, node.id)}>
 					<rect class=${`hub-card ${node.state === "planned" ? "planned" : ""} ${this.selectedId === node.id ? "selected" : ""}`} x=${node.x} y=${node.y} width="190" height="64" rx="4"></rect>
 					<circle class="hub-dot" cx=${node.x + 14} cy=${node.y + 17} r="3.5" fill=${stateColour(node.state)}></circle>
 					<text class="hub-title" x=${node.x + 24} y=${node.y + 21}>${node.label.length > 21 ? `${node.label.slice(0, 20)}…` : node.label}</text>
@@ -235,7 +284,6 @@ class BeltTopologyHubs extends LitElement {
 			)}
 		</svg>`;
 	}
-
 
 	render() {
 		const data = this.topology;
@@ -256,12 +304,15 @@ class BeltTopologyHubs extends LitElement {
 			layer: this.layer,
 			windowMs: this.windowMs,
 			query: this.query,
+			team: this.team,
+			project: this.project,
 			hubModels: this.hubModelsFor(),
 			configuredHubs: this.configuredHubsFor(data),
 			now: Date.now(),
 		});
 		const layout = hubOverviewLayout(view.hubs, view.links);
-		const selected = view.hubs.find((hub) => hub.id === this.selectedId) ?? null;
+		const selected =
+			view.hubs.find((hub) => hub.id === this.selectedId) ?? null;
 		return html`<section>
 			<h2>Hub topology · ${this.layer} layer</h2>
 			<p role="status">${view.hubs.length} hubs · ${view.links.length} hub links · snapshot updated ${age(view.observedAt)}</p>
@@ -269,25 +320,59 @@ class BeltTopologyHubs extends LitElement {
 				<fieldset>
 					<legend>Layer radios: observed, connected, configured</legend>
 					${["observed", "connected", "configured"].map(
-						(name) => html`<label><input type="radio" name="layer" .checked=${this.layer === name} @change=${() => { this.layer = name; }} />${name}</label>`,
+						(name) =>
+							html`<label><input type="radio" name="layer" .checked=${this.layer === name} @change=${() => {
+								this.layer = name;
+							}} />${name}</label>`,
 					)}
 				</fieldset>
 				<fieldset>
 					<legend>Window radios: 1m, 15m live; 1h, 24h disabled</legend>
-					<label><input type="radio" name="window" .checked=${this.windowMs === 60_000} @change=${() => { this.windowMs = 60_000; }} />1m</label>
-					<label><input type="radio" name="window" .checked=${this.windowMs === 1000 * 900} @change=${() => { this.windowMs = 900_000; }} />15m</label>
+					<label><input type="radio" name="window" .checked=${this.windowMs === 60_000} @change=${() => {
+						this.windowMs = 60_000;
+					}} />1m</label>
+					<label><input type="radio" name="window" .checked=${this.windowMs === 1000 * 900} @change=${() => {
+						this.windowMs = 900_000;
+					}} />15m</label>
 					<label><input type="radio" name="window" disabled title="The snapshot covers a 15m window — longer windows stay disabled rather than guess." />1h</label>
 					<label><input type="radio" name="window" disabled title="The snapshot covers a 15m window — longer windows stay disabled rather than guess." />24h</label>
 				</fieldset>
 				<label class="search">Search
 					<input type="search" .value=${this.query} placeholder="hub or model name" @input=${(event) => this.onSearch(event)} />
 				</label>
+				<fieldset>
+					<legend>Team / project filters</legend>
+					<label>Team
+						<select @change=${(event) => {
+							this.team = event.target.value;
+							this.syncHash();
+						}} aria-label="Filter hubs by team">
+							<option value="">all teams</option>
+							${this.axisOptions(view.hubs, "teams").map((name) => html`<option value=${name} ?selected=${this.team === name}>${name}</option>`)}
+						</select>
+					</label>
+					<label>Project
+						<select aria-label="Filter hubs by project" @change=${(event) => {
+							this.project = event.target.value;
+							this.syncHash();
+						}}>
+							<option value="">all projects</option>
+						${this.axisOptions(view.hubs, "projects").map((name) => html`<option value=${name} ?selected=${this.project === name}>${name}</option>`)}
+						</select>
+					</label>
+				</fieldset>
 			</div>
-			${view.search.length
-				? html`<div class="results">Search hits: ${view.search.map(
-						(hit) => html`<button type="button" @click=${() => { this.select(hit.id); this.focusNode(hit.id); }}>${hit.label}${hit.kind === "model" ? ` via ${hit.via}` : ""}</button>`,
-					)}</div>`
-				: ""}
+			${
+				view.search.length
+					? html`<div class="results">Search hits: ${view.search.map(
+							(hit) =>
+								html`<button type="button" @click=${() => {
+									this.select(hit.id);
+									this.focusNode(hit.id);
+								}}>${hit.label}${hit.kind === "model" ? ` via ${hit.via}` : ""}</button>`,
+						)}</div>`
+					: ""
+			}
 			<p class="crumbs">Estate${selected ? ` › ${selected.label}` : ""}${this.selectedId ? html` <button type="button" @click=${() => this.select("")}>Back to estate</button> ` : ""}</p>
 			<div class="metrics" role="status">
 				<div><strong>${measure(view.estate.hubs)}</strong><small>hubs in view</small></div>
@@ -304,7 +389,8 @@ class BeltTopologyHubs extends LitElement {
 				<caption class="skip">All hubs with inspect buttons</caption>
 				<tbody>
 					${view.hubs.map(
-						(hub) => html`<tr><td>${hub.label}</td><td>${hub.state}</td><td>${measure(hub.requests)} hops</td><td><button type="button" @click=${() => this.select(hub.id)}>Inspect ${hub.label}</button></td></tr>`,
+						(hub) =>
+							html`<tr><td>${hub.label}</td><td>${hub.state}</td><td>${measure(hub.requests)} hops</td><td><button type="button" @click=${() => this.select(hub.id)}>Inspect ${hub.label}</button></td></tr>`,
 					)}
 				</tbody>
 			</table>
@@ -313,14 +399,14 @@ class BeltTopologyHubs extends LitElement {
 				<caption class="skip">All hub links with inspect buttons</caption>
 				<tbody>
 					${view.links.map(
-						(link) => html`<tr><td>${link.from.replace("hub:", "")}</td><td>${link.to.replace("hub:", "")}</td><td>${measure(link.requests)} hops · ${link.evidence}</td><td><button type="button" @click=${() => this.select(link.id)}>Inspect link</button></td></tr>`,
+						(link) =>
+							html`<tr><td>${link.from.replace("hub:", "")}</td><td>${link.to.replace("hub:", "")}</td><td>${measure(link.requests)} hops · ${link.evidence}</td><td><button type="button" @click=${() => this.select(link.id)}>Inspect link</button></td></tr>`,
 					)}
 				</tbody>
 			</table>
 			<p class="coverage">Snapshot window ${windowLabel(this.windowMs)} · projection ${graph.coverage?.projectionAvailable ? "available" : "unavailable"} · ledger ${graph.coverage?.ledgerAvailable ? "available" : "unavailable"} · ${measure(graph.coverage?.tracesReturned)} of ${measure(graph.coverage?.tracesTotal)} traces returned.</p>
 		</section>`;
 	}
-
 }
 
 customElements.define("belt-topology-hubs", BeltTopologyHubs);

@@ -19,6 +19,11 @@ export function observedGraph(payload, now = Date.now()) {
 			label: hub.name,
 			kind: "hub",
 			lastSeenAt: hub.lastSeenAt,
+			// W858.7.33: enterprise attribution rides scoped snapshots only
+			// (server-filtered; the GUI uses it for team/project filters).
+			tenant: typeof hub.tenant === "string" ? hub.tenant : null,
+			teams: Array.isArray(hub.teams) ? hub.teams : [],
+			projects: Array.isArray(hub.projects) ? hub.projects : [],
 		})),
 		...(Array.isArray(snapshot.targets) ? snapshot.targets : []).map(
 			(target) => ({
