@@ -25,6 +25,7 @@ import { pushMainTarget } from "../hooks/gates/bash.ts";
 import type { HookInput } from "../hooks/lib/hookio.ts";
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { gateSpawn } from "./helpers/gate-spawn.ts";
 
 // ---- shared fixture dir (fresh per run, under the repo cwd) ----
 const tmp = mkdtempSync(join(process.cwd(), ".gates-test-"));
@@ -50,32 +51,12 @@ function spawnGate(
 	payload: unknown,
 	env: Record<string, string> = {},
 ) {
-	const pf = join(tmp, `payload-${Math.random().toString(36).slice(2)}.json`);
-	writeFileSync(pf, JSON.stringify(payload));
-	const r = Bun.spawnSync(
-		["bun", join(import.meta.dir, "..", "hooks", "gate.ts"), event],
-		{
-			stdin: Bun.file(pf),
-			stdout: "pipe",
-			stderr: "pipe",
-			env: {
-				...process.env,
-				KLH_SESSION_ROLE: "lane", // W834: tests exercise gate logic, not role
-				...env,
-			},
+	return gateSpawn(event, payload, {
+		env: {
+			KLH_SESSION_ROLE: "lane", // W834: tests exercise gate logic, not role
+			...env,
 		},
-	);
-	rmSync(pf);
-	let json: {
-		hookSpecificOutput?: {
-			permissionDecision?: string;
-			permissionDecisionReason?: string;
-		};
-	} | null = null;
-	try {
-		json = JSON.parse(r.stdout.toString());
-	} catch {}
-	return { code: r.exitCode, json };
+	});
 }
 const decision = (r: ReturnType<typeof spawnGate>) =>
 	r.json?.hookSpecificOutput?.permissionDecision ?? "allow";
