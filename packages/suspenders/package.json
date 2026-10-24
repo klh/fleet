@@ -33,6 +33,7 @@
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.63.0",
-		"acorn": "^8.18.0"
+		"acorn": "^8.18.0",
+		"chromium-bidi": "12.1.0"
 	}
 }
