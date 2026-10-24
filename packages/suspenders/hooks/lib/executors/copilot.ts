@@ -1,6 +1,6 @@
 // hooks/lib/executors/copilot.ts — the copilot CLI adapter (W422 law: one
 // file per agent; specifics verified live in W223/W223.1).
-import type { ExecutorAdapter } from "../../lane.ts";
+import type { ExecutorAdapter } from "../lane.ts";
 
 export const copilotAdapter: ExecutorAdapter = {
 	id: "copilot",
