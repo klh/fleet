@@ -55,6 +55,19 @@ gateway:
   # stream uses the independent idle and total deadlines above.
   request_timeout_s: 120
   first_byte_budget_s: 240
+  # W1260.2 authenticated CONNECT egress (opaque AI TLS relay for the Sing
+  # http outbounds). Fail-closed triad — the endpoint exists only when
+  # enabled AND BUCKLE_CONNECT_TOKEN is set (machine env, 0600, never in
+  # the repo) AND allow is non-empty; otherwise no listener, no egress.
+  # Ports beyond 443 and deny_private:false are deliberate operator acts.
+  connect:
+    enabled: false
+    port: 4103
+    ports: [443]
+    allow: []
+    idle_timeout_s: 300
+    max_tunnels: 64
+    deny_private: true
 
 # W136 §3.2 capability tags — the string hint tag regexps match against
 # (capability_text = tags + wire id). The fix for a must-miss is data, not

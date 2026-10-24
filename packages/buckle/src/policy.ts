@@ -59,6 +59,11 @@ export interface GatewayPolicy {
 	// adapter_config.provider_pool; an unbound pool id or malformed binding
 	// is startup-fatal in the router (fail-closed, never silently off).
 	provider_pools?: Record<string, ProviderPoolPolicy>;
+	// W1260.2 authenticated CONNECT egress (opaque AI TLS relay). Belt
+	// ignores the block (unknown keys tolerated — shared file stays
+	// compatible); buckle starts the endpoint only when enabled AND
+	// BUCKLE_CONNECT_TOKEN is set AND allow is non-empty.
+	connect?: ConnectPolicyBlock;
 }
 
 /** W142 aids policy (routing-policy.yaml `aids:` block). Belt ignores the
@@ -109,6 +114,24 @@ export interface AidsPolicy {
  *  as the `federation.self_report` rule. */
 export interface FederationPolicy {
 	self_report?: { teams?: string[] };
+}
+
+/** W1260.2: routing-policy.yaml `gateway.connect` — the loopback-only
+ *  authenticated CONNECT egress knobs (opaque AI TLS relay for Sing http
+ *  outbounds; C111/C114 contract). Absent = fully inert. */
+export interface ConnectPolicyBlock {
+	enabled?: boolean;
+	port?: number;
+	/** Allowed CONNECT destination ports; the fleet default is 443 only. */
+	ports?: number[];
+	/** AI destination allowlist — "host.tld" matches the host and its
+	 *  subdomains (suffix with boundary). */
+	allow?: string[];
+	idle_timeout_s?: number;
+	max_tunnels?: number;
+	/** SSRF/private/metadata denial. Defaults true; the only sanctioned
+	 *  false is a deliberate machine-config act (fleet E2E harnesses). */
+	deny_private?: boolean;
 }
 
 interface PolicyDoc {
