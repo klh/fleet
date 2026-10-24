@@ -1,0 +1,344 @@
+[
+  {
+    "name": "sqlcoder@nas-ollama",
+    "kind": "local-nas",
+    "execRate": 0,
+    "matchRate": 0,
+    "p50Ms": 120003,
+    "p95Ms": 120004,
+    "attempts": [
+      {
+        "q": "Q01",
+        "lang": "en",
+        "ms": 120003,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "The operation timed out."
+      },
+      {
+        "q": "Q02",
+        "lang": "en",
+        "ms": 120003,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "The operation timed out."
+      },
+      {
+        "q": "Q03",
+        "lang": "en",
+        "ms": 120001,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "The operation timed out."
+      },
+      {
+        "q": "Q04",
+        "lang": "en",
+        "ms": 120004,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "The operation timed out."
+      },
+      {
+        "q": "Q05",
+        "lang": "da",
+        "ms": 120003,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "The operation timed out."
+      },
+      {
+        "q": "Q06",
+        "lang": "da",
+        "ms": 120002,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "The operation timed out."
+      },
+      {
+        "q": "Q07",
+        "lang": "en",
+        "ms": 120003,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "The operation timed out."
+      },
+      {
+        "q": "Q08",
+        "lang": "en",
+        "ms": 120001,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "The operation timed out."
+      },
+      {
+        "q": "Q09",
+        "lang": "da",
+        "ms": 120003,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "The operation timed out."
+      },
+      {
+        "q": "Q10",
+        "lang": "en",
+        "ms": 120003,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "The operation timed out."
+      },
+      {
+        "q": "Q11",
+        "lang": "da",
+        "ms": 120001,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "The operation timed out."
+      },
+      {
+        "q": "Q12",
+        "lang": "en",
+        "ms": 120003,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "The operation timed out."
+      }
+    ]
+  },
+  {
+    "name": "qwen3-4b@swarm-extract",
+    "kind": "local-swarm",
+    "execRate": 1,
+    "matchRate": 0.75,
+    "p50Ms": 299,
+    "p95Ms": 676,
+    "attempts": [
+      {
+        "q": "Q01",
+        "lang": "en",
+        "ms": 229,
+        "sql": "SELECT COUNT(*) FROM knowledge WHERE state = 'active'",
+        "valid": true,
+        "match": true
+      },
+      {
+        "q": "Q02",
+        "lang": "en",
+        "ms": 334,
+        "sql": "SELECT \n    COUNT(*) AS claim_count, \n    AVG(confidence) AS average_confidence\nFROM knowledge_claims\nWHERE tombstone = 1",
+        "valid": true,
+        "match": true
+      },
+      {
+        "q": "Q03",
+        "lang": "en",
+        "ms": 293,
+        "sql": "SELECT topic, fact \nFROM knowledge \nWHERE state = 'active' \nORDER BY confidence DESC \nLIMIT 5",
+        "valid": true,
+        "match": true
+      },
+      {
+        "q": "Q04",
+        "lang": "en",
+        "ms": 388,
+        "sql": "SELECT \n    kc.origin_machine, \n    COUNT(*) AS claim_count\nFROM \n    knowledge_claims kc\nWHERE \n    kc.origin_machine IS NOT NULL\nGROUP BY \n    kc.origin_machine",
+        "valid": true,
+        "match": false
+      },
+      {
+        "q": "Q05",
+        "lang": "da",
+        "ms": 382,
+        "sql": "SELECT \n    COUNT(*) AS total_claims, \n    COUNT(CASE WHEN tombstone = 0 THEN 1 END) AS non_tombstoned_claims\nFROM knowledge_claims",
+        "valid": true,
+        "match": true
+      },
+      {
+        "q": "Q06",
+        "lang": "da",
+        "ms": 299,
+        "sql": "SELECT topic \nFROM knowledge \nWHERE state = 'candidate' \nORDER BY updated_at DESC \nLIMIT 5",
+        "valid": true,
+        "match": false
+      },
+      {
+        "q": "Q07",
+        "lang": "en",
+        "ms": 256,
+        "sql": "SELECT COUNT(*) \nFROM knowledge_claims \nWHERE claim_hash = 'w-l2'",
+        "valid": true,
+        "match": false
+      },
+      {
+        "q": "Q08",
+        "lang": "en",
+        "ms": 260,
+        "sql": "SELECT COUNT(DISTINCT topic) \nFROM knowledge \nWHERE origin_kind = 'lane'",
+        "valid": true,
+        "match": true
+      },
+      {
+        "q": "Q09",
+        "lang": "da",
+        "ms": 372,
+        "sql": "SELECT \n    COUNT(*) AS open_retirement_proposals, \n    MAX(score) AS highest_score\nFROM knowledge_proposals\nWHERE kind = 'retire' AND state = 'open'",
+        "valid": true,
+        "match": true
+      },
+      {
+        "q": "Q10",
+        "lang": "en",
+        "ms": 365,
+        "sql": "SELECT claim, confidence \nFROM knowledge_claims \nWHERE evidence_id = 'w-l1' \n  AND tombstone = 0 \nORDER BY confidence DESC \nLIMIT 3",
+        "valid": true,
+        "match": true
+      },
+      {
+        "q": "Q11",
+        "lang": "da",
+        "ms": 278,
+        "sql": "SELECT source, COUNT(*) AS count\nFROM knowledge\nGROUP BY source\nORDER BY count DESC",
+        "valid": true,
+        "match": true
+      },
+      {
+        "q": "Q12",
+        "lang": "en",
+        "ms": 676,
+        "sql": "SELECT \n    kc.claim,\n    kc.confidence,\n    k.topic\nFROM knowledge_claims kc\nJOIN knowledge k ON kc.evidence_id = 'w-l1' || '-' || k.id\nWHERE kc.evidence_id LIKE 'w-l1-%'\n  AND k.id = CAST(SUBSTR(kc.evidence_id, INSTR(kc.evidence_id, '-') + 1) AS INTEGER)",
+        "valid": true,
+        "match": true
+      }
+    ]
+  },
+  {
+    "name": "glm-5.3-flash@cloud",
+    "kind": "cloud",
+    "execRate": 0,
+    "matchRate": 0,
+    "p50Ms": 3707,
+    "p95Ms": 15599,
+    "attempts": [
+      {
+        "q": "Q01",
+        "lang": "en",
+        "ms": 2901,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "anthropic-wire: no text"
+      },
+      {
+        "q": "Q02",
+        "lang": "en",
+        "ms": 4042,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "anthropic-wire: no text"
+      },
+      {
+        "q": "Q03",
+        "lang": "en",
+        "ms": 4324,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "anthropic-wire: no text"
+      },
+      {
+        "q": "Q04",
+        "lang": "en",
+        "ms": 13914,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "anthropic-wire: no text"
+      },
+      {
+        "q": "Q05",
+        "lang": "da",
+        "ms": 3707,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "anthropic-wire: no text"
+      },
+      {
+        "q": "Q06",
+        "lang": "da",
+        "ms": 10528,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "anthropic-wire: no text"
+      },
+      {
+        "q": "Q07",
+        "lang": "en",
+        "ms": 12291,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "anthropic-wire: no text"
+      },
+      {
+        "q": "Q08",
+        "lang": "en",
+        "ms": 2420,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "anthropic-wire: no text"
+      },
+      {
+        "q": "Q09",
+        "lang": "da",
+        "ms": 3343,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "anthropic-wire: no text"
+      },
+      {
+        "q": "Q10",
+        "lang": "en",
+        "ms": 2591,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "anthropic-wire: no text"
+      },
+      {
+        "q": "Q11",
+        "lang": "da",
+        "ms": 2916,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "anthropic-wire: no text"
+      },
+      {
+        "q": "Q12",
+        "lang": "en",
+        "ms": 15599,
+        "sql": "",
+        "valid": false,
+        "match": false,
+        "error": "anthropic-wire: no text"
+      }
+    ]
+  }
+]
