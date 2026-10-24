@@ -224,3 +224,22 @@ item and would reproduce the original backend refusal. All-system input has a
 separate native fallback with the same outcome. Six new regression cases failed
 before the correction; these orders now typed-refuse before fetch rather than
 folding, reordering or dropping instructions. No provider probe was used.
+
+# W1266.1 - 50-way productive Coding Plan concurrency did not materialize, and the first runner had four measurement defects
+
+The owner-requested 8/16/24/32/40/50 long-work ramps did not reach 40/50
+productive streams: every level above 8 accepted only ~9 simultaneous
+generations before provider HTTP429/1302, at any spacing (2s/5s) and any
+max_tokens (4096/16384), while a spaced short control passed 16/16. The
+Buckle route fared worse than direct under pressure (2/40 accepted, zero
+terminals, 372 s wall) because the spoke's own rate feedback paced
+zai-coding-account at adaptiveGapMs 24.4 s with 28 queued and active=1 —
+the gateway serialized its queue instead of relaying provider pressure.
+Runner defects fixed along the way: new URL("/v1/messages", prefix-base)
+discarded /api/anthropic and 404'd every direct leg; buckle hops need /v1
+prefixed chat/responses paths; the 64 KB terminal scan missed tail frames on
+streams >64 KB; the gate maps mint key_id (parsing id left a scoped test key
+stranded until manual revocation — revoke is now fail-closed). 50 remains
+unproven; the measured practical ceiling is ~8-9 active long-work
+generations direct, and the gate pacing bottleneck is the next repair
+target (coordinator evidence #69199, minted as W1273).
