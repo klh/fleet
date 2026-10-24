@@ -17,6 +17,7 @@ import {
 	resolvePromptSettings,
 	takePlan,
 } from "../hooks/board/prompt-transform.ts";
+import { buckleChat } from "../hooks/lib/inference-buckle.ts";
 import { validateBoardSettings } from "../hooks/lib/board-config.ts";
 
 // W1119 stub credential pair — the knowledge-buckle contract both-or-neither
@@ -287,6 +288,32 @@ describe("enhance through the gate (W1119)", () => {
 		expect(url).toBe("http://127.0.0.1:4321/v1/messages");
 		expect(r.ok).toBe(true);
 		expect(r.model).toBe(ENHANCE_MODEL);
+	});
+});
+describe("enhancePrompt (openai wire, W288)", () => {
+	test("openai wire folds system into messages, parses choices[].message", async () => {
+		let body = "";
+		const r = await buckleChat(
+			{
+				model: "local-extract",
+				system: "sys prompt",
+				user: "add csv",
+				wire: "openai",
+				fetcher: (async (_input: unknown, init?: RequestInit) => {
+					body = String(init?.body ?? "");
+					return Response.json({
+						choices: [{ message: { content: "Add CSV export." } }],
+					});
+				}) as unknown as typeof fetch,
+			},
+			{ ...GATE_ENV },
+		);
+		expect(r.text).toBe("Add CSV export.");
+		const wire = JSON.parse(body) as {
+			messages?: { role: string; content: unknown }[];
+		};
+		expect(wire.messages?.[0]?.role).toBe("system");
+		expect(wire.messages?.at(-1)).toMatchObject({ role: "user" });
 	});
 });
 
