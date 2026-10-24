@@ -23,6 +23,7 @@ import {
 	type StepStatus,
 } from "./install-contract.ts";
 import { registerLaunchd } from "./install-launchd.ts";
+import { wireConnections } from "./install-connections.ts";
 import {
 	downloadModels,
 	refreshSupervisor,
@@ -416,6 +417,7 @@ const impls: Partial<Record<StepName, StepImpl>> = {
 	ensureShims,
 	migrateConf,
 	wireSettings,
+	wireConnections,
 	registerCaddy,
 	registerSkills,
 	releaseNotify,

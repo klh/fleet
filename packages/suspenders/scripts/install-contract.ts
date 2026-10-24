@@ -22,6 +22,7 @@ export type StepName =
 	| "seedLocalLlm"
 	| "downloadModels"
 	| "wireSettings"
+	| "wireConnections"
 	| "upgradeGateway"
 	| "registerLaunchd"
 	| "registerCaddy"
@@ -106,6 +107,8 @@ export interface InstallContract {
 	/** environment knobs, PATH/default pointers only — never values */
 	env: {
 		SUSPENDERS_PREFIX: ContractEnv;
+		SUSPENDERS_CONNECTIONS_FILE: ContractEnv;
+		SUSPENDERS_DEFAULT_HUB: ContractEnv;
 		SUSPENDERS_SHIM_BIN: ContractEnv;
 		BELT_URL: ContractEnv;
 		BELT_TOKEN: ContractEnv;
@@ -156,6 +159,12 @@ export const INSTALL_CONTRACT = {
 				prompt: "wire hooks into ~/.claude/settings.json?",
 				unattended:
 					"native: the default plan merges user-level settings (env/auth preserved); --wire consents to that plan in one flag; --wire-repo <path> wires a repo's project settings",
+			},
+			{
+				prompt:
+					"Proxy desktop GUIs (VS Code, ChatGPT, Claude) through the hub? [Y/n]",
+				unattended:
+					"the wireConnections step answers it: existing connections.json is never overwritten (face re-applies only); absent file + --yes writes the mode-600 template (default hub = SUSPENDERS_DEFAULT_HUB or the first stack.yaml profile; ChatGPT off per W1231); without --yes the step pauses with a resume_command",
 			},
 			{
 				prompt: "install the macOS launchd agents?",
@@ -271,6 +280,16 @@ export const INSTALL_CONTRACT = {
 			meaning: "harness install target",
 			default: "~/.claude/hooks/suspenders",
 		},
+		SUSPENDERS_CONNECTIONS_FILE: {
+			meaning:
+				"W1234 connections.json PATH override (default ~/.fleet/config/connections.json, mode 600)",
+			default: "~/.fleet/config/connections.json",
+		},
+		SUSPENDERS_DEFAULT_HUB: {
+			meaning:
+				"default hub label stamped into a freshly written connections.json (else the first stack.yaml hub profile)",
+			default: "",
+		},
 		SUSPENDERS_SHIM_BIN: {
 			meaning: "where the coord/work/dispatch shims are written",
 			default: "~/.local/bin",
@@ -371,6 +390,14 @@ export const INSTALL_CONTRACT = {
 			name: "wireSettings",
 			oneLiner:
 				"merge the hooks block into ~/.claude/settings.json (default-plan step: hooks merge only — existing env/auth is preserved, never rewritten) or a repo's project settings (--wire-repo <path>) — per-event merge, never clobber",
+			mutates: true,
+			optIn: false,
+			v1: "real",
+		},
+		{
+			name: "wireConnections",
+			oneLiner:
+				"ask 'Proxy desktop GUIs (VS Code, ChatGPT, Claude) through the hub? [Y/n]': yes writes ~/.fleet/config/connections.json (mode 600, NEVER overwritten when present) + applies the launchctl setenv face; idempotent",
 			mutates: true,
 			optIn: false,
 			v1: "real",
