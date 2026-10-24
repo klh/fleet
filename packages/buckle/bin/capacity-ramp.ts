@@ -17,8 +17,8 @@
 //     [--levels 8,16,24,32,40,50] [--gap-ms 200] [--model glm-5.3-flash] \
 //     [--work long|short] [--key-file ~/.claude/local-llm/zai.key] \
 //     [--key-env ZAI_CODING_PLAN_KEY] [--admin-env BUCKLE_ADMIN_KEY] \
-//     [--buckle http://127.0.0.1:4101] [--admin-hops <spoke>,<hub>] \
-//     [--out /tmp/w1266-capacity-<ts>.jsonl]
+//     [--buckle http://127.0.0.1:4101] [--buckle-protos anthropic,chat,responses] \
+//     [--admin-hops <url[@ENV_NAME]>,...] [--out /tmp/w1266-capacity-<ts>.jsonl]
 import { createHash } from "node:crypto";
 import { appendFileSync, readFileSync } from "node:fs";
 import https from "node:https";
@@ -37,6 +37,13 @@ interface Args {
 	adminHops: string;
 	preset: string;
 	legs: string;
+	/** which protocols the buckle group rides (focused runs pick one) */
+	buckleProtos: string;
+	/** TOTAL per-request deadline cap (ms). Node req.setTimeout is socket
+	 *  INACTIVITY — continuous SSE never trips it — so long-work jobs get a
+	 *  separate bounded wall clock; 0 disables. Timed-out rows carry
+	 *  errCode=request_timeout and are counted apart (never a provider limit). */
+	timeoutMs: number;
 	work: boolean;
 	out: string | null;
 }
@@ -194,6 +201,7 @@ interface FireOpts {
 	level: number;
 	seq: number;
 	work: boolean;
+	timeoutMs: number;
 	live: Live;
 	maxSockets: number;
 }
@@ -443,7 +451,7 @@ function rowFor(
 	});
 }
 
-const errorRow = (opts: FireOpts, t0: number): Row =>
+const errorRow = (opts: FireOpts, t0: number, code = "transport_error"): Row =>
 	rowOf({
 		leg: opts.leg,
 		protocol: opts.protocol,
@@ -455,7 +463,7 @@ const errorRow = (opts: FireOpts, t0: number): Row =>
 		tHeadersMs: null,
 		tEndMs: Date.now() - t0,
 		status: null,
-		errCode: "transport_error",
+		errCode: code,
 	});
 
 /** One genuinely concurrent request over its own socket (keepAlive=false,
@@ -495,6 +503,16 @@ function fireRequest(opts: FireOpts): Promise<Row> {
 			req.destroy();
 			resolve(errorRow(opts, t0));
 		});
+		// bounded TOTAL deadline (--timeout-ms; 0 = off). Unlike the inactivity
+		// guard above, this fires even on a healthy SSE stream — timed-out
+		// rows are counted apart and never reported as provider limits.
+		if (opts.timeoutMs > 0) {
+			const deadline = setTimeout(() => {
+				req.destroy();
+				resolve(errorRow(opts, t0, "request_timeout"));
+			}, opts.timeoutMs);
+			deadline.unref();
+		}
 		req.on("error", () => resolve(errorRow(opts, t0)));
 		req.end(body);
 	});
@@ -510,6 +528,7 @@ interface LevelOpts {
 	maxTokens: number;
 	maxOutputTokens: number;
 	work: boolean;
+	timeoutMs: number;
 	level: number;
 	gapMs: number;
 }
@@ -646,6 +665,8 @@ interface LevelSummary {
 	entitlement1311: number;
 	localRefused: number;
 	transportError: number;
+	/** --timeout-ms total-deadline kills; never a provider limit */
+	requestTimeout: number;
 	uniqueSockets: number;
 	peakSockets: number;
 	peakAccepted: number;
@@ -696,6 +717,7 @@ function summarize(
 		entitlement1311: count((r) => r.errCode === "1311"),
 		localRefused: count((r) => r.status === 429 && r.errCode === null),
 		transportError: count((r) => r.errCode === "transport_error"),
+		requestTimeout: count((r) => r.errCode === "request_timeout"),
 		uniqueSockets: new Set(
 			rows.map((r) => r.socketPort).filter((p) => p !== null),
 		).size,
@@ -716,7 +738,8 @@ const renderLine = (s: LevelSummary): string =>
 	`[${s.leg} L${s.level} gap${s.gapMs}] att=${s.attempted} 2xx=${s.accepted2xx} ` +
 	`done=${s.terminalCompleted} f200fail=${s.http200Failed} ` +
 	`429=${s.provider429} rate1302=${s.code1302} 1311=${s.entitlement1311} ` +
-	`locrej=${s.localRefused} sock=${s.uniqueSockets}/${s.peakSockets} ` +
+	`locrej=${s.localRefused} reqto=${s.requestTimeout} ` +
+	`sock=${s.uniqueSockets}/${s.peakSockets} ` +
 	`acc=${s.peakAccepted} prod=${s.peakProducing} mrk=${s.markerOk} ` +
 	`sub=${s.substantive} tput=${s.throughputBps}B/s wall=${s.wallMs}ms`;
 
@@ -847,6 +870,7 @@ interface RampCtx {
 	maxTokens: number;
 	maxOutputTokens: number;
 	work: boolean;
+	timeoutMs: number;
 	admin: string | null;
 	hops: { base: string; env: string }[];
 	out: string;
@@ -874,6 +898,7 @@ async function runLevelOnce(
 		maxTokens: ctx.maxTokens,
 		maxOutputTokens: ctx.maxOutputTokens,
 		work: ctx.work,
+		timeoutMs: ctx.timeoutMs,
 		level,
 		gapMs: ctx.gapMs,
 	});
@@ -961,6 +986,8 @@ const parseArgs = (argv: string[]): Args => ({
 		"http://127.0.0.1:4101,http://127.0.0.1:4301",
 	preset: argOf(argv, "--preset") ?? "coding-plan",
 	legs: argOf(argv, "--legs") ?? "",
+	buckleProtos: argOf(argv, "--buckle-protos") ?? "anthropic,chat,responses",
+	timeoutMs: Number(argOf(argv, "--timeout-ms") ?? "0") || 0,
 	work: (argOf(argv, "--work") ?? "long") !== "short",
 	out: argOf(argv, "--out") ?? `/tmp/w1266-capacity-${Date.now()}.jsonl`,
 });
@@ -980,6 +1007,7 @@ async function main(): Promise<number> {
 		maxTokens: args.maxTokens,
 		maxOutputTokens: args.maxTokens,
 		work: args.work,
+		timeoutMs: args.timeoutMs,
 		admin,
 		hops:
 			admin === null
@@ -1011,12 +1039,14 @@ async function runRamps(
 		console.error("buckle: key mint failed — skipping buckle legs");
 	if (args.buckle !== null && minted !== null)
 		groups.push({
-			legs: (["anthropic", "chat", "responses"] as const).map((p) => ({
-				leg: `buckle-${p}`,
-				protocol: p,
-				base: args.buckle,
-				hop: true,
-			})),
+			legs: (["anthropic", "chat", "responses"] as const)
+				.filter((p) => args.buckleProtos.split(",").includes(p))
+				.map((p) => ({
+					leg: `buckle-${p}`,
+					protocol: p,
+					base: args.buckle,
+					hop: true,
+				})),
 			key: minted.key,
 		});
 	return finishRamps(args, admin, minted, ctx, groups);
