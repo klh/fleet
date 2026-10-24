@@ -103,6 +103,16 @@ succeed. Public pricing also lists image, audio, and other models that may
 not appear in this account's chat catalog. They are not added as Buckle chat
 routes.
 
+Inference must target the Coding Plan wire bases — Anthropic Messages
+`https://api.z.ai/api/anthropic`, OpenAI Chat Completions
+`https://api.z.ai/api/coding/paas/v4`, OpenAI Responses
+`https://api.z.ai/api/v1` — never the general `/api/paas/v4`. Buckle's
+outbound guard (`adapter_config.blocked_outbound`) refuses the general
+endpoint for guarded deployments before any network call, but a hub riding
+LiteLLM hides its outbound leg behind the proxy, so the LiteLLM `api_base`
+of the zai remote must itself stay on a Coding Plan base — the generated
+rows carry the operator's base verbatim.
+
 On a local Docker hub, declare these machine-level fields in its
 `stack.yaml` profile:
 
