@@ -2,7 +2,7 @@
 // consolidation law: executor specifics are overlay rows, one file per
 // agent — a claude fix never touches copilot's file, and a new agent is
 // one adapter file + one registry row in registry.ts).
-import type { ExecutorAdapter } from "../../lane.ts";
+import type { ExecutorAdapter } from "../lane.ts";
 import { join } from "node:path";
 
 // The tool-permission recipe: lived in hooks/lib/lane.ts as
