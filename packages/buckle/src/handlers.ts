@@ -17,6 +17,13 @@ import {
 	parsePreferHeader,
 } from "../../telemetry/src/prefer-header.ts";
 import { RouterError } from "./adapters/errors.ts";
+import {
+	type AcctContext,
+	type AccountPolicyDoc,
+	applyAccountPolicy,
+	REPO_CLAIM_HEADER,
+	scopeSelection,
+} from "./account-policy.ts";
 import { resolveAdapter } from "./adapters/index.ts";
 import type { RpcAdmission } from "./admission.ts";
 import {
@@ -90,7 +97,13 @@ import { repoPolicyRoutes } from "./repo-policy-routes.ts";
 import { type ExecuteResult, type Router, UpstreamError } from "./router.ts";
 import type { Servicemon } from "./servicemon.ts";
 import { SseSniffer, sseReframer } from "./sse.ts";
-import { blackHole, once, scrubText, terminalOf, writeErrorEvent } from "./stream-terminal.ts";
+import {
+	blackHole,
+	once,
+	scrubText,
+	terminalOf,
+	writeErrorEvent,
+} from "./stream-terminal.ts";
 import {
 	allowlistedBaggage,
 	newTraceparent,
@@ -144,6 +157,10 @@ export interface AppDeps {
 	// W7 repo-policy gate: the loaded rows (absent/empty = engine inert);
 	// the route 404s honestly when unwired.
 	repoPolicy?: RepoPolicyRow[];
+	// W1265.1 account policy: the loaded repo-tier class table (null = the
+	// boundary is inert — no policy configured; gate-off + active policy is
+	// still fail-closed in proxy()). Optional — bare deps (testDeps, dev).
+	accountPolicy?: AccountPolicyDoc | null;
 	// W237 prefix-affinity: the prefix → candidate memo. Optional — bare
 	// deps (testDeps, dev) route without affinity and the seam no-ops.
 	affinity?: PrefixAffinity;
@@ -287,6 +304,9 @@ interface Ctx {
 	tier: string;
 	t0: number;
 	sel?: RouteSelection;
+	/** W1265.1: the resolved account context (undefined = policy inert for
+	 *  this request — no class table, no pin). */
+	acct?: AcctContext;
 	/** W5: the request declared `condense-in` in its x-belt-aids stanza. */
 	condenseIn: boolean;
 	/** W237: packet-prefix key (null = no packet block, no affinity). */
@@ -351,6 +371,9 @@ function deny(
 		why,
 		hop: hopKindOf(ctx.hop),
 		traffic_kind: ctx.trafficKind,
+		repo_hash: ctx.acct?.repoHash ?? null,
+		account_tier: ctx.acct?.tier ?? null,
+		key_name: ctx.acct?.keyName ?? null,
 	});
 	if (ctx.admitted)
 		observe(deps, ctx, "lane.request.ended", { outcome: decision, status });
@@ -500,6 +523,21 @@ async function proxy(
 	ctx.hint = hint.hint;
 	ctx.hintRaw = hint.raw;
 	ctx.tier = scoreComplexity(textFromMessages(body.messages)).tier;
+	// W1265.1 account policy: resolve the verified repo/workspace identity +
+	// allowed account tier from the AUTHENTICATED key (the trusted mint name
+	// — never the client-supplied claim header, never process/TLS inference)
+	// BEFORE any routing. A refusal here is a typed local 4xx, zero outbound.
+	const principal = principalOf(req);
+	const verdict = applyAccountPolicy(deps.accountPolicy ?? null, {
+		kind: principal?.kind ?? null,
+		keyName: principal?.name ?? null,
+		claimRepo: req.headers.get(REPO_CLAIM_HEADER),
+		pin: pin ?? null,
+		group: model,
+	});
+	if (!verdict.ok)
+		return deny(deps, ctx, verdict.status, verdict.why, verdict.code, "denied");
+	if (verdict.acct !== undefined) ctx.acct = verdict.acct;
 	const sel = deps.decide({
 		group: model,
 		dialect,
@@ -525,7 +563,14 @@ async function proxy(
 			"errored",
 		);
 	}
-	ctx.sel = sel.sel;
+	// W1265.1: confine the walked selection to entitled rows — the router
+	// walks sel.ordered, so a scoped list makes cross-boundary fallback
+	// structurally impossible (no entitled-set exit crossing the class
+	// boundary). Scoped to zero = typed refusal, zero outbound.
+	const scoped = scopeSelection(sel.sel, ctx.acct);
+	if (!scoped.ok)
+		return deny(deps, ctx, scoped.status, scoped.why, scoped.code, "errored");
+	ctx.sel = scoped.sel;
 	return runExecute(req, ctx, path, body, deps);
 }
 
@@ -579,6 +624,9 @@ async function runExecute(
 		why: sel.why,
 		hop: hopKindOf(ctx.hop),
 		traffic_kind: ctx.trafficKind,
+		repo_hash: ctx.acct?.repoHash ?? null,
+		account_tier: ctx.acct?.tier ?? null,
+		key_name: ctx.acct?.keyName ?? null,
 	});
 	deps.table.inflight(sel.head.candidate_id, 1);
 	markInflight(ctx); // W1259: model + selected upstream visible mid-flight
@@ -1183,7 +1231,6 @@ function streamResponse(
 	});
 }
 
-
 /** One completed proxied request → ledger row + servicemon token counters.
  *  usage null = honest unknown: the requests column still increments, token
  *  columns contribute nothing, servicemon gets an explicit counter.
@@ -1304,7 +1351,8 @@ export function createApp(deps: AppDeps): App {
 		// W1265 named bases (/anthropic, /openai, /zai/*) — guard answers first
 		// (typed local 4xx, zero outbound), legacy bare /v1 paths verbatim.
 		const named = namedIngressOf(path);
-		if (named !== null) return handleNamedIngress(named, req, method, deps, proxy);
+		if (named !== null)
+			return handleNamedIngress(named, req, method, deps, proxy);
 		const laneRoute = lanePrefixOf(path);
 		if (laneRoute.lane !== "") {
 			const inner = laneRoute.path;
