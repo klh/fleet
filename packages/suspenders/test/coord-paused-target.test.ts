@@ -5,41 +5,20 @@
 // DB open and CLI run happens in a bun subprocess so the parent test process
 // never opens the real governor.db (coord-events.test.ts recipe).
 import { describe, expect, test, afterAll } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 
-const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
-const home = mkdtempSync(join(tmpdir(), "suspenders-w885-paused-target-"));
+const fx = cliFixture("w885-paused-target");
 const SID = "w885-paused-sess-11111111";
 const SHA = "a".repeat(40);
 
-afterAll(() => rmSync(home, { recursive: true, force: true }));
+afterAll(() => fx.cleanup());
 
-const runIn = (code: string): string => {
-	const p = Bun.spawnSync(["bun", "-e", code], {
-		env: { ...process.env, HOME: home },
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	if (p.exitCode !== 0)
-		throw new Error(`spawn failed: ${new TextDecoder().decode(p.stderr)}`);
-	return new TextDecoder().decode(p.stdout);
-};
+const runIn = (code: string): string => fx.seed(code);
 
-const runCli = (args: string[]): { code: number; out: string; err: string } => {
-	const p = Bun.spawnSync(["bun", COORD, ...args], {
-		env: { ...process.env, HOME: home },
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	return {
-		code: p.exitCode,
-		out: new TextDecoder().decode(p.stdout),
-		err: new TextDecoder().decode(p.stderr),
-	};
-};
+const runCli = (args: string[]): { code: number; out: string; err: string } =>
+	fx.run("coord.ts", args);
 
 // read rows via a subprocess import — never open the real governor.db here
 const sql = <T>(statement: string, ...params: string[]): T[] =>
