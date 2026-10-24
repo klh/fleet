@@ -24,6 +24,11 @@ import {
 	reviewRequestKey,
 } from "../lib/review-scheduler.ts";
 import {
+	TEST_FILE,
+	missingImportsExplained,
+	type Proof,
+} from "../lib/coverage-proof.ts";
+import {
 	adminKey,
 	BUCKLE_FRONT,
 	mintLaneKey,
@@ -368,16 +373,8 @@ async function runLeg(): Promise<string> {
 // the branch's new tests are run there: tests that pass without the change
 // are out of scope or wrong, so a PASS with no failing new test is downgraded
 // to FAIL. The evidence annotates the verdict.
-type Proof = {
-	status: "proved" | "no-coverage" | "skipped" | "error";
-	detail: string;
-	failed?: number;
-	passed?: number;
-};
-
-// test paths only: the proof keeps these, reverses everything else
-const TEST_FILE =
-	/(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(test|spec)_/;
+// W1262: Proof/TEST_FILE and the missing-module classification live in
+// hooks/lib/coverage-proof.ts (unit face for the classifier).
 
 const PROOF_TIMEOUT_MS = 5 * 60_000;
 
@@ -393,6 +390,20 @@ async function coverageProof(branch: string): Promise<Proof> {
 		.filter((f) => TEST_FILE.test(f));
 	if (testFiles.length === 0)
 		return { status: "skipped", detail: "no test files in diff" };
+	// W1262 (W1258 regression): reverse-applying the diff removes exactly the
+	// modules the diff ADDED — a restored new test importing one fails right
+	// there. That failure is the proof itself (the change is what provides the
+	// module), so it must not classify as an environmental error; only missing
+	// imports that resolve to NOTHING the diff added stay environmental.
+	const addedProd = gitRun([
+		"diff",
+		"--name-only",
+		"--diff-filter=A",
+		`main...${branch}`,
+	])
+		.out.trim()
+		.split("\n")
+		.filter((f) => f && !TEST_FILE.test(f));
 
 	const scratch = mkdtempSync(join(tmpdir(), "review-proof-"));
 	let added = false;
@@ -436,8 +447,16 @@ async function coverageProof(branch: string): Promise<Proof> {
 		clearTimeout(timer);
 		await p.exited;
 		const output = `${outText}\n${errText}`;
-		if (/Cannot find (package|module)/.test(output))
-			return { status: "error", detail: "scratch module resolution failed" };
+		if (/Cannot find (package|module)/.test(output)) {
+			// W1262 (W1258 regression): a missing import that names a module the
+			// diff ADDED means the reversed change is what provides the module —
+			// the failure is the proof. Only an unexplained one is environmental.
+			if (!missingImportsExplained(output, addedProd, testFiles))
+				return {
+					status: "error",
+					detail: "scratch module resolution failed",
+				};
+		}
 		// the trailing bun summary is the machine-readable part
 		const counts = (word: string): number => {
 			const hits = [...output.matchAll(new RegExp(`(\\d+) ${word}\\b`, "g"))];
