@@ -382,6 +382,182 @@ test("aggregate: a foreign re-assertion never merges into a private row (W1213.1
 	expect(aPrivate?.originMachine).toBe("machine-a");
 	expect(aPrivate?.provenance).toEqual([{ machine: "machine-a", ts: 100 }]);
 });
+// ─── W1213.3: tombstone replay monotonicity + idempotency ──────────────────
+
+test("aggregate: stale tombstone replay cannot re-hide a revived claim (B3)", () => {
+	const db = new Database(":memory:");
+	const body = {
+		evidenceId: "ev-b3",
+		claim: "contested claim",
+		confidence: 0.8,
+	};
+	aggregateClaims(db, [{ ...body, ts: 100 }], "machine-a", { now: 1000 });
+	aggregateClaims(db, [{ ...body, ts: 200, tombstone: true }], "machine-b", {
+		now: 2000,
+	});
+	aggregateClaims(db, [{ ...body, ts: 300 }], "machine-a", { now: 3000 });
+	expect(claimAggregateView(db).claims).toHaveLength(1);
+	// replay of the identical pre-revive tombstone: stale, no re-hide
+	const replay = aggregateClaims(
+		db,
+		[{ ...body, ts: 200, tombstone: true }],
+		"machine-b",
+		{ now: 4000 },
+	);
+	expect(replay.counts?.stale).toBe(1);
+	expect(replay.counts?.tombstoned).toBe(0);
+	// a third machine replaying it too: same verdict, still no re-hide
+	const replay2 = aggregateClaims(
+		db,
+		[{ ...body, ts: 200, tombstone: true }],
+		"machine-c",
+		{ now: 5000 },
+	);
+	expect(replay2.counts?.stale).toBe(1);
+	// the row stays live with exactly the three original provenance entries
+	const withT = claimAggregateView(db, { includeTombstones: true });
+	expect(withT.claims).toHaveLength(1);
+	expect(withT.claims[0].tombstone).toBe(false);
+	expect(withT.claims[0].provenance).toEqual([
+		{ machine: "machine-a", ts: 100 },
+		{ machine: "machine-b", ts: 200, retract: true },
+		{ machine: "machine-a", ts: 300 },
+	]);
+});
+
+test("aggregate: the B3 event set is monotone under every permutation", () => {
+	const body = {
+		evidenceId: "ev-perm",
+		claim: "contested claim",
+		confidence: 0.8,
+	};
+	const events = [
+		{ machine: "m-assert", entry: { ...body, ts: 100 } },
+		{ machine: "m-retract", entry: { ...body, ts: 200, tombstone: true } },
+		{ machine: "m-revive", entry: { ...body, ts: 300 } },
+	];
+	// every order of {assert 100, retract 200, revive 300} must end LIVE with
+	// at most one retract provenance entry — replay order cannot re-hide
+	for (const order of [
+		[0, 1, 2],
+		[0, 2, 1],
+		[1, 0, 2],
+		[1, 2, 0],
+		[2, 0, 1],
+		[2, 1, 0],
+	]) {
+		const db = new Database(":memory:");
+		for (const i of order) {
+			const ev = events[i];
+			aggregateClaims(db, [ev.entry], ev.machine, { now: 1000 });
+		}
+		const view = claimAggregateView(db, { includeTombstones: true });
+		expect(view.claims).toHaveLength(1);
+		const claim = view.claims[0];
+		expect(claim.tombstone).toBe(false);
+		expect(
+			claim.provenance.filter((p) => p.retract).length,
+		).toBeLessThanOrEqual(1);
+		db.close();
+	}
+});
+
+test("aggregate: a tombstone replay on a hidden row is an idempotent dupe", () => {
+	const db = new Database(":memory:");
+	const body = {
+		evidenceId: "ev-idem",
+		claim: "retracted claim",
+		confidence: 0.5,
+	};
+	aggregateClaims(db, [{ ...body, ts: 100 }], "machine-a", { now: 1000 });
+	aggregateClaims(db, [{ ...body, ts: 200, tombstone: true }], "machine-b", {
+		now: 2000,
+	});
+	// the same machine re-pushes the identical retraction: dupe, prov untouched
+	const again = aggregateClaims(
+		db,
+		[{ ...body, ts: 200, tombstone: true }],
+		"machine-b",
+		{ now: 3000 },
+	);
+	expect(again.counts?.dupes).toBe(1);
+	expect(again.counts?.tombstoned).toBe(0);
+	// a third machine replaying the same stale retraction: also just a dupe
+	const third = aggregateClaims(
+		db,
+		[{ ...body, ts: 200, tombstone: true }],
+		"machine-c",
+		{ now: 4000 },
+	);
+	expect(third.counts?.dupes).toBe(1);
+	const withT = claimAggregateView(db, { includeTombstones: true });
+	expect(withT.claims[0].provenance.filter((p) => p.retract)).toHaveLength(1);
+});
+
+test("aggregate: identical-payload tombstone at a newer ts advances the high-water — stale assert cannot revive", () => {
+	const db = new Database(":memory:");
+	const body = {
+		evidenceId: "ev-hwm",
+		claim: "contested claim",
+		confidence: 0.8,
+	};
+	aggregateClaims(db, [{ ...body, ts: 100 }], "machine-a", { now: 1000 });
+	aggregateClaims(db, [{ ...body, ts: 200, tombstone: true }], "machine-b", {
+		now: 2000,
+	});
+	// identical payload, NEWER ts: deduped (no provenance churn) but the
+	// standing mark must advance — the dupe path never leaves the gate behind
+	const newer = aggregateClaims(
+		db,
+		[{ ...body, ts: 400, tombstone: true }],
+		"machine-b",
+		{ now: 3000 },
+	);
+	expect(newer.counts?.dupes).toBe(1);
+	expect(newer.counts?.tombstoned).toBe(0);
+	// stale assert 300: BEHIND the advanced mark → cannot revive
+	const stale = aggregateClaims(db, [{ ...body, ts: 300 }], "machine-a", {
+		now: 4000,
+	});
+	expect(stale.counts?.stale).toBe(1);
+	expect(claimAggregateView(db).claims).toHaveLength(0);
+	// monotonicity retained: a NEWER assertion still revives
+	const live = aggregateClaims(db, [{ ...body, ts: 450 }], "machine-a", {
+		now: 5000,
+	});
+	expect(live.counts?.merged).toBe(1);
+	expect(claimAggregateView(db).claims).toHaveLength(1);
+});
+
+test("aggregate: high-water advance is idempotent under replay", () => {
+	const db = new Database(":memory:");
+	const body = {
+		evidenceId: "ev-hwm-replay",
+		claim: "contested claim",
+		confidence: 0.5,
+	};
+	aggregateClaims(db, [{ ...body, ts: 100 }], "machine-a", { now: 1000 });
+	aggregateClaims(db, [{ ...body, ts: 200, tombstone: true }], "machine-b", {
+		now: 2000,
+	});
+	aggregateClaims(db, [{ ...body, ts: 400, tombstone: true }], "machine-b", {
+		now: 3000,
+	});
+	// replaying the same 400 tombstone: dupe, the mark stays put
+	const again = aggregateClaims(
+		db,
+		[{ ...body, ts: 400, tombstone: true }],
+		"machine-b",
+		{ now: 4000 },
+	);
+	expect(again.counts?.dupes).toBe(1);
+	const row = db.query("SELECT tombstone_ts FROM knowledge_claims").get() as {
+		tombstone_ts: number;
+	};
+	expect(row.tombstone_ts).toBe(400);
+});
+
+// ─── machine-side collection (the spoke pass) ───────────────────────────────
 
 test("collectClaims: claim.* rows → entries; cursor skips; cap applies", () => {
 	const dir = mkdtempSync(join(tmpdir(), "w1213-cl-"));
