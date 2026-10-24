@@ -24,6 +24,29 @@ describe("Z.ai LiteLLM account rows", () => {
 		expect(rows[0]).toContain("api_base: https://example.invalid/v4");
 	});
 
+	// W1257.1: the generated LiteLLM rows inherit the operator template's
+	// api_base verbatim — pointing the remotes.json zai remote at the Coding
+	// Plan base (api/coding/paas/v4 for chat-completions, api/anthropic for
+	// Claude Code) is the ONLY way the hub chain (Buckle → LiteLLM → Z.ai,
+	// whose outbound leg Buckle cannot inspect) stays off the general
+	// /api/paas/v4 endpoint. The generator must never rewrite it.
+	test("generated rows carry the operator Coding Plan api_base verbatim", () => {
+		const snapshot = validateZaiSnapshot({
+			version: 1,
+			source: ZAI_CATALOG_URL,
+			generated_at: new Date().toISOString(),
+			model_ids: ["glm-4.7", "glm-5.3"],
+		});
+		const template =
+			"  - model_name: zai-glm-5.3\n    litellm_params:\n      model: zai/glm-5.3\n      allowed_openai_params: [reasoning_effort]\n      api_base: https://api.z.ai/api/coding/paas/v4\n      api_key: os.environ/Z_AI_API_KEY";
+		const rows = zaiLiteLlmRows(snapshot, template);
+		expect(rows).toHaveLength(2);
+		for (const row of rows) {
+			expect(row).toContain("api_base: https://api.z.ai/api/coding/paas/v4");
+			expect(row).not.toContain("/api/paas/v4");
+		}
+	});
+
 	test("rejects stale and malformed inventory", () => {
 		const raw = {
 			version: 1,

@@ -7,6 +7,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { validateDeploymentEgress } from "./adapters/egress.ts";
+import { validateOutboundGuardConfig } from "./outbound-guard.ts";
 import { resolveAdapter } from "./adapters/index.ts";
 import { deriveAdapter } from "./adapters/types.ts";
 
@@ -118,6 +119,7 @@ function poolFrom(doc: UpstreamsDoc): UpstreamPool {
 				if (dep.adapter === undefined) dep.adapter = deriveAdapter(dep.dialect);
 				try {
 					validateDeploymentEgress(resolveAdapter(dep).family, dep);
+					validateOutboundGuardConfig(dep.adapter_config);
 				} catch (e) {
 					throw new Error(
 						`upstreams: group "${group}": ${e instanceof Error ? e.message : String(e)}`,
