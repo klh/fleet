@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
-const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
+const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
 const home = mkdtempSync(join(tmpdir(), "suspenders-w378-fleet-test-"));
 
 afterAll(() => rmSync(home, { recursive: true, force: true }));

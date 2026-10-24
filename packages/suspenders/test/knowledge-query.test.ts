@@ -429,7 +429,14 @@ const VERIFY_URL = `http://127.0.0.1:${VPORT}`;
 const LLM_URL = `http://127.0.0.1:${LPORT}`;
 const HOME = mkdtempSync(join(tmpdir(), "w1218-home-"));
 const E2E_REPO = mkdtempSync(join(tmpdir(), "w1218-repo-"));
-const GOVDB_TS = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
+const GOVDB_TS = join(
+	import.meta.dir,
+	"..",
+	"hooks",
+	"lib",
+	"govdb",
+	"govdb.ts",
+);
 const KB_PATH = join(HOME, ".cache", "claude-governor", "knowledge.db");
 const API_TS = join(import.meta.dir, "..", "hooks", "bin", "knowledge-api.ts");
 const GOOD_SQL = "SELECT id, topic FROM knowledge WHERE topic LIKE '%w1218%'";

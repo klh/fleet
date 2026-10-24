@@ -1,4 +1,4 @@
-// hooks/lib/grok.ts - the grok-cli dialect layer (W296, from the W68 spec).
+// hooks/lib/executors/grok.ts - the grok-cli dialect layer (W296, from the W68 spec).
 // Gates keep ZERO grok knowledge: this module owns the two translations -
 // payload in (normalizeGrok) and decision out (buildDecision) - plus fleet
 // identity resolution (resolveGrokSid) and the drift journal. Dialect is

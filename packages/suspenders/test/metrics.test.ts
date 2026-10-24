@@ -7,7 +7,7 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
+const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
 const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 const home = mkdtempSync(join(tmpdir(), "claude-metrics-test-"));
 

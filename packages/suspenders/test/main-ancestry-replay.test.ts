@@ -226,7 +226,7 @@ test("historical replay forks git once for the snapshot, probes only the misses"
 		child,
 		[
 			'import { Database } from "bun:sqlite";',
-			`import { executorCv } from "${join(import.meta.dir, "..", "hooks", "lib", "executor-cv.ts")}";`,
+			`import { executorCv } from "${join(import.meta.dir, "..", "hooks", "lib", "executors", "executor-cv.ts")}";`,
 			"const db = new Database(process.argv[2], { readonly: true });",
 			'const t = executorCv(db as never, { host: "h1" });',
 			"console.log(JSON.stringify([...t.entries()]));",

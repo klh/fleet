@@ -1,4 +1,4 @@
-// hooks/lib/copilot.ts — the Copilot CLI dialect layer (W296, sibling to the
+// hooks/lib/executors/copilot.ts — the Copilot CLI dialect layer (W296, sibling to the
 // W73 codex adapter — this is the module that fixes the original bug: a
 // manually-started/renamed Copilot CLI session was invisible to the fleet's
 // coordination bus because Copilot had zero hooks wiring into governor.db).

@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { buildFleetTable, fleetGlyph } from "../hooks/coord/fleet-table.ts";
 
 const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
-const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
+const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
 const home = mkdtempSync(join(tmpdir(), "suspenders-w1258-fleet-table-"));
 
 afterAll(() => rmSync(home, { recursive: true, force: true }));

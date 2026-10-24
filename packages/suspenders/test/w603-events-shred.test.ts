@@ -20,7 +20,14 @@ const HOME = mkdtempSync(join(tmpdir(), "suspenders-w603-"));
 const REAL_HOME = process.env.HOME;
 const REG = join(HOME, ".cache/claude-governor");
 const GOVDB = join(REG, "governor.db");
-const GOVDB_TS = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
+const GOVDB_TS = join(
+	import.meta.dir,
+	"..",
+	"hooks",
+	"lib",
+	"govdb",
+	"govdb.ts",
+);
 const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 process.env.HOME = HOME; // retention.archiveDir() computes per call
 

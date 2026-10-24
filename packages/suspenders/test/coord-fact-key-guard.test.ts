@@ -11,7 +11,14 @@ import { join } from "node:path";
 setDefaultTimeout(30_000); // spawn-heavy suite (bun:test 5s default flake floor)
 
 const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
-const STORE = join(import.meta.dir, "..", "hooks", "lib", "govdb-store.ts");
+const STORE = join(
+	import.meta.dir,
+	"..",
+	"hooks",
+	"lib",
+	"govdb",
+	"govdb-store.ts",
+);
 const home = mkdtempSync(join(tmpdir(), "suspenders-coord-fact-guard-test-"));
 
 afterAll(() => rmSync(home, { recursive: true, force: true }));

@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
-const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
+const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
 const home = mkdtempSync(join(tmpdir(), "suspenders-w885-paused-target-"));
 const SID = "w885-paused-sess-11111111";
 const SHA = "a".repeat(40);
