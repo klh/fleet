@@ -32,6 +32,7 @@ import {
 	overlayModuleGovSeam,
 } from "./gov/overlay-loader.ts";
 import { type AppDeps, createApp } from "./handlers.ts";
+import { loadAccountPolicy } from "./account-policy.ts";
 import { MAX_REQUEST_BODY_BYTES } from "./ingress-body.ts";
 import type { RouteHint } from "./hints.ts";
 import { Ledger } from "./ledger.ts";
@@ -72,6 +73,11 @@ export interface ServerOpts {
 	/** W7 repo-policy gate: explicit path for the row file; defaults chain
 	 *  BUCKLE_REPO_POLICY → local-llm dir → the committed repo-policy.yaml. */
 	repoPolicyPath?: string;
+	/** W1265.1 account policy: explicit path for the repo-tier class table;
+	 *  defaults chain BUCKLE_REPO_TIER_POLICY → ~/.claude/local-llm/
+	 *  repo-tier-policy.yaml → none (the boundary is inert). A CONFIGURED
+	 *  path that cannot load is startup fatal (fail closed). */
+	accountPolicyPath?: string;
 	/** W193: secrets home for the manifest-signing key (hub-only key law).
 	 *  Defaults: BUCKLE_SECRETS_HOME env, else ~/.claude/local-llm. */
 	secretsHome?: string;
@@ -261,6 +267,16 @@ export function buildDeps(
 	// W7 repo-policy gate: the row file loads once at boot; absent file =
 	// zero rows = engine inert (a fresh spoke without rows is valid).
 	const repoPolicy = loadRepoPolicies(opts.repoPolicyPath);
+	// W1265.1 account policy: the repo-tier class table loads once at boot
+	// (config-over-code; absent config = inert posture, logged per the
+	// log-at-startup law so the operator SEES the boundary state).
+	const accountPolicy = loadAccountPolicy(opts.accountPolicyPath);
+	console.log(
+		`buckle: account policy ` +
+			(accountPolicy.source === "none"
+				? "inert — no repo-tier-policy configured (the boundary is off)"
+				: `active from ${accountPolicy.source} (${String(accountPolicy.doc.classes.length)} classes)`),
+	);
 	// W207 trajectory pruning: the diet sidestore rides the shared buckle db
 	// (the AidsLedger wiring precedent); policy still gates the pass OFF.
 	const diet = new DietStore(dbPath);
@@ -296,6 +312,7 @@ export function buildDeps(
 		aidsPolicy,
 		expander,
 		repoPolicy: repoPolicy.rows,
+		accountPolicy: accountPolicy.doc,
 		sm,
 		pool,
 		decide,

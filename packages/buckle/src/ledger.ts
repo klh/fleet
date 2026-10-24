@@ -76,6 +76,12 @@ export interface RouteAuditDecision {
 	 *  synthetic (excluded from lane cache analytics), 'inference' = agent
 	 *  traffic. NULL = the row predates the column. */
 	traffic_kind?: string | null;
+	/** W1265.1 account policy: the safe hash of the resolved repo identity
+	 *  (class + key-binding), the allowed tier label, and the credential's
+	 *  mint name. NULL = the request predates the policy or rode root. */
+	repo_hash?: string | null;
+	account_tier?: string | null;
+	key_name?: string | null;
 }
 
 export interface RouteAuditOutcome {
@@ -201,8 +207,8 @@ INSERT INTO route_audit (
   candidates_seen, candidates_top,
   target_kind, target_host, target_port, target_model,
   decision, latency_class, tier, allow_cloud, error_code, why, hop,
-  traffic_kind
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  traffic_kind, repo_hash, account_tier, key_name
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 const SCHEMA = `
@@ -241,7 +247,8 @@ CREATE TABLE IF NOT EXISTS route_audit (
   cache_c_reported INTEGER,
   in_tok INTEGER, out_tok INTEGER,
   hop TEXT,
-  traffic_kind TEXT
+  traffic_kind TEXT,
+  repo_hash TEXT, account_tier TEXT, key_name TEXT
 );
 CREATE TABLE IF NOT EXISTS route_attempt (
   rid TEXT NOT NULL,
@@ -432,6 +439,14 @@ export class Ledger {
 		// column or the request never streamed.
 		if (!auditCols.includes("stream_receipt"))
 			this.db.run("ALTER TABLE route_audit ADD COLUMN stream_receipt TEXT");
+		// W1265.1: account-policy provenance on the decision row (pre-W1265.1
+		// databases heal the same way; NULL = the row predates the policy).
+		if (!auditCols.includes("repo_hash"))
+			this.db.run("ALTER TABLE route_audit ADD COLUMN repo_hash TEXT");
+		if (!auditCols.includes("account_tier"))
+			this.db.run("ALTER TABLE route_audit ADD COLUMN account_tier TEXT");
+		if (!auditCols.includes("key_name"))
+			this.db.run("ALTER TABLE route_audit ADD COLUMN key_name TEXT");
 		this.db.run(
 			"CREATE INDEX IF NOT EXISTS route_audit_trace ON route_audit(trace_id, ts)",
 		);
@@ -840,6 +855,9 @@ export class Ledger {
 			row.why,
 			row.hop,
 			row.traffic_kind ?? null,
+			row.repo_hash ?? null,
+			row.account_tier ?? null,
+			row.key_name ?? null,
 		);
 	}
 

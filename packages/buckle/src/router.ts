@@ -1215,8 +1215,18 @@ export class Router {
 				})
 			)
 				continue; // gate closed: SIMPLE/MEDIUM never leave the machine
+			// W1265.1 account boundary: when the selection carries the mark, the
+			// ladder's rungs are confined to the entitled domain — a tier with no
+			// entitled candidate is skipped, never substituted across the class
+			// boundary (the cross-boundary e2e proves zero foreign outbound).
+			const entitled =
+				sel.accountScoped === true
+					? new Set(sel.ordered.map((r) => r.candidate_id))
+					: null;
 			const candidates = this.tierCandidates(tier, req).filter(
-				(d) => !tried.has(candIdOf(d)),
+				(d) =>
+					!tried.has(candIdOf(d)) &&
+					(entitled === null || entitled.has(candIdOf(d))),
 			);
 			if (candidates.length === 0) {
 				this.rememberCooledRateLimit(tier, req, st);

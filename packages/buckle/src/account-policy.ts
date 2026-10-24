@@ -54,7 +54,11 @@ export interface AccountPolicyDoc {
 	classes: AccountClass[];
 }
 
-/** The resolved per-request context (null axes = unrestricted there). */
+/** The W1265 named protocol routes are parsed at the ingress seam
+ *  (src/ingress-routes.ts, the parent item's contract); the provider pin
+ *  arrives here as `pin` — never re-parsed in this module. */
+
+/** The ingress verdict: a resolved context or a typed fail-closed refusal. */
 export interface AcctContext {
 	/** Safe hash of the resolved repo identity (class + binding) — the audit
 	 *  row carries this, never the raw path. */
@@ -76,22 +80,6 @@ export interface AcctContext {
 export type AcctResult =
 	| { ok: true; acct?: AcctContext }
 	| { ok: false; status: number; code: string; why: string };
-
-/** The W1265 named protocol routes, parsed off the ingress path. */
-export interface ProtocolRoute {
-	/** The /w/<slug> lane attribution when composed. */
-	lane: string;
-	/** The provider pin (/zai/… routes); null = wire routes only. */
-	pin: string | null;
-	/** The route's wire (the dialect the subpath must speak). */
-	wire: "anthropic" | "openai";
-	/** The inner wire path (/v1/messages, …) — forwards verbatim. */
-	inner: string;
-}
-
-export type ProtocolTarget =
-	| { ok: true; dialect: "anthropic" | "openai"; inner: string }
-	| { ok: false; status: number; code: string; why: string; allow?: string };
 
 /** Repo-class lookup: the first class whose `keys` globs match the key
  *  name. No match = unknown key = fail closed. */
@@ -279,7 +267,10 @@ export function scopeSelection(
 			code: "buckle.tier_no_upstream",
 			why: `no entitled upstream for '${sel.head.group}' within the account boundary — refused, zero outbound`,
 		};
-	if (ordered.length === sel.ordered.length) return { ok: true, sel };
+	if (ordered.length === sel.ordered.length)
+		// nothing filtered, but the boundary is LIVE: mark the selection so the
+		// router's ladder rungs stay inside the entitled domain too.
+		return { ok: true, sel: { ...sel, accountScoped: true } };
 	return {
 		ok: true,
 		sel: {
@@ -288,6 +279,7 @@ export function scopeSelection(
 			seen: ordered.length,
 			top: ordered.slice(0, 3).map((c) => c.candidate_id),
 			head: ordered[0],
+			accountScoped: true,
 		},
 	};
 }
@@ -321,98 +313,6 @@ function pinMatches(
 	pin: string,
 ): boolean {
 	return adapter === pin || globMatch(`*${pin}*`, host, true);
-}
-
-/** The W1265 named protocol routes: [/w/<slug>]/{anthropic,openai[,/zai]}…
- *  Z.ai pins read /zai/anthropic and /zai/openai. Null = not a protocol
- *  route (bare/lane paths fall through to the existing dispatch). */
-export function protocolRouteOf(path: string): ProtocolRoute | null {
-	const m =
-		/^\/(?:w\/(?<lane>[A-Za-z0-9][A-Za-z0-9._-]*)\/)?(?:zai\/)?(?<wire>anthropic|openai)(?<inner>\/v1\/.+)$/.exec(
-			path,
-		);
-	if (m === null || m.groups === undefined) return null;
-	const { lane = "", wire, inner } = m.groups;
-	if (wire !== "anthropic" && wire !== "openai") return null;
-	return {
-		lane,
-		pin: path.includes("/zai/") ? "zai" : null,
-		wire: wire,
-		inner: inner,
-	};
-}
-
-const ANTHROPIC_PATHS = ["/v1/messages", "/v1/messages/count_tokens"];
-const OPENAI_PATHS = ["/v1/chat/completions", "/v1/responses"];
-
-/** Route target check: the subpath must speak the route's wire (typed 4xx,
- *  zero outbound on mismatch) and the method must match the path's table. */
-export function protocolRouteTarget(
-	pr: ProtocolRoute,
-	method: string,
-): ProtocolTarget {
-	if (pr.inner === "/v1/models")
-		return method === "GET"
-			? { ok: true, dialect: pr.wire, inner: pr.inner }
-			: notAllowed("GET, OPTIONS");
-	if (pr.wire === "anthropic") return anthropicTarget(pr, method);
-	return openaiTarget(pr, method);
-}
-
-/** The anthropic route's subpath table; wrong-wire paths name the fix. */
-function anthropicTarget(pr: ProtocolRoute, method: string): ProtocolTarget {
-	if (!ANTHROPIC_PATHS.includes(pr.inner)) {
-		if (OPENAI_PATHS.includes(pr.inner))
-			return {
-				ok: false,
-				status: 400,
-				code: "buckle.wire_mismatch",
-				why: `path ${pr.inner} speaks the openai wire — use /openai…`,
-			};
-		return {
-			ok: false,
-			status: 404,
-			code: "buckle.no_route",
-			why: `no route: ${method} /${pr.wire}${pr.inner}`,
-		};
-	}
-	return post(pr, method);
-}
-
-/** The openai route's subpath table; wrong-wire paths name the fix. */
-function openaiTarget(pr: ProtocolRoute, method: string): ProtocolTarget {
-	if (!OPENAI_PATHS.includes(pr.inner)) {
-		if (ANTHROPIC_PATHS.includes(pr.inner))
-			return {
-				ok: false,
-				status: 400,
-				code: "buckle.wire_mismatch",
-				why: `path ${pr.inner} speaks the anthropic wire — use /anthropic…`,
-			};
-		return {
-			ok: false,
-			status: 404,
-			code: "buckle.no_route",
-			why: `no route: ${method} /${pr.wire}${pr.inner}`,
-		};
-	}
-	return post(pr, method);
-}
-
-/** Known POST subpath, wrong method = 405 + Allow. */
-function post(pr: ProtocolRoute, method: string): ProtocolTarget {
-	if (method === "POST") return { ok: true, dialect: pr.wire, inner: pr.inner };
-	return notAllowed("POST, OPTIONS");
-}
-
-function notAllowed(allow: string): ProtocolTarget {
-	return {
-		ok: false,
-		status: 405,
-		code: "buckle.method_not_allowed",
-		why: `allows: ${allow}`,
-		allow,
-	};
 }
 
 /** Resolution chain: explicit → BUCKLE_REPO_TIER_POLICY → the runtime copy

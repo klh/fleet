@@ -7,8 +7,9 @@
 // map pinned at registration (validated against ALL_SCOPES, fail-closed) —
 // a hook cannot self-grant. Hook registration happens AFTER core auth is
 // constructed (strict input validation at the seam, fail-closed at boot).
-import { ALL_SCOPES, parseScope } from "./scopes.ts";
+
 import type { Principal } from "./middleware.ts";
+import { ALL_SCOPES, parseScope } from "./scopes.ts";
 
 /** Wire-format version of the adaptation surface. Fail-closed handshake:
  *  an overlay built for another protocol version refuses to load (see
@@ -78,7 +79,9 @@ export interface AdaptationHooks {
 	 *  core 401 stands). Presented-but-invalid credentials NEVER reach the
 	 *  hook (never downgraded — W173 law). The implementation MUST verify
 	 *  the signature itself; the gate never trusts unsigned headers. */
-	authenticate?: (req: Request) => Promise<SsoIdentity | null> | SsoIdentity | null;
+	authenticate?: (
+		req: Request,
+	) => Promise<SsoIdentity | null> | SsoIdentity | null;
 	/** RBAC/entitlement veto after the core scope check. */
 	authorize?: (input: AuthzInput) => AdaptDeny | null;
 	/** SIEM/export tap on the gate's denial stream. Throws are counted,
@@ -108,17 +111,15 @@ export function validDeny(v: unknown): AdaptDeny | null {
 	if (v === null || v === undefined) return null;
 	if (typeof v !== "object" || v === null) return null;
 	const d = v as Record<string, unknown>;
-	if (d["allow"] !== false) return null;
-	if (typeof d["status"] !== "number" || !DENY_STATUS.has(d["status"]))
-		return null;
-	if (typeof d["code"] !== "string" || !DENY_CODE_RE.test(d["code"]))
-		return null;
-	if (typeof d["why"] !== "string" || d["why"].length === 0) return null;
+	if (d.allow !== false) return null;
+	if (typeof d.status !== "number" || !DENY_STATUS.has(d.status)) return null;
+	if (typeof d.code !== "string" || !DENY_CODE_RE.test(d.code)) return null;
+	if (typeof d.why !== "string" || d.why.length === 0) return null;
 	return {
 		allow: false,
-		status: d["status"] as 401 | 403 | 429,
-		code: d["code"],
-		why: d["why"].slice(0, 500),
+		status: d.status as 401 | 403 | 429,
+		code: d.code,
+		why: d.why.slice(0, 500),
 	};
 }
 
@@ -132,7 +133,12 @@ export function validateAdaptation(raw: AdaptationConfig): AdaptationConfig {
 	if (typeof hooks !== "object" || hooks === null)
 		throw new Error("adaptation: hooks must be an object");
 	const h = hooks as Record<string, unknown>;
-	for (const name of ["authenticate", "authorize", "audit", "budget"] as const) {
+	for (const name of [
+		"authenticate",
+		"authorize",
+		"audit",
+		"budget",
+	] as const) {
 		const f = h[name];
 		if (f !== undefined && typeof f !== "function")
 			throw new Error(`adaptation: hook ${name} must be a function`);
@@ -165,24 +171,20 @@ export function validateAdaptation(raw: AdaptationConfig): AdaptationConfig {
 export function validSsoIdentity(v: unknown): SsoIdentity | null {
 	if (typeof v !== "object" || v === null) return null;
 	const i = v as Record<string, unknown>;
-	if (i["v"] !== 1) return null;
+	if (i.v !== 1) return null;
 	for (const k of ["subject", "team"] as const) {
 		const s = i[k];
-		if (typeof s !== "string" || s.length === 0 || s.length > 200)
-			return null;
+		if (typeof s !== "string" || s.length === 0 || s.length > 200) return null;
 	}
-	if (
-		!Array.isArray(i["roles"]) ||
-		i["roles"].some((r) => typeof r !== "string")
-	)
+	if (!Array.isArray(i.roles) || i.roles.some((r) => typeof r !== "string"))
 		return null;
-	if (typeof i["iat"] !== "number" || !Number.isFinite(i["iat"])) return null;
+	if (typeof i.iat !== "number" || !Number.isFinite(i.iat)) return null;
 	return {
 		v: 1,
-		subject: i["subject"] as string,
-		team: i["team"] as string,
-		roles: i["roles"] as string[],
-		iat: i["iat"] as number,
+		subject: i.subject as string,
+		team: i.team as string,
+		roles: i.roles as string[],
+		iat: i.iat as number,
 	};
 }
 
@@ -200,6 +202,7 @@ export function principalFromSso(
 	return {
 		kind: "sso",
 		keyId: `sso:${id.subject}`,
+		name: null,
 		team: id.team,
 		actor: id.subject,
 		scopes: [...scopes],
