@@ -8,7 +8,6 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import YAML from "yaml";
 import { startServer } from "../../buckle/src/server.ts";
 
 test("the real gateway generator enables cancellation in private YAML without changing authentication", async () => {
@@ -42,7 +41,7 @@ test("the real gateway generator enables cancellation in private YAML without ch
 		expect(await proc.exited, await stderr).toBe(0);
 		await stdout;
 		const output = join(runtime, "litellm.yaml");
-		const config = YAML.parse(readFileSync(output, "utf8"));
+		const config = Bun.YAML.parse(readFileSync(output, "utf8"));
 		expect(config.general_settings.cancel_on_disconnect).toBe(true);
 		expect(config.general_settings.master_key).toBe("os.environ/LITELLM_KEY");
 		expect(statSync(output).mode & 0o777).toBe(0o600);

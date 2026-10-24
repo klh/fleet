@@ -36,9 +36,9 @@ const SOURCE_PATHS = [
 	"packages/suspenders/package.json",
 	"packages/belt/bin",
 	"packages/belt/package.json",
-	"packages/buckle/upstreams.yaml",
-	"packages/buckle/routing-policy.yaml",
-	"packages/buckle/repo-policy.yaml",
+	"packages/buckle/upstreams.json",
+	"packages/buckle/routing-policy.json",
+	"packages/buckle/repo-policy.json",
 	"packages/buckle/src",
 	"packages/buckle/package.json",
 	// W1081: the shared HTTP identity-header seam — buckle src + belt bin and

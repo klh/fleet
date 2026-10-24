@@ -32,24 +32,25 @@ async function startGate(
 	fallbackUrl: string | null,
 ): Promise<Gate> {
 	const dir = `/tmp/buckle-ladder-${String(Date.now())}-${String(process.pid)}-${Math.random().toString(36).slice(2, 6)}`;
-	const fallbackGroup =
-		fallbackUrl === null
-			? ""
-			: `  fallback:\n    - url: ${fallbackUrl}\n      dialect: anthropic\n`;
-	const ladder =
-		fallbackUrl === null ? "" : `  fallbacks:\n    primary: [fallback]\n`;
+	const groups: Record<string, { url: string; dialect: string }[]> = {
+		primary: [{ url: dead, dialect: "anthropic" }],
+	};
+	if (fallbackUrl !== null)
+		groups.fallback = [{ url: fallbackUrl, dialect: "anthropic" }];
 	await Bun.write(
-		`${dir}-upstreams.yaml`,
-		`groups:\n  primary:\n    - url: ${dead}\n      dialect: anthropic\n${fallbackGroup}`,
+		`${dir}-upstreams.json`,
+		JSON.stringify({ version: 1, groups }),
 	);
-	await Bun.write(
-		`${dir}-policy.yaml`,
-		`gateway:\n  num_retries: 0\n  allowed_fails: 1\n${ladder}`,
-	);
+	const gateway: Record<string, unknown> = {
+		num_retries: 0,
+		allowed_fails: 1,
+	};
+	if (fallbackUrl !== null) gateway.fallbacks = { primary: ["fallback"] };
+	await Bun.write(`${dir}-policy.json`, JSON.stringify({ gateway }));
 	const server = startServer({
 		port: 0,
-		upstreamsPath: `${dir}-upstreams.yaml`,
-		policyPath: `${dir}-policy.yaml`,
+		upstreamsPath: `${dir}-upstreams.json`,
+		policyPath: `${dir}-policy.json`,
 		dbPath: ":memory:",
 		auth: { rootKey: ROOT },
 	});
@@ -159,7 +160,14 @@ describe("auth-failing rungs walk on (W987)", () => {
 		);
 		mocks.push(authFail, healthy);
 		const gate = await startGateLegs(
-			`groups:\n  primary:\n    - url: ${authFail.url}\n      dialect: anthropic\n    - url: ${healthy.url}\n      dialect: anthropic\n`,
+			JSON.stringify({
+				groups: {
+					primary: [
+						{ url: authFail.url, dialect: "anthropic" },
+						{ url: healthy.url, dialect: "anthropic" },
+					],
+				},
+			}),
 		);
 		gates.push(gate);
 		const key = await mintScoped(gate.base);
@@ -173,7 +181,11 @@ describe("auth-failing rungs walk on (W987)", () => {
 		);
 		mocks.push(authFail);
 		const gate = await startGateLegs(
-			`groups:\n  primary:\n    - url: ${authFail.url}\n      dialect: anthropic\n`,
+			JSON.stringify({
+				groups: {
+					primary: [{ url: authFail.url, dialect: "anthropic" }],
+				},
+			}),
 		);
 		gates.push(gate);
 		const key = await mintScoped(gate.base);
@@ -182,18 +194,18 @@ describe("auth-failing rungs walk on (W987)", () => {
 	});
 });
 
-/** W987 gate with an explicit group yaml (multi-leg legs under test). */
-async function startGateLegs(upstreamsYaml: string): Promise<Gate> {
+/** W987 gate with an explicit groups doc (multi-leg legs under test). */
+async function startGateLegs(upstreamsDoc: string): Promise<Gate> {
 	const dir = `/tmp/buckle-ladder-${String(Date.now())}-${String(process.pid)}-${Math.random().toString(36).slice(2, 6)}`;
-	await Bun.write(`${dir}-upstreams.yaml`, upstreamsYaml);
+	await Bun.write(`${dir}-upstreams.json`, upstreamsDoc);
 	await Bun.write(
-		`${dir}-policy.yaml`,
-		`gateway:\n  num_retries: 1\n  allowed_fails: 3\n`,
+		`${dir}-policy.json`,
+		JSON.stringify({ gateway: { num_retries: 1, allowed_fails: 3 } }),
 	);
 	const server = startServer({
 		port: 0,
-		upstreamsPath: `${dir}-upstreams.yaml`,
-		policyPath: `${dir}-policy.yaml`,
+		upstreamsPath: `${dir}-upstreams.json`,
+		policyPath: `${dir}-policy.json`,
 		dbPath: ":memory:",
 		auth: { rootKey: ROOT },
 	});

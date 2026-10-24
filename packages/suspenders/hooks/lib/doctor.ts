@@ -130,15 +130,18 @@ export const checkGatewayCredentials = (ctx: DoctorContext): CheckResult => {
 };
 
 export const checkMachineConf = (ctx: DoctorContext): CheckResult => {
-	const stack = `${ctx.home}/.config/klh/stack.yaml`;
-	const has = filePresent(stack);
+	// W1253 read-both: either name counts — the .json law name or the legacy
+	// .yaml twin a not-yet-migrated machine still carries.
+	const stack = `${ctx.home}/.config/klh/stack.json`;
+	const legacy = `${ctx.home}/.config/klh/stack.yaml`;
+	const has = filePresent(stack) || filePresent(legacy);
 	return {
 		id: "machine-conf",
-		label: "machine conf (stack.yaml)",
+		label: "machine conf (stack.json)",
 		status: has ? "pass" : "warn",
 		detail: has
-			? "stack.yaml present"
-			: "stack.yaml missing — hub deploys disabled until created",
+			? "stack.json present"
+			: "stack.json missing — hub deploys disabled until created",
 	};
 };
 

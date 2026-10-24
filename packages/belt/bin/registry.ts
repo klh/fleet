@@ -276,7 +276,7 @@ export const EXTERNAL: ExternalService[] = [
 // NOT chat entries: registryEntries()/chatEntries() stay port-served models
 // only, so the LiteLLM/direct/buckle emitters never see these rows — audio
 // rides bin/audio.ts and the router's /v1/audio/* routes, and the ladder
-// stays operator-owned (routing-policy.yaml, W440).
+// stays operator-owned (routing-policy.json, W440).
 // Config-over-code: keyEnv carries the env NAME only — the key itself lives
 // in machine config (~/.claude/local-llm/belt.env, 0600). Voice ids are
 // public catalog values (like model ids); ELEVENLABS_BASE overrides base.

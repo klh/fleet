@@ -1,5 +1,5 @@
 // src/gov/oidc-env.ts — W372 hub auth wiring: the gate's JWT validator built
-// from env, so a hub flips to Entra by config alone (stack.yaml auth.oidc →
+// from env, so a hub flips to Entra by config alone (stack.json auth.oidc →
 // hubctl .env → compose → BUCKLE_OIDC_*). Programmatic opts.auth?.jwt wins —
 // env is the deployment channel; opts is the embedder/test override. Partial
 // env (any OIDC var set without the required trio) throws: auth config is
@@ -22,7 +22,7 @@ export function oidcGateOptsFromEnv(
 	if (!audience) missing.push("BUCKLE_OIDC_AUDIENCE");
 	if (missing.length > 0)
 		throw new Error(
-			`OIDC gate env incomplete: ${missing.join(", ")} — set all three in stack.yaml auth.oidc`,
+			`OIDC gate env incomplete: ${missing.join(", ")} — set all three in stack.json auth.oidc`,
 		);
 	return {
 		issuers: [{ issuer, jwksUri }],

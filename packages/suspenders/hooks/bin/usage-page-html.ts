@@ -262,7 +262,7 @@ const crossHubData = (x: CrossHubReport | undefined): UsageCrossHubPanel => {
 	if (x === undefined || x.rows.length === 0)
 		return {
 			empty:
-				"no hubs enumerated — stack.yaml hubs and hubs.json registry are both empty (or the route did not wire the rollup) on this board host",
+				"no hubs enumerated — stack.json hubs and hubs.json registry are both empty (or the route did not wire the rollup) on this board host",
 		};
 	const rows = x.rows.map((r) => {
 		const segs: UsageSeg[] = [];

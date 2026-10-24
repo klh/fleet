@@ -14,8 +14,8 @@
 #   - no registry pushes: oven/bun base + bind mounts only.
 #
 # Enterprise layer (private overlays, config-over-code): real hub names,
-# peers, Entra/OIDC values live in ~/.config/klh/stack.yaml (mode 600, never
-# committed — placeholders in deploy/stack.example.yaml). The envs below are
+# peers, Entra/OIDC values live in ~/.config/klh/stack.json (mode 600, never
+# committed — placeholders in deploy/stack.example.json). The envs below are
 # the materialized knobs those profiles set; W191 OIDC enforcement is base
 # code — the profile only flips it.
 
@@ -197,7 +197,7 @@ services:
       # fails `up` (compose stats it before creating the service).
       - ${HUB_BUCKLE_ENV_FILE:-./buckle.env}
       # W688.7.1: ladder key values (LITELLM_KEY …) — hubctl push builds
-      # this 0600 file ON the hub from stack.yaml secrets.upstream_keys paths
+      # this 0600 file ON the hub from stack.json secrets.upstream_keys paths
       - ./upstream.env
     environment:
       FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
@@ -211,10 +211,10 @@ services:
       # (server.ts W461 stage 2; the network read model resolves the same
       # chain) — hubs project per-hub request edges for the Network overview
       BUCKLE_OBSERVATIONS_PATH: /state/buckle/observations.ndjson
-      BUCKLE_POLICY: /etc/klh/routing-policy.hub.yaml
-      BUCKLE_UPSTREAMS: /etc/klh/upstreams.hub.yaml
+      BUCKLE_POLICY: /etc/klh/routing-policy.hub.json
+      BUCKLE_UPSTREAMS: /etc/klh/upstreams.hub.json
       # W983: the hub's owner prefs (allow_cloud / cost_speed), rendered by
-      # hubctl from stack.yaml `buckle_prefs:` — the switches the routing
+      # hubctl from stack.json `buckle_prefs:` — the switches the routing
       # decision gates every cloud hop behind. Always present (undeclared =
       # conservative defaults, cloud closed).
       BUCKLE_PREFS: /etc/klh/buckle-prefs.json
@@ -229,7 +229,7 @@ services:
       BUCKLE_LITELLM_METRICS_KEY_ENV: ${HUB_LITELLM_METRICS_KEY_ENV:-}
       BUCKLE_LITELLM_METRICS_SOURCE_ID: ${HUB_LITELLM_METRICS_SOURCE_ID:-}
       BUCKLE_AUTH: ${HUB_BUCKLE_AUTH:-on}
-      # W372: stack.yaml auth.oidc/auth.tokens → env (Entra-ready, config-only
+      # W372: stack.json auth.oidc/auth.tokens → env (Entra-ready, config-only
       # — the gate builds its JWT validator from these when present; empty =
       # base posture unchanged). Issuer/jwksUri/audience are the validator
       # contract; requiredScope + TTL ride for the identity-plane consumers.
@@ -248,11 +248,11 @@ services:
     volumes:
       - fleet-repo:/src/fleet:ro
       # W688.7.1: the hub's real upstream ladder, rendered by hubctl from
-      # stack.yaml `upstreams:` (always present — empty groups = the
+      # stack.json `upstreams:` (always present — empty groups = the
       # committed placeholder ladder stands); merged over the base file
-      - ./upstreams.hub.yaml:/etc/klh/upstreams.hub.yaml:ro
-      - ./routing-policy.hub.yaml:/etc/klh/routing-policy.hub.yaml:ro
-      # W983: the 0600 owner-prefs file hubctl push renders from stack.yaml
+      - ./upstreams.hub.json:/etc/klh/upstreams.hub.json:ro
+      - ./routing-policy.hub.json:/etc/klh/routing-policy.hub.json:ro
+      # W983: the 0600 owner-prefs file hubctl push renders from stack.json
       - ./buckle-prefs.json:/etc/klh/buckle-prefs.json:ro
       - buckle-state:/state/buckle
       - hub-secrets:/state/secrets
@@ -297,7 +297,7 @@ services:
   # and route config answer over the wire, but provider quota/inference remain
   # unknown until real traffic measures them. INFORMATIONAL surface: hubctl
   # status reports it; compose health still hits buckle-health.
-  # HUB_READY_MODEL is machine-level config (stack.yaml) — it must name a
+  # HUB_READY_MODEL is machine-level config (stack.json) — it must name a
   # model the hub's routing ladder actually serves.
   buckle-ready:
     image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895

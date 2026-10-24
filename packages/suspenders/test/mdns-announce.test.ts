@@ -7,7 +7,6 @@ import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import dgram from "node:dgram";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parse } from "yaml";
 import {
 	aRdata,
 	buildAnnounce,
@@ -215,7 +214,7 @@ describe("live loopback round-trip", () => {
 });
 
 describe("hub-compose wiring", () => {
-	const compose = parse(
+	const compose = Bun.YAML.parse(
 		readFileSync(join(import.meta.dir, "../deploy/hub-compose.yaml"), "utf8"),
 		{ merge: true },
 	) as { services: Record<string, Record<string, unknown>> };

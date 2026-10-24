@@ -17,7 +17,7 @@ import { condenseTier } from "@klh/blam/src/condense/tiers.ts";
 // pointer-shaped tokens, two forms (no escapes — teeth over-check is safe,
 // the pass only ever falls back to MORE text):
 // - slash paths: `packages/suspenders/hooks`, `a/b.ts` (≥1 slash)
-// - extension docs with no slash: `AGENTS.md`, `stack.yaml` (ext whitelist)
+// - extension docs with no slash: `AGENTS.md`, `stack.json` (ext whitelist)
 // Lookalikes (URL remainders, "v1.2.md") may over-match — harmless here.
 const POINTER_RE =
 	/[\w-]+(?:\/[\w@./~-]+)+|[\w@~-][\w@./~-]*\.(?:md|mdx|ts|tsx|js|mjs|json|toml|yaml|yml)/g;

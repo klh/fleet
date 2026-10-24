@@ -85,8 +85,8 @@ services:
       BUCKLE_BIND: 0.0.0.0
       BUCKLE_DB: /state/buckle/buckle.db
       BUCKLE_SECRETS_HOME: /state/secrets
-      BUCKLE_POLICY: /srv/fleet/packages/buckle/routing-policy.yaml
-      BUCKLE_UPSTREAMS: /srv/fleet/packages/suspenders/deploy/e2e/upstreams.e2e.yaml
+      BUCKLE_POLICY: /srv/fleet/packages/buckle/routing-policy.json
+      BUCKLE_UPSTREAMS: /srv/fleet/packages/suspenders/deploy/e2e/upstreams.e2e.json
     volumes:
       - fleet-tree:/srv/fleet
       - buckle-state:/state/buckle
@@ -336,8 +336,8 @@ services:
       BUCKLE_AUTH: "on"
       BUCKLE_DB: /state/buckle-overlay/buckle.db
       BUCKLE_SECRETS_HOME: /state/secrets
-      BUCKLE_POLICY: /srv/overlay/packages/buckle/routing-policy.yaml
-      BUCKLE_UPSTREAMS: /srv/fleet/packages/suspenders/deploy/e2e/upstreams.e2e.yaml
+      BUCKLE_POLICY: /srv/overlay/packages/buckle/routing-policy.json
+      BUCKLE_UPSTREAMS: /srv/fleet/packages/suspenders/deploy/e2e/upstreams.e2e.json
     volumes:
       - fleet-tree:/srv/fleet
       - type: bind

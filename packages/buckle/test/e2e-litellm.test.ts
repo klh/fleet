@@ -82,33 +82,38 @@ async function startEngineGate(
 	direct: MockUpstream,
 ): Promise<EngineGate> {
 	const dir = mkdtempSync(join(tmpdir(), "buckle-litellm-"));
-	const upstreams = `${dir}/upstreams.yaml`;
-	const policy = `${dir}/policy.yaml`;
+	const upstreams = `${dir}/upstreams.json`;
+	const policy = `${dir}/policy.json`;
 	const prefs = `${dir}/prefs.json`;
 	const dbPath = `${dir}/buckle.db`;
 	await Bun.write(
 		upstreams,
-		`version: 1
-groups:
-  glm-5.3-flash:
-    - url: ${engine.url}
-      dialect: openai
-      adapter: openai-compat
-      model: zai-glm-5.3-flash
-      api_key_env: LITELLM_KEY
-    - url: ${direct.url}
-      dialect: openai
-      adapter: openai-compat
-`,
+		JSON.stringify({
+			version: 1,
+			groups: {
+				"glm-5.3-flash": [
+					{
+						url: engine.url,
+						dialect: "openai",
+						adapter: "openai-compat",
+						model: "zai-glm-5.3-flash",
+						api_key_env: "LITELLM_KEY",
+					},
+					{
+						url: direct.url,
+						dialect: "openai",
+						adapter: "openai-compat",
+					},
+				],
+			},
+		}),
 	);
 	await Bun.write(
 		policy,
-		`version: 1
-gateway:
-  num_retries: 1
-  allowed_fails: 1
-  cooldown_time: 60
-`,
+		JSON.stringify({
+			version: 1,
+			gateway: { num_retries: 1, allowed_fails: 1, cooldown_time: 60 },
+		}),
 	);
 	await Bun.write(
 		prefs,

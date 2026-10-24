@@ -33,6 +33,7 @@ import {
 	registerSkills,
 	releaseNotify,
 } from "./install-wire-steps.ts";
+import { migrateConf } from "./install-conf-migrate.ts";
 import { syncHarness } from "./sync-harness.ts";
 import { upgradeGateway } from "./upgrade-gateway.ts";
 
@@ -385,7 +386,7 @@ function resumeCommand(step: ContractStep, ctx: StepContext): string {
 	}
 	if (step.name === "deployHub") {
 		// v1 stub: hub deploys ride the --hub early exit; the hub name is
-		// operator data from stack.yaml, filled in before running
+		// operator data from stack.json, filled in before running
 		return `bun ${join(ctx.repo, "scripts/install.ts")} --hub <hub>`;
 	}
 	// every native step resumes through the TS door (W771.3: wrapper is a pure exec)
@@ -413,6 +414,7 @@ const impls: Partial<Record<StepName, StepImpl>> = {
 	upgradeGateway,
 	syncHarness,
 	ensureShims,
+	migrateConf,
 	wireSettings,
 	registerCaddy,
 	registerSkills,
