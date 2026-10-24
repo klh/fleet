@@ -47,7 +47,14 @@ export function validatedMetricsUrl(raw: string): URL | null {
 	} catch {
 		return null;
 	}
-	const loopback = url.hostname === "127.0.0.1" || url.hostname === "[::1]";
+	// A containerized hub reaches the HOST-published LiteLLM only through
+	// the docker host gateway name — loopback-equivalent inside the
+	// container, operator-declared in the 0600 stack config either way.
+	const loopback =
+		url.hostname === "127.0.0.1" ||
+		url.hostname === "[::1]" ||
+		url.hostname === "localhost" ||
+		url.hostname === "host.docker.internal";
 	if (
 		(url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) ||
 		url.username ||
