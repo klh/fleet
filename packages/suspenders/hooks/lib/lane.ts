@@ -1,4 +1,4 @@
-// scripts/lib/lane.ts — shared lane-spawn plumbing for the fleet scripts
+// hooks/lib/lane.ts — shared lane-spawn plumbing for the fleet scripts
 // (W146). supervise.ts and dispatch-next.ts must drive IDENTICAL spawn
 // recipes (env scrub, sh -c exec + stdin detach, lanes.json registry), so
 // the recipes live here. dispatch-next's inline copies of the small read
@@ -9,8 +9,8 @@ import {
 	laneRegistryFile,
 	loadLaneRegistry,
 	mergeLaneRegistry,
-} from "../../hooks/lib/lane-registry.ts";
-import { attachSubscribe } from "../../hooks/lib/subscribe-attach.ts";
+} from "./lane-registry.ts";
+import { attachSubscribe } from "./subscribe-attach.ts";
 import { jobslabEnv, jobslabFor, jobslabPrefix } from "./jobslab.ts";
 
 // W422 surface consolidation law: the spawn-args adapter INTERFACE. Core
@@ -186,7 +186,7 @@ export const run = (
 export {
 	laneProcessIdentity as alive,
 	worktreeLive,
-} from "../../hooks/lib/lane-liveness.ts";
+} from "./lane-liveness.ts";
 
 export const lanesFileFor = laneRegistryFile;
 export const loadLanes = (fleet: string): Lane[] =>
@@ -222,7 +222,7 @@ export const laneEnv = (
 // /w/<slug> prefix so usage attributes per lane (route_audit.lane). Opt-in
 // per dispatch: only when the front answers and no hub redirect won.
 // W1124.43: the probe itself (and its attributable verdict form) live in
-// scripts/lib/front-probe.ts — re-exported here so every W1 importer stays
+// hooks/lib/front-probe.ts — re-exported here so every W1 importer stays
 // byte-stable (contract: front URL on 2xx /status, else null).
 import { BUCKLE_FRONT } from "./front-probe.ts";
 export {
@@ -259,9 +259,9 @@ export const applyLaneAttribution = (
 // The tool-permission recipe is the CLAUDE spawn recipe — it lives in the
 // claude adapter now; the local import feeds spawnClaude's default tail and
 // the re-export keeps existing importers stable.
-import { CLAUDE_ALLOWED_TOOLS } from "../../hooks/lib/executors/claude.ts";
+import { CLAUDE_ALLOWED_TOOLS } from "./executors/claude.ts";
 
-export { CLAUDE_ALLOWED_TOOLS as DEFAULT_ALLOWED_TOOLS } from "../../hooks/lib/executors/claude.ts";
+export { CLAUDE_ALLOWED_TOOLS as DEFAULT_ALLOWED_TOOLS } from "./executors/claude.ts";
 
 export const spawnClaude = (o: {
 	bin: string;

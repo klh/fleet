@@ -19,7 +19,7 @@ export { composeBrief };
 
 // W422: executor specifics ride the adapter registry (hooks/lib/executors/)
 // — dispatch composes adapter.spawnArgs/verifyBrief-harness, no per-agent
-// branches. The spawn-args INTERFACE lives in scripts/lib/lane.ts.
+// branches. The spawn-args INTERFACE lives in hooks/lib/lane.ts.
 import { adapterFor } from "../hooks/lib/executors/registry.ts";
 import { dispatchLaneEffort } from "../hooks/lib/lane-effort-policy.ts";
 // W157 decomposition: the pure governance decisions live in their module;
@@ -31,7 +31,7 @@ import {
 } from "./lib/governance-decide.ts";
 import { attributeHubLane } from "./lib/hub-lane.ts";
 import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
-import { jobslabFor, jobslabTag, laneClassOf } from "./lib/jobslab.ts";
+import { jobslabFor, jobslabTag, laneClassOf } from "../hooks/lib/jobslab.ts";
 import {
 	applyLaneAttribution,
 	coordCliFor,
@@ -46,13 +46,13 @@ import {
 	sh as shShared,
 	spawnClaude,
 	workCliFor,
-} from "./lib/lane.ts";
+} from "../hooks/lib/lane.ts";
 import {
 	adminKey,
 	ensureLaneKey,
 	LANE_KEY_TTL_S,
 	laneKeyMetaPath,
-} from "./lib/lane-auth.ts";
+} from "../hooks/lib/lane-auth.ts";
 import { grinderGate } from "./lib/lane-death-capture.ts";
 // W512: lane --settings composer — env grammar + the Task-pin hook block
 import { laneSettingsData } from "./lib/lane-settings.ts";
@@ -112,7 +112,10 @@ import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import { deferItem, isDeferredItem } from "./lib/dispatch-defers.ts";
 import { execPick, posturePreference } from "./lib/exec-chain.ts";
 import { fleetReport } from "./lib/fleet-report.ts";
-import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
+import {
+	laneAttemptLimit,
+	nextLaneAttempt,
+} from "../hooks/lib/lane-retry-budget.ts";
 import { dispatchStarterFork, starterStartLine } from "./lib/lane-starter.ts";
 import {
 	activeRateLimitWalls,
@@ -133,7 +136,7 @@ import {
 	readConfiguredLaunches,
 	reserveLaunchIntent,
 } from "./lib/launch-fencing.ts";
-import { launchParent } from "./lib/launch-parent.ts";
+import { launchParent } from "../hooks/lib/launch-parent.ts";
 import {
 	acquireLaunchLease,
 	renewLaunchLease,

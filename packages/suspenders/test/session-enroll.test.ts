@@ -22,7 +22,7 @@ import {
 	LANE_KEY_TTL_S,
 	SESSION_KEY_REUSE_SLACK_S,
 	sessionEnrollDecision,
-} from "../scripts/lib/lane-auth.ts";
+} from "../hooks/lib/lane-auth.ts";
 import { enrollTopLevel, retireTopLevel } from "../hooks/lib/hook-scripts.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-enroll-"));

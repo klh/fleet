@@ -1,78 +1,79 @@
-import { afterEach, expect, test } from "bun:test";
-import {
-	mkdirSync,
-	mkdtempSync,
-	realpathSync,
-	rmSync,
-	symlinkSync,
-	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { inspectDispatchParity } from "../scripts/lib/dispatch-parity.ts";
+// test/dispatch-parity.test.ts — W1255.2: the dispatch byte-parity machinery
+// (scripts/lib/dispatch-parity.ts + this file's original suite) is RETIRED.
+// scripts/lib's lane kit moved into hooks/lib, so the two trees are no
+// longer parallel installs — byte-parity is meaningless. This file now
+// carries the successor contract the move must preserve: the moved lane kit
+// is SELF-CONTAINED in hooks/lib (no scripts/ imports inside the kit, no
+// copies left in scripts/lib, consumers re-pointed, no cross-tree probing
+// in the enrollment path) — enforced structurally so the old layout cannot
+// quietly regrow.
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { expect, test } from "bun:test";
 
-const roots: string[] = [];
-afterEach(() => {
-	for (const root of roots.splice(0))
-		rmSync(root, { recursive: true, force: true });
-});
-function write(path: string, text = "export const helper = true;") {
-	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, text);
-}
-function fixture(generation: boolean) {
-	const root = realpathSync(mkdtempSync(join(tmpdir(), "fleet-parity-")));
-	roots.push(root);
-	const repo = join(root, "repo");
-	const prefix = join(root, "hooks/suspenders");
-	write(join(repo, "packages/suspenders/scripts/lib/helper.ts"));
-	if (generation) {
-		const payload = join(root, "generation/.harness/packages/suspenders");
-		write(join(payload, "hooks/bin/fleet-loop.ts"));
-		write(join(payload, "scripts/lib/helper.ts"));
-		mkdirSync(prefix, { recursive: true });
-		symlinkSync(join(payload, "hooks/bin"), join(prefix, "bin"));
-		symlinkSync(join(payload, "scripts"), join(prefix, "scripts"));
-		return {
-			repo,
-			prefix,
-			active: join(payload, "scripts/lib/helper.ts"),
-			root,
-		};
+const HOOKS_LIB = join(import.meta.dir, "..", "hooks", "lib");
+const SCRIPTS = join(import.meta.dir, "..", "scripts");
+const SCRIPTS_LIB = join(SCRIPTS, "lib");
+// the kit W1255.2 moved (the named four + the closure pair lane.ts imports)
+const KIT = [
+	"lane.ts",
+	"lane-auth.ts",
+	"launch-parent.ts",
+	"lane-retry-budget.ts",
+	"jobslab.ts",
+	"front-probe.ts",
+];
+
+const tsFilesUnder = (dir: string): string[] => {
+	try {
+		return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+			e.isDirectory()
+				? tsFilesUnder(join(dir, e.name))
+				: e.name.endsWith(".ts")
+					? [join(dir, e.name)]
+					: [],
+		);
+	} catch {
+		return [];
 	}
-	write(join(prefix, "bin/fleet-loop.ts"));
-	write(join(prefix, "scripts/lib/helper.ts"));
-	const active = join(root, "hooks/scripts/lib/helper.ts");
-	write(active);
-	return { repo, prefix, active, root };
-}
-test("canonical generation ignores unused stale or absent legacy sibling helpers", () => {
-	const f = fixture(true);
-	expect(inspectDispatchParity(f.repo, f.prefix)).toEqual([]);
-	write(join(f.root, "hooks/scripts/lib/helper.ts"), "stale unused helper");
-	expect(inspectDispatchParity(f.repo, f.prefix)).toEqual([]);
+};
+
+const IMPORTS_SCRIPTS =
+	/(?:from\s+|import\(\s*)["'][^"']*(?:^|\/)scripts\/[^"']*["']/;
+
+test("the moved lane kit is self-contained — no scripts/ imports inside it", () => {
+	const missing = KIT.filter((f) => !existsSync(join(HOOKS_LIB, f)));
+	expect(missing).toEqual([]);
+	const offenders = KIT.map((f) => join(HOOKS_LIB, f))
+		.map((p) => [p, readFileSync(p, "utf8")] as const)
+		.filter(([, src]) => IMPORTS_SCRIPTS.test(src));
+	expect(offenders).toEqual([]);
 });
-test("canonical generation checks resolved helpers once and detects real drift", () => {
-	const f = fixture(true);
-	write(f.active, "stale actual helper");
-	expect(inspectDispatchParity(f.repo, f.prefix)).toEqual([
-		`${f.active} (stale bytes)`,
-	]);
-	rmSync(f.active);
-	expect(inspectDispatchParity(f.repo, f.prefix)).toEqual([f.active]);
+
+test("the shared lane kit lives only in hooks/lib — no scripts/lib copies remain", () => {
+	expect(KIT).toHaveLength(6);
+	const remaining = KIT.filter((f) => existsSync(join(SCRIPTS_LIB, f)));
+	expect(remaining).toEqual([]);
 });
-test("legacy flat install still checks sibling import helpers", () => {
-	const f = fixture(false);
-	expect(inspectDispatchParity(f.repo, f.prefix)).toEqual([]);
-	write(f.active, "stale active legacy helper");
-	expect(inspectDispatchParity(f.repo, f.prefix)).toEqual([
-		`${f.active} (stale bytes)`,
-	]);
+
+test("scripts/ consumers reach the lane kit through hooks/lib, not local copies", () => {
+	const localKitImports = tsFilesUnder(SCRIPTS).filter((p) => {
+		const src = readFileSync(p, "utf8");
+		return (
+			/from\s+["']\.{1,2}\/lane(?:-auth|-retry-budget)?\.ts["']/.test(src) ||
+			/from\s+["']\.\.\/lib\/lane(?:-auth|-retry-budget)?\.ts["']/.test(src) ||
+			/from\s+["']\.{1,2}\/(launch-parent|jobslab|front-probe)\.ts["']/.test(
+				src,
+			)
+		);
+	});
+	expect(Array.isArray(localKitImports)).toBe(true);
+	expect(localKitImports).toEqual([]);
 });
-test("missing installed entry refuses parity rather than hiding dependency loss", () => {
-	const f = fixture(true);
-	rmSync(join(f.prefix, "bin/fleet-loop.ts"));
-	expect(inspectDispatchParity(f.repo, f.prefix)).toEqual([
-		`${join(f.prefix, "bin/fleet-loop.ts")} (missing entry)`,
-	]);
+
+test("enrollment resolves the shared modules in-tree, no cross-tree layout probing", () => {
+	const src = readFileSync(join(HOOKS_LIB, "hook-scripts.ts"), "utf8");
+	expect(src).not.toContain("scriptsLibPath");
+	expect(src).not.toContain(`"scripts"`);
+	expect(src).toContain(`await import("./lane-auth.ts")`);
 });

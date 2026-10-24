@@ -12,7 +12,7 @@
 //   adapterForExact(name) no fallback — null when the token names no agent.
 //                        Starter-fork resolution rides this: an unknown
 //                        harness must cold-start, never fork like claude.
-import type { ExecutorAdapter } from "../../../scripts/lib/lane.ts";
+import type { ExecutorAdapter } from "../../lane.ts";
 import { claudeAdapter } from "./claude.ts";
 import { clineAdapter } from "./cline.ts";
 import { copilotAdapter } from "./copilot.ts";

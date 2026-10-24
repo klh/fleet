@@ -1,4 +1,4 @@
-// scripts/lib/front-probe.ts — the attributable buckle-front probe (W1124.43).
+// hooks/lib/front-probe.ts — the attributable buckle-front probe (W1124.43).
 // The W1 probe (probeBuckleFront) answered one bit: front | null. The W1241
 // dispatch (2026-10-23) rode the null as "front down" and took the solo
 // belt-direct branch when the real failure was a 600 ms /status TIMEOUT —
