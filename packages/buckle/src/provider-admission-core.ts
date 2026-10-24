@@ -79,7 +79,9 @@ export interface ProviderLease {
 }
 export class ProviderAdmissionFull extends Error {}
 
-// Leave room for several paced starts within the configured admission wait.
+// Absolute emergency bound. The operative escalation ceiling is derived per
+// pool in the constructor: a paced start may never be spaced wider than the
+// provider's own interval contract (W1273) — see gapCeilingMs.
 const MAX_ADAPTIVE_GAP_MS = 30_000;
 
 /** W1267: in-band failures pace only when the provider NAMED rate/overload
@@ -98,6 +100,13 @@ export class ProviderAdmissionCore {
 	private readonly queue: PQueue;
 	private outstanding = 0;
 	private readonly baseGapMs: number;
+	/** W1273: the escalation ceiling is the pool's OWN interval contract —
+	 *  pacing a start wider than one full interval (or twice the base pace)
+	 *  would serialize the pool far below the entitlement the operator
+	 *  configured, which is how a burst of 1302s collapsed live slots to
+	 *  one active lease per 24s. The admission wait and MAX_ADAPTIVE_GAP_MS
+	 *  remain outer clamps only. */
+	private readonly gapCeilingMs: number;
 	private adaptiveGapMs: number;
 	private notBeforeMs = 0;
 	private lastStartedAt = 0;
@@ -121,6 +130,11 @@ export class ProviderAdmissionCore {
 			strict: true,
 		});
 		this.baseGapMs = Math.max(1, policy.intervalMs / policy.intervalCap);
+		this.gapCeilingMs = Math.min(
+			MAX_ADAPTIVE_GAP_MS,
+			policy.queueWaitMs / 4,
+			Math.max(policy.intervalMs, this.baseGapMs * 2),
+		);
 		this.adaptiveGapMs = this.baseGapMs;
 		this.adaptiveConcurrency = policy.concurrency;
 		this.queue.on("active", () => {
@@ -210,11 +224,12 @@ export class ProviderAdmissionCore {
 					);
 					this.queue.concurrency = this.adaptiveConcurrency;
 				} else {
+					// W1273: escalate only up to the pool's own interval contract —
+					// a 1302 wave must pace starts, never serialize the pool below
+					// the configured entitlement (the incident ceiling was
+					// queueWaitMs/4 ≈ 24s against a 20ms base pace).
 					this.adaptiveGapMs = Math.min(
-						Math.max(
-							this.baseGapMs,
-							Math.min(MAX_ADAPTIVE_GAP_MS, this.policy.queueWaitMs / 4),
-						),
+						Math.max(this.baseGapMs, this.gapCeilingMs),
 						this.adaptiveGapMs * 2,
 					);
 					this.notBeforeMs = Math.max(
@@ -275,6 +290,7 @@ export class ProviderAdmissionCore {
 			concurrencyLimitedTotal: this.concurrencyLimitedTotal,
 			concurrencyRecoverySuccesses: this.concurrencySuccesses,
 			baseGapMs: this.baseGapMs,
+			gapCeilingMs: this.gapCeilingMs,
 			adaptiveGapMs: this.adaptiveGapMs,
 			notBeforeMs: this.notBeforeMs,
 			rateLimitedTotal: this.rateLimitedTotal,
