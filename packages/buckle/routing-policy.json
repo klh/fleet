@@ -6,7 +6,8 @@
 		"Ladders = ordered cross-group walks tried after num_retries per tier (LiteLLM 1.103.0 semantics, pinned-source verified W126/W129); allowed_fails + cooldown_time = passive outlier ejection.",
 		"The glm ladder folds the 2026-10-04/06 zai-twin rescue rows with the 2026-10-01 cloud legs (zai twin → local swarm → gpt-5.2 → claude-sonnet-5).",
 		"aids/tags are buckle-enforced (belt ignores); classes/roles/reasoning + litellm_* knobs are belt emission knobs (buckle ignores).",
-		"W1267: Z.ai 1302/1305 are GENERIC rate/overload codes — never declare them account occupancy; declared-account codes are balance/entitlement classes (e.g. 1113/1311) and stay typed errors, never pacing."
+		"W1267: Z.ai 1302/1305 are GENERIC rate/overload codes — never declare them account occupancy; declared-account codes are balance/entitlement classes (e.g. 1113/1311) and stay typed errors, never pacing.",
+		"W1260.2 authenticated CONNECT egress (opaque AI TLS relay for the Sing http outbounds). Fail-closed triad — the endpoint exists only when enabled AND BUCKLE_CONNECT_TOKEN is set (machine env, 0600, never in the repo) AND allow is non-empty; otherwise no listener, no egress. Ports beyond 443 and deny_private:false are deliberate operator acts."
 	],
 	"version": 1,
 	"gateway": {
@@ -145,5 +146,16 @@
 			"spark": "low"
 		},
 		"roles": {}
+	},
+	"connect": {
+		"enabled": false,
+		"port": 4103,
+		"ports": [
+			443
+		],
+		"allow": [],
+		"idle_timeout_s": 300,
+		"max_tunnels": 64,
+		"deny_private": true
 	}
 }

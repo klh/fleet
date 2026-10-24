@@ -12,6 +12,7 @@ import { LaneTelemetryLog } from "./cache-boundary.ts";
 import { PrefixLedger } from "./cache-fingerprint.ts";
 import { AidsLedger } from "./aids.ts";
 import { CandidateTable } from "./candidates.ts";
+import { startConnectEgress, type ConnectEgress } from "./connect-egress.ts";
 import { Cooldowns } from "./cooldown.ts";
 import { decideRoute } from "./decide.ts";
 import { DietStore } from "./diet.ts";
@@ -36,7 +37,7 @@ import { MAX_REQUEST_BODY_BYTES } from "./ingress-body.ts";
 import type { RouteHint } from "./hints.ts";
 import { Ledger } from "./ledger.ts";
 import { ObservationOutbox } from "./observe.ts";
-import { loadGatewayPolicy, loadPrefs } from "./policy.ts";
+import { loadGatewayPolicy, loadPrefs, type GatewayPolicy } from "./policy.ts";
 import { poolWarm, prewarm } from "./pool-warm.ts";
 import { Preseeder } from "./preseed.ts";
 import { LaneProjection, OutboxTailer } from "./projection.ts";
@@ -129,7 +130,7 @@ export function resolvePort(explicit?: number): number {
 export function buildDeps(
 	opts: ServerOpts,
 	port: number = SHADOW_PORT,
-): AppDeps & { router: Router } {
+): AppDeps & { router: Router; policy: GatewayPolicy } {
 	const policy = loadGatewayPolicy(opts.policyPath);
 	const pool = loadUpstreams(opts.upstreamsPath);
 	const prefs = loadPrefs(opts.prefsPath);
@@ -291,6 +292,7 @@ export function buildDeps(
 	}
 	return {
 		router,
+		policy,
 		ledger,
 		admission,
 		aids,
@@ -315,9 +317,12 @@ export function buildDeps(
 
 /** Start buckle on the shadow port. Returns the Bun server for tests, with
  *  `.gov` attached (W154: tests and W160 seed/read the CR queue through it). */
-export function startServer(
-	opts: ServerOpts = {},
-): ReturnType<typeof Bun.serve> & { gov: ReturnType<typeof createGovernance> } {
+export function startServer(opts: ServerOpts = {}): ReturnType<
+	typeof Bun.serve
+> & {
+	gov: ReturnType<typeof createGovernance>;
+	connectEgress?: ConnectEgress;
+} {
 	const port = resolvePort(opts.port);
 	const deps = buildDeps(opts, port);
 	const app = createApp(deps);
@@ -371,15 +376,25 @@ export function startServer(
 		idleTimeout: BUN_IDLE_TIMEOUT,
 		fetch: inner,
 	});
-	return Object.assign(server, { gov }) as ReturnType<typeof Bun.serve> & {
+	// W1260.2: the authenticated CONNECT egress (opaque AI TLS relay). Inert
+	// unless policy enables it AND BUCKLE_CONNECT_TOKEN is set AND allow is
+	// non-empty; attaches when live so tests can stop it.
+	const connectEgress = startConnectEgress(deps.policy, port, { sm: deps.sm });
+	return Object.assign(server, { gov, connectEgress }) as ReturnType<
+		typeof Bun.serve
+	> & {
 		gov: ReturnType<typeof createGovernance>;
+		connectEgress?: ConnectEgress;
 	};
 }
 
 /** W235 boot: overlay load (fail-closed) BEFORE the server starts; unset =
  *  solo posture; what loaded is logged (log-at-startup law). */
 export async function boot(): Promise<
-	ReturnType<typeof Bun.serve> & { gov: ReturnType<typeof createGovernance> }
+	ReturnType<typeof Bun.serve> & {
+		gov: ReturnType<typeof createGovernance>;
+		connectEgress?: ConnectEgress;
+	}
 > {
 	const port = resolvePort();
 	// break-glass root credential (2026-10-05): hub deploys run the governance
