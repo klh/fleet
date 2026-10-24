@@ -18,7 +18,7 @@ import {
 	jobslabPrefix,
 	jobslabTag,
 	laneClassOf,
-} from "../../jobslab.ts";
+} from "../jobslab.ts";
 import {
 	acquireLaunchLease,
 	releaseFailedLaunch,
@@ -51,10 +51,7 @@ import {
 	executorLaunch,
 	probeBuckleFront,
 } from "../lane.ts";
-import {
-	ensureLaneKey,
-	laneKeyMetaPath,
-} from "../lane-auth.ts";
+import { ensureLaneKey, laneKeyMetaPath } from "../lane-auth.ts";
 // W254: pointer-grade injection — file-map + done-definition digest for the
 // direct-launch brief, gated per W113 on repo size (hooks/lib/brief-intel.ts)
 import { briefIntel, renderIntel } from "../brief-intel.ts";
