@@ -8,6 +8,39 @@
 import { expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { klhEdges, scanFleet } from "./helpers/fleet.import-graph.lib.ts";
+
+const fleet = await scanFleet(join(import.meta.dir, ".."));
+
+test("the regex scanner and the transpiler lib agree on @klh edges (W1249)", () => {
+	// Two independent scanners over one tree: the regex in this file and the
+	// Bun.Transpiler scan in the lib must derive the same (source → target)
+	// edge set. Disagreement = one of them rotted.
+	const lib = new Set(
+		klhEdges(fleet).map(
+			(e) =>
+				`${e.sourcePkg}->${e.targetPkg}:${e.spec.split("/").slice(0, 2).join("/")}`,
+		),
+	);
+	const regex = new Set<string>();
+	for (const pkg of readdirSync(
+		join(import.meta.dir, "..", "packages"),
+	).sort()) {
+		if (
+			!existsSync(join(import.meta.dir, "..", "packages", pkg, "package.json"))
+		)
+			continue;
+		for (const file of sources(pkg)) {
+			for (const m of readFileSync(
+				join(import.meta.dir, "..", "packages", pkg, file),
+				"utf8",
+			).matchAll(/(?:from|import)\s*\(?\s*["'](@klh\/[a-z-]+)/g)) {
+				regex.add(`${pkg}->${m[1].split("/")[1]}:${m[1]}`);
+			}
+		}
+	}
+	expect(regex).toEqual(lib);
+});
 
 const ROOT = join(import.meta.dir, "..");
 const PACKAGES = join(ROOT, "packages");
