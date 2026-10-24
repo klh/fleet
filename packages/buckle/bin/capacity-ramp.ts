@@ -423,7 +423,12 @@ function rowFor(
 		terminals.find((t) => t === "response.failed") ??
 		terminals.find((t) => t === "response.incomplete") ??
 		(text.includes("message_stop") ? "message_stop" : null) ??
-		(text.includes("[DONE]") ? "chat_done" : null);
+		(text.includes("[DONE]") ? "chat_done" : null) ??
+		// Z.ai anthropic-compat drops message_stop on thinking-only
+		// max_tokens truncations (live L16 short control 2026-10-24: rows
+		// carried stop_reason but no terminal frame) — the stop reason is
+		// itself a definitive terminal.
+		(stop !== null ? `stop:${stop}` : null);
 	return rowOf({
 		leg: opts.leg,
 		protocol: opts.protocol,
