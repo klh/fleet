@@ -112,7 +112,7 @@ describe("W1106 Bun idle law on active inference hops", () => {
 		const upstreams = join(home, "upstreams.yaml");
 		writeFileSync(
 			upstreams,
-			"groups:\n  glm-5.3-flash:\n    - url: http://127.0.0.1:9\n      dialect: openai\n",
+			JSON.stringify({version:1,groups:{"glm-5.3-flash":[{url:"http://127.0.0.1:9",dialect:"openai"}]}}),
 		);
 		const before = captured.length;
 		const server = startServer({
