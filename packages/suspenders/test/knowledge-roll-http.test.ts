@@ -72,7 +72,9 @@ interface HttpClaim {
 }
 
 const claimView = async (ev: string): Promise<HttpClaim> => {
-	const v = (await (await fetch(`${BASE}/roll`)).json()) as {
+	const v = (await (
+		await fetch(`${BASE}/roll`, { headers: { "x-klh-write-token": token() } })
+	).json()) as {
 		claims: HttpClaim[];
 	};
 	const hit = v.claims.find((c) => c.evidenceId === ev);
@@ -94,6 +96,7 @@ const BODY_A = {
 	evidenceId: "ev-http-a",
 	claim: "http convergence claim a",
 	confidence: 0.8,
+	scope: "fleet",
 };
 
 test("FAIL61611 on the wire: dupe assert carries time, stale tomb cannot hide", async () => {
@@ -114,6 +117,7 @@ const BODY_B = {
 	evidenceId: "ev-http-b",
 	claim: "http convergence claim b",
 	confidence: 0.8,
+	scope: "fleet",
 };
 
 test("reverse order converges visible; re-push stays provenance-exact", async () => {

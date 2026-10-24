@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	CLAIM_FACT,
+	ROLL_KEY_HEADER,
 	aggregateClaims,
 	claimAggregateView,
 	claimHash,
@@ -390,6 +391,7 @@ test("aggregate: stale tombstone replay cannot re-hide a revived claim (B3)", ()
 		evidenceId: "ev-b3",
 		claim: "contested claim",
 		confidence: 0.8,
+		scope: "fleet",
 	};
 	aggregateClaims(db, [{ ...body, ts: 100 }], "machine-a", { now: 1000 });
 	aggregateClaims(db, [{ ...body, ts: 200, tombstone: true }], "machine-b", {
@@ -430,6 +432,7 @@ test("aggregate: the B3 event set is monotone under every permutation", () => {
 		evidenceId: "ev-perm",
 		claim: "contested claim",
 		confidence: 0.8,
+		scope: "fleet",
 	};
 	const events = [
 		{ machine: "m-assert", entry: { ...body, ts: 100 } },
@@ -468,6 +471,7 @@ test("aggregate: a tombstone replay on a hidden row is an idempotent dupe", () =
 		evidenceId: "ev-idem",
 		claim: "retracted claim",
 		confidence: 0.5,
+		scope: "fleet",
 	};
 	aggregateClaims(db, [{ ...body, ts: 100 }], "machine-a", { now: 1000 });
 	aggregateClaims(db, [{ ...body, ts: 200, tombstone: true }], "machine-b", {
@@ -500,6 +504,7 @@ test("aggregate: identical-payload tombstone at a newer ts advances the high-wat
 		evidenceId: "ev-hwm",
 		claim: "contested claim",
 		confidence: 0.8,
+		scope: "fleet",
 	};
 	aggregateClaims(db, [{ ...body, ts: 100 }], "machine-a", { now: 1000 });
 	aggregateClaims(db, [{ ...body, ts: 200, tombstone: true }], "machine-b", {
@@ -535,6 +540,7 @@ test("aggregate: high-water advance is idempotent under replay", () => {
 		evidenceId: "ev-hwm-replay",
 		claim: "contested claim",
 		confidence: 0.5,
+		scope: "fleet",
 	};
 	aggregateClaims(db, [{ ...body, ts: 100 }], "machine-a", { now: 1000 });
 	aggregateClaims(db, [{ ...body, ts: 200, tombstone: true }], "machine-b", {
@@ -569,6 +575,7 @@ const ROLL_BODY = {
 	evidenceId: "ev-set",
 	claim: "contested claim",
 	confidence: 0.8,
+	scope: "fleet",
 };
 
 const rollVerdict = (db: Database): "visible" | "hidden" => {
@@ -680,6 +687,7 @@ test("aggregate: assert dupe advances the machine's standing ts in place", () =>
 		evidenceId: "ev-adv",
 		claim: "contested claim",
 		confidence: 0.8,
+		scope: "fleet",
 	};
 	aggregateClaims(db, [{ ...body, ts: 100 }], "m-a", { now: 1000 });
 	// identical payload, NEWER ts: deduped, no provenance APPEND — the
@@ -702,6 +710,7 @@ test("aggregate: same-ts assert replay is exact — zero writes", () => {
 		evidenceId: "ev-exact",
 		claim: "contested claim",
 		confidence: 0.8,
+		scope: "fleet",
 	};
 	aggregateClaims(db, [{ ...body, ts: 100 }], "m-a", { now: 1000 });
 	const replay = aggregateClaims(db, [{ ...body, ts: 100 }], "m-a", {
@@ -721,6 +730,7 @@ test("aggregate: stale dupe on a hidden row cannot bypass the revive gate", () =
 		evidenceId: "ev-gate",
 		claim: "contested claim",
 		confidence: 0.8,
+		scope: "fleet",
 	};
 	aggregateClaims(db, [{ ...body, ts: 100 }], "m-a", { now: 1000 });
 	aggregateClaims(db, [{ ...body, ts: 400, tombstone: true }], "m-b", {
@@ -1028,18 +1038,24 @@ test("postRoll vs the actual endpoint: validated positive ack lands the roll", a
 			evidenceId: "ev-pos-1",
 			claim: "positive acks land",
 			confidence: 0.7,
+			scope: "fleet",
 			ts: 1,
 		},
 		{
 			evidenceId: "ev-pos-2",
 			claim: "counts validate",
 			confidence: 0.6,
+			scope: "fleet",
 			ts: 2,
 		},
 	]);
 	expect(outcome.ok).toBe(true);
 	expect(outcome.error).toBeNull();
-	const view = (await (await fetch(`${ROLL_BASE}/roll`)).json()) as {
+	const view = (await (
+		await fetch(`${ROLL_BASE}/roll`, {
+			headers: { [ROLL_KEY_HEADER]: ROLL_KEY },
+		})
+	).json()) as {
 		claims: { evidenceId: string }[];
 	};
 	expect(view.claims.map((c) => c.evidenceId)).toContain("ev-pos-1");
@@ -1048,12 +1064,19 @@ test("postRoll vs the actual endpoint: validated positive ack lands the roll", a
 
 test("postRoll vs the actual endpoint: HTTP 200 {ok:false} is a non-ack", async () => {
 	const outcome = await postRoll(rollKeyTarget(), [
-		{ evidenceId: "ev-bad", claim: "invalid confidence", confidence: 2, ts: 3 },
+		{
+			evidenceId: "ev-bad",
+			claim: "invalid confidence",
+			confidence: 2,
+			scope: "fleet",
+			ts: 3,
+		},
 	]);
-	// the exact FAIL61405 seam: the hub's 200 rejection names itself in the
-	// client outcome — it is never read as acceptance (cursor never stamps)
+	// the exact FAIL61405 seam: a hub rejection is never read as acceptance
+	// (cursor never stamps). B2 server half (W1213.1): a rejected roll 422s —
+	// the 200 {ok:false} shape stays covered by the loopback receiver test.
 	expect(outcome.ok).toBe(false);
-	expect(outcome.error).toContain("invalid claim entry");
+	expect(outcome.error).toContain("422");
 });
 
 test("syncOnce vs the actual endpoint: positive ack advances the claims cursor", async () => {
@@ -1093,7 +1116,11 @@ test("syncOnce vs the actual endpoint: positive ack advances the claims cursor",
 		"claim.w121321-a",
 		"claim.w121321-b",
 	]);
-	const view = (await (await fetch(`${ROLL_BASE}/roll`)).json()) as {
+	const view = (await (
+		await fetch(`${ROLL_BASE}/roll`, {
+			headers: { [ROLL_KEY_HEADER]: ROLL_KEY },
+		})
+	).json()) as {
 		claims: { evidenceId: string }[];
 	};
 	const ids = view.claims.map((c) => c.evidenceId);
