@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
-// prompt-bench.ts — W368: bench the local swarm on prompt transforms.
-// Per-model legs on the :890x direct wire (the path resolveEnhanceTarget
-// takes), a :4000 router leg (stack path, _routing-attributed), and the
-// deterministic blam caveman condenser as the compress baseline — all
+// prompt-bench.ts — W368: bench the swarm on prompt transforms.
+// Per-model legs ride the buckle gate (W1119.2 single-buckle-inference:
+// model-as-data, the gate owns placement), plus the deterministic blam
+// caveman condenser as the compress baseline — all
 // nonce-cold, scored by the deterministic scorer, raw legs as NDJSON.
 //
 //   bun scripts/prompt-bench.ts [--n 130] [--seed 20261016]
-//       [--router on|off] [--timeout <ms>] [--out-dir <dir>]
+//       [--timeout <ms>] [--out-dir <dir>]
 //
 // Exit: 0 = ran, 4 = every leg failed.
 import { mkdirSync, appendFileSync, readFileSync } from "node:fs";
@@ -18,8 +18,7 @@ import {
 	median,
 } from "./lib/prompt-bench-score.ts";
 import {
-	callDirect,
-	callRouter,
+	callGate,
 	COMPRESS_SYS,
 	PROD_ENHANCE_SYS,
 	type LegResult,
@@ -34,50 +33,31 @@ const arg = (name: string): string | undefined => {
 };
 const N = Number(arg("n") ?? 130);
 const SEED = Number(arg("seed") ?? 20261016);
-const ROUTER = (arg("router") ?? "on") !== "off";
 const TIMEOUT = Number(arg("timeout") ?? 90_000);
 const OUT_DIR = resolve(
 	arg("out-dir") ?? join(process.cwd(), ".fleet", "prompt-bench"),
 );
 
 const ALIASES = ["local-coder", "local-extract", "local-reason"] as const;
-const ROUTER_URL = "http://127.0.0.1:4000/v1/messages";
 
 interface Specialist {
 	alias: string;
-	port: number;
-	base: string;
-	id: string;
 }
 
-/** resolveEnhanceTarget's recipe, shared: the emitted map read through the
- *  belt artifact parser (W726), live /v1/models probe for the wire id (the
- *  alias is never the wire id). */
-async function resolveSpecialists(): Promise<Specialist[]> {
-	const home = process.env.SUSPENDERS_HOME ?? process.env.HOME;
+/** The bench lanes: aliases present in the emitted direct-tiers catalog
+ *  (the W726 map). The gate owns placement (model-as-data); a down rung
+ *  fails its legs honestly (a failed leg is data). */
+function resolveSpecialists(): Specialist[] {
 	const doc =
 		parseDirectTiersArtifact(
-			readFileSync(`${home}/.claude/local-llm/direct-tiers.json`, "utf8"),
+			readFileSync(
+				`${process.env.SUSPENDERS_HOME ?? process.env.HOME}/.claude/local-llm/direct-tiers.json`,
+				"utf8",
+			),
 		) ?? {};
-	const out: Specialist[] = [];
-	for (const alias of ALIASES) {
-		const base = doc[alias];
-		if (typeof base !== "string") continue;
-		try {
-			const r = await fetch(`${base}/models`, {
-				signal: AbortSignal.timeout(3000),
-			});
-			if (!r.ok) continue;
-			const j = (await r.json()) as { data?: { id?: string }[] };
-			const id = j.data?.[0]?.id;
-			if (!id) continue;
-			const port = Number(new URL(base).port);
-			out.push({ alias, port, base, id });
-		} catch {
-			// specialist down → no lane
-		}
-	}
-	return out;
+	return ALIASES.filter((a) => typeof doc[a] === "string").map((alias) => ({
+		alias,
+	}));
 }
 
 const nonce = (): string => Math.random().toString(36).slice(2, 10);
@@ -126,7 +106,7 @@ const summarize = (
 };
 
 async function main(): Promise<void> {
-	const specialists = await resolveSpecialists();
+	const specialists = resolveSpecialists();
 	if (specialists.length === 0) {
 		console.log("no live specialist resolved — nothing to bench");
 		process.exit(4);
@@ -136,7 +116,7 @@ async function main(): Promise<void> {
 	const ndjson = join(OUT_DIR, `prompt-transform-${stamp}.ndjson`);
 	const corpus = buildCorpus(N, SEED);
 	console.log(
-		`W368 prompt-transform bench: n=${N} seed=${SEED} models=${specialists.map((s) => `${s.alias}→:${s.port}`).join(",")} router=${ROUTER ? "on" : "off"} ndjson=${ndjson}`,
+		`W368 prompt-transform bench: n=${N} seed=${SEED} models=${specialists.map((s) => s.alias).join(",")} ndjson=${ndjson}`,
 	);
 	const all: BenchRecord[] = [];
 	const push = (rec: Omit<BenchRecord, "ts" | "suite">): BenchRecord => {
@@ -174,14 +154,16 @@ async function main(): Promise<void> {
 			for (const s of corpus) {
 				const user = transform === "compress" ? s.verbose : s.terse;
 				const sys = transform === "compress" ? COMPRESS_SYS : PROD_ENHANCE_SYS;
-				const res: LegResult = await callDirect({
-					base: sp.base,
-					model: sp.id,
-					system: sys,
-					user,
-					nonce: nonce(),
-					timeoutMs: TIMEOUT,
-				});
+				const res: LegResult = await callGate(
+					{
+						model: sp.alias,
+						system: sys,
+						user,
+						nonce: nonce(),
+						timeoutMs: TIMEOUT,
+					},
+					process.env,
+				);
 				const sc =
 					transform === "compress"
 						? scoreCompress(s, res.text)
@@ -189,9 +171,9 @@ async function main(): Promise<void> {
 				push({
 					run: stamp,
 					transform,
-					target: sp.id,
+					target: sp.alias,
 					alias: sp.alias,
-					port: sp.port,
+					port: null,
 					seedId: s.id,
 					ok: res.ok,
 					wallMs: res.wallMs,
@@ -207,39 +189,8 @@ async function main(): Promise<void> {
 		}
 	};
 
-	const runRouterLane = async (): Promise<void> => {
-		if (!ROUTER) return;
-		for (const s of corpus) {
-			const res = await callRouter({
-				url: ROUTER_URL,
-				system: PROD_ENHANCE_SYS,
-				user: s.terse,
-				nonce: nonce(),
-				timeoutMs: TIMEOUT,
-			});
-			const sc = scoreEnhance(s, res.text);
-			push({
-				run: stamp,
-				transform: "enhance",
-				target: res.servedPort ? `router:${res.servedPort}` : "router",
-				alias: "router",
-				port: res.servedPort,
-				seedId: s.id,
-				ok: res.ok,
-				wallMs: res.wallMs,
-				score: res.ok ? sc.score : null,
-				retention: res.ok ? sc.retention : null,
-				ratio: res.ok ? sc.ratio : null,
-				additions: res.ok ? sc.additions : null,
-				note: res.note,
-			});
-		}
-	};
-
 	await Promise.all(specialists.map(runModelLane));
-	console.log("direct lanes done");
-	await runRouterLane();
-	console.log("router lane done");
+	console.log("gate lanes done");
 
 	// summary → stdout + curated raw rows into the belt store
 	console.log(`\n== summary (run ${stamp}) ==`);
@@ -267,18 +218,15 @@ async function main(): Promise<void> {
 	for (const sp of specialists) {
 		for (const tr of ["compress", "enhance"] as const) {
 			emit(
-				sp.id,
+				sp.alias,
 				tr,
-				summarize(all.filter((r) => r.target === sp.id && r.transform === tr)),
-				`(${sp.alias} :${sp.port})`,
+				summarize(
+					all.filter((r) => r.target === sp.alias && r.transform === tr),
+				),
+				"(gated)",
 			);
 		}
 	}
-	const byServed = new Map<number, BenchRecord[]>();
-	for (const r of all.filter((x) => x.alias === "router"))
-		byServed.set(r.port ?? -1, [...(byServed.get(r.port ?? -1) ?? []), r]);
-	for (const [port, rs] of byServed)
-		emit(`router:${port}`, "enhance", summarize(rs), "(via :4000)");
 
 	const store = resolve(
 		join(process.cwd(), "..", "belt", "bench", "benchmarks.jsonl"),

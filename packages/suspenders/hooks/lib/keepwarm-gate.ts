@@ -33,3 +33,33 @@ export const cacheDrillEnabled = (
 export const fallbackDrillEnabled = (
 	env: Record<string, string | undefined> = process.env,
 ): boolean => optInEnabled(env.BELT_FALLBACK_DRILL_ENABLED);
+
+/** W1119.2 gated warm set: tier-manifest warm_ports ∩ the emitted
+ *  direct-tiers catalog (port → alias via the base URL). Chat aliases ride
+ *  the gate (model-as-data, prefer-local); ports with no chat alias (the
+ *  rerank rung, for one) drop — the gate owns inference, a bare port
+ *  cannot be warmed through it. */
+export function warmTargets(
+	tier: { warm_ports?: unknown },
+	catalog: Record<string, unknown>,
+): { port: number; alias: string }[] {
+	const ports =
+		Array.isArray(tier.warm_ports) &&
+		tier.warm_ports.every((p) => typeof p === "number" && p > 0 && p < 65536)
+			? tier.warm_ports
+			: [];
+	const byPort = new Map<number, string>();
+	for (const [alias, base] of Object.entries(catalog)) {
+		if (typeof base !== "string") continue;
+		try {
+			const port = Number(new URL(base).port);
+			if (port > 0) byPort.set(port, alias);
+		} catch {
+			// malformed catalog row — not warmable
+		}
+	}
+	return ports.flatMap((port) => {
+		const alias = byPort.get(port);
+		return alias ? [{ port, alias }] : [];
+	});
+}

@@ -1,6 +1,7 @@
 // hooks/lib/soak.ts — W179.3: nightly real-provider soak engine. Library +
-// thin CLI (hooks/bin/soak.ts). Drives small REAL completions through belt
-// (/api/route) on a schedule, meters observed usage, and stops on hard caps:
+// thin CLI (hooks/bin/soak.ts). Drives small REAL completions through the
+// buckle gate (W1119.2 single-buckle-inference) on a schedule, meters
+// observed usage, and stops on hard caps:
 //   token cap  — enforced on OBSERVED usage; the request shape also bounds
 //                the worst case (iters × per-call max_tokens), so the bound
 //                holds even when belt reports no usage at all.
@@ -16,6 +17,7 @@
 // as sim/smoke.ts. Streams-over-buffers via hooks/lib/http.ts.
 
 import { readCapped } from "./http.ts";
+import { buckleChat } from "./inference-buckle.ts";
 
 export type Outcome = "PASS" | "RED" | "ERR";
 export interface SoakRow {
@@ -177,8 +179,9 @@ export interface SoakDeps {
 	belt: { url: string; token?: string };
 	caps: Caps;
 	table: PriceTable;
-	role?: string; // belt routing role (default "general")
+	role?: string; // soak role tag — rides the gate hint (default "general")
 	fetcher?: typeof fetch; // injectable — tests never touch the network
+	env?: NodeJS.ProcessEnv; // buckleChat route resolution (tests inject)
 	now?: () => number;
 	sleep?: (ms: number) => Promise<void>;
 	log?: (row: SoakRow) => void; // live row printer (CLI)
@@ -219,7 +222,7 @@ export const statusOnce = async (
 	}
 };
 
-// the /api/route outcome: raw fields; the loop meters and narrates
+// the completion outcome: raw fields; the loop meters and narrates
 export interface RouteOutcome {
 	err?: string; // transport-level failure → belt-down
 	ok: boolean; // HTTP 200 + non-empty reply
@@ -230,75 +233,44 @@ export interface RouteOutcome {
 	usage: Usage | undefined;
 }
 
-// parse the /api/route response body (capped-read text in, honest fields out)
-export const parseRouteBody = (
-	text: string,
-): { reply: string; model: string; usage: Usage | undefined } => {
-	let body: unknown = null;
-	try {
-		body = text.length > 0 ? JSON.parse(text) : null;
-	} catch {
-		body = null;
-	}
-	const b = typeof body === "object" && body !== null ? body : {};
-	const reply = typeof b.reply === "string" ? b.reply : "";
-	const target =
-		typeof b.target === "object" && b.target !== null
-			? (b.target as { model?: unknown })
-			: {};
-	const model = typeof target.model === "string" ? target.model : "belt";
-	const usage =
-		typeof b.usage === "object" && b.usage !== null
-			? (b.usage as Usage)
-			: undefined;
-	return { reply, model, usage };
-};
-
-// one small REAL completion through belt's router (the advise.ts call shape:
-// POST /api/route {role, execute:true, max_tokens, temperature, messages})
+// one small REAL completion through the buckle gate (W1119.2: the soak's
+// inference rides the one inference boundary — the soak role rides as a
+// prefer hint; the served model + usage ride back. The /api/status probe
+// above stays belt-side: a status read, not inference)
+export const SOAK_MODEL = "glm-5.3-flash";
 export const routeOnce = async (deps: SoakDeps): Promise<RouteOutcome> => {
 	const t0 = deps.now?.() ?? Date.now();
 	try {
-		const res = await (deps.fetcher ?? fetch)(`${deps.belt.url}/api/route`, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				...(deps.belt.token
-					? { authorization: `Bearer ${deps.belt.token}` }
-					: {}),
+		const res = await buckleChat(
+			{
+				model: SOAK_MODEL,
+				user: `soak ${String(t0)} — reply with the single word ok`,
+				maxTokens: deps.caps.maxTokensPerCall,
+				hint: `prefer ${deps.role ?? "general"}`,
+				wire: "openai",
+				fetcher: deps.fetcher,
 			},
-			body: JSON.stringify({
-				role: deps.role ?? "general",
-				execute: true,
-				max_tokens: deps.caps.maxTokensPerCall,
-				temperature: 0,
-				messages: [
-					{
-						role: "user",
-						content: `soak ${String(t0)} — reply with the single word ok`,
-					},
-				],
-			}),
-			signal: AbortSignal.timeout(120_000),
-		});
-		const { text } = await readCapped(res);
-		const p = parseRouteBody(text);
+			deps.env,
+		);
 		return {
-			ok: res.status === 200 && p.reply.length > 0,
-			status: res.status,
+			ok: res.text.length > 0,
+			status: 200,
 			ms: Math.max(0, Math.round((deps.now?.() ?? Date.now()) - t0)),
-			reply: p.reply,
-			model: p.model,
-			usage: p.usage,
+			reply: res.text,
+			model: res.model,
+			usage: { input_tokens: res.pt, output_tokens: res.ct },
 		};
 	} catch (e) {
+		const m = String(e).match(/HTTP (\d+)/);
 		return {
-			err: String(e),
+			// a gate HTTP status is an honest RED (the soak observes, it does
+			// not bail on a non-2xx leg); a transport-level miss stays belt-down
+			err: m ? undefined : String(e),
 			ok: false,
-			status: 0,
+			status: m ? Number(m[1]) : 0,
 			ms: 0,
 			reply: "",
-			model: "belt",
+			model: SOAK_MODEL,
 			usage: undefined,
 		};
 	}
@@ -341,7 +313,7 @@ export const runSoak = async (deps: SoakDeps): Promise<SoakResult> => {
 		push({
 			name: `soak/${String(i)}/route`,
 			out: r.ok ? "PASS" : "RED",
-			note: `POST /api/route ${String(r.status)} ${r.model} ms=${String(r.ms)} charged=${String(m.charged.toFixed(4))} tok=${String(m.tokens)}${m.unknown ? " (usage-unreported-or-unpriced)" : ""}`,
+			note: `POST /v1/chat/completions ${String(r.status)} ${r.model} ms=${String(r.ms)} charged=${String(m.charged.toFixed(4))} tok=${String(m.tokens)}${m.unknown ? " (usage-unreported-or-unpriced)" : ""}`,
 		});
 		const cap = meter.capReason(caps);
 		if (cap !== null) return { rows, meter, stop: cap };
