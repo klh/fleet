@@ -315,7 +315,7 @@ function redactedRender(envText: string): string {
  *  groups = an empty pool, not a silent inheritance. The local Mac spoke
  *  keeps merge-over-base through its own UNFLAGGED override file. Always
  *  rendered: compose mounts it. */
-function renderUpstreams(hub: HubProfile): string {
+export function renderUpstreams(hub: HubProfile): string {
 	return stringify({
 		version: 1,
 		inherit_defaults: false,
