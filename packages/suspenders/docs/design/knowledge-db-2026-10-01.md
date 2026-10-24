@@ -176,7 +176,7 @@ synchronous=NORMAL under WAL is worth 2.9× on the write path (57.8k vs
 20.2k events/s); DELETE journal costs 11×. WAL's close does a
 checkpoint-on-close, so DELETE wins the open-close micro-benchmark — but
 throughput dominates and WAL wins it by an order of magnitude. The current
-governor pragmas (WAL, NORMAL, busy_timeout=2000, 4K pages) are already
+governor pragmas (WAL, NORMAL, busy_timeout=10000, 4K pages) are already
 right; an 8K rebuild buys +29% events/s at trivial absolute numbers and is
 not worth a fleet-wide file rebuild.
 
@@ -208,7 +208,7 @@ knowledge consumer (coord CLI, read_knowledge MCP, HTTP API) binds through
 only knowledge-layer code allowed to open the DB file. Phase 2:
 
 1. **`openKnowledgeDb()`** (new, hooks/lib/govdb.ts or a sibling): mkdir,
-   open `${REG}/knowledge.db`, busy_timeout=2000 BEFORE journal_mode=WAL
+   open `${REG}/knowledge.db`, busy_timeout=10000 BEFORE journal_mode=WAL
    (the openGovernorDb ordering), synchronous=NORMAL, mmap_size=1 GiB,
    page_size=8192 must precede the FIRST schema creation (page_size is
    baked at file creation).

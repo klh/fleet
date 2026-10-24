@@ -36,7 +36,7 @@ import {
 } from "./helpers/dispatch-next-kit.ts";
 
 // ─── W463 fail-closed governance + lane key lifecycle ──────────────────────
-// NOTE: e2e cases here spawn dispatch-next/worktree async (Bun.spawn, not
+// e2e cases here spawn dispatch-next/worktree async (Bun.spawn, not
 // spawnSync): a sync spawn blocks this process' event loop, which would stall
 // the stub buckle front and make the child's 600ms front probe time out.
 
@@ -241,9 +241,10 @@ test("simultaneous dispatchers launch one harness and loser preserves winner", a
 				"--allow-ungoverned",
 			),
 		]);
-		expect(results.filter((r) => r.out.includes("dispatched "))).toHaveLength(
-			1,
-		);
+		expect(
+			results.filter((r) => r.out.includes("dispatched ")),
+			`expected exactly one winner — child results:\n${results.map((r, i) => `#${i} code=${r.code} out=${r.out}`).join("\n---\n")}`,
+		).toHaveLength(1);
 		expect(results.filter((r) => !r.out.includes("dispatched ")).length).toBe(
 			1,
 		);
@@ -499,7 +500,10 @@ describe("governance mode e2e: probe-false strict (W422.17)", () => {
 	test("fact absent → strict applies: REFUSED, claim reclaimed, exit non-zero", async () => {
 		const id = await addItem("governance strict refusal item");
 		const out = await dispatchA({ PATH: "/usr/bin:/bin" }, "--item", id);
-		expect(out.code).not.toBe(0);
+		expect(
+			out.code,
+			`strict e2e dispatch exited ${out.code} — stdout:\n${out.out}\nstderr: ${out.err}`,
+		).not.toBe(0);
 		expect(out.out).toContain(`REFUSED ${id}`);
 		expect(out.out).toContain("buckle front unreachable + governance:strict");
 		expect(out.out).toContain("dispatch(es) REFUSED");
@@ -514,7 +518,10 @@ describe("governance mode e2e: probe-false solo (W422.17, W1119.2)", () => {
 		expect((await toolA({}, "coord.ts", "governance", "solo")).code).toBe(0);
 		const id = await addItem("governance solo belt-direct item");
 		const out = await dispatchA({ PATH: "/usr/bin:/bin" }, "--item", id);
-		expect(out.code).not.toBe(0);
+		expect(
+			out.code,
+			`solo e2e dispatch exited ${out.code} — stdout:\n${out.out}\nstderr: ${out.err}`,
+		).not.toBe(0);
 		expect(out.out).toContain(`REFUSED ${id}`);
 		expect(out.out).toContain("buckle front unreachable + governance:solo");
 		expect(out.out).toContain("dispatch(es) REFUSED");

@@ -238,6 +238,46 @@ export class HttpGovernorStore implements GovernorStore {
 	close(): void {}
 }
 
+// W1274 — two facts shape the local binding's transaction():
+// (1) bun's default is a DEFERRED BEGIN: a read-then-write body upgrades
+//     mid-tx and instant-fails SQLITE_BUSY (busy handler bypassed) when a
+//     peer writer commits inside the window — assignTask/reserveLaunchIntent
+//     lost that race and a governance verdict read as a claim SKIP.
+// (2) Measured on this host (bun 1.4.2, macOS): cross-process write locking
+//     does not exclude at all (a system sqlite3 CLI writes through a held
+//     BEGIN IMMEDIATE in ~30ms), while same-process contention honors
+//     busy_timeout — so no timeout value can absorb the residual BUSY, and
+//     the standard remedy applies: re-run the transaction. Every port tx is
+//     a write tx whose body is db-shaped by convention (no spawns), so a
+//     bounded re-execution is safe.
+// The HTTP binding already holds BEGIN IMMEDIATE server-side with its own
+// begin ladder (rpc retry, 35s) — the local binding matches it.
+const TX_LOCKED_RE = /database is locked/i;
+const TX_RETRY_DELAYS_MS = [120, 400] as const;
+const withImmediateTransactions = (d: GovernorStore): GovernorStore => {
+	const raw = d.transaction.bind(d) as <T>(
+		fn: () => T,
+		mode?: string,
+	) => () => T;
+	d.transaction = <T>(fn: () => T): (() => T) => {
+		const runner = raw(fn, "immediate");
+		return () => {
+			let lastError: unknown;
+			for (const delay of [0, ...TX_RETRY_DELAYS_MS]) {
+				if (delay > 0) Bun.sleepSync(delay);
+				try {
+					return runner();
+				} catch (error) {
+					lastError = error;
+					if (!TX_LOCKED_RE.test(String(error))) throw error;
+				}
+			}
+			throw lastError;
+		};
+	};
+	return d;
+};
+
 // binding resolver: GOVERNOR_STORE_URL wins, then /store.url, else the
 // in-process SQLite Database. GOVERNOR_STORE_URL=local forces in-process
 // (tests, emergencies). The cast is the ONE place Database becomes the port —
@@ -248,7 +288,7 @@ export function openStore(): GovernorStore {
 		return new HttpGovernorStore(raw.replace(/\/+$/, ""), resolveStoreToken());
 	const d = openGovernorDb() as unknown as GovernorStore;
 	d.local = true;
-	return d;
+	return withImmediateTransactions(d);
 }
 
 // same binding chain as openStore(), exposed for callers that need the raw
