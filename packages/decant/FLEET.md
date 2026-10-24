@@ -66,7 +66,7 @@ rule set.
 
 ## The seam (minimal in-file edits, rebase recipe)
 
-`src/ingest.ts` stays BYTE-PURE: at 1986 lines it is over the fleet 1500-line
+`src/ingest.ts` stays BYTE-PURE: at 1981 lines it is over the fleet 1500-line
 cap, so the on-write gate forbids editing it — and the fleet design doesn't
 need to. The registry drives discovery through upstream's own `--path`
 pathway: with no user `--path`, the CLI seam injects the registry-resolved

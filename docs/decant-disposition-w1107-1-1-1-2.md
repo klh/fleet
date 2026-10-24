@@ -43,9 +43,13 @@ Upstream pin unchanged: dosu-ai/decant `v0.11.0`, vendored 2026-10-19 (W950).
 ## Recovery
 
 The shas above stay valid in this repo's object db while reflogs persist
-(git default ~90 days). Regenerate the patch text:
+(git default ~90 days). Snapshot tag `archive/parked/W1107.1.1.1.2` — cut
+2026-10-24 (W1272) at the tip before the branch deletion, satisfying the C85
+recoverable-snapshot condition (open-handle proof: no worktree on the branch,
+absent from origin, the work graph holds result_sha `86e195e9` as a sha, not
+a ref) — now pins the tip permanently. Regenerate the patch text:
 
-    git format-patch 95e83862530cca080e709c214a339e8868d14175..86e195e995d76c79fc82185f6b524e1fdace8d97
+    git format-patch 95e83862530cca080e709c214a339e8868d14175..archive/parked/W1107.1.1.1.2
 
 If the decomposition is ever wanted, it must be re-landed under the
 Amendment B preconditions (pinned upstream SHA + patch inventory +
