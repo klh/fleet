@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { ensureConsultOutbox, consultStoreId } from "./consult-outbox.ts";
 import { resolveStoreHttpBase } from "./govdb.ts";
 import { readFileSync, statSync, existsSync } from "node:fs";
+import { isLoopbackHostname } from "./loopback.ts";
 
 interface Binding {
 	base: string;
@@ -56,7 +57,7 @@ function projectAliases(): Record<string, string> {
 function allowedBase(raw: string): string | null {
 	try {
 		const url = new URL(raw);
-		const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+		const loopback = isLoopbackHostname(url.hostname);
 		if (url.username || url.password || url.search || url.hash) return null;
 		if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback))
 			return null;
@@ -211,9 +212,7 @@ export async function relayConsultOutbox(
 					continue;
 				}
 			}
-			const remote = !["localhost", "127.0.0.1", "[::1]"].includes(
-				new URL(base).hostname,
-			);
+			const remote = !isLoopbackHostname(new URL(base).hostname);
 			if (remote && !binding.token) {
 				retry(row, "REMOTE_AUTH_REQUIRED");
 				continue;

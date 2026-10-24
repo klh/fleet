@@ -14,12 +14,14 @@
 // upgraded to "front down" beyond what the wire showed. The bound is
 // CONFIGURED, not blanket-raised: SUSPENDERS_BUCKLE_FRONT_TIMEOUT_MS, clamped
 // to 100..10_000, default 600 (the historical W1 value, unchanged).
+import { loopbackUrl, BUCKLE_SPOKE_PORT } from "../../hooks/lib/loopback.ts";
+
 export const FRONT_PROBE_TIMEOUT_MS = 600;
 
 // W1 dispatch-side adoption (finding.w1): lanes ride the buckle front with a
 // /w/<slug> prefix so usage attributes per lane (route_audit.lane).
 export const BUCKLE_FRONT =
-	process.env.SUSPENDERS_BUCKLE_FRONT ?? "http://127.0.0.1:4101";
+	process.env.SUSPENDERS_BUCKLE_FRONT ?? loopbackUrl(BUCKLE_SPOKE_PORT);
 
 const FRONT_PROBE_TIMEOUT_MIN = 100;
 const FRONT_PROBE_TIMEOUT_MAX = 10_000;
