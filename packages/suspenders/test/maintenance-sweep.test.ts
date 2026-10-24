@@ -8,6 +8,7 @@ import { join } from "node:path";
 import {
 	createMaintenanceSweep,
 	isDue,
+	MAINTENANCE_TASKS,
 	missingRunners,
 	readStamps,
 	suspendersRoot,
@@ -150,6 +151,16 @@ describe("maintenance sweep (W779)", () => {
 	test("registry guard: every folded runner resolves at the package root", () => {
 		expect(missingRunners()).toEqual([]);
 		expect(suspendersRoot()).toContain("suspenders");
+	});
+	test("auto-install heartbeat argv pins --repo to the package root (W1243)", () => {
+		const task = MAINTENANCE_TASKS.find((t) => t.name === "auto-install");
+		if (!task)
+			throw new Error("auto-install task missing from MAINTENANCE_TASKS");
+		expect(task.argv("/r", "/fleet")).toEqual([
+			join("/r", "scripts/auto-install.ts"),
+			"--repo",
+			join("/fleet", "packages/suspenders"),
+		]);
 	});
 	test("stamps: corrupt or absent file reads as never-ran", () => {
 		writeFileSync(stampsPath, "not-json{");

@@ -124,6 +124,7 @@ interface Case {
 
 async function runCase(
 	c: Case,
+	stubFetch?: (req: Request) => Response | Promise<Response>,
 ): Promise<{ id: string; fact: Record<string, unknown> }> {
 	const id = addWork(`w634 proof ${c.name}`);
 	const branch = `suspenders/${id}`;
@@ -136,16 +137,18 @@ async function runCase(
 
 	const stub = Bun.serve({
 		port: 0,
-		fetch: async () =>
-			Response.json({
-				choices: [
-					{
-						message: {
-							content: "looked at the diff: fine\nVERDICT: PASS - clean",
+		fetch:
+			stubFetch ??
+			(async () =>
+				Response.json({
+					choices: [
+						{
+							message: {
+								content: "looked at the diff: fine\nVERDICT: PASS - clean",
+							},
 						},
-					},
-				],
-			}),
+					],
+				})),
 	});
 	const p = Bun.spawn(
 		[
@@ -384,6 +387,46 @@ describe("W634 review-lane coverage proof (Sinai rule)", () => {
 		expect(receipt.verdict).toBe("PASS");
 		expect(receipt.blocking).toEqual(["B1-erase-guard"]);
 		expect(String(receipt.evidence)).toContain("B1-erase-guard");
+	});
+
+	test("W1243.1.1: proof-ordering contract reaches the reviewer before any verdict", async () => {
+		// FAIL62885: the reviewer saw no proof output and refused PASS; the
+		// prompt must carry the binding ordering contract and the harness
+		// proof must still gate after the provisional PASS.
+		let prompt: string | undefined;
+		const { fact } = await runCase(
+			{
+				name: "ordering",
+				want: "proved",
+				files: {
+					"src.ts":
+						"export const base = 1;\nexport const double = (x: number): number => x * 2;\n",
+					"src.test.ts":
+						'import { test, expect } from "bun:test";\nimport { double } from "./src";\ntest("needs the change", () => expect(double(2)).toBe(4));\n',
+				},
+			},
+			async (req) => {
+				const body = (await req.json()) as {
+					messages: { content: string }[];
+				};
+				prompt = body.messages[0].content;
+				return Response.json({
+					choices: [
+						{ message: { content: "No blocking findings.\nVERDICT: PASS" } },
+					],
+				});
+			},
+		);
+		// pre-verdict proof output is not required — the prompt says so
+		expect(prompt).toContain("PROOF ORDERING (Sinai rule, binding)");
+		expect(prompt).toContain("AFTER your verdict");
+		expect(prompt).toContain("is NOT a finding");
+		expect(prompt).toContain(
+			"do not open a blocker for missing coverage proof",
+		);
+		// post-PASS harness proof is binding: PASS stands only on a proved run
+		expect(fact.verdict).toBe("PASS");
+		expect((fact.coverage as Record<string, unknown>).status).toBe("proved");
 	});
 
 	test("downgrade reaches the work.review event (drawer timeline)", () => {

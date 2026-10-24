@@ -4,8 +4,14 @@
 // fail closed: the harness sync mutates code running lanes execute, the
 // 2026-10-11 outage class). Pure so the launchd entry (scripts/auto-install.ts)
 // stays spawn-heavy and this file stays testable.
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 
 export type LaneAuditRow = { sid: string; live: boolean | null };
 
@@ -74,6 +80,15 @@ export function isVolumeMounted(
 export function fleetRootOf(repo: string): string {
 	if (dirname(repo).endsWith("/packages")) return dirname(dirname(repo));
 	return repo;
+}
+
+/** W1243: the directory install.sh actually lives in — callers may pass the
+ * fleet root (the W779 heartbeat did and bash exited 127 every tick);
+ * install.sh lives in packages/suspenders. */
+export function installScriptDir(repo: string): string {
+	return existsSync(join(repo, "install.sh"))
+		? repo
+		: join(repo, "packages/suspenders");
 }
 
 export type InstallStamp = { main: string; installedAt: string };
