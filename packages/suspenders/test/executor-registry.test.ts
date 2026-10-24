@@ -161,6 +161,7 @@ describe("W1121 claude lane permission recipe", () => {
 			"coord",
 			"oracle",
 			"git",
+			"cd",
 			"bun",
 			"qlty",
 			"rg",
