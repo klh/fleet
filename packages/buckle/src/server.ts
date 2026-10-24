@@ -237,13 +237,19 @@ export function buildDeps(
 		hint: RouteHint | null;
 		hintRaw: string;
 		allowCross: boolean;
-	}) =>
-		decideRoute({
-			...input,
-			candidates: table.snapshot(),
+		providerPin?: string;
+	}) => {
+		const { providerPin, ...rest } = input;
+		return decideRoute({
+			...rest,
+			candidates:
+				providerPin === undefined
+					? table.snapshot()
+					: table.snapshot().filter((r) => r.dep.adapter === providerPin),
 			prefs,
-			fallbackGroups: input.allowCross ? policy.fallbacks?.[input.group] : [],
+			fallbackGroups: rest.allowCross ? policy.fallbacks?.[rest.group] : [],
 		});
+	};
 	const dbPath = opts.dbPath ?? defaultDbPath();
 	const federation = new Federation({
 		dbPath,
