@@ -7,8 +7,9 @@
 // live>sid tiebreak, overlap evidence in the reason string.
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpDir } from "./helpers/fixture-kit.ts";
+
 import { join } from "node:path";
 import {
 	assignTask,
@@ -384,7 +385,7 @@ describe("assignTask — the sole assignment gateway", () => {
 
 describe("work allocate CLI", () => {
 	test("pure plan then --apply claims through the gateway (e2e)", () => {
-		const root = mkdtempSync(join(tmpdir(), "w515-cli-"));
+		const root = tmpDir("w515-cli-");
 		directories.push(root);
 		mkdirSync(join(root, ".git"), { recursive: true });
 		// a live lane: registry entry + fresh transcript inside the 15-min lease

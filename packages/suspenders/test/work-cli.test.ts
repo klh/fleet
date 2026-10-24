@@ -9,12 +9,7 @@
 
 import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
-import {
-	mkdirSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { gitInit, tmpDir, cleanupDirs } from "./helpers/fixture-kit.ts";
 import { isResumableClaim } from "../scripts/lib/resumable-claim.ts";

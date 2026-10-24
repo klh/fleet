@@ -4,12 +4,7 @@
 // server answers read_knowledge. Isolated temp HOME + repo; the distill LLM
 // is a local Bun.serve stub, so no real model is needed.
 import { describe, test, expect, afterAll } from "bun:test";
-import {
-	mkdirSync,
-	readFileSync,
-	realpathSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Database } from "bun:sqlite";
 import { cleanupDirs, tmpDir } from "./helpers/fixture-kit.ts";

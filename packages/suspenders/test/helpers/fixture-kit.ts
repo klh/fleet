@@ -17,10 +17,7 @@ export function tmpDir(prefix: string): string {
 /** mkdir + `git init -q`; opts.baseline adds the `Fixture baseline` empty
  * commit (work-cli.test.ts doctrine: a bare mkdir .git is NOT a valid
  * gitdir — discovery would walk up into the checkout's own .git). */
-export function gitInit(
-	dir: string,
-	opts: { baseline?: boolean } = {},
-): void {
+export function gitInit(dir: string, opts: { baseline?: boolean } = {}): void {
 	mkdirSync(dir, { recursive: true });
 	const r = Bun.spawnSync(["git", "init", "-q", dir], {
 		stdout: "ignore",
@@ -44,8 +41,7 @@ export function gitInit(
 		],
 		{ stdout: "pipe", stderr: "pipe" },
 	);
-	if (b.exitCode !== 0)
-		throw new Error("Fixture baseline commit failed");
+	if (b.exitCode !== 0) throw new Error("Fixture baseline commit failed");
 }
 
 /** rmSync recursive+force over the fixture dirs (the afterAll teardown). */

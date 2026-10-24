@@ -5,12 +5,7 @@
 // the real bin with an isolated temp HOME + repo (evidence over mocks).
 import { afterAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import {
-	mkdirSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { tmpDir } from "./helpers/fixture-kit.ts";

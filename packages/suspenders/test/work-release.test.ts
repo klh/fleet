@@ -1,7 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
+import { tmpDir } from "./helpers/fixture-kit.ts";
+
 import { join } from "node:path";
 import { releaseWorkClaim } from "../hooks/lib/work-release.ts";
 import type { GovernorStore } from "../hooks/lib/govdb.ts";
@@ -98,7 +99,7 @@ test.each(["transfer", "renewal", "terminal", "missing"])(
 );
 
 test("another process transferring the claim wins against stale owner release", () => {
-	const dir = mkdtempSync(join(tmpdir(), "fleet-release-race-"));
+	const dir = tmpDir("fleet-release-race-");
 	directories.push(dir);
 	const path = join(dir, "claims.sqlite");
 	const db = fixture(path);
@@ -236,7 +237,7 @@ test("remote transaction rollback after executing its body leaves no release rec
 });
 
 test("CLI scoped orphan listing and expected-owner reclaim preserve other claims", () => {
-	const root = mkdtempSync(join(tmpdir(), "fleet-release-cli-"));
+	const root = tmpDir("fleet-release-cli-");
 	directories.push(root);
 	const call = (...args: string[]) =>
 		Bun.spawnSync(
@@ -280,7 +281,7 @@ test("CLI scoped orphan listing and expected-owner reclaim preserve other claims
 });
 
 test("authoritative remote guarded release is one transaction and refused guard changes nothing", async () => {
-	const home = mkdtempSync(join(tmpdir(), "work-release-remote-"));
+	const home = tmpDir("work-release-remote-");
 	directories.push(home);
 	const reservation = Bun.serve({
 		port: 0,

@@ -11,7 +11,11 @@ import { describe, test, expect, afterAll } from "bun:test";
 import { rmSync, writeFileSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { realpathSync } from "node:fs";
-import { cleanupDirs, gitInit as kitGitInit, tmpDir } from "./helpers/fixture-kit.ts";
+import {
+	cleanupDirs,
+	gitInit as kitGitInit,
+	tmpDir,
+} from "./helpers/fixture-kit.ts";
 
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
 const gitInit = kitGitInit;

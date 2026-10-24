@@ -6,19 +6,14 @@
 // Temp HOME + temp git repo; the REAL gate.ts stop in a bun subprocess
 // (test/fleet.test.ts recipe, context-guard.test.ts fixture shape).
 import { afterAll, describe, expect, test, setDefaultTimeout } from "bun:test";
-import {
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpDir } from "./helpers/fixture-kit.ts";
+
 import { join } from "node:path";
 
 setDefaultTimeout(30_000); // spawn-heavy suite (bun:test 5s default flake floor)
 
-const root = mkdtempSync(join(tmpdir(), "suspenders-stop-ask-"));
+const root = tmpDir("suspenders-stop-ask-");
 const home = join(root, "home");
 mkdirSync(home);
 const env = { ...process.env, HOME: home };
