@@ -170,3 +170,15 @@ All 9 original repos (suspenders, belt, buckle, local, speedy, blam + the
 gh). Every commit lands in THIS repo at `packages/<name>/*`.
 
 Source: AGENTS.md §Old repos are push-dead.
+
+## Import law (W1249)
+
+Cross-package imports ride package names (`@klh/*`), never relative
+reach-ins — the 112 inherited edges are ratcheted shrink-only in the guard
+(close an edge = delete its pin line). Imported names must be declared
+(runtime files need `dependencies`; test/content files accept devDeps).
+kernel imports nothing in fleet; domain packages may import kernel once it
+lands. The fleet import graph and entry-point map live in
+docs/fleet.entry-points.map.md.
+
+Source: AGENTS.md §Import law (W1249); tests/fleet.import-law.guard.test.ts
