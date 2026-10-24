@@ -14,7 +14,11 @@ import { existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
-import { reviewContext, publishReviewReceipt } from "../lib/review-receipt.ts";
+import {
+	reviewContext,
+	publishReviewReceipt,
+	reviewFindingIds,
+} from "../lib/review-receipt.ts";
 import {
 	finishReviewRequest,
 	reviewRequestKey,
@@ -572,6 +576,7 @@ const noteArgs = [
 emitCli(noteArgs);
 
 // One bound work.review event; the board still reads its top-level verdict.
+const { blocking, resolved } = reviewFindingIds(findings ?? "");
 publishReviewReceipt(db, project, item, {
 	version: 1,
 	commit: boundContext.commit,
@@ -579,17 +584,8 @@ publishReviewReceipt(db, project, item, {
 	instructions: boundContext.instructions,
 	reviewer: reviewerSid,
 	verdict: effective,
-	blocking: [
-		...new Set(
-			(findings ?? "")
-				.split("\n")
-				.filter((line) => !line.startsWith("RESOLVED:"))
-				.flatMap((line) => line.match(/\bB\d+-[a-zA-Z0-9-]+/g) ?? []),
-		),
-	],
-	resolved: [
-		...(findings ?? "").matchAll(/^RESOLVED:\s+(B\d+-[a-zA-Z0-9-]+)\s+\S.+$/gm),
-	].map((m) => m[1]),
+	blocking,
+	resolved,
 	evidence: `${headline}\n${proofNote}\n${(findings ?? "").slice(0, 3000)}`,
 });
 db.query("UPDATE sessions SET state = 'DONE', hb = ? WHERE sid = ?").run(
