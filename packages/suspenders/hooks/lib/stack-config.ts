@@ -48,6 +48,12 @@ export interface HubProfile {
 	/** W763 hub model store — the face port + its health sidecar. */
 	model_store_port?: number;
 	model_store_health_port?: number;
+	/** W1217: the hub knowledge sink — the knowledge-api container serving the
+	 *  aggregated claim store (W1213 upward rolls land here; SQLite WAL on the
+	 *  hub-state volume). Declaring it enables the `knowledge` compose profile
+	 *  (sink + its health probe sidecar); undeclared knobs fall through to the
+	 *  template defaults (7802 face / 7803 health). */
+	knowledge?: { port?: number; health_port?: number };
 	/** Synthetic readiness (W467): where the buckle-ready sidecar serves the
 	 *  completion-leg verdict, and which model the synthetic 1-token request
 	 *  names (must be one the hub's routing ladder actually serves). */
