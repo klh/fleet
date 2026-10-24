@@ -26,7 +26,7 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 import { Database } from "bun:sqlite";
-import { quotaWindowVerdict } from "../lib/quota-window.ts";
+import { quotaWindowVerdict } from "../lib/usage/quota-window.ts";
 import {
 	defineVerb,
 	runCli,

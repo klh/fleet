@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openMemoryStore } from "../hooks/lib/govdb-store.ts";
+import { openMemoryStore } from "../hooks/lib/govdb/govdb-store.ts";
 import {
 	checkReviewReceipt,
 	publishReviewReceipt,
@@ -17,8 +17,8 @@ import {
 	reviewFindingIds,
 	recordLanding,
 	type ReviewReceipt,
-} from "../hooks/lib/review-receipt.ts";
-import { guardedMerge } from "../hooks/lib/merge-guard.ts";
+} from "../hooks/lib/gates/review-receipt.ts";
+import { guardedMerge } from "../hooks/lib/fleet-loop/merge-guard.ts";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {

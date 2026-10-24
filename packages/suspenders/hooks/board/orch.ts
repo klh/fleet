@@ -4,7 +4,7 @@
 
 import { CLI, db } from "./context.ts";
 import { existsSync, readdirSync } from "node:fs";
-import { readBoardSettings } from "../lib/board-config.ts";
+import { readBoardSettings } from "../lib/board/board-config.ts";
 import {
 	byteLen,
 	enhancePrompt,
@@ -14,7 +14,7 @@ import {
 	resolvePromptSettings,
 } from "./prompt-transform.ts";
 import { condenseTier } from "@klh/blam/src/condense/tiers.ts";
-import { projectIdentity, projectRootOf } from "../lib/govdb.ts";
+import { projectIdentity, projectRootOf } from "../lib/govdb/govdb.ts";
 import {
 	linkOrchWork,
 	linkedOrchWork,

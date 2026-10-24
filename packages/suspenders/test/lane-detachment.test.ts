@@ -35,7 +35,7 @@ for (const teardown of [false, true]) {
 				);
 				chmodSync(executor, 0o700);
 				const launcher = join(directory, "dispatcher.ts");
-				const module = join(import.meta.dir, "../hooks/lib/lane.ts");
+				const module = join(import.meta.dir, "../hooks/lib/lanes/lane.ts");
 				writeFileSync(
 					launcher,
 					`import {spawnClaude} from ${quote(module)}; const proc=spawnClaude({bin:${quote(executor)},prompt:"test only",cwd:${quote(directory)},logFile:${quote(join(directory, "lane.log"))},env:{...process.env},cliArgs:[]}); proc.unref(); const deadline=Date.now()+3000; while (!(await Bun.file(${quote(ready)}).exists())) {if(Date.now()>deadline)throw new Error("child never started"); await Bun.sleep(10);} console.log(JSON.stringify({pid:proc.pid,dispatcher:process.pid})); ${teardown ? 'process.kill(-process.pid, "SIGTERM");' : ""}`,

@@ -28,7 +28,7 @@ const HOME = mkdtempSync(join(tmpdir(), "fleet-intent-cli-home-"));
 const REAL_HOME = process.env.HOME;
 process.env.HOME = HOME;
 const govdb = await import(
-	`../hooks/lib/govdb.ts?home=${encodeURIComponent(HOME)}`
+	`../hooks/lib/govdb/govdb.ts?home=${encodeURIComponent(HOME)}`
 );
 const { openStore, projectIdentity } = govdb;
 

@@ -16,7 +16,7 @@ import {
 	opaqueSessionId,
 	projectSessionMetrics,
 	projectStatsMetrics,
-} from "../hooks/lib/knowledge-sync-policy.ts";
+} from "../hooks/lib/knowledge/knowledge-sync-policy.ts";
 import {
 	SYNCABLE_FACT,
 	collectFacts,
@@ -24,7 +24,7 @@ import {
 	syncOnce,
 	type SyncOnceResult,
 	type SyncState,
-} from "../hooks/lib/knowledge-sync.ts";
+} from "../hooks/lib/knowledge/knowledge-sync.ts";
 import {
 	landKnowledgeIngest,
 	handleKnowledgeIngest,

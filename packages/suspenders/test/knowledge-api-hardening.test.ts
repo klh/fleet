@@ -15,7 +15,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { knowledgeSearch, proseCards } from "../hooks/lib/knowledge.ts";
+import {
+	knowledgeSearch,
+	proseCards,
+} from "../hooks/lib/knowledge/knowledge.ts";
 import { unusedPort } from "./helpers/board-fixture.ts";
 
 // ─── lib-level: scope predicates on the aux stores (W181 F2/M7) ───

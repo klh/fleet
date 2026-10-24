@@ -22,9 +22,9 @@ import { existsSync } from "node:fs";
 import {
 	laneSpendRows,
 	resolveBuckleDb,
-} from "../hooks/lib/lane-spend.ts";
-import { claimWindows } from "../hooks/lib/work-timing.ts";
-import { projectIdentity } from "../hooks/lib/govdb-project.ts";
+} from "../hooks/lib/lanes/lane-spend.ts";
+import { claimWindows } from "../hooks/lib/work/work-timing.ts";
+import { projectIdentity } from "../hooks/lib/govdb/govdb-project.ts";
 
 const argv = process.argv.slice(2);
 const arg = (name: string): string | undefined => {
@@ -249,13 +249,29 @@ if (SESSION) {
 } else if (BY_SID) {
 	const agg = new Map<
 		string,
-		{ gIn: number; gOut: number; gC: number; rIn: number; rOut: number; rC: number; cost: number; n: number }
+		{
+			gIn: number;
+			gOut: number;
+			gC: number;
+			rIn: number;
+			rOut: number;
+			rC: number;
+			cost: number;
+			n: number;
+		}
 	>();
 	for (const t of tops) {
 		const k = t.sid ?? "(no-ledger-sid)";
-		const a =
-			agg.get(k) ??
-			{ gIn: 0, gOut: 0, gC: 0, rIn: 0, rOut: 0, rC: 0, cost: 0, n: 0 };
+		const a = agg.get(k) ?? {
+			gIn: 0,
+			gOut: 0,
+			gC: 0,
+			rIn: 0,
+			rOut: 0,
+			rC: 0,
+			cost: 0,
+			n: 0,
+		};
 		a.gIn += t.gIn;
 		a.gOut += t.gOut;
 		a.gC += t.gCR + t.gCC;
@@ -266,7 +282,9 @@ if (SESSION) {
 		a.n += 1;
 		agg.set(k, a);
 	}
-	console.log("sid                                      ses  | W776 f/c/o                  | decant f/c/o                 | dTot");
+	console.log(
+		"sid                                      ses  | W776 f/c/o                  | decant f/c/o                 | dTot",
+	);
 	const sorted = [...agg.entries()].sort(
 		(x, y) => y[1].gC + y[1].gIn + y[1].gOut - (x[1].gC + x[1].gIn + x[1].gOut),
 	);
@@ -285,7 +303,8 @@ if (SESSION) {
 	for (const t of tops) {
 		const gTot = t.gIn + t.gOut + t.gCR + t.gCC;
 		const dTot = t.rIn + t.rOut + t.rCR + t.rCC;
-		const delta = gTot > 0 ? `${Math.round(((dTot - gTot) / gTot) * 100)}%` : "-";
+		const delta =
+			gTot > 0 ? `${Math.round(((dTot - gTot) / gTot) * 100)}%` : "-";
 		console.log(
 			`${t.src.slice(0, 8)} ${[...t.works].sort().join(",").padEnd(10)} ${(t.sid ?? "-").slice(0, 13).padEnd(13)} | ${fmtK(t.gIn).padStart(7)} ${fmtK(t.gCR + t.gCC).padStart(8)} ${fmtK(t.gOut).padStart(7)} | ${fmtK(t.rIn).padStart(7)} ${fmtK(t.rCR + t.rCC).padStart(8)} ${fmtK(t.rOut).padStart(7)} | ${delta.padStart(6)} $${t.rCost.toFixed(2)}`,
 		);

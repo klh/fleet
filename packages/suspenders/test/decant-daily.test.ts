@@ -26,8 +26,8 @@ import {
 	runDaily,
 	writeState,
 	type ExistingClaim,
-} from "../hooks/lib/decant-daily.ts";
-import type { SessionMetrics } from "../hooks/lib/knowledge-sync-policy.ts";
+} from "../hooks/lib/fleet-loop/decant-daily.ts";
+import type { SessionMetrics } from "../hooks/lib/knowledge/knowledge-sync-policy.ts";
 import {
 	MAINTENANCE_TASKS,
 	missingRunners,

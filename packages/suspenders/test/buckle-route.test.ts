@@ -17,7 +17,7 @@ import {
 	buckleBaseURL,
 	planBuckleRoutes,
 	renderBuckleRouteTable,
-} from "../hooks/lib/buckle-route.ts";
+} from "../hooks/lib/hub/buckle-route.ts";
 
 const home = (): string => mkdtempSync(join(tmpdir(), "w1265-route-"));
 

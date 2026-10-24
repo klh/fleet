@@ -1,7 +1,7 @@
 // hooks/board-html/tasks.ts — tasks table + kanban + drawer (W157 client chunk).
 // String.raw matches the original single-template semantics; bun's
 // non-ASCII escaping in String.raw reproduces the served page bytes.
-import { executionSummary } from "../lib/work-execution.ts";
+import { executionSummary } from "../lib/work/work-execution.ts";
 
 export const TASKS = String.raw`var executionSummary = ${executionSummary.toString()};
 // --- 4: tasks table (Tasks tab, /api/tasks) + drawer (/api/task) ---

@@ -4,19 +4,22 @@
 
 import { readdirSync, statSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
-import { openStore, projectIdentity } from "../govdb.ts";
+import { openStore, projectIdentity } from "../govdb/govdb.ts";
 import { emitLoopEvent } from "./events.ts";
 import {
 	attemptRecovery,
 	observeDeadClaim,
 	recordRecoveryResult,
 	type DeadEpisode,
-} from "../dead-claim-recovery.ts";
-import { laneProcessIdentity, transcriptAlive } from "../lane-liveness.ts";
+} from "../lanes/dead-claim-recovery.ts";
+import {
+	laneProcessIdentity,
+	transcriptAlive,
+} from "../lanes/lane-liveness.ts";
 import {
 	automaticRecoveryCheck,
 	automaticRecoveryPaused,
-} from "../automatic-recovery.ts";
+} from "./automatic-recovery.ts";
 import {
 	canonicalWorkClaim,
 	canonicalWorkReclaim,

@@ -17,7 +17,7 @@ import {
 	createHash,
 	projectIdentity,
 } from "./shared.ts";
-import { claimedWorkOf } from "../lib/lane-effort.ts";
+import { claimedWorkOf } from "../lib/lanes/lane-effort.ts";
 
 export async function cmdKnowledge(rest: string[]): Promise<void> {
 	// W91 — ranked FTS5 search over the knowledge layer: distilled knowledge
@@ -142,7 +142,7 @@ export async function cmdKnowledgeGrade(rest: string[]): Promise<void> {
 		: null;
 	if (!id || Number.isNaN(researchedAt ?? 0))
 		die(
-			'usage: knowledge-grade <id> --rating <s> [--evidence <file:line|URL>] [--researched <date|ms>] --as <sid>',
+			"usage: knowledge-grade <id> --rating <s> [--evidence <file:line|URL>] [--researched <date|ms>] --as <sid>",
 		);
 	const ok = await makeStore().grade(
 		id,
@@ -150,7 +150,9 @@ export async function cmdKnowledgeGrade(rest: string[]): Promise<void> {
 		as ?? undefined,
 	);
 	if (!ok) die(`knowledge #${id} is retired/graveyard (or missing)`);
-	console.log(`${green("✓")} knowledge #${id} graded${rating ? ` ${rating}` : ""}`);
+	console.log(
+		`${green("✓")} knowledge #${id} graded${rating ? ` ${rating}` : ""}`,
+	);
 }
 
 export async function cmdKnowledgeGraveyard(rest: string[]): Promise<void> {

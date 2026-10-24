@@ -14,7 +14,7 @@
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { allow, deny, type HookInput } from "../lib/hookio.ts";
-import { resolveFleetLane } from "../lib/fleetlane.ts";
+import { resolveFleetLane } from "../lib/lanes/fleetlane.ts";
 import {
 	readUsageDelta,
 	readUsageState,
@@ -22,7 +22,7 @@ import {
 	scanTail,
 	stableKey,
 	writeUsageState,
-} from "../lib/runaway.ts";
+} from "../lib/gates/runaway.ts";
 import { resolveTranscriptPath, transcriptTail } from "../lib/transcript.ts";
 
 // the lane's own incident ledger: worktree lanes write `.fleet/` beside the

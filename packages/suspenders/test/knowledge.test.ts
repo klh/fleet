@@ -15,7 +15,10 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Database } from "bun:sqlite";
-import { knowledgeSearch, type KnowledgeHit } from "../hooks/lib/knowledge.ts";
+import {
+	knowledgeSearch,
+	type KnowledgeHit,
+} from "../hooks/lib/knowledge/knowledge.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-knowledge-"));
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-knowledge-repo-"));
@@ -740,15 +743,18 @@ describe("W103 knowledge-api faces", () => {
 
 // ─── W112 mechanical pointer fallback ───
 
-import { extractDocPaths, pointerFromText } from "../hooks/lib/knowledge.ts";
+import {
+	extractDocPaths,
+	pointerFromText,
+} from "../hooks/lib/knowledge/knowledge.ts";
 
 describe("W112 extractDocPaths", () => {
 	test("extracts repo-relative paths from prose, deduped, order kept", () => {
 		expect(
 			extractDocPaths(
-				"gate lives in hooks/lib/knowledge.ts, then docs/w112-notes.md, then docs/w112-notes.md again",
+				"gate lives in hooks/lib/knowledge/knowledge.ts, then docs/w112-notes.md, then docs/w112-notes.md again",
 			),
-		).toEqual(["hooks/lib/knowledge.ts", "docs/w112-notes.md"]);
+		).toEqual(["hooks/lib/knowledge/knowledge.ts", "docs/w112-notes.md"]);
 	});
 
 	test("rejects lookalikes: URL remainders, absolute paths, versions", () => {
@@ -817,13 +823,13 @@ describe("W112 pointer rows through the worker", () => {
 
 // ─── W100 enqueue-time source hashing ───
 
-import { normalizeSourceRef } from "../hooks/lib/sqlite-store.ts";
+import { normalizeSourceRef } from "../hooks/lib/knowledge/sqlite-store.ts";
 
 describe("W100 normalizeSourceRef", () => {
 	test("strips explanatory suffixes, keeps the leading path", () => {
-		expect(normalizeSourceRef("hooks/lib/govdb.ts projectIdentity()")).toBe(
-			"hooks/lib/govdb.ts",
-		);
+		expect(
+			normalizeSourceRef("hooks/lib/govdb/govdb.ts projectIdentity()"),
+		).toBe("hooks/lib/govdb/govdb.ts");
 		expect(normalizeSourceRef("hooks/bin/work.ts shaOnMain (W60)")).toBe(
 			"hooks/bin/work.ts",
 		);

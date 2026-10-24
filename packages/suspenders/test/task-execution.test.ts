@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { taskExecutionSnapshot } from "../hooks/board/task-execution.ts";
 import { TASKS } from "../hooks/board-html/tasks.ts";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 
 test("actual registry/process/store snapshot binds item ownership, pause incarnation and exact artifact events", () => {
 	const root = realpathSync(

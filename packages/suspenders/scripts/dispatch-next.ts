@@ -22,8 +22,8 @@ import {
 	run as runShared,
 	sh as shShared,
 	workCliFor,
-} from "../hooks/lib/lane.ts";
-import { adminKey } from "../hooks/lib/lane-auth.ts";
+} from "../hooks/lib/lanes/lane.ts";
+import { adminKey } from "../hooks/lib/lanes/lane-auth.ts";
 import { grinderGate } from "./lib/lane-death-capture.ts";
 // W519: .prefer prefer= soft routing — the brief carries the constraint
 import {
@@ -37,25 +37,25 @@ export type { GovernanceDecision } from "./lib/governance-decide.ts";
 export { hubAttributionDecision } from "./lib/governance-decide.ts";
 export { laneKeyDecision, parseGovernanceMode, probeFrontDecision };
 
-import { forecastPush } from "../hooks/lib/credit-forecast.ts";
+import { forecastPush } from "../hooks/lib/usage/credit-forecast.ts";
 // THEN.D (W1255.6): the per-lane launch machine rides hooks/lib/fleet-loop and
 // the refill face declares through the verb kit (CLI Toolkit Law, W651).
 import { dispatchLane } from "../hooks/lib/fleet-loop/lane-launch.ts";
-import { openStore, projectIdentity } from "../hooks/lib/govdb.ts";
+import { openStore, projectIdentity } from "../hooks/lib/govdb/govdb.ts";
 // W494.1: the worktree-cwd probe is the shared EVIDENCE helper now — the
-// verdict itself lives in hooks/lib/lane-liveness.ts (pid/heartbeat, never cwd)
+// verdict itself lives in hooks/lib/lanes/lane-liveness.ts (pid/heartbeat, never cwd)
 import {
 	laneProcessIdentity,
 	worktreeLive,
-} from "../hooks/lib/lane-liveness.ts";
+} from "../hooks/lib/lanes/lane-liveness.ts";
 import {
 	canonicalProjectRoot,
 	loadLaneRegistry,
 	mergeLaneRegistry,
-} from "../hooks/lib/lane-registry.ts";
-import { laneSid } from "../hooks/lib/laneslug.ts";
+} from "../hooks/lib/lanes/lane-registry.ts";
+import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
 // W911: the bounded plaid posture — the ONE override of the execPick chain.
-import { plaidProbeHealth, readPosture } from "../hooks/lib/plaid.ts";
+import { plaidProbeHealth, readPosture } from "../hooks/lib/plaid/plaid.ts";
 import { parseVerb, renderRegistryHelp } from "../hooks/lib/verb-kit.ts";
 import { recoverOrphanClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";

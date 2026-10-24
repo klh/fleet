@@ -100,7 +100,7 @@ session-start SUPERVISOR DEFAULT contract references the installed
 reporter and EMITS it (the hook calls the one library; W899), lane briefs
 carry the same table (dispatch FLEET REPORT), and the install tail runs
 the report through the PATH shim as its final section (every install
-proves the verb live). One implementation (hooks/lib/work-report.ts) —
+proves the verb live). One implementation (hooks/lib/work/work-report.ts) —
 the bin's glyph/spend-line parser retired (W913). This supersedes the
 W865 prose list.
 

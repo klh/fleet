@@ -9,7 +9,7 @@
 // (read subcommands: status|list|checkupdate|version), never a restart/mint
 // verb. Grouping ("Local wiring" / "Remote reachability") is presentation —
 // it lives in the client chunk (board-html/setup.ts).
-import { readRegistry } from "../lib/hub-locate.ts";
+import { readRegistry } from "../lib/hub/hub-locate.ts";
 import { darkHubNow } from "../lib/stack-config.ts";
 
 const probeHub = async (base: string): Promise<boolean> => {

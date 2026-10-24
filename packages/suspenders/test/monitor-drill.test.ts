@@ -10,8 +10,8 @@ import {
 	monitorSeries,
 	MONITOR_TOP_N,
 	type MonitorDim,
-} from "../hooks/lib/monitor-drill.ts";
-import type { BuckleRequestRow } from "../hooks/lib/cache-drill.ts";
+} from "../hooks/lib/fleet-loop/monitor-drill.ts";
+import type { BuckleRequestRow } from "../hooks/lib/usage/cache-drill.ts";
 
 const HOUR = 3_600_000;
 
@@ -196,7 +196,7 @@ describe("monitorSeries", () => {
 describe("monitorReport", () => {
 	test("assembles coverage + dim fallback, no hubs → empty rows", async () => {
 		const { monitorReport } = await import(
-			`../hooks/lib/monitor-drill.ts?home=${encodeURIComponent("/nonexistent-home")}`
+			`../hooks/lib/fleet-loop/monitor-drill.ts?home=${encodeURIComponent("/nonexistent-home")}`
 		);
 		const rep = await monitorReport({
 			days: 3,
@@ -220,7 +220,7 @@ describe("monitorReport", () => {
 
 	test("unknown dim falls back to lane; work + transcripts ride through", async () => {
 		const { monitorReport } = await import(
-			`../hooks/lib/monitor-drill.ts?home=${encodeURIComponent("/nonexistent-home")}`
+			`../hooks/lib/fleet-loop/monitor-drill.ts?home=${encodeURIComponent("/nonexistent-home")}`
 		);
 		const rep = await monitorReport({
 			days: 2,

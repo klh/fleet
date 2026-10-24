@@ -8,10 +8,10 @@
 
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { openStore } from "../lib/govdb.ts";
-import { claudeStopPause } from "../lib/claude-pause.ts";
+import { openStore } from "../lib/govdb/govdb.ts";
+import { claudeStopPause } from "../lib/executors/claude-pause.ts";
 import { allow, feedback, type HookInput } from "../lib/hookio.ts";
-import { laneCompletion } from "../lib/lane-completion.ts";
+import { laneCompletion } from "../lib/lanes/lane-completion.ts";
 import { run } from "../lib/run.ts";
 import { touchSessionHeartbeat } from "../lib/session-bridge.ts";
 import { syncNativeRename } from "../lib/session-rename.ts";
@@ -154,7 +154,7 @@ export function stopGate(hook: HookInput): never {
 	// live WS/CLI Stop event is end-of-TURN, not session end, so the ask
 	// re-prompted on ordinary answer boundaries (transcript > 20KB makes it
 	// unconditional). Passive knowledge write-back rides the true SessionEnd
-	// settle (hooks/lib/settle.ts via hooks/session-end.ts); deliberate
+	// settle (hooks/lib/knowledge/settle.ts via hooks/session-end.ts); deliberate
 	// donation stays a lane choice (coord knowledge-enqueue / fact set).
 
 	const cwd = hook.cwd ?? "";

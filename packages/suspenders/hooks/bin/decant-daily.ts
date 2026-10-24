@@ -15,7 +15,7 @@ import {
 	DAILY_LIMIT,
 	runDaily,
 	type DailyRunResult,
-} from "../lib/decant-daily.ts";
+} from "../lib/fleet-loop/decant-daily.ts";
 import { defineVerb, parseVerb } from "../lib/verb-kit.ts";
 
 const daily = defineVerb({

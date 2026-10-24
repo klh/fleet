@@ -22,7 +22,7 @@ import type {
 	LaneDrillRow,
 	MissReasonCluster,
 	ModelDrillRow,
-} from "../lib/cache-drill.ts";
+} from "../lib/usage/cache-drill.ts";
 
 // ─── formatting (same ramp as usage-panels) ───────────────────────────────
 const fmtTok = (n: number): string =>

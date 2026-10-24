@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { knowledgeBuckleRoute } from "../hooks/lib/knowledge-buckle.ts";
+import { knowledgeBuckleRoute } from "../hooks/lib/knowledge/knowledge-buckle.ts";
 
 describe("knowledge Buckle credential", () => {
 	test("reads only a private machine-local config", () => {

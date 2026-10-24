@@ -16,7 +16,7 @@ import {
 	mineCacheTelemetry,
 	readLaneCacheLog,
 	rowsInWindow,
-} from "../lib/cache-telemetry.ts";
+} from "../lib/usage/cache-telemetry.ts";
 import {
 	defineVerb,
 	dieFor,

@@ -18,13 +18,13 @@ const HOME = mkdtempSync(join(tmpdir(), "suspenders-w244-"));
 const REAL_HOME = process.env.HOME;
 process.env.HOME = HOME;
 const { openGovernorDb, openKnowledgeDb } = await import(
-	`../hooks/lib/govdb.ts?w244=${encodeURIComponent(HOME)}`
+	`../hooks/lib/govdb/govdb.ts?w244=${encodeURIComponent(HOME)}`
 );
 const { SqliteKnowledgeStore } = await import(
-	`../hooks/lib/sqlite-store.ts?w244=${encodeURIComponent(HOME)}`
+	`../hooks/lib/knowledge/sqlite-store.ts?w244=${encodeURIComponent(HOME)}`
 );
 const { currentPromptHash } = await import(
-	`../hooks/lib/prompt-policy.ts?w244=${encodeURIComponent(HOME)}`
+	`../hooks/lib/knowledge/prompt-policy.ts?w244=${encodeURIComponent(HOME)}`
 );
 
 const GOV = join(HOME, ".cache", "claude-governor", "governor.db");

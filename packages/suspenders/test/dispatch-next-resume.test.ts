@@ -18,8 +18,8 @@ import {
 } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
-import { projectIdentity } from "../hooks/lib/govdb.ts";
-import { laneSid } from "../hooks/lib/laneslug.ts";
+import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
+import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
 import { captureClaimFeed } from "../scripts/lib/structured-feed.ts";
 import { stubBuckle } from "./helpers/dispatch-harness.ts";
 import {
@@ -288,7 +288,9 @@ test("explicit fresh item respects uncertain occupied target capacity", async ()
 	const item = await addItem("capacity guarded explicit fixture");
 	const db = new Database(join(HOME, ".cache/claude-governor/governor.db"));
 	const { launchSchema } = await import("../scripts/lib/launch-fencing.ts");
-	launchSchema(db as unknown as import("../hooks/lib/govdb.ts").GovernorStore);
+	launchSchema(
+		db as unknown as import("../hooks/lib/govdb/govdb.ts").GovernorStore,
+	);
 	const project = projectIdentity(REPO);
 	db.query(
 		"INSERT INTO lane_launch_intents VALUES (?,?,?,?,?,?,?,?,?,?,?)",

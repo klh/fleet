@@ -12,7 +12,7 @@ import {
 	missionTerms,
 	renderIntel,
 	SMALL_REPO_FILES,
-} from "../hooks/lib/brief-intel.ts";
+} from "../hooks/lib/lanes/brief-intel.ts";
 
 // scratch repo with real files for rg to anchor against
 const REPO = mkdtempSync(join(process.cwd(), ".tmp-w254-intel-repo-"));

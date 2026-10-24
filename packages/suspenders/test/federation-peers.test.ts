@@ -19,7 +19,7 @@ import {
 	peerLastKnownPath,
 	pullPeerPolicy,
 	resolvePeerLabels,
-} from "../hooks/lib/federation-peers.ts";
+} from "../hooks/lib/federation/federation-peers.ts";
 
 interface StubPeer {
 	url: string;

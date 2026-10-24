@@ -3,14 +3,14 @@
 // fleet-loop entrypoint; bodies verbatim).
 
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { retireLaneKey } from "../../lane-auth.ts";
-import { laneAlive, laneProcessIdentity } from "../lane-liveness.ts";
+import { retireLaneKey } from "../lanes/lane-auth.ts";
+import { laneAlive, laneProcessIdentity } from "../lanes/lane-liveness.ts";
 import {
 	readLaneRegistry,
 	retirementProcessLive,
 	safeToRetire,
-} from "../lane-registry.ts";
-import { openStore, projectIdentity } from "../govdb.ts";
+} from "../lanes/lane-registry.ts";
+import { openStore, projectIdentity } from "../govdb/govdb.ts";
 import type { Lane, LoopDeps } from "./runtime.ts";
 
 export type RetireSurface = {
@@ -37,7 +37,7 @@ export function createRetire(deps: LoopDeps): RetireSurface {
 		return null;
 	}
 
-	/** liveness = THE surface's verdict (hooks/lib/lane-liveness.ts) for tracked
+	/** liveness = THE surface's verdict (hooks/lib/lanes/lane-liveness.ts) for tracked
 	 * lanes; untracked branches keep the worktree-cwd probe as EVIDENCE for this
 	 * sweep (W494.1: cwd is evidence, never a liveness term). Survives the
 	 * unregistered spawn window and DISPATCHED-less dispatchers. */

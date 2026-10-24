@@ -9,8 +9,8 @@
 // emit `quota.exhausted` on the bus, broadcast one note. monitor.ts --fix
 // runs the same sweep in-process every 15 min. Exit 1 when an exhausted
 // verdict is reported without --act (a cron or a human should notice).
-import { openGovernorDb } from "../lib/govdb.ts";
-import { quotaSweep } from "../lib/quota-sweep.ts";
+import { openGovernorDb } from "../lib/govdb/govdb.ts";
+import { quotaSweep } from "../lib/fleet-loop/quota-sweep.ts";
 import {
 	defineVerb,
 	dieFor,

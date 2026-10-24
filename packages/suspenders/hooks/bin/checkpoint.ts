@@ -4,7 +4,7 @@
 // done/next bullets (plane header auto-derived: branch/head, owned work,
 // capsule); `show` cats it; `path` prints where it lives.
 import { existsSync, readFileSync } from "node:fs";
-import { openStore, projectIdentity } from "../lib/govdb.ts";
+import { openStore, projectIdentity } from "../lib/govdb/govdb.ts";
 import {
 	checkpointPath,
 	rollCheckpoint,
@@ -16,7 +16,7 @@ const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "set",
 		usage:
-			'usage: checkpoint set --as <sid> [--note s] [--next s] — roll the checkpoint with fresh done/next bullets',
+			"usage: checkpoint set --as <sid> [--note s] [--next s] — roll the checkpoint with fresh done/next bullets",
 		flags: ["--as", "--note", "--next"],
 		reqFlags: ["--as"],
 	}),

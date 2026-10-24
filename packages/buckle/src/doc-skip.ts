@@ -1,5 +1,5 @@
 // src/doc-skip.ts — the doc-covered substitution test, ported from
-// suspenders hooks/lib/knowledge.ts (W103 mechanics, MIT ours) so buckle's
+// suspenders hooks/lib/knowledge/knowledge.ts (W103 mechanics, MIT ours) so buckle's
 // preseed pipeline can drop rows the lane repo's own docs already teach
 // (W94: the agent would pay hub AND files). Self-contained port: no
 // cross-repo import; if the source mechanics change, tests pin parity.

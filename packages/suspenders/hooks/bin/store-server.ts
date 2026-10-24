@@ -19,23 +19,26 @@
 
 import { readFileSync, statSync } from "node:fs";
 import { TransactionEvents } from "../lib/transaction-events.ts";
-import { expireConsults } from "../lib/consult-expiry.ts";
-import { consultStoreId } from "../lib/consult-outbox.ts";
-import { storeAdmissionRefusal } from "../lib/store-admission.ts";
+import { expireConsults } from "../lib/federation/consult-expiry.ts";
+import { consultStoreId } from "../lib/federation/consult-outbox.ts";
+import { storeAdmissionRefusal } from "../lib/knowledge/store-admission.ts";
 import {
 	ensureConsultRelayReceipts,
 	handleConsultRelay,
-} from "../lib/consult-relay-receiver.ts";
+} from "../lib/federation/consult-relay-receiver.ts";
 import {
 	ensureEventRelayReceipts,
 	handleEventRelay,
-} from "../lib/event-relay.ts";
+} from "../lib/federation/event-relay.ts";
 import {
 	type GovernorStore,
 	knowledgeSqlViolation,
 	openGovernorDb,
-} from "../lib/govdb.ts";
-import { identitySqlViolation, openIdentityDb } from "../lib/identity-db.ts";
+} from "../lib/govdb/govdb.ts";
+import {
+	identitySqlViolation,
+	openIdentityDb,
+} from "../lib/govdb/identity-db.ts";
 import {
 	CAP_AUTH_ISSUANCE,
 	hasCapability,
@@ -47,7 +50,7 @@ import {
 	sweepOrphanTxn,
 	sweepStaleTxn,
 	type TxCell,
-} from "../lib/store-tx.ts";
+} from "../lib/knowledge/store-tx.ts";
 
 const PORT =
 	Number(process.argv[process.argv.indexOf("--port") + 1] ?? "") ||
@@ -506,7 +509,7 @@ const base = {
 		if (url.pathname.startsWith("/auth/")) {
 			if (!hasCapability(readCapabilities(), CAP_AUTH_ISSUANCE))
 				return new Response("not found", { status: 404 });
-			const { handleAuthRoutes } = await import("../lib/auth-server.ts");
+			const { handleAuthRoutes } = await import("../lib/auth/auth-server.ts");
 			// W156 — /auth/* serializes on the identity chain and execs on the
 			// identity connection now (the token tables left governor.db).
 			return serialIdb(() =>

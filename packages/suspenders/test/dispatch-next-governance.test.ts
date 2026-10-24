@@ -15,8 +15,8 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { projectIdentity } from "../hooks/lib/govdb.ts";
-import { laneSid } from "../hooks/lib/laneslug.ts";
+import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
+import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
 import {
 	hubAttributionDecision,
 	laneKeyDecision,

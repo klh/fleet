@@ -8,7 +8,7 @@
 // ▶); TASK = claim intent or owned work item; SID = the `[sid=...]`
 // recipient field (the session-start addressing surface).
 import Table from "cli-table3";
-import { REPORT_TABLE_CHARS } from "../lib/work-report.ts";
+import { REPORT_TABLE_CHARS } from "../lib/work/work-report.ts";
 import { amber, cyan, dim, green, red } from "./shared.ts";
 
 /** One table row: the flat cells cmdFleet projects per lane. Raw strings —

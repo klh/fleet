@@ -2,11 +2,11 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getStarter } from "../../suspenders/hooks/lib/starter-artifacts.ts";
+import { getStarter } from "../../suspenders/hooks/lib/starter/starter-artifacts.ts";
 import {
 	promoteStarter,
 	writeGrants,
-} from "../../suspenders/hooks/lib/starter-distribution.ts";
+} from "../../suspenders/hooks/lib/starter/starter-distribution.ts";
 import { starterSeedPrompt } from "../../suspenders/scripts/lib/lane-starter.ts";
 import {
 	type ImprovementManifest,

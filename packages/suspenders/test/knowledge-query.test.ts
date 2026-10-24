@@ -19,7 +19,7 @@ import {
 	lintReadOnlySql,
 	translateQuestion,
 	verifyKnowledgeKey,
-} from "../hooks/lib/knowledge-query.ts";
+} from "../hooks/lib/knowledge/knowledge-query.ts";
 import { unusedPort } from "./helpers/board-fixture.ts";
 
 // ─── lib-level fixtures ─────────────────────────────────────────────────────

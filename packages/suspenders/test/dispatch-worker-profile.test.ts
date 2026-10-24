@@ -16,7 +16,7 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { dispatchHarness } from "./helpers/dispatch-harness.ts";
-import { spawnClaude } from "../hooks/lib/lane.ts";
+import { spawnClaude } from "../hooks/lib/lanes/lane.ts";
 import { WORKER_MANAGED_PROFILE } from "../hooks/lib/executors/claude.ts";
 
 // NUL-delimited capture: each argv element lands byte-exact, so the test

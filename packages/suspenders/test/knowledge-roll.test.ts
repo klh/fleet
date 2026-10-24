@@ -20,14 +20,14 @@ import {
 	mintRollKey,
 	rollKeyOk,
 	ROLL_KEY_HEADER,
-} from "../hooks/lib/knowledge-roll.ts";
-import { readSyncConfig } from "../hooks/lib/knowledge-sync-policy.ts";
+} from "../hooks/lib/knowledge/knowledge-roll.ts";
+import { readSyncConfig } from "../hooks/lib/knowledge/knowledge-sync-policy.ts";
 import {
 	postRoll,
 	readSyncState,
 	syncOnce,
 	type SyncTarget,
-} from "../hooks/lib/knowledge-sync.ts";
+} from "../hooks/lib/knowledge/knowledge-sync.ts";
 import { unusedPort } from "./helpers/board-fixture.ts";
 
 // ─── claim identity ────────────────────────────────────────────────────────

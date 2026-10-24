@@ -3,8 +3,8 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expireObservedLease } from "../hooks/lib/lease-expiry.ts";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+import { expireObservedLease } from "../hooks/lib/lanes/lease-expiry.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 
 test("same-owner renewal in another SQLite connection survives stale expiry observation", () => {
 	const root = mkdtempSync(join(tmpdir(), "fleet-lease-expiry-"));

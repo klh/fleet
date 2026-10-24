@@ -14,7 +14,7 @@ import {
 	optInEnabled,
 	prefixWarmEnabled,
 	warmTargets,
-} from "../hooks/lib/keepwarm-gate.ts";
+} from "../hooks/lib/gates/keepwarm-gate.ts";
 
 const COUNTER = new URL("./w1124-14-fetch-counter.ts", import.meta.url)
 	.pathname;

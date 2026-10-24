@@ -9,8 +9,8 @@ import {
 	sweepOrphanTxn,
 	sweepStaleTxn,
 	type TxCell,
-} from "../hooks/lib/store-tx.ts";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+} from "../hooks/lib/knowledge/store-tx.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 
 // beginFails scripts failures for BEGIN IMMEDIATE calls in order (other
 // statements never consume from it); log records every statement issued.

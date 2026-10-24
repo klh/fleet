@@ -12,16 +12,16 @@ import {
 	openStore,
 	projectIdentity,
 	type GovernorStore,
-} from "../../hooks/lib/govdb.ts";
+} from "../../hooks/lib/govdb/govdb.ts";
 import {
 	canonicalProjectRoot,
 	loadLaneRegistry,
-} from "../../hooks/lib/lane-registry.ts";
+} from "../../hooks/lib/lanes/lane-registry.ts";
 import {
 	laneProcessIdentity,
 	type LaneRef,
-} from "../../hooks/lib/lane-liveness.ts";
-import { pausedNativeBoundary } from "../../hooks/lib/claude-restart.ts";
+} from "../../hooks/lib/lanes/lane-liveness.ts";
+import { pausedNativeBoundary } from "../../hooks/lib/executors/claude-restart.ts";
 import {
 	claudeRestartAuthority,
 	children,

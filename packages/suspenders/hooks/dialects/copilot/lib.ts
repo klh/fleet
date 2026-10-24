@@ -41,7 +41,7 @@
 //     per-event shape. PreToolUse natively supports "ask" (unlike codex,
 //     which must degrade ask→deny) — Copilot's own permission-prompt UI
 //     handles it, so this adapter passes "ask" straight through.
-import { resolveFleetLane } from "../../lib/fleetlane.ts";
+import { resolveFleetLane } from "../../lib/lanes/fleetlane.ts";
 import type { HookInput } from "../../lib/hookio.ts";
 import type {
 	CliDialect,

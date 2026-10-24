@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { chmodSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { signalClaudeDirectEvent } from "../hooks/lib/claude-wake.ts";
+import { signalClaudeDirectEvent } from "../hooks/lib/executors/claude-wake.ts";
 import { pausedLaneFixture } from "./helpers/paused-lane.ts";
 
 async function exercisePause(interruptDuringResume: boolean): Promise<void> {

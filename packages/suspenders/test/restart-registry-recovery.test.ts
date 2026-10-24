@@ -15,8 +15,8 @@ import {
 	pruneLaneRegistry,
 	readLaneRegistry,
 	registerMissingRestartLane,
-} from "../hooks/lib/lane-registry.ts";
-import { restartJournalPath } from "../hooks/lib/claude-restart.ts";
+} from "../hooks/lib/lanes/lane-registry.ts";
+import { restartJournalPath } from "../hooks/lib/executors/claude-restart.ts";
 import { classifyPrune } from "../scripts/lib/registry-cli.ts";
 import { pausedLaneFixture } from "./helpers/paused-lane.ts";
 import { assertLocalRestartIntent } from "../scripts/lib/claude-restart-operation.ts";
@@ -312,11 +312,11 @@ test("real checkpointed STARTED registration permits dead pruning without fabric
 	const sourceRoot = new URL("../", import.meta.url).pathname;
 	const script = `
 const root=process.env.FIXTURE_ROOT, tree=process.cwd(), sid=process.env.FIXTURE_SID, item=process.env.FIXTURE_ITEM;
-const {openStore,projectIdentity}=await import(process.env.FIXTURE_SOURCE+"hooks/lib/govdb.ts");
+const {openStore,projectIdentity}=await import(process.env.FIXTURE_SOURCE+"hooks/lib/govdb/govdb.ts");
 const {acquireLaunchLease}=await import(process.env.FIXTURE_SOURCE+"scripts/lib/launch-preflight.ts");
 const {reserveLaunchIntent,registerLaunch,processBirth}=await import(process.env.FIXTURE_SOURCE+"scripts/lib/launch-fencing.ts");
-const {checkpointedClaudeRestart,restartJournalPath,restartHash}=await import(process.env.FIXTURE_SOURCE+"hooks/lib/claude-restart.ts");
-const {mergeLaneRegistry,pendingManagedRestart,pruneLaneRegistry}=await import(process.env.FIXTURE_SOURCE+"hooks/lib/lane-registry.ts");
+const {checkpointedClaudeRestart,restartJournalPath,restartHash}=await import(process.env.FIXTURE_SOURCE+"hooks/lib/executors/claude-restart.ts");
+const {mergeLaneRegistry,pendingManagedRestart,pruneLaneRegistry}=await import(process.env.FIXTURE_SOURCE+"hooks/lib/lanes/lane-registry.ts");
 const store=openStore(), project=projectIdentity(tree), nonce=crypto.randomUUID();
 const claim=store.query("SELECT updated_at FROM work_items WHERE project=? AND id=?").get(project,item);
 acquireLaunchLease(store,project,sid,nonce);

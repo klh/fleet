@@ -25,7 +25,7 @@
 //     shape, so the normalizer also parses patch text; file-less edits
 //     ride command-level inspection (the spec's fallback posture).
 import type { HookInput } from "../../lib/hookio.ts";
-import { resolveFleetLane } from "../../lib/fleetlane.ts";
+import { resolveFleetLane } from "../../lib/lanes/fleetlane.ts";
 import type {
 	CliDialect,
 	NormalizedSession,

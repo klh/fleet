@@ -253,9 +253,7 @@ test("direct launch survives registry loss, rejects duplicate and retains budget
 		rmSync(join(REPO, ".fleet/lanes.json"), { force: true });
 		const duplicate = await launch();
 		expect(duplicate.code).not.toBe(0);
-		expect(duplicate.err).toContain(
-			"durable launch intent alive or uncertain",
-		);
+		expect(duplicate.err).toContain("durable launch intent alive or uncertain");
 		expect(
 			db
 				.query("SELECT reservations FROM lane_launch_budgets WHERE item=?")
@@ -271,9 +269,7 @@ test("direct launch survives registry loss, rejects duplicate and retains budget
 		).run(Date.now(), newItem);
 		const capped = await launch();
 		expect(capped.code).not.toBe(0);
-		expect(capped.err).toContain(
-			"launch budget exhausted; READY after",
-		);
+		expect(capped.err).toContain("launch budget exhausted; READY after");
 		expect(
 			JSON.parse(tool("work.ts", "show", newItem, "--json").out).state,
 		).toBe("READY");
@@ -348,13 +344,13 @@ test("actual scoped recovery CLI releases canonical claim despite hostile ambien
 	const { Database } = await import("bun:sqlite");
 	const db = new Database(join(HOME, ".cache/claude-governor/governor.db"));
 	const { attemptRecovery } = await import(
-		"../hooks/lib/dead-claim-recovery.ts"
+		"../hooks/lib/lanes/dead-claim-recovery.ts"
 	);
 	const receipts: { code: number; out: string }[] = [];
 	try {
 		expect(
 			attemptRecovery(
-				db as unknown as import("../hooks/lib/govdb.ts").GovernorStore,
+				db as unknown as import("../hooks/lib/govdb/govdb.ts").GovernorStore,
 				expected,
 				() => true,
 				() => {

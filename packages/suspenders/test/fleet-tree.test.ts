@@ -12,7 +12,7 @@ import {
 	handleFleetTree,
 	type TreeDeps,
 } from "../hooks/board/routes-fleet-tree.ts";
-import { resolveHub } from "../hooks/lib/hub-locate.ts";
+import { resolveHub } from "../hooks/lib/hub/hub-locate.ts";
 
 type Row = Record<string, unknown>;
 type Scenario = {

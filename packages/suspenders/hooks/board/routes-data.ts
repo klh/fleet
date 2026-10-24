@@ -3,8 +3,8 @@
 // entry's handler list); returns null when nothing matches.
 
 import type { Database } from "bun:sqlite";
-import { loadLastKnown } from "../lib/federation.ts";
-import { itemAttribution } from "../lib/lane-spend.ts";
+import { loadLastKnown } from "../lib/federation/federation.ts";
+import { itemAttribution } from "../lib/lanes/lane-spend.ts";
 import { hubModelIdsFrom } from "../lib/provenance.ts";
 import { readUserPlane } from "../lib/repo-laws.ts";
 import { beltRegistry } from "./belt.ts";

@@ -2,7 +2,7 @@
 // retired every direct completion leg in the dispatch + maintenance
 // inference surface (dispatch, soak, fallback-drill, prompt-bench,
 // llm-keepwarm): every real model completion rides the Buckle gate
-// (hooks/lib/inference-buckle.ts) with a scoped key. This law-guard keeps
+// (hooks/lib/hub/inference-buckle.ts) with a scoped key. This law-guard keeps
 // it retired: a tracked non-test suspenders .ts that carries BOTH a
 // completion-path literal and a direct-tier endpoint (:890x, :4000, :4100)
 // must be a pinned allowlist entry — new bypasses fail CI, and an entry
@@ -74,7 +74,7 @@ const BYPASS_ALLOWLIST: Array<[string, string]> = [
 		"W1119 parent scope — board migrations land with the parent item",
 	],
 	[
-		"hooks/lib/inference-buckle.ts",
+		"hooks/lib/hub/inference-buckle.ts",
 		"THE boundary — direct ports appear only in the fail-closed law header comment",
 	],
 	[
@@ -115,7 +115,7 @@ test("no direct-tier completion leg outside the pinned allowlist (W1119.2)", () 
 		.filter((f) => carriesBypass(readFileSync(join(PKG, f), "utf8")));
 	expect(
 		found.sort(),
-		"new direct completion leg — migrate it onto buckleChat (hooks/lib/inference-buckle.ts) or argue a pinned entry in bypass-gate.test.ts",
+		"new direct completion leg — migrate it onto buckleChat (hooks/lib/hub/inference-buckle.ts) or argue a pinned entry in bypass-gate.test.ts",
 	).toEqual(ALLOWED);
 });
 

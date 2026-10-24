@@ -1,4 +1,4 @@
-import type { GovernorStore } from "../lib/govdb-store.ts";
+import type { GovernorStore } from "../lib/govdb/govdb-store.ts";
 
 export interface EventPublication {
 	kind: string;

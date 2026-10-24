@@ -19,7 +19,7 @@ import {
 	planAllocation,
 	scoreLane,
 	type AllocLane,
-} from "../hooks/lib/work-alloc.ts";
+} from "../hooks/lib/work/work-alloc.ts";
 
 const databases: Database[] = [];
 const directories: string[] = [];

@@ -9,7 +9,7 @@ import {
 	laneAlive,
 	worktreeLive,
 	HARNESS_ARG_RE,
-} from "../hooks/lib/lane-liveness.ts";
+} from "../hooks/lib/lanes/lane-liveness.ts";
 
 describe("lane-liveness surface", () => {
 	test("host lane: fresh claimant transcript → live; stale → dead", () => {

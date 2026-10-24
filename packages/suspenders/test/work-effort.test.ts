@@ -9,7 +9,7 @@ import {
 	effortBudgetLine,
 	effortFromShow,
 	EFFORTS,
-} from "../hooks/lib/work-effort.ts";
+} from "../hooks/lib/work/work-effort.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "claude-work-effort-home-"));
 const gitInit = (dir: string): void => {

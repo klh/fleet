@@ -5,9 +5,9 @@
 // claims return to READY without an operator pass and dispatch refills them
 // same-cycle. Releases broadcast fleet-wide (the ONE coord broadcast, 24h
 // note-dedupe). The caller fail-isolates the sweep (the wisdom-sweep rule).
-import { projectIdentity } from "../govdb.ts";
-import { reclaimAll } from "../reclaim-all.ts";
-import type { GovernorStore } from "../govdb.ts";
+import { projectIdentity } from "../govdb/govdb.ts";
+import { reclaimAll } from "../lanes/reclaim-all.ts";
+import type { GovernorStore } from "../govdb/govdb.ts";
 import type { LoopDeps } from "./runtime.ts";
 
 export function createReclaimSweep(

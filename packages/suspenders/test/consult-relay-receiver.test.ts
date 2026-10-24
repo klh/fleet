@@ -7,8 +7,8 @@ import {
 	ensureConsultRelayReceipts,
 	handleConsultRelay,
 	type RelayConsultRequest,
-} from "../hooks/lib/consult-relay-receiver.ts";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+} from "../hooks/lib/federation/consult-relay-receiver.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 
 const now = 2_000_000;
 function fixture() {

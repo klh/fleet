@@ -14,18 +14,18 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { guardedMerge } from "../hooks/lib/merge-guard.ts";
+import { guardedMerge } from "../hooks/lib/fleet-loop/merge-guard.ts";
 import {
 	checkReviewReceipt,
 	reviewContext,
 	recordLanding,
 	type ReviewContext,
-} from "../hooks/lib/review-receipt.ts";
-import type { GovernorStore } from "../hooks/lib/govdb-store.ts";
+} from "../hooks/lib/gates/review-receipt.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb-store.ts";
 import {
 	scheduleReview,
 	reviewRequestKey,
-} from "../hooks/lib/review-scheduler.ts";
+} from "../hooks/lib/gates/review-scheduler.ts";
 
 function seedCompletion(
 	db: Database,

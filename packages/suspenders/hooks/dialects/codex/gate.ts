@@ -20,7 +20,7 @@ import { bashGate } from "../../gates/bash.ts";
 import { postToolGate } from "../../gates/post-tool.ts";
 import { preFilesChain } from "../../gates/chain.ts";
 import { stopGate } from "../../gates/stop.ts";
-import { openStore } from "../../lib/govdb.ts";
+import { openStore } from "../../lib/govdb/govdb.ts";
 
 // wiring-time event per mode (spec: dialect bound by argv, not sniffed)
 const EVENT = {

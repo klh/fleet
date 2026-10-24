@@ -18,7 +18,7 @@ import {
 	reconcileWorkCrs,
 	WORK_CR_ACTION,
 	WORK_CR_TARGET_PREFIX,
-} from "../hooks/lib/work-cr.ts";
+} from "../hooks/lib/work/work-cr.ts";
 
 const ROOT = "buckle-test-root";
 

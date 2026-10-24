@@ -3,8 +3,8 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { releaseWorkClaim } from "../hooks/lib/work-release.ts";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+import { releaseWorkClaim } from "../hooks/lib/work/work-release.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 
 const databases: Database[] = [];
 const directories: string[] = [];
@@ -314,7 +314,7 @@ test("authoritative remote guarded release is one transaction and refused guard 
 			await Bun.sleep(20);
 		}
 		expect(ready).toBe(true);
-		const { HttpGovernorStore } = await import("../hooks/lib/govdb.ts");
+		const { HttpGovernorStore } = await import("../hooks/lib/govdb/govdb.ts");
 		const store = new HttpGovernorStore(url, null);
 		store
 			.query(

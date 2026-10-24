@@ -22,7 +22,7 @@
 //     fleet sid first and never register governor.db rows under a raw grok
 //     session id when the fleet identity is unresolved.
 import type { HookInput } from "../../lib/hookio.ts";
-import { resolveFleetLane } from "../../lib/fleetlane.ts";
+import { resolveFleetLane } from "../../lib/lanes/fleetlane.ts";
 import type {
 	CliDialect,
 	NormalizedSession,

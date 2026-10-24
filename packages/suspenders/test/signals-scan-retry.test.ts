@@ -7,7 +7,10 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSignalsScan, readScanState } from "../hooks/lib/signals-scan.ts";
+import {
+	createSignalsScan,
+	readScanState,
+} from "../hooks/lib/harvest/signals-scan.ts";
 
 const root = mkdtempSync(join(tmpdir(), "signals-scan-retry-"));
 const blamQueue = join(root, "blam2.jsonl");

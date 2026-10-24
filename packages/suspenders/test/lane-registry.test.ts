@@ -4,7 +4,7 @@ import {
 	newerLane,
 	readLaneRegistry,
 	safeToRetire,
-} from "../hooks/lib/lane-registry.ts";
+} from "../hooks/lib/lanes/lane-registry.ts";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,7 +14,7 @@ import {
 	loadLanes,
 	saveLanes,
 	type Lane,
-} from "../hooks/lib/lane.ts";
+} from "../hooks/lib/lanes/lane.ts";
 
 const roots: string[] = [];
 function repo() {
