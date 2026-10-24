@@ -224,3 +224,18 @@ item and would reproduce the original backend refusal. All-system input has a
 separate native fallback with the same outcome. Six new regression cases failed
 before the correction; these orders now typed-refuse before fetch rather than
 folding, reordering or dropping instructions. No provider probe was used.
+
+# W1245 - a header-parser offset is not a broken vendor conversion
+
+The ThinkingCap MXFP4_MOE GGUF "produced only pinned-token garbage" on two
+llama.cpp versions, GPU and CPU — because the eval's own GGUF parser computed
+the data-section start from end-of-KVs instead of end-of-tensor-infos, and the
+rebuild pipeline then fetched every tensor from 40,320 bytes too early. The
+"byte-verified" samples compared the same wrong offset on both sides and proved
+nothing about tensor placement. The vendor conversion was fine; with the parser
+fixed (alignUp after the infos walk) both vendor quants load and answer
+correctly. Two adjacent traps: llama.cpp split parts must carry
+split.tensors.count = the ORIGINAL model's total tensor count (658), not the
+per-part count; and the ThinkingCap thinking style can exceed a 700-token
+output budget inside reasoning_content alone, emptying message.content — a
+budget artifact, not looping.
