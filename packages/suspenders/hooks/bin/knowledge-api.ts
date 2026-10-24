@@ -15,6 +15,13 @@ import {
 	ROLL_KEY_HEADER,
 } from "../lib/knowledge-roll.ts";
 import { openKnowledgeDb } from "../lib/govdb-knowledge.ts";
+import {
+	aeLeavesFace,
+	aeMergeFace,
+	aeRootFace,
+	aeShardFace,
+	aePass,
+} from "../lib/knowledge-antientropy.ts";
 // knowledge-api.ts — W91 #9b: the knowledge port's HTTP face. The SAME store
 // handlers, second transport: a consumer on another machine calls
 // http://<knowledge-api>/search instead of importing the lib. Thin by design
@@ -102,6 +109,31 @@ if (mintIdx !== -1) {
 // two connections honest), never squeezed through the store port.
 const rollDb = openKnowledgeDb();
 
+// W1214 — one-shot hub-pair anti-entropy against a peer, then exit. The
+// peer credential is THIS install's write token mirror (0600 file or env);
+// absent on serve mode — usage:
+//   knowledge-api.ts --ae-pull <peer-base-url> [--ae-token-file <path>]
+const aeIdx = process.argv.indexOf("--ae-pull");
+if (aeIdx !== -1) {
+	const peer = process.argv[aeIdx + 1];
+	if (!peer || peer.startsWith("--")) {
+		console.error(
+			"usage: knowledge-api.ts --ae-pull <peer-url> [--ae-token-file <path>]",
+		);
+		process.exit(1);
+	}
+	const tokIdx = process.argv.indexOf("--ae-token-file");
+	const tokenFile = tokIdx !== -1 ? process.argv[tokIdx + 1] : undefined;
+	const token = tokenFile
+		? await Bun.file(tokenFile)
+				.text()
+				.then((t) => t.trim())
+		: process.env.SUSPENDERS_AE_PEER_TOKEN;
+	const r = await aePass(rollDb, peer, { token });
+	console.log(JSON.stringify(r));
+	process.exit(r.ok && r.converged ? 0 : 1);
+}
+
 // W125 — shared /status + /metrics (lib/servicemon.ts). No token dimension on
 // this service: search/enqueue never see usage, so tokens_total is omitted
 // honestly rather than served as fake zeros.
@@ -134,7 +166,15 @@ const base = {
 				{
 					ok: true,
 					service: "suspenders-knowledge-api",
-					routes: ["/search", ...WRITE_ROUTES, "/verify"],
+					routes: [
+						"/search",
+						...WRITE_ROUTES,
+						"/verify",
+						"/ae/root",
+						"/ae/shard",
+						"/ae/leaves",
+						"/ae/merge",
+					],
 				},
 				{ headers },
 			);
@@ -184,6 +224,32 @@ const base = {
 			if (!landed.ok)
 				return json({ error: landed.error ?? "roll rejected" }, 422);
 			return json(landed);
+		}
+		// W1214 — hub-to-hub knowledge anti-entropy (the /ae/* faces). Every
+		// one is token-gated RIGHT HERE (peer callers hold the install write
+		// token; anonymous callers get 403 even on the reads — the roots
+		// disclose namespace structure). Root equality short-circuits the
+		// protocol peer-side, so identical hubs never exchange a row.
+		if (path.startsWith("/ae/")) {
+			if (!tokenOk(req)) return json({ error: "peer token required" }, 403);
+			if (req.method === "GET" && path === "/ae/root")
+				return json(aeRootFace(rollDb));
+			if (req.method === "GET" && path === "/ae/shard") {
+				const idx = num(u.searchParams.get("index"));
+				if (idx === null)
+					return json({ ok: false, error: "index required" }, 400);
+				const shard = aeShardFace(rollDb, idx);
+				return json(shard, shard.ok ? 200 : 400);
+			}
+			if (req.method === "POST" && path === "/ae/leaves") {
+				const face = aeLeavesFace(rollDb, body);
+				return json(face, face.ok ? 200 : 422);
+			}
+			if (req.method === "POST" && path === "/ae/merge") {
+				const face = aeMergeFace(rollDb, body);
+				return json(face, face.ok ? 200 : 422);
+			}
+			return json({ error: "not found" }, 404);
 		}
 		// anonymous reads get scrubbed output; the install token unlocks refs
 		const authed = tokenOk(req);
