@@ -49,6 +49,7 @@ class BeltTopologyHubs extends LitElement {
 		windowMs: { state: true },
 		query: { state: true },
 		selectedId: { state: true },
+		flowPaused: { state: true },
 	};
 	static styles = css`
 		:host { display:block; border-block:1px solid var(--klh-edge); margin-block:var(--klh-space-4); padding-block:var(--klh-space-3); }
@@ -78,7 +79,36 @@ class BeltTopologyHubs extends LitElement {
 		.hub-card.selected { stroke:var(--klh-accent); stroke-width:2.5; }
 		.hub-link { fill:none; stroke:var(--klh-info); stroke-width:1.5; }
 		.hub-link.ledger { stroke:var(--klh-dim); stroke-dasharray:4 4; }
+		.hub-link.failed { stroke:var(--klh-danger); }
 		.hub-link.selected { stroke:var(--klh-accent); stroke-width:3; }
+		.hub-link.flow { stroke-dasharray:5 9; animation:hub-flow var(--flow-duration,6s) linear infinite; }
+		@keyframes hub-flow { from { stroke-dashoffset:0; } to { stroke-dashoffset:-56; } }
+		.flow-paused .hub-link.flow { animation-play-state:paused; }
+		@media (prefers-reduced-motion:reduce) { .hub-link.flow { animation:none; } }
+		.legend { color:var(--klh-dim); font-size:var(--klh-text-xs); line-height:1.5; }
+		.edge-chart { margin-block:var(--klh-space-2); min-height:80px; }
+		.edge-chart:empty::after { content:"hop grid pending"; color:var(--klh-dim); font-size:var(--klh-text-xs); }
+		.uplot, .uplot *, .uplot *::before, .uplot *::after { box-sizing:border-box; }
+		.uplot { font:inherit; line-height:1.5; width:min-content; }
+		.u-wrap { position:relative; user-select:none; }
+		.u-over, .u-under { position:absolute; }
+		.u-under { overflow:hidden; }
+		.uplot canvas { display:block; position:relative; width:100%; height:100%; }
+		.u-legend { font-size:11px; margin:auto; text-align:center; }
+		.u-inline { display:block; }
+		.u-inline * { display:inline-block; }
+		.u-inline tr { margin-right:16px; }
+		.u-legend th { font-weight:600; }
+		.u-legend th > * { vertical-align:middle; display:inline-block; }
+		.u-legend .u-marker { width:1em; height:1em; margin-right:4px; background-clip:padding-box; }
+		.u-inline.u-live th::after { content:":"; vertical-align:middle; }
+		.u-inline:not(.u-live) .u-value { display:none; }
+		.u-series > * { padding:4px; }
+		.u-cursor-x, .u-cursor-y { position:absolute; left:0; top:0; pointer-events:none; }
+		.u-hz .u-cursor-x, .u-vt .u-cursor-y { height:100%; border-right:1px dashed var(--klh-dim); }
+		.u-hz .u-cursor-y, .u-vt .u-cursor-x { width:100%; border-bottom:1px dashed var(--klh-dim); }
+		.u-cursor-pt { position:absolute; top:0; left:0; border-radius:50%; border:0 solid; pointer-events:none; }
+		.u-axis.u-off, .u-select.u-off, .u-cursor-x.u-off, .u-cursor-y.u-off, .u-cursor-pt.u-off { display:none; }
 		.hub-title { fill:var(--klh-ink); font-weight:600; pointer-events:none; }
 		.hub-sub { fill:var(--klh-dim); font-size:10px; font-variant-numeric:tabular-nums; pointer-events:none; }
 		.hub-dot { pointer-events:none; }
@@ -108,6 +138,13 @@ class BeltTopologyHubs extends LitElement {
 		this.windowMs = 900_000;
 		this.query = "";
 		this.selectedId = null;
+		this.flowPaused = false;
+		this.edgeCharts = [];
+		this.edgeRos = [];
+		this.edgeChartFor = "";
+		this.onVisibility = () => {
+			this.flowPaused = document.hidden;
+		};
 		this.onData = (event) => {
 			this.topology = event.detail;
 		};
@@ -115,12 +152,15 @@ class BeltTopologyHubs extends LitElement {
 	connectedCallback() {
 		super.connectedCallback();
 		document.addEventListener("belt-topology-data", this.onData);
+		document.addEventListener("visibilitychange", this.onVisibility);
 		this.topology =
 			document.querySelector("belt-topology")?.topology ?? this.topology;
 	}
 	disconnectedCallback() {
 		super.disconnectedCallback();
 		document.removeEventListener("belt-topology-data", this.onData);
+		document.removeEventListener("visibilitychange", this.onVisibility);
+		this.teardownEdgeChart();
 	}
 	onSearch(event) {
 		this.query = event.target.value;
@@ -160,11 +200,68 @@ class BeltTopologyHubs extends LitElement {
 	}
 	inspector(view, graph) {
 		const selected = view.hubs.find((hub) => hub.id === this.selectedId);
-		if (!selected) {
-			return html`<h3>Inspect a hub</h3>
-				<p>${this.selectedId ? "The selected hub left the chosen window or layer." : "Select a hub card or a list row. The drawer keeps state, traffic and the collapsed model inventory."}</p>`;
-		}
-		return this.inspectorDetail(selected, graph);
+		if (selected) return this.inspectorDetail(selected, graph);
+		const link = view.links.find((row) => row.id === this.selectedId);
+		if (link) return this.edgeInspector(link);
+		return html`<h3>Inspect a hub or a link</h3>
+			<p>${this.selectedId ? "The selected element left the chosen window or layer." : "Select a hub card, a link, or a list row. The drawer keeps state, traffic, lane counts and the collapsed model inventory."}</p>
+			<p class="coverage">The per-minute hop grid (drilldown) draws only for edges carrying measured 60s buckets.</p>`;
+	}
+	edgeInspector(link) {
+		const fromLabel = link.from.replace("hub:", "");
+		const toLabel = link.to.replace("hub:", "").replace("target:", "");
+		const perMinute = (
+			link.requests / Math.max(1, this.windowMs / 60_000)
+		).toFixed(1);
+		const laneNote =
+			link.lanes === null
+				? "unreported"
+				: `${measure(link.lanes)} in the window · ${link.activeLanes === null ? "active unreported" : `${measure(link.activeLanes)} active`}`;
+		return html`<h3>Link · ${fromLabel} → ${toLabel}</h3>
+			<dl>
+				<dt>Evidence</dt><dd>${link.evidence}${link.animate ? " · flow animating, speed bounded by the measured rate" : link.requests > 0 ? " · stale, flow off" : ""}</dd>
+				<dt>Hops</dt><dd>${measure(link.requests)} · ${perMinute}/min · width ${link.width}px</dd>
+				<dt>Failed hops</dt><dd>${measure(link.failed)}</dd>
+				<dt>Active requests</dt><dd>${measure(link.active)}</dd>
+				<dt>Tokens in / out</dt><dd>${measure(link.inputTokens)} / ${measure(link.outputTokens)}</dd>
+				<dt>Lanes</dt><dd>${laneNote}</dd>
+				<dt>Last observed</dt><dd>${localTime(link.lastSeenAt)} · ${age(link.lastSeenAt)}</dd>
+			</dl>
+			${this.edgeChartSlot(link)}
+			<details>
+				<summary>Joined traces · ${link.traces.length}</summary>
+				${link.traces.length
+					? html`<ol class="trace-list">${link.traces.map(
+							(trace) =>
+								html`<li><code>${trace.id.slice(0, 12)}…</code> · ${trace.hops.join(" → ")} · ${trace.complete ? "complete" : "partial"}</li>`,
+						)}</ol>`
+					: html`<p>No joined W3C trace on this edge — a ledger target edge never claims a provider hop.</p>`}
+			</details>
+			${this.edgeGridTable(link)}`;
+	}
+	edgeChartSlot(link) {
+		if (!link.series)
+			return html`<p class="coverage">No per-minute grid for this edge — the snapshot cap or the schema level holds it back.</p>`;
+		return html`<p class="coverage">Hops per minute over the snapshot window:</p>
+			<div class="edge-chart" role="img" aria-label=${`Hops per minute: ${link.series.map((bucket) => bucket.requests).join(", ")}`}></div>`;
+	}
+	edgeGridTable(link) {
+		const nonZero = (link.series ?? []).filter(
+			(bucket) => bucket.requests > 0,
+		);
+		if (!nonZero.length) return "";
+		return html`<details>
+			<summary>Non-zero minutes</summary>
+			<table class="edge-grid">
+				<thead><tr><th>minute</th><th>hops</th><th>failed</th></tr></thead>
+				<tbody>
+					${nonZero.map(
+						(bucket) =>
+							html`<tr><td>${new Date(bucket.t).toLocaleTimeString("da-DK", { hour12: false })}</td><td>${bucket.requests}</td><td>${bucket.failed}</td></tr>`,
+					)}
+				</tbody>
+			</table>
+		</details>`;
 	}
 	inspectorDetail(selected, graph) {
 		const traces = graph.traces
@@ -219,8 +316,11 @@ class BeltTopologyHubs extends LitElement {
 				const to = positions.get(link.to);
 				if (!from || !to) return svg``;
 				const path = `M${from.x + 190} ${from.y + 32} L${to.x} ${to.y + 32}`;
-				return svg`<g class="hub-item" role="button" tabindex="0" data-node=${link.id} aria-label=${`${link.from} to ${link.to}, ${link.requests} hops, ${link.evidence} evidence`} @click=${() => this.select(link.id)} @keydown=${(event) => this.onKey(event, link.id)}>
-					<path class=${`hub-link ${link.evidence === "ledger" ? "ledger" : ""} ${this.selectedId === link.id ? "selected" : ""}`} d=${path}></path>
+				const classes = `hub-link ${link.evidence === "ledger" ? "ledger" : ""} ${link.failed > 0 ? "failed" : ""} ${link.animate ? "flow" : ""} ${this.selectedId === link.id ? "selected" : ""}`;
+				const laneWord =
+					link.lanes === null ? "lanes unreported" : `${link.lanes} lanes`;
+				return svg`<g class="hub-item" role="button" tabindex="0" data-node=${link.id} aria-label=${`${link.from} to ${link.to}, ${link.requests} hops, ${laneWord}, ${link.evidence} evidence`} @click=${() => this.select(link.id)} @keydown=${(event) => this.onKey(event, link.id)}>
+					<path class=${classes} style=${`stroke-width:${link.width}px${link.animate ? `;--flow-duration:${link.durationS}s` : ""}`} d=${path}></path>
 					<path class="hit" d=${path}></path>
 				</g>`;
 			})}
@@ -236,6 +336,97 @@ class BeltTopologyHubs extends LitElement {
 		</svg>`;
 	}
 
+	updated(changed) {
+		super.updated(changed);
+		this.edgeChartTick();
+	}
+
+	edgeChartTick() {
+		const link = this._view?.links.find(
+			(row) => row.id === this.selectedId && row.series,
+		);
+		const key = link ? `${link.id}|${link.lastSeenAt}` : "";
+		if (key === this.edgeChartFor) return;
+		this.teardownEdgeChart();
+		this.edgeChartFor = key;
+		if (!link) return;
+		this.drawEdgeChart(link);
+	}
+
+	drawEdgeChart(link) {
+		const uPlot = globalThis.uPlot;
+		const mount = this.renderRoot.querySelector(".edge-chart");
+		if (!mount) return;
+		if (!uPlot) {
+			mount.textContent =
+				"chart engine not loaded — non-zero minutes stay in the table below";
+			return;
+		}
+		const times = link.series.map((bucket) => Math.round(bucket.t / 1000));
+		this.chartEdge(uPlot, link, times, mount);
+	}
+
+	edgeChartTheme() {
+		const themeToken = (name, fallback) =>
+			getComputedStyle(document.documentElement)
+				.getPropertyValue(name)
+				.trim() || fallback;
+		return {
+			accent: () => themeToken("--klh-accent", "#8f8f74"),
+			danger: () => themeToken("--klh-danger", "#c0392b"),
+			axis: () => themeToken("--klh-chart-axis", "#898781"),
+			grid: () => themeToken("--klh-chart-grid", "#2c2c2a"),
+			int: (_u, v) => (v == null ? "—" : String(Math.round(v))),
+		};
+	}
+
+	chartEdge(uPlot, link, times, mount) {
+		const theme = this.edgeChartTheme();
+		const data = [times, link.series.map((b) => b.requests), link.series.map((b) => b.failed)];
+		const series = (label, stroke, points) => ({ label, stroke, fill: () => `${stroke()}2e`, width: 1.5, points, value: theme.int });
+		const u = new uPlot(
+			{
+				width: mount.clientWidth || 280,
+				height: 110,
+				legend: { show: true, live: true },
+				scales: { x: { time: true } },
+				axes: [
+					{
+						stroke: theme.axis,
+						grid: { show: true, stroke: theme.grid, width: 1 },
+						ticks: { show: true, stroke: theme.axis, width: 1 },
+					},
+					{ stroke: theme.axis, grid: { show: false } },
+				],
+				series: [
+					{},
+					series("hops/min", theme.accent, { show: link.series.length < 16, size: 5 }),
+					series("failed", theme.danger, { show: false }),
+				],
+			},
+			data,
+			mount,
+		);
+		this.edgeCharts.push(u);
+		this.observeEdgeChartResize(mount, u);
+	}
+
+	observeEdgeChartResize(mount, u) {
+		if (typeof ResizeObserver !== "function") return;
+		const ro = new ResizeObserver(() => {
+			const w = mount.clientWidth;
+			if (w > 0 && w !== u.width) u.setSize({ width: w, height: 110 });
+		});
+		ro.observe(mount);
+		this.edgeRos.push(ro);
+	}
+
+	teardownEdgeChart() {
+		for (const u of this.edgeCharts) u.destroy?.();
+		this.edgeCharts = [];
+		for (const ro of this.edgeRos) ro.disconnect();
+		this.edgeRos = [];
+	}
 
 	render() {
 		const data = this.topology;
@@ -260,9 +451,10 @@ class BeltTopologyHubs extends LitElement {
 			configuredHubs: this.configuredHubsFor(data),
 			now: Date.now(),
 		});
+		this._view = view;
 		const layout = hubOverviewLayout(view.hubs, view.links);
 		const selected = view.hubs.find((hub) => hub.id === this.selectedId) ?? null;
-		return html`<section>
+		return html`<section class=${this.flowPaused ? "flow-paused" : ""}>
 			<h2>Hub topology · ${this.layer} layer</h2>
 			<p role="status">${view.hubs.length} hubs · ${view.links.length} hub links · snapshot updated ${age(view.observedAt)}</p>
 			<div class="controls">
@@ -295,6 +487,7 @@ class BeltTopologyHubs extends LitElement {
 				<div><strong>${measure(view.estate.requests)}</strong><small>hops · ${windowLabel(this.windowMs)}</small></div>
 				<div><strong>${measure(view.estate.failed)}</strong><small>failed · ${windowLabel(this.windowMs)}</small></div>
 			</div>
+			<p class="legend" role="note">Edge width is measured — hops/min ≥0.5 → 2px, ≥3 → 3px, ≥8 → 4px, else 1px. Moving dashes ride fresh observed hops only, at a speed bounded by the measured rate; red = failures; dashed gray = ledger or planned, never animated. Reduced motion turns the flow off, and hiding the tab pauses it.</p>
 			<div class="hubs-layout">
 				<div class="hubs-map" style=${`--map-width:${layout.width}px`}>${this.renderMap(view, layout)}</div>
 				<aside class="inspector">${this.inspector(view, graph)}</aside>

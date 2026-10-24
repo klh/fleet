@@ -1,5 +1,8 @@
 const FRESH_MS = 120_000;
 const ROUTE_MS = 15 * 60_000;
+/** Slice 2 ships schema 1; slice 3 adds per-edge lane counts and the bounded
+ * 60s drilldown grid (schema 2). A v1 board still feeds every slice-2 view. */
+const SCHEMA_VERSIONS = [1, 2];
 
 /** The topology snapshot is a separate, trace-backed source. Keep endpoint
  * targets distinct from catalog providers until a configured identity joins
@@ -8,7 +11,7 @@ export function observedGraph(payload, now = Date.now()) {
 	const snapshot = payload?.topology;
 	if (
 		!snapshot?.ok ||
-		snapshot.schemaVersion !== 1 ||
+		!SCHEMA_VERSIONS.includes(snapshot.schemaVersion) ||
 		!isFresh(snapshot.observedAt, now) ||
 		!Number.isFinite(Date.parse(snapshot.windowStart))
 	)

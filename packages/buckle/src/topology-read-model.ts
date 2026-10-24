@@ -6,11 +6,17 @@ import type { NetworkDbPaths } from "./network-read-model.ts";
 
 const WINDOW_MS = 15 * 60_000;
 const TRACE_DETAIL_CAP = 200;
+/** Slice 3: per-edge 60s drilldown series ride only the most recently
+ * active edges — the bucket grid is bounded even on a 10k-hop window. */
+const SERIES_EDGE_CAP = 100;
+const SERIES_BUCKETS = 15;
+const SERIES_BUCKET_MS = 60_000;
 const TRACE_ID = /^[0-9a-f]{32}$/;
 
 interface EdgeRecord {
 	source: string;
 	rid: string;
+	lane: string;
 	traceparent: string;
 	admitted_at: number;
 	ended_at: number | null;
@@ -34,7 +40,7 @@ interface UsageRecord {
 
 export interface TopologySnapshot {
 	ok: true;
-	schemaVersion: 1;
+	schemaVersion: 2;
 	observedAt: string;
 	windowStart: string;
 	hubs: Array<{
@@ -57,6 +63,13 @@ export interface TopologySnapshot {
 		requests: number;
 		failed: number;
 		active: number;
+		/** Slice 3: distinct attributed lanes on this edge — null when the
+		 * rows carry no lane identity (ledger rows never do). */
+		lanes: number | null;
+		/** Lanes with an un-ended hop in the window. */
+		activeLanes: number | null;
+		/** Bounded 60s drilldown grid over the window, or null past the cap. */
+		series: Array<{ t: number; requests: number; failed: number }> | null;
 		inputTokens: number | null;
 		outputTokens: number | null;
 		coverage: {
@@ -88,6 +101,8 @@ export interface TopologySnapshot {
 		usageBearingOrigins: number;
 		tracesReturned: number;
 		tracesTotal: number;
+		/** Edges carrying the bounded 60s drilldown grid (slice 3 cap). */
+		seriesEdges: number;
 		ledgerOnlyRequests: number;
 		/** Never describe local-ledger usage as estate-wide coverage. */
 		tokensScope: "local-origin-ledger" | "unavailable";
@@ -127,6 +142,18 @@ function orderHops(rows: EdgeRecord[]): { hops: string[]; linked: boolean } {
 	return { hops: ordered, linked: hasRoot && pending.length === 0 };
 }
 
+function bucketIndex(atMs: number, sinceMs: number): number {
+	const index = Math.floor((atMs - sinceMs) / SERIES_BUCKET_MS);
+	return index < 0 ? 0 : index >= SERIES_BUCKETS ? SERIES_BUCKETS - 1 : index;
+}
+
+function newSeries(): { req: number[]; failed: number[] } {
+	return {
+		req: Array.from({ length: SERIES_BUCKETS }, () => 0),
+		failed: Array.from({ length: SERIES_BUCKETS }, () => 0),
+	};
+}
+
 function readRows(
 	path: string,
 	sql: string,
@@ -154,7 +181,7 @@ export function topologySnapshot(
 		try {
 			const fetched = readRows(
 				paths.obsDb,
-				`SELECT source, rid, traceparent, admitted_at, ended_at, outcome,
+				`SELECT source, rid, lane, traceparent, admitted_at, ended_at, outcome,
 				origin, peer FROM request_edges WHERE admitted_at >= ?
 				ORDER BY admitted_at, source, rid LIMIT 10001`,
 				since,
@@ -175,6 +202,10 @@ export function topologySnapshot(
 			traces: Set<string>;
 			failed: Set<string>;
 			active: Set<string>;
+			lanes: Set<string>;
+			activeLanes: Set<string>;
+			seriesReq: number[];
+			seriesFailed: number[];
 			inputTokens: number;
 			outputTokens: number;
 			usageBearingRequests: Set<string>;
@@ -208,6 +239,9 @@ export function topologySnapshot(
 				traces: new Set<string>(),
 				failed: new Set<string>(),
 				active: new Set<string>(),
+				lanes: new Set<string>(),
+				activeLanes: new Set<string>(),
+				series: newSeries(),
 				inputTokens: 0,
 				outputTokens: 0,
 				usageBearingRequests: new Set<string>(),
@@ -215,9 +249,17 @@ export function topologySnapshot(
 				evidence: "trace" as const,
 			};
 			edge.traces.add(id);
+			if (row.lane) edge.lanes.add(row.lane);
 			if (row.outcome === "errored" || row.outcome === "denied")
 				edge.failed.add(id);
-			if (row.ended_at === null) edge.active.add(id);
+			if (row.ended_at === null) {
+				edge.active.add(id);
+				if (row.lane) edge.activeLanes.add(row.lane);
+			}
+			const bucket = bucketIndex(atRow, since);
+			edge.series.req[bucket] += 1;
+			if (row.outcome === "errored" || row.outcome === "denied")
+				edge.series.failed[bucket] += 1;
 			edge.last = Math.max(edge.last, atRow);
 			if (id.startsWith("untraced:")) edge.evidence = "peer";
 			edges.set(key, edge);
@@ -275,6 +317,9 @@ export function topologySnapshot(
 			traces: new Set<string>(),
 			failed: new Set<string>(),
 			active: new Set<string>(),
+			lanes: new Set<string>(),
+			activeLanes: new Set<string>(),
+			series: newSeries(),
 			inputTokens: 0,
 			outputTokens: 0,
 			usageBearingRequests: new Set<string>(),
@@ -289,6 +334,9 @@ export function topologySnapshot(
 			edge.outputTokens += row.out_tok;
 			edge.usageBearingRequests.add(id);
 		}
+		const bucket = bucketIndex(last, since);
+		edge.series.req[bucket] += 1;
+		if (row.ok === 0) edge.series.failed[bucket] += 1;
 		edge.last = Math.max(edge.last, last);
 		edges.set(edgeKey, edge);
 		hubs.set(localHub, Math.max(hubs.get(localHub) ?? 0, last));
@@ -317,6 +365,9 @@ export function topologySnapshot(
 			traces: new Set<string>(),
 			failed: new Set<string>(),
 			active: new Set<string>(),
+			lanes: new Set<string>(),
+			activeLanes: new Set<string>(),
+			series: newSeries(),
 			inputTokens: 0,
 			outputTokens: 0,
 			usageBearingRequests: new Set<string>(),
@@ -324,9 +375,17 @@ export function topologySnapshot(
 			evidence: "trace" as const,
 		};
 		edge.traces.add(id);
+		if (remoteRow.lane) edge.lanes.add(remoteRow.lane);
 		if (remoteRow.outcome === "errored" || remoteRow.outcome === "denied")
 			edge.failed.add(id);
-		if (remoteRow.ended_at === null) edge.active.add(id);
+		if (remoteRow.ended_at === null) {
+			edge.active.add(id);
+			if (remoteRow.lane) edge.activeLanes.add(remoteRow.lane);
+		}
+		const bucket = bucketIndex(remoteRow.admitted_at, since);
+		edge.series.req[bucket] += 1;
+		if (remoteRow.outcome === "errored" || remoteRow.outcome === "denied")
+			edge.series.failed[bucket] += 1;
 		edge.last = Math.max(edge.last, remoteRow.admitted_at);
 		edges.set(key, edge);
 		recoveredHops.set(id, remote);
@@ -348,9 +407,18 @@ export function topologySnapshot(
 			lastSeenAt: new Date(trace.last).toISOString(),
 		};
 	});
+	// Slice 3: the bounded drilldown grid rides the most recently active
+	// edges — an edge past the cap honestly reports no series rather than a
+	// downsampled guess.
+	const seriesKeys = new Set(
+		[...edges.entries()]
+			.sort((a, b) => b[1].last - a[1].last)
+			.slice(0, SERIES_EDGE_CAP)
+			.map(([key]) => key),
+	);
 	return {
 		ok: true,
-		schemaVersion: 1,
+		schemaVersion: 2,
 		observedAt: new Date(at).toISOString(),
 		windowStart: new Date(since).toISOString(),
 		hubs: [...hubs.entries()].map(([name, last]) => ({
@@ -366,13 +434,22 @@ export function topologySnapshot(
 			port: target.port,
 			lastSeenAt: new Date(target.last).toISOString(),
 		})),
-		edges: [...edges.values()].map((edge) => ({
+		edges: [...edges.entries()].map(([key, edge]) => ({
 			id: `edge:${edge.from}->${edge.to}`,
 			from: `hub:${edge.from}`,
 			to: edge.to.startsWith("target:") ? edge.to : `hub:${edge.to}`,
 			requests: edge.traces.size,
 			failed: edge.failed.size,
 			active: edge.active.size,
+			lanes: edge.lanes.size ? edge.lanes.size : null,
+			activeLanes: edge.activeLanes.size ? edge.activeLanes.size : null,
+			series: seriesKeys.has(key)
+				? edge.series.req.map((requests, index) => ({
+						t: since + index * SERIES_BUCKET_MS,
+						requests,
+						failed: edge.series.failed[index],
+					}))
+				: null,
 			inputTokens: edge.usageBearingRequests.size ? edge.inputTokens : null,
 			outputTokens: edge.usageBearingRequests.size ? edge.outputTokens : null,
 			coverage: {
@@ -427,6 +504,7 @@ export function topologySnapshot(
 			ledgerOnlyRequests: [...ledgerTraceIds].filter((id) => !traces.has(id))
 				.length,
 			tokensScope: ledgerAvailable ? "local-origin-ledger" : "unavailable",
+			seriesEdges: seriesKeys.size,
 		},
 	};
 }
