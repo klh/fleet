@@ -74,7 +74,10 @@ export function filesCheck(hook: HookInput): FilesExit {
 					kind: "block",
 					err: `UI LAW: innerHTML/document.write are NEVER allowed — rewrite as lit-html templates in a web component. ${F}\n`,
 				};
-			if (!isWc && /document\.createElement\s*\(|createElementNS\s*\(/.test(payload))
+			if (
+				!isWc &&
+				/document\.createElement\s*\(|createElementNS\s*\(/.test(payload)
+			)
 				return {
 					kind: "block",
 					err: `UI LAW: document.createElement / createElementNS only inside web components (import lit / @customElement). ${F}\n`,
@@ -185,12 +188,16 @@ export function filesCheck(hook: HookInput): FilesExit {
 	// territory. The W157 backlog (fleet-board / coord / board-html / its
 	// test) landed 2026-10-01, so this ships as a hard block — the brief's
 	// WARN grace phase collapsed into the flip in this same landing.
+	// Near-cap law (W744, AGENTS.md "1500-Line Hard Limit"): a .ts above
+	// ~1200 lines is NEAR-CAP — patch-only anchored edits, new content in
+	// its own file, and the done-gate verifies the diff shape (churn > 300
+	// refuses closure unless the item IS a decomposition).
 	if (F.endsWith(".ts") && existsSync(F)) {
 		const n = readFileSync(F, "utf8").split("\n").length;
 		if (n > 1500)
 			return {
 				kind: "block",
-				err: `1500-LINE LIMIT: ${basename(F)} is ${n} lines (law.ts-1500-decompose, CLAUDE.md "1500-Line Hard Limit"). Decompose into single-purpose modules before the next write — pattern: hooks/board/, hooks/coord/, hooks/board-html/ (W157).\n`,
+				err: `1500-LINE LIMIT: ${basename(F)} is ${n} lines (law.ts-1500-decompose, AGENTS.md "1500-Line Hard Limit"; near-cap 1200 = patch-only, W744). Decompose into single-purpose modules before the next write — pattern: hooks/board/, hooks/coord/, hooks/board-html/ (W157).\n`,
 			};
 	}
 

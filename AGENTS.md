@@ -3,8 +3,10 @@
 One monorepo, one version, every service. packages/: suspenders (control
 plane), buckle (LLM gateway), belt (dashboard/gateway), speedy (config
 layer), local (Caddy front), local-llm (MLX swarm kit), blam (agent-mishap
-benchmark). The private enterprise tier = klh-remote (mirrors packages/,
-depends on fleet; local-only until its GitHub push — W422.9/W422.1).
+benchmark), decant (vendored dosu-ai/decant token-accounting toolkit),
+telemetry (shared trace/hop-contract headers). The private enterprise tier
+= klh-remote (mirrors packages/, depends on fleet; local-only until its
+GitHub push — W422.9/W422.1).
 
 ## Laws (project-wide, every package)
 
@@ -78,29 +80,20 @@ depends on fleet; local-only until its GitHub push — W422.9/W422.1).
 as its installed-face shim (argv-verbatim passthrough, W913) — renders THE
 supervisor reply table (owner GO 2026-10-19): rows = riding + queued +
 last-5-done (or strict `--ids w1,w2`); columns ITEM/ST/TASK/TOKENS/CACHE/
-OUT-MIN/AGENT from each item's W776 attribution; fixed-width programmatic
-pads; ST letters R = riding, Q = queued, D = done, F = failed (W891 colors
-them on the board). Supervisor ticks paste it verbatim — the session-start
-SUPERVISOR DEFAULT contract references the installed reporter and
-EMITS it (the hook calls the one library; W899), lane briefs carry the
-same table (dispatch FLEET REPORT), and the install tail runs the report
-through the PATH shim as its final section (every install proves the verb
-live). One implementation (hooks/lib/work-report.ts) — the bin's glyph/
-spend-line parser retired (W913). This supersedes the W865 prose list.
-(owner GO 2026-10-19): rows = riding + queued + last-5-done (or strict
-`--ids w1,w2`); columns ITEM/ST/TASK/TOKENS/CACHE/OUT-MIN/AGENT/MODEL/
-EFFORT/CONSULT from each item's W776 attribution — MODEL = top model_group
-(`+` when several), EFFORT = the lane's effort level (dispatch pins
-SUSPENDERS_LANE_EFFORT into the per-lane 0600 settings; `work done` banks it
-into the work.done event), CONSULT Y/N = the lane banked knowledge or
-consulted (W909 event links); fixed-width programmatic pads; ST letters
-R = riding, Q = queued, D = done, F = failed (W891 colors them on the
-board). Supervisor ticks paste it verbatim — the session-start
-SUPERVISOR DEFAULT contract references the installed reporter and
-EMITS it (the hook calls the one library; W899), lane briefs carry the
-same table (dispatch FLEET REPORT), and the install tail runs the report
-through the PATH shim as its final section (every install proves the verb
-live). This supersedes the W865 prose list.
+OUT-MIN/AGENT/MODEL/EFFORT/CONSULT from each item's W776 attribution —
+MODEL = top model_group (`+` when several), EFFORT = the lane's effort
+level (dispatch pins SUSPENDERS_LANE_EFFORT into the per-lane 0600
+settings; `work done` banks it into the work.done event), CONSULT Y/N =
+the lane banked knowledge or consulted (W909 event links); fixed-width
+programmatic pads; ST letters R = riding, Q = queued, D = done, F = failed
+(W891 colors them on the board). Supervisor ticks paste it verbatim — the
+session-start SUPERVISOR DEFAULT contract references the installed
+reporter and EMITS it (the hook calls the one library; W899), lane briefs
+carry the same table (dispatch FLEET REPORT), and the install tail runs
+the report through the PATH shim as its final section (every install
+proves the verb live). One implementation (hooks/lib/work-report.ts) —
+the bin's glyph/spend-line parser retired (W913). This supersedes the
+W865 prose list.
 
 - Agent skills: the repo-root `skills/` catalog installs into any agent CLI
   via `npx skills add klh/fleet` (`-g -y -a <ids>`; target ids in README
@@ -213,7 +206,7 @@ Buckle gate (LLM auth — keys are the front door):
 Machines and processes:
 
 - install: `bash install.sh [--wire] [--with-launchd]` from
-  fleet/packages/suspenders — the ONLY repo→prefix sync (SUSPENDERS_PREFIX /
+  packages/suspenders — the ONLY repo→prefix sync (SUSPENDERS_PREFIX /
   SUSPENDERS_SHIM_BIN override); old checkouts are push-dead (archived)
 - launchd labels (port/process map; `launchctl kickstart
 gui/$(id -u)/<label>` revives):
