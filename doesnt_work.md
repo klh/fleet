@@ -26,6 +26,12 @@ decision-grade: it has to change what you would do. When a verdict flips
   Responses API that Copilot rejects, and its provider forces an interactive
   device flow. The :4102 ikea-shim is retired, litellm copilot rows stay off;
   the raw api.githubcopilot.com Anthropic wire works instead.
+- **sqlcoder 7B on the NAS Ollama host as a live text-to-SQL face
+  (W1219)** — CPU-only inference (`size_vram=0`): every bench attempt on
+  the ~500-token task prompt hit the 120 s cap (exec 0%, p50 = p95 =
+  120 s) — a 7B Q4_0 on NAS CPU cannot serve a live /knowledge/query
+  face (W1218 p95 ≤ 2 s). Replaced by: qwen3-4b on the swarm extract
+  tier :8902 (100% exec, p50 299 ms), pinned as the `sql` group.
 
 ## Fleet coordination
 
