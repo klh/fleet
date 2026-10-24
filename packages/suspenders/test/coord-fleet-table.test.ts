@@ -15,9 +15,18 @@ const home = mkdtempSync(join(tmpdir(), "suspenders-w1258-fleet-table-"));
 
 afterAll(() => rmSync(home, { recursive: true, force: true }));
 
+// fleet lesson coord-child-store-binding: spawned coord children inherit
+// GOVERNOR_STORE_URL — without the pin a lane env's store URL silently
+// rebinds openStore() onto the REAL fleet store despite the temp HOME.
+const childEnv = (h: string): NodeJS.ProcessEnv => ({
+	...process.env,
+	HOME: h,
+	GOVERNOR_STORE_URL: "local",
+});
+
 const runCli = (args: string[]): { code: number; out: string; err: string } => {
 	const p = Bun.spawnSync(["bun", COORD, ...args], {
-		env: { ...process.env, HOME: home },
+		env: childEnv(home),
 		stdout: "pipe",
 		stderr: "pipe",
 	});
@@ -30,7 +39,7 @@ const runCli = (args: string[]): { code: number; out: string; err: string } => {
 
 const runIn = (code: string): string => {
 	const p = Bun.spawnSync(["bun", "-e", code], {
-		env: { ...process.env, HOME: home },
+		env: childEnv(home),
 		stdout: "pipe",
 		stderr: "pipe",
 	});
@@ -101,6 +110,21 @@ test("unit: buildFleetTable pads, caps and rows", () => {
 	expect(r2).toContain("[sid=sid2]");
 });
 
+test("unit: painted glyphs measure by visible width, not escape bytes", () => {
+	const ESC = String.fromCharCode(27);
+	const painted = `${ESC}[32m▶${ESC}[0m`;
+	const out = buildFleetTable([{ lane: "l", st: painted, task: "", sid: "s" }]);
+	const lines = out.split("\n");
+	// ST column width = header (2), not the escape-inflated length — the
+	// separator's ST dash run stays "--" and rows stay VISIBLY aligned
+	// (cli-table3 pads ANSI-aware, so raw line lengths differ by the escapes)
+	expect(lines[1]).toContain("  --  ");
+	const strip = new RegExp(`${ESC}\\[[0-9;]*m`, "g");
+	const visible = (s: string): number => s.replace(strip, "").length;
+	expect(new Set(lines.map((l) => visible(l))).size).toBe(1);
+	expect(rowFor(out, "[sid=s]") ?? "").toContain(painted);
+});
+
 test("text face: table with HEAD line, name column, state glyph", () => {
 	const { code, out, err } = runCli(["fleet"]);
 	expect(code).toBe(0);
@@ -145,12 +169,10 @@ test("empty fleet renders the placeholder, never a table", () => {
 	// the dim placeholder line
 	const home2 = mkdtempSync(join(tmpdir(), "suspenders-w1258-empty-"));
 	try {
-		runIn(`
-const { openGovernorDb } = await import(${JSON.stringify(GOVDB)});
-openGovernorDb().close();
-`);
+		// openStore() migrates the fresh HOME on demand — cmdFleet prints only
+		// the dim placeholder line
 		const p = Bun.spawnSync(["bun", COORD, "fleet"], {
-			env: { ...process.env, HOME: home2 },
+			env: childEnv(home2),
 			stdout: "pipe",
 			stderr: "pipe",
 		});

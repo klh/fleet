@@ -53,6 +53,13 @@ export const fleetGlyph = (
 const truncLane = (s: string): string =>
 	s.length > FLEET_LANE_CAP ? `${s.slice(0, FLEET_LANE_CAP - 1)}…` : s;
 
+/** Visible length: cli-table3 pads ANSI-aware, but the separator dashes are
+ *  computed HERE from raw lengths — a painted glyph's SGR escape bytes would
+ *  balloon the ST column on a TTY. Strip SGR sequences before measuring
+ *  (ESC assembled from charCode — the lint bans control chars in regex). */
+const SGR = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+const visibleLen = (s: string): number => s.replace(SGR, "").length;
+
 /** The fleet table: LANE/ST/TASK left, SID left — all strings, no numeric
  *  right-align (the report's numeric columns have no fleet counterpart). */
 export const buildFleetTable = (rows: FleetRow[]): string => {
@@ -63,7 +70,7 @@ export const buildFleetTable = (rows: FleetRow[]): string => {
 		`[sid=${r.sid}]`,
 	]);
 	const widths = FLEET_COLUMNS.map((h, c) =>
-		Math.max(h.length, ...cells.map((row) => row[c].length)),
+		Math.max(h.length, ...cells.map((row) => visibleLen(row[c]))),
 	);
 	const table = new Table({
 		chars: REPORT_TABLE_CHARS,
