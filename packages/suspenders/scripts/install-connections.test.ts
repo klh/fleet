@@ -81,11 +81,12 @@ test("absent without --yes: pauses with the exact ASK, writes nothing", async ()
 	expect(SETENV.length).toBe(0);
 });
 
-test("defaultTemplate: ChatGPT rides OFF until the operator opts in (W1231)", () => {
+test("defaultTemplate: every GUI app + codex default-ON (W1260.1, CONNECT relay)", () => {
 	const t = defaultTemplate("hub");
-	expect(t.apps?.chatgpt?.enabled).toBe(false);
+	expect(t.apps?.chatgpt?.enabled).toBe(true);
 	expect(t.apps?.claude?.enabled).toBe(true);
 	expect(t.apps?.vscode?.enabled).toBe(true);
+	expect(t.apps?.codex?.enabled).toBe(true);
 });
 
 test("unparseable existing file is a truthful failed row, never a rewrite", async () => {

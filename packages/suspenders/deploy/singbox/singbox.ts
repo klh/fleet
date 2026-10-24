@@ -1,13 +1,15 @@
-// deploy/singbox/singbox.ts — W1233: per-process TUN egress enforcement on
-// muramasa. sing-box = the network-layer enforcement/audit hop (bytes flow
-// through muramasa's TUN); buckle (W1230) stays the inference-layer gateway
-// for Claude Desktop; ChatGPT keeps its OpenAI-bound TLS — the hub-relay
-// http outbound is a FORWARD proxy that relays the app's TLS to its real
-// destination, never a wire translation. Config-over-code: the real sing-box
-// config lives in machine conf (~/.config/klh/singbox.json); this kit owns
-// the fleet LAW for that config, a one-time seed from the repo template, and
-// the acceptance verifier that reads sing-box's clash API for live
-// per-process attribution.
+// deploy/singbox/singbox.ts — W1233 + W1260.1: per-process TUN egress
+// enforcement. sing-box = the network-layer enforcement/audit hop (bytes flow
+// through the machine's TUN); every DETECTED AI connection routes by default
+// through LOCAL BUCKLE's authenticated HTTP CONNECT egress (W1260.2): one
+// http outbound per app, username = app identity, password =
+// BUCKLE_CONNECT_TOKEN (machine env). The outbound is an HTTP CONNECT CLIENT
+// relaying the app's TLS opaque end-to-end — never a wire translation, never
+// a MITM; buckle sees app identity + byte counts, never plaintext.
+// Config-over-code: the real sing-box config lives in machine conf
+// (~/.config/klh/singbox.json); this kit owns the fleet LAW for that config,
+// a one-time seed from the repo template, and the acceptance verifier that
+// reads sing-box's clash API for live per-process attribution.
 import {
 	existsSync,
 	mkdirSync,
@@ -19,25 +21,20 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { runCli } from "../../hooks/lib/verb-kit.ts";
 import type { Parsed } from "../../hooks/lib/verb-kit.ts";
+import {
+	AI_DESTINATION_SUFFIXES,
+	CONNECT_PREFIX,
+	CONNECT_SERVER,
+	CONNECT_UNKNOWN_USER,
+	CONNECT_USERS,
+	compileRegexOf,
+	connectTagOf,
+	goRegexOf,
+	guiTransports,
+} from "./watched.ts";
 
-/** The one hub-bound outbound tag the fleet law names. */
-const HUB_TAG = "hub-relay";
 const DIRECT_TAG = "direct";
 const BLOCK_TAG = "block";
-
-/** The watched app bundles — representative binary paths the watched
- *  regexes MUST match; the claude CLI representative is what the regexes
- *  must NOT swallow (CLI exclusion is a regex choice, reported not forced). */
-const WATCHED_APPS = [
-	{
-		app: "Claude.app",
-		binary: "/Applications/Claude.app/Contents/MacOS/Claude",
-	},
-	{
-		app: "ChatGPT.app",
-		binary: "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT",
-	},
-] as const;
 
 /** Machine conf default: KLH_SINGBOX_CONF > ~/.config/klh/singbox.json.
  *  An empty-string env counts as unset (empty-string-env-is-set lesson). */
@@ -67,11 +64,6 @@ const strOf = (v: unknown): string | null =>
 
 const numOf = (v: unknown): number | null =>
 	typeof v === "number" && Number.isSafeInteger(v) ? v : null;
-
-/** The claude CLI representative — homedir-anchored at runtime so the scrub
- *  law (/Users/<user> literals) never trips on this file. */
-export const cliRepresentative = (): string =>
-	join(homedir(), ".claude", "local", "claude");
 
 /** Every `<...>` placeholder still standing in the tree — the machine conf
  *  must be real hosts/keys (config-over-code); a placeholder = not runnable. */
@@ -159,55 +151,73 @@ export function clashApiOf(
 	return { controller: ctrl, port, secret: secret ?? "" };
 }
 
-/** Outbound law: exactly one hub-relay forward proxy (http|socks), plus the
- *  direct and block tags the route table names. */
+/** Outbound law: every buckle-connect outbound is an authenticated local
+ *  CONNECT client (W1260.2 contract); every watched app covered once. */
 export function lawOutbounds(root: Record<string, unknown>): string[] {
 	const problems: string[] = [];
-	const outbounds = (arrOf(root.outbounds) ?? []).map(objOf);
-	const hubs = outbounds.filter(
-		(o): o is Record<string, unknown> => o !== null && o.tag === HUB_TAG,
+	const rows = outboundsOf(root);
+	const connects = rows.filter(
+		(o) => strOf(o.tag)?.startsWith(CONNECT_PREFIX) === true,
 	);
-	if (hubs.length !== 1)
-		problems.push(
-			`outbounds: exactly one ${HUB_TAG} outbound required (found ${hubs.length})`,
-		);
-	const hub = hubs[0];
-	if (hub === undefined) return problems;
-	return hubProblems(hub, outbounds);
-}
-
-/** The hub outbound + tag-set laws, split for the mutation cap. */
-const hubProblems = (
-	hub: Record<string, unknown>,
-	outbounds: (Record<string, unknown> | null)[],
-): string[] => {
-	const problems: string[] = [];
-	const type = strOf(hub.type);
-	if (type !== "http" && type !== "socks")
-		problems.push(
-			`${HUB_TAG}.type must be http|socks — a FORWARD proxy relaying the app's TLS, never a wire translation`,
-		);
-	const server = strOf(hub.server);
-	if (server === null || server.startsWith("<"))
-		problems.push(`${HUB_TAG}.server must be the real relay host`);
-	const port = numOf(hub.server_port);
-	if (port === null || port < PORT_MIN || port > PORT_MAX)
-		problems.push(
-			`${HUB_TAG}.server_port must be an integer ${PORT_MIN}-${PORT_MAX}`,
-		);
-	const tags = new Set(
-		outbounds
-			.filter((o): o is Record<string, unknown> => o !== null)
-			.map((o) => (typeof o.tag === "string" ? o.tag : "")),
-	);
+	for (const o of connects) problems.push(...connectRowProblems(o));
+	for (const u of CONNECT_USERS)
+		if (!connects.some((o) => strOf(o.tag) === connectTagOf(u)))
+			problems.push(
+				`outbounds: no ${connectTagOf(u)} outbound (default-on coverage)`,
+			);
+	const tags = new Set(rows.map((o) => strOf(o.tag) ?? ""));
 	if (!tags.has(DIRECT_TAG))
 		problems.push(`outbounds: a ${DIRECT_TAG} outbound is required`);
 	if (!tags.has(BLOCK_TAG))
 		problems.push(`outbounds: a ${BLOCK_TAG} outbound is required`);
 	return problems;
+}
+
+/** The outbound rows as clean objects. */
+const outboundsOf = (
+	root: Record<string, unknown>,
+): Record<string, unknown>[] =>
+	(arrOf(root.outbounds) ?? [])
+		.map(objOf)
+		.filter((o): o is Record<string, unknown> => o !== null);
+
+/** The per-outbound CONNECT law: http type, loopback server, valid port,
+ *  username = watched app = tag suffix, filled password. */
+const connectRowProblems = (o: Record<string, unknown>): string[] => {
+	const tag = strOf(o.tag) ?? "";
+	const app = tag.slice(CONNECT_PREFIX.length);
+	const problems: string[] = [];
+	const port = numOf(o.server_port);
+	if (strOf(o.type) !== "http")
+		problems.push(
+			`${tag}.type must be http — HTTP CONNECT client, TLS stays opaque`,
+		);
+	if (strOf(o.server) !== CONNECT_SERVER)
+		problems.push(
+			`${tag}.server must be ${CONNECT_SERVER} (loopback-only egress)`,
+		);
+	if (port === null || port < PORT_MIN || port > PORT_MAX)
+		problems.push(
+			`${tag}.server_port must be an integer ${PORT_MIN}-${PORT_MAX}`,
+		);
+	const known = new Set<string>(CONNECT_USERS);
+	const user = strOf(o.username);
+	if (user === null || !known.has(user))
+		problems.push(
+			`${tag}.username must be a CONNECT identity (${[...known].join(", ")})`,
+		);
+	if (user !== app)
+		problems.push(`${tag}: username must equal the tag's app identity`);
+	if (strOf(o.password) === null)
+		problems.push(
+			`${tag}.password must be the BUCKLE_CONNECT_TOKEN (filled, never empty)`,
+		);
+	return problems;
 };
 
-/** The hub-bound process_path_regex rules — the watched set. */
+/** The watched process_path_regex rules — every rule whose outbound targets
+ *  a buckle-connect egress. process_path_regex accepts a scalar or a list
+ *  (sing-box match fields); read both spellings. */
 export function watchedRulesOf(
 	root: Record<string, unknown>,
 ): { regex: string; compiled: RegExp }[] {
@@ -216,16 +226,33 @@ export function watchedRulesOf(
 	const out: { regex: string; compiled: RegExp }[] = [];
 	for (const r of rules.map(objOf)) {
 		if (r === null) continue;
-		const rx = strOf(r.process_path_regex);
-		if (rx === null || r.outbound !== HUB_TAG) continue;
-		try {
-			out.push({ regex: rx, compiled: new RegExp(rx) });
-		} catch {
+		const rxs = regexesOf(r.process_path_regex);
+		const tag = strOf(r.outbound);
+		if (rxs === null || tag === null || !tag.startsWith(CONNECT_PREFIX))
+			continue;
+		for (const rx of rxs) {
+			const compiled = goRegexOf(rx);
+			if (compiled !== null) out.push({ regex: rx, compiled });
 			// invalid regex — reported by lawRoute
 		}
 	}
 	return out;
 }
+
+/** A match field value as a string list (scalar or list spellings). */
+const regexesOf = (v: unknown): string[] | null => {
+	const one = strOf(v);
+	if (one !== null) return [one];
+	const list = arrOf(v);
+	if (list === null) return null;
+	const out: string[] = [];
+	for (const item of list) {
+		const s = strOf(item);
+		if (s === null) return null;
+		out.push(s);
+	}
+	return out;
+};
 
 /** Route law: catch-all stays direct (per-process enforcement, never
  *  global), watched regexes cover both app bundles, a DNS hijack keeps
@@ -255,9 +282,87 @@ export function lawRoute(root: Record<string, unknown>): string[] {
 	const declared = objs.filter((r) => "process_path_regex" in r).length;
 	if (watched.length !== declared)
 		problems.push("route.rules: a process_path_regex failed to compile");
-	for (const app of WATCHED_APPS) {
-		if (!watched.some((w) => w.compiled.test(app.binary)))
-			problems.push(`route.rules: no hub-relay rule matches ${app.binary}`);
+	for (const a of guiTransports()) {
+		const compiled = compileRegexOf(a.user);
+		const ruleOk =
+			compiled !== null &&
+			objs.some(
+				(r) =>
+					strOf(r.outbound) === connectTagOf(a.user) &&
+					regexesOf(r.process_path_regex)?.includes(a.regex) === true,
+			);
+		if (!ruleOk) {
+			problems.push(
+				`route.rules: no ${connectTagOf(a.user)} rule (${a.regex})`,
+			);
+			continue;
+		}
+		for (const probe of a.probes) {
+			if (compiled !== null && !compiled.test(probe))
+				problems.push(
+					`route.rules: ${connectTagOf(a.user)} regex misses probe ${probe}`,
+				);
+		}
+	}
+	// sniff law: SNI discovery must precede every domain-qualified rule —
+	// the AI rules match the sniffed host, never an encrypted body.
+	const sniffIdx = objs.findIndex((r) => r.action === "sniff");
+	if (sniffIdx < 0)
+		problems.push(
+			"route.rules: a {action: sniff} rule is required (SNI populates the domain the AI rules match)",
+		);
+	// ordering law (owner #67813/#67819): private/LAN bypass BEFORE any
+	// buckle-connect rule, else watched apps' local/auth/update traffic
+	// hits the CONNECT gate and breaks GUIs.
+	const firstConnect = objs.findIndex(
+		(r) => strOf(r.outbound)?.startsWith(CONNECT_PREFIX) === true,
+	);
+	const firstBypass = objs.findIndex(
+		(r) =>
+			r.ip_is_private === true ||
+			(arrOf(r.domain_suffix) !== null && r.outbound === DIRECT_TAG),
+	);
+	if (firstConnect >= 0 && firstBypass >= 0 && firstBypass > firstConnect)
+		problems.push(
+			"route.rules: private/LAN bypass must precede the buckle-connect rules (watched apps' local/auth traffic stays direct)",
+		);
+	if (sniffIdx >= 0 && firstConnect >= 0 && sniffIdx > firstConnect)
+		problems.push(
+			"route.rules: the sniff rule must precede the buckle-connect rules (the domain rules match what sniff saw)",
+		);
+	// domain-qualification law: every process rule must carry the FULL AI
+	// destination set (sing-box ANDs the fields) — a watched app's non-AI
+	// traffic never relays, only its AI destinations do.
+	for (const r of objs) {
+		if (!("process_path_regex" in r)) continue;
+		const suffixes = (arrOf(r.domain_suffix) ?? []).map((s) => strOf(s) ?? "");
+		const covers = AI_DESTINATION_SUFFIXES.every((s) => suffixes.includes(s));
+		if (!covers)
+			problems.push(
+				"route.rules: a process rule must qualify by the full AI destination set (non-AI traffic of watched apps stays direct)",
+			);
+	}
+	// AI-fallback law: unknown processes' AI destinations ride the CONNECT
+	// gate as the `buckle` bucket; everything else of theirs stays direct.
+	const fallbackOk = objs.some(
+		(r) =>
+			!("process_path_regex" in r) &&
+			strOf(r.outbound) === connectTagOf(CONNECT_UNKNOWN_USER) &&
+			AI_DESTINATION_SUFFIXES.every((s) =>
+				(arrOf(r.domain_suffix) ?? []).includes(s),
+			),
+	);
+	if (!fallbackOk)
+		problems.push(
+			`route.rules: an AI-destination fallback rule must route unknown processes to ${connectTagOf(CONNECT_UNKNOWN_USER)}`,
+		);
+	for (const r of objs) {
+		if (!("process_path_regex" in r)) continue;
+		const tag = strOf(r.outbound);
+		if (tag === null || !tag.startsWith(CONNECT_PREFIX))
+			problems.push(
+				`route.rules: a process_path_regex rule must target a buckle-connect outbound (found ${tag ?? "?"})`,
+			);
 	}
 	return problems;
 }
@@ -310,36 +415,65 @@ export function processPathOf(row: ClashConnRow): string {
 	return strOf(m.process) ?? "";
 }
 
-/** Classify live rows against the watched set: hub egress (attributed),
- *  direct egress (LEAK — the enforcement hole), blocked, and everything
- *  else (unwatched processes riding direct by law). */
+/** The sniffed/virtual host a row went to ("" when unknown — IP-only rows
+ *  are never domain-claimed). */
+export function hostOfRow(row: ClashConnRow): string {
+	const m = row.metadata;
+	if (m === undefined) return "";
+	return strOf(m.host) ?? "";
+}
+
+/** Dot-boundary suffix match (honest domain_suffix reading). */
+export const hostIsAi = (
+	host: string,
+	suffixes: readonly string[] = AI_DESTINATION_SUFFIXES,
+): boolean => suffixes.some((s) => host === s || host.endsWith(`.${s}`));
+
+/** Classify live rows against the watched set + AI destination set:
+ *  buckle-connect egress = Buckle-visible; watched-app rows whose sniffed
+ *  host is an AI destination and whose chain is NOT buckle-connect = LEAK
+ *  (the enforcement hole); watched-app rows to non-AI destinations ride
+ *  direct BY LAW (auth/update/local) — never claimed; everything else is
+ *  unwatched. byTag breaks the connect rows down per egress identity. */
 export function classifyConnections(
 	rows: ClashConnRow[],
 	watched: { compiled: RegExp }[],
+	aiSuffixes: readonly string[] = AI_DESTINATION_SUFFIXES,
 ): {
-	hub: ClashConnRow[];
+	connect: ClashConnRow[];
 	leaks: ClashConnRow[];
 	blocked: ClashConnRow[];
 	rest: number;
+	byTag: Record<string, number>;
 } {
-	const hub: ClashConnRow[] = [];
+	const connect: ClashConnRow[] = [];
 	const leaks: ClashConnRow[] = [];
 	const blocked: ClashConnRow[] = [];
+	const byTag: Record<string, number> = {};
 	let rest = 0;
 	for (const row of rows) {
 		const path = processPathOf(row);
 		const isWatched = watched.some((w) => w.compiled.test(path));
-		const tag = arrOf(row.chains)?.[0];
 		if (!isWatched) {
 			rest++;
 			continue;
 		}
-		if (tag === HUB_TAG) hub.push(row);
-		else if (tag === DIRECT_TAG) leaks.push(row);
-		else if (tag === BLOCK_TAG) blocked.push(row);
+		const tag = strOf(arrOf(row.chains)?.[0]);
+		if (tag?.startsWith(CONNECT_PREFIX)) {
+			connect.push(row);
+			byTag[tag] = (byTag[tag] ?? 0) + 1;
+			continue;
+		}
+		// a watched app to a non-AI destination is direct BY LAW — never a
+		// leak claim; only AI destinations behind the gate are enforced
+		if (!hostIsAi(hostOfRow(row), aiSuffixes)) {
+			rest++;
+			continue;
+		}
+		if (tag === BLOCK_TAG) blocked.push(row);
 		else leaks.push(row);
 	}
-	return { hub, leaks, blocked, rest };
+	return { connect, leaks, blocked, rest, byTag };
 }
 
 /** GET /connections from the clash API (loopback, optional bearer). */
@@ -374,7 +508,7 @@ const bytesOf = (rows: ClashConnRow[]): number => {
 
 /** The acceptance verdict over a set of live rows: any watched-process
  *  connection on direct = FAIL (the enforcement hole), watched on
- *  hub-relay = PASS with counts, nothing watched in the window =
+ *  buckle-connect = PASS with counts, nothing watched in the window =
  *  INCONCLUSIVE (enforcement live, nothing to attribute). */
 export function verifyRows(
 	root: Record<string, unknown>,
@@ -382,21 +516,23 @@ export function verifyRows(
 ): {
 	verdict: "PASS" | "FAIL" | "INCONCLUSIVE";
 	reason: string;
-	hub: number;
+	connect: number;
 	leaks: number;
 	blocked: number;
 	rest: number;
+	byTag: Record<string, number>;
 	watchedBytes: number;
 } {
 	const law = checkConfigLaw(root);
 	if (law.length > 0)
 		return {
 			verdict: "FAIL",
-			reason: `conf law: ${law[0]}`,
-			hub: 0,
+			reason: `conf law: ${law} problem(s)`,
+			connect: 0,
 			leaks: 0,
 			blocked: 0,
 			rest: 0,
+			byTag: {},
 			watchedBytes: 0,
 		};
 	const v = rowsVerdict(root, rows);
@@ -412,17 +548,17 @@ const rowsVerdict = (
 	if (c.leaks.length > 0)
 		return {
 			verdict: "FAIL",
-			reason: `${c.leaks.length} watched-process connection(s) egressing direct — enforcement hole`,
+			reason: `${c.leaks.length} watched-app AI connection(s) escaping the buckle-connect gate — enforcement hole`,
 		};
-	if (c.hub.length > 0)
+	if (c.connect.length > 0)
 		return {
 			verdict: "PASS",
-			reason: `${c.hub.length} watched connection(s) on hub-relay (${bytesOf(c.hub)} bytes), ${c.blocked.length} blocked, ${c.rest} unwatched direct`,
+			reason: `${c.connect.length} AI connection(s) on buckle-connect (${bytesOf(c.connect)} bytes opaque TLS), ${c.blocked.length} blocked, ${c.rest} direct by law`,
 		};
 	return {
 		verdict: "INCONCLUSIVE",
 		reason:
-			"no watched-process traffic observed (enforcement live, nothing to attribute)",
+			"no watched-app AI traffic observed (enforcement live, nothing to attribute)",
 	};
 };
 
@@ -430,11 +566,12 @@ const rowsVerdict = (
 const countsOf = (root: Record<string, unknown>, rows: ClashConnRow[]) => {
 	const c = classifyConnections(rows, watchedRulesOf(root));
 	return {
-		hub: c.hub.length,
+		connect: c.connect.length,
 		leaks: c.leaks.length,
 		blocked: c.blocked.length,
 		rest: c.rest,
-		watchedBytes: bytesOf(c.hub),
+		byTag: c.byTag,
+		watchedBytes: bytesOf(c.connect),
 	};
 };
 
@@ -487,19 +624,26 @@ const confPathOf = (p: { flag: (n: string) => string | null }): string => {
 	return defaultConfPath();
 };
 
-/** check — fleet-law validation; exit 0 clean, 1 with the problem list. */
+/** check — fleet-law validation; exit 0 clean, 1 with the problem list.
+ *  An absent/unparseable conf refuses clean, never a stack trace. */
 const runCheck = (p: Parsed): number => {
 	const path = confPathOf(p);
-	const conf = readConf(path);
+	let conf: Record<string, unknown>;
+	try {
+		conf = readConf(path);
+	} catch (e) {
+		console.log(`✗ ${e instanceof Error ? e.message : String(e)}`);
+		return 1;
+	}
 	const problems = checkConfigLaw(conf);
 	if (problems.length > 0) {
 		console.log(`✗ ${path} — ${problems.length} law problem(s):`);
-		for (const problem of problems) console.log(`  - ${problem}`);
+		for (const problem of problems) console.log(`✗   - ${problem}`);
 		return 1;
 	}
 	const api = clashApiOf(conf);
 	console.log(
-		`✓ ${path} passes fleet law (watched rules: ${watchedRulesOf(conf).length}, hub-relay forward proxy, clash api ${api?.controller})`,
+		`✓ ${path} passes fleet law (watched rules: ${watchedRulesOf(conf).length}, buckle-connect egress, clash api ${api?.controller})`,
 	);
 	return 0;
 };
@@ -519,10 +663,17 @@ const runSeed = (p: Parsed): number => {
 };
 
 /** verify — the acceptance face: conf law + live process attribution.
- *  Exit: 0 PASS · 1 FAIL · 3 INCONCLUSIVE. */
+ *  Exit: 0 PASS · 1 FAIL · 3 INCONCLUSIVE. An absent/unparseable conf or an
+ *  unreachable clash API is INCONCLUSIVE/a clean refusal, never a trace. */
 const runVerify = async (p: Parsed): Promise<number> => {
 	const path = confPathOf(p);
-	const conf = readConf(path);
+	let conf: Record<string, unknown>;
+	try {
+		conf = readConf(path);
+	} catch (e) {
+		console.log(`✗ ${e instanceof Error ? e.message : String(e)}`);
+		return 1;
+	}
 	const law = checkConfigLaw(conf);
 	if (law.length > 0) {
 		console.log(
@@ -545,8 +696,11 @@ const runVerify = async (p: Parsed): Promise<number> => {
 			`  ${short} → ${String(arrOf(row.chains)?.[0] ?? "?")} (${numOf(row.upload) ?? 0}↑/${numOf(row.download) ?? 0}↓)`,
 		);
 	}
+	const tags = Object.entries(out.byTag)
+		.map(([t, n]) => `${t}=${n}`)
+		.join(" ");
 	console.log(
-		`SINGBOX-VERIFY: ${out.verdict} - ${out.reason} [hub=${out.hub} leaks=${out.leaks} blocked=${out.blocked} rest=${out.rest}]`,
+		`SINGBOX-VERIFY: ${out.verdict} - ${out.reason} [connect=${out.connect} leaks=${out.leaks} blocked=${out.blocked} rest=${out.rest} byTag ${tags}]`,
 	);
 	return out.verdict === "PASS" ? 0 : out.verdict === "FAIL" ? 1 : 3;
 };
