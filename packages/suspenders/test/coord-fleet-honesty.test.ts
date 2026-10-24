@@ -56,12 +56,10 @@ db.query("INSERT INTO claims (sid, scope, intent, hot, ts) VALUES ('closed-claim
 db.close();
 `);
 
-// the fleet line is ONE line of `glyph label` segments joined by two spaces
+// W1258: the fleet text face is the fixed-width table — one lane per ROW;
+// honesty assertions read the row carrying the lane's [sid=...] field
 const segmentFor = (out: string, needle: string): string | undefined =>
-	out
-		.trim()
-		.split(/\s{2,}/)
-		.find((seg) => seg.includes(needle));
+	out.split("\n").find((line) => line.includes(needle));
 
 describe("coord fleet honesty (W378)", () => {
 	test("registered work owners and target sessions need no file claim to be discoverable", () => {
@@ -111,20 +109,20 @@ db.close();`);
 	test("stale unregistered claimant reads ?, never ▶", () => {
 		const { code, out, err } = runCli(["fleet"]);
 		expect(code).toBe(0);
-		const seg = segmentFor(out, "W378 stale");
-		expect(seg).toBeDefined();
-		expect(seg?.trim().startsWith("?")).toBe(true);
-		expect(seg?.includes("▶")).toBe(false);
-		expect(seg?.includes("×")).toBe(false);
+		const row = segmentFor(out, "W378 stale");
+		expect(row).toBeDefined();
+		expect(row?.includes("?")).toBe(true);
+		expect(row?.includes("▶")).toBe(false);
+		expect(row?.includes("×")).toBe(false);
 		expect(err).toBe("");
 	});
 
 	test("fresh-heartbeat claimant keeps ▶", () => {
 		const { code, out } = runCli(["fleet"]);
 		expect(code).toBe(0);
-		const seg = segmentFor(out, "W378 fresh");
-		expect(seg).toBeDefined();
-		expect(seg?.trim().startsWith("▶")).toBe(true);
+		const row = segmentFor(out, "W378 fresh");
+		expect(row).toBeDefined();
+		expect(row?.includes("▶")).toBe(true);
 	});
 
 	test("--json: tri-state verdict + collapsed live", () => {
