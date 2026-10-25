@@ -359,13 +359,13 @@ describe("runner e2e (W1212)", () => {
 			...over,
 		};
 	}
-	test("run 1 creates CAS children; run 2 over the same evidence is all dedupe", () => {
+	test("run 1 creates CAS children; run 2 over the same evidence is all dedupe", async () => {
 		const dir = join(tmp, "e2e-idem");
 		mkdirSync(dir);
 		seedDb(join(dir, "gov.db"), ["W1"]);
 		calls.length = 0;
 		const o = opts(dir);
-		const r1 = runDaily(o);
+		const r1 = await runDaily(o);
 		expect(r1.ok).toBe(true);
 		expect(r1.created.length).toBe(2); // work:W1 + session:s1
 		expect(r1.errors).toEqual([]);
@@ -376,52 +376,52 @@ describe("runner e2e (W1212)", () => {
 		}
 		landFacts(join(dir, "gov.db"), calls);
 		calls.length = 0;
-		const r2 = runDaily(o);
+		const r2 = await runDaily(o);
 		expect(r2.ok).toBe(true);
 		expect(r2.created).toEqual([]);
 		expect(r2.deduped.length).toBe(2);
 		expect(calls.length).toBe(0); // zero duplicate claims
 		expect(Object.keys(readState(o.statePath).inventory).length).toBe(2);
 	});
-	test("collect error: no children fire, cursor never advances, ok=false", () => {
+	test("collect error: no children fire, cursor never advances, ok=false", async () => {
 		const dir = join(tmp, "e2e-fail");
 		mkdirSync(dir);
 		calls.length = 0;
 		const o = opts(dir, { dbPath: join(dir, "missing.db") });
-		const r = runDaily(o);
+		const r = await runDaily(o);
 		expect(r.ok).toBe(false);
 		expect(r.errors[0]).toContain("work store");
 		expect(calls.length).toBe(0);
 		expect(cursorOf(o.statePath)).toBe(0);
 	});
-	test("decant outage degrades: work children fire, session tombstones defer", () => {
+	test("decant outage degrades: work children fire, session tombstones defer", async () => {
 		const dir = join(tmp, "e2e-degrade");
 		mkdirSync(dir);
 		seedDb(join(dir, "gov.db"), ["W1"]);
 		calls.length = 0;
 		const o = opts(dir, { decantBin: writeDeadDecantStub(dir) });
-		const r = runDaily(o);
+		const r = await runDaily(o);
 		expect(r.ok).toBe(false);
 		expect(r.errors[0]).toContain("decant sync failed");
 		expect(r.created.length).toBe(1); // work:W1 only
 		expect(calls.some((c) => c.includes("session:"))).toBe(false);
 		expect(cursorOf(o.statePath)).toBe(0); // window re-collects next fire
 	});
-	test("vanished work evidence tombstones on the next pass (never deletes)", () => {
+	test("vanished work evidence tombstones on the next pass (never deletes)", async () => {
 		const dir = join(tmp, "e2e-tomb");
 		mkdirSync(dir);
 		const dbPath = join(dir, "gov.db");
 		seedDb(dbPath, ["W1"]);
 		calls.length = 0;
 		const o = opts(dir);
-		const r1 = runDaily(o);
+		const r1 = await runDaily(o);
 		expect(r1.created.length).toBe(2);
 		landFacts(dbPath, calls);
 		const db = new Database(dbPath);
 		db.query("DELETE FROM work_items WHERE id = 'W1'").run();
 		db.close();
 		calls.length = 0;
-		const r2 = runDaily(o);
+		const r2 = await runDaily(o);
 		expect(r2.ok).toBe(true);
 		expect(r2.tombstoned.length).toBe(1);
 		const tomb = calls.find((c) => c.includes("--verdict"));

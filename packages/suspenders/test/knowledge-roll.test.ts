@@ -570,10 +570,10 @@ test("collectClaims: claim.* rows → entries; cursor skips; cap applies", () =>
 	const dbPath = join(dir, "governor.db");
 	const db = new Database(dbPath);
 	db.run(
-		"CREATE TABLE facts (key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER NOT NULL, ts INTEGER NOT NULL, confidence REAL)",
+		"CREATE TABLE facts (key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER NOT NULL, ts INTEGER NOT NULL, confidence REAL, confidence_stamp TEXT)",
 	);
 	db.run(
-		"INSERT INTO facts VALUES ('claim.ev-1', ?, 'sync', 3, 500, 0.9), ('claim.ev-2', ?, 'sync', 1, 600, NULL), ('lesson.x', 'nope', 'sync', 1, 1, NULL)",
+		"INSERT INTO facts VALUES ('claim.ev-1', ?, 'sync', 3, 500, 0.9, NULL), ('claim.ev-2', ?, 'sync', 1, 600, NULL, NULL), ('lesson.x', 'nope', 'sync', 1, 1, NULL, NULL)",
 		JSON.stringify({ claim: "assertion one", confidence: 0.4 }),
 		"claim two text",
 	);
@@ -596,10 +596,11 @@ test("collectClaims: secret-bearing claim text is skipped, cursor not advanced",
 	const dbPath = join(dir, "governor.db");
 	const db = new Database(dbPath);
 	db.run(
-		"CREATE TABLE facts (key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER NOT NULL, ts INTEGER NOT NULL, confidence REAL)",
+		"CREATE TABLE facts (key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER NOT NULL, ts INTEGER NOT NULL, confidence REAL, confidence_stamp TEXT)",
 	);
+	// W1220: the facts schema grew the confidence_stamp column — fixtures ride it
 	db.run(
-		"INSERT INTO facts VALUES ('claim.sk1', '{\"claim\":\"creds ghp_TrapFixtureNotARealToken123\"}', 'sync', 1, 1, NULL)", // scrub:allow (trap fixture)
+		"INSERT INTO facts VALUES ('claim.sk1', '{\"claim\":\"creds ghp_TrapFixtureNotARealToken123\"}', 'sync', 1, 1, NULL, NULL)", // scrub:allow (trap fixture)
 	);
 	const out = collectClaims({}, { dbPath });
 	expect(out.send).toHaveLength(0);
@@ -753,7 +754,7 @@ const claimsDb = (dir: string): string => {
 	const dbPath = join(dir, "governor.db");
 	const db = new Database(dbPath);
 	db.run(
-		"CREATE TABLE facts (key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER NOT NULL, ts INTEGER NOT NULL, confidence REAL)",
+		"CREATE TABLE facts (key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER NOT NULL, ts INTEGER NOT NULL, confidence REAL, confidence_stamp TEXT)",
 	);
 	db.run(
 		"INSERT INTO facts (key, value, source, version, ts, confidence) VALUES ('claim.w121321-a', 'positive acks land the claim roll', 'lane', 1, 11, 0.8)",
