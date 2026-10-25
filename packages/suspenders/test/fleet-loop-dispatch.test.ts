@@ -4,93 +4,54 @@
 // skip reinstalls like git-worktree lanes do. Dispatch without the agent
 // binary on PATH stops at the binary check, which leaves the fresh
 // workspace observable; the resume path must not duplicate or clobber.
-import { describe, expect, test, afterAll } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import {
+	chmodSync,
 	existsSync,
 	lstatSync,
-	mkdtempSync,
-	realpathSync,
-	readlinkSync,
-	readdirSync,
-	rmSync,
-	symlinkSync,
-	writeFileSync,
 	mkdirSync,
-	chmodSync,
+	readdirSync,
+	readlinkSync,
+	rmSync,
+	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { stubBuckle } from "./helpers/dispatch-harness.ts";
+import { dispatchHarness, stubBuckle } from "./helpers/dispatch-harness.ts";
 
-const HOME = mkdtempSync(join(tmpdir(), "claude-w72-dispatch-home-"));
-const REPO = realpathSync(
-	mkdtempSync(join(tmpdir(), "suspenders-fleet-dispatch-repo-")),
-);
-const BIN = join(import.meta.dir, "..", "hooks", "bin");
-const executor = join(HOME, "codex-fixture");
-writeFileSync(executor, "#!/bin/sh\nexit 0\n");
-chmodSync(executor, 0o700);
 // W1119.2: the governed dispatch demands a live buckle front — stub one
 // (mint ok + scratch admin) so the launches proceed; a dead front now
 // REFUSES fail-closed (covered in fleet-loop-governed.test.ts).
 const stub = stubBuckle(true);
-writeFileSync(join(HOME, "belt.env"), "BUCKLE_ADMIN_KEY=bksk_admin_scratch\n");
-const env = {
-	...process.env,
-	HOME,
-	GOVERNOR_STORE_URL: "local",
-	SUSPENDERS_CODEX_BIN: executor,
-	// W1119.2: governed dispatch — every launch mints against the stub front
-	SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${stub.port}`,
-	SUSPENDERS_BELT_ENV: join(HOME, "belt.env"),
-};
+const { BIN, env, g, HOME, REPO, toolWith } = dispatchHarness(afterAll, {
+	tag: "w72-dispatch",
+	beltEnv: true,
+	envOverrides: ({ HOME }) => ({
+		GOVERNOR_STORE_URL: "local",
+		SUSPENDERS_CODEX_BIN: join(HOME, "codex-fixture"),
+		// W1119.2: governed dispatch — every launch mints against the stub front
+		SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${stub.port}`,
+		SUSPENDERS_BELT_ENV: join(HOME, "belt.env"),
+	}),
+});
+const executor = join(HOME, "codex-fixture");
+writeFileSync(executor, "#!/bin/sh\nexit 0\n");
+chmodSync(executor, 0o700);
 
 // dispatch invokes the INSTALLED CLI path ($HOME/.claude/hooks/suspenders/
-// bin) — wire it to this repo's hooks/bin so the test exercises the repo
-// under test, not whatever is installed on the machine
-mkdirSync(join(HOME, ".claude", "hooks", "suspenders"), { recursive: true });
-symlinkSync(BIN, join(HOME, ".claude", "hooks", "suspenders", "bin"), "dir");
-
-// /usr/bin/git is PATH-independent (launchd-minimal envs), mirrors worktree.ts
-const g = (args: string[], cwd = REPO): { out: string; code: number } => {
-	const p = Bun.spawnSync(["/usr/bin/git", ...args], {
-		cwd,
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	return { out: p.stdout.toString().trim(), code: p.exitCode ?? 1 };
-};
+// bin) — the harness symlink wires the bin under test into the scratch HOME
 
 afterAll(() => {
 	stub.stop();
-	rmSync(HOME, { recursive: true, force: true });
-	rmSync(REPO, { recursive: true, force: true });
 });
 
 // scratch repo: a commit, a node_modules dir worth symlinking
-g(["init", "-b", "main"]);
-g(["config", "user.email", "t@threads.dk"]);
-g(["config", "user.name", "t"]);
 mkdirSync(join(REPO, "node_modules"), { recursive: true });
 writeFileSync(join(REPO, "node_modules", "m.js"), "x");
-writeFileSync(join(REPO, "README.md"), "x");
 writeFileSync(join(REPO, ".gitignore"), "node_modules/\n");
 g(["add", "-A"]);
-expect(g(["commit", "-m", "base"]).code).toBe(0);
+g(["commit", "-m", "base"]);
 
-const tool = (bin: string, ...args: string[]) => {
-	const p = Bun.spawnSync([process.execPath, join(BIN, bin), ...args], {
-		cwd: REPO,
-		env,
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	return {
-		out: p.stdout.toString(),
-		err: p.stderr.toString(),
-		code: p.exitCode ?? 1,
-	};
-};
+const tool = (bin: string, ...args: string[]) => toolWith({}, bin, ...args);
 
 const added = tool("work.ts", "add", "codex parity");
 const id = (added.out.match(/W\d+/) ?? [])[0] ?? "";
@@ -253,9 +214,7 @@ test("direct launch survives registry loss, rejects duplicate and retains budget
 		rmSync(join(REPO, ".fleet/lanes.json"), { force: true });
 		const duplicate = await launch();
 		expect(duplicate.code).not.toBe(0);
-		expect(duplicate.err).toContain(
-			"durable launch intent alive or uncertain",
-		);
+		expect(duplicate.err).toContain("durable launch intent alive or uncertain");
 		expect(
 			db
 				.query("SELECT reservations FROM lane_launch_budgets WHERE item=?")
@@ -271,9 +230,7 @@ test("direct launch survives registry loss, rejects duplicate and retains budget
 		).run(Date.now(), newItem);
 		const capped = await launch();
 		expect(capped.code).not.toBe(0);
-		expect(capped.err).toContain(
-			"launch budget exhausted; READY after",
-		);
+		expect(capped.err).toContain("launch budget exhausted; READY after");
 		expect(
 			JSON.parse(tool("work.ts", "show", newItem, "--json").out).state,
 		).toBe("READY");

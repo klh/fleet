@@ -6,15 +6,8 @@
 // W1124.12.1: flattened `echo "$@"` is NOT boundary proof, so assertions
 // read the per-argument array, never one joined string.
 import { describe, expect, test, afterAll } from "bun:test";
-import {
-	chmodSync,
-	mkdtempSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { dispatchHarness } from "./helpers/dispatch-harness.ts";
 import { spawnClaude } from "../hooks/lib/lane.ts";
 import { WORKER_MANAGED_PROFILE } from "../hooks/lib/executors/claude.ts";
@@ -67,7 +60,8 @@ describe("W1124.12 fresh worker rides the managed profile", () => {
 // space-free JSON payload (the exact shape the old quoting mangled).
 describe("W1124.12.1 spawnClaude argv fidelity", () => {
 	test("every argument survives sh -c with boundaries intact", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "argv-fidelity-"));
+		const dir = join(h.HOME, "argv-fidelity");
+		mkdirSync(dir, { recursive: true });
 		const stub = join(dir, "capture.sh");
 		writeFileSync(stub, argvBody);
 		chmodSync(stub, 0o700);
@@ -90,6 +84,5 @@ describe("W1124.12.1 spawnClaude argv fidelity", () => {
 			"a b",
 			'{"k":"v"}',
 		]);
-		rmSync(dir, { recursive: true, force: true });
 	}, 20000);
 });

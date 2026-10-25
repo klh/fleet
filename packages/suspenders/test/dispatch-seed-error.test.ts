@@ -4,81 +4,14 @@
 // dispatch-next CLI in a scratch repo/HOME: the executor stub sleeps through
 // the seed turn, so the seed yields no session id, dispatch logs SEED FAILED
 // and falls back to a cold start whose registry row carries the seedError.
-import { describe, expect, test, afterAll } from "bun:test";
-import {
-	chmodSync,
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	realpathSync,
-	rmSync,
-	symlinkSync,
-	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { spawnSync } from "node:child_process";
+import { afterAll, describe, expect, test } from "bun:test";
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { dispatchHarness } from "./helpers/dispatch-harness.ts";
 
-const HOME = mkdtempSync(join(tmpdir(), "w6951-dispatch-home-"));
-const REPO = realpathSync(mkdtempSync(join(tmpdir(), "w6951-dispatch-repo-")));
-const BIN = join(import.meta.dir, "..", "hooks", "bin");
-const env = {
-	...process.env,
-	HOME,
-	SUSPENDERS_BUCKLE_FRONT: "http://127.0.0.1:1",
-	SUSPENDERS_LANE_MAX_ATTEMPTS: "3",
-};
-
-mkdirSync(join(HOME, ".claude", "hooks", "suspenders"), { recursive: true });
-symlinkSync(BIN, join(HOME, ".claude", "hooks", "suspenders", "bin"), "dir");
-
-afterAll(() => {
-	rmSync(HOME, { recursive: true, force: true });
-	rmSync(REPO, { recursive: true, force: true });
+const { HOME, REPO, tool, dispatchWith } = dispatchHarness(afterAll, {
+	tag: "w6951-dispatch",
 });
-
-// scratch repo: one commit so the lane worktree has a base
-const g = (args: string[]): void => {
-	const p = spawnSync("/usr/bin/git", args, { cwd: REPO, encoding: "utf8" });
-	if (p.status !== 0)
-		throw new Error(`git ${args.join(" ")} failed: ${p.stderr}`);
-};
-g(["init", "-b", "main"]);
-g(["config", "user.email", "t@threads.dk"]);
-g(["config", "user.name", "t"]);
-writeFileSync(join(REPO, "README.md"), "x");
-g(["add", "-A"]);
-g(["commit", "-m", "base"]);
-
-const tool = (
-	bin: string,
-	...args: string[]
-): { out: string; code: number } => {
-	const p = Bun.spawnSync([process.execPath, join(BIN, bin), ...args], {
-		cwd: REPO,
-		env,
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	return { out: p.stdout.toString(), code: p.exitCode ?? 1 };
-};
-
-const dispatchWith = (
-	extra: Record<string, string | undefined>,
-	...args: string[]
-): { out: string; code: number } => {
-	const p = Bun.spawnSync(
-		[
-			process.execPath,
-			join(import.meta.dir, "..", "scripts", "dispatch-next.ts"),
-			"--repo",
-			REPO,
-			...args,
-		],
-		{ cwd: REPO, env: { ...env, ...extra }, stdout: "pipe", stderr: "pipe" },
-	);
-	return { out: p.stdout.toString(), code: p.exitCode ?? 1 };
-};
 
 describe("W695.1 starter-seed error propagation", () => {
 	test("seed failure surfaces exit code + stderr tail + preflight + registry row", async () => {
