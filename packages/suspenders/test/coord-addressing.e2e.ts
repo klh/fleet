@@ -1,0 +1,425 @@
+import { afterAll, expect, test } from "@playwright/test";
+import { Database } from "bun:sqlite";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+test.describe({ tag: "@unit" }, () => {
+
+const HOME = mkdtempSync(join(tmpdir(), "suspenders-coord-addressing-home-"));
+const REPO = mkdtempSync(join(tmpdir(), "suspenders-coord-addressing-repo-"));
+const BIN = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
+const DB = join(HOME, ".cache", "claude-governor", "governor.db");
+// scrub lane identity — session-start's canonical-v1 guard refuses fixture
+// sids when a dispatched lane's own SUSPENDERS_* env leaks in (W383)
+const env: Record<string, string> = {
+	...(process.env as Record<string, string>),
+	HOME,
+	NO_COLOR: "1",
+};
+delete env.SUSPENDERS_SID;
+delete env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
+mkdirSync(REPO, { recursive: true });
+Bun.spawnSync(["git", "init", "-q", REPO], {
+	stdout: "ignore",
+	stderr: "ignore",
+});
+writeFileSync(join(REPO, "README.md"), "seed\n");
+Bun.spawnSync(["git", "-C", REPO, "add", "README.md"], {
+	stdout: "ignore",
+	stderr: "ignore",
+});
+Bun.spawnSync(["git", "-C", REPO, "commit", "-q", "-m", "init"], {
+	stdout: "ignore",
+	stderr: "ignore",
+});
+
+function run(args: string[]) {
+	const p = Bun.spawnSync(["bun", BIN, ...args], {
+		cwd: REPO,
+		env,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	return {
+		code: p.exitCode,
+		out: p.stdout.toString(),
+		err: p.stderr.toString(),
+	};
+}
+
+function projectOf(dir: string): string {
+	const r = Bun.spawnSync(["git", "-C", dir, "rev-parse", "--git-common-dir"], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const gitDir = r.exitCode === 0 ? r.stdout.toString().trim() : "";
+	return gitDir ? resolve(dir, gitDir) : dir;
+}
+
+const PROJECT = projectOf(REPO);
+const DIRECT_KIND = ["NO", "TE"].join("");
+run(["kb", "stats"]);
+
+function fact(db: Database, key: string, value: string) {
+	db.query(
+		"INSERT INTO facts (key, value, source, ts) VALUES (?, ?, 'test', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, ts = excluded.ts",
+	).run(key, value, Date.now());
+}
+
+// W1147: row count for one event kind against the fixture DB — the
+// malformed-order guard must leave the events table untouched.
+function eventsOf(kind: string): unknown[] {
+	const db = new Database(DB, { readonly: true });
+	const rows = db.query("SELECT id FROM events WHERE kind = ?").all(kind);
+	db.close();
+	return rows as unknown[];
+}
+
+function seedSessions() {
+	const db = new Database(DB);
+	db.query("DELETE FROM events").run();
+	db.query("DELETE FROM cursors").run();
+	db.query("DELETE FROM claims").run();
+	db.query("DELETE FROM work_items").run();
+	db.query(
+		"DELETE FROM facts WHERE key LIKE 'lane.%' OR key LIKE 'broadcast.%'",
+	).run();
+	db.query("DELETE FROM sessions").run();
+	const now = Date.now();
+	const insertSession = db.query(
+		"INSERT INTO sessions (sid, project, role, parent_sid, worktree, started_at, hb, state, capabilities, transcript_path, actor, tags) VALUES (?, ?, ?, ?, ?, ?, ?, 'RUNNING', ?, ?, ?, ?)",
+	);
+	insertSession.run(
+		"lane-claude-11111111",
+		PROJECT,
+		"worker",
+		null,
+		join(REPO, ".worktrees", "W296"),
+		now,
+		now,
+		"shell,fs,git",
+		null,
+		"dev:alice",
+		JSON.stringify({}),
+	);
+	insertSession.run(
+		"lane-copilot-22222222",
+		PROJECT,
+		"worker",
+		null,
+		join(REPO, ".worktrees", "IKEA"),
+		now,
+		now,
+		"shell,fs,git",
+		null,
+		"dev:bob",
+		JSON.stringify({ hub: "nas", cli: "copilot", name: "ikea opus" }),
+	);
+	insertSession.run(
+		"lane-stale-33333333",
+		PROJECT,
+		"worker",
+		null,
+		join(REPO, ".worktrees", "STALE"),
+		now - 31 * 60_000,
+		now - 31 * 60_000,
+		"shell,fs,git",
+		null,
+		"dev:stale",
+		JSON.stringify({ name: "stale lane" }),
+	);
+	db.query(
+		"INSERT INTO work_items (project, id, title, state, owner_sid, created_at, updated_at) VALUES (?, 'W296', 'Building cross CLI addressing adapter', 'RUNNING', ?, ?, ?)",
+	).run(PROJECT, "lane-claude-11111111", now, now);
+	fact(db, "lane.lane-claude-11111111.model", "claude-sonnet-5");
+	fact(db, "lane.lane-claude-11111111.executor", "claude");
+	fact(db, "lane.lane-copilot-22222222.model", "gpt-5.4");
+	fact(db, "lane.lane-copilot-22222222.executor", "copilot");
+	db.close();
+}
+
+afterAll(() => {
+	rmSync(HOME, { recursive: true, force: true });
+	rmSync(REPO, { recursive: true, force: true });
+});
+
+test.describe("coord targets", () => {
+	test("lists live targets with canonical labels and full sids", () => {
+		seedSessions();
+		const r = run(["targets"]);
+		expect(r.code).toBe(0);
+		expect(r.out).toContain("[local][claude]-w296-addressing-adapter (sonnet)");
+		expect(r.out).toContain("lane-claude-11111111");
+		expect(r.out).toContain("[nas][copilot]-ikea-opus (gpt)");
+		expect(r.out).toContain("lane-copilot-22222222");
+		expect(r.out).not.toContain("stale lane");
+	});
+
+	test("supports case insensitive filtering and json output", () => {
+		seedSessions();
+		const filtered = run(["targets", "--filter", "COPILOT"]);
+		expect(filtered.code).toBe(0);
+		expect(filtered.out).toContain("[nas][copilot]-ikea-opus (gpt)");
+		expect(filtered.out).not.toContain(
+			"[local][claude]-w296-addressing-adapter",
+		);
+		const json = run(["targets", "--json"]);
+		const parsed = JSON.parse(json.out) as Array<{
+			sid: string;
+			label: string;
+		}>;
+		expect(parsed).toHaveLength(2);
+		expect(parsed.map((row) => row.sid)).toEqual([
+			"lane-claude-11111111",
+			"lane-copilot-22222222",
+		]);
+	});
+
+	// W619 capability-filtered discovery: --cap keeps only live targets whose
+	// sessions.capabilities advertise the capability; the vocabulary guard
+	// dies exactly like coord bootstrap --caps.
+	test("targets --cap filters on sessions.capabilities", () => {
+		seedSessions();
+		const db = new Database(DB);
+		db.query("UPDATE sessions SET capabilities = ? WHERE sid = ?").run(
+			"shell,vision",
+			"lane-copilot-22222222",
+		);
+		db.close();
+		const vision = run(["targets", "--cap", "vision"]);
+		expect(vision.code).toBe(0);
+		expect(vision.out).toContain("lane-copilot-22222222");
+		expect(vision.out).not.toContain("lane-claude-11111111");
+		const fsOnly = run(["targets", "--cap", "fs"]);
+		expect(fsOnly.code).toBe(0);
+		expect(fsOnly.out).toContain("lane-claude-11111111");
+		expect(fsOnly.out).not.toContain("lane-copilot-22222222");
+		const json = run(["targets", "--cap", "shell", "--json"]);
+		const parsed = JSON.parse(json.out) as Array<{ sid: string }>;
+		expect(parsed.map((row) => row.sid)).toEqual([
+			"lane-claude-11111111",
+			"lane-copilot-22222222",
+		]);
+	});
+
+	test("targets --cap dies on an unknown capability with the vocabulary", () => {
+		seedSessions();
+		const bad = run(["targets", "--cap", "telepathy"]);
+		expect(bad.code).toBe(2);
+		expect(bad.err).toContain("unknown capability: telepathy");
+		expect(bad.err).toContain("vocabulary:");
+	});
+
+	// W299: top-level sessions only get hb bumped at bootstrap
+	// (lesson.zombie-session-hygiene), so a long-running coordinator's hb
+	// goes stale while it's genuinely still alive — sweepStaleSessions
+	// already never reaps role='coordinator' rows for exactly this reason;
+	// targets/message/broadcast must agree, or a live supervisor becomes
+	// unreachable by every addressing surface.
+	test("a stale-hb top-level coordinator is still a live target", () => {
+		seedSessions();
+		const db = new Database(DB);
+		const now = Date.now();
+		db.query(
+			"INSERT INTO sessions (sid, project, role, parent_sid, worktree, started_at, hb, state, capabilities, transcript_path, actor, tags) VALUES (?, ?, 'coordinator', NULL, ?, ?, ?, 'RUNNING', '', NULL, 'dev:carol', ?)",
+		).run(
+			"lane-coordinator-44444444",
+			PROJECT,
+			join(REPO, ".worktrees", "COORD"),
+			now - 8 * 24 * 3_600_000,
+			now - 8 * 24 * 3_600_000,
+			JSON.stringify({ name: "supervisor" }),
+		);
+		db.close();
+		const r = run(["targets"]);
+		expect(r.code).toBe(0);
+		expect(r.out).toContain("lane-coordinator-44444444");
+		expect(r.out).toContain("supervisor");
+	});
+});
+
+test.describe("coord message", () => {
+	test("resolves a unique label substring and emits a direct note to one lane", () => {
+		seedSessions();
+		const r = run([
+			"message",
+			"ikea-opus",
+			"hello lane",
+			"--as",
+			"caller-99999999",
+		]);
+		expect(r.code).toBe(0);
+		expect(r.out).toContain("message queued");
+		const db = new Database(DB, { readonly: true });
+		const row = db
+			.query(
+				"SELECT kind, source, target, payload FROM events WHERE kind = ? ORDER BY id DESC LIMIT 1",
+			)
+			.get(DIRECT_KIND) as {
+			kind: string;
+			source: string;
+			target: string;
+			payload: string;
+		};
+		db.close();
+		expect(row.kind).toBe(DIRECT_KIND);
+		expect(row.source).toBe("caller-99999999");
+		expect(row.target).toBe("lane-copilot-22222222");
+		expect(row.payload).toContain("hello lane");
+	});
+
+	test("errors clearly on ambiguous substrings", () => {
+		seedSessions();
+		const r = run(["message", "lane", "hello"]);
+		expect(r.code).toBe(2);
+		expect(r.err).toContain("ambiguous target");
+	});
+
+	test("exact known SID queues across a stopped session's resume gap", () => {
+		seedSessions();
+		const db = new Database(DB);
+		const staleRunning = run([
+			"message",
+			"lane-stale-33333333",
+			"first update during heartbeat gap",
+		]);
+		expect(staleRunning.code).toBe(0);
+		expect(staleRunning.out).toContain("queued until it resumes");
+		db.query("UPDATE sessions SET state = 'CLOSED' WHERE sid = ?").run(
+			"lane-stale-33333333",
+		);
+		const sent = run([
+			"message",
+			"LANE-STALE-33333333",
+			"resume with this update",
+			"--as",
+			"caller-99999999",
+		]);
+		expect(sent.code).toBe(0);
+		expect(sent.out).toContain("queued until it resumes");
+		const row = db
+			.query(
+				"SELECT target, payload FROM events WHERE kind = ? ORDER BY id DESC LIMIT 1",
+			)
+			.get(DIRECT_KIND) as { target: string; payload: string };
+		expect(row.target).toBe("lane-stale-33333333");
+		expect(row.payload).toContain("resume with this update");
+		const ambiguous = run(["message", "stale lane", "wrong recipient"]);
+		expect(ambiguous.code).toBe(2);
+		expect(ambiguous.err).toContain("no live session target");
+		const targets = run(["targets", "--filter", "stale"]);
+		expect(targets.out).toContain("no live targets");
+		db.query("UPDATE sessions SET state = 'RUNNING', hb = ? WHERE sid = ?").run(
+			Date.now(),
+			"lane-stale-33333333",
+		);
+		const resumedInbox = run(["inbox", "--as", "lane-stale-33333333"]);
+		expect(resumedInbox.out).toContain("first update during heartbeat gap");
+		expect(resumedInbox.out).toContain("resume with this update");
+		db.close();
+	});
+
+	test("message --all reuses broadcast delivery semantics", () => {
+		seedSessions();
+		const r = run(["message", "--all", "fleet hello", "--as", "caller-all"]);
+		expect(r.code).toBe(0);
+		expect(r.out).toContain("message broadcast");
+		const db = new Database(DB, { readonly: true });
+		const targets = (
+			db
+				.query("SELECT target FROM events WHERE kind = 'BROADCAST' ORDER BY id")
+				.all() as { target: string }[]
+		).map((row) => row.target);
+		db.close();
+		expect(targets).toEqual(["lane-claude-11111111", "lane-copilot-22222222"]);
+	});
+
+	// W1147: the malformed `message <target> --as <sid> "text"` order reads
+	// "--as" as the text slot and publishes it as the note body — reject the
+	// option token BEFORE resolving a target or emitting any event.
+	test("malformed flag-first text slot is rejected without emitting", () => {
+		seedSessions();
+		const r = run([
+			"message",
+			"lane-copilot-22222222",
+			"--as",
+			"caller-99999999",
+			"steer with the documented order",
+		]);
+		expect(r.code).toBe(2);
+		expect(r.err).toContain("option token");
+		expect(r.err).toContain(JSON.stringify("--as"));
+		expect(r.err).toContain("flags ride AFTER the text");
+		expect(eventsOf(DIRECT_KIND)).toHaveLength(0);
+	});
+
+	test("--note in the text slot is rejected the same way", () => {
+		seedSessions();
+		const r = run(["message", "lane-claude-11111111", "--note", "real body"]);
+		expect(r.code).toBe(2);
+		expect(r.err).toContain("option token");
+		expect(eventsOf(DIRECT_KIND)).toHaveLength(0);
+	});
+
+	test("--all broadcast rejects a flag in the text slot", () => {
+		seedSessions();
+		const r = run(["message", "--all", "--as", "caller-x", "fleet text"]);
+		expect(r.code).toBe(2);
+		expect(r.err).toContain("option token");
+		const db = new Database(DB, { readonly: true });
+		const rows = db
+			.query("SELECT id FROM events WHERE kind = 'BROADCAST'")
+			.all();
+		db.close();
+		expect(rows).toHaveLength(0);
+	});
+
+	test("documented order preserves the exact unicode multiline body", () => {
+		seedSessions();
+		const body = "steer now:\n• line two ✓ — 测试\n\ttabbed";
+		const r = run(["message", "ikea-opus", body, "--as", "caller-99999999"]);
+		expect(r.code).toBe(0);
+		const db = new Database(DB, { readonly: true });
+		const row = db
+			.query(
+				"SELECT payload FROM events WHERE kind = ? ORDER BY id DESC LIMIT 1",
+			)
+			.get(DIRECT_KIND) as { payload: string };
+		db.close();
+		expect((JSON.parse(row.payload) as { note: string }).note).toBe(body);
+	});
+
+	test("hyphen-led quoted bodies survive directed and broadcast messages exactly", () => {
+		for (const target of ["ikea-opus", "--all"]) {
+			for (const body of [
+				"- bullet\n- second ✓",
+				"-- heading\nmore",
+				"--unrelated",
+				"-1 is the result",
+				"--as is documented here",
+			]) {
+				seedSessions();
+				const result = run([
+					"message",
+					target,
+					body,
+					"--as",
+					"caller-99999999",
+				]);
+				expect(result.code).toBe(0);
+				const db = new Database(DB, { readonly: true });
+				const event = db
+					.query(
+						"SELECT payload FROM events WHERE kind = ? ORDER BY id DESC LIMIT 1",
+					)
+					.get(target === "--all" ? "BROADCAST" : DIRECT_KIND) as {
+					payload: string;
+				};
+				db.close();
+				expect(JSON.parse(event.payload).note).toBe(body);
+			}
+		}
+	});
+});
+
+});
