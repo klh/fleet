@@ -9,6 +9,7 @@ Check current code and the work graph before acting on an old recommendation.
 | --- | --- | --- |
 | Current restructuring direction | [Restructure proposal](restructure-proposal-2026-10-23.md) | [PaaS standard](paas-engineering-standard-2026-10-23.md), [entry-point and import map](fleet.entry-points.map.md), [layout convention](layout-convention.md) |
 | Avoid repeated owner corrections | [Owner-correction taxonomy](owner-correction-taxonomy.md) | [Corpus audit](md-corpus-audit-w693.md) |
+| Documentation overlap | [W1282.1 consolidation receipt](docs-consolidation-w1282-1.md) | Duplicate clusters, retained evidence, and link check |
 | Install and lifecycle | [Install e2e receipt](install-e2e-2026-10-19.md) | [Clean install](clean-install-w422.6.md), [lifecycle contract](lifecycle-launch-contract.md), [health contract](health-status-contract.md) |
 | Routing and Buckle | [Buckle and LiteLLM review](litellm-behind-buckle-review.md) | [Upstream observability](upstream-observability-architecture.md), [bridge parity decision](decision-w883-bridge-parity.md), [Z.ai pressure evidence](w1257-zai-pressure-evidence.md) |
 | Coordination and identity | [Cross-hub identity](cross-hub-project-identity.md) | [Enrollment pilot](identity-enrollment-pilot.md), [control-chain review](control-chain-review-2026-10-07.md) |
