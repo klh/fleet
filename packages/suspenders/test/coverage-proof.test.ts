@@ -130,6 +130,17 @@ test("missing dependency stays environmental", () => {
 	expect(missingImportsExplained(line, W1258.added, W1258.tests)).toBe(false);
 });
 
+test("a production importer in scratch can explain a branch-added module", () => {
+	const root = "/var/folders/review-proof-abc";
+	const added = ["packages/suspenders/hooks/lib/gates/risk-tier.ts"];
+	const tests = ["packages/suspenders/test/risk-tier.test.ts"];
+	const line = `error: Cannot find module '../gates/risk-tier.ts' from '/private${root}/packages/suspenders/hooks/lib/fleet-loop/merge.ts'`;
+	expect(missingImportsExplained(line, added, tests, [], root)).toBe(true);
+	expect(missingImportsExplained(line, [], tests, [], root)).toBe(false);
+	const outside = line.replace(`/private${root}/`, "/private/var/other/");
+	expect(missingImportsExplained(outside, added, tests, [], root)).toBe(false);
+});
+
 test("reversed declared workspace dependency explains a restored test import", () => {
 	const introduced = addedWorkspaceDependencies(
 		JSON.stringify({ dependencies: { "@klh/blam": "workspace:*" } }),
