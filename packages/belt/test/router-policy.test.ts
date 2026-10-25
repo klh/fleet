@@ -33,6 +33,8 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		expect(p.litellm_num_retries).toBe(1);
 		expect(p.allowed_fails).toBe(3);
 		expect(p.cooldown_time).toBe(30);
+		expect(p.request_timeout_s).toBe(360);
+		expect(p.first_byte_budget_s).toBe(390);
 		expect(p.fallbacks).toEqual({
 			"glm-5.3-flash": ["zai-glm-5.3-flash"],
 			"glm-5.3": ["zai-glm-5.3", "local-swarm"],
