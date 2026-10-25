@@ -3,9 +3,10 @@
 // manifest declares explicit exports/files/bin/engines and exact pins, the
 // exports map covers every name-based cross-package import of the package,
 // and the bin map is the same face the installer's PATH shims register.
+
+import { expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test } from "bun:test";
 import { SHIM_NAMES, shimTarget } from "../scripts/ensure-shims.ts";
 
 const PKG_DIR = join(import.meta.dir, "..");
@@ -75,7 +76,9 @@ test("exports covers every name-based cross-package import", () => {
 			const head = pattern.slice(0, star);
 			const tail = pattern.slice(star + 1);
 			return (
-				sub.startsWith(head) && sub.endsWith(tail) && sub.length >= head.length + tail.length
+				sub.startsWith(head) &&
+				sub.endsWith(tail) &&
+				sub.length >= head.length + tail.length
 			);
 		});
 		expect(covered, sub).toBe(true);
