@@ -96,7 +96,7 @@ import {
 	resumeBriefLine,
 } from "../../../scripts/lib/resume-from.ts";
 import { verdictRepeatGate } from "../../../scripts/lib/verdict-repeat-gate.ts";
-import { capsuleValidity } from "../capsule-fence.ts";
+import { capsuleValidity } from "../lanes/capsule-fence.ts";
 import { quotaProviderPenalty } from "../usage/exec-quota.ts";
 import {
 	cvMap,
@@ -112,7 +112,7 @@ import { laneProcessIdentity } from "../lanes/lane-liveness.ts";
 import { laneSid as sidOf } from "../lanes/laneslug.ts";
 import { type Posture, recordPlaidTrace } from "../plaid/plaid.ts";
 import { verifiedContextContinuation } from "../lanes/reclaim-context.ts";
-import { policyBriefLines } from "../session-policy.ts";
+import { policyBriefLines } from "../policy/session-policy.ts";
 import { darkHubNow, policyForRepo, tryLoadStack } from "../stack-config.ts";
 
 /** The entrypoint-bound closures + run-config the launch machine consumes.

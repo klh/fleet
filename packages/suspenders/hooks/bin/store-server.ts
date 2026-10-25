@@ -18,7 +18,7 @@
 //        knowledge-api, 7799 board — 7794 was free)
 
 import { readFileSync, statSync } from "node:fs";
-import { TransactionEvents } from "../lib/transaction-events.ts";
+import { TransactionEvents } from "../lib/govdb/transaction-events.ts";
 import { expireConsults } from "../lib/federation/consult-expiry.ts";
 import { consultStoreId } from "../lib/federation/consult-outbox.ts";
 import { storeAdmissionRefusal } from "../lib/knowledge/store-admission.ts";
@@ -43,7 +43,7 @@ import {
 	CAP_AUTH_ISSUANCE,
 	hasCapability,
 	readCapabilities,
-} from "../lib/profile.ts";
+} from "../lib/federation/profile.ts";
 import { servicemon } from "../lib/servicemon.ts";
 import {
 	beginWithHeal,

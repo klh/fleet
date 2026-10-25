@@ -17,7 +17,7 @@ import type { Database } from "bun:sqlite";
 import { basename } from "node:path";
 import { automaticRecoveryCheck } from "../lib/fleet-loop/automatic-recovery.ts";
 import { budgetFlagClear } from "../lib/usage/budget-flag.ts";
-import { itemCapsuleKey } from "../lib/capsule-fence.ts";
+import { itemCapsuleKey } from "../lib/lanes/capsule-fence.ts";
 import { unmergedDeps, unmergedNote } from "../lib/gates/dep-merge-gate.ts";
 import { assertCaps, projectRootOf, resolveSidOf } from "../lib/govdb/govdb.ts";
 import {
@@ -59,7 +59,10 @@ import {
 	reclaimGateDecision,
 } from "../lib/lanes/reclaim-sticky.ts";
 import { reproGateRefusal } from "../lib/gates/repro-gate.ts";
-import { attachManagedSubscribe, reapIfIdle } from "../lib/subscribe-attach.ts";
+import {
+	attachManagedSubscribe,
+	reapIfIdle,
+} from "../lib/lanes/subscribe-attach.ts";
 import { dieFor, idList, type Parsed, runCli } from "../lib/verb-kit.ts";
 import {
 	applyAllocations,

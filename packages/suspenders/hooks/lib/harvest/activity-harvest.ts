@@ -39,7 +39,7 @@ import {
 	type HarvestAdapter,
 	sessionActorMap,
 } from "./harvest-engine.ts";
-import { saveCursor } from "../transcript-cursor.ts";
+import { saveCursor } from "./transcript-cursor.ts";
 
 // ─── decant shape: buckets, axis, pricing ──────────────────────────────────
 export const ACTIVITIES = [

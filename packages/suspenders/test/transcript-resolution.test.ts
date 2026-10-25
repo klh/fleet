@@ -6,7 +6,7 @@ import {
 	encodeProjectDir,
 	resolveTranscriptPath,
 	transcriptTail,
-} from "../hooks/lib/transcript.ts";
+} from "../hooks/lib/lanes/transcript.ts";
 
 const root = mkdtempSync2();
 

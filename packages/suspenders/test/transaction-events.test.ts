@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { TransactionEvents } from "../hooks/lib/transaction-events.ts";
+import { TransactionEvents } from "../hooks/lib/govdb/transaction-events.ts";
 
 test("discarded transaction identity never leaks into reused client IDs", () => {
 	const sent: number[] = [];

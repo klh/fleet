@@ -14,7 +14,14 @@ import { join } from "node:path";
 
 const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
 const DATA = join(import.meta.dir, "..", "hooks", "board", "data.ts");
-const AUDIT = join(import.meta.dir, "..", "hooks", "lib", "admin-audit.ts");
+const AUDIT = join(
+	import.meta.dir,
+	"..",
+	"hooks",
+	"lib",
+	"govdb",
+	"admin-audit.ts",
+);
 const home = mkdtempSync(join(tmpdir(), "suspenders-w451-indexes-test-"));
 
 afterAll(() => rmSync(home, { recursive: true, force: true }));

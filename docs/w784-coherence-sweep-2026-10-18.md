@@ -62,7 +62,7 @@ the live services. The gaps below are ownership/doc drift, not breaks.
 
 1. **HIGH — bar :7792 ownership gap.** `com.klh-local.dashboard` is on
    the `legacyLabels` boot-out list (`deploy/services.yaml:260`;
-   `scripts/install-launchd.ts:297-310` bootouts + rms on every install)
+   `scripts/install/install-launchd.ts:297-310` bootouts + rms on every install)
    and NO unit in the W779 manifest serves :7792 — yet the bar is live
    now and documented live in `packages/local` AGENTS.md/README/install.sh
    and by its own served llms.txt; the board's `/console/local` reads its

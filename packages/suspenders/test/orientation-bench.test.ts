@@ -2,7 +2,7 @@
 // parser must extract wall clock + token split honestly (nulls for missing
 // fields, error rows for unparseable output).
 import { describe, expect, test } from "bun:test";
-import { parseClaude } from "../scripts/orientation-bench.ts";
+import { parseClaude } from "../scripts/bench/orientation-bench.ts";
 
 describe("orientation-bench parseClaude", () => {
 	test("parses a successful result with usage split", () => {

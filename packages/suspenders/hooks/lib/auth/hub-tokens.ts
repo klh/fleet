@@ -4,7 +4,7 @@
 // same api_keys rows — listings are masked (never key_hash, never raw
 // material; key_id shows as an 8-char prefix) and every GUI-driven
 // mutation lands in admin_audit (governor.db).
-import { adminAudit } from "../admin-audit.ts";
+import { adminAudit } from "../govdb/admin-audit.ts";
 import {
 	type IssuedPair,
 	issueTokens,

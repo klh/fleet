@@ -1,6 +1,6 @@
 // hooks/bin/console-repo-law.ts — W164: the /console/settings repo-scope
 // editors (repo law editor + BYO user-plane editor). Same grammar and ONE
-// parser as the dotfile (hooks/lib/repo-laws.ts — two editors, one store);
+// parser as the dotfile (hooks/lib/policy/repo-laws.ts — two editors, one store);
 // the W147 flow (form → preview diff → apply) writes the DOTFILE itself on
 // dotfile-backed repos — dotfiles win, the config store mirrors.
 //
@@ -33,7 +33,7 @@ import {
 	validateUserPlaneEntry,
 	writeUserPlane,
 	type RepoLawsEntry,
-} from "../lib/repo-laws.ts";
+} from "../lib/policy/repo-laws.ts";
 import { scrub } from "../lib/servicemon.ts";
 import { openGovernorDb, projectRootOf } from "../lib/govdb/govdb.ts";
 

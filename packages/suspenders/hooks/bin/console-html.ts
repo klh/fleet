@@ -20,12 +20,12 @@ import type {
 	PolicyGatewayParsed,
 	ResolvedPolicy,
 } from "../lib/board/board-config.ts";
-import type { AdminAuditRow } from "../lib/admin-audit.ts";
+import type { AdminAuditRow } from "../lib/govdb/admin-audit.ts";
 import { scrub } from "../lib/servicemon.ts";
 import {
 	matchingRegistrations,
 	registrationPort,
-} from "../lib/service-inventory.ts";
+} from "../lib/hub/service-inventory.ts";
 import {
 	FLEET_NAV_CSS,
 	fleetNav,

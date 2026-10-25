@@ -34,7 +34,7 @@ GitHub push — W422.9/W422.1).
   device (0600, idempotent, never printed); admin + per-lane `bksk_` keys
   minted via the gate's admin API; revocable, audited.
 - **Scrub gate (W236)**: git commit/push runs staged/unpushed ADDED lines
-  through the scrub rule set (hooks/lib/scrub.ts): `/Users/<user>` paths,
+  through the scrub rule set (hooks/lib/gates/scrub.ts): `/Users/<user>` paths,
   local-denylist hosts/IPs/MACs (`~/.claude/local-llm/scrub-denylist`, mode
   600, machine-local, never committed), key material (sk-/AKIA/ghp_/PEM/
   slack), IKEA-internal markers. Denies with file:line + redacted match; <!-- scrub:allow -->

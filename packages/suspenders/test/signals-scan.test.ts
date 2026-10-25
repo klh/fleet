@@ -6,7 +6,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { itemCapsuleKey } from "../hooks/lib/capsule-fence.ts";
+import { itemCapsuleKey } from "../hooks/lib/lanes/capsule-fence.ts";
 import {
 	buildEvidence,
 	closingSid,

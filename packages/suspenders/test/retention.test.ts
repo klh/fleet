@@ -28,8 +28,8 @@ afterAll(() => {
 const govdb = await import(
 	`../hooks/lib/govdb/govdb.ts?home=${encodeURIComponent(HOME)}`
 );
-const retention = await import("../hooks/lib/retention.ts");
-const auditMod = await import("../hooks/lib/admin-audit.ts");
+const retention = await import("../hooks/lib/govdb/retention.ts");
+const auditMod = await import("../hooks/lib/govdb/admin-audit.ts");
 const auth = await import("../hooks/lib/auth/auth.ts");
 
 const DAY = 86_400_000;

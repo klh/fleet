@@ -7,8 +7,8 @@ import {
 	loadManifest,
 	renderDarwin,
 	validateSpec,
-} from "../scripts/install-services.ts";
-import { clearInheritedLaunchctlEnv } from "../scripts/install-launchd.ts";
+} from "../scripts/install/install-services.ts";
+import { clearInheritedLaunchctlEnv } from "../scripts/install/install-launchd.ts";
 
 const NAMES = ["BELT_ESCALATE_URL", "BELT_ESCALATE_KEY", "BELT_ESCALATE_MODEL"];
 

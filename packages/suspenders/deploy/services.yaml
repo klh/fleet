@@ -1,5 +1,5 @@
 # deploy/services.yaml — the ONE declarative manifest for every custom bun
-# runner in the fleet (W488.1). scripts/install-services.ts renders each entry
+# runner in the fleet (W488.1). scripts/install/install-services.ts renders each entry
 # into a platform service unit:
 #   darwin → launchd plist com.suspenders.<name>.plist (W488.1)
 #   linux  → systemd USER units suspenders-<name>.service (+ .timer) (W488.2)
@@ -293,7 +293,7 @@ services:
     placeholders: ["__BUN__", "__HOME__"]
 
 # Retired labels — boot-out + plist removal at the next install --with-launchd
-# (scripts/install-launchd.ts reads THIS list via loadLegacyLabels; the old
+# (scripts/install/install-launchd.ts reads THIS list via loadLegacyLabels; the old
 # TS const is gone). Never boot-out a label still in `services:` above.
 legacyLabels:
   # pre-namespacing supersede set (W284/W640 history)

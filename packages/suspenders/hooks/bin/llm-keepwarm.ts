@@ -102,7 +102,7 @@ console.log(
 // W90 remote registry liveness — probe-only, never WoL: waking a hibernating
 // NAS every 4 min would defeat hibernation. Endpoints opt in via
 // keepwarm_probe in ~/.claude/local-llm/remotes.json.
-import { endpointsWithRole, probeEndpoint } from "../lib/remotes.ts";
+import { endpointsWithRole, probeEndpoint } from "../lib/hub/remotes.ts";
 
 const probeables = endpointsWithRole("general").filter(
 	(e) => e.endpoint.keepwarm_probe,

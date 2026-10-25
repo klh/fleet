@@ -16,12 +16,12 @@ import {
 	scrubAddedLines,
 	scrubRules,
 	type ScrubFinding,
-} from "../lib/scrub.ts";
+} from "../lib/gates/scrub.ts";
 import {
 	commitRangeFindings,
 	firstPushBase,
 	stagedBinaryFindings,
-} from "../lib/scrub-git.ts";
+} from "../lib/gates/scrub-git.ts";
 import { gitSub, gitSubIndex, verb } from "./bash-hardening.ts";
 
 // repo dir a git segment operates on — -C <path> / --git-dir=<path>
@@ -74,9 +74,7 @@ export function scrubGateSegments(segs: string[][], cwd: string): void {
 				{ cwd: repoDir },
 			);
 			const base =
-				up.ok && up.out.trim()
-					? up.out.trim()
-					: firstPushBase(repoDir, "HEAD");
+				up.ok && up.out.trim() ? up.out.trim() : firstPushBase(repoDir, "HEAD");
 			const found = commitRangeFindings(repoDir, base, "HEAD");
 			if (found.length > 0) deny(scrubDenyText(scannedSet(sub), found));
 			continue;

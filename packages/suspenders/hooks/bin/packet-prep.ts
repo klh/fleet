@@ -12,7 +12,7 @@
 // --json: one NDJSON line per input carrying the full PacketPrepResult
 // (bytes, ratio, rules fired, pointers, lostPointers, degraded).
 import { readFileSync } from "node:fs";
-import { prepPacket } from "../lib/packet-prep.ts";
+import { prepPacket } from "../lib/lanes/packet-prep.ts";
 import {
 	defineVerb,
 	dieFor,

@@ -10,7 +10,7 @@ import {
 	readAdminKey,
 	runChecks,
 	worstStatus,
-} from "../hooks/lib/doctor.ts";
+} from "../hooks/lib/fleet-loop/doctor.ts";
 
 const fakeCtx = (over: Partial<DoctorContext> = {}): DoctorContext => ({
 	repo: ".",

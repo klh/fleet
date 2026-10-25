@@ -16,7 +16,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { StepContext } from "../scripts/install-run.ts";
+import type { StepContext } from "../scripts/install/install-run.ts";
 import {
 	SHIM_NAMES,
 	ensureShims,
@@ -119,7 +119,7 @@ test("a shim write failure restores the previous wrappers", () => {
 });
 
 test("executePlan routes --step ensureShims as a real step", async () => {
-	const { executePlan } = await import("../scripts/install-run.ts");
+	const { executePlan } = await import("../scripts/install/install-run.ts");
 	const c = ctx(true);
 	const result = await executePlan("step", "ensureShims", c, () => {});
 	expect(result.outcome).toBe("ok");

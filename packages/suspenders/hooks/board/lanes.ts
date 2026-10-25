@@ -32,7 +32,7 @@ import {
 	laneStopTarget,
 	operationalLaneStopNotice,
 } from "../lib/lanes/lane-stop-decision.ts";
-import { coordSubscribeLog } from "../lib/subscribe-attach.ts";
+import { coordSubscribeLog } from "../lib/lanes/subscribe-attach.ts";
 import { db, type EventRow } from "./context.ts";
 import { chunked } from "./helpers.ts";
 

@@ -1,7 +1,7 @@
 // hooks/board/payload.ts — the /api/data aggregate: the W663 feed memo,
 // boundSessions cap, buildPayload stitch, llm routing telemetry, W836 facts
 // trust panel. W1255.4: moved verbatim from board/data.ts (per-domain split).
-import { observation } from "../lib/observation.ts";
+import { observation } from "../lib/board/observation.ts";
 import { plaidStatus } from "../lib/plaid/plaid.ts";
 import { db } from "./context.ts";
 import { laneObservationSnapshot } from "./lane-observations.ts";

@@ -14,7 +14,7 @@ import {
 	pendingTurnMessages,
 	turnBoundaryFeedback,
 	turnBoundarySid,
-} from "../hooks/lib/turn-boundary.ts";
+} from "../hooks/lib/gates/turn-boundary.ts";
 
 // scratch bus: events + cursors are the only tables the queue reads
 const db = new Database(":memory:");

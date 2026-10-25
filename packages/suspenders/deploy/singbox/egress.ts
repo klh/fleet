@@ -2,7 +2,7 @@
 // Windows TUN capture. Boundaries (owner corrections 2026-10-24, facts
 // finding.full-machine-ai-egress-design-20261024 +
 // finding.vercel-skills-detection-install-boundary-20261024):
-//   - tool detection rides the ONE catalog (hooks/lib/targets.ts on the
+//   - tool detection rides the ONE catalog (hooks/lib/install/targets.ts on the
 //     vendored vercel-labs/skills registry) — no parallel AI CLI scanner;
 //   - app-native Buckle base config is preserved where supported: a
 //     buckleCompatible catalog target keeps its own base URL and its LAN
@@ -17,8 +17,8 @@
 import type {
 	FleetCapabilities,
 	FleetTarget,
-} from "../../hooks/lib/targets.ts";
-import { capabilityCatalog } from "../../hooks/lib/targets.ts";
+} from "../../hooks/lib/install/targets.ts";
+import { capabilityCatalog } from "../../hooks/lib/install/targets.ts";
 
 /** The hub-bound outbound tag the fleet law names (same tag as the Mac
  *  module's template — one vocabulary at merge). */

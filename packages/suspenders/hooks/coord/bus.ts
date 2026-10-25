@@ -25,7 +25,7 @@ import { localHubLabel } from "../lib/federation/federation-work.ts";
 import { resolveStoreHttpBase } from "../lib/govdb/govdb.ts";
 import { type LaneRef, laneVerdict } from "../lib/lanes/lane-liveness.ts";
 import { loadLaneRegistry } from "../lib/lanes/lane-registry.ts";
-import { managedSubscriberIdentity } from "../lib/subscribe-attach.ts";
+import { managedSubscriberIdentity } from "../lib/lanes/subscribe-attach.ts";
 import { type EventPublication, emitStoredEvent } from "./event-publish.ts";
 import { advanceCursor, fetchEventsPaged } from "./event-scan.ts";
 import {

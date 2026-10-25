@@ -1,5 +1,5 @@
 // hooks/lib/hub/buckle-route.ts — W1265: the Buckle route-configuration adapter
-// ATOP the W298 catalog (hooks/lib/targets.ts over the vendored vercel-labs/
+// ATOP the W298 catalog (hooks/lib/install/targets.ts over the vendored vercel-labs/
 // skills registry). NOT a second scanner: detection stays the catalog's;
 // this module maps catalog AgentTypes to the native config face each tool
 // reads its Buckle base URL from, plans + writes route config, and renders

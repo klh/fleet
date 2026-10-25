@@ -17,7 +17,7 @@ import {
 	renderCheckpoint,
 	checkpointPath,
 	slug,
-} from "../hooks/lib/checkpoint.ts";
+} from "../hooks/lib/lanes/checkpoint.ts";
 
 setDefaultTimeout(30_000);
 

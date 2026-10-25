@@ -6,8 +6,8 @@
 // NEVER blocks compaction. Register as a second PreCompact hook:
 //   PreCompact → bun ~/.claude/hooks/suspenders/pre-compact.ts
 import { openStore, projectIdentity } from "./lib/govdb/govdb.ts";
-import { rollCheckpoint, type CheckpointDb } from "./lib/checkpoint.ts";
-import { subagentLaneSuffix } from "./lib/subscribe-attach.ts";
+import { rollCheckpoint, type CheckpointDb } from "./lib/lanes/checkpoint.ts";
+import { subagentLaneSuffix } from "./lib/lanes/subscribe-attach.ts";
 
 type In = { session_id?: string; transcript_path?: string; trigger?: string };
 

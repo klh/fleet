@@ -26,9 +26,9 @@ import {
 	consensusOf,
 	PANEL_FRAME,
 	pinnedLeg,
-} from "../lib/oracle-legs.ts";
-import type { PanelRow } from "../lib/oracle-legs.ts";
-import { REVIEW_FRAME } from "../lib/oracle-frame.ts";
+} from "../lib/hub/oracle-legs.ts";
+import type { PanelRow } from "../lib/hub/oracle-legs.ts";
+import { REVIEW_FRAME } from "../lib/hub/oracle-frame.ts";
 import { defineVerb, parseVerb } from "../lib/verb-kit.ts";
 import type { VerbSpec } from "../lib/verb-kit.ts";
 

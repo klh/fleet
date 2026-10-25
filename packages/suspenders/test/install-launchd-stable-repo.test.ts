@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveStableRepo } from "../scripts/install-launchd.ts";
+import { resolveStableRepo } from "../scripts/install/install-launchd.ts";
 
 describe("resolveStableRepo", () => {
 	test("passes a pinned checkout through (no normalization)", () => {

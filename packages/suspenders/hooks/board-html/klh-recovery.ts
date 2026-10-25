@@ -1,6 +1,6 @@
 import { LitElement, css, html } from "lit";
 import type { RecoverySnapshot } from "../board/recovery.ts";
-import { observationFresh } from "../lib/observation.ts";
+import { observationFresh } from "../lib/board/observation.ts";
 
 class KlhRecovery extends LitElement {
 	static properties = {

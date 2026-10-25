@@ -5,8 +5,8 @@ import { benchDocsVerdict } from "../gates/bench-docs-gate.ts";
 import { claimCheckVerdict } from "../gates/claim-check.ts";
 import { scanCompletionDiff } from "../executors/fake-completion.ts";
 import { type GovernorStore, projectRootOf } from "../govdb/govdb.ts";
-import { patchFirstVerdict } from "../patch-first.ts";
-import { resolveTranscriptPath } from "../transcript.ts";
+import { patchFirstVerdict } from "./patch-first.ts";
+import { resolveTranscriptPath } from "../lanes/transcript.ts";
 import {
 	claimTokenVerdict,
 	evidenceCheck,

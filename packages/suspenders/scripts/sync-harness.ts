@@ -18,15 +18,18 @@ import {
 	MANAGED_PREFIX_ENTRIES,
 	PRUNE_ALLOWLIST,
 	payloadChecksum,
-} from "../hooks/lib/harness-manifest.ts";
-import { hubCapabilities, spokeCapabilities } from "../hooks/lib/profile.ts";
+} from "../hooks/lib/install/harness-manifest.ts";
+import {
+	hubCapabilities,
+	spokeCapabilities,
+} from "../hooks/lib/federation/profile.ts";
 import {
 	type PlannedShim,
 	planShims,
 	restoreShims,
 	writeShims,
 } from "./ensure-shims.ts";
-import type { StepContext, StepResult } from "./install-run.ts";
+import type { StepContext, StepResult } from "./install/install-run.ts";
 import { payloadCoverage } from "./lib/source-closure.ts";
 
 export const SOURCE_PATHS = [
@@ -448,7 +451,7 @@ export async function syncHarness(
 		}
 		// W165: the spoke profile ships no hub-only code — the modules are
 		// removed from the payload and capabilities.json records the variant
-		// (grammar: hooks/lib/profile.ts; absent file = hub = dev exemption).
+		// (grammar: hooks/lib/federation/profile.ts; absent file = hub = dev exemption).
 		if (ctx.profile === "spoke") {
 			for (const rel of [
 				"hooks/lib/auth/auth.ts",

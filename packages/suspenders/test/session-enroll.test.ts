@@ -23,7 +23,10 @@ import {
 	SESSION_KEY_REUSE_SLACK_S,
 	sessionEnrollDecision,
 } from "../hooks/lib/lanes/lane-auth.ts";
-import { enrollTopLevel, retireTopLevel } from "../hooks/lib/hook-scripts.ts";
+import {
+	enrollTopLevel,
+	retireTopLevel,
+} from "../hooks/lib/lanes/hook-scripts.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-enroll-"));
 const BELT = join(HOME, "belt.env");

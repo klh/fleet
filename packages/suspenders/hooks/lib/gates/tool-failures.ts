@@ -9,7 +9,7 @@ import {
 	readSessionState,
 	sessionStatePath,
 	writeSessionState,
-} from "../session-state.ts";
+} from "../lanes/session-state.ts";
 
 export const FAILURE_WINDOW_MS = 60_000;
 export const ANTI_THRASH_AT = 5;

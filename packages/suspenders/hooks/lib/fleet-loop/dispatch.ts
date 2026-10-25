@@ -7,7 +7,7 @@
 
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
-import { symlinkBuildDirs } from "../builddirs.ts";
+import { symlinkBuildDirs } from "../work/builddirs.ts";
 import { openStore, projectIdentity } from "../govdb/govdb.ts";
 import { mergeLaneRegistry } from "../lanes/lane-registry.ts";
 import { laneSid } from "../lanes/laneslug.ts";

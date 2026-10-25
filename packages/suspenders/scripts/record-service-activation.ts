@@ -32,8 +32,8 @@ import {
 	loadManifest,
 	renderDarwin,
 	type RenderValues,
-} from "./install-services.ts";
-import { resolveStableRepo } from "./install-launchd.ts";
+} from "./install/install-services.ts";
+import { resolveStableRepo } from "./install/install-launchd.ts";
 import { inspectActivatedDispatch } from "./lib/activated-dispatch.ts";
 import {
 	digestUnit,

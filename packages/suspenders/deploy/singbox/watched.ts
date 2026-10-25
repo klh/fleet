@@ -4,7 +4,7 @@
 // BOUNDARY (owner 2026-10-24, finding.vercel-skills-detection-install-
 // boundary-20261024): cross-TOOL detection and installation ride the ONE
 // fleet-install catalog — hooks/lib/vendor/skills-agents.ts +
-// hooks/lib/targets.ts (detectFleetTargets / capabilityCatalog). This file
+// hooks/lib/install/targets.ts (detectFleetTargets / capabilityCatalog). This file
 // deliberately carries NO tool-install detection and NO CLI paths: CLIs are
 // steered at the request layer by explicit Buckle named routes (their tool
 // config), never invented here. Only opaque GUI transports — which ignore

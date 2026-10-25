@@ -20,7 +20,7 @@ import {
 	itemClaimOf,
 	mergeHoldActive,
 } from "../lanes/ladder-lease.ts";
-import { flagIntegratedCode } from "../decomposition.ts";
+import { flagIntegratedCode } from "../work/decomposition.ts";
 import { guardedMerge } from "./merge-guard.ts";
 import {
 	checkReviewReceipt,

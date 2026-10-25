@@ -11,8 +11,11 @@ import {
 	hostMatchesSuffix,
 	summarizeVisibility,
 	type EgressTrustSource,
-} from "../hooks/lib/egress-visibility.ts";
-import { VERIFIED_BUCKLE_ROUTES, listTargets } from "../hooks/lib/targets.ts";
+} from "../hooks/lib/plaid/egress-visibility.ts";
+import {
+	VERIFIED_BUCKLE_ROUTES,
+	listTargets,
+} from "../hooks/lib/install/targets.ts";
 import { agents, type AgentType } from "../hooks/lib/vendor/skills-agents.ts";
 
 /** One trusted catalog app with a pinned-host suffix for fallback proofs. */

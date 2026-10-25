@@ -4,7 +4,7 @@
 // real hosts/keys only ever machine-local), registers an ONSTART SYSTEM
 // scheduled task via schtasks (native CLI, argument arrays, no shell), and
 // reports status via the clash API. Detection rides the ONE catalog
-// (egress.ts → hooks/lib/targets.ts). Authored and unit-tested on macOS;
+// (egress.ts → hooks/lib/install/targets.ts). Authored and unit-tested on macOS;
 // live-Windows execution is the explicit pending step — every native call
 // is an honest argument array a Windows host can run verbatim.
 import {

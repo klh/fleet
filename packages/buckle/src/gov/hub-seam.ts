@@ -148,7 +148,7 @@ export interface FedManifest {
 }
 
 // ─── W165 capability flags (shared grammar with suspenders
-// hooks/lib/profile.ts) — hub-only never ships on a spoke: auth issuance,
+// hooks/lib/federation/profile.ts) — hub-only never ships on a spoke: auth issuance,
 // identity administration, key custody. Hub profile = full.
 // Federation stamps its variant at serve time (buildCapabilities(profile));
 // the overlay provider supplies manifest content only.

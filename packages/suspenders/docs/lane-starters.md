@@ -62,7 +62,7 @@ general orientation case; transcript resume stays policy-gated.
 
 ## Benchmark protocol (Phase 1 PRE / Phase 3 POST)
 
-`bun scripts/orientation-bench.ts --harness claude --runs 3 --phase pre|post`
+`bun scripts/bench/orientation-bench.ts --harness claude --runs 3 --phase pre|post`
 spawns the real harness per run with a deterministic first productive action
 (`git rev-parse HEAD`) and records NDJSON rows (wall ms, input/output/cache
 split, session id) to `.fleet/orientation-bench/<phase>-<harness>.ndjson`.

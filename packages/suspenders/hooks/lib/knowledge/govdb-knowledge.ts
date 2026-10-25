@@ -8,7 +8,7 @@ import { columnNames, openWALDb, REG } from "../govdb/govdb-util.ts";
 import {
 	CONFIDENCE_HISTORY_DDL,
 	CONFIDENCE_HISTORY_INDEX_DDL,
-} from "../confidence.ts";
+} from "./confidence.ts";
 import { ensureRollTables } from "./knowledge-roll.ts";
 
 // The knowledge FTS shape in its three historical variants (v6 fresh create,

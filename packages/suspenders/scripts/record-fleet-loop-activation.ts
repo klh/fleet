@@ -5,7 +5,7 @@ import {
 	defaultRenderValues,
 	loadManifest,
 	renderDarwin,
-} from "./install-services.ts";
+} from "./install/install-services.ts";
 import { inspectActivatedDispatch } from "./lib/activated-dispatch.ts";
 import { processBirth } from "./lib/launch-fencing.ts";
 import { recordExistingService } from "./lib/record-existing-service.ts";

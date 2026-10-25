@@ -27,7 +27,7 @@ import {
 // that hub); can= doability probes resolveLaneExecutor + darkHubNow + the
 // cv tally — all sync, so execPick stays sync.
 import { readRegistry } from "../../hooks/lib/hub/hub-locate.ts";
-import { readUserPlane } from "../../hooks/lib/repo-laws.ts";
+import { readUserPlane } from "../../hooks/lib/policy/repo-laws.ts";
 import { darkHubNow, tryLoadStack } from "../../hooks/lib/stack-config.ts";
 import { resolveLaneExecutor } from "./launch-preflight.ts";
 

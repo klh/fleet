@@ -14,7 +14,10 @@
 import meow from "meow";
 import ora, { type Ora } from "ora";
 import { join } from "node:path";
-import { INSTALL_CONTRACT, type InstallOutcome } from "./install-contract.ts";
+import {
+	INSTALL_CONTRACT,
+	type InstallOutcome,
+} from "./install/install-contract.ts";
 import {
 	exitFor,
 	meowFlags,
@@ -25,9 +28,9 @@ import {
 	resolvePaths,
 	usageOutcome,
 	type ResolvedFlags,
-} from "./install-cli.ts";
-import { executePlan, type StepContext } from "./install-run.ts";
-import { reportTail } from "./install-report-tail.ts";
+} from "./install/install-cli.ts";
+import { executePlan, type StepContext } from "./install/install-run.ts";
+import { reportTail } from "./install/install-report-tail.ts";
 
 const HELP = `
 Usage

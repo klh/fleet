@@ -11,7 +11,7 @@
 import { allow, context, type HookInput } from "../lib/hookio.ts";
 import { kevTypedDecision } from "../lib/knowledge/kev.ts";
 import { resolveFleetLane } from "../lib/lanes/fleetlane.ts";
-import { subagentLaneSuffix } from "../lib/subscribe-attach.ts";
+import { subagentLaneSuffix } from "../lib/lanes/subscribe-attach.ts";
 import { drainLaneInboxFor } from "../lib/lanes/lane-inbox.ts";
 
 // owner meta questions are short; dispatch briefs (thousands of chars, ride

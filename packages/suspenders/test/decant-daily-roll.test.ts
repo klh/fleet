@@ -1,5 +1,5 @@
 // test/decant-daily-roll.test.ts — W1220: the decant daily's upward
-// dual-write post-pass (hooks/lib/decant-roll.ts). Acceptance: the daily run
+// dual-write post-pass (hooks/lib/knowledge/decant-roll.ts). Acceptance: the daily run
 // leaves local facts intact AND the roll lands on the sink; a same-day rerun
 // pushes zero new rows; a sink outage logs (roll.errors) and never fails the
 // local run.
@@ -15,7 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runDaily } from "../hooks/lib/fleet-loop/decant-daily.ts";
-import { pushDailyRoll } from "../hooks/lib/decant-roll.ts";
+import { pushDailyRoll } from "../hooks/lib/knowledge/decant-roll.ts";
 import { collectClaims } from "../hooks/lib/knowledge/knowledge-roll.ts";
 import { readSyncState } from "../hooks/lib/knowledge/knowledge-sync.ts";
 import { readState } from "../hooks/lib/fleet-loop/decant-daily.ts";

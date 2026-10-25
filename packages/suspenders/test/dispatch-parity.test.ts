@@ -73,8 +73,8 @@ test("scripts/ consumers reach the lane kit through hooks/lib, not local copies"
 });
 
 test("enrollment resolves the shared modules in-tree, no cross-tree layout probing", () => {
-	const src = readFileSync(join(HOOKS_LIB, "hook-scripts.ts"), "utf8");
+	const src = readFileSync(join(HOOKS_LIB, "lanes", "hook-scripts.ts"), "utf8");
 	expect(src).not.toContain("scriptsLibPath");
 	expect(src).not.toContain(`"scripts"`);
-	expect(src).toContain(`await import("./lanes/lane-auth.ts")`);
+	expect(src).toContain(`await import("./lane-auth.ts")`);
 });

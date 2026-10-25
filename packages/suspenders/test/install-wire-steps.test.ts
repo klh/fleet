@@ -19,8 +19,8 @@ import {
 	registerCaddy,
 	registerSkills,
 	releaseNotify,
-} from "../scripts/install-wire-steps.ts";
-import type { StepContext } from "../scripts/install-run.ts";
+} from "../scripts/install/install-wire-steps.ts";
+import type { StepContext } from "../scripts/install/install-run.ts";
 
 const dirs: string[] = [];
 afterEach(() => {

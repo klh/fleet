@@ -1,4 +1,4 @@
-// test/remotes.test.ts — hooks/lib/remotes.ts: config loading, DNS-first
+// test/remotes.test.ts — hooks/lib/hub/remotes.ts: config loading, DNS-first
 // resolution with ip_fallback, protocol probes, and openai chat routing —
 // proven against a real local stub server (Bun.serve), not mocks.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -23,7 +23,7 @@ import {
 	type RemoteMachine,
 	resolveHost,
 	sendWoL,
-} from "../hooks/lib/remotes.ts";
+} from "../hooks/lib/hub/remotes.ts";
 
 // ─── stub remote: an openai-shaped endpoint on 127.0.0.1 ──────────────────
 const HITS: string[] = [];

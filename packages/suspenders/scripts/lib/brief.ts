@@ -13,7 +13,7 @@ import {
 	type BriefIntel,
 	renderIntel,
 } from "../../hooks/lib/lanes/brief-intel.ts";
-import { capsuleValidity } from "../../hooks/lib/capsule-fence.ts";
+import { capsuleValidity } from "../../hooks/lib/lanes/capsule-fence.ts";
 import { effortBudgetLine } from "../../hooks/lib/work/work-effort.ts";
 import { validationCommand } from "./validation-cmd.ts";
 

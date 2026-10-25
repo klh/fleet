@@ -3,7 +3,7 @@
 // entry's handler list); returns null when nothing matches.
 import { BELT_REPO, db } from "./context.ts";
 import { json, writeGuard } from "./helpers.ts";
-import { recentAdminAudit } from "../lib/admin-audit.ts";
+import { recentAdminAudit } from "../lib/govdb/admin-audit.ts";
 import { consoleMe, gatherBeltView, gatherLocalView } from "./console-view.ts";
 import { networkPayload, topologyPayload } from "./network-overview.ts";
 import { buckleReadProxy } from "./buckle-read-proxy.ts";

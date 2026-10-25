@@ -49,7 +49,7 @@ import type {
 	DialectKind,
 	NormalizedSession,
 	ToolMode,
-} from "../../lib/dialect.ts";
+} from "../../lib/executors/dialect.ts";
 import {
 	CopilotSessionStartSchema,
 	CopilotSessionEndSchema,

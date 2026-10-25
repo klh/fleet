@@ -169,7 +169,7 @@ hatch; these are the five a lane meets:
   exempt; max(old, new) counts). Knob: `SUSPENDERS_MAX_MUTATION=<N>` raises
   the cap, `0` disables. Sanctioned: split into smaller anchored edits, or
   a mechanical transform (sd / ast-grep / bun -e splice).
-- **coordinator-edit-gate** (`hooks/lib/coordinator-edit-gate.ts`, W834) —
+- **coordinator-edit-gate** (`hooks/lib/gates/coordinator-edit-gate.ts`, W834) —
   a coordinator session's structural repo write denies; lanes pass. Knob:
   `SUSPENDERS_COORD_EDIT_GATE=0` disables. Sanctioned: dispatch it —
   `work add` + dispatch (or `work take`); coordinators write `*.md` and
@@ -193,7 +193,7 @@ under the limit).
 
 **Patch-first near-cap contract (W744)**: a .ts above ~1200 lines is near-cap —
 dispatch briefs for file maps that surface one carry a patch-only directive
-(hooks/lib/patch-first.ts), and `work done` verifies the diff shape: churn
+(hooks/lib/work/patch-first.ts), and `work done` verifies the diff shape: churn
 beyond 300 added+removed lines on that file refuses closure unless the item IS
 a decomposition (title/description declares it). `SUSPENDERS_PATCH_FIRST=0`
 disables the done-gate check; the benchmark is `bun scripts/edit-precision.ts`.
