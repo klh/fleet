@@ -251,6 +251,18 @@ export const VENDORED: VendoredEntry[] = [
 		license: "MIT",
 		marker: "vercel-labs/skills",
 	},
+	{
+		// W858.10.2 committed the uPlot bundle but never perimeter-checked it —
+		// admitted W1107.1.4 (the floor-8 gap its omission left behind).
+		path: "packages/belt/bin/vendor/uPlot.iife.min.js",
+		license: "MIT",
+		marker: "uPlot v1.6.32",
+	},
+	{
+		path: "packages/belt/bin/vendor/uPlot.min.css",
+		license: "MIT",
+		marker: "uPlot v1.6.32",
+	},
 ];
 
 /** The board lit chunks are content-hash named (lit-[hash].js — the names
