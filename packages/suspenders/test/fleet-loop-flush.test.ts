@@ -19,10 +19,16 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { reviewContext } from "../hooks/lib/gates/review-receipt.ts";
 
 const LOOP = join(import.meta.dir, "..", "hooks", "bin", "fleet-loop.ts");
 const WORK = join(import.meta.dir, "..", "hooks", "bin", "work.ts");
-const GRACE = { FLEET_UNTRACKED_GRACE_MS: "0" };
+const GRACE = {
+	FLEET_UNTRACKED_GRACE_MS: "0",
+	// W1303.5: these fixtures merge product-path changes (f.txt) — medium tier
+	// by design. The tier-gate deferral contract has its own test below.
+	SUSPENDERS_RISK_TIERS: "0",
+};
 
 const g = (repo: string, args: string[], cwd?: string) =>
 	Bun.spawnSync(["git", ...args], {
@@ -40,10 +46,14 @@ const testEnv = (repo: string) => ({
 	GOVERNOR_STORE_URL: "",
 });
 
-const run = (repo: string, args: string[]) => {
+const run = (
+	repo: string,
+	args: string[],
+	envOverride?: Record<string, string | undefined>,
+) => {
 	const p = Bun.spawnSync(["bun", ...args], {
 		cwd: repo,
-		env: testEnv(repo),
+		env: { ...testEnv(repo), ...(envOverride ?? {}) },
 		stdout: "pipe",
 		stderr: "pipe",
 	});
@@ -143,6 +153,13 @@ const close = (repo: string, item: string, sha: string) => {
 const flush = (repo: string) =>
 	run(repo, [LOOP, "flush", "--repo", repo, "--glob", "suspenders/*"]);
 
+// W1303.5: the risk-tier gate ON — the default contract. ("1": any value
+// other than "0" keeps the gate armed; undefined would stringify.)
+const flushGated = (repo: string) =>
+	run(repo, [LOOP, "flush", "--repo", repo, "--glob", "suspenders/*"], {
+		SUSPENDERS_RISK_TIERS: "1",
+	});
+
 // once — a single full cycle through mergeOne (the ladder the daemon runs)
 const once = (repo: string) =>
 	run(repo, [LOOP, "once", "--repo", repo, "--glob", "suspenders/*"]);
@@ -179,6 +196,59 @@ const branchGone = (repo: string, item: string) =>
 		.stdout.toString()
 		.trim() === "";
 
+// W1303.5: seed a passing independent machine-review receipt so the ladder
+// reaches the risk-tier gate (review defers first otherwise). Row shape is
+// exactly what publishReviewReceipt writes.
+const seedReview = (repo: string, item: string) => {
+	const db = new Database(
+		join(repo, ".test-home", ".cache", "claude-governor", "governor.db"),
+	);
+	try {
+		const project = (
+			db.query("SELECT project FROM work_items WHERE id = ?").get(item) as {
+				project: string;
+			}
+		).project;
+		seedReviewRows(db, repo, project, item);
+	} finally {
+		db.close();
+	}
+};
+
+const seedReviewRows = (
+	db: Database,
+	repo: string,
+	project: string,
+	item: string,
+) => {
+	const ctx = reviewContext(repo, `suspenders/${item}`);
+	db.query(
+		"INSERT OR IGNORE INTO sessions (sid, project, started_at, hb, state) VALUES (?, ?, ?, ?, 'RUNNING')",
+	).run("witness", project, Date.now(), Date.now());
+	const receipt = {
+		version: 1,
+		commit: ctx.commit,
+		base: ctx.base,
+		instructions: ctx.instructions,
+		reviewer: "witness",
+		verdict: "PASS",
+		blocking: [],
+		evidence: "witness read the full branch diff for the tier-gate test",
+	};
+	db.query(
+		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'witness', 'work.review', ?, ?, NULL)",
+	).run(
+		Date.now(),
+		item,
+		JSON.stringify({
+			project,
+			work: item,
+			verdict: "PASS",
+			receipt: JSON.stringify(receipt),
+		}),
+	);
+};
+
 describe("fleet-loop flush mode (W641)", () => {
 	test("merges a DONE+verified branch through the ladder and retires it", async () => {
 		const repo = await base();
@@ -192,6 +262,24 @@ describe("fleet-loop flush mode (W641)", () => {
 		expect(g(repo, ["log", "--format=%s", "-1"]).stdout.toString()).toContain(
 			`Merge suspenders/${item}`,
 		);
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	test("W1303.5: medium-tier product change defers with a deduped NEED_DECISION (gate on)", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const head = await laneBranch(repo, item);
+		close(repo, item, head);
+		seedReview(repo, item);
+		const r = flushGated(repo);
+		expect(r.code).toBe(0);
+		expect(log(repo)).toContain(`RISK-DEFER suspenders/${item}`);
+		expect(log(repo)).not.toContain(`MERGED suspenders/${item}`);
+		expect(branchGone(repo, item)).toBe(false);
+		expect(events(repo, "NEED_DECISION")).toBe(1);
+		// second cycle re-defers without duplicating the decision
+		flushGated(repo);
+		expect(events(repo, "NEED_DECISION")).toBe(1);
 		rmSync(repo, { recursive: true, force: true });
 	});
 

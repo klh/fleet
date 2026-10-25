@@ -125,6 +125,14 @@ trivial diff.
 
 ### Implemented machine-review and landing receipts (W1130)
 
+**Implemented risk tiers (W1303.5).** The merge ladder now classifies every
+candidate by change shape (`hooks/lib/gates/risk-tier.ts`, the table above):
+docs/tests/flagged-additive = low (machine receipt suffices); ordinary
+product = medium; gates/auth/infra/workflows/release/check-tool paths =
+high. Medium and high defer the merge with a deduped `NEED_DECISION` bound
+to the exact commit — agent approval never fills a human slot.
+`SUSPENDERS_RISK_TIERS=0` is the operator escape hatch.
+
 The existing second-opinion runner loads applicable root/package `AGENTS.md`
 and `REVIEW.md` from the immutable candidate merge tree. Its `work.review`
 receipt binds the full candidate commit, integration base, instruction hashes,
