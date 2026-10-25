@@ -247,7 +247,28 @@ export async function checkRoutePreflight(
 				maxAttempts: 32,
 				maxWallMs: 3000,
 			});
-			drills.push({ group, fallback, failureStatus, ok: report.ok });
+			// The explicitly pinned Flash alias is the SAME Coding Plan account.
+			// Pressure must refuse without changing models; delivery through an
+			// independent account would violate the operator's model pin.
+			const pinnedFlashPressure =
+				failureStatus === 429 &&
+				group === "glm-5.3-flash" &&
+				fallback === "zai-glm-5.3-flash" &&
+				fallbacks.length === 1 &&
+				accounts.size === 1 &&
+				local.pool
+					.deployments(fallback)
+					.every((dep) => accounts.has(providerPoolIdOf(dep))) &&
+				!report.ok &&
+				report.deliveredGroup === null &&
+				report.attempts.some((attempt) => attempt.status === 429) &&
+				report.attempts.every((attempt) => attempt.group === group);
+			drills.push({
+				group,
+				fallback,
+				failureStatus,
+				ok: report.ok || pinnedFlashPressure,
+			});
 		}
 		break;
 	}
