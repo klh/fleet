@@ -1,4 +1,4 @@
-import{r,e,t,s}from"./lit-ec6b45c34eb5ebcc.js";import{a}from"./lit-55953dc2a7e41da3.js";var d=(n)=>{if(n===null||!Number.isFinite(n))return"—";if(Math.abs(n)>=1e6)return`${(n/1e6).toFixed(1)}M`;if(Math.abs(n)>=1000)return`${(n/1000).toFixed(1)}k`;return String(n)},y=(n)=>n===null?"unknown":n<90?`${n}s`:`${Math.round(n/60)}m`,x=(n)=>{if(n===null)return 1;if(n>=100)return 4;if(n>=20)return 3;if(n>=5)return 2;return 1},R=r`
+import{r,e,t,s}from"./lit-ec6b45c34eb5ebcc.js";import{a}from"./lit-55953dc2a7e41da3.js";var d=(n)=>{if(n===null||!Number.isFinite(n))return"—";if(Math.abs(n)>=1e6)return`${(n/1e6).toFixed(1)}M`;if(Math.abs(n)>=1000)return`${(n/1000).toFixed(1)}k`;return String(n)},R=(n)=>n===null?"unknown":n<90?`${n}s`:`${Math.round(n/60)}m`,T=(n)=>{let o=new Date(n);if(Number.isNaN(o.getTime()))return String(n);let i=(x)=>String(x).padStart(2,"0"),l=-o.getTimezoneOffset(),c=Math.abs(l),p=`${i(o.getUTCHours())}:${i(o.getUTCMinutes())}:${i(o.getUTCSeconds())}Z`,y=`${i(o.getHours())}:${i(o.getMinutes())} UTC${l>=0?"+":"-"}${i(Math.floor(c/60))}:${i(c%60)}`;return`${p} (${y})`},_=(n)=>{if(n===null)return 1;if(n>=100)return 4;if(n>=20)return 3;if(n>=5)return 2;return 1},N=r`
 	.hrow {
 		display: flex;
 		gap: 8px;
@@ -69,7 +69,7 @@ import{r,e,t,s}from"./lit-ec6b45c34eb5ebcc.js";import{a}from"./lit-55953dc2a7e41
 	.routeHead { color:var(--klh-dim); font:var(--klh-text-xs) var(--klh-font-mono); text-transform:uppercase; border-bottom:1px solid var(--klh-edge); }
 	.routeRow { border-bottom:1px solid var(--klh-edge-faint); padding:var(--klh-space-2) 0; }
 	@media(max-width:680px){.netMetrics{gap:var(--klh-space-2)}.netMetric strong{font-size:14px}.hourSeries{height:64px}}
-`,T=(n)=>Math.max(0,Math.round((Date.now()-Date.parse(n))/1000)),h=(n)=>n.gateway?e`<p>
+`,S=(n)=>Math.max(0,Math.round((Date.now()-Date.parse(n))/1000)),h=(n)=>n.gateway?e`<p>
 				<span class="hname">local spoke</span>
 				<span class=${n.gateway.state==="up"?"live":"hot"}>
 					${n.gateway.state}</span
@@ -78,7 +78,7 @@ import{r,e,t,s}from"./lit-ec6b45c34eb5ebcc.js";import{a}from"./lit-55953dc2a7e41
 			</p>`:e`<p>
 				<span class="hname">local spoke</span>
 				<span class="unknown">not in the probe map</span>
-			</p>`,_=(n)=>e`
+			</p>`,C=(n)=>e`
 	<div class="hrow">
 		<span class="hname">hubs (observed)</span>
 		${n.hubs.length?t:e`<span class="unknown">no projection db wired here</span>`}
@@ -97,7 +97,7 @@ import{r,e,t,s}from"./lit-ec6b45c34eb5ebcc.js";import{a}from"./lit-55953dc2a7e41
 	${n.unsettled.length?e`<div class="hrow">
 				<span class="hname">unsettled</span>
 				${n.unsettled.map((o)=>e`<span class="num">${o.kind}: ${o.n}</span>`)}
-			</div>`:t}`,N=(n)=>{let o=n.out60===null?null:Math.round(n.out60/60);return e`<div class="hrow">
+			</div>`:t}`,M=(n)=>{let o=n.out60===null?null:Math.round(n.out60/60);return e`<div class="hrow">
 		<span class="hname">${n.kind} · ${n.host??"unknown"}${n.port?`:${n.port}`:""}</span>
 		<span class="num">${n.model??""}</span>
 		<span class="num">${n.req60} req/60s</span>
@@ -107,16 +107,16 @@ import{r,e,t,s}from"./lit-ec6b45c34eb5ebcc.js";import{a}from"./lit-55953dc2a7e41
 		<span class="num">15m: ${n.req15} req · out ${d(n.out15)}</span>
 		<span
 			class="bar"
-			style="width:${x(o)*14}px;background:var(--klh-edge)"
+			style="width:${_(o)*14}px;background:var(--klh-edge)"
 		></span>
-	</div>`},S=(n)=>e`<div class="routeRow">
-	<time class="unknown" datetime=${n.ts} title=${n.ts}>${new Date(n.ts).toLocaleTimeString("da-DK",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</time>
+	</div>`},D=(n)=>e`<div class="routeRow">
+	<time class="unknown" datetime=${n.ts} title=${n.ts}>${T(n.ts)}</time>
 	<span class="title">${n.target_model??"model unknown"}</span>
 	<span class="unknown" title=${n.lane||"No lane attribution"}>${n.lane?`lane ${n.lane.replace(/^autow([\d.]+)-.*/,"W$1")}`:"unattributed"}</span>
 	<span class="num">${n.target_kind??"?"} ${n.target_host??""}</span>
 	<span class="num">${n.duration_ms===null?"—":`${n.duration_ms}ms`}</span>
 	<span class="num">in ${d(n.in_tok)} · out ${d(n.out_tok)}</span>
-</div>`,c=(n)=>{let o=new Date(`${n}:00Z`);if(Number.isNaN(o.getTime()))return n;let i=(l)=>String(l).padStart(2,"0");return`${i(o.getDate())}.${i(o.getMonth()+1)} ${i(o.getHours())}:00`},C=(n)=>{let o=n.throughput.buckets.slice(0,12).reverse(),i=Math.max(1,...o.map((p)=>p.out_tok)),l=o[0],u=o[o.length-1];return e`<div class="netMetrics" aria-label="Last 15 minutes">
+</div>`,u=(n)=>{let o=new Date(`${n}:00Z`);if(Number.isNaN(o.getTime()))return n;let i=(l)=>String(l).padStart(2,"0");return`${i(o.getDate())}.${i(o.getMonth()+1)} ${i(o.getHours())}:00`},O=(n)=>{let o=n.throughput.buckets.slice(0,12).reverse(),i=Math.max(1,...o.map((p)=>p.out_tok)),l=o[0],c=o[o.length-1];return e`<div class="netMetrics" aria-label="Last 15 minutes">
 			<div class="netMetric"><span>requests · 15m</span><strong>${n.throughput.window.requests}</strong></div>
 			<div class="netMetric"><span>input tokens · 15m</span><strong>${d(n.throughput.window.in_tok)}</strong></div>
 			<div class="netMetric"><span>output tokens · 15m</span><strong>${d(n.throughput.window.out_tok)}</strong></div>
@@ -129,15 +129,15 @@ import{r,e,t,s}from"./lit-ec6b45c34eb5ebcc.js";import{a}from"./lit-55953dc2a7e41
 				<div class="hourSeries" role="img" aria-label="Recorded output tokens by hour, oldest to newest">
 					${o.map((p)=>e`<span class="hourBar"
 							style="height:${p.out_tok?Math.max(2,Math.round(p.out_tok/i*80)):0}px"
-							title="${c(p.hour)} · ${p.requests} req · out ${d(p.out_tok)} tok"
+							title="${u(p.hour)} · ${p.requests} req · out ${d(p.out_tok)} tok"
 						></span>`)}
 				</div>
-				<div class="hourRange"><span>${l?c(l.hour):""}</span><span>${u?c(u.hour):""}</span></div>
-		</div>`},M=(n)=>{let o=n.network;if(!o.ok)return e`${h(n)}
+				<div class="hourRange"><span>${l?u(l.hour):""}</span><span>${c?u(c.hour):""}</span></div>
+		</div>`},E=(n)=>{let o=n.network;if(!o.ok)return e`${h(n)}
 			<p class="unknown">${o.reason}</p>`;return e`${h(n)}
+		${O(o)}
 		${C(o)}
-		${_(o)}
-		${o.throughput.interfaces.length?o.throughput.interfaces.map(N):e`<div class="hrow">
+		${o.throughput.interfaces.length?o.throughput.interfaces.map(M):e`<div class="hrow">
 					<span class="hname">interfaces</span>
 					<span class="unknown">no settled traffic in window</span>
 				</div>`}
@@ -145,14 +145,14 @@ import{r,e,t,s}from"./lit-ec6b45c34eb5ebcc.js";import{a}from"./lit-55953dc2a7e41
 			<summary>Recent settled routes · ${o.routes.length}</summary>
 			<div class="routesBody">
 				<div class="routeHead"><span>Time</span><span>Model</span><span>Lane</span><span>Target</span><span>Latency</span><span>Tokens</span></div>
-				${o.routes.length?o.routes.map(S):e`<p class="unknown">No settled routes yet</p>`}
+				${o.routes.length?o.routes.map(D):e`<p class="unknown">No settled routes yet</p>`}
 			</div>
 		</details>
 		<p class="legend">
 			edge width 1-4px = measured output tok/s (60s): ≥100 → 4 · ≥20 → 3 ·
 			≥5 → 2 · else 1 · null = unknown (gray), never zero
-		</p>`},D=async()=>{try{let n=await fetch("/api/console/network",{cache:"no-store"});if(!n.ok)return null;return await n.json()}catch{return null}};class m extends s{static properties={heading:{type:String},data:{type:Object}};static styles=[a,R];live=null;err="";timer=null;constructor(){super();this.heading="",this.data=null}connectedCallback(){super.connectedCallback(),this.refresh(),this.timer=setInterval(()=>void this.refresh(),1e4)}disconnectedCallback(){if(super.disconnectedCallback(),this.timer)clearInterval(this.timer)}async refresh(){let n=await D();if(n)this.live=n,this.err="";else this.err="refresh failed — last known values shown"}render(){let n=this.live??this.data;if(!n)return e`<h2>${this.heading}</h2><p class="dimpl">loading…</p>`;let o=this.err?e`<p class="unknown">${this.err}</p>`:t;return e`<h2>${this.heading} · live ${y(T(n.ts))}</h2>
-			${o}${M(n)}`}}customElements.define("klh-network-card",m);var g=(n,o)=>n.flatMap((i,l)=>l?[e`${o}`,i]:[i]);class k extends s{static properties={heading:{type:String},compact:{type:Boolean},foot:{type:String},data:{type:Object}};static styles=[a];constructor(){super();this.heading="",this.compact=!1,this.foot="",this.data=null}render(){let n=this.data;if(!n)return e`${t}`;if(n.kind==="missing")return e`<h2>${this.heading}</h2>
+		</p>`},P=async()=>{try{let n=await fetch("/api/console/network",{cache:"no-store"});if(!n.ok)return null;return await n.json()}catch{return null}};class m extends s{static properties={heading:{type:String},data:{type:Object}};static styles=[a,N];live=null;err="";timer=null;constructor(){super();this.heading="",this.data=null}connectedCallback(){super.connectedCallback(),this.refresh(),this.timer=setInterval(()=>void this.refresh(),1e4)}disconnectedCallback(){if(super.disconnectedCallback(),this.timer)clearInterval(this.timer)}async refresh(){let n=await P();if(n)this.live=n,this.err="";else this.err="refresh failed — last known values shown"}render(){let n=this.live??this.data;if(!n)return e`<h2>${this.heading}</h2><p class="dimpl">loading…</p>`;let o=this.err?e`<p class="unknown">${this.err}</p>`:t;return e`<h2>${this.heading} · live ${R(S(n.ts))}</h2>
+			${o}${E(n)}`}}customElements.define("klh-network-card",m);var g=(n,o)=>n.flatMap((i,l)=>l?[e`${o}`,i]:[i]);class k extends s{static properties={heading:{type:String},compact:{type:Boolean},foot:{type:String},data:{type:Object}};static styles=[a];constructor(){super();this.heading="",this.compact=!1,this.foot="",this.data=null}render(){let n=this.data;if(!n)return e`${t}`;if(n.kind==="missing")return e`<h2>${this.heading}</h2>
 				<p class="dimpl">
 					no routing-policy.yaml found on the belt chain (BELT_POLICY/
 					BUCKLE_POLICY → ~/.claude/local-llm/ → committed default)
@@ -233,11 +233,11 @@ import{r,e,t,s}from"./lit-ec6b45c34eb5ebcc.js";import{a}from"./lit-55953dc2a7e41
 			<td><span class="pill">${n.scope}</span></td>
 			<td class="mono">${n.upstream}</td>
 			<td>${n.monitored}</td>
-		</tr>`}}if(!customElements.get("klh-registry-card"))customElements.define("klh-registry-card",v);class b extends s{static properties={heading:{type:String},data:{type:Object}};static styles=[a];constructor(){super();this.heading="suspenders-board.json",this.data=null}render(){let n=this.data;if(!n)return e`${t}`;return e`<h2>${this.heading}</h2>${this.body(n)}`}body(n){if(n.error)return e`<div class="errbox">
+		</tr>`}}if(!customElements.get("klh-registry-card"))customElements.define("klh-registry-card",v);class f extends s{static properties={heading:{type:String},data:{type:Object}};static styles=[a];constructor(){super();this.heading="suspenders-board.json",this.data=null}render(){let n=this.data;if(!n)return e`${t}`;return e`<h2>${this.heading}</h2>${this.body(n)}`}body(n){if(n.error)return e`<div class="errbox">
 				current file does not parse: ${n.error}
 			</div>`;return e`<div class="knobs">
 			${n.knobs.map((o)=>e`<span class="kchip">${o.k}: <b>${o.v}</b></span>`)}
-		</div>`}}if(!customElements.get("klh-knobs-card"))customElements.define("klh-knobs-card",b);class f extends s{static properties={heading:{type:String},data:{type:Object}};static styles=[a,r`
+		</div>`}}if(!customElements.get("klh-knobs-card"))customElements.define("klh-knobs-card",f);class b extends s{static properties={heading:{type:String},data:{type:Object}};static styles=[a,r`
 		.auditrow { border-top:1px solid var(--klh-rule); font-size:11.5px; }
 		.auditrow summary { display:flex; gap:10px; align-items:baseline; padding:5px 0; cursor:pointer; list-style:none; }
 		.auditrow summary::-webkit-details-marker { display:none; }
@@ -260,4 +260,4 @@ import{r,e,t,s}from"./lit-ec6b45c34eb5ebcc.js";import{a}from"./lit-55953dc2a7e41
 			</p>`}chip(n){return e`<details class="auditrow">
 			<summary><b>${n.action}</b><span>${n.actor}</span><span class="when mono">${n.when}</span></summary>
 			<div class="detail">${n.target??"—"}${n.detail?e`<br />${n.detail}`:t}</div>
-		</details>`}}if(!customElements.get("klh-audit-list"))customElements.define("klh-audit-list",f);
+		</details>`}}if(!customElements.get("klh-audit-list"))customElements.define("klh-audit-list",b);

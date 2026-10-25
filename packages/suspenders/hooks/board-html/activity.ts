@@ -94,7 +94,7 @@ function renderActHist(el, ev){
     }
   });
   var max = Math.max(1, ...bins.map(function(b){ return b.landed + b.failed + b.decision + b.other; }));
-  var fmt = function(t){ return new Date(t).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); };
+  var fmt = function(t){ var d = new Date(t); var p = function(n){ return (n < 10 ? '0' : '') + n; }; return p(d.getUTCHours()) + ':' + p(d.getUTCMinutes()) + 'Z (' + p(d.getHours()) + ':' + p(d.getMinutes()) + ' local)'; }; // W902: UTC Z first + local twin beside it
   var html = '<div class="acthist-head"><span>Activity · ' + ev.length + (actData.events.length >= 300 ? ' latest events (limit 300)' : ' events') + '</span><span>' + Math.round(step / 60000) + ' min / bar</span></div>';
   html += '<div class="acthist-bars" role="group" aria-label="Activity timeline">';
   bins.forEach(function(b, i){

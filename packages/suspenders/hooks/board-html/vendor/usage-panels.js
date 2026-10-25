@@ -1062,7 +1062,7 @@ import{r,e,t,s}from"./lit-ec6b45c34eb5ebcc.js";var X=()=>{let a=document.getElem
 		:host {
 			display: block;
 		}
-	`];var ae="no spokes reporting — aggregate self-report is opt-in per team (default OFF; the hub policy lists opted-in teams under gateway.federation.self_report.teams)";class B extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=f()?.spokes??null,this.slot=L()}render(){let a=f()?.spokes;if(!a)return e``;if(!a.rows.length)return this.empty();return this.body(a.rows)}empty(){return e`<div class="upanel">
+	`];var ae="no spokes reporting — aggregate self-report is opt-in per team (default OFF; the hub policy lists opted-in teams under gateway.federation.self_report.teams)";class j extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=f()?.spokes??null,this.slot=L()}render(){let a=f()?.spokes;if(!a)return e``;if(!a.rows.length)return this.empty();return this.body(a.rows)}empty(){return e`<div class="upanel">
 			<h2>SPOKES</h2>
 			<p class="uempty">${ae}</p>
 		</div>`}body(a){return e`<div class="upanel">
@@ -1092,11 +1092,11 @@ import{r,e,t,s}from"./lit-ec6b45c34eb5ebcc.js";var X=()=>{let a=document.getElem
 			</td>
 			<td class="unum">${c(a.total)}</td>
 			<td class="unum">${c(a.rq)}</td>
-		</tr>`}}B.styles=[S,r`
+		</tr>`}}j.styles=[S,r`
 		:host {
 			display: block;
 		}
-	`];var re="no hub rollups — enumerate hubs in stack.yaml (hubs:) or the hubs.json registry; the board fetches each hub's /federation/usage server-side (TTL-cached, per-hub degrade)";class j extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=f()?.crosshub??null,this.slot=L()}render(){let a=f()?.crosshub;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
+	`];var re="no hub rollups — enumerate hubs in stack.json (hubs:) or the hubs.json registry; the board fetches each hub's /federation/usage server-side (TTL-cached, per-hub degrade)";class B extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=f()?.crosshub??null,this.slot=L()}render(){let a=f()?.crosshub;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
 				<h2>CROSS-HUB</h2>
 				<p class="uempty">${a.empty}</p>
 			</div>`;if(!a.rows.length)return this.empty();return this.body(a.rows)}empty(){return e`<div class="upanel">
@@ -1140,7 +1140,7 @@ import{r,e,t,s}from"./lit-ec6b45c34eb5ebcc.js";var X=()=>{let a=document.getElem
 				</tbody>
 			</table>
 			<p class="ufoot">${f()?.crosshub?.foot??""}</p>
-		</div>`}}j.styles=[S,r`
+		</div>`}}B.styles=[S,r`
 		:host {
 			display: block;
 		}
@@ -1201,4 +1201,4 @@ import{r,e,t,s}from"./lit-ec6b45c34eb5ebcc.js";var X=()=>{let a=document.getElem
 	:host {
 		display: block;
 	}
-`;customElements.define("klh-usage-header",O);customElements.define("klh-usage-tiles",N);customElements.define("klh-usage-actors",D);customElements.define("klh-usage-aids",F);customElements.define("klh-usage-activity",I);customElements.define("klh-usage-spokes",B);customElements.define("klh-usage-crosshub",j);customElements.define("klh-usage-drilldown",W);customElements.define("klh-usage-charts",K);export{I as KlhUsageActivity,D as KlhUsageActors,F as KlhUsageAids,K as KlhUsageCharts,j as KlhUsageCrossHub,W as KlhUsageDrilldown,O as KlhUsageHeader,B as KlhUsageSpokes,N as KlhUsageTiles,c as fmtTok,x as pct1};
+`;customElements.define("klh-usage-header",O);customElements.define("klh-usage-tiles",N);customElements.define("klh-usage-actors",D);customElements.define("klh-usage-aids",F);customElements.define("klh-usage-activity",I);customElements.define("klh-usage-spokes",j);customElements.define("klh-usage-crosshub",B);customElements.define("klh-usage-drilldown",W);customElements.define("klh-usage-charts",K);export{I as KlhUsageActivity,D as KlhUsageActors,F as KlhUsageAids,K as KlhUsageCharts,B as KlhUsageCrossHub,W as KlhUsageDrilldown,O as KlhUsageHeader,j as KlhUsageSpokes,N as KlhUsageTiles,c as fmtTok,x as pct1};

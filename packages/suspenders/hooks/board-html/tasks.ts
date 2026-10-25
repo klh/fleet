@@ -917,8 +917,9 @@ function paintSparks(root){
       el.appendChild(chart);
       if (axis){
         axis.style.display = 'flex';
-        axis.firstElementChild.textContent = new Date(pts[0][0]).toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'});
-        axis.lastElementChild.textContent = new Date(pts[pts.length - 1][0]).toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'}) + ' · ' + chart.getAttribute('data-bin-min') + 'm/bin';
+        var dualAxis = function(t){ var d = new Date(t); var p2 = function(n){ return (n < 10 ? '0' : '') + n; }; return p2(d.getUTCHours()) + ':' + p2(d.getUTCMinutes()) + 'Z (' + p2(d.getHours()) + ':' + p2(d.getMinutes()) + ' local)'; }; // W902: UTC Z first + local twin beside it
+        axis.firstElementChild.textContent = dualAxis(pts[0][0]);
+        axis.lastElementChild.textContent = dualAxis(pts[pts.length - 1][0]) + ' · ' + chart.getAttribute('data-bin-min') + 'm/bin';
       }
     }
   }

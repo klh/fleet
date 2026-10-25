@@ -27,6 +27,18 @@ const fmtTok = (n: number | null): string => {
 const fmtAge = (s: number | null): string =>
 	s === null ? "unknown" : s < 90 ? `${s}s` : `${Math.round(s / 60)}m`;
 
+// W902: UTC Z first + local twin beside it — hub clocks drift
+const dualStamp = (t: number | Date): string => {
+	const d = new Date(t);
+	if (Number.isNaN(d.getTime())) return String(t);
+	const p = (n: number): string => String(n).padStart(2, "0");
+	const off = -d.getTimezoneOffset();
+	const a = Math.abs(off);
+	const utc = `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}Z`;
+	const local = `${p(d.getHours())}:${p(d.getMinutes())} UTC${off >= 0 ? "+" : "-"}${p(Math.floor(a / 60))}:${p(a % 60)}`;
+	return `${utc} (${local})`;
+};
+
 /** Edge width by measured 60s output rate (tok/s): 1-4px, thresholds in
  *  the legend; null rate = unknown width 1, gray (never a fake thin edge). */
 const edgeWidth = (tokPerS: number | null): number => {
@@ -197,7 +209,7 @@ const interfaceRow = (i: NetworkInterfaceRow): TemplateResult => {
 const routeRow = (
 	r: NetworkRouteRow,
 ): TemplateResult => html`<div class="routeRow">
-	<time class="unknown" datetime=${r.ts} title=${r.ts}>${new Date(r.ts).toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
+	<time class="unknown" datetime=${r.ts} title=${r.ts}>${dualStamp(r.ts)}</time>
 	<span class="title">${r.target_model ?? "model unknown"}</span>
 	<span class="unknown" title=${r.lane || "No lane attribution"}>${r.lane ? `lane ${r.lane.replace(/^autow([\d.]+)-.*/, "W$1")}` : "unattributed"}</span>
 	<span class="num">${r.target_kind ?? "?"} ${r.target_host ?? ""}</span>

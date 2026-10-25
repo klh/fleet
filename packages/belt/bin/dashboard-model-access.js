@@ -61,11 +61,11 @@ function tickAccess() {
 					return "context unknown · max output unknown · input unknown · output unknown · tools unknown · structured output unknown";
 				var context = fact(
 					row.contextTokens,
-					(n) => `${Number(n).toLocaleString()} tokens`,
+					(n) => `${Number(n).toLocaleString("en-US")} tokens`,
 				);
 				var output = fact(
 					row.maxOutputTokens,
-					(n) => `${Number(n).toLocaleString()} tokens`,
+					(n) => `${Number(n).toLocaleString("en-US")} tokens`,
 				);
 				return (
 					"context " +

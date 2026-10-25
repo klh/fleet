@@ -99,7 +99,7 @@ function renderHubObservations(d){
   setText(byId('hubRelayCounts'), enabled ? relay.sent + ' sent · ' + (relay.backlog || 0) + ' pending' : 'Configure observation-relays.json on this machine');
   var retry = byId('hubRelayRetry');
   if (retry) {
-    setText(retry, enabled ? (relay.lastSuccessAt ? 'last success ' + ago(msAgo(relay.lastSuccessAt)) : 'no successful forward yet') + (relay.nextRetryAt ? ' · retry ' + new Date(relay.nextRetryAt).toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'}) : '') : '');
+    setText(retry, enabled ? (relay.lastSuccessAt ? 'last success ' + ago(msAgo(relay.lastSuccessAt)) : 'no successful forward yet') + (relay.nextRetryAt ? ' · retry ' + dualStamp(relay.nextRetryAt) : '') : '');
     retry.title = relay && relay.nextRetryAt ? dualStamp(relay.nextRetryAt) : '';
   }
   var relayError = byId('hubRelayError');
