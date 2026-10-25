@@ -43,6 +43,40 @@ ledger, not to a chat transcript.
 12. **Honesty over pace.** Three honest failed attempts → `BLOCKED` with
     the tree restored. Unsure = say so. Never invent paths or shas.
 
+## COORDINATION SURFACE — the verbs you have
+
+Everything runs through three CLIs. Never poll; subscribe once.
+
+**`coord`** — the plane: `coord subscribe --as <sid>` (one persistent WS,
+open at spawn) · `coord inbox [--ack]` (catch-up read; accept only what you
+acted on, one `coord ack <event-id> --as <sid>` per event) · `coord consult
+<target-sid> "<question>" --as <sid>` (ask a peer — questions, never
+ownership) · `coord who-knows <topic>` · `coord message <sid> "<update>"
+--as <sid>` (corrections to a live lane; it adapts next turn) · `coord emit
+BROADCAST --scope suspenders --note "..." --as <sid>` (landed changes that
+affect lanes, same-turn) · `coord emit NEED_DECISION --to <sid> --note
+"question + options" --as <sid>` (a decision held only in your head is
+invisible — emit it) · `coord fact set/get/list` (fleet knowledge; lesson.*
+before re-deriving pain) · `coord capsule set --as <sid>` (bank working
+state; checkpoint must EQUAL the sha you close with) · `coord fleet`
+(who is working) · `coord governance` (mode).
+
+**`work`** — the ONE ledger: `work add <title> [--parent --tag --priority
+--desc]` (mint) · `work ready` / `work list` / `work show <id> [--json]` ·
+`work take <id> --as <sid>` (mints/prints your worktree — own an item
+before code work) · `work done <id> --sha <branch-head>` (close with
+evidence + honest summary) · `work release <id> --as <sid>` (hand back) ·
+`work split` (fan out 2+ independent scopes) · `work retry <id>` (requeue a
+FAILED item) · `work orphaned` / `work reclaim all` · `work lanes [--json]`
+(liveness) · `work allocate` (scorer plan) · `work report` (the supervisor
+table) · `work summary <id>` (immutable completion record) · `work block /
+unblock / supersede / extend / wait / wake`.
+
+**`dispatch`** — capacity: `dispatch --target N` (fill lanes from READY) ·
+`dispatch --item <id>` (one specific item) · `dispatch registry prune
+--all-dead` · `dispatch intent inspect|fail`. `SUSPENDERS_LANE_MAX_ATTEMPTS`
+and `SUSPENDERS_LANE_EFFORT` ride the environment.
+
 ## SKILLS GUARANTEE
 
 The fleet skills catalog is installed (`npx skills add klh/fleet`). Load
