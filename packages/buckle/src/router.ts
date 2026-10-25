@@ -751,6 +751,13 @@ export class Router {
 				);
 			} catch (error) {
 				if (req.signal?.aborted) {
+					// W1124.42: the final receipt must truthfully retain the
+					// attempt — a wire guard that fired (or a classified upstream
+					// refusal racing the hangup) keeps its network attribution;
+					// a plain hangup with no upstream boundary stays plain.
+					const upstream = error instanceof UpstreamError ? error : null;
+					const timedOutPhase =
+						observedReq.transport?.snapshot()?.timeoutPhase ?? null;
 					this.reportAttempt(
 						observedReq,
 						dep,
@@ -759,6 +766,11 @@ export class Router {
 						null,
 						"downstream_cancel",
 						null,
+						undefined,
+						undefined,
+						null,
+						upstream !== null || timedOutPhase !== null ? "network" : null,
+						upstream ?? undefined,
 					);
 					return { kind: "aborted" };
 				}
