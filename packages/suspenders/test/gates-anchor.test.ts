@@ -13,6 +13,7 @@ import {
 } from "../hooks/gates/anchor.ts";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { gateSpawn } from "./helpers/gate-spawn.ts";
 
 const tmp = mkdtempSync(join(process.cwd(), ".anchor-test-"));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
@@ -36,32 +37,11 @@ const hook = (input: Record<string, unknown>) => ({
 });
 
 function spawnGate(payload: unknown) {
-	const pf = join(tmp, `payload-${Math.random().toString(36).slice(2)}.json`);
-	writeFileSync(pf, JSON.stringify(payload));
-	const r = Bun.spawnSync(
-		["bun", join(import.meta.dir, "..", "hooks", "gate.ts"), "pre-files"],
-		{
-			stdin: Bun.file(pf),
-			stdout: "pipe",
-			stderr: "pipe",
-			cwd: import.meta.dir,
-			env: {
-				...process.env,
-				KLH_SESSION_ROLE: "lane", // W834: tests exercise gate logic, not role
-			},
-		},
-	);
-	rmSync(pf);
-	let json: {
-		hookSpecificOutput?: {
-			permissionDecision?: string;
-			permissionDecisionReason?: string;
-		};
-	} | null = null;
-	try {
-		json = JSON.parse(r.stdout.toString());
-	} catch {}
-	return { code: r.exitCode, json };
+	// recipe now shared: test/helpers/gate-spawn.ts (W1275.3)
+	return gateSpawn("pre-files", payload, {
+		cwd: import.meta.dir,
+		env: { KLH_SESSION_ROLE: "lane" }, // W834: tests exercise gate logic, not role
+	});
 }
 const decision = (r: ReturnType<typeof spawnGate>) =>
 	r.json?.hookSpecificOutput?.permissionDecision ?? "allow";
