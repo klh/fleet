@@ -255,10 +255,10 @@ async function requestLlm(
 		body: JSON.stringify({
 			model,
 			messages: [{ role: "user", content: prompt }],
-			// W1236: glm-5.3-flash reasoning burned the whole 1500 budget before
-			// any final text — HTTP 200 with content:"" — on every merge-ladder
-			// receipt 2026-10-23. 8000 covers thinking headroom + the write-up.
-			max_tokens: 8000,
+			// W1289: 8000 still cut Flash reviews off mid-reasoning before the
+			// required VERDICT line (W1286 receipt #70110). Leave room for the
+			// actual findings and terminal verdict after its reasoning pass.
+			max_tokens: 16000,
 			temperature: 0.2,
 		}),
 		signal: AbortSignal.timeout(LEG_TIMEOUT_MS),
