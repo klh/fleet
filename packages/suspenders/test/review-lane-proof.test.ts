@@ -252,6 +252,70 @@ describe("W634 review-lane coverage proof (Sinai rule)", () => {
 		expect(git(["rev-parse", "--verify", "main"]).code).toBe(0);
 	});
 
+	test("W1289.1: Flash request budgets room for a terminal verdict", async () => {
+		const budgets: number[] = [];
+		const requests: string[] = [];
+		const { fact } = await runCase(
+			{
+				name: "flash-budget-verdict",
+				files: { "docs.md": "flash budget contract\n" },
+				want: "skipped",
+			},
+			async (req) => {
+				const body = (await req.json()) as {
+					model: string;
+					max_tokens: number;
+					messages: { content: string }[];
+				};
+				budgets.push(body.max_tokens);
+				requests.push(body.messages[0]?.content ?? "");
+				return Response.json({
+					model: "glm-5.3-flash",
+					choices: [
+						{
+							finish_reason: "stop",
+							message: { content: "No blocking findings.\nVERDICT: PASS" },
+						},
+					],
+				});
+			},
+		);
+		expect(budgets).toEqual([16000]);
+		expect(requests[0]).toContain(
+			"End your reply with ONE machine-parseable final line:",
+		);
+		expect(requests[0]).toContain("VERDICT: PASS | VERDICT: FAIL - <reason>");
+		expect(fact.verdict).toBe("PASS");
+		expect(fact.wire_model).toBe("glm-5.3-flash");
+
+		let incompleteCalls = 0;
+		const incomplete = await runCase(
+			{
+				name: "flash-budget-no-verdict",
+				files: { "docs.md": "flash incomplete verdict\n" },
+				want: "skipped",
+			},
+			async (req) => {
+				const body = (await req.json()) as { max_tokens: number };
+				expect(body.max_tokens).toBe(16000);
+				incompleteCalls++;
+				return Response.json({
+					model: "glm-5.3-flash",
+					choices: [
+						{
+							finish_reason: "length",
+							message: { content: "N1-incomplete: still analyzing the diff" },
+						},
+					],
+				});
+			},
+			2,
+		);
+		expect(incompleteCalls).toBe(2);
+		expect(incomplete.fact.verdict).toBe("ERROR");
+		expect(String(incomplete.fact.headline)).toContain("no verdict line");
+	});
+
 	for (const c of cases) {
 		test(`case ${c.name}: stub PASS + proof → ${c.want}`, async () => {
 			const { id, fact } = await runCase(c);
