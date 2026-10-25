@@ -216,6 +216,29 @@ test("review remains valid when main advances only in a disjoint path", () => {
 	expect(f.check()).toMatchObject({ ok: true });
 });
 
+for (const sharedInput of [
+	"tsconfig.json",
+	"packages/app/tsconfig.build.json",
+	"package.json",
+	"packages/app/package.json",
+	"bun.lock",
+	"packages/app/bun.lock",
+	"packages/app/build.config.ts",
+	".github/workflows/ci.yml",
+	".npmrc",
+	".pnp.cjs",
+]) {
+	test(`disjoint shared input ${sharedInput} invalidates an old PASS`, () => {
+		const f = fixture();
+		publishReviewReceipt(f.db, "project", "W1", f.receipt);
+		mkdirSync(join(f.repo, sharedInput, ".."), { recursive: true });
+		writeFileSync(join(f.repo, sharedInput), "Changed shared input.\n");
+		f.git("add", ".");
+		f.git("commit", "-m", "change shared input");
+		expect(f.check()).toMatchObject({ ok: false });
+	});
+}
+
 test("review remains valid when main advances to an ancestor of the exact candidate", () => {
 	const f = fixture();
 	f.git("checkout", "suspenders/W1");

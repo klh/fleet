@@ -67,6 +67,42 @@ const isAncestor = (repo: string, before: string, after: string): boolean =>
 		stderr: "pipe",
 	}).exitCode === 0;
 
+/** A disjoint file may still change how the reviewed files build, load, or
+ * test. Treat configuration and automation inputs as shared dependencies. */
+const isSharedReviewInput = (path: string): boolean => {
+	const parts = path.split("/");
+	const name = parts.at(-1) ?? "";
+	return (
+		parts
+			.slice(0, -1)
+			.some((part) =>
+				[
+					".github",
+					".githooks",
+					".qlty",
+					"build",
+					"config",
+					"scripts",
+				].includes(part),
+			) ||
+		/\.(?:json|jsonc|ya?ml|toml|lock|lockb)$/.test(name) ||
+		/(?:^|[.-])(?:build|config|lint|setup|test|workspace)(?:[.-]|$)/i.test(
+			name,
+		) ||
+		[
+			".npmrc",
+			".yarnrc",
+			".pnp.cjs",
+			"Gemfile",
+			"go.mod",
+			"go.sum",
+			"requirements.txt",
+		].includes(name) ||
+		/^(?:Dockerfile|Makefile|Procfile|justfile)$/.test(name) ||
+		/\.(?:sh|bash)$/.test(name)
+	);
+};
+
 /** An old review may survive only when Git proves the candidate's merged
  * effect is unchanged. Path disjointness is a conservative structural proof,
  * not a proof of independence between modules. */
@@ -91,6 +127,7 @@ const unchangedReviewedEffect = (
 	const advancePaths = new Set(changedPaths(repo, oldBase, base));
 	if (
 		!candidatePaths.length ||
+		[...advancePaths].some(isSharedReviewInput) ||
 		candidatePaths.some((path) => advancePaths.has(path))
 	)
 		return { ok: false, preview };
