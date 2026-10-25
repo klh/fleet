@@ -7,13 +7,6 @@ import { BIN, composeBrief } from "./lib/brief.ts";
 
 export { composeBrief };
 
-// W157 decomposition: the pure governance decisions live in their module;
-// re-exported so existing importers (tests, scripts) keep their path.
-import {
-	laneKeyDecision,
-	parseGovernanceMode,
-	probeFrontDecision,
-} from "./lib/governance-decide.ts";
 import {
 	coordCliFor,
 	laneAuditFor,
@@ -24,6 +17,13 @@ import {
 	workCliFor,
 } from "../hooks/lib/lanes/lane.ts";
 import { adminKey } from "../hooks/lib/lanes/lane-auth.ts";
+// W157 decomposition: the pure governance decisions live in their module;
+// re-exported so existing importers (tests, scripts) keep their path.
+import {
+	laneKeyDecision,
+	parseGovernanceMode,
+	probeFrontDecision,
+} from "./lib/governance-decide.ts";
 import { grinderGate } from "./lib/lane-death-capture.ts";
 // W519: .prefer prefer= soft routing — the brief carries the constraint
 import {
@@ -37,7 +37,6 @@ export type { GovernanceDecision } from "./lib/governance-decide.ts";
 export { hubAttributionDecision } from "./lib/governance-decide.ts";
 export { laneKeyDecision, parseGovernanceMode, probeFrontDecision };
 
-import { forecastPush } from "../hooks/lib/usage/credit-forecast.ts";
 // THEN.D (W1255.6): the per-lane launch machine rides hooks/lib/fleet-loop and
 // the refill face declares through the verb kit (CLI Toolkit Law, W651).
 import { dispatchLane } from "../hooks/lib/fleet-loop/lane-launch.ts";
@@ -56,12 +55,13 @@ import {
 import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
 // W911: the bounded plaid posture — the ONE override of the execPick chain.
 import { plaidProbeHealth, readPosture } from "../hooks/lib/plaid/plaid.ts";
+import { forecastPush } from "../hooks/lib/usage/credit-forecast.ts";
 import { parseVerb, renderRegistryHelp } from "../hooks/lib/verb-kit.ts";
+// W1295: the agent-rules role library rides the launch path
+import { loadAgentRules } from "./lib/agent-rules.ts";
 import { recoverOrphanClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import { isDeferredItem } from "./lib/dispatch-defers.ts";
-// W1295: the agent-rules role library rides the launch path
-import { loadAgentRules } from "./lib/agent-rules.ts";
 import { fleetReport } from "./lib/fleet-report.ts";
 import { activeRateLimitWalls } from "./lib/launch-backoff.ts";
 import {

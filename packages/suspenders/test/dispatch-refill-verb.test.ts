@@ -4,8 +4,8 @@
 // shim retired). Pins the spec vocabulary, the parse semantics dispatch-next
 // relies on, and the registry help door (exit 0, "Usage: dispatch" present).
 import { describe, expect, test } from "bun:test";
-import { refillVerb } from "../scripts/lib/refill-verb.ts";
 import { parseVerb, renderRegistryHelp } from "../hooks/lib/verb-kit.ts";
+import { refillVerb } from "../scripts/lib/refill-verb.ts";
 
 describe("refillVerb — the kit-declared dispatch face (W1255.6)", () => {
 	test("carries the flag vocabulary dispatch-next consumes", () => {

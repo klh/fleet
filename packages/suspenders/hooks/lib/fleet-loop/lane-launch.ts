@@ -41,25 +41,6 @@ import {
 	applyInsertion,
 	insertionCtx,
 } from "../../../scripts/lib/insertion.ts";
-import { jobslabFor, jobslabTag, laneClassOf } from "../lanes/jobslab.ts";
-import {
-	applyLaneAttribution,
-	executorLaunch,
-	laneEnv,
-	probeBuckleFrontVerdict,
-	recreateWorktreeFor,
-	residueOf,
-	spawnClaude,
-} from "../lanes/lane.ts";
-import {
-	ensureLaneKey,
-	LANE_KEY_TTL_S,
-	laneKeyMetaPath,
-} from "../lanes/lane-auth.ts";
-import {
-	laneAttemptLimit,
-	nextLaneAttempt,
-} from "../lanes/lane-retry-budget.ts";
 import { laneSettingsData } from "../../../scripts/lib/lane-settings.ts";
 import {
 	dispatchStarterFork,
@@ -82,7 +63,6 @@ import {
 	readConfiguredLaunches,
 	reserveLaunchIntent,
 } from "../../../scripts/lib/launch-fencing.ts";
-import { launchParent } from "../lanes/launch-parent.ts";
 import {
 	acquireLaunchLease,
 	renewLaunchLease,
@@ -97,7 +77,6 @@ import {
 } from "../../../scripts/lib/resume-from.ts";
 import { verdictRepeatGate } from "../../../scripts/lib/verdict-repeat-gate.ts";
 import { capsuleValidity } from "../capsule-fence.ts";
-import { quotaProviderPenalty } from "../usage/exec-quota.ts";
 import {
 	cvMap,
 	executorCv,
@@ -107,13 +86,34 @@ import {
 import { adapterFor } from "../executors/registry.ts";
 import { openStore, projectIdentity } from "../govdb/govdb.ts";
 import { resolveHub } from "../hub/hub-locate.ts";
+import { jobslabFor, jobslabTag, laneClassOf } from "../lanes/jobslab.ts";
+import {
+	applyLaneAttribution,
+	executorLaunch,
+	laneEnv,
+	probeBuckleFrontVerdict,
+	recreateWorktreeFor,
+	residueOf,
+	spawnClaude,
+} from "../lanes/lane.ts";
+import {
+	ensureLaneKey,
+	LANE_KEY_TTL_S,
+	laneKeyMetaPath,
+} from "../lanes/lane-auth.ts";
 import { dispatchLaneEffort } from "../lanes/lane-effort-policy.ts";
 import { laneProcessIdentity } from "../lanes/lane-liveness.ts";
+import {
+	laneAttemptLimit,
+	nextLaneAttempt,
+} from "../lanes/lane-retry-budget.ts";
 import { laneSid as sidOf } from "../lanes/laneslug.ts";
-import { type Posture, recordPlaidTrace } from "../plaid/plaid.ts";
+import { launchParent } from "../lanes/launch-parent.ts";
 import { verifiedContextContinuation } from "../lanes/reclaim-context.ts";
+import { type Posture, recordPlaidTrace } from "../plaid/plaid.ts";
 import { policyBriefLines } from "../session-policy.ts";
 import { darkHubNow, policyForRepo, tryLoadStack } from "../stack-config.ts";
+import { quotaProviderPenalty } from "../usage/exec-quota.ts";
 
 /** The entrypoint-bound closures + run-config the launch machine consumes.
  *  Mutable cycle collectors (refusal/wait/seed arrays) are shared references

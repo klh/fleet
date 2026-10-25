@@ -7,13 +7,13 @@
 // (the PROTOCOL line points at it) — redundancy here is measured by
 // scripts/lib/brief-weight.ts and surfaced in `coord metrics`.
 import { condensePrompt } from "../../hooks/board/prompt-transform.ts";
+import { capsuleValidity } from "../../hooks/lib/capsule-fence.ts";
 // W254: pointer-grade injection — file-map + done-definition digest for the
 // brief, gated per W113 on repo size (hooks/lib/lanes/brief-intel.ts)
 import {
 	type BriefIntel,
 	renderIntel,
 } from "../../hooks/lib/lanes/brief-intel.ts";
-import { capsuleValidity } from "../../hooks/lib/capsule-fence.ts";
 import { effortBudgetLine } from "../../hooks/lib/work/work-effort.ts";
 // W1295: the agent-rules role library — base + role inject ahead of the brief
 import { loadAgentRules, selectAgentRole } from "./agent-rules.ts";

@@ -10,8 +10,8 @@ import {
 	AGENT_RULES_BASE,
 	AGENT_RULES_DIR,
 	loadAgentRules,
-	resolveRoleName,
 	ROLE_SELECTORS,
+	resolveRoleName,
 	selectAgentRole,
 } from "../scripts/lib/agent-rules.ts";
 import { composeBrief } from "../scripts/lib/brief.ts";

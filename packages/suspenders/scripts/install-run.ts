@@ -13,6 +13,8 @@ import {
 import { join } from "node:path";
 import { execa } from "execa";
 import { ensureShims } from "./ensure-shims.ts";
+import { migrateConf } from "./install-conf-migrate.ts";
+import { wireConnections } from "./install-connections.ts";
 import {
 	type ContractStep,
 	INSTALL_CONTRACT,
@@ -23,7 +25,6 @@ import {
 	type StepStatus,
 } from "./install-contract.ts";
 import { registerLaunchd } from "./install-launchd.ts";
-import { wireConnections } from "./install-connections.ts";
 import {
 	downloadModels,
 	refreshSupervisor,
@@ -34,7 +35,6 @@ import {
 	registerSkills,
 	releaseNotify,
 } from "./install-wire-steps.ts";
-import { migrateConf } from "./install-conf-migrate.ts";
 import { SOURCE_PATHS, syncHarness } from "./sync-harness.ts";
 import { upgradeGateway } from "./upgrade-gateway.ts";
 

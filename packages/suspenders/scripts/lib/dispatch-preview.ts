@@ -4,9 +4,9 @@
 // entrypoint owns (sh/run/workCli/coordCli, brief extras, capsule getters)
 // arrive as a deps bag; bodies moved from dispatch-next.ts.
 import { existsSync } from "node:fs";
-import { briefIntel } from "../../hooks/lib/lanes/brief-intel.ts";
 import { adapterFor } from "../../hooks/lib/executors/registry.ts";
 import { projectIdentity } from "../../hooks/lib/govdb/govdb.ts";
+import { briefIntel } from "../../hooks/lib/lanes/brief-intel.ts";
 import { laneEffortBriefLine } from "../../hooks/lib/lanes/lane-effort-policy.ts";
 import { plaidPickOf, plaidRoutes } from "../../hooks/lib/plaid/plaid.ts";
 import { effortFromShow } from "../../hooks/lib/work/work-effort.ts";
