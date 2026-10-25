@@ -9,9 +9,26 @@ import { type Board, startBoard } from "./harness";
 test.describe.configure({ mode: "serial" });
 
 let board: Board | null = null;
+let failedId = "";
 
 test.beforeAll(async () => {
 	board = await startBoard("board-state-letters", { args: ["--demo"] });
+	// W1270: seed one real FAILED item (w998 `work fail --note` pattern) so
+	// the F letter + work-failed tone render from live graph state, not a
+	// route mock
+	failedId = board.mintedId(
+		board.workOk(["add", "w1270 failed-state letters item"], "add"),
+	);
+	board.workOk(["take", failedId, "--as", "autow1270-letters"], "take");
+	board.workOk(
+		[
+			"fail",
+			failedId,
+			"--note",
+			"budget wall broke the run; the retry queue cascaded",
+		],
+		"fail",
+	);
 });
 
 test.afterAll(async () => {
@@ -163,4 +180,52 @@ test("fleet lanes rows: the status word leads with its letter", async ({
 		await expect(first).toHaveText(initial);
 	}
 	await page.screenshot({ path: "test-results/w891-fleet-letters.png" });
+});
+
+test("a FAILED item renders the F letter in the work-failed token hue", async ({
+	page,
+}) => {
+	const b = mustBoard();
+	await page.goto(`${b.BASE}/#tasks`);
+	// ids collide across projects on the demo board (W318) — the title scopes
+	// the row to the seeded scratch-repo item
+	const row = page
+		.locator(`tr[data-tid="${failedId}"]`)
+		.filter({ hasText: "failed-state letters" });
+	await expect(row).toBeVisible();
+	const pill = row.locator('.pill[data-tone="failed"]');
+	await expect(pill).toHaveCount(1);
+	await expect(pill.locator("b.stl")).toHaveText("F");
+	await expect(pill).toContainText("failed");
+	// the letter leads the state word
+	const text = (await pill.textContent()) ?? "";
+	expect(text.startsWith("F")).toBe(true);
+	// the tone resolves to the page's own --work-failed token — never a literal
+	const expected = hexToRgb(await tokenColor(page, "--work-failed"));
+	await expect
+		.poll(() => pill.evaluate((el) => getComputedStyle(el).color))
+		.toBe(expected);
+	await page.screenshot({ path: "test-results/w1270-failed-letter.png" });
+});
+
+test("the FAILED kanban card shows the note head; the drawer keeps the full note", async ({
+	page,
+}) => {
+	const b = mustBoard();
+	await page.goto(`${b.BASE}/#lanes`);
+	// ids collide across projects on the demo board (W318) — the title scopes
+	// the card to the seeded scratch-repo item
+	const card = page
+		.locator(`.kcard[data-kid="${failedId}"]`)
+		.filter({ hasText: "failed-state letters" });
+	await expect(card).toBeVisible({ timeout: 20_000 });
+	// the card carries only the first `;` segment as the at-a-glance reason
+	await expect(card.locator(".kfailure")).toHaveText(
+		"budget wall broke the run",
+	);
+	// the drawer keeps the full note unclamped (the w998 drawer contract)
+	await card.locator(".tidbtn").click();
+	const para = page.locator("#drawerBody .failure-detail p").first();
+	await expect(para).toContainText("budget wall broke the run");
+	await expect(para).toContainText("retry queue cascaded");
 });
