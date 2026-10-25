@@ -132,9 +132,10 @@ test.describe("cli", () => {
 		);
 	});
 	// runtime conditional skip — mirrors bun:test skipIf 1:1 (skips while the
-	// AC gate marker is present, runs the refusal probe when it is absent)
+	// AC gate marker is present, runs the refusal probe when it is absent);
+	// fixme is the conditional face the W511 marker scan permits
 	test("real rounds refuse without the AC gate (exit 3) @unit", async () => {
-		test.skip(acOk(), "AC gate marker present — real rounds are allowed");
+		test.fixme(acOk(), "AC gate marker present — real rounds are allowed");
 		const [v] = await buildVariants(parseArgs(["--models", "kev"]));
 		if (!v) throw new Error("no variant");
 		const err = await runVariant({
