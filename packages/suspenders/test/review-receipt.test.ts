@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { openMemoryStore } from "../hooks/lib/govdb/govdb-store.ts";
 import {
 	checkReviewReceipt,
+	priorBlockingReviewLines,
 	publishReviewReceipt,
 	reviewContext,
 	reviewFindingIds,
@@ -191,6 +192,32 @@ test("blocking findings survive a later empty PASS until explicitly resolved", (
 			"B1-bug reproduced on base only; exact candidate regression passes.",
 	});
 	expect(f.check().ok).toBe(true);
+});
+
+test("review prompt exposes exact-commit blockers even when the event note truncates them", () => {
+	const f = fixture();
+	publishReviewReceipt(f.db, "project", "W1", {
+		...f.receipt,
+		verdict: "ERROR",
+		blocking: ["B1-round1-scrubtext-import"],
+		evidence: `${"partial analysis ".repeat(40)}scrubText import needs verification`,
+	});
+	publishReviewReceipt(f.db, "project", "W1", f.receipt);
+	publishReviewReceipt(f.db, "project", "W1", {
+		...f.receipt,
+		commit: "f".repeat(40),
+		verdict: "ERROR",
+		blocking: ["B9-other-commit"],
+	});
+	const lines = priorBlockingReviewLines(
+		f.db,
+		"project",
+		"W1",
+		f.context.commit,
+	);
+	expect(lines.join("\n")).toContain("B1-round1-scrubtext-import");
+	expect(lines.join("\n")).toContain("scrubText import needs verification");
+	expect(lines.join("\n")).not.toContain("B9-other-commit");
 });
 
 test("moving integration base or changing applicable instruction invalidates receipt", () => {
