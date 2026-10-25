@@ -105,7 +105,8 @@ test("missingImports parses bun's error line (spec + importer)", () => {
 test("missingImports ignores source context printed with a failing assertion", () => {
 	const context =
 		"129 | const line = `error: " +
-		"Cannot find module '../gates/risk-tier.ts' from '/tmp/merge.ts'`;";
+		"Cannot" +
+		" find module '../gates/risk-tier.ts' from '/tmp/merge.ts'`;";
 	expect(missingImports(context)).toEqual([]);
 });
 
