@@ -1,25 +1,25 @@
 import { afterEach, expect, test } from "bun:test";
 import {
-	mkdtempSync,
 	mkdirSync,
-	writeFileSync,
-	rmSync,
+	mkdtempSync,
 	realpathSync,
+	rmSync,
 	symlinkSync,
+	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openMemoryStore } from "../hooks/lib/govdb/govdb-store.ts";
+import { guardedMerge } from "../hooks/lib/fleet-loop/merge-guard.ts";
 import {
 	checkReviewReceipt,
 	priorBlockingReviewLines,
 	publishReviewReceipt,
+	type ReviewReceipt,
+	recordLanding,
 	reviewContext,
 	reviewFindingIds,
-	recordLanding,
-	type ReviewReceipt,
 } from "../hooks/lib/gates/review-receipt.ts";
-import { guardedMerge } from "../hooks/lib/fleet-loop/merge-guard.ts";
+import { openMemoryStore } from "../hooks/lib/govdb/govdb-store.ts";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { dirname } from "node:path";
-import type { GovernorStore } from "../govdb/govdb-store.ts";
 import { emitStoredEvent } from "../../coord/event-publish.ts";
+import type { GovernorStore } from "../govdb/govdb-store.ts";
 
 export interface ReviewContext {
 	repo: string;
