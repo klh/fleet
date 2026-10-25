@@ -81,13 +81,7 @@ test.describe({ tag: "@api" }, () => {
 	});
 
 	test.describe("admission at the wire (e2e)", () => {
-		// W1294.16: A/B-proven failing on main under bun test (baseline banked);
-		// fixme + repair item per the sweep-C precedent.
 		test("full group answers a typed local 503 + retry-after, never a fabricated 429", async () => {
-			// W1294.16: A/B-proven failing on main under bun test (baseline
-			// banked); in-body fixme annotation + repair item W1306
-			// (sweep-C precedent).
-			test.fixme(true, "failing on main — repair item W1306");
 			const upstream = await startMockUpstream(() =>
 				Response.json({ id: "1", usage: { prompt_tokens: 1 } }),
 			);
@@ -98,7 +92,9 @@ test.describe({ tag: "@api" }, () => {
 						? [{ group: g, url: upstream.url, dialect: "openai" as const }]
 						: [],
 			};
-			const deps = testDeps(pool, { policy: parsePolicy("version: 1\n") });
+			// W1306: policy is JSON-only (W1253) — "{}" carries the same defaults
+			// the retired `version: 1` yaml literal did.
+			const deps = testDeps(pool, { policy: parsePolicy("{}") });
 			deps.admission = new RpcAdmission(1, 3, {});
 			const slot = deps.admission.tryAcquire("glm-5.3-flash"); // the bound
 			const app = createApp(deps);
