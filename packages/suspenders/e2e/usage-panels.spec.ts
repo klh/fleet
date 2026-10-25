@@ -48,9 +48,9 @@ test.afterAll(() => {
 	if (scratch) rmSync(scratch, { recursive: true, force: true });
 });
 
-test("usage page: hosts upgrade, panels paint, uPlot mounts", async ({
-	page,
-}) => {
+test("usage page: hosts upgrade, panels paint, uPlot mounts", {
+	tag: "@ui",
+}, async ({ page }) => {
 	await page.goto(`${BASE}/usage`);
 	await page.waitForFunction(
 		() =>
@@ -97,9 +97,9 @@ test("usage page: hosts upgrade, panels paint, uPlot mounts", async ({
 	expect(statSync(shot).size).toBeGreaterThan(50_000);
 });
 
-test("coverage evidence: strip paints, day drilldown carries hour links", async ({
-	page,
-}) => {
+test("coverage evidence: strip paints, day drilldown carries hour links", {
+	tag: "@ui",
+}, async ({ page }) => {
 	await page.goto(`${BASE}/usage`);
 	await page.waitForFunction(
 		() => document.querySelector("klh-usage-coverage")?.shadowRoot !== null,
@@ -126,9 +126,9 @@ test("coverage evidence: strip paints, day drilldown carries hour links", async 
 	expect(statSync(shot).size).toBeGreaterThan(50_000);
 });
 
-test("cache drilldown: host upgrades, lanes paint, lane drilldown works", async ({
-	page,
-}) => {
+test("cache drilldown: host upgrades, lanes paint, lane drilldown works", {
+	tag: "@ui",
+}, async ({ page }) => {
 	await page.goto(`${BASE}/usage`);
 	await page.waitForFunction(
 		() => document.querySelector("klh-usage-cache-drill")?.shadowRoot !== null,
@@ -168,9 +168,9 @@ test("cache drilldown: host upgrades, lanes paint, lane drilldown works", async 
 	expect(statSync(shot).size).toBeGreaterThan(50_000);
 });
 
-test("drilldown monitor: dims paint, uPlot mounts, coverage honest, work-type join", async ({
-	page,
-}) => {
+test("drilldown monitor: dims paint, uPlot mounts, coverage honest, work-type join", {
+	tag: "@ui",
+}, async ({ page }) => {
 	await page.goto(`${BASE}/usage`);
 	await page.waitForFunction(
 		() => document.querySelector("klh-usage-monitor") !== null,
@@ -201,9 +201,9 @@ test("drilldown monitor: dims paint, uPlot mounts, coverage honest, work-type jo
 	expect(statSync(shot).size).toBeGreaterThan(50_000);
 });
 
-test("federation page: spokes + aid rows paint from rollups", async ({
-	page,
-}) => {
+test("federation page: spokes + aid rows paint from rollups", {
+	tag: "@ui",
+}, async ({ page }) => {
 	await page.goto(`${BASE}/federation-usage`);
 	await page.waitForFunction(
 		() =>

@@ -12,9 +12,9 @@ test.afterAll(async () => {
 	if (board) await board.stop();
 });
 
-test("activity bars show counts and filter the event feed", async ({
-	page,
-}) => {
+test("activity bars show counts and filter the event feed", {
+	tag: "@ui",
+}, async ({ page }) => {
 	if (!board) throw new Error("board not started");
 	await page.goto(`${board.BASE}/#activity`);
 	const bars = page.locator("#actHist .acthist-bar");

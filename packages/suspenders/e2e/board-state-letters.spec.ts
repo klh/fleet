@@ -57,9 +57,9 @@ function hexToRgb(hex: string): string {
 	return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
 }
 
-test("tasks table: pills carry state letters in the semantic hues", async ({
-	page,
-}) => {
+test("tasks table: pills carry state letters in the semantic hues", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const b = mustBoard();
 	// DONE rows are opt-in (taskShowDone) — surface them so the D letter renders
 	await page.addInitScript(() => localStorage.setItem("taskShowDone", "1"));
@@ -94,9 +94,9 @@ test("tasks table: pills carry state letters in the semantic hues", async ({
 	await page.screenshot({ path: "test-results/w891-tasks-letters.png" });
 });
 
-test("board cards, columns and pills resolve state hues in both themes", async ({
-	page,
-}) => {
+test("board cards, columns and pills resolve state hues in both themes", {
+	tag: "@ui",
+}, async ({ page }) => {
 	await page.goto(`${mustBoard().BASE}/#lanes`);
 	await expect(page.locator('.kcard[data-tone="ready"]').first()).toBeVisible();
 	for (const theme of ["dark", "light"]) {
@@ -126,9 +126,9 @@ test("board cards, columns and pills resolve state hues in both themes", async (
 	}
 });
 
-test("tasks filters use the shared project scope and retain column sorting", async ({
-	page,
-}) => {
+test("tasks filters use the shared project scope and retain column sorting", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const b = mustBoard();
 	await page.goto(`${b.BASE}/#tasks`);
 	await expect(page.locator("#proj")).toHaveCount(1);
@@ -159,9 +159,9 @@ test("tasks filters use the shared project scope and retain column sorting", asy
 	);
 });
 
-test("fleet lanes rows: the status word leads with its letter", async ({
-	page,
-}) => {
+test("fleet lanes rows: the status word leads with its letter", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const b = mustBoard();
 	await page.goto(`${b.BASE}/#governor`);
 	// the fleet strip ships collapsed — expand before asserting rows
@@ -182,9 +182,9 @@ test("fleet lanes rows: the status word leads with its letter", async ({
 	await page.screenshot({ path: "test-results/w891-fleet-letters.png" });
 });
 
-test("a FAILED item renders the F letter in the work-failed token hue", async ({
-	page,
-}) => {
+test("a FAILED item renders the F letter in the work-failed token hue", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const b = mustBoard();
 	await page.goto(`${b.BASE}/#tasks`);
 	// ids collide across projects on the demo board (W318) — the title scopes
@@ -208,9 +208,9 @@ test("a FAILED item renders the F letter in the work-failed token hue", async ({
 	await page.screenshot({ path: "test-results/w1270-failed-letter.png" });
 });
 
-test("the FAILED kanban card shows the note head; the drawer keeps the full note", async ({
-	page,
-}) => {
+test("the FAILED kanban card shows the note head; the drawer keeps the full note", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const b = mustBoard();
 	await page.goto(`${b.BASE}/#lanes`);
 	// ids collide across projects on the demo board (W318) — the title scopes

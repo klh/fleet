@@ -38,9 +38,9 @@ function mustBoard(): Board {
 	return board;
 }
 
-test("setup groups local wiring vs remote reachability with a concrete hub fix", async ({
-	page,
-}) => {
+test("setup groups local wiring vs remote reachability with a concrete hub fix", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const errors: string[] = [];
 	page.on("pageerror", (e) => errors.push(String(e)));
 	await page.goto(`${mustBoard().BASE}/#setup`);

@@ -20,9 +20,9 @@ function mustBoard(): Board {
 	return board;
 }
 
-test("orchestrate panel: click to expand, minus to collapse, no hover", async ({
-	page,
-}) => {
+test("orchestrate panel: click to expand, minus to collapse, no hover", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const errors: string[] = [];
 	page.on("pageerror", (e) => errors.push(String(e)));
 	await page.goto(`${mustBoard().BASE}/`);

@@ -42,9 +42,9 @@ test.afterAll(async () => {
 	await board?.stop();
 });
 
-test("paused execution has its own column, navigation and filter without changing its claim", async ({
-	page,
-}) => {
+test("paused execution has its own column, navigation and filter without changing its claim", {
+	tag: "@ui",
+}, async ({ page }) => {
 	await page.goto(`${board.BASE}/#lanes`);
 	const paused = page
 		.locator(".kcol")

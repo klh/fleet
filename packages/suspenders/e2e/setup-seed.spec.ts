@@ -22,9 +22,9 @@ function mustBoard(): Board {
 	return board;
 }
 
-test("setup tab paints seeded cards, never the loading flash", async ({
-	page,
-}) => {
+test("setup tab paints seeded cards, never the loading flash", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const errors: string[] = [];
 	page.on("pageerror", (e) => errors.push(String(e)));
 	await page.goto(`${mustBoard().BASE}/#setup`);

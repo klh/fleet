@@ -11,9 +11,9 @@ test.afterAll(async () => {
 	if (board) await board.stop();
 });
 
-test("hub tokens start with active rows and expose full history on demand", async ({
-	page,
-}) => {
+test("hub tokens start with active rows and expose full history on demand", {
+	tag: "@ui",
+}, async ({ page }) => {
 	if (!board) throw new Error("board not started");
 	await page.goto(`${board.BASE}/console/hub`);
 	const admin = page.locator("klh-hub-admin");
@@ -61,9 +61,9 @@ test("hub tokens start with active rows and expose full history on demand", asyn
 	await expect(admin.getByRole("row", { name: /old-actor/ })).toHaveCount(0);
 });
 
-test("settings audit hides older entries and details until requested", async ({
-	page,
-}) => {
+test("settings audit hides older entries and details until requested", {
+	tag: "@ui",
+}, async ({ page }) => {
 	if (!board) throw new Error("board not started");
 	await page.goto(`${board.BASE}/console/settings`);
 	const audit = page.locator("klh-audit-list");
