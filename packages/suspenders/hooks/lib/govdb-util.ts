@@ -33,7 +33,11 @@ export function openWALDb(
 	pageSize?: number,
 ): Database {
 	const db = new Database(file, { create: true });
-	db.run("PRAGMA busy_timeout=2000");
+	// W1274: 2s lost claims under burst load — a `work take` that waited out
+	// the old window surfaced "database is locked" and dispatch read it as a
+	// claim verdict (SKIP, exit 0) instead of contention. 10s rides out the
+	// bursts; the HTTP store's begin ladder already tolerates 35s (govdb-store.ts).
+	db.run("PRAGMA busy_timeout=10000");
 	if (pageSize) db.run(`PRAGMA page_size=${pageSize}`);
 	try {
 		db.run("PRAGMA journal_mode=WAL");
