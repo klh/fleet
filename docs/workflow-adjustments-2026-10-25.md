@@ -1,0 +1,37 @@
+# Fleet workflow adjustments — 2026-10-25
+
+Evidence log for the ongoing throughput and supervision incident (W1281).
+One row represents one failure mechanism. Later occurrences update that row;
+they do not create another fix item unless the mechanism differs. Work Graph
+items own the repairs; this document records the interventions and proof.
+
+## Deduplicated mechanisms
+
+| ID | Mechanism and evidence | Adjustment made to keep work moving | Durable repair and verification |
+| --- | --- | --- | --- |
+| A1 · config pointer | After the W1253 YAML→JSON migration, `buckle-spoke.env` still set `BUCKLE_UPSTREAMS` to the removed `upstreams.yaml`. `launchctl` reported 729 spoke runs with exit 1; the spoke log named the missing file; `:4101` refused connections. | Changed the machine env pointer to `upstreams.json` at mode 600 and restarted only `com.suspenders.buckle-spoke`. `/status` returned healthy; it subsequently served lane and review requests. | W1278.1 at `437e12c9` makes the installer repoint the default path atomically, including on a later install. The regression failed before the fix, then 8 focused and 182 push-gate tests passed. Exact review PASS with coverage proof (2 new tests fail without fix), then guarded merge `f9116d2f` landed on main. Installed/deployed version still needs a fresh install verification. W1278.2 covers outside-process detection and recovery. |
+| A2 · stale operation hold | `.fleet/merge-hold` still described the W1266 direct-capacity quiet window after W1266.1 was DONE. Review and merge scheduling remained deferred. | Removed that specific expired hold after the owner's authorized quiet window ended. | Check hold provenance and expiry in the controller rather than relying on an operator to remember cleanup. No distinct repair item yet; folded into the supervision analysis under W1278.2 where applicable. |
+| A3 · dead-lane allocation | `work allocate --capacity 50` recommended all eight READY candidates to dead `autow107`, with zero assignments. `work orphaned` listed seven claims. A targeted crash reclaim of W1135.1.1 refused because claimant death was unknown. | Used fenced `dispatch --item ... --route glm-5.3-flash` for W1278.2, W1217.1, W1279 and W1280. Did not force reclaim or run a global sweep. Sent evidence to the coordinator and W1072 owner. | W1072 owns claimant liveness repair. Acceptance: dead/unknown candidates do not capture the allocator's entire READY pool; no live claim is stolen; measured code lanes progress without manual item dispatch. |
+| A4 · split-child branch identity | `work split W1278 --keep 1` rebound the claim to W1278.1 but left the worktree branch `suspenders/W1278`. `work done` said “not merge-ready: dirty, not ahead”; exact review for W1278.1 failed before a bound receipt because it looks for `suspenders/W1278.1`. The generated worktree `node_modules` symlink also made the tree dirty. | Removed only that generated symlink and published the same verified commit under the child branch name. The exact review could then start. | W1279 owns a branch/claim/review binding regression. Acceptance: a kept split child is reviewable and mergeable using its original baseline without manual branch aliases. |
+| A5 · review admission | With `SUSPENDERS_REVIEW_CONCURRENCY` unset, `review-scheduler.ts` leaves review launches unbounded. At 10:47 UTC, 17 `review-lane.ts` processes existed; Buckle `:4101/status` recorded reviewer-route HTTP 504s and W1278.1's first exact review leg received 504. Process count is **not** proof of 17 productive upstream requests or Z.ai exhaustion. | Kept W1278.1 unmerged until its bounded retry returned an exact PASS, then the guarded merge landed. Sent the count and 504 evidence to the coordinator. | W1280 owns capacity-aware backpressure and timed-out-leg reconciliation. Acceptance: backlog drains with exact-SHA receipts while code lanes keep capacity, and no 504 storm. |
+| A6 · completion/branch SHA drift | W1276 is DONE with immutable `result_sha=159faf86`, but its `suspenders/W1276` branch advanced to `3780dffc` for a fragment-path repair after closure. `git log main..suspenders/W1276` shows both commits; there is no W1276.1 work item. The guarded ladder requires branch HEAD to match DONE SHA and correctly defers this branch. | Held W1276 out of merge. Minted W1283 and dispatched Flash lane `autow1283-p98b319584008df14` to carry both commits onto current main and close at the final verified SHA. | W1283 must pass its entrypoint/import/test gates and exact review before guarded merge. Keep the original W1276 record immutable. Add a regression for post-close repair handoff to prevent repeat drift. |
+| A7 · provider pressure versus gate pacing | W1266.1 direct Coding Plan long-work ramps peaked at 8–9 producing generations (24/40 and 30/50 accepted with 5-second starts; excess provider 429/1302). The matched Buckle L40 ramp accepted only 2/40 and no terminals in 372 seconds while spoke slots showed `adaptiveConcurrency=50`, `adaptiveGapMs=24435`, queued 28, active 1. Raw JSONL paths are recorded in W1266.1 `benchmarks.md` branch rows; short 16/16 control rules out a simple universal 8-request rate bucket. | Separately reported direct-provider behavior and local gateway pacing; did not infer 40–50 productive generations from accepted short requests. W1273 committed a bounded gap escalation/recovery fix at `9868cb8e`. | Obtain exact W1273 review and guarded landing, install it, then repeat matched direct/Buckle long-work ramps. Keep provider 1302 and local admission/timeout counts separate and retain request/attempt IDs and terminal markers. |
+
+## Open observations (not yet assigned a root cause)
+
+| ID | Observation | Next evidence needed |
+| --- | --- | --- |
+| O1 | W1217.1 initially had a live Claude process but zero completed attribution and no source edits eight minutes after dispatch. Buckle `GET /v1/admin/requests?model=glm-5.3-flash` later showed its real in-flight origin request to `:4301` at over 133 seconds; `work report` subsequently attributed 26k tokens. | Compare request start/end and streamed output against time to first useful edit. A zero completed-token snapshot alone cannot classify the lane as idle. |
+| O2 | The fleet-loop launchd unit was running while its log contained governor-store lock/unreachable errors from earlier generations. | Timestamped current-cycle and fence receipts before treating those historical stacks as the cause of today's dead allocation. |
+| O3 | W1278.1 review was requested as `glm-5.3-flash`, but `coord fact get review.W1278.1.glm-5.3-flash` records `wire_model=chatgpt/gpt-6-sol`. The spoke's Flash group has candidate paths through `:4301` and LiteLLM `:4100`. | Correlate the Buckle spoke and hub request IDs, target kind/model and upstream status for that exact review. Determine whether routing, fallback or receipt attribution changed the model. Do not treat the group label as proof of the provider used. |
+
+## Review rule
+
+At each supervisor check, compare `work report`, `work ready`, `work lanes`,
+`coord fleet`, Buckle health, and the relevant exact-commit review receipts.
+Update a mechanism row only when new evidence changes its status; add an
+observation when the cause is unknown. Close a row only after the named
+repair is integrated, deployed where applicable, and its failure scenario
+is exercised again. The related architecture and correction boundaries are
+in `restructure-proposal-2026-10-23.md` and
+`owner-correction-taxonomy.md`; this log does not replace the Work Graph.
