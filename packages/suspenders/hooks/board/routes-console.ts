@@ -1,23 +1,16 @@
 // hooks/board/routes-console.ts — W147 console: /console /console/buckle /console/local /api/console/me /console/settings(+preview/apply) (W157 route module).
 // The fetch fragment moved verbatim (route order preserved by the
 // entry's handler list); returns null when nothing matches.
-import { BELT_REPO, db } from "./context.ts";
-import { json, writeGuard } from "./helpers.ts";
-import { recentAdminAudit } from "../lib/admin-audit.ts";
-import { consoleMe, gatherBeltView, gatherLocalView } from "./console-view.ts";
-import { networkPayload, topologyPayload } from "./network-overview.ts";
-import { beltAssetUp, buckleReadProxy } from "./buckle-read-proxy.ts";
 import {
-	htmlHdr,
-	suspPreview,
-	policyPreview,
-	settingsApply,
-} from "./settings.ts";
-import { scrub } from "../lib/servicemon.ts";
-// W183.2 — the settings form's preference editor picks from the same
-// merged catalog /api/executors serves (one source, both surfaces)
-import { executorFeed } from "./routes-data.ts";
-import { probeAll, probeService, withRecovery } from "./service-probe.ts";
+	beltPage,
+	type Feature,
+	localPage,
+	previewPage,
+	settingsFormPage,
+	settingsIndexPage,
+} from "../bin/console-html.ts";
+import { recentAdminAudit } from "../lib/admin-audit.ts";
+import type { PolicyGatewayParsed } from "../lib/board/board-config.ts";
 import {
 	ConfigError,
 	parsePolicy,
@@ -25,15 +18,22 @@ import {
 	readBoardSettings,
 	resolvePolicy,
 } from "../lib/board/board-config.ts";
-import type { PolicyGatewayParsed } from "../lib/board/board-config.ts";
+import { scrub } from "../lib/servicemon.ts";
+import { beltAssetUp, buckleReadProxy } from "./buckle-read-proxy.ts";
+import { consoleMe, gatherBeltView, gatherLocalView } from "./console-view.ts";
+import { BELT_REPO, BUCKLE_REPO, db } from "./context.ts";
+import { json, writeGuard } from "./helpers.ts";
+import { networkPayload, topologyPayload } from "./network-overview.ts";
+// W183.2 — the settings form's preference editor picks from the same
+// merged catalog /api/executors serves (one source, both surfaces)
+import { executorFeed } from "./routes-data.ts";
+import { probeAll, probeService, withRecovery } from "./service-probe.ts";
 import {
-	beltPage,
-	localPage,
-	type Feature,
-	previewPage,
-	settingsFormPage,
-	settingsIndexPage,
-} from "../bin/console-html.ts";
+	htmlHdr,
+	policyPreview,
+	settingsApply,
+	suspPreview,
+} from "./settings.ts";
 
 export async function handleConsole(
 	req: Request,
@@ -112,7 +112,7 @@ export async function handleConsole(
 		});
 	}
 	if (url.pathname === "/console/settings") {
-		const pol = resolvePolicy({ beltRepo: BELT_REPO });
+		const pol = resolvePolicy({ beltRepo: BELT_REPO, buckleRepo: BUCKLE_REPO });
 		let gw: PolicyGatewayParsed | null = null;
 		let perr: string | null = null;
 		if (pol) {
@@ -154,7 +154,7 @@ export async function handleConsole(
 		// W183.2 — the suspenders form carries the executor-preference editor;
 		// its add-picker lists the same catalog the dispatch feed serves
 		const executors = f === "suspenders" ? await executorFeed() : [];
-		const pol = resolvePolicy({ beltRepo: BELT_REPO });
+		const pol = resolvePolicy({ beltRepo: BELT_REPO, buckleRepo: BUCKLE_REPO });
 		let gw: PolicyGatewayParsed | null = null;
 		let perr: string | null = null;
 		if (pol) {

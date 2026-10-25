@@ -81,7 +81,10 @@ GitHub push — W422.9/W422.1).
 - Coordination plane: coord CLI + WS subscribe; broadcast landed changes
   that affect lanes (what/who/exact command).
 - Per-package AGENTS.md files are each subtree's canonical docs — they are
-  the package-level truth; this root file is the stack-wide law.
+  the package-level truth; this root file is the stack-wide law. Divergences
+  from the owner TypeScript PaaS standard are dispositioned per row in
+  docs/standard-dispositions.md (W1301) — a deviation without a tracked
+  disposition is a defect.
 
 ## Supervisor reporting (W892, installed face W899/W906)
 

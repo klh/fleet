@@ -4,7 +4,7 @@
 // carries; the preview page renders the diff in shadow DOM. Real
 // fleet-board.ts on a scratch HOME (harness.ts).
 import { expect, test } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
+import { type Board, startBoard } from "./harness";
 
 test.describe.configure({ mode: "serial" });
 
@@ -18,9 +18,9 @@ test.afterAll(async () => {
 	if (board) await board.stop();
 });
 
-test("executor editor: add/reorder/remove drives the hidden input; preview renders the diff", async ({
-	page,
-}) => {
+test("executor editor: add/reorder/remove drives the hidden input; preview renders the diff", {
+	tag: "@ui",
+}, async ({ page }) => {
 	if (board === null) throw new Error("board not started");
 	const pageErrors: string[] = [];
 	page.on("pageerror", (e) => pageErrors.push(String(e)));

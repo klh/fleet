@@ -7,13 +7,6 @@ import { BIN, composeBrief } from "./lib/brief.ts";
 
 export { composeBrief };
 
-// W157 decomposition: the pure governance decisions live in their module;
-// re-exported so existing importers (tests, scripts) keep their path.
-import {
-	laneKeyDecision,
-	parseGovernanceMode,
-	probeFrontDecision,
-} from "./lib/governance-decide.ts";
 import {
 	coordCliFor,
 	laneAuditFor,
@@ -24,6 +17,13 @@ import {
 	workCliFor,
 } from "../hooks/lib/lanes/lane.ts";
 import { adminKey } from "../hooks/lib/lanes/lane-auth.ts";
+// W157 decomposition: the pure governance decisions live in their module;
+// re-exported so existing importers (tests, scripts) keep their path.
+import {
+	laneKeyDecision,
+	parseGovernanceMode,
+	probeFrontDecision,
+} from "./lib/governance-decide.ts";
 import { grinderGate } from "./lib/lane-death-capture.ts";
 // W519: .prefer prefer= soft routing — the brief carries the constraint
 import {
@@ -37,7 +37,6 @@ export type { GovernanceDecision } from "./lib/governance-decide.ts";
 export { hubAttributionDecision } from "./lib/governance-decide.ts";
 export { laneKeyDecision, parseGovernanceMode, probeFrontDecision };
 
-import { forecastPush } from "../hooks/lib/usage/credit-forecast.ts";
 // THEN.D (W1255.6): the per-lane launch machine rides hooks/lib/fleet-loop and
 // the refill face declares through the verb kit (CLI Toolkit Law, W651).
 import { dispatchLane } from "../hooks/lib/fleet-loop/lane-launch.ts";
@@ -56,7 +55,10 @@ import {
 import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
 // W911: the bounded plaid posture — the ONE override of the execPick chain.
 import { plaidProbeHealth, readPosture } from "../hooks/lib/plaid/plaid.ts";
+import { forecastPush } from "../hooks/lib/usage/credit-forecast.ts";
 import { parseVerb, renderRegistryHelp } from "../hooks/lib/verb-kit.ts";
+// W1295: the agent-rules role library rides the launch path
+import { loadAgentRules } from "./lib/agent-rules.ts";
 import { recoverOrphanClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import { isDeferredItem } from "./lib/dispatch-defers.ts";
@@ -112,6 +114,9 @@ if (
   --dry-run                Preview without launching or changing claims
   --item <Wn>              Dispatch one specific work item
   --route <name>           Pin a plaid route for --item; no model fallback
+  --role <role>            Pin the agent-rules role file injected into every
+                           brief (e.g. supervisor, test.agent.md); unknown
+                           names refuse at startup (W1295)
   --no-belt                Skip belt executor selection
   --allow-ungoverned       Explicitly allow a surfaced governance bypass
   --show-capsule <sid>      Print a lane's saved continuation capsule
@@ -183,6 +188,17 @@ const DRY = argv.includes("--dry-run");
 // precisely instead of whatever sorts first in `work ready`.
 const ITEM = val("--item");
 const ROUTE = val("--route");
+// W1295: --role pins the agent-rules role file injected into every brief;
+// an unknown name refuses at startup (loud, before any claim or spawn).
+const ROLE = val("--role");
+if (ROLE) {
+	try {
+		loadAgentRules(ROLE);
+	} catch (e) {
+		console.error(`dispatch: ${e instanceof Error ? e.message : String(e)}`);
+		process.exit(2);
+	}
+}
 const NO_BELT = argv.includes("--no-belt");
 // W463 fail-closed governance: belt-direct is never a silent fallback. When
 // the buckle front answers but the lane key can't be minted, dispatch REFUSES
@@ -319,6 +335,7 @@ const dispatchItem = async (
 			governanceMode,
 			routingExtra,
 			itemCapsuleGet,
+			...(ROLE ? { role: ROLE } : {}),
 			routeAdmission,
 			sh,
 			run,

@@ -8,16 +8,17 @@
 // Rides realDeps env knobs
 // (SUSPENDERS_LLM_HOME, SUSPENDERS_LOCAL_REGISTRY) + the module singleton,
 // so the spec exercises the exact wire surface a human sees.
-import {
-	chromium,
-	expect,
-	test,
-	type Browser,
-	type Page,
-} from "@playwright/test";
+
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+	type Browser,
+	chromium,
+	expect,
+	type Page,
+	test,
+} from "@playwright/test";
 import { handleFleetTree } from "../hooks/board/routes-fleet-tree.ts";
 
 let browser: Browser;
@@ -93,7 +94,12 @@ const guarded = Bun.serve({
 			? Response.json({
 					router: { port: LANE },
 					entries: [
-						{ alias: "vault-coder", label: "vault coder", port: LANE, tier: "coder" },
+						{
+							alias: "vault-coder",
+							label: "vault coder",
+							port: LANE,
+							tier: "coder",
+						},
 					],
 				})
 			: new Response("denied", { status: 401 });
@@ -196,7 +202,9 @@ const refresh = async () => {
 	await expect(page.locator("#refresh")).toBeEnabled();
 };
 
-test("startup renders live hub, protected hub, dead hub and simulation root", async () => {
+test("startup renders live hub, protected hub, dead hub and simulation root", {
+	tag: "@ui",
+}, async () => {
 	const t = await page.locator("#tree").innerText();
 	expect(t).toContain("nas");
 	expect(t).toContain("discovery: available");
@@ -212,7 +220,9 @@ test("startup renders live hub, protected hub, dead hub and simulation root", as
 	});
 });
 
-test("W565 demo roots stay namespaced and unprobed leaves stay neutral", async () => {
+test("W565 demo roots stay namespaced and unprobed leaves stay neutral", {
+	tag: "@ui",
+}, async () => {
 	const t = await page.locator("#tree").innerText();
 	expect(t).toContain("nas (demo)");
 	// DOM-level namespace: one live "nas" rootlabel, demo doubles carry
@@ -237,11 +247,13 @@ test("W565 demo roots stay namespaced and unprobed leaves stay neutral", async (
 	expect(await leafClass("coder :")).toContain("up");
 	await page.screenshot({
 		path: "e2e/test-results/w565-demo-namespace.png",
-	fullPage: true,
+		fullPage: true,
 	});
 });
 
-test("W569 authorized discovery renders authorized, denied and unknown hubs", async () => {
+test("W569 authorized discovery renders authorized, denied and unknown hubs", {
+	tag: "@ui",
+}, async () => {
 	await refresh();
 	const t = await page.locator("#tree").innerText();
 	expect(seenAuth).toContain("Bearer bksk_e2e_good");
@@ -257,7 +269,9 @@ test("W569 authorized discovery renders authorized, denied and unknown hubs", as
 	});
 });
 
-test("lane stop/start transition flips the leaf on the next sweep", async () => {
+test("lane stop/start transition flips the leaf on the next sweep", {
+	tag: "@ui",
+}, async () => {
 	laneSrv.stop(true);
 	await refresh();
 	expect(await leafClass("coder :")).toContain("downleaf");
@@ -278,7 +292,9 @@ test("lane stop/start transition flips the leaf on the next sweep", async () => 
 	});
 });
 
-test("inaccessible registry serves last-good snapshot with the stale badge", async () => {
+test("inaccessible registry serves last-good snapshot with the stale badge", {
+	tag: "@ui",
+}, async () => {
 	registry.stop(true);
 	nas.stop(true);
 	vault.stop(true);

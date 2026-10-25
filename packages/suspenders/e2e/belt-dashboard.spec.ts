@@ -3,11 +3,12 @@
 // bin) fed by a node:http fixture answering the dashboard APIs (the
 // belt-topology.spec.ts pattern, extended past topology to the supervisor
 // panel, the sparse-raster trends and the model-access catalog).
-import { expect, test, type Page } from "@playwright/test";
+
 import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { expect, type Page, test } from "@playwright/test";
 import { displayLabel } from "../../belt/bin/klh-theme.ts";
 
 const BELT_BIN = join(
@@ -326,9 +327,9 @@ const expandSupervisor = async (page: Page): Promise<void> => {
 	await panel.locator("details").first().click();
 };
 
-test("supervisor panel renders the fresh snapshot with per-target states", async ({
-	page,
-}) => {
+test("supervisor panel renders the fresh snapshot with per-target states", {
+	tag: ["@ui", "@smoke"],
+}, async ({ page }) => {
 	await expandSupervisor(page);
 	const panel = page.locator("belt-supervisor");
 	await expect(
@@ -361,9 +362,9 @@ test("supervisor panel renders the fresh snapshot with per-target states", async
 	await expect(panel.getByText("nas :4101")).toBeVisible();
 });
 
-test("stale snapshot degrades to unknown; missing feed removes the panel", async ({
-	page,
-}) => {
+test("stale snapshot degrades to unknown; missing feed removes the panel", {
+	tag: ["@ui", "@smoke"],
+}, async ({ page }) => {
 	fixture.updatedAgoMs = 600_000;
 	await expandSupervisor(page);
 	const panel = page.locator("belt-supervisor");
@@ -385,7 +386,9 @@ test("stale snapshot degrades to unknown; missing feed removes the panel", async
 	).not.toContain("Supervisor");
 });
 
-test("supervisor feed failure surfaces the alert", async ({ page }) => {
+test("supervisor feed failure surfaces the alert", {
+	tag: ["@ui", "@smoke"],
+}, async ({ page }) => {
 	fixture.supervisorFail = true;
 	await page.goto(base);
 	await expect(
@@ -395,9 +398,9 @@ test("supervisor feed failure surfaces the alert", async ({ page }) => {
 	).toBeVisible();
 });
 
-test("trends renders the sparse activity raster and the per-bucket table", async ({
-	page,
-}) => {
+test("trends renders the sparse activity raster and the per-bucket table", {
+	tag: ["@ui", "@smoke"],
+}, async ({ page }) => {
 	await page.goto(base);
 	const trends = page.locator("belt-trends");
 	await expect(trends).toBeVisible();
@@ -419,9 +422,9 @@ test("trends renders the sparse activity raster and the per-bucket table", async
 	await expect(coderRow).toContainText("—");
 });
 
-test("trends degrades honestly without the chart engine and on feed errors", async ({
-	page,
-}) => {
+test("trends degrades honestly without the chart engine and on feed errors", {
+	tag: ["@ui", "@smoke"],
+}, async ({ page }) => {
 	const t0 = Math.floor((Date.now() - 900_000) / 1000);
 	fixture.history = {
 		windowMs: 6 * 3_600_000,
@@ -452,9 +455,9 @@ test("trends degrades honestly without the chart engine and on feed errors", asy
 	).toBeVisible();
 });
 
-test("model access renders seats, catalog groups and capability provenance", async ({
-	page,
-}) => {
+test("model access renders seats, catalog groups and capability provenance", {
+	tag: ["@ui", "@smoke"],
+}, async ({ page }) => {
 	await page.goto(base);
 	const box = page.locator("#modelaccess");
 	await expect(
@@ -504,9 +507,9 @@ test("model access renders seats, catalog groups and capability provenance", asy
 	).toBeVisible();
 });
 
-test("model access feed failure degrades to the honest error line", async ({
-	page,
-}) => {
+test("model access feed failure degrades to the honest error line", {
+	tag: ["@ui", "@smoke"],
+}, async ({ page }) => {
 	fixture.accessFail = true;
 	await page.goto(base);
 	await expect(

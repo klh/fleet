@@ -5,8 +5,8 @@
 // policy missing, registry empty: the cards' degraded states are the
 // fixture). Screenshots land in /tmp/w66911-shots.
 import { mkdirSync } from "node:fs";
-import { expect, test, type Page } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
+import { expect, type Page, test } from "@playwright/test";
+import { type Board, startBoard } from "./harness";
 
 test.describe.configure({ mode: "serial" });
 
@@ -43,9 +43,9 @@ function watch(page: Page): { clean(): void } {
 	};
 }
 
-test("belt console: policy + upstream-pool cards upgrade and render", async ({
-	page,
-}) => {
+test("belt console: policy + upstream-pool cards upgrade and render", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const B = mustBoard();
 	const look = watch(page);
 	await page.goto(`${B.BASE}/console/buckle`);
@@ -76,9 +76,9 @@ test("belt console: policy + upstream-pool cards upgrade and render", async ({
 	look.clean();
 });
 
-test("local page: registry card upgrades; settings: knobs + audit cards", async ({
-	page,
-}) => {
+test("local page: registry card upgrades; settings: knobs + audit cards", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const B = mustBoard();
 	const look = watch(page);
 	await page.goto(`${B.BASE}/console/local`);
