@@ -307,7 +307,7 @@ import{r,e,t,s}from"./lit-ec6b45c34eb5ebcc.js";var g=["dim","ok","warn","bad","i
 		`}renderFederation(){let a=this.peers??[];return e`
 			<h2>Federation</h2>
 			${this.fedidle?e`<p class="dim">
-						no peer edges declared (HUB_PEERS / stack.yaml hubs.&lt;me&gt;.peers)
+						no peer edges declared (HUB_PEERS / stack.json hubs.&lt;me&gt;.peers)
 						— idle
 					</p>`:e`
 						<table>

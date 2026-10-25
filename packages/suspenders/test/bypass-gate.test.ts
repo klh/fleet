@@ -66,10 +66,6 @@ const BYPASS_ALLOWLIST: Array<[string, string]> = [
 		"W1119 parent scope — board migrations land with the parent item",
 	],
 	[
-		"hooks/board/routes-actions.ts",
-		"W1119 parent scope — board migrations land with the parent item",
-	],
-	[
 		"hooks/board/suggest.ts",
 		"W1119 parent scope — board migrations land with the parent item",
 	],
