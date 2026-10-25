@@ -952,3 +952,33 @@ model emitted zero text blocks); the counted row is the budget-2048
 re-run. n=12 = smoke-class by the fleet quality law — the pin decision
 rides the exec/p95 margins; match-rate miss modes recorded (state-
 filter + provenance-field nuance) in the bench README.
+
+# W1266.1 - Coding Plan capacity ramp: ~9-active provider ceiling, gate pacing is the local bottleneck
+
+Live Z.ai Coding Plan ramps (2026-10-24 quiet window, sustained long-work
+prompts, marker-verified streams): direct-anthropic accepted
+8/8 (L8, 2s), 8/16 (L16, 2s), 9/16 (L16, 5s), 9/16 (L16, 4K tokens),
+24/40 (L40, 5s), 30/50 (L50, 5s) — simultaneous PRODUCING streams peaked at
+8-9 in every level, and every excess request took provider HTTP429 code 1302.
+Spacing (2s→5s) and max_tokens (16384→4096) did not raise the active peak, so
+the limit is active-generation admission, not a request-rate bucket or a
+token reservation. A spaced SHORT control passed 16/16 with zero 429s, so
+long-running generations specifically trigger the pressure. Choose-by: 50-way
+productive concurrency is NOT available on this account today; the practical
+lane ceiling is ~8-9 concurrent long-work generations (24-30 accepted per
+50-shot cohort as finished jobs replenish admission).
+
+The matched Buckle hop is locally SLOWER than direct at pressure: buckle L40
+(5s, 4K) accepted 2/40 with zero terminals in 372 s while direct L40 accepted
+24/40 in 294 s — live slots showed the spoke pacing zai-coding-account at
+adaptiveGapMs 24.4 s with 28 queued and active=1 despite adaptiveConcurrency
+50, i.e. the gate's rate feedback serialized its own queue. Runner fixes are
+in packages/buckle (endpoint prefix retention, hop /v1 paths, full-tail
+terminal scan, key_id mint parsing with fail-closed revoke, per-hop admin
+credentials); runner-only regression: bun test
+packages/buckle/test/capacity-ramp.test.ts (4 pass). Evidence JSONL:
+/tmp/w1266.1-capacity-long.jsonl, /tmp/w1266.1-capacity-paced.jsonl,
+/tmp/w1266.1-l16-5s-16k.jsonl, /tmp/w1266.1-l16-2s-4k.jsonl,
+/tmp/w1266.1-l40-5s-4k-direct.jsonl, /tmp/w1266.1-l50-5s-4k-direct.jsonl,
+/tmp/w1266.1-l40-l50-5s-4k-buckle.jsonl, /tmp/w1266.1-l16-5s-short-control.jsonl,
+/tmp/w1266.1-l8-path-smokes.jsonl.
