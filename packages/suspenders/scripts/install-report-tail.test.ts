@@ -3,10 +3,10 @@
 // THE door), prefix-bin fallback when no shim exists, verb death mapped to
 // ok:false with stderr carried. Faked runner; one real shim-door spawn.
 import { describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { processRunner, reportTail } from "./install-report-tail.ts";
+import { processRunner, reportTail, stackVersionTail } from "./install-report-tail.ts";
 
 const TABLE = "ITEM  ST  TASK\n----  --  ----\n";
 
@@ -63,5 +63,16 @@ describe("install report tail — the real shim door (W899)", () => {
 		expect(r.ok).toBe(true);
 		expect(r.source).toBe("shim");
 		expect(r.out).toContain("ITEM");
+	});
+});
+
+describe("stack version tail (W1303.6)", () => {
+	test("renders the one-version evidence line against the real repo", () => {
+		const repo = new URL("../../..", import.meta.url).pathname;
+		const line = stackVersionTail(repo);
+		expect(line).toContain("STACK VERSION PIN");
+		// render-only: no repo file changed by rendering the hint
+		const status = Bun.spawnSync(["git", "-C", repo, "status", "--porcelain"]);
+		expect(new TextDecoder().decode(status.stdout ?? new Uint8Array()).trim()).not.toContain("stack.json");
 	});
 });
