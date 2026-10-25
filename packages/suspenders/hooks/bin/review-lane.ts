@@ -22,6 +22,7 @@ import {
 	reviewContext,
 	reviewFindingIds,
 } from "../lib/gates/review-receipt.ts";
+import { branchForItem } from "../lib/lanes/item-branch.ts";
 import {
 	finishReviewRequest,
 	reviewRequestKey,
@@ -170,7 +171,11 @@ const thread: string[] = (
 );
 
 // ---- the review prompt ------------------------------------------------------
-const boundContext = reviewContext(repo, `suspenders/${item}`);
+// W1279: the review binds the item's CANONICAL branch — its own ref when it
+// exists, else the kept child's parent-named branch (split --keep rebinds the
+// tree's lane-context, not the branch) — never a blind suspenders/<item>.
+const boundBranch = branchForItem(repo, item) ?? `suspenders/${item}`;
+const boundContext = reviewContext(repo, boundBranch);
 if (requestKey && requestKey !== reviewRequestKey(project, item, boundContext))
 	throw new Error("review context changed before scheduled runner started");
 const diff = gitDiff(boundContext.base, boundContext.commit);
@@ -553,8 +558,7 @@ const reviewerHeadline = (
 // Sinai proof gates the approval: a PASS stands only when the branch's new
 // tests FAIL without the change — otherwise the verdict is downgraded, with
 // the evidence annotating the headline.
-const proof =
-	verdict === "PASS" ? await coverageProof(`suspenders/${item}`) : null;
+const proof = verdict === "PASS" ? await coverageProof(boundBranch) : null;
 const proofHeadline =
 	proof === null
 		? ""
