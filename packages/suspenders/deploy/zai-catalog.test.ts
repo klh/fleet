@@ -14,7 +14,7 @@ import {
 	type ZaiCatalogSnapshot,
 } from "../../belt/bin/zai-catalog-rows.ts";
 import { validateRouteLadders } from "../../buckle/src/route-ladder-validator.ts";
-import type { Deployment } from "../../buckle/src/upstreams.ts";
+import { loadUpstreams, type Deployment } from "../../buckle/src/upstreams.ts";
 import type { HubProfile } from "../hooks/lib/stack-config.ts";
 import {
 	fetchZaiCatalog,
@@ -192,6 +192,91 @@ describe("Z.ai account catalog", () => {
 					"glm-5.3": [{ url: "https://api.z.ai", model: "glm-5.3" }],
 				}),
 			).toThrow("direct provider route");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("permits only guarded Flash Coding Plan routes directly to Z.ai", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zai-catalog-test-"));
+		try {
+			const path = join(dir, "models.json");
+			writeZaiSnapshot(path, zaiSnapshot(["glm-5.3-flash"]));
+			const baseHub = hubWithCatalog(path);
+			const hub = {
+				...baseHub,
+				secrets: {
+					upstream_keys: {
+						...baseHub.secrets?.upstream_keys,
+						Z_AI_API_KEY: "/private/zai.key",
+					},
+				},
+			};
+			const anthropic = {
+				url: "https://api.z.ai",
+				dialect: "anthropic",
+				model: "glm-5.3-flash",
+				api_key_env: "Z_AI_API_KEY",
+				adapter_config: {
+					path_rewrite: { "/v1/messages": "/api/anthropic/v1/messages" },
+					blocked_outbound: {
+						paths: ["/api/paas/v4/"],
+						corrections: {
+							anthropic: "https://api.z.ai/api/anthropic/v1/messages",
+							openai: "https://api.z.ai/api/coding/paas/v4/chat/completions",
+						},
+					},
+				},
+			};
+			const openai = {
+				...anthropic,
+				dialect: "openai",
+				adapter: "openai-compat",
+				adapter_config: {
+					...anthropic.adapter_config,
+					path_rewrite: {
+						"/v1/chat/completions": "/api/coding/paas/v4/chat/completions",
+					},
+				},
+			};
+			const groups = { "glm-5.3-flash": [anthropic, openai] };
+			expect(mergeZaiHubUpstreams(hub, groups)["glm-5.3-flash"]).toEqual(
+				groups["glm-5.3-flash"],
+			);
+			const upstreamsPath = join(dir, "upstreams.json");
+			writeFileSync(
+				upstreamsPath,
+				JSON.stringify({ version: 1, inherit_defaults: false, groups }),
+			);
+			expect(
+				loadUpstreams(upstreamsPath).deployments("glm-5.3-flash"),
+			).toHaveLength(2);
+			for (const mutation of [
+				{ ...anthropic, url: "http://api.z.ai" },
+				{ ...anthropic, model: "glm-5.3" },
+				{ ...anthropic, api_key_env: "LITELLM_KEY" },
+				{
+					...anthropic,
+					adapter_config: { ...anthropic.adapter_config, path_rewrite: {} },
+				},
+				{
+					...anthropic,
+					adapter_config: {
+						...anthropic.adapter_config,
+						blocked_outbound: { paths: [] },
+					},
+				},
+				{
+					...anthropic,
+					adapter_config: {
+						...anthropic.adapter_config,
+						blocked_outbound: { paths: ["/api/paas/v4/"] },
+					},
+				},
+			])
+				expect(() =>
+					mergeZaiHubUpstreams(hub, { "glm-5.3-flash": [mutation] }),
+				).toThrow("direct provider route");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
