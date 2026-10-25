@@ -5,6 +5,7 @@ import { benchDocsVerdict } from "../gates/bench-docs-gate.ts";
 import { claimCheckVerdict } from "../gates/claim-check.ts";
 import { scanCompletionDiff } from "../executors/fake-completion.ts";
 import { type GovernorStore, projectRootOf } from "../govdb/govdb.ts";
+import { importLawVerdict } from "../import-law.ts";
 import { patchFirstVerdict } from "../patch-first.ts";
 import { resolveTranscriptPath } from "../transcript.ts";
 import {
@@ -552,6 +553,20 @@ export function prepareCompletion(
 		tryGit(shaRepo, "merge-base", "--is-ancestor", baseline, branchBase)
 			? branchBase
 			: null;
+	// W1302.4 import-law ratchet: relative reach-in edges ADDED by this
+	// branch refuse closure — the boundary drifts at the lane, not at
+	// CI/merge (the W1286.1 drift surfaced only at merge). The base is the
+	// widest honest window: branch merge-base over the claim baseline, the
+	// cross-repo diff base, or the closing commit's parent.
+	const il = importLawVerdict({
+		repo: shaRepo,
+		paths,
+		baseRef: crossRepo
+			? (diffBase ?? `${sha}^`)
+			: (claimCheckBase ?? baseline ?? `${sha}^`),
+		sha,
+	});
+	if (!il.ok) throw new Error(il.why ?? "import-law refusal");
 	const cc = claimCheckVerdict({
 		transcriptPath:
 			completionTranscriptPath(db, o.project, o.sid, o.cwd) ?? undefined,
