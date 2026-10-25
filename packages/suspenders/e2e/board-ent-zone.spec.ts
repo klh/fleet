@@ -4,9 +4,10 @@
 // KLH_OVERLAY_MODULE fixture provider): the tab appears, the zone renders
 // the seven panels with real slice data, a failed slice renders its
 // honest empty-state.
-import { expect, test } from "@playwright/test";
+
 import { join } from "node:path";
-import { startBoard, type Board } from "./harness";
+import { expect, test } from "@playwright/test";
+import { type Board, startBoard } from "./harness";
 
 test.describe.configure({ mode: "serial" });
 
@@ -68,71 +69,68 @@ test("core SKU: page hides the zone and coerces the deep-link", {
 	await expect(page.locator("#tab-enterprise")).toBeHidden();
 });
 
-test(
-	"entitled: tab appears, zone renders the seven panels",
-	{ tag: "@ui" },
-	async ({ page }, testInfo) => {
-		testInfo.setTimeout(40_000);
-		const errors: string[] = [];
-		page.on("pageerror", (e) => errors.push(String(e)));
-		await page.goto(`${mustEnt().BASE}/`);
-		const tabs = page.locator("klh-board-tabs");
-		const entBtn = tabs.getByRole("button", { name: "Enterprise" });
-		await expect(entBtn).toBeVisible({ timeout: 20_000 });
-		expect(errors, `page errors: ${errors.join(" | ")}`).toEqual([]);
+test("entitled: tab appears, zone renders the seven panels", {
+	tag: "@ui",
+}, async ({ page }) => {
+	const errors: string[] = [];
+	page.on("pageerror", (e) => errors.push(String(e)));
+	await page.goto(`${mustEnt().BASE}/`);
+	const tabs = page.locator("klh-board-tabs");
+	const entBtn = tabs.getByRole("button", { name: "Enterprise" });
+	await expect(entBtn).toBeVisible({ timeout: 20_000 });
+	expect(errors, `page errors: ${errors.join(" | ")}`).toEqual([]);
 
-		await entBtn.click();
-		const zone = page.locator("#tab-enterprise klh-ent-zone");
-		await expect(zone).toBeVisible();
-		await expect(zone).toHaveAttribute("active", "");
+	await entBtn.click();
+	const zone = page.locator("#tab-enterprise klh-ent-zone");
+	await expect(zone).toBeVisible();
+	await expect(zone).toHaveAttribute("active", "");
 
-		// zone chrome: badge + tenant
-		await expect(zone.locator(".badge")).toHaveText("ENTERPRISE");
-		await expect(zone.locator(".tenant")).toHaveText("acme-corp");
+	// zone chrome: badge + tenant
+	await expect(zone.locator(".badge")).toHaveText("ENTERPRISE");
+	await expect(zone.locator(".tenant")).toHaveText("acme-corp");
 
-		// the seven family panels render (one host each)
-		for (const tag of [
-			"klh-ent-identity",
-			"klh-ent-federation",
-			"klh-ent-audit",
-			"klh-ent-usage",
-			"klh-ent-policy",
-			"klh-ent-vault",
-			"klh-ent-ma",
-		]) {
-			await expect(zone.locator(tag)).toHaveCount(1);
-		}
-		await expect(
-			zone.locator("klh-ent-identity h3", { hasText: "Identity" }),
-		).toBeVisible();
+	// the seven family panels render (one host each)
+	for (const tag of [
+		"klh-ent-identity",
+		"klh-ent-federation",
+		"klh-ent-audit",
+		"klh-ent-usage",
+		"klh-ent-policy",
+		"klh-ent-vault",
+		"klh-ent-ma",
+	]) {
+		await expect(zone.locator(tag)).toHaveCount(1);
+	}
+	await expect(
+		zone.locator("klh-ent-identity h3", { hasText: "Identity" }),
+	).toBeVisible();
 
-		// identity slice data is real: ada (employee, enforced) + bob
-		// (contractor, off)
-		const identity = zone.locator("klh-ent-identity");
-		await expect(identity.locator("td", { hasText: "ada" })).toBeVisible();
-		await expect(
-			identity.locator(".chip", { hasText: "contractor" }),
-		).toBeVisible();
-		await expect(
-			identity.locator(".chip", { hasText: "enforced" }),
-		).toBeVisible();
+	// identity slice data is real: ada (employee, enforced) + bob
+	// (contractor, off)
+	const identity = zone.locator("klh-ent-identity");
+	await expect(identity.locator("td", { hasText: "ada" })).toBeVisible();
+	await expect(
+		identity.locator(".chip", { hasText: "contractor" }),
+	).toBeVisible();
+	await expect(
+		identity.locator(".chip", { hasText: "enforced" }),
+	).toBeVisible();
 
-		// usage anomaly flags
-		await expect(
-			zone.locator("klh-ent-usage .chip", { hasText: "flag" }),
-		).toBeVisible();
+	// usage anomaly flags
+	await expect(
+		zone.locator("klh-ent-usage .chip", { hasText: "flag" }),
+	).toBeVisible();
 
-		// failed slice renders its honest why (vault)
-		await expect(
-			zone.locator("klh-ent-vault .state.bad", {
-				hasText: "vault surface not wired",
-			}),
-		).toBeVisible();
+	// failed slice renders its honest why (vault)
+	await expect(
+		zone.locator("klh-ent-vault .state.bad", {
+			hasText: "vault surface not wired",
+		}),
+	).toBeVisible();
 
-		// the render-and-look artifact (not committed — lane evidence)
-		await page
-			.locator("#tab-enterprise")
-			.screenshot({ path: `/tmp/w7751-zone-${testInfo.retry}.png` })
-			.catch(() => {});
-	},
-);
+	// the render-and-look artifact (not committed — lane evidence)
+	await page
+		.locator("#tab-enterprise")
+		.screenshot({ path: "/tmp/w7751-zone.png" })
+		.catch(() => {});
+});
