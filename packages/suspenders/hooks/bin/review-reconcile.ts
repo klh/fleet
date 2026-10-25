@@ -4,11 +4,12 @@
 // 25-minute lease. Fired by the fleet-loop maintenance registry (review-
 // reconcile, every 300s); also safe to run by hand.
 // usage: bun review-reconcile.ts
-import { openStore } from "../lib/govdb.ts";
+
 import {
 	providerPressureOf,
 	reconcileReviewLegs,
 } from "../lib/gates/review-scheduler.ts";
+import { openStore } from "../lib/govdb.ts";
 
 const db = openStore();
 try {

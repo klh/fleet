@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { dirname, join } from "node:path";
 import { mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import type { GovernorStore } from "../govdb/govdb-store.ts";
 import type { ReviewContext } from "./review-receipt.ts";
 

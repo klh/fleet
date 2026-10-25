@@ -8,32 +8,33 @@
 //   bun review-lane.ts --item <Wn> --project <p> --executor <name> \
 //     (--bin <path> | --belt <machine>:<port>[:<model>] | --llm-url <url> [--llm-model <m>])
 // exits 0 on a landed verdict, 2 on a failed leg (verdict=error recorded).
-import { openStore, projectRootOf } from "../lib/govdb/govdb.ts";
-import { resolveBelt } from "../lib/hub/belt-locate.ts";
+
 import { existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 import {
-	reviewContext,
+	missingImportsExplained,
+	type Proof,
+	TEST_FILE,
+} from "../lib/gates/coverage-proof.ts";
+import {
 	publishReviewReceipt,
+	reviewContext,
 	reviewFindingIds,
 } from "../lib/gates/review-receipt.ts";
 import {
 	finishReviewRequest,
 	reviewRequestKey,
 } from "../lib/gates/review-scheduler.ts";
-import {
-	TEST_FILE,
-	missingImportsExplained,
-	type Proof,
-} from "../lib/gates/coverage-proof.ts";
+import { openStore, projectRootOf } from "../lib/govdb/govdb.ts";
+import { resolveBelt } from "../lib/hub/belt-locate.ts";
 import {
 	adminKey,
 	BUCKLE_FRONT,
 	mintLaneKey,
 	revokeLaneKey,
 } from "../lib/lanes/lane-auth.ts";
+import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 
 // ---- args (W820: verb-kit owns parsing — W651 law) -------------------------
 // W820: verb-kit owns parsing (W651 law) — reqFlags --item/--project; the
