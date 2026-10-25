@@ -5,6 +5,8 @@
 import {
 	hubOverview,
 	hubOverviewLayout,
+	parseTopologyHash,
+	serializeTopologyHash,
 } from "./dashboard-topology-hubs-model.js";
 import { css, html, LitElement, svg } from "./vendor/lit.js";
 
@@ -50,6 +52,8 @@ class BeltTopologyHubs extends LitElement {
 		query: { state: true },
 		selectedId: { state: true },
 		flowPaused: { state: true },
+		team: { state: true },
+		project: { state: true },
 	};
 	static styles = css`
 		:host { display:block; border-block:1px solid var(--klh-edge); margin-block:var(--klh-space-4); padding-block:var(--klh-space-3); }
@@ -145,16 +149,39 @@ class BeltTopologyHubs extends LitElement {
 		this.onVisibility = () => {
 			this.flowPaused = document.hidden;
 		};
+		this.team = "";
+		this.project = "";
 		this.onData = (event) => {
 			this.topology = event.detail;
 		};
 	}
 	connectedCallback() {
 		super.connectedCallback();
+		// W858.7.33 deep link: the fragment restores layer/window/query/team/
+		// project/hub; the link stays shareable as the viewer navigates.
+		const fromHash = parseTopologyHash(location.hash);
+		if (fromHash.layer) this.layer = fromHash.layer;
+		if (fromHash.window === "1m") this.windowMs = 60_000;
+		if (fromHash.window === "15m") this.windowMs = 900_000;
+		if (fromHash.q) this.query = fromHash.q;
+		if (fromHash.team) this.team = fromHash.team;
+		if (fromHash.project) this.project = fromHash.project;
+		if (fromHash.hub) this.selectedId = fromHash.hub;
 		document.addEventListener("belt-topology-data", this.onData);
 		document.addEventListener("visibilitychange", this.onVisibility);
 		this.topology =
 			document.querySelector("belt-topology")?.topology ?? this.topology;
+	}
+	syncHash() {
+		const hash = serializeTopologyHash({
+			layer: this.layer,
+			window: this.windowMs === 60_000 ? "1m" : "15m",
+			q: this.query,
+			team: this.team,
+			project: this.project,
+			hub: this.selectedId ?? "",
+		});
+		history.replaceState(null, "", hash || location.pathname + location.search);
 	}
 	disconnectedCallback() {
 		super.disconnectedCallback();
@@ -164,14 +191,17 @@ class BeltTopologyHubs extends LitElement {
 	}
 	onSearch(event) {
 		this.query = event.target.value;
+		this.syncHash();
 	}
 	select(id) {
 		this.selectedId = id;
+		this.syncHash();
 	}
 	onKey(event, id) {
 		if (event.key !== "Enter" && event.key !== " ") return;
 		event.preventDefault();
 		this.selectedId = id;
+		this.syncHash();
 	}
 	focusNode(id) {
 		this.updateComplete.then(() => {
@@ -193,6 +223,11 @@ class BeltTopologyHubs extends LitElement {
 			name: hub.name,
 			state: hub.state,
 		}));
+	}
+	axisOptions(hubs, axis) {
+		const names = new Set();
+		for (const hub of hubs) for (const name of hub[axis] ?? []) names.add(name);
+		return [...names].sort((a, b) => a.localeCompare(b));
 	}
 	windowComplete(graph, windowMs) {
 		if (!graph) return false;
@@ -268,6 +303,10 @@ class BeltTopologyHubs extends LitElement {
 			.filter((trace) => trace.hops.includes(selected.label))
 			.slice(0, 5);
 		const models = this.hubModelsFor()[selected.label] ?? [];
+		// W858.7.33: the server answered 403 topology.scope_denied — say so
+		// instead of a misleading "none reported".
+		const withheld =
+			this.topology?.inventoryWithheld || this.topology?.supervisorWithheld;
 		const tokenNote =
 			selected.tokens.input === null && selected.tokens.output === null
 				? "unreported"
@@ -299,7 +338,9 @@ class BeltTopologyHubs extends LitElement {
 						? html`<ul class="trace-list">${models.map(
 								(model) => html`<li>${model}</li>`,
 							)}</ul>`
-						: html`<p>No configured or Belt-served models reported.</p>`
+						: withheld
+							? html`<p class="coverage">Local model/lane detail withheld — topology scope required.</p>`
+							: html`<p>No configured or Belt-served models reported.</p>`
 				}
 			</details>
 			<h3>Joined traces</h3>
@@ -469,6 +510,8 @@ class BeltTopologyHubs extends LitElement {
 			layer: this.layer,
 			windowMs: this.windowMs,
 			query: this.query,
+			team: this.team,
+			project: this.project,
 			hubModels: this.hubModelsFor(),
 			configuredHubs: this.configuredHubsFor(data),
 			now: Date.now(),
@@ -504,6 +547,27 @@ class BeltTopologyHubs extends LitElement {
 				<label class="search">Search
 					<input type="search" .value=${this.query} placeholder="hub or model name" @input=${(event) => this.onSearch(event)} />
 				</label>
+				<fieldset>
+					<legend>Team / project filters</legend>
+					<label>Team
+						<select @change=${(event) => {
+							this.team = event.target.value;
+							this.syncHash();
+						}} aria-label="Filter hubs by team">
+							<option value="">all teams</option>
+							${this.axisOptions(view.hubs, "teams").map((name) => html`<option value=${name} ?selected=${this.team === name}>${name}</option>`)}
+						</select>
+					</label>
+					<label>Project
+						<select aria-label="Filter hubs by project" @change=${(event) => {
+							this.project = event.target.value;
+							this.syncHash();
+						}}>
+							<option value="">all projects</option>
+						${this.axisOptions(view.hubs, "projects").map((name) => html`<option value=${name} ?selected=${this.project === name}>${name}</option>`)}
+						</select>
+					</label>
+				</fieldset>
 			</div>
 			${
 				view.search.length

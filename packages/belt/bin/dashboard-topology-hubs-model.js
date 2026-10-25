@@ -53,6 +53,10 @@ export function hubOverview(graph, options = {}) {
 			observed,
 			state: observed ? "quiet" : "planned",
 			lastSeenAt: node.lastSeenAt,
+			// W858.7.33: enterprise attribution — scoped snapshots only
+			tenant: node.tenant ?? null,
+			teams: Array.isArray(node.teams) ? node.teams : [],
+			projects: Array.isArray(node.projects) ? node.projects : [],
 			endpoints: [],
 			downstream: new Set(),
 			requests: 0,
@@ -131,11 +135,22 @@ export function hubOverview(graph, options = {}) {
 	}
 	const hubs = [...summaries.values()].sort((a, b) => a.id.localeCompare(b.id));
 	const flows = linkFlows(graph, { now, windowMs });
+	// W858.7.33: team/project filters — presentation over the already-scoped
+	// data; a filtered-out hub drops its links and estate contribution too.
+	const team = String(options.team ?? "");
+	const project = String(options.project ?? "");
+	const matches = (hub) =>
+		(!team || hub.teams.includes(team)) &&
+		(!project || hub.projects.includes(project));
+	const visibleHubs =
+		team || project ? hubs.filter((hub) => matches(hub)) : hubs;
+	const visibleIds = new Set(visibleHubs.map((hub) => hub.id));
 	const links = edges
 		.filter(
 			(edge) =>
 				summaries.get(edge.from)?.observed && summaries.get(edge.to)?.observed,
 		)
+		.filter((edge) => visibleIds.has(edge.from) && visibleIds.has(edge.to))
 		.map((edge) => ({
 			id: edge.id,
 			from: edge.from,
@@ -162,7 +177,7 @@ export function hubOverview(graph, options = {}) {
 	);
 	const search = query
 		? [
-				...hubs
+				...visibleHubs
 					.filter((hub) =>
 						`${hub.label} ${hub.id}`.toLowerCase().includes(query),
 					)
@@ -183,19 +198,28 @@ export function hubOverview(graph, options = {}) {
 			]
 		: [];
 	const estate = {
-		hubs: hubs.length,
-		endpoints: hubs.reduce((total, hub) => total + hub.endpoints.length, 0),
+		hubs: visibleHubs.length,
+		endpoints: visibleHubs.reduce(
+			(total, hub) => total + hub.endpoints.length,
+			0,
+		),
 		requests:
 			sum(links.map((link) => link.requests)) +
-			sum(hubs.flatMap((hub) => hub.endpoints.map((item) => item.requests))),
+			sum(
+				visibleHubs.flatMap((hub) =>
+					hub.endpoints.map((item) => item.requests),
+				),
+			),
 		failed:
 			sum(links.map((link) => link.failed)) +
-			sum(hubs.flatMap((hub) => hub.endpoints.map((item) => item.failed))),
+			sum(
+				visibleHubs.flatMap((hub) => hub.endpoints.map((item) => item.failed)),
+			),
 	};
 	return {
 		layer,
 		windowMs,
-		hubs,
+		hubs: visibleHubs,
 		links,
 		search,
 		estate,
@@ -282,6 +306,32 @@ export function linkFlows(graph, options = {}) {
 			},
 		]),
 	);
+}
+/** Deep-link state: the fragment keys the hub overview restores. Unknown keys
+ *  and values drop silently — a stale link never errors the page. */
+const HASH_KEYS = ["layer", "window", "q", "team", "project", "hub"];
+
+export function parseTopologyHash(hash) {
+	const state = {};
+	if (typeof hash !== "string") return state;
+	for (const part of hash.replace(/^#/, "").split("&")) {
+		const eq = part.indexOf("=");
+		if (eq <= 0) continue;
+		const key = part.slice(0, eq);
+		if (!HASH_KEYS.includes(key)) continue;
+		const value = decodeURIComponent(part.slice(eq + 1));
+		if (value) state[key] = value;
+	}
+	return state;
+}
+
+export function serializeTopologyHash(state) {
+	const parts = HASH_KEYS.flatMap((key) => {
+		const value = state[key];
+		if (value === undefined || value === null || value === "") return [];
+		return [`${key}=${encodeURIComponent(String(value))}`];
+	});
+	return parts.length ? `#${parts.join("&")}` : "";
 }
 
 /** Deterministic hub-card columns: BFS depth over hub↔hub links, rows stable
