@@ -216,6 +216,20 @@ test("review remains valid when main advances only in a disjoint path", () => {
 	expect(f.check()).toMatchObject({ ok: true });
 });
 
+for (const testSource of [
+	"packages/app/review-scheduler-w1280.test.ts",
+	"packages/app/feature.spec.ts",
+]) {
+	test(`disjoint ordinary test source ${testSource} preserves a PASS`, () => {
+		const f = fixture();
+		publishReviewReceipt(f.db, "project", "W1", f.receipt);
+		writeFileSync(join(f.repo, testSource), "Test source only.\n");
+		f.git("add", ".");
+		f.git("commit", "-m", "independent test source");
+		expect(f.check()).toMatchObject({ ok: true });
+	});
+}
+
 for (const sharedInput of [
 	"tsconfig.json",
 	"packages/app/tsconfig.build.json",
@@ -227,6 +241,9 @@ for (const sharedInput of [
 	".github/workflows/ci.yml",
 	".npmrc",
 	".pnp.cjs",
+	"packages/app/test.setup.ts",
+	"packages/app/test.config.ts",
+	"packages/app/build.ts",
 ]) {
 	test(`disjoint shared input ${sharedInput} invalidates an old PASS`, () => {
 		const f = fixture();
