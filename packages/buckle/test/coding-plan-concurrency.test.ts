@@ -45,11 +45,13 @@ const POOL_LIMITS = {
 	recovery: { successWindow: 8, decreasePercent: 20 },
 };
 // Z.ai 429 carrying the 1302 rate code, wrapped the way the provider does.
+// W1257: a configured code alone is never concurrency — the embedded
+// provider message carries the explicit evidence word for the mapped arm.
 const zai429 = (): Response =>
 	Response.json(
 		{
 			error: {
-				message: `AnthropicException - ${JSON.stringify({ error: { code: "1302", type: "rate_limit_error" } })}`,
+				message: `AnthropicException - ${JSON.stringify({ error: { code: "1302", type: "rate_limit_error", message: "too many concurrent streams" } })}`,
 			},
 		},
 		{ status: 429 },
@@ -82,10 +84,14 @@ describe("W1266 Coding Plan concurrency", () => {
 				return Response.json({ error: "barrier timeout" }, { status: 503 });
 			return Response.json(JSON.parse(OPENAI_OK));
 		});
-		const cfg = `/tmp/w1266-parity-${Date.now()}-${process.pid}.yaml`;
+		const cfg = `/tmp/w1266-parity-${Date.now()}-${process.pid}.json`;
 		await Bun.write(
 			cfg,
-			`groups:\n  glm-5.3-flash:\n    - url: ${upstream.url}\n      dialect: openai\n`,
+			JSON.stringify({
+				groups: {
+					"glm-5.3-flash": [{ url: upstream.url, dialect: "openai" }],
+				},
+			}),
 		);
 		const server = startServer({
 			port: 0,
@@ -139,10 +145,14 @@ describe("W1266 Coding Plan concurrency", () => {
 					headers: { "content-type": "text/event-stream" },
 				}),
 		);
-		const cfg = `/tmp/w1266-sse-${Date.now()}.yaml`;
+		const cfg = `/tmp/w1266-sse-${Date.now()}.json`;
 		await Bun.write(
 			cfg,
-			`groups:\n  glm-5.3-flash:\n    - url: ${upstream.url}\n      dialect: openai\n`,
+			JSON.stringify({
+				groups: {
+					"glm-5.3-flash": [{ url: upstream.url, dialect: "openai" }],
+				},
+			}),
 		);
 		const server = startServer({
 			port: 0,
@@ -283,10 +293,14 @@ describe("W1266 Coding Plan concurrency", () => {
 			await Bun.sleep(150);
 			return Response.json(JSON.parse(OPENAI_OK));
 		});
-		const cfg = `/tmp/w1266-cap-${Date.now()}.yaml`;
+		const cfg = `/tmp/w1266-cap-${Date.now()}.json`;
 		await Bun.write(
 			cfg,
-			`groups:\n  glm-5.3-flash:\n    - url: ${upstream.url}\n      dialect: openai\n`,
+			JSON.stringify({
+				groups: {
+					"glm-5.3-flash": [{ url: upstream.url, dialect: "openai" }],
+				},
+			}),
 		);
 		process.env.BUCKLE_MAX_INFLIGHT = "40";
 		let server: ReturnType<typeof startServer>;
@@ -316,7 +330,9 @@ describe("W1266 Coding Plan concurrency", () => {
 			});
 		const round = await Promise.all(Array.from({ length: 50 }, () => chat()));
 		const ok = round.filter((r) => r.status === 200);
-		const refused = round.filter((r) => r.status === 429);
+		// W1257: the gateway's own overload refusal is a typed LOCAL 503, never
+		// a fabricated provider 429; Retry-After still bounds the retry.
+		const refused = round.filter((r) => r.status === 503);
 		await Bun.sleep(200); // all served bodies drain before the reuse probe
 		const next = await chat();
 		expect(ok).toHaveLength(40);
