@@ -9,6 +9,10 @@ export interface BuckleRouteConfig {
 	origins: string[];
 	policy: GatewayPolicy;
 	pool: UpstreamPool;
+	/** True when the buckle serves on a machine this snapshot does not share
+	 * a loopback with (a deploy.ssh hub): the local specialist registry is
+	 * not reachable evidence for its machine-local deployments. */
+	remoteHost?: boolean;
 }
 
 export interface LiteLlmRouteConfig {
@@ -33,6 +37,10 @@ export interface RouteLadderInputs {
 	belts?: BeltRouteConfig[];
 	/** Local models and other leaf endpoints declared by the serving registry. */
 	terminalOrigins?: string[];
+	/** The operator-declared subset of terminalOrigins
+	 * (route_preflight.terminal_origins) — the only terminals that stay
+	 * valid evidence for a remoteHost source. */
+	declaredTerminals?: string[];
 	/** The real client's end-to-end deadline, when one is known. */
 	requestDeadlineMs?: number;
 	/** Effective selections from Fleet's execPick, in its own directive order. */
@@ -109,6 +117,13 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 	const terminals = new Set(
 		(inputs.terminalOrigins ?? [])
 			.map(originOf)
+		.filter((origin): origin is string => origin !== null),
+	);
+	// A remoteHost source judges only its own declared terminals: the
+	// machine-local registry (specialists et al) is not its loopback.
+	const declared = new Set(
+		(inputs.declaredTerminals ?? [])
+			.map(originOf)
 			.filter((origin): origin is string => origin !== null),
 	);
 	const edges = new Map<string, Set<string>>();
@@ -161,6 +176,7 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 		rawUrl: string,
 		model: string,
 		requireService = false,
+		remoteHost = false,
 	) => {
 		const origin = originOf(rawUrl);
 		if (!origin) {
@@ -169,7 +185,12 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 		}
 		const service = services.get(origin);
 		if (!service) {
-			if (requireService || (localUrl(rawUrl) && !terminals.has(origin)))
+			if (
+				requireService ||
+				(localUrl(rawUrl) &&
+					(!terminals.has(origin) ||
+						(remoteHost && !declared.has(origin))))
+			)
 				finding(
 					"unmapped_local_target",
 					"fleet",
@@ -211,7 +232,13 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 							node,
 							`deployment ${dep.url} targets configured LiteLLM ${target.id} without adapter_config.proxy_kind: litellm`,
 						);
-					link(node, dep.url, dep.model ?? rung, dep.buckle === true);
+					link(
+						node,
+						dep.url,
+						dep.model ?? rung,
+						dep.buckle === true,
+						buckle.remoteHost === true,
+					);
 				}
 			}
 			if (configured === 0)
