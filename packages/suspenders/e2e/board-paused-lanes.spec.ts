@@ -1,8 +1,8 @@
-import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { startBoard, type Board } from "./harness";
+import { expect, test } from "@playwright/test";
+import { type Board, startBoard } from "./harness";
 
 let board: Board;
 let worker: ReturnType<typeof Bun.spawn>;

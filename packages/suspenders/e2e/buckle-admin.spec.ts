@@ -5,8 +5,8 @@
 // revoked. Real fleet-board.ts + scratch identity.db (harness.ts); the
 // browser's write rides the board's HttpOnly write cookie — no secrets in the
 // spec.
-import { expect, test, type Page } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
+import { expect, type Page, test } from "@playwright/test";
+import { type Board, startBoard } from "./harness";
 
 test.describe.configure({ mode: "serial" });
 

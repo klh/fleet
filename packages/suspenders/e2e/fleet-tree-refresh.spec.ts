@@ -8,16 +8,17 @@
 // Rides realDeps env knobs
 // (SUSPENDERS_LLM_HOME, SUSPENDERS_LOCAL_REGISTRY) + the module singleton,
 // so the spec exercises the exact wire surface a human sees.
-import {
-	chromium,
-	expect,
-	test,
-	type Browser,
-	type Page,
-} from "@playwright/test";
+
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+	type Browser,
+	chromium,
+	expect,
+	type Page,
+	test,
+} from "@playwright/test";
 import { handleFleetTree } from "../hooks/board/routes-fleet-tree.ts";
 
 let browser: Browser;

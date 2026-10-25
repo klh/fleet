@@ -1,6 +1,6 @@
 // Dependency details on cards without cross-column connector lines.
 import { expect, test } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
+import { type Board, startBoard } from "./harness";
 
 test.describe.configure({ mode: "serial" });
 

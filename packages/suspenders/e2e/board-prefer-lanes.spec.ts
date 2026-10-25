@@ -3,10 +3,11 @@
 // Scratch board + scratch repo (harness.ts); .prefer at the repo root covers
 // the project; a minted READY card must render with the --prefer token and a
 // computed border of that exact color; an untagged card stays on the default.
-import { expect, test } from "@playwright/test";
+
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { startBoard, type Board } from "./harness";
+import { expect, test } from "@playwright/test";
+import { type Board, startBoard } from "./harness";
 
 test.describe.configure({ mode: "serial" });
 

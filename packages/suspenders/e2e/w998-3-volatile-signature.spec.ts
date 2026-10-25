@@ -7,8 +7,9 @@
 // away (identical signature, stale title forever); the live board must
 // rebuild and show the new title. Real board + scratch HOME via the
 // startBoard harness (w998-card-drawer.spec.ts pattern).
-import { expect, test } from "@playwright/test";
+
 import { Database } from "bun:sqlite";
+import { expect, test } from "@playwright/test";
 import { startBoard } from "./harness.ts";
 
 test.describe.configure({ mode: "serial" });

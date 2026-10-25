@@ -3,11 +3,12 @@
 // reachability" (network probes) — without hiding any check, and a FAILED
 // hub probe presents hub identity + the measured probe URL in the detail
 // and a safe concrete status command in the fix. Live board, real browser.
-import { expect, test } from "@playwright/test";
+
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startBoard, type Board } from "./harness";
+import { expect, test } from "@playwright/test";
+import { type Board, startBoard } from "./harness";
 
 test.describe.configure({ mode: "serial" });
 

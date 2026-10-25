@@ -2,7 +2,7 @@
 // Pieces moved verbatim from bin/fleet-board.ts; exports widened so
 // sibling modules and the route modules import them.
 
-import { openStore, type GovernorStore } from "../lib/govdb/govdb.ts";
+import { type GovernorStore, openStore } from "../lib/govdb/govdb.ts";
 
 export const CLI = (f: string) =>
 	new URL(`../bin/${f}`, import.meta.url).pathname;

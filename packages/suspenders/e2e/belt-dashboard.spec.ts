@@ -3,11 +3,12 @@
 // bin) fed by a node:http fixture answering the dashboard APIs (the
 // belt-topology.spec.ts pattern, extended past topology to the supervisor
 // panel, the sparse-raster trends and the model-access catalog).
-import { expect, test, type Page } from "@playwright/test";
+
 import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { expect, type Page, test } from "@playwright/test";
 import { displayLabel } from "../../belt/bin/klh-theme.ts";
 
 const BELT_BIN = join(

@@ -3,11 +3,12 @@
 // packages/belt/bin, fed by a node:http fixture answering /api/network with a
 // parametric v2 snapshot: measured edge widths, rate-bounded flow animation,
 // lane counts, joined two-/three-hop traces and the uPlot edge drilldown.
-import { expect, test, type Page } from "@playwright/test";
+
 import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { expect, type Page, test } from "@playwright/test";
 
 const BELT_BIN = join(
 	fileURLToPath(import.meta.url),

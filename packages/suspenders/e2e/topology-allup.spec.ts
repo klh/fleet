@@ -17,7 +17,7 @@
 // and auth are the real hub surfaces). Everything else is the real
 // process: dispatch-next, work.ts, work-cr.ts, federation-pull.ts,
 // fleet-board.ts, and the served board page.
-import { expect, test, type Page } from "@playwright/test";
+
 import {
 	existsSync,
 	mkdirSync,
@@ -28,10 +28,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startBoard, unusedPort, type Board } from "./harness";
-import { dispatchHarness } from "../test/helpers/dispatch-harness.ts";
-import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
+import { expect, type Page, test } from "@playwright/test";
 import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
+import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
+import { dispatchHarness } from "../test/helpers/dispatch-harness.ts";
+import { type Board, startBoard, unusedPort } from "./harness";
 
 test.describe.configure({ mode: "serial" });
 test.setTimeout(300_000);
@@ -470,15 +471,18 @@ test("all-up topology: dispatch → hub front → federation → board → recon
 	// mirror, and the hub GUI rides declare → done with the evidence.
 	// W1294.2: the done-gate verifies the sha is a commit in the presenting
 	// repo — each side presents its own scratch repo's base commit
-	const spokeSha = Bun.spawnSync(["git", "-C", spoke.REPO, "rev-parse", "HEAD"], {
+	const spokeSha = Bun.spawnSync(
+		["git", "-C", spoke.REPO, "rev-parse", "HEAD"],
+		{
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
+	const SHA = spokeSha.stdout.toString().trim();
+	const hubShaP = Bun.spawnSync(["git", "-C", H.MY_PROJ, "rev-parse", "HEAD"], {
 		stdout: "pipe",
 		stderr: "pipe",
 	});
-	const SHA = spokeSha.stdout.toString().trim();
-	const hubShaP = Bun.spawnSync(
-		["git", "-C", H.MY_PROJ, "rev-parse", "HEAD"],
-		{ stdout: "pipe", stderr: "pipe" },
-	);
 	const HUB_SHA = hubShaP.stdout.toString().trim();
 	expect(SHA).toMatch(/^[0-9a-f]{40}$/);
 	expect(HUB_SHA).toMatch(/^[0-9a-f]{40}$/);

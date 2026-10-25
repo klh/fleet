@@ -4,7 +4,8 @@
 // builders' output plus the real /vendor bundles; chromium drives both
 // dashboards: hosts must upgrade, shadow content must paint, uPlot must
 // mount, and full-page screenshots land as evidence.
-import { expect, test } from "@playwright/test";
+
+import { spawn } from "node:child_process";
 import {
 	copyFileSync,
 	mkdtempSync,
@@ -12,10 +13,10 @@ import {
 	rmSync,
 	statSync,
 } from "node:fs";
-import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { expect, test } from "@playwright/test";
 
 let scratch = "";
 let proc: ReturnType<typeof spawn> | null = null;

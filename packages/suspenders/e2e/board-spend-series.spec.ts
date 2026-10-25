@@ -4,10 +4,11 @@
 // harness: scratch HOME + repo, OS-picked port, dead loopback upstreams.
 // The ledger rides SUSPENDERS_BUCKLE_DB="" (spoke-home resolution) so the
 // ambient env pin can never leak into the fixture (W670 doctrine).
-import { expect, test } from "@playwright/test";
+
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { expect, test } from "@playwright/test";
 import { startBoard } from "./harness.ts";
 
 test.describe.configure({ mode: "serial" });

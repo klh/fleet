@@ -6,10 +6,11 @@
 // while the lane-registry row still matches. Real board + scratch HOME
 // (harness.ts); the binding rides the real governor.db sessions row and the
 // scratch repo's .fleet/lanes.json — the exact production surfaces.
-import { expect, test } from "@playwright/test";
+
 import { Database } from "bun:sqlite";
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import { type Board, startBoard } from "./harness";
 
 test.describe.configure({ mode: "serial" });

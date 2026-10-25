@@ -2,9 +2,10 @@
 // ready → waiting → working → blocked → failed → done → cancelled at
 // desktop width and on a narrow screen; the kstatusnav jump buttons
 // follow the same order (keyboard order = column order).
-import { expect, test } from "@playwright/test";
+
 import { Database } from "bun:sqlite";
-import { startBoard, type Board } from "./harness";
+import { expect, test } from "@playwright/test";
+import { type Board, startBoard } from "./harness";
 
 let board: Board | null = null;
 

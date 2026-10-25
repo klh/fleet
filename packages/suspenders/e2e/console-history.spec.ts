@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
+import { type Board, startBoard } from "./harness";
 
 let board: Board | null = null;
 

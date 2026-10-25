@@ -3,7 +3,7 @@
 // every state (the rule is shared), in both themes and at both a desktop and
 // a narrow viewport. Measured geometry (getBoundingClientRect), not strings.
 import { expect, test } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
+import { type Board, startBoard } from "./harness";
 
 test.describe.configure({ mode: "serial" });
 

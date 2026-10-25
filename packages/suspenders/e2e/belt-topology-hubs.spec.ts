@@ -4,11 +4,12 @@
 // accessible lists — rides REAL belt modules served from packages/belt/bin,
 // fed by a node:http fixture answering the dashboard APIs with parametric
 // topology snapshots. Camera stability rides the host's live 10s refresh.
-import { expect, test, type Page } from "@playwright/test";
+
 import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { expect, type Page, test } from "@playwright/test";
 
 const BELT_BIN = join(
 	fileURLToPath(import.meta.url),

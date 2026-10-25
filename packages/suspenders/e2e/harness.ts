@@ -4,10 +4,11 @@
 // against the same scratch HOME (→ the very governor.db the board serves).
 // The hub world and the local world share NOTHING — separate scratch HOMEs
 // are the structural scope isolation the GUI test proves.
-import { expect } from "@playwright/test";
+
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect } from "@playwright/test";
 import {
 	boardStartupTail,
 	unusedPort,
@@ -53,13 +54,11 @@ export async function startBoard(
 	// provided neither, and identity must not flip mid-board-life (init
 	// BEFORE the board spawns). Mirrors dispatch-harness: README base commit.
 	const g = (args: string[]): void => {
-		const p = Bun.spawnSync(
-			[
-				"git",
-				...args,
-			],
-			{ cwd: REPO, stdout: "pipe", stderr: "pipe" },
-		);
+		const p = Bun.spawnSync(["git", ...args], {
+			cwd: REPO,
+			stdout: "pipe",
+			stderr: "pipe",
+		});
 		if (p.exitCode !== 0)
 			throw new Error(`git ${args.join(" ")} failed: ${p.stderr.toString()}`);
 	};

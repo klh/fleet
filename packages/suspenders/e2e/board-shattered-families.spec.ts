@@ -4,10 +4,11 @@
 // the parent's --prefer color), not as a READY-column sibling. Scratch board
 // + scratch repo (harness.ts); the repo's .prefer carries the color both
 // cards inherit.
-import { expect, test } from "@playwright/test";
+
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { startBoard, type Board } from "./harness";
+import { expect, test } from "@playwright/test";
+import { type Board, startBoard } from "./harness";
 
 test.describe.configure({ mode: "serial" });
 
