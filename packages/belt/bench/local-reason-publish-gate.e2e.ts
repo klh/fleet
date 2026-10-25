@@ -1,6 +1,6 @@
 // local-reason-publish-gate.test.ts — the gate is law: a run jsonl publishes
 // a benchmarks.md row only when verifyRun says so.
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -88,8 +88,8 @@ const validRun = (file: string): void => {
 	write(file, lines);
 };
 
-describe("verifyRun", () => {
-	test("a complete sealed run passes", () => {
+test.describe("verifyRun", () => {
+	test("a complete sealed run passes @unit", () => {
 		const dir = mkdtempSync(join(tmpdir(), "w532-gate-"));
 		const file = join(dir, "run.jsonl");
 		validRun(file);
@@ -98,7 +98,7 @@ describe("verifyRun", () => {
 		expect(rep).toEqual({ ok: true, rows: [] });
 	});
 
-	test("mutations each name what broke", () => {
+	test("mutations each name what broke @unit", () => {
 		const cases: [string, (ls: Record<string, unknown>[]) => void][] = [
 			["no seal", (ls) => void ls.splice(0, 1)],
 			[
