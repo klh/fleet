@@ -7,8 +7,8 @@
 // Database, no board/db fixtures.
 import { Database } from "bun:sqlite";
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpDir } from "./helpers/fixture-kit.ts";
 import { join } from "node:path";
 import {
 	CLAIM_FACT,
@@ -566,7 +566,7 @@ test("aggregate: high-water advance is idempotent under replay", () => {
 // ─── machine-side collection (the spoke pass) ───────────────────────────────
 
 test("collectClaims: claim.* rows → entries; cursor skips; cap applies", () => {
-	const dir = mkdtempSync(join(tmpdir(), "w1213-cl-"));
+	const dir = tmpDir("w1213-cl-");
 	const dbPath = join(dir, "governor.db");
 	const db = new Database(dbPath);
 	db.run(
@@ -592,7 +592,7 @@ test("collectClaims: claim.* rows → entries; cursor skips; cap applies", () =>
 });
 
 test("collectClaims: secret-bearing claim text is skipped, cursor not advanced", () => {
-	const dir = mkdtempSync(join(tmpdir(), "w1213-sec-"));
+	const dir = tmpDir("w1213-sec-");
 	const dbPath = join(dir, "governor.db");
 	const db = new Database(dbPath);
 	db.run(
@@ -613,7 +613,7 @@ test("collectClaims: secret-bearing claim text is skipped, cursor not advanced",
 // ─── scoped TTL keys (the credential-free transport) ────────────────────────
 
 test("roll keys: mint binds machine; wrong key refused; expiry enforced", () => {
-	const dir = mkdtempSync(join(tmpdir(), "w1213-key-"));
+	const dir = tmpDir("w1213-key-");
 	const path = join(dir, "roll-keys.json");
 	const now = 1_700_000_000_000;
 	const { key, expiresAt } = mintRollKey("nas", 24, { path, now });
@@ -628,7 +628,7 @@ test("roll keys: mint binds machine; wrong key refused; expiry enforced", () => 
 });
 
 test("roll keys: only the sha256 of the key is stored, never the key", () => {
-	const dir = mkdtempSync(join(tmpdir(), "w1213-keyf-"));
+	const dir = tmpDir("w1213-keyf-");
 	const path = join(dir, "roll-keys.json");
 	const { key } = mintRollKey("desktop", 1, { path, now: 1000 });
 	const onDisk = readFileSync(path, "utf8");
@@ -640,7 +640,7 @@ test("roll keys: only the sha256 of the key is stored, never the key", () => {
 // ─── the sync-policy coupling (rollUrl/rollKeyFile together-rule) ──────────
 
 test("policy: rollUrl without rollKeyFile (or vice versa) refuses", () => {
-	const dir = mkdtempSync(join(tmpdir(), "w1213-pol-"));
+	const dir = tmpDir("w1213-pol-");
 	const path = join(dir, "knowledge-sync.json");
 	writeFileSync(
 		path,
@@ -661,7 +661,7 @@ test("policy: rollUrl without rollKeyFile (or vice versa) refuses", () => {
 });
 
 test("policy: rollUrl + rollKeyFile together parse; rollUrl origin-normalized", () => {
-	const dir = mkdtempSync(join(tmpdir(), "w1213-pol2-"));
+	const dir = tmpDir("w1213-pol2-");
 	const path = join(dir, "knowledge-sync.json");
 	writeFileSync(
 		path,
@@ -690,7 +690,7 @@ test("policy: rollUrl + rollKeyFile together parse; rollUrl origin-normalized", 
 // receiver fixture covers ack bodies the real endpoint cannot produce
 // (malformed) at the syncOnce cursor seam. ──────────────────────────────────
 
-const ROLL_HOME = mkdtempSync(join(tmpdir(), "w121321-roll-home-"));
+const ROLL_HOME = tmpDir("w121321-roll-home-");
 const ROLL_KEYS_FILE = join(ROLL_HOME, "roll-keys.json");
 const ROLL_API_TS = join(
 	import.meta.dir,
@@ -804,7 +804,7 @@ const rollReceiver = (): {
 /** The sync fixture: temp dir + roll key file + 0600 config (claims-only
  *  policy, roll target = the receiver) + claims db. */
 const rollSyncHarness = (rx: ReturnType<typeof rollReceiver>) => {
-	const dir = mkdtempSync(join(tmpdir(), "w121321-sync-"));
+	const dir = tmpDir("w121321-sync-");
 	const keyPath = join(dir, "roll-key.secret");
 	writeFileSync(keyPath, "klhroll_fixture", { mode: 0o600 });
 	const cfgPath = join(dir, "knowledge-sync.json");
@@ -902,7 +902,7 @@ test("postRoll vs the actual endpoint: HTTP 200 {ok:false} is a non-ack", async 
 });
 
 test("syncOnce vs the actual endpoint: positive ack advances the claims cursor", async () => {
-	const dir = mkdtempSync(join(tmpdir(), "w121321-real-"));
+	const dir = tmpDir("w121321-real-");
 	const keyPath = join(dir, "roll-key.secret");
 	writeFileSync(keyPath, ROLL_KEY, { mode: 0o600 });
 	const statePath = join(dir, "state.json");

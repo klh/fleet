@@ -1,18 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import {
-	chmodSync,
-	mkdirSync,
-	mkdtempSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tmpDir } from "./helpers/fixture-kit.ts";
 import { knowledgeBuckleRoute } from "../hooks/lib/knowledge-buckle.ts";
 
 describe("knowledge Buckle credential", () => {
 	test("reads only a private machine-local config", () => {
-		const home = mkdtempSync(join(tmpdir(), "knowledge-buckle-"));
+		const home = tmpDir("knowledge-buckle-");
 		try {
 			const dir = join(home, ".claude/local-llm");
 			mkdirSync(dir, { recursive: true });

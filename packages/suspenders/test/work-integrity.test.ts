@@ -5,13 +5,14 @@
 // start/done/release transitions validate state and caller ownership.
 // Isolated temp HOME (governor.db) + temp repo (project identity).
 import { describe, test, expect, afterAll } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync, mkdirSync } from "node:fs";
+import { tmpDir } from "./helpers/fixture-kit.ts";
+
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 
-const HOME = mkdtempSync(join(tmpdir(), "suspenders-work-"));
-const REPO = mkdtempSync(join(tmpdir(), "suspenders-wrepo-"));
+const HOME = tmpDir("suspenders-work-");
+const REPO = tmpDir("suspenders-wrepo-");
 mkdirSync(join(REPO, ".git"), { recursive: true });
 const env = { ...process.env, HOME };
 const BIN = join(import.meta.dir, "..", "hooks", "bin");

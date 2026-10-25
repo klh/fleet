@@ -5,16 +5,10 @@
 // the real bin with an isolated temp HOME + repo (evidence over mocks).
 import { afterAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import {
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
+import { tmpDir } from "./helpers/fixture-kit.ts";
 import { knowledgeSearch, proseCards } from "../hooks/lib/knowledge.ts";
 import { unusedPort } from "./helpers/board-fixture.ts";
 
@@ -141,8 +135,8 @@ describe("proseCards honors precomputed trust", () => {
 });
 
 // ─── API-level: the live HTTP face (spawn the real bin) ───
-const HOME = mkdtempSync(join(tmpdir(), "w203-api-home-"));
-const REPO = mkdtempSync(join(tmpdir(), "suspenders-w203-api-repo-"));
+const HOME = tmpDir("w203-api-home-");
+const REPO = tmpDir("suspenders-w203-api-repo-");
 mkdirSync(join(REPO, "docs"), { recursive: true });
 const DOC_TEXT =
 	"w203 trust anchor doc: hashes must verify mechanically. w203zq";
