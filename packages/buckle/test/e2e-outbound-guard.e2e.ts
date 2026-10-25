@@ -123,7 +123,11 @@ gateway:
 	test.describe("W1257.1 outbound guard E2E", () => {
 		// W1294.16: A/B-proven failing on main under bun test (baseline banked);
 		// fixme + repair item per the sweep-C precedent.
-		test.fixme("blocked rung: zero upstream calls, refusal inside the gate", async () => {
+		test("blocked rung: zero upstream calls, refusal inside the gate", async () => {
+			// W1294.16: A/B-proven failing on main under bun test (baseline
+			// banked); in-body fixme annotation + repair item W1306
+			// (sweep-C precedent).
+			test.fixme(true, "failing on main — repair item W1306");
 			const blocked = await startMockUpstream(() =>
 				Response.json({ error: { message: "blocked" } }, { status: 500 }),
 			);
@@ -143,7 +147,11 @@ gateway:
 
 		// W1294.16: A/B-proven failing on main under bun test (baseline banked);
 		// fixme + repair item per the sweep-C precedent.
-		test.fixme("blocked rung + healthy rung: 200 via the healthy leg, zero blocked calls", async () => {
+		test("blocked rung + healthy rung: 200 via the healthy leg, zero blocked calls", async () => {
+			// W1294.16: A/B-proven failing on main under bun test (baseline
+			// banked); in-body fixme annotation + repair item W1306
+			// (sweep-C precedent).
+			test.fixme(true, "failing on main — repair item W1306");
 			const blocked = await startMockUpstream(() =>
 				Response.json({ error: { message: "blocked" } }, { status: 500 }),
 			);

@@ -196,7 +196,11 @@ test.describe({ tag: "@api" }, () => {
 	test.describe("responses ingress through the governance gate (W912)", () => {
 		// W1294.16: A/B-proven failing on main under bun test (baseline banked);
 		// fixme + repair item per the sweep-C precedent.
-		test.fixme("scoped auth + rpm budget: 200, then 429; lane prefix gated too", async () => {
+		test("scoped auth + rpm budget: 200, then 429; lane prefix gated too", async () => {
+			// W1294.16: A/B-proven failing on main under bun test (baseline
+			// banked); in-body fixme annotation + repair item W1306
+			// (sweep-C precedent).
+			test.fixme(true, "failing on main — repair item W1306");
 			const upstream = await startMockUpstream(() =>
 				Response.json(RESPONSE_OBJ),
 			);

@@ -83,7 +83,11 @@ test.describe({ tag: "@api" }, () => {
 	test.describe("admission at the wire (e2e)", () => {
 		// W1294.16: A/B-proven failing on main under bun test (baseline banked);
 		// fixme + repair item per the sweep-C precedent.
-		test.fixme("full group answers a typed local 503 + retry-after, never a fabricated 429", async () => {
+		test("full group answers a typed local 503 + retry-after, never a fabricated 429", async () => {
+			// W1294.16: A/B-proven failing on main under bun test (baseline
+			// banked); in-body fixme annotation + repair item W1306
+			// (sweep-C precedent).
+			test.fixme(true, "failing on main — repair item W1306");
 			const upstream = await startMockUpstream(() =>
 				Response.json({ id: "1", usage: { prompt_tokens: 1 } }),
 			);
