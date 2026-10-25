@@ -19,7 +19,7 @@ import {
 	boardSettingsPath,
 	ConfigError,
 	readBoardSettings,
-} from "../lib/board-config.ts";
+} from "../lib/board/board-config.ts";
 
 const promptSettings = (): PromptSettings =>
 	resolvePromptSettings(readBoardSettings().settings);

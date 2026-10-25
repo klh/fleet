@@ -13,7 +13,7 @@
 //   bun scripts/controller-handoff.ts cancel   [--repo <dir>]
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
-import { openStore, projectIdentity } from "../hooks/lib/govdb.ts";
+import { openStore, projectIdentity } from "../hooks/lib/govdb/govdb.ts";
 import {
 	cancelControllerHandoff,
 	controllerGeneration,

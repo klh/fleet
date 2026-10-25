@@ -18,11 +18,11 @@ const HOME = mkdtempSync(join(tmpdir(), "suspenders-activity-"));
 const REAL_HOME = process.env.HOME;
 process.env.HOME = HOME;
 const { openGovernorDb } = await import(
-	`../hooks/lib/govdb.ts?home=${encodeURIComponent(HOME)}`
+	`../hooks/lib/govdb/govdb.ts?home=${encodeURIComponent(HOME)}`
 );
 const { classifyTool, weekBucket, harvestActivity, activityReport, shapeCost } =
 	await import(
-		`../hooks/lib/activity-harvest.ts?home=${encodeURIComponent(HOME)}`
+		`../hooks/lib/harvest/activity-harvest.ts?home=${encodeURIComponent(HOME)}`
 	);
 process.env.HOME = REAL_HOME;
 

@@ -6,7 +6,7 @@ import {
 	BENCH_DOC_PATHS,
 	benchDocsVerdict,
 	isBenchItem,
-} from "../hooks/lib/bench-docs-gate.ts";
+} from "../hooks/lib/gates/bench-docs-gate.ts";
 
 describe("bench-shape detector", () => {
 	test("bench/benchmark/A-B in title or description is bench-shaped", () => {

@@ -27,7 +27,7 @@ import {
 	applyBoardSettings,
 	boardSettingsPath,
 	formToBoardSettings,
-} from "../hooks/lib/board-config.ts";
+} from "../hooks/lib/board/board-config.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "w147-home-"));
 const REPO = mkdtempSync(join(tmpdir(), "w147-repo-"));

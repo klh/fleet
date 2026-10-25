@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { resolveDaemonizedPids } from "../scripts/lib/dispatch-summary.ts";
-import type { LaneRef } from "../hooks/lib/lane-liveness.ts";
+import type { LaneRef } from "../hooks/lib/lanes/lane-liveness.ts";
 
 const wrapperPid = 3654;
 const childPid = 3719;

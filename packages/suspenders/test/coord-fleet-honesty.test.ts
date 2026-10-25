@@ -8,7 +8,7 @@ import { describe, expect, test, afterAll } from "bun:test";
 import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 
-const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
+const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
 const fx = cliFixture("w378-fleet-honesty");
 
 afterAll(() => fx.cleanup());

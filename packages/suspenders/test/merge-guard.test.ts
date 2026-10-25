@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { guardedMerge } from "../hooks/lib/merge-guard.ts";
+import { guardedMerge } from "../hooks/lib/fleet-loop/merge-guard.ts";
 
 const LOOP = join(import.meta.dir, "../hooks/bin/fleet-loop.ts");
 const MERGE_LEAK = "/Users/kk/dev/m"; // scrub:allow
@@ -68,8 +68,8 @@ function ship(
 			"bun",
 			"-e",
 			`
-		import {openStore,projectIdentity} from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/govdb.ts"))};
-		import {reviewContext,publishReviewReceipt} from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/review-receipt.ts"))};
+		import {openStore,projectIdentity} from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/govdb/govdb.ts"))};
+		import {reviewContext,publishReviewReceipt} from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/gates/review-receipt.ts"))};
 		const db=openStore(), project=projectIdentity(), c=reviewContext(process.cwd(),"suspenders/GUARD");
 		db.query("INSERT OR REPLACE INTO work_items(project,id,title,state,result_sha,created_at,updated_at) VALUES (?,'GUARD','fixture','DONE',?,?,?)").run(project,c.commit,Date.now(),Date.now());
 		db.run("CREATE TABLE IF NOT EXISTS work_completion_records(project TEXT,item TEXT,commit_sha TEXT,completed_by TEXT)");

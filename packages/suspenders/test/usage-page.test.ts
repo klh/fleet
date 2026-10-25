@@ -13,7 +13,7 @@ import { join } from "node:path";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-usage-page-"));
 const { buildUsageReport } = await import(
-	`../hooks/lib/usage.ts?home=${encodeURIComponent(HOME)}`
+	`../hooks/lib/usage/usage.ts?home=${encodeURIComponent(HOME)}`
 );
 const { usagePage } = await import(
 	`../hooks/bin/usage-page-html.ts?home=${encodeURIComponent(HOME)}`

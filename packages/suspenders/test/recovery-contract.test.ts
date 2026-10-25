@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import {
 	reserveRecovery,
 	resetRecovery,
-} from "../hooks/lib/dead-claim-recovery.ts";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+} from "../hooks/lib/lanes/dead-claim-recovery.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 
 test("CLI reclaim pins observed revision and publishes exact committed receipt", () => {
 	const home = mkdtempSync(join(tmpdir(), "fleet-recovery-contract-"));
@@ -121,7 +121,7 @@ test("separate supervisors atomically reserve at most three durable item recover
 		reserveRecovery(db as unknown as GovernorStore, "p", "W1", "seed", 1);
 		resetRecovery(db as unknown as GovernorStore, "p", "W1");
 		db.close();
-		const script = `import {Database} from 'bun:sqlite'; import {reserveRecovery} from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/dead-claim-recovery.ts"))};const db=new Database(process.argv[1]);db.run('PRAGMA busy_timeout=5000');console.log(reserveRecovery(db,'p','W1',process.argv[2],1));db.close();`;
+		const script = `import {Database} from 'bun:sqlite'; import {reserveRecovery} from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/lanes/dead-claim-recovery.ts"))};const db=new Database(process.argv[1]);db.run('PRAGMA busy_timeout=5000');console.log(reserveRecovery(db,'p','W1',process.argv[2],1));db.close();`;
 		const outcomes = await Promise.all(
 			Array.from({ length: 8 }, async (_, index) => {
 				const child = Bun.spawn(

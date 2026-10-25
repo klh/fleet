@@ -2,7 +2,7 @@
 // daemonized-pid resolve pass and the run summary/exit-code render. Bodies
 // moved from dispatch-next.ts main(); state arrives as arguments, the exit
 // code returns to the caller.
-import { laneProcessIdentity } from "../../hooks/lib/lane-liveness.ts";
+import { laneProcessIdentity } from "../../hooks/lib/lanes/lane-liveness.ts";
 
 /** Structural view of a lane-registry entry — the dispatch entrypoint's
  * Lane type narrows to this. */

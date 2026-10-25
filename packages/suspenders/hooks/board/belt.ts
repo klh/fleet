@@ -3,7 +3,7 @@
 // sibling modules and the route modules import them.
 
 import { BELT_REPO } from "./context.ts";
-import { resolveBelt } from "../lib/belt-locate.ts";
+import { resolveBelt } from "../lib/hub/belt-locate.ts";
 
 export interface BeltEndpoint {
 	machine?: string;

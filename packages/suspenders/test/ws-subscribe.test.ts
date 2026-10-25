@@ -13,7 +13,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { projectIdentity } from "../hooks/lib/govdb-project.ts";
+import { projectIdentity } from "../hooks/lib/govdb/govdb-project.ts";
 
 const SERVER = join(import.meta.dir, "..", "hooks", "bin", "store-server.ts");
 const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");

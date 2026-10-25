@@ -11,8 +11,8 @@ import {
 	isDecisionKind,
 	projectIdentity,
 	projectRootOf,
-} from "../lib/govdb.ts";
-import { laneSid } from "../lib/laneslug.ts";
+} from "../lib/govdb/govdb.ts";
+import { laneSid } from "../lib/lanes/laneslug.ts";
 import { beltCheck, rowLocality } from "./belt.ts";
 import { CLI, DEMO, db, WORK_CLI } from "./context.ts";
 import { startDecisionEval } from "./decide-eval.ts";

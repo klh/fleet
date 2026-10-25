@@ -16,7 +16,7 @@ import {
 	policyFromArgv,
 	shouldAlert,
 	windowedDeltas,
-} from "../hooks/lib/credit-forecast.ts";
+} from "../hooks/lib/usage/credit-forecast.ts";
 
 const dirs: string[] = [];
 

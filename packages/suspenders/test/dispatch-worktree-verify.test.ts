@@ -5,8 +5,8 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { laneSid } from "../hooks/lib/laneslug.ts";
-import { projectIdentity } from "../hooks/lib/govdb.ts";
+import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
+import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
 import { dispatchHarness, stubBuckle } from "./helpers/dispatch-harness.ts";
 
 const { HOME, REPO, toolA, dispatchA, addItem } = dispatchHarness(afterAll, {

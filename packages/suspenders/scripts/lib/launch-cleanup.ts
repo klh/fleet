@@ -18,9 +18,9 @@ import {
 	adminKey,
 	hubCredential,
 	revokeLaneKey,
-} from "../../hooks/lib/lane-auth.ts";
-import type { spawnClaude } from "../../hooks/lib/lane.ts";
-import type { GovernorStore } from "../../hooks/lib/govdb.ts";
+} from "../../hooks/lib/lanes/lane-auth.ts";
+import type { spawnClaude } from "../../hooks/lib/lanes/lane.ts";
+import type { GovernorStore } from "../../hooks/lib/govdb/govdb.ts";
 
 type CleanupCtx = {
 	committedLaunch: boolean;

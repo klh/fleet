@@ -25,7 +25,7 @@ import {
 	testAffectingPath,
 	transcriptEventsFromText,
 	transcriptWindow,
-} from "../hooks/lib/claim-check.ts";
+} from "../hooks/lib/gates/claim-check.ts";
 
 const T0 = Date.parse("2026-10-19T10:00:00.000Z");
 const iso = (min: number): string => new Date(T0 + min * 60_000).toISOString();

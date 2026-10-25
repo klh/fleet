@@ -4,8 +4,8 @@ import { join } from "node:path";
 import {
 	restartHash,
 	type ClaudeRestartSnapshot,
-} from "../hooks/lib/claude-restart.ts";
-import { signalClaudeDirectEvent } from "../hooks/lib/claude-wake.ts";
+} from "../hooks/lib/executors/claude-restart.ts";
+import { signalClaudeDirectEvent } from "../hooks/lib/executors/claude-wake.ts";
 import { pausedLaneFixture } from "./helpers/paused-lane.ts";
 
 test("restarted runtime stays silent PAUSED, resumes exact UUID and interrupts active continuation", async () => {

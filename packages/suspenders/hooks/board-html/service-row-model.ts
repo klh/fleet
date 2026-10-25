@@ -2,7 +2,7 @@
 // <klh-service-row>. What a row shows for a probe result and the re-probe
 // round-trip live here so tests drive them with stub probe results; the
 // Lit component only renders this model.
-import type { RecoveryEntry } from "../lib/recovery-map.ts";
+import type { RecoveryEntry } from "../lib/fleet-loop/recovery-map.ts";
 import { observationFresh, type Observation } from "../lib/observation.ts";
 
 export type RowState = "up" | "degraded" | "down" | "idle";

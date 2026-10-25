@@ -10,7 +10,7 @@
 //   coord-agent smoke  <sid> [--project dir] [--base url]
 import { readFileSync } from "node:fs";
 import { writeTokenPath } from "../lib/host-guard.ts";
-import { projectIdentity } from "../lib/govdb.ts";
+import { projectIdentity } from "../lib/govdb/govdb.ts";
 import { defineVerb, runCli, type VerbSpec } from "../lib/verb-kit.ts";
 
 const coordCli = new URL("coord.ts", import.meta.url).pathname;
@@ -23,10 +23,16 @@ const die = (m: string): never => {
 	process.exit(2);
 };
 
-function resolveTarget(rest: string[]): { sid: string; dir: string; project: string } {
+function resolveTarget(rest: string[]): {
+	sid: string;
+	dir: string;
+	project: string;
+} {
 	const sid = rest.find((a) => !a.startsWith("--"));
 	if (!sid)
-		die("usage: coord-agent enroll|smoke <sid> [--project dir] [--name label] [--base url]");
+		die(
+			"usage: coord-agent enroll|smoke <sid> [--project dir] [--name label] [--base url]",
+		);
 	const dir = flag(rest, "--project") ?? process.cwd();
 	return { sid, dir, project: projectIdentity(dir) };
 }
@@ -61,25 +67,30 @@ function enroll(rest: string[]): void {
 	console.log(`✓ ${sid} enrolled on the coord plane (role external)`);
 	console.log(`  project ${project}`);
 	console.log("");
-	console.log("Paste into the agent connector (config-over-code: values stay on this machine):");
-	console.log(JSON.stringify(
-		{
-			base: `http://127.0.0.1:7799`,
-			headers: {
-				"x-klh-write-token": `<contents of ${writeTokenPath()} — ${tokenNote}>`,
+	console.log(
+		"Paste into the agent connector (config-over-code: values stay on this machine):",
+	);
+	console.log(
+		JSON.stringify(
+			{
+				base: `http://127.0.0.1:7799`,
+				headers: {
+					"x-klh-write-token": `<contents of ${writeTokenPath()} — ${tokenNote}>`,
+				},
+				project,
+				sid,
+				routes: {
+					ask: "POST /api/consult {project, sid, q, target?|best?, scope?}",
+					answer:
+						"POST /api/consult-reply {project, sid, cid, answer|decline:true}",
+					broadcast: "POST /api/broadcast {project, sid, note}",
+					pull: `GET /api/outbox/${sid}?project=<project> (x-klh-write-token header)`,
+				},
 			},
-			project,
-			sid,
-			routes: {
-				ask: "POST /api/consult {project, sid, q, target?|best?, scope?}",
-				answer: "POST /api/consult-reply {project, sid, cid, answer|decline:true}",
-				broadcast: "POST /api/broadcast {project, sid, note}",
-				pull: `GET /api/outbox/${sid}?project=<project> (x-klh-write-token header)`,
-			},
-		},
-		null,
-		2,
-	));
+			null,
+			2,
+		),
+	);
 	console.log("");
 	console.log(`Verify end to end: coord-agent smoke ${sid} --project ${dir}`);
 }
@@ -91,8 +102,12 @@ async function smoke(rest: string[]): Promise<void> {
 	try {
 		token = readFileSync(writeTokenPath(), "utf8").trim();
 	} catch {}
-	if (!token) die(`no write token at ${writeTokenPath()} — start the board once`);
-	const post = async (path: string, body: unknown): Promise<Record<string, unknown>> => {
+	if (!token)
+		die(`no write token at ${writeTokenPath()} — start the board once`);
+	const post = async (
+		path: string,
+		body: unknown,
+	): Promise<Record<string, unknown>> => {
 		const r = await fetch(`${base}${path}`, {
 			method: "POST",
 			headers: {
@@ -106,7 +121,8 @@ async function smoke(rest: string[]): Promise<void> {
 	const fails: string[] = [];
 	const q = `coord-agent smoke ${Date.now()}`;
 	const ask = await post("/api/consult", { project, sid, q, target: sid });
-	if (!ask.ok || ask.state !== "OPEN") fails.push(`consult: ${JSON.stringify(ask).slice(0, 200)}`);
+	if (!ask.ok || ask.state !== "OPEN")
+		fails.push(`consult: ${JSON.stringify(ask).slice(0, 200)}`);
 	const cid = String(ask.consult ?? "");
 	if (cid) {
 		const reply = await post("/api/consult-reply", {
@@ -119,9 +135,12 @@ async function smoke(rest: string[]): Promise<void> {
 			fails.push(`consult-reply: ${JSON.stringify(reply).slice(0, 200)}`);
 	}
 	const pull = await (
-		await fetch(`${base}/api/outbox/${sid}?project=${encodeURIComponent(project)}`, {
-			headers: { "x-klh-write-token": token },
-		})
+		await fetch(
+			`${base}/api/outbox/${sid}?project=${encodeURIComponent(project)}`,
+			{
+				headers: { "x-klh-write-token": token },
+			},
+		)
 	).json();
 	if (!pull.ok) fails.push("outbox: not ok");
 	if (fails.length) die(`SMOKE FAIL — ${fails.join("; ")}`);
@@ -147,7 +166,8 @@ const VERBS: VerbSpec[] = [
 
 await runCli({
 	prog: "coord-agent",
-	about: "coord-agent — external-agent identity bootstrap for the coord plane (W931).",
+	about:
+		"coord-agent — external-agent identity bootstrap for the coord plane (W931).",
 	verbs: VERBS,
 	epilog: [
 		"  enroll mints the session (role external); the board's /api/consult family",

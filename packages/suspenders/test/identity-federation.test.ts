@@ -18,9 +18,9 @@ process.env.HOME = HOME;
 process.env.BUCKLE_SECRETS_HOME = join(HOME, "secrets");
 process.env.GOVERNOR_STORE_URL = "local";
 
-const auth = await import("../hooks/lib/auth.ts");
-const govdb = await import("../hooks/lib/govdb.ts");
-const fed = await import("../hooks/lib/identity-federation.ts");
+const auth = await import("../hooks/lib/auth/auth.ts");
+const govdb = await import("../hooks/lib/govdb/govdb.ts");
+const fed = await import("../hooks/lib/govdb/identity-federation.ts");
 
 void govdb.openStore(); // the governor open runs the ladder — v17 mints the idb tables
 // W156/W359: the token plane rides identity.db — issueTokens/rotateRefresh
@@ -241,7 +241,7 @@ describe("rotateRefresh denyClasses (lib gate)", () => {
 
 // ─── route-level gates: /auth/token + /auth/refresh under federation ────────
 
-const authServer = await import("../hooks/lib/auth-server.ts");
+const authServer = await import("../hooks/lib/auth/auth-server.ts");
 const CFG_FILE = join(HOME, "auth-config.json");
 writeFileSync(
 	CFG_FILE,

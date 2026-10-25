@@ -5,8 +5,8 @@
 import { afterAll, expect, test } from "bun:test";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { projectIdentity } from "../hooks/lib/govdb.ts";
-import { laneSid } from "../hooks/lib/laneslug.ts";
+import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
+import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
 import { dispatchHarness, stubBuckle } from "./helpers/dispatch-harness.ts";
 
 const h = dispatchHarness(afterAll, {
@@ -72,9 +72,9 @@ test("W1119.2 fleet-loop governed: dead front refuses fail-closed", async () => 
 	expect(r.code).toBe(1);
 	expect(r.err).toContain(`REFUSED ${id}`);
 	expect(r.err).toContain("buckle front unreachable");
-	expect(
-		existsSync(join(h.REPO, ".fleet", `lane-key-${sid}.json`)),
-	).toBe(false);
+	expect(existsSync(join(h.REPO, ".fleet", `lane-key-${sid}.json`))).toBe(
+		false,
+	);
 	const show = JSON.parse(
 		(await h.toolA({}, "work.ts", "show", id, "--json")).out,
 	);

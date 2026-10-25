@@ -1,4 +1,4 @@
-import type { GovernorStore } from "../lib/govdb.ts";
+import type { GovernorStore } from "../lib/govdb/govdb.ts";
 
 export interface LaneObservation {
 	laneId: string;

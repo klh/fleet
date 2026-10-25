@@ -182,13 +182,13 @@ test("W902 wall-clock scan has teeth (patterns fire on the banned forms)", () =>
 // dependency (the post-install truth of bun.lock) classifies permissive
 // — copyleft and unknown/missing fail the build; (L7) every committed
 // third-party bundle keeps its license banner. Both ride the ONE
-// classification in packages/suspenders/hooks/lib/license-audit.ts.
+// classification in packages/suspenders/hooks/lib/fleet-loop/license-audit.ts.
 import {
 	classifyLicense,
 	PERMISSIVE,
 	verifyVendorHeaders,
 	walkLicenses,
-} from "../packages/suspenders/hooks/lib/license-audit.ts";
+} from "../packages/suspenders/hooks/lib/fleet-loop/license-audit.ts";
 
 test("installed dependencies stay permissive (Fleet personal-use license perimeter)", () => {
 	const rows = walkLicenses(ROOT);

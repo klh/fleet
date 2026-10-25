@@ -8,7 +8,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { shaOnMain, unmergedDeps } from "../hooks/lib/dep-merge-gate.ts";
+import { shaOnMain, unmergedDeps } from "../hooks/lib/gates/dep-merge-gate.ts";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -105,7 +105,19 @@ test("integration ref changes stay exact: post-snapshot merges verify true", () 
 	expect(shaOnMain(lane, r.project)).toBe(false);
 	// main advances past the snapshot (merge the lane branch)
 	git(r.dir, "checkout", "-q", "main");
-	git(r.dir, "-c", "user.email=t@t", "-c", "user.name=t", "merge", "--no-ff", "-q", "-m", "merge lane", lane);
+	git(
+		r.dir,
+		"-c",
+		"user.email=t@t",
+		"-c",
+		"user.name=t",
+		"merge",
+		"--no-ff",
+		"-q",
+		"-m",
+		"merge lane",
+		lane,
+	);
 	// a sha never probed before reads the EXACT current answer off the
 	// fallback probe even though the snapshot predates the merge
 	const fresh = onMain(r.dir, "post-snapshot");

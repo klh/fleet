@@ -4,7 +4,7 @@ import {
 	HINT_HEADER,
 	inferenceBuckleRoute,
 	inferenceHeaders,
-} from "../hooks/lib/inference-buckle.ts";
+} from "../hooks/lib/hub/inference-buckle.ts";
 
 const ENV = {
 	SUSPENDERS_BUCKLE_URL: "http://127.0.0.1:4101",

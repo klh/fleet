@@ -30,8 +30,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startBoard, unusedPort, type Board } from "./harness";
 import { dispatchHarness } from "../test/helpers/dispatch-harness.ts";
-import { laneSid } from "../hooks/lib/laneslug.ts";
-import { projectIdentity } from "../hooks/lib/govdb.ts";
+import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
+import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
 
 test.describe.configure({ mode: "serial" });
 test.setTimeout(300_000);

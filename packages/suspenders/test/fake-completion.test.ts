@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import {
 	scanCompletionDiff,
 	type FakeCompletionHit,
-} from "../hooks/lib/fake-completion.ts";
+} from "../hooks/lib/executors/fake-completion.ts";
 
 // Marker text is assembled in these tests too: the closing diff of the lane
 // that lands this scanner is itself scanned by the gate it ships.

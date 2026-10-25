@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 // hooks/bin/aid-harvest.ts — W657 thin face: the pull library is
-// hooks/lib/aid-harvest.ts. w159: govdb opens LAZILY inside main.
+// hooks/lib/harvest/aid-harvest.ts. w159: govdb opens LAZILY inside main.
 //   bun hooks/bin/aid-harvest.ts [--base http://127.0.0.1:4101]
 // Prints the pull stats JSON; buckle down = honest skip row, exit 0.
-import { harvestAids } from "../lib/aid-harvest.ts";
+import { harvestAids } from "../lib/harvest/aid-harvest.ts";
 import { defineVerb, parseVerb } from "../lib/verb-kit.ts";
 
 if (import.meta.main) {
@@ -22,7 +22,7 @@ if (import.meta.main) {
 		);
 		process.exit(2);
 	}
-	const { openGovernorDb } = await import("../lib/govdb.ts");
+	const { openGovernorDb } = await import("../lib/govdb/govdb.ts");
 	const stats = await harvestAids(openGovernorDb(), {
 		baseUrl: outcome.parsed.flag("--base") ?? undefined,
 	});

@@ -20,8 +20,8 @@ import {
 	jobslabPrefix,
 	jobslabTag,
 	laneClassOf,
-} from "../hooks/lib/jobslab.ts";
-import { spawnClaude } from "../hooks/lib/lane.ts";
+} from "../hooks/lib/lanes/jobslab.ts";
+import { spawnClaude } from "../hooks/lib/lanes/lane.ts";
 
 const fleet = (cfg?: string): string => {
 	const dir = mkdtempSync(join(tmpdir(), "jobslab-fleet-"));

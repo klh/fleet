@@ -1,0 +1,397 @@
+import {
+	closeSync,
+	existsSync,
+	fsyncSync,
+	openSync,
+	readFileSync,
+	realpathSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { withFileLock } from "../file-lock.ts";
+import { isHarnessProcess } from "./lane-liveness.ts";
+import { basename, dirname, join, resolve } from "node:path";
+import { openStore } from "../govdb/govdb-store.ts";
+import { projectIdentity } from "../govdb/govdb-project.ts";
+import {
+	restartJournalPath,
+	privateJson,
+	type ClaudeRestartJournal,
+} from "../executors/claude-restart.ts";
+
+export interface RegistryLane {
+	sid: string;
+	attempt?: number;
+	launchedAt?: number;
+	worktree?: string;
+	item?: string;
+	pid?: number;
+}
+
+/** Git's common directory identifies the primary checkout, including linked worktrees. */
+export function canonicalProjectRoot(input: string): string {
+	let root = resolve(input);
+	if (basename(root) === "lanes.json") root = dirname(root);
+	if (basename(root) === ".fleet") root = dirname(root);
+	const git = Bun.spawnSync(
+		[
+			"git",
+			"-C",
+			root,
+			"rev-parse",
+			"--path-format=absolute",
+			"--git-common-dir",
+		],
+		{ stdout: "pipe", stderr: "pipe" },
+	);
+	if (git.exitCode !== 0) return existsSync(root) ? realpathSync(root) : root;
+	const common = realpathSync(git.stdout.toString().trim());
+	if (basename(common) === ".git") return dirname(common);
+	const worktrees = Bun.spawnSync(
+		["git", "-C", root, "worktree", "list", "--porcelain"],
+		{ stdout: "pipe", stderr: "pipe" },
+	);
+	const primary = worktrees.stdout
+		.toString()
+		.split("\n")
+		.find((line) => line.startsWith("worktree "))
+		?.slice(9);
+	if (!primary) throw new Error(`Cannot resolve primary checkout for ${root}`);
+	return realpathSync(primary);
+}
+
+export const laneRegistryFile = (input: string): string =>
+	join(canonicalProjectRoot(input), ".fleet", "lanes.json");
+export type RegistryRead<T> =
+	| { known: true; lanes: T[] }
+	| { known: false; lanes: []; error: string };
+function readFile<T extends RegistryLane>(file: string): RegistryRead<T> {
+	if (!existsSync(file))
+		return { known: false, lanes: [], error: "registry missing" };
+	try {
+		const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+		if (
+			!Array.isArray(parsed) ||
+			parsed.some(
+				(row) => !row || typeof row !== "object" || typeof row.sid !== "string",
+			)
+		)
+			throw new Error("invalid registry rows");
+		return { known: true, lanes: parsed as T[] };
+	} catch (error) {
+		return { known: false, lanes: [], error: String(error) };
+	}
+}
+export function readLaneRegistry<T extends RegistryLane>(
+	input: string,
+): RegistryRead<T> {
+	return readFile<T>(laneRegistryFile(input));
+}
+export function loadLaneRegistryFile<T extends RegistryLane>(
+	file: string,
+): T[] {
+	const state = readFile<T>(resolve(file));
+	if (!state.known && existsSync(file))
+		throw new Error(`Cannot read lane registry: ${state.error}`);
+	return state.lanes;
+}
+export function loadLaneRegistry<T extends RegistryLane>(input: string): T[] {
+	return loadLaneRegistryFile<T>(laneRegistryFile(input));
+}
+
+export function newerLane<T extends RegistryLane>(current: T, incoming: T): T {
+	// Attempts count retries within an incarnation and may reset on a cold
+	// launch. Launch time therefore orders incarnations before retry count.
+	// Missing/invalid times cannot displace a known launch; ties retain the
+	// existing attempt ordering and incoming-row refresh behavior.
+	const time = (row: RegistryLane): number =>
+		typeof row.launchedAt === "number" &&
+		Number.isFinite(row.launchedAt) &&
+		row.launchedAt > 0
+			? row.launchedAt
+			: 0;
+	const launches = time(incoming) - time(current);
+	if (launches !== 0) return launches > 0 ? incoming : current;
+	const attempts = (incoming.attempt ?? 0) - (current.attempt ?? 0);
+	if (attempts < 0) return current;
+	return incoming;
+}
+
+/** W1124.13: the registry rides the ONE shared cross-process lock (file-lock.ts). */
+const withRegistryLock = withFileLock;
+
+/** Intentional retirement is a continuation, not abandoned ownership. A
+ * malformed journal is uncertainty and cannot warrant deletion either. */
+export function pendingManagedRestart(row: RegistryLane): boolean {
+	if (!row.worktree) return false;
+	const path = restartJournalPath(row.worktree);
+	if (!existsSync(path)) return false;
+	try {
+		const journal = privateJson<ClaudeRestartJournal>(path);
+		if (
+			journal.snapshot.sid !== row.sid ||
+			journal.snapshot.item !== row.item ||
+			journal.snapshot.worktree !== row.worktree
+		)
+			return true;
+		if (
+			(journal.phase !== "started" && journal.phase !== "verified") ||
+			!journal.newWrapper ||
+			journal.newWrapper.pid !== row.pid
+		)
+			return true;
+		const store = openStore();
+		try {
+			const intent = store
+				.query(
+					"SELECT sid,pid,birth,state FROM lane_launch_intents WHERE project=? AND item=?",
+				)
+				.get(projectIdentity(row.worktree), row.item) as {
+				sid: string;
+				pid: number;
+				birth: string;
+				state: string;
+			} | null;
+			return (
+				!intent ||
+				intent.sid !== row.sid ||
+				intent.state !== "REGISTERED" ||
+				intent.pid !== journal.newWrapper.pid ||
+				intent.birth !== journal.newWrapper.birth
+			);
+		} finally {
+			store.close();
+		}
+	} catch {
+		return true;
+	}
+}
+
+function writeRegistryBytes(file: string, bytes: string | Buffer): void {
+	const temp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
+	try {
+		const fd = openSync(temp, "wx", 0o600);
+		try {
+			writeFileSync(fd, bytes);
+			fsyncSync(fd);
+		} finally {
+			closeSync(fd);
+		}
+		renameSync(temp, file);
+	} finally {
+		rmSync(temp, { force: true });
+	}
+}
+
+/** Only the actual new wrapper is inserted. The caller acquires its store
+ * transaction BEFORE this file lock (the same order as ordinary PID repair).
+ * Body/audit errors restore bytes; final commit/crash uncertainty remains
+ * journal-owned and never permits a second launch. */
+export function registerMissingRestartLane<T extends RegistryLane>(
+	input: string,
+	row: T,
+	guard: () => boolean,
+	commit: (publish: () => void) => void,
+): void {
+	withRegistryLock(laneRegistryFile(input), (file) => {
+		const state = readFile<T>(file);
+		if (
+			!state.known ||
+			state.lanes.some(
+				(current) =>
+					current.sid === row.sid ||
+					current.item === row.item ||
+					current.worktree === row.worktree,
+			)
+		)
+			throw Error("Restart registry absence changed or unavailable");
+		if (!guard())
+			throw Error("Restart process identity changed before registration");
+		const original = readFileSync(file);
+		let published = false;
+		try {
+			commit(() => {
+				if (published) throw Error("Restart registry already published");
+				writeRegistryBytes(
+					file,
+					JSON.stringify([...state.lanes, row], null, 2),
+				);
+				published = true;
+			});
+			if (!published) throw Error("Restart registry publication missing");
+		} catch (error) {
+			if (published) writeRegistryBytes(file, original);
+			throw error;
+		}
+	});
+}
+
+/** Snapshots are upserts, never deletion authority. Re-read under the cross-process lock. */
+export function mergeLaneRegistry<T extends RegistryLane>(
+	input: string,
+	incoming: T[],
+): void {
+	// W636: the upsert now runs under the shared cross-process registry lock.
+	withRegistryLock(laneRegistryFile(input), (file) => {
+		const temp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
+		try {
+			const state = readFile<T>(file);
+			if (!state.known && existsSync(file))
+				throw new Error(
+					`Refusing to overwrite unreadable lane registry: ${state.error}`,
+				);
+			const rows = new Map<string, T>();
+			for (const row of [...state.lanes, ...incoming]) {
+				if (!row || typeof row.sid !== "string")
+					throw new Error("Invalid incoming lane");
+				const previous = rows.get(row.sid);
+				rows.set(row.sid, previous ? newerLane(previous, row) : row);
+			}
+			const fd = openSync(temp, "wx", 0o600);
+			try {
+				writeFileSync(fd, JSON.stringify([...rows.values()], null, 2));
+				fsyncSync(fd);
+			} finally {
+				closeSync(fd);
+			}
+			renameSync(temp, file);
+		} finally {
+			rmSync(temp, { force: true });
+		}
+	});
+}
+
+/** Exact-row PID repair. The caller rechecks process birth and ancestry while
+ * this lock is held; a changed registry row or process cannot be adopted. */
+export function repairLaneRegistryPid<
+	T extends RegistryLane & { pid?: number },
+>(
+	input: string,
+	expected: T,
+	pid: number,
+	guard: () => boolean,
+	launchedAt?: number,
+): boolean {
+	return withRegistryLock(laneRegistryFile(input), (file) => {
+		const state = readFile<T>(file);
+		if (!state.known) return false;
+		const index = state.lanes.findIndex((row) => row.sid === expected.sid);
+		if (
+			index < 0 ||
+			JSON.stringify(state.lanes[index]) !== JSON.stringify(expected)
+		)
+			return false;
+		if (!guard()) return false;
+		const temp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
+		try {
+			state.lanes[index] = {
+				...expected,
+				pid,
+				...(launchedAt === undefined ? {} : { launchedAt }),
+			};
+			const fd = openSync(temp, "wx", 0o600);
+			try {
+				writeFileSync(fd, JSON.stringify(state.lanes, null, 2));
+				fsyncSync(fd);
+			} finally {
+				closeSync(fd);
+			}
+			renameSync(temp, file);
+			return true;
+		} finally {
+			rmSync(temp, { force: true });
+		}
+	});
+}
+
+/** W636: the registry's ONE deletion authority — same cross-process lock and
+ * atomic temp+rename write as mergeLaneRegistry. The caller's liveness guard
+ * is re-evaluated under the lock per requested row, so only provably-dead
+ * lanes ever leave (a lane that went live between probe and prune is
+ * retained); rows outside `sids` are never candidates. */
+export function pruneLaneRegistry<T extends RegistryLane>(
+	input: string,
+	sids: string[],
+	guard: (row: T) => boolean,
+): { removed: T[]; kept: T[] } {
+	if (!sids.length) return { removed: [], kept: [] };
+	return withRegistryLock(laneRegistryFile(input), (file) => {
+		const temp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
+		try {
+			const state = readFile<T>(file);
+			if (!state.known && existsSync(file))
+				throw new Error(
+					`Refusing to prune unreadable lane registry: ${state.error}`,
+				);
+			const wanted = new Set(sids);
+			const removed: T[] = [];
+			const kept: T[] = [];
+			for (const row of state.lanes) {
+				if (wanted.has(row.sid) && guard(row) && !pendingManagedRestart(row))
+					removed.push(row);
+				else kept.push(row);
+			}
+			if (!removed.length) return { removed, kept };
+			const fd = openSync(temp, "wx", 0o600);
+			try {
+				writeFileSync(fd, JSON.stringify(kept, null, 2));
+				fsyncSync(fd);
+			} finally {
+				closeSync(fd);
+			}
+			renameSync(temp, file);
+			return { removed, kept };
+		} finally {
+			rmSync(temp, { force: true });
+		}
+	});
+}
+
+/** Unknown observations never authorize filesystem destruction. */
+export function safeToRetire(input: {
+	registryKnown: boolean;
+	claimKnown: boolean;
+	claimed: boolean;
+	recentlyLaunched: boolean;
+	live: boolean | null;
+}): boolean {
+	return (
+		input.registryKnown &&
+		input.claimKnown &&
+		!input.claimed &&
+		!input.recentlyLaunched &&
+		input.live === false
+	);
+}
+
+/** Destructive sweeps distinguish a failed process probe from an observed absence. */
+export function retirementProcessLive(worktree: string): boolean | null {
+	try {
+		const processes = Bun.spawnSync(["ps", "-axo", "pid=,args="], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		if (processes.exitCode !== 0) return null;
+		const rows = processes.stdout.toString().split("\n").filter(Boolean);
+		const identities = rows.map((line) => isHarnessProcess(line));
+		if (identities.includes(null)) return null;
+		const pids = rows
+			.filter((_line, index) => identities[index] === true)
+			.map((line) => line.trim().split(/\s+/)[0]);
+		if (!pids.length) return false;
+		const cwd = Bun.spawnSync(
+			["lsof", "-a", "-p", pids.join(","), "-d", "cwd", "-Fn"],
+			{ stdout: "pipe", stderr: "pipe" },
+		);
+		if (cwd.exitCode !== 0) return null;
+		return cwd.stdout
+			.toString()
+			.split("\n")
+			.some(
+				(line) => line === `n${worktree}` || line.startsWith(`n${worktree}/`),
+			);
+	} catch {
+		return null;
+	}
+}

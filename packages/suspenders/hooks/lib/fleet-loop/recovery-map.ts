@@ -1,0 +1,325 @@
+// hooks/lib/fleet-loop/recovery-map.ts — W273: the recovery map. DATA, not branches:
+// one keyed entry per monitored fleet service → how the board probes it,
+// a plain-language "what happened", likely causes and exact, copyable
+// recovery commands. The board renders it on every DOWN/degraded row so a
+// user knows how to recover without reading the repo.
+//
+// Placeholder law: commands NEVER carry secrets, real hostnames or a
+// machine's absolute home path — loopback, `~`, `$(id -u)` and env-named
+// checkouts only. test/recovery-map.test.ts pins that, and pins that every
+// probed service has an entry.
+import { readFileSync } from "node:fs";
+import { MODEL_INVENTORY, probePathFor } from "../service-inventory.ts";
+
+export type ProbeSpec =
+	| {
+			kind: "http";
+			port: number;
+			path: string;
+			contract?: "litellm-process-liveness";
+	  }
+	| { kind: "launchd"; label: string };
+
+export interface RecoveryStep {
+	label: string;
+	cmd: string;
+}
+
+export interface RecoveryEntry {
+	id: string;
+	name: string;
+	probe: ProbeSpec;
+	// one line, plain language: what the user is looking at when it's dark
+	what: string;
+	causes: string[];
+	recovery: RecoveryStep[];
+}
+
+const kick = (label: string): RecoveryStep => ({
+	label: `restart the launchd agent (${label})`,
+	cmd: `launchctl kickstart -k gui/$(id -u)/${label}`,
+});
+
+const bootstrap = (label: string): RecoveryStep => ({
+	label: "agent not loaded? load it, then kickstart",
+	cmd: `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/${label}.plist`,
+});
+
+const holder = (port: number): RecoveryStep => ({
+	label: `who holds :${port}? (empty = nothing listening)`,
+	cmd: `lsof -nP -iTCP:${port} -sTCP:LISTEN`,
+});
+
+const killOrphan = (port: number): RecoveryStep => ({
+	label: `kill an orphaned listener on :${port} (then restart below)`,
+	cmd: `kill $(lsof -tiTCP:${port} -sTCP:LISTEN)`,
+});
+
+const tail = (log: string): RecoveryStep => ({
+	label: "read the last log lines",
+	cmd: `tail -n 50 ${log}`,
+});
+
+const curl = (port: number, path: string): RecoveryStep => ({
+	label: "re-check by hand",
+	cmd: `curl -sS -m 3 -o /dev/null -w '%{http_code}\\n' http://127.0.0.1:${port}${path}`,
+});
+
+const BELT_SWARM = "com.suspenders.belt-swarm";
+const CLOUD_GATEWAY = "com.suspenders.cloud-gateway";
+const SWARM_LOG = "~/.claude-insights/mlx-swarm.log";
+
+const swarm = (port: number): RecoveryEntry => ({
+	id: `swarm-${port}`,
+	name: `local LLM swarm :${port}`,
+	probe: { kind: "http", port, path: "/v1/models" },
+	what: `The local model server on :${port} is not answering, so lanes and advice routed to it fall back or stall.`,
+	causes: [
+		"the model process crashed or was killed (out of memory is the usual one)",
+		`the swarm supervisor (${BELT_SWARM}) is not running, so nothing revives it`,
+		"the model is still loading after a restart — give it a minute",
+	],
+	recovery: [
+		holder(port),
+		kick(BELT_SWARM),
+		bootstrap(BELT_SWARM),
+		tail(SWARM_LOG),
+		curl(port, "/v1/models"),
+	],
+});
+
+// W331: hub deployments supply their own services list — the built-in map
+// describes the co-hosted machine's fleet and is pure noise elsewhere (a NAS
+// hub rendering eight false DOWNs for services that are loopback-only on
+// another host, plus a launchctl probe no container can run). Env override:
+// SUSPENDERS_SERVICES_JSON → file of minimal rows {id,name,probe:{port,path}};
+// http probes only, recovery steps derived from the probe. Absent/unreadable
+// file → built-in map (host installs).
+export const servicesFromJson = (path: string): RecoveryEntry[] | null => {
+	try {
+		const doc = JSON.parse(readFileSync(path, "utf8")) as {
+			id?: string;
+			name?: string;
+			probe?: { port?: number; path?: string };
+		}[];
+		if (!Array.isArray(doc)) return null;
+		const rows = doc.filter(
+			(s) =>
+				typeof s?.id === "string" &&
+				typeof s?.name === "string" &&
+				typeof s?.probe?.port === "number",
+		);
+		if (rows.length === 0) return null;
+		return rows.map((s) => {
+			const id = String(s.id);
+			const name = String(s.name);
+			const port = Number(s.probe?.port);
+			const p = typeof s.probe?.path === "string" ? s.probe.path : "/status";
+			return {
+				id,
+				name,
+				probe: { kind: "http" as const, port, path: p },
+				what: `${name} is not answering — anything routed to it fails.`,
+				causes: [
+					"the process is down or still starting",
+					`something else holds :${port}`,
+				],
+				recovery: [
+					holder(port),
+					tail(`~/.claude-insights/${id}.log`),
+					curl(port, p),
+				],
+			};
+		});
+	} catch {
+		return null;
+	}
+};
+
+const ENTRIES: RecoveryEntry[] = (process.env.SUSPENDERS_SERVICES_JSON
+	? servicesFromJson(process.env.SUSPENDERS_SERVICES_JSON)
+	: null) ?? [
+	{
+		id: "belt-gateway-4000",
+		name: "belt gateway :4000 (Anthropic shim)",
+		probe: { kind: "http", port: 4000, path: "/health/liveliness" },
+		what: "The :4000 Anthropic-API shim is dark, so claude CLI lanes pointed at the local fleet cannot reach a model.",
+		causes: [
+			"an orphaned process still holds :4000 but no longer answers (seen 2026-10-03)",
+			`the swarm supervisor (${BELT_SWARM}) that revives the shim is not running`,
+			"the shim crashed on start — the log says why",
+		],
+		recovery: [
+			holder(4000),
+			killOrphan(4000),
+			kick(BELT_SWARM),
+			bootstrap(BELT_SWARM),
+			tail(SWARM_LOG),
+			curl(4000, "/health/liveliness"),
+		],
+	},
+	{
+		id: "litellm-4100",
+		name: "litellm engine :4100",
+		probe: {
+			kind: "http",
+			port: 4100,
+			path: "/health/liveliness",
+			contract: "litellm-process-liveness",
+		},
+		what: "The litellm engine on :4100 is not answering, so routed model calls fail.",
+		causes: [
+			// W277 retired the standalone com.belt.gateway restarter (a second
+			// :4100 restarter — a fork-bomb hazard). W307 truth pass: litellm's
+			// ONE restarter today is com.suspenders.cloud-gateway — the swarm
+			// only observes :4100 (owned: false — the belt kit supervises it).
+			`the cloud transport supervisor (${CLOUD_GATEWAY}) that revives litellm is not running`,
+			"an orphaned litellm still holds :4100",
+			"litellm failed to start (bad generated config or missing key file) — the log says which",
+		],
+		recovery: [
+			holder(4100),
+			killOrphan(4100),
+			kick(CLOUD_GATEWAY),
+			bootstrap(CLOUD_GATEWAY),
+			tail("~/.claude-insights/cloud-gateway.log"),
+			curl(4100, "/health/liveliness"),
+		],
+	},
+	{
+		id: "buckle-4101",
+		name: "buckle :4101",
+		probe: { kind: "http", port: 4101, path: "/status" },
+		what: "The buckle router is not answering, so its routing view and metering on this board are blank.",
+		causes: [
+			// W546: the spoke IS supervised (com.suspenders.buckle-spoke,
+			// deploy/services.yaml) — the old "no launchd agent, start it by
+			// hand" advice manufactured exactly the orphan holders that leave
+			// supervised restarts dying on EADDRINUSE.
+			"an orphaned buckle still holds :4101, so the supervised agent crash-loops on EADDRINUSE (seen 2026-10-07)",
+			"the agent is not loaded — never installed or bootout-ed",
+			"buckle crashed on a bad upstreams.yaml or policy edit — the log says which",
+		],
+		recovery: [
+			holder(4101),
+			killOrphan(4101),
+			kick("com.suspenders.buckle-spoke"),
+			bootstrap("com.suspenders.buckle-spoke"),
+			tail("~/.claude-insights/buckle-spoke.log"),
+			curl(4101, "/status"),
+		],
+	},
+	...MODEL_INVENTORY.filter((s) => !s.external).map((s) => ({
+		...swarm(s.port),
+		name: `${s.label} · ${s.model} :${s.port}`,
+		probe: { kind: "http" as const, port: s.port, path: probePathFor(s) },
+	})),
+	...MODEL_INVENTORY.filter((s) => s.external).map((s) => ({
+		...swarm(s.port),
+		probe: {
+			kind: "http" as const,
+			port: s.port,
+			path: probePathFor(s),
+		},
+		id: s.role === "classify" ? `kev-${s.port}` : `swarm-${s.port}`,
+		name: `${s.label} · ${s.model} :${s.port}`,
+		what: `The external model service on :${s.port} is not answering; its owning application must load it.`,
+		causes: [
+			"the owning application has not loaded the model",
+			"the external process crashed or is still loading",
+		],
+		recovery: [holder(s.port), curl(s.port, probePathFor(s))],
+	})),
+	{
+		id: "suspenders-board",
+		name: "suspenders board :7799",
+		probe: { kind: "http", port: 7799, path: "/status" },
+		what: "The fleet board's launchd instance is not answering on :7799 — this page may be a test or dev instance.",
+		causes: [
+			"the board agent (com.suspenders.board) exited or is not loaded",
+			"another process holds :7799",
+		],
+		recovery: [
+			holder(7799),
+			kick("com.suspenders.board"),
+			bootstrap("com.suspenders.board"),
+			tail("/tmp/fleet-board.log"),
+			curl(7799, "/status"),
+		],
+	},
+	{
+		id: "caddy",
+		name: "Caddy (.local services)",
+		probe: { kind: "http", port: 2019, path: "/config/" },
+		what: "Caddy is down, so every http://<name>.local/ address stops resolving to its service (direct ports still work).",
+		causes: [
+			"the Caddy agent (com.klh-local.caddy) exited or is not loaded",
+			"a Caddyfile edit does not parse — Caddy refuses to start",
+		],
+		recovery: [
+			kick("com.klh-local.caddy"),
+			bootstrap("com.klh-local.caddy"),
+			{
+				label: "validate the Caddyfile",
+				cmd: "caddy validate --config ~/.local/state/klh-local/Caddyfile",
+			},
+			tail("~/.local/state/klh-local/caddy.log"),
+			curl(2019, "/config/"),
+		],
+	},
+	{
+		id: "launchd-belt-swarm",
+		name: `launchd ${BELT_SWARM}`,
+		probe: { kind: "launchd", label: BELT_SWARM },
+		what: "The swarm supervisor is not running, so a crashed local model or the :4000 shim stays dead instead of being revived.",
+		causes: [
+			"the agent was unloaded (bootout) or never installed",
+			"bun or the swarm script moved, so launchd cannot exec it",
+		],
+		recovery: [
+			kick(BELT_SWARM),
+			bootstrap(BELT_SWARM),
+			{
+				label: "inspect the agent's state and last exit",
+				cmd: `launchctl print gui/$(id -u)/${BELT_SWARM}`,
+			},
+			tail(SWARM_LOG),
+		],
+	},
+	// W277 retired the standalone com.belt.gateway launchd agent (it was a
+	// second :4100 restarter — a fork-bomb hazard); there is deliberately no
+	// launchd entry for it in this map. W307 truth pass: litellm's one
+	// restarter is com.suspenders.cloud-gateway (the swarm observes :4100,
+	// owned: false). W284 retired the suspenders local-llm serve fork; W640
+	// renamed the supervisor to com.suspenders.belt-swarm (receipt namespace).
+];
+
+export const RECOVERY_MAP: Readonly<Record<string, RecoveryEntry>> =
+	Object.freeze(Object.fromEntries(ENTRIES.map((e) => [e.id, e])));
+
+// the services the board probes, in display order — every id MUST have a
+// recovery entry (pinned by test)
+export const PROBED_SERVICES: readonly string[] = Object.freeze(
+	ENTRIES.map((e) => e.id),
+);
+
+export const recoveryFor = (id: string): RecoveryEntry | null =>
+	Object.hasOwn(RECOVERY_MAP, id) ? RECOVERY_MAP[id] : null;
+
+// placeholder law, as code: anything that looks like a credential, a real
+// host or a machine-specific absolute path. Loopback + .local placeholders
+// pass; `~` and env-named paths pass.
+const LEAKS: RegExp[] = [
+	/\bsk-[A-Za-z0-9_-]{8,}/,
+	/\b(?:ghp|gho|ghs|github_pat)_[A-Za-z0-9_]{8,}/,
+	/\bBearer\s+\S+/i,
+	/(?:api[_-]?key|token|secret|password)\s*[=:]\s*\S+/i,
+	/\/Users\/[^/\s]+/,
+	/\/home\/[^/\s]+/,
+	/\/Volumes\//,
+	/\b(?!127\.0\.0\.1\b)\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/,
+	/https?:\/\/(?!127\.0\.0\.1[:/]|localhost[:/]|<name>\.local\/)[^\s'"]+/i,
+];
+
+export const leaksIn = (text: string): string[] =>
+	LEAKS.filter((re) => re.test(text)).map((re) => re.source);

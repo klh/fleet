@@ -11,7 +11,7 @@ import { buildFleetTable, fleetGlyph } from "../hooks/coord/fleet-table.ts";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 
 const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
-const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
+const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
 const fx = cliFixture("w1258-fleet-table", {
 	env: { GOVERNOR_STORE_URL: "local" },
 });

@@ -3,23 +3,26 @@
 // Claude processes have no such channel and cannot be adopted by this file.
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import { ClaudeControl, claudeStreamArguments } from "../lib/claude-control.ts";
+import {
+	ClaudeControl,
+	claudeStreamArguments,
+} from "../lib/executors/claude-control.ts";
 import {
 	claudeLaneState,
 	claudePausePrompt,
 	claudePauseProof,
 	claudeResumePrompt,
 	claudeWakeControl,
-} from "../lib/claude-pause.ts";
+} from "../lib/executors/claude-pause.ts";
 import {
 	consumeClaudeWake,
 	proveClaudeWake,
 	releaseClaudeWake,
 	waitForManagedClaudeWake,
-} from "../lib/claude-wake.ts";
+} from "../lib/executors/claude-wake.ts";
 // W1035.1: interrupt results are internal turn boundaries — never terminal.
 import { defineVerb, runCli } from "../lib/verb-kit.ts";
-import { restartBootstrap } from "../lib/claude-restart.ts";
+import { restartBootstrap } from "../lib/executors/claude-restart.ts";
 
 async function run(args: string[]): Promise<number> {
 	const nativeBin = process.env.SUSPENDERS_CLAUDE_NATIVE_BIN;

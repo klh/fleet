@@ -4,7 +4,7 @@ import {
 	newerLane,
 	readLaneRegistry,
 	safeToRetire,
-} from "../hooks/lib/lane-registry.ts";
+} from "../hooks/lib/lanes/lane-registry.ts";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,7 +14,7 @@ import {
 	loadLanes,
 	saveLanes,
 	type Lane,
-} from "../hooks/lib/lane.ts";
+} from "../hooks/lib/lanes/lane.ts";
 
 const roots: string[] = [];
 function repo() {
@@ -103,7 +103,7 @@ test("independent processes cannot overwrite simultaneous launches", async () =>
 	const helper = join(root, "writer.ts");
 	writeFileSync(
 		helper,
-		`import { loadLanes, saveLanes } from ${JSON.stringify(join(import.meta.dir, "..", "hooks", "lib", "lane.ts"))};
+		`import { loadLanes, saveLanes } from ${JSON.stringify(join(import.meta.dir, "..", "hooks", "lib", "lanes", "lane.ts"))};
 const fleet=process.argv[2], sid=process.argv[3]; const snapshot=loadLanes(fleet); await Bun.sleep(150); saveLanes([...snapshot,{sid,item:sid,pid:1,branch:sid,worktree:"/unused",launchedAt:Date.now(),attempt:1}],fleet);`,
 	);
 	const children = Array.from({ length: 12 }, (_, i) =>
@@ -261,6 +261,7 @@ test("a failed process roster is unknown, not proof that retirement is safe", ()
 		"..",
 		"hooks",
 		"lib",
+		"lanes",
 		"lane-registry.ts",
 	);
 	const result = Bun.spawnSync(

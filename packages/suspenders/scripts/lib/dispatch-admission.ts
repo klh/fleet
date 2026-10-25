@@ -4,9 +4,9 @@
 // snapshot. The CLI-spawning wrappers (capsuleGet/itemCapsuleGet) stay in
 // the entry: they bind argv-derived BIN/sh.
 import { hostname } from "node:os";
-import { quotaProviderPenalty } from "../../hooks/lib/exec-quota.ts";
-import { cvMap } from "../../hooks/lib/executor-cv.ts";
-import { openStore } from "../../hooks/lib/govdb.ts";
+import { quotaProviderPenalty } from "../../hooks/lib/usage/exec-quota.ts";
+import { cvMap } from "../../hooks/lib/executors/executor-cv.ts";
+import { openStore } from "../../hooks/lib/govdb/govdb.ts";
 import type { StarterSeedFailure } from "./lane-starter.ts";
 import { ANSI } from "./ready-pool.ts";
 

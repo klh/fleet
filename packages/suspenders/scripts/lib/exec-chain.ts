@@ -11,12 +11,12 @@ import { readFileSync } from "node:fs";
 // catalog grammar; lookups: swarm inventory + BYO local-models.json
 import { feedModelOf } from "../../hooks/board/executor-catalog.ts";
 import { specialistByPort } from "../../hooks/board/local-swarm.ts";
-import { readBoardSettings } from "../../hooks/lib/board-config.ts";
+import { readBoardSettings } from "../../hooks/lib/board/board-config.ts";
 // W374: the per-provider quota measure — providerOf keys a chain slot to its
 // provider; quota demotion reorders the DEFAULT ladder only (a .prefer MUST
 // chain is owner intent, W228 parity with the W620 cv reorder).
-import type { ProviderPenalty } from "../../hooks/lib/exec-quota.ts";
-import { providerOf } from "../../hooks/lib/exec-quota.ts";
+import type { ProviderPenalty } from "../../hooks/lib/usage/exec-quota.ts";
+import { providerOf } from "../../hooks/lib/usage/exec-quota.ts";
 // W422: which chain tokens are their own CLI vs belt model pins is ADAPTER
 // data (registry.ts) — the if copilot/else-claude ternaries retired here.
 import {
@@ -26,7 +26,7 @@ import {
 // W813: chain tokens may name HUBS (a stack.json/hubs.json label rides
 // that hub); can= doability probes resolveLaneExecutor + darkHubNow + the
 // cv tally — all sync, so execPick stays sync.
-import { readRegistry } from "../../hooks/lib/hub-locate.ts";
+import { readRegistry } from "../../hooks/lib/hub/hub-locate.ts";
 import { readUserPlane } from "../../hooks/lib/repo-laws.ts";
 import { darkHubNow, tryLoadStack } from "../../hooks/lib/stack-config.ts";
 import { resolveLaneExecutor } from "./launch-preflight.ts";
@@ -254,7 +254,7 @@ const canDoable = (
  * — so a single process already tries several models before a re-dispatch
  * cycle is ever needed.
  *
- * `quota` (W374) is the per-provider penalty map (hooks/lib/exec-quota.ts):
+ * `quota` (W374) is the per-provider penalty map (hooks/lib/usage/exec-quota.ts):
  * slots riding a provider with POSITIVE exhaustion evidence demote below
  * healthy ones — quota health outranks trust, an exhausted provider strands
  * the lane (429 death → W366 reclaim dance) while trust only ranks among

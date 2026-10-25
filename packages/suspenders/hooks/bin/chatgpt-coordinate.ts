@@ -11,8 +11,8 @@ import {
 	createBoardWire,
 	createChatGptCoordinator,
 	loadChatGptCoordConfig,
-} from "../lib/chatgpt-coordinate.ts";
-import { openStore } from "../lib/govdb-store.ts";
+} from "../lib/plaid/chatgpt-coordinate.ts";
+import { openStore } from "../lib/govdb/govdb-store.ts";
 import {
 	defineVerb,
 	dieFor,
@@ -88,7 +88,7 @@ if (outcome.parsed.flag("--dry-run") === "true") {
 		composeBrief,
 		loadState,
 		pausedMarker: pm,
-	} = await import("../lib/chatgpt-coordinate.ts");
+	} = await import("../lib/plaid/chatgpt-coordinate.ts");
 	if (outcome.parsed.flag("--json") === "true") {
 		let store: ReturnType<typeof openStore> | null = null;
 		let triggers: ReturnType<typeof scanTriggers> = [];

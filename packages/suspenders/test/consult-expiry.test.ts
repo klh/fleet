@@ -10,7 +10,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-const EXPIRY = join(import.meta.dir, "..", "hooks", "lib", "consult-expiry.ts");
+const EXPIRY = join(
+	import.meta.dir,
+	"..",
+	"hooks",
+	"lib",
+	"federation",
+	"consult-expiry.ts",
+);
 const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 const home = mkdtempSync(join(tmpdir(), "suspenders-w611-consult-expiry-"));
 const REPO = mkdtempSync(
@@ -56,7 +63,7 @@ const json = (v: unknown) => JSON.stringify(v);
 
 function seed(): void {
 	runIn(`
-const { openGovernorDb } = await import(${JSON.stringify(join(import.meta.dir, "..", "hooks", "lib", "govdb.ts"))});
+const { openGovernorDb } = await import(${JSON.stringify(join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts"))});
 const db = openGovernorDb();
 const now = Date.now();
 for (const sid of [${json(ASKER)}, ${json(EXPERT)}])
@@ -99,7 +106,7 @@ describe("consult-expiry (W611)", () => {
 		);
 		expect(p.exitCode).toBe(0);
 		const out = runIn(`
-const { openGovernorDb } = await import(${JSON.stringify(join(import.meta.dir, "..", "hooks", "lib", "govdb.ts"))});
+const { openGovernorDb } = await import(${JSON.stringify(join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts"))});
 const db = openGovernorDb();
 const r = db.query("SELECT created_at, deadline_at FROM consults WHERE question LIKE 'does the gate drain%'").get();
 console.log(JSON.stringify(r));
@@ -110,7 +117,7 @@ console.log(JSON.stringify(r));
 
 	test("expireConsults flips past-deadline rows and emits consult.expired at the asker", () => {
 		const out = runIn(`
-const { openGovernorDb } = await import(${JSON.stringify(join(import.meta.dir, "..", "hooks", "lib", "govdb.ts"))});
+const { openGovernorDb } = await import(${JSON.stringify(join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts"))});
 const { expireConsults } = await import(${JSON.stringify(EXPIRY)});
 const db = openGovernorDb();
 const n = expireConsults(db);
@@ -140,7 +147,7 @@ console.log(JSON.stringify({ n, states, evs }));
 
 	test("second sweep is a no-op (already expired)", () => {
 		const out = runIn(`
-const { openGovernorDb } = await import(${JSON.stringify(join(import.meta.dir, "..", "hooks", "lib", "govdb.ts"))});
+const { openGovernorDb } = await import(${JSON.stringify(join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts"))});
 const { expireConsults } = await import(${JSON.stringify(EXPIRY)});
 const db = openGovernorDb();
 console.log(JSON.stringify(expireConsults(db)));

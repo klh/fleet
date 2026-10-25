@@ -2,7 +2,7 @@
 // Handler bodies moved verbatim from bin/coord.ts's if/else chain —
 // one-tab indent preserved, output byte-compatible.
 
-import { consultDeadline } from "../lib/consult-expiry.ts";
+import { consultDeadline } from "../lib/federation/consult-expiry.ts";
 import { makeStamp } from "../lib/confidence.ts";
 import {
 	type ConsultEnvelope,
@@ -14,19 +14,19 @@ import {
 	mintTraceId,
 	recordCitations,
 	recordRouteStage,
-} from "../lib/consult-federation.ts";
+} from "../lib/federation/consult-federation.ts";
 import {
 	applyStaleFeedback,
 	attemptHubLeg,
 	hubCooldownActive,
 	joinPendingHubConsult,
-} from "../lib/consult-federation-hub.ts";
+} from "../lib/federation/consult-federation-hub.ts";
 import {
 	recordKnowledgeSuggestion,
 	renderKnowledgeSuggestion,
 	suggestKnowledge,
-} from "../lib/kev-curation.ts";
-import { claimedWorkOf } from "../lib/lane-effort.ts";
+} from "../lib/knowledge/kev-curation.ts";
+import { claimedWorkOf } from "../lib/lanes/lane-effort.ts";
 import { listLiveTargets, resolveTarget } from "./addressing.ts";
 import { queueDirectedReceipt } from "./bus.ts";
 import { consultVersion, ensureConsultTrust } from "./consult-trust.ts";

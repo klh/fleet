@@ -7,7 +7,7 @@
 // denials); the audit trail is the store's, not a side log.
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { resolveProject, resolveStoreHttpBase } from "../lib/govdb.ts";
+import { resolveProject, resolveStoreHttpBase } from "../lib/govdb/govdb.ts";
 import {
 	bindCheckout,
 	enrollRegistry,
@@ -24,7 +24,7 @@ import {
 	type IdentityBinding,
 	type ProviderRepoInfo,
 	type ProviderResolver,
-} from "../lib/identity-registry.ts";
+} from "../lib/govdb/identity-registry.ts";
 import { arg, db, die, dim, green } from "./shared.ts";
 
 const msg = (e: unknown): string =>

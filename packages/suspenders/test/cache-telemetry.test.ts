@@ -15,7 +15,7 @@ import {
 	readCacheReport,
 	readLaneCacheLog,
 	rowsInWindow,
-} from "../hooks/lib/cache-telemetry.ts";
+} from "../hooks/lib/usage/cache-telemetry.ts";
 
 const tmp = mkdtempSync(join(tmpdir(), "cache-tel-"));
 process.env.KLH_CACHE_TELEMETRY = join(tmp, "report.json");

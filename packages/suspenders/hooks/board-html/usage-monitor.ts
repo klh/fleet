@@ -14,7 +14,7 @@ import type {
 	MonitorDim,
 	MonitorMetric,
 	MonitorReport,
-} from "../lib/monitor-drill.ts";
+} from "../lib/fleet-loop/monitor-drill.ts";
 
 const DIMS: { key: MonitorDim; label: string }[] = [
 	{ key: "lane", label: "lane" },

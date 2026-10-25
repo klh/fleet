@@ -27,8 +27,10 @@ test("pause proof rejects invented and nonancestor commits despite canonical-loo
 	const sid = "proof-fixture";
 	const fact = (key: string, value: string) =>
 		exec(process.execPath, [coord, "fact", "set", key, value, "--as", sid]);
-	const module = new URL("../hooks/lib/claude-pause.ts", import.meta.url)
-		.pathname;
+	const module = new URL(
+		"../hooks/lib/executors/claude-pause.ts",
+		import.meta.url,
+	).pathname;
 	const proof = () =>
 		JSON.parse(
 			exec(process.execPath, [

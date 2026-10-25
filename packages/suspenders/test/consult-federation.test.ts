@@ -21,12 +21,12 @@ import {
 	type ConsultEnvelope,
 	ensureConsultFederation,
 	mintTraceId,
-} from "../hooks/lib/consult-federation.ts";
+} from "../hooks/lib/federation/consult-federation.ts";
 import {
 	attemptHubLeg,
 	hubCooldownActive,
 	joinPendingHubConsult,
-} from "../hooks/lib/consult-federation-hub.ts";
+} from "../hooks/lib/federation/consult-federation-hub.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-fed-"));
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-fed-repo-"));

@@ -5,7 +5,7 @@
 // bullets survive the roll. Degrade-honest: a failure logs to stderr and
 // NEVER blocks compaction. Register as a second PreCompact hook:
 //   PreCompact → bun ~/.claude/hooks/suspenders/pre-compact.ts
-import { openStore, projectIdentity } from "./lib/govdb.ts";
+import { openStore, projectIdentity } from "./lib/govdb/govdb.ts";
 import { rollCheckpoint, type CheckpointDb } from "./lib/checkpoint.ts";
 import { subagentLaneSuffix } from "./lib/subscribe-attach.ts";
 

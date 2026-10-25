@@ -47,8 +47,8 @@ import {
 	tokenUsage,
 	workTiming,
 	type ItemTiming,
-} from "../lib/govdb.ts";
-import { unmergedDeps } from "../lib/dep-merge-gate.ts";
+} from "../lib/govdb/govdb.ts";
+import { unmergedDeps } from "../lib/gates/dep-merge-gate.ts";
 
 const VERSION = "0.1.0";
 

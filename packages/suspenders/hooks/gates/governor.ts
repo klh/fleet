@@ -17,16 +17,19 @@
 import { deny, type HookInput } from "../lib/hookio.ts";
 import { gateWroteSince } from "./files.ts";
 import { run } from "../lib/run.ts";
-import { canonicalProjectRoot } from "../lib/lane-registry.ts";
-import { laneContext } from "../lib/lane-completion.ts";
+import { canonicalProjectRoot } from "../lib/lanes/lane-registry.ts";
+import { laneContext } from "../lib/lanes/lane-completion.ts";
 import {
 	openStore,
 	projectIdentity,
 	type GovernorStore,
-} from "../lib/govdb.ts";
-import { expireObservedLease } from "../lib/lease-expiry.ts";
+} from "../lib/govdb/govdb.ts";
+import { expireObservedLease } from "../lib/lanes/lease-expiry.ts";
 import { classifyOutage, recordOutage } from "../lib/outage-ledger.ts";
-import { recordFailure, resolveFailures } from "../lib/failure-recovery.ts";
+import {
+	recordFailure,
+	resolveFailures,
+} from "../lib/fleet-loop/failure-recovery.ts";
 import {
 	appendFileSync,
 	existsSync,

@@ -21,7 +21,15 @@ export interface CliResult {
 }
 
 const BIN = join(import.meta.dir, "..", "..", "hooks", "bin");
-const GOVDB = join(import.meta.dir, "..", "..", "hooks", "lib", "govdb.ts");
+const GOVDB = join(
+	import.meta.dir,
+	"..",
+	"..",
+	"hooks",
+	"lib",
+	"govdb",
+	"govdb.ts",
+);
 
 /** One isolated fixture: temp HOME (fresh governor.db) + git-inited repo.
  *  opts.env rides LAST over the pinned base (dispatch-harness envOverrides

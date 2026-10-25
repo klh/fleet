@@ -7,8 +7,8 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
-import type { PlaidRoute } from "../hooks/lib/plaid.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
+import type { PlaidRoute } from "../hooks/lib/plaid/plaid.ts";
 import {
 	fetchModelCatalog,
 	mergePlaidHealth,
@@ -30,7 +30,7 @@ import {
 	routeLoadOf,
 	setPlaidRouteSource,
 	writePosture,
-} from "../hooks/lib/plaid.ts";
+} from "../hooks/lib/plaid/plaid.ts";
 
 // Unit planning cases pin their route fixture instead of reading the operator HOME.
 beforeEach(() => setPlaidRouteSource(() => PLAID_ROUTES));

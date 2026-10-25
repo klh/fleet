@@ -19,7 +19,7 @@ import type {
 	BoardSettingsState,
 	PolicyGatewayParsed,
 	ResolvedPolicy,
-} from "../lib/board-config.ts";
+} from "../lib/board/board-config.ts";
 import type { AdminAuditRow } from "../lib/admin-audit.ts";
 import { scrub } from "../lib/servicemon.ts";
 import {
@@ -32,7 +32,7 @@ import {
 	displayLabel,
 	THEME_HEAD,
 } from "../lib/theme.ts";
-import type { RecoveryEntry } from "../lib/recovery-map.ts";
+import type { RecoveryEntry } from "../lib/fleet-loop/recovery-map.ts";
 // W858.10.3: the Network overview payload (type-only — erased at runtime;
 // the card component owns the DOM)
 import type { NetworkPayload } from "../board/network-overview.ts";

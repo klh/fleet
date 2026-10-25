@@ -47,8 +47,8 @@ const env = (): Record<string, string> => ({
 	SUSPENDERS_CACHE_LOCAL: "0",
 });
 
-const lib = (): Promise<typeof import("../hooks/lib/cache-drill.ts")> =>
-	import(`../hooks/lib/cache-drill.ts?home=${encodeURIComponent(HOME)}`);
+const lib = (): Promise<typeof import("../hooks/lib/usage/cache-drill.ts")> =>
+	import(`../hooks/lib/usage/cache-drill.ts?home=${encodeURIComponent(HOME)}`);
 
 type Mod = Awaited<ReturnType<typeof lib>>;
 type Row = Mod["BuckleRequestRow"];

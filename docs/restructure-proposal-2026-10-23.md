@@ -341,3 +341,21 @@ Drift filed:
 Noted, not drift: `can=` takes a single token — a comma value probes into
 silent unavailability — so the standard's chain-row "comma lists try left
 first" reads chain-wide but only must=/prefer= split commas.
+
+## Appendix — Phase-4 re-decision (W1276, 2026-10-25)
+
+The deferral's re-decide trigger fired: kernel is on main and hooks/lib is
+compartmentalized (W1276). Measured 2026-10-25 on the compartmentalized
+tree: 16 seam dirs, ~52k of 56k lib lines under seams (largest:
+fleet-loop 7073, lanes 6806, knowledge 6450, work 4704, usage 4382,
+federation 3804), and every seam still imports the shared root and other
+seams (out-edges 12-115 per seam; fleet-loop 115, lanes 70, work 48,
+knowledge 31). No seam is an acyclic independent-lifecycle domain, so the
+Amendment-B split criterion (acyclic + independent lifecycle +
+installer-closure tests) FAILS on measurement — the earlier ">30k lines →
+split knowledge/board" line is superseded by Amendment B ("size alone does
+not justify new packages"). Verdict: HOLD the package split; the
+precondition is finishing kernel extraction until the belt↔suspenders
+reach-ins vanish from the import-law PIN (model-store.ts still imports
+suspenders hooks/lib directly). Re-run this measurement when the PIN's
+belt→suspenders rows are gone.

@@ -11,7 +11,7 @@ launchd stays darwin-only; a Windows spoke rides WinSW units.
 - **win32 emitter PATH** — the manifest's darwin-shaped PATH env is no
   longer emitted as a live WinSW `<env>`; host PATH applies
   (`scripts/README-windows.md`).
-- **Secrets at rest** — `mode 0o600` is a no-op on NTFS; `hooks/lib/keyring.ts`
+- **Secrets at rest** — `mode 0o600` is a no-op on NTFS; `hooks/lib/auth/keyring.ts`
   gives the stack OS credential stores (Windows Credential Manager via
   advapi32, darwin Keychain verified on-metal here, linux Secret Service)
   with the 0600-file fallback preserved.
@@ -21,20 +21,20 @@ launchd stays darwin-only; a Windows spoke rides WinSW units.
 ## Confirmed portable (rg-audited, no change)
 
 - `hooks/lib/secrets-home.ts` — `homedir()`-based, env-overridable.
-- `hooks/lib/hub-provider-keys.ts` / `federation-peers.ts` —
+- `hooks/lib/auth/hub-provider-keys.ts` / `federation-peers.ts` —
   `env.HOME ?? homedir()` pattern.
 - `scripts/install-services.ts` win32 emitter — `winDirname()` handles both
   separators; `winQuotedIfNeeded()` applies MSVC argv rules; scheduled
   services carry `schtasks` hints; `--home`/`--bun`/`--prefix` flags accept
   Windows-shaped values (verified by render, 2026-10-15).
-- `hooks/lib/keyring.ts` — binary-safe blobs on win32, argv-riding darwin
+- `hooks/lib/auth/keyring.ts` — binary-safe blobs on win32, argv-riding darwin
   backend (NUL-free secrets).
 
 ## Darwin-pinned by law (not portable, not a defect)
 
 - launchd activation + receipts: `/usr/bin/plutil`, `vm_stat`, `dns-sd`,
   `/usr/bin/git`, `/bin/sh` in `scripts/*.ts`, `hooks/bin/fleet-loop.ts`,
-  `hooks/bin/review-lane.ts`, `hooks/lib/keyring.ts` (darwin backend).
+  `hooks/bin/review-lane.ts`, `hooks/lib/auth/keyring.ts` (darwin backend).
 - The darwin (launchd) emitter itself — launchd stays darwin-only.
 
 ## Known limitations (documented, deliberate)

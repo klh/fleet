@@ -15,7 +15,7 @@ import type {
 	ItemTokens,
 	ResolvedProject,
 	StoreResult,
-} from "../hooks/lib/govdb.ts";
+} from "../hooks/lib/govdb/govdb.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-surface-"));
 // restore before afterAll cleanup: the rest of the suite shares this process —
@@ -25,7 +25,7 @@ process.env.HOME = HOME; // govdb computes REG from HOME at module load — set 
 // ?query busts bun's module cache (shared registry across test files) so this
 // file's instance binds to the temp HOME, never the production DB.
 const govdb = await import(
-	`../hooks/lib/govdb.ts?home=${encodeURIComponent(HOME)}`
+	`../hooks/lib/govdb/govdb.ts?home=${encodeURIComponent(HOME)}`
 );
 // file-scope env restore — the rest of the suite shares this process (W1124.11)
 afterAll(() => {

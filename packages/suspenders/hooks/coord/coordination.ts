@@ -4,12 +4,12 @@
 // one OPEN consult per live peer with the asker's state snapshot in the
 // payload. Answers ride the standard consult-reply flow; the asker's
 // bounded wait face is `coord wait --kinds consult.answer`.
-import { consultDeadline } from "../lib/consult-expiry.ts";
-import { claimedWorkOf } from "../lib/lane-effort.ts";
+import { consultDeadline } from "../lib/federation/consult-expiry.ts";
+import { claimedWorkOf } from "../lib/lanes/lane-effort.ts";
 import {
 	ensureConsultFederation,
 	mintTraceId,
-} from "../lib/consult-federation.ts";
+} from "../lib/federation/consult-federation.ts";
 import {
 	type AskerSnapshot,
 	COORD_TOPICS,
@@ -21,7 +21,7 @@ import {
 	openRound,
 	questionFor,
 	roundsInWindow,
-} from "../lib/supervisor-coordination.ts";
+} from "../lib/lanes/supervisor-coordination.ts";
 import { arg, db, die, projectIdentity } from "./shared.ts";
 import { queueDirectedReceipt } from "./bus.ts";
 

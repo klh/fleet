@@ -7,7 +7,7 @@ import { TAIL } from "../hooks/board-html/tail.ts";
 import {
 	type CompletionRecord,
 	persistCompletion,
-} from "../hooks/lib/work-completion-record.ts";
+} from "../hooks/lib/work/work-completion-record.ts";
 
 import {
 	crossFixture,

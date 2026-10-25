@@ -19,7 +19,7 @@ import {
 	resolvePromptSettings,
 	takePlan,
 } from "../hooks/board/prompt-transform.ts";
-import { validateBoardSettings } from "../hooks/lib/board-config.ts";
+import { validateBoardSettings } from "../hooks/lib/board/board-config.ts";
 
 const FLUFFY =
 	"Hi there! Could you please just basically add a CSV export to the `tasks` table in hooks/board/data.ts? I would like you to make sure that it streams. I would like you to make sure that it streams. Thanks so much!";

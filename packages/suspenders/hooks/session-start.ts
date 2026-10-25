@@ -18,7 +18,7 @@ import {
 	openStore,
 	projectIdentity,
 	sweepStaleSessions,
-} from "./lib/govdb.ts";
+} from "./lib/govdb/govdb.ts";
 import { enrollTopLevel } from "./lib/hook-scripts.ts";
 import { run } from "./lib/run.ts";
 import { checkSessionPolicies } from "./lib/session-policy.ts";
@@ -29,13 +29,13 @@ import {
 	liveStates,
 	supervisorFactLine,
 	supervisorRows,
-} from "./lib/supervisor.ts";
+} from "./lib/lanes/supervisor.ts";
 import {
 	seedSupervisorRefill,
 	supervisorContractNotice,
 	supervisorControlStatus,
 	supervisorRefillDirective,
-} from "./lib/supervisor-refill.ts";
+} from "./lib/lanes/supervisor-refill.ts";
 
 type In = {
 	session_id?: string;
