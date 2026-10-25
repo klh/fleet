@@ -13,6 +13,7 @@ import { existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	addedWorkspaceDependencies,
 	missingImportsExplained,
 	type Proof,
 	TEST_FILE,
@@ -405,6 +406,23 @@ async function coverageProof(branch: string): Promise<Proof> {
 		.out.trim()
 		.split("\n")
 		.filter((f) => f && !TEST_FILE.test(f));
+	const mergeBase = gitRun(["merge-base", "main", branch]).out.trim();
+	const manifestPaths = [
+		...new Set(
+			testFiles
+				.filter((path) => /^packages\/[^/]+\//.test(path))
+				.map((path) => `${path.split("/").slice(0, 2).join("/")}/package.json`),
+		),
+	];
+	const addedWorkspaceDeps = manifestPaths.flatMap((path) => {
+		const before = gitRun(["show", `${mergeBase}:${path}`]);
+		const after = gitRun(["show", `${branch}:${path}`]);
+		return addedWorkspaceDependencies(
+			before.code === 0 ? before.out : "{}",
+			after.code === 0 ? after.out : "{}",
+			path,
+		);
+	});
 
 	const scratch = mkdtempSync(join(tmpdir(), "review-proof-"));
 	let added = false;
@@ -452,7 +470,14 @@ async function coverageProof(branch: string): Promise<Proof> {
 			// W1262 (W1258 regression): a missing import that names a module the
 			// diff ADDED means the reversed change is what provides the module —
 			// the failure is the proof. Only an unexplained one is environmental.
-			if (!missingImportsExplained(output, addedProd, testFiles))
+			if (
+				!missingImportsExplained(
+					output,
+					addedProd,
+					testFiles,
+					addedWorkspaceDeps,
+				)
+			)
 				return {
 					status: "error",
 					detail: "scratch module resolution failed",
