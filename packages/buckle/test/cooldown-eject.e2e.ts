@@ -3,57 +3,56 @@ import { expect, test } from "@playwright/test";
 import { Cooldowns } from "../src/cooldown.ts";
 
 test.describe({ tag: "@unit" }, () => {
-
-const mkDep = (group: string, url: string) => ({
-	group,
-	url,
-	dialect: "openai" as const,
-});
-
-test.describe("Cooldowns", () => {
-	test("benches after allowed_fails consecutive failures", () => {
-		const t = 1000;
-		const cd = new Cooldowns(3, 30, () => t);
-		const d = mkDep("g", "http://x");
-		cd.failure(d);
-		cd.failure(d);
-		expect(cd.benched(d)).toBe(false);
-		cd.failure(d);
-		expect(cd.benched(d)).toBe(true);
+	const mkDep = (group: string, url: string) => ({
+		group,
+		url,
+		dialect: "openai" as const,
 	});
 
-	test("success resets the consecutive-failure counter", () => {
-		const t = 1000;
-		const cd = new Cooldowns(3, 30, () => t);
-		const d = mkDep("g", "http://x");
-		cd.failure(d);
-		cd.failure(d);
-		cd.success(d);
-		cd.failure(d);
-		cd.failure(d);
-		expect(cd.benched(d)).toBe(false);
-	});
+	test.describe("Cooldowns", () => {
+		test("benches after allowed_fails consecutive failures", () => {
+			const t = 1000;
+			const cd = new Cooldowns(3, 30, () => t);
+			const d = mkDep("g", "http://x");
+			cd.failure(d);
+			cd.failure(d);
+			expect(cd.benched(d)).toBe(false);
+			cd.failure(d);
+			expect(cd.benched(d)).toBe(true);
+		});
 
-	test("recovers when the cooldown window passes", () => {
-		let t = 1000;
-		const cd = new Cooldowns(3, 30, () => t);
-		const d = mkDep("g", "http://x");
-		for (let i = 0; i < 3; i++) cd.failure(d);
-		expect(cd.benched(d)).toBe(true);
-		t += 30_000;
-		expect(cd.benched(d)).toBe(false);
-	});
+		test("success resets the consecutive-failure counter", () => {
+			const t = 1000;
+			const cd = new Cooldowns(3, 30, () => t);
+			const d = mkDep("g", "http://x");
+			cd.failure(d);
+			cd.failure(d);
+			cd.success(d);
+			cd.failure(d);
+			cd.failure(d);
+			expect(cd.benched(d)).toBe(false);
+		});
 
-	test("unreachable peer ejects immediately and reports its remaining delay", () => {
-		let t = 1_000;
-		const cd = new Cooldowns(3, 30, () => t);
-		const d = mkDep("g", "http://dead");
-		cd.eject(d);
-		expect(cd.benched(d)).toBe(true);
-		expect(cd.remainingS(d)).toBe(30);
-		t += 30_000;
-		expect(cd.benched(d)).toBe(false);
-		expect(cd.remainingS(d)).toBeNull();
+		test("recovers when the cooldown window passes", () => {
+			let t = 1000;
+			const cd = new Cooldowns(3, 30, () => t);
+			const d = mkDep("g", "http://x");
+			for (let i = 0; i < 3; i++) cd.failure(d);
+			expect(cd.benched(d)).toBe(true);
+			t += 30_000;
+			expect(cd.benched(d)).toBe(false);
+		});
+
+		test("unreachable peer ejects immediately and reports its remaining delay", () => {
+			let t = 1_000;
+			const cd = new Cooldowns(3, 30, () => t);
+			const d = mkDep("g", "http://dead");
+			cd.eject(d);
+			expect(cd.benched(d)).toBe(true);
+			expect(cd.remainingS(d)).toBe(30);
+			t += 30_000;
+			expect(cd.benched(d)).toBe(false);
+			expect(cd.remainingS(d)).toBeNull();
+		});
 	});
-});
 });
