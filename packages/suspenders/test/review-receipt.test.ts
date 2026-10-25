@@ -206,6 +206,111 @@ test("moving integration base or changing applicable instruction invalidates rec
 	expect(f.check().why).toContain("stale");
 });
 
+test("review remains valid when main advances only in a disjoint path", () => {
+	const f = fixture();
+	publishReviewReceipt(f.db, "project", "W1", f.receipt);
+	mkdirSync(join(f.repo, "docs"));
+	writeFileSync(join(f.repo, "docs/notes.md"), "Independent notes.\n");
+	f.git("add", ".");
+	f.git("commit", "-m", "unrelated documentation");
+	expect(f.check()).toMatchObject({ ok: true });
+});
+
+for (const sharedInput of [
+	"tsconfig.json",
+	"packages/app/tsconfig.build.json",
+	"package.json",
+	"packages/app/package.json",
+	"bun.lock",
+	"packages/app/bun.lock",
+	"packages/app/build.config.ts",
+	".github/workflows/ci.yml",
+	".npmrc",
+	".pnp.cjs",
+]) {
+	test(`disjoint shared input ${sharedInput} invalidates an old PASS`, () => {
+		const f = fixture();
+		publishReviewReceipt(f.db, "project", "W1", f.receipt);
+		mkdirSync(join(f.repo, sharedInput, ".."), { recursive: true });
+		writeFileSync(join(f.repo, sharedInput), "Changed shared input.\n");
+		f.git("add", ".");
+		f.git("commit", "-m", "change shared input");
+		expect(f.check()).toMatchObject({ ok: false });
+	});
+}
+
+test("review remains valid when main advances to an ancestor of the exact candidate", () => {
+	const f = fixture();
+	f.git("checkout", "suspenders/W1");
+	writeFileSync(
+		join(f.repo, "packages/app/extra.ts"),
+		"export const extra = 1;\n",
+	);
+	f.git("add", ".");
+	f.git("commit", "-m", "second candidate commit");
+	f.git("checkout", "main");
+	const context = reviewContext(f.repo, "suspenders/W1");
+	f.db
+		.query("UPDATE work_items SET result_sha = ? WHERE id = 'W1'")
+		.run(context.commit);
+	f.db.query("DELETE FROM work_completion_records WHERE item = 'W1'").run();
+	f.db
+		.query(
+			"INSERT INTO work_completion_records VALUES ('project', 'W1', ?, 'author')",
+		)
+		.run(context.commit);
+	publishReviewReceipt(f.db, "project", "W1", {
+		...f.receipt,
+		commit: context.commit,
+		base: context.base,
+		instructions: context.instructions,
+	});
+	f.git("merge", "--ff-only", f.context.commit);
+	expect(f.check()).toMatchObject({ ok: true });
+});
+
+test("equivalent merge commit of a candidate ancestor preserves the reviewed tree", () => {
+	const f = fixture();
+	f.git("checkout", "suspenders/W1");
+	writeFileSync(
+		join(f.repo, "packages/app/extra.ts"),
+		"export const extra = 1;\n",
+	);
+	f.git("add", ".");
+	f.git("commit", "-m", "second candidate commit");
+	f.git("checkout", "main");
+	const context = reviewContext(f.repo, "suspenders/W1");
+	f.db
+		.query("UPDATE work_items SET result_sha = ? WHERE id = 'W1'")
+		.run(context.commit);
+	f.db.query("DELETE FROM work_completion_records WHERE item = 'W1'").run();
+	f.db
+		.query(
+			"INSERT INTO work_completion_records VALUES ('project', 'W1', ?, 'author')",
+		)
+		.run(context.commit);
+	publishReviewReceipt(f.db, "project", "W1", {
+		...f.receipt,
+		commit: context.commit,
+		base: context.base,
+		instructions: context.instructions,
+	});
+	f.git("merge", "--no-ff", "-m", "integrate ancestor", f.context.commit);
+	expect(f.check()).toMatchObject({ ok: true });
+});
+
+test("overlapping main changes cannot inherit a prior review", () => {
+	const f = fixture();
+	publishReviewReceipt(f.db, "project", "W1", f.receipt);
+	writeFileSync(
+		join(f.repo, "packages/app/value.ts"),
+		"export const value = 2;\n",
+	);
+	f.git("add", ".");
+	f.git("commit", "-m", "overlapping edit");
+	expect(f.check()).toMatchObject({ ok: false });
+});
+
 test("new branch commit and cross-project receipt cannot inherit approval", () => {
 	const f = fixture();
 	publishReviewReceipt(f.db, "project", "W1", f.receipt);
