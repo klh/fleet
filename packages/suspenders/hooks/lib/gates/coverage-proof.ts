@@ -55,7 +55,7 @@ export const addedWorkspaceDependencies = (
 };
 
 const MISSING_LINE =
-	/Cannot find (?:package|module) ['"]([^'"]+)['"](?: from ['"](.+?)['"])?/;
+	/^error: Cannot find (?:package|module) ['"]([^'"]+)['"](?: from ['"](.+?)['"])?/;
 
 export const missingImports = (output: string): MissingImport[] => {
 	const hits: MissingImport[] = [];

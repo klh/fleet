@@ -102,6 +102,14 @@ test("missingImports parses bun's error line (spec + importer)", () => {
 	expect(hits[0]?.importer).toBe("/abs/dir/t.test.ts");
 });
 
+test("missingImports ignores source context printed with a failing assertion", () => {
+	const context =
+		"129 | const line = `error: " +
+		"Cannot" +
+		" find module '../gates/risk-tier.ts' from '/tmp/merge.ts'`;";
+	expect(missingImports(context)).toEqual([]);
+});
+
 test("diff-added module import failure is explained (W1258 shape, .ts spec)", () => {
 	const line = `error: Cannot find module '${W1258.spec}' from '/var/folders/xx/review-proof-abc/${W1258.importerSuffix}'`;
 	expect(missingImportsExplained(line, W1258.added, W1258.tests)).toBe(true);
