@@ -154,6 +154,13 @@ decision-grade: it has to change what you would do. When a verdict flips
   Bun 1.4.2. Appends go through `node:fs` appendFile.
 - **`rg -rn`** — `-r` is `--replace`; the "n" is a replacement string.
   Plain `-n` for line numbers, every time.
+- **Hand-retyping extracted bodies during a .ts decomposition (W1299)** —
+  re-emitting moved code through successive anchored Edits corrupted
+  payloads repeatedly (invented tokens that parse clean); the corruption
+  channel, not the decomposition, burned the lane's error budget.
+  Replaced by: byte-exact line-range slicing of the source + a counted
+  mechanical rewrite script (exact-match-count assertions, residual-scan
+  exit) + re-assembly — one pass, zero drift.
 
 ## Rejected before trying (kept so we don't re-litigate)
 
