@@ -155,10 +155,11 @@ const unchangedReviewedEffect = (
 
 // W1243.1.1.1: a B-ID on a non-RESOLVED line is a *mention*, not
 // automatically a live blocker. A standalone `RESOLVED: B<id> <evidence>`
-// line is the reviewer's explicit resolution and subtracts the ID from
+// line, with an optional list bullet, is the reviewer's explicit resolution and subtracts the ID from
 // blocking; an unresolved mention stays blocking (fail-closed) and the
 // prior-blocker guard below still demands the explicit RESOLVED line.
-const RESOLVED_LINE = /^RESOLVED:\s+(B\d+-[a-zA-Z0-9-]+)\s+\S.+$/gm;
+const RESOLVED_LINE =
+	/^[ \t]*(?:[-*][ \t]+)?RESOLVED:\s+(B\d+-[a-zA-Z0-9-]+)\s+\S.+$/gm;
 const MENTION = /\bB\d+-[a-zA-Z0-9-]+/g;
 
 export const reviewFindingIds = (
@@ -170,7 +171,7 @@ export const reviewFindingIds = (
 		...new Set(
 			text
 				.split("\n")
-				.filter((line) => !line.startsWith("RESOLVED:"))
+				.filter((line) => !/^[ \t]*(?:[-*][ \t]+)?RESOLVED:/.test(line))
 				.flatMap((line) => line.match(MENTION) ?? []),
 		),
 	].filter((id) => !resolvedSet.has(id));
