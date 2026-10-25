@@ -16,6 +16,7 @@ import {
 	type ZaiCatalogSnapshot,
 } from "../../belt/bin/zai-catalog-rows.ts";
 import { assertProviderConcurrencyErrorCodes } from "../../buckle/src/provider-pressure.ts";
+import { validateOutboundGuardConfig } from "../../buckle/src/outbound-guard.ts";
 import type { HubProfile } from "../hooks/lib/stack-config.ts";
 
 const MAX_CATALOG_BYTES = 1024 * 1024;
@@ -41,6 +42,11 @@ function guardedCodingPlanRoute(
 		| Record<string, unknown>
 		| undefined;
 	if (!rewrite || Object.keys(rewrite).length !== 1) return false;
+	try {
+		validateOutboundGuardConfig(config);
+	} catch {
+		return false;
+	}
 	if (
 		!Array.isArray(blocked?.paths) ||
 		!blocked.paths.includes("/api/paas/v4/")
@@ -49,12 +55,17 @@ function guardedCodingPlanRoute(
 	if (deployment.dialect === "anthropic")
 		return (
 			deployment.adapter === undefined &&
-			rewrite["/v1/messages"] === "/api/anthropic/v1/messages"
+			rewrite["/v1/messages"] === "/api/anthropic/v1/messages" &&
+			(blocked?.corrections as Record<string, unknown>)?.anthropic ===
+				"https://api.z.ai/api/anthropic/v1/messages"
 		);
 	return (
 		deployment.dialect === "openai" &&
 		deployment.adapter === "openai-compat" &&
-		rewrite["/v1/chat/completions"] === "/api/coding/paas/v4/chat/completions"
+		rewrite["/v1/chat/completions"] ===
+			"/api/coding/paas/v4/chat/completions" &&
+		(blocked?.corrections as Record<string, unknown>)?.openai ===
+			"https://api.z.ai/api/coding/paas/v4/chat/completions"
 	);
 }
 
