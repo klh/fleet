@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import {
 	finishReviewRequest,
 	providerPressureKey,
@@ -105,6 +106,17 @@ test("exact context schedules once, never direct provider or repeated per cycle"
 	finishReviewRequest(f.db, f.key, request.token, false);
 	scheduleReview({ ...f.options, spawn: f.spawn });
 	expect(f.launches).toHaveLength(1);
+});
+test("review scheduler launches the reviewer from the real hooks/bin directory", () => {
+	const f = fixture();
+	expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
+		"requested through Buckle",
+	);
+	const script = f.launches[0]?.[1];
+	expect(script).toBe(
+		new URL("../hooks/bin/review-lane.ts", import.meta.url).pathname,
+	);
+	expect(script && existsSync(script)).toBe(true);
 });
 test("errors back off and stop after three attempts; stale worker cannot finish newer lease", () => {
 	const f = fixture();
