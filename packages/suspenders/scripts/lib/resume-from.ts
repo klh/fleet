@@ -29,7 +29,7 @@
 import { statSync } from "node:fs";
 import { basename } from "node:path";
 import { adapterForExact } from "../../hooks/lib/executors/registry.ts";
-import { transcriptPath } from "../../hooks/lib/lane-liveness.ts";
+import { transcriptPath } from "../../hooks/lib/lanes/lane-liveness.ts";
 
 /** Policy flag — the knob is opt-in at the machine level. */
 export const RESUME_RETAKE_FLAG = "SUSPENDERS_RESUME_RETAKE";

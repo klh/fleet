@@ -94,7 +94,7 @@ export function renderCard(h: KnowledgeApiHit): string[] {
 	];
 }
 
-/** Verbatim from hooks/lib/knowledge.ts KNOWLEDGE_PRECEDENCE (W103) — a
+/** Verbatim from hooks/lib/knowledge/knowledge.ts KNOWLEDGE_PRECEDENCE (W103) — a
  *  packet may not emit knowledge without it (the injection arm-C refusal
  *  artifact). Drifts → update both, tests pin parity. */
 export const KNOWLEDGE_PRECEDENCE =

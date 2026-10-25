@@ -12,9 +12,9 @@ import {
 	laneProcessIdentity,
 	isHarnessProcess,
 	type ProcessInspector,
-} from "../hooks/lib/lane-liveness.ts";
-import { safeToRetire } from "../hooks/lib/lane-registry.ts";
-import { alive } from "../hooks/lib/lane.ts";
+} from "../hooks/lib/lanes/lane-liveness.ts";
+import { safeToRetire } from "../hooks/lib/lanes/lane-registry.ts";
+import { alive } from "../hooks/lib/lanes/lane.ts";
 
 const lane = { sid: "autow562", item: "W562", pid: 562 };
 const roster =
@@ -281,7 +281,7 @@ test("retirement retains an unresolved native executable and ignores prompt-only
 	roots.push(root);
 	const ps = join(root, "ps");
 	const observe = () => {
-		const script = `import { retirementProcessLive } from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/lane-registry.ts"))}; console.log(JSON.stringify(retirementProcessLive(${JSON.stringify(root)})));`;
+		const script = `import { retirementProcessLive } from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/lanes/lane-registry.ts"))}; console.log(JSON.stringify(retirementProcessLive(${JSON.stringify(root)})));`;
 		const child = Bun.spawnSync([process.execPath, "-e", script], {
 			env: { ...process.env, PATH: root },
 			stdout: "pipe",

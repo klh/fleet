@@ -8,10 +8,13 @@
 // scripts/lib/brief-weight.ts and surfaced in `coord metrics`.
 import { condensePrompt } from "../../hooks/board/prompt-transform.ts";
 // W254: pointer-grade injection — file-map + done-definition digest for the
-// brief, gated per W113 on repo size (hooks/lib/brief-intel.ts)
-import { type BriefIntel, renderIntel } from "../../hooks/lib/brief-intel.ts";
+// brief, gated per W113 on repo size (hooks/lib/lanes/brief-intel.ts)
+import {
+	type BriefIntel,
+	renderIntel,
+} from "../../hooks/lib/lanes/brief-intel.ts";
 import { capsuleValidity } from "../../hooks/lib/capsule-fence.ts";
-import { effortBudgetLine } from "../../hooks/lib/work-effort.ts";
+import { effortBudgetLine } from "../../hooks/lib/work/work-effort.ts";
 import { validationCommand } from "./validation-cmd.ts";
 
 /** hooks bin dir (env-overridable — the shims ride the same path). */
@@ -49,7 +52,7 @@ export interface BriefOpts {
 	/** archived-origin landing redirect (the W428 lesson) */
 	landing?: string;
 	/** W248: per-item effort budget — vocabulary + budget text live in
-	 *  hooks/lib/work-effort.ts; absent/null = no budget line. */
+	 *  hooks/lib/work/work-effort.ts; absent/null = no budget line. */
 	effort?: string | null;
 	/** W1140: the lane-effort policy verdict line (lane-effort-policy.ts);
 	 *  absent/null = no line — legacy briefs stay byte-identical. */

@@ -395,7 +395,7 @@ export function policyRevisionProbe(policyPath: string | undefined): CrProbe {
 // ─── usage/aid rollup store (W171) ─────────────────────────────────────────
 
 // The five routing-doctrine model classes — the coarse buckets the report
-// carries INSTEAD of model names. Mirror of suspenders hooks/lib/usage.ts
+// carries INSTEAD of model names. Mirror of suspenders hooks/lib/usage/usage.ts
 // GROUPS (the cross-package contract; assert-equal in both test suites).
 export const MODEL_CLASSES = [
 	"flash",

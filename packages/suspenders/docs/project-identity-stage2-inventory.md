@@ -14,7 +14,7 @@ inventory is the source-location + presence map those stages migrate against.
 
 ## 1. Store open surface
 
-Three sanctioned entry points in `hooks/lib/govdb.ts`:
+Three sanctioned entry points in `hooks/lib/govdb/govdb.ts`:
 `openGovernorDb()` (:388, raw SQLite handle), `openStore()` (:1156, the
 binding chain env `GOVERNOR_STORE_URL` → `${REG}/store.url` → in-process) and
 `openKnowledgeDb()` (:986, the knowledge.db file). `openMemoryStore()` (:1210)
@@ -39,18 +39,18 @@ Every other `new Database(` site, classified:
 | `hooks/bin/metrics-alert.ts:183`                 | BYPASS          | read-only scanner                                                                                               |
 | `hooks/bin/console-repo-law.ts:70`               | BYPASS          | console check                                                                                                   |
 | `hooks/lib/decomposition.ts:78`                  | BYPASS          | optional `db` injection; defaults to local file                                                                 |
-| `hooks/lib/lane-completion.ts:28`                | BYPASS          | capsule checkpoint read at completion                                                                           |
+| `hooks/lib/lanes/lane-completion.ts:28`                | BYPASS          | capsule checkpoint read at completion                                                                           |
 | `hooks/bin/federation-pull.ts:29`                | BYPASS          | pulls into the local store                                                                                      |
 | `hooks/bin/store-server.ts:66,69`                | AUTHORITY       | the RPC authority itself: main connection + the tagged-tx connection                                            |
-| `hooks/lib/federation-report.ts:277`             | READ-BYPASS     | readonly governor.db open for self-report evidence                                                              |
+| `hooks/lib/federation/federation-report.ts:277`             | READ-BYPASS     | readonly governor.db open for self-report evidence                                                              |
 | `scripts/lib/copilot-meter.ts:105`               | SEPARATE FILE   | readonly Copilot usage DB (its own store, not governor.db)                                                      |
 | `scripts/lib/resource-actuator.ts:82`            | SEPARATE FILE   | `actions.db` fence ledger — executor-local by design (0600, same shape as governor locks)                       |
-| `hooks/lib/usage-rebuild.ts:20,26,32,33`         | SEPARATE FILE   | usage backup/report DBs                                                                                         |
-| `hooks/lib/usage-migration.ts:37,38`             | SEPARATE FILE   | same                                                                                                            |
-| `hooks/lib/usage-provenance.ts:22`               | SEPARATE FILE   | `:memory:` scratch                                                                                              |
+| `hooks/lib/usage/usage-rebuild.ts:20,26,32,33`         | SEPARATE FILE   | usage backup/report DBs                                                                                         |
+| `hooks/lib/usage/usage-migration.ts:37,38`             | SEPARATE FILE   | same                                                                                                            |
+| `hooks/lib/usage/usage-provenance.ts:22`               | SEPARATE FILE   | `:memory:` scratch                                                                                              |
 | `hooks/bin/knowledge-resweep.ts:283,284`         | SEPARATE FILE   | direct knowledge.db opens (bypasses `openKnowledgeDb` pragmas — reads only)                                     |
 | `hooks/lib/knowledge-ports.ts:817,854`           | AUTHORITY (kb)  | the knowledge port                                                                                              |
-| `hooks/lib/settle.ts:81,99,100`                  | AUTHORITY       | knowledge settle: kb + governor pair                                                                            |
+| `hooks/lib/knowledge/settle.ts:81,99,100`                  | AUTHORITY       | knowledge settle: kb + governor pair                                                                            |
 | `hooks/bin/db-backup.ts:44,49,81,84`             | TOOLING         | readonly open + `integrity_check` of both files                                                                 |
 | `test/helpers/board-fixture.ts:164`              | TEST            | fake-HOME fixture                                                                                               |
 | `deploy/runtime-info.ts:55`                      | TEST            | `:memory:` digest scratch                                                                                       |
@@ -68,7 +68,7 @@ READ-BYPASS class is acceptable during migration: evidence reads stay local.
   transport, not a tenant boundary (parent doc hazard, unchanged).
 - WS `/subscribe` (:263) filters by recipient sid / scope-prefix / kinds
   (:136-141); scope is the caller's own string, not an authorized project.
-- `hooks/lib/govdb.ts:1049` `HttpGovernorStore` — the client half. Callers
+- `hooks/lib/govdb/govdb.ts:1049` `HttpGovernorStore` — the client half. Callers
   riding it (via `openStore()`): `hooks/bin/work.ts:285` (lazy, per-command),
   `hooks/coord/shared.ts:52`, `hooks/board/context.ts:46`, `advise.ts:74`,
   `auth.ts:62,99,111`, `fleet-loop.ts:287,613,666,900`, `fleet-tracker.ts:52`,
@@ -98,7 +98,7 @@ Writers first; readers are representative (grep anchors, not exhaustive).
 
 ## 4. Execution-ID namespaces
 
-Lane identity is minted by `hooks/lib/laneslug.ts:10` (`laneSid`): W-labels map
+Lane identity is minted by `hooks/lib/lanes/laneslug.ts:10` (`laneSid`): W-labels map
 injectively to `autow<digits-dashes>`, and since W460 new lanes append
 `-p<sha256(common-dir)[0..16]>`. Legacy rows keep the bare slug — sids are
 therefore **not** guaranteed globally unique until every live lane was minted

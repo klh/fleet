@@ -19,8 +19,8 @@ import {
 	hubRegistryFromStack,
 	rosterUrlEntries,
 	writeHubRegistry,
-} from "../hooks/lib/hub-registry.ts";
-import { readRegistry } from "../hooks/lib/hub-locate.ts";
+} from "../hooks/lib/hub/hub-registry.ts";
+import { readRegistry } from "../hooks/lib/hub/hub-locate.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "hub-registry-home-"));
 const prevHome = process.env.HOME;

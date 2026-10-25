@@ -14,7 +14,7 @@ import { join } from "node:path";
 
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
 const SERVER = join(BIN, "store-server.ts");
-const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
+const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
 const home = mkdtempSync(join(tmpdir(), "suspenders-store-port-test-"));
 const repo = mkdtempSync(join(tmpdir(), "suspenders-store-port-repo-"));
 // a repo here must be a REAL git checkout — project identity resolves the

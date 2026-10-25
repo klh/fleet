@@ -26,8 +26,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { laneSid } from "../../hooks/lib/laneslug.ts";
-import { projectIdentity } from "../../hooks/lib/govdb.ts";
+import { laneSid } from "../../hooks/lib/lanes/laneslug.ts";
+import { projectIdentity } from "../../hooks/lib/govdb/govdb.ts";
 
 const DIR = import.meta.dir;
 const FLEET_DIR = process.env.FLEET_DIR ?? join(DIR, "../../..");

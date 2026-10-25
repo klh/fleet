@@ -74,7 +74,7 @@ export const QUESTIONS: Question[] = [
 		class: "judgment",
 		q: "When does `work done --sha` fail with a misleading 'git rev-parse failed' and what resolves it?",
 		gt: "WITHOUT --summary, work done verifies the final capsule checkpoint == the completion sha; a checkpoint=none capsule (or checkpoint that doesn't rev-parse) fails with 'Cannot verify completion commit evidence: git rev-parse failed'. Resolution: re-bank the capsule with --checkpoint=<branch-head-sha> and re-run; --summary bypasses the match.",
-		src: "coord fact lesson.work-done-capsule-checkpoint + hooks/lib/work-completion-record.ts",
+		src: "coord fact lesson.work-done-capsule-checkpoint + hooks/lib/work/work-completion-record.ts",
 	},
 	{
 		id: "J4",

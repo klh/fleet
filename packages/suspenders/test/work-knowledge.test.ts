@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import { queueCompletionKnowledge } from "../hooks/lib/work-knowledge.ts";
-import type { CompletionRecord } from "../hooks/lib/work-completion-record.ts";
-import type { KevCuration } from "../hooks/lib/kev-curation.ts";
+import { queueCompletionKnowledge } from "../hooks/lib/work/work-knowledge.ts";
+import type { CompletionRecord } from "../hooks/lib/work/work-completion-record.ts";
+import type { KevCuration } from "../hooks/lib/knowledge/kev-curation.ts";
 
 const record: CompletionRecord = {
 	project: "fleet",

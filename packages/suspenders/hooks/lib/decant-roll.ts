@@ -23,13 +23,13 @@ import {
 	syncStatePath,
 	postRoll,
 	type SyncState,
-} from "./knowledge-sync.ts";
+} from "./knowledge/knowledge-sync.ts";
 import {
 	readSyncConfig,
 	SYNC_CONFIG_PATH,
 	type SyncTarget,
-} from "./knowledge-sync-policy.ts";
-import { collectClaims, type RollEntry } from "./knowledge-roll.ts";
+} from "./knowledge/knowledge-sync-policy.ts";
+import { collectClaims, type RollEntry } from "./knowledge/knowledge-roll.ts";
 
 // ─── the pass ───────────────────────────────────────────────────────────────
 

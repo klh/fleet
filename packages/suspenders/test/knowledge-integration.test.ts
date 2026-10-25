@@ -12,13 +12,13 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { ROLL_KEY_HEADER } from "../hooks/lib/knowledge-roll.ts";
+import { ROLL_KEY_HEADER } from "../hooks/lib/knowledge/knowledge-roll.ts";
 import {
 	postRoll,
 	readSyncState,
 	syncOnce,
 	type SyncTarget,
-} from "../hooks/lib/knowledge-sync.ts";
+} from "../hooks/lib/knowledge/knowledge-sync.ts";
 import { unusedPort } from "./helpers/board-fixture.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "w12134-int-home-"));

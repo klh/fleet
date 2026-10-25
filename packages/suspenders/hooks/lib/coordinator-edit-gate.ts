@@ -40,8 +40,8 @@
 import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { RECEIPT_FILE } from "./harness-manifest.ts";
-import { resolveFleetLane } from "./fleetlane.ts";
-import { resolveProject } from "./govdb-project.ts";
+import { resolveFleetLane } from "./lanes/fleetlane.ts";
+import { resolveProject } from "./govdb/govdb-project.ts";
 import { deny, type HookInput } from "./hookio.ts";
 
 const EDIT_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);

@@ -29,7 +29,7 @@ import {
 	prometheusPreflight,
 } from "../../belt/bin/litellm-target.ts";
 import { scrubRules } from "../hooks/lib/scrub.ts";
-import { writeHubRegistry } from "../hooks/lib/hub-registry.ts";
+import { writeHubRegistry } from "../hooks/lib/hub/hub-registry.ts";
 import { refreshFlatHome, smokeRouter } from "./belt-bin-overlay.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
 import { validateBeltWiredGuard } from "./lib/belt-wired-guard.ts";
@@ -374,7 +374,7 @@ export async function seedLocalLlm(ctx: StepContext): Promise<StepResult> {
 		return { status: "failed", note: regen.note };
 	}
 	// W1256.2: the hub registry is a GENERATED projection of the stack config
-	// (hooks/lib/hub-registry.ts) — install single-sources hubs.json; a
+	// (hooks/lib/hub/hub-registry.ts) — install single-sources hubs.json; a
 	// write failure degrades to a note (resolveHub still walks the stack).
 	const reg = writeHubRegistry(join(ctx.llmHome, "hubs.json"));
 	log(`hub registry: ${reg.note}`);

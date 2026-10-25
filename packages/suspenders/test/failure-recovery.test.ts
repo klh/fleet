@@ -1,11 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
-import { openMemoryStore } from "../hooks/lib/govdb.ts";
+import { openMemoryStore } from "../hooks/lib/govdb/govdb.ts";
 import {
 	failureFingerprint,
 	recordFailure,
 	resolveFailures,
 	type FailureContext,
-} from "../hooks/lib/failure-recovery.ts";
+} from "../hooks/lib/fleet-loop/failure-recovery.ts";
 
 const dbs: ReturnType<typeof openMemoryStore>[] = [];
 afterEach(() => {

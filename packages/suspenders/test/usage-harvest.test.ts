@@ -6,7 +6,7 @@ import { describe, test, expect, afterAll } from "bun:test";
 import {
 	runHarvestPipeline,
 	type HarvestAdapter,
-} from "../hooks/lib/harvest-engine.ts";
+} from "../hooks/lib/harvest/harvest-engine.ts";
 import { Database } from "bun:sqlite";
 import {
 	mkdtempSync,
@@ -18,17 +18,17 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { prepareUsageRebuild } from "../hooks/lib/usage-rebuild.ts";
+import { prepareUsageRebuild } from "../hooks/lib/usage/usage-rebuild.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-usage-"));
 const REAL_HOME = process.env.HOME;
 process.env.HOME = HOME;
 const { openGovernorDb } = await import(
-	`../hooks/lib/govdb.ts?home=${encodeURIComponent(HOME)}`
+	`../hooks/lib/govdb/govdb.ts?home=${encodeURIComponent(HOME)}`
 );
 const { harvestUsage, modelGroup, harvestAll, usageAdapter, maybeHarvest } =
 	await import(
-		`../hooks/lib/usage-harvest.ts?home=${encodeURIComponent(HOME)}`
+		`../hooks/lib/usage/usage-harvest.ts?home=${encodeURIComponent(HOME)}`
 	);
 // restore: REG was already captured at govdb module load; leaving the temp
 // HOME set leaks into later-loading suites (the gate-writes interference)

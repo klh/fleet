@@ -16,11 +16,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	cvKey,
-	executorCv,
-} from "../hooks/lib/executor-cv.ts";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+import { cvKey, executorCv } from "../hooks/lib/executors/executor-cv.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 
 const dbs: Database[] = [];
 const dirs: string[] = [];
@@ -109,7 +106,10 @@ const ev = (
 	);
 };
 
-const replayHistory = (db: GovernorStore, r: { dir: string; project: string }): void => {
+const replayHistory = (
+	db: GovernorStore,
+	r: { dir: string; project: string },
+): void => {
 	fact(db, "lane.s1.model", "glm-x");
 	fact(db, "lane.s3.model", "glm-x");
 	db.query(
@@ -136,7 +136,11 @@ const replayHistory = (db: GovernorStore, r: { dir: string; project: string }): 
 	// a third lane whose shas never verify: pending orphan + unknown —
 	// neither is ever a verdict, so the shared class gains no row
 	ev(db, "work.claimed", { work: "W31", by: "s3", project: r.project });
-	ev(db, "work.done", { work: "W31", sha: orphanSha(r.dir), project: r.project });
+	ev(db, "work.done", {
+		work: "W31",
+		sha: orphanSha(r.dir),
+		project: r.project,
+	});
 	ev(db, "work.claimed", { work: "W32", by: "s3", project: r.project });
 	ev(db, "work.done", { work: "W32", sha: "f".repeat(40), project: r.project });
 };
@@ -222,7 +226,7 @@ test("historical replay forks git once for the snapshot, probes only the misses"
 		child,
 		[
 			'import { Database } from "bun:sqlite";',
-			`import { executorCv } from "${join(import.meta.dir, "..", "hooks", "lib", "executor-cv.ts")}";`,
+			`import { executorCv } from "${join(import.meta.dir, "..", "hooks", "lib", "executors", "executor-cv.ts")}";`,
 			"const db = new Database(process.argv[2], { readonly: true });",
 			'const t = executorCv(db as never, { host: "h1" });',
 			"console.log(JSON.stringify([...t.entries()]));",
@@ -248,9 +252,7 @@ test("historical replay forks git once for the snapshot, probes only the misses"
 		[cvKey("nas", "codex")]: { cv: 10, valid: 10, invalid: 0 },
 	});
 	// one bounded snapshot fork; only the orphan miss takes the probe path
-	const lines = readFileSync(log, "utf8")
-		.trim()
-		.split("\n");
+	const lines = readFileSync(log, "utf8").trim().split("\n");
 	const revlist = lines.filter((l) => l.includes("rev-list"));
 	const mergebase = lines.filter((l) => l.includes("merge-base"));
 	expect(revlist.length).toBe(1);

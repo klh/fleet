@@ -16,9 +16,9 @@
 // `.fleet/rogue-reap-paused` pauses everything. Exit 1 when a dry-run
 // finds candidates or prune rows (a cron or a human should notice).
 import { emitLoopEvent } from "../lib/fleet-loop/events.ts";
-import { openStore, projectIdentity } from "../lib/govdb.ts";
-import type { LaneRef } from "../lib/lane-liveness.ts";
-import { readLaneRegistry } from "../lib/lane-registry.ts";
+import { openStore, projectIdentity } from "../lib/govdb/govdb.ts";
+import type { LaneRef } from "../lib/lanes/lane-liveness.ts";
+import { readLaneRegistry } from "../lib/lanes/lane-registry.ts";
 import { createRogueReap, type ReapReport } from "../lib/rogue-reap.ts";
 import {
 	defineVerb,

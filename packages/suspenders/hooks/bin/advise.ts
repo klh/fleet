@@ -10,9 +10,12 @@
 //        knowledge-buckle credential file — see inference-buckle.ts
 
 import { recommendationOf } from "../lib/advice-quality.ts";
-import { readBoardSettings } from "../lib/board-config.ts";
-import { isDecisionKind, openStore } from "../lib/govdb.ts";
-import { buckleChat, inferenceBuckleRoute } from "../lib/inference-buckle.ts";
+import { readBoardSettings } from "../lib/board/board-config.ts";
+import { isDecisionKind, openStore } from "../lib/govdb/govdb.ts";
+import {
+	buckleChat,
+	inferenceBuckleRoute,
+} from "../lib/hub/inference-buckle.ts";
 import {
 	type KevDecision,
 	type KevOption,
@@ -20,7 +23,7 @@ import {
 	kevTypedDecision,
 	kevUrl,
 	parseOptions,
-} from "../lib/kev.ts";
+} from "../lib/knowledge/kev.ts";
 import {
 	buildPanelRows,
 	cloudLeg,

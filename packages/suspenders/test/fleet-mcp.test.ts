@@ -8,7 +8,7 @@ import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { projectIdentity } from "../hooks/lib/govdb.ts";
+import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
 
 setDefaultTimeout(20_000);
 

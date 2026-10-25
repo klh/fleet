@@ -9,10 +9,10 @@
 // law: every failure mode stays silent (allow) — a prompt is never blocked.
 // SUSPENDERS_ASK=0 disables the surface.
 import { allow, context, type HookInput } from "../lib/hookio.ts";
-import { kevTypedDecision } from "../lib/kev.ts";
-import { resolveFleetLane } from "../lib/fleetlane.ts";
+import { kevTypedDecision } from "../lib/knowledge/kev.ts";
+import { resolveFleetLane } from "../lib/lanes/fleetlane.ts";
 import { subagentLaneSuffix } from "../lib/subscribe-attach.ts";
-import { drainLaneInboxFor } from "../lib/lane-inbox.ts";
+import { drainLaneInboxFor } from "../lib/lanes/lane-inbox.ts";
 
 // owner meta questions are short; dispatch briefs (thousands of chars, ride
 // the session's FIRST prompt with W-ids all over them) never survive this

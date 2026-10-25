@@ -1,17 +1,17 @@
-import type { GovernorStore } from "../lib/govdb.ts";
+import type { GovernorStore } from "../lib/govdb/govdb.ts";
 import {
 	type LaneRef,
 	laneProcessIdentity,
 	laneVerdict,
 	type ProcessInspection,
-} from "../lib/lane-liveness.ts";
-import { newerLane, readLaneRegistry } from "../lib/lane-registry.ts";
+} from "../lib/lanes/lane-liveness.ts";
+import { newerLane, readLaneRegistry } from "../lib/lanes/lane-registry.ts";
 import {
 	type ArtifactEvidence,
 	type ExecutionClaim,
 	type ExecutionEvidence,
 	workExecution,
-} from "../lib/work-execution.ts";
+} from "../lib/work/work-execution.ts";
 
 type Registered = LaneRef & { attempt?: number };
 type Event = {

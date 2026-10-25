@@ -10,7 +10,7 @@
 // via the coord CLI verb — the supported surface) so `lanes` and the board
 // surface them on the lane status path. Missing copilot store on this host
 // is an honest no-op line, not an error. Exit 0 unless a flush write fails.
-import { projectIdentity, projectRootOf } from "../lib/govdb.ts";
+import { projectIdentity, projectRootOf } from "../lib/govdb/govdb.ts";
 import {
 	copilotStorePath,
 	flushLaneUsageFacts,

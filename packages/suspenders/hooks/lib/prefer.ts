@@ -17,7 +17,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseLawExpr } from "./repo-laws.ts";
-import { projectRootOf } from "./govdb.ts";
+import { projectRootOf } from "./govdb/govdb.ts";
 
 export type PreferKey = "tag" | "color" | "prefer" | "must";
 

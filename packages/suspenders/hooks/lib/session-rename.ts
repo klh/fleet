@@ -13,7 +13,7 @@ import {
 	tagNameOf,
 	projectIdentity,
 	type GovernorStore,
-} from "./govdb.ts";
+} from "./govdb/govdb.ts";
 import { resolveTranscriptPath, transcriptTail } from "./transcript.ts";
 import { slugifyLabelPart } from "./addressing.ts";
 

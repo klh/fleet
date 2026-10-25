@@ -1,8 +1,8 @@
 import { afterAll, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { projectIdentity } from "../hooks/lib/govdb.ts";
-import { laneSid } from "../hooks/lib/laneslug.ts";
+import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
+import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
 import { dispatchHarness, stubBuckle } from "./helpers/dispatch-harness.ts";
 
 const h = dispatchHarness(afterAll, {
@@ -80,8 +80,11 @@ test("canonical reclaimed dirty context starts a fresh transcript and keeps its 
 			"RESUME MODE:",
 		);
 		const inspect = async (overrides: Record<string, unknown> = {}) => {
-			const module = join(import.meta.dir, "../hooks/lib/reclaim-context.ts");
-			const dbModule = join(import.meta.dir, "../hooks/lib/govdb.ts");
+			const module = join(
+				import.meta.dir,
+				"../hooks/lib/lanes/reclaim-context.ts",
+			);
+			const dbModule = join(import.meta.dir, "../hooks/lib/govdb/govdb.ts");
 			const item = JSON.parse(
 				(await h.toolA({}, "work.ts", "show", id, "--json")).out,
 			);

@@ -19,9 +19,9 @@ on; the one-line titles on the graph items are not the plan.
 
 | Region               | Owner  | Files                                                                                                                                                                    |
 | -------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| usage export         | W179.1 | `hooks/lib/usage-export.ts`, `hooks/lib/usage.ts`, `hooks/board/routes-usage.ts`, `hooks/bin/usage-page-html.ts`, `test/usage-export.test.ts`                            |
-| notification fan-out | W179.2 | `hooks/lib/notify.ts` (new), `hooks/bin/monitor.ts`, `test/notify.test.ts` (new), optional `hooks/launchd/com.suspenders.notify-test.plist`                              |
-| nightly soak         | W179.3 | `hooks/lib/soak.ts` (new), `hooks/bin/soak.ts` (new), `sim/smoke.ts`, `sim/lib` http helpers, `hooks/launchd/com.suspenders.soak.plist` (new), `test/soak.test.ts` (new) |
+| usage export         | W179.1 | `hooks/lib/usage-export.ts`, `hooks/lib/usage/usage.ts`, `hooks/board/routes-usage.ts`, `hooks/bin/usage-page-html.ts`, `test/usage-export.test.ts`                            |
+| notification fan-out | W179.2 | `hooks/lib/notify/notify.ts` (new), `hooks/bin/monitor.ts`, `test/notify.test.ts` (new), optional `hooks/launchd/com.suspenders.notify-test.plist`                              |
+| nightly soak         | W179.3 | `hooks/lib/fleet-loop/soak.ts` (new), `hooks/bin/soak.ts` (new), `sim/smoke.ts`, `sim/lib` http helpers, `hooks/launchd/com.suspenders.soak.plist` (new), `test/soak.test.ts` (new) |
 
 The regions are disjoint by construction: W179.2 owns the only shared-adjacent
 file (`monitor.ts`); W179.3 must not touch it — its soak is a standalone CLI
@@ -38,7 +38,7 @@ on its own launchd timer, not a monitor check.
 - Board route `GET /api/usage/export.csv` in `hooks/board/routes-usage.ts`
   with `days`/`team`/`dept` filters; export link on the usage page carries
   the active filter state.
-- `actorTagsMap`/`actorAllowlist` extracted into `hooks/lib/usage.ts` — one
+- `actorTagsMap`/`actorAllowlist` extracted into `hooks/lib/usage/usage.ts` — one
   attribution source.
 
 Remaining: nothing code-side; merge proceeds via the normal landing chain
@@ -63,7 +63,7 @@ Event sources, all already emitted somewhere in the plane:
 
 Design contract:
 
-- Delivery in a new `hooks/lib/notify.ts`; `monitor.ts` keeps detection and
+- Delivery in a new `hooks/lib/notify/notify.ts`; `monitor.ts` keeps detection and
   calls it. Channels: email (SMTP `smtp.gmail.com:587`, credentials only from
   `~/.gmail.env`), desktop (`osascript`), Slack (incoming webhook URL).
 - Secrets live in runtime config, never in the repo; an unconfigured channel
@@ -78,7 +78,7 @@ Design contract:
 ## W179.3 — nightly real-upstream soak
 
 Per the lane's capsule (the authoritative resume context; ratified here as
-the exclusive region): `hooks/lib/soak.ts` (~360 lines) + `hooks/bin/soak.ts`
+the exclusive region): `hooks/lib/fleet-loop/soak.ts` (~360 lines) + `hooks/bin/soak.ts`
 CLI + `com.suspenders.soak.plist` at 03:15 nightly; `sim/smoke.ts` refactored
 onto shared http helpers; scaffolding removed. Real upstream is the belt
 router (`/api/route`, bearer from `belt-tokens.json` — same contract as

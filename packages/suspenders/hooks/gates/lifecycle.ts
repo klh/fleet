@@ -19,8 +19,8 @@
 // launchctl family for the same command — the grant IS the second opinion.
 import { readFileSync, statSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import { resolveFleetLane } from "../lib/fleetlane.ts";
-import { openStore, type GovernorStore } from "../lib/govdb.ts";
+import { resolveFleetLane } from "../lib/lanes/fleetlane.ts";
+import { openStore, type GovernorStore } from "../lib/govdb/govdb.ts";
 import { deny } from "../lib/hookio.ts";
 
 // ─── protected surface ───────────────────────────────────────────────────────

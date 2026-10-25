@@ -7,8 +7,8 @@
 
 import { existsSync } from "node:fs";
 import type { HookInput } from "./hookio.ts";
-import { resolveLaneContext } from "./lane-completion.ts";
-import { selfLaneStopNotice } from "./lane-stop-decision.ts";
+import { resolveLaneContext } from "./lanes/lane-completion.ts";
+import { selfLaneStopNotice } from "./lanes/lane-stop-decision.ts";
 import { run } from "./run.ts";
 
 export interface TurnMessage {

@@ -18,7 +18,7 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
-import type { GovernorStore } from "../../hooks/lib/govdb.ts";
+import type { GovernorStore } from "../../hooks/lib/govdb/govdb.ts";
 import { compareProcessBirth } from "./process-birth.ts";
 import {
 	type ProcessBirth,

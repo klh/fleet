@@ -11,8 +11,8 @@ import {
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { pausedLaneFixture } from "./helpers/paused-lane.ts";
-import { projectIdentity } from "../hooks/lib/govdb-project.ts";
-import { pausedNativeBoundary } from "../hooks/lib/claude-restart.ts";
+import { projectIdentity } from "../hooks/lib/govdb/govdb-project.ts";
+import { pausedNativeBoundary } from "../hooks/lib/executors/claude-restart.ts";
 
 async function exerciseSubscriberLifecycle(mode: "claim" | "watcher") {
 	const f = pausedLaneFixture(`wtest-claim-${crypto.randomUUID()}`);

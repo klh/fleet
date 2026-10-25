@@ -13,7 +13,7 @@ import {
 	retiredRestartSnapshot,
 	type ClaudeRestartSnapshot,
 	type RestartDependencies,
-} from "../hooks/lib/claude-restart.ts";
+} from "../hooks/lib/executors/claude-restart.ts";
 import { processBirth } from "../scripts/lib/launch-fencing.ts";
 
 const directories: string[] = [];

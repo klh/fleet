@@ -32,7 +32,7 @@ import {
 	getStarter,
 	listStartersIn,
 	type StarterArtifactContent,
-} from "@klh/suspenders/hooks/lib/starter-artifacts.ts";
+} from "@klh/suspenders/hooks/lib/starter/starter-artifacts.ts";
 import {
 	pullFromDir,
 	promoteStarter,
@@ -42,12 +42,12 @@ import {
 	replicateToDir,
 	rollbackStarter,
 	writeGrants,
-} from "@klh/suspenders/hooks/lib/starter-distribution.ts";
+} from "@klh/suspenders/hooks/lib/starter/starter-distribution.ts";
 import {
 	materializeStarter,
 	readOutcomes,
 	recordOutcome,
-} from "@klh/suspenders/hooks/lib/starter-materialize.ts";
+} from "@klh/suspenders/hooks/lib/starter/starter-materialize.ts";
 import { gatePromotion, rollbackTargetOf } from "../src/promotion.ts";
 import { pairedLift } from "../bench/paired/types.ts";
 import {

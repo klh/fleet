@@ -6,7 +6,7 @@
 // cursor never advances, the next cycle re-reports). Loop mode default
 // (FEDERATION_REPORT_INTERVAL_S, default 300s); --once for sim/tests.
 // Sim mapping: source sim/spoke-profile.env first.
-import { runSelfReportCycle } from "../lib/federation-report.ts";
+import { runSelfReportCycle } from "../lib/federation/federation-report.ts";
 import { defineVerb, runCli } from "../lib/verb-kit.ts";
 
 const INTERVAL_S = Number(process.env.FEDERATION_REPORT_INTERVAL_S ?? "300");

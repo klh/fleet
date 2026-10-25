@@ -164,7 +164,7 @@ nothing:
     codex         ~/.codex/config.toml     http://host:4101/w/lane/zai/openai/v1  openai     zai       glm-5.3  remove [model_providers.buckle] + model_provider
     grok          ~/.grok/config.toml      http://host:4101/w/lane/zai/openai     openai     zai       glm-5.3  hand-revert .grok/config.toml [model.*] base_url + api_backend
 
-The mapping (hooks/lib/buckle-route.ts):
+The mapping (hooks/lib/hub/buckle-route.ts):
 
 - **claude-code — settings-json**: merges env.ANTHROPIC_BASE_URL into
   ~/.claude/settings.json. The client appends /v1/messages, so the base ends

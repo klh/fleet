@@ -13,22 +13,22 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { have } from "../run.ts";
-import { openStore, projectIdentity } from "../govdb.ts";
+import { openStore, projectIdentity } from "../govdb/govdb.ts";
 import {
 	doneShaResolves,
 	gitInProgress,
 	itemClaimOf,
 	mergeHoldActive,
-} from "../ladder-lease.ts";
+} from "../lanes/ladder-lease.ts";
 import { flagIntegratedCode } from "../decomposition.ts";
-import { guardedMerge } from "../merge-guard.ts";
+import { guardedMerge } from "./merge-guard.ts";
 import {
 	checkReviewReceipt,
 	reviewContext,
 	recordLanding,
-} from "../review-receipt.ts";
+} from "../gates/review-receipt.ts";
 import type { LoopDeps } from "./runtime.ts";
-import { scheduleReview } from "../review-scheduler.ts";
+import { scheduleReview } from "../gates/review-scheduler.ts";
 
 export type MergeLadder = {
 	mergeOne: (b: string) => void;
@@ -94,7 +94,7 @@ export function createMergeLadder(
 		}
 	}
 
-	// W641: the ladder's lease gate lives in hooks/lib/ladder-lease.ts
+	// W641: the ladder's lease gate lives in hooks/lib/lanes/ladder-lease.ts
 
 	// one branch through the ladder — the cycle's per-branch body, shared with
 	// the board's one-click ship (`ship --branch <b>` runs it foreground).

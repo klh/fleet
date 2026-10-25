@@ -18,8 +18,8 @@ import {
 	type ChatGptCoordConfig,
 	type ConsultWire,
 	type Trigger,
-} from "../hooks/lib/chatgpt-coordinate.ts";
-import { openMemoryStore } from "../hooks/lib/govdb-store.ts";
+} from "../hooks/lib/plaid/chatgpt-coordinate.ts";
+import { openMemoryStore } from "../hooks/lib/govdb/govdb-store.ts";
 
 const scratch = (): string => {
 	const dir = join(tmpdir(), `w1013-${Math.random().toString(36).slice(2)}`);

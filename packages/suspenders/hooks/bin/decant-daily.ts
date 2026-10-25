@@ -11,7 +11,7 @@
 // Credential-free by construction (local reads + local store) — hub-safe
 // per W1211. Exit 0 = clean pass · 1 = collect or child errors (the sweep
 // fail-logs; the cursor did not advance, the next fire re-collects).
-import { DAILY_LIMIT, runDaily } from "../lib/decant-daily.ts";
+import { DAILY_LIMIT, runDaily } from "../lib/fleet-loop/decant-daily.ts";
 import { defineVerb, parseVerb } from "../lib/verb-kit.ts";
 
 const daily = defineVerb({

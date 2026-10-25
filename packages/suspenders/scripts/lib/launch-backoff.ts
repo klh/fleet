@@ -1,6 +1,6 @@
 import { closeSync, fstatSync, openSync, readSync } from "node:fs";
-import type { GovernorStore } from "../../hooks/lib/govdb.ts";
-import { releaseWorkClaim } from "../../hooks/lib/work-release.ts";
+import type { GovernorStore } from "../../hooks/lib/govdb/govdb.ts";
+import { releaseWorkClaim } from "../../hooks/lib/work/work-release.ts";
 import { launchSchema } from "./launch-fencing.ts";
 
 export type LaunchFailureKind =

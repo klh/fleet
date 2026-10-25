@@ -1,5 +1,5 @@
-import type { GovernorStore } from "../lib/govdb.ts";
-import { newerLane, readLaneRegistry } from "../lib/lane-registry.ts";
+import type { GovernorStore } from "../lib/govdb/govdb.ts";
+import { newerLane, readLaneRegistry } from "../lib/lanes/lane-registry.ts";
 import { transcriptTailAll } from "./lanes.ts";
 
 interface TaskClaim {

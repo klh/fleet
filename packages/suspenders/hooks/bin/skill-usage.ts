@@ -12,7 +12,7 @@ import {
 	parseSkillLog,
 	renderUsageReport,
 	skillUsagePath,
-} from "../lib/skill-usage.ts";
+} from "../lib/harvest/skill-usage.ts";
 import { defineVerb, parseVerb } from "../lib/verb-kit.ts";
 
 if (import.meta.main) {

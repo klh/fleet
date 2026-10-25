@@ -13,7 +13,7 @@
 // non-GET) runs in fleet-board.ts BEFORE this handler — same posture as the
 // lane-observations ingest. Strict shape validation; 64 KiB body cap.
 import type { Database } from "bun:sqlite";
-import { openKnowledgeDb } from "../lib/govdb.ts";
+import { openKnowledgeDb } from "../lib/govdb/govdb.ts";
 import { makeStamp } from "../lib/confidence.ts";
 import { json } from "./helpers.ts";
 import {
@@ -21,10 +21,10 @@ import {
 	MAX_PROV_FIELD,
 	PROVENANCE_KEYS,
 	SYNCABLE_FACT,
-} from "../lib/knowledge-sync.ts";
-import { redactSecrets } from "../lib/knowledge.ts";
+} from "../lib/knowledge/knowledge-sync.ts";
+import { redactSecrets } from "../lib/knowledge/knowledge.ts";
 import { BUILTIN_RULES, redactMatches } from "../lib/scrub.ts";
-import { claimAggregateView } from "../lib/knowledge-roll.ts";
+import { claimAggregateView } from "../lib/knowledge/knowledge-roll.ts";
 
 let kdbSingleton: Database | null = null;
 export function boardKnowledgeDb(): Database {

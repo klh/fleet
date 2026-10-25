@@ -13,13 +13,13 @@ import {
 	verifyAndConsume,
 	verifyAndConsumeCmd,
 } from "../lib/approvals.ts";
-import { credScopeDeny, loadCredScope } from "../lib/credscope.ts";
-import { lanesFileFor, resolveFleetLane } from "../lib/fleetlane.ts";
+import { credScopeDeny, loadCredScope } from "../lib/auth/credscope.ts";
+import { lanesFileFor, resolveFleetLane } from "../lib/lanes/fleetlane.ts";
 import {
 	openStore,
 	resolveStoreHttpBase,
 	type GovernorStore,
-} from "../lib/govdb.ts";
+} from "../lib/govdb/govdb.ts";
 import {
 	allow,
 	auditApproval,

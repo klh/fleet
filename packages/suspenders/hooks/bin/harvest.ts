@@ -8,7 +8,7 @@
 // keys (harvest.seen.*) live in the facts table; one HARVEST event per run.
 // usage: bun harvest.ts scan|run --repo <path> [--days N]  (scan writes nothing)
 // env:   HOME (transcript roots; launchd sets it — no other config)
-import { openStore, projectIdentity } from "../lib/govdb.ts";
+import { openStore, projectIdentity } from "../lib/govdb/govdb.ts";
 import { makeStamp } from "../lib/confidence.ts";
 import {
 	clusterSignals,
@@ -19,7 +19,7 @@ import {
 	parseCodexRow,
 	resetCodexCalls,
 	type Signal,
-} from "../lib/harvest.ts";
+} from "../lib/harvest/harvest.ts";
 import { homedir } from "node:os";
 import { defineVerb, parseVerb } from "../lib/verb-kit.ts";
 
@@ -152,7 +152,14 @@ const applyTx = db.transaction(() => {
 			.query(
 				"INSERT INTO consult_kb (problem, solution, project, asked_by, answered_by, consult_id, created_at, confidence, confidence_stamp) VALUES (?, ?, ?, 'harvest', 'harvest', NULL, ?, ?, ?)",
 			)
-			.run(problem, solution.slice(0, 600), project, now, stamp.value, JSON.stringify(stamp));
+			.run(
+				problem,
+				solution.slice(0, 600),
+				project,
+				now,
+				stamp.value,
+				JSON.stringify(stamp),
+			);
 		// FTS index row — without it consult lookup never self-serves this row
 		db.query("INSERT INTO consult_kb_fts (rowid, problem) VALUES (?, ?)").run(
 			kr.lastInsertRowid,

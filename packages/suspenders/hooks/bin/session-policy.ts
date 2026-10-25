@@ -1,6 +1,6 @@
 // CLI-neutral entry point; adapters supply a stable session ID and repo cwd.
 // W820.2: argv rides verb-kit (W651) — embedded door, positional contract kept.
-import { openGovernorDb, projectIdentity } from "../lib/govdb.ts";
+import { openGovernorDb, projectIdentity } from "../lib/govdb/govdb.ts";
 import { checkSessionPolicies } from "../lib/session-policy.ts";
 import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 

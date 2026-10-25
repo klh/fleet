@@ -10,15 +10,18 @@
 import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
-import { resolveFleetLane } from "./fleetlane.ts";
+import { resolveFleetLane } from "./lanes/fleetlane.ts";
 import type { HookInput } from "./hookio.ts";
-import { loadLaneRegistry, newerLane } from "./lane-registry.ts";
-import { laneProcessIdentity, type LaneRef } from "./lane-liveness.ts";
+import { loadLaneRegistry, newerLane } from "./lanes/lane-registry.ts";
+import { laneProcessIdentity, type LaneRef } from "./lanes/lane-liveness.ts";
 export {
 	codexEventText,
 	steerCodexDirectEvent,
-} from "./codex-steer.ts";
-export type { CodexDelivery, CoordDirectEvent } from "./codex-steer.ts";
+} from "./executors/codex-steer.ts";
+export type {
+	CodexDelivery,
+	CoordDirectEvent,
+} from "./executors/codex-steer.ts";
 
 // coord CLI ships in bin/ next to this lib (repo checkout and installed
 // prefix share the layout); fall back to the pre-namespacing ~/.claude/bin

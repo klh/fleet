@@ -13,7 +13,7 @@ import {
 	relayCandidates,
 	startObservationRelay,
 } from "../hooks/board/observation-relay.ts";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 
 const now = 2_000_000;
 function database(active = false) {

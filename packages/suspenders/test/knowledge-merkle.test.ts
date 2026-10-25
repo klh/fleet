@@ -22,7 +22,7 @@ import {
 	emptyShardNodes,
 	normalizeProvenance,
 	parsePeerRow,
-} from "../hooks/lib/knowledge-merkle.ts";
+} from "../hooks/lib/knowledge/knowledge-merkle.ts";
 import {
 	buildAeTrees,
 	mergePeerRows,
@@ -31,8 +31,11 @@ import {
 	aePass,
 	aeRootFace,
 	aeShardFace,
-} from "../hooks/lib/knowledge-antientropy.ts";
-import { aggregateClaims, claimHash } from "../hooks/lib/knowledge-roll.ts";
+} from "../hooks/lib/knowledge/knowledge-antientropy.ts";
+import {
+	aggregateClaims,
+	claimHash,
+} from "../hooks/lib/knowledge/knowledge-roll.ts";
 
 // ─── fixtures ───────────────────────────────────────────────────────────────
 

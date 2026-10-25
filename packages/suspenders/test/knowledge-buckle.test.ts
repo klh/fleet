@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpDir } from "./helpers/fixture-kit.ts";
-import { knowledgeBuckleRoute } from "../hooks/lib/knowledge-buckle.ts";
+import { knowledgeBuckleRoute } from "../hooks/lib/knowledge/knowledge-buckle.ts";
 
 describe("knowledge Buckle credential", () => {
 	test("reads only a private machine-local config", () => {

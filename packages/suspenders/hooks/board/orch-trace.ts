@@ -2,7 +2,7 @@
 // follows W3C Trace Context's 16-byte form; only service/model metadata is
 // stored here, never goals, prompts, model output, credentials, or file refs.
 import { db } from "./context.ts";
-import { projectIdentity, projectRootOf } from "../lib/govdb.ts";
+import { projectIdentity, projectRootOf } from "../lib/govdb/govdb.ts";
 
 export interface OrchTraceStep {
 	traceId: string;

@@ -7,7 +7,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 
-const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
+const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
 const fx = cliFixture("w619-diff");
 
 afterAll(() => fx.cleanup());

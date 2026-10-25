@@ -63,7 +63,7 @@ const TASK_TIMEOUT: Record<TaskName, number> = {
 	review: 900_000,
 };
 const laneLivenessPath = new URL(
-	"../../suspenders/hooks/lib/lane-liveness.ts",
+	"../../suspenders/hooks/lib/lanes/lane-liveness.ts",
 	import.meta.url,
 ).pathname;
 

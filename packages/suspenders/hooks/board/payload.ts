@@ -2,7 +2,7 @@
 // boundSessions cap, buildPayload stitch, llm routing telemetry, W836 facts
 // trust panel. W1255.4: moved verbatim from board/data.ts (per-domain split).
 import { observation } from "../lib/observation.ts";
-import { plaidStatus } from "../lib/plaid.ts";
+import { plaidStatus } from "../lib/plaid/plaid.ts";
 import { db } from "./context.ts";
 import { laneObservationSnapshot } from "./lane-observations.ts";
 import { ago, labelFrom, labelMaps, laneGitSnapshot } from "./lanes.ts";

@@ -2,12 +2,12 @@ import { afterEach, expect, test } from "bun:test";
 import {
 	openMemoryStore,
 	type GovernorStore,
-} from "../hooks/lib/govdb-store.ts";
+} from "../hooks/lib/govdb/govdb-store.ts";
 import {
 	scheduleReview,
 	finishReviewRequest,
 	reviewRequestKey,
-} from "../hooks/lib/review-scheduler.ts";
+} from "../hooks/lib/gates/review-scheduler.ts";
 const stores: GovernorStore[] = [];
 afterEach(() => {
 	for (const db of stores.splice(0)) db.close();

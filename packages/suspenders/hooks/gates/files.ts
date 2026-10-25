@@ -15,8 +15,8 @@ import { allow, context, feedback, type HookInput } from "../lib/hookio.ts";
 import { oncePerSession } from "../lib/advisory-cooldown.ts";
 import { bumpPathCount } from "../lib/gatestate.ts";
 import { have, lines, run } from "../lib/run.ts";
-import { openStore } from "../lib/govdb.ts";
-import { drainLaneInbox } from "../lib/lane-inbox.ts";
+import { openStore } from "../lib/govdb/govdb.ts";
+import { drainLaneInbox } from "../lib/lanes/lane-inbox.ts";
 import { basename, dirname } from "node:path";
 import {
 	existsSync,
@@ -164,7 +164,7 @@ export function filesCheck(hook: HookInput): FilesExit {
 		const violation = govdbImportViolation(F, readFileSync(F, "utf8"));
 		if (violation) {
 			refreshLeaseHash(F);
-			const err = `W92 govdb-import rule: ${F} ${violation.msg}\nConsumers bind via openStore() (hooks/lib/govdb.ts) — in-process SQLite by default, the store port when GOVERNOR_STORE_URL/store.url is set. Store owners are listed in govdbImportViolation().\n`;
+			const err = `W92 govdb-import rule: ${F} ${violation.msg}\nConsumers bind via openStore() (hooks/lib/govdb/govdb.ts) — in-process SQLite by default, the store port when GOVERNOR_STORE_URL/store.url is set. Store owners are listed in govdbImportViolation().\n`;
 			if (violation.soft) return { kind: "context", msg: err };
 			return { kind: "block", err };
 		}

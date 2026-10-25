@@ -9,7 +9,14 @@ import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 
 setDefaultTimeout(30_000); // spawn-heavy suite (bun:test 5s default flake floor)
 
-const STORE = join(import.meta.dir, "..", "hooks", "lib", "govdb-store.ts");
+const STORE = join(
+	import.meta.dir,
+	"..",
+	"hooks",
+	"lib",
+	"govdb",
+	"govdb-store.ts",
+);
 const fx = cliFixture("w773-fact-key-guard");
 
 afterAll(() => fx.cleanup());

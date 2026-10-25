@@ -5,7 +5,7 @@ import {
 	doneSpendStamp,
 	parseDoneSpend,
 	spendFromDonePayload,
-} from "../hooks/lib/lane-done-spend.ts";
+} from "../hooks/lib/lanes/lane-done-spend.ts";
 
 describe("parseDoneSpend", () => {
 	test("parses the documented k=v comma set", () => {

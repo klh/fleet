@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { seedUsage } from "../hooks/lib/usage-seed.ts";
-import { buildUsageReport } from "../hooks/lib/usage.ts";
+import { seedUsage } from "../hooks/lib/usage/usage-seed.ts";
+import { buildUsageReport } from "../hooks/lib/usage/usage.ts";
 import { probePathFor } from "../../belt/bin/inventory-probe.ts";
 
 function seeded() {

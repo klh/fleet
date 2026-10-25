@@ -21,7 +21,14 @@ const cover = (name: string): void => covered.add(name);
 const coord = (...args: string[]) => fx.run("coord.ts", args);
 /** knowledge rows live in knowledge.db (govdb-knowledge.ts), not governor.db
  *  — seed through the same subprocess seam with openKnowledgeDb. */
-const KDB = join(import.meta.dir, "..", "hooks", "lib", "govdb-knowledge.ts");
+const KDB = join(
+	import.meta.dir,
+	"..",
+	"hooks",
+	"lib",
+	"knowledge",
+	"govdb-knowledge.ts",
+);
 const insK = (statement: string, params: unknown[]): void => {
 	fx.seed(`const { openKnowledgeDb } = await import(${JSON.stringify(KDB)});
 openKnowledgeDb().query(${JSON.stringify(statement)}).run(...${JSON.stringify(params)});

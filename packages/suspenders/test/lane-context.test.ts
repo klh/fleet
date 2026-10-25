@@ -19,7 +19,7 @@ import {
 	laneContextFile,
 	readLaneContextFile,
 	rebindLaneContext,
-} from "../hooks/lib/lane-context.ts";
+} from "../hooks/lib/lanes/lane-context.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "w628-lane-context-"));
 mkdirSync(join(dir, ".fleet"), { recursive: true });

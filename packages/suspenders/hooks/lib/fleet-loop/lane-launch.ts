@@ -41,7 +41,7 @@ import {
 	applyInsertion,
 	insertionCtx,
 } from "../../../scripts/lib/insertion.ts";
-import { jobslabFor, jobslabTag, laneClassOf } from "../jobslab.ts";
+import { jobslabFor, jobslabTag, laneClassOf } from "../lanes/jobslab.ts";
 import {
 	applyLaneAttribution,
 	executorLaunch,
@@ -50,13 +50,16 @@ import {
 	recreateWorktreeFor,
 	residueOf,
 	spawnClaude,
-} from "../lane.ts";
+} from "../lanes/lane.ts";
 import {
 	ensureLaneKey,
 	LANE_KEY_TTL_S,
 	laneKeyMetaPath,
-} from "../lane-auth.ts";
-import { laneAttemptLimit, nextLaneAttempt } from "../lane-retry-budget.ts";
+} from "../lanes/lane-auth.ts";
+import {
+	laneAttemptLimit,
+	nextLaneAttempt,
+} from "../lanes/lane-retry-budget.ts";
 import { laneSettingsData } from "../../../scripts/lib/lane-settings.ts";
 import {
 	dispatchStarterFork,
@@ -79,7 +82,7 @@ import {
 	readConfiguredLaunches,
 	reserveLaunchIntent,
 } from "../../../scripts/lib/launch-fencing.ts";
-import { launchParent } from "../launch-parent.ts";
+import { launchParent } from "../lanes/launch-parent.ts";
 import {
 	acquireLaunchLease,
 	renewLaunchLease,
@@ -94,21 +97,21 @@ import {
 } from "../../../scripts/lib/resume-from.ts";
 import { verdictRepeatGate } from "../../../scripts/lib/verdict-repeat-gate.ts";
 import { capsuleValidity } from "../capsule-fence.ts";
-import { quotaProviderPenalty } from "../exec-quota.ts";
+import { quotaProviderPenalty } from "../usage/exec-quota.ts";
 import {
 	cvMap,
 	executorCv,
 	recordLaneExecutor,
 	writeExecutorCvFacts,
-} from "../executor-cv.ts";
+} from "../executors/executor-cv.ts";
 import { adapterFor } from "../executors/registry.ts";
-import { openStore, projectIdentity } from "../govdb.ts";
-import { resolveHub } from "../hub-locate.ts";
-import { dispatchLaneEffort } from "../lane-effort-policy.ts";
-import { laneProcessIdentity } from "../lane-liveness.ts";
-import { laneSid as sidOf } from "../laneslug.ts";
-import { type Posture, recordPlaidTrace } from "../plaid.ts";
-import { verifiedContextContinuation } from "../reclaim-context.ts";
+import { openStore, projectIdentity } from "../govdb/govdb.ts";
+import { resolveHub } from "../hub/hub-locate.ts";
+import { dispatchLaneEffort } from "../lanes/lane-effort-policy.ts";
+import { laneProcessIdentity } from "../lanes/lane-liveness.ts";
+import { laneSid as sidOf } from "../lanes/laneslug.ts";
+import { type Posture, recordPlaidTrace } from "../plaid/plaid.ts";
+import { verifiedContextContinuation } from "../lanes/reclaim-context.ts";
 import { policyBriefLines } from "../session-policy.ts";
 import { darkHubNow, policyForRepo, tryLoadStack } from "../stack-config.ts";
 

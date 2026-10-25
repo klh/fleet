@@ -9,7 +9,10 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { tmpDir } from "./helpers/fixture-kit.ts";
-import { knowledgeSearch, proseCards } from "../hooks/lib/knowledge.ts";
+import {
+	knowledgeSearch,
+	proseCards,
+} from "../hooks/lib/knowledge/knowledge.ts";
 import { unusedPort } from "./helpers/board-fixture.ts";
 
 // ─── lib-level: scope predicates on the aux stores (W181 F2/M7) ───
@@ -142,7 +145,14 @@ const DOC_TEXT =
 	"w203 trust anchor doc: hashes must verify mechanically. w203zq";
 writeFileSync(join(REPO, "docs", "w203-trust-doc.md"), DOC_TEXT);
 const DOC_HASH = createHash("sha256").update(DOC_TEXT).digest("hex");
-const GOVDB_TS = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
+const GOVDB_TS = join(
+	import.meta.dir,
+	"..",
+	"hooks",
+	"lib",
+	"govdb",
+	"govdb.ts",
+);
 const API_TS = join(import.meta.dir, "..", "hooks", "bin", "knowledge-api.ts");
 const PORT = unusedPort();
 const BASE = `http://127.0.0.1:${PORT}`;

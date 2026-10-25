@@ -9,7 +9,7 @@
 // until stage-3 viewer identity replaces the escalation shortcut.
 
 import type { Database } from "bun:sqlite";
-import type { GovernorStore } from "../lib/govdb.ts";
+import type { GovernorStore } from "../lib/govdb/govdb.ts";
 import { db } from "./context.ts";
 import { json, readJsonCapped } from "./helpers.ts";
 import { tokenOk } from "../lib/host-guard.ts";

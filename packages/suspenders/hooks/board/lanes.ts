@@ -13,8 +13,11 @@ import {
 import { hostname } from "node:os";
 // (the isDecisionKind accept-set note below mirrors govdb.ts — not imported
 // on purpose: lanes.ts never calls it, the two lists just change together)
-import { tagNameOf } from "../lib/govdb.ts";
-import { gitObservation, type LaneGitObservation } from "../lib/lane-git.ts";
+import { tagNameOf } from "../lib/govdb/govdb.ts";
+import {
+	gitObservation,
+	type LaneGitObservation,
+} from "../lib/lanes/lane-git.ts";
 import {
 	type LaneRef,
 	type LaneVerdict,
@@ -22,13 +25,13 @@ import {
 	transcriptAlive,
 	transcriptsAliveBatch,
 	verdictBySid,
-} from "../lib/lane-liveness.ts";
-import { loadLaneRegistry } from "../lib/lane-registry.ts";
+} from "../lib/lanes/lane-liveness.ts";
+import { loadLaneRegistry } from "../lib/lanes/lane-registry.ts";
 import {
 	laneStopNotice,
 	laneStopTarget,
 	operationalLaneStopNotice,
-} from "../lib/lane-stop-decision.ts";
+} from "../lib/lanes/lane-stop-decision.ts";
 import { coordSubscribeLog } from "../lib/subscribe-attach.ts";
 import { db, type EventRow } from "./context.ts";
 import { chunked } from "./helpers.ts";
@@ -253,7 +256,7 @@ export function syncDecisions(): void {
 		);
 	// backfill: one row per NEED% event with a concrete target (dead-letter
 	// alias targets included). LIKE is case-insensitive for ASCII — this is
-	// the accept set isDecisionKind() (hooks/lib/govdb.ts) mirrors exactly;
+	// the accept set isDecisionKind() (hooks/lib/govdb/govdb.ts) mirrors exactly;
 	// change them together.
 	for (const e of db
 		.query(

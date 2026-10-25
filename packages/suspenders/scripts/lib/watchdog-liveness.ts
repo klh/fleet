@@ -1,11 +1,11 @@
 import {
 	readLaneRegistry,
 	type RegistryRead,
-} from "../../hooks/lib/lane-registry.ts";
+} from "../../hooks/lib/lanes/lane-registry.ts";
 import {
 	laneProcessIdentity,
 	type LaneRef,
-} from "../../hooks/lib/lane-liveness.ts";
+} from "../../hooks/lib/lanes/lane-liveness.ts";
 import {
 	fleetProgress,
 	type WorkStats,

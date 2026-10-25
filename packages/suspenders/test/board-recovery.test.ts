@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { recoverySnapshot } from "../hooks/board/recovery.ts";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 
 describe("operator recovery projection", () => {
 	test("older stores report unavailable, never falsely empty evidence", () => {

@@ -42,7 +42,7 @@ import {
 	DEFAULT_PULSE_INTERVAL_S,
 	loadNotifyConfig,
 	NOTIFY_PATH,
-} from "../hooks/lib/notify.ts";
+} from "../hooks/lib/notify/notify.ts";
 import { buckleUnitForInstall } from "./assert-service-activation.ts";
 
 export const PACKAGE_ROOT = resolve(import.meta.dir, "..");

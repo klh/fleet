@@ -10,8 +10,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
-import { projectIdentity } from "../hooks/lib/govdb.ts";
-import { laneSid } from "../hooks/lib/laneslug.ts";
+import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
+import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
 import {
 	capabilityGate,
 	composeBrief,
@@ -468,7 +468,7 @@ describe("resume-rebrief composition", () => {
 
 // W254: pointer-grade injection — composeBrief renders intel sections only
 // when an intel object rides; headers never pad an empty map (pointer
-// discipline, hooks/lib/brief-intel.ts renderIntel).
+// discipline, hooks/lib/lanes/brief-intel.ts renderIntel).
 describe("brief intel (W254 pointer-grade injection)", () => {
 	const base = {
 		item: "W140",

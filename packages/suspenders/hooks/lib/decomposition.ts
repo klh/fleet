@@ -1,5 +1,9 @@
 import { join } from "node:path";
-import { openStore, projectIdentity, type GovernorStore } from "./govdb.ts";
+import {
+	openStore,
+	projectIdentity,
+	type GovernorStore,
+} from "./govdb/govdb.ts";
 
 export const CODE_LINE_SOFT_CAP = 1500;
 const codePath =

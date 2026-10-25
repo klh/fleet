@@ -8,15 +8,15 @@ shrink of the W149 delegated (user-token) surface.
 
 ## What landed (W262)
 
-- `hooks/lib/identity-federation.ts` — `mapIdpClaims` (authentik-shaped
+- `hooks/lib/govdb/identity-federation.ts` — `mapIdpClaims` (authentik-shaped
   claims → local principal shape: actor/team/scopes) and `hasFederation`.
-- `hooks/lib/auth.ts` — the OIDC issuer entry (`OidcIssuerConfig`) now carries
+- `hooks/lib/auth/auth.ts` — the OIDC issuer entry (`OidcIssuerConfig`) now carries
   the claims-map knobs (`groups_claim`, `group_scope_map`, `team_claim`).
   `verifyJwt` maps federated claims onto the local principal: with a
   `group_scope_map` configured, federated tokens carry local-shaped scopes
   and get scope-checked like local tokens; team derives from `team_claim`.
   No map = roles-only trust (the pre-W262 bypass, unchanged for legacy).
-- `hooks/lib/auth-server.ts` — under federation (`hasFederation`), the W149
+- `hooks/lib/auth/auth-server.ts` — under federation (`hasFederation`), the W149
   delegated plane refuses new human tokens: `POST /auth/token` with
   `token_class: "delegated"` → 403 `delegated_federated`; `POST /auth/refresh`
   refuses rotating legacy delegated pairs (401 `delegated_federated`).

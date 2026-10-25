@@ -7,7 +7,7 @@ import { Database } from "bun:sqlite";
 import { realpathSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
-import { isDecisionKind } from "../hooks/lib/govdb.ts";
+import { isDecisionKind } from "../hooks/lib/govdb/govdb.ts";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
 type Row = Record<string, unknown>;
@@ -111,9 +111,8 @@ describe("endpoint hardening", () => {
 		// W810: /api/data rides the 1.5s feedMemo — poll for the fresh row
 		let nonNeed: number | undefined;
 		for (let i = 0; i < 20 && nonNeed === undefined; i++) {
-			nonNeed = (await getData()).events.find(
-				(e: Row) => e.kind === "NOTE",
-			)?.id as number | undefined;
+			nonNeed = (await getData()).events.find((e: Row) => e.kind === "NOTE")
+				?.id as number | undefined;
 			if (nonNeed === undefined) await sleep(150);
 		}
 		expect(nonNeed).toBeDefined();
@@ -434,9 +433,7 @@ describe("dashboard accuracy", () => {
 		// W810: the feedMemo can serve the pre-fail project view — poll
 		let failed: Row | undefined;
 		for (let i = 0; i < 20 && !failed; i++) {
-			failed = (await myProject()).other.find(
-				(x: Row) => x.state === "FAILED",
-			);
+			failed = (await myProject()).other.find((x: Row) => x.state === "FAILED");
 			if (!failed) await sleep(150);
 		}
 		expect(failed).toBeDefined();

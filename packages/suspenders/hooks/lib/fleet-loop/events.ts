@@ -3,8 +3,8 @@
 // the tick raises (stall-watch, rogue sweep). Failures are swallowed —
 // events are advisory, the tick must survive.
 
-import type { GovernorStore } from "../govdb.ts";
-import { openStore } from "../govdb.ts";
+import type { GovernorStore } from "../govdb/govdb.ts";
+import { openStore } from "../govdb/govdb.ts";
 
 export function emitLoopEvent(
 	kind: string,

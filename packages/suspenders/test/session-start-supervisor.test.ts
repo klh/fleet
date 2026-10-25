@@ -14,8 +14,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { projectIdentity } from "../hooks/lib/govdb.ts";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 import {
 	acquireControllerLease,
 	currentControllerIdentity,

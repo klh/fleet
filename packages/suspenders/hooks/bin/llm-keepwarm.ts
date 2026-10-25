@@ -21,7 +21,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { buckleChat } from "../lib/inference-buckle.ts";
+import { buckleChat } from "../lib/hub/inference-buckle.ts";
 
 const TIER_PATH =
 	process.env.BELT_TIER_MANIFEST ??
@@ -167,7 +167,7 @@ import {
 	fallbackDrillEnabled,
 	prefixWarmEnabled,
 	warmTargets,
-} from "../lib/keepwarm-gate.ts";
+} from "../lib/gates/keepwarm-gate.ts";
 
 {
 	// W1124.14: operator opt-in, default OFF — when unset there is no auth

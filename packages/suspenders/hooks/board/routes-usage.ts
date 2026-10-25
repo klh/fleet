@@ -4,17 +4,23 @@
 // null when nothing matches.
 
 import { usagePayload } from "../bin/usage-page-html.ts";
-import { activityReport } from "../lib/activity-harvest.ts";
-import { cacheDrillParams, cacheDrillReport } from "../lib/cache-drill.ts";
-import { type CrossHubReport, crossHubRollup } from "../lib/cross-hub-usage.ts";
+import { activityReport } from "../lib/harvest/activity-harvest.ts";
+import {
+	cacheDrillParams,
+	cacheDrillReport,
+} from "../lib/usage/cache-drill.ts";
+import {
+	type CrossHubReport,
+	crossHubRollup,
+} from "../lib/federation/cross-hub-usage.ts";
 import {
 	type LaneWork,
 	MONITOR_DIMS,
 	type MonitorDim,
 	monitorReport,
-} from "../lib/monitor-drill.ts";
-import { buildUsageReport } from "../lib/usage.ts";
-import { maybeHarvest } from "../lib/usage-harvest.ts";
+} from "../lib/fleet-loop/monitor-drill.ts";
+import { buildUsageReport } from "../lib/usage/usage.ts";
+import { maybeHarvest } from "../lib/usage/usage-harvest.ts";
 import { db } from "./context.ts";
 import { json } from "./helpers.ts";
 

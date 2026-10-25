@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { itemCapsuleKey } from "../hooks/lib/capsule-fence.ts";
-import { projectIdentity } from "../hooks/lib/govdb-project.ts";
+import { projectIdentity } from "../hooks/lib/govdb/govdb-project.ts";
 
 const root = mkdtempSync(join(tmpdir(), "fleet-completion-"));
 const home = join(root, "home");

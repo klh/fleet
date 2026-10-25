@@ -7,7 +7,10 @@
 // SUSPENDERS_SKILL_LOG=0 disables the append (the report face still reads
 // whatever was logged before).
 import { allow, type HookInput } from "../lib/hookio.ts";
-import { appendSkillInvocation, shouldLogSkill } from "../lib/skill-usage.ts";
+import {
+	appendSkillInvocation,
+	shouldLogSkill,
+} from "../lib/harvest/skill-usage.ts";
 
 export function skillLogGate(hook: HookInput): never {
 	if (shouldLogSkill()) appendSkillInvocation(hook);

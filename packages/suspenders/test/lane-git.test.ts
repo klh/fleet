@@ -2,12 +2,7 @@
 // null-degradation, the merge-ready gate, and the text badge. Hermetic:
 // fixture repos under a mkdtemp root, no db, no env coupling.
 import { afterAll, describe, expect, test } from "bun:test";
-import {
-	mkdirSync,
-	mkdtempSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -16,7 +11,7 @@ import {
 	mergeReady,
 	mergeReadyWhy,
 	resetLaneGitMemo,
-} from "../hooks/lib/lane-git.ts";
+} from "../hooks/lib/lanes/lane-git.ts";
 
 const root = mkdtempSync(join(tmpdir(), "lane-git-test-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -190,9 +185,7 @@ describe("mergeReady gate + reasons", () => {
 	test("null terms never invent a verdict", () => {
 		expect(mergeReady({ dirty: null, ahead: 3, conflicted: 0 })).toBeNull();
 		expect(mergeReady({ dirty: false, ahead: null, conflicted: 0 })).toBeNull();
-		expect(
-			mergeReady({ dirty: false, ahead: 3, conflicted: null }),
-		).toBeNull();
+		expect(mergeReady({ dirty: false, ahead: 3, conflicted: null })).toBeNull();
 	});
 	test("gate truth table", () => {
 		expect(mergeReady({ dirty: false, ahead: 1, conflicted: 0 })).toBe(true);
@@ -206,8 +199,8 @@ describe("mergeReady gate + reasons", () => {
 			"2 conflicted",
 			"not ahead",
 		]);
-		expect(
-			mergeReadyWhy({ dirty: false, ahead: 1, conflicted: 0 }),
-		).toEqual([]);
+		expect(mergeReadyWhy({ dirty: false, ahead: 1, conflicted: 0 })).toEqual(
+			[],
+		);
 	});
 });
