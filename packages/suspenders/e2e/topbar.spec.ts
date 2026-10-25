@@ -143,7 +143,7 @@ test("settings gear: theme radios flip data-theme on the document", {
 // carries the console-settings link too (parity with the console pages).
 const NAV_VIEWS = [
 	"Models",
-	"Gateway",
+	"Routes",
 	"Workflows",
 	"Services",
 	"Metrics",
@@ -158,7 +158,7 @@ test("W858.3: the fleet strip unifies belt, gateway, local, hub and settings on 
 	const look = watch(page);
 	for (const [path, current] of [
 		["/", "Workflows"],
-		["/console/buckle", "Gateway"],
+		["/console/buckle", "Routes"],
 		["/console/local", "Services"],
 		["/console/hub", "Hub"],
 		["/console/settings", "Settings"],

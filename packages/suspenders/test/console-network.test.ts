@@ -189,7 +189,10 @@ describe("/api/console/network", () => {
 			edges: Array<{ from: string; to: string; evidence: string }>;
 		};
 		expect(topology.ok).toBe(true);
-		expect(topology.schemaVersion).toBe(1);
+		// W858.7.32 (056dbce4) bumped the wire to v2 (lane flows + measured
+		// edges); the belt clients accept [1,2] — pin the CURRENT wire, not a
+		// stale literal.
+		expect(topology.schemaVersion).toBe(2);
 		expect(topology.totals.requests).toBe(1);
 		expect(topology.edges).toMatchObject([
 			{
@@ -251,9 +254,7 @@ describe("/console/buckle + /api/lane-routes", () => {
 		// W1294.2.1: the stub belt feed answers the freshness chunk, so the
 		// page emits the full topology + model-access tag set
 		expect(html).toContain("/console/buckle-assets/dashboard-model-access.js");
-		expect(html).toContain(
-			"/console/buckle-assets/dashboard-topology-hubs.js",
-		);
+		expect(html).toContain("/console/buckle-assets/dashboard-topology-hubs.js");
 		expect(html).not.toContain("<h2>belt API</h2>");
 		expect(html).toContain("vendor/klh-console-cards.js");
 	});
