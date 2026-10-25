@@ -8,13 +8,13 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CHECK_VERB, renderHuman } from "../hooks/bin/policy-advisor.ts";
-import { parseVerb } from "../hooks/lib/verb-kit.ts";
 import {
 	catalogManifest,
 	policyCatalog,
 	reconcileManifestRules,
 } from "../hooks/lib/policy/catalog.ts";
 import { runPolicyChecks } from "../hooks/lib/policy/checks.ts";
+import { parseVerb } from "../hooks/lib/verb-kit.ts";
 
 function tmpRoot(): string {
 	return mkdtempSync(join(tmpdir(), "w161-policy-"));

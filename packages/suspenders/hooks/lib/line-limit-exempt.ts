@@ -25,7 +25,8 @@ export const LINE_LIMIT_EXEMPT: readonly LineLimitExemption[] = [
 	{
 		path: "packages/decant/src/ingest.ts",
 		why: "vendored dosu-ai/decant v0.11.0 snapshot — upstream-owned bytes kept byte-pure (1982 lines); a local split forks the vendor tree and conflicts on every re-sync",
-		upstream: "packages/decant/FLEET.md upstream re-sync recipe — size reconciles at the next vendored tag, never locally",
+		upstream:
+			"packages/decant/FLEET.md upstream re-sync recipe — size reconciles at the next vendored tag, never locally",
 	},
 ];
 

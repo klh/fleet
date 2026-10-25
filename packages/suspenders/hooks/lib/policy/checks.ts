@@ -12,8 +12,8 @@
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { POLICY_CATALOG_VERSION, policyCatalog } from "./catalog.ts";
 import { lineLimitExemption } from "../line-limit-exempt.ts";
+import { POLICY_CATALOG_VERSION, policyCatalog } from "./catalog.ts";
 import type {
 	PolicyFinding,
 	PolicyRule,

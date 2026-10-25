@@ -1,12 +1,13 @@
-import { afterEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	flagIntegratedCode,
 	oversizedMergedFiles,
 } from "../hooks/lib/decomposition.ts";
+
 const scratch: string[] = [];
 afterEach(() => {
 	for (const path of scratch.splice(0))

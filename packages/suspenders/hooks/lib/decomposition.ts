@@ -1,10 +1,10 @@
 import { join } from "node:path";
-import { lineLimitExemption } from "./line-limit-exempt.ts";
 import {
+	type GovernorStore,
 	openStore,
 	projectIdentity,
-	type GovernorStore,
 } from "./govdb/govdb.ts";
+import { lineLimitExemption } from "./line-limit-exempt.ts";
 
 export const CODE_LINE_SOFT_CAP = 1500;
 const codePath =
