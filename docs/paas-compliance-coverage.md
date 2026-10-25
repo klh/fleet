@@ -25,7 +25,7 @@ Standard sections → fleet state. "Child" = the W1303.x item that owns closure.
 | 7 One test framework (Playwright only) | bun:test ~458 suites + Playwright e2e; migration rejected as pure churn | dispositions #8 | DISPOSITIONED |
 | 8 Semantic errors, one handler | No error-kinds module; problem+json absent | W1303.2 | CHILD-PENDING |
 | 9 Good HTTP citizen (server) | URLPattern 0, Idempotency-Key 0, problem+json 0, ETag partial, Retry-After unclamped | W1303.2 | CHILD-PENDING |
-| 9 Good HTTP citizen (client) | Timeouts/backoff/breaker scattered across buckle admission + belt router, no deadline propagation | W1303.3 | CHILD-PENDING |
+| 9 Good HTTP citizen (client) | Timeouts/backoff/breaker scattered across buckle admission + belt router, no deadline propagation | W1303.3 | LANDED d3c0a839 |
 | 10 Every folder a package, installed strictly | ALL packages lack exports/files/bin/engines; floating pins; telemetry has no manifest | W1303.1 | CHILD-PENDING |
 | 11 Same shape everywhere | Partial: shared qlty, .githooks, AGENTS.md; naming diverges (row 4) | W1303.1 + dispositions | SPLIT |
 | 12 Config off-repo | Machine-level 0600 conf (stack.json, local-llm/*.env), repo placeholders only — law W1253 | landed checks | ALIGNED |
@@ -35,8 +35,8 @@ Standard sections → fleet state. "Child" = the W1303.x item that owns closure.
 | Composition: hard caps + smells | Covered above (row 2) | landed checks | ALIGNED |
 | npm workspaces linked install, .npmrc | bun workspaces + single bun.lock, runtime-native | dispositions #3 | DISPOSITIONED |
 | Versions exact everywhere (incl. internal) | Floating specs incl. @klh/* siblings | W1303.1 | CHILD-PENDING |
-| Plain semver, no pre-release suffixes | Tags exist (60), versions agree at 2.0.0; no pipeline guarantees agreement | W1303.6 | CHILD-PENDING |
-| One version repo-wide (fixed mode) | stack.json `version:` pins buckle+suspenders+belt; manifest-tag agreement unproven | W1303.6 | CHILD-PENDING |
+| Plain semver, no pre-release suffixes | Tags exist (60), versions agree at 2.0.0; no pipeline guarantees agreement | W1303.6 | LANDED d69ec274 |
+| One version repo-wide (fixed mode) | stack.json `version:` pins buckle+suspenders+belt; manifest-tag agreement unproven | W1303.6 | LANDED d69ec274 |
 | Dependency budget (7 deps, allowlist) | No repo-wide allowlist check; deps are curated by law (platform-first) but unchecked | GAP-RECORDED below | OPEN-GAP |
 | Dependency budget: no shell scripts | Banned by AGENTS.md law; tracked .sh set pinned by `tests/law-guards.test.ts` | landed checks | ALIGNED |
 | UI: native first → Lit → compose, tokens | Lit + design tokens law; vendored Lit, never CDN (AGENTS.md) | accepted | ALIGNED |
@@ -46,7 +46,7 @@ Standard sections → fleet state. "Child" = the W1303.x item that owns closure.
 | Debug levels (namespaced logger, redaction) | Namespaced logging exists (buckle observe.ts, NDJSON to stdout); scrub redaction law W236 | partial, accepted | ALIGNED |
 | Health outside-process | Owner law 2026-10-05: every hub service has a probe sidecar (deploy/healthcheck/probe.ts) | landed checks | ALIGNED |
 | HTTP server kit (@paas/http surface) | Absent | W1303.2 | CHILD-PENDING |
-| HTTP client kit (@paas/resilience surface) | Scattered; AIMD ledger W1280 + gap escalation W1273 exist to build on | W1303.3 | CHILD-PENDING |
+| HTTP client kit (@paas/resilience surface) | Scattered; AIMD ledger W1280 + gap escalation W1273 exist to build on | W1303.3 | LANDED d3c0a839 |
 | Testing Playwright-only, shared config | bun:test retained | dispositions #8 | DISPOSITIONED |
 | Load tests same specs | N/A (no PaaS traffic surface); e2e suite exists | accepted | ALIGNED |
 | Code review: agents first, risk tiers | Guarded merge ladder + oracle review exist; NO tier classifier, no CODEOWNERS, no PR template, no area REVIEW.md | W1303.5 | CHILD-PENDING |
@@ -67,7 +67,7 @@ row before this parent closes.
    check-purposes — but the file is cheap and the standard lists it as one of
    the three tooling files. Disposition: land a minimal `.editorconfig`
    (utf-8, lf, 2-space, trailing-whitespace trim, md exempt) matching what
-   qlty already enforces. DONE: landed with this parent (see commit).
+   qlty already enforces. LANDED: 54600489 (this branch).
 2. **Dependency budget has no repo-wide allowlist check** (standard: seven
    deps). Fleet's law is platform-first curation, but nothing fails CI when a
    new runtime dep appears. Disposition: the honest fleet equivalent is the
