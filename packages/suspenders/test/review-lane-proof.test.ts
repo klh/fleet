@@ -11,7 +11,13 @@ import {
 	test,
 } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync, realpathSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	realpathSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { guardedMerge } from "../hooks/lib/fleet-loop/merge-guard.ts";
@@ -116,6 +122,7 @@ function learnProject(): void {
 
 interface Case {
 	name: string;
+	keptChild?: boolean;
 	// branch-tip file contents, relative to the fixture repo root
 	files: Record<string, string>;
 	// the fact payload expectation after the stub executor PASSes
@@ -128,13 +135,22 @@ async function runCase(
 	wantExit = 0,
 ): Promise<{ id: string; fact: Record<string, unknown> }> {
 	const id = addWork(`w634 proof ${c.name}`);
-	const branch = `suspenders/${id}`;
+	const branch = c.keptChild ? `suspenders/parent-${id}` : `suspenders/${id}`;
 	expect(git(["checkout", "-b", branch]).code).toBe(0);
 	for (const [path, content] of Object.entries(c.files))
 		await Bun.write(join(REPO, path), content);
 	expect(git(["add", "-A"]).code).toBe(0);
 	expect(git(["commit", "-m", c.name]).code).toBe(0);
 	git(["checkout", "main"]); // the proof reads refs/heads/<branch>, not the checkout
+	if (c.keptChild) {
+		const tree = join(HOME, `kept-parent-${id}`);
+		expect(git(["worktree", "add", tree, branch]).code).toBe(0);
+		mkdirSync(join(tree, ".fleet"), { recursive: true });
+		writeFileSync(
+			join(tree, ".fleet", "lane-context.json"),
+			JSON.stringify({ sid: "fixture-lane", item: id }),
+		);
+	}
 
 	const stub = Bun.serve({
 		port: 0,
@@ -314,6 +330,42 @@ describe("W634 review-lane coverage proof (Sinai rule)", () => {
 		expect(incompleteCalls).toBe(2);
 		expect(incomplete.fact.verdict).toBe("ERROR");
 		expect(String(incomplete.fact.headline)).toContain("no verdict line");
+	});
+
+	test("kept child review binds its parent branch with Flash budget and proof", async () => {
+		let prompt = "";
+		const { id, fact } = await runCase(
+			{
+				name: "kept-child-integrated",
+				keptChild: true,
+				files: {
+					"src.ts":
+						"export const base = 1;\nexport const double = (x: number): number => x * 2;\n",
+					"src.test.ts": `import { test, expect } from "bun:test";
+import { double } from "./src";
+test("needs kept branch change", () => expect(double(2)).toBe(4));
+`,
+				},
+				want: "proved",
+			},
+			async (req) => {
+				const body = (await req.json()) as {
+					max_tokens: number;
+					messages: { content: string }[];
+				};
+				expect(body.max_tokens).toBe(16000);
+				prompt = body.messages[0]?.content ?? "";
+				return Response.json({
+					choices: [{ message: { content: "No findings.\nVERDICT: PASS" } }],
+				});
+			},
+		);
+		expect(
+			git(["rev-parse", "--verify", `refs/heads/suspenders/${id}`]).code,
+		).not.toBe(0);
+		expect(prompt).toContain("export const double");
+		expect(fact.verdict).toBe("PASS");
+		expect((fact.coverage as { status: string }).status).toBe("proved");
 	});
 
 	for (const c of cases) {
