@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
 	TEST_FILE,
+	addedWorkspaceDependencies,
 	missingImports,
 	missingImportsExplained,
 } from "../hooks/lib/gates/coverage-proof.ts";
@@ -119,6 +120,63 @@ test("absolute-spec dynamic import of a diff-added module is explained", () => {
 test("missing dependency stays environmental", () => {
 	const line = `error: Cannot find package 'left-pad' from '/tmp/review-proof-abc/${W1258.importerSuffix}'`;
 	expect(missingImportsExplained(line, W1258.added, W1258.tests)).toBe(false);
+});
+
+test("reversed declared workspace dependency explains a restored test import", () => {
+	const introduced = addedWorkspaceDependencies(
+		JSON.stringify({ dependencies: { "@klh/blam": "workspace:*" } }),
+		JSON.stringify({
+			dependencies: {
+				"@klh/blam": "workspace:*",
+				"@klh/buckle": "workspace:*",
+			},
+		}),
+		"packages/suspenders/package.json",
+	);
+	const testPath = "packages/suspenders/deploy/zai-catalog.test.ts";
+	const line = `error: Cannot find package '@klh/buckle/src/upstreams' from '/tmp/review-proof-abc/${testPath}'`;
+	expect(introduced).toEqual([
+		{ packageDir: "packages/suspenders", name: "@klh/buckle" },
+	]);
+	expect(missingImportsExplained(line, [], [testPath], introduced)).toBe(true);
+	expect(missingImportsExplained(line, [], [testPath], [])).toBe(false);
+	const unrelated = line.replace("@klh/buckle", "@klh/unknown");
+	expect(missingImportsExplained(unrelated, [], [testPath], introduced)).toBe(
+		false,
+	);
+	const wrongImporter = line.replace(
+		testPath,
+		"packages/belt/test/other.test.ts",
+	);
+	expect(
+		missingImportsExplained(wrongImporter, [], [testPath], introduced),
+	).toBe(false);
+});
+
+test("only newly declared workspace dependencies can explain imports", () => {
+	const before = JSON.stringify({
+		dependencies: { "@klh/blam": "workspace:*" },
+	});
+	const after = JSON.stringify({
+		dependencies: { "@klh/blam": "workspace:*", "left-pad": "^1.0.0" },
+	});
+	expect(
+		addedWorkspaceDependencies(
+			before,
+			after,
+			"packages/suspenders/package.json",
+		),
+	).toEqual([]);
+	expect(
+		addedWorkspaceDependencies(
+			"invalid",
+			after,
+			"packages/suspenders/package.json",
+		),
+	).toEqual([]);
+	expect(
+		addedWorkspaceDependencies(before, after, "other/package.json"),
+	).toEqual([]);
 });
 
 test("empty added set keeps the old blanket-error behavior", () => {

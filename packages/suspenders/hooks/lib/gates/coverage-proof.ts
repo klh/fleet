@@ -23,6 +23,36 @@ export type Proof = {
 // (`error: Cannot find module './x' from '/abs/dir/y.test.ts'`), first
 // unresolvable import per file.
 export type MissingImport = { spec: string; importer: string };
+export type AddedWorkspaceDependency = { packageDir: string; name: string };
+
+// Reversing a branch also reverses newly declared workspace links. A restored
+// test may then fail to resolve a package that the branch explicitly supplies.
+export const addedWorkspaceDependencies = (
+	beforeJson: string,
+	afterJson: string,
+	manifestPath: string,
+): AddedWorkspaceDependency[] => {
+	if (!/^packages\/[^/]+\/package\.json$/.test(manifestPath)) return [];
+	try {
+		const before = JSON.parse(beforeJson) as Record<string, unknown>;
+		const after = JSON.parse(afterJson) as Record<string, unknown>;
+		const deps = (
+			manifest: Record<string, unknown>,
+		): Record<string, unknown> => ({
+			...(manifest.dependencies as Record<string, unknown> | undefined),
+			...(manifest.devDependencies as Record<string, unknown> | undefined),
+		});
+		const oldDeps = deps(before);
+		return Object.entries(deps(after))
+			.filter(
+				([name, version]) =>
+					version === "workspace:*" && !Object.hasOwn(oldDeps, name),
+			)
+			.map(([name]) => ({ packageDir: posix.dirname(manifestPath), name }));
+	} catch {
+		return [];
+	}
+};
 
 const MISSING_LINE =
 	/Cannot find (?:package|module) ['"]([^'"]+)['"](?: from ['"](.+?)['"])?/;
@@ -51,6 +81,7 @@ const explainsMissing = (
 	importer: string,
 	added: Set<string>,
 	testPaths: string[],
+	addedWorkspaceDeps: AddedWorkspaceDependency[],
 ): boolean => {
 	for (const p of added) {
 		if (spec.endsWith(`/${p}`)) return true;
@@ -58,6 +89,15 @@ const explainsMissing = (
 	const hit = testPaths
 		.filter((f) => importer.endsWith(f))
 		.reduce((a, b) => (b.length > a.length ? b : a), "");
+	if (
+		hit &&
+		addedWorkspaceDeps.some(
+			({ packageDir, name }) =>
+				hit.startsWith(`${packageDir}/`) &&
+				(spec === name || spec.startsWith(`${name}/`)),
+		)
+	)
+		return true;
 	const dir = hit ? posix.dirname(hit) : "";
 	for (const ext of RESOLVE_EXTS) {
 		const candidate = posix.normalize(
@@ -75,11 +115,15 @@ export const missingImportsExplained = (
 	output: string,
 	added: string[],
 	testPaths: string[],
+	addedWorkspaceDeps: AddedWorkspaceDependency[] = [],
 ): boolean => {
 	if (missingImports(output).length === 0) return true;
 	const addedSet = new Set(added);
 	for (const { spec, importer } of missingImports(output)) {
-		if (!explainsMissing(spec, importer, addedSet, testPaths)) return false;
+		if (
+			!explainsMissing(spec, importer, addedSet, testPaths, addedWorkspaceDeps)
+		)
+			return false;
 	}
 	return true;
 };
