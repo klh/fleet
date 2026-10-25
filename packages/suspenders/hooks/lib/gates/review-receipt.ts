@@ -177,6 +177,47 @@ export const reviewFindingIds = (
 	return { blocking, resolved };
 };
 
+/** The short item thread can cut an ERROR note before its B-ID. Supply the
+ * reviewer with the receipt's exact-commit blockers so a later PASS can
+ * explicitly resolve them instead of starving the merge gate. */
+export function priorBlockingReviewLines(
+	db: GovernorStore,
+	project: string,
+	item: string,
+	commit: string,
+): string[] {
+	const events = db
+		.query(
+			"SELECT payload FROM events WHERE kind = 'work.review' AND json_extract(payload, '$.project') = ? AND json_extract(payload, '$.work') = ? AND CASE WHEN json_valid(json_extract(payload, '$.receipt')) THEN json_extract(json_extract(payload, '$.receipt'), '$.commit') ELSE NULL END = ? ORDER BY id DESC LIMIT 100",
+		)
+		.all(project, item, commit) as { payload: string }[];
+	if (events.length === 100)
+		throw new Error("exact-commit review history exceeds bounded audit");
+	const byId = new Map<string, string>();
+	for (const event of events) {
+		let receipt: ReviewReceipt;
+		try {
+			receipt = JSON.parse(JSON.parse(event.payload).receipt);
+		} catch {
+			continue;
+		}
+		if (!Array.isArray(receipt.blocking)) continue;
+		for (const id of receipt.blocking) {
+			if (typeof id !== "string" || !/^B\d+-[a-zA-Z0-9-]+$/.test(id)) continue;
+			if (!byId.has(id)) {
+				const evidence = String(receipt.evidence ?? "")
+					.slice(-500)
+					.replace(/\s+/g, " ")
+					.trim();
+				byId.set(id, evidence);
+			}
+		}
+		if (byId.size > 32)
+			throw new Error("too many prior blocking findings for review prompt");
+	}
+	return [...byId].map(([id, evidence]) => `${id}: ${evidence}`);
+}
+
 /** Read instructions from immutable candidate Git objects, including absent
  * files so adding a package instruction invalidates an earlier approval. */
 export function reviewContext(

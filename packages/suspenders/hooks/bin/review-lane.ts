@@ -19,6 +19,7 @@ import {
 	TEST_FILE,
 } from "../lib/gates/coverage-proof.ts";
 import {
+	priorBlockingReviewLines,
 	publishReviewReceipt,
 	reviewContext,
 	reviewFindingIds,
@@ -177,6 +178,12 @@ const thread: string[] = (
 // tree's lane-context, not the branch) — never a blind suspenders/<item>.
 const boundBranch = branchForItem(repo, item) ?? `suspenders/${item}`;
 const boundContext = reviewContext(repo, boundBranch);
+const priorBlocking = priorBlockingReviewLines(
+	db,
+	project,
+	item,
+	boundContext.commit,
+);
 if (requestKey && requestKey !== reviewRequestKey(project, item, boundContext))
 	throw new Error("review context changed before scheduled runner started");
 const diff = gitDiff(boundContext.base, boundContext.commit);
@@ -203,6 +210,9 @@ const prompt = [
 	`ITEM THREAD (newest first, last 20):`,
 	...(thread.length ? thread : ["(no events)"]),
 	``,
+	`PRIOR BLOCKING IDS FOR THIS EXACT COMMIT (receipt evidence, may include incomplete ERROR output):`,
+	...(priorBlocking.length ? priorBlocking : ["(none)"]),
+	``,
 	`EXACT BRANCH DIFF (${boundContext.base}...${boundContext.commit}):`,
 	diff || "(no branch — review the thread/claims only)",
 	``,
@@ -210,7 +220,7 @@ const prompt = [
 	`ID discipline (W1263): B-prefix = merge-blocking defect, N-prefix = advisory. NEVER label advisory content with a B-prefix — every B-ID you emit blocks the merge until a reviewer explicitly resolves it, and advisory B-IDs accumulate a blocking union across review rounds that starves the merge ladder. When in doubt, use N.`,
 	`Review silently: do not announce next steps or ask to continue — your whole reply is findings bullets plus the verdict line.`,
 	`Explicitly resolved prior findings use a separate line RESOLVED: B<round>-<slug> followed by evidence. Unresolved blocker IDs prevent merge even with a PASS final line.`,
-	`Prior blocking IDs (W1263): when the ITEM THREAD shows earlier B-IDs for this exact commit, your reply must carry one line PER prior ID — either re-open it (state it as a finding bullet) or close it (RESOLVED: B<id> <one-line evidence>). A clean PASS with prior IDs silently absent is not a resolution and will be rejected by the receipt contract.`,
+	`Prior blocking IDs (W1263): for every B-ID in PRIOR BLOCKING IDS, your reply must carry one line — either re-open it (state it as a finding bullet) or close it (RESOLVED: B<id> <one-line evidence>). A clean PASS with prior IDs silently absent is not a resolution and will be rejected by the receipt contract.`,
 	`Evidence-kind caps severity: a file:line-only claim caps at blocker(high); a runtime-behavior claim without a trigger path caps at note(low).`,
 	`End your reply with ONE machine-parseable final line:`,
 	`VERDICT: PASS | VERDICT: FAIL - <reason>`,
