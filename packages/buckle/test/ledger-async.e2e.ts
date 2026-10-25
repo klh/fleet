@@ -2,8 +2,10 @@
 // ops enqueue, land in one transaction (5s timer / 256-row threshold / read
 // barriers / close), and the read barriers preserve the observable
 // semantics the W133/W140 tests pin.
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { Ledger } from "../src/ledger.ts";
+
+test.describe({ tag: "@unit" }, () => {
 
 const rec = (in_tok: number): Parameters<Ledger["record"]>[0] => ({
 	key: "",
@@ -16,7 +18,7 @@ const rec = (in_tok: number): Parameters<Ledger["record"]>[0] => ({
 	requests: 1,
 });
 
-describe("Ledger async flush", () => {
+test.describe("Ledger async flush", () => {
 	test("read barrier: rows() flushes pending usage first", () => {
 		const db = new Ledger(":memory:");
 		db.record(rec(9));
@@ -175,4 +177,5 @@ describe("Ledger async flush", () => {
 		expect(db.rows().length).toBe(1); // barrier no-op, row already landed
 		db.close();
 	});
+});
 });

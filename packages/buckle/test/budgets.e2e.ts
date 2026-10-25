@@ -1,12 +1,14 @@
 // test/budgets.test.ts — the O(1) in-process books: rolling 60-slot rings
 // with exact running sums, one integer per key for the token budget; a check
 // is field loads + compare, never I/O.
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { BudgetBooks } from "../src/budgets.ts";
+
+test.describe({ tag: "@unit" }, () => {
 
 const SEC = (n: number): number => 1_800_000_000_000 + n * 1000;
 
-describe("BudgetBooks", () => {
+test.describe("BudgetBooks", () => {
 	test("rpm: limit holds for the window, frees after it slides", () => {
 		let sec = 0;
 		const books = new BudgetBooks({ "*": { rpm: 3 } }, () => SEC(sec));
@@ -60,4 +62,5 @@ describe("BudgetBooks", () => {
 		const perCheckUs = ((performance.now() - t0) / 20_000) * 1000;
 		expect(perCheckUs).toBeLessThan(5);
 	});
+});
 });

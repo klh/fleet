@@ -1,8 +1,10 @@
 // test/ledger.test.ts — upsert-add semantics for the hour-bucket ledger.
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { Ledger } from "../src/ledger.ts";
 
-describe("Ledger", () => {
+test.describe({ tag: "@unit" }, () => {
+
+test.describe("Ledger", () => {
 	test("upsert-adds within one hour bucket", () => {
 		const db = new Ledger(":memory:");
 		const rec = (in_tok: number, out_tok: number): void => {
@@ -71,4 +73,5 @@ describe("Ledger", () => {
 		expect(row.hour_bucket).toBe("2026-10-01T12:00");
 		db.close();
 	});
+});
 });

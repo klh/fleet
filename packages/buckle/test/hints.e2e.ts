@@ -1,7 +1,7 @@
 // test/hints.test.ts — the W96 grammar port: verbatim parse shapes, every
 // rejection case with the named why, header seam (512 cap, duplicate
 // refusal), and fit semantics.
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	hintFit,
 	hintFromHeaders,
@@ -10,13 +10,15 @@ import {
 	type RouteHint,
 } from "../src/hints.ts";
 
+test.describe({ tag: "@unit" }, () => {
+
 const OK = (raw: string): RouteHint => {
 	const r = parseHint(raw);
 	if (!r.ok) throw new Error(`${raw}: ${r.why}`);
 	return r.hint;
 };
 
-describe("grammar", () => {
+test.describe("grammar", () => {
 	test("prefer local distill reasoning", () => {
 		expect(OK("prefer local distill reasoning")).toEqual({
 			verb: "prefer",
@@ -42,7 +44,7 @@ describe("grammar", () => {
 	});
 });
 
-describe("rejections", () => {
+test.describe("rejections", () => {
 	test("no verb", () => {
 		const r = parseHint("maybe cloud i guess");
 		expect(r.ok).toBe(false);
@@ -81,7 +83,7 @@ describe("rejections", () => {
 	});
 });
 
-describe("header seam", () => {
+test.describe("header seam", () => {
 	test("absent or empty = no hint", () => {
 		expect(hintFromHeaders(new Headers())).toEqual({
 			ok: true,
@@ -129,7 +131,7 @@ describe("header seam", () => {
 	});
 });
 
-describe("fit", () => {
+test.describe("fit", () => {
 	const C = {
 		kind: "local",
 		machine: "box",
@@ -147,4 +149,5 @@ describe("fit", () => {
 		expect(hintFit(C, OK("prefer (("))).toBe(0);
 		expect(hintFit(C, OK("prefer reasoning"))).toBe(1);
 	});
+});
 });

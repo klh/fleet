@@ -1,8 +1,10 @@
 // test/ledger-durability.test.ts — review #13 §1.3: a failed flush must
 // requeue (the transaction rolled back), retry, and drop only after the
 // bounded attempt count — every drop counted.
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { Ledger } from "../src/ledger.ts";
+
+test.describe({ tag: "@unit" }, () => {
 
 const rec = (in_tok: number): Parameters<Ledger["record"]>[0] => ({
 	key: "",
@@ -33,7 +35,7 @@ function failNext(l: Ledger, n: number): void {
 	};
 }
 
-describe("Ledger durability", () => {
+test.describe("Ledger durability", () => {
 	test("failed flush requeues; the next flush lands the rows", () => {
 		const l = new Ledger(":memory:", undefined, { flushMs: 60_000 });
 		l.record(rec(3));
@@ -114,4 +116,5 @@ describe("Ledger durability", () => {
 		expect(fresh.rows()[0]?.in_tok).toBe(5);
 		fresh.close();
 	});
+});
 });

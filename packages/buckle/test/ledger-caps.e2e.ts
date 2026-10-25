@@ -1,7 +1,9 @@
 // test/ledger-caps.test.ts — W450 pending-entry/byte caps: overflow sheds
 // the OLDEST row, every drop is counted, flush failures keep bytes honest.
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { Ledger } from "../src/ledger.ts";
+
+test.describe({ tag: "@unit" }, () => {
 
 const rec = (n: number, pad = "") => ({
 	key: pad,
@@ -14,7 +16,7 @@ const rec = (n: number, pad = "") => ({
 	requests: 1,
 });
 
-describe("ledger ring caps (W450)", () => {
+test.describe("ledger ring caps (W450)", () => {
 	test("entry cap sheds the oldest usage row and counts it", () => {
 		const dropped: Array<[string, number]> = [];
 		const db = new Ledger(":memory:", undefined, {
@@ -69,4 +71,5 @@ describe("ledger ring caps (W450)", () => {
 		expect(db.dropped).toBe(0);
 		db.close();
 	});
+});
 });

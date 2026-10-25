@@ -1,6 +1,8 @@
 // test/cooldown-eject.test.ts — allowed_fails ejection + recovery.
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { Cooldowns } from "../src/cooldown.ts";
+
+test.describe({ tag: "@unit" }, () => {
 
 const mkDep = (group: string, url: string) => ({
 	group,
@@ -8,7 +10,7 @@ const mkDep = (group: string, url: string) => ({
 	dialect: "openai" as const,
 });
 
-describe("Cooldowns", () => {
+test.describe("Cooldowns", () => {
 	test("benches after allowed_fails consecutive failures", () => {
 		const t = 1000;
 		const cd = new Cooldowns(3, 30, () => t);
@@ -53,4 +55,5 @@ describe("Cooldowns", () => {
 		expect(cd.benched(d)).toBe(false);
 		expect(cd.remainingS(d)).toBeNull();
 	});
+});
 });

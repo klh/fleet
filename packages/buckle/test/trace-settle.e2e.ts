@@ -2,9 +2,11 @@
 // validates every settle field (closer enum, ms clamp, failure kind) and
 // traceRead() joins requests + attempts + settle by trace id — the LiteLLM
 // call id read never probes, it rides route_attempt.call_id.
-import { expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { buildSettleFact } from "../../telemetry/src/http-trace.ts";
 import { Ledger } from "../src/ledger.ts";
+
+test.describe({ tag: "@unit" }, () => {
 
 const TRACE = "a".repeat(32);
 
@@ -231,4 +233,5 @@ test("traceRead joins attempts and requests by trace_id without bodies", () => {
 	});
 	expect(JSON.stringify(read)).not.toContain("prompt");
 	ledger.close();
+});
 });

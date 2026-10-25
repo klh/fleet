@@ -1,8 +1,10 @@
 // test/cooldown.test.ts — ported retry-after math (both header forms).
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { retryAfterS, retryDelayS } from "../src/cooldown.ts";
 
-describe("retryDelayS", () => {
+test.describe({ tag: "@unit" }, () => {
+
+test.describe("retryDelayS", () => {
 	test("zero provider wait cannot collapse retries into an immediate burst", () => {
 		expect(retryDelayS(0, 0, () => 0, 8, 60)).toBe(1);
 		expect(retryDelayS(3, 0.05, () => 0.5, 8, 60)).toBe(8.5);
@@ -35,7 +37,7 @@ describe("retryDelayS", () => {
 	});
 });
 
-describe("retryAfterS", () => {
+test.describe("retryAfterS", () => {
 	test("delta-seconds form", () => {
 		const h = new Headers({ "retry-after": "7" });
 		expect(retryAfterS(h, () => 1000)).toBe(7);
@@ -49,4 +51,5 @@ describe("retryAfterS", () => {
 	test("absent header → null", () => {
 		expect(retryAfterS(new Headers(), () => 1000)).toBeNull();
 	});
+});
 });

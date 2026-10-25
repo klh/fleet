@@ -1,6 +1,6 @@
 // test/trace.test.ts — W461 stage 1: W3C traceparent parse/build and the
 // fleet baggage allowlist. Correlation only — no identity, no authz.
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	allowlistedBaggage,
 	childSpanOf,
@@ -9,9 +9,11 @@ import {
 	stripPrivateTrace,
 } from "../src/trace.ts";
 
+test.describe({ tag: "@unit" }, () => {
+
 const GOOD = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 
-describe("parseTraceparent", () => {
+test.describe("parseTraceparent", () => {
 	test("accepts a valid header, canonicalized to lowercase", () => {
 		expect(parseTraceparent(GOOD)).toBe(GOOD);
 		expect(
@@ -49,7 +51,7 @@ describe("parseTraceparent", () => {
 	});
 });
 
-describe("childSpanOf", () => {
+test.describe("childSpanOf", () => {
 	test("same trace id, fresh distinct span ids per attempt", () => {
 		const a = childSpanOf(GOOD);
 		const b = childSpanOf(GOOD);
@@ -72,7 +74,7 @@ describe("childSpanOf", () => {
 	});
 });
 
-describe("allowlistedBaggage", () => {
+test.describe("allowlistedBaggage", () => {
 	test("keeps fleet.* keys, drops everything else", () => {
 		const v = "fleet.lane.id=autow461,secret=x,fleet.project.id=p1,sid=abc";
 		expect(allowlistedBaggage(v)).toBe(
@@ -93,7 +95,7 @@ describe("allowlistedBaggage", () => {
 	});
 });
 
-describe("stripPrivateTrace", () => {
+test.describe("stripPrivateTrace", () => {
 	test("baggage never rides the upstream leg; traceparent survives", () => {
 		const h: Record<string, string> = {
 			authorization: "Bearer x",
@@ -104,4 +106,5 @@ describe("stripPrivateTrace", () => {
 		expect(h.baggage).toBeUndefined();
 		expect(h.traceparent).toBe(GOOD);
 	});
+});
 });

@@ -1,5 +1,7 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { Ledger } from "../src/ledger.ts";
+
+test.describe({ tag: "@unit" }, () => {
 
 test("Buckle joins bounded hop receipts by trace without serving bodies", () => {
 	const ledger = new Ledger(":memory:");
@@ -79,4 +81,5 @@ test("unknown or invalid account queue measurements remain null", () => {
 		),
 	).toBe(true);
 	ledger.close();
+});
 });
