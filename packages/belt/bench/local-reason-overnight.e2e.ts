@@ -1,5 +1,5 @@
 // local-reason-overnight.test.ts — unit coverage for the W532 sealed rig.
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,62 +31,65 @@ const mkRow = (over: Record<string, unknown>): RoundRow =>
 		...over,
 	}) as unknown as RoundRow;
 
-describe("extractBlocks", () => {
-	test("returns both bodies, tolerating prose", () => {
+test.describe("extractBlocks", () => {
+	test("returns both bodies, tolerating prose @unit", () => {
 		const two = "```ts\nconst a = 1;\n```\n```ts\nconst b = 2;\n```";
 		expect(extractBlocks(two)).toEqual(["const a = 1;", "const b = 2;"]);
 		const prose = `Prose.\n\n\`\`\`ts\nA\n\`\`\`\nmid\n\n\`\`\`ts\nB\n\`\`\``;
 		expect(extractBlocks(prose)).toEqual(["A", "B"]);
 	});
-	test("needs two blocks", () => {
+	test("needs two blocks @unit", () => {
 		expect(extractBlocks("```ts\nonly\n```")).toBeNull();
 		expect(extractBlocks("no fences at all")).toBeNull();
 	});
 });
 
-describe("classify", () => {
+test.describe("classify", () => {
 	const verdict = (
 		over: Record<string, unknown>,
 		expected: string | null,
 		grade: { ok: boolean; tail: string } | null = null,
 	) => classify(fakeOut({ served: "m", ...over }), expected, grade);
-	test("transport fail voids the round", () => {
+	test("transport fail voids the round @unit", () => {
 		const v = verdict({ ok: false, err: "conn refused" }, "m");
 		expect(v.failKind).toBe("transport");
 		expect(v.pass).toBe(false);
 	});
-	test("served-model mismatch is an identity void", () => {
+	test("served-model mismatch is an identity void @unit", () => {
 		const v = verdict({ served: "wrong-model" }, "m");
 		expect(v.failKind).toBe("identity");
 		expect(v.identity).toBe(true);
 		expect(v.pass).toBe(false);
 	});
-	test("length finish is truncated", () => {
+	test("length finish is truncated @unit", () => {
 		expect(verdict({ finish: "length" }, "m").failKind).toBe("truncated");
 	});
-	test("ok answer with NO stop reason is unproven termination → truncated", () => {
+	test("ok answer with NO stop reason is unproven termination → truncated @unit", () => {
 		expect(verdict({ finish: null }, "m").failKind).toBe("truncated");
 	});
-	test("stop with empty text is empty", () => {
+	test("stop with empty text is empty @unit", () => {
 		expect(verdict({ text: "" }, "m").failKind).toBe("empty");
 	});
-	test("failing grade is tests", () => {
+	test("failing grade is tests @unit", () => {
 		expect(verdict({}, "m", { ok: false, tail: "x" }).failKind).toBe("tests");
 	});
-	test("clean round passes", () => {
+	test("clean round passes @unit", () => {
 		const v = verdict({}, "m", { ok: true, tail: "" });
 		expect(v.pass).toBe(true);
 		expect(v.failKind).toBeNull();
 	});
-	test("null expected never mismatches", () => {
+	test("null expected never mismatches @unit", () => {
 		const v = verdict({ served: undefined }, null);
 		expect(v.identity).toBe(false);
 		expect(v.pass).toBe(true);
 	});
 });
 
-describe("gradeCode", () => {
-	test("golden path passes a correct impl, fails a broken one", () => {
+test.describe("gradeCode", () => {
+	test("golden path passes a correct impl, fails a broken one @unit", {
+		// bun:test positional timeout → playwright details (spawn-heavy: 2× bun test subprocess)
+		timeout: 300_000,
+	}, () => {
 		const fence = (body: string) => `\`\`\`ts\n${body}\n\`\`\``;
 		const impl = `export function parseDuration(s: string): number | null {
 	const re = /(\\d+(?:\\.\\d+)?)\\s*([dhms])/gi;
@@ -120,11 +123,11 @@ describe("parseDuration", () => {
 			false,
 		);
 		rmSync(join("/tmp", "w532-bench", run), { recursive: true, force: true });
-	}, 300_000);
+	});
 });
 
-describe("roundPlan", () => {
-	test("deterministic per seed; orders are permutations; tasks once", () => {
+test.describe("roundPlan", () => {
+	test("deterministic per seed; orders are permutations; tasks once @unit", () => {
 		const legs = [{ id: "a" }, { id: "b" }, { id: "c" }] as unknown as Leg[];
 		const tasks: ("code" | "review")[] = ["code", "review"];
 		const one = roundPlan("seed-a", 1, tasks, legs);
@@ -141,15 +144,15 @@ describe("roundPlan", () => {
 	});
 });
 
-test("median: odd, even, empty", () => {
+test("median: odd, even, empty @unit", () => {
 	expect(median([5, 1, 9])).toBe(5);
 	expect(median([1, 9])).toBe(5);
 	expect(median([3])).toBe(3);
 	expect(median([])).toBeNull();
 });
 
-describe("summarize", () => {
-	test("mines per-leg stats over warm rows only", () => {
+test.describe("summarize", () => {
+	test("mines per-leg stats over warm rows only @unit", () => {
 		const dir = mkdtempSync(join(tmpdir(), "w532-sum-"));
 		const file = join(dir, "run.jsonl");
 		const lines = [
@@ -186,8 +189,8 @@ describe("summarize", () => {
 	});
 });
 
-describe("doneSet", () => {
-	test("collects exactly the round keys", () => {
+test.describe("doneSet", () => {
+	test("collects exactly the round keys @unit", () => {
 		const dir = mkdtempSync(join(tmpdir(), "w532-done-"));
 		const file = join(dir, "run.jsonl");
 		const lines = [
@@ -202,8 +205,8 @@ describe("doneSet", () => {
 	});
 });
 
-describe("summarize reason tokens", () => {
-	test("known-zero is signal, unknown is null — never conflated", () => {
+test.describe("summarize reason tokens", () => {
+	test("known-zero is signal, unknown is null — never conflated @unit", () => {
 		const dir = mkdtempSync(join(tmpdir(), "w532-tok-"));
 		const file = join(dir, "run.jsonl");
 		const lines = [
@@ -230,7 +233,7 @@ describe("summarize reason tokens", () => {
 	});
 });
 
-describe("sealMismatches", () => {
+test.describe("sealMismatches", () => {
 	const now = {
 		rounds: 10,
 		tasks: ["code", "review"],
@@ -249,10 +252,10 @@ describe("sealMismatches", () => {
 		rubric_sha: "ccc2",
 		review_src_sha: "ddd2",
 	};
-	test("a seal that describes this invocation is silent", () => {
+	test("a seal that describes this invocation is silent @unit", () => {
 		expect(sealMismatches(seal, now)).toEqual([]);
 	});
-	test("broken bindings are named; non-string hash fails closed", () => {
+	test("broken bindings are named; non-string hash fails closed @unit", () => {
 		const mis = sealMismatches(
 			{ ...seal, rounds: 5, script_sha: "fff3", rubric_sha: 42 },
 			now,

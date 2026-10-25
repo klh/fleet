@@ -1,7 +1,7 @@
 // ext.test.ts — tests for the external known-set slice harness (W823):
 // normalization/EM, judge verdict parsing, DSV parsing, seeded slicing,
 // seal/verify roundtrip (incl. tamper), scoring, injected-call judge pass.
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,8 +29,8 @@ const FIX = [
 
 import { extSealFrom, verifyExt } from "./ext-seal.ts";
 
-describe("ext seal", () => {
-	test("parseDsv: quoting, doubled quotes, embedded newline", () => {
+test.describe("ext seal", () => {
+	test("parseDsv: quoting, doubled quotes, embedded newline @unit", () => {
 		const rows = parseDsv(FIX);
 		expect(rows.length).toBe(4);
 		expect(rows[1]?.[1]).toBe("What is 2+2? ");
@@ -38,14 +38,14 @@ describe("ext seal", () => {
 		const want = ["multi", 'line "q"'].join(NL);
 		expect(rows[3]?.[1]).toBe(want);
 	});
-	test("extPool maps Prompt/Answer/reasoning; trims", () => {
+	test("extPool maps Prompt/Answer/reasoning; trims @unit", () => {
 		const pool = extPool(FIX);
 		expect(pool.length).toBe(3);
 		expect(pool[0]?.id).toBe("fr1");
 		expect(pool[0]?.prompt).toBe("What is 2+2?");
 		expect(pool[2]?.reasoning).toBe("Temporal reasoning");
 	});
-	test("extSlice is deterministic and obeys the first-k rule", () => {
+	test("extSlice is deterministic and obeys the first-k rule @unit", () => {
 		const pool = extPool(FIX);
 		const a = extSlice(pool, 2);
 		const b = extSlice(pool, 2);
@@ -55,8 +55,8 @@ describe("ext seal", () => {
 	});
 });
 
-describe("ext score", () => {
-	test("scoreSlice: em hit, miss, missing", () => {
+test.describe("ext score", () => {
+	test("scoreSlice: em hit, miss, missing @unit", () => {
 		const tasks = [
 			{ id: "fr1", prompt: "q", answer: "4", reasoning: "n", links: 0 },
 			{
@@ -80,8 +80,8 @@ describe("ext score", () => {
 });
 
 const quiet = () => {};
-describe("ext seal roundtrip", () => {
-	test("seal → verify PASS → tamper FAIL; frames.json deterministic", () => {
+test.describe("ext seal roundtrip", () => {
+	test("seal → verify PASS → tamper FAIL; frames.json deterministic @unit", () => {
 		const dir = mkdtempSync(join(tmpdir(), "arena-ext-"));
 		const raw = join(dir, "raw.tsv");
 		writeFileSync(raw, FIX);
@@ -103,7 +103,7 @@ describe("ext seal roundtrip", () => {
 	});
 });
 
-describe("ext judge", () => {
+test.describe("ext judge", () => {
 	const jt = [
 		{ id: "fr1", prompt: "q1", answer: "4", reasoning: "n", links: 0 },
 		{ id: "fr2", prompt: "q2", answer: "5", reasoning: "m", links: 0 },
@@ -112,7 +112,7 @@ describe("ext judge", () => {
 		void p;
 		return '{"score": 1, "verdict": "correct", "reason": "ok"}';
 	};
-	test("judgeRunExt: injected verdicts; second pass resumes", async () => {
+	test("judgeRunExt: injected verdicts; second pass resumes @unit", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "arena-extj-"));
 		const f = join(dir, "answers.jsonl");
 		const answers = [
@@ -138,22 +138,22 @@ describe("ext judge", () => {
 	});
 });
 
-describe("ext em", () => {
-	test("normalize: punctuation, articles, whitespace, numbers", () => {
+test.describe("ext em", () => {
+	test("normalize: punctuation, articles, whitespace, numbers @unit", () => {
 		expect(normalizeExt("The  Jane  Ballou!")).toBe("jane ballou");
 		expect(normalizeExt("a Plan, the Execution")).toBe("plan execution");
 		expect(normNumberExt("$189,777.00")).toBe(189777);
 		expect(normNumberExt("2.0")).toBe(2);
 		expect(normNumberExt("46%")).toBe(46);
 	});
-	test("emCheck: last line, prefix strip, number forms", () => {
+	test("emCheck: last line, prefix strip, number forms @unit", () => {
 		expect(emCheck("Jane Ballou", "ANSWER: Jane Ballou")).toBe(true);
 		expect(emCheck("2", "Final answer: 2.")).toBe(true);
 		expect(emCheck("Paris", "The answer is: Paris, France.")).toBe(false);
 		const got = ["step one", "Final Answer: 46"].join(NL);
 		expect(lastAnswerLine(got)).toBe("46");
 	});
-	test("parseExtVerdict: format-checked, consistent", () => {
+	test("parseExtVerdict: format-checked, consistent @unit", () => {
 		const good = '{"score": 1, "verdict": "correct", "reason": "r"}';
 		expect(parseExtVerdict(good)?.score).toBe(1);
 		expect(parseExtVerdict("not json")).toBeNull();

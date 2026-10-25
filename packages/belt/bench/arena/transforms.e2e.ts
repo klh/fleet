@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,7 +23,7 @@ import {
 } from "./transforms.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "arena-tf-"));
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+test.afterAll(() => rmSync(dir, { recursive: true, force: true }));
 let n = 0;
 const fresh = () => new TransformCache(join(dir, `c${n++}`));
 
@@ -42,8 +42,8 @@ function fake(version = "fake/1"): Transform & { calls: number } {
 	return t;
 }
 
-describe("transform cache", () => {
-	test("miss generates + persists, hit reuses without calling", async () => {
+test.describe("transform cache", () => {
+	test("miss generates + persists, hit reuses without calling @unit", async () => {
 		const c = fresh();
 		const t = fake();
 		const a = await applyTransform(t, "a-001.prompt", "hello", { cache: c });
@@ -55,7 +55,7 @@ describe("transform cache", () => {
 		expect(t.calls).toBe(1);
 		expect(c.get("enhance", "a-001.prompt")?.input_sha).toHaveLength(64);
 	});
-	test("changed input or version is a hard mismatch unless refreshed", async () => {
+	test("changed input or version is a hard mismatch unless refreshed @unit", async () => {
 		const c = fresh();
 		await applyTransform(fake(), "k", "one", { cache: c });
 		await expect(
@@ -71,14 +71,14 @@ describe("transform cache", () => {
 		expect(r.meta.cache_hit).toBe(false);
 		expect(c.get("enhance", "k")?.version).toBe("fake/2");
 	});
-	test("offline never generates", async () => {
+	test("offline never generates @unit", async () => {
 		const t = fake();
 		await expect(
 			applyTransform(t, "k", "x", { cache: fresh(), offline: true }),
 		).rejects.toBeInstanceOf(CacheMismatch);
 		expect(t.calls).toBe(0);
 	});
-	test("deterministic transforms bypass the cache", async () => {
+	test("deterministic transforms bypass the cache @unit", async () => {
 		const c = fresh();
 		const r = await applyTransform(
 			condenseTransform,
@@ -91,7 +91,7 @@ describe("transform cache", () => {
 	});
 });
 
-describe("prepareTasks", () => {
+test.describe("prepareTasks", () => {
 	const tasks: Task[] = [
 		{
 			id: "f-1",
@@ -101,7 +101,7 @@ describe("prepareTasks", () => {
 			check: { kind: "needle", expect: "X" },
 		},
 	];
-	test("f rewrites questions only, never the log", async () => {
+	test("f rewrites questions only, never the log @unit", async () => {
 		const r = await prepareTasks("f", tasks, fake(), { cache: fresh() });
 		const p = r.tasks.get("f-1");
 		expect(p?.task.doc).toBe("the the log");
@@ -109,7 +109,7 @@ describe("prepareTasks", () => {
 		expect(p?.meta.q2?.chars_in).toBe(15);
 		expect(r.cacheHash).toHaveLength(16);
 	});
-	test("failure falls back (flagged, not cached) only with allowFallback", async () => {
+	test("failure falls back (flagged, not cached) only with allowFallback @unit", async () => {
 		const boom: Transform = {
 			id: "enhance",
 			version: "b/1",
@@ -128,7 +128,7 @@ describe("prepareTasks", () => {
 		expect(r.tasks.get("f-1")?.meta.q1?.fallback).toContain("down");
 		expect(c.get("enhance", "f-1.q1")).toBeNull();
 	});
-	test("prompts hash is byte-stable", async () => {
+	test("prompts hash is byte-stable @unit", async () => {
 		const a = await prepareTasks("f", tasks, condenseTransform, {
 			cache: null,
 		});
@@ -140,8 +140,8 @@ describe("prepareTasks", () => {
 	});
 });
 
-describe("composition + loading", () => {
-	test("both = condense then enhance; non-deterministic; version chains", async () => {
+test.describe("composition + loading", () => {
+	test("both = condense then enhance; non-deterministic; version chains @unit", async () => {
 		const e = fake();
 		const both = compose("both", condenseTransform, e);
 		expect(both.deterministic).toBe(false);
@@ -153,7 +153,7 @@ describe("composition + loading", () => {
 		expect(buildTransform("both", { enhance: e }).id).toBe("both");
 		expect(buildTransform("none")).toBe(noneTransform);
 	});
-	test("external condenser: bare function and Transform object", async () => {
+	test("external condenser: bare function and Transform object @unit", async () => {
 		// both files exist before the first import (bun caches dir listings)
 		const fn = join(dir, "fn.ts");
 		const obj = join(dir, "obj.ts");
@@ -179,13 +179,13 @@ describe("composition + loading", () => {
 	});
 });
 
-describe("enhance client", () => {
+test.describe("enhance client", () => {
 	const reply = (body: unknown, status = 200) =>
 		(async () =>
 			new Response(JSON.stringify(body), {
 				status,
 			})) as unknown as typeof fetch;
-	test("parses text, strips think + fences, records routed model", async () => {
+	test("parses text, strips think + fences, records routed model @unit", async () => {
 		const e = makeEnhance({
 			fetchImpl: reply({
 				content: [
@@ -198,7 +198,7 @@ describe("enhance client", () => {
 		expect(await e.transform("k", "p")).toBe("Better prompt");
 		expect(e.lastModel).toBe("local-reason");
 	});
-	test("truncation, HTTP errors and empty output throw", async () => {
+	test("truncation, HTTP errors and empty output throw @unit", async () => {
 		const t = (b: unknown, s?: number) =>
 			makeEnhance({ fetchImpl: reply(b, s) }).transform("k", "p");
 		await expect(
@@ -207,16 +207,16 @@ describe("enhance client", () => {
 		await expect(t({ error: "x" }, 500)).rejects.toThrow("HTTP 500");
 		await expect(t({ content: [] })).rejects.toThrow("empty");
 	});
-	test("max_tokens budget is clamped", () => {
+	test("max_tokens budget is clamped @unit", () => {
 		expect(enhanceMaxTokens("x")).toBe(128);
 		expect(enhanceMaxTokens("x".repeat(100_000))).toBe(768);
 	});
 });
 
-describe("blam tier legs (W367.3)", () => {
+test.describe("blam tier legs (W367.3)", () => {
 	const src =
 		"Hi there! Could you please fix the the login bug? Make sure that the tests pass afterwards.";
-	test("condense-in/out are deterministic blam tier legs", async () => {
+	test("condense-in/out are deterministic blam tier legs @unit", async () => {
 		expect(condenseInTransform.version).toBe("blam-condense/1/caveman");
 		expect(condenseOutTransform.version).toBe("blam-condense/1/politeness");
 		for (const t of [condenseInTransform, condenseOutTransform]) {
@@ -227,7 +227,7 @@ describe("blam tier legs (W367.3)", () => {
 			expect(once.length).toBeLessThan(src.length);
 		}
 	});
-	test("TRANSFORM_IDS cover the owner IN/OUT matrix; buildTransform wires them", () => {
+	test("TRANSFORM_IDS cover the owner IN/OUT matrix; buildTransform wires them @unit", () => {
 		for (const id of [
 			"condense-in",
 			"condense-out",

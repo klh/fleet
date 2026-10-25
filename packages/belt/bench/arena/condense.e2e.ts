@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { CONDENSE_VERSION, condense } from "./condense.ts";
 import { CLASS_IDS } from "./core.ts";
 import { loadTasks } from "./seal.ts";
@@ -15,11 +15,11 @@ const GOLDEN = {
 	f: "39ff3049b91f5c88",
 };
 
-describe("condense", () => {
-	test("version is pinned with the golden hashes", () => {
+test.describe("condense", () => {
+	test("version is pinned with the golden hashes @unit", () => {
 		expect(CONDENSE_VERSION).toBe("ref-condense/1");
 	});
-	test("golden prompts hash per class over all sealed tasks", async () => {
+	test("golden prompts hash per class over all sealed tasks @unit", async () => {
 		for (const c of CLASS_IDS) {
 			const r = await prepareTasks(c, loadTasks(c).tasks, condenseTransform, {
 				cache: null,
@@ -27,7 +27,7 @@ describe("condense", () => {
 			expect([c, r.promptsHash]).toEqual([c, GOLDEN[c]]);
 		}
 	});
-	test("deterministic, idempotent, never longer on every sealed prompt", () => {
+	test("deterministic, idempotent, never longer on every sealed prompt @unit", () => {
 		for (const c of CLASS_IDS)
 			for (const t of loadTasks(c).tasks)
 				for (const f of FIELDS[c]) {
@@ -38,7 +38,7 @@ describe("condense", () => {
 					expect(y.length).toBeLessThanOrEqual(x.length);
 				}
 	});
-	test("preserves quoted blocks, code spans, fences and numbers", () => {
+	test("preserves quoted blocks, code spans, fences and numbers @unit", () => {
 		const src =
 			'Please note that you should extract the order. In order to do this, use `toBase(n)` and the "exact term".\n\nMessage:\n"""\nPlease note that the the data is here 1,234.50\n"""\n```js\nthe the code\n```';
 		const out = condense(src);
@@ -50,7 +50,7 @@ describe("condense", () => {
 		expect(out).toContain("```js\nthe the code\n```");
 		expect(out.length).toBeLessThan(src.length);
 	});
-	test("keeps every digit sequence of every sealed prompt", () => {
+	test("keeps every digit sequence of every sealed prompt @unit", () => {
 		for (const c of CLASS_IDS)
 			for (const t of loadTasks(c).tasks)
 				for (const f of FIELDS[c]) {
