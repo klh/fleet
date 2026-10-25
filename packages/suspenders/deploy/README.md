@@ -208,6 +208,19 @@ both from the stack's `version:` — a hub deploy without a pinned version
 and the archived `klh/{buckle,suspenders,belt}` origins cannot deploy the
 monorepo. One version string pins the whole hub (stack.json law).
 
+Cutting that version is a verb (W1303.6), not a hand edit — from
+`packages/suspenders`:
+
+    bun scripts/release.ts status                        # agreement + tag + machine pin
+    bun scripts/release.ts cut --bump patch --items W1234 [--yes] [--push]
+
+`cut` bumps EVERY package manifest and internal `@klh/*` dep spec in one
+commit, tags `vMAJOR.MINOR.PATCH` (annotated), and prepends the CHANGELOG
+release line with the merged item ids; without `--yes` it prints the plan
+only. The machine `version:` pin stays operator-owned (0600): set it to the
+new tag after cutting — `status` and the install tail render the drift
+until it matches.
+
 ## Runtime + embedded SQLite verification (W443)
 
 Fleet's ledgers run WAL, so the artifact's embedded SQLite must carry the

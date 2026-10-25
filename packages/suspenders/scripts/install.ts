@@ -27,7 +27,7 @@ import {
 	type ResolvedFlags,
 } from "./install-cli.ts";
 import { executePlan, type StepContext } from "./install-run.ts";
-import { reportTail } from "./install-report-tail.ts";
+import { reportTail, stackVersionTail } from "./install-report-tail.ts";
 
 const HELP = `
 Usage
@@ -165,6 +165,11 @@ async function main(): Promise<void> {
 		),
 		contract: INSTALL_CONTRACT,
 	};
+	// W1303.6: the one-version evidence line — the machine stack.json pin
+	// rendered against the repo's latest release tag (render-only; the 0600
+	// conf is operator-owned, never written). Informational, so it renders
+	// on dry plans too, unlike the proof tail below.
+	if (mode === "plan") doc.stack_version_line = stackVersionTail(paths.repo);
 	// W899: the install tail CALLS the W892 verb — `work report` through the
 	// installed prefix's PATH shim — as the CONSENTED install's final section
 	// (a dead tail fails the install, never a silent skip; paused/dry plans
@@ -192,6 +197,7 @@ async function main(): Promise<void> {
 WORK REPORT (via the PATH shim from ${paths.prefix}):
 ${doc.report_table}`,
 			);
+		if (doc.stack_version_line !== undefined) console.log(`\n${doc.stack_version_line}`);
 	}
 	// the tail's failure verdict wins over the plan outcome (a dead proof is
 	// a failed install — "make damn sure")
