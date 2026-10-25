@@ -345,7 +345,7 @@ export function retireItemWorktree(id: string): void {
 	const w = Bun.spawnSync(
 		[
 			process.execPath,
-			new URL("../bin/worktree.ts", import.meta.url).pathname,
+			new URL("../../bin/worktree.ts", import.meta.url).pathname,
 			"retire",
 			id,
 		],
