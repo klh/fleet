@@ -97,6 +97,15 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		argv: (root) => [join(root, "scripts/dispatch-watchdog.ts")],
 	},
 	{
+		// W1280: reclaim timed-out reviewer legs — finish requests whose
+		// reviewer pid is dead instead of stranding them for the 25-minute
+		// lease, so the exact-review backlog keeps draining.
+		name: "review-reconcile",
+		everySeconds: 300,
+		timeoutMs: 120_000,
+		argv: (root) => [join(root, "hooks/bin/review-reconcile.ts")],
+	},
+	{
 		name: "llm-keepwarm",
 		everySeconds: 240,
 		nice: 10,

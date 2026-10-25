@@ -7,6 +7,7 @@ import {
 	scheduleReview,
 	finishReviewRequest,
 	reviewRequestKey,
+	providerPressureKey,
 } from "../hooks/lib/gates/review-scheduler.ts";
 const stores: GovernorStore[] = [];
 afterEach(() => {
@@ -67,6 +68,23 @@ function fixture() {
 		key: reviewRequestKey("fixture", "W1", context),
 	};
 }
+/** Simulate the pause window expiring — tests time-travel by rewriting the
+ * ledger row (the established pattern for nextAt/leaseUntil). */
+function setPressure(
+	f: ReturnType<typeof fixture>,
+	p: Partial<{ fails: number; openUntil: number }>,
+): void {
+	const now = Date.now();
+	f.db
+		.query(
+			"INSERT INTO facts(key,value,source,version,ts) VALUES (?,?,'review-scheduler',1,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, version=facts.version+1,ts=excluded.ts",
+		)
+		.run(
+			providerPressureKey,
+			JSON.stringify({ fails: 0, openUntil: 0, updated: now, ...p }),
+			now,
+		);
+}
 test("exact context schedules once, never direct provider or repeated per cycle", () => {
 	const f = fixture();
 	expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
@@ -113,6 +131,7 @@ test("errors back off and stop after three attempts; stale worker cannot finish 
 			).toBe("RUNNING");
 		}
 		finishReviewRequest(f.db, f.key, request.token, true);
+		setPressure(f, { openUntil: 0 });
 		scheduleReview({ ...f.options, spawn: f.spawn });
 		expect(f.launches).toHaveLength(i + 1);
 		request.state = "ERROR";
@@ -162,6 +181,7 @@ test("transport failure refunds the verdict attempt and defers without terminal 
 		);
 		const request = requestOf(f);
 		finishReviewRequest(f.db, f.key, request.token, true);
+		setPressure(f, { openUntil: 0 });
 		const after = requestOf(f);
 		// transport ERROR never completes the request — never a mergeable PASS
 		expect(after.state).toBe("ERROR");

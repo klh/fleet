@@ -101,7 +101,7 @@ const failedEarly = (error: unknown) => {
 			reviewFailureReason(error),
 		);
 	console.error(
-		"review-lane: runner failed before a bound receipt; scheduled retry retained",
+		`review-lane: runner failed before a bound receipt (${reviewFailureReason(error)}); scheduled retry retained`,
 	);
 	process.exit(2);
 };
