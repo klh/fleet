@@ -301,11 +301,7 @@ describe("route preflight before activation", () => {
 		rmSync(dir, { recursive: true, force: true });
 	});
 
-	// W1294.15 (known divergence, runs inverted until that lane lands): the
-	// flat routeInputs has no per-machine specialist view — a deploy.ssh hub
-	// pointing at this Mac's :890x passes because specialist origins are
-	// global terminals. Rebuild or retire in that lane.
-	test.failing("Mac specialist hop passes locally and fails from a hub without its own declaration", async () => {
+	test("Mac specialist hop passes locally and fails from a hub without its own declaration", async () => {
 		const source = fixture();
 		const hubbed: typeof source = {
 			...source,
