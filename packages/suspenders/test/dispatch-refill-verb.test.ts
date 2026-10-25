@@ -18,6 +18,7 @@ describe("refillVerb — the kit-declared dispatch face (W1255.6)", () => {
 			"--route",
 			"--show-capsule",
 			"--resume-from",
+			"--role",
 		]);
 		expect(refillVerb.switches).toEqual([
 			"--dry-run",

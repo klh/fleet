@@ -32,6 +32,9 @@ export type DispatchPreviewDeps = {
 	itemCapsuleGet: (item: string) => Record<string, string> | null;
 	routingExtra: () => string[];
 	policyBriefExtra: (project: string) => string[];
+	/** W1295: `--role` override threaded from the dispatch CLI; absent = the
+	 *  composer selects from the item's tags/title. */
+	role?: string;
 };
 
 /** composeBrief's dispatch-shaped inputs (W928): everything the shared
@@ -65,6 +68,7 @@ export const composeDispatchBrief = (
 		capsule: a.capsule,
 		itemCapsule: d.itemCapsuleGet(a.item),
 		agent: a.pick.agent,
+		...(d.role ? { role: d.role } : {}),
 		effort: effortFromShow(a.show.out),
 		effortPolicy: laneEffortBriefLine(d.REPO, a.item),
 		...(a.landing !== undefined ? { landing: a.landing } : {}),

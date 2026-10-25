@@ -137,6 +137,8 @@ export type LaneLaunchDeps = {
 	governanceMode: () => "strict" | "solo";
 	routingExtra: () => string[];
 	itemCapsuleGet: (item: string) => Record<string, string> | null;
+	/** W1295: `--role` agent-rules override; absent = composer auto-selects. */
+	role?: string;
 	routeAdmission: RouteAdmission;
 	sh: (cmd: string[], cwd?: string) => string;
 	run: (cmd: string[], cwd?: string) => { code: number; out: string };
@@ -178,6 +180,7 @@ export const dispatchLane = async (
 		governanceMode,
 		routingExtra,
 		itemCapsuleGet,
+		role,
 		routeAdmission,
 		sh,
 		run,
@@ -213,6 +216,7 @@ export const dispatchLane = async (
 		itemCapsuleGet,
 		routingExtra,
 		policyBriefExtra,
+		...(role ? { role } : {}),
 	};
 	const sid = resume?.sid ?? sidOf(item, projectIdentity(REPO));
 	let attempt = resume ? nextLaneAttempt(resume.attempt ?? 0) : 0;

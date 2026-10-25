@@ -16,6 +16,7 @@ export const refillVerb = defineVerb({
 		"--route",
 		"--show-capsule",
 		"--resume-from",
+		"--role",
 	],
 	switches: ["--dry-run", "--no-belt", "--allow-ungoverned"],
 	lax: true,
