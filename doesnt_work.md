@@ -249,3 +249,11 @@ stranded until manual revocation — revoke is now fail-closed). 50 remains
 unproven; the measured practical ceiling is ~8-9 active long-work
 generations direct, and the gate pacing bottleneck is the next repair
 target (coordinator evidence #69199, minted as W1273).
+
+- **Provider gap ceiling pinned to the pool's interval contract (W1273)** —
+  `max(intervalMs, 2x baseGap)` as the escalation ceiling starves
+  refusal-boundary discovery: a provider that refuses beyond the contract
+  pace then 1302s every attempt forever (fixture A/B: 119 rejections over
+  120 accepted). Replaced by: ceiling = `min(30s, queueWaitMs/4, 16x
+  effective pace)` — doubling headroom above the contract to find the
+  boundary, with the recovery ladder bounded to ≤62 successes.

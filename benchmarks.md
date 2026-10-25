@@ -982,3 +982,19 @@ packages/buckle/test/capacity-ramp.test.ts (4 pass). Evidence JSONL:
 /tmp/w1266.1-l40-5s-4k-direct.jsonl, /tmp/w1266.1-l50-5s-4k-direct.jsonl,
 /tmp/w1266.1-l40-l50-5s-4k-buckle.jsonl, /tmp/w1266.1-l16-5s-short-control.jsonl,
 /tmp/w1266.1-l8-path-smokes.jsonl.
+
+## Provider admission gap ceiling — bounded pace multiplier vs interval pin (W1273, 2026-10-24; unit-scaled fixture A/B; production ramp owned by W1266.1)
+
+Decision the row supports: cap the Buckle provider-admission escalation
+ceiling at a bounded multiplier of the effective pace, never the admission
+wait, and never the interval contract alone. Incident (live Z.ai spoke): the
+old ceiling `min(30s, queueWaitMs/4)` let 1302 pressure epochs double the
+20ms base pace to adaptiveGapMs 24435 — 1 of 50 slots active, 51 refusals —
+needing ~139 paced successes (hours) to recover. Fixture A/B at 1:100 scale
+(packages/buckle/test/provider-gap-escalation-bound.test.ts): an
+interval-pinned ceiling `max(intervalMs, 2x baseGap)` starved
+refusal-boundary discovery — 119 rejections over 120 accepted, because the
+provider needed pacing above the contract pace — against <30 rejections for
+the landed ceiling `min(30s, queueWaitMs/4, 16x baseGap)` (4→64ms ladder,
+recovery ≤62 successes). 429 provenance laws unchanged; deployment and the
+matched live ramp belong to W1266.1.
