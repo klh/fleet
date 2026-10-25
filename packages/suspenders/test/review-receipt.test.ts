@@ -423,6 +423,14 @@ test("W1243.1.1.1: prose mention of a RESOLVED ID is not blocking", () => {
 	expect(resolved).toEqual(["B1-no-coverage-proof"]);
 });
 
+test("bullet-form RESOLVED line closes its prior B-ID", () => {
+	const result = reviewFindingIds(
+		"- RESOLVED: B1-round1-scrubtext-import no residual reference remains.\nVERDICT: PASS",
+	);
+	expect(result.resolved).toEqual(["B1-round1-scrubtext-import"]);
+	expect(result.blocking).toEqual([]);
+});
+
 test("W1243.1.1.1: unresolved mention and genuine finding stay fail-closed", () => {
 	// a narrative reference without the explicit RESOLVED line still blocks
 	const unresolved = reviewFindingIds(
