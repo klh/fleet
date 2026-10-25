@@ -461,6 +461,15 @@ export async function boot(): Promise<
 
 /** Entry: bind the shadow port, log the guard. */
 export function main(): void {
+	if (process.argv.includes("--help")) {
+		console.log(
+			"buckle — LLM router plane (@klh/buckle)\n" +
+				"usage: buckle [--help]\n" +
+				"starts the buckle router (BUCKLE_PORT env, default 4101; 4100 refused by design)\n" +
+				"ops CLIs ride bin/ (onboard, bench, acceptance, eval-models, ...)",
+		);
+		return;
+	}
 	void boot().then((server) =>
 		console.log(
 			`buckle: shadow router on http://${server.hostname}:${server.port}` +

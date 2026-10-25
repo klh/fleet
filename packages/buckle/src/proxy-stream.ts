@@ -16,7 +16,7 @@ import {
 } from "./stream-terminal.ts";
 import { record } from "./usage-record.ts";
 import { SSE_HEADERS } from "./wire-stamp.ts";
-import { safeFailureKind } from "../../telemetry/src/http-trace.ts";
+import { safeFailureKind } from "@klh/telemetry/src/http-trace.ts";
 import type { AppDeps } from "./app-deps.ts";
 import type { ExecuteResult } from "./router.ts";
 
