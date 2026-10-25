@@ -20,6 +20,44 @@ import type { HubProfile } from "../hooks/lib/stack-config.ts";
 
 const MAX_CATALOG_BYTES = 1024 * 1024;
 
+function guardedCodingPlanRoute(
+	hub: HubProfile,
+	group: string,
+	deployment: Record<string, unknown>,
+): boolean {
+	if (group !== "glm-5.3-flash" || deployment.model !== group) return false;
+	if (deployment.url !== "https://api.z.ai") return false;
+	if (
+		deployment.api_key_env !== "Z_AI_API_KEY" ||
+		!hub.secrets?.upstream_keys?.Z_AI_API_KEY ||
+		hub.buckle_prefs?.allow_cloud !== true
+	)
+		return false;
+	const config = deployment.adapter_config as
+		| Record<string, unknown>
+		| undefined;
+	const rewrite = config?.path_rewrite as Record<string, unknown> | undefined;
+	const blocked = config?.blocked_outbound as
+		| Record<string, unknown>
+		| undefined;
+	if (!rewrite || Object.keys(rewrite).length !== 1) return false;
+	if (
+		!Array.isArray(blocked?.paths) ||
+		!blocked.paths.includes("/api/paas/v4/")
+	)
+		return false;
+	if (deployment.dialect === "anthropic")
+		return (
+			deployment.adapter === undefined &&
+			rewrite["/v1/messages"] === "/api/anthropic/v1/messages"
+		);
+	return (
+		deployment.dialect === "openai" &&
+		deployment.adapter === "openai-compat" &&
+		rewrite["/v1/chat/completions"] === "/api/coding/paas/v4/chat/completions"
+	);
+}
+
 export async function fetchZaiCatalog(
 	keyFile: string,
 	fetcher: typeof fetch = fetch,
@@ -130,14 +168,15 @@ export function mergeZaiHubUpstreams(
 	const pressureCodes = hub.upstreams?.zai_concurrency_error_codes;
 	if (pressureCodes !== undefined)
 		assertProviderConcurrencyErrorCodes(pressureCodes);
-	for (const deployments of Object.values(groups)) {
+	for (const [group, deployments] of Object.entries(groups)) {
 		for (const deployment of deployments) {
 			if (
 				typeof deployment.url === "string" &&
-				new URL(deployment.url).hostname === "api.z.ai"
+				new URL(deployment.url).hostname === "api.z.ai" &&
+				!guardedCodingPlanRoute(hub, group, deployment)
 			)
 				throw new Error(
-					"Z.ai hub has a direct provider route; migrate it through LiteLLM first",
+					"Z.ai hub has an unguarded direct provider route; use the Coding Plan Flash path and private key",
 				);
 		}
 	}

@@ -197,6 +197,70 @@ describe("Z.ai account catalog", () => {
 		}
 	});
 
+	test("permits only guarded Flash Coding Plan routes directly to Z.ai", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zai-catalog-test-"));
+		try {
+			const path = join(dir, "models.json");
+			writeZaiSnapshot(path, zaiSnapshot(["glm-5.3-flash"]));
+			const baseHub = hubWithCatalog(path);
+			const hub = {
+				...baseHub,
+				secrets: {
+					upstream_keys: {
+						...baseHub.secrets?.upstream_keys,
+						Z_AI_API_KEY: "/private/zai.key",
+					},
+				},
+			};
+			const anthropic = {
+				url: "https://api.z.ai",
+				dialect: "anthropic",
+				model: "glm-5.3-flash",
+				api_key_env: "Z_AI_API_KEY",
+				adapter_config: {
+					path_rewrite: { "/v1/messages": "/api/anthropic/v1/messages" },
+					blocked_outbound: { paths: ["/api/paas/v4/"] },
+				},
+			};
+			const openai = {
+				...anthropic,
+				dialect: "openai",
+				adapter: "openai-compat",
+				adapter_config: {
+					...anthropic.adapter_config,
+					path_rewrite: {
+						"/v1/chat/completions": "/api/coding/paas/v4/chat/completions",
+					},
+				},
+			};
+			const groups = { "glm-5.3-flash": [anthropic, openai] };
+			expect(mergeZaiHubUpstreams(hub, groups)["glm-5.3-flash"]).toEqual(
+				groups["glm-5.3-flash"],
+			);
+			for (const mutation of [
+				{ ...anthropic, url: "http://api.z.ai" },
+				{ ...anthropic, model: "glm-5.3" },
+				{ ...anthropic, api_key_env: "LITELLM_KEY" },
+				{
+					...anthropic,
+					adapter_config: { ...anthropic.adapter_config, path_rewrite: {} },
+				},
+				{
+					...anthropic,
+					adapter_config: {
+						...anthropic.adapter_config,
+						blocked_outbound: { paths: [] },
+					},
+				},
+			])
+				expect(() =>
+					mergeZaiHubUpstreams(hub, { "glm-5.3-flash": [mutation] }),
+				).toThrow("direct provider route");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	test("generated LiteLLM rows pass the Buckle route preflight", () => {
 		const dir = mkdtempSync(join(tmpdir(), "zai-catalog-test-"));
 		try {
