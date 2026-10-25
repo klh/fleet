@@ -183,7 +183,7 @@ function laneCompletionLocked(
 	const wt = top.out.trim();
 	const context = laneContext(wt);
 	if (!context?.sid || !context.item) return null;
-	const bin = resolve(import.meta.dir, "../bin");
+	const bin = resolve(import.meta.dir, "../../bin");
 	const show = run(
 		process.execPath,
 		[join(bin, "work.ts"), "show", context.item, "--json"],

@@ -305,10 +305,10 @@ export const defaultFactSpawn: FactSpawn = (cmd, timeoutMs) => {
 	return { code: p.exitCode ?? 1, out };
 };
 
-/** coord bin next to this lib (repo worktree and installed generation
- *  share the hooks/lib → hooks/bin layout). */
+/** coord bin above this seam dir (repo worktree and installed generation
+ *  share the hooks/lib/<seam> → hooks/bin layout). */
 export const decantCoordBin = (): string =>
-	resolve(import.meta.dir, "../bin/coord.ts");
+	resolve(import.meta.dir, "../../bin/coord.ts");
 
 export interface DailyRunOpts {
 	dbPath?: string | null;
