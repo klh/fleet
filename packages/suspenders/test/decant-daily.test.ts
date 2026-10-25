@@ -2,8 +2,9 @@
 // decision table (create/reclaim/tombstone/dedupe + human-protect), state
 // handling, fact-set argv, the registry entry and a stubbed end-to-end
 // runner pass proving same-day idempotency (zero duplicate claims).
-import { afterAll, describe, expect, test } from "bun:test";
+
 import { Database } from "bun:sqlite";
+import { afterAll, describe, expect, test } from "bun:test";
 import {
 	chmodSync,
 	existsSync,
@@ -16,24 +17,24 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	claimKey,
 	CLAIM_PREFIX,
-	decide,
+	claimKey,
 	DAILY_CLAIM_STAMP,
 	decantCoordBin,
+	decide,
 	distillSessionClaims,
 	distillWorkClaims,
+	type ExistingClaim,
 	factSetArgs,
 	readState,
 	runDaily,
 	writeState,
-	type ExistingClaim,
 } from "../hooks/lib/fleet-loop/decant-daily.ts";
-import type { SessionMetrics } from "../hooks/lib/knowledge/knowledge-sync-policy.ts";
 import {
 	MAINTENANCE_TASKS,
 	missingRunners,
 } from "../hooks/lib/fleet-loop/maintenance.ts";
+import type { SessionMetrics } from "../hooks/lib/knowledge/knowledge-sync-policy.ts";
 
 const tmp = mkdtempSync(join(tmpdir(), "decant-daily-"));
 const NOW = Date.now();

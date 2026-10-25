@@ -1,15 +1,15 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { createHash } from "node:crypto";
-import { run } from "../run.ts";
-import { openGovernorDb } from "../govdb/govdb.ts";
 import { emitEvent } from "../../coord/bus.ts";
-import { laneStopDecision, laneStopTarget } from "./lane-stop-decision.ts";
-import { projectIdentity } from "../govdb/govdb-project.ts";
 import { itemCapsuleKey } from "../capsule-fence.ts";
-import type { HookInput } from "../hookio.ts";
 import { FileLockUnavailable, withFileLock } from "../file-lock.ts";
+import { openGovernorDb } from "../govdb/govdb.ts";
+import { projectIdentity } from "../govdb/govdb-project.ts";
+import type { HookInput } from "../hookio.ts";
+import { run } from "../run.ts";
 import { completionTurn, writeCompletionTurn } from "./lane-completion-turn.ts";
+import { laneStopDecision, laneStopTarget } from "./lane-stop-decision.ts";
 
 type Context = {
 	sid: string;

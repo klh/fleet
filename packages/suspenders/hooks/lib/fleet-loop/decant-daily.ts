@@ -26,19 +26,19 @@
 // INGEST_STAMP): value 0.4, mechanical setter, verdict fresh — every write
 // rides the fact-set CAS seam and appends to confidence_history.
 import { Database } from "bun:sqlite";
-import { readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { type DailyRollResult, pushDailyRoll } from "../decant-roll.ts";
 import { REG } from "../govdb/govdb-util.ts";
 import { redactSecrets } from "../knowledge/knowledge.ts";
+import { runDecant } from "../knowledge/knowledge-sync.ts";
 import {
 	DECANT_DEFAULT_BIN,
 	projectSessionMetrics,
 	type SessionMetrics,
 } from "../knowledge/knowledge-sync-policy.ts";
-import { runDecant } from "../knowledge/knowledge-sync.ts";
-import { pushDailyRoll, type DailyRollResult } from "../decant-roll.ts";
 
 // ─── the claim stamp + key ──────────────────────────────────────────────────
 
