@@ -998,3 +998,25 @@ provider needed pacing above the contract pace — against <30 rejections for
 the landed ceiling `min(30s, queueWaitMs/4, 16x baseGap)` (4→64ms ladder,
 recovery ≤62 successes). 429 provenance laws unchanged; deployment and the
 matched live ramp belong to W1266.1.
+
+## Resilience kit × AIMD admission — no double-retry stacking (W1303.3, 2026-10-25; unit fixture A/B)
+
+Decision the row supports: compose the new resilience client kit
+(packages/buckle/src/resilience.ts) with the EXISTING W1078
+ProviderAdmissionCore instead of replacing it — the kit must never add its
+own wait on top of the pool's notBefore. Fixture
+(packages/buckle/test/resilience.test.ts, "no double-retry stacking with
+the existing AIMD path"): a real admission core (intervalMs 20,
+intervalCap 2, AIMD recovery) rides the kit's `admit` gate under 429
+pressure; the kit-only leg feeds a 30 s provider Retry-After.
+
+| Arm | waits observed | rate-limited attempts |
+| --- | --- | --- |
+| kit + admission gate (AIMD on) | 2, all pool-origin (gate), kit backoff 0 | 1 |
+| kit alone | 1, Retry-After clamped 30000→100 ms (cap) | 1 |
+
+The layers never sum: a positive gate wait supersedes kit backoff (one
+pacing authority per wait — the pool's notBefore already embeds Retry-After
+via lease feedback); kit-only Retry-After is clamped by retryAfterCapMs.
+Unit fixture, scheduler-timed — retain the wait-origin split, not the
+milliseconds.
