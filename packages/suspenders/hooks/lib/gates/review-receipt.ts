@@ -86,9 +86,7 @@ const isSharedReviewInput = (path: string): boolean => {
 				].includes(part),
 			) ||
 		/\.(?:json|jsonc|ya?ml|toml|lock|lockb)$/.test(name) ||
-		/(?:^|[.-])(?:build|config|lint|setup|test|workspace)(?:[.-]|$)/i.test(
-			name,
-		) ||
+		/(?:^|[.-])(?:build|config|lint|setup|workspace)(?:[.-]|$)/i.test(name) ||
 		[
 			".npmrc",
 			".yarnrc",
