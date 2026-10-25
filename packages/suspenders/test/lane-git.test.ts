@@ -2,12 +2,7 @@
 // null-degradation, the merge-ready gate, and the text badge. Hermetic:
 // fixture repos under a mkdtemp root, no db, no env coupling.
 import { afterAll, describe, expect, test } from "bun:test";
-import {
-	mkdirSync,
-	mkdtempSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -21,7 +16,9 @@ import {
 const root = mkdtempSync(join(tmpdir(), "lane-git-test-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-// one committed file, bare origin pushed, one unpushed commit → merge-ready
+// base commit pushed to a bare origin, then a lane branch with one commit
+// ahead of the integration base — the real worktree shape (lanes never sit
+// on main)
 function readyRepo(name: string): string {
 	const dir = join(root, name);
 	mkdirSync(dir);
@@ -44,6 +41,7 @@ function readyRepo(name: string): string {
 	});
 	sh("remote", "add", "origin", bare);
 	sh("push", "-q", "-u", "origin", "main");
+	sh("checkout", "-q", "-b", "lane");
 	writeFileSync(join(dir, "a.txt"), "one\ntwo\n");
 	sh("add", ".");
 	sh("commit", "-qm", "ahead");
@@ -51,16 +49,16 @@ function readyRepo(name: string): string {
 }
 
 describe("gitObservation", () => {
-	test("clean ahead-of-upstream lane reads merge-ready", () => {
+	test("clean lane ahead of the integration base reads merge-ready", () => {
 		const wt = readyRepo("ready");
 		resetLaneGitMemo();
 		const obs = gitObservation(wt);
-		expect(obs.branch).toBe("main");
+		expect(obs.branch).toBe("lane");
 		expect(obs.headOid).toMatch(/^[0-9a-f]{40,64}$/);
 		expect(obs.dirty).toBe(false);
 		expect(obs.diffStats).toEqual({ added: 0, deleted: 0 });
 		expect(obs.ahead).toBe(1);
-		expect(obs.behind).toBe(0);
+		expect(obs.behind).toBeNull();
 		expect(obs.conflicted).toBe(0);
 		expect(obs.mergeReady).toBe(true);
 		expect(gitBadge(obs)).toBe(" · merge-ready");
@@ -88,7 +86,7 @@ describe("gitObservation", () => {
 		expect(obs.mergeReady).toBe(false);
 	});
 
-	test("no upstream degrades ahead/behind to null — gate stays null", () => {
+	test("branch sitting at main with no upstream reads ahead 0 — not merge-ready", () => {
 		const dir = join(root, "no-upstream");
 		mkdirSync(dir);
 		const sh = (...args: string[]) =>
@@ -105,10 +103,29 @@ describe("gitObservation", () => {
 		sh("commit", "-qm", "base");
 		resetLaneGitMemo();
 		const obs = gitObservation(dir);
-		expect(obs.ahead).toBeNull();
+		// W1279: ahead measures main..HEAD (0 here), not upstream sync (null)
+		expect(obs.ahead).toBe(0);
 		expect(obs.behind).toBeNull();
-		expect(obs.mergeReady).toBeNull();
-		expect(gitBadge(obs)).toBe("");
+		expect(obs.mergeReady).toBe(false);
+		expect(gitBadge(obs)).toBe(" · not merge-ready (not ahead)");
+	});
+
+	test("pushed lane with upstream-synced head still reads merge-ready (W1285)", () => {
+		const wt = readyRepo("pushed");
+		const sh = (...args: string[]) =>
+			Bun.spawnSync(["git", ...args], {
+				cwd: wt,
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+		// push the lane branch — branch.ab now reads +0 -0 while main..HEAD = 1
+		sh("push", "-q", "-u", "origin", "lane");
+		resetLaneGitMemo();
+		const obs = gitObservation(wt);
+		expect(obs.ahead).toBe(1);
+		expect(obs.behind).toBe(0);
+		expect(obs.mergeReady).toBe(true);
+		expect(gitBadge(obs)).toBe(" · merge-ready");
 	});
 });
 
@@ -151,7 +168,7 @@ describe("conflict probe", () => {
 		});
 		sh("remote", "add", "origin", bare);
 		sh("push", "-q", "-u", "origin", "main");
-		sh("checkout", "-q", "-b", "side");
+		sh("checkout", "-q", "-b", "lane");
 		writeFileSync(join(dir, "a.txt"), "side\n");
 		sh("add", ".");
 		sh("commit", "-qm", "side");
@@ -159,7 +176,9 @@ describe("conflict probe", () => {
 		writeFileSync(join(dir, "a.txt"), "main\n");
 		sh("add", ".");
 		sh("commit", "-qm", "main-side");
-		sh("merge", "--no-edit", "side");
+		// the lane absorbs base's divergence — the conflict lands on the lane
+		sh("checkout", "-q", "lane");
+		sh("merge", "--no-edit", "main");
 		resetLaneGitMemo();
 		const obs = gitObservation(dir);
 		expect(obs.conflicted).toBe(1);
@@ -190,9 +209,7 @@ describe("mergeReady gate + reasons", () => {
 	test("null terms never invent a verdict", () => {
 		expect(mergeReady({ dirty: null, ahead: 3, conflicted: 0 })).toBeNull();
 		expect(mergeReady({ dirty: false, ahead: null, conflicted: 0 })).toBeNull();
-		expect(
-			mergeReady({ dirty: false, ahead: 3, conflicted: null }),
-		).toBeNull();
+		expect(mergeReady({ dirty: false, ahead: 3, conflicted: null })).toBeNull();
 	});
 	test("gate truth table", () => {
 		expect(mergeReady({ dirty: false, ahead: 1, conflicted: 0 })).toBe(true);
@@ -206,8 +223,8 @@ describe("mergeReady gate + reasons", () => {
 			"2 conflicted",
 			"not ahead",
 		]);
-		expect(
-			mergeReadyWhy({ dirty: false, ahead: 1, conflicted: 0 }),
-		).toEqual([]);
+		expect(mergeReadyWhy({ dirty: false, ahead: 1, conflicted: 0 })).toEqual(
+			[],
+		);
 	});
 });

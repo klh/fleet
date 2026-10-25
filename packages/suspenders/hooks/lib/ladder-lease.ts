@@ -9,6 +9,7 @@
 // resolves to the exact branch head may merge; everything else fails closed.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { laneContextItemForBranch } from "./item-branch.ts";
 import { readLaneRegistry } from "./lane-registry.ts";
 import { openStore, projectIdentity } from "./govdb.ts";
 
@@ -120,7 +121,12 @@ export function itemClaimOf(repo: string, b: string): ClaimView {
 	const entry = registry.known
 		? registry.lanes.find((row) => row.branch === b)
 		: undefined;
-	const item = entry?.item ?? b.split("/").at(-1);
+	// W1279: the kept child's lane-context — rebound in the shatter
+	// transaction — outranks the registry row, which still names the parent
+	// item until the lane relaunches; without it a kept-child branch could
+	// never resolve its DONE closure and merge.
+	const item =
+		laneContextItemForBranch(repo, b) ?? entry?.item ?? b.split("/").at(-1);
 	try {
 		const store = openStore();
 		try {

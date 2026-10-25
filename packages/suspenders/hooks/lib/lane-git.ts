@@ -96,10 +96,7 @@ function applyHeader(obs: LaneGitObservation, line: string): void {
 /** Porcelain-v2 body → dirty/untracked/conflicted counts. `!` ignored
  *  entries never count as dirty terms; `1` changed, `2` renamed, `u`
  *  unmerged, `?` untracked. */
-function parseStatusBody(
-	obs: LaneGitObservation,
-	status: string,
-): void {
+function parseStatusBody(obs: LaneGitObservation, status: string): void {
 	let changed = 0;
 	let untracked = 0;
 	let conflicted = 0;
@@ -131,6 +128,22 @@ function parseNumstat(numstat: string): LaneGitDiffStats {
 	return { added, deleted };
 }
 
+// W1279: the merge gate's "ahead" counts commits the integration base
+// (main) lacks — never upstream sync. branch.ab compares the push
+// upstream, which reads +0 once the lane pushes (protocol step 4), so
+// every pushed close read "not merge-ready: not ahead" (W1281, W1282,
+// W1285). The upstream count stays as the fallback when no base ref
+// resolves; `behind` keeps its upstream meaning (push sync).
+function observeAhead(obs: LaneGitObservation, worktree: string): void {
+	for (const base of ["main", "origin/main"]) {
+		const out = probeGit(["rev-list", "--count", `${base}..HEAD`], worktree);
+		if (out === null) continue;
+		const n = Number(out.trim());
+		if (Number.isFinite(n)) obs.ahead = n;
+		return;
+	}
+}
+
 /** The observation: one budgeted probe pair per worktree. */
 function observe(worktree: string): LaneGitObservation {
 	const obs: LaneGitObservation = {
@@ -153,6 +166,7 @@ function observe(worktree: string): LaneGitObservation {
 	}
 	if (status) parseStatusBody(obs, status);
 	if (numstat !== null) obs.diffStats = parseNumstat(numstat);
+	observeAhead(obs, worktree);
 	obs.mergeReady = mergeReady(obs);
 	return obs;
 }

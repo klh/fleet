@@ -19,6 +19,7 @@ import {
 	publishReviewReceipt,
 	reviewFindingIds,
 } from "../lib/review-receipt.ts";
+import { branchForItem } from "../lib/item-branch.ts";
 import {
 	finishReviewRequest,
 	reviewRequestKey,
@@ -169,7 +170,13 @@ const thread: string[] = (
 );
 
 // ---- the review prompt ------------------------------------------------------
-const boundContext = reviewContext(repo, `suspenders/${item}`);
+// W1279: the review binds the item's CANONICAL branch — its own ref when it
+// exists, else the kept child's parent-named branch (split --keep rebinds the
+// tree's lane-context, not the branch) — never a blind suspenders/<item>.
+const boundContext = reviewContext(
+	repo,
+	branchForItem(repo, item) ?? `suspenders/${item}`,
+);
 if (requestKey && requestKey !== reviewRequestKey(project, item, boundContext))
 	throw new Error("review context changed before scheduled runner started");
 const diff = gitDiff(boundContext.base, boundContext.commit);
