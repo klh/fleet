@@ -15,7 +15,7 @@ Evidence:
   tip (`d5e47411`):
   - `hooks/coord/supervisor.ts` — byte-identical to parked
     (`git diff HEAD:<path> parked:<path>` empty).
-  - `hooks/lib/supervisor.ts` — parked content plus the structural
+  - `hooks/lib/lanes/supervisor.ts` — parked content plus the structural
     `SupervisorDb` port (raw `bun:sqlite Database` → query/get/all/run port,
     govdb-store pattern); a strict improvement, nothing dropped.
   - `test/supervisor.test.ts` — parked content plus the ladder-top

@@ -112,7 +112,7 @@ adapter files, but the reserved `gate.ts` entrypoint and final integration are
 owned elsewhere.
 
 Observed in this worktree:
-- `hooks/lib/copilot.ts`
+- `hooks/lib/executors/copilot.ts`
 - `hooks/lib/copilot-schemas.ts`
 
 ### Why no new adapter work here
@@ -189,7 +189,7 @@ Important limitation discovered during source review:
 Built in this lane.
 
 Files added:
-- `hooks/lib/cline.ts`
+- `hooks/lib/executors/cline.ts`
 - `hooks/gates/cline.ts`
 - `hooks/bin/gate-wire-cline.ts`
 - `test/hook-adapter-cline.test.ts`

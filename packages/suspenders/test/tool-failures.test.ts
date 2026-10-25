@@ -12,7 +12,7 @@ import {
 	isNoise,
 	recordToolFailure,
 	ANTI_THRASH_AT,
-} from "../hooks/lib/tool-failures.ts";
+} from "../hooks/lib/gates/tool-failures.ts";
 import { sessionStatePath } from "../hooks/lib/session-state.ts";
 
 const TMP = mkdtempSync(join(tmpdir(), "suspenders-toolfail-"));

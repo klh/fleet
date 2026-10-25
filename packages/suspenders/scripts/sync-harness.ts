@@ -451,10 +451,10 @@ export async function syncHarness(
 		// (grammar: hooks/lib/profile.ts; absent file = hub = dev exemption).
 		if (ctx.profile === "spoke") {
 			for (const rel of [
-				"hooks/lib/auth.ts",
-				"hooks/lib/auth-server.ts",
+				"hooks/lib/auth/auth.ts",
+				"hooks/lib/auth/auth-server.ts",
 				"hooks/bin/auth.ts",
-				"hooks/lib/hub-tokens.ts",
+				"hooks/lib/auth/hub-tokens.ts",
 				"hooks/board/routes-hub-admin.ts",
 			]) {
 				rmSync(join(payload, "packages/suspenders", rel), { force: true });

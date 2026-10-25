@@ -20,9 +20,9 @@ import {
 	loadKeyRing,
 	revoke,
 	rotateSigningKey,
-} from "../lib/auth.ts";
-import { saveTokenFiles } from "../lib/auth-client.ts";
-import { openIdentity, openStore } from "../lib/govdb.ts";
+} from "../lib/auth/auth.ts";
+import { saveTokenFiles } from "../lib/auth/auth-client.ts";
+import { openIdentity, openStore } from "../lib/govdb/govdb.ts";
 import {
 	defineVerb,
 	type Parsed,
@@ -155,7 +155,7 @@ async function cmdWhoami(p: Parsed): Promise<number> {
 		console.error("whoami needs --url and --token-file");
 		return 2;
 	}
-	const { loadTokenFiles } = await import("../lib/auth-client.ts");
+	const { loadTokenFiles } = await import("../lib/auth/auth-client.ts");
 	const pair = loadTokenFiles(base);
 	if (!pair) {
 		console.error(

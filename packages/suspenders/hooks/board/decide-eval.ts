@@ -5,13 +5,13 @@
 // and returns the latest. No rate limit (owner: ad nauseum) — every click is
 // stamped and kept so the owner can compare evaluations over time.
 
-import { beltChat } from "../lib/belt-chat.ts";
-import { readBoardSettings } from "../lib/board-config.ts";
+import { beltChat } from "../lib/hub/belt-chat.ts";
+import { readBoardSettings } from "../lib/board/board-config.ts";
 import {
 	kevProbabilityLines,
 	kevTypedDecision,
 	parseOptions,
-} from "../lib/kev.ts";
+} from "../lib/knowledge/kev.ts";
 import { CLI, db } from "./context.ts";
 
 const CAP = 10;

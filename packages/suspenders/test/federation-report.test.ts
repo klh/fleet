@@ -16,12 +16,15 @@ import {
 	saveCursor,
 	selfReportGate,
 	selfReportRule,
-} from "../hooks/lib/federation-report.ts";
+} from "../hooks/lib/federation/federation-report.ts";
 import { startServer } from "../../buckle/src/server.ts";
 import { createReferenceGovSeam } from "../../buckle/src/gov/reference-seam.ts";
-import { lastKnownPath, type FederationEnv } from "../hooks/lib/federation.ts";
-import { atomicWrite } from "../hooks/lib/board-config.ts";
-import { GROUPS } from "../hooks/lib/usage.ts";
+import {
+	lastKnownPath,
+	type FederationEnv,
+} from "../hooks/lib/federation/federation.ts";
+import { atomicWrite } from "../hooks/lib/board/board-config.ts";
+import { GROUPS } from "../hooks/lib/usage/usage.ts";
 
 const RULE = {
 	id: "federation.self_report",

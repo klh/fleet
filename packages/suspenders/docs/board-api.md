@@ -159,7 +159,7 @@ and the stock CLI model endpoints count as remote.
 ## GET /api/services (W273)
 
 `{ ok, services: [{ id, name, port, up, state, detail, probed_at, recovery }] }`
-— every service in the recovery map (`hooks/lib/recovery-map.ts`), probed
+— every service in the recovery map (`hooks/lib/fleet-loop/recovery-map.ts`), probed
 now. `state`: `up` (answered, <500), `degraded` (HTTP 5xx, or launchd agent
 loaded but not running), `down` (nothing answered / agent not loaded).
 `recovery` = `{ id, name, probe, what, causes[], recovery: [{ label, cmd }] }`:

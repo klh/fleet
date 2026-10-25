@@ -31,8 +31,8 @@ export const enrollTopLevel = async (o: {
 }): Promise<string | null> => {
 	const top = gitToplevel(o.cwd);
 	if (!top) return null;
-	const la = await import("./lane-auth.ts");
-	const lm = await import("./lane.ts");
+	const la = await import("./lanes/lane-auth.ts");
+	const lm = await import("./lanes/lane.ts");
 	const front: string = o.front ?? lm.BUCKLE_FRONT;
 	const probe = o.probeFn ?? lm.probeBuckleFront;
 	const r = await la.enrollSessionKey({
@@ -56,7 +56,9 @@ export const retireTopLevel = async (o: {
 }): Promise<void> => {
 	const top = gitToplevel(o.cwd);
 	if (!top) return;
-	const { laneKeyMetaPath, retireLaneKey } = await import("./lane-auth.ts");
+	const { laneKeyMetaPath, retireLaneKey } = await import(
+		"./lanes/lane-auth.ts"
+	);
 	const fleet = `${top}/.fleet`;
 	if (!existsSync(laneKeyMetaPath(fleet, o.sid))) return;
 	await retireLaneKey({ fleet, sid: o.sid, fetchFn: o.fetchFn });

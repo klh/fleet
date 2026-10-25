@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import {
 	steerCodexDirectEvent,
 	connectCodexAppServer,
-} from "../hooks/lib/codex-steer.ts";
+} from "../hooks/lib/executors/codex-steer.ts";
 
 const sid = "018f74bb-68f9-70cb-8b42-cc2fbd127e54";
 const event = {

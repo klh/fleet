@@ -4,7 +4,7 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { completionTurn } from "../hooks/lib/lane-completion-turn.ts";
+import { completionTurn } from "../hooks/lib/lanes/lane-completion-turn.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "completion-turn-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));

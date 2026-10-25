@@ -10,8 +10,8 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
-import { assignTask } from "../hooks/lib/work-alloc.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
+import { assignTask } from "../hooks/lib/work/work-alloc.ts";
 
 import {
 	drainCleanup,

@@ -4,8 +4,8 @@
 // key custody — toward the hub a spoke presents the enrollment token as a
 // client credential and never verifies anyone; local trust is the loopback.
 // sync-harness.ts writes capabilities.json at the prefix root with the
-// hub-only flags off AND excludes the hub-only modules (hooks/lib/auth.ts,
-// hooks/lib/auth-server.ts, hooks/bin/auth.ts, hooks/lib/hub-tokens.ts,
+// hub-only flags off AND excludes the hub-only modules (hooks/lib/auth/auth.ts,
+// hooks/lib/auth/auth-server.ts, hooks/bin/auth.ts, hooks/lib/auth/hub-tokens.ts,
 // hooks/board/routes-hub-admin.ts) from the copied harness; hub (default) =
 // full profile — the
 // single-machine dev case (hub==spoke, this box) runs the default install.

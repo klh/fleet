@@ -2,7 +2,7 @@
 // what the report window actually covers and how fresh its newest bucket is.
 // Pure shaper (UsageReport in, display slice out) per the W652.3.1
 // emitters-shape-panels pattern; <klh-usage-coverage> renders it client-side.
-import { GROUPS, type UsageReport } from "../lib/usage.ts";
+import { GROUPS, type UsageReport } from "../lib/usage/usage.ts";
 import type { UsageCoverageDay, UsageCoveragePanel } from "./usage-chrome.ts";
 
 export const hourLabel = (b: number): string =>

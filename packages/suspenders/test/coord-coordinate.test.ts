@@ -9,12 +9,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
-const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
+const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
 const LIB = join(
 	import.meta.dir,
 	"..",
 	"hooks",
 	"lib",
+	"lanes",
 	"supervisor-coordination.ts",
 );
 const home = mkdtempSync(join(tmpdir(), "suspenders-coord-coordinate-test-"));

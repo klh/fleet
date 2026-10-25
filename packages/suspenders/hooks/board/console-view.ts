@@ -10,8 +10,11 @@ import {
 	policyWritePath,
 	readBoardSettings,
 	resolvePolicy,
-} from "../lib/board-config.ts";
-import type { PolicyPatch, PolicyGatewayParsed } from "../lib/board-config.ts";
+} from "../lib/board/board-config.ts";
+import type {
+	PolicyPatch,
+	PolicyGatewayParsed,
+} from "../lib/board/board-config.ts";
 import type {
 	ConsoleMe,
 	BeltView,

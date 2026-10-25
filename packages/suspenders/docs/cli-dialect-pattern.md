@@ -63,7 +63,7 @@ business logic of its own.
    registering transient garbage.
 2. **Stable session id (Copilot, Cline, grok-cli)** — `resolveSid` NEVER
    returns empty. It falls back, in order: `$SUSPENDERS_SID` env → fleet
-   lane ppid-walk (`hooks/lib/fleetlane.ts`) → the CLI's own stable session
+   lane ppid-walk (`hooks/lib/lanes/fleetlane.ts`) → the CLI's own stable session
    id. This is the fix for the W296 root-cause bug: a manually-started
    session with no fleet lane must still be discoverable, never silently
    dropped.

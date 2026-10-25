@@ -13,7 +13,7 @@ import {
 	TEST_FILE,
 	missingImports,
 	missingImportsExplained,
-} from "../hooks/lib/coverage-proof.ts";
+} from "../hooks/lib/gates/coverage-proof.ts";
 
 setDefaultTimeout(60_000);
 

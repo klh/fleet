@@ -15,7 +15,7 @@ import {
 	mintLaneKey,
 	revokeLaneKey,
 	BUCKLE_FRONT,
-} from "../../hooks/lib/lane-auth.ts";
+} from "../../hooks/lib/lanes/lane-auth.ts";
 
 const RESULTS_DIR = join(import.meta.dir, "results");
 

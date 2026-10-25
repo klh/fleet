@@ -22,7 +22,7 @@ import {
 	clearCooldownFact,
 	type Verdict,
 } from "../hooks/bin/admission.ts";
-import type { QuotaVerdict } from "../hooks/lib/quota-window.ts";
+import type { QuotaVerdict } from "../hooks/lib/usage/quota-window.ts";
 
 const NOW = 1_790_000_000_000;
 

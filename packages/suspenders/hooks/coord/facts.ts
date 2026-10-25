@@ -12,13 +12,13 @@ import {
 	parseStamp,
 	renderStamp,
 } from "../lib/confidence.ts";
-import { expireConsults } from "../lib/consult-expiry.ts";
-import { openIdentity } from "../lib/govdb.ts";
+import { expireConsults } from "../lib/federation/consult-expiry.ts";
+import { openIdentity } from "../lib/govdb/govdb.ts";
 import {
 	recordKnowledgeSuggestion,
 	renderKnowledgeSuggestion,
 	suggestKnowledge,
-} from "../lib/kev-curation.ts";
+} from "../lib/knowledge/kev-curation.ts";
 import { archiveAndPrune, pruneArchiveFiles } from "../lib/retention.ts";
 import { run } from "../lib/run.ts";
 import { reapDeadSubscribes } from "../lib/subscribe-attach.ts";

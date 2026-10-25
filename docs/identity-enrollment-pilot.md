@@ -44,7 +44,7 @@ Prerequisites, each gated:
    flight, substitute the current `projectIdentity()` and treat the pilot as
    validating its replacement requirements instead.
 3. **Execution-ID namespacing landed** (stage 2, W459.2). New lanes already
-   carry a project hash (`laneSid`, `packages/suspenders/hooks/lib/laneslug.ts`,
+   carry a project hash (`laneSid`, `packages/suspenders/hooks/lib/lanes/laneslug.ts`,
    W460), but capsules, cursors, locks and fact scopes still use global
    namespaces — stage 2 classifies and namespaces them. If stage 2 is still in
    flight, gates that touch those tables run read-only.
@@ -61,7 +61,7 @@ Prerequisites, each gated:
 ## ID minting rules
 
 IDs are opaque, minted once, never derived. This is the hard break from
-`projectIdentity()` (`packages/suspenders/hooks/lib/govdb.ts:25`), which derives
+`projectIdentity()` (`packages/suspenders/hooks/lib/govdb/govdb.ts:25`), which derives
 identity from the filesystem: a derived string changes when the filesystem
 changes (clone location, remote re-spelling), so it cannot serve as durable
 identity across executors.

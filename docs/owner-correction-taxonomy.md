@@ -121,7 +121,7 @@ Evidence:
 
 - flashx is refused fleet-wide — owner directive "same upstream family
   saturates together, flashx is too expensive", enforced as data absence +
-  law rows: packages/suspenders/hooks/lib/board-config.ts:69-80,
+  law rows: packages/suspenders/hooks/lib/board/board-config.ts:69-80,
   packages/suspenders/hooks/lib/repo-laws.ts:48,153,
   packages/belt/bin/repo-laws.ts:133, packages/buckle/src/policy.ts:16,
   packages/buckle/src/server.ts:139, packages/buckle/src/router.ts:344,
@@ -274,7 +274,7 @@ Evidence:
   belt direct tier by registry alias): tier policy corrections landed as
   registry/routing-policy rows, not code branches — routing-policy.yaml is
   operator-owned ("edit THIS, never code").
-- packages/suspenders/hooks/lib/hub-locate.ts:4: hub labels must resolve to
+- packages/suspenders/hooks/lib/hub/hub-locate.ts:4: hub labels must resolve to
   a REAL url instead of staying a display-only prefix (owner directive) —
   a display-tier lying about reachability.
 

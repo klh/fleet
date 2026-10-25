@@ -10,7 +10,7 @@ an inspected design proposal; no identity keys or live databases were changed.
 
 ## Confirmed behavior
 
-`hooks/lib/govdb.ts:23` resolves `git rev-parse --git-common-dir` against the
+`hooks/lib/govdb/govdb.ts:23` resolves `git rev-parse --git-common-dir` against the
 working directory and canonicalizes it with `realpathSync`. Non-Git fallback is
 the working directory's real path.
 
@@ -41,12 +41,12 @@ Paths below are relative to `packages/suspenders/`.
 
 | Finding                                                 | Inspected anchors                                                                                                                                             | Consequence                                                                                                                                                         |
 | :------------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Shared project key is a local directory                 | `hooks/lib/govdb.ts:23`; `hooks/bin/work.ts:261`                                                                                                              | Same repository in separate clones gets different graph partitions                                                                                                  |
-| Project keys are used as execution paths                | `hooks/board/orch.ts:171,211,299`; `hooks/board/routes-actions.ts:391,550`; `hooks/lib/quota-sweep.ts:61`; `hooks/bin/work.ts` mirror path                    | An opaque project ID cannot safely replace the current string without separating path consumers                                                                     |
+| Shared project key is a local directory                 | `hooks/lib/govdb/govdb.ts:23`; `hooks/bin/work.ts:261`                                                                                                              | Same repository in separate clones gets different graph partitions                                                                                                  |
+| Project keys are used as execution paths                | `hooks/board/orch.ts:171,211,299`; `hooks/board/routes-actions.ts:391,550`; `hooks/lib/fleet-loop/quota-sweep.ts:61`; `hooks/bin/work.ts` mirror path                    | An opaque project ID cannot safely replace the current string without separating path consumers                                                                     |
 | Identity derivation is duplicated and inconsistent      | `hooks/bin/worktree.ts:34`; `hooks/bin/harvest.ts:53`; `hooks/coord/fleet.ts` metrics path resolver                                                           | Worktree CLI walks to a `.git` entry instead of resolving the common directory; harvest stores raw Git output, which can be relative, unlike the canonical resolver |
 | Bootstrap and coordination can select different stores  | `hooks/session-start.ts:131` calls `openGovernorDb`; `hooks/coord/shared.ts:47` calls `openStore`; `hooks/bin/worktree.ts` and `harvest.ts` open the local DB | Setting a remote store address does not by itself ensure all writers register or update the same authority                                                          |
 | Lane ID depends only on the work label                  | `scripts/dispatch-next.ts:434`                                                                                                                                | `W1` in two projects becomes `autow1`; removing dots also maps `W1.23` and `W12.3` to the same ID                                                                   |
-| Several namespaces are global in a store                | `hooks/lib/govdb.ts` schemas for sessions, facts, cursors and locks; `hooks/coord/facts.ts`                                                                   | Session PK is `sid`; lane capsules and metadata use `lane.<sid>.*`; work-label collisions can overwrite or misattribute state                                       |
+| Several namespaces are global in a store                | `hooks/lib/govdb/govdb.ts` schemas for sessions, facts, cursors and locks; `hooks/coord/facts.ts`                                                                   | Session PK is `sid`; lane capsules and metadata use `lane.<sid>.*`; work-label collisions can overwrite or misattribute state                                       |
 | Shared-store reads are not uniformly project-filtered   | `hooks/coord/shared.ts:73` KB query; `hooks/bin/store-server.ts` WS filtering                                                                                 | KB retrieval lacks a project predicate; subscription filtering uses recipient/scope/kind without an authorized tenant/project constraint                            |
 | Store RPC is a trusted transport, not a tenant boundary | `hooks/bin/store-server.ts:232-273` and RPC execution                                                                                                         | Loopback plus optional shared token protects trusted access, but does not constrain arbitrary SQL to the caller's authorized project                                |
 | Existing rekey handles rename, not graph unification    | `hooks/coord/fleet.ts:700-756`                                                                                                                                | Rekey refuses a destination containing work; it cannot merge two clones' independent graphs or work-label collisions                                                |
@@ -256,7 +256,7 @@ humans. One row per legacy project key:
 | new project_id       | the minted logical ID this key binds to                                         |
 | per-table row counts | the pre-migration counts the transaction must move exactly                      |
 | per-item disposition | import (remap), duplicate snapshot (discard), or legacy alias (rename in place) |
-| lane sid map         | legacy slug versus project-qualified slug (`hooks/lib/laneslug.ts`)             |
+| lane sid map         | legacy slug versus project-qualified slug (`hooks/lib/lanes/laneslug.ts`)             |
 | backup reference     | backup path, store head, authority epoch, timestamp                             |
 
 The migration itself is one `BEGIN IMMEDIATE` transaction. Composite
@@ -318,7 +318,7 @@ classified explicitly and the disposition is written into the alias map:
 The classification is a human decision recorded in the map; the migration
 refuses rows without one. Rekey also does not touch the global namespaces
 — `facts` (capsules keyed `lane.<sid>.*`), `cursors`, `locks` and
-`claims` (`hooks/lib/govdb.ts:411-538`) — so a cross-graph import decides
+`claims` (`hooks/lib/govdb/govdb.ts:411-538`) — so a cross-graph import decides
 each global row's disposition explicitly rather than inheriting the
 rename.
 
@@ -339,7 +339,7 @@ inside one authority; it is not acceptable as the provenance mechanism
 for cross-graph import of an audit trail that must stay reconstructable.
 
 Lane identity follows the same rule through the W460 slugs: new lanes
-mint project-qualified, injective sids (`hooks/lib/laneslug.ts`), legacy
+mint project-qualified, injective sids (`hooks/lib/lanes/laneslug.ts`), legacy
 slugs keep resolving for recorded lanes. The mapping — not a slug rewrite
 — is the provenance mechanism.
 

@@ -5,7 +5,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import {
 	laneStopDecision,
 	selfLaneStopNotice,
-} from "../hooks/lib/lane-stop-decision.ts";
+} from "../hooks/lib/lanes/lane-stop-decision.ts";
 import { boardFixture } from "./helpers/board-fixture.ts";
 const f = await boardFixture(0, afterAll);
 const db = new Database(`${f.HOME}/.cache/claude-governor/governor.db`);
@@ -60,7 +60,10 @@ test("canonical publisher reaches owner-actionable board card", async () => {
 	db.query(
 		"UPDATE sessions SET state='DONE',hb=0 WHERE sid='dead-publisher'",
 	).run();
-	const helper = join(import.meta.dir, "../hooks/lib/lane-stop-decision.ts"),
+	const helper = join(
+			import.meta.dir,
+			"../hooks/lib/lanes/lane-stop-decision.ts",
+		),
 		bus = join(import.meta.dir, "../hooks/coord/bus.ts");
 	const script = `import{laneStopDecision}from ${JSON.stringify(helper)};import{emitEvent}from ${JSON.stringify(bus)};console.log(emitEvent(laneStopDecision(${JSON.stringify(project)},"W6","dead-publisher",${JSON.stringify(note("W6"))})));`;
 	const child = Bun.spawnSync([process.execPath, "-e", script], {

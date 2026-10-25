@@ -22,8 +22,8 @@ import {
 	expandTouch,
 	loadCredScope,
 	secretScopeHit,
-} from "../lib/credscope.ts";
-import { resolveFleetLane } from "../lib/fleetlane.ts";
+} from "../lib/auth/credscope.ts";
+import { resolveFleetLane } from "../lib/lanes/fleetlane.ts";
 import { bumpPathCount } from "../lib/gatestate.ts";
 import { deny, type HookInput, nudge } from "../lib/hookio.ts";
 

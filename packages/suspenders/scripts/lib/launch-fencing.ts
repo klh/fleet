@@ -8,7 +8,7 @@ import {
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { dlopen, FFIType, ptr } from "bun:ffi";
-import { openStore, type GovernorStore } from "../../hooks/lib/govdb.ts";
+import { openStore, type GovernorStore } from "../../hooks/lib/govdb/govdb.ts";
 import { compareProcessBirth, darwinProcessBirth } from "./process-birth.ts";
 
 export type LaunchIntent = {

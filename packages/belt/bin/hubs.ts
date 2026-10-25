@@ -2,7 +2,7 @@
 // self-healing).
 //
 // ~/.claude/local-llm/hubs.json is the label → candidate-URLs registry
-// suspenders' resolveHub() walks (hooks/lib/hub-locate.ts). Belt reads the
+// suspenders' resolveHub() walks (hooks/lib/hub/hub-locate.ts). Belt reads the
 // SAME file (env SUSPENDERS_HUBS_FILE overrides, same key) and turns each
 // label into a supervisor Target so the dashboard's Supervisor section and
 // /llms.txt can surface the hubs visibly.

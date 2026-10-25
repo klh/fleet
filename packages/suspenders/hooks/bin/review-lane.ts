@@ -8,8 +8,8 @@
 //   bun review-lane.ts --item <Wn> --project <p> --executor <name> \
 //     (--bin <path> | --belt <machine>:<port>[:<model>] | --llm-url <url> [--llm-model <m>])
 // exits 0 on a landed verdict, 2 on a failed leg (verdict=error recorded).
-import { openStore, projectRootOf } from "../lib/govdb.ts";
-import { resolveBelt } from "../lib/belt-locate.ts";
+import { openStore, projectRootOf } from "../lib/govdb/govdb.ts";
+import { resolveBelt } from "../lib/hub/belt-locate.ts";
 import { existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,22 +18,22 @@ import {
 	reviewContext,
 	publishReviewReceipt,
 	reviewFindingIds,
-} from "../lib/review-receipt.ts";
+} from "../lib/gates/review-receipt.ts";
 import {
 	finishReviewRequest,
 	reviewRequestKey,
-} from "../lib/review-scheduler.ts";
+} from "../lib/gates/review-scheduler.ts";
 import {
 	TEST_FILE,
 	missingImportsExplained,
 	type Proof,
-} from "../lib/coverage-proof.ts";
+} from "../lib/gates/coverage-proof.ts";
 import {
 	adminKey,
 	BUCKLE_FRONT,
 	mintLaneKey,
 	revokeLaneKey,
-} from "../lib/lane-auth.ts";
+} from "../lib/lanes/lane-auth.ts";
 
 // ---- args (W820: verb-kit owns parsing — W651 law) -------------------------
 // W820: verb-kit owns parsing (W651 law) — reqFlags --item/--project; the
@@ -374,7 +374,7 @@ async function runLeg(): Promise<string> {
 // are out of scope or wrong, so a PASS with no failing new test is downgraded
 // to FAIL. The evidence annotates the verdict.
 // W1262: Proof/TEST_FILE and the missing-module classification live in
-// hooks/lib/coverage-proof.ts (unit face for the classifier).
+// hooks/lib/gates/coverage-proof.ts (unit face for the classifier).
 
 const PROOF_TIMEOUT_MS = 5 * 60_000;
 

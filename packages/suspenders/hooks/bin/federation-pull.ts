@@ -5,9 +5,12 @@
 // is normal operation: a failed pull logs one honest line, keeps last-known,
 // never blocks routing. --once exits 2 on degraded (honest signal for the
 // caller), loop mode never exits on hub-down.
-import { manifestCapabilities, pullFederation } from "../lib/federation.ts";
-import { reconcileWorkCrs } from "../lib/work-cr.ts";
-import { openGovernorDb } from "../lib/govdb.ts";
+import {
+	manifestCapabilities,
+	pullFederation,
+} from "../lib/federation/federation.ts";
+import { reconcileWorkCrs } from "../lib/work/work-cr.ts";
+import { openGovernorDb } from "../lib/govdb/govdb.ts";
 import { defineVerb, runCli } from "../lib/verb-kit.ts";
 import { HUB_ONLY_CAPABILITIES } from "../lib/profile.ts";
 

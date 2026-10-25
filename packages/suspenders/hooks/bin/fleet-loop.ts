@@ -40,7 +40,7 @@ import { createRogueSweep } from "../lib/fleet-loop/rogue-sweep.ts";
 import { createRuntime } from "../lib/fleet-loop/runtime.ts";
 import { createRuntimeSync } from "../lib/fleet-loop/runtime-sync.ts";
 import { createStallWatch } from "../lib/fleet-loop/stall-watch.ts";
-import { openStore, projectIdentity } from "../lib/govdb.ts";
+import { openStore, projectIdentity } from "../lib/govdb/govdb.ts";
 // W641: the ladder's govdb lease gate — shared flush predicate, one source
 import {
 	doneShaResolves,
@@ -48,9 +48,9 @@ import {
 	gitMidOp,
 	itemClaimOf,
 	mergeHoldActive,
-} from "../lib/ladder-lease.ts";
-import { laneProcessIdentity } from "../lib/lane-liveness.ts";
-import { flushOnDoneWait } from "../lib/merge-on-done.ts";
+} from "../lib/lanes/ladder-lease.ts";
+import { laneProcessIdentity } from "../lib/lanes/lane-liveness.ts";
+import { flushOnDoneWait } from "../lib/fleet-loop/merge-on-done.ts";
 // W911: the plaid posture switch — read/write .fleet/posture (the file
 // dispatch-next reads once per invocation).
 import {
@@ -58,7 +58,7 @@ import {
 	postureWidth,
 	readPosture,
 	writePosture,
-} from "../lib/plaid.ts";
+} from "../lib/plaid/plaid.ts";
 
 const config = parseLoopConfig(process.argv.slice(2), import.meta.dir);
 const {

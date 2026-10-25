@@ -8,7 +8,7 @@ import {
 	FEDERATION_WORK_TOKEN_ENV,
 	type FedWorkRow,
 	federatedWorkView,
-} from "../lib/federation-work.ts";
+} from "../lib/federation/federation-work.ts";
 import { defineVerb, runCli } from "../lib/verb-kit.ts";
 
 function rowLine(r: FedWorkRow): string {

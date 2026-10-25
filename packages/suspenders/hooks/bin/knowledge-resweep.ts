@@ -26,8 +26,11 @@
 import { Database } from "bun:sqlite";
 import { realpathSync } from "node:fs";
 import { basename } from "node:path";
-import { projectRootOf } from "../lib/govdb.ts";
-import { extractDocPaths, pointerFromText } from "../lib/knowledge.ts";
+import { projectRootOf } from "../lib/govdb/govdb.ts";
+import {
+	extractDocPaths,
+	pointerFromText,
+} from "../lib/knowledge/knowledge.ts";
 import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 
 export interface ResweepRow {

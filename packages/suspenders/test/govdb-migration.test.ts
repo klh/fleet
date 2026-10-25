@@ -19,7 +19,7 @@ process.env.HOME = HOME; // govdb computes REG from HOME at module load — set 
 // cached instance would be bound to the REAL HOME and these tests would run
 // against the production DB. A query param makes this file's instance its own.
 const { openGovernorDb } = await import(
-	`../hooks/lib/govdb.ts?home=${encodeURIComponent(HOME)}`
+	`../hooks/lib/govdb/govdb.ts?home=${encodeURIComponent(HOME)}`
 );
 
 const DB = `${HOME}/.cache/claude-governor/governor.db`;

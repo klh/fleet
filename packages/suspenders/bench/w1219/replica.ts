@@ -23,7 +23,7 @@ export async function openReplicaDb(root: string): Promise<Database> {
 	try {
 		// cache-bust so govdb-util's REG re-pins to the replica root (W624)
 		const mod = await import(
-			`../../hooks/lib/govdb-knowledge.ts?home=${crypto.randomUUID()}`,
+			`../../hooks/lib/knowledge/govdb-knowledge.ts?home=${crypto.randomUUID()}`
 		);
 		return mod.openKnowledgeDb();
 	} finally {
@@ -250,18 +250,36 @@ tombstone_ts, scope) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
 		`INSERT INTO knowledge_proposals
 (ts, knowledge_id, kind, score, age_days, confidence, reason, state)
 VALUES (?,?,?,?,?,?,?,?)`,
-		T0 + 5000, 5, "retire", 0.6, 45, 0.9, "age decay sweep", "open",
+		T0 + 5000,
+		5,
+		"retire",
+		0.6,
+		45,
+		0.9,
+		"age decay sweep",
+		"open",
 	);
 	healed.run(
 		`INSERT INTO knowledge_proposals
 (ts, knowledge_id, kind, score, age_days, confidence, reason, state)
 VALUES (?,?,?,?,?,?,?,?)`,
-		T0 + 5100, 6, "retire", 0.75, 60, 0.9, "age decay sweep", "open",
+		T0 + 5100,
+		6,
+		"retire",
+		0.75,
+		60,
+		0.9,
+		"age decay sweep",
+		"open",
 	);
 	healed.run(
 		`INSERT INTO knowledge_queue (ts, source, payload, state, attempts)
 VALUES (?,?,?,?,?)`,
-		T0 + 6000, "bench", "seed payload", "done", 1,
+		T0 + 6000,
+		"bench",
+		"seed payload",
+		"done",
+		1,
 	);
 	const dbPath = join(reg, "knowledge.db");
 	healed.close();

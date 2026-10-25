@@ -19,7 +19,7 @@ import {
 	cmdApprovalSrc,
 	secretFile,
 } from "../lib/approvals.ts";
-import { resolveFleetLane } from "../lib/fleetlane.ts";
+import { resolveFleetLane } from "../lib/lanes/fleetlane.ts";
 
 // a lane cannot co-sign for itself — the second person is NOT a lane
 const lane = resolveFleetLane(process.cwd());

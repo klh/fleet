@@ -6,7 +6,7 @@
 // per-target POST; the lib stamps the machine-local cursor only when every
 // target accepted the pass. Exit 0 on ok/disabled; exit 1 on config error
 // or any failed target (the heartbeat fail-logs it; next cadence retries).
-import { syncOnce } from "../lib/knowledge-sync.ts";
+import { syncOnce } from "../lib/knowledge/knowledge-sync.ts";
 
 const json = process.argv.includes("--json");
 const result = await syncOnce();

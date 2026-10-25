@@ -81,10 +81,10 @@ via the authenticated Caddy hop.
 
 ### F4 — OIDC-issuer tokens bypass `requiredScope`; mint local buckle:admin
 
-`hooks/lib/auth.ts:724-739` (verified) — the scope gate runs only for
+`hooks/lib/auth/auth.ts:724-739` (verified) — the scope gate runs only for
 `entry.type === "local"`; an oidc entry whose `roles` mapping is empty passes
 `checkRoles` (`auth.ts:674-693`, `entry.roles?.length` optional) regardless of
-the caller's `requiredScope`. `hooks/lib/auth-server.ts:71` then accepts such a
+the caller's `requiredScope`. `hooks/lib/auth/auth-server.ts:71` then accepts such a
 token for `/auth/token` minting (`verifyJwt(req, "write_auth")` never enforces
 it) → external IdP user mints a local `buckle:admin` pair. Needs only a config
 omission (optional `roles`/`audience` left unset).

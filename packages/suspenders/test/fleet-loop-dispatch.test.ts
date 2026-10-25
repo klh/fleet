@@ -305,13 +305,13 @@ test("actual scoped recovery CLI releases canonical claim despite hostile ambien
 	const { Database } = await import("bun:sqlite");
 	const db = new Database(join(HOME, ".cache/claude-governor/governor.db"));
 	const { attemptRecovery } = await import(
-		"../hooks/lib/dead-claim-recovery.ts"
+		"../hooks/lib/lanes/dead-claim-recovery.ts"
 	);
 	const receipts: { code: number; out: string }[] = [];
 	try {
 		expect(
 			attemptRecovery(
-				db as unknown as import("../hooks/lib/govdb.ts").GovernorStore,
+				db as unknown as import("../hooks/lib/govdb/govdb.ts").GovernorStore,
 				expected,
 				() => true,
 				() => {

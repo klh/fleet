@@ -13,8 +13,8 @@ import { BIND, db, PORT } from "../board/context.ts";
 import { withBoardErrors } from "../board/helpers.ts";
 import { projectList } from "../board/lanes.ts";
 import { warmSetupCache } from "../board/setup-cache.ts";
-import { readBoardSettings } from "../lib/board-config.ts";
-import { openIdentity, tokenUsage } from "../lib/govdb.ts";
+import { readBoardSettings } from "../lib/board/board-config.ts";
+import { openIdentity, tokenUsage } from "../lib/govdb/govdb.ts";
 import {
 	hostGuard,
 	isWriteMethod,

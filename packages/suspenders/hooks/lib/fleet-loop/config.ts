@@ -3,7 +3,7 @@
 // val/num are exported for the entrypoint's flush/ship mode blocks.
 
 import { resolve } from "node:path";
-import { canonicalProjectRoot } from "../lane-registry.ts";
+import { canonicalProjectRoot } from "../lanes/lane-registry.ts";
 
 export type LoopConfig = {
 	/** re-passed to `once` children by watch mode */

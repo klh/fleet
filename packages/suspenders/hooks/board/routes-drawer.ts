@@ -1,9 +1,9 @@
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
-import { projectRootOf } from "../lib/govdb.ts";
+import { projectRootOf } from "../lib/govdb/govdb.ts";
 import {
 	completionRecord,
 	completionTail,
-} from "../lib/work-completion-record.ts";
+} from "../lib/work/work-completion-record.ts";
 // hooks/board/routes-drawer.ts — drawer feeds: /api/diff /api/tail (W157 route module).
 // The fetch fragment moved verbatim (route order preserved by the
 // entry's handler list); returns null when nothing matches.

@@ -13,7 +13,13 @@
 //   bun deploy/release-manifest.ts --probe-schema   # internal: HOME-scoped
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runtimeFacts } from "./runtime-info.ts";
@@ -42,7 +48,7 @@ export interface SchemaVersions {
 
 /** Child-side: open fresh DBs under the (temp) HOME and report user_version. */
 async function probeSchema(): Promise<SchemaVersions> {
-	const g = await import("../hooks/lib/govdb.ts");
+	const g = await import("../hooks/lib/govdb/govdb.ts");
 	const version = (db: ReturnType<typeof g.openGovernorDb>): number =>
 		(db.query("PRAGMA user_version").get() as { user_version: number })
 			.user_version;

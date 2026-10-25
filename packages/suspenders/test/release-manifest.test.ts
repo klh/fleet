@@ -19,7 +19,7 @@ const HOME = mkdtempSync(join(tmpdir(), "fleet-w698-"));
 const REAL_HOME = process.env.HOME;
 process.env.HOME = HOME; // govdb pins REG from HOME at module load
 const govdb = await import(
-	`../hooks/lib/govdb.ts?home=${encodeURIComponent(HOME)}`
+	`../hooks/lib/govdb/govdb.ts?home=${encodeURIComponent(HOME)}`
 );
 const REGDIR = join(HOME, ".cache/claude-governor");
 afterAll(() => {

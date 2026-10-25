@@ -15,7 +15,7 @@
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { atomicWrite } from "./board-config.ts";
+import { atomicWrite } from "./board/board-config.ts";
 
 // ─── grammar ───────────────────────────────────────────────────────────────
 export type LawVerb = "prefer" | "must";

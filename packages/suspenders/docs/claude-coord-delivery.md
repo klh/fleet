@@ -25,7 +25,7 @@ The Claude hook adapter provides native wakeup and mandatory delivery at
 supported hook boundaries. It does **not** cancel active model generation
 or an executing tool.
 
-`signalClaudeDirectEvent(event, sid)` in `hooks/lib/claude-wake.ts` queues
+`signalClaudeDirectEvent(event, sid)` in `hooks/lib/executors/claude-wake.ts` queues
 a bounded local marker for an exact addressed `NOTE`, `consult`, or
 `consult.answer`. The subscriber calls it after verifying `event.target`.
 Its boolean result means the marker was written; it proves neither model

@@ -97,12 +97,14 @@ afterAll(() => {
 
 describe("runaway lib units", () => {
 	test("stableKey is key-order invariant and capped", async () => {
-		const { stableKey } = await import("../hooks/lib/runaway.ts");
+		const { stableKey } = await import("../hooks/lib/gates/runaway.ts");
 		expect(stableKey({ a: 1, b: 2 })).toBe(stableKey({ b: 2, a: 1 }));
 	});
 
 	test("scanTail counts identical repeats past calls only", async () => {
-		const { scanTail, stableKey } = await import("../hooks/lib/runaway.ts");
+		const { scanTail, stableKey } = await import(
+			"../hooks/lib/gates/runaway.ts"
+		);
 		const t =
 			use("t1", "Bash", { command: "bun test" }) +
 			res("t1", false, "ok") +
@@ -114,7 +116,9 @@ describe("runaway lib units", () => {
 	});
 
 	test("W1079: a different call breaks the run — spaced rerun counts 1", async () => {
-		const { scanTail, stableKey } = await import("../hooks/lib/runaway.ts");
+		const { scanTail, stableKey } = await import(
+			"../hooks/lib/gates/runaway.ts"
+		);
 		// TDD loop: test → edit → test → edit → test; the two edits break
 		// both runs, so the pending rerun rides a trailing run of 1
 		const t =
@@ -133,7 +137,9 @@ describe("runaway lib units", () => {
 	});
 
 	test("W1079: a later different call caps the run at zero for a rerun", async () => {
-		const { scanTail, stableKey } = await import("../hooks/lib/runaway.ts");
+		const { scanTail, stableKey } = await import(
+			"../hooks/lib/gates/runaway.ts"
+		);
 		const t =
 			use("t1", "Bash", { command: "bun test" }) +
 			res("t1", false, "ok") +
@@ -148,7 +154,9 @@ describe("runaway lib units", () => {
 	});
 
 	test("scanTail drops a partial first line", async () => {
-		const { scanTail, stableKey } = await import("../hooks/lib/runaway.ts");
+		const { scanTail, stableKey } = await import(
+			"../hooks/lib/gates/runaway.ts"
+		);
 		const t =
 			`{"type":"assi` +
 			use("t1", "Bash", { command: "x" }) +
@@ -160,7 +168,9 @@ describe("runaway lib units", () => {
 
 describe("runaway streak + rates", () => {
 	test("fail streak: trailing errors count, success resets", async () => {
-		const { scanTail, stableKey } = await import("../hooks/lib/runaway.ts");
+		const { scanTail, stableKey } = await import(
+			"../hooks/lib/gates/runaway.ts"
+		);
 		const t =
 			use("a", "Bash", { command: "ok1" }) +
 			res("a", false, "fine") +
@@ -173,7 +183,9 @@ describe("runaway streak + rates", () => {
 	});
 
 	test("noise failures are transparent to the streak", async () => {
-		const { scanTail, stableKey } = await import("../hooks/lib/runaway.ts");
+		const { scanTail, stableKey } = await import(
+			"../hooks/lib/gates/runaway.ts"
+		);
 		const t =
 			use("n", "Bash", { command: "ls x || true" }) +
 			res("n", true, "boom") +
@@ -184,7 +196,7 @@ describe("runaway streak + rates", () => {
 	});
 
 	test("rateRowFor: longest prefix wins, * is the fallback tier", async () => {
-		const { rateRowFor } = await import("../hooks/lib/runaway.ts");
+		const { rateRowFor } = await import("../hooks/lib/gates/runaway.ts");
 		const rates = {
 			"gpt-5": { out: 1 },
 			"gpt-5-mini": { out: 2 },
@@ -200,7 +212,7 @@ describe("runaway streak + rates", () => {
 describe("readUsageDelta", () => {
 	test("incremental: offset advances, totals accumulate", async () => {
 		const { readUsageDelta, zeroUsage } = await import(
-			"../hooks/lib/runaway.ts"
+			"../hooks/lib/gates/runaway.ts"
 		);
 		const tp = join(HOME, "usage.jsonl");
 		writeFileSync(tp, urow("m", { input_tokens: 1_000_000, output_tokens: 0 }));
@@ -220,7 +232,7 @@ describe("readUsageDelta", () => {
 
 	test("truncation restarts bounded, no regression", async () => {
 		const { readUsageDelta, zeroUsage, parseRates } = await import(
-			"../hooks/lib/runaway.ts"
+			"../hooks/lib/gates/runaway.ts"
 		);
 		const tp = join(HOME, "usage2.jsonl");
 		writeFileSync(

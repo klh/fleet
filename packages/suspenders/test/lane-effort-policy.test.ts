@@ -5,7 +5,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { effortForPriority } from "../hooks/lib/lane-effort.ts";
+import { effortForPriority } from "../hooks/lib/lanes/lane-effort.ts";
 import {
 	dispatchLaneEffort,
 	EFFORT_POLICY_DEFAULTS,
@@ -15,7 +15,7 @@ import {
 	laneEffortBriefLine,
 	loadEffortPolicy,
 	parseEffortPolicy,
-} from "../hooks/lib/lane-effort-policy.ts";
+} from "../hooks/lib/lanes/lane-effort-policy.ts";
 
 describe("parseEffortPolicy", () => {
 	test("parses a full JSON policy with regex rules", () => {

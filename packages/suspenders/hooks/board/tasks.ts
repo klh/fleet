@@ -2,7 +2,7 @@
 // taskShape, dependency splines, spend attribution + series, project kanban.
 // W1255.4: moved verbatim from board/data.ts (per-domain split, THEN.B).
 import type { Database } from "bun:sqlite";
-import { completionTail } from "../lib/work-completion-record.ts";
+import { completionTail } from "../lib/work/work-completion-record.ts";
 import {
 	type ItemAttribution,
 	type ItemSpendPoint,
@@ -11,9 +11,9 @@ import {
 	type LaneRequestSpendRow,
 	laneRequestSpendRows,
 	resolveBuckleDb,
-} from "../lib/lane-spend.ts";
+} from "../lib/lanes/lane-spend.ts";
 import { preferForProject } from "../lib/prefer.ts";
-import { claimWindows, type TimingEventRow } from "../lib/work-timing.ts";
+import { claimWindows, type TimingEventRow } from "../lib/work/work-timing.ts";
 import { utcZ } from "../lib/wallclock.ts";
 import { db, type WorkItemRow } from "./context.ts";
 import { chunked } from "./helpers.ts";

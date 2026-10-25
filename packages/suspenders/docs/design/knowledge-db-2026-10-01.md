@@ -4,7 +4,7 @@ Date: 2026-10-01 · Lane: w99-tuning · Status: measured + designed; the
 extraction itself is **phase 2** (a follow-up lane; W100 landed 2026-10-01,
 extraction not yet scheduled). *(Update, W1000 audit 2026-10-23: phase 2
 landed — `knowledge.db` is live via `openKnowledgeDb()` in
-`hooks/lib/govdb.ts`; the measurement record below stands.)*
+`hooks/lib/govdb/govdb.ts`; the measurement record below stands.)*
 
 ## Context
 
@@ -207,7 +207,7 @@ knowledge consumer (coord CLI, read_knowledge MCP, HTTP API) binds through
 `makeStore()` → `SqliteKnowledgeStore` (hooks/lib/knowledge-ports.ts) — the
 only knowledge-layer code allowed to open the DB file. Phase 2:
 
-1. **`openKnowledgeDb()`** (new, hooks/lib/govdb.ts or a sibling): mkdir,
+1. **`openKnowledgeDb()`** (new, hooks/lib/govdb/govdb.ts or a sibling): mkdir,
    open `${REG}/knowledge.db`, busy_timeout=10000 BEFORE journal_mode=WAL
    (the openGovernorDb ordering), synchronous=NORMAL, mmap_size=1 GiB,
    page_size=8192 must precede the FIRST schema creation (page_size is
@@ -252,7 +252,7 @@ byte-identical search responses — full detail in the W166 registration.
   against `VACUUM INTO` snapshots of the live hub; scripts and raw JSON
   outputs in /tmp scratch (transient), the tables above are the record.
 - Tier 1 (repo code): the production query and trigger DDL quoted verbatim
-  from hooks/lib/knowledge.ts + hooks/lib/govdb.ts (v6 schema).
+  from hooks/lib/knowledge/knowledge.ts + hooks/lib/govdb/govdb.ts (v6 schema).
 - Tier 2 (corroboration only): SQLite/FTS5 documented pragma semantics
   (page_size bake-at-creation, mmap_size as cap, WAL checkpoint-on-close)
   — used to interpret results, never to substitute for measured numbers.

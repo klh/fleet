@@ -12,8 +12,8 @@ import {
 	executorCv,
 	recordLaneExecutor,
 	writeExecutorCvFacts,
-} from "../hooks/lib/executor-cv.ts";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+} from "../hooks/lib/executors/executor-cv.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 
 const dbs: Database[] = [];
 const dirs: string[] = [];
@@ -208,7 +208,8 @@ test("recordLaneExecutor stamps executor always, model only when pinned", () => 
 	const vals = (sid: string): Map<string, string> =>
 		new Map(
 			(
-				db.query("SELECT key, value FROM facts WHERE key LIKE ?")
+				db
+					.query("SELECT key, value FROM facts WHERE key LIKE ?")
 					.all(`lane.${sid}.%`) as { key: string; value: string }[]
 			).map((r) => [r.key, r.value]),
 		);

@@ -2,7 +2,7 @@
 // is retired from the shared Stop gate. Live WS/CLI Stop is end-of-TURN, not
 // session end — the ask re-prompted on ordinary answer boundaries once the
 // transcript passed 20KB. Passive knowledge write-back rides the true
-// SessionEnd settle (hooks/lib/settle.ts); completion checks are unchanged.
+// SessionEnd settle (hooks/lib/knowledge/settle.ts); completion checks are unchanged.
 // Temp HOME + temp git repo; the REAL gate.ts stop in a bun subprocess
 // (test/fleet.test.ts recipe, context-guard.test.ts fixture shape).
 import { afterAll, describe, expect, test, setDefaultTimeout } from "bun:test";

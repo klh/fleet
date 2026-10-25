@@ -2,8 +2,8 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { waitForClaudeWake } from "../hooks/lib/claude-wake.ts";
-import { projectIdentity } from "../hooks/lib/govdb-project.ts";
+import { waitForClaudeWake } from "../hooks/lib/executors/claude-wake.ts";
+import { projectIdentity } from "../hooks/lib/govdb/govdb-project.ts";
 
 const home = mkdtempSync(join(tmpdir(), "claude-direct-subscribe-"));
 const processes: ReturnType<typeof Bun.spawn>[] = [];

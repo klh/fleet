@@ -11,8 +11,15 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
-const LIB = join(import.meta.dir, "..", "hooks", "lib", "lane-inbox.ts");
+const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
+const LIB = join(
+	import.meta.dir,
+	"..",
+	"hooks",
+	"lib",
+	"lanes",
+	"lane-inbox.ts",
+);
 const home = mkdtempSync(join(tmpdir(), "suspenders-w611-lane-inbox-"));
 const SID = "w611-lane-sess-11111111";
 const OTHER = "w611-lane-sess-22222222";

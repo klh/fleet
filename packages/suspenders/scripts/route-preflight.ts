@@ -8,7 +8,7 @@ import { YAML } from "bun";
 import { ROUTER, SPECIALISTS } from "../../belt/bin/registry.ts";
 import { confCandidates } from "../hooks/lib/kernel-conf.ts";
 import { loadStack, STACK_PATH } from "../hooks/lib/stack-config.ts";
-import { parseEnvBody } from "../hooks/lib/hub-provider-keys.ts";
+import { parseEnvBody } from "../hooks/lib/auth/hub-provider-keys.ts";
 import { providerPoolIdOf } from "../../buckle/src/router.ts";
 import { runForcedFailoverDrill } from "../../buckle/src/forced-failover-drill.ts";
 import {

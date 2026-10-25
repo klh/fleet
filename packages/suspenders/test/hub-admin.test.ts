@@ -23,11 +23,11 @@ afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 });
 
-const govdb = await import("../hooks/lib/govdb.ts");
+const govdb = await import("../hooks/lib/govdb/govdb.ts");
 const { writeToken } = await import("../hooks/lib/host-guard.ts");
-const hubTokens = await import("../hooks/lib/hub-tokens.ts");
-const pkeys = await import("../hooks/lib/hub-provider-keys.ts");
-const fed = await import("../hooks/lib/hub-federation-status.ts");
+const hubTokens = await import("../hooks/lib/auth/hub-tokens.ts");
+const pkeys = await import("../hooks/lib/auth/hub-provider-keys.ts");
+const fed = await import("../hooks/lib/federation/hub-federation-status.ts");
 const routes = await import("../hooks/board/routes-hub-admin.ts");
 
 const store = govdb.openStore();
@@ -216,7 +216,9 @@ describe("hub-federation-status", () => {
 	test("peer with a last-known store reports version + state", async () => {
 		const home = join(HOME, ".claude", "local-llm");
 		mkdirSync(home, { recursive: true });
-		const peersLib = await import("../hooks/lib/federation-peers.ts");
+		const peersLib = await import(
+			"../hooks/lib/federation/federation-peers.ts"
+		);
 		const p = peersLib.peerLastKnownPath("nas", { HOME });
 		writeFileSync(
 			p,

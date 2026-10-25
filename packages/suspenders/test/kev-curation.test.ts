@@ -4,7 +4,7 @@ import {
 	recordKnowledgeSuggestion,
 	renderKnowledgeSuggestion,
 	suggestKnowledge,
-} from "../hooks/lib/kev-curation.ts";
+} from "../hooks/lib/knowledge/kev-curation.ts";
 
 const originalFetch = globalThis.fetch;
 afterEach(() => {

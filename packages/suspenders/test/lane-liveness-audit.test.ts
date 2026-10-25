@@ -8,7 +8,7 @@ import {
 	auditLanes,
 	type LaneRef,
 	verdictBySid,
-} from "../hooks/lib/lane-liveness.ts";
+} from "../hooks/lib/lanes/lane-liveness.ts";
 
 const foreignRow = (sid: string): LaneRef => ({
 	sid,

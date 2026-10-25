@@ -11,7 +11,7 @@ import {
 	type BusEvent,
 	type Notification,
 	type NotifyConfig,
-} from "../hooks/lib/notify.ts";
+} from "../hooks/lib/notify/notify.ts";
 import {
 	desktopSender,
 	emailSender,
@@ -19,7 +19,7 @@ import {
 	readEnvFile,
 	sendSmtp,
 	slackSender,
-} from "../hooks/lib/notify-adapters.ts";
+} from "../hooks/lib/notify/notify-adapters.ts";
 import { emitHubDown } from "../hooks/bin/metrics-alert.ts";
 
 const ev = (
@@ -114,7 +114,8 @@ describe("notifier dedupe + rate limit", () => {
 		});
 		const { notifier } = mk(c, clock);
 		const s = async (i: number) =>
-			(await notifier.handle(ev("NEED_DECISION", `W${i}`, { note: "x" }))).status;
+			(await notifier.handle(ev("NEED_DECISION", `W${i}`, { note: "x" })))
+				.status;
 		expect(await s(1)).toBe("sent");
 		expect(await s(2)).toBe("sent");
 		expect(await s(3)).toBe("rate-limited");
@@ -146,7 +147,7 @@ describe("adapters", () => {
 	test("osascript argv carries title/body as args, never interpolated", async () => {
 		const argv = osascriptArgv({ ...note, body: 'x" & do shell script "evil' });
 		expect(argv.slice(-2)).toEqual([note.title, 'x" & do shell script "evil']);
-		expect(argv.join(" ")).not.toContain("evil\"");
+		expect(argv.join(" ")).not.toContain('evil"');
 		let seen: string[] = [];
 		await desktopSender(async (a) => {
 			seen = a;
@@ -163,7 +164,8 @@ describe("adapters", () => {
 		}) as typeof fetch;
 		await slackSender("http://x/hook", ok)(note);
 		expect(JSON.parse(body).text).toContain("hub.down");
-		const bad = (async () => new Response("no", { status: 500 })) as typeof fetch;
+		const bad = (async () =>
+			new Response("no", { status: 500 })) as typeof fetch;
 		await expect(slackSender("http://x/hook", bad)(note)).rejects.toThrow(
 			"HTTP 500",
 		);
@@ -189,7 +191,11 @@ describe("adapters", () => {
 		await emailSender({ env_file: f }, async (o) => {
 			got = { user: o.user, to: o.to, host: o.host };
 		})(note);
-		expect(got).toEqual({ user: "a@b.c", to: ["a@b.c"], host: "smtp.gmail.com" });
+		expect(got).toEqual({
+			user: "a@b.c",
+			to: ["a@b.c"],
+			host: "smtp.gmail.com",
+		});
 	});
 });
 

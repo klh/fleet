@@ -4,7 +4,7 @@
 // ${HOME}/.cache/claude-governor/archive/ before deletion, so gc loses
 // nothing it deletes. Batches bound the memory (streams-over-buffers law) —
 // no whole-table SELECT.
-import type { GovernorStore } from "./govdb.ts";
+import type { GovernorStore } from "./govdb/govdb.ts";
 import {
 	appendFileSync,
 	mkdirSync,

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
-import { retryFailedItem } from "../hooks/lib/work-retry.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
+import { retryFailedItem } from "../hooks/lib/work/work-retry.ts";
 import { launchSchema } from "../scripts/lib/launch-fencing.ts";
 
 function fixture() {

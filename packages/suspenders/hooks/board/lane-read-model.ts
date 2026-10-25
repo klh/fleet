@@ -10,7 +10,7 @@
 // equal source + event id = duplicate, ignored).
 // A visibility edge proves only that a hub observed a lane through a peer
 // during an interval — never work authority or lifecycle end.
-import type { GovernorStore } from "../lib/govdb.ts";
+import type { GovernorStore } from "../lib/govdb/govdb.ts";
 import {
 	laneObservationSnapshot,
 	type LaneObservation,

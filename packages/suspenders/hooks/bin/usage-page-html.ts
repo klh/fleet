@@ -25,9 +25,12 @@
 // no more per-request panel HTML strings. Filters stay server-side native
 // links (URL state must work without JS).
 
-import { ACTIVITIES, type ActivityReport } from "../lib/activity-harvest.ts";
-import type { CrossHubReport } from "../lib/cross-hub-usage.ts";
-import { GROUPS, type UsageReport } from "../lib/usage.ts";
+import {
+	ACTIVITIES,
+	type ActivityReport,
+} from "../lib/harvest/activity-harvest.ts";
+import type { CrossHubReport } from "../lib/federation/cross-hub-usage.ts";
+import { GROUPS, type UsageReport } from "../lib/usage/usage.ts";
 // W652.3: palette/esc/fmtTok/tiles/shell ride the shared chrome (one source
 // for both usage dashboards; W171's per-page copies retired)
 import {

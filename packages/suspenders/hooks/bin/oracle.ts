@@ -156,7 +156,7 @@ function usage(): never {
 const auditPanel = async (rows: PanelRow[]): Promise<void> => {
 	if (!argv.includes("--audit")) return;
 	try {
-		const { openStore } = await import("../lib/govdb.ts");
+		const { openStore } = await import("../lib/govdb/govdb.ts");
 		const store = openStore();
 		for (const r of rows) {
 			store

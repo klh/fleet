@@ -14,14 +14,15 @@ import { expect, test } from "bun:test";
 const HOOKS_LIB = join(import.meta.dir, "..", "hooks", "lib");
 const SCRIPTS = join(import.meta.dir, "..", "scripts");
 const SCRIPTS_LIB = join(SCRIPTS, "lib");
-// the kit W1255.2 moved (the named four + the closure pair lane.ts imports)
+// the kit W1255.2 moved (the named four + the closure pair lane.ts imports);
+// W1276 carries each file's seam subdir
 const KIT = [
-	"lane.ts",
-	"lane-auth.ts",
-	"launch-parent.ts",
-	"lane-retry-budget.ts",
-	"jobslab.ts",
-	"front-probe.ts",
+	{ n: "lane.ts", seam: "lanes" },
+	{ n: "lane-auth.ts", seam: "lanes" },
+	{ n: "launch-parent.ts", seam: "lanes" },
+	{ n: "lane-retry-budget.ts", seam: "lanes" },
+	{ n: "jobslab.ts", seam: "lanes" },
+	{ n: "front-probe.ts", seam: "board" },
 ];
 
 const tsFilesUnder = (dir: string): string[] => {
@@ -42,9 +43,9 @@ const IMPORTS_SCRIPTS =
 	/(?:from\s+|import\(\s*)["'][^"']*(?:^|\/)scripts\/[^"']*["']/;
 
 test("the moved lane kit is self-contained — no scripts/ imports inside it", () => {
-	const missing = KIT.filter((f) => !existsSync(join(HOOKS_LIB, f)));
+	const missing = KIT.filter((f) => !existsSync(join(HOOKS_LIB, f.seam, f.n)));
 	expect(missing).toEqual([]);
-	const offenders = KIT.map((f) => join(HOOKS_LIB, f))
+	const offenders = KIT.map((f) => join(HOOKS_LIB, f.seam, f.n))
 		.map((p) => [p, readFileSync(p, "utf8")] as const)
 		.filter(([, src]) => IMPORTS_SCRIPTS.test(src));
 	expect(offenders).toEqual([]);
@@ -52,7 +53,7 @@ test("the moved lane kit is self-contained — no scripts/ imports inside it", (
 
 test("the shared lane kit lives only in hooks/lib — no scripts/lib copies remain", () => {
 	expect(KIT).toHaveLength(6);
-	const remaining = KIT.filter((f) => existsSync(join(SCRIPTS_LIB, f)));
+	const remaining = KIT.filter((f) => existsSync(join(SCRIPTS_LIB, f.n)));
 	expect(remaining).toEqual([]);
 });
 
@@ -75,5 +76,5 @@ test("enrollment resolves the shared modules in-tree, no cross-tree layout probi
 	const src = readFileSync(join(HOOKS_LIB, "hook-scripts.ts"), "utf8");
 	expect(src).not.toContain("scriptsLibPath");
 	expect(src).not.toContain(`"scripts"`);
-	expect(src).toContain(`await import("./lane-auth.ts")`);
+	expect(src).toContain(`await import("./lanes/lane-auth.ts")`);
 });

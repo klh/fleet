@@ -10,7 +10,7 @@
 //   work-cr list [--hub <url>]
 //   work-cr report <crId> --state <declared|delivered|applied|failed> [--note "..."]
 
-import { openStore, projectIdentity } from "../lib/govdb.ts";
+import { openStore, projectIdentity } from "../lib/govdb/govdb.ts";
 import {
 	defineVerb,
 	parseVerb,
@@ -23,7 +23,7 @@ import {
 	reportCrStatus,
 	WORK_CR_ACTION,
 	WORK_CR_TARGET_PREFIX,
-} from "../lib/work-cr.ts";
+} from "../lib/work/work-cr.ts";
 
 const die = (m: string): never => {
 	console.error(`work-cr: ${m}`);

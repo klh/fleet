@@ -9,7 +9,7 @@ import {
 	waitForClaudeWake,
 	waitForClaudeWakeOutcome,
 	waitForManagedClaudeWake,
-} from "../hooks/lib/claude-wake.ts";
+} from "../hooks/lib/executors/claude-wake.ts";
 
 const home = mkdtempSync(join(tmpdir(), "fleet-claude-wake-"));
 afterAll(() => rmSync(home, { recursive: true, force: true }));

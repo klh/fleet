@@ -2,7 +2,10 @@
 // to the canonical bus (store-server /subscribe — the same socket coord
 // subscribe rides), snapshot reconciliation on every (re)connect so missed
 // events re-enter in id order, and a bounded per-view history.
-import { type GovernorStore, resolveStoreHttpBase } from "../lib/govdb.ts";
+import {
+	type GovernorStore,
+	resolveStoreHttpBase,
+} from "../lib/govdb/govdb.ts";
 import { KINDS } from "./model.ts";
 import { recentTransitions } from "./snapshot.ts";
 

@@ -6,7 +6,7 @@
 // guessing which label reaches what. Read-only: probes, never mutates.
 //   coord hubs [--label name] [--json]
 import { arg, die, dim, green, red } from "./shared.ts";
-import { alive, readRegistry, REGISTRY_PATH } from "../lib/hub-locate.ts";
+import { alive, readRegistry, REGISTRY_PATH } from "../lib/hub/hub-locate.ts";
 import { loadStack, STACK_PATH, type HubProfile } from "../lib/stack-config.ts";
 
 type Registry = ReturnType<typeof readRegistry>;

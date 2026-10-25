@@ -28,12 +28,12 @@ import {
 	CopilotSessionStartSchema,
 	CopilotPreToolUseSchema,
 } from "../hooks/dialects/copilot/schemas.ts";
-import { lanesFileFor } from "../hooks/lib/fleetlane.ts";
+import { lanesFileFor } from "../hooks/lib/lanes/fleetlane.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-w296-"));
 // W527: tmpdir + realpath here is load-bearing, not cosmetic — session
 // registration resolves fleet identity by walking UP from the gate spawn's
-// cwd to .fleet/lanes.json + pid ancestry (hooks/lib/fleetlane.ts). A
+// cwd to .fleet/lanes.json + pid ancestry (hooks/lib/lanes/fleetlane.ts). A
 // fixture under this repo resolves a REAL lane's sid, and the manual-session
 // row lands under THAT sid (W509-era failure: row?.sid undefined at the
 // manual expect because the row landed under the invoking lane). The

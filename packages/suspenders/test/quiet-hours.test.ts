@@ -16,7 +16,7 @@ import {
 	skipQuietTarget,
 	type AlertState,
 } from "../hooks/bin/metrics-alert.ts";
-import { resolveHub } from "../hooks/lib/hub-locate.ts";
+import { resolveHub } from "../hooks/lib/hub/hub-locate.ts";
 
 const home = mkdtempSync(join(tmpdir(), "suspenders-quiet-hours-test-"));
 const STACK = join(home, "stack.yaml");

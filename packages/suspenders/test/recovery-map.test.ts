@@ -9,7 +9,7 @@ import {
 	RECOVERY_MAP,
 	leaksIn,
 	recoveryFor,
-} from "../hooks/lib/recovery-map.ts";
+} from "../hooks/lib/fleet-loop/recovery-map.ts";
 import {
 	type ProbeDeps,
 	probeAll,

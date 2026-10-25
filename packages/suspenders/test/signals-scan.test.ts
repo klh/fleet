@@ -12,7 +12,7 @@ import {
 	closingSid,
 	parseVerdict,
 	transcriptEvidence,
-} from "../hooks/lib/signals-scan.ts";
+} from "../hooks/lib/harvest/signals-scan.ts";
 
 const root = mkdtempSync(join(tmpdir(), "signals-scan-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
