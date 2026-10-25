@@ -2,6 +2,16 @@
 // The fetch fragment moved verbatim (route order preserved by the
 // entry's handler list); returns null when nothing matches.
 import { DEMO } from "./context.ts";
+import {
+	etagOf,
+	idempotentRespond,
+	IdempotencyStore,
+	ifMatchMissing,
+	ifMatchState,
+	problemOf,
+	RouteTable,
+	toProblemResponse,
+} from "@klh/buckle/src/http-kit.ts";
 import { json, writeGuard, readJson } from "./helpers.ts";
 import { ORCH, orchestrate, orchPrepare, orchRegister } from "./orch.ts";
 import { newOrchTraceId, recordOrchStep } from "./orch-trace.ts";
@@ -34,35 +44,95 @@ const attachmentsOf = (body: Record<string, unknown> | undefined): string[] =>
 			)
 		: [];
 
+const settingsIdempotency = new IdempotencyStore({ ttlS: 3600 });
+
+const settingsTable = new RouteTable(
+	[
+		{
+			method: "GET",
+			pattern: "/api/prompt/settings",
+			handler: (): Response => {
+				const settings = promptSettings();
+				return json({ ok: true, settings, etag: etagOf(settings) });
+			},
+		},
+		{
+			method: "POST",
+			pattern: "/api/prompt/settings",
+			handler: ({ req, url }): Response | Promise<Response> => {
+				const guard = writeGuard(req, url);
+				if (guard) return guard;
+				return idempotentRespond(settingsIdempotency, req, (r) =>
+					applySettings(r, url),
+				);
+			},
+		},
+	],
+	{ service: "board" },
+);
+
+/** W1303.2 — the settings write semantics: W264 perimeter (writeGuard at the
+ *  route), conditional (If-Match required — 428 missing, 412 stale), 422
+ *  with field errors on non-boolean patches, idempotent (key+body bound). */
+async function applySettings(req: Request, url: URL): Promise<Response> {
+	if (ifMatchMissing(req.headers))
+		return toProblemResponse(
+			problemOf("precondition_required", {
+				code: "board.if_match_required",
+				why: "settings writes require If-Match (GET returns the etag)",
+				instance: url.pathname,
+			}),
+		);
+	if (ifMatchState(req.headers, etagOf(promptSettings())) === "mismatch")
+		return toProblemResponse(
+			problemOf("precondition_failed", {
+				code: "board.settings_stale",
+				why: "settings changed since the etag was read",
+				instance: url.pathname,
+			}),
+		);
+	const parsed = await readJson(req);
+	if (!parsed.ok) return parsed.resp;
+	const patch: Partial<PromptSettings> = {};
+	for (const k of PROMPT_KEYS) {
+		const v = parsed.body?.[k];
+		if (v === undefined) continue;
+		if (typeof v !== "boolean")
+			return toProblemResponse(
+				problemOf("validation", {
+					code: "board.settings_invalid",
+					why: "settings values must be booleans",
+					instance: url.pathname,
+					fields: [{ field: k, why: "must be true or false" }],
+				}),
+			);
+		patch[k] = v;
+	}
+	try {
+		applyBoardSettings(boardSettingsPath(), patch);
+	} catch (e) {
+		if (e instanceof ConfigError)
+			return toProblemResponse(
+				problemOf("validation", {
+					code: "board.settings_invalid",
+					why: e.message,
+					instance: url.pathname,
+				}),
+			);
+		throw e;
+	}
+	const applied = promptSettings();
+	return json({ ok: true, settings: applied, etag: etagOf(applied) });
+}
+
 export async function handleOrch(
 	req: Request,
 	url: URL,
 ): Promise<Response | null> {
 	if (url.pathname === "/api/prompt/settings") {
-		// W270 — the orchestrate prompt-transform toggles (suspenders-board.json)
-		if (req.method === "GET")
-			return json({ ok: true, settings: promptSettings() });
-		if (req.method !== "POST") return null;
-		const guard = writeGuard(req, url);
-		if (guard) return guard;
-		const parsed = await readJson(req);
-		if (!parsed.ok) return parsed.resp;
-		const patch: Partial<PromptSettings> = {};
-		for (const k of PROMPT_KEYS) {
-			const v = parsed.body?.[k];
-			if (v === undefined) continue;
-			if (typeof v !== "boolean")
-				return json({ ok: false, error: `${k}: must be true or false` }, 400);
-			patch[k] = v;
-		}
-		try {
-			applyBoardSettings(boardSettingsPath(), patch);
-		} catch (e) {
-			if (e instanceof ConfigError)
-				return json({ ok: false, error: e.message }, 400);
-			throw e;
-		}
-		return json({ ok: true, settings: promptSettings() });
+		// W270 toggles; W1303.2 — routed by the kit table: HEAD/OPTIONS
+		// automatic, 405+Allow, 428/412 conditionals, idempotent replay.
+		return settingsTable.serve(req, url);
 	}
 	if (req.method === "POST" && url.pathname === "/api/orchestrate/preview") {
 		// W270 — what WILL be dispatched: transforms run (enhance may call the

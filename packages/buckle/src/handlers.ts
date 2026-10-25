@@ -34,6 +34,7 @@ import {
 } from "./affinity.ts";
 import type { AidsLedger } from "./aids.ts";
 import { aidsRoutes, applyWireAids, gateCacheAlign } from "./aids-routes.ts";
+import { clampRetryAfter } from "./http-kit.ts";
 import type { LaneTelemetryLog } from "./cache-boundary.ts";
 import { boundaryKey, boundaryOfDeployment } from "./cache-boundary.ts";
 import {
@@ -649,7 +650,10 @@ async function runExecute(
 				"overloaded",
 				"errored",
 			);
-			resp.headers.set("retry-after", String(deps.admission.retryAfterS));
+			resp.headers.set(
+				"retry-after",
+				String(clampRetryAfter(deps.admission.retryAfterS)),
+			);
 			return resp;
 		}
 		ctx.slot = release;
@@ -858,7 +862,12 @@ function handleResult(
 			"no_route",
 		);
 		if (deferred)
-			response.headers.set("retry-after", String(result.retryAfterS));
+			response.headers.set(
+				"retry-after",
+				// W1303.2 clamp: a provider quota wall's weeks-long retry-after
+				// used to relay verbatim and slept clients for weeks.
+				String(clampRetryAfter(result.retryAfterS ?? 0)),
+			);
 		return response;
 	}
 	if (result.kind === "client-error") {
@@ -1428,7 +1437,7 @@ export function createApp(deps: AppDeps): App {
 						},
 			);
 		}
-		const aidsRouted = await aidsRoutes(deps, req, path);
+		const aidsRouted = await aidsRoutes(deps, req);
 		if (aidsRouted) return aidsRouted;
 		const pipeRouted = await pipelineRoutes(deps, req, path);
 		if (pipeRouted) return pipeRouted;

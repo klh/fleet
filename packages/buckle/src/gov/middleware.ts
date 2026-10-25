@@ -21,6 +21,7 @@ import {
 } from "../citizenship.ts";
 import { tokenFromHeaders, type Ledger } from "../ledger.ts";
 import { INGRESS_BODY_TIMEOUT_MS } from "../ingress-body.ts";
+import { clampRetryAfter } from "../http-kit.ts";
 import {
 	MetricsConnector,
 	type MetricsConnectorOpts,
@@ -634,7 +635,10 @@ export class Governance {
 			429,
 			"buckle.slot_exhausted",
 			"concurrency slots exhausted",
-			{ instance: path, headers: { "retry-after": "2" } },
+			{
+				instance: path,
+				headers: { "retry-after": String(clampRetryAfter(2)) },
+			},
 		);
 	}
 
@@ -682,7 +686,7 @@ export class Governance {
 		});
 		const resp = authError(429, "buckle.rate_limited", "budget exceeded", {
 			instance: path,
-			headers: { "retry-after": String(Math.ceil(retryAfterS)) },
+			headers: { "retry-after": String(clampRetryAfter(retryAfterS)) },
 		});
 		if (view !== null) stampRateLimit(resp.headers, { ...view, remaining: 0 });
 		return resp;
