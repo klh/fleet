@@ -6,6 +6,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { ANTHROPIC } from "../src/adapters/anthropic.ts";
 import { getAdapter, resolveAdapter } from "../src/adapters/index.ts";
 import { OPENAI_COMPAT } from "../src/adapters/openai-compat.ts";
+import { bridgeRequest } from "../src/bridge.ts";
 import { loadUpstreams } from "../src/upstreams.ts";
 import { defaultFetch } from "../src/wire.ts";
 import { startMockUpstream } from "./mock.ts";
@@ -341,5 +342,73 @@ describe("usageOf per family", () => {
 			}),
 		).toEqual({ in_tok: 5, out_tok: 0, cache_r: 1, cache_c: 0 });
 		expect(OPENAI_COMPAT.usageOf({})).toBe(null);
+	});
+});
+
+// W1202 standing guard (finding.api-2026-10-21-sampling-params): the Claude
+// API wire dropped temperature/top_p/top_k on 2026-10-21 — whatever each
+// upstream decides, the gateway must never be the 400. Every bridge face
+// keeps the hop eligible with the three params riding (or honestly
+// degraded), so a future wire drop is caught by this suite, not by lanes.
+describe("sampling-param compat (W1202): anthropic→openai bridge", () => {
+	const PARAMS = { temperature: 0.7, top_p: 0.9, top_k: 40 };
+
+	test("keeps the hop eligible; params ride or degrade honestly", () => {
+		const out = bridgeRequest(
+			{
+				...OPENAI_REQ,
+				dialect: "anthropic" as const,
+				path: "/v1/messages",
+				body: { model: "m", max_tokens: 16, messages: [], ...PARAMS },
+			},
+			{ group: "g", url: "http://127.0.0.1:9", dialect: "openai" as const },
+		);
+		expect(out).not.toBeNull();
+		expect(out?.body).toMatchObject({ temperature: 0.7, top_p: 0.9 });
+		expect(out?.body).not.toHaveProperty("top_k"); // degrade, never reject
+	});
+});
+
+describe("sampling-param compat (W1202): openai→anthropic bridge", () => {
+	const PARAMS = { temperature: 0.7, top_p: 0.9, top_k: 40 };
+
+	test("keeps the hop eligible; all three ride verbatim (W1080)", () => {
+		const out = bridgeRequest(
+			{
+				...OPENAI_REQ,
+				path: "/v1/chat/completions",
+				body: { model: "m", messages: [], ...PARAMS },
+			},
+			{ group: "g", url: "http://127.0.0.1:9", dialect: "anthropic" as const },
+		);
+		expect(out).not.toBeNull();
+		// unpinned row: verbatim ride — the upstream owns any objection
+		expect(out?.body).toMatchObject(PARAMS);
+	});
+});
+
+describe("sampling-param compat (W1202): same-dialect wires stay non-400", () => {
+	const PARAMS = { temperature: 0.7, top_p: 0.9, top_k: 40 };
+
+	test("both dialects forward all three and the upstream 200 holds", async () => {
+		for (const dialect of ["openai", "anthropic"] as const) {
+			const upstream = await startMockUpstream(() =>
+				Response.json({ id: "1" }),
+			);
+			const dep = { group: "g", url: upstream.url, dialect };
+			const res = await defaultFetch(
+				dep,
+				{
+					...OPENAI_REQ,
+					dialect,
+					path: dialect === "openai" ? "/v1/chat/completions" : "/v1/messages",
+					body: { model: "alias", max_tokens: 8, messages: [], ...PARAMS },
+				},
+				5000,
+			);
+			expect(res.status).toBe(200);
+			expect(upstream.calls[0]?.body).toMatchObject(PARAMS);
+			upstream.close();
+		}
 	});
 });
