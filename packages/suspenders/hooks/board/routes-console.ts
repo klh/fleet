@@ -6,7 +6,7 @@ import { json, writeGuard } from "./helpers.ts";
 import { recentAdminAudit } from "../lib/admin-audit.ts";
 import { consoleMe, gatherBeltView, gatherLocalView } from "./console-view.ts";
 import { networkPayload, topologyPayload } from "./network-overview.ts";
-import { buckleReadProxy } from "./buckle-read-proxy.ts";
+import { beltAssetUp, buckleReadProxy } from "./buckle-read-proxy.ts";
 import {
 	htmlHdr,
 	suspPreview,
@@ -47,7 +47,11 @@ export async function handleConsole(
 		return Response.redirect(new URL("/console/buckle", url).toString(), 301);
 	if (url.pathname === "/console/buckle") {
 		const me = consoleMe();
-		return new Response(await beltPage(await gatherBeltView(), me), {
+		// W1294.2.1: probe the belt feed's chunk set once per render — the
+		// page drops its topology script tags when the runtime home is stale.
+		const view = await gatherBeltView();
+		view.beltAssetsUp = await beltAssetUp();
+		return new Response(await beltPage(view, me), {
 			headers: {
 				"content-type": "text/html; charset=utf-8",
 				"cache-control": "no-store",
