@@ -33,6 +33,9 @@ export const SOURCE_PATHS = [
 	".githooks",
 	"packages/suspenders/hooks",
 	"packages/suspenders/scripts",
+	// W1295: the role library dispatch injects into every brief — ship it or
+	// every installed brief dies on the missing dir.
+	"packages/suspenders/agent-rules",
 	"packages/suspenders/deploy",
 	"packages/suspenders/package.json",
 	"packages/belt/bin",
