@@ -13,6 +13,7 @@ import { existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	addedWorkspaceDependencies,
 	missingImportsExplained,
 	type Proof,
 	TEST_FILE,
@@ -22,6 +23,7 @@ import {
 	reviewContext,
 	reviewFindingIds,
 } from "../lib/gates/review-receipt.ts";
+import { branchForItem } from "../lib/lanes/item-branch.ts";
 import {
 	finishReviewRequest,
 	reviewRequestKey,
@@ -170,7 +172,11 @@ const thread: string[] = (
 );
 
 // ---- the review prompt ------------------------------------------------------
-const boundContext = reviewContext(repo, `suspenders/${item}`);
+// W1279: the review binds the item's CANONICAL branch — its own ref when it
+// exists, else the kept child's parent-named branch (split --keep rebinds the
+// tree's lane-context, not the branch) — never a blind suspenders/<item>.
+const boundBranch = branchForItem(repo, item) ?? `suspenders/${item}`;
+const boundContext = reviewContext(repo, boundBranch);
 if (requestKey && requestKey !== reviewRequestKey(project, item, boundContext))
 	throw new Error("review context changed before scheduled runner started");
 const diff = gitDiff(boundContext.base, boundContext.commit);
@@ -256,10 +262,10 @@ async function requestLlm(
 		body: JSON.stringify({
 			model,
 			messages: [{ role: "user", content: prompt }],
-			// W1236: glm-5.3-flash reasoning burned the whole 1500 budget before
-			// any final text — HTTP 200 with content:"" — on every merge-ladder
-			// receipt 2026-10-23. 8000 covers thinking headroom + the write-up.
-			max_tokens: 8000,
+			// W1289: 8000 still cut Flash reviews off mid-reasoning before the
+			// required VERDICT line (W1286 receipt #70110). Leave room for the
+			// actual findings and terminal verdict after its reasoning pass.
+			max_tokens: 16000,
 			temperature: 0.2,
 		}),
 		signal: AbortSignal.timeout(LEG_TIMEOUT_MS),
@@ -405,6 +411,23 @@ async function coverageProof(branch: string): Promise<Proof> {
 		.out.trim()
 		.split("\n")
 		.filter((f) => f && !TEST_FILE.test(f));
+	const mergeBase = gitRun(["merge-base", "main", branch]).out.trim();
+	const manifestPaths = [
+		...new Set(
+			testFiles
+				.filter((path) => /^packages\/[^/]+\//.test(path))
+				.map((path) => `${path.split("/").slice(0, 2).join("/")}/package.json`),
+		),
+	];
+	const addedWorkspaceDeps = manifestPaths.flatMap((path) => {
+		const before = gitRun(["show", `${mergeBase}:${path}`]);
+		const after = gitRun(["show", `${branch}:${path}`]);
+		return addedWorkspaceDependencies(
+			before.code === 0 ? before.out : "{}",
+			after.code === 0 ? after.out : "{}",
+			path,
+		);
+	});
 
 	const scratch = mkdtempSync(join(tmpdir(), "review-proof-"));
 	let added = false;
@@ -452,7 +475,14 @@ async function coverageProof(branch: string): Promise<Proof> {
 			// W1262 (W1258 regression): a missing import that names a module the
 			// diff ADDED means the reversed change is what provides the module —
 			// the failure is the proof. Only an unexplained one is environmental.
-			if (!missingImportsExplained(output, addedProd, testFiles))
+			if (
+				!missingImportsExplained(
+					output,
+					addedProd,
+					testFiles,
+					addedWorkspaceDeps,
+				)
+			)
 				return {
 					status: "error",
 					detail: "scratch module resolution failed",
@@ -553,8 +583,7 @@ const reviewerHeadline = (
 // Sinai proof gates the approval: a PASS stands only when the branch's new
 // tests FAIL without the change — otherwise the verdict is downgraded, with
 // the evidence annotating the headline.
-const proof =
-	verdict === "PASS" ? await coverageProof(`suspenders/${item}`) : null;
+const proof = verdict === "PASS" ? await coverageProof(boundBranch) : null;
 const proofHeadline =
 	proof === null
 		? ""

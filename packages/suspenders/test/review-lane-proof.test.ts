@@ -11,7 +11,13 @@ import {
 	test,
 } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync, realpathSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	realpathSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { guardedMerge } from "../hooks/lib/fleet-loop/merge-guard.ts";
@@ -116,6 +122,7 @@ function learnProject(): void {
 
 interface Case {
 	name: string;
+	keptChild?: boolean;
 	// branch-tip file contents, relative to the fixture repo root
 	files: Record<string, string>;
 	// the fact payload expectation after the stub executor PASSes
@@ -128,13 +135,22 @@ async function runCase(
 	wantExit = 0,
 ): Promise<{ id: string; fact: Record<string, unknown> }> {
 	const id = addWork(`w634 proof ${c.name}`);
-	const branch = `suspenders/${id}`;
+	const branch = c.keptChild ? `suspenders/parent-${id}` : `suspenders/${id}`;
 	expect(git(["checkout", "-b", branch]).code).toBe(0);
 	for (const [path, content] of Object.entries(c.files))
 		await Bun.write(join(REPO, path), content);
 	expect(git(["add", "-A"]).code).toBe(0);
 	expect(git(["commit", "-m", c.name]).code).toBe(0);
 	git(["checkout", "main"]); // the proof reads refs/heads/<branch>, not the checkout
+	if (c.keptChild) {
+		const tree = join(HOME, `kept-parent-${id}`);
+		expect(git(["worktree", "add", tree, branch]).code).toBe(0);
+		mkdirSync(join(tree, ".fleet"), { recursive: true });
+		writeFileSync(
+			join(tree, ".fleet", "lane-context.json"),
+			JSON.stringify({ sid: "fixture-lane", item: id }),
+		);
+	}
 
 	const stub = Bun.serve({
 		port: 0,
@@ -250,6 +266,106 @@ describe("W634 review-lane coverage proof (Sinai rule)", () => {
 	test("fixture repo + store bootstrap", () => {
 		expect(MY_PROJ).toContain("/.git");
 		expect(git(["rev-parse", "--verify", "main"]).code).toBe(0);
+	});
+
+	test("W1289.1: Flash request budgets room for a terminal verdict", async () => {
+		const budgets: number[] = [];
+		const requests: string[] = [];
+		const { fact } = await runCase(
+			{
+				name: "flash-budget-verdict",
+				files: { "docs.md": "flash budget contract\n" },
+				want: "skipped",
+			},
+			async (req) => {
+				const body = (await req.json()) as {
+					model: string;
+					max_tokens: number;
+					messages: { content: string }[];
+				};
+				budgets.push(body.max_tokens);
+				requests.push(body.messages[0]?.content ?? "");
+				return Response.json({
+					model: "glm-5.3-flash",
+					choices: [
+						{
+							finish_reason: "stop",
+							message: { content: "No blocking findings.\nVERDICT: PASS" },
+						},
+					],
+				});
+			},
+		);
+		expect(budgets).toEqual([16000]);
+		expect(requests[0]).toContain(
+			"End your reply with ONE machine-parseable final line:",
+		);
+		expect(requests[0]).toContain("VERDICT: PASS | VERDICT: FAIL - <reason>");
+		expect(fact.verdict).toBe("PASS");
+		expect(fact.wire_model).toBe("glm-5.3-flash");
+
+		let incompleteCalls = 0;
+		const incomplete = await runCase(
+			{
+				name: "flash-budget-no-verdict",
+				files: { "docs.md": "flash incomplete verdict\n" },
+				want: "skipped",
+			},
+			async (req) => {
+				const body = (await req.json()) as { max_tokens: number };
+				expect(body.max_tokens).toBe(16000);
+				incompleteCalls++;
+				return Response.json({
+					model: "glm-5.3-flash",
+					choices: [
+						{
+							finish_reason: "length",
+							message: { content: "N1-incomplete: still analyzing the diff" },
+						},
+					],
+				});
+			},
+			2,
+		);
+		expect(incompleteCalls).toBe(2);
+		expect(incomplete.fact.verdict).toBe("ERROR");
+		expect(String(incomplete.fact.headline)).toContain("no verdict line");
+	});
+
+	test("kept child review binds its parent branch with Flash budget and proof", async () => {
+		let prompt = "";
+		const { id, fact } = await runCase(
+			{
+				name: "kept-child-integrated",
+				keptChild: true,
+				files: {
+					"src.ts":
+						"export const base = 1;\nexport const double = (x: number): number => x * 2;\n",
+					"src.test.ts": `import { test, expect } from "bun:test";
+import { double } from "./src";
+test("needs kept branch change", () => expect(double(2)).toBe(4));
+`,
+				},
+				want: "proved",
+			},
+			async (req) => {
+				const body = (await req.json()) as {
+					max_tokens: number;
+					messages: { content: string }[];
+				};
+				expect(body.max_tokens).toBe(16000);
+				prompt = body.messages[0]?.content ?? "";
+				return Response.json({
+					choices: [{ message: { content: "No findings.\nVERDICT: PASS" } }],
+				});
+			},
+		);
+		expect(
+			git(["rev-parse", "--verify", `refs/heads/suspenders/${id}`]).code,
+		).not.toBe(0);
+		expect(prompt).toContain("export const double");
+		expect(fact.verdict).toBe("PASS");
+		expect((fact.coverage as { status: string }).status).toBe("proved");
 	});
 
 	for (const c of cases) {
