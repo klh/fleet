@@ -24,6 +24,7 @@ import {
 	reviewContext,
 	reviewFindingIds,
 } from "../lib/gates/review-receipt.ts";
+import { wireModelAudit } from "../lib/gates/wire-model-check.ts";
 import {
 	finishReviewRequest,
 	reviewRequestKey,
@@ -258,6 +259,14 @@ const LEG_TIMEOUT_MS = 15 * 60_000;
 // never recorded which upstream actually answered, so the review-leg route
 // was untraceable from the receipt alone. Stamp it into the review fact.
 let legWireModel: string | undefined;
+// W1302.6 (O3): the model class this review REQUESTED (buckle/llm legs name
+// one; bin legs do not). Held for the served-vs-requested assertion below.
+const requestedModel =
+	leg?.kind === "buckle" || leg?.kind === "llm"
+		? leg.model
+		: leg?.kind === "belt"
+			? (leg.target.split(":")[2] || undefined)
+			: undefined;
 async function requestLlm(
 	url: string,
 	model: string,
@@ -602,15 +611,25 @@ const proofHeadline =
 			: proof.status === "no-coverage"
 				? "coverage-proof FAIL: all new tests pass without the change — no coverage"
 				: `coverage-proof ${proof.status}: ${proof.detail}`;
+// W1302.6 (O3): the receipt asserts the served wire model against the
+// requested class. A mismatch can never land as a clean PASS — the W1278.1
+// review was requested as glm-5.3-flash and served by chatgpt/gpt-6-sol.
+const wireAudit = wireModelAudit(requestedModel, legWireModel);
+const wireMismatch = wireAudit?.match === "mismatch" && verdict === "PASS";
+const wireHeadline = wireMismatch
+	? `wire-model mismatch: requested ${wireAudit?.requested} served ${wireAudit?.served} — PASS not trusted`
+	: "";
 const effective =
-	proof?.status === "error"
-		? "ERROR"
-		: proof?.status === "no-coverage"
-			? "FAIL"
-			: verdict;
-const headline = proofHeadline
-	? `${proofHeadline} | ${reviewerHeadline}`
-	: reviewerHeadline;
+	verdict === "PASS" && wireMismatch
+		? "FAIL"
+		: proof?.status === "error"
+			? "ERROR"
+			: proof?.status === "no-coverage"
+				? "FAIL"
+				: verdict;
+const headline = [wireHeadline, proofHeadline, reviewerHeadline]
+	.filter(Boolean)
+	.join(" | ");
 const proofNote = proof
 	? `coverage-proof (${proof.status})${
 			proof.failed === undefined
@@ -626,7 +645,9 @@ db.query(
 	JSON.stringify({
 		verdict: effective,
 		headline,
+		requested_model: requestedModel ?? null,
 		wire_model: legWireModel ?? null,
+		wire_match: wireAudit?.match ?? null,
 		ts: Date.now(),
 		coverage: proof ?? undefined,
 	}),
@@ -669,6 +690,8 @@ publishReviewReceipt(db, project, item, {
 	blocking,
 	resolved,
 	evidence: `${headline}\n${proofNote}\n${(findings ?? "").slice(0, 3000)}`,
+	requested_model: requestedModel,
+	wire_model: legWireModel,
 });
 db.query("UPDATE sessions SET state = 'DONE', hb = ? WHERE sid = ?").run(
 	Date.now(),
