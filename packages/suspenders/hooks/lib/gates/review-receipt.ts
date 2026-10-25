@@ -4,6 +4,7 @@ import type { GovernorStore } from "../govdb/govdb-store.ts";
 import { emitStoredEvent } from "../../coord/event-publish.ts";
 
 export interface ReviewContext {
+	repo: string;
 	commit: string;
 	base: string;
 	instructions: Record<string, string>;
@@ -32,6 +33,90 @@ const git = (repo: string, args: string[]): string => {
 };
 const hash = (s: string): string =>
 	createHash("sha256").update(s).digest("hex");
+const instructionAtTree = (
+	repo: string,
+	tree: string,
+	path: string,
+): { digest: string; body: string; size: number } => {
+	const entry = git(repo, ["ls-tree", "-z", tree, "--", path]);
+	if (!entry) return { digest: "absent", body: "", size: 0 };
+	if (!/^100(?:644|755) blob /.test(entry))
+		throw new Error(`review instruction must be a regular file: ${path}`);
+	const object = `${tree}:${path}`;
+	const size = Number(git(repo, ["cat-file", "-s", object]).trim());
+	if (!Number.isSafeInteger(size) || size > 131_072)
+		throw new Error("review instructions exceed bounded context budget");
+	const body = git(repo, ["show", object]);
+	return { digest: hash(body), body, size };
+};
+const previewTree = (repo: string, base: string, commit: string): string =>
+	git(repo, ["merge-tree", "--write-tree", base, commit]).split("\n")[0].trim();
+const changedPaths = (repo: string, before: string, after: string): string[] =>
+	git(repo, ["diff", "--name-only", "-z", "--no-renames", before, after])
+		.split("\0")
+		.filter(Boolean)
+		.map((path) => {
+			if (path.includes("\uFFFD"))
+				throw new Error("review path is not valid UTF-8");
+			return path;
+		});
+const isAncestor = (repo: string, before: string, after: string): boolean =>
+	Bun.spawnSync(["git", "merge-base", "--is-ancestor", before, after], {
+		cwd: repo,
+		stdout: "pipe",
+		stderr: "pipe",
+	}).exitCode === 0;
+
+/** An old review may survive only when Git proves the candidate's merged
+ * effect is unchanged. Path disjointness is a conservative structural proof,
+ * not a proof of independence between modules. */
+const unchangedReviewedEffect = (
+	repo: string,
+	oldBase: string,
+	base: string,
+	commit: string,
+): { ok: boolean; preview: string } => {
+	if (!/^[0-9a-f]{40,64}$/.test(oldBase) || !isAncestor(repo, oldBase, base))
+		return { ok: false, preview: "" };
+	const oldPreview = previewTree(repo, oldBase, commit);
+	const preview = previewTree(repo, base, commit);
+	const shared = git(repo, ["merge-base", base, commit]).trim();
+	if (
+		oldPreview === preview &&
+		git(repo, ["rev-parse", `${base}^{tree}`]).trim() ===
+			git(repo, ["rev-parse", `${shared}^{tree}`]).trim()
+	)
+		return { ok: true, preview };
+	const candidatePaths = changedPaths(repo, oldBase, oldPreview);
+	const advancePaths = new Set(changedPaths(repo, oldBase, base));
+	if (
+		!candidatePaths.length ||
+		candidatePaths.some((path) => advancePaths.has(path))
+	)
+		return { ok: false, preview };
+	const unchanged =
+		git(repo, [
+			"diff",
+			"--binary",
+			"--no-ext-diff",
+			"--no-renames",
+			oldBase,
+			oldPreview,
+			"--",
+			...candidatePaths,
+		]) ===
+		git(repo, [
+			"diff",
+			"--binary",
+			"--no-ext-diff",
+			"--no-renames",
+			base,
+			preview,
+			"--",
+			...candidatePaths,
+		]);
+	return { ok: unchanged, preview };
+};
 
 // W1243.1.1.1: a B-ID on a non-RESOLVED line is a *mention*, not
 // automatically a live blocker. A standalone `RESOLVED: B<id> <evidence>`
@@ -86,34 +171,22 @@ export function reviewContext(
 			dir = dirname(dir);
 		}
 	}
-	const preview = git(repo, ["merge-tree", "--write-tree", base, commit])
-		.split("\n")[0]
-		.trim();
+	const preview = previewTree(repo, base, commit);
 	const instructions: Record<string, string> = {};
 	const text: string[] = [];
 	let instructionBytes = 0;
 	for (const path of [...names].sort()) {
-		const entry = git(repo, ["ls-tree", "-z", preview, "--", path]);
-		if (!entry) {
-			instructions[path] = "absent";
-			continue;
-		}
-		if (!/^100(?:644|755) blob /.test(entry))
-			throw new Error(`review instruction must be a regular file: ${path}`);
-		const object = `${preview}:${path}`;
-		const size = Number(git(repo, ["cat-file", "-s", object]).trim());
-		instructionBytes += size;
-		if (
-			!Number.isSafeInteger(size) ||
-			size > 131_072 ||
-			instructionBytes > 524_288
-		)
+		const instruction = instructionAtTree(repo, preview, path);
+		instructionBytes += instruction.size;
+		if (instructionBytes > 524_288)
 			throw new Error("review instructions exceed bounded context budget");
-		const body = git(repo, ["show", object]);
-		instructions[path] = hash(body);
-		text.push(`INSTRUCTION ${path} (sha256 ${instructions[path]}):\n${body}`);
+		instructions[path] = instruction.digest;
+		if (instruction.digest !== "absent")
+			text.push(
+				`INSTRUCTION ${path} (sha256 ${instruction.digest}):\n${instruction.body}`,
+			);
 	}
-	return { commit, base, instructions, text: text.join("\n\n") };
+	return { repo, commit, base, instructions, text: text.join("\n\n") };
 }
 
 export function publishReviewReceipt(
@@ -187,10 +260,46 @@ export function checkReviewReceipt(
 				.get(r.reviewer, project)
 		)
 			return { ok: false, why: "reviewer session unavailable" };
-		if (
-			r.base !== context.base ||
-			JSON.stringify(r.instructions) !== JSON.stringify(context.instructions)
-		)
+		let bindingValid = false;
+		try {
+			if (r.base === context.base) {
+				bindingValid =
+					JSON.stringify(r.instructions) ===
+					JSON.stringify(context.instructions);
+			} else if (
+				r.instructions &&
+				typeof r.instructions === "object" &&
+				Object.keys(r.instructions).length <= 512
+			) {
+				const proof = unchangedReviewedEffect(
+					context.repo,
+					r.base,
+					context.base,
+					context.commit,
+				);
+				if (proof.ok) {
+					let instructionBytes = 0;
+					bindingValid = Object.keys(context.instructions).every((path) =>
+						Object.hasOwn(r.instructions, path),
+					);
+					for (const [path, digest] of Object.entries(r.instructions)) {
+						const current = instructionAtTree(
+							context.repo,
+							proof.preview,
+							path,
+						);
+						instructionBytes += current.size;
+						if (instructionBytes > 524_288 || current.digest !== digest) {
+							bindingValid = false;
+							break;
+						}
+					}
+				}
+			}
+		} catch {
+			bindingValid = false;
+		}
+		if (!bindingValid)
 			return {
 				ok: false,
 				why: "review is stale: base or applicable instructions changed",
