@@ -491,6 +491,7 @@ async function coverageProof(branch: string): Promise<Proof> {
 					addedProd,
 					testFiles,
 					addedWorkspaceDeps,
+					scratch,
 				)
 			)
 				return {
