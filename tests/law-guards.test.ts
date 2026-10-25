@@ -9,8 +9,15 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+	LINE_LIMIT_EXEMPT,
+	lineLimitExemption,
+} from "../packages/suspenders/hooks/lib/line-limit-exempt.ts";
 
 const ROOT = join(import.meta.dir, "..");
+// Vendored-snapshot exemption rows (W1300) live in LINE_LIMIT_EXEMPT — the
+// teeth test below keeps them honest; a byte-pure upstream file over the cap
+// is exempt ONLY while tracked, over-cap, and argued there.
 const LINE_LIMIT = 1500;
 
 // The legacy .sh set (W694 L5): installer entrypoints, the launchd loader
@@ -96,15 +103,35 @@ test("no tracked .ts exceeds the 1500-line law", () => {
 			(f) =>
 				[f, readFileSync(join(ROOT, f), "utf8").split("\n").length] as const,
 		)
-		.filter(([, n]) => n > LINE_LIMIT);
+		.filter(([f, n]) => n > LINE_LIMIT && !lineLimitExemption(f));
 	expect(
 		over.map(([f, n]) => `${f}: ${n} > ${LINE_LIMIT}`),
-		"files over the 1500-line law — decompose, do not raise the limit",
+		"files over the 1500-line law — decompose, do not raise the limit (vendored-snapshot rows: LINE_LIMIT_EXEMPT)",
 	).toEqual([]);
 });
 
 test("line-limit scan has teeth (real tracked .ts population)", () => {
 	expect(tracked("*.ts").length).toBeGreaterThan(500);
+});
+
+test("1500-law vendor exemptions stay argued and current (W1300)", () => {
+	for (const row of LINE_LIMIT_EXEMPT) {
+		// tracked + still over the cap — an exemption for a split-away or
+		// shrunk file is stale: delete the row, never accumulate.
+		expect(
+			tracked(row.path),
+			`${row.path}: exemption row for an untracked file — delete the row`,
+		).toEqual([row.path]);
+		const n = readFileSync(join(ROOT, row.path), "utf8").split("\n").length;
+		expect(
+			n > LINE_LIMIT,
+			`${row.path}: ${n} lines, at/under the cap — exemption stale, delete the row`,
+		).toBe(true);
+		// the row must argue both halves: why no local rewrite + where the
+		// size reconciles upstream (same argument shape as SH_ALLOWLIST).
+		expect(row.why.length).toBeGreaterThan(20);
+		expect(row.upstream.length).toBeGreaterThan(20);
+	}
 });
 
 test("tracked .sh files match the pinned allowlist exactly", () => {

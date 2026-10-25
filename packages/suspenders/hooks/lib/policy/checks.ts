@@ -13,6 +13,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { POLICY_CATALOG_VERSION, policyCatalog } from "./catalog.ts";
+import { lineLimitExemption } from "../line-limit-exempt.ts";
 import type {
 	PolicyFinding,
 	PolicyRule,
@@ -134,6 +135,9 @@ export function checkLineLimit(files: PolicySourceFile[]): PolicyFinding[] {
 	const out: PolicyFinding[] = [];
 	for (const f of files) {
 		if (f.lines <= LINE_LIMIT) continue;
+		// W1300: argued vendor-exemption rows (byte-pure upstream snapshots)
+		// are not findings — the row's upstream path owns the reconciliation.
+		if (lineLimitExemption(f.rel)) continue;
 		out.push(
 			finding(
 				rule,
