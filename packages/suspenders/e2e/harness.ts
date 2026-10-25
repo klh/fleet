@@ -8,6 +8,11 @@ import { expect } from "@playwright/test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+	boardStartupTail,
+	unusedPort,
+	waitBoardUp,
+} from "../test/helpers/board-fixture-core.ts";
 
 export interface WorkResult {
 	code: number;
@@ -34,16 +39,7 @@ export interface Board {
 }
 
 /** Bind :0, read the OS-picked port, release. */
-export function unusedPort(): number {
-	const server = Bun.serve({
-		hostname: "127.0.0.1",
-		port: 0,
-		fetch: () => new Response(),
-	});
-	const port = server.port;
-	server.stop(true);
-	return port;
-}
+export { unusedPort };
 
 export async function startBoard(
 	label: string,
@@ -104,30 +100,12 @@ export async function startBoard(
 		],
 		{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
 	);
-	let output = "";
-	const drain = async (stream: ReadableStream<Uint8Array>) => {
-		for await (const chunk of stream)
-			output = `${output}${new TextDecoder().decode(chunk)}`.slice(-16_384);
-	};
-	void drain(proc.stdout);
-	void drain(proc.stderr);
-	async function waitUp() {
-		for (let i = 0; i < 100; i++) {
-			try {
-				if (
-					(
-						await fetch(`${BASE}/api/data`, {
-							signal: AbortSignal.timeout(500),
-						})
-					).ok
-				)
-					return;
-			} catch {}
-			await new Promise((r) => setTimeout(r, 100));
-		}
-		throw new Error(`board ${label} did not start: ${output}`);
-	}
-	await waitUp();
+	const startupTail = boardStartupTail(proc.stdout, proc.stderr);
+	await waitBoardUp(
+		BASE,
+		startupTail.output,
+		(_b, out) => `board ${label} did not start: ${out}`,
+	);
 
 	return {
 		BASE,
