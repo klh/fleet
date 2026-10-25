@@ -3,7 +3,7 @@
 // once/reuse via the registry, fork args per harness, parseSessionId, and the
 // dispatch-facing dispatchStarterFork wiring (flag off / claude fork /
 // unsupported harness / seed failure fallback).
-import { afterEach, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
 	chmodSync,
 	existsSync,
@@ -44,7 +44,7 @@ const scratch = (): string => {
 
 test.describe("lane-starter", () => {
 	const fleet = scratch();
-	afterEach(() => {
+	test.afterEach(() => {
 		if (existsSync(fleet)) rmSync(fleet, { recursive: true, force: true });
 	});
 
@@ -451,7 +451,7 @@ test.describe("lane-starter", () => {
 	// records its own PID and hangs; the deadline SIGTERMs that PID and the
 	// test proves the captured child is gone. No fixture leak.
 	test("the direct seed child is killed within the declared budget", () => {
-		// afterEach removed the shared fleet dir — ensureStarter spawns with
+		// test.afterEach removed the shared fleet dir — ensureStarter spawns with
 		// cwd: fleet, so it must exist for the real spawnSync.
 		mkdirSync(fleet, { recursive: true });
 		const d = scratch();

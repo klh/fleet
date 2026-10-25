@@ -4,10 +4,23 @@
 // test file, so the harness (and its afterAll cleanup) instantiates once per
 // importing file — the same isolation the original file had.
 
-import { afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
+import { test as pw } from "@playwright/test";
 import { dispatchHarness } from "./dispatch-harness.ts";
+
+// dual-runner hook pick (W1294 sweep ports): bun test injects globalThis.expect
+// into suites; playwright does not — so this module-level harness instantiates
+// once per importing file under EITHER runner without bun:test imports.
+const G = globalThis as typeof globalThis & {
+	afterAll?: (fn: () => void | Promise<void>) => void;
+	expect?: unknown;
+};
+const bunAfterAll = G.afterAll;
+const regAfterAll =
+	typeof G.expect === "function" && typeof bunAfterAll === "function"
+		? bunAfterAll
+		: pw.afterAll;
 
 const {
 	HOME,
@@ -21,7 +34,7 @@ const {
 	toolA,
 	dispatchA,
 	addItem,
-} = dispatchHarness(afterAll, {
+} = dispatchHarness(regAfterAll, {
 	tag: "w145-dispatch",
 	beltEnv: true,
 });

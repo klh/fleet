@@ -1,12 +1,12 @@
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
-const fixture = await boardFixture(0, afterAll);
+const fixture = await boardFixture(0, test.afterAll);
 const db = new Database(`${fixture.HOME}/.cache/claude-governor/governor.db`);
-afterAll(() => db.close());
+test.afterAll(() => db.close());
 const project = realpathSync(fixture.REPO);
 function seed(sid: string, scope = project) {
 	db.query(

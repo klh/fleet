@@ -3,7 +3,7 @@
 // the repo (never /tmp); every DB open and CLI run happens in a bun subprocess
 // so the parent test process never opens the real governor.db
 // (coord-diff.test.ts recipe).
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 test.describe({ tag: "@unit" }, () => {
@@ -11,7 +11,7 @@ test.describe({ tag: "@unit" }, () => {
 const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
 const fx = cliFixture("w652-events");
 
-afterAll(() => fx.cleanup());
+test.afterAll(() => fx.cleanup());
 
 const runIn = (code: string): string => fx.seed(code);
 

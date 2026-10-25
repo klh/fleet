@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
 import { rmSync } from "node:fs";
 import { tmpDir } from "./helpers/fixture-kit.ts";
@@ -10,7 +10,7 @@ test.describe({ tag: "@api" }, () => {
 
 const databases: Database[] = [];
 const directories: string[] = [];
-afterEach(() => {
+test.afterEach(() => {
 	for (const db of databases.splice(0)) db.close();
 	for (const dir of directories.splice(0))
 		rmSync(dir, { recursive: true, force: true });
@@ -75,9 +75,8 @@ test("exact release couples state, owned work claim and one project-scoped event
 	expect(db.query("SELECT COUNT(*) AS n FROM events").get()).toEqual({ n: 1 });
 });
 
-test.each(["transfer", "renewal", "terminal", "missing"])(
-	"stale %s observation cannot release or emit success",
-	(race) => {
+for (const race of ["transfer", "renewal", "terminal", "missing"]) {
+	test(`stale ${race} observation cannot release or emit success`, () => {
 		const db = fixture();
 		if (race === "transfer")
 			db.run("UPDATE work_items SET owner_sid='new',updated_at=101");
@@ -96,8 +95,8 @@ test.each(["transfer", "renewal", "terminal", "missing"])(
 		expect(db.query("SELECT COUNT(*) AS n FROM claims").get()).toEqual({
 			n: 2,
 		});
-	},
-);
+	});
+}
 
 test("another process transferring the claim wins against stale owner release", () => {
 	const dir = tmpDir("fleet-release-race-");

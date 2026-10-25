@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -138,7 +138,7 @@ function seedSessions() {
 	db.close();
 }
 
-afterAll(() => {
+test.afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO, { recursive: true, force: true });
 });

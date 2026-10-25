@@ -6,7 +6,7 @@
 // Temp HOME under the repo (never /tmp); every DB open happens in a bun
 // subprocess so the parent test process never opens the real governor.db
 // (w451-event-indexes recipe).
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,7 +25,7 @@ const home = mkdtempSync(join(tmpdir(), "suspenders-w611-lane-inbox-"));
 const SID = "w611-lane-sess-11111111";
 const OTHER = "w611-lane-sess-22222222";
 
-afterAll(() => rmSync(home, { recursive: true, force: true }));
+test.afterAll(() => rmSync(home, { recursive: true, force: true }));
 
 const runIn = (code: string): string => {
 	const p = Bun.spawnSync(["bun", "-e", code], {

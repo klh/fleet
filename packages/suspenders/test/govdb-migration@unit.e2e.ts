@@ -3,14 +3,14 @@
 // they are renamed to <name>_legacy_<ts> so rows survive verbatim. Empty
 // legacy tables may be recreated in the current shape; current-shape tables
 // pass through untouched.
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-mig-"));
-// restore before afterAll cleanup: the rest of the suite shares this process —
+// restore before test.afterAll cleanup: the rest of the suite shares this process —
 // a leaked fixture HOME rides later spawns' {...process.env} spreads (W1124.11)
 const REAL_HOME = process.env.HOME;
 process.env.HOME = HOME; // govdb computes REG from HOME at module load — set before the dynamic import
@@ -60,7 +60,7 @@ function rowCount(table: string): number {
 	return r.n;
 }
 
-afterAll(() => {
+test.afterAll(() => {
 	process.env.HOME = REAL_HOME;
 	rmSync(HOME, { recursive: true, force: true });
 });

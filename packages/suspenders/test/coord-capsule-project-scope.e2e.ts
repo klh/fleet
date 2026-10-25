@@ -6,7 +6,7 @@
 // reader resolves the identity from its own cwd and lands on its own row.
 // Temp-HOME spawn recipe per lane-completion.test.ts; never touches a real
 // governor.db.
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,7 +17,7 @@ const home = join(root, "home");
 mkdirSync(home);
 const env = { ...process.env, HOME: home, GOVERNOR_STORE_URL: "" };
 const hooks = join(import.meta.dir, "../hooks");
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+test.afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 function repo(name: string) {
 	const dir = join(root, name);

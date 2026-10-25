@@ -4,7 +4,7 @@
 // these synthetic sids (no prefix relation to real registry rows), so each
 // claimant rides the W610 claimant probe: fresh governor heartbeat → alive,
 // everything else → unknown (never ▶, never ×).
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 test.describe({ tag: "@unit" }, () => {
@@ -12,7 +12,7 @@ test.describe({ tag: "@unit" }, () => {
 const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
 const fx = cliFixture("w378-fleet-honesty");
 
-afterAll(() => fx.cleanup());
+test.afterAll(() => fx.cleanup());
 
 const runCli = (args: string[]): { code: number; out: string; err: string } =>
 	fx.run("coord.ts", args);

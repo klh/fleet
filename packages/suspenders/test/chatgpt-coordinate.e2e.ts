@@ -1,7 +1,7 @@
 // W1013 — the WS-native ChatGPT auto-coordinate loop: trigger filter, dedupe,
 // brief composer and the W931 ingress POST shape (in-process stub server —
 // the hub-wire-test lesson: async fetch answers in-process; never spawnSync).
-import { afterEach, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,7 +28,7 @@ const scratch = (): string => {
 	return dir;
 };
 const dirs: string[] = [];
-afterEach(() => {
+test.afterEach(() => {
 	for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 

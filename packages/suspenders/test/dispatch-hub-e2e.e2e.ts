@@ -14,7 +14,7 @@
 // the executor's process env dump, the 0600 lane-settings file dispatch
 // writes (settings env outranks the process env in the CLI), the lanes.json
 // registry row, and the dispatch stdout note.
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
@@ -25,7 +25,7 @@ test.describe({ tag: "@api" }, () => {
 // fake executor (see executorBody below): dumps its process env — the
 // only proof of what the LANE actually saw — records its pid, and stays
 // alive past the 1s launch check.
-const { HOME, REPO, dispatchA, addItem, cleanup } = dispatchHarness(afterAll, {
+const { HOME, REPO, dispatchA, addItem, cleanup } = dispatchHarness(test.afterAll, {
 	tag: "w357-hub",
 	beltEnv: true,
 	executorBody:
@@ -123,7 +123,7 @@ const laneRow = (sid: string): { hub?: string; agent?: string } => {
 	return row as { sid: string; hub?: string; agent?: string };
 };
 
-afterAll(() => {
+test.afterAll(() => {
 	reapLanes();
 	desktopHub.stop(true);
 	nasHub.stop(true);

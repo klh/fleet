@@ -2,7 +2,7 @@
 // THE face (WS push); wait/poll/inbox ride the ONE readEvents core and share
 // the cursor contract: advances only past SHOWN. Recipe: coord-events.test.ts
 // (temp HOME, every DB open + CLI run in a bun subprocess).
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 test.describe({ tag: "@unit" }, () => {
@@ -10,7 +10,7 @@ test.describe({ tag: "@unit" }, () => {
 const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
 const fx = cliFixture("w652-reads");
 
-afterAll(() => fx.cleanup());
+test.afterAll(() => fx.cleanup());
 
 const runIn = (code: string): string => fx.seed(code);
 

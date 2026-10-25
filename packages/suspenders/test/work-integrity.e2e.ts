@@ -4,7 +4,7 @@
 // ORPHANED block; optional children do not; supersession closes), and the
 // start/done/release transitions validate state and caller ownership.
 // Isolated temp HOME (governor.db) + temp repo (project identity).
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { rmSync, mkdirSync } from "node:fs";
 import { tmpDir } from "./helpers/fixture-kit.ts";
 
@@ -63,7 +63,7 @@ function finish(
 	);
 }
 
-afterAll(() => {
+test.afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO, { recursive: true, force: true });
 });

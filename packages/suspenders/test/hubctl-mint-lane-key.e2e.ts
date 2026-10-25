@@ -3,7 +3,7 @@
 // lives in a fixture file; a fake curl answers the hub-side script; a fake
 // ssh proves the root key VALUE never rides the ssh command (only its
 // on-device file path does).
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
 	chmodSync,
 	mkdirSync,
@@ -116,7 +116,7 @@ function callsText(): string {
 	return readFileSync(calls, "utf8");
 }
 
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+test.afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 test("mint-lane-key mints on a local hub, root key used not printed", () => {
 	writeFileSync(calls, "");

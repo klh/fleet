@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -9,7 +9,7 @@ import {
 } from "./helpers/work-completion-fixtures.ts";
 test.describe({ tag: "@unit" }, () => {
 
-afterEach(() => drainCleanup());
+test.afterEach(() => drainCleanup());
 
 test("kept split child completes under the splitter's parent-bound context (W652.1)", () => {
 	const f = fixture();

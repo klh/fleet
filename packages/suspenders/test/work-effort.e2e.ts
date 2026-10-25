@@ -1,7 +1,7 @@
 // test/work-effort.test.ts — W248: per-item effort budget. Lib contract
 // (vocabulary + budget lines + show-parse) and the CLI surface (add --effort
 // validation, show render, split inheritance) against a temp project.
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 import {
 	effortBudgetLine,
@@ -16,7 +16,7 @@ const work = (...args: string[]) => f.run("work.ts", args);
 const effortLine = (out: string): string | undefined =>
 	/^ {2}effort: (.+)$/m.exec(out)?.[1];
 
-afterAll(f.cleanup);
+test.afterAll(f.cleanup);
 
 test.describe("effort budget lib", () => {
 	test("EFFORTS vocabulary is simple | complex", () => {

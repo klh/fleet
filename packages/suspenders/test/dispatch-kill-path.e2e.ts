@@ -3,7 +3,7 @@
 // verdict). On miss it reports INTERRUPTED — the sticky terminal state — so a
 // ghost running state converges instead of a PAUSE_REQUESTED hanging unacked
 // forever. --force is the explicit operator override.
-import { afterEach, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
@@ -12,7 +12,7 @@ import { laneGlyph } from "../hooks/lib/watch/frame.ts";
 test.describe({ tag: "@unit" }, () => {
 
 const directories: string[] = [];
-afterEach(() => {
+test.afterEach(() => {
 	for (const dir of directories.splice(0))
 		rmSync(dir, { recursive: true, force: true });
 });

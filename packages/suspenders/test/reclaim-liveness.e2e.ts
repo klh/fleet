@@ -4,7 +4,7 @@
 // unknown never releases, death needs STRIKES_TO_RECLAIM consecutive dead
 // passes (fact-counted), and `work extend` pauses the reaper for a
 // known-long op.
-import { afterEach, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
@@ -42,7 +42,7 @@ function fixture(): GovernorStore {
 	};
 }
 
-afterEach(() => {
+test.afterEach(() => {
 	for (const db of databases.splice(0)) db.close();
 	for (const dir of directories.splice(0))
 		rmSync(dir, { recursive: true, force: true });

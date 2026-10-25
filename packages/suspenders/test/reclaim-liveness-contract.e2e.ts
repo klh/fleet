@@ -6,7 +6,7 @@
 // transcript is not liveness); a dead claim converges to release through
 // aging alone (recycled pid + cold heartbeat + open session row → 3 dead
 // strikes → release), while a fresh transcript still outranks a recycled pid.
-import { afterEach, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
 import {
 	mkdirSync,
@@ -50,7 +50,7 @@ function fixture(): GovernorStore {
 	};
 }
 
-afterEach(() => {
+test.afterEach(() => {
 	for (const db of databases.splice(0)) db.close();
 	for (const dir of directories.splice(0))
 		rmSync(dir, { recursive: true, force: true });

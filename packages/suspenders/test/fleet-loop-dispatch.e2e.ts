@@ -4,7 +4,7 @@
 // skip reinstalls like git-worktree lanes do. Dispatch without the agent
 // binary on PATH stops at the binary check, which leaves the fresh
 // workspace observable; the resume path must not duplicate or clobber.
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
 	chmodSync,
 	existsSync,
@@ -23,7 +23,7 @@ test.describe({ tag: "@unit" }, () => {
 // (mint ok + scratch admin) so the launches proceed; a dead front now
 // REFUSES fail-closed (covered in fleet-loop-governed.test.ts).
 const stub = stubBuckle(true);
-const { BIN, env, g, HOME, REPO, toolWith } = dispatchHarness(afterAll, {
+const { BIN, env, g, HOME, REPO, toolWith } = dispatchHarness(test.afterAll, {
 	tag: "w72-dispatch",
 	beltEnv: true,
 	envOverrides: ({ HOME }) => ({
@@ -41,7 +41,7 @@ chmodSync(executor, 0o700);
 // dispatch invokes the INSTALLED CLI path ($HOME/.claude/hooks/suspenders/
 // bin) — the harness symlink wires the bin under test into the scratch HOME
 
-afterAll(() => {
+test.afterAll(() => {
 	stub.stop();
 });
 

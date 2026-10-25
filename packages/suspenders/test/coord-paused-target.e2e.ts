@@ -4,7 +4,7 @@
 // readEvents directedOnly pass only deliver to real sids). Temp HOME; every
 // DB open and CLI run happens in a bun subprocess so the parent test process
 // never opens the real governor.db (coord-events.test.ts recipe).
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 test.describe({ tag: "@unit" }, () => {
@@ -14,7 +14,7 @@ const fx = cliFixture("w885-paused-target");
 const SID = "w885-paused-sess-11111111";
 const SHA = "a".repeat(40);
 
-afterAll(() => fx.cleanup());
+test.afterAll(() => fx.cleanup());
 
 const runIn = (code: string): string => fx.seed(code);
 

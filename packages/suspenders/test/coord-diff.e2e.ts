@@ -3,7 +3,7 @@
 // (never /tmp). All DB access and CLI runs happen in bun subprocesses so the
 // parent test process never opens the real governor.db (metrics.test.ts
 // recipe), and every open of the temp DB re-runs the migration idempotently.
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 test.describe({ tag: "@unit" }, () => {
@@ -11,7 +11,7 @@ test.describe({ tag: "@unit" }, () => {
 const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
 const fx = cliFixture("w619-diff");
 
-afterAll(() => fx.cleanup());
+test.afterAll(() => fx.cleanup());
 
 const runIn = (code: string): string => fx.seed(code);
 

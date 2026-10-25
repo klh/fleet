@@ -3,7 +3,7 @@
 // "--text") and `fact rm` purges rows, including those legacy flag-shaped
 // keys. Temp HOME; every CLI run in a bun subprocess
 // (coord-fact-cas.test.ts recipe).
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 test.describe({ tag: "@unit" }, () => {
@@ -13,7 +13,7 @@ test.setTimeout(30_000); // spawn-heavy suite (bun:test 5s default flake floor)
 const STORE = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb-store.ts");
 const fx = cliFixture("w773-fact-key-guard");
 
-afterAll(() => fx.cleanup());
+test.afterAll(() => fx.cleanup());
 
 const runCli = (args: string[]): { code: number; out: string; err: string } =>
 	fx.run("coord.ts", args);

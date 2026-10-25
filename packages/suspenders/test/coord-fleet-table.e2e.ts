@@ -3,7 +3,7 @@
 // style), --njson = one lane entry per NDJSON line, --json unchanged.
 // Unit face: pure builder + glyph. CLI face: the coord-fleet-honesty
 // recipe — temp HOME, every DB open + CLI run in a bun subprocess.
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,7 +17,7 @@ const fx = cliFixture("w1258-fleet-table", {
 	env: { GOVERNOR_STORE_URL: "local" },
 });
 
-afterAll(() => fx.cleanup());
+test.afterAll(() => fx.cleanup());
 
 // fleet lesson coord-child-store-binding: spawned coord children inherit
 // GOVERNOR_STORE_URL — without the pin a lane env's store URL silently

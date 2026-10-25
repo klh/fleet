@@ -3,7 +3,7 @@
 // transaction; the next successful claim clears it (resume convergence). The
 // manual reclaim shares the bulk pass's liveness truth: a verifiably-live
 // claimant refuses unless forced, and a crash reason demands death evidence.
-import { afterEach, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,7 +22,7 @@ test.describe({ tag: "@unit" }, () => {
 
 const databases: Database[] = [];
 const directories: string[] = [];
-afterEach(() => {
+test.afterEach(() => {
 	for (const db of databases.splice(0)) db.close();
 	for (const dir of directories.splice(0))
 		rmSync(dir, { recursive: true, force: true });

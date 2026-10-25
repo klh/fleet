@@ -4,7 +4,7 @@
 // with the REAL liveness verdict on deterministic rows (pid-less row on this
 // host reads dead; foreign-host row without transcript reads unknown), plus
 // the router wiring through the dispatch entrypoint itself.
-import { afterEach, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -324,7 +324,7 @@ test.describe("router wiring", () => {
 	});
 });
 
-afterEach(() => {
+test.afterEach(() => {
 	for (const root of roots.splice(0))
 		rmSync(root, { recursive: true, force: true });
 });

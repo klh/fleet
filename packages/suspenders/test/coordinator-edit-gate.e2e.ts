@@ -5,7 +5,7 @@
 // exemption, and temp dirs never carry a verified fleet identity (git root
 // or installed prefix), so spawns resolve coordinator/lane deterministically
 // (W1124.9).
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
 	existsSync,
 	mkdirSync,
@@ -37,7 +37,7 @@ writeFileSync(
 mkdirSync(join(root, "packages", "belt"), { recursive: true });
 const other = join(tmp, "plain"); // NOT fleet-shaped, NOT a repo
 mkdirSync(other, { recursive: true });
-afterAll(() => rmSync(tmp, { recursive: true, force: true }));
+test.afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
 /** git helper — spawn with the ambient env (bun spawn env replaces). */
 function gitSync(args: string[]): string {

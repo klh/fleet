@@ -8,7 +8,7 @@
 // would walk up into the checkout's own .git, colliding project identity.
 
 import { Database } from "bun:sqlite";
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { gitInit, tmpDir, cleanupDirs } from "./helpers/fixture-kit.ts";
@@ -123,7 +123,7 @@ function finishAs(
 	return result;
 }
 
-afterAll(() => {
+test.afterAll(() => {
 	cleanupDirs(HOME, REPO);
 });
 

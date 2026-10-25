@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
 import {
 	existsSync,
@@ -18,7 +18,7 @@ const home = join(root, "home");
 mkdirSync(home);
 const env = { ...process.env, HOME: home, GOVERNOR_STORE_URL: "" };
 const source = join(import.meta.dir, "../hooks");
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+test.afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 // the producer validates against the CALLER's repo — run coord from a real
 // git worktree so `git cat-file` can prove (or refuse) the checkpoint

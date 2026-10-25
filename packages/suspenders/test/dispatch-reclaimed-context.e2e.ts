@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
@@ -6,7 +6,7 @@ import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
 import { dispatchHarness, stubBuckle } from "./helpers/dispatch-harness.ts";
 test.describe({ tag: "@unit" }, () => {
 
-const h = dispatchHarness(afterAll, {
+const h = dispatchHarness(test.afterAll, {
 	tag: "reclaimed-context",
 	beltEnv: true,
 	executorBody: "#!/usr/bin/env bun\nawait Bun.sleep(15000);\n",

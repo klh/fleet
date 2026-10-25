@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { afterEach, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
@@ -17,7 +17,7 @@ import {
 } from "./helpers/work-completion-fixtures.ts";
 test.describe({ tag: "@unit" }, () => {
 
-afterEach(() => drainCleanup());
+test.afterEach(() => drainCleanup());
 
 test("tail requires project disambiguation when clones share an item id", () => {
 	const f = fixture();

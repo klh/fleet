@@ -1,7 +1,7 @@
 // lane-effort-policy.test.ts — W1140: the lane effort policy — parse, conf
 // chain, classification, the two-stage default, and the dispatch pin.
 import { Database } from "bun:sqlite";
-import { afterEach, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -98,7 +98,7 @@ test.describe("parseEffortPolicy", () => {
 
 test.describe("loadEffortPolicy (conf chain)", () => {
 	const HOME = mkdtempSync(join(tmpdir(), "effort-policy-"));
-	afterEach(() => {
+	test.afterEach(() => {
 		rmSync(join(HOME, ".claude"), { recursive: true, force: true });
 	});
 

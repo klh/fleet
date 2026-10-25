@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
 	mkdtempSync,
 	mkdirSync,
@@ -304,7 +304,7 @@ test("retirement retains an unresolved native executable and ignores prompt-only
 	);
 	expect(observe()).toBe(false);
 });
-afterEach(() => {
+test.afterEach(() => {
 	for (const root of roots.splice(0))
 		rmSync(root, { recursive: true, force: true });
 });

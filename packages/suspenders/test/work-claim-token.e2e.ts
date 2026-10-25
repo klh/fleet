@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpDir } from "./helpers/fixture-kit.ts";
@@ -21,7 +21,7 @@ const env = { ...process.env, HOME: home, GOVERNOR_STORE_URL: "" };
 // every done() that expects a refusal, inverting the fence under test.
 delete env.KLH_CLAIM_TOKEN;
 const source = join(import.meta.dir, "../hooks");
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+test.afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 // a real git repo: work project identity + done's sha/commit evidence
 const repo = join(root, "repo");

@@ -10,7 +10,7 @@
 //     after the 0600 meta was read: the reuse path must confirm liveness
 //     at the front (the W607 whoami self-verify echo) and never re-hand
 //     a dead key.
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -90,7 +90,7 @@ const seedEnrollment = (fleet: string, sid: string): void => {
 
 test.describe("W746 rotation race: reuse never re-hands a revoked key", () => {
 	const HOME = mkdtempSync(join(tmpdir(), "w746-rotate-"));
-	afterAll(() => rmSync(HOME, { recursive: true, force: true }));
+	test.afterAll(() => rmSync(HOME, { recursive: true, force: true }));
 	const fleet = join(HOME, "fleet");
 
 	test("revoked reuse → fresh mint at the front, never the dead key", async () => {

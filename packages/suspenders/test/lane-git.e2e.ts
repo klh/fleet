@@ -1,7 +1,7 @@
 // W835 — lane-git observation lib: budgeted git probes, per-field
 // null-degradation, the merge-ready gate, and the text badge. Hermetic:
 // fixture repos under a mkdtemp root, no db, no env coupling.
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,7 +15,7 @@ import {
 test.describe({ tag: "@unit" }, () => {
 
 const root = mkdtempSync(join(tmpdir(), "lane-git-test-"));
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+test.afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 // base commit pushed to a bare origin, then a lane branch with one commit
 // ahead of the integration base — the real worktree shape (lanes never sit

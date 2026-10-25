@@ -2,7 +2,7 @@
 // machine plaid_routes (suspenders-board.json) instead of the committed
 // defaults, and an item-local deferral (unbanked worktree residue) no longer
 // stops the whole plaid refill: the next independent READY item still rides.
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
 	chmodSync,
 	existsSync,
@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { dispatchHarness } from "./helpers/dispatch-harness.ts";
 test.describe({ tag: "@unit" }, () => {
 
-const { HOME, REPO, toolA, dispatchA, addItem } = dispatchHarness(afterAll, {
+const { HOME, REPO, toolA, dispatchA, addItem } = dispatchHarness(test.afterAll, {
 	tag: "w1145-refill",
 	beltEnv: true,
 });

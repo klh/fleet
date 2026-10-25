@@ -8,7 +8,7 @@
 // read-only fleet faces. The final test asserts registry parity — a verb
 // added without a matrix scenario fails here.
 import { spawnSync } from "node:child_process";
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 test.describe({ tag: "@unit" }, () => {
@@ -420,6 +420,6 @@ test.describe("coord verb matrix — registry parity (must stay last)", () => {
 	});
 });
 
-afterAll(() => fx.cleanup());
+test.afterAll(() => fx.cleanup());
 
 });

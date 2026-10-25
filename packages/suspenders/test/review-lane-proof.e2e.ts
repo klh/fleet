@@ -4,7 +4,7 @@
 // stub executor that always PASSes, and asserts the mechanical outcome.
 
 import { Database } from "bun:sqlite";
-import { afterAll, beforeAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -197,7 +197,7 @@ async function runCase(
 	return { id, fact: JSON.parse(fact.value) as Record<string, unknown> };
 }
 
-beforeAll(async () => {
+test.beforeAll(async () => {
 	// one git repo for every case: main + per-case branches suspenders/<id>
 	git(["init", "-b", "main"]);
 	git(["config", "user.email", "w634@test"]);
@@ -209,7 +209,7 @@ beforeAll(async () => {
 	learnProject();
 });
 
-afterAll(() => {
+test.afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO, { recursive: true, force: true });
 });

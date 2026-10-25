@@ -1,10 +1,10 @@
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dispatchHarness } from "./helpers/dispatch-harness.ts";
 test.describe({ tag: "@api" }, () => {
 
-const { HOME, REPO, g, addItem, dispatchA, toolA } = dispatchHarness(afterAll, {
+const { HOME, REPO, g, addItem, dispatchA, toolA } = dispatchHarness(test.afterAll, {
 	tag: "route-admission",
 	beltEnv: true,
 });

@@ -2,7 +2,7 @@
 // parked/W349: dispatch verifies the worktree branch before spawn. The
 // scratch HOME/repo + async spawns come from the shared dispatch harness
 // (test/helpers/dispatch-harness.ts) so the stub buckle front never stalls.
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
@@ -10,7 +10,7 @@ import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
 import { dispatchHarness, stubBuckle } from "./helpers/dispatch-harness.ts";
 test.describe({ tag: "@unit" }, () => {
 
-const { HOME, REPO, toolA, dispatchA, addItem } = dispatchHarness(afterAll, {
+const { HOME, REPO, toolA, dispatchA, addItem } = dispatchHarness(test.afterAll, {
 	tag: "w349-dispatch",
 	beltEnv: true,
 });

@@ -5,7 +5,7 @@
 // stub replaces the executor and records every argv NUL-delimited —
 // W1124.12.1: flattened `echo "$@"` is NOT boundary proof, so assertions
 // read the per-argument array, never one joined string.
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dispatchHarness } from "./helpers/dispatch-harness.ts";
@@ -22,7 +22,7 @@ done
 sleep 2
 `;
 
-const h = dispatchHarness(afterAll, {
+const h = dispatchHarness(test.afterAll, {
 	tag: "w1124-worker-profile",
 	executorBody: argvBody,
 });

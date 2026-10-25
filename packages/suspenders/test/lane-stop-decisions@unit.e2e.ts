@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -7,9 +7,9 @@ import {
 	selfLaneStopNotice,
 } from "../hooks/lib/lanes/lane-stop-decision.ts";
 import { boardFixture } from "./helpers/board-fixture.ts";
-const f = await boardFixture(0, afterAll);
+const f = await boardFixture(0, test.afterAll);
 const db = new Database(`${f.HOME}/.cache/claude-governor/governor.db`);
-afterAll(() => db.close());
+test.afterAll(() => db.close());
 const project = "/projects/lane-stop/.git",
 	foreign = "/projects/other/.git";
 type Decision = {

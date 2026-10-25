@@ -5,7 +5,7 @@
 // W646: scope-hint overlap — HintSet path/word split (paths weigh ×3),
 // recent-claim history affinity, scope-miss penalty, score>overlap>load>
 // live>sid tiebreak, overlap evidence in the reason string.
-import { afterEach, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpDir } from "./helpers/fixture-kit.ts";
@@ -26,7 +26,7 @@ test.describe({ tag: "@unit" }, () => {
 const databases: Database[] = [];
 const directories: string[] = [];
 const bunPath = process.execPath;
-afterEach(() => {
+test.afterEach(() => {
 	for (const db of databases.splice(0)) db.close();
 	for (const dir of directories.splice(0))
 		rmSync(dir, { recursive: true, force: true });

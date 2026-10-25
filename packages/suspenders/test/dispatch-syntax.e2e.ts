@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -6,7 +6,7 @@ import { probeDispatchSyntax } from "../scripts/lib/dispatch-syntax.ts";
 test.describe({ tag: "@unit" }, () => {
 
 const roots: string[] = [];
-afterEach(() => {
+test.afterEach(() => {
 	for (const root of roots.splice(0))
 		rmSync(root, { recursive: true, force: true });
 });

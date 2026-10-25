@@ -4,7 +4,7 @@
 // same identity, and a fresh openGovernorDb still migrates + serves the
 // re-exported helpers. Behavior suites (migration, split, store, sessions)
 // cover the semantics; this covers the CONTRACT.
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,7 +18,7 @@ import type {
 } from "../hooks/lib/govdb/govdb.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-surface-"));
-// restore before afterAll cleanup: the rest of the suite shares this process —
+// restore before test.afterAll cleanup: the rest of the suite shares this process —
 // a leaked fixture HOME rides later spawns' {...process.env} spreads (W1124.11)
 const REAL_HOME = process.env.HOME;
 process.env.HOME = HOME; // govdb computes REG from HOME at module load — set before the dynamic import
@@ -28,7 +28,7 @@ const govdb = await import(
 	`../hooks/lib/govdb/govdb.ts?home=${encodeURIComponent(HOME)}`
 );
 // file-scope env restore — the rest of the suite shares this process (W1124.11)
-afterAll(() => {
+test.afterAll(() => {
 	process.env.HOME = REAL_HOME;
 });
 
@@ -151,7 +151,7 @@ test.describe("govdb entrypoint surface (W624 facade)", () => {
 		]);
 	});
 
-	afterAll(() => {
+	test.afterAll(() => {
 		rmSync(HOME, { recursive: true, force: true });
 	});
 });

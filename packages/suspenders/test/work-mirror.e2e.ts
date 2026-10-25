@@ -7,7 +7,7 @@
 // CLI, temp HOME via env, real `git init`, temp repos under process.cwd()
 // (NEVER /tmp — the bash gate exempts /tmp by design, so a /tmp checkout
 // would silently test nothing).
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { rmSync, writeFileSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { realpathSync } from "node:fs";
@@ -98,7 +98,7 @@ const MIRROR_ITEM = {
 	deps: [],
 };
 
-afterAll(() => cleanupDirs(HOME, HOME_FRESH, HOME_BROKEN, REPO, REPO2));
+test.afterAll(() => cleanupDirs(HOME, HOME_FRESH, HOME_BROKEN, REPO, REPO2));
 
 test.describe("mirror writer — mutating commands export the graph", () => {
 	test("add writes a valid jsonl mirror with a matching meta count", () => {

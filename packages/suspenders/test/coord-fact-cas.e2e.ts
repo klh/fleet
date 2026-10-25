@@ -2,7 +2,7 @@
 // set --if-version=N` compare-and-set guards. Temp HOME under tmpdir; every CLI
 // run happens in a bun subprocess so the parent test process never opens the
 // real governor.db (coord-events.test.ts recipe).
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,7 +15,7 @@ test.setTimeout(30_000); // spawn-heavy suite (bun:test 5s default flake floor)
 const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 const home = mkdtempSync(join(tmpdir(), "suspenders-coord-fact-cas-test-"));
 
-afterAll(() => rmSync(home, { recursive: true, force: true }));
+test.afterAll(() => rmSync(home, { recursive: true, force: true }));
 
 const runCli = (args: string[]): { code: number; out: string; err: string } => {
 	const p = Bun.spawnSync(["bun", COORD, ...args], {

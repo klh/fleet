@@ -5,7 +5,7 @@ import {
 	readLaneRegistry,
 	safeToRetire,
 } from "../hooks/lib/lanes/lane-registry.ts";
-import { afterEach, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -37,7 +37,7 @@ const lane = (sid: string, attempt = 1, launchedAt = 1): Lane => ({
 	launchedAt,
 	attempt,
 });
-afterEach(() => {
+test.afterEach(() => {
 	for (const root of roots.splice(0))
 		rmSync(root, { recursive: true, force: true });
 });
@@ -271,7 +271,13 @@ test("a failed process roster is unknown, not proof that retirement is safe", ()
 			"-e",
 			`import { retirementProcessLive } from ${JSON.stringify(modulePath)}; console.log(retirementProcessLive("/unused"));`,
 		],
-		{ env: { ...process.env, PATH: bin }, stdout: "pipe", stderr: "pipe" },
+		// FORCE_COLOR pin: playwright workers set it; the child's parsed stdout
+		// must stay plain (bun ANSI-wraps console.log(null) under color).
+		{
+			env: { ...process.env, FORCE_COLOR: "0", PATH: bin },
+			stdout: "pipe",
+			stderr: "pipe",
+		},
 	);
 	expect(result.exitCode).toBe(0);
 	expect(result.stdout.toString().trim()).toBe("null");

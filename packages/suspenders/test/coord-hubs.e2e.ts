@@ -5,7 +5,7 @@
 // process never opens the real governor.db (coord-events.test.ts recipe).
 // The "alive" target is a real tiny Bun.serve() on 127.0.0.1 — no network
 // beyond loopback.
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,7 +23,7 @@ const closed = Bun.serve({ port: 0, fetch: () => new Response("ok") });
 const closedPort = closed.port;
 closed.stop(true);
 
-afterAll(() => {
+test.afterAll(() => {
 	live.stop(true);
 	rmSync(home, { recursive: true, force: true });
 });

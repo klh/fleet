@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
 import {
 	chmodSync,
@@ -18,7 +18,7 @@ import {
 } from "../scripts/lib/launch-preflight.ts";
 test.describe({ tag: "@unit" }, () => {
 const dirs: string[] = [];
-afterEach(() => {
+test.afterEach(() => {
 	for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 const home = () => {

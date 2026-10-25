@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
 import {
 	mkdirSync,
@@ -24,7 +24,7 @@ const env = { ...process.env, HOME: home, GOVERNOR_STORE_URL: "" };
 // token channel is .fleet/lane-context.json (dispatch's durable channel).
 delete env.KLH_CLAIM_TOKEN;
 const source = join(import.meta.dir, "../hooks");
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+test.afterAll(() => rmSync(root, { recursive: true, force: true }));
 let sequence = 0;
 
 function command(cwd: string, args: string[], input?: unknown) {

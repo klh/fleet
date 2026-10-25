@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { afterEach, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -14,7 +14,7 @@ import {
 } from "./helpers/work-completion-fixtures.ts";
 test.describe({ tag: "@unit" }, () => {
 
-afterEach(() => drainCleanup());
+test.afterEach(() => drainCleanup());
 
 test("manual completion without summary or capsule refuses instead of writing unverified DONE", () => {
 	const f = fixture();

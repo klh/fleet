@@ -6,7 +6,7 @@
 // broadcasts exactly once per pass when something was freed.
 
 import { Database } from "bun:sqlite";
-import { afterEach, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -54,7 +54,7 @@ function fixture(): GovernorStore {
 	} as unknown as GovernorStore;
 }
 
-afterEach(() => {
+test.afterEach(() => {
 	for (const db of databases.splice(0)) db.close();
 	for (const dir of directories.splice(0))
 		rmSync(dir, { recursive: true, force: true });

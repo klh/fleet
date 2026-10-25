@@ -343,9 +343,10 @@ test("custom installed prefix resolves work and coord helpers", () => {
 });
 
 test.describe("lane key lifecycle (W463)", () => {
-	test.each([false, true])(
-		"worktree retire revokes legacy or project-qualified lane keys (%s)",
-		async (qualified) => {
+	for (const qualified of [false, true]) {
+		test(
+			`worktree retire revokes legacy or project-qualified lane keys (${qualified})`,
+			async () => {
 			const stub = stubBuckle();
 			const id = await addItem("lane key lifecycle item");
 			const sid = laneSid(id, qualified ? projectIdentity(REPO) : undefined);
@@ -408,9 +409,10 @@ test.describe("lane key lifecycle (W463)", () => {
 			expect(existsSync(metaPath)).toBe(false);
 			expect(existsSync(settingsPath)).toBe(false);
 			stub.stop();
-		},
-		60_000,
-	);
+			},
+			60_000,
+		);
+	}
 });
 
 // ─── governance mode (W422.17, owner ruling 2026-10-06) ──────────────────

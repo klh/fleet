@@ -1,7 +1,7 @@
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
-const f = await boardFixture(0, afterAll);
+const f = await boardFixture(0, test.afterAll);
 
 const edge = (over: Record<string, unknown> = {}) => ({
 	source: "test-hub/outbox",

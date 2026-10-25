@@ -90,9 +90,8 @@ test.describe("lane-settings (W512)", () => {
 		expect(clean.env.SUSPENDERS_LANE_EFFORT).toBeUndefined();
 		expect(clean.env.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined();
 	});
-	test.each(["low", "medium", "high", "xhigh", "max"])(
-		"resolved %s effort reaches the native Claude control and the report identically",
-		(effort) => {
+	for (const effort of ["low", "medium", "high", "xhigh", "max"]) {
+		test(`resolved ${effort} effort reaches the native Claude control and the report identically`, () => {
 			const settings = JSON.parse(
 				laneSettingsData(env, "glm-5.3-flash", "/p/bin", effort),
 			);
@@ -112,8 +111,8 @@ test.describe("lane-settings (W512)", () => {
 			);
 			expect(overridden.env.SUSPENDERS_LANE_EFFORT).toBe("low");
 			expect(overridden.env.CLAUDE_CODE_EFFORT_LEVEL).toBe("low");
-		},
-	);
+		});
+	}
 	test("unsupported native effort refuses dispatch rather than reporting a false pin", () => {
 		expect(() =>
 			laneSettingsData(

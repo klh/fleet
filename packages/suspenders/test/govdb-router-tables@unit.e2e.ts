@@ -12,7 +12,7 @@
 // module load, so later imports in other files rebind to the real HOME.
 
 import { Database } from "bun:sqlite";
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -42,7 +42,7 @@ function freshDb(): Database {
 	return new Database(DB, { create: true });
 }
 
-afterAll(() => rmSync(HOME, { recursive: true, force: true }));
+test.afterAll(() => rmSync(HOME, { recursive: true, force: true }));
 
 const NEW_TABLES: Record<string, string[]> = {
 	api_keys: [

@@ -1,6 +1,6 @@
 // W1124.13 — the logical assistant turn key behind a Stop invocation.
 // Helper-level: real native row shapes with synthetic identities/times.
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,7 +8,7 @@ import { completionTurn } from "../hooks/lib/lanes/lane-completion-turn.ts";
 test.describe({ tag: "@unit" }, () => {
 
 const dir = mkdtempSync(join(tmpdir(), "completion-turn-"));
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+test.afterAll(() => rmSync(dir, { recursive: true, force: true }));
 const transcript = join(dir, "native.jsonl");
 const activation = {
 	sid: "fixture-owner",

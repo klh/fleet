@@ -3,7 +3,7 @@
 // HOME, every CLI run in a bun subprocess; the db is the fixture HOME's
 // governor.db). The seed resolves projectIdentity() in the same cwd so the
 // CLI's project scoping sees the seeded rows.
-import { afterAll, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,7 +21,7 @@ const LIB = join(
 );
 const home = mkdtempSync(join(tmpdir(), "suspenders-coord-coordinate-test-"));
 
-afterAll(() => rmSync(home, { recursive: true, force: true }));
+test.afterAll(() => rmSync(home, { recursive: true, force: true }));
 
 const runIn = (code: string): string => {
 	const p = Bun.spawnSync(["bun", "-e", code], {
