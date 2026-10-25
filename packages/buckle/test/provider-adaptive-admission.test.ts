@@ -74,7 +74,9 @@ test("maximum adaptive backoff still grants within a shorter caller budget", asy
 			Math.max(0, core.snapshot().congestionUntilMs - Date.now()) + 1,
 		);
 	}
-	expect(core.snapshot().adaptiveGapMs).toBe(100);
+	// W1273: max backoff is 16x the base pace (here 16ms) — the admission
+	// wait no longer sets the ceiling.
+	expect(core.snapshot().adaptiveGapMs).toBe(16);
 	const started = Date.now();
 	const lease = await core.acquire(undefined, 150);
 	expect(Date.now() - started).toBeLessThan(150);

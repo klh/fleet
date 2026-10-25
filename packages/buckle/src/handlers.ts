@@ -100,7 +100,6 @@ import { SseSniffer, sseReframer } from "./sse.ts";
 import {
 	blackHole,
 	once,
-	scrubText,
 	terminalOf,
 	writeErrorEvent,
 } from "./stream-terminal.ts";
