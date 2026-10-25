@@ -234,11 +234,11 @@ export function filesCheck(hook: HookInput): FilesExit {
 const STORE_OWNERS = [
 	// W624 decomposition — the owner code moved into these siblings; the
 	// entrypoint govdb.ts is now a pure re-export shim over them.
-	"/lib/govdb.ts",
-	"/lib/govdb-open.ts",
-	"/lib/govdb-store.ts",
+	"/lib/govdb/govdb.ts",
+	"/lib/govdb/govdb-open.ts",
+	"/lib/govdb/govdb-store.ts",
 	"/bin/store-server.ts",
-	"/lib/sqlite-store.ts",
+	"/lib/knowledge/sqlite-store.ts",
 ];
 const GRANDFATHERED = [
 	// W92.3's in-flight scope — these leave the list when that child lands.
@@ -261,9 +261,9 @@ const GRANDFATHERED = [
 	"/bin/quota-sweep.ts",
 	"/bin/session-policy.ts",
 	"/lib/decomposition.ts",
-	"/lib/lane-completion.ts",
-	"/lib/lane-inbox.ts",
-	"/lib/settle.ts",
+	"/lib/lanes/lane-completion.ts",
+	"/lib/lanes/lane-inbox.ts",
+	"/lib/knowledge/settle.ts",
 ];
 
 /** Null = fine; otherwise the verdict. Owners pass silently, grandfathered

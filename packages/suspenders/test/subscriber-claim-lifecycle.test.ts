@@ -163,7 +163,7 @@ async function exerciseSubscriberLifecycle(mode: "claim" | "watcher") {
 		if (mode === "watcher")
 			await call([
 				"-e",
-				`const {openStore,projectIdentity}=await import(${JSON.stringify(join(f.hooks, "lib/govdb.ts"))});const {acquireLaunchLease}=await import(${JSON.stringify(join(f.hooks, "../scripts/lib/launch-preflight.ts"))});const {reserveLaunchIntent,registerLaunch}=await import(${JSON.stringify(join(f.hooks, "../scripts/lib/launch-fencing.ts"))});const d=openStore(),project=projectIdentity(),sid=${JSON.stringify(f.sid)},item=${JSON.stringify(f.id)},nonce="fixture-launch";if(!acquireLaunchLease(d,project,sid,nonce))throw Error("lease");const claim=d.query("SELECT updated_at FROM work_items WHERE project=? AND id=?").get(project,item);const intent=reserveLaunchIntent(d,{project,item,sid,nonce,revision:claim.updated_at,executor:${JSON.stringify(join(f.hooks, "bin/claude-runtime.ts"))}},3);registerLaunch(d,intent,${runtime.pid});d.close();`,
+				`const {openStore,projectIdentity}=await import(${JSON.stringify(join(f.hooks, "lib/govdb/govdb.ts"))});const {acquireLaunchLease}=await import(${JSON.stringify(join(f.hooks, "../scripts/lib/launch-preflight.ts"))});const {reserveLaunchIntent,registerLaunch}=await import(${JSON.stringify(join(f.hooks, "../scripts/lib/launch-fencing.ts"))});const d=openStore(),project=projectIdentity(),sid=${JSON.stringify(f.sid)},item=${JSON.stringify(f.id)},nonce="fixture-launch";if(!acquireLaunchLease(d,project,sid,nonce))throw Error("lease");const claim=d.query("SELECT updated_at FROM work_items WHERE project=? AND id=?").get(project,item);const intent=reserveLaunchIntent(d,{project,item,sid,nonce,revision:claim.updated_at,executor:${JSON.stringify(join(f.hooks, "bin/claude-runtime.ts"))}},3);registerLaunch(d,intent,${runtime.pid});d.close();`,
 			]);
 		await Bun.sleep(60);
 		if (mode === "claim") {
@@ -224,7 +224,7 @@ async function exerciseSubscriberLifecycle(mode: "claim" | "watcher") {
 		await reader;
 		const dead = await call([
 			"-e",
-			`const {openStore}=await import(${JSON.stringify(join(f.hooks, "lib/govdb-store.ts"))}); const {reapIfIdle}=await import(${JSON.stringify(join(f.hooks, "lib/subscribe-attach.ts"))});const db=openStore();db.query("UPDATE sessions SET state='CLOSED' WHERE sid=?").run(${JSON.stringify(f.sid)});db.query("UPDATE work_items SET state='READY',owner_sid=NULL WHERE id=?").run(${JSON.stringify(f.id)});console.log(reapIfIdle(db,${JSON.stringify(f.sid)}));`,
+			`const {openStore}=await import(${JSON.stringify(join(f.hooks, "lib/govdb/govdb-store.ts"))}); const {reapIfIdle}=await import(${JSON.stringify(join(f.hooks, "lib/subscribe-attach.ts"))});const db=openStore();db.query("UPDATE sessions SET state='CLOSED' WHERE sid=?").run(${JSON.stringify(f.sid)});db.query("UPDATE work_items SET state='READY',owner_sid=NULL WHERE id=?").run(${JSON.stringify(f.id)});console.log(reapIfIdle(db,${JSON.stringify(f.sid)}));`,
 		]);
 		expect(dead).toBe("true\n");
 		expect(await subscriber("subscribeLive")).toBe("false\n");

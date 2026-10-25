@@ -547,17 +547,17 @@ describe("push-guard lane resolution (gate-level, real spawn)", () => {
 
 // ---- W92.4 govdb-import rule: openGovernorDb is store-owner-only ----
 describe("govdbImportViolation (W92.4)", () => {
-	const IMPORT = 'import { openGovernorDb } from "../lib/govdb.ts";';
+	const IMPORT = 'import { openGovernorDb } from "../lib/govdb/govdb.ts";';
 	const HOOKS = `${process.cwd()}/packages/suspenders/hooks`;
 
 	test("store owners pass silently", () => {
-		expect(govdbImportViolation(`${HOOKS}/lib/govdb.ts`, IMPORT)).toBeNull();
+		expect(govdbImportViolation(`${HOOKS}/lib/govdb/govdb.ts`, IMPORT)).toBeNull();
 		// W624 decomposition — the owner code lives in these siblings now
 		expect(
-			govdbImportViolation(`${HOOKS}/lib/govdb-open.ts`, IMPORT),
+			govdbImportViolation(`${HOOKS}/lib/govdb/govdb-open.ts`, IMPORT),
 		).toBeNull();
 		expect(
-			govdbImportViolation(`${HOOKS}/lib/govdb-store.ts`, IMPORT),
+			govdbImportViolation(`${HOOKS}/lib/govdb/govdb-store.ts`, IMPORT),
 		).toBeNull();
 	});
 

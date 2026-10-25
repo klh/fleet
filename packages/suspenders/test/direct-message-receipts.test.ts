@@ -6,9 +6,9 @@ import { join } from "node:path";
 const home = mkdtempSync(join(tmpdir(), "suspenders-w957-messages-"));
 const root = join(import.meta.dir, "..", "hooks");
 const bus = join(root, "coord", "bus.ts");
-const inbox = join(root, "lib", "lane-inbox.ts");
+const inbox = join(root, "lib", "lanes", "lane-inbox.ts");
 const boundary = join(root, "lib", "turn-boundary.ts");
-const govdb = join(root, "lib", "govdb.ts");
+const govdb = join(root, "lib", "govdb", "govdb.ts");
 const coord = join(root, "bin", "coord.ts");
 const sid = "w957-interactive-session";
 

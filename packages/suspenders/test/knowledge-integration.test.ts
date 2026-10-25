@@ -12,17 +12,17 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { ROLL_KEY_HEADER } from "../hooks/lib/knowledge-roll.ts";
+import { ROLL_KEY_HEADER } from "../hooks/lib/knowledge/knowledge-roll.ts";
 import {
 	postRoll,
 	readSyncState,
 	syncOnce,
 	type SyncTarget,
-} from "../hooks/lib/knowledge-sync.ts";
+} from "../hooks/lib/knowledge/knowledge-sync.ts";
 import { unusedPort } from "./helpers/board-fixture.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "w12134-int-home-"));
-const GOVDB_TS = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
+const GOVDB_TS = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
 const API_TS = join(import.meta.dir, "..", "hooks", "bin", "knowledge-api.ts");
 const KEYS_FILE = join(HOME, "roll-keys.json");
 const PORT = unusedPort();
