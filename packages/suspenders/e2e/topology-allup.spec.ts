@@ -158,14 +158,20 @@ const upstream = Bun.serve({
 const hubDir = mkdtempSync(join(tmpdir(), "w373-hub-"));
 const HUB_PORT = unusedPort();
 const HUB_BASE = `http://127.0.0.1:${String(HUB_PORT)}`;
+// W1294.2: fleet config is JSON (W1253) — buckle parses no yaml upstreams
 await Bun.write(
-	join(hubDir, "upstreams-override.yaml"),
-	`version: 1
-groups:
-  glm-5.3-flash:
-    - url: http://127.0.0.1:${String(upstream.port)}
-      dialect: anthropic
-`,
+	join(hubDir, "upstreams-override.json"),
+	JSON.stringify({
+		version: 1,
+		groups: {
+			"glm-5.3-flash": [
+				{
+					url: `http://127.0.0.1:${String(upstream.port)}`,
+					dialect: "anthropic",
+				},
+			],
+		},
+	}),
 );
 await writeOverlay(join(hubDir, "overlay"));
 
@@ -184,7 +190,7 @@ const hubProc = Bun.spawn(
 			BUCKLE_SECRETS_HOME: join(hubDir, "secrets"),
 			KLH_OVERLAY_DIR: join(hubDir, "overlay"),
 			KLH_OVERLAY_ALLOW: hubDir,
-			BUCKLE_UPSTREAMS: join(hubDir, "upstreams-override.yaml"),
+			BUCKLE_UPSTREAMS: join(hubDir, "upstreams-override.json"),
 			HOME: hubDir,
 		},
 		stdout: "pipe",
@@ -250,9 +256,9 @@ test.beforeAll(async () => {
 
 // ─── the one all-up walk ───────────────────────────────────────────────────
 
-test("all-up topology: dispatch → hub front → federation → board → reconcile → done returns", async ({
-	page,
-}) => {
+test("all-up topology: dispatch → hub front → federation → board → reconcile → done returns", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const H = hubBoard;
 	const look = watch(page);
 	mkdirSync(SHOTS, { recursive: true });
@@ -404,7 +410,7 @@ test("all-up topology: dispatch → hub front → federation → board → recon
 	await expect(row).toContainText(
 		"Delegate: reconcile hub policy manifest on the spoke",
 	);
-	await expect(row.locator(".pill.ready")).toHaveText("ready");
+	await expect(row.locator(".pill.ready")).toHaveText("Rready"); // W891 letters
 	await page.screenshot({ path: `${SHOTS}/1-declared.png`, fullPage: true });
 
 	// LEG 5 — spoke reconcile: the real federation-pull once rides the hub
@@ -462,7 +468,20 @@ test("all-up topology: dispatch → hub front → federation → board → recon
 	// LEG 6 — done-status returns all the way: the spoke closes the
 	// delegated item, the origin reads `applied` off the wire and closes the
 	// mirror, and the hub GUI rides declare → done with the evidence.
-	const SHA = "d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3";
+	// W1294.2: the done-gate verifies the sha is a commit in the presenting
+	// repo — each side presents its own scratch repo's base commit
+	const spokeSha = Bun.spawnSync(["git", "-C", spoke.REPO, "rev-parse", "HEAD"], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const SHA = spokeSha.stdout.toString().trim();
+	const hubShaP = Bun.spawnSync(
+		["git", "-C", H.MY_PROJ, "rev-parse", "HEAD"],
+		{ stdout: "pipe", stderr: "pipe" },
+	);
+	const HUB_SHA = hubShaP.stdout.toString().trim();
+	expect(SHA).toMatch(/^[0-9a-f]{40}$/);
+	expect(HUB_SHA).toMatch(/^[0-9a-f]{40}$/);
 	const takeOut = spoke.tool("work.ts", "take", crId, "--as", "w373-spoke");
 	expect(takeOut.code, `spoke take failed: ${takeOut.err || takeOut.out}`).toBe(
 		0,
@@ -480,6 +499,8 @@ test("all-up topology: dispatch → hub front → federation → board → recon
 		SHA,
 		"--token",
 		token,
+		"--summary",
+		"Delegated item applied on the spoke and closed with the reported sha; the applied status rides the CR wire back to the hub.",
 	);
 	expect(
 		spokeDone.code,
@@ -493,14 +514,25 @@ test("all-up topology: dispatch → hub front → federation → board → recon
 	const hubToken = (hubTake.match(/claim token: (\S+)/) ?? [])[1] ?? "";
 	expect(hubToken, "no claim token at hub take").not.toBe("");
 	H.workOk(
-		["done", hubItem, "--as", "w373-origin", "--sha", SHA, "--token", hubToken],
+		[
+			"done",
+			hubItem,
+			"--as",
+			"w373-origin",
+			"--sha",
+			HUB_SHA,
+			"--token",
+			hubToken,
+			"--summary",
+			"Origin lane closes the delegated mirror on the applied wire evidence; the hub GUI rides declare to done.",
+		],
 		"origin closes the mirror after applied",
 	);
 	await openTasks(page);
 	await expect(row).toHaveCount(0); // done rows leave the live list …
 	await page.check("#taskDone"); // … unless completed is shown
 	await expect(row).toBeVisible();
-	await expect(row.locator(".pill.done")).toHaveText("done");
+	await expect(row.locator(".pill.done")).toHaveText("Ddone"); // W891 letters
 	await page.getByRole("button", { name: "Lanes" }).click();
 	await expect(
 		page
@@ -516,7 +548,7 @@ test("all-up topology: dispatch → hub front → federation → board → recon
 	await expect(drawer).toBeVisible();
 	await expect(drawer.locator(".pill.done")).toBeVisible();
 	await expect(drawer).toContainText("work.done");
-	await expect(drawer).toContainText(SHA.slice(0, 7));
+	await expect(drawer).toContainText(HUB_SHA.slice(0, 7));
 	await page.screenshot({ path: `${SHOTS}/3-done.png`, fullPage: true });
 
 	look.clean();

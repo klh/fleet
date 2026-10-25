@@ -18,9 +18,9 @@ test.afterAll(async () => {
 	if (board) await board.stop();
 });
 
-test("executor editor: add/reorder/remove drives the hidden input; preview renders the diff", async ({
-	page,
-}) => {
+test("executor editor: add/reorder/remove drives the hidden input; preview renders the diff", {
+	tag: "@ui",
+}, async ({ page }) => {
 	if (board === null) throw new Error("board not started");
 	const pageErrors: string[] = [];
 	page.on("pageerror", (e) => pageErrors.push(String(e)));

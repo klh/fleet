@@ -1,7 +1,7 @@
 // hooks/board/routes-console.ts — W147 console: /console /console/buckle /console/local /api/console/me /console/settings(+preview/apply) (W157 route module).
 // The fetch fragment moved verbatim (route order preserved by the
 // entry's handler list); returns null when nothing matches.
-import { BELT_REPO, db } from "./context.ts";
+import { BELT_REPO, BUCKLE_REPO, db } from "./context.ts";
 import { json, writeGuard } from "./helpers.ts";
 import { recentAdminAudit } from "../lib/admin-audit.ts";
 import { consoleMe, gatherBeltView, gatherLocalView } from "./console-view.ts";
@@ -108,7 +108,7 @@ export async function handleConsole(
 		});
 	}
 	if (url.pathname === "/console/settings") {
-		const pol = resolvePolicy({ beltRepo: BELT_REPO });
+		const pol = resolvePolicy({ beltRepo: BELT_REPO, buckleRepo: BUCKLE_REPO });
 		let gw: PolicyGatewayParsed | null = null;
 		let perr: string | null = null;
 		if (pol) {
@@ -150,7 +150,7 @@ export async function handleConsole(
 		// W183.2 — the suspenders form carries the executor-preference editor;
 		// its add-picker lists the same catalog the dispatch feed serves
 		const executors = f === "suspenders" ? await executorFeed() : [];
-		const pol = resolvePolicy({ beltRepo: BELT_REPO });
+		const pol = resolvePolicy({ beltRepo: BELT_REPO, buckleRepo: BUCKLE_REPO });
 		let gw: PolicyGatewayParsed | null = null;
 		let perr: string | null = null;
 		if (pol) {

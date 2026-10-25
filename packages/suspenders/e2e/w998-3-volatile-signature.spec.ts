@@ -23,9 +23,9 @@ test.afterAll(async () => {
 	await b.stop();
 });
 
-test("gui: age-only refresh keeps the card node, keyboard focus and hover while ages tick", async ({
-	page,
-}) => {
+test("gui: age-only refresh keeps the card node, keyboard focus and hover while ages tick", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const wId = b.mintedId(b.workOk(["add", "w998.3 volatile age item"], "add"));
 	b.workOk(["take", wId, "--as", "autow998-3-e2e"], "take");
 	await page.goto(`${b.BASE}/#lanes`);
@@ -87,7 +87,9 @@ test("gui: age-only refresh keeps the card node, keyboard focus and hover while 
 	expect(kage1).toMatch(/^\d+s$/);
 });
 
-test("gui: real status and product changes still render", async ({ page }) => {
+test("gui: real status and product changes still render", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const wId = b.mintedId(b.workOk(["add", "w998.3 real-change item"], "add"));
 	await page.goto(`${b.BASE}/#lanes`);
 	const card = page.locator(`.kcard[data-kid="${wId}"]`).first();
@@ -102,9 +104,9 @@ test("gui: real status and product changes still render", async ({ page }) => {
 	await expect(page.locator(`.kcard[data-kid="${w2}"]`)).toBeVisible();
 });
 
-test("gui: rename containing '· observed' re-renders the stale card title", async ({
-	page,
-}) => {
+test("gui: rename containing '· observed' re-renders the stale card title", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const oldTitle = "rename probe · observed old finding";
 	const wId = b.mintedId(b.workOk(["add", oldTitle], "add"));
 	await page.goto(`${b.BASE}/#lanes`);
@@ -122,10 +124,17 @@ test("gui: rename containing '· observed' re-renders the stale card title", asy
 	}, wId);
 	// rename the SAME item (scratch graph, board-kanban-column-order pattern)
 	const newTitle = "rename probe · observed new finding";
+	// W1294.2: the graph key is the git common dir (W624) — read the exact
+	// spelling off the live feed, never assume the checkout root
+	const feed = (await (await fetch(`${b.BASE}/api/tasks?done=all`)).json()) as {
+		tasks: { project: string }[];
+	};
+	const project = feed.tasks[0]?.project ?? "";
+	expect(project, "no project on the seeded tasks feed").not.toBe("");
 	const db = new Database(`${b.HOME}/.cache/claude-governor/governor.db`);
 	db.query("UPDATE work_items SET title=? WHERE project=? AND id=?").run(
 		newTitle,
-		b.MY_PROJ,
+		project,
 		wId,
 	);
 	db.close();

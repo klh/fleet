@@ -170,9 +170,9 @@ async function render(page: Page): Promise<void> {
 	);
 }
 
-test("placement-only world keeps the configured edge on the preferred hub", async ({
-	page,
-}) => {
+test("placement-only world keeps the configured edge on the preferred hub", {
+	tag: ["@ui", "@smoke"],
+}, async ({ page }) => {
 	await render(page);
 	const titles = await edgeTitles(page);
 	expect(titles.filter((title) => title.includes("Buckle ledger"))).toEqual([]);
@@ -184,9 +184,9 @@ test("placement-only world keeps the configured edge on the preferred hub", asyn
 	).toBe(true);
 });
 
-test("draws every observed hub link, not just the placement hub", async ({
-	page,
-}) => {
+test("draws every observed hub link, not just the placement hub", {
+	tag: ["@ui", "@smoke"],
+}, async ({ page }) => {
 	fixture.observed = [
 		observation("alpha", 30_000),
 		observation("beta", 45_000),
@@ -203,9 +203,9 @@ test("draws every observed hub link, not just the placement hub", async ({
 	).toBe(true);
 });
 
-test("failover: a stale hub's edge disappears, the peer stays observed", async ({
-	page,
-}) => {
+test("failover: a stale hub's edge disappears, the peer stays observed", {
+	tag: ["@ui", "@smoke"],
+}, async ({ page }) => {
 	fixture.observed = [
 		observation("alpha", 16 * 60_000),
 		observation("beta", 30_000),

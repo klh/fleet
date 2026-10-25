@@ -35,9 +35,9 @@ function watch(page: Page): { clean(): void } {
 	};
 }
 
-test("admin token lifecycle: mint, shown-once, list, revoke", async ({
-	page,
-}) => {
+test("admin token lifecycle: mint, shown-once, list, revoke", {
+	tag: ["@ui", "@api"],
+}, async ({ page }) => {
 	const b = mustBoard();
 	const look = watch(page);
 	// the revoke confirm dialog rides window.confirm

@@ -316,9 +316,9 @@ const inspectLink = (page: Page, from: string, to: string) =>
 		.getByRole("button", { name: "Inspect link" })
 		.click();
 
-test("two- and three-hop traces ride measured flows: widths, durations, lanes, drilldown", async ({
-	page,
-}) => {
+test("two- and three-hop traces ride measured flows: widths, durations, lanes, drilldown", {
+	tag: ["@ui", "@smoke"],
+}, async ({ page }) => {
 	await render(page);
 	// 8 hops / 15m ≈ 0.53/min → 2px, fresh → animate at the slowest bound
 	const a = await linkPath(page, A_ID);
@@ -361,9 +361,9 @@ test("two- and three-hop traces ride measured flows: widths, durations, lanes, d
 	expect(bText).toContain("active unreported");
 });
 
-test("stale telemetry renders distinctly: numbers stay, dashes stop", async ({
-	page,
-}) => {
+test("stale telemetry renders distinctly: numbers stay, dashes stop", {
+	tag: ["@ui", "@smoke"],
+}, async ({ page }) => {
 	fixture.staleFirstEdge = true;
 	await render(page);
 	const a = await linkPath(page, A_ID);
@@ -375,7 +375,9 @@ test("stale telemetry renders distinctly: numbers stay, dashes stop", async ({
 		.toContain("stale, flow off");
 });
 
-test("reduced motion turns the flow off", async ({ page }) => {
+test("reduced motion turns the flow off", { tag: ["@ui", "@smoke"] }, async ({
+	page,
+}) => {
 	await page.emulateMedia({ reducedMotion: "reduce" });
 	await render(page);
 	const anim = await page.evaluate((nodeId) => {
@@ -387,7 +389,9 @@ test("reduced motion turns the flow off", async ({ page }) => {
 	expect(anim).toBe("none");
 });
 
-test("hiding the tab pauses the flow", async ({ page }) => {
+test("hiding the tab pauses the flow", { tag: ["@ui", "@smoke"] }, async ({
+	page,
+}) => {
 	await render(page);
 	const state = await page.evaluate(async (nodeId) => {
 		const pause = (hidden: boolean) => {
@@ -422,7 +426,9 @@ test("hiding the tab pauses the flow", async ({ page }) => {
 	expect(state.paused.playState).toBe("paused");
 });
 
-test("failed telemetry renders red and distinct", async ({ page }) => {
+test("failed telemetry renders red and distinct", {
+	tag: ["@ui", "@smoke"],
+}, async ({ page }) => {
 	fixture.failedSecondEdge = true;
 	await render(page);
 	const a = await linkPath(page, A_ID);
@@ -431,9 +437,9 @@ test("failed telemetry renders red and distinct", async ({ page }) => {
 	expect(a?.stroke).not.toBe(b?.stroke);
 });
 
-test("v1 snapshot degrades honestly: lanes unreported, no grid, flow survives", async ({
-	page,
-}) => {
+test("v1 snapshot degrades honestly: lanes unreported, no grid, flow survives", {
+	tag: ["@ui", "@smoke"],
+}, async ({ page }) => {
 	fixture.v1 = true;
 	await render(page);
 	const a = await linkPath(page, A_ID);
@@ -457,7 +463,9 @@ test("v1 snapshot degrades honestly: lanes unreported, no grid, flow survives", 
 	expect(await canvasCount(page)).toBe(0);
 });
 
-test("ledger hub links render dashed and never animate", async ({ page }) => {
+test("ledger hub links render dashed and never animate", {
+	tag: ["@ui", "@smoke"],
+}, async ({ page }) => {
 	fixture.ledgerHubLink = true;
 	await render(page);
 	// ledger hub↔hub edges ride the connected layer, not observed

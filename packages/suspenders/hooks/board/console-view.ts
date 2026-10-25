@@ -2,7 +2,7 @@
 // Pieces moved verbatim from bin/fleet-board.ts; exports widened so
 // sibling modules and the route modules import them.
 
-import { db, BELT_REPO } from "./context.ts";
+import { db, BELT_REPO, BUCKLE_REPO } from "./context.ts";
 import {
 	ConfigError,
 	parsePolicy,
@@ -69,7 +69,7 @@ export const readUpstreams = (): UpstreamGroup[] | null =>
 	upstreamSnapshot()?.groups ?? null;
 
 export const gatherBeltView = async (): Promise<BeltView> => {
-	const pol = resolvePolicy({ beltRepo: BELT_REPO });
+	const pol = resolvePolicy({ beltRepo: BELT_REPO, buckleRepo: BUCKLE_REPO });
 	let gateway: PolicyGatewayParsed | null = null;
 	let policyError: string | null = null;
 	if (pol) {
@@ -261,7 +261,7 @@ export const policyBaseline = (): { text: string; mtimeMs: number } => {
 		const st = statSync(wp);
 		return { text: readFileSync(wp, "utf8"), mtimeMs: st.mtimeMs };
 	}
-	const pol = resolvePolicy({ beltRepo: BELT_REPO });
+	const pol = resolvePolicy({ beltRepo: BELT_REPO, buckleRepo: BUCKLE_REPO });
 	return {
 		text: pol ? policyAsJson(pol.text) : '{"version":1,"gateway":{}}\n',
 		mtimeMs: pol?.mtimeMs ?? 0,

@@ -106,14 +106,14 @@ function expectAligned(rows: BadgeGeom[]) {
 	}
 }
 
-test("badge outline aligns with the card top-left border, all states", async ({
-	page,
-}) => {
+test("badge outline aligns with the card top-left border, all states", {
+	tag: "@ui",
+}, async ({ page }) => {
 	await page.setViewportSize({ width: 1280, height: 800 });
 	expectAligned(await measure(page));
 });
 
-test("alignment holds in the light theme", async ({ page }) => {
+test("alignment holds in the light theme", { tag: "@ui" }, async ({ page }) => {
 	await page.setViewportSize({ width: 1280, height: 800 });
 	// pre-paint pref (theme.ts reads localStorage klh-theme before first render)
 	await page.addInitScript(() => localStorage.setItem("klh-theme", "light"));
@@ -121,7 +121,9 @@ test("alignment holds in the light theme", async ({ page }) => {
 	await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 });
 
-test("alignment holds at a narrow viewport", async ({ page }) => {
+test("alignment holds at a narrow viewport", { tag: "@ui" }, async ({
+	page,
+}) => {
 	await page.setViewportSize({ width: 480, height: 800 });
 	expectAligned(await measure(page));
 });

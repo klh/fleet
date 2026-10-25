@@ -44,9 +44,9 @@ async function assertOrder(page: import("@playwright/test").Page) {
 	).toEqual(ORDER);
 }
 
-test("column order holds at desktop width and on a narrow screen", async ({
-	page,
-}) => {
+test("column order holds at desktop width and on a narrow screen", {
+	tag: "@ui",
+}, async ({ page }) => {
 	await page.setViewportSize({ width: 1440, height: 900 });
 	await page.goto(`${mustBoard().BASE}/#lanes`);
 	await expect(page.locator(".kanban .kcol")).toHaveCount(ORDER.length);
@@ -57,9 +57,9 @@ test("column order holds at desktop width and on a narrow screen", async ({
 	await assertOrder(page);
 });
 
-test("empty conditional columns follow filtered task transitions and keep jump targets stable", async ({
-	page,
-}) => {
+test("empty conditional columns follow filtered task transitions and keep jump targets stable", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const b = mustBoard();
 	const otherProject = `${b.MY_PROJ}-other`;
 	const db = new Database(`${b.HOME}/.cache/claude-governor/governor.db`);

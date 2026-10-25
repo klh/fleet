@@ -29,9 +29,9 @@ test.afterAll(async () => {
 	if (dir) rmSync(dir, { recursive: true, force: true });
 });
 
-test("Gateway shows one measured bar per hour, with summed request rows", async ({
-	page,
-}) => {
+test("Gateway shows one measured bar per hour, with summed request rows", {
+	tag: "@ui",
+}, async ({ page }) => {
 	if (!board) throw new Error("board not started");
 	await page.goto(`${board.BASE}/console/buckle`);
 	const card = page.locator("klh-network-card");
