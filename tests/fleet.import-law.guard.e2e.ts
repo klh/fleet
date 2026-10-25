@@ -1,3 +1,4 @@
+// W1294.8: ported 1:1 from fleet.import-law.guard.test.ts to @playwright/test (@unit).
 // W1249 import-law guard (restructure proposal Phase 1, Amendment B SAFE
 // NOW): kernel imports nothing in fleet; cross-package imports ride package
 // names — the 112 relative reach-in edges inherited from the monorepo
@@ -6,7 +7,7 @@
 // (tests/helpers/fleet.import-graph.lib.ts); the fixture test proves the
 // detectors have teeth (incl. the shebang hole that silently skipped every
 // #!-led file).
-import { expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,16 +21,20 @@ import {
 } from "./helpers/fleet.import-graph.lib.ts";
 
 const ROOT = join(import.meta.dir, "..");
-const fleet = await scanFleet(ROOT);
+let fleet = null;
 
-test("every package parses — no silent scan holes", () => {
+test.beforeAll(async () => {
+	fleet = await scanFleet(ROOT);
+});
+
+test("every package parses — no silent scan holes @unit", () => {
 	const fails = [...fleet.scans]
 		.flatMap(([pkg, s]) => s.parseFails.map((f) => `${pkg}/${f}`))
 		.sort();
 	expect(fails).toEqual([]);
 });
 
-test("no phantom dependencies (runtime ⇒ dependencies; test/content ⇒ deps or devDeps)", () => {
+test("no phantom dependencies (runtime ⇒ dependencies; test/content ⇒ deps or devDeps) @unit", () => {
 	const rows = phantoms(fleet);
 	const rendered = rows
 		.map(
@@ -40,17 +45,17 @@ test("no phantom dependencies (runtime ⇒ dependencies; test/content ⇒ deps o
 	expect(rendered, `${rows.length} phantom rows:\n${rendered}`).toBe("");
 });
 
-test("no unused declared @klh deps", () => {
+test("no unused declared @klh deps @unit", () => {
 	expect(unusedDeclaredKlh(fleet)).toEqual([]);
 });
 
-test("kernel imports nothing in fleet", () => {
+test("kernel imports nothing in fleet @unit", () => {
 	// Vacuously true until packages/kernel exists; the fixture below proves
 	// the detector. When kernel lands this test starts to bite for real.
 	expect(kernelViolations(fleet)).toEqual([]);
 });
 
-test("reach-in ratchet — current edges within the pinned set", () => {
+test("reach-in ratchet — current edges within the pinned set @unit", () => {
 	const current = reachIns(fleet).map(edgeKey);
 	const pinned = new Set(PIN.trim().split("\n"));
 	const unknown = current.filter((k) => !pinned.has(k));
@@ -182,9 +187,9 @@ suspenders/test/work-cr.test.ts -> buckle (../../buckle/src/server.ts)
 
 /** Synthetic fleet tree exercising every detector: kernel direction, shebang
  *  scanning, phantom position classes, reach-in, unused-declared @klh. */
-function makeFixture(): string {
+function makeFixture() {
 	const root = mkdtempSync(join(tmpdir(), "import-law-"));
-	const w = (rel: string, body: string) => {
+	const w = (rel, body) => {
 		const abs = join(root, rel);
 		mkdirSync(join(abs, ".."), { recursive: true });
 		writeFileSync(abs, body);
@@ -224,7 +229,7 @@ function makeFixture(): string {
 	return root;
 }
 
-test("scanner teeth — synthetic fleet fixture", async () => {
+test("scanner teeth — synthetic fleet fixture @unit", async () => {
 	const root = makeFixture();
 	try {
 		const f = await scanFleet(root);

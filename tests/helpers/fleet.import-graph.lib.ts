@@ -2,8 +2,8 @@
 // docs/restructure-proposal-2026-10-23.md, Amendment B SAFE NOW: read-only
 // + guards, no runtime changes).
 //
-// One scanner, three consumers: tests/fleet.import-law.guard.test.ts (the
-// import-direction law + ratchet), tests/cross-package-imports.test.ts (the
+// One scanner, three consumers: tests/fleet.import-law.guard.e2e.ts (the
+// import-direction law + ratchet), tests/cross-package-imports.e2e.ts (the
 // W649 declaration contract), and docs/fleet.entry-points.map.md
 // (regeneration). Checks are pure functions over one scan, so the guard test
 // scans the tree once and derives every law from the same data.

@@ -49,11 +49,11 @@ GitHub push — W422.9/W422.1).
 - **1500-line hard limit** on any .ts — decompose, DRY the second
   duplicate, ast-grep for shareable patterns before adding near the limit.
   The on-write gate blocks past 1500; CI gates every commit
-  (tests/law-guards.test.ts).
+  (tests/law-guards.e2e.ts).
 - **Shell scripts are banned** — TypeScript on Bun is the automation
   surface (LaunchAgent→bun entry points, one-line aliases only). The
   tracked .sh set is the pinned legacy exception, guarded by
-  tests/law-guards.test.ts; a new .sh needs an explicit allowlist entry
+  tests/law-guards.e2e.ts; a new .sh needs an explicit allowlist entry
   arguing why bun won't do.
 - **UI engineering law**: Lit web components + CSS design tokens. NEVER
   `innerHTML`, never `document.write`. Native elements before custom.
@@ -67,7 +67,7 @@ GitHub push — W422.9/W422.1).
   (W422.4/W422.6 re-anchor landed).
 - **Import law (W1249)**: cross-package imports ride package names
   (`@klh/*`), never relative reach-ins — the 112 inherited edges are
-  ratcheted shrink-only in tests/fleet.import-law.guard.test.ts. Imported
+  ratcheted shrink-only in tests/fleet.import-law.guard.e2e.ts. Imported
   names must be declared (runtime files ⇒ `dependencies`; test/content
   files ⇒ deps or devDeps). kernel imports nothing in fleet; domain
   packages may import kernel once it lands. Graph + entry-point map:

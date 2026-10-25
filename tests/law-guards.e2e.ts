@@ -73,7 +73,7 @@ const UI_LAW_PATTERNS = [
 const UI_LAW_HTML_PATTERNS = [
 	[/<script[^>]+src=["']https?:/, "remote <script src> — vendor it, never CDN"],
 ];
-const UI_LAW_ALLOWLIST = [/\/vendor\//, /^tests\/law-guards\.test\.ts$/];
+const UI_LAW_ALLOWLIST = [/\/vendor\//, /^tests\/law-guards\.e2e\.ts$/];
 const UI_LAW_GLOBS = [
 	"*.ts",
 	"*.tsx",
@@ -115,7 +115,7 @@ test("line-limit scan has teeth (real tracked .ts population) @unit", () => {
 test("tracked .sh files match the pinned allowlist exactly @unit", () => {
 	expect(
 		tracked("*.sh").sort(),
-		"a new .sh needs an explicit entry in tests/law-guards.test.ts (shell-script ban)",
+		"a new .sh needs an explicit entry in tests/law-guards.e2e.ts (shell-script ban)",
 	).toEqual(SH_ALLOWLIST);
 });
 

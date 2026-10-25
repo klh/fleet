@@ -186,7 +186,7 @@ The proposals below remain unimplemented unless stated otherwise.
   rounds-to-pass per item, so convergence (and non-convergence) is visible.
 - **Incidents as evals.** Reverted/failed lanes become a scored eval set; any change
   to review prompts, oracle routing, or gates is rescored against it — same spirit
-  as tests/law-guards.test.ts.
+  as tests/law-guards.e2e.ts.
 
 ### b. How to use reviews for better outcomes
 

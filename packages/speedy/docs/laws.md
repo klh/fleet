@@ -1,7 +1,7 @@
 # klh fleet laws — in-repo mirror (refreshed 2026-10-15, W266.3)
 
 Coord facts are fleet-local: a fresh install has no coord history, so the
-law set ships in-repo. Each law cites its source; `tests/laws-mirror.test.ts`
+law set ships in-repo. Each law cites its source; `tests/laws-mirror.e2e.ts`
 verifies every citation resolves and every fleet-wide law is covered. Keep
 this file in sync when a law changes — an out-of-date mirror is worse than none.
 
@@ -166,7 +166,7 @@ Source: AGENTS.md §qlty is THE quality tool; packages/suspenders/AGENTS.md §ql
 
 TypeScript run by Bun is the automation surface (LaunchAgent→bun entry
 points and one-line aliases only). The tracked .sh set is the pinned
-legacy exception, guarded by tests/law-guards.test.ts.
+legacy exception, guarded by tests/law-guards.e2e.ts.
 
 Source: AGENTS.md §Shell scripts are banned.
 
@@ -188,4 +188,4 @@ kernel imports nothing in fleet; domain packages may import kernel once it
 lands. The fleet import graph and entry-point map live in
 docs/fleet.entry-points.map.md.
 
-Source: AGENTS.md §Import law (W1249); tests/fleet.import-law.guard.test.ts
+Source: AGENTS.md §Import law (W1249); tests/fleet.import-law.guard.e2e.ts
