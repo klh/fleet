@@ -11,7 +11,7 @@
 // Pure plan/read surface + an injected git runner: tests drive fixtures.
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tryLoadStack, STACK_PATH } from "../../hooks/lib/stack-config.ts";
+import { STACK_PATH, tryLoadStack } from "../../hooks/lib/stack-config.ts";
 
 export const SEMVER_RE = /^\d+\.\d+\.\d+$/;
 
@@ -43,7 +43,11 @@ export interface ReleasePlan {
 	changelogRel: string | null;
 }
 
-export type GitRunner = (args: string[]) => { code: number; out: string; err: string };
+export type GitRunner = (args: string[]) => {
+	code: number;
+	out: string;
+	err: string;
+};
 
 export const spawnGitRunner =
 	(repo: string): GitRunner =>
@@ -59,7 +63,9 @@ export const spawnGitRunner =
 		};
 	};
 
-export function parseSemver(v: string): { major: number; minor: number; patch: number } | null {
+export function parseSemver(
+	v: string,
+): { major: number; minor: number; patch: number } | null {
 	if (!SEMVER_RE.test(v)) return null;
 	const [major, minor, patch] = v.split(".").map(Number);
 	return { major, minor, patch };
@@ -96,7 +102,9 @@ export function workspaceDirs(repo: string, patterns: string[]): string[] {
 		const seg = segs[0];
 		if (seg === undefined) return;
 		if (seg.includes("**"))
-			throw new Error(`release: unsupported workspaces glob (no ** support): ${seg}`);
+			throw new Error(
+				`release: unsupported workspaces glob (no ** support): ${seg}`,
+			);
 		let entries: string[] = [];
 		try {
 			entries = readdirSync(dir, { withFileTypes: true });
@@ -122,7 +130,8 @@ export function workspaceDirs(repo: string, patterns: string[]): string[] {
 /** The one-version set: the root manifest + every workspace manifest. */
 export function discoverManifests(repo: string): ManifestRef[] {
 	const rootPath = join(repo, "package.json");
-	if (!existsSync(rootPath)) throw new Error(`release: no root package.json under ${repo}`);
+	if (!existsSync(rootPath))
+		throw new Error(`release: no root package.json under ${repo}`);
 	const root = JSON.parse(readFileSync(rootPath, "utf8")) as {
 		version?: string;
 		workspaces?: string[] | string;
@@ -137,7 +146,9 @@ export function discoverManifests(repo: string): ManifestRef[] {
 	];
 	for (const d of workspaceDirs(repo, patterns)) {
 		const p = join(repo, d, "package.json");
-		const v = (JSON.parse(readFileSync(p, "utf8")) as { version?: string }).version ?? "";
+		const v =
+			(JSON.parse(readFileSync(p, "utf8")) as { version?: string }).version ??
+			"";
 		refs.push({ path: p, rel: join(d, "package.json"), version: v });
 	}
 	return refs.sort((a, b) => a.rel.localeCompare(b.rel));
@@ -150,13 +161,16 @@ const DEP_MAPS = [
 	"optionalDependencies",
 ] as const;
 
-export function internalDepSpecs(json: Record<string, unknown>): Record<string, string> {
+export function internalDepSpecs(
+	json: Record<string, unknown>,
+): Record<string, string> {
 	const out: Record<string, string> = {};
 	for (const m of DEP_MAPS) {
 		const map = json[m];
 		if (map === undefined || typeof map !== "object" || map === null) continue;
 		for (const [name, spec] of Object.entries(map as Record<string, unknown>))
-			if (name.startsWith("@klh/") && typeof spec === "string") out[name] = spec;
+			if (name.startsWith("@klh/") && typeof spec === "string")
+				out[name] = spec;
 	}
 	return out;
 }
@@ -168,7 +182,10 @@ export function agreement(repo: string): Agreement {
 	let current: string | null = null;
 	let best = 0;
 	for (const [v, n] of counts)
-		if (n > best || (n === best && current !== null && compareSemver(v, current) > 0)) {
+		if (
+			n > best ||
+			(n === best && current !== null && compareSemver(v, current) > 0)
+		) {
 			best = n;
 			current = v;
 		}
@@ -184,14 +201,20 @@ export function planRelease(
 ): ReleasePlan {
 	const agr = agreement(repo);
 	if (!agr.ok || agr.current === null) {
-		const rows = agr.drift.map((d) => `${d.rel} @ ${d.version || "(no version)"}`);
-		throw new Error(`release: manifest drift — resolve before releasing:\n  ${rows.join("\n  ")}`);
+		const rows = agr.drift.map(
+			(d) => `${d.rel} @ ${d.version || "(no version)"}`,
+		);
+		throw new Error(
+			`release: manifest drift — resolve before releasing:\n  ${rows.join("\n  ")}`,
+		);
 	}
 	const current = agr.current;
 	let next: string;
 	if (opts.to !== undefined) {
 		if (!SEMVER_RE.test(opts.to))
-			throw new Error(`release: --to must be plain MAJOR.MINOR.PATCH: ${opts.to}`);
+			throw new Error(
+				`release: --to must be plain MAJOR.MINOR.PATCH: ${opts.to}`,
+			);
 		if (compareSemver(opts.to, current) <= 0)
 			throw new Error(`release: --to ${opts.to} must be > current ${current}`);
 		next = opts.to;
@@ -201,7 +224,10 @@ export function planRelease(
 	const manifests = discoverManifests(repo);
 	const depRewrites: { rel: string; deps: Record<string, string> }[] = [];
 	for (const m of manifests) {
-		const json = JSON.parse(readFileSync(m.path, "utf8")) as Record<string, unknown>;
+		const json = JSON.parse(readFileSync(m.path, "utf8")) as Record<
+			string,
+			unknown
+		>;
 		const deps = internalDepSpecs(json);
 		if (Object.keys(deps).length > 0) depRewrites.push({ rel: m.rel, deps });
 	}
@@ -211,11 +237,17 @@ export function planRelease(
 		tag: `v${next}`,
 		manifests,
 		depRewrites,
-		changelogRel: existsSync(join(repo, "CHANGELOG.md")) ? "CHANGELOG.md" : null,
+		changelogRel: existsSync(join(repo, "CHANGELOG.md"))
+			? "CHANGELOG.md"
+			: null,
 	};
 }
 
-export function renderChangelogEntry(version: string, items: string[], date?: string): string {
+export function renderChangelogEntry(
+	version: string,
+	items: string[],
+	date?: string,
+): string {
 	const day = date ?? new Date().toISOString().slice(0, 10);
 	const bullets = items.length
 		? items.map((i) => `- ${i}`).join("\n")
@@ -236,7 +268,10 @@ export function prependChangelog(repo: string, entry: string): string {
 	const at = lines.findIndex((l) => l.startsWith("## "));
 	const body = `${entry}\n`;
 	if (at < 0) {
-		writeFileSync(path, text.endsWith("\n") ? `${text}${body}` : `${text}\n${body}`);
+		writeFileSync(
+			path,
+			text.endsWith("\n") ? `${text}${body}` : `${text}\n${body}`,
+		);
 		return path;
 	}
 	lines.splice(at, 0, ...body.split("\n"));
@@ -265,7 +300,10 @@ export function applyRelease(
 		throw new Error(`release: working tree not clean — commit or stash first`);
 	const files: string[] = [];
 	for (const m of plan.manifests) {
-		const json = JSON.parse(readFileSync(m.path, "utf8")) as Record<string, Record<string, string>>;
+		const json = JSON.parse(readFileSync(m.path, "utf8")) as Record<
+			string,
+			Record<string, string>
+		>;
 		json.version = plan.next;
 		for (const map of DEP_MAPS) {
 			const deps = json[map];
@@ -280,14 +318,18 @@ export function applyRelease(
 	prependChangelog(repo, entry);
 	files.push("CHANGELOG.md");
 	const add = run(["add", ...files]);
-	if (add.code !== 0) throw new Error(`release: git add failed: ${add.err.trim()}`);
+	if (add.code !== 0)
+		throw new Error(`release: git add failed: ${add.err.trim()}`);
 	const msg = `release: v${plan.next} (${items.join(", ")})`;
 	const commit = run(["commit", "-m", msg]);
-	if (commit.code !== 0) throw new Error(`release: git commit failed: ${commit.err.trim()}`);
+	if (commit.code !== 0)
+		throw new Error(`release: git commit failed: ${commit.err.trim()}`);
 	const sha = run(["rev-parse", "HEAD"]);
-	if (sha.code !== 0) throw new Error(`release: rev-parse failed: ${sha.err.trim()}`);
+	if (sha.code !== 0)
+		throw new Error(`release: rev-parse failed: ${sha.err.trim()}`);
 	const tag = run(["tag", "-a", plan.tag, "-m", `release ${plan.tag}`]);
-	if (tag.code !== 0) throw new Error(`release: git tag failed: ${tag.err.trim()}`);
+	if (tag.code !== 0)
+		throw new Error(`release: git tag failed: ${tag.err.trim()}`);
 	return { commit: sha.out.trim(), tag: plan.tag, files };
 }
 
@@ -311,7 +353,12 @@ export function machineVersionHint(target?: string): MachinePin {
 			stackPath,
 			line: `STACK VERSION PIN: unset — set "version:" in ${stackPath} to pin every hub's git ref`,
 		};
-	const verdict = target !== undefined ? (target === pin ? "matches" : `DRIFTS → set to ${target}`) : "current";
+	const verdict =
+		target !== undefined
+			? target === pin
+				? "matches"
+				: `DRIFTS → set to ${target}`
+			: "current";
 	return {
 		pin,
 		stackPath,

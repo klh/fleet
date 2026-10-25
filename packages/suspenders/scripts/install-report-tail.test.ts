@@ -6,7 +6,11 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { processRunner, reportTail, stackVersionTail } from "./install-report-tail.ts";
+import {
+	processRunner,
+	reportTail,
+	stackVersionTail,
+} from "./install-report-tail.ts";
 
 const TABLE = "ITEM  ST  TASK\n----  --  ----\n";
 
@@ -30,10 +34,11 @@ describe("install report tail (W899)", () => {
 	});
 
 	test("prefix fallback door when the shim is absent", () => {
-		const r = reportTail(
-			{ prefix, shimBin: tempDir("empty-shims") },
-			() => ({ code: 0, out: TABLE, err: "" }),
-		);
+		const r = reportTail({ prefix, shimBin: tempDir("empty-shims") }, () => ({
+			code: 0,
+			out: TABLE,
+			err: "",
+		}));
 		expect(r.source).toBe("prefix");
 	});
 
@@ -54,11 +59,9 @@ describe("install report tail — the real shim door (W899)", () => {
 		const shimBin = tempDir("real-shims");
 		const prefix = tempDir("real-prefix");
 		mkdirSync(join(prefix, "bin"), { recursive: true });
-		writeFileSync(
-			join(shimBin, "work"),
-			'#!/bin/sh\necho "ITEM  ST  TASK"\n',
-			{ mode: 0o755 },
-		);
+		writeFileSync(join(shimBin, "work"), '#!/bin/sh\necho "ITEM  ST  TASK"\n', {
+			mode: 0o755,
+		});
 		const r = reportTail({ prefix, shimBin }, processRunner);
 		expect(r.ok).toBe(true);
 		expect(r.source).toBe("shim");
@@ -73,6 +76,8 @@ describe("stack version tail (W1303.6)", () => {
 		expect(line).toContain("STACK VERSION PIN");
 		// render-only: no repo file changed by rendering the hint
 		const status = Bun.spawnSync(["git", "-C", repo, "status", "--porcelain"]);
-		expect(new TextDecoder().decode(status.stdout ?? new Uint8Array()).trim()).not.toContain("stack.json");
+		expect(
+			new TextDecoder().decode(status.stdout ?? new Uint8Array()).trim(),
+		).not.toContain("stack.json");
 	});
 });

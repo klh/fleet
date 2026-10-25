@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { join } from "node:path";
 // scripts/install.ts — the bun-native, LLM-drivable installer entry (W490.1).
 // Skeleton + machine contract this child; internals land in W488.1/W490.2.
 // Modules: install-contract.ts (frozen surface) · install-run.ts (plan runner
@@ -13,21 +14,20 @@
 // Exit codes: 0 ok/pause (need_user_action), 1 failure, 2 usage error.
 import meow from "meow";
 import ora, { type Ora } from "ora";
-import { join } from "node:path";
-import { INSTALL_CONTRACT, type InstallOutcome } from "./install-contract.ts";
 import {
 	exitFor,
 	meowFlags,
 	nextSteps,
 	outcomeGlyph,
 	parseFlags,
+	type ResolvedFlags,
 	renderHuman,
 	resolvePaths,
 	usageOutcome,
-	type ResolvedFlags,
 } from "./install-cli.ts";
-import { executePlan, type StepContext } from "./install-run.ts";
+import { INSTALL_CONTRACT, type InstallOutcome } from "./install-contract.ts";
 import { reportTail, stackVersionTail } from "./install-report-tail.ts";
+import { executePlan, type StepContext } from "./install-run.ts";
 
 const HELP = `
 Usage
@@ -197,7 +197,8 @@ async function main(): Promise<void> {
 WORK REPORT (via the PATH shim from ${paths.prefix}):
 ${doc.report_table}`,
 			);
-		if (doc.stack_version_line !== undefined) console.log(`\n${doc.stack_version_line}`);
+		if (doc.stack_version_line !== undefined)
+			console.log(`\n${doc.stack_version_line}`);
 	}
 	// the tail's failure verdict wins over the plan outcome (a dead proof is
 	// a failed install — "make damn sure")

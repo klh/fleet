@@ -4,7 +4,13 @@
 // real-git integration case proves commit+tag land as one change.
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -30,7 +36,9 @@ const gitInit = (dir: string): void => {
 	execFileSync("git", ["-C", dir, "config", "user.name", "t"]);
 };
 
-const fixture = (opts: { versions?: Record<string, string>; deps?: boolean } = {}) => {
+const fixture = (
+	opts: { versions?: Record<string, string>; deps?: boolean } = {},
+) => {
 	const dir = mkdtempSync(join(tmpdir(), `w1303-6-release-`));
 	gitInit(dir);
 	const versions = opts.versions ?? {};
@@ -40,14 +48,18 @@ const fixture = (opts: { versions?: Record<string, string>; deps?: boolean } = {
 		version: versions.root ?? "1.2.3",
 		workspaces: ["packages/*", "!packages/decant"],
 	};
-	writeFileSync(join(dir, "package.json"), `${JSON.stringify(root, null, "\t")}\n`);
+	writeFileSync(
+		join(dir, "package.json"),
+		`${JSON.stringify(root, null, "\t")}\n`,
+	);
 	for (const p of ["alpha", "beta", "decant", "plain"]) {
 		mkdirSync(join(dir, "packages", p), { recursive: true });
 		const json: Record<string, unknown> = {
 			name: `@klh/${p}`,
 			version: versions[p] ?? versions.root ?? "1.2.3",
 		};
-		if (opts.deps && p === "alpha") json.dependencies = { "@klh/beta": "workspace:*", "zod": "^4.0.0" };
+		if (opts.deps && p === "alpha")
+			json.dependencies = { "@klh/beta": "workspace:*", zod: "^4.0.0" };
 		writeFileSync(
 			join(dir, "packages", p, "package.json"),
 			`${JSON.stringify(json, null, "\t")}\n`,
@@ -87,13 +99,21 @@ describe("workspace discovery", () => {
 	test("root workspaces + negation resolve to manifest-holding dirs only", () => {
 		const dir = fixture();
 		const dirs = workspaceDirs(dir, ["packages/*", "!packages/decant"]);
-		expect(dirs.sort()).toEqual(["packages/alpha", "packages/beta", "packages/decant"].sort().filter((d) => d !== "packages/decant"));
+		expect(dirs.sort()).toEqual(
+			["packages/alpha", "packages/beta", "packages/decant"]
+				.sort()
+				.filter((d) => d !== "packages/decant"),
+		);
 		rmSync(dir, { recursive: true, force: true });
 	});
 	test("discoverManifests = root + workspaces, decant excluded, plain absent", () => {
 		const dir = fixture();
 		const rels = discoverManifests(dir).map((m) => m.rel);
-		expect(rels).toEqual(["package.json", "packages/alpha/package.json", "packages/beta/package.json"]);
+		expect(rels).toEqual([
+			"package.json",
+			"packages/alpha/package.json",
+			"packages/beta/package.json",
+		]);
 		rmSync(dir, { recursive: true, force: true });
 	});
 });
@@ -111,7 +131,9 @@ describe("agreement gate", () => {
 		const dir = fixture({ versions: { beta: "1.2.4" } });
 		const a = agreement(dir);
 		expect(a.ok).toBe(false);
-		expect(a.drift).toEqual([{ rel: "packages/beta/package.json", version: "1.2.4" }]);
+		expect(a.drift).toEqual([
+			{ rel: "packages/beta/package.json", version: "1.2.4" },
+		]);
 		rmSync(dir, { recursive: true, force: true });
 	});
 });
@@ -124,13 +146,17 @@ describe("planRelease", () => {
 		expect(patch.tag).toBe("v1.2.4");
 		const to = planRelease(dir, { to: "2.0.0", kind: "patch" });
 		expect(to.next).toBe("2.0.0");
-		expect(() => planRelease(dir, { to: "1.2.3" })).toThrow(/must be > current/);
+		expect(() => planRelease(dir, { to: "1.2.3" })).toThrow(
+			/must be > current/,
+		);
 		rmSync(dir, { recursive: true, force: true });
 	});
 	test("depRewrites list every @klh/* spec; zod untouched", () => {
 		const dir = fixture({ deps: true });
 		const plan = planRelease(dir);
-		const alpha = plan.depRewrites.find((d) => d.rel === "packages/alpha/package.json");
+		const alpha = plan.depRewrites.find(
+			(d) => d.rel === "packages/alpha/package.json",
+		);
 		expect(alpha?.deps).toEqual({ "@klh/beta": "workspace:*" });
 		rmSync(dir, { recursive: true, force: true });
 	});
@@ -148,7 +174,10 @@ describe("changelog", () => {
 	});
 	test("prepend lands before the first ## section, not at file head", () => {
 		const dir = mkdtempSync(join(tmpdir(), "w1303-6-cl-"));
-		writeFileSync(join(dir, "CHANGELOG.md"), "# Changelog\n\nintro line\n\n## 1.2.3 — 2026-10-01\n\n- base\n");
+		writeFileSync(
+			join(dir, "CHANGELOG.md"),
+			"# Changelog\n\nintro line\n\n## 1.2.3 — 2026-10-01\n\n- base\n",
+		);
 		prependChangelog(dir, "## 2.0.0 — 2026-10-25\n\n- W1303.6");
 		const text = readFileSync(join(dir, "CHANGELOG.md"), "utf8");
 		const at2 = text.indexOf("## 2.0.0");
@@ -166,14 +195,22 @@ describe("applyRelease", () => {
 		const plan = planRelease(dir);
 		const r = applyRelease(dir, plan, ["W1303.6"]);
 		expect(r.tag).toBe("v1.2.4");
-		const out = execFileSync("git", ["-C", dir, "show", "--stat", "--oneline", r.commit], { encoding: "utf8" });
+		const out = execFileSync(
+			"git",
+			["-C", dir, "show", "--stat", "--oneline", r.commit],
+			{ encoding: "utf8" },
+		);
 		expect(out).toContain("package.json");
 		expect(out).toContain("CHANGELOG.md");
 		// annotated tag object, not lightweight
-		const type = execFileSync("git", ["-C", dir, "cat-file", "-t", r.tag], { encoding: "utf8" }).trim();
+		const type = execFileSync("git", ["-C", dir, "cat-file", "-t", r.tag], {
+			encoding: "utf8",
+		}).trim();
 		expect(type).toBe("tag");
 		// versions + dep specs all at next
-		const alpha = JSON.parse(readFileSync(join(dir, "packages/alpha/package.json"), "utf8"));
+		const alpha = JSON.parse(
+			readFileSync(join(dir, "packages/alpha/package.json"), "utf8"),
+		);
 		expect(alpha.version).toBe("1.2.4");
 		expect(alpha.dependencies["@klh/beta"]).toBe("1.2.4");
 		expect(alpha.dependencies.zod).toBe("^4.0.0");
@@ -184,7 +221,9 @@ describe("applyRelease", () => {
 		expect(cl).toContain("## 1.2.4");
 		expect(cl).toContain("- W1303.6");
 		// the tree is clean afterward (everything committed)
-		const status = execFileSync("git", ["-C", dir, "status", "--porcelain"], { encoding: "utf8" });
+		const status = execFileSync("git", ["-C", dir, "status", "--porcelain"], {
+			encoding: "utf8",
+		});
 		expect(status).toBe("");
 		rmSync(dir, { recursive: true, force: true });
 	});
@@ -192,7 +231,9 @@ describe("applyRelease", () => {
 		const dir = fixture();
 		writeFileSync(join(dir, "stray.txt"), "x");
 		const plan = planRelease(dir);
-		expect(() => applyRelease(dir, plan, ["W1"])).toThrow(/working tree not clean/);
+		expect(() => applyRelease(dir, plan, ["W1"])).toThrow(
+			/working tree not clean/,
+		);
 		// nothing was written: manifests untouched
 		const root = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
 		expect(root.version).toBe("1.2.3");
@@ -222,7 +263,10 @@ describe("machine pin hint (render-only)", () => {
 	test("KLH_STACK override reaches the hint (env contract)", () => {
 		const prev = process.env.KLH_STACK;
 		const tmp = mkdtempSync(join(tmpdir(), "w1303-6-stack-"));
-		writeFileSync(join(tmp, "stack.json"), JSON.stringify({ version: "3.2.1", hubs: {} }));
+		writeFileSync(
+			join(tmp, "stack.json"),
+			JSON.stringify({ version: "3.2.1", hubs: {} }),
+		);
 		process.env.KLH_STACK = join(tmp, "stack.json");
 		try {
 			const m = machineVersionHint("3.2.1");

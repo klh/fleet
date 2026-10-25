@@ -4,7 +4,6 @@
 // errors); the applied cut is covered by release-version.test.ts fixtures.
 import { describe, expect, test } from "bun:test";
 
-
 const CLI = new URL("./release.ts", import.meta.url).pathname;
 
 const run = (args: string[]) => {

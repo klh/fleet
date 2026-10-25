@@ -33,7 +33,10 @@ const parseBump = (v: string | null): BumpKind => {
 	return v as BumpKind;
 };
 
-const renderPlan = (p: ReturnType<typeof planRelease>, items: string[]): string => {
+const renderPlan = (
+	p: ReturnType<typeof planRelease>,
+	items: string[],
+): string => {
 	const lines = [
 		`current ${p.current} → next ${p.next}  (tag ${p.tag})`,
 		`manifests (${p.manifests.length}):`,
@@ -63,7 +66,9 @@ const status = defineVerb({
 		const rows = [
 			`manifest agreement: ${agr.ok ? "OK" : "DRIFT"}`,
 			agr.current !== null ? `  version: ${agr.current}` : "  version: (none)",
-			...agr.drift.map((d) => `  drift: ${d.rel} @ ${d.version || "(no version)"}`),
+			...agr.drift.map(
+				(d) => `  drift: ${d.rel} @ ${d.version || "(no version)"}`,
+			),
 			`latest tag: ${tag ?? "(none)"}`,
 			`tag ${tag ? (agr.current !== null && `v${agr.current}` === tag ? "matches" : "DIFFERS from") : "missing for"} the manifest version`,
 			hint.line,
@@ -94,7 +99,8 @@ const plan = defineVerb({
 
 const cut = defineVerb({
 	name: "cut",
-	usage: "usage: release cut --bump <kind> --items <ids> [--to X.Y.Z] [--yes] [--push]",
+	usage:
+		"usage: release cut --bump <kind> --items <ids> [--to X.Y.Z] [--yes] [--push]",
 	flags: ["--bump", "--items", "--to"],
 	switches: ["--yes", "--push"],
 	reqFlags: ["--bump", "--items"],
@@ -103,7 +109,8 @@ const cut = defineVerb({
 			.split(",")
 			.map((s) => s.trim())
 			.filter(Boolean);
-		if (!items.length) throw new Error("release: --items needs at least one item id");
+		if (!items.length)
+			throw new Error("release: --items needs at least one item id");
 		const rel = planRelease(repo, {
 			to: p.flag("--to") ?? undefined,
 			kind: parseBump(p.flag("--bump")),
@@ -115,7 +122,8 @@ const cut = defineVerb({
 		const done = applyRelease(repo, rel, items);
 		if (p.flag("--push") !== null) {
 			const push = git(["push", "origin", `refs/tags/${done.tag}`]);
-			if (push.code !== 0) throw new Error(`release: push failed: ${push.err.trim()}`);
+			if (push.code !== 0)
+				throw new Error(`release: push failed: ${push.err.trim()}`);
 		}
 		console.log(
 			[
@@ -131,5 +139,6 @@ await runCli({
 	prog: "release",
 	about: "one-version release: status | plan | cut",
 	verbs: [status, plan, cut],
-	epilog: "machine stack.json pin is operator-owned; this tool renders the hint only",
+	epilog:
+		"machine stack.json pin is operator-owned; this tool renders the hint only",
 });
