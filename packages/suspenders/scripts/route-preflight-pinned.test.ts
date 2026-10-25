@@ -1,9 +1,11 @@
 import { expect, test } from "bun:test";
-import type { Deployment, UpstreamPool } from "../../buckle/src/upstreams.ts";
 import {
 	checkRoutePreflight,
 	type RoutePreflightSources,
 } from "./route-preflight.ts";
+
+type UpstreamPool = RoutePreflightSources["localPool"];
+type Deployment = ReturnType<UpstreamPool["deployments"]>[number];
 
 const pool = (
 	groups: Record<string, Array<Omit<Deployment, "group">>>,
