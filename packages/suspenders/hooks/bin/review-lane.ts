@@ -23,13 +23,13 @@ import {
 	reviewContext,
 	reviewFindingIds,
 } from "../lib/gates/review-receipt.ts";
-import { branchForItem } from "../lib/lanes/item-branch.ts";
 import {
 	finishReviewRequest,
 	reviewRequestKey,
 } from "../lib/gates/review-scheduler.ts";
 import { openStore, projectRootOf } from "../lib/govdb/govdb.ts";
 import { resolveBelt } from "../lib/hub/belt-locate.ts";
+import { branchForItem } from "../lib/lanes/item-branch.ts";
 import {
 	adminKey,
 	BUCKLE_FRONT,

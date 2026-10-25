@@ -10,10 +10,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
-	TEST_FILE,
 	addedWorkspaceDependencies,
 	missingImports,
 	missingImportsExplained,
+	TEST_FILE,
 } from "../hooks/lib/gates/coverage-proof.ts";
 
 setDefaultTimeout(60_000);

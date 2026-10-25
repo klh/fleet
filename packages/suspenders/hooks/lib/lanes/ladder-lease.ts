@@ -9,9 +9,9 @@
 // resolves to the exact branch head may merge; everything else fails closed.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { openStore, projectIdentity } from "../govdb/govdb.ts";
 import { laneContextItemForBranch } from "./item-branch.ts";
 import { readLaneRegistry } from "./lane-registry.ts";
-import { openStore, projectIdentity } from "../govdb/govdb.ts";
 
 export type ClaimView = {
 	item: string;

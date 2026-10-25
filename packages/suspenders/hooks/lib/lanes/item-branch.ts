@@ -5,8 +5,9 @@
 // plane which item owns the branch. The lane-context file — rebound in the
 // same transaction as the shatter — is the canonical child context: branch →
 // item for the merge ladder's lease gate, item → branch for the reviewer.
-import { readLaneContextFile } from "./lane-context.ts";
+
 import { registryWorktrees } from "../work/worktree-lookup.ts";
+import { readLaneContextFile } from "./lane-context.ts";
 
 // the item a branch is bound to: the checked-out tree's lane-context (kept
 // child wins over a stale registry row), else null — callers layer their own

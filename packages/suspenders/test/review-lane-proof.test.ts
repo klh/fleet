@@ -2,6 +2,8 @@
 // only stands when the branch's new tests FAIL without the change. Each case
 // builds a real git fixture repo + a branch with scripted prod/test files, a
 // stub executor that always PASSes, and asserts the mechanical outcome.
+
+import { Database } from "bun:sqlite";
 import {
 	afterAll,
 	beforeAll,
@@ -10,12 +12,11 @@ import {
 	setDefaultTimeout,
 	test,
 } from "bun:test";
-import { Database } from "bun:sqlite";
 import {
 	mkdirSync,
 	mkdtempSync,
-	rmSync,
 	realpathSync,
+	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -23,15 +24,15 @@ import { join } from "node:path";
 import { guardedMerge } from "../hooks/lib/fleet-loop/merge-guard.ts";
 import {
 	checkReviewReceipt,
-	reviewContext,
-	recordLanding,
 	type ReviewContext,
+	recordLanding,
+	reviewContext,
 } from "../hooks/lib/gates/review-receipt.ts";
-import type { GovernorStore } from "../hooks/lib/govdb/govdb-store.ts";
 import {
-	scheduleReview,
 	reviewRequestKey,
+	scheduleReview,
 } from "../hooks/lib/gates/review-scheduler.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb-store.ts";
 
 function seedCompletion(
 	db: Database,
