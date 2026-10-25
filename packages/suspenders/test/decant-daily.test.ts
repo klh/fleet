@@ -6,6 +6,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	rmSync,
@@ -19,6 +20,7 @@ import {
 	CLAIM_PREFIX,
 	decide,
 	DAILY_CLAIM_STAMP,
+	decantCoordBin,
 	distillSessionClaims,
 	distillWorkClaims,
 	factSetArgs,
@@ -430,6 +432,12 @@ describe("runner e2e (W1212)", () => {
 		// the retracted key stays inventoried — evidence returning reclaims it
 		expect(Object.keys(readState(o.statePath).inventory).length).toBe(2);
 	});
+});
+
+// W1292: the reorg moved this lib into fleet-loop/ — the coord child spawn
+// path must still land on the shipped hooks/bin/coord.ts.
+test("decantCoordBin resolves the shipped hooks/bin/coord.ts", () => {
+	expect(existsSync(decantCoordBin())).toBe(true);
 });
 
 afterAll(cleanup);
