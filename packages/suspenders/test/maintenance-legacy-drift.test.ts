@@ -28,6 +28,7 @@ const HEARTBEAT_BORN: Record<string, string> = {
 		"452bfdf6 — OpenRouter free catalog (pre-W-id commit)",
 	"chatgpt-coordinate": "W1013",
 	"signals-scan": "W969",
+	"review-reconcile": "W1280",
 };
 
 // Retired com.suspenders.* labels that were never maintenance tasks —
