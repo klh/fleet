@@ -2,6 +2,9 @@
 // Local post-commit contract check. Git cannot roll back a committed change;
 // pre-push repeats the same gate and refuses to publish a regression.
 import { resolve } from "node:path";
+// W1187: the strip is the incident mitigation (9b98d661) — one shared
+// implementation with the fixture-isolation lib, never a second copy
+import { stripGitEnv } from "../packages/suspenders/hooks/lib/fixture-isolation.ts";
 
 const root = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], {
 	stdout: "pipe",
@@ -33,10 +36,7 @@ if (process.argv.includes("--full"))
 const tests = suite.map((name) =>
 	resolve(root, "packages/suspenders/test", name),
 );
-const testEnv = { ...process.env };
-for (const key of Object.keys(testEnv)) {
-	if (key.startsWith("GIT_")) delete testEnv[key];
-}
+const testEnv = { ...stripGitEnv(process.env) };
 const run = Bun.spawnSync([process.execPath, "test", ...tests], {
 	cwd: root,
 	env: testEnv,
