@@ -14,12 +14,24 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import {
+	beginTrace,
+	childTraceparent,
+	stampResponse,
+} from "../../telemetry/src/http-trace.ts";
+import {
+	PREFER_HEADER,
+	parsePreferHeader,
+} from "../../telemetry/src/prefer-header.ts";
+import {
 	createAdmission,
 	overloaded,
 	parsePortCaps,
 	releaseAfterCleanup,
 } from "./admission.ts";
 import { audioSpeech, audioTranscribe } from "./audio.ts";
+// W422.17.3 governor note: re-read after the /tmp splice that moved viaCloud
+// out; this adds the import for the extracted escalation leg.
+import { escalate } from "./escalate.ts";
 import { livenessResponse } from "./health.ts";
 import { promptFingerprint } from "./prompt-fingerprint.ts";
 import {
@@ -31,7 +43,6 @@ import {
 	type Specialist,
 } from "./registry.ts";
 import { registryResponse } from "./registry-emit.ts";
-import { routerRuntimeRevision } from "./router-runtime-revision.ts";
 import {
 	applyInboundCondense,
 	type CondenseMeta,
@@ -40,7 +51,6 @@ import {
 import {
 	type AnthropicBody,
 	anthropicSseFromOpenAi,
-	type OpenAiToolCall,
 	anthropicSseFromText,
 	applyBudget,
 	callHonoringRetryAfter,
@@ -48,29 +58,19 @@ import {
 	classifyELabel,
 	kevEligible,
 	kevEscalateVeto,
+	type OpenAiToolCall,
 	openLocalStream,
 	type RequestTimings,
 	scoreComplexity,
 	stopReason,
 	toOpenAiMessages,
-	toolChoiceToOpenAi,
 	toOpenAiTools,
+	toolChoiceToOpenAi,
 	viaLocal,
 } from "./router-core.ts";
+import { routerRuntimeRevision } from "./router-runtime-revision.ts";
 import { parseToolArgs } from "./router-tools.ts";
-// W422.17.3 governor note: re-read after the /tmp splice that moved viaCloud
-// out; this adds the import for the extracted escalation leg.
-import { escalate } from "./escalate.ts";
 import { ensureAvailable } from "./spawner.ts";
-import {
-	beginTrace,
-	childTraceparent,
-	stampResponse,
-} from "../../telemetry/src/http-trace.ts";
-import {
-	parsePreferHeader,
-	PREFER_HEADER,
-} from "../../telemetry/src/prefer-header.ts";
 
 // W504: per-provider request caps — registry rows carry maxInflight for the
 // big unified-memory backends (:8901/:8903); BELT_PORT_CAPS ("8903:1,8901:3")

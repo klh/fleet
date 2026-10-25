@@ -22,8 +22,8 @@ import {
 	type RegistryEntry,
 	registryDoc,
 	registryEntries,
-	resolveTier,
 	residentSet,
+	resolveTier,
 } from "./registry.ts";
 
 const HEADER =
