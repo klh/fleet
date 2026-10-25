@@ -14,7 +14,11 @@
 // #2). A claimant can pause the reaper across a known-long op:
 // `work extend <id> --for 45m` (Hermes claim-extend lift).
 import type { GovernorStore } from "./govdb.ts";
-import { type LaneRef, laneVerdict } from "./lane-liveness.ts";
+import {
+	type LaneRef,
+	laneVerdict,
+	type ProcessInspector,
+} from "./lane-liveness.ts";
 
 // sessions heartbeat window — bus parity with quota-sweep LIVE_HB_MS
 const LIVE_HB_MS = 30 * 60_000;
@@ -94,6 +98,8 @@ export type ClaimObservation = {
 	revision: number;
 	lane?: LaneRef;
 	now?: number;
+	/** W1072.3: injected ps roster (tests) — the recycled-pid bound rides it. */
+	inspect?: ProcessInspector;
 };
 
 /** Read-only verdict — no counter writes, safe for listing surfaces. */
@@ -106,7 +112,9 @@ export function probeClaim(
 	const lease = readReclaimHold(store, project, obs.id);
 	const holdUntil =
 		lease && lease.holdUntil > now ? (lease.holdUntil as number) : null;
-	let verdict: ReclaimVerdict = obs.lane ? laneVerdict(obs.lane) : "unknown";
+	let verdict: ReclaimVerdict = obs.lane
+		? laneVerdict(obs.lane, obs.inspect)
+		: "unknown";
 	let deathEvidence: string | undefined;
 	if (verdict !== "alive" && hbFresh(store, obs.owner, now)) verdict = "alive";
 	// W972: positive absence on BOTH terms is death evidence, not lookup

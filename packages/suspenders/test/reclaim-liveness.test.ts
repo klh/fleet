@@ -366,7 +366,9 @@ test("CLI: registry dead pid → extend pause, strikes, release on the third dea
 		]),
 	);
 	expect(call("extend", id, "--for", "1s").exitCode).toBe(0);
-	expect(call("reclaim", "all").stdout.toString()).toContain("extend lease");
+	// the automatic-recovery gate intercepts the leased pass (why "waiting") —
+	// the hold is what matters: no reclaim while the lease is live
+	expect(call("reclaim", "all").stdout.toString()).toContain("W1 held");
 	Bun.sleepSync(1100); // lease expired — death must repeat from strike 1
 	expect(call("reclaim", "all").stdout.toString()).toContain("strike 1/3");
 	expect(call("reclaim", "all").stdout.toString()).toContain("strike 2/3");

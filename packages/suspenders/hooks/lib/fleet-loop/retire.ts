@@ -3,7 +3,7 @@
 // fleet-loop entrypoint; bodies verbatim).
 
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { retireLaneKey } from "../../lane-auth.ts";
+import { retireLaneKey } from "../lane-auth.ts";
 import { laneAlive, laneProcessIdentity } from "../lane-liveness.ts";
 import {
 	readLaneRegistry,
