@@ -31,6 +31,13 @@
 //     not older than the row's provenance high-water mark — a replay of an
 //     already-applied retraction is an idempotent dupe that never re-hides a
 //     revived claim and never duplicates retract provenance.
+//   dedupe vs causality (W1213.3.1.1): the dedupe keys on CONTENT (hash +
+//     machine), the causal marks key on TIME, and a content-dupe still
+//     carries time. Both high-water marks advance on a dupe — a retract
+//     dupe moves tombstone_ts (W1213.3.1), an assert dupe moves the
+//     machine's standing provenance ts — so every arrival order of one
+//     event set converges to the same visibility. A same-ts replay is
+//     exact: zero writes, byte-identical row.
 import { Database } from "bun:sqlite";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -425,7 +432,30 @@ function applyKnown(
 		return;
 	}
 	if (prov.some((p) => p.machine === machine && !p.retract)) {
-		// idempotent re-push: the machine already asserted this exact content
+		// idempotent re-push: the machine already asserted this exact content.
+		// W1213.3.1.1: the dupe still carries TIME — a NEWER identical-payload
+		// assertion advances the machine's standing provenance ts, so a stale
+		// tombstone behind the dedupe cannot hide a claim the event set holds
+		// visible (FAIL61611: assert 100 / dupe assert 500 dropped / tomb 400
+		// hid). Same-ts replay: exact idempotency, zero writes.
+		const standing = prov
+			.filter((p) => p.machine === machine && !p.retract)
+			.reduce((m, p) => Math.max(m, p.ts), 0);
+		if (e.ts > standing) {
+			let advanced = false;
+			const moved = prov.map((p) => {
+				if (advanced || p.machine !== machine || p.retract || p.ts !== standing)
+					return p;
+				advanced = true;
+				return { ...p, ts: e.ts };
+			});
+			db.run(
+				"UPDATE knowledge_claims SET provenance = ?, updated_at = ? WHERE id = ?",
+				JSON.stringify(moved),
+				now,
+				row.id,
+			);
+		}
 		counts.dupes++;
 		return;
 	}
