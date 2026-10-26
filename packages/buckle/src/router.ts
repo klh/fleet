@@ -14,12 +14,12 @@ import {
 	safeProviderErrorToken,
 	safeRefusalCode,
 	traceIdOf,
-} from "../../telemetry/src/http-trace.ts";
+} from "@klh/telemetry/src/http-trace.ts";
 import {
 	safeTimeoutPhase,
 	type TransportEvidence,
 	TransportObservation,
-} from "../../telemetry/src/transport-evidence.ts";
+} from "@klh/telemetry/src/transport-evidence.ts";
 import {
 	type ErrorKind,
 	normalizeUpstreamError,

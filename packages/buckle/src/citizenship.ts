@@ -4,7 +4,7 @@
 // Allow) off ONE route table, and the rate-limit header trio in both
 // families. The gate (gov/middleware.ts), the wire handlers, the admin API
 // and servicemon all code to this module — one source of truth per pattern.
-import { stampHopHeaders } from "../../telemetry/src/http-trace.ts";
+import { stampHopHeaders } from "@klh/telemetry/src/http-trace.ts";
 
 export const PROBLEM_SLUGS: Record<number, string> = {
 	400: "bad_request",

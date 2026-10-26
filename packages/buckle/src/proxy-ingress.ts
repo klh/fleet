@@ -26,7 +26,7 @@ import { runExecute } from "./proxy-execute.ts";
 import {
 	PREFER_HEADER,
 	parsePreferHeader,
-} from "../../telemetry/src/prefer-header.ts";
+} from "@klh/telemetry/src/prefer-header.ts";
 import {
 	allowlistedBaggage,
 	newTraceparent,

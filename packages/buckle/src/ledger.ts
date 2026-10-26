@@ -13,8 +13,8 @@ import {
 	safeCorrelationId,
 	safeProviderErrorToken,
 	safeRefusalCode,
-} from "../../telemetry/src/http-trace.ts";
-import { safeTransportEvidence } from "../../telemetry/src/transport-evidence.ts";
+} from "@klh/telemetry/src/http-trace.ts";
+import { safeTransportEvidence } from "@klh/telemetry/src/transport-evidence.ts";
 import type { HopKind } from "./hop.ts";
 import type { Usage } from "./usage.ts";
 

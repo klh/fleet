@@ -1,7 +1,7 @@
 // A bounded, disposable routing drill. It uses the production Router over
 // the operator's configured group ladder, but replaces every network call
 // with deterministic failures/success. No provider or live lane is touched.
-import type { HopReceipt } from "../../telemetry/src/http-trace.ts";
+import type { HopReceipt } from "@klh/telemetry/src/http-trace.ts";
 import type { GatewayPolicy } from "./policy.ts";
 import { Router } from "./router.ts";
 import type { Dialect, UpstreamPool } from "./upstreams.ts";

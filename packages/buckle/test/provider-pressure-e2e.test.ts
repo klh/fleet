@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "../src/server.ts";
-import { readRemoteTraces } from "../../telemetry/src/remote-traces.ts";
+import { readRemoteTraces } from "@klh/telemetry/src/remote-traces.ts";
 
 const GROUP = "glm-5.3-flash";
 const POOL = "zai-coding-account";

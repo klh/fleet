@@ -1,5 +1,5 @@
-import { PREFER_HEADER } from "../../telemetry/src/prefer-header.ts";
-import type { TransportEvidence } from "../../telemetry/src/transport-evidence.ts";
+import { PREFER_HEADER } from "@klh/telemetry/src/prefer-header.ts";
+import type { TransportEvidence } from "@klh/telemetry/src/transport-evidence.ts";
 import { RouterError } from "./adapters/errors.ts";
 // src/wire.ts — upstream request construction, now through the adapter
 // registry (W134 §4.1): the deployment's family adapter builds the wire

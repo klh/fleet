@@ -1,9 +1,9 @@
 // src/wire-stamp.ts — W136 wire-header stamping on responses
 // (x-belt-rid/route/error) + hop headers; SSE header pass-through.
 
-import type { TransportEvidence } from "../../telemetry/src/transport-evidence.ts";
-import { stampHopHeaders } from "../../telemetry/src/http-trace.ts";
-import { PREFER_HEADER } from "../../telemetry/src/prefer-header.ts";
+import type { TransportEvidence } from "@klh/telemetry/src/transport-evidence.ts";
+import { stampHopHeaders } from "@klh/telemetry/src/http-trace.ts";
+import { PREFER_HEADER } from "@klh/telemetry/src/prefer-header.ts";
 import type { CandidateRow } from "./candidates.ts";
 import { latencyClass } from "./decide.ts";
 import { settleInflight } from "./gov/inflight.ts";
