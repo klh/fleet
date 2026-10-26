@@ -327,7 +327,9 @@ Drift filed:
    the standard's canonical example is inert on fleet as written.
    prefer.example's "dotfiles-win: the nearest .prefer wins" (:2-3)
    overstates — with no walk there is no nearest; exactly one file is
-   read.
+   read. **Resolved by W1470 (2026-10-26):** exec-chain.ts now walks
+   upward from the working path — the nearest file defining a key wins it,
+   `hub-url` rides with its `hub` — and prefer.example describes it.
 2. **The tree parser rejects the chain-only keys.** prefer.ts
    PREFER_KEYS is tag/color/prefer/must, so documented
    `can=`/`hub=`/`hub-url=` lines produce loud "unknown key" errors

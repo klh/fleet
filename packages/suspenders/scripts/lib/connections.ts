@@ -36,7 +36,7 @@ import {
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { readRegistry, resolveHub } from "../../hooks/lib/hub/hub-locate.ts";
 import { tryLoadStack } from "../../hooks/lib/stack-config.ts";
-import { preferOf } from "./exec-chain.ts";
+import { preferFileOf } from "./exec-chain.ts";
 import { parseRoutingPrefer } from "./prefer-routing.ts";
 import {
 	type Parsed,
@@ -201,7 +201,7 @@ export const knownHubLabel = (
 
 /** The .prefer pin: walk up from the path, nearest .prefer wins. Two planes
  *  share one file: the executor chain's unquoted `hub=Label` (exec-chain.ts
- *  preferOf — explicit, wins) and the W519 routing plane whose prefer
+ *  preferFileOf — explicit, wins) and the W519 routing plane whose prefer
  *  expression's FIRST token names a known hub (`prefer = "ikea llms"` pins
  *  ikea when ikea is a registered label). parseRoutingPrefer flags the
  *  cross-plane `hub=` as unknown-key errors — expected noise, never fatal. */
@@ -215,7 +215,7 @@ export function preferPin(
 	for (let i = 0; i < 64; i++) {
 		const f = join(dir, ".prefer");
 		if (existsSync(f)) {
-			const p = preferOf(dir);
+			const p = preferFileOf(dir);
 			if (p.hub) return { hub: p.hub, hubUrls: p.hubUrls, source: f };
 			const routing = parseRoutingPrefer(f, readFileSync(f, "utf8"));
 			const head = routing.prefer?.trim().split(/\s+/)[0] ?? "";

@@ -102,6 +102,21 @@ test("walk-up: a .prefer above the repo pins the subtree", () => {
 	}
 });
 
+test("nearest file wins across planes: a nearer routing-expr hub beats a farther hub=", () => {
+	const root = mkdtempSync(join(tmpdir(), "conn-test-"));
+	try {
+		const repo = join(root, "repo");
+		mkdirSync(repo, { recursive: true });
+		writeFileSync(join(root, ".prefer"), "hub=nas\n");
+		writeFileSync(join(repo, ".prefer"), 'prefer = "ikea llms"\n');
+		const pin = preferPin(repo, KNOWN);
+		expect(pin?.hub).toBe("ikea");
+		expect(pin?.source).toBe(join(repo, ".prefer"));
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
 test("longest-prefix wins and the boundary is separator-safe", () => {
 	const repos = {
 		"/tmp/t/a": "nas",

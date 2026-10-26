@@ -26,7 +26,8 @@ Appended below the existing executor-chain block (`must=` ladder +
 - `hooks/lib/prefer.ts` (W517): tag/color plane — quoted values, one key
   per line, first wins. The appended lines parse clean.
 - `scripts/lib/exec-chain.ts`: executor chain — only reads
-  `must`/`prefer`/`can`/`hub`; `tag`/`color` ignored.
+  `must`/`prefer`/`can`/`hub`/`hub-url`; `tag`/`color` ignored. Walks
+  upward from the working path (W1470): the nearest file defining a key wins.
 - `scripts/lib/prefer-routing.ts` (W519): routing plane — `tag`/`color`
   are FOREIGN_KEYS, never an error.
 - Board: `hooks/board/data.ts` `taskShape` resolves per project root
