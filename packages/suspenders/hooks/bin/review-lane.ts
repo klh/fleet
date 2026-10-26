@@ -424,6 +424,17 @@ async function coverageProof(branch: string): Promise<Proof> {
 	const testFiles = diffTests.filter((f) => tipTree.has(f));
 	if (testFiles.length === 0)
 		return { status: "skipped", detail: "no test files in diff" };
+	// The proof runs plain `bun test`, which collects only its own naming
+	// pattern — a @playwright *.e2e.ts never runs there (forced, its test()
+	// throws at collection: change-independent noise, not proof). Prove the
+	// bun-collectable subset; an all-playwright diff skips, honestly.
+	const bunRunnable = /\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(test|spec)_|_test_/;
+	const provable = testFiles.filter((f) => bunRunnable.test(f));
+	if (provable.length === 0)
+		return {
+			status: "skipped",
+			detail: "no bun-collectable test files in diff (playwright-only)",
+		};
 	// W1262 (W1258 regression): reverse-applying the diff removes exactly the
 	// modules the diff ADDED — a restored new test importing one fails right
 	// there. That failure is the proof itself (the change is what provides the
@@ -480,11 +491,11 @@ async function coverageProof(branch: string): Promise<Proof> {
 				detail: `reverse apply failed: ${rev.out.trim().slice(0, 150)}`,
 			};
 		// …then restore the new tests from the index (still at the branch tip)
-		const back = gitRun(["checkout", "--", ...testFiles], scratch);
+		const back = gitRun(["checkout", "--", ...provable], scratch);
 		if (back.code !== 0)
 			return { status: "error", detail: "test restore failed" };
 		// run the new tests without the change
-		const p = Bun.spawn([process.execPath, "test", ...testFiles], {
+		const p = Bun.spawn([process.execPath, "test", ...provable], {
 			stdin: "ignore",
 			stdout: "pipe",
 			stderr: "pipe",
@@ -506,7 +517,7 @@ async function coverageProof(branch: string): Promise<Proof> {
 				!missingImportsExplained(
 					output,
 					addedProd,
-					testFiles,
+					provable,
 					addedWorkspaceDeps,
 					scratch,
 				)

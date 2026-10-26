@@ -287,6 +287,21 @@ test("needs the change", () => {
 		delete: ["legacy.test.ts"],
 		want: "proved",
 	},
+	{
+		// W1306.1: a playwright-only diff has no bun-collectable test file —
+		// the proof skips honestly (bun collects only *.test/*.spec names)
+		// instead of erroring or proving vacuously off collection noise
+		name: "playwright-only",
+		files: {
+			"src.ts": "export const base = 1;\nexport const marker = 'pw';\n",
+			"src.e2e.ts": `import { test, expect } from "@playwright/test";
+test("pw", () => {
+	expect(1).toBe(1);
+});
+`,
+		},
+		want: "skipped",
+	},
 ];
 
 describe("W634 review-lane coverage proof (Sinai rule)", () => {
