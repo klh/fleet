@@ -89,6 +89,7 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		"bin/llm-keepwarm.ts",
 		"bin/fallback-drill.ts",
 		"bin/soak.ts",
+		"bin/review-reconcile.ts",
 		"lib/morph.ts",
 		"board/prompt-transform.ts",
 	])
