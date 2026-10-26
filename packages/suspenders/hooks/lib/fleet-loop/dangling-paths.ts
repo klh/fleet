@@ -29,6 +29,7 @@
 // is actionable in the graph instead of a log line.
 import { join } from "node:path";
 import { openStore, projectIdentity } from "../govdb/govdb.ts";
+import { enqueueWorkItem, itemByTitle } from "../work/work-enqueue.ts";
 
 export type DanglingRef = {
 	/** path that does not exist in the merged tree (deleted or never real) */
@@ -253,30 +254,9 @@ export function bankDanglingRef(
 			? `${ref.refBy}:${ref.line}`
 			: `${ref.refBy} (${ref.specifier})`;
 		const title = `Repair dangling path ${ref.target} referenced by ${ref.refBy}`;
-		const existing = db
-			.query(
-				"SELECT id FROM work_items WHERE project = ? AND title = ? AND state NOT IN ('DONE', 'SUPERSEDED') LIMIT 1",
-			)
-			.get(project, title) as { id: string } | null;
-		if (existing) return; // already queued — idempotent across retries
+		if (itemByTitle(db, project, title)) return; // already queued — idempotent across retries
 		const description = `The merge that produced ${mergedSha} left ${ref.target} missing while ${where} still references it (${JSON.stringify(ref.specifier)}). Restore the path, rewrite the reference, or supersede this item with the reason. Verify imports and focused tests after the repair.`;
-		const bin =
-			process.env.SUSPENDERS_PREFIX ??
-			join(process.env.HOME ?? "", ".claude/hooks/suspenders");
-		const result = Bun.spawnSync(
-			[
-				process.execPath,
-				join(bin, "bin/work.ts"),
-				"add",
-				title,
-				"--desc",
-				description,
-				"--by",
-				source,
-			],
-			{ cwd: repo, stdout: "pipe", stderr: "pipe" },
-		);
-		const work = result.stdout.toString().match(/\bW\d+(?:\.\d+)*\b/)?.[0];
+		const work = enqueueWorkItem({ repo, title, description, source });
 		if (!work)
 			throw new Error(`Unable to queue dangling-path repair: ${ref.target}`);
 		db.query(

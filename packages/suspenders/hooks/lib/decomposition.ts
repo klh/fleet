@@ -1,10 +1,10 @@
-import { join } from "node:path";
 import {
 	type GovernorStore,
 	openStore,
 	projectIdentity,
 } from "./govdb/govdb.ts";
 import { lineLimitExemption } from "./line-limit-exempt.ts";
+import { enqueueWorkItem, itemByTitle } from "./work/work-enqueue.ts";
 
 export const CODE_LINE_SOFT_CAP = 1500;
 const codePath =
@@ -87,36 +87,17 @@ export function flagIntegratedCode(options: {
 	const project = projectIdentity(options.repo);
 	for (const file of findings) {
 		const title = `DRY and decompose ${file.path}`;
-		const existing = db
-			.query(
-				"SELECT id FROM work_items WHERE project = ? AND title = ? AND state NOT IN ('DONE', 'SUPERSEDED') LIMIT 1",
-			)
-			.get(project, title) as { id: string } | null;
 		const description = `${file.path} has ${file.lines} lines in merged commit ${options.after}, above the ${CODE_LINE_SOFT_CAP}-line soft cap. Review duplicate patterns (ast-grep), remove duplication and split by responsibility. Put cohesive modules in a purpose-named subdirectory or well-named sibling files and import them from the original entrypoint. Preserve behavior and public interfaces; do not hide code in minified files or unimported fragments. Verify focused tests and all resulting code files at or below ${CODE_LINE_SOFT_CAP} lines.`;
-		let work = existing?.id;
+		let work = itemByTitle(db, project, title);
 		if (!work) {
 			if (options.enqueue) work = options.enqueue(title, description);
 			else {
-				const bin =
-					process.env.SUSPENDERS_PREFIX ??
-					join(process.env.HOME ?? "", ".claude/hooks/suspenders");
-				const result = Bun.spawnSync(
-					[
-						process.execPath,
-						join(bin, "bin/work.ts"),
-						"add",
-						title,
-						"--desc",
-						description,
-						"--by",
-						options.source,
-					],
-					{ cwd: options.repo, stdout: "pipe", stderr: "pipe" },
-				);
-				work =
-					result.exitCode === 0
-						? result.stdout.toString().match(/\bW\d+(?:\.\d+)*\b/)?.[0]
-						: undefined;
+				work = enqueueWorkItem({
+					repo: options.repo,
+					title,
+					description,
+					source: options.source,
+				});
 				if (!work)
 					throw new Error(`Unable to queue decomposition for ${file.path}`);
 			}
