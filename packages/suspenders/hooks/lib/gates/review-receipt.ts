@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 import { emitStoredEvent } from "../../coord/event-publish.ts";
 import type { GovernorStore } from "../govdb/govdb-store.ts";
+import { wireModelMismatch } from "./wire-model-check.ts";
 
 export interface ReviewContext {
 	repo: string;
@@ -20,6 +21,11 @@ export interface ReviewReceipt {
 	blocking: string[];
 	resolved?: string[];
 	evidence: string;
+	/** W1302.6 (O3): the model class the review requested and the wire model
+	 *  the leg actually served. Absent on legacy receipts; the gate below
+	 *  refuses a PASS whose recorded pair mismatches. */
+	requested_model?: string;
+	wire_model?: string;
 }
 const git = (repo: string, args: string[]): string => {
 	const p = Bun.spawnSync(["git", ...args], {
@@ -382,6 +388,19 @@ export function checkReviewReceipt(
 			return {
 				ok: false,
 				why: "review is stale: base or applicable instructions changed",
+			};
+		// W1302.6 (O3): a PASS whose served wire model belongs to another
+		// model class never authorizes a merge — the W1278.1 receipt was
+		// requested as glm-5.3-flash and served by chatgpt/gpt-6-sol.
+		if (
+			r.verdict === "PASS" &&
+			wireModelMismatch(r.requested_model, r.wire_model)
+		)
+			return {
+				ok: false,
+				why: `review served a mismatched wire model (requested ${String(
+					r.requested_model,
+				)} served ${String(r.wire_model)})`,
 			};
 		if (
 			r.verdict !== "PASS" ||
