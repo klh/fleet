@@ -11,8 +11,8 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { recycleOnBootstrap } from "../scripts/install-launchd.ts";
-import { loadManifest } from "../scripts/install-services.ts";
+import { recycleOnBootstrap } from "../scripts/install/install-launchd.ts";
+import { loadManifest } from "../scripts/install/install-services.ts";
 import {
 	processRecycleHooks,
 	recycleChildListener,
@@ -143,7 +143,7 @@ describe("belt-swarm childPort declaration (W1073, config-over-code)", () => {
 			const proc = Bun.spawnSync(
 				[
 					process.execPath,
-					join(import.meta.dir, "../scripts/install-services.ts"),
+					join(import.meta.dir, "../scripts/install/install-services.ts"),
 					"--target",
 					"darwin",
 					"--service",

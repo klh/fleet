@@ -9,7 +9,7 @@ import {
 	latestTag,
 	machineVersionHint,
 	spawnGitRunner,
-} from "./lib/release-version.ts";
+} from "../lib/release-version.ts";
 
 export interface ReportTailCtx {
 	prefix: string;

@@ -59,6 +59,7 @@
       "dependencies": {
         "@klh/blam": "workspace:*",
         "p-queue": "^9.3.3",
+        "zod": "^4.0.0",
       },
       "devDependencies": {
         "@anthropic-ai/sdk": "^1.1.0",

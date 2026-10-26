@@ -9,7 +9,7 @@ import {
 	providerPressureOf,
 	reconcileReviewLegs,
 } from "../lib/gates/review-scheduler.ts";
-import { openStore } from "../lib/govdb.ts";
+import { openStore } from "../lib/govdb/govdb.ts";
 
 const db = openStore();
 try {

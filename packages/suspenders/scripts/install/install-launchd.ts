@@ -31,7 +31,7 @@ import { loadLegacyLabels } from "./install-services.ts";
 import {
 	processRecycleHooks,
 	recycleChildListener,
-} from "./lib/service-recycle.ts";
+} from "../lib/service-recycle.ts";
 
 /** Drop per-user launchctl values before loading a unit that sources an
  * authoritative envFile. Never log getenv output: one value may be a key. */
