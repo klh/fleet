@@ -7,7 +7,10 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { StackConfigSchema, stackConfIssues } from "../hooks/lib/stack-config.ts";
+import {
+	StackConfigSchema,
+	stackConfIssues,
+} from "../hooks/lib/stack-config.ts";
 
 describe("W1303.4 StackConfigSchema", () => {
 	test("the committed deploy example validates (and parses as JSON)", () => {

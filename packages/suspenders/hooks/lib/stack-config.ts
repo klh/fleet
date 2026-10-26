@@ -7,9 +7,9 @@
 import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
-import { readJsonConfEither } from "./kernel-conf.ts";
-import type { GatewayPolicy } from "../../../buckle/src/policy.ts";
 import { z } from "zod";
+import type { GatewayPolicy } from "../../../buckle/src/policy.ts";
+import { readJsonConfEither } from "./kernel-conf.ts";
 
 // ─── W1303.4 schema-first: zod is THE definition of the stack conf shape ──
 // JSON.parse stays the ONE parser (W1253 Amendment A); these schemas type
@@ -140,7 +140,10 @@ export const HubProfileSchema = z
 		/** W1217: the hub knowledge sink (aggregated claim store; declaring it
 		 *  enables the `knowledge` compose profile — sink + health probe). */
 		knowledge: z
-			.object({ port: z.number().optional(), health_port: z.number().optional() })
+			.object({
+				port: z.number().optional(),
+				health_port: z.number().optional(),
+			})
 			.loose()
 			.optional(),
 		/** W467 synthetic readiness: the buckle-ready sidecar's completion-leg
@@ -211,10 +214,7 @@ export const HubProfileSchema = z
 		upstreams: z
 			.object({
 				groups: z
-					.record(
-						z.string(),
-						z.array(z.record(z.string(), z.unknown())),
-					)
+					.record(z.string(), z.array(z.record(z.string(), z.unknown())))
 					.optional(),
 				openrouter_free_catalog_file: z.string().optional(),
 				zai_catalog_file: z.string().optional(),
@@ -330,12 +330,12 @@ export function tryLoadStack(): StackConfig | null {
  *  lines. loadStack's behavior is UNCHANGED (any accepted conf still
  *  loads); this is the operator-facing diagnostic + the test surface that
  *  pins the schema to the real file shape. */
-export function stackConfIssues(
-	conf: unknown = loadStack(),
-): string[] {
-	return StackConfigSchema.safeParse(conf).error?.issues.map(
-		(i) => `${i.path.join(".") || "<root>"}: ${i.message}`,
-	) ?? [];
+export function stackConfIssues(conf: unknown = loadStack()): string[] {
+	return (
+		StackConfigSchema.safeParse(conf).error?.issues.map(
+			(i) => `${i.path.join(".") || "<root>"}: ${i.message}`,
+		) ?? []
+	);
 }
 
 /** W230 executors: the row for `id`, falling through to the `default` row

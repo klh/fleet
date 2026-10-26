@@ -140,4 +140,6 @@ export const PromptSettingsResponseSchema = z.object({
 	ok: z.boolean(),
 	settings: PromptSettingsSchema,
 });
-export type PromptSettingsResponse = z.infer<typeof PromptSettingsResponseSchema>;
+export type PromptSettingsResponse = z.infer<
+	typeof PromptSettingsResponseSchema
+>;

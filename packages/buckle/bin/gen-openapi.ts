@@ -21,10 +21,7 @@ const jsonBody = (s: z.ZodType): Record<string, unknown> => ({
 	required: true,
 	content: { "application/json": { schema: jsonOf(s) } },
 });
-const jsonResponse = (
-	s: z.ZodType,
-	desc: string,
-): Record<string, unknown> => ({
+const jsonResponse = (s: z.ZodType, desc: string): Record<string, unknown> => ({
 	description: desc,
 	content: { "application/json": { schema: jsonOf(s) } },
 });
@@ -51,7 +48,9 @@ export function openApiDoc(): Record<string, unknown> {
 					summary: "Anthropic Messages (proxy)",
 					requestBody: jsonBody(W.MessagesBodySchema),
 					responses: {
-						"200": { description: "proxied upstream response (SSE when stream)" },
+						"200": {
+							description: "proxied upstream response (SSE when stream)",
+						},
 						"400": problemResponse(["buckle.bad_body", "missing model"]),
 						"401": problemResponse(["buckle.unauthorized"]),
 					},
@@ -73,7 +72,9 @@ export function openApiDoc(): Record<string, unknown> {
 					summary: "OpenAI Chat Completions (proxy)",
 					requestBody: jsonBody(W.ChatCompletionsBodySchema),
 					responses: {
-						"200": { description: "proxied upstream response (SSE when stream)" },
+						"200": {
+							description: "proxied upstream response (SSE when stream)",
+						},
 						"400": problemResponse(["buckle.bad_body", "missing model"]),
 						"401": problemResponse(["buckle.unauthorized"]),
 					},

@@ -8,7 +8,6 @@ import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
-import { boardFixture } from "./helpers/board-fixture.ts";
 import {
 	ApiErrorSchema,
 	DiffResponseSchema,
@@ -17,6 +16,7 @@ import {
 	TailResponseSchema,
 	TasksResponseSchema,
 } from "../hooks/board/schemas.ts";
+import { boardFixture } from "./helpers/board-fixture.ts";
 
 const { HOME, BASE, REPO, GREPO, TOKEN, q, addWork } = await boardFixture(
 	0,
