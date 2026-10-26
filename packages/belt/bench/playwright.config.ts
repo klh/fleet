@@ -1,18 +1,9 @@
-// W1294.18: the bench corpus as playwright specs. Local stopgap config —
-// the canonical defineFleetConfig builder lands with W1294.1; this file only
-// names the unit project so `bun --bun playwright test --project=unit`
-// finds the bench specs from repo root.
-import { defineConfig } from "@playwright/test";
+// W1294.18.1: the bench corpus as playwright specs — extends the central
+// base (decision.central-configs): every default rides playwright.base.ts
+// (testDir resolves to this file's dir, the unit project, 60s timeout,
+// workers 1, list reporter). Zero deltas — this file exists so
+// `bun --bun playwright test --config=packages/belt/bench/playwright.config.ts
+// --project=unit` scopes the run to the bench corpus from repo root.
+import { defineFleetConfig } from "../../../playwright.base.ts";
 
-export default defineConfig({
-	testDir: ".",
-	testMatch: "**/*.e2e.ts",
-	timeout: 60_000,
-	expect: { timeout: 5_000 },
-	workers: 1,
-	fullyParallel: false,
-	retries: 0,
-	reporter: [["list"]],
-	outputDir: "test-results",
-	projects: [{ name: "unit", testMatch: "**/*.e2e.ts" }],
-});
+export default defineFleetConfig();
