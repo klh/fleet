@@ -543,6 +543,18 @@ describe("diff erosion", () => {
 		expect(scanClosingDiff(diff)).toEqual([]);
 	});
 
+	test("a test() -> test.fixme() port still credits the test name (W1294.5)", () => {
+		const diff = [
+			"diff --git a/src/route.test.ts b/src/route.test.ts",
+			"--- a/src/route.test.ts",
+			"+++ b/src/route.test.ts",
+			"@@ -3,1 +3,1 @@",
+			'-	test("legacy direct route", () => {',
+			'+	test.fixme("legacy direct route", () => {',
+		].join("\n");
+		expect(scanClosingDiff(diff)).toEqual([]);
+	});
+
 	test("a same-hunk, one-for-one test rewrite preserves coverage", () => {
 		const diff = [
 			"diff --git a/src/route.test.ts b/src/route.test.ts",

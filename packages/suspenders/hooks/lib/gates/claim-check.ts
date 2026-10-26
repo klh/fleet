@@ -277,7 +277,7 @@ const TEST_CALL_NAME = new RegExp(
 	assemble(
 		"\\b(",
 		"describe|it|test",
-		")\\s*\\(\\s*([\"'`])([^\"'`]{1,160}?)\\2",
+		")(?:\\.(?:fixme|skip|only))?\\s*\\(\\s*([\"'`])([^\"'`]{1,160}?)\\2",
 	),
 );
 const XFAIL_RE = new RegExp(
