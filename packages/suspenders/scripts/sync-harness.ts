@@ -499,6 +499,13 @@ export async function syncHarness(
 		// link content is relative to the link's own dir (node_modules/@klh):
 		// up two to stage/, then into .harness/packages/blam
 		link("../../.harness/packages/blam", join(stage, "node_modules/@klh/blam"));
+		// W1303.2: the board's http-kit import rides the package name —
+		// @klh/buckle needs the same scoped link (buckle/src is already a
+		// staged payload for the gateway bundle).
+		link(
+			"../../.harness/packages/buckle",
+			join(stage, "node_modules/@klh/buckle"),
+		);
 		for (const item of HOOK_ITEMS) {
 			if (!existsSync(join(suspenders, "hooks", item)))
 				throw new Error(`Missing harness payload: ${item}`);

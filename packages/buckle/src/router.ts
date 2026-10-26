@@ -31,6 +31,7 @@ import { bridgeRequest, bridgeResponse } from "./bridge.ts";
 import { type CandidateRow, candIdOf } from "./candidates.ts";
 import { Cooldowns, retryAfterS, retryDelayS } from "./cooldown.ts";
 import { mayEscalate, type RouteSelection } from "./decide.ts";
+import { clampRetryAfter } from "./http-kit.ts";
 import { FLASHX, type GatewayPolicy } from "./policy.ts";
 import {
 	assertProviderConcurrencyErrorCodes,
@@ -506,13 +507,19 @@ export class Router {
 						? Response.json(routerErrorEnvelope(err, req.dialect), {
 								status: 429,
 								headers: {
-									...Object.fromEntries(replay.headers),
+									...Object.fromEntries(
+										[...replay.headers].filter(([k]) => k !== "retry-after"),
+									),
 									"content-type": "application/json",
+									// W1303.2 clamp: the upstream's retry-after relays
+									// clamped — a quota wall never sleeps a client for
+									// weeks (http-kit).
 									...(ra === null
 										? {}
 										: {
-												"retry-after":
-													replay.headers.get("retry-after") ?? String(ra),
+												"retry-after": String(
+													clampRetryAfter(retryAfterS(replay.headers) ?? ra),
+												),
 											}),
 								},
 							})
