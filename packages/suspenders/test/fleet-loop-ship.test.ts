@@ -21,7 +21,14 @@ import { join } from "node:path";
 setDefaultTimeout(30_000);
 
 const LOOP = join(import.meta.dir, "..", "hooks", "bin", "fleet-loop.ts");
-const env = { ...process.env, FLEET_UNTRACKED_GRACE_MS: "0" };
+const env = {
+	...process.env,
+	FLEET_UNTRACKED_GRACE_MS: "0",
+	// W1303.5: fixture merges a product-path change (f.txt) — medium tier by
+	// design. The tier-gate deferral contract has its own coverage in
+	// fleet-loop-flush.test.ts (gate on: defer, partial and full approvals).
+	SUSPENDERS_RISK_TIERS: "0",
+};
 
 // a scratch repo with main@base and a suspenders/SHIP1 worktree branch one
 // commit ahead, laid out like a real lane (.worktrees/<id>); the ladder is

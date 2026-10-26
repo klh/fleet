@@ -5,14 +5,27 @@
 import {
 	existsSync,
 	mkdirSync,
-	readFileSync,
 	readdirSync,
+	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { have } from "../run.ts";
+import { join } from "node:path";
+import { flagIntegratedCode } from "../decomposition.ts";
+import {
+	checkReviewReceipt,
+	recordLanding,
+	reviewContext,
+} from "../gates/review-receipt.ts";
+import { scheduleReview } from "../gates/review-scheduler.ts";
+import {
+	candidatePaths,
+	classifyRiskTier,
+	emitRiskDecision,
+	type RiskClassification,
+	riskApprovalsOf,
+} from "../gates/risk-tier.ts";
 import { openStore, projectIdentity } from "../govdb/govdb.ts";
 import {
 	doneShaResolves,
@@ -20,20 +33,14 @@ import {
 	itemClaimOf,
 	mergeHoldActive,
 } from "../lanes/ladder-lease.ts";
-import { flagIntegratedCode } from "../decomposition.ts";
+import { have } from "../run.ts";
 import {
 	bankDanglingRef,
 	danglingReferences,
 	unresolvedSpecifiers,
 } from "./dangling-paths.ts";
 import { guardedMerge } from "./merge-guard.ts";
-import {
-	checkReviewReceipt,
-	reviewContext,
-	recordLanding,
-} from "../gates/review-receipt.ts";
 import type { LoopDeps } from "./runtime.ts";
-import { scheduleReview } from "../gates/review-scheduler.ts";
 
 export type MergeLadder = {
 	mergeOne: (b: string) => undefined | "missing";
@@ -231,6 +238,57 @@ export function createMergeLadder(
 			}
 			return;
 		}
+		// W1303.5 risk tiers: the change sets the tier, not the author; blast
+		// radius sets the bar. Low merges after the machine receipt; medium/high
+		// defer with a deduped NEED_DECISION event instead of a silent guarded
+		// merge — agent approval never fills a human slot (how-to-review.md).
+		// SUSPENDERS_RISK_TIERS=0 is the operator escape hatch (manual merges).
+		let risk: RiskClassification;
+		try {
+			risk =
+				process.env.SUSPENDERS_RISK_TIERS === "0"
+					? { tier: "low", approvals: 0, reasons: [] }
+					: classifyRiskTier(candidatePaths(REPO, "HEAD", b));
+		} catch (error) {
+			log(
+				`MERGE-DEFER ${b} — risk tier unavailable: ${String(error).slice(0, 300)}`,
+			);
+			return;
+		}
+		if (risk.approvals > 0) {
+			// W1308: the consumption path — the tier's demand is satisfiable by
+			// signed human approvals (approve-merge mints them from a human
+			// terminal; a lane cannot self-approve). Count WITHOUT consuming: a
+			// deferral must never burn approvals the retry still needs.
+			const ap = riskApprovalsOf(REPO, b, risk, projectIdentity(REPO));
+			const held = ap.count();
+			if (held < risk.approvals) {
+				try {
+					const store = openStore();
+					try {
+						emitRiskDecision(
+							store,
+							projectIdentity(REPO),
+							claim.item,
+							REPO,
+							b,
+							risk,
+						);
+					} finally {
+						store.close();
+					}
+				} catch {
+					/* the RISK-DEFER log line is the durable record if the bus is down */
+				}
+				log(
+					`RISK-DEFER ${b} — ${risk.tier} tier needs ${risk.approvals} human approval(s), held ${held}: ${risk.reasons.join("; ")}; mint via hooks/bin/approve-merge.ts`,
+				);
+				return;
+			}
+			log(
+				`RISK-APPROVED ${b} — ${held}/${risk.approvals} human approval(s) held; burning on successful merge`,
+			);
+		}
 		// liveness marker: a crash between --no-commit and commit leaves
 		// MERGE_HEAD + staged debris that plain merge --abort cannot clear (the
 		// 2026-09-28 gaps stall). The marker tells the next cycle whether a
@@ -262,6 +320,20 @@ export function createMergeLadder(
 		if (mv.code === 0) {
 			let after = sh(["git", "rev-parse", "--short", "HEAD"]);
 			log(`MERGED ${b} ${before}→${after}`);
+			// W1308: burn the tier's approvals only now — the merge succeeded.
+			// Single-use: the same human signature can never authorize a second
+			// candidate (a new commit re-tiers and demands fresh approvals).
+			if (risk.approvals > 0) {
+				const burned = riskApprovalsOf(
+					REPO,
+					b,
+					risk,
+					projectIdentity(REPO),
+				).consume();
+				log(
+					`RISK-CONSUMED ${b} — burned ${burned}/${risk.approvals} approval(s) (single-use)`,
+				);
+			}
 			// W869 merge-time quality floor: auto-fix the branch's deferred cosmetic
 			// lint here on the shared checkout — a completion never runs outside
 			// worktrees, so merge time is the one honest moment (fail-open).
