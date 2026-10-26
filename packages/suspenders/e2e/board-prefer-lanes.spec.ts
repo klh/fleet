@@ -3,10 +3,11 @@
 // Scratch board + scratch repo (harness.ts); .prefer at the repo root covers
 // the project; a minted READY card must render with the --prefer token and a
 // computed border of that exact color; an untagged card stays on the default.
-import { expect, test } from "@playwright/test";
+
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { startBoard, type Board } from "./harness";
+import { expect, test } from "@playwright/test";
+import { type Board, startBoard } from "./harness";
 
 test.describe.configure({ mode: "serial" });
 
@@ -38,21 +39,27 @@ function mustBoard(): Board {
 	return board;
 }
 
-test("tagged card paints the .prefer border on #lanes", async ({ page }) => {
+test("tagged card paints the .prefer border on #lanes", { tag: "@ui" }, async ({
+	page,
+}) => {
 	const b = mustBoard();
 	await page.goto(`${b.BASE}/#lanes`);
 	const card = page
 		.locator(".kcard")
 		.filter({ has: page.locator(`[data-task="${taggedId}"]`) });
 	await expect(card).toBeVisible();
-	await expect(card).toHaveAttribute("style", "--prefer:" + COLOR);
+	await expect(card).toHaveAttribute("style", `--prefer:${COLOR}`);
 	await expect
-		.poll(async () => card.evaluate((el) => getComputedStyle(el).borderTopColor))
+		.poll(async () =>
+			card.evaluate((el) => getComputedStyle(el).borderTopColor),
+		)
 		.toBe(COLOR_RGB);
 	// hover keeps the token (hover rule re-resolves --prefer)
 	await card.hover();
 	await expect
-		.poll(async () => card.evaluate((el) => getComputedStyle(el).borderTopColor))
+		.poll(async () =>
+			card.evaluate((el) => getComputedStyle(el).borderTopColor),
+		)
 		.toBe(COLOR_RGB);
 });
 

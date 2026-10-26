@@ -1,7 +1,7 @@
 // e2e/board-orchestrate.spec.ts — W875: the Orchestrate panel expands on
 // CLICK only (no hover-open), and shows a minus control that collapses it.
 import { expect, test } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
+import { type Board, startBoard } from "./harness";
 
 test.describe.configure({ mode: "serial" });
 
@@ -20,9 +20,9 @@ function mustBoard(): Board {
 	return board;
 }
 
-test("orchestrate panel: click to expand, minus to collapse, no hover", async ({
-	page,
-}) => {
+test("orchestrate panel: click to expand, minus to collapse, no hover", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const errors: string[] = [];
 	page.on("pageerror", (e) => errors.push(String(e)));
 	await page.goto(`${mustBoard().BASE}/`);

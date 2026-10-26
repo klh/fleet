@@ -22,9 +22,9 @@ function mustBoard(): Board {
 	return board;
 }
 
-test("tabs component drives sections, hash and aria-current", async ({
-	page,
-}) => {
+test("tabs component drives sections, hash and aria-current", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const errors: string[] = [];
 	page.on("pageerror", (e) => errors.push(String(e)));
 	await page.goto(`${mustBoard().BASE}/`);
@@ -62,9 +62,9 @@ test("tabs component drives sections, hash and aria-current", async ({
 	expect(errors, "uncaught page exceptions").toEqual([]);
 });
 
-test("Usage filters and old links preserve the board shell", async ({
-	page,
-}) => {
+test("Usage filters and old links preserve the board shell", {
+	tag: "@ui",
+}, async ({ page }) => {
 	await page.goto(`${mustBoard().BASE}/#setup`);
 	const shell = page.locator("klh-topbar");
 	await page
@@ -88,9 +88,9 @@ test("Usage filters and old links preserve the board shell", async ({
 	await expect(page.locator("#tab-usage")).toBeVisible();
 });
 
-test("changing sections starts at the header after a deep scroll", async ({
-	page,
-}) => {
+test("changing sections starts at the header after a deep scroll", {
+	tag: "@ui",
+}, async ({ page }) => {
 	await page.goto(`${mustBoard().BASE}/#lanes`);
 	await page.evaluate(() => {
 		const filler = document.createElement("div");
@@ -108,13 +108,15 @@ test("changing sections starts at the header after a deep scroll", async ({
 	await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
 });
 
-test("lane status rail reaches offscreen columns by mouse and keyboard", async ({
-	page,
-}) => {
+test("lane status rail reaches offscreen columns by mouse and keyboard", {
+	tag: "@ui",
+}, async ({ page }) => {
 	await page.setViewportSize({ width: 960, height: 700 });
 	await page.goto(`${mustBoard().BASE}/#lanes`);
 	const rail = page.locator("#kstatusnav");
-	await expect(rail.getByRole("button")).toHaveCount(7);
+	// W1294.2: five always-visible columns (paused/blocked/failed hide while
+	// empty) — the jump buttons the rail guarantees
+	await expect(rail.getByRole("button")).toHaveCount(5);
 	const wrap = page.locator(".kwrap");
 	expect(await wrap.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(
 		true,
@@ -128,9 +130,9 @@ test("lane status rail reaches offscreen columns by mouse and keyboard", async (
 	await expect.poll(() => wrap.evaluate((el) => el.scrollLeft)).toBe(0);
 });
 
-test("task rows start compact and identify an unnamed owner by model", async ({
-	page,
-}) => {
+test("task rows start compact and identify an unnamed owner by model", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const sid = "01a15006-3fc1-76e1-abe1-af8a11d44426";
 	await page.route("**/api/tasks?**", async (route) => {
 		const response = await route.fetch();

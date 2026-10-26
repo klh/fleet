@@ -2,7 +2,19 @@
 // Pieces moved verbatim from bin/fleet-board.ts; exports widened so
 // sibling modules and the route modules import them.
 
-import { db, BELT_REPO } from "./context.ts";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import type {
+	BeltView,
+	ConsoleMe,
+	Feature,
+	LocalService,
+	LocalView,
+	UpstreamGroup,
+} from "../bin/console-html.ts";
+import type {
+	PolicyGatewayParsed,
+	PolicyPatch,
+} from "../lib/board/board-config.ts";
 import {
 	ConfigError,
 	parsePolicy,
@@ -11,22 +23,10 @@ import {
 	readBoardSettings,
 	resolvePolicy,
 } from "../lib/board/board-config.ts";
-import type {
-	PolicyPatch,
-	PolicyGatewayParsed,
-} from "../lib/board/board-config.ts";
-import type {
-	ConsoleMe,
-	BeltView,
-	Feature,
-	LocalService,
-	UpstreamGroup,
-	LocalView,
-} from "../bin/console-html.ts";
-import { probeAll, withRecovery } from "./service-probe.ts";
-import { networkPayload } from "./network-overview.ts";
-import { existsSync, readFileSync, statSync } from "node:fs";
 import { readEffectiveUpstreams } from "./console-upstreams.ts";
+import { BELT_REPO, BUCKLE_REPO, db } from "./context.ts";
+import { networkPayload } from "./network-overview.ts";
+import { probeAll, withRecovery } from "./service-probe.ts";
 
 // ─── W147 console: data gathering for the console pages ───────────────────
 export const consoleMe = (): ConsoleMe => {
@@ -69,7 +69,7 @@ export const readUpstreams = (): UpstreamGroup[] | null =>
 	upstreamSnapshot()?.groups ?? null;
 
 export const gatherBeltView = async (): Promise<BeltView> => {
-	const pol = resolvePolicy({ beltRepo: BELT_REPO });
+	const pol = resolvePolicy({ beltRepo: BELT_REPO, buckleRepo: BUCKLE_REPO });
 	let gateway: PolicyGatewayParsed | null = null;
 	let policyError: string | null = null;
 	if (pol) {
@@ -261,7 +261,7 @@ export const policyBaseline = (): { text: string; mtimeMs: number } => {
 		const st = statSync(wp);
 		return { text: readFileSync(wp, "utf8"), mtimeMs: st.mtimeMs };
 	}
-	const pol = resolvePolicy({ beltRepo: BELT_REPO });
+	const pol = resolvePolicy({ beltRepo: BELT_REPO, buckleRepo: BUCKLE_REPO });
 	return {
 		text: pol ? policyAsJson(pol.text) : '{"version":1,"gateway":{}}\n',
 		mtimeMs: pol?.mtimeMs ?? 0,

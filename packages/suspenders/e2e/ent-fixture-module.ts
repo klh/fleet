@@ -4,9 +4,7 @@
 // honest payloads — one failed slice (vault) proves the honest
 // empty-state renders. The real implementation lives in the private
 // overlay (klh-remote), not here.
-import type {
-	EnterpriseFactory,
-} from "../../hooks/board/ent-seam.ts";
+import type { EnterpriseFactory } from "../../hooks/board/ent-seam.ts";
 
 export const enterpriseProvider: EnterpriseFactory = () => ({
 	entitlements: () => ({
@@ -145,7 +143,13 @@ export const enterpriseProvider: EnterpriseFactory = () => ({
 						outcome: "done",
 					},
 				],
-				revocations: [{ id: "u9 (external)", dept: "support", at: Date.now() - 2_592_000_000 }],
+				revocations: [
+					{
+						id: "u9 (external)",
+						dept: "support",
+						at: Date.now() - 2_592_000_000,
+					},
+				],
 			},
 		},
 	}),

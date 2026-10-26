@@ -10,3 +10,9 @@ node_modules/
 *.lane-cache.jsonl
 
 .worktrees/
+
+# lane-local opt-in env for live capacity-ramp runs (W1266.1) — never commit
+.klh-*.env
+
+# playwright run artifacts (W1294.1)
+test-results/

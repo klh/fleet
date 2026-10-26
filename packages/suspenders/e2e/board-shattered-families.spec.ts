@@ -4,10 +4,11 @@
 // the parent's --prefer color), not as a READY-column sibling. Scratch board
 // + scratch repo (harness.ts); the repo's .prefer carries the color both
 // cards inherit.
-import { expect, test } from "@playwright/test";
+
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { startBoard, type Board } from "./harness";
+import { expect, test } from "@playwright/test";
+import { type Board, startBoard } from "./harness";
 
 test.describe.configure({ mode: "serial" });
 
@@ -60,9 +61,9 @@ function mustBoard(): Board {
 	return board;
 }
 
-test("split child nests beneath the SHATTERED parent card with the parent color", async ({
-	page,
-}) => {
+test("split child nests beneath the SHATTERED parent card with the parent color", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const b = mustBoard();
 	await page.goto(`${b.BASE}/#lanes`);
 	const parentCard = page
@@ -78,8 +79,8 @@ test("split child nests beneath the SHATTERED parent card with the parent color"
 		.locator("xpath=ancestor::div[contains(@class,'kcol')]/h3")
 		.textContent();
 	expect(colLabel).toContain("waiting");
-	const prevKid = await childCard.evaluate(
-		(el) => el.previousElementSibling?.getAttribute("data-kid"),
+	const prevKid = await childCard.evaluate((el) =>
+		el.previousElementSibling?.getAttribute("data-kid"),
 	);
 	expect(prevKid).toBe(parentId);
 	// the second sibling follows the first, both dashed in the parent color
@@ -87,8 +88,8 @@ test("split child nests beneath the SHATTERED parent card with the parent color"
 		.locator(".kcard.kkid")
 		.filter({ has: page.locator(`[data-task="${child2Id}"]`) });
 	await expect(child2Card).toBeVisible();
-	const prev2 = await child2Card.evaluate(
-		(el) => el.previousElementSibling?.getAttribute("data-kid"),
+	const prev2 = await child2Card.evaluate((el) =>
+		el.previousElementSibling?.getAttribute("data-kid"),
 	);
 	expect(prev2).toBe(childId);
 	await expect
@@ -110,17 +111,17 @@ test("split child nests beneath the SHATTERED parent card with the parent color"
 	await expect(childCard.locator(".kidmark")).toBeVisible();
 });
 
-test("the child leaves the READY column — no scattered duplicate", async ({
-	page,
-}) => {
+test("the child leaves the READY column — no scattered duplicate", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const b = mustBoard();
 	await page.goto(`${b.BASE}/#lanes`);
 	const readyCol = page
 		.locator(".kcol")
 		.filter({ has: page.locator("h3", { hasText: "ready" }) });
-	await expect(
-		readyCol.locator(`.kcard[data-kid="${childId}"]`),
-	).toHaveCount(0);
+	await expect(readyCol.locator(`.kcard[data-kid="${childId}"]`)).toHaveCount(
+		0,
+	);
 	// waiting residents count = 1 (the parent alone; the kid is family detail)
 	const waitCol = page
 		.locator(".kcol")

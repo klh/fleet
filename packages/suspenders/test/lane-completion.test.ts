@@ -1,5 +1,5 @@
-import { afterAll, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { afterAll, expect, test } from "bun:test";
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -291,6 +291,19 @@ test("first stop with work in flight offers one bounded continuation", () => {
 	expect(f.stop().err).toContain("Re-ask 3/3");
 	expect(f.stop().code).toBe(0);
 	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("FAILED");
+});
+
+test("stop gate verifies a live claim through the repaired bin path (W1292)", () => {
+	const f = fixture();
+	const result = f.stopFresh();
+	// past the verify stage: the bin resolution answers work show, so the
+	// gate reaches attempt accounting instead of the broken-resolver refusal
+	expect(result.err).not.toContain("cannot verify this lane's work claim");
+	expect(result.err).toContain("One bounded continuation");
+	const marker = JSON.parse(
+		readFileSync(join(f.cwd, ".fleet/completion-attempt.json"), "utf8"),
+	);
+	expect(marker.tries).toBe(1);
 });
 
 test("a git-reachable capsule checkpoint parks the claimed item instead of failing it", () => {

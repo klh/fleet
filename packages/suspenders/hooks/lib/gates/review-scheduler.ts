@@ -414,7 +414,7 @@ export function scheduleReview(o: {
 	if (reserved !== true) return reserved;
 	const args = [
 		process.execPath,
-		new URL("../bin/review-lane.ts", import.meta.url).pathname,
+		new URL("../../bin/review-lane.ts", import.meta.url).pathname,
 		"--item",
 		o.item,
 		"--project",
