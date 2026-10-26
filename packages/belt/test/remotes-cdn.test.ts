@@ -136,3 +136,53 @@ test("probe + route + catalog on a tls endpoint ride https by hostname", async (
 		globalThis.fetch = original;
 	}
 });
+
+test("anthropic protocol: probe rides /v1/models with x-api-key; routeTask fails closed", async () => {
+	const calls: { init?: RequestInit }[] = [];
+	const original = globalThis.fetch;
+	globalThis.fetch = (async (
+		_url: string | URL | globalThis.Request,
+		init?: RequestInit,
+	) => {
+		calls.push({ init });
+		return Response.json({ data: [{ id: "a-m" }] });
+	}) as unknown as typeof fetch;
+	try {
+		const m = machine("api.anthropic.com");
+		const anth = ep(443, {
+			tls: true,
+			protocol: "anthropic",
+			api_key: "sk-ant-test",
+		});
+		expect(await probeEndpoint(m, anth)).toBe(true);
+		expect(await catalogFor(m, anth)).toEqual(["a-m"]);
+		await assertAnthropicHeaders(calls);
+		await expectAnthropicRouteFail(m, anth);
+	} finally {
+		globalThis.fetch = original;
+	}
+});
+
+async function assertAnthropicHeaders(
+	calls: { init?: RequestInit }[],
+): Promise<void> {
+	const hdr = (c: { init?: RequestInit }): string | undefined => {
+		const h = c.init?.headers as Record<string, string> | undefined;
+		return h ? h["x-api-key"] : undefined;
+	};
+	const auth = (c: { init?: RequestInit }): string | undefined => {
+		const h = c.init?.headers as Record<string, string> | undefined;
+		return h ? h.authorization : undefined;
+	};
+	expect(calls.slice(0, 2).every((c) => hdr(c) === "sk-ant-test")).toBe(true);
+	expect(calls.every((c) => auth(c) === undefined)).toBe(true);
+}
+
+async function expectAnthropicRouteFail(
+	m: RemoteMachine,
+	anth: RemoteEndpoint,
+): Promise<void> {
+	expect(routeTask(m, anth, "hi")).rejects.toThrow(
+		"anthropic-protocol — belt routes openai-wire tasks only",
+	);
+}

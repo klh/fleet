@@ -43,7 +43,7 @@ export interface RemoteEndpoint {
 	// (/health, /props, /v1/...); immich = Immich ML (/ping answers "pong" on
 	// v3.1+ — /predict needs multipart and is broken upstream). Routing an
 	// immich endpoint talks to the Immich SERVER smart-search: routeImmich.
-	protocol: "openai" | "llama" | "immich";
+	protocol: "openai" | "anthropic" | "llama" | "immich";
 	roles: string[]; // routing roles this endpoint serves (code/extract/...)
 	model?: string; // openai-protocol model id, if the provider needs one
 	provider?: "openai" | "zai"; // transport adapter; OpenAI-compatible wire need not mean OpenAI provider
@@ -296,16 +296,22 @@ export async function probeEndpoint(
 		}
 	}
 	const path =
-		ep.protocol === "openai"
-			? "/v1/models"
-			: ep.protocol === "llama"
-				? "/health"
-				: "/ping";
+		ep.protocol === "llama"
+			? "/health"
+			: ep.protocol === "immich"
+				? "/ping"
+				: "/v1/models";
 	const url = endpointUrl(machine, ep, path);
 	if (!url) return false;
 	const headers: Record<string, string> = {};
 	const key = endpointKey(ep);
-	if (key) headers.authorization = `Bearer ${key}`;
+	if (key)
+		Object.assign(
+			headers,
+			ep.protocol === "anthropic"
+				? { "x-api-key": key }
+				: { authorization: `Bearer ${key}` },
+		);
 	try {
 		const r = await cdnFetch(url, {
 			headers,
@@ -340,7 +346,13 @@ export async function catalogEvidenceFor(
 	if (!url) return { models: [] };
 	const headers: Record<string, string> = {};
 	const key = endpointKey(ep);
-	if (key) headers.authorization = `Bearer ${key}`;
+	if (key)
+		Object.assign(
+			headers,
+			ep.protocol === "anthropic"
+				? { "x-api-key": key }
+				: { authorization: `Bearer ${key}` },
+		);
 	try {
 		const r = await cdnFetch(url, {
 			headers,
@@ -649,6 +661,10 @@ export async function routeTask(
 	modelOverride?: string,
 ): Promise<string> {
 	if (ep.protocol === "immich") return routeImmich(machine, ep, prompt);
+	if (ep.protocol === "anthropic")
+		throw new Error(
+			`${machine.name}:${ep.port} is anthropic-protocol — belt routes openai-wire tasks only`,
+		);
 	const model = modelOverride ?? ep.model ?? "default";
 	const headers: Record<string, string> = {
 		"content-type": "application/json",

@@ -19,6 +19,7 @@ import {
 	endpointsWithRole,
 	loadRemotes,
 	probeEndpoint,
+	RemoteEndpointSchema,
 	type RemoteEndpoint,
 	type RemoteMachine,
 	resolveHost,
@@ -223,6 +224,31 @@ describe("remotes registry", () => {
 				api_key: "immich-key",
 			}),
 		).toEqual({ "x-api-key": "immich-key" });
+		expect(
+			authHeaders({
+				port: 1,
+				protocol: "anthropic",
+				roles: [],
+				api_key: "anthropic-key",
+			}),
+		).toEqual({ "x-api-key": "anthropic-key" });
+	});
+
+	test("anthropic protocol: schema accepts it, unknown protocol still fails closed", () => {
+		expect(
+			RemoteEndpointSchema.safeParse({
+				port: 1,
+				protocol: "anthropic",
+				roles: [],
+			}).success,
+		).toBe(true);
+		expect(
+			RemoteEndpointSchema.safeParse({
+				port: 1,
+				protocol: "openai-protocol",
+				roles: [],
+			}).success,
+		).toBe(false);
 	});
 
 	test("tls machine (CDN-fronted) keeps the hostname for SNI — real TLS handshake, self-signed cert", async () => {
