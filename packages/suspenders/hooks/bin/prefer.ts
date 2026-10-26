@@ -63,7 +63,7 @@ const show = defineVerb({
 
 await runCli({
 	prog: "prefer",
-	about: "usage: prefer set hub=<label> | show — repo .prefer hub pin (W1354)",
+	about: "repo .prefer hub pin (W1354).",
 	verbs: [set, show],
 	epilog: "a quoted must=/prefer= is a soft hint (dispatch WARNs); hub= is what pins",
 });
