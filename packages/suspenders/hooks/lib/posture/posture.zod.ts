@@ -94,6 +94,35 @@ export const PostureOverlaySchema = z.strictObject({
 export const PostureLayerSchema = z.strictObject({
 	source: z.string().min(1),
 	overlay: PostureOverlaySchema,
+	/** Legacy targets are opaque executor tokens, not inferred hub/model ids. */
+	legacy: z
+		.strictObject({
+			values: z.strictObject({
+				tag: z.string().optional(),
+				color: z.string().optional(),
+				prefer: z.string().optional(),
+				must: z.string().optional(),
+			}),
+			executor: z.strictObject({
+				directives: z.array(
+					z.strictObject({
+						value: z.string(),
+						kind: z.enum(["must", "prefer", "can"]),
+						line: z.number().int().positive(),
+					}),
+				),
+				hub: z.string().nullable(),
+				hubUrls: z.array(z.string()),
+				can: z
+					.strictObject({
+						value: z.string(),
+						line: z.number().int().positive(),
+					})
+					.nullable(),
+			}),
+			errors: z.array(z.string()),
+		})
+		.optional(),
 });
 
 export const ResolvedEntrySchema = z.strictObject({

@@ -4,6 +4,28 @@ import type {
 	PostureOverlay,
 } from "./posture.zod.ts";
 
+/** Project-local fixture storage; never changes HOME or machine configuration. */
+export function postureTree() {
+	const root = mkdtempSync(resolve(".posture-fixture-"));
+	const repo = join(root, "parent", "repo");
+	const worktree = join(repo, ".worktrees", "lane");
+	mkdirSync(join(repo, ".git"), { recursive: true });
+	mkdirSync(worktree, { recursive: true });
+	writeFileSync(join(worktree, ".git"), "gitdir: ../../.git/worktrees/lane\n");
+	return {
+		root,
+		parent: join(root, "parent"),
+		repo,
+		worktree,
+		write(dir: string, text: string): string {
+			const source = join(dir, ".prefer");
+			writeFileSync(source, text);
+			return source;
+		},
+		cleanup: () => cleanupDirs(root),
+	};
+}
+
 export function postureDocument(): PostureDocument {
 	return {
 		version: 1,
@@ -70,3 +92,6 @@ export function partialRuleOverlay(laneCount: number): PostureOverlay {
 		},
 	};
 }
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { cleanupDirs } from "../../../test/helpers/fixture-kit.ts";

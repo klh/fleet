@@ -210,7 +210,45 @@ existing compatibility suites with their current runner. No new test tooling.
 On failure, compare with the immutable claim baseline before labeling it
 pre-existing. Never change unrelated tests to force a green result.
 
+Task 3 verification (approved interim configuration, W1294.1 still pending):
+the external session-only `posture-playwright.config.ts` selects
+`hooks/lib/posture/*.e2e.ts`. With `POSTURE_PLAYWRIGHT_CONFIG` pointing to that
+file, `bun x playwright test --config "$POSTURE_PLAYWRIGHT_CONFIG" --grep @unit`
+passes 29 tests, including 13 new discovery/compatibility cases. No alternate
+test configuration is committed.
+
+Compatibility command above plus `test/exec-chain.test.ts`: 49 pass, two
+failures reproduced unchanged on immutable baseline
+`fe97dda73ffbc6f2b09ea38a58c4c6487d6d20fd`. Project-local `TMPDIR` is required
+for this session; the bare-directory assertion inherits the checkout's tree
+tag, and the CLI stamping fixture discovers the enclosing real repository.
+Do not change production inheritance to hide these fixture assumptions.
+Explicit-file qlty formatting/checks pass (check level `fmt` excludes existing
+informational NOTE matches). Strict schema/format type checks pass; broader
+entrypoint checks introduce no diagnostics relative to the same baseline,
+but inherited transitive type errors still prevent a fully green check.
+
 ## Integration sequence after foundation
+
+Task 3 compatibility boundary: `readPostureLayers(startDir)` returns absolute
+source paths, ordered outermost to nearest (including legacy files), and fails
+on unreadable files, invalid JSON/schema, or a walk exceeding 64 directories.
+JSON overlays are parsed once through `parsePostureOverlay`. Legacy layers
+carry an empty overlay plus an optional, schema-validated `legacy` envelope:
+`values` preserves tag/color and soft prefer/reserved must expressions;
+`executor` preserves opaque directives, source line numbers, last can, hub
+and hub URLs; `errors` preserves non-fatal legacy diagnostics. The original
+consumer return shapes remain unchanged.
+
+This envelope extends the layer contract, not the JSON overlay grammar.
+No executor token is guessed into a hub/model id. `resolvePosture` currently
+merges only JSON overlays; the admission/dispatch cutover must explicitly
+consume the ordered legacy envelopes at that shared boundary, resolve opaque
+tokens with authoritative executor/hub catalogs, preserve existing inheritance
+and position semantics, and keep quoted must reserved. Do not deploy JSON
+postures as an enforced replacement until that hookup lands. Compatibility
+readers validate JSON but deliberately emit no legacy values for it; this task
+does not activate a second scheduler or change dispatcher/controller/UI policy.
 
 This foundation is intentionally not completion of the entire feature.
 Separate dependent plans must cover:
