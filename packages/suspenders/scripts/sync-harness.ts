@@ -55,6 +55,9 @@ export const SOURCE_PATHS = [
 	"packages/blam/bench/improve",
 	"packages/blam/package.json",
 ];
+// These package imports are fulfilled by the staged payload links below.
+// They are private workspace packages, not packages to fetch from npm.
+const STAGED_PACKAGE_DEPENDENCIES = new Set(["@klh/blam", "@klh/buckle"]);
 /** Faces the installer bundle-validates in the staged payload (validate()).
  *  Exported for the W1119.2 installer/runtime-parity guard
  *  (test/bypass-gate.test.ts). */
@@ -435,7 +438,11 @@ export async function syncHarness(
 		const dependencies: Record<string, string> = {};
 		for (const item of [manifest, beltManifest]) {
 			for (const [name, version] of Object.entries(item.dependencies ?? {})) {
-				if (typeof version !== "string" || version.startsWith("workspace:"))
+				if (
+					typeof version !== "string" ||
+					version.startsWith("workspace:") ||
+					STAGED_PACKAGE_DEPENDENCIES.has(name)
+				)
 					continue;
 				if (dependencies[name] && dependencies[name] !== version)
 					throw new Error(`Conflicting installed dependency ${name}`);
