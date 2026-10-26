@@ -9,281 +9,301 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { readJsonConfEither } from "./kernel-conf.ts";
 import type { GatewayPolicy } from "../../../buckle/src/policy.ts";
+import { z } from "zod";
 
-export interface HubProfile {
-	/** Private native metrics; credential NAME must bind an existing upstream key. */
-	metrics?: { litellm: { url: string; key_env: string; source_id: string } };
-	/** Per-hub Buckle gateway overrides; policy data only, never credentials. */
-	buckle_gateway?: GatewayPolicy;
-	/** Reviewed canary ref for this hub only. Keeps the shared stack version
-	 * pinned for other hubs while one hub validates a new public base. */
-	version_override?: string;
-	host: string;
-	/** Human-facing hub label. The profile key stays the stable routing identity. */
-	display_name?: string;
-	/** Browser-facing console. Never inferred from the Buckle probe URL. */
-	console_url?: string;
-	/** W1094.1: hub-machine terminal endpoints (model engines etc.) the route
-	 * preflight gate may treat as leaves ON THIS HUB — never inherited from
-	 * the Mac specialist registry. */
-	route_preflight?: { terminal_origins?: string[] };
-	buckle_port?: number;
-	board_port?: number;
-	store_port?: number;
-	belt_port?: number;
-	/** Optional Belt-owned OpenAI model wire. The URL is a local model server
-	 * selected by machine config, never a model name compiled into Fleet. */
-	belt_model?: {
-		port: number;
-		health_port: number;
-		upstream: string;
-	};
-	/** Health sidecar serve ports (W422.10) — where each *-health probe
-	 *  serves its verdict; falls through to the template default when
-	 *  undeclared. */
-	buckle_health_port?: number;
-	board_health_port?: number;
-	store_health_port?: number;
-	belt_health_port?: number;
-	/** W763 hub model store — the face port + its health sidecar. */
-	model_store_port?: number;
-	model_store_health_port?: number;
-	/** W1217: the hub knowledge sink — the knowledge-api container serving the
-	 *  aggregated claim store (W1213 upward rolls land here; SQLite WAL on the
-	 *  hub-state volume). Declaring it enables the `knowledge` compose profile
-	 *  (sink + its health probe sidecar); undeclared knobs fall through to the
-	 *  template defaults (7802 face / 7803 health). */
-	knowledge?: { port?: number; health_port?: number };
-	/** Synthetic readiness (W467): where the buckle-ready sidecar serves the
-	 *  completion-leg verdict, and which model the synthetic 1-token request
-	 *  names (must be one the hub's routing ladder actually serves). */
-	buckle_ready_port?: number;
-	ready_model?: string;
-	/** W688.7.1: the buckle entrypoint the hub runs (path inside the
-	 *  container). Unset = the base `src/server.ts` (provider-less solo
-	 *  posture); an enterprise hub points it at the overlay entry that
-	 *  injects the gov providers (its own src/server.ts). */
-	buckle_entry?: string;
-	/** W688.7.1: private-network hosts the ladder may reach over plain http
-	 *  (BUCKLE_HTTP_UPSTREAM_HOSTS egress allowlist), e.g. the engine host. */
-	http_upstream_hosts?: string[];
-	/** W688.3: the overlay code-loader knobs the buckle container receives
-	 *  (KLH_OVERLAY_* env, config-over-code). dir = the overlay dir path
-	 *  INSIDE the container (the code arrives via the fleet-repo volume on
-	 *  an overlay hub); sha256 pins the entry digest (refuse-on-mismatch);
-	 *  allow adds operator allow-roots beyond the compiled defaults — on an
-	 *  overlay hub that is the pinned checkout root (e.g. /src/fleet/packages).
-	 *  Unset = solo posture, unchanged. */
-	overlay?: { dir?: string; sha256?: string; allow?: string };
-	/** W854: the mDNS announcer (deploy/mdns/announce.ts) — what the hub
-	 *  advertises as _klh-hub._tcp and where its health faces live. All
-	 *  knobs optional; undeclared = the compose template defaults. port
-	 *  defaults to buckle_port; addr undeclared = auto-detect (and an
-	 *  undetectable address SKIPS the A record — never advertise 127.0.0.1);
-	 *  hostname defaults to the normalized label (the same form hub-locate's
-	 *  mdns-guess leg tries); interval_ms = steady re-announce cadence;
-	 *  health_port = the announcer's self-report port (4114), sidecar_port
-	 *  = the mdns-health probe's verdict port (4115). */
-	mdns?: {
-		port?: number;
-		addr?: string;
-		hostname?: string;
-		interval_ms?: number;
-		health_port?: number;
-		sidecar_port?: number;
-	};
-	bind?: string;
-	board_bind?: string;
-	belt_bind?: string;
-	allowed_hosts?: string[];
-	services_json?: string;
-	peers?: string[];
-	/** W230: the buckle front URL this hub serves — resolveHub consults it
-	 *  (before the hubs.json registry) — plus an optional front token. */
-	url?: string;
-	token?: string;
-	/** Local 0600 file containing a hub-scoped admin read key. */
-	token_file?: string;
-	/** Deploy source: `ref` pins the git ref for all three repos; the named
-	 *  entries override origins (forks/mirrors) — never host paths, the hub
-	 *  pulls its code from the git origins into volumes. */
-	repos?: {
-		ref?: string;
-		buckle?: string;
-		suspenders?: string;
-		belt?: string;
-		/** Packages root inside the clone the hub services run from. An
-		 *  overlay monorepo (private tier) resolves its pinned public base
-		 *  under node_modules/<dep>/packages; unset = the public layout. */
-		src?: string;
-	};
-	deploy?: {
-		ssh?: string;
-		dir: string;
-		docker?: string;
-		compose?: string;
-		/** W701: seconds ssh/scp wait to connect (-o ConnectTimeout) before
-		 *  an unreachable hub fails fast; unset = 10. BatchMode is always on. */
-		connect_timeout?: number;
-	};
-	/** W688.7.1: the hub's REAL upstream ladder (config-over-code) — inline
-	 *  `groups:` in buckle's upstreams.yaml shape, materialized by hubctl
-	 *  into the deploy dir and merged over the committed (placeholder)
-	 *  ladder via BUCKLE_UPSTREAMS. Keys stay in env vars named by each
-	 *  row's api_key_env — never values here. */
-	upstreams?: {
-		groups?: Record<string, Array<Record<string, unknown>>>;
-		/** Machine-local generated OpenRouter free-model snapshot. hubctl
-		 * merges this below explicit groups when pushing hub config. */
-		openrouter_free_catalog_file?: string;
-		/** Authenticated, machine-local Z.ai /models snapshot. */
-		zai_catalog_file?: string;
-		/** LiteLLM URL reachable from this hub. */
-		zai_litellm_url?: string;
-		/** Operator-declared pressure codes for generated catalog deployments. */
-		zai_concurrency_error_codes?: string[];
-		// W1123: no operator inherit escape — hubctl always stamps
-		// `inherit_defaults: false` into the rendered hub ladder (an opt-in
-		// would re-import the committed Mac local-swarm :890x onto a remote
-		// hub). The Mac spoke keeps merge-over-base via its own unflagged
-		// BUCKLE_UPSTREAMS override.
-	};
-	/** Display-only provider placement while its credential-gated route is
-	 *  being prepared. This never enables a Buckle upstream or draws a path. */
-	provider_intents?: string[];
-	/** W983: this hub's Buckle owner prefs — the allow_cloud / cost_speed
-	 *  switches the routing decision gates every cloud hop behind (decide.ts
-	 *  precedence 1). hubctl push materializes them into the 0600
-	 *  buckle-prefs.json the container mounts at BUCKLE_PREFS; undeclared =
-	 *  the conservative defaults (cloud closed, balanced). */
-	buckle_prefs?: {
-		allow_cloud?: boolean;
-		cost_speed?: "balanced" | "cost" | "speed" | "quality";
-	};
-	secrets?: {
-		buckle_root_key?: string;
-		/** W1124.15: PATH (on this device) to the 0600 env file holding the
-		 *  PERSISTENT proxy-only service credential this device's spoke links
-		 *  use toward the hub — distinct from short-lived expiring lane keys.
-		 *  hubctl deploy verifies it against the hub's verify API and fails
-		 *  with the hub's actual expired/revoked code; values never live in
-		 *  config, only this PATH (plus, optionally, the env NAME to select
-		 *  inside a multi-variable file). */
-		buckle_service_key?: string;
-		/** W1124.15: env NAME of the service credential inside
-		 *  buckle_service_key when that file carries several variables (spoke
-		 *  env files start with the ROOT key — never guess a line). */
-		buckle_service_key_env?: string;
-		/** Ladder key env NAME → key-file PATH on the hub device. hubctl push
-		 *  materializes them into the 0600 `upstream.env` ON the hub (the
-		 *  value is read there, never printed or transported); values never
-		 *  live in config. */
-		upstream_keys?: Record<string, string>;
-	};
-	/** W483: nightly dark window "HH:MM-HH:MM" (may cross midnight) — the
-	 *  hub is EXPECTED down in it (NAS DSM poweroff). Routing skips, dispatch
-	 *  falls back to local belt, monitoring suppresses instead of paging. */
-	quiet_hours?: string;
-	/** W1097: the trusted transport THIS device uses to read the hub's trace
-	 *  receipts (the bounded trace connector, telemetry/remote-traces.ts).
-	 *  The hub gate is plain HTTP on the LAN and its TLS front carries an
-	 *  untrusted certificate — direct HTTP would carry the read key in the
-	 *  clear, HTTPS would need trust weakened. The managed ssh tunnel is the
-	 *  trusted front: the read key rides the ssh channel, the connector
-	 *  fetches loopback on this device (http://127.0.0.1:<listen_port>/ — the
-	 *  one non-https form the connector's URL law admits). Requires the
-	 *  hub's deploy.ssh target. hubctl trace-tunnel <hub> up|status|down|peer
-	 *  is the managed face. */
-	trace_tunnel?: {
-		/** Loopback port bound on THIS device (never the hub's — the Mac
-		 *  spoke itself serves 4101). Operator-chosen, 1024–65535. */
-		listen_port: number;
-		/** Port on the HUB the forward targets; default = buckle_port. */
-		target_port?: number;
-		/** PATH (on this device) to the 0600 read key minted ON the hub —
-		 *  the connector's tokenFile. Values never live in config. */
-		read_key: string;
-	};
-}
+// ─── W1303.4 schema-first: zod is THE definition of the stack conf shape ──
+// JSON.parse stays the ONE parser (W1253 Amendment A); these schemas type
+// the parsed value and validate it AFTER parse (stackConfIssues — strict
+// reporting without changing loadStack's behavior for any accepted conf).
 
-export interface StackConfig {
-	/** Models without provider prompt-cache reporting; local KV reuse is separate. */
-	cache_unsupported_models?: string[];
-	/** The stack version: ONE string pins buckle+suspenders+belt — the ref
-	 *  every repo sidecar pulls. Absent = main (dev posture). */
-	version?: string;
-	hubs: Record<string, HubProfile>;
-	auth?: {
-		required?: boolean;
-		/** W372: scoped-token posture (W231) — issuance TTL in hours. */
-		tokens?: { ttlHours?: number };
-		/** W372: Entra/OIDC posture — full-URL issuer + audience; Entra
-		 *  values live ONLY in the machine stack.yaml (placeholders in the
-		 *  committed example). `jwksUri` overrides the Entra v2.0 derivation
-		 *  for non-Entra IdPs. */
-		oidc?: {
-			enforced?: boolean;
-			issuer?: string;
-			jwksUri?: string;
-			audience?: string;
-			requiredScope?: string;
-		};
-	};
-	/** W230: providers — where upstream API keys live (inline on the
-	 *  machine file, an env var NAME, or a 0600 secret file). Values never
-	 *  live in repos; the committed template carries placeholders only. */
-	providers?: Record<string, ProviderEntry>;
-	/** W230: executors — per-executor gateway base(s) + model pin. The
-	 *  insertion engine (scripts/lib/insertion.ts, buckle onboard +
-	 *  lane-wrap) consumes these; env and CLI flags stay the override
-	 *  layer. The `default` row is the fallback for any id without its own. */
-	executors?: Record<string, ExecutorConfig>;
-	/** W230: policies — per-repo routing policy (must/prefer law
-	 *  expressions, hub label, residency regions). */
-	policies?: Record<string, RepoPolicy>;
-}
+/** One provider key declaration (env NAME / 0600 key_file / inline). */
+export const ProviderEntrySchema = z
+	.object({
+		env: z.string().optional(),
+		key_file: z.string().optional(),
+		key_name: z.string().optional(),
+		key: z.string().optional(),
+		base_url: z.string().optional(),
+	})
+	.loose();
+
+/** One executor row: per-executor gateway base(s) + model pin. */
+export const ExecutorConfigSchema = z
+	.object({
+		anthropic_base: z.string().optional(),
+		openai_base: z.string().optional(),
+		model: z.string().optional(),
+	})
+	.loose();
+
+/** Per-repo routing policy (must/prefer law expressions, hub, residency). */
+export const RepoPolicySchema = z
+	.object({
+		must: z.string().optional(),
+		prefer: z.string().optional(),
+		hub: z.string().optional(),
+		residency: z.array(z.string()).optional(),
+	})
+	.loose();
+
+/** Auth posture section (scoped tokens + Entra/OIDC placeholders). */
+export const StackAuthSchema = z
+	.object({
+		required: z.boolean().optional(),
+		tokens: z.object({ ttlHours: z.number().optional() }).loose().optional(),
+		oidc: z
+			.object({
+				enforced: z.boolean().optional(),
+				issuer: z.string().optional(),
+				jwksUri: z.string().optional(),
+				audience: z.string().optional(),
+				requiredScope: z.string().optional(),
+			})
+			.loose()
+			.optional(),
+	})
+	.loose();
+
+/** Deploy source: git ref pins + origin overrides (never host paths). */
+export const HubReposSchema = z
+	.object({
+		ref: z.string().optional(),
+		buckle: z.string().optional(),
+		suspenders: z.string().optional(),
+		belt: z.string().optional(),
+		src: z.string().optional(),
+	})
+	.loose();
+
+/** Deploy target on the hub device — dir REQUIRED when present. */
+export const HubDeploySchema = z
+	.object({
+		ssh: z.string().optional(),
+		dir: z.string(),
+		docker: z.string().optional(),
+		compose: z.string().optional(),
+		connect_timeout: z.number().optional(),
+	})
+	.loose();
+
+/** W1097: the managed ssh tunnel front for hub trace receipts. */
+export const TraceTunnelSchema = z
+	.object({
+		listen_port: z.number(),
+		target_port: z.number().optional(),
+		read_key: z.string(),
+	})
+	.loose();
+
+/** THE hub profile — every knob the deploy + topology readers consume.
+ *  Loose: forward-compat sections ride; named fields are the contract. */
+export const HubProfileSchema = z
+	.object({
+		host: z.string(),
+		/** Human-facing hub label; the profile key stays the routing identity. */
+		display_name: z.string().optional(),
+		/** Browser-facing console; never inferred from the Buckle probe URL. */
+		console_url: z.string().optional(),
+		/** Reviewed canary ref for this hub only (W1094.1 posture) — other
+		 *  hubs keep the shared stack version pinned. */
+		version_override: z.string().optional(),
+		/** W1094.1: hub-machine terminal endpoints (model engines etc.) the
+		 *  route preflight gate may treat as leaves ON THIS hub — never
+		 *  inherited from the Mac specialist registry. */
+		route_preflight: z
+			.object({ terminal_origins: z.array(z.string()).optional() })
+			.loose()
+			.optional(),
+		buckle_port: z.number().optional(),
+		board_port: z.number().optional(),
+		store_port: z.number().optional(),
+		belt_port: z.number().optional(),
+		/** Optional Belt-owned OpenAI model wire (local model server URL from
+		 *  machine config, never a model name compiled into Fleet). */
+		belt_model: z
+			.object({
+				port: z.number(),
+				health_port: z.number(),
+				upstream: z.string(),
+			})
+			.loose()
+			.optional(),
+		/** Health sidecar serve ports (W422.10) — where each *-health probe
+		 *  serves its verdict; falls through to the template default. */
+		buckle_health_port: z.number().optional(),
+		board_health_port: z.number().optional(),
+		store_health_port: z.number().optional(),
+		belt_health_port: z.number().optional(),
+		/** W763 hub model store — the face port + its health sidecar. */
+		model_store_port: z.number().optional(),
+		model_store_health_port: z.number().optional(),
+		/** W1217: the hub knowledge sink (aggregated claim store; declaring it
+		 *  enables the `knowledge` compose profile — sink + health probe). */
+		knowledge: z
+			.object({ port: z.number().optional(), health_port: z.number().optional() })
+			.loose()
+			.optional(),
+		/** W467 synthetic readiness: the buckle-ready sidecar's completion-leg
+		 *  verdict port; ready_model must be one the ladder serves. */
+		buckle_ready_port: z.number().optional(),
+		ready_model: z.string().optional(),
+		/** W688.7.1: the buckle entrypoint the hub runs (unset = solo posture
+		 *  src/server.ts; an enterprise hub points at the overlay entry). */
+		buckle_entry: z.string().optional(),
+		/** W688.7.1: private-network hosts the ladder may reach over plain
+		 *  http (BUCKLE_HTTP_UPSTREAM_HOSTS egress allowlist). */
+		http_upstream_hosts: z.array(z.string()).optional(),
+		/** W688.3: overlay code-loader knobs (KLH_OVERLAY_* env) — dir = the
+		 *  overlay dir INSIDE the container, sha256 pins the entry digest,
+		 *  allow adds operator allow-roots (e.g. /src/fleet/packages). */
+		overlay: z
+			.object({
+				dir: z.string().optional(),
+				sha256: z.string().optional(),
+				allow: z.string().optional(),
+			})
+			.loose()
+			.optional(),
+		/** W854: the mDNS announcer (deploy/mdns/announce.ts) — what the hub
+		 *  advertises as _klh-hub._tcp. All knobs optional; undeclared = the
+		 *  compose template defaults (addr auto-detect, hostname = normalized
+		 *  label, health 4114, sidecar 4115). */
+		mdns: z
+			.object({
+				port: z.number().optional(),
+				addr: z.string().optional(),
+				hostname: z.string().optional(),
+				interval_ms: z.number().optional(),
+				health_port: z.number().optional(),
+				sidecar_port: z.number().optional(),
+			})
+			.loose()
+			.optional(),
+		bind: z.string().optional(),
+		board_bind: z.string().optional(),
+		belt_bind: z.string().optional(),
+		allowed_hosts: z.array(z.string()).optional(),
+		services_json: z.string().optional(),
+		peers: z.array(z.string()).optional(),
+		/** W230: the buckle front URL this hub serves — resolveHub consults it
+		 *  (before the hubs.json registry) — plus an optional front token. */
+		url: z.string().optional(),
+		token: z.string().optional(),
+		/** Local 0600 file containing a hub-scoped admin read key. */
+		token_file: z.string().optional(),
+		/** Deploy source: `ref` pins the git ref; named entries override
+		 *  origins (forks/mirrors) — never host paths. `src` = the packages
+		 *  root inside the clone (overlay monorepo layout; unset = public). */
+		repos: HubReposSchema.optional(),
+		/** Deploy target on the hub device; dir is REQUIRED with the section
+		 *  (the hub pulls code from git origins into volumes). */
+		deploy: HubDeploySchema.optional(),
+		/** Display-only provider placement while its credential-gated route
+		 *  is being prepared; never enables an upstream or draws a path. */
+		provider_intents: z.array(z.string()).optional(),
+		/** W483: nightly dark window "HH:MM-HH:MM" (may cross midnight) — the
+		 *  hub is EXPECTED down in it (NAS DSM poweroff); routing skips. */
+		quiet_hours: z.string().optional(),
+		trace_tunnel: TraceTunnelSchema.optional(),
+		/** W688.7.1: the hub's REAL upstream ladder (config-over-code) —
+		 *  inline groups rows merge over the committed placeholder ladder;
+		 *  keys ride env vars named per-row, never values here. */
+		upstreams: z
+			.object({
+				groups: z
+					.record(
+						z.string(),
+						z.array(z.record(z.string(), z.unknown())),
+					)
+					.optional(),
+				openrouter_free_catalog_file: z.string().optional(),
+				zai_catalog_file: z.string().optional(),
+				zai_litellm_url: z.string().optional(),
+				zai_concurrency_error_codes: z.array(z.string()).optional(),
+			})
+			.loose()
+			.optional(),
+		/** W983: the routing-decision gates (allow_cloud / cost_speed). */
+		buckle_prefs: z
+			.object({
+				allow_cloud: z.boolean().optional(),
+				cost_speed: z.enum(["balanced", "cost", "speed", "quality"]).optional(),
+			})
+			.loose()
+			.optional(),
+		/** Secret PATHS on the owning device — values never live in config. */
+		secrets: z
+			.object({
+				buckle_root_key: z.string().optional(),
+				buckle_service_key: z.string().optional(),
+				buckle_service_key_env: z.string().optional(),
+				upstream_keys: z.record(z.string(), z.string()).optional(),
+			})
+			.loose()
+			.optional(),
+		/** Private native metrics connector (policy data, never credentials). */
+		metrics: z
+			.object({
+				litellm: z.object({
+					url: z.string(),
+					key_env: z.string(),
+					source_id: z.string(),
+				}),
+			})
+			.loose()
+			.optional(),
+		/** Per-hub Buckle gateway overrides — opaque policy object owned by
+		 *  buckle's policy.ts (cross-package type rides loose here). */
+		buckle_gateway: z.custom<GatewayPolicy>().optional(),
+	})
+	.loose();
+
+/** THE stack config (~/.config/klh/stack.json) — every section optional
+ *  except hubs; an empty file is a valid empty config (loader contract).
+ *  W1253 Amendment A: JSON.parse stays the ONE parser; this schema types
+ *  the parsed value (stackConfIssues validates strictly when asked). */
+export const StackConfigSchema = z
+	.object({
+		/** Models without provider prompt-cache reporting; local KV reuse is
+		 *  separate. */
+		cache_unsupported_models: z.array(z.string()).optional(),
+		/** The stack version: ONE string pins buckle+suspenders+belt — the
+		 *  ref every repo sidecar pulls. Absent = main (dev posture). */
+		version: z.string().optional(),
+		hubs: z.record(z.string(), HubProfileSchema),
+		/** W372 auth posture (scoped tokens + Entra/OIDC — machine file only). */
+		auth: StackAuthSchema.optional(),
+		/** W230: providers — where upstream API keys live (env NAME, 0600
+		 *  secret file, or inline on the machine file). Values never in repos. */
+		providers: z.record(z.string(), ProviderEntrySchema).optional(),
+		/** W230: executors — per-executor gateway base(s) + model pin; the
+		 *  `default` row is the fallback for any id without its own. */
+		executors: z.record(z.string(), ExecutorConfigSchema).optional(),
+		/** W230: policies — per-repo routing policy (must/prefer law
+		 *  expressions, hub label, residency regions). */
+		policies: z.record(z.string(), RepoPolicySchema).optional(),
+	})
+	.loose();
+
+// W1303.4 schema-first: derived from HubProfileSchema above — never hand-written.
+export type HubProfile = z.infer<typeof HubProfileSchema>;
+
+// W1303.4 schema-first: derived from StackConfigSchema above — never hand-written.
+export type StackConfig = z.infer<typeof StackConfigSchema>;
 
 export const STACK_PATH = (): string =>
 	process.env.KLH_STACK ?? join(homedir(), ".config", "klh", "stack.json");
 
 // ---- W230: providers / executors / policies --------------------------------
 
-/** One provider key declaration — the user-facing surface for where an
- *  upstream API key lives. Values never live in repos; the machine file
- *  itself is mode 600. */
-export interface ProviderEntry {
-	/** env var NAME the key rides at runtime. */
-	env?: string;
-	/** 0600 dotenv-style file (KEY=VALUE lines); machine-local values. */
-	key_file?: string;
-	/** var to read from key_file (default: <PROVIDER>_API_KEY). */
-	key_name?: string;
-	/** inline value — machine file only; never commit real values. */
-	key?: string;
-	/** provider-native base URL override (custom gateways). */
-	base_url?: string;
-}
+// W1303.4 schema-first: derived from ProviderEntrySchema above — never hand-written.
+export type ProviderEntry = z.infer<typeof ProviderEntrySchema>;
 
-/** One executor row: per-executor gateway base(s) + model pin. */
-export interface ExecutorConfig {
-	anthropic_base?: string;
-	openai_base?: string;
-	/** model pin for this executor — routed by id behind belt. */
-	model?: string;
-}
+// W1303.4 schema-first: derived from ExecutorConfigSchema above — never hand-written.
+export type ExecutorConfig = z.infer<typeof ExecutorConfigSchema>;
 
-/** Per-repo routing policy — the machine-level home for what a repo's
- *  .prefer dotfile expresses (dotfiles still win). */
-export interface RepoPolicy {
-	/** W96 law expression (belt router vocabulary) — hard law. */
-	must?: string;
-	/** W96 law expression — soft law; must beats prefer. */
-	prefer?: string;
-	/** default hub label for dispatch from this repo. */
-	hub?: string;
-	/** allowed regions (buckle gov residency vocabulary). */
-	residency?: string[];
-}
+// W1303.4 schema-first: derived from RepoPolicySchema above — never hand-written.
+export type RepoPolicy = z.infer<typeof RepoPolicySchema>;
 
 /** Parse the machine-level stack config — W230: the ONE user-editable
  *  surface (providers/executors/policies join hubs; every section is
@@ -303,6 +323,19 @@ export function tryLoadStack(): StackConfig | null {
 	} catch {
 		return null;
 	}
+}
+
+/** W1303.4 schema-first: strict conf reporting — safeParse the parsed
+ *  machine config against StackConfigSchema and render `path: message`
+ *  lines. loadStack's behavior is UNCHANGED (any accepted conf still
+ *  loads); this is the operator-facing diagnostic + the test surface that
+ *  pins the schema to the real file shape. */
+export function stackConfIssues(
+	conf: unknown = loadStack(),
+): string[] {
+	return StackConfigSchema.safeParse(conf).error?.issues.map(
+		(i) => `${i.path.join(".") || "<root>"}: ${i.message}`,
+	) ?? [];
 }
 
 /** W230 executors: the row for `id`, falling through to the `default` row

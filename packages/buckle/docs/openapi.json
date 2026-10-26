@@ -1,0 +1,1315 @@
+{
+	"openapi": "3.0.3",
+	"info": {
+		"title": "buckle",
+		"version": "2.0.0",
+		"description": "LLM router plane: dual-dialect proxy (/v1/messages, /v1/chat/completions, /v1/responses) plus the /v1/admin governance API. Generated from src/wire-schemas.ts by bin/gen-openapi.ts — never hand-edited."
+	},
+	"paths": {
+		"/v1/messages": {
+			"post": {
+				"summary": "Anthropic Messages (proxy)",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"model": {
+										"type": "string",
+										"minLength": 1
+									},
+									"messages": {
+										"type": "array",
+										"items": {
+											"type": "object",
+											"properties": {
+												"role": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"role"
+											],
+											"additionalProperties": {}
+										}
+									},
+									"stream": {
+										"type": "boolean"
+									},
+									"max_tokens": {
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									}
+								},
+								"required": [
+									"model"
+								],
+								"additionalProperties": {}
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "proxied upstream response (SSE when stream)"
+					},
+					"400": {
+						"description": "problem+json — buckle.bad_body, missing model",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"type": {
+											"type": "string"
+										},
+										"title": {
+											"type": "string"
+										},
+										"status": {
+											"type": "integer",
+											"minimum": -9007199254740991,
+											"maximum": 9007199254740991
+										},
+										"detail": {
+											"type": "string"
+										},
+										"instance": {
+											"type": "string"
+										},
+										"code": {
+											"type": "string"
+										},
+										"why": {
+											"type": "string"
+										},
+										"agent_next_steps": {
+											"type": "array",
+											"items": {
+												"type": "string"
+											}
+										}
+									},
+									"required": [
+										"type",
+										"title",
+										"status",
+										"code",
+										"why"
+									],
+									"additionalProperties": {}
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "problem+json — buckle.unauthorized",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"type": {
+											"type": "string"
+										},
+										"title": {
+											"type": "string"
+										},
+										"status": {
+											"type": "integer",
+											"minimum": -9007199254740991,
+											"maximum": 9007199254740991
+										},
+										"detail": {
+											"type": "string"
+										},
+										"instance": {
+											"type": "string"
+										},
+										"code": {
+											"type": "string"
+										},
+										"why": {
+											"type": "string"
+										},
+										"agent_next_steps": {
+											"type": "array",
+											"items": {
+												"type": "string"
+											}
+										}
+									},
+									"required": [
+										"type",
+										"title",
+										"status",
+										"code",
+										"why"
+									],
+									"additionalProperties": {}
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/messages/count_tokens": {
+			"post": {
+				"summary": "Anthropic count_tokens (proxy)",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"model": {
+										"type": "string",
+										"minLength": 1
+									},
+									"messages": {
+										"type": "array",
+										"items": {
+											"type": "object",
+											"properties": {
+												"role": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"role"
+											],
+											"additionalProperties": {}
+										}
+									},
+									"stream": {
+										"type": "boolean"
+									},
+									"max_tokens": {
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									}
+								},
+								"required": [
+									"model"
+								],
+								"additionalProperties": {}
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "proxied upstream response"
+					},
+					"400": {
+						"description": "problem+json — buckle.bad_body, missing model",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"type": {
+											"type": "string"
+										},
+										"title": {
+											"type": "string"
+										},
+										"status": {
+											"type": "integer",
+											"minimum": -9007199254740991,
+											"maximum": 9007199254740991
+										},
+										"detail": {
+											"type": "string"
+										},
+										"instance": {
+											"type": "string"
+										},
+										"code": {
+											"type": "string"
+										},
+										"why": {
+											"type": "string"
+										},
+										"agent_next_steps": {
+											"type": "array",
+											"items": {
+												"type": "string"
+											}
+										}
+									},
+									"required": [
+										"type",
+										"title",
+										"status",
+										"code",
+										"why"
+									],
+									"additionalProperties": {}
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "problem+json — buckle.unauthorized",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"type": {
+											"type": "string"
+										},
+										"title": {
+											"type": "string"
+										},
+										"status": {
+											"type": "integer",
+											"minimum": -9007199254740991,
+											"maximum": 9007199254740991
+										},
+										"detail": {
+											"type": "string"
+										},
+										"instance": {
+											"type": "string"
+										},
+										"code": {
+											"type": "string"
+										},
+										"why": {
+											"type": "string"
+										},
+										"agent_next_steps": {
+											"type": "array",
+											"items": {
+												"type": "string"
+											}
+										}
+									},
+									"required": [
+										"type",
+										"title",
+										"status",
+										"code",
+										"why"
+									],
+									"additionalProperties": {}
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/chat/completions": {
+			"post": {
+				"summary": "OpenAI Chat Completions (proxy)",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"model": {
+										"type": "string",
+										"minLength": 1
+									},
+									"messages": {
+										"type": "array",
+										"items": {
+											"type": "object",
+											"properties": {
+												"role": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"role"
+											],
+											"additionalProperties": {}
+										}
+									},
+									"stream": {
+										"type": "boolean"
+									},
+									"max_tokens": {
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									}
+								},
+								"required": [
+									"model"
+								],
+								"additionalProperties": {}
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "proxied upstream response (SSE when stream)"
+					},
+					"400": {
+						"description": "problem+json — buckle.bad_body, missing model",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"type": {
+											"type": "string"
+										},
+										"title": {
+											"type": "string"
+										},
+										"status": {
+											"type": "integer",
+											"minimum": -9007199254740991,
+											"maximum": 9007199254740991
+										},
+										"detail": {
+											"type": "string"
+										},
+										"instance": {
+											"type": "string"
+										},
+										"code": {
+											"type": "string"
+										},
+										"why": {
+											"type": "string"
+										},
+										"agent_next_steps": {
+											"type": "array",
+											"items": {
+												"type": "string"
+											}
+										}
+									},
+									"required": [
+										"type",
+										"title",
+										"status",
+										"code",
+										"why"
+									],
+									"additionalProperties": {}
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "problem+json — buckle.unauthorized",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"type": {
+											"type": "string"
+										},
+										"title": {
+											"type": "string"
+										},
+										"status": {
+											"type": "integer",
+											"minimum": -9007199254740991,
+											"maximum": 9007199254740991
+										},
+										"detail": {
+											"type": "string"
+										},
+										"instance": {
+											"type": "string"
+										},
+										"code": {
+											"type": "string"
+										},
+										"why": {
+											"type": "string"
+										},
+										"agent_next_steps": {
+											"type": "array",
+											"items": {
+												"type": "string"
+											}
+										}
+									},
+									"required": [
+										"type",
+										"title",
+										"status",
+										"code",
+										"why"
+									],
+									"additionalProperties": {}
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/responses": {
+			"post": {
+				"summary": "OpenAI Responses (proxy, path forwarded verbatim)",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"model": {
+										"type": "string",
+										"minLength": 1
+									},
+									"messages": {
+										"type": "array",
+										"items": {
+											"type": "object",
+											"properties": {
+												"role": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"role"
+											],
+											"additionalProperties": {}
+										}
+									},
+									"stream": {
+										"type": "boolean"
+									},
+									"max_tokens": {
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									}
+								},
+								"required": [
+									"model"
+								],
+								"additionalProperties": {}
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "proxied upstream response"
+					},
+					"400": {
+						"description": "problem+json — buckle.bad_body, missing model",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"type": {
+											"type": "string"
+										},
+										"title": {
+											"type": "string"
+										},
+										"status": {
+											"type": "integer",
+											"minimum": -9007199254740991,
+											"maximum": 9007199254740991
+										},
+										"detail": {
+											"type": "string"
+										},
+										"instance": {
+											"type": "string"
+										},
+										"code": {
+											"type": "string"
+										},
+										"why": {
+											"type": "string"
+										},
+										"agent_next_steps": {
+											"type": "array",
+											"items": {
+												"type": "string"
+											}
+										}
+									},
+									"required": [
+										"type",
+										"title",
+										"status",
+										"code",
+										"why"
+									],
+									"additionalProperties": {}
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "problem+json — buckle.unauthorized",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"type": {
+											"type": "string"
+										},
+										"title": {
+											"type": "string"
+										},
+										"status": {
+											"type": "integer",
+											"minimum": -9007199254740991,
+											"maximum": 9007199254740991
+										},
+										"detail": {
+											"type": "string"
+										},
+										"instance": {
+											"type": "string"
+										},
+										"code": {
+											"type": "string"
+										},
+										"why": {
+											"type": "string"
+										},
+										"agent_next_steps": {
+											"type": "array",
+											"items": {
+												"type": "string"
+											}
+										}
+									},
+									"required": [
+										"type",
+										"title",
+										"status",
+										"code",
+										"why"
+									],
+									"additionalProperties": {}
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/models": {
+			"get": {
+				"summary": "Served model groups",
+				"responses": {
+					"200": {
+						"description": "model list",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"object": {
+											"type": "string",
+											"enum": [
+												"list"
+											]
+										},
+										"data": {
+											"type": "array",
+											"items": {
+												"type": "object",
+												"properties": {
+													"id": {
+														"type": "string"
+													},
+													"object": {
+														"type": "string",
+														"enum": [
+															"model"
+														]
+													},
+													"owned_by": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"id",
+													"object",
+													"owned_by"
+												],
+												"additionalProperties": false
+											}
+										}
+									},
+									"required": [
+										"object",
+										"data"
+									],
+									"additionalProperties": false
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/admin/keys": {
+			"post": {
+				"summary": "Issue a key (raw material returned exactly once)",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"name": {
+										"type": "string",
+										"minLength": 1
+									},
+									"scopes": {
+										"type": "array",
+										"items": {
+											"type": "string"
+										}
+									},
+									"team": {
+										"nullable": true,
+										"type": "string"
+									},
+									"rpm_limit": {
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									},
+									"tpm_limit": {
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									},
+									"expires_in_s": {
+										"type": "number"
+									}
+								},
+								"required": [
+									"name"
+								],
+								"additionalProperties": {}
+							}
+						}
+					}
+				},
+				"responses": {
+					"201": {
+						"description": "issued",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"key_id": {
+											"type": "string"
+										},
+										"key": {
+											"type": "string"
+										},
+										"name": {
+											"type": "string"
+										},
+										"team": {
+											"nullable": true,
+											"type": "string"
+										},
+										"scopes": {
+											"type": "array",
+											"items": {
+												"type": "string"
+											}
+										},
+										"rpm_limit": {
+											"nullable": true,
+											"type": "integer",
+											"minimum": -9007199254740991,
+											"maximum": 9007199254740991
+										},
+										"tpm_limit": {
+											"nullable": true,
+											"type": "integer",
+											"minimum": -9007199254740991,
+											"maximum": 9007199254740991
+										},
+										"expires_at": {
+											"nullable": true,
+											"type": "number"
+										}
+									},
+									"required": [
+										"key_id",
+										"key",
+										"name",
+										"team",
+										"scopes",
+										"rpm_limit",
+										"tpm_limit",
+										"expires_at"
+									],
+									"additionalProperties": false
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "problem+json — buckle.bad_body, buckle.bad_scopes",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"type": {
+											"type": "string"
+										},
+										"title": {
+											"type": "string"
+										},
+										"status": {
+											"type": "integer",
+											"minimum": -9007199254740991,
+											"maximum": 9007199254740991
+										},
+										"detail": {
+											"type": "string"
+										},
+										"instance": {
+											"type": "string"
+										},
+										"code": {
+											"type": "string"
+										},
+										"why": {
+											"type": "string"
+										},
+										"agent_next_steps": {
+											"type": "array",
+											"items": {
+												"type": "string"
+											}
+										}
+									},
+									"required": [
+										"type",
+										"title",
+										"status",
+										"code",
+										"why"
+									],
+									"additionalProperties": {}
+								}
+							}
+						}
+					}
+				}
+			},
+			"get": {
+				"summary": "List keys (never key_hash)",
+				"responses": {
+					"200": {
+						"description": "key rows",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"keys": {
+											"type": "array",
+											"items": {
+												"type": "object",
+												"properties": {
+													"key_id": {
+														"type": "string"
+													},
+													"jti": {
+														"nullable": true,
+														"type": "string"
+													},
+													"name": {
+														"nullable": true,
+														"type": "string"
+													},
+													"team": {
+														"nullable": true,
+														"type": "string"
+													},
+													"actor": {
+														"nullable": true,
+														"type": "string"
+													},
+													"token_type": {
+														"type": "string"
+													},
+													"parent_key_id": {
+														"nullable": true,
+														"type": "string"
+													},
+													"scopes": {
+														"nullable": true,
+														"type": "string"
+													},
+													"rpm_limit": {
+														"nullable": true,
+														"type": "integer",
+														"minimum": -9007199254740991,
+														"maximum": 9007199254740991
+													},
+													"tpm_limit": {
+														"nullable": true,
+														"type": "integer",
+														"minimum": -9007199254740991,
+														"maximum": 9007199254740991
+													},
+													"expires_at": {
+														"nullable": true,
+														"type": "number"
+													},
+													"rotated_at": {
+														"nullable": true,
+														"type": "number"
+													},
+													"revoked_at": {
+														"nullable": true,
+														"type": "number"
+													},
+													"created_at": {
+														"type": "number"
+													}
+												},
+												"required": [
+													"key_id",
+													"jti",
+													"name",
+													"team",
+													"actor",
+													"token_type",
+													"parent_key_id",
+													"scopes",
+													"rpm_limit",
+													"tpm_limit",
+													"expires_at",
+													"rotated_at",
+													"revoked_at",
+													"created_at"
+												],
+												"additionalProperties": {}
+											}
+										}
+									},
+									"required": [
+										"keys"
+									],
+									"additionalProperties": false
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/admin/keys/verify": {
+			"post": {
+				"summary": "Verify a key (no hash echo)",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"key": {
+										"type": "string",
+										"minLength": 1
+									}
+								},
+								"required": [
+									"key"
+								],
+								"additionalProperties": false
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "valid + identity, or valid:false + code",
+						"content": {
+							"application/json": {
+								"schema": {
+									"anyOf": [
+										{
+											"type": "object",
+											"properties": {
+												"valid": {
+													"type": "boolean",
+													"enum": [
+														true
+													]
+												},
+												"key_id": {
+													"type": "string"
+												},
+												"team": {
+													"nullable": true,
+													"type": "string"
+												},
+												"scopes": {
+													"type": "array",
+													"items": {
+														"type": "string"
+													}
+												},
+												"revoked": {
+													"type": "boolean"
+												}
+											},
+											"required": [
+												"valid",
+												"key_id",
+												"team",
+												"scopes",
+												"revoked"
+											],
+											"additionalProperties": false
+										},
+										{
+											"type": "object",
+											"properties": {
+												"valid": {
+													"type": "boolean",
+													"enum": [
+														false
+													]
+												},
+												"code": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"valid",
+												"code"
+											],
+											"additionalProperties": false
+										}
+									]
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/admin/keys/{key_id}/revoke": {
+			"post": {
+				"summary": "Revoke a key",
+				"parameters": [
+					{
+						"name": "key_id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"pattern": "^[0-9a-f]{12}$"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "revoked",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"revoked": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"revoked"
+									],
+									"additionalProperties": false
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "problem+json — buckle.no_route",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"type": {
+											"type": "string"
+										},
+										"title": {
+											"type": "string"
+										},
+										"status": {
+											"type": "integer",
+											"minimum": -9007199254740991,
+											"maximum": 9007199254740991
+										},
+										"detail": {
+											"type": "string"
+										},
+										"instance": {
+											"type": "string"
+										},
+										"code": {
+											"type": "string"
+										},
+										"why": {
+											"type": "string"
+										},
+										"agent_next_steps": {
+											"type": "array",
+											"items": {
+												"type": "string"
+											}
+										}
+									},
+									"required": [
+										"type",
+										"title",
+										"status",
+										"code",
+										"why"
+									],
+									"additionalProperties": {}
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/admin/teams": {
+			"post": {
+				"summary": "Upsert a team (budget ceilings)",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"team_id": {
+										"type": "string",
+										"minLength": 1
+									},
+									"name": {
+										"type": "string"
+									},
+									"department": {
+										"nullable": true,
+										"type": "string"
+									},
+									"rpm_ceiling": {
+										"nullable": true,
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									},
+									"tpm_ceiling": {
+										"nullable": true,
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									},
+									"spend_ceiling": {
+										"nullable": true,
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									}
+								},
+								"required": [
+									"team_id"
+								],
+								"additionalProperties": {}
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "echoed ceilings",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"team_id": {
+											"type": "string"
+										},
+										"rpm_ceiling": {
+											"nullable": true,
+											"type": "number"
+										},
+										"tpm_ceiling": {
+											"nullable": true,
+											"type": "number"
+										},
+										"spend_ceiling": {
+											"nullable": true,
+											"type": "number"
+										}
+									},
+									"required": [
+										"team_id",
+										"rpm_ceiling",
+										"tpm_ceiling",
+										"spend_ceiling"
+									],
+									"additionalProperties": false
+								}
+							}
+						}
+					}
+				}
+			},
+			"get": {
+				"summary": "List teams",
+				"responses": {
+					"200": {
+						"description": "team rows"
+					}
+				}
+			}
+		},
+		"/v1/admin/drain": {
+			"post": {
+				"summary": "Arm the deployment drain (first intent wins)",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"reason": {
+										"type": "string",
+										"minLength": 1
+									},
+									"grace_ms": {
+										"type": "number"
+									}
+								},
+								"required": [
+									"reason"
+								],
+								"additionalProperties": false
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "draining",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"draining": {
+											"type": "boolean",
+											"enum": [
+												true
+											]
+										},
+										"reason": {
+											"type": "string"
+										},
+										"since_ms": {
+											"type": "number"
+										},
+										"deadline_ms": {
+											"type": "number"
+										}
+									},
+									"required": [
+										"draining",
+										"reason",
+										"since_ms",
+										"deadline_ms"
+									],
+									"additionalProperties": false
+								}
+							}
+						}
+					},
+					"409": {
+						"description": "problem+json — buckle.already_draining",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"type": {
+											"type": "string"
+										},
+										"title": {
+											"type": "string"
+										},
+										"status": {
+											"type": "integer",
+											"minimum": -9007199254740991,
+											"maximum": 9007199254740991
+										},
+										"detail": {
+											"type": "string"
+										},
+										"instance": {
+											"type": "string"
+										},
+										"code": {
+											"type": "string"
+										},
+										"why": {
+											"type": "string"
+										},
+										"agent_next_steps": {
+											"type": "array",
+											"items": {
+												"type": "string"
+											}
+										}
+									},
+									"required": [
+										"type",
+										"title",
+										"status",
+										"code",
+										"why"
+									],
+									"additionalProperties": {}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}

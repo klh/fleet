@@ -11,14 +11,12 @@ import {
 	resolveTarget,
 } from "../../../belt/bin/router-policy.ts";
 import { scrub } from "../lib/servicemon.ts";
+import type { PromptSettingsWire } from "./schemas.ts";
 
 // ─── settings (persisted in suspenders-board.json, W269-compatible keys) ──
-export interface PromptSettings {
-	"prompt.condense": boolean;
-	"prompt.enhance": boolean;
-	"prompt.debug": boolean;
-	"prompt.log": boolean;
-}
+// W1303.4 schema-first: the wire shape is defined ONCE in schemas.ts
+// (PromptSettingsSchema); this type is derived, never hand-written.
+export type PromptSettings = PromptSettingsWire;
 
 export const PROMPT_DEFAULTS: PromptSettings = {
 	// Owner reversal 2026-10-03: condense is ON by default — the W287
