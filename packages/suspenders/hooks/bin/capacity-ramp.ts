@@ -159,6 +159,6 @@ const CLEANUP = defineVerb({
 
 await runCli({
 	prog: "capacity-ramp",
-	about: "bounded capacity ramp (W1713):",
+	about: "W1713 bounded capacity ramp.",
 	verbs: [RUN, CLEANUP],
 });
