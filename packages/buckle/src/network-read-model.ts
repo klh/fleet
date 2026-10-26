@@ -8,6 +8,10 @@
 // inferred values or false zeros.
 import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
+import {
+	type LifecycleSnapshot,
+	lifecycleSnapshot,
+} from "./lifecycle-read-model.ts";
 import { ACTIVE_TTL_MS } from "./projection.ts";
 
 /** One per-hub row: the projection's request_edges grouped by observer
@@ -138,6 +142,9 @@ export type NetworkOverviewResult =
 				/** Fleet-wide MAX(obs_events.time) — null = no events yet. */
 				lastEventAt: string | null;
 			};
+			/** W1312: the joined lane-lifecycle sample + durable gap/drop
+			 *  counters over the same projection db. */
+			lifecycle: LifecycleSnapshot;
 	  }
 	| { ok: false; reason: string };
 
@@ -204,6 +211,10 @@ export function networkOverview(
 			},
 			hops: paths.obsDb ? hubHops(paths.obsDb, t) : [],
 			observations: observationsSection(paths.obsDb, t),
+			lifecycle: lifecycleSnapshot({
+				obsDb: paths.obsDb ?? "",
+				ledger: paths.ledger,
+			}),
 		};
 	} finally {
 		db.close();

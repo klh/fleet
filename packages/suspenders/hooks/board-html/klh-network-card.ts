@@ -133,6 +133,47 @@ const spokeRow = (p: NetworkPayload): TemplateResult =>
 				<span class="unknown">not in the probe map</span>
 			</p>`;
 
+/** W1312 lifecycle + loss: joined sample rows and the durable gap/drop
+ *  counters per observer source; empty projection = the WHY line. */
+const lifecycleSection = (n: OkNet): TemplateResult => {
+	const l = n.lifecycle;
+	if (!l.loss.length && !l.rows.length)
+		return html`<div class="hrow">
+			<span class="hname">lifecycle</span>
+			<span class="unknown">no projected events here</span>
+		</div>`;
+	return html`<div class="hrow">
+		<span class="hname">lifecycle · loss</span>
+		<span class="num">emitted ${l.totals.emitted}</span>
+		<span class="num">observed ${l.totals.observed}</span>
+		<span class="num ${l.totals.gaps > 0 ? "hot" : ""}">gaps ${l.totals.gaps}</span>
+	</div>
+	${l.loss
+		.filter((r) => r.gaps > 0)
+		.map(
+			(r) => html`<div class="hrow">
+				<span class="hname">${r.source}</span>
+				<span class="num hot">gap ${r.gaps} of ${r.emitted}</span>
+			</div>`,
+		)}
+		<details class="routes">
+			<summary>Lifecycle sample · ${l.rows.length}</summary>
+			<div class="routesBody">
+				${l.rows.length
+					? l.rows.map(
+						(row) => html`<div class="hrow">
+							<time class="unknown" datetime=${new Date(row.admittedAt).toISOString()}>${new Date(row.admittedAt).toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
+							<span class="title">${row.model ?? "?"}</span>
+							<span class="unknown">${row.lane ? `lane ${row.lane.replace(/^autow([\d.]+)-.*/, "W$1")}` : "unattributed"}</span>
+							<span class="num">${row.outcome ?? "in flight"}</span>
+							<span class="num">${row.attemptsAgree ? `att ${row.edgeAttempts ?? "?"} ok` : `att p${row.edgeAttempts ?? "?"}/l${row.ledgerAttempts ?? "?"} drift`}</span>
+						</div>`,
+					)
+					: html`<p class="unknown">no joined rows</p>`}
+			</div>
+		</details>`;
+};
+
 /** Per-hub observed rows (#45792): TTL-bounded active + request/error
  *  counts + observer freshness; empty = no projection db wired here. */
 const hubSection = (n: OkNet): TemplateResult => html`
@@ -171,7 +212,8 @@ const hubSection = (n: OkNet): TemplateResult => html`
 				${n.unsettled.map((u) => html`<span class="num">${u.kind}: ${u.n}</span>`)}
 			</div>`
 			: nothing
-	}`;
+	}
+	${lifecycleSection(n)}`;
 
 /** One measured interface row: 60s rate + 15m workload, per-interface
  *  provenance (#45792) with the measured edge bar (1-4px × 14). */
