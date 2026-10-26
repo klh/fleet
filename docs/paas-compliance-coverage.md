@@ -49,7 +49,7 @@ Standard sections → fleet state. "Child" = the W1303.x item that owns closure.
 | HTTP client kit (@paas/resilience surface) | Scattered; AIMD ledger W1280 + gap escalation W1273 exist to build on | W1303.3 | LANDED d3c0a839 |
 | Testing Playwright-only, shared config | bun:test retained | dispositions #8 | DISPOSITIONED |
 | Load tests same specs | N/A (no PaaS traffic surface); e2e suite exists | accepted | ALIGNED |
-| Code review: agents first, risk tiers | Guarded merge ladder + oracle review exist; NO tier classifier, no CODEOWNERS, no PR template, no area REVIEW.md | W1303.5 | LANDED 592a26a2 |
+| Code review: agents first, risk tiers | Guarded merge ladder + oracle review exist; NO tier classifier, no CODEOWNERS, no PR template, no area REVIEW.md | W1303.5 | LANDED 592a26a2; approval-consumption repair W1308 f7f10d0d |
 | Review: decisions-not-queues | `coord emit NEED_DECISION` is fleet law | landed checks | ALIGNED |
 | Keeping review useful (round cap 3, incidents→evals, human-time metric) | W1303.5 landed tiers/CODEOWNERS/PR template; these three mechanics unlanded (audit W1305) | W1303.7 | CHILD-PENDING |
 | Enforcement table (npm ci, check-versions/deps/boundaries/pack/ui-laws, gen-openapi) | import-law ratchet (W1249) + law-guards CI exist; check-versions/check-deps/check-pack/gen-openapi missing | W1303.1 (3 checks) + W1303.4 (gen-openapi) | CHILD-PENDING |
