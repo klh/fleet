@@ -23,6 +23,7 @@ import type {
 	MissReasonCluster,
 	ModelDrillRow,
 } from "../lib/usage/cache-drill.ts";
+import type { CacheSlaReport } from "../lib/usage/cache-sla.ts";
 
 // ─── formatting (same ramp as usage-panels) ───────────────────────────────
 const fmtTok = (n: number): string =>
@@ -53,9 +54,11 @@ export class KlhUsageCacheDrill extends LitElement {
 		model: { type: String, state: true },
 		day: { type: String, state: true },
 		missOnly: { type: Boolean, state: true },
+		sla: { type: Object, state: true },
 	};
 
 	declare report: CacheDrillReport | null;
+	declare sla: CacheSlaReport | null;
 	declare err: string;
 	declare loading: boolean;
 	declare lane: string;
@@ -74,6 +77,7 @@ export class KlhUsageCacheDrill extends LitElement {
 		this.model = "";
 		this.day = "";
 		this.missOnly = false;
+		this.sla = null;
 	}
 
 	protected connectedCallback(): void {
@@ -105,6 +109,43 @@ export class KlhUsageCacheDrill extends LitElement {
 				this.err = String((e as Error).message ?? e);
 				this.loading = false;
 			});
+		// W1139.1: the SLA badge rides its own face — a missing/broken SLA
+		// endpoint degrades to no badge, never a broken drilldown.
+		this.fetchSla();
+	}
+
+	private fetchSla(): void {
+		fetch("/api/usage/cache-sla?window_min=60", {
+			signal: AbortSignal.timeout(15_000),
+		})
+			.then((r) => (r.ok ? (r.json() as Promise<CacheSlaReport>) : null))
+			.then((body) => {
+				this.sla = body;
+			})
+			.catch(() => {
+				this.sla = null;
+			});
+	}
+
+	// W1139.1: the rolling hit-share badge — one line under the panel head;
+	// breaching lanes call out by name, no data says so honestly.
+	private slaLine(): TemplateResult {
+		const s = this.sla;
+		if (s === null || s.lanes.length === 0) return nothing;
+		const parts = s.lanes.map(
+			(l) =>
+				html`<span class=${l.breaching ? "uwarn" : ""}>${l.lane}
+					${pct1(l.hitShare)}</span>`,
+		);
+		const verdict =
+			s.breaches.length > 0
+				? `${String(s.breaches.length)} breach(es)`
+				: "ok";
+		return html`<p class="ufoot">
+			cache-SLA (${String(s.windowMinutes)}m rolling, threshold
+			${pct1(s.threshold)}, ≥${String(s.minRequests)} req):
+			${parts.map((p, i) => (i === 0 ? p : html`, ${p}`))} — ${verdict}
+		</p>`;
 	}
 
 	// ─── render ────────────────────────────────────────────────────────────
@@ -142,6 +183,7 @@ export class KlhUsageCacheDrill extends LitElement {
 					}
 				</p>
 			</div>
+			${this.slaLine()}
 			${this.filterRow(r)}
 			${
 				r.overall.requests > r.overall.known

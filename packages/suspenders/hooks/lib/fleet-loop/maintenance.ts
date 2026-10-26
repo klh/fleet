@@ -227,6 +227,16 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		argv: (root) => [join(root, "hooks/bin/metrics-alert.ts")],
 	},
 	{
+		// W1139.1: the rolling per-lane cache hit-share SLA sweep — reads
+		// buckle's W458.4 lane-cache NDJSON every 15 min, writes the status
+		// JSON the board face (/api/usage/cache-sla) + badge read; exit 1 (a
+		// fail log here) when a lane sits below the threshold with sample.
+		name: "cache-sla",
+		everySeconds: 900,
+		timeoutMs: 60_000,
+		argv: (root) => [join(root, "hooks/bin/cache-sla.ts")],
+	},
+	{
 		// W944: the enterprise knowledge sync — decant headless (sync →
 		// stats/ls --json, never the db, never transcript surfaces) + the
 		// lesson./finding. fact feed, policy-gated (config-over-code,
