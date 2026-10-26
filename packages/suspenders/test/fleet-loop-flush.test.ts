@@ -9,17 +9,57 @@
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
 setDefaultTimeout(30_000);
+
 import { Database } from "bun:sqlite";
 import {
 	existsSync,
 	mkdirSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { approvalSig, riskApprovalSrc } from "../hooks/lib/approvals.ts";
 import { reviewContext } from "../hooks/lib/gates/review-receipt.ts";
+import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
+
+// W1308: mint a signed human risk-approval into the fixture's redirected
+// HOME (testEnv sends every subprocess there, so the ladder's approvals
+// reader + secret reader resolve exactly these paths). Same file shape
+// hooks/bin/approve-merge.ts writes from a human shell.
+const mintRiskApproval = (
+	repo: string,
+	item: string,
+	sha: string,
+	tier = "medium",
+) => {
+	const secret = "a".repeat(64);
+	const home = join(repo, ".test-home");
+	const secPath = join(home, ".claude", ".skill-review-secret");
+	mkdirSync(join(home, ".claude"), { recursive: true, mode: 0o700 });
+	if (!existsSync(secPath))
+		writeFileSync(secPath, `${secret}\n`, { mode: 0o600 });
+	const src = riskApprovalSrc(
+		projectIdentity(repo),
+		`suspenders/${item}`,
+		sha,
+		tier,
+	);
+	const ts = Math.floor(Date.now() / 1000);
+	const dir = join(home, ".claude-insights", ".approvals");
+	const name = `${ts}-${crypto.randomUUID().slice(0, 8)}.approval`;
+	mkdirSync(dir, { recursive: true, mode: 0o700 });
+	writeFileSync(
+		join(dir, name),
+		`src=${src}\nts=${ts}\nsig=${approvalSig(src, ts, secret)}\n`,
+		{
+			mode: 0o600,
+		},
+	);
+	return join(dir, name);
+};
 
 const LOOP = join(import.meta.dir, "..", "hooks", "bin", "fleet-loop.ts");
 const WORK = join(import.meta.dir, "..", "hooks", "bin", "work.ts");
@@ -93,6 +133,24 @@ const laneBranch = async (repo: string, item: string): Promise<string> => {
 		g(repo, ["worktree", "add", "-b", `suspenders/${item}`, wt]).exitCode,
 	).toBe(0);
 	await Bun.write(Bun.file(join(wt, "f.txt")), "one\ntwo\n");
+	g(repo, ["add", "-A"], wt);
+	expect(g(repo, ["commit", "-m", `lane change ${item}`], wt).exitCode).toBe(0);
+	mkdirSync(join(repo, ".fleet"), { recursive: true });
+	writeFileSync(join(repo, ".fleet", "lanes.json"), "[]");
+	return g(repo, ["rev-parse", "HEAD"], wt).stdout.toString().trim();
+};
+
+// W1308: a HIGH-tell lane branch (.github/workflows path trips the high
+// tell) — the two-approval tier for the consumption tests.
+const highLaneBranch = async (repo: string, item: string): Promise<string> => {
+	const wt = join(repo, ".worktrees", item);
+	expect(
+		g(repo, ["worktree", "add", "-b", `suspenders/${item}`, wt]).exitCode,
+	).toBe(0);
+	await Bun.write(
+		Bun.file(join(wt, ".github", "workflows", "ci.yml")),
+		"on: push\n",
+	);
 	g(repo, ["add", "-A"], wt);
 	expect(g(repo, ["commit", "-m", `lane change ${item}`], wt).exitCode).toBe(0);
 	mkdirSync(join(repo, ".fleet"), { recursive: true });
@@ -280,6 +338,48 @@ describe("fleet-loop flush mode (W641)", () => {
 		// second cycle re-defers without duplicating the decision
 		flushGated(repo);
 		expect(events(repo, "NEED_DECISION")).toBe(1);
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	test("W1308: partial approval keeps deferring and never burns what it counted", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const head = await highLaneBranch(repo, item);
+		close(repo, item, head);
+		seedReview(repo, item);
+		const held = mintRiskApproval(repo, item, head, "high"); // 1 of 2
+		const r = flushGated(repo);
+		expect(r.code).toBe(0);
+		expect(log(repo)).toContain(`RISK-DEFER suspenders/${item}`);
+		expect(log(repo)).not.toContain(`MERGED suspenders/${item}`);
+		expect(branchGone(repo, item)).toBe(false);
+		// the deferral consumed NOTHING — the human approval survives for the
+		// retry (count-then-burn, never burn-on-count)
+		expect(existsSync(held)).toBe(true);
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	test("W1308: full approvals merge the candidate and burn exactly the demand", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const head = await highLaneBranch(repo, item);
+		close(repo, item, head);
+		seedReview(repo, item);
+		const dir = join(repo, ".test-home", ".claude-insights", ".approvals");
+		mintRiskApproval(repo, item, head, "high");
+		mintRiskApproval(repo, item, head, "high");
+		expect(
+			readdirSync(dir).filter((f) => f.endsWith(".approval")),
+		).toHaveLength(2);
+		const r = flushGated(repo);
+		expect(r.code).toBe(0);
+		expect(log(repo)).toContain(`MERGED suspenders/${item}`);
+		expect(log(repo)).toContain(`RISK-CONSUMED suspenders/${item}`);
+		expect(branchGone(repo, item)).toBe(true);
+		// single-use: both burned on the successful merge
+		expect(
+			readdirSync(dir).filter((f) => f.endsWith(".approval")),
+		).toHaveLength(0);
 		rmSync(repo, { recursive: true, force: true });
 	});
 

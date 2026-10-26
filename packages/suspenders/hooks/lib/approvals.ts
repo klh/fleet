@@ -29,6 +29,17 @@ const sha256hex = (s: string): string =>
 // cmd-bound approvals: src=cmd:<sha256(command)> — binds to the exact text
 export const cmdApprovalSrc = (cmd: string): string => `cmd:${sha256hex(cmd)}`;
 
+// W1308 risk-bound approvals: src=risk:<sha256(project|branch|commit|tier)> —
+// binds a human merge approval to the EXACT candidate the risk-tier gate
+// classified. A new commit, a moved base, or a re-tiered diff changes the
+// src, so a stale approval can never authorize a different change.
+export const riskApprovalSrc = (
+	project: string,
+	branch: string,
+	commit: string,
+	tier: string,
+): string => `risk:${sha256hex(`${project}|${branch}|${commit}|${tier}`)}`;
+
 // the ONE sig scheme (both flavors): hmac-sha256(secret, "<src>|<ts>")
 export const approvalSig = (src: string, ts: number, secret: string): string =>
 	createHmac("sha256", secret).update(`${src}|${ts}`).digest("hex");
@@ -79,6 +90,49 @@ export function verifyAndConsume(matchSource: string): boolean {
 // W250 two-person rule: the approval binds to the EXACT command text.
 export function verifyAndConsumeCmd(cmd: string): boolean {
 	return scanAndConsume((src) => src === cmdApprovalSrc(cmd));
+}
+
+/** W1308: live, signature-verified risk-approval FILES bound to one
+ * candidate src (unexpired). Shared by count (pre-merge gate) and consume
+ * (post-merge burn) — a partial count must never burn what it counted. */
+function liveRiskApprovalFiles(src: string): string[] {
+	if (!existsSync(approvalsDir()) || !existsSync(secretFile())) return [];
+	const secret = readFileSync(secretFile(), "utf8").trim();
+	const now = Date.now() / 1000;
+	const files: string[] = [];
+	for (const f of readdirSync(approvalsDir())) {
+		if (!f.endsWith(".approval")) continue;
+		const content = readFileSync(`${approvalsDir()}/${f}`, "utf8");
+		const s = /^src=(.*)$/m.exec(content)?.[1] ?? "";
+		const ts = Number(/^ts=(.*)$/m.exec(content)?.[1] ?? 0);
+		const sig = /^sig=(.*)$/m.exec(content)?.[1] ?? "";
+		if (now - ts > EXPIRY_S) continue; // expired: not counted, swept later
+		if (sig !== approvalSig(s, ts, secret)) continue;
+		if (s === src) files.push(f);
+	}
+	return files;
+}
+
+/** W1308: count the live risk approvals bound to a candidate WITHOUT
+ * consuming — the ladder merges only when this reaches the tier's demand. */
+export function countRiskApprovals(src: string): number {
+	return liveRiskApprovalFiles(src).length;
+}
+
+/** W1308: consume exactly n risk approvals bound to the candidate — called
+ * by the ladder AFTER a successful guarded merge, so a deferred or failed
+ * candidate keeps its approvals for the retry. Single-use per file, same as
+ * every other flavor. Returns how many were burned. */
+export function consumeRiskApprovals(src: string, n: number): number {
+	let used = 0;
+	for (const f of liveRiskApprovalFiles(src)) {
+		if (used >= n) break;
+		try {
+			unlinkSync(`${approvalsDir()}/${f}`);
+		} catch {}
+		used++;
+	}
+	return used;
 }
 
 /** Find the most likely "source ref" token in an install command — the

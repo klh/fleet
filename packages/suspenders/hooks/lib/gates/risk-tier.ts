@@ -5,8 +5,14 @@
 // gates/auth/secrets/infra/workflows/release tooling/check tools = high 2.
 // The merge ladder defers medium/high with a deduped NEED_DECISION event
 // instead of a silent guarded merge — agent approval never fills a human slot.
-import type { GovernorStore } from "../govdb/govdb-store.ts";
+
 import { emitStoredEvent } from "../../coord/event-publish.ts";
+import {
+	consumeRiskApprovals,
+	countRiskApprovals,
+	riskApprovalSrc,
+} from "../approvals.ts";
+import type { GovernorStore } from "../govdb/govdb-store.ts";
 
 export type RiskTier = "low" | "medium" | "high";
 
@@ -204,3 +210,31 @@ const commitOf = (repo: string, branch: string): string => {
 	if (p.exitCode !== 0) throw new Error(`risk tier: cannot resolve ${branch}`);
 	return p.stdout.toString().trim();
 };
+
+// ---- W1308: the approval-consumption path ------------------------------------
+// The W1303.5 deferral had no exit: approvals>0 deferred every cycle,
+// forever. The exit rides the W250 signed-approval channel (lib/approvals.ts,
+// risk flavor): a human mints `approve-merge`; the ladder counts before
+// merging and burns ONLY after a successful guarded merge — a deferred or
+// failed candidate keeps its approvals for the retry.
+
+/** The candidate's approval binding (project|branch|commit|tier) with its
+ * live count (unconsumed) and its post-merge burn. */
+export function riskApprovalsOf(
+	repo: string,
+	branch: string,
+	risk: RiskClassification,
+	project: string,
+): { src: string; count: () => number; consume: () => number } {
+	const src = riskApprovalSrc(
+		project,
+		branch,
+		commitOf(repo, branch),
+		risk.tier,
+	);
+	return {
+		src,
+		count: () => countRiskApprovals(src),
+		consume: () => consumeRiskApprovals(src, risk.approvals),
+	};
+}
