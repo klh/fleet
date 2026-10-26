@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { Router } from "../src/router.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
 const config = {
@@ -115,3 +115,5 @@ test("a bound account without policy is rejected at startup", () => {
 			new Router({}, { pool, fetchImpl: async () => new Response("never") }),
 	).toThrow("provider_pool");
 });
+
+test.describe({ tag: "@unit" }, () => {});
