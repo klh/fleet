@@ -3,7 +3,9 @@
 # .prefer wins). Parsed by packages/suspenders/scripts/lib/exec-chain.ts
 # (W183.2 chain + W813 semantics). One directive per line, '#' comments.
 # Values are single tokens: quoted or spaced values belong to the W519
-# ROUTING plane (scripts/lib/prefer-routing.ts), never the chain.
+# ROUTING plane (scripts/lib/prefer-routing.ts), never the chain. A quoted
+# must=/prefer= with no chain directive makes dispatch WARN (W1353) and
+# name the executor + model the default ladder actually picked.
 #
 # ── W813 ordering law ────────────────────────────────────────────────────
 # Later directives win per position: a directive on a later line outranks

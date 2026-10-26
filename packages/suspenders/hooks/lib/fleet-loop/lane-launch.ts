@@ -24,6 +24,12 @@ import {
 } from "../../../scripts/lib/dispatch-admission.ts";
 import { deferItem } from "../../../scripts/lib/dispatch-defers.ts";
 import {
+	type ChosenExecutor,
+	chosenExecutor,
+	chosenExecutorLine,
+	laneModelOf,
+} from "../../../scripts/lib/dispatch-executor-note.ts";
+import {
 	composeDispatchBrief,
 	type DispatchPreviewDeps,
 	dryDispatchPreview,
@@ -134,6 +140,8 @@ export type LaneLaunchDeps = {
 	governanceRefusals: string[];
 	launchWaits: string[];
 	seedFallbacks: string[];
+	/** W1353: one row per lane launched/previewed — the run tail's executor table. */
+	chosenExecutors?: ChosenExecutor[];
 	governanceMode: () => "strict" | "solo";
 	routingExtra: () => string[];
 	itemCapsuleGet: (item: string) => Record<string, string> | null;
@@ -177,6 +185,7 @@ export const dispatchLane = async (
 		governanceRefusals,
 		launchWaits,
 		seedFallbacks,
+		chosenExecutors,
 		governanceMode,
 		routingExtra,
 		itemCapsuleGet,
@@ -216,6 +225,9 @@ export const dispatchLane = async (
 		itemCapsuleGet,
 		routingExtra,
 		policyBriefExtra,
+		ROUTING_PREFER,
+		plaid: POSTURE === "plaid",
+		...(chosenExecutors ? { chosenExecutors } : {}),
 		...(role ? { role } : {}),
 	};
 	const sid = resume?.sid ?? sidOf(item, projectIdentity(REPO));
@@ -684,7 +696,7 @@ export const dispatchLane = async (
 			// client-side unrecognized_model before its first wire call
 			const ctx = insertionCtx(
 				env,
-				pick.model ?? "glm-5.3-flash",
+				laneModelOf(pick),
 				pick.bin,
 				tryLoadStack(),
 			);
@@ -823,7 +835,7 @@ export const dispatchLane = async (
 			harness: pick.bin ?? "claude",
 			fleet: FLEET,
 			bin,
-			model: pick.model ?? "glm-5.3-flash",
+			model: laneModelOf(pick),
 			item,
 			sid,
 			wt,
@@ -865,7 +877,7 @@ export const dispatchLane = async (
 		// requests get the pinned model injected at call time (PreToolUse
 		// updatedInput), the one channel no settings-env merge can clobber.
 		const laneSettings = `${FLEET}/lane-settings-${sid}.json`;
-		const m = pick.model ?? "glm-5.3-flash";
+		const m = laneModelOf(pick);
 		const settingsData = laneSettingsData(
 			env,
 			m,
@@ -990,6 +1002,17 @@ export const dispatchLane = async (
 		console.log(
 			`dispatched ${item} → ${sid} (pid ${proc.pid})${capsule ? ` — resumed from capsule (${capVerdict})` : ""}${hubNote}`,
 		);
+		const chosen = chosenExecutor({
+			item,
+			pick,
+			hub: resolvedHub ?? null,
+			route: routeName,
+			routing: ROUTING_PREFER,
+			repo: CALLER_REPO,
+		});
+		chosenExecutors?.push(chosen);
+		console.log(chosenExecutorLine(chosen));
+		if (chosen.warn) console.log(chosen.warn);
 		return `${item}→${sid}(pid ${proc.pid})`;
 	} catch (error) {
 		governanceRefusals.push(item);
