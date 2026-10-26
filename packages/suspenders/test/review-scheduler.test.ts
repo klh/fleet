@@ -272,8 +272,9 @@ function review(
 	item: string,
 	commit: string,
 	verdict: "PASS" | "FAIL" | "ERROR",
+	base = "b".repeat(40),
 ): void {
-	const receipt = { version: 1, commit, base: "b".repeat(40), verdict };
+	const receipt = { version: 1, commit, base, verdict };
 	const payload = { project: "fixture", work: item, verdict };
 	f.db
 		.query(
@@ -322,6 +323,15 @@ test("round cap counts commits whose latest verdict FAILED — ERROR legs and re
 		"requested through Buckle",
 	);
 	expect(decisions(f)).toHaveLength(0);
+});
+test("round cap counts re-reviews of an unchanged commit — each moved base that FAILs is a round", () => {
+	const f = capFixture();
+	for (const b of ["c", "d", "e"])
+		review(f, "W1", "1".repeat(40), "FAIL", b.repeat(40));
+	expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
+		"review round cap reached (3 failed review rounds, cap 3)",
+	);
+	expect(f.launches).toHaveLength(0);
 });
 test("round cap: a review-repair child inherits its parent's rounds; other children and cap 0 do not", () => {
 	const f = capFixture();

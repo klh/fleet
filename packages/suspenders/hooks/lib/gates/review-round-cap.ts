@@ -1,7 +1,10 @@
 // review-round-cap.ts — W1303.7: the standard's review round cap ("after
 // three review-and-fix rounds, the reviewer stops and asks the author to
-// rethink the approach"). A round = one distinct reviewed commit whose latest
-// bound receipt FAILED; transport ERROR legs are never a round. A review-repair
+// rethink the approach"). A round = one failed review pass: a distinct review
+// context (commit, base, instructions) whose latest bound receipt FAILED — so
+// re-reviewing an unchanged commit on a moved base spends a round too (W1075
+// burned eight FAIL passes on one byte-identical commit); transport ERROR legs
+// are never a round. A review-repair
 // child (tagged `repair` AND `review`, the graph's fix-loop shape) continues
 // its parent's loop (lineage walk), so the fix child inherits the rounds
 // already spent; other `repair` work starts its own count. At the cap the
@@ -51,8 +54,8 @@ export function repairLineage(
 	return lineage;
 }
 
-/** Rounds spent across the lineage: distinct commits whose latest bound
- * receipt is FAIL (a later RESOLVED PASS on the same commit un-counts it). */
+/** Rounds spent across the lineage: distinct review contexts whose latest
+ * bound receipt is FAIL (a later PASS in the same context un-counts it). */
 export function failedReviewRounds(
 	db: GovernorStore,
 	project: string,
@@ -74,8 +77,8 @@ export function failedReviewRounds(
 		}
 		if (typeof receipt.commit !== "string" || receipt.verdict === "ERROR")
 			continue;
-		if (!latest.has(receipt.commit))
-			latest.set(receipt.commit, String(receipt.verdict));
+		const context = `${receipt.commit} ${receipt.base} ${JSON.stringify(receipt.instructions ?? {})}`;
+		if (!latest.has(context)) latest.set(context, String(receipt.verdict));
 	}
 	return [...latest.values()].filter((v) => v === "FAIL").length;
 }
