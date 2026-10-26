@@ -118,7 +118,7 @@ export function createApp(deps: AppDeps): App {
 						},
 			);
 		}
-		const aidsRouted = await aidsRoutes(deps, req, path);
+		const aidsRouted = await aidsRoutes(deps, req);
 		if (aidsRouted) return aidsRouted;
 		const pipeRouted = await pipelineRoutes(deps, req, path);
 		if (pipeRouted) return pipeRouted;

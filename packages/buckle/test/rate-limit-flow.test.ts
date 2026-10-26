@@ -265,5 +265,8 @@ test("quota-wall retry-after (W695.6.1): floor capped, 429 + retry-after still r
 	expect(result.kind).toBe("client-error");
 	if (result.kind !== "client-error") throw new Error("rate limit lost");
 	expect(result.response.status).toBe(429);
-	expect(result.response.headers.get("retry-after")).toBe("1670111");
+	// W1303.2: the weeks-long provider retry-after (1670111s) relays
+	// CLAMPED to the 300s emission cap (http-kit clampRetryAfter) — the
+	// W695.6.1 verbatim relay was the sleeps-clients-for-weeks bug.
+	expect(result.response.headers.get("retry-after")).toBe("300");
 });
