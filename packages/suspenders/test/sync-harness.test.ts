@@ -841,3 +841,50 @@ test("SUSPENDERS_SYNC_ALLOW_BRANCH=1 is the explicit lane-testing escape (W1243)
 	);
 	expect(receipt.revision).toBe(base);
 });
+
+// W1468: a kit twin publishes only as the full re-export of its belt/bin
+// artifact — a byte copy is a second module instance (split pending map).
+function commitTwin(f: ReturnType<typeof fixture>, kit: string): void {
+	f.put("packages/belt/bin/spawner.ts", "export const pending = new Map();");
+	f.put("packages/local-llm/spawner.ts", kit);
+	f.git("add", ".");
+	f.git(
+		"-c",
+		"user.name=Fixture",
+		"-c",
+		"user.email=fixture@example.invalid",
+		"commit",
+		"-m",
+		"runtime twin",
+	);
+}
+
+test("a diverged runtime twin is refused before publication (W1468)", async () => {
+	const f = fixture();
+	commitTwin(f, "export const pending = new Map();");
+	await expect(syncHarness(f.ctx)).rejects.toThrow(
+		"Runtime twins diverge from the pinned artifact",
+	);
+	expect(lstatSync(f.ctx.prefix).isDirectory()).toBe(true);
+	expect(readFileSync(join(f.ctx.prefix, "operator.env"), "utf8")).toBe(
+		"private-preserved",
+	);
+});
+
+test("the published kit twin and its belt artifact are one module (W1468)", async () => {
+	const f = fixture();
+	commitTwin(f, '// shared lifecycle\nexport * from "../belt/bin/spawner.ts";');
+	await syncHarness(f.ctx);
+	const same = Bun.spawnSync(
+		[
+			process.execPath,
+			"-e",
+			"const [a, b] = await Promise.all(process.argv.slice(1).map((p) => import(p))); console.log(a.pending === b.pending)",
+			join(f.ctx.prefix, "local-llm/spawner.ts"),
+			join(f.ctx.prefix, ".harness/packages/belt/bin/spawner.ts"),
+		],
+		{ stdout: "pipe", stderr: "pipe" },
+	);
+	expect(same.exitCode).toBe(0);
+	expect(same.stdout.toString().trim()).toBe("true");
+});

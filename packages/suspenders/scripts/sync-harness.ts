@@ -20,6 +20,7 @@ import {
 	payloadChecksum,
 } from "../hooks/lib/harness-manifest.ts";
 import { hubCapabilities, spokeCapabilities } from "../hooks/lib/profile.ts";
+import { twinDrift } from "./belt-bin-overlay.ts";
 import {
 	type PlannedShim,
 	planShims,
@@ -249,6 +250,13 @@ function link(target: string, destination: string): void {
 
 async function validate(stage: string): Promise<string> {
 	const payload = join(stage, ".harness");
+	// W1468: kit twins publish only as the full re-export of their pinned
+	// belt/bin artifact — the runtime home and the harness share one face.
+	const drift = twinDrift(payload);
+	if (drift.length > 0)
+		throw new Error(
+			`Runtime twins diverge from the pinned artifact: ${drift.join("; ")}`,
+		);
 	const suspenders = join(payload, "packages/suspenders");
 	const transpiler = new Bun.Transpiler({ loader: "ts" });
 	for (const file of [
