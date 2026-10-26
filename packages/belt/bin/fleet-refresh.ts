@@ -16,11 +16,11 @@
 // stays a manual registry/service step — printed, not guessed.
 
 import {
-	mkdirSync,
 	existsSync,
+	mkdirSync,
+	openSync,
 	readFileSync,
 	writeFileSync,
-	openSync,
 } from "node:fs";
 
 const HF_HUB = `${process.env.HOME}/.cache/huggingface/hub`;

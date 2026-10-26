@@ -19,6 +19,10 @@ import {
 	renderKnowledgeSuggestion,
 	suggestKnowledge,
 } from "../lib/knowledge/kev-curation.ts";
+import {
+	searchSink,
+	sinkConfigured,
+} from "../lib/knowledge/knowledge-sink-client.ts";
 import { archiveAndPrune, pruneArchiveFiles } from "../lib/retention.ts";
 import { run } from "../lib/run.ts";
 import { reapDeadSubscribes } from "../lib/subscribe-attach.ts";
@@ -330,6 +334,7 @@ export async function cmdFact(rest: string[]): Promise<void> {
 			  }
 			| undefined;
 		console.log(r ? `${r.value} (v${r.version})` : "(unset)");
+		if (!r) await factSinkFallback(rest[1] ?? "");
 		for (const line of renderProvenance(r?.provenance)) console.log(dim(line));
 		const st = parseStamp(r?.confidence_stamp);
 		if (st) console.log(dim(`  ${renderStamp(st)}`));
@@ -883,4 +888,20 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 	console.log(
 		`gc: archived → ${ra} route_audit (>${auditDays}d), ${ae} auth_events, ${ur} usage_rollup (>${usageDays}d), ${aa} admin_audit (365d); ${af} stale archive files; NDJSON in ~/.cache/claude-governor/archive/`,
 	);
+}
+
+/** W1221 — fact get miss → sink fallback. A local facts miss is not the end:
+ *  the hub knowledge sink's anonymous /search recall face answers scrubbed
+ *  cards for the same keyspace. Fail-open: no conf, or any error, renders a
+ *  dim one-liner and leaves the exit path untouched. Bounded by the sink
+ *  timeoutMs — a partitioned sink must not stall the CLI. */
+async function factSinkFallback(key: string): Promise<void> {
+	if (!sinkConfigured()) return;
+	const out = await searchSink(key);
+	if (!out.ok) {
+		console.log(dim(`  sink ${out.url}: ${out.error ?? "unreachable"}`));
+		return;
+	}
+	if (out.answer) console.log(`sink: ${out.answer}`);
+	else console.log(dim(`sink ${out.url}: no cards for "${key}"`));
 }

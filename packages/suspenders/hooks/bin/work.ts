@@ -15,10 +15,11 @@
 
 import type { Database } from "bun:sqlite";
 import { basename } from "node:path";
-import { automaticRecoveryCheck } from "../lib/fleet-loop/automatic-recovery.ts";
-import { budgetFlagClear } from "../lib/usage/budget-flag.ts";
 import { itemCapsuleKey } from "../lib/capsule-fence.ts";
+import { automaticRecoveryCheck } from "../lib/fleet-loop/automatic-recovery.ts";
+import { triggerMergeOnDone } from "../lib/fleet-loop/merge-on-done.ts";
 import { unmergedDeps, unmergedNote } from "../lib/gates/dep-merge-gate.ts";
+import { reproGateRefusal } from "../lib/gates/repro-gate.ts";
 import { assertCaps, projectRootOf, resolveSidOf } from "../lib/govdb/govdb.ts";
 import {
 	recordKnowledgeSuggestion,
@@ -31,7 +32,6 @@ import {
 	parseDoneSpend,
 } from "../lib/lanes/lane-done-spend.ts";
 import { doneEffortStamp } from "../lib/lanes/lane-effort.ts";
-import { publishCompletionBlock } from "../lib/lanes/lane-stop-publisher.ts";
 import {
 	gitBadge,
 	gitObservation,
@@ -43,7 +43,7 @@ import {
 	loadLaneRegistryFile,
 } from "../lib/lanes/lane-registry.ts";
 import { itemAttribution, renderAttribution } from "../lib/lanes/lane-spend.ts";
-import { triggerMergeOnDone } from "../lib/fleet-loop/merge-on-done.ts";
+import { publishCompletionBlock } from "../lib/lanes/lane-stop-publisher.ts";
 import {
 	claimantLanes,
 	matchingClaimantLane,
@@ -58,8 +58,8 @@ import {
 	parseReclaimReason,
 	reclaimGateDecision,
 } from "../lib/lanes/reclaim-sticky.ts";
-import { reproGateRefusal } from "../lib/gates/repro-gate.ts";
 import { attachManagedSubscribe, reapIfIdle } from "../lib/subscribe-attach.ts";
+import { budgetFlagClear } from "../lib/usage/budget-flag.ts";
 import { dieFor, idList, type Parsed, runCli } from "../lib/verb-kit.ts";
 import {
 	applyAllocations,
@@ -88,19 +88,19 @@ import {
 	freeDependents,
 	get,
 	green,
-	insertItem,
 	type Item,
+	insertItem,
 	MUTATING_CMDS,
 	nextRootId,
 	PROJECT,
 	reaches,
+	red,
 	releaseClaim,
 	releaseObserved,
-	red,
 	retireItemWorktree,
 	rollUp,
-	setWorkVerb,
 	setState,
+	setWorkVerb,
 } from "../lib/work/work-graph.ts";
 import { queueCompletionKnowledge } from "../lib/work/work-knowledge.ts";
 import { runMigrateLedger } from "../lib/work/work-migrate-ledger.ts";

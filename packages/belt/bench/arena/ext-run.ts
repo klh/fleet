@@ -22,10 +22,10 @@ options
 
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { readCapped, RES_DIR } from "./core.ts";
+import { RES_DIR, readCapped } from "./core.ts";
 import type { ExtTask } from "./ext-seal.ts";
-import { Refused } from "./runner.ts";
 import { parseArgs } from "./run.ts";
+import { Refused } from "./runner.ts";
 
 export interface ArmSpec {
 	route: string;

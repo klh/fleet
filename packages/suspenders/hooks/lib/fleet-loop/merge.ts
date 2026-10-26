@@ -21,6 +21,11 @@ import {
 	mergeHoldActive,
 } from "../lanes/ladder-lease.ts";
 import { flagIntegratedCode } from "../decomposition.ts";
+import {
+	bankDanglingRef,
+	danglingReferences,
+	unresolvedSpecifiers,
+} from "./dangling-paths.ts";
 import { guardedMerge } from "./merge-guard.ts";
 import {
 	checkReviewReceipt,
@@ -270,6 +275,37 @@ export function createMergeLadder(
 					`QLTY-FIX-LEFT ${b}: ${fix.left} unfixable issue(s) — logged, never blocks`,
 				);
 			if (fix.head) after = fix.head;
+			// W1302.2 (A6): post-merge dangling-path scan — deleted paths still
+			// referenced by live files, and unresolvable specifiers among the
+			// merge's own delta. Fail-open: findings mint repair items + events;
+			// a scan failure never un-merges.
+			try {
+				const changed = sh([
+					"git",
+					"diff",
+					"--name-only",
+					"--diff-filter=ACMR",
+					`${before}..${after}`,
+				])
+					.split("\n")
+					.filter(Boolean);
+				const dangling = [
+					...danglingReferences(REPO, before, after),
+					...unresolvedSpecifiers(REPO, after, changed),
+				];
+				for (const ref of dangling) {
+					log(
+						`DANGLING-PATH ${b}: ${ref.target} referenced by ${ref.refBy}${ref.line ? `:${ref.line}` : ` (${ref.specifier})`}`,
+					);
+					bankDanglingRef(REPO, "fleet-loop", ref, after);
+				}
+				if (dangling.length)
+					log(`DANGLING-PATHS ${b}: ${dangling.length} finding(s) queued`);
+			} catch (error) {
+				log(
+					`DANGLING-SCAN-FAILED ${b}: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			}
 			try {
 				for (const file of flagIntegratedCode({
 					repo: REPO,

@@ -2,10 +2,12 @@
 // decision table (create/reclaim/tombstone/dedupe + human-protect), state
 // handling, fact-set argv, the registry entry and a stubbed end-to-end
 // runner pass proving same-day idempotency (zero duplicate claims).
-import { afterAll, describe, expect, test } from "bun:test";
+
 import { Database } from "bun:sqlite";
+import { afterAll, describe, expect, test } from "bun:test";
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	rmSync,
@@ -15,23 +17,24 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	claimKey,
 	CLAIM_PREFIX,
-	decide,
+	claimKey,
 	DAILY_CLAIM_STAMP,
+	decantCoordBin,
+	decide,
 	distillSessionClaims,
 	distillWorkClaims,
+	type ExistingClaim,
 	factSetArgs,
 	readState,
 	runDaily,
 	writeState,
-	type ExistingClaim,
 } from "../hooks/lib/fleet-loop/decant-daily.ts";
-import type { SessionMetrics } from "../hooks/lib/knowledge/knowledge-sync-policy.ts";
 import {
 	MAINTENANCE_TASKS,
 	missingRunners,
 } from "../hooks/lib/fleet-loop/maintenance.ts";
+import type { SessionMetrics } from "../hooks/lib/knowledge/knowledge-sync-policy.ts";
 
 const tmp = mkdtempSync(join(tmpdir(), "decant-daily-"));
 const NOW = Date.now();
@@ -430,6 +433,12 @@ describe("runner e2e (W1212)", () => {
 		// the retracted key stays inventoried — evidence returning reclaims it
 		expect(Object.keys(readState(o.statePath).inventory).length).toBe(2);
 	});
+});
+
+// W1292: the reorg moved this lib into fleet-loop/ — the coord child spawn
+// path must still land on the shipped hooks/bin/coord.ts.
+test("decantCoordBin resolves the shipped hooks/bin/coord.ts", () => {
+	expect(existsSync(decantCoordBin())).toBe(true);
 });
 
 afterAll(cleanup);

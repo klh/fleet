@@ -102,6 +102,14 @@ test("missingImports parses bun's error line (spec + importer)", () => {
 	expect(hits[0]?.importer).toBe("/abs/dir/t.test.ts");
 });
 
+test("missingImports ignores source context printed with a failing assertion", () => {
+	const context =
+		"129 | const line = `error: " +
+		"Cannot" +
+		" find module '../gates/risk-tier.ts' from '/tmp/merge.ts'`;";
+	expect(missingImports(context)).toEqual([]);
+});
+
 test("diff-added module import failure is explained (W1258 shape, .ts spec)", () => {
 	const line = `error: Cannot find module '${W1258.spec}' from '/var/folders/xx/review-proof-abc/${W1258.importerSuffix}'`;
 	expect(missingImportsExplained(line, W1258.added, W1258.tests)).toBe(true);
@@ -120,6 +128,17 @@ test("absolute-spec dynamic import of a diff-added module is explained", () => {
 test("missing dependency stays environmental", () => {
 	const line = `error: Cannot find package 'left-pad' from '/tmp/review-proof-abc/${W1258.importerSuffix}'`;
 	expect(missingImportsExplained(line, W1258.added, W1258.tests)).toBe(false);
+});
+
+test("a production importer in scratch can explain a branch-added module", () => {
+	const root = "/var/folders/review-proof-abc";
+	const added = ["packages/suspenders/hooks/lib/gates/risk-tier.ts"];
+	const tests = ["packages/suspenders/test/risk-tier.test.ts"];
+	const line = `error: Cannot find module '../gates/risk-tier.ts' from '/private${root}/packages/suspenders/hooks/lib/fleet-loop/merge.ts'`;
+	expect(missingImportsExplained(line, added, tests, [], root)).toBe(true);
+	expect(missingImportsExplained(line, [], tests, [], root)).toBe(false);
+	const outside = line.replace(`/private${root}/`, "/private/var/other/");
+	expect(missingImportsExplained(outside, added, tests, [], root)).toBe(false);
 });
 
 test("reversed declared workspace dependency explains a restored test import", () => {

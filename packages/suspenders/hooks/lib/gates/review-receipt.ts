@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 import { emitStoredEvent } from "../../coord/event-publish.ts";
 import type { GovernorStore } from "../govdb/govdb-store.ts";
+import { wireModelMismatch } from "./wire-model-check.ts";
 
 export interface ReviewContext {
 	repo: string;
@@ -20,6 +21,11 @@ export interface ReviewReceipt {
 	blocking: string[];
 	resolved?: string[];
 	evidence: string;
+	/** W1302.6 (O3): the model class the review requested and the wire model
+	 *  the leg actually served. Absent on legacy receipts; the gate below
+	 *  refuses a PASS whose recorded pair mismatches. */
+	requested_model?: string;
+	wire_model?: string;
 }
 const git = (repo: string, args: string[]): string => {
 	const p = Bun.spawnSync(["git", ...args], {
@@ -155,22 +161,25 @@ const unchangedReviewedEffect = (
 
 // W1243.1.1.1: a B-ID on a non-RESOLVED line is a *mention*, not
 // automatically a live blocker. A standalone `RESOLVED: B<id> <evidence>`
-// line is the reviewer's explicit resolution and subtracts the ID from
-// blocking; an unresolved mention stays blocking (fail-closed) and the
+// line, with an optional list bullet, explicitly subtracts the ID from
+// blocking. An unresolved mention stays blocking (fail-closed), and the
 // prior-blocker guard below still demands the explicit RESOLVED line.
-const RESOLVED_LINE = /^RESOLVED:\s+(B\d+-[a-zA-Z0-9-]+)\s+\S.+$/gm;
+const RESOLVED_LINE =
+	/^[ \t]*(?:[-*][ \t]+)?RESOLVED:\s+(B\d+-[a-zA-Z0-9-]+)\s+\S.+$/;
 const MENTION = /\bB\d+-[a-zA-Z0-9-]+/g;
 
 export const reviewFindingIds = (
 	text: string,
 ): { blocking: string[]; resolved: string[] } => {
-	const resolved = [...text.matchAll(RESOLVED_LINE)].map((m) => m[1]);
+	const lines = text.split("\n");
+	const resolved = lines
+		.map((line) => RESOLVED_LINE.exec(line)?.[1])
+		.filter((id): id is string => id !== undefined);
 	const resolvedSet = new Set(resolved);
 	const blocking = [
 		...new Set(
-			text
-				.split("\n")
-				.filter((line) => !line.startsWith("RESOLVED:"))
+			lines
+				.filter((line) => !RESOLVED_LINE.test(line))
 				.flatMap((line) => line.match(MENTION) ?? []),
 		),
 	].filter((id) => !resolvedSet.has(id));
@@ -379,6 +388,19 @@ export function checkReviewReceipt(
 			return {
 				ok: false,
 				why: "review is stale: base or applicable instructions changed",
+			};
+		// W1302.6 (O3): a PASS whose served wire model belongs to another
+		// model class never authorizes a merge — the W1278.1 receipt was
+		// requested as glm-5.3-flash and served by chatgpt/gpt-6-sol.
+		if (
+			r.verdict === "PASS" &&
+			wireModelMismatch(r.requested_model, r.wire_model)
+		)
+			return {
+				ok: false,
+				why: `review served a mismatched wire model (requested ${String(
+					r.requested_model,
+				)} served ${String(r.wire_model)})`,
 			};
 		if (
 			r.verdict !== "PASS" ||

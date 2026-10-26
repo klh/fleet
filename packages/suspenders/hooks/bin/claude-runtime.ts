@@ -191,18 +191,24 @@ async function run(args: string[]): Promise<number> {
 			}
 			const wasActive = control.active;
 			const previousPauseMode = pauseMode;
+			let refusedResume = false;
 			try {
 				if (kind === "resume_ready") {
 					await verifyingPause;
 					const proof = await claudePauseProof(sid, "RESUME_READY");
+					// W1173 checkpoint fence: a resume is valid only against the
+					// EXACT checkpoint this runtime proved when the canonical PAUSED
+					// landed.
 					if (
 						pauseMode !== "paused" ||
 						!proof ||
 						proof.checkpoint !== pauseCheckpoint
-					)
+					) {
+						refusedResume = true;
 						throw new Error(
 							"resume unsupported until canonical PAUSED checkpoint proof and matching RESUME_READY exist",
 						);
+					}
 				}
 				if (kind === "pause_requested") pauseMode = "checkpointing";
 				await control.steer(
@@ -224,6 +230,26 @@ async function run(args: string[]): Promise<number> {
 				});
 			} catch (error) {
 				pauseMode = previousPauseMode;
+				if (refusedResume) {
+					// W1209: a fence refusal is terminal for THIS control only, not
+					// for the delivery loop. Keep the claim: consumeClaudeWake
+					// blocks re-consumption of the same id while this process
+					// lives, so rearming never busy-retries the refused control.
+					// The next control (a canonical pause, then a fresh resume)
+					// overwrites the pending slot with a higher id and is consumed
+					// normally. No watermark movement — it advances only after a
+					// proven injection (W1035.1); runtime exit releases the claim
+					// so a fresh runtime re-evaluates the refused control against
+					// its own pause state.
+					emit({
+						type: "fleet.claude.delivery",
+						sid,
+						state: "refused",
+						event: text.match(/^Fleet direct event #(\d+)/)?.[1] ?? null,
+						reason: String(error),
+					});
+					continue;
+				}
 				// Interrupt refused/timeout: requeue — the durable event must not
 				// sit behind an advanced watermark.
 				releaseClaudeWake(sid, undefined, "managed");

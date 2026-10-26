@@ -129,6 +129,9 @@ async function runCase(
 	c: Case,
 	stubFetch?: (req: Request) => Response | Promise<Response>,
 	wantExit = 0,
+	// W1302.6: the model class the review REQUESTS (the O3 assertion compares
+	// it to the stub-served wire model; default keeps legacy stubs matching).
+	requestedModel = "glm-w634-model",
 ): Promise<{ id: string; fact: Record<string, unknown> }> {
 	const id = addWork(`w634 proof ${c.name}`);
 	const branch = c.keptChild ? `suspenders/parent-${id}` : `suspenders/${id}`;
@@ -176,7 +179,7 @@ async function runCase(
 			"--llm-url",
 			`http://127.0.0.1:${stub.port}/v1/chat/completions`,
 			"--llm-model",
-			"glm-w634-model",
+			requestedModel,
 		],
 		{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
 	);
@@ -291,6 +294,8 @@ test.describe("W634 review-lane coverage proof (Sinai rule)", () => {
 					],
 				});
 			},
+			0,
+			"glm-5.3-flash",
 		);
 		expect(budgets).toEqual([16000]);
 		expect(requests[0]).toContain(
@@ -455,6 +460,8 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 					],
 					usage: { completion_tokens: 1263 },
 				}),
+			0,
+			"stub-reasoner",
 		);
 		expect(fact.verdict).toBe("PASS");
 		expect(fact.wire_model).toBe("stub-reasoner");
@@ -501,6 +508,45 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 		expect(h).toContain("completion_tokens=1427");
 		expect(h).toContain("content_len=0");
 		expect(h).toContain("reasoning_len=0");
+	});
+
+	test("W1302.6: served wire model of another class downgrades PASS to FAIL", async () => {
+		// O3/W1278.1 replay: requested glm-5.3-flash, served chatgpt/gpt-6-sol
+		const { id, fact } = await runCase(
+			{
+				name: "w1302-6-wire-mismatch",
+				files: { "docs.md": "w1302.6 mismatch case\n" },
+				want: "skipped",
+			},
+			async () =>
+				Response.json({
+					model: "chatgpt/gpt-6-sol",
+					choices: [
+						{
+							finish_reason: "stop",
+							message: { content: "No blocking findings.\nVERDICT: PASS" },
+						},
+					],
+				}),
+			0,
+			"glm-5.3-flash",
+		);
+		expect(fact.verdict).toBe("FAIL");
+		expect(fact.wire_match).toBe("mismatch");
+		expect(String(fact.headline)).toContain("wire-model mismatch");
+		const db = new Database(DB_PATH, { readonly: true });
+		const payload = (
+			db
+				.query(
+					"SELECT payload FROM events WHERE kind = 'work.review' AND json_extract(payload, '$.work') = ?",
+				)
+				.get(id) as { payload: string }
+		).payload;
+		db.close();
+		const receipt = JSON.parse(JSON.parse(payload).receipt as string);
+		expect(receipt.verdict).toBe("FAIL");
+		expect(receipt.requested_model).toBe("glm-5.3-flash");
+		expect(receipt.wire_model).toBe("chatgpt/gpt-6-sol");
 	});
 
 	test("W1236.1: a retry PASS cannot erase the first attempt's blocking findings", async () => {

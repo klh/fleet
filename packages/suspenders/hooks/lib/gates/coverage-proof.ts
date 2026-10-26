@@ -55,7 +55,7 @@ export const addedWorkspaceDependencies = (
 };
 
 const MISSING_LINE =
-	/Cannot find (?:package|module) ['"]([^'"]+)['"](?: from ['"](.+?)['"])?/;
+	/^error: Cannot find (?:package|module) ['"]([^'"]+)['"](?: from ['"](.+?)['"])?/;
 
 export const missingImports = (output: string): MissingImport[] => {
 	const hits: MissingImport[] = [];
@@ -70,6 +70,23 @@ export const missingImports = (output: string): MissingImport[] => {
 // extensionless relative spec must try the file extensions too.
 const RESOLVE_EXTS = ["", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
 
+const scratchRelativeImporter = (
+	importer: string,
+	scratchRoot: string | undefined,
+): string => {
+	if (!scratchRoot || !posix.isAbsolute(importer)) return "";
+	// macOS may print /private/var for a scratch root created under /var.
+	const canonical = (path: string): string =>
+		posix.normalize(path).replace(/^\/private(?=\/var\/)/, "");
+	const relative = posix.relative(canonical(scratchRoot), canonical(importer));
+	return relative &&
+		relative !== ".." &&
+		!relative.startsWith("../") &&
+		!posix.isAbsolute(relative)
+		? relative
+		: "";
+};
+
 // a missing import is explained when its specifier, resolved against the
 // importer's repo-relative directory, lands on a diff-ADDED module. The
 // importer is a restored test (or test helper) file — anchor its repo-relative
@@ -82,6 +99,7 @@ const explainsMissing = (
 	added: Set<string>,
 	testPaths: string[],
 	addedWorkspaceDeps: AddedWorkspaceDependency[],
+	scratchRoot?: string,
 ): boolean => {
 	for (const p of added) {
 		if (spec.endsWith(`/${p}`)) return true;
@@ -98,7 +116,11 @@ const explainsMissing = (
 		)
 	)
 		return true;
-	const dir = hit ? posix.dirname(hit) : "";
+	// The first missing import can come from a production module reached by a
+	// restored test, rather than from the test itself. Anchor that importer to
+	// the scratch root before resolving its relative specifier.
+	const importerPath = scratchRelativeImporter(importer, scratchRoot) || hit;
+	const dir = importerPath ? posix.dirname(importerPath) : "";
 	for (const ext of RESOLVE_EXTS) {
 		const candidate = posix.normalize(
 			dir ? `${dir}/${spec}${ext}` : `${spec}${ext}`,
@@ -116,12 +138,20 @@ export const missingImportsExplained = (
 	added: string[],
 	testPaths: string[],
 	addedWorkspaceDeps: AddedWorkspaceDependency[] = [],
+	scratchRoot?: string,
 ): boolean => {
 	if (missingImports(output).length === 0) return true;
 	const addedSet = new Set(added);
 	for (const { spec, importer } of missingImports(output)) {
 		if (
-			!explainsMissing(spec, importer, addedSet, testPaths, addedWorkspaceDeps)
+			!explainsMissing(
+				spec,
+				importer,
+				addedSet,
+				testPaths,
+				addedWorkspaceDeps,
+				scratchRoot,
+			)
 		)
 			return false;
 	}

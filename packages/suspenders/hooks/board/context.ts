@@ -2,7 +2,7 @@
 // Pieces moved verbatim from bin/fleet-board.ts; exports widened so
 // sibling modules and the route modules import them.
 
-import { openStore, type GovernorStore } from "../lib/govdb/govdb.ts";
+import { type GovernorStore, openStore } from "../lib/govdb/govdb.ts";
 
 export const CLI = (f: string) =>
 	new URL(`../bin/${f}`, import.meta.url).pathname;
@@ -69,6 +69,11 @@ export const LLM_ORIGIN = (() => {
 // and the board polls every second.
 export const BELT_REPO =
 	process.env.BELT_REPO ?? "/Volumes/Sensitive/github/klh/belt";
+// W1294.2: the committed-default routing policy lives in the fleet checkout's
+// buckle package; resolvePolicy's belt-repo candidates died with the cutover
+export const BUCKLE_REPO = process.env.BUCKLE_REPO
+	? new URL(`${process.env.BUCKLE_REPO}/`, import.meta.url).pathname
+	: new URL("../../../buckle/", import.meta.url).pathname;
 export const WORK_CLI = CLI("work.ts");
 export const COORD_CLI = CLI("coord.ts");
 

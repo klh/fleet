@@ -5,8 +5,8 @@
 // policy missing, registry empty: the cards' degraded states are the
 // fixture). Screenshots land in /tmp/w66911-shots.
 import { mkdirSync } from "node:fs";
-import { expect, test, type Page } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
+import { expect, type Page, test } from "@playwright/test";
+import { type Board, startBoard } from "./harness";
 
 test.describe.configure({ mode: "serial" });
 
@@ -43,9 +43,9 @@ function watch(page: Page): { clean(): void } {
 	};
 }
 
-test("belt console: policy + upstream-pool cards upgrade and render", async ({
-	page,
-}) => {
+test("belt console: policy + upstream-pool cards upgrade and render", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const B = mustBoard();
 	const look = watch(page);
 	await page.goto(`${B.BASE}/console/buckle`);
@@ -76,9 +76,9 @@ test("belt console: policy + upstream-pool cards upgrade and render", async ({
 	look.clean();
 });
 
-test("local page: registry card upgrades; settings: knobs + audit cards", async ({
-	page,
-}) => {
+test("local page: registry card upgrades; settings: knobs + audit cards", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const B = mustBoard();
 	const look = watch(page);
 	await page.goto(`${B.BASE}/console/local`);
@@ -104,10 +104,16 @@ test("local page: registry card upgrades; settings: knobs + audit cards", async 
 	await page.screenshot({ path: `${SHOTS}/local-cards.png`, fullPage: true });
 
 	await page.goto(`${B.BASE}/console/settings`);
-	const knobs = page.locator("klh-knobs-card");
-	await expect(knobs).toBeVisible();
-	await expect(knobs.getByText(/suspenders-board\.json · /)).toBeVisible();
-	await expect(knobs.getByText(/STATUS_REFRESH_S/)).toBeVisible();
+	// W1294.2.1: settings moved to grouped native forms (867f4e09) — the
+	// board-knobs panel renders suspenders-board.json fields directly and the
+	// W174 audit card rides beside it; the old klh-knobs-card host is gone.
+	const boardPanel = page.locator("section.panel", {
+		hasText: "Board and agents",
+	});
+	await expect(boardPanel).toBeVisible();
+	await expect(
+		boardPanel.getByRole("spinbutton", { name: "Status refresh (s)" }),
+	).toBeVisible();
 	const audit = page.locator("klh-audit-list");
 	await expect(audit).toBeVisible();
 	await expect(audit.getByText(/no admin actions recorded yet/)).toBeVisible();

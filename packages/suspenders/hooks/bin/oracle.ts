@@ -20,6 +20,9 @@
 //   ORACLE_ROUTE_KEY   optional bearer for the pinned leg
 //   ORACLE_ROUTE_MODEL optional model id (else GET /models probe, else "local")
 // exit: 0 answer · 1 usage/input · 2 leg failure
+
+import { REVIEW_FRAME } from "../lib/oracle-frame.ts";
+import type { PanelRow } from "../lib/oracle-legs.ts";
 import {
 	buildPanelRows,
 	cloudLeg,
@@ -27,10 +30,8 @@ import {
 	PANEL_FRAME,
 	pinnedLeg,
 } from "../lib/oracle-legs.ts";
-import type { PanelRow } from "../lib/oracle-legs.ts";
-import { REVIEW_FRAME } from "../lib/oracle-frame.ts";
-import { defineVerb, parseVerb } from "../lib/verb-kit.ts";
 import type { VerbSpec } from "../lib/verb-kit.ts";
+import { defineVerb, parseVerb } from "../lib/verb-kit.ts";
 
 const argv = process.argv.slice(2);
 

@@ -4,9 +4,10 @@
 // KLH_OVERLAY_MODULE fixture provider): the tab appears, the zone renders
 // the seven panels with real slice data, a failed slice renders its
 // honest empty-state.
-import { expect, test } from "@playwright/test";
+
 import { join } from "node:path";
-import { startBoard, type Board } from "./harness";
+import { expect, test } from "@playwright/test";
+import { type Board, startBoard } from "./harness";
 
 test.describe.configure({ mode: "serial" });
 
@@ -37,7 +38,9 @@ function mustEnt(): Board {
 	return entBoard;
 }
 
-test("core SKU: seam routes 501, no tab, no zone", async ({ request }) => {
+test("core SKU: seam routes 501, no tab, no zone", { tag: "@ui" }, async ({
+	request,
+}) => {
 	const r = await request.get(`${mustBoard().BASE}/api/entitlements`);
 	expect(r.status()).toBe(501);
 	const j = (await r.json()) as { ok: boolean; code: string };
@@ -47,29 +50,28 @@ test("core SKU: seam routes 501, no tab, no zone", async ({ request }) => {
 	expect(e.status()).toBe(501);
 });
 
-test("core SKU: page hides the zone and coerces the deep-link", async ({
-	page,
-}) => {
+test("core SKU: page hides the zone and coerces the deep-link", {
+	tag: "@ui",
+}, async ({ page }) => {
 	await page.goto(`${mustBoard().BASE}/`);
 	const tabs = page.locator("klh-board-tabs");
 	await expect(tabs).toBeVisible();
-	// the six core tabs only — the enterprise tab never appears
-	await expect(tabs.getByRole("button")).toHaveCount(6);
+	// the seven core tabs only (W1294.2: Usage joined) — no enterprise tab
+	await expect(tabs.getByRole("button")).toHaveCount(7);
 	// the section exists but stays hidden
 	await expect(page.locator("#tab-enterprise")).toBeHidden();
 
 	// a #enterprise deep-link on a core board lands on Decisions
 	await page.goto(`${mustBoard().BASE}/#enterprise`);
-	await expect(
-		page.locator("klh-board-tabs button[aria-current]"),
-	).toHaveText("Decisions");
+	await expect(page.locator("klh-board-tabs button[aria-current]")).toHaveText(
+		"Decisions",
+	);
 	await expect(page.locator("#tab-enterprise")).toBeHidden();
 });
 
-test("entitled: tab appears, zone renders the seven panels", async ({
-	page,
-}, testInfo) => {
-	testInfo.setTimeout(40_000);
+test("entitled: tab appears, zone renders the seven panels", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const errors: string[] = [];
 	page.on("pageerror", (e) => errors.push(String(e)));
 	await page.goto(`${mustEnt().BASE}/`);
@@ -110,7 +112,9 @@ test("entitled: tab appears, zone renders the seven panels", async ({
 	await expect(
 		identity.locator(".chip", { hasText: "contractor" }),
 	).toBeVisible();
-	await expect(identity.locator(".chip", { hasText: "enforced" })).toBeVisible();
+	await expect(
+		identity.locator(".chip", { hasText: "enforced" }),
+	).toBeVisible();
 
 	// usage anomaly flags
 	await expect(
@@ -127,6 +131,6 @@ test("entitled: tab appears, zone renders the seven panels", async ({
 	// the render-and-look artifact (not committed — lane evidence)
 	await page
 		.locator("#tab-enterprise")
-		.screenshot({ path: `/tmp/w7751-zone-${testInfo.retry}.png` })
+		.screenshot({ path: "/tmp/w7751-zone.png" })
 		.catch(() => {});
 });

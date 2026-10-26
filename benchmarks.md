@@ -952,3 +952,71 @@ model emitted zero text blocks); the counted row is the budget-2048
 re-run. n=12 = smoke-class by the fleet quality law — the pin decision
 rides the exec/p95 margins; match-rate miss modes recorded (state-
 filter + provenance-field nuance) in the bench README.
+
+# W1266.1 - Coding Plan capacity ramp: ~9-active provider ceiling, gate pacing is the local bottleneck
+
+Live Z.ai Coding Plan ramps (2026-10-24 quiet window, sustained long-work
+prompts, marker-verified streams): direct-anthropic accepted
+8/8 (L8, 2s), 8/16 (L16, 2s), 9/16 (L16, 5s), 9/16 (L16, 4K tokens),
+24/40 (L40, 5s), 30/50 (L50, 5s) — simultaneous PRODUCING streams peaked at
+8-9 in every level, and every excess request took provider HTTP429 code 1302.
+Spacing (2s→5s) and max_tokens (16384→4096) did not raise the active peak, so
+the limit is active-generation admission, not a request-rate bucket or a
+token reservation. A spaced SHORT control passed 16/16 with zero 429s, so
+long-running generations specifically trigger the pressure. Choose-by: 50-way
+productive concurrency is NOT available on this account today; the practical
+lane ceiling is ~8-9 concurrent long-work generations (24-30 accepted per
+50-shot cohort as finished jobs replenish admission).
+
+The matched Buckle hop is locally SLOWER than direct at pressure: buckle L40
+(5s, 4K) accepted 2/40 with zero terminals in 372 s while direct L40 accepted
+24/40 in 294 s — live slots showed the spoke pacing zai-coding-account at
+adaptiveGapMs 24.4 s with 28 queued and active=1 despite adaptiveConcurrency
+50, i.e. the gate's rate feedback serialized its own queue. Runner fixes are
+in packages/buckle (endpoint prefix retention, hop /v1 paths, full-tail
+terminal scan, key_id mint parsing with fail-closed revoke, per-hop admin
+credentials); runner-only regression: bun test
+packages/buckle/test/capacity-ramp.test.ts (4 pass). Evidence JSONL:
+/tmp/w1266.1-capacity-long.jsonl, /tmp/w1266.1-capacity-paced.jsonl,
+/tmp/w1266.1-l16-5s-16k.jsonl, /tmp/w1266.1-l16-2s-4k.jsonl,
+/tmp/w1266.1-l40-5s-4k-direct.jsonl, /tmp/w1266.1-l50-5s-4k-direct.jsonl,
+/tmp/w1266.1-l40-l50-5s-4k-buckle.jsonl, /tmp/w1266.1-l16-5s-short-control.jsonl,
+/tmp/w1266.1-l8-path-smokes.jsonl.
+
+## Provider admission gap ceiling — bounded pace multiplier vs interval pin (W1273, 2026-10-24; unit-scaled fixture A/B; production ramp owned by W1266.1)
+
+Decision the row supports: cap the Buckle provider-admission escalation
+ceiling at a bounded multiplier of the effective pace, never the admission
+wait, and never the interval contract alone. Incident (live Z.ai spoke): the
+old ceiling `min(30s, queueWaitMs/4)` let 1302 pressure epochs double the
+20ms base pace to adaptiveGapMs 24435 — 1 of 50 slots active, 51 refusals —
+needing ~139 paced successes (hours) to recover. Fixture A/B at 1:100 scale
+(packages/buckle/test/provider-gap-escalation-bound.test.ts): an
+interval-pinned ceiling `max(intervalMs, 2x baseGap)` starved
+refusal-boundary discovery — 119 rejections over 120 accepted, because the
+provider needed pacing above the contract pace — against <30 rejections for
+the landed ceiling `min(30s, queueWaitMs/4, 16x baseGap)` (4→64ms ladder,
+recovery ≤62 successes). 429 provenance laws unchanged; deployment and the
+matched live ramp belong to W1266.1.
+
+## Resilience kit × AIMD admission — no double-retry stacking (W1303.3, 2026-10-25; unit fixture A/B)
+
+Decision the row supports: compose the new resilience client kit
+(packages/buckle/src/resilience.ts) with the EXISTING W1078
+ProviderAdmissionCore instead of replacing it — the kit must never add its
+own wait on top of the pool's notBefore. Fixture
+(packages/buckle/test/resilience.test.ts, "no double-retry stacking with
+the existing AIMD path"): a real admission core (intervalMs 20,
+intervalCap 2, AIMD recovery) rides the kit's `admit` gate under 429
+pressure; the kit-only leg feeds a 30 s provider Retry-After.
+
+| Arm | waits observed | rate-limited attempts |
+| --- | --- | --- |
+| kit + admission gate (AIMD on) | 2, all pool-origin (gate), kit backoff 0 | 1 |
+| kit alone | 1, Retry-After clamped 30000→100 ms (cap) | 1 |
+
+The layers never sum: a positive gate wait supersedes kit backoff (one
+pacing authority per wait — the pool's notBefore already embeds Retry-After
+via lease feedback); kit-only Retry-After is clamped by retryAfterCapMs.
+Unit fixture, scheduler-timed — retain the wait-origin split, not the
+milliseconds.

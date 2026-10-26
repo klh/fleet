@@ -76,6 +76,33 @@ proj.ingest([
 ]);
 proj.close();
 
+// W1294.2.1: spawned stub belt observation feed on a scratch port — the
+// board child's buckle read proxy + belt-asset probe both point here via
+// SUSPENDERS_BELT_READ_ORIGIN (in-process serve can't answer a spawned
+// child's loopback on this macOS). Serves the freshness chunk
+// /dashboard-topology-hubs.js 200 (belt-up posture) and 404s the rest.
+const BELT_PORT = 20000 + Math.floor(Math.random() * 20000);
+const beltProc = Bun.spawn(
+	[
+		"bun",
+		"-e",
+		`Bun.serve({ port: ${BELT_PORT}, fetch: (req) => { const p = new URL(req.url).pathname; if (p === "/dashboard-topology-hubs.js") return new Response("export const hubsFresh = () => true;", { headers: { "content-type": "text/javascript" } }); return new Response("not found", { status: 404 }); } }); console.log("up"); setInterval(() => {}, 1e6);`,
+	],
+	{ stdout: "pipe", stderr: "pipe" },
+);
+// readiness: poll the stub's freshness chunk until it answers
+for (let i = 0; ; i++) {
+	try {
+		if (
+			(await fetch(`http://127.0.0.1:${BELT_PORT}/dashboard-topology-hubs.js`))
+				.ok
+		)
+			break;
+	} catch {}
+	if (i > 100) throw new Error("stub belt feed did not start");
+	await new Promise((r) => setTimeout(r, 100));
+}
+
 const env = {
 	...process.env,
 	HOME,
@@ -85,6 +112,9 @@ const env = {
 	KLH_LOCAL_REGISTRY: join(HOME, "registry.json"),
 	SUSPENDERS_LLM_URL: "http://127.0.0.1:1/v1/chat/completions",
 	SUSPENDERS_BELT_URL: "http://127.0.0.1:1",
+	// W1294.2.1: the belt read origin pins to the stub asset feed above —
+	// deterministic belt-up posture, no live :7791 fan-out from tests
+	SUSPENDERS_BELT_READ_ORIGIN: `http://127.0.0.1:${BELT_PORT}`,
 	SUSPENDERS_MDNS: "0",
 	// W360 stub probes — deterministic tiles, no live loopback fan-out
 	SUSPENDERS_PROBE_DEPS: "stub",
@@ -117,6 +147,8 @@ await waitUp();
 afterAll(async () => {
 	proc.kill();
 	await proc.exited;
+	beltProc.kill();
+	await beltProc.exited;
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO, { recursive: true, force: true });
 });
@@ -157,7 +189,10 @@ describe("/api/console/network", () => {
 			edges: Array<{ from: string; to: string; evidence: string }>;
 		};
 		expect(topology.ok).toBe(true);
-		expect(topology.schemaVersion).toBe(1);
+		// W858.7.32 (056dbce4) bumped the wire to v2 (lane flows + measured
+		// edges); the belt clients accept [1,2] — pin the CURRENT wire, not a
+		// stale literal.
+		expect(topology.schemaVersion).toBe(2);
 		expect(topology.totals.requests).toBe(1);
 		expect(topology.edges).toMatchObject([
 			{
@@ -216,7 +251,10 @@ describe("/console/buckle + /api/lane-routes", () => {
 		expect(html).toContain("<belt-model-inventory>");
 		expect(html).not.toContain("<belt-trends>");
 		expect(html).toContain('id="modelaccess"');
+		// W1294.2.1: the stub belt feed answers the freshness chunk, so the
+		// page emits the full topology + model-access tag set
 		expect(html).toContain("/console/buckle-assets/dashboard-model-access.js");
+		expect(html).toContain("/console/buckle-assets/dashboard-topology-hubs.js");
 		expect(html).not.toContain("<h2>belt API</h2>");
 		expect(html).toContain("vendor/klh-console-cards.js");
 	});

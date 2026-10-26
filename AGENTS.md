@@ -81,7 +81,10 @@ GitHub push — W422.9/W422.1).
 - Coordination plane: coord CLI + WS subscribe; broadcast landed changes
   that affect lanes (what/who/exact command).
 - Per-package AGENTS.md files are each subtree's canonical docs — they are
-  the package-level truth; this root file is the stack-wide law.
+  the package-level truth; this root file is the stack-wide law. Divergences
+  from the owner TypeScript PaaS standard are dispositioned per row in
+  docs/standard-dispositions.md (W1301) — a deviation without a tracked
+  disposition is a defect.
 
 ## Supervisor reporting (W892, installed face W899/W906)
 
@@ -211,6 +214,32 @@ Buckle gate (LLM auth — keys are the front door):
   `POST /v1/admin/keys/verify` · `POST /v1/admin/keys/<id>/revoke`
 - per-lane keys: name=sid, scope `buckle:proxy:WRITE_`; test keys get
   revoked, never left behind
+
+Knowledge sink (the fleet's queryable memory — W1217 sink · W1218 faces ·
+W1221 harness wiring):
+
+- hub service: `hooks/bin/knowledge-api.ts` (compose `knowledge-sink`,
+  default :7802, health sidecar :7803) — enabled per-hub via the stack.json
+  profile `knowledge: {port, health_port}`; serves the hub governor.db
+  knowledge replica
+- faces (all on the sink origin, placeholder `<hub>` = the machine conf's
+  hub host):
+  - `POST https://<hub>/search {"query"}` — anonymous recall, scrubbed
+    cards (no source_ref/source_hash); host guard = loopback + `*.local`
+  - `POST https://<hub>/knowledge/query {"question"}` — NL→SQL via the
+    pinned SQL LLM; bksk_ key, scope `buckle:knowledge:QUERY_`
+  - `POST https://<hub>/knowledge/sql {"sql"}` — direct SELECT; scope
+    `buckle:knowledge:READ_`
+- conf knobs (machine conf only — repos carry placeholders):
+  `SUSPENDERS_KNOWLEDGE_SINK_URL` · `SUSPENDERS_KNOWLEDGE_KEY` or
+  `SUSPENDERS_KNOWLEDGE_KEY_FILE` (0600 file preferred) ·
+  `SUSPENDERS_KNOWLEDGE_SINK_TIMEOUT_MS` (default 2000)
+- harness wiring: `coord fact get` falls through to the sink `/search` face
+  on a local miss (hooks/coord/facts.ts); session-start renders a
+  `KNOWLEDGE SINK` pointer when the conf resolves; the belt tier manifest
+  carries the faces (registry-emit.ts `knowledge` block). ONE client for
+  all of it: hooks/lib/knowledge/knowledge-sink-client.ts. Example:
+  `curl -s https://<hub>/knowledge/query -X POST -H 'content-type: application/json' -H "authorization: Bearer $SUSPENDERS_KNOWLEDGE_KEY" -d '{"question":"which launchd label supervises the MLX swarm?"}'`
 
 Machines and processes:
 

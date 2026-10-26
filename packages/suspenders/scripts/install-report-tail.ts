@@ -5,6 +5,11 @@
 // section. Never a re-implementation of the table here.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import {
+	latestTag,
+	machineVersionHint,
+	spawnGitRunner,
+} from "./lib/release-version.ts";
 
 export interface ReportTailCtx {
 	prefix: string;
@@ -22,7 +27,11 @@ export interface ReportTailResult {
 }
 
 /** spawn injection point (tests pass a fake runner). */
-export type TailRunner = (argv: string[]) => { code: number; out: string; err: string };
+export type TailRunner = (argv: string[]) => {
+	code: number;
+	out: string;
+	err: string;
+};
 
 /** The real runner: capture stdout+stderr, no inherit. */
 export const processRunner: TailRunner = (argv) => {
@@ -52,4 +61,13 @@ export function reportTail(
 		out: r.out.trim(),
 		err: r.err.trim(),
 	};
+}
+
+/** W1303.6: the one-version evidence line for the install tail — the
+ *  machine stack.json pin rendered against the repo's latest release tag.
+ *  Render-only: the 0600 conf is operator-owned, nothing is written. */
+export function stackVersionTail(repo: string): string {
+	return machineVersionHint(
+		latestTag(spawnGitRunner(repo))?.slice(1) ?? undefined,
+	).line;
 }

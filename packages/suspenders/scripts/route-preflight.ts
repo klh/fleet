@@ -111,6 +111,12 @@ export function routeInputs(source: RoutePreflightSources): RouteLadderInputs {
 			origins: [hubOrigin(name, hub)],
 			pool: activePool(poolFrom(hub.upstreams)),
 			policy: {},
+			// W1094.1 host boundary (re-landed): a deploy.ssh hub runs on
+			// another machine — its container loopback is NOT this host's,
+			// so the Mac specialist registry terminates only co-hosted hubs
+			// and its machine-local deployments need their own declared
+			// terminal to count as a mapped leaf.
+			remoteHost: Boolean(string(record(hub.deploy).ssh)),
 		});
 		if (hub.belt_model !== undefined) {
 			const model = record(hub.belt_model);
@@ -163,6 +169,7 @@ export function routeInputs(source: RoutePreflightSources): RouteLadderInputs {
 			...beltModels,
 		],
 		terminalOrigins: [...specialistOrigins, ...(terminals as string[])],
+		declaredTerminals: terminals as string[],
 		requestDeadlineMs: source.deadlineMs,
 	};
 }
