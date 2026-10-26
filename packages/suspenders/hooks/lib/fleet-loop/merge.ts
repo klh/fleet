@@ -36,7 +36,7 @@ import type { LoopDeps } from "./runtime.ts";
 import { scheduleReview } from "../gates/review-scheduler.ts";
 
 export type MergeLadder = {
-	mergeOne: (b: string) => void;
+	mergeOne: (b: string) => undefined | "missing";
 	mergeFail: (b: string, tail: string) => void;
 	mergeRunnerAlive: () => number | null;
 	healCrashedMerge: () => void;
@@ -105,9 +105,12 @@ export function createMergeLadder(
 	// the board's one-click ship (`ship --branch <b>` runs it foreground).
 	// Fail-isolated: a failed ladder aborts the merge, leaves the branch for
 	// inspection, and counts toward the 3-strike park like every other merge.
-	function mergeOne(b: string): void {
+	function mergeOne(b: string): undefined | "missing" {
 		const n = ahead(b);
-		if (n < 0) return; // vanished between sweep and ladder (park-rename race)
+		if (n < 0) {
+			log(`MERGE-DEFER ${b} — branch ref missing (parked or deleted)`);
+			return "missing";
+		}
 		// W1072.2 fail-closed gates BEFORE retirement AND the ladder: an
 		// operator merge hold defers BOTH (a merged branch's worktree/branch
 		// stays put while the operator integrates provenance); Git in-progress

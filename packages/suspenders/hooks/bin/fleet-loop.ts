@@ -355,7 +355,10 @@ if (MODE === "ship") {
 			);
 		else healCrashedMerge();
 	}
-	mergeOne(b);
+	if (mergeOne(b) === "missing") {
+		console.error(`ship refused: branch ref missing: ${b}`);
+		process.exit(1);
+	}
 	process.exit(0);
 }
 
