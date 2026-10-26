@@ -22,6 +22,15 @@ export type IngressProxy = (
 	providerPin?: string,
 ) => Promise<Response>;
 
+/** Local (non-proxied) named surfaces — W1265.2: GET/HEAD /v1/models on a
+ *  named base answers from the pool face with the account-discovery filter,
+ *  never a proxy hop. */
+export type IngressLocal = (
+	req: Request,
+	lane: string,
+	deps: AppDeps,
+) => Response | Promise<Response>;
+
 /** Dispatch one parsed named-base request: the guard answers locally first
  *  (typed 4xx, zero outbound), then the standard proxy rides the wire with
  *  the lane slug and the provider pin. */
@@ -31,9 +40,16 @@ export async function handleNamedIngress(
 	method: string,
 	deps: AppDeps,
 	proxy: IngressProxy,
+	local?: IngressLocal,
 ): Promise<Response> {
 	const guard = namedIngressGuard(named, method);
 	if (guard !== null) return guard;
+	if (
+		local !== undefined &&
+		named.rest === "/v1/models" &&
+		(method === "GET" || method === "HEAD")
+	)
+		return local(req, named.lane, deps);
 	return proxy(
 		req,
 		named.wire,

@@ -21,6 +21,7 @@ import {
 	type AcctContext,
 	type AccountPolicyDoc,
 	applyAccountPolicy,
+	preferAfterScope,
 	REPO_CLAIM_HEADER,
 	scopeSelection,
 } from "./account-policy.ts";
@@ -76,6 +77,7 @@ import {
 	readIngressJson,
 } from "./ingress-body.ts";
 import { handleNamedIngress, namedIngressOf } from "./ingress-routes.ts";
+import { modelsFace, modelsRoute } from "./models-route.ts";
 import { keyIdFromToken, type Ledger, tokenFromHeaders } from "./ledger.ts";
 import type {
 	ObservationData,
@@ -593,7 +595,7 @@ async function proxy(
 	const scoped = scopeSelection(sel.sel, ctx.acct);
 	if (!scoped.ok)
 		return deny(deps, ctx, scoped.status, scoped.why, scoped.code, "errored");
-	ctx.sel = scoped.sel;
+	ctx.sel = preferAfterScope(scoped.sel, ctx.hint);
 	return runExecute(req, ctx, path, body, deps);
 }
 
@@ -1371,7 +1373,7 @@ export function createApp(deps: AppDeps): App {
 		// (typed local 4xx, zero outbound), legacy bare /v1 paths verbatim.
 		const named = namedIngressOf(path);
 		if (named !== null)
-			return handleNamedIngress(named, req, method, deps, proxy);
+			return handleNamedIngress(named, req, method, deps, proxy, modelsFace);
 		const laneRoute = lanePrefixOf(path);
 		if (laneRoute.lane !== "") {
 			const inner = laneRoute.path;
@@ -1383,7 +1385,8 @@ export function createApp(deps: AppDeps): App {
 				inner === "/v1/models";
 			if (method === "OPTIONS" && ingress)
 				return options204(allowOf(inner) ?? "OPTIONS");
-			if (method === "GET" && inner === "/v1/models") return models(deps);
+			if (method === "GET" && inner === "/v1/models")
+				return modelsRoute(deps, req, laneRoute.lane);
 			if (method === "POST" && inner === "/v1/chat/completions")
 				return proxy(req, "openai", inner, deps, laneRoute.lane);
 			if (method === "POST" && inner === "/v1/responses")
@@ -1399,7 +1402,8 @@ export function createApp(deps: AppDeps): App {
 				why: `no route: ${method} ${path}`,
 			});
 		}
-		if (method === "GET" && path === "/v1/models") return models(deps);
+		if (method === "GET" && path === "/v1/models")
+			return modelsRoute(deps, req, null);
 		if ((method === "GET" || method === "HEAD") && path === "/health") {
 			// Compatibility liveness only; outside-process probes own health.
 			return new Response(method === "HEAD" ? null : "ok", {
@@ -1487,12 +1491,4 @@ export function createApp(deps: AppDeps): App {
 		});
 	}
 	return { fetch };
-}
-
-function models(deps: AppDeps): Response {
-	const data = deps.pool
-		.groups()
-		.filter((id) => deps.pool.deployments(id).length > 0)
-		.map((id) => ({ id, object: "model", owned_by: "buckle" }));
-	return Response.json({ object: "list", data });
 }

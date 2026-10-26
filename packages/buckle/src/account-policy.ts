@@ -26,6 +26,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { YAML } from "bun";
+import { hintFit, hintTotal, type RouteHint } from "./hints.ts";
 import type { CandidateRow } from "./candidates.ts";
 import type { RouteSelection } from "./decide.ts";
 
@@ -391,6 +392,75 @@ function pinMatches(
 	pin: string,
 ): boolean {
 	return adapter === pin || globMatch(`*${pin}*`, host, true);
+}
+
+/** W1265.2 discovery binding (GET/HEAD /v1/models): resolveClass's key→class
+ *  + lane-slug + verified-claim contract minus the group entitlement (a
+ *  listing is not an inference request); groups = the caller's listing
+ *  filter (null = unrestricted). Inert doc or root = unfiltered. */
+export function discoveryFilter(
+	doc: AccountPolicyDoc | null | undefined,
+	input: {
+		kind?: string | null;
+		keyName: string | null;
+		claimRepo: string | null;
+		lane: string | null;
+	},
+): { ok: true; groups: string[] | null } | { ok: false; status: 403; code: string; why: string } {
+	if (doc === null || doc === undefined) return { ok: true, groups: null };
+	if (input.kind === "root") return { ok: true, groups: null };
+	const key = input.keyName;
+	if (key === null)
+		return { ok: false, status: 403, code: "buckle.repo_unknown", why: "key (unnamed) binds no repo class — refused before listing" };
+	const hit = classFor(doc, key);
+	if (hit === null)
+		return { ok: false, status: 403, code: "buckle.repo_unknown", why: `key '${key.slice(0, 48)}' binds no repo class — refused before listing` };
+	if (input.lane !== null && input.lane !== "" && input.lane !== key)
+		return { ok: false, status: 403, code: "buckle.lane_bind_mismatch", why: `lane slug '${input.lane.slice(0, 64)}' does not match the authenticated session key — refused before listing` };
+	if (
+		hit.cls.general !== true &&
+		(hit.cls.repos ?? []).length > 0 &&
+		input.claimRepo === null
+	)
+		return { ok: false, status: 403, code: "buckle.repo_unverified", why: `class '${hit.cls.id}' is repo-bound — a verified x-klh-repo claim is required before listing` };
+	if (
+		input.claimRepo !== null &&
+		!(hit.cls.repos ?? []).some((p) => globMatch(p, input.claimRepo))
+	)
+		return { ok: false, status: 403, code: "buckle.repo_claim_mismatch", why: "x-klh-repo claim does not match the key's bound repo class — refused (spoofed or stale claim)" };
+	return { ok: true, groups: hit.cls.groups ?? null };
+}
+
+/** W1265.2 prefer precedence: the soft ranking may only ever NAME a
+ *  permitted candidate. scopeSelection confines ordered to the entitled
+ *  domain (stable order — the ranking survives) but the decide-time audit
+ *  (head/fit/decision/why) describes the UNSCOPED head, which the boundary
+ *  may have filtered — refresh it so the audit never advertises a forbidden
+ *  candidate. must= needs no pass: its ordered holds full fits only, so the
+ *  scope filter preserves must semantics (unsatisfiable = scoped-to-zero
+ *  refusal, zero outbound). */
+export function preferAfterScope(sel: RouteSelection, hint: RouteHint | null): RouteSelection {
+	if (sel.accountScoped !== true || hint === null || sel.verb !== "prefer")
+		return sel;
+	const head = sel.ordered[0];
+	if (head === undefined) return sel;
+	const total = hintTotal(hint);
+	const fit = hintFit(
+		{
+			kind: head.kind,
+			machine: head.host,
+			model: head.model,
+			tags: head.capability_text,
+		},
+		hint,
+	);
+	return {
+		...sel,
+		head,
+		fit,
+		decision: fit < total ? "degraded" : sel.decision,
+		why: `hint (account-scoped): ${head.candidate_id} (${head.kind}) fit ${String(fit)}/${String(total)} — ranked within the entitled domain only`,
+	};
 }
 
 /** The W1265.2 mandatory default: absent operator config still gives a

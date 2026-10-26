@@ -1,0 +1,4 @@
+# bun test-only preload (bun run is unaffected): pins the account-policy
+# chain to inert for server-spawning suites - see test/policy-inert-preload.ts.
+[test]
+preload = ["./test/policy-inert-preload.ts"]
