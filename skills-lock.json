@@ -1,10 +1,65 @@
 {
 	"version": 1,
 	"skills": {
+		"build": {
+			"source": "./skills/build",
+			"sourceType": "local",
+			"computedHash": "7289218f512812a1b9e267193e1c1137f8f4b25bdb62a4fcfdfce7e0158a9505"
+		},
+		"cloud": {
+			"source": "./skills/cloud",
+			"sourceType": "local",
+			"computedHash": "c077fd94793172cc223e836394113b1ba780a4270ce0942f0f06fa595e1c93d8"
+		},
 		"fleet": {
 			"source": "./skills/fleet",
 			"sourceType": "local",
-			"computedHash": "4a56f0c8004b44410dafb9069d9b943d14a9e651670adfc1ea7e3e913d4099a7"
+			"computedHash": "69d774b04301e7c291991d7ac3f4d63415b9cafa0d21e49a7112225d3601180e"
+		},
+		"fleet-install": {
+			"source": "./skills/fleet-install",
+			"sourceType": "local",
+			"computedHash": "300c1dc3f336f4dda6c8d8759c4fab57a9a739f581b9ac5e907d55a7c360fae7"
+		},
+		"fleet-pulse": {
+			"source": "./skills/fleet-pulse",
+			"sourceType": "local",
+			"computedHash": "da1844ab4c49b0d08447b5bf38d0cd601eb5d0e3dbafea0a387e3cc4976687bb"
+		},
+		"local": {
+			"source": "./skills/local",
+			"sourceType": "local",
+			"computedHash": "8e8b55e79555aa17722a0169de2ba343abdbef7782cf89d6bd32359e0d7b12f0"
+		},
+		"pa": {
+			"source": "./skills/pa",
+			"sourceType": "local",
+			"computedHash": "346a006d5d18afd505cd19f41e9d4fbc8566757e47f207e2e4224800746cdaa6"
+		},
+		"plan": {
+			"source": "./skills/plan",
+			"sourceType": "local",
+			"computedHash": "b0c5f3d8fdb44e5d9a7fd74e1fea1a20d170fc98e9ed8cc665049ae1d126ae1c"
+		},
+		"review": {
+			"source": "./skills/review",
+			"sourceType": "local",
+			"computedHash": "d44506892076e5844095f51d033315e396a27bd4e86a8226925b5a7355b7c6da"
+		},
+		"ship": {
+			"source": "./skills/ship",
+			"sourceType": "local",
+			"computedHash": "3fcc7fc1d58de05d661dd8f0dcf203ab927e7bdb86351dd666c7a7a4492d4ff2"
+		},
+		"spec": {
+			"source": "./skills/spec",
+			"sourceType": "local",
+			"computedHash": "2a36b92c2259dec971be817e2ac4741f95f94b80e6ec4ebcee0fbbf1d6d4ad22"
+		},
+		"test": {
+			"source": "./skills/test",
+			"sourceType": "local",
+			"computedHash": "189b0d49d752b5e1b9e52342e367d69d25ee4f84837e854cffe560cd3ba76547"
 		}
 	}
 }

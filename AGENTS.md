@@ -110,7 +110,12 @@ W865 prose list.
 - Agent skills: the repo-root `skills/` catalog installs into any agent CLI
   via `npx skills add klh/fleet` (`-g -y -a <ids>`; target ids in README
   "Install the skills as agent tools"). ChatGPT is not a CLI target — paste
-  the `SKILL.md` into the conversation.
+  the `SKILL.md` into the conversation. Catalog trees and the vendored
+  skills-agents registry are hash-pinned (W1472): after reviewing an
+  intentional edit, `bun packages/suspenders/scripts/skills-pin.ts --write`
+  re-pins `skills-lock.json` + the vendor manifest; otherwise
+  `packages/suspenders/test/skills-vendor-hash.test.ts` fails naming the
+  skill or file.
 
 ## Operations — every verb and what it is for
 
