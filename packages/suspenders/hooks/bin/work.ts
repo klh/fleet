@@ -16,6 +16,7 @@
 import type { Database } from "bun:sqlite";
 import { basename } from "node:path";
 import { itemCapsuleKey } from "../lib/capsule-fence.ts";
+import { detectClient } from "../lib/executors/detect.ts";
 import { automaticRecoveryCheck } from "../lib/fleet-loop/automatic-recovery.ts";
 import { triggerMergeOnDone } from "../lib/fleet-loop/merge-on-done.ts";
 import { unmergedDeps, unmergedNote } from "../lib/gates/dep-merge-gate.ts";
@@ -534,6 +535,9 @@ const dispatchVerb = async (
 		// prepareCompletion so the durable lane-context channel is consulted
 		// before anything is refused; the CAS UPDATE then closes the race.
 		const tok = flag("--token") ?? process.env.KLH_CLAIM_TOKEN ?? null;
+		// W1731: ambient client detection — advisory to the claim-check's
+		// reader choice; the registered launch identity outranks it.
+		const detected = await detectClient();
 		let record: CompletionRecord;
 		try {
 			record = prepareCompletion(db(), {
@@ -544,6 +548,7 @@ const dispatchVerb = async (
 				sha,
 				summary: flag("--summary"),
 				token: tok,
+				detected,
 			});
 		} catch (error) {
 			try {

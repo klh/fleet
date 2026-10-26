@@ -31,6 +31,7 @@ const transcript = (...frames: string[]) => frames.join("\n");
 const verdict = (...frames: string[]) =>
 	claimCheckVerdict({
 		transcriptText: transcript(...frames),
+		client: "copilot",
 		paths: [],
 		diffText: "",
 		now: Date.parse(timestamp(10)),
@@ -39,7 +40,7 @@ const verdict = (...frames: string[]) =>
 describe("native Copilot completion evidence", () => {
 	test("pairs timestamped own bash tests and assistant prose", () => {
 		const text = transcript(call(), result(), claim);
-		const events = transcriptEventsFromText(text);
+		const events = transcriptEventsFromText(text, "copilot");
 		expect(events.runs).toHaveLength(1);
 		expect(events.runs[0]?.ts).toBe(Date.parse(timestamp(2)));
 		expect(events.claims).toEqual([
@@ -64,7 +65,8 @@ describe("native Copilot completion evidence", () => {
 		"cd packages/belt && bun --bun ../../node_modules/.bin/playwright test --config tests.config.ts",
 	])("recognizes direct test command: %s", (command) => {
 		expect(
-			transcriptEventsFromText(transcript(call(command), result())).runs,
+			transcriptEventsFromText(transcript(call(command), result()), "copilot")
+				.runs,
 		).toHaveLength(1);
 		expect(verdict(call(command), result(), claim).ok).toBe(true);
 	});
@@ -85,7 +87,8 @@ describe("native Copilot completion evidence", () => {
 		"bun --bun ../../node_modules/.bin/playwright show-report",
 	])("does not accept relayed or non-test output: %s", (command) => {
 		expect(
-			transcriptEventsFromText(transcript(call(command), result())).runs,
+			transcriptEventsFromText(transcript(call(command), result()), "copilot")
+				.runs,
 		).toEqual([]);
 		expect(verdict(call(command), result(), claim).ok).toBe(false);
 	});
@@ -146,7 +149,7 @@ describe("native Copilot completion evidence", () => {
 				read("42", "final", 5),
 				finished("final", "42", 6),
 			];
-			const events = transcriptEventsFromText(transcript(...frames));
+			const events = transcriptEventsFromText(transcript(...frames), "copilot");
 			expect(events.runs).toEqual([
 				{
 					ts: Date.parse(timestamp(6)),
@@ -175,6 +178,7 @@ describe("native Copilot completion evidence", () => {
 						read(),
 						finished(),
 					),
+					"copilot",
 				).runs,
 			).toHaveLength(1);
 		});
@@ -226,9 +230,9 @@ describe("native Copilot completion evidence", () => {
 		)(
 			"rejects unpaired, foreign, non-test, stale or nested read output %#",
 			(frames) => {
-				expect(transcriptEventsFromText(transcript(...frames)).runs).toEqual(
-					[],
-				);
+				expect(
+					transcriptEventsFromText(transcript(...frames), "copilot").runs,
+				).toEqual([]);
 			},
 		);
 
@@ -247,7 +251,10 @@ describe("native Copilot completion evidence", () => {
 					read("42", "again", 5),
 					finished("again", "42", 6),
 				];
-				const runs = transcriptEventsFromText(transcript(...frames)).runs;
+				const runs = transcriptEventsFromText(
+					transcript(...frames),
+					"copilot",
+				).runs;
 				expect(runs).toHaveLength(2);
 				expect(runs[1]?.text).toStartWith("0 pass\n1 fail");
 				expect(
@@ -272,6 +279,7 @@ describe("native Copilot completion evidence", () => {
 				expect(
 					transcriptEventsFromText(
 						transcript(call(), started, read(), invalidate, finished()),
+						"copilot",
 					).runs,
 				).toEqual([]);
 			}
@@ -285,6 +293,7 @@ describe("native Copilot completion evidence", () => {
 						read("42", "again", 5),
 						finished("again", "42", 6),
 					),
+					"copilot",
 				).runs,
 			).toHaveLength(1);
 			expect(
@@ -301,6 +310,7 @@ describe("native Copilot completion evidence", () => {
 						),
 						finished(),
 					),
+					"copilot",
 				).runs,
 			).toEqual([]);
 		});
@@ -316,6 +326,7 @@ describe("native Copilot completion evidence", () => {
 						finished("pending-0"),
 						finished("pending-256"),
 					),
+					"copilot",
 				).runs,
 			).toEqual([]);
 		});
@@ -347,6 +358,7 @@ describe("native Copilot completion evidence", () => {
 						read(),
 						finished(),
 					),
+					"copilot",
 				).runs,
 			).toHaveLength(1);
 			expect(
@@ -371,6 +383,7 @@ describe("native Copilot completion evidence", () => {
 							}),
 						),
 					),
+					"copilot",
 				).runs,
 			).toEqual([]);
 		});
@@ -396,7 +409,9 @@ describe("native Copilot completion evidence", () => {
 			],
 			[event("notification", { content: "1 pass\n0 fail" })],
 		]) {
-			expect(transcriptEventsFromText(transcript(...frames)).runs).toEqual([]);
+			expect(
+				transcriptEventsFromText(transcript(...frames), "copilot").runs,
+			).toEqual([]);
 			expect(verdict(...frames, claim).ok).toBe(false);
 		}
 	});
@@ -425,8 +440,10 @@ describe("native Copilot completion evidence", () => {
 		const reversed = JSON.parse(call());
 		reversed.timestamp = timestamp(3);
 		expect(
-			transcriptEventsFromText(transcript(JSON.stringify(reversed), result()))
-				.runs,
+			transcriptEventsFromText(
+				transcript(JSON.stringify(reversed), result()),
+				"copilot",
+			).runs,
 		).toEqual([]);
 	});
 
@@ -445,7 +462,10 @@ describe("native Copilot completion evidence", () => {
 				result("0 pass\n1 fail\n<shellId: 1 completed with exit code 1>"),
 			],
 		]) {
-			const runs = transcriptEventsFromText(transcript(...frames)).runs;
+			const runs = transcriptEventsFromText(
+				transcript(...frames),
+				"copilot",
+			).runs;
 			expect(runs).toHaveLength(frames.length === 3 ? 1 : 0);
 		}
 	});
@@ -459,9 +479,9 @@ describe("native Copilot completion evidence", () => {
 					frame === call()
 						? [JSON.stringify(parsed), result()]
 						: [call(), JSON.stringify(parsed)];
-				expect(transcriptEventsFromText(transcript(...frames)).runs).toEqual(
-					[],
-				);
+				expect(
+					transcriptEventsFromText(transcript(...frames), "copilot").runs,
+				).toEqual([]);
 			}
 		}
 		expect(
@@ -470,6 +490,7 @@ describe("native Copilot completion evidence", () => {
 					timestamp(3),
 					"invalid",
 				),
+				"copilot",
 			).claims,
 		).toEqual([]);
 	});
@@ -483,6 +504,7 @@ describe("native Copilot completion evidence", () => {
 				}),
 				event("assistant.message", { content: "Tests are not passing." }),
 			),
+			"copilot",
 		);
 		expect(events.claims).toEqual([]);
 	});
@@ -490,6 +512,7 @@ describe("native Copilot completion evidence", () => {
 	test("capsule boundary and claim epoch remain enforced", () => {
 		const options = {
 			transcriptText: transcript(call(), result(), claim),
+			client: "copilot",
 			paths: [],
 			diffText: "",
 			capsuleDone: "All tests pass.",

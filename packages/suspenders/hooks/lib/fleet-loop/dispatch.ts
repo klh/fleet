@@ -45,6 +45,7 @@ import {
 	scheduleLaunchBackoff,
 } from "../../../scripts/lib/launch-backoff.ts";
 import { reproGateForItem } from "../gates/repro-gate.ts";
+import { recordLaneExecutor } from "../executors/executor-cv.ts";
 import { adapterFor } from "../executors/registry.ts";
 import {
 	applyLaneAttribution,
@@ -196,6 +197,10 @@ export async function runDispatch(
 			.get(project, item, sid) as { updated_at: number } | null;
 		if (!claim) throw new Error("claim changed during direct launch");
 		revision = claim.updated_at;
+		// W1731: register the explicit launch identity (lane-launch parity) —
+		// completion reads it before ambient client detection, which a nested
+		// agent's inherited environment can mislead.
+		recordLaneExecutor(store, sid, AGENT, null);
 		intent = reserveLaunchIntent(
 			store,
 			{ project, item, sid, nonce, revision, executor: executor.bin },

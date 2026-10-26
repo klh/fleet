@@ -22,6 +22,12 @@ function nativeCompletion(dialect: string): void {
 				.out.match(/W\d+/)?.[0] ?? "";
 		const take = f.run("work.ts", ["take", item, "--as", sid]);
 		expect(take.code).toBe(0);
+		// W1731: the launcher-registered identity picks the evidence reader,
+		// never the ambient client environment this suite inherits.
+		f.ins(
+			"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, ?, 'dispatch', 1, ?)",
+			[`lane.${sid}.executor`, copilot ? "copilot" : "codex", Date.now()],
+		);
 		const token = take.out.match(/claim token: ([a-f0-9]{48})/)?.[1] ?? "";
 		const git = (...args: string[]) => {
 			const p = Bun.spawnSync(["git", "-C", f.REPO, ...args], {
