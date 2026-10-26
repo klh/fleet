@@ -23,6 +23,7 @@ const HEARTBEAT_BORN: Record<string, string> = {
 	"rogue-reap": "W827",
 	"license-audit": "W828",
 	"metrics-alert": "W782.2.1",
+	"cache-sla": "W1139.1",
 	"knowledge-sync": "W944",
 	"openrouter-free-refresh":
 		"452bfdf6 — OpenRouter free catalog (pre-W-id commit)",
