@@ -104,10 +104,16 @@ test("local page: registry card upgrades; settings: knobs + audit cards", {
 	await page.screenshot({ path: `${SHOTS}/local-cards.png`, fullPage: true });
 
 	await page.goto(`${B.BASE}/console/settings`);
-	const knobs = page.locator("klh-knobs-card");
-	await expect(knobs).toBeVisible();
-	await expect(knobs.getByText(/suspenders-board\.json · /)).toBeVisible();
-	await expect(knobs.getByText(/STATUS_REFRESH_S/)).toBeVisible();
+	// W1294.2.1: settings moved to grouped native forms (867f4e09) — the
+	// board-knobs panel renders suspenders-board.json fields directly and the
+	// W174 audit card rides beside it; the old klh-knobs-card host is gone.
+	const boardPanel = page.locator("section.panel", {
+		hasText: "Board and agents",
+	});
+	await expect(boardPanel).toBeVisible();
+	await expect(
+		boardPanel.getByRole("spinbutton", { name: "Status refresh (s)" }),
+	).toBeVisible();
 	const audit = page.locator("klh-audit-list");
 	await expect(audit).toBeVisible();
 	await expect(audit.getByText(/no admin actions recorded yet/)).toBeVisible();
