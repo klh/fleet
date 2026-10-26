@@ -56,30 +56,33 @@ import {
 	STACK_PATH,
 	type StackConfig,
 } from "../hooks/lib/stack-config.ts";
-import { composeUpArgv, sshOpts } from "./hub-remote.ts";
+import {
+	ensurePreferHubLine,
+	gitToplevel,
+} from "../scripts/lib/prefer-hub-line.ts";
+import { hubMetricsEnv } from "./hub-metrics.ts";
+import { renderHubPolicy } from "./hub-policy.ts";
 import {
 	assertDeployRefsExist,
 	resolveHubOrigin,
 } from "./hub-ref-preflight.ts";
+import { composeUpArgv, sshOpts } from "./hub-remote.ts";
 import { mergedHubUpstreams } from "./openrouter-free.ts";
-import { mergeZaiHubUpstreams } from "./zai-catalog.ts";
-import { renderHubPolicy } from "./hub-policy.ts";
-import { hubMetricsEnv } from "./hub-metrics.ts";
-import {
-	mintServiceKey,
-	runMintOnHub,
-	verifyConfiguredServiceKey as serviceKeyVerdict,
-	verifyKeyFile,
-	type ServiceKeyRunner,
-} from "./service-key.ts";
-import { traceTunnelVerb } from "./trace-tunnel.ts";
-
 import {
 	buildRelease,
 	checkoutSha,
 	schemaVersions,
 	writeRelease,
 } from "./release-manifest.ts";
+import {
+	mintServiceKey,
+	runMintOnHub,
+	type ServiceKeyRunner,
+	verifyConfiguredServiceKey as serviceKeyVerdict,
+	verifyKeyFile,
+} from "./service-key.ts";
+import { traceTunnelVerb } from "./trace-tunnel.ts";
+import { mergeZaiHubUpstreams } from "./zai-catalog.ts";
 
 const COMPOSE_TEMPLATE = join(import.meta.dir, "hub-compose.yaml");
 
@@ -129,6 +132,22 @@ export function assertHubActivationPreflight(
 		throw new Error(
 			`hubctl ${verb} refused: route preflight failed (${report.findings?.length ?? "?"} graph findings, ${report.drills?.length ?? 0} drills; run route-preflight --static for details)`,
 		);
+}
+
+/** W1352: after a hub comes up, make sure the tree .prefer carries the
+ *  unquoted executor-chain `hub=<label>` line — a quoted prefer= alone is
+ *  routing-plane only and dispatch would silently fall through to the
+ *  default executor. Idempotent, best-effort, never aborts the deploy. */
+function notePreferHubLine(hubName: string): void {
+	try {
+		const from = join(import.meta.dir, "..");
+		const repo = gitToplevel(from);
+		if (repo === null) return;
+		const r = ensurePreferHubLine(repo, hubName);
+		console.log(`.prefer executor-chain hub=${hubName} (${r.action})`);
+	} catch {
+		// best-effort — the hub is already up
+	}
 }
 
 /** Resolve a hub by name, listing what exists on a miss. */
@@ -1065,11 +1084,13 @@ function main(): void {
 			// hub is touched — a dead ref refused here never reaches fleet-repo
 			assertDeployRefsExist(hub, hubName, hubVersion);
 			upHub(hub, hubName, hubVersion, force);
+			notePreferHubLine(hubName);
 			return;
 		case "deploy":
 			assertHubActivationPreflight(verb);
 			assertDeployRefsExist(hub, hubName, hubVersion);
 			deployHub(hub, hubName, auth, hubVersion);
+			notePreferHubLine(hubName);
 			return;
 		case "manifest":
 			emitManifest(stack.version, flags);
