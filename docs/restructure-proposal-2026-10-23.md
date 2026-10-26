@@ -359,3 +359,37 @@ precondition is finishing kernel extraction until the belt↔suspenders
 reach-ins vanish from the import-law PIN (model-store.ts still imports
 suspenders hooks/lib directly). Re-run this measurement when the PIN's
 belt→suspenders rows are gone.
+
+### Re-measurement (W1471, 2026-10-26)
+
+Trigger work: belt `model-store.ts` now imports host-guard and servicemon
+from `@klh/kernel` (servicemon promoted with the W1081 citizenship stamp
+injected, so kernel still imports nothing in fleet); its two
+belt→suspenders PIN rows are deleted (11 → 9). Method, recorded so the next
+run is comparable (W1276 left none): seam = a subdir of
+`packages/suspenders/hooks/lib`; lines = newline count of its non-test
+`.ts`; out-edge = a runtime relative import (Bun.Transpiler `scanImports`,
+type-only imports erased) from a seam file that resolves outside its seam;
+cycles = strongly connected components of the seam graph (root files = one
+node; edges leaving hooks/lib ignored, so the cycle set is a lower bound).
+
+Numbers: 21 subdirs — W1276's 16 seams plus policy, policy-workflow, ui,
+vendor and watch (leaf dirs from 2026-10-07, 0-1 out-edges each); 52.6k of
+63.6k lib lines sit under subdirs, 11.0k in 70 root files. Largest:
+fleet-loop 7536 lines (95 out-edges), knowledge 6680 (11), lanes 6502
+(41), work 3998 (30), usage 3985 (14), federation 3791 (15). ONE strongly
+connected component spans the root and 14 of the 16 seams (board,
+executors, federation, fleet-loop, gates, govdb, harvest, hub, knowledge,
+lanes, notify, plaid, usage, work); only auth and starter sit outside it,
+and both import the cyclic root. Out-edge counts are not comparable with
+the 2026-10-25 figures (method unrecorded); the cycle finding is
+method-independent at seam granularity.
+
+Verdict: HOLD. The Amendment-B criterion still fails on acyclicity, and the
+precondition is still unmet: the PIN carries 9 belt→suspenders rows
+(belt/bin/hubs.ts ×5 — deploy hub-remote, openrouter-free, zai-catalog and
+hooks/lib loopback, stack-config; the review-pipeline bench → oracle-frame;
+3 belt tests) and 13 suspenders→belt rows; hubs.ts and deploy
+zai-catalog.ts import each other's packages (a package-level cycle). W1475
+owns the remaining belt→suspenders rows; re-run this measurement, with the
+method above, when they are gone.
