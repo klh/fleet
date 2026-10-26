@@ -119,3 +119,37 @@ test("revision reflects exact file bytes, not timestamp granularity", {
 		savePostureSelection(path, before.document.selection, before.revision),
 	).toThrow("changed since");
 });
+
+test("concurrent processes cannot both consume the same revision", {
+	tag: "@unit",
+}, async () => {
+	const before = writePostureConfig(path, fixture(), null);
+	const module = new URL("./posture.store.ts", import.meta.url).href;
+	const script = `
+		import { savePostureSelection } from ${JSON.stringify(module)};
+		try {
+			savePostureSelection(process.argv[1], {
+				fleet: "fleet", posture: "paused", developmentOverride: false,
+			}, process.argv[2]);
+		} catch (error) {
+			if (error instanceof Error && error.message.includes("changed since"))
+				process.exit(9);
+			throw error;
+		}
+	`;
+	const writers = [0, 1].map(() =>
+		Bun.spawn([process.execPath, "-e", script, path, before.revision], {
+			stdout: "pipe",
+			stderr: "pipe",
+		}),
+	);
+	const results = await Promise.all(
+		writers.map(async (writer) => ({
+			code: await writer.exited,
+			error: await new Response(writer.stderr).text(),
+		})),
+	);
+	expect(results.map((result) => result.error)).toEqual(["", ""]);
+	expect(results.map((result) => result.code).sort()).toEqual([0, 9]);
+	expect(readPostureConfig(path).document.selection.posture).toBe("paused");
+});
