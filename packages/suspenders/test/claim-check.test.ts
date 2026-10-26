@@ -531,6 +531,18 @@ describe("diff erosion", () => {
 		expect(scanClosingDiff(diff)).toEqual([]);
 	});
 
+	test("a bun:test -> @playwright .e2e.ts move counts as a test file (W1294.5)", () => {
+		const diff = [
+			DIFF_DELETED,
+			"diff --git a/src/calc.e2e.ts b/src/calc.e2e.ts",
+			"--- /dev/null",
+			"+++ b/src/calc.e2e.ts",
+			"@@ -0,0 +1,1 @@",
+			'+	test("legacy case", () => {});',
+		].join("\n");
+		expect(scanClosingDiff(diff)).toEqual([]);
+	});
+
 	test("a same-hunk, one-for-one test rewrite preserves coverage", () => {
 		const diff = [
 			"diff --git a/src/route.test.ts b/src/route.test.ts",

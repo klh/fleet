@@ -272,7 +272,7 @@ export interface ClaimCheckHit {
 }
 
 const TEST_FILE =
-	/(?:^|[/\\])(?:tests?|e2e|spec|__tests__)[/\\]|\.(?:test|spec)\.[cm]?[jt]sx?$/i;
+	/(?:^|[/\\])(?:tests?|e2e|spec|__tests__)[/\\]|\.(?:test|spec|e2e)\.[cm]?[jt]sx?$/i;
 const TEST_CALL_NAME = new RegExp(
 	assemble(
 		"\\b(",
