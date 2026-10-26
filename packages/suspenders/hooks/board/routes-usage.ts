@@ -4,6 +4,16 @@
 // null when nothing matches.
 
 import { usagePayload } from "../bin/usage-page-html.ts";
+import {
+	type CrossHubReport,
+	crossHubRollup,
+} from "../lib/federation/cross-hub-usage.ts";
+import {
+	type LaneWork,
+	MONITOR_DIMS,
+	type MonitorDim,
+	monitorReport,
+} from "../lib/fleet-loop/monitor-drill.ts";
 import { activityReport } from "../lib/harvest/activity-harvest.ts";
 import {
 	cacheDrillParams,
@@ -15,16 +25,6 @@ import {
 	readLaneCacheLog,
 	rowsInWindow,
 } from "../lib/usage/cache-telemetry.ts";
-import {
-	type CrossHubReport,
-	crossHubRollup,
-} from "../lib/federation/cross-hub-usage.ts";
-import {
-	type LaneWork,
-	MONITOR_DIMS,
-	type MonitorDim,
-	monitorReport,
-} from "../lib/fleet-loop/monitor-drill.ts";
 import { buildUsageReport } from "../lib/usage/usage.ts";
 import { maybeHarvest } from "../lib/usage/usage-harvest.ts";
 import { db } from "./context.ts";
@@ -184,7 +184,11 @@ export async function handleUsage(
 				? []
 				: rowsInWindow(readLaneCacheLog(log), Date.now() - win * 60_000);
 		return json(
-			evaluateCacheSla(rows, { windowMinutes: win, threshold, minRequests: minReq }),
+			evaluateCacheSla(rows, {
+				windowMinutes: win,
+				threshold,
+				minRequests: minReq,
+			}),
 		);
 	}
 	if (url.pathname === "/api/usage/monitor") {

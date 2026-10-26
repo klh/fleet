@@ -7,18 +7,17 @@ import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	MAINTENANCE_TASKS,
+	suspendersRoot,
+} from "../hooks/lib/fleet-loop/maintenance.ts";
+import {
 	cacheSlaBadge,
 	cacheSlaStatusPath,
 	evaluateCacheSla,
 	readCacheSlaStatus,
 	rollingHitShares,
 } from "../hooks/lib/usage/cache-sla.ts";
-import {
-	type CacheRow,
-	readLaneCacheLog,
-	rowsInWindow,
-} from "../hooks/lib/usage/cache-telemetry.ts";
-import { MAINTENANCE_TASKS, suspendersRoot } from "../hooks/lib/fleet-loop/maintenance.ts";
+import type { CacheRow } from "../hooks/lib/usage/cache-telemetry.ts";
 
 const tmp = mkdtempSync(join(tmpdir(), "cache-sla-"));
 process.env.KLH_CACHE_SLA_STATUS = join(tmp, "sla.json");
@@ -55,9 +54,13 @@ describe("rollingHitShares", () => {
 		const now = Date.parse("2026-10-26T12:05:00Z");
 		const rows = [
 			row("l", { i: 100, r: 0, c: 0 }),
-			row("l", { i: 100, r: 900, c: 0 }, {
-				at: "2026-10-26T11:00:00Z", // exactly window-old — excluded
-			}),
+			row(
+				"l",
+				{ i: 100, r: 900, c: 0 },
+				{
+					at: "2026-10-26T11:00:00Z", // exactly window-old — excluded
+				},
+			),
 		];
 		const lanes = rollingHitShares(rows, 60 * 60_000, now);
 		expect(lanes[0]?.inputTok).toBe(100);
@@ -111,10 +114,14 @@ describe("readCacheSlaStatus", () => {
 		const path = join(tmp, "status.json");
 		const report = evaluateCacheSla(
 			[
-				row("r", { i: 1, r: 9, c: 0 }, {
-					requests: 9,
-					at: new Date().toISOString(),
-				}),
+				row(
+					"r",
+					{ i: 1, r: 9, c: 0 },
+					{
+						requests: 9,
+						at: new Date().toISOString(),
+					},
+				),
 			],
 			{ now: () => Date.now() },
 		);

@@ -6,7 +6,7 @@
 // cache-telemetry.ts: the NDJSON row is the contract (structural type), fs
 // is injectable-side (readers fail soft — a damaged log reports from what
 // survives, never fabricates).
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { type CacheRow, rowsInWindow } from "./cache-telemetry.ts";
@@ -53,10 +53,7 @@ export function rollingHitShares(
 	nowMs: number,
 ): LaneSlaRow[] {
 	const windowed = rowsInWindow(rows, nowMs - windowMs);
-	const byLane = new Map<
-		string,
-		LaneSlaRow & { cacheRead: number }
-	>();
+	const byLane = new Map<string, LaneSlaRow & { cacheRead: number }>();
 	for (const r of windowed) {
 		const acc = byLane.get(r.lane) ?? {
 			lane: r.lane,
@@ -76,15 +73,16 @@ export function rollingHitShares(
 			...rest,
 			hitShare: rest.inputTok === 0 ? 0 : cacheRead / rest.inputTok,
 		}))
-		.sort(
-		(a, b) => a.hitShare - b.hitShare || a.lane.localeCompare(b.lane),
-	);
+		.sort((a, b) => a.hitShare - b.hitShare || a.lane.localeCompare(b.lane));
 }
 
 /** The SLA evaluation: breaches = lanes over the sample floor whose rolling
  *  hit share sits below the threshold. Deterministic; empty log → empty
  *  report (no data is never a breach). */
-export function evaluateCacheSla(rows: CacheRow[], opts: SlaOpts = {}): CacheSlaReport {
+export function evaluateCacheSla(
+	rows: CacheRow[],
+	opts: SlaOpts = {},
+): CacheSlaReport {
 	const windowMinutes = opts.windowMinutes ?? 60;
 	const threshold = opts.threshold ?? 0.5;
 	const minRequests = opts.minRequests ?? 5;
@@ -132,7 +130,9 @@ export const cacheSlaStatusPath = (): string =>
  *  blocks the page on a missing sweep). */
 export function readCacheSlaStatus(path: string): CacheSlaReport | null {
 	try {
-		const raw = JSON.parse(readFileSync(path, "utf8")) as Partial<CacheSlaReport>;
+		const raw = JSON.parse(
+			readFileSync(path, "utf8"),
+		) as Partial<CacheSlaReport>;
 		if (!Array.isArray(raw.lanes)) return null;
 		return {
 			generatedAt: typeof raw.generatedAt === "string" ? raw.generatedAt : "",

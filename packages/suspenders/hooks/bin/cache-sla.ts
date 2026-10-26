@@ -39,8 +39,7 @@ if (argv.includes("--help") || argv.includes("-h")) {
 	process.exit(0);
 }
 const outcome = parseVerb(SPEC, argv);
-if (!outcome.ok)
-	dieFor("cache-sla")(outcome.message || (SPEC.usage ?? ""));
+if (!outcome.ok) dieFor("cache-sla")(outcome.message || (SPEC.usage ?? ""));
 
 const windowMin = Math.max(
 	1,
@@ -77,4 +76,3 @@ function clamp01(n: number): number {
 	if (!Number.isFinite(n)) return 0.5;
 	return Math.min(1, Math.max(0, n));
 }
-

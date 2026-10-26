@@ -8,11 +8,11 @@
 // page only emits the static host. Filters are client state (the drilldown is
 // a live view, unlike the server-shaped URL filters above it).
 import {
-	LitElement,
+	type CSSResultGroup,
 	css,
 	html,
+	LitElement,
 	nothing,
-	type CSSResultGroup,
 	type TemplateResult,
 } from "lit";
 import type {
@@ -138,9 +138,7 @@ export class KlhUsageCacheDrill extends LitElement {
 					${pct1(l.hitShare)}</span>`,
 		);
 		const verdict =
-			s.breaches.length > 0
-				? `${String(s.breaches.length)} breach(es)`
-				: "ok";
+			s.breaches.length > 0 ? `${String(s.breaches.length)} breach(es)` : "ok";
 		return html`<p class="ufoot">
 			cache-SLA (${String(s.windowMinutes)}m rolling, threshold
 			${pct1(s.threshold)}, ≥${String(s.minRequests)} req):
