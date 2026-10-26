@@ -32,6 +32,7 @@ import { scrubRules } from "../hooks/lib/scrub.ts";
 import { writeHubRegistry } from "../hooks/lib/hub/hub-registry.ts";
 import { refreshFlatHome, smokeRouter } from "./belt-bin-overlay.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
+import { readBoundedTail } from "./lib/bounded-tail.ts";
 import { validateBeltWiredGuard } from "./lib/belt-wired-guard.ts";
 
 const kitDir = (ctx: StepContext): string => join(ctx.repo, "..", "local-llm");
@@ -190,13 +191,25 @@ export const defaultRun = async (
 		stderr: "pipe",
 		timeout: 120_000,
 	});
-	const [code, err] = await Promise.all([
+	// W1205.2: both pipes drain through the bounded tail — a piped stdout
+	// nobody read used to fill and block the generator forever; each side
+	// keeps only its line-aligned last 8 KB, so a flooding generator stays
+	// bounded in memory and in the diagnostic message.
+	const [code, err, out] = await Promise.all([
 		child.exited,
-		new Response(child.stderr).text(),
+		readBoundedTail(child.stderr),
+		readBoundedTail(child.stdout),
 	]);
 	if (code !== 0) {
-		const tail = diagnosticTail(err);
-		throw new Error(`rc=${code}${tail ? ` ${tail}` : " (no stderr captured)"}`);
+		const cause = err.text.trim()
+			? diagnosticTail(err.text)
+			: diagnosticTail(out.text);
+		const truncated = err.dropped + out.dropped;
+		throw new Error(
+			`rc=${code}${cause ? ` ${cause}` : " (no stderr captured)"}${
+				truncated > 0 ? ` [+${truncated}B truncated]` : ""
+			}`,
+		);
 	}
 };
 

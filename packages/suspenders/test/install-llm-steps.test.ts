@@ -557,4 +557,65 @@ describe("W1205 truthful regen failure diagnostics", () => {
 			else process.env.SUSPENDERS_SCRUB_DENYLIST = previous;
 		}
 	});
+
+	test("W1205.2: a stdout-flooding generator cannot deadlock defaultRun", async () => {
+		const dir = tmp("w12052-flood");
+		const gen = join(dir, "flood.ts");
+		writeFileSync(
+			gen,
+			[
+				`await Bun.write(Bun.stdout, "y".repeat(${8 * 1024 * 1024}));`,
+				"process.exit(0);",
+			].join("\n"),
+		);
+		// undrained, the 8MB stdout fills the pipe and the generator blocks
+		// until the 120s spawn timeout — draining resolves immediately.
+		await defaultRun([process.execPath, gen], dir);
+	});
+
+	test("W1205.2: stdout flood keeps the stderr cause and exit status", async () => {
+		const dir = tmp("w12052-flood-cause");
+		const gen = join(dir, "flood-cause.ts");
+		writeFileSync(
+			gen,
+			[
+				`await Bun.write(Bun.stdout, "y".repeat(${8 * 1024 * 1024}));`,
+				'console.error("gateway-config: bad indent at line 4");',
+				"process.exit(7);",
+			].join("\n"),
+		);
+		const error = await defaultRun([process.execPath, gen], dir).then(
+			() => null,
+			(e: Error) => e,
+		);
+		expect(error).toBeInstanceOf(Error);
+		expect(error?.message).toContain("rc=7");
+		expect(error?.message).toContain("bad indent at line 4");
+	});
+
+	test("W1205.2: oversized stderr stays bounded in memory and message", async () => {
+		const dir = tmp("w12052-oversize");
+		const gen = join(dir, "oversize.ts");
+		const lines = Array.from(
+			{ length: 300 },
+			(_, i) => `l${String(i).padStart(3, "0")}${"x".repeat(76)}`,
+		);
+		writeFileSync(
+			gen,
+			[
+				`await Bun.write(Bun.stderr, ${JSON.stringify(lines.join("\n"))});`,
+				"process.exit(9);",
+			].join("\n"),
+		);
+		const error = await defaultRun([process.execPath, gen], dir).then(
+			() => null,
+			(e: Error) => e,
+		);
+		const msg = (error as Error).message;
+		expect(msg).toContain("rc=9");
+		expect(msg).toContain("B truncated]");
+		expect(msg.length).toBeLessThan(900);
+		expect(msg).toContain("l299"); // the true tail survives
+		expect(msg).not.toContain("l000"); // the flooded front is gone
+	});
 });
