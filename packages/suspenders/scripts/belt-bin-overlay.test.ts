@@ -171,13 +171,30 @@ test("rewriteExternalSpecs flattens a back-import into belt/bin to the member si
 	).toBe('import { x } from "./zai-catalog-rows.ts";');
 });
 
+test("rewriteExternalSpecs flattens @klh/<pkg>/<path> specs; bare package specs stay (W1475)", () => {
+	const kernel = resolve(ROOT, "../../kernel/src/kernel.loopback.module.ts");
+	const externals = new Map([[kernel, "kernel.loopback.module.ts"]]);
+	expect(
+		rewriteExternalSpecs(
+			'import { y } from "@klh/kernel/src/kernel.loopback.module.ts";',
+			ROOT,
+			externals,
+		),
+	).toBe('import { y } from "./kernel.loopback.module.ts";');
+	expect(
+		rewriteExternalSpecs('import { z } from "@klh/blam";', ROOT, externals),
+	).toBe('import { z } from "@klh/blam";');
+});
+
 test("refresh flattens a cross-package external's back-imports into belt/bin (W1047)", async () => {
 	const runtime = await mkdtemp(join(tmpdir(), "fleet-refresh-external-"));
 	try {
 		// seedLocalLlm rides the prefix's node_modules for the flat home's npm
-		// imports (stack-config.ts → yaml) — mirror that so the closure proves.
+		// imports (stack-config.ts → zod) — mirror that so the closure proves.
+		// The prefix is a suspenders install: the isolated linker keeps zod in
+		// the package's node_modules, never the repo root's.
 		await symlink(
-			resolve(import.meta.dir, "../../../node_modules"),
+			resolve(import.meta.dir, "../node_modules"),
 			join(runtime, "node_modules"),
 		);
 		const swarm = join(ROOT, "swarm.ts");

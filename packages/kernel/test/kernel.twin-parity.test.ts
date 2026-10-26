@@ -27,6 +27,13 @@ describe("kernel twin-parity (byte-equal promotion fidelity)", () => {
 		);
 	});
 
+	// W1475: belt hubs.ts imports the kernel face; suspenders keeps its twin.
+	test("loopback ≡ suspenders loopback.ts", () => {
+		expect(bytesOf(`${KERNEL}/kernel.loopback.module.ts`)).toBe(
+			bytesOf("packages/suspenders/hooks/lib/loopback.ts"),
+		);
+	});
+
 	// W1471: servicemon promoted with the citizenship stamp INJECTED (kernel
 	// imports nothing in fleet). Below DEFAULT_BUCKETS the bytes are equal
 	// once the twin's stampResponse( calls read opts.stamp( and the kernel's

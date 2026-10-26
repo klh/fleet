@@ -26,6 +26,21 @@ const DEPS: Array<{ from: string; to: string }> = [
 		from: "packages/suspenders/hooks/lib/stack-config.ts",
 		to: "stack-config.ts",
 	},
+	// W1475: hubs.ts rides @klh package imports — its suspenders closure
+	// (+ zai-catalog's buckle guard chain below) ships flat beside the kit.
+	{
+		from: "packages/suspenders/deploy/openrouter-free.ts",
+		to: "openrouter-free.ts",
+	},
+	{ from: "packages/suspenders/deploy/zai-catalog.ts", to: "zai-catalog.ts" },
+	{
+		from: "packages/suspenders/hooks/lib/kernel-conf.ts",
+		to: "kernel-conf.ts",
+	},
+	{
+		from: "packages/kernel/src/kernel.loopback.module.ts",
+		to: "kernel.loopback.module.ts",
+	},
 	{
 		from: "packages/kernel/src/kernel.host-guard.module.ts",
 		to: "kernel.host-guard.module.ts",
@@ -49,6 +64,16 @@ const DEPS: Array<{ from: string; to: string }> = [
 		to: "stream-semantics.ts",
 	},
 	{ from: "packages/buckle/src/error-detail.ts", to: "error-detail.ts" },
+	{
+		from: "packages/buckle/src/provider-pressure.ts",
+		to: "provider-pressure.ts",
+	},
+	{ from: "packages/buckle/src/outbound-guard.ts", to: "outbound-guard.ts" },
+	{ from: "packages/buckle/src/adapters/errors.ts", to: "errors.ts" },
+	{ from: "packages/buckle/src/cooldown.ts", to: "cooldown.ts" },
+	// W1475: router-shim/router-core/stream-prelude value-import these two
+	{ from: "packages/buckle/src/sse.ts", to: "sse.ts" },
+	{ from: "packages/buckle/src/resilience.ts", to: "resilience.ts" },
 	{
 		from: "packages/telemetry/src/http-trace.ts",
 		to: "http-trace.ts",
@@ -75,13 +100,22 @@ const REWRITE: Array<[RegExp, string]> = [
 	[/^(\.\.\/)+suspenders\/hooks\/lib\/(.+)$/, "./"],
 	[/^(\.\.\/)+hooks\/lib\/(.+)$/, "./"],
 	[/^(\.\.\/)+buckle\/src\/gov\/(.+)$/, "./gov/"],
-	[/^(\.\.\/)+buckle\/src\/((?:stream-semantics|error-detail)\.ts)$/, "./"],
+	[
+		/^(\.\.\/)+buckle\/src\/((?:stream-semantics|error-detail|provider-pressure|outbound-guard|sse|resilience)\.ts)$/,
+		"./",
+	],
+	// W1475: outbound-guard's adapters/errors.ts and errors.ts' parent specs
+	// flatten beside it (the overlay's flat layout).
+	[/^(\.\/adapters\/)(errors\.ts)$/, "./"],
+	[/^(\.\.\/)((?:error-detail|cooldown)\.ts)$/, "./"],
 	[/^(\.\.\/)+belt\/bin\/(.+)$/, "./"],
 	[/^(\.\.\/)+local-llm\/(.+)$/, "./"],
 	[/^(\.\.\/)+telemetry\/src\/(.+)$/, "./"],
 	// W1471: the flat home has no node_modules — @klh/kernel package imports
 	// (model-store's host-guard + servicemon faces) heal to the flat copies.
 	[/^(@klh\/kernel\/src\/)(.+)$/, "./"],
+	// W1475: hubs.ts imports its hub-profile cluster by package name.
+	[/^@klh\/suspenders\/(deploy|hooks\/lib)\/(.+)$/, "./"],
 ];
 
 const mapSpec = (spec: string): string | undefined => {

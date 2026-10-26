@@ -15,15 +15,15 @@
 // is one compose-up command the hub executes.
 
 import { readFileSync } from "node:fs";
-import { composeUpArgv } from "../../suspenders/deploy/hub-remote.ts";
-import { mergedHubUpstreams } from "../../suspenders/deploy/openrouter-free.ts";
-import { mergeZaiHubUpstreams } from "../../suspenders/deploy/zai-catalog.ts";
+import { composeUpArgv } from "@klh/suspenders/deploy/hub-remote.ts";
+import { mergedHubUpstreams } from "@klh/suspenders/deploy/openrouter-free.ts";
+import { mergeZaiHubUpstreams } from "@klh/suspenders/deploy/zai-catalog.ts";
 import {
 	inQuietHours,
 	tryLoadStack,
 	type HubProfile,
-} from "../../suspenders/hooks/lib/stack-config.ts";
-import { isLoopbackHostname } from "../../suspenders/hooks/lib/loopback.ts";
+} from "@klh/suspenders/hooks/lib/stack-config.ts";
+import { isLoopbackHostname } from "@klh/kernel/src/kernel.loopback.module.ts";
 import type { Target } from "./supervisor.ts";
 
 const HUBS_PATH = () =>

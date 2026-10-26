@@ -186,6 +186,15 @@ test("real model-store closure resolves clean in a flat runtime home", () => {
 		copyDeps(repoRoot, prefix);
 		healImports(prefix);
 		expect(probeClosure(prefix, ["model-store.ts"])).toEqual([]);
+		// W1475: hubs.ts rides @klh/suspenders + @klh/kernel package imports;
+		// with main()'s canonical memory-policy copy the whole supervised
+		// closure (the default probe entries) resolves clean
+		expect(probeClosure(prefix, ["hubs.ts"])).toEqual([]);
+		writeFileSync(
+			join(prefix, "memory-policy.ts"),
+			readFileSync(join(repoRoot, "packages", "local-llm", "memory-policy.ts")),
+		);
+		expect(probeClosure(prefix)).toEqual([]);
 	} finally {
 		rmSync(prefix, { recursive: true, force: true });
 	}

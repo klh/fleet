@@ -393,3 +393,38 @@ hooks/lib loopback, stack-config; the review-pipeline bench → oracle-frame;
 zai-catalog.ts import each other's packages (a package-level cycle). W1475
 owns the remaining belt→suspenders rows; re-run this measurement, with the
 method above, when they are gone.
+
+### Re-measurement (W1475, 2026-10-26)
+
+Trigger work: belt `hubs.ts`, the review-pipeline bench and the 3 belt tests
+import suspenders by package name (`@klh/suspenders/...`, now declared in
+belt `dependencies`); hubs.ts's loopback import moved to a new kernel byte
+twin (`kernel.loopback.module.ts`, parity-pinned). The 9 belt→suspenders PIN
+rows are deleted (PIN 119 → 110 rows). Belt `runtime-heal.ts` ships the new
+flat closure and the suspenders overlay refresh flattens `@klh/<pkg>/<path>`
+specs, so both flat runtime-home paths still resolve clean.
+
+Method: unchanged from W1471 (above). Run on the W1471 head (439bf2b4) it
+reproduces that section's numbers exactly, so the figures below compare.
+
+Numbers: 21 subdirs; 53.3k of 64.7k lib lines sit under subdirs, 11.4k in 72
+root files. Largest: fleet-loop 7634 lines (96 out-edges), knowledge 6680
+(11), lanes 6637 (41), work 4013 (31), usage 3985 (14), federation 3791
+(15). W1475 does not touch hooks/lib; the growth is main merges since W1471
+(root import-graph.ts and import-law.ts, gates review-round-cap and
+test-import-resolution, lanes transport-liveness). The strongly connected
+component is unchanged: the root plus the same 14 seams; auth and starter
+sit outside it.
+
+Verdict: HOLD. Acyclicity still fails at seam granularity, and the PIN
+precondition is half met: belt→suspenders rows are 0, but 13
+suspenders→belt rows remain (deploy zai-catalog and its test →
+zai-catalog-rows; route-preflight and its test, watchdog-memory and the
+service-inventory test → registry; prompt-transform and prompt-bench →
+router-policy; hooks/lib inventory-probe and the usage-provenance test →
+inventory-probe; install-llm-steps → litellm-target; the belt-dashboard e2e
+→ klh-theme; the hub-registry test → hubs.ts). Belt now declares
+`@klh/suspenders`, so the package cycle is belt (declared dependency) ↔
+suspenders (pinned reach-ins); there is no module cycle (zai-catalog-rows.ts
+imports only node:fs). Re-run this measurement, with the same method, when
+the suspenders→belt rows are gone.

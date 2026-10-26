@@ -46,7 +46,11 @@ export async function beltBinClosure(
 		} catch {
 			continue; // vanished between readdir and read: skip, smoke still guards
 		}
-		for (const resolved of relativeSpecs(source, dirname(current))) {
+		const fromDir = dirname(current);
+		for (const resolved of [
+			...relativeSpecs(source, fromDir),
+			...klhSpecs(source, fromDir),
+		]) {
 			if (!isWithin(resolved, repoRoot) || seen.has(resolved)) continue;
 			if (!(await Bun.file(resolved).exists())) continue;
 			if (isWithin(resolved, root) && resolved !== resolve(entry))
@@ -71,6 +75,29 @@ export function relativeSpecs(text: string, fromDir: string): string[] {
 		out.push(resolve(fromDir, m[1].split("?")[0]));
 	}
 	return out;
+}
+
+/** W1475: an `@klh/<pkg>/<path>` package spec → its workspace file
+ *  (`<packages>/<pkg>/<path>`, from fromDir's nearest `packages` ancestor).
+ *  The flat home has no @klh node_modules, so these flatten like `../`. */
+function klhSpecPath(spec: string, fromDir: string): string | undefined {
+	const m = spec.split("?")[0].match(/^@klh\/([^/]+\/.+)$/);
+	if (!m) return undefined;
+	let dir = fromDir;
+	while (basename(dir) !== "packages") {
+		if (dirname(dir) === dir) return undefined;
+		dir = dirname(dir);
+	}
+	return resolve(dir, m[1]);
+}
+
+/** Static, dynamic, and side-effect `@klh/<pkg>/<path>` imports, resolved. */
+export function klhSpecs(text: string, fromDir: string): string[] {
+	const pattern =
+		/(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*)["'](@klh\/[^"']+)["']/g;
+	return [...text.matchAll(pattern)].flatMap(
+		(m) => klhSpecPath(m[1], fromDir) ?? [],
+	);
 }
 
 // splice chunk-A before `export interface OverlayReport {` — belt-bin-overlay.ts
@@ -110,7 +137,11 @@ export async function flatExternals(
 			.text()
 			.catch(() => "");
 		if (text === "") continue;
-		for (const spec of relativeSpecs(text, dirname(current))) {
+		const fromDir = dirname(current);
+		for (const spec of [
+			...relativeSpecs(text, fromDir),
+			...klhSpecs(text, fromDir),
+		]) {
 			if (!(await Bun.file(spec).exists())) continue;
 			if (isWithin(spec, root)) memberBase.set(basename(spec), spec);
 			else if (isWithin(spec, repoRoot))
@@ -136,15 +167,20 @@ export async function flatExternals(
 }
 
 // splice chunk-B2 before `export interface OverlayReport {` — belt-bin-overlay.ts
-/** Rewrite mapped cross-package `../` specifiers to flat `./<basename>`. */
+/** Rewrite mapped cross-package `../` (and W1475 `@klh/<pkg>/<path>`)
+ *  specifiers to flat `./<basename>`. */
 export function rewriteExternalSpecs(
 	text: string,
 	fromDir: string,
 	externals: Map<string, string>,
 	memberRoot?: string,
 ): string {
-	return text.replace(/(["'])((?:\.\.?\/)[^"']+)\1/g, (full, q, spec) => {
-		const resolved = resolve(fromDir, spec.split("?")[0]);
+	const specs = /(["'])((?:\.\.?\/|@klh\/)[^"']+)\1/g;
+	return text.replace(specs, (full, q, spec) => {
+		const resolved = spec.startsWith("@klh/")
+			? klhSpecPath(spec, fromDir)
+			: resolve(fromDir, spec.split("?")[0]);
+		if (resolved === undefined) return full;
 		const base =
 			externals.get(resolved) ??
 			(memberRoot && isWithin(resolved, memberRoot)

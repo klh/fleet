@@ -31,6 +31,7 @@ the W1249 import-direction lint guard.
 | env (str/num trim-and-empty) | semantics of servicemon parseRefreshS (trim → empty → fallback) | `test/kernel.env.test.ts` (behavior) |
 | theme | byte-twin ×3: `suspenders/hooks/lib/theme.ts` ≡ `belt/bin/klh-theme.ts` ≡ `local/bin/klh-theme.ts` | `test/kernel.twin-parity.test.ts` (4-way byte-equal) |
 | host-guard | `suspenders/hooks/lib/host-guard.ts` (belt imports it cross-package — the cycle W1254 breaks on migration); belt model-store imports the kernel face (W1471) | `test/kernel.twin-parity.test.ts` (2-way byte-equal) |
+| loopback | `suspenders/hooks/lib/loopback.ts` (the LOOPBACK host list host-guard also carries; buckle egress, belt kv-ship/mcp-server re-derive it); belt hubs.ts imports the kernel face (W1475) | `test/kernel.twin-parity.test.ts` (2-way byte-equal) |
 | servicemon | `suspenders/hooks/lib/servicemon.ts` with the W1081 citizenship stamp INJECTED (required `stamp` option — telemetry's `stampResponse` satisfies it, so kernel imports nothing); belt model-store imports it (W1471) | `test/kernel.twin-parity.test.ts` (byte-equal below DEFAULT_BUCKETS modulo the stamp seam + seam behavior) |
 
 ## Out of kernel (named in the proposal, deliberately excluded here)

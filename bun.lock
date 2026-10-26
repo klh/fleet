@@ -41,6 +41,7 @@
       "dependencies": {
         "@klh/blam": "2.0.0",
         "@klh/kernel": "2.0.0",
+        "@klh/suspenders": "2.0.0",
         "bonjour-service": "1.4.4",
         "lit": "3.3.3",
       },
