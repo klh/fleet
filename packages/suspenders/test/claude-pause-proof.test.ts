@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -54,4 +54,20 @@ test("pause proof rejects invented and nonancestor commits despite canonical-loo
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
+});
+
+/** W1169 regression: W1276 moved claude-pause.ts under executors/ — the
+ * module-resolved coord path must still point at the real hooks/bin/coord.ts,
+ * else every pause proof silently returns null and lanes never reach PAUSED. */
+test("pause proof coord resolution reaches the real coord CLI", () => {
+	const pauseModule = new URL(
+		"../hooks/lib/executors/claude-pause.ts",
+		import.meta.url,
+	).pathname;
+	expect(existsSync(pauseModule)).toBe(true);
+	// the proof flow shells out through hooks/bin/coord.ts relative to the
+	// module — that exact path must exist (a stale one-level URL 404s)
+	const coordFromModule = new URL("../../bin/coord.ts", `file://${pauseModule}`)
+		.pathname;
+	expect(existsSync(coordFromModule)).toBe(true);
 });

@@ -55,7 +55,9 @@ export function claudeStopPause(
 }
 
 const run = promisify(execFile);
-const coord = new URL("../bin/coord.ts", import.meta.url).pathname;
+// W1276 moved this module under executors/ — coord rides the shared bin two
+// levels up; a stale one-level URL here silently breaks every pause proof.
+const coord = new URL("../../bin/coord.ts", import.meta.url).pathname;
 const read = async (sid: string, args: string[]) =>
 	(
 		await run(process.execPath, [coord, ...args, "--as", sid], {
