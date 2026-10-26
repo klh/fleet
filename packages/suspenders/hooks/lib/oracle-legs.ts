@@ -26,6 +26,25 @@ export type LegResult = {
 export const ORACLE_SYSTEM =
 	"You are oracle — a stateless escalation surface. One request, one answer.";
 
+/** Empty text with stop_reason=max_tokens means the upstream burned the whole
+ *  budget on reasoning/thinking blocks before any text block — the W1307
+ *  oracle cloud-leg failure mode. The error names the lever (max-tokens). */
+const legTextOrThrow = (
+	text: string,
+	stopReason: string | null,
+	what: string,
+): string => {
+	const trimmed = text.trim();
+	if (trimmed !== "") return trimmed;
+	if (stopReason === "max_tokens")
+		throw new Error(
+			`${what} returned no text — stop_reason=max_tokens: reasoning consumed the max-tokens budget; raise --max-tokens`,
+		);
+	throw new Error(
+		`${what} returned no text (stop_reason ${stopReason ?? "absent"})`,
+	);
+};
+
 /** The pinned local-reason leg through the gated Buckle client. Throws on
  *  absent gate config or a non-2xx answer — the caller surfaces the error. */
 export const pinnedLeg = async (
@@ -48,30 +67,32 @@ export const pinnedLeg = async (
 		},
 		deps.env ?? process.env,
 	);
-	const text = r.text.trim();
-	if (text === "") throw new Error("route answered with no content");
+	const text = legTextOrThrow(r.text, r.stopReason, "route");
 	return { text, model: r.model, ms: r.ms, pt: r.pt, ct: r.ct };
 };
 
 /** The cloud escalation leg through the SAME gated client — the stronger
- *  route rides as the W136 hint + the glm-5.3 default model pin. */
+ *  route rides as the W136 hint + the glm-5.3 default model pin. W1307: the
+ *  leg honors the caller's wall-clock budget (before this it silently fell
+ *  back to the client's 120s default and aborted long reviews mid-flight). */
 export const cloudLeg = async (
 	prompt: string,
 	maxTokens: number,
 	deps: LegDeps = {},
+	timeoutMs?: number,
 ): Promise<LegResult> => {
 	const r = await buckleChat(
 		{
 			model: CLOUD_MODEL,
 			user: prompt,
 			maxTokens,
+			timeoutMs,
 			hint: CLOUD_HINT,
 			...(deps.fetcher ? { fetcher: deps.fetcher } : {}),
 		},
 		deps.env ?? process.env,
 	);
-	const text = r.text.trim();
-	if (text === "") throw new Error("cloud leg returned no text");
+	const text = legTextOrThrow(r.text, r.stopReason, "cloud leg");
 	return { text, model: r.model, ms: r.ms, pt: r.pt, ct: r.ct };
 };
 

@@ -208,7 +208,7 @@ if (verb === "panel") {
 	const prompt = promptFor("panel", input);
 	const settled = await Promise.allSettled([
 		pinnedLeg(prompt, maxTokens, timeoutMs),
-		cloudLeg(prompt, maxTokens),
+		cloudLeg(prompt, maxTokens, {}, timeoutMs),
 	]);
 	const rows = buildPanelRows(settled);
 	const consensus = consensusOf(rows);
@@ -232,7 +232,7 @@ if (verb === "panel") {
 
 try {
 	const leg = cloud
-		? await cloudLeg(promptFor(verb, input), maxTokens)
+		? await cloudLeg(promptFor(verb, input), maxTokens, {}, timeoutMs)
 		: await pinnedLeg(promptFor(verb, input), maxTokens, timeoutMs);
 	process.stdout.write(`${leg.text}\n`);
 	console.error(

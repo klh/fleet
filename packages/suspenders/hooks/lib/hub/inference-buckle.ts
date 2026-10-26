@@ -84,6 +84,8 @@ export interface BuckleChatResult {
 	/** prompt/completion token usage, when the wire reports it */
 	pt: number;
 	ct: number;
+	/** anthropic stop_reason / openai finish_reason, when the wire reports it */
+	stopReason: string | null;
 }
 
 /** One gated chat call. Throws on absent config or a non-2xx/timed-out gate
@@ -143,7 +145,11 @@ export async function buckleChat(
 		);
 	const j = (await res.json()) as {
 		content?: { type?: string; text?: string }[];
-		choices?: { message?: { content?: string } }[];
+		stop_reason?: string | null;
+		choices?: {
+			message?: { content?: string };
+			finish_reason?: string | null;
+		}[];
 		model?: string;
 		usage?: {
 			input_tokens?: number;
@@ -165,5 +171,7 @@ export async function buckleChat(
 		traceId,
 		pt: j.usage?.input_tokens ?? j.usage?.prompt_tokens ?? 0,
 		ct: j.usage?.output_tokens ?? j.usage?.completion_tokens ?? 0,
+		stopReason:
+			(openai ? j.choices?.[0]?.finish_reason : j.stop_reason) ?? null,
 	};
 }
