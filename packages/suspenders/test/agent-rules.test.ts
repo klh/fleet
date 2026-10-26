@@ -15,7 +15,7 @@ import {
 	selectAgentRole,
 } from "../scripts/lib/agent-rules.ts";
 import { composeBrief } from "../scripts/lib/brief.ts";
-import { SOURCE_PATHS } from "../scripts/sync-harness.ts";
+import { sourcePaths } from "../scripts/sync-harness.ts";
 
 const mdFiles = () =>
 	readdirSync(AGENT_RULES_DIR).filter(
@@ -129,6 +129,10 @@ test("a --role override wins over the tag selection", () => {
 	expect(brief).not.toContain("# test.agent.md");
 });
 
-test("install ships agent-rules (SOURCE_PATHS)", () => {
-	expect(SOURCE_PATHS).toContain("packages/suspenders/agent-rules");
+test("install ships agent-rules (the computed payload closure)", async () => {
+	// W1466: no hand list — lib/agent-rules.ts's import.meta.dir asset edge
+	// is what puts the dir in the payload a sync archives.
+	expect(await sourcePaths(import.meta.dir)).toContain(
+		"packages/suspenders/agent-rules",
+	);
 });

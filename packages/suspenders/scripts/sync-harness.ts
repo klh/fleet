@@ -27,34 +27,8 @@ import {
 	writeShims,
 } from "./ensure-shims.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
-import { payloadCoverage } from "./lib/source-closure.ts";
+import { payloadClosure } from "./lib/source-closure.ts";
 
-export const SOURCE_PATHS = [
-	".githooks",
-	"packages/suspenders/hooks",
-	"packages/suspenders/scripts",
-	// W1295: the role library dispatch injects into every brief — ship it or
-	// every installed brief dies on the missing dir.
-	"packages/suspenders/agent-rules",
-	"packages/suspenders/deploy",
-	"packages/suspenders/package.json",
-	"packages/belt/bin",
-	"packages/belt/package.json",
-	"packages/buckle/upstreams.json",
-	"packages/buckle/routing-policy.json",
-	"packages/buckle/repo-policy.json",
-	"packages/buckle/src",
-	"packages/buckle/package.json",
-	// W1081: the shared HTTP identity-header seam — buckle src + belt bin and
-	// the suspenders servicemon wrap all import it; the prefix must ship it
-	// or every stamped service dies on its installed copy.
-	"packages/telemetry/src",
-	"packages/local-llm",
-	"packages/blam/src",
-	"packages/blam/bench/paired",
-	"packages/blam/bench/improve",
-	"packages/blam/package.json",
-];
 // These package imports are fulfilled by the staged payload links below.
 // They are private workspace packages, not packages to fetch from npm.
 const STAGED_PACKAGE_DEPENDENCIES = new Set(["@klh/blam", "@klh/buckle"]);
@@ -82,10 +56,9 @@ export const ENTRYPOINTS = [
 	"scripts/dispatch-next.ts",
 	"scripts/supervise.ts",
 ];
-// W1256.1: the payload's import-graph faces (repo-relative). The closure
-// walk (lib/source-closure.ts — the beltBinClosure walker) proves SOURCE_PATHS
-// covers the real import graph at every sync: the W661 class (a hand list
-// silently missing a file the graph needs) refuses HERE, naming the file.
+// W1256.1: the payload's import-graph faces (repo-relative) — the roots the
+// closure walk (lib/source-closure.ts — the beltBinClosure walker) starts
+// from; W1466 turned that walk from the hand list's auditor into its source.
 export const CLOSURE_ENTRIES = [
 	...ENTRYPOINTS.map((entry) => `packages/suspenders/${entry}`),
 	"packages/buckle/src/server.ts",
@@ -93,6 +66,35 @@ export const CLOSURE_ENTRIES = [
 	"packages/belt/bin/supervisor.ts",
 	"packages/belt/bin/dashboard.ts",
 ];
+// W1466: the payload is computed, never hand-listed — a sync archives the
+// fixed-point closure (lib/source-closure.ts payloadClosure) of these faces:
+// the import-graph entrypoints plus .githooks (W650: the W236 scrub-gate
+// stubs ride the prefix by install contract, not by import). Whatever the
+// graph reaches ships — the W1295 role library and the W1081 telemetry seam
+// included — so the W661 class has no list left to drift.
+export const PAYLOAD_FACES = [...CLOSURE_ENTRIES, ".githooks"];
+
+/** The repo paths a sync archives: the closure of PAYLOAD_FACES over the
+ *  files tracked at `revision`. A face missing from the tree refuses. */
+export async function sourcePaths(
+	repo: string,
+	revision = "HEAD",
+): Promise<string[]> {
+	const root = git(repo, ["rev-parse", "--show-toplevel"]);
+	const tracked = git(root, ["ls-tree", "-r", "-z", "--name-only", revision])
+		.split("\0")
+		.filter(Boolean);
+	const closure = await payloadClosure({
+		repoRoot: root,
+		faces: PAYLOAD_FACES,
+		tracked,
+	});
+	if (closure.missing.length > 0)
+		throw new Error(
+			`Payload faces vanished from the source tree: ${closure.missing.join(", ")}`,
+		);
+	return closure.paths;
+}
 
 function git(repo: string, args: string[]): string {
 	const result = Bun.spawnSync(["git", "-C", repo, ...args], {
@@ -222,11 +224,12 @@ async function archive(
 	repo: string,
 	revision: string,
 	destination: string,
+	paths: string[],
 ): Promise<void> {
-	const source = Bun.spawn(
-		["git", "-C", repo, "archive", revision, ...SOURCE_PATHS],
-		{ stdout: "pipe", stderr: "pipe" },
-	);
+	const source = Bun.spawn(["git", "-C", repo, "archive", revision, ...paths], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
 	const unpack = Bun.spawn(["tar", "-x", "-C", destination], {
 		stdin: source.stdout,
 		stdout: "ignore",
@@ -342,36 +345,17 @@ export async function syncHarness(
 				`Refusing to sync a source behind or diverged from main (${revision.slice(0, 12)} vs main ${mainSha.slice(0, 12)}); install from the pinned checkout or set SUSPENDERS_SYNC_ALLOW_BRANCH=1`,
 			);
 	}
+	// W1466: the ship list is computed at the published revision — the walk
+	// that once audited a hand list (W1256.1) produces it, and a vanished
+	// face refuses the sync inside sourcePaths.
+	const shipped = await sourcePaths(repo, revision);
 	// W780: name the offending files — the bare "working payload is dirty"
 	// verdict forced a stash-dance to find them. diff --name-only: one path
 	// per line, no porcelain status columns to mis-slice.
-	const dirty = git(repo, [
-		"diff",
-		"--name-only",
-		"HEAD",
-		"--",
-		...SOURCE_PATHS,
-	]);
+	const dirty = git(repo, ["diff", "--name-only", "HEAD", "--", ...shipped]);
 	if (dirty)
 		throw new Error(
 			`Commit reviewed harness changes before code-only sync; working payload is dirty: ${dirty.split("\n").join(", ")}`,
-		);
-	// W1256.1 W661 tripwire: the computed import closure must be covered by
-	// SOURCE_PATHS. A new cross-package import reaching outside the payload
-	// (the W1081 telemetry class of miss) refuses the sync with the offending
-	// paths named instead of shipping a payload the graph outgrew.
-	const coverage = await payloadCoverage({
-		repoRoot: repo,
-		entries: CLOSURE_ENTRIES,
-		payload: SOURCE_PATHS,
-	});
-	if (coverage.missing.length > 0)
-		throw new Error(
-			`Payload entrypoints vanished from the working tree: ${coverage.missing.join(", ")}`,
-		);
-	if (coverage.outside.length > 0)
-		throw new Error(
-			`The import closure leaves SOURCE_PATHS — ship the paths or extend the payload: ${coverage.outside.join(", ")}`,
 		);
 	const prefix = resolve(ctx.prefix),
 		parent = dirname(prefix);
@@ -426,7 +410,7 @@ export async function syncHarness(
 		const payload = join(stage, ".harness");
 		rmSync(payload, { recursive: true, force: true });
 		mkdirSync(payload);
-		await archive(repo, revision, payload);
+		await archive(repo, revision, payload, shipped);
 		const packageRoot = join(payload, "packages");
 		const suspenders = join(packageRoot, "suspenders");
 		const manifest = JSON.parse(
@@ -449,8 +433,10 @@ export async function syncHarness(
 				dependencies[name] = version;
 			}
 		}
-		for (const name of ["suspenders", "belt", "local-llm", "blam"]) {
-			const path = join(packageRoot, name, "package.json");
+		// every shipped manifest (the closure ships each touched package's)
+		// sheds its dev-only fields
+		for (const rel of shipped.filter((p) => p.endsWith("/package.json"))) {
+			const path = join(payload, rel);
 			const item = JSON.parse(readFileSync(path, "utf8"));
 			delete item.devDependencies;
 			delete item.workspaces;

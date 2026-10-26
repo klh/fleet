@@ -127,11 +127,29 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 			"packages/suspenders/hooks/board/prompt-transform.ts",
 			'throw new Error("bad runtime import");',
 		);
-	// W1256.1: the closure-walk entry faces (sync-harness CLOSURE_ENTRIES) must
-	// exist for the tripwire walk — fake faces, same paths as the real payload.
+	// W1256.1/W1466: the payload faces (sync-harness CLOSURE_ENTRIES) must
+	// exist — fake faces, same paths as the real payload — and the ship list
+	// is their computed closure: the edges below reach local-llm, the buckle
+	// gate defaults, blam src and agent-rules the way the real graph does.
 	for (const file of ["router-shim.ts", "supervisor.ts", "dashboard.ts"])
 		put(`packages/belt/bin/${file}`, "export const value = 1;");
-	put("packages/belt/bin/fixture.ts", "export const value = 1;");
+	put(
+		"packages/belt/bin/fixture.ts",
+		'export { value } from "../../local-llm/fixture.ts";',
+	);
+	put(
+		"packages/buckle/src/policy.ts",
+		[
+			'export const upstreams = new URL("../upstreams.json", import.meta.url);',
+			'export const routing = new URL("../routing-policy.json", import.meta.url);',
+			'export const repoPolicy = new URL("../repo-policy.json", import.meta.url);',
+			'export { value } from "@klh/blam/src/fixture.ts";',
+		].join("\n"),
+	);
+	put(
+		"packages/suspenders/scripts/lib/agent-rules.ts",
+		'import { resolve } from "node:path";\nexport const dir = resolve(import.meta.dir, "../../agent-rules");',
+	);
 	put("packages/buckle/upstreams.json", '{"groups":{"reviewed-default":[]}}');
 	put("packages/local-llm/fixture.ts", "export const value = 1;");
 	put("packages/blam/src/fixture.ts", "export const value = 1;");
@@ -213,6 +231,15 @@ test("canonical step publishes a self-contained committed payload and receipt wi
 	expect(readFileSync(packagedDefaults, "utf8")).toBe(
 		f.git("show", `${receipt.revision}:packages/buckle/upstreams.json`),
 	);
+	// W1466: the payload is the computed closure — what an edge reaches
+	// ships; trees nothing reaches (blam bench, deploy here) stay out.
+	const staged = (rel: string) =>
+		existsSync(join(f.ctx.prefix, ".harness/packages", rel));
+	expect(staged("suspenders/agent-rules/fixture.ts")).toBe(true);
+	expect(staged("local-llm/fixture.ts")).toBe(true);
+	expect(staged("blam/src/fixture.ts")).toBe(true);
+	expect(staged("blam/bench")).toBe(false);
+	expect(staged("suspenders/deploy")).toBe(false);
 	// W650: the scrub-gate stubs ride the prefix (symlinked from the payload).
 	expect(lstatSync(join(f.ctx.prefix, ".githooks")).isSymbolicLink()).toBe(
 		true,
@@ -396,6 +423,26 @@ test("unreviewed Buckle defaults are refused before prefix changes", async () =>
 	const f = fixture();
 	f.put("packages/buckle/upstreams.json", '{"groups":{"unreviewed":[]}}');
 	await expect(syncHarness(f.ctx)).rejects.toThrow("working payload is dirty");
+	expect(lstatSync(f.ctx.prefix).isDirectory()).toBe(true);
+});
+
+test("a payload face missing from the commit is refused before prefix changes", async () => {
+	const f = fixture();
+	f.git("rm", "-q", "packages/belt/bin/dashboard.ts");
+	f.git(
+		"-c",
+		"user.name=Fixture",
+		"-c",
+		"user.email=fixture@example.invalid",
+		"commit",
+		"-m",
+		"reviewed face removal",
+	);
+	// W1466: sourcePaths computes the ship list at the revision — a vanished
+	// face refuses by name instead of archiving a payload with a hole.
+	await expect(syncHarness(f.ctx)).rejects.toThrow(
+		"Payload faces vanished from the source tree: packages/belt/bin/dashboard.ts",
+	);
 	expect(lstatSync(f.ctx.prefix).isDirectory()).toBe(true);
 });
 
