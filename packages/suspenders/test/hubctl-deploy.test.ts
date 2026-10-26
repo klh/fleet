@@ -3,9 +3,10 @@
 // fake docker/curl/openssl log every call, the .env renders from the stack
 // fixture, the compose template lands byte-equal, outside-process probes gate
 // the exit code — and install.sh --hub routes the full front into the chain.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -15,6 +16,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hubctlRouteFixture } from "./support/hubctl-route-fixture.ts";
+
+// every test spawns the full hubctl chain (route-preflight subprocess +
+// fake docker/curl/git children) — the 5s default trips under fleet load
+setDefaultTimeout(30_000);
 
 const dir = mkdtempSync(join(tmpdir(), "fleet-hub-deploy-"));
 const bin = join(dir, "bin");
@@ -61,7 +66,24 @@ writeFileSync(
 console.log(process.env.TEST_KEY ?? "a".repeat(64));
 `,
 );
-for (const f of [docker, curl, openssl]) chmodSync(f, 0o755);
+const git = join(bin, "git");
+writeFileSync(
+	git,
+	`#!${process.execPath}
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.TEST_CALLS, "git " + args.join(" ") + "\\n");
+if (args[0] !== "ls-remote") process.exit(0);
+if (process.env.TEST_GIT_FAIL) {
+	console.error("fatal: unable to access 'https://ops:sekrit@git.example/klh/overlay-repo.git/': HTTP 403");
+	process.exit(128);
+}
+const okRef = process.env.TEST_GIT_OK_REF;
+if (process.env.TEST_GIT_MISSING_REF || (okRef && args.at(-1) !== okRef)) process.exit(2);
+console.log("89806009791d743bbfdf27c35d372ac1d7e0a3a7\\trefs/tags/" + (args.at(-1) ?? "HEAD"));
+`,
+);
+for (const f of [docker, curl, openssl, git]) chmodSync(f, 0o755);
 writeFileSync(
 	stack,
 	JSON.stringify({
@@ -120,6 +142,7 @@ test("deploy runs the full chain: mint → push → up → probes gate exit", ()
 	const r = hubctl(["deploy", "w363"]);
 	expect(r.code).toBe(0);
 	const log = readFileSync(calls, "utf8");
+	expect(log).toContain("git ls-remote");
 	expect(log).toContain("up -d");
 	expect(log).toContain("ps --format json");
 	for (const port of [14302, 18304, 18305, 18306])
@@ -209,6 +232,48 @@ test("an overlay origin without repos.ref is refused", () => {
 	expect(result.code).toBe(1);
 	expect(result.out).toContain("overlay origin needs repos.ref");
 	expect(readFileSync(calls, "utf8")).toBe("");
+});
+
+test("W1302.3: a pin the origin does not serve fails deploy closed before mint/push/up", () => {
+	resetCalls();
+	// the shared fixture hub may carry a .env from an earlier test — the
+	// refusal below must not rewrite or extend anything on the hub
+	rmSync(join(deployDir, ".env"), { force: true });
+	const r = hubctl(["deploy", "w363"], { TEST_GIT_MISSING_REF: "1" });
+	expect(r.code).toBe(1);
+	expect(r.out).toContain('stack version "v1.2.3-w363" does not exist in');
+	const log = readFileSync(calls, "utf8");
+	expect(log).toContain("git ls-remote");
+	expect(log).not.toContain("up -d");
+	expect(existsSync(join(deployDir, ".env"))).toBe(false);
+});
+
+test("W1302.3: up refuses a dead pin before compose", () => {
+	resetCalls();
+	const r = hubctl(["up", "w363"], { TEST_GIT_MISSING_REF: "1" });
+	expect(r.code).toBe(1);
+	expect(r.out).toContain("does not exist in");
+	expect(readFileSync(calls, "utf8")).not.toContain("up -d");
+});
+
+test("W1302.3: an overlay hub resolves the version in public AND repos.ref in the overlay", () => {
+	resetCalls();
+	const overlay = join(dir, "overlay-preflight-stack.json");
+	const config = JSON.parse(readFileSync(stack, "utf8"));
+	config.hubs.w363.repos = {
+		ref: "stack-5234813",
+		buckle: "https://git.example/klh/overlay-repo.git",
+	};
+	writeFileSync(overlay, JSON.stringify(config));
+	const r = hubctl(["deploy", "w363"], { KLH_STACK: overlay });
+	expect(r.code).toBe(0);
+	const log = readFileSync(calls, "utf8");
+	expect(log).toContain(
+		"git ls-remote --exit-code https://github.com/klh/fleet.git v1.2.3-w363",
+	);
+	expect(log).toContain(
+		"git ls-remote --exit-code https://git.example/klh/overlay-repo.git stack-5234813",
+	);
 });
 
 test("a reviewed hub candidate pin survives plain push and up without moving the global pin", () => {
