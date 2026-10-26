@@ -37,7 +37,7 @@ Standard sections → fleet state. "Child" = the W1303.x item that owns closure.
 | Versions exact everywhere (incl. internal) | Floating specs incl. @klh/* siblings | W1303.1 | CHILD-PENDING |
 | Plain semver, no pre-release suffixes | Tags exist (60), versions agree at 2.0.0; no pipeline guarantees agreement | W1303.6 | LANDED d69ec274 |
 | One version repo-wide (fixed mode) | stack.json `version:` pins buckle+suspenders+belt; manifest-tag agreement unproven | W1303.6 | LANDED d69ec274 |
-| Dependency budget (7 deps, allowlist) | No repo-wide allowlist check; deps are curated by law (platform-first) but unchecked | GAP-RECORDED below | OPEN-GAP |
+| Dependency budget (7 deps, allowlist) | check-deps (42f66ce0) fails phantom/unused deps; numeric cap not enforceable under bun workspaces | gap #2 below | DISPOSITIONED |
 | Dependency budget: no shell scripts | Banned by AGENTS.md law; tracked .sh set pinned by `tests/law-guards.test.ts` | landed checks | ALIGNED |
 | UI: native first → Lit → compose, tokens | Lit + design tokens law; vendored Lit, never CDN (AGENTS.md) | accepted | ALIGNED |
 | Events/mediators (typed events, handled()) | Principle-level in AGENTS.md; no check | accepted | ALIGNED |
@@ -55,13 +55,13 @@ Standard sections → fleet state. "Child" = the W1303.x item that owns closure.
 | Enforcement table (npm ci, check-versions/deps/boundaries/pack/ui-laws, gen-openapi) | import-law ratchet (W1249) + law-guards CI exist; check-versions/check-deps/check-pack/gen-openapi missing | W1303.1 (3 checks) + W1303.4 (gen-openapi) | CHILD-PENDING |
 | Branch protection (no force-push main) | Guarded merge ladder + scrub gate; push gates in .githooks | landed checks | ALIGNED |
 | .prefer harness lock-down | Implemented: examples/prefer.example + parsers (exec-chain, prefer, prefer-routing) | landed checks | ALIGNED |
-| .editorconfig | ABSENT in repo root | GAP-RECORDED below | OPEN-GAP |
+| .editorconfig | Landed matching qlty's enforced format | this branch | LANDED 54600489 |
 
 ## Open gaps recorded (owned, not child-dispatched)
 
-Two clauses fail all three completeness states today. Recorded here per the
-W1303 completeness contract; each gets either a landed fix or a disposition
-row before this parent closes.
+Two clauses failed all three completeness states at measurement (2026-10-25).
+Both resolved since: #1 landed, #2 dispositioned below. Kept as the audit
+trail per the W1303 completeness contract.
 
 1. **`.editorconfig` absent** (standard: Tooling config). Fleet standardizes on
    qlty/biome for formatting, which supersedes editor-level config for
