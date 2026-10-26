@@ -192,9 +192,14 @@ Owners:
   current classifier and supersedes rejected items with the classifier SHA as
   the reason, plus a hold keyed on the installed receipt revision.
 - **W1302.8 (READY):** extractor precision — the 2 residual items, and the
-  quote-desync class behind W1628 — plus edge dedupe. W1762 takes over its
-  W1394–W1463 cleanup clause.
+  quote-desync class behind W1628 — plus edge dedupe.
 - **Install of d59e6b1e or later:** stops new mints.
+
+As this audit closed, the controller superseded the whole pool by W1302.8
+(#78596–#79014, W1316–W1765), and READY fell from 449 to 25. That is
+W1762's cleanup half. Its prevention half (the rejudge verb and a hold bound
+to the installed revision) is still open, and the live scanner mints again on
+the next merge.
 
 No genuine edge was found; surviving items keep their existing edges.
 
@@ -210,8 +215,9 @@ No genuine edge was found; surviving items keep their existing edges.
 For coordinator 1a536a25. W1714 merged nothing, deployed nothing and bypassed
 no gate. Every item named here keeps its owner.
 
-1. **Hold dispatch of the dangling-path pool** until W1762's rejudge has run
-   and an install of d59e6b1e or later has landed.
+1. **Keep new dangling-path mints out of dispatch.** The pool is superseded;
+   narrow W1762 to its prevention half. Until an install of d59e6b1e or later
+   lands, hold whatever the next merges mint.
 2. **Reopen or supersede W1303.** Its DONE sits on an unmerged SHA and
    overstates. P1 (W1303.1.5) is open, and P5 (W1303.5.2, d159b500) is DONE
    but unmerged. W1761 can fold into a reopened W1303.
