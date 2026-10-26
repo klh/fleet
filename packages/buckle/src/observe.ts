@@ -61,6 +61,11 @@ export class ObservationOutbox {
 	private pending: string[] = [];
 	private writing = false;
 	private bytes = -1;
+	// W1309: write failures are counted and surfaced, never swallowed —
+	// dropped counts overflow only; a failed append is a different loss.
+	private writeFailures = 0;
+	private writeFailEpisode = false;
+	private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(opts: {
 		path: string;
@@ -96,17 +101,29 @@ export class ObservationOutbox {
 		void this.flush();
 	}
 
-	stats(): { seq: number; rotations: number; dropped: number } {
-		return { seq: this.seq, rotations: this.rotations, dropped: this.dropped };
+	stats(): {
+		seq: number;
+		rotations: number;
+		dropped: number;
+		writeFailures: number;
+	} {
+		return {
+			seq: this.seq,
+			rotations: this.rotations,
+			dropped: this.dropped,
+			writeFailures: this.writeFailures,
+		};
 	}
 
-	/** Drain the queue to the file; single-flight (backpressure by bound). */
+	/** Drain the queue to the file; single-flight (backpressure by bound).
+	 *  W1309: write-then-shift — the head stays queued until its append
+	 *  lands, so a failed write retries instead of losing the event. */
 	private async flush(): Promise<void> {
 		if (this.writing) return;
 		this.writing = true;
 		try {
 			while (this.pending.length > 0) {
-				const line = `${this.pending.shift()}\n`;
+				const line = `${this.pending[0]}\n`;
 				if (this.bytes < 0) {
 					const st = await stat(this.path).catch(() => null);
 					this.bytes = st?.size ?? 0;
@@ -120,13 +137,36 @@ export class ObservationOutbox {
 					this.bytes = 0;
 				}
 				await appendFile(this.path, line);
+				this.pending.shift();
 				this.bytes += line.length;
 			}
-		} catch {
-			// the outbox never takes inference traffic down with it
+			this.writeFailEpisode = false;
+		} catch (err) {
+			// the outbox never takes inference traffic down with it — but the
+			// loss is counted and the failure surfaced (W1309), never silent
+			this.writeFailures++;
+			this.bytes = -1; // cached size is stale after a failed append (re-stat)
+			if (!this.writeFailEpisode) {
+				this.writeFailEpisode = true;
+				console.warn(
+					`buckle: observation outbox write failed (retrying): ${String(err)}`,
+				);
+			}
+			this.scheduleRetry();
 		} finally {
 			this.writing = false;
 		}
+	}
+
+	/** Retry a failed drain shortly; unref'd so the timer never holds the
+	 *  process open (the next emit also re-flushes). */
+	private scheduleRetry(): void {
+		if (this.retryTimer) return;
+		this.retryTimer = setTimeout(() => {
+			this.retryTimer = null;
+			void this.flush();
+		}, 1000);
+		this.retryTimer.unref?.();
 	}
 
 	/** Read observations for the ingest, oldest generation first. Used by

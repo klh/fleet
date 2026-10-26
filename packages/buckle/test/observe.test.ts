@@ -2,7 +2,7 @@
 // sequence, bounded persistence) and the admitted/started/ended emissions
 // through the proxy path.
 import { describe, expect, test } from "bun:test";
-import { rm } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { ObservationOutbox } from "../src/observe.ts";
 import { startMockUpstream } from "./mock.ts";
 import { testDeps } from "./deps.ts";
@@ -57,6 +57,38 @@ describe("ObservationOutbox", () => {
 		for (let i = 0; i < 2000; i++)
 			box.emit("lane.request.admitted", { ...DATA, rid: `r${i}` });
 		expect(box.stats().dropped).toBeGreaterThan(0);
+	});
+
+	// W1309 regression: shifts happened BEFORE appendFile and errors were
+	// swallowed — the event vanished while `dropped` stayed zero.
+	test("failed append keeps the event queued and counts the loss", async () => {
+		const dir = `/tmp/buckle-obs-fail-${Date.now()}-${process.pid}`;
+		await mkdir(dir, { recursive: true });
+		// the outbox path is itself a directory: appendFile fails (EISDIR)
+		const box = new ObservationOutbox({ path: dir, bootId: "bf" });
+		box.emit("lane.request.admitted", DATA);
+		await new Promise((r) => setTimeout(r, 50));
+		const failed = box.stats();
+		expect(failed.writeFailures).toBeGreaterThan(0); // surfaced, not silent
+		expect(failed.dropped).toBe(0); // distinct from bound overflow
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	// W1309 regression, recovery half: once the path is writable again the
+	// retained head lands — the sequence has no hole (write-then-shift).
+	test("retained event lands after the write failure clears", async () => {
+		const dir = `/tmp/buckle-obs-retry-${Date.now()}-${process.pid}`;
+		await mkdir(dir, { recursive: true });
+		const box = new ObservationOutbox({ path: dir, bootId: "br" });
+		box.emit("lane.request.admitted", { ...DATA, rid: "kept" });
+		await new Promise((r) => setTimeout(r, 50)); // first append fails
+		expect(box.stats().writeFailures).toBeGreaterThan(0);
+		await rm(dir, { recursive: true, force: true }); // path writable again
+		box.emit("lane.request.admitted", { ...DATA, rid: "next" }); // re-flush
+		await new Promise((r) => setTimeout(r, 300)); // emit-driven re-flush
+		const obs = await ObservationOutbox.read(dir);
+		const ids = obs.map((o) => o.id);
+		expect(ids).toEqual(["1", "2"]); // no hole: event 1 never lost
 	});
 });
 
