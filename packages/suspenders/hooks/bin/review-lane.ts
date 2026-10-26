@@ -24,11 +24,11 @@ import {
 	reviewContext,
 	reviewFindingIds,
 } from "../lib/gates/review-receipt.ts";
-import { wireModelAudit } from "../lib/gates/wire-model-check.ts";
 import {
 	finishReviewRequest,
 	reviewRequestKey,
 } from "../lib/gates/review-scheduler.ts";
+import { wireModelAudit } from "../lib/gates/wire-model-check.ts";
 import { openStore, projectRootOf } from "../lib/govdb/govdb.ts";
 import { resolveBelt } from "../lib/hub/belt-locate.ts";
 import { branchForItem } from "../lib/lanes/item-branch.ts";
@@ -265,7 +265,7 @@ const requestedModel =
 	leg?.kind === "buckle" || leg?.kind === "llm"
 		? leg.model
 		: leg?.kind === "belt"
-			? (leg.target.split(":")[2] || undefined)
+			? leg.target.split(":")[2] || undefined
 			: undefined;
 async function requestLlm(
 	url: string,

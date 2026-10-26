@@ -50,15 +50,13 @@ describe("wireModelAudit", () => {
 	});
 
 	test("records the pair and the verdict", () => {
-		expect(
-			wireModelAudit("glm-5.3-flash", "chatgpt/gpt-6-sol"),
-		).toMatchObject({
+		expect(wireModelAudit("glm-5.3-flash", "chatgpt/gpt-6-sol")).toMatchObject({
 			requested: "glm-5.3-flash",
 			served: "chatgpt/gpt-6-sol",
 			match: "mismatch",
 		});
-		expect(wireModelAudit("glm-5.3-flash", "zai-glm-5.3-flash")).toMatchObject(
-			{ match: "match" },
-		);
+		expect(wireModelAudit("glm-5.3-flash", "zai-glm-5.3-flash")).toMatchObject({
+			match: "match",
+		});
 	});
 });
