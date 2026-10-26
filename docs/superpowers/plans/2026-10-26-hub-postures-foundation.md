@@ -185,19 +185,25 @@ Produces: `selectPostureEntries`.
    usability distinct from instantaneous free slots in the test fixture.
 4. Run all foundation specs, changed-file checks, then commit.
 
-## Validation commands
+## Validation prerequisites and commands
 
-From the claiming worktree:
+The checked baseline has only `e2e/playwright.config.ts`: its test directory
+is `e2e`, its match is `*.spec.ts`, and it defines no `unit` project.
+It cannot run the proposed foundation specs. Before Task 1, coordinate with
+the existing W1294.1 test-config owner and integrate the canonical unit
+configuration. Record its exact command in this plan once verified. Do not
+invent a `unit` project or add a competing test setup.
+
+Existing compatibility checks, from the claiming worktree:
 
 ```bash
 cd packages/suspenders
-bun --bun playwright test hooks/lib/posture/ --project=unit
+bun test test/prefer.test.ts test/board-prefer.test.ts scripts/lib/prefer-routing.test.ts
 ```
 
-Use the existing package config and fixture exports; inspect them before
-creating specs. If `unit` is not defined at the execution baseline, stop and
-coordinate the existing W1294.1 test-config owner rather than add a second
-test setup. Expected outcome: all newly added foundation specs pass.
+Inspect the canonical config and fixture exports before creating specs.
+Foundation verification must select every new posture spec and report a
+nonzero test count; an empty successful run is not acceptance.
 
 Run qlty formatting and checks on the explicit changed-file set, then the
 existing compatibility suites with their current runner. No new test tooling.
