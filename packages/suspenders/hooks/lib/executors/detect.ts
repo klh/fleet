@@ -39,6 +39,16 @@ export const launchClient = (
 	token: string | null | undefined,
 ): string | null => (token?.trim() ? adapterFor(token.trim()).id : null);
 
+/** The executor token a launcher registers for the spawned `bin`: the
+ *  pick's own token while it already resolves to that adapter (attribution
+ *  keys unchanged), else the spawned adapter's id — a model-pinned
+ *  non-claude PLAID route (pick name = the model) must never read back as
+ *  the default client and send its transcript to the wrong reader. */
+export const launchToken = (token: string, bin: string): string => {
+	const spawned = adapterFor(bin).id;
+	return adapterFor(token).id === spawned ? token : spawned;
+};
+
 export interface ClientResolution {
 	/** Canonical registry id whose evidence reader parses the transcript. */
 	client: string;

@@ -12,14 +12,23 @@
 // resolve to from a worktree (1.63.0) reads a details-object describe as
 // a title ("[object Object]") and tags nothing; title tags work in both.
 import { expect, test } from "@playwright/test";
-import { EXECUTOR_ADAPTERS } from "../packages/suspenders/hooks/lib/executors/registry.ts";
+import {
+	launchClient,
+	launchToken,
+} from "../packages/suspenders/hooks/lib/executors/detect.ts";
+import {
+	adapterFor,
+	EXECUTOR_ADAPTERS,
+} from "../packages/suspenders/hooks/lib/executors/registry.ts";
 import {
 	claimCheckVerdict,
 	transcriptEventsFromText,
 } from "../packages/suspenders/hooks/lib/gates/claim-check.ts";
+import { plaidPickOf } from "../packages/suspenders/hooks/lib/plaid/plaid.ts";
 import {
 	claimOnlyTranscripts,
 	claudePassingTranscript,
+	launchRoutes,
 	probeClient,
 } from "./helpers/client-discovery-probe.ts";
 
@@ -153,5 +162,19 @@ test.describe("@unit W1731 client discovery", () => {
 				expect(events.claims, `read as ${adapter.id}`).toHaveLength(1);
 				expect(events.runs).toEqual([]);
 			}
+	});
+
+	test("a launch registers a token that reads back as the spawned adapter", () => {
+		for (const route of launchRoutes()) {
+			const pick = plaidPickOf(null, route, [route]);
+			expect(launchClient(launchToken(pick.name, pick.bin)), route.name).toBe(
+				adapterFor(route.executor).id,
+			);
+		}
+		expect(launchToken("claude-sonnet-5", "claude")).toBe("claude-sonnet-5");
+		expect(launchToken("llm:desktop:glm-x", "claude")).toBe(
+			"llm:desktop:glm-x",
+		);
+		expect(launchToken("w1731-pinned-model", "codex")).toBe("codex");
 	});
 });

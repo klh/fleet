@@ -11,6 +11,10 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+	PLAID_ROUTES,
+	type PlaidRoute,
+} from "../../packages/suspenders/hooks/lib/plaid/plaid-route-config.ts";
 import { REPO_ROOT } from "./check-deps-fixture.ts";
 
 const LIB = join(REPO_ROOT, "packages", "suspenders", "hooks", "lib");
@@ -170,4 +174,18 @@ export const claimOnlyTranscripts = (t0: number): string[] => [
 	jsonl([
 		{ type: "assistant.message", timestamp: at(t0), data: { content: CLAIM } },
 	]),
+];
+
+/** Every default PLAID route plus model-pinned non-claude routes (operator
+ *  config may declare them): the pick names the MODEL while the bin comes
+ *  from the executor — the shape a launch identity must survive. */
+export const launchRoutes = (): PlaidRoute[] => [
+	...PLAID_ROUTES,
+	...["codex", "copilot"].map((executor) => ({
+		name: `${executor}-pinned`,
+		label: `${executor} pinned`,
+		executor,
+		model: "w1731-pinned-model",
+		provider: null,
+	})),
 ];
