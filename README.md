@@ -97,7 +97,9 @@ provides model access, a board or a shared coordination store. Hub addresses,
 ports and credentials live in machine configuration. A project pins its hub
 with a repo `.prefer` file (`hub=LAB`, where `LAB` exists in the operator's
 hub registry), which selects the gateway destination while the agent process
-and checkout stay local. To inspect a profile without deploying it:
+and checkout stay local. Set it with the installed `prefer` CLI —
+`prefer set hub=LAB` (a quoted `prefer=`/`must=` line is only a soft hint;
+`hub=` is what pins). To inspect a profile without deploying it:
 `bun packages/suspenders/deploy/hubctl.ts render "$HUB"` and
 `bun packages/suspenders/deploy/hubctl.ts status "$HUB"`.
 
