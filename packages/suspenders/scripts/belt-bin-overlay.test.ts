@@ -11,8 +11,9 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
+	RUNTIME_TWINS,
 	beltBinClosure,
 	flatExternals,
 	flatHomeSource,
@@ -23,6 +24,8 @@ import {
 	rewriteExternalSpecs,
 	shimRealSource,
 	smokeRouter,
+	twinDrift,
+	twinShimSource,
 	verifyFlatHome,
 } from "./belt-bin-overlay.ts";
 
@@ -244,5 +247,62 @@ test("smoke fails a shim that never serves", async () => {
 		);
 	} finally {
 		await rm(runtime, { recursive: true, force: true });
+	}
+});
+
+// W1468: the dual-home twins — each kit twin is the FULL re-export of its
+// pinned belt/bin artifact (computed imports keep the import-law graph flat).
+const REPO = join(import.meta.dir, "../../..");
+
+test("W1468: every runtime twin carries the pinned artifact face", () => {
+	expect(twinDrift(REPO)).toEqual([]);
+});
+
+test("W1468: kit twins re-export every artifact binding by identity", async () => {
+	for (const twin of RUNTIME_TWINS) {
+		const artifact = await import(join(REPO, twin.artifact));
+		const kit = await import(join(REPO, twin.kit));
+		expect(Object.keys(kit).sort()).toEqual(Object.keys(artifact).sort());
+		for (const name of Object.keys(artifact))
+			expect(kit[name]).toBe(artifact[name]);
+	}
+});
+
+test("W1468: twin drift refuses narrowed, resurrected and copied twins", async () => {
+	const root = await mkdtemp(join(tmpdir(), "fleet-twins-"));
+	const twin = {
+		kit: "packages/local-llm/x.ts",
+		artifact: "packages/belt/bin/x.ts",
+	};
+	const put = async (rel: string, body: string): Promise<void> => {
+		await mkdir(dirname(join(root, rel)), { recursive: true });
+		await writeFile(join(root, rel), body);
+	};
+	const diverged = `${twin.kit}: not the full re-export of ${twin.artifact}`;
+	try {
+		const artifact =
+			'import { y } from "./y.ts";\nexport const a = y;\nexport const b = 2;\n';
+		await put(twin.artifact, artifact);
+		// a kit absent from the payload has no second variant to drift
+		expect(twinDrift(root, [twin])).toEqual([]);
+		for (const body of [
+			'export { a } from "../belt/bin/x.ts";\n', // narrowed: hides b
+			"export const a = 1;\nexport const b = 2;\n", // resurrected code
+			artifact, // byte copy: second module instance, kit-sibling ./y.ts
+		]) {
+			await put(twin.kit, body);
+			expect(twinDrift(root, [twin])).toEqual([diverged]);
+		}
+		await put(
+			twin.kit,
+			`// the why rides as a comment\n${twinShimSource(twin)}\n`,
+		);
+		expect(twinDrift(root, [twin])).toEqual([]);
+		await rm(join(root, twin.artifact));
+		expect(twinDrift(root, [twin])).toEqual([
+			`${twin.kit}: pinned artifact ${twin.artifact} is missing`,
+		]);
+	} finally {
+		await rm(root, { recursive: true, force: true });
 	}
 });
