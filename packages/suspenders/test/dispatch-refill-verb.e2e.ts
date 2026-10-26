@@ -6,7 +6,7 @@
 import { expect, test } from "@playwright/test";
 import { refillVerb } from "../scripts/lib/refill-verb.ts";
 import { parseVerb, renderRegistryHelp } from "../hooks/lib/verb-kit.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 test.describe("refillVerb — the kit-declared dispatch face (W1255.6)", () => {
 	test("carries the flag vocabulary dispatch-next consumes", () => {

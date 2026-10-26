@@ -20,7 +20,7 @@ import {
 	revokeLaneKey,
 	writeSessionEnrollmentFiles,
 } from "../hooks/lib/lanes/lane-auth.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 /** A hung front socket: never answers on its own, but honours the abort
  *  signal exactly like real fetch (abort → rejection). */

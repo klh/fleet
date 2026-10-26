@@ -8,7 +8,7 @@ import {
 	claimTokenHash,
 	claimTokenMint,
 } from "../hooks/lib/work/work-fence.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 test.setTimeout(30_000);
 

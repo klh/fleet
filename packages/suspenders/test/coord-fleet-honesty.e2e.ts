@@ -7,7 +7,7 @@
 import { expect, test } from "@playwright/test";
 import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
 const fx = cliFixture("w378-fleet-honesty");

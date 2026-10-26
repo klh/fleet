@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { laneGlyph } from "../hooks/lib/watch/frame.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const directories: string[] = [];
 test.afterEach(() => {

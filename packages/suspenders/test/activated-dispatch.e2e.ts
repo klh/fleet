@@ -13,7 +13,7 @@ import {
 	dispatchPayloadDigest,
 	inspectActivatedDispatch,
 } from "../scripts/lib/activated-dispatch.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const roots: string[] = [];
 test.afterEach(() => {

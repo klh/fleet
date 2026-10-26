@@ -15,7 +15,7 @@ import {
 	parseLaneModelFilters,
 	projectPresence,
 } from "../hooks/board/lane-read-model.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 function store(): GovernorStore {
 	const db = new Database(":memory:") as unknown as GovernorStore;

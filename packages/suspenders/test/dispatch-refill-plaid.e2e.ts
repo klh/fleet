@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { dispatchHarness } from "./helpers/dispatch-harness.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const { HOME, REPO, toolA, dispatchA, addItem } = dispatchHarness(test.afterAll, {
 	tag: "w1145-refill",

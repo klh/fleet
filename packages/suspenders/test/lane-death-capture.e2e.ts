@@ -12,7 +12,7 @@ import {
 	logTail,
 	grinderVerdict,
 } from "../scripts/lib/lane-death-capture.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 function fixture() {
 	const db = new Database(":memory:");

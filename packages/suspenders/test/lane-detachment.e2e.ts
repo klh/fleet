@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const quote = (value: string) => JSON.stringify(value);
 const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;

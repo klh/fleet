@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { completionTurn } from "../hooks/lib/lanes/lane-completion-turn.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const dir = mkdtempSync(join(tmpdir(), "completion-turn-"));
 test.afterAll(() => rmSync(dir, { recursive: true, force: true }));

@@ -16,7 +16,7 @@ import {
 	loadEffortPolicy,
 	parseEffortPolicy,
 } from "../hooks/lib/lanes/lane-effort-policy.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 test.describe("parseEffortPolicy", () => {
 	test("parses a full JSON policy with regex rules", () => {

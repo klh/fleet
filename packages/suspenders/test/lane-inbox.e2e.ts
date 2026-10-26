@@ -10,7 +10,7 @@ import { expect, test } from "@playwright/test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
 const LIB = join(

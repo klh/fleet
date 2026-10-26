@@ -13,7 +13,7 @@ import {
 	isCoordinatorItem,
 	parseCoordReady,
 } from "../scripts/lib/coord-worker-decide.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 test.describe("coord-worker run decision", () => {
 	const GOOD = {

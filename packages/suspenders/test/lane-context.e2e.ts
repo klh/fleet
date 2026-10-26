@@ -20,7 +20,7 @@ import {
 	readLaneContextFile,
 	rebindLaneContext,
 } from "../hooks/lib/lanes/lane-context.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const dir = mkdtempSync(join(tmpdir(), "w628-lane-context-"));
 mkdirSync(join(dir, ".fleet"), { recursive: true });

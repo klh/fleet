@@ -17,7 +17,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { dispatchHarness, stubBuckle } from "./helpers/dispatch-harness.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 // W1119.2: the governed dispatch demands a live buckle front — stub one
 // (mint ok + scratch admin) so the launches proceed; a dead front now

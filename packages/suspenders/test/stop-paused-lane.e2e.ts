@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { pausedLaneFixture } from "./helpers/paused-lane.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 test("real Stop preserves a CLAIMED paused lane and refuses missing or forged pause proofs without completion churn", () => {
 	const f = pausedLaneFixture();

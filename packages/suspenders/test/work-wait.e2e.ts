@@ -6,7 +6,7 @@ import {
 	waitForPrerequisite,
 	wakeAfterEvidence,
 } from "../hooks/lib/work/work-wait.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 function fixture(): GovernorStore {
 	const db = new Database(":memory:");

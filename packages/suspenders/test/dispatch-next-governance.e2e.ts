@@ -34,7 +34,7 @@ import {
 	tool,
 	toolA,
 } from "./helpers/dispatch-next-kit.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 // ─── W463 fail-closed governance + lane key lifecycle ──────────────────────
 // e2e cases here spawn dispatch-next/worktree async (Bun.spawn, not

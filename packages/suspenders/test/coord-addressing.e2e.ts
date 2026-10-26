@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-coord-addressing-home-"));
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-coord-addressing-repo-"));

@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { itemCapsuleKey } from "../hooks/lib/capsule-fence.ts";
 import { projectIdentity } from "../hooks/lib/govdb/govdb-project.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 test.setTimeout(30_000); // spawn-heavy suite (bun:test 5s default flake floor)
 

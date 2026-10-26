@@ -5,7 +5,7 @@ import {
 	executionSummary,
 	workExecution,
 } from "../hooks/lib/work/work-execution.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const claim: ExecutionClaim = {
 	project: "p",

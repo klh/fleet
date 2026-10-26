@@ -36,7 +36,7 @@ import {
 	tool,
 	toolA,
 } from "./helpers/dispatch-next-kit.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 test.describe("crash resume budget", () => {
 	test("an old missing-registry claim resumes with its original sid and capsule", () => {

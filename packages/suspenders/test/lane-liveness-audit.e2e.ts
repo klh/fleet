@@ -9,7 +9,7 @@ import {
 	type LaneRef,
 	verdictBySid,
 } from "../hooks/lib/lanes/lane-liveness.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const foreignRow = (sid: string): LaneRef => ({
 	sid,

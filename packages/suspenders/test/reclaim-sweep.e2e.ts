@@ -23,7 +23,7 @@ import {
 	reclaimAll,
 } from "../hooks/lib/lanes/reclaim-all.ts";
 import { setReclaimHold } from "../hooks/lib/lanes/reclaim-liveness.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const databases: Database[] = [];
 const directories: string[] = [];

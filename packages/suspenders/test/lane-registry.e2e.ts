@@ -15,7 +15,7 @@ import {
 	saveLanes,
 	type Lane,
 } from "../hooks/lib/lanes/lane.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const roots: string[] = [];
 function repo() {

@@ -8,7 +8,7 @@ import {
 	effortFromShow,
 	EFFORTS,
 } from "../hooks/lib/work/work-effort.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const f = cliFixture("work-effort");
 

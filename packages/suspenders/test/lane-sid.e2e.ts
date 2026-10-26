@@ -5,7 +5,7 @@
 import { expect, test } from "@playwright/test";
 import { laneSid, supSid } from "../hooks/lib/lanes/laneslug.ts";
 import { sidOf } from "../scripts/dispatch-next.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 test.describe("lane sid derivation (W460)", () => {
 	test("fresh lanes are unique across projects with equal work labels", () => {

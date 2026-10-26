@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
 import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
 import { dispatchHarness, stubBuckle } from "./helpers/dispatch-harness.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const { HOME, REPO, toolA, dispatchA, addItem } = dispatchHarness(test.afterAll, {
 	tag: "w349-dispatch",

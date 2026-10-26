@@ -4,7 +4,7 @@ import {
 	fetchBuckleRouteAudit,
 	RouteAdmission,
 } from "../scripts/lib/dispatch-admission.ts";
-test.describe({ tag: "@api" }, () => {
+test.describe("@api", () => {
 
 const now = Date.parse("2026-10-21T12:00:00.000Z");
 const row = (ageMs: number, overrides: Record<string, unknown> = {}) => ({

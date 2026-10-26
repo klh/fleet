@@ -27,7 +27,7 @@ import {
 } from "../hooks/lib/gates/review-scheduler.ts";
 import type { GovernorStore } from "../hooks/lib/govdb/govdb-store.ts";
 
-test.describe({ tag: "@api" }, () => {
+test.describe("@api", () => {
 
 function seedCompletion(
 	db: Database,

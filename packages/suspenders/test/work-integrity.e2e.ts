@@ -10,7 +10,7 @@ import { tmpDir } from "./helpers/fixture-kit.ts";
 
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const HOME = tmpDir("suspenders-work-");
 const REPO = tmpDir("suspenders-wrepo-");

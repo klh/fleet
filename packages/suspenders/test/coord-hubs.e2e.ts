@@ -9,7 +9,7 @@ import { expect, test } from "@playwright/test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-test.describe({ tag: "@api" }, () => {
+test.describe("@api", () => {
 
 const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 const home = mkdtempSync(join(tmpdir(), "suspenders-coord-hubs-test-"));

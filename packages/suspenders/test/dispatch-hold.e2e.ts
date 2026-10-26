@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dispatchHarness } from "./helpers/dispatch-harness.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const { REPO, toolWith, dispatchWith } = dispatchHarness(test.afterAll, {
 	tag: "dispatch-rollout-hold",

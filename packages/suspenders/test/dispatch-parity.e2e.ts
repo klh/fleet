@@ -10,7 +10,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const HOOKS_LIB = join(import.meta.dir, "..", "hooks", "lib");
 const SCRIPTS = join(import.meta.dir, "..", "scripts");

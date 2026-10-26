@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { itemCapsuleKey } from "../hooks/lib/capsule-fence.ts";
 import { projectIdentity } from "../hooks/lib/govdb/govdb-project.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const root = mkdtempSync(join(tmpdir(), "fleet-capsule-"));
 const home = join(root, "home");

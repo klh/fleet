@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { resolveDaemonizedPids } from "../scripts/lib/dispatch-summary.ts";
 import type { LaneRef } from "../hooks/lib/lanes/lane-liveness.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const wrapperPid = 3654;
 const childPid = 3719;

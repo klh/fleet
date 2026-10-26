@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
 import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
 import { dispatchHarness } from "./helpers/dispatch-harness.ts";
-test.describe({ tag: "@api" }, () => {
+test.describe("@api", () => {
 
 // fake executor (see executorBody below): dumps its process env — the
 // only proof of what the LANE actually saw — records its pid, and stays

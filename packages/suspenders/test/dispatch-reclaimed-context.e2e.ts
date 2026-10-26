@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
 import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
 import { dispatchHarness, stubBuckle } from "./helpers/dispatch-harness.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const h = dispatchHarness(test.afterAll, {
 	tag: "reclaimed-context",

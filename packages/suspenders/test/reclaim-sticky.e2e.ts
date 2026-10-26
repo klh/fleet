@@ -18,7 +18,7 @@ import {
 import { releaseWorkClaim } from "../hooks/lib/work/work-release.ts";
 import { assignTask } from "../hooks/lib/work/work-alloc.ts";
 import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const databases: Database[] = [];
 const directories: string[] = [];

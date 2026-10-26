@@ -6,7 +6,7 @@
 import { expect, test } from "@playwright/test";
 import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 test.setTimeout(30_000); // spawn-heavy suite (bun:test 5s default flake floor)
 

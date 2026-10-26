@@ -31,7 +31,7 @@ import {
 } from "../scripts/lib/lane-starter.ts";
 import { WORKER_MANAGED_PROFILE } from "../hooks/lib/executors/claude.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const scratch = (): string => {
 	const d = join(

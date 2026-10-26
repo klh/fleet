@@ -21,7 +21,7 @@ import {
 } from "../hooks/lib/lanes/lane-registry.ts";
 import { classifyPrune, registryMain } from "../scripts/lib/registry-cli.ts";
 import type { Lane } from "../hooks/lib/lanes/lane.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 test.setTimeout(30_000);
 

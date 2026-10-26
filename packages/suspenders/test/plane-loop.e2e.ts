@@ -12,7 +12,7 @@ import {
 	segVerb,
 	unboundedLoopHead,
 } from "../hooks/gates/plane-loop.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 test.describe("segVerb (past do/then/else keywords)", () => {
 	test("do-prefixed loop body", () =>

@@ -16,7 +16,7 @@ import {
 	gitInit as kitGitInit,
 	tmpDir,
 } from "./helpers/fixture-kit.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
 const gitInit = kitGitInit;

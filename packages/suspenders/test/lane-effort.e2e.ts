@@ -10,7 +10,7 @@ import {
 	effortForPriority,
 	laneEffortFromSettingsFile,
 } from "../hooks/lib/lanes/lane-effort.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 test.describe("laneEffortFromSettingsFile", () => {
 	test("reads SUSPENDERS_LANE_EFFORT from the 0600 settings JSON; absent → null", () => {

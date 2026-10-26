@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 import { retryFailedItem } from "../hooks/lib/work/work-retry.ts";
 import { launchSchema } from "../scripts/lib/launch-fencing.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 function fixture() {
 	const db = new Database(":memory:");

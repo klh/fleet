@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildFleetTable, fleetGlyph } from "../hooks/coord/fleet-table.ts";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");

@@ -11,7 +11,7 @@ import { spawnSync } from "node:child_process";
 import { expect, test } from "@playwright/test";
 import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 test.setTimeout(30_000); // spawn-heavy suite (memory: 5s default in the flake floor)
 

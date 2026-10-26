@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 import { queueCompletionKnowledge } from "../hooks/lib/work/work-knowledge.ts";
 import type { CompletionRecord } from "../hooks/lib/work/work-completion-record.ts";
 import type { KevCuration } from "../hooks/lib/knowledge/kev-curation.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const record: CompletionRecord = {
 	project: "fleet",

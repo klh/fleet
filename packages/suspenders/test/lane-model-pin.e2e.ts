@@ -3,7 +3,7 @@
 import { expect, test } from "@playwright/test";
 import { join } from "node:path";
 import { taskPinOutput } from "../hooks/bin/lane-model-pin.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const PIN = join(import.meta.dir, "..", "hooks", "bin", "lane-model-pin.ts");
 

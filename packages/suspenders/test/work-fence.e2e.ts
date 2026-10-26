@@ -6,7 +6,7 @@ import {
 	evidenceCheck,
 	evidencePatternsOf,
 } from "../hooks/lib/work/work-fence.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 test.describe("claim tokens", () => {
 	test("mint is 48-hex and unique per call", () => {

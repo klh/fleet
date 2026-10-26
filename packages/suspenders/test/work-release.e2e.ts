@@ -6,7 +6,7 @@ import { tmpDir } from "./helpers/fixture-kit.ts";
 import { join } from "node:path";
 import { releaseWorkClaim } from "../hooks/lib/work/work-release.ts";
 import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
-test.describe({ tag: "@api" }, () => {
+test.describe("@api", () => {
 
 const databases: Database[] = [];
 const directories: string[] = [];

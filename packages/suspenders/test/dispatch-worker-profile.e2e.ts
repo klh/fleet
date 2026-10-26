@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { dispatchHarness } from "./helpers/dispatch-harness.ts";
 import { spawnClaude } from "../hooks/lib/lanes/lane.ts";
 import { WORKER_MANAGED_PROFILE } from "../hooks/lib/executors/claude.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 // NUL-delimited capture: each argv element lands byte-exact, so the test
 // can pin argument BOUNDARIES (empty args, embedded newlines, quotes).

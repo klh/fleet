@@ -6,7 +6,7 @@ import {
 	modelPinHookCommand,
 	runawayHookCommand,
 } from "../scripts/lib/lane-settings.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 test.describe("lane-settings (W512)", () => {
 	const env = {

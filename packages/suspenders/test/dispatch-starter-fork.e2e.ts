@@ -6,7 +6,7 @@ import { expect, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { dispatchHarness } from "./helpers/dispatch-harness.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const h = dispatchHarness(test.afterAll, {
 	tag: "w768-starter-fork",

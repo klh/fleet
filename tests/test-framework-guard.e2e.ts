@@ -7,7 +7,7 @@
 // (main integrated 804 via the wave lanes).
 import { expect, test } from "@playwright/test";
 
-const BASELINE = 811;
+const BASELINE = 731;
 
 test.describe("@unit test-framework ratchet", () => {
 	test("non-decant *.test.ts count does not exceed the pinned baseline", async () => {

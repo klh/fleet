@@ -8,7 +8,7 @@ import { expect, test } from "@playwright/test";
 import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dispatchHarness } from "./helpers/dispatch-harness.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const { HOME, REPO, tool, dispatchWith } = dispatchHarness(test.afterAll, {
 	tag: "w6951-dispatch",

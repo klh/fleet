@@ -25,7 +25,7 @@ import {
 	fleetRootFor,
 	sessionRole,
 } from "../hooks/lib/coordinator-edit-gate.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const tmp = mkdtempSync(join(realpathSync("/tmp"), "coord-edit-gate-"));
 const root = join(tmp, "fleet"); // fleet fixture repo — git-verified identity

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { probeDispatchSyntax } from "../scripts/lib/dispatch-syntax.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const roots: string[] = [];
 test.afterEach(() => {

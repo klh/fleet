@@ -10,7 +10,7 @@ import {
 	worktreeLive,
 	HARNESS_ARG_RE,
 } from "../hooks/lib/lanes/lane-liveness.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 test.describe("lane-liveness surface", () => {
 	test("host lane: fresh claimant transcript → live; stale → dead", () => {

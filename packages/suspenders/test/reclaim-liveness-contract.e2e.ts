@@ -26,7 +26,7 @@ import {
 } from "../hooks/lib/lanes/lane-liveness.ts";
 import { observeReclaim, probeClaim } from "../hooks/lib/lanes/reclaim-liveness.ts";
 import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const databases: Database[] = [];
 const directories: string[] = [];

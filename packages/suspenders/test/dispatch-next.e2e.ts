@@ -29,7 +29,7 @@ import {
 	tool,
 	workSnapshot,
 } from "./helpers/dispatch-next-kit.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 test.describe("CLI help is read-only", () => {
 	test("help flags print usage without creating runtime state or claiming work", () => {

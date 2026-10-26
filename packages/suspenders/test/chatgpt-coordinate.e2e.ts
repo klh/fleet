@@ -20,7 +20,7 @@ import {
 	type Trigger,
 } from "../hooks/lib/plaid/chatgpt-coordinate.ts";
 import { openMemoryStore } from "../hooks/lib/govdb/govdb-store.ts";
-test.describe({ tag: "@api" }, () => {
+test.describe("@api", () => {
 
 const scratch = (): string => {
 	const dir = join(tmpdir(), `w1013-${Math.random().toString(36).slice(2)}`);

@@ -21,7 +21,7 @@ import {
 	scoreLane,
 	type AllocLane,
 } from "../hooks/lib/work/work-alloc.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const databases: Database[] = [];
 const directories: string[] = [];

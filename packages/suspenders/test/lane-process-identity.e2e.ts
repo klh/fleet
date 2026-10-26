@@ -15,7 +15,7 @@ import {
 } from "../hooks/lib/lanes/lane-liveness.ts";
 import { safeToRetire } from "../hooks/lib/lanes/lane-registry.ts";
 import { alive } from "../hooks/lib/lanes/lane.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const lane = { sid: "autow562", item: "W562", pid: 562 };
 const roster =

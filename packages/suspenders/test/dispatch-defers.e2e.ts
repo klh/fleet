@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { deferItem, isDeferredItem } from "../scripts/lib/dispatch-defers.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 let serial = 0;
 const item = () => `fixture-deferral-${++serial}`;
 const row = (id: string, owner_sid: unknown, state = "CLAIMED") =>

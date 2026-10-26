@@ -9,7 +9,7 @@ import { expect, test } from "@playwright/test";
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dispatchHarness } from "./helpers/dispatch-harness.ts";
-test.describe({ tag: "@api" }, () => {
+test.describe("@api", () => {
 
 const { HOME, REPO, dispatchA, addItem } = dispatchHarness(test.afterAll, {
 	tag: "w1124-local",

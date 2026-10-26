@@ -10,7 +10,7 @@ import { expect, test } from "@playwright/test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const HOME = mkdtempSync(join(tmpdir(), "w516-capsule-home-"));
 const BIN = join(import.meta.dir, "..", "hooks", "bin");

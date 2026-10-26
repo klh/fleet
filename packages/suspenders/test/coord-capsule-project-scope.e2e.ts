@@ -10,7 +10,7 @@ import { expect, test } from "@playwright/test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const root = mkdtempSync(join(tmpdir(), "fleet-capsule-scope-"));
 const home = join(root, "home");

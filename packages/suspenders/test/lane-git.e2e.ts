@@ -12,7 +12,7 @@ import {
 	mergeReadyWhy,
 	resetLaneGitMemo,
 } from "../hooks/lib/lanes/lane-git.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const root = mkdtempSync(join(tmpdir(), "lane-git-test-"));
 test.afterAll(() => rmSync(root, { recursive: true, force: true }));

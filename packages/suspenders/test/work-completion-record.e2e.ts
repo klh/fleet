@@ -12,7 +12,7 @@ import {
 	fixture,
 	summary,
 } from "./helpers/work-completion-fixtures.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 test.afterEach(() => drainCleanup());
 

@@ -19,7 +19,7 @@ import {
 	WORK_CR_ACTION,
 	WORK_CR_TARGET_PREFIX,
 } from "../hooks/lib/work/work-cr.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const ROOT = "buckle-test-root";
 

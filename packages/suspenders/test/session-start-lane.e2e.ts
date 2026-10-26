@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-lane-"));
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-lane-repo-"));

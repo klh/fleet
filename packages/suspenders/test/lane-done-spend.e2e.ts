@@ -6,7 +6,7 @@ import {
 	parseDoneSpend,
 	spendFromDonePayload,
 } from "../hooks/lib/lanes/lane-done-spend.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 test.describe("parseDoneSpend", () => {
 	test("parses the documented k=v comma set", () => {

@@ -13,7 +13,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { gitInit, tmpDir, cleanupDirs } from "./helpers/fixture-kit.ts";
 import { isResumableClaim } from "../scripts/lib/resumable-claim.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const HOME = tmpDir("claude-work-cli-home-");
 const REPO = tmpDir("suspenders-work-cli-repo-");

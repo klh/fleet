@@ -16,7 +16,7 @@ import {
 	renewLaunchLease,
 	releaseLaunchLease,
 } from "../scripts/lib/launch-preflight.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 const dirs: string[] = [];
 test.afterEach(() => {
 	for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });

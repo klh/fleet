@@ -23,7 +23,7 @@ import {
 	revokeLaneKey,
 	retireLaneKey,
 } from "../hooks/lib/lanes/lane-auth.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 test.describe("parseEnvFile", () => {
 	test("parses KEY=VALUE lines, ignores comments and blanks", () => {

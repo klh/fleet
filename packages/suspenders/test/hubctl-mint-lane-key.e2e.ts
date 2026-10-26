@@ -14,7 +14,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 const dir = mkdtempSync(join(tmpdir(), "fleet-hub-mint-"));
 const bin = join(dir, "bin");

@@ -4,7 +4,7 @@
 // var the copilot CLI actually reads (probe-verified on copilot 1.0.98).
 import { expect, test } from "@playwright/test";
 import { applyLaneAttribution } from "../hooks/lib/lanes/lane.ts";
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 
 test.describe("W918.3 lane attribution — copilot BYOK vars", () => {
 	test("governed attribution carries the lane key into the copilot vars", () => {
