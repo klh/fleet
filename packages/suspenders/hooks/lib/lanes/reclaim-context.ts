@@ -12,6 +12,12 @@ import {
 import { dirname, join } from "node:path";
 import type { GovernorStore } from "../govdb/govdb.ts";
 import { projectIdentity, projectRootOf } from "../govdb/govdb-project.ts";
+import {
+	type BaselineRestore,
+	isAncestor,
+	registeredOriginalBaseline,
+	restorableBaseline,
+} from "./original-baseline.ts";
 import { verifyOperatorContextEvidence } from "./reclaim-context-evidence.ts";
 import { claimTokenHash } from "../work/work-fence.ts";
 import {
@@ -35,6 +41,7 @@ type Context = Record<string, unknown> & {
 export type ContextTransfer = {
 	receipt: Binding;
 	operatorReceipt?: Record<string, unknown>;
+	restored?: BaselineRestore;
 	replace(): void;
 	rollback(): void;
 };
@@ -101,12 +108,21 @@ export function verifiedContextContinuation(
 			by?: string;
 			claim_token_hash?: string;
 			context_origin?: Binding;
+			baseline_restored?: BaselineRestore;
 		};
+		// W1730: a take that restored the registered original baseline receipts
+		// the move; it must still verify for this exact project/item/tree
+		const restored = receipt.baseline_restored;
 		if (
 			receipt.by !== sid ||
 			receipt.claim_token_hash !== hash ||
-			receipt.context_origin?.baseline !== context.baseline ||
-			receipt.context_origin.launchedAt !== context.launchedAt
+			receipt.context_origin?.launchedAt !== context.launchedAt ||
+			(restored
+				? restored.from !== receipt.context_origin.baseline ||
+					restored.to !== context.baseline ||
+					restorableBaseline(store, { project, item, tree }, restored.from)
+						?.sha !== restored.to
+				: receipt.context_origin.baseline !== context.baseline)
 		)
 			return false;
 		return (
@@ -277,8 +293,31 @@ export function prepareContextTransfer(
 				"Claim context owner does not match the original claim receipt",
 			);
 	}
+	// W1730: a context minted at a later HEAD than the item's registered
+	// original base (a retake over its own released product) resumes from that
+	// base when the span holds the item's own commits, and the claim receipt
+	// records the move; an older one is tampered
+	const registered = registeredOriginalBaseline(store, { project, item, tree });
+	if (registered && !isAncestor(tree, registered.sha, context.baseline))
+		throw new Error(
+			"Claim context baseline predates its registered original tree base",
+		);
+	const restorable = restorableBaseline(
+		store,
+		{ project, item, tree },
+		context.baseline,
+		registered,
+	);
+	const restored = restorable
+		? {
+				from: context.baseline,
+				to: restorable.sha,
+				receipt: restorable.receipt,
+			}
+		: undefined;
 	const replacement = JSON.stringify({
 		...context,
+		...(restored ? { baseline: restored.to } : {}),
 		sid,
 		claimToken: token,
 		origin: context.origin ?? receipt,
@@ -296,6 +335,7 @@ export function prepareContextTransfer(
 	return {
 		receipt,
 		operatorReceipt,
+		restored,
 		replace() {
 			if (readFileSync(path, "utf8") !== original)
 				throw new Error("Claim context changed during retake");
