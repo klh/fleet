@@ -33,7 +33,7 @@ const verdict = (...frames: string[]) =>
 		transcriptText: transcript(...frames),
 		paths: [],
 		diffText: "",
-		now: Date.parse(timestamp(4)),
+		now: Date.parse(timestamp(10)),
 	});
 
 describe("native Copilot completion evidence", () => {
@@ -60,6 +60,8 @@ describe("native Copilot completion evidence", () => {
 		"cargo test",
 		"go test ./...",
 		"pytest",
+		"bun --bun ../../node_modules/.bin/playwright test --config=tests.config.ts",
+		"cd packages/belt && bun --bun ../../node_modules/.bin/playwright test --config tests.config.ts",
 	])("recognizes direct test command: %s", (command) => {
 		expect(
 			transcriptEventsFromText(transcript(call(command), result())).runs,
@@ -79,11 +81,299 @@ describe("native Copilot completion evidence", () => {
 		"bun test $(coord inbox)",
 		"bun test `coord inbox`",
 		"bun test\ncoord inbox",
+		"bun --bun ../../node_modules/.bin/playwright test && coord inbox",
+		"bun --bun ../../node_modules/.bin/playwright show-report",
 	])("does not accept relayed or non-test output: %s", (command) => {
 		expect(
 			transcriptEventsFromText(transcript(call(command), result())).runs,
 		).toEqual([]);
 		expect(verdict(call(command), result(), claim).ok).toBe(false);
+	});
+
+	const nativeRequest = (
+		toolCallId: string,
+		name: string,
+		args: Record<string, unknown>,
+		minute = 1,
+	) =>
+		event(
+			"assistant.message",
+			{
+				toolRequests: [{ toolCallId, name, arguments: args }],
+			},
+			minute,
+		);
+	const nativeResult = (
+		toolCallId: string,
+		content: string,
+		minute = 2,
+		success = true,
+	) =>
+		event(
+			"tool.execution_complete",
+			{
+				toolCallId,
+				success,
+				result: { content },
+			},
+			minute,
+		);
+	const started = nativeResult(
+		"own-test",
+		"<command with shellId: 42 is still running after 30 seconds. The command is still running but hasn't produced output yet.>",
+	);
+	const read = (shellId = "42", id = "read", minute = 3) =>
+		nativeRequest(id, "read_bash", { shellId, delay: 120 }, minute);
+	const finished = (id = "read", shellId = "42", minute = 4) =>
+		nativeResult(
+			id,
+			`2 passed\n<shellId: ${shellId} completed with exit code 0>`,
+			minute,
+		);
+
+	describe("native Copilot asynchronous own tests", () => {
+		test("links repeated own reads to a timed-out test shell, not partial counts", () => {
+			const waiting = nativeResult(
+				"read",
+				"<command with shellId: 42 is still running after 120 seconds.>",
+				4,
+			);
+			const frames = [
+				call(),
+				started,
+				read(),
+				waiting,
+				read("42", "final", 5),
+				finished("final", "42", 6),
+			];
+			const events = transcriptEventsFromText(transcript(...frames));
+			expect(events.runs).toEqual([
+				{
+					ts: Date.parse(timestamp(6)),
+					text: "2 passed\n<shellId: 42 completed with exit code 0>",
+				},
+			]);
+			expect(
+				verdict(
+					...frames,
+					event("assistant.message", { content: "All tests pass." }, 7),
+				).ok,
+			).toBe(true);
+		});
+
+		test("recognizes direct Bun Playwright in a background test", () => {
+			expect(
+				transcriptEventsFromText(
+					transcript(
+						call(
+							"bun --bun ../../node_modules/.bin/playwright test --config=tests.config.ts",
+						),
+						nativeResult(
+							"own-test",
+							"<command started in background with shellId: 42>",
+						),
+						read(),
+						finished(),
+					),
+				).runs,
+			).toHaveLength(1);
+		});
+
+		test.each(
+			[
+				[result("2 pass\n0 fail"), read(), finished()],
+				[call("coord inbox"), started, read(), finished()],
+				[call(), started, read("foreign"), finished()],
+				[call(), started, read(), finished("foreign")],
+				[call(), started, read(), finished("read", "foreign")],
+				[call(), started, finished()],
+				[call(), read(), started, finished()],
+				[call(), started, read("42", "read", 1), finished()],
+				[call(), started, read(), finished("read", "42", 2)],
+				[
+					call(),
+					started,
+					read(),
+					JSON.stringify({
+						type: "tool.execution_complete",
+						data: {
+							toolCallId: "read",
+							success: true,
+							result: {
+								content: "2 passed\n<shellId: 42 completed with exit code 0>",
+							},
+						},
+					}),
+				],
+				[
+					call(),
+					started,
+					read(),
+					nativeResult(
+						"read",
+						JSON.stringify({
+							tool_results: [
+								{
+									recipient_name: "functions.bash",
+									result: "2 passed\n<shellId: 42 completed with exit code 0>",
+								},
+							],
+						}),
+						4,
+					),
+				],
+			].map((frames) => [frames]),
+		)(
+			"rejects unpaired, foreign, non-test, stale or nested read output %#",
+			(frames) => {
+				expect(transcriptEventsFromText(transcript(...frames)).runs).toEqual(
+					[],
+				);
+			},
+		);
+
+		test("failed async execution overrides an earlier pass and consumes its shell", () => {
+			for (const [content, success] of [
+				["2 passed\n<shellId: 42 completed with exit code 1>", true],
+				["2 passed\n<shellId: 42 completed with exit code 0>", false],
+			] as const) {
+				const frames = [
+					call(),
+					result(),
+					call(),
+					started,
+					read(),
+					nativeResult("read", content, 4, success),
+					read("42", "again", 5),
+					finished("again", "42", 6),
+				];
+				const runs = transcriptEventsFromText(transcript(...frames)).runs;
+				expect(runs).toHaveLength(2);
+				expect(runs[1]?.text).toStartWith("0 pass\n1 fail");
+				expect(
+					verdict(
+						...frames,
+						event("assistant.message", { content: "All tests pass." }, 7),
+					).ok,
+				).toBe(false);
+			}
+		});
+
+		test("terminal reads cannot be duplicated or reused after a shell restart/stop", () => {
+			for (const invalidate of [
+				nativeRequest(
+					"reuse",
+					"bash",
+					{ shellId: "42", command: "coord inbox" },
+					4,
+				),
+				nativeRequest("stop", "stop_bash", { shellId: "42" }, 4),
+			]) {
+				expect(
+					transcriptEventsFromText(
+						transcript(call(), started, read(), invalidate, finished()),
+					).runs,
+				).toEqual([]);
+			}
+			expect(
+				transcriptEventsFromText(
+					transcript(
+						call(),
+						started,
+						read(),
+						finished(),
+						read("42", "again", 5),
+						finished("again", "42", 6),
+					),
+				).runs,
+			).toHaveLength(1);
+			expect(
+				transcriptEventsFromText(
+					transcript(
+						call(),
+						started,
+						read(),
+						nativeRequest("new-test", "bash", { command: "bun test" }, 3),
+						nativeResult(
+							"new-test",
+							"<command started in background with shellId: 42>",
+							3,
+						),
+						finished(),
+					),
+				).runs,
+			).toEqual([]);
+		});
+
+		test("unfinished-call tracking is bounded and fails closed", () => {
+			const requests = Array.from({ length: 257 }, (_, i) =>
+				nativeRequest(`pending-${i}`, "bash", { command: "bun test" }),
+			);
+			expect(
+				transcriptEventsFromText(
+					transcript(
+						...requests,
+						finished("pending-0"),
+						finished("pending-256"),
+					),
+				).runs,
+			).toEqual([]);
+		});
+
+		test("native parallel requests pair independently; wrapper/relayed blobs do not run", () => {
+			const requests = event("assistant.message", {
+				toolRequests: [
+					{
+						toolCallId: "own-test",
+						name: "bash",
+						arguments: { command: "bun test" },
+					},
+					{
+						toolCallId: "noise",
+						name: "bash",
+						arguments: { command: "coord inbox" },
+					},
+				],
+			});
+			expect(
+				transcriptEventsFromText(
+					transcript(
+						requests,
+						nativeResult(
+							"noise",
+							"99 pass\n<shellId: 9 completed with exit code 0>",
+						),
+						started,
+						read(),
+						finished(),
+					),
+				).runs,
+			).toHaveLength(1);
+			expect(
+				transcriptEventsFromText(
+					transcript(
+						nativeRequest("wrapper", "multi_tool_use.parallel", {
+							tool_uses: [
+								{
+									recipient_name: "functions.bash",
+									parameters: { command: "bun test" },
+								},
+							],
+						}),
+						nativeResult(
+							"wrapper",
+							JSON.stringify({
+								results: [
+									{
+										content: "2 pass\n<shellId: 42 completed with exit code 0>",
+									},
+								],
+							}),
+						),
+					),
+				).runs,
+			).toEqual([]);
+		});
 	});
 
 	test("task, notification, user and unmatched results cannot supply runs", () => {

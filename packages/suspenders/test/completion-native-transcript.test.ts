@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 
 function nativeCompletion(dialect: string): void {
+	const copilot = dialect.startsWith("copilot");
+	const asyncRead = dialect === "copilot-async";
 	const f = cliFixture(`native-completion-${dialect}`);
 	try {
 		const sid = "custom-completion-owner";
@@ -58,68 +60,94 @@ function nativeCompletion(dialect: string): void {
 		expect(output).toContain("1 pass");
 		const directory = join(
 			f.HOME,
-			dialect === "copilot"
+			copilot
 				? `.copilot/session-state/${native}`
 				: ".codex/sessions/2026/01/01",
 		);
 		mkdirSync(directory, { recursive: true });
 		const transcript = join(
 			directory,
-			dialect === "copilot"
-				? "events.jsonl"
-				: `rollout-2026-01-01T00-00-00-${native}.jsonl`,
+			copilot ? "events.jsonl" : `rollout-2026-01-01T00-00-00-${native}.jsonl`,
 		);
-		const frames =
-			dialect === "copilot"
-				? [
-						{
-							type: "assistant.message",
-							timestamp: began,
-							data: {
-								content: "",
-								toolRequests: [
-									{
-										toolCallId: "real-run",
-										name: "bash",
-										arguments: { command },
-									},
-								],
-							},
-						},
-						{
-							type: "tool.execution_complete",
-							timestamp: new Date().toISOString(),
-							data: {
-								toolCallId: "real-run",
-								success: true,
-								result: {
-									content: `${output}\n<shellId: 1 completed with exit code ${run.exitCode}>`,
+		const frames = copilot
+			? [
+					{
+						type: "assistant.message",
+						timestamp: began,
+						data: {
+							content: "",
+							toolRequests: [
+								{
+									toolCallId: "real-run",
+									name: "bash",
+									arguments: { command },
 								},
+							],
+						},
+					},
+					...(asyncRead
+						? [
+								{
+									type: "tool.execution_complete",
+									timestamp: began,
+									data: {
+										toolCallId: "real-run",
+										success: true,
+										result: {
+											content:
+												"<command with shellId: 1 is still running after 30 seconds.>",
+										},
+									},
+								},
+								{
+									type: "assistant.message",
+									timestamp: began,
+									data: {
+										toolRequests: [
+											{
+												toolCallId: "real-read",
+												name: "read_bash",
+												arguments: { shellId: "1", delay: 120 },
+											},
+										],
+									},
+								},
+							]
+						: []),
+					{
+						type: "tool.execution_complete",
+						timestamp: new Date().toISOString(),
+						data: {
+							toolCallId: asyncRead ? "real-read" : "real-run",
+							success: true,
+							result: {
+								content: `${output}\n<shellId: 1 completed with exit code ${run.exitCode}>`,
 							},
 						},
-					]
-				: [
-						{ type: "session_meta", payload: { id: native, cwd: f.REPO } },
-						{
-							type: "response_item",
-							timestamp: began,
-							payload: {
-								type: "custom_tool_call",
-								name: "exec",
-								call_id: "real-run",
-								input: `text(await tools.exec_command({cmd:${JSON.stringify(command)}}));`,
-							},
+					},
+				]
+			: [
+					{ type: "session_meta", payload: { id: native, cwd: f.REPO } },
+					{
+						type: "response_item",
+						timestamp: began,
+						payload: {
+							type: "custom_tool_call",
+							name: "exec",
+							call_id: "real-run",
+							input: `text(await tools.exec_command({cmd:${JSON.stringify(command)}}));`,
 						},
-						{
-							type: "response_item",
-							timestamp: new Date().toISOString(),
-							payload: {
-								type: "custom_tool_call_output",
-								call_id: "real-run",
-								output: [{ type: "text", text: `Script completed\n${output}` }],
-							},
+					},
+					{
+						type: "response_item",
+						timestamp: new Date().toISOString(),
+						payload: {
+							type: "custom_tool_call_output",
+							call_id: "real-run",
+							output: [{ type: "text", text: `Script completed\n${output}` }],
 						},
-					];
+					},
+				];
 		writeFileSync(
 			transcript,
 			`${frames.map((row) => JSON.stringify(row)).join("\n")}\n`,
@@ -191,5 +219,11 @@ test("custom Fleet SID completion uses only its project-bound native transcript"
 test(
 	"custom Fleet SID completion uses only its project-bound Copilot events",
 	() => nativeCompletion("copilot"),
+	20_000,
+);
+
+test(
+	"custom Fleet SID completion accepts own Copilot asynchronous test evidence",
+	() => nativeCompletion("copilot-async"),
 	20_000,
 );

@@ -21,6 +21,7 @@
 // failures skip a path. Completion callers cannot disable this evidence check.
 import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { CopilotTestEvidence } from "./copilot-test-evidence.ts";
 
 /** transcript scan window — bounded tail, never the unbounded file. */
 export const CLAIM_CHECK_SCAN_BYTES = 8 * 1024 * 1024;
@@ -54,19 +55,6 @@ const TEST_CMD_RE = new RegExp(
 );
 const DIRECT_TEST_START =
 	/^(?:bun|npm|yarn|pnpm)\s+(?:run\s+)?test\b|^(?:vitest|jest|pytest)\b|^node\s+--test\b|^cargo\s+test\b|^go\s+test\b/i;
-
-/** Native bash may change cwd first, but must directly execute the test.
- * Mentions in echo/inbox commands and shell-computed commands are not runs. */
-const copilotInitiatedTest = (source: string): boolean => {
-	const command = source
-		.trim()
-		.replace(/^cd\s+(?:"[^"]+"|'[^']+'|[^\s"';&|]+)\s*&&\s*/, "");
-	return (
-		!/[`$<>\r\n]/.test(source) &&
-		!/[;&|]/.test(command) &&
-		DIRECT_TEST_START.test(command)
-	);
-};
 
 /** The Codex functions.exec script must directly invoke one test command.
  * A relayed inbox message or a script that merely mentions "bun test" is
@@ -143,7 +131,8 @@ const toolResultText = (c: ContentPart): string => {
 /** Extract claim events (assistant prose only) and run events (only from
  *  results of assistant-initiated test invocations — W917 origin gate) from
  *  Claude/Codex transcript JSONL or native Copilot events.jsonl. Copilot
- *  requires a timestamped bash request and its successful terminal result;
+ *  requires a timestamped bash request and its successful terminal result
+ *  (directly or through an own shellId-linked read_bash continuation);
  *  failed terminal results supersede earlier passes. Untimestamped lines drop. */
 export function transcriptEventsFromText(text: string): TranscriptEvents {
 	const out: TranscriptEvents = { claims: [], runs: [] };
@@ -155,7 +144,7 @@ export function transcriptEventsFromText(text: string): TranscriptEvents {
 	// unpaired or non-test results are foreign noise and drop.
 	const initiated = new Map<string, boolean>();
 	const codexInitiated = new Map<string, boolean>();
-	const copilotInitiated = new Map<string, number>();
+	const copilot = new CopilotTestEvidence();
 	for (const lineOf of text.split("\n")) {
 		if (lineOf.length < 2) continue;
 		let obj: Record<string, unknown>;
@@ -178,33 +167,11 @@ export function transcriptEventsFromText(text: string): TranscriptEvents {
 				if (Array.isArray(data.toolRequests))
 					for (const request of data.toolRequests) {
 						if (!request || typeof request !== "object") continue;
-						const { toolCallId, name, arguments: args } = request;
-						if (typeof toolCallId !== "string" || !toolCallId) continue;
-						copilotInitiated.delete(toolCallId);
-						if (
-							name === "bash" &&
-							typeof args?.command === "string" &&
-							copilotInitiatedTest(args.command)
-						)
-							copilotInitiated.set(toolCallId, ts);
+						copilot.request(request, ts);
 					}
 			} else {
-				const id = data.toolCallId;
-				if (typeof id !== "string") continue;
-				const began = copilotInitiated.get(id);
-				copilotInitiated.delete(id);
-				if (!began || ts < began) continue;
-				const result = data.result as { content?: unknown } | undefined;
-				const content =
-					typeof result?.content === "string" ? result.content : "";
-				const exit =
-					/<shellId: [^\n>]+ completed with exit code (\d+)>\s*$/.exec(content);
-				if (data.success !== true || (exit && exit[1] !== "0"))
-					// A failed invocation must supersede any earlier green result,
-					// even when its partial output still contains passing counts.
-					keep({ ts, text: `0 pass\n1 fail\n${content}` }, out.runs);
-				else if (exit && runCounts(content))
-					keep({ ts, text: content }, out.runs);
+				const run = copilot.complete(data, ts);
+				if (run && runCounts(run.text)) keep(run, out.runs);
 			}
 			continue;
 		}
