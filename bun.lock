@@ -47,10 +47,13 @@
     "packages/blam": {
       "name": "@klh/blam",
       "version": "2.0.0",
+      "bin": {
+        "blam-label": "tools/label.ts",
+      },
       "devDependencies": {
-        "@klh/belt": "workspace:*",
-        "@klh/buckle": "workspace:*",
-        "@klh/suspenders": "workspace:*",
+        "@klh/belt": "2.0.0",
+        "@klh/buckle": "2.0.0",
+        "@klh/suspenders": "2.0.0",
       },
     },
     "packages/buckle": {
@@ -59,6 +62,7 @@
       "dependencies": {
         "@klh/blam": "workspace:*",
         "p-queue": "^9.3.3",
+        "zod": "^4.0.0",
       },
       "devDependencies": {
         "@anthropic-ai/sdk": "^1.1.0",
@@ -76,6 +80,13 @@
     "packages/local": {
       "name": "@klh/local",
       "version": "2.0.0",
+      "bin": {
+        "klh-local": "bin/klh-local.ts",
+        "dashboard": "bin/dashboard.ts",
+      },
+      "dependencies": {
+        "lit": "3.3.3",
+      },
     },
     "packages/local-llm": {
       "name": "@klh/local-llm",
@@ -84,12 +95,15 @@
     "packages/speedy": {
       "name": "@klh/speedy",
       "version": "2.0.0",
+      "bin": {
+        "install-fleet": "bin/install-fleet.ts",
+        "quiet-output": "bin/quiet-output.ts",
+      },
       "dependencies": {
-        "shell-quote": "^1.12.0",
-        "yaml": "^2.9.1",
+        "shell-quote": "1.12.0",
       },
       "devDependencies": {
-        "lit": "^3.3.3",
+        "lit": "3.3.3",
       },
     },
     "packages/suspenders": {
@@ -363,8 +377,6 @@
     "which-command": ["which-command@0.1.0", "", { "bin": { "which-command": "cli.js" } }, "sha512-XZyoF5/5hZtXitIwzrU4NKK+Wtbb9aB9CezUEw2Q0wlYK8NUYQxC1rRXgNueYLtBAJwXIb+/tFVk4dozciNJMA=="],
 
     "xdg-basedir": ["xdg-basedir@5.1.0", "", {}, "sha512-GCPAHLvrIH13+c0SuacwvRYj2SxJXQ4kaVTT5xgL3kPrz56XxkF21IGhjSE1+W0aw7gpBWRGXLCPnPby6lSpmQ=="],
-
-    "yaml": ["yaml@2.9.1", "", { "bin": { "yaml": "bin.mjs" } }, "sha512-3NxN8+78OdzbT7C/WjGsyfPAtJaN3FNDsWxv7Y7mcDsT/oOmgW8BpyQQFFBnvZE3j9Y2Sdz1ULFLezL7Eb2yFw=="],
 
     "yoctocolors": ["yoctocolors@2.2.0", "", {}, "sha512-xYqdZFUK/VYazNl/oCDYN+3WloWQwMfZxBoiNt6qNyk+xfOdi598muWE42rNZFp1kNOiqW936q5RhUdnpqElSg=="],
 

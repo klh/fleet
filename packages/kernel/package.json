@@ -6,6 +6,11 @@
 	"license": "SEE LICENSE IN LICENSE",
 	"private": true,
 	"engines": {
-		"bun": ">=1.2"
-	}
+		"bun": "1.4.2"
+	},
+	"exports": {
+		"./src/*": "./src/*",
+		"./package.json": "./package.json"
+	},
+	"files": ["src", "AGENTS.md"]
 }
