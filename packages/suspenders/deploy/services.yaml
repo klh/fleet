@@ -337,3 +337,7 @@ legacyLabels:
   # W1256.1 — speedy's hand-installed daily-analyst agent, superseded by the
   # claude-insights service above (same 06:43 calendar, manifest-owned)
   - com.klh.claude-insights
+  # W1467 — speedy install-fleet's hand-written :4101 shadow unit (the
+  # ~/.claude/buckle copy); superseded by the buckle-spoke service above,
+  # which owns :4101 behind the activation fence
+  - com.klh.buckle

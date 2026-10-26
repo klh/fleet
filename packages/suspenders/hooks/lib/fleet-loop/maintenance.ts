@@ -8,6 +8,8 @@
 // here. Duplicates of today's StartInterval/StartCalendarInterval units are
 // impossible by construction: the retired labels ride the services.yaml
 // legacyLabels boot-out list, so install --with-launchd unloads them.
+// test/maintenance-legacy-drift.test.ts (W1256.1) gates the pairing: a new
+// task is either folded (label on legacyLabels) or listed heartbeat-born.
 //
 // Semantics kept from the launchd era:
 //   everySeconds ≥ cadence spacing (fire when now-last ≥ every, launchd

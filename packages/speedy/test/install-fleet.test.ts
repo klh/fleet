@@ -18,6 +18,7 @@ import {
 	firstPolicyPull,
 	type HubIO,
 	hubAsk,
+	manifestUnit,
 	withFleetCheckout,
 	writeStandaloneHubConfig,
 } from "../bin/install-fleet.ts";
@@ -288,13 +289,35 @@ test("plan: markers flip to present — skip; --only trims the plan", () => {
 	writeFileSync(`${h}/.claude/hooks/suspenders/bin/work.ts`, "export {}\n");
 	const plan = buildPlan(FULL_FLAGS);
 	expect(plan.find((s) => s.phase === "belt")?.state).toBe("present — skip");
-	expect(plan.find((s) => s.phase === "buckle")?.state).toBe("present — skip");
+	// W1467: a stale ~/.claude/buckle copy never flips buckle — manifest-owned
+	expect(plan.find((s) => s.phase === "buckle")?.state).toBe("verify");
 	expect(plan.find((s) => s.phase === "suspenders")?.state).toBe(
 		"present — skip",
 	);
 	const only = buildPlan({ ...FULL_FLAGS, only: "buckle" });
 	expect(only.map((s) => s.phase)).toEqual(["buckle"]);
 	expect(h).toBe(SANDBOX);
+});
+
+test("W1467: manifestUnit reads the buckle label from deploy/services.yaml", () => {
+	bareHome();
+	const root = join(REPO, "..", "..");
+	expect(manifestUnit(root, "buckle-spoke")).toEqual({
+		label: "com.suspenders.buckle-spoke",
+		port: 4101,
+	});
+	expect(manifestUnit(root, "no-such-service")).toBeNull();
+});
+
+test("W1467: --only buckle hand-writes no plist and copies no buckle tree", () => {
+	const h = bareHome();
+	const r = runCli(["--only", "buckle"], h);
+	expect(r.code).toBe(0);
+	expect(r.out).toContain(
+		"com.suspenders.buckle-spoke :4101 owned by deploy/services.yaml",
+	);
+	expect(existsSync(`${h}/Library/LaunchAgents`)).toBe(false);
+	expect(existsSync(`${h}/.claude/buckle`)).toBe(false);
 });
 
 test("plan: fresh home → install states, deterministic (idempotency)", () => {
