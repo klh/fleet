@@ -17,6 +17,8 @@
 		"lit": "^3.3.3"
 	},
 	"devDependencies": {
+		"@klh/suspenders": "workspace:*",
+		"@playwright/test": "1.63.0",
 		"yaml": "^2.9.1"
 	}
 }
