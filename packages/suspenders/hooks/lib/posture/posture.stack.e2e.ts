@@ -1,4 +1,5 @@
 import {
+	existsSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
@@ -9,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
+	migrateStackPostureConfig,
 	readStackPostureConfig,
 	saveStackPostureSelection,
 	writeStackPostureConfig,
@@ -51,6 +53,10 @@ test("absence is not a generated default or an implicit migration", {
 	expect(() =>
 		saveStackPostureSelection(path, document.selection, snapshot.revision),
 	).toThrow("has not been migrated");
+	expect(() =>
+		writeStackPostureConfig(path, document, snapshot.revision),
+	).toThrow("use migrateStackPostureConfig");
+	expect(existsSync(`${path}.pre-postures.bak.json`)).toBe(false);
 	expect(readFileSync(path, "utf8")).toBe(before);
 });
 
@@ -58,20 +64,24 @@ test("embeds postures without replacing machine topology or extensions", {
 	tag: "@unit",
 }, () => {
 	const snapshot = readStackPostureConfig(path);
-	const saved = writeStackPostureConfig(path, document, snapshot.revision);
+	const migrated = migrateStackPostureConfig(path, document, snapshot.revision);
+	const backupPath = `${path}.pre-postures.bak.json`;
+	const backup = readFileSync(backupPath, "utf8");
+	const saved = writeStackPostureConfig(path, document, migrated.revision);
 	expect(saved.document).toEqual(document);
 	expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
 		...stack,
 		postures: document,
 	});
 	expect(statSync(path).mode & 0o777).toBe(0o600);
+	expect(readFileSync(backupPath, "utf8")).toBe(backup);
 });
 
 test("selection persists while all definitions and stack fields survive", {
 	tag: "@unit",
 }, () => {
 	const initial = readStackPostureConfig(path);
-	const before = writeStackPostureConfig(path, document, initial.revision);
+	const before = migrateStackPostureConfig(path, document, initial.revision);
 	const selection = { ...document.selection, posture: "paused" };
 	const saved = saveStackPostureSelection(path, selection, before.revision);
 	expect(readStackPostureConfig(path)).toEqual(saved);
@@ -85,7 +95,7 @@ test("an unrelated machine config edit invalidates a selection preview", {
 	tag: "@unit",
 }, () => {
 	const initial = readStackPostureConfig(path);
-	const before = writeStackPostureConfig(path, document, initial.revision);
+	const before = migrateStackPostureConfig(path, document, initial.revision);
 	const changed = { ...stack, version: "new-ref", postures: document };
 	const bytes = JSON.stringify(changed);
 	writeFileSync(path, bytes);

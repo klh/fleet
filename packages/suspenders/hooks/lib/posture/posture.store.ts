@@ -144,6 +144,10 @@ export function writeStackPostureConfig(
 	return withFileLock(target, () => {
 		const current = readStackEnvelope(path);
 		assertRevisionValue(path, current.snapshot.revision, expectedRevision);
+		if (!current.snapshot.document)
+			throw new Error(
+				`${path}:postures: configuration has not been migrated; use migrateStackPostureConfig to preserve the original`,
+			);
 		writeJsonConf(target, { ...current.envelope, postures: checked });
 		return readStackPostureConfig(path);
 	});
