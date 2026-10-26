@@ -21,6 +21,7 @@
 // failures skip a path. Completion callers cannot disable this evidence check.
 import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { CopilotTestEvidence } from "./copilot-test-evidence.ts";
 
 /** transcript scan window — bounded tail, never the unbounded file. */
 export const CLAIM_CHECK_SCAN_BYTES = 8 * 1024 * 1024;
@@ -52,7 +53,7 @@ const TEST_CMD_RE = new RegExp(
 	),
 	"i",
 );
-const CODEX_TEST_START =
+const DIRECT_TEST_START =
 	/^(?:bun|npm|yarn|pnpm)\s+(?:run\s+)?test\b|^(?:vitest|jest|pytest)\b|^node\s+--test\b|^cargo\s+test\b|^go\s+test\b/i;
 
 /** The Codex functions.exec script must directly invoke one test command.
@@ -71,7 +72,7 @@ const codexInitiatedTest = (source: string): boolean => {
 	} catch {
 		return false;
 	}
-	return CODEX_TEST_START.test(command.trim()) && !/[;&|`]/.test(command);
+	return DIRECT_TEST_START.test(command.trim()) && !/[;&|`]/.test(command);
 };
 
 /** a test-pass claim in lane prose (negations in the preceding window void it). */
@@ -129,7 +130,10 @@ const toolResultText = (c: ContentPart): string => {
 
 /** Extract claim events (assistant prose only) and run events (only from
  *  results of assistant-initiated test invocations — W917 origin gate) from
- *  transcript JSONL text. Untimestamped lines drop. */
+ *  Claude/Codex transcript JSONL or native Copilot events.jsonl. Copilot
+ *  requires a timestamped bash request and its successful terminal result
+ *  (directly or through an own shellId-linked read_bash continuation);
+ *  failed terminal results supersede earlier passes. Untimestamped lines drop. */
 export function transcriptEventsFromText(text: string): TranscriptEvents {
 	const out: TranscriptEvents = { claims: [], runs: [] };
 	const keep = (ev: ClaimEvent, into: ClaimEvent[]): void => {
@@ -140,6 +144,7 @@ export function transcriptEventsFromText(text: string): TranscriptEvents {
 	// unpaired or non-test results are foreign noise and drop.
 	const initiated = new Map<string, boolean>();
 	const codexInitiated = new Map<string, boolean>();
+	const copilot = new CopilotTestEvidence();
 	for (const lineOf of text.split("\n")) {
 		if (lineOf.length < 2) continue;
 		let obj: Record<string, unknown>;
@@ -149,6 +154,27 @@ export function transcriptEventsFromText(text: string): TranscriptEvents {
 			continue;
 		}
 		const ts = Date.parse(String(obj.timestamp ?? "")) || 0;
+		if (
+			obj.type === "assistant.message" ||
+			obj.type === "tool.execution_complete"
+		) {
+			if (ts <= 0) continue;
+			const data = obj.data as Record<string, unknown> | undefined;
+			if (!data || typeof data !== "object") continue;
+			if (obj.type === "assistant.message") {
+				if (typeof data.content === "string" && isClaim(data.content))
+					keep({ ts, text: data.content }, out.claims);
+				if (Array.isArray(data.toolRequests))
+					for (const request of data.toolRequests) {
+						if (!request || typeof request !== "object") continue;
+						copilot.request(request, ts);
+					}
+			} else {
+				const run = copilot.complete(data, ts);
+				if (run && runCounts(run.text)) keep(run, out.runs);
+			}
+			continue;
+		}
 		const payload = obj.payload as Record<string, unknown> | undefined;
 		if (obj.type === "response_item" && payload) {
 			if (payload.type === "custom_tool_call" && payload.name === "exec") {
