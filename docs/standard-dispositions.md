@@ -29,7 +29,7 @@ P1–P6.
 | 7 | HTTP kit | `@paas/http`: ETag/If-Match, Idempotency-Key, problem+json, shed, deadline | No kit: URLPattern 0, Idempotency-Key 0, problem+json 0, Retry-After unclamped | GAP (two kits) | W1303.2 · W1303.3 |
 | 8 | Test framework | `@playwright/test` only, every test | bun:test (~458 suites in suspenders alone) + Playwright for e2e | ACCEPTED-DIVERGENCE | — |
 | 9 | One version | npm fixed-mode: every manifest bumps together, tagged | `stack.json` `version:` pins buckle+suspenders+belt (config-level pin) | ACCEPTED-DIVERGENCE (pipeline part GAP) | W1303.6 |
-| 10 | Review usefulness | Round cap 3; incidents become evals, rescored on reviewer change; measure human time, revert/incident rate as guardrail | Review scheduler enforces the round cap; W792 arena scores incident tasks (no add-on-revert trigger, no rescore); W846 measures decision latency (no approvals metric, no guardrail) | SPLIT: round cap LANDED (`4bfc1839`) · incidents→evals GAP · human-time GAP | W1303.7 · W1476 · W1477 |
+| 10 | Review usefulness | Round cap 3; incidents become evals, rescored on reviewer change; measure human time, revert/incident rate as guardrail | Review scheduler enforces the round cap; W792 arena scores incident tasks (no add-on-revert trigger, no rescore); pilot-measure reports approvals + person-wait per landing and revert/incident rates; the tier-tightening guardrail is wired but unconfigured | SPLIT: round cap LANDED (`4bfc1839`) · incidents→evals GAP · human-time LANDED (`53d4758f`; thresholds = owner NEED_DECISION #78563) | W1303.7 · W1476 · W1477 |
 
 ## Rationale per row
 
@@ -144,7 +144,7 @@ no pipeline guarantees it. W1303.6 (P6) lands the release verb (bump all
 package.json versions in one commit, rewrite `@klh/*` pins, tag, render the
 stack hint) with dry-run and tests.
 
-### 10 · Review usefulness mechanics — SPLIT: round cap LANDED, evals + human time GAP
+### 10 · Review usefulness mechanics — SPLIT: round cap + human time LANDED, evals GAP
 
 The standard's "Keeping review useful" section carries three mechanics that
 the W1303.5 tiers/CODEOWNERS/PR template do not cover; each is dispositioned
@@ -168,12 +168,17 @@ on its own, so the row never reads LANDED wholesale.
   (`packages/belt/bench/arena/review-incident.ts`) and the blam incident
   set. Missing: the trigger (a revert or incident on main adds a case) and
   the rescore (a reviewer prompt, model or tool change reruns the set).
-- **Measure human time — GAP (W1477).** Exists: W846 pilot-measure reports
-  NEED_DECISION emit→settle latency (p50/p90) and per-item human minutes
-  (`packages/belt/bench/pilot-measure.ts`). Missing: approvals per landing
-  (no human-approval connector exists — `how-to-review.md`, W1130) and the
-  revert/incident-rate guardrail that tightens the tiers; its threshold is
-  an owner decision.
+- **Measure human time — LANDED (W1477, `53d4758f`); the guardrail
+  thresholds are an owner decision (NEED_DECISION #78563).** pilot-measure's
+  `review` block (`packages/belt/bench/review-guardrail.ts`) covers the
+  `work.landed` window: approvals and person-wait per landing (settled
+  NEED_DECISION answers on landed items — the proxy, since no human-approval
+  connector exists: `how-to-review.md`, W1130), the revert rate (git revert
+  commits, C156 markers shared with W1476) and the incident rate
+  (incident-tagged landed items, counted by root). The tier action — tighten
+  one step when a rate exceeds its max — reads the machine conf
+  `~/.config/klh/review-guardrail.json` and reports `unconfigured`, action
+  disabled, until the owner sets it; the code carries no default threshold.
 
 ## Already aligned (no disposition needed)
 

@@ -1020,3 +1020,21 @@ pacing authority per wait — the pool's notBefore already embeds Retry-After
 via lease feedback); kit-only Retry-After is clamped by retryAfterCapMs.
 Unit fixture, scheduler-timed — retain the wait-origin split, not the
 milliseconds.
+
+## Review guardrail baseline — pilot-measure review block (W1477, 2026-10-26; live ledgers, n = 245 landings)
+
+Decision the row supports: which owner thresholds the review guardrail can
+carry today (NEED_DECISION #78563), and which tasks feed a retrospective
+measurement must read. Window = the `work.landed` era, 2026-10-22T19:59Z →
+2026-10-26T22:02Z (`bun packages/belt/bench/pilot-measure.ts`, `review:` line).
+
+| Signal | Measured | What it decides |
+| --- | --- | --- |
+| revert rate | 0 of 245 — the repo's reverts predate the window | `revert_rate_max` has no live signal yet |
+| incident rate (roots) | 0.0449 — 11 incident roots | the one signal a threshold can trip on today |
+| approvals per landing | 0.0082 — 2 settled NEED_DECISIONs on 1 item; wait 0.5 min | proxy too thin to gate on; needs an approval ledger |
+| fleet DONE rows in the tasks feed | bare 12 vs `?done=all&project=` 1771 | measurement reads the scoped feed (W682 trims the bare one) |
+
+One window, one repo. Incidents count incident-tagged items that landed, by
+root; approvals are the NEED_DECISION proxy (no human-approval record on
+main); the decisions feed caps at 200 rows (floor 2026-10-07).

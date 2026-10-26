@@ -266,3 +266,22 @@ target (coordinator evidence #69199, minted as W1273).
   notBefore already embeds Retry-After via lease feedback (W1078), so
   exactly one layer waits; kit-only paths still clamp Retry-After
   (30 s demand → retryAfterCapMs).
+- **Approvals per landing from today's ledgers (W1477)** — main records no
+  human approvals (W1130 receipts are machine checks), so settled
+  NEED_DECISION answers on landed items are the only proxy: 2 approvals on 1
+  item across 245 landings (0.0082 per landing, 2026-10-22 → 2026-10-26) —
+  how rarely lanes ask, not how much humans review. Kept as a declared proxy;
+  the real signal is W1308's signed approve-merge ledger, not on main as of
+  2026-10-26.
+- **Retrospective counts from the board's bare `/api/tasks` (W1477)** — since
+  W682 (2026-10-19) the bare feed keeps the newest 12 DONE rows per project
+  (fleet: 12 vs 1771 on 2026-10-26), so window counts silently undercount.
+  Replaced by: `?done=all&project=<identity>`.
+- **`git rev-list --first-parent --ancestry-path R..HEAD` to find the merge
+  that landed R (W1477)** — empty for any branch commit that was not the
+  branch tip. Replaced by: the plain `--ancestry-path R..HEAD` list
+  intersected with `rev-list --first-parent HEAD`; the oldest hit is the
+  first-parent commit that brought R in.
+- **git `--since`/`--until` bounds in year 2100 or later (W1477)** — git
+  2.55 returns no commits, exit 0, no error. Replaced by: open-ended bounds
+  near now (now + 1 day).

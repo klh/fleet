@@ -520,6 +520,37 @@ test.describe("buildReview", () => {
 		);
 	});
 
+	test("a revert-class C156 row carries its incident root too @unit", () => {
+		const p = "/repo/.git";
+		const landed = { project: p, work: "W5", commit: "m5" };
+		// C156: a landing with reverts banks class revert only; its root rides along
+		const row = {
+			project: p,
+			class: "revert",
+			commit: "r5",
+			reverts: "d".repeat(40),
+			work: "W5",
+			incident: "W4",
+			case: "W6",
+		};
+		const review = buildReview({
+			project: p,
+			sinceMs: 0,
+			untilMs: 10_000,
+			events: [
+				{ id: 1, ts: 1000, kind: "work.landed", payload: landed },
+				{ id: 2, ts: 2000, kind: "review.incident", payload: row },
+			],
+			decisions: [],
+			tasks: [],
+			commits: [],
+			conf: { path: "/c", config: null, error: null },
+		});
+		expect(review.reverts.rows.map((r) => r.commit)).toEqual(["r5"]);
+		expect(review.incidents.rows.map((r) => r.incident)).toEqual(["W4"]);
+		expect(review.incidents.rows[0].commit).toBe("r5");
+	});
+
 	test("no landings: null rates and no verdict, even with thresholds @unit", () => {
 		const review = buildReview({
 			project: "/repo/.git",
@@ -612,7 +643,7 @@ test.describe("loadGuardrailConf", () => {
 });
 
 test.describe("gitRevertCommits (real git)", () => {
-	test("a revert yields one row, a hand revert keeps null, Reapply yields none @unit", () => {
+	test("named and hand reverts row, Reapply and branch-internal undos do not @unit", () => {
 		const dir = mkdtempSync(join(tmpdir(), "w1477-git-"));
 		try {
 			const env = {
@@ -653,16 +684,29 @@ test.describe("gitRevertCommits (real git)", () => {
 				]).status,
 			).toBe(0);
 			// git's date parser rejects years >= 2100 — keep the bound near now
-			const records = gitRevertCommits(
-				dir,
-				"2000-01-01T00:00:00Z",
-				new Date(Date.now() + 86_400_000).toISOString(),
-			);
+			const until = new Date(Date.now() + 86_400_000).toISOString();
+			const records = gitRevertCommits(dir, "2000-01-01T00:00:00Z", until);
 			expect(records.length).toBe(3);
 			const rows = revertRows(records);
 			expect(rows.map((r) => r.work)).toEqual(["W8", "W7"]);
 			expect(rows[0].reverts).toBeNull();
 			expect(rows[1].reverts).toBe(landed);
+			// a lane undoes its own commit (not its tip), then reverts landed W7;
+			// only the second survives the --no-ff landing (C156 landing rule)
+			expect(git(["switch", "-q", "-c", "side"]).status).toBe(0);
+			writeFileSync(join(dir, "b.txt"), "1\n");
+			expect(git(["add", "b.txt"]).status).toBe(0);
+			expect(git(["commit", "-q", "-m", "W9: add b"]).status).toBe(0);
+			expect(git(["revert", "--no-edit", "HEAD"]).status).toBe(0);
+			expect(git(["revert", "--no-edit", landed]).status).toBe(0);
+			expect(git(["switch", "-q", "main"]).status).toBe(0);
+			expect(git(["merge", "-q", "--no-ff", "--no-edit", "side"]).status).toBe(
+				0,
+			);
+			const merged = revertRows(
+				gitRevertCommits(dir, "2000-01-01T00:00:00Z", until),
+			);
+			expect(merged.map((r) => r.work).sort()).toEqual(["W7", "W7", "W8"]);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}

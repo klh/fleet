@@ -45,6 +45,16 @@ Fleet-specific high-risk tells: anything that could leak a host, key, or user pa
 keyed, or priced; anything weakening a gate. A change that edits the referee gets
 the strictest review.
 
+**When review misses, the tiers tighten.** Human time is measured with reverts and
+incidents as the guardrail (W1477): `bun packages/belt/bench/pilot-measure.ts` prints
+approvals and person-wait per landing plus the revert and incident rates over the
+`work.landed` window. When a rate exceeds the owner's max, each tier reviews one step
+up — Low as Medium, Medium as High; High stays. The thresholds are the owner's call,
+kept in the machine conf `~/.config/klh/review-guardrail.json`
+(`{revert_rate_max, incident_rate_max, min_landings, decision}`). Absent, the action
+reports `unconfigured` and stays disabled; the code carries no default. The shifted
+tier map lands in `pilot-summary.json` — no merge gate consumes it yet.
+
 ## How to review agent-produced code
 
 1. **Verify the verification.** Ask what ran, not whether it passed. Real command,

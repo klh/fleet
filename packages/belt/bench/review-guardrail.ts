@@ -416,7 +416,8 @@ export function evaluateGuardrail(
 }
 
 /** W1476's review.incident rows (C156) fold in, deduped against the git scan
- * by commit (reverts) and by root (incidents). */
+ * by commit (reverts) and by root (incidents). A landing with reverts banks
+ * class revert only, so the incident root rides either class. */
 function foldIncidentEvents(
 	events: BoardEvent[],
 	project: string,
@@ -438,7 +439,7 @@ function foldIncidentEvents(
 				subject: text(p.subject) ?? "",
 				ts: e.ts,
 			});
-		if (p.class === "incident" && root && !incidents.has(root))
+		if (root && !incidents.has(root))
 			incidents.set(root, {
 				incident: root,
 				work: text(p.work) ?? root,
@@ -573,8 +574,40 @@ export async function fetchEvents(
 	return kept;
 }
 
+function gitLines(repo: string, args: string[]): string[] {
+	const out = spawnSync("git", ["-C", repo, ...args], { encoding: "utf8" });
+	return (out.stdout ?? "").split("\n").filter(Boolean);
+}
+
+/** C156 landing rule (W1476 revertLandings): a named revert counts only when
+ * its target sat on the integration line before the revert landed, i.e. in
+ * the pre-merge head of the first-parent commit that brought it in. Exit 1
+ * from `merge-base --is-ancestor` = branch-internal undo, dropped; an
+ * unknown object keeps the revert. --first-parent --ancestry-path misses
+ * non-tip branch commits, hence the intersection with the first-parent set. */
+function landedRevert(
+	repo: string,
+	firstParent: ReadonlySet<string>,
+	commit: string,
+	target: string,
+): boolean {
+	const landing = firstParent.has(commit)
+		? commit
+		: gitLines(repo, ["rev-list", "--ancestry-path", `${commit}..HEAD`])
+				.filter((c) => firstParent.has(c))
+				.at(-1);
+	if (!landing) return true;
+	const check = spawnSync(
+		"git",
+		["-C", repo, "merge-base", "--is-ancestor", target, `${landing}^1`],
+		{ encoding: "utf8" },
+	);
+	return check.status !== 1;
+}
+
 /** Revert candidates on the integration line (HEAD of the common dir — the
- * gitAcceptance convention): git --grep pre-filters, classifyRevert decides. */
+ * gitAcceptance convention): git --grep pre-filters, classifyRevert decides,
+ * landedRevert drops branch-internal undos. */
 export function gitRevertCommits(
 	repo: string,
 	since: string,
@@ -596,7 +629,13 @@ export function gitRevertCommits(
 		],
 		{ encoding: "utf8" },
 	);
-	return parseGitRecords(log.stdout ?? "");
+	const firstParent = new Set(
+		gitLines(repo, ["rev-list", "--first-parent", "HEAD"]),
+	);
+	return parseGitRecords(log.stdout ?? "").filter((r) => {
+		const target = classifyRevert(r.subject, r.body)?.reverts;
+		return !target || landedRevert(repo, firstParent, r.commit, target);
+	});
 }
 
 /** Machine conf → GuardrailConf: absent = unconfigured, broken = invalid. */
