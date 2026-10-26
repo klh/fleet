@@ -10,6 +10,7 @@ import { basename, join } from "node:path";
 import { z } from "zod";
 import type { GatewayPolicy } from "../../../buckle/src/policy.ts";
 import { readJsonConfEither } from "./kernel-conf.ts";
+import { PostureDocumentSchema } from "./posture/posture.zod.ts";
 
 // ─── W1303.4 schema-first: zod is THE definition of the stack conf shape ──
 // JSON.parse stays the ONE parser (W1253 Amendment A); these schemas type
@@ -270,6 +271,7 @@ export const StackConfigSchema = z
 		/** The stack version: ONE string pins buckle+suspenders+belt — the
 		 *  ref every repo sidecar pulls. Absent = main (dev posture). */
 		version: z.string().optional(),
+		postures: PostureDocumentSchema.optional(),
 		hubs: z.record(z.string(), HubProfileSchema),
 		/** W372 auth posture (scoped tokens + Entra/OIDC — machine file only). */
 		auth: StackAuthSchema.optional(),
