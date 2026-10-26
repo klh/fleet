@@ -14,6 +14,9 @@ import {
 	CLAUDE_ALLOWED_TOOLS,
 	workerManagedArgs,
 } from "../hooks/lib/executors/claude.ts";
+import { codexRideArgs } from "../hooks/lib/executors/codex.ts";
+import { laneRideOf } from "../scripts/lib/lane-ride.ts";
+import { servesWire, wirePick } from "../scripts/lib/lane-wire.ts";
 import {
 	DEFAULT_ALLOWED_TOOLS,
 	executorLaunch,
@@ -196,5 +199,108 @@ describe("W1121 claude lane permission recipe", () => {
 		expect(rows).toContain("Edit");
 		expect(rows).toContain("Write");
 		expect(rows.filter((r) => r === "Bash")).toEqual([]);
+	});
+});
+
+// W1712: executor ↔ model wire compatibility (mocked endpoint unions — the
+// live capability join is W1711's; unknown never refuses or re-selects).
+describe("W1712 wire-aware executor selection", () => {
+	const RESPONSES_ONLY = async () => ["/v1/responses"];
+	const CHAT_ONLY = async () => ["/v1/chat/completions"];
+	const UNKNOWN = async () => null;
+
+	test("adapters declare the wire their CLI speaks", () => {
+		expect(adapterForExact("claude")?.wire).toBe("messages");
+		expect(adapterForExact("codex")?.wire).toBe("responses");
+		expect(adapterForExact("copilot")?.wire).toBe("chat");
+	});
+
+	test("servesWire: Buckle bridges messages↔chat, never into responses", () => {
+		expect(servesWire(["/v1/chat/completions"], "messages")).toBe(true);
+		expect(servesWire(["/v1/messages"], "chat")).toBe(true);
+		expect(servesWire(["/v1/responses"], "messages")).toBe(false);
+		expect(servesWire(["/v1/responses"], "chat")).toBe(false);
+		expect(servesWire(["/v1/chat/completions"], "responses")).toBe(false);
+		expect(servesWire(["/v1/responses"], "responses")).toBe(true);
+		expect(servesWire(null, "messages")).toBeNull();
+	});
+
+	test("a defaulted claude pin on a Responses-only model moves to codex, same model", async () => {
+		const pick = { bin: "claude", model: "gpt-6.1-sol" };
+		expect(await wirePick(pick, RESPONSES_ONLY, true)).toEqual({
+			ok: true,
+			bin: "codex",
+			switched: true,
+		});
+	});
+
+	test("an explicit executor+model pairing refuses instead of re-selecting", async () => {
+		const r = await wirePick(
+			{ bin: "claude", model: "grok-4.7" },
+			RESPONSES_ONLY,
+			false,
+		);
+		expect(r.ok).toBe(false);
+		if (!r.ok)
+			expect(r.why).toContain(
+				"claude speaks /v1/messages but grok-4.7 serves /v1/responses",
+			);
+	});
+
+	test("no provable carrier refuses; served, unknown or unpinned keeps the pick", async () => {
+		const none = await wirePick(
+			{ bin: "codex", model: "m" },
+			async () => [],
+			true,
+		);
+		expect(none.ok).toBe(false);
+		const keep = { ok: true, bin: "claude", switched: false };
+		expect(
+			await wirePick(
+				{ bin: "claude", model: "gemini-4-argon" },
+				CHAT_ONLY,
+				true,
+			),
+		).toEqual(keep);
+		expect(
+			await wirePick({ bin: "claude", model: "gpt-6.1-sol" }, UNKNOWN, true),
+		).toEqual(keep);
+		expect(
+			await wirePick({ bin: "claude", model: null }, RESPONSES_ONLY, true),
+		).toEqual(keep);
+	});
+
+	const LANE_ENV = {
+		OPENAI_BASE_URL: "http://front.test/w/lane-x/v1",
+		ANTHROPIC_AUTH_TOKEN: "lane-key-fixture",
+	};
+
+	test("codex rides the exact pin on the lane's own Buckle responses provider", () => {
+		const r = laneRideOf(LANE_ENV, "gpt-6.1-sol", "low");
+		if (!r.ok) throw new Error(r.why);
+		const argv = codexRideArgs(r.ride);
+		expect(argv).toEqual([
+			...["-c", 'model="gpt-6.1-sol"', "-c", 'model_provider="buckle_lane"'],
+			...["-c", 'model_providers.buckle_lane.name="buckle lane"'],
+			...[
+				"-c",
+				'model_providers.buckle_lane.base_url="http://front.test/w/lane-x/v1"',
+			],
+			...["-c", 'model_providers.buckle_lane.env_key="ANTHROPIC_AUTH_TOKEN"'],
+			...["-c", 'model_providers.buckle_lane.wire_api="responses"'],
+			...["-c", 'model_reasoning_effort="low"'],
+		]);
+		expect(argv.join(" ")).not.toContain("lane-key-fixture");
+		expect(adapterForExact("codex")?.modelArgs).toBe(codexRideArgs);
+		expect(adapterForExact("claude")?.modelArgs).toBeUndefined();
+	});
+
+	test("laneRideOf refuses a personal-seat substitution or an unsafe model id", () => {
+		const seat = { ...LANE_ENV, OPENAI_BASE_URL: "http://seat.test/v1" };
+		expect(laneRideOf(seat, "m", "low").ok).toBe(false);
+		expect(
+			laneRideOf({ ...LANE_ENV, ANTHROPIC_AUTH_TOKEN: "" }, "m", "low").ok,
+		).toBe(false);
+		expect(laneRideOf(LANE_ENV, 'm" model_provider="x', "low").ok).toBe(false);
 	});
 });

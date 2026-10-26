@@ -12,6 +12,7 @@ import {
 } from "./lane-registry.ts";
 import { attachSubscribe } from "../subscribe-attach.ts";
 import { jobslabEnv, jobslabFor, jobslabPrefix } from "./jobslab.ts";
+import type { EffortWord } from "./lane-effort-policy.ts";
 
 // W422 surface consolidation law: the spawn-args adapter INTERFACE. Core
 // dispatch carries ZERO executor branches — every agent's specifics live in
@@ -68,6 +69,25 @@ export interface ExecutorAdapter {
 	 *  install must be discoverable without the shell's PATH (W626: the
 	 *  launchd-context liveness read every lane unknown). */
 	installPaths?: string[];
+	/** W1712: the one request wire this CLI speaks toward Buckle — messages
+	 *  (Anthropic /v1/messages), chat (OpenAI /v1/chat/completions) or
+	 *  responses (/v1/responses). Absent = unverified, never wire-checked. */
+	wire?: LaneWire;
+	/** W1712: executors whose model pin rides argv (not the --settings
+	 *  file) — the exact model on the governed Buckle provider at the lane's
+	 *  effort. Present ⇒ a pinned lane without a governed ride refuses. */
+	modelArgs?: (ride: LaneRide) => string[];
+}
+
+export type LaneWire = "messages" | "chat" | "responses";
+
+/** W1712: a pinned lane's governed ride — the exact model, the lane's own
+ *  Buckle base (/w/<sid>/v1) and the env var NAME holding its minted key. */
+export interface LaneRide {
+	model: string;
+	base: string;
+	keyEnv: string;
+	effort: EffortWord;
 }
 
 export function executorLaunch(

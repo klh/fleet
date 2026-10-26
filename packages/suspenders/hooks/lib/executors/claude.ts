@@ -83,6 +83,7 @@ export const claudeAdapter: ExecutorAdapter = {
 		nativeBinEnv: "SUSPENDERS_CLAUDE_NATIVE_BIN",
 	},
 	spawnable: true,
+	wire: "messages",
 	// W223.2: no observed claude brief mangling — warn-only verification.
 	briefHarness: "claude",
 	briefHardGate: false,
