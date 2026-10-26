@@ -16,14 +16,14 @@ import {
 	idempotentRespond,
 	ifMatchMissing,
 	ifMatchState,
+	parseRequestDeadline,
 	problemFrom,
 	problemOf,
-	parseRequestDeadline,
+	RouteTable,
 	retryAfterHeaders,
 	retryAfterMaxS,
-	RouteTable,
-	STATUS_OF,
 	ShedQueue,
+	STATUS_OF,
 	TokenBucket,
 	toProblemResponse,
 } from "../src/http-kit.ts";
@@ -342,8 +342,7 @@ describe("route table", () => {
 			{
 				method: "GET",
 				pattern: "/aids/status",
-				handler: (): Response =>
-					Response.json({ ok: true, route: "status" }),
+				handler: (): Response => Response.json({ ok: true, route: "status" }),
 			},
 			{
 				method: "POST",

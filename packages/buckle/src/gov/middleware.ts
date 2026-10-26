@@ -5,10 +5,7 @@
 // denial audits a route_audit row (denied audits too, W136 doctrine) and
 // rejected authentications land in auth_events. PUBLIC routes: /health,
 // /status, /metrics (service telemetry, not LLM ingress).
-import {
-	providerAdmissionMetrics,
-	type ProviderAdmissionSnapshots,
-} from "../provider-admission-metrics.ts";
+
 import { Database } from "bun:sqlite";
 import { timingSafeEqual } from "node:crypto";
 import {
@@ -19,29 +16,33 @@ import {
 	type RateLimitView,
 	stampRateLimit,
 } from "../citizenship.ts";
-import { tokenFromHeaders, type Ledger } from "../ledger.ts";
-import { INGRESS_BODY_TIMEOUT_MS } from "../ingress-body.ts";
 import { clampRetryAfter } from "../http-kit.ts";
+import { INGRESS_BODY_TIMEOUT_MS } from "../ingress-body.ts";
+import { type Ledger, tokenFromHeaders } from "../ledger.ts";
 import {
 	MetricsConnector,
 	type MetricsConnectorOpts,
 } from "../metrics-connector.ts";
+import {
+	type ProviderAdmissionSnapshots,
+	providerAdmissionMetrics,
+} from "../provider-admission-metrics.ts";
 import type { Servicemon } from "../servicemon.ts";
+import {
+	type AdaptationConfig,
+	type AuditTapEvent,
+	principalFromSso,
+	validateAdaptation,
+	validDeny,
+	validSsoIdentity,
+} from "./adaptation.ts";
 import { Budgets, type BudgetView, effectiveLimit } from "./budgets.ts";
 import { type Federation, stashPrincipal } from "./federation.ts";
 import { createJwtValidator, type JwtOpts, jwtScopeCheck } from "./jwt.ts";
 import { hashKey, KeyStore } from "./keys.ts";
 import { applyGovernanceSchema } from "./schema.ts";
-import { Slots, type SlotLimits, slotsFromEnv } from "./slots.ts";
 import { ALL_SCOPES, hasScope, scopesFromStorage } from "./scopes.ts";
-import {
-	principalFromSso,
-	type AdaptationConfig,
-	type AuditTapEvent,
-	validDeny,
-	validSsoIdentity,
-	validateAdaptation,
-} from "./adaptation.ts";
+import { type SlotLimits, Slots, slotsFromEnv } from "./slots.ts";
 
 export interface GovernanceOpts {
 	dbPath: string;

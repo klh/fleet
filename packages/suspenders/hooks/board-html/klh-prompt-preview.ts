@@ -5,7 +5,7 @@
 // what WILL be dispatched. The legacy orchestrate chunk calls prepare() and
 // listens for `klh-dispatch`; "dispatch anyway" is always offered, even when
 // the preview fails, so the flow is never trapped.
-import { LitElement, html, css, nothing, type TemplateResult } from "lit";
+import { css, html, LitElement, nothing, type TemplateResult } from "lit";
 
 type Settings = Record<
 	"prompt.condense" | "prompt.enhance" | "prompt.debug" | "prompt.log",

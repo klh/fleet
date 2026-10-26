@@ -3,8 +3,8 @@ import {
 	normalizeUpstreamError,
 	routerErrorEnvelope,
 } from "../src/adapters/errors.ts";
-import { Router } from "../src/router.ts";
 import { createApp } from "../src/handlers.ts";
+import { Router } from "../src/router.ts";
 import { testDeps } from "./deps.ts";
 import { startMockUpstream } from "./mock.ts";
 

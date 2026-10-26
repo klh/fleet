@@ -214,9 +214,9 @@ export function retryAfterHeaders(
 function stableStringify(v: unknown): string {
 	if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
 	if (Array.isArray(v)) return `[${v.map(stableStringify).join(",")}]`;
-	const entries = Object.entries(v as Record<string, unknown>).sort(([a], [
-		b,
-	]) => (a < b ? -1 : a > b ? 1 : 0));
+	const entries = Object.entries(v as Record<string, unknown>).sort(
+		([a], [b]) => (a < b ? -1 : a > b ? 1 : 0),
+	);
 	return `{${entries
 		.map(([k, val]) => `${JSON.stringify(k)}:${stableStringify(val)}`)
 		.join(",")}}`;
@@ -233,10 +233,7 @@ export function etagOf(payload: unknown): string {
 
 /** If-Match state against the current etag: absent/* → ok (the conditional
  *  is simply not claimed); any other value that differs → mismatch (412). */
-export function ifMatchState(
-	h: Headers,
-	etag: string,
-): "ok" | "mismatch" {
+export function ifMatchState(h: Headers, etag: string): "ok" | "mismatch" {
 	const raw = h.get("if-match");
 	if (raw === null) return "ok";
 	const token = raw.trim();
@@ -307,9 +304,7 @@ export class IdempotencyStore {
 	readonly max: number;
 	private readonly now: () => number;
 
-	constructor(
-		opts: { ttlS?: number; max?: number; now?: () => number } = {},
-	) {
+	constructor(opts: { ttlS?: number; max?: number; now?: () => number } = {}) {
 		this.ttlMs = (opts.ttlS ?? 86400) * 1000;
 		this.max = opts.max ?? 1024;
 		this.now = opts.now ?? Date.now;
@@ -406,13 +401,11 @@ export class TokenBucket {
 	readonly refillPerS: number;
 	private readonly now: () => number;
 
-	constructor(
-		opts: {
-			capacity: number;
-			refillPerS: number;
-			now?: () => number;
-		},
-	) {
+	constructor(opts: {
+		capacity: number;
+		refillPerS: number;
+		now?: () => number;
+	}) {
 		this.capacity = opts.capacity;
 		this.refillPerS = opts.refillPerS;
 		this.tokens = opts.capacity;
@@ -449,9 +442,11 @@ export class CallerBuckets {
 	private readonly refillPerS: number;
 	private readonly now: () => number;
 
-	constructor(
-		opts: { capacity: number; refillPerS: number; now?: () => number },
-	) {
+	constructor(opts: {
+		capacity: number;
+		refillPerS: number;
+		now?: () => number;
+	}) {
 		this.capacity = opts.capacity;
 		this.refillPerS = opts.refillPerS;
 		this.now = opts.now ?? Date.now;
@@ -467,7 +462,9 @@ export class CallerBuckets {
 			});
 			this.buckets.set(caller, b);
 		}
-		return b.tryTake() ? { ok: true } : { ok: false, retryAfterS: b.retryAfterS() };
+		return b.tryTake()
+			? { ok: true }
+			: { ok: false, retryAfterS: b.retryAfterS() };
 	}
 }
 
@@ -486,15 +483,13 @@ export class ShedQueue {
 	private readonly shedRetryAfterS: number;
 	private readonly maxRetryAfterS: number | undefined;
 
-	constructor(
-		opts: {
-			capacity: number;
-			reserved: number;
-			buckets: CallerBuckets;
-			shedRetryAfterS?: number;
-			maxRetryAfterS?: number;
-		},
-	) {
+	constructor(opts: {
+		capacity: number;
+		reserved: number;
+		buckets: CallerBuckets;
+		shedRetryAfterS?: number;
+		maxRetryAfterS?: number;
+	}) {
 		this.capacity = opts.capacity;
 		this.reserved = opts.reserved;
 		this.buckets = opts.buckets;
@@ -628,7 +623,7 @@ export class RouteTable {
 				for (const [k, v] of Object.entries(m?.pathname.groups ?? {}))
 					if (typeof v === "string") params[k] = v;
 				handler = r.handler;
-	}
+			}
 		}
 		if (allow.length === 0) return null;
 		if (req.method.toUpperCase() === "OPTIONS")

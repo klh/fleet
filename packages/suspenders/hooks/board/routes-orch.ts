@@ -1,21 +1,28 @@
 // hooks/board/routes-orch.ts — W57 orchestrate endpoints (W157 route module).
 // The fetch fragment moved verbatim (route order preserved by the
 // entry's handler list); returns null when nothing matches.
-import { DEMO } from "./context.ts";
+
 import {
 	etagOf,
-	idempotentRespond,
 	IdempotencyStore,
+	idempotentRespond,
 	ifMatchMissing,
 	ifMatchState,
 	problemOf,
 	RouteTable,
 	toProblemResponse,
 } from "@klh/buckle/src/http-kit.ts";
-import { json, writeGuard, readJson } from "./helpers.ts";
+import {
+	applyBoardSettings,
+	boardSettingsPath,
+	ConfigError,
+	readBoardSettings,
+} from "../lib/board/board-config.ts";
+import { DEMO } from "./context.ts";
+import { composeGoalAttachments } from "./drop-files.ts";
+import { json, readJson, writeGuard } from "./helpers.ts";
 import { ORCH, orchestrate, orchPrepare, orchRegister } from "./orch.ts";
 import { newOrchTraceId, recordOrchStep } from "./orch-trace.ts";
-import { composeGoalAttachments } from "./drop-files.ts";
 import {
 	holdPlan,
 	PROMPT_KEYS,
@@ -24,12 +31,6 @@ import {
 	resolvePromptSettings,
 	takePlan,
 } from "./prompt-transform.ts";
-import {
-	applyBoardSettings,
-	boardSettingsPath,
-	ConfigError,
-	readBoardSettings,
-} from "../lib/board/board-config.ts";
 
 const promptSettings = (): PromptSettings =>
 	resolvePromptSettings(readBoardSettings().settings);

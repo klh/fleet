@@ -1,9 +1,11 @@
 // src/proxy-execute.ts — upstream execution: affinity reorder, admission
 // slot, cache-align, router execute, and the delivered-outcome settlement.
 
-import { affinityOn, applyAffinity } from "./affinity.ts";
 import { resolveAdapter } from "./adapters/index.ts";
+import { affinityOn, applyAffinity } from "./affinity.ts";
 import { gateCacheAlign } from "./aids-routes.ts";
+import type { AppDeps } from "./app-deps.ts";
+import { prefixFingerprintOf } from "./cache-fingerprint.ts";
 import type { CandidateRow } from "./candidates.ts";
 import {
 	type DecisionKind,
@@ -11,17 +13,15 @@ import {
 	type RouteSelection,
 } from "./decide.ts";
 import { errorResponse } from "./error-response.ts";
-import { clampRetryAfter } from "./http-kit.ts";
 import { markInflight } from "./gov/inflight.ts";
 import { hopBaggageOf, hopKindOf } from "./hop.ts";
-import { prefixFingerprintOf } from "./cache-fingerprint.ts";
+import { clampRetryAfter } from "./http-kit.ts";
 import { jsonResponse } from "./proxy-body.ts";
 import { streamResponse } from "./proxy-stream.ts";
-import { observe, type Ctx } from "./request-context.ts";
+import { type Ctx, observe } from "./request-context.ts";
 import { type ExecuteResult, UpstreamError } from "./router.ts";
 import { deny } from "./wire-deny.ts";
 import { SSE_HEADERS, stamped } from "./wire-stamp.ts";
-import type { AppDeps } from "./app-deps.ts";
 
 export async function runExecute(
 	req: Request,

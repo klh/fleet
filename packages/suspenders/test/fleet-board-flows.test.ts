@@ -4,9 +4,9 @@
 // unused loopback ports for boards and mocks, isolating concurrent runs.
 // test files in one process — a shared side-effect fixture would die
 // with the first file's afterAll).
-import { afterAll, describe, expect, test } from "bun:test";
 
 import { Database } from "bun:sqlite";
+import { afterAll, describe, expect, test } from "bun:test";
 import {
 	mkdirSync,
 	readFileSync,
@@ -16,6 +16,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { boardFixture, unusedPort } from "./helpers/board-fixture.ts";
+
 const { TOKEN, HOME, REPO, GREPO, env, bin, BASE, MY_PROJ, post, waitUp } =
 	await boardFixture(0, afterAll);
 
