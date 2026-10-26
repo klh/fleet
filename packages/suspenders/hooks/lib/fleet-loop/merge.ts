@@ -18,8 +18,8 @@ import {
 	doneShaResolves,
 	gitInProgress,
 	itemClaimOf,
-	mergeHoldActive,
 } from "../lanes/ladder-lease.ts";
+import { mergeHoldActive } from "./merge-hold.ts";
 import { flagIntegratedCode } from "../decomposition.ts";
 import {
 	bankDanglingRef,
