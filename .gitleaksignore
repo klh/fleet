@@ -87,8 +87,9 @@ packages/suspenders/test/hub-providers.test.ts:generic-api-key:189
 packages/suspenders/deploy/singbox/lifecycle.test.ts:generic-api-key:83
 packages/suspenders/deploy/singbox/lifecycle.test.ts:generic-api-key:140
 packages/suspenders/deploy/singbox/lifecycle.test.ts:generic-api-key:176
-# W1294.5: same fake fixture tokens — file migrated to a playwright spec,
-# lines unchanged (the W1260.1 disposition carries over verbatim).
-packages/suspenders/deploy/singbox/lifecycle.e2e.ts:generic-api-key:83
-packages/suspenders/deploy/singbox/lifecycle.e2e.ts:generic-api-key:140
-packages/suspenders/deploy/singbox/lifecycle.e2e.ts:generic-api-key:176
+# W1294.5: same fake fixture tokens — file migrated to a playwright spec
+# (the W1260.1 disposition carries over verbatim); @unit describe wrap at
+# close re-indented the file, lines re-pinned 83/140/176 -> 84/141/177.
+packages/suspenders/deploy/singbox/lifecycle.e2e.ts:generic-api-key:84
+packages/suspenders/deploy/singbox/lifecycle.e2e.ts:generic-api-key:141
+packages/suspenders/deploy/singbox/lifecycle.e2e.ts:generic-api-key:177

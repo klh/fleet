@@ -28,41 +28,43 @@ const seedDb = (): Database => {
 	return db;
 };
 
-test.describe("renderFleetReport (W899)", () => {
-	test("renders the W892 table from a seeded store", () => {
-		const db = seedDb();
-		const table = renderFleetReport(db, PROJECT);
-		expect(table).toContain("ITEM");
-		expect(table).toContain("W1");
-		expect(table).toContain("seed riding item");
-		db.close();
-	});
-});
-
-test.describe("composeBrief fleetReport section (W899)", () => {
-	test("carries the table as the FLEET REPORT section", () => {
-		const brief = composeBrief({
-			item: "W899",
-			showOut: "do the thing",
-			sid: "autow899-test",
-			branch: "suspenders/W899",
-			worktree: "/tmp/wt",
-			capsule: null,
-			fleetReport: "ITEM  ST  TASK\n----  --  ----",
+test.describe("@unit", () => {
+	test.describe("renderFleetReport (W899)", () => {
+		test("renders the W892 table from a seeded store", () => {
+			const db = seedDb();
+			const table = renderFleetReport(db, PROJECT);
+			expect(table).toContain("ITEM");
+			expect(table).toContain("W1");
+			expect(table).toContain("seed riding item");
+			db.close();
 		});
-		expect(brief).toContain("FLEET REPORT:");
-		expect(brief).toContain("ITEM  ST  TASK");
 	});
 
-	test("no fleetReport — no section", () => {
-		const brief = composeBrief({
-			item: "W899",
-			showOut: "do the thing",
-			sid: "autow899-test",
-			branch: "suspenders/W899",
-			worktree: "/tmp/wt",
-			capsule: null,
+	test.describe("composeBrief fleetReport section (W899)", () => {
+		test("carries the table as the FLEET REPORT section", () => {
+			const brief = composeBrief({
+				item: "W899",
+				showOut: "do the thing",
+				sid: "autow899-test",
+				branch: "suspenders/W899",
+				worktree: "/tmp/wt",
+				capsule: null,
+				fleetReport: "ITEM  ST  TASK\n----  --  ----",
+			});
+			expect(brief).toContain("FLEET REPORT:");
+			expect(brief).toContain("ITEM  ST  TASK");
 		});
-		expect(brief).not.toContain("FLEET REPORT:");
+
+		test("no fleetReport — no section", () => {
+			const brief = composeBrief({
+				item: "W899",
+				showOut: "do the thing",
+				sid: "autow899-test",
+				branch: "suspenders/W899",
+				worktree: "/tmp/wt",
+				capsule: null,
+			});
+			expect(brief).not.toContain("FLEET REPORT:");
+		});
 	});
 });

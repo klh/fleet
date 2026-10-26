@@ -4,10 +4,10 @@
 // bun:test files re-pins DOWN in the same landing. Vendored decant is exempt.
 // Baseline is re-measured at this file's landing commit (811 on
 // suspenders/W1294.1); integration re-pins it to the merged tree's count
-// (main integrated 804 via the wave lanes).
+// (main integrated 804 via the wave lanes; W1294.5 sweep-C removed 36 more).
 import { expect, test } from "@playwright/test";
 
-const BASELINE = 811;
+const BASELINE = 775;
 
 test.describe("@unit test-framework ratchet", () => {
 	test("non-decant *.test.ts count does not exceed the pinned baseline", async () => {
