@@ -51,6 +51,7 @@ Standard sections → fleet state. "Child" = the W1303.x item that owns closure.
 | Load tests same specs | N/A (no PaaS traffic surface); e2e suite exists | accepted | ALIGNED |
 | Code review: agents first, risk tiers | Guarded merge ladder + oracle review exist; NO tier classifier, no CODEOWNERS, no PR template, no area REVIEW.md | W1303.5 | LANDED 592a26a2 |
 | Review: decisions-not-queues | `coord emit NEED_DECISION` is fleet law | landed checks | ALIGNED |
+| Keeping review useful (round cap 3, incidents→evals, human-time metric) | W1303.5 landed tiers/CODEOWNERS/PR template; these three mechanics unlanded (audit W1305) | W1303.7 | CHILD-PENDING |
 | Enforcement table (npm ci, check-versions/deps/boundaries/pack/ui-laws, gen-openapi) | import-law ratchet (W1249) + law-guards CI exist; check-versions/check-deps/check-pack/gen-openapi missing | W1303.1 (3 checks) + W1303.4 (gen-openapi) | CHILD-PENDING |
 | Branch protection (no force-push main) | Guarded merge ladder + scrub gate; push gates in .githooks | landed checks | ALIGNED |
 | .prefer harness lock-down | Implemented: examples/prefer.example + parsers (exec-chain, prefer, prefer-routing) | landed checks | ALIGNED |
@@ -72,9 +73,11 @@ row before this parent closes.
    deps). Fleet's law is platform-first curation, but nothing fails CI when a
    new runtime dep appears. Disposition: the honest fleet equivalent is the
    import-law ratchet + review; a hard allowlist would fight bun workspaces
-   (dispositions #3). Follow the W1303.1 check-deps landing — if it ships a
-   dep-allowlist surface, this gap closes there; otherwise it stays a
-   documented accepted-divergence with the rationale above.
+   (dispositions #3). W1303.1.7 landed `scripts/check-deps.ts` (42f66ce0):
+   phantom/unused/reach-in/kernel findings over the ONE W1249 scanner, exit 1
+   on findings — every declared dep must have an importer. That closes the
+   failure-mode half (stale/phantom deps now fail); the numeric cap (≤7)
+   stays a documented accepted-divergence per dispositions #3.
 
 ## Completeness statement
 
