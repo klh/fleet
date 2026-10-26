@@ -225,16 +225,19 @@ function movedLinesIntoAddedFiles(
 		addedPaths.push(p);
 	}
 	if (!addedPaths.length || addedPaths.length > 200) return moved;
-	const movedSets: Set<string>[] = [];
+	const available = new Map<string, number>();
 	for (const path of addedPaths) {
 		const object = `${tree}:${path}`;
 		const size = command(repo, ["git", "cat-file", "-s", object]);
 		if (size.code !== 0 || Number(size.out) > MAX_SOURCE_BYTES) continue;
 		const content = command(repo, ["git", "show", object]);
 		if (content.code !== 0) continue;
-		movedSets.push(new Set(content.out.split("\n")));
+		const lines = content.out.split("\n");
+		if (content.out.endsWith("\n")) lines.pop();
+		for (const line of lines)
+			available.set(line, (available.get(line) ?? 0) + 1);
 	}
-	if (!movedSets.length) return moved;
+	if (!available.size) return moved;
 	for (const path of candidates) {
 		const d = command(repo, [
 			"git",
@@ -254,8 +257,12 @@ function movedLinesIntoAddedFiles(
 			.filter((l) => l.startsWith("-") && !l.startsWith("---"))
 			.map((l) => l.slice(1));
 		let count = 0;
-		for (const line of removed)
-			if (movedSets.some((set) => set.has(line))) count += 1;
+		for (const line of removed) {
+			const remaining = available.get(line) ?? 0;
+			if (remaining < 1) continue;
+			available.set(line, remaining - 1);
+			count += 1;
+		}
 		if (count) moved.set(path, count);
 	}
 	return moved;

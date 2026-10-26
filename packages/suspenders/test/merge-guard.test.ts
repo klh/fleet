@@ -297,6 +297,27 @@ test("shrink whose added sibling does not carry the lines still refuses", () => 
 	);
 });
 
+test("one added copy cannot cancel repeated removed lines", () => {
+	const { repo } = fixture("export const valid = 1;\n");
+	const repeated = "// repeated source line\n";
+	writeFileSync(join(repo, "real.ts"), repeated.repeat(230));
+	git(repo, "add", "real.ts");
+	git(repo, "commit", "-m", "seed repeated lines");
+	const seeded = git(repo, "rev-parse", "HEAD").out;
+	git(repo, "branch", "-D", "suspenders/GUARD");
+	git(repo, "checkout", "-b", "suspenders/GUARD");
+	writeFileSync(join(repo, "real.ts"), "export const stub = 0;\n");
+	writeFileSync(join(repo, "added.ts"), `${repeated}export const kept = 1;\n`);
+	git(repo, "add", "real.ts", "added.ts");
+	git(repo, "commit", "-m", "remove repeated lines");
+	git(repo, "checkout", "main");
+	ship(repo);
+	rejected(repo, seeded);
+	expect(readFileSync(join(repo, ".fleet/loop.log"), "utf8")).toContain(
+		"candidate removes",
+	);
+});
+
 test("preparation filesystem failures return rejection without throwing", () => {
 	const { repo, before } = fixture("export const valid = 1;\n");
 	rmSync(join(repo, ".fleet"), { recursive: true });
