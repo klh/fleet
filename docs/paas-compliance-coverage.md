@@ -26,15 +26,15 @@ Standard sections → fleet state. "Child" = the W1303.x item that owns closure.
 | 8 Semantic errors, one handler | No error-kinds module; problem+json absent | W1303.2 | LANDED 10f1ccd4 |
 | 9 Good HTTP citizen (server) | URLPattern 0, Idempotency-Key 0, problem+json 0, ETag partial, Retry-After unclamped | W1303.2 | LANDED 10f1ccd4 |
 | 9 Good HTTP citizen (client) | Timeouts/backoff/breaker scattered across buckle admission + belt router, no deadline propagation | W1303.3 | LANDED d3c0a839 |
-| 10 Every folder a package, installed strictly | ALL packages lack exports/files/bin/engines; floating pins; telemetry has no manifest | W1303.1 | CHILD-PENDING |
+| 10 Every folder a package, installed strictly | Conforms: exports/files/bin/engines + exact pins across all 11 packages; telemetry manifest landed; guards green in push gate | W1303.1 (.1.6-.1.10) | LANDED 8826faf8 · 42f66ce0 · 756fb519 · 95da80fb · 346d14ed |
 | 11 Same shape everywhere | Partial: shared qlty, .githooks, AGENTS.md; naming diverges (row 4) | W1303.1 + dispositions | SPLIT |
 | 12 Config off-repo | Machine-level 0600 conf (stack.json, local-llm/*.env), repo placeholders only — law W1253 | landed checks | ALIGNED |
 | Repository layout (six groups, workspaces) | packages/* monorepo, bun workspaces; layout differs by design | dispositions #3 #4 | DISPOSITIONED |
-| Package contract (exports/files/bin/engines/exact pins) | Absent everywhere (measured) | W1303.1 | CHILD-PENDING |
-| Installed-not-mounted + check-pack | Hubs mount git-pulled volumes at the pinned ref (one-version law); packability still proven | W1303.1 | CHILD-PENDING |
+| Package contract (exports/files/bin/engines/exact pins) | Conforms everywhere (measured absent → repaired via .1.9/.1.10) | W1303.1 | LANDED 95da80fb · 346d14ed |
+| Installed-not-mounted + check-pack | Hubs mount git-pulled volumes at the pinned ref (one-version law); check-pack proves scratch install of every package | W1303.1.8 | LANDED 756fb519 |
 | Composition: hard caps + smells | Covered above (row 2) | landed checks | ALIGNED |
 | npm workspaces linked install, .npmrc | bun workspaces + single bun.lock, runtime-native | dispositions #3 | DISPOSITIONED |
-| Versions exact everywhere (incl. internal) | Floating specs incl. @klh/* siblings | W1303.1 | CHILD-PENDING |
+| Versions exact everywhere (incl. internal) | Exact MAJOR.MINOR.PATCH everywhere incl. @klh/* siblings; check-versions green | W1303.1.6/.1.9 | LANDED 8826faf8 · 95da80fb |
 | Plain semver, no pre-release suffixes | Tags exist (60), versions agree at 2.0.0; no pipeline guarantees agreement | W1303.6 | LANDED d69ec274 |
 | One version repo-wide (fixed mode) | stack.json `version:` pins buckle+suspenders+belt; manifest-tag agreement unproven | W1303.6 | LANDED d69ec274 |
 | Dependency budget (7 deps, allowlist) | check-deps (42f66ce0) fails phantom/unused deps; numeric cap not enforceable under bun workspaces | gap #2 below | DISPOSITIONED |
@@ -52,7 +52,7 @@ Standard sections → fleet state. "Child" = the W1303.x item that owns closure.
 | Code review: agents first, risk tiers | Guarded merge ladder + oracle review exist; NO tier classifier, no CODEOWNERS, no PR template, no area REVIEW.md | W1303.5 | LANDED 592a26a2; approval-consumption repair W1308 f7f10d0d |
 | Review: decisions-not-queues | `coord emit NEED_DECISION` is fleet law | landed checks | ALIGNED |
 | Keeping review useful (round cap 3, incidents→evals, human-time metric) | SPLIT — round cap LANDED 4bfc1839 (hooks/lib/gates/review-round-cap.ts: scheduleReview stops after 3 failed review passes, NEED_DECISION to the author); incidents→evals GAP W1476; human-time GAP W1477; rationale docs/standard-dispositions.md #10 | W1303.7 · W1476 · W1477 | SPLIT: 1 LANDED · 2 GAP |
-| Enforcement table (npm ci, check-versions/deps/boundaries/pack/ui-laws, gen-openapi) | import-law ratchet (W1249) + law-guards CI exist; check-versions/check-deps/check-pack/gen-openapi missing | W1303.1 (3 checks) + W1303.4 (gen-openapi) | CHILD-PENDING |
+| Enforcement table (npm ci, check-versions/deps/boundaries/pack/ui-laws, gen-openapi) | check-versions (8826faf8) + check-deps (42f66ce0) + check-pack (756fb519) + gen-openapi --check (df2a3f0f) wired in gates; import-law ratchet + law-guards CI + ui-laws pre-existing | W1303.1 + W1303.4 | LANDED 8826faf8 · 42f66ce0 · 756fb519 · df2a3f0f |
 | Branch protection (no force-push main) | Guarded merge ladder + scrub gate; push gates in .githooks | landed checks | ALIGNED |
 | .prefer harness lock-down | Implemented: examples/prefer.example + parsers (exec-chain, prefer, prefer-routing) | landed checks | ALIGNED |
 | .editorconfig | Landed matching qlty's enforced format | this branch | LANDED 54600489 |
