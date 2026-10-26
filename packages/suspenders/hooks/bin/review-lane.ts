@@ -410,10 +410,18 @@ async function coverageProof(branch: string): Promise<Proof> {
 			.code !== 0
 	)
 		return { status: "skipped", detail: "no branch diff" };
-	const testFiles = gitRun(["diff", "--name-only", `main...${branch}`])
+	const diffTests = gitRun(["diff", "--name-only", `main...${branch}`])
 		.out.trim()
 		.split("\n")
 		.filter((f) => TEST_FILE.test(f));
+	// W1306.1: a test rename pair lists the old path as branch-DELETED. It has
+	// no index entry at the branch tip, and one dead pathspec fails the whole
+	// restore checkout wholesale ("test restore failed"). Keep only tests that
+	// exist in the tip tree — deleted tests are main's, not the branch's proof.
+	const tipTree = new Set(
+		gitRun(["ls-tree", "-r", "--name-only", branch]).out.trim().split("\n"),
+	);
+	const testFiles = diffTests.filter((f) => tipTree.has(f));
 	if (testFiles.length === 0)
 		return { status: "skipped", detail: "no test files in diff" };
 	// W1262 (W1258 regression): reverse-applying the diff removes exactly the
