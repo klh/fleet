@@ -112,3 +112,36 @@ export function registeredOriginalBaseline(
 		return null;
 	}
 }
+
+const firstParentLine = (dir: string, head: string, base: string) =>
+	git(dir, "rev-list", "--first-parent", "--no-merges", head, "--not", base)
+		?.split("\n")
+		.filter(Boolean) ?? null;
+
+/** The registered original base a context inheriting `tip` resumes from —
+ * only when strictly older and its span carries the item's own commits:
+ * non-merge commits on the tip's first-parent line that never sat on the
+ * integration checkout's first-parent line. Merging or fast-forwarding
+ * main adds none; own product that later landed through a merge counts. */
+export function restorableBaseline(
+	store: GovernorStore,
+	args: { project: string; item: string; tree: string },
+	tip: string,
+	registered = registeredOriginalBaseline(store, args),
+): OriginalBaseline | null {
+	if (
+		!registered ||
+		registered.sha === tip ||
+		!isAncestor(args.tree, registered.sha, tip)
+	)
+		return null;
+	const own = firstParentLine(args.tree, tip, registered.sha);
+	const integrated = firstParentLine(
+		projectRootOf(args.project),
+		"HEAD",
+		registered.sha,
+	);
+	return own && integrated && own.some((sha) => !integrated.includes(sha))
+		? registered
+		: null;
+}

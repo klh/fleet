@@ -16,6 +16,7 @@ import {
 	type BaselineRestore,
 	isAncestor,
 	registeredOriginalBaseline,
+	restorableBaseline,
 } from "./original-baseline.ts";
 import { verifyOperatorContextEvidence } from "./reclaim-context-evidence.ts";
 import { claimTokenHash } from "../work/work-fence.ts";
@@ -110,7 +111,7 @@ export function verifiedContextContinuation(
 			baseline_restored?: BaselineRestore;
 		};
 		// W1730: a take that restored the registered original baseline receipts
-		// the move; the base must still verify for this exact project/item/tree
+		// the move; it must still verify for this exact project/item/tree
 		const restored = receipt.baseline_restored;
 		if (
 			receipt.by !== sid ||
@@ -119,8 +120,8 @@ export function verifiedContextContinuation(
 			(restored
 				? restored.from !== receipt.context_origin.baseline ||
 					restored.to !== context.baseline ||
-					registeredOriginalBaseline(store, { project, item, tree })?.sha !==
-						restored.to
+					restorableBaseline(store, { project, item, tree }, restored.from)
+						?.sha !== restored.to
 				: receipt.context_origin.baseline !== context.baseline)
 		)
 			return false;
@@ -294,20 +295,26 @@ export function prepareContextTransfer(
 	}
 	// W1730: a context minted at a later HEAD than the item's registered
 	// original base (a retake over its own released product) resumes from that
-	// base and the claim receipt records the move; an older one is tampered
+	// base when the span holds the item's own commits, and the claim receipt
+	// records the move; an older one is tampered
 	const registered = registeredOriginalBaseline(store, { project, item, tree });
 	if (registered && !isAncestor(tree, registered.sha, context.baseline))
 		throw new Error(
 			"Claim context baseline predates its registered original tree base",
 		);
-	const restored =
-		registered && registered.sha !== context.baseline
-			? {
-					from: context.baseline,
-					to: registered.sha,
-					receipt: registered.receipt,
-				}
-			: undefined;
+	const restorable = restorableBaseline(
+		store,
+		{ project, item, tree },
+		context.baseline,
+		registered,
+	);
+	const restored = restorable
+		? {
+				from: context.baseline,
+				to: restorable.sha,
+				receipt: restorable.receipt,
+			}
+		: undefined;
 	const replacement = JSON.stringify({
 		...context,
 		...(restored ? { baseline: restored.to } : {}),
