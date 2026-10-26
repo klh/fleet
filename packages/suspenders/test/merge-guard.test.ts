@@ -62,6 +62,10 @@ function ship(
 		HOME: join(repo, ".test-home"),
 		GOVERNOR_STORE_URL: "",
 		FLEET_UNTRACKED_GRACE_MS: "0",
+		// W1303.5: guard fixtures merge product paths (change.ts) — medium tier
+		// by design. The tier-gate deferral contract has its own coverage in
+		// fleet-loop-flush.test.ts (gate on: defer, partial and full approvals).
+		SUSPENDERS_RISK_TIERS: "0",
 	};
 	const seeded = Bun.spawnSync(
 		[

@@ -48,6 +48,10 @@ const testEnv = (repo: string) => ({
 	GOVERNOR_STORE_URL: "",
 	FLEET_UNTRACKED_GRACE_MS: "0",
 	SUSPENDERS_PREFIX: HOOKS,
+	// W1303.5: fixtures merge product paths (lib/gone.ts, f.txt) — medium tier
+	// by design. The tier-gate deferral contract has its own coverage in
+	// fleet-loop-flush.test.ts (gate on: defer, partial and full approvals).
+	SUSPENDERS_RISK_TIERS: "0",
 });
 
 const run = (repo: string, args: string[]) => {
