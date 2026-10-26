@@ -51,7 +51,7 @@ Standard sections → fleet state. "Child" = the W1303.x item that owns closure.
 | Load tests same specs | N/A (no PaaS traffic surface); e2e suite exists | accepted | ALIGNED |
 | Code review: agents first, risk tiers | Guarded merge ladder + oracle review exist; NO tier classifier, no CODEOWNERS, no PR template, no area REVIEW.md | W1303.5 | LANDED 592a26a2; approval-consumption repair W1308 f7f10d0d |
 | Review: decisions-not-queues | `coord emit NEED_DECISION` is fleet law | landed checks | ALIGNED |
-| Keeping review useful (round cap 3, incidents→evals, human-time metric) | W1303.5 landed tiers/CODEOWNERS/PR template; these three mechanics unlanded (audit W1305) | W1303.7 | CHILD-PENDING |
+| Keeping review useful (round cap 3, incidents→evals, human-time metric) | SPLIT — round cap LANDED 4bfc1839 (hooks/lib/gates/review-round-cap.ts: scheduleReview stops after 3 failed review passes, NEED_DECISION to the author); incidents→evals GAP W1476; human-time GAP W1477; rationale docs/standard-dispositions.md #10 | W1303.7 · W1476 · W1477 | SPLIT: 1 LANDED · 2 GAP |
 | Enforcement table (npm ci, check-versions/deps/boundaries/pack/ui-laws, gen-openapi) | import-law ratchet (W1249) + law-guards CI exist; check-versions/check-deps/check-pack/gen-openapi missing | W1303.1 (3 checks) + W1303.4 (gen-openapi) | CHILD-PENDING |
 | Branch protection (no force-push main) | Guarded merge ladder + scrub gate; push gates in .githooks | landed checks | ALIGNED |
 | .prefer harness lock-down | Implemented: examples/prefer.example + parsers (exec-chain, prefer, prefer-routing) | landed checks | ALIGNED |
