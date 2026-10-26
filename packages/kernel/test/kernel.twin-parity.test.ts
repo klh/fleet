@@ -6,6 +6,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
+import { servicemon } from "../src/kernel.servicemon.module.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..", "..");
 const bytesOf = (rel: string): string =>
@@ -41,6 +42,34 @@ describe("kernel twin-parity (byte-equal promotion fidelity)", () => {
 		).replaceAll("stampResponse(", "opts.stamp(");
 		expect(kernel.includes(STAMP_OPTION)).toBe(true);
 		expect(kernel.replace(STAMP_OPTION, "")).toBe(twin);
+	});
+
+	// W1471: the one seam the parity pin normalizes away — the injected stamp
+	// must see every wrapped response (observability face, throw, handler 4xx).
+	test("servicemon routes every wrapped response through the injected stamp", async () => {
+		const seen: string[] = [];
+		const sm = servicemon({
+			service: "w1471",
+			port: 0,
+			stamp: (res, f) => {
+				seen.push(`${f.service}|${f.hop}|${f.refusal ?? ""}`);
+				return res;
+			},
+		});
+		const fetch = sm.fetch((req) => {
+			if (new URL(req.url).pathname === "/boom") throw new Error("boom");
+			return new Response("nope", { status: 404 });
+		});
+		const at = (path: string): Request =>
+			new Request(`http://127.0.0.1${path}`);
+		expect((await fetch(at("/status"))).status).toBe(200);
+		expect((await fetch(at("/boom"))).status).toBe(500);
+		expect((await fetch(at("/x"))).status).toBe(404);
+		expect(seen).toEqual([
+			"w1471|observability|",
+			"w1471|observability|handler_throw",
+			"w1471|observability|handler",
+		]);
 	});
 
 	test("theme: 4-way byte-equal (kernel + suspenders + belt + local)", () => {

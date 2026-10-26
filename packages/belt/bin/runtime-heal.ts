@@ -27,10 +27,13 @@ const DEPS: Array<{ from: string; to: string }> = [
 		to: "stack-config.ts",
 	},
 	{
-		from: "packages/suspenders/hooks/lib/host-guard.ts",
-		to: "host-guard.ts",
+		from: "packages/kernel/src/kernel.host-guard.module.ts",
+		to: "kernel.host-guard.module.ts",
 	},
-	{ from: "packages/suspenders/hooks/lib/servicemon.ts", to: "servicemon.ts" },
+	{
+		from: "packages/kernel/src/kernel.servicemon.module.ts",
+		to: "kernel.servicemon.module.ts",
+	},
 	{ from: "packages/buckle/src/gov/keys.ts", to: "gov/keys.ts" },
 	{ from: "packages/buckle/src/gov/audit-chain.ts", to: "gov/audit-chain.ts" },
 	{ from: "packages/buckle/src/gov/scopes.ts", to: "gov/scopes.ts" },
@@ -54,6 +57,12 @@ const DEPS: Array<{ from: string; to: string }> = [
 		from: "packages/telemetry/src/prefer-header.ts",
 		to: "prefer-header.ts",
 	},
+	// W1471: http-trace.ts + buckle ledger.ts value-import it (1af2fb82) —
+	// unshipped, both dangle in the flat home and the probe fails the install.
+	{
+		from: "packages/telemetry/src/transport-evidence.ts",
+		to: "transport-evidence.ts",
+	},
 	{
 		from: "packages/local-llm/models.catalog.ts",
 		to: "models.catalog.ts",
@@ -70,6 +79,9 @@ const REWRITE: Array<[RegExp, string]> = [
 	[/^(\.\.\/)+belt\/bin\/(.+)$/, "./"],
 	[/^(\.\.\/)+local-llm\/(.+)$/, "./"],
 	[/^(\.\.\/)+telemetry\/src\/(.+)$/, "./"],
+	// W1471: the flat home has no node_modules — @klh/kernel package imports
+	// (model-store's host-guard + servicemon faces) heal to the flat copies.
+	[/^(@klh\/kernel\/src\/)(.+)$/, "./"],
 ];
 
 const mapSpec = (spec: string): string | undefined => {
@@ -92,7 +104,10 @@ const scanImports = (src: string): string[] => {
 	return [...src.matchAll(/from\s+["']([^"']+)["']/g)]
 		.map((m) => m[1])
 		.filter(
-			(s) => s.endsWith(".ts") && s.startsWith(".") && !typeOnly.has(s),
+			(s) =>
+				s.endsWith(".ts") &&
+				(s.startsWith(".") || s.startsWith("@klh/")) &&
+				!typeOnly.has(s),
 		);
 };
 
@@ -152,8 +167,9 @@ export const healImports = (prefix: string): string[] => {
 };
 
 /** Transitive static resolution from the probe entries; a relative import
- *  that resolves OUTSIDE the prefix (checkout leftover) or a missing module
- *  is a failure. Bare/external specs ignored. */
+ *  that resolves OUTSIDE the prefix (checkout leftover), an unhealed @klh/
+ *  package import (the flat home has no node_modules) or a missing module
+ *  is a failure. Other bare/external specs ignored. */
 export const probeClosure = (
 	prefix: string,
 	entries: string[] = [
@@ -179,6 +195,10 @@ export const probeClosure = (
 			return;
 		}
 		for (const spec of scanImports(src)) {
+			if (spec.startsWith("@klh/")) {
+				errs.add(`unhealed package import in ${rel}: ${spec}`);
+				continue;
+			}
 			const resolved = join(dirname(rel), spec);
 			if (resolved.startsWith("..")) {
 				errs.add(`unhealed checkout import in ${rel}: ${spec}`);
