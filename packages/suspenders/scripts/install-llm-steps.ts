@@ -28,6 +28,10 @@ import {
 	prismaPreflight,
 	prometheusPreflight,
 } from "../../belt/bin/litellm-target.ts";
+import {
+	refreshStaleZaiSnapshot,
+	type ZaiStaleResult,
+} from "../deploy/zai-catalog.ts";
 import { scrubRules } from "../hooks/lib/scrub.ts";
 import { writeHubRegistry } from "../hooks/lib/hub/hub-registry.ts";
 import { refreshFlatHome, smokeRouter } from "./belt-bin-overlay.ts";
@@ -127,6 +131,8 @@ export interface RegenDeps {
 	/** generator runner override (tests); default spawns the home copy with
 	 *  HOME pinned to the home's `.claude` parent */
 	run?: (argv: string[], homeRoot: string) => Promise<void>;
+	/** Z.ai account-catalog fetcher override (tests); default global fetch */
+	zaiFetcher?: typeof fetch;
 }
 
 // W1205: regeneration diagnostics stay bounded + sanitized — the a81
@@ -213,6 +219,23 @@ export interface RegenOutcome {
 	note: string;
 }
 
+const ZAI_ACCEPT =
+	"bun packages/suspenders/deploy/zai-catalog-sync.ts sync --hub <hub>";
+
+// A stale snapshot the preflight could not refresh: bounded, actionable, loud.
+const zaiBlockedNote = (
+	r: Exclude<ZaiStaleResult, { kind: "refreshed" }>,
+): string => {
+	if (r.kind === "failed")
+		return `Z.ai catalog snapshot is stale and could not be verified against the live account catalog (${sanitizeDiagnostic(r.why)}); refresh: ${ZAI_ACCEPT}`;
+	const ids = [
+		...r.added.map((id) => `+${id}`),
+		...r.removed.map((id) => `-${id}`),
+	];
+	const more = ids.length > 6 ? ` …+${ids.length - 6} more` : "";
+	return `Z.ai catalog snapshot is stale and the live account model set changed (${ids.slice(0, 6).join(" ")}${more}); accept: ${ZAI_ACCEPT}`;
+};
+
 export async function regenGatewayConfig(
 	ctx: StepContext,
 	deps: RegenDeps = {},
@@ -230,6 +253,12 @@ export async function regenGatewayConfig(
 	const generator = join(ctx.llmHome, "gateway-config.ts");
 	if (!existsSync(generator)) return null;
 	if (!gatewayConfigStale(ctx.llmHome)) return null;
+	const zai = await refreshStaleZaiSnapshot(dirname(parent), deps.zaiFetcher);
+	if (zai && zai.kind !== "refreshed")
+		return {
+			ok: false,
+			note: `gateway config regen FAILED (${zaiBlockedNote(zai)}) — last good litellm.yaml stays`,
+		};
 	try {
 		await (deps.run ?? defaultRun)(
 			[process.execPath, generator],
@@ -241,15 +270,21 @@ export async function regenGatewayConfig(
 			note: `gateway config regen FAILED (${err instanceof Error ? err.message : String(err)}) — last good litellm.yaml stays`,
 		};
 	}
+	const refreshed = zai
+		? `Z.ai catalog snapshot refreshed (stale timestamp, ${zai.models} live models unchanged); `
+		: "";
 	return {
 		ok: true,
-		note: `gateway config regenerated from the healed kit (${join(ctx.llmHome, "litellm.yaml")}; activate: kill :4100 between fan-outs)`,
+		note: `${refreshed}gateway config regenerated from the healed kit (${join(ctx.llmHome, "litellm.yaml")}; activate: kill :4100 between fan-outs)`,
 	};
 }
 
 // ─── seedLocalLlm ───
 
-export async function seedLocalLlm(ctx: StepContext): Promise<StepResult> {
+export async function seedLocalLlm(
+	ctx: StepContext,
+	deps: RegenDeps = {},
+): Promise<StepResult> {
 	if (ctx.noLlm === true) {
 		return {
 			status: "skipped",
@@ -368,7 +403,7 @@ export async function seedLocalLlm(ctx: StepContext): Promise<StepResult> {
 	// 10-15, heal 10-19 15:30). Post-copy: sync the no-closure generator
 	// files, staleness-guard the yaml, regenerate when inputs moved.
 	// W1205: a failed regen is a FAILED step — never ok-with-note (a81).
-	const regen = await regenGatewayConfig(ctx);
+	const regen = await regenGatewayConfig(ctx, deps);
 	if (regen) log(regen.note);
 	if (regen && !regen.ok) {
 		return { status: "failed", note: regen.note };

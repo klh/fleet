@@ -142,6 +142,21 @@ Snapshots older than 24 hours require a refresh before a new deploy. The
 hub card reports configured models; successful routing needs a separate
 inference check.
 
+**Install preflight (W1469).** `install --wire` runs `seedLocalLlm`, whose
+regen leg re-runs the home `gateway-config.ts` when `litellm.yaml` trails its
+inputs. A snapshot past the 24-hour window used to fail that leg even when
+the account's model set had not changed. The installer now checks the
+snapshot first. A timestamp-only failure (stale, unparseable, or future-dated
+`generated_at`) is verified against the live catalog through the 0600
+`zai.key`, and the snapshot is rewritten in place (0600, atomic) when the
+chat model set is unchanged. A real chat-model delta (added or removed IDs),
+or a live catalog that cannot be read (no key, HTTP error), fails the step
+loudly and names the accept path,
+`bun packages/suspenders/deploy/zai-catalog-sync.ts sync --hub <hub>`.
+The generator is not spawned and the last good `litellm.yaml` stays. Fresh
+or absent snapshots, and a `litellm.yaml` that is already current, cost no
+network call. Drift in non-chat (excluded) IDs refreshes silently.
+
 ## Inference-route canary (W467)
 
 A `/status` answer proves the gate responds. The `buckle-ready` sidecar
