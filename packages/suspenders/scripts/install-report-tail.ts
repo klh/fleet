@@ -67,7 +67,5 @@ export function reportTail(
  *  machine stack.json pin rendered against the repo's latest release tag.
  *  Render-only: the 0600 conf is operator-owned, nothing is written. */
 export function stackVersionTail(repo: string): string {
-	return machineVersionHint(
-		latestTag(spawnGitRunner(repo))?.slice(1) ?? undefined,
-	).line;
+	return machineVersionHint(latestTag(spawnGitRunner(repo)) ?? undefined).line;
 }

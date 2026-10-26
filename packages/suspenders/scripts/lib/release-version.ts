@@ -349,7 +349,9 @@ export interface MachinePin {
 }
 
 /** W1303.6 (5): RENDER the machine stack.json version hint — the conf
- *  itself is 0600 operator-owned and never written by tooling. */
+ *  itself is 0600 operator-owned and never written by tooling. `target` is
+ *  the release TAG (vX.Y.Z): hubctl renders the pin as HUB_FLEET_REF and the
+ *  W1302.3 preflight ls-remotes it, so a bare X.Y.Z names no ref (W1311). */
 export function machineVersionHint(target?: string): MachinePin {
 	const stack = tryLoadStack();
 	const pin = stack?.version ?? null;

@@ -62,7 +62,7 @@ const status = defineVerb({
 	run: () => {
 		const agr = agreement(repo);
 		const tag = latestTag(git);
-		const hint = machineVersionHint(tag?.slice(1) ?? undefined);
+		const hint = machineVersionHint(tag ?? undefined);
 		const rows = [
 			`manifest agreement: ${agr.ok ? "OK" : "DRIFT"}`,
 			agr.current !== null ? `  version: ${agr.current}` : "  version: (none)",
@@ -128,7 +128,7 @@ const cut = defineVerb({
 		console.log(
 			[
 				`released ${done.tag} — commit ${done.commit.slice(0, 12)} on ${done.files.length} files`,
-				machineVersionHint(rel.next).line,
+				machineVersionHint(rel.tag).line,
 			].join("\n"),
 		);
 		return 0;
