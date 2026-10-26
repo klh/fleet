@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
+import { reviewRoundCap } from "../hooks/lib/gates/review-round-cap.ts";
 import {
 	finishReviewRequest,
 	providerPressureKey,
@@ -251,4 +252,93 @@ test("true FAIL verdict is terminal — never retried, never re-rolled", () => {
 		"review completed; unresolved findings require repair",
 	);
 	expect(f.launches).toHaveLength(1);
+});
+/** W1303.7: the scheduler fixture plus the events + work_items tables the
+ * round cap reads — the bare fixture lacks them, so every test above also
+ * proves the cap fails open on an unreadable history. */
+function capFixture() {
+	const f = fixture();
+	f.db.run(
+		"CREATE TABLE events(id INTEGER PRIMARY KEY AUTOINCREMENT,ts INTEGER,source TEXT,kind TEXT,scope TEXT,payload TEXT,target TEXT)",
+	);
+	f.db.run(
+		"CREATE TABLE work_items(project TEXT,id TEXT,parent_id TEXT,tags TEXT)",
+	);
+	return f;
+}
+/** Bank one bound review receipt for `item` at `commit`. */
+function review(
+	f: ReturnType<typeof fixture>,
+	item: string,
+	commit: string,
+	verdict: "PASS" | "FAIL" | "ERROR",
+): void {
+	const receipt = { version: 1, commit, base: "b".repeat(40), verdict };
+	const payload = { project: "fixture", work: item, verdict };
+	f.db
+		.query(
+			"INSERT INTO events(ts,source,kind,scope,payload) VALUES (?,'review-lane','work.review',?,?)",
+		)
+		.run(
+			Date.now(),
+			item,
+			JSON.stringify({ ...payload, receipt: JSON.stringify(receipt) }),
+		);
+}
+const decisions = (f: ReturnType<typeof fixture>) =>
+	f.db
+		.query("SELECT target, payload FROM events WHERE kind='NEED_DECISION'")
+		.all() as { target: string; payload: string }[];
+test("round cap knob: unset or junk → 3, an integer overrides, 0 disables", () => {
+	expect(reviewRoundCap({})).toBe(3);
+	expect(reviewRoundCap({ SUSPENDERS_REVIEW_ROUND_CAP: "x" })).toBe(3);
+	expect(reviewRoundCap({ SUSPENDERS_REVIEW_ROUND_CAP: "5" })).toBe(5);
+	expect(reviewRoundCap({ SUSPENDERS_REVIEW_ROUND_CAP: "0" })).toBe(0);
+});
+test("round cap: three failed review-and-fix rounds stop the reviewer and ask the author once", () => {
+	const f = capFixture();
+	for (const c of ["1", "2", "3"]) review(f, "W1", c.repeat(40), "FAIL");
+	expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
+		"review round cap reached (3 failed review rounds, cap 3)",
+	);
+	scheduleReview({ ...f.options, spawn: f.spawn });
+	expect(f.launches).toHaveLength(0);
+	const asked = decisions(f);
+	expect(asked).toHaveLength(1);
+	expect(asked[0]?.target).toBe("author");
+	expect(JSON.parse(asked[0]?.payload ?? "{}")).toMatchObject({
+		work: "W1",
+		review_round_cap: "3",
+	});
+});
+test("round cap counts commits whose latest verdict FAILED — ERROR legs and resolved commits are not rounds", () => {
+	const f = capFixture();
+	review(f, "W1", "1".repeat(40), "FAIL");
+	review(f, "W1", "2".repeat(40), "FAIL");
+	review(f, "W1", "3".repeat(40), "ERROR");
+	review(f, "W1", "4".repeat(40), "FAIL");
+	review(f, "W1", "4".repeat(40), "PASS");
+	expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
+		"requested through Buckle",
+	);
+	expect(decisions(f)).toHaveLength(0);
+});
+test("round cap: a review-repair child inherits its parent's rounds; other children and cap 0 do not", () => {
+	const f = capFixture();
+	for (const c of ["1", "2", "3"]) review(f, "W1", c.repeat(40), "FAIL");
+	f.db.run(
+		"INSERT INTO work_items VALUES ('fixture','W2','W1','fleet,repair,review'),('fixture','W3','W1','fleet,repair')",
+	);
+	expect(
+		scheduleReview({ ...f.options, item: "W2", spawn: f.spawn }),
+	).toContain("review round cap reached");
+	expect(
+		scheduleReview({ ...f.options, item: "W3", spawn: f.spawn }),
+	).toContain("requested through Buckle");
+	const env = { ...f.options.env, SUSPENDERS_REVIEW_ROUND_CAP: "0" };
+	expect(scheduleReview({ ...f.options, env, spawn: f.spawn })).toContain(
+		"requested through Buckle",
+	);
+	expect(f.launches).toHaveLength(2);
+	expect(decisions(f).map((d) => d.target)).toEqual(["author"]);
 });
