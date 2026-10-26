@@ -24,17 +24,20 @@
 import { Database } from "bun:sqlite";
 import { statSync } from "node:fs";
 import { join } from "node:path";
+// W1471: host-guard + servicemon ride the kernel faces (the belt→suspenders
+// reach-ins the import-law PIN carried); the citizenship stamp is belt's own.
+import {
+	hostGuard,
+	writeToken,
+} from "@klh/kernel/src/kernel.host-guard.module.ts";
+import { servicemon } from "@klh/kernel/src/kernel.servicemon.module.ts";
 import { KeyStore } from "../../buckle/src/gov/keys.ts";
 import {
 	PullAuthorizer,
 	TokenBucket,
 } from "../../buckle/src/gov/store-auth.ts";
 import { loadCatalog } from "../../local-llm/models.catalog.ts";
-import {
-	hostGuard,
-	writeToken,
-} from "../../suspenders/hooks/lib/host-guard.ts";
-import { servicemon } from "../../suspenders/hooks/lib/servicemon.ts";
+import { stampResponse } from "./http-citizenship.ts";
 import {
 	hfOrigin,
 	hubOrigin,
@@ -162,7 +165,11 @@ function makeDeps(): AppDeps {
 /** The hub face: auth wiring + servicemon observability. Exported so the
  *  compose service and tests share one constructor. */
 export function buildServer(): { stop: () => void; port: number } {
-	const sm = servicemon({ service: "model-store", port: PORT });
+	const sm = servicemon({
+		service: "model-store",
+		port: PORT,
+		stamp: stampResponse,
+	});
 	const server = Bun.serve(
 		sm.wrapped({
 			port: PORT,
