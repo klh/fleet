@@ -16,6 +16,39 @@ const scratch = (): string =>
 	mkdtempSync(join(tmpdir(), "w519-prefer-routing-"));
 
 describe("parseRoutingPrefer (grammar)", () => {
+	test("JSON overlays validate once instead of becoming routing lines", () => {
+		expect(
+			parseRoutingPrefer(
+				"/x/.prefer",
+				' \n{"selection":{"posture":"minimal"}}',
+			),
+		).toEqual({ prefer: null, must: null, errors: [] });
+		expect(() => parseRoutingPrefer("/x/.prefer", '{"version":')).toThrow(
+			"/x/.prefer: invalid JSON",
+		);
+		expect(() => parseRoutingPrefer("/x/.prefer", '{"version":2}')).toThrow(
+			"/x/.prefer:version",
+		);
+	});
+
+	test("complete nearest routing cannot hide malformed parent JSON", () => {
+		const root = scratch();
+		try {
+			const near = join(root, "near");
+			mkdirSync(near);
+			writeFileSync(join(root, ".prefer"), '{"version":');
+			writeFileSync(
+				join(near, ".prefer"),
+				'prefer="local llms"\nmust="cloud llms"',
+			);
+			expect(() => resolveRoutingPrefer(near)).toThrow(
+				`${join(root, ".prefer")}: invalid JSON`,
+			);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
 	test("quoted value with trailing comment; unquoted tolerated", () => {
 		const a = parseRoutingPrefer(
 			"/x/.prefer",

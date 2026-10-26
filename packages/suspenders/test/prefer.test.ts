@@ -36,6 +36,42 @@ afterAll(() => {
 });
 
 describe("parsePreferFile", () => {
+	test("JSON overlays are validated, never unknown legacy lines", () => {
+		expect(
+			parsePreferFile(
+				"/x/.prefer",
+				' \n{"version":1,"selection":{"posture":"minimal"}}',
+			),
+		).toEqual({ values: {}, errors: [] });
+		expect(() => parsePreferFile("/x/.prefer", '{"version":')).toThrow(
+			"/x/.prefer: invalid JSON",
+		);
+		expect(() =>
+			parsePreferFile("/x/.prefer", '{"selection":{"posture":false}}'),
+		).toThrow("/x/.prefer:selection.posture");
+		expect(
+			parsePreferFile(
+				"/x/.prefer",
+				"can=claude\nhub=example\nhub-url=https://example.invalid",
+			).errors,
+		).toEqual([]);
+	});
+
+	test("outer malformed JSON is not skipped when nearest legacy keys are complete", () => {
+		const tree = join(TREE, "json-errors");
+		const near = join(tree, "near");
+		mkdirSync(near, { recursive: true });
+		writeFileSync(join(tree, ".prefer"), '{"version":');
+		writeFileSync(
+			join(near, ".prefer"),
+			'tag="example"\ncolor="#123456"\nprefer="local llms"\nmust="cloud llms"',
+		);
+		expect(() => resolvePrefer(near)).toThrow(
+			`${join(tree, ".prefer")}: invalid JSON`,
+		);
+		rmSync(tree, { recursive: true, force: true });
+	});
+
 	test("full doc: quoted values, comments, blank lines", () => {
 		const r = parsePreferFile(
 			"/t/.prefer",

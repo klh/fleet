@@ -8,7 +8,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { execPick } from "../scripts/lib/exec-chain.ts";
+import { execPick, preferOf } from "../scripts/lib/exec-chain.ts";
 import { specialistByPort } from "../hooks/board/local-swarm.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "w183-chain-home-"));
@@ -16,6 +16,24 @@ const REPO = mkdtempSync(join(tmpdir(), "w183-chain-repo-"));
 mkdirSync(join(HOME, ".claude", "local-llm"), { recursive: true });
 const REAL_HOME = process.env.HOME;
 process.env.HOME = HOME;
+
+test("JSON .prefer never becomes executor garbage; malformed JSON cannot fall back", () => {
+	const repo = join(REPO, "json-compat");
+	mkdirSync(repo);
+	writeFileSync(join(repo, ".prefer"), '{"selection":{"posture":"minimal"}}');
+	expect(preferOf(repo)).toEqual({
+		directives: [],
+		hub: null,
+		hubUrls: [],
+		can: null,
+	});
+	writeFileSync(join(repo, ".prefer"), "{\nmust=claude\n}");
+	expect(() => preferOf(repo)).toThrow(
+		`${join(repo, ".prefer")}: invalid JSON`,
+	);
+	expect(() => execPick(0, repo)).toThrow("invalid JSON");
+	rmSync(repo, { recursive: true, force: true });
+});
 
 const settingsFile = join(
 	HOME,

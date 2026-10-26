@@ -18,6 +18,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseLawExpr } from "../../hooks/lib/repo-laws.ts";
+import { preferOverlayOf } from "../../hooks/lib/prefer-format.ts";
 
 export interface PreferRouting {
 	/** W96 expr, e.g. "ikea llms" — soft: rank matching endpoints first. */
@@ -32,9 +33,8 @@ export interface PreferRouting {
 
 const FILE = ".prefer";
 const MAX_WALK = 64; // depth cap — never walk into a symlink farm
-const ROUTING_KEYS = new Set(["prefer", "must"]);
 // other planes' keys — not a routing concern, never an error here
-const FOREIGN_KEYS = new Set(["tag", "color"]);
+const FOREIGN_KEYS = new Set(["tag", "color", "can", "hub", "hub-url"]);
 
 const emptyRouting = (): PreferRouting => ({
 	prefer: null,
@@ -67,7 +67,12 @@ export function parseRoutingPrefer(
 	path: string,
 	text: string,
 ): { prefer: string | null; must: string | null; errors: string[] } {
-	const out = { prefer: null, must: null, errors: [] };
+	const out: Pick<PreferRouting, "prefer" | "must" | "errors"> = {
+		prefer: null,
+		must: null,
+		errors: [],
+	};
+	if (preferOverlayOf(path, text) !== null) return out;
 	const lines = text.split("\n");
 	for (let i = 0; i < lines.length; i++) {
 		const t = lines[i]?.trim() ?? "";
@@ -79,7 +84,7 @@ export function parseRoutingPrefer(
 		if (!raw.startsWith('"') && !/\s/.test(raw)) continue; // executor plane
 		const at = `${path}:${String(n)}`;
 		if (FOREIGN_KEYS.has(key)) continue; // W517/W518 planes
-		if (!ROUTING_KEYS.has(key)) {
+		if (key !== "prefer" && key !== "must") {
 			out.errors.push(
 				`${at}: unknown key '${t.slice(0, 24)}' — expected prefer, must (tag/color are other planes)`,
 			);
@@ -104,8 +109,8 @@ export function parseRoutingPrefer(
 	return out;
 }
 
-/** Walk upward from startDir collecting routing definitions — nearest
- *  definition wins per key; the walk stops early once both keys are known. */
+/** Walk upward collecting routing definitions — nearest wins per key.
+ * Validate outer JSON even when both legacy keys are already known. */
 export function resolveRoutingPrefer(startDir: string): PreferRouting {
 	const out = emptyRouting();
 	let dir = startDir;
@@ -129,7 +134,6 @@ export function resolveRoutingPrefer(startDir: string): PreferRouting {
 				out.mustSource = f;
 			}
 		}
-		if (out.prefer !== null && out.must !== null) break;
 		const parent = dirname(dir);
 		if (parent === dir) break;
 		dir = parent;
