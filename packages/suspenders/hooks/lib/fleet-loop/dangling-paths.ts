@@ -15,6 +15,15 @@
 //    depth; the reference pointed at nonexistent hooks/lib/bin/ until a
 //    runtime failure exposed it (W1304, 2026-10-25).
 //
+// W1302.2.1 scoping: probe 2 judges only reference-form specifiers (dot-
+// prefixed relative or @klh/) in NON-fixture files — a test file's or
+// staging script's path-like strings denote synthetic trees (tmpdir fixture
+// repos, staged harness roots), never the repo tree; bare `dir/name.ext`
+// strings are data (staged-file lists, fixture names), not references.
+// Targets under runtime dirs (.harness/.worktrees/.test-home) are untracked
+// by convention and never judged. Probe 1 keeps whole-tree grep — a test
+// importing a deleted module is a real dangling edge.
+//
 // Findings mint deduplicated repair work items + `code.dangling-path`
 // events, mirroring the decomposition soft-cap pattern, so a dangling edge
 // is actionable in the graph instead of a log line.
@@ -40,6 +49,20 @@ const TEMPLATE_HOLE = /\$\{/;
 // quoted string bodies, longest-first alternation so adjacent quotes cannot
 // shadow one another
 const LITERAL = /(['"`])((?:\\.|(?!\1)[\s\S])*?)\1/g;
+// W1302.2.1: probe-2 specifier scope. Real ESM relative imports and runtime
+// path strings are dot-prefixed; package imports ride @klh/. Bare
+// `dir/name.ext` strings are data, not references — the W1356 / W1302.4.1.1
+// merges minted 160+ per-literal repairs from sync-harness and merge-guard
+// fixture strings before this scope landed. `...` marks a doc ellipsis.
+const REFERENCE_FORM = /^(?:\.{1,2}\/|@klh\/)/;
+const PLACEHOLDER = /\.\.\./;
+// Test/fixture files: their path-like strings denote synthetic trees (tmpdir
+// fixture repos, staged harness roots), never the repo tree.
+const FIXTURE_FILE =
+	/(?:^|\/)(?:test|tests|__tests__)\/|(?:\.test|\.spec|\.e2e)\.[cm]?[jt]sx?$/i;
+// Runtime dirs are untracked by convention — targets under them cannot be
+// judged "missing from the tree" by ls-tree.
+const RUNTIME_DIR = /(?:^|\/)(?:\.harness|\.worktrees|\.test-home)\//;
 
 const git = (repo: string, args: string[]): string | null => {
 	const p = Bun.spawnSync(["git", "-C", repo, ...args], {
@@ -81,7 +104,7 @@ export function unresolvedSpecifiers(
 	files: string[],
 ): DanglingRef[] {
 	const usable = files
-		.filter((f) => SOURCE.test(f) && !EXCLUDED.test(f))
+		.filter((f) => SOURCE.test(f) && !EXCLUDED.test(f) && !FIXTURE_FILE.test(f))
 		.slice(0, 500); // bounded fail-open: a huge reorg merge skips deeper audit
 	if (!usable.length) return [];
 	const listing = git(repo, ["ls-tree", "-r", "--name-only", "-z", tree]);
@@ -93,8 +116,9 @@ export function unresolvedSpecifiers(
 		const body = git(repo, ["show", `${tree}:${f}`]);
 		if (body === null) continue;
 		for (const spec of pathLiterals(body)) {
+			if (!REFERENCE_FORM.test(spec) || PLACEHOLDER.test(spec)) continue;
 			const resolved = resolveLiteral(spec, f);
-			if (resolved === null) continue;
+			if (resolved === null || RUNTIME_DIR.test(resolved)) continue;
 			if (resolutionCandidates(resolved).some((c) => present.has(c))) continue;
 			findings.push({ target: resolved, refBy: f, line: 0, specifier: spec });
 		}

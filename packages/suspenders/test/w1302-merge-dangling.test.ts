@@ -291,6 +291,71 @@ describe("W1302.2 post-merge dangling-path scan", () => {
 		expect(unresolvedSpecifiers(repo, fixed, ["gates/sched.ts"])).toEqual([]);
 	});
 
+	test("W1302.2.1: fixture strings in test files never judged (probe2 scoped)", async () => {
+		const repo = await base();
+		// the real families' shapes: bare fixture names, a colon-prefixed git
+		// rev form, a staged-file list (review-lane-proof / merge-guard /
+		// sync-harness.test shape)
+		await Bun.write(
+			Bun.file(join(repo, "test", "guard.test.ts")),
+			[
+				'const repo = "/tmp/fx";',
+				'writeFileSync(join(repo, "real.ts"), "export const stub = 0;\\n");',
+				'git(repo, "show", ":base.ts");',
+				'stage(["harness-receipt.json", "bin/coord.ts", "packages/belt/package.json"]);',
+			].join("\n"),
+		);
+		// outside a test file the scanner keeps its power on dot-prefixed refs
+		await Bun.write(
+			Bun.file(join(repo, "lib", "caller.ts")),
+			'import { d } from "./missing.ts";\nexport const c = d;\n',
+		);
+		g(repo, ["add", "-A"]);
+		g(repo, ["commit", "-m", "delta"]);
+		const head = g(repo, ["rev-parse", "HEAD"]).stdout.toString().trim();
+		const hits = unresolvedSpecifiers(repo, head, [
+			"test/guard.test.ts",
+			"lib/caller.ts",
+		]);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].refBy).toBe("lib/caller.ts");
+		expect(hits[0].target).toBe("lib/missing.ts");
+	});
+
+	test("W1302.2.1: bare data-path strings and runtime-dir targets never judged", async () => {
+		const repo = await base();
+		// sync-harness.ts shape: staged-file list + @klh doc ellipsis + a
+		// runtime-home .harness climb — all data, none a repo reference
+		await Bun.write(
+			Bun.file(join(repo, "scripts", "stage.ts")),
+			[
+				"const staged = [",
+				'\t"package.json",',
+				'\t"hooks/gate.ts",',
+				'\t"harness-receipt.json",',
+				'\t"@klh/blam/...",',
+				"];",
+				'const harnessRoot = "../../.harness/packages/buckle";',
+				"export const x = [staged, harnessRoot];",
+			].join("\n"),
+		);
+		// the W1304 shape stays caught — proves the form rule, not file luck
+		await Bun.write(
+			Bun.file(join(repo, "lib", "runner.ts")),
+			'const p = new URL("../bin/runner.ts", import.meta.url).pathname;\nexport const P = p;\n',
+		);
+		g(repo, ["add", "-A"]);
+		g(repo, ["commit", "-m", "delta"]);
+		const head = g(repo, ["rev-parse", "HEAD"]).stdout.toString().trim();
+		const hits = unresolvedSpecifiers(repo, head, [
+			"scripts/stage.ts",
+			"lib/runner.ts",
+		]);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].refBy).toBe("lib/runner.ts");
+		expect(hits[0].target).toBe("bin/runner.ts");
+	});
+
 	test("probe1: deleted-path reference found; same-basename survivor stays quiet", async () => {
 		const repo = await base();
 		// lib/gone.ts referenced by app.ts; keep/old.ts referenced by other/r.ts
