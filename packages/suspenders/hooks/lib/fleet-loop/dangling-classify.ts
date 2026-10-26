@@ -108,15 +108,17 @@ export function referencesIn(file: string, body: string): Reference[] {
 	return JSON_FILE.test(file) ? jsonReferences(body) : textReferences(body);
 }
 
+/** Every quoted string body in the text, in order — no syntax: the probe-1
+ * grep-line prefilter and the base of pathLiterals. */
+export function quotedStrings(text: string): string[] {
+	return [...text.matchAll(LITERAL)].map((m) => m[2] ?? "");
+}
+
 /** Every path-like string literal in the file body, in order. */
 export function pathLiterals(body: string): string[] {
-	const out: string[] = [];
-	for (const m of body.matchAll(LITERAL)) {
-		const spec = m[2];
-		if (!spec || TEMPLATE_HOLE.test(spec) || !PATH_LIKE.test(spec)) continue;
-		out.push(spec);
-	}
-	return out;
+	return quotedStrings(body).filter(
+		(s) => s !== "" && !TEMPLATE_HOLE.test(s) && PATH_LIKE.test(s),
+	);
 }
 
 function keep(spec: string, kind: RefKind): boolean {

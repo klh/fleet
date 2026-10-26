@@ -14,7 +14,7 @@ import type {
 	NetworkInterfaceRow,
 	NetworkOverviewResult,
 	NetworkRouteRow,
-} from "../../buckle/src/network-read-model.ts";
+} from "@klh/buckle/src/network-read-model.ts";
 
 // token formatting — measured numbers only; null renders "—", never 0
 const fmtTok = (n: number | null): string => {
