@@ -184,9 +184,9 @@ defaults untouched, committed `.githooks`; `CLAUDE.md → @AGENTS.md`;
 native-first Lit with no `innerHTML`, bundled never CDN; agent-first review
 riding `oracle review`; decisions-not-queues (`coord emit NEED_DECISION`);
 every rule enforced by a check. Recorded in Amendment C; re-verified against
-post-reorg main by W1302's structural-prevention plan (lands with the W1302
-merge; `docs/structural-prevention-plan.md` rides branch
-`suspenders/W1302` until then — verified 2026-10-25, W1301.1).
+post-reorg main by W1302's structural-prevention plan (landed: W1302 merged
+to main 2026-10-26; `docs/structural-prevention-plan.md` is on main —
+verified 2026-10-26, W1301.1.1).
 
 ## Maintenance
 
