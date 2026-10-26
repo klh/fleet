@@ -28,12 +28,12 @@ import {
 	prismaPreflight,
 	prometheusPreflight,
 } from "../../belt/bin/litellm-target.ts";
-import { scrubRules } from "../hooks/lib/scrub.ts";
 import { writeHubRegistry } from "../hooks/lib/hub/hub-registry.ts";
+import { scrubRules } from "../hooks/lib/scrub.ts";
 import { refreshFlatHome, smokeRouter } from "./belt-bin-overlay.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
-import { readBoundedTail } from "./lib/bounded-tail.ts";
 import { validateBeltWiredGuard } from "./lib/belt-wired-guard.ts";
+import { readBoundedTail } from "./lib/bounded-tail.ts";
 
 const kitDir = (ctx: StepContext): string => join(ctx.repo, "..", "local-llm");
 const beltBin = (ctx: StepContext): string =>
@@ -374,6 +374,24 @@ export async function seedLocalLlm(ctx: StepContext): Promise<StepResult> {
 		} else {
 			copyFileSync(source, target);
 			log(`+ ${target} (stub — fill/verify at activation)`);
+		}
+	}
+	// W1265.2.1: the repo-tier policy reconciles the same way — the W1265.2
+	// mandatory general default as material bytes, seeded 0600 write-once so
+	// hosts get their tier classes at install time; an existing file is
+	// operator-owned and never clobbered. Absent at runtime = the in-code
+	// general default (safe), so a failed seed here stays a note.
+	const tierPolicy = join(ctx.llmHome, "repo-tier-policy.yaml");
+	if (existsSync(tierPolicy)) {
+		log(`= ${tierPolicy} kept (operator-owned runtime copy)`);
+	} else {
+		const source = join(beltBin(ctx), "../../buckle/repo-tier-policy.yaml");
+		if (existsSync(source)) {
+			copyFileSync(source, tierPolicy);
+			chmodSync(tierPolicy, 0o600);
+			log(`+ ${tierPolicy} (general default — operator-owned after seed)`);
+		} else {
+			log("repo-tier-policy seed skipped (stale kit — placeholder absent)");
 		}
 	}
 	// W889: the heal never re-ran the gateway generator — W219.2's fallback

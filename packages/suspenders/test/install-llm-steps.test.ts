@@ -7,8 +7,10 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
+import { YAML } from "bun";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { INSTALL_CONTRACT } from "../scripts/install-contract.ts";
@@ -43,6 +45,16 @@ const tmpHome = (label: string): string => {
 	mkdirSync(base, { recursive: true });
 	const dir = mkdtempSync(join(base, label));
 	dirs.push(dir);
+	// The flat-home closure heal copies kit files that import bare `zod`
+	// (stack-config.ts); bun build resolves from the runtime dir up-walk, so
+	// the fixture home needs a resolvable stub (resolution only — never run).
+	const zodStub = join(dir, "node_modules/zod");
+	mkdirSync(zodStub, { recursive: true });
+	writeFileSync(
+		join(zodStub, "package.json"),
+		JSON.stringify({ name: "zod", version: "0.0.0-fixture" }),
+	);
+	writeFileSync(join(zodStub, "index.js"), "export const z = {};\n");
 	return dir;
 };
 
@@ -182,9 +194,23 @@ describe("seedLocalLlm", () => {
 			"memory-policy.ts",
 			"belt.env",
 			"routing-policy.json",
+			"repo-tier-policy.yaml",
 		]) {
 			expect(existsSync(join(home, file))).toBe(true);
 		}
+		// W1265.2.1: the tier policy seeds as machine config — 0600, general
+		// default bytes, and it must parse as the W1265.2 doc shape.
+		const tierPolicy = join(home, "repo-tier-policy.yaml");
+		expect(statSync(tierPolicy).mode & 0o777).toBe(0o600);
+		const parsed = YAML.parse(readFileSync(tierPolicy, "utf8")) as {
+			version: number;
+			classes: Array<{ id: string; keys: string[]; providers: string[] }>;
+		};
+		expect(parsed.version).toBe(1);
+		expect(parsed.classes).toHaveLength(1);
+		expect(parsed.classes[0].id).toBe("general");
+		expect(parsed.classes[0].keys).toEqual(["*"]);
+		expect(parsed.classes[0].providers).toEqual(["zai", "openrouter"]);
 		expect(existsSync(join(home, "tier.json"))).toBe(true);
 		// W284: serve-family kit files are retired — never seeded fresh.
 		for (const retired of ["gateway-supervision.ts", "serve-observation.ts"]) {
@@ -238,6 +264,21 @@ describe("seedLocalLlm never clobbers", () => {
 		expect(swarm).toContain('case "supervise"');
 		// the serve FORK is retired — its observer import never appears
 		expect(swarm).not.toContain("serve-observation");
+	});
+
+	test("operator-edited repo-tier-policy survives re-install (W1265.2.1)", async () => {
+		const home = tmpHome("seed-keep-tier-policy");
+		mkdirSync(home, { recursive: true });
+		writeGuard(home);
+		const operatorDoc = "version: 1\nclasses:\n  - id: ikea\n    tier: work\n";
+		writeFileSync(join(home, "repo-tier-policy.yaml"), operatorDoc, {
+			mode: 0o600,
+		});
+		const res = await seedLocalLlm(ctxFor(home));
+		expect(res.status).toBe("ok");
+		expect(readFileSync(join(home, "repo-tier-policy.yaml"), "utf8")).toBe(
+			operatorDoc,
+		);
 	});
 });
 
