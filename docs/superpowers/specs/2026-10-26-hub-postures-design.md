@@ -1,6 +1,6 @@
 # Composable hub postures and .prefer overrides
 
-Status: architecture approved by owner; written specification awaiting review.
+Status: architecture and written specification approved by owner.
 Work: W1315. Owner decisions: Copilot session 1a536a25, 2026-10-26.
 
 ## Goal
