@@ -50,6 +50,7 @@ import {
 	mergeHoldActive,
 } from "../lib/lanes/ladder-lease.ts";
 import { laneProcessIdentity } from "../lib/lanes/lane-liveness.ts";
+import { createTransportProbe } from "../lib/lanes/transport-liveness.ts";
 import { flushOnDoneWait } from "../lib/fleet-loop/merge-on-done.ts";
 // W911: the plaid posture switch — read/write .fleet/posture (the file
 // dispatch-next reads once per invocation).
@@ -84,9 +85,14 @@ const { mergeOne, mergeRunnerAlive, healCrashedMerge } = createMergeLadder({
 	laneIsAlive,
 	retireMerged,
 });
-const { stallWatch } = createStallWatch({
+// W1302.5: the ONE transport probe — both the stall watchdog and the
+// auto-reclaim sweep read the buckle in-flight index through it (≤1 bounded
+// read per ttl window, SUSPENDERS_TRANSPORT_PROBE=0 disables).
+const transportProbe = createTransportProbe();
+const { stallWatch, transportRefresh } = createStallWatch({
 	...runtime,
 	STALL_WARN_MS: config.STALL_WARN_MS,
+	transport: transportProbe,
 });
 const { rogueSweep } = createRogueSweep({
 	...runtime,
@@ -98,6 +104,7 @@ const { reclaimSweep } = createReclaimSweep({
 	...runtime,
 	store: openStore,
 	broadcast: (note: string) => broadcastNote(note, "fleet-loop"),
+	transport: transportProbe,
 });
 
 // W779 heartbeat: the no-port launchd maintenance agents as typed tasks —
@@ -193,6 +200,16 @@ async function cycle(): Promise<void> {
 	if (DISPATCH) runTemplate(DISPATCH, "", LADDER_TIMEOUT_MS);
 
 	// 4. stall watchdog (autow428): warn while the claim is still warm
+	// W1302.5: refresh the buckle in-flight snapshot first — a lane holding
+	// an ACTIVE gate request never reads stalled (O1). Fail-isolated: an
+	// unreachable gate only removes the transport term.
+	try {
+		await transportRefresh();
+	} catch (e) {
+		log(
+			`TRANSPORT refresh failed (fail-isolated): ${e instanceof Error ? e.message : String(e)}`,
+		);
+	}
 	stallWatch();
 
 	// 5. wisdom sweep (W469): fleet-wide read-only correction detector —
@@ -228,7 +245,7 @@ async function cycle(): Promise<void> {
 	// merge/dispatch loop (the wisdom-sweep rule).
 	if (!existsSync(`${REPO}/.fleet/reclaim-paused`)) {
 		try {
-			reclaimSweep();
+			await reclaimSweep();
 		} catch (e) {
 			log(
 				`RECLAIM sweep failed (fail-isolated): ${e instanceof Error ? e.message : String(e)}`,
