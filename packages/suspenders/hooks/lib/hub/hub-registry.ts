@@ -10,7 +10,7 @@
 //
 // Fail-closed lines: a machine with no stack config is never touched (the
 // spoke roster flow owns the file at that path); a stack hub without a url
-// projects no registry entry (nothing to probe); write failures degrade to a
+// or host+Buckle port projects no entry; write failures degrade to a
 // note at install (the resolveHub chain still resolves stack labels at
 // runtime).
 import { readFileSync, writeFileSync, chmodSync } from "node:fs";
@@ -18,6 +18,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { REGISTRY_PATH } from "./hub-locate.ts";
 import { tryLoadStack, type HubProfile } from "../stack-config.ts";
+import { hubBuckleUrl } from "./hub-endpoint.ts";
 
 /** The registry entry shape every consumer parses (hub-locate/belt/cross-hub). */
 export interface HubRegistryEntry {
@@ -47,7 +48,7 @@ export function hubRegistryFromStack(stack: {
 }): HubRegistry {
 	const out: HubRegistry = {};
 	for (const [label, profile] of Object.entries(stack.hubs ?? {})) {
-		const url = profile.url?.trim().replace(/\/+$/, "");
+		const url = hubBuckleUrl(profile);
 		if (!url) continue;
 		const entry: HubRegistryEntry = { candidates: [url] };
 		const token = profile.token ?? readTokenFile(profile.token_file);
