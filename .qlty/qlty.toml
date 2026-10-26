@@ -61,13 +61,10 @@ exclude_patterns = [
   # run conflicts), and the adapter layer in packages/decant/fleet/ is linted
   # through THAT config (the on-write gate runs qlty from the edited file's
   # dir, so the nearest-config discovery picks decant's rules).
-  "packages/decant/src/**",
-  "packages/decant/fleet/**",
-  "packages/decant/scripts/**",
-  "packages/decant/test/**",
-  "packages/decant/fixtures/**",
-  "packages/decant/themes/**",
-  "packages/decant/docs/**",
+  # W1303.1.10: whole-tree glob — the per-dir rows above let top-level files
+  # (package.json) fall through to the root biome run, which hard-errors on
+  # the nested biome root and reports a parser error against the file.
+  "packages/decant/**",
 ]
 
 test_patterns = [

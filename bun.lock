@@ -59,6 +59,7 @@
       "dependencies": {
         "@klh/blam": "workspace:*",
         "p-queue": "^9.3.3",
+        "zod": "^4.0.0",
       },
       "devDependencies": {
         "@anthropic-ai/sdk": "^1.1.0",
@@ -125,6 +126,10 @@
         "chromium-bidi": "12.1.0",
       },
     },
+    "packages/telemetry": {
+      "name": "@klh/telemetry",
+      "version": "2.0.0",
+    },
   },
   "packages": {
     "@anthropic-ai/sdk": ["@anthropic-ai/sdk@1.3.0", "", { "dependencies": { "@opentelemetry/api": "^1.4.1", "json-schema-to-ts": "^3.1.1", "standardwebhooks": "^1.0.0" }, "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["zod"], "bin": { "anthropic-ai-sdk": "bin/cli" } }, "sha512-k7z9BlLLPxfZH+ov7dS6EnaN/wiZeV8YNT1LZfrpAHIy7oY7pHr4UzirF9f2OlHtFEnRBOX+AZQ91Y5fK+TPTw=="],
@@ -152,6 +157,8 @@
     "@klh/speedy": ["@klh/speedy@workspace:packages/speedy"],
 
     "@klh/suspenders": ["@klh/suspenders@workspace:packages/suspenders"],
+
+    "@klh/telemetry": ["@klh/telemetry@workspace:packages/telemetry"],
 
     "@leichtgewicht/ip-codec": ["@leichtgewicht/ip-codec@2.0.5", "", {}, "sha512-Vo+PSpZG2/fmgmiNzYK9qWRh8h/CHrwD0mo1h1DzL4yzHNSfWYujGTYsWGreD000gcgmZ7K4Ys6Tx9TxtsKdDw=="],
 
