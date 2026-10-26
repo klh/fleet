@@ -70,6 +70,7 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 			`packages/suspenders/hooks/${name}/fixture.ts`,
 			"export const value = 1;",
 		);
+	put("packages/suspenders/agent-rules/fixture.ts", "export const value = 1;");
 	for (const file of [
 		"gate.ts",
 		"session-start.ts",
@@ -99,8 +100,8 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		"packages/buckle/src/server.ts",
 		'export { trace } from "../../telemetry/src/http-trace.ts";',
 	);
-	put("packages/buckle/routing-policy.yaml", "gateway: {}");
-	put("packages/buckle/repo-policy.yaml", "repos: []");
+	put("packages/buckle/routing-policy.json", "{}");
+	put("packages/buckle/repo-policy.json", "{}");
 	put("packages/suspenders/hooks/knowledgeworker.md", "fixture");
 	put("packages/suspenders/deploy/services.yaml", "services: []");
 	put(
@@ -131,10 +132,7 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 	for (const file of ["router-shim.ts", "supervisor.ts", "dashboard.ts"])
 		put(`packages/belt/bin/${file}`, "export const value = 1;");
 	put("packages/belt/bin/fixture.ts", "export const value = 1;");
-	put(
-		"packages/buckle/upstreams.yaml",
-		"groups:\n  fixture:\n    - name: reviewed-default\n      tier: 4\n",
-	);
+	put("packages/buckle/upstreams.json", '{"groups":{"reviewed-default":[]}}');
 	put("packages/local-llm/fixture.ts", "export const value = 1;");
 	put("packages/blam/src/fixture.ts", "export const value = 1;");
 	put("packages/blam/bench/paired/fixture.ts", "export const value = 1;");
@@ -210,10 +208,10 @@ test("canonical step publishes a self-contained committed payload and receipt wi
 	expect(existsSync(f.ctx.llmHome)).toBe(false);
 	const packagedDefaults = join(
 		f.ctx.prefix,
-		".harness/packages/buckle/upstreams.yaml",
+		".harness/packages/buckle/upstreams.json",
 	);
 	expect(readFileSync(packagedDefaults, "utf8")).toBe(
-		`${f.git("show", `${receipt.revision}:packages/buckle/upstreams.yaml`)}\n`,
+		f.git("show", `${receipt.revision}:packages/buckle/upstreams.json`),
 	);
 	// W650: the scrub-gate stubs ride the prefix (symlinked from the payload).
 	expect(lstatSync(join(f.ctx.prefix, ".githooks")).isSymbolicLink()).toBe(
@@ -279,6 +277,37 @@ test("installed harness includes Belt dashboard dependencies", async () => {
 	expect(existsSync(join(f.ctx.prefix, "node_modules/bonjour-service"))).toBe(
 		true,
 	);
+});
+
+test("installed harness resolves staged Fleet packages locally", async () => {
+	const f = fixture();
+	f.put(
+		"packages/suspenders/package.json",
+		JSON.stringify({
+			name: "@klh/suspenders",
+			version: "2.0.0",
+			type: "module",
+			dependencies: { "@klh/blam": "2.0.0", "@klh/buckle": "2.0.0" },
+		}),
+	);
+	f.git("add", ".");
+	f.git(
+		"-c",
+		"user.name=Fixture",
+		"-c",
+		"user.email=fixture@example.invalid",
+		"commit",
+		"-m",
+		"scoped local dependencies",
+	);
+	await syncHarness(f.ctx);
+	const installed = JSON.parse(
+		readFileSync(join(f.ctx.prefix, "package.json"), "utf8"),
+	);
+	expect(installed.dependencies["@klh/blam"]).toBeUndefined();
+	expect(installed.dependencies["@klh/buckle"]).toBeUndefined();
+	expect(existsSync(join(f.ctx.prefix, "node_modules/@klh/blam"))).toBe(true);
+	expect(existsSync(join(f.ctx.prefix, "node_modules/@klh/buckle"))).toBe(true);
 });
 
 test.each(["syntax", "import", "execution"] as const)(
@@ -365,7 +394,7 @@ test("dirty reviewed payload is refused before prefix changes", async () => {
 
 test("unreviewed Buckle defaults are refused before prefix changes", async () => {
 	const f = fixture();
-	f.put("packages/buckle/upstreams.yaml", "groups: { unreviewed: [] }");
+	f.put("packages/buckle/upstreams.json", '{"groups":{"unreviewed":[]}}');
 	await expect(syncHarness(f.ctx)).rejects.toThrow("working payload is dirty");
 	expect(lstatSync(f.ctx.prefix).isDirectory()).toBe(true);
 });
