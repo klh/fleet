@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { GovernorStore } from "../govdb/govdb-store.ts";
 import type { ReviewContext } from "./review-receipt.ts";
+import { reviewRoundCapRefusal } from "./review-round-cap.ts";
 
 interface Request {
 	state: "RUNNING" | "DONE" | "ERROR";
@@ -319,6 +320,14 @@ export function scheduleReview(o: {
 		completed_by: string;
 	} | null;
 	if (!author) return "review unavailable: exact completion author missing";
+	const capped = reviewRoundCapRefusal({
+		db: o.db,
+		project: o.project,
+		item: o.item,
+		author: author.completed_by,
+		env,
+	});
+	if (capped) return capped;
 	const pin = author
 		? (o.db
 				.query("SELECT value FROM facts WHERE key = ?")

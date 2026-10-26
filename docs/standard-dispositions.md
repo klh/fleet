@@ -29,6 +29,7 @@ P1–P6.
 | 7 | HTTP kit | `@paas/http`: ETag/If-Match, Idempotency-Key, problem+json, shed, deadline | No kit: URLPattern 0, Idempotency-Key 0, problem+json 0, Retry-After unclamped | GAP (two kits) | W1303.2 · W1303.3 |
 | 8 | Test framework | `@playwright/test` only, every test | bun:test (~458 suites in suspenders alone) + Playwright for e2e | ACCEPTED-DIVERGENCE | — |
 | 9 | One version | npm fixed-mode: every manifest bumps together, tagged | `stack.json` `version:` pins buckle+suspenders+belt (config-level pin) | ACCEPTED-DIVERGENCE (pipeline part GAP) | W1303.6 |
+| 10 | Review usefulness | Round cap 3; incidents become evals, rescored on reviewer change; measure human time, revert/incident rate as guardrail | Review scheduler enforces the round cap; W792 arena scores incident tasks (no add-on-revert trigger, no rescore); W846 measures decision latency (no approvals metric, no guardrail) | SPLIT: round cap LANDED (`4bfc1839`) · incidents→evals GAP · human-time GAP | W1303.7 · W1476 · W1477 |
 
 ## Rationale per row
 
@@ -142,6 +143,37 @@ the proof that manifests, tag and pin agree at release time — tags exist but
 no pipeline guarantees it. W1303.6 (P6) lands the release verb (bump all
 package.json versions in one commit, rewrite `@klh/*` pins, tag, render the
 stack hint) with dry-run and tests.
+
+### 10 · Review usefulness mechanics — SPLIT: round cap LANDED, evals + human time GAP
+
+The standard's "Keeping review useful" section carries three mechanics that
+the W1303.5 tiers/CODEOWNERS/PR template do not cover; each is dispositioned
+on its own, so the row never reads LANDED wholesale.
+
+- **Round cap of 3 — LANDED (W1303.7, `4bfc1839`).** `scheduleReview`
+  launches no reviewer once the item — plus the parents it repairs (children
+  tagged `repair` and `review`) — holds three failed review passes: distinct
+  (commit, base, instructions) contexts whose latest bound receipt FAILED;
+  transport ERROR legs never count. At the cap it emits one NEED_DECISION to
+  the completion author: rethink the approach (supersede the item) or raise
+  `SUSPENDERS_REVIEW_ROUND_CAP` (`0` disables). Contexts, not commits, are
+  the unit on purpose: the live non-converging loop is re-review of an
+  unchanged commit on every main move — W1075's round-8 receipt reads
+  "byte-identical to every prior FAIL round", and W1030.6 and W1124.20 show
+  the same shape. Fail-open on an unreadable history (the cap guards effort,
+  never correctness). Code `hooks/lib/gates/review-round-cap.ts`, tests
+  `test/review-scheduler.test.ts`.
+- **Incidents become evals — GAP (W1476).** Exists: the W792 review arena
+  scores reviewers on incident tasks mined from git history
+  (`packages/belt/bench/arena/review-incident.ts`) and the blam incident
+  set. Missing: the trigger (a revert or incident on main adds a case) and
+  the rescore (a reviewer prompt, model or tool change reruns the set).
+- **Measure human time — GAP (W1477).** Exists: W846 pilot-measure reports
+  NEED_DECISION emit→settle latency (p50/p90) and per-item human minutes
+  (`packages/belt/bench/pilot-measure.ts`). Missing: approvals per landing
+  (no human-approval connector exists — `how-to-review.md`, W1130) and the
+  revert/incident-rate guardrail that tightens the tiers; its threshold is
+  an owner decision.
 
 ## Already aligned (no disposition needed)
 
