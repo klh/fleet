@@ -416,6 +416,9 @@ export function assignTask(
 						by: args.sid,
 						claim_revision: it.updated_at,
 						context_origin: transfer.receipt,
+						...(transfer.restored
+							? { baseline_restored: transfer.restored }
+							: {}),
 						...(transfer.operatorReceipt ?? {}),
 					}),
 					args.sid,
@@ -505,6 +508,9 @@ export function assignTask(
 					alloc_reason: args.reason,
 					claim_token_hash: claimTokenHash(token),
 					...(transfer ? { context_origin: transfer.receipt } : {}),
+					...(transfer?.restored
+						? { baseline_restored: transfer.restored }
+						: {}),
 				}),
 				project,
 				args.id,
@@ -524,6 +530,9 @@ export function assignTask(
 						by: args.sid,
 						claim_revision: it.updated_at,
 						context_origin: transfer.receipt,
+						...(transfer.restored
+							? { baseline_restored: transfer.restored }
+							: {}),
 						...transfer.operatorReceipt,
 					}),
 					args.sid,

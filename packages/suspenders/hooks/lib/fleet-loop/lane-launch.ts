@@ -115,6 +115,7 @@ import {
 } from "../lanes/lane-retry-budget.ts";
 import { laneSid as sidOf } from "../lanes/laneslug.ts";
 import { launchParent } from "../lanes/launch-parent.ts";
+import { registeredOriginalBaseline } from "../lanes/original-baseline.ts";
 import { verifiedContextContinuation } from "../lanes/reclaim-context.ts";
 import { type Posture, recordPlaidTrace } from "../plaid/plaid.ts";
 import { policyBriefLines } from "../session-policy.ts";
@@ -893,6 +894,12 @@ export const dispatchLane = async (
 		// Immutable evidence base survives resumes and later main-branch merges.
 		const completionContext = `${wt}/.fleet/lane-context.json`;
 		mkdirSync(`${wt}/.fleet`, { recursive: true });
+		// W1730: a fresh context over the item's own earlier product (a released
+		// manual take, a re-minted tree) starts at its registered original base
+		// — HEAD only when none verifies
+		const freshBaseline = () =>
+			registeredOriginalBaseline(store, { project, item, tree: wt })?.sha ??
+			sh(["git", "-C", wt, "rev-parse", "HEAD"]);
 		if (takeToken) {
 			// W643: merge the fresh take token into the activation context —
 			// create-with-baseline when absent, token-only merge when it exists
@@ -911,7 +918,7 @@ export const dispatchLane = async (
 						: {
 								sid,
 								item,
-								baseline: sh(["git", "-C", wt, "rev-parse", "HEAD"]),
+								baseline: freshBaseline(),
 								launchedAt: Date.now(),
 								claimToken: takeToken,
 							},
@@ -923,7 +930,7 @@ export const dispatchLane = async (
 				JSON.stringify({
 					sid,
 					item,
-					baseline: sh(["git", "-C", wt, "rev-parse", "HEAD"]),
+					baseline: freshBaseline(),
 					launchedAt: Date.now(),
 				}),
 			);
