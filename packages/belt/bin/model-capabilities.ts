@@ -23,7 +23,16 @@ export interface ModelCapabilityRecord {
 	tools: CapabilityFact<boolean>;
 	structuredOutput: CapabilityFact<boolean>;
 	cost: CapabilityFact<ModelPrice>;
+	/** Published provider endpoints; older snapshots without it read unknown. */
+	endpoints: CapabilityFact<WireEndpoint[]>;
+	streaming: CapabilityFact<boolean>;
 }
+
+/** The closed wire vocabulary dispatch reads (W1711 persists, W1712 reads). */
+export type WireEndpoint =
+	| "/v1/messages"
+	| "/v1/chat/completions"
+	| "/v1/responses";
 
 export interface CapabilitySnapshot {
 	version: 1;
@@ -60,6 +69,27 @@ const stringArray = (value: unknown): string[] | null =>
 		? [...new Set(value)]
 		: null;
 
+// Provider endpoint spellings onto the closed wire vocabulary.
+const WIRE_PATHS = new Map<string, WireEndpoint>([
+	["/v1/messages", "/v1/messages"],
+	["/chat/completions", "/v1/chat/completions"],
+	["/v1/chat/completions", "/v1/chat/completions"],
+	["/responses", "/v1/responses"],
+	["/v1/responses", "/v1/responses"],
+]);
+
+/** Normalized published endpoints; unrecognized paths drop, none = unknown. */
+export const wireEndpoints = (value: unknown): WireEndpoint[] | null => {
+	const paths = (stringArray(value) ?? []).flatMap((path) => {
+		const endpoint = WIRE_PATHS.get(path);
+		return endpoint ? [endpoint] : [];
+	});
+	return paths.length ? [...new Set(paths)] : null;
+};
+
+const isWireList = (value: unknown): boolean =>
+	stringArray(value)?.every((path) => WIRE_PATHS.get(path) === path) === true;
+
 const object = (value: unknown): Record<string, unknown> | null =>
 	value !== null && typeof value === "object" && !Array.isArray(value)
 		? (value as Record<string, unknown>)
@@ -82,6 +112,8 @@ export const emptyCapability = (
 	tools: unknown(),
 	structuredOutput: unknown(),
 	cost: unknown(),
+	endpoints: unknown(),
+	streaming: unknown(),
 });
 
 /** Raw OpenRouter catalog row, captured from /api/v1/models (not /models/user). */
@@ -186,6 +218,42 @@ export const fromRemoteCatalogId = (
 	return record;
 };
 
+export const COPILOT_CATALOG_URL = "https://api.githubcopilot.com/models";
+
+/** Raw Copilot catalog row: supported_endpoints plus published limits. */
+export const fromCopilotCatalogRow = (
+	value: unknown,
+	observedAt: string,
+): ModelCapabilityRecord | null => {
+	const row = object(value);
+	if (!row || typeof row.id !== "string" || !row.id) return null;
+	const record = fromRemoteCatalogId(
+		"copilot",
+		row.id,
+		COPILOT_CATALOG_URL,
+		observedAt,
+	);
+	if (!record) return null;
+	const capabilities = object(row.capabilities);
+	const limits = object(capabilities?.limits);
+	const supports = object(capabilities?.supports);
+	const published = <T>(value: T | null) =>
+		fact(value, COPILOT_CATALOG_URL, observedAt);
+	const flag = (name: string): boolean | null => {
+		const value = supports?.[name];
+		return typeof value === "boolean" ? value : null;
+	};
+	record.contextTokens = published(
+		positiveInteger(limits?.max_context_window_tokens),
+	);
+	record.maxOutputTokens = published(positiveInteger(limits?.max_output_tokens));
+	record.tools = published(flag("tool_calls"));
+	record.structuredOutput = published(flag("structured_outputs"));
+	record.streaming = published(flag("streaming"));
+	record.endpoints = published(wireEndpoints(row.supported_endpoints));
+	return record;
+};
+
 const fresh = <T>(
 	field: CapabilityFact<T>,
 	maxAgeMs: number,
@@ -228,6 +296,8 @@ export const currentCapability = (
 		sourceMaxAgeMs,
 	),
 	cost: fresh(record.cost, maxAgeMs, now, sourceMaxAgeMs),
+	endpoints: fresh(record.endpoints, maxAgeMs, now, sourceMaxAgeMs),
+	streaming: fresh(record.streaming, maxAgeMs, now, sourceMaxAgeMs),
 });
 
 const key = (provider: string, modelId: string): string =>
@@ -249,7 +319,12 @@ export class CapabilityRegistry {
 	private readonly records = new Map<string, ModelCapabilityRecord>();
 
 	constructor(records: ModelCapabilityRecord[] = []) {
-		for (const record of records) this.upsert(record);
+		// Snapshots written before a field existed load it as unknown.
+		for (const record of records)
+			this.upsert({
+				...emptyCapability(record.provider, record.modelId),
+				...record,
+			});
 	}
 
 	upsert(
@@ -287,6 +362,8 @@ export class CapabilityRegistry {
 						record.structuredOutput,
 					),
 					cost: newerFact(previous.cost, record.cost),
+					endpoints: newerFact(previous.endpoints, record.endpoints),
+					streaming: newerFact(previous.streaming, record.streaming),
 				}
 			: record;
 		this.records.set(
@@ -311,6 +388,43 @@ export class CapabilityRegistry {
 		return [...this.records.values()].map((record) => structuredClone(record));
 	}
 }
+
+const PROVIDER_HOSTS = new Map([
+	["api.githubcopilot.com", "copilot"],
+	["api.z.ai", "zai"],
+	["openrouter.ai", "openrouter"],
+]);
+
+/** Registry provider for a deployment URL: catalog providers by name, else host. */
+export const capabilityProvider = (url: unknown): string | null => {
+	if (typeof url !== "string") return null;
+	try {
+		const host = new URL(url).hostname;
+		return PROVIDER_HOSTS.get(host) ?? host;
+	} catch {
+		return null;
+	}
+};
+
+/** The one group join: the known endpoint union, null when any row is unknown. */
+export const groupWireEndpoints = (
+	rows: ReadonlyArray<Record<string, unknown>>,
+	registry: CapabilityRegistry,
+	maxAgeMs: number,
+	now = Date.now(),
+): WireEndpoint[] | null => {
+	const union = new Set<WireEndpoint>();
+	for (const row of rows) {
+		const provider = capabilityProvider(row.url);
+		const known =
+			provider && typeof row.model === "string"
+				? registry.get(provider, row.model, maxAgeMs, now)?.endpoints.value
+				: null;
+		if (!known) return null;
+		for (const endpoint of known) union.add(endpoint);
+	}
+	return union.size ? [...union] : null;
+};
 
 const validFact = (
 	value: unknown,
@@ -348,7 +462,8 @@ const validPrice = (value: unknown): boolean => {
 	);
 };
 
-const validRecord = (value: unknown): value is ModelCapabilityRecord => {
+/** Snapshot row shape check; reviewed plans reuse it before any write. */
+export const validRecord = (value: unknown): value is ModelCapabilityRecord => {
 	const row = object(value);
 	return (
 		!!row &&
@@ -363,7 +478,10 @@ const validRecord = (value: unknown): value is ModelCapabilityRecord => {
 		validFact(row.maxOutputTokens, (v) => positiveInteger(v) !== null) &&
 		validFact(row.tools, (v) => typeof v === "boolean") &&
 		validFact(row.structuredOutput, (v) => typeof v === "boolean") &&
-		validFact(row.cost, validPrice)
+		validFact(row.cost, validPrice) &&
+		(row.endpoints === undefined || validFact(row.endpoints, isWireList)) &&
+		(row.streaming === undefined ||
+			validFact(row.streaming, (v) => typeof v === "boolean"))
 	);
 };
 

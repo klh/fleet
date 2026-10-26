@@ -59,6 +59,7 @@
       "dependencies": {
         "@klh/blam": "workspace:*",
         "p-queue": "^9.3.3",
+        "zod": "^4.0.0",
       },
       "devDependencies": {
         "@anthropic-ai/sdk": "^1.1.0",
@@ -105,8 +106,10 @@
       },
       "dependencies": {
         "@clack/prompts": "1.8.1",
+        "@klh/belt": "2.0.0",
         "@klh/blam": "2.0.0",
         "@klh/buckle": "2.0.0",
+        "@klh/kernel": "2.0.0",
         "cli-table3": "0.6.5",
         "execa": "10.2.1",
         "lit": "3.3.3",
