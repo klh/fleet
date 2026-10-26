@@ -63,13 +63,30 @@ function validateTree(repo: string, before: string, tree: string): Result {
 	]);
 	if (changedLines.code !== 0)
 		return fail("merge guard: cannot measure candidate file loss");
-	for (const line of changedLines.out.split("\n")) {
-		const [added, removed, path] = line.split("\t");
+	// W1302.4.1: a lib EXTRACTION shrinks its source file while the moved
+	// lines reappear in an added file the M-filter never sees (262 removed /
+	// 4 added tripped three false FAILs on W1302.4). Lines an ADDED file in
+	// the same delta carries are moves, not loss.
+	const rows = changedLines.out
+		.split("\n")
+		.map((line) => line.split("\t"))
+		.filter((row) => row.length === 3 && row[2]);
+	const shrunk = rows.filter(
+		([added, removed]) =>
+			Number(removed) >= 200 && Number(removed) >= Number(added) * 10,
+	);
+	const movedIntoAdded = movedLinesIntoAddedFiles(
+		repo,
+		before,
+		tree,
+		shrunk.map((row) => row[2]),
+	);
+	for (const [added, removed, path] of rows) {
 		const addCount = Number(added);
-		const removeCount = Number(removed);
-		if (removeCount >= 200 && removeCount >= addCount * 10)
+		const loss = Number(removed) - (movedIntoAdded.get(path) ?? 0);
+		if (loss >= 200 && loss >= addCount * 10)
 			return fail(
-				`merge guard: candidate removes ${removeCount} lines from ${JSON.stringify(path)} with only ${addCount} added`,
+				`merge guard: candidate removes ${loss} lines from ${JSON.stringify(path)} with only ${addCount} added`,
 			);
 	}
 	const changed = command(repo, [
@@ -177,6 +194,78 @@ function validateTree(repo: string, before: string, tree: string): Result {
 		}
 	}
 	return { code: 0, tail: "" };
+}
+
+// W1302.4.1: per candidate path, how many of its removed lines an ADDED
+// file in the same delta carries verbatim — an extraction's moved lines
+// are not loss (262 removed / 4 added on W1302.4 were moves into a new
+// lib the M-filter never saw). Enumerates added source blobs only when a
+// shrink candidate exists; oversized blobs are skipped, never parsed.
+function movedLinesIntoAddedFiles(
+	repo: string,
+	before: string,
+	tree: string,
+	candidates: string[],
+): Map<string, number> {
+	const moved = new Map<string, number>();
+	if (!candidates.length) return moved;
+	const added = command(repo, [
+		"git",
+		"diff",
+		"--numstat",
+		"--diff-filter=A",
+		before,
+		tree,
+	]);
+	if (added.code !== 0) return moved;
+	const addedPaths: string[] = [];
+	for (const line of added.out.split("\n")) {
+		const [a, r, p] = line.split("\t");
+		if (a === "-" || r === "-" || !p || !SOURCE.test(p)) continue;
+		addedPaths.push(p);
+	}
+	if (!addedPaths.length || addedPaths.length > 200) return moved;
+	const available = new Map<string, number>();
+	for (const path of addedPaths) {
+		const object = `${tree}:${path}`;
+		const size = command(repo, ["git", "cat-file", "-s", object]);
+		if (size.code !== 0 || Number(size.out) > MAX_SOURCE_BYTES) continue;
+		const content = command(repo, ["git", "show", object]);
+		if (content.code !== 0) continue;
+		const lines = content.out.split("\n");
+		if (content.out.endsWith("\n")) lines.pop();
+		for (const line of lines)
+			available.set(line, (available.get(line) ?? 0) + 1);
+	}
+	if (!available.size) return moved;
+	for (const path of candidates) {
+		const d = command(repo, [
+			"git",
+			"diff",
+			"-U0",
+			"--no-color",
+			before,
+			tree,
+			"--",
+			path,
+		]);
+		const at = d.out.indexOf("\n@@");
+		if (d.code !== 0 || at < 0) continue;
+		const removed = d.out
+			.slice(at)
+			.split("\n")
+			.filter((l) => l.startsWith("-") && !l.startsWith("---"))
+			.map((l) => l.slice(1));
+		let count = 0;
+		for (const line of removed) {
+			const remaining = available.get(line) ?? 0;
+			if (remaining < 1) continue;
+			available.set(line, remaining - 1);
+			count += 1;
+		}
+		if (count) moved.set(path, count);
+	}
+	return moved;
 }
 
 /** Custom ladders may commit immediately. Run them in our detached worktree,
