@@ -11,7 +11,7 @@ import {
 	DEFAULT_MAX_KILL,
 	fleetTmpDir,
 	worktreeItem,
-} from "../hooks/lib/rogue-reap.ts";
+} from "../hooks/lib/fleet-loop/rogue-reap.ts";
 
 const tmp = mkdtempSync(join(tmpdir(), "reap-w973-"));
 const repo = tmp;

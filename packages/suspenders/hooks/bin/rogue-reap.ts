@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // hooks/bin/rogue-reap.ts — CLI face of the W827 rogue-serve reaper
-// (hooks/lib/rogue-reap.ts). Kills serve processes (buckle server,
+// (hooks/lib/fleet-loop/rogue-reap.ts). Kills serve processes (buckle server,
 // fleet-board, router-shim, dashboard, coord store) running from fleet
 // worktree or fleet-ish tmp copies no live lane claim covers — cwd OR
 // commandline scope (W973 reap-by-commandline), and prunes merged-and-
@@ -19,7 +19,10 @@ import { emitLoopEvent } from "../lib/fleet-loop/events.ts";
 import { openStore, projectIdentity } from "../lib/govdb/govdb.ts";
 import type { LaneRef } from "../lib/lanes/lane-liveness.ts";
 import { readLaneRegistry } from "../lib/lanes/lane-registry.ts";
-import { createRogueReap, type ReapReport } from "../lib/rogue-reap.ts";
+import {
+	createRogueReap,
+	type ReapReport,
+} from "../lib/fleet-loop/rogue-reap.ts";
 import {
 	defineVerb,
 	dieFor,

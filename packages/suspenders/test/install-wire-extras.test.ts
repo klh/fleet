@@ -13,7 +13,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runWireExtras, type StepContext } from "../scripts/install-run.ts";
+import {
+	runWireExtras,
+	type StepContext,
+} from "../scripts/install/install-run.ts";
 
 const sentinel = (token: string): string =>
 	[
@@ -26,7 +29,7 @@ const fixture = (withPrefixFace: boolean) => {
 	const repo = mkdtempSync(join(tmpdir(), "wirex-repo-"));
 	const prefix = mkdtempSync(join(tmpdir(), "wirex-prefix-"));
 	// the adapters leg must succeed or the dialect leg never runs (early return)
-	const scripts = join(repo, "scripts");
+	const scripts = join(repo, "scripts", "install");
 	mkdirSync(scripts, { recursive: true });
 	writeFileSync(
 		join(scripts, "install-policy-adapters.ts"),

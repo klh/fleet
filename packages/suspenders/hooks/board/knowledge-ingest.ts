@@ -14,7 +14,7 @@
 // lane-observations ingest. Strict shape validation; 64 KiB body cap.
 import type { Database } from "bun:sqlite";
 import { openKnowledgeDb } from "../lib/govdb/govdb.ts";
-import { makeStamp } from "../lib/confidence.ts";
+import { makeStamp } from "../lib/knowledge/confidence.ts";
 import { json } from "./helpers.ts";
 import {
 	MAX_FACT_VALUE,
@@ -23,7 +23,7 @@ import {
 	SYNCABLE_FACT,
 } from "../lib/knowledge/knowledge-sync.ts";
 import { redactSecrets } from "../lib/knowledge/knowledge.ts";
-import { BUILTIN_RULES, redactMatches } from "../lib/scrub.ts";
+import { BUILTIN_RULES, redactMatches } from "../lib/gates/scrub.ts";
 import { claimAggregateView } from "../lib/knowledge/knowledge-roll.ts";
 
 let kdbSingleton: Database | null = null;

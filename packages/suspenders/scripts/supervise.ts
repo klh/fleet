@@ -38,7 +38,7 @@ import {
 } from "node:fs";
 import { hostname } from "node:os";
 import { resolve } from "node:path";
-import { flagIntegratedCode } from "../hooks/lib/decomposition.ts";
+import { flagIntegratedCode } from "../hooks/lib/work/decomposition.ts";
 import { shaOnMain as gateShaOnMain } from "../hooks/lib/gates/dep-merge-gate.ts";
 import { openStore } from "../hooks/lib/govdb/govdb.ts";
 import { laneAlive } from "../hooks/lib/lanes/lane-liveness.ts";

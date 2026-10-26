@@ -13,19 +13,22 @@ import { claudeStopPause } from "../lib/executors/claude-pause.ts";
 import { allow, feedback, type HookInput } from "../lib/hookio.ts";
 import { laneCompletion } from "../lib/lanes/lane-completion.ts";
 import { run } from "../lib/run.ts";
-import { touchSessionHeartbeat } from "../lib/session-bridge.ts";
-import { syncNativeRename } from "../lib/session-rename.ts";
+import { touchSessionHeartbeat } from "../lib/lanes/session-bridge.ts";
+import { syncNativeRename } from "../lib/lanes/session-rename.ts";
 import {
 	readSessionState,
 	sessionStatePath,
 	writeSessionState,
-} from "../lib/session-state.ts";
-import { resolveTranscriptPath, transcriptTail } from "../lib/transcript.ts";
+} from "../lib/lanes/session-state.ts";
+import {
+	resolveTranscriptPath,
+	transcriptTail,
+} from "../lib/lanes/transcript.ts";
 import {
 	pendingTurnMessages,
 	turnBoundaryFeedback,
 	turnBoundarySid,
-} from "../lib/turn-boundary.ts";
+} from "../lib/gates/turn-boundary.ts";
 import { filesCheck } from "./files.ts";
 
 const CODE_EXT =

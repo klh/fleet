@@ -6,7 +6,7 @@ import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { itemCapsuleKey } from "../hooks/lib/capsule-fence.ts";
+import { itemCapsuleKey } from "../hooks/lib/lanes/capsule-fence.ts";
 import { projectIdentity } from "../hooks/lib/govdb/govdb-project.ts";
 
 setDefaultTimeout(30_000); // spawn-heavy suite (bun:test 5s default flake floor)

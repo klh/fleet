@@ -108,7 +108,7 @@ test("custom Fleet SID completion uses only its project-bound native transcript"
 		).toBe(0);
 		const bind = (owner: string) =>
 			f.seed(
-				`import{touchSessionHeartbeat}from${JSON.stringify(join(import.meta.dir, "../hooks/lib/session-bridge.ts"))};touchSessionHeartbeat(${JSON.stringify(owner)},${JSON.stringify(transcript)});`,
+				`import{touchSessionHeartbeat}from${JSON.stringify(join(import.meta.dir, "../hooks/lib/lanes/session-bridge.ts"))};touchSessionHeartbeat(${JSON.stringify(owner)},${JSON.stringify(transcript)});`,
 			);
 		const done = () =>
 			f.run("work.ts", [

@@ -26,7 +26,7 @@ import {
 	type HarvestAdapter,
 	sessionActorMap,
 } from "../harvest/harvest-engine.ts";
-import { saveCursor } from "../transcript-cursor.ts";
+import { saveCursor } from "../harvest/transcript-cursor.ts";
 import { usageMessageLedger } from "./usage-message-ledger.ts";
 import { usageRollupSource, verifiedUsageActive } from "./usage-source.ts";
 

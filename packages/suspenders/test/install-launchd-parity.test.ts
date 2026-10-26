@@ -15,7 +15,7 @@ import { execa } from "execa";
 import {
 	TEMPLATE_DIR,
 	defaultRenderValues,
-} from "../scripts/install-services.ts";
+} from "../scripts/install/install-services.ts";
 import { parsePlistXml, project } from "./plist-fields.ts";
 
 const SCRIPTS = join(import.meta.dir, "..", "scripts");
@@ -73,7 +73,7 @@ describe("registerLaunchd parity (W490.2)", () => {
 		await execa(
 			"bun",
 			[
-				join(SCRIPTS, "install-services.ts"),
+				join(SCRIPTS, "install", "install-services.ts"),
 				"--target",
 				"darwin",
 				"--out",

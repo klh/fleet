@@ -18,13 +18,13 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { RECEIPT_FILE } from "../hooks/lib/harness-manifest.ts";
+import { RECEIPT_FILE } from "../hooks/lib/install/harness-manifest.ts";
 import {
 	coordinatorDenyText,
 	coordinatorWriteAllowed,
 	fleetRootFor,
 	sessionRole,
-} from "../hooks/lib/coordinator-edit-gate.ts";
+} from "../hooks/lib/gates/coordinator-edit-gate.ts";
 
 const tmp = mkdtempSync(join(realpathSync("/tmp"), "coord-edit-gate-"));
 const root = join(tmp, "fleet"); // fleet fixture repo — git-verified identity

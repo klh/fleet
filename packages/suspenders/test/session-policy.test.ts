@@ -17,7 +17,7 @@ import {
 	boundedPolicyEvaluation,
 	evaluateSessionPolicy,
 	policyAuthority,
-} from "../hooks/lib/session-policy.ts";
+} from "../hooks/lib/policy/session-policy.ts";
 import {
 	proposeRemediation,
 	decideRemediation,

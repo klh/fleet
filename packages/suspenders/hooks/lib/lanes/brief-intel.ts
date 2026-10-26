@@ -6,7 +6,7 @@
 // GATED on repo size and on coverage the mission text already carries.
 // Read-only at dispatch: git ls-files + ripgrep, no repo writes.
 import { readFileSync } from "node:fs";
-import { briefPatchFirstLines, countLinesOf } from "../patch-first.ts";
+import { briefPatchFirstLines, countLinesOf } from "../work/patch-first.ts";
 
 export type BriefIntel = {
 	/** rendered `- path:line — matched: <terms>` pointers, relevance-ranked */

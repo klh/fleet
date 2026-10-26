@@ -4,7 +4,7 @@
 // govdb-knowledge.ts, the delta-trigger template in govdb-deltas.ts.
 import type { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
-import { migrateEventsShred } from "../events-shred.ts";
+import { migrateEventsShred } from "./events-shred.ts";
 import { createDeltasTriggers } from "./govdb-deltas.ts";
 import {
 	migrateKnowledgeLayer,
@@ -14,7 +14,7 @@ import { columnNames, openWALDb, REG } from "./govdb-util.ts";
 import {
 	CONFIDENCE_HISTORY_DDL,
 	CONFIDENCE_HISTORY_INDEX_DDL,
-} from "../confidence.ts";
+} from "../knowledge/confidence.ts";
 import { migrateIdentitySplit } from "./identity-db.ts";
 import { migrateIdentityRegistry } from "./identity-registry.ts";
 
@@ -458,7 +458,7 @@ export function openGovernorDb(): Database {
 	// facts + consult_kb carry confidence REAL (fast filter) + the LATEST
 	// stamp JSON (value/setter/ts/evidence/verdict/ref/prior/hash — the
 	// provenance record). The append-only confidence_history ledger rides
-	// CONFIDENCE_HISTORY_DDL (one source in hooks/lib/confidence.ts) in BOTH
+	// CONFIDENCE_HISTORY_DDL (one source in hooks/lib/knowledge/confidence.ts) in BOTH
 	// this file and knowledge.db — every stamp event lands there, incl. low
 	// bands (the 0.4→0.9 upgrade path is the attack vector; the ledger is
 	// the audit trail).

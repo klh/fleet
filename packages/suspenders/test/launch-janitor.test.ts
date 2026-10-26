@@ -20,9 +20,9 @@ import {
 	LAUNCH_FILE,
 	LAUNCH_JANITOR_PAUSE_MARKER,
 	youngestMtime,
-} from "../hooks/lib/launch-janitor.ts";
-import type { LaunchIntent } from "../hooks/lib/launch-janitor.ts";
-import type { LaunchJanitorDeps } from "../hooks/lib/launch-janitor.ts";
+} from "../hooks/lib/fleet-loop/launch-janitor.ts";
+import type { LaunchIntent } from "../hooks/lib/fleet-loop/launch-janitor.ts";
+import type { LaunchJanitorDeps } from "../hooks/lib/fleet-loop/launch-janitor.ts";
 
 const NOW = 1_800_000_000_000;
 const DAY = 86_400_000;

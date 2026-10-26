@@ -27,7 +27,7 @@ import type {
 	CliDialect,
 	NormalizedSession,
 	ToolMode,
-} from "../../lib/dialect.ts";
+} from "../../lib/executors/dialect.ts";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 

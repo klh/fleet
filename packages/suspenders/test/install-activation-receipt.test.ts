@@ -52,7 +52,7 @@ const{registerLaunchd}=await import(process.argv[1]);const result=await register
 				process.execPath,
 				"-e",
 				script,
-				join(import.meta.dir, "../scripts/install-launchd.ts"),
+				join(import.meta.dir, "../scripts/install/install-launchd.ts"),
 				JSON.stringify({
 					repo,
 					prefix: join(root, "prefix"),
@@ -120,7 +120,7 @@ const{registerLaunchd}=await import(process.argv[1]);const result=await register
 				process.execPath,
 				"-e",
 				script,
-				join(import.meta.dir, "../scripts/install-launchd.ts"),
+				join(import.meta.dir, "../scripts/install/install-launchd.ts"),
 				JSON.stringify({
 					repo,
 					prefix: join(root, "prefix"),
@@ -201,7 +201,7 @@ const{registerLaunchd}=await import(process.argv[1]);const result=await register
 				process.execPath,
 				"-e",
 				script,
-				join(import.meta.dir, "../scripts/install-launchd.ts"),
+				join(import.meta.dir, "../scripts/install/install-launchd.ts"),
 				JSON.stringify({
 					repo,
 					prefix: join(root, "prefix"),

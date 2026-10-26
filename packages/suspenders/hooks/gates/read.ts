@@ -16,7 +16,7 @@
 //      Advisory: SUSPENDERS_REREAD_NUDGE=0 disables.
 
 import { readFileSync, statSync } from "node:fs";
-import { clampHeadTail, readSliceLines } from "../lib/clamp.ts";
+import { clampHeadTail, readSliceLines } from "../lib/gates/clamp.ts";
 import {
 	credScopeDeny,
 	expandTouch,
@@ -24,7 +24,7 @@ import {
 	secretScopeHit,
 } from "../lib/auth/credscope.ts";
 import { resolveFleetLane } from "../lib/lanes/fleetlane.ts";
-import { bumpPathCount } from "../lib/gatestate.ts";
+import { bumpPathCount } from "../lib/gates/gatestate.ts";
 import { deny, type HookInput, nudge } from "../lib/hookio.ts";
 
 export const DEFAULT_MAX_READ = 40 * 1024;

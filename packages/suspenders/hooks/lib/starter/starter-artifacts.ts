@@ -20,7 +20,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { assertNoSecrets } from "../secret-guard.ts";
+import { assertNoSecrets } from "./secret-guard.ts";
 import { canonicalProjectRoot } from "../lanes/lane-registry.ts";
 
 // Re-exported so starter consumers import the guard from one module.

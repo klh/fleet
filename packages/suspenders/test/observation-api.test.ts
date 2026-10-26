@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { boardFixture } from "./helpers/board-fixture.ts";
-import { observation } from "../hooks/lib/observation.ts";
+import { observation } from "../hooks/lib/board/observation.ts";
 import {
 	rowModel,
 	type RowProbe,

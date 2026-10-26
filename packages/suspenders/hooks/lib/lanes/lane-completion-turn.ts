@@ -9,7 +9,7 @@
 import { createHash } from "node:crypto";
 import { renameSync, writeFileSync } from "node:fs";
 import type { HookInput } from "../hookio.ts";
-import { resolveTranscriptPath, transcriptTail } from "../transcript.ts";
+import { resolveTranscriptPath, transcriptTail } from "./transcript.ts";
 
 type Activation = { sid: string; item: string; launchedAt?: number };
 

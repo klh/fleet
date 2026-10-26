@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installPolicyAdapters } from "../scripts/install-policy-adapters.ts";
+import { installPolicyAdapters } from "../scripts/install/install-policy-adapters.ts";
 
 const home = mkdtempSync(join(tmpdir(), "policy-adapter-"));
 const prefix = join(import.meta.dir, "../hooks");

@@ -219,7 +219,7 @@ test("active renderer refuses before overwriting a copied unit; inspection rende
 		const unit = join(agents, "com.suspenders.buckle-spoke.plist");
 		writeFileSync(unit, "existing approved unit");
 		const args = [
-			join(import.meta.dir, "../scripts/install-services.ts"),
+			join(import.meta.dir, "../scripts/install/install-services.ts"),
 			"--target",
 			"darwin",
 			"--service",

@@ -7,7 +7,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { assertNoSecrets } from "../../../suspenders/hooks/lib/secret-guard.ts";
+import { assertNoSecrets } from "../../../suspenders/hooks/lib/starter/secret-guard.ts";
 import {
 	listStarters,
 	type StarterArtifact,

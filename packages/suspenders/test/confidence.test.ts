@@ -25,8 +25,8 @@ import {
 	ConfidenceError,
 	STAMP_VERDICTS,
 	type ConfidenceStamp,
-} from "../hooks/lib/confidence.ts";
-import { STAMP_VERDICTS as VERDICTS_FROM_VERDICT_MODULE } from "../hooks/lib/confidence-verdict.ts";
+} from "../hooks/lib/knowledge/confidence.ts";
+import { STAMP_VERDICTS as VERDICTS_FROM_VERDICT_MODULE } from "../hooks/lib/knowledge/confidence-verdict.ts";
 
 describe("band mapping", () => {
 	test("edges map to the six policy bands", () => {
@@ -42,8 +42,7 @@ describe("band mapping", () => {
 			[0.99, "multi-model"],
 			[1.0, "human-reviewed"],
 		];
-		for (const [v, name] of cases)
-			expect(bandOf(v).name).toBe(name);
+		for (const [v, name] of cases) expect(bandOf(v).name).toBe(name);
 	});
 });
 
@@ -299,14 +298,24 @@ describe("append-only history ledger", () => {
 		});
 		expect(up.value).toBe(0.6);
 		const put = (s: ConfidenceStamp) =>
-			db.query(
-				"INSERT INTO confidence_history (ts, tbl, row_key, value, setter, evidence, verdict, ref, prior, prior_setter, prior_ts, by_sid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			).run(
-				s.ts, "facts.w953", "k1", s.value, s.setter,
-				s.evidence ?? null, s.verdict ?? null, s.ref ?? null,
-				s.prior?.value ?? null, s.prior?.setter ?? null,
-				s.prior?.ts ?? null, "autow953",
-			);
+			db
+				.query(
+					"INSERT INTO confidence_history (ts, tbl, row_key, value, setter, evidence, verdict, ref, prior, prior_setter, prior_ts, by_sid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+				)
+				.run(
+					s.ts,
+					"facts.w953",
+					"k1",
+					s.value,
+					s.setter,
+					s.evidence ?? null,
+					s.verdict ?? null,
+					s.ref ?? null,
+					s.prior?.value ?? null,
+					s.prior?.setter ?? null,
+					s.prior?.ts ?? null,
+					"autow953",
+				);
 		put(base);
 		put(up);
 		const rows = db

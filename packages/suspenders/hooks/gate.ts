@@ -57,7 +57,7 @@ switch (event) {
 		const { waitForClaudeWake } = await import(
 			"./lib/executors/claude-wake.ts"
 		);
-		const { hookLaneId } = await import("./lib/subscribe-attach.ts");
+		const { hookLaneId } = await import("./lib/lanes/subscribe-attach.ts");
 		const text = await waitForClaudeWake(hookLaneId(hook));
 		if (text) {
 			process.stderr.write(`${text}\n`);

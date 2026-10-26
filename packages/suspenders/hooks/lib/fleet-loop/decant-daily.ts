@@ -30,7 +30,10 @@ import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { type DailyRollResult, pushDailyRoll } from "../decant-roll.ts";
+import {
+	type DailyRollResult,
+	pushDailyRoll,
+} from "../knowledge/decant-roll.ts";
 import { REG } from "../govdb/govdb-util.ts";
 import { redactSecrets } from "../knowledge/knowledge.ts";
 import { runDecant } from "../knowledge/knowledge-sync.ts";

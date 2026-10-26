@@ -376,7 +376,7 @@ describe("W238 packet tier", () => {
 
 	test("union protect surface survives: file pointers stay verbatim (W112)", () => {
 		const spans = [
-			"packages/suspenders/hooks/lib/packet-prep.ts",
+			"packages/suspenders/hooks/lib/lanes/packet-prep.ts",
 			"docs/packet.md",
 			"--dry-run",
 			"https://example.com/x.md",

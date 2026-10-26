@@ -15,7 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { Database } from "bun:sqlite";
-import { payloadChecksum } from "../hooks/lib/harness-manifest.ts";
+import { payloadChecksum } from "../hooks/lib/install/harness-manifest.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-monitor-"));
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-monitorrepo-"));

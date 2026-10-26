@@ -1,5 +1,5 @@
 // test/packet-prep.test.ts — W238: the offline task-agnostic packet-prep
-// pass (hooks/lib/packet-prep.ts).
+// pass (hooks/lib/lanes/packet-prep.ts).
 // 1) pointer extraction: slash paths + extension docs, order-stable dedupe
 // 2) W112 pointer teeth: loss detection + honest degradation to input
 // 3) compression: the blam packet tier fires (bytes saved, rules audited)
@@ -12,7 +12,7 @@ import {
 	type PacketPrepResult,
 	pointerLoss,
 	prepPacket,
-} from "../hooks/lib/packet-prep.ts";
+} from "../hooks/lib/lanes/packet-prep.ts";
 
 const DOC = [
 	"Prior to the merge, read the AGENTS.md file.",
@@ -25,10 +25,10 @@ const DOC = [
 describe("W238 packet-prep: pointer extraction", () => {
 	test("slash paths and extension docs, order-stable dedupe", () => {
 		const pointers = extractPointers(
-			"Edit packages/suspenders/hooks/lib/packet-prep.ts, then docs/x.md and packages/suspenders/hooks/lib/packet-prep.ts again; see AGENTS.md.",
+			"Edit packages/suspenders/hooks/lib/lanes/packet-prep.ts, then docs/x.md and packages/suspenders/hooks/lib/lanes/packet-prep.ts again; see AGENTS.md.",
 		);
 		expect(pointers).toEqual([
-			"packages/suspenders/hooks/lib/packet-prep.ts",
+			"packages/suspenders/hooks/lib/lanes/packet-prep.ts",
 			"docs/x.md",
 			"AGENTS.md",
 		]);

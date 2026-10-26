@@ -7,7 +7,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { readJsonConfEither } from "../kernel-conf.ts";
-import { scrubRules } from "../scrub.ts";
+import { scrubRules } from "../gates/scrub.ts";
 
 export type NotifyClass =
 	| "need-decision"

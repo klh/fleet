@@ -10,7 +10,7 @@ import {
 	loadLaneRegistry,
 	mergeLaneRegistry,
 } from "./lane-registry.ts";
-import { attachSubscribe } from "../subscribe-attach.ts";
+import { attachSubscribe } from "./subscribe-attach.ts";
 import { jobslabEnv, jobslabFor, jobslabPrefix } from "./jobslab.ts";
 
 // W422 surface consolidation law: the spawn-args adapter INTERFACE. Core

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // hooks/bin/checkpoint.ts — W253 agent CLI for the rolling compaction
-// checkpoint (hooks/lib/checkpoint.ts). `set` rolls the file with fresh
+// checkpoint (hooks/lib/lanes/checkpoint.ts). `set` rolls the file with fresh
 // done/next bullets (plane header auto-derived: branch/head, owned work,
 // capsule); `show` cats it; `path` prints where it lives.
 import { existsSync, readFileSync } from "node:fs";
@@ -9,7 +9,7 @@ import {
 	checkpointPath,
 	rollCheckpoint,
 	type CheckpointDb,
-} from "../lib/checkpoint.ts";
+} from "../lib/lanes/checkpoint.ts";
 import { defineVerb, runCli, type VerbSpec } from "../lib/verb-kit.ts";
 
 const VERBS: VerbSpec[] = [

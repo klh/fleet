@@ -1,5 +1,5 @@
 // hooks/board/observation-serving.ts — W621.2: board serving surfaces for
-// the W621.1 observation plane (hooks/lib/observation-plane.ts): scoped
+// the W621.1 observation plane (hooks/lib/board/observation-plane.ts): scoped
 // projection queries, the bounded server-filtered SSE push, and the batch
 // ingest that feeds the read model. All scope filtering is SERVER-side —
 // browser filtering is never an authorization model (arch doc §3).
@@ -20,7 +20,7 @@ import {
 	type IngestResult,
 	type LaneSummary,
 	type ViewerScope,
-} from "../lib/observation-plane.ts";
+} from "../lib/board/observation-plane.ts";
 
 /** board-side retention on the events read model: old evidence ages out at
  * an explicit cap — the projection stays bounded (§3), never silently

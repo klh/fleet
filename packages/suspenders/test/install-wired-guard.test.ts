@@ -9,10 +9,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { registerLaunchd } from "../scripts/install-launchd.ts";
+import { registerLaunchd } from "../scripts/install/install-launchd.ts";
 import { validateBeltWiredGuard } from "../scripts/lib/belt-wired-guard.ts";
-import type { StepContext } from "../scripts/install-run.ts";
-import { loadManifest, renderDarwin } from "../scripts/install-services.ts";
+import type { StepContext } from "../scripts/install/install-run.ts";
+import {
+	loadManifest,
+	renderDarwin,
+} from "../scripts/install/install-services.ts";
 import { parsePlistXml } from "./plist-fields.ts";
 
 test("fresh prefix sources the same private guard value for Belt and dispatch", () => {

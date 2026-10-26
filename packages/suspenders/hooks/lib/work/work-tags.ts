@@ -3,7 +3,7 @@
 // W517 .prefer tree tag) so counters (pilot-measure rework) classify by
 // TAG, never by title regex. The tag grammar is the .prefer token grammar
 // (prefer.ts TAG_RE) — one source of truth for both surfaces.
-import { TAG_RE } from "../prefer.ts";
+import { TAG_RE } from "./prefer.ts";
 
 /** Comma-split a tags column value into its tag set (trims, drops empties). */
 export const splitTags = (raw: string | null | undefined): string[] =>

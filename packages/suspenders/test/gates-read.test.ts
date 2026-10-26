@@ -11,7 +11,7 @@ import {
 	dataSliceDeny,
 	DEFAULT_MAX_READ,
 } from "../hooks/gates/read.ts";
-import { clampHeadTail, readSliceLines } from "../hooks/lib/clamp.ts";
+import { clampHeadTail, readSliceLines } from "../hooks/lib/gates/clamp.ts";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { gateSpawn } from "./helpers/gate-spawn.ts";

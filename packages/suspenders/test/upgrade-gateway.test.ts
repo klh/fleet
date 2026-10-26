@@ -32,7 +32,7 @@ import {
 	assertFenceForLifecycle,
 	releaseApprovalFence,
 } from "../scripts/lib/approval-fence.ts";
-import { parseFlags } from "../scripts/install-cli.ts";
+import { parseFlags } from "../scripts/install/install-cli.ts";
 
 function fixture() {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "gateway-review-")));

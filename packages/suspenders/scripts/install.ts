@@ -24,10 +24,13 @@ import {
 	renderHuman,
 	resolvePaths,
 	usageOutcome,
-} from "./install-cli.ts";
-import { INSTALL_CONTRACT, type InstallOutcome } from "./install-contract.ts";
-import { reportTail, stackVersionTail } from "./install-report-tail.ts";
-import { executePlan, type StepContext } from "./install-run.ts";
+} from "./install/install-cli.ts";
+import {
+	INSTALL_CONTRACT,
+	type InstallOutcome,
+} from "./install/install-contract.ts";
+import { reportTail, stackVersionTail } from "./install/install-report-tail.ts";
+import { executePlan, type StepContext } from "./install/install-run.ts";
 
 const HELP = `
 Usage

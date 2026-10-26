@@ -1,5 +1,5 @@
 // test/fleet-targets.test.ts — W298: fleet-wide install target detection.
-// Verifies the thin wiring/gating layer (hooks/lib/targets.ts) on top of the
+// Verifies the thin wiring/gating layer (hooks/lib/install/targets.ts) on top of the
 // vendored vercel-labs/skills registry (hooks/lib/vendor/skills-agents.ts):
 // supported targets get a wireScriptPath pointing at a real hooks/dialects
 // wire.ts, claude-code is native, everything else in the 70+ list is still
@@ -27,7 +27,7 @@ async function detectWithHome(homeDir: string): Promise<
 > {
 	mkdirSync(homeDir, { recursive: true });
 	const script = `
-		import { detectFleetTargets } from ${JSON.stringify(join(REPO, "hooks/lib/targets.ts"))};
+		import { detectFleetTargets } from ${JSON.stringify(join(REPO, "hooks/lib/install/targets.ts"))};
 		const targets = await detectFleetTargets(${JSON.stringify(REPO)});
 		console.log(JSON.stringify(targets.map((t) => ({
 			type: t.type, installed: t.installed, supported: t.supported, native: t.native,
@@ -49,7 +49,7 @@ async function detectWithHome(homeDir: string): Promise<
 
 describe("fleet install targets (W298)", () => {
 	test("listTargets includes all four wired dialects + native claude-code, and gates the rest", async () => {
-		const { listTargets } = await import("../hooks/lib/targets.ts");
+		const { listTargets } = await import("../hooks/lib/install/targets.ts");
 		const targets = listTargets(REPO);
 
 		const byType = new Map(targets.map((t) => [t.type, t]));
@@ -102,7 +102,7 @@ describe("fleet install targets (W298)", () => {
 		// returning the FULL vendored set (minus the universal pseudo-agent).
 		// Relationship-pinned (set equality), so upstream catalog syncs stay
 		// green while any silent drop of a vendored target fails here.
-		const { listTargets } = await import("../hooks/lib/targets.ts");
+		const { listTargets } = await import("../hooks/lib/install/targets.ts");
 		const { agents } = await import("../hooks/lib/vendor/skills-agents.ts");
 		const targets = listTargets(REPO);
 		const vendored = Object.keys(agents).filter((t) => t !== "universal");

@@ -9,7 +9,7 @@ import {
 	claimLocationCheck,
 	locationExempt,
 } from "../lib/gates/claim-location.ts";
-import { subagentLaneSuffix } from "../lib/subscribe-attach.ts";
+import { subagentLaneSuffix } from "../lib/lanes/subscribe-attach.ts";
 
 export function claimLocationGate(hook: HookInput): void {
 	const ti = hook.tool_input ?? {};

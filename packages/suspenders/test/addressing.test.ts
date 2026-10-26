@@ -3,7 +3,7 @@ import {
 	formatSessionLabel,
 	llmShorthand,
 	parseSessionTags,
-} from "../hooks/lib/addressing.ts";
+} from "../hooks/lib/lanes/addressing.ts";
 
 describe("formatSessionLabel", () => {
 	test("renders the canonical hub/tool/name/model format", () => {

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import {
 	flagIntegratedCode,
 	oversizedMergedFiles,
-} from "../hooks/lib/decomposition.ts";
+} from "../hooks/lib/work/decomposition.ts";
 
 const scratch: string[] = [];
 afterEach(() => {

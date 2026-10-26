@@ -192,7 +192,7 @@ describe("W603 cursor-aware retention — archiveAndPrune floor", () => {
 					id: number;
 				}
 			).id;
-		const { archiveAndPrune } = await import("../hooks/lib/retention.ts");
+		const { archiveAndPrune } = await import("../hooks/lib/govdb/retention.ts");
 		const n = archiveAndPrune(db, {
 			table: "events",
 			tsCol: "ts",

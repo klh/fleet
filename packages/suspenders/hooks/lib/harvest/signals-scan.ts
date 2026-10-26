@@ -26,10 +26,10 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { itemCapsuleKey } from "../capsule-fence.ts";
+import { itemCapsuleKey } from "../lanes/capsule-fence.ts";
 import { emitLoopEvent } from "../fleet-loop/events.ts";
 import type { GovernorStore } from "../govdb/govdb.ts";
-import type { LegResult } from "../oracle-legs.ts";
+import type { LegResult } from "../hub/oracle-legs.ts";
 
 export type SignalClass =
 	| "reported-done-tests-red"

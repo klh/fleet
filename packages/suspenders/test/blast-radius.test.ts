@@ -26,7 +26,7 @@ import {
 	approvalSig,
 	cmdApprovalSrc,
 	verifyAndConsumeCmd,
-} from "../hooks/lib/approvals.ts";
+} from "../hooks/lib/gates/approvals.ts";
 import {
 	credScopeDeny,
 	expandTouch,

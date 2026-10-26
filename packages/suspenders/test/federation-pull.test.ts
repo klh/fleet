@@ -13,9 +13,12 @@ import {
 	pullFederation,
 	type FederationEnv,
 } from "../hooks/lib/federation/federation.ts";
-import { deriveDataDomain, hubModelIdsFrom } from "../hooks/lib/provenance.ts";
+import {
+	deriveDataDomain,
+	hubModelIdsFrom,
+} from "../hooks/lib/lanes/provenance.ts";
 import { atomicWrite } from "../hooks/lib/board/board-config.ts";
-import { hubCapabilities } from "../hooks/lib/profile.ts";
+import { hubCapabilities } from "../hooks/lib/federation/profile.ts";
 
 const FIXTURE_ENTITLEMENTS = {
 	models: [

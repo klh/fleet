@@ -21,7 +21,7 @@ import {
 	loadCursor,
 	readTail,
 	type TpCursor,
-} from "../transcript-cursor.ts";
+} from "./transcript-cursor.ts";
 
 export interface TailStats {
 	files: number; // transcripts seen

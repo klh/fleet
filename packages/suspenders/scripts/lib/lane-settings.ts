@@ -99,7 +99,7 @@ export const laneSettingsData = (
 		{
 			env: {
 				// W834 role marker: the lane role for the coordinator-edit gate
-				// (hooks/lib/coordinator-edit-gate.ts) — --settings outranks the
+				// (hooks/lib/gates/coordinator-edit-gate.ts) — --settings outranks the
 				// user-settings env merge, the one channel that survives.
 				KLH_SESSION_ROLE: "lane",
 				ANTHROPIC_MODEL: env.ANTHROPIC_MODEL ?? "opus",

@@ -120,7 +120,7 @@ const runActivation = async (
 			process.execPath,
 			"-e",
 			tamperScript,
-			join(import.meta.dir, "../scripts/install-launchd.ts"),
+			join(import.meta.dir, "../scripts/install/install-launchd.ts"),
 			fixture,
 		],
 		{

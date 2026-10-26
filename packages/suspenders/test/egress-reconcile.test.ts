@@ -9,8 +9,8 @@ import {
 	summarizeReconciliation,
 	type GatewayRequestRow,
 	type TunnelConnection,
-} from "../hooks/lib/egress-reconcile.ts";
-import type { EgressTrustSource } from "../hooks/lib/egress-visibility.ts";
+} from "../hooks/lib/plaid/egress-reconcile.ts";
+import type { EgressTrustSource } from "../hooks/lib/plaid/egress-visibility.ts";
 import type { AgentType } from "../hooks/lib/vendor/skills-agents.ts";
 
 const trustAll: EgressTrustSource = {

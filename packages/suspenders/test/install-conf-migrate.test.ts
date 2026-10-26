@@ -8,8 +8,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { migrateConf } from "../scripts/install-conf-migrate.ts";
-import type { StepContext } from "../scripts/install-run.ts";
+import { migrateConf } from "../scripts/install/install-conf-migrate.ts";
+import type { StepContext } from "../scripts/install/install-run.ts";
 
 const fixture = () => {
 	const home = mkdtempSync(join(tmpdir(), "fleet-conf-migrate-"));

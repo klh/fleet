@@ -7,7 +7,7 @@
 // error (aids are garnish — the control plane never blocks on them).
 import { readFileSync } from "node:fs";
 import type { Database } from "bun:sqlite";
-import { readEnvValue } from "../doctor.ts";
+import { readEnvValue } from "../fleet-loop/doctor.ts";
 import { num } from "./harvest-engine.ts";
 
 export interface AidHarvestStats {

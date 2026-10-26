@@ -3,7 +3,7 @@
 // closes). Extracted for the codex adapter (W73): gate.ts and gates/codex.ts
 // run the SAME chain — one sequence, two dialects.
 import { allow, type HookInput } from "../lib/hookio.ts";
-import { coordinatorEditGate } from "../lib/coordinator-edit-gate.ts";
+import { coordinatorEditGate } from "../lib/gates/coordinator-edit-gate.ts";
 import { anchorGate } from "./anchor.ts";
 import { claimLocationGate } from "./claim-location.ts";
 import { contentGate } from "./content.ts";

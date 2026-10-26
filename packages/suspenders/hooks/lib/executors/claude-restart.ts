@@ -10,7 +10,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { withFileLock } from "../file-lock.ts";
+import { withFileLock } from "../lanes/file-lock.ts";
 
 export type RestartIdentity = { pid: number; birth: string };
 export type ClaudeRestartSnapshot = {

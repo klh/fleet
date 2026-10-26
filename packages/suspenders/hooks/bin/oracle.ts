@@ -21,15 +21,15 @@
 //   ORACLE_ROUTE_MODEL optional model id (else GET /models probe, else "local")
 // exit: 0 answer · 1 usage/input · 2 leg failure
 
-import { REVIEW_FRAME } from "../lib/oracle-frame.ts";
-import type { PanelRow } from "../lib/oracle-legs.ts";
+import { REVIEW_FRAME } from "../lib/hub/oracle-frame.ts";
+import type { PanelRow } from "../lib/hub/oracle-legs.ts";
 import {
 	buildPanelRows,
 	cloudLeg,
 	consensusOf,
 	PANEL_FRAME,
 	pinnedLeg,
-} from "../lib/oracle-legs.ts";
+} from "../lib/hub/oracle-legs.ts";
 import type { VerbSpec } from "../lib/verb-kit.ts";
 import { defineVerb, parseVerb } from "../lib/verb-kit.ts";
 

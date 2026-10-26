@@ -9,7 +9,7 @@ import {
 	readSessionState,
 	sessionStatePath,
 	writeSessionState,
-} from "./session-state.ts";
+} from "./lanes/session-state.ts";
 
 export type HookInput = {
 	tool_name?: string;

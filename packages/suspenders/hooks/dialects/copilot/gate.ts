@@ -25,13 +25,13 @@ import {
 	transcriptPathFor,
 	spawnSessionStart,
 	spawnSessionEnd,
-} from "../../lib/session-bridge.ts";
+} from "../../lib/lanes/session-bridge.ts";
 import { bashGate } from "../../gates/bash.ts";
 import { postToolGate } from "../../gates/post-tool.ts";
 import { preFilesChain } from "../../gates/chain.ts";
 import { readGate } from "../../gates/read.ts";
 import { stopGate } from "../../gates/stop.ts";
-import type { ToolMode } from "../../lib/dialect.ts";
+import type { ToolMode } from "../../lib/executors/dialect.ts";
 
 // wiring-time event per mode (dialect bound by argv, not sniffed)
 const EVENT: Record<Mode, string> = {

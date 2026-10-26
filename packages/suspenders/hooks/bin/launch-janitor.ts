@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // hooks/bin/launch-janitor.ts — CLI face of the W1247 .fleet launch-debris
-// janitor (hooks/lib/launch-janitor.ts). Prunes launch-<nonce>.{json,sh}
+// janitor (hooks/lib/fleet-loop/launch-janitor.ts). Prunes launch-<nonce>.{json,sh}
 // + .json.registered debris older than --max-age-days (default 7) from
 // <repo>/.fleet, keeping every nonce whose lane_launch_intents row is not
 // provably dead (uncertainty keeps — a mid-flight or foreign-host launch
@@ -9,7 +9,7 @@
 // candidates (a human or cron should notice), 2 when the governor store
 // is unavailable (fail-closed: no store = no pruning, protects live lanes).
 import { openStore } from "../lib/govdb/govdb.ts";
-import { createLaunchJanitor } from "../lib/launch-janitor.ts";
+import { createLaunchJanitor } from "../lib/fleet-loop/launch-janitor.ts";
 import { emitLoopEvent } from "../lib/fleet-loop/events.ts";
 import { inspectLaunchIntent } from "../../scripts/lib/launch-fencing.ts";
 import type { LaunchIntent } from "../../scripts/lib/launch-fencing.ts";

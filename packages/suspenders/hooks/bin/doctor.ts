@@ -12,7 +12,7 @@ import {
 	smokeBoard,
 	smokeGateRoundtrip,
 	worstStatus,
-} from "../lib/doctor.ts";
+} from "../lib/fleet-loop/doctor.ts";
 import { defineVerb, type Parsed, runCli } from "../lib/verb-kit.ts";
 
 const home = process.env.HOME ?? "";

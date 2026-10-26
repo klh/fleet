@@ -10,7 +10,7 @@ import {
 	classifyOutage,
 	lastOutage,
 	recordOutage,
-} from "../hooks/lib/outage-ledger.ts";
+} from "../hooks/lib/gates/outage-ledger.ts";
 
 const LEDGER = join(
 	mkdtempSync(join(tmpdir(), "outage-ledger-")),

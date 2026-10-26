@@ -9,7 +9,7 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { withFileLock } from "../file-lock.ts";
+import { withFileLock } from "./file-lock.ts";
 import { isHarnessProcess } from "./lane-liveness.ts";
 import { basename, dirname, join, resolve } from "node:path";
 import { openStore } from "../govdb/govdb-store.ts";

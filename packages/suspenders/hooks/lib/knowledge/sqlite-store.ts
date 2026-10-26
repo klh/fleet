@@ -26,7 +26,7 @@ import {
 	type Dismissal,
 	type DecayOpts,
 } from "./knowledge-curate.ts";
-import { CONFIDENCE_MIN, makeStamp } from "../confidence.ts";
+import { CONFIDENCE_MIN, makeStamp } from "./confidence.ts";
 import { currentPromptHash } from "./prompt-policy.ts";
 import type {
 	DecaySweep,

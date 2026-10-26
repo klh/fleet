@@ -60,7 +60,7 @@ export const QUESTIONS: Question[] = [
 		class: "judgment",
 		q: "Why does the scrub pre-push gate re-flag a line that already carries a scrub:allow marker, and what is the sanctioned response when it blocks a push?",
 		gt: "The pre-push scan walks base..tip PER-COMMIT added lines; the scrub:allow exemption only checks the TIP's copy of a line (scrub-git.ts W708 note). When the offending line's marker lives in unpushed branch-base history the range walk re-flags it — every W-branch push re-flags the same line. Sanctioned response: never bypass (no SUSPENDERS_SCRUB=0, no history rewrite) — emit NEED_DECISION and let the owner/ladder resolve.",
-		src: "hooks/lib/scrub-git.ts:79-120 (W700/W708), fleet lesson (2026-10-19 window)",
+		src: "hooks/lib/gates/scrub-git.ts:79-120 (W700/W708), fleet lesson (2026-10-19 window)",
 	},
 	{
 		id: "J2",

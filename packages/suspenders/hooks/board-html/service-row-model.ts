@@ -3,7 +3,10 @@
 // round-trip live here so tests drive them with stub probe results; the
 // Lit component only renders this model.
 import type { RecoveryEntry } from "../lib/fleet-loop/recovery-map.ts";
-import { observationFresh, type Observation } from "../lib/observation.ts";
+import {
+	observationFresh,
+	type Observation,
+} from "../lib/board/observation.ts";
 
 export type RowState = "up" | "degraded" | "down" | "idle";
 

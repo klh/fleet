@@ -10,7 +10,7 @@ import {
 	consoleMe,
 } from "./console-view.ts";
 import { db } from "./context.ts";
-import { adminAudit } from "../lib/admin-audit.ts";
+import { adminAudit } from "../lib/govdb/admin-audit.ts";
 import { scrub } from "../lib/servicemon.ts";
 import {
 	ConfigError,

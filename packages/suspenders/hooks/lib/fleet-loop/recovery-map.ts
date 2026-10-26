@@ -9,7 +9,7 @@
 // checkouts only. test/recovery-map.test.ts pins that, and pins that every
 // probed service has an entry.
 import { readFileSync } from "node:fs";
-import { MODEL_INVENTORY, probePathFor } from "../service-inventory.ts";
+import { MODEL_INVENTORY, probePathFor } from "../hub/service-inventory.ts";
 
 export type ProbeSpec =
 	| {
