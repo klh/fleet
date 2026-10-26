@@ -209,3 +209,26 @@ test("loop wiring: stall-watch holds the verdict on an ACTIVE gate request; the 
 	);
 	expect(core).toContain("transport,");
 });
+
+// W1302.5.1 B1: the probe's fetch path must be the W1259 route buckle
+// actually serves — route-table + admin dispatch cross-checked against the
+// source, so a rename on either side goes red here instead of silently
+// reading "unavailable" forever.
+test("endpoint cross-check: the probe fetches the served /v1/admin/inflight route", () => {
+	const table = readFileSync(
+		new URL("../../buckle/src/citizenship.ts", import.meta.url),
+		"utf8",
+	);
+	expect(table).toContain('path === "/v1/admin/inflight"');
+	expect(table).toContain('"/v1/admin/inflight") return "GET, OPTIONS"');
+	const admin = readFileSync(
+		new URL("../../buckle/src/gov/admin.ts", import.meta.url),
+		"utf8",
+	);
+	expect(admin).toContain('method === "GET" && path === "/v1/admin/inflight"');
+	const probe = readFileSync(
+		new URL("../hooks/lib/lanes/transport-liveness.ts", import.meta.url),
+		"utf8",
+	);
+	expect(probe).toContain('"/v1/admin/inflight"');
+});
