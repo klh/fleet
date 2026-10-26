@@ -137,7 +137,11 @@ is on a hub.
 ## Dangling-path flood (owner note #78436)
 
 The 415 READY "Repair dangling path" items are 95% of the READY queue, and
-none is claimed. Every `code.dangling-path` event (415) was re-judged against
+none is claimed. The flood is still running. Local main 0441c055 (the
+W1302.1.1 merge, not yet on origin when checked) minted W1763–W1765 while this
+audit was being committed: the message string `no lanes in .fleet/lanes.json`,
+the bare name `biome.json`, and `f.txt` inside a test file. The merged rules
+reject all three. Every `code.dangling-path` event (415) was re-judged against
 the merged W1302.2.1 rules
 (`packages/suspenders/hooks/lib/fleet-loop/dangling-paths.ts:57-65,106-123`)
 on the `origin/main` tree:
