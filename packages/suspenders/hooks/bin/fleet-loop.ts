@@ -47,8 +47,12 @@ import {
 	gitInProgress,
 	gitMidOp,
 	itemClaimOf,
-	mergeHoldActive,
 } from "../lib/lanes/ladder-lease.ts";
+// W1302.1: the hold as a contract — the predicate + controller enforcement
+import {
+	enforceMergeHold,
+	mergeHoldActive,
+} from "../lib/fleet-loop/merge-hold.ts";
 import { laneProcessIdentity } from "../lib/lanes/lane-liveness.ts";
 import { flushOnDoneWait } from "../lib/fleet-loop/merge-on-done.ts";
 // W911: the plaid posture switch — read/write .fleet/posture (the file
@@ -150,6 +154,13 @@ const runTemplate = (
 };
 
 async function cycle(): Promise<void> {
+	// 0. W1302.1: age out / refuse a stale or malformed operator hold BEFORE
+	// any gate reads it — A2: a hold that outlived its window (or never
+	// carried provenance) must never defer the ladder forever. Fail-isolated
+	// (the wisdom-sweep rule): enforcement can never take down the cycle.
+	try {
+		enforceMergeHold(REPO, log);
+	} catch {}
 	// 1. never enter a cycle with leftover merge state. MERGE_HEAD is either
 	// a LIVE merge (another runner mid-flight — hands off) or crashed-run
 	// debris (heal: surgical abort, guarded reset as last resort).
@@ -259,6 +270,12 @@ if (MODE === "dispatch") await runDispatch(config, { log, sh, lanes });
 // auto-resolves: a conflicted branch takes the NEED_DECISION in mergeFail
 // and is left for inspection.
 if (MODE === "flush") {
+	// W1302.1: refuse/age-out a stale or malformed hold BEFORE this flush's
+	// gates read it — a .fleet/merge-hold past its window (or without
+	// provenance) never defers the sweep forever (A2). Fail-isolated.
+	try {
+		enforceMergeHold(REPO, log);
+	} catch {}
 	if (existsSync(`${REPO}/.git/MERGE_HEAD`)) {
 		const live = mergeRunnerAlive();
 		if (live) {
@@ -335,6 +352,11 @@ if (MODE === "ship") {
 		console.error("ship requires --branch <branch>");
 		process.exit(1);
 	}
+	// W1302.1: same refuse/age-out as cycle/flush — a stale or malformed hold
+	// never blocks a one-click ship forever. Fail-isolated.
+	try {
+		enforceMergeHold(REPO, log);
+	} catch {}
 	// W101 ship-vs-daemon race: same merge-liveness discipline as cycle
 	// step 1 — a live daemon ladder is hands-off (a blind abort here killed
 	// the daemon's in-flight merge, FAIL-struck the innocent branch, and
