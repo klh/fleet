@@ -37,13 +37,14 @@ Every landing below is checked by git ancestry, never by a DONE statement:
 | P5 proof fix       | W1303.5.1      | dca36d6b            | Y      | Y      | Y         | landed                                   |
 | P5 review contract | W1303.5        | 592a26a2            | Y      | -      | -         | GAP — DONE, unmerged                     |
 | P5 approval repair | W1308          | f7f10d0d            | Y      | -      | -         | GAP — DONE, unmerged                     |
+| P5 integration     | W1303.5.2      | d159b500            | Y      | -      | -         | GAP — DONE, unmerged; awaiting review    |
 | P6 pipeline        | W1303.6        | d69ec274            | Y      | Y      | Y         | landed; the cut itself is W1311          |
 | Round cap          | W1303.7        | 884f075d / 4bfc1839 | Y      | Y      | -         | merged, not installed                    |
 | Parent             | W1303          | 8910d202            | Y      | -      | -         | DONE premature (gap 4)                   |
 
 No row is deployed. **Verdict: the reorg has not landed.** P2, P3, P4 and the
 P6 pipeline are merged and installed. P1 and P5 are open. Nothing from P1–P6
-is on a hub.
+is on a hub. The row 8 test migration is not on main either (gap 9).
 
 ## Gaps — causal blockers first
 
@@ -88,6 +89,13 @@ is on a hub.
      grades FAIL on every round. W1217.1 (#78532, commit f0113730, one new
      test file, reviewer PASS) is one. Fix: skip when the diff has no non-test
      path. Same owner, W1306.1.
+   - **Coverage proof: Playwright specs never run.** `bin/review-lane.ts:479`
+     runs `bun test <paths>`. Bun reads a bare `*.e2e.ts` path as a name
+     filter and matches nothing ("filters did not match any test files",
+     exit 1; reproduced on `tests/check-deps.e2e.ts`), so `:518-522` returns
+     ERROR. Every W1294 port stays ERROR even after the two fixes above, and
+     W1306 is such a port. W1306.1's own mission (machine PASS for W1306)
+     needs all three fixes.
    - **Wire-model guard — W1760 (minted).** `lib/gates/wire-model-check.ts:27-36`
      calls a dated snapshot id a mismatch. `bin/review-lane.ts:623-625` grades
      every mismatch FAIL, and `lib/gates/review-round-cap.ts:78` counts it as a
@@ -109,8 +117,9 @@ is on a hub.
 4. **W1303's DONE is premature.** Its result 8910d202 (coverage matrix plus
    `.editorconfig`) is pushed but not merged (review PASS #78241). The summary
    says the manifest repairs and P5 landed. At b7d773f0, W1303.1 is SHATTERED
-   with W1303.1.5 CLAIMED, and W1303.5.2 is CLAIMED. The controller decides
-   (see the handoff).
+   with W1303.1.5 CLAIMED. W1303.5.2 (the P5 stack plus W1308) went DONE at
+   d159b500 during the audit (#78578): pushed, not merged, awaiting exact
+   review. The controller decides (see the handoff).
 5. **Installed and deployed lag.** The installed generation 19824028 lacks
    W1303.1.6/.7/.8/.10 and the W1303.7 round cap, so the live scheduler does
    not cap the W1303.5 FAIL loop. Hubs run `fleet-2026-10-25-a69f2c4c`, so no
@@ -133,6 +142,16 @@ is on a hub.
    CI row.
 8. **The pre-push suite flakes under lane load and blocks pushes.**
    NEED_DECISION #78315 (consult C155) is open; reuse it.
+9. **Row 8 (Playwright migration) has not landed, and its plan says it
+   has.** Main 0441c055 holds 137 buckle `*.test.ts` and 0 `*.e2e.ts`; the
+   whole tree has one `*.e2e.ts`. `docs/design/w1294.19-failed-wave-repair-plan.md`
+   (5148f079) superseded W1294.6 on "main: buckle 0 `*.test.ts` / 137
+   `*.e2e.ts` (port complete via slices)", which is the reverse. The port
+   lives on slices W1294.17.1.2–.5 (DONE b61c9610, d155e637, a2066bc3,
+   8dd0b749; pushed, unmerged). Their reviewers say PASS, and every machine
+   receipt is ERROR on the coverage proof (#78560, #78572, #78577). The
+   testing kit W1294.1 (a309a05c) is unmerged too; W1294.20 (READY) owns
+   that merge.
 
 ## Dangling-path flood (owner note #78436)
 
@@ -194,16 +213,20 @@ no gate. Every item named here keeps its owner.
 1. **Hold dispatch of the dangling-path pool** until W1762's rejudge has run
    and an install of d59e6b1e or later has landed.
 2. **Reopen or supersede W1303.** Its DONE sits on an unmerged SHA and
-   overstates; P1 (W1303.1.5) and P5 (W1303.5.2) are still open. W1761 can
-   fold into a reopened W1303.
+   overstates. P1 (W1303.1.5) is open, and P5 (W1303.5.2, d159b500) is DONE
+   but unmerged. W1761 can fold into a reopened W1303.
 3. **Edges to apply.** These items are controller-owned, and W1714 did not
    change them:
    - W1303.1.5's CI wiring depends on W1759.
    - Re-review W1241 only after W1760. Its three mismatch FAILs fill the cap,
      so W1760 must discount them, or W1241 needs one more round of cap.
-   - Widen W1306.1 to both machinery fixes (deleted paths at
-     `review-lane.ts:413`, test-only diffs at `:417`). Then re-review W1306,
-     W1294.17.1.3 and W1217.1.
+   - Widen W1306.1 to all three machinery fixes: deleted paths
+     (`review-lane.ts:413`), test-only diffs (`:417`) and a Playwright leg
+     for `*.e2e.ts` (`:479`). Then re-review W1306, W1294.17.1.2–.5 and
+     W1217.1. The W1294 wave depends on W1306.1 and on W1294.20.
+   - Correct the W1294.6 evidence row in
+     `docs/design/w1294.19-failed-wave-repair-plan.md`; the port is not on
+     main.
    - Rebase W1107.1.2 over 056dbce4 and push it.
 4. **Merge order on the ladder:**
    1. W1303.1.1, plus W1303.1.9 once review legs are available.
