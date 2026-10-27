@@ -40,7 +40,7 @@ import { readBoundedTail } from "./lib/bounded-tail.ts";
 import { validateBeltWiredGuard } from "./lib/belt-wired-guard.ts";
 
 const kitDir = (ctx: StepContext): string => join(ctx.repo, "..", "local-llm");
-const beltBin = (ctx: StepContext): string =>
+export const beltBin = (ctx: StepContext): string =>
 	join(ctx.repo, "..", "belt", "bin");
 
 const logFor = (ctx: StepContext): ((line: string) => void) => {
