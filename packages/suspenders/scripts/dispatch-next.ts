@@ -63,15 +63,15 @@ import { recoverOrphanClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import { isDeferredItem } from "./lib/dispatch-defers.ts";
 import type { ChosenExecutor } from "./lib/dispatch-executor-note.ts";
+// W1124.33: root usage + verb-head discovery live with the family doors'
+// root entries (lib/dispatch-usage.ts — schema discovery, 1500-law split).
+import { dispatchHelpEpilog, verbHeadIndex } from "./lib/dispatch-usage.ts";
 import { fleetReport } from "./lib/fleet-report.ts";
 import { activeRateLimitWalls } from "./lib/launch-backoff.ts";
 import {
 	heldLaunchItems,
 	readConfiguredLaunches,
 } from "./lib/launch-fencing.ts";
-// W1124.33: root usage + verb-head discovery live with the family doors'
-// root entries (lib/dispatch-usage.ts — schema discovery, 1500-law split).
-import { dispatchHelpEpilog, verbHeadIndex } from "./lib/dispatch-usage.ts";
 // W636 decomposition: the READY-pool helpers + the archived-origin landing
 // guard moved to lib modules; the re-exports keep supervise.ts and the test
 // suites on their dispatch-next import path.
@@ -80,6 +80,7 @@ import { refillVerb } from "./lib/refill-verb.ts";
 import {
 	canAttemptRefill,
 	dispatchHeld,
+	dispatchHoldGate,
 	plaidCycleOpen,
 	plaidLaunchGapMs,
 	refillWindow,
@@ -88,6 +89,7 @@ import { isResumableClaim } from "./lib/resumable-claim.ts";
 
 export { capabilityGate, isOwnerGated, parseReady };
 
+import { endDispatchPhases } from "../hooks/lib/lanes/dispatch-phase-timing.ts";
 import {
 	type DispatchLane as Lane,
 	parseCapsuleGet,
@@ -97,7 +99,6 @@ import {
 	dispatchSummary,
 	resolveDaemonizedPids,
 } from "./lib/dispatch-summary.ts";
-import { endDispatchPhases } from "../hooks/lib/lanes/dispatch-phase-timing.ts";
 
 export { parseCapsuleGet }; // re-export keeps the supervise.ts + test path (W576.1.1)
 
@@ -114,6 +115,8 @@ if (
 	import.meta.main &&
 	HEAD !== "registry" &&
 	HEAD !== "intent" &&
+	HEAD !== "hold" &&
+	HEAD !== "release" &&
 	(argv.includes("--help") || argv.includes("-h"))
 ) {
 	console.log(
@@ -150,13 +153,10 @@ export { residueOf };
 // the conditional spreads several sites carry).
 const workCli = workCliFor(BIN);
 const coordCli = coordCliFor(BIN);
-// W494: REPO is the repo ROOT, never cwd — the loop runs from
-// packages/<name> in the monorepo, and worktrees/briefs live at
-// <root>/.worktrees (worktree.ts derives toplevel from the project
-// identity). cwd-as-root ENOENT'd the brief write mid-dispatch and
-// stranded half-born claims. (sh/run hoist above this so the toplevel
-// probe delegates to the shared spawn helper instead of re-inlining it —
-// REPO's default param is call-time-safe.)
+// W494: REPO is the repo ROOT, never cwd — the loop runs from packages/<name>
+// in the monorepo; worktrees/briefs live at <root>/.worktrees (worktree.ts
+// derives toplevel from the project identity); cwd-as-root ENOENT'd the brief
+// write mid-dispatch and stranded half-born claims.
 const gitToplevel = (): string =>
 	sh(["git", "rev-parse", "--show-toplevel"], process.cwd()) || process.cwd();
 const CALLER_REPO = resolve(val("--repo") ?? gitToplevel());
@@ -221,6 +221,17 @@ if (import.meta.main && HEAD === "registry") {
 if (import.meta.main && HEAD === "intent") {
 	const { intentMain } = await import("./lib/launch-intent-cli.ts");
 	process.exit(intentMain(argv.slice(headIndex + 1), { repo: REPO }));
+}
+// W1196: holds ride the CLI with attribution — never touch the files by hand.
+// The verb head rides W1124.33's verbHeadIndex, same as the intent door.
+if (import.meta.main && (HEAD === "hold" || HEAD === "release")) {
+	const { holdMain } = await import("./lib/dispatch-hold-cli.ts");
+	process.exit(
+		holdMain(argv.slice(headIndex + 1), {
+			fleet: FLEET,
+			release: HEAD === "release",
+		}),
+	);
 }
 const LOOP_LOG = `${FLEET}/loop.log`;
 // W463: mint failures refuse the dispatch (fail-closed). Collected so main()
@@ -348,8 +359,9 @@ const main = async (): Promise<void> => {
 		process.exitCode = 2;
 		return;
 	}
-	if (!DRY && dispatchHeld(FLEET)) {
-		console.log("WAIT — dispatch paused for rollout; live lanes keep running");
+	const holdLine = DRY ? null : dispatchHoldGate(FLEET);
+	if (holdLine !== null) {
+		console.log(holdLine);
 		return;
 	}
 	// prune: dead entries leave lanes.json (history keeps the audit); a worktree

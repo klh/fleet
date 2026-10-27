@@ -1,7 +1,9 @@
 // Plaid grows sequentially, with a measured gap between launches. There is
 // no numeric lane ceiling; route health and quota observations stop growth.
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import {
+	dispatchHoldActive,
+	dispatchHoldGate,
+} from "../../hooks/lib/lanes/dispatch-hold.ts";
 import type { Posture } from "../../hooks/lib/plaid/plaid.ts";
 
 export type RefillWindow = {
@@ -13,7 +15,12 @@ export type RefillWindow = {
 
 /** Rollout hold is explicit state, kept separate from recovery and live lanes. */
 export const dispatchHeld = (fleetDir: string): boolean =>
-	existsSync(join(fleetDir, "dispatch-paused"));
+	dispatchHoldActive(fleetDir) !== null;
+
+// W1196: the hold surface itself lives in hooks/lib/dispatch-hold.ts — the
+// re-export keeps the dispatch-next import path and hands the WAIT gate to
+// the one module that names the holder and the expiry.
+export { dispatchHoldGate };
 
 /** Operator may slow launches further, but cannot set a stampede interval. */
 export const plaidLaunchGapMs = (raw?: string): number => {

@@ -171,3 +171,4 @@ packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83
 # in the sightings test; the suite asserts masking, never a real credential)
 packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83
 05177bc10f165d2e06e5278067c6c34487e80b51:packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83
+packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83

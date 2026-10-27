@@ -1,15 +1,18 @@
 // hooks/board/payload.ts — the /api/data aggregate: the W663 feed memo,
 // boundSessions cap, buildPayload stitch, llm routing telemetry, W836 facts
 // trust panel. W1255.4: moved verbatim from board/data.ts (per-domain split).
+
+// W1196: dispatch holds — named, TTL'd pause state (same lib as dispatch).
+import { dispatchHoldRows } from "../lib/lanes/dispatch-hold.ts";
 import { observation } from "../lib/observation.ts";
 import { plaidStatus } from "../lib/plaid/plaid.ts";
 import { db } from "./context.ts";
+import { events } from "./events.ts";
 import { laneObservationSnapshot } from "./lane-observations.ts";
 import { ago, labelFrom, labelMaps, laneGitSnapshot } from "./lanes.ts";
-import { events } from "./events.ts";
-import { board, type SessionView } from "./tasks.ts";
-import { claims, inbox, laneFacts, sessions } from "./sessions.ts";
 import { getObservationRelayStatus } from "./observation-relay.ts";
+import { claims, inbox, laneFacts, sessions } from "./sessions.ts";
+import { board, type SessionView } from "./tasks.ts";
 
 // W663 follow-up (2026-10-12): the UI polls /api/data + /api/decisions every
 // ~1s while one compute costs ~2s (store round-trips on hub bindings) —
@@ -194,6 +197,7 @@ function buildPayload(): unknown {
 		kbSolutions: kbRow.n,
 		kbHits: kbRow.hits,
 	};
+	const projects = board();
 	return {
 		ts: Date.now(),
 		observation: observation(
@@ -209,7 +213,10 @@ function buildPayload(): unknown {
 		sessions: ss,
 		sessionsTotal: allSessions.length,
 		labels,
-		projects: board(),
+		projects,
+		// W1196: named dispatch holds — the same lib the dispatcher reads, so
+		// the board and the WAIT line cannot disagree about who holds dispatch.
+		dispatchHolds: dispatchHoldRows(projects),
 		claims: claims(),
 		events: events(),
 		// decisions live in /api/decisions now — this ts lets the UI mark the

@@ -243,6 +243,12 @@ function renderFleet(){
     for (var i = 0; i < down.length; i++) line += ' · down: ' + down[i].name + ' (' + (down[i].reason || 'unknown') + ')';
     if (pl.fallback) line += ' · no healthy route — dispatch paused';
   }
+  // W1196: named dispatch holds — who holds, why, until when (WAIT-line parity).
+  var dh = (d.dispatchHolds || []).filter(function(r){ return sel.value === 'all' || r.project === sel.value; });
+  if (dh.length) {
+    line += ' · hold by ' + dh[0].by + ' — ' + dh[0].reason + (dh[0].legacy ? ' · legacy marker, no expiry' : ' · expires ' + dh[0].expires_at + ' (' + dh[0].remaining_min + ' min left)');
+    if (dh.length > 1) line += ' · +' + (dh.length - 1) + ' more hold(s)';
+  }
   var el = byId('fleetLine');
   setText(el, line);
   setText(byId('fleetWorking'), working);
@@ -254,6 +260,7 @@ function renderFleet(){
   if (ck && (ck.human || ck.kbSolutions)) context.push('Consult ' + ck.open + ' open · ' + (ck.human + ck.kb) + ' answered');
   if (pl) context.push('Plaid ' + pl.posture + ' · Copilot ' + pl.live.copilot + ' / Zai ' + pl.live.zai + ' · baseline ' + pl.baselineOpen.copilot + '+' + pl.baselineOpen.zai + ' · no fixed cap');
   if (pl && pl.fallback) context.push('No healthy route · dispatch paused');
+  if (dh.length) context.push('Dispatch hold by ' + dh[0].by + (dh[0].legacy ? ' · legacy bare marker' : ' · expires ' + dh[0].expires_at) + ' · ' + dh[0].reason);
   context.unshift('Live = RUNNING with a heartbeat within 5 min; claimed work is on Tasks');
   setText(byId('fleetContext'), context.join('   ·   '));
   setText(byId('stamp'), (d.observation ? d.observation.kind + ' snapshot · observed ' : 'updated ') + ago(Math.max(0, Math.round((Date.now() - (d.observation ? d.observation.observedAt : d.ts)) / 1000))));
