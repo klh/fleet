@@ -163,6 +163,15 @@ describe("maintenance sweep (W779)", () => {
 		expect(missingRunners()).toEqual([]);
 		expect(suspendersRoot()).toContain("suspenders");
 	});
+	test("signals-scan runner argv resolves at the package root (W1775)", () => {
+		const task = MAINTENANCE_TASKS.find((t) => t.name === "signals-scan");
+		if (!task)
+			throw new Error("signals-scan task missing from MAINTENANCE_TASKS");
+		const argv = task.argv(suspendersRoot(), "/fleet");
+		expect(argv[0]).toBe(join(suspendersRoot(), "hooks/bin/signals-scan.ts"));
+		expect(argv.slice(1)).toEqual(["--repo", "/fleet"]);
+		expect(existsSync(argv[0] ?? "")).toBe(true);
+	});
 	test("quota-sweep runner resolves at the package root (W1769)", () => {
 		const task = MAINTENANCE_TASKS.find((t) => t.name === "quota-sweep");
 		if (!task) throw new Error("quota-sweep task missing from MAINTENANCE_TASKS");
