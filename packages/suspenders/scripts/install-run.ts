@@ -83,6 +83,27 @@ export interface Executed {
 
 export type RowSink = (row: StepOutcomeRow) => void;
 
+/** W2177: the steps launchd units depend on — the synced harness, migrated
+ *  conf, PATH shims and the seeded local-llm home they exec. Only one of
+ *  these failing (or a refused preflight) skips --with-launchd; optional
+ *  steps such as registerCaddy never strand the services. */
+const LAUNCHD_PREREQUISITES: ReadonlySet<string> = new Set([
+	"probeEnvironment",
+	"syncHarness",
+	"migrateConf",
+	"ensureShims",
+	"seedLocalLlm",
+	"registerLaunchd",
+]);
+
+export function launchdPrerequisitesHeld(
+	rows: readonly StepOutcomeRow[],
+): boolean {
+	return !rows.some(
+		(row) => row.status === "failed" && LAUNCHD_PREREQUISITES.has(row.name),
+	);
+}
+
 type StepImpl = (ctx: StepContext) => Promise<StepResult>;
 
 // ─── v1 step implementations (only "real" steps live here; the rest delegate) ───

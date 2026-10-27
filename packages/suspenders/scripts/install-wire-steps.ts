@@ -15,6 +15,30 @@ import { join } from "node:path";
 import { execa } from "execa";
 import { redactSecrets } from "../hooks/lib/knowledge/knowledge.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
+import { fleetSkillNames, readSkillLock } from "./install-skill-prune.ts";
+
+const CADDY_LABEL = "com.klh-local.caddy";
+
+/** Bootstrap a LaunchAgent whose plist exists but launchd does not hold;
+ *  true only when it was idle and is now loaded. A live job is never
+ *  touched — replacing it stays the owning installer's job. */
+async function loadIdleUnit(home: string, label: string): Promise<boolean> {
+	if (process.platform !== "darwin" || process.getuid === undefined)
+		return false;
+	const plist = join(home, "Library", "LaunchAgents", `${label}.plist`);
+	if (!existsSync(plist)) return false;
+	const job = `gui/${process.getuid()}/${label}`;
+	const held = await execa("/bin/launchctl", ["print", job], { reject: false });
+	if (held.exitCode === 0) return false;
+	const boot = await execa(
+		"/bin/launchctl",
+		["bootstrap", `gui/${process.getuid()}`, plist],
+		{ reject: false },
+	);
+	if (boot.exitCode !== 0) return false;
+	await Bun.sleep(1000);
+	return true;
+}
 
 /**
  * registerCaddy — optional board registration with klh-local/Caddy so the LAN
@@ -39,13 +63,17 @@ export async function registerCaddy(ctx: StepContext): Promise<StepResult> {
 			note: "installed klh-local predates W602 (unloadable loopback bind posture) — refresh via packages/local/install.sh before registering",
 		};
 	}
-	const res = await execa(
-		klhLocal,
-		["register", "suspenders", "--port", "7799", "--health", "/"],
-		{
-			reject: false,
-		},
-	);
+	const register = () =>
+		execa(
+			klhLocal,
+			["register", "suspenders", "--port", "7799", "--health", "/"],
+			{ reject: false },
+		);
+	let res = await register();
+	// W2177: an installed-but-unloaded Caddy unit (plist on disk, job gone
+	// from launchd) loads once and the registration retries
+	if (res.exitCode !== 0 && (await loadIdleUnit(ctx.home, CADDY_LABEL)))
+		res = await register();
 	if (res.exitCode !== 0) {
 		return {
 			status: "failed",
@@ -100,6 +128,22 @@ export async function registerSkills(ctx: StepContext): Promise<StepResult> {
 			note: `no SKILL.md packages found under ${skillsDir}`,
 		};
 	}
+	// W2177: clean slate — drop every fleet-catalog skill (live names and
+	// retired hangers) from all agents before the re-add; other sources stay
+	const pruned = fleetSkillNames(readSkillLock(ctx.home), skillsDir);
+	if (pruned.length > 0) {
+		const removed = await execa(
+			"npx",
+			["skills", "remove", ...pruned, "-g", "-y"],
+			{ stdin: "ignore", reject: false, env: { HOME: ctx.home } },
+		);
+		if (removed.exitCode !== 0) {
+			return {
+				status: "failed",
+				note: `skills prune failed (${pruned.length} fleet skills) — run manually: npx skills remove ${pruned.join(" ")} -g -y`,
+			};
+		}
+	}
 	const res = await execa(
 		"npx",
 		["skills", "add", skillsDir, "-g", "-y", "-a", "claude-code"],
@@ -128,7 +172,7 @@ export async function registerSkills(ctx: StepContext): Promise<StepResult> {
 	const retired = retireLegacyEcosystemSkill(ctx.home, skillNames);
 	return {
 		status: "ok",
-		note: `registered and verified ${skillNames.length} Claude skills from ${skillsDir}${retired > 0 ? `; retired ${retired} obsolete ecosystem-map copies` : ""}`,
+		note: `registered and verified ${skillNames.length} Claude skills from ${skillsDir}${pruned.length > 0 ? ` after pruning ${pruned.length} prior fleet installs` : ""}${retired > 0 ? `; retired ${retired} obsolete ecosystem-map copies` : ""}`,
 	};
 }
 

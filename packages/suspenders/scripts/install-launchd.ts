@@ -359,8 +359,24 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 			(service) => service.label === label && service.generation,
 		);
 		// load-launchd.sh: plutil -lint, bootout, bootstrap, print — per-unit
-		// diagnostics land in the insights log, never the installer's stdout
-		const load = reviewed
+		// diagnostics land in the insights log, never the installer's stdout.
+		// W2177: a reviewed unit keeps its running job (the gateway upgrade
+		// owns replacement), but one launchd no longer holds at all loads its
+		// approved bytes — skipping it stranded :4101 with no listener.
+		const reviewedLive =
+			reviewed !== undefined &&
+			(
+				await execa(
+					"/bin/launchctl",
+					["print", `gui/${process.getuid()}/${label}`],
+					{
+						reject: false,
+						stdout: "ignore",
+						stderr: "ignore",
+					},
+				)
+			).exitCode === 0;
+		const load = reviewedLive
 			? { exitCode: 0 }
 			: await execa(
 					"bash",
@@ -416,7 +432,7 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 				// never reloaded, their child stays with the old supervisor).
 				const childPort = recycleOnBootstrap(
 					declaredChildPorts.get(label),
-					reviewed === undefined,
+					!reviewedLive,
 				);
 				if (childPort !== null) {
 					const recycle = await recycleChildListener(

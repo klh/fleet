@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import {
 	inspectActivatedDispatch,
@@ -8,6 +8,7 @@ import {
 import { assertServiceActivation } from "./lib/service-activation-fence.ts";
 import { readActivation, type ActivationReceipt } from "./lib/service-drift.ts";
 import { assertFenceForLifecycle } from "./lib/approval-fence.ts";
+import { recoverApprovedUnit } from "./lib/approved-unit-recovery.ts";
 
 export function assertBuckleActivation(
 	unit: string,
@@ -116,7 +117,19 @@ export function buckleUnitForInstall(
 		assertBuckleActivation(unit, candidate, initialInstall);
 		return { bytes: candidate, retained: false };
 	}
-	const approvedBytes = readFileSync(unit, "utf8");
+	// W2177: a reviewed unit deleted from LaunchAgents re-renders from its
+	// staged proposal — only bytes hashing to the approved sha qualify
+	const approvedBytes = existsSync(unit)
+		? readFileSync(unit, "utf8")
+		: recoverApprovedUnit(
+				join(process.env.HOME ?? "", ".config/klh/gateway-review"),
+				unit,
+				reviewed.unitSha256,
+			);
+	if (approvedBytes === undefined)
+		throw new Error(
+			"activation refused: reviewed gateway unit missing and no gateway-review proposal matches its approved sha — re-stage via --step upgradeGateway",
+		);
 	assertBuckleActivation(unit, approvedBytes, initialInstall);
 	return { bytes: approvedBytes, retained: true };
 }

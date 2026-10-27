@@ -27,7 +27,11 @@ import {
 } from "./install-cli.ts";
 import { INSTALL_CONTRACT, type InstallOutcome } from "./install-contract.ts";
 import { reportTail, stackVersionTail } from "./install-report-tail.ts";
-import { executePlan, type StepContext } from "./install-run.ts";
+import {
+	executePlan,
+	launchdPrerequisitesHeld,
+	type StepContext,
+} from "./install-run.ts";
 
 const HELP = `
 Usage
@@ -136,9 +140,14 @@ async function main(): Promise<void> {
 	let spinner: Ora | null = null;
 	if (!flags.json) spinner = ora("suspenders install").start();
 	const executed = await executePlan(mode, flags.step, ctx, () => {});
-	// --with-launchd: the bash front's posture — full plan, then registerLaunchd
-	// (bash parity: launchd only ran when the plan outcome wasn't failed)
-	if (flags.withLaunchd && mode === "plan" && executed.outcome !== "failed") {
+	// --with-launchd: full plan, then registerLaunchd. W2177: only a failed
+	// launchd PREREQUISITE skips it — an optional step (registerCaddy,
+	// releaseNotify) failing used to strand every service unregistered.
+	if (
+		flags.withLaunchd &&
+		mode === "plan" &&
+		launchdPrerequisitesHeld(executed.rows)
+	) {
 		const launchd = await executePlan("step", "registerLaunchd", ctx, () => {});
 		executed.rows.push(...launchd.rows);
 		executed.pauses.push(...launchd.pauses);

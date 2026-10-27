@@ -323,9 +323,14 @@ function guardedBody(
 			return cancel(reason);
 		},
 	});
+	// fetch already decoded the body: forwarding the upstream's encoding or
+	// length makes the next hop gunzip plain bytes (ZlibError spoke→hub)
+	const headers = new Headers(resp.headers);
+	headers.delete("content-encoding");
+	headers.delete("content-length");
 	return new Response(out, {
 		status: resp.status,
 		statusText: resp.statusText,
-		headers: resp.headers,
+		headers,
 	});
 }
