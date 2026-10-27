@@ -608,6 +608,60 @@ documented in packages/suspenders/docs/board-api.md (`prompt.enhance` row).
 | Qwen3.5-35B-A3B-OptiQ vs -4bit (same model, W228)                                                               | 107.2 vs 86.0 tok/s (+25%)                                                                                                                                                                                                                                                       | OptiQ takes the :8903 slot                                                                                                                |
 | Engine swap (Coder-30B, mlx_lm → rapid-mlx)                                                                     | 97.4 → 123.7 tok/s                                                                                                                                                                                                                                                               | biggest single lever so far                                                                                                               |
 | GLM-5.3 reasoning pin vs unpinned (W770, legacy leg :4100, zai-glm-5.3, 9528-char diff-review brief, 3k budget) | effort-low = stop=stop, 2559 out (1305 reasoning), 4990-char review, 40.1 s vs unpinned = 3000/3000 thinking-only, content 0 chars, 46.1 s; anthropic-carrier alias row (glm-5.3) rejects reasoning_effort with litellm 400 — the forward lives on the zai openai-wire rows only | pin is LIVE on :4100 zai rows (post-activation A/B 2026-10-15) — pin the escalate legs; :4101 kickstart still picks up the buckle forward |
+| Review-leg carrier: kimi-k3.1-pro vs glm-5.3-flash (W1244, live probe 2026-10-23, oracle frame + 31,684-char first-parent diff, n=1 per config) | glm: empty-content @1500 (finish=length, all think) and verdict-line-missing @8000 (126 chars, no VERDICT line); kimi default/effort-low @1500 all empty-content; kimi effort-low @8000 = the ONLY contract-pass (real findings + machine-parseable VERDICT: FAIL line, 108 s, $0.068/req); include_reasoning:false ignored by the provider; 655,188-token prompt ingested whole (103 s, $1.33) | kimi-k3.1-pro via OpenRouter @ effort-low, max_tokens ≥ 8000 is the only green review-leg config probed — switch review legs (SUSPENDERS_REVIEW_MODEL) pending owner GO on ~$0.07/review; full matrix + lifted vendor claims below |
+
+## Review-leg carrier — kimi-k3.1-pro vs glm-5.3-flash (W1244, live probe 2026-10-23)
+
+glm-5.3-flash review legs fail with HTTP 200 + empty content (W1236) on
+large prompts — reproduced live 2026-10-23 while this probe ran (23
+verdict=ERROR "leg failed" receipts in the coord feed). Harness:
+`packages/belt/bench/arena/carrier-probe.ts` (env-gated, skips legs without
+credentials; co-situated offline tests). Shape: the oracle REVIEW_FRAME +
+the W276 landing diff (31,684 chars, first-parent) — n=1 per config.
+
+| Config | Budget | Result | Wall | Cost |
+| ---- | ---- | ---- | ---- | ---- |
+| glm-5.3-flash (buckle, default ladder) | 1500 | empty-content, finish=length (all think) | 49 s | ≈$0 |
+| glm-5.3-flash (buckle) | 8000 | 126 chars, NO verdict line → contract FAIL | 58 s | ≈$0 |
+| kimi-k3.1-pro (OpenRouter, default) | 1500 | empty-content (1497/1500 think) | 28 s | $0.035 |
+| kimi-k3.1-pro (OpenRouter, default) | 8000 | empty-content (7997/8000 think) | 138 s | $0.082 |
+| kimi-k3.1-pro (OpenRouter, effort=low) | 1500 | empty-content (1497/1500 think) | 28 s | $0.035 |
+| kimi-k3.1-pro (OpenRouter, effort=low) | 8000 | **PASS — real findings + parseable `VERDICT: FAIL` line** | 108 s | $0.068 |
+| kimi-k3.1-pro (include_reasoning:false) | 8000 | ignored by provider — still 7997 think | 134 s | $0.082 |
+| kimi-k3.1-pro (effort=low) | 2000 @ 655k ctx | 655,188-token prompt ingested whole (no truncation), finish=length in think | 103 s | $1.33 |
+
+**Carrier choice: kimi-k3.1-pro via OpenRouter, `reasoning: {effort: "low"}`
++ max_tokens ≥ 8000** — the only configuration that returns a
+machine-parseable verdict on the failing shape. glm-5.3-flash fails the
+contract at both budgets on this shape (the W1236 8000 bump alone is not
+enough: content arrives but the verdict line does not).
+Switch wiring is a follow-up (buckle upstream row + SUSPENDERS_REVIEW_MODEL
+flip) pending owner GO on ~$0.07/review.
+
+Vendor claims lifted (owner add-on #62070, fetched 2026-10-23):
+
+- tbench.ai Terminal-Bench 4.0 board (live fetch): Kimi K3.1 Pro is NOT on
+  the board at all (0 Moonshot rows; would-be #1 at the claimed 65.7 vs #1
+  Opus 5.5 64.85 ± 3.1). The blog's "Opus 5.5 66.4" is a vendor-blog max,
+  not the board row (board: 64.85, delta −1.55). GPT-6 Astra 58.2 = board
+  58.18 ± 2.8 (match). The blog's methodology footnote admits scores are
+  "the maximum value reported in either their blog posts or the official
+  leaderboard" — for Kimi itself there is no board entry, so 65.7 is
+  vendor-self-reported and board-unfalsifiable.
+- BenchCAD is PUBLIC and runnable: github.com/BenchCAD/BenchCAD-main
+  (MIT), HF dataset BenchCAD/BenchCAD (CC BY 4.0), benchcad.com, arXiv
+  2605.10865; execution-grounded deterministic scoring (voxel IoU, no LLM
+  judge) over 17,900 CadQuery programs / 106 part families.
+- Anti-cheat reference for blam: Kimi's eval methodology zeroes runs that
+  bypass task requirements (e.g. retrieving answers online instead of doing
+  the work) — including zeroing DETECTED external-model runs; a scoring
+  practice worth mirroring in blam harness design.
+
+Caveats: n=1 per config (re-run cheap via the harness at the Nov-4 weights
+release); review QUALITY not judged (contract compliance + cost/latency
+only — the W792 arena owns quality); prices re-verified live from the
+OpenRouter models API at probe time ($2/M in, $10/M out, $0.20/M cache
+read, ctx 1,048,576).
 
 ## Installer cutover — bash vs TS full-install wall-time (W490.2, 2026-10-06)
 
