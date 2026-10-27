@@ -90,9 +90,11 @@ function validateTree(repo: string, before: string, tree: string): Result {
 				return fail(
 					`merge guard: candidate removes ${loss} lines from ${JSON.stringify(path)} with only ${addCount} added`,
 				);
-			// W1216.2: mass line loss on a test file is allowed ONLY as a proven
-			// structural relocation — the candidate's test-name delta must net
-			// to zero candidate-wide. Erosion keeps the original verdict.
+			// W1216.2.1: mass line loss on a test file is allowed ONLY as a
+			// proven STRUCTURAL relocation — every removed (name, body) pair
+			// must reappear verbatim candidate-wide and existing helper
+			// evidence must persist unmodified. Names are not proof; erosion
+			// keeps the original verdict.
 			const reloc = testRelocationDelta(repo, before, tree);
 			if (!reloc.balanced)
 				return fail(
