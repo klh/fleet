@@ -6,7 +6,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname } from "node:path";
 import { selectLaneCarrier } from "../../scripts/lib/launch-preflight.ts";
-import { isSpawnableExecutor } from "../lib/executors/registry.ts";
+import {
+	isSpawnableExecutor,
+	LEGACY_DISPATCHABLE_AGENTS as DISPATCHABLE_AGENTS,
+} from "../lib/executors/registry.ts";
 import {
 	isDecisionKind,
 	projectIdentity,
@@ -171,14 +174,15 @@ function recordOwnerRuling(
 // W182 — executor vocabulary shared by every dispatch route, W831 total
 // selector: known spawnable tokens and llm:* pass through; ANYTHING else is
 // an explicit refusal — a miss never silently maps onto claude (the wrong-
-// backend wake the Chorus spawner-select lift bans).
-const DISPATCHABLE_AGENTS = ["codex", "copilot", "grok", "cline"];
+// backend wake the Chorus spawner-select lift bans). W1811: grok/cline are
+// RETIRED from the legacy list (registry LEGACY_DISPATCHABLE_AGENTS) until
+// their transcript evidence readers land (claim-check fails their lanes
+// closed by name) — they refuse here on the registry miss instead of
+// spawning evidence-blind.
 function normalizeAgent(raw: string): string | null {
 	const token = raw.trim().toLowerCase();
 	if (!token) return "claude"; // the GUI's empty-dropdown default
 	if (token.startsWith("llm:")) return token;
-	// registry vocabulary first; the legacy raw-agent list stays for the
-	// not-yet-spawnable rows (grok/cline) so their refusal names the truth
 	if (isSpawnableExecutor(token)) return token;
 	if (DISPATCHABLE_AGENTS.includes(token)) return token;
 	return null;
