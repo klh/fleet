@@ -23,13 +23,18 @@ import {
 
 const TMP = mkdtempSync(join(tmpdir(), "suspenders-advcd-"));
 const REAL_TMPDIR = process.env.TMPDIR;
+// TMPDIR is pinned inside hooks, NOT at module load: the runner imports
+// every spec up front, and a module-load override would nest every other
+// file's load-time fixtures inside TMP — then this afterAll's rmSync
+// deletes live boards from under them (observed: board write-token
+// ENOENT across the full-corpus run, both runners).
+test.beforeAll(() => {
+	process.env.TMPDIR = TMP;
+});
 test.afterAll(() => {
-	process.env.TMPDIR = REAL_TMPDIR; // shared bun process — other suites follow
+	process.env.TMPDIR = REAL_TMPDIR; // shared runner process — other suites follow
 	rmSync(TMP, { recursive: true, force: true });
 });
-// session-state IO resolves TMPDIR at call time — pin it to the fixture dir
-// so unit-leg cooldown state never touches the real per-session state.
-process.env.TMPDIR = TMP;
 
 test.describe("cooldown lib", () => {
 	test("same message+session inside TTL → seen; different session/message not", () => {

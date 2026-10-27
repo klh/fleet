@@ -433,7 +433,7 @@ test.describe("rogue-reap maintenance registry (W827)", () => {
 	});
 });
 
-test.describe("rogue-reap maintenance registry (W827)", () => {
+test.describe("rogue-reap maintenance registry (W827) \u2014 registry pins re-stated", () => {
 	test("the rogue-reap task fires the reaper with --act", () => {
 		const t = MAINTENANCE_TASKS.find((x) => x.name === "rogue-reap");
 		if (!t) throw new Error("rogue-reap task missing from MAINTENANCE_TASKS");

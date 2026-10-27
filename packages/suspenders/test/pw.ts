@@ -39,4 +39,20 @@ export const afterAll = (fn: () => void | Promise<void>) => t.afterAll(fn);
 export const beforeAll = (fn: () => void | Promise<void>) => t.beforeAll(fn);
 export const beforeEach = (fn: () => void | Promise<void>) => t.beforeEach(fn);
 export const afterEach = (fn: () => void | Promise<void>) => t.afterEach(fn);
-export default t;
+
+// bun:test conditional-registration shims: skipIf/runIf are missing from
+// the bun-runtime playwright surface (probed 2026-10-27).
+type SimpleCase = (
+	title: string,
+	fn: () => void | Promise<void>,
+) => void;
+const conditional = (shouldRun: boolean): SimpleCase => (title, fn) => {
+	if (shouldRun) t(title, fn);
+	else t.skip(title, fn);
+};
+const tt = t as typeof t & {
+	skipIf?: (cond: unknown) => SimpleCase;
+	runIf?: (cond: unknown) => SimpleCase;
+};
+if (typeof tt.skipIf !== "function") tt.skipIf = (cond) => conditional(!cond);
+if (typeof tt.runIf !== "function") tt.runIf = (cond) => conditional(Boolean(cond));
