@@ -1,5 +1,4 @@
 {
-	"$schema": "./schema/remotes.schema.json",
 	"machines": [
 		{
 			"name": "nas",

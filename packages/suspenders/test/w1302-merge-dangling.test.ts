@@ -16,8 +16,13 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	danglingReferences,
 	pathLiterals,
+	referencesIn,
+} from "../hooks/lib/fleet-loop/dangling-classify.ts";
+import {
+	AGGREGATE_TITLE,
+	bankDanglingRefs,
+	danglingReferences,
 	parseGrepRows,
 	refForms,
 	resolveLiteral,
@@ -49,6 +54,11 @@ const testEnv = (repo: string) => ({
 	GOVERNOR_STORE_URL: "",
 	FLEET_UNTRACKED_GRACE_MS: "0",
 	SUSPENDERS_PREFIX: HOOKS,
+	// fixture loops run the merge ladder only: a lane env's admin key would
+	// let maintenance's coord-worker mint on the live gate and wait on a
+	// real session past the test timeout
+	BUCKLE_ADMIN_KEY: "",
+	SUSPENDERS_MAINTENANCE: "0",
 });
 
 const run = (repo: string, args: string[]) => {
@@ -423,8 +433,8 @@ describe("W1302.2 post-merge dangling-path scan", () => {
 	test("bankDanglingRef mints one deduped repair item + event", async () => {
 		const repo = await base();
 		const head = g(repo, ["rev-parse", "HEAD"]).stdout.toString().trim();
-		const call = `import { bankDanglingRef } from ${JSON.stringify(join(HOOKS, "lib", "fleet-loop", "dangling-paths.ts"))};\nbankDanglingRef(${JSON.stringify(repo)}, "w1302-test", { target: "lib/gone.ts", refBy: "app.ts", line: 2, specifier: "./lib/gone.ts" }, ${JSON.stringify(head)});`;
-		// first bank mints; the identical second bank dedupes by title
+		const call = `import { bankDanglingRefs } from ${JSON.stringify(join(HOOKS, "lib", "fleet-loop", "dangling-paths.ts"))};\nbankDanglingRefs(${JSON.stringify(repo)}, "w1302-test", [{ target: "lib/gone.ts", refBy: "app.ts", line: 2, specifier: "./lib/gone.ts" }], ${JSON.stringify(head)});`;
+		// first bank mints the aggregate; the identical second bank dedupes by edge
 		run(repo, ["-e", call]);
 		run(repo, ["-e", call]);
 		const db = storeDb(repo);
@@ -436,7 +446,7 @@ describe("W1302.2 post-merge dangling-path scan", () => {
 				.all() as { id: string; title: string }[];
 			expect(item).toHaveLength(1);
 			expect(item[0].title).toBe(
-				"Repair dangling path lib/gone.ts referenced by app.ts",
+				"Repair dangling paths found by the post-merge scan",
 			);
 		} finally {
 			db.close();
@@ -533,5 +543,208 @@ describe("W1302.2 post-merge dangling-path scan", () => {
 		} finally {
 			db.close();
 		}
+	});
+});
+
+// W1302.8 (A22): references by syntax, findings into ONE aggregate item
+const memStore = () => {
+	const db = new Database(":memory:");
+	db.run(
+		"CREATE TABLE work_items(project TEXT,id TEXT,title TEXT,state TEXT); CREATE TABLE events(ts INTEGER,source TEXT,kind TEXT,scope TEXT,payload TEXT,target TEXT)",
+	);
+	return db;
+};
+
+// seeds legacy history and mints aggregates through an injected enqueue
+const aggregateKit = (db: Database, project: string) => {
+	const minted: string[] = [];
+	const enqueue = (title: string, desc: string) => {
+		minted.push(desc);
+		const id = `W9${minted.length}`;
+		db.query("INSERT INTO work_items VALUES(?,?,?,'READY')").run(
+			project,
+			id,
+			title,
+		);
+		return id;
+	};
+	const item = (id: string, title: string, state: string) =>
+		db
+			.query("INSERT INTO work_items VALUES(?,?,?,?)")
+			.run(project, id, title, state);
+	const event = (scope: string, target: string, refBy: string) =>
+		db
+			.query(
+				"INSERT INTO events(ts,source,kind,scope,payload,target) VALUES(1,'seed','code.dangling-path',?,?,NULL)",
+			)
+			.run(scope, JSON.stringify({ project, target, refBy }));
+	return { minted, enqueue, item, event };
+};
+
+const edge = (target: string, refBy: string) => ({
+	target,
+	refBy,
+	line: 0,
+	specifier: `./${target}`,
+});
+
+const commitAll = (repo: string): string => {
+	g(repo, ["add", "-A"]);
+	g(repo, ["commit", "-m", "delta"]);
+	return g(repo, ["rev-parse", "HEAD"]).stdout.toString().trim();
+};
+
+describe("W1302.8 classified scan + one aggregate", () => {
+	test("W1705/W1614/W1628 shapes carry no reference; a real import survives", () => {
+		const jsdoc =
+			" * `./hub-remote.ts`), resolution proved.\n */\nexport const h = 1;\n";
+		expect(referencesIn("scripts/overlay.ts", `/**\n${jsdoc}`)).toEqual([]);
+		const nested = `export const ok = (s: string) => s.includes('from "./supervisor.ts"');\n`;
+		expect(referencesIn("scripts/steps.ts", nested)).toEqual([]);
+		const apostrophe = `// entry's handler list); returns null.\nimport { a } from "./gone.ts";\nexport const b = a;\n`;
+		expect(referencesIn("board/routes.ts", apostrophe)).toEqual([
+			{ spec: "./gone.ts", kind: "import" },
+		]);
+	});
+
+	test("probe2 judges a test file's imports, never its data strings", async () => {
+		const repo = await base();
+		await Bun.write(
+			Bun.file(join(repo, "test", "a.test.ts")),
+			[
+				'import { x } from "../lib/gone.ts";',
+				'const fixture = "./also-missing.ts";',
+				'writeFileSync(join(dir, "./fx.ts"), "");',
+				"export const t = [x, fixture];",
+			].join("\n"),
+		);
+		const hits = unresolvedSpecifiers(repo, commitAll(repo), [
+			"test/a.test.ts",
+		]);
+		expect(hits.map((h) => [h.target, h.refBy, h.specifier])).toEqual([
+			["lib/gone.ts", "test/a.test.ts", "../lib/gone.ts"],
+		]);
+	});
+
+	test("probe2 judges url, dir-join and config forms; build output never", async () => {
+		const repo = await base();
+		await Bun.write(
+			Bun.file(join(repo, "lib", "deep", "a.ts")),
+			[
+				'import { join } from "node:path";',
+				'const p = join(import.meta.dir, "..", "bin", "run.ts");',
+				'const u = new URL("../cli.ts", import.meta.url);',
+				"export const x = [p, u];",
+			].join("\n"),
+		);
+		// vscode-extension shape: main points at untracked compiler output
+		const manifest = {
+			main: "./out/extension.js",
+			bin: { p: "./bin/p.ts" },
+			description: "./gone.ts",
+		};
+		await Bun.write(
+			Bun.file(join(repo, "pkg", "package.json")),
+			JSON.stringify(manifest),
+		);
+		const hits = unresolvedSpecifiers(repo, commitAll(repo), [
+			"lib/deep/a.ts",
+			"pkg/package.json",
+		]);
+		expect(hits.map((h) => h.target).sort()).toEqual([
+			"lib/bin/run.ts",
+			"lib/cli.ts",
+			"pkg/bin/p.ts",
+		]);
+	});
+
+	test("probe1 counts a test's import of a deleted path, never fixture data or docs", async () => {
+		const repo = await base();
+		await Bun.write(
+			Bun.file(join(repo, "lib", "gone.ts")),
+			"export const g = 1;\n",
+		);
+		await Bun.write(
+			Bun.file(join(repo, "test", "gone.test.ts")),
+			'import { g } from "../lib/gone.ts";\nexport const t = g;\n',
+		);
+		await Bun.write(
+			Bun.file(join(repo, "test", "fx.test.ts")),
+			'const name = "lib/gone.ts";\nwriteFileSync(join(tmp, "./lib/gone.ts"), name);\n',
+		);
+		await Bun.write(
+			Bun.file(join(repo, "lib", "doc.ts")),
+			"/** Was `./gone.ts` before the reorg. */\nexport const d = 1;\n",
+		);
+		const before = commitAll(repo);
+		g(repo, ["rm", "lib/gone.ts"]);
+		const after = commitAll(repo);
+		const hits = danglingReferences(repo, before, after);
+		expect(hits.map((h) => [h.target, h.refBy, h.line, h.specifier])).toEqual([
+			["lib/gone.ts", "test/gone.test.ts", 1, "../lib/gone.ts"],
+		]);
+	});
+
+	test("aggregate: many edges bank into ONE item; later batches append, never re-mint", async () => {
+		const repo = await base();
+		const db = memStore();
+		const kit = aggregateKit(db, projectIdentity(repo));
+		const opts = { db, enqueue: kit.enqueue };
+		const first = Array.from({ length: 30 }, (_, i) =>
+			edge(`lib/g${i}.ts`, `app${i}.ts`),
+		);
+		expect(bankDanglingRefs(repo, "t", first, "sha1", opts)).toHaveLength(30);
+		expect(kit.minted).toHaveLength(1);
+		expect(kit.minted[0]).toContain("... 10 more");
+		const fresh = [edge("lib/n1.ts", "b.ts"), edge("lib/n2.ts", "b.ts")];
+		const again = [...first.slice(0, 5), ...fresh, fresh[1]];
+		expect(bankDanglingRefs(repo, "t", again, "sha2", opts)).toEqual(fresh);
+		expect(kit.minted).toHaveLength(1);
+		const scopes = db
+			.query("SELECT scope, COUNT(*) AS c FROM events GROUP BY scope")
+			.all();
+		expect(scopes).toEqual([{ scope: "W91", c: 32 }]);
+		const titles = db.query("SELECT title FROM work_items").all();
+		expect(titles).toEqual([{ title: AGGREGATE_TITLE }]);
+	});
+
+	test("aggregate dedupe: SUPERSEDED/CANCELLED/orphan history never re-mints; DONE re-banks", async () => {
+		const repo = await base();
+		const db = memStore();
+		const kit = aggregateKit(db, projectIdentity(repo));
+		// legacy per-edge title only (the W1781 cache-sla junk shape)
+		kit.item(
+			"W1781",
+			"Repair dangling path lib/a.ts referenced by test/cache-sla.test.ts",
+			"SUPERSEDED",
+		);
+		kit.item(
+			"W1705",
+			"Repair dangling path lib/b.ts referenced by x.ts",
+			"SUPERSEDED",
+		);
+		kit.event("W1705", "lib/b.ts", "x.ts");
+		kit.item("W50", AGGREGATE_TITLE, "CANCELLED");
+		kit.event("W50", "lib/c.ts", "y.ts");
+		kit.event("W404", "lib/e.ts", "q.ts"); // holder row gone
+		kit.item("W60", "Repair dangling path lib/d.ts referenced by z.ts", "DONE");
+		kit.event("W60", "lib/d.ts", "z.ts");
+		const refs = [
+			edge("lib/a.ts", "test/cache-sla.test.ts"),
+			edge("lib/b.ts", "x.ts"),
+			edge("lib/c.ts", "y.ts"),
+			edge("lib/e.ts", "q.ts"),
+			edge("lib/d.ts", "z.ts"),
+		];
+		const banked = bankDanglingRefs(repo, "t", refs, "sha", {
+			db,
+			enqueue: kit.enqueue,
+		});
+		// only the repaired-then-re-broken edge banks, into a fresh aggregate
+		expect(banked.map((r) => r.target)).toEqual(["lib/d.ts"]);
+		expect(kit.minted).toHaveLength(1);
+		// findings are never deleted: four seeded events stay, one appended
+		const count = db.query("SELECT COUNT(*) AS c FROM events").get();
+		expect(count).toEqual({ c: 5 });
 	});
 });

@@ -12,7 +12,7 @@ import { join } from "node:path";
 // hooks/knowledgeworker.md.
 const PROMPT_FILE = (): string =>
 	process.env.KNOWLEDGE_PROMPT_FILE ??
-	join(import.meta.dir, "..", "knowledgeworker.md");
+	join(import.meta.dir, "..", "..", "knowledgeworker.md");
 
 // knowledgeworker.md: config-over-code — re-read at REQUEST time so prompt
 // edits apply to the next queued job without a restart (#6)
