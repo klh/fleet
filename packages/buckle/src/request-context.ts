@@ -7,6 +7,7 @@ import type { RouteSelection } from "./decide.ts";
 import { principalOf } from "./gov/federation.ts";
 import type { RouteHint } from "./hints.ts";
 import type { HopContext } from "./hop.ts";
+import type { HopContract } from "./hop-deadline.ts";
 import type { ObservationData, ObservationType } from "./observe.ts";
 import type { ServedIdentity } from "./served-identity.ts";
 import type { TraceContext } from "./trace.ts";
@@ -62,6 +63,10 @@ export interface Ctx {
 	/** W706: hop attribution — origin (self when entered here) + the
 	 *  immediate peer (null = entered the fleet at this hub). */
 	hop: HopContext;
+	/** W1118.1: the admitted (or freshly rooted) hop contract this hop
+	 *  threads onto every fleet-leg attempt. Set after body admission —
+	 *  refusals before the model parse never hold one. */
+	hopContract?: HopContract;
 	/** W921 traffic kind: 'readiness' when a ROOT-authenticated request
 	 *  carries the x-klh-traffic: readiness mark (the healthcheck sidecar's
 	 *  synthetic full-chain poll); 'inference' otherwise. */

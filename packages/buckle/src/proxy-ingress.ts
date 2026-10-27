@@ -14,6 +14,8 @@ import { principalOf } from "./gov/federation.ts";
 import { beginInflight } from "./gov/inflight.ts";
 import { hintFromHeaders } from "./hints.ts";
 import { hopFromBaggage, laneFromBaggage } from "./hop.ts";
+import { admitHopContract, HOP_CONTRACT_HEADER } from "./hop-deadline.ts";
+import { rungIdOf } from "../../telemetry/src/hop-contract.ts";
 import {
 	INGRESS_BODY_TIMEOUT_MS,
 	IngressBodyError,
@@ -115,6 +117,30 @@ export async function proxy(
 	const model = typeof body.model === "string" ? body.model : "";
 	if (model.length === 0)
 		return deny(deps, ctx, 400, "missing model", null, "denied");
+	// W1118.1: admit the arriving hop contract — expired/malformed/empty-
+	// budget/repeated-rung refuse as typed traced failures — or root one
+	// for a fresh fleet entry. ownRung derives from the URL the caller
+	// addressed this hop by + the wire model (the candIdOf recipe), so a
+	// retry stays the same rung and an immediate cycle repeats its rung.
+	const selfUrl = new URL(req.url);
+	const ownRung = rungIdOf(
+		selfUrl.hostname,
+		Number(selfUrl.port) || (selfUrl.protocol === "https:" ? 443 : 80),
+		model,
+	);
+	const rawContract = req.headers.get(HOP_CONTRACT_HEADER);
+	const admitted = admitHopContract(rawContract, Date.now(), ownRung);
+	if (!admitted.ok)
+		return deny(
+			deps,
+			ctx,
+			admitted.denial.status,
+			admitted.denial.why,
+			admitted.denial.code,
+			"denied",
+		);
+	const contract = admitted.contract ?? deps.router.hopContractRoot(Date.now());
+	ctx.hopContract = { ...contract, ownRung };
 	// W461 stage 2: admitted — unsampled, published before any routing.
 	ctx.admitted = true;
 	observe(deps, ctx, "lane.request.admitted");

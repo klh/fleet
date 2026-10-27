@@ -69,6 +69,10 @@ export interface GatewayPolicy {
 	// compatible); buckle starts the endpoint only when enabled AND
 	// BUCKLE_CONNECT_TOKEN is set AND allow is non-empty.
 	connect?: ConnectPolicyBlock;
+	// W1118.1: the attempt budget this gateway roots into a fresh hop
+	// contract (x-klh-hop-contract) when a request enters the fleet here.
+	// The deadline rides first_byte_budget_s; belt ignores unknown keys.
+	hop_contract_root_budget?: number;
 }
 
 /** W142 aids policy (routing-policy.yaml `aids:` block). Belt ignores the

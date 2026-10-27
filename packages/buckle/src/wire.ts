@@ -14,6 +14,12 @@ import { poolWarm } from "./pool-warm.ts";
 import type { UpstreamRequest } from "./router.ts";
 import { childSpanOf, stripPrivateTrace } from "./trace.ts";
 import type { Deployment } from "./upstreams.ts";
+import {
+	HOP_CONTRACT_HEADER,
+	HopContractRefusal,
+	childHopHeaderValue,
+	isContractHop,
+} from "./hop-deadline.ts";
 
 /** A preference decision may cross Fleet-owned hops but not provider egress. */
 export function mayRelayPrefer(dep: Deployment): boolean {
@@ -95,6 +101,16 @@ export async function defaultFetch(
 	}
 	if (req.preference && mayRelayPrefer(dep))
 		wire.headers[PREFER_HEADER] = req.preference;
+	// W1118.1: the child hop contract rides every fleet leg (buckle peers +
+	// the declared litellm engine) — budget counts down per attempt, the
+	// path appends this hop's own rung, the deadline passes through
+	// untouched. A contract that cannot encode refuses the leg: never a
+	// contract-less bypass.
+	if (req.hopContract && req.ownRung && isContractHop(dep)) {
+		const value = childHopHeaderValue(req.hopContract);
+		if (value === null) throw new HopContractRefusal(req.ownRung);
+		wire.headers[HOP_CONTRACT_HEADER] = value;
+	}
 	// LiteLLM is an explicitly declared engine, never guessed from a port or
 	// hostname. Buckle owns the outer retry ladder; pass its remaining
 	// non-streaming attempt budget inward so abandoned calls do not continue

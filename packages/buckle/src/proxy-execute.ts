@@ -143,6 +143,8 @@ export async function runExecute(
 				deps.hubId ?? "local",
 				ctx.lane,
 			),
+			hopContract: ctx.hopContract,
+			ownRung: ctx.hopContract?.ownRung,
 			preference: ctx.preference,
 			signal: req.signal,
 			sel,

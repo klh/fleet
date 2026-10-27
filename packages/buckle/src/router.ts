@@ -32,6 +32,7 @@ import { type CandidateRow, candIdOf } from "./candidates.ts";
 import { Cooldowns, retryAfterS, retryDelayS } from "./cooldown.ts";
 import { mayEscalate, type RouteSelection } from "./decide.ts";
 import { clampRetryAfter } from "./http-kit.ts";
+import { hopContractRoot, type HopContract } from "./hop-deadline.ts";
 import { FLASHX, type GatewayPolicy } from "./policy.ts";
 import {
 	assertProviderConcurrencyErrorCodes,
@@ -103,6 +104,13 @@ export interface UpstreamRequest {
 	/** W706: the outbound baggage for a relay leg to a buckle-marked peer
 	 *  (origin passed through + peer=self). Absent/non-buckle → the strip. */
 	relayBaggage?: string;
+	/** W1118.1: the admitted (or rooted) hop contract — its absolute
+	 *  deadline clamps the walk; its child form rides every fleet leg.
+	 *  Absent on direct internal callers (no contract, no clamp). */
+	hopContract?: HopContract;
+	/** W1118.1: this hop's own rung id (ingress URL + wire model) — the
+	 *  sender-side append for the child contract. */
+	ownRung?: string;
 	/** Canonicalized .prefer selection, diagnostic only. */
 	preference?: string | null;
 	signal?: AbortSignal;
@@ -157,6 +165,10 @@ export type TryOutcome = {
 			requestId?: string;
 			callId?: string;
 			upstreamRefusalCode?: string | null;
+			/** W1118.1: set when this failure IS a peer's typed hop-contract
+			 *  refusal (x-belt-error hop_contract_*) — always rides exhaustTier
+			 *  so the tier cannot retry the refusing leg either. */
+			hopRefusal?: string | null;
 			/** W134 §1 normalized kind (adapters/errors.ts) */
 			kind: ErrorKind;
 			/** bad_request subclass: the prompt overflowed this deployment's
@@ -182,6 +194,10 @@ interface WalkState {
 		source: "upstream" | "cooldown";
 	};
 	lastFailure?: FailureProvenance;
+	/** W1118.1: a peer's hop-contract refusal is a chain verdict — once set,
+	 *  the remaining walk (selected rows, gated ladder, tier fallbacks)
+	 *  stops instead of detouring around the refusing rung. */
+	hopRefusal?: string | null;
 }
 
 /** Error bodies are small; never buffer an unbounded one. */
@@ -384,6 +400,17 @@ export class Router {
 			[...this.pools].map(([id, core]) => [id, core.snapshot()]),
 		);
 	}
+	/** W1118.1: the contract this gateway roots for a fresh fleet entry —
+	 *  the local walk budget in attempts and the local walk deadline, so
+	 *  the child chain is bounded by exactly what this hop would have
+	 *  spent anyway. */
+	hopContractRoot(now: number): HopContract {
+		return hopContractRoot(
+			now,
+			now + (this.policy.first_byte_budget_s ?? 240) * 1000,
+			this.policy.hop_contract_root_budget ?? 4,
+		);
+	}
 	/** One upstream attempt, outcome classified for the walk. */
 	private async tryOnce(
 		req: UpstreamRequest,
@@ -533,6 +560,22 @@ export class Router {
 				callId,
 				upstreamRefusalCode: safeRefusalCode(resp.headers.get("x-klh-refusal")),
 			};
+			// W1118.1: a peer's hop-contract refusal is a chain verdict — the
+			// contract binds every fleet leg, so the walk must not detour to
+			// another rung (an A→B→A cycle must not serve itself via a
+			// provider failover). The specific code rides x-belt-error, stamped
+			// by the peer's deny(); the refusing peer is healthy — no bench.
+			const peerCode = safeRefusalCode(resp.headers.get("x-belt-error"));
+			if (peerCode?.startsWith("hop_contract_")) {
+				return {
+					...base,
+					error: `upstream ${dep.url} refused the hop contract (${peerCode})`,
+					clientFault: false,
+					exhaustTier: true,
+					hopRefusal: peerCode,
+					refusalSource: "upstream",
+				};
+			}
 			if (bridged && err.kind === "bad_request" && resp.status < 500) {
 				// a 4xx on a translated hop may be the bridge's doing and its
 				// body speaks the other dialect: skip the hop, never bench it
@@ -954,7 +997,10 @@ export class Router {
 				}
 			}
 			if (r.contextWindow) st.ctxWindow = r.response;
-			if (r.exhaustTier) break;
+			if (r.exhaustTier) {
+				if (r.hopRefusal) st.hopRefusal = r.hopRefusal;
+				break;
+			}
 			// A provider that asks us to wait beyond the configured retry cap is
 			// quota-blocked. Retrying the same deployment cannot heal within this
 			// walk; try another deployment or the policy fallback immediately.
@@ -1125,8 +1171,12 @@ export class Router {
 	 *  override) are skipped as skip-not-failure. */
 	async execute(req: UpstreamRequest): Promise<ExecuteResult> {
 		if (req.signal?.aborted) return { kind: "aborted" };
-		const deadlineMs =
-			this.now() + (this.policy.first_byte_budget_s ?? 240) * 1000;
+		// W1118.1: an admitted hop contract CLAMPS the local walk deadline —
+		// an absolute deadline never extends the local budget, only tightens.
+		const deadlineMs = Math.min(
+			this.now() + (this.policy.first_byte_budget_s ?? 240) * 1000,
+			req.hopContract?.deadlineMs ?? Number.POSITIVE_INFINITY,
+		);
 		if (req.sel)
 			return this.walkSelected(req, {
 				attempts: 0,
@@ -1143,6 +1193,10 @@ export class Router {
 		const tiers = [req.group, ...(this.policy.fallbacks?.[req.group] ?? [])];
 		for (const tier of tiers) {
 			if (this.walkExpired(st)) break;
+			// W1118.1: a peer's hop refusal ends the whole walk — the contract
+			// binds every fleet leg, a fallback rung must not serve what the
+			// refusing rung's verdict condemned.
+			if (st.hopRefusal) break;
 			if (FLASHX.test(tier)) {
 				this.metrics?.refused(tier);
 				continue;
@@ -1214,6 +1268,8 @@ export class Router {
 		for (const row of ordered) {
 			if (req.signal?.aborted) return { kind: "aborted" };
 			if (this.walkExpired(st)) break;
+			// W1118.1: a peer hop-contract refusal ends the selected walk too.
+			if (st.hopRefusal) break;
 			if (gate(row)) continue;
 			if (this.cooldowns.rateLimitRemainingS(row.dep) !== null) {
 				// W1077: probe-before-skip in the PRODUCTION selected path - a
@@ -1255,6 +1311,10 @@ export class Router {
 		const tiers = [req.group, ...(this.policy.fallbacks?.[req.group] ?? [])];
 		for (const tier of tiers) {
 			if (this.walkExpired(st)) break;
+			// W1118.1: a peer's hop refusal ends the whole walk — the contract
+			// binds every fleet leg, a fallback rung must not serve what the
+			// refusing rung's verdict condemned.
+			if (st.hopRefusal) break;
 			if (FLASHX.test(tier)) {
 				this.metrics?.refused(tier);
 				continue;
