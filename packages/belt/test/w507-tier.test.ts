@@ -72,7 +72,7 @@ describe("tier manifest (W507)", () => {
 		const prevManifest = process.env.BELT_TIER_MANIFEST;
 		const prevTier = process.env.BELT_TIER;
 		delete process.env.BELT_TIER;
-		process.env.BELT_TIER_MANIFEST = "/tmp/w507-kein-manifest.json";
+		process.env.BELT_TIER_MANIFEST = join(tmpdir(), "w507-kein-manifest-" + String(process.pid) + ".json");
 		try {
 			const doc = JSON.parse(emitTierManifest()) as {
 				tier: string;

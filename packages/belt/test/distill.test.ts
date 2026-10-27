@@ -1,6 +1,8 @@
 // distill.test.ts — tests for bin/distill.ts (pure helpers; no
 // network, no spawn). Run: bun test packages/belt/test/distill.test.ts
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	DEFAULT_TEACHER_PORT,
@@ -160,10 +162,11 @@ describe("teacher selection", () => {
 
 describe("CLI subprocess", () => {
 	test("status + plan run end-to-end in a sandboxed home", () => {
+		const home = mkdtempSync(join(tmpdir(), "w241-distill-test-"));
 		const env = {
 			...process.env,
-			DISTILL_HOME: "/tmp/w241-distill-test",
-			PACKETS: "/tmp/w241-distill-test/none.jsonl",
+			DISTILL_HOME: home,
+			PACKETS: join(home, "none.jsonl"),
 		};
 		for (const verb of ["status", "plan"]) {
 			const p = Bun.spawnSync({

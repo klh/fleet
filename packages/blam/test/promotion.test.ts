@@ -59,7 +59,7 @@ describe("blam promotion gate", () => {
 			off: { correct: p.off.correct, tokens: 10_000, minutes: 10 },
 		}));
 		const d = gatePromotion(pairedLift(pairs));
-		if (d.promote) return;
+		expect(d.promote).toBe(false);
 		expect(d.why).toMatch(/no measured benefit/);
 	});
 

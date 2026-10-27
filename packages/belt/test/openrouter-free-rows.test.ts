@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { openRouterFreeRows } from "../bin/openrouter-free-rows.ts";
@@ -68,4 +68,4 @@ test("free router is a distinct LiteLLM alias for the OpenRouter meta model", ()
 	]);
 });
 
-test("cleanup", () => clean());
+afterAll(() => clean());

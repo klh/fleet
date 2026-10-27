@@ -1,16 +1,20 @@
 // fleet/after-sync.test.ts — miss detection + mint dedupe (W950).
-import { expect, test } from "bun:test";
-import { mkdirSync } from "node:fs";
+import { afterAll, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { adapterTitle, afterSync, catalogMisses } from "./after-sync.ts";
 import { homeCtx } from "./registry.ts";
 
-const FIXTURE = "/tmp/w950-miss-fixture";
+const FIXTURE = mkdtempSync(join(tmpdir(), "w950-miss-fixture-"));
 
 // Real dirs (existsSync probes): .goose + .agents present in the fake home.
 mkdirSync(`${FIXTURE}/.goose`, { recursive: true });
 mkdirSync(`${FIXTURE}/.agents`, { recursive: true });
 mkdirSync(`${FIXTURE}/.windsurf`, { recursive: true });
 mkdirSync(`${FIXTURE}/skills`, { recursive: true }); // non-home-anchored
+
+afterAll(() => rmSync(FIXTURE, { recursive: true, force: true }));
 
 const STOCK = ["claude-code", "codex", "gemini-cli", "opencode"];
 

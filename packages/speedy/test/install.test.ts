@@ -1,24 +1,30 @@
 // W185 — install.sh contract tests (bun test). Sandboxed HOME + mock W173 hub;
 // never touches the real ~/.claude on this machine.
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
 	existsSync,
-	readFileSync,
-	writeFileSync,
 	mkdirSync,
+	mkdtempSync,
+	readFileSync,
 	rmSync,
 	statSync,
+	writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const REPO = join(import.meta.dir, "..");
 const INSTALL = join(REPO, "install.sh");
-const SANDBOX = "/tmp/w185-home-" + process.pid;
+const SANDBOX = mkdtempSync(join(tmpdir(), "w185-home-"));
 
 function freshHome(): string {
 	rmSync(SANDBOX, { recursive: true, force: true });
-	mkdirSync(SANDBOX + "/.claude/local-llm", { recursive: true });
+	mkdirSync(`${SANDBOX}/.claude/local-llm`, { recursive: true });
 	return SANDBOX;
+}
+
+if (process.env.TEST_EXIT_ON_CLOSE !== "0") {
+	process.on("exit", () => rmSync(SANDBOX, { recursive: true, force: true }));
 }
 
 const HUB_A = "# ─── Hub federation";
@@ -56,7 +62,7 @@ function startMock(): {
 				});
 			}
 			if (req.method === "GET" && u.pathname === "/federation/policy") {
-				if (req.headers.get("authorization") !== "Bearer " + TOKEN) {
+				if (req.headers.get("authorization") !== `Bearer ${TOKEN}`) {
 					return new Response("no", { status: 401 });
 				}
 				return Response.json({
@@ -68,7 +74,7 @@ function startMock(): {
 			return new Response("nf", { status: 404 });
 		},
 	});
-	return { srv, url: "http://127.0.0.1:" + srv.port + "/", CODE, TOKEN };
+	return { srv, url: `http://127.0.0.1:${srv.port}/`, CODE, TOKEN };
 }
 
 async function runHub(
@@ -108,7 +114,7 @@ describe("install.sh", () => {
 		expect(r.exitCode).toBe(0);
 		expect(out).toContain("LLM tier: minimal");
 		expect(out).toContain("hub ask");
-		expect(existsSync(h + "/.claude/local-llm/hubs.json")).toBe(false);
+		expect(existsSync(`${h}/.claude/local-llm/hubs.json`)).toBe(false);
 	});
 
 	test("dry-run twice: identical plan (idempotency proxy)", () => {
@@ -134,7 +140,7 @@ describe("install.sh", () => {
 		]);
 		m.srv.stop(true);
 		expect(r.code).toBe(0);
-		const cfgPath = h + "/.claude/local-llm/hubs.json";
+		const cfgPath = `${h}/.claude/local-llm/hubs.json`;
 		const cfg = JSON.parse(readFileSync(cfgPath, "utf8")) as {
 			hubs: {
 				name: string;
@@ -150,11 +156,11 @@ describe("install.sh", () => {
 		expect(cfg.hubs[0].spoke_token).toBeUndefined();
 		expect(cfg.hubs[0].dns_entries).toEqual(["suspenders.local", "belt.local"]);
 		expect((statSync(cfgPath).mode & 0o777).toString(8)).toBe("600");
-		const envf = h + "/.claude/local-llm/hub.env";
+		const envf = `${h}/.claude/local-llm/hub.env`;
 		expect((statSync(envf).mode & 0o777).toString(8)).toBe("600");
 		expect(readFileSync(envf, "utf8")).toBe(`KLH_HUB_SPOKE_TOKEN=${m.TOKEN}\n`);
 		expect(
-			readFileSync(h + "/.claude/local-llm/last-policy-pull.json", "utf8"),
+			readFileSync(`${h}/.claude/local-llm/last-policy-pull.json`, "utf8"),
 		).toContain("menu");
 		expect(r.out).toContain("hub menu");
 	});
@@ -170,7 +176,7 @@ describe("install.sh", () => {
 		m.srv.stop(true);
 		expect(r.code).toBe(0);
 		const cfg = JSON.parse(
-			readFileSync(h + "/.claude/local-llm/hubs.json", "utf8"),
+			readFileSync(`${h}/.claude/local-llm/hubs.json`, "utf8"),
 		);
 		expect(cfg.hubs).toHaveLength(0);
 	});
@@ -180,7 +186,7 @@ describe("install.sh", () => {
 		const r = await runHub(h, 'source "$0"; hub_ask', []);
 		expect(r.code).toBe(0);
 		const cfg = JSON.parse(
-			readFileSync(h + "/.claude/local-llm/hubs.json", "utf8"),
+			readFileSync(`${h}/.claude/local-llm/hubs.json`, "utf8"),
 		);
 		expect(cfg.hubs).toHaveLength(0);
 		expect(r.out).toContain("standalone");
@@ -194,9 +200,9 @@ describe("install.sh", () => {
 		m.srv.stop(true);
 		expect(r.code).toBe(0);
 		expect(
-			JSON.parse(readFileSync(h + "/.claude/local-llm/hubs.json", "utf8")).hubs,
+			JSON.parse(readFileSync(`${h}/.claude/local-llm/hubs.json`, "utf8")).hubs,
 		).toHaveLength(1);
-		const envf = h + "/.claude/local-llm/hub.env";
+		const envf = `${h}/.claude/local-llm/hub.env`;
 		expect(
 			readFileSync(envf, "utf8")
 				.split("\n")
@@ -228,7 +234,7 @@ describe("install.sh", () => {
 			/xox[baprs]-/,
 		];
 		for (const f of ["install.sh", "docs/laws.md"]) {
-			const t = readFileSync(REPO + "/" + f, "utf8");
+			const t = readFileSync(`${REPO}/${f}`, "utf8");
 			for (const rx of bad) expect(t).not.toMatch(rx);
 		}
 	});

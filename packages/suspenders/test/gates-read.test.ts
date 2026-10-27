@@ -13,10 +13,11 @@ import {
 } from "../hooks/gates/read.ts";
 import { clampHeadTail, readSliceLines } from "../hooks/lib/clamp.ts";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gateSpawn } from "./helpers/gate-spawn.ts";
 
-const tmp = mkdtempSync(join(process.cwd(), ".read-test-"));
+const tmp = mkdtempSync(join(tmpdir(), "gates-read-"));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
 function sizedFixture(name: string, bytes: number): string {
