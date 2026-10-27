@@ -74,7 +74,7 @@ const BYPASS_ALLOWLIST: Array<[string, string]> = [
 		"THE boundary — direct ports appear only in the fail-closed law header comment",
 	],
 	[
-		"hooks/lib/oracle-legs.ts",
+		"hooks/lib/hub/oracle-legs.ts",
 		"W1119.1 scope — the pinned oracle route; entry drops when W1119.1 lands",
 	],
 	[

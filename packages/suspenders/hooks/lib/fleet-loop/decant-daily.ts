@@ -54,7 +54,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { join, resolve } from "node:path";
-import { type DailyRollResult, pushDailyRoll } from "../decant-roll.ts";
+import { type DailyRollResult, pushDailyRoll } from "../knowledge/decant-roll.ts";
 import { projectIdentity, projectRootOf } from "../govdb/govdb-project.ts";
 import { openStore } from "../govdb/govdb-store.ts";
 import { REG } from "../govdb/govdb-util.ts";

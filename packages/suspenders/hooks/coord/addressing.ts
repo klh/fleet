@@ -5,7 +5,7 @@ import {
 	normalizeTool,
 	parseSessionTags,
 	slugifyLabelPart,
-} from "../lib/addressing.ts";
+} from "../lib/lanes/addressing.ts";
 import {
 	foreignLaneMatch,
 	forwardDirectEvent,
@@ -21,7 +21,7 @@ import {
 	workEdgeToken,
 } from "../lib/federation/federation-work.ts";
 import { loadLaneRegistry } from "../lib/lanes/lane-registry.ts";
-import { transcriptTail } from "../lib/transcript.ts";
+import { transcriptTail } from "../lib/lanes/transcript.ts";
 import { broadcastNote, emitEvent, isLiveSession } from "./bus.ts";
 import {
 	amber,

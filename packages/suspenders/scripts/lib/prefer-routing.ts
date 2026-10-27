@@ -17,7 +17,7 @@
 // expressions fail LOUDLY with file:line but never blank the whole file.
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { parseLawExpr } from "../../hooks/lib/repo-laws.ts";
+import { parseLawExpr } from "../../hooks/lib/policy/repo-laws.ts";
 import { preferOverlayOf } from "../../hooks/lib/prefer-format.ts";
 
 export interface PreferRouting {

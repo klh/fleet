@@ -29,7 +29,7 @@ import {
 	type SyncTarget,
 } from "./knowledge-sync-policy.ts";
 import { redactSecrets } from "./knowledge.ts";
-import { redactMatches, scrubRules } from "../scrub.ts";
+import { redactMatches, scrubRules } from "../gates/scrub.ts";
 import {
 	collectClaims,
 	ROLL_KEY_HEADER,

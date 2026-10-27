@@ -5,8 +5,8 @@ import {
 	findingsText,
 	scrubAddedLines,
 	scrubRules,
-} from "../scrub.ts";
-import { binaryPaths, blobFindings } from "../scrub-git.ts";
+} from "../gates/scrub.ts";
+import { binaryPaths, blobFindings } from "../gates/scrub-git.ts";
 import { TEST_FILE, testRelocationDelta } from "./merge-guard-relocation.ts";
 
 type Result = { code: number; tail: string };

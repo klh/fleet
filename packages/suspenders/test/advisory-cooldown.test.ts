@@ -19,7 +19,7 @@ import {
 	advisorySeen,
 	cooldownMs,
 	oncePerSession,
-} from "../hooks/lib/advisory-cooldown.ts";
+} from "../hooks/lib/gates/advisory-cooldown.ts";
 
 const TMP = mkdtempSync(join(tmpdir(), "suspenders-advcd-"));
 const REAL_TMPDIR = process.env.TMPDIR;

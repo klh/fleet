@@ -26,7 +26,7 @@ import {
 	type GovernorStore,
 } from "../lib/govdb/govdb.ts";
 import { expireObservedLease } from "../lib/lanes/lease-expiry.ts";
-import { classifyOutage, recordOutage } from "../lib/outage-ledger.ts";
+import { classifyOutage, recordOutage } from "../lib/gates/outage-ledger.ts";
 import {
 	recordFailure,
 	resolveFailures,

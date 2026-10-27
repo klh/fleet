@@ -16,7 +16,7 @@ import type { Database } from "bun:sqlite";
 import { openGovernorDb, openKnowledgeDb } from "../govdb/govdb.ts";
 import { SqliteKnowledgeStore } from "./sqlite-store.ts";
 import type { KnowledgeStore } from "./store-schema.ts";
-import { restrictiveDomain, type DataDomain } from "../provenance.ts";
+import { restrictiveDomain, type DataDomain } from "../lanes/provenance.ts";
 
 export interface SettleResult {
 	sid: string;

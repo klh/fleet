@@ -62,7 +62,7 @@ the doctor's checks stop at the local control plane.
 
 - `packages/suspenders/hooks/lib/doctor.ts` + `hooks/bin/doctor.ts` —
   check/smoke verbs (verb-kit)
-- `packages/suspenders/scripts/capacity-bench.ts` +
+- `packages/suspenders/scripts/bench/capacity-bench.ts` +
   `scripts/lib/capacity-math.ts` — bench harness + pure helpers
 - `packages/buckle/test/*` — pid-suffixed fixture paths (33 sites)
 - raw records: `.fleet/capacity-bench/w842-run4.ndjson` (untracked)

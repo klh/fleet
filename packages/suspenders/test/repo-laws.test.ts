@@ -17,7 +17,7 @@ import {
 	userKeyPath,
 	validateUserPlaneEntry,
 	writeUserPlane,
-} from "../hooks/lib/repo-laws.ts";
+} from "../hooks/lib/policy/repo-laws.ts";
 
 const TMP = mkdtempSync(join(tmpdir(), "w164-laws-"));
 const ENV = { ...process.env, BUCKLE_SECRETS_HOME: join(TMP, "secrets") };

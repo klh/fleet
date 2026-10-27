@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { flagIntegratedCode } from "../decomposition.ts";
+import { flagIntegratedCode } from "../work/decomposition.ts";
 import {
 	checkReviewReceipt,
 	recordLanding,

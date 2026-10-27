@@ -7,7 +7,7 @@ import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defaultRun } from "../scripts/install-llm-steps.ts";
+import { defaultRun } from "../scripts/install/install-llm-steps.ts";
 
 setDefaultTimeout(60_000);
 

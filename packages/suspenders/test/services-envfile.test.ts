@@ -17,7 +17,7 @@ import {
 	usedPlaceholders,
 	validateSpec,
 	type ServiceSpec,
-} from "../scripts/install-services.ts";
+} from "../scripts/install/install-services.ts";
 import { parsePlistXml } from "./plist-fields.ts";
 
 const dirs: string[] = [];
@@ -170,7 +170,7 @@ describe("W501 supervised gateway env files", () => {
 		const proc = Bun.spawnSync(
 			[
 				process.execPath,
-				join(import.meta.dir, "../scripts/install-services.ts"),
+				join(import.meta.dir, "../scripts/install/install-services.ts"),
 				"--target",
 				"darwin",
 				"--service",

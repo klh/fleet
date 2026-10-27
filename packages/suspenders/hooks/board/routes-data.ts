@@ -5,8 +5,8 @@
 import type { Database } from "bun:sqlite";
 import { loadLastKnown } from "../lib/federation/federation.ts";
 import { itemAttribution } from "../lib/lanes/lane-spend.ts";
-import { hubModelIdsFrom } from "../lib/provenance.ts";
-import { readUserPlane } from "../lib/repo-laws.ts";
+import { hubModelIdsFrom } from "../lib/lanes/provenance.ts";
+import { readUserPlane } from "../lib/policy/repo-laws.ts";
 import { beltRegistry } from "./belt.ts";
 import { db } from "./context.ts";
 import { activity, workEvents } from "./events.ts";

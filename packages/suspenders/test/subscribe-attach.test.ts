@@ -18,7 +18,7 @@ import { join } from "node:path";
 import {
 	attachSubscribe,
 	subscribeLive,
-} from "../hooks/lib/subscribe-attach.ts";
+} from "../hooks/lib/lanes/subscribe-attach.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "subscribe-attach-"));
 const stubDir = join(dir, "bin");
@@ -60,6 +60,7 @@ test("subscriber survives the bootstrap process exiting", async () => {
 		"..",
 		"hooks",
 		"lib",
+		"lanes",
 		"subscribe-attach.ts",
 	);
 	const parent = Bun.spawnSync(

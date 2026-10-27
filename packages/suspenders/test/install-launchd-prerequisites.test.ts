@@ -6,8 +6,8 @@ import type {
 	StepName,
 	StepOutcomeRow,
 	StepStatus,
-} from "../scripts/install-contract.ts";
-import { launchdPrerequisitesHeld } from "../scripts/install-run.ts";
+} from "../scripts/install/install-contract.ts";
+import { launchdPrerequisitesHeld } from "../scripts/install/install-run.ts";
 
 const row = (name: StepName, status: StepStatus): StepOutcomeRow => ({
 	name,

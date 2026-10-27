@@ -1,11 +1,17 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import {
 	encodeProjectDir,
 	resolveTranscriptPath,
-} from "../hooks/lib/transcript.ts";
+} from "../hooks/lib/lanes/transcript.ts";
 
 import {
 	drainCleanup,

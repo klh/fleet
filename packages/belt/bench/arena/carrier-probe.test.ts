@@ -2,7 +2,7 @@
 // parts (no network, no credentials — the live A/B evidence lives in
 // benchmarks.md; the CLI legs are integration-tested by running it).
 import { describe, expect, test } from "bun:test";
-import { REVIEW_FRAME } from "@klh/suspenders/hooks/lib/oracle-frame.ts";
+import { REVIEW_FRAME } from "@klh/suspenders/hooks/lib/hub/oracle-frame.ts";
 import {
 	buildReviewPrompt,
 	emptyContentFailure,

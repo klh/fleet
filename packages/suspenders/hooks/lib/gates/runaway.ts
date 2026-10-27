@@ -12,7 +12,7 @@ import {
 	readSessionState,
 	sessionStatePath,
 	writeSessionState,
-} from "../session-state.ts";
+} from "../lanes/session-state.ts";
 import { isNoise } from "./tool-failures.ts";
 
 export type RunawayConfig = {

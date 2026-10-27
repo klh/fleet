@@ -9,8 +9,8 @@ import { type GovernorStore, projectRootOf } from "../govdb/govdb.ts";
 import { knownAbsentTable } from "../govdb/store-sql-error.ts";
 import { importLawVerdict } from "../import-law.ts";
 import { trailerVerdict } from "../lane-guard.ts";
-import { patchFirstVerdict } from "../patch-first.ts";
-import { resolveTranscriptPath } from "../transcript.ts";
+import { patchFirstVerdict } from "./patch-first.ts";
+import { resolveTranscriptPath } from "../lanes/transcript.ts";
 import {
 	claimTokenVerdict,
 	evidenceCheck,

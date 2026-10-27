@@ -20,7 +20,7 @@ import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 import {
 	capsuleProjectTag,
 	itemCapsuleKey,
-} from "../hooks/lib/capsule-fence.ts";
+} from "../hooks/lib/lanes/capsule-fence.ts";
 import { launchSchema } from "../scripts/lib/launch-fencing.ts";
 import { acquireLaunchLease } from "../scripts/lib/launch-preflight.ts";
 

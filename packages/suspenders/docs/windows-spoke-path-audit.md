@@ -1,7 +1,7 @@
 # Windows spoke path audit (W767)
 
 Scope: what a Windows spoke actually executes — the services renderer
-(`scripts/install-services.ts`), secrets at rest, and the work-graph lane
+(`scripts/install/install-services.ts`), secrets at rest, and the work-graph lane
 CLIs (`work`/`coord`/`dispatch` → `scripts/lib/`, `hooks/lib/`). Darwin-only
 surfaces (launchd units, activation receipts) are out of scope by law —
 launchd stays darwin-only; a Windows spoke rides WinSW units.
@@ -23,7 +23,7 @@ launchd stays darwin-only; a Windows spoke rides WinSW units.
 - `hooks/lib/secrets-home.ts` — `homedir()`-based, env-overridable.
 - `hooks/lib/auth/hub-provider-keys.ts` / `federation-peers.ts` —
   `env.HOME ?? homedir()` pattern.
-- `scripts/install-services.ts` win32 emitter — `winDirname()` handles both
+- `scripts/install/install-services.ts` win32 emitter — `winDirname()` handles both
   separators; `winQuotedIfNeeded()` applies MSVC argv rules; scheduled
   services carry `schtasks` hints; `--home`/`--bun`/`--prefix` flags accept
   Windows-shaped values (verified by render, 2026-10-15).

@@ -5,7 +5,7 @@ import {
 	type LaneTokens,
 	measureBriefWeight,
 } from "../../scripts/lib/brief-weight.ts";
-import { capsuleProjectTag } from "../lib/capsule-fence.ts";
+import { capsuleProjectTag } from "../lib/lanes/capsule-fence.ts";
 import { type LaneVerdict, verdictBySid } from "../lib/lanes/lane-liveness.ts";
 import { buildFleetTable, fleetGlyph } from "./fleet-table.ts";
 import { loadLaneRegistry } from "../lib/lanes/lane-registry.ts";
@@ -16,8 +16,8 @@ import {
 	resolveBuckleDb,
 } from "../lib/lanes/lane-spend.ts";
 import { hbFresh } from "../lib/lanes/reclaim-liveness.ts";
-import { renameSession } from "../lib/session-rename.ts";
-import { attachSubscribe } from "../lib/subscribe-attach.ts";
+import { renameSession } from "../lib/lanes/session-rename.ts";
+import { attachSubscribe } from "../lib/lanes/subscribe-attach.ts";
 import { ensureCompletionIdentityMigration } from "../lib/work/work-completion-record.ts";
 import { claimWindows } from "../lib/work/work-timing.ts";
 import { ageOf, formatEventLine } from "./bus.ts";

@@ -86,7 +86,7 @@ import {
 	resumeStartNotes,
 } from "../../../scripts/lib/resume-from.ts";
 import { verdictRepeatGate } from "../../../scripts/lib/verdict-repeat-gate.ts";
-import { capsuleValidity } from "../capsule-fence.ts";
+import { capsuleValidity } from "../lanes/capsule-fence.ts";
 import {
 	cvMap,
 	executorCv,
@@ -123,7 +123,7 @@ import { launchParent } from "../lanes/launch-parent.ts";
 import { restorableBaseline } from "../lanes/original-baseline.ts";
 import { verifiedContextContinuation } from "../lanes/reclaim-context.ts";
 import { type Posture, recordPlaidTrace } from "../plaid/plaid.ts";
-import { policyBriefLines } from "../session-policy.ts";
+import { policyBriefLines } from "../policy/session-policy.ts";
 import { darkHubNow, policyForRepo, tryLoadStack } from "../stack-config.ts";
 import { quotaProviderPenalty } from "../usage/exec-quota.ts";
 

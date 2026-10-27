@@ -19,7 +19,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { INSTALL_CONTRACT } from "../scripts/install-contract.ts";
+import { INSTALL_CONTRACT } from "../scripts/install/install-contract.ts";
 import {
 	defaultRun,
 	diagnosticTail,
@@ -31,8 +31,8 @@ import {
 	refreshSupervisor,
 	sanitizeDiagnostic,
 	seedLocalLlm,
-} from "../scripts/install-llm-steps.ts";
-import type { StepContext } from "../scripts/install-run.ts";
+} from "../scripts/install/install-llm-steps.ts";
+import type { StepContext } from "../scripts/install/install-run.ts";
 import { validateBeltWiredGuard } from "../scripts/lib/belt-wired-guard.ts";
 
 setDefaultTimeout(120_000);

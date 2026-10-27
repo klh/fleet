@@ -3,7 +3,7 @@ import {
 	observation,
 	observationFresh,
 	type Observation,
-} from "../lib/observation.ts";
+} from "../lib/board/observation.ts";
 
 /** Read persisted external probes without importing belt's runtime modules. */
 export const readSupervisorSnapshot = (): unknown => {

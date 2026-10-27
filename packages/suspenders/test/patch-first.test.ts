@@ -15,7 +15,7 @@ import {
 	PATCH_FIRST_CHURN_BUDGET,
 	PATCH_FIRST_THRESHOLD,
 	patchFirstVerdict,
-} from "../hooks/lib/patch-first.ts";
+} from "../hooks/lib/work/patch-first.ts";
 import { renderIntel } from "../hooks/lib/lanes/brief-intel.ts";
 
 // scratch repo with one near-cap-ish file (threshold overridden per verdict,

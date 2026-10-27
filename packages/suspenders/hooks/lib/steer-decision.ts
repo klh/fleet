@@ -12,7 +12,7 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
 import { type KevOption, kevTypedDecision } from "./knowledge/kev.ts";
-import { transcriptTail } from "./transcript.ts";
+import { transcriptTail } from "./lanes/transcript.ts";
 
 export type SteerAckState = "accepted" | "pending" | "failed";
 export type LanePhase = "tool" | "generating" | "idle" | "unknown";

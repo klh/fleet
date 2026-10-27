@@ -373,7 +373,7 @@ export async function catalogEvidenceFor(
 }
 
 /** Synology hibernation: NIC answers ARP but TCP is silent until a magic
- *  packet. Ported verbatim from suspenders hooks/lib/remotes.ts (spike w86,
+ *  packet. Ported verbatim from suspenders hooks/lib/hub/remotes.ts (spike w86,
  *  bfde191 — proven on the real NAS). Broadcast + 255.255.255.255 retry. */
 export async function sendWoL(mac: string, target: string): Promise<boolean> {
 	const clean = mac.replace(/[:-]/g, "").toLowerCase();

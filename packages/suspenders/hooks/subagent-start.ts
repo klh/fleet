@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { CAPABILITIES, openStore, projectIdentity } from "./lib/govdb/govdb.ts";
 import { hookLaneId, hookSubagentSuffix } from "./lib/hook-lane.ts";
 import { allow, context, readHook } from "./lib/hookio.ts";
-import { attachSubscribe } from "./lib/subscribe-attach.ts";
+import { attachSubscribe } from "./lib/lanes/subscribe-attach.ts";
 
 if (process.env.CLAUDE_FLEET_BOOTSTRAP === "0") allow();
 const hook = await readHook();

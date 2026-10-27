@@ -6,7 +6,7 @@
 // (lib/claim-location.ts).
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { symlinkBuildDirs } from "../builddirs.ts";
+import { symlinkBuildDirs } from "./builddirs.ts";
 import { openStore } from "../govdb/govdb.ts";
 import { wireLanePushScope } from "../lane-guard.ts";
 import { resolveItemWorktree } from "./worktree-lookup.ts";

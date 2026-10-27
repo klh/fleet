@@ -1,4 +1,4 @@
-import { parseLawExpr } from "./repo-laws.ts";
+import { parseLawExpr } from "./policy/repo-laws.ts";
 import { preferOverlayOf } from "./prefer-format.ts";
 
 export type PreferKey = "tag" | "color" | "prefer" | "must";

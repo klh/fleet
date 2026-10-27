@@ -307,7 +307,7 @@ describe("W1302.2 post-merge dangling-path scan", () => {
 	// all three facts so the false positive stays dead.
 	test("W1791: install-llm-steps swarm.ts literal is a belt-bin runtime join, not a reference", () => {
 		const body = readFileSync(
-			join(P, "scripts/install-llm-steps.ts"),
+			join(P, "scripts/install/install-llm-steps.ts"),
 			"utf8",
 		);
 		expect(pathLiterals(body)).toContain("swarm.ts");
@@ -317,7 +317,7 @@ describe("W1302.2 post-merge dangling-path scan", () => {
 		);
 		// and the scanner stays quiet on the file that carries the literal
 		expect(
-			unresolvedSpecifiers(P, "HEAD", ["scripts/install-llm-steps.ts"]),
+			unresolvedSpecifiers(P, "HEAD", ["scripts/install/install-llm-steps.ts"]),
 		).toEqual([]);
 	});
 

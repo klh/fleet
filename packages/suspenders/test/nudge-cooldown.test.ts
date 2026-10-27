@@ -18,8 +18,8 @@ import {
 	readSessionState,
 	sessionStatePath,
 	writeSessionState,
-} from "../hooks/lib/session-state.ts";
-import { bumpPathCount } from "../hooks/lib/gatestate.ts";
+} from "../hooks/lib/lanes/session-state.ts";
+import { bumpPathCount } from "../hooks/lib/gates/gatestate.ts";
 
 const TMP = mkdtempSync(join(tmpdir(), "suspenders-nudgecool-"));
 const HOOKS = join(import.meta.dir, "..", "hooks");

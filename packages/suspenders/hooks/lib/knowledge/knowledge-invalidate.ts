@@ -7,7 +7,7 @@
 // knowledge-curate.ts doctrine — the callers own the IO.
 import type { Database } from "bun:sqlite";
 import { extractDocPaths } from "./knowledge.ts";
-import { makeStamp, parseStamp } from "../confidence.ts";
+import { makeStamp, parseStamp } from "./confidence.ts";
 
 // the promotion stamp — mechanical:work-landing lands in the machine-derived
 // band (0.6): a landed, done-gated implementation is machine evidence, never

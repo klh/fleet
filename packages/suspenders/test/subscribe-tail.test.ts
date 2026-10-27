@@ -15,7 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SHOW_LINES, tailSubscribeLog } from "../hooks/gates/push.ts";
-import { subagentLaneSuffix } from "../hooks/lib/subscribe-attach.ts";
+import { subagentLaneSuffix } from "../hooks/lib/lanes/subscribe-attach.ts";
 import {
 	consumeClaudeWake,
 	signalClaudeDirectEvent,

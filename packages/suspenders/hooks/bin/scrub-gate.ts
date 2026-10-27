@@ -18,12 +18,12 @@ import {
 	scrubBuffer,
 	scrubRules,
 	type ScrubFinding,
-} from "../lib/scrub.ts";
+} from "../lib/gates/scrub.ts";
 import {
 	commitRangeFindings,
 	firstPushBase,
 	stagedBinaryFindings,
-} from "../lib/scrub-git.ts";
+} from "../lib/gates/scrub-git.ts";
 
 const REPO = process.cwd();
 

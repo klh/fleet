@@ -4,7 +4,7 @@
 
 // W1196: dispatch holds — named, TTL'd pause state (same lib as dispatch).
 import { dispatchHoldRows } from "../lib/lanes/dispatch-hold.ts";
-import { observation } from "../lib/observation.ts";
+import { observation } from "../lib/board/observation.ts";
 import { plaidStatus } from "../lib/plaid/plaid.ts";
 import { db } from "./context.ts";
 import { events } from "./events.ts";

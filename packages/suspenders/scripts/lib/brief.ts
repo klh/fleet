@@ -7,7 +7,7 @@
 // (the PROTOCOL line points at it) — redundancy here is measured by
 // scripts/lib/brief-weight.ts and surfaced in `coord metrics`.
 import { condensePrompt } from "../../hooks/board/prompt-transform.ts";
-import { capsuleValidity } from "../../hooks/lib/capsule-fence.ts";
+import { capsuleValidity } from "../../hooks/lib/lanes/capsule-fence.ts";
 // W254: pointer-grade injection — file-map + done-definition digest for the
 // brief, gated per W113 on repo size (hooks/lib/lanes/brief-intel.ts)
 import {

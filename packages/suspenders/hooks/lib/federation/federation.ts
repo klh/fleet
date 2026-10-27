@@ -25,7 +25,7 @@ export interface HubManifestShape {
 	rules: unknown[];
 	cr_queue: Array<Record<string, unknown>>;
 	/** W165 capability flags — the hub's variant, same names as the installed
-	 *  capabilities.json (hooks/lib/profile.ts grammar). */
+	 *  capabilities.json (hooks/lib/federation/profile.ts grammar). */
 	capabilities?: Record<string, boolean>;
 }
 
@@ -45,7 +45,7 @@ import {
 	hubCapabilities,
 	resolveCapabilities,
 	type CapabilityFlags,
-} from "../profile.ts";
+} from "./profile.ts";
 
 /** The hub's capability flags, per the last-known manifest. */
 export function manifestCapabilities(

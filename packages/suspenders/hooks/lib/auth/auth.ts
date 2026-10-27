@@ -40,14 +40,14 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { adminAudit } from "../admin-audit.ts";
+import { adminAudit } from "../govdb/admin-audit.ts";
 import type { GovernorStore, IdentityStore } from "../govdb/govdb.ts";
 import {
 	type ClaimsMapConfig,
 	type MappedClaims,
 	mapIdpClaims,
 } from "../govdb/identity-federation.ts";
-import { secretsHome } from "../secrets-home.ts";
+import { secretsHome } from "./secrets-home.ts";
 
 export const LOCAL_ISSUER = "buckle";
 const AUDIENCE = "buckle";

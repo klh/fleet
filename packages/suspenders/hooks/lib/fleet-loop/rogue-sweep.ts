@@ -12,7 +12,7 @@ import { writeFileSync } from "node:fs";
 import {
 	LABEL_PREFIX,
 	loadManifest,
-} from "../../../scripts/install-services.ts";
+} from "../../../scripts/install/install-services.ts";
 import { emitLoopEvent } from "./events.ts";
 import { type LoopDeps, readJsonSync } from "./runtime.ts";
 

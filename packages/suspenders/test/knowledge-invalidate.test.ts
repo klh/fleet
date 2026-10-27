@@ -20,7 +20,7 @@ const govdb = await import(
 	`../hooks/lib/govdb/govdb.ts?home=${encodeURIComponent(HOME)}`
 );
 const inv = await import("../hooks/lib/knowledge/knowledge-invalidate.ts");
-const conf = await import("../hooks/lib/confidence.ts");
+const conf = await import("../hooks/lib/knowledge/confidence.ts");
 
 const gov = govdb.openGovernorDb();
 const kb = govdb.openKnowledgeDb();

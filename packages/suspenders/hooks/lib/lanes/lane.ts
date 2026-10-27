@@ -7,7 +7,7 @@
 // (the part a divergence would corrupt lanes with) is shared for real.
 
 import type { EvidenceNormalizer } from "../gates/claim-evidence.ts";
-import { attachSubscribe } from "../subscribe-attach.ts";
+import { attachSubscribe } from "./subscribe-attach.ts";
 import { timedDispatchSpawn } from "./dispatch-phase-timing.ts";
 import { jobslabEnv, jobslabFor, jobslabPrefix } from "./jobslab.ts";
 import {

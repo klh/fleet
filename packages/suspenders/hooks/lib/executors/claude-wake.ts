@@ -14,7 +14,7 @@ import {
 import { join } from "node:path";
 import { setTimeout as retryDelay } from "node:timers/promises";
 import type { CoordDirectEvent } from "./codex-steer.ts";
-import { readSessionState, writeSessionState } from "../session-state.ts";
+import { readSessionState, writeSessionState } from "../lanes/session-state.ts";
 
 const DIRECT_KINDS = new Set([
 	"NOTE",

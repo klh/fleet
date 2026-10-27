@@ -3,7 +3,7 @@
 // one-tab indent preserved, output byte-compatible.
 
 import { consultDeadline } from "../lib/federation/consult-expiry.ts";
-import { makeStamp } from "../lib/confidence.ts";
+import { makeStamp } from "../lib/knowledge/confidence.ts";
 import {
 	type ConsultEnvelope,
 	citationsFor,

@@ -18,7 +18,7 @@ import {
 	approvalsDir,
 	cmdApprovalSrc,
 	secretFile,
-} from "../lib/approvals.ts";
+} from "../lib/gates/approvals.ts";
 import { resolveFleetLane } from "../lib/lanes/fleetlane.ts";
 
 // a lane cannot co-sign for itself — the second person is NOT a lane

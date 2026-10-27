@@ -26,7 +26,7 @@ import {
 	TEMPLATE_DIR,
 	usedPlaceholders,
 	validateSpec,
-} from "../scripts/install-services.ts";
+} from "../scripts/install/install-services.ts";
 import { parsePlistXml, project } from "./plist-fields.ts";
 
 const FIXTURE: RenderValues = {

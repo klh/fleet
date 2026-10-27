@@ -9,7 +9,7 @@
 // usage: bun harvest.ts scan|run --repo <path> [--days N]  (scan writes nothing)
 // env:   HOME (transcript roots; launchd sets it — no other config)
 import { openStore, projectIdentity } from "../lib/govdb/govdb.ts";
-import { makeStamp } from "../lib/confidence.ts";
+import { makeStamp } from "../lib/knowledge/confidence.ts";
 import {
 	clusterSignals,
 	discoverTranscripts,

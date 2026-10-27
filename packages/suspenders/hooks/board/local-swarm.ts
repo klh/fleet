@@ -8,7 +8,7 @@ import {
 	MODEL_INVENTORY,
 	ROUTER_INVENTORY as ROUTER,
 	probePathFor,
-} from "../lib/service-inventory.ts";
+} from "../lib/hub/service-inventory.ts";
 const SPECIALISTS = MODEL_INVENTORY.filter((s) => s.class === "chat");
 
 export interface LocalSwarmEntry {

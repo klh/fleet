@@ -15,8 +15,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { meowFlags } from "../scripts/install-cli.ts";
-import { INSTALL_CONTRACT } from "../scripts/install-contract.ts";
+import { meowFlags } from "../scripts/install/install-cli.ts";
+import { INSTALL_CONTRACT } from "../scripts/install/install-contract.ts";
 
 const BIN = `${import.meta.dir}/../scripts/install.ts`;
 

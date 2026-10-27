@@ -25,7 +25,7 @@ import {
 import {
 	applyPulseInterval,
 	loadManifest,
-} from "../scripts/install-services.ts";
+} from "../scripts/install/install-services.ts";
 
 // W825.2: pin the cache-telemetry report read away from the machine file —
 // a leftover real report must never leak into these assertions

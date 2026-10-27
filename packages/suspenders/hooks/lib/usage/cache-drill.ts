@@ -16,7 +16,7 @@ import {
 	crossHubLabels,
 } from "../federation/cross-hub-usage.ts";
 import type { CrossHubEnv } from "../federation/cross-hub-usage.ts";
-import { readAdminKey } from "../doctor.ts";
+import { readAdminKey } from "../fleet-loop/doctor.ts";
 import { tryLoadStack } from "../stack-config.ts";
 
 // ─── wire mirror: one buckle route_audit row (ledger.ts is the contract) ───

@@ -21,7 +21,7 @@ import {
 	mintLaneKey,
 	revokeLaneKey,
 } from "@klh/suspenders/hooks/lib/lanes/lane-auth.ts";
-import { REVIEW_FRAME } from "@klh/suspenders/hooks/lib/oracle-frame.ts";
+import { REVIEW_FRAME } from "@klh/suspenders/hooks/lib/hub/oracle-frame.ts";
 import { parseVerdictLine } from "./review-parse.ts";
 
 export interface LegResult {

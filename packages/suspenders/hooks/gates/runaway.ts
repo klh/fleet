@@ -23,7 +23,10 @@ import {
 	stableKey,
 	writeUsageState,
 } from "../lib/gates/runaway.ts";
-import { resolveTranscriptPath, transcriptTail } from "../lib/transcript.ts";
+import {
+	resolveTranscriptPath,
+	transcriptTail,
+} from "../lib/lanes/transcript.ts";
 
 // the lane's own incident ledger: worktree lanes write `.fleet/` beside the
 // lane context; anything else falls back to the global cache (W80 pattern)

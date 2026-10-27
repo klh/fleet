@@ -17,7 +17,7 @@ import {
 	validateVerdictRef,
 	verdictFilterClause,
 	walkChain,
-} from "../hooks/lib/confidence-verdict.ts";
+} from "../hooks/lib/knowledge/confidence-verdict.ts";
 
 const DDL = `CREATE TABLE confidence_history (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,

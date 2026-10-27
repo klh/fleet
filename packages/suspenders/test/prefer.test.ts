@@ -11,7 +11,7 @@ import {
 	preferForProject,
 	preferTagFor,
 	resolvePrefer,
-} from "../hooks/lib/prefer.ts";
+} from "../hooks/lib/work/prefer.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "claude-prefer-home-"));
 const TREE = mkdtempSync(join(tmpdir(), "claude-prefer-tree-"));

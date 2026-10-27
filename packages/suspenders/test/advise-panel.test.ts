@@ -14,8 +14,8 @@ import { DECISIONS } from "../hooks/board-html/decisions.ts";
 import {
 	recommendationOf,
 	usableRecommendation,
-} from "../hooks/lib/advice-quality.ts";
-import { consensusOf } from "../hooks/lib/oracle-legs.ts";
+} from "../hooks/lib/govdb/advice-quality.ts";
+import { consensusOf } from "../hooks/lib/hub/oracle-legs.ts";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
 setDefaultTimeout(30_000);

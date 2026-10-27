@@ -9,7 +9,7 @@ import {
 	settingsFormPage,
 	settingsIndexPage,
 } from "../bin/console-html.ts";
-import { recentAdminAudit } from "../lib/admin-audit.ts";
+import { recentAdminAudit } from "../lib/govdb/admin-audit.ts";
 import type { PolicyGatewayParsed } from "../lib/board/board-config.ts";
 import {
 	ConfigError,

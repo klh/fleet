@@ -8,18 +8,18 @@ import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { renderFleetReport } from "../scripts/lib/fleet-report.ts";
-import { checkpointPath } from "./lib/checkpoint.ts";
+import { checkpointPath } from "./lib/lanes/checkpoint.ts";
 // W1124.12: an explicit worker role skips the SUPERVISOR DEFAULT + report
 // injection — a managed lane is not a loop-arming runtime (same ruling as
 // the isSubagent branch, source of truth = lane-settings.ts role marker).
-import { sessionRole } from "./lib/coordinator-edit-gate.ts";
+import { sessionRole } from "./lib/gates/coordinator-edit-gate.ts";
 import {
 	CAPABILITIES,
 	openStore,
 	projectIdentity,
 	sweepStaleSessions,
 } from "./lib/govdb/govdb.ts";
-import { enrollTopLevel } from "./lib/hook-scripts.ts";
+import { enrollTopLevel } from "./lib/lanes/hook-scripts.ts";
 import { machineCredScope } from "./lib/cred-scope.ts";
 import { run } from "./lib/run.ts";
 import {
@@ -27,8 +27,8 @@ import {
 	sinkConf,
 	sinkConfigured,
 } from "./lib/knowledge/knowledge-sink-client.ts";
-import { checkSessionPolicies } from "./lib/session-policy.ts";
-import { attachSubscribe, subagentLaneSuffix } from "./lib/subscribe-attach.ts";
+import { checkSessionPolicies } from "./lib/policy/session-policy.ts";
+import { attachSubscribe, subagentLaneSuffix } from "./lib/lanes/subscribe-attach.ts";
 import {
 	canonicalRepo,
 	launchctlTable,

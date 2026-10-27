@@ -9,9 +9,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { HOOK_ITEMS } from "../hooks/lib/harness-manifest.ts";
+import { HOOK_ITEMS } from "../hooks/lib/install/harness-manifest.ts";
 import { hookLaneId, hookSubagentSuffix } from "../hooks/lib/hook-lane.ts";
-import { reapSubscribe } from "../hooks/lib/subscribe-attach.ts";
+import { reapSubscribe } from "../hooks/lib/lanes/subscribe-attach.ts";
 
 const home = mkdtempSync(join(tmpdir(), "native-child-home-"));
 const repo = mkdtempSync(join(tmpdir(), "native-child-repo-"));

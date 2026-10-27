@@ -8,9 +8,9 @@
 // guards — no new approval path, no skipped health/auth check: the steps
 // still re-run every guard before their own mutations.
 import { join } from "node:path";
-import type { StepName } from "./install-contract.ts";
-import { resolveStableRepo } from "./install-launchd.ts";
-import type { StepContext } from "./install-run.ts";
+import type { StepName } from "./install/install-contract.ts";
+import { resolveStableRepo } from "./install/install-launchd.ts";
+import type { StepContext } from "./install/install-run.ts";
 import { validateBeltWiredGuard } from "./lib/belt-wired-guard.ts";
 
 export interface PreflightFinding {

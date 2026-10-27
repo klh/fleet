@@ -1,5 +1,5 @@
 import type { GovernorStore } from "../lib/govdb/govdb.ts";
-import { observation, type Observation } from "../lib/observation.ts";
+import { observation, type Observation } from "../lib/board/observation.ts";
 
 export interface RecoveryIncident {
 	project: string;

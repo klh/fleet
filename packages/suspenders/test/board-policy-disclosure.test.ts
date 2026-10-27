@@ -11,7 +11,7 @@ import { DECISIONS } from "../hooks/board-html/decisions.ts";
 import {
 	openPolicyDecisions,
 	policyBriefLines,
-} from "../hooks/lib/session-policy.ts";
+} from "../hooks/lib/policy/session-policy.ts";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
 const fixture = await boardFixture(0, afterAll);

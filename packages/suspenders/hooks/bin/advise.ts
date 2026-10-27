@@ -9,7 +9,7 @@
 //        endpoint + scoped key ride SUSPENDERS_BUCKLE_URL/TOKEN or the
 //        knowledge-buckle credential file — see inference-buckle.ts
 
-import { recommendationOf } from "../lib/advice-quality.ts";
+import { recommendationOf } from "../lib/govdb/advice-quality.ts";
 import { readBoardSettings } from "../lib/board/board-config.ts";
 import { isDecisionKind, openStore } from "../lib/govdb/govdb.ts";
 import {
@@ -30,7 +30,7 @@ import {
 	consensusOf,
 	PANEL_FRAME,
 	pinnedLeg,
-} from "../lib/oracle-legs.ts";
+} from "../lib/hub/oracle-legs.ts";
 import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 
 // W656.2: kit-owned parse — the board's routes-actions spawns

@@ -11,7 +11,7 @@ import {
 	recoveryFor,
 } from "../lib/fleet-loop/recovery-map.ts";
 import { scrub } from "../lib/servicemon.ts";
-import { observation, type Observation } from "../lib/observation.ts";
+import { observation, type Observation } from "../lib/board/observation.ts";
 import {
 	onDemandIdleObservation,
 	readSupervisorSnapshot,

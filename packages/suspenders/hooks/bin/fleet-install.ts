@@ -25,7 +25,7 @@ import {
 	detectFleetTargets,
 	type FleetTarget,
 	listTargets,
-} from "../lib/targets.ts";
+} from "../lib/install/targets.ts";
 import {
 	applyBuckleRoute,
 	planBuckleRoutes,

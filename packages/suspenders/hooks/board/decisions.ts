@@ -1,7 +1,7 @@
 // hooks/board/decisions.ts — the decisions feed: records + payload,
 // batched advice/role/payload lookups, per-item decision rows.
 // W1255.4: moved verbatim from board/data.ts (per-domain split, THEN.B).
-import { usableRecommendation } from "../lib/advice-quality.ts";
+import { usableRecommendation } from "../lib/govdb/advice-quality.ts";
 import { db } from "./context.ts";
 import { collapseDups } from "./decision-dups.ts";
 import { chunked } from "./helpers.ts";

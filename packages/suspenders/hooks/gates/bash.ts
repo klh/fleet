@@ -12,7 +12,7 @@ import {
 	extractSourceRef,
 	verifyAndConsume,
 	verifyAndConsumeCmd,
-} from "../lib/approvals.ts";
+} from "../lib/gates/approvals.ts";
 import { credScopeDeny, loadCredScope } from "../lib/auth/credscope.ts";
 import { lanesFileFor, resolveFleetLane } from "../lib/lanes/fleetlane.ts";
 import {
@@ -28,7 +28,7 @@ import {
 	nudge,
 } from "../lib/hookio.ts";
 import { have, run } from "../lib/run.ts";
-import { scanPushSecrets } from "../lib/push-secrets.ts";
+import { scanPushSecrets } from "../lib/gates/push-secrets.ts";
 import { withoutPushRedirections } from "../lib/push-shell-argv.ts";
 import {
 	canonPath,

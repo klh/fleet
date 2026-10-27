@@ -2,13 +2,13 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { clearInheritedLaunchctlEnv } from "../scripts/install-launchd.ts";
+import { clearInheritedLaunchctlEnv } from "../scripts/install/install-launchd.ts";
 import {
 	defaultRenderValues,
 	loadManifest,
 	renderDarwin,
 	validateSpec,
-} from "../scripts/install-services.ts";
+} from "../scripts/install/install-services.ts";
 import { readActivation } from "../scripts/lib/service-drift.ts";
 
 const NAMES = ["BELT_ESCALATE_URL", "BELT_ESCALATE_KEY", "BELT_ESCALATE_MODEL"];
@@ -164,7 +164,7 @@ const runStaleActivation = async (
 			process.execPath,
 			"-e",
 			staleActivationScript,
-			join(import.meta.dir, "../scripts/install-launchd.ts"),
+			join(import.meta.dir, "../scripts/install/install-launchd.ts"),
 			fixture,
 		],
 		{

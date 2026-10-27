@@ -53,9 +53,7 @@ export interface RenderedService {
 }
 
 export interface ReblessDeps {
-	inspectGeneration: (
-		prefix: string,
-	) => { state: string; root: string | null };
+	inspectGeneration: (prefix: string) => { state: string; root: string | null };
 	/** install-services.ts --out <outDir> --json (never stdout — banners shift the sha). */
 	render: (outDir: string) => RenderedService[];
 	parseUnit: (bytes: string) => {
@@ -78,7 +76,11 @@ export function confirmFailure(
 	if (confirm === undefined)
 		return `refused: re-run with --confirm <manifest-sha-prefix> — the candidate manifest sha is ${sha}`;
 	const value = confirm.toLowerCase();
-	if (value.length < CONFIRM_MIN || !/^[a-f0-9]+$/.test(value) || !sha.startsWith(value))
+	if (
+		value.length < CONFIRM_MIN ||
+		!/^[a-f0-9]+$/.test(value) ||
+		!sha.startsWith(value)
+	)
 		return `refused: --confirm ${confirm} does not prefix-match the candidate manifest sha ${sha} (>=${CONFIRM_MIN} hex chars)`;
 	return null;
 }
@@ -115,11 +117,14 @@ export function activationDiff(
 			changes.push(`resident ${old.resident} -> ${service.resident}`);
 		if (old.port !== service.port)
 			changes.push(`port ${old.port ?? "none"} -> ${service.port ?? "none"}`);
-		if (changes.length > 0) lines.push(`~ ${service.label}: ${changes.join("; ")}`);
+		if (changes.length > 0)
+			lines.push(`~ ${service.label}: ${changes.join("; ")}`);
 	}
 	for (const label of oldServices.keys())
 		if (!candidateLabels.has(label))
-			lines.push(`- ${label} (retained from prior intent, absent from candidate render)`);
+			lines.push(
+				`- ${label} (retained from prior intent, absent from candidate render)`,
+			);
 	return lines;
 }
 
@@ -295,14 +300,22 @@ export function parseReblessArgs(
 		"--prefix",
 		"--repo",
 	]);
-	const valued = new Set(["--confirm", "--drop", "--home", "--prefix", "--repo"]);
+	const valued = new Set([
+		"--confirm",
+		"--drop",
+		"--home",
+		"--prefix",
+		"--repo",
+	]);
 	const drops: string[] = [];
 	for (let i = 0; i < argv.length; i += 1) {
 		const arg = argv[i];
 		const flag = arg.replace(/=.*$/, "");
 		if (!known.has(flag)) return { ok: false, reason: `unknown flag "${arg}"` };
 		if (!valued.has(flag)) continue;
-		const inline = arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : argv[i + 1];
+		const inline = arg.includes("=")
+			? arg.slice(arg.indexOf("=") + 1)
+			: argv[i + 1];
 		if (
 			inline === undefined ||
 			inline === "" ||
@@ -318,7 +331,10 @@ export function parseReblessArgs(
 		ok: true,
 		options: {
 			home: value("--home") ?? home,
-			prefix: prefixOverride ?? process.env.SUSPENDERS_PREFIX ?? join(home, ".claude/hooks/suspenders"),
+			prefix:
+				prefixOverride ??
+				process.env.SUSPENDERS_PREFIX ??
+				join(home, ".claude/hooks/suspenders"),
 			repo: value("--repo") ?? join(import.meta.dir, ".."),
 			intent: argv.includes("--re-bless-activation"),
 			confirm: value("--confirm"),
@@ -358,7 +374,7 @@ if (import.meta.main) {
 			const child = Bun.spawnSync(
 				[
 					bun,
-					join(options.repo, "scripts/install-services.ts"),
+					join(options.repo, "scripts/install/install-services.ts"),
 					"--target",
 					"darwin",
 					"--out",
@@ -379,8 +395,9 @@ if (import.meta.main) {
 				throw new Error(
 					`candidate dry-render failed: ${child.stderr.toString().trim()}`,
 				);
-			return (JSON.parse(child.stdout.toString()) as { services: RenderedService[] })
-				.services;
+			return (
+				JSON.parse(child.stdout.toString()) as { services: RenderedService[] }
+			).services;
 		},
 		parseUnit: (bytes) => {
 			const parsed = Bun.spawnSync(

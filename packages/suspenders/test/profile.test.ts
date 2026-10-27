@@ -19,7 +19,7 @@ import {
 	resolveCapabilities,
 	spokeCapabilities,
 	type CapabilityFlags,
-} from "../hooks/lib/profile.ts";
+} from "../hooks/lib/federation/profile.ts";
 import { buildCapabilities } from "../../buckle/src/gov/hub-seam.ts";
 
 const eqFlags = (a: CapabilityFlags, b: CapabilityFlags): boolean =>
@@ -123,9 +123,7 @@ describe("W165 file: capabilities.json resolution", () => {
 				key_custody: true,
 			}),
 		);
-		expect(hasCapability(readCapabilities(file), CAP_AUTH_ISSUANCE)).toBe(
-			true,
-		);
+		expect(hasCapability(readCapabilities(file), CAP_AUTH_ISSUANCE)).toBe(true);
 		writeFileSync(
 			file,
 			JSON.stringify({

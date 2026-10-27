@@ -4,14 +4,14 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { assertCapsuleBounds, itemCapsuleKey } from "../lib/capsule-fence.ts";
+import { assertCapsuleBounds, itemCapsuleKey } from "../lib/lanes/capsule-fence.ts";
 import {
 	ConfidenceError,
 	glyphFor,
 	makeStamp,
 	parseStamp,
 	renderStamp,
-} from "../lib/confidence.ts";
+} from "../lib/knowledge/confidence.ts";
 import { expireConsults } from "../lib/federation/consult-expiry.ts";
 import { openIdentity } from "../lib/govdb/govdb.ts";
 import {
@@ -23,9 +23,9 @@ import {
 	searchSink,
 	sinkConfigured,
 } from "../lib/knowledge/knowledge-sink-client.ts";
-import { archiveAndPrune, pruneArchiveFiles } from "../lib/retention.ts";
+import { archiveAndPrune, pruneArchiveFiles } from "../lib/govdb/retention.ts";
 import { run } from "../lib/run.ts";
-import { reapDeadSubscribes } from "../lib/subscribe-attach.ts";
+import { reapDeadSubscribes } from "../lib/lanes/subscribe-attach.ts";
 import { parseVerb } from "../lib/verb-kit.ts";
 import { isLiveSession, type LivenessRow } from "./bus.ts";
 import { ensureConsultTrust } from "./consult-trust.ts";

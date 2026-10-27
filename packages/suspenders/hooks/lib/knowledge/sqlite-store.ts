@@ -32,7 +32,7 @@ import {
 	type ConsolidateOpts,
 	type ConsolidationSweep,
 } from "./knowledge-consolidate.ts";
-import { CONFIDENCE_MIN, makeStamp } from "../confidence.ts";
+import { CONFIDENCE_MIN, makeStamp } from "./confidence.ts";
 import { currentPromptHash } from "./prompt-policy.ts";
 import type {
 	DecaySweep,

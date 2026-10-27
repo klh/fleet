@@ -14,7 +14,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { basename, join } from "node:path";
-import type { StepContext, StepResult } from "./install-run.ts";
+import type { StepContext, StepResult } from "./install/install-run.ts";
 
 export const SHIM_NAMES = [
 	"coord",

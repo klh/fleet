@@ -12,8 +12,8 @@
 // W14: the gate body lives in filesCheck() — exit-free — so stop.ts re-verifies
 // changed files IN-PROCESS instead of spawning `bun gate.ts post-files` per file.
 import { allow, context, feedback, type HookInput } from "../lib/hookio.ts";
-import { oncePerSession } from "../lib/advisory-cooldown.ts";
-import { bumpPathCount } from "../lib/gatestate.ts";
+import { oncePerSession } from "../lib/gates/advisory-cooldown.ts";
+import { bumpPathCount } from "../lib/gates/gatestate.ts";
 import { have, lines, run } from "../lib/run.ts";
 import { openStore } from "../lib/govdb/govdb.ts";
 import { drainLaneInbox } from "../lib/lanes/lane-inbox.ts";

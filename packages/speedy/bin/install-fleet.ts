@@ -354,7 +354,7 @@ export function manifestUnit(
 ): ManifestUnit | null {
 	const renderer = join(
 		root,
-		"packages/suspenders/scripts/install-services.ts",
+		"packages/suspenders/scripts/install/install-services.ts",
 	);
 	const argv = ["--target", "darwin", "--service", service, "--json"];
 	return withTempDir((out) => {

@@ -67,7 +67,7 @@ import {
 	CAP_AUTH_ISSUANCE,
 	hasCapability,
 	readCapabilities,
-} from "../lib/profile.ts";
+} from "../lib/federation/profile.ts";
 // W157: seedDemo() self-invokes at demo.ts module load — the monolith
 // executed it inline before Bun.serve; the side-effect import keeps that
 // timing (nothing else imports the demo module)

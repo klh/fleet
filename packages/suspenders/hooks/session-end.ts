@@ -8,8 +8,8 @@
 // stderr and NEVER blocks the session closing.
 import { openStore } from "./lib/govdb/govdb.ts";
 import { settleSession } from "./lib/knowledge/settle.ts";
-import { retireTopLevel } from "./lib/hook-scripts.ts";
-import { reapSubscribe } from "./lib/subscribe-attach.ts";
+import { retireTopLevel } from "./lib/lanes/hook-scripts.ts";
+import { reapSubscribe } from "./lib/lanes/subscribe-attach.ts";
 
 // W514 (claudecode research §1.8): the SessionEnd payload is tiny — race
 // the stdin read against 1 s so a detached or late-stdin invocation (async

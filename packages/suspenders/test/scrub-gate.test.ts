@@ -15,8 +15,11 @@ import {
 	scrubBuffer,
 	scrubRules,
 	scrubText,
-} from "../hooks/lib/scrub.ts";
-import { commitRangeFindings, EMPTY_TREE } from "../hooks/lib/scrub-git.ts";
+} from "../hooks/lib/gates/scrub.ts";
+import {
+	commitRangeFindings,
+	EMPTY_TREE,
+} from "../hooks/lib/gates/scrub-git.ts";
 
 setDefaultTimeout(30_000);
 

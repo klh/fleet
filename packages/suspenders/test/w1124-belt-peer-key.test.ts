@@ -16,7 +16,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { INSTALL_CONTRACT } from "../scripts/install-contract.ts";
+import { INSTALL_CONTRACT } from "../scripts/install/install-contract.ts";
 import {
 	BELT_ROW_URL,
 	BELT_UPSTREAM_KEY_VAR,

@@ -11,7 +11,10 @@
 // instead of duplicating or orphaning the maintenance work on machines.
 import { describe, expect, test } from "bun:test";
 import { MAINTENANCE_TASKS } from "../hooks/lib/fleet-loop/maintenance.ts";
-import { loadLegacyLabels, loadManifest } from "../scripts/install-services.ts";
+import {
+	loadLegacyLabels,
+	loadManifest,
+} from "../scripts/install/install-services.ts";
 
 const PREFIX = "com.suspenders.";
 

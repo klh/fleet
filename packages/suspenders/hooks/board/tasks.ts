@@ -12,7 +12,7 @@ import {
 	laneRequestSpendRows,
 	resolveBuckleDb,
 } from "../lib/lanes/lane-spend.ts";
-import { preferForProject } from "../lib/prefer.ts";
+import { preferForProject } from "../lib/work/prefer.ts";
 import { claimWindows, type TimingEventRow } from "../lib/work/work-timing.ts";
 import { utcZ } from "../lib/wallclock.ts";
 import { db, type WorkItemRow } from "./context.ts";

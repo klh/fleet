@@ -14,7 +14,7 @@ import { unmergedDeps, unmergedNote } from "../gates/dep-merge-gate.ts";
 import { dieFor } from "../verb-kit.ts";
 import { mergeTags } from "./work-tags.ts";
 import { MIRROR_NAME, mirrorOrNull } from "./work-mirror.ts";
-import { preferTagFor } from "../prefer.ts";
+import { preferTagFor } from "./prefer.ts";
 import { releaseWorkClaim } from "./work-release.ts";
 import { resolveItemWorktree } from "./worktree-lookup.ts";
 

@@ -17,7 +17,7 @@ import {
 	pruneStaleWorktrees,
 	type LaneRef,
 	worktreeProtected,
-} from "../hooks/lib/rogue-reap.ts";
+} from "../hooks/lib/fleet-loop/rogue-reap.ts";
 import {
 	MAINTENANCE_TASKS,
 	missingRunners,

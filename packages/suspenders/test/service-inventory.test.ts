@@ -3,7 +3,7 @@ import { registryEntries } from "../../belt/bin/registry.ts";
 import {
 	MODEL_INVENTORY,
 	matchingRegistrations,
-} from "../hooks/lib/service-inventory.ts";
+} from "../hooks/lib/hub/service-inventory.ts";
 import { RECOVERY_MAP } from "../hooks/lib/fleet-loop/recovery-map.ts";
 import { localPage } from "../hooks/bin/console-html.ts";
 

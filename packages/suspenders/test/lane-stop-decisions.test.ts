@@ -124,7 +124,7 @@ test("only structured self operational notices skip turn drain, external and gen
 		self.kind,
 		JSON.stringify({ project, item: "W80", work: "W80", note: note("W80") }),
 	);
-	const module = join(import.meta.dir, "../hooks/lib/turn-boundary.ts");
+	const module = join(import.meta.dir, "../hooks/lib/gates/turn-boundary.ts");
 	const script = `import{pendingTurnMessages}from ${JSON.stringify(module)};import{Database}from "bun:sqlite";const db=new Database(${JSON.stringify(`${f.HOME}/.cache/claude-governor/governor.db`)});console.log(JSON.stringify(pendingTurnMessages(db,"self-lane").map(row=>row.source)));db.close();`;
 	const result = Bun.spawnSync([process.execPath, "-e", script], {
 		cwd: f.REPO,

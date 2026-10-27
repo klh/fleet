@@ -13,7 +13,7 @@ import {
 	recordToolFailure,
 	ANTI_THRASH_AT,
 } from "../hooks/lib/gates/tool-failures.ts";
-import { sessionStatePath } from "../hooks/lib/session-state.ts";
+import { sessionStatePath } from "../hooks/lib/lanes/session-state.ts";
 
 const TMP = mkdtempSync(join(tmpdir(), "suspenders-toolfail-"));
 const REPO = TMP;

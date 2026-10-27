@@ -16,7 +16,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type StepContext, wireSettings } from "../scripts/install-run.ts";
+import {
+	type StepContext,
+	wireSettings,
+} from "../scripts/install/install-run.ts";
 
 const dirs: string[] = [];
 afterEach(() => {

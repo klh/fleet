@@ -15,7 +15,7 @@
 
 import type { Database } from "bun:sqlite";
 import { basename } from "node:path";
-import { itemCapsuleKey } from "../lib/capsule-fence.ts";
+import { itemCapsuleKey } from "../lib/lanes/capsule-fence.ts";
 import {
 	advertisedCaps,
 	assertRequires,
@@ -65,7 +65,7 @@ import {
 	parseReclaimReason,
 	reclaimGateDecision,
 } from "../lib/lanes/reclaim-sticky.ts";
-import { attachManagedSubscribe, reapIfIdle } from "../lib/subscribe-attach.ts";
+import { attachManagedSubscribe, reapIfIdle } from "../lib/lanes/subscribe-attach.ts";
 import { budgetFlagClear } from "../lib/usage/budget-flag.ts";
 import { dieFor, idList, type Parsed, runCli } from "../lib/verb-kit.ts";
 import { curateCompletionKnowledge } from "../lib/work/completion-curation.ts";

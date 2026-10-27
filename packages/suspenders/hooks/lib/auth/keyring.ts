@@ -26,7 +26,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { dlopen, FFIType, ptr, toBuffer } from "bun:ffi";
-import { secretsHome } from "../secrets-home.ts";
+import { secretsHome } from "./secrets-home.ts";
 
 export type KeyringBackendName =
 	| "keychain"

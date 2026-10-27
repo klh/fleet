@@ -21,7 +21,7 @@ import {
 	writeActivation,
 	type ActivationReceipt,
 } from "./lib/service-drift.ts";
-import type { StepContext, StepResult } from "./install-run.ts";
+import type { StepContext, StepResult } from "./install/install-run.ts";
 
 const LABEL = "com.suspenders.buckle-spoke";
 export interface GatewayUpgrade {

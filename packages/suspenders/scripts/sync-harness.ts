@@ -18,8 +18,8 @@ import {
 	MANAGED_PREFIX_ENTRIES,
 	PRUNE_ALLOWLIST,
 	payloadChecksum,
-} from "../hooks/lib/harness-manifest.ts";
-import { hubCapabilities, spokeCapabilities } from "../hooks/lib/profile.ts";
+} from "../hooks/lib/install/harness-manifest.ts";
+import { hubCapabilities, spokeCapabilities } from "../hooks/lib/federation/profile.ts";
 import { twinDrift } from "./belt-bin-overlay.ts";
 import {
 	type PlannedShim,
@@ -27,7 +27,7 @@ import {
 	restoreShims,
 	writeShims,
 } from "./ensure-shims.ts";
-import type { StepContext, StepResult } from "./install-run.ts";
+import type { StepContext, StepResult } from "./install/install-run.ts";
 import { payloadClosure } from "./lib/source-closure.ts";
 
 /** Faces the installer bundle-validates in the staged payload (validate()).

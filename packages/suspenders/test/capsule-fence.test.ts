@@ -6,7 +6,7 @@ import {
 	CAPSULE_MAX_BYTES,
 	assertCapsuleBounds,
 	capsuleValidity,
-} from "../hooks/lib/capsule-fence.ts";
+} from "../hooks/lib/lanes/capsule-fence.ts";
 
 const root = mkdtempSync(join(tmpdir(), "fleet-capsfence-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));

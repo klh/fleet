@@ -20,10 +20,10 @@ import {
 	readSessionState,
 	sessionStatePath,
 	writeSessionState,
-} from "../session-state.ts";
-import { subagentLaneSuffix } from "../subscribe-attach.ts";
+} from "./session-state.ts";
+import { subagentLaneSuffix } from "./subscribe-attach.ts";
 // W1124.12: worker-role lanes never arm the refill loop (mid-session either).
-import { sessionRole } from "../coordinator-edit-gate.ts";
+import { sessionRole } from "../gates/coordinator-edit-gate.ts";
 
 type RefillState = { project: string; eventId: number; prompted: boolean };
 

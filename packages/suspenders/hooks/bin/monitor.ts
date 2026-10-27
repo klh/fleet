@@ -30,7 +30,7 @@ import {
 	MANAGED_PREFIX_ENTRIES,
 	PRUNE_ALLOWLIST,
 	payloadChecksum,
-} from "../lib/harness-manifest.ts";
+} from "../lib/install/harness-manifest.ts";
 import type { Database } from "bun:sqlite";
 import {
 	openStore,

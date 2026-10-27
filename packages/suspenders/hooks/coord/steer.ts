@@ -17,7 +17,7 @@ import {
 	canonicalProjectRoot,
 	loadLaneRegistry,
 } from "../lib/lanes/lane-registry.ts";
-import { scanLine, scrubRules } from "../lib/scrub.ts";
+import { scanLine, scrubRules } from "../lib/gates/scrub.ts";
 import {
 	ackFor,
 	logReadOf,

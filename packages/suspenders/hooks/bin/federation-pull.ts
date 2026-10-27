@@ -12,7 +12,7 @@ import {
 import { reconcileWorkCrs } from "../lib/work/work-cr.ts";
 import { openGovernorDb } from "../lib/govdb/govdb.ts";
 import { defineVerb, runCli } from "../lib/verb-kit.ts";
-import { HUB_ONLY_CAPABILITIES } from "../lib/profile.ts";
+import { HUB_ONLY_CAPABILITIES } from "../lib/federation/profile.ts";
 
 const INTERVAL_S = Number(process.env.FEDERATION_PULL_INTERVAL_S ?? "300");
 

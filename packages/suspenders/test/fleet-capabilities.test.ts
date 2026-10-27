@@ -10,7 +10,7 @@ import {
 	defaultBinProbe,
 	targetCapabilities,
 	type BinProbe,
-} from "../hooks/lib/targets.ts";
+} from "../hooks/lib/install/targets.ts";
 
 const REPO = join(import.meta.dir, "..");
 // fixture home for the CLI smoke: detection inputs are pinned, never ambient

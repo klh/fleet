@@ -18,7 +18,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { executePlan, type StepContext } from "../scripts/install-run.ts";
+import { executePlan, type StepContext } from "../scripts/install/install-run.ts";
 import { registerLaunchdPreflight } from "../scripts/install-preflight.ts";
 
 const roots: string[] = [];

@@ -22,11 +22,18 @@ import {
 	CAP_AUTH_ISSUANCE,
 	hasCapability,
 	spokeCapabilities,
-} from "../hooks/lib/profile.ts";
+} from "../hooks/lib/federation/profile.ts";
 
 setDefaultTimeout(20_000);
 
-const PROFILE = join(import.meta.dir, "..", "hooks", "lib", "profile.ts");
+const PROFILE = join(
+	import.meta.dir,
+	"..",
+	"hooks",
+	"lib",
+	"federation",
+	"profile.ts",
+);
 
 const PROBE = `
 const m = await import(process.env.W736_ENTRY);

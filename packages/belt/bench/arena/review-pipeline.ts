@@ -29,7 +29,7 @@ import {
 
 // the EXACT oracle.ts review frame — arm parity single source (W832): the
 // arena pin imports oracle's frame lib instead of re-declaring it
-import { REVIEW_FRAME } from "@klh/suspenders/hooks/lib/oracle-frame.ts";
+import { REVIEW_FRAME } from "@klh/suspenders/hooks/lib/hub/oracle-frame.ts";
 const DIFF_CAP = 60_000; // oracle.ts INPUT_CAP — arm parity
 
 // the arm-B reviewer brief: the how-to-review.md reviewer checklist + the

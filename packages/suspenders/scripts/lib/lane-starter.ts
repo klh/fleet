@@ -220,9 +220,9 @@ export const laneIdentityPrompt = (sid: string, wt: string): string =>
 
 // Secrets must never enter starter history: the seed is shared across every
 // fork of its version, so one leaked token leaks into every lane. The guard
-// lives in hooks/lib/secret-guard.ts (W458.1) — one pattern shared with the
+// lives in hooks/lib/starter/secret-guard.ts (W458.1) — one pattern shared with the
 // starter-artifact validation.
-import { assertNoSecrets } from "../../hooks/lib/secret-guard.ts";
+import { assertNoSecrets } from "../../hooks/lib/starter/secret-guard.ts";
 import { WORKER_MANAGED_PROFILE } from "../../hooks/lib/executors/claude.ts";
 
 export { assertNoSecrets };

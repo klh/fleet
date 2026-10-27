@@ -4,7 +4,7 @@ The win32 emitter (W488.3) renders each entry in `deploy/services.yaml` to a
 WinSW v5 XML config: `suspenders-<name>.xml`. Render with:
 
 ```sh
-bun scripts/install-services.ts --target win32 [--out <dir>] [--service <name> ...]
+bun scripts/install/install-services.ts --target win32 [--out <dir>] [--service <name> ...]
 ```
 
 WinSW wraps a Windows service around `bun <bunEntry> <args>` — the same

@@ -30,7 +30,7 @@ import type {
 	CliDialect,
 	NormalizedSession,
 	ToolMode,
-} from "../../lib/dialect.ts";
+} from "../../lib/executors/dialect.ts";
 
 // ---- decision builders (pure — the output-translation table) ----
 
