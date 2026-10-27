@@ -422,6 +422,92 @@ describe("origin: foreign noise never counts (W917)", () => {
 	});
 });
 
+// W1281.8: one call's output streaming across several tool_result chunks —
+// every chunk rides the SAME tool_use_id; the reader must correlate them.
+const chunkedRun = (
+	command: string,
+	chunks: string[],
+	startMin: number,
+): string[] => {
+	const id = `toolu_w1281_${++tid}`;
+	return [
+		lineOf({
+			type: "assistant",
+			timestamp: iso(startMin),
+			message: {
+				role: "assistant",
+				content: [{ type: "tool_use", id, input: { command } }],
+			},
+		}),
+		...chunks.map((text, i) =>
+			lineOf({
+				type: "user",
+				timestamp: iso(startMin + 1 + i),
+				message: {
+					role: "user",
+					content: [{ type: "tool_result", tool_use_id: id, content: text }],
+				},
+			}),
+		),
+	];
+};
+
+describe("chunked tool-result correlation (W1281.8)", () => {
+	test("a fail count in a later chunk is not masked by an earlier passing fragment", () => {
+		const r = v({
+			transcriptText: [
+				assistantSay("all tests pass", -2),
+				...chunkedRun("bun test", [" 42 pass", " 2 fail"], -10),
+			].join("\n"),
+			claimStartedAt: Date.parse(iso(-12)),
+		});
+		expect(r.ok).toBe(false);
+		expect(r.why).toContain("failed (42 pass / 2 fail)");
+	});
+
+	test("a summary split mid-token across chunks reassembles into a green run", () => {
+		const r = v({
+			transcriptText: [
+				assistantSay("all tests pass", -2),
+				...chunkedRun(
+					"bun test packages/suspenders",
+					[" 42 pa", "ss\n 0 fail\nRan 42 tests across 3 files."],
+					-10,
+				),
+			].join("\n"),
+			claimStartedAt: Date.parse(iso(-12)),
+		});
+		expect(r.ok).toBe(true);
+	});
+
+	test("invocation echo and final summary merge into one correlated run", () => {
+		const transcriptText = [
+			assistantSay("all tests green, landing", -2),
+			...chunkedRun(
+				"bun test ./test/",
+				["bun test ./test/ — ", " 42 pass\n 0 fail"],
+				-10,
+			),
+		].join("\n");
+		const events = transcriptEventsFromText(transcriptText, "claude");
+		expect(events.runs).toHaveLength(1);
+		const last = events.runs.at(-1)?.text ?? "";
+		expect(last).toContain("bun test ./test/");
+		expect(last).toContain(" 42 pass");
+		expect(runCounts(last)).toEqual({ pass: 42, fail: 0 });
+		const r = v({ transcriptText });
+		expect(r.ok).toBe(true);
+	});
+
+	test("chunks of a non-test call stay foreign", () => {
+		const events = transcriptEventsFromText(
+			chunkedRun("eza -la", [" 5 pass", " 0 fail"], -10).join("\n"),
+			"claude",
+		);
+		expect(events.runs).toHaveLength(0);
+	});
+});
+
 describe("capsule claims", () => {
 	test("a capsule from a released claim cannot block a re-taken item", () => {
 		const r = v({

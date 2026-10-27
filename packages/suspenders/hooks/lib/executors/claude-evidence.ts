@@ -40,6 +40,16 @@ export const claudeEvidence: EvidenceNormalizer = () => {
 	// tool_use id → did this session's own assistant ask for a test run?
 	// Only results of such calls are run output; the rest is foreign noise.
 	const initiated = new Map<string, boolean>();
+	// W1281.8 chunk correlation: one call's output can stream across several
+	// tool_result chunks (batched commands, write_stdin-driven sessions).
+	// Chunks accumulate per id, concatenated verbatim — they are fragments of
+	// one output stream, so mid-token splits (" 42 pa" + "ss") reassemble —
+	// and each arrival re-emits the merged text. The invocation echo, exit
+	// code and pass/fail summary then correlate into ONE run event instead of
+	// per-chunk fragments; the final merge per id is the complete output, and
+	// earlier partial merges sort before it, so the last run before a claim
+	// is the correlated one.
+	const chunked = new Map<string, string>();
 	return (line, ts, sink) => {
 		const msg = line.message as
 			| { role?: unknown; content?: unknown }
@@ -65,7 +75,12 @@ export const claudeEvidence: EvidenceNormalizer = () => {
 					if (!id || !initiated.get(id)) continue; // foreign: drop
 					paired = true;
 					const t = toolResultText(c);
-					if (t) sink.output(ts, t);
+					if (t) {
+						const prev = chunked.get(id);
+						const merged = prev === undefined ? t : prev + t;
+						chunked.set(id, merged);
+						sink.output(ts, merged);
+					}
 				} else if (assistant && c.type === "text" && typeof c.text === "string")
 					sink.prose(ts, c.text);
 			}
