@@ -189,3 +189,13 @@ lands. The fleet import graph and entry-point map live in
 docs/fleet.entry-points.map.md.
 
 Source: AGENTS.md §Import law (W1249); tests/fleet.import-law.guard.test.ts
+
+## Schema law (W1238.4)
+
+zod is the single source of truth for wire-facing shapes: every HTTP body,
+config file, or rendered env a service consumes is safeParse'd through a
+named `<Shape>Schema`, never hand-cast. Drift fails loud (400 with the
+prettified parse error) instead of producing a malformed row. Buckle's
+`/v1/admin/*` bodies are migrated (`src/gov/admin-schemas.ts`).
+
+Source: AGENTS.md §Schema law (W1238.4); packages/buckle/AGENTS.md §Schema law
