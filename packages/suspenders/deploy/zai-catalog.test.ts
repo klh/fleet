@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -281,6 +282,12 @@ describe("Z.ai account catalog", () => {
 				expect(() =>
 					mergeZaiHubUpstreams(hub, { "glm-5.3-flash": [mutation] }),
 				).toThrow("direct provider route");
+		// "upstreams.json" here is join(tmpdir, ...): the test writes the
+		// fixture itself, never a repo path. Pin its absence so a future
+		// restore is a conscious change (W1790 disposition).
+		expect(existsSync(join(import.meta.dir, "upstreams.json"))).toBe(
+			false,
+		);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
