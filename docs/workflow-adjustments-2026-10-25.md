@@ -61,6 +61,8 @@ The current evidence does not justify attributing all failures to Z.ai capacity.
 A5/A7/O3 show provider pressure, but A19/A21-A24 are local guard, scanner,
 state, or base-context failures with separate fixes.
 
+| Legacy DONE branches defer forever on missing lane model facts | **High:** `scheduleReview` (packages/suspenders/hooks/lib/gates/review-scheduler.ts:336) resolves the reviewer model as `SUSPENDERS_REVIEW_MODEL || facts lane.<completed_by>.model`; legacy lanes (UUID sids `1a536a25`/`01a16a7a`, codex sid `codex-hub-policy-w1152-1`) left no fact, so their branches (W1355, W1465, W1289, W1294.16.1.1, W1124.36) repeated `review unavailable: configure SUSPENDERS_REVIEW_MODEL...` every cycle. | Backfilled `lane.<sid>.model = glm-5.3-flash` for the three authors via `coord fact set` (W1785); no code change. `.fleet/loop.log` 23:41-23:42Z then shows `review requested through Buckle (glm-5.3-flash)` for W1289, W1294.16.1.1, W1355 and W1465; W1355's exact review returned PASS with coverage proof; W1124.36 resolves the model and only pauses on transient provider pressure. | Residual: `suspenders/W1124.35.1` defers with `exact completion author missing` — no `work_completion_records` row exists, so no fact can fix it; needs its own completion-record repair. |
+
 ## Review rule
 
 At each supervisor check, compare `work report`, `work ready`, `work lanes`,
