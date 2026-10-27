@@ -139,6 +139,20 @@ describe("readCacheSlaStatus", () => {
 	});
 });
 
+describe("test-local status.json fixture (W1780)", () => {
+	test("status.json in this suite is a tmpdir fixture, not a repo path", () => {
+		// The dangling-path detector flagged packages/suspenders/test/status.json
+		// as lost by merge 94b7a050. It never was a repo file: the round-trip
+		// test above builds join(tmp, "status.json") inside a mkdtemp dir under
+		// the OS tmpdir and writes it itself. Pin both halves of that contract.
+		const fixture = join(tmp, "status.json");
+		expect(fixture.startsWith(tmpdir())).toBe(true);
+		expect(existsSync(join(suspendersRoot(), "test/status.json"))).toBe(
+			false,
+		);
+	});
+});
+
 describe("cacheSlaStatusPath (W1779 dangling-path pin)", () => {
 	test("the sla.json literal resolves via KLH_CACHE_SLA_STATUS to the tmp fixture — no repo-relative sla.json", () => {
 		expect(cacheSlaStatusPath()).toBe(join(tmp, "sla.json"));
