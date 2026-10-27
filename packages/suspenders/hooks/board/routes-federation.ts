@@ -8,12 +8,12 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { federationUsagePage } from "../bin/federation-usage-html.ts";
 import { federationWorkPage } from "../bin/federation-work-html.ts";
-import { readCapped } from "../lib/federation.ts";
+import { readCapped } from "../lib/federation/federation.ts";
 import {
 	federatedWorkView,
 	type GovernorStore,
 	localWorkFeed,
-} from "../lib/federation-work.ts";
+} from "../lib/federation/federation-work.ts";
 
 type ClassCell = {
 	in_tok: number;

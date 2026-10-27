@@ -44,29 +44,26 @@ async function startFed(opts: {
 	manifestCr?: ManifestCrFactory;
 }): Promise<{ base: string; stop: () => void }> {
 	const dir = `/tmp/w233-seam-${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 6)}`;
-	const policy = [
-		"version: 1",
-		"gateway:",
-		"  num_retries: 1",
-		"  fallbacks:",
-		"    glm-5.3-flash: [local-swarm]",
-		"",
-	].join("\n");
-	const upstreams = [
-		"version: 1",
-		"groups:",
-		"  glm-5.3-flash:",
-		"    - url: http://127.0.0.1:8501",
-		"      dialect: openai",
-		"  local-swarm: []",
-		"",
-	].join("\n");
-	await Bun.write(`${dir}.policy.yaml`, policy);
-	await Bun.write(`${dir}.upstreams.yaml`, upstreams);
+	const policy = JSON.stringify({
+		version: 1,
+		gateway: {
+			num_retries: 1,
+			fallbacks: { "glm-5.3-flash": ["local-swarm"] },
+		},
+	});
+	const upstreams = JSON.stringify({
+		version: 1,
+		groups: {
+			"glm-5.3-flash": [{ url: "http://127.0.0.1:8501", dialect: "openai" }],
+			"local-swarm": [],
+		},
+	});
+	await Bun.write(`${dir}.policy.json`, policy);
+	await Bun.write(`${dir}.upstreams.json`, upstreams);
 	const srv = startServer({
 		port: 0,
-		policyPath: `${dir}.policy.yaml`,
-		upstreamsPath: `${dir}.upstreams.yaml`,
+		policyPath: `${dir}.policy.json`,
+		upstreamsPath: `${dir}.upstreams.json`,
 		dbPath: ":memory:",
 		auth: { rootKey: ROOT, ...opts },
 	});

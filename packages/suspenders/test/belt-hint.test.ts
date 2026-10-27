@@ -25,7 +25,7 @@ afterAll(() => stub.stop(true));
 describe("BuckleDistillClient W96 hint", () => {
 	test("keeps the queue untouched when a scoped key is absent", () => {
 		const script = [
-			`const m = await import(${JSON.stringify(new URL("../hooks/lib/knowledge-ports.ts", import.meta.url).pathname)});`,
+			`const m = await import(${JSON.stringify(new URL("../hooks/lib/knowledge/distill-clients.ts", import.meta.url).pathname)});`,
 			`m.makeDistillClient();`,
 		].join("\n");
 		const {
@@ -47,7 +47,7 @@ describe("BuckleDistillClient W96 hint", () => {
 
 	test("rejects the legacy direct endpoint override", () => {
 		const script = [
-			`const m = await import(${JSON.stringify(new URL("../hooks/lib/knowledge-ports.ts", import.meta.url).pathname)});`,
+			`const m = await import(${JSON.stringify(new URL("../hooks/lib/knowledge/distill-clients.ts", import.meta.url).pathname)});`,
 			`m.makeDistillClient();`,
 		].join("\n");
 		const p = Bun.spawnSync(["bun", "-e", script], {
@@ -65,7 +65,8 @@ describe("BuckleDistillClient W96 hint", () => {
 	test("sends the scoped key, local-swarm group, and W96 hint", async () => {
 		const script = [
 			`const m = await import(${JSON.stringify(
-				new URL("../hooks/lib/knowledge-ports.ts", import.meta.url).pathname,
+				new URL("../hooks/lib/knowledge/distill-clients.ts", import.meta.url)
+					.pathname,
 			)});`,
 			`const c = new m.BuckleDistillClient();`,
 			`const out = await c.distill("payload-w96", {`,

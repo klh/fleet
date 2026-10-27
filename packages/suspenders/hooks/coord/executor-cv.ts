@@ -3,12 +3,12 @@
 // banks it as facts executor.<host>.<model>.cv. Dispatch already folds +
 // banks automatically on every spawn cycle; this verb is the operator's
 // measure view (board/monitor read the same facts).
-import { openStore } from "../lib/govdb.ts";
+import { openStore } from "../lib/govdb/govdb.ts";
 import { dim } from "./shared.ts";
 import {
 	executorCv,
 	writeExecutorCvFacts,
-} from "../lib/executor-cv.ts";
+} from "../lib/executors/executor-cv.ts";
 
 const close = (store: { close?: () => void }): void => store.close?.();
 

@@ -24,7 +24,11 @@ import {
 	loadDirectTiers,
 	loadGatewayPolicy,
 } from "./router-policy.ts";
-import { readZaiSnapshot, zaiLiteLlmRows } from "./zai-catalog-rows.ts";
+import {
+	readZaiSnapshot,
+	zaiCatalogFile,
+	zaiLiteLlmRows,
+} from "./zai-catalog-rows.ts";
 
 const HOME = process.env.HOME ?? homedir();
 const REMOTES_PATH = `${HOME}/.claude/local-llm/remotes.json`;
@@ -79,8 +83,7 @@ for (const s of remotesBuilt.skipped)
 entries.push(...remotesBuilt.entries);
 // Extend the user's explicit remote routes from the authenticated Z.ai
 // account catalog. Bad or stale data aborts regeneration before any write.
-const zaiCatalogPath =
-	process.env.ZAI_CATALOG_FILE ?? `${HOME}/.claude/local-llm/zai-models.json`;
+const zaiCatalogPath = zaiCatalogFile(HOME, process.env);
 if (existsSync(zaiCatalogPath)) {
 	const template = remotesBuilt.entries.find((entry) =>
 		/^[ \t]*model: zai\/glm-/m.test(entry),
@@ -196,7 +199,7 @@ const anthEntries = anth
 	)
 	.join("\n");
 // Router policy (retries, outlier ejection) + the fallback ladders come from
-// bin/routing-policy.yaml — operators edit the YAML, never code. Ladders
+// bin/routing-policy.json — operators edit the JSON, never code. Ladders
 // land under litellm_settings.fallbacks (W219.2): the placement the
 // installed litellm reads; router_settings.model_group_fallbacks is a dead
 // key (warned + ignored — the 2026-10-06 z.ai TLS outage hard-failed lanes

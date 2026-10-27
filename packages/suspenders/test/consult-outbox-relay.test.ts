@@ -1,15 +1,18 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 import {
 	handleConsultRelay,
 	ensureConsultRelayReceipts,
-} from "../hooks/lib/consult-relay-receiver.ts";
-import { consultStoreId, enqueueConsult } from "../hooks/lib/consult-outbox.ts";
+} from "../hooks/lib/federation/consult-relay-receiver.ts";
+import {
+	consultStoreId,
+	enqueueConsult,
+} from "../hooks/lib/federation/consult-outbox.ts";
 import {
 	relayConsultOutbox,
 	type RelayOptions,
-} from "../hooks/lib/consult-outbox-relay.ts";
+} from "../hooks/lib/federation/consult-outbox-relay.ts";
 
 const NOW = 1_790_000_000_000;
 function fixture(count = 1) {

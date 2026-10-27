@@ -4,8 +4,6 @@
 
 import { db, DEMO, REG_DIR } from "./context.ts";
 import { syncDecisions } from "./lanes.ts";
-import { sessions, board, claims, events, payload } from "./data.ts";
-import { orchestrate } from "./orch.ts";
 import { existsSync, writeFileSync } from "node:fs";
 
 export function seedDemo(): void {

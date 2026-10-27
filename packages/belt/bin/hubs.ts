@@ -2,12 +2,12 @@
 // self-healing).
 //
 // ~/.claude/local-llm/hubs.json is the label → candidate-URLs registry
-// suspenders' resolveHub() walks (hooks/lib/hub-locate.ts). Belt reads the
+// suspenders' resolveHub() walks (hooks/lib/hub/hub-locate.ts). Belt reads the
 // SAME file (env SUSPENDERS_HUBS_FILE overrides, same key) and turns each
 // label into a supervisor Target so the dashboard's Supervisor section and
 // /llms.txt can surface the hubs visibly.
 //
-// W371: a hub whose stack.yaml profile declares deploy.dir is RESTARTABLE —
+// W371: a hub whose stack.json profile declares deploy.dir is RESTARTABLE —
 // belt runs docker compose up on the hub when it is down (ssh-wrapped for a
 // remote deploy.ssh target, local /bin/sh for a local-docker hub). Labels
 // join case-insensitively (coord hubs precedent); a hub without a profile
@@ -23,6 +23,7 @@ import {
 	tryLoadStack,
 	type HubProfile,
 } from "../../suspenders/hooks/lib/stack-config.ts";
+import { isLoopbackHostname } from "../../suspenders/hooks/lib/loopback.ts";
 import type { Target } from "./supervisor.ts";
 
 const HUBS_PATH = () =>
@@ -70,8 +71,7 @@ export function browserConsoleUrl(
 			return null;
 		if (
 			remote &&
-			(url.hostname.endsWith(".local") ||
-				["localhost", "127.0.0.1", "::1"].includes(url.hostname))
+			(url.hostname.endsWith(".local") || isLoopbackHostname(url.hostname))
 		)
 			return null;
 		return url.href;
@@ -444,7 +444,7 @@ export function hubHeal(profile: HubProfile): () => Promise<string | null> {
 }
 
 /** Supervisor targets for the registry. Probe-only by default; rows whose
- *  stack.yaml profile declares deploy.dir carry a heal closure + quiet-hours
+ *  stack.json profile declares deploy.dir carry a heal closure + quiet-hours
  *  hold (W483: a hub is EXPECTED down in its window — no restart attempts,
  *  no paging). */
 export function hubTargets(): Target[] {

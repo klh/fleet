@@ -70,6 +70,7 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 			`packages/suspenders/hooks/${name}/fixture.ts`,
 			"export const value = 1;",
 		);
+	put("packages/suspenders/agent-rules/fixture.ts", "export const value = 1;");
 	for (const file of [
 		"gate.ts",
 		"session-start.ts",
@@ -85,6 +86,9 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		"bin/fleet-watch.ts",
 		"bin/fleet-board.ts",
 		"bin/morph.ts",
+		"bin/llm-keepwarm.ts",
+		"bin/fallback-drill.ts",
+		"bin/soak.ts",
 		"lib/morph.ts",
 		"board/prompt-transform.ts",
 	])
@@ -96,8 +100,8 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		"packages/buckle/src/server.ts",
 		'export { trace } from "../../telemetry/src/http-trace.ts";',
 	);
-	put("packages/buckle/routing-policy.yaml", "gateway: {}");
-	put("packages/buckle/repo-policy.yaml", "repos: []");
+	put("packages/buckle/routing-policy.json", "{}");
+	put("packages/buckle/repo-policy.json", "{}");
 	put("packages/suspenders/hooks/knowledgeworker.md", "fixture");
 	put("packages/suspenders/deploy/services.yaml", "services: []");
 	put(
@@ -123,11 +127,30 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 			"packages/suspenders/hooks/board/prompt-transform.ts",
 			'throw new Error("bad runtime import");',
 		);
-	put("packages/belt/bin/fixture.ts", "export const value = 1;");
+	// W1256.1/W1466: the payload faces (sync-harness CLOSURE_ENTRIES) must
+	// exist — fake faces, same paths as the real payload — and the ship list
+	// is their computed closure: the edges below reach local-llm, the buckle
+	// gate defaults, blam src and agent-rules the way the real graph does.
+	for (const file of ["router-shim.ts", "supervisor.ts", "dashboard.ts"])
+		put(`packages/belt/bin/${file}`, "export const value = 1;");
 	put(
-		"packages/buckle/upstreams.yaml",
-		"groups:\n  fixture:\n    - name: reviewed-default\n      tier: 4\n",
+		"packages/belt/bin/fixture.ts",
+		'export { value } from "../../local-llm/fixture.ts";',
 	);
+	put(
+		"packages/buckle/src/policy.ts",
+		[
+			'export const upstreams = new URL("../upstreams.json", import.meta.url);',
+			'export const routing = new URL("../routing-policy.json", import.meta.url);',
+			'export const repoPolicy = new URL("../repo-policy.json", import.meta.url);',
+			'export { value } from "@klh/blam/src/fixture.ts";',
+		].join("\n"),
+	);
+	put(
+		"packages/suspenders/scripts/lib/agent-rules.ts",
+		'import { resolve } from "node:path";\nexport const dir = resolve(import.meta.dir, "../../agent-rules");',
+	);
+	put("packages/buckle/upstreams.json", '{"groups":{"reviewed-default":[]}}');
 	put("packages/local-llm/fixture.ts", "export const value = 1;");
 	put("packages/blam/src/fixture.ts", "export const value = 1;");
 	put("packages/blam/bench/paired/fixture.ts", "export const value = 1;");
@@ -203,11 +226,20 @@ test("canonical step publishes a self-contained committed payload and receipt wi
 	expect(existsSync(f.ctx.llmHome)).toBe(false);
 	const packagedDefaults = join(
 		f.ctx.prefix,
-		".harness/packages/buckle/upstreams.yaml",
+		".harness/packages/buckle/upstreams.json",
 	);
 	expect(readFileSync(packagedDefaults, "utf8")).toBe(
-		`${f.git("show", `${receipt.revision}:packages/buckle/upstreams.yaml`)}\n`,
+		f.git("show", `${receipt.revision}:packages/buckle/upstreams.json`),
 	);
+	// W1466: the payload is the computed closure — what an edge reaches
+	// ships; trees nothing reaches (blam bench, deploy here) stay out.
+	const staged = (rel: string) =>
+		existsSync(join(f.ctx.prefix, ".harness/packages", rel));
+	expect(staged("suspenders/agent-rules/fixture.ts")).toBe(true);
+	expect(staged("local-llm/fixture.ts")).toBe(true);
+	expect(staged("blam/src/fixture.ts")).toBe(true);
+	expect(staged("blam/bench")).toBe(false);
+	expect(staged("suspenders/deploy")).toBe(false);
 	// W650: the scrub-gate stubs ride the prefix (symlinked from the payload).
 	expect(lstatSync(join(f.ctx.prefix, ".githooks")).isSymbolicLink()).toBe(
 		true,
@@ -272,6 +304,37 @@ test("installed harness includes Belt dashboard dependencies", async () => {
 	expect(existsSync(join(f.ctx.prefix, "node_modules/bonjour-service"))).toBe(
 		true,
 	);
+});
+
+test("installed harness resolves staged Fleet packages locally", async () => {
+	const f = fixture();
+	f.put(
+		"packages/suspenders/package.json",
+		JSON.stringify({
+			name: "@klh/suspenders",
+			version: "2.0.0",
+			type: "module",
+			dependencies: { "@klh/blam": "2.0.0", "@klh/buckle": "2.0.0" },
+		}),
+	);
+	f.git("add", ".");
+	f.git(
+		"-c",
+		"user.name=Fixture",
+		"-c",
+		"user.email=fixture@example.invalid",
+		"commit",
+		"-m",
+		"scoped local dependencies",
+	);
+	await syncHarness(f.ctx);
+	const installed = JSON.parse(
+		readFileSync(join(f.ctx.prefix, "package.json"), "utf8"),
+	);
+	expect(installed.dependencies["@klh/blam"]).toBeUndefined();
+	expect(installed.dependencies["@klh/buckle"]).toBeUndefined();
+	expect(existsSync(join(f.ctx.prefix, "node_modules/@klh/blam"))).toBe(true);
+	expect(existsSync(join(f.ctx.prefix, "node_modules/@klh/buckle"))).toBe(true);
 });
 
 test.each(["syntax", "import", "execution"] as const)(
@@ -358,8 +421,28 @@ test("dirty reviewed payload is refused before prefix changes", async () => {
 
 test("unreviewed Buckle defaults are refused before prefix changes", async () => {
 	const f = fixture();
-	f.put("packages/buckle/upstreams.yaml", "groups: { unreviewed: [] }");
+	f.put("packages/buckle/upstreams.json", '{"groups":{"unreviewed":[]}}');
 	await expect(syncHarness(f.ctx)).rejects.toThrow("working payload is dirty");
+	expect(lstatSync(f.ctx.prefix).isDirectory()).toBe(true);
+});
+
+test("a payload face missing from the commit is refused before prefix changes", async () => {
+	const f = fixture();
+	f.git("rm", "-q", "packages/belt/bin/dashboard.ts");
+	f.git(
+		"-c",
+		"user.name=Fixture",
+		"-c",
+		"user.email=fixture@example.invalid",
+		"commit",
+		"-m",
+		"reviewed face removal",
+	);
+	// W1466: sourcePaths computes the ship list at the revision — a vanished
+	// face refuses by name instead of archiving a payload with a hole.
+	await expect(syncHarness(f.ctx)).rejects.toThrow(
+		"Payload faces vanished from the source tree: packages/belt/bin/dashboard.ts",
+	);
 	expect(lstatSync(f.ctx.prefix).isDirectory()).toBe(true);
 });
 
@@ -804,4 +887,51 @@ test("SUSPENDERS_SYNC_ALLOW_BRANCH=1 is the explicit lane-testing escape (W1243)
 		readFileSync(join(f.ctx.prefix, "harness-receipt.json"), "utf8"),
 	);
 	expect(receipt.revision).toBe(base);
+});
+
+// W1468: a kit twin publishes only as the full re-export of its belt/bin
+// artifact — a byte copy is a second module instance (split pending map).
+function commitTwin(f: ReturnType<typeof fixture>, kit: string): void {
+	f.put("packages/belt/bin/spawner.ts", "export const pending = new Map();");
+	f.put("packages/local-llm/spawner.ts", kit);
+	f.git("add", ".");
+	f.git(
+		"-c",
+		"user.name=Fixture",
+		"-c",
+		"user.email=fixture@example.invalid",
+		"commit",
+		"-m",
+		"runtime twin",
+	);
+}
+
+test("a diverged runtime twin is refused before publication (W1468)", async () => {
+	const f = fixture();
+	commitTwin(f, "export const pending = new Map();");
+	await expect(syncHarness(f.ctx)).rejects.toThrow(
+		"Runtime twins diverge from the pinned artifact",
+	);
+	expect(lstatSync(f.ctx.prefix).isDirectory()).toBe(true);
+	expect(readFileSync(join(f.ctx.prefix, "operator.env"), "utf8")).toBe(
+		"private-preserved",
+	);
+});
+
+test("the published kit twin and its belt artifact are one module (W1468)", async () => {
+	const f = fixture();
+	commitTwin(f, '// shared lifecycle\nexport * from "../belt/bin/spawner.ts";');
+	await syncHarness(f.ctx);
+	const same = Bun.spawnSync(
+		[
+			process.execPath,
+			"-e",
+			"const [a, b] = await Promise.all(process.argv.slice(1).map((p) => import(p))); console.log(a.pending === b.pending)",
+			join(f.ctx.prefix, "local-llm/spawner.ts"),
+			join(f.ctx.prefix, ".harness/packages/belt/bin/spawner.ts"),
+		],
+		{ stdout: "pipe", stderr: "pipe" },
+	);
+	expect(same.exitCode).toBe(0);
+	expect(same.stdout.toString().trim()).toBe("true");
 });

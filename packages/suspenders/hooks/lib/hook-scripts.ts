@@ -1,18 +1,8 @@
-// hooks/lib/hook-scripts.ts — W422.17.1: hooks that need the shared
-// scripts/lib modules resolve them in BOTH install layouts: the repo has
-// hooks/ beside scripts/; the installed prefix flattens hooks/ to its root
-// (session-start.ts beside scripts/). Null = not found (caller degrades).
+// hooks/lib/hook-scripts.ts — W422.17.1: the interactive-session enrollment
+// hooks. The shared lane-auth/lane modules moved into hooks/lib (W1255.2
+// scripts-independence), so they resolve from this directory directly — no
+// cross-tree layout probing.
 import { existsSync } from "node:fs";
-import { join } from "node:path";
-
-export const scriptsLibPath = (base: string, name: string): string | null => {
-	for (const p of [
-		join(base, "scripts", "lib", name),
-		join(base, "..", "scripts", "lib", name),
-	])
-		if (existsSync(p)) return p;
-	return null;
-};
 
 const gitToplevel = (cwd: string): string | null => {
 	const top = Bun.spawnSync(
@@ -29,7 +19,8 @@ const gitToplevel = (cwd: string): string | null => {
  *  per-session key, return the GOVERNANCE note (null = not enrollable —
  *  no git toplevel / no shared lib). probeFn + front injectable for tests —
  *  lane.ts pins BUCKLE_FRONT at module load, so a cached module in a shared
- *  test process would otherwise aim the mint at the live spoke. */
+ *  test process would otherwise aim the mint at the live spoke. null =
+ *  not enrollable (no git toplevel). */
 export const enrollTopLevel = async (o: {
 	hookDir: string;
 	sid: string;
@@ -38,12 +29,10 @@ export const enrollTopLevel = async (o: {
 	probeFn?: (front: string) => Promise<string | null>;
 	front?: string;
 }): Promise<string | null> => {
-	const laP = scriptsLibPath(o.hookDir, "lane-auth.ts");
-	const laneP = scriptsLibPath(o.hookDir, "lane.ts");
 	const top = gitToplevel(o.cwd);
-	if (!laP || !laneP || !top) return null;
-	const la = await import(laP);
-	const lm = await import(laneP);
+	if (!top) return null;
+	const la = await import("./lanes/lane-auth.ts");
+	const lm = await import("./lanes/lane.ts");
 	const front: string = o.front ?? lm.BUCKLE_FRONT;
 	const probe = o.probeFn ?? lm.probeBuckleFront;
 	const r = await la.enrollSessionKey({
@@ -65,10 +54,11 @@ export const retireTopLevel = async (o: {
 	cwd: string;
 	fetchFn?: typeof fetch;
 }): Promise<void> => {
-	const laP = scriptsLibPath(o.hookDir, "lane-auth.ts");
 	const top = gitToplevel(o.cwd);
-	if (!laP || !top) return;
-	const { laneKeyMetaPath, retireLaneKey } = await import(laP);
+	if (!top) return;
+	const { laneKeyMetaPath, retireLaneKey } = await import(
+		"./lanes/lane-auth.ts"
+	);
 	const fleet = `${top}/.fleet`;
 	if (!existsSync(laneKeyMetaPath(fleet, o.sid))) return;
 	await retireLaneKey({ fleet, sid: o.sid, fetchFn: o.fetchFn });

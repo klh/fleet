@@ -1,0 +1,19 @@
+{
+	"version": 1,
+	"groups": {
+		"glm-5.3-flash": [
+			{
+				"url": "http://127.0.0.1:8902",
+				"dialect": "openai",
+				"adapter": "openai-compat"
+			}
+		],
+		"local-swarm": [
+			{
+				"url": "http://127.0.0.1:8902",
+				"dialect": "openai",
+				"adapter": "openai-compat"
+			}
+		]
+	}
+}

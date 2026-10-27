@@ -1,4 +1,4 @@
-// hooks/lib/codex.ts — the codex dialect layer (W73, from the W68 spec).
+// hooks/lib/executors/codex.ts — the codex dialect layer (W73, from the W68 spec).
 // Gates keep ZERO codex knowledge: this module owns the two translations —
 // payload in (normalizeCodex) and decision out (buildDecision) — plus fleet
 // identity resolution (resolveCodexSid) and the drift journal. Dialect is
@@ -25,7 +25,7 @@
 //     shape, so the normalizer also parses patch text; file-less edits
 //     ride command-level inspection (the spec's fallback posture).
 import type { HookInput } from "../../lib/hookio.ts";
-import { resolveFleetLane } from "../../lib/fleetlane.ts";
+import { resolveFleetLane } from "../../lib/lanes/fleetlane.ts";
 import type {
 	CliDialect,
 	NormalizedSession,

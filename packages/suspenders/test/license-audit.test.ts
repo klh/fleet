@@ -31,7 +31,7 @@ import {
 	verifyVendorHeaders,
 	violationsOf,
 	walkLicenses,
-} from "../hooks/lib/license-audit.ts";
+} from "../hooks/lib/fleet-loop/license-audit.ts";
 
 const pkg = (
 	dir: string,

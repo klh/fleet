@@ -18,6 +18,13 @@ import {
 } from "../../buckle/src/stream-semantics.ts";
 import { primeLocalStream } from "./stream-prelude.ts";
 import { upstreamErrorDetail } from "../../buckle/src/error-detail.ts";
+// W1303.3: the shared resilience kit — the router's Retry-After parse and
+// per-attempt signals now delegate to it (one implementation, both routers).
+import {
+	attemptSignal,
+	callDeadlineMs,
+	parseRetryAfterHeader,
+} from "../../buckle/src/resilience.ts";
 
 // ─── 7-dimension complexity scoring (LiteLLM Auto Router pattern) ───
 export interface ComplexityScore {
@@ -435,16 +442,14 @@ export const RETRY_WAIT_CAP_MS = envInt(
 	0,
 );
 
-/** Retry-After (delta-seconds or HTTP-date) → ms; undefined when absent/bad. */
+/** Retry-After (delta-seconds or HTTP-date) → ms; undefined when absent/bad.
+ *  W1303.3: the parse rides the shared resilience kit (same semantics, one
+ *  implementation for both routers). */
 export function retryAfterMs(
 	h: string | null,
 	now = Date.now(),
 ): number | undefined {
-	if (h === null || h.trim() === "") return undefined;
-	const s = Number(h);
-	if (Number.isFinite(s)) return s >= 0 ? Math.round(s * 1000) : undefined;
-	const at = Date.parse(h);
-	return Number.isNaN(at) ? undefined : Math.max(0, at - now);
+	return parseRetryAfterHeader(h, now);
 }
 
 // ─── per-request timings (W257) ───
@@ -507,6 +512,9 @@ export interface CallOpts {
 	/** W257: performance.now() at request receipt — enables per-attempt
 	 *  timings on the used hop. */
 	startedAt?: number;
+	/** W1303.3: absolute walk deadline (epoch ms) — the per-attempt timeout
+	 *  becomes min(per-call, remaining) via the resilience kit's signal. */
+	deadlineAtMs?: number;
 	/** Parent trace from the Belt ingress. Each specialist attempt gets a child span. */
 	traceparent?: string;
 	requestId?: string;
@@ -555,7 +563,10 @@ export async function viaLocal(
 					...(opts.requestId ? { "x-klh-request-id": opts.requestId } : {}),
 					...(opts.preference ? { "x-klh-prefer": opts.preference } : {}),
 				},
-				signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
+				signal:
+					opts.deadlineAtMs !== undefined
+						? attemptSignal(opts.timeoutMs ?? 120_000, opts.deadlineAtMs)
+						: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
 				body: JSON.stringify({
 					model: r.model,
 					messages,
@@ -717,10 +728,13 @@ export async function openLocalStream(
 		// headers land the pump + client cancel() own the body; a stale one-shot
 		// fire after a failed open only aborts an orphaned controller (no-op).
 		const ctrl = new AbortController();
-		ttfb = setTimeout(
-			() => ctrl.abort(new Error("ttfb timeout")),
-			opts.timeoutMs ?? 120_000,
-		);
+		// W1303.3: the open deadline shrinks to min(per-call, remaining walk)
+		// when the caller carries an absolute deadline (kit §1).
+		const ttfbMs =
+			opts.deadlineAtMs !== undefined
+				? callDeadlineMs(opts.timeoutMs ?? 120_000, opts.deadlineAtMs)
+				: (opts.timeoutMs ?? 120_000);
+		ttfb = setTimeout(() => ctrl.abort(new Error("ttfb timeout")), ttfbMs);
 		const res = await fetch(
 			`${opts.base ?? specialistBase(r.port)}/v1/chat/completions`,
 			{

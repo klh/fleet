@@ -8,8 +8,8 @@
 //   bun hooks/bin/signals-scan.ts [--repo <dir>] [--limit <n>]
 //        [--state <file>] [--json]
 import { join } from "node:path";
-import { openStore } from "../lib/govdb.ts";
-import { createSignalsScan } from "../lib/signals-scan.ts";
+import { openStore } from "../lib/govdb/govdb.ts";
+import { createSignalsScan } from "../lib/harvest/signals-scan.ts";
 import {
 	defineVerb,
 	dieFor,

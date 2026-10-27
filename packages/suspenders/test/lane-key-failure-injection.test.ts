@@ -1,5 +1,5 @@
 // test/lane-key-failure-injection.test.ts — W746 failure injection at the
-// lane-key seams (scripts/lib/lane-auth.ts). Two failure classes the
+// lane-key seams (hooks/lib/lanes/lane-auth.ts). Two failure classes the
 // 2026-10-14 review named, each at the REAL seam with the front's fetch
 // injected:
 // (1) belt partition mid-dispatch — the front answers the probe, then the
@@ -19,7 +19,7 @@ import {
 	mintLaneKey,
 	revokeLaneKey,
 	writeSessionEnrollmentFiles,
-} from "../scripts/lib/lane-auth.ts";
+} from "../hooks/lib/lanes/lane-auth.ts";
 
 /** A hung front socket: never answers on its own, but honours the abort
  *  signal exactly like real fetch (abort → rejection). */

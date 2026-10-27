@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import {
 	codexThreadForSession,
 	deliverSubscribedCodexEvent,
-} from "../hooks/lib/codex-direct-delivery.ts";
+} from "../hooks/lib/executors/codex-direct-delivery.ts";
 
 const sid = "019b0ba5-4c7e-7d51-99fa-85704ad78b99";
 const event = {

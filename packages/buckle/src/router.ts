@@ -23,7 +23,6 @@ import {
 import {
 	type ErrorKind,
 	normalizeUpstreamError,
-	RouterError,
 	routerErrorEnvelope,
 } from "./adapters/errors.ts";
 import { resolveAdapter } from "./adapters/index.ts";
@@ -32,6 +31,7 @@ import { bridgeRequest, bridgeResponse } from "./bridge.ts";
 import { type CandidateRow, candIdOf } from "./candidates.ts";
 import { Cooldowns, retryAfterS, retryDelayS } from "./cooldown.ts";
 import { mayEscalate, type RouteSelection } from "./decide.ts";
+import { clampRetryAfter } from "./http-kit.ts";
 import { FLASHX, type GatewayPolicy } from "./policy.ts";
 import {
 	assertProviderConcurrencyErrorCodes,
@@ -480,8 +480,19 @@ export class Router {
 			const pressure = providerPressureOf(
 				{ concurrencyErrorCodes: providerConcurrencyCodesOf(dep, this.policy) },
 				err.providerCode,
+				err.message,
 			);
 			lease?.feedback?.(resp.status, ra, pressure);
+			// W1257: bank the provider's own refusal words at every rate-limit
+			// rung — a later bench-window hold answers with THE PROVIDER's
+			// last-seen code/type/message as attributed context, never silence.
+			if (err.kind === "rate_limited")
+				this.cooldowns.noteRateLimitDetail(dep, {
+					code: err.providerCode,
+					type: err.providerType,
+					message: err.message,
+					retryAfterS: ra,
+				});
 			const base = {
 				transportTimeoutPhase: dep.buckle
 					? safeTimeoutPhase(resp.headers.get("x-klh-transport-timeout-phase"))
@@ -496,13 +507,19 @@ export class Router {
 						? Response.json(routerErrorEnvelope(err, req.dialect), {
 								status: 429,
 								headers: {
-									...Object.fromEntries(replay.headers),
+									...Object.fromEntries(
+										[...replay.headers].filter(([k]) => k !== "retry-after"),
+									),
 									"content-type": "application/json",
+									// W1303.2 clamp: the upstream's retry-after relays
+									// clamped — a quota wall never sleeps a client for
+									// weeks (http-kit).
 									...(ra === null
 										? {}
 										: {
-												"retry-after":
-													replay.headers.get("retry-after") ?? String(ra),
+												"retry-after": String(
+													clampRetryAfter(retryAfterS(replay.headers) ?? ra),
+												),
 											}),
 								},
 							})
@@ -741,6 +758,13 @@ export class Router {
 				);
 			} catch (error) {
 				if (req.signal?.aborted) {
+					// W1124.42: the final receipt must truthfully retain the
+					// attempt — a wire guard that fired (or a classified upstream
+					// refusal racing the hangup) keeps its network attribution;
+					// a plain hangup with no upstream boundary stays plain.
+					const upstream = error instanceof UpstreamError ? error : null;
+					const timedOutPhase =
+						observedReq.transport?.snapshot()?.timeoutPhase ?? null;
 					this.reportAttempt(
 						observedReq,
 						dep,
@@ -749,6 +773,11 @@ export class Router {
 						null,
 						"downstream_cancel",
 						null,
+						undefined,
+						undefined,
+						null,
+						upstream !== null || timedOutPhase !== null ? "network" : null,
+						upstream ?? undefined,
 					);
 					return { kind: "aborted" };
 				}
@@ -1034,34 +1063,60 @@ export class Router {
 	}
 
 	/** A temporarily ejected rate-limited tier still has an actionable
-	 * outcome. The response is synthetic: a previous provider body must not
-	 * be replayed into a different request. */
+	 * outcome: a typed LOCAL hold — never a fabricated provider 429 (W1257).
+	 * The provider's own last-seen refusal words ride as attributed context;
+	 * a real upstream rung later in the walk still outranks the memory. */
 	private rememberCooledRateLimit(
 		tier: string,
 		req: UpstreamRequest,
 		st: WalkState,
 	): void {
-		if (st.rateLimit) return;
-		const remaining = this.deps.pool
+		const legs = this.deps.pool
 			.deployments(tier)
 			.filter((dep) => bridgeRequest(req, dep) !== null)
-			.map((dep) => this.cooldowns.rateLimitRemainingS(dep))
-			.filter((seconds): seconds is number => seconds !== null);
-		if (remaining.length === 0) return;
-		const retryAfter = Math.min(...remaining);
-		const error = new RouterError(
-			"rate_limited",
-			429,
-			"Upstream rate limited; retry after cooldown",
+			.map((dep) => ({
+				dep,
+				seconds: this.cooldowns.rateLimitRemainingS(dep),
+				detail: this.cooldowns.rateLimitDetail(dep),
+			}))
+			.filter((leg) => leg.seconds !== null);
+		if (legs.length === 0) return;
+		const soonest = legs.reduce((a, b) =>
+			(a.seconds ?? 0) <= (b.seconds ?? 0) ? a : b,
 		);
-		st.rateLimit = {
-			tier,
-			source: "cooldown",
-			response: Response.json(routerErrorEnvelope(error, req.dialect), {
-				status: 429,
-				headers: { "retry-after": String(retryAfter) },
-			}),
+		const d = soonest.detail;
+		const words = d
+			? `; last provider refusal: code ${String(d.code ?? "unknown")} ${d.type ?? "type unknown"} "${d.message.slice(0, 240)}"`
+			: "";
+		st.status = 503;
+		st.error = `provider ${tier} rate-limit cooldown — answered from gateway cooldown, not the provider (${String(soonest.seconds)}s left; W1257)${words}`;
+		st.lastFailure = {
+			source: "local-admission",
+			status: 503,
+			kind: "local_admission",
+			retryAfterS: soonest.seconds,
 		};
+		// one local-admission attempt receipt with the banked provider tokens,
+		// so the trace tells the truth about where this answer came from
+		this.reportAttempt(
+			req,
+			soonest.dep,
+			st.attempts,
+			this.now(),
+			503,
+			"rate_limited",
+			soonest.seconds,
+			undefined,
+			undefined,
+			null,
+			"local-admission",
+			{
+				providerPool: null,
+				queueWaitMs: null,
+				providerErrorCode: safeProviderErrorToken(d?.code ?? null),
+				providerErrorType: safeProviderErrorToken(d?.type ?? null),
+			},
+		);
 	}
 
 	/** Ladder walk: requested group first, then the policy fallback list.

@@ -8,27 +8,37 @@
 //   bun review-lane.ts --item <Wn> --project <p> --executor <name> \
 //     (--bin <path> | --belt <machine>:<port>[:<model>] | --llm-url <url> [--llm-model <m>])
 // exits 0 on a landed verdict, 2 on a failed leg (verdict=error recorded).
-import { openStore, projectRootOf } from "../lib/govdb.ts";
-import { resolveBelt } from "../lib/belt-locate.ts";
+
 import { existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 import {
-	reviewContext,
+	addedWorkspaceDependencies,
+	missingImportsExplained,
+	type Proof,
+	TEST_FILE,
+} from "../lib/gates/coverage-proof.ts";
+import {
+	priorBlockingReviewLines,
 	publishReviewReceipt,
+	reviewContext,
 	reviewFindingIds,
-} from "../lib/review-receipt.ts";
+} from "../lib/gates/review-receipt.ts";
 import {
 	finishReviewRequest,
 	reviewRequestKey,
-} from "../lib/review-scheduler.ts";
+} from "../lib/gates/review-scheduler.ts";
+import { wireModelAudit } from "../lib/gates/wire-model-check.ts";
+import { openStore, projectRootOf } from "../lib/govdb/govdb.ts";
+import { resolveBelt } from "../lib/hub/belt-locate.ts";
+import { branchForItem } from "../lib/lanes/item-branch.ts";
 import {
 	adminKey,
 	BUCKLE_FRONT,
 	mintLaneKey,
 	revokeLaneKey,
-} from "../../scripts/lib/lane-auth.ts";
+} from "../lib/lanes/lane-auth.ts";
+import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 
 // ---- args (W820: verb-kit owns parsing — W651 law) -------------------------
 // W820: verb-kit owns parsing (W651 law) — reqFlags --item/--project; the
@@ -96,7 +106,7 @@ const failedEarly = (error: unknown) => {
 			reviewFailureReason(error),
 		);
 	console.error(
-		"review-lane: runner failed before a bound receipt; scheduled retry retained",
+		`review-lane: runner failed before a bound receipt (${reviewFailureReason(error)}); scheduled retry retained`,
 	);
 	process.exit(2);
 };
@@ -164,7 +174,17 @@ const thread: string[] = (
 );
 
 // ---- the review prompt ------------------------------------------------------
-const boundContext = reviewContext(repo, `suspenders/${item}`);
+// W1279: the review binds the item's CANONICAL branch — its own ref when it
+// exists, else the kept child's parent-named branch (split --keep rebinds the
+// tree's lane-context, not the branch) — never a blind suspenders/<item>.
+const boundBranch = branchForItem(repo, item) ?? `suspenders/${item}`;
+const boundContext = reviewContext(repo, boundBranch);
+const priorBlocking = priorBlockingReviewLines(
+	db,
+	project,
+	item,
+	boundContext.commit,
+);
 if (requestKey && requestKey !== reviewRequestKey(project, item, boundContext))
 	throw new Error("review context changed before scheduled runner started");
 const diff = gitDiff(boundContext.base, boundContext.commit);
@@ -191,6 +211,9 @@ const prompt = [
 	`ITEM THREAD (newest first, last 20):`,
 	...(thread.length ? thread : ["(no events)"]),
 	``,
+	`PRIOR BLOCKING IDS FOR THIS EXACT COMMIT (receipt evidence, may include incomplete ERROR output):`,
+	...(priorBlocking.length ? priorBlocking : ["(none)"]),
+	``,
 	`EXACT BRANCH DIFF (${boundContext.base}...${boundContext.commit}):`,
 	diff || "(no branch — review the thread/claims only)",
 	``,
@@ -198,7 +221,7 @@ const prompt = [
 	`ID discipline (W1263): B-prefix = merge-blocking defect, N-prefix = advisory. NEVER label advisory content with a B-prefix — every B-ID you emit blocks the merge until a reviewer explicitly resolves it, and advisory B-IDs accumulate a blocking union across review rounds that starves the merge ladder. When in doubt, use N.`,
 	`Review silently: do not announce next steps or ask to continue — your whole reply is findings bullets plus the verdict line.`,
 	`Explicitly resolved prior findings use a separate line RESOLVED: B<round>-<slug> followed by evidence. Unresolved blocker IDs prevent merge even with a PASS final line.`,
-	`Prior blocking IDs (W1263): when the ITEM THREAD shows earlier B-IDs for this exact commit, your reply must carry one line PER prior ID — either re-open it (state it as a finding bullet) or close it (RESOLVED: B<id> <one-line evidence>). A clean PASS with prior IDs silently absent is not a resolution and will be rejected by the receipt contract.`,
+	`Prior blocking IDs (W1263): for every B-ID in PRIOR BLOCKING IDS, your reply must carry one line — either re-open it (state it as a finding bullet) or close it (RESOLVED: B<id> <one-line evidence>). A clean PASS with prior IDs silently absent is not a resolution and will be rejected by the receipt contract.`,
 	`Evidence-kind caps severity: a file:line-only claim caps at blocker(high); a runtime-behavior claim without a trigger path caps at note(low).`,
 	`End your reply with ONE machine-parseable final line:`,
 	`VERDICT: PASS | VERDICT: FAIL - <reason>`,
@@ -236,6 +259,14 @@ const LEG_TIMEOUT_MS = 15 * 60_000;
 // never recorded which upstream actually answered, so the review-leg route
 // was untraceable from the receipt alone. Stamp it into the review fact.
 let legWireModel: string | undefined;
+// W1302.6 (O3): the model class this review REQUESTED (buckle/llm legs name
+// one; bin legs do not). Held for the served-vs-requested assertion below.
+const requestedModel =
+	leg?.kind === "buckle" || leg?.kind === "llm"
+		? leg.model
+		: leg?.kind === "belt"
+			? leg.target.split(":")[2] || undefined
+			: undefined;
 async function requestLlm(
 	url: string,
 	model: string,
@@ -250,10 +281,10 @@ async function requestLlm(
 		body: JSON.stringify({
 			model,
 			messages: [{ role: "user", content: prompt }],
-			// W1236: glm-5.3-flash reasoning burned the whole 1500 budget before
-			// any final text — HTTP 200 with content:"" — on every merge-ladder
-			// receipt 2026-10-23. 8000 covers thinking headroom + the write-up.
-			max_tokens: 8000,
+			// W1289: 8000 still cut Flash reviews off mid-reasoning before the
+			// required VERDICT line (W1286 receipt #70110). Leave room for the
+			// actual findings and terminal verdict after its reasoning pass.
+			max_tokens: 16000,
 			temperature: 0.2,
 		}),
 		signal: AbortSignal.timeout(LEG_TIMEOUT_MS),
@@ -368,16 +399,8 @@ async function runLeg(): Promise<string> {
 // the branch's new tests are run there: tests that pass without the change
 // are out of scope or wrong, so a PASS with no failing new test is downgraded
 // to FAIL. The evidence annotates the verdict.
-type Proof = {
-	status: "proved" | "no-coverage" | "skipped" | "error";
-	detail: string;
-	failed?: number;
-	passed?: number;
-};
-
-// test paths only: the proof keeps these, reverses everything else
-const TEST_FILE =
-	/(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(test|spec)_/;
+// W1262: Proof/TEST_FILE and the missing-module classification live in
+// hooks/lib/gates/coverage-proof.ts (unit face for the classifier).
 
 const PROOF_TIMEOUT_MS = 5 * 60_000;
 
@@ -393,6 +416,37 @@ async function coverageProof(branch: string): Promise<Proof> {
 		.filter((f) => TEST_FILE.test(f));
 	if (testFiles.length === 0)
 		return { status: "skipped", detail: "no test files in diff" };
+	// W1262 (W1258 regression): reverse-applying the diff removes exactly the
+	// modules the diff ADDED — a restored new test importing one fails right
+	// there. That failure is the proof itself (the change is what provides the
+	// module), so it must not classify as an environmental error; only missing
+	// imports that resolve to NOTHING the diff added stay environmental.
+	const addedProd = gitRun([
+		"diff",
+		"--name-only",
+		"--diff-filter=A",
+		`main...${branch}`,
+	])
+		.out.trim()
+		.split("\n")
+		.filter((f) => f && !TEST_FILE.test(f));
+	const mergeBase = gitRun(["merge-base", "main", branch]).out.trim();
+	const manifestPaths = [
+		...new Set(
+			testFiles
+				.filter((path) => /^packages\/[^/]+\//.test(path))
+				.map((path) => `${path.split("/").slice(0, 2).join("/")}/package.json`),
+		),
+	];
+	const addedWorkspaceDeps = manifestPaths.flatMap((path) => {
+		const before = gitRun(["show", `${mergeBase}:${path}`]);
+		const after = gitRun(["show", `${branch}:${path}`]);
+		return addedWorkspaceDependencies(
+			before.code === 0 ? before.out : "{}",
+			after.code === 0 ? after.out : "{}",
+			path,
+		);
+	});
 
 	const scratch = mkdtempSync(join(tmpdir(), "review-proof-"));
 	let added = false;
@@ -436,8 +490,24 @@ async function coverageProof(branch: string): Promise<Proof> {
 		clearTimeout(timer);
 		await p.exited;
 		const output = `${outText}\n${errText}`;
-		if (/Cannot find (package|module)/.test(output))
-			return { status: "error", detail: "scratch module resolution failed" };
+		if (/Cannot find (package|module)/.test(output)) {
+			// W1262 (W1258 regression): a missing import that names a module the
+			// diff ADDED means the reversed change is what provides the module —
+			// the failure is the proof. Only an unexplained one is environmental.
+			if (
+				!missingImportsExplained(
+					output,
+					addedProd,
+					testFiles,
+					addedWorkspaceDeps,
+					scratch,
+				)
+			)
+				return {
+					status: "error",
+					detail: "scratch module resolution failed",
+				};
+		}
 		// the trailing bun summary is the machine-readable part
 		const counts = (word: string): number => {
 			const hits = [...output.matchAll(new RegExp(`(\\d+) ${word}\\b`, "g"))];
@@ -533,8 +603,7 @@ const reviewerHeadline = (
 // Sinai proof gates the approval: a PASS stands only when the branch's new
 // tests FAIL without the change — otherwise the verdict is downgraded, with
 // the evidence annotating the headline.
-const proof =
-	verdict === "PASS" ? await coverageProof(`suspenders/${item}`) : null;
+const proof = verdict === "PASS" ? await coverageProof(boundBranch) : null;
 const proofHeadline =
 	proof === null
 		? ""
@@ -543,15 +612,25 @@ const proofHeadline =
 			: proof.status === "no-coverage"
 				? "coverage-proof FAIL: all new tests pass without the change — no coverage"
 				: `coverage-proof ${proof.status}: ${proof.detail}`;
+// W1302.6 (O3): the receipt asserts the served wire model against the
+// requested class. A mismatch can never land as a clean PASS — the W1278.1
+// review was requested as glm-5.3-flash and served by chatgpt/gpt-6-sol.
+const wireAudit = wireModelAudit(requestedModel, legWireModel);
+const wireMismatch = wireAudit?.match === "mismatch" && verdict === "PASS";
+const wireHeadline = wireMismatch
+	? `wire-model mismatch: requested ${wireAudit?.requested} served ${wireAudit?.served} — PASS not trusted`
+	: "";
 const effective =
-	proof?.status === "error"
-		? "ERROR"
-		: proof?.status === "no-coverage"
-			? "FAIL"
-			: verdict;
-const headline = proofHeadline
-	? `${proofHeadline} | ${reviewerHeadline}`
-	: reviewerHeadline;
+	verdict === "PASS" && wireMismatch
+		? "FAIL"
+		: proof?.status === "error"
+			? "ERROR"
+			: proof?.status === "no-coverage"
+				? "FAIL"
+				: verdict;
+const headline = [wireHeadline, proofHeadline, reviewerHeadline]
+	.filter(Boolean)
+	.join(" | ");
 const proofNote = proof
 	? `coverage-proof (${proof.status})${
 			proof.failed === undefined
@@ -567,7 +646,9 @@ db.query(
 	JSON.stringify({
 		verdict: effective,
 		headline,
+		requested_model: requestedModel ?? null,
 		wire_model: legWireModel ?? null,
+		wire_match: wireAudit?.match ?? null,
 		ts: Date.now(),
 		coverage: proof ?? undefined,
 	}),
@@ -610,6 +691,8 @@ publishReviewReceipt(db, project, item, {
 	blocking,
 	resolved,
 	evidence: `${headline}\n${proofNote}\n${(findings ?? "").slice(0, 3000)}`,
+	requested_model: requestedModel,
+	wire_model: legWireModel,
 });
 db.query("UPDATE sessions SET state = 'DONE', hb = ? WHERE sid = ?").run(
 	Date.now(),

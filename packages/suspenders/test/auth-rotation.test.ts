@@ -15,8 +15,8 @@ process.env.HOME = HOME;
 process.env.BUCKLE_SECRETS_HOME = join(HOME, "secrets");
 process.env.GOVERNOR_STORE_URL = "local";
 
-const auth = await import("../hooks/lib/auth.ts");
-const govdb = await import("../hooks/lib/govdb.ts");
+const auth = await import("../hooks/lib/auth/auth.ts");
+const govdb = await import("../hooks/lib/govdb/govdb.ts");
 
 afterAll(() => {
 	auth.resetAuthCache();

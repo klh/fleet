@@ -5,7 +5,7 @@
 // push code, so the manifest carries descriptors, never functions).
 //
 // Hub-distributable: catalogManifest(version) emits the W154 policy-pull
-// payload shape ({version, rules, cr_queue}) — see hooks/lib/federation.ts
+// payload shape ({version, rules, cr_queue}) — see hooks/lib/federation/federation.ts
 // HubManifestShape. Spokes reconcile pulled rules through
 // reconcileManifestRules(): known ids map to local executors, unknown ids
 // are skipped HONESTLY (never silently trusted).
@@ -46,7 +46,7 @@ export const policyCatalog: PolicyRule[] = [
 		id: "law.servicemon-health",
 		title: "every Bun.serve service wires servicemon (/status + /metrics)",
 		citation:
-			"W125 servicemon law — hooks/lib/servicemon.ts:1; hub-distribution rides hooks/lib/federation.ts HubManifestShape",
+			"W125 servicemon law — hooks/lib/servicemon.ts:1; hub-distribution rides hooks/lib/federation/federation.ts HubManifestShape",
 		scope: "source",
 		severity: "warn",
 		check:
@@ -72,7 +72,7 @@ export const policyCatalog: PolicyRule[] = [
 		id: "law.auth-key-material",
 		title: "no embedded key material or literal secrets in source",
 		citation:
-			"hooks/lib/auth.ts:20 KEY MATERIAL LAW — no key value is ever embedded, logged, or committed; fingerprints only",
+			"hooks/lib/auth/auth.ts:20 KEY MATERIAL LAW — no key value is ever embedded, logged, or committed; fingerprints only",
 		scope: "source",
 		severity: "warn",
 		check:

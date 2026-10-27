@@ -15,52 +15,52 @@
 
 import type { Database } from "bun:sqlite";
 import { basename } from "node:path";
-import { automaticRecoveryCheck } from "../lib/automatic-recovery.ts";
-import { budgetFlagClear } from "../lib/budget-flag.ts";
 import { itemCapsuleKey } from "../lib/capsule-fence.ts";
-import { unmergedDeps, unmergedNote } from "../lib/dep-merge-gate.ts";
-import {
-	assertCaps,
-	type GovernorStore,
-	openStore,
-	projectIdentity,
-	projectRootOf,
-	resolveSidOf,
-} from "../lib/govdb.ts";
+import { detectClient } from "../lib/executors/detect.ts";
+import { automaticRecoveryCheck } from "../lib/fleet-loop/automatic-recovery.ts";
+import { triggerMergeOnDone } from "../lib/fleet-loop/merge-on-done.ts";
+import { unmergedDeps, unmergedNote } from "../lib/gates/dep-merge-gate.ts";
+import { reproGateRefusal } from "../lib/gates/repro-gate.ts";
+import { assertCaps, projectRootOf, resolveSidOf } from "../lib/govdb/govdb.ts";
 import {
 	recordKnowledgeSuggestion,
 	renderKnowledgeSuggestion,
 	suggestKnowledge,
-} from "../lib/kev-curation.ts";
-import { rebindKeptLaneContext } from "../lib/lane-context.ts";
-import { doneSpendStamp, parseDoneSpend } from "../lib/lane-done-spend.ts";
-import { doneEffortStamp } from "../lib/lane-effort.ts";
-import { publishCompletionBlock } from "../lib/lane-stop-publisher.ts";
-import { gitBadge, gitObservation, mergeReadyWhy } from "../lib/lane-git.ts";
-import { laneAlive } from "../lib/lane-liveness.ts";
+} from "../lib/knowledge/kev-curation.ts";
+import { rebindKeptLaneContext } from "../lib/lanes/lane-context.ts";
+import {
+	doneSpendStamp,
+	parseDoneSpend,
+} from "../lib/lanes/lane-done-spend.ts";
+import { doneEffortStamp } from "../lib/lanes/lane-effort.ts";
+import {
+	gitBadge,
+	gitObservation,
+	mergeReadyWhy,
+} from "../lib/lanes/lane-git.ts";
+import { laneAlive } from "../lib/lanes/lane-liveness.ts";
 import {
 	loadLaneRegistry,
 	loadLaneRegistryFile,
-} from "../lib/lane-registry.ts";
-import { itemAttribution, renderAttribution } from "../lib/lane-spend.ts";
-import { triggerMergeOnDone } from "../lib/merge-on-done.ts";
-import { preferTagFor } from "../lib/prefer.ts";
+} from "../lib/lanes/lane-registry.ts";
+import { itemAttribution, renderAttribution } from "../lib/lanes/lane-spend.ts";
+import { publishCompletionBlock } from "../lib/lanes/lane-stop-publisher.ts";
 import {
 	claimantLanes,
 	matchingClaimantLane,
 	reclaimAll,
-} from "../lib/reclaim-all.ts";
+} from "../lib/lanes/reclaim-all.ts";
 import {
 	parseDuration,
 	probeClaim,
 	setReclaimHold,
-} from "../lib/reclaim-liveness.ts";
+} from "../lib/lanes/reclaim-liveness.ts";
 import {
 	parseReclaimReason,
 	reclaimGateDecision,
-} from "../lib/reclaim-sticky.ts";
-import { reproGateRefusal } from "../lib/repro-gate.ts";
+} from "../lib/lanes/reclaim-sticky.ts";
 import { attachManagedSubscribe, reapIfIdle } from "../lib/subscribe-attach.ts";
+import { budgetFlagClear } from "../lib/usage/budget-flag.ts";
 import { dieFor, idList, type Parsed, runCli } from "../lib/verb-kit.ts";
 import {
 	applyAllocations,
@@ -69,392 +69,61 @@ import {
 	nextChildIdOf,
 	planAllocation,
 	renderAllocPlan,
-} from "../lib/work-alloc.ts";
+} from "../lib/work/work-alloc.ts";
 import {
 	type CompletionRecord,
 	completionRecord,
 	persistCompletion,
 	prepareCompletion,
-} from "../lib/work-completion-record.ts";
-import { EFFORTS } from "../lib/work-effort.ts";
-import { evidencePatternsOf } from "../lib/work-fence.ts";
-import { queueCompletionKnowledge } from "../lib/work-knowledge.ts";
-import { runMigrateLedger } from "../lib/work-migrate-ledger.ts";
-import { exportMirror, MIRROR_NAME, mirrorOrNull } from "../lib/work-mirror.ts";
-import { releaseWorkClaim } from "../lib/work-release.ts";
-import { GLYPH, renderRow, renderTimestamps } from "../lib/work-render.ts";
+} from "../lib/work/work-completion-record.ts";
+import { EFFORTS } from "../lib/work/work-effort.ts";
+import { evidencePatternsOf } from "../lib/work/work-fence.ts";
+import {
+	amber,
+	cyan,
+	db,
+	deps,
+	depsMet,
+	dim,
+	emit,
+	freeDependents,
+	get,
+	green,
+	type Item,
+	insertItem,
+	MUTATING_CMDS,
+	nextRootId,
+	PROJECT,
+	reaches,
+	red,
+	releaseClaim,
+	releaseObserved,
+	retireItemWorktree,
+	rollUp,
+	setState,
+	setWorkVerb,
+} from "../lib/work/work-graph.ts";
+import { queueCompletionKnowledge } from "../lib/work/work-knowledge.ts";
+import { runMigrateLedger } from "../lib/work/work-migrate-ledger.ts";
+import { exportMirror } from "../lib/work/work-mirror.ts";
+import { GLYPH, renderRow, renderTimestamps } from "../lib/work/work-render.ts";
 import {
 	buildReportTable,
 	parseReportWindow,
 	reportRows,
 	reportTableLinkOpts,
-} from "../lib/work-report.ts";
-import { retryFailedItem } from "../lib/work-retry.ts";
-import { mergeTags, validateTags } from "../lib/work-tags.ts";
-import { VERBS } from "../lib/work-verbs.ts";
+} from "../lib/work/work-report.ts";
+import { retryFailedItem } from "../lib/work/work-retry.ts";
+import { validateTags } from "../lib/work/work-tags.ts";
+import { VERBS } from "../lib/work/work-verbs.ts";
 import {
 	parseWaitUntil,
 	waitForPrerequisite,
 	wakeAfterEvidence,
-} from "../lib/work-wait.ts";
-import { resolveItemWorktree } from "../lib/worktree-lookup.ts";
-import { provisionForTake } from "../lib/worktree-provision.ts";
+} from "../lib/work/work-wait.ts";
+import { provisionForTake } from "../lib/work/worktree-provision.ts";
 
 const die = dieFor("work");
-
-// LAZY DB open with per-command routing (was a module-top direct DB open):
-// mutators need the real DB — die with a hint when it is unreachable; readers
-// may fall back to the committed .workgraph.jsonl mirror. An empty project
-// partition counts as unreachable for readers: items are never deleted, so
-// zero rows means this machine's DB has never seen this project's graph
-// (fresh clone / worktree on a new machine — the beads use case).
-let VERB = ""; // current verb — set by the kit onVerb hook
-let handle: GovernorStore | undefined;
-function db(): GovernorStore {
-	if (handle) return handle;
-	const isRead = READ_CMDS.has(VERB);
-	let d: GovernorStore;
-	try {
-		d = openStore();
-	} catch (e) {
-		if (isRead) {
-			const m = mirrorOrNull(PROJECT);
-			if (m) {
-				handle = m;
-				return m;
-			}
-		}
-		die(
-			`governor.db unreachable (${e instanceof Error ? e.message : String(e)}) — mutations need the DB; the committed ${MIRROR_NAME} mirror keeps reads alive`,
-		);
-	}
-	if (isRead) {
-		const n = (
-			d
-				.query("SELECT COUNT(*) AS n FROM work_items WHERE project = ?")
-				.get(PROJECT) as { n: number }
-		).n;
-		if (n === 0) {
-			const m = mirrorOrNull(PROJECT);
-			if (m) {
-				handle = m;
-				return m;
-			}
-		}
-	}
-	handle = d;
-	return d;
-}
-
-// project partitioning: shared identity from govdb (repo's common git dir) —
-// sessions in different projects never see or steal each other's work
-const PROJECT = projectIdentity();
-
-const tty = process.stdout.isTTY && !process.env.NO_COLOR;
-const paint =
-	(code: string) =>
-	(s: string): string =>
-		tty ? `\x1b[${code}m${s}\x1b[0m` : s;
-const dim = paint("2");
-const cyan = paint("36");
-const green = paint("32");
-const amber = paint("33");
-const red = paint("31");
-
-// ---- workgraph mirror (beads-inspired, W32) ------------------------------
-// beads commits its issue graph as JSONL so a fresh clone sees the queue with
-// zero server access and git history becomes the audit trail. governor.db is
-// centralized, so the work CLI mirrors it: every SUCCESSFUL mutating command
-// atomically re-exports this project's graph to <repo>/.workgraph.jsonl, and
-// read verbs fall back to that file when the DB cannot serve the project —
-// unreachable, or a fresh machine whose empty partition has never seen this
-// graph (items are never deleted, so an empty partition means "never seen").
-// The DB always wins when it holds the project's rows; reads never write.
-const READ_CMDS = new Set([
-	"stats",
-	"report",
-	"list",
-	"ready",
-	"mine",
-	"owned",
-	"show",
-	"summary",
-	"orphaned",
-]);
-const MUTATING_CMDS = new Set([
-	"add",
-	"take",
-	"release",
-	"start",
-	"done",
-	"fail",
-	"wait",
-	"wake",
-	"cancel",
-	"supersede",
-	"block",
-	"unblock",
-	"split",
-	"reclaim",
-	"migrate-ledger",
-]);
-
-type Item = Record<string, string | number | null>;
-function get(id: string): Item {
-	const r = db()
-		.query("SELECT * FROM work_items WHERE project = ? AND id = ?")
-		.get(PROJECT, id) as Item | undefined;
-	if (!r) die(`no such work item in this project: ${id}`);
-	return r;
-}
-
-// owner/sha semantics: undefined = keep current value, null = clear
-function setState(
-	id: string,
-	state: string,
-	owner?: string | null,
-	sha?: string | null,
-): void {
-	const sets = ["state = ?", "updated_at = ?"];
-	const vals: (string | number)[] = [state, Date.now()];
-	if (owner !== undefined) {
-		sets.push("owner_sid = ?");
-		vals.push(owner);
-	}
-	if (sha !== undefined) {
-		sets.push("result_sha = ?");
-		vals.push(sha);
-	}
-	db()
-		.query(
-			`UPDATE work_items SET ${sets.join(", ")} WHERE project = ? AND id = ?`,
-		)
-		.run(...vals, PROJECT, id);
-}
-
-function emit(
-	kind: string,
-	id: string,
-	extra: Record<string, string> = {},
-	source = "work",
-): void {
-	db()
-		.query(
-			"INSERT INTO events (ts, source, kind, scope, payload, target) SELECT ?, ?, ?, scope, ?, NULL FROM work_items WHERE project = ? AND id = ?",
-		)
-		.run(
-			Date.now(),
-			source,
-			kind,
-			JSON.stringify({ work: id, project: PROJECT, ...extra }),
-			PROJECT,
-			id,
-		);
-}
-
-function deps(
-	id: string,
-): { depends_on: string; state: string | null; result_sha: string | null }[] {
-	return db()
-		.query(
-			"SELECT d.depends_on, w.state, w.result_sha FROM work_deps d LEFT JOIN work_items w ON w.id = d.depends_on AND w.project = d.project WHERE d.project = ? AND d.work_id = ?",
-		)
-		.all(PROJECT, id) as {
-		depends_on: string;
-		state: string | null;
-		result_sha: string | null;
-	}[];
-}
-
-// W60 dep-merge gate (done ≠ merged) lives in lib/dep-merge-gate.ts —
-// work.ts feeds it this project's dep rows.
-
-function depsMet(id: string): boolean {
-	return (
-		deps(id).every((d) => d.state === "DONE") &&
-		!unmergedDeps(deps(id), PROJECT).length
-	);
-}
-
-// reaches(id, target): would a dependency edge id→target create/extend a cycle?
-function reaches(
-	id: string,
-	target: string,
-	seen = new Set<string>(),
-): boolean {
-	if (id === target) return true;
-	if (seen.has(id)) return false;
-	seen.add(id);
-	for (const d of deps(id))
-		if (reaches(d.depends_on, target, seen)) return true;
-	return false;
-}
-
-// roll-up: a SHATTERED parent auto-DONEs ONLY when every required child is in
-// a successful terminal state — DONE, or SUPERSEDED (replaced; its successor
-// carries the work). Positively defined: FAILED/ORPHANED children block the
-// parent (recover them: reclaim → finish, or supersede), a nested SHATTERED
-// child blocks until its own leaves close (rollUp recurses up from each
-// child transition), and any future unknown state blocks by default.
-function rollUp(id: string): void {
-	const it = get(id);
-	if (it.state !== "SHATTERED") return;
-	const unsatisfied = db()
-		.query(
-			"SELECT id, state FROM work_items WHERE project = ? AND parent_id = ? AND (required IS NULL OR required = 1) AND state NOT IN ('DONE','SUPERSEDED')",
-		)
-		.all(PROJECT, id) as { id: string; state: string }[];
-	if (unsatisfied.length === 0) {
-		setState(id, "DONE");
-		emit("work.done", id, { auto: "all required children done/superseded" });
-		freeDependents(id);
-		const p = it.parent_id;
-		if (p) rollUp(p as string);
-	}
-}
-
-// done→ready auto-start (W50): when an item lands DONE, each dependent still
-// in READY whose deps are now all DONE is startable — emit work.ready per such
-// item (payload note "unblocked by <id>") so the board flags it ▶ and a lane
-// can self-serve the chain without re-deriving it. Same gate as take: depsMet.
-function freeDependents(id: string): {
-	freed: string[];
-	gated: { id: string; note: string }[];
-} {
-	const waiting = db()
-		.query(
-			"SELECT d.work_id FROM work_deps d JOIN work_items w ON w.id = d.work_id AND w.project = d.project WHERE d.project = ? AND d.depends_on = ? AND w.state = 'READY'",
-		)
-		.all(PROJECT, id) as { work_id: string }[];
-	const freed: string[] = [];
-	const gated: { id: string; note: string }[] = [];
-	for (const { work_id: wid } of waiting) {
-		const ds = deps(wid);
-		if (!ds.every((d) => d.state === "DONE")) continue; // not ready anyway — unchanged behavior
-		const note = unmergedNote(deps(wid), PROJECT);
-		if (note)
-			gated.push({ id: wid, note }); // W60: deps done but sha unmerged — stays gated
-		else freed.push(wid);
-	}
-	for (const wid of freed)
-		emit("work.ready", wid, { unblocked_by: id, note: `unblocked by ${id}` });
-	return { freed, gated };
-}
-
-function nextRootId(): string {
-	// atomic per-project allocation: one upsert statement is the allocator, so
-	// concurrent `work add` races each get a distinct id instead of one losing
-	// to a UNIQUE error. Seeds from existing max, then increments.
-	const tx = db().transaction(() => {
-		db()
-			.query(
-				"INSERT INTO work_sequences (project, next_id) SELECT ?, COALESCE(MAX(CAST(SUBSTR(id, 2) AS INTEGER)), 0) + 1 FROM work_items WHERE project = ? AND id GLOB 'W[0-9]*' AND id NOT LIKE '%.%' ON CONFLICT(project) DO UPDATE SET next_id = next_id + 1",
-			)
-			.run(PROJECT, PROJECT);
-		return (
-			db()
-				.query("SELECT next_id FROM work_sequences WHERE project = ?")
-				.get(PROJECT) as { next_id: number }
-		).next_id;
-	});
-	return `W${tx()}`;
-}
-
-function insertItem(
-	id: string,
-	parentId: string | null,
-	title: string,
-	scope: string | null,
-	priority: number,
-	by: string,
-	why: string | null,
-	requires: string | null = null,
-	description: string | null = null,
-	effort: string | null = null,
-	evidence: string | null = null,
-	extraTags: string | null = null,
-): void {
-	db()
-		.query(
-			"INSERT INTO work_items (id, parent_id, title, state, priority, created_by, scope, why_parallel, project, required, requires, tags, effort, evidence, created_at, updated_at, description) VALUES (?, ?, ?, 'READY', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)",
-		)
-		.run(
-			id,
-			parentId,
-			title,
-			priority,
-			by,
-			scope,
-			why,
-			PROJECT,
-			requires,
-			mergeTags(preferTagFor(projectRootOf(PROJECT)), extraTags),
-			effort,
-			evidence,
-			Date.now(),
-			Date.now(),
-			description,
-		);
-}
-
-// claim coupling on release; the claim-side coupling (take) lives in
-// lib/work-alloc.ts assignTask() — one ownership system, not two that drift
-function releaseClaim(
-	sid: string,
-	scope: string | null,
-	itemId?: string,
-): void {
-	// release the autoClaim (sid,scope) AND legacy/intent-scoped claims that
-	// reference this item — scopeless items otherwise leak claims on DONE
-	db()
-		.query(
-			"DELETE FROM claims WHERE sid = ? AND (scope = ? OR (? IS NOT NULL AND intent LIKE ? || ' %'))",
-		)
-		.run(sid, scope, itemId ?? null, itemId ?? "");
-}
-// W52/W182 — retire the item's per-item worktree when its work closes (shared
-// by done and cancel): clean → removed, dirty → kept with a note (work is
-// never silently discarded); branch suspenders/<id> always survives
-function retireItemWorktree(id: string): void {
-	// W211: resolve from git's registry by branch, never a derived path — the
-	// old PROJECT.slice(0, -4) guess silently skipped the retire whenever the
-	// tree stood outside .worktrees/ or the identity wasn't <root>/.git
-	const wtDir = resolveItemWorktree(projectRootOf(PROJECT), id);
-	if (!wtDir) return;
-	const w = Bun.spawnSync(
-		[
-			process.execPath,
-			new URL("./worktree.ts", import.meta.url).pathname,
-			"retire",
-			id,
-		],
-		{ stdout: "inherit", stderr: "inherit" },
-	);
-	if (w.exitCode === 3)
-		console.log(`${amber("●")} worktree kept (dirty) — ${wtDir}`);
-	else if (w.exitCode === 4)
-		console.log(`${amber("●")} worktree kept (live lane inside) — ${wtDir}`);
-}
-
-function releaseObserved(
-	it: Item,
-	by: string,
-	reason: "owner-release" | "operator-reclaim" | "reclaim-all",
-	guard?: () => boolean,
-): boolean {
-	return releaseWorkClaim(
-		db(),
-		{
-			project: PROJECT,
-			id: String(it.id),
-			owner: it.owner_sid as string | null,
-			state: String(it.state),
-			updatedAt: Number(it.updated_at),
-		},
-		{ by, reason },
-		guard,
-	);
-}
 
 // W610: claimant LaneRefs by sid — registry rows feed laneProcessIdentity;
 // a claimant with no registry entry (manual takes, reaped rows) probes from
@@ -866,6 +535,9 @@ const dispatchVerb = async (
 		// prepareCompletion so the durable lane-context channel is consulted
 		// before anything is refused; the CAS UPDATE then closes the race.
 		const tok = flag("--token") ?? process.env.KLH_CLAIM_TOKEN ?? null;
+		// W1731: ambient client detection — advisory to the claim-check's
+		// reader choice; the registered launch identity outranks it.
+		const detected = await detectClient();
 		let record: CompletionRecord;
 		try {
 			record = prepareCompletion(db(), {
@@ -876,6 +548,7 @@ const dispatchVerb = async (
 				sha,
 				summary: flag("--summary"),
 				token: tok,
+				detected,
 			});
 		} catch (error) {
 			try {
@@ -1486,7 +1159,7 @@ await runCli({
 	about: "work — hierarchical shatterable work graph.",
 	verbs: VERBS,
 	onVerb: (name) => {
-		VERB = name;
+		setWorkVerb(name);
 	},
 	dispatch: dispatchVerb,
 	after: (name) => {

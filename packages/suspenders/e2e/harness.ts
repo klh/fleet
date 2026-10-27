@@ -4,10 +4,16 @@
 // against the same scratch HOME (→ the very governor.db the board serves).
 // The hub world and the local world share NOTHING — separate scratch HOMEs
 // are the structural scope isolation the GUI test proves.
-import { expect } from "@playwright/test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect } from "@playwright/test";
+import {
+	boardStartupTail,
+	unusedPort,
+	waitBoardUp,
+} from "../test/helpers/board-fixture-core.ts";
 
 export interface WorkResult {
 	code: number;
@@ -34,16 +40,7 @@ export interface Board {
 }
 
 /** Bind :0, read the OS-picked port, release. */
-export function unusedPort(): number {
-	const server = Bun.serve({
-		hostname: "127.0.0.1",
-		port: 0,
-		fetch: () => new Response(),
-	});
-	const port = server.port;
-	server.stop(true);
-	return port;
-}
+export { unusedPort };
 
 export async function startBoard(
 	label: string,
@@ -51,7 +48,33 @@ export async function startBoard(
 ): Promise<Board> {
 	const HOME = mkdtempSync(join(tmpdir(), `sb-e2e-${label}-home-`));
 	const REPO = mkdtempSync(join(tmpdir(), `sb-e2e-${label}-repo-`));
-	mkdirSync(join(REPO, ".git"), { recursive: true });
+	// W1294.2: a REAL repo from t0 — projectIdentity() keys the graph on the
+	// git common dir, and the done-gate's product-evidence check needs the
+	// completion commit to touch a non-dotfile path; the fake-.git shell
+	// provided neither, and identity must not flip mid-board-life (init
+	// BEFORE the board spawns). Mirrors dispatch-harness: README base commit.
+	const g = (args: string[]): void => {
+		const p = Bun.spawnSync(["git", ...args], {
+			cwd: REPO,
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		if (p.exitCode !== 0)
+			throw new Error(`git ${args.join(" ")} failed: ${p.stderr.toString()}`);
+	};
+	g(["init", "-q", "-b", "main"]);
+	writeFileSync(join(REPO, "README.md"), "scratch e2e repo\n");
+	g(["add", "README.md"]);
+	g([
+		"-c",
+		"user.name=e2e",
+		"-c",
+		"user.email=e2e@localhost",
+		"commit",
+		"-q",
+		"-m",
+		"scratch e2e base",
+	]);
 	const PORT = unusedPort();
 	// dead loopback upstreams like the bun fixture — the board degrades
 	// honestly instead of reaching the machine's real services
@@ -104,30 +127,12 @@ export async function startBoard(
 		],
 		{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
 	);
-	let output = "";
-	const drain = async (stream: ReadableStream<Uint8Array>) => {
-		for await (const chunk of stream)
-			output = `${output}${new TextDecoder().decode(chunk)}`.slice(-16_384);
-	};
-	void drain(proc.stdout);
-	void drain(proc.stderr);
-	async function waitUp() {
-		for (let i = 0; i < 100; i++) {
-			try {
-				if (
-					(
-						await fetch(`${BASE}/api/data`, {
-							signal: AbortSignal.timeout(500),
-						})
-					).ok
-				)
-					return;
-			} catch {}
-			await new Promise((r) => setTimeout(r, 100));
-		}
-		throw new Error(`board ${label} did not start: ${output}`);
-	}
-	await waitUp();
+	const startupTail = boardStartupTail(proc.stdout, proc.stderr);
+	await waitBoardUp(
+		BASE,
+		startupTail.output,
+		(_b, out) => `board ${label} did not start: ${out}`,
+	);
 
 	return {
 		BASE,

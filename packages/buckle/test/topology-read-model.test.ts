@@ -101,7 +101,7 @@ describe("topologySnapshot", () => {
 				const result = topologySnapshot(f, () => instant);
 				expect(result.ok).toBe(true);
 				if (!result.ok) return;
-				expect(result.schemaVersion).toBe(1);
+				expect(result.schemaVersion).toBe(2);
 				expect(result.totals).toEqual({
 					requests: 1,
 					failed: 0,
@@ -122,6 +122,13 @@ describe("topologySnapshot", () => {
 							edge.requests === 1 &&
 							edge.failed === 0 &&
 							edge.active === 0 &&
+							edge.lanes === 1 &&
+							edge.activeLanes === null &&
+							edge.series !== null &&
+							edge.series.length === 15 &&
+							edge.series.reduce((sum, bucket) => sum + bucket.requests, 0) ===
+								1 &&
+							edge.series.every((bucket) => bucket.failed === 0) &&
 							edge.inputTokens === null &&
 							edge.outputTokens === null &&
 							edge.coverage.source === "projection" &&
@@ -294,6 +301,34 @@ describe("topologySnapshot", () => {
 			expect(active.ok).toBe(true);
 			if (!active.ok) return;
 			expect(active.edges[0]).toMatchObject({ failed: 0, active: 1 });
+		} finally {
+			rmSync(f.dir, { recursive: true, force: true });
+		}
+	});
+
+	test("edge lane counts and the 60s series join per measured edge", () => {
+		const f = fixture(["mac", "ikea"]);
+		try {
+			const db = new Database(f.obsDb);
+			db.query(
+				`INSERT INTO request_edges (source, rid, lane, actor, model, dialect,
+				traceparent, admitted_at, started_at, ended_at, outcome, status,
+				attempts, origin, peer)
+				VALUES ('buckle://ikea/boot', 'r9', 'lane-2', 'actor', 'model',
+				'anthropic', ?, ?, ?, NULL, NULL, 200, 1, 'mac', 'mac')`,
+			).run(TRACEPARENT, instant - 4000, instant - 4000);
+			db.close();
+			const result = topologySnapshot(f, () => instant);
+			expect(result.ok).toBe(true);
+			if (!result.ok) return;
+			const edge = result.edges.find((row) => row.to === "hub:ikea");
+			expect(edge?.lanes).toBe(2);
+			expect(edge?.activeLanes).toBe(1);
+			expect(edge?.series).toHaveLength(15);
+			expect(edge?.series?.at(-1)?.requests).toBe(2);
+			expect(edge?.series?.reduce((sum, b) => sum + b.requests, 0)).toBe(2);
+			expect(edge?.series?.every((b) => b.failed === 0)).toBe(true);
+			expect(result.coverage.seriesEdges).toBe(result.edges.length);
 		} finally {
 			rmSync(f.dir, { recursive: true, force: true });
 		}

@@ -12,7 +12,7 @@ import { join } from "node:path";
 import {
 	DEFAULT_PULSE_INTERVAL_S,
 	normalizeConfig,
-} from "../hooks/lib/notify.ts";
+} from "../hooks/lib/notify/notify.ts";
 import {
 	composePulse,
 	firePulse,
@@ -21,7 +21,7 @@ import {
 	type PulseState,
 	readWatchdog,
 	savePulseState,
-} from "../hooks/lib/pulse.ts";
+} from "../hooks/lib/notify/pulse.ts";
 import {
 	applyPulseInterval,
 	loadManifest,
@@ -303,10 +303,10 @@ describe("firePulse", () => {
 });
 
 describe("applyPulseInterval", () => {
-	test("fleet-pulse cadence rides notify.yaml pulse.interval_s; default when absent", () => {
+	test("fleet-pulse cadence rides notify.json pulse.interval_s; default when absent", () => {
 		const dir = mkdtempSync(join(tmpdir(), "pulse-int-"));
-		const cfg = join(dir, "notify.yaml");
-		writeFileSync(cfg, "pulse:\n  interval_s: 600\n");
+		const cfg = join(dir, "notify.json");
+		writeFileSync(cfg, JSON.stringify({ pulse: { interval_s: 600 } }));
 		const tuned = applyPulseInterval(loadManifest(), cfg);
 		expect(
 			tuned.find((s) => s.name === "fleet-pulse")?.schedule?.intervalSeconds,
@@ -316,7 +316,7 @@ describe("applyPulseInterval", () => {
 		).toBeUndefined();
 		const fallback = applyPulseInterval(
 			loadManifest(),
-			join(dir, "absent-notify.yaml"),
+			join(dir, "absent-notify.json"),
 		);
 		expect(
 			fallback.find((s) => s.name === "fleet-pulse")?.schedule?.intervalSeconds,

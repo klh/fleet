@@ -16,7 +16,7 @@ import {
 	PATCH_FIRST_THRESHOLD,
 	patchFirstVerdict,
 } from "../hooks/lib/patch-first.ts";
-import { renderIntel } from "../hooks/lib/brief-intel.ts";
+import { renderIntel } from "../hooks/lib/lanes/brief-intel.ts";
 
 // scratch repo with one near-cap-ish file (threshold overridden per verdict,
 // so a 12-line file stands in for 1200)

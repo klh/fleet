@@ -18,9 +18,9 @@ import {
 	mergeLaneRegistry,
 	pruneLaneRegistry,
 	readLaneRegistry,
-} from "../hooks/lib/lane-registry.ts";
+} from "../hooks/lib/lanes/lane-registry.ts";
 import { classifyPrune, registryMain } from "../scripts/lib/registry-cli.ts";
-import type { Lane } from "../scripts/lib/lane.ts";
+import type { Lane } from "../hooks/lib/lanes/lane.ts";
 
 setDefaultTimeout(30_000);
 

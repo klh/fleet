@@ -173,7 +173,7 @@ describe("retry + cooldown in the walk", () => {
 		expect(attempted).toEqual(["http://copilot", "http://glm"]);
 		expect(slept).toEqual([]);
 	});
-	test("an exhausted quota wall keeps the provider retry-after", async () => {
+	test("an exhausted quota wall relays the provider retry-after CLAMPED", async () => {
 		const slept: number[] = [];
 		const router = new Router(POLICY, {
 			pool: poolOf([["claude", ["http://copilot"]]]),
@@ -196,12 +196,15 @@ describe("retry + cooldown in the walk", () => {
 		expect(result.kind).toBe("client-error");
 		if (result.kind === "client-error") {
 			expect(result.response.status).toBe(429);
-			expect(result.response.headers.get("retry-after")).toBe("996295");
+			// W1303.2: the weeks-long provider retry-after relays CLAMPED to
+			// the kit max (default 300s) — a quota wall never sleeps a client
+			// for weeks (the pre-clamp bug this test used to pin).
+			expect(result.response.headers.get("retry-after")).toBe("300");
 		}
 		expect(slept).toEqual([]);
 	});
 
-	test("a rate-limited deployment stays a 429 while benched, then recovers", async () => {
+	test("a rate-limited deployment answers a typed local 503 hold while benched, then recovers", async () => {
 		let now = 1_000;
 		let calls = 0;
 		const router = new Router(
@@ -229,11 +232,16 @@ describe("retry + cooldown in the walk", () => {
 		};
 		const first = await router.execute(req);
 		expect(first.kind).toBe("client-error");
+		// W1257: inside the bench window the gateway answers a typed LOCAL
+		// 503 hold carrying the provider's last-seen refusal words as
+		// attributed context — never a fabricated provider 429
 		const benched = await router.execute(req);
-		expect(benched.kind).toBe("client-error");
-		if (benched.kind !== "client-error") throw new Error("rate limit lost");
-		expect(benched.response.status).toBe(429);
-		expect(benched.response.headers.get("retry-after")).toBe("30");
+		expect(benched.kind).toBe("exhausted");
+		if (benched.kind !== "exhausted") throw new Error("rate limit lost");
+		expect(benched.status).toBe(503);
+		expect(benched.retryAfterS).toBe(30);
+		expect(benched.error).toContain("gateway cooldown");
+		expect(benched.error).toContain("not the provider");
 		expect(calls).toBe(1);
 		now += 30_000;
 		expect((await router.execute(req)).kind).toBe("upstream");

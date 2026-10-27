@@ -51,6 +51,10 @@ test("fixed private peer returns bounded, body-free remote attempts", async () =
 						ts: "2026-10-21T11:00:00.000Z",
 						hop: "litellm",
 						status: 503,
+						candidate: "a1b2c3d4e5f60718",
+						refusal: "network",
+						upstream_refusal_code: "rate_limit_error",
+						refusal_origin: "upstream",
 						duration_ms: 23,
 						retry_after_ms: 5000,
 						call_id: "call-1",
@@ -60,6 +64,21 @@ test("fixed private peer returns bounded, body-free remote attempts", async () =
 						provider_error_type: "rate_limit_error",
 						body: "secret prompt",
 					},
+				],
+				requests: [
+					{
+						rid: "request-1",
+						ts: "2026-10-21T11:00:00.000Z",
+						lane: "autow1124",
+						ok: 0,
+						status: 503,
+						attempts: 2,
+						target_kind: "cloud",
+						target_host: "127.0.0.1",
+						target_port: 4301,
+						target_model: "gemini-4.5",
+					},
+					{ rid: "junk", body: "leak" },
 				],
 			});
 		},
@@ -77,6 +96,10 @@ test("fixed private peer returns bounded, body-free remote attempts", async () =
 						trace_id: traceId,
 						ordinal: 1,
 						status: 503,
+						candidate: "a1b2c3d4e5f60718",
+						refusal: "network",
+						upstream_refusal_code: "rate_limit_error",
+						refusal_origin: "upstream",
 						retry_after_ms: 5000,
 						provider_pool: "account",
 						queue_wait_ms: 123,
@@ -84,10 +107,24 @@ test("fixed private peer returns bounded, body-free remote attempts", async () =
 						provider_error_type: "rate_limit_error",
 					},
 				],
+				requests: [
+					{
+						rid: "request-1",
+						lane: "autow1124",
+						ok: 0,
+						status: 503,
+						attempts: 2,
+						target_kind: "cloud",
+						target_host: "127.0.0.1",
+						target_port: 4301,
+						target_model: "gemini-4.5",
+					},
+				],
 			},
 		],
 	});
 	expect(JSON.stringify(read)).not.toContain("secret prompt");
+	expect(JSON.stringify(read)).not.toContain("leak");
 	expect(JSON.stringify(read)).not.toContain("private-admin-read-key");
 });
 
@@ -118,7 +155,9 @@ test("peer failure is explicit and cannot hide healthy peers", async () => {
 	});
 	expect(read).toEqual({
 		status: "ok",
-		peers: [{ hub_id: "zai", status: "unavailable", attempts: [] }],
+		peers: [
+			{ hub_id: "zai", status: "unavailable", attempts: [], requests: [] },
+		],
 		coverage: { hubs: 1, ok: 0, degraded: 1, by_hub: { zai: "unavailable" } },
 	});
 });

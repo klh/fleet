@@ -8,6 +8,8 @@
 // here. Duplicates of today's StartInterval/StartCalendarInterval units are
 // impossible by construction: the retired labels ride the services.yaml
 // legacyLabels boot-out list, so install --with-launchd unloads them.
+// test/maintenance-legacy-drift.test.ts (W1256.1) gates the pairing: a new
+// task is either folded (label on legacyLabels) or listed heartbeat-born.
 //
 // Semantics kept from the launchd era:
 //   everySeconds ≥ cadence spacing (fire when now-last ≥ every, launchd
@@ -74,10 +76,12 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		argv: (root) => [join(root, "hooks/bin/quota-sweep.ts"), "--act"],
 	},
 	{
-		// W804/W782.1: the parked Copilot-quota triplet — W738 opus-5-5
-		// re-review, W695.6.2 tool_use proof, W731 copilot digest — FAILED has
+		// W804/W782.1: the parked Copilot-quota legs — W738 opus-5-5
+		// re-review, W695.6.2 tool_use proof, W731 copilot digest, W1202.1
+		// sampling-param retest (W1202: the 2026-10-22 probe of the removed
+		// Claude temperature/top_p/top_k 429'd on the seat) — FAILED has
 		// no reclaim path, so the heartbeat requeues them at the monthly seat
-		// reset (~2026-11-01). Self-retiring per item: once all three leave
+		// reset (~2026-11-01). Self-retiring per item: once all legs leave
 		// FAILED the runner is a permanent no-op until the entry is retired.
 		name: "quota-lift-retry",
 		calendar: { hour: 9, minute: 0 },
@@ -85,7 +89,7 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		argv: (root) => [
 			join(root, "hooks/bin/quota-lift-retry.ts"),
 			"--item",
-			"W738,W695.6.2,W731",
+			"W738,W695.6.2,W731,W1202.1",
 			"--after",
 			"2026-11-01",
 		],
@@ -95,6 +99,15 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		everySeconds: 300,
 		timeoutMs: 300_000,
 		argv: (root) => [join(root, "scripts/dispatch-watchdog.ts")],
+	},
+	{
+		// W1280: reclaim timed-out reviewer legs — finish requests whose
+		// reviewer pid is dead instead of stranding them for the 25-minute
+		// lease, so the exact-review backlog keeps draining.
+		name: "review-reconcile",
+		everySeconds: 300,
+		timeoutMs: 120_000,
+		argv: (root) => [join(root, "hooks/bin/review-reconcile.ts")],
 	},
 	{
 		name: "llm-keepwarm",
@@ -168,6 +181,26 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		cwd: (repo) => repo,
 	},
 	{
+		// W1247: the .fleet launch-debris janitor — dispatch/supervise fence
+		// every lane launch with launch-<nonce>.{json,sh,json.registered} in
+		// <REPO>/.fleet and nothing removed them (6,805-file backlog,
+		// 2026-10-23). Prunes debris older than 7 days UNLESS the nonce is
+		// the item's registered-current launch (lane_launch_intents + process
+		// birth — uncertainty keeps, mid-flight launches are safe). Daily
+		// 04:40 fire; `.fleet/launch-janitor-paused` pauses.
+		name: "launch-janitor",
+		calendar: { hour: 4, minute: 40 },
+		nice: 10,
+		timeoutMs: 120_000,
+		argv: (root, repo) => [
+			join(root, "hooks/bin/launch-janitor.ts"),
+			"--act",
+			"--repo",
+			repo,
+		],
+		cwd: (repo) => repo,
+	},
+	{
 		// W828: the Fleet personal-use license perimeter — walks the repo's
 		// node_modules license fields against the permissive allowlist,
 		// verifies vendored-bundle banners, records swarm model licenses,
@@ -192,6 +225,16 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		everySeconds: 300,
 		timeoutMs: 120_000,
 		argv: (root) => [join(root, "hooks/bin/metrics-alert.ts")],
+	},
+	{
+		// W1139.1: the rolling per-lane cache hit-share SLA sweep — reads
+		// buckle's W458.4 lane-cache NDJSON every 15 min, writes the status
+		// JSON the board face (/api/usage/cache-sla) + badge read; exit 1 (a
+		// fail log here) when a lane sits below the threshold with sample.
+		name: "cache-sla",
+		everySeconds: 900,
+		timeoutMs: 60_000,
+		argv: (root) => [join(root, "hooks/bin/cache-sla.ts")],
 	},
 	{
 		// W944: the enterprise knowledge sync — decant headless (sync →
@@ -238,6 +281,18 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 			repo,
 		],
 		cwd: (repo) => repo,
+	},
+	{
+		// W1212: the daily decant→facts distiller — machine-local evidence
+		// (THIS machine's DONE work rows + decant archive) → content-addressed
+		// coord facts (CAS create-only, confidence-stamped at ingest). Idle
+		// between fires is fine: same-day re-runs dedupe by key, never
+		// duplicate. Credential-free by construction — hub-executable (W1211).
+		name: "decant-daily",
+		calendar: { hour: 4, minute: 30 },
+		nice: 10,
+		timeoutMs: 300_000,
+		argv: (root) => [join(root, "hooks/bin/decant-daily.ts")],
 	},
 	{
 		// W969 Signals-lite — per-run silent-failure scan of closed lanes

@@ -3,7 +3,7 @@
 // vars: URL routing for the openai BYOK wire + the scoped lane key in the
 // var the copilot CLI actually reads (probe-verified on copilot 1.0.98).
 import { describe, expect, test } from "bun:test";
-import { applyLaneAttribution } from "../scripts/lib/lane.ts";
+import { applyLaneAttribution } from "../hooks/lib/lanes/lane.ts";
 
 describe("W918.3 lane attribution — copilot BYOK vars", () => {
 	test("governed attribution carries the lane key into the copilot vars", () => {

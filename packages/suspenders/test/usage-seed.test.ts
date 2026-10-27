@@ -1,14 +1,17 @@
 // usage-seed.test.ts — W127: seed/purge round-trip. Seeded rows are clearly
 // flagged (actor LIKE 'demo:%', sids demo-*) and purge removes exactly those.
 import { describe, test, expect, afterAll } from "bun:test";
-import { openMemoryStore, type GovernorStore } from "../hooks/lib/govdb.ts";
+import {
+	openMemoryStore,
+	type GovernorStore,
+} from "../hooks/lib/govdb/govdb.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-usage-seed-"));
 const { seedUsage, purgeUsage } = await import(
-	`../hooks/lib/usage-seed.ts?home=${encodeURIComponent(HOME)}`
+	`../hooks/lib/usage/usage-seed.ts?home=${encodeURIComponent(HOME)}`
 );
 
 const NOW_MS = Date.parse("2026-10-01T12:00:00Z");

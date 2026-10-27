@@ -13,7 +13,7 @@
 // non-GET) runs in fleet-board.ts BEFORE this handler — same posture as the
 // lane-observations ingest. Strict shape validation; 64 KiB body cap.
 import type { Database } from "bun:sqlite";
-import { openKnowledgeDb } from "../lib/govdb.ts";
+import { openKnowledgeDb } from "../lib/govdb/govdb.ts";
 import { makeStamp } from "../lib/confidence.ts";
 import { json } from "./helpers.ts";
 import {
@@ -21,9 +21,10 @@ import {
 	MAX_PROV_FIELD,
 	PROVENANCE_KEYS,
 	SYNCABLE_FACT,
-} from "../lib/knowledge-sync.ts";
-import { redactSecrets } from "../lib/knowledge.ts";
+} from "../lib/knowledge/knowledge-sync.ts";
+import { redactSecrets } from "../lib/knowledge/knowledge.ts";
 import { BUILTIN_RULES, redactMatches } from "../lib/scrub.ts";
+import { claimAggregateView } from "../lib/knowledge/knowledge-roll.ts";
 
 let kdbSingleton: Database | null = null;
 export function boardKnowledgeDb(): Database {
@@ -327,6 +328,20 @@ async function landFromRequest(chunks: Uint8Array[]): Promise<Response> {
 	const input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
 	const result = landKnowledgeIngest(boardKnowledgeDb(), input);
 	return json(result, result.ok ? 200 : 400);
+}
+
+/** W1213 — GET /api/knowledge-roll: the aggregated claim roll (dedupe by
+ *  content hash, provenance counts per machine, confidence-ranked;
+ *  tombstoned rows hidden). Same W264 perimeter as the ingest handler ran
+ *  in fleet-board.ts before this — read-only, no extra auth. */
+export async function handleKnowledgeRoll(
+	req: Request,
+	url: URL,
+): Promise<Response | null> {
+	if (url.pathname !== "/api/knowledge-roll") return null;
+	if (req.method !== "GET")
+		return new Response(null, { status: 405, headers: { Allow: "GET" } });
+	return json(claimAggregateView(boardKnowledgeDb()));
 }
 
 const DIMS = ["day", "tool", "model", "session"] as const;

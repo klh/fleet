@@ -14,8 +14,8 @@
 //
 // Grants are time-boxed (default 10 minutes), (sid, scope)-keyed, and audited
 // in the events table. Machine-scoped on purpose: launchd domains are per-host.
-import { resolveFleetLane } from "../lib/fleetlane.ts";
-import { openGovernorDb } from "../lib/govdb.ts";
+import { resolveFleetLane } from "../lib/lanes/fleetlane.ts";
+import { openGovernorDb } from "../lib/govdb/govdb.ts";
 import {
 	lifecycleGrantSchema,
 	holdsLifecycleAuthority,

@@ -14,7 +14,10 @@ import {
 	CLAUDE_ALLOWED_TOOLS,
 	workerManagedArgs,
 } from "../hooks/lib/executors/claude.ts";
-import { DEFAULT_ALLOWED_TOOLS, executorLaunch } from "../scripts/lib/lane.ts";
+import {
+	DEFAULT_ALLOWED_TOOLS,
+	executorLaunch,
+} from "../hooks/lib/lanes/lane.ts";
 
 describe("W422 executor-adapter registry", () => {
 	test("managed launch is adapter data and preserves the native executable separately", () => {

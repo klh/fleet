@@ -25,9 +25,12 @@
 // no more per-request panel HTML strings. Filters stay server-side native
 // links (URL state must work without JS).
 
-import { ACTIVITIES, type ActivityReport } from "../lib/activity-harvest.ts";
-import type { CrossHubReport } from "../lib/cross-hub-usage.ts";
-import { GROUPS, type UsageReport } from "../lib/usage.ts";
+import {
+	ACTIVITIES,
+	type ActivityReport,
+} from "../lib/harvest/activity-harvest.ts";
+import type { CrossHubReport } from "../lib/federation/cross-hub-usage.ts";
+import { GROUPS, type UsageReport } from "../lib/usage/usage.ts";
 // W652.3: palette/esc/fmtTok/tiles/shell ride the shared chrome (one source
 // for both usage dashboards; W171's per-page copies retired)
 import {
@@ -262,7 +265,7 @@ const crossHubData = (x: CrossHubReport | undefined): UsageCrossHubPanel => {
 	if (x === undefined || x.rows.length === 0)
 		return {
 			empty:
-				"no hubs enumerated — stack.yaml hubs and hubs.json registry are both empty (or the route did not wire the rollup) on this board host",
+				"no hubs enumerated — stack.json hubs and hubs.json registry are both empty (or the route did not wire the rollup) on this board host",
 		};
 	const rows = x.rows.map((r) => {
 		const segs: UsageSeg[] = [];

@@ -2,53 +2,20 @@
 // (vocabulary + budget lines + show-parse) and the CLI surface (add --effort
 // validation, show render, split inheritance) against a temp project.
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 import {
 	effortBudgetLine,
 	effortFromShow,
 	EFFORTS,
-} from "../hooks/lib/work-effort.ts";
+} from "../hooks/lib/work/work-effort.ts";
 
-const HOME = mkdtempSync(join(tmpdir(), "claude-work-effort-home-"));
-const gitInit = (dir: string): void => {
-	mkdirSync(dir, { recursive: true });
-	const r = Bun.spawnSync(["git", "init", "-q", dir], {
-		stdout: "ignore",
-		stderr: "ignore",
-	});
-	if (r.exitCode !== 0) throw new Error(`git init failed in ${dir}`);
-};
-const REPO = mkdtempSync(join(tmpdir(), "work-effort-repo-"));
-gitInit(REPO);
-const env = { ...process.env, HOME };
-const BIN = join(import.meta.dir, "..", "hooks", "bin");
+const f = cliFixture("work-effort");
 
-const workIn = (
-	cwd: string,
-	...args: string[]
-): { out: string; err: string; code: number | null } => {
-	const p = Bun.spawnSync(["bun", join(BIN, "work.ts"), ...args], {
-		cwd,
-		env,
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	return {
-		out: `${p.stdout ?? ""}`,
-		err: `${p.stderr ?? ""}`,
-		code: p.exitCode,
-	};
-};
-const work = (...args: string[]) => workIn(REPO, ...args);
+const work = (...args: string[]) => f.run("work.ts", args);
 const effortLine = (out: string): string | undefined =>
 	/^ {2}effort: (.+)$/m.exec(out)?.[1];
 
-afterAll(() => {
-	rmSync(HOME, { recursive: true, force: true });
-	rmSync(REPO, { recursive: true, force: true });
-});
+afterAll(f.cleanup);
 
 describe("effort budget lib", () => {
 	test("EFFORTS vocabulary is simple | complex", () => {

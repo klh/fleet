@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 // hooks/bin/soak.ts — W179.3 nightly real-provider soak, thin CLI over
-// hooks/lib/soak.ts. launchd (com.suspenders.soak, nightly 03:15) runs it
+// hooks/lib/fleet-loop/soak.ts. launchd (com.suspenders.soak, nightly 03:15) runs it
 // with tiny caps; humans run it ad hoc (--iters 1) as a real-upstream probe.
-// Belt resolves through the shared chain (hooks/lib/belt-locate.ts: env →
+// Belt resolves through the shared chain (hooks/lib/hub/belt-locate.ts: env →
 // belt.json → belt.local → localhost:7791).
 //
 //   bun hooks/bin/soak.ts [--iters N] [--max-usd X] [--max-tokens N]
@@ -13,13 +13,13 @@
 // SOAK_MAX_MINUTES SOAK_GAP_MS SOAK_MAX_TOKENS_PER_CALL SOAK_ROLE
 // SOAK_URL SOAK_TOKEN
 // Exit: 0 clean or cap-hit (the cap working), 2 = REDs, 1 = belt unreachable.
-import { resolveBelt } from "../lib/belt-locate.ts";
+import { resolveBelt } from "../lib/hub/belt-locate.ts";
 import {
 	classifyExit,
 	loadPricing,
 	runSoak,
 	soakCapsFromEnv,
-} from "../lib/soak.ts";
+} from "../lib/fleet-loop/soak.ts";
 import {
 	defineVerb,
 	dieFor,
@@ -104,6 +104,9 @@ const run = async (): Promise<0 | 1 | 2> => {
 		caps,
 		table,
 		role: p.flag("--role") ?? undefined,
+		// W1119.2: the completion leg rides the buckle gate — pass the process
+		// env so inferenceBuckleRoute resolves (fail-closed without it)
+		env: process.env,
 		log: (row) => {
 			console.log(`[${row.out.toLowerCase()}] ${row.name} — ${row.note}`);
 		},

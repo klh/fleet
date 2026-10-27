@@ -20,6 +20,7 @@ import {
 	payloadChecksum,
 } from "../hooks/lib/harness-manifest.ts";
 import { hubCapabilities, spokeCapabilities } from "../hooks/lib/profile.ts";
+import { twinDrift } from "./belt-bin-overlay.ts";
 import {
 	type PlannedShim,
 	planShims,
@@ -27,31 +28,15 @@ import {
 	writeShims,
 } from "./ensure-shims.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
+import { payloadClosure } from "./lib/source-closure.ts";
 
-const SOURCE_PATHS = [
-	".githooks",
-	"packages/suspenders/hooks",
-	"packages/suspenders/scripts",
-	"packages/suspenders/deploy",
-	"packages/suspenders/package.json",
-	"packages/belt/bin",
-	"packages/belt/package.json",
-	"packages/buckle/upstreams.yaml",
-	"packages/buckle/routing-policy.yaml",
-	"packages/buckle/repo-policy.yaml",
-	"packages/buckle/src",
-	"packages/buckle/package.json",
-	// W1081: the shared HTTP identity-header seam — buckle src + belt bin and
-	// the suspenders servicemon wrap all import it; the prefix must ship it
-	// or every stamped service dies on its installed copy.
-	"packages/telemetry/src",
-	"packages/local-llm",
-	"packages/blam/src",
-	"packages/blam/bench/paired",
-	"packages/blam/bench/improve",
-	"packages/blam/package.json",
-];
-const ENTRYPOINTS = [
+// These package imports are fulfilled by the staged payload links below.
+// They are private workspace packages, not packages to fetch from npm.
+const STAGED_PACKAGE_DEPENDENCIES = new Set(["@klh/blam", "@klh/buckle"]);
+/** Faces the installer bundle-validates in the staged payload (validate()).
+ *  Exported for the W1119.2 installer/runtime-parity guard
+ *  (test/bypass-gate.test.ts). */
+export const ENTRYPOINTS = [
 	"hooks/gate.ts",
 	"hooks/session-start.ts",
 	"hooks/session-end.ts",
@@ -64,9 +49,53 @@ const ENTRYPOINTS = [
 	"hooks/bin/fleet-watch.ts",
 	"hooks/bin/fleet-board.ts", // W630: the board graph is the one that crash-looped unaudited
 	"hooks/bin/morph.ts",
+	// W1119.2: the gated inference runtime faces ride the same install-time
+	// graph validation — what fleet-loop fires is what the installer proves.
+	"hooks/bin/llm-keepwarm.ts",
+	"hooks/bin/fallback-drill.ts",
+	"hooks/bin/soak.ts",
 	"scripts/dispatch-next.ts",
 	"scripts/supervise.ts",
 ];
+// W1256.1: the payload's import-graph faces (repo-relative) — the roots the
+// closure walk (lib/source-closure.ts — the beltBinClosure walker) starts
+// from; W1466 turned that walk from the hand list's auditor into its source.
+export const CLOSURE_ENTRIES = [
+	...ENTRYPOINTS.map((entry) => `packages/suspenders/${entry}`),
+	"packages/buckle/src/server.ts",
+	"packages/belt/bin/router-shim.ts",
+	"packages/belt/bin/supervisor.ts",
+	"packages/belt/bin/dashboard.ts",
+];
+// W1466: the payload is computed, never hand-listed — a sync archives the
+// fixed-point closure (lib/source-closure.ts payloadClosure) of these faces:
+// the import-graph entrypoints plus .githooks (W650: the W236 scrub-gate
+// stubs ride the prefix by install contract, not by import). Whatever the
+// graph reaches ships — the W1295 role library and the W1081 telemetry seam
+// included — so the W661 class has no list left to drift.
+export const PAYLOAD_FACES = [...CLOSURE_ENTRIES, ".githooks"];
+
+/** The repo paths a sync archives: the closure of PAYLOAD_FACES over the
+ *  files tracked at `revision`. A face missing from the tree refuses. */
+export async function sourcePaths(
+	repo: string,
+	revision = "HEAD",
+): Promise<string[]> {
+	const root = git(repo, ["rev-parse", "--show-toplevel"]);
+	const tracked = git(root, ["ls-tree", "-r", "-z", "--name-only", revision])
+		.split("\0")
+		.filter(Boolean);
+	const closure = await payloadClosure({
+		repoRoot: root,
+		faces: PAYLOAD_FACES,
+		tracked,
+	});
+	if (closure.missing.length > 0)
+		throw new Error(
+			`Payload faces vanished from the source tree: ${closure.missing.join(", ")}`,
+		);
+	return closure.paths;
+}
 
 function git(repo: string, args: string[]): string {
 	const result = Bun.spawnSync(["git", "-C", repo, ...args], {
@@ -196,11 +225,12 @@ async function archive(
 	repo: string,
 	revision: string,
 	destination: string,
+	paths: string[],
 ): Promise<void> {
-	const source = Bun.spawn(
-		["git", "-C", repo, "archive", revision, ...SOURCE_PATHS],
-		{ stdout: "pipe", stderr: "pipe" },
-	);
+	const source = Bun.spawn(["git", "-C", repo, "archive", revision, ...paths], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
 	const unpack = Bun.spawn(["tar", "-x", "-C", destination], {
 		stdin: source.stdout,
 		stdout: "ignore",
@@ -223,6 +253,13 @@ function link(target: string, destination: string): void {
 
 async function validate(stage: string): Promise<string> {
 	const payload = join(stage, ".harness");
+	// W1468: kit twins publish only as the full re-export of their pinned
+	// belt/bin artifact — the runtime home and the harness share one face.
+	const drift = twinDrift(payload);
+	if (drift.length > 0)
+		throw new Error(
+			`Runtime twins diverge from the pinned artifact: ${drift.join("; ")}`,
+		);
 	const suspenders = join(payload, "packages/suspenders");
 	const transpiler = new Bun.Transpiler({ loader: "ts" });
 	for (const file of [
@@ -316,16 +353,14 @@ export async function syncHarness(
 				`Refusing to sync a source behind or diverged from main (${revision.slice(0, 12)} vs main ${mainSha.slice(0, 12)}); install from the pinned checkout or set SUSPENDERS_SYNC_ALLOW_BRANCH=1`,
 			);
 	}
+	// W1466: the ship list is computed at the published revision — the walk
+	// that once audited a hand list (W1256.1) produces it, and a vanished
+	// face refuses the sync inside sourcePaths.
+	const shipped = await sourcePaths(repo, revision);
 	// W780: name the offending files — the bare "working payload is dirty"
 	// verdict forced a stash-dance to find them. diff --name-only: one path
 	// per line, no porcelain status columns to mis-slice.
-	const dirty = git(repo, [
-		"diff",
-		"--name-only",
-		"HEAD",
-		"--",
-		...SOURCE_PATHS,
-	]);
+	const dirty = git(repo, ["diff", "--name-only", "HEAD", "--", ...shipped]);
 	if (dirty)
 		throw new Error(
 			`Commit reviewed harness changes before code-only sync; working payload is dirty: ${dirty.split("\n").join(", ")}`,
@@ -383,7 +418,7 @@ export async function syncHarness(
 		const payload = join(stage, ".harness");
 		rmSync(payload, { recursive: true, force: true });
 		mkdirSync(payload);
-		await archive(repo, revision, payload);
+		await archive(repo, revision, payload, shipped);
 		const packageRoot = join(payload, "packages");
 		const suspenders = join(packageRoot, "suspenders");
 		const manifest = JSON.parse(
@@ -395,15 +430,21 @@ export async function syncHarness(
 		const dependencies: Record<string, string> = {};
 		for (const item of [manifest, beltManifest]) {
 			for (const [name, version] of Object.entries(item.dependencies ?? {})) {
-				if (typeof version !== "string" || version.startsWith("workspace:"))
+				if (
+					typeof version !== "string" ||
+					version.startsWith("workspace:") ||
+					STAGED_PACKAGE_DEPENDENCIES.has(name)
+				)
 					continue;
 				if (dependencies[name] && dependencies[name] !== version)
 					throw new Error(`Conflicting installed dependency ${name}`);
 				dependencies[name] = version;
 			}
 		}
-		for (const name of ["suspenders", "belt", "local-llm", "blam"]) {
-			const path = join(packageRoot, name, "package.json");
+		// every shipped manifest (the closure ships each touched package's)
+		// sheds its dev-only fields
+		for (const rel of shipped.filter((p) => p.endsWith("/package.json"))) {
+			const path = join(payload, rel);
 			const item = JSON.parse(readFileSync(path, "utf8"));
 			delete item.devDependencies;
 			delete item.workspaces;
@@ -414,10 +455,10 @@ export async function syncHarness(
 		// (grammar: hooks/lib/profile.ts; absent file = hub = dev exemption).
 		if (ctx.profile === "spoke") {
 			for (const rel of [
-				"hooks/lib/auth.ts",
-				"hooks/lib/auth-server.ts",
+				"hooks/lib/auth/auth.ts",
+				"hooks/lib/auth/auth-server.ts",
 				"hooks/bin/auth.ts",
-				"hooks/lib/hub-tokens.ts",
+				"hooks/lib/auth/hub-tokens.ts",
 				"hooks/board/routes-hub-admin.ts",
 			]) {
 				rmSync(join(payload, "packages/suspenders", rel), { force: true });
@@ -459,6 +500,13 @@ export async function syncHarness(
 		// link content is relative to the link's own dir (node_modules/@klh):
 		// up two to stage/, then into .harness/packages/blam
 		link("../../.harness/packages/blam", join(stage, "node_modules/@klh/blam"));
+		// W1303.2: the board's http-kit import rides the package name —
+		// @klh/buckle needs the same scoped link (buckle/src is already a
+		// staged payload for the gateway bundle).
+		link(
+			"../../.harness/packages/buckle",
+			join(stage, "node_modules/@klh/buckle"),
+		);
 		for (const item of HOOK_ITEMS) {
 			if (!existsSync(join(suspenders, "hooks", item)))
 				throw new Error(`Missing harness payload: ${item}`);

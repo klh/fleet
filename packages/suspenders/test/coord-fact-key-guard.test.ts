@@ -4,30 +4,18 @@
 // keys. Temp HOME; every CLI run in a bun subprocess
 // (coord-fact-cas.test.ts recipe).
 import { describe, expect, test, afterAll, setDefaultTimeout } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 
 setDefaultTimeout(30_000); // spawn-heavy suite (bun:test 5s default flake floor)
 
-const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
-const STORE = join(import.meta.dir, "..", "hooks", "lib", "govdb-store.ts");
-const home = mkdtempSync(join(tmpdir(), "suspenders-coord-fact-guard-test-"));
+const STORE = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb-store.ts");
+const fx = cliFixture("w773-fact-key-guard");
 
-afterAll(() => rmSync(home, { recursive: true, force: true }));
+afterAll(() => fx.cleanup());
 
-const runCli = (args: string[]): { code: number; out: string; err: string } => {
-	const p = Bun.spawnSync(["bun", COORD, ...args], {
-		env: { ...process.env, HOME: home },
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	return {
-		code: p.exitCode,
-		out: new TextDecoder().decode(p.stdout),
-		err: new TextDecoder().decode(p.stderr),
-	};
-};
+const runCli = (args: string[]): { code: number; out: string; err: string } =>
+	fx.run("coord.ts", args);
 
 // the guard blocks re-minting flag-shaped keys through the CLI, so the
 // rm test seeds one the way the old build left it: a direct store insert
@@ -35,7 +23,7 @@ const runCli = (args: string[]): { code: number; out: string; err: string } => {
 const seedRow = (key: string, value: string): number => {
 	const src = `import { openStore } from ${JSON.stringify(STORE)}; openStore().query("INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, 'w773-test', 1, 1)").run(${JSON.stringify(key)}, ${JSON.stringify(value)});`;
 	const p = Bun.spawnSync(["bun", "-e", src], {
-		env: { ...process.env, HOME: home },
+		env: { ...process.env, HOME: fx.HOME },
 		cwd: join(import.meta.dir, ".."),
 		stdout: "pipe",
 		stderr: "pipe",

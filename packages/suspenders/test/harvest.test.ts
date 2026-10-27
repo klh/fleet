@@ -18,7 +18,7 @@ import {
 	parseClaudeRow,
 	parseCodexRow,
 	type Signal,
-} from "../hooks/lib/harvest.ts";
+} from "../hooks/lib/harvest/harvest.ts";
 
 const after: string[] = [];
 afterAll(() => {

@@ -14,8 +14,8 @@ import {
 	type MiningArtifact,
 	type MiningOffender,
 	miningArtifactPath,
-} from "../lib/cache-drilldown.ts";
-import { resolveBuckleDb } from "../lib/lane-spend.ts";
+} from "../lib/usage/cache-drilldown.ts";
+import { resolveBuckleDb } from "../lib/lanes/lane-spend.ts";
 import { defineVerb, parseVerb } from "../lib/verb-kit.ts";
 
 const MIN_REQUESTS = 20;

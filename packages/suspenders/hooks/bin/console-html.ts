@@ -19,7 +19,7 @@ import type {
 	BoardSettingsState,
 	PolicyGatewayParsed,
 	ResolvedPolicy,
-} from "../lib/board-config.ts";
+} from "../lib/board/board-config.ts";
 import type { AdminAuditRow } from "../lib/admin-audit.ts";
 import { scrub } from "../lib/servicemon.ts";
 import {
@@ -32,7 +32,7 @@ import {
 	displayLabel,
 	THEME_HEAD,
 } from "../lib/theme.ts";
-import type { RecoveryEntry } from "../lib/recovery-map.ts";
+import type { RecoveryEntry } from "../lib/fleet-loop/recovery-map.ts";
 // W858.10.3: the Network overview payload (type-only — erased at runtime;
 // the card component owns the DOM)
 import type { NetworkPayload } from "../board/network-overview.ts";
@@ -110,6 +110,11 @@ export interface BeltView {
 	/** W858.10.3: the /api/console/network payload — SSR seed for the
 	 *  Network overview card; the card re-fetches live every 10s. */
 	network: NetworkPayload | null;
+	/** W1294.2.1: the belt read feed answered 200 for its chunk set — the
+	 *  belt page emits the topology/model-access script tags only then, so a
+	 *  stale runtime home degrades gracefully instead of 404-console-erroring
+	 *  on every load. */
+	beltAssetsUp?: boolean;
 }
 
 // W669.11: the belt policy card's display slice — four states, rendered by
@@ -192,11 +197,23 @@ const CARDS_SCRIPT = `<script type="module" src="/vendor/klh-console-cards.js"><
 // W695.3.2: the settings form widgets (executor editor, diff view) bundle
 const FORMS_SCRIPT = `<script type="module" src="/vendor/klh-console-forms.js"></script>`;
 
+// W1294.2.1: the topology/model-access chunks live in belt's runtime home,
+// not this repo. When the read feed's freshness probe failed
+// (beltAssetsUp === false) the page swaps the tags for a heal hint — a
+// stale install must not console-error on every load. Absent flag (legacy
+// view builders) keeps the tags.
+const beltAssetScripts = (v: BeltView): string =>
+	v.beltAssetsUp === false
+		? `<p class="dimpl">Belt asset feed unavailable — topology renderers disabled (heal with packages/belt/install.sh).</p>`
+		: `<script type="module" src="/console/buckle-assets/dashboard-topology.js"></script>` +
+			`<script type="module" src="/console/buckle-assets/dashboard-topology-hubs.js"></script>` +
+			`<script type="module" src="/console/buckle-assets/dashboard-model-access.js"></script>`;
+
 export const beltPage = (v: BeltView, me?: ConsoleMe): string => {
 	const body =
 		`<style>${PILL_CSS}${PAGE_CSS}${INVENTORY_CSS}</style>` +
 		`<p class="dimpl">Request routing, provider fallback and governed model access.</p>` +
-		`<belt-topology></belt-topology><belt-topology-details></belt-topology-details>` +
+		`<belt-topology></belt-topology><belt-topology-details></belt-topology-details><belt-topology-hubs></belt-topology-hubs>` +
 		`<section class="panel" aria-label="Fleet model inventory"><h2>Fleet model inventory</h2><p class="dimpl">Models exposed through registered hubs and providers.</p><belt-model-inventory></belt-model-inventory><div id="modelaccess" aria-live="polite">Checking model access…</div></section>` +
 		(v.network
 			? `<klh-network-card heading="Buckle route summary" data="${esc(JSON.stringify(v.network))}"></klh-network-card>`
@@ -212,8 +229,7 @@ export const beltPage = (v: BeltView, me?: ConsoleMe): string => {
 		upstreamsCard(v) +
 		`</details>` +
 		`<script>globalThis.KLH_GATEWAY_READ_BASE = "/api/console/buckle";</script>` +
-		`<script type="module" src="/console/buckle-assets/dashboard-topology.js"></script>` +
-		`<script type="module" src="/console/buckle-assets/dashboard-model-access.js"></script>` +
+		beltAssetScripts(v) +
 		CARDS_SCRIPT;
 	return consolePage("Buckle gateway", "buckle", body, me);
 };

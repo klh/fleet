@@ -13,7 +13,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { execa } from "execa";
-import { redactSecrets } from "../hooks/lib/knowledge.ts";
+import { redactSecrets } from "../hooks/lib/knowledge/knowledge.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
 
 /**

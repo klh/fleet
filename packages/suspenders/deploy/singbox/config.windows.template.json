@@ -1,0 +1,37 @@
+{
+	"log": { "level": "info", "output": "<SINGBOX_LOG_FILE>", "timestamp": true },
+	"dns": {
+		"servers": [
+			{ "type": "local", "tag": "dns-local" },
+			{ "type": "udp", "tag": "dns-upstream", "server": "1.1.1.1" }
+		],
+		"rules": [{ "outbound": "any", "server": "dns-local" }],
+		"final": "dns-local"
+	},
+	"inbounds": [
+		{
+			"type": "tun",
+			"tag": "tun-in",
+			"address": ["198.18.0.1/30"],
+			"mtu": 1500,
+			"auto_route": true,
+			"strict_route": true
+		}
+	],
+	"outbounds": [
+		{
+			"tag": "hub-relay",
+			"type": "http",
+			"server": "<HUB_RELAY_HOST>",
+			"server_port": "<HUB_RELAY_PORT>"
+		},
+		{ "tag": "direct", "type": "direct" }
+	],
+	"route": { "rules": [], "final": "direct", "auto_detect_interface": true },
+	"experimental": {
+		"clash_api": {
+			"external_controller": "127.0.0.1:<CLASH_API_PORT>",
+			"secret": "<CLASH_API_SECRET>"
+		}
+	}
+}

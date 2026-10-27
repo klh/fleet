@@ -33,8 +33,8 @@ import {
 	browserConsoleUrl,
 	hubConsoleLinks,
 	hubGatewayRoutes,
-	hubProviderObservations,
 	hubLlmsRows,
+	hubProviderObservations,
 	readHubs,
 } from "./hubs.ts";
 import { modelFromProcess, probePathFor } from "./inventory-probe.ts";
@@ -51,11 +51,11 @@ import {
 import { handleTheme, isThemePath } from "./klh-theme-sync.ts";
 import { metricsFor, metricsHistory, metricsSnapshot } from "./metrics.ts";
 import { type ModelAccess, modelAccess } from "./model-access.ts";
-import { buildModelInventory } from "./model-inventory.ts";
 import {
-	collectModelCapabilities,
 	type CapabilityFeed,
+	collectModelCapabilities,
 } from "./model-capability-collector.ts";
+import { buildModelInventory } from "./model-inventory.ts";
 import { observation, observationFresh } from "./observation.ts";
 import { DOWNLOAD_MODELS, ROUTER, registryEntries } from "./registry.ts";
 import { registryResponse } from "./registry-emit.ts";
@@ -69,6 +69,14 @@ import {
 import { bearerToken, handleRoute } from "./route-policy.ts";
 import { readStatus } from "./supervisor.ts";
 import { tailLines } from "./tail-lines.ts";
+import {
+	detailAccess,
+	loadTopologyPolicy,
+	resolveTopologyAuthority,
+	type ScopeGraphSnapshot,
+	scopeTopologySnapshot,
+	type TopologyAuthority,
+} from "./topology-scope.ts";
 
 const HOME = process.env.HOME;
 const LOG_DIR = `${HOME}/.claude-insights`;
@@ -763,6 +771,11 @@ ${rows.length ? rows.join("\n") : "none registered"}
 }
 
 // ─── server ───
+// W858.7.33: enterprise topology scope (design slice 4). Inert without
+// BELT_TOPOLOGY_POLICY; a configured-but-broken policy throws here —
+// startup fatal, fail closed.
+const TOPOLOGY_POLICY = loadTopologyPolicy();
+
 const json = (x: unknown, status = 200): Response =>
 	new Response(JSON.stringify(x, null, 2), {
 		status,
@@ -770,8 +783,13 @@ const json = (x: unknown, status = 200): Response =>
 	});
 
 /** Browser-safe slice of the Board's Buckle read model. The Board reads the
- * ledger locally; Belt forwards only aggregate counts and route targets. */
-const networkSnapshot = async (): Promise<Response> => {
+ * ledger locally; Belt forwards only aggregate counts and route targets.
+ * W858.7.33: the embedded topology snapshot is scope-filtered to the viewer's
+ * authority BEFORE it leaves the server — the client aggregates the filtered
+ * graph (design law: filtering is never a browser concern). */
+const networkSnapshot = async (
+	authority: TopologyAuthority,
+): Promise<Response> => {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), 2500);
 	try {
@@ -789,6 +807,17 @@ const networkSnapshot = async (): Promise<Response> => {
 				{ signal: controller.signal },
 			);
 			topology = topologyResponse.ok ? await topologyResponse.json() : null;
+			if (
+				topology &&
+				typeof topology === "object" &&
+				(topology as Record<string, unknown>).ok === true
+			) {
+				topology = scopeTopologySnapshot(
+					topology as ScopeGraphSnapshot,
+					authority,
+					TOPOLOGY_POLICY,
+				).snapshot;
+			}
 		} catch {
 			// The existing Network panels still render if graph detail is unavailable.
 		}
@@ -894,6 +923,8 @@ const ROUTES: RouteMethods = {
 	"/dashboard-model-access.js": ["GET", "HEAD"],
 	"/dashboard-topology.js": ["GET", "HEAD"],
 	"/dashboard-topology-model.js": ["GET", "HEAD"],
+	"/dashboard-topology-hubs.js": ["GET", "HEAD"],
+	"/dashboard-topology-hubs-model.js": ["GET", "HEAD"],
 	"/dashboard-state.js": ["GET", "HEAD"],
 	"/vendor/lit.js": ["GET", "HEAD"],
 	"/vendor/uPlot.iife.min.js": ["GET", "HEAD"],
@@ -933,10 +964,17 @@ const serveRoute = async (req: Request): Promise<Response> => {
 Bun.serve({
 	port: PORT,
 	hostname: "0.0.0.0",
-	async fetch(req): Promise<Response> {
+	async fetch(req, server): Promise<Response> {
 		const health = livenessResponse(req, "belt-dashboard");
 		if (health) return health;
 		const path = new URL(req.url).pathname;
+		// W858.7.33: the viewer's authority — inert policy resolves to full
+		// access (Core SKU); otherwise a verified edge stamp or summaries-only.
+		const authority = resolveTopologyAuthority(
+			req,
+			TOPOLOGY_POLICY,
+			server?.requestIP?.(req)?.address ?? null,
+		);
 		// W997 — one shared theme preference: same-origin sync endpoint for the
 		// localhost pages (the .local front already syncs via suspenders.local).
 		if (isThemePath(path)) return handleTheme(req);
@@ -947,10 +985,13 @@ Bun.serve({
 		if (path === "/api/status") return etagJson(req, await statusBody());
 		if (path === "/registry.json") return registryResponse(req);
 		if (path === "/api/remotes") return json(await remotesSnapshot());
-		if (path === "/api/network") return networkSnapshot();
+		if (path === "/api/network") return networkSnapshot(authority);
 		if (path === "/api/topology-context") return topologyContext();
 		if (path === "/api/model-access") return json(await accessSnapshot());
 		if (path === "/api/model-inventory") {
+			// W858.7.33: on-demand local model detail requires the models scope.
+			const models = detailAccess(authority, "topology.models");
+			if (!models.ok) return json(models, models.status);
 			const [local, remotes, access, capabilities] = await Promise.all([
 				statusBody().then((body) => JSON.parse(body)),
 				remotesSnapshot(),
@@ -977,6 +1018,9 @@ Bun.serve({
 		// W272 self-heal status (ports, last probe, restarts, since) written by
 		// `swarm.ts supervise`; null when no supervisor has ever run.
 		if (path === "/api/supervisor") {
+			// W858.7.33: on-demand lane/process detail requires the lanes scope.
+			const lanes = detailAccess(authority, "topology.lanes");
+			if (!lanes.ok) return json(lanes, lanes.status);
 			const doc = readStatus();
 			if (
 				doc &&
@@ -1033,7 +1077,9 @@ Bun.serve({
 		if (
 			path === "/dashboard-model-access.js" ||
 			path === "/dashboard-topology.js" ||
-			path === "/dashboard-topology-model.js"
+			path === "/dashboard-topology-model.js" ||
+			path === "/dashboard-topology-hubs.js" ||
+			path === "/dashboard-topology-hubs-model.js"
 		)
 			return new Response(Bun.file(`${import.meta.dir}${path}`), {
 				headers: { "content-type": "text/javascript; charset=utf-8" },

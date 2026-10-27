@@ -9,46 +9,14 @@
 
 import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
-import {
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { gitInit, tmpDir, cleanupDirs } from "./helpers/fixture-kit.ts";
 import { isResumableClaim } from "../scripts/lib/resumable-claim.ts";
 
-const HOME = mkdtempSync(join(tmpdir(), "claude-work-cli-home-"));
-const gitInit = (dir: string): void => {
-	mkdirSync(dir, { recursive: true });
-	const r = Bun.spawnSync(["git", "init", "-q", dir], {
-		stdout: "ignore",
-		stderr: "ignore",
-	});
-	if (r.exitCode !== 0) throw new Error(`git init failed in ${dir}`);
-	const baseline = Bun.spawnSync(
-		[
-			"git",
-			"-C",
-			dir,
-			"-c",
-			"user.name=Fixture",
-			"-c",
-			"user.email=fixture@example.invalid",
-			"commit",
-			"--allow-empty",
-			"-qm",
-			"Fixture baseline",
-		],
-		{ stdout: "pipe", stderr: "pipe" },
-	);
-	if (baseline.exitCode !== 0)
-		throw new Error("Fixture baseline commit failed");
-};
-const REPO = mkdtempSync(join(tmpdir(), "suspenders-work-cli-repo-"));
-gitInit(REPO);
+const HOME = tmpDir("claude-work-cli-home-");
+const REPO = tmpDir("suspenders-work-cli-repo-");
+gitInit(REPO, { baseline: true });
 const env = { ...process.env, HOME };
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
 const DB = join(HOME, ".cache", "claude-governor", "governor.db");
@@ -155,8 +123,7 @@ function finishAs(
 }
 
 afterAll(() => {
-	rmSync(HOME, { recursive: true, force: true });
-	rmSync(REPO, { recursive: true, force: true });
+	cleanupDirs(HOME, REPO);
 });
 
 test("show --json gives dispatcher state and exact owner in either flag order", () => {
@@ -609,7 +576,7 @@ describe("block — dependencies and cycles", () => {
 
 describe("project partitioning", () => {
 	test("another repo sees none of this project's work", () => {
-		const repo2 = mkdtempSync(join(tmpdir(), "suspenders-work-cli-repo2-"));
+		const repo2 = tmpDir("suspenders-work-cli-repo2-");
 		gitInit(repo2);
 		try {
 			expect(workIn(repo2, "list").out).toContain("(none)");

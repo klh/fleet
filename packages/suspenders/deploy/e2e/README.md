@@ -20,7 +20,7 @@ in a worktree the runner's own checkout is the unit under test.)
 - **buckle-hub :4111** — the gate, auth ON (non-loopback bind refuses to
   boot without it), root key minted ON this device (0600 `buckle.env`
   env_file, fail-closed), ladder → belt-stub via the BUCKLE_UPSTREAMS
-  override (`upstreams.e2e.yaml`).
+  override (`upstreams.e2e.json`).
 - **caddy :8080** — the klh/local front shape: catch-all + named
   `e2e-buckle.local` site proxying the gate (Caddyfile.e2e).
 - **board-hub :7809 + store-hub :7796** — the suspenders control plane.

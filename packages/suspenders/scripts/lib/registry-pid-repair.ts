@@ -1,13 +1,13 @@
 import {
 	laneProcessIdentity,
 	isHarnessProcess,
-} from "../../hooks/lib/lane-liveness.ts";
+} from "../../hooks/lib/lanes/lane-liveness.ts";
 import {
 	loadLaneRegistry,
 	repairLaneRegistryPid,
-} from "../../hooks/lib/lane-registry.ts";
+} from "../../hooks/lib/lanes/lane-registry.ts";
 import { processBirth } from "./launch-fencing.ts";
-import type { Lane } from "./lane.ts";
+import type { Lane } from "../../hooks/lib/lanes/lane.ts";
 
 type ProcessRow = { pid: number; ppid: number; args: string };
 type Birth = { birth: string } | false | null;

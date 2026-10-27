@@ -25,13 +25,13 @@ Local file credentials keep the existing 0600/owner checks; local spokes
 can declare the same identity with `BUCKLE_LITELLM_METRICS_SOURCE_ID`.
 
 One parameterized compose (`hub-compose.yaml`) + the runtime-config shape
-(`stack.example.yaml`). The topology law: **start topology, not hardcoded
+(`stack.example.json`). The topology law: **start topology, not hardcoded
 one-offs** — a local user runs several hubs, hubs declare peers (sub-hubs),
 everything is data in runtime config.
 
 ## Deploy a hub
 
-One command, any hub (W363) — the hub's section in the machine stack.yaml is
+One command, any hub (W363) — the hub's section in the machine stack.json is
 the whole brief; the installer materializes it (mint → push → up, probe-gated
 status):
 
@@ -44,7 +44,7 @@ no ssh target is declared, so mint/push/up run locally. NAS ($NAS_HOST —
 same template, compose-managed via `--hub`; retires the W310 Docker Desktop
 one-off and the W318-era docker-run rows):
 
-    # the machine config (~/.config/klh/stack.yaml) declares the hub: ports,
+    # the machine config (~/.config/klh/stack.json) declares the hub: ports,
     # binds, repo trees, deploy transport (ssh/dir/docker), secret PATHS.
     # hubctl materializes everything from it — nothing hand-typed:
     #   bun deploy/hubctl.ts mint <hub>     # secrets ON the hub (0600, idempotent)
@@ -58,7 +58,7 @@ one-off and the W318-era docker-run rows):
     # Verified: boot log "root-keyed", /status 200, mint-test via
     # /v1/admin/keys (statuses only — key material never echoed).
 
-Ports per hub live in `~/.config/klh/stack.yaml` (mode 600) — the
+Ports per hub live in `~/.config/klh/stack.json` (mode 600) — the
 placeholders here show the shape only. `~/.claude/local-llm/hubs.json` holds
 the label → candidate-URL registry `resolveHub` walks (candidates give the
 fault tolerance: several URLs per hub label, first healthy wins).
@@ -78,7 +78,7 @@ the snapshot. The full catalog includes paid, audio, and image models, so its
 total is not a free chat route count. A failed or empty catalog fetch preserves
 the previous file.
 
-The hub's machine-level `stack.yaml` points
+The hub's machine-level `stack.json` points
 `hubs.<name>.upstreams.openrouter_free_catalog_file` at that snapshot,
 sets `buckle_prefs.allow_cloud: true`, and declares its existing
 `secrets.upstream_keys.LITELLM_KEY` as the **path on that hub** to the local
@@ -103,8 +103,18 @@ succeed. Public pricing also lists image, audio, and other models that may
 not appear in this account's chat catalog. They are not added as Buckle chat
 routes.
 
+Inference must target the Coding Plan wire bases — Anthropic Messages
+`https://api.z.ai/api/anthropic`, OpenAI Chat Completions
+`https://api.z.ai/api/coding/paas/v4`, OpenAI Responses
+`https://api.z.ai/api/v1` — never the general `/api/paas/v4`. Buckle's
+outbound guard (`adapter_config.blocked_outbound`) refuses the general
+endpoint for guarded deployments before any network call, but a hub riding
+LiteLLM hides its outbound leg behind the proxy, so the LiteLLM `api_base`
+of the zai remote must itself stay on a Coding Plan base — the generated
+rows carry the operator's base verbatim.
+
 On a local Docker hub, declare these machine-level fields in its
-`stack.yaml` profile:
+`stack.json` profile:
 
 ```yaml
 http_upstream_hosts: [host.docker.internal]
@@ -132,6 +142,21 @@ Snapshots older than 24 hours require a refresh before a new deploy. The
 hub card reports configured models; successful routing needs a separate
 inference check.
 
+**Install preflight (W1469).** `install --wire` runs `seedLocalLlm`, whose
+regen leg re-runs the home `gateway-config.ts` when `litellm.yaml` trails its
+inputs. A snapshot past the 24-hour window used to fail that leg even when
+the account's model set had not changed. The installer now checks the
+snapshot first. A timestamp-only failure (stale, unparseable, or future-dated
+`generated_at`) is verified against the live catalog through the 0600
+`zai.key`, and the snapshot is rewritten in place (0600, atomic) when the
+chat model set is unchanged. A real chat-model delta (added or removed IDs),
+or a live catalog that cannot be read (no key, HTTP error), fails the step
+loudly and names the accept path,
+`bun packages/suspenders/deploy/zai-catalog-sync.ts sync --hub <hub>`.
+The generator is not spawned and the last good `litellm.yaml` stays. Fresh
+or absent snapshots, and a `litellm.yaml` that is already current, cost no
+network call. Drift in non-chat (excluded) IDs refreshes silently.
+
 ## Inference-route canary (W467)
 
 A `/status` answer proves the gate responds. The `buckle-ready` sidecar
@@ -140,7 +165,7 @@ POSTs a 1-token chat completion through the hub's own front every 10 minutes
 and serves the verdict on its own port (`/healthz`,
 `/status` — same wire contract as the *-health sidecars):
 
-- the model is machine-level config: `ready_model:` in the hub's stack.yaml
+- the model is machine-level config: `ready_model:` in the hub's stack.json
   section (`HUB_READY_MODEL`, template default `general`) — it must name a
   model the hub's routing ladder actually serves;
 - the request rides the same break-glass root credential as the gate
@@ -178,7 +203,7 @@ hub's label): the `mdns-announce` service runs the pure-TS announcer
 `buckle-health` proves the gate healthy. This is what hub-locate's dns-sd
 discovery leg (`resolveHub` step 4) browses — until W854 the browse came
 back EMPTY and `<label>.local` resolved only via per-machine loopback
-mappings. Knobs live in the hub's stack.yaml `mdns:` block (`port`, `addr`,
+mappings. Knobs live in the hub's stack.json `mdns:` block (`port`, `addr`,
 `hostname`, `interval_ms`, `health_port`, `sidecar_port`; undeclared =
 template defaults; the advertised port defaults to `buckle_port`). The
 announcer serves its real state on `:4114/healthz`; the OUTSIDE-PROCESS
@@ -196,7 +221,20 @@ the compose `fleet-repo` sidecar clones `$HUB_FLEET_REPO_URL` at
 both from the stack's `version:` — a hub deploy without a pinned version
 (a branch name, `main`) is refused, per-package refs/origins are rejected,
 and the archived `klh/{buckle,suspenders,belt}` origins cannot deploy the
-monorepo. One version string pins the whole hub (stack.yaml law).
+monorepo. One version string pins the whole hub (stack.json law).
+
+Cutting that version is a verb (W1303.6), not a hand edit — from
+`packages/suspenders`:
+
+    bun scripts/release.ts status                        # agreement + tag + machine pin
+    bun scripts/release.ts cut --bump patch --items W1234 [--yes] [--push]
+
+`cut` bumps EVERY package manifest and internal `@klh/*` dep spec in one
+commit, tags `vMAJOR.MINOR.PATCH` (annotated), and prepends the CHANGELOG
+release line with the merged item ids; without `--yes` it prints the plan
+only. The machine `version:` pin stays operator-owned (0600): set it to the
+new tag after cutting — `status` and the install tail render the drift
+until it matches.
 
 ## Runtime + embedded SQLite verification (W443)
 
@@ -229,7 +267,7 @@ evidence (`SQLITE_PATCH_EVIDENCE` env).
 The private `*-remote` overlays (buckle-remote, belt-remote,
 suspenders-remote) are config-over-code: the public bases run, the overlay
 profiles set auth.required, tokens.ttlHours, oidc.enforced (W191 lives in
-the base), admin.gui. Entra ID tenant/app values live only in stack.yaml.
+the base), admin.gui. Entra ID tenant/app values live only in stack.json.
 W372: the deploy path consumes the whole auth block — hubctl render
 materializes auth.oidc/auth.tokens into the .env (fail-closed on a partial
 oidc block) and the buckle gate builds its JWT validator from the
@@ -247,10 +285,10 @@ public repo changes to flip.
 
 Hubs declare peers in runtime config: `hubs.<label>.peers` lists hub LABELS
 this hub reaches directly — the start-topology graph is data, never
-hardcoded (hubctl reads it; `deploy/stack.example.yaml` shows the shape).
+hardcoded (hubctl reads it; `deploy/stack.example.json` shows the shape).
 First edge (W322): the nas hub declares `desktop`. The belt-remote hub
 profile mirrors its hub's edges as `federation.peers` — labels only, the
-host/port/key values stay behind the labels in stack.yaml.
+host/port/key values stay behind the labels in stack.json.
 
 Propagation (W362): a hub pulls each declared peer's
 `/federation/policy-manifest` on an interval (`hooks/bin/federation-peers.ts`;
@@ -302,7 +340,7 @@ transport instead: a managed ssh tunnel. The read key rides the ssh
 channel; the connector fetches `http://127.0.0.1:<listen_port>/` on this
 device — the one non-https form its URL law admits.
 
-    # ~/.config/klh/stack.yaml (mode 600, placeholders here)
+    # ~/.config/klh/stack.json (mode 600, placeholders here)
     hubs:
       nas:
         trace_tunnel:

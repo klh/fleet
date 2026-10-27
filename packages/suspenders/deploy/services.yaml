@@ -221,6 +221,14 @@ services:
   # (~/.claude/local-llm/tier.json) — no tier env in the unit (W507).
   - name: belt-swarm
     abandonProcessGroup: true
+    # W1073: service-owned children survive bootout/bootstrap and the
+    # restarted supervisor adopts their ports — a bare install kept serving
+    # the pre-install router code. childPort names the abandoned listener
+    # the install RECYCLES post-bootstrap: record the old listener pid,
+    # kill it, poll <=30s for a fresh listener (supervise respawns from the
+    # synced runtime home); a timeout fails the unit in the install report.
+    # Metadata only — never rendered into any unit (like `port`).
+    childPort: 4000
     bunEntry: "__HOME__/.claude/local-llm/swarm.ts"
     args: ["supervise"]
     # launchctl setenv survives reinstalls; only reviewed belt.env may set
@@ -276,6 +284,22 @@ services:
     logs: { out: "__HOME__/.claude-insights/fleet-pulse.log" }
     placeholders: ["__BUN__", "__HOME__", "__PREFIX__", "__REPO__"]
 
+  # W1256.1 — the daily headless analyst runs (llm-performance-analyst +
+  # tool-stack-auditor, 06:43) re-owned from speedy's hand-installed
+  # com.klh.claude-insights plist. The script rides the runtime home (the
+  # belt-swarm precedent); the old label boots out at the next
+  # install --with-launchd. runAtLoad=false: the daily fire is the schedule,
+  # never a login run.
+  - name: claude-insights
+    bunEntry: "__HOME__/.claude/local-llm/daily-insights.ts"
+    args: []
+    env:
+      HOME: "__HOME__"
+      PATH: "__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin"
+    schedule: { runAtLoad: false, calendar: { hour: 6, minute: 43 } }
+    logs: { out: "__HOME__/.claude-insights/launchd-stdout.log" }
+    placeholders: ["__BUN__", "__HOME__"]
+
 # Retired labels — boot-out + plist removal at the next install --with-launchd
 # (scripts/install-launchd.ts reads THIS list via loadLegacyLabels; the old
 # TS const is gone). Never boot-out a label still in `services:` above.
@@ -310,3 +334,10 @@ legacyLabels:
   # the hand-installed bar agent — superseded by the local-bar unit (W801)
   - com.klh.kev
   - com.klh-local.dashboard
+  # W1256.1 — speedy's hand-installed daily-analyst agent, superseded by the
+  # claude-insights service above (same 06:43 calendar, manifest-owned)
+  - com.klh.claude-insights
+  # W1467 — speedy install-fleet's hand-written :4101 shadow unit (the
+  # ~/.claude/buckle copy); superseded by the buckle-spoke service above,
+  # which owns :4101 behind the activation fence
+  - com.klh.buckle

@@ -5,7 +5,7 @@
 // construction: the hub stores model-CLASS buckets, never names or
 // content; the page degrades honestly until spokes report (default OFF
 // until an operator opts teams in on the hub policy).
-import { GROUPS } from "../lib/usage.ts";
+import { GROUPS } from "../lib/usage/usage.ts";
 import type { UsageHead } from "../board-html/klh-usage-head.ts";
 // W652.3: chrome (palette/esc/fmtTok/tiles/legend/shell) rides the shared
 // usage-chrome module — W171's per-page copies retired.

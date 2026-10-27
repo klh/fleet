@@ -12,7 +12,11 @@
 //   adapterForExact(name) no fallback — null when the token names no agent.
 //                        Starter-fork resolution rides this: an unknown
 //                        harness must cold-start, never fork like claude.
-import type { ExecutorAdapter } from "../../../scripts/lib/lane.ts";
+//   adapterForDetected(name) W1731: a @vercel/detect-agent name → the
+//                        adapter whose detect.names claims it; null for
+//                        anything unregistered (raw names never surface).
+import type { EvidenceNormalizer } from "../gates/claim-evidence.ts";
+import type { ExecutorAdapter } from "../lanes/lane.ts";
 import { claudeAdapter } from "./claude.ts";
 import { clineAdapter } from "./cline.ts";
 import { copilotAdapter } from "./copilot.ts";
@@ -29,14 +33,27 @@ export const EXECUTOR_ADAPTERS: ExecutorAdapter[] = [
 	clineAdapter,
 ];
 
+/** The registry default: what an unpinned lane rides (adapterFor's miss). */
+export const DEFAULT_ADAPTER: ExecutorAdapter = claudeAdapter;
+
 export const adapterFor = (executor: string): ExecutorAdapter =>
 	EXECUTOR_ADAPTERS.find(
 		(a) => a.id === executor || a.names.includes(executor),
-	) ?? claudeAdapter;
+	) ?? DEFAULT_ADAPTER;
 
 export const adapterForExact = (name: string): ExecutorAdapter | null =>
 	EXECUTOR_ADAPTERS.find((a) => a.id === name || a.names.includes(name)) ??
 	null;
+
+export const adapterForDetected = (name: string): ExecutorAdapter | null =>
+	EXECUTOR_ADAPTERS.find((a) =>
+		a.detect?.names.some((n) => name === n || name.startsWith(`${n}_`)),
+	) ?? null;
+
+/** Every registered transcript evidence reader. The claim-check reads
+ *  prose through all of them, so no client identity can hide a claim. */
+export const EVIDENCE_NORMALIZERS: EvidenceNormalizer[] =
+	EXECUTOR_ADAPTERS.flatMap((a) => (a.evidence ? [a.evidence] : []));
 
 /** resolveLaneExecutor's gate: only these tokens resolve to a spawnable
  *  binary (catalog rows like grok/cline stay refused until their conversion). */

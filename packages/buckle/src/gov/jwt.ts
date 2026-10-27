@@ -230,9 +230,7 @@ async function verifySignature(args: SigArgs): Promise<JwtResult> {
 		kid !== undefined && keys.some((k) => k.kid !== null && k.kid === kid);
 	if (kid !== undefined && !knownKid) {
 		try {
-			const retried = await tryKeys(
-				await args.jwks.keysFor(args.uri, true),
-			);
+			const retried = await tryKeys(await args.jwks.keysFor(args.uri, true));
 			if (retried !== null) return retried;
 		} catch (e) {
 			return { ok: false, code: "buckle.jwks_unavailable", why: String(e) };
@@ -259,7 +257,7 @@ function checkClaims(args: SigArgs, kid: string | null): JwtResult {
 	const aud = Array.isArray(c.aud) ? c.aud : [c.aud];
 	if (!aud.includes(args.audience))
 		return { ok: false, code: "buckle.jwt_bad_audience", why: "aud mismatch" };
-	// W372: stack.yaml auth.oidc.requiredScope — enforced post-signature:
+	// W372: stack.json auth.oidc.requiredScope — enforced post-signature:
 	// delegated Entra tokens carry the api:// scope in `scp` (space-joined
 	// string); app-only tokens in `roles`. Miss = fixed-shape rejection.
 	if (

@@ -2,7 +2,7 @@
 // no numeric lane ceiling; route health and quota observations stop growth.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { Posture } from "../../hooks/lib/plaid.ts";
+import type { Posture } from "../../hooks/lib/plaid/plaid.ts";
 
 export type RefillWindow = {
 	/** Null means no total lane target. */

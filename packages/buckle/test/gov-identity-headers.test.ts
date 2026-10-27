@@ -68,17 +68,25 @@ describe("identity headers — through the gate", () => {
 	test("authenticator as the authenticate hook: SSO principal rides", async () => {
 		const dir = `/tmp/w235-ih-${Date.now()}-${process.pid}`;
 		await Bun.write(
-			`${dir}.policy.yaml`,
-			["version: 1", "gateway:", "  fallbacks:", "    m: [local]", ""].join("\n"),
+			`${dir}.policy.json`,
+			JSON.stringify({
+				version: 1,
+				gateway: { fallbacks: { m: ["local"] } },
+			}),
 		);
 		await Bun.write(
-			`${dir}.upstreams.yaml`,
-			["version: 1", "groups:", "  m:", "    - url: http://127.0.0.1:8501", "      dialect: openai", ""].join("\n"),
+			`${dir}.upstreams.json`,
+			JSON.stringify({
+				version: 1,
+				groups: {
+					m: [{ url: "http://127.0.0.1:8501", dialect: "openai" }],
+				},
+			}),
 		);
 		const srv = startServer({
 			port: 0,
-			policyPath: `${dir}.policy.yaml`,
-			upstreamsPath: `${dir}.upstreams.yaml`,
+			policyPath: `${dir}.policy.json`,
+			upstreamsPath: `${dir}.upstreams.json`,
 			dbPath: ":memory:",
 			auth: {
 				rootKey: "rk",

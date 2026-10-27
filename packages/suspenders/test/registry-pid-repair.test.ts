@@ -5,13 +5,13 @@ import { join } from "node:path";
 import {
 	mergeLaneRegistry,
 	repairLaneRegistryPid,
-} from "../hooks/lib/lane-registry.ts";
+} from "../hooks/lib/lanes/lane-registry.ts";
 import {
 	repairManagedWrapperPid,
 	wrapperWitness,
 	type RepairProbe,
 } from "../scripts/lib/registry-pid-repair.ts";
-import type { Lane } from "../scripts/lib/lane.ts";
+import type { Lane } from "../hooks/lib/lanes/lane.ts";
 
 const roots: string[] = [];
 const fixture = () => {

@@ -14,7 +14,7 @@
 // HUB_MDNS_HEALTH_PORT and the OUTSIDE-PROCESS mdns-health sidecar polls
 // that over the wire; compose health hits the sidecar, never this process.
 //
-// Knobs (env, config-over-code — stack.yaml `mdns:` renders them via
+// Knobs (env, config-over-code — stack.json `mdns:` renders them via
 // hubctl render):
 //   HUB_MDNS_LABEL        instance name (default HUB_NAME)
 //   HUB_MDNS_PORT         advertised port (default HUB_BUCKLE_PORT or 4111)

@@ -6,7 +6,6 @@
 import { describe, test, expect, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
-	mkdtempSync,
 	rmSync,
 	existsSync,
 	readFileSync,
@@ -16,18 +15,16 @@ import {
 	appendFileSync,
 	realpathSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+	cleanupDirs,
+	gitInit as kitGitInit,
+	tmpDir,
+} from "./helpers/fixture-kit.ts";
 
-const HOME = mkdtempSync(join(tmpdir(), "claude-worktree-home-"));
-const gitInit = (dir: string): void => {
-	mkdirSync(dir, { recursive: true });
-	Bun.spawnSync(["git", "init", "-q", dir], {
-		stdout: "ignore",
-		stderr: "ignore",
-	});
-};
-const REPO = mkdtempSync(join(tmpdir(), "suspenders-worktree-repo-"));
+const HOME = tmpDir("claude-worktree-home-");
+const gitInit = kitGitInit;
+const REPO = tmpDir("suspenders-worktree-repo-");
 gitInit(REPO);
 const env = { ...process.env, HOME };
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
@@ -65,8 +62,7 @@ const retireForClaim = (id: string, owner: string) => {
 };
 
 afterAll(() => {
-	rmSync(HOME, { recursive: true, force: true });
-	rmSync(REPO, { recursive: true, force: true });
+	cleanupDirs(HOME, REPO);
 	// the W211 parked-tree fixture sits OUTSIDE the mkdtemp REPO (shared
 	// tmpdir root) — remove it or the next run's worktree add collides
 	rmSync(join(REPO, "..", "w211-parked"), { recursive: true, force: true });
@@ -242,17 +238,20 @@ describe("worktree registry resolution (W211)", () => {
 		expect(wt("path", id).out.trim()).toBe(realpathSync(parked));
 		expect(wt("create", id).code).not.toBe(0);
 		// done retires the PARKED tree — the W211 silent no-op is dead
-		expect(
-			work(
-				"done",
-				id,
-				"--sha",
-				tip,
-				"--summary",
-				"W211 registry parked-tree closure: done must resolve the tree from the registry and retire it even outside .worktrees",
-				...(ptok ? ["--token", ptok] : []),
-			).code,
-		).toBe(0);
+		const done = work(
+			"done",
+			id,
+			"--sha",
+			tip,
+			"--summary",
+			"W211 registry parked-tree closure: done must resolve the tree from the registry and retire it even outside .worktrees",
+			...(ptok ? ["--token", ptok] : []),
+		);
+		expect(done.code).toBe(0);
+		expect(done.err).toBe("");
+		expect(done.out).toContain(
+			`retired ${realpathSync(join(REPO, "..", "w211-parked"))}/${id}`,
+		);
 		expect(existsSync(parked)).toBe(false);
 		expect(gc(["rev-parse", "--verify", `suspenders/${id}`]).code).toBe(0);
 	});
@@ -334,7 +333,15 @@ describe("worktree sweep (W494.2.2)", () => {
 		// the tree; item lands DONE with its worktree still standing (the
 		// 2026-10-06 incident state this sweep exists for)
 		writeFileSync(join(dir, "junk.txt"), "junk");
-		const dt = work("done", id, "--sha", tip, ...(tok ? ["--token", tok] : []));
+		const dt = work(
+			"done",
+			id,
+			"--sha",
+			tip,
+			"--summary",
+			"Patch-equivalent worktree is complete; sweep must preserve the committed result and remove the dirty parked checkout safely.",
+			...(tok ? ["--token", tok] : []),
+		);
 		expect(dt.code).toBe(0);
 		expect(existsSync(dir)).toBe(true);
 		rmSync(join(dir, "junk.txt")); // clean again — only debris ever blocked retire
@@ -369,7 +376,15 @@ describe("worktree sweep (W494.2.2)", () => {
 		const tip = gc(["-C", dir, "rev-parse", "HEAD"]).out;
 		// dirty-keep trick again: item lands DONE, tree stays standing
 		writeFileSync(join(dir, "junk.txt"), "junk");
-		const dt = work("done", id, "--sha", tip, ...(tok ? ["--token", tok] : []));
+		const dt = work(
+			"done",
+			id,
+			"--sha",
+			tip,
+			"--summary",
+			"Unmerged worktree is complete; sweep must retain its committed branch and surface the integration decision.",
+			...(tok ? ["--token", tok] : []),
+		);
 		expect(dt.code).toBe(0);
 		rmSync(join(dir, "junk.txt"));
 		const s = sweep("sweep", "--main", MAIN());
@@ -399,7 +414,7 @@ describe("worktree sweep (W494.2.2)", () => {
 		// the live incident: 6+ codex trees at ~/.codex/worktrees/<hash>/fleet
 		// (basename 'fleet', foreign branch, unmerged work) — a basename wid
 		// bypassed the claim guard and NEED_DECISION'd them every sweep
-		const codexRoot = mkdtempSync(join(tmpdir(), "codex-worktrees-"));
+		const codexRoot = tmpDir("codex-worktrees-");
 		const parked = join(codexRoot, "abc123", "fleet");
 		mkdirSync(join(parked, ".."), { recursive: true });
 		expect(

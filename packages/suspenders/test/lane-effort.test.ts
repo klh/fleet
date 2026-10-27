@@ -9,7 +9,7 @@ import {
 	doneEffortStamp,
 	effortForPriority,
 	laneEffortFromSettingsFile,
-} from "../hooks/lib/lane-effort.ts";
+} from "../hooks/lib/lanes/lane-effort.ts";
 
 describe("laneEffortFromSettingsFile", () => {
 	test("reads SUSPENDERS_LANE_EFFORT from the 0600 settings JSON; absent → null", () => {

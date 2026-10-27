@@ -57,7 +57,7 @@ const age = (value) => {
 	return `${Math.floor(elapsed / 60_000)}m ago`;
 };
 
-class BeltTopology extends LitElement {
+export class BeltTopology extends LitElement {
 	static properties = {
 		topology: { state: true },
 		error: { state: true },
@@ -206,13 +206,18 @@ class BeltTopology extends LitElement {
 					cache: "no-store",
 				}).catch(() => null),
 			]);
-			if (!statusResponse.ok || !remotesResponse.ok || !supervisorResponse.ok)
+			// W858.7.33: a 403 topology.scope_denied on the detail feeds
+			// (supervisor doc, model inventory) must not kill the page — the
+			// hub summaries still render; the inspector says "withheld".
+			if (!statusResponse.ok || !remotesResponse.ok)
 				throw new Error("A topology feed is unavailable");
 			const [status, remotes, supervisor, network, access, context, inventory] =
 				await Promise.all([
 					statusResponse.json(),
 					remotesResponse.json(),
-					supervisorResponse.json(),
+					supervisorResponse.ok
+						? supervisorResponse.json().catch(() => null)
+						: null,
 					networkResponse?.ok ? networkResponse.json().catch(() => null) : null,
 					accessResponse?.ok ? accessResponse.json().catch(() => null) : null,
 					contextResponse?.ok ? contextResponse.json().catch(() => null) : null,
@@ -224,7 +229,7 @@ class BeltTopology extends LitElement {
 				network?.ok && network.network?.ok
 					? ""
 					: "Buckle request feed unavailable";
-			this.topology = buildTopology(
+			const detail = buildTopology(
 				status,
 				remotes,
 				supervisor,
@@ -234,6 +239,11 @@ class BeltTopology extends LitElement {
 				context,
 				inventory,
 			);
+			detail.inventoryWithheld = inventoryResponse
+				? !inventoryResponse.ok
+				: false;
+			detail.supervisorWithheld = !supervisorResponse.ok;
+			this.topology = detail;
 			document.dispatchEvent(
 				new CustomEvent("belt-topology-data", { detail: this.topology }),
 			);
@@ -338,6 +348,7 @@ class BeltTopology extends LitElement {
 							usage15: Number.isFinite(item.requests15)
 								? item.requests15
 								: null,
+							ports: [],
 						})),
 				].sort(
 					(a, b) =>

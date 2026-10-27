@@ -13,7 +13,8 @@ import {
 	resolveRoleClass,
 } from "../bin/router-policy.ts";
 
-const REPO_POLICY = new URL("../bin/routing-policy.yaml", import.meta.url)
+// W1253: the ONE committed default is buckle/routing-policy.json
+const REPO_POLICY = new URL("../../buckle/routing-policy.json", import.meta.url)
 	.pathname;
 
 /** Fixed ladder — pins the EMITTER shape independent of policy drift. */
@@ -32,13 +33,15 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		expect(p.litellm_num_retries).toBe(1);
 		expect(p.allowed_fails).toBe(3);
 		expect(p.cooldown_time).toBe(30);
+		expect(p.request_timeout_s).toBe(360);
+		expect(p.first_byte_budget_s).toBe(390);
 		expect(p.fallbacks).toEqual({
-			"glm-5.3-flash": ["zai-glm-5.3-flash", "local-swarm"],
+			"glm-5.3-flash": ["zai-glm-5.3-flash"],
 			"glm-5.3": ["zai-glm-5.3", "local-swarm"],
 			"glm-5.2": ["zai-glm-5.2", "local-swarm"],
-			"zai-glm-5.3-flash": ["local-swarm"],
 			"zai-glm-5.3": ["local-swarm"],
 			"zai-glm-5.2": ["local-swarm"],
+			"claude-sonnet-5": ["glm-5.3-flash", "local-swarm"],
 		});
 		expect(p.enable_pre_call_checks).toBe(true);
 		expect(p.context_window_fallbacks).toEqual({
@@ -55,17 +58,29 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		expect(JSON.stringify(p).toLowerCase().includes("flashx")).toBe(false);
 	});
 
-	test("fallback order is zai twin → local router, per glm group", () => {
+	test("the explicit Flash group cannot fall through to another model", () => {
+		const f = loadGatewayPolicy(REPO_POLICY).fallbacks ?? {};
+		expect(f["glm-5.3-flash"]).toEqual(["zai-glm-5.3-flash"]);
+		expect(f["zai-glm-5.3-flash"]).toBeUndefined();
+	});
+
+	test("other glm groups retain their configured fallback order", () => {
 		const f = loadGatewayPolicy(REPO_POLICY).fallbacks ?? {};
 		for (const [group, ladder] of Object.entries(f)) {
-			expect(ladder?.at(-1)).toBe("local-swarm");
 			expect(ladder).not.toContain(group);
+			if (group.startsWith("glm") && group !== "glm-5.3-flash") {
+				expect(ladder?.at(0)).toBe(`zai-${group}`);
+				expect(ladder).toContain("local-swarm");
+			}
+			if (group.startsWith("zai")) {
+				expect(ladder?.at(-1)).toBe("local-swarm");
+			}
 		}
 	});
 
-	test("W880: zai twins reach the local router without reciprocal fallback", () => {
+	test("non-Flash zai twins reach the local router without reciprocal fallback", () => {
 		const f = loadGatewayPolicy(REPO_POLICY).fallbacks ?? {};
-		for (const twin of ["zai-glm-5.3-flash", "zai-glm-5.3", "zai-glm-5.2"]) {
+		for (const twin of ["zai-glm-5.3", "zai-glm-5.2"]) {
 			expect(f[twin]).toEqual(["local-swarm"]);
 		}
 		expect(f["local-swarm"]).toBeUndefined();
@@ -117,7 +132,10 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 
 	test("verified front ownership opts out of inner retries without changing outer budget", () => {
 		const policy = parsePolicy(
-			"gateway:\n  num_retries: 1\n  litellm_num_retries: 0\n",
+			JSON.stringify({
+				version: 1,
+				gateway: { num_retries: 1, litellm_num_retries: 0 },
+			}),
 		);
 		const generated = Bun.YAML.parse(emitRouterSettings(policy));
 		expect(policy.num_retries).toBe(1);
@@ -126,7 +144,10 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 
 	test("outer retries stay independent from bounded inner router retries", () => {
 		const policy = parsePolicy(
-			"gateway:\n  num_retries: 1\n  litellm_num_retries: 3\n",
+			JSON.stringify({
+				version: 1,
+				gateway: { num_retries: 1, litellm_num_retries: 3 },
+			}),
 		);
 		const generated = Bun.YAML.parse(emitRouterSettings(policy));
 		expect(policy.num_retries).toBe(1);
@@ -137,20 +158,15 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 	});
 
 	test("invalid inner retry budgets fail closed rather than generating YAML", () => {
-		for (const invalid of [
-			"-1",
-			"4",
-			"1.5",
-			"null",
-			'"2"',
-			"true",
-			".nan",
-			".inf",
-		]) {
+		for (const invalid of [-1, 4, 1.5, null, "2", true]) {
 			expect(() =>
-				parsePolicy(`gateway:\n  litellm_num_retries: ${invalid}\n`),
+				parsePolicy(
+					JSON.stringify({ gateway: { litellm_num_retries: invalid } }),
+				),
 			).toThrow("integer from 0 to 3");
 		}
+		// yaml BYTES no longer parse at all (W1253: JSON is the ONE parser)
+		expect(() => parsePolicy("gateway:\n  litellm_num_retries: 2\n")).toThrow();
 		expect(() => emitRouterSettings({ litellm_num_retries: -1 })).toThrow(
 			"integer from 0 to 3",
 		);
@@ -178,7 +194,12 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 
 	test("explicit inner fallback opt-out preserves the front's policy ladder", () => {
 		const policy = parsePolicy(
-			"gateway:\n  litellm_fallbacks: false\n  fallbacks:\n    primary: [secondary]\n",
+			JSON.stringify({
+				gateway: {
+					litellm_fallbacks: false,
+					fallbacks: { primary: ["secondary"] },
+				},
+			}),
 		);
 		expect(Bun.YAML.parse(emitLiteLlmSettings(policy))).toEqual({
 			litellm_settings: {
@@ -195,27 +216,31 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 	});
 
 	test("inner fallbacks default on and reject non-boolean config", () => {
-		expect(parsePolicy("version: 1\n").litellm_fallbacks).toBe(true);
-		for (const invalid of ["null", "0", "1", '"false"', "[]", "{}"])
+		expect(parsePolicy(JSON.stringify({ version: 1 })).litellm_fallbacks).toBe(
+			true,
+		);
+		for (const invalid of [null, 0, 1, "false", [], {}])
 			expect(() =>
-				parsePolicy(`gateway:\n  litellm_fallbacks: ${invalid}\n`),
+				parsePolicy(
+					JSON.stringify({ gateway: { litellm_fallbacks: invalid } }),
+				),
 			).toThrow("must be a boolean");
 	});
 
 	test("runtime copy overrides the committed default", () => {
 		const dir = mkdtempSync(join(tmpdir(), "w124-policy-"));
-		const path = join(dir, "routing-policy.yaml");
+		const path = join(dir, "routing-policy.json");
 		writeFileSync(
 			path,
-			[
-				"version: 1",
-				"gateway:",
-				"  num_retries: 2",
-				"  allowed_fails: 5",
-				"  cooldown_time: 60",
-				"  fallbacks:",
-				"    glm-5.3-flash: [local-swarm]",
-			].join("\n"),
+			JSON.stringify({
+				version: 1,
+				gateway: {
+					num_retries: 2,
+					allowed_fails: 5,
+					cooldown_time: 60,
+					fallbacks: { "glm-5.3-flash": ["local-swarm"] },
+				},
+			}),
 		);
 		const p = loadGatewayPolicy(path);
 		expect(p.num_retries).toBe(2);
@@ -225,11 +250,13 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		rmSync(dir, { recursive: true, force: true });
 	});
 
-	test("JSON sibling of a pinned YAML policy wins, then legacy YAML remains readable", () => {
+	test("JSON sibling of a pinned path wins; a legacy yaml NAME with yaml bytes is skipped (W1253)", () => {
 		const dir = mkdtempSync(join(tmpdir(), "w975-belt-policy-"));
 		const yaml = join(dir, "routing-policy.yaml");
 		const json = join(dir, "routing-policy.json");
+		const previousHome = process.env.HOME;
 		try {
+			process.env.HOME = dir;
 			writeFileSync(yaml, "gateway:\n  num_retries: 2\n");
 			writeFileSync(
 				json,
@@ -240,11 +267,13 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 			);
 			expect(loadGatewayPolicy(yaml).num_retries).toBe(3);
 			expect(loadGatewayPolicy(yaml).litellm_num_retries).toBe(0);
-			writeFileSync(json, "gateway:\n  num_retries: 4\n");
-			expect(() => loadGatewayPolicy(yaml)).toThrow();
+			// json gone → the legacy .yaml NAME's yaml BYTES no longer parse
+			// (W1253: JSON-only); the chain falls through to the committed default
 			rmSync(json);
-			expect(loadGatewayPolicy(yaml).num_retries).toBe(2);
+			expect(loadGatewayPolicy(yaml).num_retries).toBe(1);
 		} finally {
+			if (previousHome === undefined) delete process.env.HOME;
+			else process.env.HOME = previousHome;
 			rmSync(dir, { recursive: true, force: true });
 		}
 	});
@@ -277,7 +306,7 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 	});
 
 	test("defaults apply when the gateway section is absent", () => {
-		const p = parsePolicy("version: 1\n");
+		const p = parsePolicy(JSON.stringify({ version: 1 }));
 		expect(p.num_retries).toBe(1);
 		expect(p.litellm_num_retries).toBe(1);
 		expect(p.allowed_fails).toBe(3);
@@ -286,11 +315,13 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 	});
 
 	test("emit omits the fallbacks key when none are configured", () => {
-		const out = emitRouterSettings(parsePolicy("version: 1\n"));
+		const out = emitRouterSettings(parsePolicy(JSON.stringify({ version: 1 })));
 		expect(out.includes("fallbacks")).toBe(false);
 		expect(out).toContain("routing_strategy: latency-based-routing");
 		expect(
-			Bun.YAML.parse(emitLiteLlmSettings(parsePolicy("version: 1\n"))),
+			Bun.YAML.parse(
+				emitLiteLlmSettings(parsePolicy(JSON.stringify({ version: 1 }))),
+			),
 		).toEqual({
 			litellm_settings: {
 				drop_params: true,
@@ -303,21 +334,20 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 });
 
 /** W648 fixture — suffix rule + explicit override + the effort axis. */
-const W648_DOC = [
-	"classes:",
-	"  frontier: [glm-5.3]",
-	"  standard: [glm-5.3-flash]",
-	"  spark: [local-extract, local-coder]",
-	"roles:",
-	"  reviewer-low: frontier",
-	"reasoning:",
-	"  default: medium",
-	"  classes:",
-	"    spark: low",
-	"  roles:",
-	"    executor: xhigh",
-	"",
-].join("\n");
+const W648_DOC = JSON.stringify({
+	version: 1,
+	classes: {
+		frontier: ["glm-5.3"],
+		standard: ["glm-5.3-flash"],
+		spark: ["local-extract", "local-coder"],
+	},
+	roles: { "reviewer-low": "frontier" },
+	reasoning: {
+		default: "medium",
+		classes: { spark: "low" },
+		roles: { executor: "xhigh" },
+	},
+});
 
 describe("role-class schema (W648, oh-my-codex §1 lift)", () => {
 	test("committed default carries the three class rows + effort defaults", () => {
@@ -343,33 +373,43 @@ describe("role-class schema (W648, oh-my-codex §1 lift)", () => {
 	});
 
 	test("standard inherits frontier; spark inherits standard → frontier", () => {
-		const p = parsePolicy("classes:\n  frontier: [glm-5.3]\n");
+		const p = parsePolicy(
+			JSON.stringify({ classes: { frontier: ["glm-5.3"] } }),
+		);
 		expect(resolveClassGroups(p, "standard")).toEqual(["glm-5.3"]);
 		expect(resolveClassGroups(p, "spark")).toEqual(["glm-5.3"]);
 	});
 
 	test("no rows configured → every class resolves empty (pre-schema files stay valid)", () => {
-		const p = parsePolicy("version: 1\n");
+		const p = parsePolicy(JSON.stringify({ version: 1 }));
 		for (const cls of ["frontier", "standard", "spark"] as const)
 			expect(resolveClassGroups(p, cls)).toEqual([]);
 	});
 
 	test("bad class keys, empty group lists and invalid efforts fail closed", () => {
-		expect(() => parsePolicy("classes:\n  ultra: [glm-5.3]\n")).toThrow(
-			"not one of",
-		);
-		expect(() => parsePolicy("classes:\n  spark: []\n")).toThrow(
-			"non-empty list",
-		);
-		expect(() => parsePolicy("reasoning:\n  default: ultra\n")).toThrow(
-			"must be one of",
-		);
-		expect(() => parsePolicy("roles:\n  executor: ✗\n")).toThrow("not one of");
+		expect(() =>
+			parsePolicy(JSON.stringify({ classes: { ultra: ["glm-5.3"] } })),
+		).toThrow("not one of");
+		expect(() =>
+			parsePolicy(JSON.stringify({ classes: { spark: [] } })),
+		).toThrow("non-empty list");
+		expect(() =>
+			parsePolicy(JSON.stringify({ reasoning: { default: "ultra" } })),
+		).toThrow("must be one of");
+		expect(() =>
+			parsePolicy(JSON.stringify({ roles: { executor: "✗" } })),
+		).toThrow("not one of");
 	});
 
 	test("effort precedence: role row > class row > global default", () => {
 		const p = parsePolicy(
-			"reasoning:\n  default: low\n  classes:\n    standard: medium\n  roles:\n    executor: xhigh\n",
+			JSON.stringify({
+				reasoning: {
+					default: "low",
+					classes: { standard: "medium" },
+					roles: { executor: "xhigh" },
+				},
+			}),
 		);
 		expect(resolveReasoningEffort(p, "executor")).toBe("xhigh");
 		expect(resolveReasoningEffort(p, "planner")).toBe("medium");

@@ -1,6 +1,7 @@
 // Model identity comes from Belt's deployed registry, never a second port list.
 import { existsSync } from "node:fs";
 import type { RegistryEntry, ROUTER } from "../../../belt/bin/registry.ts";
+import { isLoopbackHostname } from "./loopback.ts";
 export { probePathFor } from "./inventory-probe.ts";
 
 const candidates = [
@@ -33,7 +34,7 @@ export function registrationPort(s: ServiceRegistration): number | null {
 	if (!s.upstream) return s.port;
 	try {
 		const u = new URL(s.upstream);
-		if (!["localhost", "127.0.0.1", "[::1]"].includes(u.hostname)) return null;
+		if (!isLoopbackHostname(u.hostname)) return null;
 		return Number(u.port || (u.protocol === "https:" ? 443 : 80));
 	} catch {
 		return null;

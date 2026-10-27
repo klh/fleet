@@ -29,6 +29,7 @@ import {
 	PullAuthorizer,
 	TokenBucket,
 } from "../../buckle/src/gov/store-auth.ts";
+import { loadCatalog } from "../../local-llm/models.catalog.ts";
 import {
 	hostGuard,
 	writeToken,
@@ -38,11 +39,10 @@ import {
 	hfOrigin,
 	hubOrigin,
 	loadIndex,
-	syncCatalog,
 	type Origin,
 	type SyncReport,
+	syncCatalog,
 } from "./model-store-lib.ts";
-import { loadCatalog } from "../../local-llm/models.catalog.ts";
 
 // ─── knobs (config-over-code: env names here, values in machine config) ───
 

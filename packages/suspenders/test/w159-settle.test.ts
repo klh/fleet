@@ -16,18 +16,18 @@ const REAL_HOME = process.env.HOME;
 process.env.HOME = HOME;
 // query bust: this file's own govdb instance, bound to the temp HOME
 const { openGovernorDb, openKnowledgeDb } = await import(
-	`../hooks/lib/govdb.ts?w159=${encodeURIComponent(HOME)}`
+	`../hooks/lib/govdb/govdb.ts?w159=${encodeURIComponent(HOME)}`
 );
 // the store rides the same bust: settle.ts's own openKnowledgeDb default
 // resolves through whatever plain govdb module the suite cached first
 // (load-time HOME pin), so each settle below injects its store explicitly.
 const { SqliteKnowledgeStore } = await import(
-	`../hooks/lib/knowledge-ports.ts?w159=${encodeURIComponent(HOME)}`
+	`../hooks/lib/knowledge/sqlite-store.ts?w159=${encodeURIComponent(HOME)}`
 );
 const settleStore = (db: Database): InstanceType<typeof SqliteKnowledgeStore> =>
 	new SqliteKnowledgeStore(openKnowledgeDb(), db);
 const { settleSessionWith, sessionDomain, recordSessionDomain } = await import(
-	"../hooks/lib/settle.ts"
+	"../hooks/lib/knowledge/settle.ts"
 );
 
 const DB = join(HOME, ".cache", "claude-governor", "governor.db");
@@ -202,7 +202,7 @@ test("distill-time inheritance: claim surfaces hub_eligible, upsert stamps it", 
 	freshDb();
 	const kb = openKnowledgeDb();
 	const { SqliteKnowledgeStore } = await import(
-		`../hooks/lib/knowledge-ports.ts?w159=${encodeURIComponent(HOME)}`
+		`../hooks/lib/knowledge/sqlite-store.ts?w159=${encodeURIComponent(HOME)}`
 	);
 	const store = new SqliteKnowledgeStore(kb);
 	const settled = queueRow("s-inh", 1);

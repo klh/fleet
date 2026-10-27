@@ -6,34 +6,23 @@
 // (W651: the hand-maintained block never listed wisdom/broadcast/executor-cv —
 //  drift this migration retires for good.)
 
-import { setRest } from "../coord/shared.ts";
-import { defineVerb, runCli, type VerbSpec } from "../lib/verb-kit.ts";
+import { cmdDelivery, cmdMessage, cmdTargets } from "../coord/addressing.ts";
 import {
-	cmdEmit,
-	cmdBroadcast,
-	cmdPoll,
-	cmdWait,
-	cmdSubscribe,
-	cmdState,
-	cmdInbox,
 	cmdAck,
-	cmdReceipt,
+	cmdBroadcast,
+	cmdEmit,
+	cmdInbox,
 	cmdPause,
 	cmdPaused,
+	cmdPoll,
+	cmdReceipt,
 	cmdResume,
 	cmdResumed,
 	cmdResumeSession,
+	cmdState,
+	cmdSubscribe,
+	cmdWait,
 } from "../coord/bus.ts";
-import { cmdTargets, cmdMessage, cmdDelivery } from "../coord/addressing.ts";
-import { cmdExecutorCv } from "../coord/executor-cv.ts";
-import { cmdWisdom } from "../coord/wisdom.ts";
-import {
-	cmdFact,
-	cmdCapsule,
-	cmdLeaseRelease,
-	cmdKb,
-	cmdGc,
-} from "../coord/facts.ts";
 import {
 	cmdConsult,
 	cmdConsultReply,
@@ -41,34 +30,45 @@ import {
 	cmdWhoKnows,
 } from "../coord/consult.ts";
 import { cmdCoordinate } from "../coord/coordination.ts";
+import { cmdExecutorCv } from "../coord/executor-cv.ts";
+import {
+	cmdCapsule,
+	cmdFact,
+	cmdGc,
+	cmdKb,
+	cmdLeaseRelease,
+} from "../coord/facts.ts";
+import {
+	cmdBootstrap,
+	cmdDiff,
+	cmdDoctorSession,
+	cmdEvents,
+	cmdFleet,
+	cmdMetrics,
+	cmdProject,
+	cmdRename,
+} from "../coord/fleet.ts";
 import { cmdGovernance } from "../coord/governance.ts";
+import { cmdHubs } from "../coord/hubs.ts";
 import {
 	cmdKnowledge,
+	cmdKnowledgeCurate,
+	cmdKnowledgeDispose,
 	cmdKnowledgeEnqueue,
-	cmdKnowledgePromote,
-	cmdKnowledgeRetire,
 	cmdKnowledgeGrade,
 	cmdKnowledgeGraveyard,
 	cmdKnowledgeNote,
-	cmdKnowledgeVerify,
-	cmdKnowledgeCurate,
-	cmdKnowledgeReprocess,
-	cmdKnowledgePropose,
+	cmdKnowledgePromote,
 	cmdKnowledgeProposals,
-	cmdKnowledgeDispose,
+	cmdKnowledgePropose,
+	cmdKnowledgeReprocess,
+	cmdKnowledgeRetire,
+	cmdKnowledgeVerify,
 } from "../coord/knowledge.ts";
-import {
-	cmdBootstrap,
-	cmdFleet,
-	cmdRename,
-	cmdMetrics,
-	cmdDoctorSession,
-	cmdDiff,
-	cmdEvents,
-	cmdProject,
-} from "../coord/fleet.ts";
-import { cmdHubs } from "../coord/hubs.ts";
+import { setRest } from "../coord/shared.ts";
 import { cmdSupervisor } from "../coord/supervisor.ts";
+import { cmdWisdom } from "../coord/wisdom.ts";
+import { defineVerb, runCli, type VerbSpec } from "../lib/verb-kit.ts";
 
 // W157/W651: handler bodies live verbatim in hooks/coord/*.ts; the kit
 // resolves the verb, intercepts --help, parses (lax — handlers own their
@@ -331,6 +331,7 @@ const VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "fleet",
+		usage: "usage: fleet [--json | --njson]",
 		lax: true,
 		run: (p) => cmdFleet(p.rest),
 	}),

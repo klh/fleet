@@ -21,7 +21,8 @@
 	},
 	"dependencies": {
 		"@klh/blam": "workspace:*",
-		"p-queue": "^9.3.3"
+		"p-queue": "^9.3.3",
+		"zod": "^4.0.0"
 	},
 	"license": "SEE LICENSE IN LICENSE"
 }

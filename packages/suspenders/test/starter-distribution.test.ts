@@ -25,11 +25,11 @@ import {
 	rollbackStarter,
 	starterAuthzFile,
 	writeGrants,
-} from "../hooks/lib/starter-distribution.ts";
+} from "../hooks/lib/starter/starter-distribution.ts";
 import {
 	listStartersIn,
 	starterRegistryDir,
-} from "../hooks/lib/starter-artifacts.ts";
+} from "../hooks/lib/starter/starter-artifacts.ts";
 
 const scratch = (): string => mkdtempSync(join(tmpdir(), "w4582t-"));
 

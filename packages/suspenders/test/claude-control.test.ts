@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import {
 	ClaudeControl,
 	claudeStreamArguments,
-} from "../hooks/lib/claude-control.ts";
+} from "../hooks/lib/executors/claude-control.ts";
 
 test("managed argv preserves settings and resume flags while owning the stream", () => {
 	const parsed = claudeStreamArguments([

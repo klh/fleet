@@ -8,13 +8,13 @@
 // three, so a byte-identical store.search IS a byte-identical API response.
 import { describe, test, expect, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, mkdirSync, readdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readdirSync, rmSync } from "node:fs";
+import { tmpDir } from "./helpers/fixture-kit.ts";
 import { join } from "node:path";
 import { unusedPort } from "./helpers/board-fixture.ts";
 
 const REAL_HOME = process.env.HOME;
-const HOME = mkdtempSync(join(tmpdir(), "suspenders-split-"));
+const HOME = tmpDir("suspenders-split-");
 process.env.HOME = HOME;
 // the rest of the suite shares this process: a leaked fixture HOME would
 // ride later spawns' {...process.env} spreads (W1124.11)
@@ -25,13 +25,13 @@ const REGD = join(HOME, ".cache", "claude-governor");
 mkdirSync(REGD, { recursive: true });
 
 const { openGovernorDb, openKnowledgeDb, knowledgeSqlViolation } = await import(
-	`../hooks/lib/govdb.ts?split=${encodeURIComponent(HOME)}`
+	`../hooks/lib/govdb/govdb.ts?split=${encodeURIComponent(HOME)}`
 );
 const { SqliteKnowledgeStore } = await import(
-	`../hooks/lib/knowledge-ports.ts?split=${encodeURIComponent(HOME)}`
+	`../hooks/lib/knowledge/sqlite-store.ts?split=${encodeURIComponent(HOME)}`
 );
 const { knowledgeSearch } = await import(
-	`../hooks/lib/knowledge.ts?split=${encodeURIComponent(HOME)}`
+	`../hooks/lib/knowledge/knowledge.ts?split=${encodeURIComponent(HOME)}`
 );
 
 const GOV = join(REGD, "governor.db");
@@ -410,7 +410,7 @@ afterAll(() => {
 
 describe("W166 backup round-trip", () => {
 	test("db-backup checkpoints + copies knowledge.db; the copy restores and searches", () => {
-		const dest = mkdtempSync(join(tmpdir(), "suspenders-split-backup-"));
+		const dest = tmpDir("suspenders-split-backup-");
 		const r = Bun.spawnSync(
 			["bun", "hooks/bin/db-backup.ts", "--home", HOME, "--dest", dest],
 			{ cwd: join(import.meta.dir, "..") },

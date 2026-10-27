@@ -152,9 +152,22 @@ const touchGitState = (repo: string, name: string) => {
 	writeFileSync(join(repo, ".git", name), "");
 };
 
-const touchHold = (repo: string) => {
+// W1302.1: holds carry provenance — owner/reason/expiresAt (A2). writeHold
+// lays an arbitrary hold body; touchHold stamps a valid one-hour window.
+const writeHold = (repo: string, body: string) => {
 	mkdirSync(join(repo, ".fleet"), { recursive: true });
-	writeFileSync(join(repo, ".fleet", "merge-hold"), "");
+	writeFileSync(join(repo, ".fleet", "merge-hold"), body);
+};
+
+const touchHold = (repo: string) => {
+	writeHold(
+		repo,
+		JSON.stringify({
+			owner: "flushlane",
+			reason: "operator integration window",
+			expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+		}),
+	);
 };
 
 const events = (repo: string, kind: string): number => {
@@ -443,6 +456,82 @@ describe("fleet-loop flush mode (W641)", () => {
 		expect(branchGone(repo, item)).toBe(false);
 		// the worktree itself is W827 rogue-reap's concern (it prunes
 		// merged-and-clean worktrees independently) — this gate is retirement
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	// W1302.1 (A2): the hold is a contract, not a bare marker. An expired
+	// hold ages out at the controller: set aside as .expired, NEED_DECISION
+	// raised, the sweep is NOT deferred by it — no hold defers merges forever.
+	test("expired merge-hold ages out: NEED_DECISION, set aside, sweep not held", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const head = await laneBranch(repo, item);
+		close(repo, item, head);
+		writeHold(
+			repo,
+			JSON.stringify({
+				owner: "flushlane",
+				reason: "quiet window that already ended",
+				expiresAt: new Date(Date.now() - 60_000).toISOString(),
+			}),
+		);
+		const r = flush(repo);
+		expect(r.code).toBe(0);
+		expect(log(repo)).toContain(
+			"HOLD-EXPIRED .fleet/merge-hold — owner=flushlane expired at",
+		);
+		expect(log(repo)).toContain(
+			"set aside as .fleet/merge-hold.expired, merges resume",
+		);
+		expect(log(repo)).not.toContain("operator merge hold");
+		expect(existsSync(join(repo, ".fleet", "merge-hold"))).toBe(false);
+		expect(existsSync(join(repo, ".fleet", "merge-hold.expired"))).toBe(true);
+		expect(events(repo, "NEED_DECISION")).toBe(1);
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	// the A2 shape itself: a bare pre-W1302.1 marker (empty file) is refused —
+	// provenance is mandatory, an anonymous hold cannot defer the ladder
+	test("bare marker hold (no provenance) refused: NEED_DECISION, sweep not held", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const head = await laneBranch(repo, item);
+		close(repo, item, head);
+		writeHold(repo, "");
+		const r = flush(repo);
+		expect(r.code).toBe(0);
+		expect(log(repo)).toContain(
+			"HOLD-REJECTED .fleet/merge-hold — not valid JSON",
+		);
+		expect(log(repo)).not.toContain("operator merge hold");
+		expect(existsSync(join(repo, ".fleet", "merge-hold.rejected"))).toBe(true);
+		expect(events(repo, "NEED_DECISION")).toBe(1);
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	// the expiry cap: a hold may never defer the ladder for more than 7 days —
+	// anything longer is a posture change, not a hold
+	test("hold expiring beyond the 7-day cap is refused as malformed", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const head = await laneBranch(repo, item);
+		close(repo, item, head);
+		writeHold(
+			repo,
+			JSON.stringify({
+				owner: "flushlane",
+				reason: "indefinite quiet window",
+				expiresAt: new Date(Date.now() + 8 * 86_400_000).toISOString(),
+			}),
+		);
+		const r = flush(repo);
+		expect(r.code).toBe(0);
+		expect(log(repo)).toContain(
+			"HOLD-REJECTED .fleet/merge-hold — expiresAt beyond the 7-day hold cap",
+		);
+		expect(log(repo)).not.toContain("operator merge hold");
+		expect(existsSync(join(repo, ".fleet", "merge-hold.rejected"))).toBe(true);
+		expect(events(repo, "NEED_DECISION")).toBe(1);
 		rmSync(repo, { recursive: true, force: true });
 	});
 

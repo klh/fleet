@@ -6,8 +6,8 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { allow, context, type HookInput } from "../lib/hookio.ts";
 import { run } from "../lib/run.ts";
-import { capsuleEvidence, laneContext } from "../lib/lane-completion.ts";
-import { projectIdentity } from "../lib/govdb-project.ts";
+import { capsuleEvidence, laneContext } from "../lib/lanes/lane-completion.ts";
+import { projectIdentity } from "../lib/govdb/govdb-project.ts";
 import { resolveTranscriptPath, transcriptTail } from "../lib/transcript.ts";
 import { join, resolve } from "node:path";
 

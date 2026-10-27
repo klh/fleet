@@ -1,0 +1,366 @@
+// Hub-first view model (W858.7.31 slice 2 + W858.7.32 slice 3 of
+// docs/design/hub-topology-overview.md): one aggregated summary per hub,
+// endpoint fan-out collapsed to counts, filtered by layer
+// (observed/connected/configured) and live window (1m/15m), plus the
+// slice-3 flow layer: per-link measured widths, bounded animation state,
+// lane counts and joined W3C trace hops. Pure and deterministic so a
+// refresh keeps every selected hub in place.
+const HUB_LAYERS = ["observed", "connected", "configured"];
+const HUB_WINDOWS = [60_000, 900_000];
+/** A hop observed within the last minute counts as fresh traffic; older
+ * edges keep their numbers but never animate. */
+const FRESH_HOP_MS = 60_000;
+
+const sum = (values) =>
+	values.reduce(
+		(total, value) => (Number.isFinite(value) ? total + value : total),
+		0,
+	);
+
+const windowStartOf = (graph, windowMs, now) =>
+	Math.max(now - windowMs, Date.parse(graph.windowStart));
+
+export function hubOverview(graph, options = {}) {
+	if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges))
+		return null;
+	const now = Number.isFinite(options.now) ? options.now : Date.now();
+	const windowMs = HUB_WINDOWS.includes(options.windowMs)
+		? options.windowMs
+		: 900_000;
+	const layer = HUB_LAYERS.includes(options.layer) ? options.layer : "observed";
+	const windowStart = windowStartOf(graph, windowMs, now);
+	const inWindow = (value) => {
+		const time = typeof value === "number" ? value : Date.parse(value);
+		return Number.isFinite(time) && time >= windowStart && time <= now + 5000;
+	};
+	const edges = graph.edges.filter((edge) => {
+		if (!inWindow(edge.lastSeenAt)) return false;
+		if (layer === "observed")
+			return edge.evidence !== "ledger" && edge.requests > 0;
+		return true;
+	});
+	const configured = new Map(
+		(Array.isArray(options.configuredHubs) ? options.configuredHubs : []).map(
+			(hub) => [String(hub.name).toLowerCase(), hub],
+		),
+	);
+	const summaries = new Map();
+	const targetIndex = new Map();
+	const addHub = (node, observed) => {
+		summaries.set(node.id, {
+			id: node.id,
+			label: node.label,
+			observed,
+			state: observed ? "quiet" : "planned",
+			lastSeenAt: node.lastSeenAt,
+			// W858.7.33: enterprise attribution — scoped snapshots only
+			tenant: node.tenant ?? null,
+			teams: Array.isArray(node.teams) ? node.teams : [],
+			projects: Array.isArray(node.projects) ? node.projects : [],
+			endpoints: [],
+			downstream: new Set(),
+			requests: 0,
+			failed: 0,
+			active: 0,
+			tokens: { input: null, output: null, usageBearing: 0 },
+		});
+	};
+	for (const node of graph.nodes) {
+		if (node.kind === "hub") addHub(node, true);
+		else targetIndex.set(node.id, node);
+	}
+	for (const name of configured.keys()) {
+		const id = `hub:${name}`;
+		if (!summaries.has(id)) {
+			addHub(
+				{
+					id,
+					label: name,
+					lastSeenAt: configured.get(name).lastSeenAt ?? null,
+				},
+				false,
+			);
+		}
+	}
+	for (const edge of edges) {
+		const from = summaries.get(edge.from);
+		const to = summaries.get(edge.to);
+		if (from && to) {
+			if (from.observed && to.observed) {
+				from.downstream.add(to.id);
+				to.downstream.add(from.id);
+			}
+			continue;
+		}
+		// endpoint traffic aggregates onto the hub that forwarded it
+		const hub = from ?? to;
+		const targetId = from ? edge.to : edge.from;
+		const target = targetIndex.get(targetId);
+		if (!hub || !target || !hub.observed) continue;
+		hub.endpoints.push({
+			id: target.id,
+			label: target.label,
+			kind: target.targetKind ?? "endpoint",
+			requests: Number.isFinite(edge.requests) ? edge.requests : 0,
+			failed: Number.isFinite(edge.failed) ? edge.failed : 0,
+			lastSeenAt: edge.lastSeenAt,
+		});
+	}
+	for (const hub of summaries.values()) {
+		const hubEdges = edges.filter(
+			(edge) =>
+				summaries.get(edge.from) === hub || summaries.get(edge.to) === hub,
+		);
+		hub.requests = sum(hubEdges.map((edge) => edge.requests));
+		hub.failed = sum(hubEdges.map((edge) => edge.failed));
+		hub.active = sum(hubEdges.map((edge) => edge.active));
+		const bearing = hubEdges.filter(
+			(edge) =>
+				Number.isFinite(edge.inputTokens) || Number.isFinite(edge.outputTokens),
+		);
+		hub.tokens = {
+			input: bearing.length
+				? sum(bearing.map((edge) => edge.inputTokens))
+				: null,
+			output: bearing.length
+				? sum(bearing.map((edge) => edge.outputTokens))
+				: null,
+			usageBearing: sum(
+				bearing.map((edge) => edge.coverage?.usageBearingRequests),
+			),
+		};
+		hub.endpoints.sort((a, b) => a.id.localeCompare(b.id));
+		hub.state =
+			hub.requests > 0 ? "active" : hub.observed ? "quiet" : "planned";
+	}
+	const hubs = [...summaries.values()].sort((a, b) => a.id.localeCompare(b.id));
+	const flows = linkFlows(graph, { now, windowMs });
+	// W858.7.33: team/project filters — presentation over the already-scoped
+	// data; a filtered-out hub drops its links and estate contribution too.
+	const team = String(options.team ?? "");
+	const project = String(options.project ?? "");
+	const matches = (hub) =>
+		(!team || hub.teams.includes(team)) &&
+		(!project || hub.projects.includes(project));
+	const visibleHubs =
+		team || project ? hubs.filter((hub) => matches(hub)) : hubs;
+	const visibleIds = new Set(visibleHubs.map((hub) => hub.id));
+	const links = edges
+		.filter(
+			(edge) =>
+				summaries.get(edge.from)?.observed && summaries.get(edge.to)?.observed,
+		)
+		.filter((edge) => visibleIds.has(edge.from) && visibleIds.has(edge.to))
+		.map((edge) => ({
+			id: edge.id,
+			from: edge.from,
+			to: edge.to,
+			requests: Number.isFinite(edge.requests) ? edge.requests : 0,
+			failed: Number.isFinite(edge.failed) ? edge.failed : 0,
+			active: Number.isFinite(edge.active) ? edge.active : null,
+			inputTokens: Number.isFinite(edge.inputTokens) ? edge.inputTokens : null,
+			outputTokens: Number.isFinite(edge.outputTokens)
+				? edge.outputTokens
+				: null,
+			evidence: edge.evidence,
+			lastSeenAt: edge.lastSeenAt,
+			...flows.get(edge.id),
+		}));
+	const query = String(options.query ?? "")
+		.trim()
+		.toLowerCase();
+	const modelRows = Object.entries(options.hubModels ?? {}).flatMap(
+		([name, models]) =>
+			hubs
+				.filter((hub) => hub.label.toLowerCase() === name.toLowerCase())
+				.flatMap((hub) => models.map((model) => ({ hub, model }))),
+	);
+	const search = query
+		? [
+				...visibleHubs
+					.filter((hub) =>
+						`${hub.label} ${hub.id}`.toLowerCase().includes(query),
+					)
+					.map((hub) => ({
+						id: hub.id,
+						label: hub.label,
+						kind: "hub",
+						via: "",
+					})),
+				...modelRows
+					.filter((row) => row.model.toLowerCase().includes(query))
+					.map((row) => ({
+						id: row.hub.id,
+						label: row.model,
+						kind: "model",
+						via: row.hub.label,
+					})),
+			]
+		: [];
+	const estate = {
+		hubs: visibleHubs.length,
+		endpoints: visibleHubs.reduce(
+			(total, hub) => total + hub.endpoints.length,
+			0,
+		),
+		requests:
+			sum(links.map((link) => link.requests)) +
+			sum(
+				visibleHubs.flatMap((hub) =>
+					hub.endpoints.map((item) => item.requests),
+				),
+			),
+		failed:
+			sum(links.map((link) => link.failed)) +
+			sum(
+				visibleHubs.flatMap((hub) => hub.endpoints.map((item) => item.failed)),
+			),
+	};
+	return {
+		layer,
+		windowMs,
+		hubs: visibleHubs,
+		links,
+		search,
+		estate,
+		observedAt: graph.observedAt,
+		windowStart: graph.windowStart,
+	};
+}
+
+/** Measured edge width (1–4px) from the hop rate the window observed. The
+ * legend publishes the thresholds; an edge with no measured requests keeps
+ * the 1px baseline. */
+export function edgeWidth(edge, windowMs) {
+	if (!edge || !Number.isFinite(edge.requests)) return 1;
+	const perMinute = edge.requests / Math.max(1, windowMs / 60_000);
+	if (perMinute >= 8) return 4;
+	if (perMinute >= 3) return 3;
+	if (perMinute >= 0.5) return 2;
+	return 1;
+}
+
+/** Bounded flow state: only fresh (≤60s) observed hops animate, never a
+ * ledger edge — the local ledger alone never proves a provider hop. Speed
+ * is bounded by the measured rate: more hops/min permits a faster loop. */
+export function edgeFlow(edge, now, windowMs) {
+	if (
+		!edge ||
+		edge.evidence === "ledger" ||
+		!Number.isFinite(edge.requests) ||
+		edge.requests <= 0
+	)
+		return { animate: false };
+	const last =
+		typeof edge.lastSeenAt === "number"
+			? edge.lastSeenAt
+			: Date.parse(edge.lastSeenAt);
+	if (!Number.isFinite(last) || now - last > FRESH_HOP_MS)
+		return { animate: false };
+	const perMinute = edge.requests / Math.max(1, windowMs / 60_000);
+	return {
+		animate: true,
+		durationS: perMinute >= 8 ? 2.5 : perMinute >= 1 ? 6 : 12,
+	};
+}
+
+/** Join W3C trace hop observations to hub links: consecutive trace hops map
+ * onto the measured edge between them. Ledger target edges join nothing. */
+export function linkFlows(graph, options = {}) {
+	const now = Number.isFinite(options.now) ? options.now : Date.now();
+	const windowMs = HUB_WINDOWS.includes(options.windowMs)
+		? options.windowMs
+		: 900_000;
+	const edges = Array.isArray(graph?.edges) ? graph.edges : [];
+	const traces = Array.isArray(graph?.traces) ? graph.traces : [];
+	// The snapshot's edge id spells its own dialect (`edge:a->b`, unprefixed);
+	// join on the from/to NODE ids instead, never on the id string.
+	const fromTo = new Map(
+		edges.map((edge) => [`${edge.from}|${edge.to}`, edge.id]),
+	);
+	const joined = new Map();
+	for (const trace of traces) {
+		const hops = Array.from(
+			new Set(Array.isArray(trace.hops) ? trace.hops : []),
+		);
+		for (let index = 0; index + 1 < hops.length; index++) {
+			const id = fromTo.get(`hub:${hops[index]}|hub:${hops[index + 1]}`);
+			if (!id) continue;
+			const list = joined.get(id) ?? [];
+			list.push(trace);
+			joined.set(id, list);
+		}
+	}
+	return new Map(
+		edges.map((edge) => [
+			edge.id,
+			{
+				width: edgeWidth(edge, windowMs),
+				...edgeFlow(edge, now, windowMs),
+				lanes: Number.isFinite(edge.lanes) ? edge.lanes : null,
+				activeLanes: Number.isFinite(edge.activeLanes)
+					? edge.activeLanes
+					: null,
+				traces: (joined.get(edge.id) ?? []).slice(0, 3),
+				series: Array.isArray(edge.series) ? edge.series : null,
+			},
+		]),
+	);
+}
+/** Deep-link state: the fragment keys the hub overview restores. Unknown keys
+ *  and values drop silently — a stale link never errors the page. */
+const HASH_KEYS = ["layer", "window", "q", "team", "project", "hub"];
+
+export function parseTopologyHash(hash) {
+	const state = {};
+	if (typeof hash !== "string") return state;
+	for (const part of hash.replace(/^#/, "").split("&")) {
+		const eq = part.indexOf("=");
+		if (eq <= 0) continue;
+		const key = part.slice(0, eq);
+		if (!HASH_KEYS.includes(key)) continue;
+		const value = decodeURIComponent(part.slice(eq + 1));
+		if (value) state[key] = value;
+	}
+	return state;
+}
+
+export function serializeTopologyHash(state) {
+	const parts = HASH_KEYS.flatMap((key) => {
+		const value = state[key];
+		if (value === undefined || value === null || value === "") return [];
+		return [`${key}=${encodeURIComponent(String(value))}`];
+	});
+	return parts.length ? `#${parts.join("&")}` : "";
+}
+
+/** Deterministic hub-card columns: BFS depth over hub↔hub links, rows stable
+ * by id, so a refresh moves nothing. */
+export function hubOverviewLayout(hubs, links) {
+	const depth = new Map(hubs.map((hub) => [hub.id, 0]));
+	for (let pass = 0; pass < Math.min(hubs.length, 5); pass++) {
+		let changed = false;
+		for (const link of links) {
+			const next = Math.min(5, (depth.get(link.from) ?? 0) + 1);
+			if (next > (depth.get(link.to) ?? 0)) {
+				depth.set(link.to, next);
+				changed = true;
+			}
+		}
+		if (!changed) break;
+	}
+	const rows = new Map();
+	const nodes = [...hubs]
+		.sort((a, b) => a.id.localeCompare(b.id))
+		.map((hub) => {
+			const column = depth.get(hub.id) ?? 0;
+			const row = rows.get(column) ?? 0;
+			rows.set(column, row + 1);
+			return { ...hub, x: 20 + column * 224, y: 20 + row * 84 };
+		});
+	return {
+		nodes,
+		width: Math.max(640, 40 + (Math.max(0, ...depth.values()) + 1) * 224),
+		height: Math.max(320, 40 + Math.max(0, ...rows.values()) * 84),
+	};
+}

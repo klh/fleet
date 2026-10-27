@@ -1,101 +1,78 @@
 // oracle-legs.ts — W742.2: the two oracle legs as a library, one source of
-// truth for the pinned :8903 leg and the cloud escalation leg (extracted
-// verbatim from oracle.ts so the advise panel mode fans the SAME wires).
-// The pinned leg is a direct OpenAI-wire POST — never router-classified,
-// never belt-role-dispatched; the cloud leg rides the :4000 router's own
-// escalation leg (belt/bin/escalate.ts — buckle-gate when BELT_ESCALATE_* is
-// set, legacy settings.json creds otherwise).
-// env (config-over-code; defaults name the pinned fleet routes):
-//   ORACLE_ROUTE_URL   default http://127.0.0.1:8903/v1/chat/completions
-//   ORACLE_ROUTE_KEY   optional bearer for the pinned leg
-//   ORACLE_ROUTE_MODEL optional model id (else GET /models probe, else "local")
-import { escalate, resolveEscalationLeg } from "../../../belt/bin/escalate.ts";
-import type { AnthropicBody } from "../../../belt/bin/router-core.ts";
+// truth for the pinned local-reason leg and the cloud escalation leg
+// (extracted verbatim from oracle.ts so the advise panel mode fans the SAME
+// wires). W1119.1: both legs ride the ONE shared gated Buckle client
+// (inference-buckle.ts) — no direct :890x/:4000 endpoint, no provider
+// fallback; fail closed. The legs differ only in their W136 hint selector
+// and default model pin, and the preference stays DATA (config-over-code):
+//   ORACLE_ROUTE_MODEL   pinned-leg model id pin (else "local-reason")
+import { buckleChat } from "./hub/inference-buckle.ts";
 
-export const ROUTE_URL =
-	process.env.ORACLE_ROUTE_URL ?? "http://127.0.0.1:8903/v1/chat/completions";
-export const ROUTE_KEY = process.env.ORACLE_ROUTE_KEY;
-export const ROUTE_MODEL = process.env.ORACLE_ROUTE_MODEL;
+export const PINNED_MODEL = "local-reason";
+export const CLOUD_MODEL = "glm-5.3";
+export const PINNED_HINT = "prefer local reasoning";
+export const CLOUD_HINT = "prefer cloud";
 
-// no model configured → ask the endpoint what it serves (first entry); works
-// for the MLX server, llama.cpp, vLLM, or any OpenAI-compatible shim
-const legModel = async (): Promise<string> => {
-	if (ROUTE_MODEL) return ROUTE_MODEL;
-	try {
-		const r = await fetch(
-			ROUTE_URL.replace(/\/chat\/completions$/, "/models"),
-			{
-				headers: ROUTE_KEY ? { authorization: `Bearer ${ROUTE_KEY}` } : {},
-				signal: AbortSignal.timeout(5000),
-			},
-		);
-		const j = (await r.json()) as { data?: { id: string }[] };
-		return j.data?.[0]?.id ?? "local";
-	} catch {
-		return "local";
-	}
+export type LegDeps = { env?: NodeJS.ProcessEnv; fetcher?: typeof fetch };
+
+export type LegResult = {
+	text: string;
+	model: string;
+	ms: number;
+	pt: number;
+	ct: number;
 };
 
-export type LegResult = { text: string; model: string; ms: number };
+export const ORACLE_SYSTEM =
+	"You are oracle — a stateless escalation surface. One request, one answer.";
 
+/** The pinned local-reason leg through the gated Buckle client. Throws on
+ *  absent gate config or a non-2xx answer — the caller surfaces the error. */
 export const pinnedLeg = async (
 	prompt: string,
 	maxTokens: number,
 	timeoutMs: number,
+	deps: LegDeps = {},
 ): Promise<LegResult> => {
-	const model = await legModel();
-	const t0 = Date.now();
-	const r = await fetch(ROUTE_URL, {
-		method: "POST",
-		headers: {
-			"content-type": "application/json",
-			...(ROUTE_KEY ? { authorization: `Bearer ${ROUTE_KEY}` } : {}),
-		},
-		body: JSON.stringify({
-			model,
-			messages: [
-				{
-					role: "system",
-					content:
-						"You are oracle — a stateless escalation surface. One request, one answer.",
-				},
-				{ role: "user", content: prompt },
-			],
-			max_tokens: maxTokens,
+	const r = await buckleChat(
+		{
+			model:
+				(deps.env ?? process.env).ORACLE_ROUTE_MODEL?.trim() || PINNED_MODEL,
+			system: ORACLE_SYSTEM,
+			user: prompt,
+			maxTokens,
 			temperature: 0.2,
-		}),
-		signal: AbortSignal.timeout(timeoutMs),
-	});
-	if (!r.ok)
-		throw new Error(`route ${r.status}: ${(await r.text()).slice(0, 200)}`);
-	const j = (await r.json()) as {
-		choices?: { message?: { content?: string }[] };
-	};
-	const text = (j.choices?.[0]?.message?.content ?? "").trim();
+			timeoutMs,
+			hint: PINNED_HINT,
+			...(deps.fetcher ? { fetcher: deps.fetcher } : {}),
+		},
+		deps.env ?? process.env,
+	);
+	const text = r.text.trim();
 	if (text === "") throw new Error("route answered with no content");
-	return { text, model, ms: Date.now() - t0 };
+	return { text, model: r.model, ms: r.ms, pt: r.pt, ct: r.ct };
 };
 
+/** The cloud escalation leg through the SAME gated client — the stronger
+ *  route rides as the W136 hint + the glm-5.3 default model pin. */
 export const cloudLeg = async (
 	prompt: string,
 	maxTokens: number,
+	deps: LegDeps = {},
 ): Promise<LegResult> => {
-	const leg = await resolveEscalationLeg(process.env);
-	if (!leg)
-		throw new Error(
-			"no cloud leg configured — set BELT_ESCALATE_URL and a scoped Buckle BELT_ESCALATE_KEY",
-		);
-	const body: AnthropicBody = { messages: [{ role: "user", content: prompt }] };
-	const t0 = Date.now();
-	const r = await escalate(body, { maxTokens, wantFast: false });
+	const r = await buckleChat(
+		{
+			model: CLOUD_MODEL,
+			user: prompt,
+			maxTokens,
+			hint: CLOUD_HINT,
+			...(deps.fetcher ? { fetcher: deps.fetcher } : {}),
+		},
+		deps.env ?? process.env,
+	);
 	const text = r.text.trim();
-	if (text === "")
-		throw new Error(
-			`cloud leg ${leg.mode} returned no text (status ${r.status ?? "?"})${
-				r.retryAfterMs ? ` — retry-after ${r.retryAfterMs}ms` : ""
-			}`,
-		);
-	return { text, model: r.model, ms: Date.now() - t0 };
+	if (text === "") throw new Error("cloud leg returned no text");
+	return { text, model: r.model, ms: r.ms, pt: r.pt, ct: r.ct };
 };
 
 // W742.2: the panel verdict vocabulary — approve | hold | reject (decision
@@ -118,6 +95,8 @@ export type PanelRow = {
 	ok: boolean;
 	model: string;
 	ms: number;
+	pt: number;
+	ct: number;
 	verdict: string | null;
 	text: string;
 	error?: string;
@@ -134,6 +113,8 @@ export const buildPanelRows = (
 				ok: true,
 				model: s.value.model,
 				ms: s.value.ms,
+				pt: s.value.pt,
+				ct: s.value.ct,
 				verdict: verdictOf(s.value.text),
 				text: s.value.text,
 			};
@@ -142,6 +123,8 @@ export const buildPanelRows = (
 			ok: false,
 			model: name,
 			ms: 0,
+			pt: 0,
+			ct: 0,
 			verdict: null,
 			text: "",
 			error: s.reason instanceof Error ? s.reason.message : String(s.reason),

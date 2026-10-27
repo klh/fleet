@@ -12,6 +12,7 @@ import { LaneTelemetryLog } from "./cache-boundary.ts";
 import { PrefixLedger } from "./cache-fingerprint.ts";
 import { AidsLedger } from "./aids.ts";
 import { CandidateTable } from "./candidates.ts";
+import { startConnectEgress, type ConnectEgress } from "./connect-egress.ts";
 import { Cooldowns } from "./cooldown.ts";
 import { decideRoute } from "./decide.ts";
 import { DietStore } from "./diet.ts";
@@ -37,7 +38,7 @@ import { MAX_REQUEST_BODY_BYTES } from "./ingress-body.ts";
 import type { RouteHint } from "./hints.ts";
 import { Ledger } from "./ledger.ts";
 import { ObservationOutbox } from "./observe.ts";
-import { loadGatewayPolicy, loadPrefs } from "./policy.ts";
+import { loadGatewayPolicy, loadPrefs, type GatewayPolicy } from "./policy.ts";
 import { poolWarm, prewarm } from "./pool-warm.ts";
 import { Preseeder } from "./preseed.ts";
 import { LaneProjection, OutboxTailer } from "./projection.ts";
@@ -60,6 +61,20 @@ export const FORBIDDEN_PORT = 4100;
 export const BUN_IDLE_TIMEOUT = 0;
 
 export { MAX_REQUEST_BODY_BYTES } from "./ingress-body.ts";
+
+/** W1246: dbPath default rides the runtime home (resolveNetworkDbPaths
+ *  precedent) — a bare "buckle.db" resolves against the process cwd, which
+ *  is how stray runs seeded repo-root junk. opts.dbPath and BUCKLE_DB win. */
+export function defaultDbPath(
+	env: { BUCKLE_DB?: string; HOME?: string } = process.env,
+): string {
+	return (
+		env.BUCKLE_DB ??
+		(env.HOME
+			? join(env.HOME, ".claude", "local-llm", "buckle.db")
+			: "buckle.db")
+	);
+}
 
 export interface ServerOpts {
 	port?: number;
@@ -121,39 +136,33 @@ export function resolvePort(explicit?: number): number {
 export function buildDeps(
 	opts: ServerOpts,
 	port: number = SHADOW_PORT,
-): AppDeps & { router: Router } {
+): AppDeps & { router: Router; policy: GatewayPolicy } {
 	const policy = loadGatewayPolicy(opts.policyPath);
 	const pool = loadUpstreams(opts.upstreamsPath);
 	const prefs = loadPrefs(opts.prefsPath);
 	const sm = servicemon({ service: "buckle", port });
-	const ledger = new Ledger(
-		opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db",
-		undefined,
-		{
-			onDrop: (kind, n) =>
-				sm
-					.counter(
-						"buckle_ledger_dropped_total",
-						"Ledger rows dropped after bounded flush retries.",
-					)
-					.inc({ kind }, n),
-		},
-	);
+	const ledger = new Ledger(opts.dbPath ?? defaultDbPath(), undefined, {
+		onDrop: (kind, n) =>
+			sm
+				.counter(
+					"buckle_ledger_dropped_total",
+					"Ledger rows dropped after bounded flush retries.",
+				)
+				.inc({ kind }, n),
+	});
 	// W458.4 per-lane cache telemetry: append-only NDJSON next to the ledger
 	// db (BUCKLE_LANE_CACHE_LOG overrides). Rows ride real lane-attributed
 	// requests only — bare ingress appends nothing.
 	const laneCache = new LaneTelemetryLog(
 		process.env.BUCKLE_LANE_CACHE_LOG ??
-			`${opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db"}.lane-cache.jsonl`,
+			`${opts.dbPath ?? defaultDbPath()}.lane-cache.jsonl`,
 	);
 	// W926: per-boundary+lane prefix-fingerprint references — miss
 	// classification rides the lane-cache rows (null causes when unwired).
 	const prefixLedger = new PrefixLedger();
 	// W142 knowledge aids: metering ledger + preseed builder on the same db
-	// file (W133 wiring); policy slice from the shared routing-policy.yaml.
-	const aids = new AidsLedger(
-		opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db",
-	);
+	// file (W133 wiring); policy slice from the shared routing-policy.json.
+	const aids = new AidsLedger(opts.dbPath ?? defaultDbPath());
 	const aidsPolicy = policy.aids ?? {};
 	const preseeder = new Preseeder({
 		policy: aidsPolicy,
@@ -247,7 +256,7 @@ export function buildDeps(
 			fallbackGroups: rest.allowCross ? policy.fallbacks?.[rest.group] : [],
 		});
 	};
-	const dbPath = opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db";
+	const dbPath = opts.dbPath ?? defaultDbPath();
 	const federation = new Federation({
 		dbPath,
 		ingressBodyTimeoutMs: opts.ingressBodyTimeoutMs,
@@ -305,6 +314,7 @@ export function buildDeps(
 	}
 	return {
 		router,
+		policy,
 		ledger,
 		admission,
 		aids,
@@ -330,9 +340,12 @@ export function buildDeps(
 
 /** Start buckle on the shadow port. Returns the Bun server for tests, with
  *  `.gov` attached (W154: tests and W160 seed/read the CR queue through it). */
-export function startServer(
-	opts: ServerOpts = {},
-): ReturnType<typeof Bun.serve> & { gov: ReturnType<typeof createGovernance> } {
+export function startServer(opts: ServerOpts = {}): ReturnType<
+	typeof Bun.serve
+> & {
+	gov: ReturnType<typeof createGovernance>;
+	connectEgress?: ConnectEgress;
+} {
 	const port = resolvePort(opts.port);
 	const deps = buildDeps(opts, port);
 	const app = createApp(deps);
@@ -343,9 +356,9 @@ export function startServer(
 	const gov = createGovernance(
 		{ ledger: deps.ledger, sm: deps.sm },
 		{
-			dbPath: opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db",
+			dbPath: opts.dbPath ?? defaultDbPath(),
 			rootKey: opts.auth?.rootKey,
-			// W372: env-driven OIDC gate (stack.yaml auth.oidc materialized by
+			// W372: env-driven OIDC gate (stack.json auth.oidc materialized by
 			// hubctl) — programmatic opts win, env next, base posture last.
 			jwt: opts.auth?.jwt ?? oidcGateOptsFromEnv() ?? undefined,
 			federation: deps.federation,
@@ -386,15 +399,25 @@ export function startServer(
 		idleTimeout: BUN_IDLE_TIMEOUT,
 		fetch: inner,
 	});
-	return Object.assign(server, { gov }) as ReturnType<typeof Bun.serve> & {
+	// W1260.2: the authenticated CONNECT egress (opaque AI TLS relay). Inert
+	// unless policy enables it AND BUCKLE_CONNECT_TOKEN is set AND allow is
+	// non-empty; attaches when live so tests can stop it.
+	const connectEgress = startConnectEgress(deps.policy, port, { sm: deps.sm });
+	return Object.assign(server, { gov, connectEgress }) as ReturnType<
+		typeof Bun.serve
+	> & {
 		gov: ReturnType<typeof createGovernance>;
+		connectEgress?: ConnectEgress;
 	};
 }
 
 /** W235 boot: overlay load (fail-closed) BEFORE the server starts; unset =
  *  solo posture; what loaded is logged (log-at-startup law). */
 export async function boot(): Promise<
-	ReturnType<typeof Bun.serve> & { gov: ReturnType<typeof createGovernance> }
+	ReturnType<typeof Bun.serve> & {
+		gov: ReturnType<typeof createGovernance>;
+		connectEgress?: ConnectEgress;
+	}
 > {
 	const port = resolvePort();
 	// break-glass root credential (2026-10-05): hub deploys run the governance

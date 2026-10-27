@@ -7,7 +7,7 @@ Commercial, professional, organizational, and production use requires a
 separate written license from the copyright holder.
 
 Provenance: all source code in this repository — including the knowledge
-layer (hooks/lib/knowledge.ts, hooks/bin/knowledge-mcp.ts,
+layer (hooks/lib/knowledge/knowledge.ts, hooks/bin/knowledge-mcp.ts,
 hooks/bin/knowledge-worker.ts, the coord knowledge verbs, and the v6
 governor.db migration) — is original work. External repositories were
 consulted for architectural mechanics only; no code was copied.

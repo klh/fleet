@@ -38,7 +38,7 @@ docs/codex-setup.md there); user-level copilot instructions in
 - Orchestrate prompt-transform preview (`hooks/board/prompt-transform.ts`):
   condense (deterministic, default ON) → optional local-LLM enhance → context
   injection, shown under the field when debug/log settings are on.
-- Recovery UX (`hooks/lib/recovery-map.ts`): DOWN service rows show cause +
+- Recovery UX (`hooks/lib/fleet-loop/recovery-map.ts`): DOWN service rows show cause +
   copyable recovery commands + re-probe. Recovery map is data, keyed per
   service; commands carry no secrets or real hostnames.
 - Perimeter (W264): shared `hostGuard()` (Host allowlist every request +
@@ -63,8 +63,8 @@ docs/codex-setup.md there); user-level copilot instructions in
 Spoke installs ship NO auth issuance / identity administration / key custody
 (toward the hub a spoke presents the enrollment token as a client credential;
 local trust is the loopback). `install.sh --profile spoke` (the sync-harness.ts
-spoke payload) omits the hub-only modules (`hooks/lib/auth.ts`,
-`hooks/lib/auth-server.ts`, `hooks/bin/auth.ts`, `hooks/lib/hub-tokens.ts`,
+spoke payload) omits the hub-only modules (`hooks/lib/auth/auth.ts`,
+`hooks/lib/auth/auth-server.ts`, `hooks/bin/auth.ts`, `hooks/lib/auth/hub-tokens.ts`,
 `hooks/board/routes-hub-admin.ts`) from `$PREFIX` and writes
 `capabilities.json`; the store server mounts `/auth/*`
 only under the `auth_issuance` flag (absent file = hub = the single-machine
@@ -80,7 +80,7 @@ pull (`FedManifest.capabilities`) so a spoke never expects hub-only surfaces.
 | [board-api.md](board-api.md)                                                         | The v3 board/task feed contract (owner_label, newest-first, project filter).                                            |
 | [decisions-api.md](decisions-api.md)                                                 | Forks/decisions API incl. idempotency echo + NEED% event durability.                                                    |
 | [theme-tokens.md](theme-tokens.md)                                                   | Theme token contract + settings block, copy-verbatim for other GUIs.                                                    |
-| [design/knowledge-db-2026-10-01.md](design/knowledge-db-2026-10-01.md)               | Knowledge DB design; read-path FTS5 pragmas referenced by `hooks/lib/govdb.ts`.                                         |
+| [design/knowledge-db-2026-10-01.md](design/knowledge-db-2026-10-01.md)               | Knowledge DB design; read-path FTS5 pragmas referenced by `hooks/lib/govdb/govdb.ts`.                                         |
 | [design/buckle/routing-laws-2026-10-01.md](design/buckle/routing-laws-2026-10-01.md) | Owner-FINAL routing grammar, enforced by `hooks/lib/repo-laws.ts`.                                                      |
 | [design/w278-landing-review-2026-10-03.md](design/w278-landing-review-2026-10-03.md) | Post-landing best-approach review (relay cancel path, two-supervisor hazard, condense semantics); fix list = W284–W292. |
 

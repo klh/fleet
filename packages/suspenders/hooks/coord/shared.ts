@@ -1,14 +1,15 @@
 import { createHash } from "node:crypto";
 import { readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import { factDemoted } from "../lib/consult-federation-hub.ts";
+import { factDemoted } from "../lib/federation/consult-federation-hub.ts";
 import {
 	type GovernorStore,
 	openStore,
 	projectIdentity,
-} from "../lib/govdb.ts";
-import { trustOf, withTrust } from "../lib/knowledge.ts";
-import { type KnowledgeHit, makeStore } from "../lib/knowledge-ports.ts";
+} from "../lib/govdb/govdb.ts";
+import { trustOf, withTrust } from "../lib/knowledge/knowledge.ts";
+import type { KnowledgeHit } from "../lib/knowledge/store-schema.ts";
+import { makeStore } from "../lib/knowledge/sqlite-store.ts";
 import { ensureConsultTrust } from "./consult-trust.ts";
 
 export {
@@ -19,12 +20,9 @@ export {
 	tagNameOf,
 	tokenUsage,
 	workTiming,
-} from "../lib/govdb.ts";
-export {
-	currentPromptHash,
-	enqueueKnowledge,
-	makeStore,
-} from "../lib/knowledge-ports.ts";
+} from "../lib/govdb/govdb.ts";
+export { currentPromptHash } from "../lib/knowledge/prompt-policy.ts";
+export { enqueueKnowledge, makeStore } from "../lib/knowledge/sqlite-store.ts";
 export { createHash, readFileSync, realpathSync, resolve };
 
 export interface Ev {

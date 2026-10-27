@@ -8,7 +8,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveHub } from "../hooks/lib/hub-locate.ts";
+import { resolveHub } from "../hooks/lib/hub/hub-locate.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "claude-hub-locate-home-"));
 const prevHome = process.env.HOME;

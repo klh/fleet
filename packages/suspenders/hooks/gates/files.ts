@@ -15,8 +15,8 @@ import { allow, context, feedback, type HookInput } from "../lib/hookio.ts";
 import { oncePerSession } from "../lib/advisory-cooldown.ts";
 import { bumpPathCount } from "../lib/gatestate.ts";
 import { have, lines, run } from "../lib/run.ts";
-import { openStore } from "../lib/govdb.ts";
-import { drainLaneInbox } from "../lib/lane-inbox.ts";
+import { openStore } from "../lib/govdb/govdb.ts";
+import { drainLaneInbox } from "../lib/lanes/lane-inbox.ts";
 import { basename, dirname } from "node:path";
 import {
 	existsSync,
@@ -74,7 +74,10 @@ export function filesCheck(hook: HookInput): FilesExit {
 					kind: "block",
 					err: `UI LAW: innerHTML/document.write are NEVER allowed — rewrite as lit-html templates in a web component. ${F}\n`,
 				};
-			if (!isWc && /document\.createElement\s*\(|createElementNS\s*\(/.test(payload))
+			if (
+				!isWc &&
+				/document\.createElement\s*\(|createElementNS\s*\(/.test(payload)
+			)
 				return {
 					kind: "block",
 					err: `UI LAW: document.createElement / createElementNS only inside web components (import lit / @customElement). ${F}\n`,
@@ -161,7 +164,7 @@ export function filesCheck(hook: HookInput): FilesExit {
 		const violation = govdbImportViolation(F, readFileSync(F, "utf8"));
 		if (violation) {
 			refreshLeaseHash(F);
-			const err = `W92 govdb-import rule: ${F} ${violation.msg}\nConsumers bind via openStore() (hooks/lib/govdb.ts) — in-process SQLite by default, the store port when GOVERNOR_STORE_URL/store.url is set. Store owners are listed in govdbImportViolation().\n`;
+			const err = `W92 govdb-import rule: ${F} ${violation.msg}\nConsumers bind via openStore() (hooks/lib/govdb/govdb.ts) — in-process SQLite by default, the store port when GOVERNOR_STORE_URL/store.url is set. Store owners are listed in govdbImportViolation().\n`;
 			if (violation.soft) return { kind: "context", msg: err };
 			return { kind: "block", err };
 		}
@@ -185,12 +188,16 @@ export function filesCheck(hook: HookInput): FilesExit {
 	// territory. The W157 backlog (fleet-board / coord / board-html / its
 	// test) landed 2026-10-01, so this ships as a hard block — the brief's
 	// WARN grace phase collapsed into the flip in this same landing.
+	// Near-cap law (W744, AGENTS.md "1500-Line Hard Limit"): a .ts above
+	// ~1200 lines is NEAR-CAP — patch-only anchored edits, new content in
+	// its own file, and the done-gate verifies the diff shape (churn > 300
+	// refuses closure unless the item IS a decomposition).
 	if (F.endsWith(".ts") && existsSync(F)) {
 		const n = readFileSync(F, "utf8").split("\n").length;
 		if (n > 1500)
 			return {
 				kind: "block",
-				err: `1500-LINE LIMIT: ${basename(F)} is ${n} lines (law.ts-1500-decompose, CLAUDE.md "1500-Line Hard Limit"). Decompose into single-purpose modules before the next write — pattern: hooks/board/, hooks/coord/, hooks/board-html/ (W157).\n`,
+				err: `1500-LINE LIMIT: ${basename(F)} is ${n} lines (law.ts-1500-decompose, AGENTS.md "1500-Line Hard Limit"; near-cap 1200 = patch-only, W744). Decompose into single-purpose modules before the next write — pattern: hooks/board/, hooks/coord/, hooks/board-html/ (W157).\n`,
 			};
 	}
 
@@ -227,11 +234,11 @@ export function filesCheck(hook: HookInput): FilesExit {
 const STORE_OWNERS = [
 	// W624 decomposition — the owner code moved into these siblings; the
 	// entrypoint govdb.ts is now a pure re-export shim over them.
-	"/lib/govdb.ts",
-	"/lib/govdb-open.ts",
-	"/lib/govdb-store.ts",
+	"/lib/govdb/govdb.ts",
+	"/lib/govdb/govdb-open.ts",
+	"/lib/govdb/govdb-store.ts",
 	"/bin/store-server.ts",
-	"/lib/knowledge-ports.ts",
+	"/lib/knowledge/sqlite-store.ts",
 ];
 const GRANDFATHERED = [
 	// W92.3's in-flight scope — these leave the list when that child lands.
@@ -254,9 +261,9 @@ const GRANDFATHERED = [
 	"/bin/quota-sweep.ts",
 	"/bin/session-policy.ts",
 	"/lib/decomposition.ts",
-	"/lib/lane-completion.ts",
-	"/lib/lane-inbox.ts",
-	"/lib/settle.ts",
+	"/lib/lanes/lane-completion.ts",
+	"/lib/lanes/lane-inbox.ts",
+	"/lib/knowledge/settle.ts",
 ];
 
 /** Null = fine; otherwise the verdict. Owners pass silently, grandfathered

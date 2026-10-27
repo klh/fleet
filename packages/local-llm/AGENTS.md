@@ -14,9 +14,14 @@ subtree's canonical law; the fleet-wide shape rules live in
 - The belt kit is the ONLY supervisor source (W284): installs heal the
   runtime home's belt closure from `packages/belt/bin` (missing AND
   diverged — the W556 never-clobber keep-rule retired with the serve fork).
-  belt-owned sources survive here only as re-export shims
-  (`registry.ts`, `spawner.ts`, `litellm-target.ts` → `packages/belt/bin/`):
-  the port↔model registry and the spawner lifecycle have ONE home, belt's.
+  belt-owned sources survive here only as FULL re-export shims
+  (`export * from "../belt/bin/<name>.ts"` for `registry.ts`, `spawner.ts`,
+  `litellm-target.ts`): the port↔model registry and the spawner lifecycle
+  have ONE home, belt's. W1468 pins the twin face — `RUNTIME_TWINS` /
+  `twinDrift` in `scripts/belt-bin-overlay.ts` (suspenders) refuse a
+  narrowed re-export, resurrected code, or a byte copy (a second module
+  instance); the overlay tests pin parity + export identity and sync-harness
+  refuses to publish a diverged twin.
 - Shipping is an explicit allowlist + closure walk, never a copy-all:
   `packages/suspenders/install.sh` seeds the config stubs when absent, and
   `scripts/belt-bin-overlay.ts refresh` reconciles the home to the pinned

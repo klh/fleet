@@ -1,4 +1,12 @@
 #!/usr/bin/env bun
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { livenessResponse } from "./health.ts";
+import {
+	citizenshipGate,
+	methodNotAllowed,
+	problem,
+} from "./http-citizenship.ts";
 // mcp-server.ts — W260: belt's MCP server surface. Model Context Protocol over
 // Streamable HTTP (JSON-RPC 2.0 on POST /mcp), auth-gated by Entra ID bearer
 // tokens (mcp-auth.ts), exposing the fleet knowledge store and belt-routed
@@ -15,18 +23,10 @@
 import {
 	bearerOf,
 	loadMcpAuthConfig,
-	verifyEntraToken,
 	type McpAuthConfig,
+	verifyEntraToken,
 } from "./mcp-auth.ts";
-import { SERVER_INFO, TOOLS, callTool } from "./mcp-tools.ts";
-import {
-	citizenshipGate,
-	methodNotAllowed,
-	problem,
-} from "./http-citizenship.ts";
-import { livenessResponse } from "./health.ts";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { callTool, SERVER_INFO, TOOLS } from "./mcp-tools.ts";
 
 // Machine-level config (config-over-code): BELT_MCP_* / BELT_ROUTER_URL live
 // in ~/.claude/local-llm/belt-mcp.env (0600, operator-owned, never the repo).

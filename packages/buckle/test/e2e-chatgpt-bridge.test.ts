@@ -89,26 +89,36 @@ async function startChatgptEngineFixture(): Promise<{ up: MockUpstream }> {
 	return { up };
 }
 
-const UPSTREAMS_YAML = (engine: string, fallback: string): string => `version: 1
-groups:
-  chatgpt/gpt-6-sol:
-    - url: ${engine}
-      dialect: openai
-      adapter: openai-compat
-      model: chatgpt/gpt-6-sol
-      api_key_env: LITELLM_KEY
-    - url: ${fallback}
-      dialect: openai
-      adapter: openai-compat
-      model: plain-gpt
-`;
+const UPSTREAMS_DOC = (engine: string, fallback: string): string =>
+	JSON.stringify({
+		version: 1,
+		groups: {
+			"chatgpt/gpt-6-sol": [
+				{
+					url: engine,
+					dialect: "openai",
+					adapter: "openai-compat",
+					model: "chatgpt/gpt-6-sol",
+					api_key_env: "LITELLM_KEY",
+				},
+				{
+					url: fallback,
+					dialect: "openai",
+					adapter: "openai-compat",
+					model: "plain-gpt",
+				},
+			],
+		},
+	});
 
-const POLICY_YAML = `version: 1
-gateway:
-  num_retries: 1
-  allowed_fails: 50
-  cooldown_time: 60
-`;
+const POLICY_DOC = JSON.stringify({
+	version: 1,
+	gateway: {
+		num_retries: 1,
+		allowed_fails: 50,
+		cooldown_time: 60,
+	},
+});
 
 const chatCalls = (up: MockUpstream) => up.calls.filter((c) => c.path === CHAT);
 
@@ -126,11 +136,11 @@ async function startGate(
 	fallback: MockUpstream,
 ): Promise<Gate> {
 	const dir = mkdtempSync(join(tmpdir(), "buckle-chatgpt-"));
-	const upstreams = `${dir}/upstreams.yaml`;
-	const policy = `${dir}/policy.yaml`;
+	const upstreams = `${dir}/upstreams.json`;
+	const policy = `${dir}/policy.json`;
 	const prefs = `${dir}/prefs.json`;
-	await Bun.write(upstreams, UPSTREAMS_YAML(engine.url, fallback.url));
-	await Bun.write(policy, POLICY_YAML);
+	await Bun.write(upstreams, UPSTREAMS_DOC(engine.url, fallback.url));
+	await Bun.write(policy, POLICY_DOC);
 	await Bun.write(prefs, JSON.stringify({ cost_speed: "balanced" }));
 	const server = startServer({
 		port: 0,

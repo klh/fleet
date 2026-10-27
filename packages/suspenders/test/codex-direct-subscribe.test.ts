@@ -2,7 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { projectIdentity } from "../hooks/lib/govdb-project.ts";
+import { projectIdentity } from "../hooks/lib/govdb/govdb-project.ts";
 
 const serverPath = join(
 	import.meta.dir,

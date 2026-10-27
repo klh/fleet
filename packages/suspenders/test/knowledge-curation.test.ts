@@ -3,18 +3,18 @@
 // isolated temp HOME (w159-settle's isolation + query-bust import pattern).
 // The CLI wiring gets one spawn smoke at the end.
 import { test, expect, afterAll } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync } from "node:fs";
+import { tmpDir } from "./helpers/fixture-kit.ts";
 import { join } from "node:path";
 import type { Database } from "bun:sqlite";
 
-const HOME = mkdtempSync(join(tmpdir(), "suspenders-w208-"));
+const HOME = tmpDir("suspenders-w208-");
 // restore before afterAll cleanup: the rest of the suite shares this process —
 // a leaked fixture HOME rides later spawns' {...process.env} spreads (W1124.11)
 const REAL_HOME = process.env.HOME;
 process.env.HOME = HOME;
 const { openGovernorDb, openKnowledgeDb } = await import(
-	`../hooks/lib/govdb.ts?w208=${encodeURIComponent(HOME)}`
+	`../hooks/lib/govdb/govdb.ts?w208=${encodeURIComponent(HOME)}`
 );
 
 const DAY = 86_400_000;
@@ -66,16 +66,18 @@ function rowState(id: number): string | undefined {
 
 let SqliteKnowledgeStore: new (
 	db: Database,
-) => import("../hooks/lib/knowledge-ports.ts").SqliteKnowledgeStore;
-let decayScore: typeof import("../hooks/lib/knowledge-curate.ts").decayScore;
-let planDecayProposals: typeof import("../hooks/lib/knowledge-curate.ts").planDecayProposals;
+) => import("../hooks/lib/knowledge/sqlite-store.ts").SqliteKnowledgeStore;
+let decayScore: typeof import("../hooks/lib/knowledge/knowledge-curate.ts").decayScore;
+let planDecayProposals: typeof import("../hooks/lib/knowledge/knowledge-curate.ts").planDecayProposals;
 
 test("boot", async () => {
 	const kb = freshKb();
 	expect(kb).toBeDefined();
-	({ SqliteKnowledgeStore } = await import("../hooks/lib/knowledge-ports.ts"));
+	({ SqliteKnowledgeStore } = await import(
+		"../hooks/lib/knowledge/sqlite-store.ts"
+	));
 	({ decayScore, planDecayProposals } = await import(
-		"../hooks/lib/knowledge-curate.ts"
+		"../hooks/lib/knowledge/knowledge-curate.ts"
 	));
 	expect(proposals("open")).toEqual([]);
 });

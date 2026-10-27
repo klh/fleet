@@ -4,8 +4,11 @@
 // Parent sessions retain W870 fail-open behavior on registry trouble. Native
 // children cannot prove their own claim/tree during an outage, so deny writes.
 import { deny, type HookInput } from "../lib/hookio.ts";
-import { openStore } from "../lib/govdb.ts";
-import { claimLocationCheck, locationExempt } from "../lib/claim-location.ts";
+import { openStore } from "../lib/govdb/govdb.ts";
+import {
+	claimLocationCheck,
+	locationExempt,
+} from "../lib/gates/claim-location.ts";
 import { subagentLaneSuffix } from "../lib/subscribe-attach.ts";
 
 export function claimLocationGate(hook: HookInput): void {

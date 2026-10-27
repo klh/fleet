@@ -7,11 +7,16 @@
 // (the PROTOCOL line points at it) — redundancy here is measured by
 // scripts/lib/brief-weight.ts and surfaced in `coord metrics`.
 import { condensePrompt } from "../../hooks/board/prompt-transform.ts";
-// W254: pointer-grade injection — file-map + done-definition digest for the
-// brief, gated per W113 on repo size (hooks/lib/brief-intel.ts)
-import { type BriefIntel, renderIntel } from "../../hooks/lib/brief-intel.ts";
 import { capsuleValidity } from "../../hooks/lib/capsule-fence.ts";
-import { effortBudgetLine } from "../../hooks/lib/work-effort.ts";
+// W254: pointer-grade injection — file-map + done-definition digest for the
+// brief, gated per W113 on repo size (hooks/lib/lanes/brief-intel.ts)
+import {
+	type BriefIntel,
+	renderIntel,
+} from "../../hooks/lib/lanes/brief-intel.ts";
+import { effortBudgetLine } from "../../hooks/lib/work/work-effort.ts";
+// W1295: the agent-rules role library — base + role inject ahead of the brief
+import { loadAgentRules, selectAgentRole } from "./agent-rules.ts";
 import { validationCommand } from "./validation-cmd.ts";
 
 /** hooks bin dir (env-overridable — the shims ride the same path). */
@@ -49,7 +54,7 @@ export interface BriefOpts {
 	/** archived-origin landing redirect (the W428 lesson) */
 	landing?: string;
 	/** W248: per-item effort budget — vocabulary + budget text live in
-	 *  hooks/lib/work-effort.ts; absent/null = no budget line. */
+	 *  hooks/lib/work/work-effort.ts; absent/null = no budget line. */
 	effort?: string | null;
 	/** W1140: the lane-effort policy verdict line (lane-effort-policy.ts);
 	 *  absent/null = no line — legacy briefs stay byte-identical. */
@@ -64,6 +69,10 @@ export interface BriefOpts {
 	 *  the one W892 implementation — lane briefs carry the same shape the
 	 *  install tail and session-start SUPERVISOR DEFAULT emit. */
 	fleetReport?: string | null;
+	/** W1295: agent-rules role — a `--role` override, undefined = select from
+	 *  the item's tags/title, null = no injection (legacy brief shape). Base +
+	 *  role ride AHEAD of the brief: brief > role > base > habit. */
+	role?: string | null;
 }
 
 const briefOpening = (o: BriefOpts): string[] => {
@@ -89,6 +98,7 @@ const briefOpening = (o: BriefOpts): string[] => {
 		...(renderIntel(o.intel).length ? ["", ...renderIntel(o.intel)] : []),
 		``,
 		`PROTOCOL: BEFORE any edit, read AGENTS.md in the repo root and follow it (plan-first, shatter judgment, gates, done protocol, final-line vocabulary).`,
+		`KNOWLEDGE (pre-flight): before non-trivial code/doc work read the fleet knowledge layer — read_knowledge when your harness lists it, else coord fact list / coord fact get lesson.* — skip for trivial/generic/doc-covered edits; bank durable lessons after landing (coord knowledge-enqueue / coord fact set lesson.<topic>).`,
 		`FORMAT: read the nearest .qlty/qlty.toml + Biome config before writing; qlty fmt + check on changed files before final checks, tests and commit — full doctrine: AGENTS.md. Never chase formatter wrapping by hand.`,
 	];
 };
@@ -161,11 +171,11 @@ const briefLanding = (o: BriefOpts): string[] => [
 	`1. commit on ${o.branch} (subject starts with the item id) — land a checkpoint commit early (zero-commit branches get reaped).`,
 	...(o.landing ? [o.landing] : []),
 	`2. bun ${BIN}/work.ts done ${o.item} --sha <branch-head> --as ${o.sid}`,
-	`   (claim-token gated, W643: your token rides KLH_CLAIM_TOKEN + .fleet/lane-context.json — only manual closes need --token, printed once at take)`,
+	`   (done-gate contract: W833 claim-check — a passing test run must exist in this lane's transcript BEFORE any tests-green claim, and no test-affecting file may change after it; W643 token discipline — your token rides KLH_CLAIM_TOKEN + .fleet/lane-context.json, only manual closes need --token, printed once at take)`,
 	`3. bun ${BIN}/coord.ts fact set finding.${o.item.toLowerCase()} --text "<one-line headline + how to verify>" --source ${o.sid}`,
 	``,
 	`IDENTITY: prefix progress notes, inbox replies and final reports with [${o.item}] (+ locality tag when it aids scanning — [${o.item}·local|remote|sim|buckle]); humans deep-link your item on the fleet board as #task=${o.item}${process.env.FLEET_BOARD_URL ? ` (full URL: ${process.env.FLEET_BOARD_URL}/#task=${o.item})` : ""}; include the link in your final report.`,
-	`CRAFT: ≤25-line anchored edits per write (content gate parse-checks; splice via /tmp chunks for larger); build verify every ~3rd edit; GUI deliverables get a headless-Chrome render-and-look pass against the LIVE surface with real data — report what you saw; evidence before claims, always.`,
+	`CRAFT: ≤25-line anchored edits per write — soft doctrine; the mutation-size gate hard-denies >40 changed lines on an existing file (SUSPENDERS_MAX_MUTATION, 0 disables), larger work goes through mechanical transforms (sd / ast-grep / bun -e splice), never one big emit; content gate parse-checks every payload; build verify every ~3rd edit; GUI deliverables get a headless-Chrome render-and-look pass against the LIVE surface with real data — report what you saw; evidence before claims, always.`,
 	`ORACLE: need a review or hard analysis? bun ${BIN}/oracle.ts review | bugs | analyze (--in FILE, else the working-tree diff; --cloud = the stronger route) — the named stateless escalation on the pinned strong route; never ad-hoc "please review" phrasing.`,
 	`VOICE (owner law 2026-10-03): terse — no preamble, no restating the task, no filler; minimal prose in commits, progress notes, questions and .klh-done.md. Tokens spent on prose are tokens not spent on work.`,
 	``,
@@ -173,7 +183,17 @@ const briefLanding = (o: BriefOpts): string[] => [
 ];
 
 export const composeBrief = (o: BriefOpts): string => {
-	const parts = briefOpening(o);
+	// W1295: agent.base.rules.md, then the role file, then the brief — the
+	// order IS the precedence (brief > role > base > habit), so the rules
+	// ride ahead of the opening line. role:null opts out entirely.
+	const rules =
+		o.role === null
+			? null
+			: loadAgentRules(selectAgentRole(o.showOut, o.role ?? undefined));
+	const parts = [
+		...(rules ? [rules.base.trimEnd(), "", rules.roleBody.trimEnd(), ""] : []),
+		...briefOpening(o),
+	];
 	parts.push(...briefValidation(o));
 	parts.push(...briefInboxCollab(o));
 	parts.push(...briefResume(o));

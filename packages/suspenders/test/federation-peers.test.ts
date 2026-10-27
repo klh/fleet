@@ -19,7 +19,7 @@ import {
 	peerLastKnownPath,
 	pullPeerPolicy,
 	resolvePeerLabels,
-} from "../hooks/lib/federation-peers.ts";
+} from "../hooks/lib/federation/federation-peers.ts";
 
 interface StubPeer {
 	url: string;
@@ -78,12 +78,17 @@ describe("resolvePeerLabels: label precedence", () => {
 		expect(resolvePeerLabels({ labels: [], env })).toEqual([]);
 	});
 
-	test("stack.yaml hubs.<me>.peers when no HUB_PEERS", () => {
+	test("stack hubs.<me>.peers when no HUB_PEERS", () => {
 		const dir = mkdtempSync(join(tmpdir(), "w362-stack-"));
-		const stackPath = join(dir, "stack.yaml");
+		const stackPath = join(dir, "stack.json");
 		writeFileSync(
 			stackPath,
-			"hubs:\n  nas:\n    host: nas.example\n    peers:\n      - desktop\n  desktop:\n    host: 127.0.0.1\n",
+			JSON.stringify({
+				hubs: {
+					nas: { host: "nas.example", peers: ["desktop"] },
+					desktop: { host: "127.0.0.1" },
+				},
+			}),
 		);
 		try {
 			expect(
@@ -190,10 +195,13 @@ describe("pullPeerPolicy: version echo change detector", () => {
 describe("hubctl render: peer edges as data", () => {
 	test("render emits HUB_PEERS from the stack profile", () => {
 		const dir = mkdtempSync(join(tmpdir(), "w362-hubctl-"));
-		const stackPath = join(dir, "stack.yaml");
+		const stackPath = join(dir, "stack.json");
 		writeFileSync(
 			stackPath,
-			"hubs:\n  nas:\n    host: nas.example\n    peers:\n      - desktop\n",
+			JSON.stringify({
+				version: "w362-test",
+				hubs: { nas: { host: "nas.example", peers: ["desktop"] } },
+			}),
 		);
 		try {
 			const result = Bun.spawnSync(

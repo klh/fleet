@@ -78,4 +78,12 @@ packages/suspenders/test/hub-providers.test.ts:generic-api-key:42
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:102
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:163
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:189
+# W1233/W1234 integration (W1260): fixture file deleted from every branch tip,
+# so only the commit-anchored fingerprint below matches the full-history scan —
+# the branches' bare-path variants are subsumed by it
 05177bc10f165d2e06e5278067c6c34487e80b51:packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83
+# W1260.1: lifecycle.test.ts fixture tokens (never real — fill refuses without
+# a token; these set FAKE tokens for the injected-Io tests)
+packages/suspenders/deploy/singbox/lifecycle.test.ts:generic-api-key:83
+packages/suspenders/deploy/singbox/lifecycle.test.ts:generic-api-key:140
+packages/suspenders/deploy/singbox/lifecycle.test.ts:generic-api-key:176

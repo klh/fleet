@@ -2,10 +2,11 @@
 // consolidation law: executor specifics are overlay rows, one file per
 // agent — a claude fix never touches copilot's file, and a new agent is
 // one adapter file + one registry row in registry.ts).
-import type { ExecutorAdapter } from "../../../scripts/lib/lane.ts";
+import type { ExecutorAdapter } from "../lanes/lane.ts";
 import { join } from "node:path";
+import { claudeEvidence } from "./claude-evidence.ts";
 
-// The tool-permission recipe: lived in scripts/lib/lane.ts as
+// The tool-permission recipe: lived in hooks/lib/lanes/lane.ts as
 // DEFAULT_ALLOWED_TOOLS until the adapter registry extracted the seam —
 // it is the CLAUDE spawn recipe, so it lives HERE now (lane.ts re-exports
 // it as DEFAULT_ALLOWED_TOOLS for existing importers).
@@ -124,4 +125,8 @@ export const claudeAdapter: ExecutorAdapter = {
 	// W626: launchd's bare PATH hides the native install — which() misses and
 	// every versioned claude row degraded to the unknown compatibility branch.
 	installPaths: ["~/.local/bin/claude"],
+	// W1731: CLAUDECODE → "claude", cowork sessions → "cowork", and the
+	// versioned AI_AGENT the CLI exports ("claude-code_<ver>_agent").
+	detect: { names: ["claude", "claude-code", "cowork"] },
+	evidence: claudeEvidence,
 };

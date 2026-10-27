@@ -77,7 +77,9 @@ const codexRollout = (sessions: string, sid: string): string | null => {
 	return null;
 };
 
-/** The one resolution order — first candidate that exists wins, null fails
+/** Registered native paths (including Copilot events.jsonl) pass through
+ * untouched; the Fleet SID need not equal the native session directory.
+ * The one resolution order — first candidate that exists wins, null fails
  * OPEN for the caller (a resolution miss must never flip a gate verdict).
  * projectsRoot overrides the transcript home (tests); default $HOME. */
 export function resolveTranscriptPath(

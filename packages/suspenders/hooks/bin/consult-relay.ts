@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
-import { openGovernorDb } from "../lib/govdb.ts";
-import { relayConsultOutbox } from "../lib/consult-outbox-relay.ts";
-import { ensureConsultOutbox } from "../lib/consult-outbox.ts";
+import { openGovernorDb } from "../lib/govdb/govdb.ts";
+import { relayConsultOutbox } from "../lib/federation/consult-outbox-relay.ts";
+import { ensureConsultOutbox } from "../lib/federation/consult-outbox.ts";
 
 const db = openGovernorDb();
 ensureConsultOutbox(db);

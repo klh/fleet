@@ -16,6 +16,8 @@ const ASSET_PATHS = new Set([
 	"/dashboard-topology.js",
 	"/dashboard-model-access.js",
 	"/dashboard-topology-model.js",
+	"/dashboard-topology-hubs.js",
+	"/dashboard-topology-hubs-model.js",
 	"/dashboard-observability.js",
 	"/dashboard-state.js",
 	"/observation.js",
@@ -26,7 +28,34 @@ const ASSET_PATHS = new Set([
 
 const DATA_PREFIX = "/api/console/buckle";
 const ASSET_PREFIX = "/console/buckle-assets";
-const BELT_READ_ORIGIN = "http://127.0.0.1:7791";
+// W1294.2.1: env override is the test pin (console-network dead-belt board);
+// live default stays the machine belt observation feed.
+const BELT_READ_ORIGIN =
+	process.env.SUSPENDERS_BELT_READ_ORIGIN || "http://127.0.0.1:7791";
+
+// W1294.2.1: freshness probe for the belt chunk set — HEAD the NEWEST chunk
+// (the one W858.7.31 added). A 200 proves the runtime home is at least
+// W858.7.31-fresh, so the older two chunks necessarily serve too and the
+// belt page may emit all its script tags. A stale runtime home (dashboard.ts
+// predates the chunk routes) 404s and the page drops the tags instead of
+// console-erroring on every load.
+export async function beltAssetUp(
+	fetchRead: typeof fetch = fetch,
+): Promise<boolean> {
+	try {
+		const upstream = await fetchRead(
+			`${BELT_READ_ORIGIN}/dashboard-topology-hubs.js`,
+			{
+				method: "HEAD",
+				cache: "no-store",
+				signal: AbortSignal.timeout(3000),
+			},
+		);
+		return upstream.status === 200;
+	} catch {
+		return false;
+	}
+}
 
 export async function buckleReadProxy(
 	req: Request,

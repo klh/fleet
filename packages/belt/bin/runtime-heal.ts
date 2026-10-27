@@ -80,10 +80,21 @@ const mapSpec = (spec: string): string | undefined => {
 	return undefined;
 };
 
-const scanImports = (src: string): string[] =>
-	[...src.matchAll(/from\s+["']([^"']+)["']/g)]
+const scanImports = (src: string): string[] => {
+	// W1294.2.1: `import type` is erased at transpile — it can never break a
+	// runtime closure (stack-config.ts's GatewayPolicy rides a checkout
+	// path), so the rewriter and the probe both skip it.
+	const typeOnly = new Set<string>();
+	for (const m of src.matchAll(
+		/import\s+type\s+[\s\S]*?from\s+["']([^"']+)["']/g,
+	))
+		typeOnly.add(m[1]);
+	return [...src.matchAll(/from\s+["']([^"']+)["']/g)]
 		.map((m) => m[1])
-		.filter((s) => s.endsWith(".ts") && s.startsWith("."));
+		.filter(
+			(s) => s.endsWith(".ts") && s.startsWith(".") && !typeOnly.has(s),
+		);
+};
 
 /** Copy cross-package deps from the repo. Runtime imports must match the
  * installed release, including when a previous install left stale copies. */

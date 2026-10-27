@@ -30,29 +30,26 @@ async function startFed(opts: { adaptation?: AdaptCfg }): Promise<{
 	stop: () => void;
 }> {
 	const dir = `/tmp/w235-adapt-${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 6)}`;
-	const policy = [
-		"version: 1",
-		"gateway:",
-		"  num_retries: 1",
-		"  fallbacks:",
-		"    glm-5.3-flash: [local-swarm]",
-		"",
-	].join("\n");
-	const upstreams = [
-		"version: 1",
-		"groups:",
-		"  glm-5.3-flash:",
-		"    - url: http://127.0.0.1:8501",
-		"      dialect: openai",
-		"  local-swarm: []",
-		"",
-	].join("\n");
-	await Bun.write(`${dir}.policy.yaml`, policy);
-	await Bun.write(`${dir}.upstreams.yaml`, upstreams);
+	const policy = JSON.stringify({
+		version: 1,
+		gateway: {
+			num_retries: 1,
+			fallbacks: { "glm-5.3-flash": ["local-swarm"] },
+		},
+	});
+	const upstreams = JSON.stringify({
+		version: 1,
+		groups: {
+			"glm-5.3-flash": [{ url: "http://127.0.0.1:8501", dialect: "openai" }],
+			"local-swarm": [],
+		},
+	});
+	await Bun.write(`${dir}.policy.json`, policy);
+	await Bun.write(`${dir}.upstreams.json`, upstreams);
 	const srv = startServer({
 		port: 0,
-		policyPath: `${dir}.policy.yaml`,
-		upstreamsPath: `${dir}.upstreams.yaml`,
+		policyPath: `${dir}.policy.json`,
+		upstreamsPath: `${dir}.upstreams.json`,
 		dbPath: ":memory:",
 		auth: { rootKey: ROOT, ...opts },
 	});
@@ -71,7 +68,7 @@ const ROLE_MAP = { engineer: ["buckle:proxy:READ_"] };
 
 /** Claims carried as JSON in a test header (mock of the signed-identity
  *  header the Caddy forward_auth chain would present). */
-const identityHook = (claims: unknown) => (req: Request) => {
+const identityHook = (_claims: unknown) => (req: Request) => {
 	const raw = req.headers.get("x-test-identity");
 	if (raw === null) return null;
 	return JSON.parse(raw) as unknown;

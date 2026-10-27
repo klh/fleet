@@ -4,21 +4,14 @@
 // server answers read_knowledge. Isolated temp HOME + repo; the distill LLM
 // is a local Bun.serve stub, so no real model is needed.
 import { describe, test, expect, afterAll } from "bun:test";
-import {
-	mkdtempSync,
-	rmSync,
-	mkdirSync,
-	readFileSync,
-	realpathSync,
-	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Database } from "bun:sqlite";
-import { knowledgeSearch, type KnowledgeHit } from "../hooks/lib/knowledge.ts";
+import { cleanupDirs, tmpDir } from "./helpers/fixture-kit.ts";
+import { knowledgeSearch, type KnowledgeHit } from "../hooks/lib/knowledge/knowledge.ts";
 
-const HOME = mkdtempSync(join(tmpdir(), "suspenders-knowledge-"));
-const REPO = mkdtempSync(join(tmpdir(), "suspenders-knowledge-repo-"));
+const HOME = tmpDir("suspenders-knowledge-");
+const REPO = tmpDir("suspenders-knowledge-repo-");
 mkdirSync(join(REPO, ".git"), { recursive: true });
 const env = { ...process.env, HOME };
 const coord = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
@@ -255,8 +248,7 @@ function w100Items(text: string): unknown[] {
 
 afterAll(() => {
 	stub.stop(true);
-	rmSync(HOME, { recursive: true, force: true });
-	rmSync(REPO, { recursive: true, force: true });
+	cleanupDirs(HOME, REPO);
 });
 
 // ─── W1113 stamp-contract fixture: a HIGH-confidence distillation (0.85) ───
@@ -740,15 +732,18 @@ describe("W103 knowledge-api faces", () => {
 
 // ─── W112 mechanical pointer fallback ───
 
-import { extractDocPaths, pointerFromText } from "../hooks/lib/knowledge.ts";
+import {
+	extractDocPaths,
+	pointerFromText,
+} from "../hooks/lib/knowledge/knowledge.ts";
 
 describe("W112 extractDocPaths", () => {
 	test("extracts repo-relative paths from prose, deduped, order kept", () => {
 		expect(
 			extractDocPaths(
-				"gate lives in hooks/lib/knowledge.ts, then docs/w112-notes.md, then docs/w112-notes.md again",
+				"gate lives in hooks/lib/knowledge/knowledge.ts, then docs/w112-notes.md, then docs/w112-notes.md again",
 			),
-		).toEqual(["hooks/lib/knowledge.ts", "docs/w112-notes.md"]);
+		).toEqual(["hooks/lib/knowledge/knowledge.ts", "docs/w112-notes.md"]);
 	});
 
 	test("rejects lookalikes: URL remainders, absolute paths, versions", () => {
@@ -817,13 +812,13 @@ describe("W112 pointer rows through the worker", () => {
 
 // ─── W100 enqueue-time source hashing ───
 
-import { normalizeSourceRef } from "../hooks/lib/knowledge-ports.ts";
+import { normalizeSourceRef } from "../hooks/lib/knowledge/sqlite-store.ts";
 
 describe("W100 normalizeSourceRef", () => {
 	test("strips explanatory suffixes, keeps the leading path", () => {
-		expect(normalizeSourceRef("hooks/lib/govdb.ts projectIdentity()")).toBe(
-			"hooks/lib/govdb.ts",
-		);
+		expect(
+			normalizeSourceRef("hooks/lib/govdb/govdb.ts projectIdentity()"),
+		).toBe("hooks/lib/govdb/govdb.ts");
 		expect(normalizeSourceRef("hooks/bin/work.ts shaOnMain (W60)")).toBe(
 			"hooks/bin/work.ts",
 		);

@@ -4,10 +4,10 @@
 //   bun coordinator.ts status | start | stop | restart | prefs [json]
 
 import { existsSync, readFileSync } from "node:fs";
+import { endpointPassed } from "./health.ts";
 import { mergeWritePrefs } from "./prefs-lib.ts";
 import { residentSet } from "./registry.ts";
 import { httpProbe } from "./supervisor.ts";
-import { endpointPassed } from "./health.ts";
 
 const HOME = process.env.HOME ?? "";
 const CACHE = `${HOME}/.cache/claude-governor`;

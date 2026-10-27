@@ -13,6 +13,8 @@ import {
 import { join } from "node:path";
 import { execa } from "execa";
 import { ensureShims } from "./ensure-shims.ts";
+import { migrateConf } from "./install-conf-migrate.ts";
+import { wireConnections } from "./install-connections.ts";
 import {
 	type ContractStep,
 	INSTALL_CONTRACT,
@@ -33,7 +35,7 @@ import {
 	registerSkills,
 	releaseNotify,
 } from "./install-wire-steps.ts";
-import { syncHarness } from "./sync-harness.ts";
+import { sourcePaths, syncHarness } from "./sync-harness.ts";
 import { upgradeGateway } from "./upgrade-gateway.ts";
 
 export interface StepContext {
@@ -385,7 +387,7 @@ function resumeCommand(step: ContractStep, ctx: StepContext): string {
 	}
 	if (step.name === "deployHub") {
 		// v1 stub: hub deploys ride the --hub early exit; the hub name is
-		// operator data from stack.yaml, filled in before running
+		// operator data from stack.json, filled in before running
 		return `bun ${join(ctx.repo, "scripts/install.ts")} --hub <hub>`;
 	}
 	// every native step resumes through the TS door (W771.3: wrapper is a pure exec)
@@ -413,7 +415,9 @@ const impls: Partial<Record<StepName, StepImpl>> = {
 	upgradeGateway,
 	syncHarness,
 	ensureShims,
+	migrateConf,
 	wireSettings,
+	wireConnections,
 	registerCaddy,
 	registerSkills,
 	releaseNotify,
@@ -460,7 +464,13 @@ export async function executePlan(
 			emit({
 				name: step.name,
 				status: "planned",
-				note: "planned (dry-run — zero side effects)",
+				// W1295: syncHarness names its ship list so a dry-run proves the
+				// payload — W1466: the computed closure (read-only: git ls-tree +
+				// module reads), the same list a real sync archives.
+				note:
+					step.name === "syncHarness"
+						? `planned (dry-run — zero side effects); payload: ${(await sourcePaths(ctx.repo)).join(", ")}`
+						: "planned (dry-run — zero side effects)",
 			});
 			continue;
 		}

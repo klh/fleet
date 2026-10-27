@@ -19,7 +19,7 @@ import { subagentLaneSuffix } from "../hooks/lib/subscribe-attach.ts";
 import {
 	consumeClaudeWake,
 	signalClaudeDirectEvent,
-} from "../hooks/lib/claude-wake.ts";
+} from "../hooks/lib/executors/claude-wake.ts";
 
 const TMP = mkdtempSync(join(tmpdir(), "suspenders-subtail-"));
 const LOGDIR = join(TMP, ".claude-insights");

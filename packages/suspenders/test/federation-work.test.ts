@@ -6,9 +6,9 @@
 
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { mkdirSync } from "node:fs";
+import { tmpDir } from "./helpers/fixture-kit.ts";
+
 import { federationWorkPage } from "../hooks/bin/federation-work-html.ts";
 import { handleFederationWork } from "../hooks/board/routes-federation.ts";
 import {
@@ -18,8 +18,8 @@ import {
 	pullFederatedWork,
 	type WorkEnv,
 	workEdgeToken,
-} from "../hooks/lib/federation-work.ts";
-import type { GovernorStore } from "../hooks/lib/govdb-store.ts";
+} from "../hooks/lib/federation/federation-work.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb-store.ts";
 
 function fixtureStore(): GovernorStore {
 	const d = new Database(":memory:") as unknown as GovernorStore;
@@ -59,7 +59,7 @@ function fixtureStore(): GovernorStore {
 }
 
 function tmpEnv() {
-	const home = mkdtempSync(join(tmpdir(), "w370-work-"));
+	const home = tmpDir("w370-work-");
 	mkdirSync(home, { recursive: true });
 	return { env: { BUCKLE_SECRETS_HOME: home, HOME: home } as WorkEnv, home };
 }

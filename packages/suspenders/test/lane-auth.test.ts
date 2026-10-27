@@ -22,7 +22,7 @@ import {
 	parseEnvFile,
 	revokeLaneKey,
 	retireLaneKey,
-} from "../scripts/lib/lane-auth.ts";
+} from "../hooks/lib/lanes/lane-auth.ts";
 
 describe("parseEnvFile", () => {
 	test("parses KEY=VALUE lines, ignores comments and blanks", () => {

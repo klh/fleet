@@ -28,15 +28,15 @@ import { dirname, join } from "node:path";
 // W422: fork support per harness is adapter data (exact lookup — an unknown
 // harness cold-starts, it never inherits claude's fork grammar).
 import { adapterForExact } from "../../hooks/lib/executors/registry.ts";
-import { listStarters } from "../../hooks/lib/starter-artifacts.ts";
-import { readStarterAuthorized } from "../../hooks/lib/starter-distribution.ts";
+import { listStarters } from "../../hooks/lib/starter/starter-artifacts.ts";
+import { readStarterAuthorized } from "../../hooks/lib/starter/starter-distribution.ts";
 import {
 	applyLaneAttribution,
 	BUCKLE_FRONT,
 	laneEnv,
 	probeBuckleFrontVerdict,
 	type FrontProbeVerdict,
-} from "./lane.ts";
+} from "../../hooks/lib/lanes/lane.ts";
 
 export const STARTER_FLAG = "SUSPENDERS_LANE_STARTER";
 // Registry cap — bounded history means bounded REGISTRY too: retired starter

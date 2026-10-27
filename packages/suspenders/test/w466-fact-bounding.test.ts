@@ -117,7 +117,7 @@ describe("W466 govdb v12 migration", () => {
 						moved: db.query("SELECT key FROM machine_cursors").all().map((r) => r.key),
 						left: db.query("SELECT COUNT(*) AS n FROM facts WHERE key LIKE 'activity.tp.%'").get().n,
 					}));`,
-					join(import.meta.dir, "../hooks/lib/govdb.ts"),
+					join(import.meta.dir, "../hooks/lib/govdb/govdb.ts"),
 				],
 				{ env: { ...process.env, HOME: pre }, stdout: "pipe", stderr: "pipe" },
 			);

@@ -3,13 +3,13 @@
 // the RUNNING litellm (PID predating the config) answered /v1/models 200
 // with `Fallbacks=None` while lanes hard-died instead of failing over to
 // local. Liveness probes say nothing about the fallback machinery; this
-// drill fires a REAL request: model glm-5.3-flash through the gateway
-// (:4100). When z.ai is dark, the only rungs that answer are local ones —
-// 200 + choices = the ladder works. When z.ai is up, the probe doubles as
-// gateway serve/auth proof and the fallbacks stay warm.
-// Secrets: the gateway master key resolves at call time — LITELLM_KEY env
-// wins, else the 0600 ~/.claude/local-llm/litellm.key; used for the Bearer
-// header only, never logged.
+// drill fires a REAL request: model glm-5.3-flash through the buckle gate
+// (W1119.2 single-buckle-inference — the legacy :4100 master-key leg is
+// retired). When z.ai is dark, the only rungs that answer are local ones —
+// 200 = the ladder works. When z.ai is up, the probe doubles as gate
+// serve/auth proof and the fallbacks stay warm. The gate route resolves
+// fail-closed (SUSPENDERS_BUCKLE_URL/TOKEN); a missing route is a FAIL,
+// never the legacy ungoverned skip.
 
 import { readFileSync } from "node:fs";
 import { YAML } from "bun";
@@ -18,10 +18,12 @@ import {
 	type Usage,
 	usageFromAnthropic,
 } from "../../../buckle/src/usage.ts";
+import {
+	buckleChat,
+	inferenceBuckleRoute,
+} from "../lib/hub/inference-buckle.ts";
 
 const HOME = process.env.HOME ?? "";
-const GATEWAY_URL = process.env.BELT_GATEWAY_URL ?? "http://127.0.0.1:4100";
-const MASTER_KEY_FILE = `${HOME}/.claude/local-llm/litellm.key`;
 /** The LIVE gateway config (:4100 loads it at boot) — the W878 ladder
  *  assertion reads it; env override for tests/alt deployments. */
 const GATEWAY_CONFIG =
@@ -46,12 +48,11 @@ export interface DrillResult {
 }
 
 export interface DrillDeps {
-	gateway?: string;
 	zaiBase?: string;
-	/** Master key; null = drill skipped (no auth, the request would 401). */
-	key?: string | null;
 	fetchImpl?: typeof fetch;
-	/** Gateway completion timeout — two dead z.ai rungs + retries first. */
+	/** Buckle gate route resolution (tests inject a stub pair). */
+	env?: NodeJS.ProcessEnv;
+	/** Gate completion timeout — two dead z.ai rungs + retries first. */
 	timeoutMs?: number;
 	/** z.ai reachability probe timeout. */
 	probeTimeoutMs?: number;
@@ -99,20 +100,6 @@ export function checkFallbacksPresent(text: string): LadderCheck {
 			why: "litellm_settings.fallbacks has no usable rows",
 		};
 	return { present: true, groups, why: `ladders: ${groups.join(", ")}` };
-}
-
-/** env wins, else the 0600 file. Null when both are absent. */
-export function resolveMasterKey(
-	env: Record<string, string | undefined> = process.env,
-	read: (path: string) => string = (p) => readFileSync(p, "utf8"),
-): string | null {
-	const fromEnv = env.LITELLM_KEY?.trim();
-	if (fromEnv) return fromEnv;
-	try {
-		return read(MASTER_KEY_FILE).trim() || null;
-	} catch {
-		return null;
-	}
 }
 
 /** Any HTTP reply (even 401/404) proves reachability; a throw (TLS
@@ -179,88 +166,85 @@ export async function probeFallbackLiveness(
 	};
 }
 
-/** One drill pass: key → ladder assertion (W878: the config must carry
- *  litellm_settings.fallbacks, else fail even when z.ai answers) → darkness
- *  probe, then a real 1-token completion through the gateway. ok = 200 + at
- *  least one choice (max_tokens: 1 can legally yield empty content on a
- *  reasoner — the COMPLETION is the contract). */
+/** One drill pass: buckle route (fail-closed — an unresolvable route is a
+ *  FAIL, never the legacy ungoverned skip) → ladder assertion (W878: the
+ *  config must carry litellm_settings.fallbacks, else fail even when z.ai
+ *  answers) → darkness probe, then a real 1-token completion through the
+ *  gate. max_tokens: 1 can legally yield empty content on a reasoner — the
+ *  COMPLETION is the contract. */
 export async function drillFallback(
 	deps: DrillDeps = {},
 ): Promise<DrillResult> {
-	const fetchImpl = deps.fetchImpl ?? fetch;
-	const key = deps.key !== undefined ? deps.key : resolveMasterKey();
-	if (!key)
+	// W1119.2 single-buckle-inference: the probe rides the gate; the route
+	// check fails closed BEFORE any config read or probe fires.
+	const env = deps.env ?? process.env;
+	try {
+		inferenceBuckleRoute(env);
+	} catch (e) {
 		return {
 			dark: false,
 			ok: false,
 			ms: 0,
 			model: null,
 			laddersPresent: false,
-			verdict: "skipped",
-			why: `no LITELLM_KEY (env or ${MASTER_KEY_FILE})`,
+			verdict: "fail",
+			why: `buckle route missing: ${String(e).slice(0, 120)}`,
 		};
+	}
 	const ladders = laddersCheck(deps);
-	const dark = await zaiDark(fetchImpl, deps.zaiBase, deps.probeTimeoutMs);
-	return runRequest(fetchImpl, key, dark, deps, ladders);
-}
-
-interface Doc {
-	model?: string;
-	choices?: unknown[];
+	const dark = await zaiDark(
+		deps.fetchImpl ?? fetch,
+		deps.zaiBase,
+		deps.probeTimeoutMs,
+	);
+	return runRequest(dark, deps, ladders);
 }
 
 /** The probe request + verdict — split from drillFallback to keep each
  *  unit small. A throw (timeout, refused) is a failed drill. */
 async function runRequest(
-	fetchImpl: typeof fetch,
-	key: string,
 	dark: boolean,
 	deps: DrillDeps,
 	ladders: LadderCheck,
 ): Promise<DrillResult> {
 	const t0 = Date.now();
-	let r: Response;
+	let res: Awaited<ReturnType<typeof buckleChat>>;
 	try {
-		r = await fetchImpl(`${deps.gateway ?? GATEWAY_URL}/v1/chat/completions`, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				authorization: `Bearer ${key}`,
-			},
-			body: JSON.stringify({
+		res = await buckleChat(
+			{
 				model: PROBE_MODEL,
-				messages: [{ role: "user", content: `drill ${Date.now()}` }],
-				max_tokens: 1,
-			}),
-			signal: AbortSignal.timeout(deps.timeoutMs ?? 60_000),
-		});
+				user: `drill ${String(Date.now())}`,
+				maxTokens: 1,
+				wire: "openai",
+				fetcher: deps.fetchImpl,
+				timeoutMs: deps.timeoutMs,
+			},
+			deps.env,
+		);
 	} catch (e) {
 		return {
 			dark,
 			ok: false,
 			ms: Date.now() - t0,
 			model: null,
+			laddersPresent: ladders.present,
 			verdict: "fail",
-			why: `gateway unreachable: ${String(e).slice(0, 120)}`,
+			why: `gate failed: ${String(e).slice(0, 120)}`,
 		};
 	}
-	const doc = (await r.json().catch(() => null)) as Doc | null;
-	const ok = r.ok && (doc?.choices?.length ?? 0) > 0;
-	const served = ok && ladders.present;
+	const served = ladders.present;
 	return {
 		dark,
-		ok,
+		ok: true,
 		ms: Date.now() - t0,
-		model: doc?.model ?? null,
+		model: res.model,
 		laddersPresent: ladders.present,
 		verdict: served ? "pass" : "fail",
-		why: !ok
-			? `gateway HTTP ${r.status}${doc ? "" : " (unparseable body)"}`
-			: ladders.present
-				? dark
-					? "z.ai dark — a local rung answered"
-					: "z.ai reachable — gateway answered"
-				: `gateway answered but ${ladders.why}`,
+		why: served
+			? dark
+				? "z.ai dark — a local rung answered"
+				: "z.ai reachable — gate answered"
+			: `gate answered but ${ladders.why}`,
 	};
 }
 

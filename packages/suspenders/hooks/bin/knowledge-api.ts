@@ -1,12 +1,37 @@
-import { makeStore, enqueueKnowledge } from "../lib/knowledge-ports.ts";
+import { makeStore, enqueueKnowledge } from "../lib/knowledge/sqlite-store.ts";
 import {
 	proseCards,
 	withTrust,
 	KNOWLEDGE_PRECEDENCE,
 	type KnowledgeHit,
-} from "../lib/knowledge.ts";
+} from "../lib/knowledge/knowledge.ts";
 import { servicemon } from "../lib/servicemon.ts";
 import { hostGuard, tokenOk, writeToken } from "../lib/host-guard.ts";
+import {
+	aggregateClaims,
+	claimAggregateView,
+	mintRollKey,
+	rollKeyOk,
+	ROLL_KEY_HEADER,
+} from "../lib/knowledge/knowledge-roll.ts";
+import { openKnowledgeDb } from "../lib/knowledge/govdb-knowledge.ts";
+import {
+	aeLeavesFace,
+	aeMergeFace,
+	aeRootFace,
+	aeShardFace,
+	aePass,
+} from "../lib/knowledge/knowledge-antientropy.ts";
+import { knowledgeDbPath } from "../lib/knowledge/govdb-knowledge.ts";
+import {
+	answerKnowledgeQuestion,
+	executeKnowledgeSql,
+	knowledgeQueryConf,
+	KNOWLEDGE_QUERY_SCOPE,
+	KNOWLEDGE_READ_SCOPE,
+	openKnowledgeQueryDb,
+	verifyKnowledgeKey,
+} from "../lib/knowledge/knowledge-query.ts";
 // knowledge-api.ts — W91 #9b: the knowledge port's HTTP face. The SAME store
 // handlers, second transport: a consumer on another machine calls
 // http://<knowledge-api>/search instead of importing the lib. Thin by design
@@ -23,6 +48,13 @@ import { hostGuard, tokenOk, writeToken } from "../lib/host-guard.ts";
 //   POST /retire   {id, superseded_by?}
 //   POST /note     {id, sid, what}
 //   GET  /verify[/<id>]
+// W1218: POST /knowledge/query {question, limit?} — NL in, the pinned SQL
+//   LLM translates, the SAME read-only lint executes; rows + sql + elapsed.
+//   POST /knowledge/sql {sql, params?, limit?} — direct parameterized
+//   read-only SQL. BOTH faces: SELECT/WITH-only single-statement lint,
+//   LIMIT enforced/capped, allowlisted fact tables, ro connection, and
+//   buckle-verified bksk_ keys (W1141 scoping: knowledge:QUERY_ / READ_);
+//   answers carry x-klh-face (W1081 face identity).
 // W264: loopback bind by default (KNOWLEDGE_API_BIND opts in to more); the
 // mutating routes need the per-install X-KLH-Write-Token (lib/host-guard.ts).
 const store = makeStore();
@@ -65,6 +97,108 @@ const scrubHit = (h: KnowledgeHit): KnowledgeHit => {
 // resolution root for source_ref hashing (trust markers) + /curate doc scans
 const API_ROOT = process.env.KNOWLEDGE_REPO_ROOT ?? process.cwd();
 
+// W1213 — scoped TTL roll keys: minted PER MACHINE, printed once at mint
+// time, only the sha256 stored (0600 keys file). The key IS the credential:
+// it binds provenance (the machine field the roll lands under), so spokes
+// never hold the install write token. Absent on serve mode — usage:
+//   knowledge-api.ts --mint-roll-key <machine> [--ttl-hours N]
+const mintIdx = process.argv.indexOf("--mint-roll-key");
+if (mintIdx !== -1) {
+	const machine = process.argv[mintIdx + 1];
+	if (!machine || machine.startsWith("--")) {
+		console.error(
+			"usage: knowledge-api.ts --mint-roll-key <machine> [--ttl-hours N]",
+		);
+		process.exit(1);
+	}
+	const ttlIdx = process.argv.indexOf("--ttl-hours");
+	const ttl = ttlIdx !== -1 ? Number(process.argv[ttlIdx + 1]) : 24;
+	const minted = mintRollKey(
+		machine,
+		Number.isFinite(ttl) && ttl > 0 ? ttl : 24,
+	);
+	console.log(JSON.stringify(minted));
+	process.exit(0);
+}
+
+// W1213 — the claim-roll aggregate rides its own handle: the roll is a
+// second concern on the same knowledge.db (WAL + BEGIN IMMEDIATE keep the
+// two connections honest), never squeezed through the store port.
+const rollDb = openKnowledgeDb();
+
+// W1214 — one-shot hub-pair anti-entropy against a peer, then exit. The
+// peer credential is THIS install's write token mirror (0600 file or env);
+// absent on serve mode — usage:
+//   knowledge-api.ts --ae-pull <peer-base-url> [--ae-token-file <path>]
+const aeIdx = process.argv.indexOf("--ae-pull");
+if (aeIdx !== -1) {
+	const peer = process.argv[aeIdx + 1];
+	if (!peer || peer.startsWith("--")) {
+		console.error(
+			"usage: knowledge-api.ts --ae-pull <peer-url> [--ae-token-file <path>]",
+		);
+		process.exit(1);
+	}
+	const tokIdx = process.argv.indexOf("--ae-token-file");
+	const tokenFile = tokIdx !== -1 ? process.argv[tokIdx + 1] : undefined;
+	const token = tokenFile
+		? await Bun.file(tokenFile)
+				.text()
+				.then((t) => t.trim())
+		: process.env.SUSPENDERS_AE_PEER_TOKEN;
+	const r = await aePass(rollDb, peer, { token });
+	console.log(JSON.stringify(r));
+	process.exit(r.ok && r.converged ? 0 : 1);
+}
+// W1218 — the query faces ride their OWN readonly handle on the same
+// knowledge.db (mode=ro is the engine-level backstop behind the lint) and
+// boot-resolved face conf (buckle front + admin + the pinned SQL LLM).
+const kqConf = knowledgeQueryConf();
+const queryDb = openKnowledgeQueryDb(knowledgeDbPath());
+const faceHeaders = (face: string): Record<string, string> => ({
+	"x-klh-face": `knowledge/${face}`,
+});
+const knowledgeFace = (
+	req: Request,
+	path: string,
+	body: Record<string, unknown>,
+): Promise<Response> =>
+	(async () => {
+		const face = path === "/knowledge/query" ? "query" : "sql";
+		const key =
+			(req.headers.get("authorization") ?? "")
+				.replace(/^Bearer\s+/i, "")
+				.trim() || null;
+		const needed =
+			face === "query" ? KNOWLEDGE_QUERY_SCOPE : KNOWLEDGE_READ_SCOPE;
+		const v = await verifyKnowledgeKey(key, needed, kqConf);
+		if (!v.ok)
+			return Response.json(
+				{ error: v.code ?? "knowledge.auth" },
+				{ status: v.status, headers: { "x-klh-face": `knowledge/${face}` } },
+			);
+		if (face === "sql") {
+			const out = executeKnowledgeSql(queryDb, str(body.sql) ?? "", {
+				limit: body.limit,
+				params: body.params,
+			});
+			return Response.json(out, {
+				status: out.status,
+				headers: faceHeaders(face),
+			});
+		}
+		const out = await answerKnowledgeQuestion(
+			queryDb,
+			str(body.question) ?? "",
+			kqConf,
+			{ limit: body.limit },
+		);
+		return Response.json(out, {
+			status: out.status,
+			headers: faceHeaders(face),
+		});
+	})();
+
 // W125 — shared /status + /metrics (lib/servicemon.ts). No token dimension on
 // this service: search/enqueue never see usage, so tokens_total is omitted
 // honestly rather than served as fake zeros.
@@ -97,17 +231,105 @@ const base = {
 				{
 					ok: true,
 					service: "suspenders-knowledge-api",
-					routes: ["/search", ...WRITE_ROUTES, "/verify"],
+					routes: [
+						"/search",
+						...WRITE_ROUTES,
+						"/verify",
+						"/ae/root",
+						"/ae/shard",
+						"/ae/leaves",
+						"/ae/merge",
+						"/knowledge/query",
+						"/knowledge/sql",
+					],
 				},
 				{ headers },
 			);
 		}
-		// anonymous reads get scrubbed output; the install token unlocks refs
-		const authed = tokenOk(req);
+		// W1213 — the upward claim roll. POST: credential-free transport — a
+		// machine-scoped TTL key (mintRollKey) binds the provenance machine, so
+		// a spoke never holds the install write token; the write token stays a
+		// valid OPERATOR path (machine then rides body.machine). GET: the
+		// aggregated view (confidence-ranked, tombstoned hidden).
 		const body =
 			req.method === "POST"
 				? ((await req.json().catch(() => ({}))) as Record<string, unknown>)
 				: {};
+		if (path === "/roll") {
+			if (req.method === "GET") {
+				// W1213.1 bounded read: anonymous callers get NOTHING (the aggregate
+				// discloses tenant intel — the B1 finding); a roll key reads its own
+				// machine's claims plus the fleet plane; the write token is the
+				// operator full view.
+				const key = req.headers.get(ROLL_KEY_HEADER) ?? "";
+				const keyed = key ? rollKeyOk(key) : { ok: false, machine: null };
+				if (keyed.ok && keyed.machine)
+					return json(
+						claimAggregateView(rollDb, {
+							readerMachine: keyed.machine,
+						}),
+					);
+				if (tokenOk(req)) return json(claimAggregateView(rollDb));
+				return json({ error: "roll auth required" }, 403);
+			}
+			if (req.method !== "POST")
+				return new Response(null, {
+					status: 405,
+					headers: { allow: "GET, POST" },
+				});
+			const key = req.headers.get(ROLL_KEY_HEADER) ?? "";
+			const keyed = key ? rollKeyOk(key) : { ok: false, machine: null };
+			const machine = keyed.ok
+				? keyed.machine
+				: tokenOk(req)
+					? str(body.machine)
+					: null;
+			if (!machine) return json({ error: "roll key required" }, 403);
+			// W1213.1 (B2 server half): a rejected roll NEVER 200s — the spoke
+			// (W1213.2) reads the status to retain its cursor on rejection.
+			const landed = aggregateClaims(rollDb, body.claims, machine);
+			if (!landed.ok)
+				return json({ error: landed.error ?? "roll rejected" }, 422);
+			return json(landed);
+		}
+		// W1214 — hub-to-hub knowledge anti-entropy (the /ae/* faces). Every
+		// one is token-gated RIGHT HERE (peer callers hold the install write
+		// token; anonymous callers get 403 even on the reads — the roots
+		// disclose namespace structure). Root equality short-circuits the
+		// protocol peer-side, so identical hubs never exchange a row.
+		if (path.startsWith("/ae/")) {
+			if (!tokenOk(req)) return json({ error: "peer token required" }, 403);
+			if (req.method === "GET" && path === "/ae/root")
+				return json(aeRootFace(rollDb));
+			if (req.method === "GET" && path === "/ae/shard") {
+				const idx = num(u.searchParams.get("index"));
+				if (idx === null)
+					return json({ ok: false, error: "index required" }, 400);
+				const shard = aeShardFace(rollDb, idx);
+				return json(shard, shard.ok ? 200 : 400);
+			}
+			if (req.method === "POST" && path === "/ae/leaves") {
+				const face = aeLeavesFace(rollDb, body);
+				return json(face, face.ok ? 200 : 422);
+			}
+			if (req.method === "POST" && path === "/ae/merge") {
+				const face = aeMergeFace(rollDb, body);
+				return json(face, face.ok ? 200 : 422);
+			}
+			return json({ error: "not found" }, 404);
+		}
+		// W1218 — the query faces: buckle-verified bearer keys, read-only
+		// execution, face identity on every answer (x-klh-face).
+		if (path === "/knowledge/query" || path === "/knowledge/sql") {
+			if (req.method !== "POST")
+				return new Response(null, {
+					status: 405,
+					headers: { allow: "POST" },
+				});
+			return knowledgeFace(req, path, body);
+		}
+		// anonymous reads get scrubbed output; the install token unlocks refs
+		const authed = tokenOk(req);
 		try {
 			if (req.method === "POST" && path === "/search") {
 				const query = str(body.query) ?? "";

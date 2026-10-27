@@ -17,6 +17,11 @@ import {
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+	boardStartupTail,
+	unusedPort,
+	waitBoardUp,
+} from "./board-fixture-core.ts";
 
 // rows off the board's JSON feeds — Record<string, unknown> keeps the feed
 // callbacks honest without modeling every endpoint (the wire data is
@@ -25,20 +30,14 @@ type Row = Record<string, unknown>;
 
 // Let the OS choose an unused loopback port; fixed test ports can silently
 // attach to a board left by another run and use its unrelated write token.
-export function unusedPort(): number {
-	const server = Bun.serve({
-		hostname: "127.0.0.1",
-		port: 0,
-		fetch: () => new Response(),
-	});
-	const port = server.port;
-	server.stop(true);
-	return port;
-}
+export { unusedPort };
 
 export async function boardFixture(
 	PORT: number,
 	afterAll: (fn: () => void | Promise<void>) => void,
+	// W1275.1: per-file env overrides (e.g. a test's own mock LLM URL) pin
+	// AFTER the dead-upstream defaults, keeping the kit's hermetic pins.
+	opts?: { env?: Record<string, string | undefined> },
 ): Promise<{
 	TOKEN;
 	HOME;
@@ -84,15 +83,18 @@ export async function boardFixture(
 		...process.env,
 		HOME,
 		SUSPENDERS_LLM_URL: "http://127.0.0.1:1/v1/chat/completions",
-		// W810: the advise panel's pinned oracle leg defaults to :8903 — on a
-		// machine with the local-reason specialist resident it ANSWERS, the
-		// panel succeeds, and the dead-LLM error-fact contracts never run
-		ORACLE_ROUTE_URL: "http://127.0.0.1:1/v1/chat/completions",
+		// W810 → W1119.1: the advise panel's oracle legs ride the gated Buckle
+		// client — on a machine with a live gate they would ANSWER, the panel
+		// succeeds, and the dead-LLM error-fact contracts never run; pin the
+		// credential pair to a dead port so the legs fail closed
+		SUSPENDERS_BUCKLE_URL: "http://127.0.0.1:1",
+		SUSPENDERS_BUCKLE_TOKEN: "bksk_fixture_dead",
 		SUSPENDERS_MDNS: "0",
 		SUSPENDERS_BELT_URL: "http://127.0.0.1:1",
 		SUSPENDERS_KEV_URL: "http://127.0.0.1:1",
 		SUSPENDERS_BUCKLE_FRONT: "http://127.0.0.1:1",
 		SUSPENDERS_BELT_ENV: join(HOME, "absent-belt.env"),
+		...opts?.env,
 	};
 	delete env.SUSPENDERS_SID;
 	delete env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
@@ -238,35 +240,19 @@ export async function boardFixture(
 	});
 	// Register cleanup before awaiting startup so failed fixtures cannot leak
 	// processes. Drain output continuously to avoid a full pipe blocking them.
-	let output = "";
-	const drain = async (stream: ReadableStream<Uint8Array>) => {
-		for await (const chunk of stream)
-			output = `${output}${new TextDecoder().decode(chunk)}`.slice(-16_384);
-	};
-	void drain(proc.stdout);
-	void drain(proc.stderr);
+	const startupTail = boardStartupTail(proc.stdout, proc.stderr);
 	// second instance for --demo seeding (same temp HOME — the demo partition
 	// lives in its governor.db, never in a real project)
 	let demoProc: Bun.Subprocess | null = null;
 	function setDemoProc(p: Bun.Subprocess | null): void {
 		demoProc = p;
 	}
-	async function waitUp(base: string) {
-		for (let i = 0; i < 100; i++) {
-			try {
-				if (
-					(
-						await fetch(`${base}/api/data`, {
-							signal: AbortSignal.timeout(500),
-						})
-					).ok
-				)
-					return;
-			} catch {}
-			await sleep(100);
-		}
-		throw new Error(`fleet board did not start on ${base}: ${output}`);
-	}
+	const waitUp = (base: string) =>
+		waitBoardUp(
+			base,
+			startupTail.output,
+			(_b, out) => `fleet board did not start on ${_b}: ${out}`,
+		);
 	afterAll(async () => {
 		proc.kill();
 		await proc.exited;

@@ -1,0 +1,159 @@
+Nimbalyst: Agent Wiki and Workspace for Claude Code and Codex
+, which blocks non-essential analytics for EU/EEA,
+UK, and Switzerland visitors until they opt in. -->
+We use analytics tools to understand how this site is used. Analytics are optional. See our
+Cookie Policy
+.
+Decline
+Allow analytics
+Wiki
+Wiki Teams
+App
+App Overview
+Core Features
+Extensions
+Mobile
+Why Nimbalyst
+Context Graph
+Download
+Pricing
+Docs
+Resources
+Blog
+Use Cases
+For Developers
+For Product Managers
+Compare
+Agent Harness
+Agent Skills
+Open Source
+About
+Wiki
+App
+Wiki
+Wiki Teams
+App
+App Overview
+Core Features
+Extensions
+Mobile
+Why Nimbalyst
+Context Graph
+Download
+Pricing
+Docs
+Resources
+Blog
+Use Cases
+For Developers
+For Product Managers
+Compare
+Agent Harness
+Agent Skills
+Open Source
+About
+Wiki GitHub
+App GitHub
+Overwhelmed and disorganized by Codex and Claude Code?
+Think clearly with free, local, open source tools from Nimbalyst
+Nimbalyst Wiki
+Nimbalyst App
+Nimbalyst Wiki
+A wiki your agents write for you
+so you can think, organize, and set direction
+Explore the wiki
+Your agents organize decisions, questions, and the big picture into a wiki you can edit.
+Free plugin for Claude Code, Codex, Cowork, Cursor, VS Code or any MCP agent. No app or account needed.
+Nimbalyst App
+A visual workspace for
+agents, tasks, docs, wiki, diagrams, and code
+Explore the app
+Download
+·
+Apple Silicon Mac
+Intel Mac
+Windows
+Linux
+Free for individuals. Works with your Claude Code or Codex subscription or API key.
+Trusted by thousands of builders
+Automattic
+Amazon
+Redfin
+Vanta
+Gainsight
+Zillow
+UKG
+Twilio
+Yahoo
+Amperity
+Nimbalyst Wiki Teams
+Your whole team, on the same page
+When everyone works with agents, keeping up becomes a team problem. Give your teammates and their agents one shared wiki for the decisions, questions, and context that matter.
+Karl and Priya weigh an open question while Priya’s agent proposes updates to the page.
+Every teammate’s agents contribute
+Each person’s agent adds what it learned as it works, so nobody writes the page by hand.
+Edit together, in the browser
+Read and edit the same pages in real time, with no desktop app required.
+Know what needs deciding
+See open questions and the decisions already made, including who made them.
+Explore Wiki Teams &rarr;
+Your personal wiki stays free. Wiki Teams is the paid plan for sharing it with your team, free during Beta.
+A wiki your coding agents write for you, and a visual workspace for working with Claude Code, Codex and other agents.
+Explore
+Product Overview
+Use Cases
+Solutions
+Wiki
+Wiki updates by email
+Wiki Teams
+App
+App Collaboration
+Features
+Pricing
+Agent Harness
+Harness Blueprint
+Harness Benchmark
+Blog
+Changelog
+Open Source
+About
+Docs
+Solutions
+All solutions
+Developers
+Product managers
+Feature teams
+Startups
+Marketing teams
+Research and science
+Quant research
+Customer-facing engineering
+Consulting and SIs
+Compare
+All comparisons
+Claude Code GUI
+Claude Code Desktop App
+Codex GUI
+Codex Desktop App
+AI Mockup Generator
+Legal
+Trust and Compliance
+Terms of Service
+Privacy Policy
+California Privacy Notice
+Cookie Policy
+Cookie settings
+Sub-processors
+Data Processing Agreement
+SOC-2 Type 2 certified
+Community
+Open Source
+App GitHub
+Wiki GitHub
+Discord
+LinkedIn
+Youtube
+X
+TikTok
+Instagram
+&copy; 2026 Nimbalyst All rights reserved.

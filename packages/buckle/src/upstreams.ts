@@ -6,8 +6,8 @@
 // request time.
 
 import { existsSync, readFileSync } from "node:fs";
-import { YAML } from "bun";
 import { validateDeploymentEgress } from "./adapters/egress.ts";
+import { validateOutboundGuardConfig } from "./outbound-guard.ts";
 import { resolveAdapter } from "./adapters/index.ts";
 import { deriveAdapter } from "./adapters/types.ts";
 
@@ -70,11 +70,13 @@ export interface UpstreamPool {
 	deployments(group: string): Deployment[];
 }
 
-const DEFAULT_UPSTREAMS = new URL("../upstreams.yaml", import.meta.url)
+const DEFAULT_UPSTREAMS = new URL("../upstreams.json", import.meta.url)
 	.pathname;
 
+/** Parse an upstreams doc — JSON only (W1253 Amendment A: fleet config is
+ *  JSON; a legacy .yaml path parses when its content is JSON). */
 function parseUpstreams(text: string, source: string): UpstreamsDoc {
-	const doc = YAML.parse(text) as UpstreamsDoc | null;
+	const doc = JSON.parse(text) as UpstreamsDoc | null;
 	if (!doc || typeof doc !== "object" || !doc.groups)
 		throw new Error(`upstreams: ${source} has no groups mapping`);
 	return doc;
@@ -117,6 +119,7 @@ function poolFrom(doc: UpstreamsDoc): UpstreamPool {
 				if (dep.adapter === undefined) dep.adapter = deriveAdapter(dep.dialect);
 				try {
 					validateDeploymentEgress(resolveAdapter(dep).family, dep);
+					validateOutboundGuardConfig(dep.adapter_config);
 				} catch (e) {
 					throw new Error(
 						`upstreams: group "${group}": ${e instanceof Error ? e.message : String(e)}`,
@@ -132,6 +135,12 @@ function poolFrom(doc: UpstreamsDoc): UpstreamPool {
 	};
 }
 
+/** The .json twin of a configured path (upstreams.hub.yaml → upstreams.hub.json):
+ *  hubctl writes the .json name since W1253, so a rolling deploy where the
+ *  env still names the legacy .yaml resolves the twin when it is on disk. */
+const jsonSiblingOf = (path: string): string =>
+	path.replace(/\.ya?ml$/i, ".json");
+
 /** Resolution: explicit path → BUCKLE_UPSTREAMS → committed default (the
  *  override file merges over the default; groups it declares win). W1123
  *  fail-forward: a CONFIGURED override that cannot load is startup fatal —
@@ -142,13 +151,19 @@ export function loadUpstreams(explicitPath?: string): UpstreamPool {
 	let doc = parseUpstreams(readFileSync(basePath, "utf8"), basePath);
 	const overPath = process.env.BUCKLE_UPSTREAMS;
 	if (overPath) {
-		if (!existsSync(overPath))
+		// read-both (W1253): hubctl writes the .json twin, so a rolling deploy
+		// where the env still names the legacy .yaml resolves the twin on disk.
+		const resolved =
+			!existsSync(overPath) && existsSync(jsonSiblingOf(overPath))
+				? jsonSiblingOf(overPath)
+				: overPath;
+		if (!existsSync(resolved))
 			throw new Error(
 				`upstreams: BUCKLE_UPSTREAMS=${overPath} is configured but missing — refusing to fall back to the committed ladder (W1123)`,
 			);
 		doc = mergeUpstreams(
 			doc,
-			parseUpstreams(readFileSync(overPath, "utf8"), overPath),
+			parseUpstreams(readFileSync(resolved, "utf8"), resolved),
 		);
 	}
 	return poolFrom(doc);

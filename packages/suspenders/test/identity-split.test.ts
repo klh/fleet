@@ -14,10 +14,10 @@ const HOME = mkdtempSync(join(tmpdir(), "suspenders-identity-split-"));
 const REAL_HOME = process.env.HOME;
 process.env.HOME = HOME;
 const govdb = await import(
-	`../hooks/lib/govdb.ts?idsplit=${encodeURIComponent(HOME)}`
+	`../hooks/lib/govdb/govdb.ts?idsplit=${encodeURIComponent(HOME)}`
 );
 const { IDENTITY_DDL, identitySqlViolation } = await import(
-	"../hooks/lib/identity-db.ts"
+	"../hooks/lib/govdb/identity-db.ts"
 );
 process.env.HOME = REAL_HOME;
 

@@ -1,0 +1,107 @@
+{
+	"comment": [
+		"Fleet routing policy — the ONE policy file belt + buckle both load (W1253 Amendment A).",
+		"Resolution: BUCKLE_POLICY/BELT_POLICY env (or a pinned path) → ~/.claude/local-llm/routing-policy.json → this committed default.",
+		"Owner ladder law (lesson.fanout-rate-budget): NEVER flashx — same upstream family saturates together and the tier is too expensive; buckle refuses flashx tiers defensively.",
+		"Ladders = ordered cross-group walks tried after num_retries per tier (LiteLLM 1.103.0 semantics, pinned-source verified W126/W129); allowed_fails + cooldown_time = passive outlier ejection.",
+		"The glm ladder folds the 2026-10-04/06 zai-twin rescue rows with the 2026-10-01 cloud legs (zai twin → local swarm → gpt-5.2 → claude-sonnet-5).",
+		"aids/tags are buckle-enforced (belt ignores); classes/roles/reasoning + litellm_* knobs are belt emission knobs (buckle ignores).",
+		"W1267: Z.ai 1302/1305 are GENERIC rate/overload codes — never declare them account occupancy; declared-account codes are balance/entitlement classes (e.g. 1113/1311) and stay typed errors, never pacing.",
+		"W1260.2 authenticated CONNECT egress (opaque AI TLS relay for the Sing http outbounds). Fail-closed triad — the endpoint exists only when enabled AND BUCKLE_CONNECT_TOKEN is set (machine env, 0600, never in the repo) AND allow is non-empty; otherwise no listener, no egress. Ports beyond 443 and deny_private:false are deliberate operator acts."
+	],
+	"version": 1,
+	"gateway": {
+		"num_retries": 1,
+		"allowed_fails": 3,
+		"cooldown_time": 30,
+		"litellm_num_retries": 1,
+		"litellm_fallbacks": true,
+		"enable_pre_call_checks": true,
+		"stream_idle_timeout_s": 60,
+		"stream_total_timeout_s": 900,
+		"request_timeout_s": 360,
+		"first_byte_budget_s": 390,
+		"fallbacks": {
+			"glm-5.3-flash": ["zai-glm-5.3-flash"],
+			"glm-5.3": ["zai-glm-5.3", "local-swarm"],
+			"glm-5.2": ["zai-glm-5.2", "local-swarm"],
+			"zai-glm-5.3": ["local-swarm"],
+			"zai-glm-5.2": ["local-swarm"],
+			"claude-sonnet-5": ["glm-5.3-flash", "local-swarm"]
+		},
+		"context_window_fallbacks": {
+			"local-extract": ["glm-5.3-flash"],
+			"local-coder": ["glm-5.3-flash"],
+			"local-reason": ["glm-5.3-flash"],
+			"local-general": ["glm-5.3-flash"],
+			"nas-qwen2.5-0.5b": ["glm-5.3-flash"]
+		}
+	},
+	"tags": {
+		"glm-5.3-flash": ["fast", "cheap", "menial", "general"],
+		"local-swarm": [
+			"local",
+			"general",
+			"fast",
+			"cheap",
+			"code",
+			"extract",
+			"reasoning"
+		],
+		"gpt-5.2": ["frontier", "reasoning", "code"],
+		"claude-sonnet-5": ["frontier", "reasoning", "code", "long-context"]
+	},
+	"aids": {
+		"preseed": {
+			"default": "off",
+			"domains": [],
+			"ttl_s": 300
+		},
+		"cache-align": {
+			"default": "on"
+		},
+		"compress": {
+			"default": "off",
+			"max_prose_bytes": 1536
+		},
+		"expand": {
+			"default": "off",
+			"group": "local-swarm",
+			"timeout_ms": 3000,
+			"max_goal_chars": 4000,
+			"max_digest_bytes": 2048
+		},
+		"condense-in": {
+			"default": "on",
+			"max_bytes": 262144
+		},
+		"prune": {
+			"default": "off",
+			"keep_turns": 3,
+			"min_bytes": 2048,
+			"max_store_bytes": 65536
+		}
+	},
+	"classes": {
+		"frontier": ["glm-5.3"],
+		"standard": ["glm-5.3-flash"],
+		"spark": ["local-extract", "local-coder"]
+	},
+	"roles": {},
+	"reasoning": {
+		"default": "medium",
+		"classes": {
+			"spark": "low"
+		},
+		"roles": {}
+	},
+	"connect": {
+		"enabled": false,
+		"port": 4103,
+		"ports": [443],
+		"allow": [],
+		"idle_timeout_s": 300,
+		"max_tunnels": 64,
+		"deny_private": true
+	}
+}

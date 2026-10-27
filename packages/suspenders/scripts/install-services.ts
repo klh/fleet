@@ -38,12 +38,11 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { parse } from "yaml";
 import {
 	DEFAULT_PULSE_INTERVAL_S,
 	loadNotifyConfig,
 	NOTIFY_PATH,
-} from "../hooks/lib/notify.ts";
+} from "../hooks/lib/notify/notify.ts";
 import { buckleUnitForInstall } from "./assert-service-activation.ts";
 
 export const PACKAGE_ROOT = resolve(import.meta.dir, "..");
@@ -88,6 +87,12 @@ export interface ServiceSpec {
 	/** Declared listener port — receipt metadata for supervision, never
 	 *  rendered into any unit (W546). */
 	port?: number;
+	/** W1073: an abandoned supervisor child's listener port (belt-swarm
+	 *  :4000). registerLaunchd recycles it post-bootstrap — record old pid,
+	 *  kill, poll <=30s for a fresh listener — so an install never leaves a
+	 *  restarted supervisor serving pre-install code. Metadata only —
+	 *  never rendered into any unit. */
+	childPort?: number;
 }
 
 interface ManifestFile {
@@ -147,6 +152,7 @@ const KNOWN_SERVICE_KEYS = new Set([
 	"logs",
 	"placeholders",
 	"port",
+	"childPort",
 ]);
 
 export function defaultRenderValues(
@@ -259,6 +265,14 @@ export function validateSpec(spec: ServiceSpec): void {
 	) {
 		problems.push("port must be an integer 1..65535");
 	}
+	if (
+		spec.childPort !== undefined &&
+		(!Number.isInteger(spec.childPort) ||
+			spec.childPort < 1 ||
+			spec.childPort > 65535)
+	) {
+		problems.push("childPort must be an integer 1..65535");
+	}
 	const used = usedPlaceholders(spec);
 	const declared = [...spec.placeholders].sort();
 	const missing = used.filter((t) => !declared.includes(t));
@@ -276,7 +290,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 export function loadManifest(path = MANIFEST_PATH): ServiceSpec[] {
-	const raw = parse(readFileSync(path, "utf8")) as ManifestFile;
+	const raw = Bun.YAML.parse(readFileSync(path, "utf8")) as ManifestFile;
 	if (!isPlainObject(raw))
 		throw new Error(`${path}: manifest must be a mapping`);
 	for (const k of Object.keys(raw)) {
@@ -355,6 +369,8 @@ export function loadManifest(path = MANIFEST_PATH): ServiceSpec[] {
 			spec.clearInheritedEnv = entry.clearInheritedEnv as string[];
 		if (entry.nice !== undefined) spec.nice = entry.nice as number;
 		if (entry.port !== undefined) spec.port = entry.port as number;
+		if (entry.childPort !== undefined)
+			spec.childPort = entry.childPort as number;
 		for (const a of spec.args) {
 			if (typeof a !== "string")
 				throw new Error(
@@ -372,7 +388,7 @@ export function loadManifest(path = MANIFEST_PATH): ServiceSpec[] {
 // W779: the boot-out list reads from the manifest — the retired-labels
 // const in install-launchd.ts is gone (one source, config-over-code).
 export function loadLegacyLabels(path = MANIFEST_PATH): string[] {
-	const raw = parse(readFileSync(path, "utf8")) as ManifestFile;
+	const raw = Bun.YAML.parse(readFileSync(path, "utf8")) as ManifestFile;
 	const labels = raw.legacyLabels;
 	if (labels === undefined) return [];
 	if (!Array.isArray(labels))
@@ -915,6 +931,7 @@ function main(argv: string[]): number {
 		outFile: string | null;
 		files: string[];
 		port?: number;
+		childPort?: number;
 		clearInheritedEnv?: string[];
 	}[] = [];
 	if (outDir !== null) {
@@ -952,6 +969,9 @@ function main(argv: string[]): number {
 				outFile: join(resolve(outDir), r.units[0].file),
 				files: r.units.map((u) => u.file),
 				...(r.spec.port === undefined ? {} : { port: r.spec.port }),
+				...(r.spec.childPort === undefined
+					? {}
+					: { childPort: r.spec.childPort }),
 				...(r.spec.clearInheritedEnv === undefined
 					? {}
 					: { clearInheritedEnv: r.spec.clearInheritedEnv }),
@@ -969,6 +989,9 @@ function main(argv: string[]): number {
 				outFile: null,
 				files: r.units.map((u) => u.file),
 				...(r.spec.port === undefined ? {} : { port: r.spec.port }),
+				...(r.spec.childPort === undefined
+					? {}
+					: { childPort: r.spec.childPort }),
 				...(r.spec.clearInheritedEnv === undefined
 					? {}
 					: { clearInheritedEnv: r.spec.clearInheritedEnv }),

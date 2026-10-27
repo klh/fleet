@@ -23,14 +23,16 @@
 // usage: bun hooks/bin/knowledge-worker.ts          (daemon: 5s poll loop)
 //        bun hooks/bin/knowledge-worker.ts --once   (drain queued, exit)
 import PQueue from "p-queue";
+import { currentPromptHash } from "../lib/knowledge/prompt-policy.ts";
 import {
-	currentPromptHash,
 	makeDistillClient,
-	makeStore,
-	type KnowledgeStore,
 	type DistillItem,
-	type NearDupProposal,
-} from "../lib/knowledge-ports.ts";
+} from "../lib/knowledge/distill-clients.ts";
+import { makeStore } from "../lib/knowledge/sqlite-store.ts";
+import type {
+	KnowledgeStore,
+	NearDupProposal,
+} from "../lib/knowledge/store-schema.ts";
 import {
 	docForRef,
 	loadDocs,
@@ -38,7 +40,7 @@ import {
 	pointerFromText,
 	redactSecrets,
 	substitutionCheck,
-} from "../lib/knowledge.ts";
+} from "../lib/knowledge/knowledge.ts";
 import { createHash } from "node:crypto";
 
 const MAX_ATTEMPTS = 3;

@@ -1,8 +1,11 @@
 // Work item → dispatched lane → Buckle request rows. The join is by the
 // dispatch intent's lane sid and Buckle's /w/<sid> attribution. Each Buckle
 // row also carries its own W3C trace ID when written by a current gateway.
-import type { BuckleRequestRow, HubDrillStatus } from "../lib/cache-drill.ts";
-import { cacheDrillReport } from "../lib/cache-drill.ts";
+import type {
+	BuckleRequestRow,
+	HubDrillStatus,
+} from "../lib/usage/cache-drill.ts";
+import { cacheDrillReport } from "../lib/usage/cache-drill.ts";
 import { db } from "./context.ts";
 
 export interface WorkLane {

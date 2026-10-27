@@ -14,8 +14,7 @@
 // (gateway.federation.self_report.teams) — never hardcoded.
 import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { YAML } from "bun";
+import { existsSync, readFileSync } from "node:fs";
 import type { GatewayPolicy } from "../policy.ts";
 import type {
 	CrActor,
@@ -356,10 +355,11 @@ export function crQueue(db: Database): CrRow[] {
 		.all() as CrRow[];
 }
 
-/** W160: the built-in policy-revision probe — RE-READS routing-policy.yaml
+/** W160: the built-in policy-revision probe — RE-READS routing-policy.json
  *  from disk at verify time (the hub re-reads the target surface; a spoke's
  *  word alone never grants `verified`). Registered for `policy@N` and
- *  `routing-policy@N` targets (longest-prefix match). */
+ *  `routing-policy@N` targets (longest-prefix match). W1253: the policy file
+ *  is JSON — read-both names, JSON-only parse. */
 export function policyRevisionProbe(policyPath: string | undefined): CrProbe {
 	return (cr: CrRow): { ok: boolean; why: string | null } => {
 		const m = /@(\d+)$/.exec(cr.target);
@@ -370,8 +370,13 @@ export function policyRevisionProbe(policyPath: string | undefined): CrProbe {
 			return { ok: false, why: "no policy surface wired on this hub" };
 		let have = 0;
 		try {
-			// doc-level `version` — parsePolicy keeps only the gateway block
-			const doc = YAML.parse(readFileSync(policyPath, "utf8")) as {
+			// doc-level `version` — parsePolicy keeps only the gateway block.
+			// Read-both (W1253): the .json law name wins, the legacy .yaml NAME
+			// is honored only while its content is already JSON.
+			const jsonPath = policyPath.replace(/\.ya?ml$/i, ".json");
+			const doc = JSON.parse(
+				readFileSync(existsSync(jsonPath) ? jsonPath : policyPath, "utf8"),
+			) as {
 				version?: number;
 			} | null;
 			have = doc?.version ?? 0;
@@ -390,7 +395,7 @@ export function policyRevisionProbe(policyPath: string | undefined): CrProbe {
 // ─── usage/aid rollup store (W171) ─────────────────────────────────────────
 
 // The five routing-doctrine model classes — the coarse buckets the report
-// carries INSTEAD of model names. Mirror of suspenders hooks/lib/usage.ts
+// carries INSTEAD of model names. Mirror of suspenders hooks/lib/usage/usage.ts
 // GROUPS (the cross-package contract; assert-equal in both test suites).
 export const MODEL_CLASSES = [
 	"flash",

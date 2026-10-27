@@ -4,17 +4,29 @@
 // null when nothing matches.
 
 import { usagePayload } from "../bin/usage-page-html.ts";
-import { activityReport } from "../lib/activity-harvest.ts";
-import { cacheDrillParams, cacheDrillReport } from "../lib/cache-drill.ts";
-import { type CrossHubReport, crossHubRollup } from "../lib/cross-hub-usage.ts";
+import {
+	type CrossHubReport,
+	crossHubRollup,
+} from "../lib/federation/cross-hub-usage.ts";
 import {
 	type LaneWork,
 	MONITOR_DIMS,
 	type MonitorDim,
 	monitorReport,
-} from "../lib/monitor-drill.ts";
-import { buildUsageReport } from "../lib/usage.ts";
-import { maybeHarvest } from "../lib/usage-harvest.ts";
+} from "../lib/fleet-loop/monitor-drill.ts";
+import { activityReport } from "../lib/harvest/activity-harvest.ts";
+import {
+	cacheDrillParams,
+	cacheDrillReport,
+} from "../lib/usage/cache-drill.ts";
+import { evaluateCacheSla } from "../lib/usage/cache-sla.ts";
+import {
+	defaultLaneCacheLog,
+	readLaneCacheLog,
+	rowsInWindow,
+} from "../lib/usage/cache-telemetry.ts";
+import { buildUsageReport } from "../lib/usage/usage.ts";
+import { maybeHarvest } from "../lib/usage/usage-harvest.ts";
 import { db } from "./context.ts";
 import { json } from "./helpers.ts";
 
@@ -148,6 +160,36 @@ export async function handleUsage(
 				source: local.provenance?.source ?? "legacy-aggregate",
 			},
 		});
+	}
+	if (url.pathname === "/api/usage/cache-sla") {
+		// W1139.1: rolling per-lane cache hit-share SLA — computed live from
+		// the W458.4 lane-cache log (the sweep's same source + math); params:
+		// window_min, threshold, min_requests. Fail-soft: no log → an empty
+		// nodata report (a board badge never blocks the page).
+		const win = Math.max(
+			1,
+			Number(url.searchParams.get("window_min") ?? 60) || 60,
+		);
+		const thrRaw = Number(url.searchParams.get("threshold") ?? 0.5);
+		const threshold = Number.isFinite(thrRaw)
+			? Math.min(1, Math.max(0, thrRaw))
+			: 0.5;
+		const minReq = Math.max(
+			1,
+			Number(url.searchParams.get("min_requests") ?? 5) || 5,
+		);
+		const log = defaultLaneCacheLog();
+		const rows =
+			log === null
+				? []
+				: rowsInWindow(readLaneCacheLog(log), Date.now() - win * 60_000);
+		return json(
+			evaluateCacheSla(rows, {
+				windowMinutes: win,
+				threshold,
+				minRequests: minReq,
+			}),
+		);
 	}
 	if (url.pathname === "/api/usage/monitor") {
 		// W995: the drilldown monitor — buckle ledger grouped by

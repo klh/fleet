@@ -195,14 +195,30 @@ function buckle(opts: {
 	const fallback = startMock();
 	const tag = tagOf(primary.url);
 	const dbPath = opts.dbPath ?? `${dir}/bench-${tag}.db`;
-	const upYaml = `groups:\n  bench:\n    - url: ${primary.url}\n      dialect: openai\n  bench-fallback:\n    - url: ${fallback.url}\n      dialect: openai\n`;
-	const polYaml = `gateway:\n  num_retries: ${String(opts.numRetries)}\n  allowed_fails: 50\n  cooldown_time: 0\n  retry_max_delay_s: 0.001\n  request_timeout_s: 10\nfallbacks:\n  bench: [bench-fallback]\n`;
-	writeFileSync(`${dir}/upstreams-${tag}.yaml`, upYaml);
-	const policyPath = `${dir}/policy-${tag}.yaml`;
-	writeFileSync(policyPath, polYaml);
+	// W1253: bench conf fixtures are JSON (the ONE parser) — .json law names
+	const upDoc = {
+		groups: {
+			bench: [{ url: primary.url, dialect: "openai" }],
+			"bench-fallback": [{ url: fallback.url, dialect: "openai" }],
+		},
+	};
+	const polDoc = {
+		gateway: {
+			num_retries: opts.numRetries,
+			allowed_fails: 50,
+			cooldown_time: 0,
+			retry_max_delay_s: 0.001,
+			request_timeout_s: 10,
+		},
+		fallbacks: { bench: ["bench-fallback"] },
+	};
+	const upstreamsPath = `${dir}/upstreams-${tag}.json`;
+	writeFileSync(upstreamsPath, `${JSON.stringify(upDoc, null, "\t")}\n`);
+	const policyPath = `${dir}/policy-${tag}.json`;
+	writeFileSync(policyPath, `${JSON.stringify(polDoc, null, "\t")}\n`);
 	const server = startServer({
 		port: resolvePort(0),
-		upstreamsPath: `${dir}/upstreams-${tag}.yaml`,
+		upstreamsPath,
 		policyPath,
 		dbPath,
 	});

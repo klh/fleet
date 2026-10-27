@@ -31,16 +31,16 @@ import {
 	laneKeyMetaPath,
 	laneSettingsPath,
 	retireLaneKey,
-} from "./lib/lane-auth.ts";
+} from "../hooks/lib/lanes/lane-auth.ts";
 import {
 	applyLaneAttribution,
 	laneEnv,
 	probeBuckleFront,
 	spawnClaude,
 	DEFAULT_ALLOWED_TOOLS,
-} from "./lib/lane.ts";
-import { transcriptAlive } from "../hooks/lib/lane-liveness.ts";
-import { canonicalProjectRoot } from "../hooks/lib/lane-registry.ts";
+} from "../hooks/lib/lanes/lane.ts";
+import { transcriptAlive } from "../hooks/lib/lanes/lane-liveness.ts";
+import { canonicalProjectRoot } from "../hooks/lib/lanes/lane-registry.ts";
 
 const argv = process.argv.slice(2);
 if (import.meta.main && (argv.includes("--help") || argv.includes("-h"))) {

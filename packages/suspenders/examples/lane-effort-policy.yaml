@@ -4,7 +4,7 @@
 # runs in its own classify:high lane). Edit the RUNTIME copy at
 # ~/.claude/local-llm/lane-effort-policy.yaml (mode 600), never code.
 # Chain: SUSPENDERS_EFFORT_POLICY env pin → runtime .yaml/.json → built-in
-# defaults (hooks/lib/lane-effort-policy.ts EFFORT_POLICY_DEFAULTS — this
+# defaults (hooks/lib/lanes/lane-effort-policy.ts EFFORT_POLICY_DEFAULTS — this
 # file mirrors them). Invalid conf = defaults + a surfaced warning.
 version: 1
 default: two-stage

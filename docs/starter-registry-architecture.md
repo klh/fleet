@@ -2,12 +2,27 @@
 
 Enterprise starter sharing: immutable, versioned starter artifacts in an
 authorized registry, replicated to hubs, materialized per task under an
-explicit contract. This document records architecture and acceptance criteria
-only — no distributed registry, checkpoint transport or runtime cache-sharing
-feature is implemented yet.
+explicit contract. This document is the canonical architecture and acceptance
+record; the implementation status is separated below from the design.
 
-Source: `toto-gpt.md` ("Enterprise starter sharing across hubs and
-developers"). Breakdown lives in the work graph as children of W458.
+Source: [research synthesis](research-toto-gpt.md#enterprise-starter-sharing-across-hubs-and-developers).
+Breakdown lives in the work graph as children of W458.
+
+## Verified status after the initial proposal
+
+W458.1–.5 delivered artifact, authorization/replication, materialization,
+cache-boundary, and promotion modules in Suspenders, Buckle, and BLAM. The
+[W458.6 milestone receipt](../packages/suspenders/docs/starter-milestone-w458-6.md)
+records a deterministic 26/26 proof using two temporary hub stand-ins. It
+made no model calls and exercised no network hop; its cost rows replay W454
+constants. The work graph now marks W458.6 superseded by W695.
+
+`materializeStarter` has callers in tests and the milestone runner, but no
+dispatcher call in current main. The native fork path in dispatch is separate.
+Thus the libraries and simulated milestone exist; live two-hub distribution,
+dispatcher materialization, and measured production cache savings are still
+unproved. Check `work show` and current code before treating any design below
+as deployed behavior.
 
 ## Artifact model
 
@@ -56,6 +71,9 @@ must reach an available matching entry; routing and expiration make a hit
 never guaranteed. Hubs benefit from a shared prefix only when their actual
 upstream requests fall within the compatible provider boundary — never assume
 reuse across separate customer accounts, workspaces, models or regions.
+[OpenAI cache guidance](https://developers.openai.com/api/docs/guides/prompt-caching)
+and [Claude cache guidance](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
+provide the provider-specific boundaries; verify them again before rollout.
 
 The gateway preserves stable prefixes and supported cache controls, keeping
 task identity and changing material after the reusable prefix. Cache keys are

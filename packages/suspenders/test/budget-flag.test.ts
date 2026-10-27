@@ -9,8 +9,8 @@ import {
 	budgetFlagClear,
 	budgetFlagGet,
 	budgetFlagKey,
-} from "../hooks/lib/budget-flag.ts";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+} from "../hooks/lib/usage/budget-flag.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 
 function fixture(): GovernorStore {
 	const db = new Database(":memory:");

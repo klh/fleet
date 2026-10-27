@@ -1,13 +1,17 @@
 import { setDefaultTimeout, afterAll, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpDir } from "./helpers/fixture-kit.ts";
+
 import { join } from "node:path";
-import { claimTokenHash, claimTokenMint } from "../hooks/lib/work-fence.ts";
+import {
+	claimTokenHash,
+	claimTokenMint,
+} from "../hooks/lib/work/work-fence.ts";
 
 setDefaultTimeout(30_000);
 
-const root = mkdtempSync(join(tmpdir(), "fleet-w643-"));
+const root = tmpDir("fleet-w643-");
 const home = join(root, "home");
 mkdirSync(home);
 const env = { ...process.env, HOME: home, GOVERNOR_STORE_URL: "" };

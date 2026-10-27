@@ -171,3 +171,38 @@ test("console card hosts carry esc(JSON) slices the components upgrade (W669.11)
 		monitored: "Not monitored here",
 	});
 });
+
+test("stale belt runtime home drops the topology tags without console noise (W1294.2.1)", () => {
+	const probes = ["buckle-4101"].map((id) => ({
+		id,
+		name: id,
+		port: 1,
+		state: "up" as const,
+		up: true,
+		detail: "HTTP200",
+		probed_at: new Date().toISOString(),
+		recovery: null,
+	}));
+	const base = {
+		policy: null,
+		gateway: null,
+		policyError: null,
+		health: probes,
+		groups: null,
+	};
+	const stale = beltPage({ ...base, beltAssetsUp: false });
+	// the script tags are gone, a heal hint takes their place
+	expect(stale).not.toContain("buckle-assets/dashboard-topology.js");
+	expect(stale).not.toContain("buckle-assets/dashboard-topology-hubs.js");
+	expect(stale).not.toContain("buckle-assets/dashboard-model-access.js");
+	expect(stale).toContain("Belt asset feed unavailable");
+	// belt-up keeps the tags
+	const fresh = beltPage({ ...base, beltAssetsUp: true });
+	expect(fresh).toContain("buckle-assets/dashboard-topology.js");
+	expect(fresh).toContain("buckle-assets/dashboard-topology-hubs.js");
+	expect(fresh).toContain("buckle-assets/dashboard-model-access.js");
+	expect(fresh).not.toContain("Belt asset feed unavailable");
+	// absent flag renders the belt-up posture (back-compat view builders)
+	const legacy = beltPage({ ...base });
+	expect(legacy).toContain("buckle-assets/dashboard-topology.js");
+});

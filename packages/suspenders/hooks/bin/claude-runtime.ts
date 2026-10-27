@@ -3,23 +3,26 @@
 // Claude processes have no such channel and cannot be adopted by this file.
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import { ClaudeControl, claudeStreamArguments } from "../lib/claude-control.ts";
+import {
+	ClaudeControl,
+	claudeStreamArguments,
+} from "../lib/executors/claude-control.ts";
 import {
 	claudeLaneState,
 	claudePausePrompt,
 	claudePauseProof,
 	claudeResumePrompt,
 	claudeWakeControl,
-} from "../lib/claude-pause.ts";
+} from "../lib/executors/claude-pause.ts";
 import {
 	consumeClaudeWake,
 	proveClaudeWake,
 	releaseClaudeWake,
 	waitForManagedClaudeWake,
-} from "../lib/claude-wake.ts";
+} from "../lib/executors/claude-wake.ts";
 // W1035.1: interrupt results are internal turn boundaries — never terminal.
 import { defineVerb, runCli } from "../lib/verb-kit.ts";
-import { restartBootstrap } from "../lib/claude-restart.ts";
+import { restartBootstrap } from "../lib/executors/claude-restart.ts";
 
 async function run(args: string[]): Promise<number> {
 	const nativeBin = process.env.SUSPENDERS_CLAUDE_NATIVE_BIN;
@@ -188,18 +191,24 @@ async function run(args: string[]): Promise<number> {
 			}
 			const wasActive = control.active;
 			const previousPauseMode = pauseMode;
+			let refusedResume = false;
 			try {
 				if (kind === "resume_ready") {
 					await verifyingPause;
 					const proof = await claudePauseProof(sid, "RESUME_READY");
+					// W1173 checkpoint fence: a resume is valid only against the
+					// EXACT checkpoint this runtime proved when the canonical PAUSED
+					// landed.
 					if (
 						pauseMode !== "paused" ||
 						!proof ||
 						proof.checkpoint !== pauseCheckpoint
-					)
+					) {
+						refusedResume = true;
 						throw new Error(
 							"resume unsupported until canonical PAUSED checkpoint proof and matching RESUME_READY exist",
 						);
+					}
 				}
 				if (kind === "pause_requested") pauseMode = "checkpointing";
 				await control.steer(
@@ -221,6 +230,26 @@ async function run(args: string[]): Promise<number> {
 				});
 			} catch (error) {
 				pauseMode = previousPauseMode;
+				if (refusedResume) {
+					// W1209: a fence refusal is terminal for THIS control only, not
+					// for the delivery loop. Keep the claim: consumeClaudeWake
+					// blocks re-consumption of the same id while this process
+					// lives, so rearming never busy-retries the refused control.
+					// The next control (a canonical pause, then a fresh resume)
+					// overwrites the pending slot with a higher id and is consumed
+					// normally. No watermark movement — it advances only after a
+					// proven injection (W1035.1); runtime exit releases the claim
+					// so a fresh runtime re-evaluates the refused control against
+					// its own pause state.
+					emit({
+						type: "fleet.claude.delivery",
+						sid,
+						state: "refused",
+						event: text.match(/^Fleet direct event #(\d+)/)?.[1] ?? null,
+						reason: String(error),
+					});
+					continue;
+				}
 				// Interrupt refused/timeout: requeue — the durable event must not
 				// sit behind an advanced watermark.
 				releaseClaudeWake(sid, undefined, "managed");

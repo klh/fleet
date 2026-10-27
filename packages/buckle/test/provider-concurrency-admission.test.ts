@@ -16,8 +16,15 @@ const policy = {
 	recovery: { successWindow: 8, decreasePercent: 5 },
 };
 
-test("Router classifies wrapped provider codes only by its configured shared account pool", async () => {
-	for (const code of ["1302", "1113"]) {
+test("Router classifies a configured code as concurrency only on explicit provider evidence", async () => {
+	// W1257: Z.ai 1302 "Rate limit reached for requests" collapsed the live
+	// spoke pool to 1/50 — a configured code counts ONLY when the provider's
+	// own message carries explicit concurrency evidence; otherwise it paces
+	// (rate), never collapsing the window
+	for (const [message, concurrency] of [
+		["Rate limit reached for requests", false],
+		["Too many concurrent requests, please retry later", true],
+	] as const) {
 		const router = new Router(
 			parsePolicy(
 				JSON.stringify({
@@ -45,7 +52,7 @@ test("Router classifies wrapped provider codes only by its configured shared acc
 					Response.json(
 						{
 							error: {
-								message: `AnthropicException - ${JSON.stringify({ error: { code, type: "rate_limit_error" } })}`,
+								message: `AnthropicException - ${JSON.stringify({ error: { code: "1302", type: "rate_limit_error", message } })}`,
 							},
 						},
 						{ status: 429 },
@@ -60,16 +67,24 @@ test("Router classifies wrapped provider codes only by its configured shared acc
 			key: "",
 		});
 		const snapshot = router.providerAdmissionSnapshot().account;
-		expect(snapshot?.concurrencyLimitedTotal).toBe(code === "1302" ? 1 : 0);
-		expect(snapshot?.adaptiveConcurrency).toBe(code === "1302" ? 1 : 6);
-		expect(snapshot?.adaptiveGapMs).toBe(code === "1302" ? 1 : 2);
+		expect(snapshot?.concurrencyLimitedTotal).toBe(concurrency ? 1 : 0);
+		expect(snapshot?.adaptiveConcurrency).toBe(concurrency ? 1 : 6);
+		expect(snapshot?.adaptiveGapMs).toBe(concurrency ? 1 : 2);
 	}
 });
 
 test("only explicit per-account codes classify concurrency pressure", () => {
 	expect(providerPressureOf(policy, "1302")).toBe("rate");
+	// W1257: even a configured code needs the provider's own concurrency words
 	expect(
 		providerPressureOf({ ...policy, concurrencyErrorCodes: ["1302"] }, 1302),
+	).toBe("rate");
+	expect(
+		providerPressureOf(
+			{ ...policy, concurrencyErrorCodes: ["1302"] },
+			1302,
+			"too many concurrent requests, please retry",
+		),
 	).toBe("concurrency");
 	expect(
 		providerPressureOf({ ...policy, concurrencyErrorCodes: ["1302"] }, "1113"),

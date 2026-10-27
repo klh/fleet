@@ -4,10 +4,10 @@
 // `work orphaned` → `work reclaim`.
 //
 // W159: the settle phase runs here too — provenance-sorted knowledge
-// write-back (hooks/lib/settle.ts). Degrade-honest: a settle failure logs to
+// write-back (hooks/lib/knowledge/settle.ts). Degrade-honest: a settle failure logs to
 // stderr and NEVER blocks the session closing.
-import { openStore } from "./lib/govdb.ts";
-import { settleSession } from "./lib/settle.ts";
+import { openStore } from "./lib/govdb/govdb.ts";
+import { settleSession } from "./lib/knowledge/settle.ts";
 import { retireTopLevel } from "./lib/hook-scripts.ts";
 import { reapSubscribe } from "./lib/subscribe-attach.ts";
 

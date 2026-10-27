@@ -26,11 +26,11 @@ afterAll(() => {
 // shares module instances across test files, so the plain specifier can be
 // bound to another suite's HOME — this keeps a PRIVATE governor.db here
 const govdb = await import(
-	`../hooks/lib/govdb.ts?home=${encodeURIComponent(HOME)}`
+	`../hooks/lib/govdb/govdb.ts?home=${encodeURIComponent(HOME)}`
 );
 const retention = await import("../hooks/lib/retention.ts");
 const auditMod = await import("../hooks/lib/admin-audit.ts");
-const auth = await import("../hooks/lib/auth.ts");
+const auth = await import("../hooks/lib/auth/auth.ts");
 
 const DAY = 86_400_000;
 const now = Date.now();

@@ -13,7 +13,7 @@ import {
 	launchctlTable,
 	plistVars,
 	supervisorRows,
-} from "../lib/supervisor.ts";
+} from "../lib/lanes/supervisor.ts";
 
 const LAUNCHD_DIR = resolve(import.meta.dir, "..", "launchd");
 const LAUNCH_AGENTS = `${process.env.HOME ?? ""}/Library/LaunchAgents`;

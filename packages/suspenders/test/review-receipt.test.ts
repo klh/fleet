@@ -1,24 +1,25 @@
 import { afterEach, expect, test } from "bun:test";
 import {
-	mkdtempSync,
 	mkdirSync,
-	writeFileSync,
-	rmSync,
+	mkdtempSync,
 	realpathSync,
+	rmSync,
 	symlinkSync,
+	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openMemoryStore } from "../hooks/lib/govdb-store.ts";
+import { guardedMerge } from "../hooks/lib/fleet-loop/merge-guard.ts";
 import {
 	checkReviewReceipt,
+	priorBlockingReviewLines,
 	publishReviewReceipt,
+	type ReviewReceipt,
+	recordLanding,
 	reviewContext,
 	reviewFindingIds,
-	recordLanding,
-	type ReviewReceipt,
-} from "../hooks/lib/review-receipt.ts";
-import { guardedMerge } from "../hooks/lib/merge-guard.ts";
+} from "../hooks/lib/gates/review-receipt.ts";
+import { openMemoryStore } from "../hooks/lib/govdb/govdb-store.ts";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -193,6 +194,57 @@ test("blocking findings survive a later empty PASS until explicitly resolved", (
 	expect(f.check().ok).toBe(true);
 });
 
+test("review prompt exposes exact-commit blockers even when the event note truncates them", () => {
+	const f = fixture();
+	publishReviewReceipt(f.db, "project", "W1", {
+		...f.receipt,
+		verdict: "ERROR",
+		blocking: ["B1-round1-scrubtext-import"],
+		evidence: `${"partial analysis ".repeat(40)}scrubText import needs verification`,
+	});
+	publishReviewReceipt(f.db, "project", "W1", f.receipt);
+	publishReviewReceipt(f.db, "project", "W1", {
+		...f.receipt,
+		commit: "f".repeat(40),
+		verdict: "ERROR",
+		blocking: ["B9-other-commit"],
+	});
+	const lines = priorBlockingReviewLines(
+		f.db,
+		"project",
+		"W1",
+		f.context.commit,
+	);
+	expect(lines.join("\n")).toContain("B1-round1-scrubtext-import");
+	expect(lines.join("\n")).toContain("scrubText import needs verification");
+	expect(lines.join("\n")).not.toContain("B9-other-commit");
+});
+
+test("W1302.6: a PASS served by a mismatched wire model never authorizes a merge", () => {
+	const f = fixture();
+	// O3 replay: requested glm-5.3-flash, the leg served chatgpt/gpt-6-sol
+	publishReviewReceipt(f.db, "project", "W1", {
+		...f.receipt,
+		requested_model: "glm-5.3-flash",
+		wire_model: "chatgpt/gpt-6-sol",
+	});
+	expect(f.check()).toMatchObject({
+		ok: false,
+		why: expect.stringContaining("mismatched wire model"),
+	});
+});
+
+test("W1302.6: routing-stamped alias of the requested class still authorizes", () => {
+	const f = fixture();
+	// zai-glm-5.3-flash serves the glm-5.3-flash class (O3 evidence)
+	publishReviewReceipt(f.db, "project", "W1", {
+		...f.receipt,
+		requested_model: "glm-5.3-flash",
+		wire_model: "zai-glm-5.3-flash",
+	});
+	expect(f.check().ok).toBe(true);
+});
+
 test("moving integration base or changing applicable instruction invalidates receipt", () => {
 	const f = fixture();
 	publishReviewReceipt(f.db, "project", "W1", f.receipt);
@@ -204,6 +256,128 @@ test("moving integration base or changing applicable instruction invalidates rec
 	f.git("commit", "-m", "new package instructions");
 	expect(f.check().ok).toBe(false);
 	expect(f.check().why).toContain("stale");
+});
+
+test("review remains valid when main advances only in a disjoint path", () => {
+	const f = fixture();
+	publishReviewReceipt(f.db, "project", "W1", f.receipt);
+	mkdirSync(join(f.repo, "docs"));
+	writeFileSync(join(f.repo, "docs/notes.md"), "Independent notes.\n");
+	f.git("add", ".");
+	f.git("commit", "-m", "unrelated documentation");
+	expect(f.check()).toMatchObject({ ok: true });
+});
+
+for (const testSource of [
+	"packages/app/review-scheduler-w1280.test.ts",
+	"packages/app/feature.spec.ts",
+]) {
+	test(`disjoint ordinary test source ${testSource} preserves a PASS`, () => {
+		const f = fixture();
+		publishReviewReceipt(f.db, "project", "W1", f.receipt);
+		writeFileSync(join(f.repo, testSource), "Test source only.\n");
+		f.git("add", ".");
+		f.git("commit", "-m", "independent test source");
+		expect(f.check()).toMatchObject({ ok: true });
+	});
+}
+
+for (const sharedInput of [
+	"tsconfig.json",
+	"packages/app/tsconfig.build.json",
+	"package.json",
+	"packages/app/package.json",
+	"bun.lock",
+	"packages/app/bun.lock",
+	"packages/app/build.config.ts",
+	".github/workflows/ci.yml",
+	".npmrc",
+	".pnp.cjs",
+	"packages/app/test.setup.ts",
+	"packages/app/test.config.ts",
+	"packages/app/build.ts",
+]) {
+	test(`disjoint shared input ${sharedInput} invalidates an old PASS`, () => {
+		const f = fixture();
+		publishReviewReceipt(f.db, "project", "W1", f.receipt);
+		mkdirSync(join(f.repo, sharedInput, ".."), { recursive: true });
+		writeFileSync(join(f.repo, sharedInput), "Changed shared input.\n");
+		f.git("add", ".");
+		f.git("commit", "-m", "change shared input");
+		expect(f.check()).toMatchObject({ ok: false });
+	});
+}
+
+test("review remains valid when main advances to an ancestor of the exact candidate", () => {
+	const f = fixture();
+	f.git("checkout", "suspenders/W1");
+	writeFileSync(
+		join(f.repo, "packages/app/extra.ts"),
+		"export const extra = 1;\n",
+	);
+	f.git("add", ".");
+	f.git("commit", "-m", "second candidate commit");
+	f.git("checkout", "main");
+	const context = reviewContext(f.repo, "suspenders/W1");
+	f.db
+		.query("UPDATE work_items SET result_sha = ? WHERE id = 'W1'")
+		.run(context.commit);
+	f.db.query("DELETE FROM work_completion_records WHERE item = 'W1'").run();
+	f.db
+		.query(
+			"INSERT INTO work_completion_records VALUES ('project', 'W1', ?, 'author')",
+		)
+		.run(context.commit);
+	publishReviewReceipt(f.db, "project", "W1", {
+		...f.receipt,
+		commit: context.commit,
+		base: context.base,
+		instructions: context.instructions,
+	});
+	f.git("merge", "--ff-only", f.context.commit);
+	expect(f.check()).toMatchObject({ ok: true });
+});
+
+test("equivalent merge commit of a candidate ancestor preserves the reviewed tree", () => {
+	const f = fixture();
+	f.git("checkout", "suspenders/W1");
+	writeFileSync(
+		join(f.repo, "packages/app/extra.ts"),
+		"export const extra = 1;\n",
+	);
+	f.git("add", ".");
+	f.git("commit", "-m", "second candidate commit");
+	f.git("checkout", "main");
+	const context = reviewContext(f.repo, "suspenders/W1");
+	f.db
+		.query("UPDATE work_items SET result_sha = ? WHERE id = 'W1'")
+		.run(context.commit);
+	f.db.query("DELETE FROM work_completion_records WHERE item = 'W1'").run();
+	f.db
+		.query(
+			"INSERT INTO work_completion_records VALUES ('project', 'W1', ?, 'author')",
+		)
+		.run(context.commit);
+	publishReviewReceipt(f.db, "project", "W1", {
+		...f.receipt,
+		commit: context.commit,
+		base: context.base,
+		instructions: context.instructions,
+	});
+	f.git("merge", "--no-ff", "-m", "integrate ancestor", f.context.commit);
+	expect(f.check()).toMatchObject({ ok: true });
+});
+
+test("overlapping main changes cannot inherit a prior review", () => {
+	const f = fixture();
+	publishReviewReceipt(f.db, "project", "W1", f.receipt);
+	writeFileSync(
+		join(f.repo, "packages/app/value.ts"),
+		"export const value = 2;\n",
+	);
+	f.git("add", ".");
+	f.git("commit", "-m", "overlapping edit");
+	expect(f.check()).toMatchObject({ ok: false });
 });
 
 test("new branch commit and cross-project receipt cannot inherit approval", () => {
@@ -272,6 +446,27 @@ test("W1243.1.1.1: prose mention of a RESOLVED ID is not blocking", () => {
 	);
 	expect(blocking).toEqual([]);
 	expect(resolved).toEqual(["B1-no-coverage-proof"]);
+});
+
+test("bullet-form RESOLVED line closes its prior B-ID", () => {
+	for (const bullet of ["- ", "* ", "  - "]) {
+		const result = reviewFindingIds(
+			`${bullet}RESOLVED: B1-round1-scrubtext-import no residual reference remains.\nVERDICT: PASS`,
+		);
+		expect(result.resolved).toEqual(["B1-round1-scrubtext-import"]);
+		expect(result.blocking).toEqual([]);
+	}
+});
+
+test("malformed bullet resolution keeps every mentioned B-ID blocking", () => {
+	for (const line of [
+		"- RESOLVED: prose B1-x is hidden after text.",
+		"- RESOLVED: B1-x",
+	]) {
+		const result = reviewFindingIds(line);
+		expect(result.resolved).toEqual([]);
+		expect(result.blocking).toEqual(["B1-x"]);
+	}
 });
 
 test("W1243.1.1.1: unresolved mention and genuine finding stay fail-closed", () => {

@@ -149,8 +149,10 @@ describe("observed topology snapshot", () => {
 				now,
 			),
 		).toBeNull();
+		// schema v2 carries the slice-3 lane/series fields and is supported;
+		// unknown versions stay rejected
 		expect(
-			observedGraph({ topology: { ...snapshot, schemaVersion: 2 } }, now),
+			observedGraph({ topology: { ...snapshot, schemaVersion: 3 } }, now),
 		).toBeNull();
 	});
 

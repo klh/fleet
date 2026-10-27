@@ -27,17 +27,23 @@ const { HOME, REPO, env, bin, getDecisions, fork, sleep } = await boardFixture(
 
 // one stub answers both wires: /v1/messages → anthropic, else OpenAI chat
 // (same pattern as oracle.test.ts — each panel leg gets its own stub)
-function makeStub(content: string) {
+function makeStub(content: string, status = 200, vary?: string[]) {
+	let n = 0;
 	const srv = Bun.serve({
 		hostname: "127.0.0.1",
 		port: 0,
 		fetch: async (req) => {
 			const url = new URL(req.url);
 			await req.json().catch(() => ({}));
+			// vary serves its entries per hit (last repeats) — the panel fan-out
+			// needs different verdicts per leg through the ONE gate
+			const text = vary
+				? (vary[Math.min(n++, vary.length - 1)] ?? content)
+				: content;
 			const reply = url.pathname.endsWith("/v1/messages")
-				? { content: [{ text: content }] }
-				: { choices: [{ message: { content } }] };
-			return Response.json(reply);
+				? { content: [{ type: "text", text }] }
+				: { choices: [{ message: { content: text } }] };
+			return Response.json(reply, { status });
 		},
 	});
 	return {
@@ -92,18 +98,16 @@ function gdb(): Database {
 
 describe("advise --panel (W742.2)", () => {
 	test("fans both legs; fact carries verdicts + consensus; stamp clears; feed rides it", async () => {
-		const local = makeStub(
+		// W1119.1: both legs ride the ONE gate — one stub, per-hit replies
+		const s = makeStub("", 200, [
 			"RECOMMENDATION: Proceed with the local change.\nVERDICT: approve",
-		);
-		const cloud = makeStub(
 			"RECOMMENDATION: Hold until quota is verified.\nVERDICT: hold - quota risk",
-		);
+		]);
 		const rec = seedFork("panel fan-out fork");
 		try {
 			const r = await advisePanel(rec.id as number, {
-				ORACLE_ROUTE_URL: local.chat,
-				BELT_ESCALATE_URL: `${cloud.base}/v1/messages`,
-				BELT_ESCALATE_KEY: "k",
+				SUSPENDERS_BUCKLE_URL: s.base,
+				SUSPENDERS_BUCKLE_TOKEN: "bksk_panel",
 			});
 			expect(r.code).toBe(0);
 			expect(r.out).toContain("panel: split approve vs hold");
@@ -148,17 +152,15 @@ describe("advise --panel (W742.2)", () => {
 			const adv = shown?.advice as { panel?: { consensus: string } };
 			expect(adv.panel?.consensus).toBe("split approve vs hold");
 		} finally {
-			local.stop();
-			cloud.stop();
+			s.stop();
 		}
 	});
 
 	test("total miss: error fact + requested stamp cleared (W667), exit 0", async () => {
 		const rec = seedFork("panel dead-upstream fork");
 		const r = await advisePanel(rec.id as number, {
-			ORACLE_ROUTE_URL: "http://127.0.0.1:1/v1/chat/completions",
-			BELT_ESCALATE_URL: "http://127.0.0.1:1/v1/messages",
-			BELT_ESCALATE_KEY: "k",
+			SUSPENDERS_BUCKLE_URL: "http://127.0.0.1:1",
+			SUSPENDERS_BUCKLE_TOKEN: "bksk_dead",
 		});
 		expect(r.code).toBe(0);
 		expect(r.err).toContain("panel failed");
@@ -174,49 +176,25 @@ describe("advise --panel (W742.2)", () => {
 		db.close();
 	});
 
-	test("total miss falls back to governed Belt advice and retains leg errors", async () => {
-		const cloud = makeStub("");
-		const belt = Bun.serve({
-			hostname: "127.0.0.1",
-			port: 0,
-			fetch: () =>
-				Response.json({
-					reply:
-						"RECOMMENDATION: Ask the owner to review the stale fork.\nRATIONALE: The original legs did not answer.\nRISK: The owner must verify the linked work.",
-					target: { model: "fallback-model", machine: "test" },
-					ms: 12,
-				}),
-		});
-		const rec = seedFork("panel fallback fork");
+	test("gate answering HTTP on both legs is a panel failure exit 2", async () => {
+		const s = makeStub("busy", 503);
+		const rec = seedFork("panel http-reject fork");
 		try {
 			const r = await advisePanel(rec.id as number, {
-				ORACLE_ROUTE_URL: "http://127.0.0.1:1/v1/chat/completions",
-				BELT_ESCALATE_URL: `${cloud.base}/v1/messages`,
-				BELT_ESCALATE_KEY: "k",
-				SUSPENDERS_BELT_URL: `http://127.0.0.1:${belt.port}`,
+				SUSPENDERS_BUCKLE_URL: s.base,
+				SUSPENDERS_BUCKLE_TOKEN: "bksk_panel",
 			});
-			expect(r.code).toBe(0);
+			expect(r.code).toBe(2);
+			expect(r.err).toContain("panel failed");
 			const db = gdb();
-			const fact = db
-				.query("SELECT value FROM facts WHERE key = ?")
-				.get(`advice.${rec.id}`) as { value: string } | null;
-			const advice = JSON.parse(fact?.value ?? "{}") as {
-				rec: string;
-				panel: { consensus: string; legs: { error?: string }[] };
-			};
-			expect(advice.rec).toBe("Ask the owner to review the stale fork.");
-			expect(advice.panel.consensus).toBe("degraded: governed route");
-			expect(advice.panel.legs[0]?.error).toBeTruthy();
-			expect(advice.panel.legs[1]?.error).toBeTruthy();
 			expect(
 				db
 					.query("SELECT value FROM facts WHERE key = ?")
 					.get(`advice.${rec.id}.error`),
-			).toBeNull();
+			).toBeTruthy();
 			db.close();
 		} finally {
-			cloud.stop();
-			belt.stop(true);
+			s.stop();
 		}
 	});
 
@@ -227,9 +205,8 @@ describe("advise --panel (W742.2)", () => {
 		const rec = seedFork("heading-only advice fork");
 		try {
 			const r = await advisePanel(rec.id as number, {
-				ORACLE_ROUTE_URL: local.chat,
-				BELT_ESCALATE_URL: "http://127.0.0.1:1/v1/messages",
-				BELT_ESCALATE_KEY: "k",
+				SUSPENDERS_BUCKLE_URL: local.base,
+				SUSPENDERS_BUCKLE_TOKEN: "bksk_panel",
 			});
 			expect(r.err).toContain("panel failed");
 			const db = gdb();
@@ -250,15 +227,29 @@ describe("advise --panel (W742.2)", () => {
 	});
 
 	test("one usable leg is shown as a single review", async () => {
-		const local = makeStub(
-			"RECOMMENDATION: Reopen W849 after validating the receipt.\nVERDICT: approve",
-		);
+		// W136 hint discriminates the legs through the ONE gate: cloud leg 503s,
+		// the pinned leg answers — consensus degrades honestly to single review
+		const srv = Bun.serve({
+			hostname: "127.0.0.1",
+			port: 0,
+			fetch: (req) => {
+				const hint = req.headers.get("x-belt-hint") ?? "";
+				const usable =
+					"RECOMMENDATION: Reopen W849 after validating the receipt.\nVERDICT: approve";
+				if (hint === "prefer cloud")
+					return Response.json({ error: "busy" }, { status: 503 });
+				return Response.json({ content: [{ type: "text", text: usable }] });
+			},
+		});
+		const local = {
+			base: `http://127.0.0.1:${srv.port}`,
+			stop: () => srv.stop(true),
+		};
 		const rec = seedFork("one leg fork");
 		try {
 			const r = await advisePanel(rec.id as number, {
-				ORACLE_ROUTE_URL: local.chat,
-				BELT_ESCALATE_URL: "http://127.0.0.1:1/v1/messages",
-				BELT_ESCALATE_KEY: "k",
+				SUSPENDERS_BUCKLE_URL: local.base,
+				SUSPENDERS_BUCKLE_TOKEN: "bksk_panel",
 			});
 			expect(r.code).toBe(0);
 			const db = gdb();

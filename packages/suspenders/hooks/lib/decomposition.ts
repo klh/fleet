@@ -1,5 +1,10 @@
 import { join } from "node:path";
-import { openStore, projectIdentity, type GovernorStore } from "./govdb.ts";
+import {
+	type GovernorStore,
+	openStore,
+	projectIdentity,
+} from "./govdb/govdb.ts";
+import { lineLimitExemption } from "./line-limit-exempt.ts";
 
 export const CODE_LINE_SOFT_CAP = 1500;
 const codePath =
@@ -40,6 +45,10 @@ export function oversizedMergedFiles(
 	const findings: OversizedFile[] = [];
 	for (const path of paths) {
 		if (!codePath.test(path) || excluded.test(path)) continue;
+		// W1300: an argued vendor-exemption row (byte-pure upstream snapshot)
+		// pins this file over the cap — never auto-mint a decomposition item
+		// for it; the row's upstream path owns the reconciliation.
+		if (lineLimitExemption(path)) continue;
 		if (!git(repo, ["ls-tree", "-z", after, "--", path]).length) continue;
 		const body = git(repo, ["show", `${after}:${path}`]);
 		if (body.includes(0)) continue;

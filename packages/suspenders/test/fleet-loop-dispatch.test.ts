@@ -4,83 +4,54 @@
 // skip reinstalls like git-worktree lanes do. Dispatch without the agent
 // binary on PATH stops at the binary check, which leaves the fresh
 // workspace observable; the resume path must not duplicate or clobber.
-import { describe, expect, test, afterAll } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import {
+	chmodSync,
 	existsSync,
 	lstatSync,
-	mkdtempSync,
-	realpathSync,
-	readlinkSync,
-	readdirSync,
-	rmSync,
-	symlinkSync,
-	writeFileSync,
 	mkdirSync,
-	chmodSync,
+	readdirSync,
+	readlinkSync,
+	rmSync,
+	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { dispatchHarness, stubBuckle } from "./helpers/dispatch-harness.ts";
 
-const HOME = mkdtempSync(join(tmpdir(), "claude-w72-dispatch-home-"));
-const REPO = realpathSync(
-	mkdtempSync(join(tmpdir(), "suspenders-fleet-dispatch-repo-")),
-);
-const BIN = join(import.meta.dir, "..", "hooks", "bin");
+// W1119.2: the governed dispatch demands a live buckle front — stub one
+// (mint ok + scratch admin) so the launches proceed; a dead front now
+// REFUSES fail-closed (covered in fleet-loop-governed.test.ts).
+const stub = stubBuckle(true);
+const { BIN, env, g, HOME, REPO, toolWith } = dispatchHarness(afterAll, {
+	tag: "w72-dispatch",
+	beltEnv: true,
+	envOverrides: ({ HOME }) => ({
+		GOVERNOR_STORE_URL: "local",
+		SUSPENDERS_CODEX_BIN: join(HOME, "codex-fixture"),
+		// W1119.2: governed dispatch — every launch mints against the stub front
+		SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${stub.port}`,
+		SUSPENDERS_BELT_ENV: join(HOME, "belt.env"),
+	}),
+});
 const executor = join(HOME, "codex-fixture");
 writeFileSync(executor, "#!/bin/sh\nexit 0\n");
 chmodSync(executor, 0o700);
-const env = {
-	...process.env,
-	HOME,
-	GOVERNOR_STORE_URL: "local",
-	SUSPENDERS_CODEX_BIN: executor,
-};
 
 // dispatch invokes the INSTALLED CLI path ($HOME/.claude/hooks/suspenders/
-// bin) — wire it to this repo's hooks/bin so the test exercises the repo
-// under test, not whatever is installed on the machine
-mkdirSync(join(HOME, ".claude", "hooks", "suspenders"), { recursive: true });
-symlinkSync(BIN, join(HOME, ".claude", "hooks", "suspenders", "bin"), "dir");
-
-// /usr/bin/git is PATH-independent (launchd-minimal envs), mirrors worktree.ts
-const g = (args: string[], cwd = REPO): { out: string; code: number } => {
-	const p = Bun.spawnSync(["/usr/bin/git", ...args], {
-		cwd,
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	return { out: p.stdout.toString().trim(), code: p.exitCode ?? 1 };
-};
+// bin) — the harness symlink wires the bin under test into the scratch HOME
 
 afterAll(() => {
-	rmSync(HOME, { recursive: true, force: true });
-	rmSync(REPO, { recursive: true, force: true });
+	stub.stop();
 });
 
 // scratch repo: a commit, a node_modules dir worth symlinking
-g(["init", "-b", "main"]);
-g(["config", "user.email", "t@threads.dk"]);
-g(["config", "user.name", "t"]);
 mkdirSync(join(REPO, "node_modules"), { recursive: true });
 writeFileSync(join(REPO, "node_modules", "m.js"), "x");
-writeFileSync(join(REPO, "README.md"), "x");
 writeFileSync(join(REPO, ".gitignore"), "node_modules/\n");
 g(["add", "-A"]);
-expect(g(["commit", "-m", "base"]).code).toBe(0);
+g(["commit", "-m", "base"]);
 
-const tool = (bin: string, ...args: string[]) => {
-	const p = Bun.spawnSync([process.execPath, join(BIN, bin), ...args], {
-		cwd: REPO,
-		env,
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	return {
-		out: p.stdout.toString(),
-		err: p.stderr.toString(),
-		code: p.exitCode ?? 1,
-	};
-};
+const tool = (bin: string, ...args: string[]) => toolWith({}, bin, ...args);
 
 const added = tool("work.ts", "add", "codex parity");
 const id = (added.out.match(/W\d+/) ?? [])[0] ?? "";
@@ -98,8 +69,10 @@ expect(
 
 // dispatch with the agent binary absent: workspace creation and the work
 // claim happen first; the run stops at the Bun.which check
-const dispatch = (configured = true) => {
-	const p = Bun.spawnSync(
+const dispatch = async (configured = true) => {
+	// async, not spawnSync: the in-process buckle stub cannot answer a
+	// spawnSync-blocked event loop — the governed probe would time out
+	const p = Bun.spawn(
 		[
 			process.execPath,
 			join(BIN, "fleet-loop.ts"),
@@ -122,24 +95,24 @@ const dispatch = (configured = true) => {
 			stderr: "pipe",
 		},
 	);
-	return {
-		out: p.stdout.toString(),
-		err: p.stderr.toString(),
-		code: p.exitCode ?? 1,
-	};
+	const [out, err] = await Promise.all([
+		new Response(p.stdout).text(),
+		new Response(p.stderr).text(),
+	]);
+	return { out, err, code: await p.exited };
 };
 
 describe("codex dispatch workspace parity", () => {
-	test("missing configured executor refuses before a claim or workspace", () => {
-		const result = dispatch(false);
+	test("missing configured executor refuses before a claim or workspace", async () => {
+		const result = await dispatch(false);
 		expect(result.err).toContain("codex binary not found");
 		expect(existsSync(join(REPO, ".worktrees", id))).toBe(false);
 		expect(tool("work.ts", "show", id, "--json").out).toContain(
 			'"state":"READY"',
 		);
 	});
-	test("fresh workspace symlinks build dirs; resume leaves them alone", () => {
-		const d1 = dispatch();
+	test("fresh workspace symlinks build dirs; resume leaves them alone", async () => {
+		const d1 = await dispatch();
 		expect(d1.err).toContain("executor exited during launch");
 		const wt = join(REPO, ".worktrees", id);
 		expect(existsSync(wt)).toBe(true);
@@ -162,7 +135,7 @@ describe("codex dispatch workspace parity", () => {
 				},
 			]),
 		);
-		const d2 = dispatch();
+		const d2 = await dispatch();
 		expect(d2.err).toContain("launch backoff");
 		expect(lstatSync(link).isSymbolicLink()).toBe(true);
 		expect(readdirSync(wt).filter((e) => e === "node_modules")).toHaveLength(1);
@@ -182,8 +155,8 @@ test("direct launch survives registry loss, rejects duplicate and retains budget
 		`#!${process.execPath}\nimport {existsSync} from "node:fs";const env={...process.env};delete env.GIT_DIR;delete env.GIT_WORK_TREE;const start=Bun.spawnSync([process.execPath,${JSON.stringify(join(BIN, "work.ts"))},"start",${JSON.stringify(newItem)},"--as",process.env.SUSPENDERS_SID],{cwd:${JSON.stringify(REPO)},env,stdout:"pipe",stderr:"pipe"});if(start.exitCode!==0){console.error(start.stderr.toString());process.exit(7);}await Bun.write(${JSON.stringify(marker)},"ran");const until=Date.now()+10000;setInterval(()=>{if(existsSync(${JSON.stringify(stop)})||Date.now()>until)process.exit(0)},20);`,
 	);
 	chmodSync(exe, 0o700);
-	const launch = () =>
-		Bun.spawnSync(
+	const launch = async () => {
+		const p = Bun.spawn(
 			[
 				process.execPath,
 				join(BIN, "fleet-loop.ts"),
@@ -206,8 +179,14 @@ test("direct launch survives registry loss, rejects duplicate and retains budget
 				stderr: "pipe",
 			},
 		);
-	const first = launch();
-	if (first.exitCode !== 0) {
+		const [out, err] = await Promise.all([
+			new Response(p.stdout).text(),
+			new Response(p.stderr).text(),
+		]);
+		return { out, err, code: await p.exited };
+	};
+	const first = await launch();
+	if (first.code !== 0) {
 		const db = new (await import("bun:sqlite")).Database(
 			join(HOME, ".cache/claude-governor/governor.db"),
 		);
@@ -216,11 +195,11 @@ test("direct launch survives registry loss, rejects duplicate and retains budget
 			.get(newItem) as { sid: string };
 		db.close();
 		throw new Error(
-			first.stderr.toString() +
+			first.err +
 				(await Bun.file(join(REPO, `.fleet/lane-${row.sid}.log`)).text()),
 		);
 	}
-	expect(first.exitCode).toBe(0);
+	expect(first.code).toBe(0);
 	expect(existsSync(marker)).toBe(true);
 	expect(JSON.parse(tool("work.ts", "show", newItem, "--json").out).state).toBe(
 		"RUNNING",
@@ -233,11 +212,9 @@ test("direct launch survives registry loss, rejects duplicate and retains budget
 		.get(newItem) as { project: string; pid: number; nonce: string };
 	try {
 		rmSync(join(REPO, ".fleet/lanes.json"), { force: true });
-		const duplicate = launch();
-		expect(duplicate.exitCode).not.toBe(0);
-		expect(duplicate.stderr.toString()).toContain(
-			"durable launch intent alive or uncertain",
-		);
+		const duplicate = await launch();
+		expect(duplicate.code).not.toBe(0);
+		expect(duplicate.err).toContain("durable launch intent alive or uncertain");
 		expect(
 			db
 				.query("SELECT reservations FROM lane_launch_budgets WHERE item=?")
@@ -251,11 +228,9 @@ test("direct launch survives registry loss, rejects duplicate and retains budget
 		db.query(
 			"UPDATE work_items SET state='READY',owner_sid=NULL,updated_at=? WHERE id=?",
 		).run(Date.now(), newItem);
-		const capped = launch();
-		expect(capped.exitCode).not.toBe(0);
-		expect(capped.stderr.toString()).toContain(
-			"launch budget exhausted; READY after",
-		);
+		const capped = await launch();
+		expect(capped.code).not.toBe(0);
+		expect(capped.err).toContain("launch budget exhausted; READY after");
 		expect(
 			JSON.parse(tool("work.ts", "show", newItem, "--json").out).state,
 		).toBe("READY");
@@ -330,13 +305,13 @@ test("actual scoped recovery CLI releases canonical claim despite hostile ambien
 	const { Database } = await import("bun:sqlite");
 	const db = new Database(join(HOME, ".cache/claude-governor/governor.db"));
 	const { attemptRecovery } = await import(
-		"../hooks/lib/dead-claim-recovery.ts"
+		"../hooks/lib/lanes/dead-claim-recovery.ts"
 	);
 	const receipts: { code: number; out: string }[] = [];
 	try {
 		expect(
 			attemptRecovery(
-				db as unknown as import("../hooks/lib/govdb.ts").GovernorStore,
+				db as unknown as import("../hooks/lib/govdb/govdb.ts").GovernorStore,
 				expected,
 				() => true,
 				() => {

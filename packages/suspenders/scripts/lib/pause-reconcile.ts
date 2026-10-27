@@ -10,17 +10,17 @@ import {
 	openStore,
 	projectIdentity,
 	type GovernorStore,
-} from "../../hooks/lib/govdb.ts";
+} from "../../hooks/lib/govdb/govdb.ts";
 import {
 	pausedNativeBoundary,
 	restartHash,
-} from "../../hooks/lib/claude-restart.ts";
+} from "../../hooks/lib/executors/claude-restart.ts";
 import {
 	captureManagedPauseEvidence,
 	type IntentBirthEvidence,
 } from "./intent-birth-reconcile.ts";
 import { restartTreeHash } from "./restart-tree-snapshot.ts";
-import { canonicalProjectRoot } from "../../hooks/lib/lane-registry.ts";
+import { canonicalProjectRoot } from "../../hooks/lib/lanes/lane-registry.ts";
 
 export type PauseBoundaryEvidence = IntentBirthEvidence & {
 	stateVersion: number;

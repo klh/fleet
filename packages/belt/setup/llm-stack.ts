@@ -150,7 +150,7 @@ async function stepCoordination(): Promise<void> {
 	);
 	const bun = "/opt/homebrew/bin/bun";
 	const prefix = join(HOME, ".claude", "hooks", "suspenders");
-	const govdb = join(prefix, "lib", "govdb.ts");
+	const govdb = join(prefix, "lib", "govdb", "govdb.ts");
 	const coord = join(prefix, "bin", "coord.ts");
 	const agents = [
 		"com.suspenders.fleet-monitor",

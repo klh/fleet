@@ -35,7 +35,7 @@ import type {
 	UsagePanels,
 	UsageSeg,
 } from "../bin/usage-chrome.ts";
-import type { UsageReport } from "../lib/usage.ts";
+import type { UsageReport } from "../lib/usage/usage.ts";
 // W695.3.5: the page head rides the same bundle (side-effect registers it)
 import "./klh-usage-head.ts";
 // W825: the cache drilldown rides the same bundle (side-effect registers it)
@@ -848,7 +848,7 @@ KlhUsageSpokes.styles = [
 
 // ─── <klh-usage-crosshub> — W365 per-hub rollup table ─────────────────────
 const CROSSHUB_EMPTY =
-	"no hub rollups — enumerate hubs in stack.yaml (hubs:) or the hubs.json registry; the board fetches each hub's /federation/usage server-side (TTL-cached, per-hub degrade)";
+	"no hub rollups — enumerate hubs in stack.json (hubs:) or the hubs.json registry; the board fetches each hub's /federation/usage server-side (TTL-cached, per-hub degrade)";
 
 export class KlhUsageCrossHub extends LitElement {
 	static properties = { panel: { type: Object, state: true } };

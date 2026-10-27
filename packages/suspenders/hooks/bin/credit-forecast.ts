@@ -28,7 +28,7 @@ import {
 	sampleLine,
 	statePathDefault,
 	samplesPathDefault,
-} from "../lib/credit-forecast.ts";
+} from "../lib/usage/credit-forecast.ts";
 import {
 	defineVerb,
 	dieFor,

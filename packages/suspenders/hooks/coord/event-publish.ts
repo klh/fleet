@@ -1,4 +1,4 @@
-import type { GovernorStore } from "../lib/govdb-store.ts";
+import type { GovernorStore } from "../lib/govdb/govdb-store.ts";
 
 export interface EventPublication {
 	kind: string;
@@ -22,16 +22,22 @@ export function emitStoredEvent(
 		...(opts.note ? { note: opts.note } : {}),
 		...(opts.extra ?? {}),
 	});
-	db.query(
-		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, ?, ?, ?, ?)",
-	).run(
-		Date.now(),
-		opts.source,
-		opts.kind,
-		opts.scope ?? null,
-		payload,
-		opts.to ?? null,
-	);
-	return (db.query("SELECT last_insert_rowid() AS id").get() as { id: number })
-		.id;
+	// W1261: the INSERT's own StoreResult carries the rowid on BOTH transports.
+	// A follow-up SELECT last_insert_rowid() is a second round trip against the
+	// store server's ONE shared connection — per-connection state any
+	// interleaved writer (or the concurrent twin message) overwrites, which
+	// resolved two distinct directed messages to one event id (#67715).
+	const r = db
+		.query(
+			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, ?, ?, ?, ?)",
+		)
+		.run(
+			Date.now(),
+			opts.source,
+			opts.kind,
+			opts.scope ?? null,
+			payload,
+			opts.to ?? null,
+		);
+	return Number(r.lastInsertRowid);
 }

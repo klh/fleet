@@ -1,7 +1,9 @@
 import PQueue from "p-queue";
+import { SseSniffer } from "./sse.ts";
 import {
 	assertProviderConcurrencyErrorCodes,
 	type ProviderPressure,
+	providerPressureOf,
 } from "./provider-pressure.ts";
 
 export {
@@ -70,12 +72,26 @@ export interface ProviderLease {
 		status: number,
 		retryAfterS: number | null,
 		pressure?: ProviderPressure,
+		/** W1267: the in-band provider code when the refusal rode a 200
+		 *  stream — the pool reclassifies pressure from THIS code. */
+		providerCode?: string | null,
 	): void;
 }
 export class ProviderAdmissionFull extends Error {}
 
-// Leave room for several paced starts within the configured admission wait.
+// Absolute emergency bound. The operative escalation ceiling is derived per
+// pool in the constructor: a paced start may never be spaced wider than the
+// provider's own interval contract (W1273) — see gapCeilingMs.
 const MAX_ADAPTIVE_GAP_MS = 30_000;
+
+/** W1267: in-band failures pace only when the provider NAMED rate/overload
+ *  — a rate-limit error type or a known Z.ai rate code. Typed upstream
+ *  failures (1113 insufficient balance, 1311 entitlement) and unknown codes
+ *  stay nonhealthy neutral: they are not capacity pressure. */
+const RATE_SHAPED_KIND = /rate_limit|rate limit|overload/i;
+const RATE_SHAPED_CODES: ReadonlySet<string> = new Set(["1302", "1305"]);
+export const inBandFailurePaces = (kind: string, code: string): boolean =>
+	RATE_SHAPED_CODES.has(code) || RATE_SHAPED_KIND.test(kind);
 
 /** One instance per explicit account-pool ID at its authoritative egress.
  * maxOutstanding includes running requests: the whole retained set is bounded.
@@ -84,6 +100,16 @@ export class ProviderAdmissionCore {
 	private readonly queue: PQueue;
 	private outstanding = 0;
 	private readonly baseGapMs: number;
+	/** W1273: the escalation ceiling is a bounded multiple of the pool's
+	 *  effective pace — enough doubling headroom to discover a refusal
+	 *  boundary above the contract pace (starving discovery below the
+	 *  provider's demonstrated need permanently 1302s every attempt), while
+	 *  bounding the recovery ladder to a few dozen successes. The incident
+	 *  ceiling was min(30s, queueWaitMs/4) ≈ 24s against a 20ms pace, which
+	 *  serialized live slots to one active lease per 24s with a multi-hour
+	 *  return. The admission wait and MAX_ADAPTIVE_GAP_MS remain outer
+	 *  clamps only. */
+	private readonly gapCeilingMs: number;
 	private adaptiveGapMs: number;
 	private notBeforeMs = 0;
 	private lastStartedAt = 0;
@@ -107,6 +133,11 @@ export class ProviderAdmissionCore {
 			strict: true,
 		});
 		this.baseGapMs = Math.max(1, policy.intervalMs / policy.intervalCap);
+		this.gapCeilingMs = Math.min(
+			MAX_ADAPTIVE_GAP_MS,
+			policy.queueWaitMs / 4,
+			this.baseGapMs * 16,
+		);
 		this.adaptiveGapMs = this.baseGapMs;
 		this.adaptiveConcurrency = policy.concurrency;
 		this.queue.on("active", () => {
@@ -196,11 +227,10 @@ export class ProviderAdmissionCore {
 					);
 					this.queue.concurrency = this.adaptiveConcurrency;
 				} else {
+					// W1273: escalation discovers the refusal boundary above the
+					// contract pace, then stops — pacing without serializing.
 					this.adaptiveGapMs = Math.min(
-						Math.max(
-							this.baseGapMs,
-							Math.min(MAX_ADAPTIVE_GAP_MS, this.policy.queueWaitMs / 4),
-						),
+						Math.max(this.baseGapMs, this.gapCeilingMs),
 						this.adaptiveGapMs * 2,
 					);
 					this.notBeforeMs = Math.max(
@@ -261,6 +291,7 @@ export class ProviderAdmissionCore {
 			concurrencyLimitedTotal: this.concurrencyLimitedTotal,
 			concurrencyRecoverySuccesses: this.concurrencySuccesses,
 			baseGapMs: this.baseGapMs,
+			gapCeilingMs: this.gapCeilingMs,
 			adaptiveGapMs: this.adaptiveGapMs,
 			notBeforeMs: this.notBeforeMs,
 			rateLimitedTotal: this.rateLimitedTotal,
@@ -324,7 +355,12 @@ export class ProviderAdmissionCore {
 					const startedOccupancy = this.queue.pending;
 					grant({
 						release,
-						feedback: (status, retryAfterS, pressure = "rate") => {
+						feedback: (
+							status,
+							retryAfterS,
+							pressure = "rate",
+							providerCode,
+						) => {
 							// An aborted lease cannot become healthy if its transport
 							// later reaches EOF. Error bodies may settle before parsing
 							// their pressure feedback, so refusals remain observable.
@@ -336,7 +372,11 @@ export class ProviderAdmissionCore {
 								startedOccupancy,
 								status,
 								retryAfterS,
-								pressure,
+								// W1267: an in-band provider code outranks the caller's
+								// pressure guess — the pool policy is the classification.
+								providerCode !== undefined && providerCode !== null
+									? providerPressureOf(this.policy, providerCode)
+									: pressure,
 							);
 						},
 					});
@@ -371,6 +411,12 @@ export function bindProviderLease(
 		lease.release();
 		throw error;
 	}
+	// W1267: the SAME terminal classifier handlers.ts banks — a body-free
+	// watch for in-band failure frames on an otherwise-healthy transport.
+	// Provider refusals ride HTTP200 SSE (event:error envelopes, Responses
+	// response.failed/incomplete); crediting those EOFs healthy would feed
+	// recovery on refusals and starve honest pacing.
+	const watch = new SseSniffer("openai");
 	const release = () => {
 		lease.release();
 		reader.releaseLock();
@@ -380,10 +426,30 @@ export function bindProviderLease(
 			try {
 				const next = await reader.read();
 				if (next.done) {
-					if (response.ok) lease.feedback?.(response.status, null);
+					if (response.ok) {
+						watch.flush();
+						// W1267: branch on the in-band failure VERDICT first — an
+						// HTTP200 stream that carried response.failed/incomplete or
+						// an event:error frame is refusal evidence, never healthy
+						// transport EOF. Only a KNOWN provider code becomes pressure
+						// feedback (429-shaped, classified from the code); uncoded
+						// failures stay neutral — no healthy credit, no fake 429.
+						const failure = watch.inBandFailure();
+						if (failure !== null) {
+							const code = watch.inBandCode();
+							// Only a rate/overload-shaped coded failure becomes 429
+							// pressure; balance/entitlement and unknown codes ride
+							// the typed-error path (router), never pacing.
+							if (code !== null && inBandFailurePaces(failure, code))
+								lease.feedback?.(429, null, "rate", code);
+						} else lease.feedback?.(response.status, null);
+					}
 					release();
 					controller.close();
-				} else controller.enqueue(next.value);
+				} else {
+					watch.push(next.value);
+					controller.enqueue(next.value);
+				}
 			} catch (error) {
 				release();
 				controller.error(error);

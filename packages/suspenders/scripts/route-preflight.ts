@@ -6,22 +6,17 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { YAML } from "bun";
 import { ROUTER, SPECIALISTS } from "../../belt/bin/registry.ts";
-import { STACK_PATH, type HubProfile } from "../hooks/lib/stack-config.ts";
-import { parseEnvBody } from "../hooks/lib/hub-provider-keys.ts";
-import { renderHubPolicy } from "../deploy/hub-policy.ts";
-import { renderUpstreams } from "../deploy/hubctl.ts";
+import { confCandidates } from "../hooks/lib/kernel-conf.ts";
+import { loadStack, STACK_PATH } from "../hooks/lib/stack-config.ts";
+import { parseEnvBody } from "../hooks/lib/auth/hub-provider-keys.ts";
 import { providerPoolIdOf } from "../../buckle/src/router.ts";
 import { runForcedFailoverDrill } from "../../buckle/src/forced-failover-drill.ts";
 import {
 	loadGatewayPolicy,
-	parsePolicy,
 	type GatewayPolicy,
 } from "../../buckle/src/policy.ts";
 import {
 	validateRouteLadders,
-	type BeltRouteConfig,
-	type BuckleRouteConfig,
-	type LiteLlmRouteConfig,
 	type RouteLadderFinding,
 	type RouteLadderInputs,
 } from "../../buckle/src/route-ladder-validator.ts";
@@ -84,32 +79,14 @@ export interface RoutePreflightSources {
 	litellm: unknown;
 	deadlineMs?: number;
 	beltEscalation?: { url?: string; model?: string; scopedKey: boolean };
-	/** W1094.1: the committed base gateway policy text (buckle/
-	 * routing-policy.yaml). Every hub buckle rides the SAME rendered policy
-	 * hubctl pushes (renderHubPolicy over the committed default + the hub's
-	 * own buckle_gateway overrides); absent = fail closed for any hub. */
-	basePolicyText?: string;
 }
 
-export interface MachineRouteInputs {
-	/** The machine this view scopes terminal evidence to. */
-	id: string;
-	inputs: RouteLadderInputs;
-}
-
-/** W1094.1: per-machine route views. Every run carries ALL services so
- * cross-machine hops resolve; terminals are machine-scoped evidence — the
- * Mac specialist registry terminates only the local machine, and a hub's
- * engine endpoints must be declared on ITS profile
- * (hub.route_preflight.terminal_origins), never inherited from the Mac. */
-export function routeInputsByMachine(
-	source: RoutePreflightSources,
-): MachineRouteInputs[] {
+export function routeInputs(source: RoutePreflightSources): RouteLadderInputs {
 	const stack = record(source.stack);
 	const hubs = record(stack.hubs);
 	if (Object.keys(hubs).length === 0)
 		throw new Error(
-			"stack.yaml has no hubs; route ownership cannot be checked",
+			"stack.json has no hubs; route ownership cannot be checked",
 		);
 	const preflight = record(stack.route_preflight);
 	const declared = preflight.terminal_origins;
@@ -118,7 +95,7 @@ export function routeInputsByMachine(
 	const terminals = (declared ?? []) as unknown[];
 	if (terminals.some((item) => !string(item)))
 		throw new Error("route_preflight.terminal_origins must contain URLs");
-	const buckles: BuckleRouteConfig[] = [
+	const buckles: RouteLadderInputs["buckles"] = [
 		{
 			id: "local",
 			origins: ["http://127.0.0.1:4101"],
@@ -126,16 +103,20 @@ export function routeInputsByMachine(
 			policy: source.policy,
 		},
 	];
-	const beltModels: BeltRouteConfig[] = [];
+	const beltModels: NonNullable<RouteLadderInputs["belts"]> = [];
 	for (const [name, raw] of Object.entries(hubs)) {
 		const hub = record(raw);
 		buckles.push({
 			id: name,
 			origins: [hubOrigin(name, hub)],
-			pool: activePool(
-				poolFrom(YAML.parse(renderUpstreams(hub as unknown as HubProfile))),
-			),
-			policy: hubPolicy(source, name, hub),
+			pool: activePool(poolFrom(hub.upstreams)),
+			policy: {},
+			// W1094.1 host boundary (re-landed): a deploy.ssh hub runs on
+			// another machine — its container loopback is NOT this host's,
+			// so the Mac specialist registry terminates only co-hosted hubs
+			// and its machine-local deployments need their own declared
+			// terminal to count as a mapped leaf.
+			remoteHost: Boolean(string(record(hub.deploy).ssh)),
 		});
 		if (hub.belt_model !== undefined) {
 			const model = record(hub.belt_model);
@@ -167,134 +148,30 @@ export function routeInputsByMachine(
 		!source.beltEscalation.scopedKey
 	)
 		throw new Error("Belt cloud escalation requires a scoped Buckle key");
-	const litellms: LiteLlmRouteConfig[] = [
-		{
-			id: "local",
-			origins: ["http://127.0.0.1:4100", "http://host.docker.internal:4100"],
-			config: source.litellm,
-		},
-	];
-	const belts: BeltRouteConfig[] = [
-		{
-			id: "local",
-			origins: ["http://127.0.0.1:4000"],
-			noEscalationModels: [ROUTER.gatewayAlias],
-			...(escalationUrl && escalationModel
-				? { escalation: { url: escalationUrl, model: escalationModel } }
-				: {}),
-		},
-		...beltModels,
-	];
-	// W1094.1: a hub WITHOUT deploy.ssh rides this host's network namespace
-	// (network_mode: host on local Docker) — its container loopback IS this
-	// machine's loopback, so it validates with the local specialist evidence.
-	// A remote hub (deploy.ssh) judges only its own declared terminals.
-	const coHosted = new Set(
-		Object.entries(hubs)
-			.filter(([, raw]) => !string(record(record(raw).deploy).ssh))
-			.map(([name]) => name),
-	);
-	const hostIds = new Set([
-		"local",
-		...[...coHosted].flatMap((name) => [name, `${name}-model`]),
-	]);
-	const views: MachineRouteInputs[] = [
-		{
-			id: "local",
-			inputs: {
-				buckles: buckles.map((service) =>
-					hostIds.has(service.id) ? service : targetOnlyBuckle(service),
-				),
-				litellms,
-				belts: belts.map((service) =>
-					hostIds.has(service.id) ? service : targetOnlyBelt(service),
-				),
-				terminalOrigins: [...specialistOrigins, ...(terminals as string[])],
-				requestDeadlineMs: source.deadlineMs,
-			},
-		},
-	];
-	for (const [name, raw] of Object.entries(hubs)) {
-		const hub = record(raw);
-		const shared = coHosted.has(name);
-		const full = shared ? hostIds : new Set([name, `${name}-model`]);
-		views.push({
-			id: name,
-			inputs: {
-				buckles: buckles.map((service) =>
-					full.has(service.id) ? service : targetOnlyBuckle(service),
-				),
-				litellms: shared ? litellms : litellms.map(targetOnlyLitellm),
-				belts: belts.map((service) =>
-					full.has(service.id) ? service : targetOnlyBelt(service),
-				),
-				terminalOrigins: [
-					...(shared ? specialistOrigins : []),
-					...(terminals as string[]),
-					...hubTerminals(name, hub),
-				],
-			},
-		});
-	}
-	return views;
-}
-
-function hubPolicy(
-	source: RoutePreflightSources,
-	name: string,
-	hub: RecordValue,
-): GatewayPolicy {
-	if (!source.basePolicyText)
-		throw new Error(
-			`hub ${name} gateway policy cannot render: no base policy text (fail closed on missing config)`,
-		);
-	return parsePolicy(
-		renderHubPolicy(
-			source.basePolicyText,
-			hub.buckle_gateway as GatewayPolicy | undefined,
-		),
-	);
-}
-
-function hubTerminals(name: string, hub: RecordValue): string[] {
-	const declared = record(hub.route_preflight).terminal_origins;
-	if (declared === undefined) return [];
-	if (!Array.isArray(declared) || declared.some((item) => !string(item)))
-		throw new Error(
-			`hub ${name} route_preflight.terminal_origins must be an array of URLs`,
-		);
-	return declared as string[];
-}
-
-/** Target-only service views: origins stay resolvable for cross-machine
- * hops, but another machine's edges are NOT re-judged in this run — each
- * machine's ladder is validated with its own terminal/policy evidence. */
-function targetOnlyBuckle(service: BuckleRouteConfig): BuckleRouteConfig {
 	return {
-		id: service.id,
-		origins: service.origins,
-		pool: { groups: () => [], deployments: () => [] },
-		policy: {},
+		buckles,
+		litellms: [
+			{
+				id: "local",
+				origins: ["http://127.0.0.1:4100", "http://host.docker.internal:4100"],
+				config: source.litellm,
+			},
+		],
+		belts: [
+			{
+				id: "local",
+				origins: ["http://127.0.0.1:4000"],
+				noEscalationModels: [ROUTER.gatewayAlias],
+				...(escalationUrl && escalationModel
+					? { escalation: { url: escalationUrl, model: escalationModel } }
+					: {}),
+			},
+			...beltModels,
+		],
+		terminalOrigins: [...specialistOrigins, ...(terminals as string[])],
+		declaredTerminals: terminals as string[],
+		requestDeadlineMs: source.deadlineMs,
 	};
-}
-
-function targetOnlyBelt(service: BeltRouteConfig): BeltRouteConfig {
-	return { id: service.id, origins: service.origins };
-}
-
-function targetOnlyLitellm(service: LiteLlmRouteConfig): LiteLlmRouteConfig {
-	return {
-		id: service.id,
-		origins: service.origins,
-		config: { model_list: [] },
-	};
-}
-
-/** The local machine's own route view (Mac specialists terminate here). */
-export function routeInputs(source: RoutePreflightSources): RouteLadderInputs {
-	const local = routeInputsByMachine(source).find((run) => run.id === "local");
-	if (!local) throw new Error("route preflight: local route view missing");
-	return local.inputs;
 }
 
 async function reachable(raw: string, timeoutMs: number): Promise<boolean> {
@@ -329,30 +206,8 @@ export async function checkRoutePreflight(
 	probe = reachable,
 	options: { probeHubs?: boolean } = {},
 ): Promise<RoutePreflightResult> {
-	// W1094.1: every machine view validates in full — findings union with
-	// dedup (shared services re-resolve in each run), terminal evidence stays
-	// machine-scoped.
-	const runs = routeInputsByMachine(source);
-	const localRun = runs.find((run) => run.id === "local");
-	if (!localRun) throw new Error("route preflight: local route view missing");
-	const inputs = localRun.inputs;
-	const findings: RouteLadderFinding[] = [];
-	let checkedNodes = 0;
-	for (const run of runs) {
-		const graph = validateRouteLadders(run.inputs);
-		checkedNodes += graph.checkedNodes;
-		for (const item of graph.errors)
-			if (
-				!findings.some(
-					(row) =>
-						row.code === item.code &&
-						row.layer === item.layer &&
-						row.path === item.path &&
-						row.detail === item.detail,
-				)
-			)
-				findings.push(item);
-	}
+	const inputs = routeInputs(source);
+	const graph = validateRouteLadders(inputs);
 	const origins = new Set(
 		inputs.buckles.flatMap((buckle) => buckle.origins).slice(1),
 	);
@@ -399,19 +254,40 @@ export async function checkRoutePreflight(
 				maxAttempts: 32,
 				maxWallMs: 3000,
 			});
-			drills.push({ group, fallback, failureStatus, ok: report.ok });
+			// The explicitly pinned Flash alias is the SAME Coding Plan account.
+			// Pressure must refuse without changing models; delivery through an
+			// independent account would violate the operator's model pin.
+			const pinnedFlashPressure =
+				failureStatus === 429 &&
+				group === "glm-5.3-flash" &&
+				fallback === "zai-glm-5.3-flash" &&
+				fallbacks.length === 1 &&
+				accounts.size === 1 &&
+				local.pool
+					.deployments(fallback)
+					.every((dep) => accounts.has(providerPoolIdOf(dep))) &&
+				!report.ok &&
+				report.deliveredGroup === null &&
+				report.attempts.some((attempt) => attempt.status === 429) &&
+				report.attempts.every((attempt) => attempt.group === group);
+			drills.push({
+				group,
+				fallback,
+				failureStatus,
+				ok: report.ok || pinnedFlashPressure,
+			});
 		}
 		break;
 	}
 	return {
 		mode: options.probeHubs === false ? "static" : "live",
 		ok:
-			findings.length === 0 &&
+			graph.errors.length === 0 &&
 			probes.every((item) => item.reachable) &&
 			drills.length > 0 &&
 			drills.every((item) => item.ok),
-		checkedNodes,
-		findings,
+		checkedNodes: graph.checkedNodes,
+		findings: graph.errors,
 		probes,
 		drills,
 	};
@@ -424,13 +300,15 @@ export async function machineRoutePreflight(
 	const stackPath = STACK_PATH();
 	const llm = join(home, ".claude/local-llm");
 	const upstreamPath =
-		process.env.BUCKLE_UPSTREAMS ?? join(llm, "upstreams.yaml");
+		process.env.BUCKLE_UPSTREAMS ?? join(llm, "upstreams.json");
 	const litePath = process.env.LITELLM_CONFIG ?? join(llm, "litellm.yaml");
+	// Read-both pre-check (W1253): the .json law name or the legacy .yaml
+	// twin counts as present; the loaders below parse through the helpers.
 	for (const path of [stackPath, upstreamPath, litePath])
-		if (!existsSync(path))
+		if (!confCandidates(path).some((p) => existsSync(p)))
 			throw new Error(`required route config absent: ${path}`);
 	process.env.BUCKLE_UPSTREAMS = upstreamPath;
-	const stack = YAML.parse(readFileSync(stackPath, "utf8"));
+	const stack = loadStack();
 	const litellm = YAML.parse(readFileSync(litePath, "utf8"));
 	const beltEnvPath = join(llm, "belt.env");
 	const beltEnv: Record<string, string> = existsSync(beltEnvPath)
@@ -449,12 +327,6 @@ export async function machineRoutePreflight(
 			policy: loadGatewayPolicy(),
 			litellm,
 			deadlineMs,
-			// W1094.1: hub gateway policies render from the SAME committed base
-			// hubctl pushes — read-only, repo-local, no machine overrides here.
-			basePolicyText: readFileSync(
-				join(import.meta.dir, "../../buckle/routing-policy.yaml"),
-				"utf8",
-			),
 			beltEscalation: {
 				url: beltEnv.BELT_ESCALATE_URL ?? process.env.BELT_ESCALATE_URL,
 				model: beltEnv.BELT_ESCALATE_MODEL ?? process.env.BELT_ESCALATE_MODEL,

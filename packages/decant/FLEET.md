@@ -66,9 +66,17 @@ rule set.
 
 ## The seam (minimal in-file edits, rebase recipe)
 
-`src/ingest.ts` stays BYTE-PURE: at 1986 lines it is over the fleet 1500-line
-cap, so the on-write gate forbids editing it — and the fleet design doesn't
-need to. The registry drives discovery through upstream's own `--path`
+`src/ingest.ts` stays BYTE-PURE: at 1981 lines it is over the fleet 1500-line
+cap. W1300 disposition (2026-10-25, vendor row — not a split): the explicit
+exemption lives in the law ledger
+(packages/suspenders/hooks/lib/line-limit-exempt.ts) and every ledger face
+honors it — the CI guard (tests/law-guards.test.ts) passes the file, the
+merge-ladder soft cap (hooks/lib/decomposition.ts) never mints a "DRY and
+decompose" item for it on re-sync, and the policy advisor stays silent. The
+on-write gate still forbids editing it — byte-pure is the posture, not a
+violation. Consequence: the size reconciles ONLY at the next vendored
+upstream tag (re-sync recipe below); a local split would fork the vendor
+tree, so it is refused. The registry drives discovery through upstream's own `--path`
 pathway: with no user `--path`, the CLI seam injects the registry-resolved
 source list into `config.sourcePaths`, and upstream `discover()` routes
 through its own exported `discoverSourcePaths()` collector (classification

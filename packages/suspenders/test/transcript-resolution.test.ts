@@ -44,6 +44,32 @@ test("an existing transcript_path passes through untouched", () => {
 	).toBe(t);
 });
 
+test("a registered Copilot events path resolves without substituting the Fleet SID", () => {
+	const home = join(root, "copilot-home");
+	const native = "c47f0616-d45f-4ab0-9fa4-32853c568b25";
+	const directory = join(home, ".copilot/session-state", native);
+	mkdirSync(directory, { recursive: true });
+	const path = join(directory, "events.jsonl");
+	writeFileSync(path, '{"type":"session.start"}\n');
+	expect(
+		resolveTranscriptPath(
+			{
+				transcript_path: path,
+				session_id: "custom-fleet-sid",
+			},
+			PROJECTS(home),
+		),
+	).toBe(path);
+	expect(
+		resolveTranscriptPath(
+			{
+				session_id: "unregistered-fleet-sid",
+			},
+			PROJECTS(home),
+		),
+	).toBeNull();
+});
+
 test("a missing worktree transcript resolves via the main repo's encoded dir", () => {
 	const home = join(root, "wt-home");
 	const main = join(home, "repo");

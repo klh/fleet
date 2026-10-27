@@ -3,16 +3,27 @@
 One monorepo, one version, every service. packages/: suspenders (control
 plane), buckle (LLM gateway), belt (dashboard/gateway), speedy (config
 layer), local (Caddy front), local-llm (MLX swarm kit), blam (agent-mishap
-benchmark). The private enterprise tier = klh-remote (mirrors packages/,
-depends on fleet; local-only until its GitHub push — W422.9/W422.1).
+benchmark), decant (vendored dosu-ai/decant token-accounting toolkit),
+telemetry (shared trace/hop-contract headers). The private enterprise tier
+= klh-remote (mirrors packages/, depends on fleet; local-only until its
+GitHub push — W422.9/W422.1).
 
 ## Laws (project-wide, every package)
 
-- **One version**: `version:` in `~/.config/klh/stack.yaml` pins buckle +
+- **One version**: `version:` in `~/.config/klh/stack.json` pins buckle +
   suspenders + belt; hubctl renders it as the git ref every hub pulls.
-- **Config-over-code**: real hosts, keys, OIDC values live ONLY in
-  machine-level runtime config (`~/.config/klh/stack.yaml`,
-  `~/.claude/local-llm/*.env`, mode 600) — repos carry placeholders only.
+- **Config-over-code**: fleet config is JSON (W1253 Amendment A) —
+  JSON.parse is the ONE parser for every fleet config read (no yaml pkg, no
+  Bun.YAML on config paths; the yaml npm dependency is gone). Real hosts,
+  keys, OIDC values live ONLY in machine-level runtime config
+  (`~/.config/klh/stack.json`, `~/.claude/local-llm/*.env`, mode 600,
+  atomic 0600 writes via the kernel helper) — repos carry placeholders
+  only. Deploy contracts that are NOT fleet config keep their yaml FILES
+  (compose, litellm, the launchd services manifest) — but nothing in fleet
+  code parses yaml config bytes. Readers keep both file NAMES during the
+  transition (.json law name first, legacy .yaml second — honored only
+  while its content is already JSON); the install `migrateConf` step cuts
+  machine conf over once (yaml → .json 0600, original kept as .yaml.bak).
 - **Health is outside-process** (owner law 2026-10-05): a server cannot
   paint itself healthy. Every hub service gets a `*-health` probe sidecar
   (deploy/healthcheck/probe.ts) that polls the real target over the
@@ -54,6 +65,13 @@ depends on fleet; local-only until its GitHub push — W422.9/W422.1).
   (verified 2026-10-07 via gh). Every commit lands in THIS repo at
   `packages/<name>/*`; install.sh syncs the prefix from fleet
   (W422.4/W422.6 re-anchor landed).
+- **Import law (W1249)**: cross-package imports ride package names
+  (`@klh/*`), never relative reach-ins — the 112 inherited edges are
+  ratcheted shrink-only in tests/fleet.import-law.guard.test.ts. Imported
+  names must be declared (runtime files ⇒ `dependencies`; test/content
+  files ⇒ deps or devDeps). kernel imports nothing in fleet; domain
+  packages may import kernel once it lands. Graph + entry-point map:
+  docs/fleet.entry-points.map.md.
 
 ## Working agreements
 
@@ -63,7 +81,10 @@ depends on fleet; local-only until its GitHub push — W422.9/W422.1).
 - Coordination plane: coord CLI + WS subscribe; broadcast landed changes
   that affect lanes (what/who/exact command).
 - Per-package AGENTS.md files are each subtree's canonical docs — they are
-  the package-level truth; this root file is the stack-wide law.
+  the package-level truth; this root file is the stack-wide law. Divergences
+  from the owner TypeScript PaaS standard are dispositioned per row in
+  docs/standard-dispositions.md (W1301) — a deviation without a tracked
+  disposition is a defect.
 
 ## Supervisor reporting (W892, installed face W899/W906)
 
@@ -71,29 +92,20 @@ depends on fleet; local-only until its GitHub push — W422.9/W422.1).
 as its installed-face shim (argv-verbatim passthrough, W913) — renders THE
 supervisor reply table (owner GO 2026-10-19): rows = riding + queued +
 last-5-done (or strict `--ids w1,w2`); columns ITEM/ST/TASK/TOKENS/CACHE/
-OUT-MIN/AGENT from each item's W776 attribution; fixed-width programmatic
-pads; ST letters R = riding, Q = queued, D = done, F = failed (W891 colors
-them on the board). Supervisor ticks paste it verbatim — the session-start
-SUPERVISOR DEFAULT contract references the installed reporter and
-EMITS it (the hook calls the one library; W899), lane briefs carry the
-same table (dispatch FLEET REPORT), and the install tail runs the report
-through the PATH shim as its final section (every install proves the verb
-live). One implementation (hooks/lib/work-report.ts) — the bin's glyph/
-spend-line parser retired (W913). This supersedes the W865 prose list.
-(owner GO 2026-10-19): rows = riding + queued + last-5-done (or strict
-`--ids w1,w2`); columns ITEM/ST/TASK/TOKENS/CACHE/OUT-MIN/AGENT/MODEL/
-EFFORT/CONSULT from each item's W776 attribution — MODEL = top model_group
-(`+` when several), EFFORT = the lane's effort level (dispatch pins
-SUSPENDERS_LANE_EFFORT into the per-lane 0600 settings; `work done` banks it
-into the work.done event), CONSULT Y/N = the lane banked knowledge or
-consulted (W909 event links); fixed-width programmatic pads; ST letters
-R = riding, Q = queued, D = done, F = failed (W891 colors them on the
-board). Supervisor ticks paste it verbatim — the session-start
-SUPERVISOR DEFAULT contract references the installed reporter and
-EMITS it (the hook calls the one library; W899), lane briefs carry the
-same table (dispatch FLEET REPORT), and the install tail runs the report
-through the PATH shim as its final section (every install proves the verb
-live). This supersedes the W865 prose list.
+OUT-MIN/AGENT/MODEL/EFFORT/CONSULT from each item's W776 attribution —
+MODEL = top model_group (`+` when several), EFFORT = the lane's effort
+level (dispatch pins SUSPENDERS_LANE_EFFORT into the per-lane 0600
+settings; `work done` banks it into the work.done event), CONSULT Y/N =
+the lane banked knowledge or consulted (W909 event links); fixed-width
+programmatic pads; ST letters R = riding, Q = queued, D = done, F = failed
+(W891 colors them on the board). Supervisor ticks paste it verbatim — the
+session-start SUPERVISOR DEFAULT contract references the installed
+reporter and EMITS it (the hook calls the one library; W899), lane briefs
+carry the same table (dispatch FLEET REPORT), and the install tail runs
+the report through the PATH shim as its final section (every install
+proves the verb live). One implementation (hooks/lib/work/work-report.ts) —
+the bin's glyph/spend-line parser retired (W913). This supersedes the
+W865 prose list.
 
 - Agent skills: the repo-root `skills/` catalog installs into any agent CLI
   via `npx skills add klh/fleet` (`-g -y -a <ids>`; target ids in README
@@ -171,7 +183,7 @@ composed (caveman-condensed), per-lane `bksk_` key minted from
 per-lane `--settings` file. No admin key = belt direct, surfaced.
 
 Hubs (`bun deploy/hubctl.ts <verb> <hub>`) — config-over-code deploys from
-`~/.config/klh/stack.yaml` (hub = a profile: ports, binds, ssh/dir/docker,
+`~/.config/klh/stack.json` (hub = a profile: ports, binds, ssh/dir/docker,
 secret PATHS):
 
 - `render <hub>` — the compose .env (no secrets)
@@ -203,10 +215,36 @@ Buckle gate (LLM auth — keys are the front door):
 - per-lane keys: name=sid, scope `buckle:proxy:WRITE_`; test keys get
   revoked, never left behind
 
+Knowledge sink (the fleet's queryable memory — W1217 sink · W1218 faces ·
+W1221 harness wiring):
+
+- hub service: `hooks/bin/knowledge-api.ts` (compose `knowledge-sink`,
+  default :7802, health sidecar :7803) — enabled per-hub via the stack.json
+  profile `knowledge: {port, health_port}`; serves the hub governor.db
+  knowledge replica
+- faces (all on the sink origin, placeholder `<hub>` = the machine conf's
+  hub host):
+  - `POST https://<hub>/search {"query"}` — anonymous recall, scrubbed
+    cards (no source_ref/source_hash); host guard = loopback + `*.local`
+  - `POST https://<hub>/knowledge/query {"question"}` — NL→SQL via the
+    pinned SQL LLM; bksk_ key, scope `buckle:knowledge:QUERY_`
+  - `POST https://<hub>/knowledge/sql {"sql"}` — direct SELECT; scope
+    `buckle:knowledge:READ_`
+- conf knobs (machine conf only — repos carry placeholders):
+  `SUSPENDERS_KNOWLEDGE_SINK_URL` · `SUSPENDERS_KNOWLEDGE_KEY` or
+  `SUSPENDERS_KNOWLEDGE_KEY_FILE` (0600 file preferred) ·
+  `SUSPENDERS_KNOWLEDGE_SINK_TIMEOUT_MS` (default 2000)
+- harness wiring: `coord fact get` falls through to the sink `/search` face
+  on a local miss (hooks/coord/facts.ts); session-start renders a
+  `KNOWLEDGE SINK` pointer when the conf resolves; the belt tier manifest
+  carries the faces (registry-emit.ts `knowledge` block). ONE client for
+  all of it: hooks/lib/knowledge/knowledge-sink-client.ts. Example:
+  `curl -s https://<hub>/knowledge/query -X POST -H 'content-type: application/json' -H "authorization: Bearer $SUSPENDERS_KNOWLEDGE_KEY" -d '{"question":"which launchd label supervises the MLX swarm?"}'`
+
 Machines and processes:
 
 - install: `bash install.sh [--wire] [--with-launchd]` from
-  fleet/packages/suspenders — the ONLY repo→prefix sync (SUSPENDERS_PREFIX /
+  packages/suspenders — the ONLY repo→prefix sync (SUSPENDERS_PREFIX /
   SUSPENDERS_SHIM_BIN override); old checkouts are push-dead (archived)
 - launchd labels (port/process map; `launchctl kickstart
 gui/$(id -u)/<label>` revives):
@@ -233,9 +271,9 @@ gui/$(id -u)/<label>` revives):
   - `com.suspenders.buckle-spoke` — buckle gateway :4101 (Mac spoke)
   - `com.suspenders.board` — fleet board :7799
   - `com.suspenders.fleet-pulse` — W822 periodic digest (StartInterval =
-    notify.yaml pulse.interval_s, default 14400): `notify.ts pulse` composes
+    notify.json pulse.interval_s, default 14400): `notify.ts pulse` composes
     lanes/READY/DONE/watchdog/decisions/commits into one notification via the
-    notify.yaml 'pulse' class; every install registers it post-install
+    notify.json 'pulse' class; every install registers it post-install
   - `com.klh-local.caddy` — the Caddy .local front
   - same namespace, no ports: knowledge-worker
   - LEGACY, never load: `com.klh.local-llm` / `com.klh.llm-keepwarm` /
@@ -263,12 +301,13 @@ gui/$(id -u)/<label>` revives):
 
 Machine-level config (the SOLE conf — repos carry placeholders only):
 
-- `~/.config/klh/stack.yaml` (mode 600): hub profiles + `version:` — the
-  one string that pins buckle+suspenders+belt
+- `~/.config/klh/stack.json` (mode 600): hub profiles + `version:` — the
+  one string that pins buckle+suspenders+belt (legacy `stack.yaml` is
+  honored read-only until the install migrateConf step runs)
 - `~/.claude/local-llm/`: `belt.env` (upstream keys, BUCKLE_ADMIN_KEY),
   `hubs.json` (label → candidate URLs resolveHub walks),
-  `routing-policy.yaml` (operator-owned ladder — edit THIS, never code),
-  `upstreams.yaml` (group overrides — per-model upstream ladders over
+  `routing-policy.json` (operator-owned ladder — edit THIS, never code),
+  `upstreams.json` (group overrides — per-model upstream ladders over
   swarm :8902 / router :4000 / litellm :4100),
   `buckle-spoke.env` / `buckle-desktop.env` (BUCKLE_ROOT_KEY; the spoke
   env also holds `GITHUB_COPILOT_PAT`, resolved from the 0600 `copilot.key`)
@@ -278,7 +317,7 @@ Machine-level config (the SOLE conf — repos carry placeholders only):
   `copilot-integration-id` via `adapter_config.headers`; tools+SSE on this
   wire unverified 2026-10-12, quota wall same day); group `claude-sonnet-5`
   → `model: claude-sonnet-5.5` (dots-to-dashes alias is data). Template:
-  `packages/buckle/upstreams.copilot.yaml` → merge into the machine
-  `upstreams.yaml`. The `:4102` ikea-shim is RETIRED (never activated);
+  `packages/buckle/upstreams.copilot.json` → merge into the machine
+  `upstreams.json`. The `:4102` ikea-shim is RETIRED (never activated);
   litellm copilot rows stay off (its /v1/messages bridge hits the Responses
   API Copilot rejects; its provider forces an interactive device flow)

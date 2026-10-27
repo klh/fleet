@@ -8,13 +8,13 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CHECK_VERB, renderHuman } from "../hooks/bin/policy-advisor.ts";
-import { parseVerb } from "../hooks/lib/verb-kit.ts";
 import {
 	catalogManifest,
 	policyCatalog,
 	reconcileManifestRules,
 } from "../hooks/lib/policy/catalog.ts";
 import { runPolicyChecks } from "../hooks/lib/policy/checks.ts";
+import { parseVerb } from "../hooks/lib/verb-kit.ts";
 
 function tmpRoot(): string {
 	return mkdtempSync(join(tmpdir(), "w161-policy-"));
@@ -123,6 +123,20 @@ describe("repo + line-law checks", () => {
 		expect(out.findings.length).toBe(1);
 		expect(out.findings[0]?.where).toBe(join("src", "big.ts"));
 		expect(out.findings[0]?.detail).toContain("1602 lines");
+	});
+
+	test("1500-line law skips argued vendor-exemption rows (W1300)", () => {
+		const root = mkRepo(tmpRoot(), {
+			"packages/decant/src/ingest.ts": bigFile(2000),
+			"src/big.ts": bigFile(1600),
+		});
+		const out = runPolicyChecks(root, {
+			rules: ["law.ts-1500-decompose"],
+		});
+		// the exempt vendored path stays silent; the ordinary over-cap file
+		// still fires — an exemption row can never widen into a blanket pass.
+		expect(out.findings.length).toBe(1);
+		expect(out.findings[0]?.where).toBe(join("src", "big.ts"));
 	});
 });
 

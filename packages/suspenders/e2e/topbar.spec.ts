@@ -66,9 +66,9 @@ function watch(page: Page): { clean(): void } {
 
 const bar = (page: Page) => page.locator("klh-topbar");
 
-test("klh-topbar upgrades on the board, belt console and usage page", async ({
-	page,
-}) => {
+test("klh-topbar upgrades on the board, belt console and usage page", {
+	tag: ["@ui", "@smoke"],
+}, async ({ page }) => {
 	const B = mustBoard();
 	const look = watch(page);
 
@@ -100,7 +100,7 @@ test("klh-topbar upgrades on the board, belt console and usage page", async ({
 	// belt console — server-rendered me attr rides the same component
 	await page.goto(`${B.BASE}/console/buckle`);
 	await expect(bar(page).locator(".cavbtn")).toBeVisible();
-	await expect(page.locator("h1.ptitle")).toHaveText("Belt gateway");
+	await expect(page.locator("h1.ptitle")).toHaveText("Buckle gateway");
 	await page.screenshot({ path: `${SHOTS}/2-belt.png`, fullPage: true });
 
 	// usage — no me attr, the component fetches again
@@ -112,9 +112,9 @@ test("klh-topbar upgrades on the board, belt console and usage page", async ({
 	look.clean();
 });
 
-test("settings gear: theme radios flip data-theme on the document", async ({
-	page,
-}) => {
+test("settings gear: theme radios flip data-theme on the document", {
+	tag: ["@ui", "@smoke"],
+}, async ({ page }) => {
 	const B = mustBoard();
 	const look = watch(page);
 	// the settings link is slotted only on console pages — drive there
@@ -143,7 +143,7 @@ test("settings gear: theme radios flip data-theme on the document", async ({
 // carries the console-settings link too (parity with the console pages).
 const NAV_VIEWS = [
 	"Models",
-	"Gateway",
+	"Routes",
 	"Workflows",
 	"Services",
 	"Metrics",
@@ -151,14 +151,14 @@ const NAV_VIEWS = [
 	"Settings",
 ] as const;
 
-test("W858.3: the fleet strip unifies belt, gateway, local, hub and settings on every surface", async ({
-	page,
-}) => {
+test("W858.3: the fleet strip unifies belt, gateway, local, hub and settings on every surface", {
+	tag: ["@ui", "@smoke"],
+}, async ({ page }) => {
 	const B = mustBoard();
 	const look = watch(page);
 	for (const [path, current] of [
 		["/", "Workflows"],
-		["/console/buckle", "Gateway"],
+		["/console/buckle", "Routes"],
 		["/console/local", "Services"],
 		["/console/hub", "Hub"],
 		["/console/settings", "Settings"],

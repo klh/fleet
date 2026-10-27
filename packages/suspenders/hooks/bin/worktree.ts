@@ -13,15 +13,15 @@
 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { openStore, resolveProject } from "../lib/govdb.ts";
-import { mintItemWorktree } from "../lib/worktree-provision.ts";
-import { laneSid } from "../lib/laneslug.ts";
-import { worktreeLive } from "../lib/lane-liveness.ts";
+import { openStore, resolveProject } from "../lib/govdb/govdb.ts";
+import { mintItemWorktree } from "../lib/work/worktree-provision.ts";
+import { laneSid } from "../lib/lanes/laneslug.ts";
+import { worktreeLive } from "../lib/lanes/lane-liveness.ts";
 import {
 	registryWorktrees,
 	resolveItemWorktree,
-} from "../lib/worktree-lookup.ts";
-import { retireLaneKey } from "../../scripts/lib/lane-auth.ts";
+} from "../lib/work/worktree-lookup.ts";
+import { retireLaneKey } from "../lib/lanes/lane-auth.ts";
 import {
 	defineVerb,
 	runCli,

@@ -8,8 +8,8 @@
 //     "command": "bun",
 //     "args": ["~/.claude/hooks/suspenders/bin/knowledge-mcp.ts"]
 //   }
-import { makeStore } from "../lib/knowledge-ports.ts";
-import { proseCards } from "../lib/knowledge.ts";
+import { makeStore } from "../lib/knowledge/sqlite-store.ts";
+import { proseCards } from "../lib/knowledge/knowledge.ts";
 import { createInterface } from "node:readline";
 
 const VERSION = "0.8.0";

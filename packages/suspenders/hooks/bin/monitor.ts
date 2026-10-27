@@ -23,8 +23,8 @@ import {
 	statSync,
 } from "node:fs";
 import { join } from "node:path";
-import { transcriptAlive } from "../lib/lane-liveness.ts";
-import { automaticRecoveryPaused } from "../lib/automatic-recovery.ts";
+import { transcriptAlive } from "../lib/lanes/lane-liveness.ts";
+import { automaticRecoveryPaused } from "../lib/fleet-loop/automatic-recovery.ts";
 import {
 	MANAGED_PREFIX_ENTRIES,
 	PRUNE_ALLOWLIST,
@@ -36,7 +36,7 @@ import {
 	projectIdentity,
 	projectRootOf,
 	sweepStaleSessions,
-} from "../lib/govdb.ts";
+} from "../lib/govdb/govdb.ts";
 
 const db = openStore();
 const now = Date.now();

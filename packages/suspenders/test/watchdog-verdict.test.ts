@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { persistWatchdogState } from "../scripts/lib/watchdog-state.ts";
 import type { ServiceVerdict } from "../scripts/lib/service-drift.ts";
 import {
 	watchdogVerdict,
@@ -104,14 +107,28 @@ test("idle scheduled services are healthy while graph stalls and unavailable evi
 		expect(result.state).toBe(state);
 	}
 });
-test("watchdog stores the typed aggregate and returns its exit code without restart bookkeeping writes", () => {
-	const source = readFileSync(
-		new URL("../scripts/dispatch-watchdog.ts", import.meta.url),
-		"utf8",
+test("watchdog persists the typed aggregate and returns its exit code without restart bookkeeping", () => {
+	const health = watchdogVerdict(healthy(), 0);
+	const statePath = join(
+		tmpdir(),
+		`w1271-watchdog-state-${process.pid}-${Date.now()}.json`,
 	);
-	expect(source).toContain("return health.exitCode");
-	expect(source).toContain("at: health.at");
-	expect(source).toContain("health,");
-	expect(source).not.toContain("progressRestarts:");
-	expect(source).not.toContain("kickstart");
+	const exit = persistWatchdogState(statePath, {
+		loopPid: null,
+		at: health.at,
+		health,
+		resourceActions: [],
+	});
+	const stored = JSON.parse(readFileSync(statePath, "utf8")) as Record<
+		string,
+		unknown
+	>;
+	rmSync(statePath, { force: true });
+	expect(exit).toBe(health.exitCode);
+	expect(stored.at).toBe(health.at);
+	expect(stored.health).toEqual(health);
+	expect(stored.resourceActions).toEqual([]);
+	// observation alone never increments restart counts — the record carries
+	// no restart bookkeeping fields
+	expect(stored.progressRestarts).toBeUndefined();
 });

@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parse } from "yaml";
 
 // W697 (toto-gpt gap 8): container hardening profiles for hub-compose.yaml.
 type Svc = Record<string, unknown> & {
@@ -9,7 +8,7 @@ type Svc = Record<string, unknown> & {
 	depends_on?: Record<string, { condition: string }>;
 	environment?: Record<string, string>;
 };
-const compose = parse(
+const compose = Bun.YAML.parse(
 	readFileSync(join(import.meta.dir, "../deploy/hub-compose.yaml"), "utf8"),
 	{ merge: true },
 ) as { services: Record<string, Svc> };
@@ -27,6 +26,8 @@ const RUNTIME = [
 	"belt-health",
 	"model-store-hub",
 	"model-store-health",
+	"knowledge-sink",
+	"knowledge-health",
 	"mdns-announce",
 	"mdns-health",
 	"peer-pull",
@@ -38,6 +39,7 @@ const STATEFUL = [
 	"store-hub",
 	"belt-hub",
 	"model-store-hub",
+	"knowledge-sink",
 	"peer-pull",
 ];
 
