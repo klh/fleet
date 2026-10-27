@@ -16,23 +16,25 @@
 //        for the Buckle front. The default client sends W96's exact hint to
 //        local-swarm. Alternatively provision a mode-0600
 //        ~/.claude/local-llm/knowledge-buckle.json with {url,token}.
+//        W1229: every distill call rides the ONE lifecycle transport
+//        (hooks/lib/knowledge-inference.ts) — explicit budget admission
+//        (SUSPENDERS_MEMORY_RPM/CONCURRENCY/WAIT_MS/MAX_TOKENS), a W3C
+//        traceparent so failures join Buckle's route_audit by trace_id, and
+//        row saves behind the MemoryWrites barrier: saves run async, and the
+//        flush before complete/optimize is wait-before-recall.
 //        INGEST_LLM_URL is rejected: it bypasses Buckle's audit.
 //        KNOWLEDGE_STORE_URL — reserved for a remote store adapter.
 //        KNOWLEDGE_DOCS_ROOT — repo root for the substitution test; unset →
 //        the mechanical check is OFF (prompt layer still applies).
 // usage: bun hooks/bin/knowledge-worker.ts          (daemon: 5s poll loop)
 //        bun hooks/bin/knowledge-worker.ts --once   (drain queued, exit)
+
+import { createHash } from "node:crypto";
 import PQueue from "p-queue";
-import { currentPromptHash } from "../lib/knowledge/prompt-policy.ts";
 import {
-	makeDistillClient,
 	type DistillItem,
+	makeDistillClient,
 } from "../lib/knowledge/distill-clients.ts";
-import { makeStore } from "../lib/knowledge/sqlite-store.ts";
-import type {
-	KnowledgeStore,
-	NearDupProposal,
-} from "../lib/knowledge/store-schema.ts";
 import {
 	docForRef,
 	loadDocs,
@@ -41,7 +43,13 @@ import {
 	redactSecrets,
 	substitutionCheck,
 } from "../lib/knowledge/knowledge.ts";
-import { createHash } from "node:crypto";
+import { MemoryWrites } from "../lib/knowledge/knowledge-inference.ts";
+import { currentPromptHash } from "../lib/knowledge/prompt-policy.ts";
+import { makeStore } from "../lib/knowledge/sqlite-store.ts";
+import type {
+	KnowledgeStore,
+	NearDupProposal,
+} from "../lib/knowledge/store-schema.ts";
 
 const MAX_ATTEMPTS = 3;
 const store: KnowledgeStore = makeStore();
@@ -78,6 +86,10 @@ async function processRow(rowId: number): Promise<void> {
 		const skipped: string[] = [];
 		const proposals: NearDupProposal[] = [];
 		let converted = 0;
+		// W1229: row saves ride write-behind (async, concurrency 1); the flush
+		// barrier before complete/optimize is the wait-before-recall discipline —
+		// the ledger and the FTS index never race a pending save.
+		const writes = new MemoryWrites();
 		for (const it of items) {
 			// mechanical secrets pass BEFORE anything: redact in place; a
 			// private-key block rejects the candidate (LLM layer is not trusted)
@@ -123,23 +135,35 @@ async function processRow(rowId: number): Promise<void> {
 				continue;
 			}
 			if (sub.converted) converted++;
-			written.push(
-				await store.upsert({
-					topic: top.text,
-					fact: sub.fact,
-					confidence: it.confidence,
-					domain: job.domain ?? it.domain,
-					area: job.area ?? it.area,
-					originKind: it.originKind,
-					originSystem: it.originSystem,
-					sourceRef: sub.sourceRef,
-					sourceHash: sub.sourceHash,
-					originSid: job.originSid,
-					hubEligible: job.hubEligible,
-					supersedesId: it.supersedesId,
-				}),
+			await writes.push(() =>
+				store
+					.upsert({
+						topic: top.text,
+						fact: sub.fact,
+						confidence: it.confidence,
+						domain: job.domain ?? it.domain,
+						area: job.area ?? it.area,
+						originKind: it.originKind,
+						originSystem: it.originSystem,
+						sourceRef: sub.sourceRef,
+						sourceHash: sub.sourceHash,
+						originSid: job.originSid,
+						hubEligible: job.hubEligible,
+						supersedesId: it.supersedesId,
+					})
+					.then((id) => {
+						written.push(id);
+					}),
 			);
 		}
+		// wait-before-recall: settle every pending save before the ledger write
+		// and the FTS optimize — a recall face reading concurrently never sees
+		// the job half-landed; a failed save fails the job before complete.
+		const writeErrs = await writes.flush();
+		if (writeErrs.length)
+			throw new Error(
+				`write-behind save failed: ${String(writeErrs[0]?.message ?? "unknown")}`,
+			);
 		await store.complete(
 			job.id,
 			{ written, skipped, proposals },
