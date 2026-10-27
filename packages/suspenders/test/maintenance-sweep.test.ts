@@ -179,6 +179,12 @@ describe("maintenance sweep (W779)", () => {
 		const resolved = task.argv(suspendersRoot())[0];
 		expect(existsSync(resolved)).toBe(true);
 	});
+	test("registry order: zai-catalog-refresh directly after openrouter-free-refresh (W1029.1 serialization contract)", () => {
+		const names = MAINTENANCE_TASKS.map((task) => task.name);
+		expect(names.indexOf("zai-catalog-refresh")).toBe(
+			names.indexOf("openrouter-free-refresh") + 1,
+		);
+	});
 	test("stamps: corrupt or absent file reads as never-ran", () => {
 		writeFileSync(stampsPath, "not-json{");
 		expect(readStamps(stampsPath)).toEqual({});
