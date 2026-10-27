@@ -6,6 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	type AccountPolicyDoc,
+	defaultAccountPolicy,
 	REPO_CLAIM_HEADER,
 } from "../src/account-policy.ts";
 import { stashPrincipal } from "../src/gov/federation.ts";
@@ -105,7 +106,7 @@ describe("W1265.1 e2e — account policy at the ingress", () => {
 		const res = await ingest(
 			app,
 			`${copilot.url}/v1/messages`,
-			{},
+			{ [REPO_CLAIM_HEADER]: "/Users/someone/dev/ikea/mono" }, // scrub:allow
 			principal("fleet-ikea-lane1"),
 		);
 		expect(res.status).toBe(200);
@@ -199,7 +200,10 @@ describe("W1265.1 e2e — account policy at the ingress", () => {
 		const body = { model: "glm-5", stream: false };
 		const req = new Request(`${zai.url}/v1/messages`, {
 			method: "POST",
-			headers: { "content-type": "application/json" },
+			headers: {
+				"content-type": "application/json",
+				[REPO_CLAIM_HEADER]: "/Users/someone/dev/ikea/mono", // scrub:allow
+			},
 			body: JSON.stringify(body),
 		});
 		stashPrincipal(req, principal("fleet-ikea-lane1"));
@@ -229,7 +233,7 @@ describe("W1265.1 e2e — account policy at the ingress", () => {
 		const res = await ingest(
 			app,
 			`${copilot.url}/v1/messages`,
-			{},
+			{ [REPO_CLAIM_HEADER]: "/Users/someone/dev/ikea/mono" }, // scrub:allow
 			principal("fleet-ikea-lane1"),
 		);
 		expect(copilot.calls.length).toBeGreaterThanOrEqual(1);
@@ -331,6 +335,144 @@ describe("W1265.1 e2e — account policy at the ingress", () => {
 		expect(res.status).toBe(200);
 		const audit = d.ledger.auditRows()[0] ?? {};
 		expect(audit.account_tier ?? null).toBeNull();
+		copilot.close();
+		zai.close();
+	});
+
+	test("W1265.2 mandatory posture: absent config resolves the general default (personal ride, copilot excluded, anonymous refused)", async () => {
+		const def = defaultAccountPolicy();
+		expect(def.source).toBe("default:general");
+		expect(def.doc.classes[0]?.general).toBe(true);
+		const copilot = await startMockUpstream(() =>
+			Response.json({
+				id: "m-c",
+				usage: { input_tokens: 1, output_tokens: 1 },
+			}),
+		);
+		const zai = await startMockUpstream(() =>
+			Response.json({
+				id: "m-z",
+				usage: { input_tokens: 1, output_tokens: 1 },
+			}),
+		);
+		// generic tool key → personal row only; the enterprise row is denied
+		const d = deps(poolOf(copilot.url, zai.url), def.doc);
+		const app = createApp(d);
+		const ok = await ingest(
+			app,
+			`${zai.url}/v1/messages`,
+			{},
+			principal("any-tool-key"),
+		);
+		expect(ok.status).toBe(200);
+		expect(zai.calls.length).toBe(1);
+		expect(copilot.calls.length).toBe(0);
+		// enterprise-only pool → the general allowlist refuses (no entitled
+		// row), zero outbound — no implicit provider switch, no crossover
+		const copilotOnly = await startMockUpstream(() =>
+			Response.json({
+				id: "m-c",
+				usage: { input_tokens: 1, output_tokens: 1 },
+			}),
+		);
+		const d2 = deps(
+			{
+				groups: () => ["claude-sonnet-5"],
+				deployments: (g) => [
+					{
+						group: g,
+						url: copilotOnly.url,
+						dialect: "anthropic" as const,
+						adapter: "github_copilot",
+					},
+				],
+			},
+			def.doc,
+		);
+		const app2 = createApp(d2);
+		const nope = await ingest(
+			app2,
+			`${copilotOnly.url}/v1/messages`,
+			{},
+			principal("any-tool-key"),
+		);
+		expect(nope.status).toBe(503);
+		expect(((await nope.json()) as { code?: string }).code).toBe(
+			"buckle.tier_no_upstream",
+		);
+		expect(copilotOnly.calls.length).toBe(0);
+		// anonymous on the mandatory default → refused before routing
+		const anon = await ingest(app, `${zai.url}/v1/messages`, {}, null);
+		expect(anon.status).toBe(403);
+		expect(((await anon.json()) as { code?: string }).code).toBe(
+			"buckle.repo_unknown",
+		);
+		copilot.close();
+		zai.close();
+		copilotOnly.close();
+	});
+
+	test("W1265.2 forged /w slug: session key riding a foreign lane = 403 lane_bind_mismatch, zero outbound", async () => {
+		const copilot = await startMockUpstream(() =>
+			Response.json({
+				id: "m-c",
+				usage: { input_tokens: 1, output_tokens: 1 },
+			}),
+		);
+		const zai = await startMockUpstream(() =>
+			Response.json({
+				id: "m-z",
+				usage: { input_tokens: 1, output_tokens: 1 },
+			}),
+		);
+		const d = deps(poolOf(copilot.url, zai.url));
+		const app = createApp(d);
+		const forge = new Request(`${zai.url}/w/fleet-personal-2/v1/messages`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ model: "claude-sonnet-5", stream: false }),
+		});
+		stashPrincipal(forge, principal("fleet-personal-1"));
+		const res = await app.fetch(forge);
+		await Bun.sleep(10);
+		expect(res.status).toBe(403);
+		expect(((await res.json()) as { code?: string }).code).toBe(
+			"buckle.lane_bind_mismatch",
+		);
+		expect(copilot.calls.length).toBe(0);
+		expect(zai.calls.length).toBe(0);
+		copilot.close();
+		zai.close();
+	});
+
+	test("W1265.2 matching /w slug rides with lane attribution", async () => {
+		const copilot = await startMockUpstream(() =>
+			Response.json({
+				id: "m-c",
+				usage: { input_tokens: 1, output_tokens: 1 },
+			}),
+		);
+		const zai = await startMockUpstream(() =>
+			Response.json({
+				id: "m-z",
+				usage: { input_tokens: 1, output_tokens: 1 },
+			}),
+		);
+		const d = deps(poolOf(copilot.url, zai.url));
+		const app = createApp(d);
+		const req = new Request(`${zai.url}/w/fleet-personal-1/v1/messages`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ model: "claude-sonnet-5", stream: false }),
+		});
+		stashPrincipal(req, principal("fleet-personal-1"));
+		const res = await app.fetch(req);
+		await Bun.sleep(20);
+		expect(res.status).toBe(200);
+		expect(zai.calls.length).toBe(1);
+		const audit = d.ledger.auditRows()[0] ?? {};
+		expect(audit.lane).toBe("fleet-personal-1");
+		expect(audit.account_tier).toBe("personal");
 		copilot.close();
 		zai.close();
 	});

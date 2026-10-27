@@ -282,8 +282,8 @@ export function buildDeps(
 	const accountPolicy = loadAccountPolicy(opts.accountPolicyPath);
 	console.log(
 		`buckle: account policy ` +
-			(accountPolicy.source === "none"
-				? "inert — no repo-tier-policy configured (the boundary is off)"
+			(accountPolicy.doc === null
+				? `inert — boundary explicitly disabled (${accountPolicy.source})`
 				: `active from ${accountPolicy.source} (${String(accountPolicy.doc.classes.length)} classes)`),
 	);
 	// W207 trajectory pruning: the diet sidestore rides the shared buckle db

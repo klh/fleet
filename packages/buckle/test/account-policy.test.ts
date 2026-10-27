@@ -71,6 +71,7 @@ const IKEA_INPUT = {
 	kind: "api_key" as const,
 	keyName: "fleet-ikea-lane1",
 	claimRepo: null,
+	lane: null,
 	pin: null,
 	group: "claude-sonnet-5",
 };
@@ -84,6 +85,8 @@ describe("globMatch", () => {
 		expect(globMatch("/Users/*/dev/ikea/*", "/Users/kk/dev/personal/x")).toBe( // scrub:allow
 			false,
 		);
+		/* scrub-markers: trailing form is load-bearing (the gate flags the
+		   offending line; biome wrap moved them) — do not re-wrap. */
 		expect(globMatch("*copilot*", "api.githubcopilot.com", true)).toBe(true);
 		expect(globMatch("*copilot*", "api.github.com", true)).toBe(false);
 		expect(globMatch("fleet-ikea-*", "fleet-ikea-lane9")).toBe(true);
@@ -141,18 +144,40 @@ describe("applyAccountPolicy", () => {
 		}
 	});
 
-	test("verified claim accepted; absent claim rides the binding", () => {
+	test("in-glob claim accepted; ABSENT claim = 403 repo_unverified (repo-bound class, W1265.2)", () => {
 		const ok = applyAccountPolicy(DOC, {
 			...IKEA_INPUT,
 			claimRepo: "/Users/kk/dev/ikea/mono", // scrub:allow
 		});
 		expect(ok.ok).toBe(true);
 		const noClaim = applyAccountPolicy(DOC, IKEA_INPUT);
-		expect(noClaim.ok).toBe(true);
+		expect(noClaim.ok).toBe(false);
+		if (!noClaim.ok) {
+			expect(noClaim.code).toBe("buckle.repo_unverified");
+			expect(noClaim.audit?.tier).toBe("work");
+			expect(String(noClaim.audit?.repoHash)).toMatch(/^[0-9a-f]{16}$/);
+		}
+	});
+
+	test("forged in-glob claim cannot move the binding (hash is mint-derived)", () => {
+		const a = applyAccountPolicy(DOC, {
+			...IKEA_INPUT,
+			claimRepo: "/Users/kk/dev/ikea/mono", // scrub:allow
+		});
+		const b = applyAccountPolicy(DOC, {
+			...IKEA_INPUT,
+			claimRepo: "/Users/kk/dev/ikea/OTHER", // scrub:allow
+		});
+		expect(a.ok && b.ok).toBe(true);
+		expect(a.acct?.repoHash).toBe(b.acct?.repoHash);
 	});
 
 	test("entitlement mismatch = 403 tier_entitlement", () => {
-		const r = applyAccountPolicy(DOC, { ...IKEA_INPUT, group: "glm-5" });
+		const r = applyAccountPolicy(DOC, {
+			...IKEA_INPUT,
+			claimRepo: "/Users/kk/dev/ikea/mono", // scrub:allow
+			group: "glm-5",
+		});
 		expect(r.ok).toBe(false);
 		if (!r.ok) {
 			expect(r.code).toBe("buckle.tier_entitlement");
@@ -175,13 +200,15 @@ describe("scopeSelection", () => {
 			pin: null,
 			allowedHosts: ["github_copilot"],
 			allowedGroups: null,
+			deniedHosts: null,
+			claimRepo: null,
 		};
 		const r = scopeSelection(sel(copilot, zai), acct);
 		expect(r.ok && r.sel.ordered.map((x) => x.candidate_id)).toEqual([
 			"github_copilot",
 		]);
 	});
-	test("host glob alone can admit a row (url hostname matched)", () => {
+	test("host glob alone can NOT admit a row (adapter axis only, W1265.2)", () => {
 		const acct = {
 			repoHash: null,
 			tier: "work",
@@ -189,12 +216,14 @@ describe("scopeSelection", () => {
 			pin: null,
 			allowedHosts: ["*copilot*"],
 			allowedGroups: null,
+			deniedHosts: null,
+			claimRepo: null,
 		};
 		const r = scopeSelection(
 			sel(row("x", "http://api.githubcopilot.com")),
 			acct,
 		);
-		expect(r.ok).toBe(true);
+		expect(!r.ok && r.code).toBe("buckle.tier_no_upstream");
 	});
 	test("group glob excludes foreign model rows", () => {
 		const acct = {
@@ -219,6 +248,8 @@ describe("scopeSelection", () => {
 			pin: "zai",
 			allowedHosts: null,
 			allowedGroups: null,
+			deniedHosts: null,
+			claimRepo: null,
 		};
 		const r = scopeSelection(
 			sel(
@@ -240,6 +271,8 @@ describe("scopeSelection", () => {
 			pin: null,
 			allowedHosts: ["github_copilot"],
 			allowedGroups: null,
+			deniedHosts: null,
+			claimRepo: null,
 		};
 		const r = scopeSelection(sel(copilot, zai), acct);
 		expect(r.ok && r.sel.head.candidate_id).toBe("github_copilot");
@@ -248,12 +281,24 @@ describe("scopeSelection", () => {
 });
 
 describe("loadAccountPolicy", () => {
-	test("absent chain = inert (none)", () => {
+	test("absent chain = the MANDATORY general default (W1265.2)", () => {
 		const saved = process.env.BUCKLE_REPO_TIER_POLICY;
 		delete process.env.BUCKLE_REPO_TIER_POLICY;
 		try {
 			const r = loadAccountPolicy();
-			expect(r.source).toBe("none");
+			expect(r.source).toBe("default:general");
+			expect(r.doc?.classes[0]?.id).toBe("general");
+		} finally {
+			if (saved === undefined) delete process.env.BUCKLE_REPO_TIER_POLICY;
+			else process.env.BUCKLE_REPO_TIER_POLICY = saved;
+		}
+	});
+	test("BUCKLE_REPO_TIER_POLICY=off = the one explicit disable", () => {
+		const saved = process.env.BUCKLE_REPO_TIER_POLICY;
+		process.env.BUCKLE_REPO_TIER_POLICY = "off";
+		try {
+			const r = loadAccountPolicy();
+			expect(r.source).toBe("off");
 			expect(r.doc).toBeNull();
 		} finally {
 			if (saved === undefined) delete process.env.BUCKLE_REPO_TIER_POLICY;

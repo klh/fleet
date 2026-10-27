@@ -26,6 +26,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { YAML } from "bun";
+import { hintFit, hintTotal, type RouteHint } from "./hints.ts";
 import type { CandidateRow } from "./candidates.ts";
 import type { RouteSelection } from "./decide.ts";
 
@@ -36,8 +37,18 @@ export interface AccountClass {
 	/** The allowed account tier ("work" / "personal" / …) — audit label. */
 	tier: string;
 	/** Key NAME globs bound to this class (the trusted mint name; `*` the
-	 *  only wildcard). Absent = any key matches (catch-all class). */
+	 *  only wildcard). Absent = the class matches NO key — the general-work
+	 *  catch-all must be declared explicitly (W1265.2: a nameless key never
+	 *  resolves a class, and silence never grants one). */
 	keys?: string[];
+	/** Explicit general-work profile: true = no repo claim is required (the
+	 *  class stands alone). Absent/false = a declared `repos` list makes the
+	 *  verified x-klh-repo claim MANDATORY (missing claim = refusal). */
+	general?: boolean;
+	/** Provider globs this class must never reach (matched against the
+	 *  deployment adapter AND the URL host). The general default denies the
+	 *  enterprise adapter — no IKEA/personal crossover on general traffic. */
+	denyProviders?: string[];
 	/** Repo/workspace root globs the class covers — the verified identity.
 	 *  A client claim must match one; absent = the key binding stands alone. */
 	repos?: string[];
@@ -71,26 +82,42 @@ export interface AcctContext {
 	pin: string | null;
 	/** Class provider globs; null = unrestricted. */
 	allowedHosts: string[] | null;
+	/** Class provider globs that must never be reached (W1265.2: the general
+	 *  default denies the enterprise adapter); null = no deny axis. */
+	deniedHosts: string[] | null;
+	/** The VERIFIED repo claim path (null = none presented / general). */
+	claimRepo: string | null;
 	/** Class group entitlement — refused pre-decide when the requested group
 	 *  matches none. Null = unrestricted. */
 	allowedGroups: string[] | null;
 }
 
-/** The ingress verdict: a resolved context or a typed fail-closed refusal. */
+/** The ingress verdict: a resolved context or a typed fail-closed refusal.
+ *  A refusal carries whatever binding identity was proven before the refusal
+ *  (W1265.2) — the audit row still shows repo hash + tier + key name. */
 export type AcctResult =
 	| { ok: true; acct?: AcctContext }
-	| { ok: false; status: number; code: string; why: string };
+	| {
+			ok: false;
+			status: number;
+			code: string;
+			why: string;
+			/** Partial proven identity for the audit row (never the raw path). */
+			audit?: Partial<AcctContext>;
+	  };
 
 /** Repo-class lookup: the first class whose `keys` globs match the key
- *  name. No match = unknown key = fail closed. */
+ *  name. W1265.2: an unnamed (anonymous) principal never resolves a class —
+ *  a catch-all must be declared explicitly (`keys: ["*"]`) and still only
+ *  ever matches a NAMED key. No match = unknown key = fail closed. */
 function classFor(
 	doc: AccountPolicyDoc,
 	keyName: string | null,
 ): { cls: AccountClass; keyGlob: string } | null {
+	if (keyName === null) return null;
 	for (const cls of doc.classes) {
-		const globs = cls.keys ?? ["*"];
-		for (const g of globs) {
-			if (globMatch(g, keyName ?? "", true)) return { cls, keyGlob: g };
+		for (const g of cls.keys ?? []) {
+			if (globMatch(g, keyName, true)) return { cls, keyGlob: g };
 		}
 	}
 	return null;
@@ -149,6 +176,7 @@ export function applyAccountPolicy(
 		kind?: string | null;
 		keyName: string | null;
 		claimRepo: string | null;
+		lane: string | null;
 		pin: string | null;
 		group: string;
 	},
@@ -171,6 +199,7 @@ function resolveClass(
 		kind?: string | null;
 		keyName: string | null;
 		claimRepo: string | null;
+		lane: string | null;
 		pin: string | null;
 		group: string;
 	},
@@ -184,6 +213,41 @@ function resolveClass(
 			why: `key ${
 				input.keyName === null ? "(unnamed)" : `'${input.keyName.slice(0, 48)}'`
 			} binds no repo class — refused before routing`,
+			audit: { keyName: input.keyName },
+		};
+	// Binding-derived identity — the class + the key GLOB mint it; a caller
+	// claim can never move it (a forged in-glob repo proves membership only).
+	const hash = repoHashOf(hit.cls.id, hit.keyGlob);
+	const audit = {
+		repoHash: hash,
+		tier: hit.cls.tier,
+		keyName: input.keyName,
+	};
+	// Session binding: riding /w/<sid> requires sid === key name (no relax
+	// globs — a trusted launcher binding a lane mints the key UNDER that sid).
+	if (input.lane !== null && input.lane !== "" && input.lane !== input.keyName)
+		return {
+			ok: false,
+			status: 403,
+			code: "buckle.lane_bind_mismatch",
+			why: `lane slug '${input.lane.slice(0, 64)}' does not match the authenticated session key — refused before routing`,
+			audit,
+		};
+	// Membership evidence: a non-general class with declared repos demands
+	// the claim header — the glob proves CLASS MEMBERSHIP only, never the
+	// exact session↔repo identity (that proof lives in the trusted mint /
+	// binding table that created the key, not in a caller header).
+	if (
+		hit.cls.general !== true &&
+		(hit.cls.repos ?? []).length > 0 &&
+		input.claimRepo === null
+	)
+		return {
+			ok: false,
+			status: 403,
+			code: "buckle.repo_unverified",
+			why: `class '${hit.cls.id}' is repo-bound — a verified x-klh-repo claim (or the explicit general profile) is required — refused`,
+			audit,
 		};
 	// Claim verification: a presented x-klh-repo must match the class's
 	// verified roots; a class with no roots cannot verify any claim.
@@ -197,6 +261,7 @@ function resolveClass(
 				status: 403,
 				code: "buckle.repo_claim_mismatch",
 				why: "x-klh-repo claim does not match the key's bound repo class — refused (spoofed or stale claim)",
+				audit,
 			};
 	}
 	// Entitlement: the requested model group must sit inside the tier.
@@ -209,16 +274,19 @@ function resolveClass(
 			status: 403,
 			code: "buckle.tier_entitlement",
 			why: `model '${input.group.slice(0, 96)}' is outside the '${hit.cls.id}' tier entitlement — refused before routing`,
+			audit,
 		};
 	return {
 		ok: true,
 		acct: {
-			repoHash: repoHashOf(hit.cls.id, hit.keyGlob),
+			repoHash: hash,
 			tier: hit.cls.tier,
 			keyName: input.keyName,
 			pin: input.pin,
 			allowedHosts: hit.cls.providers ?? null,
+			deniedHosts: hit.cls.denyProviders ?? null,
 			allowedGroups: hit.cls.groups ?? null,
+			claimRepo: input.claimRepo,
 		},
 	};
 }
@@ -235,7 +303,9 @@ function emptyAcct(parts: {
 		keyName: parts.keyName ?? null,
 		pin: parts.pin ?? null,
 		allowedHosts: null,
+		deniedHosts: null,
 		allowedGroups: null,
+		claimRepo: null,
 	};
 }
 
@@ -290,9 +360,18 @@ function rowInScope(row: CandidateRow, acct: AcctContext): boolean {
 	const host = hostOf(row);
 	if (acct.pin !== null && !pinMatches(row.dep.adapter, host, acct.pin))
 		return false;
+	// Allowlist = ADAPTER axis only (W1265.2): a loopback host must never
+	// smuggle an enterprise row past a personal allowlist — unknown adapter
+	// rows refuse. The deny axis stays broad (adapter OR host).
 	if (
 		acct.allowedHosts !== null &&
-		!acct.allowedHosts.some(
+		!acct.allowedHosts.some((g) => globMatch(g, row.dep.adapter ?? "", true))
+	)
+		return false;
+	// W1265.2 deny axis: the class must never reach these providers (the
+	// general default denies the enterprise adapter — no crossover).
+	if (
+		acct.deniedHosts?.some(
 			(g) =>
 				globMatch(g, row.dep.adapter ?? "", true) || globMatch(g, host, true),
 		)
@@ -315,13 +394,115 @@ function pinMatches(
 	return adapter === pin || globMatch(`*${pin}*`, host, true);
 }
 
+/** W1265.2 discovery binding (GET/HEAD /v1/models): resolveClass's key→class
+ *  + lane-slug + verified-claim contract minus the group entitlement (a
+ *  listing is not an inference request); groups = the caller's listing
+ *  filter (null = unrestricted). Inert doc or root = unfiltered. */
+export function discoveryFilter(
+	doc: AccountPolicyDoc | null | undefined,
+	input: {
+		kind?: string | null;
+		keyName: string | null;
+		claimRepo: string | null;
+		lane: string | null;
+	},
+): { ok: true; groups: string[] | null } | { ok: false; status: 403; code: string; why: string } {
+	if (doc === null || doc === undefined) return { ok: true, groups: null };
+	if (input.kind === "root") return { ok: true, groups: null };
+	const key = input.keyName;
+	if (key === null)
+		return { ok: false, status: 403, code: "buckle.repo_unknown", why: "key (unnamed) binds no repo class — refused before listing" };
+	const hit = classFor(doc, key);
+	if (hit === null)
+		return { ok: false, status: 403, code: "buckle.repo_unknown", why: `key '${key.slice(0, 48)}' binds no repo class — refused before listing` };
+	if (input.lane !== null && input.lane !== "" && input.lane !== key)
+		return { ok: false, status: 403, code: "buckle.lane_bind_mismatch", why: `lane slug '${input.lane.slice(0, 64)}' does not match the authenticated session key — refused before listing` };
+	if (
+		hit.cls.general !== true &&
+		(hit.cls.repos ?? []).length > 0 &&
+		input.claimRepo === null
+	)
+		return { ok: false, status: 403, code: "buckle.repo_unverified", why: `class '${hit.cls.id}' is repo-bound — a verified x-klh-repo claim is required before listing` };
+	if (
+		input.claimRepo !== null &&
+		!(hit.cls.repos ?? []).some((p) => globMatch(p, input.claimRepo))
+	)
+		return { ok: false, status: 403, code: "buckle.repo_claim_mismatch", why: "x-klh-repo claim does not match the key's bound repo class — refused (spoofed or stale claim)" };
+	return { ok: true, groups: hit.cls.groups ?? null };
+}
+
+/** W1265.2 prefer precedence: the soft ranking may only ever NAME a
+ *  permitted candidate. scopeSelection confines ordered to the entitled
+ *  domain (stable order — the ranking survives) but the decide-time audit
+ *  (head/fit/decision/why) describes the UNSCOPED head, which the boundary
+ *  may have filtered — refresh it so the audit never advertises a forbidden
+ *  candidate. must= needs no pass: its ordered holds full fits only, so the
+ *  scope filter preserves must semantics (unsatisfiable = scoped-to-zero
+ *  refusal, zero outbound). */
+export function preferAfterScope(sel: RouteSelection, hint: RouteHint | null): RouteSelection {
+	if (sel.accountScoped !== true || hint === null || sel.verb !== "prefer")
+		return sel;
+	const head = sel.ordered[0];
+	if (head === undefined) return sel;
+	const total = hintTotal(hint);
+	const fit = hintFit(
+		{
+			kind: head.kind,
+			machine: head.host,
+			model: head.model,
+			tags: head.capability_text,
+		},
+		hint,
+	);
+	return {
+		...sel,
+		head,
+		fit,
+		decision: fit < total ? "degraded" : sel.decision,
+		why: `hint (account-scoped): ${head.candidate_id} (${head.kind}) fit ${String(fit)}/${String(total)} — ranked within the entitled domain only`,
+	};
+}
+
+/** The W1265.2 mandatory default: absent operator config still gives a
+ *  SAFE explicit general-work class — any NAMED key rides the personal/
+ *  local ALLOWLIST only (zai, openrouter, loopback/.local swarm rows);
+ *  unknown and enterprise rows refuse. Anonymous traffic refuses. Never a
+ *  silent inert posture. */
+export function defaultAccountPolicy(): {
+	doc: AccountPolicyDoc;
+	source: string;
+} {
+	return {
+		doc: {
+			version: 1,
+			classes: [
+				{
+					id: "general",
+					tier: "general",
+					general: true,
+					keys: ["*"],
+					// adapter-axis allowlist — personal providers only; unknown
+					// and enterprise adapters refuse (no crossover, no
+					// implicit provider switch on general traffic)
+					providers: ["zai", "openrouter"],
+				},
+			],
+		},
+		source: "default:general",
+	};
+}
+
 /** Resolution chain: explicit → BUCKLE_REPO_TIER_POLICY → the runtime copy
- *  in ~/.claude/local-llm/ → none (inert). A CONFIGURED path that is missing
- *  or malformed is startup fatal (fail closed, never silently disabled). */
+ *  in ~/.claude/local-llm/ → the MANDATORY general default (W1265.2 — never
+ *  inert). `BUCKLE_REPO_TIER_POLICY=off` is the one explicit disable. A
+ *  CONFIGURED path that is missing or malformed is startup fatal (fail
+ *  closed, never silently disabled). */
 export function loadAccountPolicy(explicitPath?: string): {
 	doc: AccountPolicyDoc | null;
 	source: string;
 } {
+	if (process.env.BUCKLE_REPO_TIER_POLICY === "off")
+		return { doc: null, source: "off" };
 	const home = `${process.env.HOME ?? ""}/.claude/local-llm/repo-tier-policy.yaml`;
 	const candidates = [explicitPath, process.env.BUCKLE_REPO_TIER_POLICY, home];
 	for (const p of candidates) {
@@ -335,7 +516,7 @@ export function loadAccountPolicy(explicitPath?: string): {
 		}
 		return { doc: parseAccountPolicy(p), source: p };
 	}
-	return { doc: null, source: "none" };
+	return defaultAccountPolicy();
 }
 
 function parseAccountPolicy(p: string): AccountPolicyDoc {

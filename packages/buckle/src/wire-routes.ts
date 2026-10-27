@@ -13,6 +13,7 @@ import {
 import { dietRoutes } from "./diet.ts";
 import { principalOf } from "./gov/federation.ts";
 import { handleNamedIngress, namedIngressOf } from "./ingress-routes.ts";
+import { modelsFace, modelsRoute } from "./models-route.ts";
 import { pipelineRoutes } from "./pipeline.ts";
 import { proxy } from "./proxy-ingress.ts";
 import { repoPolicyRoutes } from "./repo-policy-routes.ts";
@@ -41,7 +42,7 @@ export function createApp(deps: AppDeps): App {
 		// (typed local 4xx, zero outbound), legacy bare /v1 paths verbatim.
 		const named = namedIngressOf(path);
 		if (named !== null)
-			return handleNamedIngress(named, req, method, deps, proxy);
+			return handleNamedIngress(named, req, method, deps, proxy, modelsFace);
 		const laneRoute = lanePrefixOf(path);
 		if (laneRoute.lane !== "") {
 			const inner = laneRoute.path;
@@ -53,7 +54,8 @@ export function createApp(deps: AppDeps): App {
 				inner === "/v1/models";
 			if (method === "OPTIONS" && ingress)
 				return options204(allowOf(inner) ?? "OPTIONS");
-			if (method === "GET" && inner === "/v1/models") return models(deps);
+			if (method === "GET" && inner === "/v1/models")
+				return modelsRoute(deps, req, laneRoute.lane);
 			if (method === "POST" && inner === "/v1/chat/completions")
 				return proxy(req, "openai", inner, deps, laneRoute.lane);
 			if (method === "POST" && inner === "/v1/responses")
@@ -69,7 +71,8 @@ export function createApp(deps: AppDeps): App {
 				why: `no route: ${method} ${path}`,
 			});
 		}
-		if (method === "GET" && path === "/v1/models") return models(deps);
+		if (method === "GET" && path === "/v1/models")
+			return modelsRoute(deps, req, null);
 		if ((method === "GET" || method === "HEAD") && path === "/health") {
 			// Compatibility liveness only; outside-process probes own health.
 			return new Response(method === "HEAD" ? null : "ok", {
@@ -157,12 +160,4 @@ export function createApp(deps: AppDeps): App {
 		});
 	}
 	return { fetch };
-}
-
-function models(deps: AppDeps): Response {
-	const data = deps.pool
-		.groups()
-		.filter((id) => deps.pool.deployments(id).length > 0)
-		.map((id) => ({ id, object: "model", owned_by: "buckle" }));
-	return Response.json({ object: "list", data });
 }
