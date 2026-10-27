@@ -8,7 +8,7 @@
 // registry fires it with --act daily. Exit 1 when a dry-run finds
 // candidates (a human or cron should notice), 2 when the governor store
 // is unavailable (fail-closed: no store = no pruning, protects live lanes).
-import { openStore } from "../lib/govdb.ts";
+import { openStore } from "../lib/govdb/govdb.ts";
 import { createLaunchJanitor } from "../lib/launch-janitor.ts";
 import { emitLoopEvent } from "../lib/fleet-loop/events.ts";
 import { inspectLaunchIntent } from "../../scripts/lib/launch-fencing.ts";

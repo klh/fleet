@@ -12,7 +12,7 @@ import { join } from "node:path";
 import {
 	DEFAULT_PULSE_INTERVAL_S,
 	normalizeConfig,
-} from "../hooks/lib/notify.ts";
+} from "../hooks/lib/notify/notify.ts";
 import {
 	composePulse,
 	firePulse,
@@ -21,7 +21,7 @@ import {
 	type PulseState,
 	readWatchdog,
 	savePulseState,
-} from "../hooks/lib/pulse.ts";
+} from "../hooks/lib/notify/pulse.ts";
 import {
 	applyPulseInterval,
 	loadManifest,

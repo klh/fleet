@@ -3,7 +3,7 @@
 Date: 2026-10-19 · lane `autow943-p98b319584008df14` · item W943 · verdict
 **TRUST** (current-era fronted lanes) with **CORRECTION-NEEDED** residuals
 (era gap + named non-lane pools) — curated row in
-[benchmarks.md](../../benchmarks.md) (Fleet attribution validity section).
+[benchmarks.md](../benchmarks.md) (Fleet attribution validity section).
 
 ## Question
 

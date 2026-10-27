@@ -25,7 +25,7 @@ import {
 	testAffectingPath,
 	transcriptEventsFromText,
 	transcriptWindow,
-} from "../hooks/lib/claim-check.ts";
+} from "../hooks/lib/gates/claim-check.ts";
 
 const T0 = Date.parse("2026-10-19T10:00:00.000Z");
 const iso = (min: number): string => new Date(T0 + min * 60_000).toISOString();
@@ -137,7 +137,7 @@ const codexSay = (text: string, min: number): string =>
 	});
 
 const v = (o: Partial<Parameters<typeof claimCheckVerdict>[0]> = {}) =>
-	claimCheckVerdict({ paths: [], diffText: "", ...o });
+	claimCheckVerdict({ client: "claude", paths: [], diffText: "", ...o });
 
 describe("claim and run detection", () => {
 	test("claims match assistant-style prose, negations void", () => {
@@ -177,6 +177,7 @@ describe("claim and run detection", () => {
 				toolResult(" 4 pass\n 0 fail", -10),
 				toolStdout(" 5 pass\n 0 fail", -9),
 			].join("\n"),
+			"claude",
 		);
 		expect(events.claims).toHaveLength(1);
 		expect(events.claims[0]?.ts).toBe(Date.parse(iso(-2)));
@@ -192,6 +193,7 @@ describe("claim and run detection", () => {
 					content: [{ type: "text", text: "all tests pass" }],
 				},
 			}),
+			"claude",
 		);
 		expect(events.claims).toHaveLength(0);
 	});
@@ -312,10 +314,10 @@ describe("origin: foreign noise never counts (W917)", () => {
 			codexCall("bun test packages/buckle/test/gov-metrics.test.ts", -6),
 			codexResult(" 7 pass\n 0 fail\nRan 7 tests across 1 file.", -5),
 		].join("\n");
-		const events = transcriptEventsFromText(transcriptText);
+		const events = transcriptEventsFromText(transcriptText, "codex");
 		expect(events.claims).toHaveLength(1);
 		expect(events.runs).toHaveLength(1);
-		const r = v({ transcriptText });
+		const r = v({ transcriptText, client: "codex" });
 		expect(r.ok).toBe(true);
 	});
 
@@ -326,6 +328,7 @@ describe("origin: foreign noise never counts (W917)", () => {
 				codexCall("coord inbox --as sid", -6),
 				codexResult(" 681 pass\n 0 fail", -5),
 			].join("\n"),
+			client: "codex",
 		});
 		expect(r.ok).toBe(false);
 		expect(r.why).toContain("no test run found");
@@ -337,6 +340,7 @@ describe("origin: foreign noise never counts (W917)", () => {
 				codexSay("all tests pass", -10),
 				codexResult(" 681 pass\n 0 fail", -5),
 			].join("\n"),
+			client: "codex",
 		});
 		expect(r.ok).toBe(false);
 	});
@@ -376,6 +380,7 @@ describe("origin: foreign noise never counts (W917)", () => {
 					],
 				},
 			}),
+			"claude",
 		);
 		expect(events.runs).toHaveLength(0);
 		expect(events.claims).toHaveLength(0);
@@ -400,6 +405,7 @@ describe("origin: foreign noise never counts (W917)", () => {
 					},
 				}),
 			].join("\n"),
+			"claude",
 		);
 		expect(events.runs).toHaveLength(0);
 	});

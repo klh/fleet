@@ -11,7 +11,7 @@ import {
 	mergeReady,
 	mergeReadyWhy,
 	resetLaneGitMemo,
-} from "../hooks/lib/lane-git.ts";
+} from "../hooks/lib/lanes/lane-git.ts";
 
 const root = mkdtempSync(join(tmpdir(), "lane-git-test-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));

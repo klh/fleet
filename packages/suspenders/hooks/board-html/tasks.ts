@@ -1,7 +1,7 @@
 // hooks/board-html/tasks.ts — tasks table + kanban + drawer (W157 client chunk).
 // String.raw matches the original single-template semantics; bun's
 // non-ASCII escaping in String.raw reproduces the served page bytes.
-import { executionSummary } from "../lib/work-execution.ts";
+import { executionSummary } from "../lib/work/work-execution.ts";
 
 export const TASKS = String.raw`var executionSummary = ${executionSummary.toString()};
 // --- 4: tasks table (Tasks tab, /api/tasks) + drawer (/api/task) ---
@@ -935,6 +935,7 @@ function openTask(id, proj, trigger){
   sigSet(byId('drawerBody'), '', '<div class="state dim">loading task...</div>');
   resetDiff();
   resetTail();
+  resetLaunch();
   pollTask(true);
   pollSpendSeries(true); // drawer sparkline wants the series now
   byId('drawerClose').focus();
@@ -963,6 +964,7 @@ function pollTask(force){
       if (!j.task || !Array.isArray(j.events)) throw new Error('bad /api/task payload');
       task.data = j; task.err = null; task.okAt = Date.now();
       pollExecutionTrace();
+      fetchLaunch();
     })
     .catch(function(e){ task.err = String((e && e.message) || e); })
     .finally(function(){ task.busy = false; renderDrawer(); });

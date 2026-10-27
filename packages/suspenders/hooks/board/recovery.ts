@@ -1,4 +1,4 @@
-import type { GovernorStore } from "../lib/govdb.ts";
+import type { GovernorStore } from "../lib/govdb/govdb.ts";
 import { observation, type Observation } from "../lib/observation.ts";
 
 export interface RecoveryIncident {

@@ -22,6 +22,30 @@ organizational use requires a separate written license. [Licensing terms](#licen
 
 ---
 
+## Install
+
+```sh
+git clone https://github.com/klh/fleet.git && cd fleet
+
+# 1. Dependencies (Bun >= 1.2 required).
+bun install --frozen-lockfile
+
+# 2. See what the installer would do — no changes.
+bash packages/suspenders/install.sh --dry-run
+
+# 3. Install: PATH shims (work / coord / dispatch / oracle) + the board.
+bash packages/suspenders/install.sh --wire
+
+# 4. Open the board.
+bun packages/suspenders/hooks/bin/fleet-board.ts   # http://localhost:7799
+```
+
+Mac-first (launchd surfaces need macOS; hubs need Docker). Machine-local
+config lives in `~/.config/klh/stack.json` (0600) — the installer's
+`migrateConf` step cuts it over from legacy `stack.yaml` once. Steps 3–4
+need nothing else; models and launchd agents are optional add-ons
+(`--skip-models`, `--no-llm`, `--with-launchd`).
+
 ## Why
 
 One developer running many agents needs an operator's plane, not more chat
@@ -73,7 +97,9 @@ provides model access, a board or a shared coordination store. Hub addresses,
 ports and credentials live in machine configuration. A project pins its hub
 with a repo `.prefer` file (`hub=LAB`, where `LAB` exists in the operator's
 hub registry), which selects the gateway destination while the agent process
-and checkout stay local. To inspect a profile without deploying it:
+and checkout stay local. Set it with the installed `prefer` CLI —
+`prefer set hub=LAB` (a quoted `prefer=`/`must=` line is only a soft hint;
+`hub=` is what pins). To inspect a profile without deploying it:
 `bun packages/suspenders/deploy/hubctl.ts render "$HUB"` and
 `bun packages/suspenders/deploy/hubctl.ts status "$HUB"`.
 

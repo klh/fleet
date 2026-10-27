@@ -2,7 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { signalClaudeDirectEvent } from "../hooks/lib/claude-wake.ts";
+import { signalClaudeDirectEvent } from "../hooks/lib/executors/claude-wake.ts";
 
 const home = mkdtempSync(join(tmpdir(), "fleet-claude-runtime-"));
 afterAll(() => rmSync(home, { recursive: true, force: true }));
@@ -129,7 +129,7 @@ test("native exit during interrupt leaves the direct event replayable, not water
 	// replay, exactly once, no churn: the claim was released, so the next
 	// consumer re-reads the SAME event (watermark untouched); proof retires
 	// it and a further read is null
-	const wake = await import("../hooks/lib/claude-wake.ts");
+	const wake = await import("../hooks/lib/executors/claude-wake.ts");
 	expect(wake.consumeClaudeWake(sid, home, "managed")).toContain("#7");
 	expect(wake.proveClaudeWake(sid, home, "managed")).toBe(true);
 	expect(wake.consumeClaudeWake(sid, home, "managed")).toBeNull();

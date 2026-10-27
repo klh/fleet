@@ -2,37 +2,20 @@
 
 Research date: **5 October 2026**. Repository snapshot: `87e6218`.
 
-This document combines the [monorepo review](docs/monorepo-review-2026-10-05.md),
+This document builds on the [monorepo review](monorepo-review-2026-10-05.md),
 fresh source inspection, and online research from primary documentation. It is
 the requested research and recommendation list; implementation and ownership
 remain in the work graph. No recommendations below have been implemented here.
 
-## What the review found
+## Monorepo review baseline
 
-The architecture is coherent, but consolidation moved source ahead of the
-installation, deployment and automation contracts that consume it.
-
-| Priority | Finding                                                | Evidence                                                                                           | Required result                                                                        |
-| :------- | :----------------------------------------------------- | :------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------- |
-| P1       | Clean harness installation omits BLAM                  | `packages/suspenders/install.sh`; board `prompt-transform.ts` and `orch.ts` import BLAM relatively | Installed board modules load in an isolated home without any old checkout              |
-| P1       | No root GitHub Actions workflow                        | Workflows exist under package `.github/` directories                                               | Root CI runs package tests, cross-package checks and installed-artifact checks         |
-| P1       | Hub deployment assumes legacy repositories and layouts | `packages/suspenders/deploy/hub-compose.yaml`, `hubctl.ts`                                         | A pinned fleet checkout/artifact boots with correct `packages/` paths and dependencies |
-| P2       | Workspace and release contracts are incomplete         | No root lockfile; local/speedy lack manifests; root and package versions differ                    | Reproducible dependency installation and explicit stack/package version semantics      |
-| P2       | Umbrella installer clones legacy sources               | `packages/speedy/bin/install-fleet.ts`                                                             | All phases consume the same fleet revision                                             |
-| P2       | Board implementation still conflicts with its Lit law  | `packages/suspenders/hooks/board-html/core.ts`, `tasks.ts` use `innerHTML`                         | Component migration validated for draft, selection and focus retention                 |
-
-The installed BLAM import failure was reproduced during the preceding review;
-120 focused source tests passed then. This research rechecked the relevant
-installer/import code, workflow locations, deployment origins and legacy
-installer acquisition paths; it did not rerun that complete test sequence.
-
-The local-LLM extraction has landed. It is now a real package, not a placeholder.
-Subsequent belt and buckle commits also delegate condensing to BLAM, making the
-cross-package distribution contract more important.
-
-GitHub explicitly requires workflow files in the repository's `.github/workflows`
-directory. Moving nested YAML is only part of the fix: adjust working directories,
-dependency setup and paths too. [GitHub workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax).
+The [2026-10-05 integration review](monorepo-review-2026-10-05.md) contains the
+six installation, CI, deployment, workspace, installer and UI findings with
+file-level evidence and its isolated-home BLAM failure reproduction. Its 120
+focused source tests were not rerun for this research. The later
+[corpus audit](md-corpus-audit-w693.md) checks which findings landed; neither
+dated record is a live defect list. Subsequent belt and buckle work delegated
+condensing to BLAM, making installed cross-package resolution important.
 
 ## What already exists
 
@@ -590,117 +573,14 @@ have not been changed.
 
 ## Enterprise starter sharing across hubs and developers
 
-### Distribution and execution model
-
-Share immutable, versioned starter artifacts through an authorized registry;
-replicate them to hubs and create independent task lanes locally. Conversation
-checkpoints and inference caches are separate layers with different portability,
-lifetime and access constraints.
-
-```text
-Shared starter registry
-  Fleet rules -> project context -> package/role variants
-                        |
-            replicated to authorized hubs
-                 +------+------+
-               Hub A         Hub B
-             devs + lanes  devs + lanes
-                 +------+------+
-                model gateways
-           provider/local prefix caches
-```
-
-Each artifact contains instructions, skill versions, verified findings, source
-revision, compatible model/harness and tool configuration, provenance and
-evaluation results. Store a content digest and compatibility manifest. A native
-checkpoint may be referenced where a harness supports import or remote forking;
-a session ID on a developer's machine is not a portable artifact by itself.
-Keep secrets and private task conversations outside shared starter artifacts.
-
-For each task:
-
-1. Authenticate the developer and enforce tenant/project access to starter
-   content and its source evidence. Recheck permissions when materializing it.
-2. Filter starters for compatibility and freshness, then rank by task scope and
-   measured outcomes on comparable work.
-3. Use a native fork when supported; otherwise reconstruct from the portable
-   artifact. Record which path was used rather than claiming equivalent cache
-   behavior or preservation of hidden model state.
-4. Allocate fresh native session and Fleet lane identities, credentials, claims
-   and an isolated worktree. Shared preparation must not imply shared ownership.
-5. Record starter digest/version, execution route, cache usage where reported,
-   cost and verified outcome for evaluation and selection.
-
-A registry may be shared logically across hubs without one always-available
-central server: immutable artifacts can be served from replicated storage and
-cached locally. Define promotion/revocation authority, permission enforcement and
-offline freshness policy explicitly. A hub must not silently use a revoked or
-incompatible starter merely because it has a local copy.
-
-### What cache sharing can actually promise
-
-OpenAI caches are separated by organization and processing region. Matching
-requests must reach an available matching cache entry; routing and expiration
-mean a hit is not guaranteed. Claude's direct API uses workspace-level cache
-isolation; its documentation specifies different boundaries for some managed
-platforms. Multiple Fleet hubs may benefit from a shared prefix when their actual
-upstream requests fall within the compatible provider boundary. Do not assume
-reuse across separate customer accounts, workspaces, models or regions.
-[OpenAI cache location and routing](https://developers.openai.com/api/docs/guides/prompt-caching),
-[Claude cache storage and sharing](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
-
-Preserve stable prefixes and supported cache controls through the gateway, while
-keeping task identity and changing material after the reusable prefix. Cache
-keys are routing/accounting aids where supported, not authorization controls.
-Enforce isolation independently; do not collapse tenant boundaries for savings.
-Cache reuse also does not authorize a developer to read another user's history.
-
-For local inference, prefer compatible warm workers when queue time, locality
-and load justify it. A cold worker must still start correctly from the artifact.
-Verify engine support before transferring KV state: model weights, tokenizer,
-runtime/cache format and hardware compatibility can constrain portability.
-Do not make live GPU cache availability a correctness or recovery dependency.
-
-### Proposed component responsibilities
-
-| Component     | Responsibility                                                                           |
-| :------------ | :--------------------------------------------------------------------------------------- |
-| Suspenders    | Starter registry metadata, authorization, selection, lane lifecycle and outcome evidence |
-| Buckle        | Upstream routing, supported cache controls, per-lane accounting and cache telemetry      |
-| Hub executors | Artifact materialization, native fork/resume adapters and isolated worktrees             |
-| BLAM          | Representative evaluations and regression checks before candidate promotion              |
-
-These are proposed responsibilities, not claims that the current services already
-implement distributed starter management or native checkpoint portability.
-
-### Evaluated evolution and selection
-
-Maintain a few curated variants initially. Filter by mandatory compatibility
-before ranking by verified success, cost, completion time and rework. Compare
-small changes to context scope, examples, skill selection or consultation
-instructions on matched tasks; keep required operating rules fixed. Do not use
-self-reported confidence or success as the promotion criterion.
-
-Publish tested versions with an explicit promotion decision and rollback target.
-Keep project-specific rankings: a migration starter that helps one project may
-hurt another. Fork deliberate starter checkpoints rather than arbitrary completed
-lanes carrying stale assumptions or task-specific history. Automatic evolution
-becomes useful after enough comparable outcomes exist to separate improvement
-from noise; it is not a prerequisite for the initial registry.
-
-### First enterprise milestone
-
-Use one project, two hubs and two developers with the same immutable starter.
-Prove authorization and revocation behavior, independent lane ownership,
-instruction freshness, native-fork versus reconstruction behavior and cold-start
-recovery. Compare total cost and task correctness with fresh-lane baselines,
-including artifact preparation/distribution, cache writes, misses, queue delay
-and recovery overhead. Confirm that metrics survive hub failover and preserve
-per-lane attribution.
-
-Establish this distribution contract before fleet-wide automated evolution.
-This addition records architecture and acceptance criteria only; no distributed
-registry, checkpoint transport or runtime cache-sharing feature was implemented.
+The original distribution design and acceptance criteria now have one canonical
+record: [starter registry and distribution architecture](starter-registry-architecture.md).
+The [W458.6 deterministic milestone receipt](../packages/suspenders/docs/starter-milestone-w458-6.md)
+records what the library and tmpdir two-hub proof exercised; it did not run live
+model calls or a network hop. Native dispatcher materialization and measured
+production cache benefit still require separate evidence. This research section
+was a proposal when written, so its original conclusions should not be read as
+a current deployment status.
 
 ## Enterprise policy example: independent API health services
 
@@ -945,79 +825,19 @@ on every session start. They remain a proposal, not implemented enforcement.
 
 ## Cross-hub project identity: inspected findings and migration
 
-See the detailed [cross-hub identity audit and design](docs/cross-hub-project-identity.md).
-The actual resolver was exercised in isolated synthetic repositories: independent
-clones with identical origins and commits produced different project identities;
-a linked worktree matched its parent. No live database was opened or migrated.
+The [identity audit and migration design](cross-hub-project-identity.md) owns
+the resolver, tenant boundary, occupied-graph migration, and downstream-lane
+visibility evidence. Its isolated synthetic check found that independent clones
+with the same origin and commit had different project identities, while a linked
+worktree matched its parent; no live database was migrated. The design does not
+claim deployed cross-hub authority.
 
-The audit found that identity is overloaded as a local path throughout board
-dispatch, worktree operations, mirrors and quota handling. Other writers derive
-it inconsistently. Bootstrap writes local SQLite while coordination can use the
-remote store. Dispatch IDs derive only from work labels, creating collision risk
-when projects share a store. Facts, consult retrieval and WS subscriptions need
-explicit scoping before enterprise sharing; raw SQL RPC is not a tenant boundary.
-
-**Recommended order:** separate paths from logical IDs and centralize resolution;
-introduce tenant/project/repository and executor/checkout/worktree bindings; mint
-independent lane/attempt IDs; enroll two clones into one authorized project
-authority; migrate historical graphs with collision/provenance checks; prove
-cross-hub claims, notifications and recovery. Do not hash `origin`, expose shared
-SQL to tenants or run blind rekeys as substitutes for this migration.
-
-The report includes source anchors, resolution rules, occupied-graph migration,
-offline/failover requirements and concrete acceptance tests. This remains design
-and research; no control-plane runtime behavior was changed.
-
-### Upstream hubs should see the downstream lanes they actually serve
-
-Added the [upstream visibility design](docs/cross-hub-project-identity.md#upstream-visibility-of-downstream-lanes).
-Hubs observe authorized requests from globally identified lanes without taking
-ownership of downstream work. Record origin hub and immediate downstream peer
-separately; support both filters in the GUI. Default busy hubs to downstream
-summaries with paginated drill-down and server-side filtered push updates.
-
-Use verified hop attribution, deduplicated lane/request/attempt identities and
-explicit metadata permissions. Traffic inactivity is not proof of a dead lane;
-authoritative status and observed last-seen time remain distinct. Account for
-rerouting, multiple paths, retries and per-hop usage double counting. Existing
-local `/w/<slug>` attribution is stripped before upstream dispatch, and dispatch
-skips its local attribution setup for named hub redirects; multi-hop identity
-propagation needs explicit implementation and verification.
-
-### Standards research: recommended upstream observability architecture
-
-Deep primary-source research is recorded in
-[upstream observability architecture](docs/upstream-observability-architecture.md).
-The established patterns are distributed tracing, agent/gateway telemetry
-collection and hierarchical metric aggregation. A complete, authorized inventory
-of Fleet lanes still needs an application read model; sampled traces and metrics
-alone cannot supply it.
-
-**Recommendation:** W3C Trace Context plus OTel/OTLP for request/hop diagnostics;
-unsampled, idempotent minimal lane observations for current visibility; regional
-query projections with downstream filters and bounded push; explicit project
-authority for lifecycle; separate durable provider-usage accounting. No per-lane
-labels on general Prometheus metrics, no work-graph replication merely because
-traffic passed upstream, and no mandatory service-mesh migration.
-
-The report compares alternatives, distinguishes identity from baggage/auth,
-addresses streaming/sampling/replay/cardinality/residency, maps source integration
-anchors and defines a measured rollout. It includes current W3C, OpenTelemetry,
-Envoy, Prometheus, CloudEvents, NATS, SPIFFE, OAuth and PostgreSQL references.
-Existing buckle federation is acknowledged and reused where appropriate. This is
-a researched design recommendation, not implemented or benchmarked capacity.
-
-### IoT and mesh patterns to reuse
-
-The [IoT and mesh research](docs/upstream-observability-architecture.md#further-research-iot-gateways-and-mesh-topology)
-adds NATS leaf-node interest propagation/account boundaries, Sparkplug-style
-birth/death generations and stale-state recovery, MQTT snapshot/session lessons,
-Zenoh regional detail hiding and SPIFFE trust federation. Recommended adaptations:
-outbound downstream connections, selective upstream summaries/detail, generation-
-aware reconnect snapshots and bounded replay. Keep enrollment, connection and
-observed-request topology separate in the GUI. Transport disconnect does not
-prove agent death; discovery does not grant project access. Benchmark NATS plus
-JetStream against the outbox/HTTP prototype before adding a broker.
+The [upstream observability architecture](upstream-observability-architecture.md)
+owns the trace, unsampled observation, projection, hop-accounting, and IoT/mesh
+comparison. Its NATS, Sparkplug, MQTT, Zenoh, and SPIFFE recommendations remain
+research proposals, not capacity benchmarks. Traffic inactivity alone cannot
+establish lane death. Preserve authoritative lane state separately from observed
+last-seen time and account for retries across multiple hops.
 
 ## Implemented: coherent health/status checks (W485)
 
@@ -1027,7 +847,7 @@ responses cannot become green checks; stale/initial sidecar evidence is not
 healthy. Status health flags refresh independently of cached counters, methods
 and HEAD responses are consistent, and unknown knowledge/sidecar routes fail.
 `hubctl status` uses sidecars and Docker health, including local profiles.
-See [the endpoint contract and deployment limits](docs/health-status-contract.md).
+See [the endpoint contract and deployment limits](health-status-contract.md).
 Remote NAS activation/verification remains outstanding while it is unreachable.
 
 ## Implemented: formatter normalization without agent retry loops
@@ -1242,7 +1062,7 @@ The GUI pass now exposes supervisor restart/dependency state, truthful on-demand
 
 W477/W478 complete the follow-through: all dashboards share source/target/scope/time/expiry observations; current evidence gates recovery; Governor and Activity filter separately by origin hub and immediate downstream. Remote-only lanes remain observation-only. A bounded authenticated relay preserves origin across multiple hops, records the immediate peer, rejects stale updates and prevents loops with bounded ancestry. Fair batching, concurrency/time limits and visible relay status keep a busy upstream usable. Remote targets require HTTPS and private mode-0600 configuration/token files. The operator-trusted feed does not attest origin cryptographically or replace canonical cross-hub project identity.
 
-Belt, recovery consoles and local registrations share model inventory/probe paths. Usage separates synthetic sessions and exactly verified legacy seeds from real traffic by default, offers an explicit demo opt-in, and keeps anonymous global traffic separate from actor-scoped totals. Regression fixtures now own isolated child processes and ports and match current task/advice/prompt contracts. Relay configuration, limits and verification are documented in [GUI observability review](docs/gui-observability-review.md).
+Belt, recovery consoles and local registrations share model inventory/probe paths. Usage separates synthetic sessions and exactly verified legacy seeds from real traffic by default, offers an explicit demo opt-in, and keeps anonymous global traffic separate from actor-scoped totals. Regression fixtures now own isolated child processes and ports and match current task/advice/prompt contracts. Relay configuration, limits and verification are documented in [GUI observability review](gui-observability-review.md).
 
 Activate dashboard code through `bash packages/suspenders/install.sh --refresh-dashboards`, then restart the three dashboard launchd labels. The fixed manifest validates installed dependencies and rolls back a failed upgrade while preserving operator config. It does not restart inference supervision or re-register Caddy routes.
 
@@ -1262,7 +1082,7 @@ entries now recover the original automatic lane identity and worktree, retaining
 its capsule (W494.2.1, `1d41318`). Recovery admits only old local automatic claims,
 skips registered identities, manual owners and owner-gated titles, and respects
 available dispatch slots. Foreign and unknown origins remain untouched. See
-[claim recovery](packages/suspenders/scripts/lib/claim-recovery.ts).
+[claim recovery](../packages/suspenders/scripts/lib/claim-recovery.ts).
 
 Crash retries count total launches independently of the executor ladder index
 (W533, `3c72b27`). The default budget is three launches, configurable through
@@ -1271,7 +1091,7 @@ FAILED only after a transactional owner check, emits a decision request and
 preserves worktree evidence. A dry run neither launches nor changes claims.
 Legacy missing registry entries have no trustworthy historical retry count;
 their reconstructed attempt starts at zero. See
-[retry budget](packages/suspenders/scripts/lib/lane-retry-budget.ts).
+[retry budget](../packages/suspenders/hooks/lib/lanes/lane-retry-budget.ts).
 
 The stop gate checks claimed work even when no files changed and bounds repeated
 completion requests (W523, `1ac45a2`). Explicit no-op or blocked declarations

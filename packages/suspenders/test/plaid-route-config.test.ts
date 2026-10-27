@@ -16,8 +16,8 @@ const row = (name: string) => ({
 
 test("fresh process binds configured routes without setter; reload and board save preserve authority", () => {
 	writeFileSync(config, JSON.stringify({ plaid_routes: [row("glm-one")] }));
-	const plaid = resolve(import.meta.dir, "../hooks/lib/plaid.ts");
-	const board = resolve(import.meta.dir, "../hooks/lib/board-config.ts");
+	const plaid = resolve(import.meta.dir, "../hooks/lib/plaid/plaid.ts");
+	const board = resolve(import.meta.dir, "../hooks/lib/board/board-config.ts");
 	const script = [
 		"import { Database } from 'bun:sqlite';",
 		"import { writeFileSync } from 'node:fs';",
@@ -61,8 +61,11 @@ test("fresh process binds configured routes without setter; reload and board sav
 });
 
 test("local-coder: fresh process binds the declared local route; junk local rows fall back", () => {
-	const plaid = resolve(import.meta.dir, "../hooks/lib/plaid.ts");
-	const rc = resolve(import.meta.dir, "../hooks/lib/plaid-route-config.ts");
+	const plaid = resolve(import.meta.dir, "../hooks/lib/plaid/plaid.ts");
+	const rc = resolve(
+		import.meta.dir,
+		"../hooks/lib/plaid/plaid-route-config.ts",
+	);
 	writeFileSync(
 		config,
 		JSON.stringify({

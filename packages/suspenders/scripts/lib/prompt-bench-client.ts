@@ -5,7 +5,7 @@
 // verbatim ENHANCE_SYS, <think> strip, honest per-leg failure records
 // (no retries — a failed leg is data, not something to hide).
 import { ENHANCE_SYS } from "../../hooks/board/prompt-transform.ts";
-import { buckleChat } from "../../hooks/lib/inference-buckle.ts";
+import { buckleChat } from "../../hooks/lib/hub/inference-buckle.ts";
 
 export const BENCH_TIMEOUT_MS = 90_000;
 

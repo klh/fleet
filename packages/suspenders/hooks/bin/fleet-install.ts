@@ -31,7 +31,7 @@ import {
 	planBuckleRoutes,
 	renderBuckleRouteTable,
 	type IngressProvider,
-} from "../lib/buckle-route.ts";
+} from "../lib/hub/buckle-route.ts";
 
 import {
 	defineVerb,

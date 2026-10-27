@@ -2,13 +2,7 @@
 // merge semantics + the three surfaces (CLI set/show, pre-compact auto-roll,
 // session-start read-first line) against real spawned scripts in a temp HOME
 // and temp checkpoint root.
-import {
-	describe,
-	test,
-	expect,
-	afterAll,
-	setDefaultTimeout,
-} from "bun:test";
+import { describe, test, expect, afterAll, setDefaultTimeout } from "bun:test";
 import {
 	mkdtempSync,
 	rmSync,
@@ -79,7 +73,7 @@ const SID = "w253test-sess";
 // spawns resolve projectIdentity() from cwd=REPO, which sits INSIDE the
 // worktree — git walks up to the real common dir, so the slug is the
 // project's, not REPO's. Derive the expected dir the same way.
-import { projectIdentity } from "../hooks/lib/govdb.ts";
+import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
 const PDIR = join(CKPTS, slug(projectIdentity()));
 
 // ---- pure helpers --------------------------------------------------------

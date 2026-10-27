@@ -5,7 +5,7 @@
 // tool_response error signal and stays silent otherwise (gates that act,
 // stay silent otherwise). Interrupts and noise classes never count.
 import { allow, feedback, type HookInput } from "../lib/hookio.ts";
-import { isNoise, recordToolFailure } from "../lib/tool-failures.ts";
+import { isNoise, recordToolFailure } from "../lib/gates/tool-failures.ts";
 
 type PostToolPayload = HookInput & {
 	tool_response?: unknown;

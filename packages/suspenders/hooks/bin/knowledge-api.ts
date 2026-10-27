@@ -1,10 +1,10 @@
-import { makeStore, enqueueKnowledge } from "../lib/sqlite-store.ts";
+import { makeStore, enqueueKnowledge } from "../lib/knowledge/sqlite-store.ts";
 import {
 	proseCards,
 	withTrust,
 	KNOWLEDGE_PRECEDENCE,
 	type KnowledgeHit,
-} from "../lib/knowledge.ts";
+} from "../lib/knowledge/knowledge.ts";
 import { servicemon } from "../lib/servicemon.ts";
 import { hostGuard, tokenOk, writeToken } from "../lib/host-guard.ts";
 import {
@@ -13,16 +13,16 @@ import {
 	mintRollKey,
 	rollKeyOk,
 	ROLL_KEY_HEADER,
-} from "../lib/knowledge-roll.ts";
-import { openKnowledgeDb } from "../lib/govdb-knowledge.ts";
+} from "../lib/knowledge/knowledge-roll.ts";
+import { openKnowledgeDb } from "../lib/knowledge/govdb-knowledge.ts";
 import {
 	aeLeavesFace,
 	aeMergeFace,
 	aeRootFace,
 	aeShardFace,
 	aePass,
-} from "../lib/knowledge-antientropy.ts";
-import { knowledgeDbPath } from "../lib/govdb-knowledge.ts";
+} from "../lib/knowledge/knowledge-antientropy.ts";
+import { knowledgeDbPath } from "../lib/knowledge/govdb-knowledge.ts";
 import {
 	answerKnowledgeQuestion,
 	executeKnowledgeSql,
@@ -31,7 +31,7 @@ import {
 	KNOWLEDGE_READ_SCOPE,
 	openKnowledgeQueryDb,
 	verifyKnowledgeKey,
-} from "../lib/knowledge-query.ts";
+} from "../lib/knowledge/knowledge-query.ts";
 // knowledge-api.ts — W91 #9b: the knowledge port's HTTP face. The SAME store
 // handlers, second transport: a consumer on another machine calls
 // http://<knowledge-api>/search instead of importing the lib. Thin by design

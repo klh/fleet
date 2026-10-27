@@ -24,6 +24,12 @@ import {
 } from "../../../scripts/lib/dispatch-admission.ts";
 import { deferItem } from "../../../scripts/lib/dispatch-defers.ts";
 import {
+	type ChosenExecutor,
+	chosenExecutor,
+	chosenExecutorLine,
+	laneModelOf,
+} from "../../../scripts/lib/dispatch-executor-note.ts";
+import {
 	composeDispatchBrief,
 	type DispatchPreviewDeps,
 	dryDispatchPreview,
@@ -41,22 +47,6 @@ import {
 	applyInsertion,
 	insertionCtx,
 } from "../../../scripts/lib/insertion.ts";
-import { jobslabFor, jobslabTag, laneClassOf } from "../jobslab.ts";
-import {
-	applyLaneAttribution,
-	executorLaunch,
-	laneEnv,
-	probeBuckleFrontVerdict,
-	recreateWorktreeFor,
-	residueOf,
-	spawnClaude,
-} from "../lane.ts";
-import {
-	ensureLaneKey,
-	LANE_KEY_TTL_S,
-	laneKeyMetaPath,
-} from "../lane-auth.ts";
-import { laneAttemptLimit, nextLaneAttempt } from "../lane-retry-budget.ts";
 import { laneSettingsData } from "../../../scripts/lib/lane-settings.ts";
 import {
 	dispatchStarterFork,
@@ -79,7 +69,6 @@ import {
 	readConfiguredLaunches,
 	reserveLaunchIntent,
 } from "../../../scripts/lib/launch-fencing.ts";
-import { launchParent } from "../launch-parent.ts";
 import {
 	acquireLaunchLease,
 	renewLaunchLease,
@@ -94,23 +83,45 @@ import {
 } from "../../../scripts/lib/resume-from.ts";
 import { verdictRepeatGate } from "../../../scripts/lib/verdict-repeat-gate.ts";
 import { capsuleValidity } from "../capsule-fence.ts";
-import { quotaProviderPenalty } from "../exec-quota.ts";
 import {
 	cvMap,
 	executorCv,
 	recordLaneExecutor,
 	writeExecutorCvFacts,
-} from "../executor-cv.ts";
+} from "../executors/executor-cv.ts";
+import { launchToken } from "../executors/detect.ts";
 import { adapterFor } from "../executors/registry.ts";
-import { openStore, projectIdentity } from "../govdb.ts";
-import { resolveHub } from "../hub-locate.ts";
-import { dispatchLaneEffort } from "../lane-effort-policy.ts";
-import { laneProcessIdentity } from "../lane-liveness.ts";
-import { laneSid as sidOf } from "../laneslug.ts";
-import { type Posture, recordPlaidTrace } from "../plaid.ts";
-import { verifiedContextContinuation } from "../reclaim-context.ts";
+import { openStore, projectIdentity } from "../govdb/govdb.ts";
+import { resolveHub } from "../hub/hub-locate.ts";
+import { jobslabFor, jobslabTag, laneClassOf } from "../lanes/jobslab.ts";
+import {
+	applyLaneAttribution,
+	executorLaunch,
+	laneEnv,
+	probeBuckleFrontVerdict,
+	recreateWorktreeFor,
+	residueOf,
+	spawnClaude,
+} from "../lanes/lane.ts";
+import {
+	ensureLaneKey,
+	LANE_KEY_TTL_S,
+	laneKeyMetaPath,
+} from "../lanes/lane-auth.ts";
+import { dispatchLaneEffort } from "../lanes/lane-effort-policy.ts";
+import { laneProcessIdentity } from "../lanes/lane-liveness.ts";
+import {
+	laneAttemptLimit,
+	nextLaneAttempt,
+} from "../lanes/lane-retry-budget.ts";
+import { laneSid as sidOf } from "../lanes/laneslug.ts";
+import { launchParent } from "../lanes/launch-parent.ts";
+import { restorableBaseline } from "../lanes/original-baseline.ts";
+import { verifiedContextContinuation } from "../lanes/reclaim-context.ts";
+import { type Posture, recordPlaidTrace } from "../plaid/plaid.ts";
 import { policyBriefLines } from "../session-policy.ts";
 import { darkHubNow, policyForRepo, tryLoadStack } from "../stack-config.ts";
+import { quotaProviderPenalty } from "../usage/exec-quota.ts";
 
 /** The entrypoint-bound closures + run-config the launch machine consumes.
  *  Mutable cycle collectors (refusal/wait/seed arrays) are shared references
@@ -131,9 +142,13 @@ export type LaneLaunchDeps = {
 	governanceRefusals: string[];
 	launchWaits: string[];
 	seedFallbacks: string[];
+	/** W1353: one row per lane launched/previewed — the run tail's executor table. */
+	chosenExecutors?: ChosenExecutor[];
 	governanceMode: () => "strict" | "solo";
 	routingExtra: () => string[];
 	itemCapsuleGet: (item: string) => Record<string, string> | null;
+	/** W1295: `--role` agent-rules override; absent = composer auto-selects. */
+	role?: string;
 	routeAdmission: RouteAdmission;
 	sh: (cmd: string[], cwd?: string) => string;
 	run: (cmd: string[], cwd?: string) => { code: number; out: string };
@@ -172,9 +187,11 @@ export const dispatchLane = async (
 		governanceRefusals,
 		launchWaits,
 		seedFallbacks,
+		chosenExecutors,
 		governanceMode,
 		routingExtra,
 		itemCapsuleGet,
+		role,
 		routeAdmission,
 		sh,
 		run,
@@ -210,6 +227,10 @@ export const dispatchLane = async (
 		itemCapsuleGet,
 		routingExtra,
 		policyBriefExtra,
+		ROUTING_PREFER,
+		plaid: POSTURE === "plaid",
+		...(chosenExecutors ? { chosenExecutors } : {}),
+		...(role ? { role } : {}),
 	};
 	const sid = resume?.sid ?? sidOf(item, projectIdentity(REPO));
 	let attempt = resume ? nextLaneAttempt(resume.attempt ?? 0) : 0;
@@ -496,8 +517,15 @@ export const dispatchLane = async (
 		);
 		attempt = intent.attempt;
 		// W620: stamp the join keys future trust folds attribute by (W105
-		// parity with the board path) — model fact only when a pin exists
-		recordLaneExecutor(store, sid, pick.name, pick.model);
+		// parity with the board path) — model fact only when a pin exists.
+		// W1731: the executor token must read back as the SPAWNED adapter —
+		// completion picks the transcript evidence reader from it.
+		recordLaneExecutor(
+			store,
+			sid,
+			launchToken(pick.name, pick.bin),
+			pick.model,
+		);
 		recordPlaidTrace(store, sid, POSTURE, routeName);
 
 		const expected = `suspenders/${item}`;
@@ -677,7 +705,7 @@ export const dispatchLane = async (
 			// client-side unrecognized_model before its first wire call
 			const ctx = insertionCtx(
 				env,
-				pick.model ?? "glm-5.3-flash",
+				laneModelOf(pick),
 				pick.bin,
 				tryLoadStack(),
 			);
@@ -816,7 +844,7 @@ export const dispatchLane = async (
 			harness: pick.bin ?? "claude",
 			fleet: FLEET,
 			bin,
-			model: pick.model ?? "glm-5.3-flash",
+			model: laneModelOf(pick),
 			item,
 			sid,
 			wt,
@@ -858,7 +886,7 @@ export const dispatchLane = async (
 		// requests get the pinned model injected at call time (PreToolUse
 		// updatedInput), the one channel no settings-env merge can clobber.
 		const laneSettings = `${FLEET}/lane-settings-${sid}.json`;
-		const m = pick.model ?? "glm-5.3-flash";
+		const m = laneModelOf(pick);
 		const settingsData = laneSettingsData(
 			env,
 			m,
@@ -874,6 +902,16 @@ export const dispatchLane = async (
 		// Immutable evidence base survives resumes and later main-branch merges.
 		const completionContext = `${wt}/.fleet/lane-context.json`;
 		mkdirSync(`${wt}/.fleet`, { recursive: true });
+		// W1730: a fresh context over the item's own earlier product (a released
+		// manual take, a re-minted tree) starts at its registered original base
+		// — HEAD when none verifies or its span holds no own commits
+		const freshBaseline = () => {
+			const head = sh(["git", "-C", wt, "rev-parse", "HEAD"]);
+			return (
+				restorableBaseline(store, { project, item, tree: wt }, head)?.sha ??
+				head
+			);
+		};
 		if (takeToken) {
 			// W643: merge the fresh take token into the activation context —
 			// create-with-baseline when absent, token-only merge when it exists
@@ -892,7 +930,7 @@ export const dispatchLane = async (
 						: {
 								sid,
 								item,
-								baseline: sh(["git", "-C", wt, "rev-parse", "HEAD"]),
+								baseline: freshBaseline(),
 								launchedAt: Date.now(),
 								claimToken: takeToken,
 							},
@@ -904,7 +942,7 @@ export const dispatchLane = async (
 				JSON.stringify({
 					sid,
 					item,
-					baseline: sh(["git", "-C", wt, "rev-parse", "HEAD"]),
+					baseline: freshBaseline(),
 					launchedAt: Date.now(),
 				}),
 			);
@@ -983,6 +1021,17 @@ export const dispatchLane = async (
 		console.log(
 			`dispatched ${item} → ${sid} (pid ${proc.pid})${capsule ? ` — resumed from capsule (${capVerdict})` : ""}${hubNote}`,
 		);
+		const chosen = chosenExecutor({
+			item,
+			pick,
+			hub: resolvedHub ?? null,
+			route: routeName,
+			routing: ROUTING_PREFER,
+			repo: CALLER_REPO,
+		});
+		chosenExecutors?.push(chosen);
+		console.log(chosenExecutorLine(chosen));
+		if (chosen.warn) console.log(chosen.warn);
 		return `${item}→${sid}(pid ${proc.pid})`;
 	} catch (error) {
 		governanceRefusals.push(item);

@@ -98,6 +98,22 @@ bus events whose `payload.work` or scope equals the item (checkpoint/landed/bloc
 work.* kinds included), newest first; and `decisions: [{ event_id, state, question,
 answer_note|null }]` for the item. Missing id → 404 shape.
 
+## GET /api/task/launch-context?project=&id= (W1240)
+
+Read-only launch context for the task drawer — what the lane was literally
+told before work began. `{ ok, source, sid, text }` where `source` is:
+
+- `brief` — the dispatch-time brief VERBATIM (raw bytes of the primary
+  checkout's `.fleet/brief-<sid>.md`, resolved via canonicalProjectRoot).
+  Never reconstructed or summarized.
+- `item` — no stored brief; the item's own labeled raw fields
+  (`[description] …`, `[alloc_reason] …`, `[why_parallel] …`,
+  `[depends] …`) as the fallback text.
+- `none` — nothing to show; the drawer renders the honest empty state.
+
+Sibling endpoint by design: briefs run ~5KB so the /api/tasks feed does not
+carry them. Unknown id → 404.
+
 ## GET /api/spend-series (W887)
 
 `{ ok, series }` — per-item spend-over-time for the card sparklines: hour-bucket
@@ -159,7 +175,7 @@ and the stock CLI model endpoints count as remote.
 ## GET /api/services (W273)
 
 `{ ok, services: [{ id, name, port, up, state, detail, probed_at, recovery }] }`
-— every service in the recovery map (`hooks/lib/recovery-map.ts`), probed
+— every service in the recovery map (`hooks/lib/fleet-loop/recovery-map.ts`), probed
 now. `state`: `up` (answered, <500), `degraded` (HTTP 5xx, or launchd agent
 loaded but not running), `down` (nothing answered / agent not loaded).
 `recovery` = `{ id, name, probe, what, causes[], recovery: [{ label, cmd }] }`:

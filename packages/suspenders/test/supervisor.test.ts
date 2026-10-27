@@ -35,7 +35,7 @@ import {
 	type SupervisorLive,
 	type SupervisorRow,
 	type Sh,
-} from "../hooks/lib/supervisor.ts";
+} from "../hooks/lib/lanes/supervisor.ts";
 
 // temp-HOME isolation for the real-migration shape test (govdb-router
 // recipe): the ?query import busts bun's module cache so THIS file's govdb
@@ -44,7 +44,7 @@ const MHOME = mkdtempSync(join(tmpdir(), "suspenders-w266-"));
 const REAL_HOME = process.env.HOME;
 process.env.HOME = MHOME; // REG binds at govdb module load — set before import
 const govdb = await import(
-	`../hooks/lib/govdb.ts?w266=${encodeURIComponent(MHOME)}`
+	`../hooks/lib/govdb/govdb.ts?w266=${encodeURIComponent(MHOME)}`
 );
 process.env.HOME = REAL_HOME;
 

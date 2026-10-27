@@ -381,6 +381,31 @@ export function responseAnthropicToOpenAI(msg: AnyRec): {
 
 // ---- request direction: openai ingress → anthropic upstream ----
 
+/** W1142: the Anthropic 2026-10-21 Messages wire REMOVED temperature/top_p/
+ *  top_k — a request sending any of them returns 400 even at the parameter's
+ *  default value (docs.anthropic.com /en/api/migration-2026-10-21). Rows
+ *  declare their wire via adapter_config: a pinned `anthropic-version:
+ *  2026-10-21` header or an explicit `strip_sampling_params: true` removes
+ *  the three from the wire body (W1080 honest-degrade class); unpinned rows
+ *  keep today's verbatim forward (copilot et al. still accept them). */
+const REMOVED_SAMPLING_2026_10_21 = new Set(["temperature", "top_p", "top_k"]);
+
+export function stripRemovedSampling(
+	body: AnyRec,
+	adapter_config?: Record<string, unknown>,
+): AnyRec {
+	const headers = adapter_config?.headers;
+	const pinned =
+		headers && typeof headers === "object"
+			? (headers as AnyRec)["anthropic-version"]
+			: undefined;
+	if (pinned !== "2026-10-21" && adapter_config?.strip_sampling_params !== true)
+		return body;
+	const out = { ...body };
+	for (const key of REMOVED_SAMPLING_2026_10_21) delete out[key];
+	return out;
+}
+
 const OPENAI_DEGRADE = new Set([
 	"frequency_penalty",
 	"presence_penalty",

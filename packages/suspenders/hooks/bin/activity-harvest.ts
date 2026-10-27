@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
 // hooks/bin/activity-harvest.ts — W657 thin face: the collector library is
-// hooks/lib/activity-harvest.ts (activityAdapter rides the W657 engine
+// hooks/lib/harvest/activity-harvest.ts (activityAdapter rides the W657 engine
 // pipeline); scheduling is the ONE shared gate maybeHarvest (usage lib).
 // w159: govdb opens LAZILY inside main.
 //   bun hooks/bin/activity-harvest.ts [--force] [--weeks N]
 // Prints {harvest, meter} — the harvest field is the pipeline's usage-stats
 // face (activity rides the same gated pass; meter output is unchanged).
-import { activityReport } from "../lib/activity-harvest.ts";
-import { maybeHarvest } from "../lib/usage-harvest.ts";
+import { activityReport } from "../lib/harvest/activity-harvest.ts";
+import { maybeHarvest } from "../lib/usage/usage-harvest.ts";
 import { defineVerb, parseVerb } from "../lib/verb-kit.ts";
 
 if (import.meta.main) {
@@ -28,7 +28,7 @@ if (import.meta.main) {
 		);
 		process.exit(2);
 	}
-	const { openStore } = await import("../lib/govdb.ts");
+	const { openStore } = await import("../lib/govdb/govdb.ts");
 	const db = openStore();
 	const force = outcome.parsed.rest.includes("--force");
 	const weeksRaw = outcome.parsed.flag("--weeks");

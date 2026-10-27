@@ -1,8 +1,8 @@
 # Nightly real-provider soak — W179.3
 
-`hooks/bin/soak.ts` + `hooks/lib/soak.ts` extend the W162 sim smoke's
+`hooks/bin/soak.ts` + `hooks/lib/fleet-loop/soak.ts` extend the W162 sim smoke's
 PASS/RED/ERR chain into a scheduled nightly real-provider soak with hard
-spend caps. Belt resolves through the shared chain (`hooks/lib/belt-locate.ts`);
+spend caps. Belt resolves through the shared chain (`hooks/lib/hub/belt-locate.ts`);
 each iteration = belt status + one small REAL completion through
 `POST /api/route` (the advise.ts call shape), metered and capped.
 

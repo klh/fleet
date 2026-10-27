@@ -9,7 +9,7 @@
 //
 // usage: bun ~/.claude/bin/fleet-tracker.ts [--project p] [--history N]
 //        [--poll-ms N] [--once] [--no-color] [--help]
-import { openStore } from "../lib/govdb.ts";
+import { openStore } from "../lib/govdb/govdb.ts";
 import { defineVerb, dieFor, parseVerb } from "../lib/verb-kit.ts";
 import { TrackerFeed } from "../tracker/feed.ts";
 import { renderFrame } from "../tracker/render.ts";

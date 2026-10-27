@@ -4,7 +4,7 @@ import {
 	MODEL_INVENTORY,
 	matchingRegistrations,
 } from "../hooks/lib/service-inventory.ts";
-import { RECOVERY_MAP } from "../hooks/lib/recovery-map.ts";
+import { RECOVERY_MAP } from "../hooks/lib/fleet-loop/recovery-map.ts";
 import { localPage } from "../hooks/bin/console-html.ts";
 
 test("every canonical model has exactly one monitored endpoint", () => {

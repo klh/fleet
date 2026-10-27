@@ -14,7 +14,7 @@ import {
 	openStore,
 	resolveProject,
 	resolveStoreHttpBase,
-} from "../lib/govdb.ts";
+} from "../lib/govdb/govdb.ts";
 import {
 	type BusEvent,
 	type ChannelName,
@@ -22,11 +22,11 @@ import {
 	loadNotifyConfig,
 	type NotifyConfig,
 	subscribedKinds,
-} from "../lib/notify.ts";
-import { sendersFor } from "../lib/notify-adapters.ts";
-import { firePulse, PULSE_STATE_PATH } from "../lib/pulse.ts";
-import { fleetWarm, readMiningLines } from "../lib/cache-drilldown.ts";
-import { readLicenseLines } from "../lib/license-audit.ts";
+} from "../lib/notify/notify.ts";
+import { sendersFor } from "../lib/notify/notify-adapters.ts";
+import { firePulse, PULSE_STATE_PATH } from "../lib/notify/pulse.ts";
+import { fleetWarm, readMiningLines } from "../lib/usage/cache-drilldown.ts";
+import { readLicenseLines } from "../lib/fleet-loop/license-audit.ts";
 import { defineVerb, runCli } from "../lib/verb-kit.ts";
 
 const log = (m: string): void =>

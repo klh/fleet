@@ -5,21 +5,41 @@
 // claims return to READY without an operator pass and dispatch refills them
 // same-cycle. Releases broadcast fleet-wide (the ONE coord broadcast, 24h
 // note-dedupe). The caller fail-isolates the sweep (the wisdom-sweep rule).
-import { projectIdentity } from "../govdb.ts";
-import { reclaimAll } from "../reclaim-all.ts";
-import type { GovernorStore } from "../govdb.ts";
+// W1302.5: when a transport probe rides the deps, each pass first reads the
+// buckle in-flight index — a claimant holding an ACTIVE gate request is
+// producing, so its claim holds (O1 admission-misfire guard); an
+// unavailable index leaves the pass transport-blind, never transport-dead.
+import { projectIdentity } from "../govdb/govdb.ts";
+import { reclaimAll } from "../lanes/reclaim-all.ts";
+import type { GovernorStore } from "../govdb/govdb.ts";
+import type { TransportProbe } from "../lanes/transport-liveness.ts";
 import type { LoopDeps } from "./runtime.ts";
 
 export function createReclaimSweep(
 	deps: LoopDeps & {
 		broadcast: (note: string) => unknown;
 		store: () => GovernorStore;
+		transport?: TransportProbe;
 	},
-): { reclaimSweep: () => void } {
-	const { REPO, log, broadcast, store } = deps;
+): { reclaimSweep: () => Promise<void> } {
+	const { REPO, log, broadcast, store, transport } = deps;
 	return {
-		reclaimSweep: () => {
-			const r = reclaimAll(store(), projectIdentity(REPO), REPO);
+		reclaimSweep: async (): Promise<void> => {
+			let inflight: Map<string, boolean> | null = null;
+			if (transport) {
+				try {
+					const probe = await transport.probe();
+					inflight = probe.available ? probe.alive : null;
+				} catch {
+					inflight = null;
+				}
+			}
+			const r = reclaimAll(
+				store(),
+				projectIdentity(REPO),
+				REPO,
+				inflight ?? undefined,
+			);
 			const released = r.filter((x) => x.action === "released");
 			if (released.length === 0) return;
 			const ids = released.map((x) => x.id).join(", ");

@@ -4,18 +4,24 @@
 // entrypoint owns (sh/run/workCli/coordCli, brief extras, capsule getters)
 // arrive as a deps bag; bodies moved from dispatch-next.ts.
 import { existsSync } from "node:fs";
-import { briefIntel } from "../../hooks/lib/brief-intel.ts";
 import { adapterFor } from "../../hooks/lib/executors/registry.ts";
-import { projectIdentity } from "../../hooks/lib/govdb.ts";
-import { laneEffortBriefLine } from "../../hooks/lib/lane-effort-policy.ts";
-import { plaidPickOf, plaidRoutes } from "../../hooks/lib/plaid.ts";
-import { effortFromShow } from "../../hooks/lib/work-effort.ts";
+import { projectIdentity } from "../../hooks/lib/govdb/govdb.ts";
+import { briefIntel } from "../../hooks/lib/lanes/brief-intel.ts";
+import { laneEffortBriefLine } from "../../hooks/lib/lanes/lane-effort-policy.ts";
+import { plaidPickOf, plaidRoutes } from "../../hooks/lib/plaid/plaid.ts";
+import { effortFromShow } from "../../hooks/lib/work/work-effort.ts";
 import { composeBrief } from "./brief.ts";
 import { briefVerdictLine, verifyBrief } from "./brief-verify.ts";
 import { cvSnapshot, quotaSnapshot } from "./dispatch-admission.ts";
+import {
+	type ChosenExecutor,
+	chosenExecutor,
+	chosenExecutorLine,
+} from "./dispatch-executor-note.ts";
 import { execPick } from "./exec-chain.ts";
 import { fleetReport } from "./fleet-report.ts";
 import { landingRedirect } from "./landing-redirect.ts";
+import type { PreferRouting } from "./prefer-routing.ts";
 import { decisionFor, resumeBriefLine } from "./resume-from.ts";
 
 /** The dispatch-next entrypoint's bound closures, threaded instead of closed
@@ -32,6 +38,15 @@ export type DispatchPreviewDeps = {
 	itemCapsuleGet: (item: string) => Record<string, string> | null;
 	routingExtra: () => string[];
 	policyBriefExtra: (project: string) => string[];
+	/** W1295: `--role` override threaded from the dispatch CLI; absent = the
+	 *  composer selects from the item's tags/title. */
+	role?: string;
+	/** W1353: the resolved .prefer routing plane — the quoted-without-chain WARN reads it. */
+	ROUTING_PREFER?: PreferRouting;
+	/** W1353: plaid picks its route at launch, so the preview has no executor to disclose. */
+	plaid?: boolean;
+	/** W1353: rows for the run tail's executor table. */
+	chosenExecutors?: ChosenExecutor[];
 };
 
 /** composeBrief's dispatch-shaped inputs (W928): everything the shared
@@ -65,6 +80,7 @@ export const composeDispatchBrief = (
 		capsule: a.capsule,
 		itemCapsule: d.itemCapsuleGet(a.item),
 		agent: a.pick.agent,
+		...(d.role ? { role: d.role } : {}),
 		effort: effortFromShow(a.show.out),
 		effortPolicy: laneEffortBriefLine(d.REPO, a.item),
 		...(a.landing !== undefined ? { landing: a.landing } : {}),
@@ -132,6 +148,20 @@ export const dryDispatchPreview = async (
 		console.log(
 			`DRY chain attempt ${pick.chainIdx}/${pick.chainLen - 1} -> ${pick.agent}${pick.fallbackModels.length ? ` (+fallback-model ${pick.fallbackModels.join(",")})` : ""}`,
 		);
+	// plaid without a route pin picks its route at launch — nothing to preview
+	if (route || !d.plaid) {
+		const chosen = chosenExecutor({
+			item,
+			pick,
+			hub: route ? null : pick.hub,
+			route: route?.name ?? null,
+			routing: d.ROUTING_PREFER,
+			repo: CALLER_REPO,
+		});
+		d.chosenExecutors?.push(chosen);
+		console.log(`DRY ${chosenExecutorLine(chosen)}`);
+		if (chosen.warn) console.log(chosen.warn);
+	}
 	const landing = await landingRedirect(REPO, branch);
 	const { brief } = composeDispatchBrief(d, {
 		item,

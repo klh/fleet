@@ -10,9 +10,9 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir, hostname } from "node:os";
-import { openStore } from "../../hooks/lib/govdb.ts";
-import { projectIdentity } from "../../hooks/lib/govdb-project.ts";
-import { verifiedPauseCheckpoint } from "../../hooks/lib/claude-pause.ts";
+import { openStore } from "../../hooks/lib/govdb/govdb.ts";
+import { projectIdentity } from "../../hooks/lib/govdb/govdb-project.ts";
+import { verifiedPauseCheckpoint } from "../../hooks/lib/executors/claude-pause.ts";
 import {
 	checkpointedClaudeRestart,
 	privateJson,
@@ -26,30 +26,30 @@ import {
 	type ClaudeRestartSnapshot,
 	type ClaudeRestartJournal,
 	type RestartIdentity,
-} from "../../hooks/lib/claude-restart.ts";
+} from "../../hooks/lib/executors/claude-restart.ts";
 import {
 	canonicalProjectRoot,
 	loadLaneRegistry,
 	repairLaneRegistryPid,
 	registerMissingRestartLane,
-} from "../../hooks/lib/lane-registry.ts";
-import { registryWorktrees } from "../../hooks/lib/worktree-lookup.ts";
+} from "../../hooks/lib/lanes/lane-registry.ts";
+import { registryWorktrees } from "../../hooks/lib/work/worktree-lookup.ts";
 import {
 	laneProcessIdentity,
 	type LaneRef,
-} from "../../hooks/lib/lane-liveness.ts";
+} from "../../hooks/lib/lanes/lane-liveness.ts";
 import {
 	processBirth,
 	launchIntent,
 	sameMachine,
 	type LaunchIntent,
 } from "./launch-fencing.ts";
-import { adminKey, BUCKLE_FRONT } from "../../hooks/lib/lane-auth.ts";
+import { adminKey, BUCKLE_FRONT } from "../../hooks/lib/lanes/lane-auth.ts";
 import { adapterForExact } from "../../hooks/lib/executors/registry.ts";
 import { materializeRestartSettings } from "./claude-restart-settings.ts";
 import { restartTreeHash as treeHash } from "./restart-tree-snapshot.ts";
-import { readLaneContextFile } from "../../hooks/lib/lane-context.ts";
-import { claimTokenVerdict } from "../../hooks/lib/work-fence.ts";
+import { readLaneContextFile } from "../../hooks/lib/lanes/lane-context.ts";
+import { claimTokenVerdict } from "../../hooks/lib/work/work-fence.ts";
 
 const identity = (pid: number): RestartIdentity | false | null => {
 	const found = processBirth(pid);

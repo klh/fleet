@@ -17,8 +17,8 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { laneSid } from "../hooks/lib/laneslug.ts";
-import { projectIdentity } from "../hooks/lib/govdb.ts";
+import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
+import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
 import { dispatchHarness } from "./helpers/dispatch-harness.ts";
 
 // fake executor (see executorBody below): dumps its process env — the
@@ -206,9 +206,7 @@ describe("multi-hub dispatch e2e (W357): .prefer hub= candidates walk", () => {
 		);
 		expect(out).toContain("dispatched ");
 		// surfaced, never silent — the NOTE names the label and the fallback
-		expect(out).toContain(
-			"NOTE — hub=GHOST unreachable; using local belt",
-		);
+		expect(out).toContain("NOTE — hub=GHOST unreachable; using local belt");
 		// the dead-front probe ride is disclosed (--allow-ungoverned path)
 		expect(out).toContain("UNGOVERNED DISPATCH — operator override");
 		// no hub env reaches the lane; the belt default base stands

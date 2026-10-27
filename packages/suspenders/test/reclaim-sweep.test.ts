@@ -17,9 +17,12 @@ import {
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createReclaimSweep } from "../hooks/lib/fleet-loop/reclaim-sweep.ts";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
-import { type ReclaimAllRow, reclaimAll } from "../hooks/lib/reclaim-all.ts";
-import { setReclaimHold } from "../hooks/lib/reclaim-liveness.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
+import {
+	type ReclaimAllRow,
+	reclaimAll,
+} from "../hooks/lib/lanes/reclaim-all.ts";
+import { setReclaimHold } from "../hooks/lib/lanes/reclaim-liveness.ts";
 
 const databases: Database[] = [];
 const directories: string[] = [];

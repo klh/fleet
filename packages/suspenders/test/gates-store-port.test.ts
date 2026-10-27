@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const HOOKS = join(import.meta.dir, "..", "hooks");
-const GOVDB = join(HOOKS, "lib", "govdb.ts");
+const GOVDB = join(HOOKS, "lib", "govdb", "govdb.ts");
 const SERVER = join(HOOKS, "bin", "store-server.ts");
 const home = mkdtempSync(join(tmpdir(), "suspenders-gates-port-"));
 const repo = mkdtempSync(join(tmpdir(), "suspenders-gates-port-repo-"));

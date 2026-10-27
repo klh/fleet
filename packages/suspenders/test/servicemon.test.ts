@@ -23,7 +23,7 @@ import {
 } from "../hooks/lib/servicemon.ts";
 
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
-const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
+const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
 
 // temp HOMEs under the repo (never /tmp) — the spawned services open their own
 // governor.db/knowledge stores under HOME, never the live one

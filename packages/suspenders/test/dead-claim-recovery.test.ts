@@ -1,14 +1,14 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { Database } from "bun:sqlite";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 import {
 	observeDeadClaim,
 	attemptRecovery,
 	reserveRecovery,
 	resetRecovery,
 	recordRecoveryResult,
-} from "../hooks/lib/dead-claim-recovery.ts";
+} from "../hooks/lib/lanes/dead-claim-recovery.ts";
 
 test("automatic loop paths cannot bulk-reclaim outside the verified core", () => {
 	const loop = readFileSync(
@@ -26,7 +26,7 @@ test("automatic loop paths cannot bulk-reclaim outside the verified core", () =>
 	);
 	expect(sweep).toContain("reclaimAll(");
 	const core = readFileSync(
-		new URL("../hooks/lib/reclaim-all.ts", import.meta.url),
+		new URL("../hooks/lib/lanes/reclaim-all.ts", import.meta.url),
 		"utf8",
 	);
 	expect(core).toContain("observeReclaim");

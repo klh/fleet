@@ -1,6 +1,6 @@
 // Dependency details on cards without cross-column connector lines.
 import { expect, test } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
+import { type Board, startBoard } from "./harness";
 
 test.describe.configure({ mode: "serial" });
 
@@ -19,9 +19,9 @@ function mustBoard(): Board {
 	return board;
 }
 
-test("blocked and split cards name their dependencies without connector lines", async ({
-	page,
-}) => {
+test("blocked and split cards name their dependencies without connector lines", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const b = mustBoard();
 	const errors: string[] = [];
 	page.on("pageerror", (e) => errors.push(String(e)));

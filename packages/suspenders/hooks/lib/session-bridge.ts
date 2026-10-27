@@ -11,8 +11,8 @@
 // touches this file.
 import { writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { lanesFileFor } from "./fleetlane.ts";
-import { openStore } from "./govdb.ts";
+import { lanesFileFor } from "./lanes/fleetlane.ts";
+import { openStore } from "./govdb/govdb.ts";
 
 // Bun's spawnSync drops the `input` option — stdin rides a temp file (the
 // gates.test.ts lesson, shared by every dialect that spawns session-*.ts).

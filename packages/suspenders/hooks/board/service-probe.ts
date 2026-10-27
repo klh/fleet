@@ -9,7 +9,7 @@ import {
 	PROBED_SERVICES,
 	type RecoveryEntry,
 	recoveryFor,
-} from "../lib/recovery-map.ts";
+} from "../lib/fleet-loop/recovery-map.ts";
 import { scrub } from "../lib/servicemon.ts";
 import { observation, type Observation } from "../lib/observation.ts";
 import {

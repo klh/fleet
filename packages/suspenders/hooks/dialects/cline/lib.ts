@@ -1,4 +1,4 @@
-import { resolveFleetLane } from "../../lib/fleetlane.ts";
+import { resolveFleetLane } from "../../lib/lanes/fleetlane.ts";
 import type { HookInput } from "../../lib/hookio.ts";
 
 export type ClineDecision = { stdout?: string; stderr?: string; exit: number };

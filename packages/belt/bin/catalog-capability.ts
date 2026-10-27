@@ -15,13 +15,14 @@
 //
 // CLI: catalog-capability.ts [--json] — markdown per-machine table (default)
 // or the raw rows. The dashboard serves the same payload at GET /api/catalog.
+
+import { LOCAL_NAME, metricsFor } from "./metrics.ts";
+import { type RegistryEntry, registryEntries } from "./registry.ts";
 import {
 	loadStatic,
-	type RemoteMachine,
 	type RemoteEndpoint,
+	type RemoteMachine,
 } from "./remotes.ts";
-import { LOCAL_NAME, metricsFor } from "./metrics.ts";
-import { registryEntries, type RegistryEntry } from "./registry.ts";
 
 /** metrics.db is best-effort — a missing/unreadable db (fresh install,
  *  scratch HOME) reads as never-routed (null), never a crash. */

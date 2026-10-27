@@ -13,7 +13,7 @@ import {
 	launchIntent,
 	launchSchema,
 } from "./launch-fencing.ts";
-import { openStore, projectIdentity } from "../../hooks/lib/govdb.ts";
+import { openStore, projectIdentity } from "../../hooks/lib/govdb/govdb.ts";
 import {
 	defineVerb,
 	parseVerb,

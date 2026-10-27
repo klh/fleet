@@ -33,8 +33,8 @@ import {
 	browserConsoleUrl,
 	hubConsoleLinks,
 	hubGatewayRoutes,
-	hubProviderObservations,
 	hubLlmsRows,
+	hubProviderObservations,
 	readHubs,
 } from "./hubs.ts";
 import { modelFromProcess, probePathFor } from "./inventory-probe.ts";
@@ -51,11 +51,11 @@ import {
 import { handleTheme, isThemePath } from "./klh-theme-sync.ts";
 import { metricsFor, metricsHistory, metricsSnapshot } from "./metrics.ts";
 import { type ModelAccess, modelAccess } from "./model-access.ts";
-import { buildModelInventory } from "./model-inventory.ts";
 import {
-	collectModelCapabilities,
 	type CapabilityFeed,
+	collectModelCapabilities,
 } from "./model-capability-collector.ts";
+import { buildModelInventory } from "./model-inventory.ts";
 import { observation, observationFresh } from "./observation.ts";
 import { DOWNLOAD_MODELS, ROUTER, registryEntries } from "./registry.ts";
 import { registryResponse } from "./registry-emit.ts";

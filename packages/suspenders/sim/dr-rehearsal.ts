@@ -42,9 +42,9 @@ process.env.GOVERNOR_STORE_URL = "local";
 const DEST = join(HOME, "backups");
 
 // ---- seed: a real identity in the sandbox ----------------------------------
-const { openIdentity, openStore } = await import("../hooks/lib/govdb.ts");
-const auth = await import("../hooks/lib/auth.ts");
-const { saveTokenFiles } = await import("../hooks/lib/auth-client.ts");
+const { openIdentity, openStore } = await import("../hooks/lib/govdb/govdb.ts");
+const auth = await import("../hooks/lib/auth/auth.ts");
+const { saveTokenFiles } = await import("../hooks/lib/auth/auth-client.ts");
 void openStore(); // governor open runs the ladder — v17 creates identity.db + its tables
 const store = openIdentity(); // identity rows live in identity.db post-split (W359)
 const req = (tok: string) => ({

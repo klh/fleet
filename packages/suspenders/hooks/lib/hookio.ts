@@ -4,7 +4,7 @@
 import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { resolveFleetLane } from "./fleetlane.ts";
+import { resolveFleetLane } from "./lanes/fleetlane.ts";
 import {
 	readSessionState,
 	sessionStatePath,

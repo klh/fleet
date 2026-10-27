@@ -63,9 +63,9 @@ const URL0 = await (async (): Promise<string> => {
 	throw new Error("canonical store server did not come up");
 })();
 
-const auth = await import("../hooks/lib/auth.ts");
-const govdb = await import("../hooks/lib/govdb.ts");
-const client = await import("../hooks/lib/auth-client.ts");
+const auth = await import("../hooks/lib/auth/auth.ts");
+const govdb = await import("../hooks/lib/govdb/govdb.ts");
+const client = await import("../hooks/lib/auth/auth-client.ts");
 
 // W156/W359: every auth call rides the identity plane — the canonical
 // binding points at the store server's /identity port.

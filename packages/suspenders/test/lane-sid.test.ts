@@ -3,7 +3,7 @@
 // registry slot; dotless labels keep the legacy output byte-for-byte (live
 // lane names don't break).
 import { describe, test, expect } from "bun:test";
-import { laneSid, supSid } from "../hooks/lib/laneslug.ts";
+import { laneSid, supSid } from "../hooks/lib/lanes/laneslug.ts";
 import { sidOf } from "../scripts/dispatch-next.ts";
 
 describe("lane sid derivation (W460)", () => {

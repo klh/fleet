@@ -21,7 +21,7 @@ import {
 	previewPage,
 	type ConsoleMe,
 } from "./console-html.ts";
-import { atomicWrite, diffLines } from "../lib/board-config.ts";
+import { atomicWrite, diffLines } from "../lib/board/board-config.ts";
 import {
 	parseLlmDotfile,
 	repoLawsConfigPath,
@@ -35,7 +35,7 @@ import {
 	type RepoLawsEntry,
 } from "../lib/repo-laws.ts";
 import { scrub } from "../lib/servicemon.ts";
-import { openGovernorDb, projectRootOf } from "../lib/govdb.ts";
+import { openGovernorDb, projectRootOf } from "../lib/govdb/govdb.ts";
 
 // ─── deps (injected by the board hookup; sane standalone defaults) ────────
 export interface RepoLawDeps {

@@ -1,7 +1,7 @@
 import { accessSync, constants, statSync } from "node:fs";
 import { delimiter, isAbsolute, join } from "node:path";
-import { releaseWorkClaim } from "../../hooks/lib/work-release.ts";
-import type { GovernorStore } from "../../hooks/lib/govdb.ts";
+import { releaseWorkClaim } from "../../hooks/lib/work/work-release.ts";
+import type { GovernorStore } from "../../hooks/lib/govdb/govdb.ts";
 // W422: which executor tokens may resolve to a binary is registry data —
 // spawnable rows in hooks/lib/executors/ (a new agent flips its own row).
 import { isSpawnableExecutor } from "../../hooks/lib/executors/registry.ts";

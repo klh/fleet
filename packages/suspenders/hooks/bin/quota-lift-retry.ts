@@ -4,9 +4,10 @@
 // work retry is the legal requeue, and it must fire LATER. This runner (the
 // MAINTENANCE_TASKS "quota-lift-retry" task, daily 09:00 local) waits out
 // the gate date, then requeues each parked item + emits work.requeued so
-// the board shows the lift fired. The W782.1 triplet rides the SAME Copilot
-// seat reset (~2026-11-01): W738 opus-5-5 re-review, W695.6.2 tool_use
-// proof, W731 copilot digest. Self-retiring per item: a non-FAILED state
+// the board shows the lift fired. The W782.1 parked legs ride the SAME
+// Copilot seat reset (~2026-11-01): W738 opus-5-5 re-review, W695.6.2
+// tool_use proof, W731 copilot digest, W1202.1 sampling-param retest (the
+// removed Claude temperature/top_p/top_k). Self-retiring per item: a non-FAILED state
 // never re-triggers, so the day each retry lands (or the item closes) its
 // leg degrades to a no-op.
 //
@@ -15,18 +16,19 @@
 // Exit 0 = armed-waiting / no-ops / requeued · 1 = any item missing or
 // retry refused (the sweep fail-logs it; the next daily fire retries —
 // requeued/noop legs self-retire, so only the refused set re-fires).
-import { openStore, projectIdentity } from "../lib/govdb.ts";
+import { openStore, projectIdentity } from "../lib/govdb/govdb.ts";
 import {
 	gateMs,
 	parseQuotaItems,
 	quotaLiftRetry,
-} from "../lib/quota-lift-retry.ts";
+} from "../lib/usage/quota-lift-retry.ts";
 import { defineVerb, parseVerb } from "../lib/verb-kit.ts";
 
 // W669.12.3: parse rides verb-kit (W651) — declared flags, kit owns argv.
 const retry = defineVerb({
 	name: "quota-lift-retry",
-	usage: "usage: quota-lift-retry --item <id>[,<id>...] --after YYYY-MM-DD [--json]",
+	usage:
+		"usage: quota-lift-retry --item <id>[,<id>...] --after YYYY-MM-DD [--json]",
 	flags: ["--item", "--after"],
 	switches: ["--json"],
 	reqFlags: ["--item", "--after"],
@@ -63,7 +65,11 @@ const results = items.map((item) =>
 		nowMs: Date.now(),
 		emit: (kind, note) => {
 			const { emitEvent } = require("../coord/bus.ts") as {
-				emitEvent: (o: { kind: string; note: string; source: string }) => number;
+				emitEvent: (o: {
+					kind: string;
+					note: string;
+					source: string;
+				}) => number;
 			};
 			emitEvent({ kind, note, source: "quota-lift-retry" });
 		},

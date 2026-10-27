@@ -489,4 +489,14 @@ describe("services manifest win32 (W488.3)", () => {
 		// the hand-installed unit stays on the boot-out list as its supersede
 		expect(loadLegacyLabels()).toContain("com.klh-local.dashboard");
 	});
+
+	test("buckle: buckle-spoke is the ONE :4101 owner; com.klh.buckle boots out (W1467)", () => {
+		const owners = services.filter((s) =>
+			s.bunEntry.endsWith("/buckle/src/server.ts"),
+		);
+		expect(owners.map(serviceLabel)).toEqual(["com.suspenders.buckle-spoke"]);
+		expect(owners[0]?.port).toBe(4101);
+		// speedy install-fleet's retired hand-written shadow unit
+		expect(loadLegacyLabels()).toContain("com.klh.buckle");
+	});
 });

@@ -16,7 +16,7 @@ import {
 	collectFacts,
 	parseProvenance,
 	type SyncState,
-} from "../hooks/lib/knowledge-sync.ts";
+} from "../hooks/lib/knowledge/knowledge-sync.ts";
 import { landKnowledgeIngest } from "../hooks/board/knowledge-ingest.ts";
 
 setDefaultTimeout(30_000); // spawn-heavy suite (bun:test 5s default flake floor)

@@ -11,14 +11,14 @@ import {
 	finishReviewRequest,
 	launchDetachedReview,
 	reviewLaunchLogPath,
-} from "../hooks/lib/review-scheduler.ts";
-import { openMemoryStore } from "../hooks/lib/govdb-store.ts";
+} from "../hooks/lib/gates/review-scheduler.ts";
+import { openMemoryStore } from "../hooks/lib/govdb/govdb-store.ts";
 
 // spawn-heavy suite: file-level budget (bun test runs files in one process)
 setDefaultTimeout(30_000);
 
 const schedulerUrl = new URL(
-	"../hooks/lib/review-scheduler.ts",
+	"../hooks/lib/gates/review-scheduler.ts",
 	import.meta.url,
 ).pathname;
 

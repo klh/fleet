@@ -33,18 +33,12 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		expect(p.litellm_num_retries).toBe(1);
 		expect(p.allowed_fails).toBe(3);
 		expect(p.cooldown_time).toBe(30);
+		expect(p.request_timeout_s).toBe(360);
+		expect(p.first_byte_budget_s).toBe(390);
 		expect(p.fallbacks).toEqual({
-			// the ONE merged default: the glm flash ladder folds the zai-twin
-			// rescue rows with the cloud legs (see routing-policy.json comment)
-			"glm-5.3-flash": [
-				"zai-glm-5.3-flash",
-				"local-swarm",
-				"gpt-5.2",
-				"claude-sonnet-5",
-			],
+			"glm-5.3-flash": ["zai-glm-5.3-flash"],
 			"glm-5.3": ["zai-glm-5.3", "local-swarm"],
 			"glm-5.2": ["zai-glm-5.2", "local-swarm"],
-			"zai-glm-5.3-flash": ["local-swarm"],
 			"zai-glm-5.3": ["local-swarm"],
 			"zai-glm-5.2": ["local-swarm"],
 			"claude-sonnet-5": ["glm-5.3-flash", "local-swarm"],
@@ -64,11 +58,17 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		expect(JSON.stringify(p).toLowerCase().includes("flashx")).toBe(false);
 	});
 
-	test("fallback order is zai twin → local router → cloud legs, per glm group", () => {
+	test("the explicit Flash group cannot fall through to another model", () => {
+		const f = loadGatewayPolicy(REPO_POLICY).fallbacks ?? {};
+		expect(f["glm-5.3-flash"]).toEqual(["zai-glm-5.3-flash"]);
+		expect(f["zai-glm-5.3-flash"]).toBeUndefined();
+	});
+
+	test("other glm groups retain their configured fallback order", () => {
 		const f = loadGatewayPolicy(REPO_POLICY).fallbacks ?? {};
 		for (const [group, ladder] of Object.entries(f)) {
 			expect(ladder).not.toContain(group);
-			if (group.startsWith("glm")) {
+			if (group.startsWith("glm") && group !== "glm-5.3-flash") {
 				expect(ladder?.at(0)).toBe(`zai-${group}`);
 				expect(ladder).toContain("local-swarm");
 			}
@@ -78,9 +78,9 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		}
 	});
 
-	test("W880: zai twins reach the local router without reciprocal fallback", () => {
+	test("non-Flash zai twins reach the local router without reciprocal fallback", () => {
 		const f = loadGatewayPolicy(REPO_POLICY).fallbacks ?? {};
-		for (const twin of ["zai-glm-5.3-flash", "zai-glm-5.3", "zai-glm-5.2"]) {
+		for (const twin of ["zai-glm-5.3", "zai-glm-5.2"]) {
 			expect(f[twin]).toEqual(["local-swarm"]);
 		}
 		expect(f["local-swarm"]).toBeUndefined();
@@ -116,7 +116,7 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 				context_window_fallbacks: Record<string, string[]>[];
 			};
 		};
-		expect(doc.litellm_settings.fallbacks).toHaveLength(7);
+		expect(doc.litellm_settings.fallbacks).toHaveLength(6);
 		expect(doc.litellm_settings.drop_params).toBe(true);
 		expect(doc.litellm_settings.callbacks).toEqual(["prometheus"]);
 		expect(doc.litellm_settings.require_auth_for_metrics_endpoint).toBe(true);

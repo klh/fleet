@@ -17,7 +17,7 @@ import {
 } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 import {
 	acquireControllerLease,
 	cancelControllerHandoff,
@@ -283,7 +283,7 @@ describe("controller fence (W576.5)", () => {
 			script,
 			`#!${process.execPath}
 import { existsSync } from "node:fs";
-import { openStore } from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/govdb.ts"))};
+import { openStore } from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/govdb/govdb.ts"))};
 import {
 	acquireControllerLease,
 	controllerWatchBoundary,

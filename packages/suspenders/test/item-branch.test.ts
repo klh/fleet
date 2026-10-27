@@ -8,7 +8,7 @@ import { join } from "node:path";
 import {
 	branchForItem,
 	laneContextItemForBranch,
-} from "../hooks/lib/item-branch.ts";
+} from "../hooks/lib/lanes/item-branch.ts";
 
 const root = mkdtempSync(join(tmpdir(), "item-branch-test-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));

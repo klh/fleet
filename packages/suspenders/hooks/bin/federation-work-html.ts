@@ -8,7 +8,7 @@ import type {
 	FedWorkRow,
 	FedWorkView,
 	WorkFeedItem,
-} from "../lib/federation-work.ts";
+} from "../lib/federation/federation-work.ts";
 
 const esc = (s: string): string =>
 	s

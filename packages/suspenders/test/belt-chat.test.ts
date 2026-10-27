@@ -5,7 +5,7 @@
 // (pinned in advise-gated.test.ts).
 import { afterAll, setDefaultTimeout, describe, expect, test } from "bun:test";
 import { boardFixture } from "./helpers/board-fixture.ts";
-import { beltChat } from "../hooks/lib/belt-chat.ts";
+import { beltChat } from "../hooks/lib/hub/belt-chat.ts";
 
 setDefaultTimeout(30_000);
 

@@ -15,7 +15,7 @@ import {
 	runSoak,
 	type SoakDeps,
 	soakCapsFromEnv,
-} from "../hooks/lib/soak.ts";
+} from "../hooks/lib/fleet-loop/soak.ts";
 
 const jsonRes = (body: unknown, status = 200): Response =>
 	new Response(JSON.stringify(body), { status });

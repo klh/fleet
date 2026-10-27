@@ -3,7 +3,7 @@
 // probe the origin's GitHub archive flag once per dispatch (10-min cache)
 // and, when archived, redirect the brief's landing chain to the living repo
 // so a lane never dies silently pushing to a push-dead remote.
-import { run } from "../../hooks/lib/lane.ts";
+import { run } from "../../hooks/lib/lanes/lane.ts";
 
 const ARCHIVE_PROBE_TTL_MS = 10 * 60_000;
 const archiveProbeCache = new Map<string, { at: number; archived: boolean }>();

@@ -55,8 +55,12 @@ const env = (): Record<string, string> => ({
 });
 
 // ─── enumeration + pure rollup + cycle ────────────────────────────────────
-const lib = (): Promise<typeof import("../hooks/lib/cross-hub-usage.ts")> =>
-	import(`../hooks/lib/cross-hub-usage.ts?home=${encodeURIComponent(HOME)}`);
+const lib = (): Promise<
+	typeof import("../hooks/lib/federation/cross-hub-usage.ts")
+> =>
+	import(
+		`../hooks/lib/federation/cross-hub-usage.ts?home=${encodeURIComponent(HOME)}`
+	);
 
 describe("crossHubLabels", () => {
 	test("unions stack.yaml hubs + hubs.json keys, deduped, sorted", async () => {

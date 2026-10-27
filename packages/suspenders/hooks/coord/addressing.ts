@@ -15,9 +15,12 @@ import {
 	type RelayOutboxRow,
 	relayOutboxRecord,
 	sidResolvesLocally,
-} from "../lib/event-relay.ts";
-import { localHubLabel, workEdgeToken } from "../lib/federation-work.ts";
-import { loadLaneRegistry } from "../lib/lane-registry.ts";
+} from "../lib/federation/event-relay.ts";
+import {
+	localHubLabel,
+	workEdgeToken,
+} from "../lib/federation/federation-work.ts";
+import { loadLaneRegistry } from "../lib/lanes/lane-registry.ts";
 import { transcriptTail } from "../lib/transcript.ts";
 import { broadcastNote, emitEvent, isLiveSession } from "./bus.ts";
 import {

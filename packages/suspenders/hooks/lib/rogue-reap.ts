@@ -34,7 +34,7 @@ import {
 	supervisedPids,
 } from "./fleet-loop/rogue-sweep.ts";
 import { readJsonSync } from "./fleet-loop/runtime.ts";
-import { laneVerdict, type LaneRef } from "./lane-liveness.ts";
+import { laneVerdict, type LaneRef } from "./lanes/lane-liveness.ts";
 
 // trailing literals of the fleet's serve entrypoints — the same
 // last-segments discipline as rogue-sweep's markerOf (placeholder tokens

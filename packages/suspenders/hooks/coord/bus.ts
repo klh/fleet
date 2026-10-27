@@ -9,22 +9,22 @@
 // one-tab indent preserved, output byte-compatible.
 import { statSync } from "node:fs";
 import { hostname } from "node:os";
-import { signalClaudeDirectEvent } from "../lib/claude-wake.ts";
+import { signalClaudeDirectEvent } from "../lib/executors/claude-wake.ts";
 import {
 	codexThreadForSession,
 	deliverSubscribedCodexEvent,
-} from "../lib/codex-direct-delivery.ts";
-import { steerCodexDirectEvent } from "../lib/codex-steer.ts";
+} from "../lib/executors/codex-direct-delivery.ts";
+import { steerCodexDirectEvent } from "../lib/executors/codex-steer.ts";
 import {
 	type ForeignLaneHit,
 	foreignLaneMatch,
 	forwardDirectEvent,
 	sidResolvesLocally,
-} from "../lib/event-relay.ts";
-import { localHubLabel } from "../lib/federation-work.ts";
-import { resolveStoreHttpBase } from "../lib/govdb.ts";
-import { type LaneRef, laneVerdict } from "../lib/lane-liveness.ts";
-import { loadLaneRegistry } from "../lib/lane-registry.ts";
+} from "../lib/federation/event-relay.ts";
+import { localHubLabel } from "../lib/federation/federation-work.ts";
+import { resolveStoreHttpBase } from "../lib/govdb/govdb.ts";
+import { type LaneRef, laneVerdict } from "../lib/lanes/lane-liveness.ts";
+import { loadLaneRegistry } from "../lib/lanes/lane-registry.ts";
 import { managedSubscriberIdentity } from "../lib/subscribe-attach.ts";
 import { type EventPublication, emitStoredEvent } from "./event-publish.ts";
 import { advanceCursor, fetchEventsPaged } from "./event-scan.ts";

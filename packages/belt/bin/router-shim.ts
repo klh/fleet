@@ -14,12 +14,24 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import {
+	beginTrace,
+	childTraceparent,
+	stampResponse,
+} from "../../telemetry/src/http-trace.ts";
+import {
+	PREFER_HEADER,
+	parsePreferHeader,
+} from "../../telemetry/src/prefer-header.ts";
+import {
 	createAdmission,
 	overloaded,
 	parsePortCaps,
 	releaseAfterCleanup,
 } from "./admission.ts";
 import { audioSpeech, audioTranscribe } from "./audio.ts";
+// W422.17.3 governor note: re-read after the /tmp splice that moved viaCloud
+// out; this adds the import for the extracted escalation leg.
+import { escalate } from "./escalate.ts";
 import { livenessResponse } from "./health.ts";
 import { promptFingerprint } from "./prompt-fingerprint.ts";
 import {
@@ -31,7 +43,6 @@ import {
 	type Specialist,
 } from "./registry.ts";
 import { registryResponse } from "./registry-emit.ts";
-import { routerRuntimeRevision } from "./router-runtime-revision.ts";
 import {
 	applyInboundCondense,
 	type CondenseMeta,
@@ -40,7 +51,6 @@ import {
 import {
 	type AnthropicBody,
 	anthropicSseFromOpenAi,
-	type OpenAiToolCall,
 	anthropicSseFromText,
 	applyBudget,
 	callHonoringRetryAfter,
@@ -48,29 +58,21 @@ import {
 	classifyELabel,
 	kevEligible,
 	kevEscalateVeto,
+	type OpenAiToolCall,
 	openLocalStream,
 	type RequestTimings,
 	scoreComplexity,
 	stopReason,
 	toOpenAiMessages,
-	toolChoiceToOpenAi,
 	toOpenAiTools,
+	toolChoiceToOpenAi,
 	viaLocal,
 } from "./router-core.ts";
+import { routerRuntimeRevision } from "./router-runtime-revision.ts";
 import { parseToolArgs } from "./router-tools.ts";
-// W422.17.3 governor note: re-read after the /tmp splice that moved viaCloud
-// out; this adds the import for the extracted escalation leg.
-import { escalate } from "./escalate.ts";
+// W1303.3: per-specialist breakers ride the shared resilience kit.
+import { Breakers } from "../../buckle/src/resilience.ts";
 import { ensureAvailable } from "./spawner.ts";
-import {
-	beginTrace,
-	childTraceparent,
-	stampResponse,
-} from "../../telemetry/src/http-trace.ts";
-import {
-	parsePreferHeader,
-	PREFER_HEADER,
-} from "../../telemetry/src/prefer-header.ts";
 
 // W504: per-provider request caps — registry rows carry maxInflight for the
 // big unified-memory backends (:8901/:8903); BELT_PORT_CAPS ("8903:1,8901:3")
@@ -344,6 +346,13 @@ type Attempt = {
 	retryAfterMs?: number;
 };
 
+// W1303.3: per-specialist circuit breakers from the resilience kit —
+// ordered failover skips an open breaker instead of knocking on a dead
+// specialist; closed → open after 5 consecutive failures, half-open single
+// probe after 30s. Outcome recording rides the ladder's result.
+const breakers = new Breakers({ failureThreshold: 5, openMs: 30_000 });
+const breakerId = (port: number): string => `belt:${port}`;
+
 /** Primary → one bounded fallback (admission-gated). The fallback slot is
  *  returned, not released: a stream holds it until the last byte. */
 async function ladder<R extends Attempt>(
@@ -363,6 +372,7 @@ async function ladder<R extends Attempt>(
 		!process.env.BELT_UPSTREAM_BASE && needsDemandStart(primary)
 			? await ensureAvailable(primary)
 			: undefined;
+	const pId = breakerId(primary.port);
 	let result =
 		primaryReady && !primaryReady.up
 			? ({ ok: false, status: 503, error: primaryReady.error } as R)
@@ -372,10 +382,21 @@ async function ladder<R extends Attempt>(
 	let retryAfter =
 		result.status === 429 ? (result.retryAfterMs ?? 0) : undefined;
 	if (primaryReady && !primaryReady.up) retryAfter = primaryReady.retryAfterMs;
-	if (result.ok) return { result, used };
+	if (result.ok) {
+		breakers.success(pId);
+		return { result, used };
+	}
+	breakers.failure(pId);
 	errors.push(`:${primary.port} ${result.error ?? "empty"}`);
 	const fb = fallbackFor(route.port);
 	if (!fb) return { result, used, retryAfterMs: retryAfter, coldDeferred };
+	const fId = breakerId(fb.port);
+	// W1303.3: ordered failover skips an OPEN breaker — the fallback attempt
+	// would knock on a specialist the breaker just benched.
+	if (!breakers.canAttempt(fId)) {
+		note.push(`fallback :${fb.port} breaker open — skipped`);
+		return { result, used, retryAfterMs: retryAfter, coldDeferred };
+	}
 	const fbRelease = admission.tryAcquire(fb.port);
 	if (!fbRelease) {
 		note.push(`fallback :${fb.port} at max in-flight`);
@@ -402,7 +423,11 @@ async function ladder<R extends Attempt>(
 	used = fb;
 	if (result.status === 429)
 		retryAfter = Math.max(retryAfter ?? 0, result.retryAfterMs ?? 0);
-	if (result.ok) return { result, used, fbRelease };
+	if (result.ok) {
+		breakers.success(fId);
+		return { result, used, fbRelease };
+	}
+	breakers.failure(fId);
 	releaseAfterCleanup(fbRelease, result.cleanup ? [result.cleanup] : []);
 	errors.push(`:${fb.port} ${result.error ?? "empty"}`);
 	return { result, used, retryAfterMs: retryAfter, coldDeferred };

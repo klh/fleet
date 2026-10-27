@@ -13,6 +13,8 @@ import {
 import { join } from "node:path";
 import { execa } from "execa";
 import { ensureShims } from "./ensure-shims.ts";
+import { migrateConf } from "./install-conf-migrate.ts";
+import { wireConnections } from "./install-connections.ts";
 import {
 	type ContractStep,
 	INSTALL_CONTRACT,
@@ -23,7 +25,6 @@ import {
 	type StepStatus,
 } from "./install-contract.ts";
 import { registerLaunchd } from "./install-launchd.ts";
-import { wireConnections } from "./install-connections.ts";
 import {
 	downloadModels,
 	refreshSupervisor,
@@ -34,8 +35,7 @@ import {
 	registerSkills,
 	releaseNotify,
 } from "./install-wire-steps.ts";
-import { migrateConf } from "./install-conf-migrate.ts";
-import { syncHarness } from "./sync-harness.ts";
+import { sourcePaths, syncHarness } from "./sync-harness.ts";
 import { upgradeGateway } from "./upgrade-gateway.ts";
 
 export interface StepContext {
@@ -464,7 +464,13 @@ export async function executePlan(
 			emit({
 				name: step.name,
 				status: "planned",
-				note: "planned (dry-run — zero side effects)",
+				// W1295: syncHarness names its ship list so a dry-run proves the
+				// payload — W1466: the computed closure (read-only: git ls-tree +
+				// module reads), the same list a real sync archives.
+				note:
+					step.name === "syncHarness"
+						? `planned (dry-run — zero side effects); payload: ${(await sourcePaths(ctx.repo)).join(", ")}`
+						: "planned (dry-run — zero side effects)",
 			});
 			continue;
 		}

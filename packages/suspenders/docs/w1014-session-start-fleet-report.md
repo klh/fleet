@@ -8,7 +8,7 @@ It did — W1014 is a duplicate of already-landed work; no code change needed.
 - W899 landed `b0d64b1b` (2026-10-19 18:20, ancestor of this branch):
   `hooks/session-start.ts` imports `renderFleetReport` from
   `scripts/lib/fleet-report.ts` (which delegates to the ONE implementation,
-  `hooks/lib/work-report.ts`) and pushes the table into hook output at
+  `hooks/lib/work/work-report.ts`) and pushes the table into hook output at
   `hooks/session-start.ts:342`, directly under the SUPERVISOR DEFAULT
   directive, top-level sessions with READY > 0 only.
 - Test: `test/session-start-supervisor.test.ts` "W899: the directive carries

@@ -1,5 +1,5 @@
 // src/gov/schema.ts — W141 governance tables in the buckle ledger DB:
-// govdb v8 shapes verbatim (hooks/lib/govdb.ts W132 block) so the W92
+// govdb v8 shapes verbatim (hooks/lib/govdb/govdb.ts W132 block) so the W92
 // openStore binding swap moves statements as-is, PLUS the deltas mirror —
 // the audit trail IS the deltas log (W132 doctrine), so the same trigger
 // loop govdb runs is created here over the local tables. Team ceilings ride

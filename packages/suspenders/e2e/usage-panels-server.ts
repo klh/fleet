@@ -7,12 +7,15 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildUsageReport } from "../hooks/lib/usage.ts";
+import { buildUsageReport } from "../hooks/lib/usage/usage.ts";
 import { usagePage } from "../hooks/bin/usage-page-html.ts";
 import { federationUsagePage } from "../hooks/bin/federation-usage-html.ts";
-import { cacheDrillReport } from "../hooks/lib/cache-drill.ts";
-import type { BuckleRequestRow as BuckleRow } from "../hooks/lib/cache-drill.ts";
-import { type MonitorDim, monitorReport } from "../hooks/lib/monitor-drill.ts";
+import { cacheDrillReport } from "../hooks/lib/usage/cache-drill.ts";
+import type { BuckleRequestRow as BuckleRow } from "../hooks/lib/usage/cache-drill.ts";
+import {
+	type MonitorDim,
+	monitorReport,
+} from "../hooks/lib/fleet-loop/monitor-drill.ts";
 
 const portFile = process.argv[2];
 if (!portFile) throw new Error("usage: bun usage-panels-server.ts <portFile>");
@@ -150,7 +153,7 @@ db.close();
 // W825: canned cache-drill rows through parseRequestRow (sparse wire
 // entries → honest nulls), one lane half-warm + a bare row. The lane param
 // toggles the drilldown scope server-side.
-import { parseRequestRow } from "../hooks/lib/cache-drill.ts";
+import { parseRequestRow } from "../hooks/lib/usage/cache-drill.ts";
 
 const mk = (over: Record<string, unknown>): BuckleRow | null =>
 	parseRequestRow({

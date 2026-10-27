@@ -7,7 +7,7 @@ import {
 	effortBudgetLine,
 	effortFromShow,
 	EFFORTS,
-} from "../hooks/lib/work-effort.ts";
+} from "../hooks/lib/work/work-effort.ts";
 
 const f = cliFixture("work-effort");
 

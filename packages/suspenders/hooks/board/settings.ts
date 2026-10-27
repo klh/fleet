@@ -22,8 +22,11 @@ import {
 	boardSettingsPath,
 	diffLines,
 	atomicWrite,
-} from "../lib/board-config.ts";
-import type { BoardSettings, BoardSettingsPatch } from "../lib/board-config.ts";
+} from "../lib/board/board-config.ts";
+import type {
+	BoardSettings,
+	BoardSettingsPatch,
+} from "../lib/board/board-config.ts";
 import {
 	type ConsoleMe,
 	type Feature,

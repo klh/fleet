@@ -27,7 +27,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { openGovernorDb, openStore } from "../lib/govdb.ts";
+import { openGovernorDb, openStore } from "../lib/govdb/govdb.ts";
 import { urlInQuietHours } from "../lib/stack-config.ts";
 import { defineVerb, runCli } from "../lib/verb-kit.ts";
 

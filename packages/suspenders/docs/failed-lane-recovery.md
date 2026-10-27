@@ -7,11 +7,11 @@ recovery surfaces on the work graph + fleet board.
 
 - **`work retry <id>`** (W761) — the requeue verb: FAILED → READY; releases
   stale claims, resets the launch budget, drains the open budget flag
-  (`hooks/lib/work-retry.ts`). Also retries budget-quarantined READY items
+  (`hooks/lib/work/work-retry.ts`). Also retries budget-quarantined READY items
   (W787) — the post-outage "dispatch silently drained" class.
 - **`quota-lift-retry`** (W804) — a W779 calendar task auto-requeues review
   legs parked on provider quota walls at their gate date; self-retiring
-  (`hooks/lib/quota-lift-retry.ts`).
+  (`hooks/lib/usage/quota-lift-retry.ts`).
 - **`work reclaim [all]`** — dead lanes' CLAIMED/RUNNING/ORPHANED claims →
   READY; CAS-guarded on the board release path (W873). FAILED is deliberately
   not reclaimable — retry is the FAILED path.

@@ -18,7 +18,7 @@ import {
 	starterRegistryDir,
 	validateStarterArtifact,
 	type StarterArtifactContent,
-} from "../hooks/lib/starter-artifacts.ts";
+} from "../hooks/lib/starter/starter-artifacts.ts";
 
 const scratch = (): string => {
 	const d = join(

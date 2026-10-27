@@ -2,7 +2,7 @@
 // String.raw matches the original single-template semantics; bun's
 // non-ASCII escaping in String.raw reproduces the served page bytes.
 
-import { mergeReadyWhy } from "../lib/lane-git.ts";
+import { mergeReadyWhy } from "../lib/lanes/lane-git.ts";
 import {
 	matchesHubScope,
 	selectGovernorCompletions,

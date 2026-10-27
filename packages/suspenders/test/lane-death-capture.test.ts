@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 import {
 	captureLaneDeaths,
 	logTail,

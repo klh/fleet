@@ -9,7 +9,7 @@ import {
 	kevProbabilityLines,
 	kevTypedDecision,
 	kevUrl,
-} from "../hooks/lib/kev.ts";
+} from "../hooks/lib/knowledge/kev.ts";
 
 const KEV_BODY = {
 	model: "kev-latest",

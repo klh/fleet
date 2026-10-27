@@ -4,7 +4,7 @@ import {
 	type ExecutionEvidence,
 	executionSummary,
 	workExecution,
-} from "../hooks/lib/work-execution.ts";
+} from "../hooks/lib/work/work-execution.ts";
 
 const claim: ExecutionClaim = {
 	project: "p",
