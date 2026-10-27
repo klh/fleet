@@ -62,6 +62,17 @@ GitHub push — W422.9/W422.1).
 - **UI engineering law**: Lit web components + CSS design tokens. NEVER
   `innerHTML`, never `document.write`. Native elements before custom.
   Lit is vendored (offline LAN — never CDN).
+- **Schema law (W1238.4)**: zod is the single source of truth for
+  wire-facing shapes — every HTTP body, config file, or rendered env a
+  service consumes is safeParse'd through a named `<Shape>Schema`, never
+  hand-cast (`as Record<string, unknown>`) or hand-coerced into place.
+  Drift fails LOUD (400 with the prettified parse error; malformed config
+  skips with the same) instead of silently producing a malformed row.
+  Migration order: buckle gate bodies (done: buckle
+  `src/gov/admin-schemas.ts`) → belt router payloads → hubctl render env;
+  the rest of the hand-written sites migrate opportunistically as their
+  files are touched — never big-bang. Precedent: suspenders remotes.ts
+  (W308), dialects/copilot/schemas.ts (W296).
 - **Streams over buffers**: streaming interfaces by default; NDJSON for
   logs/feeds; bounded rings with backpressure for async writes.
 - **Old repos are push-dead**: all 9 originals (suspenders, belt, buckle,

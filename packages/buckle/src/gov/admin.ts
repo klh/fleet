@@ -8,6 +8,14 @@ import { beginDrain, drainInfo } from "../drain.ts";
 import { inflightIndex } from "./inflight.ts";
 import { allowOf, methodNotAllowed, problem } from "../citizenship.ts";
 import { readBoundedJson } from "../ingress-body.ts";
+import { z } from "zod";
+import {
+	AdminDrainSchema,
+	AdminEnrollSchema,
+	AdminIssueKeySchema,
+	AdminTeamSchema,
+	AdminVerifySchema,
+} from "./admin-schemas.ts";
 import { readBeltTrace } from "../../../telemetry/src/trace-log.ts";
 import { readRemoteTraces } from "../../../telemetry/src/remote-traces.ts";
 import type { RequestReadQuery } from "../ledger.ts";
@@ -37,12 +45,24 @@ function bad(
 	});
 }
 
-function str(v: unknown): string | null {
-	return typeof v === "string" && v.length > 0 ? v : null;
-}
-
-function num(v: unknown): number | null {
-	return typeof v === "number" && Number.isFinite(v) ? v : null;
+/** W1238.4 schema-first body admission (root AGENTS.md, Schema law):
+ *  safeParse the bounded JSON read through the route's schema; shape drift
+ *  answers 400 buckle.bad_body with the parse error — loud, never a
+ *  silent `as Record<string, unknown>` cast. */
+function adminBody<S extends z.ZodType>(
+	body: unknown,
+	schema: S,
+): { ok: true; value: z.output<S> } | { ok: false; error: Response } {
+	const parsed = schema.safeParse(body);
+	if (parsed.success) return { ok: true, value: parsed.data };
+	return {
+		ok: false,
+		error: bad(
+			400,
+			"buckle.bad_body",
+			`invalid body — ${z.prettifyError(parsed.error)}`,
+		),
+	};
 }
 
 function scopeFilter(scopes: string[]): {
@@ -67,11 +87,10 @@ function scopeFilter(scopes: string[]): {
 async function drainGateway(req: Request, gov: Governance): Promise<Response> {
 	const read = await readBoundedJson(req, gov.ingressBodyTimeoutMs);
 	if (!read.ok) return bad(read.status, read.code, read.why);
-	const body = read.body as Record<string, unknown> | null;
-	const reason = str(body?.reason);
-	if (reason === null) return bad(400, "buckle.bad_body", "missing reason");
-	const grace = Math.min(Math.max(num(body?.grace_ms) ?? 3000, 0), 60_000);
-	const info = beginDrain(reason, grace);
+	const body = adminBody(read.body, AdminDrainSchema);
+	if (!body.ok) return body.error;
+	const grace = Math.min(Math.max(body.value.grace_ms ?? 3000, 0), 60_000);
+	const info = beginDrain(body.value.reason, grace);
 	if (info === null) {
 		const active = drainInfo();
 		return bad(
@@ -92,10 +111,9 @@ async function drainGateway(req: Request, gov: Governance): Promise<Response> {
 async function verifyKey(req: Request, gov: Governance): Promise<Response> {
 	const read = await readBoundedJson(req, gov.ingressBodyTimeoutMs);
 	if (!read.ok) return bad(read.status, read.code, read.why);
-	const body = read.body as Record<string, unknown> | null;
-	const key = str(body.key);
-	if (key === null) return bad(400, "buckle.bad_body", "missing key");
-	const v = gov.keys.verify(key);
+	const body = adminBody(read.body, AdminVerifySchema);
+	if (!body.ok) return body.error;
+	const v = gov.keys.verify(body.value.key);
 	if (!v.ok) return ok({ valid: false, code: v.code });
 	return ok({
 		valid: true,
@@ -257,13 +275,9 @@ async function issueKey(
 ): Promise<Response> {
 	const read = await readBoundedJson(req, gov.ingressBodyTimeoutMs);
 	if (!read.ok) return bad(read.status, read.code, read.why);
-	const body = read.body as Record<string, unknown> | null;
-	const name = str(body.name);
-	if (name === null) return bad(400, "buckle.bad_body", "missing name");
-	const scopes = Array.isArray(body.scopes)
-		? body.scopes.filter((s): s is string => typeof s === "string")
-		: [];
-	const { scopes: valid, dropped } = scopeFilter(scopes);
+	const body = adminBody(read.body, AdminIssueKeySchema);
+	if (!body.ok) return body.error;
+	const { scopes: valid, dropped } = scopeFilter(body.value.scopes);
 	if (valid.length === 0)
 		return bad(
 			400,
@@ -271,12 +285,12 @@ async function issueKey(
 			`no valid buckle: scopes (dropped: ${dropped.join(",") || "none"})`,
 		);
 	const issued = gov.keys.issue({
-		name,
-		team: str(body.team),
+		name: body.value.name,
+		team: body.value.team ?? null,
 		scopes: valid,
-		rpmLimit: num(body.rpm_limit),
-		tpmLimit: num(body.tpm_limit),
-		expiresInS: num(body.expires_in_s),
+		rpmLimit: body.value.rpm_limit ?? null,
+		tpmLimit: body.value.tpm_limit ?? null,
+		expiresInS: body.value.expires_in_s ?? null,
 		actor: p.actor ?? p.keyId,
 	});
 	gov.keys.recordAuthEvent(
@@ -289,7 +303,7 @@ async function issueKey(
 		{
 			key_id: issued.keyId,
 			key: issued.key,
-			name,
+			name: body.value.name,
 			team: issued.row.team,
 			scopes: valid,
 			rpm_limit: issued.row.rpm_limit,
@@ -328,12 +342,11 @@ async function mintEnrollCode(
 		);
 	const read = await readBoundedJson(req, gov.ingressBodyTimeoutMs);
 	if (!read.ok) return bad(read.status, read.code, read.why);
-	const body = read.body as Record<string, unknown> | null;
-	const spokeId = str(body.spoke_id);
-	if (spokeId === null) return bad(400, "buckle.bad_body", "missing spoke_id");
+	const body = adminBody(read.body, AdminEnrollSchema);
+	if (!body.ok) return body.error;
 	const out = sp.mint({
-		spokeId,
-		ttlS: num(body.ttl_s),
+		spokeId: body.value.spoke_id,
+		ttlS: body.value.ttl_s ?? null,
 		actor: p.actor ?? p.keyId,
 	});
 	return ok(
@@ -416,22 +429,21 @@ function listRequests(gov: Governance, url: URL): Response {
 async function upsertTeam(req: Request, gov: Governance): Promise<Response> {
 	const read = await readBoundedJson(req, gov.ingressBodyTimeoutMs);
 	if (!read.ok) return bad(read.status, read.code, read.why);
-	const body = read.body as Record<string, unknown> | null;
-	const teamId = str(body.team_id);
-	if (teamId === null) return bad(400, "buckle.bad_body", "missing team_id");
+	const body = adminBody(read.body, AdminTeamSchema);
+	if (!body.ok) return body.error;
 	gov.keys.upsertTeam({
-		teamId,
-		name: str(body.name) ?? teamId,
-		department: str(body.department),
-		rpmCeiling: num(body.rpm_ceiling),
-		tpmCeiling: num(body.tpm_ceiling),
-		spendCeiling: num(body.spend_ceiling),
+		teamId: body.value.team_id,
+		name: body.value.name ?? body.value.team_id,
+		department: body.value.department ?? null,
+		rpmCeiling: body.value.rpm_ceiling ?? null,
+		tpmCeiling: body.value.tpm_ceiling ?? null,
+		spendCeiling: body.value.spend_ceiling ?? null,
 	});
 	return ok({
-		team_id: teamId,
-		rpm_ceiling: num(body.rpm_ceiling),
-		tpm_ceiling: num(body.tpm_ceiling),
-		spend_ceiling: num(body.spend_ceiling),
+		team_id: body.value.team_id,
+		rpm_ceiling: body.value.rpm_ceiling ?? null,
+		tpm_ceiling: body.value.tpm_ceiling ?? null,
+		spend_ceiling: body.value.spend_ceiling ?? null,
 	});
 }
 
