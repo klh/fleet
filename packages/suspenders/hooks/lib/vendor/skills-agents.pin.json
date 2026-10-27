@@ -1,0 +1,13 @@
+{
+	"version": 1,
+	"upstream": {
+		"repo": "vercel-labs/skills",
+		"npm": "skills@1.7.2",
+		"path": "src/agents.ts",
+		"license": "MIT"
+	},
+	"files": {
+		"SKILLS-LICENSE": "661142e53c313d2bb5e1b055f5c0a39001450ff1b5e27b89dc4bc7de9a6352ca",
+		"skills-agents.ts": "4fb00d9fc3f0c1dc43b597a664df6efd1fd21fdd24e3ae6d6eed2f0f09ee891e"
+	}
+}

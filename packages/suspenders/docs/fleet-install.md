@@ -132,6 +132,12 @@ re-syncs are a simple diff-and-replace. To refresh it:
    entry correctly (new entries default to `supported: false` automatically
    — nothing else needs updating unless a new entry should also get a real
    dialect adapter).
+5. Hand-edit the `upstream` block of `hooks/lib/vendor/skills-agents.pin.json`
+   when the npm version moves (the header comment must name the same version),
+   then re-pin the byte hashes with
+   `bun packages/suspenders/scripts/skills-pin.ts --write` and review the
+   diff. `test/skills-vendor-hash.test.ts` (W1472) fails naming the file
+   whenever the registry or `SKILLS-LICENSE` differs from its pin.
 
 ## Known environment-dependent detection quirk
 
