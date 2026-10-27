@@ -9,13 +9,13 @@ import { spawn } from "node:child_process";
 import {
 	copyFileSync,
 	mkdtempSync,
-	readFileSync,
 	rmSync,
 	statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { freePort, waitUp } from "../../test-kit/src/index.ts";
 import { expect, test } from "@playwright/test";
 
 let scratch = "";
@@ -24,24 +24,21 @@ let BASE = "";
 
 test.beforeAll(async () => {
 	scratch = mkdtempSync(join(tmpdir(), "sb-e2e-usage-panels-spec-"));
-	const portFile = join(scratch, "port");
+	// W1135.3: the bespoke port-file handoff is gone — the spec picks a
+	// free loopback port (@klh/test-kit freePort), passes it as argv, and
+	// waits for the real server to answer (waitUp)
+	const port = await freePort();
 	proc = spawn(
 		"bun",
 		[
 			join(dirname(fileURLToPath(import.meta.url)), "usage-panels-server.ts"),
-			portFile,
+			String(port),
 		],
 		{ stdio: ["ignore", "pipe", "inherit"] },
 	);
-	let port = "";
-	for (let i = 0; i < 100 && !port; i++) {
-		await new Promise((r) => setTimeout(r, 100));
-		try {
-			port = readFileSync(portFile, "utf8").trim();
-		} catch {}
-	}
-	expect(port, "server did not write a port").not.toBe("");
 	BASE = `http://127.0.0.1:${port}`;
+	// throws with a clear message if the server never answers
+	await waitUp(`${BASE}/usage`, { tries: 100 });
 });
 
 test.afterAll(() => {

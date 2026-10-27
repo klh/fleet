@@ -20,15 +20,15 @@ import {
 	test,
 } from "@playwright/test";
 import { handleFleetTree } from "../hooks/board/routes-fleet-tree.ts";
-import { unusedPort } from "../test/helpers/board-fixture-core.ts";
+import { freePort, serveStub } from "../../test-kit/src/index.ts";
 
 let browser: Browser;
 let page: Page;
 let HOME: string;
 const stops: { stop: () => void }[] = [];
 
-// dead port: bind, read the OS-picked port, release (shared helper)
-const DEAD = unusedPort();
+// dead port: bind, read the OS-picked port, release (@klh/test-kit helper)
+let DEAD = 0;
 
 // the stoppable lane leaf (scenario B)
 let laneSrv = Bun.serve({
@@ -39,69 +39,54 @@ let laneSrv = Bun.serve({
 const LANE = laneSrv.port;
 
 // local registry stub: router + coder (the stoppable lane) + ghost (dead)
-const registry = Bun.serve({
-	hostname: "127.0.0.1",
-	port: 0,
-	fetch: (req) => {
-		const u = new URL(req.url);
-		if (u.pathname === "/registry.json")
-			return Response.json({
-				router: { port: registry.port },
-				entries: [
-					{ alias: "coder", label: "coder", port: LANE, tier: "coder" },
-					{ alias: "ghost", label: "ghost", port: DEAD, tier: "menial" },
-				],
-			});
-		return new Response("ok");
-	},
+const registry = serveStub((req) => {
+	const u = new URL(req.url);
+	if (u.pathname === "/registry.json")
+		return Response.json({
+			router: { port: registry.port },
+			entries: [
+				{ alias: "coder", label: "coder", port: LANE, tier: "coder" },
+				{ alias: "ghost", label: "ghost", port: DEAD, tier: "menial" },
+			],
+		});
+	return new Response("ok");
 });
 
 // hub stubs: nas answers, desktop is dead, vault protects with 401
-const nas = Bun.serve({
-	hostname: "127.0.0.1",
-	port: 0,
-	fetch: (req) => {
-		const u = new URL(req.url);
-		if (u.pathname === "/registry.json")
-			return Response.json({
-				entries: [
-					{ alias: "nas-coder", label: "nas coder", port: LANE, tier: "coder" },
-				],
-			});
-		return new Response("ok");
-	},
+const nas = serveStub((req) => {
+	const u = new URL(req.url);
+	if (u.pathname === "/registry.json")
+		return Response.json({
+			entries: [
+				{ alias: "nas-coder", label: "nas coder", port: LANE, tier: "coder" },
+			],
+		});
+	return new Response("ok");
 });
-const vault = Bun.serve({
-	hostname: "127.0.0.1",
-	port: 0,
-	fetch: () => new Response("denied", { status: 401 }),
-});
+const vault = serveStub(() => new Response("denied", { status: 401 }));
 // W569: one guarded stub keyed on the presented credential — vaultkey sends
 // the configured token (authorized discovery), vaultdeny a wrong one (401
 // → denied), proving credential-shaped discovery in the real page
 const seenAuth: string[] = [];
-const guarded = Bun.serve({
-	hostname: "127.0.0.1",
-	port: 0,
-	fetch: (req) => {
-		seenAuth.push(req.headers.get("authorization") ?? "");
-		return req.headers.get("authorization") === "Bearer bksk_e2e_good"
-			? Response.json({
-					router: { port: LANE },
-					entries: [
-						{
-							alias: "vault-coder",
-							label: "vault coder",
-							port: LANE,
-							tier: "coder",
-						},
-					],
-				})
-			: new Response("denied", { status: 401 });
-	},
+const guarded = serveStub((req) => {
+	seenAuth.push(req.headers.get("authorization") ?? "");
+	return req.headers.get("authorization") === "Bearer bksk_e2e_good"
+		? Response.json({
+				router: { port: LANE },
+				entries: [
+					{
+						alias: "vault-coder",
+						label: "vault coder",
+						port: LANE,
+						tier: "coder",
+					},
+				],
+			})
+		: new Response("denied", { status: 401 });
 });
 
 test.beforeAll(async () => {
+	DEAD = await freePort();
 	HOME = mkdtempSync(join(tmpdir(), "w5302-e2e-home-"));
 	const llmHome = join(HOME, ".claude/local-llm");
 	mkdirSync(llmHome, { recursive: true });
@@ -151,12 +136,12 @@ test.beforeAll(async () => {
 			(await handleFleetTree(req, new URL(req.url))) ??
 			new Response("not found", { status: 404 }),
 	});
-	stops.push(board, registry, nas, vault, guarded);
-	stops.push({
+	stops.push(board, {
 		stop: () => {
-			vault.stop(true);
-			registry.stop(true);
-			nas.stop(true);
+			guarded.close();
+			vault.close();
+			registry.close();
+			nas.close();
 			board.stop(true);
 			HOME && rmHome();
 		},
@@ -290,10 +275,10 @@ test("lane stop/start transition flips the leaf on the next sweep", {
 test("inaccessible registry serves last-good snapshot with the stale badge", {
 	tag: "@ui",
 }, async () => {
-	registry.stop(true);
-	nas.stop(true);
-	vault.stop(true);
-	guarded.stop(true);
+	registry.close();
+	nas.close();
+	vault.close();
+	guarded.close();
 	await refresh();
 	await expect(page.locator("#stamp")).toContainText("stale — last good");
 	const t = await page.locator("#tree").textContent();

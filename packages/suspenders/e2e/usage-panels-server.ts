@@ -1,8 +1,8 @@
 // e2e/usage-panels-server.ts — W652.3.1: the bun side of the usage-panels
 // e2e. Seeds a scratch sqlite db (same shape as test/usage-page.test.ts),
 // renders BOTH dashboards through the REAL page builders, serves them plus
-// the real /vendor bundles on an OS-picked loopback port, and writes the
-// picked port to the port file given as argv[2]. Killed by the spec.
+// the real /vendor bundles on the loopback port given as argv[2] (picked by
+// the spec via @klh/test-kit freePort). Killed by the spec.
 import { Database } from "bun:sqlite";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,8 +17,8 @@ import {
 	monitorReport,
 } from "../hooks/lib/fleet-loop/monitor-drill.ts";
 
-const portFile = process.argv[2];
-if (!portFile) throw new Error("usage: bun usage-panels-server.ts <portFile>");
+const PORT = Number(process.argv[2]);
+if (!PORT) throw new Error("usage: bun usage-panels-server.ts <port>");
 
 const HOME = mkdtempSync(join(tmpdir(), "sb-e2e-usage-panels-"));
 process.on("SIGTERM", () => {
@@ -226,7 +226,7 @@ const cannedDrill = await cacheDrillReport({
 
 const server = Bun.serve({
 	hostname: "127.0.0.1",
-	port: 0,
+	port: PORT,
 	async fetch(req) {
 		const url = new URL(req.url);
 		if (url.pathname.startsWith("/vendor/")) {
@@ -290,5 +290,4 @@ const server = Bun.serve({
 
 // (canned drill data rides /api/usage/cache-drill below — see the W825
 // block above)
-await Bun.write(portFile, String(server.port));
 console.log(`usage-panels-server up on :${String(server.port)}`);
