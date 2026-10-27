@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { scratchWorld } from "@klh/test-kit";
 
 // W986.1: failRoute must log the REAL elapsed time of the failed attempt.
 // The child imports the real route-policy.ts with HOME pointed at a fixture
@@ -35,14 +35,13 @@ console.log(JSON.stringify({
 `;
 
 test("failRoute logs the real elapsed ms of failed calls, never 0", async () => {
-	const home = mkdtempSync(join(tmpdir(), "belt-fail-"));
+	const { home, env, clean } = scratchWorld({ prefix: "belt-fail-" });
 	mkdirSync(join(home, ".claude", "local-llm"), { recursive: true });
 	mkdirSync(join(home, ".claude-insights"), { recursive: true });
 	try {
 		const child = Bun.spawnSync([process.execPath, "-e", CHILD], {
 			env: {
-				...process.env,
-				HOME: home,
+				...env,
 				ROUTE_MOD: join(import.meta.dir, "..", "bin", "route-policy.ts"),
 			},
 			stdout: "pipe",
@@ -64,6 +63,6 @@ test("failRoute logs the real elapsed ms of failed calls, never 0", async () => 
 		expect(out.remotes[0].ok).toBe(false);
 		expect(out.remotes[0].machine).toBe("nas");
 	} finally {
-		rmSync(home, { recursive: true, force: true });
+		clean();
 	}
 });

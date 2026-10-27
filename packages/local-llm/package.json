@@ -8,5 +8,8 @@
 	"engines": {
 		"bun": ">=1.2"
 	},
+	"devDependencies": {
+		"@klh/test-kit": "workspace:*"
+	},
 	"license": "SEE LICENSE IN LICENSE"
 }

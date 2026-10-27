@@ -2,8 +2,7 @@
 // translator `_server_timings` emission, and the shim's JSON + stream
 // surfaces. Stub servers only — never the live :890x fleet.
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
 	anthropicSseFromText,
@@ -12,6 +11,12 @@ import {
 	viaLocal,
 	openLocalStream,
 } from "../bin/router-core.ts";
+import {
+	freePort,
+	serveStub,
+	scratchWorld,
+	waitUp,
+} from "@klh/test-kit";
 
 const sse = (data: unknown) => `data: ${JSON.stringify(data)}\n\n`;
 const parseSse = (text: string): Array<{ ev: string; data: unknown }> =>
@@ -26,37 +31,32 @@ const parseSse = (text: string): Array<{ ev: string; data: unknown }> =>
 		});
 
 // shared stub upstream (OpenAI wire): buffered "pong" or a two-delta stream
-const stub = Bun.serve({
-	port: 0,
-	async fetch(req) {
-		const b = (await req.json()) as { stream?: boolean };
-		if (!b.stream)
-			return Response.json({
-				choices: [{ finish_reason: "stop", message: { content: "pong" } }],
-			});
-		const stream = new ReadableStream({
-			async start(c) {
-				const enc = new TextEncoder();
-				c.enqueue(enc.encode(sse({ choices: [{ delta: { content: "he" } }] })));
-				await Bun.sleep(120);
-				c.enqueue(
-					enc.encode(sse({ choices: [{ delta: { content: "llo" } }] })),
-				);
-				await Bun.sleep(60);
-				c.enqueue(
-					enc.encode(sse({ choices: [], usage: { completion_tokens: 5 } })),
-				);
-				c.enqueue(enc.encode("data: [DONE]\n\n"));
-				c.close();
-			},
+const stub = serveStub((_req, body) => {
+	const b = (body ?? {}) as { stream?: boolean };
+	if (!b.stream)
+		return Response.json({
+			choices: [{ finish_reason: "stop", message: { content: "pong" } }],
 		});
-		return new Response(stream, {
-			headers: { "content-type": "text/event-stream" },
-		});
-	},
+	const stream = new ReadableStream({
+		async start(c) {
+			const enc = new TextEncoder();
+			c.enqueue(enc.encode(sse({ choices: [{ delta: { content: "he" } }] })));
+			await Bun.sleep(120);
+			c.enqueue(enc.encode(sse({ choices: [{ delta: { content: "llo" } }] })));
+			await Bun.sleep(60);
+			c.enqueue(
+				enc.encode(sse({ choices: [], usage: { completion_tokens: 5 } })),
+			);
+			c.enqueue(enc.encode("data: [DONE]\n\n"));
+			c.close();
+		},
+	});
+	return new Response(stream, {
+		headers: { "content-type": "text/event-stream" },
+	});
 });
 const stubBase = `http://127.0.0.1:${stub.port}`;
-afterAll(() => stub.stop(true));
+afterAll(() => stub.close());
 
 describe("per-request timings (W257)", () => {
 	test("viaLocal reports total/prefill from startedAt", async () => {
@@ -169,26 +169,26 @@ describe("buffered timings (W257)", () => {
 });
 
 // shim-level: one live router-shim on a scratch port against the stub
-const shimHome = mkdtempSync(join(tmpdir(), "w257-"));
+const {
+	home: shimHome,
+	env: shimEnv,
+	clean: shimClean,
+} = scratchWorld({
+	prefix: "w257-",
+});
 mkdirSync(join(shimHome, ".claude", "local-llm"), { recursive: true });
 writeFileSync(
 	join(shimHome, ".claude", "local-llm", "prefs.json"),
 	JSON.stringify({ allow_cloud: false, kev: { enabled: false } }),
 );
-const shimPort = await (async () => {
-	const s = Bun.serve({ port: 0, fetch: () => new Response("") });
-	const p = s.port ?? 0;
-	s.stop(true);
-	return p;
-})();
+const shimPort = await freePort();
 const shim = Bun.spawn({
 	cmd: [
 		process.execPath,
 		new URL("../bin/router-shim.ts", import.meta.url).pathname,
 	],
 	env: {
-		...process.env,
-		HOME: shimHome,
+		...shimEnv,
 		BELT_ROUTER_PORT: String(shimPort),
 		BELT_UPSTREAM_KEY: "bksk_test-scoped-fake",
 		BELT_UPSTREAM_BASE: stubBase,
@@ -198,16 +198,10 @@ const shim = Bun.spawn({
 	stderr: "ignore",
 });
 const shimBase = `http://127.0.0.1:${shimPort}`;
-for (let i = 0; i < 100; i++) {
-	const up = await fetch(`${shimBase}/health/liveliness`)
-		.then((r) => r.ok)
-		.catch(() => false);
-	if (up) break;
-	await Bun.sleep(50);
-}
+await waitUp(`${shimBase}/health/liveliness`, { tries: 100, intervalMs: 50 });
 afterAll(() => {
 	shim.kill();
-	rmSync(shimHome, { recursive: true, force: true });
+	shimClean();
 });
 
 describe("shim `_server_timings` (W257)", () => {

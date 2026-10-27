@@ -1,7 +1,12 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import {
+	freePort,
+	scratchWorld,
+	serveStub,
+	waitUp,
+} from "@klh/test-kit";
 
 async function withService(
 	script: string,
@@ -9,33 +14,25 @@ async function withService(
 	check: (base: string) => Promise<void>,
 	extra: Record<string, string> = {},
 ) {
-	const reservation = Bun.serve({ port: 0, fetch: () => new Response() });
-	const port = reservation.port;
-	reservation.stop(true);
-	const home = mkdtempSync(join(tmpdir(), "fleet-health-"));
+	const port = await freePort();
+	const { env, clean } = scratchWorld({ prefix: "fleet-health-" });
 	const proc = Bun.spawn([process.execPath, resolve(import.meta.dir, script)], {
-		env: { ...process.env, HOME: home, [portEnv]: String(port), ...extra },
+		env: { ...env, [portEnv]: String(port), ...extra },
 		stdout: "ignore",
 		stderr: "ignore",
 	});
 	const base = `http://127.0.0.1:${port}`;
 	try {
-		let ready = false;
-		for (let i = 0; i < 100; i++) {
-			try {
-				if ((await fetch(`${base}/health`)).ok) {
-					ready = true;
-					break;
-				}
-			} catch {}
-			await Bun.sleep(20);
+		try {
+			await waitUp(`${base}/health`, { tries: 100, intervalMs: 20 });
+		} catch {
+			throw new Error(`service failed to start: ${script}`);
 		}
-		if (!ready) throw new Error(`service failed to start: ${script}`);
 		await check(base);
 	} finally {
 		proc.kill();
 		await proc.exited;
-		rmSync(home, { recursive: true, force: true });
+		clean();
 	}
 }
 
@@ -114,10 +111,9 @@ for (const [script, portEnv] of [
 }
 
 test("minimal shim separates process liveness from backend model availability", async () => {
-	const backend = Bun.serve({
-		port: 0,
-		fetch: () => new Response("backend down", { status: 503 }),
-	});
+	const backend = serveStub(
+		() => new Response("backend down", { status: 503 }),
+	);
 	try {
 		await withService(
 			"../bin/anthropic-shim.ts",
@@ -125,23 +121,22 @@ test("minimal shim separates process liveness from backend model availability", 
 			async (base) => {
 				expect((await fetch(`${base}/health`)).status).toBe(200);
 				expect((await fetch(`${base}/v1/models`)).status).toBe(503);
-				backend.stop(true);
+				backend.close();
 				expect((await fetch(`${base}/health/liveliness`)).status).toBe(200);
 				expect((await fetch(`${base}/v1/models`)).status).toBe(503);
 			},
 			{ MLX_BASE: `http://127.0.0.1:${backend.port}` },
 		);
 	} finally {
-		backend.stop(true);
+		backend.close();
 	}
 });
 
 test("local CLI observes the registered upstream and rejects failed HTTP checks", async () => {
-	const server = Bun.serve({
-		port: 0,
-		fetch: () => Response.json({ healthy: false }, { status: 503 }),
-	});
-	const home = mkdtempSync(join(tmpdir(), "fleet-health-cli-"));
+	const server = serveStub(() =>
+		Response.json({ healthy: false }, { status: 503 }),
+	);
+	const { home, env, clean } = scratchWorld({ prefix: "fleet-health-cli-" });
 	const state = join(home, ".local/state/klh-local");
 	mkdirSync(state, { recursive: true });
 	writeFileSync(
@@ -165,14 +160,14 @@ test("local CLI observes the registered upstream and rejects failed HTTP checks"
 				resolve(import.meta.dir, "../../local/bin/klh-local.ts"),
 				"status",
 			],
-			{ env: { ...process.env, HOME: home }, stdout: "pipe", stderr: "pipe" },
+			{ env, stdout: "pipe", stderr: "pipe" },
 		);
 		const output = await new Response(proc.stdout).text();
 		expect(await proc.exited).toBe(0);
 		expect(output).toContain("health   fail");
 		expect(output).toContain(`GET 127.0.0.1:${server.port}/health`);
 	} finally {
-		server.stop(true);
-		rmSync(home, { recursive: true, force: true });
+		server.close();
+		clean();
 	}
 });

@@ -2,9 +2,9 @@
 // shipped default is real (pinned shas, registry-bound), and the
 // machine-level override wins id collisions without breaking validation.
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { scratchWorld } from "@klh/test-kit";
 import {
 	catalogForPlatform,
 	catalogPaths,
@@ -54,27 +54,29 @@ test("mlx repo must equal the bound registry model", () => {
 });
 
 test("machine-level override wins id collisions and still validates", () => {
-	const machine = join(
-		mkdtempSync(join(tmpdir(), "cat-")),
-		"models.catalog.json",
-	);
-	writeFileSync(
-		machine,
-		JSON.stringify({
-			version: 1,
-			models: [
-				entry({
-					id: "qwen3-extract-4b-gguf",
-					repo: "hub://nas.threads.dk/models/extract-4b",
-					runtime: "gguf",
-				}),
-			],
-		}),
-	);
-	const cat = loadCatalog(catalogPaths(machine));
-	const e = cat.models.find((m) => m.id === "qwen3-extract-4b-gguf");
-	expect(e?.runtime).toBe("gguf");
-	expect(e?.repo.startsWith("hub://")).toBe(true);
+	const { home, clean } = scratchWorld({ prefix: "cat-" });
+	try {
+		const machine = join(home, "models.catalog.json");
+		writeFileSync(
+			machine,
+			JSON.stringify({
+				version: 1,
+				models: [
+					entry({
+						id: "qwen3-extract-4b-gguf",
+						repo: "hub://nas.threads.dk/models/extract-4b",
+						runtime: "gguf",
+					}),
+				],
+			}),
+		);
+		const cat = loadCatalog(catalogPaths(machine));
+		const e = cat.models.find((m) => m.id === "qwen3-extract-4b-gguf");
+		expect(e?.runtime).toBe("gguf");
+		expect(e?.repo.startsWith("hub://")).toBe(true);
+	} finally {
+		clean();
+	}
 });
 
 test("platforms default to the runtime-implied set", () => {

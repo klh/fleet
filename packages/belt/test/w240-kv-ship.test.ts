@@ -1,15 +1,9 @@
 // W240 — kv-ship tests: real gzip round-trips, a real loopback Bun.serve,
 // injected fetchImpl for pull/push. No python, no models.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import {
-	mkdirSync,
-	mkdtempSync,
-	rmSync,
-	statSync,
-	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { scratchWorld } from "@klh/test-kit";
 import {
 	packKvpack,
 	pullKv,
@@ -19,10 +13,10 @@ import {
 } from "../bin/kv-ship.ts";
 import { KV_SHIP_TOKEN_ENV, readKvMeta } from "../bin/kv-prefix.ts";
 
-const HOME = mkdtempSync(join(tmpdir(), "fleet-kv-ship-"));
+const { home: HOME, clean } = scratchWorld({ prefix: "fleet-kv-ship-" });
 const MODEL = "mlx-community/Qwen3-4B-Instruct-2507-4bit";
 const SLUG = "mlx-community_Qwen3-4B-Instruct-2507-4bit";
-afterAll(() => rmSync(HOME, { recursive: true, force: true }));
+afterAll(() => clean());
 
 const PREFIX = {
 	capturedAt: 1,
@@ -68,7 +62,9 @@ beforeAll(async () => {
 });
 
 test("pack→unpack round-trip preserves meta and cache bytes", async () => {
-	const other = mkdtempSync(join(tmpdir(), "fleet-kv-ship-in-"));
+	const { home: other, clean } = scratchWorld({
+		prefix: "fleet-kv-ship-in-",
+	});
 	try {
 		const res = await unpackKvpack({ packPath: PACK, home: other });
 		expect(res.meta.model).toBe(MODEL);
@@ -79,7 +75,7 @@ test("pack→unpack round-trip preserves meta and cache bytes", async () => {
 		expect(statSync(boot).size).toBe(64 * 1024);
 		expect(readKvMeta(`${other}/${SLUG}/${SHA}.json`)?.tokenCount).toBe(9000);
 	} finally {
-		rmSync(other, { recursive: true, force: true });
+		clean();
 	}
 });
 
@@ -135,7 +131,9 @@ test("serveKv: health, index, GET pack, PUT installs with token", async () => {
 });
 
 test("serveKv PUT installs a valid pack end-to-end", async () => {
-	const other = mkdtempSync(join(tmpdir(), "fleet-kv-ship-put-"));
+	const { home: other, clean } = scratchWorld({
+		prefix: "fleet-kv-ship-put-",
+	});
 	process.env[KV_SHIP_TOKEN_ENV] = "sekrit";
 	const server = serveKv({ port: 0, home: other });
 	const base = `http://127.0.0.1:${server.port}`;
@@ -154,7 +152,7 @@ test("serveKv PUT installs a valid pack end-to-end", async () => {
 	expect(idx.map((r) => r.slug)).toContain(SLUG);
 	server.stop(true);
 	delete process.env[KV_SHIP_TOKEN_ENV];
-	rmSync(other, { recursive: true, force: true });
+	clean();
 });
 
 test("non-loopback bind without a token refuses to start", () => {
@@ -164,7 +162,9 @@ test("non-loopback bind without a token refuses to start", () => {
 });
 
 test("pullKv installs from a peer; 404 fails cleanly", async () => {
-	const other = mkdtempSync(join(tmpdir(), "fleet-kv-ship-pull-"));
+	const { home: other, clean } = scratchWorld({
+		prefix: "fleet-kv-ship-pull-",
+	});
 	try {
 		const packBytes = await Bun.file(PACK).arrayBuffer();
 		const ok404 = await pullKv({
@@ -189,7 +189,7 @@ test("pullKv installs from a peer; 404 fails cleanly", async () => {
 			64 * 1024,
 		);
 	} finally {
-		rmSync(other, { recursive: true, force: true });
+		clean();
 	}
 });
 

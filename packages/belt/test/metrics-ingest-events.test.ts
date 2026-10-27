@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { scratchWorld } from "@klh/test-kit";
 
 const CHILD = `
 const { Database } = await import("bun:sqlite");
@@ -37,14 +37,15 @@ console.log(JSON.stringify(routes));
 
 for (const seedOld of [false, true]) {
 	test(`swarm metrics ingest completed outcomes and legacy rows, not attempts (${seedOld ? "old DB" : "new DB"})`, () => {
-		const home = mkdtempSync(join(tmpdir(), "belt-metrics-events-"));
+		const { home, env, clean } = scratchWorld({
+			prefix: "belt-metrics-events-",
+		});
 		mkdirSync(join(home, ".claude", "local-llm"), { recursive: true });
 		mkdirSync(join(home, ".claude-insights"), { recursive: true });
 		try {
 			const child = Bun.spawnSync([process.execPath, "-e", CHILD], {
 				env: {
-					...process.env,
-					HOME: home,
+					...env,
 					METRICS_MOD: join(import.meta.dir, "..", "bin", "metrics.ts"),
 					SEED_OLD: seedOld ? "1" : "0",
 				},
@@ -61,7 +62,7 @@ for (const seedOld of [false, true]) {
 				{ port: 8902, model: "legacy-explicit-failed", ok: 0 },
 			]);
 		} finally {
-			rmSync(home, { recursive: true, force: true });
+			clean();
 		}
 	});
 }

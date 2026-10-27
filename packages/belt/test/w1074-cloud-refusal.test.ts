@@ -1,9 +1,14 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+	freePort,
+	scratchWorld,
+	serveStub,
+	waitUp,
+} from "@klh/test-kit";
 
-const home = mkdtempSync(join(tmpdir(), "w1074-router-"));
+const { home, env, clean } = scratchWorld({ prefix: "w1074-router-" });
 mkdirSync(join(home, ".claude", "local-llm"), { recursive: true });
 mkdirSync(join(home, ".claude-insights"), { recursive: true });
 writeFileSync(
@@ -15,56 +20,39 @@ let releaseLocal: (() => void) | undefined;
 let localCalls = 0;
 let cloudCalls = 0;
 let cloudPreference: string | null = null;
-const local = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	async fetch() {
-		localCalls++;
-		await new Promise<void>((resolve) => {
-			releaseLocal = resolve;
-		});
-		return Response.json({
-			choices: [
-				{
-					message: { role: "assistant", content: "local OK" },
-					finish_reason: "stop",
-				},
-			],
-		});
-	},
-});
-const cloud = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	fetch(req) {
-		cloudCalls++;
-		cloudPreference = req.headers.get("x-klh-prefer");
-		return Response.json(
-			{ error: { code: "1302", message: "z.ai request rate limit reached" } },
+const local = serveStub(async () => {
+	localCalls++;
+	await new Promise<void>((resolve) => {
+		releaseLocal = resolve;
+	});
+	return Response.json({
+		choices: [
 			{
-				status: 429,
-				headers: {
-					"retry-after": "7",
-					"x-klh-prefer":
-						"v=1;source=default;directive=default;line=0;index=0;target=fake;can=absent",
-					"x-litellm-call-id": req.headers.get("x-litellm-call-id") ?? "",
-					"x-belt-rid": "gate-rid-1",
-				},
+				message: { role: "assistant", content: "local OK" },
+				finish_reason: "stop",
 			},
-		);
-	},
+		],
+	});
+});
+const cloud = serveStub((req) => {
+	cloudCalls++;
+	cloudPreference = req.headers.get("x-klh-prefer");
+	return Response.json(
+		{ error: { code: "1302", message: "z.ai request rate limit reached" } },
+		{
+			status: 429,
+			headers: {
+				"retry-after": "7",
+				"x-klh-prefer":
+					"v=1;source=default;directive=default;line=0;index=0;target=fake;can=absent",
+				"x-litellm-call-id": req.headers.get("x-litellm-call-id") ?? "",
+				"x-belt-rid": "gate-rid-1",
+			},
+		},
+	);
 });
 
-const port = (() => {
-	const server = Bun.serve({
-		port: 0,
-		hostname: "127.0.0.1",
-		fetch: () => new Response(),
-	});
-	const free = server.port;
-	server.stop(true);
-	return free;
-})();
+const port = await freePort();
 const base = `http://127.0.0.1:${port}`;
 let proc: Bun.Subprocess<"ignore", "pipe", "pipe">;
 
@@ -73,8 +61,7 @@ beforeAll(async () => {
 		["bun", new URL("../bin/router-shim.ts", import.meta.url).pathname],
 		{
 			env: {
-				...process.env,
-				HOME: home,
+				...env,
 				BELT_ROUTER_PORT: String(port),
 				BELT_UPSTREAM_KEY: "bksk_test-scoped-fake",
 				BELT_UPSTREAM_BASE: `http://127.0.0.1:${local.port}`,
@@ -86,22 +73,15 @@ beforeAll(async () => {
 			stderr: "pipe",
 		},
 	);
-	for (let attempt = 0; attempt < 100; attempt++) {
-		try {
-			if ((await fetch(`${base}/health`)).ok) return;
-		} catch {
-			// Waiting for the child to bind.
-		}
-		await Bun.sleep(50);
-	}
-	throw new Error("router did not start");
+	await waitUp(`${base}/health`);
 });
 
 afterAll(() => {
 	releaseLocal?.();
 	proc?.kill();
-	local.stop(true);
-	cloud.stop(true);
+	local.close();
+	cloud.close();
+	clean();
 });
 
 const post = () =>

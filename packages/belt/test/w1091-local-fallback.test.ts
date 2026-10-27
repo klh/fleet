@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { needsDemandStart, SPECIALISTS } from "../bin/registry.ts";
 import {
@@ -8,6 +7,12 @@ import {
 	ensureAvailable,
 	loadingRetryAfterMs,
 } from "../bin/spawner.ts";
+import {
+	freePort,
+	scratchWorld,
+	serveStub,
+	waitUp,
+} from "@klh/test-kit";
 
 const reason = SPECIALISTS.find((row) => row.role === "reason");
 
@@ -39,9 +44,7 @@ test("loading retry hint tracks remaining cold-load time and spreads re-probes",
 
 test("four concurrent cold admissions refuse promptly with a shared retry hint", async () => {
 	if (!reason) throw new Error("reason registry row missing");
-	const reserved = Bun.serve({ port: 0, fetch: () => new Response() });
-	const coldPort = reserved.port;
-	reserved.stop(true);
+	const coldPort = await freePort();
 	const prior = process.env.BELT_DEMAND_WARMUP;
 	process.env.BELT_DEMAND_WARMUP = "0";
 	try {
@@ -62,37 +65,27 @@ test("four concurrent cold admissions refuse promptly with a shared retry hint",
 
 let rejectLocal = false;
 let cloudCalls = 0;
-const local = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	fetch(req) {
-		if (new URL(req.url).pathname !== "/v1/chat/completions")
-			return new Response("missing", { status: 404 });
-		if (rejectLocal)
-			return Response.json({ error: "unavailable" }, { status: 503 });
-		return Response.json({
-			choices: [
-				{
-					message: { role: "assistant", content: "local answer" },
-					finish_reason: "stop",
-				},
-			],
-		});
-	},
+const local = serveStub((req) => {
+	if (new URL(req.url).pathname !== "/v1/chat/completions")
+		return new Response("missing", { status: 404 });
+	if (rejectLocal)
+		return Response.json({ error: "unavailable" }, { status: 503 });
+	return Response.json({
+		choices: [
+			{
+				message: { role: "assistant", content: "local answer" },
+				finish_reason: "stop",
+			},
+		],
+	});
 });
-const cloud = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	fetch() {
-		cloudCalls++;
-		return Response.json({ content: [{ type: "text", text: "cloud answer" }] });
-	},
+const cloud = serveStub(() => {
+	cloudCalls++;
+	return Response.json({ content: [{ type: "text", text: "cloud answer" }] });
 });
-const reserve = Bun.serve({ port: 0, fetch: () => new Response() });
-const port = reserve.port;
-reserve.stop(true);
+const port = await freePort();
 const base = `http://127.0.0.1:${port}`;
-const home = mkdtempSync(join(tmpdir(), "w1091-router-"));
+const { home, env, clean } = scratchWorld({ prefix: "w1091-router-" });
 let router: ReturnType<typeof Bun.spawn> | undefined;
 
 beforeAll(async () => {
@@ -112,8 +105,7 @@ beforeAll(async () => {
 			new URL("../bin/router-shim.ts", import.meta.url).pathname,
 		],
 		env: {
-			...process.env,
-			HOME: home,
+			...env,
 			BELT_TIER: "minimal",
 			BELT_ROUTER_PORT: String(port),
 			BELT_UPSTREAM_KEY: "bksk_test-scoped-fake",
@@ -125,23 +117,14 @@ beforeAll(async () => {
 		stdout: "ignore",
 		stderr: "ignore",
 	});
-	for (let attempt = 0; attempt < 100; attempt++) {
-		if (
-			await fetch(`${base}/health/liveness`)
-				.then((r) => r.ok)
-				.catch(() => false)
-		)
-			return;
-		await Bun.sleep(50);
-	}
-	throw new Error("router did not become ready");
+	await waitUp(`${base}/health/liveness`, { tries: 100, intervalMs: 50 });
 });
 
 afterAll(() => {
 	router?.kill();
-	local.stop(true);
-	cloud.stop(true);
-	rmSync(home, { recursive: true, force: true });
+	local.close();
+	cloud.close();
+	clean();
 });
 
 async function route(

@@ -3,14 +3,7 @@
 // Retry-After, SSE streaming, direct-tier bypass policy. Stub servers only —
 // never the live :890x fleet.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import {
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { byPort } from "../bin/registry.ts";
 import {
@@ -29,6 +22,7 @@ import {
 	viaLocal,
 } from "../bin/router-core.ts";
 import { parseDirect, resolveTarget } from "../bin/router-policy.ts";
+import { freePort, scratchWorld, waitUp } from "@klh/test-kit";
 
 // bench class b shapes: 22 JS function families, sealed in bench-arena
 const CODE_GEN = [
@@ -427,16 +421,12 @@ describe("OpenAI SSE → Anthropic SSE", () => {
 let shim: ReturnType<typeof Bun.spawn> | undefined;
 let shimBase = "";
 let home = "";
-
-async function freePort(): Promise<number> {
-	const s = Bun.serve({ port: 0, fetch: () => new Response("") });
-	const p = s.port ?? 0;
-	s.stop(true);
-	return p;
-}
+let clean = (): void => {};
 
 beforeAll(async () => {
-	home = mkdtempSync(join(tmpdir(), "w270-"));
+	const world = scratchWorld({ prefix: "w270-" });
+	home = world.home;
+	clean = world.clean;
 	mkdirSync(join(home, ".claude", "local-llm"), { recursive: true });
 	writeFileSync(
 		join(home, ".claude", "local-llm", "prefs.json"),
@@ -450,8 +440,7 @@ beforeAll(async () => {
 			new URL("../bin/router-shim.ts", import.meta.url).pathname,
 		],
 		env: {
-			...process.env,
-			HOME: home,
+			...world.env,
 			BELT_ROUTER_PORT: String(port),
 			BELT_UPSTREAM_KEY: "bksk_test-scoped-fake",
 			BELT_UPSTREAM_BASE: stubBase,
@@ -460,18 +449,11 @@ beforeAll(async () => {
 		stdout: "ignore",
 		stderr: "ignore",
 	});
-	for (let i = 0; i < 100; i++) {
-		const up = await fetch(`${shimBase}/health/liveliness`)
-			.then((r) => r.ok)
-			.catch(() => false);
-		if (up) return;
-		await Bun.sleep(50);
-	}
-	throw new Error("router-shim did not come up");
+	await waitUp(`${shimBase}/health/liveliness`, { tries: 100, intervalMs: 50 });
 });
 afterAll(() => {
 	shim?.kill();
-	rmSync(home, { recursive: true, force: true });
+	clean();
 });
 
 const post = (body: Record<string, unknown>) =>

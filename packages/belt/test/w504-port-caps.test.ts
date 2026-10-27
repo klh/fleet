@@ -5,9 +5,12 @@
 // Unit-level against bin/admission.ts + bin/registry.ts; wire-level through a
 // real shim subprocess against a gated stub (parity-test pattern).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import {
+	freePort,
+	scratchWorld,
+	serveStub,
+	waitUp,
+} from "@klh/test-kit";
 import {
 	createAdmission,
 	overloaded,
@@ -83,54 +86,37 @@ describe("W504 registry wiring", () => {
 // ─── wire: real shim subprocess, BELT_PORT_CAPS over a gated stub ───
 const stubCalls: number[] = [];
 const gates: Array<() => void> = [];
-const stub = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	async fetch(req) {
-		const url = new URL(req.url);
-		if (req.method !== "POST" || url.pathname !== "/v1/chat/completions")
-			return Response.json({ error: "not found" }, { status: 404 });
-		stubCalls.push(Date.now());
-		await new Promise<void>((res) => gates.push(res));
-		return Response.json({
-			id: "s1",
-			choices: [
-				{
-					index: 0,
-					message: { role: "assistant", content: "stub says hi" },
-					finish_reason: "stop",
-				},
-			],
-		});
-	},
+const stub = serveStub(async (req) => {
+	const url = new URL(req.url);
+	if (req.method !== "POST" || url.pathname !== "/v1/chat/completions")
+		return Response.json({ error: "not found" }, { status: 404 });
+	stubCalls.push(Date.now());
+	await new Promise<void>((res) => gates.push(res));
+	return Response.json({
+		id: "s1",
+		choices: [
+			{
+				index: 0,
+				message: { role: "assistant", content: "stub says hi" },
+				finish_reason: "stop",
+			},
+		],
+	});
 });
 
-const HOME = mkdtempSync(join(tmpdir(), "w504-shim-home-"));
+const { env: worldEnv, clean } = scratchWorld({
+	prefix: "w504-shim-home-",
+});
 let proc: Bun.Subprocess<"ignore", "pipe", "pipe"> | undefined;
 let BASE = "";
 
-const findFreePort = (): number => {
-	const s = Bun.serve({
-		port: 0,
-		hostname: "127.0.0.1",
-		fetch: () => new Response(null),
-	});
-	const p = s.port ?? 0;
-	s.stop(true);
-	return p;
-};
-
 const waitHealthy = async (): Promise<boolean> => {
-	for (let i = 0; i < 100; i++) {
-		try {
-			const r = await fetch(`${BASE}/health`);
-			if (r.ok) return true;
-		} catch {
-			// not bound yet
-		}
-		await Bun.sleep(100);
+	try {
+		await waitUp(`${BASE}/health`, { tries: 100, intervalMs: 100 });
+		return true;
+	} catch {
+		return false;
 	}
-	return false;
 };
 
 const post = (body: unknown): Promise<Response> =>
@@ -144,16 +130,15 @@ const post = (body: unknown): Promise<Response> =>
 	});
 
 beforeAll(async () => {
-	const port = findFreePort();
+	const port = await freePort();
 	BASE = `http://127.0.0.1:${port}`;
 	proc = Bun.spawn(["bun", SHIM], {
 		env: {
-			...process.env,
+			...worldEnv,
 			BELT_ROUTER_PORT: String(port),
 			BELT_UPSTREAM_KEY: "bksk_test-scoped-fake",
 			BELT_UPSTREAM_BASE: `http://127.0.0.1:${stub.port}`,
 			BELT_PORT_CAPS: "8902:1", // the SIMPLE tier routes here (parity-proven)
-			HOME,
 		},
 		stdout: "ignore",
 		stderr: "pipe",
@@ -163,7 +148,8 @@ beforeAll(async () => {
 
 afterAll(() => {
 	proc?.kill();
-	stub.stop(true);
+	stub.close();
+	clean();
 });
 
 describe("W504 wire: full port falls through at the shim", () => {

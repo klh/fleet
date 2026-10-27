@@ -1,11 +1,11 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tailLines } from "../bin/tail-lines.ts";
+import { scratchWorld } from "@klh/test-kit";
 
-const dir = mkdtempSync(join(tmpdir(), "tail-lines-"));
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+const { home: dir, clean } = scratchWorld({ prefix: "tail-lines-" });
+afterAll(() => clean());
 
 const file = (name: string, body: string) => {
 	const p = join(dir, name);
@@ -24,7 +24,10 @@ describe("tailLines", () => {
 		expect(tailLines(file("small", "a\nb\nc\n"), 12)).toEqual(["a", "b", "c"]);
 	});
 	test("large file returns exactly the last n, no partial first line", () => {
-		const all = Array.from({ length: 5000 }, (_, i) => `line-${i}-${"x".repeat(40)}`);
+		const all = Array.from(
+			{ length: 5000 },
+			(_, i) => `line-${i}-${"x".repeat(40)}`,
+		);
 		const got = tailLines(file("big", `${all.join("\n")}\n`), 12);
 		expect(got).toEqual(all.slice(-12));
 	});
