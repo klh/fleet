@@ -5,12 +5,12 @@
 // board pane consumes the payload (table + per-row stamps) via /api/report.
 import type { Database } from "bun:sqlite";
 import {
-	buildReportTable,
 	type ReportRow,
-	reportLetter,
+	reportGlyph,
 	reportRows,
 	TASK_CAP,
 } from "./work-report.ts";
+import { buildReportTable } from "./work-report-render.ts";
 
 /** One expandable row of the pane: the report cells live in `table` (the
  *  verbatim renderer output); a row carries its expand key + live stamp. */
@@ -69,7 +69,7 @@ export const reportFace = (
 		table: buildReportTable(rows),
 		rows: rows.map((r: ReportRow) => ({
 			id: r.id,
-			st: reportLetter(r.state),
+			st: reportGlyph(r.state),
 			title: r.title.slice(0, TASK_CAP),
 			lastEventTs: last.get(r.id) ?? null,
 		})),

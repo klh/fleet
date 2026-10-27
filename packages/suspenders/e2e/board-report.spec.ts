@@ -59,7 +59,7 @@ test("report pane renders THE work-report table with expandable rows", async ({
 	expect(j.ok).toBe(true);
 	expect(j.table).toContain("ITEM");
 	expect(j.rows.map((r) => `${r.id} ${r.st}`).sort()).toEqual(
-		[`${w1} R`, `${w2} Q`].sort(),
+		[`${w1} ◐`, `${w2} ·`].sort(), // W1131 §3 board glyphs: working · ready
 	);
 	expect(errors, "uncaught page exceptions").toEqual([]);
 });

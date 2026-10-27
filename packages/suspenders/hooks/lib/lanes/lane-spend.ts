@@ -15,10 +15,7 @@ import {
 	type TimingEventRow,
 	workTiming,
 } from "../work/work-timing.ts";
-import {
-	type BackfillSpend,
-	attributionBackfills,
-} from "./lane-backfill.ts";
+import { attributionBackfills, type BackfillSpend } from "./lane-backfill.ts";
 
 /** W943.1 — the cache-blind era. router_usage rows written before the
  *  2026-10-19 buckle-front fix carry cache_r/cache_c ≈ 0 (glm hourly sums:
@@ -339,6 +336,11 @@ export interface ItemAttribution {
 	work: string;
 	fresh: number; // non-cache prompt tokens (in)
 	cached: number; // cacheR + cacheC
+	/** W1131 OTel split: cache_read vs cache_creation prompt tokens. Null =
+	 *  unreported (renders —, never 0); merged `cached` stays the cache-share
+	 *  truth. */
+	cacheRead: number | null;
+	cacheCreation: number | null;
 	out: number;
 	requests: number;
 	wallMs: number; // first claim → last event (W15)
@@ -401,6 +403,8 @@ export function itemAttribution(
 				: ds
 					? ds.cached
 					: (s?.cacheR ?? 0) + (s?.cacheC ?? 0),
+			cacheRead: bf || ds ? null : (s?.cacheR ?? null),
+			cacheCreation: bf || ds ? null : (s?.cacheC ?? null),
 			out: bf ? bf.out : ds ? ds.out : (s?.out ?? 0),
 			requests: bf ? bf.requests : (s?.requests ?? 0),
 			wallMs: t?.wallMs ?? 0,

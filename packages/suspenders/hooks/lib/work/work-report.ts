@@ -1,19 +1,20 @@
-// work-report.ts — W892: `work report`, the ONE supervisor reply table
-// (owner GO 2026-10-19). Port of the coordinator's prototype loop: rows =
-// riding + queued + recent-done items (or --ids), columns ITEM/ST/TASK/
-// TOKENS/CACHE/OUT-MIN/AGENT computed from each item's W776 attribution
-// (fresh+cached tokens, cache-hit %, out/min over agent wall). Programmatic
-// fixed-width pads — the table cannot drift. ST letters: R = riding
-// (CLAIMED/RUNNING), Q = queued (READY), D = done (DONE), F = failed
-// (FAILED; surfaces via --ids). W891 colors these letters on the board.
+// work-report.ts — W1131: `work report`, the ONE supervisor report. This
+// module owns the CONTRACT (a stable, versioned JSON object) plus the shared
+// row/state helpers; every view renders FROM the contract — the tty table /
+// md / plain formats (work-report-render.ts) and the tree/delta/statusline/
+// watch modes (work-report-modes.ts) — so board and CLI never disagree.
+// States use the board vocabulary (single-width glyphs, no emoji); rows are
+// actionable-first (needs-you → working → waiting → done); unreported
+// metrics render as UNKNOWN (—), never a measured 0 (W1131 §5).
 
 import type { Database } from "bun:sqlite";
-import Table from "cli-table3";
 import {
 	type GroupSpend,
 	type ItemAttribution,
 	itemAttribution,
 } from "../lanes/lane-spend.ts";
+import type { LaneLive } from "./work-report-live.ts";
+import { reportBoardBase } from "./work-report-live.ts";
 
 /** One table row: graph state joined to its spend attribution. */
 export interface ReportRow {
@@ -22,27 +23,133 @@ export interface ReportRow {
 	title: string;
 	fresh: number;
 	cached: number;
+	/** W1131 OTel split (§1): null = unreported (renders —, never 0). */
+	cacheRead: number | null;
+	cacheCreation: number | null;
 	out: number;
 	agentMs: number;
 	model: string; // W909: top model_group (+ when several), "" = none
 	effort: string | null; // W909: lane effort level (work.done payload)
 	consulted: boolean; // W909: lane banked knowledge or consulted
 	blindCache: boolean; // W943.1: attributed spend spans the cache-blind era — CACHE is a floor
+	/** W1131 §4/§8 live join: updatedAt drives AGE + the stall grace; hub is
+	 *  the terminal hub of the lane's LAST usage-bearing request; requests =
+	 *  LLM calls per item (runaway detector); lastActivityAgoMs/lastOutAgoMs
+	 *  = age of the last request / last output-bearing request (null = no
+	 *  live facts in the lookback window). stalled: working && past grace &&
+	 *  no recent output. decision: open NEED_DECISION targets this item. */
+	updatedAt: number;
+	ownerSid: string | null;
+	hub: string | null;
+	requests: number | null;
+	lastActivityAgoMs: number | null;
+	lastOutAgoMs: number | null;
+	stalled: boolean;
+	decision: boolean;
+	/** §5 unknown ≠ zero: false = no attribution rows — metrics are
+	 *  unreported (render as em-dash), never a measured 0. */
+	spendReported: boolean;
+	/** --all scope only: which project the row came from. */
+	project: string | null;
 }
 
-/** done → D, failed → F, riding (CLAIMED/RUNNING) → R, queued (READY) → Q. */
-export const reportLetter = (state: string): string => {
-	if (state === "DONE") return "D";
-	if (state === "FAILED") return "F";
-	if (state === "WAITING") return "W";
-	if (state === "READY") return "Q";
-	return "R"; // CLAIMED/RUNNING — riding
+/** W1131 §3 board-vocabulary states — single-width glyphs, never emoji.
+ *  ready ·, waiting ○, working ◐, blocked ⊘, failed ✗, done ✓, cancelled –. */
+export const REPORT_GLYPHS = {
+	ready: "·",
+	waiting: "○",
+	working: "◐",
+	blocked: "\u{2298}",
+	failed: "\u{2717}",
+	done: "\u{2713}",
+	cancelled: "\u{2013}",
+} as const;
+
+/** Graph state → glyph; BLOCKED isn't a graph state — the blocked glyph
+ *  rides rows whose needs-you reason is an open NEED_DECISION (§4). */
+export const reportGlyph = (state: string): string => {
+	switch (state) {
+		case "READY":
+			return REPORT_GLYPHS.ready;
+		case "WAITING":
+			return REPORT_GLYPHS.waiting;
+		case "CLAIMED":
+		case "RUNNING":
+			return REPORT_GLYPHS.working;
+		case "DONE":
+			return REPORT_GLYPHS.done;
+		case "FAILED":
+			return REPORT_GLYPHS.failed;
+		case "CANCELLED":
+		case "SUPERSEDED":
+			return REPORT_GLYPHS.cancelled;
+		default:
+			return REPORT_GLYPHS.ready;
+	}
 };
 
-/** W964 ST-bucket rank: R riding < Q queued < F failed < D done. */
-const BUCKET_RANK: Record<string, number> = { R: 0, Q: 1, W: 2, F: 3, D: 4 };
-export const reportBucketRank = (state: string): number =>
-	BUCKET_RANK[reportLetter(state)] ?? 9;
+/** Graph state → status word (never colour alone: glyph + word everywhere). */
+export const reportStatus = (state: string): string => {
+	switch (state) {
+		case "READY":
+			return "ready";
+		case "WAITING":
+			return "waiting";
+		case "CLAIMED":
+		case "RUNNING":
+			return "working";
+		case "DONE":
+			return "done";
+		case "FAILED":
+			return "failed";
+		case "CANCELLED":
+		case "SUPERSEDED":
+			return "cancelled";
+		default:
+			return "ready";
+	}
+};
+
+/** W1131 §4 actionable-first sections. needs_you = open NEED_DECISION +
+ *  failed + stalled; then working, waiting, recent done (§4). */
+export type ReportSection = "needs_you" | "working" | "waiting" | "done";
+
+export const REPORT_SECTIONS: ReportSection[] = [
+	"needs_you",
+	"working",
+	"waiting",
+	"done",
+];
+
+/** needs-you reason precedence: decision > failed > stalled (§4 order). */
+export const needsYouReason = (
+	state: string,
+	stalled: boolean,
+	decision: boolean,
+): "decision" | "failed" | "stalled" | null =>
+	decision
+		? "decision"
+		: state === "FAILED"
+			? "failed"
+			: stalled
+				? "stalled"
+				: null;
+
+/** Row → section: needs_you wins, then state buckets. */
+export const reportSection = (
+	state: string,
+	stalled: boolean,
+	decision: boolean,
+): ReportSection => {
+	if (needsYouReason(state, stalled, decision)) return "needs_you";
+	if (state === "CLAIMED" || state === "RUNNING") return "working";
+	if (state === "READY" || state === "WAITING") return "waiting";
+	return "done";
+};
+
+/** The §4 section rank that replaces the W964 ST-bucket order. */
+export const sectionRank = (s: ReportSection): number =>
+	REPORT_SECTIONS.indexOf(s);
 
 /** W964 numeric-aware id compare: digit runs compare numerically — W9 < W49
  *  < W953; W688.4 < W688.7.1 — non-digit runs lexically, prefix < extension. */
@@ -74,6 +181,14 @@ export const parseReportWindow = (raw: string): number | null => {
 
 /** Recent-done lookback default: DONE rows older than this leave the table. */
 export const DEFAULT_DONE_WINDOW_MS = 48 * 3_600_000;
+
+/** W1131 §4 stall threshold: a working lane quiet (or outputless) longer
+ *  than this lands in needs_you. Config knob: SUSPENDERS_REPORT_STALL_MS. */
+export const DEFAULT_STALL_MS = 2 * 3_600_000;
+export const stallThresholdMs = (): number => {
+	const raw = Number(process.env.SUSPENDERS_REPORT_STALL_MS);
+	return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_STALL_MS;
+};
 
 /** Recent-done row cap: the table carries the LAST few done, never the flood. */
 export const DONE_ROW_CAP = 5;
@@ -133,26 +248,79 @@ export const consultedItems = (db: Database, project: string): Set<string> => {
 	}
 };
 
+/** W1131 §4 open-decision set: items holding a NEED_DECISION newer than any
+ *  NEED_DECISION_RESOLVED for the same item. Fail-soft like consultedItems. */
+export const openDecisions = (db: Database, project: string): Set<string> => {
+	try {
+		const rows = db
+			.query(
+				"SELECT kind, payload FROM events WHERE kind IN ('NEED_DECISION','NEED_DECISION_RESOLVED') AND project = ? ORDER BY id",
+			)
+			.all(project) as Array<{ kind: string; payload: string | null }>;
+		const last = new Map<string, number>();
+		for (const r of rows) {
+			try {
+				const it = (JSON.parse(r.payload ?? "{}") as { item?: string }).item;
+				if (!it) continue;
+				last.set(it, r.kind === "NEED_DECISION" ? 1 : 0);
+			} catch {}
+		}
+		const out = new Set<string>();
+		for (const [it, open] of last) if (open === 1) out.add(it);
+		return out;
+	} catch {
+		return new Set(); // no events table (tests) — fail soft
+	}
+};
+
 /** W892 row mapper: graph items ⋈ W776 attribution → table rows. */
 export const toReportRows = (
 	items: Array<Record<string, string | number | null>>,
 	attribution: Map<string, ItemAttribution>,
 	consulted?: Set<string>,
+	liveBySid?: Map<string, LaneLive>,
+	decisions?: Set<string>,
+	stallMs = DEFAULT_STALL_MS,
+	now = Date.now(),
 ): ReportRow[] =>
 	items.map((it) => {
-		const a = attribution.get(String(it.id));
+		const id = String(it.id);
+		const a = attribution.get(id);
+		const lv = liveBySid?.get(String(it.owner_sid ?? ""));
+		const age = now - Number(it.updated_at ?? now);
+		const working = it.state === "CLAIMED" || it.state === "RUNNING";
+		const lastOutAgo = lv?.lastOutTs == null ? null : now - lv.lastOutTs;
+		const quiet =
+			(a?.out ?? 0) === 0 || lastOutAgo == null || lastOutAgo > stallMs;
+		const stalled = Boolean(working && age > stallMs && quiet);
+		const decision = decisions?.has(id) ?? false;
 		return {
-			id: String(it.id),
+			id,
 			state: String(it.state),
 			title: String(it.title ?? ""),
 			fresh: a?.fresh ?? 0,
 			cached: a?.cached ?? 0,
+			cacheRead: a?.cacheRead ?? null,
+			cacheCreation: a?.cacheCreation ?? null,
 			out: a?.out ?? 0,
 			agentMs: a?.agentMs ?? 0,
 			model: reportModel(a?.groups ?? {}),
 			effort: a?.effort ?? null,
-			consulted: consulted?.has(String(it.id)) ?? false,
+			consulted: consulted?.has(id) ?? false,
 			blindCache: a?.blindCache ?? false,
+			updatedAt: Number(it.updated_at ?? now),
+			ownerSid: it.owner_sid == null ? null : String(it.owner_sid),
+			hub: lv?.hub ?? null,
+			requests: a?.requests ?? null,
+			lastActivityAgoMs: lv?.lastTs == null ? null : now - lv.lastTs,
+			lastOutAgoMs: lastOutAgo,
+			stalled,
+			decision,
+			// §5: attribution with every figure zero = NOT reported (unknown ≠
+			// measured zero); a real report carries tokens or requests
+			spendReported:
+				a !== undefined && a.fresh + a.cached + a.out + a.requests > 0,
+			project: it.project == null ? null : String(it.project),
 		};
 	});
 
@@ -172,6 +340,12 @@ export const reportRows = (
 		now?: number;
 		/** hermetic pin (tests): null = zero spend, real wall */
 		ledger?: string | null;
+		/** W1131 §8 live lane facts (hub, last activity) joined by owner_sid */
+		live?: LaneLive[];
+		/** §4 stall threshold override (tests); default stallThresholdMs() */
+		stallMs?: number;
+		/** §11 --mine: keep only rows dispatched to/claimed by this sid */
+		mineSid?: string | null;
 	},
 ): { rows: ReportRow[]; missing: string[] } => {
 	const now = opts.now ?? Date.now();
@@ -208,37 +382,204 @@ export const reportRows = (
 		// above still decides WHICH done rows appear (recency cap).
 		items = [...actives, ...dones].sort(
 			(a, b) =>
-				reportBucketRank(String(a.state)) - reportBucketRank(String(b.state)) ||
+				sectionRank(reportSection(String(a.state), false, false)) -
+					sectionRank(reportSection(String(b.state), false, false)) ||
 				compareItemIds(String(a.id), String(b.id)),
 		);
 	}
-	return {
-		rows: toReportRows(
-			items,
-			itemAttribution(
-				db,
-				project,
-				now,
-				"ledger" in opts ? opts.ledger : undefined,
-			),
-			consultedItems(db, project),
+	const liveMap = new Map(opts.live?.map((l) => [l.sid, l]));
+	const builtRows = toReportRows(
+		items,
+		itemAttribution(
+			db,
+			project,
+			now,
+			"ledger" in opts ? opts.ledger : undefined,
 		),
+		consultedItems(db, project),
+		liveMap,
+		openDecisions(db, project),
+		opts.stallMs ?? stallThresholdMs(),
+		now,
+	);
+	// §11 --mine: keep only rows claimed by this sid (the owner_sid join);
+	// unset/null keeps the whole pool.
+	const rows =
+		opts.mineSid == null
+			? builtRows
+			: builtRows.filter((r) => r.ownerSid === opts.mineSid);
+	// §4 actionable-first: needs_you (decision > failed > stalled) → working →
+	// waiting → done; id ascending inside each section (W964 stability).
+	// --ids strict mode keeps CALLER order — only the pool sorts.
+	if (!opts.ids || opts.ids.length === 0)
+		rows.sort(
+			(a, b) =>
+				sectionRank(reportSection(a.state, a.stalled, a.decision)) -
+					sectionRank(reportSection(b.state, b.stalled, b.decision)) ||
+				compareItemIds(a.id, b.id),
+		);
+	return {
+		rows,
 		missing,
 	};
 };
 
-const COLUMNS = [
-	"ITEM",
-	"ST",
-	"TASK",
-	"TOKENS",
-	"CACHE",
-	"OUT/MIN",
-	"AGENT",
-	"MODEL",
-	"EFFORT",
-	"CONSULT",
-];
+/** W1131 §9: the ONE item deep-link — every view renders links FROM this
+ *  helper so CLI, md, tree and the board share one URL shape. */
+export const urlFor = (id: string, project: string, base?: string): string =>
+	`${base ?? reportLinkBase()}/#task=${id}&proj=${encodeURIComponent(project)}`;
+
+/** One item of the versioned report contract (§1). */
+export interface ReportItem {
+	id: string;
+	project: string | null;
+	glyph: string;
+	status: string;
+	section: ReportSection;
+	needs_you_reason: "decision" | "failed" | "stalled" | null;
+	title: string;
+	age_ms: number | null;
+	last_activity_ms_ago: number | null;
+	last_output_ms_ago: number | null;
+	hub: string | null;
+	stalled: boolean;
+	requests: number | null;
+	/** §5: null = unreported, never a measured zero (W1070 stamp keeps the
+	 *  merged `cached` as the cache-share truth). */
+	usage: UsageMetrics;
+	cache_share: number | null;
+	blind_cache: boolean;
+	model: string;
+	effort: string | null;
+	consult: boolean;
+	links: { task: string };
+}
+
+/** OTel GenAI usage keys (§1) — the contract's ONLY token vocabulary.
+ *  input_tokens INCLUDES cached; cache share = cache_read ÷ input_tokens. */
+export type UsageMetrics = {
+	"gen_ai.usage.input_tokens": number | null;
+	"gen_ai.usage.cache_read.input_tokens": number | null;
+	"gen_ai.usage.cache_creation.input_tokens": number | null;
+	"gen_ai.usage.output_tokens": number | null;
+};
+
+/** The W1131 contract: the one object every view renders from (§1). */
+export interface ReportContract {
+	schema_version: 1;
+	generated_at: string;
+	project: string;
+	scope: "project" | "mine" | "all";
+	now_ms: number;
+	stall_ms: number;
+	items: ReportItem[];
+	needs_you: { count: number; ids: string[] };
+	totals: {
+		input_tokens: number;
+		output_tokens: number;
+		cache_read_tokens: number;
+		cache_creation_tokens: number;
+		requests: number;
+		lanes_per_hub: Record<string, number>;
+	};
+	footer: { lanes_other_projects: number | null };
+}
+
+/** rows → the versioned contract (§1). Every view renders FROM this — the
+ *  table/md/plain renderers and tree/delta/statusline/watch never re-derive
+ *  state, so board and CLI cannot disagree. */
+export const buildReportContract = (
+	rows: ReportRow[],
+	opts: {
+		project: string;
+		scope?: "project" | "mine" | "all";
+		now?: number;
+		boardBase?: string;
+		lanesOtherProjects?: number | null;
+	},
+): ReportContract => {
+	const now = opts.now ?? Date.now();
+	const ctx = {
+		project: opts.project,
+		base: opts.boardBase ?? reportBoardBase(),
+	};
+	const items = rows.map((r) => contractItemOf(r, ctx));
+	const lanesPerHub: Record<string, number> = {};
+	for (const i of items) {
+		if (i.section !== "working" || !i.hub) continue;
+		lanesPerHub[i.hub] = (lanesPerHub[i.hub] ?? 0) + 1;
+	}
+	const needsYou = items.filter((i) => i.section === "needs_you");
+	const sum = (f: (r: ReportRow) => number): number =>
+		rows.reduce((s, r) => s + f(r), 0);
+	return {
+		schema_version: 1,
+		generated_at: new Date(now).toISOString(),
+		project: opts.project,
+		scope: opts.scope ?? "project",
+		now_ms: now,
+		stall_ms: stallThresholdMs(),
+		items,
+		needs_you: { count: needsYou.length, ids: needsYou.map((i) => i.id) },
+		totals: {
+			input_tokens: sum((r) => (r.spendReported ? r.fresh + r.cached : 0)),
+			output_tokens: sum((r) => (r.spendReported ? r.out : 0)),
+			// §5: unreported OTel split falls back to the merged `cached` (the
+			// W1070 stamp truth) — totals never render a measured 0 for a
+			// cache figure the cells DO report.
+			cache_read_tokens: sum(
+				(r) => r.cacheRead ?? (r.spendReported ? r.cached : 0),
+			),
+			cache_creation_tokens: sum((r) => r.cacheCreation ?? 0),
+			requests: sum((r) => r.requests ?? 0),
+			lanes_per_hub: lanesPerHub,
+		},
+		footer: { lanes_other_projects: opts.lanesOtherProjects ?? null },
+	};
+};
+
+/** One row → one contract item (§1): board glyph, needs-you reason, §9
+ *  deep-link; usage filled by the builder (§5 null = unreported). */
+const contractItemOf = (
+	r: ReportRow,
+	ctx: { project: string; base: string },
+): ReportItem => {
+	const reason = needsYouReason(r.state, r.stalled, r.decision);
+	const section = reportSection(r.state, r.stalled, r.decision);
+	const proj = r.project ?? ctx.project;
+	const head = {
+		id: r.id,
+		project: proj,
+		glyph: reason === "decision" ? REPORT_GLYPHS.blocked : reportGlyph(r.state),
+		status: reason === "decision" ? "blocked" : reportStatus(r.state),
+		section,
+		needs_you_reason: reason,
+		title: r.title,
+		age_ms: r.agentMs > 0 ? r.agentMs : null,
+		last_activity_ms_ago: r.lastActivityAgoMs,
+		last_output_ms_ago: r.lastOutAgoMs,
+		hub: r.hub,
+		stalled: r.stalled,
+		requests: r.requests,
+	};
+	const input = r.spendReported ? r.fresh + r.cached : null;
+	return {
+		...head,
+		usage: {
+			"gen_ai.usage.input_tokens": input,
+			"gen_ai.usage.cache_read.input_tokens": r.cacheRead,
+			"gen_ai.usage.cache_creation.input_tokens": r.cacheCreation,
+			"gen_ai.usage.output_tokens": r.spendReported ? r.out : null,
+		},
+		cache_share:
+			input && input > 0 ? Math.round((r.cached / input) * 100) / 100 : null,
+		blind_cache: r.blindCache,
+		model: r.model,
+		effort: r.effort,
+		consult: r.consulted,
+		links: { task: urlFor(r.id, proj, ctx.base) },
+	};
+};
 
 /** W910: board deep-link base — env override, default the .local front
  *  (config-over-code: hosts live in machine conf, never code). */
@@ -303,72 +644,9 @@ export const REPORT_TABLE_CHARS = {
 	middle: "  ",
 };
 
-/** ITEM/ST/TASK left, the rest (numeric + MODEL/EFFORT/CONSULT, W909) right. */
-const REPORT_TABLE_ALIGN: ("left" | "right")[] = [
-	"left",
-	"left",
-	"left",
-	"right",
-	"right",
-	"right",
-	"right",
-	"right",
-	"right",
-	"right",
-];
-
-/** The prototype table (W892): pads delegated to cli-table3 (W976) —
- *  ITEM/ST/TASK left, the rest (numeric + MODEL/EFFORT/CONSULT, W909) right;
- *  separator =
- *  per-column dashes. Zero-spend rows show `-` for TOKENS/CACHE and 0 for
- *  OUT/MIN; no data = `-` for MODEL/EFFORT and N for CONSULT. */
-export const buildReportTable = (
-	rows: ReportRow[],
-	opts: ReportTableOpts = {},
-): string => {
-	const base = opts.baseUrl ?? reportLinkBase();
-	const cells = rows.map((r) => {
-		const tokens = r.fresh + r.cached;
-		return [
-			r.id,
-			reportLetter(r.state),
-			r.title.slice(0, TASK_CAP),
-			tokens > 0 ? compactTokens(tokens) : "-",
-			tokens > 0
-				? `${Math.round((r.cached / tokens) * 100)}%${r.blindCache ? CACHE_MARK : ""}`
-				: "-",
-			`${r.agentMs > 0 ? Math.round(r.out / (r.agentMs / 60_000)) : 0}`,
-			agentClock(r.agentMs),
-			r.model || "-",
-			r.effort ?? "-",
-			r.consulted ? "Y" : "N",
-		];
-	});
-	const ids = rows.map((r) => r.id);
-	// separator = per-column dashes; widths come from the PLAIN cells (links
-	// wrap later — the lib's ANSI-aware math counts escapes as width-zero).
-	const widths = COLUMNS.map((h, c) =>
-		Math.max(h.length, ...cells.map((row) => row[c].length)),
-	);
-	const table = new Table({
-		chars: REPORT_TABLE_CHARS,
-		colAligns: REPORT_TABLE_ALIGN,
-		style: { head: [], border: [], "padding-left": 0, "padding-right": 0 },
-	});
-	table.push(COLUMNS);
-	table.push(widths.map((w) => "-".repeat(w)));
-	rows.forEach((_r, i) => {
-		table.push(
-			cells[i].map((v, c) =>
-				// W910: wrap column 0's id; the lib pads the wrapped content
-				// (escapes width-zero), piped output stays escape-free.
-				c === 0 && opts.links ? osc8Link(v, `${base}/#lanes?w=${ids[i]}`) : v,
-			),
-		);
-	});
-	const body = table.toString();
-	return rows.some((r) => r.blindCache) ? `${body}\n${CACHE_LEGEND}` : body;
-};
+// W1131: the cli-table3 renderer retired — the ONE tty face is
+// buildReportTable in ./work-report-render.ts, rendering FROM the §1
+// versioned contract. Consumers import it from there.
 
 /** `work stats` body (W1211 lift — the 1500-line law left bin/work.ts no
  *  headroom): one JSON blob of state counts + latest DONE instant. */

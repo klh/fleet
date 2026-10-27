@@ -16,18 +16,19 @@
 import type { Database } from "bun:sqlite";
 import { basename } from "node:path";
 import { itemCapsuleKey } from "../lib/capsule-fence.ts";
-import { detectClient } from "../lib/executors/detect.ts";
-import { automaticRecoveryCheck } from "../lib/fleet-loop/automatic-recovery.ts";
-import { triggerMergeOnDone } from "../lib/fleet-loop/merge-on-done.ts";
-import { unmergedDeps, unmergedNote } from "../lib/gates/dep-merge-gate.ts";
-import { reproGateRefusal } from "../lib/gates/repro-gate.ts";
 import {
 	advertisedCaps,
 	assertRequires,
 	machineCredScope,
 	stampRequires,
 } from "../lib/cred-scope.ts";
+import { detectClient } from "../lib/executors/detect.ts";
+import { automaticRecoveryCheck } from "../lib/fleet-loop/automatic-recovery.ts";
+import { triggerMergeOnDone } from "../lib/fleet-loop/merge-on-done.ts";
+import { unmergedDeps, unmergedNote } from "../lib/gates/dep-merge-gate.ts";
+import { reproGateRefusal } from "../lib/gates/repro-gate.ts";
 import { projectRootOf, resolveSidOf } from "../lib/govdb/govdb.ts";
+import { BACKFILL_EVENT, backfillForItem } from "../lib/lanes/lane-backfill.ts";
 import { rebindKeptLaneContext } from "../lib/lanes/lane-context.ts";
 import {
 	doneSpendStamp,
@@ -49,7 +50,6 @@ import {
 	renderAttribution,
 	resolveBuckleDb,
 } from "../lib/lanes/lane-spend.ts";
-import { BACKFILL_EVENT, backfillForItem } from "../lib/lanes/lane-backfill.ts";
 import { publishCompletionBlock } from "../lib/lanes/lane-stop-publisher.ts";
 import {
 	claimantLanes,
@@ -68,6 +68,7 @@ import {
 import { attachManagedSubscribe, reapIfIdle } from "../lib/subscribe-attach.ts";
 import { budgetFlagClear } from "../lib/usage/budget-flag.ts";
 import { dieFor, idList, type Parsed, runCli } from "../lib/verb-kit.ts";
+import { curateCompletionKnowledge } from "../lib/work/completion-curation.ts";
 import {
 	applyAllocations,
 	assignTask,
@@ -76,13 +77,13 @@ import {
 	planAllocation,
 	renderAllocPlan,
 } from "../lib/work/work-alloc.ts";
+import { reconcileCompletion } from "../lib/work/work-completion-reconcile.ts";
 import {
 	type CompletionRecord,
 	completionRecord,
 	persistCompletion,
 	prepareCompletion,
 } from "../lib/work/work-completion-record.ts";
-import { reconcileCompletion } from "../lib/work/work-completion-reconcile.ts";
 import { editPayload, editSteer, editWorkItem } from "../lib/work/work-edit.ts";
 import { EFFORTS } from "../lib/work/work-effort.ts";
 import { evidencePatternsOf } from "../lib/work/work-fence.ts";
@@ -111,18 +112,12 @@ import {
 	setState,
 	setWorkVerb,
 } from "../lib/work/work-graph.ts";
-import { curateCompletionKnowledge } from "../lib/work/completion-curation.ts";
-import { attachCloseReport, regenReport } from "../lib/work/work-report-cli.ts";
 import { runMigrateLedger } from "../lib/work/work-migrate-ledger.ts";
 import { exportMirror } from "../lib/work/work-mirror.ts";
 import { GLYPH, renderRow, renderTimestamps } from "../lib/work/work-render.ts";
-import {
-	buildReportTable,
-	parseReportWindow,
-	reportRows,
-	reportTableLinkOpts,
-	runStats,
-} from "../lib/work/work-report.ts";
+import { runStats } from "../lib/work/work-report.ts";
+import { attachCloseReport, regenReport } from "../lib/work/work-report-cli.ts";
+import { runReportVerb } from "../lib/work/work-report-verb.ts";
 import { retryFailedItem } from "../lib/work/work-retry.ts";
 import { validateTags } from "../lib/work/work-tags.ts";
 import { VERBS } from "../lib/work/work-verbs.ts";
@@ -351,22 +346,17 @@ const dispatchVerb = async (
 		// W1211 lift: runStats moved to lib/work-report.ts (1500-line law)
 		console.log(runStats(db() as unknown as Database, PROJECT));
 	} else if (name === "report") {
-		// W892: the supervisor micro-metrics table — the ONE reply table
-		// (supersedes the W865 prose list). Riding + queued + recent-done,
-		// or strict --ids. A bad window dies at the parse boundary.
-		const winRaw = flag("--done-window");
-		const doneWindowMs = winRaw ? parseReportWindow(winRaw) : null;
-		if (winRaw && doneWindowMs === null)
-			die("report: bad --done-window — try 45m | 12h | 2d (s/m/h/d, ≤30d)");
-		const ids = idList([...pos, ...(flag("--ids") ?? "").split(",")]);
-		const { rows, missing } = reportRows(db() as unknown as Database, PROJECT, {
-			ids,
-			doneWindowMs: doneWindowMs ?? undefined,
-			now: Date.now(),
+		// W1131: the §2/§10/§11 verb body lives in hooks/lib/work-report-verb.ts
+		// (work.ts is pinned near the 1500-line cap) — the thin door hands the
+		// parsed face over; every die path + render comes from the library.
+		await runReportVerb({
+			db: db() as unknown as Database,
+			project: PROJECT,
+			pos,
+			flag,
+			rest,
+			die,
 		});
-		if (missing.length > 0)
-			die(`no such work item in this project: ${missing[0]}`);
-		console.log(buildReportTable(rows, reportTableLinkOpts()));
 	} else if (name === "show") {
 		const json = flag("--json");
 		for (const id of idList(pos)) showOne(id, Boolean(json));

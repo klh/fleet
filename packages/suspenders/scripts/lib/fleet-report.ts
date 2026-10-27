@@ -4,12 +4,12 @@
 // re-derive the table. Fail-soft (metering doctrine: a report failure never
 // kills a dispatch) with a once-per-process NOTE.
 import type { Database } from "bun:sqlite";
+import { openStore, projectIdentity } from "../../hooks/lib/govdb/govdb.ts";
 import {
-	buildReportTable,
 	reportRows,
 	reportTableLinkOpts,
 } from "../../hooks/lib/work/work-report.ts";
-import { openStore, projectIdentity } from "../../hooks/lib/govdb/govdb.ts";
+import { buildReportTable } from "../../hooks/lib/work/work-report-render.ts";
 
 let noteShown = false;
 

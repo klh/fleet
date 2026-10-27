@@ -10,7 +10,8 @@ import {
 	reportFace,
 	reportRowDetail,
 } from "../hooks/lib/work/report-face.ts";
-import { buildReportTable, reportRows } from "../hooks/lib/work/work-report.ts";
+import { REPORT_GLYPHS, reportRows } from "../hooks/lib/work/work-report.ts";
+import { buildReportTable } from "../hooks/lib/work/work-report-render.ts";
 
 const T0 = 1_700_000_000_000;
 const PROJECT = "/repo/.git";
@@ -60,13 +61,13 @@ describe("reportFace", () => {
 		expect(face.ts).toBe(T0);
 	});
 
-	test("rows carry ST letters and last-event stamps (latest wins)", () => {
+	test("rows carry ST glyphs (W1131 §3) and last-event stamps (latest wins)", () => {
 		const d = fixture();
 		const face = reportFace(d, PROJECT, { now: T0, ledger: null });
 		const byId = new Map(face.rows.map((r) => [r.id, r]));
-		expect(byId.get("W1")?.st).toBe("R");
-		expect(byId.get("W2")?.st).toBe("Q");
-		expect(byId.get("W3")?.st).toBe("D");
+		expect(byId.get("W1")?.st).toBe(REPORT_GLYPHS.working);
+		expect(byId.get("W2")?.st).toBe(REPORT_GLYPHS.ready);
+		expect(byId.get("W3")?.st).toBe(REPORT_GLYPHS.done);
 		expect(byId.get("W1")?.lastEventTs).toBe(T0 - 100);
 		expect(byId.get("W3")?.lastEventTs).toBe(T0 - 2_500);
 		expect(byId.get("W2")?.lastEventTs).toBeNull();

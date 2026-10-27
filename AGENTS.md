@@ -88,6 +88,15 @@ GitHub push — W422.9/W422.1).
 
 ## Supervisor reporting (W892, installed face W899/W906)
 
+W1131 (2026-10-23): the verb renders FROM one versioned JSON contract
+(`--format json`, schema_version 1, OTel GenAI usage keys) and every other
+view — the tty/md/plain table, --tree, --delta, --statusline, --watch —
+renders FROM that same contract, so CLI and board cannot disagree. Formats
+choose by MEDIUM (tty on a terminal, md on a pipe, plain = TSV); scoping =
+project default / --mine / --all; unreported metrics render `—` (unknown
+≠ measured 0); §4 actionable-first sections (needs you → working → waiting
+→ recent done) surface the stalled lanes a flat R list buries.
+
 `work report` (verb) — with `bun ~/.claude/hooks/suspenders/bin/fleet-report.ts`
 as its installed-face shim (argv-verbatim passthrough, W913) — renders THE
 supervisor reply table (owner GO 2026-10-19): rows = riding + queued +
@@ -97,8 +106,9 @@ MODEL = top model_group (`+` when several), EFFORT = the lane's effort
 level (dispatch pins SUSPENDERS_LANE_EFFORT into the per-lane 0600
 settings; `work done` banks it into the work.done event), CONSULT Y/N =
 the lane banked knowledge or consulted (W909 event links); fixed-width
-programmatic pads; ST letters R = riding, Q = queued, D = done, F = failed
-(W891 colors them on the board). Supervisor ticks paste it verbatim — the
+programmatic pads; ST glyphs (W1131 §3, the board vocabulary) · ready ·
+○ waiting · ◐ working · ⊘ blocked · ✗ failed · ✓ done · – cancelled,
+glyph + word, never colour alone. Supervisor ticks paste it verbatim — the
 session-start SUPERVISOR DEFAULT contract references the installed
 reporter and EMITS it (the hook calls the one library; W899), lane briefs
 carry the same table (dispatch FLEET REPORT), and the install tail runs
