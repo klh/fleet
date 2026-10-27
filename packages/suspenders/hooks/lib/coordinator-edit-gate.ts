@@ -42,6 +42,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { RECEIPT_FILE } from "./harness-manifest.ts";
 import { resolveFleetLane } from "./lanes/fleetlane.ts";
 import { resolveProject } from "./govdb/govdb-project.ts";
+import { hookSubagentSuffix } from "./hook-lane.ts";
 import { deny, type HookInput } from "./hookio.ts";
 
 const EDIT_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
@@ -160,7 +161,14 @@ export function coordinatorWriteAllowed(filePath: string): boolean {
 
 export type SessionRole = "lane" | "coordinator";
 
-export function sessionRole(cwd: string): SessionRole {
+export function sessionRole(cwd: string, hook?: HookInput): SessionRole {
+	// W1041.2 review case 3: a native Claude child is an executor even under
+	// an interactive coordinator — it inherits neither the lane env marker
+	// nor a lanes.json registration, so the env/walk ladder alone files it
+	// under "coordinator" and blocks its claim-bound worktree edits. The
+	// seam's per-hook agent fields are ground truth; inherited env is not,
+	// which is why the child check precedes the explicit override.
+	if (hook && hookSubagentSuffix(hook)) return "lane";
 	const r = process.env.KLH_SESSION_ROLE;
 	if (r === "coordinator") return "coordinator"; // explicit override, no walk
 	if (r === "lane" || resolveFleetLane(cwd)) return "lane";
@@ -192,6 +200,6 @@ export function coordinatorEditGate(hook: HookInput): void {
 		return; // outside the repo: ops surface
 	}
 	if (coordinatorWriteAllowed(abs)) return; // docs + .fleet surface
-	if (sessionRole(at) === "lane") return;
+	if (sessionRole(at, hook) === "lane") return;
 	deny(coordinatorDenyText(abs.slice(root.length + 1)));
 }

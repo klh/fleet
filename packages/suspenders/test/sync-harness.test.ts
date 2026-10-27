@@ -82,6 +82,7 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 	for (const file of [
 		"gate.ts",
 		"session-start.ts",
+		"subagent-start.ts",
 		"session-end.ts",
 		"pre-compact.ts",
 		"statusline.ts",

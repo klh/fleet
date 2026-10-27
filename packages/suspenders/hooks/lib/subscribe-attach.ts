@@ -11,6 +11,10 @@ import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { resolveFleetLane } from "./lanes/fleetlane.ts";
+import {
+	hookLaneId as nativeChildLaneId,
+	hookSubagentSuffix,
+} from "./hook-lane.ts";
 import type { HookInput } from "./hookio.ts";
 import { loadLaneRegistry, newerLane } from "./lanes/lane-registry.ts";
 import { laneProcessIdentity, type LaneRef } from "./lanes/lane-liveness.ts";
@@ -41,19 +45,21 @@ export const coordSubscribeLog = (sid: string): string =>
 // Claude Code subagents share the parent's session_id; session-start
 // registers (and attaches their subscribe under) `<sid>#<agent>` — the lane
 // id every subscribe-log consumer must derive the same way. Shared by
-// session-start and the W417.4 push gate.
-export const subagentLaneSuffix = (transcriptPath: string): string => {
-	const m = transcriptPath.match(/\/subagents\/([^/]+?)(?:\.jsonl)?\/?$/);
-	return m ? `#${m[1]}` : "";
-};
+// session-start and the W417.4 push gate. Delegates to the W1041.2 seam so
+// an explicit agent_id counts even when the transcript names the parent.
+export const subagentLaneSuffix = (transcriptPath: string): string =>
+	hookSubagentSuffix({ transcript_path: transcriptPath });
 
 export function hookLaneId(hook: HookInput): string {
+	// A native child is its own lane BEFORE any inherited identity:
+	// SUSPENDERS_SID and the fleetlane ancestor walk both resolve to the
+	// parent's registration, which is how a child ended up reading the
+	// parent's inbox (W1041.2 review case 2).
+	if (hookSubagentSuffix(hook)) return nativeChildLaneId(hook);
 	if (process.env.SUSPENDERS_SID) return process.env.SUSPENDERS_SID;
 	const lane = resolveFleetLane(hook.cwd ?? process.cwd());
 	if (lane) return lane.sid;
-	return hook.session_id
-		? `${hook.session_id}${subagentLaneSuffix(hook.transcript_path ?? "")}`
-		: "";
+	return hook.session_id ?? "";
 }
 
 // anchored on the exact `--as <sid>` tail — at most one live subscribe per
