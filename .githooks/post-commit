@@ -37,12 +37,14 @@ const tests = suite.map((name) =>
 	resolve(root, "packages/suspenders/test", name),
 );
 const testEnv = { ...stripGitEnv(process.env) };
-const run = Bun.spawnSync([process.execPath, "test", ...tests], {
-	cwd: root,
-	env: testEnv,
-	stdout: "inherit",
-	stderr: "inherit",
-});
+// 83580 (owner ruling 2026-10-27): spawn-heavy suites sit at 5002-5182ms
+// under sustained lane load against bun 5s per-test default - healthy
+// pushes refused for hours. 15s default; SUSPENDERS_GATE_TIMEOUT_MS overrides.
+const gateTimeout = String(Number(process.env.SUSPENDERS_GATE_TIMEOUT_MS ?? 15_000));
+const run = Bun.spawnSync(
+	[process.execPath, "test", "--timeout", gateTimeout, ...tests],
+	{ cwd: root, env: testEnv, stdout: "inherit", stderr: "inherit" },
+);
 if (run.exitCode !== 0) {
 	console.error("Fleet verb contract failed after commit; repair before pushing.");
 	process.exit(run.exitCode || 1);
