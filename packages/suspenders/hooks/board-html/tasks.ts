@@ -226,6 +226,7 @@ function spendStripText(sp){
   var s = fmtWall(sp.wall_ms);
   if (rpm != null) s += ' · ' + fmtRate(rpm) + ' tok/m';
   if (cp != null) s += ' · ' + Math.round(cp) + '% cache';
+  if (sp.cost_usd != null) s += ' · $' + sp.cost_usd.toFixed(sp.cost_usd < 0.01 ? 4 : 2);
   return s;
 }
 // W998.3 — ONE builder for the kspendtxt strip text, shared by the render

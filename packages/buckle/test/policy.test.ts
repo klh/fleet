@@ -154,3 +154,20 @@ test("runtime JSON beats the legacy yaml name (never parsed)", () => {
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+test("parsePolicy: cost block parses into the versioned price table", () => {
+	const p = parsePolicy(
+		JSON.stringify({ cost: { version: "rates-2026-10", models: { m: { in_per_tok: 0.000002, out_per_tok: 0.00001, cache_read_mult: 0.1 } } } }),
+	);
+	expect(p.cost?.version).toBe("rates-2026-10");
+	expect(p.cost?.models?.m?.in_per_tok).toBe(0.000002);
+	expect(p.cost?.models?.m?.cache_read_mult).toBe(0.1);
+});
+
+test("parsePolicy: absent cost block → null (nothing prices, rows stay NULL)", () => {
+	expect(parsePolicy(JSON.stringify({ version: 1 })).cost).toBeNull();
+});
+
+test("parsePolicy: cost block without a version refuses startup (fail-closed)", () => {
+	expect(() => parsePolicy(JSON.stringify({ cost: { models: {} } }))).toThrow(/cost\.version/);
+});

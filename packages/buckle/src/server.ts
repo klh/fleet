@@ -35,6 +35,7 @@ import {
 } from "./gov/overlay-loader.ts";
 import { residencyFromEnv, resolveResidency } from "./gov/residency.ts";
 import { type AppDeps, createApp } from "./handlers.ts";
+import { pricerOf } from "./cost.ts";
 import type { RouteHint } from "./hints.ts";
 import { MAX_REQUEST_BODY_BYTES } from "./ingress-body.ts";
 import { Ledger } from "./ledger.ts";
@@ -153,6 +154,10 @@ export function buildDeps(
 					"Ledger rows dropped after bounded flush retries.",
 				)
 				.inc({ kind }, n),
+		// W1132 write-time pricing from the policy cost table: a row without
+		// a rate (or with no table at all) stays NULL / '' — unknown spend,
+		// never silently zero.
+		pricer: pricerOf(policy.cost),
 	});
 	// W458.4 per-lane cache telemetry: append-only NDJSON next to the ledger
 	// db (BUCKLE_LANE_CACHE_LOG overrides). Rows ride real lane-attributed

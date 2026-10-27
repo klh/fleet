@@ -122,6 +122,8 @@ export function taskShape(
 					requests: attribution.requests,
 					wall_ms: attribution.wallMs,
 					agent_ms: attribution.agentMs,
+					// W1132: cost_usd rides the priced rows (null = unknown, never zero).
+					cost_usd: attribution.costUsd,
 					model_groups: attribution.groups,
 				}
 			: null,
@@ -178,7 +180,7 @@ let _wAttr: { at: number; m: Map<string, ItemAttribution> } | null = null;
 
 const ATTR_TTL_MS = 5_000;
 
-function workAttribution(): Map<string, ItemAttribution> {
+export function workAttribution(): Map<string, ItemAttribution> {
 	if (_wAttr && Date.now() - _wAttr.at < ATTR_TTL_MS) return _wAttr.m;
 	const m = new Map<string, ItemAttribution>();
 	// W682: ONE claim-replay bus scan feeds every project's replay — the

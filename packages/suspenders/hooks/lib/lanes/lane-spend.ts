@@ -35,6 +35,9 @@ export interface GroupSpend {
 	cacheR: number;
 	cacheC: number;
 	requests: number;
+	/** W1132 priced cost (null = every underlying row unpriced — unknown,
+	 *  never zero; a partially-priced mix sums the priced rows, a floor). */
+	costUsd: number | null;
 }
 
 /** One hour-bucket spend row from the buckle ledger. */
@@ -47,6 +50,8 @@ export interface LaneSpendRow {
 	cacheR: number;
 	cacheC: number;
 	requests: number;
+	/** W1132 priced cost (null = unpriced rows only — unknown, never zero). */
+	costUsd: number | null;
 }
 
 /** Per-item attributed spend with its per-class (model_group) split. */
@@ -57,6 +62,8 @@ export interface ItemSpend {
 	cacheR: number;
 	cacheC: number;
 	requests: number;
+	/** W1132 priced cost — sum of priced rows; null = nothing priced here. */
+	costUsd: number | null;
 	/** W943.1: earliest attributed hour bucket, null = no attributed spend. */
 	firstBucket: string | null;
 	groups: Map<string, GroupSpend>;
@@ -78,9 +85,23 @@ export interface LaneRequestSpendRow {
 	outTok: number;
 	cacheR: number;
 	cacheC: number;
+	/** W1132 priced cost (null = unpriced row — unknown, never zero). */
+	costUsd: number | null;
 }
 
 export const REQUEST_SPARK_BUCKET_MS = 60_000;
+
+/** W1132 null-aware cost sum: null + x = x (unknown ⊕ priced = priced floor),
+ *  null + null = null. Cost is never faked to zero by an unpriced row. */
+export const addCost = (a: number | null, b: number | null): number | null =>
+	a === null ? b : b === null ? a : a + b;
+
+/** W1132: does this ledger table carry the cost columns? Legacy ledgers
+ *  predate them — probe before SELECTing cost_usd or the read throws. */
+export const hasCostCol = (d: Database, table: string): boolean =>
+	d
+		.query("SELECT 1 FROM pragma_table_info(?) WHERE name = 'cost_usd'")
+		.all(table).length > 0;
 
 /** Resolve the buckle ledger path: SUSPENDERS_BUCKLE_DB env pin, then the
  *  documented spoke home. Config-over-code — only channel names, no paths
@@ -100,11 +121,14 @@ export function laneSpendRows(
 ): LaneSpendRow[] {
 	const d = new Database(dbPath, { readonly: true });
 	try {
+		const cost = hasCostCol(d, "router_usage")
+			? ", SUM(ru.cost_usd) AS cost"
+			: "";
 		const rows = d
 			.query(
 				`SELECT ru.hour_bucket AS bucket, ak.name AS sid, ru.model_group AS grp,
 				  SUM(ru.in_tok) AS i, SUM(ru.out_tok) AS o,
-				  SUM(ru.cache_r) AS cr, SUM(ru.cache_c) AS cc, SUM(ru.requests) AS req
+				  SUM(ru.cache_r) AS cr, SUM(ru.cache_c) AS cc, SUM(ru.requests) AS req${cost}
 				 FROM router_usage ru JOIN api_keys ak ON ak.key_id = ru.key
 				 WHERE ru.hour_bucket >= ?
 				 GROUP BY ru.hour_bucket, ak.name, ru.model_group
@@ -120,7 +144,52 @@ export function laneSpendRows(
 			cacheR: Number(r.cr),
 			cacheC: Number(r.cc),
 			requests: Number(r.req),
+			costUsd: r.cost == null ? null : Number(r.cost),
 		}));
+	} finally {
+		d.close();
+	}
+}
+
+/** One by-model rollup row. costUsd null when any hour in the group is
+ *  unpriced (unknown total, never zero); unpriced counts those hours. */
+export interface CostModelRow {
+	group: string;
+	inTok: number;
+	outTok: number;
+	requests: number;
+	costUsd: number | null;
+	unpriced: number;
+}
+
+/** Per-model-group priced rollup — keyless lanes included (no api_keys
+ *  join; router_usage grouped straight by model_group). */
+export function costByModel(
+	dbPath: string,
+	fromBucket: string,
+): Array<CostModelRow> {
+	const d = new Database(dbPath, { readonly: true });
+	try {
+		if (!hasCostCol(d, "router_usage")) return [];
+		const rows = d
+			.query(
+				`SELECT model_group AS grp, SUM(in_tok) AS i, SUM(out_tok) AS o,
+				  SUM(requests) AS req, SUM(cost_usd) AS cost,
+				  COUNT(*) - COUNT(cost_usd) AS unpriced
+				 FROM router_usage WHERE hour_bucket >= ?
+				 GROUP BY model_group`,
+			)
+			.all(fromBucket) as Array<Record<string, unknown>>;
+		return rows.map((r) => ({
+			group: String(r.grp),
+			inTok: Number(r.i),
+			outTok: Number(r.o),
+			requests: Number(r.req),
+			costUsd: Number(r.unpriced) > 0 || r.cost == null ? null : Number(r.cost),
+			unpriced: Number(r.unpriced),
+		}));
+	} catch {
+		return [];
 	} finally {
 		d.close();
 	}
@@ -135,9 +204,10 @@ export function laneRequestSpendRows(
 ): LaneRequestSpendRow[] {
 	const d = new Database(dbPath, { readonly: true });
 	try {
+		const cost = hasCostCol(d, "route_audit") ? ", cost_usd" : "";
 		const rows = d
 			.query(
-				"SELECT ts, lane, in_tok, out_tok, cache_r, cache_c FROM route_audit WHERE ts >= ? AND lane <> '' AND in_tok IS NOT NULL ORDER BY ts",
+				`SELECT ts, lane, in_tok, out_tok, cache_r, cache_c${cost} FROM route_audit WHERE ts >= ? AND lane <> '' AND in_tok IS NOT NULL ORDER BY ts`,
 			)
 			.all(fromIso) as Array<Record<string, unknown>>;
 		return rows
@@ -148,6 +218,7 @@ export function laneRequestSpendRows(
 				outTok: Number(r.out_tok) || 0,
 				cacheR: Number(r.cache_r) || 0,
 				cacheC: Number(r.cache_c) || 0,
+				costUsd: r.cost_usd == null ? null : Number(r.cost_usd),
 			}))
 			.filter((r) => Number.isFinite(r.ts));
 	} catch {
@@ -222,6 +293,7 @@ export function itemSpend(
 			cacheR: 0,
 			cacheC: 0,
 			requests: 0,
+			costUsd: null,
 			firstBucket: null,
 			groups: new Map(),
 		});
@@ -238,15 +310,24 @@ export function itemSpend(
 				t.cacheR += r.cacheR;
 				t.cacheC += r.cacheC;
 				t.requests += r.requests;
+				t.costUsd = addCost(t.costUsd, r.costUsd);
 				const g =
 					t.groups.get(r.group) ??
-					({ in: 0, out: 0, cacheR: 0, cacheC: 0, requests: 0 } as const);
+					({
+						in: 0,
+						out: 0,
+						cacheR: 0,
+						cacheC: 0,
+						requests: 0,
+						costUsd: null,
+					} as const);
 				t.groups.set(r.group, {
 					in: g.in + r.inTok,
 					out: g.out + r.outTok,
 					cacheR: g.cacheR + r.cacheR,
 					cacheC: g.cacheC + r.cacheC,
 					requests: g.requests + r.requests,
+					costUsd: addCost(g.costUsd, r.costUsd),
 				});
 			}
 		}
@@ -341,6 +422,8 @@ export interface ItemAttribution {
 	 *  truth. */
 	cacheRead: number | null;
 	cacheCreation: number | null;
+	/** W1132 priced cost (null = nothing attributed priced — unknown spend). */
+	costUsd: number | null;
 	out: number;
 	requests: number;
 	wallMs: number; // first claim → last event (W15)
@@ -407,6 +490,7 @@ export function itemAttribution(
 			cacheCreation: bf || ds ? null : (s?.cacheC ?? null),
 			out: bf ? bf.out : ds ? ds.out : (s?.out ?? 0),
 			requests: bf ? bf.requests : (s?.requests ?? 0),
+			costUsd: s?.costUsd ?? null,
 			wallMs: t?.wallMs ?? 0,
 			agentMs: t?.agentMs ?? 0,
 			effort: t?.effort ?? null,
@@ -424,6 +508,7 @@ export function itemAttribution(
 									cacheR: ds.cached,
 									cacheC: 0,
 									requests: 0,
+									costUsd: null,
 								},
 							}
 						: {}
@@ -457,5 +542,9 @@ export function renderAttribution(a: ItemAttribution): string {
 		.slice(0, 3)
 		.map(([g, v]) => `${g} ${k(total(v))}`)
 		.join(", ");
-	return `fresh ${k(a.fresh)} · cached ${k(a.cached)} · out ${k(a.out)} · ${a.requests} req · wall ${dur(a.wallMs)} (agent ${dur(a.agentMs)})${groups ? ` · ${groups}` : ""}`;
+	const cost =
+		a.costUsd === null
+			? ""
+			: ` · $${a.costUsd < 0.01 ? a.costUsd.toFixed(4) : a.costUsd.toFixed(2)}`;
+	return `fresh ${k(a.fresh)} · cached ${k(a.cached)} · out ${k(a.out)} · ${a.requests} req · wall ${dur(a.wallMs)} (agent ${dur(a.agentMs)})${cost}${groups ? ` · ${groups}` : ""}`;
 }

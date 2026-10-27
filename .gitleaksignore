@@ -193,3 +193,7 @@ packages/suspenders/test/policy-advisor.test.ts:private-key:186
 packages/suspenders/test/prompt-transform.test.ts:generic-api-key:405
 packages/suspenders/test/scrub-gate.test.ts:generic-api-key:30
 test/fleet-board-flows.test.ts:generic-api-key:422
+# W1132 cherry-pick of the W1124.8.2.2 lane's disposition: migration-test
+# fixture value (fake key written by writeFileSync in the sightings test;
+# the suite asserts masking, never a real credential)
+packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83

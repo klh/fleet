@@ -353,6 +353,18 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		],
 		cwd: (repo) => repo,
 	},
+	{
+		// W1132: the cost sweep — budget 50/80/95 vs notify.json `cost:` (no
+		// conf, no rule), hourly > 3x the 7d MA, one call > 10x the median,
+		// over the buckle ledger's priced rows. --act lands a `cost.alert`
+		// bus event per alert and exits 0; alerts only ever read PRICED
+		// history (unpriced = unknown, never zero).
+		name: "cost-alert",
+		everySeconds: 1800,
+		nice: 10,
+		timeoutMs: 60_000,
+		argv: (root) => [join(root, "hooks/bin/cost-alert.ts"), "--act"],
+	},
 ];
 
 // the suspenders package root, identical in the repo worktree

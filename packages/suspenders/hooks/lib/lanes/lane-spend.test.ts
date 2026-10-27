@@ -13,6 +13,7 @@ import {
 	laneRequestSpendRows,
 	laneSpendRows,
 	resolveBuckleDb,
+	costByModel,
 	type LaneSpendRow,
 } from "./lane-spend.ts";
 import type { ClaimWindow } from "../work/work-timing.ts";
@@ -29,6 +30,7 @@ function row(p: Partial<LaneSpendRow>): LaneSpendRow {
 		cacheR: 0,
 		cacheC: 0,
 		requests: 1,
+		costUsd: null,
 		...p,
 	};
 }
@@ -89,6 +91,40 @@ describe("itemSpend", () => {
 			wins2,
 		);
 		expect(m.get("W3")?.in).toBe(80);
+	});
+
+	// W1132: cost rides the same attribution — priced rows sum, unpriced rows
+	// never zero the total (unknown ⊕ priced = priced floor, null + null = null).
+	test("cost sums priced rows; unpriced stays null (never zero-faked)", () => {
+		const m = itemSpend(
+			[
+				row({ bucket: "2023-11-14T22:00", sid: "s1", costUsd: 0.02 }),
+				row({
+					bucket: "2023-11-14T22:00",
+					sid: "s1",
+					inTok: 5,
+					costUsd: null,
+				}),
+				row({
+					bucket: "2023-11-14T22:00",
+					sid: "s1",
+					inTok: 5,
+					costUsd: 0.03,
+				}),
+			],
+			wins,
+		);
+		expect(m.get("W1")?.costUsd).toBeCloseTo(0.05, 12);
+		expect(m.get("W1")?.groups.get("glm-5.3-flash")?.costUsd).toBeCloseTo(
+			0.05,
+			12,
+		);
+		// nothing priced in the window → null, not 0
+		const m2 = itemSpend(
+			[row({ bucket: "2023-11-14T23:00", sid: "s1" })],
+			wins,
+		);
+		expect(m2.get("W1")?.costUsd).toBeNull();
 	});
 
 	test("firstBucket tracks the earliest attributed bucket (W943.1)", () => {
@@ -248,6 +284,37 @@ describe("laneSpendRows + resolveBuckleDb", () => {
 		expect(resolveBuckleDb("/nonexistent-home")).toBeNull();
 		delete process.env.SUSPENDERS_BUCKLE_DB;
 		expect(resolveBuckleDb("/nonexistent-home")).toBeNull();
+	});
+
+	test("costByModel: priced groups roll up; any unpriced hour → null + unpriced count", () => {
+		const dir = mkdtempSync(join(tmpdir(), "w1132-bymodel-"));
+		try {
+			const p = join(dir, "buckle.db");
+			const e = new Database(p);
+			e.run(
+				"CREATE TABLE router_usage (hour_bucket TEXT, key TEXT, model_group TEXT, model TEXT DEFAULT '', in_tok INTEGER DEFAULT 0, out_tok INTEGER DEFAULT 0, cache_r INTEGER DEFAULT 0, cache_c INTEGER DEFAULT 0, requests INTEGER DEFAULT 0, cost_usd REAL, rate_version TEXT DEFAULT '')",
+			);
+			e.run(
+				"INSERT INTO router_usage (hour_bucket, key, model_group, in_tok, out_tok, requests, cost_usd) VALUES ('2026-10-23T12:00', 'k1', 'glm-5.3-flash', 100, 50, 2, 0.02), ('2026-10-23T13:00', 'k1', 'glm-5.3-flash', 10, 5, 1, 0.01), ('2026-10-23T13:00', 'k2', 'unknown-model', 5, 2, 1, NULL)",
+			);
+			e.close();
+			const rows = costByModel(p, "2026-10-01T00:00");
+			expect(rows.length).toBe(2);
+			const glm = rows.find((r) => r.group === "glm-5.3-flash");
+			const unk = rows.find((r) => r.group === "unknown-model");
+			expect(glm?.costUsd).toBeCloseTo(0.03);
+			expect(glm?.unpriced).toBe(0);
+			expect(unk?.costUsd).toBeNull();
+			expect(unk?.unpriced).toBe(1);
+			// legacy table without cost columns → empty, never a fake rollup
+			const legacy = join(dir, "legacy.db");
+			const l = new Database(legacy);
+			l.run("CREATE TABLE router_usage (hour_bucket TEXT)");
+			l.close();
+			expect(costByModel(legacy, "2026-10-01T00:00")).toEqual([]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });
 
