@@ -160,7 +160,9 @@ export class Governance {
 	/** Admin-only joined scrape. Public /metrics remains Buckle-only. */
 	metrics(): Promise<Response> {
 		return this.metricsConnector.expose(
-			this.sm.expose() + providerAdmissionMetrics(this.providerPools()),
+			this.sm.expose() +
+				providerAdmissionMetrics(this.providerPools()) +
+				this.ledger.throughput(process.env.BUCKLE_HUB_ID ?? "local"),
 		);
 	}
 

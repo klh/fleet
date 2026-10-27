@@ -176,6 +176,8 @@ export function streamResponse(
 		if (success && ctx.affKey && deps.affinity && affinityOn())
 			deps.affinity.bind(ctx.affKey, result.candidateId);
 		deps.ledger.auditOutcome(ctx.rid, {
+			served: ctx.served,
+			demand: ctx.demand,
 			// Headers have already been sent; ok/error_code carry the later
 			// stream failure without pretending the HTTP status was 502.
 			status: 200,

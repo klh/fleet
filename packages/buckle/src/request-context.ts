@@ -8,6 +8,7 @@ import { principalOf } from "./gov/federation.ts";
 import type { RouteHint } from "./hints.ts";
 import type { HopContext } from "./hop.ts";
 import type { ObservationData, ObservationType } from "./observe.ts";
+import type { ServedIdentity } from "./served-identity.ts";
 import type { TraceContext } from "./trace.ts";
 import type { Dialect } from "./upstreams.ts";
 
@@ -28,6 +29,8 @@ export function trafficKindOf(req: Request): string {
 }
 
 export interface Ctx {
+	demand?: boolean;
+	served?: ServedIdentity;
 	key: string;
 	group: string;
 	model: string;

@@ -19,6 +19,7 @@ export function deny(
 ): Response {
 	deps.ledger.auditDecision({
 		rid: ctx.rid,
+		requested_group: ctx.sel ? ctx.group : null,
 		trace_id: ctx.trace.traceparent.split("-")[1],
 		ts: new Date().toISOString(),
 		actor: ctx.key,

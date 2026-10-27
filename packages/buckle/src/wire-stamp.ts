@@ -8,6 +8,7 @@ import type { CandidateRow } from "./candidates.ts";
 import { latencyClass } from "./decide.ts";
 import { settleInflight } from "./gov/inflight.ts";
 import type { Ctx } from "./request-context.ts";
+import { stampServedIdentity } from "./served-identity.ts";
 
 export const SSE_HEADERS = (h: Headers): Headers => {
 	const out = new Headers();
@@ -90,6 +91,15 @@ export function stamped(
 		callId: route.callId,
 	});
 	for (const [k, v] of hs) resp.headers.set(k, v);
+	stampServedIdentity(
+		resp.headers,
+		ctx.served ?? {
+			model: null,
+			provider: null,
+			providerProfile: null,
+			evidence: "unknown",
+		},
+	);
 	resp.headers.delete(PREFER_HEADER);
 	if (ctx.preference) resp.headers.set(PREFER_HEADER, ctx.preference);
 	settleInflight(ctx, resp, route); // W1259: hold streams, settle the rest

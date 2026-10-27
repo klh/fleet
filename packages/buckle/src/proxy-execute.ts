@@ -20,6 +20,7 @@ import { jsonResponse } from "./proxy-body.ts";
 import { streamResponse } from "./proxy-stream.ts";
 import { type Ctx, observe } from "./request-context.ts";
 import { type ExecuteResult, UpstreamError } from "./router.ts";
+import { requestedEffort, servedIdentity } from "./served-identity.ts";
 import { deny } from "./wire-deny.ts";
 import { SSE_HEADERS, stamped } from "./wire-stamp.ts";
 
@@ -53,6 +54,8 @@ export async function runExecute(
 	}
 	deps.ledger.auditDecision({
 		rid: ctx.rid,
+		requested_group: ctx.group,
+		requested_effort: requestedEffort(body),
 		trace_id: ctx.trace.traceparent.split("-")[1],
 		ts: new Date().toISOString(),
 		actor: ctx.key,
@@ -124,6 +127,7 @@ export async function runExecute(
 	ctx.prefixFp = deps.prefixLedger ? prefixFingerprintOf(body) : null;
 	let result: ExecuteResult;
 	// W461 stage 2: started — the upstream dispatch begins.
+	ctx.demand = (deps.admission?.inflight(ctx.group) ?? 0) > 1;
 	observe(deps, ctx, "lane.request.started");
 	try {
 		result = await deps.router.execute({
@@ -152,6 +156,8 @@ export async function runExecute(
 			return deny(deps, ctx, 502, e.message, "no_route", "errored");
 		throw e;
 	}
+	if (result.kind === "upstream")
+		ctx.served = servedIdentity(result.deployment, result.response.headers);
 	let resp: Response;
 	try {
 		resp = await handleResult(deps, ctx, result);
@@ -214,6 +220,8 @@ function finishResponse(
 		deps.affinity.bind(ctx.affKey, result.candidateId);
 	if (!streaming)
 		deps.ledger.auditOutcome(ctx.rid, {
+			served: ctx.served,
+			demand: ctx.demand,
 			status: resp.status,
 			duration_ms: ms,
 			ok,

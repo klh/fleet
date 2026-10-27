@@ -142,6 +142,7 @@ export function buildDeps(
 	const prefs = loadPrefs(opts.prefsPath);
 	const sm = servicemon({ service: "buckle", port });
 	const ledger = new Ledger(opts.dbPath ?? defaultDbPath(), undefined, {
+		throughputPolicy: policy.throughput,
 		onDrop: (kind, n) =>
 			sm
 				.counter(

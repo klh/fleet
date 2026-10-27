@@ -14,6 +14,9 @@ import { deriveAdapter } from "./adapters/types.ts";
 export type Dialect = "openai" | "anthropic";
 
 export interface Deployment {
+	/** Canonical non-secret identity materialized from the central provider profile. */
+	provider?: string;
+	providerProfile?: string;
 	url: string;
 	dialect: Dialect;
 	// upstream's real model id when the group alias differs — the request
@@ -54,6 +57,8 @@ interface UpstreamsDoc {
 }
 
 interface DeploymentSpec {
+	provider?: string;
+	providerProfile?: string;
 	url: string;
 	dialect: Dialect;
 	model?: string;
@@ -105,6 +110,16 @@ function poolFrom(doc: UpstreamsDoc): UpstreamPool {
 			group,
 			(specs ?? []).map((s) => {
 				const dep = { ...s, group };
+				for (const field of ["provider", "providerProfile"] as const) {
+					const value = dep[field];
+					if (
+						value !== undefined &&
+						(typeof value !== "string" || !/^\w[\w.-]{0,127}$/.test(value))
+					)
+						throw new Error(
+							`upstreams: group "${group}": ${field} must be a bounded provider ID`,
+						);
+				}
 				if (
 					dep.priority !== undefined &&
 					(!Number.isSafeInteger(dep.priority) || dep.priority < 0)
