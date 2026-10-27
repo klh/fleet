@@ -14,6 +14,9 @@ import {
 	type BriefIntel,
 	renderIntel,
 } from "../../hooks/lib/lanes/brief-intel.ts";
+// W1225: the pre-flight knowledge recall + failure error-match lines — the
+// brief named no knowledge face before this (hooks/lib/lanes/brief-recall.ts)
+import { briefRecallLines } from "../../hooks/lib/lanes/brief-recall.ts";
 import { effortBudgetLine } from "../../hooks/lib/work/work-effort.ts";
 // W1295: the agent-rules role library — base + role inject ahead of the brief
 import { loadAgentRules, selectAgentRole } from "./agent-rules.ts";
@@ -194,6 +197,9 @@ export const composeBrief = (o: BriefOpts): string => {
 		...(rules ? [rules.base.trimEnd(), "", rules.roleBody.trimEnd(), ""] : []),
 		...briefOpening(o),
 	];
+	// W1225: the recall block rides every brief with searchable mission terms —
+	// pre-flight knowledge query + the failure error-match face.
+	parts.push(...briefRecallLines({ missionText: o.showOut, bin: BIN }));
 	parts.push(...briefValidation(o));
 	parts.push(...briefInboxCollab(o));
 	parts.push(...briefResume(o));
