@@ -344,7 +344,7 @@ export async function runDispatch(
 			// SUSPENDERS_SID the primary identity channel for the codex adapter
 			// (ppid-walk into lanes.json stays the fallback, lib/fleetlane.ts).
 			env.SUSPENDERS_SID = sid;
-		} else if (AGENT === "copilot" || AGENT === "grok" || AGENT === "cline") {
+		} else if (AGENT === "copilot") {
 			// W296: same identity-channel parity as codex above, minus the
 			// seatbelt-driven private git store workaround — these dialects use
 			// normal worktrees, so only the sid needs to ride the lane env.
@@ -361,11 +361,12 @@ export async function runDispatch(
 		// one). A failed wire aborts — never a silent gate-less lane (W68
 		// degradation rule). Every dialect's wire.ts targets a GLOBAL config
 		// file (not per-worktree), so this is safe to re-run on every dispatch.
+		// W1811: grok/cline retired from dispatch until transcript evidence
+		// readers land — their dialect wiring stays (hooks/dialects/) but no
+		// dispatch path can launch an evidence-blind lane.
 		const WIRE_BY_AGENT: Record<string, string> = {
 			codex: "codex",
 			copilot: "copilot",
-			grok: "grok",
-			cline: "cline",
 		};
 		const wireDialect = WIRE_BY_AGENT[AGENT];
 		if (wireDialect) {

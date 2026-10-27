@@ -60,6 +60,14 @@ export const EVIDENCE_NORMALIZERS: EvidenceNormalizer[] =
 export const isSpawnableExecutor = (name: string): boolean =>
 	adapterForExact(name)?.spawnable === true;
 
+/** W1811: the legacy board-dispatch vocabulary (routes-actions
+ *  normalizeAgent's raw-agent pass-through). Grok/cline are RETIRED from it
+ *  until their transcript evidence readers land — a dispatchable token
+ *  without a reader spawns evidence-blind lanes whose test-pass claims fail
+ *  closed by name in the claim-check. Registry-owned so the invariant is
+ *  testable beside the adapters it names. */
+export const LEGACY_DISPATCHABLE_AGENTS: string[] = ["codex", "copilot"];
+
 /** The process-table names every executor answers to — lane-liveness's
  *  harness matcher feeds from this union instead of a hand-kept list. */
 export const HARNESS_PROCESS_NAMES: string[] = [

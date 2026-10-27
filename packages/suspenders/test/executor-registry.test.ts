@@ -9,6 +9,7 @@ import {
 	adapterFor,
 	adapterForExact,
 	isSpawnableExecutor,
+	LEGACY_DISPATCHABLE_AGENTS,
 } from "../hooks/lib/executors/registry.ts";
 import {
 	CLAUDE_ALLOWED_TOOLS,
@@ -96,6 +97,21 @@ describe("W422 executor-adapter registry", () => {
 		expect(isSpawnableExecutor("grok")).toBe(false);
 		expect(isSpawnableExecutor("cline")).toBe(false);
 		expect(isSpawnableExecutor("glm-5.3-flash")).toBe(false);
+	});
+	// W1811: a token on the legacy board-dispatch list rides real lanes, so
+	// its adapter MUST carry a transcript evidence reader — grok/cline were
+	// retired from the list until readers land (claim-check fails their
+	// lanes' test-pass claims closed by name).
+	test("every legacy-dispatchable token carries transcript evidence", () => {
+		for (const token of LEGACY_DISPATCHABLE_AGENTS) {
+			const adapter = adapterForExact(token);
+			expect(adapter?.evidence, `${token} dispatches and must be readable`).toBeDefined();
+		}
+		// retired until a reader verified against a real native session file lands
+		expect(LEGACY_DISPATCHABLE_AGENTS).not.toContain("grok");
+		expect(LEGACY_DISPATCHABLE_AGENTS).not.toContain("cline");
+		expect(adapterForExact("grok")?.evidence).toBeUndefined();
+		expect(adapterForExact("cline")?.evidence).toBeUndefined();
 	});
 	test("copilot adapter: W223.1 tail + W223.2 hard brief gate", () => {
 		const copilot = adapterFor("copilot");
