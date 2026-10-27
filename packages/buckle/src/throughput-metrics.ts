@@ -1,6 +1,6 @@
-import type { ThroughputStore } from "../../telemetry/src/throughput-store.ts";
-import type { ThroughputBucket } from "../../telemetry/src/throughput.ts";
-import { rollupThroughput } from "../../telemetry/src/throughput-rollup.ts";
+import type { ThroughputStore } from "@klh/telemetry/src/throughput-store.ts";
+import type { ThroughputBucket } from "@klh/telemetry/src/throughput.ts";
+import { rollupThroughput } from "@klh/telemetry/src/throughput-rollup.ts";
 
 function bucketValues(
 	b: ThroughputBucket,

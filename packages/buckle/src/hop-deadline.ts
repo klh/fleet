@@ -16,7 +16,7 @@ import {
 	encodeHopContract,
 	parseHopContract,
 	type HopContractParse,
-} from "../../telemetry/src/hop-contract.ts";
+} from "@klh/telemetry/src/hop-contract.ts";
 import type { Deployment } from "./upstreams.ts";
 
 /** The admitted (or rooted) contract as it threads the walk. `path` is the

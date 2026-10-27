@@ -13,13 +13,13 @@ import {
 	safeCorrelationId,
 	safeProviderErrorToken,
 	safeRefusalCode,
-} from "../../telemetry/src/http-trace.ts";
+} from "@klh/telemetry/src/http-trace.ts";
 import {
 	DEFAULT_THROUGHPUT_POLICY,
 	type ThroughputPolicy,
-} from "../../telemetry/src/throughput.ts";
-import { ThroughputStore } from "../../telemetry/src/throughput-store.ts";
-import { safeTransportEvidence } from "../../telemetry/src/transport-evidence.ts";
+} from "@klh/telemetry/src/throughput.ts";
+import { ThroughputStore } from "@klh/telemetry/src/throughput-store.ts";
+import { safeTransportEvidence } from "@klh/telemetry/src/transport-evidence.ts";
 import type { CostOf, Pricer } from "./cost.ts";
 import type { HopKind } from "./hop.ts";
 import {

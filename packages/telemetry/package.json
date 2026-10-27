@@ -17,6 +17,9 @@
 		"./src/http-trace.ts": "./src/http-trace.ts",
 		"./src/prefer-header.ts": "./src/prefer-header.ts",
 		"./src/remote-traces.ts": "./src/remote-traces.ts",
+		"./src/throughput.ts": "./src/throughput.ts",
+		"./src/throughput-rollup.ts": "./src/throughput-rollup.ts",
+		"./src/throughput-store.ts": "./src/throughput-store.ts",
 		"./src/trace-log.ts": "./src/trace-log.ts",
 		"./src/transport-evidence.ts": "./src/transport-evidence.ts"
 	},

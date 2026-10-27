@@ -6,8 +6,8 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { HopReceipt } from "../../telemetry/src/http-trace.ts";
-import { readRemoteTraces } from "../../telemetry/src/remote-traces.ts";
+import type { HopReceipt } from "@klh/telemetry/src/http-trace.ts";
+import { readRemoteTraces } from "@klh/telemetry/src/remote-traces.ts";
 import { Router, UpstreamError } from "../src/router.ts";
 import { startServer } from "../src/server.ts";
 

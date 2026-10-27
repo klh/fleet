@@ -15,7 +15,7 @@ import { beginInflight } from "./gov/inflight.ts";
 import { hintFromHeaders } from "./hints.ts";
 import { hopFromBaggage, laneFromBaggage } from "./hop.ts";
 import { admitHopContract, HOP_CONTRACT_HEADER } from "./hop-deadline.ts";
-import { rungIdOf } from "../../telemetry/src/hop-contract.ts";
+import { rungIdOf } from "@klh/telemetry/src/hop-contract.ts";
 import {
 	INGRESS_BODY_TIMEOUT_MS,
 	IngressBodyError,
@@ -29,7 +29,7 @@ import { runExecute } from "./proxy-execute.ts";
 import {
 	PREFER_HEADER,
 	parsePreferHeader,
-} from "../../telemetry/src/prefer-header.ts";
+} from "@klh/telemetry/src/prefer-header.ts";
 import {
 	allowlistedBaggage,
 	newTraceparent,

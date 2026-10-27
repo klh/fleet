@@ -14,7 +14,7 @@ import { existsSync, readFileSync } from "node:fs";
 import {
 	assertThroughputPolicy,
 	type ThroughputPolicy,
-} from "../../telemetry/src/throughput.ts";
+} from "@klh/telemetry/src/throughput.ts";
 import { buildCostPolicy, type CostPolicy } from "./cost.ts";
 import {
 	assertProviderPoolPolicy,

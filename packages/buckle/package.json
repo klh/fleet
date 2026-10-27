@@ -6,14 +6,32 @@
 	"private": true,
 	"packageManager": "bun@1.4.2",
 	"engines": {
-		"bun": ">=1.2"
+		"bun": ">=1.2.0"
 	},
+	"bin": {
+		"buckle": "./src/server.ts"
+	},
+	"exports": {
+		".": "./src/server.ts",
+		"./src/cache-boundary.ts": "./src/cache-boundary.ts",
+		"./src/outbound-guard.ts": "./src/outbound-guard.ts",
+		"./src/provider-pressure.ts": "./src/provider-pressure.ts",
+		"./src/*": "./src/*"
+	},
+	"files": [
+		"bin",
+		"src",
+		"README.md",
+		"upstreams.json",
+		"routing-policy.json",
+		"repo-policy.json"
+	],
 	"scripts": {
 		"test": "bun test",
 		"start": "bun run src/server.ts"
 	},
 	"devDependencies": {
-		"@klh/test-kit": "workspace:*",
+		"@klh/test-kit": "2.0.0",
 		"@anthropic-ai/sdk": "1.1.0",
 		"@types/bun": "1.4.2",
 		"openai": "7.42.0"
@@ -22,10 +40,10 @@
 		"typescript": "^7"
 	},
 	"dependencies": {
-		"@klh/blam": "workspace:*",
-		"@klh/telemetry": "workspace:*",
-		"p-queue": "^9.3.3",
-		"zod": "^4.0.0"
+		"@klh/blam": "2.0.0",
+		"@klh/telemetry": "2.0.0",
+		"p-queue": "9.3.5",
+		"zod": "4.6.7"
 	},
 	"license": "SEE LICENSE IN LICENSE"
 }
