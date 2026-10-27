@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { openRouterFreeRows } from "../bin/openrouter-free-rows.ts";
 import { scratchWorld } from "../../test-kit/src/index.ts";
@@ -69,3 +69,9 @@ test("free router is a distinct LiteLLM alias for the OpenRouter meta model", ()
 });
 
 afterAll(() => clean());
+// teardown is real, not asserted-free: the scratch world must actually go
+test("cleanup removes the scratch world", () => {
+	expect(existsSync(dir)).toBe(true);
+	clean();
+	expect(existsSync(dir)).toBe(false);
+});
