@@ -157,6 +157,34 @@ The generator is not spawned and the last good `litellm.yaml` stays. Fresh
 or absent snapshots, and a `litellm.yaml` that is already current, cost no
 network call. Drift in non-chat (excluded) IDs refreshes silently.
 
+## Hub catalog reconciliation (W1711)
+
+`bun deploy/hub-catalog-sync.ts check --hub <name>` is the operator-invoked
+dry run. Each row whose provider publishes a catalog (Copilot, Z.ai, an
+OpenAI-wire `<base>/v1/models`) gets one authenticated GET with the hub's
+0600 key file. The output has one verdict per row: `present`, `stale`,
+`credential-rejected`, `credential-missing`, `provider-failure`,
+`no-catalog`, `no-credential` or `credential-on-device` (a remote hub's key
+stays on the device). It also prints `wire=supported|unsupported|unknown`
+for the row's dialect. Availability is never inferred from config or a
+minimal 200. Output carries verdicts and counts only: never a key, a key
+path or stack contents.
+
+`--plan-out <path>` writes the plan for review (0600). The plan can `flag`
+stale rows (`catalog_stale: {source, observed_at}`) and `unflag` re-listed
+rows. With `--remove-stale`, it can `remove` a stale row only while the
+group keeps a row that is not stale. Nothing is substituted. Unrelated
+groups, headers and betas stay byte-identical. `apply --plan <path>` applies
+exactly that plan. It refuses plans older than 24 hours or made for another
+stack file. Under the stack lock, it re-checks the exact stack bytes, writes
+a 0600 `<stack>.pre-catalog-<sha12>.bak` and replaces the stack atomically
+(0600). Exit 3 means the stack moved or the lock was held, and nothing was
+written. Published Copilot endpoint, tool and stream facts go to the
+canonical capability snapshot (`~/.claude/local-llm/model-capabilities.json`,
+belt `ModelCapabilityRecord`), which `groupWireEndpoints` joins per group.
+Coverage: `bun --cwd packages/suspenders playwright test --config
+deploy/playwright.config.ts`.
+
 ## Inference-route canary (W467)
 
 A `/status` answer proves the gate responds. The `buckle-ready` sidecar

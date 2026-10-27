@@ -22,7 +22,8 @@
 		"./bench/arena/condense.ts": "./bench/arena/condense.ts",
 		"./bin/registry.ts": "./bin/registry.ts",
 		"./bin/inventory-probe.ts": "./bin/inventory-probe.ts",
-		"./bin/zai-catalog-rows.ts": "./bin/zai-catalog-rows.ts"
+		"./bin/zai-catalog-rows.ts": "./bin/zai-catalog-rows.ts",
+		"./bin/model-capabilities.ts": "./bin/model-capabilities.ts"
 	},
 	"bin": {
 		"audio": "bin/audio.ts",
