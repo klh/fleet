@@ -28,7 +28,11 @@ export interface ArtifactEvidence {
 }
 
 /** Ownership, harness presence and landed output are independent facts.
- * A transcript lease/PID/spend never establishes productive execution. */
+ * A transcript lease/PID/spend never establishes productive execution.
+ * W1232: the transcript lease DOES bless harness presence when the process
+ * probe is unavailable (process null: host-flip, ps wobble, legacy-brief
+ * ambiguity) — the same lease `work reclaim` trusts; a positive probe
+ * absence (process false) is never overturned by a fresh transcript. */
 export function workExecution(
 	claim: ExecutionClaim,
 	evidence: ExecutionEvidence | null,
@@ -55,7 +59,11 @@ export function workExecution(
 	else if (bound?.lifecycle === "PAUSED") state = "paused";
 	else if (["PAUSE_REQUESTED", "RESUME_READY"].includes(bound?.lifecycle ?? ""))
 		state = "transitioning";
-	else if (bound?.process === true) state = "live-harness";
+	else if (
+		bound?.process === true ||
+		(bound?.process === null && bound?.lease === "alive")
+	)
+		state = "live-harness";
 	else if (bound?.lease === "dead") state = "dead";
 	const matches = artifacts.filter(
 		(a) =>

@@ -23,6 +23,9 @@ import {
 	HARNESS_INSTALL_PATHS,
 	HARNESS_PROCESS_NAMES,
 } from "../executors/registry.ts";
+// W1232: host trust rides the ONE .local/.localdomain flip normalizer —
+// a pre-flip registry row must stay probeable on its own machine.
+import { sameMachine } from "../host-identity.ts";
 
 export type LaneRef = {
 	sid: string;
@@ -377,7 +380,8 @@ export function laneProcessIdentity(
 	lane: LaneRef,
 	inspect: ProcessInspector = inspectProcesses,
 ): boolean | null {
-	if (lane.host !== undefined && lane.host !== THIS_HOST) return null;
+	if (lane.host !== undefined && !sameMachine(lane.host, THIS_HOST))
+		return null;
 	if (!lane.pid) return false;
 	if (!Number.isSafeInteger(lane.pid) || lane.pid < 0 || !lane.sid) return null;
 	try {
@@ -464,7 +468,7 @@ export const worktreeLive = (wt?: string): boolean =>
 import { hostname } from "node:os";
 const THIS_HOST = hostname();
 export const laneAlive = (l: LaneRef): boolean =>
-	l.host !== undefined && l.host !== THIS_HOST
+	l.host !== undefined && !sameMachine(l.host, THIS_HOST)
 		? transcriptAlive(l.sid)
 		: laneProcessIdentity(l) === true || transcriptAlive(l.sid);
 
@@ -494,7 +498,7 @@ export const laneVerdict = (
 	// sid is positive liveness on any host — the transport outranks a stale
 	// transcript (O1: production at the gate is not idleness).
 	if (transport?.get(l.sid) === true) return "alive";
-	if (l.host !== undefined && l.host !== THIS_HOST)
+	if (l.host !== undefined && !sameMachine(l.host, THIS_HOST))
 		return (
 			transcripts
 				? transcripts.get(l.sid) === true
