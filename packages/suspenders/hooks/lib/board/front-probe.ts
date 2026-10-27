@@ -14,7 +14,8 @@
 // upgraded to "front down" beyond what the wire showed. The bound is
 // CONFIGURED, not blanket-raised: SUSPENDERS_BUCKLE_FRONT_TIMEOUT_MS, clamped
 // to 100..10_000, default 600 (the historical W1 value, unchanged).
-import { loopbackUrl, BUCKLE_SPOKE_PORT } from "../loopback.ts";
+import { recordPhase } from "../lanes/dispatch-phase-timing.ts";
+import { BUCKLE_SPOKE_PORT, loopbackUrl } from "../loopback.ts";
 
 export const FRONT_PROBE_TIMEOUT_MS = 600;
 
@@ -137,4 +138,12 @@ export const probeBuckleFrontVerdict = async (
  *  meaning; callers that need the WHY read the verdict probe instead. */
 export const probeBuckleFront = async (
 	front = BUCKLE_FRONT,
-): Promise<string | null> => (await probeBuckleFrontVerdict(front)).front;
+): Promise<string | null> => {
+	const t = performance.now();
+	try {
+		return (await probeBuckleFrontVerdict(front)).front;
+	} finally {
+		// W1176: the dispatch phase span for the front probe
+		recordPhase("probe.buckle-front", performance.now() - t);
+	}
+};

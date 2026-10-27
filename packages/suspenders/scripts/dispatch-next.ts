@@ -97,10 +97,9 @@ import {
 	dispatchSummary,
 	resolveDaemonizedPids,
 } from "./lib/dispatch-summary.ts";
+import { endDispatchPhases } from "../hooks/lib/lanes/dispatch-phase-timing.ts";
 
-// parseCapsuleGet is re-exported so supervise.ts and the test suites keep
-// their dispatch-next import path (W576.1.1 decomposition).
-export { parseCapsuleGet };
+export { parseCapsuleGet }; // re-export keeps the supervise.ts + test path (W576.1.1)
 
 const argv = process.argv.slice(2);
 // W1124.33: the verb head is the first token that is neither a flag nor a
@@ -257,7 +256,6 @@ const laneAudit = (): Map<string, boolean> => laneAuditFor(workCli, FLEET);
 const laneAlive = (l: Lane, audit: Map<string, boolean>): boolean =>
 	audit.get(l.sid) === true || laneProcessIdentity(l) !== false;
 const log = (msg: string): void => {
-	mkdirSync(FLEET, { recursive: true });
 	appendFileSync(LOOP_LOG, `${new Date().toISOString()} ${msg}\n`);
 };
 const loadLanes = (): Lane[] => loadLaneRegistry<Lane>(FLEET);
@@ -636,4 +634,5 @@ const main = async (): Promise<void> => {
 if (import.meta.main) {
 	if (SHOW_CAPSULE || !DRY) mkdirSync(FLEET, { recursive: true });
 	await main();
+	endDispatchPhases({ fleet: FLEET, item: ITEM, dry: DRY });
 }

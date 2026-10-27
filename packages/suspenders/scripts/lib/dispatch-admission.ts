@@ -6,6 +6,7 @@
 import { hostname } from "node:os";
 import { cvMap } from "../../hooks/lib/executors/executor-cv.ts";
 import { openStore } from "../../hooks/lib/govdb/govdb.ts";
+import { recordPhase } from "../../hooks/lib/lanes/dispatch-phase-timing.ts";
 import { quotaProviderPenalty } from "../../hooks/lib/usage/exec-quota.ts";
 import type { StarterSeedFailure } from "./lane-starter.ts";
 import { ANSI } from "./ready-pool.ts";
@@ -130,15 +131,21 @@ export class RouteAdmission {
 		model: string | null,
 	): Promise<{ pause: boolean; failures: number; reason?: string | null }> {
 		if (!this.enabled || !model) return { pause: false, failures: 0 };
-		if (!this.reads.has(model))
-			this.reads.set(
-				model,
-				await fetchBuckleRouteAuditVerdict(
-					await this.front(),
-					this.token(),
+		if (!this.reads.has(model)) {
+			const t = performance.now();
+			try {
+				this.reads.set(
 					model,
-				),
-			);
+					await fetchBuckleRouteAuditVerdict(
+						await this.front(),
+						this.token(),
+						model,
+					),
+				);
+			} finally {
+				recordPhase("admission.audit", performance.now() - t);
+			}
+		}
 		const read = this.reads.get(model);
 		const rows = read?.rows ?? null;
 		// rows null = the read found no usable evidence — front down/401/

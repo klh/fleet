@@ -5,14 +5,16 @@
 // helpers (sh/run/loadLanes) stay until a lane can afford the churn —
 // the mutation gate caps edits at 40 lines; the spawn/env core
 // (the part a divergence would corrupt lanes with) is shared for real.
+
+import type { EvidenceNormalizer } from "../gates/claim-evidence.ts";
+import { attachSubscribe } from "../subscribe-attach.ts";
+import { timedDispatchSpawn } from "./dispatch-phase-timing.ts";
+import { jobslabEnv, jobslabFor, jobslabPrefix } from "./jobslab.ts";
 import {
 	laneRegistryFile,
 	loadLaneRegistry,
 	mergeLaneRegistry,
 } from "./lane-registry.ts";
-import { attachSubscribe } from "../subscribe-attach.ts";
-import { jobslabEnv, jobslabFor, jobslabPrefix } from "./jobslab.ts";
-import type { EvidenceNormalizer } from "../gates/claim-evidence.ts";
 
 // W422 surface consolidation law: the spawn-args adapter INTERFACE. Core
 // dispatch carries ZERO executor branches — every agent's specifics live in
@@ -91,10 +93,15 @@ export function executorLaunch(
 		: { bin: nativeBin, env: {} };
 }
 
-export const sh = (cmd: string[], cwd = process.cwd()): string => {
+const shRaw = (cmd: string[], cwd = process.cwd()): string => {
 	const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
 	return `${p.stdout ? new TextDecoder().decode(p.stdout) : ""}`.trim();
 };
+
+// W1176: dispatch subprocess phase timing rides the shared helpers — every
+// caller (dispatch-next, supervise) is phase-attributed at no call-site cost.
+export const sh = (cmd: string[], cwd?: string): string =>
+	timedDispatchSpawn(shRaw, cmd, cwd);
 
 // W911 decomposition (dispatch-next hit the 1500-line law): the CLI prefix
 // builders + the residue probe hoist here — the shared fleet-script plumbing.
@@ -180,7 +187,7 @@ export const residueOf = (wt: string): string =>
 		})
 		.join("\n");
 
-export const run = (
+const runRaw = (
 	cmd: string[],
 	cwd = process.cwd(),
 ): { code: number; out: string } => {
@@ -190,6 +197,11 @@ export const run = (
 		out: `${p.stdout ? new TextDecoder().decode(p.stdout) : ""}${p.stderr ? new TextDecoder().decode(p.stderr) : ""}`.trim(),
 	};
 };
+
+export const run = (
+	cmd: string[],
+	cwd?: string,
+): { code: number; out: string } => timedDispatchSpawn(runRaw, cmd, cwd);
 
 // ONE liveness surface (W494.1): the hooks/lib probe replaced lane.ts's
 // inline ps/lsof folk-magic copy (which matched /claude|codex/ comms only,
@@ -236,11 +248,12 @@ export const laneEnv = (
 // hooks/lib/board/front-probe.ts — re-exported here so every W1 importer stays
 // byte-stable (contract: front URL on 2xx /status, else null).
 import { BUCKLE_FRONT } from "../board/front-probe.ts";
+
 export {
 	BUCKLE_FRONT,
 	FRONT_PROBE_TIMEOUT_MS,
-	frontTimeoutBound,
 	type FrontProbeVerdict,
+	frontTimeoutBound,
 	probeBuckleFront,
 	probeBuckleFrontVerdict,
 } from "../board/front-probe.ts";
