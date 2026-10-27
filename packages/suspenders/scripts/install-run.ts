@@ -36,6 +36,11 @@ import {
 	registerSkills,
 	releaseNotify,
 } from "./install-wire-steps.ts";
+import {
+	ensurePreferHubLine,
+	gitToplevel,
+	resolvePreferHubLabel,
+} from "./lib/prefer-hub-line.ts";
 import { sourcePaths, syncHarness } from "./sync-harness.ts";
 import { upgradeGateway } from "./upgrade-gateway.ts";
 
@@ -136,6 +141,40 @@ async function refreshDashboards(ctx: StepContext): Promise<StepResult> {
 		status: "ok",
 		note: "belt dashboards refreshed",
 		detail: `${script}${tail === "" ? "" : ` — ${tail}`}`,
+	};
+}
+
+// W1352: the tree .prefer must carry an unquoted hub=<label> chain line or
+// dispatch falls through to the default executor even when a quoted prefer
+// names the hub (routing-plane only). Sole configured hub or a quoted
+// prefer naming a known label → write it; otherwise leave the file alone.
+async function wirePreferHub(ctx: StepContext): Promise<StepResult> {
+	const { tryLoadStack } = await import("../hooks/lib/stack-config.ts");
+	const { readRegistry } = await import("../hooks/lib/hub/hub-locate.ts");
+	const repo = gitToplevel(ctx.repo) ?? ctx.repo;
+	const knownLabels = [
+		...Object.keys(tryLoadStack()?.hubs ?? {}),
+		...Object.keys(readRegistry()),
+	];
+	const preferPath = join(repo, ".prefer");
+	let preferText: string | null = null;
+	try {
+		preferText = readFileSync(preferPath, "utf8");
+	} catch {
+		preferText = null;
+	}
+	const label = resolvePreferHubLabel(preferText, knownLabels);
+	if (label === null)
+		return {
+			status: "ok",
+			note: "no hub configured — .prefer untouched",
+			detail: preferPath,
+		};
+	const r = ensurePreferHubLine(repo, label);
+	return {
+		status: "ok",
+		note: `${r.action}: executor-chain hub=${label} in tree .prefer`,
+		detail: r.path,
 	};
 }
 
@@ -445,6 +484,7 @@ const impls: Partial<Record<StepName, StepImpl>> = {
 	migrateConf,
 	wireSettings,
 	wireConnections,
+	wirePreferHub,
 	registerCaddy,
 	registerSkills,
 	releaseNotify,

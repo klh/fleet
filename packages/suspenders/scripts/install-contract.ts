@@ -23,6 +23,7 @@ export type StepName =
 	| "downloadModels"
 	| "wireSettings"
 	| "wireConnections"
+	| "wirePreferHub"
 	| "upgradeGateway"
 	| "registerLaunchd"
 	| "registerCaddy"
@@ -398,6 +399,14 @@ export const INSTALL_CONTRACT = {
 			name: "wireConnections",
 			oneLiner:
 				"ask 'Proxy desktop GUIs (VS Code, ChatGPT, Claude) through the hub? [Y/n]': yes writes ~/.fleet/config/connections.json (mode 600, NEVER overwritten when present) + applies the launchctl setenv face; idempotent",
+			mutates: true,
+			optIn: false,
+			v1: "real",
+		},
+		{
+			name: "wirePreferHub",
+			oneLiner:
+				"W1352: write the unquoted executor-chain hub=<label> line into the tree .prefer when a hub is configured (or a quoted prefer names one) — quoted prefer is routing-plane only and would otherwise silently fall through to the default executor; idempotent, never clobbers an existing chain",
 			mutates: true,
 			optIn: false,
 			v1: "real",

@@ -7,16 +7,16 @@ import { describe, expect, test } from "bun:test";
 import {
 	mkdirSync,
 	mkdtempSync,
-	readFileSync,
 	readdirSync,
+	readFileSync,
 	rmSync,
 	statSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { INSTALL_CONTRACT } from "../scripts/install-contract.ts";
 import { meowFlags } from "../scripts/install-cli.ts";
+import { INSTALL_CONTRACT } from "../scripts/install-contract.ts";
 
 const BIN = `${import.meta.dir}/../scripts/install.ts`;
 
@@ -77,7 +77,7 @@ describe("install --json outcomes (W490.1)", () => {
 			expect(doc.contract.flags[key].flag).toBe(kebab(key));
 		}
 		expect(doc.contract.name).toBe("suspenders-install");
-		expect(doc.contract.steps).toHaveLength(16);
+		expect(doc.contract.steps).toHaveLength(18);
 	});
 
 	test("plan without consent pauses (exit 0, never blocks)", async () => {
