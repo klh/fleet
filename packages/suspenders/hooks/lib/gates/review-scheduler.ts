@@ -432,6 +432,11 @@ export function scheduleReview(o: {
 		`buckle:${model}`,
 		"--buckle",
 		model,
+		// W1313: the routing ladder's secondary reviewers ride the spawned
+		// reviewer — explicit arg beats inherited env for traceability.
+		...(env.SUSPENDERS_REVIEW_FALLBACK_MODELS
+			? ["--fallback-models", env.SUSPENDERS_REVIEW_FALLBACK_MODELS]
+			: []),
 		"--request-key",
 		key,
 		"--request-token",

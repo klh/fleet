@@ -25,6 +25,11 @@ import {
 	reviewFindingIds,
 } from "../lib/gates/review-receipt.ts";
 import {
+	parseFallbackModels,
+	renderTrail,
+	walkLegs,
+} from "../lib/gates/review-quota.ts";
+import {
 	finishReviewRequest,
 	reviewRequestKey,
 } from "../lib/gates/review-scheduler.ts";
@@ -46,7 +51,7 @@ import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 const spec = defineVerb({
 	name: "review",
 	usage:
-		"usage: bun review-lane.ts --item <Wn> --project <p> --executor <name> (--buckle <model> | --bin <path> | --belt <m>:<p>[:<model>] | --llm-url <url> [--llm-model <m>])",
+		"usage: bun review-lane.ts --item <Wn> --project <p> --executor <name> (--buckle <model> | --bin <path> | --belt <m>:<p>[:<model>] | --llm-url <url> [--llm-model <m>]) [--fallback-models <csv>]",
 	flags: [
 		"--item",
 		"--project",
@@ -56,6 +61,7 @@ const spec = defineVerb({
 		"--llm-url",
 		"--llm-model",
 		"--buckle",
+		"--fallback-models",
 		"--request-key",
 		"--request-token",
 	],
@@ -76,7 +82,7 @@ const project = parsedArgs.parsed.flag("--project");
 const executor = parsedArgs.parsed.flag("--executor") ?? "claude";
 if (!item || !project) {
 	console.error(
-		"usage: bun review-lane.ts --item <Wn> --project <p> --executor <name> (--bin <path> | --belt <m>:<p>[:<model>] | --llm-url <url> [--llm-model <m>])",
+		"usage: bun review-lane.ts --item <Wn> --project <p> --executor <name> (--bin <path> | --belt <m>:<p>[:<model>] | --llm-url <url> [--llm-model <m>]) [--fallback-models <csv>]",
 	);
 	process.exit(1);
 }
@@ -267,6 +273,21 @@ const requestedModel =
 		: leg?.kind === "belt"
 			? leg.target.split(":")[2] || undefined
 			: undefined;
+// W1313: the leg walk's model ladder — the primary reviewer model first,
+// then the operator's secondary fallbacks (routing-ladder order via
+// --fallback-models / SUSPENDERS_REVIEW_FALLBACK_MODELS). bin/belt legs
+// have no model dial; they walk as one label with transport retries only.
+const legModel =
+	leg?.kind === "buckle" || leg?.kind === "llm" ? leg.model : null;
+const walkModels = legModel
+	? [
+			legModel,
+			...parseFallbackModels(
+				parsedArgs.parsed.flag("--fallback-models") ??
+					process.env.SUSPENDERS_REVIEW_FALLBACK_MODELS,
+			).filter((m) => m !== legModel),
+		]
+	: ["local"];
 async function requestLlm(
 	url: string,
 	model: string,
@@ -330,8 +351,9 @@ async function requestLlm(
 		}, content_len=0, reasoning_len=0)`,
 	);
 }
-async function runLeg(): Promise<string> {
+async function requestLeg(legIndex: number): Promise<string> {
 	if (leg?.kind === "buckle") {
+		const model = walkModels[legIndex] ?? legModel ?? leg.model;
 		const admin = adminKey();
 		if (!admin) throw new Error("Buckle review admin credential unavailable");
 		const scoped = await mintLaneKey(reviewerSid, admin);
@@ -342,7 +364,7 @@ async function runLeg(): Promise<string> {
 		try {
 			result = await requestLlm(
 				`${BUCKLE_FRONT}/w/${reviewerSid}/v1/chat/completions`,
-				leg.model,
+				model,
 				scoped.key,
 			);
 		} catch (error) {
@@ -389,7 +411,11 @@ async function runLeg(): Promise<string> {
 		return c.stdout.toString();
 	}
 	if (leg?.kind === "llm") {
-		return requestLlm(leg.url, leg.model, process.env.SUSPENDERS_LLM_KEY);
+		return requestLlm(
+			leg.url,
+			walkModels[legIndex] ?? legModel ?? leg.model,
+			process.env.SUSPENDERS_LLM_KEY,
+		);
 	}
 	throw new Error("no executor leg (--buckle | --bin | --belt | --llm-url)");
 }
@@ -584,40 +610,48 @@ const verdictLineOf = (reply: string | null): string | undefined =>
 		: undefined;
 
 // W1236: one leg attempt is not a verdict — 429 waves drain and thinking
-// models sometimes reply without the machine-parseable line. Two bounded
-// attempts with a short backoff before the ERROR receipt records why.
+// models sometimes reply without the machine-parseable line. W1313: the
+// flat 2-attempt loop is a walkLegs() run instead — transport failures
+// back off (2s doubling), a sustained wall walks the SECONDARY reviewer
+// models (--fallback-models / SUSPENDERS_REVIEW_FALLBACK_MODELS), and the
+// receipt carries the full retry trail.
 // W1236.1: findings ACCUMULATE across attempts — a retry that produces the
 // verdict line must not silently erase substantive findings from the earlier
 // attempt (FAIL60967: first reply carried a blocker, second was a bare PASS;
 // the blocker vanished). Blocker IDs ride the combined text into the
 // receipt, so a PASS over preserved blockers fails the contract check
 // instead of landing clean.
-const legParts: string[] = [];
-let legFailure = "leg failed";
-let verdictLine = verdictLineOf(null);
-for (let legAttempt = 1; legAttempt <= 2; legAttempt++) {
-	const attemptText = await runLeg().catch((e: unknown) => {
-		legFailure = reviewFailureReason(e);
-		console.error(
-			`review-lane ${item}: leg attempt ${legAttempt} failed: ${e instanceof Error ? e.message : String(e)}`,
-		);
-		return null;
-	});
-	if (attemptText) legParts.push(attemptText);
-	verdictLine = verdictLineOf(legParts.join("\n\n"));
-	if (verdictLine || legAttempt === 2) break;
-	await new Promise((resolve) => setTimeout(resolve, 20_000));
-}
+const walk = await walkLegs({
+	legLabels: walkModels,
+	request: (legIndex) => requestLeg(legIndex),
+	satisfied: (text) => verdictLineOf(text) !== undefined,
+	sleep: (ms) => {
+		console.error(`review-lane ${item}: transport backoff ${ms}ms`);
+		return new Promise((resolve) => setTimeout(resolve, ms));
+	},
+});
+const legParts = walk.texts;
+const legFailure = walk.failure ?? "leg failed";
+const reviewTrail = renderTrail(walk);
+if (!verdictLineOf(legParts.join("\n\n")))
+	console.error(`review-lane ${item}: no verdict line — ${reviewTrail}`);
 const findings = legParts.length ? legParts.join("\n\n") : null;
+const verdictLine = verdictLineOf(findings);
 const verdict =
 	findings && verdictLine
 		? verdictLine.startsWith("PASS")
 			? "PASS"
 			: "FAIL"
 		: "ERROR";
+// W1313: the retry trail rides the headline (receipt evidence + review fact)
+// so every ERROR names its exact leg ladder instead of a bare transport line.
 const reviewerHeadline = (
 	verdictLine ?? (findings ? "no verdict line in reply" : legFailure)
 ).slice(0, 300);
+const trailHeadline =
+	verdict === "ERROR" || walk.trail.length > 1
+		? `${reviewTrail} | ${reviewerHeadline}`.slice(0, 480)
+		: reviewerHeadline;
 
 // Sinai proof gates the approval: a PASS stands only when the branch's new
 // tests FAIL without the change — otherwise the verdict is downgraded, with
@@ -634,7 +668,12 @@ const proofHeadline =
 // W1302.6 (O3): the receipt asserts the served wire model against the
 // requested class. A mismatch can never land as a clean PASS — the W1278.1
 // review was requested as glm-5.3-flash and served by chatgpt/gpt-6-sol.
-const wireAudit = wireModelAudit(requestedModel, legWireModel);
+// W1313 walk: a fallback model that answered is the model this review
+// requested at that point — audit the served wire against it, not the primary.
+const answeredModel = legModel
+	? (walk.trail.findLast((a) => a.ok)?.leg ?? requestedModel)
+	: requestedModel;
+const wireAudit = wireModelAudit(answeredModel, legWireModel);
 const wireMismatch = wireAudit?.match === "mismatch" && verdict === "PASS";
 const wireHeadline = wireMismatch
 	? `wire-model mismatch: requested ${wireAudit?.requested} served ${wireAudit?.served} — PASS not trusted`
@@ -650,7 +689,7 @@ const effective =
 			: proof?.status === "no-coverage"
 				? "FAIL"
 				: verdict;
-const headline = [wireHeadline, proofHeadline, reviewerHeadline]
+const headline = [wireHeadline, proofHeadline, trailHeadline]
 	.filter(Boolean)
 	.join(" | ");
 const proofNote = proof
@@ -671,6 +710,8 @@ db.query(
 		requested_model: requestedModel ?? null,
 		wire_model: legWireModel ?? null,
 		wire_match: wireAudit?.match ?? null,
+		trail: walk.trail,
+		total_ms: walk.totalMs,
 		ts: Date.now(),
 		coverage: proof ?? undefined,
 	}),
