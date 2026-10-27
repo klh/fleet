@@ -12,7 +12,12 @@ import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
 setDefaultTimeout(120_000);
 import { Database } from "bun:sqlite";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -263,6 +268,21 @@ describe("W1302.2 post-merge dangling-path scan", () => {
 			"main:a.ts\x003\x00import ./b.ts\nmain:a.ts\x003\x00dup\n",
 		);
 		expect(rows).toEqual([{ file: "a.ts", line: 3, content: "import ./b.ts" }]);
+	});
+
+	// W1772: the minted dangling path packages/suspenders/hooks/lib/fleet-loop/
+	// hooks/bin/license-audit.ts never existed — maintenance.ts:213 joins the
+	// literal onto the suspenders package root (suspendersRoot()), where the
+	// target lives. Bare-form literal, so the W1302.2.1 reference scope never
+	// judges it; pin all three facts so the false positive stays dead.
+	test("W1772: maintenance.ts license-audit literal is package-root-relative, not a reference", () => {
+		const maint = join(P, "hooks/lib/fleet-loop/maintenance.ts");
+		const body = readFileSync(maint, "utf8");
+		expect(pathLiterals(body)).toContain("hooks/bin/license-audit.ts");
+		expect(existsSync(join(P, "hooks/bin/license-audit.ts"))).toBe(true);
+		expect(
+			unresolvedSpecifiers(P, "HEAD", ["hooks/lib/fleet-loop/maintenance.ts"]),
+		).toEqual([]);
 	});
 
 	test("probe2 catches the W1304 incident shape (../bin runner missing)", async () => {
