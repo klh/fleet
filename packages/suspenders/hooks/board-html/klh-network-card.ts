@@ -15,6 +15,7 @@ import type {
 } from "@klh/buckle/src/network-read-model.ts";
 import { css, html, LitElement, nothing, type TemplateResult } from "lit";
 import type { NetworkPayload } from "../board/network-overview.ts";
+import { dualShort, dualStamp } from "../lib/wallclock.ts"; // W1107.1.2: one stamp vocabulary
 import { cardCss } from "./klh-console-card-css.ts";
 
 // token formatting — measured numbers only; null renders "—", never 0
@@ -242,7 +243,7 @@ const interfaceRow = (i: NetworkInterfaceRow): TemplateResult => {
 const routeRow = (
 	r: NetworkRouteRow,
 ): TemplateResult => html`<div class="routeRow">
-	<time class="unknown" datetime=${r.ts} title=${r.ts}>${new Date(r.ts).toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
+	<time class="unknown" datetime=${r.ts} title=${dualStamp(r.ts)}>${dualShort(r.ts)}</time>
 	<span class="title">${r.target_model ?? "model unknown"}</span>
 	<span class="unknown" title=${r.lane || "No lane attribution"}>${r.lane ? `lane ${r.lane.replace(/^autow([\d.]+)-.*/, "W$1")}` : "unattributed"}</span>
 	<span class="num">${r.target_kind ?? "?"} ${r.target_host ?? ""}</span>

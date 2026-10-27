@@ -8,6 +8,7 @@
 // lit-shared.js chunk with klh-components — offline, never CDN).
 import { LitElement, css, html, type TemplateResult } from "lit";
 import { displayLabel } from "../lib/theme.ts";
+import { dualShort, dualStamp } from "../lib/wallclock.ts"; // W902: one stamp vocabulary
 import {
 	type RowProbe,
 	ServiceRowController,
@@ -222,16 +223,11 @@ class KlhServiceRow extends LitElement {
 	}
 
 	private when(iso: string): string {
-		const d = new Date(iso);
-		if (Number.isNaN(d.getTime())) return "";
-		const p = (n: number): string => String(n).padStart(2, "0");
-		return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${String(d.getFullYear()).slice(-2)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+		return dualShort(iso);
 	}
 
 	private fullWhen(iso: string): string {
-		const d = new Date(iso);
-		if (Number.isNaN(d.getTime())) return iso;
-		return `${d.toLocaleString("da-DK", { dateStyle: "full", timeStyle: "long" })} · UTC ${d.toISOString()}`;
+		return dualStamp(iso);
 	}
 
 	protected render(): TemplateResult {

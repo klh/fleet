@@ -20,6 +20,7 @@
 // down, never capacity, and the secret never reaches the wire.
 import { readFileSync } from "node:fs";
 import { z } from "zod";
+import { embedDualStamp } from "../lib/wallclock.ts";
 import {
 	THEME_HEAD,
 	FLEET_NAV_CSS,
@@ -249,9 +250,7 @@ const hubRoot = async (
 				await r.body?.cancel();
 				const protectedDiscovery = r.status === 401 || r.status === 403;
 				// a refused credential is a KNOWN denial; no credential stays unknown
-				const authStatus = token
-					? ("denied" as const)
-					: ("unknown" as const);
+				const authStatus = token ? ("denied" as const) : ("unknown" as const);
 				const failed: Root = {
 					label,
 					provenance: "live-discovery",
@@ -468,15 +467,7 @@ const el = (tag, cls, text) => {
 };
 const stamp = document.getElementById("stamp");
 const btn = document.getElementById("refresh");
-const dualStamp = (ms) => { // W902: UTC Z + viewer-local twin — hub clocks drift
-  if (!ms) return "";
-  var d = new Date(ms);
-  if (isNaN(d.getTime())) return String(ms);
-  var p = (n) => (n < 10 ? "0" : "") + n;
-  var off = -d.getTimezoneOffset(), a = Math.abs(off), sg = off >= 0 ? "+" : "-";
-  var loc = "local " + p(d.getHours()) + ":" + p(d.getMinutes()) + ", UTC" + sg + p((a / 60) | 0) + ":" + p(a % 60);
-  return d.toISOString().replace(/\\.\\d{3}Z$/, "Z") + " (" + loc + ")";
-};
+const dualStamp = ${embedDualStamp.toString()}; // W902: the ONE stamp vocabulary — this script scope cannot import the lib
 // W552.7: URL-initialized presentation mode — /fleet-tree?view=presentation
 // renders the recording view: plain headings, no diagnostic labels. The API
 // keeps every field; the default view renders exactly as before.

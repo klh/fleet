@@ -3,6 +3,7 @@
 // non-ASCII escaping in String.raw reproduces the served page bytes.
 
 import { mergeReadyWhy } from "../lib/lanes/lane-git.ts";
+import { embedDualShort, embedDualStamp } from "../lib/wallclock.ts";
 import {
 	matchesHubScope,
 	selectGovernorCompletions,
@@ -10,14 +11,8 @@ import {
 } from "./fleet-lane-view.ts";
 
 export const RENDERS = `// --- 1: overall status + connection health (live / stale / error) ---
-function dualStamp(ms){ // W902: UTC Z + viewer-local twin — hub clocks drift
-  if (!ms) return '';
-  var d = new Date(ms); if (isNaN(d.getTime())) return String(ms);
-  var p = function(n){ return (n < 10 ? '0' : '') + n; };
-  var off = -d.getTimezoneOffset(), a = Math.abs(off), sg = off >= 0 ? '+' : '-';
-  var loc = 'local ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ', UTC' + sg + p(a / 60 | 0) + ':' + p(a % 60);
-  return d.toISOString().replace(/\\.\\d{3}Z$/, 'Z') + ' (' + loc + ')';
-}
+var dualStamp = ${embedDualStamp.toString()}; // W902: the ONE stamp vocabulary — chunk scopes cannot import the lib
+var dualShort = ${embedDualShort.toString()};
 function renderConn(){
   var observed = lastData && lastData.observation;
   var dAge = observed && typeof observed.observedAt === 'number' ? Math.max(0, Math.round((Date.now() - observed.observedAt) / 1000)) : dataOkAt ? Math.round((Date.now() - dataOkAt) / 1000) : -1;
@@ -99,7 +94,7 @@ function renderHubObservations(d){
   setText(byId('hubRelayCounts'), enabled ? relay.sent + ' sent · ' + (relay.backlog || 0) + ' pending' : 'Configure observation-relays.json on this machine');
   var retry = byId('hubRelayRetry');
   if (retry) {
-    setText(retry, enabled ? (relay.lastSuccessAt ? 'last success ' + ago(msAgo(relay.lastSuccessAt)) : 'no successful forward yet') + (relay.nextRetryAt ? ' · retry ' + new Date(relay.nextRetryAt).toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'}) : '') : '');
+    setText(retry, enabled ? (relay.lastSuccessAt ? 'last success ' + ago(msAgo(relay.lastSuccessAt)) : 'no successful forward yet') + (relay.nextRetryAt ? ' · retry ' + dualShort(relay.nextRetryAt) : '') : '');
     retry.title = relay && relay.nextRetryAt ? dualStamp(relay.nextRetryAt) : '';
   }
   var relayError = byId('hubRelayError');

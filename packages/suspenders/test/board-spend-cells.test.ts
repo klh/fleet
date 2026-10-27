@@ -109,11 +109,11 @@ describe("board spend cells (W776)", () => {
 		expect(row).toContain("322 tok/m · 18% cache");
 	});
 
-	test("card dates compact to a relative update age with the full instant on hover (W998)", () => {
+	test("lane timestamps ride the shared dual-stamp vocabulary (W902)", () => {
 		const { laneStamp, kanbanCard } = chunkSandbox();
-		// the tasks TABLE keeps the absolute compact stamp
-		expect(laneStamp("2026-10-19T15:44:54Z")).toMatch(
-			/<time datetime="2026-10-19T15:44:54\.000Z" title="[^"]*UTC 2026-10-19T15:44:54\.000Z">\d{2}\.\d{2}\.26 \d{2}:\d{2}<\/time>/,
+		const stamp = laneStamp("2026-10-19T15:44:54Z");
+		expect(stamp).toMatch(
+			/<time datetime="2026-10-19T15:44:54\.000Z" title="2026-10-19T15:44:54Z \(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}\)">10-19T15:44:54Z \(\d{2}:\d{2} local\)<\/time>/,
 		);
 		// the kanban CARD swaps the wide DD.MM.YY HH:MM stamp for a relative
 		// age; the full instant survives on the <time> title

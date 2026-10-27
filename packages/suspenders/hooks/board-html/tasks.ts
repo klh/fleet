@@ -1,10 +1,14 @@
 // hooks/board-html/tasks.ts — tasks table + kanban + drawer (W157 client chunk).
 // String.raw matches the original single-template semantics; bun's
 // non-ASCII escaping in String.raw reproduces the served page bytes.
+import { embedDualShort, embedDualStamp } from "../lib/wallclock.ts";
 import { executionSummary } from "../lib/work/work-execution.ts";
 
 export const TASKS = String.raw`var executionSummary = ${executionSummary.toString()};
 // --- 4: tasks table (Tasks tab, /api/tasks) + drawer (/api/task) ---
+// W902: shared stamp vocabulary, inlined for this chunk scope
+var dualStamp = ${embedDualStamp.toString()};
+var dualShort = ${embedDualShort.toString()};
 // view state: session filter + column sort, persisted per browser (owner
 // asked: filter tasks by owning session, sortable table, fragments grouped)
 var taskSort = {key: 'priority', dir: 1};
@@ -234,10 +238,7 @@ function displayState(t){
 function laneStamp(s){
   if (!s) return '';
   var d = new Date(s); if (isNaN(d.getTime())) return esc(s);
-  var p = function(n){ return (n < 10 ? '0' : '') + n; };
-  var short = p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + String(d.getFullYear()).slice(-2) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
-  var full = d.toLocaleString('da-DK', {dateStyle:'full', timeStyle:'long'}) + ' · UTC ' + d.toISOString();
-  return '<time datetime="' + esc(d.toISOString()) + '" title="' + esc(full) + '">' + esc(short) + '</time>';
+  return '<time datetime="' + esc(d.toISOString()) + '" title="' + esc(dualStamp(d)) + '">' + esc(dualShort(d)) + '</time>';
 }
 // W998 — card dates compact to a relative update age; the full instant stays
 // on hover (same <time> contract as laneStamp). msAgo/agoShort ride the CORE
@@ -811,8 +812,8 @@ function showSparkTip(e, bar){
     var fresh = Number(bar.getAttribute('data-fresh'));
     var cached = Number(bar.getAttribute('data-cached'));
     var out = Number(bar.getAttribute('data-out'));
-    var time = new Date(at).toLocaleString('da-DK', {day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit'});
-    tip.textContent = time + ' · ' + minutes + ' min\nFresh input  ' + fresh.toLocaleString('da-DK') + '\nCached input  ' + cached.toLocaleString('da-DK') + '\nOutput  ' + out.toLocaleString('da-DK');
+    var time = dualStamp(at);
+    tip.textContent = time + ' · ' + minutes + ' min\nFresh input  ' + fresh.toLocaleString('en-US') + '\nCached input  ' + cached.toLocaleString('en-US') + '\nOutput  ' + out.toLocaleString('en-US');
     tip._bar = bar;
   }
   tip.hidden = false;
@@ -920,8 +921,8 @@ function paintSparks(root){
       el.appendChild(chart);
       if (axis){
         axis.style.display = 'flex';
-        axis.firstElementChild.textContent = new Date(pts[0][0]).toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'});
-        axis.lastElementChild.textContent = new Date(pts[pts.length - 1][0]).toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'}) + ' · ' + chart.getAttribute('data-bin-min') + 'm/bin';
+        axis.firstElementChild.textContent = dualShort(pts[0][0]);
+        axis.lastElementChild.textContent = dualShort(pts[pts.length - 1][0]) + ' · ' + chart.getAttribute('data-bin-min') + 'm/bin';
       }
     }
   }
