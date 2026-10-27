@@ -10,7 +10,9 @@
 // finding.usage-mining. Doctrine (W1201): a maybe-ran marker is stamped
 // before mining and the cursor advances ONLY after the artifact write is
 // confirmed; an unavailable ledger is a NOTICE (sweep-state channel), never
-// a quiet "no offenders" skip. Fail-soft: it must never fail the heartbeat.
+// a quiet "no offenders" skip. W1201.1: the confirmed position is read
+// BEFORE the stamp (pending file is separate), and a failed source writes
+// nothing — no artifact, no cursor advance. Fail-soft: never fails the beat.
 //   bun usage-mining.ts [--no-emit]   — --no-emit skips the coord fact child
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -48,11 +50,14 @@ const mining = defineVerb({
 /** Rank lanes: ≥ MIN_REQUESTS in the window, worst warm-rate first, cost
  *  index as the tiebreak (equal coldness — the expensive one mines first).
  *  W1201 window: [fromMs, nowMs] — the confirmed-cursor window; the legacy
- *  7d fallback applies only before the first confirmed run. */
+ *  7d fallback applies only before the first confirmed run.
+ *  W1201.1 (B2): an unavailable ledger is a FAILED SOURCE — null return,
+ *  a sweep notice, and NO artifact write / NO cursor advance (the buggy
+ *  form mined an empty artifact and confirmed NOW over data nobody read). */
 export function mineOffenders(
 	nowMs = Date.now(),
 	fromMs?: number,
-): MiningArtifact {
+): MiningArtifact | null {
 	const from = fromMs ?? nowMs - FALLBACK_WINDOW_MS;
 	const rep = drilldownReport(
 		resolveBuckleDb(),
@@ -63,11 +68,13 @@ export function mineOffenders(
 		},
 		nowMs,
 	);
-	if (!rep.available)
+	if (!rep.available) {
 		appendSweepNotice(
 			"usage-mining",
 			`fail(ledger-unavailable) — cursor NOT advanced (${resolveBuckleDb() ?? "no ledger"})`,
 		);
+		return null;
+	}
 	const offenders: MiningOffender[] = rep.lanes
 		.filter((l) => l.requests >= MIN_REQUESTS)
 		.sort((a, b) => a.warmRate - b.warmRate || b.costIndex - a.costIndex)
@@ -126,12 +133,21 @@ async function main(): Promise<void> {
 	const now = Date.now();
 	const runId = crypto.randomUUID();
 	const cPath = cursorPath();
-	// W1201: unclear-outcome marker BEFORE acting; the window starts at the
-	// last CONFIRMED cursor (legacy 7d fallback pre-first-run).
+	// W1201.1: read the CONFIRMED position BEFORE acting — the pending
+	// stamp below lives in its own file and can never touch the bookmark,
+	// so a crash between stamp and confirm keeps the last confirmed ms
+	// (B1; the window here already re-mines an unclear prior run from it).
+	const fromMs = confirmedMs(readCursor(cPath), now - FALLBACK_WINDOW_MS);
 	markMaybeRan(cPath, runId);
-	const cursor = readCursor(cPath);
-	const fromMs = confirmedMs(cursor, now - FALLBACK_WINDOW_MS);
 	const artifact = mineOffenders(now, fromMs);
+	if (artifact === null) {
+		// B2: failed source — no artifact write, no cursor advance, no
+		// "no offenders" fact that would mask the outage.
+		console.error(
+			"usage-mining: source unavailable — artifact and cursor untouched",
+		);
+		return;
+	}
 	const path = miningArtifactPath();
 	let written = false;
 	try {
