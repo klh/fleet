@@ -119,6 +119,7 @@ export const MUTATING_CMDS = new Set([
 	"split",
 	"reclaim",
 	"migrate-ledger",
+	"stamp",
 ]);
 
 export type Item = Record<string, string | number | null>;

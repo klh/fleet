@@ -48,6 +48,13 @@ import {
 } from "../../../scripts/lib/launch-backoff.ts";
 import { reproGateForItem } from "../gates/repro-gate.ts";
 import { recordLaneExecutor } from "../executors/executor-cv.ts";
+import {
+	credScopeGap,
+	credRoutingRefusal,
+	laneProviderEnv,
+	machineCredScope,
+} from "../cred-scope.ts";
+import { emitLoopEvent } from "./events.ts";
 import { adapterFor } from "../executors/registry.ts";
 import {
 	applyLaneAttribution,
@@ -128,6 +135,33 @@ export async function runDispatch(
 	const refusal = reproGateForItem(store, project, item);
 	if (refusal) {
 		console.error(`REFUSED ${item} — ${refusal}`);
+		process.exit(1);
+	}
+	// W1211 routing law: item.requires must sit inside the machine's DECLARED
+	// credential scope — hub machines advertise none, so credentialed work is
+	// structurally unroutable here (absence at the credential layer, W1141,
+	// never gate prose). The gap emits requires.gap before the refusal.
+	const declared = machineCredScope();
+	const requires =
+		(
+			store
+				.query("SELECT requires FROM work_items WHERE project = ? AND id = ?")
+				.get(project, item) as { requires: string | null } | null
+		)?.requires ?? null;
+	const credRefusal = credRoutingRefusal(requires, declared);
+	if (credRefusal) {
+		emitLoopEvent(
+			"requires.gap",
+			item,
+			{
+				missing: credScopeGap(requires, declared).join(","),
+				machine: declared.join(","),
+				host: hostname(),
+			},
+			store,
+		);
+		console.error(`REFUSED ${item} — ${credRefusal}`);
+		store.close();
 		process.exit(1);
 	}
 	let revision: number | undefined,
@@ -301,7 +335,15 @@ export async function runDispatch(
 		// in the worktree and the prompt points there; the .fleet copy stays
 		// canonical for the coordinator/board.
 		writeFileSync(`${wt}/.klh-brief.md`, brief);
-		const env = { ...process.env, ...executor.env };
+		// W1211: provider credential env rides only to an item that requires
+		// the matching scope AND a machine that declares it — an undeclared
+		// (hub) lane env is scrubbed even when the dispatcher shell leaked
+		// tokens in; tokens ride the brief scope, never ambient.
+		const env = laneProviderEnv(
+			{ ...process.env, ...executor.env },
+			requires,
+			declared,
+		);
 		if (takeToken) env.KLH_CLAIM_TOKEN = takeToken;
 		delete env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
 		if (AGENT !== "codex") {

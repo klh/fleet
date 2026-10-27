@@ -249,4 +249,11 @@ export const VERBS: VerbSpec[] = [
 			"usage: report [--ids w1,w2] [--done-window 2d] — the supervisor micro-metrics table (ITEM/ST/TASK/TOKENS/CACHE/OUT-MIN/AGENT); rows = riding+queued+recent-done (default window 48h) or strict --ids",
 		flags: ["--ids", "--done-window"],
 	}),
+	defineVerb({
+		name: "stamp",
+		usage:
+			"usage: stamp <id> --requires <csv> — set an existing item's requires set (W1211 audit face; the credential vocabulary: shell, fs, git, build, mcp, vision, browser, network, gh, az, cloud-<provider>, tool-<cli>)",
+		flags: ["--requires"],
+		minPos: 1,
+	}),
 ];

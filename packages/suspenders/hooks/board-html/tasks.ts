@@ -96,6 +96,15 @@ function taskRank(t){
   return bucket === 'attention' ? 0 : bucket === 'working' ? 1 : bucket === 'paused' ? 2 : bucket === 'ready' ? 3 : 4;
 }
 function taskGroupKey(t){ return String(t.project || '') + '\u0000' + String(t.id); }
+// W1211 credential split: a requires csv names a credential scope (gh, az,
+// cloud-<provider>, tool-<cli>) — mirrors lib/cred-scope.ts CRED_SCOPE_RE.
+function needsCred(csv){
+  if (!csv) return false;
+  var parts = String(csv).split(',');
+  for (var i = 0; i < parts.length; i++)
+    if (/^(gh|az|cloud-[a-z0-9][a-z0-9-]*|tool-[a-z0-9][a-z0-9-]*)$/.test(parts[i].trim())) return true;
+  return false;
+}
 function taskGroups(ts){ // fragments nest under their parent row, scoped by project
   var byIdMap = {}, roots = [], kids = {};
   for (var i = 0; i < ts.length; i++) byIdMap[taskGroupKey(ts[i])] = ts[i];
@@ -336,7 +345,12 @@ function renderTasks(){
   var html = taskTreeHtml(pool);
   if (!html) html = '<tr><td colspan="7" class="dim">' + (ts.length ? '(no tasks match the filters)' : '(no tasks)') + '</td></tr>';
   var cnt = byId('taskCount');
-  if (cnt) cnt.textContent = pool.length === ts.length ? pool.length + ' tasks' : pool.length + ' of ' + ts.length + ' tasks';
+  if (cnt) {
+    cnt.textContent = pool.length === ts.length ? pool.length + ' tasks' : pool.length + ' of ' + ts.length + ' tasks';
+    var cred = 0;
+    for (var ci = 0; ci < pool.length; ci++) if (needsCred(pool[ci].requires)) cred++;
+    if (cred) cnt.textContent += ' · ' + cred + ' credentialed';
+  }
   var page = document.scrollingElement || document.documentElement;
   var pageY = page.scrollTop;
   sigSetKeep(body, html, html, 'data-task'); // rebuild only on real change; refocus the row button if the table swapped under it
@@ -523,6 +537,7 @@ function kanbanCard(t, fam){
   if (kid) html += '<span class="kidmark">↳</span>';
   html += '<div class="krow">' + taskPill(displayState(t)) +
     (od ? '<span class="kdec">needs you</span>' : '') +
+    (t.requires ? '<span class="kdec mono" title="credential requires: ' + esc(String(t.requires)) + '">needs ' + esc(String(t.requires)) + '</span>' : '') +
     (t.updated_at_utc ? '<span class="kcardstamp dim">' + compactStamp(t.updated_at_utc) + '</span>' : '') + '</div>' +
     '<div class="kcardident"><button type="button" class="tidbtn mono" data-task="' + esc(t.id) + '" data-proj="' + esc(t.project || '') + '" aria-haspopup="dialog">' + esc(t.id) + '</button>' +
     '<span class="kage dim" title="open ' + esc(ago(t.age_s)) + '">' + esc(agoShort(t.age_s)) + '</span></div>';

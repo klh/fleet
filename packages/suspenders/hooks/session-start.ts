@@ -20,6 +20,7 @@ import {
 	sweepStaleSessions,
 } from "./lib/govdb/govdb.ts";
 import { enrollTopLevel } from "./lib/hook-scripts.ts";
+import { machineCredScope } from "./lib/cred-scope.ts";
 import { run } from "./lib/run.ts";
 import {
 	SINK_QUERY_SCOPE,
@@ -137,8 +138,11 @@ const RULES =
 
 // top-level sessions are full agent runtimes — advertise the complete
 // capability set so capability-gated work stays takeable by them (lanes
-// inherit their caps from the parent via coord bootstrap --parent)
-const CAPS = CAPABILITIES.join(",");
+// inherit their caps from the parent via coord bootstrap --parent).
+// W1211: the machine's DECLARED credential scopes ride every top-level
+// registration — a hub declares none, so credential-gated work never
+// becomes takeable there (absence at the credential layer, W1141).
+const CAPS = [...CAPABILITIES, ...machineCredScope()].join(",");
 // actor attribution: stamp the settings default_actor (config-over-code —
 // suspenders-board.json) into every bootstrapped session, never clobbering
 // an explicit actor

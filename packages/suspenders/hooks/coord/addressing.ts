@@ -35,6 +35,7 @@ import {
 	projectIdentity,
 	red,
 } from "./shared.ts";
+import { validScopeToken } from "../lib/cred-scope.ts";
 
 interface SessionRow {
 	sid: string;
@@ -360,8 +361,10 @@ export async function cmdTargets(rest: string[]): Promise<void> {
 	// --cap <c> keeps only live targets advertising c on sessions.capabilities —
 	// the A2A Agent-Card skill read, in-process.
 	const cap = arg("--cap");
-	if (cap && !CAPABILITIES.includes(cap))
-		die(`unknown capability: ${cap} — vocabulary: ${CAPABILITIES.join(",")}`);
+	if (cap && !validScopeToken(cap))
+		die(
+			`unknown capability: ${cap} — vocabulary: ${CAPABILITIES.join(",")}, gh, az, cloud-<provider>, tool-<cli>`,
+		);
 	let targets = listLiveTargets();
 	if (cap)
 		targets = targets.filter((target) => target.capabilities.includes(cap));
