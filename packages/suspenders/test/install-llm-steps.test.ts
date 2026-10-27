@@ -25,6 +25,7 @@ import {
 	diagnosticTail,
 	downloadModels,
 	beltBin,
+	ensureLiteLlmIntegrity,
 	ensureLiteLlmMetricsDependency,
 	gatewayConfigStale,
 	refreshSupervisor,
@@ -170,6 +171,61 @@ describe("LiteLLM native metrics fresh install", () => {
 				run: async () => 1,
 			}),
 		).rejects.toThrow("exited 1");
+	});
+});
+
+describe("ensureLiteLlmIntegrity (W1197)", () => {
+	const auditStub =
+		(verdict: "clean" | "exposed" | "unverifiable", reason: string) =>
+		async () => ({
+			auditedAt: "2026-10-23T00:00:00.000Z",
+			spec: "litellm[proxy]==1.103.0",
+			sitePackages: "/site",
+			dists: [],
+			litellmVersion: verdict === "exposed" ? "1.107.0" : "1.103.0",
+			compromisedVersions: ["1.107.0"],
+			verdict,
+			reason,
+		});
+
+	test("exposed fails the step with a rotation directive and banks a receipt", async () => {
+		const home = tmp("w1197-exposed");
+		const outcome = await ensureLiteLlmIntegrity(ctxFor(home), () => {}, {
+			audit: auditStub(
+				"exposed",
+				"1.107.0 is the reported compromised release",
+			),
+		});
+		expect(outcome.verdict).toBe("exposed");
+		expect(outcome.note).toContain("rotate");
+		expect(existsSync(join(home, "litellm-integrity.json"))).toBe(true);
+	});
+
+	test("unverifiable and clean stay non-fatal with the receipt banked", async () => {
+		const home = tmp("w1197-unverifiable");
+		const outcome = await ensureLiteLlmIntegrity(ctxFor(home), () => {}, {
+			audit: auditStub("unverifiable", "full hash chain unproven for litellm"),
+		});
+		expect(outcome.verdict).toBe("unverifiable");
+		expect(existsSync(join(home, "litellm-integrity.json"))).toBe(true);
+		const clean = await ensureLiteLlmIntegrity(
+			ctxFor(tmp("w1197-clean")),
+			() => {},
+			{
+				audit: auditStub("clean", "1 dist(s) fully proven against PyPI"),
+			},
+		);
+		expect(clean.verdict).toBe("clean");
+	});
+
+	test("a hard audit error degrades to a skip note", async () => {
+		const lines: string[] = [];
+		const outcome = await ensureLiteLlmIntegrity(
+			ctxFor(tmp("w1197-err")),
+			(l) => lines.push(l),
+		);
+		expect(outcome.verdict).toBe("error");
+		expect(lines[0]).toContain("skipped");
 	});
 });
 

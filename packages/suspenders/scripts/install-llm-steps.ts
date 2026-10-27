@@ -29,6 +29,11 @@ import {
 	prometheusPreflight,
 } from "../../belt/bin/litellm-target.ts";
 import {
+	type auditLiteLlmEnv,
+	integrityEvidence,
+	writeReceipt,
+} from "../../belt/bin/litellm-integrity.ts";
+import {
 	refreshStaleZaiSnapshot,
 	type ZaiStaleResult,
 } from "../deploy/zai-catalog.ts";
@@ -94,6 +99,56 @@ export async function ensureLiteLlmMetricsDependency(
 	if (missing !== null)
 		throw new Error(`LiteLLM metrics preflight: ${missing}`);
 	return "installed";
+}
+
+// ─── litellm supply-chain integrity (W1197) ───
+
+export interface LiteLlmIntegrityDeps {
+	audit?: typeof auditLiteLlmEnv;
+}
+
+export interface IntegrityOutcome {
+	verdict: "clean" | "exposed" | "unverifiable" | "error";
+	note: string;
+}
+
+/** W1197: audit the pinned litellm uv tool env against PyPI before first
+ *  launch — version + install date + the published wheel digest/RECORD
+ *  chain — and bank a receipt beside the runtime home. EXPOSED fails the
+ *  step (rotate gateway-visible keys first); unverifiable or a hard error
+ *  degrades to a note, never blocks install. */
+export async function ensureLiteLlmIntegrity(
+	ctx: StepContext,
+	log: (line: string) => void,
+	deps: LiteLlmIntegrityDeps = {},
+): Promise<IntegrityOutcome> {
+	const receipt = join(ctx.llmHome, "litellm-integrity.json");
+	try {
+		const audit = await (deps.audit ?? auditLiteLlmEnv)();
+		writeReceipt(receipt, audit);
+		log(integrityEvidence(audit));
+		if (audit.verdict === "exposed")
+			return {
+				verdict: "exposed",
+				note: `LiteLLM integrity EXPOSED — ${audit.reason}; rotate every gateway-visible key before activating :4100`,
+			};
+		if (audit.verdict === "unverifiable")
+			return {
+				verdict: "unverifiable",
+				note: `LiteLLM integrity unverifiable — ${audit.reason}`,
+			};
+		return {
+			verdict: "clean",
+			note: `LiteLLM integrity clean — receipt at ${receipt}`,
+		};
+	} catch (err) {
+		const reason = err instanceof Error ? err.message : String(err);
+		log(`LiteLLM integrity audit skipped — ${reason}`);
+		return {
+			verdict: "error",
+			note: `LiteLLM integrity audit skipped — ${reason}`,
+		};
+	}
 }
 
 // ─── gateway-config regen (W889) ───
@@ -358,6 +413,12 @@ export async function seedLocalLlm(
 				note: `LiteLLM native metrics dependency failed — ${err instanceof Error ? err.message : String(err)}`,
 			};
 		}
+		// W1197: prove the pinned tool env against PyPI before first launch;
+		// an exposed verdict fails the install (rotate keys before :4100).
+		const integrity = await ensureLiteLlmIntegrity(ctx, log);
+		if (integrity.verdict === "exposed")
+			return { status: "failed", note: integrity.note };
+		if (integrity.note.length > 0) log(integrity.note);
 	}
 	// W778: the flattened kit now imports npm deps (stack-config.ts → yaml)
 	// and the home has no manifest of its own — ride the prefix's offline
