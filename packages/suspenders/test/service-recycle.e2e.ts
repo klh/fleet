@@ -7,7 +7,7 @@
 // REAL lsof/kill hooks against a real listener replaced mid-flight, and the
 // manifest/renderer assertions pin belt-swarm's declared childPort :4000 as
 // the config-over-code source the install map is built from.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { join } from "node:path";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

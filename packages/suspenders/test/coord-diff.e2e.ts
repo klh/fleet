@@ -3,7 +3,7 @@
 // (never /tmp). All DB access and CLI runs happen in bun subprocesses so the
 // parent test process never opens the real governor.db (metrics.test.ts
 // recipe), and every open of the temp DB re-runs the migration idempotently.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 

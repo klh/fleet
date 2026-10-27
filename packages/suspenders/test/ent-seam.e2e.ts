@@ -2,7 +2,7 @@
 // contract the GUI gates on: honest 501 provider-less (Core SKU), payload
 // passthrough with a registered provider, 503 on a throwing provider, and
 // the panel-key contract order.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	ENT_PANEL_KEYS,
 	ENT_NO_OVERLAY,

@@ -2,7 +2,7 @@
 // window math, the breaching predicate (sample floor + threshold), sort
 // order, badge derivation, status-file round-trip, and the maintenance task
 // registry entry (heartbeat-born, W779 pairing).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

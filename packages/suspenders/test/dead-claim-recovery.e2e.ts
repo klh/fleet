@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { readFileSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";

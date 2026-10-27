@@ -3,7 +3,7 @@
 // leaves local facts intact AND the roll lands on the sink; a same-day rerun
 // pushes zero new rows; a sink outage logs (roll.errors) and never fails the
 // local run.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import {
 	chmodSync,

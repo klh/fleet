@@ -2,7 +2,7 @@
 // set --if-version=N` compare-and-set guards. Temp HOME under tmpdir; every CLI
 // run happens in a bun subprocess so the parent test process never opens the
 // real governor.db (coord-events.test.ts recipe).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

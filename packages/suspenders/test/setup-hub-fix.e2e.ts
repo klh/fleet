@@ -4,7 +4,7 @@
 // (`bun deploy/hubctl.ts status <label>` — hubctl's read subcommands only).
 // Real board on an OS-chosen port, scratch HOME, a hub registry whose only
 // candidate is a guaranteed-dead loopback port.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

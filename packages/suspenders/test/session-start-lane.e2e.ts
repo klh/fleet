@@ -2,7 +2,7 @@
 // (parent#agent), never the parent's raw sid: Claude Code gives a subagent
 // the parent's session_id, so raw-sid claims land on the parent's account
 // (W24/W30, 2026-09-26). Isolated temp HOME + repo, spawns the real hook.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

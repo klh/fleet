@@ -6,7 +6,7 @@
 // prompt. groupSignature now expands $HOME before folding the prefix, and
 // the merge collapses existing signature-duplicates keep-first, so the next
 // wire run heals the live settings too.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdirSync,
 	mkdtempSync,

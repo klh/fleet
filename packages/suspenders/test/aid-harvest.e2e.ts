@@ -2,7 +2,7 @@
 // aid-harvest → governor.db aid_events + aid_rollup, and the W127 usage
 // surface join (aid_events(sid) ⋈ sessions ⋈ usage_rollup(actor, hour)).
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import {
 	aidsPullToken,

@@ -3,7 +3,7 @@
 // stranding the RUNNING lease (HTTP499-at-launch audit rows). The regression
 // proof spawns a SHORT-LIVED PARENT process that calls the real
 // launchDetachedReview, then requires the reviewer child to outlive it.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

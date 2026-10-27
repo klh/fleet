@@ -4,7 +4,7 @@
 // their card tail falls to the last coord event in the spawn-attached
 // subscribe log (~/.claude-insights/coord-subscribe-<sid>.log). Claude-class
 // lanes keep their transcript tail — the subscribe line only fills the gap.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";

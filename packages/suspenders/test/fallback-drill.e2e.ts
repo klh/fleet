@@ -1,7 +1,7 @@
 // fallback-drill.test.ts — W219.2: the keepwarm drill's contract. When z.ai
 // is dark a 200-with-choices from the gateway proves a local rung answered;
 // anything else on a dark z.ai is the 2026-10-06 incident recurring.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	CACHE_SID,
 	cacheHitShare,

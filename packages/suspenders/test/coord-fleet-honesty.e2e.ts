@@ -4,7 +4,7 @@
 // these synthetic sids (no prefix relation to real registry rows), so each
 // claimant rides the W610 claimant probe: fresh governor heartbeat → alive,
 // everything else → unknown (never ▶, never ×).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 

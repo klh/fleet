@@ -3,7 +3,7 @@
 // they are renamed to <name>_legacy_<ts> so rows survive verbatim. Empty
 // legacy tables may be recreated in the current shape; current-shape tables
 // pass through untouched.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

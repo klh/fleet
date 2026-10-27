@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { readEffectiveUpstreams } from "../hooks/board/console-upstreams.ts";
 
 test("machine override replaces groups, adds aliases, preserves defaults and never exposes credentials", () => {

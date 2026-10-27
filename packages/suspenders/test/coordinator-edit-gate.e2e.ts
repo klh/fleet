@@ -5,7 +5,7 @@
 // exemption, and temp dirs never carry a verified fleet identity (git root
 // or installed prefix), so spawns resolve coordinator/lane deterministically
 // (W1124.9).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	existsSync,
 	mkdirSync,

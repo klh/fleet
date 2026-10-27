@@ -4,7 +4,7 @@
 // coord gc prunes stale events only past EVERY live cursor. Never the live
 // hub — temp HOME subprocesses (w451/w466 recipe); archiveAndPrune runs
 // in-process over a raw temp db (retention.ts binds no govdb module state).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import {
 	mkdtempSync,

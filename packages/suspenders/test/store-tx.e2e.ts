@@ -3,7 +3,7 @@
 // tx-mode begin throw "within a transaction" → unhandled → HTTP 500 →
 // work add/done/split dead fleet-wide until restart. The server's tx state is
 // process-local, so these drive the state machine through a stub connection.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	beginWithHeal,
 	sweepOrphanTxn,

@@ -2,7 +2,7 @@
 // enumeration (stack.yaml ∪ hubs.json), the pure per-hub wire rollup, the
 // TTL-cached per-hub-degrade cycle, and the /usage page slice (rows for ok
 // hubs, honest reason rows for down ones).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

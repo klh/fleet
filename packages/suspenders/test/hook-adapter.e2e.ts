@@ -3,7 +3,7 @@
 // sid on every governor row), the emitter's merge-not-clobber contract, and
 // one integration tooth: a governor lease deny surfacing as codex decision
 // JSON through the real gate.ts codex entrypoint.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	appendFileSync,
 	mkdtempSync,

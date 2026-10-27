@@ -6,7 +6,7 @@
 // logs, cwd or Nice fails loudly. Also covers placeholder validation (used
 // but undeclared / declared but unused / unresolvable tokens) and the
 // install.sh-matching belt defaults.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {

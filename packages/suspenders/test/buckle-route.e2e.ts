@@ -2,7 +2,7 @@
 // face mapping over the W298 catalog, base-URL grammar, the owner table,
 // and the claude-code/codex writers against a pinned temp HOME (no env
 // writes — HOME stays the caller's; the writers take home explicitly).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	existsSync,
 	mkdirSync,

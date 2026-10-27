@@ -6,7 +6,7 @@
 // transcript is not liveness); a dead claim converges to release through
 // aging alone (recycled pid + cold heartbeat + open session row → 3 dead
 // strikes → release), while a fresh transcript still outranks a recycled pid.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import {
 	mkdirSync,

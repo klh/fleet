@@ -4,7 +4,7 @@
 // ANSI strip); the gate leg spawns the REAL gate.ts push on a payload
 // stream with HOME + TMPDIR isolated in a temp dir — delivery, silence on
 // empty, and the SUSPENDERS_PUSH_TAIL=0 opt-out.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	appendFileSync,
 	mkdtempSync,

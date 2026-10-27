@@ -3,7 +3,7 @@
 // preserved surface. The two second-person minters (approve-destructive,
 // lifecycle-authority) refuse lanes by cwd, so their help face is asserted
 // from a non-lane cwd.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

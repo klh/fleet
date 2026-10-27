@@ -3,7 +3,7 @@
 // authority checks, revocation beats the local copy (exact + all-versions),
 // write-once replication both directions, revocation merge dedupe, hub-side
 // refusal of revoked bytes, corrupt-source refusal, dir-level inventory.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdtempSync,
 	readFileSync,

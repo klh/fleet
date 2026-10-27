@@ -4,7 +4,7 @@
 // the same-bin tail rides --fallback-model, claude stays the appended last
 // resort, untranslatable feed values drop out. .prefer chains outrank
 // defaults, unchanged.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

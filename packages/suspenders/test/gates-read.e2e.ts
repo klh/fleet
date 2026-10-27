@@ -4,7 +4,7 @@
 //      size and the bounded retry; 3rd same-path read emits additionalContext
 // Fixtures: mkdtemp under cwd, unique path per test, TMPDIR isolated per run
 // so the re-read counters never leak between runs.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	fatReadDeny,
 	readCapBytes,

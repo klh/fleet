@@ -6,7 +6,7 @@
 // verified branch is refused by the guard, NEED_DECISION'd, struck — never
 // auto-resolved; and watch recovers from the one-arg identity crash that
 // left the ladder dead (CONTROLLER-REFUSED, .fleet/loop.log 2026-10-11).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 
 test.setTimeout(30_000);
 import { Database } from "bun:sqlite";

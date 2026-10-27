@@ -5,7 +5,7 @@
 // JSONL line — verified live 2026-10-19) through the same core. Temp HOME +
 // temp git repo; every CLI/gate run in a bun subprocess
 // (test/fleet.test.ts recipe).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

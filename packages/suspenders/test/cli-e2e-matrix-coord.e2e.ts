@@ -8,7 +8,7 @@
 // read-only fleet faces. The final test asserts registry parity — a verb
 // added without a matrix scenario fails here.
 import { spawnSync } from "node:child_process";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 

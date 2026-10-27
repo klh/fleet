@@ -4,7 +4,7 @@
 // probe-false e2e) plus the dispatch lifecycle tests riding the same
 // scratch-home harness.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	chmodSync,
 	existsSync,

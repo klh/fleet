@@ -6,7 +6,7 @@
 // through the same store URL land on the board. Scratch HOME/repo live
 // under tmpdir() (fixture convention — identity never walks up into this
 // repo) and nothing here opens the live governor.db.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";

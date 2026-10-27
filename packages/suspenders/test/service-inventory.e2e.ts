@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { registryEntries } from "../../belt/bin/registry.ts";
 import {
 	MODEL_INVENTORY,

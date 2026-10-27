@@ -4,7 +4,7 @@
 // a fake curl answers the hub-side scripts (the REAL script text runs via
 // /bin/sh — same wire the live hub sees); a fake ssh proves key material
 // never rides the ssh command line.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	chmodSync,
 	existsSync,

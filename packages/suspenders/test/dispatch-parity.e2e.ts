@@ -9,7 +9,7 @@
 // quietly regrow.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 
 const HOOKS_LIB = join(import.meta.dir, "..", "hooks", "lib");
 const SCRIPTS = join(import.meta.dir, "..", "scripts");

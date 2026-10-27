@@ -2,7 +2,7 @@
 // registerSkills / releaseNotify steps. The W549 truthfulness and the W631
 // posture guard move here from the retired install.sh caddy block; the bash
 // block extraction tests retired with the block.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	chmodSync,
 	existsSync,

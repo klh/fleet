@@ -5,7 +5,7 @@
 //      BEFORE the harness would fail with "string not found"
 // Fixtures: mkdtemp under cwd (NOT /tmp — the governor exempts /tmp paths);
 // unique path per test, written BEFORE the spawn (raw fs writes take no lease).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	anchorDenyReason,
 	anchorHint,

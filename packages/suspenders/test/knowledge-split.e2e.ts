@@ -6,7 +6,7 @@
 // backup round-trip. knowledge-api/MCP/coord byte-identity rides the store:
 // all three consumers call makeStore().search — one binding reaches all
 // three, so a byte-identical store.search IS a byte-identical API response.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { tmpDir } from "./helpers/fixture-kit.ts";

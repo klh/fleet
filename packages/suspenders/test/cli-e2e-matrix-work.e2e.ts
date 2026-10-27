@@ -6,7 +6,7 @@
 // scenarios that catch missing wiring, wrong side effects, and broken round
 // trips. The final test asserts registry parity — a verb added to the
 // registry without a matrix scenario fails here.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";

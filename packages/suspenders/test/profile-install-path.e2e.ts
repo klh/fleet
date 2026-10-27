@@ -7,7 +7,7 @@
 // layout: payload hooks under <prefix>/.harness, lib/ linked at the root.
 // The payload profile.ts is a REAL file (git-archive extraction semantics) —
 // a symlink would let Bun realpath past the payload to the repo copy.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	existsSync,
 	mkdirSync,

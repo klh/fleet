@@ -7,7 +7,7 @@
 // throws. Applied→verified stays probe-gated hub-side (no work@ probe —
 // verified is never granted on faith, W160); the delegation terminus is
 // `applied`.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { startServer } from "../../buckle/src/server.ts";
 import { createReferenceGovSeam } from "../../buckle/src/gov/reference-seam.ts";
 import {

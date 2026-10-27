@@ -3,7 +3,7 @@
 // the keying/noise/window rules; the gate leg spawns the REAL gate.ts
 // post-fail on a payload stream and pins the escalation ladder (silent,
 // analyze, anti-thrash) with state isolated in a temp TMPDIR.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

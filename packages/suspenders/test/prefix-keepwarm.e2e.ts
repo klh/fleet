@@ -1,7 +1,7 @@
 // test/prefix-keepwarm.test.ts — W623: the prefix keepwarm's pure seams +
 // one live-listener capture pass against a stub front. HOME/PREFIX_* redirects
 // keep every path off the real machine config; no real lane is spawned.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

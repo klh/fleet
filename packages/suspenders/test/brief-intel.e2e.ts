@@ -2,7 +2,7 @@
 // code-shaped term extraction, done-criteria digest, the W113 gates (small
 // repo, spec-carried paths), anchor extraction from real rg hits, and the
 // renderIntel composition rules (no headers without content).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";

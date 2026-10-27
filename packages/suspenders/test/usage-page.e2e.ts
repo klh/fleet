@@ -6,7 +6,7 @@
 // client-side, so tests assert payload shape + static hosts, not panel HTML.
 
 import { Database } from "bun:sqlite";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

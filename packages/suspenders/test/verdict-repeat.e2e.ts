@@ -4,7 +4,7 @@
 // the fail note) instead of re-spawned; a fresh or changed verdict banks the
 // observation and dispatches normally. Unit core + real-CLI integration on
 // the shared scratch-HOME dispatch harness.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {

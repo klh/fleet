@@ -1,7 +1,7 @@
 // test/rogue-reap-w973.test.ts — W973: the reaper's fleet scope extended
 // to fleet-ish tmp dirs and commandline-scope serves, with a bounded kill
 // batch and reaped/survivors accounting. Injected deps; no real kills.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

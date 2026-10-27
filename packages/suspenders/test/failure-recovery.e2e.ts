@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { openMemoryStore } from "../hooks/lib/govdb/govdb.ts";
 import {
 	failureFingerprint,

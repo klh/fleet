@@ -2,7 +2,7 @@
 // THE face (WS push); wait/poll/inbox ride the ONE readEvents core and share
 // the cursor contract: advances only past SHOWN. Recipe: coord-events.test.ts
 // (temp HOME, every DB open + CLI run in a bun subprocess).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 

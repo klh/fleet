@@ -5,7 +5,7 @@
 // passing run), diff erosion (deleted tests with the move exemption,
 // focused/expected-failure gates, loosened assertions), fail-open paths,
 // and the disable knob.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdirSync,
 	mkdtempSync,

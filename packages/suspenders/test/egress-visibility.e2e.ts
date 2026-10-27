@@ -3,7 +3,7 @@
 // never become request rows), and selective TLS inspection is scoped to
 // trusted apps on verified routes with pinning fallback — plus the owner
 // boundary: the adapter metadata rides the W918 catalog, never a new list.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	DEFAULT_EGRESS_TRUST,
 	buckleRouteAdapters,

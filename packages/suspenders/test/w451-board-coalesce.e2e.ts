@@ -5,7 +5,7 @@
 // (helpers/board-fixture.ts) spawns a real board on an unused loopback port;
 // events arrive via the coord CLI so the assertion crosses the real write
 // path, not a back door.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
 const { BASE, run } = await boardFixture(0, test.afterAll);

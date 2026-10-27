@@ -2,7 +2,7 @@
 // treat real cross-package kit code as REAL (not a re-export shim) and flatten
 // its externals: hub-remote/stack-config ride along as sibling basenames,
 // specifiers rewritten `../x` → `./x`, bun build proves resolution.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";

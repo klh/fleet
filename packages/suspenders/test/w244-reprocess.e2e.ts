@@ -6,7 +6,7 @@
 // re-arms its parent, and the worker tick + coord knowledge-reprocess drive
 // the same port. Temp HOME + import bust — the knowledge.test.ts isolation
 // pattern (w159-settle.test.ts shape).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

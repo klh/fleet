@@ -1,6 +1,6 @@
 // test/lane-settings.test.ts — W512 lane --settings composer: env grammar
 // (W250/W228, unchanged) + the hooks block carrying the Task-pin command.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	laneSettingsData,
 	modelPinHookCommand,

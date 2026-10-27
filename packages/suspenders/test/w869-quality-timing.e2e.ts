@@ -7,7 +7,7 @@
 // (hooks/lib/fleet-loop/merge.ts qltyFixMergedFiles — qlty check --fix plus
 // the cached biome binary, because qlty 0.649 reports biome fixes without
 // applying them).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdtempSync,
 	realpathSync,

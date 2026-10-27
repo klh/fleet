@@ -4,7 +4,7 @@
 // OFF), the store server's /auth/* capability gate, and the cross-package
 // grammar pin against buckle's manifest builder (drift here would strand a
 // spoke or re-enable auth code on one).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {

@@ -4,7 +4,7 @@
 // denied-call audit. Layers: pure detectors, real gate spawns against a
 // fixture .fleet/lanes.json (pid = this test process), and the minter
 // (approve-destructive) as a subprocess from OUTSIDE any fleet root.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	existsSync,
 	mkdirSync,

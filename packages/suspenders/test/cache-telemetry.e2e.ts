@@ -2,7 +2,7 @@
 // feeds the W822 pulse. Covers row validation, windowing, per-lane warm
 // stats, offender/reuse mining, report round-trip, the pulse section, log
 // discovery, and the runner CLI face.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

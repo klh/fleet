@@ -5,7 +5,7 @@
 // environmental. Unit faces ride captured real bun error lines; the
 // integration face replays the exact coverageProof mechanics (reverse the
 // full diff, restore the new tests, bun test in the scratch tree).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";

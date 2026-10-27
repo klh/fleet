@@ -5,7 +5,7 @@
 // live responses against them, so payload drift fails loud here instead
 // of at SPA render time.
 import { Database } from "bun:sqlite";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import {

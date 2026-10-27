@@ -3,7 +3,7 @@
 // separate file purely because sequential appends to one test file kept
 // truncating mid-emission this session (W969 lane note).
 import { Database } from "bun:sqlite";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

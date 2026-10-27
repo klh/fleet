@@ -2,7 +2,7 @@
 // The brief is served VERBATIM (the raw bytes dispatch wrote to
 // .fleet/brief-<sid>.md); items without a stored brief fall back to their
 // own labeled raw fields; items with neither report an honest "none".
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -3,7 +3,7 @@
 // (FAILED→dead, pid-less→unknown), fail guards (refuse absent, refuse thin
 // evidence, idempotent on already-FAILED), the wedge fix (unknown + evidence
 // → FAILED + evidence banked as a bus event), and the CLI door (exit codes).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

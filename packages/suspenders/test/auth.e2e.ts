@@ -7,7 +7,7 @@
 // HOME is a temp dir set BEFORE the dynamic imports — govdb binds REG at
 // module load (the govdb-router-tables.test.ts pattern), and the auth libs
 // resolve the secrets home from homedir() per call.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { createSign, generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";

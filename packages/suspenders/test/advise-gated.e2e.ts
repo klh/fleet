@@ -6,7 +6,7 @@
 // or unconfigured gate degrades exit 0 with the fork left open.
 
 import { Database } from "bun:sqlite";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
 test.setTimeout(30_000);

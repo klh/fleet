@@ -3,7 +3,7 @@
 // real hosts, probes classify stub results honestly, and a DOWN row
 // renders (server fallback + row model) with its recovery path while an
 // UP row stays quiet. The re-probe controller updates the row from a stub.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	PROBED_SERVICES,
 	RECOVERY_MAP,

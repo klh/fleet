@@ -4,7 +4,7 @@
 // work-cli.test.ts's split suite and the completion-time warning rides
 // work-completion-record.test.ts.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdirSync,
 	mkdtempSync,

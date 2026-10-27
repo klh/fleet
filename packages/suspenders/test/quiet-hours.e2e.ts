@@ -2,7 +2,7 @@
 // is EXPECTED dark in its nightly poweroff window. Covers the parser (incl.
 // midnight-crossing windows), the per-hub and per-URL lookups, the
 // metrics-alert scrape skip, and resolveHub's dark-hub degradation.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

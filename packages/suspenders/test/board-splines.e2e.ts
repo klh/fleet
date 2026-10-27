@@ -1,5 +1,5 @@
 // The lanes board keeps dependency order and names split children on cards.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { TASKS } from "../hooks/board-html/tasks.ts";
 import { HTML } from "../hooks/bin/fleet-board-html.ts";
 

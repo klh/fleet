@@ -3,7 +3,7 @@
 // commit diff-tree), the decomposition exemption, the done-gate verdict
 // (rewrite refuses, patch passes, fail-open on missing evidence), and the
 // brief directive rendering.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";

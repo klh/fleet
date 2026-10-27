@@ -4,7 +4,7 @@
 // Functional tests eval the shipped CORE chunk bytes (the String.raw export)
 // — the same taskPill/stateHue/stLetter the served page runs; page-level
 // asserts cover the token CSS and the RENDERS-chunk sink.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { CORE } from "../hooks/board-html/core.ts";
 import { RENDERS } from "../hooks/board-html/renders.ts";
 import { HTML } from "../hooks/bin/fleet-board-html.ts";

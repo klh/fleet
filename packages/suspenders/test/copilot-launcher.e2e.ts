@@ -2,7 +2,7 @@
 // (hooks/bin/copilot.ts) resolves the raw @github/copilot platform binary
 // without node on PATH. Units: version-rank ordering, fixture-HOME
 // resolution, env override.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";

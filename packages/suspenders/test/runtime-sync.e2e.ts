@@ -1,7 +1,7 @@
 // test/runtime-sync.test.ts — W821 post-merge runtime sync: the pure
 // decision core (label rules + drift decision), the fleet-loop sweep (spawn
 // injected — no real children), and the runner resolution guard.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

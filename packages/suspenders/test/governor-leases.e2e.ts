@@ -4,7 +4,7 @@
 // sharing ownership, acquisition is atomic, and the sweep respects ownership.
 // Isolated temp HOME → governor.db lands in the temp .cache; isolated temp
 // git repo → project identity. Covers review findings 1, 2, 3.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdtempSync,
 	rmSync,

@@ -6,7 +6,7 @@
 // mock LLM that answers SLOWER than the default idle window (12s) still
 // returns 200 to the client. The application deadlines are untouched —
 // orch.ts AbortSignal.timeout(120_000) and the UI's 130s stand.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 // W1275.1: the hand-rolled board fixture moved to the shared kit —
 // boardFixture(0, test.afterAll, { env }) pins the slow-mock LLM URL on top of
 // the kit's hermetic dead-upstream defaults.

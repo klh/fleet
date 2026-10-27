@@ -2,7 +2,7 @@
 // scanTail, rate math, incremental usage scan) + the REAL gate spawn with
 // fixture transcripts (ask-gate recipe: temp-file stdin, fixture HOME).
 // Advisory law asserted: unreadable evidence allows, never blocks.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	appendFileSync,
 	mkdirSync,

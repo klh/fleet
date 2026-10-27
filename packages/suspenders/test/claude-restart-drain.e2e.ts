@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { verifyRestartDrain } from "../scripts/lib/claude-restart-operation.ts";
 
 test("restart drain uses exact server-side lane filter and refuses incomplete or foreign coverage", async () => {

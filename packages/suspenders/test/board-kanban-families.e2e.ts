@@ -4,7 +4,7 @@
 // state-column siblings. Pure client pieces (kanbanFamIndex/kanbanFamilies/
 // kanbanCard) eval from the shipped TASKS chunk bytes with core helpers
 // injected; page-level asserts cover the kkid CSS.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { HTML } from "../hooks/bin/fleet-board-html.ts";
 import { CORE } from "../hooks/board-html/core.ts";
 import { TASKS } from "../hooks/board-html/tasks.ts";

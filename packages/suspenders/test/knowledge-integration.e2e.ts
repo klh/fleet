@@ -7,7 +7,7 @@
 // suites prove each correction in isolation; this proves the corrections
 // compose: auth while replaying, scope while replaying, cursor while the hub
 // reorders, on one server over one db.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

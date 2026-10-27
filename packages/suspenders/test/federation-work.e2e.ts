@@ -5,7 +5,7 @@
 // the pull rides the serve route over loopback — lib ↔ route agree.
 
 import { Database } from "bun:sqlite";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync } from "node:fs";
 import { tmpDir } from "./helpers/fixture-kit.ts";
 

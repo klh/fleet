@@ -3,7 +3,7 @@
 // work (compliance by injection, not model-recall). Top-level sessions only —
 // a subagent lane is not a loop-arming runtime. Isolated temp HOME + repos,
 // spawns the real hook.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	appendFileSync,
 	mkdtempSync,

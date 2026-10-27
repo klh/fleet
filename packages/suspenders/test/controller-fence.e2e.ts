@@ -5,7 +5,7 @@
 // acts; the handoff releases only at an idle boundary.
 
 import { Database } from "bun:sqlite";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	chmodSync,
 	existsSync,

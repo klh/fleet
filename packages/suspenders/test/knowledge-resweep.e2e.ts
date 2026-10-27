@@ -4,7 +4,7 @@
 // untouched, absent files stay untouched, and the row→docs-root mapping arms
 // (origin_sid / contributors / domain-basename / root-map override) plus the
 // CLI face (dry-run default, guarded --write).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import {
 	mkdtempSync,

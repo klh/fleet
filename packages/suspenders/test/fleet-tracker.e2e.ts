@@ -3,7 +3,7 @@
 // path reuses the production /subscribe socket shape coord rides, so the
 // feed is exercised against the real fleet in the manual run recorded in
 // docs/tracker.md.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

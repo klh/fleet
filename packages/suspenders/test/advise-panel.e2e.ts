@@ -7,7 +7,7 @@
 // now ride the panel path via the board route).
 
 import { Database } from "bun:sqlite";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { createContext, runInContext } from "node:vm";
 import { CORE } from "../hooks/board-html/core.ts";
 import { DECISIONS } from "../hooks/board-html/decisions.ts";

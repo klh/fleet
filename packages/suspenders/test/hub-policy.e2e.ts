@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { renderHubPolicy } from "../deploy/hub-policy.ts";
 const base = JSON.stringify(
 	{

@@ -1,6 +1,6 @@
 // decision-dups.test.ts — W798 anchor extraction + duplicate collapse
 // (pure functions, no board fixture).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { collapseDups, decisionAnchor } from "../hooks/board/decision-dups.ts";
 
 test.describe("decisionAnchor", () => {

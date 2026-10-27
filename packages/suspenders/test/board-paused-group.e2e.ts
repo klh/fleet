@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { TASKS } from "../hooks/board-html/tasks.ts";
 
 const { displayState, taskBucket, kanbanFamilies, KCOLS } = new Function(

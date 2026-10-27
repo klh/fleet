@@ -4,7 +4,7 @@
 // priority; caps ≤ 0 = uncapped), the sh -c prefix fragment, env-cap merge,
 // and a LIVE sh exec proving the limits + nice take effect in a spawned
 // lane process.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	chmodSync,
 	mkdtempSync,

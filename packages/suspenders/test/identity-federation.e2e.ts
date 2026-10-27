@@ -4,7 +4,7 @@
 // delegated-plane refusals under federation at the lib (rotateRefresh) and
 // route (handleAuthRoutes) level. HOME is a temp dir set BEFORE the dynamic
 // imports (the auth-rotation.test.ts pattern).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { createSign, generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

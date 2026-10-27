@@ -5,7 +5,7 @@
 // process never opens the real governor.db (coord-events.test.ts recipe).
 // The "alive" target is a real tiny Bun.serve() on 127.0.0.1 — no network
 // beyond loopback.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

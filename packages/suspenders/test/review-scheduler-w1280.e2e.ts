@@ -2,7 +2,7 @@
 // Pressure (AIMD off provider outcome signals) and reconcile (pid liveness)
 // live in review-scheduler.ts; these tests time-travel by rewriting the
 // ledger rows (the established pattern in review-scheduler.test.ts).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	finishReviewRequest,
 	providerPressureKey,

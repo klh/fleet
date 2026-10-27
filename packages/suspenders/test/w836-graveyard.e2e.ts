@@ -2,7 +2,7 @@
 // the knowledge.db guarded ALTERs heal live files (rating/evidence/researched_at/
 // graveyard_reason), store grade/graveyard round-trip, and recall ranking
 // excludes buried rows. Isolated temp HOME + query-bust import (w208 recipe).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

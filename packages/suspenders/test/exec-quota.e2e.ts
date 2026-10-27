@@ -2,7 +2,7 @@
 // executor pick reads (exec-quota.ts) and the DEFAULT-ladder reorder it
 // drives (exec-chain.ts). Positive-evidence-only demotion: no evidence
 // never demotes.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

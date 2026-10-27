@@ -1,7 +1,7 @@
 // W230: providers/executors/policies sections of the ONE stack config —
 // loader contract + resolvers. KLH_STACK points at a temp fixture (mode
 // 600) per test; env mutations are synchronous, no cross-test leakage.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

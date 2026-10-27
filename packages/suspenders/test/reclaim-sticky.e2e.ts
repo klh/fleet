@@ -3,7 +3,7 @@
 // transaction; the next successful claim clears it (resume convergence). The
 // manual reclaim shares the bulk pass's liveness truth: a verifiably-live
 // claimant refuses unless forced, and a crash reason demands death evidence.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

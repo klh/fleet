@@ -1,6 +1,6 @@
 // test/loopback.test.ts — W1256.2: the ONE loopback constants module — URL
 // builder, the well-known port map, and the shared hostname predicate.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	BELT_DASHBOARD_PORT,
 	BUCKLE_SPOKE_PORT,

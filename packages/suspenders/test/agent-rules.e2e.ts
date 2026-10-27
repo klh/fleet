@@ -2,7 +2,7 @@
 // Unknown roles fail loudly, every rules file parses as markdown with a
 // title + EXTENDS line, the tag/title map is pinned, and the installer
 // ships the dir. The brief-injection contract rides a fixture brief.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {

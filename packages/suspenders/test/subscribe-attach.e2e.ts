@@ -5,7 +5,7 @@
 // real recipe end-to-end — the spawned subscribe self-exits via the W494
 // transcript-staleness watch, and cleanup pkills the wtest- sids only
 // (real lane sids never carry that prefix).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	chmodSync,
 	mkdirSync,

@@ -5,7 +5,7 @@
 // enforcement (set-aside + NEED_DECISION + sweep release) is proven at the
 // flush level in fleet-loop-flush.test.ts; these tests pin the validation
 // itself, including both expiresAt spellings (ISO string, epoch ms).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

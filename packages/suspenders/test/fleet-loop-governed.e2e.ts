@@ -2,7 +2,7 @@
 // governs its lanes — a live front mints a scoped key + attributes the lane
 // env (0600 meta file); a dead front or a failed mint refuses fail-closed
 // (claim released to READY, nothing spawned).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";

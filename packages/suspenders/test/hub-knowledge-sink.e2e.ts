@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpDir } from "./helpers/fixture-kit.ts";
 import { join } from "node:path";

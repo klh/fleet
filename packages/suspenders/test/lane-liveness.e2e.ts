@@ -2,7 +2,7 @@
 // + host-trust leaks; W494.1: pid/heartbeat verdict, worktree cwd demoted to
 // sweep evidence). Host lanes live ONLY on transcript freshness; local lanes
 // need process-identity or a fresh heartbeat inside the 15-min reclaim lease.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import {
 	transcriptAlive,

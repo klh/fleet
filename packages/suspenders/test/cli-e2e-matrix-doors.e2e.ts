@@ -15,7 +15,7 @@ import {
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SHIM_NAMES, shimScript, shimTarget } from "../scripts/ensure-shims.ts";

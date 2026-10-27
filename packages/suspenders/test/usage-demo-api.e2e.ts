@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { boardFixture } from "./helpers/board-fixture.ts";

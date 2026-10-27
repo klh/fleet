@@ -1,7 +1,7 @@
 // smoke.test.ts — the control plane round-trips in an isolated HOME: temp
 // HOME → governor.db lands in the temp .cache; temp git repo = project
 // identity. Covers the dispatch gate, the fork path, and monitor health.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

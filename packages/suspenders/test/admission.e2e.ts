@@ -1,7 +1,7 @@
 // tests for bin/admission.ts — pure logic + temp-file seams, no network.
 // Temp dirs under process.cwd() (never /tmp); cleaned up after each test.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import {

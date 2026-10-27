@@ -2,7 +2,7 @@
 // executor-adapter registry is the ONLY home of executor specifics in core
 // dispatch. One file per agent under hooks/lib/executors/, one row per
 // agent in EXECUTOR_ADAPTERS; core files carry zero executor branches.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	EXECUTOR_ADAPTERS,
 	HARNESS_PROCESS_NAMES,

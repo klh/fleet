@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { recoverableClaims } from "../scripts/lib/claim-recovery.ts";
 
 test("only old, unregistered automatic claims are recovery candidates", () => {

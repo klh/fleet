@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { beltPage, localPage } from "../hooks/bin/console-html.ts";
 import { displayLabel, fleetNav, FLEET_ICONS } from "../hooks/lib/theme.ts";
 

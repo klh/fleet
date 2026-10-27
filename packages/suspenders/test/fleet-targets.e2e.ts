@@ -6,7 +6,7 @@
 // listed but gated (supported: false). Detection itself is exercised via a
 // subprocess with HOME overridden — os.homedir() is read at module load, so
 // an in-process mock can't reach it; a real subprocess + fake $HOME can.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 

@@ -5,7 +5,7 @@
 // self-retired / waiting / requeued), the retry side effects (state flip +
 // work.requeued emit), and the registry arming itself: the W779 task must
 // stay registered with the triplet's gate or the mission silently disarms.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 import {

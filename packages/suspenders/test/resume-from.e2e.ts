@@ -4,7 +4,7 @@
 // ~/.claude/projects tree. The blam paired eval (bench/paired,
 // resumePolicyVerdict) owns the POLICY verdict; these tests own the
 // fence mechanics.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

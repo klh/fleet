@@ -3,7 +3,7 @@
 // and the real hook round-trip (session-start mints/reuses, session-end
 // retires) against a stub buckle front. Patterns: lane-auth.test.ts +
 // session-start-lane.test.ts.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	existsSync,
 	mkdtempSync,

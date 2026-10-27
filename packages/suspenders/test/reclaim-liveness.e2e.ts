@@ -4,7 +4,7 @@
 // unknown never releases, death needs STRIKES_TO_RECLAIM consecutive dead
 // passes (fact-counted), and `work extend` pauses the reaper for a
 // known-long op.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";

@@ -2,7 +2,7 @@
 // parked/W349: dispatch verifies the worktree branch before spawn. The
 // scratch HOME/repo + async spawns come from the shared dispatch harness
 // (test/helpers/dispatch-harness.ts) so the stub buckle front never stalls.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { laneSid } from "../hooks/lib/lanes/laneslug.ts";

@@ -4,7 +4,7 @@
 // never touch the captured prefix file, and re-arm on the explicit knob.
 // Every completion leg (prefix, cache, fallback) is opt-in; GET/local
 // liveness probing stays default-on.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

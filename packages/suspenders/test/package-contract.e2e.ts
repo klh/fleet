@@ -4,7 +4,7 @@
 // exports map covers every name-based cross-package import of the package,
 // and the bin map is the same face the installer's PATH shims register.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { SHIM_NAMES, shimTarget } from "../scripts/ensure-shims.ts";

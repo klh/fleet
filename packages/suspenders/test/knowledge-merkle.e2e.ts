@@ -6,7 +6,7 @@
 // The pair protocol rides an in-process Bun.serve stub wired to the REAL
 // face functions (no mocked merge — the same code the bin serves).
 import { Database } from "bun:sqlite";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	AE_EMPTY_LEAF,
 	AE_SHARDS,

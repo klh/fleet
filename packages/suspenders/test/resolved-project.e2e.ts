@@ -2,7 +2,7 @@
 // `resolveProject()` exposes the logical key and the local paths as SEPARATE
 // facts, and `projectRootOf()` is the one key→root strip. Temp-repo recipe
 // per test/project-identity.test.ts; never touches a real governor.db.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync, mkdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

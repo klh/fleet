@@ -4,7 +4,7 @@
 // synthetic lane transcripts: kb rows + HARVEST event + cursors land,
 // a second run is idempotent, scan writes nothing, foreign codex rollouts
 // (desktop app) are never harvested.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { mkdirSync, rmSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

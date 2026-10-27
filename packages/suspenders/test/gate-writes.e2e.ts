@@ -1,7 +1,7 @@
 // test/gate-writes.test.ts — W58: the gate-write journal exported by
 // hooks/gates/files.ts. The journal is relocated into a fixture dir via the
 // SUSPENDERS_GATE_WRITES seam — tests never touch the real ~/.cache journal.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	GATE_WRITES_JOURNAL,
 	gateWroteSince,

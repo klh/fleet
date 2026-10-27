@@ -4,7 +4,7 @@
 // deduped structured event in outage.jsonl, outside the dead authority.
 // Real subprocess, isolated HOME; `governor.db` staged as a DIRECTORY so
 // openGovernorDb throws deterministically on every invocation.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

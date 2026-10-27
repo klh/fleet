@@ -3,7 +3,7 @@
 // aggregates with honest coverage, the hourly uPlot series, and the report
 // assembly (probe exclusion, series ceiling, dim fallback). Pure functions —
 // fixture rows, no hub fetches.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	monitorAggregates,
 	monitorKey,

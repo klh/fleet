@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { probeService, type ProbeDeps } from "../hooks/board/service-probe.ts";
 
 const depsFor = (response: () => Response): ProbeDeps => ({

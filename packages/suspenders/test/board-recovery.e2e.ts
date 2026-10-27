@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { recoverySnapshot } from "../hooks/board/recovery.ts";
 import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";

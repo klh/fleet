@@ -4,7 +4,7 @@
 // test file, so the harness (and its afterAll cleanup) instantiates once per
 // importing file — the same isolation the original file had.
 
-import { afterAll } from "bun:test";
+import { afterAll } from "../pw";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { dispatchHarness } from "./dispatch-harness.ts";

@@ -2,7 +2,7 @@
 // agent suffix is the SPAWNED adapter id (the identity launchToken registers,
 // W1731) — never a hardcoded claude. A codex pick must stamp :codex.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dispatchHarness } from "./helpers/dispatch-harness.ts";

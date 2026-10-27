@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 

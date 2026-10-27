@@ -1,7 +1,7 @@
 // test/work-effort.test.ts — W248: per-item effort budget. Lib contract
 // (vocabulary + budget lines + show-parse) and the CLI surface (add --effort
 // validation, show render, split inheritance) against a temp project.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 import {
 	effortBudgetLine,

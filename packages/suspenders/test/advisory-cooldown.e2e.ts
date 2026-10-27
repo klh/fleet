@@ -4,7 +4,7 @@
 // gate.ts post-files with a fmt-always-rewrites qlty stub and pins that an
 // identical advisory on the same file is delivered once, a different file
 // delivers again, and TTL=0 disables.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	chmodSync,
 	mkdirSync,

@@ -5,7 +5,7 @@
 // against the stack.yaml pin, and proceeds only with --force (warned). Local
 // fixture: fake docker logs every call, the hub has no ssh target so the .env
 // lives on disk where the tests rewrite it per case.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	chmodSync,
 	mkdirSync,

@@ -1,6 +1,6 @@
 // test/lane-model-pin.test.ts — W512 Task-layer model pin hook: the REAL
 // script over the stdin/stdout wire the CLI drives, plus the pure helper.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { join } from "node:path";
 import { taskPinOutput } from "../hooks/bin/lane-model-pin.ts";
 

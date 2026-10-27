@@ -1,7 +1,7 @@
 // fleet-board.test.ts — the fleet-board HTTP surface (W157 split; the
 // factory fixture in test/helpers/board-fixture.ts gives every test
 // file its own scratch HOME + board; flows live in fleet-board-flows.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 
 import { Database } from "bun:sqlite";
 import { realpathSync } from "node:fs";

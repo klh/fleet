@@ -1,6 +1,6 @@
 // lane-done-spend.test.ts — W1070: the self-reported spend stamp producer
 // tests (parse --spend, stamp the done payload, replay it back out).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	doneSpendStamp,
 	parseDoneSpend,

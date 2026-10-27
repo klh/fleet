@@ -5,7 +5,7 @@
 // stub replaces the executor and records every argv NUL-delimited —
 // W1124.12.1: flattened `echo "$@"` is NOT boundary proof, so assertions
 // read the per-argument array, never one joined string.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dispatchHarness } from "./helpers/dispatch-harness.ts";

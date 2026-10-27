@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { rmSync } from "node:fs";
 import { tmpDir } from "./helpers/fixture-kit.ts";

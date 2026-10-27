@@ -4,7 +4,7 @@
 // scratch HOME; the OS chooses unused ports, isolating concurrent runs.
 
 import { Database } from "bun:sqlite";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { join } from "node:path";
 import { boardFixture } from "./helpers/board-fixture.ts";
 

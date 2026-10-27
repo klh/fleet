@@ -2,7 +2,7 @@
 // editors at the HANDLER level (the fleet-board hookup is W157's; these
 // tests call repoLawRoutes directly against a temp repo + temp secrets
 // home — never the live config).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

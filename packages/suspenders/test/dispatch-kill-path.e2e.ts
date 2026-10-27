@@ -3,7 +3,7 @@
 // verdict). On miss it reports INTERRUPTED — the sticky terminal state — so a
 // ghost running state converges instead of a PAUSE_REQUESTED hanging unacked
 // forever. --force is the explicit operator override.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";

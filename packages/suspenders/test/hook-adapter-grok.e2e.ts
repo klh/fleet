@@ -4,7 +4,7 @@
 // clobber contract, and real entrypoint integration through the tracked
 // gate.ts grok entrypoint (W509: the copy-into-hooks fixture leaked
 // into the real tree and is retired — the tracked gate ships the case).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdtempSync,
 	mkdirSync,

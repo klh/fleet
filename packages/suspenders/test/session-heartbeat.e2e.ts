@@ -3,7 +3,7 @@
 // stop modes) refreshes the sessions row's hb and fills an empty
 // transcript_path; CLOSED rows are never resurrected; a missing row
 // fail-opens. Isolated temp HOME + repo, spawns the REAL gate.ts stop path.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -3,7 +3,7 @@
 // builder (names dropped at the SQL layer, private-domain aid rows
 // excluded), and the cycle e2e against a live hub (reported + cursor;
 // hub-down degrades with the cursor unmoved).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

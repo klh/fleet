@@ -2,7 +2,7 @@
 // command words, unbounded `while`/`until` head classification over the REAL
 // gateSegments tokenizer, and the logged plane-exempt escape (audit lands in
 // a HOME-swapped fixture — never the real denied-calls.jsonl).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

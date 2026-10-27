@@ -2,7 +2,7 @@
 // payload closure (lib/source-closure.ts): the walker proves the declared
 // payload covers the real import graph (the W661 class closes with a loud
 // install-time refusal instead of a dark runtime).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";

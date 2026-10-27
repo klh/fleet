@@ -2,7 +2,7 @@
 // root where install.sh does not live (127-forever ticks — the stale-harness
 // poisoning stood unhealed all day); the lib resolves the install dir and the
 // heartbeat argv pins the package root.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

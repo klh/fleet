@@ -1,6 +1,6 @@
 // usage-seed.test.ts — W127: seed/purge round-trip. Seeded rows are clearly
 // flagged (actor LIKE 'demo:%', sids demo-*) and purge removes exactly those.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	openMemoryStore,
 	type GovernorStore,

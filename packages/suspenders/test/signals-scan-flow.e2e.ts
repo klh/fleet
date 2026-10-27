@@ -3,7 +3,7 @@
 // attempt-cap live in signals-scan-retry.test.ts. Fixture store
 // (in-memory), injected leg, temp state + blam queue — no real :8903.
 import { Database } from "bun:sqlite";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

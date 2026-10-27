@@ -3,7 +3,7 @@
 // `fleet.governance` coord fact. Read prints the mode (absent = `strict
 // (default)`); set upserts with a source. Isolated temp HOME, spawns the
 // real CLI (consult-kb recipe).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

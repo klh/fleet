@@ -1,6 +1,6 @@
 // Every registered Work Graph and coordination verb must remain callable.
 // Stateful round trips live beside this surface check (consult, capsule, work).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

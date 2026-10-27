@@ -3,7 +3,7 @@
 // (bin/policy-advisor.ts). Fixtures build temp repos exercising each law;
 // violations surface as findings with citation + offer — never mutations.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -7,7 +7,7 @@
 // CLI, temp HOME via env, real `git init`, temp repos under process.cwd()
 // (NEVER /tmp — the bash gate exempts /tmp by design, so a /tmp checkout
 // would silently test nothing).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { rmSync, writeFileSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { realpathSync } from "node:fs";

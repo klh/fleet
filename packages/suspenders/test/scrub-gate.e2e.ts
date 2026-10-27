@@ -3,7 +3,7 @@
 // the -U0 diff parser); the e2e legs spawn gate.ts pre-bash against a
 // scratch repo the way a lane's git commit/push arrives (the harness of
 // secrets-gate.test.ts). Skipped legs: none — no external tool needed.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

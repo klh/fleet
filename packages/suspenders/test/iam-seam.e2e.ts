@@ -3,7 +3,7 @@
 // authenticates then authorizes server-side). The real gate implementation
 // lives in the private overlay (klh-remote); these fixtures pin the contract
 // the overlay implements.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	getIamGate,
 	type IamGate,

@@ -1,7 +1,7 @@
 // test/work-tags.test.ts — W846: mint-time classification tags. CLI surface
 // (add --tag validation, show render, split inheritance) against a temp
 // project — same harness shape as work-effort.test.ts.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";

@@ -3,7 +3,7 @@
 // is open — retry") instead of crashing the CLI. A stub server refuses
 // reads N times before answering; the client runs in spawned children
 // (W362: an in-process stub cannot answer spawnSync round trips).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

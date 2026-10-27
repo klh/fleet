@@ -4,7 +4,7 @@
 // frame building (bounded width/height, ANSI-safe truncation, prefer-color
 // dots, glyph vocabulary) and emitFrame's diff contract (first frame full,
 // unchanged lines never rewritten, shrink clears the stale bottom).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mergeLanes } from "../hooks/lib/watch/sources.ts";
 import type {
 	BoardTask,

@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { orchRecipient, orchTargets } from "../hooks/board/orch-targets.ts";
 
 test.describe("orchestrator work-item recipients", () => {

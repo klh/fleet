@@ -1,6 +1,6 @@
 // test/plaid-host-pressure.test.ts — W1102.1: host-pressure gate. Fixture
 // samplers only — no real memory_pressure/vm_stat spawns in tests.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Buffer } from "node:buffer";
 import {
 	mkdtempSync,

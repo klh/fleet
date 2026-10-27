@@ -4,7 +4,7 @@
 // — scratch HOME, OS-chosen port.
 
 import { Database } from "bun:sqlite";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { realpathSync } from "node:fs";
 import { boardFixture } from "./helpers/board-fixture.ts";
 

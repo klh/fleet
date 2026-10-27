@@ -1,6 +1,6 @@
 // test/release-manifest.test.ts — W698: release manifest + SBOM + the schema
 // upgrade / migration-failure / rollback-compat contract.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

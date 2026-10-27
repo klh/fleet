@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { laneSettingsData } from "../scripts/lib/lane-settings.ts";

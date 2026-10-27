@@ -5,7 +5,7 @@ import {
 	readLaneRegistry,
 	safeToRetire,
 } from "../hooks/lib/lanes/lane-registry.ts";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -5,7 +5,7 @@
 // W646: scope-hint overlap — HintSet path/word split (paths weigh ×3),
 // recent-claim history affinity, scope-miss penalty, score>overlap>load>
 // live>sid tiebreak, overlap evidence in the reason string.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpDir } from "./helpers/fixture-kit.ts";

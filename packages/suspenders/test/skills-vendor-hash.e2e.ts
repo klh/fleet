@@ -6,7 +6,7 @@
 // license (skills-agents.pin.json). Drift fails naming the skill or file; the
 // fix is to review the change, then re-pin through the face. The mutation
 // probes run on tmpdir fixtures — the repo's own trees are never written here.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { createHash } from "node:crypto";
 import {
 	mkdirSync,

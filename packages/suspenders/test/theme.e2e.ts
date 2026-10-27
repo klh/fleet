@@ -4,7 +4,7 @@
 // the tokens instead of hardcoded palette colors. W291: scale tokens, the
 // shared klh·fleet strip, and the version pin that guards the vendored
 // copies in belt + klh-local.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	FLEET_NAV_CSS,
 	FLEET_NAV_JS,

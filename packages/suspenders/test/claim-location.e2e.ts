@@ -4,7 +4,7 @@
 // tree — in-tree, outside-repo, treeless and unbound sessions stay free.
 // Isolated temp HOME + real git repo; the gate runs end-to-end via
 // `gate.ts pre-files` (governor-leases idiom, payload via temp file).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	existsSync,
 	mkdirSync,

@@ -2,7 +2,7 @@
 // executor/model catalog. Pure unit tests over executor-catalog.ts —
 // deliberately db-free (the module imports belt.ts types only), so the
 // test process never opens governor.db.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import type { BeltEndpoint } from "../hooks/board/belt.ts";
 import {
 	buildBeltEntries,

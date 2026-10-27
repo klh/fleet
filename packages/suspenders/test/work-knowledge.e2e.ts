@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { queueCompletionKnowledge } from "../hooks/lib/work/work-knowledge.ts";
 import type { CompletionRecord } from "../hooks/lib/work/work-completion-record.ts";
 import type { KevCuration } from "../hooks/lib/knowledge/kev-curation.ts";

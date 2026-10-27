@@ -3,7 +3,7 @@
 // inlined into the command line), aims it at the declared gate port, holds
 // the bounded grace, and degrades to a logged skip — never a deploy
 // failure. The runner is injected: no ssh, no docker, no real hub.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	drainGatewayBeforeRecreate,
 	drainGraceSeconds,

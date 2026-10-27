@@ -4,7 +4,7 @@
 // the CLI with an argument array, and asserts on exit codes + file bytes.
 // The diagnostics-gate test is the load-bearing one: a move that orphans a
 // private helper must abort with exit 2, zero bytes written.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdtempSync,
 	rmSync,

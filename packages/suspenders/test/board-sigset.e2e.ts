@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { createContext, runInContext } from "node:vm";
 import { CORE } from "../hooks/board-html/core.ts";
 

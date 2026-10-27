@@ -8,7 +8,7 @@
 // sim/dr-rehearsal.ts [2] runs.
 
 import { Database } from "bun:sqlite";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	existsSync,
 	mkdirSync,

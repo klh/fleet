@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { captureClaimFeed } from "../scripts/lib/structured-feed.ts";
 const command = (code: string) => [process.execPath, "-e", code];
 test("structured feed drains complete JSON over 64 KiB and separates stderr", async () => {

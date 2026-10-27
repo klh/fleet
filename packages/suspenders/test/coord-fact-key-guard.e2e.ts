@@ -3,7 +3,7 @@
 // "--text") and `fact rm` purges rows, including those legacy flag-shaped
 // keys. Temp HOME; every CLI run in a bun subprocess
 // (coord-fact-cas.test.ts recipe).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 

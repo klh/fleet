@@ -5,7 +5,7 @@
 // holds fail-closed on an unreachable front (catalog unavailable), and
 // admits the lane onto the served model through the pool pick. The dry-run
 // face (--dry-run, no probe ran) lets the explicit pin stand.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dispatchHarness } from "./helpers/dispatch-harness.ts";

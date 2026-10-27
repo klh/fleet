@@ -5,7 +5,7 @@
 // tiebreak), store reads against a scratch sqlite fixture carrying copilot's
 // real session-store schema, the CLI face end-to-end, and the dispatch
 // dry-run wiring printing the verification verdict.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

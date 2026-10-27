@@ -3,7 +3,7 @@
 // utimesSync), a temp buckle.db, fake emit/broadcast/reclaim recorders.
 // The death gate defaults (sessions table, transcript glob) are overridden
 // per case — their parity with bus/lane-liveness is those modules' tests.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

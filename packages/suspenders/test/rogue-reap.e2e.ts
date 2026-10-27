@@ -1,6 +1,6 @@
 // test/rogue-reap.test.ts — W827: the rogue-serve reaper. Injected deps
 // throughout — no real ps/lsof/launchctl/kill/git runs here.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdirSync,
 	mkdtempSync,

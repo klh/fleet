@@ -2,7 +2,7 @@
 // .fleet/state-<sid>.md (claim + git progress + capsule done/next) before
 // compaction, and the SessionStart bootstrap re-injects it when
 // source=compact. Isolated temp HOME + repos; spawns the real hook/gate.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	existsSync,
 	mkdirSync,

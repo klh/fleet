@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { chmodSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { signalClaudeDirectEvent } from "../hooks/lib/executors/claude-wake.ts";

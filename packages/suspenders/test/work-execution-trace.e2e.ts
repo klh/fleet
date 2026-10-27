@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import type { BuckleRequestRow } from "../hooks/lib/usage/cache-drill.ts";
 import { executionHops } from "../hooks/board/work-execution-trace.ts";
 

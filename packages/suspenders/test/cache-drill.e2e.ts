@@ -3,7 +3,7 @@
 // miss-reason clusters, filters/sort, and the TTL-cached per-hub fetch cycle
 // with honest per-hub degrade (cross-hub-usage test pattern: ?home= module
 // isolation + fixture stack/hubs config).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

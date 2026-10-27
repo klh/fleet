@@ -5,7 +5,7 @@
 // SessionEnd settle (hooks/lib/knowledge/settle.ts); completion checks are unchanged.
 // Temp HOME + temp git repo; the REAL gate.ts stop in a bun subprocess
 // (test/fleet.test.ts recipe, context-guard.test.ts fixture shape).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpDir } from "./helpers/fixture-kit.ts";
 

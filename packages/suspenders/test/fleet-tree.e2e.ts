@@ -3,7 +3,7 @@
 // scenario-only (demo) roots never reaching routing.
 // W569 — authorized discovery: hubs.json `token` rides the registry fetch,
 // a refused credential reads denied (never down), the secret stays local.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

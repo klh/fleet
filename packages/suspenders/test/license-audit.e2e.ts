@@ -4,7 +4,7 @@
 // hoisted + scoped + dedupe), vendored-banner verification, model-license
 // rules (registry parse incl. the AUDIO_SERVICES trap), report composition,
 // the pulse-face lines, and the accepted-violations baseline.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdirSync,
 	mkdtempSync,

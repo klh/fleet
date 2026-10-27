@@ -1,7 +1,7 @@
 // test/w507-keepwarm.test.ts — W507: llm-keepwarm warms the EMITTED tier
 // manifest's warm_ports (no launchd tier env, no hardcoded port list). HOME
 // redirect keeps the remotes-probe leg off the real machine config.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -3,7 +3,7 @@
 // once/reuse via the registry, fork args per harness, parseSessionId, and the
 // dispatch-facing dispatchStarterFork wiring (flag off / claude fork /
 // unsupported harness / seed failure fallback).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	chmodSync,
 	existsSync,

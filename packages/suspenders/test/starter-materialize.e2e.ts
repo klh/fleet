@@ -3,7 +3,7 @@
 // compatibility filter with observable refusals, rank by measured outcomes,
 // native-fork vs reconstructed route recording, identity separation from
 // provenance, outcome log append + read.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

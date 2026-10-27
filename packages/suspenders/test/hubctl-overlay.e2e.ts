@@ -2,7 +2,7 @@
 // machine config (stack.yaml hub.overlay), materialized by hubctl render as
 // HUB_KLH_OVERLAY_* .env knobs (the compose template maps them to the
 // buckle-hub container's KLH_OVERLAY_* env; empty = unset = solo posture).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

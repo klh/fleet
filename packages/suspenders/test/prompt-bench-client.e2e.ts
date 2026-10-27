@@ -1,7 +1,7 @@
 // test/prompt-bench-client.test.ts — W1119.2: the gated bench leg contract —
 // one buckleChat call (anthropic wire), honest failure notes, <think> strip,
 // served-model passthrough, fail-closed route resolution.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { callGate, stripThink } from "../scripts/lib/prompt-bench-client.ts";
 
 const GATE_ENV = {

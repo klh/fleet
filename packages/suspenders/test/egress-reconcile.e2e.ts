@@ -3,7 +3,7 @@
 // tunnel connection may carry many requests (multiplexing ≠ equality), and
 // that requestAware is counted from gateway metadata alone — a transport
 // observation never promotes.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	reconcileConnections,
 	summarizeReconciliation,

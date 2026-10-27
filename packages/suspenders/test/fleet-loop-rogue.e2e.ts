@@ -4,7 +4,7 @@
 // degradation, and one live tick wiring proof: `fleet-loop once` in a
 // scratch repo with staged launchctl/ps fixtures on PATH logs ROGUE for a
 // marker-matching unsupervised process and writes the episode state.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	chmodSync,
 	mkdirSync,

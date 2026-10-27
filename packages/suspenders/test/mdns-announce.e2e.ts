@@ -3,7 +3,7 @@
 // without an address — never advertise 127.0.0.1), env config, a LIVE
 // loopback announce+query round-trip, the compose wiring (host net, pinned
 // image, outside-process health sidecar), and hubctl's knob plumbing.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import dgram from "node:dgram";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

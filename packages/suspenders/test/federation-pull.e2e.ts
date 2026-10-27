@@ -2,7 +2,7 @@
 // last-known + feeds the echo menu; hub-down degrades honestly (keeps
 // last-known, never throws); provenance seed derives data_domain from what
 // actually served (default private, hub only for hub-entitled groups).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { existsSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

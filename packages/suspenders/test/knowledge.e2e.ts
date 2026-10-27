@@ -3,7 +3,7 @@
 // (incl. domain/area/origin filters) → promote/retire lifecycle → MCP stdio
 // server answers read_knowledge. Isolated temp HOME + repo; the distill LLM
 // is a local Bun.serve stub, so no real model is needed.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Database } from "bun:sqlite";

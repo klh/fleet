@@ -5,7 +5,7 @@
 // shared bounded exact-main snapshot in dep-merge-gate serves merged shas
 // off ONE `git rev-list -n <bound> main` fork; these cases pin (a) identical
 // tallies and (b) the fork count: one snapshot, probes only for misses.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import {
 	chmodSync,

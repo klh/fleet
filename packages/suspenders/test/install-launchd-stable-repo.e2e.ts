@@ -6,7 +6,7 @@
 // $PREFIX/scripts resolved __REPO__/../buckle into the generation snapshot
 // (no packages/buckle) and the buckle-spoke crash-looped, fail-closing
 // governance:strict dispatch on 2026-10-11.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -2,7 +2,7 @@
 // wire (write token, W264 perimeter) into the coord plane. Every POST spawns
 // the real coord CLI, so these tests exercise the consult/refusal/KB seams
 // end to end against a scratch governor.db.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { boardFixture } from "./helpers/board-fixture.ts";
 

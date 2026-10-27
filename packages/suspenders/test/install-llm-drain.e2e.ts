@@ -3,7 +3,7 @@
 // never expose a truncated secret: the 8KB window is line-aligned (the
 // partial line at the cut is dropped whole), so per-line scrub rules see
 // every kept line from its start.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

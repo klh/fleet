@@ -1,6 +1,6 @@
 // test/kernel-conf.test.ts — W1253 Amendment A kernel helper law: JSON the
 // ONE parser, read-both names, atomic 0600 writes, idempotent yaml migrate.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	chmodSync,
 	mkdirSync,

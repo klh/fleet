@@ -1,6 +1,6 @@
 // test/install-llm-steps.test.ts — W771.2: native local-llm kit installer
 // steps (seedLocalLlm, downloadModels, refreshSupervisor).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	existsSync,
 	mkdirSync,

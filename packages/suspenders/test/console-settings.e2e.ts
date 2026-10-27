@@ -4,7 +4,7 @@
 // HOME and BELT_POLICY pinned to a TEMP COPY of the policy — never the live
 // belt policy, never the committed default.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdirSync,
 	mkdtempSync,

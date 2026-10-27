@@ -1,7 +1,7 @@
 // test/report-savings.test.ts — W894: starter-evidence parsing, lane usage
 // totals, savings math vs the cold-raw baseline, cell/footer rendering, and
 // the condense stage-event reader behind the CLONE/SAVED report columns.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

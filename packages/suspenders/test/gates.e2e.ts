@@ -7,7 +7,7 @@
 // exempts /tmp paths by design, so /tmp fixtures would dodge the governor.
 // Spawned gates take real governor leases, so every fixture path is unique
 // per test and written BEFORE its spawn (raw fs writes take no lease).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	countLines,
 	changedLines,

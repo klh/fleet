@@ -7,7 +7,7 @@
 // Every subprocess runs against an isolated temp HOME created under the repo
 // (never /tmp — the bash gate exempts /tmp paths by design) and never opens
 // the live governor.db.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

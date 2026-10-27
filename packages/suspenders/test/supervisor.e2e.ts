@@ -5,7 +5,7 @@
 // repo matching follows the projectIdentity realpath derivation, and the
 // SessionStart fact line carries the fix command only when something is
 // actually down. No test touches the live launchd or the live governor.db.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import {
 	mkdirSync,

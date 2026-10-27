@@ -2,7 +2,7 @@
 // dashboard — degrade-honest without env, renders the W152 chrome with
 // real hub rollups when configured (server-side fetch, browser never sees
 // the key).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { handleFederationUsage } from "../hooks/board/routes-federation.ts";
 import { startServer } from "../../buckle/src/server.ts";
 import { createReferenceGovSeam } from "../../buckle/src/gov/reference-seam.ts";

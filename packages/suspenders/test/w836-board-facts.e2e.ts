@@ -3,7 +3,7 @@
 // {rating, detail, evidence, researched} JSON the `coord fact` schema note
 // teaches), and the served page mounts the facts container. Live board on
 // an OS-pick port (boardFixture — scratch HOME/repo, auto-rm).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { join } from "node:path";
 import { boardFixture, unusedPort } from "./helpers/board-fixture.ts";
 type Row = Record<string, unknown>;

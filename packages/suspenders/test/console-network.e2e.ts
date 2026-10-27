@@ -3,7 +3,7 @@
 // the seeded ledger + projection dbs (honest sections, no fabricated zeros),
 // /console/buckle renders the klh-network-card host with the SSR seed, and
 // /api/lane-routes stops 404ing once the projection db resolves.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";

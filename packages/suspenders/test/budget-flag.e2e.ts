@@ -3,7 +3,7 @@
 // fact is keyed per item, shared by the launch- and resume-budget emitters,
 // and drained by work retry / work done.
 import { Database } from "bun:sqlite";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	budgetFlagClaim,
 	budgetFlagClear,

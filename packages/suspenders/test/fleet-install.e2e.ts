@@ -2,7 +2,7 @@
 // paths (flag parsing, explicit --agent selection, gating errors, --dry-run).
 // Interactive multiselect branches aren't exercised here — they need a real
 // TTY; manual verification is recorded in docs/fleet-install.md.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 
 const BIN = `${import.meta.dir}/../hooks/bin/fleet-install.ts`;
 

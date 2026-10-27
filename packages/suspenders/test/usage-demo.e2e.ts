@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { buildUsageReport } from "../hooks/lib/usage/usage.ts";
 import { usagePage } from "../hooks/bin/usage-page-html.ts";

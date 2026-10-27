@@ -3,7 +3,7 @@
 // the emergency grace-0 kill, rotation-proof opaque refresh tokens, and ring
 // file hygiene (0600/0700). HOME is a temp dir set BEFORE the dynamic imports
 // (the auth.test.ts pattern).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 

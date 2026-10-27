@@ -1,7 +1,7 @@
 // Regression (W228 grammar): the claude recipe must never write a raw model
 // id into ANTHROPIC_MODEL — raw ids 400 client-side ("unrecognized_model").
 // The opus alias carries the remap; belt routes by the remapped id.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	INSERTION_RECIPES,
 	insertionCtx,

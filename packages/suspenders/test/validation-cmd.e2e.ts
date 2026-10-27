@@ -2,7 +2,7 @@
 // (oh-my-claude research L5): the brief injects the repo's OWN verify
 // commands, read from qlty + package metadata. Unit leg pins the detection
 // rules over fixture dirs; the composition leg pins the brief line.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -2,7 +2,7 @@
 // solution) pairs; a repeat consult resolves from the store without routing
 // to an expert (--no-kb escapes); unrelated questions stay OPEN; stats/search
 // run clean. Isolated temp HOME + repo, spawns the real CLI (monitor recipe).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync, mkdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";

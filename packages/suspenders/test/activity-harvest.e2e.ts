@@ -2,7 +2,7 @@
 // tool→activity classification, weekly bucketing, requestId dedup, idempotent
 // re-harvest + append tail, and the report math (cost shape, shares, axis,
 // searches/request normalization).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import {
 	mkdtempSync,

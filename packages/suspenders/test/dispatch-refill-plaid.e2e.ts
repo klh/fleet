@@ -2,7 +2,7 @@
 // machine plaid_routes (suspenders-board.json) instead of the committed
 // defaults, and an item-local deferral (unbanked worktree residue) no longer
 // stops the whole plaid refill: the next independent READY item still rides.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	chmodSync,
 	existsSync,

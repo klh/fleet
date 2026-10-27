@@ -4,7 +4,7 @@
 // through the injected WinCredIface seam (the advapi32 binding itself needs
 // a Windows host to verify on metal). Every test points BUCKLE_SECRETS_HOME
 // at a fresh temp dir — no test material touches the real secrets home.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { existsSync, mkdtempSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

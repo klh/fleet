@@ -2,7 +2,7 @@
 // stamps the user-facing lane name into sessions.tags JSON (merged with
 // other tags, re-bootstrap renames), `coord fleet` shows it next to the
 // short sid, and the board label helpers surface it.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

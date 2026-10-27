@@ -1,7 +1,7 @@
 // usage-api.test.ts — W127: golden JSON shape of buildUsageReport on a seeded
 // fixture. Deterministic: fixed nowMs, TZ-agnostic hour-of-day expectations
 // (computed with the same getHours() conversion the builder uses).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

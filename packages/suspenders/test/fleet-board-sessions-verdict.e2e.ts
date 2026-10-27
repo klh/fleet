@@ -1,7 +1,7 @@
 // fleet-board-sessions-verdict.test.ts — W378: /api/data sessions ride the
 // shared lane-liveness verdict. Recipe: fleet-board.test.ts (board fixture:
 // scratch HOME + board, direct sqlite seeds against the fixture DB).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { boardFixture } from "./helpers/board-fixture.ts";
 

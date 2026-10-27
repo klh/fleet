@@ -3,7 +3,7 @@
 // agent_next_steps + every documented flag; --dry-run mutates nothing
 // (temp-PREFIX snapshot before/after); every documented step name is accepted
 // via --step; the contract flags and meow's flags never drift.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdirSync,
 	mkdtempSync,

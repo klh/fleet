@@ -4,7 +4,7 @@
 // Amendment A); the schema validates the parsed value. The committed
 // example must validate; drift between schema and real conf shapes fails
 // loud here.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {

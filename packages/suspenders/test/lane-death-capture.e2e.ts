@@ -1,7 +1,7 @@
 // W761 — lane death capture: prune banks the log tail + lifetime so
 // childless lanes stop dying as mysteries; the grinder breaker reads the
 // same facts (sub-minute death ratio trips, window-decayed).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

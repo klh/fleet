@@ -3,7 +3,7 @@
 // dispatch registry render the same verdict), and verdictBySid is the
 // claim-sid join projection faces use. Hermetic: lane-liveness.ts has no
 // db imports, so the process table is the only environment here.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	auditLanes,
 	type LaneRef,

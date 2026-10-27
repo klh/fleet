@@ -6,7 +6,7 @@
 // (W631 stable-worktree authority guard). Contract: an invalid linked
 // worktree leaves the original prefix, settings and services byte-identical;
 // a valid plan still runs its normal steps.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdirSync,
 	mkdtempSync,

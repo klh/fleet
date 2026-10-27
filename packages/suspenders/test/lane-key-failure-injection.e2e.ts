@@ -10,7 +10,7 @@
 //     after the 0600 meta was read: the reuse path must confirm liveness
 //     at the front (the W607 whoami self-verify echo) and never re-hand
 //     a dead key.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

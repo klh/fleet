@@ -1,7 +1,7 @@
 // test/executor-cv.test.ts — W620: the executor trust fold — replay the
 // EXISTING work bus (claimed/released/done/failed) into per-class
 // consecutive-valid counters, facts executor.<host>.<model>.cv.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

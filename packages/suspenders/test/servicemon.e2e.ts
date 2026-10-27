@@ -10,7 +10,7 @@
 //    kill — the store-port pattern); the board feeds tokens_total from seeded
 //    transcripts within its TTL window. Payloads leak no /Users paths, no
 //    token/key value shapes.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

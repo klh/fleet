@@ -1,6 +1,6 @@
 // test/bash-hardening.test.ts — the W513 bash-hardening lift: pure primitive
 // tests (nesting, wrapper swallowing, deny-reason classification).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	backticksToSubshells,
 	commandStart,

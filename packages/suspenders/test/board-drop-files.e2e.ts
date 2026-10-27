@@ -2,7 +2,7 @@
 // (bounded, typed), capability-URL retrieval/auth, expiry cleanup, and the
 // orchestrate attachment-ref validation. Rides the standard board fixture
 // (scratch HOME + spawned board); unit-level blocks pin the pure helpers.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

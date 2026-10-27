@@ -2,7 +2,7 @@
 // (same mtime+size → no double count; append → tail-only), model→group
 // mapping, actor attribution via sessions.actor, and the govdb v7 migration
 // (sessions.actor/tags + usage_rollup) on a temp HOME — never the live hub.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	runHarvestPipeline,
 	type HarvestAdapter,

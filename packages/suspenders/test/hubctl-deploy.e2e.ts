@@ -3,7 +3,7 @@
 // fake docker/curl/openssl log every call, the .env renders from the stack
 // fixture, the compose template lands byte-equal, outside-process probes gate
 // the exit code — and install.sh --hub routes the full front into the chain.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	chmodSync,
 	existsSync,

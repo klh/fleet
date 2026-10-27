@@ -4,7 +4,7 @@
 // env override -> repo one-off candidates -> global registry -> mDNS guess
 // -> null (degrade). Uses a scratch HOME + a real tiny Bun.serve() instance
 // as the "alive" probe target — no network beyond 127.0.0.1.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

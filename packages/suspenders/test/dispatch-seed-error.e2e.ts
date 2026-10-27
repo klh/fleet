@@ -4,7 +4,7 @@
 // dispatch-next CLI in a scratch repo/HOME: the executor stub sleeps through
 // the seed turn, so the seed yields no session id, dispatch logs SEED FAILED
 // and falls back to a cold start whose registry row carries the seedError.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dispatchHarness } from "./helpers/dispatch-harness.ts";

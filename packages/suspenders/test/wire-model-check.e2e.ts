@@ -2,7 +2,7 @@
 // assertion for review receipts. The W1278.1 review was requested as
 // glm-5.3-flash and served by chatgpt/gpt-6-sol but landed as a clean PASS.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	modelCore,
 	wireModelAudit,

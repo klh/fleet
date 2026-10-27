@@ -3,7 +3,7 @@
 // (text-level — no yaml dep in the plain test job), the stub tier's OpenAI
 // wire contract, the lane executor's evidence contract, and the runner's
 // root-key mint. The full chain itself is gated by the CI `docker-e2e` job.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	existsSync,
 	mkdtempSync,

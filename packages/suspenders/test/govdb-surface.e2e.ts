@@ -4,7 +4,7 @@
 // same identity, and a fresh openGovernorDb still migrates + serves the
 // re-exported helpers. Behavior suites (migration, split, store, sessions)
 // cover the semantics; this covers the CONTRACT.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

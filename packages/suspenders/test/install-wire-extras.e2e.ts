@@ -3,7 +3,7 @@
 // the baked hook paths survive checkout deletion (the W893 worktree
 // deletion broke every copilot hook on this machine). The checkout copy
 // stays the fallback for prefix-less installs.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdirSync,
 	mkdtempSync,

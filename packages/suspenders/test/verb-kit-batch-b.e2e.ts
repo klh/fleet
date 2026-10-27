@@ -1,7 +1,7 @@
 // test/verb-kit-batch-b.test.ts — W656.2 smoke: every batch-B CLI renders
 // --help from its verb-kit spec, and one real verb executes unchanged on the
 // preserved surface (launchd/launchd-adjacent shapes stay verb-less).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

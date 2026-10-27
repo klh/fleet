@@ -3,7 +3,7 @@
 // most-restrictive), sticky domain recording, idempotent passes, the
 // distill-time inheritance seam, and the session-end phase wiring (real
 // entry, subprocess, temp HOME — the knowledge.test.ts isolation pattern).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

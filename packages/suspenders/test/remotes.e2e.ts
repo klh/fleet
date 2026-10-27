@@ -1,7 +1,7 @@
 // test/remotes.test.ts — hooks/lib/remotes.ts: config loading, DNS-first
 // resolution with ip_fallback, protocol probes, and openai chat routing —
 // proven against a real local stub server (Bun.serve), not mocks.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdirSync,
 	mkdtempSync,

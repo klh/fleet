@@ -3,7 +3,7 @@
 // the shared atomic session-state IO it rides. Gate-level probes spawn the
 // real hookio through a bun driver script; state lands in an isolated
 // TMPDIR keyed per sid.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdtempSync,
 	rmSync,

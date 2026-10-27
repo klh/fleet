@@ -1,7 +1,7 @@
 // test/credit-forecast.test.ts — W566 premium-credit headroom forecast.
 // Pure core exercised with injected now/paths/deps — no bus, no coord CLI,
 // no real cache files (quota-sweep test doctrine).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

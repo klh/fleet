@@ -6,7 +6,7 @@
 // reader resolves the identity from its own cwd and lands on its own row.
 // Temp-HOME spawn recipe per lane-completion.test.ts; never touches a real
 // governor.db.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

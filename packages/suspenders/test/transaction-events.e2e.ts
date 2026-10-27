@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { TransactionEvents } from "../hooks/lib/transaction-events.ts";
 
 test("discarded transaction identity never leaks into reused client IDs", () => {

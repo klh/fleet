@@ -1,5 +1,5 @@
 // belt-hint.test.ts — knowledge distillation enters Buckle with the W96 hint.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 
 let captured: {
 	auth: string | null;

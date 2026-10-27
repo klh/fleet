@@ -2,7 +2,7 @@
 // Real-HTTP cases for every verdict kind (slow status / unreachable / auth
 // / abort) plus the configured bound and the preserved `string | null`
 // contract. Real sockets on 127.0.0.1 ephemeral ports — no stub fetch.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	frontTimeoutBound,
 	probeBuckleFront,

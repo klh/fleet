@@ -2,7 +2,7 @@
 // message delivery to an ACTIVE lane (registry process identity — the
 // evidence `work lanes` trusts), and per-statement event-id attribution
 // (two directed messages to distinct lanes printed one id, #67715).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -2,7 +2,7 @@
 // bogus done-sha detection (C2), broadcast flood detection (C7), the 24h
 // emission budget, and the W470 broadcast note-dedupe. Isolated temp HOME +
 // repo, spawns the real CLI (monitor recipe).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync, mkdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";

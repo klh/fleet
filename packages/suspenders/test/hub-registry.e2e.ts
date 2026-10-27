@@ -3,7 +3,7 @@
 // the projection, the roster-shape migration, the writer (no-stack
 // no-touch, 0600), and the cross-package parse contract: the generated file
 // must parse as rows for hub-locate.readRegistry AND belt readHubs.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	chmodSync,
 	mkdirSync,

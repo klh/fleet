@@ -2,7 +2,7 @@
 // 4-state reconciliation, and the BYO user plane. Pure unit tests on TEMP
 // files only (BUCKLE_SECRETS_HOME pinned to a temp home) — never the live
 // secrets home, never committed config.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -5,7 +5,7 @@
 // scripts/build-vendor.ts's argv verbatim (outdir swapped for a tmpdir) so
 // the flags have one source of truth; the repo's vendor/ dir is never
 // written by this test.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	readdirSync,
 	mkdtempSync,

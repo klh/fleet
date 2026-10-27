@@ -4,7 +4,7 @@
 // plus the --http face, and drives the JSON-RPC: initialize → tools/list →
 // tool calls. Auth = the buckle whoami plane, stubbed here: 200 + scope
 // passes, 401 refuses with a readable why.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";

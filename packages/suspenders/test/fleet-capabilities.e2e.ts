@@ -1,7 +1,7 @@
 // test/fleet-capabilities.test.ts — W918: evidence-backed capability catalog
 // over the vendored skills registry. Honesty law under test: skills-dir
 // detection and skill-installability are never runnable evidence.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

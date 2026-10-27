@@ -6,7 +6,7 @@
 // here: the W427 Bun copy of an active unit, the wrapped loader, direct
 // launchctl, read-only inspection stays free, and the repo's own suite files
 // stay runnable (launchctl-as-data FP guard).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -1,7 +1,7 @@
 // test/ensure-shims.test.ts — W771.1: the native ensureShims step. Covers the
 // standalone step impl (target guard, symlink refusal, rollback, idempotency)
 // and the plan-runner routing (v1 real via --step).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	existsSync,
 	lstatSync,

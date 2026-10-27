@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
 const f = await boardFixture(0, test.afterAll);

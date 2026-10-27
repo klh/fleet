@@ -7,7 +7,7 @@
 // and the hub landing (provenance stored on the knowledge row, builtin-rule
 // re-scrub, strict prov validation). coord-fact-cas.test.ts CLI recipe.
 import { Database } from "bun:sqlite";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

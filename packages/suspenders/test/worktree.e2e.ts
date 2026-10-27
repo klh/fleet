@@ -3,7 +3,7 @@
 // Follows test/work-cli.test.ts: isolated temp HOME + a real git repo under
 // process.cwd() (a /tmp checkout would test nothing — the bash gate exempts
 // /tmp paths by design).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import {
 	rmSync,

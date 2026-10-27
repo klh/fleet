@@ -2,7 +2,7 @@
 // same governed Buckle front as claude — one attribution, every executor's
 // vars: URL routing for the openai BYOK wire + the scoped lane key in the
 // var the copilot CLI actually reads (probe-verified on copilot 1.0.98).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { applyLaneAttribution } from "../hooks/lib/lanes/lane.ts";
 
 test.describe("W918.3 lane attribution — copilot BYOK vars", () => {

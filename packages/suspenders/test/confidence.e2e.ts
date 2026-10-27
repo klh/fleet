@@ -2,7 +2,7 @@
 // adversarial stamp rules (independence/evidence/consensus/verdict), and the
 // append-only history contract. In-memory sqlite; the ledger DDL under test
 // is the module's own CONFIDENCE_HISTORY_DDL (shipped shape, verbatim).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import {
 	bandLabel,

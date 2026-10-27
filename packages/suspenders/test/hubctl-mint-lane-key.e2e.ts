@@ -3,7 +3,7 @@
 // lives in a fixture file; a fake curl answers the hub-side script; a fake
 // ssh proves the root key VALUE never rides the ssh command (only its
 // on-device file path does).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	chmodSync,
 	mkdirSync,

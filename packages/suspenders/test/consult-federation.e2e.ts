@@ -6,7 +6,7 @@
 // real CLI (consult-kb recipe) against an in-process mock hub.
 
 import { Database } from "bun:sqlite";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { createHash } from "node:crypto";
 import {
 	mkdirSync,

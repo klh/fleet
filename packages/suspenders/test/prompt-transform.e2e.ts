@@ -1,7 +1,7 @@
 // prompt-transform.test.ts — W270 orchestrate prompt transforms: condense
 // determinism, enhance fallback, injection disclosure, secret redaction,
 // preview→dispatch handoff.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	condensePrompt,
 	ENHANCE_DIRECT_ALIASES,

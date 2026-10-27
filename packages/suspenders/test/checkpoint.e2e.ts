@@ -2,7 +2,7 @@
 // merge semantics + the three surfaces (CLI set/show, pre-compact auto-roll,
 // session-start read-first line) against real spawned scripts in a temp HOME
 // and temp checkpoint root.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdtempSync,
 	rmSync,

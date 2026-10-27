@@ -2,7 +2,7 @@
 // audit (oh-my-claude research L7). Pins the estimator heuristics and the
 // repo walk on a fixture tree; the real fleet files are audited by running
 // the script, not in this suite.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

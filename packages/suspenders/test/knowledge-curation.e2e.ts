@@ -2,7 +2,7 @@
 // decay planner (pure), then the store round-trip propose → dispose on an
 // isolated temp HOME (w159-settle's isolation + query-bust import pattern).
 // The CLI wiring gets one spawn smoke at the end.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpDir } from "./helpers/fixture-kit.ts";
 import { join } from "node:path";

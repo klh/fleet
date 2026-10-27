@@ -2,7 +2,7 @@
 // against a temp-HOME governor.db, same recipe as monitor.test.ts: seeding,
 // timing, and CLI runs happen in bun subprocesses so the parent test process
 // never opens the real governor.db.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";

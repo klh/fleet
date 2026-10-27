@@ -5,7 +5,7 @@
 // 3) compression: the blam packet tier fires (bytes saved, rules audited)
 // 4) determinism: same input ⇒ identical result objects (engine law L6)
 // 5) passthrough: empty/whitespace input is untouched, ratio 1
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	extractPointers,
 	finalizePacket,

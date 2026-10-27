@@ -2,7 +2,7 @@
 // boundaries. recordOutage dedupes per (op, phase, reasonCode) inside the
 // window, never throws (even a failed audit keeps the boundary open), and
 // classifyOutage bounds reasonCodes for audit readers.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

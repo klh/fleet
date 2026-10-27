@@ -6,7 +6,7 @@
 // tokens in history by design, so local stash ops were impossible). Control:
 // a real `git push` in the same repo still denies. Skipped when gitleaks is
 // absent (CI image parity is not guaranteed).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

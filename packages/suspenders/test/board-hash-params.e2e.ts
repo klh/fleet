@@ -2,7 +2,7 @@
 // (#lanes?w=<id> selects + opens the drawer; ?project/?q on any tab hash).
 // The router functions eval from the shipped CORE chunk bytes with page
 // globals injected; page-level asserts cover the wiring + highlight CSS.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { BOOT } from "../hooks/board-html/boot.ts";
 import { CORE } from "../hooks/board-html/core.ts";
 import { HTML } from "../hooks/bin/fleet-board-html.ts";

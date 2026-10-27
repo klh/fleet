@@ -1,7 +1,7 @@
 // test/bench-docs-gate.test.ts — W951: the bench-docs done-gate. Covered:
 // the bench-shape detector, the refusal (naming only the missing ledgers),
 // the pass when both ledgers ride the path window, and the disable knob.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	BENCH_DOC_PATHS,
 	benchDocsVerdict,

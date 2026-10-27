@@ -3,7 +3,7 @@
 // dispatch-next.ts parses its argv through parseVerb (the hand-rolled indexOf
 // shim retired). Pins the spec vocabulary, the parse semantics dispatch-next
 // relies on, and the registry help door (exit 0, "Usage: dispatch" present).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { parseVerb, renderRegistryHelp } from "../hooks/lib/verb-kit.ts";
 import { refillVerb } from "../scripts/lib/refill-verb.ts";
 

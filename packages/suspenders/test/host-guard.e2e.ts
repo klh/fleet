@@ -1,6 +1,6 @@
 // test/host-guard.test.ts — W264 perimeter guard units (hooks/lib/host-guard.ts)
 // plus the loopback-default binding contract of the launchd plists/services.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

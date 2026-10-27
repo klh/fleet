@@ -2,7 +2,7 @@
 // Nonce grouping, the registered-current keep (uncertainty keeps), the
 // age rule on a group's YOUNGEST file, the batch bound, pause and the
 // dry-run default — all store-free (intents + inspect injected).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	existsSync,
 	mkdtempSync,

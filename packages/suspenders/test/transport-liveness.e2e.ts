@@ -2,7 +2,7 @@
 // term. Active (queued/held/streaming) rows named for a lane's sid are
 // production evidence; missing evidence never blocks; the probe memoizes;
 // the kill-switch disables without a fetch.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { Database } from "bun:sqlite";

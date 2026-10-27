@@ -4,7 +4,7 @@
 // resolving a NEED_DECISION, at most ONE item, exits cleanly. The launchd
 // unit itself (plist + manifest parity, linux/win32 renders) is covered by
 // services-manifest.test.ts, which iterates the whole manifest.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	COORD_TAG,
 	COORD_WORKER_SID,

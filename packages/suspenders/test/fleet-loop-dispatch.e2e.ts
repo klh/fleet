@@ -4,7 +4,7 @@
 // skip reinstalls like git-worktree lanes do. Dispatch without the agent
 // binary on PATH stops at the binary check, which leaves the fresh
 // workspace observable; the resume path must not duplicate or clobber.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	chmodSync,
 	existsSync,

@@ -1,7 +1,7 @@
 // test/orientation-bench.test.ts — W454 Phase 1/3 tooling: the claude result
 // parser must extract wall clock + token split honestly (nulls for missing
 // fields, error rows for unparseable output).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { parseClaude } from "../scripts/orientation-bench.ts";
 
 test.describe("orientation-bench parseClaude", () => {

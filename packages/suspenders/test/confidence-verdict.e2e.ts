@@ -3,7 +3,7 @@
 // queryability, and the chain walk. In-memory sqlite; the confidence_history
 // DDL mirrors confidence.ts CONFIDENCE_HISTORY_DDL (W953) so both modules
 // can write the same table.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import {
 	DEFAULT_EXCLUDED,

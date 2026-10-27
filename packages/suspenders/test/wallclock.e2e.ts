@@ -1,6 +1,6 @@
 // test/wallclock.test.ts — W902: the dual-stamp vocabulary. UTC Z first,
 // local twin beside it; storage stays epoch-ms.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { dualShort, dualStamp, localIso, utcZ } from "../hooks/lib/wallclock.ts";
 
 // 2026-10-19T15:44:54Z — the W902 mint instant (local twin depends on the

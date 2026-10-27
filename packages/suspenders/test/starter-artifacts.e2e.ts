@@ -4,7 +4,7 @@
 // fields, secret guard, embedded checkpoints), append-only put (duplicate
 // vs conflicting), digest-verified reads (corrupt is a result, not a crash),
 // tolerant inventory, project-canonical registry path.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

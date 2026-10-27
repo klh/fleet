@@ -3,7 +3,7 @@
 // the /api/tasks feed. Functional tests eval the shipped TASKS chunk bytes
 // with the shared chunk helpers injected (board-prefer.test.ts pattern);
 // the payload side is covered live (itemAttribution in lane-spend.test.ts).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { TASKS } from "../hooks/board-html/tasks.ts";
 import { CORE } from "../hooks/board-html/core.ts";
 

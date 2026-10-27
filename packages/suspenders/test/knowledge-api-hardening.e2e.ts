@@ -3,7 +3,7 @@
 // and the host/token gate on the live HTTP face. Lib tests run against a
 // seeded in-memory DB shaped like the real migrations; the API test spawns
 // the real bin with an isolated temp HOME + repo (evidence over mocks).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

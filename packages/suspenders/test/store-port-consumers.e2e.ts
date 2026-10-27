@@ -4,7 +4,7 @@
 // against an isolated temp HOME (never the live governor.db) and must behave
 // byte-compatibly with the pre-port file binding; GOVERNOR_STORE_URL is
 // pinned empty so a dev-shell remote binding cannot leak into the children.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 

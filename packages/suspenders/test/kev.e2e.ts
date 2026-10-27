@@ -3,7 +3,7 @@
 // failure mode (down, malformed, <2 options, answer outside the option set)
 // degrades to null so callers fall through to their chat chain. The URL
 // resolver honors SUSPENDERS_KEV_URL.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	type KevDecision,
 	kevProbabilityLines,

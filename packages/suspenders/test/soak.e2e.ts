@@ -3,7 +3,7 @@
 // env caps parsing, meter math (both usage dialects, USD + token caps),
 // runSoak paths (happy, reds-complete, belt-down, token/usd/duration caps),
 // and the exit-code mapping.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	type Caps,
 	classifyExit,

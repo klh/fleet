@@ -6,7 +6,7 @@
 // --cloud the same gate with hint 'prefer cloud' + glm-5.3), absent gate
 // config is an honest exit 2, and the call is stateless (two calls,
 // byte-identical request bodies).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

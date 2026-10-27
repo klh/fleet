@@ -4,7 +4,7 @@
 // merge-base probe so the verified negative (the W60 dep gate), the
 // unknown/error fail-open, shallow-clone behavior and integration ref changes
 // read byte-identical to the fork-per-sha probe they replace.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

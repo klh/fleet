@@ -1,5 +1,5 @@
 // Demo board is isolated from the live board and other test files.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { join } from "node:path";
 import { boardFixture, unusedPort } from "./helpers/board-fixture.ts";
 type Row = Record<string, unknown>;

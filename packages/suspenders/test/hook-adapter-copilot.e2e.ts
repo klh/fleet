@@ -5,7 +5,7 @@
 // (ALWAYS register — never skip, unlike codex's unresolved-skip policy),
 // the emitter's merge-not-clobber + matcher-scoped contract, and
 // integration teeth through the real gate.ts copilot entrypoint.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdtempSync,
 	realpathSync,

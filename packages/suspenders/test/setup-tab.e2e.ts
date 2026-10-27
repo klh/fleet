@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { runInNewContext } from "node:vm";
 import { TABS } from "../hooks/board-html/tabs.ts";
 // W858.7.21: the Setup client chunk — grouped checklist rendering.

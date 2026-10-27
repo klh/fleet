@@ -1,7 +1,7 @@
 // W831 total carrier selector — three exits, no fall-through. An unknown or
 // offline carrier token is an EXPLICIT refusal; a dispatch never wakes the
 // wrong backend by mapping a miss onto claude.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { selectLaneCarrier } from "../scripts/lib/launch-preflight.ts";
 
 const OFFLINE = { HOME: "", PATH: "" };

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { deferItem, isDeferredItem } from "../scripts/lib/dispatch-defers.ts";
 let serial = 0;
 const item = () => `fixture-deferral-${++serial}`;

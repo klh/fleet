@@ -4,7 +4,7 @@
 // ownership, and resume is the normal claim path (nothing special-cased).
 // Isolated temp HOME + repo (same recipe as governor-leases.test.ts).
 // process.env is never mutated here — HOME goes to the spawned CLI only.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdtempSync,
 	rmSync,

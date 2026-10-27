@@ -4,7 +4,7 @@
 // and the NL translator (fence extraction + the SAME lint). API level: the
 // real bin spawned with a stub buckle verify front + stub SQL LLM — auth
 // matrix, refusal statuses, and the acceptance window (rows + sql + <2s).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

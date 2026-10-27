@@ -5,7 +5,7 @@
 // resolvers derive the canonical identity (git-common-dir realpath) inside
 // linked worktrees too. Temp-HOME spawn recipe per test/consult-kb.test.ts;
 // never touches a real governor.db.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdtempSync,
 	rmSync,

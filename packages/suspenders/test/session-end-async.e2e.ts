@@ -3,7 +3,7 @@
 // 1 s, and the wiring example marks SessionEnd async:true. The full
 // sid→CLOSED round-trip stays covered by w159-settle; this file pins the
 // timeout mechanics and the wiring shape.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -13,7 +13,7 @@
 // .git dir here is a bare mkdir), and on macOS /tmp is a symlink to
 // /private/tmp — so the tests seed work_items.project with realpathSync(REPO)
 // to match what the monitor computes.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdtempSync,
 	rmSync,

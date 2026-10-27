@@ -4,7 +4,7 @@
 // written transcript are exempt; parented lanes close at 24h. Broadcast
 // targets only hb-fresh RUNNING sessions (honest count — the 102-row bug).
 // Isolated temp HOME + repo, spawns the real CLI (consult-kb recipe).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdtempSync,
 	rmSync,

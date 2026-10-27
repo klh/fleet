@@ -2,7 +2,7 @@
 // admin-key resolution (env wins over file), and the mint contract (name=sid,
 // scope buckle:proxy:WRITE_, bearer admin) against a stubbed fetch.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	chmodSync,
 	existsSync,

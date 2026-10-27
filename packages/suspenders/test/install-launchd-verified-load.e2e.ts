@@ -4,7 +4,7 @@
 // buckle-spoke drift: a renderer ran with a different --repo while the
 // receipt pinned the prior generation) must refuse the unit — disk bytes
 // alone are never adopted, and a next-boot rewrite is detected as drift.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	digestUnit,
 	inspectServices,

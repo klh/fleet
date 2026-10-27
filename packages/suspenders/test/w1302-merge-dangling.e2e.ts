@@ -8,7 +8,7 @@
 // regression: a branch advancing past an immutable close defers, and the
 // repair item closing at the advanced head lands the branch while the
 // original completion record stays untouched.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 
 test.setTimeout(120_000);
 

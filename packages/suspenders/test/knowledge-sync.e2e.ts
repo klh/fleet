@@ -6,7 +6,7 @@
 // metrics upserts, strict row validation). The route-shape tests avoid the
 // real board db — landing is tested through the db-injected core.
 import { Database } from "bun:sqlite";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { tmpDir } from "./helpers/fixture-kit.ts";

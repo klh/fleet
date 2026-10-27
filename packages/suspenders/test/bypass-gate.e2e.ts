@@ -16,7 +16,7 @@
 // payload trees the installer archives, bundle clean, and be named by the
 // installer's ENTRYPOINTS validation — what the runtime runs is exactly
 // what the installer ships and validates.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { MAINTENANCE_TASKS } from "../hooks/lib/fleet-loop/maintenance.ts";

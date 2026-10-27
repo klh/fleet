@@ -9,7 +9,7 @@
 // Reverse: every com.suspenders.* legacy label names a folded task or an
 // explicitly documented non-task retiree. Drift on either side fails here
 // instead of duplicating or orphaning the maintenance work on machines.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { MAINTENANCE_TASKS } from "../hooks/lib/fleet-loop/maintenance.ts";
 import { loadLegacyLabels, loadManifest } from "../scripts/install-services.ts";
 

@@ -4,7 +4,7 @@
 // with the REAL liveness verdict on deterministic rows (pid-less row on this
 // host reads dead; foreign-host row without transcript reads unknown), plus
 // the router wiring through the dispatch entrypoint itself.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdirSync,
 	mkdtempSync,

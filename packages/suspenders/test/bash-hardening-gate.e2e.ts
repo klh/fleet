@@ -2,7 +2,7 @@
 // (bun hooks/gate.ts pre-bash), lane-identity fixtures per gates.test.ts.
 // The gate collects write targets with REAL filesystem resolution — fixture
 // dirs are created for real so containment/sensitive checks see them.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdirSync,
 	mkdtempSync,

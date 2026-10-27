@@ -2,7 +2,7 @@
 // enterprise entrypoint are machine config (stack.yaml), materialized by
 // hubctl: render carries the entry/egress knobs, push writes the ladder file
 // and builds the 0600 upstream.env ON the hub from key-file PATHS.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdirSync,
 	mkdtempSync,

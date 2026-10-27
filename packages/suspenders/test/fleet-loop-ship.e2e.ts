@@ -5,7 +5,7 @@
 // not-ahead branch is a no-op, a failed ladder aborts the merge and leaves
 // the branch (strike counted), a live daemon merge vetoes ship outright
 // (W101) and crashed debris is healed, not blindly aborted.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	existsSync,
 	mkdirSync,

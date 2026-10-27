@@ -14,7 +14,7 @@
 //      graph registrations stay inside it.
 // Temp-HOME spawn recipe per coord-capsule-project-scope.test.ts; never
 // touches a real governor.db.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";

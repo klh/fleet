@@ -3,7 +3,7 @@
 // rendering); spawn tests pin the process door (runCli): die format, exit
 // codes, per-verb + registry help, and the Bun strips-`--` argv reality.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { join } from "node:path";
 import {
 	defineVerb,

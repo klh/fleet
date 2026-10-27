@@ -1,7 +1,7 @@
 // W1279 — canonical child binding: a `work split --keep` kept child keeps the
 // physical worktree on the parent-named branch while its claim (and rebound
 // lane-context) names the child. Hermetic fixtures under the OS tmpdir.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

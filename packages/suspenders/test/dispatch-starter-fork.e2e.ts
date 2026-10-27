@@ -2,7 +2,7 @@
 // the dispatch spawn. E2E over the real dispatch-next CLI: a capture stub
 // replaces the executor, records every argv line, and answers the seed turn
 // with a session id — the lane spawn must carry --resume <id> --fork-session.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { dispatchHarness } from "./helpers/dispatch-harness.ts";

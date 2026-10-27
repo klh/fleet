@@ -3,7 +3,7 @@
 // style), --njson = one lane entry per NDJSON line, --json unchanged.
 // Unit face: pure builder + glyph. CLI face: the coord-fleet-honesty
 // recipe — temp HOME, every DB open + CLI run in a bun subprocess.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

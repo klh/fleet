@@ -7,7 +7,7 @@
 // connection sitting on governor.db's write lock, and the client child
 // (W362: async spawn) recovering through its retry ladder.
 // Cheap exact-count ladder tests ride a refusal stub (W716 shape).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -1,7 +1,7 @@
 // W701: hubctl ssh/scp legs carry -o ConnectTimeout + BatchMode so an
 // unreachable hub fails fast. Fake ssh/scp record argv; one real-ssh case
 // aims at an unroutable TEST-NET address with a 1s knob.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	chmodSync,
 	mkdirSync,

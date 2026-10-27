@@ -1,7 +1,7 @@
 // test/hubctl-exec.test.ts — W484.1.1: `exec` runs allowlisted read-only
 // probes on a hub over the existing ssh path. Local fixture: fake docker/ssh
 // bins log calls and answer with canned rows.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	chmodSync,
 	mkdirSync,

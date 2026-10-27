@@ -2,7 +2,7 @@
 // Per-spawn timeout + request-body cap, pinned via env into a dedicated
 // board fixture: the 1ms pin would 502 every consult on the shared
 // fixture, so this file runs its own board with the pins set.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
 process.env.SUSPENDERS_CONSULT_SPAWN_TIMEOUT_MS = "1";

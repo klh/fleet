@@ -3,7 +3,7 @@
 // HOME, every CLI run in a bun subprocess; the db is the fixture HOME's
 // governor.db). The seed resolves projectIdentity() in the same cwd so the
 // CLI's project scoping sees the seeded rows.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

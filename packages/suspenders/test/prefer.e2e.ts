@@ -2,7 +2,7 @@
 // nearest-wins walk (crossing repo boundaries by design), the project-key
 // TTL cache, and the work-graph stamp end-to-end (`work add` inside a
 // .prefer-covered tree tags the item; show/list carry it).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

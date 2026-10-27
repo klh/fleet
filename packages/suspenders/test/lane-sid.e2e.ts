@@ -2,7 +2,7 @@
 // W-labels. Dots map to '-' so W1.23 and W12.3 can no longer share a lane
 // registry slot; dotless labels keep the legacy output byte-for-byte (live
 // lane names don't break).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { laneSid, supSid } from "../hooks/lib/lanes/laneslug.ts";
 import { sidOf } from "../scripts/dispatch-next.ts";
 

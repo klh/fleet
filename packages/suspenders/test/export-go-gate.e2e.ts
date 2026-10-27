@@ -2,7 +2,7 @@
 // owner GO (bus broadcast or the 0600 go-owner seal) instead of staying
 // operator-gated. Pure decision-core coverage; the CLI face is exercised
 // live against the real bus.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {

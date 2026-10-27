@@ -2,7 +2,7 @@
 // corner tab whose outline sits ON the card's top and left border. The
 // geometry is proven live by e2e/board-status-badge.spec.ts (measured
 // rects); this pins the shipped CSS contract so the rule can't drift.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { HTML } from "../hooks/bin/fleet-board-html.ts";
 
 test.describe("status badge corner-tab CSS (W998.1)", () => {

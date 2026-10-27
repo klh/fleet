@@ -3,7 +3,7 @@
 // last-known store; the manifest version echo is the change detector
 // (unchanged → CHANGED on version flip); a downed peer degrades honestly
 // (last-known kept and echoed, never throws); hubctl renders HUB_PEERS.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	existsSync,
 	mkdirSync,

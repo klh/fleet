@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 
 const NOW = Date.now();
 import { Database } from "bun:sqlite";

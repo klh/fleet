@@ -2,7 +2,7 @@
 // admin_audit trail helpers + revoke initiator attribution. HOME is a temp
 // dir set BEFORE the dynamic imports (the auth.test.ts pattern — govdb binds
 // REG at module load).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdtempSync,
 	readdirSync,

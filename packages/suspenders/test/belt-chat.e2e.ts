@@ -3,7 +3,7 @@
 // an answer). The advise chain retired its belt/direct legs in W1119.1 —
 // the empty-answer honest-failure contract now rides the gated client
 // (pinned in advise-gated.test.ts).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { boardFixture } from "./helpers/board-fixture.ts";
 import { beltChat } from "../hooks/lib/hub/belt-chat.ts";
 

@@ -6,7 +6,7 @@
 // entry) spawns NOTHING. flush --item sweeps the resolved branch even
 // off-glob; a lane still alive at the await deadline defers loudly
 // (FLUSH-AWAIT-TIMEOUT) and the daemon sweep owns the branch.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 
 test.setTimeout(30_000);
 import { Database } from "bun:sqlite";

@@ -4,7 +4,7 @@
 // through the REAL pre-files chain spawn (temp $HOME isolates the audit
 // file); the allow path must produce nothing. Unit leg pins auditDeny()'s
 // truncation caps directly.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import {
 	mkdtempSync,
 	realpathSync,

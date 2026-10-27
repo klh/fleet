@@ -4,7 +4,7 @@
 // (store injected — the route module itself never opens the live db).
 // HOME is a temp dir set BEFORE the dynamic imports — govdb binds REG at
 // module load (the auth.test.ts pattern).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

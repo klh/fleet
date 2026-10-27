@@ -2,7 +2,7 @@
 // joined lifecycle + loss section. Source-contract pin (the board-status-badge
 // pattern): the card must keep the WHY line on an empty projection, the
 // gap-only hot loss rows, and the attempts-drift marker on the sample rows.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { readFileSync } from "node:fs";
 
 const CARD = readFileSync(

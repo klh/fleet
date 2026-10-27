@@ -5,7 +5,7 @@
 // same port, and the lock row lands in the SERVER's governor.db. Every
 // child gets an isolated temp HOME (never the live governor.db); the server
 // owns that HOME's db file, the children never open it locally.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

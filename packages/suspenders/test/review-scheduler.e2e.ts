@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { existsSync } from "node:fs";
 import { reviewRoundCap } from "../hooks/lib/gates/review-round-cap.ts";
 import {

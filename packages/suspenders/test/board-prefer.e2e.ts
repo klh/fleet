@@ -4,7 +4,7 @@
 // falls back to the semantic state border. Functional tests eval the shipped TASKS chunk bytes (the
 // String.raw export) with the shared chunk helpers (core.ts esc/taskPill/
 // agoShort) injected as parameters; page-level asserts cover the token CSS.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { TASKS } from "../hooks/board-html/tasks.ts";
 import { CORE } from "../hooks/board-html/core.ts";
 import { HTML } from "../hooks/bin/fleet-board-html.ts";

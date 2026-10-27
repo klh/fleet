@@ -1,6 +1,6 @@
 // W1124.13 — the logical assistant turn key behind a Stop invocation.
 // Helper-level: real native row shapes with synthetic identities/times.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

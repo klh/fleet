@@ -4,7 +4,7 @@
 // list` (--all lifts), --prefix/--limit bound the dump, `coord gc` migrates
 // stray cursor rows into machine_cursors, and the govdb v12 migration moves
 // pre-v12 cursor rows once. Never the live hub — temp HOME subprocesses.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -3,7 +3,7 @@
 // the repo (never /tmp); every DB open and CLI run happens in a bun subprocess
 // so the parent test process never opens the real governor.db
 // (coord-diff.test.ts recipe).
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./pw";
 import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 
