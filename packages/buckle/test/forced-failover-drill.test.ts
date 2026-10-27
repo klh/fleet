@@ -94,6 +94,37 @@ test("Anthropic lane drill follows the fallback and accounts for virtual retry w
 	]);
 });
 
+test("Anthropic drill wall budget refuses a retry wait that exceeds it", async () => {
+	await expect(
+		runForcedFailoverDrill({
+			policy: {
+				num_retries: 1,
+				request_timeout_s: 2,
+				first_byte_budget_s: 4,
+				retry_after_cap_s: 2,
+				fallbacks: { primary: ["local"] },
+			},
+			pool: {
+				groups: () => ["primary", "local"],
+				deployments: (group) => [
+					{
+						group,
+						url: `https://${group}.example.invalid`,
+						dialect: "anthropic",
+					},
+				],
+			},
+			group: "primary",
+			fallback: "local",
+			failureStatus: 503,
+			dialect: "anthropic",
+			retryAfterS: 2,
+			maxAttempts: 4,
+			maxWallMs: 1_000,
+		}),
+	).rejects.toThrow("drill retry wait exceeds wall budget");
+});
+
 const sharedAccountPlan = {
 	policy: {
 		num_retries: 0,
