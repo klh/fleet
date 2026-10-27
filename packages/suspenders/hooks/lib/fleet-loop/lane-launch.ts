@@ -80,8 +80,10 @@ import { plaidLaunchPreflight } from "../../../scripts/lib/plaid-launch.ts";
 import type { PreferRouting } from "../../../scripts/lib/prefer-routing.ts";
 import { isResumableClaim } from "../../../scripts/lib/resumable-claim.ts";
 import {
+	continuationPromptFor,
 	decisionFor,
 	resumeBriefLine,
+	resumeStartNotes,
 } from "../../../scripts/lib/resume-from.ts";
 import { verdictRepeatGate } from "../../../scripts/lib/verdict-repeat-gate.ts";
 import { capsuleValidity } from "../capsule-fence.ts";
@@ -873,14 +875,9 @@ export const dispatchLane = async (
 		// fence stays on the fresh path, disclosed.
 		const laneForkArgs =
 			resumeDecision.mode === "resume" ? resumeDecision.forkArgs : starterFork;
-		if (resumeDecision.mode === "resume")
-			console.log(
-				`NOTE — transcript resume ${resumeDecision.sid} (claude --resume --fork-session; fences held)`,
-			);
-		else if (RESUME_FROM)
-			console.log(
-				`NOTE — --resume-from refused: ${resumeDecision.why}; fresh lane + capsule`,
-			);
+		// W1139.2: honored resume → CONTINUATION prompt on the stable prefix.
+		const resumePrompt = continuationPromptFor(resumeDecision, lanePrompt);
+		resumeStartNotes(resumeDecision, Boolean(RESUME_FROM));
 		// W818: the lane's start mode rides BOTH surfaces — dispatch output and
 		// the lane log — so a forked or cold start is explainable from either.
 		if (starter) {
@@ -969,14 +966,14 @@ export const dispatchLane = async (
 		logAtSpawn = launchLogSize(laneLog);
 		const proc = spawnClaude({
 			bin: fencedExecutor(FLEET, intent),
-			prompt: lanePrompt,
+			prompt: resumePrompt,
 			cwd: wt,
 			logFile: laneLog,
 			env,
 			// W422: the spawn tail is the executor adapter's recipe (registry) —
 			// copilot gets --allow-all-tools, claude the allowedTools/fallback/
 			// settings/fork composition; dispatch carries no executor branches.
-			promptArgs: adapter.promptArgs(lanePrompt),
+			promptArgs: adapter.promptArgs(resumePrompt),
 			promptLast: adapter.promptLast === true,
 			cliArgs: adapter.spawnArgs({
 				fallbackModels: pick.fallbackModels,

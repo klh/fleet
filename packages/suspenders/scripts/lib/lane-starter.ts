@@ -28,6 +28,7 @@ import { dirname, join } from "node:path";
 // W422: fork support per harness is adapter data (exact lookup — an unknown
 // harness cold-starts, it never inherits claude's fork grammar).
 import { adapterForExact } from "../../hooks/lib/executors/registry.ts";
+import { assertStablePrefix, PREFIX_CHURN_PATTERN } from "./lane-layout.ts";
 import { listStarters } from "../../hooks/lib/starter/starter-artifacts.ts";
 import { readStarterAuthorized } from "../../hooks/lib/starter/starter-distribution.ts";
 import {
@@ -164,8 +165,17 @@ export const starterInstructionContext = (guidance?: string): string => {
 		"- Progress: terse voice; evidence before claims; verify with real output.",
 	];
 	if (guidance) {
-		base.push("Promoted lane guidance:");
-		base.push(guidance);
+		// W1139.2: a promoted row carrying churn (a timestamp, a worktree
+		// path, a sid, /Users/ home) would poison the SHARED prefix every
+		// lane forks — skip it here; the assertStablePrefix gate at seed
+		// time still refuses any survivor.
+		const stable = guidance
+			.split("\n")
+			.filter((row) => !PREFIX_CHURN_PATTERN.test(row));
+		if (stable.length) {
+			base.push("Promoted lane guidance:");
+			base.push(stable.join("\n"));
+		}
 	}
 	return base.join("\n");
 };
@@ -318,7 +328,10 @@ export const ensureStarter = async (
 	const seedArgsOf = adapterForExact(harness)?.starterSeedArgs;
 	if (!seedArgsOf) return null;
 	const seed = starterSeedPrompt(fleet, options.model);
+	// W1139.2 layout law: the seed IS the shared cached prefix — churn hazards
+	// (timestamps, per-lane paths/sids) refuse at seed time, before versioning.
 	assertNoSecrets(seed);
+	assertStablePrefix(seed);
 	const version = starterVersion(seed);
 	const cached = readStarter(fleet, harness, version);
 	if (cached) {
