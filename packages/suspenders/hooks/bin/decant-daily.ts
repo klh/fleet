@@ -65,6 +65,8 @@ if (json) {
 	for (const k of result.reclaimed) console.log(`✓ reclaimed ${k}`);
 	for (const k of result.tombstoned) console.log(`✓ retracted ${k}`);
 	for (const k of result.deduped) console.log(`= deduped ${k}`);
+	for (const k of result.stale)
+		console.log(`! stale ${k} (row moved — CAS refused; re-reads next fire)`);
 	for (const k of result.planned) console.log(`· planned ${k}`);
 	// W1220: the roll outcome is informational — its failures log here and
 	// retry next daily run; they never flip the local pass's exit code.

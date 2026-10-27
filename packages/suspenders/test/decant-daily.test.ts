@@ -28,6 +28,7 @@ import {
 	type ExistingClaim,
 	factSetArgs,
 	projectSlug,
+	readExistingClaims,
 	readState,
 	runDaily,
 	sessionEvidenceId,
@@ -157,10 +158,12 @@ describe("decision table (W1212)", () => {
 	const ex = (
 		verdict: string | null,
 		setter: string | null,
+		version: number | null = 1,
 	): ExistingClaim => ({
 		verdict,
 		setter,
 		value: "stored value",
+		version,
 	});
 	const claimOf = (id: string) => ({
 		key: claimKey(`work:${id}`, `done work item ${id}`),
@@ -189,7 +192,9 @@ describe("decision table (W1212)", () => {
 		expect(human.writes).toEqual([]);
 		expect(human.deduped).toEqual([c.key]);
 		const absent = decide([c], {}, st, new Set(), true);
-		expect(absent.writes).toEqual([{ claim: c, mode: "create" }]);
+		expect(absent.writes).toEqual([
+			{ claim: c, mode: "create", expectedVersion: 0 },
+		]);
 	});
 	test("reclaim own retraction when evidence returns; inventory merged", () => {
 		const c = claimOf("W1");
@@ -199,14 +204,29 @@ describe("decision table (W1212)", () => {
 		};
 		const r = decide(
 			[c],
-			{ [c.key]: ex("retracted", SETTER) },
+			{ [c.key]: ex("retracted", SETTER, 3) },
 			st,
 			new Set([c.evidenceId]),
 			true,
 			42,
 		);
-		expect(r.writes).toEqual([{ claim: c, mode: "reclaim" }]);
+		expect(r.writes).toEqual([
+			{ claim: c, mode: "reclaim", expectedVersion: 3 },
+		]);
 		expect(r.inventory[c.key]).toEqual({ evidenceId: c.evidenceId, ts: 42 });
+	});
+	test("own retraction WITHOUT a readable version stays deduped (no pin, no write)", () => {
+		const c = claimOf("W1");
+		const st = { lastRunMs: 0, inventory: {} };
+		const r = decide(
+			[c],
+			{ [c.key]: ex("retracted", SETTER, null) },
+			st,
+			new Set([c.evidenceId]),
+			true,
+		);
+		expect(r.writes).toEqual([]);
+		expect(r.deduped).toEqual([c.key]);
 	});
 	test("vanished work evidence tombstones; session defers on inexact presence", () => {
 		const c = claimOf("W1");
@@ -221,8 +241,24 @@ describe("decision table (W1212)", () => {
 		const existing = { [c.key]: ex("fresh", SETTER), [s]: ex("fresh", SETTER) };
 		const r1 = decide([], existing, st, new Set(), false);
 		expect(r1.tombstones.map((t) => t.key)).toEqual([c.key]);
+		expect(r1.tombstones[0].expectedVersion).toBe(1);
 		const r2 = decide([], existing, st, new Set(), true);
 		expect(r2.tombstones.map((t) => t.key).sort()).toEqual([c.key, s].sort());
+	});
+	test("vanished evidence on a NULL-version row is never retracted (no pin, no write)", () => {
+		const c = claimOf("W1");
+		const st = {
+			lastRunMs: 0,
+			inventory: { [c.key]: { evidenceId: c.evidenceId, ts: 1 } },
+		};
+		const r = decide(
+			[],
+			{ [c.key]: ex("fresh", SETTER, null) },
+			st,
+			new Set(),
+			true,
+		);
+		expect(r.tombstones).toEqual([]);
 	});
 	test("present evidence never tombstones; foreign-setter rows skipped", () => {
 		const c = claimOf("W1");
@@ -284,9 +320,9 @@ describe("state (W1212.1 bounded cursor)", () => {
 		expect(readState(p)).toEqual({ lastRunMs: 0, inventory: {} });
 	});
 });
-describe("fact-set argv (W1212)", () => {
-	test("create rides CAS --if-version 0; reclaim fresh; tombstone retracted+ref", () => {
-		const create = factSetArgs("k", "v", "work:W1", "create");
+describe("fact-set argv (W1212.2 exact CAS)", () => {
+	test("create pins 0; reclaim/tombstone pin the EXACT read version (B3 fence)", () => {
+		const create = factSetArgs("k", "v", "work:W1", "create", 0);
 		expect(create.slice(0, 4)).toEqual(["fact", "set", "k", "--text"]);
 		expect(create).toContain("--if-version");
 		expect(create[create.indexOf("--if-version") + 1]).toBe("0");
@@ -294,10 +330,11 @@ describe("fact-set argv (W1212)", () => {
 		expect(create[create.indexOf("--confidence") + 1]).toBe(
 			String(DAILY_CLAIM_STAMP.value),
 		);
-		const reclaim = factSetArgs("k", "v", "work:W1", "reclaim");
-		expect(reclaim).not.toContain("--if-version");
+		const reclaim = factSetArgs("k", "v", "work:W1", "reclaim", 3);
+		expect(reclaim[reclaim.indexOf("--if-version") + 1]).toBe("3");
 		expect(reclaim[reclaim.indexOf("--verdict") + 1]).toBe("fresh");
-		const tomb = factSetArgs("k", "v", "work:W1", "tombstone");
+		const tomb = factSetArgs("k", "v", "work:W1", "tombstone", 7);
+		expect(tomb[tomb.indexOf("--if-version") + 1]).toBe("7");
 		expect(tomb[tomb.indexOf("--verdict") + 1]).toBe("retracted");
 		expect(tomb[tomb.indexOf("--ref") + 1]).toBe("work:W1");
 		expect(tomb[tomb.indexOf("--setter") + 1]).toBe(SETTER);
@@ -562,6 +599,74 @@ describe("runner e2e (W1212.1)", () => {
 		expect(cmd[cmd.indexOf("--evidence") + 1]).toContain(PROJ_B);
 		expect(cmd[cmd.indexOf("--text") + 1]).toContain("(other)");
 		expect(cmd[4]).not.toBe(keyA); // distinct keys over the shared facts
+		db.close();
+	});
+	test("stale CAS refusal: reclaim refused → stale outcome, ok=false, cursor holds", async () => {
+		const dir = join(tmp, "e2e-stale-reclaim");
+		mkdirSync(dir);
+		const dbPath = join(dir, "gov.db");
+		const db = seedDb(dbPath, ["W1"]);
+		calls.length = 0;
+		const o = opts(dir, { store: db });
+		const r1 = await runDaily(o);
+		expect(r1.created.length).toBe(2);
+		landFacts(dbPath, calls);
+		// the runner's own row retracts (store-side); evidence returns → the
+		// decision half says reclaim, pinned at the version just read
+		const w = openFixtureDb(dbPath);
+		w.query(
+			"UPDATE facts SET version = version + 1, confidence_stamp = ? WHERE key LIKE 'decant.claim.%'",
+		).run(JSON.stringify({ value: 0.4, setter: SETTER, verdict: "retracted" }));
+		w.close();
+		calls.length = 0;
+		// the store refuses each pinned write (the version moved in between)
+		const oStale = opts(dir, {
+			store: db,
+			spawn: (cmd: string[], _t: number) => {
+				calls.push(cmd);
+				return { code: 2, out: "refused — current version 2" };
+			},
+		});
+		const r2 = await runDaily(oStale);
+		expect(r2.ok).toBe(false);
+		// W1212.1 cursor: W1 sits behind the cursor; the re-listed session
+		// evidence is the one claim re-decided — its pinned reclaim is refused
+		expect(r2.stale.length).toBe(1);
+		expect(r2.errors).toEqual([]);
+		expect(readState(o.statePath).lastRunMs).toBe(NOW); // stamp holds at r1 — re-decides next fire
+		db.close();
+	});
+	test("human edit between read and write: dedupe, never rewrite, human value survives", async () => {
+		const dir = join(tmp, "e2e-human-protect");
+		mkdirSync(dir);
+		const dbPath = join(dir, "gov.db");
+		const db = seedDb(dbPath, ["W1"]);
+		calls.length = 0;
+		const o = opts(dir, { store: db });
+		const r1 = await runDaily(o);
+		expect(r1.created.length).toBe(2);
+		landFacts(dbPath, calls);
+		// a HUMAN edits the row: value replaced, version bumped, human stamp —
+		// the fence must never overwrite this, via CAS or via the decision half
+		const w = openFixtureDb(dbPath);
+		w.query(
+			"UPDATE facts SET value = 'human correction', version = version + 1, confidence_stamp = ?",
+		).run(
+			JSON.stringify({ value: 0.9, setter: "human:klaus", verdict: "fresh" }),
+		);
+		w.close();
+		calls.length = 0;
+		const r2 = await runDaily(o);
+		expect(r2.ok).toBe(true);
+		// W1212.1 cursor: only the re-listed session evidence is re-decided;
+		// the human-setter row dedupes, never rewrites
+		expect(r2.deduped.length).toBe(1);
+		expect(calls.length).toBe(0); // zero children fired at the human row
+		expect(
+			Object.values(readExistingClaims(dbPath)).some(
+				(x) => x.value === "human correction",
+			),
+		).toBe(true);
 		db.close();
 	});
 });
