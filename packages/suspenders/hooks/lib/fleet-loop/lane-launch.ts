@@ -89,6 +89,7 @@ import {
 	recordLaneExecutor,
 	writeExecutorCvFacts,
 } from "../executors/executor-cv.ts";
+import { launchToken } from "../executors/detect.ts";
 import { adapterFor } from "../executors/registry.ts";
 import { openStore, projectIdentity } from "../govdb/govdb.ts";
 import { resolveHub } from "../hub/hub-locate.ts";
@@ -516,8 +517,15 @@ export const dispatchLane = async (
 		);
 		attempt = intent.attempt;
 		// W620: stamp the join keys future trust folds attribute by (W105
-		// parity with the board path) — model fact only when a pin exists
-		recordLaneExecutor(store, sid, pick.name, pick.model);
+		// parity with the board path) — model fact only when a pin exists.
+		// W1731: the executor token must read back as the SPAWNED adapter —
+		// completion picks the transcript evidence reader from it.
+		recordLaneExecutor(
+			store,
+			sid,
+			launchToken(pick.name, pick.bin),
+			pick.model,
+		);
 		recordPlaidTrace(store, sid, POSTURE, routeName);
 
 		const expected = `suspenders/${item}`;
