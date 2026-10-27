@@ -4,6 +4,7 @@ node_modules/
 .fleet/
 .workgraph.jsonl
 .pilot-measure/
+test-results/
 *.db
 *.db-shm
 *.db-wal

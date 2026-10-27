@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,7 +13,7 @@ import {
 } from "./variant.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "arena-rep-"));
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+test.afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 function synth(
 	run: string,
@@ -95,8 +95,8 @@ synth("20261003T010000Z-cond", glm("condense", "ref-condense/1"), (i) => ({
 	cout: 360,
 }));
 
-describe("stats", () => {
-	test("quantiles, wilson, mean, seeded bootstrap", () => {
+test.describe("stats", () => {
+	test("quantiles, wilson, mean, seeded bootstrap @unit", () => {
 		expect(quant([1, 2, 3, 4], 0.5)).toBe(2.5);
 		expect(mean([])).toBeNull();
 		const w = wilson(5, 10);
@@ -107,27 +107,27 @@ describe("stats", () => {
 	});
 });
 
-describe("reports", () => {
-	test("loadRun reads meta, rows, end and transform meta", async () => {
+test.describe("reports", () => {
+	test("loadRun reads meta, rows, end and transform meta @unit", async () => {
 		const r = await loadRun("20261003T010000Z-cond", dir);
 		expect(r.meta?.variant).toBe("condense×glm");
 		expect(r.ended).toBe("2026-10-03T01:00:00Z");
 		expect(r.rows).toHaveLength(80);
 		expect(r.rows[0]?.charsOut).toBe(360);
 	});
-	test("per-run report has the variant header and chars column", async () => {
+	test("per-run report has the variant header and chars column @unit", async () => {
 		const md = await report("20261003T010000Z-cond", dir);
 		expect(md).toContain("Variant **condense×glm**");
 		expect(md).toContain("400→360");
 		expect(md).toContain("stack-engine-zai − pure-api");
 	});
-	test("baseline = latest none run with pure-api; latest run per variant", async () => {
+	test("baseline = latest none run with pure-api; latest run per variant @unit", async () => {
 		const runs = pickRuns(await readManifest(dir), {});
 		expect(runs).toEqual(["20261003T000000Z-base", "20261003T010000Z-cond"]);
 		const loaded = await Promise.all(runs.map((id) => loadRun(id, dir)));
 		expect(pickBaseline(loaded)?.id).toBe("20261003T000000Z-base");
 	});
-	test("variant report: speed ratio, Δq, Δchars and compression $", async () => {
+	test("variant report: speed ratio, Δq, Δchars and compression $ @unit", async () => {
 		const md = await variantReport({ resDir: dir });
 		const line =
 			md.split("\n").find((l) => l.startsWith("| condense×glm | pure-api |")) ??

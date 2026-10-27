@@ -1,26 +1,19 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	capMiddle,
-	judgeRun,
-	judgeTaskPrompt,
-	parseVerdict,
-} from "./judge.ts";
+import { capMiddle, judgeRun, judgeTaskPrompt, parseVerdict } from "./judge.ts";
 import { loadRun } from "./report.ts";
 import { variantReport } from "./report-variant.ts";
 import { loadTasks } from "./seal.ts";
-import {
-	appendManifestRow,
-	manifestRow,
-	type VariantSpec,
-} from "./variant.ts";
+import { appendManifestRow, manifestRow, type VariantSpec } from "./variant.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "arena-judge-"));
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+test.afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-const ids = loadTasks("a").tasks.slice(0, 3).map((t) => t.id);
+const ids = loadTasks("a")
+	.tasks.slice(0, 3)
+	.map((t) => t.id);
 const eid = loadTasks("e").tasks[0]?.id ?? "e-000";
 
 const glm = (t: string, ver: string): VariantSpec => ({
@@ -30,12 +23,7 @@ const glm = (t: string, ver: string): VariantSpec => ({
 	legs: ["pure-api", "stack-engine-zai"],
 });
 
-const taskRow = (
-	run: string,
-	v: VariantSpec,
-	i: number,
-	leg: string,
-) => ({
+const taskRow = (run: string, v: VariantSpec, i: number, leg: string) => ({
 	type: "row",
 	run,
 	cls: "a",
@@ -94,8 +82,8 @@ synth("20261003T010000Z-cand", glm("condense", "ref-condense/1"));
 const good = JSON.stringify({ score: 0.9, verdict: "good", reason: "fulfils" });
 const quiet = () => {};
 
-describe("judge units", () => {
-	test("parseVerdict accepts clean, wrapped and embedded JSON; rejects junk", () => {
+test.describe("judge units", () => {
+	test("parseVerdict accepts clean, wrapped and embedded JSON; rejects junk @unit", () => {
 		expect(
 			parseVerdict('{"score":0.9,"verdict":"good","reason":"r"}')?.score,
 		).toBe(0.9);
@@ -108,16 +96,18 @@ describe("judge units", () => {
 			parseVerdict('Sure: {"score":0.25,"verdict":"poor","reason":"r"} done')
 				?.score,
 		).toBe(0.25);
-		expect(parseVerdict('{"score":1.5,"verdict":"good","reason":"r"}')).toBeNull();
+		expect(
+			parseVerdict('{"score":1.5,"verdict":"good","reason":"r"}'),
+		).toBeNull();
 		expect(parseVerdict("no json here")).toBeNull();
 	});
-	test("capMiddle bounds the result inside max", () => {
+	test("capMiddle bounds the result inside max @unit", () => {
 		expect(capMiddle("abcdef", 10)).toBe("abcdef");
 		const c = capMiddle("x".repeat(100), 20);
 		expect(c.length).toBeLessThanOrEqual(20);
 		expect(c).toContain("middle elided");
 	});
-	test("judgeTaskPrompt rebuilds the sealed prompt, ref stripped", () => {
+	test("judgeTaskPrompt rebuilds the sealed prompt, ref stripped @unit", () => {
 		const p = judgeTaskPrompt(
 			"20261003T000000Z-base",
 			"a",
@@ -149,8 +139,8 @@ describe("judge units", () => {
 	});
 });
 
-describe("judgeRun", () => {
-	test("grades all rows, loadRun attaches, resume skips", async () => {
+test.describe("judgeRun", () => {
+	test("grades all rows, loadRun attaches, resume skips @unit", async () => {
 		const seen: string[] = [];
 		const s1 = await judgeRun({
 			runId: "20261003T000000Z-base",
@@ -182,7 +172,7 @@ describe("judgeRun", () => {
 		expect(s2.judged).toBe(0);
 		expect(s2.resumed).toBe(6);
 	});
-	test("failures land as judge_error rows and retry on the next pass", async () => {
+	test("failures land as judge_error rows and retry on the next pass @unit", async () => {
 		const s3 = await judgeRun({
 			runId: "20261003T010000Z-cand",
 			resDir: dir,
@@ -202,7 +192,7 @@ describe("judgeRun", () => {
 		const r = await loadRun("20261003T010000Z-cand", dir);
 		expect(r.rows.every((x) => x.judge === 0.9)).toBe(true);
 	});
-	test("variant report renders the judge columns", async () => {
+	test("variant report renders the judge columns @unit", async () => {
 		const md = await variantReport({ resDir: dir });
 		expect(md).toContain("Δjudge vs base [95% CI]");
 		expect(md).toContain("0 (ref)");
