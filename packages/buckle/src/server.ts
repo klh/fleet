@@ -27,6 +27,8 @@ import type {
 } from "./gov/hub-seam.ts";
 import { createGovernance, type GovernanceOpts } from "./gov/middleware.ts";
 import { oidcGateOptsFromEnv } from "./gov/oidc-env.ts";
+import { HttpProblem, problemOf } from "./http-kit.ts";
+import { createLogger } from "./log.ts";
 import {
 	loadOverlay,
 	overlayModuleAdaptation,
@@ -34,6 +36,7 @@ import {
 } from "./gov/overlay-loader.ts";
 import { type AppDeps, createApp } from "./handlers.ts";
 import { loadAccountPolicy } from "./account-policy.ts";
+import { z } from "zod";
 import { MAX_REQUEST_BODY_BYTES } from "./ingress-body.ts";
 import type { RouteHint } from "./hints.ts";
 import { Ledger } from "./ledger.ts";
@@ -48,6 +51,8 @@ import { Router, type RouterMetrics } from "./router.ts";
 import { servicemon } from "./servicemon.ts";
 import type { Dialect } from "./upstreams.ts";
 import { loadUpstreams } from "./upstreams.ts";
+
+const serverLog = createLogger("server");
 
 export const SHADOW_PORT = 4101;
 export const FORBIDDEN_PORT = 4100;
@@ -76,27 +81,35 @@ export function defaultDbPath(
 	);
 }
 
-export interface ServerOpts {
-	port?: number;
+/** W2173.7 zod-first: the data-shaped subset of ServerOpts — ports, paths,
+ *  binds — is schema-defined; the type is derived, never hand-written. The
+ *  auth slot carries code-shaped opts (function factories) — not wire data,
+ *  it stays typed in ServerOpts itself. */
+export const ServerDataOptsSchema = z.object({
+	port: z.number().int().min(1).max(65535).optional(),
 	/** Test seam for the app-owned request-body deadline; production uses 120s. */
-	ingressBodyTimeoutMs?: number;
-	hostname?: string;
-	dbPath?: string;
-	policyPath?: string;
-	upstreamsPath?: string;
-	prefsPath?: string;
+	ingressBodyTimeoutMs: z.number().int().positive().optional(),
+	hostname: z.string().min(1).optional(),
+	dbPath: z.string().min(1).optional(),
+	policyPath: z.string().min(1).optional(),
+	upstreamsPath: z.string().min(1).optional(),
+	prefsPath: z.string().min(1).optional(),
+	/** W7 repo-policy gate: explicit path for the row file. */
+	repoPolicyPath: z.string().min(1).optional(),
+	/** W1265.1 account-policy path (absent = inert posture). */
+	accountPolicyPath: z.string().min(1).optional(),
+	/** W193: secrets home for the manifest-signing key (hub-only key law). */
+	secretsHome: z.string().min(1).optional(),
+});
+export type ServerDataOpts = z.infer<typeof ServerDataOptsSchema>;
+
+export interface ServerOpts extends ServerDataOpts {
 	/** W7 repo-policy gate: explicit path for the row file; defaults chain
 	 *  BUCKLE_REPO_POLICY → local-llm dir → the committed repo-policy.yaml. */
 	repoPolicyPath?: string;
-	/** W1265.1 account policy: explicit path for the repo-tier class table;
-	 *  defaults chain BUCKLE_REPO_TIER_POLICY → ~/.claude/local-llm/
-	 *  repo-tier-policy.yaml → none (the boundary is inert). A CONFIGURED
-	 *  path that cannot load is startup fatal (fail closed). */
-	accountPolicyPath?: string;
-	/** W193: secrets home for the manifest-signing key (hub-only key law).
-	 *  Defaults: BUCKLE_SECRETS_HOME env, else ~/.claude/local-llm. */
-	secretsHome?: string;
-	// W141 governance: root break-glass key + optional JWT validator config.
+	// W141 governance: root break-glass key + optional W193 secrets-home opt
+	// (BUCKLE_SECRETS_HOME env default) rides the auth slot's jwt config;
+	// secretsHome moves to the schema'd data subset above.
 	// W468: slots overrides the env-resolved admission-control pool caps.
 	// W233: spokeEnrollment injects the enterprise overlay's enrollment
 	// provider; unset = solo posture. W233.1:
@@ -117,17 +130,19 @@ export interface ServerOpts {
 /** Port resolution with the 4100 guard; explicit arg wins over env. */
 export function resolvePort(explicit?: number): number {
 	if (explicit === FORBIDDEN_PORT) {
-		throw new Error(
-			`port ${FORBIDDEN_PORT} is belt's live address — buckle refuses it until the owner flips it deliberately`,
-		);
+		throw problemOf("forbidden", {
+			code: "buckle.port_forbidden",
+			why: `port ${FORBIDDEN_PORT} is belt's live address — buckle refuses it until the owner flips it deliberately`,
+		});
 	}
 	const raw = process.env.BUCKLE_PORT ?? "";
 	const envPort = raw.length > 0 ? Number(raw) : NaN;
 	const port = explicit ?? (Number.isFinite(envPort) ? envPort : SHADOW_PORT);
 	if (port === FORBIDDEN_PORT) {
-		throw new Error(
-			`BUCKLE_PORT=${FORBIDDEN_PORT} refused — buckle's shadow address is ${SHADOW_PORT}`,
-		);
+		throw problemOf("forbidden", {
+			code: "buckle.port_forbidden",
+			why: `BUCKLE_PORT=${FORBIDDEN_PORT} refused — buckle's shadow address is ${SHADOW_PORT}`,
+		});
 	}
 	return port;
 }
@@ -190,11 +205,14 @@ export function buildDeps(
 		attempt: (receipt) => {
 			try {
 				ledger.auditAttempt(receipt);
-			} catch {
+			} catch (e) {
 				sm.counter(
 					"buckle_trace_receipt_failures_total",
 					"Attempt receipts rejected by the local ledger sink.",
 				).inc();
+				serverLog.warn(
+					`buckle.trace_receipt_failed: ${e instanceof Error ? e.message : String(e)}`,
+				);
 			}
 		},
 		fallback: (tier) =>
@@ -280,8 +298,8 @@ export function buildDeps(
 	// (config-over-code; absent config = inert posture, logged per the
 	// log-at-startup law so the operator SEES the boundary state).
 	const accountPolicy = loadAccountPolicy(opts.accountPolicyPath);
-	console.log(
-		`buckle: account policy ` +
+	serverLog.info(
+		`account policy ` +
 			(accountPolicy.source === "none"
 				? "inert — no repo-tier-policy configured (the boundary is off)"
 				: `active from ${accountPolicy.source} (${String(accountPolicy.doc.classes.length)} classes)`),
@@ -308,7 +326,13 @@ export function buildDeps(
 		);
 		const tailer = new OutboxTailer(projection, obsPath);
 		const ingest = setInterval(() => {
-			void tailer.poll().catch(() => {});
+			// W2173.7: a poll failure is logged, never silently swallowed — a
+			// dead observation tailer must be visible at error level.
+			void tailer.poll().catch((e: unknown) => {
+				serverLog.error(
+					`buckle.observation_poll_failed: ${e instanceof Error ? e.message : String(e)}`,
+				);
+			});
 		}, 2000);
 		ingest.unref();
 	}
@@ -379,11 +403,13 @@ export function startServer(opts: ServerOpts = {}): ReturnType<
 	// rather than silently expose it (same "never silent" law as 4100).
 	const hostname = opts.hostname ?? process.env.BUCKLE_BIND ?? "127.0.0.1";
 	if (hostname !== "127.0.0.1" && !authOn) {
-		throw new Error(
-			`BUCKLE_BIND=${hostname} refused — a non-loopback bind requires the ` +
+		throw problemOf("forbidden", {
+			code: "buckle.bind_refused",
+			why:
+				`BUCKLE_BIND=${hostname} refused — a non-loopback bind requires the ` +
 				"governance gate (BUCKLE_AUTH=on, the default); set it or stay on " +
 				"127.0.0.1. /status and /health remain public either way.",
-		);
+		});
 	}
 	const server = Bun.serve({
 		hostname,
@@ -431,7 +457,10 @@ export async function boot(): Promise<
 		expectSha256: process.env.KLH_OVERLAY_SHA256,
 	});
 	if (!overlay.ok && overlay.why !== "unset")
-		throw new Error(`overlay refused: ${overlay.why}`);
+		throw problemOf("forbidden", {
+			code: "buckle.overlay_refused",
+			why: `overlay refused: ${overlay.why}`,
+		});
 	const adaptation = overlay.ok
 		? overlayModuleAdaptation(overlay.module)
 		: undefined;
@@ -440,8 +469,8 @@ export async function boot(): Promise<
 	// export = no factories = honest 501s on the federation routes).
 	const gov = overlay.ok ? overlayModuleGovSeam(overlay.module) : undefined;
 	if (overlay.ok)
-		console.log(
-			`buckle: overlay ${overlay.manifest.name} protocol ${overlay.manifest.protocol} ` +
+		serverLog.info(
+			`overlay ${overlay.manifest.name} protocol ${overlay.manifest.protocol} ` +
 				`loaded (entry sha256 ${overlay.manifest.sha256.slice(0, 12)}…)` +
 				(gov ? ` gov seam: ${Object.keys(gov).join(", ")}` : " gov seam: none"),
 		);
@@ -459,14 +488,27 @@ export async function boot(): Promise<
 	});
 }
 
-/** Entry: bind the shadow port, log the guard. */
+/** Entry: bind the shadow port, log the guard. W2173.7: a startup fatal is
+ *  never silent — the boot rejection logs the stable code at error level and
+ *  exits 1, so launchd KeepAlive sees a real failure instead of a dead boot. */
 export function main(): void {
-	void boot().then((server) =>
-		console.log(
-			`buckle: shadow router on http://${server.hostname}:${server.port}` +
-				` (4100 refused by design, root ${process.env.BUCKLE_ROOT_KEY ? "keyed" : "unset"})`,
-		),
-	);
+	void boot()
+		.then((server) =>
+			serverLog.info(
+				`shadow router on http://${server.hostname}:${server.port}` +
+					` (4100 refused by design, root ${process.env.BUCKLE_ROOT_KEY ? "keyed" : "unset"})`,
+			),
+		)
+		.catch((e: unknown) => {
+			const why =
+				e instanceof HttpProblem
+					? `${e.code}: ${e.message}`
+					: e instanceof Error
+						? e.message
+						: String(e);
+			serverLog.error(`buckle.boot_failed: ${why}`);
+			process.exit(1);
+		});
 }
 
 if (import.meta.main) main();
