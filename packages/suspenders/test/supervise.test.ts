@@ -28,11 +28,25 @@ import { inScope } from "../scripts/supervise.ts";
 const HOME = mkdtempSync(join(tmpdir(), "claude-w146-sup-home-"));
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-w146-sup-repo-"));
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
-const env = {
+// W1180: the parent lane's fleet env pins must not reach the fixture CLIs.
+// Demonstrated at 6ee3ec94 (2026-10-23): a dispatch-pinned
+// SUSPENDERS_LANE_MAX_ATTEMPTS re-scales the launch budget the poison arc
+// assumes at its default (3), so the shared-budget exhaustion never fires;
+// a pinned KLH_CLAIM_TOKEN makes every fixture terminal write present a
+// FOREIGN claim token and die at the fence before any assertion runs. The
+// fixture declares the env its assertions assume; product behavior with
+// operator-pinned values is separately covered (test/patch-first.test.ts
+// owns the W744 gate; the oversized.ts arc below needs the documented
+// SUSPENDERS_PATCH_FIRST escape hatch because the 1501-line file exists to
+// trip the integration-time decomposition detector, not the size gate).
+const env: Record<string, string | undefined> = {
 	...process.env,
 	HOME,
 	PATH: `${join(HOME, "bin")}:${process.env.PATH}`,
+	SUSPENDERS_LANE_MAX_ATTEMPTS: "3",
+	SUSPENDERS_PATCH_FIRST: "0",
 };
+delete env.KLH_CLAIM_TOKEN;
 
 mkdirSync(join(HOME, ".claude", "hooks", "suspenders"), { recursive: true });
 symlinkSync(BIN, join(HOME, ".claude", "hooks", "suspenders", "bin"), "dir");
@@ -56,6 +70,9 @@ afterAll(async () => {
 		writeFileSync(UNBLOCK, "1");
 		await Bun.sleep(1500);
 	} catch {}
+	// a test that aborts mid-arc leaves the crash marker on disk — remove it
+	// before anything else (its absence would make every later fake exit 1)
+	rmSync(CRASH, { force: true });
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO, { recursive: true, force: true });
 });
@@ -480,6 +497,9 @@ describe("W146 micro-supervisor", () => {
 	// moved — structured ownership only: a foreign CLAIMED item is skipped
 	// untouched (claim preserved with its new owner).
 	test("W576.1: stale owner cannot release or resume a moved claim", async () => {
+		// W1180: the poison arc installs the crash marker; an aborted poison
+		// test used to leak it here and refuse this test's first launch
+		rmSync(CRASH, { force: true });
 		const p = addItem("stale fixture parent");
 		tool("work.ts", "add", "mine", "--parent", p);
 		const r1 = sup(p, "--once");
