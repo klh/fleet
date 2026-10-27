@@ -22,26 +22,29 @@ test.describe({ tag: "@api" }, () => {
 		responses: "https://api.z.ai/api/v1/responses",
 	};
 
-	const blockedRow = (url: string): string => `    - url: ${url}
-      dialect: openai
-      adapter: openai-compat
-      model: glm-5.3-flash
-      api_key_env: Z_AI_API_KEY
-      adapter_config:
-        path_rewrite:
-          "/v1/chat/completions": "/api/paas/v4/chat/completions"
-        blocked_outbound:
-          paths: ["/api/paas/v4/"]
-          corrections:
-            anthropic: ${CORRECTIONS.anthropic}
-            openai: ${CORRECTIONS.openai}
-            responses: ${CORRECTIONS.responses}`;
+	// W1306: fixtures emit JSON — fleet config parses JSON-only (W1253), the
+	// ported-from yaml literals were dead at the parser (the fixme family).
+	const blockedRow = (url: string, paths = ["/api/paas/v4/"]) => ({
+		url,
+		dialect: "openai",
+		adapter: "openai-compat",
+		model: "glm-5.3-flash",
+		api_key_env: "Z_AI_API_KEY",
+		adapter_config: {
+			path_rewrite: {
+				"/v1/chat/completions": "/api/paas/v4/chat/completions",
+			},
+			blocked_outbound: { paths, corrections: CORRECTIONS },
+		},
+	});
 
-	const healthyRow = (url: string): string => `    - url: ${url}
-      dialect: openai
-      adapter: openai-compat
-      model: glm-5.3-flash
-      api_key_env: Z_AI_API_KEY`;
+	const healthyRow = (url: string) => ({
+		url,
+		dialect: "openai",
+		adapter: "openai-compat",
+		model: "glm-5.3-flash",
+		api_key_env: "Z_AI_API_KEY",
+	});
 
 	const healthyMock = (): Promise<MockUpstream> =>
 		startMockUpstream(() =>
@@ -63,27 +66,26 @@ test.describe({ tag: "@api" }, () => {
 		stop(): void;
 	}
 
-	async function startGate(groups: string): Promise<Gate> {
+	async function startGate(rows: unknown[]): Promise<Gate> {
 		const dir = mkdtempSync(join(tmpdir(), "buckle-guard-"));
 		const upstreams = `${dir}/upstreams.yaml`;
 		const policy = `${dir}/policy.yaml`;
 		const prefs = `${dir}/prefs.json`;
+		// W1306: JSON content (W1253 JSON-only parser) under the legacy .yaml
+		// names — honored only while the content is JSON.
 		await Bun.write(
 			upstreams,
-			`version: 1
-groups:
-  glm-5.3-flash:
-${groups}
-`,
+			JSON.stringify({
+				version: 1,
+				groups: { "glm-5.3-flash": rows },
+			}),
 		);
 		await Bun.write(
 			policy,
-			`version: 1
-gateway:
-  num_retries: 1
-  allowed_fails: 1
-  cooldown_time: 60
-`,
+			JSON.stringify({
+				version: 1,
+				gateway: { num_retries: 1, allowed_fails: 1, cooldown_time: 60 },
+			}),
 		);
 		await Bun.write(
 			prefs,
@@ -121,17 +123,11 @@ gateway:
 		});
 
 	test.describe("W1257.1 outbound guard E2E", () => {
-		// W1294.16: A/B-proven failing on main under bun test (baseline banked);
-		// fixme + repair item per the sweep-C precedent.
 		test("blocked rung: zero upstream calls, refusal inside the gate", async () => {
-			// W1294.16: A/B-proven failing on main under bun test (baseline
-			// banked); in-body fixme annotation + repair item W1306
-			// (sweep-C precedent).
-			test.fixme(true, "failing on main — repair item W1306");
 			const blocked = await startMockUpstream(() =>
 				Response.json({ error: { message: "blocked" } }, { status: 500 }),
 			);
-			const gate = await startGate(blockedRow(blocked.url));
+			const gate = await startGate([blockedRow(blocked.url)]);
 			try {
 				const key = await issueKey(gate.base);
 				const res = await post(gate.base, key, "glm-5.3-flash");
@@ -145,20 +141,15 @@ gateway:
 			}
 		}, 20_000);
 
-		// W1294.16: A/B-proven failing on main under bun test (baseline banked);
-		// fixme + repair item per the sweep-C precedent.
 		test("blocked rung + healthy rung: 200 via the healthy leg, zero blocked calls", async () => {
-			// W1294.16: A/B-proven failing on main under bun test (baseline
-			// banked); in-body fixme annotation + repair item W1306
-			// (sweep-C precedent).
-			test.fixme(true, "failing on main — repair item W1306");
 			const blocked = await startMockUpstream(() =>
 				Response.json({ error: { message: "blocked" } }, { status: 500 }),
 			);
 			const healthy = await healthyMock();
-			const gate = await startGate(
-				`${blockedRow(blocked.url)}\n${healthyRow(healthy.url)}`,
-			);
+			const gate = await startGate([
+				blockedRow(blocked.url),
+				healthyRow(healthy.url),
+			]);
 			try {
 				const key = await issueKey(gate.base);
 				const res = await post(gate.base, key, "glm-5.3-flash");
@@ -180,12 +171,7 @@ gateway:
 			// W1294.16: startGate rejects async — playwright's toThrow is
 			// sync-only, so the rejection asserts via rejects.toThrow.
 			await expect(
-				startGate(
-					`${blockedRow("https://api.z.ai").replace(
-						'paths: ["/api/paas/v4/"]',
-						"paths: []",
-					)}`,
-				),
+				startGate([blockedRow("https://api.z.ai", [])]),
 			).rejects.toThrow();
 		});
 	});

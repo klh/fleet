@@ -194,19 +194,23 @@ test.describe({ tag: "@api" }, () => {
 	// budget admission), bare and lane-prefixed alike — the gate rides the
 	// standard proxy scope + rpm budget (gov-gate.test.ts contract, W912).
 	test.describe("responses ingress through the governance gate (W912)", () => {
-		// W1294.16: A/B-proven failing on main under bun test (baseline banked);
-		// fixme + repair item per the sweep-C precedent.
 		test("scoped auth + rpm budget: 200, then 429; lane prefix gated too", async () => {
-			// W1294.16: A/B-proven failing on main under bun test (baseline
-			// banked); in-body fixme annotation + repair item W1306
-			// (sweep-C precedent).
-			test.fixme(true, "failing on main — repair item W1306");
 			const upstream = await startMockUpstream(() =>
 				Response.json(RESPONSE_OBJ),
 			);
+			// W1306: JSON config content (W1253 JSON-only parser) through the
+			// fixture's raw-doc opts — the kit's yaml defaults are dead at the
+			// parser (pre-existing, out of this item's scope).
 			const gate = await startGate({
-				upstreamUrl: upstream.url,
-				model: "gpt-5.3-codex",
+				yaml: JSON.stringify({
+					version: 1,
+					groups: {
+						"gpt-5.3-codex": [{ url: upstream.url, dialect: "openai" }],
+					},
+				}),
+				policyYaml: JSON.stringify({
+					gateway: { num_retries: 1, allowed_fails: 3 },
+				}),
 			});
 			const base = gate.base;
 			const { key } = await issueViaAdmin(base, {
