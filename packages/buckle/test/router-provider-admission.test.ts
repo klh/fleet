@@ -185,7 +185,10 @@ describe("provider-account admission", () => {
 		const w2 = router.execute(req("m1", abort.signal));
 		await Bun.sleep(10); // queued behind the held slot
 		abort.abort();
-		expect(await w2).toEqual({ kind: "aborted" });
+		// W1124.42.1: the aborted walk carries its real attempt count — the
+		// queued attempt had already consumed its ordinal (and banks its
+		// downstream_cancel receipt), so the count is 1, never zeroed.
+		expect(await w2).toEqual({ kind: "aborted", attempts: 1 });
 		expect(fetches).toBe(1);
 		await w1;
 		first.end();

@@ -1247,7 +1247,15 @@ export class Ledger {
 					? (refusal?.retry_after_ms ?? null)
 					: null,
 				selected_target_exact: selectedTargetExact,
-				selected_target_attempted: selectedTargetExact && attempts.length > 0,
+				// W1124.42.1: attempted is receipt-derived truth, not a shadow of
+				// exact — a NULL attempts column (legacy row or a cancel whose
+				// settle never landed) still projects TRUE when the receipts
+				// match the selected candidate; a mismatching receipt stays FALSE.
+				selected_target_attempted:
+					selectedHash !== null &&
+					attempts.length > 0 &&
+					attempts.every((receipt) => receipt.candidate === selectedHash) &&
+					(r.attempts === null || r.attempts === attempts.length),
 			};
 		});
 	}

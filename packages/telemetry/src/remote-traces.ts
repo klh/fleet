@@ -2,7 +2,12 @@
 // Peer addresses and read keys come only from a private machine-owned file.
 import { lstatSync, readFileSync } from "node:fs";
 import { isAbsolute } from "node:path";
-import { safeProviderErrorToken, safeRefusalCode } from "./http-trace.ts";
+import {
+	safeHost,
+	safeModel,
+	safeProviderErrorToken,
+	safeRefusalCode,
+} from "./http-trace.ts";
 import {
 	safeTransportEvidence,
 	type TransportEvidence,
@@ -303,9 +308,9 @@ function requestsOf(body: { requests?: unknown }): RemoteTraceRequest[] {
 			status: safeInt(row.status, 599),
 			attempts: safeInt(row.attempts, 1000),
 			target_kind: label(row.target_kind),
-			target_host: label(row.target_host),
+			target_host: safeHost(row.target_host),
 			target_port: safeInt(row.target_port, 65_535),
-			target_model: label(row.target_model),
+			target_model: safeModel(row.target_model),
 		});
 	}
 	return requests;

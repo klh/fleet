@@ -162,6 +162,29 @@ function refusingUpstream(): { port: number; stop(): void } {
 	return { port: upstream.port, stop: () => upstream.stop(true) };
 }
 
+/** The far leg that hangs once the request arrives — the client cancels
+ *  mid-attempt. `reached` resolves when the leg is provably in flight. */
+function hangingUpstream(): {
+	port: number;
+	reached: Promise<void>;
+	stop(): void;
+} {
+	let resolveReached: () => void;
+	const reached = new Promise<void>((resolve) => {
+		resolveReached = resolve;
+	});
+	const upstream = Bun.serve({
+		hostname: "127.0.0.1",
+		port: 0,
+		fetch: async () => {
+			resolveReached();
+			await new Promise(() => {}); // hang until teardown
+			return new Response(null, { status: 500 }); // unreachable
+		},
+	});
+	return { port: upstream.port, reached, stop: () => upstream.stop(true) };
+}
+
 type HopHarness = {
 	front: ReturnType<typeof startServer>;
 	server: ReturnType<typeof startServer>;
@@ -170,12 +193,13 @@ type HopHarness = {
 	dir: string;
 };
 
-/** Front hub → server hub → refusing upstream: root-key auth, peers + 0600 key. */
-function twoHop(): HopHarness {
+/** Front hub → server hub → refusing upstream: root-key auth, peers + 0600 key.
+ *  W1124.42.1: the far leg is injectable so a cancel test can point the walk
+ *  at a hanging provider instead. */
+function twoHop(upstream = refusingUpstream()): HopHarness {
 	const dir = mkdtempSync(join(tmpdir(), "joined-trace-"));
 	const policyPath = join(dir, "policy.json");
 	writeFileSync(policyPath, JSON.stringify({ gateway: { num_retries: 0 } }));
-	const upstream = refusingUpstream();
 	writeFileSync(
 		join(dir, "server-upstreams.json"),
 		JSON.stringify({
@@ -270,6 +294,86 @@ test("remote projection retains refusal attribution across the joined trace", as
 		expect(peer.attempts[0]?.candidate).toMatch(/^[0-9a-f]{16}$/);
 	} finally {
 		front.stop(true);
+		server.stop(true);
+		upstream.stop(true);
+		rmSync(dir, { recursive: true, force: true });
+		if (previousPeers === undefined) delete process.env.BUCKLE_TRACE_PEERS_FILE;
+		else process.env.BUCKLE_TRACE_PEERS_FILE = previousPeers;
+	}
+});
+
+test("a real HTTP cancellation keeps attempt truth in ledger and remote projection", async () => {
+	const previousPeers = process.env.BUCKLE_TRACE_PEERS_FILE;
+	const upstream = hangingUpstream();
+	const { server, peersPath, dir } = twoHop(upstream);
+	const headers = { authorization: "Bearer joined-fixture-root" },
+		traceId = "d".repeat(32);
+	try {
+		// W1124.42.1: the client is a raw socket whose hangup is an explicit
+		// FIN. Bun's pooled fetch abort frequently poisons the keep-alive
+		// connection instead of closing it — the server's request signal never
+		// fires, nothing unwinds, and the cancel truth would never bank. The
+		// explicit FIN is the deterministic hangup of a real (non-pooled)
+		// client and fires the walk's signal every time.
+		const body = JSON.stringify({
+			model: "fixture",
+			messages: [{ role: "user", content: "hello" }],
+		});
+		const conn = await Bun.connect({
+			hostname: "127.0.0.1",
+			port: server.port,
+			socket: { data() {} },
+		});
+		conn.write(
+			`POST /v1/chat/completions HTTP/1.1\r\nHost: 127.0.0.1\r\nauthorization: Bearer joined-fixture-root\r\ncontent-type: application/json\r\ntraceparent: 00-${traceId}-1111111111111111-01\r\ncontent-length: ${body.length}\r\n\r\n${body}`,
+		);
+		await upstream.reached;
+		conn.end();
+		// 1) ledger truth on the SERVER hub: the walk's real count at settle.
+		// The banking chain settles on its own loop turns after the hangup —
+		// poll briefly, never spin forever.
+		let settled: {
+			status: number | null;
+			attempts: number | null;
+			selected_target_attempted: boolean;
+		} | null = null;
+		for (let i = 0; i < 100 && !settled; i++) {
+			await Bun.sleep(10);
+			const requests = await fetch(
+				`http://127.0.0.1:${server.port}/v1/admin/requests?trace_id=${traceId}`,
+				{ headers },
+			);
+			expect(requests.status).toBe(200);
+			const body = (await requests.json()) as {
+				requests: Array<{
+					status: number | null;
+					attempts: number | null;
+					selected_target_attempted: boolean;
+				}>;
+			};
+			const row = body.requests[0];
+			if (row?.status === 499) settled = row;
+		}
+		expect(settled).toMatchObject({
+			status: 499,
+			attempts: 1,
+			selected_target_attempted: true,
+		});
+		// 2) the authenticated remote connector sees the same truth
+		const remote = await readRemoteTraces(peersPath, traceId);
+		const peer = remote.peers[0];
+		expect(peer.requests[0]).toMatchObject({
+			ok: 0,
+			status: 499,
+			attempts: 1,
+			target_kind: "local",
+			target_host: "127.0.0.1",
+			target_model: "gemini-4.5",
+		});
+		expect(peer.attempts[0]).toMatchObject({
+			refusal: "downstream_cancel",
+		});
+	} finally {
 		server.stop(true);
 		upstream.stop(true);
 		rmSync(dir, { recursive: true, force: true });

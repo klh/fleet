@@ -31,8 +31,8 @@ import { bridgeRequest, bridgeResponse } from "./bridge.ts";
 import { type CandidateRow, candIdOf } from "./candidates.ts";
 import { Cooldowns, retryAfterS, retryDelayS } from "./cooldown.ts";
 import { mayEscalate, type RouteSelection } from "./decide.ts";
+import { type HopContract, hopContractRoot } from "./hop-deadline.ts";
 import { clampRetryAfter } from "./http-kit.ts";
-import { hopContractRoot, type HopContract } from "./hop-deadline.ts";
 import { FLASHX, type GatewayPolicy } from "./policy.ts";
 import {
 	assertProviderConcurrencyErrorCodes,
@@ -69,6 +69,9 @@ export type ExecuteResult =
 	  }
 	| {
 			kind: "aborted";
+			/** W1124.42.1: the walk's real attempt count at the hangup — a
+			 *  cancellation never erases the attempts it interrupted. */
+			attempts: number;
 	  }
 	| {
 			kind: "exhausted";
@@ -757,7 +760,8 @@ export class Router {
 		const timedOutOrigins = new Set<string>();
 		let pendingRetry: { candidateId: string; delayMs: number } | undefined;
 		for (let attempt = 0; attempt <= retries; attempt++) {
-			if (req.signal?.aborted) return { kind: "aborted" };
+			if (req.signal?.aborted)
+				return { kind: "aborted", attempts: st.attempts };
 			if (this.walkExpired(st)) break;
 			const raw = attempt + skipped;
 			const nextIndex = candidates.findIndex(
@@ -779,7 +783,8 @@ export class Router {
 					req.signal,
 					remainingMs,
 				);
-				if (req.signal?.aborted) return { kind: "aborted" };
+				if (req.signal?.aborted)
+					return { kind: "aborted", attempts: st.attempts };
 				if (this.walkExpired(st)) break;
 			}
 			pendingRetry = undefined;
@@ -822,7 +827,7 @@ export class Router {
 						upstream !== null || timedOutPhase !== null ? "network" : null,
 						upstream ?? undefined,
 					);
-					return { kind: "aborted" };
+					return { kind: "aborted", attempts: st.attempts };
 				}
 				if (!(error instanceof UpstreamError)) throw error;
 				if (error.timedOut) {
@@ -1170,7 +1175,7 @@ export class Router {
 	 *  matching deployments — e.g. cloud tiers with no BUCKLE_UPSTREAMS
 	 *  override) are skipped as skip-not-failure. */
 	async execute(req: UpstreamRequest): Promise<ExecuteResult> {
-		if (req.signal?.aborted) return { kind: "aborted" };
+		if (req.signal?.aborted) return { kind: "aborted", attempts: 0 };
 		// W1118.1: an admitted hop contract CLAMPS the local walk deadline —
 		// an absolute deadline never extends the local budget, only tightens.
 		const deadlineMs = Math.min(
@@ -1266,7 +1271,8 @@ export class Router {
 							cloudGroups: sel.cloudGroups,
 						}));
 		for (const row of ordered) {
-			if (req.signal?.aborted) return { kind: "aborted" };
+			if (req.signal?.aborted)
+				return { kind: "aborted", attempts: st.attempts };
 			if (this.walkExpired(st)) break;
 			// W1118.1: a peer hop-contract refusal ends the selected walk too.
 			if (st.hopRefusal) break;

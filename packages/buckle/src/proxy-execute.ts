@@ -227,9 +227,9 @@ function finishResponse(
 			status: resp.status,
 			duration_ms: ms,
 			ok,
-			// W824: the ladder walk length at settle (null on aborted walks —
-			// the union kind without an attempts field).
-			attempts: result.kind === "aborted" ? null : result.attempts,
+			// W1124.42.1: the walk's real length even on a cancellation — the
+			// hangup never erases the attempts it interrupted.
+			attempts: result.attempts,
 			err: rateLimited
 				? "rate_limited"
 				: result.kind === "exhausted"
@@ -273,7 +273,7 @@ function finishResponse(
 		code,
 		refusal,
 		streaming,
-		attempts: result.kind === "aborted" ? 0 : result.attempts,
+		attempts: result.attempts,
 		upstreamStatus:
 			result.kind === "exhausted" && result.lastFailure?.source !== "network"
 				? result.lastFailure?.status
