@@ -12,8 +12,9 @@
 // style <label>.local guess (the suspenders.local/belt.local precedent) →
 // null (callers degrade to local belt — never a silent wrong hub).
 import { readFileSync } from "node:fs";
-import { darkHubNow, loadStack } from "../stack-config.ts";
+import { darkHubNow, loadStack, type HubProfile } from "../stack-config.ts";
 import { BUCKLE_SPOKE_PORT } from "../loopback.ts";
+import { hubBuckleUrl } from "./hub-endpoint.ts";
 
 export interface HubLocation {
 	label: string;
@@ -126,21 +127,23 @@ export async function resolveHub(
 	// 2b. the ONE stack config (W230) — profile url (+ optional front
 	// token) is the machine truth for a labeled hub; hubs.json stays the
 	// fallback lookup. Missing/bad file just continues the chain.
+	let prof: HubProfile | undefined;
 	try {
 		const hubs = loadStack().hubs;
-		const prof = Object.entries(hubs).find(
+		prof = Object.entries(hubs).find(
 			([l]) => l.toLowerCase() === norm.toLowerCase(),
 		)?.[1];
-		if (prof?.url && (await alive(prof.url)))
-			return {
-				label: norm,
-				url: prof.url.replace(/\/$/, ""),
-				token: prof.token,
-				via: "stack.json",
-			};
 	} catch {
 		// no/bad stack.json — the chain continues to the registry
 	}
+	const url = prof ? hubBuckleUrl(prof) : null;
+	if (url && (await alive(url)))
+		return {
+			label: norm,
+			url,
+			token: prof?.token,
+			via: "stack.json",
+		};
 	// 3. global registry (mode 600, never committed — operator config, same
 	// trust class as belt.json/belt-tokens.json). W1256.2: this file is a
 	// GENERATED projection of the stack config (hooks/lib/hub/hub-registry.ts,
