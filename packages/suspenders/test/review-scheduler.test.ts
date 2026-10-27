@@ -273,8 +273,9 @@ function review(
 	commit: string,
 	verdict: "PASS" | "FAIL" | "ERROR",
 	base = "b".repeat(40),
+	wire?: { requested: string; served: string },
 ): void {
-	const receipt = { version: 1, commit, base, verdict };
+	const receipt = { version: 1, commit, base, verdict, ...wire };
 	const payload = { project: "fixture", work: item, verdict };
 	f.db
 		.query(
@@ -319,6 +320,20 @@ test("round cap counts commits whose latest verdict FAILED — ERROR legs and re
 	review(f, "W1", "3".repeat(40), "ERROR");
 	review(f, "W1", "4".repeat(40), "FAIL");
 	review(f, "W1", "4".repeat(40), "PASS");
+	expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
+		"requested through Buckle",
+	);
+	expect(decisions(f)).toHaveLength(0);
+});
+test("W1760: a wire-model mismatch grades ERROR — an untrusted verdict never spends a round", () => {
+	const f = capFixture();
+	// the #78405 shape: routing fallback served local-swarm for glm-5.3, the
+	// reviewer's PASS graded down to ERROR — the cap counts FAILs only, so the
+	// retry on the requested class launches instead of hitting NEED_DECISION
+	review(f, "W1", "1".repeat(40), "ERROR", "b".repeat(40), {
+		requested: "glm-5.3-flash",
+		served: "local-swarm",
+	});
 	expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
 		"requested through Buckle",
 	);
