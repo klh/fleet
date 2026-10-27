@@ -282,10 +282,7 @@ describe("W1302.2 post-merge dangling-path scan", () => {
 	// a repo path. Bare-form literal, so the W1302.2.1 reference scope never
 	// judges it; pin all three facts so the false positive stays dead.
 	test("W1778: cache-sla.ts status literal is a runtime homedir path, not a reference", () => {
-		const body = readFileSync(
-			join(P, "hooks/lib/usage/cache-sla.ts"),
-			"utf8",
-		);
+		const body = readFileSync(join(P, "hooks/lib/usage/cache-sla.ts"), "utf8");
 		expect(pathLiterals(body)).toContain("cache-sla.json");
 		const saved = process.env.KLH_CACHE_SLA_STATUS;
 		delete process.env.KLH_CACHE_SLA_STATUS;
@@ -430,13 +427,17 @@ describe("W1302.2 post-merge dangling-path scan", () => {
 		// the './old.ts' import still resolves — other/old.ts exists post-merge
 	});
 
-	test("bankDanglingRef mints one deduped repair item + event", async () => {
+	test("bankDanglingRefs mints one deduped repair item + event", async () => {
 		const repo = await base();
 		const head = g(repo, ["rev-parse", "HEAD"]).stdout.toString().trim();
 		const call = `import { bankDanglingRefs } from ${JSON.stringify(join(HOOKS, "lib", "fleet-loop", "dangling-paths.ts"))};\nbankDanglingRefs(${JSON.stringify(repo)}, "w1302-test", [{ target: "lib/gone.ts", refBy: "app.ts", line: 2, specifier: "./lib/gone.ts" }], ${JSON.stringify(head)});`;
 		// first bank mints the aggregate; the identical second bank dedupes by edge
-		run(repo, ["-e", call]);
-		run(repo, ["-e", call]);
+		const first = run(repo, ["-e", call]);
+		expect(first.out).toBe("");
+		expect(first.code).toBe(0);
+		const repeated = run(repo, ["-e", call]);
+		expect(repeated.out).toBe("");
+		expect(repeated.code).toBe(0);
 		const db = storeDb(repo);
 		try {
 			const item = db
