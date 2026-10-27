@@ -6,7 +6,13 @@
 // (desktop app) are never harvested.
 import { describe, expect, test, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdirSync, rmSync, mkdtempSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	rmSync,
+	mkdtempSync,
+	writeFileSync,
+	utimesSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -189,6 +195,38 @@ describe("discovery", () => {
 			true,
 		);
 		expect(refs.some((r) => r.path.includes("foreign"))).toBe(false);
+	});
+
+	test("W1201: cursor holding unread bytes keeps an idle transcript discovered", async () => {
+		const home = tmp();
+		const repo = tmp();
+		mkdirSync(join(repo, ".git"), { recursive: true });
+		const laneDir = join(
+			home,
+			".claude",
+			"projects",
+			`${mungePath(`${repo}/.worktrees/W1201`)}`,
+		);
+		mkdirSync(laneDir, { recursive: true });
+		const p = join(laneDir, "idle.jsonl");
+		writeFileSync(p, "x".repeat(64));
+		const old = new Date(Date.now() - 30 * 86_400_000);
+		utimesSync(p, old, old);
+		const key = mungePath(p);
+		const eofRefs = await discoverTranscripts(
+			repo,
+			home,
+			7,
+			new Map([[key, 64]]),
+		);
+		expect(eofRefs.some((r) => r.path === p)).toBe(false);
+		const behindRefs = await discoverTranscripts(
+			repo,
+			home,
+			7,
+			new Map([[key, 0]]),
+		);
+		expect(behindRefs.some((r) => r.path === p)).toBe(true);
 	});
 });
 

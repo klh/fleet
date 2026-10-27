@@ -15,6 +15,10 @@ import {
 	suspendersRoot,
 } from "../hooks/lib/fleet-loop/maintenance.ts";
 import { homedir } from "node:os";
+import {
+	pauseTask,
+	readSweepNotices,
+} from "../hooks/lib/fleet-loop/sweep-state.ts";
 
 const tmp = mkdtempSync(join(tmpdir(), "maint-"));
 const stampsPath = join(tmp, "stamps.json");
@@ -130,7 +134,12 @@ describe("maintenance sweep (W779)", () => {
 			},
 		});
 		expect(typeof maintenanceSweep).toBe("function");
-		expect(maintenanceSweep()).toEqual({ ran: [], failed: [], skipped: 0 });
+		expect(maintenanceSweep()).toEqual({
+			ran: [],
+			failed: [],
+			skipped: 0,
+			notices: [],
+		});
 	});
 	test("SUSPENDERS_MAINTENANCE=0 disables the sweep entirely", () => {
 		const prev = process.env.SUSPENDERS_MAINTENANCE;
@@ -144,7 +153,7 @@ describe("maintenance sweep (W779)", () => {
 				},
 			});
 			const r = sweep();
-			expect(r).toEqual({ ran: [], failed: [], skipped: 1 });
+			expect(r).toEqual({ ran: [], failed: [], skipped: 1, notices: [] });
 		} finally {
 			if (prev === undefined) delete process.env.SUSPENDERS_MAINTENANCE;
 			else process.env.SUSPENDERS_MAINTENANCE = prev;
@@ -199,5 +208,75 @@ describe("maintenance sweep (W779)", () => {
 			join(homedir(), ".claude-insights", "maintenance-stamps.json"),
 		);
 		expect(maintenanceStampsPath().startsWith(homedir())).toBe(true);
+	});
+});
+
+describe("W1201 doctrine: failed-source notice + budget pause", () => {
+	const dir = join(tmp, "notices");
+	process.env.SUSPENDERS_MAINTENANCE_STATE = dir;
+	const lines: string[] = [];
+	const deps = {
+		REPO: tmp,
+		log: (msg: string): void => {
+			lines.push(msg);
+		},
+		sh: () => "",
+		run: () => 0,
+		runCap: () => ({ code: 0, out: "" }),
+		lanes: () => [],
+		bumpFail: () => 1,
+		clearFail: () => {},
+		ahead: () => 0,
+	};
+	const mkTask = (name: string): object => ({
+		name,
+		everySeconds: 1,
+		timeoutMs: 5000,
+		argv: () => [name],
+	});
+	const two = [mkTask("bad-source"), mkTask("good-source")];
+
+	test("failed source = notice line, other tasks keep running", () => {
+		rmSync(dir, { recursive: true, force: true });
+		lines.length = 0;
+		const { maintenanceSweep: sweep } = createMaintenanceSweep(deps, {
+			tasks: two,
+			stampsPath,
+			spawn: (cmd: string[]) =>
+				cmd.some((a) => String(a).includes("bad-source"))
+					? { code: 1, out: "exit 1: source down" }
+					: { code: 0, out: "done" },
+		});
+		const r = sweep();
+		expect(r.failed).toEqual(["bad-source"]);
+		expect(r.ran).toEqual(["good-source"]);
+		expect(r.notices).toHaveLength(1);
+		expect(r.notices[0]).toContain("bad-source fail(1)");
+		expect(lines.join("\n")).toContain("MAINT bad-source fail(1)");
+		expect(readSweepNotices(dir).join("\n")).toContain("bad-source fail(1)");
+	});
+
+	test("budget pause: named stop-reason parks the task, spawn never fires", () => {
+		rmSync(dir, { recursive: true, force: true });
+		lines.length = 0;
+		expect(pauseTask("parked", "spend-cap: oracle leg over budget", dir)).toBe(
+			true,
+		);
+		let spawned = 0;
+		const { maintenanceSweep: sweep } = createMaintenanceSweep(deps, {
+			tasks: [mkTask("parked"), mkTask("live")],
+			stampsPath,
+			spawn: () => {
+				spawned++;
+				return { code: 0, out: "" };
+			},
+		});
+		const r = sweep();
+		expect(spawned).toBe(1);
+		expect(r.ran).toEqual(["live"]);
+		expect(r.skipped).toBe(1);
+		expect(lines.join("\n")).toContain(
+			"paused(spend-cap: oracle leg over budget)",
+		);
 	});
 });

@@ -70,7 +70,13 @@ for (const r of db
 
 // ---- pass 1: parse new transcript content since each file's cursor ----
 
-const refs = await discoverTranscripts(repo, homedir(), days);
+// W1201 cursor-aware discovery: a stored cursor holding unread bytes keeps
+// its transcript in the scan set even when idle past the mtime window
+const keep = new Map<string, number>();
+for (const [k, v] of cursors)
+	if (k.startsWith("harvest.cursor."))
+		keep.set(k.slice("harvest.cursor.".length), v);
+const refs = await discoverTranscripts(repo, homedir(), days, keep);
 const signals: Signal[] = [];
 const newOffsets = new Map<string, number>();
 let scanned = 0;
