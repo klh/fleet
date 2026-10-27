@@ -29,6 +29,11 @@
 // importing a deleted module is a real edge); fixtures, skills, templates
 // and prose carry none.
 //
+// W2172: the mint gate itself is guarded (W1807 disposition) — an edge banks
+// only with a real relative/import-path form (isPathForm) or a git-history
+// existence proof for the target; comment prose and bare fixture strings
+// never mint, whatever caller hands them to bankDanglingRefs.
+//
 // Findings bank into ONE open aggregate repair item per project: one
 // `code.dangling-path` event per dependency edge (target, refBy) never
 // recorded before. A recorded edge — any event or legacy per-edge item, in
@@ -44,6 +49,7 @@ import {
 import { enqueueWorkItem } from "../work/work-enqueue.ts";
 import {
 	classifyFile,
+	isPathForm,
 	quotedStrings,
 	type Reference,
 	referencesIn,
@@ -323,6 +329,25 @@ export type BankOptions = {
 const edgeKey = (target: string, refBy: string) =>
 	JSON.stringify([target, refBy]);
 
+/** W2172 mint guard (W1807 disposition): an edge banks only with a real
+ * relative/import-path form (isPathForm) OR a git-history existence proof
+ * that the target was ever a repo path. Comment prose (the W2061 phantom
+ * `s VERDICT matches review-lane.ts` minted from a comment apostrophe) and
+ * bare fixture strings (the W1807 `flood.ts`) have neither, and never mint. */
+function mintable(repo: string, ref: DanglingRef): boolean {
+	if (isPathForm(ref.specifier)) return true;
+	const history = git(repo, [
+		"log",
+		"--all",
+		"--format=%h",
+		"-n",
+		"1",
+		"--",
+		ref.target,
+	]);
+	return history !== null && history.trim() !== "";
+}
+
 /** Every edge the project already recorded: `code.dangling-path` events
  * (aggregate or legacy per-edge) and legacy per-edge item titles. An edge
  * stays known in any holder state — SUPERSEDED and a missing holder
@@ -396,12 +421,14 @@ export function bankDanglingRefs(
 	try {
 		const project = projectIdentity(repo);
 		const known = knownEdges(db, project);
-		const fresh = refs.filter((r) => {
-			const key = edgeKey(r.target, r.refBy);
-			if (known.has(key)) return false;
-			known.add(key); // in-batch duplicates bank once
-			return true;
-		});
+		const fresh = refs
+			.filter((r) => {
+				const key = edgeKey(r.target, r.refBy);
+				if (known.has(key)) return false;
+				known.add(key); // in-batch duplicates bank once
+				return true;
+			})
+			.filter((r) => mintable(repo, r));
 		if (!fresh.length) return [];
 		const open = db
 			.query(
