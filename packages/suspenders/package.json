@@ -43,6 +43,7 @@
 		"./scripts/*": "./scripts/*",
 		"./deploy/*": "./deploy/*",
 		"./agent-rules/*": "./agent-rules/*",
+		"./test/*": "./test/*",
 		"./package.json": "./package.json"
 	},
 	"files": [
