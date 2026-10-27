@@ -484,7 +484,7 @@ const writeStateFile = (path: string, s: { key: string; at: number }): void => {
 const defaultEmit = (kind: string, note: string): void => {
 	try {
 		// quota-sweep parity: bus import deferred so report paths stay cheap
-		const { emitEvent } = require("../coord/bus.ts") as {
+		const { emitEvent } = require("../../coord/bus.ts") as {
 			emitEvent: (o: { kind: string; note: string; source: string }) => void;
 		};
 		emitEvent({ kind, note, source: "credit-forecast" });
@@ -495,7 +495,7 @@ const defaultEmit = (kind: string, note: string): void => {
 
 const defaultBroadcast = (note: string): void => {
 	try {
-		const { broadcastNote } = require("../coord/bus.ts") as {
+		const { broadcastNote } = require("../../coord/bus.ts") as {
 			broadcastNote: (n: string, source: string) => unknown;
 		};
 		broadcastNote(note, "credit-forecast");
