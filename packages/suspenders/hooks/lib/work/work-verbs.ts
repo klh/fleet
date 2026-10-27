@@ -36,6 +36,15 @@ export const ITEM_FLAGS = [
 // (+ a branch in dispatchVerb below).
 export const VERBS: VerbSpec[] = [
 	defineVerb({
+		name: "reconcile-completion",
+		usage:
+			"usage: reconcile-completion <id> --force --expect-owner <sid> --expect-updated-at <revision> --evidence <0600-json> (explicit local operator graph repair; preserves immutable completion, SID is not authentication)",
+		flags: ["--force", "--expect-owner", "--expect-updated-at", "--evidence"],
+		switches: ["--force"],
+		reqFlags: ["--expect-owner", "--expect-updated-at", "--evidence"],
+		minPos: 1,
+	}),
+	defineVerb({
 		name: "add",
 		usage:
 			'usage: add <title> [--scope s] [--parent <id>] [--priority n] [--desc "..."] [--by sid] [--tag t1,t2]',

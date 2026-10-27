@@ -81,6 +81,7 @@ import {
 	persistCompletion,
 	prepareCompletion,
 } from "../lib/work/work-completion-record.ts";
+import { reconcileCompletion } from "../lib/work/work-completion-reconcile.ts";
 import { editPayload, editSteer, editWorkItem } from "../lib/work/work-edit.ts";
 import { EFFORTS } from "../lib/work/work-effort.ts";
 import { evidencePatternsOf } from "../lib/work/work-fence.ts";
@@ -382,6 +383,10 @@ const dispatchVerb = async (
 		const json = flag("--json");
 		for (const id of idList(pos)) showOne(id, Boolean(json));
 		if (json) process.exit(0);
+	} else if (name === "reconcile-completion") {
+		console.log(
+			JSON.stringify(reconcileCompletion(db(), PROJECT, pos[0], rest)),
+		);
 	} else if (name === "take") {
 		const id = pos[0];
 		let as = flag("--as");

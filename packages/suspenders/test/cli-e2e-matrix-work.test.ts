@@ -250,6 +250,14 @@ describe("work verb matrix — edit", () => {
 	});
 });
 
+describe("work verb matrix — reconcile-completion", () => {
+	test("reconcile-completion refuses without operator evidence", () => {
+		const id = idOf(work("add", "reconcile bait").out);
+		cover("reconcile-completion");
+		expect(work("reconcile-completion", id).code).not.toBe(0);
+	});
+});
+
 describe("work verb matrix — reclaim", () => {
 	test("reclaim --expect-owner takes back a claimed item", () => {
 		const id = idOf(work("add", "reclaim bait").out);

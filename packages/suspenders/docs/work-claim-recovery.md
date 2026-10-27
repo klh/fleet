@@ -41,3 +41,30 @@ pinning the new READY revision and the intended new owner in the evidence. This
 path requires an unowned READY row, validates the same historical evidence and
 mints a new token. It cannot override another active claim. Capture the new token
 from the ordinary take result, then run `work done` normally.
+
+## Restore a graph row that already has an immutable completion
+
+An explicit local operator can repair a historically reactivated CLAIMED/RUNNING
+row without completing the work a second time:
+
+```text
+work reconcile-completion <id> --force --expect-owner <sid> --expect-updated-at <revision> --evidence <0600-json>
+```
+
+The regular, non-symlink evidence file (0600, at most 64 KiB) contains `project`,
+`item`, `owner`, `revision`, `tree`, `head`, `productSha`, `completionHash`, and
+`attestation: "restore-verified-immutable-completion-without-new-work"`.
+`completionHash` is SHA256 of `JSON.stringify` applied to the exact `completion`
+object returned by `work show <id> --json`; `productSha` is its `commit_sha`.
+`head` is the current item worktree HEAD. Both the product and HEAD must be
+published ancestors of `origin/main`. The original immutable receipt remains
+byte-for-byte unchanged.
+
+The command refuses changed claims, attached or uncertain native processes,
+unpublished commits and tracked/untracked product edits. Only untracked
+`node_modules` and `.klh-brief.md` are treated as infrastructure. The atomic
+repair records `work.completion-reconciled` with evidence digests, restores DONE,
+and clears ownership. It emits no second `work.done`, revokes no keys and never
+removes a worktree. Missing immutable completions use ordinary claim recovery
+and completion instead. As with forced reclaim, authority is the OS-trusted
+operator CLI; a supplied SID is not authentication.

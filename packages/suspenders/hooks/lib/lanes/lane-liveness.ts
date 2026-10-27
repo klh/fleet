@@ -303,12 +303,6 @@ export function isHarnessProcess(
 	return false;
 }
 
-const psArgs = (): string[] =>
-	Bun.spawnSync(["ps", "-axo", "pid=,etime=,args="])
-		.stdout.toString()
-		.split("\n")
-		.filter(Boolean);
-
 // a lane is live when its process still references its own brief/sid —
 // a recycled pid runs an unrelated command and reads dead (args=, not
 // comm=: macOS truncates comm= at 15 chars, which hid copilot lanes — W309)
@@ -425,13 +419,16 @@ export function laneProcessIdentity(
  *  retire guard): a live harness process with cwd inside the worktree.
  *  W494.1: NEVER a liveness term — a cwd is a location, not a heartbeat.
  *  args= roster (W309 comm= truncation), anchored match (W494 phantom). */
-export const worktreeLive = (wt?: string): boolean => {
-	if (!wt || !existsSync(wt)) return false;
-	const pids = psArgs()
+export const worktreeProcessIdentity = (wt?: string): boolean | null => {
+	if (!wt || !existsSync(wt)) return null;
+	const processes = inspectProcesses();
+	if (!processes.stdout.trim()) return null;
+	const pids = processes.stdout
+		.split("\n")
 		.filter((l) => isHarnessProcess(l))
 		.map((l) => l.trim().split(/\s+/)[0]);
-	if (pids.length === 0) return false;
-	const listing = Bun.spawnSync([
+	if (pids.length === 0) return processes.exitCode === 0 ? false : null;
+	const result = Bun.spawnSync([
 		"lsof",
 		"-a",
 		"-p",
@@ -439,16 +436,22 @@ export const worktreeLive = (wt?: string): boolean => {
 		"-d",
 		"cwd",
 		"-Fn",
-	]).stdout.toString();
+	]);
+	const listing = result.stdout.toString();
 	// W123 prefix discipline (ported W395): exact-or-subdir only —
 	// `.worktrees/W12` must not match a W123 lane's cwd; a cwd in a SUBDIR
 	// of the tree still counts.
-	return listing.split("\n").some((line) => {
+	const attached = listing.split("\n").some((line) => {
 		if (!line.startsWith("n")) return false;
 		const cwd = line.slice(1);
 		return cwd === wt || cwd.startsWith(`${wt}/`);
 	});
+	if (attached) return true;
+	return processes.exitCode === 0 && result.exitCode === 0 ? false : null;
 };
+
+export const worktreeLive = (wt?: string): boolean =>
+	worktreeProcessIdentity(wt) === true;
 
 // the verdict dispatch-next/fleet-loop/`work lanes` all share (W494.1):
 // live = recorded pid alive AND anchored harness args referencing the sid,
