@@ -29,6 +29,21 @@ with the brief front-loading spec completeness, verification rides its own
 classify:high lane — W1140.1 is the first such item). The fleet-side A/B vs
 the W776 attribution ledger is W1140.1's acceptance, not this row.
 
+## Lane effort A/B — policy-pinned vs pre-policy lanes (W1140.1, 2026-10-23; fleet W776 ledger)
+
+Decision the row supports: keep the classifier (it steers), treat budgets as
+unmet. Tool: `packages/suspenders/scripts/ab-effort-audit.ts` @f389ed7f —
+W776 attribution over terminal items; post = pin-proven dispatches (non-medium
+W909 pins, or medium after policy live 2026-10-22T16:51:37Z), pre = 48h
+pre-policy window, same cache era. Post cohort 18 lanes (14 low, 1 medium,
+3 high). Pins verified live (dispatch --dry-run: 4x two-stage low, 2x title_re
+high). Quality held: done-gate 18/18 post vs 60/60 pre; post carries the only
+review events in the window (2 PASS, 1 bare FAIL). Spend: post/low fresh
+4.5M/lane = 45x the 100k budget baseline, though 41% under the pre mean
+(7.6M) — the policy steers in the right direction and misses its own budgets;
+high lanes fresh 748k (n=3) — the 3x verification shape is unverified, not
+yet observable. Verdict FAIL on the token leg, per the acceptance wording.
+
 ## W960 harness self-improvement smoke (2026-10-20; AC)
 
 The W958 loop ran one propose/probe/compose step, then three distinct private-judged
