@@ -17,8 +17,8 @@ import {
 	type ZaiCatalogSnapshot,
 	ZaiSnapshotStaleError,
 } from "../../belt/bin/zai-catalog-rows.ts";
-import { assertProviderConcurrencyErrorCodes } from "../../buckle/src/provider-pressure.ts";
-import { validateOutboundGuardConfig } from "../../buckle/src/outbound-guard.ts";
+import { validateOutboundGuardConfig } from "@klh/buckle/src/outbound-guard.ts";
+import { assertProviderConcurrencyErrorCodes } from "@klh/buckle/src/provider-pressure.ts";
 import type { HubProfile } from "../hooks/lib/stack-config.ts";
 
 const MAX_CATALOG_BYTES = 1024 * 1024;

@@ -17,8 +17,8 @@ import {
 	ZAI_CATALOG_URL,
 	type ZaiCatalogSnapshot,
 } from "../../belt/bin/zai-catalog-rows.ts";
-import { validateRouteLadders } from "../../buckle/src/route-ladder-validator.ts";
-import { loadUpstreams, type Deployment } from "../../buckle/src/upstreams.ts";
+import { validateRouteLadders } from "@klh/buckle/src/route-ladder-validator.ts";
+import { loadUpstreams, type Deployment } from "@klh/buckle/src/upstreams.ts";
 import type { HubProfile } from "../hooks/lib/stack-config.ts";
 import {
 	fetchZaiCatalog,
