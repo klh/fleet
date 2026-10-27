@@ -82,7 +82,11 @@ const INCIDENTS: IncidentDef[] = [
 export { INCIDENTS };
 
 const git = (args: string[], cwd: string): string => {
-	const p = Bun.spawnSync(["/usr/bin/git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+	const p = Bun.spawnSync(["/usr/bin/git", ...args], {
+		cwd,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
 	return p.stdout.toString();
 };
 
@@ -95,10 +99,16 @@ export function incidentTask(def: IncidentDef, repo: string): ReviewTask {
 		.filter(Boolean)
 		.join("\n");
 	if (!diff.trim())
-		throw new Error(`incident def ${def.id}: empty diff for ${def.sha} (${def.paths.join(", ")})`);
+		throw new Error(
+			`incident def ${def.id}: empty diff for ${def.sha} (${def.paths.join(", ")})`,
+		);
 	const defectFile = def.defects[0]?.file;
-	const buggy = defectFile ? git(["show", `${parent}:${defectFile}`], repo) : "";
-	const fixed = defectFile ? git(["show", `${def.sha}:${defectFile}`], repo) : "";
+	const buggy = defectFile
+		? git(["show", `${parent}:${defectFile}`], repo)
+		: "";
+	const fixed = defectFile
+		? git(["show", `${def.sha}:${defectFile}`], repo)
+		: "";
 	return {
 		id: def.id,
 		src: "incident",
@@ -119,7 +129,9 @@ function incidentDefects(def: IncidentDef, repo: string): Defect[] {
 			throw new Error(`incident ${def.id}: no blob ${def.sha}^:${d.file}`);
 		const line = lineOf(blob, d.anchor);
 		if (!line)
-			throw new Error(`incident ${def.id}: anchor "${d.anchor}" not in ${def.sha}^:${d.file}`);
+			throw new Error(
+				`incident ${def.id}: anchor "${d.anchor}" not in ${def.sha}^:${d.file}`,
+			);
 		const defect: Defect = {
 			id: `d${i + 1}`,
 			cls: d.cls as DefectClassAlias,

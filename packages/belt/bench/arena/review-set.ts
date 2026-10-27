@@ -87,10 +87,14 @@ function buildTask(
 		id: `seed-${String(i + 1).padStart(2, "0")}-${family}-${site.cls}`,
 		src: "seeded",
 		title: `Seeded defect: ${site.cls} in ${family}`,
-		mission: "Land this utility — behavior must match the file-header contract.",
+		mission:
+			"Land this utility — behavior must match the file-header contract.",
 		diff: unifiedDiff(file, base, buggy),
 		defects: [defect],
-		files: { buggy: { [file]: buggy.join("\n") }, fixed: { [file]: base.join("\n") } },
+		files: {
+			buggy: { [file]: buggy.join("\n") },
+			fixed: { [file]: base.join("\n") },
+		},
 	};
 }
 
@@ -112,15 +116,20 @@ export function cleanTasks(nClean = 12): ReviewTask[] {
 			id: `clean-${String(i + 1).padStart(2, "0")}-${f.name}`,
 			src: "clean",
 			title: `Clean addition to ${f.name}`,
-			mission: "Land this addition — the helper is unused until a follow-up item wires it in.",
+			mission:
+				"Land this addition — the helper is unused until a follow-up item wires it in.",
 			diff: unifiedDiff(f.file, base, full),
 			defects: [],
-			files: { buggy: { [f.file]: full.join("\n") }, fixed: { [f.file]: base.join("\n") } },
+			files: {
+				buggy: { [f.file]: full.join("\n") },
+				fixed: { [f.file]: base.join("\n") },
+			},
 		});
 	}
 	return out;
 }
-const camel = (s: string): string => s.replace(/-([a-z])/g, (_m, c) => c.toUpperCase());
+const camel = (s: string): string =>
+	s.replace(/-([a-z])/g, (_m, c) => c.toUpperCase());
 
 export function assembleReviewTasks(
 	nSeeded = 24,

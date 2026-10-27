@@ -2,25 +2,18 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	capMiddle,
-	judgeRun,
-	judgeTaskPrompt,
-	parseVerdict,
-} from "./judge.ts";
+import { capMiddle, judgeRun, judgeTaskPrompt, parseVerdict } from "./judge.ts";
 import { loadRun } from "./report.ts";
 import { variantReport } from "./report-variant.ts";
 import { loadTasks } from "./seal.ts";
-import {
-	appendManifestRow,
-	manifestRow,
-	type VariantSpec,
-} from "./variant.ts";
+import { appendManifestRow, manifestRow, type VariantSpec } from "./variant.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "arena-judge-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-const ids = loadTasks("a").tasks.slice(0, 3).map((t) => t.id);
+const ids = loadTasks("a")
+	.tasks.slice(0, 3)
+	.map((t) => t.id);
 const eid = loadTasks("e").tasks[0]?.id ?? "e-000";
 
 const glm = (t: string, ver: string): VariantSpec => ({
@@ -30,12 +23,7 @@ const glm = (t: string, ver: string): VariantSpec => ({
 	legs: ["pure-api", "stack-engine-zai"],
 });
 
-const taskRow = (
-	run: string,
-	v: VariantSpec,
-	i: number,
-	leg: string,
-) => ({
+const taskRow = (run: string, v: VariantSpec, i: number, leg: string) => ({
 	type: "row",
 	run,
 	cls: "a",
@@ -108,7 +96,9 @@ describe("judge units", () => {
 			parseVerdict('Sure: {"score":0.25,"verdict":"poor","reason":"r"} done')
 				?.score,
 		).toBe(0.25);
-		expect(parseVerdict('{"score":1.5,"verdict":"good","reason":"r"}')).toBeNull();
+		expect(
+			parseVerdict('{"score":1.5,"verdict":"good","reason":"r"}'),
+		).toBeNull();
 		expect(parseVerdict("no json here")).toBeNull();
 	});
 	test("capMiddle bounds the result inside max", () => {

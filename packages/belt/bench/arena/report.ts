@@ -180,10 +180,16 @@ export async function loadRun(
 	let ended: string | null = null;
 	const rows: Row[] = [];
 	const judged = new Map<string, { score: number; verdict: string }>();
-	for await (const r of jsonl<RawRow & RunMeta & { ended?: string; type: string }>(file)) {
+	for await (const r of jsonl<
+		RawRow & RunMeta & { ended?: string; type: string }
+	>(file)) {
 		if (r.type === "meta") meta = r;
 		else if (r.type === "end") ended = r.ended ?? null;
-		else if (r.type === "judge" && !r.judge_error && typeof r.judge_score === "number") {
+		else if (
+			r.type === "judge" &&
+			!r.judge_error &&
+			typeof r.judge_score === "number"
+		) {
 			judged.set(`${r.cls}|${r.task}|${r.leg}|${r.phase}`, {
 				score: r.judge_score,
 				verdict: r.judge_verdict ?? "",
