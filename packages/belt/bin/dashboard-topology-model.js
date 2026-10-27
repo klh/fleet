@@ -130,7 +130,9 @@ const observed = (observation, now) =>
 
 const stateOf = (up, fresh) => (!fresh ? "unknown" : up ? "up" : "down");
 
-const providerKey = (host) => {
+/** Shared host→provider-key normalization: the W1040 inference probe CLI keys
+ *  its feed with this, so topology joins need no second mapping. */
+export const providerKey = (host) => {
 	const value = String(host || "").toLowerCase();
 	if (value.endsWith("githubcopilot.com")) return "copilot";
 	if (value.endsWith("z.ai")) return "zai";
@@ -521,6 +523,12 @@ export function buildTopology(
 			);
 			if (entries.length) provider.models = entries.map((record) => record.id);
 		}
+	}
+	// W1040: outside-process inference probe verdicts join by provider key —
+	// providers without feed data read "untested", never green.
+	for (const provider of providers) {
+		const probe = context?.inference?.[provider.key];
+		provider.inference = probe ?? { state: "untested" };
 	}
 	const hubProviderLinks = [];
 	for (const row of context?.hubProviderObservations ?? []) {

@@ -441,8 +441,35 @@ export class BeltTopology extends LitElement {
 		</g>`;
 	}
 	cloud(x, y, width, item, link, viaHub = null, routeConfigured = true) {
-		const visible = viaHub ? [] : item.models.slice(0, 2);
+		const visible = viaHub ? [] : item.models.slice(0, 1);
 		const hubRequest = item.hubRequest;
+		// W1040: outside-process inference probe verdict — green only for
+		// verified usable inference; every other state reads its own label.
+		const probe = item.inference ?? { state: "untested" };
+		const when = () =>
+			age(new Date(probe.checkedAt ?? Date.now()).toISOString());
+		const probeLabel =
+			{
+				ok: `Inference OK · ${probe.latencyMs ?? "?"}ms · ${when()}`,
+				billing: "Billing blocked (429)",
+				quota: "Quota exhausted (429)",
+				auth: "Auth failed",
+				failed: probe.httpStatus
+					? `Probe failed (HTTP ${probe.httpStatus})`
+					: "Probe failed (transport death)",
+				stale: `Probe stale · checked ${when()}`,
+				untested: "Inference untested",
+			}[probe.state] ?? "Inference untested";
+		const probeInk =
+			{
+				ok: "var(--klh-ok-ink)",
+				billing: "var(--klh-accent)",
+				quota: "var(--klh-accent)",
+				auth: "var(--klh-danger)",
+				failed: "var(--klh-danger)",
+				stale: "var(--klh-dim)",
+				untested: "var(--klh-dim)",
+			}[probe.state] ?? "var(--klh-dim)";
 		const status = hubRequest
 			? `${hubRequest.successes15} succeeded · ${hubRequest.failures15} failed /15m`
 			: viaHub && !routeConfigured
@@ -459,11 +486,12 @@ export class BeltTopology extends LitElement {
 								? `${item.catalog?.models?.length ?? 0} selectable · ${item.catalog?.state ?? "catalog unknown"}`
 								: `${item.reachable}/${item.endpoints} probes · traffic unavailable`;
 		return svg`<g><rect class="cloud" x=${x} y=${y} width=${width} height="86" rx="3"></rect>
-			<circle cx=${x + 14} cy=${y + 18} r="3.5" fill=${colour(item.routeObserved ? "routed" : hubRequest ? (hubRequest.lastStatus >= 200 && hubRequest.lastStatus < 300 ? "up" : "attention") : viaHub ? "unknown" : item.state)}></circle>
+			<circle cx=${x + 14} cy=${y + 18} r="3.5" fill=${probeInk}><title>${probeLabel}</title></circle>
 			<text class="title" x=${x + 25} y=${y + 22}>${item.name}</text>
-			<g><title>${status}${hubRequest ? ` · last HTTP ${hubRequest.lastStatus} at ${localTime(hubRequest.lastAt)} from hub Buckle ledger` : link ? ` · ${link.source} · last evidence ${localTime(link.lastSeen)}` : ""}</title><text class="meta endpoint" x=${x + 12} y=${y + 39}>${this.fitCardText(status)}</text></g>
-			${viaHub ? svg`<g><title>${routeConfigured ? `Configured hub routes shown under ${viaHub}` : `Hub model routes shown under ${viaHub}`}</title><text class="meta" x=${x + 12} y=${y + 58}>${this.fitCardText(`Models via ${viaHub}`)}</text></g>` : visible.length ? visible.map((model, index) => svg`<g><title>${model}</title><text class="meta" x=${x + 12} y=${y + 58 + index * 16}>${this.shortModel(model, 35)}</text></g>`) : svg`<text class="meta" x=${x + 12} y=${y + 58}>Model inventory unavailable</text>`}
-			${!viaHub && item.models.length > 2 ? svg`<a href="#modelaccess"><text class="meta" x=${x + 158} y=${y + 75}>+${item.models.length - 2} in model access</text></a>` : ""}
+			<g><title>${probeLabel}</title><text class="meta endpoint" x=${x + 12} y=${y + 39}>${this.fitCardText(probeLabel)}</text></g>
+			<g><title>${status}${hubRequest ? ` · last HTTP ${hubRequest.lastStatus} at ${localTime(hubRequest.lastAt)} from hub Buckle ledger` : link ? ` · ${link.source} · last evidence ${localTime(link.lastSeen)}` : ""}</title><text class="meta endpoint" x=${x + 12} y=${y + 58}>${this.fitCardText(status)}</text></g>
+			${viaHub ? svg`<g><title>${routeConfigured ? `Configured hub routes shown under ${viaHub}` : `Hub model routes shown under ${viaHub}`}</title><text class="meta" x=${x + 12} y=${y + 58}>${this.fitCardText(`Models via ${viaHub}`)}</text></g>` : visible.length ? visible.map((model, index) => svg`<g><title>${model}</title><text class="meta" x=${x + 12} y=${y + 74 + index * 16}>${this.shortModel(model, 35)}</text></g>`) : svg`<text class="meta" x=${x + 12} y=${y + 74}>Model inventory unavailable</text>`}
+			${!viaHub && item.models.length > 1 ? svg`<a href="#modelaccess"><text class="meta" x=${x + 158} y=${y + 75}>+${item.models.length - 1} in model access</text></a>` : ""}
 		</g>`;
 	}
 	activate(event, id) {
