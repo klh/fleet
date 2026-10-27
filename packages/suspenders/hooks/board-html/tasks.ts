@@ -562,6 +562,7 @@ function kanbanCard(t, fam){
   if (t.state === 'FAILED' && t.failure_note) html += '<div class="kfailure" title="Open details for the full failure reason">' + esc(String(t.failure_note).split(';')[0]) + '</div>';
   if (t.tail && t.tail.text) html += '<div class="ktail">' + esc(t.tail.text) + '</div>';
   if (t.signal) html += '<div class="ksignal dim">⚑ ' + esc(t.signal.class) + ' · ' + Math.round((t.signal.confidence || 0) * 100) + '%</div>';
+  if (t.report) html += '<a class="kreport dim" href="/api/report/' + encodeURIComponent(t.id) + '?project=' + encodeURIComponent(t.project || '') + '" target="_blank" rel="noopener" title="single-file HTML report — a generated view of the item\'s markdown record">report ▸</a>';
   if (startable) {
     var pick = defaultPick(t);
     var opts = execOptions(pick);

@@ -28,11 +28,6 @@ import {
 	stampRequires,
 } from "../lib/cred-scope.ts";
 import { projectRootOf, resolveSidOf } from "../lib/govdb/govdb.ts";
-import {
-	recordKnowledgeSuggestion,
-	renderKnowledgeSuggestion,
-	suggestKnowledge,
-} from "../lib/knowledge/kev-curation.ts";
 import { rebindKeptLaneContext } from "../lib/lanes/lane-context.ts";
 import {
 	doneSpendStamp,
@@ -116,7 +111,8 @@ import {
 	setState,
 	setWorkVerb,
 } from "../lib/work/work-graph.ts";
-import { queueCompletionKnowledge } from "../lib/work/work-knowledge.ts";
+import { curateCompletionKnowledge } from "../lib/work/completion-curation.ts";
+import { attachCloseReport, regenReport } from "../lib/work/work-report-cli.ts";
 import { runMigrateLedger } from "../lib/work/work-migrate-ledger.ts";
 import { exportMirror } from "../lib/work/work-mirror.ts";
 import { GLYPH, renderRow, renderTimestamps } from "../lib/work/work-render.ts";
@@ -666,38 +662,47 @@ const dispatchVerb = async (
 		// detached flush waits out this lane's exit and merges seconds later,
 		// instead of at the next watch cycle. Manual closes (no lane entry) skip.
 		triggerMergeOnDone(projectRootOf(PROJECT), id);
+		// W1199: review-shaped closes may attach a single-file HTML report
+		// (advisory — a broken artifact never fails closure; work-report-cli.ts).
+		const reportMd = flag("--report");
+		if (reportMd)
+			await attachCloseReport({
+				db: db(),
+				project: PROJECT,
+				item: id,
+				title: String(it.title ?? id),
+				mdPath: reportMd,
+				sha: record?.commit_sha ?? sha ?? null,
+			});
 		// Curation is advisory and runs after the durable completion transaction.
-		// A cold or unavailable Kev cannot reopen or lose completed work.
-		const verdict = await suggestKnowledge({
-			kind: "work",
+		// A cold or unavailable Kev cannot reopen or lose completed work (the
+		// block lives in lib/completion-curation.ts — W1199 decomposition).
+		await curateCompletionKnowledge({
+			db: db(),
+			record: record ?? null,
+			item: id,
 			title: String(it.title ?? id),
 			text: record?.summary ?? String(it.description ?? ""),
-			reference: id,
-			timeoutMs: 1500,
+			sid: String(it.owner_sid ?? as ?? ""),
+			project: PROJECT,
 		});
-		try {
-			recordKnowledgeSuggestion(db(), verdict, {
-				sid: String(it.owner_sid ?? as ?? ""),
-				project: PROJECT,
-			});
-		} catch {
-			// Curation telemetry does not affect an already durable completion.
-		}
-		console.log(renderKnowledgeSuggestion(verdict));
-		if (record) {
-			const knowledge = await queueCompletionKnowledge(
-				db(),
-				record,
-				String(it.title ?? id),
-				verdict,
-			);
-			if (knowledge.status === "queued")
-				console.log(`knowledge candidate queued #${knowledge.qid}`);
-			else if (knowledge.status === "failed")
-				console.error(
-					`knowledge enqueue failed for ${id}; completion remains done`,
-				);
-		}
+	} else if (name === "report-regen") {
+		// W1199 post-close face (`report` is the W892 supervisor table) — strict.
+		const id = pos[0];
+		const it = get(id ?? "");
+		if (it.state !== "DONE" && it.state !== "SUPERSEDED")
+			die(`${String(id)} is ${String(it.state)} — needs DONE/SUPERSEDED`);
+		const mdPath = flag("--file");
+		if (!mdPath) die("usage: report-regen <id> --file <md-file> [--sha <sha>]");
+		const artifact = await regenReport({
+			db: db(),
+			project: PROJECT,
+			item: String(id),
+			title: String(it.title ?? id),
+			mdPath: mdPath,
+			sha: flag("--sha") ?? (it.result_sha as string | null),
+		});
+		console.log(`${green("▸")} report → ${artifact.path}`);
 	} else if (name === "backfill") {
 		// W2059: link an already-closed item's closer-session ledger rows as a
 		// work.attribution stamp. sid default = the completion record's closer.

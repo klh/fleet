@@ -57,6 +57,7 @@ import { handleFiles } from "../board/routes-files.ts";
 import { handleFleetTree } from "../board/routes-fleet-tree.ts";
 import { handleLaneModel } from "../board/routes-lane-model.ts";
 import { handleMeta } from "../board/routes-meta.ts";
+import { handleReports } from "../board/routes-reports.ts";
 import { handleObservations } from "../board/routes-observations.ts";
 import { handleOrch } from "../board/routes-orch.ts";
 import { handleSuggest } from "../board/routes-suggest.ts";
@@ -152,6 +153,7 @@ const base = {
 			handleKnowledgeRoll,
 			handleFleetTree,
 			handleData,
+			handleReports,
 			handleUsage,
 			handleFederationUsage,
 			(req2, url2) => handleFederationWork(req2, url2, db),

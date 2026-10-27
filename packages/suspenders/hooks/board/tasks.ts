@@ -28,6 +28,11 @@ import {
 } from "./lanes.ts";
 import { taskExecutionSnapshot } from "./task-execution.ts";
 import { taskTailSnapshot } from "./task-tail.ts";
+import {
+	type ReportRecord,
+	reportRecordFor,
+	reportRecordMap,
+} from "../lib/work/report-html.ts";
 
 export function taskShape(
 	w: WorkItemRow,
@@ -42,6 +47,7 @@ export function taskShape(
 	completion?: Map<string, { text: string; ts: string; source: string }>,
 	signal?: TaskSignal | null,
 	taskTail?: ReturnType<typeof taskTailSnapshot>,
+	report?: Map<string, ReportRecord> | null,
 ): Record<string, unknown> {
 	// W517 — .prefer tree identity: the stamped tag wins, live resolve
 	// covers rows added before coverage; color is a tree attribute, always
@@ -86,6 +92,12 @@ export function taskShape(
 		// W969 Signals-lite verdict (newest lane.signal per item) — the board
 		// lanes view badges silent-failure findings beside the tail
 		signal: signal ?? null,
+		// W1199: report artifact record (work.report event) — null when the
+		// closed item carries no HTML report; the feed never touches the fs.
+		report:
+			report === undefined
+				? reportRecordFor(db, w.project, w.id)
+				: (report?.get(`${w.project}\u0000${w.id}`) ?? null),
 		tail:
 			done ??
 			(taskTail ?? taskTailSnapshot(db, [w]))(
@@ -413,6 +425,9 @@ export function tasks(
 		});
 	}
 	const completion = completionTailMap();
+	// W1199: one bounded events scan for the whole feed — per-row lookups
+	// would repeat the W663 payload-storm class
+	const reports = reportRecordMap(db, p);
 	const signals = signalMaps();
 	const execution = taskExecutionSnapshot(db, feed);
 	const tail = taskTailSnapshot(db, feed);
@@ -443,6 +458,7 @@ export function tasks(
 			completion,
 			signals.get(`${w.project}\u0000${w.id}`) ?? null,
 			tail,
+			reports,
 		),
 		execution: execution({
 			...w,

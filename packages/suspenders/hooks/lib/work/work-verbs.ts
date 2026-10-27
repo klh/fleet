@@ -116,8 +116,8 @@ export const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "done",
 		usage:
-			"usage: done <id> [--as sid] --sha <sha> [--summary paragraph] [--spend fresh=N,cache=N,out=N,model=<group>]",
-		flags: [...ITEM_FLAGS, "--summary", "--spend"],
+			"usage: done <id> [--as sid] --sha <sha> [--summary paragraph] [--spend fresh=N,cache=N,out=N,model=<group>] [--report md-file]",
+		flags: [...ITEM_FLAGS, "--summary", "--spend", "--report"],
 		minPos: 1,
 	}),
 	defineVerb({
@@ -254,6 +254,13 @@ export const VERBS: VerbSpec[] = [
 		usage:
 			"usage: stamp <id> --requires <csv> — set an existing item's requires set (W1211 audit face; the credential vocabulary: shell, fs, git, build, mcp, vision, browser, network, gh, az, cloud-<provider>, tool-<cli>)",
 		flags: ["--requires"],
+		minPos: 1,
+	}),
+	defineVerb({
+		name: "report-regen",
+		usage:
+			"usage: report-regen <id> --file <md-file> [--sha <sha>] — (re)generate the single-file HTML report view of a DONE/SUPERSEDED item's markdown record (W1199); the graph gets a work.report provenance event, the artifact lands under .fleet/reports/",
+		flags: [...ITEM_FLAGS, "--file", "--sha"],
 		minPos: 1,
 	}),
 ];
