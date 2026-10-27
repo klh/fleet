@@ -13,7 +13,7 @@ import { describe, expect, setDefaultTimeout, test } from "bun:test";
 setDefaultTimeout(120_000);
 
 import { Database } from "bun:sqlite";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -63,7 +63,6 @@ const testEnv = (repo: string) => ({
 	// let maintenance's coord-worker mint on the live gate and wait on a
 	// real session past the test timeout
 	BUCKLE_ADMIN_KEY: "",
-	SUSPENDERS_MAINTENANCE: "0",
 });
 
 const run = (repo: string, args: string[]) => {
@@ -258,6 +257,16 @@ describe("W1302.2 post-merge dangling-path scan", () => {
 		);
 		expect(resolveLiteral("/abs/x.ts", "a.ts")).toBeNull();
 		expect(resolveLiteral("https://x/y.ts", "a.ts")).toBeNull();
+	});
+
+	test("W1766: maintenance.ts monitor literal is package-root-relative, not a reference", () => {
+		const maint = join(P, "hooks/lib/fleet-loop/maintenance.ts");
+		const body = readFileSync(maint, "utf8");
+		expect(pathLiterals(body)).toContain("hooks/bin/monitor.ts");
+		expect(existsSync(join(P, "hooks/bin/monitor.ts"))).toBe(true);
+		expect(
+			unresolvedSpecifiers(P, "HEAD", ["hooks/lib/fleet-loop/maintenance.ts"]),
+		).toEqual([]);
 	});
 
 	test("resolutionCandidates: extensionless + .js→.ts", () => {
