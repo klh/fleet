@@ -297,7 +297,10 @@ test("no gate configured is an honest exit 2 on both legs", async () => {
 	});
 	rmSync(home, { recursive: true, force: true });
 	expect(r.code).toBe(2);
-	expect(r.err).toContain("buckle inference unavailable");
+	// W1307: absent config fails at route resolution, before any fetch —
+	// the honest exit-2 message is the distill-route one (stale expectation
+	// proven at base 42b51034 via /tmp mirror A/B, not this branch's drift)
+	expect(r.err).toContain("scoped Buckle distill route unavailable");
 });
 
 // c9 — statelessness, input discipline, unknown verb
@@ -385,5 +388,69 @@ test("W742.1 panel fans both legs through the ONE gate and marks agreement", asy
 	} finally {
 		s.stop();
 		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+// W1307 — the cloud-leg empty failure names the budget lever: upstream burned
+// the whole max_tokens budget on reasoning before any text block
+test("cloud empty text with stop_reason=max_tokens names the max-tokens lever", async () => {
+	const srv = Bun.serve({
+		hostname: "127.0.0.1",
+		port: 0,
+		fetch: () =>
+			Response.json({
+				content: [],
+				stop_reason: "max_tokens",
+				model: "glm-5.3",
+				usage: { input_tokens: 12, output_tokens: 1500 },
+			}),
+	});
+	try {
+		const r = await run(["analyze", "--cloud", "budget probe"], {
+			env: {
+				SUSPENDERS_BUCKLE_URL: `http://127.0.0.1:${srv.port}`,
+				SUSPENDERS_BUCKLE_TOKEN: "bksk_fixt",
+			},
+		});
+		expect(r.code).toBe(2);
+		expect(r.err).toContain("stop_reason=max_tokens");
+		expect(r.err).toContain("--max-tokens");
+	} finally {
+		srv.stop(true);
+	}
+});
+
+// W1307 — the cloud leg honors the caller's wall-clock budget: before, the
+// leg dropped --timeout-secs and buckleChat's 120s default aborted long
+// reviews mid-flight. A slow upstream + a 2s budget must fail fast (exit 2),
+// not hang to the 120s default.
+test("cloud leg aborts on the caller's --timeout-secs, not the client default", async () => {
+	const srv = Bun.serve({
+		hostname: "127.0.0.1",
+		port: 0,
+		fetch: async () => {
+			await Bun.sleep(15_000);
+			return Response.json({
+				content: [{ type: "text", text: "too late\nVERDICT: STUBPASS" }],
+			});
+		},
+	});
+	try {
+		const t0 = Date.now();
+		const r = await run(
+			["analyze", "--cloud", "--timeout-secs", "2", "slow probe"],
+			{
+				env: {
+					SUSPENDERS_BUCKLE_URL: `http://127.0.0.1:${srv.port}`,
+					SUSPENDERS_BUCKLE_TOKEN: "bksk_fixt",
+				},
+			},
+		);
+		const wall = Date.now() - t0;
+		expect(r.code).toBe(2);
+		expect(r.err).toContain("buckle inference unavailable");
+		expect(wall).toBeLessThan(10_000);
+	} finally {
+		srv.stop(true);
 	}
 });

@@ -206,7 +206,7 @@ if (argv.includes("--panel")) {
 	].join("\n\n");
 	const settled = await Promise.allSettled([
 		pinnedLeg(prompt, 1500, 120_000),
-		cloudLeg(prompt, 1500),
+		cloudLeg(prompt, 1500, {}, 120_000),
 	]);
 	const rows = buildPanelRows(settled).map((row) =>
 		row.ok && !recommendationOf(row.text)
