@@ -10,39 +10,53 @@ const root = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], {
 	stdout: "pipe",
 }).stdout.toString().trim();
 const suite = [
-	"help-no-store.test.ts",
-	"verb-surface.test.ts",
-	"verb-kit.test.ts",
-	"coord-addressing.test.ts",
-	"consult-kb.test.ts",
-	"subscribe-attach.test.ts",
-	"subscribe-liveness.test.ts",
-	"ws-subscribe.test.ts",
-	"kev-curation.test.ts",
-	"coord-fact-cas.test.ts",
-	"coord-capsule-project-scope.test.ts",
+	"help-no-store.e2e.ts",
+	"verb-surface.e2e.ts",
+	"verb-kit.e2e.ts",
+	"coord-addressing.e2e.ts",
+	"consult-kb.e2e.ts",
+	"subscribe-attach.e2e.ts",
+	"subscribe-liveness.e2e.ts",
+	"ws-subscribe.e2e.ts",
+	"kev-curation.e2e.ts",
+	"coord-fact-cas.e2e.ts",
+	"coord-capsule-project-scope.e2e.ts",
 ];
 if (process.argv.includes("--full"))
 	suite.push(
-		"work-cli.test.ts",
+		"work-cli.e2e.ts",
 		// W1216 decomposition: the three completion siblings ride the full
 		// push gate too (B1-W1216-fullgate-coverage) — all 4 suites, 30 tests.
-		"work-completion-record.test.ts",
-		"completion-native-transcript.test.ts",
-		"work-completion-claim-context.test.ts",
-		"work-completion-cross-repo.test.ts",
-		"work-completion-split-context.test.ts",
+		"work-completion-record.e2e.ts",
+		"completion-native-transcript.e2e.ts",
+		"work-completion-claim-context.e2e.ts",
+		"work-completion-cross-repo.e2e.ts",
+		"work-completion-split-context.e2e.ts",
 	);
 const tests = suite.map((name) =>
 	resolve(root, "packages/suspenders/test", name),
 );
 const testEnv = { ...stripGitEnv(process.env) };
-const run = Bun.spawnSync([process.execPath, "test", ...tests], {
-	cwd: root,
-	env: testEnv,
-	stdout: "inherit",
-	stderr: "inherit",
-});
+// W2173.5.1: the corpus is ported to the playwright runner (*.e2e.ts) —
+// the specs ride @playwright/test registration and never register under
+// bare bun test.
+const run = Bun.spawnSync(
+	[
+		process.execPath,
+		"x",
+		"playwright",
+		"test",
+		"--config",
+		resolve(root, "packages/suspenders/test/playwright.config.ts"),
+		...tests,
+	],
+	{
+		cwd: root,
+		env: testEnv,
+		stdout: "inherit",
+		stderr: "inherit",
+	},
+);
 if (run.exitCode !== 0) {
 	console.error("Fleet verb contract failed after commit; repair before pushing.");
 	process.exit(run.exitCode || 1);

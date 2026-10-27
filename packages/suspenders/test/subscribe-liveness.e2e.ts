@@ -101,7 +101,9 @@ test("control catch-up follows current lifecycle and never replays accepted or o
 	try {
 		const source = `const {db}=await import(${JSON.stringify(shared)}); const {subscriberPendingControl}=await import(${JSON.stringify(bus)}); const sid='control-owner'; const state=db.query("INSERT OR REPLACE INTO facts(key,value,source,version,ts) VALUES('lane.control-owner.state',?,'test',1,?)"); const event=db.query("INSERT INTO events(ts,source,kind,payload,target) VALUES(?,'test',?,'{}',?)"); event.run(1,'pause_requested',sid); event.run(2,'resume_ready',sid); event.run(3,'resume_ready',sid); state.run('RESUME_READY',2); const resume=subscriberPendingControl(sid); console.log(resume.kind); console.log(resume.ts); db.query("INSERT INTO direct_message_receipts(event_id,sid,state,queued_at) VALUES(?,?,'ACCEPTED',2)").run(resume.id,sid); console.log(subscriberPendingControl(sid)); state.run('RUNNING',3); console.log(subscriberPendingControl(sid)); state.run('PAUSE_REQUESTED',4); console.log(subscriberPendingControl(sid).kind);`;
 		const result = Bun.spawnSync([process.execPath, "-e", source], {
-			env: { ...process.env, HOME: home, GOVERNOR_STORE_URL: "local" },
+			// the playwright worker env colorizes bun child output (FORCE_COLOR);
+			// the assertions match bare values — pin color off for the child
+			env: { ...process.env, HOME: home, GOVERNOR_STORE_URL: "local", FORCE_COLOR: "0", NO_COLOR: "1" },
 			stdout: "pipe",
 			stderr: "pipe",
 		});
