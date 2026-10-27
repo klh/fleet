@@ -13,7 +13,7 @@ import { describe, expect, setDefaultTimeout, test } from "bun:test";
 setDefaultTimeout(120_000);
 import { Database } from "bun:sqlite";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	danglingReferences,
@@ -25,6 +25,7 @@ import {
 	unresolvedSpecifiers,
 } from "../hooks/lib/fleet-loop/dangling-paths.ts";
 import { reviewContext } from "../hooks/lib/gates/review-receipt.ts";
+import { cacheSlaStatusPath } from "../hooks/lib/usage/cache-sla.ts";
 import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
 
 const P = join(import.meta.dir, "..");
@@ -263,6 +264,31 @@ describe("W1302.2 post-merge dangling-path scan", () => {
 			"main:a.ts\x003\x00import ./b.ts\nmain:a.ts\x003\x00dup\n",
 		);
 		expect(rows).toEqual([{ file: "a.ts", line: 3, content: "import ./b.ts" }]);
+	});
+
+	// W1778: the minted dangling path packages/suspenders/hooks/lib/usage/
+	// cache-sla.json never existed — cache-sla.ts joins the literal onto
+	// homedir()/.cache/claude-governor as the runtime sweep status file, not
+	// a repo path. Bare-form literal, so the W1302.2.1 reference scope never
+	// judges it; pin all three facts so the false positive stays dead.
+	test("W1778: cache-sla.ts status literal is a runtime homedir path, not a reference", () => {
+		const body = readFileSync(
+			join(P, "hooks/lib/usage/cache-sla.ts"),
+			"utf8",
+		);
+		expect(pathLiterals(body)).toContain("cache-sla.json");
+		const saved = process.env.KLH_CACHE_SLA_STATUS;
+		delete process.env.KLH_CACHE_SLA_STATUS;
+		try {
+			expect(cacheSlaStatusPath()).toBe(
+				join(homedir(), ".cache", "claude-governor", "cache-sla.json"),
+			);
+		} finally {
+			if (saved !== undefined) process.env.KLH_CACHE_SLA_STATUS = saved;
+		}
+		expect(
+			unresolvedSpecifiers(P, "HEAD", ["hooks/lib/usage/cache-sla.ts"]),
+		).toEqual([]);
 	});
 
 	test("probe2 catches the W1304 incident shape (../bin runner missing)", async () => {
