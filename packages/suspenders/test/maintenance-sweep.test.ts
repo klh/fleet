@@ -9,10 +9,12 @@ import {
 	createMaintenanceSweep,
 	isDue,
 	MAINTENANCE_TASKS,
+	maintenanceStampsPath,
 	missingRunners,
 	readStamps,
 	suspendersRoot,
 } from "../hooks/lib/fleet-loop/maintenance.ts";
+import { homedir } from "node:os";
 
 const tmp = mkdtempSync(join(tmpdir(), "maint-"));
 const stampsPath = join(tmp, "stamps.json");
@@ -181,5 +183,15 @@ describe("maintenance sweep (W779)", () => {
 		writeFileSync(stampsPath, "not-json{");
 		expect(readStamps(stampsPath)).toEqual({});
 		rmSync(stampsPath, { force: true });
+	});
+	test("stamps path is runtime (home-dir), never a repo path (W1777)", () => {
+		// the bare literal "maintenance-stamps.json" is a filename joined onto
+		// ~/.claude-insights at runtime — not a repo-tree path; pin the
+		// resolution so dangling-path false positives are discoverable at
+		// the source.
+		expect(maintenanceStampsPath()).toBe(
+			join(homedir(), ".claude-insights", "maintenance-stamps.json"),
+		);
+		expect(maintenanceStampsPath().startsWith(homedir())).toBe(true);
 	});
 });
