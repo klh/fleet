@@ -49,6 +49,12 @@ import {
 } from "../../../scripts/lib/insertion.ts";
 import { laneSettingsData } from "../../../scripts/lib/lane-settings.ts";
 import {
+	type GroupEndpoints,
+	unknownEndpoints,
+	wirePick,
+} from "../../../scripts/lib/lane-wire.ts";
+import { laneRideOf } from "../../../scripts/lib/lane-ride.ts";
+import {
 	dispatchStarterFork,
 	starterStartLine,
 } from "../../../scripts/lib/lane-starter.ts";
@@ -150,6 +156,9 @@ export type LaneLaunchDeps = {
 	/** W1295: `--role` agent-rules override; absent = composer auto-selects. */
 	role?: string;
 	routeAdmission: RouteAdmission;
+	/** W1712: a pinned model's known endpoint union (the W1711 registry
+	 *  join); absent = unknown — never refuses, never re-selects. */
+	wireEndpoints?: GroupEndpoints;
 	sh: (cmd: string[], cwd?: string) => string;
 	run: (cmd: string[], cwd?: string) => { code: number; out: string };
 	workCli: (...args: string[]) => string;
@@ -193,6 +202,7 @@ export const dispatchLane = async (
 		itemCapsuleGet,
 		role,
 		routeAdmission,
+		wireEndpoints = unknownEndpoints,
 		sh,
 		run,
 		workCli,
@@ -468,6 +478,30 @@ export const dispatchLane = async (
 			}
 			routeName = pre.routeName;
 			if (pre.note) console.log(`NOTE — ${pre.note}`);
+		}
+		// W1712: the executor must speak the pinned model's wire. A steady
+		// model pin rides the default CLI, so a provably unserved wire moves
+		// the SAME model to a carrier that speaks it; a plaid route's explicit
+		// executor+model pairing refuses instead.
+		const wire = await wirePick(pick, wireEndpoints, routeName === null);
+		if (!wire.ok) {
+			governanceRefusals.push(item);
+			console.log(`REFUSED ${item} — ${wire.why}; nothing claimed or minted`);
+			return null;
+		}
+		if (wire.switched) {
+			console.log(
+				`NOTE — wire: ${pick.model} rides ${wire.bin} (${pick.bin} cannot speak its wire)`,
+			);
+			pick = { ...pick, bin: wire.bin, fallbackModels: [] };
+			bin = resolveLaneExecutor(pick.bin);
+			if (!bin) {
+				governanceRefusals.push(item);
+				console.log(
+					`REFUSED ${item} — executor unavailable: ${pick.bin}; nothing claimed or minted`,
+				);
+				return null;
+			}
 		}
 		const route = await routeAdmission.check(pick.model);
 		if (route.pause) {
@@ -899,6 +933,20 @@ export const dispatchLane = async (
 		writeFileSync(laneSettings, settingsData);
 		chmodSync(laneSettings, 0o600);
 		const settingsArgs = ["--settings", laneSettings];
+		// W1712: an argv-pinned executor (adapter.modelArgs) rides the lane's
+		// own Buckle /w/<sid> on the minted key with the exact pin — never
+		// the executor's personal seat; no governed ride = launch refused.
+		const pinArgs: string[] = [];
+		if (adapter.modelArgs && pick.model) {
+			const effort = dispatchLaneEffort(store, project, item);
+			const ride = laneRideOf(env, pick.model, effort);
+			if (!ride.ok) throw new Error(ride.why);
+			pinArgs.push(...adapter.modelArgs(ride.ride));
+			appendFileSync(
+				laneLog,
+				`model ride ${item}: ${pick.model} via ${ride.ride.base}\n`,
+			);
+		}
 		// Immutable evidence base survives resumes and later main-branch merges.
 		const completionContext = `${wt}/.fleet/lane-context.json`;
 		mkdirSync(`${wt}/.fleet`, { recursive: true });
@@ -967,11 +1015,14 @@ export const dispatchLane = async (
 			// settings/fork composition; dispatch carries no executor branches.
 			promptArgs: adapter.promptArgs(lanePrompt),
 			promptLast: adapter.promptLast === true,
-			cliArgs: adapter.spawnArgs({
-				fallbackModels: pick.fallbackModels,
-				settingsArgs,
-				forkArgs: laneForkArgs,
-			}),
+			cliArgs: [
+				...pinArgs,
+				...adapter.spawnArgs({
+					fallbackModels: pick.fallbackModels,
+					settingsArgs,
+					forkArgs: laneForkArgs,
+				}),
+			],
 			fleetDir: FLEET,
 			sid,
 		});

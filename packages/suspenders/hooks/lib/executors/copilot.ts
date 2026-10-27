@@ -8,6 +8,8 @@ export const copilotAdapter: ExecutorAdapter = {
 	names: ["copilot"],
 	bin: "copilot",
 	spawnable: true,
+	// BYOK type "openai" appends /chat/completions (buckle agent-recipes-draft)
+	wire: "chat",
 	// W223.2: copilot's prompt layer mangles control bytes/oversized briefs —
 	// a failing brief REFUSES the dispatch (claude runs warn-only).
 	briefHarness: "copilot",
