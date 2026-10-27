@@ -12,7 +12,7 @@ conversation instead.
 | fleet-install | install / sync the suspenders harness |
 | fleet-pulse | read-only fleet digest |
 | build / test / review / ship / spec / plan | engineering workflow |
-| cloud / local / pa | infra operations |
+| cloud / local | infra operations |
 
 ## Routing pins: quoted `prefer` is soft, `hub=` pins
 

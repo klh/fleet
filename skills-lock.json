@@ -19,7 +19,7 @@
 		"fleet-install": {
 			"source": "./skills/fleet-install",
 			"sourceType": "local",
-			"computedHash": "300c1dc3f336f4dda6c8d8759c4fab57a9a739f581b9ac5e907d55a7c360fae7"
+			"computedHash": "b3616d0925d17ed0cf0a856b1beab9c1622520be36f3ee917fd042d9ccf4ec88"
 		},
 		"fleet-pulse": {
 			"source": "./skills/fleet-pulse",
@@ -30,11 +30,6 @@
 			"source": "./skills/local",
 			"sourceType": "local",
 			"computedHash": "8e8b55e79555aa17722a0169de2ba343abdbef7782cf89d6bd32359e0d7b12f0"
-		},
-		"pa": {
-			"source": "./skills/pa",
-			"sourceType": "local",
-			"computedHash": "346a006d5d18afd505cd19f41e9d4fbc8566757e47f207e2e4224800746cdaa6"
 		},
 		"plan": {
 			"source": "./skills/plan",
