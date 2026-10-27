@@ -1,5 +1,9 @@
 import { Database } from "bun:sqlite";
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
+
+// spawn-heavy: nested work CLI + git chains exceed bun's 5s default under
+// parallel gate load.
+setDefaultTimeout(30_000);
 import { createHash } from "node:crypto";
 import {
 	chmodSync,

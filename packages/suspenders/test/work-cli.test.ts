@@ -8,7 +8,11 @@
 // would walk up into the checkout's own .git, colliding project identity.
 
 import { Database } from "bun:sqlite";
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+
+// spawn-heavy: every test runs `bun bin/work.ts` against a fresh temp HOME
+// + git repo; under parallel gate load a spawn chain exceeds bun's 5s default.
+setDefaultTimeout(30_000);
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { gitInit, tmpDir, cleanupDirs } from "./helpers/fixture-kit.ts";
