@@ -203,6 +203,37 @@ describe("quotaSweep", () => {
 		expect(rec.broadcasts[0]).toContain("autow1");
 	});
 
+	test("global reclaim pause holds the reclaim, evidence still reported", async () => {
+		const root = tempRoot();
+		laneLog(
+			root,
+			"autow1",
+			"working\nAPI Error: Request rejected (429) rate_limit_error\n",
+		);
+		mkdirSync(`${root}/.fleet`, { recursive: true });
+		writeFileSync(`${root}/.fleet/reclaim-paused`, "paused\n");
+		const rec = recorders();
+		const report = await quotaSweep({
+			db: governor([
+				{ id: "W1", project: `${root}/.git`, owner_sid: "autow1" },
+			]),
+			buckleDb: null,
+			probeLive: () => false,
+			act: true,
+			...rec.deps,
+			recentEmit: () => false,
+		});
+		expect(report.verdicts[0]?.exhausted).toBeTrue();
+		expect(rec.reclaimed).toEqual([]);
+		expect(
+			report.actions.some(
+				(a) =>
+					a.kind === "reclaim" &&
+					a.detail === "held: automatic recovery paused",
+			),
+		).toBeTrue();
+	});
+
 	test("lane still writing (fresh log) → live, watched not reclaimed", async () => {
 		const root = tempRoot();
 		laneLog(root, "autow2", "API Error (429)\n", 60_000); // 1 min ago
