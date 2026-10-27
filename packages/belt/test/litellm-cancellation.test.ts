@@ -8,9 +8,8 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { freePort, scratchWorld } from "../../test-kit/src/index.ts";
-
 import { startServer } from "../../buckle/src/server.ts";
+import { freePort, scratchWorld } from "../../test-kit/src/index.ts";
 
 test("the real gateway generator enables cancellation in private YAML without changing authentication", async () => {
 	const { home, clean } = scratchWorld({

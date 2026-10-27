@@ -5,23 +5,22 @@
 // the process most likely to be dark when the inventory is needed).
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { scratchWorld } from "../../test-kit/src/index.ts";
-
 import { join, resolve } from "node:path";
-import { EMITTERS, registryEtag, registryJson } from "../bin/registry-emit.ts";
+import { scratchWorld } from "../../test-kit/src/index.ts";
+import { probePathFor } from "../bin/inventory-probe.ts";
 import {
 	ROUTER,
 	registryEntries,
 	SWARM_AGENT,
 	SWARM_LOG,
 } from "../bin/registry.ts";
+import { EMITTERS, registryEtag, registryJson } from "../bin/registry-emit.ts";
 import {
 	directTiersFromRegistry,
 	loadDirectTiers,
 	parseDirect,
 	parseDirectTiersArtifact,
 } from "../bin/router-policy.ts";
-import { probePathFor } from "../bin/inventory-probe.ts";
 
 describe("direct tiers are emitted-only (W289)", () => {
 	test("parseDirect reads the emitted object shape", () => {

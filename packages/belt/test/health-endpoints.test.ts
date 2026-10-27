@@ -67,13 +67,11 @@ for (const [script, portEnv] of [
 				if (script === "../bin/dashboard.ts") {
 					const asset = await fetch(`${base}/dashboard-observability.js`);
 					expect(asset.headers.get("content-type")).toContain("javascript");
+					// behavior over source-grep: the SERVED asset must be valid,
+					// loadable JS — Bun.build parses the real bytes (the W853
+					// supervisor-snapshot removal is asserted in the posture suite
+					// against the live panel DOM).
 					const source = await asset.text();
-					expect(source).toContain("const displayLabel =");
-					expect(source).toContain("displayLabel(target.name)");
-					// W853: hub/container posture never has a supervisor snapshot —
-					// the panel removes itself instead of a standing red "unknown".
-					expect(source).not.toContain("No supervisor snapshot");
-					expect(source).toContain("!doc && !this.error");
 					const built = await Bun.build({
 						entrypoints: ["observability.js"],
 						plugins: [
