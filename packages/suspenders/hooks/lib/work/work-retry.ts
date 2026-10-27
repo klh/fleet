@@ -6,9 +6,14 @@
 // fresh attempt count. Superseded/DONE/CANCELLED stay closed — retry never
 // rewrites history; it only re-opens work the environment killed.
 import { launchSchema } from "../../../scripts/lib/launch-fencing.ts";
-import { budgetFlagClear } from "../usage/budget-flag.ts";
 import type { GovernorStore } from "../govdb/govdb.ts";
-import { reactivationRefusal } from "./work-completion-record.ts";
+import { budgetFlagClear } from "../usage/budget-flag.ts";
+import {
+	COMPLETION_LOOKUP_UNAVAILABLE,
+	CompletionLookupUnavailableError,
+	type ReactivationRefusal,
+	reactivationRefusal,
+} from "./work-completion-record.ts";
 
 type Row = {
 	state: string;
@@ -39,7 +44,21 @@ export function retryFailedItem(
 		if (!it) return { ok: false, error: `no such work item: ${id}` };
 		// W1173: a retained completion record is completed history — retry is
 		// the reactivation gate and refuses with the deterministic diagnostic.
-		const reactivation = reactivationRefusal(store, project, id);
+		// W1173.1.1: when the gate's lookup cannot prove absence (store
+		// unavailable, transient failure) the refusal propagates in the
+		// established shape instead of reading as "no record".
+		let reactivation: ReactivationRefusal | null;
+		try {
+			reactivation = reactivationRefusal(store, project, id);
+		} catch (e) {
+			if (e instanceof CompletionLookupUnavailableError)
+				return {
+					ok: false,
+					error: e.message,
+					code: COMPLETION_LOOKUP_UNAVAILABLE,
+				};
+			throw e;
+		}
 		if (reactivation)
 			return {
 				ok: false,
