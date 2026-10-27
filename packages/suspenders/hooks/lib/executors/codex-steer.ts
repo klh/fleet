@@ -1,7 +1,10 @@
 // Direct Fleet events can steer an active Codex app-server turn. A detached
 // `codex exec` process has no app-server turn to address; its durable coord
 // inbox remains the fallback until dispatch uses a steerable runtime.
+// W1052.2.2: managed lanes serve the same JSON-RPC face on a per-lane unix
+// socket (`codex.sock.<sid>` fact) — the steer client rides that socket.
 import { spawn } from "node:child_process";
+import { connect } from "node:net";
 import { createInterface } from "node:readline";
 
 export type CoordDirectEvent = {
@@ -44,7 +47,12 @@ export function codexEventText(event: CoordDirectEvent): string {
  * agent acted or acknowledged the durable Fleet inbox entry. */
 export async function steerCodexDirectEvent(
 	event: CoordDirectEvent,
-	opts: { threadId?: string; rpc?: Rpc; command?: string[] } = {},
+	opts: {
+		threadId?: string;
+		rpc?: Rpc;
+		command?: string[];
+		sock?: string;
+	} = {},
 ): Promise<CodexDelivery> {
 	if (!event.target || !DIRECT_KINDS.has(event.kind))
 		return { state: "ignored", reason: "not a direct message or consult" };
@@ -56,7 +64,8 @@ export async function steerCodexDirectEvent(
 		};
 	let close: (() => void) | undefined;
 	try {
-		const rpc = opts.rpc ?? (await connectCodexAppServer(opts.command));
+		const rpc =
+			opts.rpc ?? (await connectCodexAppServer(opts.command, opts.sock));
 		if (!opts.rpc) close = (rpc as ManagedRpc).close;
 		const read = (await rpc("thread/read", {
 			threadId,
@@ -90,14 +99,28 @@ export async function steerCodexDirectEvent(
 
 type ManagedRpc = Rpc & { close: () => void };
 
-/** Codex 0.158 app-server's documented JSON-RPC proxy. It connects only to
- * an already-running shared daemon and never starts a new Codex session. */
+/** Codex 0.158 app-server's documented JSON-RPC face. Default transport is
+ * the shared-daemon proxy (connects only to an already-running daemon,
+ * never starts a new Codex session); a managed lane's per-lane steer socket
+ * (the `codex.sock.<sid>` fact) is addressed with `sock`. */
 export async function connectCodexAppServer(
-	command = ["codex", "app-server", "proxy"],
+	command: string[] = ["codex", "app-server", "proxy"],
+	sock?: string,
 ): Promise<ManagedRpc> {
-	const child = spawn(command[0], command.slice(1), {
-		stdio: ["pipe", "pipe", "pipe"],
-	});
+	const channel = sock
+		? connect({ path: sock })
+		: spawn(command[0], command.slice(1), {
+				stdio: ["pipe", "pipe", "pipe"],
+			});
+	const send = (line: string): void => {
+		if ("stdin" in channel) channel.stdin.write(line);
+		else channel.write(line);
+	};
+	const shut = (): void => {
+		if ("stdin" in channel) channel.kill();
+		else channel.end();
+	};
+	const inlet = "stdin" in channel ? channel.stdout : channel;
 	const pending = new Map<
 		number,
 		{
@@ -117,10 +140,12 @@ export async function connectCodexAppServer(
 		}
 		pending.clear();
 	};
-	child.on("error", (error) => stop(error.message));
-	child.on("close", (code) => stop(`app-server proxy exited ${code}`));
-	child.stdin.on("error", (error) => stop(error.message));
-	const lines = createInterface({ input: child.stdout });
+	channel.on("error", (error) => stop(error.message));
+	channel.on("close", () => stop("app-server transport closed"));
+	("stdin" in channel ? channel.stdin : channel).on("error", (error) =>
+		stop(error.message),
+	);
+	const lines = createInterface({ input: inlet });
 	lines.on("line", (line) => {
 		let response: {
 			id?: number;
@@ -150,18 +175,18 @@ export async function connectCodexAppServer(
 				reject(new Error(`${method} timed out`));
 			}, 2000);
 			pending.set(id, { resolve, reject, timer });
-			child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
+			send(`${JSON.stringify({ id, method, params })}\n`);
 		});
 	}) as ManagedRpc;
 	rpc.close = () => {
-		stop("app-server proxy closed");
-		child.kill();
+		stop("app-server transport closed");
+		shut();
 	};
 	try {
 		await rpc("initialize", {
 			clientInfo: { name: "fleet-coord", version: "1" },
 		});
-		child.stdin.write(`${JSON.stringify({ method: "initialized" })}\n`);
+		send(`${JSON.stringify({ method: "initialized" })}\n`);
 		return rpc;
 	} catch (error) {
 		rpc.close();

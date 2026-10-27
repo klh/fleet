@@ -1,5 +1,6 @@
 // hooks/lib/executors/codex.ts — the codex CLI adapter (W422 law: one file
 // per agent; facts verified W73/W296 + the 0.158 binary probes).
+import { join } from "node:path";
 import type { ExecutorAdapter } from "../lanes/lane.ts";
 import { codexEvidence } from "./codex-evidence.ts";
 
@@ -8,6 +9,18 @@ export const codexAdapter: ExecutorAdapter = {
 	names: ["codex"],
 	bin: "codex",
 	spawnable: true,
+	// W1052.2.2: lanes ride the managed app-server turn (steerable, socket-
+	// surfaced, NDJSON-pumped) — the native binary rides the env channel.
+	managedRuntime: {
+		entrypoint: join(
+			import.meta.dir,
+			"..",
+			"..",
+			"bin",
+			"codex-managed-turn.ts",
+		),
+		nativeBinEnv: "SUSPENDERS_CODEX_NATIVE_BIN",
+	},
 	// No observed codex brief mangling — warn-only (verifyBrief has no codex
 	// profile yet; adding one = one brief-verify row, zero core branches).
 	briefHarness: "claude",

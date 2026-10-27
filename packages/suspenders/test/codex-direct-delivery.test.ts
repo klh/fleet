@@ -36,7 +36,10 @@ test("only addressed direct events are steered; absent mapping stays queued", as
 		calls.push(args);
 		return { state: "steered" as const, turnId: "turn-live" };
 	};
-	expect(await deliverSubscribedCodexEvent(event, sid, sid, steer)).toEqual({
+	// W1052.2.2: the 4th slot is the managed lane's steer socket (none here)
+	expect(
+		await deliverSubscribedCodexEvent(event, sid, sid, null, steer),
+	).toEqual({
 		state: "steered",
 		turnId: "turn-live",
 	});
@@ -46,6 +49,7 @@ test("only addressed direct events are steered; absent mapping stays queued", as
 			{ ...event, target: "other" },
 			sid,
 			sid,
+			null,
 			steer,
 		),
 	).toMatchObject({ state: "ignored" });
@@ -54,11 +58,12 @@ test("only addressed direct events are steered; absent mapping stays queued", as
 			{ ...event, kind: "BROADCAST" },
 			sid,
 			sid,
+			null,
 			steer,
 		),
 	).toMatchObject({ state: "ignored" });
 	expect(
-		await deliverSubscribedCodexEvent(event, sid, null, steer),
+		await deliverSubscribedCodexEvent(event, sid, null, null, steer),
 	).toMatchObject({ state: "unsupported" });
 	expect(calls).toHaveLength(1);
 });

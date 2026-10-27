@@ -11,6 +11,7 @@ import { statSync } from "node:fs";
 import { hostname } from "node:os";
 import { signalClaudeDirectEvent } from "../lib/executors/claude-wake.ts";
 import {
+	codexSockForSession,
 	codexThreadForSession,
 	deliverSubscribedCodexEvent,
 } from "../lib/executors/codex-direct-delivery.ts";
@@ -456,11 +457,15 @@ export async function cmdSubscribe(rest: string[]): Promise<void> {
 				.then(async () => {
 					const threadId = codexThreadForSession(db, as);
 					if (!threadId) return;
+					// Managed lanes steer over their per-lane socket (W1052.2.2);
+					// detached exec lanes keep the shared-daemon proxy fallback.
+					const sock = codexSockForSession(db, as);
 					const proxy = process.env.SUSPENDERS_CODEX_BIN;
 					const result = await deliverSubscribedCodexEvent(
 						event,
 						as,
 						threadId,
+						sock,
 						proxy
 							? (direct, opts) =>
 									steerCodexDirectEvent(direct, {
