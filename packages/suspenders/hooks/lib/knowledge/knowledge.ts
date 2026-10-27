@@ -66,6 +66,11 @@ export interface KnowledgeHit {
 	rating?: string | null;
 	evidence?: string | null;
 	researched_at?: number | null;
+	// W1228 invalidation: set when a landed change touched the row's source
+	// (source_ref/area/text path match) — the STALE marker renders on the
+	// prose cards; reason rides the row.
+	stale_at?: number | null;
+	stale_reason?: string | null;
 }
 
 // FTS5 MATCH term list: quoted, OR-joined — bm25 ranks the union, so a
@@ -507,12 +512,15 @@ export function proseCards(
 			// re-hashing a scrubbed hit would fake an "unverified" marker)
 			const trust = h.trust ?? trustOf(h.source_ref, h.source_hash, root);
 			const hop = h.hop === 1 ? ` · 1-hop ${h.via}` : "";
+			// W1228: the invalidation marker rides the bracket — a stale row says
+			// so at recall time, before anyone relies on it
+			const stale = h.stale_at ? " · STALE" : "";
 			// W836 trust schema: the audit rating + evidence ref ride the marker
 			// line when the row carries them (grade-stamped, not the distiller)
 			const rated = h.rating ? ` · ${h.rating}` : "";
 			const ev = h.evidence ? ` · ev ${h.evidence}` : "";
 			lines.push(
-				`k#${h.id} · ${h.topic ?? "(untitled)"} [${h.state ?? "?"} · ${confTag(h.confidence)} · age ${h.ageDays ?? "?"}d · hash ${trust}${hop}${rated}${ev}]`,
+				`k#${h.id} · ${h.topic ?? "(untitled)"} [${h.state ?? "?"} · ${confTag(h.confidence)} · age ${h.ageDays ?? "?"}d · hash ${trust}${hop}${rated}${ev}${stale}]`,
 				`  ${h.fact ?? h.snippet}`,
 				`  source: ${h.source_ref ?? h.code_origin ?? "none"}${h.domain ? ` · domain ${h.domain}` : ""}${h.area ? ` · area ${h.area}` : ""}`,
 			);

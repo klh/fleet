@@ -803,6 +803,18 @@ export function makeStore(): KnowledgeStore {
 		);
 	return new SqliteKnowledgeStore(openKnowledgeDb());
 }
+
+// W1228: the consumer face for raw knowledge.db access — only this store
+// owner opens the file (W92); consumers run their read/write through here.
+export function withKnowledgeDb<T>(fn: (kb: Database) => T): T {
+	const db = openKnowledgeDb();
+	try {
+		return fn(db);
+	} finally {
+		db.close();
+	}
+}
+
 // producer seam (#9b): enqueue through the port, never INSERT directly — a
 // producer in another repo/machine keeps working when the store moves
 export async function enqueueKnowledge(job: {

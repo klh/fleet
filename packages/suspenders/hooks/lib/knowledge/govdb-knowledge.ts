@@ -295,6 +295,13 @@ export function openKnowledgeDb(): Database {
 			db.run("ALTER TABLE knowledge ADD COLUMN provenance TEXT");
 		if (!kCols.includes("confidence_stamp"))
 			db.run("ALTER TABLE knowledge ADD COLUMN confidence_stamp TEXT");
+		// W1228 invalidation: set when a landed change touched the row's
+		// source (source_ref/area/text match) — revisit before relying; the
+		// append-only contributors note carries the why, never a delete.
+		if (!kCols.includes("stale_at"))
+			db.run("ALTER TABLE knowledge ADD COLUMN stale_at INTEGER");
+		if (!kCols.includes("stale_reason"))
+			db.run("ALTER TABLE knowledge ADD COLUMN stale_reason TEXT");
 	}
 	db.run(CONFIDENCE_HISTORY_DDL);
 	db.run(CONFIDENCE_HISTORY_INDEX_DDL);

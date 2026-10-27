@@ -321,7 +321,7 @@ export async function cmdFact(rest: string[]): Promise<void> {
 	} else if (sub === "get") {
 		const r = db
 			.query(
-				"SELECT value, version, ts, confidence, confidence_stamp, provenance FROM facts WHERE key = ?",
+				"SELECT value, version, ts, confidence, confidence_stamp, provenance, stale_at, stale_reason FROM facts WHERE key = ?",
 			)
 			.get(rest[1] ?? "") as
 			| {
@@ -331,6 +331,8 @@ export async function cmdFact(rest: string[]): Promise<void> {
 					confidence: number | null;
 					confidence_stamp: string | null;
 					provenance: string | null;
+					stale_at: number | null;
+					stale_reason: string | null;
 			  }
 			| undefined;
 		console.log(r ? `${r.value} (v${r.version})` : "(unset)");
@@ -338,6 +340,12 @@ export async function cmdFact(rest: string[]): Promise<void> {
 		for (const line of renderProvenance(r?.provenance)) console.log(dim(line));
 		const st = parseStamp(r?.confidence_stamp);
 		if (st) console.log(dim(`  ${renderStamp(st)}`));
+		if (r?.stale_at)
+			console.log(
+				dim(
+					`  STALE since ${new Date(r.stale_at).toISOString().slice(0, 10)}: ${(r.stale_reason ?? "").slice(0, 90)}`,
+				),
+			);
 		console.log(dim(FACT_SCHEMA_NOTE));
 	} else if (sub === "list") {
 		// W466 bounding: the facts table is the knowledge read surface. Machine
@@ -361,7 +369,7 @@ export async function cmdFact(rest: string[]): Promise<void> {
 			limit > 0 ? ` ORDER BY key LIMIT ${Math.floor(limit)}` : " ORDER BY key";
 		const rows = db
 			.query(
-				`SELECT key, value, version, ts, confidence, confidence_stamp FROM facts WHERE ${where}${orderLimit}`,
+				`SELECT key, value, version, ts, confidence, confidence_stamp, stale_at, stale_reason FROM facts WHERE ${where}${orderLimit}`,
 			)
 			.all(...params) as {
 			key: string;
@@ -370,6 +378,8 @@ export async function cmdFact(rest: string[]): Promise<void> {
 			ts: number;
 			confidence: number | null;
 			confidence_stamp: string | null;
+			stale_at: number | null;
+			stale_reason: string | null;
 		}[];
 		console.log(
 			rows.length
@@ -382,7 +392,12 @@ export async function cmdFact(rest: string[]): Promise<void> {
 							const grade = st
 								? `  ${glyphFor(st.value)}${r.confidence ?? st.value}`
 								: "";
-							return `${r.key} = ${r.value}  (v${r.version})${grade}`;
+							// W1228: the invalidation marker rides the line — revisit
+							// before relying, never a delete
+							const stale = r.stale_at
+								? `  STALE ${new Date(r.stale_at).toISOString().slice(0, 10)}`
+								: "";
+							return `${r.key} = ${r.value}  (v${r.version})${grade}${stale}`;
 						})
 						.join("\n")
 				: "(no facts)",
@@ -844,6 +859,33 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 	const f = db
 		.query("DELETE FROM facts WHERE key LIKE 'lane.%' AND ts < ?")
 		.run(cut).changes;
+	// W1228 scope/age forget: --forget prefix:days (comma set) extends the
+	// lane.% age prune to any namespace. Machine cursor namespaces are
+	// refused — v12 moved them to machine_cursors, and a facts row in that
+	// shape is machine state, not knowledge (W466).
+	const forgot: string[] = [];
+	for (const spec of (arg("--forget") ?? "").split(",")) {
+		const s = spec.trim();
+		if (!s) continue;
+		const ci = s.lastIndexOf(":");
+		const prefix = ci > 0 ? s.slice(0, ci) : "";
+		const days = Number(s.slice(ci + 1));
+		if (!prefix || !Number.isFinite(days) || days < 0)
+			die(`gc: --forget wants prefix:days, got "${s}"`);
+		if (
+			!/^[\w.-]+$/.test(prefix) ||
+			/^(activity|usage|usage\.v2)\.tp\./.test(prefix)
+		)
+			die(
+				`gc: --forget refuses "${prefix}" — word/dot/dash prefixes only, machine cursor namespaces are never forgettable`,
+			);
+		const cutS = Date.now() - days * 86_400_000;
+		const n = db
+			.query("DELETE FROM facts WHERE key LIKE ? AND ts < ?")
+			.run(`${prefix}%`, cutS).changes;
+		forgot.push(`${prefix.replace(/\.$/, "")}>${days}d: ${n}`);
+	}
+	if (forgot.length) console.log(`gc: forgot ${forgot.join(", ")}`);
 	// W466: machine cursors live in machine_cursors (govdb v12) — facts rows
 	// in the cursor namespaces are strays from pre-v12 writers (mixed fleet);
 	// move them along so the knowledge surface stays clean. The machine

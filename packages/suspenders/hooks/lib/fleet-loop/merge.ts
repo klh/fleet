@@ -13,6 +13,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { flagIntegratedCode } from "../decomposition.ts";
+import { invalidateForLanding } from "../knowledge/knowledge-invalidate.ts";
+import { withKnowledgeDb } from "../knowledge/sqlite-store.ts";
 import {
 	checkReviewReceipt,
 	recordLanding,
@@ -278,6 +280,33 @@ export function createMergeLadder(
 					`QLTY-FIX-LEFT ${b}: ${fix.left} unfixable issue(s) — logged, never blocks`,
 				);
 			if (fix.head) after = fix.head;
+			// W1228 landing invalidation: the merged diff flags matching
+			// knowledge/facts stale-for-review and promotes the item's
+			// finding.* facts — fail-open, never blocks a merge.
+			try {
+				const gov = openStore();
+				try {
+					const inv = withKnowledgeDb((kb) =>
+						invalidateForLanding({
+							repo: REPO,
+							item: claim.item,
+							sha: after,
+							base: before,
+							via: "merge",
+							gov,
+							kb,
+						}),
+					);
+					if (inv)
+						log(
+							`KNOWLEDGE-STALE ${b}: ${inv.knowledge} row(s), ${inv.facts} fact(s) flagged; promoted: ${inv.promoted.join(", ") || "none"}`,
+						);
+				} finally {
+					gov.close();
+				}
+			} catch (error) {
+				log(`KNOWLEDGE-STALE-FAILED ${b} — ${String(error).slice(0, 200)}`);
+			}
 			// W1302.2 (A6): post-merge dangling-path scan — deleted paths still
 			// referenced by live files, and unresolvable specifiers among the
 			// merge's own delta. Fail-open: new edges bank into the one open

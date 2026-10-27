@@ -8,7 +8,7 @@ import {
 	renderKnowledgeSuggestion,
 	suggestKnowledge,
 } from "../knowledge/kev-curation.ts";
-import { queueCompletionKnowledge } from "./work-knowledge.ts";
+import { landCompletionKnowledge } from "./work-knowledge.ts";
 
 type CurationStore = Parameters<typeof recordKnowledgeSuggestion>[0];
 
@@ -39,11 +39,12 @@ export async function curateCompletionKnowledge(args: {
 	}
 	console.log(renderKnowledgeSuggestion(verdict));
 	if (!args.record) return;
-	const knowledge = await queueCompletionKnowledge(
+	const knowledge = await landCompletionKnowledge(
 		args.db,
 		args.record,
 		args.title,
 		verdict,
+		{ repo: process.cwd() },
 	);
 	if (knowledge.status === "queued")
 		console.log(`knowledge candidate queued #${knowledge.qid}`);
