@@ -1,4 +1,4 @@
-import { closeSync, fstatSync, openSync, readSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs";
 import type { GovernorStore } from "../../hooks/lib/govdb/govdb.ts";
 import { releaseWorkClaim } from "../../hooks/lib/work/work-release.ts";
 import { launchSchema } from "./launch-fencing.ts";
@@ -67,14 +67,27 @@ const MAX_RETRY_AFTER_MS = 15 * 60_000;
 const key = (project: string, item: string): string =>
 	`${KEY_PREFIX}${Bun.hash(project).toString(16)}.${item}`;
 
-/** Only a small tail is inspected. The complete, unchanged error stays in the lane log. */
-export function launchLogTail(path: string): string {
+/** Attempt-scoped evidence (W1165): the lane log is append-only across
+ *  attempts, so its tail mixes transcript frames from older runs. Only bytes
+ *  appended after `before` (the size the launcher measured at spawn) can
+ *  belong to the current attempt — classification reads that region alone,
+ *  never old assistant/tool/code frames, and stays bounded. */
+export function launchLogSize(path: string): number {
+	try {
+		return statSync(path).size;
+	} catch {
+		return 0;
+	}
+}
+
+export function launchLogAppended(path: string, before: number): string {
 	let fd: number | undefined;
 	try {
 		fd = openSync(path, "r");
 		const size = fstatSync(fd).size;
-		const bytes = Buffer.alloc(Math.min(size, 16_384));
-		readSync(fd, bytes, 0, bytes.length, size - bytes.length);
+		const start = Math.max(before, size - 16_384);
+		const bytes = Buffer.alloc(Math.max(0, size - start));
+		readSync(fd, bytes, 0, bytes.length, start);
 		return bytes.toString("utf8");
 	} catch {
 		return "";
@@ -152,7 +165,12 @@ export function readLaunchBackoff(
 	}
 }
 
-/** Record a retry decision without duplicating possibly sensitive provider bodies. */
+/** Record a retry decision from the current attempt's own evidence only
+ *  (W1165): `appended` is the launcher-captured text THIS attempt produced
+ *  after spawn — never the append-only transcript. Without it (no new native
+ *  launch, or a launcher that saw no output) the record stays
+ *  unknown/launch-exited on the bounded step ladder: old transcript text can
+ *  neither schedule a provider wall nor mint an auth/configuration hold. */
 export function scheduleLaunchBackoff(
 	store: GovernorStore,
 	project: string,
@@ -160,10 +178,10 @@ export function scheduleLaunchBackoff(
 	log: string,
 	step: number,
 	now = Date.now(),
-	evidence = launchLogTail(log),
+	appended: string | null = null,
 ): LaunchBackoff {
 	const previous = readLaunchBackoff(store, project, item);
-	const failure = classifyLaunchFailure(evidence, now);
+	const failure = classifyLaunchFailure(appended ?? "", now);
 	const index = Math.min(
 		Math.max(step, previous?.failures ?? 0, 0),
 		RETRY_STEPS_MS.length - 1,
@@ -194,6 +212,37 @@ export function scheduleLaunchBackoff(
 		.run(now, project, JSON.stringify({ item, ...record }));
 	return record;
 }
+
+/** No new native launch — re-arm a dead lane's hold without evidence (W1165):
+ *  the record stays unknown/launch-exited on the bounded step ladder. */
+export const rearmLaunchHold = (
+	store: GovernorStore,
+	project: string,
+	item: string,
+	log: string,
+	step: number,
+): LaunchBackoff =>
+	scheduleLaunchBackoff(store, project, item, log, step, Date.now());
+
+/** The launcher observed THIS attempt exit: classify from the bytes the
+ *  attempt itself appended after `spawnLogSize` — never the transcript. */
+export const launchFailBackoff = (
+	store: GovernorStore,
+	project: string,
+	item: string,
+	log: string,
+	step: number,
+	spawnLogSize: number,
+): LaunchBackoff =>
+	scheduleLaunchBackoff(
+		store,
+		project,
+		item,
+		log,
+		step,
+		Date.now(),
+		launchLogAppended(log, spawnLogSize),
+	);
 
 /** A proved-dead launch may start a fresh budget after the claim is READY. */
 export function resetDeadLaunchBudget(
@@ -250,6 +299,8 @@ export function parkExhaustedLaunch(
 		)
 			return null;
 	} else if (row.state !== "READY") return null;
+	// No new native launch happened here (W1165): no attempt-scoped evidence
+	// exists, so the parked hold stays on the unknown step ladder.
 	const backoff = scheduleLaunchBackoff(store, project, item, log, step, now);
 	resetDeadLaunchBudget(store, project, item, sid);
 	return backoff;

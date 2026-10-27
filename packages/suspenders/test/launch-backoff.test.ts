@@ -1,10 +1,17 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 import {
 	classifyLaunchFailure,
+	launchFailBackoff,
+	launchLogAppended,
+	launchLogSize,
 	parkExhaustedLaunch,
 	readLaunchBackoff,
+	rearmLaunchHold,
 	scheduleLaunchBackoff,
 } from "../scripts/lib/launch-backoff.ts";
 
@@ -80,6 +87,51 @@ test("retry steps increase, preserve the original evidence location, and respect
 	).toEqual({ n: 2 });
 	db.close();
 });
+
+test("W1165: transcript text never classifies; only attempt-scoped appended bytes do", () => {
+	const dir = mkdtempSync(join(tmpdir(), "w1165-"));
+	const log = join(dir, "lane.log");
+	try {
+		// OLD frames: a prior attempt's transcript noise sits in the log
+		writeFileSync(
+			log,
+			"assistant: HTTP 429 too many requests\ninvalid api key\n",
+		);
+		const { db, store } = fixture();
+		// No new native launch: the re-armed hold stays unknown, no wall
+		const hold = rearmLaunchHold(store, "p", "W1", log, 0);
+		expect(hold.kind).toBe("unknown");
+		expect(hold.code).toBe("launch-exited");
+		expect(hold.retryAfterMs).toBeNull();
+		// THIS attempt's appended output is the only classification evidence
+		const before = launchLogSize(log);
+		appendFileSync(log, "API Error: 429 too many requests; Retry-After: 43\n");
+		const failed = launchFailBackoff(store, "p", "W1", log, 1, before);
+		expect(failed.kind).toBe("rate-limit");
+		expect(failed.retryAfterMs).toBe(43_000);
+		db.close();
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}, 30_000);
+
+test("launchLogAppended reads only post-spawn bytes and caps the window", () => {
+	const dir = mkdtempSync(join(tmpdir(), "w1165-"));
+	const log = join(dir, "lane.log");
+	try {
+		writeFileSync(log, "x".repeat(20_000));
+		const before = launchLogSize(log);
+		appendFileSync(log, `${"y".repeat(16_400)}429`);
+		const appended = launchLogAppended(log, before);
+		expect(appended.length).toBeLessThanOrEqual(16_384);
+		expect(appended.startsWith("y")).toBe(true);
+		expect(appended.endsWith("429")).toBe(true);
+		expect(launchLogAppended(log, launchLogSize(log))).toBe("");
+		expect(launchLogSize(join(dir, "absent.log"))).toBe(0);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}, 30_000);
 
 test("exhausted dead launch returns the same work item to READY and resets its budget", () => {
 	const { db, store } = fixture();

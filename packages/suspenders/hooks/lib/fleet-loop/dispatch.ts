@@ -40,6 +40,8 @@ import {
 import { launchParent } from "../lanes/launch-parent.ts";
 import { laneAttemptLimit } from "../lanes/lane-retry-budget.ts";
 import {
+	launchLogAppended,
+	launchLogSize,
 	parkExhaustedLaunch,
 	readLaunchBackoff,
 	scheduleLaunchBackoff,
@@ -480,6 +482,10 @@ export async function runDispatch(
 		const slab = laneClassOf(AGENT);
 		const js = jobslabFor(slab, `${REPO}/.fleet`);
 		const fenced = fencedExecutor(`${REPO}/.fleet`, intent);
+		// W1165: measure the log before spawn — only bytes appended after this
+		// point are the current attempt's own output, the sole classification
+		// evidence if the executor dies during launch.
+		const logSizeAtSpawn = launchLogSize(laneLog);
 		proc = Bun.spawn(
 			[
 				"/bin/sh",
@@ -507,6 +513,8 @@ export async function runDispatch(
 				item,
 				laneLog,
 				attempt,
+				Date.now(),
+				launchLogAppended(laneLog, logSizeAtSpawn),
 			);
 			console.error(
 				`WAIT ${item} — ${backoff.kind} launch retry after ${new Date(backoff.eligibleAt).toISOString()} (evidence ${laneLog})`,
