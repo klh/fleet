@@ -87,3 +87,6 @@ packages/suspenders/test/hub-providers.test.ts:generic-api-key:189
 packages/suspenders/deploy/singbox/lifecycle.test.ts:generic-api-key:83
 packages/suspenders/deploy/singbox/lifecycle.test.ts:generic-api-key:140
 packages/suspenders/deploy/singbox/lifecycle.test.ts:generic-api-key:176
+# W1203/W1226 disposition (base fixture, first-hand read 2026-10-22): invented
+# provider-key test fixture — the test asserts it never reaches an output surface
+05177bc10f165d2e06e5278067c6c34487e80b51:packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83
