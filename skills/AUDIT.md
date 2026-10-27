@@ -55,7 +55,6 @@ the never-triggered set is now continuous, not a one-off cleanup.
 | fleet-pulse | 3 · data/analysis | the fleet's monitoring-read face |
 | local | 9 · infra ops | inference-posture switch, guarded |
 | cloud | 9 · infra ops | inverse of local |
-| pa | 4 · process | personal-assistant workflow, LEVEL A guardrails |
 
 ⚠ = straddler. One true kitchen-sink: **fleet** renders live state AND flips
 a guarded global (governance mode). Split candidate: narrow `fleet` to the
