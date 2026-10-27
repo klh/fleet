@@ -136,6 +136,13 @@ describe("readCacheSlaStatus", () => {
 	});
 });
 
+describe("cacheSlaStatusPath (W1779 dangling-path pin)", () => {
+	test("the sla.json literal resolves via KLH_CACHE_SLA_STATUS to the tmp fixture — no repo-relative sla.json", () => {
+		expect(cacheSlaStatusPath()).toBe(join(tmp, "sla.json"));
+		expect(existsSync("packages/suspenders/test/sla.json")).toBe(false);
+	});
+});
+
 describe("cache-sla maintenance task (W779 pairing)", () => {
 	test("registry carries the heartbeat-born cache-sla sweep", () => {
 		const task = MAINTENANCE_TASKS.find((t) => t.name === "cache-sla");
