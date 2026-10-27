@@ -22,6 +22,7 @@ import {
 } from "../hooks/lib/fleet-loop/dangling-classify.ts";
 import {
 	AGGREGATE_TITLE,
+	type DanglingRef,
 	bankDanglingRefs,
 	danglingReferences,
 	parseGrepRows,
@@ -597,6 +598,107 @@ const commitAll = (repo: string): string => {
 };
 
 describe("W1302.8 classified scan + one aggregate", () => {
+	test("W2172: the mint gate drops phantom edges, banks real-form and history-backed ones", async () => {
+		const repo = await base();
+		await Bun.write(Bun.file(join(repo, "was-real.ts")), "export {};\n");
+		const tree = commitAll(repo);
+		g(repo, ["rm", "-qf", "was-real.ts"]);
+		commitAll(repo);
+		const db = memStore();
+		try {
+			const kit = aggregateKit(db, "p1");
+			const phantom: DanglingRef[] = [
+				{
+					// the W2061 shape: comment apostrophe prose as a target+spec
+					target: "hooks/bin/s VERDICT matches review-lane.ts",
+					refBy: "hooks/bin/oracle.ts",
+					line: 0,
+					specifier: "s VERDICT matches review-lane.ts",
+				},
+				{
+					// the W1807 shape: a bare fixture string as the specifier
+					target: "test/flood.ts",
+					refBy: "test/install-llm-steps.test.ts",
+					line: 0,
+					specifier: "flood.ts",
+				},
+			];
+			expect(
+				bankDanglingRefs(repo, "lane", phantom, tree, {
+					db,
+					enqueue: kit.enqueue,
+				}),
+			).toEqual([]);
+			expect(kit.minted).toEqual([]);
+			// a real-form specifier banks even when the target never existed
+			// (the W1304 old-depth shape); the history arm saves a no-form
+			// specifier whose target was a real repo path
+			const real: DanglingRef[] = [
+				edge("bin/never/existed.ts", "lib/caller.ts"),
+				{
+					target: "was-real.ts",
+					refBy: "lib/caller.ts",
+					line: 0,
+					specifier: "was-real.ts",
+				},
+			];
+			const banked = bankDanglingRefs(repo, "lane", real, tree, {
+				db,
+				enqueue: kit.enqueue,
+			});
+			expect(banked.map((r) => r.target)).toEqual([
+				"bin/never/existed.ts",
+				"was-real.ts",
+			]);
+			expect(kit.minted).toHaveLength(1);
+		} finally {
+			db.close();
+		}
+	});
+
+	test("W2172: comment prose never mints — live-file and test-file shapes", async () => {
+		const repo = await base();
+		// the W2061 phantom class: a comment apostrophe pairing across prose
+		// with a real path name — never a reference
+		const comment =
+			"// VERDICT line matches gone.ts's parse of the buffer; it doesn't bother\n";
+		const prose = `export const X = 1;\n${comment}`;
+		expect(referencesIn("hooks/bin/oracle.ts", prose)).toEqual([]);
+		expect(
+			referencesIn(
+				"test/oracle.test.ts",
+				`import { test } from "bun:test";\n${prose}`,
+			),
+		).toEqual([]);
+		// ...even wrapped around a genuine runtime join — the join itself is
+		// the only reference the file carries
+		const joined = `import { join } from "node:path";\n${comment}const ORACLE = join(import.meta.dir, "oracle.ts");\nexport const X = ORACLE;\n`;
+		expect(referencesIn("hooks/bin/oracle.ts", joined)).toEqual([
+			{ spec: "./oracle.ts", kind: "dir-join" },
+		]);
+		// probe1: the same prose quoting a deleted path's name never finds
+		// an edge — the file carries no syntax reference onto it
+		await Bun.write(Bun.file(join(repo, "lib", "gone.ts")), "export {};\n");
+		await Bun.write(Bun.file(join(repo, "hooks", "bin", "oracle.ts")), joined);
+		// probe1: the prose quoting a deleted path's name never finds an edge
+		// — the file carries no syntax reference onto it
+		const tree = commitAll(repo);
+		g(repo, ["rm", "-qf", "lib/gone.ts"]);
+		const after = commitAll(repo);
+		expect(danglingReferences(repo, tree, after)).toHaveLength(0);
+		// the real import edge still surfaces: side.ts imports the deleted path
+		g(repo, ["reset", "-q", "--hard", tree]);
+		await Bun.write(
+			Bun.file(join(repo, "side.ts")),
+			'import { x } from "./lib/gone.ts";\nexport const y = x;\n',
+		);
+		const tree2 = commitAll(repo);
+		g(repo, ["rm", "-qf", "lib/gone.ts"]);
+		const after2 = commitAll(repo);
+		const hits = danglingReferences(repo, tree2, after2);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].refBy).toBe("side.ts");
+	});
 	test("W2161: vanished-payload error text is not a filesystem reference", () => {
 		const body =
 			'throw new Error("Payload faces vanished from the source tree: packages/belt/bin/dashboard.ts");\n';

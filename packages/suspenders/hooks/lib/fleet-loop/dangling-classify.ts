@@ -122,9 +122,17 @@ export function pathLiterals(body: string): string[] {
 }
 
 function keep(spec: string, kind: RefKind): boolean {
-	if (!REFERENCE_FORM.test(spec) || !CONCRETE.test(spec)) return false;
+	if (!isPathForm(spec)) return false;
 	if (spec.includes("...")) return false; // doc ellipsis
 	return kind === "import" || ASSET_EXT.test(spec);
+}
+
+/** W2172 mint guard, form arm: a real relative/import-path form — dot-prefixed
+ * relative or @klh/ package path, no whitespace. Comment prose, apostrophe
+ * phantoms and bare fixture strings never have it; the W2172 mint gate also
+ * accepts a git-history existence proof in their place (see dangling-paths). */
+export function isPathForm(spec: string): boolean {
+	return REFERENCE_FORM.test(spec) && CONCRETE.test(spec);
 }
 
 function codeReferences(
