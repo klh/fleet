@@ -18,8 +18,9 @@ const SELF = "tests/test-framework-guard.test.ts";
 // Shrink-only ceiling: a wave that lowers the count re-pins DOWN here in
 // the same landing — never raise the number; port the files instead.
 // W2178 landing baseline: main had grown to 873 between the branch cut (792)
-// and integration — pinned at the landing count (debt: port the delta).
-const PIN = 873;
+// and integration — pinned at the landing count (debt: port the delta);
+// W1294.17.1.2 sweep-H slice-B re-pins DOWN (873 → 858).
+const PIN = 858;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });

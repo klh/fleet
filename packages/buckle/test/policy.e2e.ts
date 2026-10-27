@@ -1,0 +1,173 @@
+// test/policy.test.ts — parse + defaults for the W124 policy shape.
+import { expect, test } from "@playwright/test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+	POLICY_DEFAULTS,
+	loadGatewayPolicy,
+	parsePolicy,
+} from "../src/policy.ts";
+
+test.describe({ tag: "@unit" }, () => {
+	test("parsePolicy: defaults when gateway section absent", () => {
+		const p = parsePolicy("{}");
+		expect(p.num_retries).toBe(1);
+		expect(p.allowed_fails).toBe(3);
+		expect(p.cooldown_time).toBe(30);
+		expect(p.retry_max_delay_s).toBe(8);
+		expect(p.request_timeout_s).toBe(120);
+		expect(p.first_byte_budget_s).toBe(240);
+		expect(p.fallbacks).toBeUndefined();
+	});
+
+	test("parsePolicy: W124 ladder verbatim", () => {
+		const p = parsePolicy(
+			JSON.stringify({
+				gateway: {
+					fallbacks: {
+						"glm-5.3-flash": ["local-swarm", "gpt-5.2", "claude-sonnet-5"],
+					},
+				},
+			}),
+		);
+		const ladder = p.fallbacks ? p.fallbacks["glm-5.3-flash"] : undefined;
+		expect(ladder).toEqual(["local-swarm", "gpt-5.2", "claude-sonnet-5"]);
+	});
+
+	test("committed Claude fallback names GLM as a separate group", () => {
+		const policy = loadGatewayPolicy(
+			new URL("../routing-policy.json", import.meta.url).pathname,
+		);
+		expect(policy.fallbacks?.["claude-sonnet-5"]).toEqual([
+			"glm-5.3-flash",
+			"local-swarm",
+		]);
+	});
+
+	test("parsePolicy: buckle knobs survive the shared-file shape", () => {
+		const p = parsePolicy(
+			JSON.stringify({
+				gateway: {
+					retry_max_delay_s: 4,
+					retry_after_cap_s: 30,
+					request_timeout_s: 60,
+					first_byte_budget_s: 150,
+				},
+			}),
+		);
+		expect(p.retry_max_delay_s).toBe(4);
+		expect(p.retry_after_cap_s).toBe(30);
+		expect(p.request_timeout_s).toBe(60);
+		expect(p.first_byte_budget_s).toBe(150);
+	});
+
+	test("parsePolicy rejects a walk budget shorter than one primary attempt", () => {
+		expect(() =>
+			parsePolicy(
+				JSON.stringify({
+					gateway: { request_timeout_s: 120, first_byte_budget_s: 60 },
+				}),
+			),
+		).toThrow("first_byte_budget_s");
+	});
+
+	test("POLICY_DEFAULTS: fixed constants from the ported semantics", () => {
+		expect(POLICY_DEFAULTS).toEqual({
+			num_retries: 1,
+			allowed_fails: 3,
+			cooldown_time: 30,
+			retry_max_delay_s: 8,
+			retry_after_cap_s: 60,
+			request_timeout_s: 120,
+			first_byte_budget_s: 240,
+			// W450 long-generation deadlines
+			stream_idle_timeout_s: 60,
+			stream_total_timeout_s: 900,
+		});
+	});
+
+	test("JSON policy retains Buckle-specific tags and aids", () => {
+		const policy = parsePolicy(
+			JSON.stringify({
+				version: 1,
+				gateway: { num_retries: 2, retry_after_cap_s: 9 },
+				tags: { glm: ["code"] },
+				aids: { "cache-align": { default: "off" } },
+			}),
+		);
+		expect(policy.num_retries).toBe(2);
+		expect(policy.retry_after_cap_s).toBe(9);
+		expect(policy.tags).toEqual({ glm: ["code"] });
+		expect(policy.aids?.["cache-align"]?.default).toBe("off");
+	});
+
+	test("JSON sibling of a pinned legacy name wins; a yaml-bytes sibling is skipped (W1253)", () => {
+		const dir = mkdtempSync(join(tmpdir(), "w975-buckle-policy-"));
+		const yaml = join(dir, "routing-policy.yaml");
+		const json = join(dir, "routing-policy.json");
+		const previousHome = process.env.HOME;
+		try {
+			process.env.HOME = dir;
+			writeFileSync(yaml, "gateway:\n  num_retries: 2\n");
+			writeFileSync(json, JSON.stringify({ gateway: { num_retries: 3 } }));
+			expect(loadGatewayPolicy(yaml).num_retries).toBe(3);
+			// a legacy name whose sibling went yaml-bytes is skipped mid-chain —
+			// the ONE-parser law has no yaml leg, so the committed default rides
+			writeFileSync(json, "gateway:\n  num_retries: 4\n");
+			expect(loadGatewayPolicy(yaml).num_retries).toBe(1);
+			rmSync(json);
+			expect(loadGatewayPolicy(yaml).num_retries).toBe(1);
+		} finally {
+			if (previousHome === undefined) delete process.env.HOME;
+			else process.env.HOME = previousHome;
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("runtime JSON beats the legacy yaml name (never parsed)", () => {
+		const dir = mkdtempSync(join(tmpdir(), "w975-buckle-home-"));
+		const runtime = join(dir, ".claude", "local-llm");
+		const previousHome = process.env.HOME;
+		const previousBuckle = process.env.BUCKLE_POLICY;
+		const previousBelt = process.env.BELT_POLICY;
+		try {
+			mkdirSync(runtime, { recursive: true });
+			writeFileSync(
+				join(runtime, "routing-policy.yaml"),
+				"gateway:\n  num_retries: 2\n",
+			);
+			writeFileSync(
+				join(runtime, "routing-policy.json"),
+				JSON.stringify({ gateway: { num_retries: 3 } }),
+			);
+			process.env.HOME = dir;
+			delete process.env.BUCKLE_POLICY;
+			delete process.env.BELT_POLICY;
+			expect(loadGatewayPolicy().num_retries).toBe(3);
+		} finally {
+			if (previousHome === undefined) delete process.env.HOME;
+			else process.env.HOME = previousHome;
+			if (previousBuckle === undefined) delete process.env.BUCKLE_POLICY;
+			else process.env.BUCKLE_POLICY = previousBuckle;
+			if (previousBelt === undefined) delete process.env.BELT_POLICY;
+			else process.env.BELT_POLICY = previousBelt;
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("parsePolicy: cost block parses into the versioned price table", () => {
+		const p = parsePolicy(
+			JSON.stringify({ cost: { version: "rates-2026-10", models: { m: { in_per_tok: 0.000002, out_per_tok: 0.00001, cache_read_mult: 0.1 } } } }),
+		);
+		expect(p.cost?.version).toBe("rates-2026-10");
+		expect(p.cost?.models?.m?.in_per_tok).toBe(0.000002);
+		expect(p.cost?.models?.m?.cache_read_mult).toBe(0.1);
+	});
+	test("parsePolicy: absent cost block → null (nothing prices, rows stay NULL)", () => {
+		expect(parsePolicy(JSON.stringify({ version: 1 })).cost).toBeNull();
+	});
+	test("parsePolicy: cost block without a version refuses startup (fail-closed)", () => {
+		expect(() => parsePolicy(JSON.stringify({ cost: { models: {} } }))).toThrow(/cost\.version/);
+	});
+});
