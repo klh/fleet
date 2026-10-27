@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pkg: [blam, buckle, speedy, belt, suspenders]
+        pkg: [blam, buckle, speedy, belt, suspenders, telemetry]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

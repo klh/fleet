@@ -4,6 +4,7 @@
 	"description": "MLX local swarm kit — real modules belt resolves through shims (memory-policy, observation) + config stubs; the supervisor and registry are belt-owned (W284)",
 	"type": "module",
 	"private": true,
+	"packageManager": "bun@1.4.2",
 	"engines": {
 		"bun": ">=1.2"
 	},

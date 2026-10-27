@@ -5,8 +5,12 @@
 	"type": "module",
 	"private": true,
 	"license": "SEE LICENSE IN LICENSE",
+	"packageManager": "bun@1.4.2",
 	"engines": {
 		"bun": "1.4.2"
+	},
+	"scripts": {
+		"test": "bun test"
 	},
 	"exports": {
 		"./src/hop-contract.ts": "./src/hop-contract.ts",

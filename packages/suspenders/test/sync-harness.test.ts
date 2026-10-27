@@ -54,6 +54,7 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		["local-llm", "local-llm"],
 		["blam", "@klh/blam"],
 		["buckle", "@klh/buckle"],
+		["telemetry", "@klh/telemetry"],
 	] as const)
 		put(
 			`packages/${dir}/package.json`,

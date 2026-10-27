@@ -7,9 +7,9 @@
 		"*"
 	],
 	"license": "SEE LICENSE IN LICENSE",
+	"packageManager": "bun@1.4.2",
 	"scripts": {
 		"test": "bun test test/",
-		"test:e2e": "playwright test --config e2e/playwright.config.ts",
 		"ci": "bun install && bun test test/",
 		"build:vendor": "bun scripts/build-vendor.ts"
 	},
@@ -17,6 +17,7 @@
 		"@clack/prompts": "1.8.1",
 		"@klh/blam": "2.0.0",
 		"@klh/buckle": "2.0.0",
+		"@klh/telemetry": "2.0.0",
 		"@vercel/detect-agent": "1.2.7",
 		"cli-table3": "0.6.5",
 		"execa": "10.2.1",

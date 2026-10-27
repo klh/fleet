@@ -5,6 +5,7 @@
 	"type": "module",
 	"license": "SEE LICENSE IN LICENSE",
 	"private": true,
+	"packageManager": "bun@1.4.2",
 	"engines": {
 		"bun": ">=1.2"
 	},

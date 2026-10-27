@@ -522,6 +522,12 @@ export async function syncHarness(
 			"../../.harness/packages/buckle",
 			join(stage, "node_modules/@klh/buckle"),
 		);
+		// W1238.3: named @klh/telemetry imports (servicemon, buckle) resolve
+		// through the same scoped link in the staged harness.
+		link(
+			"../../.harness/packages/telemetry",
+			join(stage, "node_modules/@klh/telemetry"),
+		);
 		await materializeDependencies(stage);
 		await materializeProduction(stage);
 		mkdirSync(join(stage, "node_modules"), { recursive: true });

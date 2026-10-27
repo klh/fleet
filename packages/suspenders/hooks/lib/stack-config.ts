@@ -8,7 +8,7 @@ import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { z } from "zod";
-import type { GatewayPolicy } from "../../../buckle/src/policy.ts";
+import type { GatewayPolicy } from "@klh/buckle/src/policy.ts";
 import { readJsonConfEither } from "./kernel-conf.ts";
 
 // ─── W1303.4 schema-first: zod is THE definition of the stack conf shape ──

@@ -24,7 +24,7 @@
 // this wrapper's own admission (handler throw = "handler_throw"). One wrap
 // per service ⇒ every error envelope out of store/board/knowledge-api/
 // model-store is attributable from headers alone.
-import { stampResponse } from "../../../telemetry/src/http-trace.ts";
+import { stampResponse } from "@klh/telemetry/src/http-trace.ts";
 
 export const DEFAULT_BUCKETS: number[] = [
 	0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10,

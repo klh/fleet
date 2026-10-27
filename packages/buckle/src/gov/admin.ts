@@ -16,8 +16,8 @@ import {
 	AdminTeamSchema,
 	AdminVerifySchema,
 } from "./admin-schemas.ts";
-import { readBeltTrace } from "../../../telemetry/src/trace-log.ts";
-import { readRemoteTraces } from "../../../telemetry/src/remote-traces.ts";
+import { readBeltTrace } from "@klh/telemetry/src/trace-log.ts";
+import { readRemoteTraces } from "@klh/telemetry/src/remote-traces.ts";
 import type { RequestReadQuery } from "../ledger.ts";
 import { exportObservations } from "../observation-export.ts";
 import { verifyAuthChain } from "./audit-chain.ts";

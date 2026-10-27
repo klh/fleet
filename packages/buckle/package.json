@@ -4,6 +4,7 @@
 	"module": "src/server.ts",
 	"type": "module",
 	"private": true,
+	"packageManager": "bun@1.4.2",
 	"engines": {
 		"bun": ">=1.2"
 	},
@@ -12,15 +13,16 @@
 		"start": "bun run src/server.ts"
 	},
 	"devDependencies": {
-		"@anthropic-ai/sdk": "^1.1.0",
-		"@types/bun": "latest",
-		"openai": "^7.42.0"
+		"@anthropic-ai/sdk": "1.1.0",
+		"@types/bun": "1.4.2",
+		"openai": "7.42.0"
 	},
 	"peerDependencies": {
 		"typescript": "^7"
 	},
 	"dependencies": {
 		"@klh/blam": "workspace:*",
+		"@klh/telemetry": "workspace:*",
 		"p-queue": "^9.3.3",
 		"zod": "^4.0.0"
 	},
