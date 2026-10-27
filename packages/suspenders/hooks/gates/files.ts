@@ -199,6 +199,14 @@ export function filesCheck(hook: HookInput): FilesExit {
 				kind: "block",
 				err: `1500-LINE LIMIT: ${basename(F)} is ${n} lines (law.ts-1500-decompose, AGENTS.md "1500-Line Hard Limit"; near-cap 1200 = patch-only, W744). Decompose into single-purpose modules before the next write — pattern: hooks/board/, hooks/coord/, hooks/board-html/ (W157).\n`,
 			};
+		// W1238.6 (law.ts-1200-stop): 1200 is the stop-and-decompose point.
+		// Warn only — the grandfathered 1200-1500 band stays editable while
+		// the sweep decomposes it; growth past 1500 still blocks above.
+		if (n > 1200)
+			return {
+				kind: "context",
+				msg: `1200-LINE STOP RULE: ${basename(F)} is ${n} lines (law.ts-1200-stop, W1238.6). Stop-and-decompose point — do not grow this file further; decompose by responsibility instead.\n`,
+			};
 	}
 
 	// The sanctioned WRITE itself is the lease's new ground truth (owner

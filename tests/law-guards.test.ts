@@ -134,6 +134,76 @@ test("1500-law vendor exemptions stay argued and current (W1300)", () => {
 	}
 });
 
+// W1238.6 — the 1200-line stop rule: 1200 is the stop-and-decompose point
+// (AGENTS.md "1500-line hard limit" law). The whole >1200 population is
+// PINNED here by exact line count at the 2026-10-23 sweep baseline: a
+// pinned file may never GROW past its pin; a shrink tightens its pin in the
+// same commit; a file dropping below 1200 drops its entry in the same
+// commit; and no unpinned file may cross 1200. This is the sweep's teeth —
+// the population can only ratchet DOWN. (The two >1500 pins are the L4
+// over-cap pair: L4 reds their size today, the pin adds shrink-only
+// pressure so a decompose-in-flight reads as shrink, not entry.)
+const NEAR_CAP_LIMIT = 1200;
+const NEAR_CAP_PINNED: Record<string, number> = {
+	// re-pinned at the W2178 integration tip (2026-10-27): the 10-23 table
+	// predated the W1276/W1297 decompositions that moved or split most rows.
+	"packages/decant/src/ingest.ts": 1982,
+	"packages/decant/src/buckets.ts": 1489,
+	"packages/buckle/src/router.ts": 1459,
+	"packages/decant/src/token-economics.ts": 1427,
+	"packages/decant/src/query.ts": 1409,
+	"packages/suspenders/hooks/board-html/usage-panels.ts": 1385,
+	"packages/belt/bin/router-shim.ts": 1378,
+	"packages/buckle/src/ledger.ts": 1377,
+	"packages/suspenders/hooks/board/routes-actions.ts": 1345,
+	"packages/belt/test/dashboard-topology-model.test.ts": 1294,
+	"packages/belt/bin/router-core.ts": 1263,
+	"packages/suspenders/hooks/bin/work.ts": 1241,
+	"packages/suspenders/deploy/hubctl.ts": 1208,
+};
+
+test("the 1200-line band stays pinned: shrink-only, no new entrants (W1238.6)", () => {
+	const counts = new Map(
+		tracked("*.ts").map(
+			(f) =>
+				[f, readFileSync(join(ROOT, f), "utf8").split("\n").length] as const,
+		),
+	);
+	const offenders: string[] = [];
+	for (const [f, n] of counts) {
+		const pin = NEAR_CAP_PINNED[f];
+		if (pin === undefined && n >= NEAR_CAP_LIMIT)
+			offenders.push(
+				`${f}: ${n} crossed the 1200-line stop rule — decompose, do not grow into the band`,
+			);
+		else if (pin !== undefined && n > pin)
+			offenders.push(
+				`${f}: ${n} grew past its ${pin}-line pin — decompose, do not grow the band`,
+			);
+		else if (pin !== undefined && n < pin && n >= NEAR_CAP_LIMIT)
+			offenders.push(
+				`${f}: ${n} shrank inside the band — tighten its NEAR_CAP_PINNED pin to ${n} in tests/law-guards.test.ts`,
+			);
+		else if (pin !== undefined && n < NEAR_CAP_LIMIT)
+			offenders.push(
+				`${f}: ${n} left the band — drop its NEAR_CAP_PINNED entry in tests/law-guards.test.ts`,
+			);
+	}
+	expect(
+		offenders,
+		"1200-line stop-rule ratchet: band files shrink only — decompose, never grow",
+	).toEqual([]);
+	for (const f of Object.keys(NEAR_CAP_PINNED))
+		expect(
+			counts.has(f),
+			`pinned band file ${f} is gone — drop its NEAR_CAP_PINNED entry`,
+		).toBe(true);
+});
+
+test("1200-line band ratchet has teeth (real pinned population)", () => {
+	expect(Object.keys(NEAR_CAP_PINNED).length).toBeGreaterThan(10);
+});
+
 test("tracked .sh files match the pinned allowlist exactly", () => {
 	expect(
 		tracked("*.sh").sort(),

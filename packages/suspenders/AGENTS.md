@@ -195,6 +195,13 @@ and every klh repo. The on-write gate **blocks** any .ts past 1500 lines
 cleared; fleet-board, coord, board-html and the fleet-board suite all live
 under the limit).
 
+**1200-line stop rule (W1238.6)**: 1200 is the stop-and-decompose point —
+at 1200 lines, stop adding and decompose by responsibility. The grandfathered
+1200-1500 band is pinned in tests/law-guards.test.ts: files may shrink, never
+grow, and no new file may join the band; a band file that drops below 1200
+must drop its pin entry in the same commit. The on-write gate warns at 1200
+and hard-blocks past 1500.
+
 **Patch-first near-cap contract (W744)**: a .ts above ~1200 lines is near-cap —
 dispatch briefs for file maps that surface one carry a patch-only directive
 (hooks/lib/patch-first.ts), and `work done` verifies the diff shape: churn
