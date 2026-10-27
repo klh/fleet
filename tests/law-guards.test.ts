@@ -152,10 +152,8 @@ const NEAR_CAP_PINNED: Record<string, number> = {
 	"packages/buckle/src/router.ts": 1461, // +2 W1124.42.1 merge (debt: decompose)
 	"packages/decant/src/token-economics.ts": 1427,
 	"packages/decant/src/query.ts": 1409,
-	"packages/suspenders/hooks/board-html/usage-panels.ts": 1385,
 	"packages/belt/bin/router-shim.ts": 1292, // W1238.6.1 decomposition (HEAD W1117 growth keeps it in band)
 	"packages/buckle/src/ledger.ts": 1382, // +5 W1124.42.1 merge (debt: decompose)
-	"packages/suspenders/hooks/board/routes-actions.ts": 1345,
 	"packages/belt/test/dashboard-topology-model.test.ts": 1294,
 	"packages/suspenders/hooks/bin/work.ts": 1246, // +5 W1173 merge (debt: decompose)
 	"packages/suspenders/deploy/hubctl.ts": 1208,
@@ -200,7 +198,9 @@ test("the 1200-line band stays pinned: shrink-only, no new entrants (W1238.6)", 
 });
 
 test("1200-line band ratchet has teeth (real pinned population)", () => {
-	expect(Object.keys(NEAR_CAP_PINNED).length).toBeGreaterThan(10);
+	// a real, non-empty population — decompositions shrink it (W1298 took two
+	// files out), so the floor only rejects an emptied pin map
+	expect(Object.keys(NEAR_CAP_PINNED).length).toBeGreaterThan(5);
 });
 
 test("tracked .sh files match the pinned allowlist exactly", () => {

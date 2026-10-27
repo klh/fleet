@@ -66,10 +66,6 @@ const BYPASS_ALLOWLIST: Array<[string, string]> = [
 		"W1119 parent scope — board migrations land with the parent item",
 	],
 	[
-		"hooks/board/routes-actions.ts",
-		"W1119 parent scope — board migrations land with the parent item",
-	],
-	[
 		"hooks/board/suggest.ts",
 		"W1119 parent scope — board migrations land with the parent item",
 	],
@@ -122,7 +118,8 @@ test("no direct-tier completion leg outside the pinned allowlist (W1119.2)", () 
 test("scan has teeth (real pinned population and retired shapes fire)", () => {
 	// the allowlist is not aspirational: every entry must keep firing
 	expect(trackedSuspendersTs().length).toBeGreaterThan(300);
-	expect(ALLOWED.length).toBeGreaterThanOrEqual(13);
+	// W1298: routes-actions decomposed leg-free, its entry retired (13 → 12)
+	expect(ALLOWED.length).toBeGreaterThanOrEqual(12);
 	// the retired shapes fire the detector
 	const retired = [
 		'fetch("http://127.0.0.1:8902/v1/chat/completions")',
