@@ -136,6 +136,16 @@ describe("readCacheSlaStatus", () => {
 	});
 });
 
+describe("cache-sla maintenance argv (W1782 dangling-path pin)", () => {
+	test("the cache-sla.ts literal is a runtime basename, not a repo-relative test path", () => {
+		const task = MAINTENANCE_TASKS.find((t) => t.name === "cache-sla");
+		const argv0 = task?.argv(suspendersRoot(), "/")[0] ?? "";
+		expect(argv0).toContain("cache-sla.ts");
+		expect(argv0).toContain("hooks/bin");
+		expect(existsSync("packages/suspenders/test/cache-sla.ts")).toBe(false);
+	});
+});
+
 describe("cache-sla maintenance task (W779 pairing)", () => {
 	test("registry carries the heartbeat-born cache-sla sweep", () => {
 		const task = MAINTENANCE_TASKS.find((t) => t.name === "cache-sla");
