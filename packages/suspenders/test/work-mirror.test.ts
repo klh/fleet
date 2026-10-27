@@ -49,24 +49,31 @@ const mirrorLines = (repo: string): string[] =>
 	readFileSync(join(repo, ".workgraph.jsonl"), "utf8")
 		.split("\n")
 		.filter((l) => l.trim());
+// items only — W1129 event lines ({type:"event"}) ride between items and meta
+const mirrorItems = (repo: string): Record<string, unknown>[] =>
+	mirrorLines(repo)
+		.slice(0, -1)
+		.map((l) => JSON.parse(l) as Record<string, unknown>)
+		.filter((o) => o.type !== "event");
 const seedMirror = (
 	repo: string,
 	items: Record<string, unknown>[],
 	meta: Record<string, unknown> = {},
-): void =>
-	writeFileSync(
-		join(repo, ".workgraph.jsonl"),
-		`${[
-			...items.map((i) => JSON.stringify(i)),
-			JSON.stringify({
-				type: "meta",
-				project: pid(repo),
-				exported_at: Date.now(),
-				count: items.length,
-				...meta,
-			}),
-		].join("\n")}\n`,
-	);
+	events: Record<string, unknown>[] = [],
+): void => {
+	const rows = [
+		...items.map((i) => JSON.stringify(i)),
+		...events.map((e) => JSON.stringify({ type: "event", ...e })),
+		JSON.stringify({
+			type: "meta",
+			project: pid(repo),
+			exported_at: Date.now(),
+			count: items.length,
+			...meta,
+		}),
+	];
+	writeFileSync(join(repo, ".workgraph.jsonl"), `${rows.join("\n")}\n`);
+};
 
 // home A: working DB (the mirror-writing path); repos live under the checkout
 const HOME = tmpDir("claude-work-mirror-home-");
@@ -123,9 +130,7 @@ describe("mirror writer — mutating commands export the graph", () => {
 		const b = idOf(work("add", "edge waiter").out);
 		expect(work("take", a, "--as", "mirror-lane").code).toBe(0);
 		expect(work("block", b, "--on", a).code).toBe(0);
-		const items = mirrorLines(REPO)
-			.slice(0, -1)
-			.map((l) => JSON.parse(l));
+		const items = mirrorItems(REPO);
 		const ta = items.find((i) => i.id === a);
 		const tb = items.find((i) => i.id === b);
 		expect(ta.state).toBe("CLAIMED");
@@ -218,12 +223,78 @@ describe("meta bookkeeping", () => {
 	test("count tracks every item, max_updated_at is the freshest row", () => {
 		work("add", "meta probe one");
 		work("add", "meta probe two");
-		const lines = mirrorLines(REPO);
-		const items = lines.slice(0, -1).map((l) => JSON.parse(l));
-		const meta = JSON.parse(lines[lines.length - 1]);
+		const items = mirrorItems(REPO);
+		const meta = JSON.parse(mirrorLines(REPO).slice(-1)[0]);
 		expect(meta.count).toBe(items.length);
 		expect(meta.count).toBeGreaterThanOrEqual(5);
 		const maxDb = Math.max(...items.map((i) => i.updated_at));
 		expect(meta.max_updated_at).toBe(maxDb);
+	});
+});
+
+// W1129: the mirror carries a bounded timing-event slice so the report replay
+// (work-timing.ts claimWindows) survives the fresh-mirror read — the cold-install
+// proof died with `no such table: events` (exit 1) on exactly this path.
+describe("W1129 mirror events — timing replay survives the mirror read", () => {
+	const H = 3_600_000;
+	const now = Date.now();
+	const ev = (
+		id: number,
+		ts: number,
+		kind: string,
+		work: string,
+		by?: string,
+	): Record<string, unknown> => ({
+		id,
+		ts,
+		kind,
+		payload: JSON.stringify({ work, project: pid(REPO2), by }),
+	});
+
+	test("mutations export the bounded event slice with meta counters", () => {
+		const a = idOf(work("add", "event slice probe").out);
+		expect(work("take", a, "--as", "slice-lane").code).toBe(0);
+		expect(work("release", a, "--as", "slice-lane").code).toBe(0);
+		const objs = mirrorLines(REPO)
+			.slice(0, -1)
+			.map((l) => JSON.parse(l) as Record<string, unknown>)
+			.filter((o) => o.type === "event");
+		const meta = JSON.parse(mirrorLines(REPO).slice(-1)[0]);
+		expect(meta.events).toBe(objs.length);
+		expect(meta.events_truncated).toBe(false);
+		expect(objs.map((e) => e.kind)).toContain("work.claimed");
+		expect(objs.map((e) => e.kind)).toContain("work.released");
+	});
+
+	test("report serves real timing from a seeded mirror — exit 0, no crash", () => {
+		const t = now - H; // claimed an hour ago
+		const w9 = {
+			...MIRROR_ITEM,
+			id: "W9",
+			title: "closed on the mirror",
+			state: "DONE",
+			updated_at: now - 60_000,
+		};
+		const w10 = {
+			...MIRROR_ITEM,
+			id: "W10",
+			title: "riding on the mirror",
+			state: "CLAIMED",
+			owner_sid: "lane-b",
+			updated_at: now,
+		};
+		seedMirror(REPO2, [w9, w10], {}, [
+			ev(1, t, "work.claimed", "W9", "lane-a"),
+			ev(2, now - 60_000, "work.done", "W9"),
+			ev(3, now, "work.claimed", "W10", "lane-b"),
+			ev(4, now, "consult", "W10"),
+		]);
+		const r = run(REPO2, HOME_FRESH, "report");
+		expect(r.code).toBe(0);
+		expect(r.err).toContain("serving from .workgraph.jsonl mirror");
+		expect(r.out).toContain("W9");
+		expect(r.out).toContain("W10");
+		expect(r.out).toContain("59m"); // replayed agent wall — real timing, not a dash
+		expect(r.out).toContain("Y"); // CONSULT replays from the mirror
 	});
 });

@@ -16,6 +16,22 @@ const MIRROR_MAX_AGE = 15 * 60_000;
 
 type Item = Record<string, string | number | null>;
 
+// W1129: the timing events the report/timing replays query (work-timing.ts
+// claimWindows/workTiming, work-report.ts consultedItems) ride the mirror too
+// — a mirror-served read handler runs its SQL UNCHANGED, so `FROM events`
+// must resolve. Bounded export: the newest MIRROR_EVENT_CAP rows, oldest cut
+// first (a truncated claim window loses its opening and undercounts, never
+// crashes; meta.events_truncated says so).
+type MirrorEvent = {
+	id: number;
+	ts: number;
+	kind: string;
+	payload: string | null;
+};
+const MIRROR_EVENT_KINDS =
+	"('work.claimed','work.released','work.done','work.failed','consult','consult.answer','knowledge.enqueued')";
+export const MIRROR_EVENT_CAP = 5000;
+
 const tty = process.stdout.isTTY && !process.env.NO_COLOR;
 const dim = (s: string): string => (tty ? `\x1b[2m${s}\x1b[0m` : s);
 
@@ -23,10 +39,13 @@ const mirrorPath = (project: string): string =>
 	`${projectRootOf(project)}/${MIRROR_NAME}`;
 
 // tolerant parse: an absent, truncated, or hand-mangled mirror is never a hard
-// failure — reads then just have nothing to fall back to
-function readMirror(
-	project: string,
-): { items: Item[]; meta: Record<string, unknown> } | null {
+// failure — reads then just have nothing to fall back to. Per-line: one
+// mangled line drops itself, never the whole fallback.
+function readMirror(project: string): {
+	items: Item[];
+	events: MirrorEvent[];
+	meta: Record<string, unknown>;
+} | null {
 	try {
 		const lines = readFileSync(mirrorPath(project), "utf8")
 			.split("\n")
@@ -34,10 +53,22 @@ function readMirror(
 		const meta = JSON.parse(lines[lines.length - 1] ?? "null");
 		if (meta?.type !== "meta") return null;
 		if (meta.project && meta.project !== project) return null; // someone else's mirror
-		return {
-			meta,
-			items: lines.slice(0, -1).map((l) => JSON.parse(l) as Item),
-		};
+		const items: Item[] = [];
+		const events: MirrorEvent[] = [];
+		for (const line of lines.slice(0, -1)) {
+			try {
+				const o = JSON.parse(line) as Record<string, unknown>;
+				if (o.type === "event")
+					events.push({
+						id: Number(o.id),
+						ts: Number(o.ts),
+						kind: String(o.kind ?? ""),
+						payload: (o.payload ?? null) as string | null,
+					});
+				else items.push(o as Item);
+			} catch {}
+		}
+		return { meta, items, events };
 	} catch {
 		return null;
 	}
@@ -54,6 +85,12 @@ function mirrorDb(project: string): GovernorStore | null {
 	);
 	d.run(
 		"CREATE TABLE work_deps (project TEXT NOT NULL, work_id TEXT NOT NULL, depends_on TEXT NOT NULL, PRIMARY KEY (project, work_id, depends_on))",
+	);
+	// W1129: the timing-replay surface (work-timing.ts, work-report.ts) reads
+	// `events` — the mirror carries the bounded project slice so the replay
+	// SQL runs unchanged instead of dying on a missing table.
+	d.run(
+		"CREATE TABLE events (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, kind TEXT NOT NULL, payload TEXT, project TEXT NOT NULL)",
 	);
 	const defaults: Partial<Record<string, string | number>> = {
 		state: "READY",
@@ -100,6 +137,14 @@ function mirrorDb(project: string): GovernorStore | null {
 				insDep.run(project, it.id, dep);
 			} catch {}
 		}
+	const insEv = d.query(
+		"INSERT INTO events (id, ts, kind, payload, project) VALUES (?, ?, ?, ?, ?)",
+	);
+	for (const e of m.events) {
+		try {
+			insEv.run(e.id, e.ts, e.kind, e.payload, project);
+		} catch {}
+	}
 	console.error(
 		dim(
 			`serving from ${MIRROR_NAME} mirror (governor.db unreachable) — read-only`,
@@ -143,6 +188,16 @@ export function exportMirror(store: GovernorStore, project: string): void {
 				deps: edges.get(r.id as string) ?? [],
 			}),
 		);
+		// W1129: the bounded timing-event slice rides the same export — newest
+		// first, capped, oldest cut. Reversed so replay order (ts, id) matches
+		// the live DB's ORDER BY.
+		const evs = store
+			.query(
+				`SELECT id, ts, kind, payload FROM events WHERE project = ? AND kind IN ${MIRROR_EVENT_KINDS} ORDER BY id DESC LIMIT ${MIRROR_EVENT_CAP}`,
+			)
+			.all(project) as MirrorEvent[];
+		for (const e of evs.reverse())
+			lines.push(JSON.stringify({ type: "event", ...e }));
 		let maxUpdated = 0;
 		for (const r of items)
 			maxUpdated = Math.max(maxUpdated, Number(r.updated_at) || 0);
@@ -153,6 +208,8 @@ export function exportMirror(store: GovernorStore, project: string): void {
 				exported_at: Date.now(),
 				count: items.length,
 				max_updated_at: maxUpdated,
+				events: evs.length,
+				events_truncated: evs.length === MIRROR_EVENT_CAP,
 			}),
 		);
 		const tmp = `${mirrorPath(project)}.tmp-${process.pid}`;
