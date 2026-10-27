@@ -72,7 +72,11 @@ const packFindings = (reports: readonly PackReport[]): P1Finding[] =>
 		r.findings.map((f) => ({
 			check: "pack",
 			pkg: r.pkg.replace(/^@klh\//, ""),
-			prefix: `${f.kind}: ${f.detail}`,
+			// unresolved-dep details embed the run's scratch dir; truncate at
+			// the message parenthesis so the pin holds only the stable head
+			prefix: `${f.kind}: ${
+				f.kind === "unresolved-dep" ? f.detail.split(" (")[0] : f.detail
+			}`,
 		})),
 	);
 

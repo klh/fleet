@@ -15,6 +15,12 @@ fi
 if command -v actionlint >/dev/null 2>&1; then
   actionlint "$FLEET_ROOT"/.github/workflows/*.yml || exit 1
 fi
+# W1303.1.5 P1 completion: the three P1 guards (versions/deps/pack) ride the
+# push gate; findings must be absent or pinned (shrink-only
+# tests/helpers/p1-findings.pin.ts).
+if [ -f "$FLEET_ROOT/scripts/check-p1.ts" ]; then
+  bun "$FLEET_ROOT/scripts/check-p1.ts" gate || exit 1
+fi
 P="${SUSPENDERS_PREFIX:-$HOME/.claude/hooks/suspenders}"
 [ -f "$P/hooks/bin/scrub-gate.ts" ] || P="$(git rev-parse --show-toplevel)/packages/suspenders"
 [ -f "$P/hooks/bin/scrub-gate.ts" ] || exit 0
