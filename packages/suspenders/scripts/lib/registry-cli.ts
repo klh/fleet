@@ -297,6 +297,17 @@ entries, young-unknown entries, and rows whose pid probes ALIVE retain —
 a recycled pid reads alive and keeps full protection.
 Exit codes: 0 pruned/clean, 1 refused (live/young-unknown retained), 2 usage.`;
 
+// W1124.33: the dispatch ROOT usage entry for this verb family — the verb
+// enumeration derives from the shipped specs (schema discovery), and the
+// dispatch root help interpolates the entry verbatim, so a new registry verb
+// can never silently drop out of root help again (the same b336 drift class:
+// root help kept listing registry list|prune|forget after repair-pid shipped).
+export const REGISTRY_ROOT_HELP_ENTRY = `  registry ${VERBS.map((v) => v.name).join("|")}
+                           Inspect the durable lane registry; prune removes entries
+                           whose lane is provably dead (liveness-guarded; live and
+                           unknown entries are retained). repair-pid previews a
+                           managed wrapper PID repair; --apply commits it`;
+
 const HELP = renderRegistryHelp(
 	"dispatch registry",
 	"Usage: dispatch registry <verb> [options] — inspect and prune the durable lane registry (.fleet/lanes.json).",
