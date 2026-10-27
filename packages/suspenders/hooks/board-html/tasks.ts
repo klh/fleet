@@ -235,10 +235,12 @@ function spendStripInner(sp){
 }
 function spendStripHtml(t, cls){
   var sp = t && t.spend ? t.spend : null;
-  if (!sp) return '';
   var key = esc(String(t.project || '')) + '|' + esc(String(t.id));
   var inner = spendStripInner(sp);
-  return '<div class="kspend' + (cls ? ' ' + cls : '') + ' dim"><div class="ksparkplot"><span class="kspark" data-spark="' + key + '"></span><div class="ksparkaxis"><span>first request</span><span>latest</span></div></div><span class="kspendtxt" title="Attributed totals for this work item">' + esc(inner) + '</span></div>';
+  var spendPart = '<div class="kspend' + (cls ? ' ' + cls : '') + ' dim"><div class="ksparkplot"><span class="kspark" data-spark="' + key + '"></span><div class="ksparkaxis"><span>first request</span><span>latest</span></div></div><span class="kspendtxt" title="Attributed totals for this work item">' + esc(inner) + '</span></div>';
+  var attemptPart = '';
+  if (attemptView) attemptPart = '<div class="kattemptwrap dim"><span class="kattemptlabel">current attempt · fixed 90 min · 3 min/bin</span><span class="kattempt" data-attempt="' + key + '"></span></div>';
+  return spendPart + attemptPart;
 }
 function displayState(t){
   if ((t.state === 'CLAIMED' || t.state === 'RUNNING') && t.execution && t.execution.state === 'paused') return 'PAUSED';
@@ -372,7 +374,10 @@ var KCOLS = [
 ];
 function ensureKstatusNav(){
   var nav = byId('kstatusnav');
-  if (!nav || nav.childElementCount) return;
+  if (!nav) return;
+  var tog = byId('attemptView');
+  if (tog) tog.setAttribute('aria-pressed', attemptView ? 'true' : 'false');
+  if (nav.querySelector('button[data-kcol]')) return;
   for (var i = 0; i < KCOLS.length; i++) {
     var button = document.createElement('button');
     button.type = 'button';
@@ -382,6 +387,8 @@ function ensureKstatusNav(){
     nav.appendChild(button);
   }
   nav.addEventListener('click', function(e){
+    var tog = e.target.closest && e.target.closest('#attemptView');
+    if (tog) { toggleAttemptView(); return; }
     var button = e.target.closest && e.target.closest('button[data-kcol]');
     if (!button) return;
     var key = KCOLS[Number(button.getAttribute('data-kcol'))].key;
@@ -390,6 +397,13 @@ function ensureKstatusNav(){
     if (!col || !wrap) return;
     wrap.scrollTo({ left: wrap.scrollLeft + col.getBoundingClientRect().left - wrap.getBoundingClientRect().left, behavior: 'smooth' });
   });
+}
+function toggleAttemptView(){
+  attemptView = !attemptView;
+  try { localStorage.setItem('sb.attemptView', attemptView ? '1' : '0'); } catch (e) {}
+  var tog = byId('attemptView');
+  if (tog) tog.setAttribute('aria-pressed', attemptView ? 'true' : 'false');
+  renderKanban();
 }
 var starting = {}; // 'proj\u0000id' -> start POST in flight (rebuild-proof)
 var execPick = {}; // 'proj\u0000id' -> chosen executor (survives card rebuilds)
@@ -739,7 +753,7 @@ function renderKanban(){
     var resid = [];
     for (var r = 0; r < items.length; r++) if (!fam.nested[String(items[r].id)]) resid.push(items[r]);
     var shown = col.cap ? resid.slice(0, col.cap) : resid;
-    var jump = byId('kstatusnav').querySelectorAll('button')[c];
+    var jump = byId('kstatusnav').querySelectorAll('button[data-kcol]')[c];
     var visible = !col.hideEmpty || resid.length > 0;
     if (jump) { jump.textContent = col.label + ' ' + resid.length; jump.hidden = !visible; }
     if (!visible) continue;
@@ -811,6 +825,11 @@ var SVGNS = 'http://www.w3.org/2000/svg';
 // emitted by spendStripHtml get painted here and in the drawer. DOM-safe key:
 // esc(project)+'|'+esc(id) (NUL is unusable in attributes).
 var spendSeries = {}, spendSeriesAt = 0, spendSeriesBusy = false;
+// W1188 attempt view: per-card current-attempt timelines from the same
+// /api/spend-series poll (j.attempts), toggled per browser (default OFF —
+// the truthful full-history spend chart stays the card's default).
+var attemptData = {}, attemptView = false;
+try { attemptView = localStorage.getItem('sb.attemptView') === '1'; } catch (e) {}
 function hideSparkTip(){
   var tip = byId('ksparkTip');
   if (tip) { tip.hidden = true; tip._bar = null; }
@@ -850,6 +869,9 @@ function pollSpendSeries(force){
       var m = {};
       for (var k in j.series) m[k.split('\u0000').join('|')] = j.series[k];
       spendSeries = m; spendSeriesAt = Date.now();
+      var a = {};
+      if (j.attempts) for (var k2 in j.attempts) a[k2.split('\u0000').join('|')] = j.attempts[k2];
+      attemptData = a;
     })
     .catch(function(){}) // garnish — never an error surface
     .finally(function(){
@@ -960,6 +982,55 @@ function paintSparks(root){
       axis.lastElementChild.textContent = dualShort(Number(chart.getAttribute('data-window-end'))) + ' · ' + chart.getAttribute('data-bin-min') + 'm/bin';
     }
   }
+  paintAttempts(root);
+}
+// W1188: the attempt-view half of paintSparks — paints the .kattempt hosts
+// emitted by spendStripHtml. Sig-guarded like the sparks; placeholder text
+// when the item has no claim window overlapping the common window.
+function paintAttempts(root){
+  if (!attemptView) return;
+  var els = root.querySelectorAll('.kattempt');
+  for (var i = 0; i < els.length; i++){
+    var el = els[i];
+    var key = el.getAttribute('data-attempt') || '';
+    var a = attemptData[key] || null;
+    var sig = a ? JSON.stringify(a) : '';
+    if (el.getAttribute('data-asig') === sig) continue;
+    el.setAttribute('data-asig', sig);
+    while (el.firstChild) el.removeChild(el.firstChild);
+    el.appendChild(a ? attemptSvg(a) : document.createTextNode('no attempt in window'));
+  }
+}
+// W1188: numeric-only SVG string parsed via DOMParser (the gate-compliant
+// DOM channel); <title> children carry the exact segment bounds and the
+// exact ISO commit timestamps of the artifact milestones.
+function segTitle(g){
+  return esc(g.kind) + ' · ' + Math.round((g.end - g.start) / 60000) + ' min · ' + esc(new Date(g.start).toISOString()) + ' → ' + esc(new Date(g.end).toISOString());
+}
+function attemptSvg(a){
+  var w = 180, h = 24;
+  var span = Math.max(1, a.windowEnd - a.windowStart);
+  var fx = function(t){ var x = (t - a.windowStart) / span * w; return Math.max(0, Math.min(w, x)); };
+  var s = '<svg xmlns="http://www.w3.org/2000/svg" width="180" height="24" role="img" aria-label="Current attempt: fixed 90-minute window, 3-minute bins; queue, firstbyte, tool, pause, unknown segments plus commit milestones">';
+  return finishAttemptSvg(s, fx, a);
+}
+function finishAttemptSvg(s, fx, a){
+  var segs = a.attempt.segments || [];
+  for (var i = 0; i < segs.length; i++){
+    var g = segs[i];
+    var x0 = fx(g.start), x1 = Math.max(x0 + 1, fx(g.end));
+    s += '<rect class="at-' + esc(g.kind) + '" x="' + x0.toFixed(1) + '" y="7" width="' + (x1 - x0).toFixed(1) + '" height="10" rx="2"><title>' + segTitle(g) + '</title></rect>';
+  }
+  var ms = a.milestones || [];
+  for (var m = 0; m < ms.length; m++){
+    var t0 = ms[m];
+    var mx = fx(t0.ts);
+    s += '<path class="at-ms" d="M ' + mx.toFixed(1) + ',7 l 3.5,5 l -3.5,5 l -3.5,-5 Z"><title>' + esc(t0.stage) + ' · ' + esc(new Date(t0.ts).toISOString()) + ' · ' + esc(t0.commit) + '</title></path>';
+  }
+  s += '</svg>';
+  var doc = new DOMParser().parseFromString(s, 'image/svg+xml');
+  if (!doc || doc.getElementsByTagName('parsererror').length) return document.createTextNode('');
+  return doc.documentElement;
 }
 function openTask(id, proj, trigger){
   if (trigger) {

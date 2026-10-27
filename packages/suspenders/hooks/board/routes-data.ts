@@ -23,6 +23,7 @@ import { buildBeltEntries } from "./executor-catalog.ts";
 import { json } from "./helpers.ts";
 import { launchContextForItem } from "./launch-context.ts";
 import { projectList, signalFor, syncDecisions, unblockedBy } from "./lanes.ts";
+import { attemptTimelinesPayload } from "./attempt-timeline.ts";
 import { localSwarmEntries } from "./local-swarm.ts";
 import { orchTargets } from "./orch-targets.ts";
 import { traceForWork } from "./orch-trace.ts";
@@ -193,7 +194,12 @@ export async function handleData(
 		// Per-item one-minute request usage keyed project\0id.
 		// 5s-memoized, one ledger read per window; the
 		// card sparklines poll this at 30s, never /api/tasks.
-		return json({ ok: true, series: workSpendSeriesPayload() });
+		// attempts: W1188 comparable current-attempt timelines.
+		return json({
+			ok: true,
+			series: workSpendSeriesPayload(),
+			attempts: attemptTimelinesPayload(),
+		});
 	}
 	if (url.pathname === "/api/task") {
 		// detail drawer feed: the item, its bus events, its decisions

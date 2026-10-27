@@ -33,17 +33,20 @@ test.beforeAll(async () => {
 		"CREATE TABLE router_usage (hour_bucket TEXT, key TEXT, model_group TEXT, model TEXT DEFAULT '', in_tok INTEGER DEFAULT 0, out_tok INTEGER DEFAULT 0, cache_r INTEGER DEFAULT 0, cache_c INTEGER DEFAULT 0, requests INTEGER DEFAULT 0)",
 	);
 	d.run("INSERT INTO api_keys VALUES ('k1', 'autow887-x')");
+	// route_audit is the per-request attribution source (workSpendSeries
+	// fails soft to no-points without it — the hourly router_usage row alone
+	// stopped producing a series when attribution moved to per-request rows).
+	d.run(
+		"CREATE TABLE route_audit (ts TEXT, lane TEXT, in_tok INTEGER, out_tok INTEGER, cache_r INTEGER, cache_c INTEGER)",
+	);
+	d.run(
+		"INSERT INTO route_audit VALUES (?, 'autow887-x', 500, 100, 50, 10)",
+		new Date().toISOString(),
+	);
 	d.run(
 		"INSERT INTO router_usage VALUES (?, 'k1', 'glm-5.3-flash', 'glm-5.3-flash', 500, 100, 50, 10, 3)",
 		[`${new Date().toISOString().slice(0, 13)}:00`],
 	);
-	// W1294.2: the per-request series reads route_audit (lane-stamped rows)
-	d.run(
-		"CREATE TABLE route_audit (ts TEXT, lane TEXT, in_tok INTEGER, out_tok INTEGER, cache_r INTEGER, cache_c INTEGER)",
-	);
-	d.run("INSERT INTO route_audit VALUES (?, 'autow887-x', 500, 100, 50, 10)", [
-		new Date().toISOString(),
-	]);
 	d.close();
 });
 

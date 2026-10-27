@@ -352,6 +352,17 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .kspendtxt { display:block; font-size:7px; line-height:1.25; letter-spacing:.01em; }
 .kspend-drawer .kspark { margin-top:6px; }
 .kspend-drawer .ksparkplot { width:100%; }
+/* W1188 attempt view (fixed 90-min common window, 3-min bins) */
+.kattemptwrap { display:flex; flex-direction:column; align-items:flex-start; gap:2px; margin-top:4px; }
+.kattemptlabel { display:block; font-size:7px; line-height:1.25; letter-spacing:.01em; }
+.kattempt { display:block; min-height:24px; }
+.kattempt svg { display:block; max-width:100%; }
+.kattempt .at-queue { fill:var(--klh-dim); }
+.kattempt .at-firstbyte { fill:var(--klh-accent); }
+.kattempt .at-tool { fill:var(--klh-ok-ink); }
+.kattempt .at-pause { fill:var(--klh-danger-ink); }
+.kattempt .at-unknown { fill:var(--klh-edge); opacity:.4; }
+.kattempt .at-ms { fill:var(--klh-accent); }
 .ttitle { word-break:break-word; max-width:480px; }
 .tail { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:480px; }
 .akind { display:inline-block; border:1px solid var(--klh-edge-mid); border-radius:2px; padding:0 6px; font-size:9.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--klh-dim); }
