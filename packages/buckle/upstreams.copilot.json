@@ -21,7 +21,21 @@
 		"unlisted paths verbatim.",
 		"",
 		"Group name = the wire id lanes send; `model:` = the seat's real id.",
-		"Claude groups keep their existing dash aliases. Other models use catalog ids."
+		"Claude groups keep their existing dash aliases. Other models use catalog ids.",
+		"",
+		"Native Claude beta contract (W1474, verified 2026-10-26): buckle never",
+		"forwards client headers — the seat sees ONLY adapter_config.headers.",
+		"Native Claude Code bodies carry context_management (needs anthropic-beta",
+		"context-management-2025-06-27); Opus 5.5 adds message-level output_config",
+		"(needs per-turn-control-2026-07-01) — without it the seat 400s on",
+		"messages.N.output_config. Every claude-* row carries both tokens; operator",
+		"tokens append comma-separated, never replace these. Bodies stay verbatim.",
+		"",
+		"Frontier wire contract (W1474, 2026-10-26): gpt-6.1-sol and grok-4.7",
+		"answer chat/completions with 400 unsupported_api_for_model but 200 on",
+		"/v1/responses (forwarded verbatim); gemini-4-argon answers 200 on chat.",
+		"Callers use the Responses ingress — never a chat→responses path_rewrite",
+		"(the bodies differ) and never body stripping."
 	],
 	"version": 1,
 	"groups": {
@@ -35,7 +49,8 @@
 				"visibility": "spoke-private",
 				"adapter_config": {
 					"headers": {
-						"copilot-integration-id": "vscode-chat"
+						"copilot-integration-id": "vscode-chat",
+						"anthropic-beta": "context-management-2025-06-27,per-turn-control-2026-07-01"
 					}
 				}
 			}
@@ -44,7 +59,8 @@
 			{
 				"adapter_config": {
 					"headers": {
-						"copilot-integration-id": "vscode-chat"
+						"copilot-integration-id": "vscode-chat",
+						"anthropic-beta": "context-management-2025-06-27,per-turn-control-2026-07-01"
 					}
 				},
 				"visibility": "spoke-private",
@@ -59,7 +75,8 @@
 			{
 				"adapter_config": {
 					"headers": {
-						"copilot-integration-id": "vscode-chat"
+						"copilot-integration-id": "vscode-chat",
+						"anthropic-beta": "context-management-2025-06-27,per-turn-control-2026-07-01"
 					}
 				},
 				"visibility": "spoke-private",
@@ -74,7 +91,8 @@
 			{
 				"adapter_config": {
 					"headers": {
-						"copilot-integration-id": "vscode-chat"
+						"copilot-integration-id": "vscode-chat",
+						"anthropic-beta": "context-management-2025-06-27,per-turn-control-2026-07-01"
 					}
 				},
 				"visibility": "spoke-private",
@@ -89,7 +107,8 @@
 			{
 				"adapter_config": {
 					"headers": {
-						"copilot-integration-id": "vscode-chat"
+						"copilot-integration-id": "vscode-chat",
+						"anthropic-beta": "context-management-2025-06-27,per-turn-control-2026-07-01"
 					}
 				},
 				"visibility": "spoke-private",
@@ -104,7 +123,8 @@
 			{
 				"adapter_config": {
 					"headers": {
-						"copilot-integration-id": "vscode-chat"
+						"copilot-integration-id": "vscode-chat",
+						"anthropic-beta": "context-management-2025-06-27,per-turn-control-2026-07-01"
 					}
 				},
 				"visibility": "spoke-private",
@@ -119,7 +139,8 @@
 			{
 				"adapter_config": {
 					"headers": {
-						"copilot-integration-id": "vscode-chat"
+						"copilot-integration-id": "vscode-chat",
+						"anthropic-beta": "context-management-2025-06-27,per-turn-control-2026-07-01"
 					}
 				},
 				"visibility": "spoke-private",

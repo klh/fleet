@@ -21,6 +21,9 @@ const keyFile = join(dir, "engine.key");
 writeFileSync(keyFile, "sk-fixture-ladder-key\n");
 mkdirSync(deployDir);
 const stack = join(dir, "stack.json");
+// W1474: native Claude betas + an operator token ride the rendered ladder verbatim
+const COPILOT_BETAS =
+	"interleaved-thinking-2025-05-14,context-management-2025-06-27,per-turn-control-2026-07-01";
 writeFileSync(
 	stack,
 	JSON.stringify({
@@ -41,6 +44,17 @@ writeFileSync(
 								url: "http://engine.example:4100",
 								dialect: "anthropic",
 								api_key_env: "LITELLM_KEY",
+							},
+						],
+						"claude-opus-5-5": [
+							{
+								url: "https://api.githubcopilot.com",
+								dialect: "anthropic",
+								model: "claude-opus-5.5",
+								api_key_env: "GITHUB_COPILOT_PAT",
+								adapter_config: {
+									headers: { "anthropic-beta": COPILOT_BETAS },
+								},
 							},
 						],
 					},
@@ -91,6 +105,11 @@ test("push writes the ladder file and a 0600 upstream.env built on-device", () =
 		readFileSync(join(deployDir, "upstreams.hub.json"), "utf8"),
 	);
 	expect(ladder.groups["claude-haiku-4-5"][0].api_key_env).toBe("LITELLM_KEY");
+	expect(
+		ladder.groups["claude-opus-5-5"][0].adapter_config.headers[
+			"anthropic-beta"
+		],
+	).toBe(COPILOT_BETAS);
 	expect(JSON.stringify(ladder)).not.toContain("sk-fixture");
 	const envPath = join(deployDir, "upstream.env");
 	expect(readFileSync(envPath, "utf8")).toBe(
