@@ -43,7 +43,15 @@ import {
 	loadLaneRegistry,
 	loadLaneRegistryFile,
 } from "../lib/lanes/lane-registry.ts";
-import { itemAttribution, renderAttribution } from "../lib/lanes/lane-spend.ts";
+import {
+	itemAttribution,
+	renderAttribution,
+	resolveBuckleDb,
+} from "../lib/lanes/lane-spend.ts";
+import {
+	BACKFILL_EVENT,
+	backfillForItem,
+} from "../lib/lanes/lane-backfill.ts";
 import { publishCompletionBlock } from "../lib/lanes/lane-stop-publisher.ts";
 import {
 	claimantLanes,
@@ -615,6 +623,26 @@ const dispatchVerb = async (
 			return unblocked;
 		});
 		const { freed, gated } = tx();
+		// W2059: fail-soft close-window backfill — link the closer session's
+		// ledger rows (sid key + interactive keys) over the FINAL claim window
+		// so controller-closed work renders MODEL/TOKENS/CACHE. No rows = no
+		// event (dashes stay the honest no-data signal).
+		try {
+			const bf = backfillForItem(
+				db(),
+				PROJECT,
+				id,
+				String(it.owner_sid ?? as ?? ""),
+				resolveBuckleDb(),
+			);
+			if (bf)
+				emit(BACKFILL_EVENT, id, {
+					backfill: JSON.stringify(bf),
+					sid: String(it.owner_sid ?? as ?? ""),
+				});
+		} catch {
+			// attribution never blocks a close
+		}
 		rollUp(id);
 		const p = it.parent_id;
 		if (p) rollUp(p as string);
@@ -671,6 +699,34 @@ const dispatchVerb = async (
 				console.error(
 					`knowledge enqueue failed for ${id}; completion remains done`,
 				);
+		}
+	} else if (name === "backfill") {
+		// W2059: link an already-closed item's closer-session ledger rows as a
+		// work.attribution stamp. sid default = the completion record's closer.
+		const id = pos[0];
+		if (!id) die("usage: backfill <id> [--as sid]");
+		const it = get(id);
+		if (it.state !== "DONE")
+			die(`${id} is ${it.state} — backfill attributes a DONE item's close`);
+		const record = completionRecord(db(), PROJECT, id);
+		const sid = flag("--as") ?? String(record?.completed_by ?? "").trim();
+		if (!sid) die(`${id} has no closer sid on record — pass --as <sid>`);
+		const bf = backfillForItem(
+			db(),
+			PROJECT,
+			id,
+			sid,
+			resolveBuckleDb(),
+		);
+		if (!bf) {
+			console.log(
+				`${id}: no closer-key ledger rows in the close window — stays '-' (honest no-data)`,
+			);
+		} else {
+			emit(BACKFILL_EVENT, id, { backfill: JSON.stringify(bf), sid });
+			console.log(
+				`${green("✓")} ${cyan(id)} attribution backfilled: fresh ${bf.fresh} · cached ${bf.cached} · out ${bf.out} · ${bf.requests} req · groups ${Object.keys(bf.groups).join(",") || "-"}`,
+			);
 		}
 	} else if (name === "fail") {
 		const id = pos[0];

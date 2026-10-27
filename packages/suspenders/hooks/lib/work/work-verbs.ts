@@ -111,6 +111,13 @@ export const VERBS: VerbSpec[] = [
 		minPos: 1,
 	}),
 	defineVerb({
+		name: "backfill",
+		usage:
+			"usage: backfill <id> [--as sid] — W2059: link a DONE item's closer-session ledger rows (sid key + interactive keys, final claim window) as a work.attribution stamp so the report renders MODEL/TOKENS/CACHE; no rows = stays '-' (honest no-data)",
+		flags: [...ITEM_FLAGS],
+		minPos: 1,
+	}),
+	defineVerb({
 		name: "fail",
 		usage:
 			'usage: fail <id> --note "repro: <failing command + output> | no-repro: <why> (environment gone / flake proven / carrier death)" [--as sid]',

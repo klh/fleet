@@ -15,6 +15,10 @@ import {
 	type TimingEventRow,
 	workTiming,
 } from "../work/work-timing.ts";
+import {
+	type BackfillSpend,
+	attributionBackfills,
+} from "./lane-backfill.ts";
 
 /** W943.1 — the cache-blind era. router_usage rows written before the
  *  2026-10-19 buckle-front fix carry cache_r/cache_c ≈ 0 (glm hourly sums:
@@ -368,44 +372,58 @@ export function itemAttribution(
 		rows = []; // unreadable ledger — fail-soft (coord fleet parity)
 	}
 	const spend = itemSpend(rows, windows);
+	// W2059 backfill tier: work.attribution stamps for items the ledger
+	// attributes nothing to (lane-backfill.ts). Priority ledger > backfill >
+	// self-report — a stamp never adds to already-attributed rows.
+	const backfills = attributionBackfills(db, project, pre);
 	const out = new Map<string, ItemAttribution>();
 	const works = new Set<string>([...windows.keys(), ...timing.keys()]);
 	for (const work of works) {
 		const t = timing.get(work);
 		const s = spend.get(work);
 		// W1070 fallback: session-subagent work leaves no router_usage rows (no
-		// per-lane key) — when the ledger attributes nothing, the closing
-		// session's self-reported spend (work.done payload, lib/lane-done-spend.ts)
-		// stands in so TOKENS/CACHE/MODEL don't dash out.
-		const ds =
-			(s?.in ?? 0) + (s?.cacheR ?? 0) + (s?.cacheC ?? 0) + (s?.out ?? 0) <= 0
-				? t?.spend
-				: undefined;
+		// per-lane key) — when the ledger attributes nothing, the W2059 backfill
+		// stamp (work.attribution event, lib/lane-backfill.ts) wins; when that is
+		// absent too, the closing session's self-reported spend (work.done
+		// payload, lib/lane-done-spend.ts) stands in so TOKENS/CACHE/MODEL don't
+		// dash out.
+		const attributedZero =
+			(s?.in ?? 0) + (s?.cacheR ?? 0) + (s?.cacheC ?? 0) + (s?.out ?? 0) <= 0;
+		const bf: BackfillSpend | undefined = attributedZero
+			? backfills.get(work)
+			: undefined;
+		const ds = attributedZero && !bf ? t?.spend : undefined;
 		out.set(work, {
 			work,
-			fresh: ds ? ds.fresh : (s?.in ?? 0),
-			cached: ds ? ds.cached : (s?.cacheR ?? 0) + (s?.cacheC ?? 0),
-			out: ds ? ds.out : (s?.out ?? 0),
-			requests: s?.requests ?? 0,
+			fresh: bf ? bf.fresh : ds ? ds.fresh : (s?.in ?? 0),
+			cached: bf
+				? bf.cached
+				: ds
+					? ds.cached
+					: (s?.cacheR ?? 0) + (s?.cacheC ?? 0),
+			out: bf ? bf.out : ds ? ds.out : (s?.out ?? 0),
+			requests: bf ? bf.requests : (s?.requests ?? 0),
 			wallMs: t?.wallMs ?? 0,
 			agentMs: t?.agentMs ?? 0,
 			effort: t?.effort ?? null,
 			blindCache:
 				(s?.firstBucket != null && s.firstBucket < cacheEraFixBucket()) ||
 				false,
-			groups: ds
-				? ds.model
-					? {
-							[ds.model]: {
-								in: ds.fresh,
-								out: ds.out,
-								cacheR: ds.cached,
-								cacheC: 0,
-								requests: 0,
-							},
-						}
-					: {}
-				: Object.fromEntries(s?.groups ?? []),
+			groups: bf
+				? bf.groups
+				: ds
+					? ds.model
+						? {
+								[ds.model]: {
+									in: ds.fresh,
+									out: ds.out,
+									cacheR: ds.cached,
+									cacheC: 0,
+									requests: 0,
+								},
+							}
+						: {}
+					: Object.fromEntries(s?.groups ?? []),
 		});
 	}
 	return out;
