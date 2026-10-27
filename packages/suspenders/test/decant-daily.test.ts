@@ -1,7 +1,8 @@
-// test/decant-daily.test.ts — W1212: key CAS shape, the distillers, the
-// decision table (create/reclaim/tombstone/dedupe + human-protect), state
-// handling, fact-set argv, the registry entry and a stubbed end-to-end
-// runner pass proving same-day idempotency (zero duplicate claims).
+// test/decant-daily.test.ts — W1212/W1212.1: key CAS shape, the distillers
+// (project+host provenance), the decision table (create/reclaim/tombstone/
+// dedupe + human-protect), state handling (bounded cursor), fact-set argv,
+// the registry entry and stubbed end-to-end runner passes: cursor resume
+// after a limit cut (limit-2-of-4) and the two-project evidence collision.
 
 import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
@@ -26,25 +27,34 @@ import {
 	distillWorkClaims,
 	type ExistingClaim,
 	factSetArgs,
+	projectSlug,
 	readState,
 	runDaily,
+	sessionEvidenceId,
+	workEvidenceId,
 	writeState,
 } from "../hooks/lib/fleet-loop/decant-daily.ts";
 import {
 	MAINTENANCE_TASKS,
 	missingRunners,
 } from "../hooks/lib/fleet-loop/maintenance.ts";
-import type { SessionMetrics } from "../hooks/lib/knowledge/knowledge-sync-policy.ts";
+import {
+	opaqueSessionId,
+	type SessionMetrics,
+} from "../hooks/lib/knowledge/knowledge-sync-policy.ts";
 
 const tmp = mkdtempSync(join(tmpdir(), "decant-daily-"));
 const NOW = Date.now();
 const SETTER = "mechanical:decant-daily";
+const HOST = "lane-host";
+const PROJ = "/repos/fleet/.git";
+const PROJ_B = "/repos/other/.git";
 
 function cleanup(): void {
 	rmSync(tmp, { recursive: true, force: true });
 }
 
-describe("distillers (W1212)", () => {
+describe("distillers (W1212.1 provenance)", () => {
 	test("work rows: window filter, secret gate skips, result sha rides the claim", () => {
 		const rows = [
 			{
@@ -66,10 +76,18 @@ describe("distillers (W1212)", () => {
 				updated_at: NOW - 30_000,
 			},
 		];
-		const { claims, skipped } = distillWorkClaims(rows, NOW - 24 * 3600_000);
-		expect(claims.map((c) => c.evidenceId)).toEqual(["work:W1"]);
+		const { claims, skipped } = distillWorkClaims(
+			rows,
+			{ project: PROJ, host: HOST },
+			NOW - 24 * 3600_000,
+		);
+		expect(claims.map((c) => c.evidenceId)).toEqual([
+			workEvidenceId(PROJ, HOST, "W1"),
+		]);
 		expect(claims[0].value).toContain("abc123");
-		expect(skipped[0]).toContain("work:W3");
+		expect(claims[0].value).toContain("(fleet)"); // readable project slug
+		expect(claims[0].pos).toEqual({ ts: NOW - 60_000, id: "W1" });
+		expect(skipped[0]).toContain(workEvidenceId(PROJ, HOST, "W3"));
 	});
 	test("session rows: structural summary only, missing id/endedAt never claims", () => {
 		const { claims } = distillSessionClaims(
@@ -84,12 +102,24 @@ describe("distillers (W1212)", () => {
 				}),
 				sess({ sessionId: "" }),
 			],
+			{ host: HOST },
 			NOW - 3600_000,
 		);
 		expect(claims.length).toBe(1);
-		expect(claims[0].evidenceId).toBe("session:abc");
+		expect(claims[0].evidenceId).toBe(sessionEvidenceId(HOST, "abc"));
 		expect(claims[0].value).toContain("30s");
 		expect(claims[0].value).toContain("4 msgs");
+		expect(claims[0].pos).toEqual({ ts: NOW - 30_000, id: "abc" });
+	});
+	test("evidence identity: same work id, two projects, two hosts — never collides", () => {
+		const a = workEvidenceId(PROJ, HOST, "W1");
+		const b = workEvidenceId(PROJ_B, HOST, "W1");
+		const c = workEvidenceId(PROJ, "other-host", "W1");
+		expect(a).not.toBe(b);
+		expect(a).not.toBe(c);
+		// claim keys inherit the separation
+		expect(claimKey(a, "x")).not.toBe(claimKey(b, "x"));
+		expect(projectSlug(PROJ)).toBe("fleet");
 	});
 });
 
@@ -219,17 +249,36 @@ describe("decision table (W1212)", () => {
 	});
 });
 
-describe("state (W1212)", () => {
-	test("roundtrip; corrupt reads as never-ran; file stamped 0600", () => {
+describe("state (W1212.1 bounded cursor)", () => {
+	test("roundtrip incl. cursor; corrupt reads as never-ran; file stamped 0600", () => {
 		const p = join(tmp, "state.json");
 		writeState(p, {
 			lastRunMs: 7,
 			inventory: { k: { evidenceId: "work:W1", ts: 7 } },
+			cursor: {
+				work: { ts: 5, id: "W2" },
+				session: { ts: 6, id: "s1" },
+			},
 		});
 		expect(statSync(p).mode & 0o777).toBe(0o600);
 		expect(readState(p)).toEqual({
 			lastRunMs: 7,
 			inventory: { k: { evidenceId: "work:W1", ts: 7 } },
+			cursor: { work: { ts: 5, id: "W2" }, session: { ts: 6, id: "s1" } },
+		});
+		// a partially corrupt cursor drops to the valid halves; a fully
+		// corrupt one drops to absent (= initial window next fire)
+		writeFileSync(
+			p,
+			JSON.stringify({
+				lastRunMs: 7,
+				inventory: {},
+				cursor: { work: { ts: 5, id: "W2" }, session: "junk" },
+			}),
+		);
+		expect(readState(p).cursor).toEqual({
+			work: { ts: 5, id: "W2" },
+			session: null,
 		});
 		writeFileSync(p, "{not json");
 		expect(readState(p)).toEqual({ lastRunMs: 0, inventory: {} });
@@ -268,18 +317,25 @@ describe("registry (W1212)", () => {
 
 // ─── runner e2e fixtures ────────────────────────────────────────────────────
 
-function seedDb(path: string, doneIds: string[]): void {
-	const db = new Database(path);
-	db.exec(
-		"CREATE TABLE work_items (project TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, state TEXT NOT NULL, result_sha TEXT, updated_at INTEGER NOT NULL, PRIMARY KEY (project, id));" +
-			"CREATE TABLE facts (key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER, ts INTEGER, confidence REAL, confidence_stamp TEXT);",
-	);
+function seedDb(path: string, doneIds: string[], project = PROJ): Database {
+	const db = openFixtureDb(path);
 	for (const id of doneIds) {
 		db.query(
-			"INSERT INTO work_items (project, id, title, state, result_sha, updated_at) VALUES ('p', ?, ?, 'DONE', ?, ?)",
-		).run(id, `done work item ${id}`, `sha-${id}`, NOW - 3600_000);
+			"INSERT INTO work_items (project, id, title, state, result_sha, updated_at) VALUES (?, ?, ?, 'DONE', ?, ?)",
+		).run(project, id, `done work item ${id}`, `sha-${id}`, NOW - 3600_000);
 	}
-	db.close();
+	return db;
+}
+
+/** fixture store: the (project, id) work_items shape + a facts table for
+ *  the landFacts simulate-the-store step. */
+function openFixtureDb(path: string): Database {
+	const db = new Database(path);
+	db.exec(
+		"CREATE TABLE IF NOT EXISTS work_items (project TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, state TEXT NOT NULL, result_sha TEXT, updated_at INTEGER NOT NULL, PRIMARY KEY (project, id));" +
+			"CREATE TABLE IF NOT EXISTS facts (key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER, ts INTEGER, confidence REAL, confidence_stamp TEXT);",
+	);
+	return db;
 }
 
 /** fixture decant CLI whose sync always fails — the degrade leg. */
@@ -345,9 +401,8 @@ function landFacts(path: string, calls: string[][]): void {
 	db.close();
 }
 
-describe("runner e2e (W1212)", () => {
+describe("runner e2e (W1212.1)", () => {
 	const calls: string[][] = [];
-	const cursorOf = (p: string): number => readState(p).lastRunMs;
 	function opts(dir: string, over: Record<string, unknown> = {}) {
 		return {
 			dbPath: join(dir, "gov.db"),
@@ -357,6 +412,8 @@ describe("runner e2e (W1212)", () => {
 			coordBin: "coord-unused",
 			windowMs: 24 * 3600_000,
 			now: () => NOW,
+			project: PROJ,
+			host: HOST,
 			spawn: (cmd: string[], _t: number) => {
 				calls.push(cmd);
 				return { code: 0, out: "fact k = v" };
@@ -364,12 +421,12 @@ describe("runner e2e (W1212)", () => {
 			...over,
 		};
 	}
-	test("run 1 creates CAS children; run 2 over the same evidence is all dedupe", async () => {
+	test("run 1 creates CAS children and stamps the cursor; run 2 resumes empty", async () => {
 		const dir = join(tmp, "e2e-idem");
 		mkdirSync(dir);
-		seedDb(join(dir, "gov.db"), ["W1"]);
+		const db = seedDb(join(dir, "gov.db"), ["W1"]);
 		calls.length = 0;
-		const o = opts(dir);
+		const o = opts(dir, { store: db });
 		const r1 = await runDaily(o);
 		expect(r1.ok).toBe(true);
 		expect(r1.created.length).toBe(2); // work:W1 + session:s1
@@ -378,62 +435,134 @@ describe("runner e2e (W1212)", () => {
 			expect(c[c.indexOf("--if-version") + 1]).toBe("0");
 			expect(c[c.indexOf("--setter") + 1]).toBe(SETTER);
 			expect(c).toContain("--evidence");
+			// session evidence is host-scoped — only work children name the project
+			if (c[c.indexOf("--evidence") + 1].startsWith("work:"))
+				expect(c[c.indexOf("--evidence") + 1]).toContain(PROJ);
 		}
 		landFacts(join(dir, "gov.db"), calls);
 		calls.length = 0;
+		const st1 = readState(o.statePath);
+		expect(st1.cursor?.work).toEqual({ ts: NOW - 3600_000, id: "W1" });
+		// session ids are opaque hashes; ts is the stub's real wall clock
+		expect(st1.cursor?.session?.id).toBe(opaqueSessionId("s1"));
+		expect(st1.cursor?.session?.ts).toBeGreaterThan(NOW - 120_000);
 		const r2 = await runDaily(o);
 		expect(r2.ok).toBe(true);
 		expect(r2.created).toEqual([]);
-		expect(r2.deduped.length).toBe(2);
-		expect(calls.length).toBe(0); // zero duplicate claims
+		expect(calls.length).toBe(0); // cursor resumed empty — zero children
 		expect(Object.keys(readState(o.statePath).inventory).length).toBe(2);
+		db.close();
 	});
 	test("collect error: no children fire, cursor never advances, ok=false", async () => {
 		const dir = join(tmp, "e2e-fail");
 		mkdirSync(dir);
 		calls.length = 0;
-		const o = opts(dir, { dbPath: join(dir, "missing.db") });
+		const o = opts(dir, { store: null });
 		const r = await runDaily(o);
 		expect(r.ok).toBe(false);
 		expect(r.errors[0]).toContain("work store");
 		expect(calls.length).toBe(0);
-		expect(cursorOf(o.statePath)).toBe(0);
+		expect(readState(o.statePath).cursor).toBeUndefined();
 	});
 	test("decant outage degrades: work children fire, session tombstones defer", async () => {
 		const dir = join(tmp, "e2e-degrade");
 		mkdirSync(dir);
-		seedDb(join(dir, "gov.db"), ["W1"]);
+		const db = seedDb(join(dir, "gov.db"), ["W1"]);
 		calls.length = 0;
-		const o = opts(dir, { decantBin: writeDeadDecantStub(dir) });
+		const o = opts(dir, {
+			store: db,
+			decantBin: writeDeadDecantStub(dir),
+		});
 		const r = await runDaily(o);
 		expect(r.ok).toBe(false);
 		expect(r.errors[0]).toContain("decant sync failed");
 		expect(r.created.length).toBe(1); // work:W1 only
 		expect(calls.some((c) => c.includes("session:"))).toBe(false);
-		expect(cursorOf(o.statePath)).toBe(0); // window re-collects next fire
+		expect(readState(o.statePath).cursor).toBeUndefined();
+		db.close();
 	});
 	test("vanished work evidence tombstones on the next pass (never deletes)", async () => {
 		const dir = join(tmp, "e2e-tomb");
 		mkdirSync(dir);
 		const dbPath = join(dir, "gov.db");
-		seedDb(dbPath, ["W1"]);
+		const db = seedDb(dbPath, ["W1"]);
 		calls.length = 0;
-		const o = opts(dir);
+		const o = opts(dir, { store: db });
 		const r1 = await runDaily(o);
 		expect(r1.created.length).toBe(2);
 		landFacts(dbPath, calls);
-		const db = new Database(dbPath);
-		db.query("DELETE FROM work_items WHERE id = 'W1'").run();
-		db.close();
+		const w = openFixtureDb(dbPath);
+		w.query("DELETE FROM work_items WHERE id = 'W1'").run();
+		w.close();
 		calls.length = 0;
 		const r2 = await runDaily(o);
 		expect(r2.ok).toBe(true);
 		expect(r2.tombstoned.length).toBe(1);
 		const tomb = calls.find((c) => c.includes("--verdict"));
 		expect(tomb?.[tomb.indexOf("--verdict") + 1]).toBe("retracted");
-		expect(tomb?.[tomb.indexOf("--ref") + 1]).toBe("work:W1");
+		expect(tomb?.[tomb.indexOf("--ref") + 1]).toBe(
+			workEvidenceId(PROJ, HOST, "W1"),
+		);
 		// the retracted key stays inventoried — evidence returning reclaims it
 		expect(Object.keys(readState(o.statePath).inventory).length).toBe(2);
+		db.close();
+	});
+	test("limit-2-of-4: the cut resumes at the last-processed claim — nothing strands", async () => {
+		const dir = join(tmp, "e2e-limit");
+		mkdirSync(dir);
+		const dbPath = join(dir, "gov.db");
+		const db = seedDb(dbPath, ["W1", "W2", "W3", "W4"]);
+		calls.length = 0;
+		const o = opts(dir, { store: db, limit: 2 });
+		const r1 = await runDaily(o);
+		expect(r1.created.length).toBe(2); // W1+W2; the cut falls after W2
+		expect(r1.skipped.some((s) => s.includes("beyond limit 2"))).toBe(true);
+		landFacts(dbPath, calls);
+		calls.length = 0;
+		const r2 = await runDaily(o);
+		expect(r2.created.length).toBe(2); // W3+W4 — resumed AT the cut
+		landFacts(dbPath, calls);
+		calls.length = 0;
+		const r3 = await runDaily(o);
+		// work exhausted; the deferred session child is the only fire left
+		expect(r3.created.length).toBe(1);
+		expect(calls[0][calls[0].indexOf("--evidence") + 1]).toContain("session:");
+		landFacts(dbPath, calls);
+		calls.length = 0;
+		const r4 = await runDaily(o);
+		expect(r4.ok).toBe(true);
+		expect(r4.created).toEqual([]);
+		expect(calls.length).toBe(0); // cursor holds at the final positions
+		// exactly the 4 work + 1 session claims ever existed
+		expect(Object.keys(readState(o.statePath).inventory).length).toBe(5);
+		db.close();
+	});
+	test("two projects, same work id: evidence identity separates the claims", async () => {
+		const dir = join(tmp, "e2e-xproj");
+		mkdirSync(dir);
+		const dbPath = join(dir, "gov.db");
+		seedDb(dbPath, ["W1"], PROJ).close();
+		const db = seedDb(dbPath, ["W1"], PROJ_B);
+		calls.length = 0;
+		const runA = await runDaily(opts(dir, { store: db }));
+		expect(runA.created.length).toBe(2); // fleet's W1 + session:s1
+		const keyA = calls[0][4]; // [bun, coord, "fact", "set", key, ...]
+		landFacts(dbPath, calls);
+		calls.length = 0;
+		const runB = await runDaily(
+			opts(dir, {
+				store: db,
+				project: PROJ_B,
+				statePath: join(dir, "state-b.json"),
+			}),
+		);
+		expect(runB.created.length).toBe(1); // W1(other) — old code deduped here
+		expect(runB.deduped.length).toBe(1); // session:s1 — same host, shared
+		const cmd = calls[0];
+		expect(cmd[cmd.indexOf("--evidence") + 1]).toContain(PROJ_B);
+		expect(cmd[cmd.indexOf("--text") + 1]).toContain("(other)");
+		expect(cmd[4]).not.toBe(keyA); // distinct keys over the shared facts
+		db.close();
 	});
 });
 
