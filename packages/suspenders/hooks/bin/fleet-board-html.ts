@@ -29,6 +29,7 @@ import { LAUNCH } from "../board-html/launch.ts";
 import { HISTORY } from "../board-html/history.ts";
 import { ORCH } from "../board-html/orch.ts";
 import { RENDERS } from "../board-html/renders.ts";
+import { REPORT } from "../board-html/report.ts";
 import { SETUP } from "../board-html/setup.ts";
 import { SHIP } from "../board-html/ship.ts";
 import { TABS } from "../board-html/tabs.ts";
@@ -487,13 +488,23 @@ button.diffsend:disabled { opacity:.45; cursor:default; }
 .lanemsg:focus { outline:1px solid var(--klh-accent); }
 button.lanesend { background:var(--klh-accent); color:var(--klh-on-accent); border:1px solid var(--klh-accent); border-radius:2px; padding:3px 10px; font:inherit; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; cursor:pointer; }
 button.lanesend:disabled { opacity:.45; cursor:default; }
+/* W1198 live work-report pane */
+.rpttable { margin:0 0 10px; padding:0; font-family:var(--klh-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size:11px; line-height:1.5; overflow-x:auto; }
+.rptstrip { display:flex; flex-wrap:wrap; gap:4px; margin:0 0 8px; }
+.rptrow { background:none; border:1px solid var(--klh-edge-strong); color:var(--klh-dim); border-radius:2px; padding:2px 8px; font:inherit; font-size:10.5px; font-family:var(--klh-mono, ui-monospace, SFMono-Regular, Menlo, monospace); cursor:pointer; }
+.rptrow:hover { color:var(--klh-ink); border-color:var(--klh-edge-hover); }
+.rptrow.on { color:var(--klh-accent); border-color:var(--klh-accent); }
+.rptdetail { border:1px solid var(--klh-edge); border-radius:2px; background:var(--klh-bg); padding:8px 10px; font-size:11px; }
+.rptdetail:empty { display:none; }
+.rpthead { margin-bottom:6px; color:var(--klh-ink); }
+.rpttail { font-family:var(--klh-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size:10.5px; line-height:1.5; white-space:pre-wrap; word-break:break-word; }
 #toasts { position:fixed; bottom:16px; right:16px; display:flex; flex-direction:column; gap:6px; z-index:40; max-width:min(380px, 90vw); }
 .toast { background:var(--klh-warm); border:1px solid var(--klh-danger); border-left-width:3px; color:var(--klh-ink); padding:8px 12px; font-size:12px; border-radius:2px; box-shadow:0 2px 12px var(--klh-shadow); }
 </style></head><body>
 ${fleetNav("suspenders", "suspenders")}
 <klh-topbar><a slot="settings-extra" href="/console/settings">all console settings &rarr;</a></klh-topbar>
 <script>/*SETUP_SEED*/</script>
-${BODY}${CORE}${RENDERS}${DECISIONS}${HISTORY}${TASKS}${DIFF}${LAUNCH}${SHIP}${TAIL}${ACTIVITY}${SETUP}${USAGE}${TABS}${ORCH}${BOOT}</script>
+${BODY}${CORE}${RENDERS}${DECISIONS}${HISTORY}${TASKS}${DIFF}${LAUNCH}${SHIP}${TAIL}${ACTIVITY}${REPORT}${SETUP}${USAGE}${TABS}${ORCH}${BOOT}</script>
 <script>${UPLOT_SRC}</script>
 <script type="module" src="/vendor/klh-components.js"></script>
 <script type="module" src="/vendor/klh-topbar.js"></script>

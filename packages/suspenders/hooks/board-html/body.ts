@@ -109,6 +109,15 @@ export const BODY = String.raw`
   <div id="actHist" class="acthist"></div>
   <div class="feed"><div id="actBody"><div class="r"><span class="dim">loading activity...</span></div></div></div>
 </section>
+<section id="tab-report" hidden>
+  <div class="taskbar">
+    <span id="reportStamp" class="dim" role="status"></span>
+  </div>
+  <div id="reportErr" class="taberr"></div>
+  <pre id="reportTable" class="rpttable">loading the work report...</pre>
+  <nav id="reportRows" class="rptstrip" aria-label="Expand a report row for its live lane detail"></nav>
+  <div id="reportDetail" class="rptdetail"></div>
+</section>
 <section id="tab-governor" hidden>
   <div class="taskbar">
     <label class="plabel" for="originHub">origin hub</label>
@@ -186,7 +195,7 @@ var evFilter = 'all';
 var hubOrigin = 'all'; var hubPeer = 'all';
 var projBaseline = false; // suppress toast storm right after a project switch
 var knownProj = {}; // distinct project paths seen in any 'projects' response
-var TABS = { decisions: 1, tasks: 1, lanes: 1, activity: 1, governor: 1, setup: 1, usage: 1 };
+var TABS = { decisions: 1, tasks: 1, lanes: 1, activity: 1, governor: 1, setup: 1, usage: 1, report: 1 };
 var curTab = 'decisions';
 var tasksData = null; var tasksOkAt = 0; var tasksErr = null; var tasksBusy = false; var tasksLoaded = false;
 var actData = null; var actOkAt = 0; var actErr = null; var actBusy = false; var actLoaded = false;

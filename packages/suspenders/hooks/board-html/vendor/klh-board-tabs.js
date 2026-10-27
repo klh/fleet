@@ -1,4 +1,4 @@
-import{r,e,t,s}from"./lit-17452e2304aadd9e.js";var i=[["decisions","Decisions"],["tasks","Tasks"],["lanes","Lanes"],["activity","Activity"],["governor","Governor"],["setup","Setup"],["usage","Usage"]];class o extends s{static properties={current:{type:String,reflect:!0},extraTabs:{type:Array,attribute:!1}};static styles=r`
+import{r,e,t,s}from"./lit-17452e2304aadd9e.js";var i=[["decisions","Decisions"],["tasks","Tasks"],["lanes","Lanes"],["activity","Activity"],["report","Report"],["governor","Governor"],["setup","Setup"],["usage","Usage"]];class n extends s{static properties={current:{type:String,reflect:!0},extraTabs:{type:Array,attribute:!1}};static styles=r`
 		:host {
 			display: block;
 		}
@@ -55,17 +55,17 @@ import{r,e,t,s}from"./lit-17452e2304aadd9e.js";var i=[["decisions","Decisions"],
 		}
 	`;constructor(){super();this.current="decisions",this.extraTabs=[]}select(a){this.dispatchEvent(new CustomEvent("tab-select",{detail:a,bubbles:!0,composed:!0}))}render(){return e`
 			<nav aria-label="board sections">
-				${i.map(([a,n])=>e`
+				${i.map(([a,o])=>e`
 						<button
 							type="button"
 							data-tab=${a}
 							aria-current=${this.current===a?"true":t}
 							@click=${()=>this.select(a)}
 						>
-							${n}
+							${o}
 						</button>
 					`)}
-				${this.extraTabs.map(([a,n])=>e`
+				${this.extraTabs.map(([a,o])=>e`
 						<button
 							type="button"
 							class="ent"
@@ -73,8 +73,8 @@ import{r,e,t,s}from"./lit-17452e2304aadd9e.js";var i=[["decisions","Decisions"],
 							aria-current=${this.current===a?"true":t}
 							@click=${()=>this.select(a)}
 						>
-							${n}
+							${o}
 						</button>
 					`)}
 			</nav>
-		`}}if(!customElements.get("klh-board-tabs"))customElements.define("klh-board-tabs",o);export{i as BOARD_TABS};
+		`}}if(!customElements.get("klh-board-tabs"))customElements.define("klh-board-tabs",n);export{i as BOARD_TABS};

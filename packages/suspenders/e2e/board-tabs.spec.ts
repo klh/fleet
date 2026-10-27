@@ -30,7 +30,7 @@ test("tabs component drives sections, hash and aria-current", {
 	await page.goto(`${mustBoard().BASE}/`);
 	const tabs = page.locator("klh-board-tabs");
 	await expect(tabs).toBeVisible();
-	await expect(tabs.getByRole("button")).toHaveCount(7);
+	await expect(tabs.getByRole("button")).toHaveCount(8); // W1198: + Report
 	const cur = tabs.locator("button[aria-current]");
 	await expect(cur).toHaveText("Decisions");
 	await expect(page.locator("#tab-decisions")).toBeVisible();
