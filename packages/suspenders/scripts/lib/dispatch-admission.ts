@@ -4,11 +4,17 @@
 // snapshot. The CLI-spawning wrappers (capsuleGet/itemCapsuleGet) stay in
 // the entry: they bind argv-derived BIN/sh.
 import { hostname } from "node:os";
-import { quotaProviderPenalty } from "../../hooks/lib/usage/exec-quota.ts";
 import { cvMap } from "../../hooks/lib/executors/executor-cv.ts";
 import { openStore } from "../../hooks/lib/govdb/govdb.ts";
+import { quotaProviderPenalty } from "../../hooks/lib/usage/exec-quota.ts";
 import type { StarterSeedFailure } from "./lane-starter.ts";
 import { ANSI } from "./ready-pool.ts";
+import {
+	AUDIT_WINDOW_MS,
+	type AuditReadVerdict,
+	type AuditRow,
+	fetchBuckleRouteAuditVerdict,
+} from "./route-audit-read.ts";
 
 export type DispatchLane = {
 	sid: string;
@@ -25,8 +31,6 @@ export type DispatchLane = {
 	seedError?: StarterSeedFailure;
 };
 
-type AuditRow = Record<string, unknown>;
-const AUDIT_WINDOW_MS = 90_000;
 const INTERNAL_CODES = new Set([
 	"no_route",
 	"buckle.no_route",
@@ -34,34 +38,17 @@ const INTERNAL_CODES = new Set([
 	"no_healthy_fit",
 ]);
 
-/** One bounded, authenticated read per refill. Missing evidence never blocks. */
+/** One bounded, authenticated read per refill. Missing evidence never blocks.
+ *  W1310: the wire call and its failure classification live in
+ *  ./route-audit-read.ts; this wrapper keeps the `AuditRow[] | null`
+ *  contract for existing callers. */
 export const fetchBuckleRouteAudit = async (
 	front: string | null,
 	token: string | null,
 	model: string,
 	now = Date.now(),
-): Promise<AuditRow[] | null> => {
-	if (!front || !token || !model) return null;
-	try {
-		const url = new URL("/v1/admin/requests", front);
-		url.searchParams.set(
-			"since",
-			new Date(now - AUDIT_WINDOW_MS).toISOString(),
-		);
-		url.searchParams.set("limit", "200");
-		url.searchParams.set("inference", "true");
-		url.searchParams.set("model", model);
-		const response = await fetch(url, {
-			signal: AbortSignal.timeout(1_500),
-			headers: { authorization: `Bearer ${token}` },
-		});
-		if (!response.ok) return null;
-		const body = (await response.json()) as { requests?: unknown };
-		return Array.isArray(body?.requests) ? body.requests : null;
-	} catch {
-		return null;
-	}
-};
+): Promise<AuditRow[] | null> =>
+	(await fetchBuckleRouteAuditVerdict(front, token, model, now)).rows;
 
 /** Only exact selected-target evidence can hold a route. A typed upstream
  * refusal may hold until Retry-After; a bare 429 cannot. */
@@ -122,7 +109,8 @@ export const assessBuckleRoute = (
 
 /** Cache each exact model's bounded audit read for one dispatch cycle. */
 export class RouteAdmission {
-	private readonly rows = new Map<string, AuditRow[] | null>();
+	/** The cached verdict per exact model (W1310: verdict, not bare rows). */
+	private readonly reads = new Map<string, AuditReadVerdict>();
 
 	constructor(
 		private readonly enabled: boolean,
@@ -135,27 +123,32 @@ export class RouteAdmission {
 
 	/** A newly launched lane may have produced fresh refusal evidence. */
 	invalidate(): void {
-		this.rows.clear();
+		this.reads.clear();
 	}
 
 	async check(
 		model: string | null,
 	): Promise<{ pause: boolean; failures: number; reason?: string | null }> {
 		if (!this.enabled || !model) return { pause: false, failures: 0 };
-		if (!this.rows.has(model))
-			this.rows.set(
+		if (!this.reads.has(model))
+			this.reads.set(
 				model,
-				await fetchBuckleRouteAudit(await this.front(), this.token(), model),
+				await fetchBuckleRouteAuditVerdict(
+					await this.front(),
+					this.token(),
+					model,
+				),
 			);
-		const rows = this.rows.get(model) ?? null;
-		// null = front down/401/timeout/odd shape — no evidence, not an empty
-		// history (a reachable authenticated `requests: []` is rows === [])
+		const read = this.reads.get(model);
+		const rows = read?.rows ?? null;
+		// rows null = the read found no usable evidence — front down/401/
+		// timeout/odd shape (the verdict names the class); a reachable
+		// authenticated `requests: []` is rows === []
 		if (this.requireEvidence && rows === null)
 			return {
 				pause: true,
 				failures: 0,
-				reason:
-					"buckle route audit read unavailable — launch held (fail-closed)",
+				reason: `buckle route audit read unavailable — launch held (fail-closed): ${read?.note ?? "no read"}`,
 			};
 		return assessBuckleRoute(rows, model);
 	}
