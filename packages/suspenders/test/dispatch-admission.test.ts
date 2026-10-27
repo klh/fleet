@@ -187,6 +187,53 @@ test("W1102.1: plaid fail-closed — unavailable audit holds, empty history perm
 	}
 });
 
+test("W1310: the fail-closed hold reason names the classified read failure", async () => {
+	const server = Bun.serve({
+		port: 0,
+		fetch: () => new Response(null, { status: 401 }),
+	});
+	try {
+		const admission = new RouteAdmission(
+			true,
+			async () => `http://127.0.0.1:${server.port}`,
+			() => "fixture-admin",
+			true,
+		);
+		const r = await admission.check("glm-5.3-flash");
+		expect(r.pause).toBe(true);
+		expect(r.reason).toContain("fail-closed");
+		expect(r.reason).toContain("HTTP 401");
+	} finally {
+		server.stop(true);
+	}
+});
+
+test("W1310: one transient 5xx blip no longer holds plaid admission", async () => {
+	let reads = 0;
+	const server = Bun.serve({
+		port: 0,
+		fetch: () => {
+			reads++;
+			return reads === 1
+				? new Response(null, { status: 503 })
+				: Response.json({ requests: [] });
+		},
+	});
+	try {
+		const admission = new RouteAdmission(
+			true,
+			async () => `http://127.0.0.1:${server.port}`,
+			() => "fixture-admin",
+			true,
+		);
+		const r = await admission.check("glm-5.3-flash");
+		expect(r.pause).toBe(false);
+		expect(reads).toBe(2);
+	} finally {
+		server.stop(true);
+	}
+});
+
 test("one audit read per selected model, with no read for an unpinned lane", async () => {
 	let reads = 0;
 	const server = Bun.serve({
