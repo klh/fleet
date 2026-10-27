@@ -7,14 +7,14 @@
 // legacy litellm-direct hop buckets thinking to the same effort (adapter:
 // ≥4096→high, ≥1024→low). The gate's own request-transform test pins the
 // buckle side; this file pins the belt side.
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { afterAll, describe, expect, test } from "bun:test";
 import { escalate } from "../bin/escalate.ts";
+import { scratchWorld } from "../../test-kit/src/index.ts";
 
 type AnyRec = Record<string, unknown>;
 
-const dir = mkdtempSync(`${tmpdir()}/w770-`);
+const { home: dir, clean } = scratchWorld({ prefix: "w770-" });
 const policyFile = `${dir}/policy.yaml`;
 writeFileSync(
 	policyFile,
@@ -33,7 +33,7 @@ writeFileSync(
 	].join("\n"),
 );
 
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+afterAll(() => clean());
 
 const ENV = {
 	BELT_ESCALATE_URL: "http://127.0.0.1:9",

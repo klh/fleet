@@ -4,9 +4,9 @@
 // raw safetensors headers, verdict gates (phantom, 30B-class, tried-memo),
 // slot suggestion, and the direct-tier emission carrying spec_dec.
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { scratchWorld } from "../../test-kit/src/index.ts";
 import {
 	MIN_REAL_BYTES,
 	SPECDEC_MIN_RAM_GB,
@@ -23,9 +23,9 @@ import {
 import { emitDirectTiers } from "../bin/registry-emit.ts";
 import { SPECIALISTS, registryEntries } from "../bin/registry.ts";
 
-const DIR = mkdtempSync(join(tmpdir(), "w242-specdec-"));
+const { home: DIR, clean } = scratchWorld({ prefix: "w242-specdec-" });
 afterAll(() => {
-	rmSync(DIR, { recursive: true, force: true });
+	clean();
 });
 
 describe("class tokens", () => {

@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { openRouterFreeRows } from "../bin/openrouter-free-rows.ts";
+import { scratchWorld } from "../../test-kit/src/index.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "openrouter-rows-"));
+const { home: dir, clean } = scratchWorld({ prefix: "openrouter-rows-" });
 const file = join(dir, "catalog.json");
 const now = Date.parse("2026-10-20T10:00:00Z");
 const valid = {
@@ -68,4 +68,4 @@ test("free router is a distinct LiteLLM alias for the OpenRouter meta model", ()
 	]);
 });
 
-test("cleanup", () => rmSync(dir, { recursive: true, force: true }));
+test("cleanup", () => clean());

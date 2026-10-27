@@ -2,10 +2,15 @@
 // timeout, and the _force_dead_port env gate. Stub servers only — never the
 // live :890x fleet.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { anthropicSseFromOpenAi, openLocalStream } from "../bin/router-core.ts";
+import {
+	freePort,
+	scratchWorld,
+	serveStub,
+	waitUp,
+} from "../../test-kit/src/index.ts";
 
 const enc = new TextEncoder();
 const sseChunk = (text: string) =>
@@ -115,15 +120,12 @@ describe("enqueue-after-cancel guard", () => {
 // ─── TTFB-only timeout ───
 describe("openLocalStream TTFB timeout", () => {
 	test("never-opening upstream fails fast with 'ttfb timeout'", async () => {
-		const srv = Bun.serve({
-			port: 0,
-			fetch: () => new Promise<Response>(() => {}), // headers never sent
-		});
+		const srv = serveStub(() => new Promise<Response>(() => {})); // headers never sent
 		const r = await openLocalStream({ port: 8901, model: "m" }, [], 16, 0, {
 			base: `http://127.0.0.1:${srv.port}`,
 			timeoutMs: 80,
 		});
-		srv.stop(true);
+		srv.close();
 		expect(r.ok).toBe(false);
 		expect(r.ok ? "" : r.error).toContain("ttfb timeout");
 	});
@@ -137,10 +139,7 @@ describe("openLocalStream TTFB timeout", () => {
 				c.close();
 			},
 		});
-		const srv = Bun.serve({
-			port: 0,
-			fetch: () => new Response(body, { headers: SSE_HEADERS }),
-		});
+		const srv = serveStub(() => new Response(body, { headers: SSE_HEADERS }));
 		const opened = await openLocalStream(
 			{ port: 8901, model: "m" },
 			[],
@@ -150,7 +149,7 @@ describe("openLocalStream TTFB timeout", () => {
 		);
 		expect(opened.ok).toBe(true);
 		const text = await new Response(opened.ok ? opened.body : null).text();
-		srv.stop(true);
+		srv.close();
 		expect(text).toContain('"content":"a"');
 		expect(text).toContain('"content":"b"');
 	});
@@ -158,31 +157,28 @@ describe("openLocalStream TTFB timeout", () => {
 
 // ─── _force_dead_port env gate (end-to-end, stub upstream) ───
 describe("_force_dead_port env gate", () => {
-	let stub: ReturnType<typeof Bun.serve>;
+	let stub: ReturnType<typeof serveStub>;
 	let stubBase = "";
 	const shims: Array<ReturnType<typeof Bun.spawn>> = [];
-	const homes: string[] = [];
+	const cleans: Array<() => void> = [];
 	const bases: Record<string, string> = {};
 
 	const spawnShim = async (armed: string): Promise<string> => {
-		const home = mkdtempSync(join(tmpdir(), "w6959-"));
-		homes.push(home);
+		const { home, env, clean } = scratchWorld({ prefix: "w6959-" });
+		cleans.push(clean);
 		mkdirSync(join(home, ".claude", "local-llm"), { recursive: true });
 		writeFileSync(
 			join(home, ".claude", "local-llm", "prefs.json"),
 			JSON.stringify({ allow_cloud: false, kev: { enabled: false } }),
 		);
-		const s = Bun.serve({ port: 0, fetch: () => new Response("") });
-		const port = s.port ?? 0;
-		s.stop(true);
+		const port = await freePort();
 		const shim = Bun.spawn({
 			cmd: [
 				process.execPath,
 				new URL("../bin/router-shim.ts", import.meta.url).pathname,
 			],
 			env: {
-				...process.env,
-				HOME: home,
+				...env,
 				BELT_ROUTER_PORT: String(port),
 				BELT_UPSTREAM_BASE: stubBase,
 				BELT_RETRY_WAIT_CAP_MS: "500",
@@ -193,14 +189,15 @@ describe("_force_dead_port env gate", () => {
 		});
 		shims.push(shim);
 		const base = `http://127.0.0.1:${port}`;
-		for (let i = 0; i < 100; i++) {
-			const up = await fetch(`${base}/health/liveliness`)
-				.then((r) => r.ok)
-				.catch(() => false);
-			if (up) return base;
-			await Bun.sleep(50);
+		try {
+			await waitUp(`${base}/health/liveliness`, {
+				tries: 100,
+				intervalMs: 50,
+			});
+		} catch {
+			throw new Error("router-shim did not come up");
 		}
-		throw new Error("router-shim did not come up");
+		return base;
 	};
 
 	const post = (base: string) =>
@@ -216,20 +213,17 @@ describe("_force_dead_port env gate", () => {
 		});
 
 	beforeAll(async () => {
-		stub = Bun.serve({
-			port: 0,
-			fetch: async (req) => {
-				if (req.method !== "POST") return new Response("", { status: 404 });
-				const b = (await req.json()) as { stream?: boolean };
-				if (b.stream)
-					return new Response(`${sseChunk("OK")}\ndata: [DONE]\n\n`, {
-						headers: SSE_HEADERS,
-					});
-				return Response.json({
-					choices: [{ message: { content: "OK" }, finish_reason: "stop" }],
-					usage: { completion_tokens: 1 },
+		stub = serveStub((req, body) => {
+			if (req.method !== "POST") return new Response("", { status: 404 });
+			const b = (body ?? {}) as { stream?: boolean };
+			if (b.stream)
+				return new Response(`${sseChunk("OK")}\ndata: [DONE]\n\n`, {
+					headers: SSE_HEADERS,
 				});
-			},
+			return Response.json({
+				choices: [{ message: { content: "OK" }, finish_reason: "stop" }],
+				usage: { completion_tokens: 1 },
+			});
 		});
 		stubBase = `http://127.0.0.1:${stub.port}`;
 		bases.disarmed = await spawnShim("");
@@ -238,8 +232,8 @@ describe("_force_dead_port env gate", () => {
 
 	afterAll(() => {
 		for (const s of shims) s.kill();
-		stub.stop(true);
-		for (const h of homes) rmSync(h, { recursive: true, force: true });
+		stub.close();
+		for (const c of cleans) c();
 	});
 
 	test("disarmed shim ignores _force_dead_port", async () => {

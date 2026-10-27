@@ -1,9 +1,9 @@
 // W351 — remote buckle hubs as supervised probe-only rows: registry parsing,
 // supervisor target shape, fleetTargets port dedupe, llms.txt row rendering.
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { scratchWorld } from "../../test-kit/src/index.ts";
 import {
 	browserConsoleUrl,
 	configuredProviderIdentity,
@@ -14,8 +14,8 @@ import {
 } from "../bin/hubs.ts";
 import { fleetTargets, isAlert } from "../bin/supervisor.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "w351-"));
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+const { home: dir, clean } = scratchWorld({ prefix: "w351-" });
+afterAll(() => clean());
 
 const REGISTRY = {
 	NAS: { candidates: ["http://nas.example.lan:4101"] },

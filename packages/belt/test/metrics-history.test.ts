@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { scratchWorld } from "../../test-kit/src/index.ts";
 
 // The child imports the real metrics.ts with HOME pointed at a fixture dir
 // (METRICS_DB bakes process.env.HOME at module load), seeds real time-stamped
@@ -67,13 +67,12 @@ console.log(JSON.stringify({
 `;
 
 test("metricsHistory buckets real samples onto a 5-minute grid", async () => {
-	const home = mkdtempSync(join(tmpdir(), "belt-hist-"));
+	const { home, env, clean } = scratchWorld({ prefix: "belt-hist-" });
 	mkdirSync(join(home, ".claude", "local-llm"), { recursive: true });
 	try {
 		const child = Bun.spawnSync([process.execPath, "-e", CHILD], {
 			env: {
-				...process.env,
-				HOME: home,
+				...env,
 				METRICS_MOD: join(import.meta.dir, "..", "bin", "metrics.ts"),
 			},
 			stdout: "pipe",
@@ -97,18 +96,17 @@ test("metricsHistory buckets real samples onto a 5-minute grid", async () => {
 		expect(mac.models).toEqual(["m", "m2"]);
 		expect(nas.counts.reduce((a, b) => a + b, 0)).toBe(1);
 	} finally {
-		rmSync(home, { recursive: true, force: true });
+		clean();
 	}
 });
 
 test("zero-duration failures are unmeasured: null avg, measured-weighted merge", async () => {
-	const home = mkdtempSync(join(tmpdir(), "belt-hist2-"));
+	const { home, env, clean } = scratchWorld({ prefix: "belt-hist2-" });
 	mkdirSync(join(home, ".claude", "local-llm"), { recursive: true });
 	try {
 		const child = Bun.spawnSync([process.execPath, "-e", CHILD2], {
 			env: {
-				...process.env,
-				HOME: home,
+				...env,
 				METRICS_MOD: join(import.meta.dir, "..", "bin", "metrics.ts"),
 			},
 			stdout: "pipe",
@@ -130,6 +128,6 @@ test("zero-duration failures are unmeasured: null avg, measured-weighted merge",
 		expect(out.merged.measured).toBe(2);
 		expect(out.merged.avg_ms).toBe(150);
 	} finally {
-		rmSync(home, { recursive: true, force: true });
+		clean();
 	}
 });

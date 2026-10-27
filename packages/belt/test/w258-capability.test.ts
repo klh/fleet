@@ -4,8 +4,6 @@
 // capabilityRows takes injection params so in-process tests never need the
 // runtime config; the CLI is proven with a scratch-HOME spawn (W224 idiom).
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	assessRemoteEndpoint,
@@ -13,6 +11,7 @@ import {
 	depthTier,
 	parseModelSignature,
 } from "../bin/catalog-capability.ts";
+import { scratchWorld } from "../../test-kit/src/index.ts";
 import type { RemoteEndpoint, RemoteMachine } from "../bin/remotes.ts";
 
 const sig = (id: string) => parseModelSignature(id);
@@ -136,13 +135,13 @@ describe("band arithmetic via assessRemoteEndpoint (W258)", () => {
 });
 
 describe("CLI + markdown (W258)", () => {
-	const HOME = mkdtempSync(join(tmpdir(), "belt-w258-"));
-	afterAll(() => rmSync(HOME, { recursive: true, force: true }));
+	const { env: worldEnv, clean } = scratchWorld({ prefix: "belt-w258-" });
+	afterAll(() => clean());
 
 	test("--json payload: registry rows, doctrine, range invariants", () => {
 		const proc = Bun.spawnSync(["bun", "bin/catalog-capability.ts", "--json"], {
 			cwd: join(import.meta.dir, ".."),
-			env: { ...process.env, HOME },
+			env: worldEnv,
 		});
 		expect(proc.exitCode).toBe(0);
 		const payload = JSON.parse(new TextDecoder().decode(proc.stdout)) as {
@@ -161,13 +160,15 @@ describe("CLI + markdown (W258)", () => {
 });
 
 describe("markdown view (W258)", () => {
-	const HOME = mkdtempSync(join(tmpdir(), "belt-w258-md-"));
-	afterAll(() => rmSync(HOME, { recursive: true, force: true }));
+	const { env: worldEnv, clean } = scratchWorld({
+		prefix: "belt-w258-md-",
+	});
+	afterAll(() => clean());
 
 	test("markdown names the forecast, machines, conservative floor", () => {
 		const proc = Bun.spawnSync(["bun", "bin/catalog-capability.ts"], {
 			cwd: join(import.meta.dir, ".."),
-			env: { ...process.env, HOME },
+			env: worldEnv,
 		});
 		const md = new TextDecoder().decode(proc.stdout);
 		expect(proc.exitCode).toBe(0);

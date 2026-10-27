@@ -4,8 +4,9 @@
 // /registry.json is served from the belt dashboard too (the router shim is
 // the process most likely to be dark when the inventory is needed).
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { scratchWorld } from "../../test-kit/src/index.ts";
+
 import { join, resolve } from "node:path";
 import { EMITTERS, registryEtag, registryJson } from "../bin/registry-emit.ts";
 import {
@@ -86,18 +87,18 @@ describe("direct tiers are emitted-only (W289)", () => {
 
 describe("loadDirectTiers chain (W289)", () => {
 	test("nothing on disk → registry fallback", () => {
-		const home = mkdtempSync(join(tmpdir(), "w289-home-"));
+		const { home, clean } = scratchWorld({ prefix: "w289-home-" });
 		try {
 			expect(loadDirectTiers(undefined, home)).toEqual(
 				directTiersFromRegistry(),
 			);
 		} finally {
-			rmSync(home, { recursive: true, force: true });
+			clean();
 		}
 	});
 
 	test("runtime JSON under the legacy yaml name still wins (read-both)", () => {
-		const home = mkdtempSync(join(tmpdir(), "w289-home-"));
+		const { home, clean } = scratchWorld({ prefix: "w289-home-" });
 		try {
 			mkdirSync(join(home, ".claude/local-llm"), { recursive: true });
 			writeFileSync(
@@ -110,12 +111,12 @@ describe("loadDirectTiers chain (W289)", () => {
 				legacy: "http://127.0.0.1:8902/v1",
 			});
 		} finally {
-			rmSync(home, { recursive: true, force: true });
+			clean();
 		}
 	});
 
 	test("runtime JSON direct rows win over legacy YAML", () => {
-		const home = mkdtempSync(join(tmpdir(), "w975-direct-home-"));
+		const { home, clean } = scratchWorld({ prefix: "w975-direct-home-" });
 		try {
 			const runtime = join(home, ".claude/local-llm");
 			mkdirSync(runtime, { recursive: true });
@@ -131,12 +132,12 @@ describe("loadDirectTiers chain (W289)", () => {
 				current: "http://127.0.0.1:8903/v1",
 			});
 		} finally {
-			rmSync(home, { recursive: true, force: true });
+			clean();
 		}
 	});
 
 	test("the emitted direct-tiers.json artifact wins over the registry", () => {
-		const home = mkdtempSync(join(tmpdir(), "w289-home-"));
+		const { home, clean } = scratchWorld({ prefix: "w289-home-" });
 		try {
 			mkdirSync(join(home, ".claude/local-llm"), { recursive: true });
 			writeFileSync(
@@ -147,7 +148,7 @@ describe("loadDirectTiers chain (W289)", () => {
 				"pinned-artifact": "http://127.0.0.1:8903/v1",
 			});
 		} finally {
-			rmSync(home, { recursive: true, force: true });
+			clean();
 		}
 	});
 });
@@ -179,7 +180,7 @@ describe("dashboard serves /registry.json (W289)", () => {
 		const reservation = Bun.serve({ port: 0, fetch: () => new Response() });
 		const port = reservation.port;
 		reservation.stop(true);
-		const home = mkdtempSync(join(tmpdir(), "w289-dash-"));
+		const { home, clean } = scratchWorld({ prefix: "w289-dash-" });
 		const proc = Bun.spawn(
 			[process.execPath, resolve(import.meta.dir, "../bin/dashboard.ts")],
 			{
@@ -202,7 +203,7 @@ describe("dashboard serves /registry.json (W289)", () => {
 		} finally {
 			proc.kill();
 			await proc.exited;
-			rmSync(home, { recursive: true, force: true });
+			clean();
 		}
 	};
 

@@ -1,9 +1,9 @@
 // W240 — kv-prefix unit tests. No model loads: python is an injected exec
 // fake; the warm tests ride an in-process Bun.serve stub.
 import { afterAll, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { scratchWorld, serveStub } from "../../test-kit/src/index.ts";
 import {
 	buildPacket,
 	type Exec,
@@ -22,8 +22,8 @@ import {
 	warmSpecialist,
 } from "../bin/kv-prefix.ts";
 
-const HOME = mkdtempSync(join(tmpdir(), "fleet-kv-prefix-"));
-afterAll(() => rmSync(HOME, { recursive: true, force: true }));
+const { home: HOME, clean } = scratchWorld({ prefix: "fleet-kv-prefix-" });
+afterAll(() => clean());
 
 const PREFIX = {
 	capturedAt: 1,
@@ -256,17 +256,13 @@ test("warmOpenaiBody: system-only by default, tools with withTools", () => {
 });
 
 test("warmSpecialist passes against a live stub and fails when unreachable", async () => {
-	const server = Bun.serve({
-		port: 0,
-		hostname: "127.0.0.1",
-		fetch: async (req) => {
-			const body = (await req.json()) as {
-				messages: Array<{ content: string }>;
-			};
-			if (body.messages[1].content.startsWith("warm "))
-				return Response.json({ usage: { prompt_tokens: 9000 } });
-			return new Response("bad nonce", { status: 500 });
-		},
+	const server = serveStub((_req, body) => {
+		const parsed = (body ?? {}) as {
+			messages: Array<{ content: string }>;
+		};
+		if (parsed.messages[1].content.startsWith("warm "))
+			return Response.json({ usage: { prompt_tokens: 9000 } });
+		return new Response("bad nonce", { status: 500 });
 	});
 	const r = await warmSpecialist({
 		port: server.port,
@@ -282,7 +278,7 @@ test("warmSpecialist passes against a live stub and fails when unreachable", asy
 		timeoutMs: 500,
 	});
 	expect(bad.verdict).toBe("fail");
-	server.stop(true);
+	server.close();
 });
 
 test("warmAll skips ports outside the registry without touching the network", async () => {

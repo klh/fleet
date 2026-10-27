@@ -1,14 +1,19 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+	freePort,
+	scratchWorld,
+	serveStub,
+	waitUp,
+} from "../../test-kit/src/index.ts";
 
 // W1068 (owner doctrine 2026-10-20): the cloud leg defaults to MAX throughput
 // — the only throttle is REACTIVE to upstream signals. A complex-shaped burst
 // of 12 rides the escalate leg concurrently (no belt/buckle admission cap on
 // the cloud hop), and any refusal must carry a GENUINE upstream Retry-After —
 // never the local-shaped "at max in-flight" wall.
-const home = mkdtempSync(join(tmpdir(), "w1068-burst-"));
+const { home, env, clean } = scratchWorld({ prefix: "w1068-burst-" });
 mkdirSync(join(home, ".claude", "local-llm"), { recursive: true });
 mkdirSync(join(home, ".claude-insights"), { recursive: true });
 writeFileSync(
@@ -22,56 +27,39 @@ let gateInflight = 0;
 let gateMaxInflight = 0;
 let gate429 = false;
 let releaseLocal: (() => void) | undefined;
-const local = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	async fetch() {
-		localCalls++;
-		await new Promise<void>((resolve) => {
-			releaseLocal = resolve;
-		});
-		return Response.json({
-			choices: [
-				{
-					message: { role: "assistant", content: "local OK" },
-					finish_reason: "stop",
-				},
-			],
-		});
-	},
-});
-const gate = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	async fetch() {
-		gateCalls++;
-		gateInflight++;
-		if (gateInflight > gateMaxInflight) gateMaxInflight = gateInflight;
-		try {
-			if (gate429)
-				return Response.json(
-					{
-						error: { code: "1302", message: "z.ai request rate limit reached" },
-					},
-					{ status: 429, headers: { "retry-after": "3" } },
-				);
-			await Bun.sleep(50); // hold the hop so concurrency is observable
-			return Response.json({ content: [{ type: "text", text: "cloud OK" }] });
-		} finally {
-			gateInflight--;
-		}
-	},
-});
-const port = (() => {
-	const probe = Bun.serve({
-		port: 0,
-		hostname: "127.0.0.1",
-		fetch: () => new Response(),
+const local = serveStub(async () => {
+	localCalls++;
+	await new Promise<void>((resolve) => {
+		releaseLocal = resolve;
 	});
-	const free = probe.port;
-	probe.stop(true);
-	return free;
-})();
+	return Response.json({
+		choices: [
+			{
+				message: { role: "assistant", content: "local OK" },
+				finish_reason: "stop",
+			},
+		],
+	});
+});
+const gate = serveStub(async () => {
+	gateCalls++;
+	gateInflight++;
+	if (gateInflight > gateMaxInflight) gateMaxInflight = gateInflight;
+	try {
+		if (gate429)
+			return Response.json(
+				{
+					error: { code: "1302", message: "z.ai request rate limit reached" },
+				},
+				{ status: 429, headers: { "retry-after": "3" } },
+			);
+		await Bun.sleep(50); // hold the hop so concurrency is observable
+		return Response.json({ content: [{ type: "text", text: "cloud OK" }] });
+	} finally {
+		gateInflight--;
+	}
+});
+const port = await freePort();
 const base = `http://127.0.0.1:${port}`;
 let proc: Bun.Subprocess<"ignore", "pipe", "pipe">;
 
@@ -80,8 +68,7 @@ beforeAll(async () => {
 		["bun", new URL("../bin/router-shim.ts", import.meta.url).pathname],
 		{
 			env: {
-				...process.env,
-				HOME: home,
+				...env,
 				BELT_ROUTER_PORT: String(port),
 				BELT_UPSTREAM_BASE: `http://127.0.0.1:${local.port}`,
 				BELT_PORT_CAPS: "8903:1", // the local reason tier stays capped at 1
@@ -92,22 +79,15 @@ beforeAll(async () => {
 			stderr: "pipe",
 		},
 	);
-	for (let attempt = 0; attempt < 100; attempt++) {
-		try {
-			if ((await fetch(`${base}/health`)).ok) return;
-		} catch {
-			// Waiting for the child to bind.
-		}
-		await Bun.sleep(50);
-	}
-	throw new Error("router did not start");
+	await waitUp(`${base}/health`);
 });
 
 afterAll(() => {
 	releaseLocal?.();
 	proc?.kill();
-	local.stop(true);
-	gate.stop(true);
+	local.close();
+	gate.close();
+	clean();
 });
 
 const BURST = 12;

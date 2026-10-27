@@ -1,23 +1,15 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { freePort, scratchWorld } from "../../test-kit/src/index.ts";
 
 test("unconfigured MCP serves setup status but never tools", async () => {
-	const home = mkdtempSync(join(tmpdir(), "belt-mcp-status-"));
-	const probe = Bun.serve({
-		hostname: "127.0.0.1",
-		port: 0,
-		fetch: () => new Response(),
-	});
-	const port = probe.port;
-	probe.stop(true);
+	const { env, clean } = scratchWorld({ prefix: "belt-mcp-status-" });
+	const port = await freePort();
 	const child = Bun.spawn(
 		[process.execPath, join(import.meta.dir, "../bin/mcp-server.ts")],
 		{
 			env: {
-				...process.env,
-				HOME: home,
+				...env,
 				BELT_MCP_PORT: String(port),
 				BELT_MCP_BIND: "127.0.0.1",
 				BELT_MCP_DEV: "0",
@@ -54,6 +46,6 @@ test("unconfigured MCP serves setup status but never tools", async () => {
 	} finally {
 		child.kill();
 		await child.exited;
-		rmSync(home, { recursive: true, force: true });
+		clean();
 	}
 });

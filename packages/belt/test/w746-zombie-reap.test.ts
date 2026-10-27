@@ -6,14 +6,14 @@
 // on stub ports, a scratch ledger — never live :4000/:890x or the real
 // spawn ledger.
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { admitSpawn } from "../bin/spawn-admission.ts";
+import { freePort, scratchWorld } from "../../test-kit/src/index.ts";
 import { Supervisor, type Target, tcpProbe } from "../bin/supervisor.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "w746-reap-"));
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+const { home: dir, clean } = scratchWorld({ prefix: "w746-reap-" });
+afterAll(() => clean());
 
 const STUB = join(dir, "stub-server.ts");
 writeFileSync(
@@ -30,13 +30,6 @@ const pidAlive = (pid: number): boolean => {
 	}
 };
 
-const freePort = (): number => {
-	const s = Bun.serve({ port: 0, fetch: () => new Response("") });
-	const port = s.port as number;
-	s.stop(true);
-	return port;
-};
-
 const waitFor = async (pred: () => boolean, ms = 8000): Promise<void> => {
 	const t0 = Date.now();
 	while (!pred()) {
@@ -47,7 +40,7 @@ const waitFor = async (pred: () => boolean, ms = 8000): Promise<void> => {
 
 describe("W746 zombie reap through real memory admission", () => {
 	test("SIGKILLed spawnReserved-shaped child is reaped + respawned inside the interval", async () => {
-		const port = freePort();
+		const port = await freePort();
 		const ledger = join(dir, "spawn-ledger.json");
 		const t: Target = {
 			name: "specialist",
