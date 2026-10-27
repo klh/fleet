@@ -25,6 +25,7 @@ import {
 import { join } from "node:path";
 import { transcriptAlive } from "../lib/lanes/lane-liveness.ts";
 import { automaticRecoveryPaused } from "../lib/fleet-loop/automatic-recovery.ts";
+import { checkBuckleSpoke } from "../lib/fleet-loop/buckle-spoke-health.ts";
 import {
 	MANAGED_PREFIX_ENTRIES,
 	PRUNE_ALLOWLIST,
@@ -681,6 +682,20 @@ for (const { project } of zProjects) {
 		}
 	}
 }
+
+// 5e. buckle spoke startup-failure (W1278.2): outside-process probe of the
+// Mac spoke (:4101) + the launchd log signature. Read-only alert; --fix runs
+// the guarded recovery (env-repoint + kickstart — never a healthy spoke,
+// holds under .fleet/reclaim-paused). Probe failure is never death.
+try {
+	const spoke = await checkBuckleSpoke({
+		fix,
+		home: process.env.HOME ?? "",
+		repo: projectRootOf(OWN_PROJECT),
+	});
+	issues.push(...spoke.issues);
+	fixed.push(...spoke.fixed);
+} catch {} // probe failure is never death
 
 // 6. FOCUS: workload surface per project — health-clean ≠ nothing to do
 const projs = db
