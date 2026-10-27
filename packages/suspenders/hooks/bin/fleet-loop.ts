@@ -34,6 +34,12 @@ import { flagFns, parseLoopConfig } from "../lib/fleet-loop/config.ts";
 import { runDispatch } from "../lib/fleet-loop/dispatch.ts";
 import { createMaintenanceSweep } from "../lib/fleet-loop/maintenance.ts";
 import { createMergeLadder } from "../lib/fleet-loop/merge.ts";
+// W1302.1: the hold as a contract — the predicate + controller enforcement
+import {
+	enforceMergeHold,
+	mergeHoldActive,
+} from "../lib/fleet-loop/merge-hold.ts";
+import { flushOnDoneWait } from "../lib/fleet-loop/merge-on-done.ts";
 import { createReclaimSweep } from "../lib/fleet-loop/reclaim-sweep.ts";
 import { createRetire } from "../lib/fleet-loop/retire.ts";
 import { createRogueSweep } from "../lib/fleet-loop/rogue-sweep.ts";
@@ -48,14 +54,8 @@ import {
 	gitMidOp,
 	itemClaimOf,
 } from "../lib/lanes/ladder-lease.ts";
-// W1302.1: the hold as a contract — the predicate + controller enforcement
-import {
-	enforceMergeHold,
-	mergeHoldActive,
-} from "../lib/fleet-loop/merge-hold.ts";
 import { laneProcessIdentity } from "../lib/lanes/lane-liveness.ts";
 import { createTransportProbe } from "../lib/lanes/transport-liveness.ts";
-import { flushOnDoneWait } from "../lib/fleet-loop/merge-on-done.ts";
 // W911: the plaid posture switch — read/write .fleet/posture (the file
 // dispatch-next reads once per invocation).
 import {
@@ -320,7 +320,9 @@ if (MODE === "flush") {
 	);
 	if (doneWait.exit) process.exit(0);
 	let merged = 0;
+	let integrated = 0;
 	let deferred = 0;
+	let failed = 0;
 	const sweep = new Set(
 		sh(["git", "branch", "--list", GLOB, "--format", "%(refname:short)"])
 			.split("\n")
@@ -349,10 +351,17 @@ if (MODE === "flush") {
 			deferred++;
 			continue;
 		}
-		mergeOne(b);
-		merged++;
+		// W1183: the receipt is the outcome — a defer/live/review/ladder-fail
+		// can no longer pass as merged. Count what actually happened.
+		const receipt = mergeOne(b);
+		if (receipt.outcome === "merged") merged++;
+		else if (receipt.outcome === "integrated") integrated++;
+		else if (receipt.outcome === "failed") failed++;
+		else deferred++;
 	}
-	log(`FLUSH merged=${merged} deferred=${deferred}`);
+	log(
+		`FLUSH merged=${merged} integrated=${integrated} deferred=${deferred} failed=${failed}`,
+	);
 	process.exit(0);
 }
 
@@ -394,7 +403,13 @@ if (MODE === "ship") {
 			);
 		else healCrashedMerge();
 	}
-	if (mergeOne(b) === "missing") {
+	// W1183: ship reports the ACTUAL outcome — a defer/live/review/ladder-fail
+	// never passes as merged. Exit codes unchanged (board contract).
+	const receipt = mergeOne(b);
+	log(
+		`SHIP ${b} ${receipt.outcome}${receipt.head ? ` ${receipt.head}` : ""}${receipt.why ? ` — ${receipt.why}` : ""}`,
+	);
+	if (receipt.outcome === "missing") {
 		console.error(`ship refused: branch ref missing: ${b}`);
 		process.exit(1);
 	}

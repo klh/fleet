@@ -13,8 +13,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { flagIntegratedCode } from "../decomposition.ts";
-import { invalidateForLanding } from "../knowledge/knowledge-invalidate.ts";
-import { withKnowledgeDb } from "../knowledge/sqlite-store.ts";
 import {
 	checkReviewReceipt,
 	recordLanding,
@@ -22,6 +20,8 @@ import {
 } from "../gates/review-receipt.ts";
 import { scheduleReview } from "../gates/review-scheduler.ts";
 import { openStore, projectIdentity } from "../govdb/govdb.ts";
+import { invalidateForLanding } from "../knowledge/knowledge-invalidate.ts";
+import { withKnowledgeDb } from "../knowledge/sqlite-store.ts";
 import {
 	doneShaResolves,
 	gitInProgress,
@@ -37,8 +37,24 @@ import { guardedMerge } from "./merge-guard.ts";
 import { mergeHoldActive } from "./merge-hold.ts";
 import type { LoopDeps } from "./runtime.ts";
 
+// W1183: the ladder reports what ACTUALLY happened — never a count of
+// attempts. Every mergeOne exit carries one receipt; flush/ship reporting
+// propagates it verbatim (deferred/live/review-defer can no longer pass as
+// merged). Guards themselves are untouched.
+export type MergeReceipt = {
+	branch: string;
+	/** merged = the ladder landed it · integrated = already in main (ahead 0,
+	 * retired) · deferred = a gate kept it for a later cycle · failed = the
+	 * ladder rejected it (strike) · missing = the branch ref is gone (parked
+	 * or deleted — ship refuses, flush counts it deferred) */
+	outcome: "merged" | "integrated" | "deferred" | "failed" | "missing";
+	/** post-merge (qlty-fix included) short head, when the ladder landed */
+	head?: string;
+	/** gate/ladder reason for a defer, or the landing note on a merge */
+	why?: string;
+};
 export type MergeLadder = {
-	mergeOne: (b: string) => undefined | "missing";
+	mergeOne: (b: string) => MergeReceipt;
 	mergeFail: (b: string, tail: string) => void;
 	mergeRunnerAlive: () => number | null;
 	healCrashedMerge: () => void;
@@ -107,11 +123,15 @@ export function createMergeLadder(
 	// the board's one-click ship (`ship --branch <b>` runs it foreground).
 	// Fail-isolated: a failed ladder aborts the merge, leaves the branch for
 	// inspection, and counts toward the 3-strike park like every other merge.
-	function mergeOne(b: string): undefined | "missing" {
+	function mergeOne(b: string): MergeReceipt {
 		const n = ahead(b);
 		if (n < 0) {
 			log(`MERGE-DEFER ${b} — branch ref missing (parked or deleted)`);
-			return "missing";
+			return {
+				branch: b,
+				outcome: "missing",
+				why: "branch ref missing (parked or deleted)",
+			};
 		}
 		// W1072.2 fail-closed gates BEFORE retirement AND the ladder: an
 		// operator merge hold defers BOTH (a merged branch's worktree/branch
@@ -120,12 +140,12 @@ export function createMergeLadder(
 		// strike/decision.
 		if (mergeHoldActive(REPO)) {
 			log(`MERGE-DEFER ${b} — operator merge hold (.fleet/merge-hold)`);
-			return;
+			return { branch: b, outcome: "deferred", why: "operator merge hold" };
 		}
 		const inprog = gitInProgress(REPO);
 		if (inprog) {
 			log(`MERGE-DEFER ${b} — ${inprog}`);
-			return;
+			return { branch: b, outcome: "deferred", why: inprog };
 		}
 		if (n === 0) {
 			const integrated = itemClaimOf(REPO, b);
@@ -142,13 +162,17 @@ export function createMergeLadder(
 					);
 				} catch (error) {
 					log(`LANDING-DEFER ${b} — ${String(error).slice(0, 300)}`);
-					return;
+					return {
+						branch: b,
+						outcome: "deferred",
+						why: `landing deferred: ${String(error).slice(0, 160)}`,
+					};
 				} finally {
 					store.close();
 				}
 			}
 			retireMerged(b);
-			return;
+			return { branch: b, outcome: "integrated" };
 		}
 		// never merge a branch a live lane still owns (gaps 2026-09-30: autow351
 		// was merged mid-flight with 3 live pids in its worktree — the ladder
@@ -158,12 +182,21 @@ export function createMergeLadder(
 		// silently (the mid-flight norm), unknown defers loudly (a failed probe
 		// is never death — monitor doctrine W51).
 		const live = laneIsAlive(b);
-		if (live === true) return;
+		if (live === true)
+			return {
+				branch: b,
+				outcome: "deferred",
+				why: "lane still live (the mid-flight norm)",
+			};
 		if (live === null) {
 			log(
 				`MERGE-DEFER ${b} — lane liveness unknown (probe failure is never death); deferring`,
 			);
-			return;
+			return {
+				branch: b,
+				outcome: "deferred",
+				why: "lane liveness unknown (probe failure is never death)",
+			};
 		}
 		// W641 ladder lease: the govdb lease outranks every liveness signal — a
 		// branch whose item is CLAIMED/RUNNING never merges, even with its lane
@@ -173,7 +206,7 @@ export function createMergeLadder(
 		const claim = itemClaimOf(REPO, b);
 		if (claim.blocked) {
 			log(`LEASE-BLOCK ${b} — ${claim.reason}`);
-			return;
+			return { branch: b, outcome: "deferred", why: claim.reason };
 		}
 		// W101: a live .fleet/merge-active marker means another runner is
 		// mid-ladder (the marker is written BEFORE the merge starts, so it can
@@ -182,7 +215,11 @@ export function createMergeLadder(
 		const liveRunner = mergeRunnerAlive();
 		if (liveRunner) {
 			log(`MERGE-BUSY ${b} — runner pid ${liveRunner} mid-flight, skipped`);
-			return;
+			return {
+				branch: b,
+				outcome: "deferred",
+				why: `merge runner pid ${liveRunner} mid-flight`,
+			};
 		}
 		// W1072.2: the exact closure predicate — only a DONE item whose
 		// result_sha resolves to the exact branch HEAD may merge. Unknown,
@@ -191,7 +228,7 @@ export function createMergeLadder(
 		const exact = doneShaResolves(REPO, b, claim);
 		if (!exact.ok) {
 			log(`MERGE-DEFER ${b} — ${exact.why}`);
-			return;
+			return { branch: b, outcome: "deferred", why: exact.why };
 		}
 		const verifyReview = (candidate?: string) => {
 			const store = openStore();
@@ -231,7 +268,11 @@ export function createMergeLadder(
 			} finally {
 				store.close();
 			}
-			return;
+			return {
+				branch: b,
+				outcome: "deferred",
+				why: `review required: ${review.why}`,
+			};
 		}
 		// liveness marker: a crash between --no-commit and commit leaves
 		// MERGE_HEAD + staged debris that plain merge --abort cannot clear (the
@@ -261,6 +302,7 @@ export function createMergeLadder(
 			timeoutMs: LADDER_TIMEOUT_MS,
 			verifyReview,
 		});
+		let receipt: MergeReceipt;
 		if (mv.code === 0) {
 			let after = sh(["git", "rev-parse", "--short", "HEAD"]);
 			log(`MERGED ${b} ${before}→${after}`);
@@ -375,13 +417,21 @@ export function createMergeLadder(
 				try {
 					rmSync(marker);
 				} catch {}
-				return;
+				return {
+					branch: b,
+					outcome: "merged",
+					head: after,
+					why: `landing deferred: ${String(error).slice(0, 160)}`,
+				};
 			}
 			clearFail(b);
+			receipt = { branch: b, outcome: "merged", head: after };
+		} else if (mv.tail.startsWith("review required:")) {
+			log(`MERGE-DEFER ${b} — ${mv.tail}`);
+			receipt = { branch: b, outcome: "deferred", why: mv.tail };
 		} else {
-			if (mv.tail.startsWith("review required:"))
-				log(`MERGE-DEFER ${b} — ${mv.tail}`);
-			else mergeFail(b, mv.tail);
+			mergeFail(b, mv.tail);
+			receipt = { branch: b, outcome: "failed", why: mv.tail };
 		}
 		try {
 			rmSync(`${REPO}/.fleet/merge-active`);
@@ -390,9 +440,10 @@ export function createMergeLadder(
 		// its worktree/branch stay put while the operator owns the checkout.
 		if (mergeHoldActive(REPO)) {
 			log(`RETIRE-DEFER ${b} — operator merge hold, worktree/branch preserved`);
-			return;
+			return receipt;
 		}
 		retireMerged(b);
+		return receipt;
 	}
 
 	/** pid of a live merge runner, or null. A stale marker (dead pid, or older
