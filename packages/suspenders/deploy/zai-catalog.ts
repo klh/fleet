@@ -20,8 +20,7 @@ import {
 import { validateOutboundGuardConfig } from "@klh/buckle/src/outbound-guard.ts";
 import { assertProviderConcurrencyErrorCodes } from "@klh/buckle/src/provider-pressure.ts";
 import type { HubProfile } from "../hooks/lib/stack-config.ts";
-
-const MAX_CATALOG_BYTES = 1024 * 1024;
+import { readBoundedJson, readPrivateKey } from "./catalog-http.ts";
 
 function guardedCodingPlanRoute(
 	hub: HubProfile,
@@ -75,39 +74,16 @@ export async function fetchZaiCatalog(
 	keyFile: string,
 	fetcher: typeof fetch = fetch,
 ): Promise<ZaiCatalogSnapshot> {
-	const stat = lstatSync(keyFile);
-	if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0)
-		throw new Error("Z.ai key file must be a private regular file (0600)");
-	const key = readFileSync(keyFile, "utf8").trim();
-	if (!key) throw new Error("Z.ai key file is empty");
+	const key = readPrivateKey(keyFile, "Z.ai");
 	const response = await fetcher(ZAI_CATALOG_URL, {
 		headers: { authorization: `Bearer ${key}`, accept: "application/json" },
 		signal: AbortSignal.timeout(10_000),
 	});
-	if (!response.ok || !response.body)
+	if (!response.ok)
 		throw new Error(`Z.ai model catalog HTTP ${response.status}`);
-	const reader = response.body.getReader();
-	const chunks: Uint8Array[] = [];
-	let bytes = 0;
-	try {
-		for (;;) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			bytes += value.byteLength;
-			if (bytes > MAX_CATALOG_BYTES)
-				throw new Error("Z.ai model catalog exceeds 1 MiB");
-			chunks.push(value);
-		}
-	} finally {
-		reader.releaseLock();
-	}
-	const body = new Uint8Array(bytes);
-	let offset = 0;
-	for (const chunk of chunks) {
-		body.set(chunk, offset);
-		offset += chunk.byteLength;
-	}
-	const parsed = parseZaiModelIds(JSON.parse(new TextDecoder().decode(body)));
+	const parsed = parseZaiModelIds(
+		await readBoundedJson(response, "Z.ai model catalog"),
+	);
 	return {
 		version: 1,
 		source: ZAI_CATALOG_URL,
