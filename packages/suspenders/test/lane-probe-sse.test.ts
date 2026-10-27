@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { laneProbeReply } from "./lane-probe-sse.ts";
+import { laneProbeReply } from "../scripts/lib/lane-probe-sse.ts";
 
 test("stream probe reconstructs tool input, signature, and stop reason", async () => {
 	const events = [

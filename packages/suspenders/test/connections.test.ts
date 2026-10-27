@@ -23,8 +23,8 @@ import {
 	resolveHubForPath,
 	singboxConfig,
 	writeDefaultConfig,
-} from "./connections.ts";
-import { AI_DESTINATION_SUFFIXES } from "../../deploy/singbox/watched.ts";
+} from "../scripts/lib/connections.ts";
+import { AI_DESTINATION_SUFFIXES } from "../deploy/singbox/watched.ts";
 
 const cfg = (over: Partial<ConnectionsConfig> = {}): ConnectionsConfig => ({
 	version: 1,

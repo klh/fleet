@@ -1,7 +1,7 @@
 // hooks/board-html/fleet-lane-routes.test.ts — W461 stage 3 grouped
 // lane/routes view selectors.
 import { describe, expect, test } from "bun:test";
-import { selectLaneRouteGroups } from "./fleet-lane-routes.ts";
+import { selectLaneRouteGroups } from "../hooks/board-html/fleet-lane-routes.ts";
 
 const edge = (
 	over: Partial<Parameters<typeof selectLaneRouteGroups>[0][number]>,

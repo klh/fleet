@@ -11,7 +11,7 @@ import {
 	readActivation,
 	retainActivation,
 	writeActivation,
-} from "./service-drift.ts";
+} from "../scripts/lib/service-drift.ts";
 const unit = "activated definition",
 	manifest = "manifest definition";
 const receipt: ActivationReceipt = {

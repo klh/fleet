@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { isResumableClaim } from "./resumable-claim.ts";
+import { isResumableClaim } from "../scripts/lib/resumable-claim.ts";
 
 test("structured claimed/running records preserve exact item and owner", () => {
 	for (const state of ["CLAIMED", "RUNNING"]) {

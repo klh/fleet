@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { stableDescendant } from "./owned-process.ts";
+import { stableDescendant } from "../scripts/lib/owned-process.ts";
 const birth = (pid: number) => ({ birth: String(pid), command: "worker" });
 test("bounded ancestry accepts nested worker children", () => {
 	expect(

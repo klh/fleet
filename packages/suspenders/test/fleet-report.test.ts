@@ -4,8 +4,8 @@
 // SUPERVISOR DEFAULT emit.
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { renderFleetReport } from "./fleet-report.ts";
-import { composeBrief } from "./brief.ts";
+import { renderFleetReport } from "../scripts/lib/fleet-report.ts";
+import { composeBrief } from "../scripts/lib/brief.ts";
 
 const PROJECT = "w899-test-project";
 

@@ -23,7 +23,7 @@ import {
 	tunnelArgv,
 	tunnelUp,
 	writePeersFile,
-} from "./trace-tunnel.ts";
+} from "../deploy/trace-tunnel.ts";
 import type { HubProfile } from "../hooks/lib/stack-config.ts";
 
 const dirs: string[] = [];

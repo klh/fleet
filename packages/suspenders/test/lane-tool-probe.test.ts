@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { laneToolRoundtrip } from "./lane-tool-probe.ts";
+import { laneToolRoundtrip } from "../scripts/lib/lane-tool-probe.ts";
 
 const structured = {
 	stop_reason: "tool_use",

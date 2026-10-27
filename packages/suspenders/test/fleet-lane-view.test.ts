@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { BODY } from "./body.ts";
+import { BODY } from "../hooks/board-html/body.ts";
 import {
 	matchesHubScope,
 	selectGovernorCompletions,
 	selectGovernorLanes,
-} from "./fleet-lane-view.ts";
-import { RENDERS } from "./renders.ts";
+} from "../hooks/board-html/fleet-lane-view.ts";
+import { RENDERS } from "../hooks/board-html/renders.ts";
 
 const fleetRenderScript = `function setNodes(el, text){ el.textContent = text; } function stLetter(){ return ''; } function esc(text){ return String(text); } ${RENDERS}; return renderFleet;`;
 

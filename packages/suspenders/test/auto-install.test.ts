@@ -12,11 +12,11 @@ import {
 	readStamp,
 	writeStamp,
 	type LaneAuditRow,
-} from "./auto-install.ts";
+} from "../scripts/lib/auto-install.ts";
 import {
 	MAINTENANCE_TASKS,
 	missingRunners,
-} from "../../hooks/lib/fleet-loop/maintenance.ts";
+} from "../hooks/lib/fleet-loop/maintenance.ts";
 
 const ready = {
 	volumeMounted: true,

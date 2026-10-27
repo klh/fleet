@@ -28,7 +28,7 @@ import {
 	renderChangelogEntry,
 	spawnGitRunner,
 	workspaceDirs,
-} from "./release-version.ts";
+} from "../scripts/lib/release-version.ts";
 
 const gitInit = (dir: string): void => {
 	execFileSync("git", ["init", "-q", dir]);

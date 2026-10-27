@@ -13,7 +13,7 @@ import {
 	OPENROUTER_FREE_MAX_AGE_MS,
 	snapshotFromCatalog,
 	writeFreeSnapshot,
-} from "./openrouter-free.ts";
+} from "../deploy/openrouter-free.ts";
 
 const dirs: string[] = [];
 afterEach(() => {

@@ -8,7 +8,7 @@ import {
 	BoundedTailWindow,
 	DIAGNOSTIC_TAIL_BYTES,
 	readBoundedTail,
-} from "./bounded-tail.ts";
+} from "../scripts/lib/bounded-tail.ts";
 
 const streamOf = (...chunks: Uint8Array[]): ReadableStream<Uint8Array> =>
 	new ReadableStream({

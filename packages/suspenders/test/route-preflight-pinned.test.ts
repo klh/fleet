@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import {
 	checkRoutePreflight,
 	type RoutePreflightSources,
-} from "./route-preflight.ts";
+} from "../scripts/route-preflight.ts";
 
 type UpstreamPool = RoutePreflightSources["localPool"];
 type Deployment = ReturnType<UpstreamPool["deployments"]>[number];

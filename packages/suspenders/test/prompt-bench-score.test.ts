@@ -1,12 +1,12 @@
 // prompt-bench tests — corpus determinism + scorer behavior (W368).
 import { describe, expect, test } from "bun:test";
-import { buildCorpus } from "./prompt-bench-corpus.ts";
+import { buildCorpus } from "../scripts/lib/prompt-bench-corpus.ts";
 import {
 	extractIdents,
 	scoreCompress,
 	scoreEnhance,
 	median,
-} from "./prompt-bench-score.ts";
+} from "../scripts/lib/prompt-bench-score.ts";
 
 describe("prompt-bench corpus", () => {
 	test("same seed → byte-identical corpus", () => {

@@ -10,9 +10,9 @@ import {
 	DEFAULT_LANE_MODEL,
 	laneModelOf,
 	quotedPreferWarning,
-} from "./dispatch-executor-note.ts";
-import { execPick } from "./exec-chain.ts";
-import { resolveRoutingPrefer } from "./prefer-routing.ts";
+} from "../scripts/lib/dispatch-executor-note.ts";
+import { execPick } from "../scripts/lib/exec-chain.ts";
+import { resolveRoutingPrefer } from "../scripts/lib/prefer-routing.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "w1353-home-"));
 const TREE = mkdtempSync(join(tmpdir(), "w1353-tree-"));

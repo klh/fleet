@@ -16,7 +16,7 @@ import {
 	GUI_PROXY_ASK,
 	wireConnections,
 	type LaunchctlRun,
-} from "./install-connections.ts";
+} from "../scripts/install-connections.ts";
 
 const SETENV: string[][] = [];
 const recorder: LaunchctlRun = async (pairs) => {

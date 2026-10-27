@@ -10,7 +10,7 @@ import {
 	parseRoutingPrefer,
 	preferRoutingBriefLines,
 	resolveRoutingPrefer,
-} from "./prefer-routing.ts";
+} from "../scripts/lib/prefer-routing.ts";
 
 const scratch = (): string =>
 	mkdtempSync(join(tmpdir(), "w519-prefer-routing-"));

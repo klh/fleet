@@ -10,7 +10,7 @@ import type { Deployment, UpstreamPool } from "../../buckle/src/upstreams.ts";
 import {
 	checkRoutePreflight,
 	type RoutePreflightSources,
-} from "./route-preflight.ts";
+} from "../scripts/route-preflight.ts";
 
 const pool = (
 	groups: Record<string, Array<Omit<Deployment, "group">>>,

@@ -23,8 +23,8 @@ import {
 	templatePath,
 	verifyRows,
 	watchedRulesOf,
-} from "./singbox.ts";
-import { CONNECT_USERS, connectTagOf, goRegexOf } from "./watched.ts";
+} from "../deploy/singbox/singbox.ts";
+import { CONNECT_USERS, connectTagOf, goRegexOf } from "../deploy/singbox/watched.ts";
 
 const dirs: string[] = [];
 afterAll(() => {

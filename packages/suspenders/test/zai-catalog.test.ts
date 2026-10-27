@@ -24,7 +24,7 @@ import {
 	mergeZaiHubUpstreams,
 	refreshStaleZaiSnapshot,
 	writeZaiSnapshot,
-} from "./zai-catalog.ts";
+} from "../deploy/zai-catalog.ts";
 
 const catalog = {
 	data: [

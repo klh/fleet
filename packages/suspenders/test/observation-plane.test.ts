@@ -9,7 +9,7 @@ import {
 	observationStoreId,
 	projectLanes,
 	type ObservationEvent,
-} from "./observation-plane.ts";
+} from "../hooks/lib/observation-plane.ts";
 
 const NOW = 1_700_000_000_000;
 

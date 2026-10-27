@@ -6,7 +6,7 @@ import {
 	assertInstalled,
 	buildAddArgs,
 	REPO_ROOT,
-} from "./skills-ci.ts";
+} from "../scripts/skills-ci.ts";
 
 const scratch = mkdtempSync(join(tmpdir(), "skills-ci-test-"));
 

@@ -20,7 +20,7 @@ import {
 	GUI_AI_APPS,
 	type EgressDetect,
 	singboxEgressRules,
-} from "./egress.ts";
+} from "../deploy/singbox/egress.ts";
 import {
 	clashVersion,
 	confValues,
@@ -31,7 +31,7 @@ import {
 	statusTun,
 	uninstallTun,
 	checkTun,
-} from "./windows.ts";
+} from "../deploy/singbox/windows.ts";
 
 const FULL_ENV: Record<string, string> = {
 	KLH_SINGBOX_RELAY_HOST: "relay.example.internal",
