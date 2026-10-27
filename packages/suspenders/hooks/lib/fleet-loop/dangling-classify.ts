@@ -15,10 +15,10 @@
 // templates, vendored or generated output, prose — are never judged.
 
 import {
+	type Masked,
 	maskCode,
 	STR,
 	STR_ALL,
-	type Masked,
 	type Strings,
 } from "./dangling-mask.ts";
 

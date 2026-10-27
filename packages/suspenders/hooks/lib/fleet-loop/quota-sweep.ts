@@ -24,8 +24,9 @@
 // --act performs) and monitor.ts's --fix pass (launchd, every 15 min —
 // the same cadence as the staleness floor). Detection is pure/injected so
 // tests never touch governor.db or the network.
-import { existsSync, readFileSync, statSync } from "node:fs";
+
 import type { Database } from "bun:sqlite";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { reclaimReceiptMatches } from "../lanes/dead-claim-recovery.ts";
 import { automaticRecoveryPaused } from "./automatic-recovery.ts";
 
@@ -64,6 +65,7 @@ export const auditRowIsQuota = (r: AuditRowLike): boolean =>
 // W459.1: projectRootOf moved to govdb.ts — the ONE path getter (this module
 // re-exports it for existing importers).
 import { projectRootOf } from "../govdb/govdb.ts";
+
 export { projectRootOf };
 
 // /Users/<name> paths never leave through a broadcast (buckle scrub parity)

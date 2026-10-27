@@ -5,35 +5,35 @@
 import {
 	existsSync,
 	mkdirSync,
-	readFileSync,
 	readdirSync,
+	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { have } from "../run.ts";
+import { join } from "node:path";
+import { flagIntegratedCode } from "../decomposition.ts";
+import {
+	checkReviewReceipt,
+	recordLanding,
+	reviewContext,
+} from "../gates/review-receipt.ts";
+import { scheduleReview } from "../gates/review-scheduler.ts";
 import { openStore, projectIdentity } from "../govdb/govdb.ts";
 import {
 	doneShaResolves,
 	gitInProgress,
 	itemClaimOf,
 } from "../lanes/ladder-lease.ts";
-import { mergeHoldActive } from "./merge-hold.ts";
-import { flagIntegratedCode } from "../decomposition.ts";
+import { have } from "../run.ts";
 import {
 	bankDanglingRefs,
 	danglingReferences,
 	unresolvedSpecifiers,
 } from "./dangling-paths.ts";
 import { guardedMerge } from "./merge-guard.ts";
-import {
-	checkReviewReceipt,
-	reviewContext,
-	recordLanding,
-} from "../gates/review-receipt.ts";
+import { mergeHoldActive } from "./merge-hold.ts";
 import type { LoopDeps } from "./runtime.ts";
-import { scheduleReview } from "../gates/review-scheduler.ts";
 
 export type MergeLadder = {
 	mergeOne: (b: string) => undefined | "missing";

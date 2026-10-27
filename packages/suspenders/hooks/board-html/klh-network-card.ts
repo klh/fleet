@@ -7,14 +7,15 @@
 // polls /api/console/network (same-origin, board host-guard). Visual
 // grammar shared with the Belt machine map: muted-to-red load, blue active,
 // gray unknown — design tokens only.
-import { LitElement, html, nothing, type TemplateResult, css } from "lit";
-import { cardCss } from "./klh-console-card-css.ts";
-import type { NetworkPayload } from "../board/network-overview.ts";
+
 import type {
 	NetworkInterfaceRow,
 	NetworkOverviewResult,
 	NetworkRouteRow,
 } from "@klh/buckle/src/network-read-model.ts";
+import { css, html, LitElement, nothing, type TemplateResult } from "lit";
+import type { NetworkPayload } from "../board/network-overview.ts";
+import { cardCss } from "./klh-console-card-css.ts";
 
 // token formatting — measured numbers only; null renders "—", never 0
 const fmtTok = (n: number | null): string => {
@@ -159,17 +160,19 @@ const lifecycleSection = (n: OkNet): TemplateResult => {
 		<details class="routes">
 			<summary>Lifecycle sample · ${l.rows.length}</summary>
 			<div class="routesBody">
-				${l.rows.length
-					? l.rows.map(
-						(row) => html`<div class="hrow">
+				${
+					l.rows.length
+						? l.rows.map(
+								(row) => html`<div class="hrow">
 							<time class="unknown" datetime=${new Date(row.admittedAt).toISOString()}>${new Date(row.admittedAt).toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
 							<span class="title">${row.model ?? "?"}</span>
 							<span class="unknown">${row.lane ? `lane ${row.lane.replace(/^autow([\d.]+)-.*/, "W$1")}` : "unattributed"}</span>
 							<span class="num">${row.outcome ?? "in flight"}</span>
 							<span class="num">${row.attemptsAgree ? `att ${row.edgeAttempts ?? "?"} ok` : `att p${row.edgeAttempts ?? "?"}/l${row.ledgerAttempts ?? "?"} drift`}</span>
 						</div>`,
-					)
-					: html`<p class="unknown">no joined rows</p>`}
+							)
+						: html`<p class="unknown">no joined rows</p>`
+				}
 			</div>
 		</details>`;
 };

@@ -7,6 +7,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
 // W244: the prompt file resolves per request — KNOWLEDGE_PROMPT_FILE is the
 // config-over-code override (enterprise gateway, tests); unset → the shipped
 // hooks/knowledgeworker.md.

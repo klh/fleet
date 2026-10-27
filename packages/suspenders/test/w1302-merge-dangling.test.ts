@@ -11,6 +11,7 @@
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
 setDefaultTimeout(120_000);
+
 import { Database } from "bun:sqlite";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -25,13 +26,13 @@ import {
 	danglingReferences,
 	parseGrepRows,
 	refForms,
-	resolveLiteral,
 	resolutionCandidates,
+	resolveLiteral,
 	unresolvedSpecifiers,
 } from "../hooks/lib/fleet-loop/dangling-paths.ts";
 import { reviewContext } from "../hooks/lib/gates/review-receipt.ts";
-import { cacheSlaStatusPath } from "../hooks/lib/usage/cache-sla.ts";
 import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
+import { cacheSlaStatusPath } from "../hooks/lib/usage/cache-sla.ts";
 
 const P = join(import.meta.dir, "..");
 const LOOP = join(P, "hooks", "bin", "fleet-loop.ts");
