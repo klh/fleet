@@ -242,14 +242,18 @@ export const dispatchLane = async (
 	let hold = readConfiguredLaunches((store) =>
 		readLaunchBackoff(store, project, item),
 	);
-	if (resume && !DRY && hold?.attempt !== resume.attempt) {
-		const store = openStore();
-		try {
-			hold = rearmLaunchHold(store, project, item, laneLog, resume.attempt);
-		} finally {
-			store.close();
-		}
-	}
+	// W1150: re-arm a resume's hold ONLY when the lane left failure output —
+	// an empty log minted an "unknown" backoff the same pass then waited on,
+	// self-starving the resume before its spawn (W349 residue fixture).
+	if (
+		resume &&
+		!DRY &&
+		hold?.attempt !== resume.attempt &&
+		launchLogSize(laneLog) > 0
+	)
+		hold = readConfiguredLaunches((store) =>
+			rearmLaunchHold(store, project, item, laneLog, resume.attempt),
+		);
 	if (hold && Date.now() < hold.eligibleAt) {
 		launchWaits.push(item);
 		console.log(
