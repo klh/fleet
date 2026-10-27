@@ -158,7 +158,7 @@ const NEAR_CAP_PINNED: Record<string, number> = {
 	"packages/suspenders/hooks/board/routes-actions.ts": 1345,
 	"packages/belt/test/dashboard-topology-model.test.ts": 1294,
 	"packages/belt/bin/router-core.ts": 1263,
-	"packages/suspenders/hooks/bin/work.ts": 1241,
+	"packages/suspenders/hooks/bin/work.ts": 1246, // +5 W1173 merge (debt: decompose)
 	"packages/suspenders/deploy/hubctl.ts": 1208,
 };
 

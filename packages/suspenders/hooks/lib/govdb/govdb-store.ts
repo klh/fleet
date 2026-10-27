@@ -10,6 +10,11 @@ import {
 	StoreAdmissionError,
 	isStoreAdmissionRefusal,
 } from "../knowledge/store-admission.ts";
+import {
+	type StoreSqlRefusal,
+	StoreSqlError,
+	isStoreSqlRefusal,
+} from "./store-sql-error.ts";
 
 // ─── W92 store port ──────────────────────────────────────────────────────────
 // The control-plane seam: consumers bind to GovernorStore, never to the DB
@@ -191,6 +196,11 @@ export class HttpGovernorStore implements GovernorStore {
 		if (out.err) {
 			if (isStoreAdmissionRefusal(out))
 				throw new StoreAdmissionError(`governor store: ${out.err}`);
+			if (isStoreSqlRefusal(out))
+				throw new StoreSqlError(
+					`governor store: ${out.err}`,
+					out as StoreSqlRefusal,
+				);
 			throw new Error(`governor store: ${out.err}`);
 		}
 		return out;
