@@ -51,6 +51,7 @@ export const ENTRYPOINTS = [
 	"hooks/bin/llm-keepwarm.ts",
 	"hooks/bin/fallback-drill.ts",
 	"hooks/bin/soak.ts",
+	"hooks/bin/review-reconcile.ts",
 	"scripts/dispatch-next.ts",
 	"scripts/supervise.ts",
 ];
