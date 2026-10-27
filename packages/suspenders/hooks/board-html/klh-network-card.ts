@@ -165,7 +165,7 @@ const lifecycleSection = (n: OkNet): TemplateResult => {
 					l.rows.length
 						? l.rows.map(
 								(row) => html`<div class="hrow">
-							<time class="unknown" datetime=${new Date(row.admittedAt).toISOString()}>${new Date(row.admittedAt).toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
+							<time class="unknown" datetime=${new Date(row.admittedAt).toISOString()} title=${dualStamp(row.admittedAt)}>${dualShort(row.admittedAt)}</time>
 							<span class="title">${row.model ?? "?"}</span>
 							<span class="unknown">${row.lane ? `lane ${row.lane.replace(/^autow([\d.]+)-.*/, "W$1")}` : "unattributed"}</span>
 							<span class="num">${row.outcome ?? "in flight"}</span>

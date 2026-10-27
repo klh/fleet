@@ -27,6 +27,15 @@ const localTime = (value) => {
 const measure = (value) =>
 	Number.isFinite(value) ? value.toLocaleString("en-US") : "unreported";
 
+// W902: UTC Z first + local twin beside it — hub clocks drift
+const dualMinute = (value) => {
+	const time = typeof value === "number" ? value : Date.parse(value);
+	if (!Number.isFinite(time)) return "never observed";
+	const d = new Date(time);
+	const p = (n) => String(n).padStart(2, "0");
+	return `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}Z (${p(d.getHours())}:${p(d.getMinutes())})`;
+};
+
 const age = (value) => {
 	const elapsed = Date.now() - Date.parse(value);
 	if (!Number.isFinite(elapsed) || elapsed < 0) return "unknown";
@@ -292,7 +301,7 @@ class BeltTopologyHubs extends LitElement {
 				<tbody>
 					${nonZero.map(
 						(bucket) =>
-							html`<tr><td>${new Date(bucket.t).toLocaleTimeString("da-DK", { hour12: false })}</td><td>${bucket.requests}</td><td>${bucket.failed}</td></tr>`,
+							html`<tr><td>${dualMinute(bucket.t)}</td><td>${bucket.requests}</td><td>${bucket.failed}</td></tr>`,
 					)}
 				</tbody>
 			</table>

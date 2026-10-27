@@ -95,7 +95,7 @@ import{r,e,t,s}from"./lit-17452e2304aadd9e.js";import{a}from"./lit-2142d9e64fc25
 			<summary>Lifecycle sample · ${l.rows.length}</summary>
 			<div class="routesBody">
 				${l.rows.length?l.rows.map((p)=>e`<div class="hrow">
-							<time class="unknown" datetime=${new Date(p.admittedAt).toISOString()}>${new Date(p.admittedAt).toLocaleTimeString("da-DK",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</time>
+							<time class="unknown" datetime=${new Date(p.admittedAt).toISOString()} title=${o(p.admittedAt)}>${i(p.admittedAt)}</time>
 							<span class="title">${p.model??"?"}</span>
 							<span class="unknown">${p.lane?`lane ${p.lane.replace(/^autow([\d.]+)-.*/,"W$1")}`:"unattributed"}</span>
 							<span class="num">${p.outcome??"in flight"}</span>
@@ -122,7 +122,7 @@ import{r,e,t,s}from"./lit-17452e2304aadd9e.js";import{a}from"./lit-2142d9e64fc25
 				<span class="hname">unsettled</span>
 				${n.unsettled.map((l)=>e`<span class="num">${l.kind}: ${l.n}</span>`)}
 			</div>`:t}
-	${N(n)}`,D=(n)=>{let l=n.out60===null?null:Math.round(n.out60/60);return e`<div class="hrow">
+	${N(n)}`,M=(n)=>{let l=n.out60===null?null:Math.round(n.out60/60);return e`<div class="hrow">
 		<span class="hname">${n.kind} · ${n.host??"unknown"}${n.port?`:${n.port}`:""}</span>
 		<span class="num">${n.model??""}</span>
 		<span class="num">${n.req60} req/60s</span>
@@ -134,7 +134,7 @@ import{r,e,t,s}from"./lit-17452e2304aadd9e.js";import{a}from"./lit-2142d9e64fc25
 			class="bar"
 			style="width:${T(l)*14}px;background:var(--klh-edge)"
 		></span>
-	</div>`},M=(n)=>e`<div class="routeRow">
+	</div>`},D=(n)=>e`<div class="routeRow">
 	<time class="unknown" datetime=${n.ts} title=${o(n.ts)}>${i(n.ts)}</time>
 	<span class="title">${n.target_model??"model unknown"}</span>
 	<span class="unknown" title=${n.lane||"No lane attribution"}>${n.lane?`lane ${n.lane.replace(/^autow([\d.]+)-.*/,"W$1")}`:"unattributed"}</span>
@@ -162,7 +162,7 @@ import{r,e,t,s}from"./lit-17452e2304aadd9e.js";import{a}from"./lit-2142d9e64fc25
 			<p class="unknown">${l.reason}</p>`;return e`${g(n)}
 		${O(l)}
 		${C(l)}
-		${l.throughput.interfaces.length?l.throughput.interfaces.map(D):e`<div class="hrow">
+		${l.throughput.interfaces.length?l.throughput.interfaces.map(M):e`<div class="hrow">
 					<span class="hname">interfaces</span>
 					<span class="unknown">no settled traffic in window</span>
 				</div>`}
@@ -170,7 +170,7 @@ import{r,e,t,s}from"./lit-17452e2304aadd9e.js";import{a}from"./lit-2142d9e64fc25
 			<summary>Recent settled routes · ${l.routes.length}</summary>
 			<div class="routesBody">
 				<div class="routeHead"><span>Time</span><span>Model</span><span>Lane</span><span>Target</span><span>Latency</span><span>Tokens</span></div>
-				${l.routes.length?l.routes.map(M):e`<p class="unknown">No settled routes yet</p>`}
+				${l.routes.length?l.routes.map(D):e`<p class="unknown">No settled routes yet</p>`}
 			</div>
 		</details>
 		<p class="legend">
