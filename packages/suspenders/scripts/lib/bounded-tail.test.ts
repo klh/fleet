@@ -94,6 +94,34 @@ describe("readBoundedTail", () => {
 		expect(win.keptBytes()).toBe(bytes);
 	});
 
+	test("a below-cap view never pins its oversized source buffer", () => {
+		const win = new BoundedTailWindow(1024);
+		const huge = new Uint8Array(16 * 1024 * 1024);
+		// one retained byte, kept whole (no front cut) — its storage must not
+		// span the 16 MiB source the view was taken from
+		win.push(huge.subarray(huge.byteLength - 1));
+		const [piece] = win.pieces();
+		expect(piece?.byteLength).toBe(1);
+		expect(piece?.buffer.byteLength).toBe(1);
+		expect(win.keptBytes()).toBe(1);
+	});
+
+	test("a one-byte view after eviction leaves only exact-size pieces", () => {
+		const max = 1024;
+		const win = new BoundedTailWindow(max);
+		win.push(new Uint8Array(max));
+		const huge = new Uint8Array(16 * 1024 * 1024);
+		// evicts one front byte; the surviving 1-byte tail must be owned too
+		win.push(huge.subarray(huge.byteLength - 1));
+		let bytes = 0;
+		for (const piece of win.pieces()) {
+			expect(piece.buffer.byteLength).toBeLessThanOrEqual(max);
+			bytes += piece.byteLength;
+		}
+		expect(bytes).toBeLessThanOrEqual(max);
+		expect(win.keptBytes()).toBe(max);
+	});
+
 	test("interleaved zero-byte chunks do not shift the byte window", async () => {
 		const payload = Buffer.from(
 			[...Array(30).keys()]
