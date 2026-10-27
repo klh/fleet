@@ -3,6 +3,10 @@
 // names the unit project so `bun --bun playwright test --project=unit` finds
 // the specs from packages/buckle/test.
 import { defineConfig } from "@playwright/test";
+// W1265.2 harness posture, same pin bunfig.toml preloads for bun test: the
+// runner's env (inherited by workers) keeps the account-policy chain inert
+// for the server-spawning specs.
+import "./policy-inert-preload.ts";
 
 export default defineConfig({
 	testDir: ".",
