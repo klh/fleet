@@ -859,19 +859,27 @@ function pollSpendSeries(force){
       if (task.id && db2 && !byId('drawer').hidden) paintSparks(db2);
     });
 }
-function sparkSvg(points, w, h, drawer){
-  drawer = drawer === undefined ? w > 180 : !!drawer;
+// W1203: the window derives from the MEASURED track, never a fixed bin count
+// — bins = floor(track / SPARK_STEP_PX) at the token-design cell, the bin
+// duration = SPARK_MIN_BIN_MS (the design bin: 6px <-> 3 minutes), and the
+// window = bins x D end-pinned at the newest point, so wider cards show MORE
+// history, the last bar hugs the track's right edge (no dead gap), and data
+// shorter than the window left-aligns (empty bins draw no bars).
+var SPARK_STEP_PX = 6, SPARK_BAR_CARD_PX = 4, SPARK_BAR_DRAWER_PX = 5, SPARK_MIN_BIN_MS = 180000;
+function sparkSvg(points, w, h, barPx){
   var svg = document.createElementNS(SVGNS, 'svg');
   svg.setAttribute('width', w); svg.setAttribute('height', h);
   svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
-  var drawer = w > 180, slots = drawer ? 40 : 30;
+  var count = Math.floor(w / SPARK_STEP_PX);
+  if (count < 1) return svg; // track narrower than one bin — totals line only
   var first = Number(points[0][0]), last = Number(points[points.length - 1][0]);
-  var slotMs = Math.max(180000, Math.ceil((last - first + 1) / (slots - 1) / 60000) * 60000);
-  var start = first;
+  var slotMs = SPARK_MIN_BIN_MS; // the design bin — 6px cell, 3 minutes
+  var start = Math.max(first, last - count * slotMs); // end-pinned on dense data; short data left-aligns
   var bins = {}, maxV = 0, i;
   for (i = 0; i < points.length; i++){
     var slot = Math.floor((Number(points[i][0]) - start) / slotMs);
-    if (slot < 0 || slot >= slots) continue;
+    if (slot > count - 1) slot = count - 1; // the newest point rides the last bin — never dropped
+    if (slot < 0) continue; // pre-window points drop — never pile into the first bin
     var b = bins[slot] || (bins[slot] = [0, 0, 0]);
     b[0] += Number(points[i][1]) || 0;
     b[1] += Number(points[i][2]) || 0;
@@ -880,10 +888,11 @@ function sparkSvg(points, w, h, drawer){
   for (var key in bins) maxV = Math.max(maxV, bins[key][0] + bins[key][1]);
   svg.setAttribute('role', 'img');
   svg.setAttribute('data-bin-min', String(slotMs / 60000));
-  svg.setAttribute('aria-label', 'Fresh and cached input tokens from first request to latest, ' + (slotMs / 60000) + '-minute intervals');
+  svg.setAttribute('data-window-end', String(start + count * slotMs));
+  svg.setAttribute('aria-label', 'Fresh and cached input tokens in ' + (slotMs / 60000) + '-minute bins across the measured track');
   if (!maxV) return svg;
-  var step = w / slots, barW = Math.max(1, Math.min(drawer ? 7 : 4, step - 1));
-  for (i = 0; i < slots; i++){
+  var step = w / count, barW = barPx || SPARK_BAR_CARD_PX;
+  for (i = 0; i < count; i++){
     var at = start + i * slotMs, bucket = bins[i];
     if (!bucket) continue;
     var x = i * step + (step - barW) / 2;
@@ -915,13 +924,24 @@ function sparkSvg(points, w, h, drawer){
   svg.addEventListener('pointerleave', hideSparkTip);
   return svg;
 }
+// W1203: width-derived windows repaint on resize — the two paint roots are
+// observed; the data+width sig makes every other RO fire a cheap no-op.
+var sparkRO = null;
+function watchSparkWidth(root){
+  if (!root || typeof ResizeObserver === 'undefined') return;
+  if (!sparkRO) sparkRO = new ResizeObserver(function(entries){
+    for (var e = 0; e < entries.length; e++) paintSparks(entries[e].target);
+  });
+  sparkRO.observe(root);
+}
 function paintSparks(root){
+  watchSparkWidth(root);
   var els = root.querySelectorAll('.kspark');
   for (var i = 0; i < els.length; i++){
     var el = els[i];
     var key = el.getAttribute('data-spark') || '';
     var pts = spendSeries[key] || null;
-    var sig = pts ? pts.length + ':' + pts[pts.length - 1].join(':') + ':' + Math.floor(Date.now() / 60000) : '';
+    var sig = pts ? pts.length + ':' + pts[pts.length - 1].join(':') + ':' + Math.floor(Date.now() / 60000) + ':' + el.clientWidth : '';
     if (el.getAttribute('data-ssig') === sig) continue;
     el.setAttribute('data-ssig', sig);
     var tip = byId('ksparkTip');
@@ -930,16 +950,14 @@ function paintSparks(root){
     var big = el.closest ? el.closest('.kspend-drawer') : null;
     var axis = el.parentElement.querySelector('.ksparkaxis');
     if (axis) axis.style.display = 'none';
-    if (pts && pts.length){
-      var plot = big ? null : el.parentElement;
-      var w = big ? 240 : Math.max(180, (plot && plot.clientWidth) || 180);
-      var chart = sparkSvg(pts, w, big ? 36 : 28, !!big);
-      el.appendChild(chart);
-      if (axis){
-        axis.style.display = 'flex';
-        axis.firstElementChild.textContent = dualShort(pts[0][0]);
-        axis.lastElementChild.textContent = dualShort(pts[pts.length - 1][0]) + ' · ' + chart.getAttribute('data-bin-min') + 'm/bin';
-      }
+    var w = el.clientWidth; // the measured track (W1203) — the plot fills the card
+    if (!pts || !pts.length || w < SPARK_STEP_PX) continue; // totals line only
+    var chart = sparkSvg(pts, w, big ? 36 : 28, big ? SPARK_BAR_DRAWER_PX : SPARK_BAR_CARD_PX);
+    el.appendChild(chart);
+    if (axis){
+      axis.style.display = 'flex';
+      axis.firstElementChild.textContent = dualShort(pts[0][0]);
+      axis.lastElementChild.textContent = dualShort(Number(chart.getAttribute('data-window-end'))) + ' · ' + chart.getAttribute('data-bin-min') + 'm/bin';
     }
   }
 }

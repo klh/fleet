@@ -10,9 +10,10 @@ import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { startBoard } from "./harness.ts";
+import { measureSpark } from "./spark-geom.ts";
 
-test.describe.configure({ mode: "serial" });
-
+// W1203: no serial mode — the tests below share the beforeAll board but no
+// mutable state, so a failure in one must not skip the others.
 let b: Awaited<ReturnType<typeof startBoard>>;
 let wId = "";
 
@@ -75,9 +76,13 @@ test("gui: lanes kanban paints the micro-strip sparkline + strip text", {
 		timeout: 20_000,
 	});
 	await expect(page.locator(".kspend .kspendtxt")).toContainText("% cache");
-	// the sparkline painted as inline SVG (fresh + cached histogram bars)
-	await expect(page.locator(".kspark svg rect.spark-fresh")).toHaveCount(1);
-	await expect(page.locator(".kspark svg rect.spark-cached")).toHaveCount(1);
+	// the sparkline painted as inline SVG (stacked fresh + cached bars)
+	await expect(
+		page.locator(".kspark svg rect.spark-fresh").first(),
+	).toBeVisible();
+	await expect(
+		page.locator(".kspark svg rect.spark-cached").first(),
+	).toBeVisible();
 	// W2060: the drawn svg spans the plot container's real width (no fixed 180)
 	const widths = await page.evaluate(() => {
 		const plot = document.querySelector(".ksparkplot");
@@ -94,4 +99,83 @@ test("gui: lanes kanban paints the micro-strip sparkline + strip text", {
 	await expect(
 		page.locator('#tasksBody td.num[title*="tok/m"]').first(),
 	).toContainText(/\d/);
+});
+
+// W1203: bars derive bins + window from the MEASURED track — edge-to-edge
+// tiling at default and narrow widths, fixed pixel bars, no stretching.
+test("gui: spark bars span the measured track edge-to-edge at both widths", async ({
+	page,
+}) => {
+	// 24h of 1-minute points — every bin ≥3min wide holds data, so the bar
+	// count IS the measured bin count and the newest point rides the last bin.
+	const t0 = Date.now() - 1440 * 60_000;
+	const pts = Array.from({ length: 1441 }, (_, i) => [
+		t0 + i * 60_000,
+		400 + (i % 7),
+		50,
+		20,
+	]);
+	// the board's own key for the item (project half = its project identity)
+	const live = await fetch(`${b.BASE}/api/spend-series`).then((r) => r.json());
+	const key =
+		Object.keys(live.series as Record<string, unknown>).find((k) =>
+			k.endsWith(`\u0000${wId}`),
+		) ?? `${b.MY_PROJ}\u0000${wId}`;
+	await page.route("**/api/spend-series", (route) =>
+		route.fulfill({
+			contentType: "application/json",
+			body: JSON.stringify({ ok: true, series: { [key]: pts } }),
+		}),
+	);
+	await page.goto(`${b.BASE}/#lanes`);
+	// the series paints after an async fetch — measure only once bars exist
+	await expect(
+		page.locator(`.kcard[data-kid="${wId}"] .kspark svg rect`).first(),
+	).toBeVisible();
+	const card = await measureSpark(page, `.kcard[data-kid="${wId}"]`);
+	// no dead gap: the svg tiles the track and both edge bars hug the edges
+	expect(Math.abs(card.svgW - card.trackW)).toBeLessThanOrEqual(0.6);
+	expect(card.barCount).toBe(Math.floor(card.spanW / 6));
+	for (const w of card.barWidths)
+		expect(Math.abs(w - 4)).toBeLessThanOrEqual(0.6); // fixed pixel bars
+	expect(card.firstLeft).toBeGreaterThanOrEqual(0.5);
+	expect(card.firstLeft).toBeLessThanOrEqual(2);
+	expect(card.trackW - card.lastRight).toBeGreaterThanOrEqual(0.5);
+	expect(card.trackW - card.lastRight).toBeLessThanOrEqual(2);
+	expect(card.axisLabel).toBe(card.axisExpected); // labels from actual span
+	// drawer cluster rides the same rule at its wider track (5px bars)
+	await page.locator(`.kcard[data-kid="${wId}"] .tidbtn`).click();
+	await expect(
+		page.locator("#drawerBody .kspend-drawer .kspark svg rect").first(),
+	).toBeVisible();
+	const drawer = await measureSpark(page, "#drawerBody");
+	expect(drawer.barCount).toBe(Math.floor(drawer.spanW / 6));
+	for (const w of drawer.barWidths)
+		expect(Math.abs(w - 5)).toBeLessThanOrEqual(0.6); // fixed 5px in drawer
+	expect(drawer.firstLeft).toBeGreaterThanOrEqual(0.5);
+	expect(drawer.trackW - drawer.lastRight).toBeGreaterThanOrEqual(0.5);
+	expect(drawer.trackW - drawer.lastRight).toBeLessThanOrEqual(2);
+	expect(drawer.axisLabel).toBe(drawer.axisExpected);
+	const wideDrawerTrack = drawer.trackW;
+	// narrow/mobile: the drawer re-derives its window from the shrunken panel.
+	// Poll on BAR WIDTH: a not-yet-repainted svg CSS-squeezes (max-width:100%)
+	// and would pass a width-equality poll — fixed pixels are the contract.
+	await page.setViewportSize({ width: 320, height: 800 });
+	await expect
+		.poll(async () => {
+			const g = await measureSpark(page, "#drawerBody");
+			return g.barWidths.length > 0 ? Math.abs(g.barWidths[0] - 5) : 99;
+		})
+		.toBeLessThanOrEqual(0.6);
+	const narrow = await measureSpark(page, "#drawerBody");
+	expect(narrow.trackW).toBeLessThan(wideDrawerTrack - 10);
+	expect(narrow.barCount).toBe(Math.floor(narrow.spanW / 6));
+	for (const w of narrow.barWidths)
+		expect(Math.abs(w - 5)).toBeLessThanOrEqual(0.6); // bars never stretch
+	// the card tiles edge-to-edge too, whatever its track did at 320px
+	const cardNarrow = await measureSpark(page, `.kcard[data-kid="${wId}"]`);
+	for (const w of cardNarrow.barWidths)
+		expect(Math.abs(w - 4)).toBeLessThanOrEqual(0.6);
+	expect(cardNarrow.firstLeft).toBeGreaterThanOrEqual(0.5);
+	expect(cardNarrow.trackW - cardNarrow.lastRight).toBeLessThanOrEqual(2);
 });
