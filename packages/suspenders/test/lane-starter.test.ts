@@ -82,7 +82,7 @@ describe("lane-starter", () => {
 		expect(starterVersion("seed")).toBe(before);
 	});
 
-	test("ensureStarter seeds once then reuses the registry", () => {
+	test("ensureStarter seeds once then reuses the registry", async () => {
 		let runs = 0;
 		const runStub = () => {
 			runs++;
@@ -91,7 +91,7 @@ describe("lane-starter", () => {
 				out: `${JSON.stringify({ session_id: "seed-1", type: "result" })}\n`,
 			};
 		};
-		const first = ensureStarter(
+		const first = await ensureStarter(
 			fleet,
 			"claude",
 			"/bin/true",
@@ -106,7 +106,7 @@ describe("lane-starter", () => {
 			"seed-1",
 			"--fork-session",
 		]);
-		const again = ensureStarter(
+		const again = await ensureStarter(
 			fleet,
 			"claude",
 			"/bin/real-claude",
@@ -118,9 +118,9 @@ describe("lane-starter", () => {
 		expect(again?.fork.version).toBe(first?.fork.version);
 	});
 
-	test("ensureStarter returns the failure record and logs on seed failure", () => {
+	test("ensureStarter returns the failure record and logs on seed failure", async () => {
 		const logs: string[] = [];
-		const out = ensureStarter(fleet, "claude", "/bin/true", {}, {
+		const out = await ensureStarter(fleet, "claude", "/bin/true", {}, {
 			run: () => ({ code: 1, out: "boom" }),
 			log: (l) => logs.push(l),
 		} as never);
@@ -131,8 +131,8 @@ describe("lane-starter", () => {
 		expect(logs.join(" ")).toMatch(/seed failed/);
 	});
 
-	test("ensureStarter: stderr is captured separately from stdout", () => {
-		const out = ensureStarter(fleet, "claude", "/bin/true", {}, {
+	test("ensureStarter: stderr is captured separately from stdout", async () => {
+		const out = await ensureStarter(fleet, "claude", "/bin/true", {}, {
 			run: () => ({
 				code: 1,
 				out: `${JSON.stringify({ type: "result" })}\n`,
@@ -443,14 +443,13 @@ describe("lane-starter", () => {
 	});
 
 	// W1124.12.1: the seed turn hangs for real when the executor wedges —
-	// the NATIVE `timeout` option enforces the deadline (the old `timeoutMs`
-	// field was silently ignored). NARROW contract, tested exactly: the
-	// fixture is a direct bun child (no shell, no sleep descendant) that
-	// records its own PID and hangs; the deadline SIGTERMs that PID and the
+	// the deadline is enforced by the W1124.12.2 bounded process-group runner.
+	// The fixture is a direct bun child (no shell, no sleep descendant) that
+	// records its own PID and hangs; the deadline SIGTERMs the group and the
 	// test proves the captured child is gone. No fixture leak.
-	test("the direct seed child is killed within the declared budget", () => {
+	test("the direct seed child is killed within the declared budget", async () => {
 		// afterEach removed the shared fleet dir — ensureStarter spawns with
-		// cwd: fleet, so it must exist for the real spawnSync.
+		// cwd: fleet, so it must exist for the real spawn.
 		mkdirSync(fleet, { recursive: true });
 		const d = scratch();
 		const pidFile = join(d, "seed.pid");
@@ -466,7 +465,7 @@ await new Promise(() => {});
 		chmodSync(hung, 0o700);
 		const seedMs = 1_000;
 		const t0 = Date.now();
-		const r = ensureStarter(
+		const r = await ensureStarter(
 			fleet,
 			"claude",
 			hung,
@@ -481,6 +480,12 @@ await new Promise(() => {});
 		const elapsed = Date.now() - t0;
 		// the hung seed prints no session id → the failure record
 		expect(r?.kind).toBe("failure");
+		if (r?.kind !== "failure") return;
+		// W1124.12.2 truth fields: the deadline fired AND the group verdict is
+		// verified down (the direct child IS the whole group here).
+		expect(r.failure.timedOut).toBe(true);
+		expect(r.failure.verifiedDown).toBe(true);
+		expect(r.failure.survivors).toBe(false);
 		// budget + bun startup + SIGTERM — NOT an unbounded hang
 		expect(elapsed).toBeLessThan(10_000);
 		expect(elapsed).toBeGreaterThanOrEqual(seedMs);

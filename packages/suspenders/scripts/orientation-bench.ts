@@ -131,7 +131,7 @@ const recipeFor = (harness: string) => {
 			};
 		case "copilot":
 			return {
-				probeArgs: (fork: ForkLike | null): string[] => [
+				probeArgs: (_fork: ForkLike | null): string[] => [
 					"-p",
 					TASK,
 					"--allow-all-tools",
@@ -242,12 +242,11 @@ if (import.meta.main) {
 		PHASE === "post" &&
 		(starterEnabled(process.env) || arg("starter") === "on");
 	const starterOutcome = wantFork
-		? ensureStarter(join(REPO, ".fleet"), HARNESS, bin, process.env, {
+		? await ensureStarter(join(REPO, ".fleet"), HARNESS, bin, process.env, {
 				log: (l) => console.log(`[starter] ${l}`),
 			})
 		: null;
-	const fork =
-		starterOutcome?.kind === "fork" ? starterOutcome.fork : null;
+	const fork = starterOutcome?.kind === "fork" ? starterOutcome.fork : null;
 	if (starterOutcome?.kind === "failure")
 		console.log(
 			`[starter] seed failed (code ${starterOutcome.failure.code}, phase ${starterOutcome.failure.phase}): ${starterOutcome.failure.stderrTail}`,
