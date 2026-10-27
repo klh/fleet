@@ -1,8 +1,10 @@
 // test/adapters-wire.test.ts — tier-1 wire fixtures (in-test Bun.serve
 // mocks per W134 §4.3) + registry fail-closed + the upstreams `adapter:`
 // field (derive-from-dialect back-compat, unknown = startup fatal).
-import { describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ANTHROPIC } from "../src/adapters/anthropic.ts";
 import { getAdapter, resolveAdapter } from "../src/adapters/index.ts";
 import { OPENAI_COMPAT } from "../src/adapters/openai-compat.ts";
@@ -10,6 +12,12 @@ import { bridgeRequest } from "../src/bridge.ts";
 import { loadUpstreams } from "../src/upstreams.ts";
 import { defaultFetch } from "../src/wire.ts";
 import { startMockUpstream } from "./mock.ts";
+
+// W1135.1.7: scratch config dirs go to mkdtemp, cleaned after the suite.
+const tmpDirs: string[] = [];
+afterAll(() => {
+	for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+});
 
 const OPENAI_REQ = {
 	group: "g",
@@ -58,7 +66,8 @@ describe("registry (fail closed)", () => {
 describe("upstreams adapter field", () => {
 	test("derive-from-dialect back-compat + explicit override", async () => {
 		const upstream = await startMockUpstream(() => Response.json({ ok: true }));
-		const dir = `/tmp/buckle-adapters-${Date.now()}-${process.pid}`;
+		const dir = mkdtempSync(join(tmpdir(), "buckle-adapters-"));
+		tmpDirs.push(dir);
 		const cfg = JSON.stringify({
 			groups: {
 				g1: [{ url: upstream.url, dialect: "openai" }],
@@ -75,7 +84,8 @@ describe("upstreams adapter field", () => {
 	});
 
 	test("unknown adapter = startup fatal naming the group", async () => {
-		const dir = `/tmp/buckle-adapters-${Date.now()}-${process.pid}`;
+		const dir = mkdtempSync(join(tmpdir(), "buckle-adapters-"));
+		tmpDirs.push(dir);
 		const cfg = JSON.stringify({
 			groups: {
 				bad: [
@@ -94,7 +104,8 @@ describe("upstreams adapter field", () => {
 
 describe("tier-2 family named in config (W150)", () => {
 	test("bedrock named in config loads; resolution is deferred to request time", () => {
-		const dir = `/tmp/buckle-adapters-${Date.now()}-${process.pid}`;
+		const dir = mkdtempSync(join(tmpdir(), "buckle-adapters-"));
+		tmpDirs.push(dir);
 		const cfg = JSON.stringify({
 			groups: {
 				aws: [

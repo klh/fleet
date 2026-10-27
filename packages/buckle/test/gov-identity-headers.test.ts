@@ -3,7 +3,10 @@
 // replay-window refusal, missing headers, and the full gate path — the
 // authenticator wired as the adaptation authenticate hook gives an SSO
 // principal through the LIVE gate.
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { SsoIdentity } from "../src/gov/adaptation.ts";
 import {
 	DEFAULT_IDENTITY_MAX_AGE_S,
@@ -14,6 +17,12 @@ import {
 import { startServer } from "../src/server.ts";
 
 const KEY = "w235-test-secret";
+
+// W1135.1.7: scratch config dirs go to mkdtemp, cleaned after the suite.
+const tmpDirs: string[] = [];
+afterAll(() => {
+	for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+});
 
 const nowS = (): number => Math.floor(Date.now() / 1000);
 
@@ -66,7 +75,8 @@ describe("identity headers — sign/verify", () => {
 
 describe("identity headers — through the gate", () => {
 	test("authenticator as the authenticate hook: SSO principal rides", async () => {
-		const dir = `/tmp/w235-ih-${Date.now()}-${process.pid}`;
+		const dir = mkdtempSync(join(tmpdir(), "w235-ih-"));
+		tmpDirs.push(dir);
 		await Bun.write(
 			`${dir}.policy.json`,
 			JSON.stringify({

@@ -5,11 +5,13 @@ import { afterAll, expect, test } from "bun:test";
 import {
 	existsSync,
 	mkdirSync,
+	mkdtempSync,
 	readFileSync,
 	rmSync,
 	statSync,
 	writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	buildPlan,
@@ -25,17 +27,20 @@ import {
 
 const REPO = join(import.meta.dir, "..");
 const FLEET = join(REPO, "bin/install-fleet.ts");
-const SANDBOX = `/tmp/w185-fleet-home-${process.pid}`;
+// W1135.1.7: the sandbox home is a fresh mkdtemp dir per bareHome() call in
+// the OS tmpdir — never a fixed /tmp/w185-fleet-home-<pid> path; leftovers
+// from dead runs self-clean.
+let SANDBOX = "";
 const REAL_HOME = process.env.HOME;
 
 afterAll(() => {
 	process.env.HOME = REAL_HOME;
-	rmSync(SANDBOX, { recursive: true, force: true });
+	if (SANDBOX) rmSync(SANDBOX, { recursive: true, force: true });
 });
 
 function bareHome(): string {
-	rmSync(SANDBOX, { recursive: true, force: true });
-	mkdirSync(SANDBOX, { recursive: true });
+	if (SANDBOX) rmSync(SANDBOX, { recursive: true, force: true });
+	SANDBOX = mkdtempSync(join(tmpdir(), "w185-fleet-home-"));
 	process.env.HOME = SANDBOX;
 	return SANDBOX;
 }

@@ -139,15 +139,21 @@ async function startEngineGate(
  *  see the committed route_audit rows on the shared db file. */
 async function auditRowsOf(
 	dbPath: string,
+	minRows: number,
 ): Promise<Array<Record<string, unknown>>> {
-	await Bun.sleep(5300);
-	const db = new Database(dbPath);
-	try {
-		return db.query("SELECT * FROM route_audit ORDER BY ts").all() as Array<
-			Record<unknown, unknown>
-		> as Array<Record<string, unknown>>;
-	} finally {
-		db.close();
+	const deadline = Date.now() + 15_000;
+	let rows: Array<Record<string, unknown>> = [];
+	for (;;) {
+		const db = new Database(dbPath);
+		try {
+			rows = db.query("SELECT * FROM route_audit ORDER BY ts").all() as Array<
+				Record<unknown, unknown>
+			> as Array<Record<string, unknown>>;
+		} finally {
+			db.close();
+		}
+		if (rows.length >= minRows || Date.now() > deadline) return rows;
+		await Bun.sleep(100);
 	}
 }
 
@@ -238,7 +244,7 @@ describe("W219.1 litellm-as-engine", () => {
 			expect(chatCalls(engine.up)).toHaveLength(5);
 
 			// The full route_audit story, committed on the shared db file.
-			const rows = await auditRowsOf(gate.dbPath);
+			const rows = await auditRowsOf(gate.dbPath, 4);
 			expect(rows).toHaveLength(4);
 			const [r1, r2, r3, r4] = rows as Array<
 				Record<string, string | number | null>

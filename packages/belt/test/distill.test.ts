@@ -1,6 +1,8 @@
 // distill.test.ts — tests for bin/distill.ts (pure helpers; no
 // network, no spawn). Run: bun test packages/belt/test/distill.test.ts
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	DEFAULT_TEACHER_PORT,
@@ -17,6 +19,12 @@ import {
 	type Chat,
 	type Packet,
 } from "../bin/distill.ts";
+
+// W1135.1.7: mkdtemp scratch homes, cleaned after the suite.
+const tmpDirs: string[] = [];
+afterAll(() => {
+	for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+});
 
 describe("packets", () => {
 	const good = '{"id":"p1","question":"Q?","context":"C"}\n';
@@ -160,10 +168,14 @@ describe("teacher selection", () => {
 
 describe("CLI subprocess", () => {
 	test("status + plan run end-to-end in a sandboxed home", () => {
+		// W1135.1.7: the sandboxed home is a mkdtemp dir, removed after the
+		// suite (it used to be the fixed /tmp/w241-distill-test, never cleaned).
+		const home = mkdtempSync(join(tmpdir(), "w241-distill-"));
+		tmpDirs.push(home);
 		const env = {
 			...process.env,
-			DISTILL_HOME: "/tmp/w241-distill-test",
-			PACKETS: "/tmp/w241-distill-test/none.jsonl",
+			DISTILL_HOME: home,
+			PACKETS: `${home}/none.jsonl`,
 		};
 		for (const verb of ["status", "plan"]) {
 			const p = Bun.spawnSync({

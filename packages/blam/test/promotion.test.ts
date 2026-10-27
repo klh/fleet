@@ -59,7 +59,9 @@ describe("blam promotion gate", () => {
 			off: { correct: p.off.correct, tokens: 10_000, minutes: 10 },
 		}));
 		const d = gatePromotion(pairedLift(pairs));
-		if (d.promote) return;
+		// W1135.1.7: both branches asserted — an early `if (d.promote) return`
+		// made a (wrong) promotion vacuously pass this test.
+		expect(d.promote).toBe(false);
 		expect(d.why).toMatch(/no measured benefit/);
 	});
 

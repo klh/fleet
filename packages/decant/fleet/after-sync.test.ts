@@ -1,10 +1,15 @@
 // fleet/after-sync.test.ts — miss detection + mint dedupe (W950).
-import { expect, test } from "bun:test";
-import { mkdirSync } from "node:fs";
+import { afterAll, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { adapterTitle, afterSync, catalogMisses } from "./after-sync.ts";
 import { homeCtx } from "./registry.ts";
 
-const FIXTURE = "/tmp/w950-miss-fixture";
+// W1135.1.7: the fixture home is a mkdtemp dir, removed after the suite
+// (it used to litter /tmp/w950-miss-fixture forever).
+const FIXTURE = mkdtempSync(join(tmpdir(), "w950-miss-fixture-"));
+afterAll(() => rmSync(FIXTURE, { recursive: true, force: true }));
 
 // Real dirs (existsSync probes): .goose + .agents present in the fake home.
 mkdirSync(`${FIXTURE}/.goose`, { recursive: true });

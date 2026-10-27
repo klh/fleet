@@ -6,7 +6,8 @@
 // audit tap rides the denied-audits-too stream, and registration is
 // fail-closed at boot. The REAL SSO/enterprise implementations live in the
 // enterprise overlay.
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { rmSync } from "node:fs";
 import {
 	principalFromSso,
 	type SsoIdentity,
@@ -17,6 +18,12 @@ import {
 import { startServer } from "../src/server.ts";
 
 const ROOT = "buckle-test-root";
+
+// W1135.1.7: scratch config dirs go to mkdtemp, cleaned after the suite.
+const tmpDirs: string[] = [];
+afterAll(() => {
+	for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+});
 
 type AdaptCfg = NonNullable<
 	NonNullable<Parameters<typeof startServer>[0]["auth"]>["adaptation"]

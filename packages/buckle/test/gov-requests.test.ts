@@ -3,10 +3,19 @@
 // Covers the gate class (admin:READ_), the key NAME join surviving
 // revocation (minted-then-revoked), the cap + filter contract, and the
 // never-key-material law.
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Ledger } from "../src/ledger.ts";
 import { startMockUpstream } from "./mock.ts";
 import { chat, issueViaAdmin, ROOT, startGate } from "./gate.ts";
+
+// W1135.1.7: scratch dirs go to mkdtemp, cleaned after the suite.
+const tmpDirs: string[] = [];
+afterAll(() => {
+	for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+});
 
 const OPENAI_USAGE = {
 	id: "w824",
@@ -359,11 +368,11 @@ describe("W824 cap + filters", () => {
 
 describe("W824 read cap", () => {
 	test("inference filter applies before the cap so denied ingress cannot hide model traffic", () => {
-		const ledger = new Ledger(
-			`/tmp/buckle-w824-filter-${Date.now()}-${process.pid}.db`,
-			undefined,
-			{ flushMs: 10_000 },
-		);
+		const dir = mkdtempSync(join(tmpdir(), "buckle-w824-filter-"));
+		tmpDirs.push(dir);
+		const ledger = new Ledger(`${dir}/filter.db`, undefined, {
+			flushMs: 10_000,
+		});
 		const base = {
 			actor: "captest",
 			lane: "",
@@ -404,10 +413,9 @@ describe("W824 read cap", () => {
 	});
 
 	test("long err/why truncate at read (bodies never re-served)", () => {
-		const dir = `/tmp/buckle-w824-${Date.now()}-${process.pid}-${Math.random()
-			.toString(36)
-			.slice(2, 6)}`;
-		const ledger = new Ledger(`${dir}.db`, undefined, { flushMs: 10_000 });
+		const dir = mkdtempSync(join(tmpdir(), "buckle-w824-"));
+		tmpDirs.push(dir);
+		const ledger = new Ledger(`${dir}/cap.db`, undefined, { flushMs: 10_000 });
 		const long = "x".repeat(600);
 		ledger.auditDecision({
 			rid: "w824cap",

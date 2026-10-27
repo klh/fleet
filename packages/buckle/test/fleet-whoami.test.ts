@@ -3,22 +3,30 @@
 // gate authenticates + scope-checks (proxy GET → buckle:proxy:READ_), the
 // route echoes the principal (key_id, scopes) the fleet-mcp server audits
 // and enforces. Revocation takes effect on the next echo.
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { startServer } from "../src/server.ts";
 
 const ROOT = "buckle-test-root";
 
+// W1135.1.7: scratch config dirs go to mkdtemp, cleaned after the suite.
+const tmpDirs: string[] = [];
+afterAll(() => {
+	for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+});
+
 function start(): { base: string; stop(): void } {
-	const dir = `/tmp/buckle-whoami-${Date.now()}-${process.pid}-${Math.random()
-		.toString(36)
-		.slice(2, 6)}`;
+	const dir = mkdtempSync(join(tmpdir(), "buckle-whoami-"));
+	tmpDirs.push(dir);
 	Bun.write(
-		`${dir}.yaml`,
+		`${dir}/upstreams.yaml`,
 		`groups:\n  glm-5.3-flash:\n    - url: http://127.0.0.1:1\n      dialect: openai\n`,
 	);
 	const server = startServer({
 		port: 0,
-		upstreamsPath: `${dir}.yaml`,
+		upstreamsPath: `${dir}/upstreams.yaml`,
 		dbPath: ":memory:",
 		auth: { rootKey: ROOT },
 	});
