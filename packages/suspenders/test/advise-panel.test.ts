@@ -187,11 +187,13 @@ describe("advise --panel (W742.2)", () => {
 			expect(r.code).toBe(2);
 			expect(r.err).toContain("panel failed");
 			const db = gdb();
-			expect(
-				db
-					.query("SELECT value FROM facts WHERE key = ?")
-					.get(`advice.${rec.id}.error`),
-			).toBeTruthy();
+			const err = db
+				.query("SELECT value FROM facts WHERE key = ?")
+				.get(`advice.${rec.id}.error`) as { value: string } | null;
+			expect(err?.value).toContain("local-reason: buckle inference HTTP 503");
+			expect(err?.value).toContain("buckle inference HTTP 503");
+			expect(err?.value.split("|")).toHaveLength(2);
+			expect(err?.value).not.toContain("bksk_panel");
 			db.close();
 		} finally {
 			s.stop();
