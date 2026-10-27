@@ -724,16 +724,15 @@ test.describe("W1476 review rescore: runner", { tag: "@api" }, () => {
 		}
 	});
 
-	test("real arena CLI on AC: a forced rescore reruns arms a and b over the sealed set and banks the skips", async () => {
+	test("real arena CLI: a forced rescore on AC reruns arms a and b over the sealed set and banks the skips; off AC it refuses before banking", async () => {
 		test.setTimeout(120_000);
 		const ac = confirmAc();
-		test.skip(!ac.ok, "no AC power confirmed (pmset) — the arena benches on AC only");
 		const db = memoryStore();
 		const sealDir = scratch();
 		const resDir = scratch();
 		try {
 			const seal = writeSeal(sealDir);
-			const r = await rescoreRun({
+			const run = rescoreRun({
 				repo: REPO_ROOT,
 				env: deadLegEnv(sealDir, resDir),
 				db,
@@ -741,7 +740,14 @@ test.describe("W1476 review rescore: runner", { tag: "@api" }, () => {
 				force: true,
 				reason: "e2e",
 			});
-			expect(r).toEqual({
+			if (!ac.ok) {
+				await expect(run).rejects.toThrow(
+					"no AC power confirmed (pmset) — the arena benches on AC only",
+				);
+				expect(rescoreEvents(db)).toEqual([]);
+				return;
+			}
+			expect(await run).toEqual({
 				ok: false,
 				lines: [
 					`review-rescore: e2e — due a, b: forced · pin ${NO_PIN} · unsealed incident cases: ${INCIDENT_IDS.join(", ")} (re-design the seal)`,
