@@ -14,9 +14,10 @@ import { z } from "zod";
 
 export const RemoteEndpointSchema = z.object({
 	port: z.number().int().positive(),
-	// openai = /v1/models + /v1/chat/completions; llama = llama.cpp server
+	// openai = /v1/models + /v1/chat/completions; anthropic = Anthropic wire
+	// (/v1/models + /v1/messages, x-api-key auth); llama = llama.cpp server
 	// (/health); immich = Immich SERVER api (smart-search), not the ML container
-	protocol: z.enum(["openai", "llama", "immich"]),
+	protocol: z.enum(["openai", "anthropic", "llama", "immich"]),
 	roles: z.array(z.string()), // general | advise | research | embed ...
 	model: z.string().optional(),
 	/** CDN/edge-fronted remotes (z.ai, openai, anthropic …) need real TLS on
@@ -93,7 +94,7 @@ export function authHeaders(ep: RemoteEndpoint): Record<string, string> {
 	const key =
 		ep.api_key ?? (ep.api_key_env ? process.env[ep.api_key_env] : undefined);
 	if (!key) return {};
-	return ep.protocol === "immich"
+	return ep.protocol === "immich" || ep.protocol === "anthropic"
 		? { "x-api-key": key }
 		: { Authorization: `Bearer ${key}` };
 }
@@ -205,11 +206,11 @@ export async function probeEndpoint(
 	const target = await resolveTarget(machine, ep);
 	if (!target) return { alive: false, ms: 0 };
 	const path =
-		ep.protocol === "openai"
-			? "/v1/models"
-			: ep.protocol === "llama"
-				? "/health"
-				: "/api/server/ping";
+		ep.protocol === "llama"
+			? "/health"
+			: ep.protocol === "immich"
+				? "/api/server/ping"
+				: "/v1/models";
 	const t0 = Date.now();
 	try {
 		const r = await cdnFetch(endpointUrl(target, ep, path), {
