@@ -568,6 +568,14 @@ export function persistCompletion(
 	record: CompletionRecord,
 ): void {
 	ensureRecords(db);
+	// W2043: completion records are immutable first-close evidence; a re-close
+	// (reopened item, dispatch relaunch) must not collide with the standing row.
+	const standing = db
+		.query(
+			"SELECT item FROM work_completion_records WHERE project = ? AND item = ?",
+		)
+		.get(record.project, record.item);
+	if (standing) return;
 	db.query(
 		"INSERT INTO work_completion_records (project,item,summary,summary_hash,commit_sha,baseline_sha,completed_by,completed_at,capsule_json,evidence_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 	).run(

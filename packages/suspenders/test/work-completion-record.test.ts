@@ -517,6 +517,37 @@ test("tail requires project disambiguation when clones share an item id", () => 
 	expect(request("/unknown/.git").status).toBe(404);
 });
 
+test("persistCompletion is idempotent on a standing record (W2043 re-close)", () => {
+	const f = fixture();
+	expect(f.work("done", f.id, "--sha", f.sha, "--summary", summary).code).toBe(
+		0,
+	);
+	const original = JSON.parse(
+		f.work("summary", f.id, "--json").out,
+	) as CompletionRecord;
+	const db = new Database(
+		join(f.home, ".cache", "claude-governor", "governor.db"),
+	);
+	expect(() =>
+		persistCompletion(db, {
+			...original,
+			commit_sha: "".padEnd(40, "0"),
+			completed_at: original.completed_at + 1000,
+		}),
+	).not.toThrow();
+	const rows = db
+		.query(
+			"SELECT commit_sha, completed_at FROM work_completion_records WHERE project = ? AND item = ?",
+		)
+		.all(original.project, original.item) as Array<{
+		commit_sha: string;
+		completed_at: number;
+	}>;
+	expect(rows.length).toBe(1);
+	expect(rows[0].commit_sha).toBe(original.commit_sha);
+	db.close();
+});
+
 test("project rekey upgrades old immutable triggers and preserves completion evidence", () => {
 	const f = fixture();
 	expect(f.work("done", f.id, "--sha", f.sha, "--summary", summary).code).toBe(
