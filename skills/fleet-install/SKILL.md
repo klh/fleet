@@ -48,3 +48,4 @@ claude-code`; one parent-dir add discovers every skill (never cp'd into one
 - Testing the installer with a swapped HOME still registers REAL launchd agents if `--with-launchd` runs — use `--dry-run` or a harness that stubs `launchctl`.
 - The install tail runs `work report` through the PATH shim — a missing `~/.local/bin` on PATH makes that section fail; that is the shim, not the install.
 - Old checkouts are push-dead: every sync lands in THIS repo at `packages/<name>/*` — never re-anchor an archived repo.
+- W1354.1 migration: a repo `.prefer` line like `prefer = "nas ..."` no longer pins the repo to the `nas` hub — only an unquoted `hub=nas` directive pins (quoted must=/prefer= are soft hints, W1353). Repos relying on the old head-token behavior must switch to `hub=<label>` (`prefer set hub=<label>` is the gate-exempt write; see `examples/prefer.example`).

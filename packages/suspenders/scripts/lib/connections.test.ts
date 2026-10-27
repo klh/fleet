@@ -38,8 +38,6 @@ const cfg = (over: Partial<ConnectionsConfig> = {}): ConnectionsConfig => ({
 	...over,
 });
 
-const KNOWN = ["home", "ikea", "nas"];
-
 test("prefer-pin beats repos beats default", () => {
 	const root = mkdtempSync(join(tmpdir(), "conn-test-"));
 	try {
@@ -47,14 +45,14 @@ test("prefer-pin beats repos beats default", () => {
 		const c = cfg({
 			repos: { [root]: "nas" },
 		});
-		const r = resolveHubForPath(root, c, KNOWN);
+		const r = resolveHubForPath(root, c);
 		expect(r.hub).toBe("ikea");
 		expect(r.via).toBe("prefer-pin");
 		expect(r.source).toContain(".prefer");
 		// the pin covers the whole subtree (walk-up law)
 		const child = join(root, "sub");
 		mkdirSync(child);
-		const rSub = resolveHubForPath(child, c, KNOWN);
+		const rSub = resolveHubForPath(child, c);
 		expect(rSub.hub).toBe("ikea");
 		expect(rSub.via).toBe("prefer-pin");
 	} finally {
@@ -67,11 +65,11 @@ test("repos override beats default when no pin applies", () => {
 	try {
 		// no .prefer anywhere above plain — the repos prefix decides
 		const c = cfg({ repos: { [plain]: "nas" } });
-		const r = resolveHubForPath(join(plain, "sub"), c, KNOWN);
+		const r = resolveHubForPath(join(plain, "sub"), c);
 		expect(r.hub).toBe("nas");
 		expect(r.via).toBe("repos");
 		// outside every override → default
-		expect(resolveHubForPath("/tmp", cfg(), KNOWN)).toEqual({
+		expect(resolveHubForPath("/tmp", cfg())).toEqual({
 			hub: "home",
 			via: "default",
 		});
@@ -80,11 +78,11 @@ test("repos override beats default when no pin applies", () => {
 	}
 });
 
-test("routing-plane prefer expr first token pins a known hub", () => {
+test("quoted prefer= head token never pins (W1354.1 — soft hint only)", () => {
 	const root = mkdtempSync(join(tmpdir(), "conn-test-"));
 	try {
 		writeFileSync(join(root, ".prefer"), 'prefer = "ikea llms"\n');
-		expect(preferPin(root, KNOWN)?.hub).toBe("ikea");
+		expect(preferPin(root)).toBeNull();
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -96,7 +94,7 @@ test("walk-up: a .prefer above the repo pins the subtree", () => {
 		writeFileSync(join(root, ".prefer"), "hub=nas\n");
 		const deep = join(root, "a", "b");
 		mkdirSync(deep, { recursive: true });
-		expect(preferPin(deep, KNOWN)?.hub).toBe("nas");
+		expect(preferPin(deep)?.hub).toBe("nas");
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

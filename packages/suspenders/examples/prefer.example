@@ -60,3 +60,11 @@ must=glm-5.3-flash
 # follows it only when nothing stronger objects (no chain directive ⇒
 # W1353 WARN naming what the default ladder picked). hub= is what actually
 # pins the chain to a gateway.
+#
+# ── W1354.1 migration note ───────────────────────────────────────────────
+# A quoted prefer= expression whose FIRST token names a hub label used to
+# pin this repo's hub for the connections resolver (`prefer = "nas llms"`
+# pinned nas). It no longer does: the quoted planes are SOFT hints only —
+# the sole pin is the unquoted `hub=<label>` directive. Repos relying on
+# `prefer = "nas ..."` for routing must switch to `hub=nas`
+# (`prefer set hub=nas`).
