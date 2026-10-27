@@ -842,7 +842,8 @@ function pollSpendSeries(force){
       if (task.id && db2 && !byId('drawer').hidden) paintSparks(db2);
     });
 }
-function sparkSvg(points, w, h){
+function sparkSvg(points, w, h, drawer){
+  drawer = drawer === undefined ? w > 180 : !!drawer;
   var svg = document.createElementNS(SVGNS, 'svg');
   svg.setAttribute('width', w); svg.setAttribute('height', h);
   svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
@@ -913,7 +914,9 @@ function paintSparks(root){
     var axis = el.parentElement.querySelector('.ksparkaxis');
     if (axis) axis.style.display = 'none';
     if (pts && pts.length){
-      var chart = sparkSvg(pts, big ? 240 : 180, big ? 36 : 28);
+      var plot = big ? null : el.parentElement;
+      var w = big ? 240 : Math.max(180, (plot && plot.clientWidth) || 180);
+      var chart = sparkSvg(pts, w, big ? 36 : 28, !!big);
       el.appendChild(chart);
       if (axis){
         axis.style.display = 'flex';

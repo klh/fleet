@@ -338,7 +338,7 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .lmodel.loc { border-color:var(--klh-ok); color:var(--klh-ok-ink); }
 /* Hourly input-token bars; numbers sit beneath the chart. */
 .kspend { display:flex; flex-direction:column; align-items:flex-start; gap:2px; margin-top:6px; }
-.ksparkplot { width:180px; max-width:100%; }
+.ksparkplot { width:100%; }
 .kspark { display:block; }
 .kspark svg { display:block; max-width:100%; }
 .kspark .spark-fresh { fill:var(--klh-accent); }
