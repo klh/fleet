@@ -8,48 +8,49 @@ import {
 	statSync,
 	writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
 import { homedir, hostname } from "node:os";
-import { openStore } from "../../hooks/lib/govdb/govdb.ts";
-import { projectIdentity } from "../../hooks/lib/govdb/govdb-project.ts";
+import { dirname, join } from "node:path";
 import { verifiedPauseCheckpoint } from "../../hooks/lib/executors/claude-pause.ts";
 import {
+	type ClaudeRestartJournal,
+	type ClaudeRestartSnapshot,
 	checkpointedClaudeRestart,
+	pausedNativeBoundary,
 	privateJson,
+	type RestartIdentity,
+	restartContinuationProof,
 	restartHash,
+	restartJournalPath,
 	restartTranscriptMatches,
 	retiredRestartSnapshot,
-	restartJournalPath,
-	restartContinuationProof,
-	pausedNativeBoundary,
 	validateRestartBoundary,
-	type ClaudeRestartSnapshot,
-	type ClaudeRestartJournal,
-	type RestartIdentity,
 } from "../../hooks/lib/executors/claude-restart.ts";
+import { adapterForExact } from "../../hooks/lib/executors/registry.ts";
+import { openStore } from "../../hooks/lib/govdb/govdb.ts";
+import { projectIdentity } from "../../hooks/lib/govdb/govdb-project.ts";
+import { adminKey, BUCKLE_FRONT } from "../../hooks/lib/lanes/lane-auth.ts";
+import { readLaneContextFile } from "../../hooks/lib/lanes/lane-context.ts";
+import {
+	type LaneRef,
+	laneProcessIdentity,
+} from "../../hooks/lib/lanes/lane-liveness.ts";
 import {
 	canonicalProjectRoot,
 	loadLaneRegistry,
-	repairLaneRegistryPid,
 	registerMissingRestartLane,
+	repairLaneRegistryPid,
 } from "../../hooks/lib/lanes/lane-registry.ts";
-import { registryWorktrees } from "../../hooks/lib/work/worktree-lookup.ts";
-import {
-	laneProcessIdentity,
-	type LaneRef,
-} from "../../hooks/lib/lanes/lane-liveness.ts";
-import {
-	processBirth,
-	launchIntent,
-	sameMachine,
-	type LaunchIntent,
-} from "./launch-fencing.ts";
-import { adminKey, BUCKLE_FRONT } from "../../hooks/lib/lanes/lane-auth.ts";
-import { adapterForExact } from "../../hooks/lib/executors/registry.ts";
-import { materializeRestartSettings } from "./claude-restart-settings.ts";
-import { restartTreeHash as treeHash } from "./restart-tree-snapshot.ts";
-import { readLaneContextFile } from "../../hooks/lib/lanes/lane-context.ts";
 import { claimTokenVerdict } from "../../hooks/lib/work/work-fence.ts";
+import { registryWorktrees } from "../../hooks/lib/work/worktree-lookup.ts";
+import { verifyRestartDrain } from "./claude-restart-drain.ts";
+import { materializeRestartSettings } from "./claude-restart-settings.ts";
+import {
+	type LaunchIntent,
+	launchIntent,
+	processBirth,
+	sameMachine,
+} from "./launch-fencing.ts";
+import { restartTreeHash as treeHash } from "./restart-tree-snapshot.ts";
 
 const identity = (pid: number): RestartIdentity | false | null => {
 	const found = processBirth(pid);
@@ -149,33 +150,6 @@ export function children(pid: number): number[] {
 		.split(/\s+/)
 		.filter(Boolean)
 		.map(Number);
-}
-export async function verifyRestartDrain(
-	front: string,
-	sid: string,
-	headers: Record<string, string>,
-): Promise<void> {
-	const query = new URLSearchParams({
-		limit: "500",
-		inference: "true",
-		lane: sid,
-	});
-	const response = await fetch(`${front}/v1/admin/requests?${query}`, {
-		headers,
-		signal: AbortSignal.timeout(5000),
-	});
-	const body = (await response.json()) as {
-		requests?: Array<{ lane?: string; status?: number | null }>;
-	};
-	if (
-		!response.ok ||
-		!Array.isArray(body.requests) ||
-		body.requests.length >= 500 ||
-		body.requests.some((row) => row.lane !== sid)
-	)
-		throw new Error("Restart scoped inference coverage is unknown");
-	if (body.requests.some((row) => row.status == null))
-		throw new Error("Restart lane inference has not drained");
 }
 async function verifyRoute(sid: string, settings: string): Promise<void> {
 	const config = privateJson<{ env?: Record<string, string> }>(settings);

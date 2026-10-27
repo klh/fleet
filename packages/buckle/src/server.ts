@@ -6,13 +6,14 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { loadAccountPolicy } from "./account-policy.ts";
 import { RpcAdmission } from "./admission.ts";
 import { PrefixAffinity } from "./affinity.ts";
+import { AidsLedger } from "./aids.ts";
 import { LaneTelemetryLog } from "./cache-boundary.ts";
 import { PrefixLedger } from "./cache-fingerprint.ts";
-import { AidsLedger } from "./aids.ts";
 import { CandidateTable } from "./candidates.ts";
-import { startConnectEgress, type ConnectEgress } from "./connect-egress.ts";
+import { type ConnectEgress, startConnectEgress } from "./connect-egress.ts";
 import { Cooldowns } from "./cooldown.ts";
 import { decideRoute } from "./decide.ts";
 import { DietStore } from "./diet.ts";
@@ -32,18 +33,17 @@ import {
 	overlayModuleAdaptation,
 	overlayModuleGovSeam,
 } from "./gov/overlay-loader.ts";
+import { residencyFromEnv, resolveResidency } from "./gov/residency.ts";
 import { type AppDeps, createApp } from "./handlers.ts";
-import { loadAccountPolicy } from "./account-policy.ts";
-import { MAX_REQUEST_BODY_BYTES } from "./ingress-body.ts";
 import type { RouteHint } from "./hints.ts";
+import { MAX_REQUEST_BODY_BYTES } from "./ingress-body.ts";
 import { Ledger } from "./ledger.ts";
 import { ObservationOutbox } from "./observe.ts";
-import { loadGatewayPolicy, loadPrefs, type GatewayPolicy } from "./policy.ts";
+import { type GatewayPolicy, loadGatewayPolicy, loadPrefs } from "./policy.ts";
 import { poolWarm, prewarm } from "./pool-warm.ts";
 import { Preseeder } from "./preseed.ts";
 import { LaneProjection, OutboxTailer } from "./projection.ts";
 import { loadRepoPolicies } from "./repo-policy.ts";
-import { resolveResidency, residencyFromEnv } from "./gov/residency.ts";
 import { Router, type RouterMetrics } from "./router.ts";
 import { servicemon } from "./servicemon.ts";
 import type { Dialect } from "./upstreams.ts";
@@ -143,6 +143,9 @@ export function buildDeps(
 	const sm = servicemon({ service: "buckle", port });
 	const ledger = new Ledger(opts.dbPath ?? defaultDbPath(), undefined, {
 		throughputPolicy: policy.throughput,
+		// W1124.31: the abandoned-receipt reconcile's live-transport bound
+		// rides the operator's own stream total guard (config-over-code).
+		maxStreamMs: (policy.stream_total_timeout_s ?? 900) * 1000,
 		onDrop: (kind, n) =>
 			sm
 				.counter(

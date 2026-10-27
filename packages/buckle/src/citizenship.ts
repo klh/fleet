@@ -107,6 +107,8 @@ export function allowOf(path: string): string | null {
 	if (path === "/v1/admin/requests") return "GET, OPTIONS";
 	// W1259: the exact in-flight index — read-only admin surface.
 	if (path === "/v1/admin/inflight") return "GET, OPTIONS";
+	// W1124.31: the audited abandoned-receipt reconcile (POST-class admin).
+	if (path === "/v1/admin/requests/reconcile") return "POST, OPTIONS";
 	if (path === "/v1/admin/metrics") return "GET, OPTIONS";
 	if (path === "/v1/admin/traces") return "GET, OPTIONS";
 	if (path === "/v1/admin/observations") return "GET, OPTIONS";

@@ -13,6 +13,7 @@ import { readRemoteTraces } from "../../../telemetry/src/remote-traces.ts";
 import type { RequestReadQuery } from "../ledger.ts";
 import { exportObservations } from "../observation-export.ts";
 import { verifyAuthChain } from "./audit-chain.ts";
+import { reconcileRequest } from "./reconcile-route.ts";
 import type { Governance, Principal } from "./middleware.ts";
 import { parseScope, scopesFromStorage } from "./scopes.ts";
 
@@ -167,6 +168,13 @@ export async function handleAdmin(
 	// from api_keys (key material never leaves the store).
 	if (method === "GET" && path === "/v1/admin/requests") {
 		return listRequests(gov, url);
+	}
+	// W1124.31: audited abandoned-receipt reconciliation — the drain-guard
+	// consumer reconciles provably-dead receipts through the gate (the gate
+	// itself proves prior-incarnation + elapsed transport bound per row);
+	// a chained auth event rides every success. Never a fabricated status.
+	if (method === "POST" && path === "/v1/admin/requests/reconcile") {
+		return reconcileRequest(req, p, gov);
 	}
 	if (method === "GET" && path === "/v1/admin/metrics") {
 		return gov.metrics();
