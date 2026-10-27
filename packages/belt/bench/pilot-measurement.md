@@ -124,3 +124,31 @@ Two of the four gaps closed (2026-10-19, `pilot-measure.ts`):
   `items.rework_children` counts tagged children of done parents only.
   Historical items stay untagged: the counter is exact from the W846
   landing forward.
+
+## W1477 review block
+
+The `review` block (`review-guardrail.ts`; the `review:` and `guardrail:`
+lines, `review` in pilot-summary.json) measures human time with reverts and
+incidents as the guardrail, over the `work.landed` era only (first landing
+2026-10-22T19:59Z — rates never cover time the bus did not record):
+
+- **approvals and person-wait per landing** — settled NEED_DECISION answers
+  on landed items (a declared proxy: main records no human approvals).
+- **revert rate** — git revert commits on the integration line (the C156
+  classifier shared with W1476: Reapply and revert-of-revert are re-lands; a
+  named revert whose target never reached main is a branch-internal undo and
+  drops) plus W1476's `review.incident` rows, deduped by commit.
+- **incident rate** — incident-tagged landed items, once per root (topmost
+  tagged ancestor), plus `review.incident` roots.
+- **guardrail** — the owner's thresholds live in the machine conf
+  `~/.config/klh/review-guardrail.json` (`--guardrail PATH`); absent =
+  `unconfigured`, tier action disabled (NEED_DECISION #78563).
+
+Feed changes: the tasks join reads `?done=all&project=` — since W682
+(2026-10-19) the bare feed keeps the newest 12 DONE rows per project (fleet
+2026-10-26: 12 vs 1771), so runs on a W682 board undercounted DONE items;
+the W845 baseline above (569) predates the trim. Decisions read
+`?history=1&project=` and report the 200-row cap as a gap; events page by
+cursor. Baseline 2026-10-26: 245 landings, approvals 0.0082 and wait 0.5 min
+per landing, revert rate 0, incident rate 0.0449 (11 roots) — the
+benchmarks.md W1477 row records what each number decides.

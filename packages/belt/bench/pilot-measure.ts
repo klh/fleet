@@ -10,6 +10,15 @@ import { Database } from "bun:sqlite";
 import { spawnSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
+import {
+	buildReview,
+	fetchEvents,
+	GUARDRAIL_CONF,
+	gitRevertCommits,
+	loadGuardrailConf,
+	REVIEW_KINDS,
+	type ReviewSummary,
+} from "./review-guardrail.ts";
 
 export interface TaskRow {
 	project: string;
@@ -132,6 +141,8 @@ export interface Summary {
 	};
 	not_instrumented: string[];
 	uncertainty: string[];
+	/** W1477: approvals/wait per landing + revert/incident guardrail. */
+	review?: ReviewSummary;
 }
 
 /** autow845-p98b… / codex-w528-probe → "W845"/"W528"; unattributed keys → null. */
@@ -361,10 +372,10 @@ export function buildSummary(
 					inWindow(t.tail?.ts ?? null, sinceMs, untilMs),
 			).length,
 			rework_children: reworkChildren.length,
-			by_workload: items.reduce<Record<string, number>>(
-				(a, i) => ((a[i.workload] = (a[i.workload] ?? 0) + 1), a),
-				{},
-			),
+			by_workload: items.reduce<Record<string, number>>((a, i) => {
+				a[i.workload] = (a[i.workload] ?? 0) + 1;
+				return a;
+			}, {}),
 		},
 		human,
 		acceptance,
@@ -420,9 +431,12 @@ function parseArgs(argv: string[]): Record<string, string> {
 	return args;
 }
 
-async function fetchTasks(board: string): Promise<TaskRow[]> {
-	const res = await fetch(`${board}/api/tasks`, {
-		signal: AbortSignal.timeout(8000),
+// W1477: project-scoped and uncapped — the bare feed keeps only 12 DONE per
+// project (W682), which hides most landed items from the incident join.
+async function fetchTasks(board: string, project: string): Promise<TaskRow[]> {
+	const q = `done=all&project=${encodeURIComponent(project)}`;
+	const res = await fetch(`${board}/api/tasks?${q}`, {
+		signal: AbortSignal.timeout(60_000),
 	});
 	if (!res.ok) throw new Error(`board ${board} -> ${res.status}`);
 	const body = (await res.json()) as { tasks: TaskRow[] };
@@ -431,8 +445,12 @@ async function fetchTasks(board: string): Promise<TaskRow[]> {
 
 /** W846: the persisted NEED_DECISION emit/settle history — board decisions
  * table folded with resolved (history=1) rows; client filters by window. */
-async function fetchDecisions(board: string): Promise<DecisionRow[]> {
-	const res = await fetch(`${board}/api/decisions?history=1`, {
+async function fetchDecisions(
+	board: string,
+	project: string,
+): Promise<DecisionRow[]> {
+	const q = `history=1&project=${encodeURIComponent(project)}`;
+	const res = await fetch(`${board}/api/decisions?${q}`, {
 		signal: AbortSignal.timeout(8000),
 	});
 	if (!res.ok) throw new Error(`board ${board} -> ${res.status}`);
@@ -504,13 +522,17 @@ function gitAcceptance(
 const HELP = `pilot-measure — W845 fleet pilot measurement (retrospective arm)
 
 Usage: bun packages/belt/bench/pilot-measure.ts [--since ISO] [--until ISO]
-       [--out DIR] [--board URL] [--ledger PATH] [--project PATH] [--help]
+       [--out DIR] [--board URL] [--ledger PATH] [--project PATH]
+       [--guardrail PATH] [--help]
 
 Defaults: since=2026-10-06T00:00:00Z (ledger start), until=now,
           out=.pilot-measure, board=http://127.0.0.1:7799,
-          ledger=~/.claude/local-llm/buckle.db, project=this repo's common dir.
+          ledger=~/.claude/local-llm/buckle.db, project=this repo's common dir,
+          guardrail=${GUARDRAIL_CONF} (absent = tier action disabled).
 Joins /api/tasks × /api/decisions?history=1 (W846 human time) × the buckle
-ledger × git acceptance. Writes pilot-items.jsonl + pilot-summary.json into
+ledger × git acceptance, plus the W1477 review block: work.landed ×
+settled decisions (approvals + wait per landing) × revert/incident rates ×
+the owner guardrail. Writes pilot-items.jsonl + pilot-summary.json into
 --out and prints a table.`;
 
 if (import.meta.main) {
@@ -531,9 +553,14 @@ if (import.meta.main) {
 		encoding: "utf8",
 	}).stdout.trim();
 	const project = args.project ?? resolve(commonDir);
+	const guardrailPath = (args.guardrail ?? GUARDRAIL_CONF).replace(
+		/^~/,
+		process.env.HOME ?? "",
+	);
 
-	const tasks = await fetchTasks(board);
-	const decisions = await fetchDecisions(board);
+	const tasks = await fetchTasks(board, project);
+	const decisions = await fetchDecisions(board, project);
+	const events = await fetchEvents(board, REVIEW_KINDS, Date.parse(until));
 	const ledger = fetchLedger(ledgerPath, since, until);
 	const acceptance = gitAcceptance(project, since, until);
 	const { items, summary } = buildSummary(
@@ -544,6 +571,17 @@ if (import.meta.main) {
 		acceptance,
 		decisions,
 	);
+	const review = buildReview({
+		project,
+		sinceMs: Date.parse(since),
+		untilMs: Date.parse(until),
+		events,
+		decisions,
+		tasks,
+		commits: gitRevertCommits(project, since, until),
+		conf: loadGuardrailConf(guardrailPath),
+	});
+	summary.review = review;
 
 	mkdirSync(outDir, { recursive: true });
 	await Bun.write(
@@ -572,6 +610,12 @@ if (import.meta.main) {
 	console.log(`workload: ${JSON.stringify(summary.items.by_workload)}`);
 	console.log(
 		`human time: decisions=${summary.human.decisions_in_window} settled=${summary.human.settled} latency p50=${summary.human.latency_min_p50}m p90=${summary.human.latency_min_p90}m (items attributed: ${summary.human.items_with_human_time})`,
+	);
+	console.log(
+		`review: landings=${review.landings} approvals/landing=${review.approvals.per_landing} wait/landing=${review.wait.min_per_landing}m reverts=${review.reverts.count} (rate ${review.reverts.rate}) incidents=${review.incidents.count} (rate ${review.incidents.rate})`,
+	);
+	console.log(
+		`guardrail: ${review.guardrail.state} — ${review.guardrail.note}`,
 	);
 	console.log(
 		`not instrumented: ${summary.not_instrumented.length} surfaces (see pilot-summary.json)`,
