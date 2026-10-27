@@ -3,11 +3,13 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	rmSync,
 	statSync,
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 import { freePort, scratchWorld } from "../../test-kit/src/index.ts";
+
 import { startServer } from "../../buckle/src/server.ts";
 
 test("the real gateway generator enables cancellation in private YAML without changing authentication", async () => {
@@ -61,7 +63,6 @@ test("actual LiteLLM cancels pre-header provider work only when disconnect handl
 		);
 	const dir = mkdtempSync("/tmp/litellm-cancel-");
 	const pause = (ms: number) => Bun.sleep(ms);
-	const proxyPort = await freePort();
 	const results = [];
 	for (const enabled of [false, true]) {
 		let active = 0,
@@ -137,6 +138,7 @@ test("actual LiteLLM cancels pre-header provider work only when disconnect handl
 				});
 			},
 		});
+		const proxyPort = await freePort();
 		const config = `${dir}/proxy-${enabled}.yaml`;
 		writeFileSync(
 			config,
