@@ -54,15 +54,15 @@ const LITERAL = /(['"`])((?:\\.|(?!\1)[\s\S])*?)\1/g;
 // `dir/name.ext` strings are data, not references — the W1356 / W1302.4.1.1
 // merges minted 160+ per-literal repairs from sync-harness and merge-guard
 // fixture strings before this scope landed. `...` marks a doc ellipsis.
-const REFERENCE_FORM = /^(?:\.{1,2}\/|@klh\/)/;
+export const REFERENCE_FORM = /^(?:\.{1,2}\/|@klh\/)/;
 const PLACEHOLDER = /\.\.\./;
 // Test/fixture files: their path-like strings denote synthetic trees (tmpdir
 // fixture repos, staged harness roots), never the repo tree.
-const FIXTURE_FILE =
+export const FIXTURE_FILE =
 	/(?:^|\/)(?:test|tests|__tests__)\/|(?:\.test|\.spec|\.e2e)\.[cm]?[jt]sx?$/i;
 // Runtime dirs are untracked by convention — targets under them cannot be
 // judged "missing from the tree" by ls-tree.
-const RUNTIME_DIR = /(?:^|\/)(?:\.harness|\.worktrees|\.test-home)\//;
+export const RUNTIME_DIR = /(?:^|\/)(?:\.harness|\.worktrees|\.test-home)\//;
 
 const git = (repo: string, args: string[]): string | null => {
 	const p = Bun.spawnSync(["git", "-C", repo, ...args], {

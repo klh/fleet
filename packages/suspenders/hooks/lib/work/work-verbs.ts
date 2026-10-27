@@ -154,6 +154,14 @@ export const VERBS: VerbSpec[] = [
 		reqFlags: ["--by"],
 	}),
 	defineVerb({
+		name: "rejudge",
+		usage:
+			"usage: rejudge dangling [--dry-run] — re-run the current dangling-path classifier over open repair items (W1762)",
+		flags: ["--dry-run"],
+		switches: ["--dry-run"],
+		minPos: 1,
+	}),
+	defineVerb({
 		name: "block",
 		usage: "usage: block <id> --on <other-id>",
 		flags: [...ITEM_FLAGS],

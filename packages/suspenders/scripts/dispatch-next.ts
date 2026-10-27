@@ -73,6 +73,7 @@ import {
 // guard moved to lib modules; the re-exports keep supervise.ts and the test
 // suites on their dispatch-next import path.
 import { capabilityGate, isOwnerGated, parseReady } from "./lib/ready-pool.ts";
+import { danglingFixHolds } from "../hooks/lib/fleet-loop/dangling-rejudge.ts";
 import { refillVerb } from "./lib/refill-verb.ts";
 import {
 	canAttemptRefill,
@@ -579,8 +580,22 @@ const main = async (): Promise<void> => {
 		(id) => sidOf(id, projectIdentity(REPO)),
 	);
 	for (const s of skips) console.log(s);
+	// W1762: repairs frozen by a merged-but-uninstalled classifier fix never
+	// launch from the pool (explicit --item stays operator-explicit).
+	const fixHolds = capStore
+		? danglingFixHolds(
+				capStore,
+				REPO,
+				dispatchable.map((r) => ({ id: r.id, title: r.title })),
+			)
+		: new Map<string, string>();
 	capStore?.close();
 	for (const r of dispatchable) {
+		const holdWhy = fixHolds.get(r.id);
+		if (holdWhy) {
+			console.log(`DANGLING-FIX-HOLD ${r.id} — ${holdWhy}`);
+			continue;
+		}
 		if (!canLaunch()) break;
 		const out = await dispatchItem(r.id, live, undefined, dispatched.length);
 		if (out) dispatched.push(out);

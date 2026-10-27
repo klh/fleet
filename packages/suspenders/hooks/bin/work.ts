@@ -104,6 +104,7 @@ import {
 	setWorkVerb,
 } from "../lib/work/work-graph.ts";
 import { queueCompletionKnowledge } from "../lib/work/work-knowledge.ts";
+import { rejudgeDangling } from "../lib/fleet-loop/dangling-rejudge.ts";
 import { runMigrateLedger } from "../lib/work/work-migrate-ledger.ts";
 import { exportMirror } from "../lib/work/work-mirror.ts";
 import { GLYPH, renderRow, renderTimestamps } from "../lib/work/work-render.ts";
@@ -768,6 +769,20 @@ const dispatchVerb = async (
 		// without this emit, linked NEED_DECISIONs hang OPEN (finding.w781)
 		emit("work.superseded", id, { note: `superseded by ${byId}` });
 		console.log(`${dim("■")} ${id} superseded by ${byId}`);
+	} else if (name === "rejudge") {
+		// W1762: one classifier-driven pass over open dangling-path repairs —
+		// rejects supersede with the classifier sha as reason; survivors and
+		// their code.dangling-path edges stay untouched.
+		if (pos[0] !== "dangling") die("usage: rejudge dangling [--dry-run]");
+		const result = rejudgeDangling(db(), projectRootOf(PROJECT), {
+			dryRun: flag("--dry-run") !== null,
+		});
+		if ("error" in result) die(`rejudge: ${result.error}`);
+		for (const { id, reason } of result.superseded)
+			console.log(`${dim("■")} ${id} superseded — ${reason}`);
+		console.log(
+			`REJUDGE classifier ${result.classifier.slice(0, 12)}: ${result.superseded.length} superseded, ${result.kept} kept, ${result.unevidenced} unevidenced`,
+		);
 	} else if (name === "block") {
 		const id = pos[0];
 		const on = flag("--on");
