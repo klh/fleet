@@ -477,8 +477,17 @@ export const dispatchLane = async (
 			console.log(`WAIT ${item} — ${why}`);
 			return null;
 		}
+		// W1813: the origin agent suffix is the SPAWNED adapter id — the same
+		// identity launchToken registers (W1731); never a hardcoded claude.
 		const take = run(
-			workCli("take", item, "--as", sid, "--origin", `${hostname()}:claude`),
+			workCli(
+				"take",
+				item,
+				"--as",
+				sid,
+				"--origin",
+				`${hostname()}:${adapterFor(pick.bin).id}`,
+			),
 		);
 		if (take.code !== 0) {
 			const show = run(workCli("show", item, "--json"));
