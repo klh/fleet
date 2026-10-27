@@ -24,13 +24,13 @@ import {
 	type Origin,
 } from "../bin/model-store-lib.ts";
 import { createApp, openKeyLedger } from "../bin/model-store.ts";
-import { applyGovernanceSchema } from "../../buckle/src/gov/schema.ts";
-import { KeyStore } from "../../buckle/src/gov/keys.ts";
+import { applyGovernanceSchema } from "@klh/buckle/src/gov/schema.ts";
+import { KeyStore } from "@klh/buckle/src/gov/keys.ts";
 import {
 	PullAuthorizer,
 	STORE_READ_SCOPE,
 	TokenBucket,
-} from "../../buckle/src/gov/store-auth.ts";
+} from "@klh/buckle/src/gov/store-auth.ts";
 
 // ─── helpers ───
 

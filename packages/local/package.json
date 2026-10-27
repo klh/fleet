@@ -8,6 +8,9 @@
 	"engines": {
 		"bun": ">=1.2"
 	},
+	"dependencies": {
+		"@klh/local-llm": "2.0.0"
+	},
 	"scripts": {
 		"build:lit": "bun scripts/build-lit.ts"
 	}

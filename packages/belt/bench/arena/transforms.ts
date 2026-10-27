@@ -11,8 +11,8 @@ import { CONDENSE_VERSION, condense } from "./condense.ts";
 import {
 	condenseTier,
 	type TierName,
-} from "../../../blam/src/condense/tiers.ts";
-import { CONDENSE_VERSION as BLAM_CONDENSE_VERSION } from "../../../blam/src/condense/version.ts";
+} from "@klh/blam/src/condense/tiers.ts";
+import { CONDENSE_VERSION as BLAM_CONDENSE_VERSION } from "@klh/blam/src/condense/version.ts";
 import {
 	type ClassId,
 	LINE_CAP,

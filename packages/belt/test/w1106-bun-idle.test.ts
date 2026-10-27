@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModelProxy } from "../bin/model-proxy.ts";
-import { startServer } from "../../buckle/src/server.ts";
+import { startServer } from "@klh/buckle/src/server.ts";
 
 // ── Bun.serve spy seam ─────────────────────────────────────────────
 // The entrypoints arm their timers in Bun.serve(opts) at boot; the seam

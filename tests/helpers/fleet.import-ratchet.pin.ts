@@ -1,14 +1,11 @@
 // W1249 reach-in ratchet PIN — the ONE pinned baseline edge set, moved
-// out of tests/fleet.import-law.guard.test.ts (W1303.1.7) so the guard
-// test and scripts/check-deps.ts read the same bytes. Shrink-only:
-// closing an edge deletes its line; a new edge re-pins deliberately in
-// the landing that adds it. Byte-pinned from the lib scan (reachIns +
-// edgeKey in fleet.import-graph.lib.ts) — regenerate with a bun -e
-// splice, never hand-edit.
+// out of tests/fleet.import-law.guard.test.ts (W1303.1.7) so the guard test
+// and scripts/check-deps.ts read the same bytes. Shrink-only: closing an
+// edge deletes its line; a new edge re-pins deliberately in the landing
+// that adds it. Byte-pinned from the lib scan (reachIns + edgeKey in
+// fleet.import-graph.lib.ts) — regenerate with a bun -e splice, never
+// hand-edit.
 export const REACH_IN_PIN = `
-belt/bench/arena/review-pipeline.ts -> suspenders (../../../suspenders/hooks/lib/oracle-frame.ts)
-belt/bench/arena/transforms.ts -> blam (../../../blam/src/condense/tiers.ts)
-belt/bench/arena/transforms.ts -> blam (../../../blam/src/condense/version.ts)
 belt/bin/dashboard.ts -> telemetry (../../telemetry/src/http-trace.ts)
 belt/bin/escalate.ts -> telemetry (../../telemetry/src/http-trace.ts)
 belt/bin/health.ts -> telemetry (../../telemetry/src/http-trace.ts)
@@ -34,14 +31,6 @@ belt/bin/router-shim.ts -> telemetry (../../telemetry/src/http-trace.ts)
 belt/bin/router-shim.ts -> telemetry (../../telemetry/src/prefer-header.ts)
 belt/bin/stream-prelude.ts -> buckle (../../buckle/src/error-detail.ts)
 belt/bin/stream-prelude.ts -> buckle (../../buckle/src/sse.ts)
-belt/test/litellm-cancellation.test.ts -> buckle (../../buckle/src/server.ts)
-belt/test/model-store.test.ts -> buckle (../../buckle/src/gov/keys.ts)
-belt/test/model-store.test.ts -> buckle (../../buckle/src/gov/schema.ts)
-belt/test/model-store.test.ts -> buckle (../../buckle/src/gov/store-auth.ts)
-belt/test/runtime-overlay-drift.test.ts -> suspenders (../../suspenders/scripts/belt-bin-overlay.ts)
-belt/test/w1106-bun-idle.test.ts -> buckle (../../buckle/src/server.ts)
-belt/test/w371-hub-remote.test.ts -> suspenders (../../suspenders/deploy/hub-remote.ts)
-belt/test/w371-hub-targets.test.ts -> suspenders (../../suspenders/deploy/openrouter-free.ts)
 blam/bench/improve/loop.ts -> suspenders (../../../suspenders/hooks/lib/secret-guard.ts)
 blam/bench/improve/loop.ts -> suspenders (../../../suspenders/hooks/lib/starter/starter-artifacts.ts)
 blam/bench/improve/loop.ts -> suspenders (../../../suspenders/hooks/lib/starter/starter-distribution.ts)
@@ -53,13 +42,16 @@ buckle/src/adapters/errors.ts -> telemetry (../../../telemetry/src/http-trace.ts
 buckle/src/citizenship.ts -> telemetry (../../telemetry/src/http-trace.ts)
 buckle/src/gov/admin.ts -> telemetry (../../../telemetry/src/remote-traces.ts)
 buckle/src/gov/admin.ts -> telemetry (../../../telemetry/src/trace-log.ts)
-buckle/src/handlers.ts -> telemetry (../../telemetry/src/http-trace.ts)
-buckle/src/handlers.ts -> telemetry (../../telemetry/src/prefer-header.ts)
 buckle/src/ledger.ts -> telemetry (../../telemetry/src/http-trace.ts)
 buckle/src/ledger.ts -> telemetry (../../telemetry/src/transport-evidence.ts)
+buckle/src/proxy-ingress.ts -> telemetry (../../telemetry/src/prefer-header.ts)
+buckle/src/proxy-stream.ts -> telemetry (../../telemetry/src/http-trace.ts)
 buckle/src/router.ts -> telemetry (../../telemetry/src/http-trace.ts)
 buckle/src/router.ts -> telemetry (../../telemetry/src/transport-evidence.ts)
+buckle/src/wire-stamp.ts -> telemetry (../../telemetry/src/http-trace.ts)
+buckle/src/wire-stamp.ts -> telemetry (../../telemetry/src/prefer-header.ts)
 buckle/src/wire.ts -> telemetry (../../telemetry/src/prefer-header.ts)
+buckle/test/joined-trace-two-hop.test.ts -> telemetry (../../telemetry/src/remote-traces.ts)
 buckle/test/provider-feedback-http.test.ts -> telemetry (../../telemetry/src/remote-traces.ts)
 buckle/test/provider-pressure-e2e.test.ts -> telemetry (../../telemetry/src/remote-traces.ts)
 buckle/test/trace-settle.test.ts -> telemetry (../../telemetry/src/http-trace.ts)
@@ -71,7 +63,6 @@ local-llm/models.catalog.ts -> belt (../belt/bin/registry.ts)
 local-llm/registry.ts -> belt (../belt/bin/registry.ts)
 local-llm/spawner.test.ts -> belt (../belt/bin/spawner.ts)
 local-llm/spawner.ts -> belt (../belt/bin/spawner.ts)
-local/bin/observation.ts -> local-llm (../../local-llm/observation.ts)
 suspenders/deploy/hub-metrics.ts -> buckle (../../buckle/src/metrics-connector.ts)
 suspenders/deploy/hub-policy.ts -> buckle (../../buckle/src/policy.ts)
 suspenders/deploy/trace-tunnel.test.ts -> telemetry (../../telemetry/src/remote-traces.ts)

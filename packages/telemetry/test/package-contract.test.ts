@@ -78,16 +78,18 @@ test("engines pins the bun toolchain exactly", () => {
 
 test("exports covers every src module", () => {
 	const modules = srcModules();
-	expect(modules.length).toBe(6);
+	expect(modules.length).toBe(7);
 	const keys = Object.keys(exportsMap).map((k) => k.replace("./", ""));
 	for (const mod of modules) {
 		expect(keys, mod).toContain(mod.replace("./", ""));
 		expect(exportsMap[`./${mod.replace("./", "")}`]).toBe(mod);
 	}
+	// the bare-package face the README documents
+	expect(exportsMap["."]).toBe("./src/index.ts");
 });
 
 test("files allowlist ships exactly the runtime tree, never tests", () => {
-	expect(filesList).toEqual(["src"]);
+	expect(filesList).toEqual(["src", "README.md"]);
 	expect(statSync(join(PKG_DIR, "src")).isDirectory()).toBe(true);
 	for (const banned of ["test", "e2e", "bench", "docs"]) {
 		expect(filesList).not.toContain(banned);
@@ -103,12 +105,21 @@ test("exports keep covering the cross-package reach-in surface", () => {
 	for (const sub of reachIns) expect(keys, sub).toContain(sub);
 });
 
-test("the shared seam stays on the installer SOURCE_PATHS", () => {
+test("the shared seam still ships with the installer payload", () => {
 	// text-scan, not an import: telemetry depends on nothing in fleet (kernel
 	// law) and the ratchet would grow an import-law edge for a manifest pin.
+	// W1466 made the sync payload the computed import-graph closure — the
+	// hand SOURCE_PATHS row this test once pinned is gone. The seam still
+	// ships iff a payload face's closure reaches telemetry: assert the
+	// entry row AND the import edge, both as literals.
 	const syncHarness = readFileSync(
 		join(PKG_DIR, "..", "suspenders", "scripts", "sync-harness.ts"),
 		"utf8",
 	);
-	expect(syncHarness).toContain('"packages/telemetry/src"');
+	expect(syncHarness).toContain('"packages/belt/bin/dashboard.ts"');
+	const dashboard = readFileSync(
+		join(PKG_DIR, "..", "belt", "bin", "dashboard.ts"),
+		"utf8",
+	);
+	expect(dashboard).toContain('from "../../telemetry/src/http-trace.ts"');
 });

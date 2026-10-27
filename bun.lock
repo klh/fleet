@@ -40,6 +40,8 @@
       },
       "dependencies": {
         "@klh/blam": "2.0.0",
+        "@klh/buckle": "2.0.0",
+        "@klh/suspenders": "2.0.0",
         "bonjour-service": "1.4.4",
         "lit": "3.3.3",
       },
@@ -77,6 +79,9 @@
     "packages/local": {
       "name": "@klh/local",
       "version": "2.0.0",
+      "dependencies": {
+        "@klh/local-llm": "2.0.0",
+      },
     },
     "packages/local-llm": {
       "name": "@klh/local-llm",
