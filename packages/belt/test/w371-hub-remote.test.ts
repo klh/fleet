@@ -5,9 +5,9 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { composeUpArgv, sshOpts } from "../../suspenders/deploy/hub-remote.ts";
+import { composeUpArgv, sshOpts } from "@klh/suspenders/deploy/hub-remote.ts";
 import { hubHeal } from "../bin/hubs.ts";
-import type { HubProfile } from "../../suspenders/hooks/lib/stack-config.ts";
+import type { HubProfile } from "@klh/suspenders/hooks/lib/stack-config.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "w371-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));

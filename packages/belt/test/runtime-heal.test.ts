@@ -6,6 +6,7 @@ import { expect, test } from "bun:test";
 import {
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 	writeFileSync,
@@ -136,6 +137,64 @@ test("probeClosure walks clean closures and flags missing/unhealed modules", () 
 		expect(errs2.some((e) => e.includes("unhealed checkout import"))).toBe(
 			true,
 		);
+	} finally {
+		rmSync(prefix, { recursive: true, force: true });
+	}
+});
+
+// W1471: model-store imports host-guard + servicemon from @klh/kernel; the
+// flat home has no node_modules, so copy + heal must land the kernel faces
+// flat, and the probe must fail any package spec left unhealed.
+test("kernel package imports heal to flat copies; unhealed ones fail the probe", () => {
+	const root = mkprefix();
+	const prefix = mkprefix();
+	const hg = "@klh/kernel/src/kernel.host-guard.module.ts";
+	const sm = "@klh/kernel/src/kernel.servicemon.module.ts";
+	try {
+		const kernelDir = join(root, "packages", "kernel", "src");
+		mkdirSync(kernelDir, { recursive: true });
+		writeFileSync(
+			join(kernelDir, "kernel.servicemon.module.ts"),
+			"export {};\n",
+		);
+		const src = `import { a } from "${hg}";\nimport { b } from "${sm}";\n`;
+		writeFileSync(join(prefix, "model-store.ts"), src);
+		expect(probeClosure(prefix, ["model-store.ts"]).length).toBe(2);
+		expect(copyDeps(root, prefix)).toEqual(["kernel.servicemon.module.ts"]);
+		healImports(prefix);
+		const out = readText(join(prefix, "model-store.ts"));
+		expect(out).toContain('from "./kernel.servicemon.module.ts"');
+		// no host-guard source shipped → its spec stays and the probe says so
+		expect(probeClosure(prefix, ["model-store.ts"])).toEqual([
+			`unhealed package import in model-store.ts: ${hg}`,
+		]);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+		rmSync(prefix, { recursive: true, force: true });
+	}
+});
+
+// W1471: the REAL model-store closure — bin/*.ts flat-copied the way the
+// installer lays the runtime home — must copy + heal + probe clean.
+test("real model-store closure resolves clean in a flat runtime home", () => {
+	const repoRoot = join(import.meta.dir, "..", "..", "..");
+	const bin = join(repoRoot, "packages", "belt", "bin");
+	const prefix = mkprefix();
+	try {
+		for (const f of readdirSync(bin).filter((n) => n.endsWith(".ts")))
+			writeFileSync(join(prefix, f), readFileSync(join(bin, f)));
+		copyDeps(repoRoot, prefix);
+		healImports(prefix);
+		expect(probeClosure(prefix, ["model-store.ts"])).toEqual([]);
+		// W1475: hubs.ts rides @klh/suspenders + @klh/kernel package imports;
+		// with main()'s canonical memory-policy copy the whole supervised
+		// closure (the default probe entries) resolves clean
+		expect(probeClosure(prefix, ["hubs.ts"])).toEqual([]);
+		writeFileSync(
+			join(prefix, "memory-policy.ts"),
+			readFileSync(join(repoRoot, "packages", "local-llm", "memory-policy.ts")),
+		);
+		expect(probeClosure(prefix)).toEqual([]);
 	} finally {
 		rmSync(prefix, { recursive: true, force: true });
 	}

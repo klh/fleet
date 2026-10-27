@@ -9,7 +9,14 @@
 // ─── problem+json (RFC 9457) — error bodies for the gate and the limiter ───
 // W1081: every problem envelope names its emitter — x-klh-service is fixed
 // (belt owns this module), callers pass more identity via `headers`.
-import { stampHopHeaders } from "../../telemetry/src/http-trace.ts";
+import {
+	stampHopHeaders,
+	stampResponse,
+} from "../../telemetry/src/http-trace.ts";
+
+// W1471: belt's ONE citizenship stamp for the kernel servicemon `stamp`
+// seam (model-store) — re-exported here so the telemetry edge stays single.
+export { stampResponse };
 
 export const problem = (
 	status: number,

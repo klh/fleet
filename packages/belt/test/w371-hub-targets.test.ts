@@ -8,7 +8,7 @@ import { join } from "node:path";
 import {
 	snapshotFromCatalog,
 	writeFreeSnapshot,
-} from "../../suspenders/deploy/openrouter-free.ts";
+} from "@klh/suspenders/deploy/openrouter-free.ts";
 import { ZAI_CATALOG_URL } from "../bin/zai-catalog-rows.ts";
 import { hubConsoleLinks, hubGatewayRoutes, hubTargets } from "../bin/hubs.ts";
 

@@ -21,7 +21,7 @@ import {
 	flatHomeSource,
 	normalizeSource,
 	pinnedFaceText,
-} from "../../suspenders/scripts/belt-bin-overlay.ts";
+} from "@klh/suspenders/scripts/belt-bin-overlay.ts";
 
 const ROOT = join(import.meta.dir, "../bin");
 const RUNTIME = join(homedir(), ".claude", "local-llm");
