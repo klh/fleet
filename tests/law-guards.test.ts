@@ -252,8 +252,7 @@ test("vendored third-party bundles keep their license banners", () => {
 // guard rides the local law gate (CI enforces unconditionally via the
 // workflow-lint job, so a missing local binary skips rather than reds).
 test("tracked workflow files lint clean (actionlint)", async () => {
-	const found = Bun.spawnSync(["actionlint", "--version"], { stdout: "pipe" });
-	if (found.exitCode !== 0) return; // absent locally — CI workflow-lint covers it
+	if (!Bun.which("actionlint")) return; // absent locally — CI workflow-lint covers it
 	const run = Bun.spawnSync(
 		["actionlint", ...tracked(".github/workflows/*.yml")],
 		{
