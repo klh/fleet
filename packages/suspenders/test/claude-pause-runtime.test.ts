@@ -177,6 +177,7 @@ async function exercisePause(interruptDuringResume: boolean): Promise<void> {
 	const timer = setTimeout(() => child.kill(), 8000);
 	const frames: Record<string, unknown>[] = [];
 	let paused = false;
+	// W1035.1.1: only an urgent direct note interrupts active work
 	const signal = (id: number, kind: string) =>
 		signalClaudeDirectEvent(
 			{
@@ -184,7 +185,10 @@ async function exercisePause(interruptDuringResume: boolean): Promise<void> {
 				target: sid,
 				source: "coordinator",
 				kind,
-				payload: JSON.stringify({ reason: "fixture maintenance" }),
+				payload: JSON.stringify({
+					reason: "fixture maintenance",
+					...(kind === "NOTE" ? { urgent: "1" } : {}),
+				}),
 			},
 			sid,
 			home,

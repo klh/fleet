@@ -18,7 +18,7 @@ import {
 	consumeClaudeWake,
 	proveClaudeWake,
 	releaseClaudeWake,
-	waitForManagedClaudeWake,
+	waitForManagedClaudeWakeClaim,
 } from "../lib/executors/claude-wake.ts";
 // W1035.1: interrupt results are internal turn boundaries — never terminal.
 import { defineVerb, runCli } from "../lib/verb-kit.ts";
@@ -164,7 +164,7 @@ async function run(args: string[]): Promise<number> {
 	});
 	const delivery = (async () => {
 		while (!closing) {
-			const text = await waitForManagedClaudeWake(sid, {
+			const claim = await waitForManagedClaudeWakeClaim(sid, {
 				abort: abort.signal,
 				onRetry: (reason, attempt) =>
 					emit({
@@ -175,7 +175,8 @@ async function run(args: string[]): Promise<number> {
 						attempt,
 					}),
 			});
-			if (!text || closing) break;
+			if (!claim || closing) break;
+			const { text } = claim;
 			const kind = claudeWakeControl(text);
 			if ((pauseMode === "checkpointing" || pauseMode === "paused") && !kind) {
 				// Checkpointing and PAUSED remain silent. RESUMING is an active
@@ -190,6 +191,30 @@ async function run(args: string[]): Promise<number> {
 				continue;
 			}
 			const wasActive = control.active;
+			let state = wasActive ? "interrupted-and-injected" : "injected";
+			// W1035.1.1: a native interrupt aborts in-flight tool calls — only an
+			// explicitly urgent event (or a pause/resume control) may do that.
+			// Routine direct notes coalesce: they wait for the current turn's
+			// boundary, then inject into the same conversation.
+			if (wasActive && !claim.urgent && !kind) {
+				try {
+					await control.boundary(abort.signal);
+					state = "boundary-injected";
+				} catch {
+					// Boundary timeout/abort: never abort the turn for a routine
+					// note — requeue; the next wake replays the event.
+					releaseClaudeWake(sid, undefined, "managed");
+					emit({
+						type: "fleet.claude.delivery",
+						sid,
+						state: "queued",
+						reason: "routine note waits for the turn boundary",
+						event: String(claim.id),
+					});
+					continue;
+				}
+				if (closing) break;
+			}
 			const previousPauseMode = pauseMode;
 			let refusedResume = false;
 			try {
@@ -220,13 +245,30 @@ async function run(args: string[]): Promise<number> {
 				);
 				if (kind === "resume_ready") pauseMode = "resuming";
 				// W1035.1: the watermark moves only after a proven injection.
-				proveClaudeWake(sid, undefined, "managed");
+				// W1035.1.1: a direct note's proof waits for the injected turn's
+				// RESULT frame — a native exit before it leaves the claim
+				// requeueable (replay). Pause/resume controls prove on injection.
+				if (kind) proveClaudeWake(sid, undefined, "managed", claim.id);
+				else
+					control.awaitResult().then(
+						(delivered) => {
+							if (!delivered) return;
+							proveClaudeWake(sid, undefined, "managed", claim.id);
+							emit({
+								type: "fleet.claude.delivery",
+								sid,
+								state: "delivered",
+								event: String(claim.id),
+							});
+						},
+						() => {},
+					);
 				consumeClaudeWake(sid, undefined, "boundary");
 				emit({
 					type: "fleet.claude.delivery",
 					sid,
-					state: wasActive ? "interrupted-and-injected" : "injected",
-					event: text.match(/^Fleet direct event #(\d+)/)?.[1] ?? null,
+					state,
+					event: String(claim.id),
 				});
 			} catch (error) {
 				pauseMode = previousPauseMode;

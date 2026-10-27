@@ -86,7 +86,11 @@ test("restarted runtime stays silent PAUSED, resumes exact UUID and interrupts a
 				kind,
 				target: f.sid,
 				source: "operator",
-				payload: JSON.stringify({ note: "bounded restart acceptance" }),
+				// W1035.1.1: only an urgent direct note interrupts active work
+				payload: JSON.stringify({
+					note: "bounded restart acceptance",
+					...(kind === "NOTE" ? { urgent: "1" } : {}),
+				}),
 			},
 			f.sid,
 			f.home,

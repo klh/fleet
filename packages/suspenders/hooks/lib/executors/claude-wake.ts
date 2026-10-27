@@ -40,6 +40,23 @@ function paths(sid: string, home: string) {
 	};
 }
 
+/** W1035.1.1: only an explicitly urgent addressed message may abort active
+ * work mid-turn. Routine direct notes coalesce at the next turn boundary. */
+export function directEventUrgent(event: CoordDirectEvent): boolean {
+	try {
+		const payload = JSON.parse(event.payload ?? "null") as {
+			urgent?: unknown;
+		} | null;
+		return payload?.urgent === "1" || payload?.urgent === 1;
+	} catch {
+		return false;
+	}
+}
+
+/** A consumed wake: the injected text plus what the managed runtime needs to
+ * gate the interrupt (urgent) and prove the exact event (id). */
+export type ClaudeWakeClaim = { text: string; urgent: boolean; id: number };
+
 /** Queue a native wake request. true means written, never model delivery. */
 export function signalClaudeDirectEvent(
 	event: CoordDirectEvent,
@@ -67,11 +84,13 @@ export function signalClaudeDirectEvent(
 		)
 			return false;
 		mkdirSync(files.dir, { recursive: true, mode: 0o700 });
+		const urgent = directEventUrgent(event);
 		return writeSessionState(files.pending, {
 			id: event.id,
 			kind: event.kind,
 			sid,
-			text: `Fleet direct event #${event.id} (${event.kind}) from ${event.source}:\n${(event.payload ?? "null").slice(0, MAX_TEXT)}\nProcess this coordination now. Read all queued events with coord inbox --as ${sid}; acknowledge each only after acting.`,
+			urgent,
+			text: `Fleet direct event #${event.id} (${event.kind}${urgent ? ", urgent" : ""}) from ${event.source}:\n${(event.payload ?? "null").slice(0, MAX_TEXT)}\nProcess this coordination now. Read all queued events with coord inbox --as ${sid}; acknowledge each only after acting.`,
 		});
 	} catch {
 		return false;
@@ -91,12 +110,23 @@ export function consumeClaudeWake(
 	home = process.env.HOME ?? "",
 	consumer: Consumer = "native",
 ): string | null {
+	return consumeClaudeWakeClaim(sid, home, consumer)?.text ?? null;
+}
+
+/** W1035.1.1: the full claim — the managed runtime interrupts only an urgent
+ * event and holds the watermark until the INJECTED TURN's result. */
+export function consumeClaudeWakeClaim(
+	sid: string,
+	home = process.env.HOME ?? "",
+	consumer: Consumer = "native",
+): ClaudeWakeClaim | null {
 	if (!sid || !home) return null;
 	const files = paths(sid, home);
 	const pending = readSessionState<{
 		id?: number;
 		sid?: string;
 		text?: string;
+		urgent?: boolean;
 	}>(files.pending);
 	const watermark = files.emitted(consumer);
 	const emitted = readSessionState<{ id?: number }>(watermark)?.id ?? 0;
@@ -125,7 +155,11 @@ export function consumeClaudeWake(
 		})
 	)
 		return null;
-	return pending.text;
+	return {
+		text: pending.text,
+		urgent: pending.urgent === true,
+		id: pending.id,
+	};
 }
 
 function pidAlive(pid: number): boolean {
@@ -137,11 +171,15 @@ function pidAlive(pid: number): boolean {
 	}
 }
 
-/** Delivery proof: the watermark advances only here. */
+/** Delivery proof: the watermark advances only here. W1035.1.1: proof waits
+ * for the injected turn's RESULT (not the user-frame write), so a native
+ * exit mid-injection can still replay. `upTo` retires the claim only when
+ * it still holds that event id — a re-consumed claim is never mis-proved. */
 export function proveClaudeWake(
 	sid: string,
 	home = process.env.HOME ?? "",
 	consumer: Consumer = "native",
+	upTo?: number,
 ): boolean {
 	if (!sid || !home) return false;
 	const files = paths(sid, home);
@@ -149,6 +187,7 @@ export function proveClaudeWake(
 	const watermark = files.emitted(consumer);
 	const emitted = readSessionState<{ id?: number }>(watermark)?.id ?? 0;
 	if (typeof claimed?.id !== "number" || claimed.id <= emitted) return false;
+	if (typeof upTo === "number" && claimed.id !== upTo) return false;
 	if (!writeSessionState(watermark, { id: claimed.id })) return false;
 	releaseClaimFile(files.claim(consumer));
 	return true;
@@ -213,7 +252,7 @@ type WakeOptions = {
 	abort?: AbortSignal;
 };
 export type ClaudeWakeOutcome =
-	| { state: "event"; text: string }
+	| ({ state: "event" } & ClaudeWakeClaim)
 	| { state: "closed"; reason: "aborted" | "disabled" }
 	| { state: "retry"; reason: "watcher-busy" | "watcher-error" | "timeout" };
 
@@ -246,13 +285,14 @@ export async function waitForClaudeWakeOutcome(
 				if (settled) return;
 				settled = true;
 				clearTimeout(timer);
+				clearTimeout(settle);
 				watcher.close();
 				opts.abort?.removeEventListener("abort", onAbort);
 				resolve(outcome);
 			};
 			const check = () => {
-				const text = consumeClaudeWake(sid, home, consumer);
-				if (text) finish({ state: "event", text });
+				const claim = consumeClaudeWakeClaim(sid, home, consumer);
+				if (claim) finish({ state: "event", ...claim });
 			};
 			const onAbort = () => finish({ state: "closed", reason: "aborted" });
 			const watcher = watch(files.dir, check);
@@ -264,6 +304,10 @@ export async function waitForClaudeWakeOutcome(
 				opts.timeoutMs ?? WAIT_MS,
 			);
 			opts.abort?.addEventListener("abort", onAbort, { once: true });
+			// One deferred re-check: the OS watch registration has a short window
+			// where a rename right after arming is missed (FSEvents latency).
+			// A settle, not a poll loop — later events arrive via the watcher.
+			const settle = setTimeout(check, 50);
 			check(); // covers events queued before this watcher was armed
 		});
 	} catch {
@@ -287,19 +331,30 @@ export async function waitForClaudeWake(
 
 /** Re-arm the existing filesystem watcher with bounded, abortable backoff.
  * This does not poll the coordination store or advance delivery receipts. */
+type ManagedWakeOptions = WakeOptions & {
+	onRetry?: (reason: string, attempt: number) => void;
+};
+
 export async function waitForManagedClaudeWake(
 	sid: string,
-	opts: WakeOptions & {
-		onRetry?: (reason: string, attempt: number) => void;
-	} = {},
+	opts: ManagedWakeOptions = {},
 ): Promise<string | null> {
+	return (await waitForManagedClaudeWakeClaim(sid, opts))?.text ?? null;
+}
+
+/** W1035.1.1: the managed runtime's face — the full claim (urgent + id). */
+export async function waitForManagedClaudeWakeClaim(
+	sid: string,
+	opts: ManagedWakeOptions = {},
+): Promise<ClaudeWakeClaim | null> {
 	let attempt = 0;
 	for (;;) {
 		const result = await waitForClaudeWakeOutcome(sid, {
 			...opts,
 			consumer: "managed",
 		});
-		if (result.state === "event") return result.text;
+		if (result.state === "event")
+			return { text: result.text, urgent: result.urgent, id: result.id };
 		if (result.state === "closed") return null;
 		attempt++;
 		opts.onRetry?.(result.reason, attempt);
