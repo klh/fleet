@@ -291,6 +291,27 @@ describe("W1302.2 post-merge dangling-path scan", () => {
 		).toEqual([]);
 	});
 
+	// W1791: the minted dangling path packages/suspenders/scripts/swarm.ts
+	// never existed in git — install-llm-steps.ts joins the bare "swarm.ts"
+	// literal onto beltBin(ctx) (= packages/belt/bin, where swarm.ts lives)
+	// and ctx.llmHome at runtime, never against the script's own dir. Pin
+	// all three facts so the false positive stays dead.
+	test("W1791: install-llm-steps swarm.ts literal is a belt-bin runtime join, not a reference", () => {
+		const body = readFileSync(
+			join(P, "scripts/install-llm-steps.ts"),
+			"utf8",
+		);
+		expect(pathLiterals(body)).toContain("swarm.ts");
+		// the runtime target the literal resolves onto exists in the tree
+		expect(readFileSync(join(P, "../belt/bin/swarm.ts"), "utf8")).toContain(
+			'"supervise"',
+		);
+		// and the scanner stays quiet on the file that carries the literal
+		expect(
+			unresolvedSpecifiers(P, "HEAD", ["scripts/install-llm-steps.ts"]),
+		).toEqual([]);
+	});
+
 	test("probe2 catches the W1304 incident shape (../bin runner missing)", async () => {
 		const repo = await base();
 		await Bun.write(
