@@ -246,3 +246,24 @@ test("vendored third-party bundles keep their license banners", () => {
 	).toEqual([]);
 	expect(rows.length).toBeGreaterThanOrEqual(8);
 });
+
+// W1759: an invalid workflow file lands as a zero-job "workflow file issue"
+// run — every CI clause stops enforcing. actionlint is the validator; the
+// guard rides the local law gate (CI enforces unconditionally via the
+// workflow-lint job, so a missing local binary skips rather than reds).
+test("tracked workflow files lint clean (actionlint)", async () => {
+	const found = Bun.spawnSync(["actionlint", "--version"], { stdout: "pipe" });
+	if (found.exitCode !== 0) return; // absent locally — CI workflow-lint covers it
+	const run = Bun.spawnSync(
+		["actionlint", ...tracked(".github/workflows/*.yml")],
+		{
+			cwd: ROOT,
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
+	expect(
+		run.stdout.toString() + run.stderr.toString(),
+		"actionlint flagged the workflow files",
+	).toBe("");
+});
