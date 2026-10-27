@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { runCli } from "../../test-kit/src/index.ts";
 import { recordExistingService } from "../scripts/lib/record-existing-service.ts";
 import {
 	digestUnit,
@@ -93,11 +95,17 @@ test("registration command has no bootstrap, kickstart, bootout, signal or insta
 		new URL("../scripts/record-fleet-loop-activation.ts", import.meta.url),
 		"utf8",
 	);
+	// bind law: the recorder must never actuate launchd
 	expect(source).not.toMatch(
 		/\b(?:bootstrap|kickstart|bootout|process\.kill|install\.sh)\b/,
 	);
-	expect(source).toContain("--record-existing");
-	expect(source).toContain("inspectActivatedDispatch");
+	// W1135.3: owner-intent gating is exercised on the real CLI — no
+	// --record-existing, no recording (exit non-zero naming the flag)
+	const r = runCli(
+		join(import.meta.dir, "..", "scripts", "record-fleet-loop-activation.ts"),
+	);
+	expect(r.code).not.toBe(0);
+	expect(`${r.out}${r.err}`).toContain("--record-existing");
 });
 test("serialization changes are accepted only when all parsed declaration fields match", () => {
 	const actual = '{"env":{"TOKEN":"private"},"args":["/bun","/loop"]}';

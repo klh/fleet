@@ -10,6 +10,7 @@ import {
 	digestUnit,
 	type ActivationReceipt,
 } from "../scripts/lib/service-drift.ts";
+import { runCli } from "../../test-kit/src/index.ts";
 
 const MANIFEST = `labelPrefix: com.suspenders
 services:
@@ -291,11 +292,14 @@ describe("cli surface", () => {
 			new URL("../scripts/record-service-activation.ts", import.meta.url),
 			"utf8",
 		);
-		expect(source).toContain("--approve-stable");
+		// bind law: the recorder must never actuate launchd
 		expect(source).not.toMatch(
 			/\b(?:bootstrap|kickstart|bootout|process\.kill)\b/,
 		);
-		expect(source).toContain("inspectActivatedDispatch");
-		expect(source).toContain("resolveStableRepo");
+		// W1135.3: owner-intent gating is exercised on the real CLI — no
+		// --approve-stable, no activation (exit non-zero naming the flag)
+		const r = runCli(join(import.meta.dir, "..", "scripts", "record-service-activation.ts"));
+		expect(r.code).not.toBe(0);
+		expect(`${r.out}${r.err}`).toContain("--approve-stable");
 	});
 });
