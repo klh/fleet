@@ -620,9 +620,12 @@ const wireMismatch = wireAudit?.match === "mismatch" && verdict === "PASS";
 const wireHeadline = wireMismatch
 	? `wire-model mismatch: requested ${wireAudit?.requested} served ${wireAudit?.served} — PASS not trusted`
 	: "";
+// W1760: an untrusted verdict is never a review ROUND — the round cap counts
+// FAIL receipts only, so a routing-fallback downgrade grades ERROR (the
+// scheduler refunds the attempt and retries on the requested class).
 const effective =
 	verdict === "PASS" && wireMismatch
-		? "FAIL"
+		? "ERROR"
 		: proof?.status === "error"
 			? "ERROR"
 			: proof?.status === "no-coverage"

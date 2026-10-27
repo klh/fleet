@@ -3,7 +3,8 @@
 // Flash-requested review served by another provider's model landed as a clean
 // PASS receipt (W1278.1, wire_model=chatgpt/gpt-6-sol); receipts recorded the
 // served model but nothing compared the two. This module owns the comparison;
-// review-lane.ts downgrades a mismatched PASS to FAIL and review-receipt.ts
+// review-lane.ts grades a mismatched PASS ERROR (W1760 — no trusted verdict,
+// the scheduler retries; never a FAIL round) and review-receipt.ts
 // refuses to authorize a merge on it.
 
 /** Strip routing/provider decoration down to the comparable model-class core:
