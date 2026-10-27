@@ -10,6 +10,7 @@
 //    kill — the store-port pattern); the board feeds tokens_total from seeded
 //    transcripts within its TTL window. Payloads leak no /Users paths, no
 //    token/key value shapes.
+import { freePort } from "@klh/test-kit";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -40,13 +41,6 @@ afterAll(() => {
 	rmSync(boardHome, { recursive: true, force: true });
 	rmSync(repo, { recursive: true, force: true });
 });
-
-const freePort = async (): Promise<number> => {
-	const s = Bun.serve({ port: 0, fetch: () => new Response("ok") });
-	const p = s.port;
-	s.stop(true);
-	return p;
-};
 
 const start = async (
 	script: string,

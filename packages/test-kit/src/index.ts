@@ -8,6 +8,7 @@ export {
 export { type CliResult, type RunCliOpts, runCli } from "./run-cli.ts";
 export {
 	freePort,
+	freePortSync,
 	type WaitUpOpts,
 	waitUp,
 } from "./ports.ts";
@@ -17,3 +18,14 @@ export {
 	type StubHandler,
 	type StubRequest,
 } from "./serve-stub.ts";
+export {
+	candidateRow,
+	type KitCandidateRow,
+	type KitPoolDeployment,
+	type KitUpstreamPool,
+	poolOf,
+	type PoolOfUrlOpts,
+	poolOfUrl,
+	sseEnc,
+	sseHeaders,
+} from "./router-fixtures.ts";

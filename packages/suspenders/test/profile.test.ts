@@ -4,6 +4,7 @@
 // OFF), the store server's /auth/* capability gate, and the cross-package
 // grammar pin against buckle's manifest builder (drift here would strand a
 // spoke or re-enable auth code on one).
+import { freePort } from "@klh/test-kit";
 import { describe, expect, test, afterAll } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -163,13 +164,6 @@ afterAll(() => {
 	rmSync(home, { recursive: true, force: true });
 	rmSync(spokeCaps, { recursive: true, force: true });
 });
-
-const freePort = async (): Promise<number> => {
-	const s = Bun.serve({ port: 0, fetch: () => new Response("ok") });
-	const p = s.port;
-	s.stop(true);
-	return p;
-};
 
 const startServer = async (
 	port: number,

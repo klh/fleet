@@ -7,6 +7,7 @@
 // connection sitting on governor.db's write lock, and the client child
 // (W362: async spawn) recovering through its retry ladder.
 // Cheap exact-count ladder tests ride a refusal stub (W716 shape).
+import { freePort } from "@klh/test-kit";
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -95,13 +96,6 @@ const makeBeginStub = (
 	});
 	servers.push(server);
 	return { url: `http://127.0.0.1:${server.port}`, hits: () => hits };
-};
-
-const freePort = async (): Promise<number> => {
-	const s = Bun.serve({ port: 0, fetch: () => new Response("ok") });
-	const p = s.port;
-	s.stop(true);
-	return p;
 };
 
 const SERVER = join(import.meta.dir, "..", "hooks", "bin", "store-server.ts");

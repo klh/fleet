@@ -1,12 +1,11 @@
 // test/mock.ts — mock upstream server for router/handler tests: records
-// calls, replays a scripted handler, random loopback port.
-export interface MockCall {
-	path: string;
-	body: Record<string, unknown> | null;
-	auth: string | null;
-	headers: Headers;
-	n: number;
-}
+// calls, replays a scripted handler, random loopback port. W1135.1.5: the
+// stub body is @klh/test-kit serveStub (identical recording semantics);
+// this file keeps the MockCall/MockUpstream faces its importers assert
+// against.
+import { serveStub, type StubHandler, type StubRequest } from "@klh/test-kit";
+
+export type MockCall = StubRequest;
 
 export interface MockUpstream {
 	url: string;
@@ -15,39 +14,17 @@ export interface MockUpstream {
 	close(): void;
 }
 
-type Handler = (
-	req: Request,
-	body: Record<string, unknown> | null,
-	n: number,
-) => Response | Promise<Response>;
+export type Handler = StubHandler;
 
 export async function startMockUpstream(
 	handler: Handler,
 	opts?: { hostname?: string },
 ): Promise<MockUpstream> {
-	const calls: MockCall[] = [];
-	const server = Bun.serve({
-		hostname: opts?.hostname ?? "127.0.0.1",
-		port: 0,
-		async fetch(req) {
-			const body = (await req.json().catch(() => null)) as Record<
-				string,
-				unknown
-			> | null;
-			calls.push({
-				path: new URL(req.url).pathname,
-				body,
-				auth: req.headers.get("authorization"),
-				headers: req.headers,
-				n: calls.length + 1,
-			});
-			return handler(req, body, calls.length);
-		},
-	});
+	const stub = serveStub(handler, opts);
 	return {
-		url: `http://127.0.0.1:${server.port}`,
-		port: server.port ?? 0,
-		calls,
-		close: () => server.stop(true),
+		url: stub.url,
+		port: stub.port,
+		calls: stub.requests,
+		close: stub.close,
 	};
 }

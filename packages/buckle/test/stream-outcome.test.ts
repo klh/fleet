@@ -1,13 +1,11 @@
+import { poolOfUrl as kitPoolOfUrl } from "@klh/test-kit";
 import { expect, test } from "bun:test";
 import { createApp } from "../src/handlers.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
 import { testDeps } from "./deps.ts";
 import { startMockUpstream } from "./mock.ts";
 
-const poolOf = (url: string): UpstreamPool => ({
-	groups: () => ["claude-sonnet-5"],
-	deployments: (group) => [{ group, url, dialect: "anthropic" as const }],
-});
+const poolOf = (url: string): UpstreamPool => kitPoolOfUrl(url);
 
 test("an upstream that dies after SSE headers is recorded as a failed request", async () => {
 	let failUpstream: (() => void) | undefined;

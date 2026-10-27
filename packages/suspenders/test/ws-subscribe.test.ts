@@ -8,6 +8,7 @@
 //      gets an {err} reply rather than closing the socket.
 // Runs store-server.ts as a real subprocess on an ephemeral port — no mocks,
 // the actual Bun.serve websocket wiring is what's under test.
+import { freePort } from "@klh/test-kit";
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -24,13 +25,6 @@ afterAll(() => {
 	for (const p of procs) p.kill();
 	rmSync(home, { recursive: true, force: true });
 });
-
-const freePort = async (): Promise<number> => {
-	const s = Bun.serve({ port: 0, fetch: () => new Response("ok") });
-	const p = s.port;
-	s.stop(true);
-	return p;
-};
 
 const startServer = async (port: number): Promise<string> => {
 	const p = Bun.spawn(["bun", SERVER, "--port", String(port)], {

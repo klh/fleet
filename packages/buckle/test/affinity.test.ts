@@ -4,6 +4,7 @@
 // volatile preamble keeps its order behind the packet. Affinity: the first
 // delivered candidate owns the prefix for the TTL window; the memo is
 // LRU-bounded; `must` hints and benched rows are never reordered.
+import { candidateRow as kitRow } from "@klh/test-kit";
 import { describe, expect, test } from "bun:test";
 import { affKeyOf, applyAffinity, PrefixAffinity } from "../src/affinity.ts";
 import { alignBody } from "../src/align.ts";
@@ -13,29 +14,7 @@ import { decideRoute } from "../src/decide.ts";
 import type { Prefs } from "../src/policy.ts";
 import { renderPacket } from "../src/preseed.ts";
 
-let seq = 0;
-const row = (over: Partial<CandidateRow> = {}): CandidateRow => ({
-	candidate_id: `h:${String(9000 + seq++)}:m`,
-	kind: "local",
-	host: "h",
-	port: 9000 + seq,
-	model: "m",
-	dialect: "anthropic",
-	group: "g",
-	capability_text: "m",
-	dep: {
-		group: "g",
-		url: `http://h:${String(9000 + seq)}`,
-		dialect: "anthropic",
-	},
-	healthy: true,
-	estimate_ms: null,
-	calls: 0,
-	errors: 0,
-	load: 0,
-	last_used: null,
-	...over,
-});
+const row = (over: Partial<CandidateRow> = {}): CandidateRow => kitRow(over);
 
 const PREFS: Prefs = { cost_speed: "balanced", allow_cloud: true };
 

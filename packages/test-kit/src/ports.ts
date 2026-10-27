@@ -8,6 +8,19 @@ export const freePort = async (): Promise<number> => {
 	return p;
 };
 
+/** Sync variant for module-scope const initializers that cannot await
+ *  (the unusedPort idiom — test/helpers/board-fixture.ts, verbatim). */
+export const freePortSync = (): number => {
+	const s = Bun.serve({
+		hostname: "127.0.0.1",
+		port: 0,
+		fetch: () => new Response(),
+	});
+	const p = s.port;
+	s.stop(true);
+	return p;
+};
+
 export interface WaitUpOpts {
 	/** Poll attempts before giving up (default 100). */
 	tries?: number;
