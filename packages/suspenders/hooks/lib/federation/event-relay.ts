@@ -437,6 +437,10 @@ export interface RelayOutboxRow {
 	state: "SENT" | "FAILED";
 	why: string | null;
 	created_at: number;
+	/** W1163: the original wire envelope, frozen at first mint — a caller
+	 *  retry with the same deliveryId re-sends THESE bytes so the receiver's
+	 *  payload-hash idempotency replays instead of 409-conflicting. */
+	envelope: string | null;
 }
 
 export function ensureEventRelayOutbox(db: GovernorStore): void {
@@ -450,7 +454,16 @@ export function ensureEventRelayOutbox(db: GovernorStore): void {
 		event_id INTEGER,
 		state TEXT NOT NULL,
 		why TEXT,
-		created_at INTEGER NOT NULL)`);
+		created_at INTEGER NOT NULL,
+		envelope TEXT)`);
+	// W1163 migration: stores minted before the immutable-envelope column.
+	const cols = (
+		db.query("PRAGMA table_info(event_relay_outbox)").all() as {
+			name: string;
+		}[]
+	).map((c) => c.name);
+	if (!cols.includes("envelope"))
+		db.run("ALTER TABLE event_relay_outbox ADD COLUMN envelope TEXT");
 }
 
 export function relayOutboxRecord(
@@ -513,12 +526,18 @@ export async function forwardDirectEvent(
 		why: null,
 	};
 	ensureEventRelayOutbox(opts.db);
-	const record = (row: Partial<RelayOutboxRow>): void => {
+	// W1163 — `envelope` freezes the wire at first contact with a hub. Earlier
+	// exit paths (hub unresolved) record a NULL envelope: nothing reached a
+	// receiver, so a later retry may mint fresh.
+	const record = (
+		row: Partial<RelayOutboxRow>,
+		envelope: string | null = null,
+	): void => {
 		opts.db
 			.query(
 				`INSERT INTO event_relay_outbox
-				 (delivery_id, hub, url, via, target_sid, kind, event_id, state, why, created_at)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				 (delivery_id, hub, url, via, target_sid, kind, event_id, state, why, created_at, envelope)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 				 ON CONFLICT(delivery_id) DO UPDATE SET hub = excluded.hub,
 				   url = excluded.url, via = excluded.via, event_id = excluded.event_id,
 				   state = excluded.state, why = excluded.why`,
@@ -534,6 +553,7 @@ export async function forwardDirectEvent(
 				row.state ?? "FAILED",
 				row.why ?? null,
 				Date.now(),
+				envelope,
 			);
 	};
 	let loc: HubLocation | null = null;
@@ -549,7 +569,34 @@ export async function forwardDirectEvent(
 		return { ...base, hub: normalizeHostLabel(opts.host), why };
 	}
 	const token = workEdgeToken(normalizeHostLabel(opts.host), loc, env);
-	const wire: RelayDirectEventWire = {
+	// W1163 — the envelope is immutable once a hub has been contacted: a
+	// caller-supplied deliveryId re-sends the ORIGINAL wire (createdAt
+	// included) so the receiver's payload-hash idempotency sees the same hash
+	// and replays the original delivery instead of 409-conflicting on a
+	// regenerated createdAt. A retry whose current opts diverge from the
+	// stored envelope is a caller bug — refused here without a round trip
+	// (no record call: the outbox row still tells the truth about the
+	// original attempt).
+	const prior = opts.deliveryId ? relayOutboxRecord(opts.db, deliveryId) : null;
+	const stored = prior?.envelope
+		? (JSON.parse(prior.envelope) as RelayDirectEventWire)
+		: null;
+	if (
+		stored &&
+		(stored.project !== opts.project ||
+			stored.targetSid !== opts.targetSid ||
+			stored.sourceSid !== opts.sourceSid ||
+			stored.note !== opts.note ||
+			stored.kind !== opts.kind ||
+			stored.originHub !== (opts.originHub ?? ""))
+	) {
+		return {
+			...base,
+			hub: prior?.hub || null,
+			why: "delivery ID envelope conflict: retry opts differ from the original envelope",
+		};
+	}
+	const wire: RelayDirectEventWire = stored ?? {
 		deliveryId,
 		project: opts.project,
 		targetSid: opts.targetSid,
@@ -586,35 +633,44 @@ export async function forwardDirectEvent(
 				typeof parsed?.error === "string"
 					? parsed.error
 					: `relay answered HTTP ${res.status}`;
-			record({
-				hub: loc.label,
-				url: loc.url,
-				via: loc.via,
-				state: "FAILED",
-				why,
-			});
+			record(
+				{
+					hub: loc.label,
+					url: loc.url,
+					via: loc.via,
+					state: "FAILED",
+					why,
+				},
+				body,
+			);
 			return { ...base, hub: loc.label, via: loc.via, url: loc.url, why };
 		}
 		const eventId = Number(parsed?.eventId);
 		if (!Number.isSafeInteger(eventId) || eventId < 1) {
 			const why = "relay acknowledged without an eventId";
-			record({
+			record(
+				{
+					hub: loc.label,
+					url: loc.url,
+					via: loc.via,
+					state: "FAILED",
+					why,
+				},
+				body,
+			);
+			return { ...base, hub: loc.label, via: loc.via, url: loc.url, why };
+		}
+		record(
+			{
 				hub: loc.label,
 				url: loc.url,
 				via: loc.via,
-				state: "FAILED",
-				why,
-			});
-			return { ...base, hub: loc.label, via: loc.via, url: loc.url, why };
-		}
-		record({
-			hub: loc.label,
-			url: loc.url,
-			via: loc.via,
-			event_id: eventId,
-			state: "SENT",
-			why: null,
-		});
+				event_id: eventId,
+				state: "SENT",
+				why: null,
+			},
+			body,
+		);
 		return {
 			...base,
 			ok: true,
@@ -627,13 +683,16 @@ export async function forwardDirectEvent(
 		};
 	} catch (e) {
 		const why = String(e).slice(0, 200);
-		record({
-			hub: loc.label,
-			url: loc.url,
-			via: loc.via,
-			state: "FAILED",
-			why,
-		});
+		record(
+			{
+				hub: loc.label,
+				url: loc.url,
+				via: loc.via,
+				state: "FAILED",
+				why,
+			},
+			body,
+		);
 		return { ...base, hub: loc.label, via: loc.via, url: loc.url, why };
 	}
 }
