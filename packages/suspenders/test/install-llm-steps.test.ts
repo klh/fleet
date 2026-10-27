@@ -267,6 +267,22 @@ describe("seedLocalLlm", () => {
 			expect(existsSync(join(home, retired))).toBe(false);
 		}
 	});
+
+	// W1087: the kit stub belt.env (copied when the home has none) pre-wires
+	// the spoke's joined LiteLLM scrape; the key row names the FILE, never a
+	// value. Read the stub itself — the seed fixtures pre-write a guard file.
+	test("stub belt.env pre-wires the joined LiteLLM metrics scrape", () => {
+		const beltEnv = readFileSync(
+			join(import.meta.dir, "..", "..", "local-llm", "belt.env"),
+			"utf8",
+		);
+		expect(beltEnv).toContain(
+			"BUCKLE_LITELLM_METRICS_URL=http://127.0.0.1:4100/metrics/",
+		);
+		expect(beltEnv).toContain(
+			"BUCKLE_LITELLM_METRICS_KEY_FILE=$HOME/.claude/local-llm/litellm.key",
+		);
+	});
 });
 
 // W1051: with ctx.json the step's log sink is console.error — the belt
