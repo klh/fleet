@@ -64,6 +64,23 @@ review events in the window (2 PASS, 1 bare FAIL). Spend: post/low fresh
 high lanes fresh 748k (n=3) — the 3x verification shape is unverified, not
 yet observable. Verdict FAIL on the token leg, per the acceptance wording.
 
+## 2026 agent-management layer: build-don't-adopt (W1133, 2026-10-22; design evidence, no fleet probe applicable)
+
+Decision the row supports: for the agent-management operator layer
+(boards, isolation, review, recovery), extend fleet rather than adopt any
+surveyed tool (Vibe Kanban, Conductor, Claude Squad, Nimbalyst, Superset,
+Paneflow, Sculptor, Xum/Mux, Opcode, tmux-DIY). Source is external —
+nimbalyst.com/blog/best-agent-management-tools-2026 (vendor post) +
+GitHub-API/README verification 2026-10-22; comparison table, lift-list
+and reject-list in docs/research-agent-management-tools-2026-10-22.md.
+Fleet is at parity on organization/isolation/review; four gaps worth
+building, ranked: inline diff-comment → lane feedback loop, remote-hub
+lane runtime, container-per-lane enterprise tier (policy-pack overlay,
+W775 arch), session replay from existing work-graph/coord events. Fleet
+A/B: none applicable to a landscape survey; re-evaluation trigger = a
+surveyed tool ships proof of remote-lane execution or replay UX in
+production use.
+
 ## W960 harness self-improvement smoke (2026-10-20; AC)
 
 The W958 loop ran one propose/probe/compose step, then three distinct private-judged
