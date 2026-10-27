@@ -4,7 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
 	createMaintenanceSweep,
 	isDue,
@@ -162,6 +162,15 @@ describe("maintenance sweep (W779)", () => {
 	test("registry guard: every folded runner resolves at the package root", () => {
 		expect(missingRunners()).toEqual([]);
 		expect(suspendersRoot()).toContain("suspenders");
+	});
+	test("registry guard: suspendersRoot() resolves to the live package root (W1776)", () => {
+		// W1776: the merge that produced 94b7a050 was flagged as leaving
+		// packages/suspenders dangling behind the "../../.." hop in
+		// suspendersRoot() — pin that the resolved root exists and is the
+		// package (package.json present), so the path can't silently dangle.
+		const root = suspendersRoot();
+		expect(basename(root)).toBe("suspenders");
+		expect(existsSync(join(root, "package.json"))).toBe(true);
 	});
 	test("signals-scan runner argv resolves at the package root (W1775)", () => {
 		const task = MAINTENANCE_TASKS.find((t) => t.name === "signals-scan");
