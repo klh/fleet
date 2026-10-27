@@ -45,6 +45,10 @@ const env: Record<string, string | undefined> = {
 	PATH: `${join(HOME, "bin")}:${process.env.PATH}`,
 	SUSPENDERS_LANE_MAX_ATTEMPTS: "3",
 	SUSPENDERS_PATCH_FIRST: "0",
+	// W1124.10: merge-on-done's detached flush merges a closed lane's branch
+	// seconds after done — it races this suite's explicit integration runs
+	// (verify must see the sha UNMERGED). The knob is the operator switch.
+	FLEET_MERGE_ON_DONE: "0",
 };
 delete env.KLH_CLAIM_TOKEN;
 
