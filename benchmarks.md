@@ -1179,3 +1179,19 @@ pacing authority per wait — the pool's notBefore already embeds Retry-After
 via lease feedback); kit-only Retry-After is clamped by retryAfterCapMs.
 Unit fixture, scheduler-timed — retain the wait-origin split, not the
 milliseconds.
+
+## Buckle router decomposition — zero-behavior A/B parity (W1299, 2026-10-25; fixture A/B over the router suites)
+
+Decision the row supports: decomposing a near-cap router by byte-exact
+slice-and-splice over a structural host seam (RouterHost) is
+behavior-identical — split it that way instead of hand-retyping the walk.
+router.ts 1379→113 lines across router-types/-attempt/-groups/-receipt/
+-walk. A/B (same suites, before vs after, same machine): router-* batch
+31 pass / 3 fail both legs — the 3 are pre-existing module-load
+`parsePolicy` JSON errors on YAML fixtures (W1253 law), fingerprint
+identical; provider batch 53 pass / 1 fail both legs (same test:
+"deployment classification validates once…"); server batch 38 pass /
+2 fail after, and both fails reproduced byte-identically at HEAD via a
+stash A/B (w746 storm + e2e-responses W912 — pre-existing `parseUpstreams`
+JSON-vs-YAML fixtures, not routing). Commit hooks on the final tree: 100
+then 182 tests, 0 fail. No timing claim made — parity only.
