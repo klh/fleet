@@ -35,6 +35,7 @@ import {
 } from "./dangling-paths.ts";
 import { guardedMerge } from "./merge-guard.ts";
 import { mergeHoldActive } from "./merge-hold.ts";
+import { reviewEvalsAfterMerge } from "./review-evals.ts";
 import type { LoopDeps } from "./runtime.ts";
 
 // W1183: the ladder reports what ACTUALLY happened — never a count of
@@ -306,6 +307,9 @@ export function createMergeLadder(
 		if (mv.code === 0) {
 			let after = sh(["git", "rev-parse", "--short", "HEAD"]);
 			log(`MERGED ${b} ${before}→${after}`);
+			// W1476: the merge commit itself — the qlty fix-up below may move
+			// `after`, but a review-incident case keys on what the lane landed
+			const landed = after;
 			// W869 merge-time quality floor: auto-fix the branch's deferred cosmetic
 			// lint here on the shared checkout — a completion never runs outside
 			// worktrees, so merge time is the one honest moment (fail-open).
@@ -394,6 +398,22 @@ export function createMergeLadder(
 			} catch (error) {
 				log(
 					`DECOMPOSITION-CHECK-FAILED ${b}: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			}
+			// W1476: incidents become evals — a revert or incident landing banks
+			// a review.incident event + an arena-case item. Fail-open.
+			try {
+				for (const line of reviewEvalsAfterMerge({
+					repo: REPO,
+					item: claim.item,
+					before,
+					landed,
+					source: "fleet-loop",
+				}))
+					log(`${line} (${b})`);
+			} catch (error) {
+				log(
+					`REVIEW-EVALS-FAILED ${b}: ${error instanceof Error ? error.message : String(error)}`,
 				);
 			}
 			// work.landed on the bus: waiting lanes use `coord wait --kinds

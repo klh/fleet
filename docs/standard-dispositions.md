@@ -157,7 +157,7 @@ release verb (bump all package.json versions in one commit, rewrite `@klh/*`
 pins, tag, render the stack hint) with dry-run and tests (`d69ec274`). The
 release cut itself rides W1311 (fleet-2026-10).
 
-### 10 · Review usefulness mechanics — SPLIT: round cap + human time LANDED, evals GAP
+### 10 · Review usefulness mechanics — SPLIT: round cap + evals + human time LANDED, guardrail thresholds pending
 
 The standard's "Keeping review useful" section carries three mechanics that
 the tier scheme does not cover. (A companion standard section reasons about
@@ -181,11 +181,27 @@ on its own, so the row never reads LANDED wholesale.
   the same shape. Fail-open on an unreadable history (the cap guards effort,
   never correctness). Code `hooks/lib/gates/review-round-cap.ts`, tests
   `test/review-scheduler.test.ts`.
-- **Incidents become evals — GAP (W1476).** Exists: the W792 review arena
-  scores reviewers on incident tasks mined from git history
-  (`packages/belt/bench/arena/review-incident.ts`) and the blam incident
-  set. Missing: the trigger (a revert or incident on main adds a case) and
-  the rescore (a reviewer prompt, model or tool change reruns the set).
+- **Incidents become evals — LANDED (W1476: trigger `7b890e0f`, rescore
+  `77a5ba4b`).** Trigger: after each merge the ladder's
+  `reviewEvalsAfterMerge` (`hooks/lib/fleet-loop/review-evals.ts`) reads the
+  landing range — a revert of a main commit (branch-internal undos and
+  re-lands drop) or a landing under an `incident`-tagged work root — banks
+  one `review.incident` event per commit and mints one deduplicated
+  `review,arena-case` work item per revert or incident root, naming the case
+  home (`packages/belt/bench/arena/review-incident.ts`). Rescore:
+  `review-run.ts --rescore-status` reports which arms (a, b, lane) saw their
+  reviewer surface — prompt, model pin, tooling (`review-surface.json`) or
+  the sealed set — change since their last scored run, from git and ledger
+  reads with no LLM call; `--rescore` reruns each due arm over the whole
+  sealed set on AC power and ledgers the per-arm score delta. The hourly
+  W779 task `review-rescore` (`hooks/lib/fleet-loop/review-rescore.ts`;
+  `SUSPENDERS_REVIEW_RESCORE=0` idles it) launches that run with a scoped,
+  always-revoked lane key and banks a `review.rescore` event plus the
+  `review.rescore.last` fact. Operator precondition: seal the set once
+  (`review-run.ts --design`). Tests `tests/review-evals.e2e.ts`,
+  `tests/review-rescore-arena.e2e.ts`, `tests/review-rescore.e2e.ts`. The
+  row-10 table cell flips to LANDED in W1867 once W1476 is on main (editing
+  it on the W1476 branch conflicts with W1761's adjacent row edits).
 - **Measure human time — LANDED (W1477, `53d4758f`); the guardrail
   thresholds are an owner decision (NEED_DECISION #78563).** pilot-measure's
   `review` block (`packages/belt/bench/review-guardrail.ts`) covers the

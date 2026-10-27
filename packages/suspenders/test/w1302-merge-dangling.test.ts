@@ -55,6 +55,9 @@ const testEnv = (repo: string) => ({
 	HOME: join(repo, ".test-home"),
 	GOVERNOR_STORE_URL: "",
 	FLEET_UNTRACKED_GRACE_MS: "0",
+	// the ladder is under test, not the heartbeat: a fresh HOME makes every
+	// maintenance task due and the sweep outlasts the 120s budget (W1476)
+	SUSPENDERS_MAINTENANCE: "0",
 	SUSPENDERS_PREFIX: HOOKS,
 	// fixture loops run the merge ladder only: a lane env's admin key would
 	// let maintenance's coord-worker mint on the live gate and wait on a

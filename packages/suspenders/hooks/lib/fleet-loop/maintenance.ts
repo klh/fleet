@@ -365,6 +365,25 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		timeoutMs: 60_000,
 		argv: (root) => [join(root, "hooks/bin/cost-alert.ts"), "--act"],
 	},
+	{
+		// W1476 (b) — incidents become evals: hourly, ask the W792 review
+		// arena which arms' reviewer surface (prompt, model pin, tooling,
+		// sealed set) changed since their last scored run — git + ledger
+		// reads, no LLM call. A due arm on AC launches `review-rescore run`
+		// detached (whole-set rerun, scoped lane key, review.rescore event).
+		// SUSPENDERS_REVIEW_RESCORE=0 disables the heartbeat.
+		name: "review-rescore",
+		everySeconds: 3600,
+		nice: 10,
+		timeoutMs: 60_000,
+		argv: (root, repo) => [
+			join(root, "hooks/bin/review-rescore.ts"),
+			"check",
+			"--repo",
+			repo,
+		],
+		cwd: (repo) => repo,
+	},
 ];
 
 // the suspenders package root, identical in the repo worktree

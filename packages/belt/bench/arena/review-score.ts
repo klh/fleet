@@ -49,8 +49,11 @@ export function matchFindings(
 	};
 }
 
+/** W1476: `lane` = the review lane's own prompt + model pin (review-lane-arm.ts). */
+export type ArmId = "a" | "b" | "lane";
+
 export interface ArmOutcome {
-	arm: "a" | "b";
+	arm: ArmId;
 	taskId: string;
 	src: string;
 	/** unique final findings (posted set, after dedupe across rounds) */
@@ -76,7 +79,7 @@ export interface ArmOutcome {
 }
 
 export interface ArmAggregate {
-	arm: "a" | "b";
+	arm: ArmId;
 	n: number;
 	recall: number; // pooled: matched defects / total defects
 	fileRecall: number;
@@ -94,7 +97,7 @@ export interface ArmAggregate {
 
 /** Score one task-arm outcome against its ground truth. */
 export function scoreOutcome(o: {
-	arm: "a" | "b";
+	arm: ArmId;
 	taskId: string;
 	src: string;
 	defects: Defect[];
@@ -149,7 +152,7 @@ export function scoreOutcome(o: {
 }
 
 /** Aggregate outcomes for one arm. */
-export function aggregate(arm: "a" | "b", outs: ArmOutcome[]): ArmAggregate {
+export function aggregate(arm: ArmId, outs: ArmOutcome[]): ArmAggregate {
 	const seeded = outs.filter((o) => o.src !== "clean");
 	const clean = outs.filter((o) => o.src === "clean");
 	const recall =
