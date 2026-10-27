@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 
 const NOW = Date.now();
 import { Database } from "bun:sqlite";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 import { ensureLaneObservations } from "../hooks/board/lane-observations.ts";
 import {
 	EDGE_ROW_CAP,

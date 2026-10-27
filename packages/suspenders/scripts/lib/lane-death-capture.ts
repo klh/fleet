@@ -4,7 +4,7 @@
 // lifetime are banked as facts the intent verb, the grinder breaker, and
 // humans can read. Best-effort: a dark store never blocks a prune.
 import { closeSync, openSync, readSync, statSync } from "node:fs";
-import type { GovernorStore } from "../../hooks/lib/govdb.ts";
+import type { GovernorStore } from "../../hooks/lib/govdb/govdb.ts";
 
 export const OUTPUT_TAIL_BYTES = 4096;
 /** the breaker window: ≥ MIN fresh samples, > RATIO sub-minute deaths → trip. */

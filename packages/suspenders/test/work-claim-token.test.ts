@@ -4,7 +4,10 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpDir } from "./helpers/fixture-kit.ts";
 
 import { join } from "node:path";
-import { claimTokenHash, claimTokenMint } from "../hooks/lib/work-fence.ts";
+import {
+	claimTokenHash,
+	claimTokenMint,
+} from "../hooks/lib/work/work-fence.ts";
 
 setDefaultTimeout(30_000);
 

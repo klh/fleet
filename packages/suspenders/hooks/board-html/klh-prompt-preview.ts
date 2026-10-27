@@ -5,7 +5,7 @@
 // what WILL be dispatched. The legacy orchestrate chunk calls prepare() and
 // listens for `klh-dispatch`; "dispatch anyway" is always offered, even when
 // the preview fails, so the flow is never trapped.
-import { LitElement, html, css, nothing, type TemplateResult } from "lit";
+import { css, html, LitElement, nothing, type TemplateResult } from "lit";
 
 type Settings = Record<
 	"prompt.condense" | "prompt.enhance" | "prompt.debug" | "prompt.log",
@@ -126,6 +126,8 @@ class KlhPromptPreview extends LitElement {
 	private project = "";
 	private goal = "";
 	private previewId: string | null = null;
+	// W1303.2 — the settings etag from GET; POST sends it as If-Match
+	private etag: string | null = null;
 
 	constructor() {
 		super();
@@ -154,8 +156,9 @@ class KlhPromptPreview extends LitElement {
 	private async loadSettings(): Promise<void> {
 		try {
 			const r = await fetch("/api/prompt/settings");
-			const d = (await r.json()) as { settings?: Settings };
+			const d = (await r.json()) as { settings?: Settings; etag?: string };
 			if (d.settings) this.settings = { ...DEFAULTS, ...d.settings };
+			if (d.etag) this.etag = d.etag;
 		} catch {
 			// defaults stand — the board still dispatches
 		}
@@ -167,19 +170,39 @@ class KlhPromptPreview extends LitElement {
 		try {
 			const r = await fetch("/api/prompt/settings", {
 				method: "POST",
-				headers: { "content-type": "application/json" },
+				headers: {
+					"content-type": "application/json",
+					...(this.etag === null ? {} : { "if-match": this.etag }),
+				},
 				body: JSON.stringify({ [key]: on }),
 			});
-			const d = (await r.json()) as { settings?: Settings; error?: string };
-			if (!r.ok || !d.settings) throw new Error(d.error ?? `HTTP ${r.status}`);
+			const d = (await r.json()) as {
+				settings?: Settings;
+				etag?: string;
+				error?: string;
+				why?: string;
+			};
+			if (r.status === 412) {
+				// W1303.2 — settings changed elsewhere: reload once, report honestly
+				await this.loadSettings();
+				this.err = "settings changed elsewhere — reloaded";
+				return;
+			}
+			if (!r.ok || !d.settings)
+				throw new Error(d.why ?? d.error ?? `HTTP ${r.status}`);
 			this.settings = { ...DEFAULTS, ...d.settings };
+			if (d.etag) this.etag = d.etag;
 		} catch (e) {
 			this.settings = prev;
 			this.err = `settings not saved: ${e instanceof Error ? e.message : String(e)}`;
 		}
 	}
 
-	async prepare(project: string, goal: string, attachments?: string[]): Promise<void> {
+	async prepare(
+		project: string,
+		goal: string,
+		attachments?: string[],
+	): Promise<void> {
 		this.project = project;
 		this.goal = goal;
 		this.previewId = null;
@@ -192,7 +215,9 @@ class KlhPromptPreview extends LitElement {
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify(
-					attachments?.length ? { project, goal, attachments } : { project, goal },
+					attachments?.length
+						? { project, goal, attachments }
+						: { project, goal },
 				),
 				signal: AbortSignal.timeout(30_000),
 			});

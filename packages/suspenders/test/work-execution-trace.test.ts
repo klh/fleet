@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { BuckleRequestRow } from "../hooks/lib/cache-drill.ts";
+import type { BuckleRequestRow } from "../hooks/lib/usage/cache-drill.ts";
 import { executionHops } from "../hooks/board/work-execution-trace.ts";
 
 const row = (overrides: Partial<BuckleRequestRow>): BuckleRequestRow => ({

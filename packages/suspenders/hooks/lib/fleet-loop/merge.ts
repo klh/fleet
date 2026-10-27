@@ -13,25 +13,30 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { have } from "../run.ts";
-import { openStore, projectIdentity } from "../govdb.ts";
+import { openStore, projectIdentity } from "../govdb/govdb.ts";
 import {
 	doneShaResolves,
 	gitInProgress,
 	itemClaimOf,
-	mergeHoldActive,
-} from "../ladder-lease.ts";
+} from "../lanes/ladder-lease.ts";
+import { mergeHoldActive } from "./merge-hold.ts";
 import { flagIntegratedCode } from "../decomposition.ts";
-import { guardedMerge } from "../merge-guard.ts";
+import {
+	bankDanglingRef,
+	danglingReferences,
+	unresolvedSpecifiers,
+} from "./dangling-paths.ts";
+import { guardedMerge } from "./merge-guard.ts";
 import {
 	checkReviewReceipt,
 	reviewContext,
 	recordLanding,
-} from "../review-receipt.ts";
+} from "../gates/review-receipt.ts";
 import type { LoopDeps } from "./runtime.ts";
-import { scheduleReview } from "../review-scheduler.ts";
+import { scheduleReview } from "../gates/review-scheduler.ts";
 
 export type MergeLadder = {
-	mergeOne: (b: string) => void;
+	mergeOne: (b: string) => undefined | "missing";
 	mergeFail: (b: string, tail: string) => void;
 	mergeRunnerAlive: () => number | null;
 	healCrashedMerge: () => void;
@@ -94,15 +99,18 @@ export function createMergeLadder(
 		}
 	}
 
-	// W641: the ladder's lease gate lives in hooks/lib/ladder-lease.ts
+	// W641: the ladder's lease gate lives in hooks/lib/lanes/ladder-lease.ts
 
 	// one branch through the ladder — the cycle's per-branch body, shared with
 	// the board's one-click ship (`ship --branch <b>` runs it foreground).
 	// Fail-isolated: a failed ladder aborts the merge, leaves the branch for
 	// inspection, and counts toward the 3-strike park like every other merge.
-	function mergeOne(b: string): void {
+	function mergeOne(b: string): undefined | "missing" {
 		const n = ahead(b);
-		if (n < 0) return; // vanished between sweep and ladder (park-rename race)
+		if (n < 0) {
+			log(`MERGE-DEFER ${b} — branch ref missing (parked or deleted)`);
+			return "missing";
+		}
 		// W1072.2 fail-closed gates BEFORE retirement AND the ladder: an
 		// operator merge hold defers BOTH (a merged branch's worktree/branch
 		// stays put while the operator integrates provenance); Git in-progress
@@ -270,6 +278,37 @@ export function createMergeLadder(
 					`QLTY-FIX-LEFT ${b}: ${fix.left} unfixable issue(s) — logged, never blocks`,
 				);
 			if (fix.head) after = fix.head;
+			// W1302.2 (A6): post-merge dangling-path scan — deleted paths still
+			// referenced by live files, and unresolvable specifiers among the
+			// merge's own delta. Fail-open: findings mint repair items + events;
+			// a scan failure never un-merges.
+			try {
+				const changed = sh([
+					"git",
+					"diff",
+					"--name-only",
+					"--diff-filter=ACMR",
+					`${before}..${after}`,
+				])
+					.split("\n")
+					.filter(Boolean);
+				const dangling = [
+					...danglingReferences(REPO, before, after),
+					...unresolvedSpecifiers(REPO, after, changed),
+				];
+				for (const ref of dangling) {
+					log(
+						`DANGLING-PATH ${b}: ${ref.target} referenced by ${ref.refBy}${ref.line ? `:${ref.line}` : ` (${ref.specifier})`}`,
+					);
+					bankDanglingRef(REPO, "fleet-loop", ref, after);
+				}
+				if (dangling.length)
+					log(`DANGLING-PATHS ${b}: ${dangling.length} finding(s) queued`);
+			} catch (error) {
+				log(
+					`DANGLING-SCAN-FAILED ${b}: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			}
 			try {
 				for (const file of flagIntegratedCode({
 					repo: REPO,

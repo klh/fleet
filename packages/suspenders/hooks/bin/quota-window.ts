@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // hooks/bin/quota-window.ts — W657 thin face: the verdict library is
-// hooks/lib/quota-window.ts (quotaWindowVerdict/harvestResets); this face
+// hooks/lib/usage/quota-window.ts (quotaWindowVerdict/harvestResets); this face
 // owns argv, the status/note verbs, output lines and the 0/1/2 exit contract.
 //   bun hooks/bin/quota-window.ts              # status; exit 0 safe / 1 near cliff / 2 unknown
 //   bun hooks/bin/quota-window.ts --margin 45
@@ -8,8 +8,8 @@
 //
 // W672 integration: main's W656.2 verb-kit CLI layer (status default + note
 // verb, registry --help, dieFor) over W657's thin face; the engine lives in
-// hooks/lib/quota-window.ts.
-import { quotaWindowVerdict } from "../lib/quota-window.ts";
+// hooks/lib/usage/quota-window.ts.
+import { quotaWindowVerdict } from "../lib/usage/quota-window.ts";
 import {
 	defineVerb,
 	dieFor,

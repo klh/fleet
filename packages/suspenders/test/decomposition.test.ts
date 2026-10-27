@@ -1,12 +1,13 @@
-import { afterEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	flagIntegratedCode,
 	oversizedMergedFiles,
 } from "../hooks/lib/decomposition.ts";
+
 const scratch: string[] = [];
 afterEach(() => {
 	for (const path of scratch.splice(0))
@@ -57,6 +58,19 @@ test("soft threshold inspects merged committed code, excludes generated and dele
 	f.git("rm", "-f", "target.ts");
 	tip = f.commit();
 	expect(oversizedMergedFiles(f.repo, f.base, tip)).toEqual([]);
+});
+test("argued vendor-exemption rows never mint decomposition work (W1300)", () => {
+	const f = fixture();
+	mkdirSync(join(f.repo, "packages", "decant", "src"), { recursive: true });
+	f.write("packages/decant/src/ingest.ts", 2000);
+	f.write("target.ts", 1501);
+	const tip = f.commit();
+	// the byte-pure vendored snapshot path stays exempt — re-syncs must not
+	// auto-mint a "DRY and decompose" item against the vendor bytes; the
+	// ordinary over-cap file still flags.
+	expect(oversizedMergedFiles(f.repo, f.base, tip)).toMatchObject([
+		{ path: "target.ts", lines: 1501 },
+	]);
 });
 test("combined lane changes are measured on the merged main version", () => {
 	const f = fixture();

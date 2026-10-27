@@ -35,7 +35,7 @@ import type {
 	UsagePanels,
 	UsageSeg,
 } from "../bin/usage-chrome.ts";
-import type { UsageReport } from "../lib/usage.ts";
+import type { UsageReport } from "../lib/usage/usage.ts";
 // W695.3.5: the page head rides the same bundle (side-effect registers it)
 import "./klh-usage-head.ts";
 // W825: the cache drilldown rides the same bundle (side-effect registers it)

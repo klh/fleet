@@ -3,12 +3,12 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 import {
 	automaticRecoveryCheck,
 	automaticRecoveryPaused,
-} from "../hooks/lib/automatic-recovery.ts";
-import { setReclaimHold } from "../hooks/lib/reclaim-liveness.ts";
+} from "../hooks/lib/fleet-loop/automatic-recovery.ts";
+import { setReclaimHold } from "../hooks/lib/lanes/reclaim-liveness.ts";
 
 const dirs: string[] = [];
 const dbs: Database[] = [];

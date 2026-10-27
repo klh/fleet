@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
+const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
 const home = mkdtempSync(join(tmpdir(), "suspenders-w716-read-retry-"));
 const repo = mkdtempSync(join(tmpdir(), "suspenders-w716-read-retry-repo-"));
 Bun.spawnSync(["git", "init", "-q", repo]);

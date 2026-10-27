@@ -14,10 +14,10 @@ import {
 	parseReclaimReason,
 	readReclaimMarker,
 	reclaimGateDecision,
-} from "../hooks/lib/reclaim-sticky.ts";
-import { releaseWorkClaim } from "../hooks/lib/work-release.ts";
-import { assignTask } from "../hooks/lib/work-alloc.ts";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+} from "../hooks/lib/lanes/reclaim-sticky.ts";
+import { releaseWorkClaim } from "../hooks/lib/work/work-release.ts";
+import { assignTask } from "../hooks/lib/work/work-alloc.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 
 const databases: Database[] = [];
 const directories: string[] = [];

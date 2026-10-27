@@ -7,7 +7,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSignalsScan } from "../hooks/lib/signals-scan.ts";
+import { createSignalsScan } from "../hooks/lib/harvest/signals-scan.ts";
 
 const root = mkdtempSync(join(tmpdir(), "signals-scan-flow-"));
 const blamQueue = join(root, "blam-signals.jsonl");

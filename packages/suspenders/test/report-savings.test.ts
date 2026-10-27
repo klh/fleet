@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CacheRow } from "../hooks/lib/cache-telemetry.ts";
+import type { CacheRow } from "../hooks/lib/usage/cache-telemetry.ts";
 import {
 	BYTES_PER_TOKEN,
 	cloneCell,
@@ -19,7 +19,7 @@ import {
 	savedCell,
 	savingsFooter,
 	savingsFor,
-} from "../hooks/lib/report-savings.ts";
+} from "../hooks/lib/usage/report-savings.ts";
 
 const tmp = mkdtempSync(join(tmpdir(), "report-sav-"));
 const fleet = tmp;
@@ -128,9 +128,7 @@ describe("cells + footer (W894)", () => {
 	});
 	test("savedCell renders only measurable savings", () => {
 		expect(savedCell({ savedTok: 0, pct: null })).toBe("-");
-		expect(savedCell({ savedTok: 34_100_000, pct: 97 })).toBe(
-			"~34.1M (~97%)",
-		);
+		expect(savedCell({ savedTok: 34_100_000, pct: 97 })).toBe("~34.1M (~97%)");
 		expect(fmtTok(933)).toBe("933");
 		expect(fmtTok(12_300)).toBe("12.3k");
 	});
@@ -155,7 +153,11 @@ describe("condense stage events (W894)", () => {
 		const db = {
 			query: (_sql: string) => ({
 				all: () => [
-					stage({ for: "prompt.stages", originalBytes: 4000, condensedBytes: 2000 }),
+					stage({
+						for: "prompt.stages",
+						originalBytes: 4000,
+						condensedBytes: 2000,
+					}),
 					stage({ for: "llm.call", originalBytes: 9999, condensedBytes: 0 }),
 					stage("not json {"),
 					{ payload: 42 },
@@ -181,7 +183,11 @@ describe("condense stage events (W894)", () => {
 		const db = {
 			query: (_sql: string) => ({
 				all: () => [
-					stage({ for: "prompt.stages", originalBytes: 4000, condensedBytes: 2000 }),
+					stage({
+						for: "prompt.stages",
+						originalBytes: 4000,
+						condensedBytes: 2000,
+					}),
 				],
 			}),
 		};

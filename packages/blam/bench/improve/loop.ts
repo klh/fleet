@@ -12,11 +12,11 @@ import {
 	listStarters,
 	type StarterArtifact,
 	starterRegistryDir,
-} from "../../../suspenders/hooks/lib/starter-artifacts.ts";
+} from "../../../suspenders/hooks/lib/starter/starter-artifacts.ts";
 import {
 	promoteStarter,
 	readStarterAuthorized,
-} from "../../../suspenders/hooks/lib/starter-distribution.ts";
+} from "../../../suspenders/hooks/lib/starter/starter-distribution.ts";
 import { starterInstructionContext } from "../../../suspenders/scripts/lib/lane-starter.ts";
 import { gatePromotion } from "../../src/promotion.ts";
 import {

@@ -4,9 +4,9 @@
 // unused loopback ports for boards and mocks, isolating concurrent runs.
 // test files in one process — a shared side-effect fixture would die
 // with the first file's afterAll).
-import { afterAll, describe, expect, test } from "bun:test";
 
 import { Database } from "bun:sqlite";
+import { afterAll, describe, expect, test } from "bun:test";
 import {
 	mkdirSync,
 	readFileSync,
@@ -16,6 +16,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { boardFixture, unusedPort } from "./helpers/board-fixture.ts";
+
 const { TOKEN, HOME, REPO, GREPO, env, bin, BASE, MY_PROJ, post, waitUp } =
 	await boardFixture(0, afterAll);
 
@@ -264,16 +265,28 @@ describe("W57 orchestrate box", () => {
 		await orchProc.exited;
 		mock.stop(true);
 	});
-	const postO = async (path: string, body: unknown) => {
+	const postO = async (
+		path: string,
+		body: unknown,
+		extraHeaders: Record<string, string> = {},
+	) => {
 		const r = await fetch(`${OB}${path}`, {
 			method: "POST",
 			headers: {
 				"content-type": "application/json",
 				"x-klh-write-token": TOKEN,
+				...extraHeaders,
 			},
 			body: JSON.stringify(body),
 		});
 		return { status: r.status, json: await r.json() };
+	};
+	// W1303.2 — settings writes are conditional: read the etag, send If-Match
+	const postSettings = async (body: unknown) => {
+		const etag = String(
+			(await (await fetch(`${OB}/api/prompt/settings`)).json()).etag,
+		);
+		return postO("/api/prompt/settings", body, { "if-match": etag });
 	};
 	test("llms.txt lists both orchestrate routes", async () => {
 		const txt = await (await fetch(`${BASE}/llms.txt`)).text();
@@ -394,14 +407,38 @@ describe("W57 orchestrate box", () => {
 			"prompt.debug": false,
 			"prompt.log": false,
 		});
+		const etag = String(d.etag);
+		// W1303.2 — conditional write contract: 428 without If-Match, 412 on
+		// a stale etag, 422 with field errors on a non-boolean patch.
 		expect(
 			(await postO("/api/prompt/settings", { "prompt.debug": "yes" })).status,
-		).toBe(400);
-		const s = await postO("/api/prompt/settings", {
-			"prompt.condense": true,
-			"prompt.debug": true,
-			"prompt.log": true,
-		});
+		).toBe(428);
+		expect(
+			(
+				await postO(
+					"/api/prompt/settings",
+					{ "prompt.debug": "yes" },
+					{ "if-match": '"stale"' },
+				)
+			).status,
+		).toBe(412);
+		const bad = await postO(
+			"/api/prompt/settings",
+			{ "prompt.debug": "yes" },
+			{ "if-match": etag },
+		);
+		expect(bad.status).toBe(422);
+		expect(bad.json.errors[0].field).toBe("prompt.debug");
+		const s = await postO(
+			"/api/prompt/settings",
+			{
+				"prompt.condense": true,
+				"prompt.debug": true,
+				"prompt.log": true,
+			},
+			{ "if-match": etag },
+		);
+		expect(s.status).toBe(200);
 		expect(s.json.settings["prompt.log"]).toBe(true);
 		const file = JSON.parse(
 			readFileSync(`${HOME}/.claude/local-llm/suspenders-board.json`, "utf8"),
@@ -445,7 +482,7 @@ describe("W57 orchestrate box", () => {
 		).toBe(true);
 	});
 	test("W270 enhance via the router; inline transforms without a preview", async () => {
-		await postO("/api/prompt/settings", { "prompt.enhance": true });
+		await postSettings({ "prompt.enhance": true });
 		const r = await postO("/api/orchestrate", {
 			project: MY_PROJ,
 			goal: "please add csv export",
@@ -454,7 +491,7 @@ describe("W57 orchestrate box", () => {
 		expect(r.json.prompt.final).toBe("Clearly: add csv export");
 		expect(r.json.prompt.ran.enhance).toBe(true);
 		expect(lastUser.startsWith("GOAL:\nClearly: add csv export\n")).toBe(true);
-		await postO("/api/prompt/settings", {
+		await postSettings({
 			"prompt.enhance": false,
 			"prompt.debug": false,
 			"prompt.log": false,

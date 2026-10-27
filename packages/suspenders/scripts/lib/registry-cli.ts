@@ -19,15 +19,15 @@ import {
 import {
 	pruneLaneRegistry,
 	pendingManagedRestart,
-} from "../../hooks/lib/lane-registry.ts";
-import { openStore } from "../../hooks/lib/govdb.ts";
+} from "../../hooks/lib/lanes/lane-registry.ts";
+import { openStore } from "../../hooks/lib/govdb/govdb.ts";
 import { captureLaneDeaths } from "./lane-death-capture.ts";
 import {
 	laneVerdict,
 	pidAlive,
 	type LaneRef,
-} from "../../hooks/lib/lane-liveness.ts";
-import { loadLanes, type Lane } from "../../hooks/lib/lane.ts";
+} from "../../hooks/lib/lanes/lane-liveness.ts";
+import { loadLanes, type Lane } from "../../hooks/lib/lanes/lane.ts";
 import { repairManagedWrapperPid } from "./registry-pid-repair.ts";
 
 // W651: the verb registry owns the surface — help is generated, parsing rides

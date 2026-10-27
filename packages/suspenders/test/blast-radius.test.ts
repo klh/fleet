@@ -32,7 +32,7 @@ import {
 	expandTouch,
 	laneAllowed,
 	secretScopeHit,
-} from "../hooks/lib/credscope.ts";
+} from "../hooks/lib/auth/credscope.ts";
 
 // ---- fixture home + seams (spawned gates inherit; audits stay isolated) ----
 const tmp = mkdtempSync(join(process.cwd(), ".blast-test-"));

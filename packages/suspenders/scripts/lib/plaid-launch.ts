@@ -3,10 +3,10 @@
 // dispatch-next.ts). Assembles: the host-pressure hold (fail-closed —
 // unknown samples pause, swapout deltas over raw totals, no numeric lane
 // cap), the pool plan and the route pick. skip = hold/plan/denial reason.
-import type { GovernorStore } from "../../hooks/lib/govdb.ts";
-import type { ProviderPenalty } from "../../hooks/lib/exec-quota.ts";
-import { plaidDispatch, plaidGate } from "../../hooks/lib/plaid.ts";
-import { plaidLaunchHold } from "../../hooks/lib/plaid-host-pressure.ts";
+import type { GovernorStore } from "../../hooks/lib/govdb/govdb.ts";
+import type { ProviderPenalty } from "../../hooks/lib/usage/exec-quota.ts";
+import { plaidDispatch, plaidGate } from "../../hooks/lib/plaid/plaid.ts";
+import { plaidLaunchHold } from "../../hooks/lib/plaid/plaid-host-pressure.ts";
 
 export interface PlaidLaunchPreflight {
 	/** non-null = SKIP dispatch with this reason. */

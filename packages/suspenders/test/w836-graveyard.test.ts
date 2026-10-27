@@ -14,7 +14,7 @@ const HOME = mkdtempSync(join(tmpdir(), "suspenders-w836-"));
 const REAL_HOME = process.env.HOME;
 process.env.HOME = HOME;
 const { openGovernorDb, openKnowledgeDb } = await import(
-	`../hooks/lib/govdb.ts?w836=${encodeURIComponent(HOME)}`
+	`../hooks/lib/govdb/govdb.ts?w836=${encodeURIComponent(HOME)}`
 );
 
 mkdirSync(join(HOME, ".cache", "claude-governor"), { recursive: true });
@@ -64,8 +64,8 @@ function row(id: number):
 
 let SqliteKnowledgeStore: new (
 	db: Database,
-) => import("../hooks/lib/sqlite-store.ts").SqliteKnowledgeStore;
-let knowledgeSearch: typeof import("../hooks/lib/knowledge.ts").knowledgeSearch;
+) => import("../hooks/lib/knowledge/sqlite-store.ts").SqliteKnowledgeStore;
+let knowledgeSearch: typeof import("../hooks/lib/knowledge/knowledge.ts").knowledgeSearch;
 
 test("boot: trust columns heal on open", () => {
 	const kb = freshKb();
@@ -77,8 +77,10 @@ test("boot: trust columns heal on open", () => {
 });
 
 test("boot2: store + search imports", async () => {
-	({ SqliteKnowledgeStore } = await import("../hooks/lib/sqlite-store.ts"));
-	({ knowledgeSearch } = await import("../hooks/lib/knowledge.ts"));
+	({ SqliteKnowledgeStore } = await import(
+		"../hooks/lib/knowledge/sqlite-store.ts"
+	));
+	({ knowledgeSearch } = await import("../hooks/lib/knowledge/knowledge.ts"));
 });
 
 test("grade stamps rating/evidence/researched_at + provenance note", async () => {

@@ -10,13 +10,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { harvestUsage } from "../hooks/lib/usage-harvest.ts";
-import { prepareUsageRebuild } from "../hooks/lib/usage-rebuild.ts";
+import { harvestUsage } from "../hooks/lib/usage/usage-harvest.ts";
+import { prepareUsageRebuild } from "../hooks/lib/usage/usage-rebuild.ts";
 import {
 	activateTranscriptUsage,
 	deactivateTranscriptUsage,
-} from "../hooks/lib/usage-migration.ts";
-import { buildUsageReport } from "../hooks/lib/usage.ts";
+} from "../hooks/lib/usage/usage-migration.ts";
+import { buildUsageReport } from "../hooks/lib/usage/usage.ts";
 import { usagePage } from "../hooks/bin/usage-page-html.ts";
 
 const dirs: string[] = [];

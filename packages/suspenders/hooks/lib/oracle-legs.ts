@@ -6,7 +6,7 @@
 // fallback; fail closed. The legs differ only in their W136 hint selector
 // and default model pin, and the preference stays DATA (config-over-code):
 //   ORACLE_ROUTE_MODEL   pinned-leg model id pin (else "local-reason")
-import { buckleChat } from "./inference-buckle.ts";
+import { buckleChat } from "./hub/inference-buckle.ts";
 
 export const PINNED_MODEL = "local-reason";
 export const CLOUD_MODEL = "glm-5.3";

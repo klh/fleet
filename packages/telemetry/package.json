@@ -1,0 +1,22 @@
+{
+	"name": "@klh/telemetry",
+	"version": "2.0.0",
+	"description": "telemetry — shared trace/hop-contract headers: http-trace, transport evidence, prefer-header, remote traces, trace log",
+	"type": "module",
+	"private": true,
+	"license": "SEE LICENSE IN LICENSE",
+	"engines": {
+		"bun": "1.4.2"
+	},
+	"exports": {
+		"./src/hop-contract.ts": "./src/hop-contract.ts",
+		"./src/http-trace.ts": "./src/http-trace.ts",
+		"./src/prefer-header.ts": "./src/prefer-header.ts",
+		"./src/remote-traces.ts": "./src/remote-traces.ts",
+		"./src/trace-log.ts": "./src/trace-log.ts",
+		"./src/transport-evidence.ts": "./src/transport-evidence.ts"
+	},
+	"files": [
+		"src"
+	]
+}

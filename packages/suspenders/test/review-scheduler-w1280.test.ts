@@ -4,18 +4,19 @@
 // ledger rows (the established pattern in review-scheduler.test.ts).
 import { afterEach, expect, test } from "bun:test";
 import {
-	openMemoryStore,
-	type GovernorStore,
-} from "../hooks/lib/govdb-store.ts";
-import {
 	finishReviewRequest,
-	reviewRequestKey,
 	providerPressureKey,
 	providerPressureOf,
 	reconcileReviewLegs,
+	reviewRequestKey,
 	scheduleReview,
 	stampReviewPid,
-} from "../hooks/lib/review-scheduler.ts";
+} from "../hooks/lib/gates/review-scheduler.ts";
+import {
+	type GovernorStore,
+	openMemoryStore,
+} from "../hooks/lib/govdb/govdb-store.ts";
+
 const stores: GovernorStore[] = [];
 afterEach(() => {
 	for (const db of stores.splice(0)) db.close();

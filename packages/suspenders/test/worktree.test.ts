@@ -238,17 +238,20 @@ describe("worktree registry resolution (W211)", () => {
 		expect(wt("path", id).out.trim()).toBe(realpathSync(parked));
 		expect(wt("create", id).code).not.toBe(0);
 		// done retires the PARKED tree — the W211 silent no-op is dead
-		expect(
-			work(
-				"done",
-				id,
-				"--sha",
-				tip,
-				"--summary",
-				"W211 registry parked-tree closure: done must resolve the tree from the registry and retire it even outside .worktrees",
-				...(ptok ? ["--token", ptok] : []),
-			).code,
-		).toBe(0);
+		const done = work(
+			"done",
+			id,
+			"--sha",
+			tip,
+			"--summary",
+			"W211 registry parked-tree closure: done must resolve the tree from the registry and retire it even outside .worktrees",
+			...(ptok ? ["--token", ptok] : []),
+		);
+		expect(done.code).toBe(0);
+		expect(done.err).toBe("");
+		expect(done.out).toContain(
+			`retired ${realpathSync(join(REPO, "..", "w211-parked"))}/${id}`,
+		);
 		expect(existsSync(parked)).toBe(false);
 		expect(gc(["rev-parse", "--verify", `suspenders/${id}`]).code).toBe(0);
 	});
@@ -330,7 +333,15 @@ describe("worktree sweep (W494.2.2)", () => {
 		// the tree; item lands DONE with its worktree still standing (the
 		// 2026-10-06 incident state this sweep exists for)
 		writeFileSync(join(dir, "junk.txt"), "junk");
-		const dt = work("done", id, "--sha", tip, ...(tok ? ["--token", tok] : []));
+		const dt = work(
+			"done",
+			id,
+			"--sha",
+			tip,
+			"--summary",
+			"Patch-equivalent worktree is complete; sweep must preserve the committed result and remove the dirty parked checkout safely.",
+			...(tok ? ["--token", tok] : []),
+		);
 		expect(dt.code).toBe(0);
 		expect(existsSync(dir)).toBe(true);
 		rmSync(join(dir, "junk.txt")); // clean again — only debris ever blocked retire
@@ -365,7 +376,15 @@ describe("worktree sweep (W494.2.2)", () => {
 		const tip = gc(["-C", dir, "rev-parse", "HEAD"]).out;
 		// dirty-keep trick again: item lands DONE, tree stays standing
 		writeFileSync(join(dir, "junk.txt"), "junk");
-		const dt = work("done", id, "--sha", tip, ...(tok ? ["--token", tok] : []));
+		const dt = work(
+			"done",
+			id,
+			"--sha",
+			tip,
+			"--summary",
+			"Unmerged worktree is complete; sweep must retain its committed branch and surface the integration decision.",
+			...(tok ? ["--token", tok] : []),
+		);
 		expect(dt.code).toBe(0);
 		rmSync(join(dir, "junk.txt"));
 		const s = sweep("sweep", "--main", MAIN());

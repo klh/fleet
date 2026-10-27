@@ -5,7 +5,10 @@
 // peer degrades independently: a failed pull logs one honest line, keeps
 // last-known, never blocks the hub. --once exits 2 when any peer degraded
 // (honest signal for the caller), loop mode never exits on peer-down.
-import { pullPeerPolicy, resolvePeerLabels } from "../lib/federation-peers.ts";
+import {
+	pullPeerPolicy,
+	resolvePeerLabels,
+} from "../lib/federation/federation-peers.ts";
 import { defineVerb, runCli } from "../lib/verb-kit.ts";
 
 const INTERVAL_S = Number(process.env.FEDERATION_PEERS_INTERVAL_S ?? "300");

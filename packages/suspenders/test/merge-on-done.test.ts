@@ -17,7 +17,7 @@ import {
 	awaitLaneExit,
 	resolveItemBranch,
 	triggerMergeOnDone,
-} from "../hooks/lib/merge-on-done.ts";
+} from "../hooks/lib/fleet-loop/merge-on-done.ts";
 
 const LOOP = join(import.meta.dir, "..", "hooks", "bin", "fleet-loop.ts");
 const WORK = join(import.meta.dir, "..", "hooks", "bin", "work.ts");

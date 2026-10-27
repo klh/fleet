@@ -16,7 +16,7 @@ import {
 	type KeyringDeps,
 	type Runner,
 	type WinCredIface,
-} from "../hooks/lib/keyring.ts";
+} from "../hooks/lib/auth/keyring.ts";
 
 const Svc = "klh-fleet-keyring-test";
 const User = "lane-test";

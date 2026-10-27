@@ -6,10 +6,11 @@
 // while the lane-registry row still matches. Real board + scratch HOME
 // (harness.ts); the binding rides the real governor.db sessions row and the
 // scratch repo's .fleet/lanes.json — the exact production surfaces.
-import { expect, test } from "@playwright/test";
+
 import { Database } from "bun:sqlite";
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import { type Board, startBoard } from "./harness";
 
 test.describe.configure({ mode: "serial" });
@@ -47,9 +48,11 @@ test.beforeAll(async () => {
 	// the registry binds both lanes to their attempts; the transcript holds
 	// one pre-launch record (skipped by the launchedAt floor) and one current
 	const now = Date.now();
-	mkdirSync(join(project, ".fleet"), { recursive: true });
+	// W1294.2: lanes.json is read from the checkout ROOT (projectRootOf strips
+	// the graph key's /.git tail) — never inside the common dir itself
+	mkdirSync(join(b.MY_PROJ, ".fleet"), { recursive: true });
 	writeFileSync(
-		join(project, ".fleet", "lanes.json"),
+		join(b.MY_PROJ, ".fleet", "lanes.json"),
 		JSON.stringify([
 			{ sid: laneA, item: bound, launchedAt: now - 60_000 },
 			{ sid: laneB, item: crossed, launchedAt: now - 60_000 },
@@ -82,9 +85,9 @@ function mustBoard(): Board {
 	return board;
 }
 
-test("exact binding shows the transcript tail; the unbound sibling stays empty", async ({
-	page,
-}) => {
+test("exact binding shows the transcript tail; the unbound sibling stays empty", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const b = mustBoard();
 	await page.goto(`${b.BASE}/#tasks`);
 	const boundRow = page.locator(`tr[data-tid="${bound}"]`);
@@ -103,9 +106,9 @@ test("exact binding shows the transcript tail; the unbound sibling stays empty",
 	);
 });
 
-test("kanban card carries the bound tail on the lanes view", async ({
-	page,
-}) => {
+test("kanban card carries the bound tail on the lanes view", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const b = mustBoard();
 	await page.goto(`${b.BASE}/#lanes`);
 	const card = page.locator(`.kcard[data-kid="${bound}"]`);
@@ -118,9 +121,9 @@ test("kanban card carries the bound tail on the lanes view", async ({
 	).toHaveCount(0);
 });
 
-test("a registry match cannot cross a session's project partition", async ({
-	page,
-}) => {
+test("a registry match cannot cross a session's project partition", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const b = mustBoard();
 	await page.goto(`${b.BASE}/#tasks`);
 	const crossedRow = page.locator(`tr[data-tid="${crossed}"]`);

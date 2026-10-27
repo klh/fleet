@@ -2,7 +2,7 @@
 // supervise.ts — W146: the shattering planner becomes its subtree's
 // MICRO-SUPERVISOR. Coordinator responsibilities, scoped to one parent
 // item's descendants: dispatch READY children (W145 lane-spawn machinery,
-// shared via hooks/lib/lane.ts), watch the graph, dispatch newly-unblocked
+// shared via hooks/lib/lanes/lane.ts), watch the graph, dispatch newly-unblocked
 // children in dependency order (`work ready` IS the dep-order source — the
 // W60 dep-merge gate keeps a child out of the pool until its deps are DONE
 // and merged), integrate DONE children per the plan contract (verify the
@@ -39,10 +39,10 @@ import {
 import { hostname } from "node:os";
 import { resolve } from "node:path";
 import { flagIntegratedCode } from "../hooks/lib/decomposition.ts";
-import { shaOnMain as gateShaOnMain } from "../hooks/lib/dep-merge-gate.ts";
-import { openStore } from "../hooks/lib/govdb.ts";
-import { laneAlive } from "../hooks/lib/lane-liveness.ts";
-import { supSid } from "../hooks/lib/laneslug.ts";
+import { shaOnMain as gateShaOnMain } from "../hooks/lib/gates/dep-merge-gate.ts";
+import { openStore } from "../hooks/lib/govdb/govdb.ts";
+import { laneAlive } from "../hooks/lib/lanes/lane-liveness.ts";
+import { supSid } from "../hooks/lib/lanes/laneslug.ts";
 import {
 	composeBrief,
 	isOwnerGated,
@@ -52,7 +52,7 @@ import {
 	sidOf,
 } from "./dispatch-next.ts";
 // W177: the resolved slab class is stamped into the lanes.json entry.
-import { laneClassOf } from "../hooks/lib/jobslab.ts";
+import { laneClassOf } from "../hooks/lib/lanes/jobslab.ts";
 import {
 	type Lane,
 	laneEnv,
@@ -60,8 +60,8 @@ import {
 	saveLanes,
 	spawnClaude,
 	worktreeLive,
-} from "../hooks/lib/lane.ts";
-import { laneAttemptLimit } from "../hooks/lib/lane-retry-budget.ts";
+} from "../hooks/lib/lanes/lane.ts";
+import { laneAttemptLimit } from "../hooks/lib/lanes/lane-retry-budget.ts";
 import {
 	assertLaunchClaim,
 	awaitLaunchRegistration,

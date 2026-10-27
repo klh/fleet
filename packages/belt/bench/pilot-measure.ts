@@ -26,7 +26,16 @@ export interface TaskRow {
 		requests: number;
 		wall_ms: number;
 		agent_ms: number;
-		model_groups: Record<string, { in: number; out: number; cacheR: number; cacheC: number; requests: number }>;
+		model_groups: Record<
+			string,
+			{
+				in: number;
+				out: number;
+				cacheR: number;
+				cacheC: number;
+				requests: number;
+			}
+		>;
 	} | null;
 }
 
@@ -147,7 +156,11 @@ export function classifyTitle(title: string): string {
 	return "other";
 }
 
-function bump(groups: Record<string, GroupUse>, g: string, use: GroupUse): void {
+function bump(
+	groups: Record<string, GroupUse>,
+	g: string,
+	use: GroupUse,
+): void {
 	const cur = groups[g] ?? { in: 0, out: 0, cacheR: 0, requests: 0 };
 	cur.in += use.in;
 	cur.out += use.out;
@@ -157,18 +170,29 @@ function bump(groups: Record<string, GroupUse>, g: string, use: GroupUse): void 
 }
 
 /** Merge one task's spend and/or one ledger join bucket into per-item metrics. */
-export function accrete(item: ItemMetrics, spend: TaskRow["spend"], ledger?: LedgerRow): ItemMetrics {
+export function accrete(
+	item: ItemMetrics,
+	spend: TaskRow["spend"],
+	ledger?: LedgerRow,
+): ItemMetrics {
 	if (spend && Object.keys(spend.model_groups ?? {}).length > 0) {
 		for (const [g, v] of Object.entries(spend.model_groups)) {
 			item.tokens_in += v.in;
 			item.tokens_out += v.out;
 			item.tokens_cached += v.cacheR + v.cacheC;
 			item.requests += v.requests;
-			bump(item.groups, g, { in: v.in, out: v.out, cacheR: v.cacheR + v.cacheC, requests: v.requests });
+			bump(item.groups, g, {
+				in: v.in,
+				out: v.out,
+				cacheR: v.cacheR + v.cacheC,
+				requests: v.requests,
+			});
 		}
 		if (spend.wall_ms > 0) {
-			item.wall_min = Math.round(((item.wall_min ?? 0) + spend.wall_ms / 60_000) * 10) / 10;
-			item.agent_min = Math.round(((item.agent_min ?? 0) + spend.agent_ms / 60_000) * 10) / 10;
+			item.wall_min =
+				Math.round(((item.wall_min ?? 0) + spend.wall_ms / 60_000) * 10) / 10;
+			item.agent_min =
+				Math.round(((item.agent_min ?? 0) + spend.agent_ms / 60_000) * 10) / 10;
 		}
 		item.source = "graph-spend";
 	}
@@ -177,14 +201,23 @@ export function accrete(item: ItemMetrics, spend: TaskRow["spend"], ledger?: Led
 		item.tokens_out += ledger.o;
 		item.tokens_cached += ledger.cr + ledger.cc;
 		item.requests += ledger.r;
-		bump(item.groups, ledger.model_group, { in: ledger.i, out: ledger.o, cacheR: ledger.cr + ledger.cc, requests: ledger.r });
+		bump(item.groups, ledger.model_group, {
+			in: ledger.i,
+			out: ledger.o,
+			cacheR: ledger.cr + ledger.cc,
+			requests: ledger.r,
+		});
 		if (item.source === "none") item.source = "ledger-join";
 	}
 	return item;
 }
 
 /** Window filter: DONE items count when their completion tail falls inside. */
-export function inWindow(ts: string | null, sinceMs: number, untilMs: number): boolean {
+export function inWindow(
+	ts: string | null,
+	sinceMs: number,
+	untilMs: number,
+): boolean {
 	if (!ts) return false;
 	const t = Date.parse(ts);
 	return Number.isFinite(t) && t >= sinceMs && t <= untilMs;
@@ -227,7 +260,12 @@ function blankItem(t: TaskRow): ItemMetrics {
 export function pct(sample: number[], p: number): number | null {
 	if (sample.length === 0) return null;
 	const sorted = [...sample].sort((a, b) => a - b);
-	return sorted[Math.max(0, Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1))];
+	return sorted[
+		Math.max(
+			0,
+			Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1),
+		)
+	];
 }
 
 export function buildSummary(
@@ -251,7 +289,8 @@ export function buildSummary(
 
 	const items: ItemMetrics[] = [];
 	for (const t of tasks) {
-		if (t.state !== "DONE" || !inWindow(t.tail?.ts ?? null, sinceMs, untilMs)) continue;
+		if (t.state !== "DONE" || !inWindow(t.tail?.ts ?? null, sinceMs, untilMs))
+			continue;
 		let item = accrete(blankItem(t), t.spend, undefined);
 		for (const r of byItem.get(t.id) ?? []) item = accrete(item, undefined, r);
 		items.push(item);
@@ -260,7 +299,12 @@ export function buildSummary(
 	const byGroup: Record<string, GroupUse> = {};
 	for (const it of items)
 		for (const [g, v] of Object.entries(it.groups))
-			bump(byGroup, g, { in: v.in, out: v.out, cacheR: v.cacheR, requests: v.requests });
+			bump(byGroup, g, {
+				in: v.in,
+				out: v.out,
+				cacheR: v.cacheR,
+				requests: v.requests,
+			});
 
 	const doneIds = new Set(items.map((i) => i.id));
 	// W846: rework is a TAG counter now — children of window-DONE parents
@@ -282,12 +326,15 @@ export function buildSummary(
 		inWindow(tsOf(d.created_ts), sinceMs, untilMs),
 	);
 	const settled = winDecisions.filter((d) => d.answered_ts != null);
-	const latencies = settled.map((d) => ((d.answered_ts ?? 0) - d.created_ts) / 60_000);
+	const latencies = settled.map(
+		(d) => ((d.answered_ts ?? 0) - d.created_ts) / 60_000,
+	);
 	for (const d of settled) {
 		const item = items.find((i) => i.id === d.task_id);
 		if (!item) continue;
 		const mins = ((d.answered_ts ?? 0) - d.created_ts) / 60_000;
-		item.human_time_min = Math.round(((item.human_time_min ?? 0) + mins) * 10) / 10;
+		item.human_time_min =
+			Math.round(((item.human_time_min ?? 0) + mins) * 10) / 10;
 	}
 	const human = {
 		decisions_in_window: winDecisions.length,
@@ -296,7 +343,8 @@ export function buildSummary(
 		still_open: winDecisions.filter((d) => d.state === "OPEN").length,
 		latency_min_p50: pct(latencies, 50),
 		latency_min_p90: pct(latencies, 90),
-		items_with_human_time: items.filter((i) => i.human_time_min !== null).length,
+		items_with_human_time: items.filter((i) => i.human_time_min !== null)
+			.length,
 	};
 
 	const summary: Summary = {
@@ -313,7 +361,10 @@ export function buildSummary(
 					inWindow(t.tail?.ts ?? null, sinceMs, untilMs),
 			).length,
 			rework_children: reworkChildren.length,
-			by_workload: items.reduce<Record<string, number>>((a, i) => ((a[i.workload] = (a[i.workload] ?? 0) + 1), a), {}),
+			by_workload: items.reduce<Record<string, number>>(
+				(a, i) => ((a[i.workload] = (a[i.workload] ?? 0) + 1), a),
+				{},
+			),
 		},
 		human,
 		acceptance,
@@ -324,10 +375,22 @@ export function buildSummary(
 			requests: items.reduce((s, i) => s + i.requests, 0),
 			wall_min: Math.round(items.reduce((s, i) => s + (i.wall_min ?? 0), 0)),
 			agent_min: Math.round(items.reduce((s, i) => s + (i.agent_min ?? 0), 0)),
-			wall_min_p50: pct(items.map((i) => i.wall_min).filter((v) => v !== null) as number[], 50),
-			wall_min_p90: pct(items.map((i) => i.wall_min).filter((v) => v !== null) as number[], 90),
-			agent_min_p50: pct(items.map((i) => i.agent_min).filter((v) => v !== null) as number[], 50),
-			agent_min_p90: pct(items.map((i) => i.agent_min).filter((v) => v !== null) as number[], 90),
+			wall_min_p50: pct(
+				items.map((i) => i.wall_min).filter((v) => v !== null) as number[],
+				50,
+			),
+			wall_min_p90: pct(
+				items.map((i) => i.wall_min).filter((v) => v !== null) as number[],
+				90,
+			),
+			agent_min_p50: pct(
+				items.map((i) => i.agent_min).filter((v) => v !== null) as number[],
+				50,
+			),
+			agent_min_p90: pct(
+				items.map((i) => i.agent_min).filter((v) => v !== null) as number[],
+				90,
+			),
 		},
 		not_instrumented: [
 			"charges_usd — provider pricing + retry/streaming reconciliation owned by W843",
@@ -358,7 +421,9 @@ function parseArgs(argv: string[]): Record<string, string> {
 }
 
 async function fetchTasks(board: string): Promise<TaskRow[]> {
-	const res = await fetch(`${board}/api/tasks`, { signal: AbortSignal.timeout(8000) });
+	const res = await fetch(`${board}/api/tasks`, {
+		signal: AbortSignal.timeout(8000),
+	});
 	if (!res.ok) throw new Error(`board ${board} -> ${res.status}`);
 	const body = (await res.json()) as { tasks: TaskRow[] };
 	return body.tasks ?? [];
@@ -367,13 +432,19 @@ async function fetchTasks(board: string): Promise<TaskRow[]> {
 /** W846: the persisted NEED_DECISION emit/settle history — board decisions
  * table folded with resolved (history=1) rows; client filters by window. */
 async function fetchDecisions(board: string): Promise<DecisionRow[]> {
-	const res = await fetch(`${board}/api/decisions?history=1`, { signal: AbortSignal.timeout(8000) });
+	const res = await fetch(`${board}/api/decisions?history=1`, {
+		signal: AbortSignal.timeout(8000),
+	});
 	if (!res.ok) throw new Error(`board ${board} -> ${res.status}`);
 	const body = (await res.json()) as { decisions: DecisionRow[] };
 	return body.decisions ?? [];
 }
 
-function fetchLedger(dbPath: string, since: string, until: string): LedgerRow[] {
+function fetchLedger(
+	dbPath: string,
+	since: string,
+	until: string,
+): LedgerRow[] {
 	const db = new Database(dbPath, { readonly: true });
 	try {
 		return db
@@ -384,19 +455,34 @@ function fetchLedger(dbPath: string, since: string, until: string): LedgerRow[] 
 				 WHERE ru.hour_bucket >= ? AND ru.hour_bucket <= ? AND ak.name IS NOT NULL
 				 GROUP BY ak.name, ru.model_group`,
 			)
-			.all(since.slice(0, 13) + ":00", until.slice(0, 13) + ":00") as LedgerRow[];
+			.all(
+				`${since.slice(0, 13)}:00`,
+				`${until.slice(0, 13)}:00`,
+			) as LedgerRow[];
 	} finally {
 		db.close();
 	}
 }
 
-function gitAcceptance(repo: string, since: string, until: string): Summary["acceptance"] {
+function gitAcceptance(
+	repo: string,
+	since: string,
+	until: string,
+): Summary["acceptance"] {
 	const range = ["--since", since, "--until", until];
-	const merges = spawnSync("git", ["-C", repo, "log", "--merges", ...range, "--format=%s"], { encoding: "utf8" });
+	const merges = spawnSync(
+		"git",
+		["-C", repo, "log", "--merges", ...range, "--format=%s"],
+		{ encoding: "utf8" },
+	);
 	const mergeSubjects = (merges.stdout ?? "").split("\n").filter(Boolean);
-	const numstat = spawnSync("git", ["-C", repo, "log", "--no-merges", ...range, "--numstat", "--format=%x00"], {
-		encoding: "utf8",
-	});
+	const numstat = spawnSync(
+		"git",
+		["-C", repo, "log", "--no-merges", ...range, "--numstat", "--format=%x00"],
+		{
+			encoding: "utf8",
+		},
+	);
 	let insertions = 0;
 	let deletions = 0;
 	for (const line of (numstat.stdout ?? "").split("\n")) {
@@ -408,7 +494,8 @@ function gitAcceptance(repo: string, since: string, until: string): Summary["acc
 	}
 	return {
 		merge_commits: mergeSubjects.length,
-		fleet_branch_merges: mergeSubjects.filter((s) => /[Ww]\d{2,}/.test(s)).length,
+		fleet_branch_merges: mergeSubjects.filter((s) => /[Ww]\d{2,}/.test(s))
+			.length,
 		insertions,
 		deletions,
 	};
@@ -436,26 +523,57 @@ if (import.meta.main) {
 	const until = args.until ?? new Date().toISOString();
 	const outDir = resolve(args.out ?? ".pilot-measure");
 	const board = args.board ?? "http://127.0.0.1:7799";
-	const ledgerPath = (args.ledger ?? "~/.claude/local-llm/buckle.db").replace(/^~/, process.env.HOME ?? "");
-	const commonDir = spawnSync("git", ["rev-parse", "--git-common-dir"], { encoding: "utf8" }).stdout.trim();
+	const ledgerPath = (args.ledger ?? "~/.claude/local-llm/buckle.db").replace(
+		/^~/,
+		process.env.HOME ?? "",
+	);
+	const commonDir = spawnSync("git", ["rev-parse", "--git-common-dir"], {
+		encoding: "utf8",
+	}).stdout.trim();
 	const project = args.project ?? resolve(commonDir);
 
 	const tasks = await fetchTasks(board);
 	const decisions = await fetchDecisions(board);
 	const ledger = fetchLedger(ledgerPath, since, until);
 	const acceptance = gitAcceptance(project, since, until);
-	const { items, summary } = buildSummary(tasks, ledger, { since, until }, project, acceptance, decisions);
+	const { items, summary } = buildSummary(
+		tasks,
+		ledger,
+		{ since, until },
+		project,
+		acceptance,
+		decisions,
+	);
 
 	mkdirSync(outDir, { recursive: true });
-	await Bun.write(`${outDir}/pilot-items.jsonl`, `${items.map((i) => JSON.stringify(i)).join("\n")}\n`);
-	await Bun.write(`${outDir}/pilot-summary.json`, `${JSON.stringify(summary, null, "\t")}\n`);
+	await Bun.write(
+		`${outDir}/pilot-items.jsonl`,
+		`${items.map((i) => JSON.stringify(i)).join("\n")}\n`,
+	);
+	await Bun.write(
+		`${outDir}/pilot-summary.json`,
+		`${JSON.stringify(summary, null, "\t")}\n`,
+	);
 
 	console.log(`window ${since} .. ${until}`);
-	console.log(`items done=${summary.items.done} tokens-covered=${summary.items.with_tokens} wall-covered=${summary.items.wall_covered}`);
-	console.log(`acceptance fleet-merges=${summary.acceptance.fleet_branch_merges}/${summary.acceptance.merge_commits} +${summary.acceptance.insertions} -${summary.acceptance.deletions}`);
-	console.log(`totals in=${summary.totals.tokens_in} out=${summary.totals.tokens_out} req=${summary.totals.requests} wall=${summary.totals.wall_min}m agent=${summary.totals.agent_min}m p50=${summary.totals.wall_min_p50}m p90=${summary.totals.wall_min_p90}m`);
-	for (const [g, v] of Object.entries(summary.tokens.by_group)) console.log(`  ${g}: in=${v.in} out=${v.out} cacheR=${v.cacheR} req=${v.requests}`);
+	console.log(
+		`items done=${summary.items.done} tokens-covered=${summary.items.with_tokens} wall-covered=${summary.items.wall_covered}`,
+	);
+	console.log(
+		`acceptance fleet-merges=${summary.acceptance.fleet_branch_merges}/${summary.acceptance.merge_commits} +${summary.acceptance.insertions} -${summary.acceptance.deletions}`,
+	);
+	console.log(
+		`totals in=${summary.totals.tokens_in} out=${summary.totals.tokens_out} req=${summary.totals.requests} wall=${summary.totals.wall_min}m agent=${summary.totals.agent_min}m p50=${summary.totals.wall_min_p50}m p90=${summary.totals.wall_min_p90}m`,
+	);
+	for (const [g, v] of Object.entries(summary.tokens.by_group))
+		console.log(
+			`  ${g}: in=${v.in} out=${v.out} cacheR=${v.cacheR} req=${v.requests}`,
+		);
 	console.log(`workload: ${JSON.stringify(summary.items.by_workload)}`);
-	console.log(`human time: decisions=${summary.human.decisions_in_window} settled=${summary.human.settled} latency p50=${summary.human.latency_min_p50}m p90=${summary.human.latency_min_p90}m (items attributed: ${summary.human.items_with_human_time})`);
-	console.log(`not instrumented: ${summary.not_instrumented.length} surfaces (see pilot-summary.json)`);
+	console.log(
+		`human time: decisions=${summary.human.decisions_in_window} settled=${summary.human.settled} latency p50=${summary.human.latency_min_p50}m p90=${summary.human.latency_min_p90}m (items attributed: ${summary.human.items_with_human_time})`,
+	);
+	console.log(
+		`not instrumented: ${summary.not_instrumented.length} surfaces (see pilot-summary.json)`,
+	);
 }

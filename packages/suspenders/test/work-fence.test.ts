@@ -5,7 +5,7 @@ import {
 	claimTokenVerdict,
 	evidenceCheck,
 	evidencePatternsOf,
-} from "../hooks/lib/work-fence.ts";
+} from "../hooks/lib/work/work-fence.ts";
 
 describe("claim tokens", () => {
 	test("mint is 48-hex and unique per call", () => {

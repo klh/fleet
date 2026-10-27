@@ -26,7 +26,7 @@ import {
 	parseWiredPages,
 	plaidLaunchHold,
 	readHostPressureState,
-} from "../hooks/lib/plaid-host-pressure.ts";
+} from "../hooks/lib/plaid/plaid-host-pressure.ts";
 
 const HEALTHY_MP = "System-wide memory free percentage: 71%";
 const HEALTHY_VM = `Mach Virtual Memory Statistics: (page size of 16384 bytes)

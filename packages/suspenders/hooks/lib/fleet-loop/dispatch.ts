@@ -8,17 +8,17 @@
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { symlinkBuildDirs } from "../builddirs.ts";
-import { openStore, projectIdentity } from "../govdb.ts";
-import { mergeLaneRegistry } from "../lane-registry.ts";
-import { laneSid } from "../laneslug.ts";
-import { laneProcessIdentity } from "../lane-liveness.ts";
+import { openStore, projectIdentity } from "../govdb/govdb.ts";
+import { mergeLaneRegistry } from "../lanes/lane-registry.ts";
+import { laneSid } from "../lanes/laneslug.ts";
+import { laneProcessIdentity } from "../lanes/lane-liveness.ts";
 import { condensePrompt } from "../../board/prompt-transform.ts";
 import {
 	jobslabFor,
 	jobslabPrefix,
 	jobslabTag,
 	laneClassOf,
-} from "../jobslab.ts";
+} from "../lanes/jobslab.ts";
 import {
 	acquireLaunchLease,
 	releaseFailedLaunch,
@@ -37,24 +37,25 @@ import {
 	terminateOwnLaunch,
 	type LaunchIntent,
 } from "../../../scripts/lib/launch-fencing.ts";
-import { launchParent } from "../launch-parent.ts";
-import { laneAttemptLimit } from "../lane-retry-budget.ts";
+import { launchParent } from "../lanes/launch-parent.ts";
+import { laneAttemptLimit } from "../lanes/lane-retry-budget.ts";
 import {
 	parkExhaustedLaunch,
 	readLaunchBackoff,
 	scheduleLaunchBackoff,
 } from "../../../scripts/lib/launch-backoff.ts";
-import { reproGateForItem } from "../repro-gate.ts";
+import { reproGateForItem } from "../gates/repro-gate.ts";
+import { recordLaneExecutor } from "../executors/executor-cv.ts";
 import { adapterFor } from "../executors/registry.ts";
 import {
 	applyLaneAttribution,
 	executorLaunch,
 	probeBuckleFront,
-} from "../lane.ts";
-import { ensureLaneKey, laneKeyMetaPath } from "../lane-auth.ts";
+} from "../lanes/lane.ts";
+import { ensureLaneKey, laneKeyMetaPath } from "../lanes/lane-auth.ts";
 // W254: pointer-grade injection — file-map + done-definition digest for the
-// direct-launch brief, gated per W113 on repo size (hooks/lib/brief-intel.ts)
-import { briefIntel, renderIntel } from "../brief-intel.ts";
+// direct-launch brief, gated per W113 on repo size (hooks/lib/lanes/brief-intel.ts)
+import { briefIntel, renderIntel } from "../lanes/brief-intel.ts";
 import { isResumableClaim } from "../../../scripts/lib/resumable-claim.ts";
 import { flagFns, type LoopConfig } from "./config.ts";
 import type { LoopDeps } from "./runtime.ts";
@@ -196,6 +197,10 @@ export async function runDispatch(
 			.get(project, item, sid) as { updated_at: number } | null;
 		if (!claim) throw new Error("claim changed during direct launch");
 		revision = claim.updated_at;
+		// W1731: register the explicit launch identity (lane-launch parity) —
+		// completion reads it before ambient client detection, which a nested
+		// agent's inherited environment can mislead.
+		recordLaneExecutor(store, sid, AGENT, null);
 		intent = reserveLaunchIntent(
 			store,
 			{ project, item, sid, nonce, revision, executor: executor.bin },

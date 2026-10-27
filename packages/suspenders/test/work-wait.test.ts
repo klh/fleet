@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 import {
 	parseWaitUntil,
 	waitForPrerequisite,
 	wakeAfterEvidence,
-} from "../hooks/lib/work-wait.ts";
+} from "../hooks/lib/work/work-wait.ts";
 
 function fixture(): GovernorStore {
 	const db = new Database(":memory:");

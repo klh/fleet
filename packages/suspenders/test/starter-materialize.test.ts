@@ -12,12 +12,12 @@ import {
 	recordOutcome,
 	readOutcomes,
 	type MaterializeRequest,
-} from "../hooks/lib/starter-materialize.ts";
+} from "../hooks/lib/starter/starter-materialize.ts";
 import {
 	promoteStarter,
 	writeGrants,
 	appendRevocation,
-} from "../hooks/lib/starter-distribution.ts";
+} from "../hooks/lib/starter/starter-distribution.ts";
 
 const scratch = (): string => mkdtempSync(join(tmpdir(), "w4583t-"));
 

@@ -22,6 +22,9 @@ export const SHIM_NAMES = [
 	"dispatch",
 	"fleet-tracker",
 	"oracle",
+	// W1354: the gate-exempt repo .prefer hub-pin writer (bin/prefer.ts) —
+	// the supported routing fix the W834 coordinator-edit-gate redirects to.
+	"prefer",
 	// W918.5: PATH-stable copilot launcher (bin/copilot.ts) — the npm shim
 	// under nvm needs node on PATH, which launchd/lane contexts lack (W626).
 	"copilot",

@@ -1,6 +1,7 @@
 // hooks/lib/executors/copilot.ts — the copilot CLI adapter (W422 law: one
 // file per agent; specifics verified live in W223/W223.1).
-import type { ExecutorAdapter } from "../lane.ts";
+import type { ExecutorAdapter } from "../lanes/lane.ts";
+import { copilotEvidence } from "./copilot-evidence.ts";
 
 export const copilotAdapter: ExecutorAdapter = {
 	id: "copilot",
@@ -39,4 +40,12 @@ export const copilotAdapter: ExecutorAdapter = {
 	// W918.5: the ensureShims launcher lands at ~/.local/bin/copilot — probe
 	// it when `which` misses (launchd runs a bare PATH, W626).
 	installPaths: ["~/.local/bin/copilot"],
+	// W1731: the detector also answers "github-copilot" for a human shell
+	// that merely holds COPILOT_GITHUB_TOKEN — a running client must show a
+	// runtime marker too (AI_AGENT reaches here only as github-copilot[-cli]).
+	detect: {
+		names: ["github-copilot"],
+		markers: ["AI_AGENT", "COPILOT_MODEL", "COPILOT_ALLOW_ALL"],
+	},
+	evidence: copilotEvidence,
 };

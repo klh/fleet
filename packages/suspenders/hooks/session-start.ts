@@ -18,9 +18,14 @@ import {
 	openStore,
 	projectIdentity,
 	sweepStaleSessions,
-} from "./lib/govdb.ts";
+} from "./lib/govdb/govdb.ts";
 import { enrollTopLevel } from "./lib/hook-scripts.ts";
 import { run } from "./lib/run.ts";
+import {
+	SINK_QUERY_SCOPE,
+	sinkConf,
+	sinkConfigured,
+} from "./lib/knowledge/knowledge-sink-client.ts";
 import { checkSessionPolicies } from "./lib/session-policy.ts";
 import { attachSubscribe, subagentLaneSuffix } from "./lib/subscribe-attach.ts";
 import {
@@ -29,13 +34,13 @@ import {
 	liveStates,
 	supervisorFactLine,
 	supervisorRows,
-} from "./lib/supervisor.ts";
+} from "./lib/lanes/supervisor.ts";
 import {
 	seedSupervisorRefill,
 	supervisorContractNotice,
 	supervisorControlStatus,
 	supervisorRefillDirective,
-} from "./lib/supervisor-refill.ts";
+} from "./lib/lanes/supervisor-refill.ts";
 
 type In = {
 	session_id?: string;
@@ -475,6 +480,14 @@ if (!isSubagent && input.cwd) {
 		);
 	}
 }
+
+// W1221 knowledge-sink one-liner: when the hub recall face is configured,
+// point the fresh session at it — a coord fact get miss falls through to the
+// sink (coord/facts.ts), so no session re-derives what the sink answers.
+if (sinkConfigured())
+	out.push(
+		`KNOWLEDGE SINK ${sinkConf().url} — fleet-knowledge recall: POST {url}/search {"query"} (anonymous, scrubbed cards) · POST {url}/knowledge/query {"question"} (bksk_ key, scope ${SINK_QUERY_SCOPE}); a coord fact get miss falls through to it`,
+	);
 
 // legacy-ledger notice: known operational-ledger names, unmarked = old habit
 // may still treat them as live. One terse line, first match only. Deterministic

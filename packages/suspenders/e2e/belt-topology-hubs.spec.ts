@@ -4,11 +4,12 @@
 // accessible lists — rides REAL belt modules served from packages/belt/bin,
 // fed by a node:http fixture answering the dashboard APIs with parametric
 // topology snapshots. Camera stability rides the host's live 10s refresh.
-import { expect, test, type Page } from "@playwright/test";
+
 import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { expect, type Page, test } from "@playwright/test";
 
 const BELT_BIN = join(
 	fileURLToPath(import.meta.url),
@@ -74,43 +75,42 @@ function snapshotFor(count: number) {
 		}
 	}
 	return {
-
-	ok: true,
-	schemaVersion: 1,
-	observedAt: now(),
-	windowStart: ago(900_000),
-	hubId: "local",
-	hubs: names.map(HUB),
-	targets: [TARGET],
-	edges,
-	traces:
-		count > 1
-			? [
-					{
-						id: "trace-abc123",
-						hops: names.slice(0, 2),
-						complete: true,
-						lastSeenAt: ago(30_000),
-					},
-				]
-			: [],
-	totals: {
-		requests: null,
-		failed: null,
-		active: null,
-		inputTokens: null,
-		outputTokens: null,
-	},
-	coverage: {
-		projectionAvailable: true,
-		ledgerAvailable: false,
-		tracesReturned: 1,
-		tracesTotal: 1,
-		projectionTruncated: false,
-		tokensScope: "unreported",
-		usageBearingOrigins: null,
-	},
-};
+		ok: true,
+		schemaVersion: 1,
+		observedAt: now(),
+		windowStart: ago(900_000),
+		hubId: "local",
+		hubs: names.map(HUB),
+		targets: [TARGET],
+		edges,
+		traces:
+			count > 1
+				? [
+						{
+							id: "trace-abc123",
+							hops: names.slice(0, 2),
+							complete: true,
+							lastSeenAt: ago(30_000),
+						},
+					]
+				: [],
+		totals: {
+			requests: null,
+			failed: null,
+			active: null,
+			inputTokens: null,
+			outputTokens: null,
+		},
+		coverage: {
+			projectionAvailable: true,
+			ledgerAvailable: false,
+			tracesReturned: 1,
+			tracesTotal: 1,
+			projectionTruncated: false,
+			tokensScope: "unreported",
+			usageBearingOrigins: null,
+		},
+	};
 }
 
 let server: Server;
@@ -213,13 +213,12 @@ test.beforeEach(() => {
 
 const render = async (page: Page) => {
 	await page.goto(base);
-	await page.waitForFunction(
-		() =>
-			Boolean(
-				document
-					.querySelector("belt-topology-hubs")
-					?.shadowRoot?.querySelector("svg"),
-			),
+	await page.waitForFunction(() =>
+		Boolean(
+			document
+				.querySelector("belt-topology-hubs")
+				?.shadowRoot?.querySelector("svg"),
+		),
 	);
 };
 
@@ -244,9 +243,9 @@ const rows = (page: Page) =>
 			: [];
 	});
 
-test("one hub renders its aggregated card, metrics and accessible list", async ({
-	page,
-}) => {
+test("one hub renders its aggregated card, metrics and accessible list", {
+	tag: ["@ui", "@smoke"],
+}, async ({ page }) => {
 	await render(page);
 	const list = await cards(page);
 	expect(list).toHaveLength(1);
@@ -257,7 +256,9 @@ test("one hub renders its aggregated card, metrics and accessible list", async (
 	const table = await rows(page);
 	expect(table).toHaveLength(1);
 	const shadowText = await page.evaluate(
-		() => document.querySelector("belt-topology-hubs")?.shadowRoot?.textContent ?? "",
+		() =>
+			document.querySelector("belt-topology-hubs")?.shadowRoot?.textContent ??
+			"",
 	);
 	expect(shadowText).toContain("hubs in view");
 	const windowTitles = await page.evaluate(() =>
@@ -272,9 +273,9 @@ test("one hub renders its aggregated card, metrics and accessible list", async (
 	expect(shadowText).toContain("Select a hub card");
 });
 
-test("ten hubs: chain renders, search narrows, drawer inspects hub-05", async ({
-	page,
-}) => {
+test("ten hubs: chain renders, search narrows, drawer inspects hub-05", {
+	tag: ["@ui", "@smoke"],
+}, async ({ page }) => {
 	fixture.hubCount = 10;
 	await render(page);
 	expect(await cards(page)).toHaveLength(10);
@@ -285,7 +286,9 @@ test("ten hubs: chain renders, search narrows, drawer inspects hub-05", async ({
 		.poll(async () => (await cards(page)).length, { timeout: 5_000 })
 		.toBe(10);
 	const shadowText = await page.evaluate(
-		() => document.querySelector("belt-topology-hubs")?.shadowRoot?.textContent ?? "",
+		() =>
+			document.querySelector("belt-topology-hubs")?.shadowRoot?.textContent ??
+			"",
 	);
 	expect(shadowText).toContain("Search hits:");
 	const hit = page
@@ -311,9 +314,9 @@ const shadowTextOf = async (page: Page) =>
 			"",
 	);
 
-test("a hundred hubs all render; the map grows and stays scrollable", async ({
-	page,
-}) => {
+test("a hundred hubs all render; the map grows and stays scrollable", {
+	tag: ["@ui", "@smoke"],
+}, async ({ page }) => {
 	fixture.hubCount = 100;
 	await render(page);
 	expect(await cards(page)).toHaveLength(100);
@@ -328,9 +331,9 @@ test("a hundred hubs all render; the map grows and stays scrollable", async ({
 	expect(Number(width?.sw) - Number(width?.cw)).toBeGreaterThan(100);
 });
 
-test("camera stability: scroll, selection and drawer survive the live 10s refresh", async ({
-	page,
-}) => {
+test("camera stability: scroll, selection and drawer survive the live 10s refresh", {
+	tag: ["@ui", "@smoke"],
+}, async ({ page }) => {
 	fixture.hubCount = 10;
 	await render(page);
 	const input = page.locator("belt-topology-hubs input[type=search]");
@@ -367,9 +370,6 @@ test("camera stability: scroll, selection and drawer survive the live 10s refres
 				?.shadowRoot?.querySelector(".inspector")?.textContent,
 		};
 	});
-	expect(after).toEqual(
-		expect.objectContaining({ top: 84, left: 200 }),
-	);
+	expect(after).toEqual(expect.objectContaining({ top: 84, left: 200 }));
 	expect(after.drawer).toContain("hub-05");
 });
-

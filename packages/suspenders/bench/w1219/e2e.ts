@@ -12,7 +12,7 @@ import { buildReplica } from "./replica.ts";
 import { buildPrompt } from "./prompt.ts";
 import { extractSql, lintSql, execSql, rowsMatch } from "./kit.ts";
 import { QUESTIONS } from "./questions.ts";
-import { mintLaneKey, revokeLaneKey } from "../../hooks/lib/lane-auth.ts";
+import { mintLaneKey, revokeLaneKey } from "../../hooks/lib/lanes/lane-auth.ts";
 
 const PORT = 7819;
 // The e2e must ride a buckle that BOOTED with the pinned conf — the live

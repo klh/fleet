@@ -31,6 +31,7 @@ import { bridgeRequest, bridgeResponse } from "./bridge.ts";
 import { type CandidateRow, candIdOf } from "./candidates.ts";
 import { Cooldowns, retryAfterS, retryDelayS } from "./cooldown.ts";
 import { mayEscalate, type RouteSelection } from "./decide.ts";
+import { clampRetryAfter } from "./http-kit.ts";
 import { FLASHX, type GatewayPolicy } from "./policy.ts";
 import {
 	assertProviderConcurrencyErrorCodes,
@@ -506,13 +507,19 @@ export class Router {
 						? Response.json(routerErrorEnvelope(err, req.dialect), {
 								status: 429,
 								headers: {
-									...Object.fromEntries(replay.headers),
+									...Object.fromEntries(
+										[...replay.headers].filter(([k]) => k !== "retry-after"),
+									),
 									"content-type": "application/json",
+									// W1303.2 clamp: the upstream's retry-after relays
+									// clamped — a quota wall never sleeps a client for
+									// weeks (http-kit).
 									...(ra === null
 										? {}
 										: {
-												"retry-after":
-													replay.headers.get("retry-after") ?? String(ra),
+												"retry-after": String(
+													clampRetryAfter(retryAfterS(replay.headers) ?? ra),
+												),
 											}),
 								},
 							})
@@ -751,6 +758,13 @@ export class Router {
 				);
 			} catch (error) {
 				if (req.signal?.aborted) {
+					// W1124.42: the final receipt must truthfully retain the
+					// attempt — a wire guard that fired (or a classified upstream
+					// refusal racing the hangup) keeps its network attribution;
+					// a plain hangup with no upstream boundary stays plain.
+					const upstream = error instanceof UpstreamError ? error : null;
+					const timedOutPhase =
+						observedReq.transport?.snapshot()?.timeoutPhase ?? null;
 					this.reportAttempt(
 						observedReq,
 						dep,
@@ -759,6 +773,11 @@ export class Router {
 						null,
 						"downstream_cancel",
 						null,
+						undefined,
+						undefined,
+						null,
+						upstream !== null || timedOutPhase !== null ? "network" : null,
+						upstream ?? undefined,
 					);
 					return { kind: "aborted" };
 				}

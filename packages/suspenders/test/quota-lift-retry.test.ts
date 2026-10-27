@@ -7,12 +7,12 @@
 // stay registered with the triplet's gate or the mission silently disarms.
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 import {
 	gateMs,
 	parseQuotaItems,
 	quotaLiftRetry,
-} from "../hooks/lib/quota-lift-retry.ts";
+} from "../hooks/lib/usage/quota-lift-retry.ts";
 import {
 	MAINTENANCE_TASKS,
 	missingRunners,
@@ -133,10 +133,7 @@ describe("quotaLiftRetry verdicts", () => {
 			expect(it.state).toBe("READY");
 			expect(it.owner_sid).toBeNull();
 		}
-		expect(emits).toEqual([
-			"work.requeued|true",
-			"work.requeued|true",
-		]);
+		expect(emits).toEqual(["work.requeued|true", "work.requeued|true"]);
 	});
 });
 
@@ -148,7 +145,7 @@ describe("W804 registry arming (the task must stay registered)", () => {
 		expect(task?.argv(suspendersRoot(), "/")).toEqual([
 			expect.stringContaining("quota-lift-retry.ts"),
 			"--item",
-			"W738,W695.6.2,W731",
+			"W738,W695.6.2,W731,W1202.1",
 			"--after",
 			"2026-11-01",
 		]);

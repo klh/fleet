@@ -2,7 +2,11 @@
 // daemonized-pid resolve pass and the run summary/exit-code render. Bodies
 // moved from dispatch-next.ts main(); state arrives as arguments, the exit
 // code returns to the caller.
-import { laneProcessIdentity } from "../../hooks/lib/lane-liveness.ts";
+import { laneProcessIdentity } from "../../hooks/lib/lanes/lane-liveness.ts";
+import {
+	type ChosenExecutor,
+	chosenExecutorReport,
+} from "./dispatch-executor-note.ts";
 
 /** Structural view of a lane-registry entry — the dispatch entrypoint's
  * Lane type narrows to this. */
@@ -102,6 +106,8 @@ export type DispatchSummaryOpts = {
 	launchWaits?: string[];
 	starved: Map<string, string[]>;
 	report: string | null;
+	/** W1353: rows the launch/preview paths pushed — the executor table. */
+	chosen?: ChosenExecutor[];
 };
 
 export const dispatchSummary = (o: DispatchSummaryOpts): number => {
@@ -111,6 +117,10 @@ export const dispatchSummary = (o: DispatchSummaryOpts): number => {
 	// W899: the dispatch summary carries the fleet report table — same shape
 	// the install tail, session-start tick and lane briefs emit.
 	if (o.report) console.log(o.report);
+	// W1353: what each lane actually launched with — after the standard table
+	// so the status line + fleet report stay adjacent for verbatim pasting.
+	const executors = chosenExecutorReport(o.chosen ?? []);
+	if (executors) console.log(executors);
 	let code = 0;
 	// W695.1: a seed fallback dispatched a lane that will re-orient from cold
 	// context — never read as a fully healthy dispatch even when nothing was

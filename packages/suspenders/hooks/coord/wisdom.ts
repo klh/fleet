@@ -11,7 +11,7 @@
 // suppressed detections park in the finding.wisdom.queue digest.
 import { spawnSync } from "node:child_process";
 import { db, green, dim, projectIdentity } from "./shared.ts";
-import { projectRootOf } from "../lib/govdb.ts";
+import { projectRootOf } from "../lib/govdb/govdb.ts";
 import { emitEvent } from "./bus.ts";
 
 // rules-as-data (spec §4.5): a ruling can promote one of these into a

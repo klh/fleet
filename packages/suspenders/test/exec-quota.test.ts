@@ -12,8 +12,8 @@ import {
 	providerOf,
 	quotaProviderPenalty,
 	zaiPrefixes,
-} from "../hooks/lib/exec-quota.ts";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+} from "../hooks/lib/usage/exec-quota.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "w374-quota-home-"));
 const REPO = mkdtempSync(join(tmpdir(), "w374-quota-repo-"));
@@ -21,7 +21,12 @@ mkdirSync(join(HOME, ".claude", "local-llm"), { recursive: true });
 const REAL_HOME = process.env.HOME;
 process.env.HOME = HOME;
 
-const settingsFile = join(HOME, ".claude", "local-llm", "suspenders-board.json");
+const settingsFile = join(
+	HOME,
+	".claude",
+	"local-llm",
+	"suspenders-board.json",
+);
 const pick = (
 	attempt: number,
 	de: string[],
@@ -87,14 +92,14 @@ describe("W374 quotaProviderPenalty — positive evidence only", () => {
 	test("future zai.cooldown.until demotes zai; past does not", () => {
 		const db = store();
 		setFact(db, "zai.cooldown.until", String(2_000_000));
-		expect(
-			quotaProviderPenalty(db, { now: 1_000_000 }).get("zai"),
-		).toContain("cooldown until");
+		expect(quotaProviderPenalty(db, { now: 1_000_000 }).get("zai")).toContain(
+			"cooldown until",
+		);
 		const past = store();
 		setFact(past, "zai.cooldown.until", String(500_000));
-		expect(
-			quotaProviderPenalty(past, { now: 1_000_000 }).has("zai"),
-		).toBe(false);
+		expect(quotaProviderPenalty(past, { now: 1_000_000 }).has("zai")).toBe(
+			false,
+		);
 	});
 
 	test("near-cliff window state demotes zai; a far expiry does not", () => {
@@ -111,9 +116,9 @@ describe("W374 quotaProviderPenalty — positive evidence only", () => {
 			quotaProviderPenalty(store(), { now: 1_000_000 }).get("zai"),
 		).toContain("near cliff");
 		writeState([1_000_000 + 3 * 3600_000]); // 3h left — healthy window
-		expect(
-			quotaProviderPenalty(store(), { now: 1_000_000 }).has("zai"),
-		).toBe(false);
+		expect(quotaProviderPenalty(store(), { now: 1_000_000 }).has("zai")).toBe(
+			false,
+		);
 	});
 
 	test("copilot headroom WARN demotes copilot only while fresh", () => {
@@ -186,6 +191,3 @@ describe("W374 execPick routes the DEFAULT ladder around exhaustion", () => {
 		rmSync(join(REPO, ".prefer"));
 	});
 });
-
-
-

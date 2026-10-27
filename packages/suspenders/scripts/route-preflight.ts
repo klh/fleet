@@ -8,7 +8,7 @@ import { YAML } from "bun";
 import { ROUTER, SPECIALISTS } from "../../belt/bin/registry.ts";
 import { confCandidates } from "../hooks/lib/kernel-conf.ts";
 import { loadStack, STACK_PATH } from "../hooks/lib/stack-config.ts";
-import { parseEnvBody } from "../hooks/lib/hub-provider-keys.ts";
+import { parseEnvBody } from "../hooks/lib/auth/hub-provider-keys.ts";
 import { providerPoolIdOf } from "../../buckle/src/router.ts";
 import { runForcedFailoverDrill } from "../../buckle/src/forced-failover-drill.ts";
 import {
@@ -111,6 +111,12 @@ export function routeInputs(source: RoutePreflightSources): RouteLadderInputs {
 			origins: [hubOrigin(name, hub)],
 			pool: activePool(poolFrom(hub.upstreams)),
 			policy: {},
+			// W1094.1 host boundary (re-landed): a deploy.ssh hub runs on
+			// another machine — its container loopback is NOT this host's,
+			// so the Mac specialist registry terminates only co-hosted hubs
+			// and its machine-local deployments need their own declared
+			// terminal to count as a mapped leaf.
+			remoteHost: Boolean(string(record(hub.deploy).ssh)),
 		});
 		if (hub.belt_model !== undefined) {
 			const model = record(hub.belt_model);
@@ -163,6 +169,7 @@ export function routeInputs(source: RoutePreflightSources): RouteLadderInputs {
 			...beltModels,
 		],
 		terminalOrigins: [...specialistOrigins, ...(terminals as string[])],
+		declaredTerminals: terminals as string[],
 		requestDeadlineMs: source.deadlineMs,
 	};
 }
@@ -247,7 +254,28 @@ export async function checkRoutePreflight(
 				maxAttempts: 32,
 				maxWallMs: 3000,
 			});
-			drills.push({ group, fallback, failureStatus, ok: report.ok });
+			// The explicitly pinned Flash alias is the SAME Coding Plan account.
+			// Pressure must refuse without changing models; delivery through an
+			// independent account would violate the operator's model pin.
+			const pinnedFlashPressure =
+				failureStatus === 429 &&
+				group === "glm-5.3-flash" &&
+				fallback === "zai-glm-5.3-flash" &&
+				fallbacks.length === 1 &&
+				accounts.size === 1 &&
+				local.pool
+					.deployments(fallback)
+					.every((dep) => accounts.has(providerPoolIdOf(dep))) &&
+				!report.ok &&
+				report.deliveredGroup === null &&
+				report.attempts.some((attempt) => attempt.status === 429) &&
+				report.attempts.every((attempt) => attempt.group === group);
+			drills.push({
+				group,
+				fallback,
+				failureStatus,
+				ok: report.ok || pinnedFlashPressure,
+			});
 		}
 		break;
 	}

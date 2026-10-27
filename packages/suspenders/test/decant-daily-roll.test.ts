@@ -14,11 +14,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runDaily } from "../hooks/lib/decant-daily.ts";
+import { runDaily } from "../hooks/lib/fleet-loop/decant-daily.ts";
 import { pushDailyRoll } from "../hooks/lib/decant-roll.ts";
-import { collectClaims } from "../hooks/lib/knowledge-roll.ts";
-import { readSyncState } from "../hooks/lib/knowledge-sync.ts";
-import { readState } from "../hooks/lib/decant-daily.ts";
+import { collectClaims } from "../hooks/lib/knowledge/knowledge-roll.ts";
+import { readSyncState } from "../hooks/lib/knowledge/knowledge-sync.ts";
+import { readState } from "../hooks/lib/fleet-loop/decant-daily.ts";
 
 const tmp = mkdtempSync(join(tmpdir(), "w1220-roll-"));
 const NOW = Date.now();

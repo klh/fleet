@@ -14,7 +14,7 @@ import {
 	lineIsQuota,
 	auditRowIsQuota,
 	projectRootOf,
-} from "../hooks/lib/quota-sweep.ts";
+} from "../hooks/lib/fleet-loop/quota-sweep.ts";
 
 const STALE = 16 * 60_000; // past the 15-min floor
 const dirs: string[] = [];

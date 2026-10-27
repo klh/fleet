@@ -5,7 +5,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
-import { mergeTags, splitTags, validateTags } from "../hooks/lib/work-tags.ts";
+import { mergeTags, splitTags, validateTags } from "../hooks/lib/work/work-tags.ts";
 
 const f = cliFixture("work-tags");
 const REPO = f.REPO;

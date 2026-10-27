@@ -12,6 +12,10 @@
 //                                     #   (refuses a stale/unpinned hub .env; --force overrides)
 //   bun deploy/hubctl.ts status <hub>   # per-service health probes
 //   bun deploy/hubctl.ts deploy <hub>   # install-grade one-shot: mint → push → up → status
+//                                     #   (up/deploy first resolve the stack version +
+//                                     #   overlay repos.ref against their origins via git
+//                                     #   ls-remote — a pin the origin cannot serve
+//                                     #   refuses activation: W1302.3, fail closed)
 //   bun deploy/hubctl.ts manifest <hub> [--out <dir>]  # W698: release manifest + SBOM
 //   bun deploy/hubctl.ts exec <hub> <cmd...>   # W484.1.1: allowlisted read-only
 //                                             #   probes over the ssh path
@@ -53,6 +57,10 @@ import {
 	type StackConfig,
 } from "../hooks/lib/stack-config.ts";
 import { composeUpArgv, sshOpts } from "./hub-remote.ts";
+import {
+	assertDeployRefsExist,
+	resolveHubOrigin,
+} from "./hub-ref-preflight.ts";
 import { mergedHubUpstreams } from "./openrouter-free.ts";
 import { mergeZaiHubUpstreams } from "./zai-catalog.ts";
 import { renderHubPolicy } from "./hub-policy.ts";
@@ -173,36 +181,9 @@ function renderEnv(
 	version?: string,
 ): string {
 	assertLocalPortReservations(hub, name);
-	const ref = version;
-	if (!ref || ref === "main" || ref === "master")
-		throw new Error(
-			"hub deploy requires a pinned stack version (reviewed SHA or release tag)",
-		);
-	const origins = [
-		...new Set(
-			[hub.repos?.buckle, hub.repos?.suspenders, hub.repos?.belt].filter(
-				Boolean,
-			),
-		),
-	];
-	if (origins.length > 1)
-		throw new Error("hub packages must share one Fleet monorepo origin");
-	const origin = origins[0] ?? "https://github.com/klh/fleet.git";
-	if (/github\.com[:/]klh\/(?:buckle|suspenders|belt)(?:\.git)?$/.test(origin))
-		throw new Error(
-			"archived package origin cannot deploy Fleet; configure the monorepo origin",
-		);
-	// Overlay origin (the private tier): the hub pulls its OWN deployable ref —
-	// the 40-hex stack version cannot exist as a ref in a private origin
-	// (GitHub GH002 bans sha-named refs); the public base rides the version
-	// via the overlay's git-dep pins instead (bun install on the hub).
-	const overlay = origin !== "https://github.com/klh/fleet.git";
-	if (overlay && !hub.repos?.ref)
-		throw new Error(
-			"overlay origin needs repos.ref — the hub's own deployable ref (the stack version cannot be a ref in a private origin: GH002)",
-		);
-	if (!overlay && hub.repos?.ref && hub.repos.ref !== version)
-		throw new Error("hub repo ref must match the shared stack version");
+	// W1302.3: the origin/ref shape gate moved to deploy/hub-ref-preflight.ts
+	// (shared with the activation preflight — ONE shape gate, one error set)
+	const { origin, ref } = resolveHubOrigin(hub, version);
 	const lines = [`HUB_NAME=${name}`];
 	for (const [key, value] of Object.entries(hubMetricsEnv(hub)))
 		lines.push(`${key}=${value}`);
@@ -211,7 +192,7 @@ function renderEnv(
 	};
 	kv("HUB_BUCKLE_PORT", hub.buckle_port);
 	kv("HUB_BUCKLE_BIND", hub.bind);
-	kv("HUB_FLEET_REF", overlay ? hub.repos?.ref : ref);
+	kv("HUB_FLEET_REF", ref);
 	kv("HUB_FLEET_REPO_URL", origin);
 	kv("HUB_FLEET_SRC", hub.repos?.src);
 	kv("HUB_BUCKLE_ENV_FILE", hub.secrets?.buckle_root_key);
@@ -1080,10 +1061,14 @@ function main(): void {
 			return;
 		case "up":
 			assertHubActivationPreflight(verb);
+			// W1302.3: the pins must resolve against their origins before the
+			// hub is touched — a dead ref refused here never reaches fleet-repo
+			assertDeployRefsExist(hub, hubName, hubVersion);
 			upHub(hub, hubName, hubVersion, force);
 			return;
 		case "deploy":
 			assertHubActivationPreflight(verb);
+			assertDeployRefsExist(hub, hubName, hubVersion);
 			deployHub(hub, hubName, auth, hubVersion);
 			return;
 		case "manifest":

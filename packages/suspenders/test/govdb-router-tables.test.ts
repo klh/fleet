@@ -21,12 +21,12 @@ const HOME = mkdtempSync(join(tmpdir(), "suspenders-w132-"));
 const REAL_HOME = process.env.HOME;
 process.env.HOME = HOME; // REG binds at govdb module load — set before import
 const { openGovernorDb } = await import(
-	`../hooks/lib/govdb.ts?w132=${encodeURIComponent(HOME)}`
+	`../hooks/lib/govdb/govdb.ts?w132=${encodeURIComponent(HOME)}`
 );
 process.env.HOME = REAL_HOME;
 // W359: v8 shipped api_keys/auth_events — a pre-split fixture must carry
 // them; post-split their DDL lives in identity-db.ts (strip its idb. prefix)
-const { IDENTITY_DDL } = await import("../hooks/lib/identity-db.ts");
+const { IDENTITY_DDL } = await import("../hooks/lib/govdb/identity-db.ts");
 
 const DB = `${HOME}/.cache/claude-governor/governor.db`;
 const IDB = `${HOME}/.cache/claude-governor/identity.db`;

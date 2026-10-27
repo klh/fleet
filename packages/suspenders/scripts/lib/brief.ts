@@ -7,11 +7,16 @@
 // (the PROTOCOL line points at it) — redundancy here is measured by
 // scripts/lib/brief-weight.ts and surfaced in `coord metrics`.
 import { condensePrompt } from "../../hooks/board/prompt-transform.ts";
-// W254: pointer-grade injection — file-map + done-definition digest for the
-// brief, gated per W113 on repo size (hooks/lib/brief-intel.ts)
-import { type BriefIntel, renderIntel } from "../../hooks/lib/brief-intel.ts";
 import { capsuleValidity } from "../../hooks/lib/capsule-fence.ts";
-import { effortBudgetLine } from "../../hooks/lib/work-effort.ts";
+// W254: pointer-grade injection — file-map + done-definition digest for the
+// brief, gated per W113 on repo size (hooks/lib/lanes/brief-intel.ts)
+import {
+	type BriefIntel,
+	renderIntel,
+} from "../../hooks/lib/lanes/brief-intel.ts";
+import { effortBudgetLine } from "../../hooks/lib/work/work-effort.ts";
+// W1295: the agent-rules role library — base + role inject ahead of the brief
+import { loadAgentRules, selectAgentRole } from "./agent-rules.ts";
 import { validationCommand } from "./validation-cmd.ts";
 
 /** hooks bin dir (env-overridable — the shims ride the same path). */
@@ -49,7 +54,7 @@ export interface BriefOpts {
 	/** archived-origin landing redirect (the W428 lesson) */
 	landing?: string;
 	/** W248: per-item effort budget — vocabulary + budget text live in
-	 *  hooks/lib/work-effort.ts; absent/null = no budget line. */
+	 *  hooks/lib/work/work-effort.ts; absent/null = no budget line. */
 	effort?: string | null;
 	/** W1140: the lane-effort policy verdict line (lane-effort-policy.ts);
 	 *  absent/null = no line — legacy briefs stay byte-identical. */
@@ -64,6 +69,10 @@ export interface BriefOpts {
 	 *  the one W892 implementation — lane briefs carry the same shape the
 	 *  install tail and session-start SUPERVISOR DEFAULT emit. */
 	fleetReport?: string | null;
+	/** W1295: agent-rules role — a `--role` override, undefined = select from
+	 *  the item's tags/title, null = no injection (legacy brief shape). Base +
+	 *  role ride AHEAD of the brief: brief > role > base > habit. */
+	role?: string | null;
 }
 
 const briefOpening = (o: BriefOpts): string[] => {
@@ -174,7 +183,17 @@ const briefLanding = (o: BriefOpts): string[] => [
 ];
 
 export const composeBrief = (o: BriefOpts): string => {
-	const parts = briefOpening(o);
+	// W1295: agent.base.rules.md, then the role file, then the brief — the
+	// order IS the precedence (brief > role > base > habit), so the rules
+	// ride ahead of the opening line. role:null opts out entirely.
+	const rules =
+		o.role === null
+			? null
+			: loadAgentRules(selectAgentRole(o.showOut, o.role ?? undefined));
+	const parts = [
+		...(rules ? [rules.base.trimEnd(), "", rules.roleBody.trimEnd(), ""] : []),
+		...briefOpening(o),
+	];
 	parts.push(...briefValidation(o));
 	parts.push(...briefInboxCollab(o));
 	parts.push(...briefResume(o));

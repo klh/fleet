@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir, hostname } from "node:os";
 import { join } from "node:path";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 import {
 	acquireLaunchLease,
 	releaseLaunchLease,
@@ -204,7 +204,7 @@ function privateRuntime() {
 	const home = mkdtempSync(join(tmpdir(), "fleet-launch-fence-"));
 	dirs.push(home);
 	const env = { ...process.env, HOME: home, GOVERNOR_STORE_URL: "local" };
-	const gov = join(import.meta.dir, "../hooks/lib/govdb.ts");
+	const gov = join(import.meta.dir, "../hooks/lib/govdb/govdb.ts");
 	const init = Bun.spawnSync(
 		[
 			process.execPath,

@@ -26,9 +26,9 @@ test.afterAll(async () => {
 	await b.stop();
 });
 
-test("gui: work card stamps the update age compactly, full instant on hover", async ({
-	page,
-}) => {
+test("gui: work card stamps the update age compactly, full instant on hover", {
+	tag: "@ui",
+}, async ({ page }) => {
 	await page.goto(`${b.BASE}/#lanes`);
 	const stamp = page
 		.locator(`.kcard[data-kid="${wId}"] .kcardstamp time`)
@@ -46,9 +46,9 @@ test("gui: work card stamps the update age compactly, full instant on hover", as
 	expect(await age.getAttribute("title")).toMatch(/^open /);
 });
 
-test("gui: failed-item drawer renders the full failure note unclamped", async ({
-	page,
-}) => {
+test("gui: failed-item drawer renders the full failure note unclamped", {
+	tag: "@ui",
+}, async ({ page }) => {
 	await page.goto(`${b.BASE}/#lanes`);
 	await page.locator(`.kcard[data-kid="${wId}"] .tidbtn`).first().click();
 	const drawer = page.locator("#drawer");

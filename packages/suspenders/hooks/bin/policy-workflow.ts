@@ -11,7 +11,7 @@
 // list; per-verb `--help` carries the usage line. Verbs: assess, propose,
 // decide, authorize, remediation, attest, list, expire.
 import { readFileSync } from "node:fs";
-import { openGovernorDb } from "../lib/govdb.ts";
+import { openGovernorDb } from "../lib/govdb/govdb.ts";
 import {
 	assessHealthPolicy,
 	HEALTH_POLICY_ID,

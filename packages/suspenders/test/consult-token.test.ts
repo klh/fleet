@@ -25,7 +25,7 @@ test("store binding reads private token files while environment credentials reta
 			[
 				process.execPath,
 				"-e",
-				`const {resolveStoreHttpBase}=await import(${JSON.stringify(join(import.meta.dir, "../hooks/lib/govdb.ts"))});try{const b=resolveStoreHttpBase();console.log(b?.token===(process.env.GOVERNOR_STORE_TOKEN||"fixture-file-token")?"matched":"mismatch")}catch(e){console.error(e.message);process.exit(1)}`,
+				`const {resolveStoreHttpBase}=await import(${JSON.stringify(join(import.meta.dir, "../hooks/lib/govdb/govdb.ts"))});try{const b=resolveStoreHttpBase();console.log(b?.token===(process.env.GOVERNOR_STORE_TOKEN||"fixture-file-token")?"matched":"mismatch")}catch(e){console.error(e.message);process.exit(1)}`,
 			],
 			{
 				env: {
@@ -50,7 +50,7 @@ test("store binding reads private token files while environment credentials reta
 		delete env.GOVERNOR_STORE_TOKEN_FILE;
 		return env;
 	};
-	const source = `const {resolveStoreHttpBase}=await import(${JSON.stringify(join(import.meta.dir, "../hooks/lib/govdb.ts"))});try{console.log(resolveStoreHttpBase()?.token==="fixture-file-token")}catch(e){console.error(e.message);process.exit(1)}`;
+	const source = `const {resolveStoreHttpBase}=await import(${JSON.stringify(join(import.meta.dir, "../hooks/lib/govdb/govdb.ts"))});try{console.log(resolveStoreHttpBase()?.token==="fixture-file-token")}catch(e){console.error(e.message);process.exit(1)}`;
 	let result = Bun.spawnSync([process.execPath, "-e", source], {
 		env: defaults(),
 		stdout: "pipe",

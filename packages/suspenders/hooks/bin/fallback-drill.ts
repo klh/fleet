@@ -18,7 +18,10 @@ import {
 	type Usage,
 	usageFromAnthropic,
 } from "../../../buckle/src/usage.ts";
-import { buckleChat, inferenceBuckleRoute } from "../lib/inference-buckle.ts";
+import {
+	buckleChat,
+	inferenceBuckleRoute,
+} from "../lib/hub/inference-buckle.ts";
 
 const HOME = process.env.HOME ?? "";
 /** The LIVE gateway config (:4100 loads it at boot) — the W878 ladder

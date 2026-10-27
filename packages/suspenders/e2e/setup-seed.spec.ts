@@ -3,7 +3,7 @@
 // checks..." flash), from the same stale-while-revalidate cache /api/setup
 // serves. Scratch-HOME board via the shared harness.
 import { expect, test } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
+import { type Board, startBoard } from "./harness";
 
 test.describe.configure({ mode: "serial" });
 
@@ -22,9 +22,9 @@ function mustBoard(): Board {
 	return board;
 }
 
-test("setup tab paints seeded cards, never the loading flash", async ({
-	page,
-}) => {
+test("setup tab paints seeded cards, never the loading flash", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const errors: string[] = [];
 	page.on("pageerror", (e) => errors.push(String(e)));
 	await page.goto(`${mustBoard().BASE}/#setup`);

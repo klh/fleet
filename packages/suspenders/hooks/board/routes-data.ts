@@ -3,8 +3,8 @@
 // entry's handler list); returns null when nothing matches.
 
 import type { Database } from "bun:sqlite";
-import { loadLastKnown } from "../lib/federation.ts";
-import { itemAttribution } from "../lib/lane-spend.ts";
+import { loadLastKnown } from "../lib/federation/federation.ts";
+import { itemAttribution } from "../lib/lanes/lane-spend.ts";
 import { hubModelIdsFrom } from "../lib/provenance.ts";
 import { readUserPlane } from "../lib/repo-laws.ts";
 import { beltRegistry } from "./belt.ts";
@@ -21,6 +21,7 @@ import {
 import { decisionEvalStatus, decisionEvals } from "./decide-eval.ts";
 import { buildBeltEntries } from "./executor-catalog.ts";
 import { json } from "./helpers.ts";
+import { launchContextForItem } from "./launch-context.ts";
 import { projectList, signalFor, syncDecisions, unblockedBy } from "./lanes.ts";
 import { localSwarmEntries } from "./local-swarm.ts";
 import { orchTargets } from "./orch-targets.ts";
@@ -254,6 +255,28 @@ export async function handleData(
 			ok: true,
 			...(await executionTraceForWork(project, id, days)),
 		});
+	}
+	if (url.pathname === "/api/task/launch-context") {
+		// W1240: what the lane was literally told at dispatch — the verbatim
+		// brief record, or the item's raw fields when no brief was stored.
+		// Read-only sibling feed: briefs are ~5KB each, far too heavy for the
+		// /api/tasks poll; the drawer hydrates one item at a time.
+		const project = url.searchParams.get("project") ?? "";
+		const id = url.searchParams.get("id") ?? "";
+		const w = db
+			.query("SELECT * FROM work_items WHERE project = ? AND id = ?")
+			.get(project, id) as
+			| (WorkItemRow & { alloc_reason?: string | null })
+			| null;
+		if (!w) return json({ ok: false, error: "work item not found" }, 404);
+		const deps = (
+			db
+				.query(
+					"SELECT depends_on FROM work_deps WHERE project = ? AND work_id = ? ORDER BY rowid",
+				)
+				.all(project, id) as { depends_on: string }[]
+		).map((r) => r.depends_on);
+		return json({ ok: true, ...launchContextForItem(w, deps) });
 	}
 	if (url.pathname === "/api/events") {
 		// W451 bounded event deltas — the WS cursor contract (coord poll,

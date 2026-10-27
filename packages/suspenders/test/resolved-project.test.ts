@@ -9,7 +9,7 @@ import { join } from "node:path";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-w459-"));
 const env = { ...process.env, HOME };
-const govdb = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
+const govdb = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
 
 const run = (cwd: string, code: string) =>
 	Bun.spawnSync(["bun", "-e", code], {

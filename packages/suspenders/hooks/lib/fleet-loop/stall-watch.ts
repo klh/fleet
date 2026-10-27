@@ -4,29 +4,52 @@
 
 import { readdirSync, statSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
-import { openStore, projectIdentity } from "../govdb.ts";
+import { openStore, projectIdentity } from "../govdb/govdb.ts";
 import { emitLoopEvent } from "./events.ts";
 import {
 	attemptRecovery,
 	observeDeadClaim,
 	recordRecoveryResult,
 	type DeadEpisode,
-} from "../dead-claim-recovery.ts";
-import { laneProcessIdentity, transcriptAlive } from "../lane-liveness.ts";
+} from "../lanes/dead-claim-recovery.ts";
+import {
+	laneProcessIdentity,
+	transcriptAlive,
+} from "../lanes/lane-liveness.ts";
+import type { TransportProbe } from "../lanes/transport-liveness.ts";
 import {
 	automaticRecoveryCheck,
 	automaticRecoveryPaused,
-} from "../automatic-recovery.ts";
+} from "./automatic-recovery.ts";
 import {
 	canonicalWorkClaim,
 	canonicalWorkReclaim,
 } from "../../../scripts/lib/work-inspection.ts";
 import { type Lane, type LoopDeps, readJsonSync } from "./runtime.ts";
 
-export function createStallWatch(deps: LoopDeps & { STALL_WARN_MS: number }): {
+export function createStallWatch(
+	deps: LoopDeps & { STALL_WARN_MS: number; transport?: TransportProbe },
+): {
 	stallWatch: () => void;
+	/** W1302.5: refresh the in-flight snapshot before stallWatch() reads it —
+	 *  one bounded index read per ttlMs window; unavailable → term absent. */
+	transportRefresh: () => Promise<void>;
 } {
-	const { REPO, STALL_WARN_MS, log, lanes } = deps;
+	const { REPO, STALL_WARN_MS, log, lanes, transport } = deps;
+	// W1302.5 transport snapshot (O1): an ACTIVE in-flight request at the
+	// gate is production, never idleness. null = no evidence this tick —
+	// every lane keeps its transcript/process verdict unchanged.
+	let inflight: Map<string, boolean> | null = null;
+	const transportRefresh = async (): Promise<void> => {
+		if (!transport) return;
+		inflight = null;
+		try {
+			const probe = await transport.probe();
+			inflight = probe.available ? probe.alive : null;
+		} catch {
+			inflight = null;
+		}
+	};
 	// ─── stall watchdog (the autow428 lesson, 2026-10-05) ────────────────────
 	// A lane can hang or die silently with its claim held — pid-alive, zero
 	// activity. The graph reclaims dead claims at hb expiry; the watchdog's
@@ -195,6 +218,15 @@ export function createStallWatch(deps: LoopDeps & { STALL_WARN_MS: number }): {
 				l.launchedAt ??
 				state[l.sid]?.since ??
 				now;
+			// W1302.5: an ACTIVE gate request named for this sid resets the stall
+			// clock to now — the lane is producing at the transport. Absent term
+			// (no probe/unavailable index) leaves the local evidence alone.
+			if (inflight?.get(l.sid) === true) {
+				if (state[l.sid]?.warned)
+					emitLaneEvent("lane.resumed", l.item, { sid: l.sid });
+				delete state[l.sid];
+				continue;
+			}
 			watchLane(state, seen, l, now, activity);
 		}
 		for (const sid of Object.keys(state)) if (!seen.has(sid)) delete state[sid];
@@ -227,5 +259,5 @@ export function createStallWatch(deps: LoopDeps & { STALL_WARN_MS: number }): {
 			stallMs: now - activity,
 		});
 	}
-	return { stallWatch };
+	return { stallWatch, transportRefresh };
 }

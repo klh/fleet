@@ -4,8 +4,11 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { aidsPullToken, harvestAids } from "../hooks/lib/aid-harvest.ts";
-import { buildUsageReport } from "../hooks/lib/usage.ts";
+import {
+	aidsPullToken,
+	harvestAids,
+} from "../hooks/lib/harvest/aid-harvest.ts";
+import { buildUsageReport } from "../hooks/lib/usage/usage.ts";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS facts (key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER NOT NULL DEFAULT 1, ts INTEGER NOT NULL);

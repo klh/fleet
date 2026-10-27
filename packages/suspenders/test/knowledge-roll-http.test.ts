@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { unusedPort } from "./helpers/board-fixture.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "w1213-roll-home-"));
-const GOVDB_TS = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
+const GOVDB_TS = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
 const API_TS = join(import.meta.dir, "..", "hooks", "bin", "knowledge-api.ts");
 const PORT = unusedPort();
 const BASE = `http://127.0.0.1:${PORT}`;

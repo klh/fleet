@@ -22,14 +22,14 @@ import {
 	closeSync,
 	existsSync,
 	openSync,
-	readFileSync,
 	readdirSync,
+	readFileSync,
 	readSync,
 } from "node:fs";
-import { join } from "node:path";
 import { homedir } from "node:os";
-import { SPECIALISTS, type Specialist } from "./registry.ts";
+import { join } from "node:path";
 import type { TriedRow } from "./fleet-refresh.ts";
+import { SPECIALISTS, type Specialist } from "./registry.ts";
 
 // ~30B at 4-bit ≈ 17GB of weights; 15GB is the floor that still admits
 // 30B-class 4bit/oQ4e rows and rejects sub-GB conversion placeholders.

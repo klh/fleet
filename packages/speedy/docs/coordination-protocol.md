@@ -2,7 +2,7 @@
 
 Drop this into a repo's `CLAUDE.md` (or AGENTS.md) to bind the coordinator and
 all lanes to the converged architecture. Requires the control plane installed
-(`hooks/bin/claim.ts`, `hooks/bin/coord.ts`, `hooks/lib/govdb.ts` + the
+(`hooks/bin/claim.ts`, `hooks/bin/coord.ts`, `hooks/lib/govdb/govdb.ts` + the
 fleet-loop maintenance cycle (keepwarm rides it, W779) — see
 [README](../README.md#multi-agent-coordination--the-converged-architecture)).
 
@@ -119,7 +119,7 @@ coord resume <sid> --onto <new-head> --note "applyPreview: (x) → (x, ctx); Med
 ### Capability-aware dispatch (schema v2)
 
 - work declares needs, sessions advertise what they offer: `work add <title> --requires shell,git` · `coord bootstrap --as <sid> --caps shell,fs,git,build,mcp,vision,browser,network` — lanes inherit the parent's caps unless overridden
-- `work take` REFUSES `requires ⊄ capabilities` — a NO-SHELL agent type can never be dispatched shell-requiring work twice. Vocabulary: shell, fs, git, build, mcp, vision, browser, network (`CAPABILITIES` in hooks/lib/govdb.ts)
+- `work take` REFUSES `requires ⊄ capabilities` — a NO-SHELL agent type can never be dispatched shell-requiring work twice. Vocabulary: shell, fs, git, build, mcp, vision, browser, network (`CAPABILITIES` in hooks/lib/govdb/govdb.ts)
 - top-level sessions advertise the full set automatically (SessionStart); NULL on either side = legacy = no constraint
 
 ### Canonical coordinator identity

@@ -4,7 +4,7 @@
 // the one parser — no YAML, no secrets (unknown top-level keys are refused:
 // an unknown key is the only way to smuggle token material past validation).
 // Hub labels resolve through the ONE existing registry chain
-// (hooks/lib/hub-locate.ts + stack.yaml) — never a new one.
+// (hooks/lib/hub/hub-locate.ts + stack.yaml) — never a new one.
 //
 // resolveHubForPath precedence: the repo's .prefer pin (exec-chain `hub=`
 // parser + the W519 routing plane's first-token-vs-known-hubs) > repos
@@ -34,7 +34,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve as resolvePath } from "node:path";
-import { readRegistry, resolveHub } from "../../hooks/lib/hub-locate.ts";
+import { readRegistry, resolveHub } from "../../hooks/lib/hub/hub-locate.ts";
 import { tryLoadStack } from "../../hooks/lib/stack-config.ts";
 import { preferOf } from "./exec-chain.ts";
 import { parseRoutingPrefer } from "./prefer-routing.ts";

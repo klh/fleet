@@ -16,7 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Database } from "bun:sqlite";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 import {
 	capsuleProjectTag,
 	itemCapsuleKey,
@@ -30,7 +30,7 @@ mkdirSync(join(REPO, ".git"), { recursive: true });
 const env = { ...process.env, HOME };
 const coord = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 const wt = join(import.meta.dir, "..", "hooks", "bin", "worktree.ts");
-const govdb = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
+const govdb = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
 const DB = join(HOME, ".cache", "claude-governor", "governor.db");
 
 // projectIdentity(), mirrored: git-common-dir from inside the temp repo —

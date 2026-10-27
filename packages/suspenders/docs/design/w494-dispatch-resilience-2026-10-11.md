@@ -13,7 +13,7 @@ dispatch target with 8 ghost lanes; fleet-loop dispatched nothing for hours.
 
 - **A — honest liveness (W494.1)**: liveness = daemonized-PID process probe
   (heartbeat lease as fallback); registered-worktree existence demoted to
-  sweep evidence. `hooks/lib/lane-liveness.ts`, `hooks/lib/reclaim-liveness.ts`.
+  sweep evidence. `hooks/lib/lanes/lane-liveness.ts`, `hooks/lib/lanes/reclaim-liveness.ts`.
   Coord gc staleness predicate aligned to the same probe.
 - **B — dead-lane requeue + supported sweep (W494.2)**: fleet-loop detects a
   claim whose pid is gone → `work reclaim` of that sid; the worktree is left

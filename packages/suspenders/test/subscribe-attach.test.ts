@@ -85,7 +85,7 @@ test("no spawn when no coord CLI resolves at the given path", () => {
 });
 
 test("spawnClaude attaches the sid's subscribe at spawn level, idempotently", async () => {
-	const { spawnClaude } = await import("../hooks/lib/lane.ts");
+	const { spawnClaude } = await import("../hooks/lib/lanes/lane.ts");
 	const sid = `wtest-spawn-${Date.now()}`;
 	const base = {
 		bin: "/usr/bin/true",

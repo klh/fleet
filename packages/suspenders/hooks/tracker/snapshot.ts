@@ -3,17 +3,17 @@
 // claims, sessions, facts, events, work_completion_records) through the same
 // store port coord uses (openStore — GOVERNOR_STORE_URL or in-process
 // SQLite). No second ledger, no CLI-display parsing, zero writes.
-import type { GovernorStore } from "../lib/govdb.ts";
+import type { GovernorStore } from "../lib/govdb/govdb.ts";
 import {
 	type LaneRef,
 	laneAlive,
 	transcriptAlive,
-} from "../lib/lane-liveness.ts";
-import { loadLaneRegistry } from "../lib/lane-registry.ts";
+} from "../lib/lanes/lane-liveness.ts";
+import { loadLaneRegistry } from "../lib/lanes/lane-registry.ts";
 import {
 	type CompletionRecord,
 	completionRecord,
-} from "../lib/work-completion-record.ts";
+} from "../lib/work/work-completion-record.ts";
 import { type CellState, DECISION_KINDS, KINDS } from "./model.ts";
 
 export type { CellState } from "./model.ts";

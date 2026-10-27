@@ -541,5 +541,8 @@ export interface InstallOutcome {
 	/** W899: the `work report` table from the install tail (plan mode, real
 	 *  installs) — null when the tail could not prove the verb live. */
 	report_table?: string | null;
+	/** W1303.6: the machine stack.json version hint line (render-only — the
+	 *  0600 conf itself is operator-owned, never written by the installer). */
+	stack_version_line?: string;
 	contract: InstallContract;
 }

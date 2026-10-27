@@ -16,8 +16,8 @@
 // A trailing /** or /* is accepted and stripped — prefer the bare prefix so
 // shells never see glob characters to expand. Relative scopes are worktree-
 // portable: the governor matches them as path-segment suffixes.
-import { openStore, type GovernorStore } from "../lib/govdb.ts";
-import { transcriptPath } from "../lib/lane-liveness.ts";
+import { openStore, type GovernorStore } from "../lib/govdb/govdb.ts";
+import { transcriptPath } from "../lib/lanes/lane-liveness.ts";
 import { defineVerb, runCli, type VerbSpec } from "../lib/verb-kit.ts";
 
 const TTL = 15 * 60_000;
@@ -47,7 +47,7 @@ const cyan = paint("36");
 const amber = paint("33");
 
 // one shared connection shape with the gates — WAL/schema/bootstrap fixes live
-// in ONE module (hooks/lib/govdb.ts), not per-tool copies
+// in ONE module (hooks/lib/govdb/govdb.ts), not per-tool copies
 const db: GovernorStore = openStore();
 
 // Runtime-side validation: a claim target must be a REAL live session —

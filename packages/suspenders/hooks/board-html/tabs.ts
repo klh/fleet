@@ -61,7 +61,12 @@ function applyHashTask(){
   if (m && openTask) {
     var id = decodeURIComponent(m[1]), project = m[2] ? decodeURIComponent(m[2]) : null;
     if (task.id !== id || task.proj !== project) openTask(id, project, null);
-  } else if (task.id) closeTask(true);
+  } else if (task.id) {
+    // W1294.2: a W890 query-style hash with an item param owns the drawer —
+    // #lanes?w=<id> opened it at boot; the missing #task= match must not close it
+    var q = parseHashQuery(location.hash || '').params;
+    if (q.w === undefined && q.task === undefined && q.id === undefined) closeTask(true);
+  }
 }
 byId('hashChipBar').addEventListener('click', function(e){
   var b = e.target.closest && e.target.closest('.hfclear');

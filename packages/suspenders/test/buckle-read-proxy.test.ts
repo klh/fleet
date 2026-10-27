@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { buckleReadProxy } from "../hooks/board/buckle-read-proxy.ts";
+import {
+	beltAssetUp,
+	buckleReadProxy,
+} from "../hooks/board/buckle-read-proxy.ts";
 
 const request = (path: string, method = "GET") =>
 	new Request(`http://suspenders.local${path}`, { method });
@@ -64,5 +67,34 @@ describe("Buckle console read proxy", () => {
 			"http://127.0.0.1:7791/api/model-capabilities",
 			"http://127.0.0.1:7791/dashboard-model-access.js",
 		]);
+	});
+});
+
+describe("beltAssetUp (W1294.2.1 freshness probe)", () => {
+	test("HEADs the newest chunk and reads a 200 as belt-up", async () => {
+		const seen: Array<{ url: string; method: string | undefined }> = [];
+		const fakeFetch = ((url: string, init: RequestInit) => {
+			seen.push({ url, method: init.method });
+			return Promise.resolve(new Response(null, { status: 200 }));
+		}) as typeof fetch;
+		expect(await beltAssetUp(fakeFetch)).toBe(true);
+		expect(seen).toEqual([
+			{
+				url: "http://127.0.0.1:7791/dashboard-topology-hubs.js",
+				method: "HEAD",
+			},
+		]);
+	});
+
+	test("404 from a stale runtime home reads as belt-down", async () => {
+		const fakeFetch = (() =>
+			Promise.resolve(new Response("not found", { status: 404 }))) as typeof fetch;
+		expect(await beltAssetUp(fakeFetch)).toBe(false);
+	});
+
+	test("fetch throw (feed down) reads as belt-down", async () => {
+		const fakeFetch = (() =>
+			Promise.reject(new Error("connection refused"))) as typeof fetch;
+		expect(await beltAssetUp(fakeFetch)).toBe(false);
 	});
 });

@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
 	validateZaiSnapshot,
+	zaiCatalogFile,
 	zaiLiteLlmRows,
 	ZAI_CATALOG_URL,
+	ZaiSnapshotStaleError,
 } from "../bin/zai-catalog-rows.ts";
 
 describe("Z.ai LiteLLM account rows", () => {
@@ -62,5 +64,41 @@ describe("Z.ai LiteLLM account rows", () => {
 				model_ids: ["bad/name"],
 			}),
 		).toThrow("invalid");
+	});
+
+	// W1469: the installer repairs ONLY a timestamp failure — it keys on this class.
+	test("age failures raise the typed stale error carrying the parsed snapshot", () => {
+		const base = { version: 1, source: ZAI_CATALOG_URL, model_ids: ["glm-5.3"] };
+		const thrown = (fn: () => unknown): unknown => {
+			try {
+				fn();
+			} catch (error) {
+				return error;
+			}
+		};
+		for (const generated_at of [
+			new Date(0).toISOString(),
+			"not-a-date",
+			new Date(Date.now() + 3_600_000).toISOString(),
+		]) {
+			const error = thrown(() => validateZaiSnapshot({ ...base, generated_at }));
+			expect(error).toBeInstanceOf(ZaiSnapshotStaleError);
+			expect((error as ZaiSnapshotStaleError).snapshot.model_ids).toEqual([
+				"glm-5.3",
+			]);
+			expect((error as Error).message).toContain("stale; refresh before deploy");
+		}
+		const invalid = thrown(() =>
+			validateZaiSnapshot({ ...base, generated_at: "0", model_ids: ["bad/x"] }),
+		);
+		expect(invalid).toBeInstanceOf(Error);
+		expect(invalid).not.toBeInstanceOf(ZaiSnapshotStaleError);
+	});
+
+	test("zaiCatalogFile is the one path: HOME default, ZAI_CATALOG_FILE override", () => {
+		expect(zaiCatalogFile("/h", {})).toBe("/h/.claude/local-llm/zai-models.json");
+		expect(zaiCatalogFile("/h", { ZAI_CATALOG_FILE: "/x/z.json" })).toBe(
+			"/x/z.json",
+		);
 	});
 });

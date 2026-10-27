@@ -64,7 +64,10 @@ export interface ArmReport {
 
 export interface RouteBenchReport {
 	window: { requests: number; completed: number; localPct: number };
-	placements: Record<string, { n: number; p50: number; p90: number; okRate: number }>;
+	placements: Record<
+		string,
+		{ n: number; p50: number; p90: number; okRate: number }
+	>;
 	arms: ArmReport[];
 	choice: { arm: string; why: string };
 }
@@ -139,15 +142,21 @@ export function analyze(
 
 	// placements measured in-window
 	const placements: RouteBenchReport["placements"] = {};
-	const r4k = placeStats(localRows.map((r) => ({ durationMs: r.durationMs, ok: r.ok })));
+	const r4k = placeStats(
+		localRows.map((r) => ({ durationMs: r.durationMs, ok: r.ok })),
+	);
 	if (r4k) placements["router:4000"] = r4k;
 	const c4100 = cloudRows.filter((r) => r.port === 4100);
-	const c4100All = placeStats(c4100.map((r) => ({ durationMs: r.durationMs, ok: r.ok })));
+	const c4100All = placeStats(
+		c4100.map((r) => ({ durationMs: r.durationMs, ok: r.ok })),
+	);
 	if (c4100All) placements["cloud:4100"] = c4100All;
 	// tier-matched cloud medians (fixed:cloud per-row counterfactual)
 	const tierMedian = new Map<string, number>();
 	for (const t of new Set(cloudRows.map((r) => r.tier))) {
-		const d = finitePos(cloudRows.filter((r) => r.tier === t).map((r) => r.durationMs));
+		const d = finitePos(
+			cloudRows.filter((r) => r.tier === t).map((r) => r.durationMs),
+		);
 		if (d.length > 0) tierMedian.set(t, percentile(d, 0.5));
 	}
 	// router-side reason placement from the belt routing log
@@ -187,7 +196,10 @@ export function analyze(
 			cloudInTok: cloudIn,
 			cloudOutTok: cloudOut,
 			costUsd: auditedCloud,
-			per1kCompletedUsd: auditedCloud === undefined ? undefined : (1000 * auditedCloud) / Math.max(1, completed),
+			per1kCompletedUsd:
+				auditedCloud === undefined
+					? undefined
+					: (1000 * auditedCloud) / Math.max(1, completed),
 			elec: localRows.length > 0,
 			note: `real per-request outcomes; local share ${String(localRows.length)}/${String(n)} rides the swarm (elec)`,
 		},
@@ -212,8 +224,7 @@ export function analyze(
 			per1kCompletedUsd: 0,
 			elec: true,
 			note: "counterfactual = window's measured :8903 medians; burst arrivals queue behind the admission cap",
-		},
-		);
+		});
 	} else {
 		arms.push({
 			name: "fixed:reason (all → :8903)",
@@ -255,7 +266,10 @@ export function analyze(
 			cloudInTok: cloudIn * scale,
 			cloudOutTok: cloudOut * scale,
 			costUsd: cost,
-			per1kCompletedUsd: cost === undefined ? undefined : (1000 * cost) / Math.max(1, n * cloudOkRate),
+			per1kCompletedUsd:
+				cost === undefined
+					? undefined
+					: (1000 * cost) / Math.max(1, n * cloudOkRate),
 			elec: false,
 			note: "counterfactual = tier-matched :4100 medians; token volume = window mean-cost × n (estimate — the ledger records no tokens for local rides)",
 		});
@@ -316,9 +330,7 @@ export async function readLogWindow(
 	const out: LogRow[] = [];
 	const file = Bun.file(path);
 	if (!(await file.exists())) return out;
-	const rl = createInterface(
-		createReadStream(path, { encoding: "utf8" }),
-	);
+	const rl = createInterface(createReadStream(path, { encoding: "utf8" }));
 	for await (const line of rl) {
 		let j: unknown;
 		try {
@@ -344,10 +356,7 @@ export async function readLogWindow(
 }
 
 /** Router_usage rollups for the window → token volumes + dominant model. */
-export function readTokens(
-	dbPath: string,
-	since: string,
-): TokenVolume {
+export function readTokens(dbPath: string, since: string): TokenVolume {
 	const db = new Database(dbPath, { readonly: true });
 	try {
 		const rows = db
@@ -422,8 +431,7 @@ async function main(): Promise<void> {
 	if (cli.pricesFile)
 		prices = (await Bun.file(cli.pricesFile).json()) as Prices;
 	const report = analyze(gate, log, { prices, tokens: tok }, cli.minN);
-	const t = (x: number): string =>
-		`${(x / 1e6).toFixed(1)}Mtok`;
+	const t = (x: number): string => `${(x / 1e6).toFixed(1)}Mtok`;
 	const money = (a: ArmReport): string =>
 		a.costUsd === undefined
 			? `${t(a.cloudInTok + a.cloudOutTok)}`

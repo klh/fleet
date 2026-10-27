@@ -11,7 +11,7 @@
 import { realpathSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { parse } from "shell-quote";
-import { type FleetLane, resolveFleetLane } from "../lib/fleetlane.ts";
+import { type FleetLane, resolveFleetLane } from "../lib/lanes/fleetlane.ts";
 import { deny, nudge } from "../lib/hookio.ts";
 
 // ---- token utilities (moved from bash.ts) ----

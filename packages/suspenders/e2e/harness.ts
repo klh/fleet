@@ -4,10 +4,11 @@
 // against the same scratch HOME (→ the very governor.db the board serves).
 // The hub world and the local world share NOTHING — separate scratch HOMEs
 // are the structural scope isolation the GUI test proves.
-import { expect } from "@playwright/test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect } from "@playwright/test";
 import {
 	boardStartupTail,
 	unusedPort,
@@ -47,7 +48,33 @@ export async function startBoard(
 ): Promise<Board> {
 	const HOME = mkdtempSync(join(tmpdir(), `sb-e2e-${label}-home-`));
 	const REPO = mkdtempSync(join(tmpdir(), `sb-e2e-${label}-repo-`));
-	mkdirSync(join(REPO, ".git"), { recursive: true });
+	// W1294.2: a REAL repo from t0 — projectIdentity() keys the graph on the
+	// git common dir, and the done-gate's product-evidence check needs the
+	// completion commit to touch a non-dotfile path; the fake-.git shell
+	// provided neither, and identity must not flip mid-board-life (init
+	// BEFORE the board spawns). Mirrors dispatch-harness: README base commit.
+	const g = (args: string[]): void => {
+		const p = Bun.spawnSync(["git", ...args], {
+			cwd: REPO,
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		if (p.exitCode !== 0)
+			throw new Error(`git ${args.join(" ")} failed: ${p.stderr.toString()}`);
+	};
+	g(["init", "-q", "-b", "main"]);
+	writeFileSync(join(REPO, "README.md"), "scratch e2e repo\n");
+	g(["add", "README.md"]);
+	g([
+		"-c",
+		"user.name=e2e",
+		"-c",
+		"user.email=e2e@localhost",
+		"commit",
+		"-q",
+		"-m",
+		"scratch e2e base",
+	]);
 	const PORT = unusedPort();
 	// dead loopback upstreams like the bun fixture — the board degrades
 	// honestly instead of reaching the machine's real services

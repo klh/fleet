@@ -13,8 +13,8 @@
 import { existsSync, fstatSync, openSync, readSync, closeSync } from "node:fs";
 import { allow, context, deny, type HookInput } from "../lib/hookio.ts";
 import { coordSubscribeLog, hookLaneId } from "../lib/subscribe-attach.ts";
-import { consumeClaudeWake } from "../lib/claude-wake.ts";
-import { midSessionSupervisorRefill } from "../lib/supervisor-refill.ts";
+import { consumeClaudeWake } from "../lib/executors/claude-wake.ts";
+import { midSessionSupervisorRefill } from "../lib/lanes/supervisor-refill.ts";
 import {
 	readSessionState,
 	sessionStatePath,

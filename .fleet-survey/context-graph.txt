@@ -1,0 +1,194 @@
+Context Graph for AI Coding | Integrated Workspace for Agents
+, which blocks non-essential analytics for EU/EEA,
+UK, and Switzerland visitors until they opt in. -->
+We use analytics tools to understand how this site is used. Analytics are optional. See our
+Cookie Policy
+.
+Decline
+Allow analytics
+Wiki
+Wiki Teams
+App
+App Overview
+Core Features
+Extensions
+Mobile
+Why Nimbalyst
+Context Graph
+Download
+Pricing
+Docs
+Resources
+Blog
+Use Cases
+For Developers
+For Product Managers
+Compare
+Agent Harness
+Agent Skills
+Open Source
+About
+App
+Download Free
+Wiki
+Wiki Teams
+App
+App Overview
+Core Features
+Extensions
+Mobile
+Why Nimbalyst
+Context Graph
+Download
+Pricing
+Docs
+Resources
+Blog
+Use Cases
+For Developers
+For Product Managers
+Compare
+Agent Harness
+Agent Skills
+Open Source
+About
+Download Free
+App GitHub
+Context Graph
+One graph for humans and agents
+Shipping a single feature with a coding agent takes seven tools. Each one owns a slice. The connections between slices live in your head. A context graph turns those connections into typed, persistent links that both you and your agent can traverse.
+Today
+The graph lives in your head
+Shipping one feature with a coding agent usually touches seven tools: Jira for the ticket, Slack for the thread, Notion for the plan, Excalidraw for the diagram, Figma for the mockup, the IDE for the diff, and Claude Code for the session.
+Each owns one slice. The connections between slices live in human heads. An agent cannot traverse what was never recorded.
+A context graph turns those slices into nodes and typed edges that both humans and agents can walk in a single traversal.
+Read the full essay: Integrate 80% of everything &rarr;
+What changes
+Context integrated into one shared graph
+Ask your agent to pick up where the last session left off. Across a fragmented stack, that is a chain of lookups through separate tools and separate data models, and the agent may still not know which prior session touched the work.
+In an integrated workspace, every artifact is a node and every relationship is a typed edge. Tracker item to thread to plan to spec to session to diagram to diff to files. That is one traversal in place of seven lookups.
+Any agent can plug into it. Claude Code, Codex, OpenCode, or whatever lands next.
+The nodes
+Every one of these is a first-class artifact in the workspace, and every one can carry typed links to the others. Seven of them map to the tools you already open. The spec, the files, and the commit belong to no single tool, which is why they usually fall out of the picture entirely.
+Tracker item
+Tickets, bugs, decisions, ideas
+Plan
+The plan doc for a piece of work
+Spec
+The markdown spec with embedded diagrams
+Diagram
+Excalidraw, Mermaid, system diagrams
+Mockup
+Rendered UI mockups you can iterate on
+Thread
+The conversation around the work
+Session
+The agent session that worked on it
+Diff
+The red and green changes the agent made
+Files
+The actual files on disk
+Commit
+The commit that landed the change
+Visual editors
+Edit every node without leaving the graph
+A graph of typed edges only works if you can edit what is on the other end without leaving the place you started.
+Open the diagram from inside the tracker item. Pull up the mockup without leaving the spec. Click into the embedded diagram and the spec updates.
+A markdown spec with an Excalidraw diagram embedded inline. Click into the diagram, change it, and the spec reflects the change.
+Agent and human edit the same artifact. Red and green diffs are visible to both. The visual surface and the agent&#39;s working surface are the same surface.
+Mockup editor with red and green AI diff
+The 80%
+Build the 80% that matters, integrate into one graph
+Deeply integrated agent context will not exist as long as work is scattered across seven SaaS apps.
+Nimbalyst builds the 80% of those products that matters and ties them into one graph.
+Tracker for tickets, bugs, decisions, and ideas
+Markdown editor with WYSIWYG and red/green diffs
+Diagrams as first-class files
+Mockups that render
+Code editor
+Sessions that persist
+Message threads are next. Conversation around a piece of work is part of the work.
+FAQ
+Questions about the context graph
+What is a context graph?
+A context graph is a network of typed, persistent links between the artifacts your work touches. Tracker items, plans, specs, diagrams, mockups, sessions, diffs, files, and commits become nodes. The relationships between them become edges. Both humans and agents can traverse the graph instead of stitching the connections together from memory or from open browser tabs.
+How is a context graph different from a knowledge graph?
+A knowledge graph stores facts and relationships about entities in general. A context graph is project-specific: it captures the working state of a real codebase and team, with edges that connect tracker items to sessions, sessions to diffs, diffs to files, and decisions to the work that forced them. Its job is to hold what your coding agent needs to know to make the next change.
+Why does my agent need a context graph?
+Without one, your agent only sees what fits in the current prompt. The ticket does not know which session touched it. The plan does not know which diagram shaped it. The session does not know which thread changed the requirement. A human has to reconstruct that context from open tabs every time. With a context graph, one prompt can pull in the related plan, prior session, design diagram, and affected files in a single traversal.
+Can I bolt a context graph onto Jira, Notion, Figma, and Claude Code?
+Partially. You can build link tables and integrations, but the underlying data lives in seven different SaaS products, each with its own auth model and its own data model. The cheapest path to a usable graph is to integrate the 80% of those products that actually matter into one workspace, which is the approach Nimbalyst takes.
+Does the context graph work with Claude Code and Codex?
+Yes. Nimbalyst runs Claude Code and Codex as first-class agents and exposes the context graph to whichever one a session is using. The agent layer is pluggable, so the same graph can be traversed by OpenCode or whatever model lands next.
+Is the context graph open and inspectable?
+Yes. The Nimbalyst desktop app is MIT licensed, so you can read the tracker schema, the session model, and the links that tie a tracker item to the sessions, files, and commits behind it in the open repository on GitHub. Your tracker definitions are plain YAML in your project and your documents are plain files, so the graph is inspectable without running Nimbalyst at all.
+Nimbalyst: the open-source visual workspace for building with Codex, Claude Code, and more
+Download Nimbalyst
+Free for individuals.
+Works with your existing Claude Code or Codex subscription or API key.
+Other downloads:
+Apple Silicon Mac
+Intel Mac
+Windows
+Linux
+Wiki Teams
+is one multiplayer wiki for your whole team and all of your agents.
+A wiki your coding agents write for you, and a visual workspace for working with Claude Code, Codex and other agents.
+Explore
+Product Overview
+Use Cases
+Solutions
+Wiki
+Wiki updates by email
+Wiki Teams
+App
+App Collaboration
+Features
+Pricing
+Agent Harness
+Harness Blueprint
+Harness Benchmark
+Blog
+Changelog
+Open Source
+About
+Docs
+Solutions
+All solutions
+Developers
+Product managers
+Feature teams
+Startups
+Marketing teams
+Research and science
+Quant research
+Customer-facing engineering
+Consulting and SIs
+Compare
+All comparisons
+Claude Code GUI
+Claude Code Desktop App
+Codex GUI
+Codex Desktop App
+AI Mockup Generator
+Legal
+Trust and Compliance
+Terms of Service
+Privacy Policy
+California Privacy Notice
+Cookie Policy
+Cookie settings
+Sub-processors
+Data Processing Agreement
+SOC-2 Type 2 certified
+Community
+Open Source
+App GitHub
+Wiki GitHub
+Discord
+LinkedIn
+Youtube
+X
+TikTok
+Instagram
+&copy; 2026 Nimbalyst All rights reserved.

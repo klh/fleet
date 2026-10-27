@@ -6,7 +6,7 @@
 // env-overridable (config-over-code: FLEET_WATCH_BOARD / FLEET_WATCH_FLEET).
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { canonicalProjectRoot } from "../lane-registry.ts";
+import { canonicalProjectRoot } from "../lanes/lane-registry.ts";
 
 export interface CoordLane {
 	sid: string;

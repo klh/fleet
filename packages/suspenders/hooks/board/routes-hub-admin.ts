@@ -5,19 +5,19 @@
 // tests); fleet-board.ts passes the live store, tests pass a fixture.
 import type { ConsoleMe } from "../bin/console-html.ts";
 import { hubPage } from "../bin/hub-admin-html.ts";
-import type { GovernorStore, IdentityStore } from "../lib/govdb.ts";
-import { federationStatus } from "../lib/hub-federation-status.ts";
+import type { GovernorStore, IdentityStore } from "../lib/govdb/govdb.ts";
+import { federationStatus } from "../lib/federation/hub-federation-status.ts";
 import {
 	presentEnvFiles,
 	providerConfigHome,
 	providerKeyInventory,
-} from "../lib/hub-provider-keys.ts";
+} from "../lib/auth/hub-provider-keys.ts";
 import {
 	type IssueHubTokenSpec,
 	issueHubToken,
 	listTokens,
 	revokeHubToken,
-} from "../lib/hub-tokens.ts";
+} from "../lib/auth/hub-tokens.ts";
 import { scrub } from "../lib/servicemon.ts";
 import { consoleMe } from "./console-view.ts";
 import { json, readJson, writeGuard } from "./helpers.ts";

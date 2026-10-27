@@ -9,7 +9,7 @@
 // lane in BOTH modes; solo relents nowhere (sessions still fold belt-direct
 // loud via lane-auth session enrollment — the owner keeps working, lanes
 // don't dispatch ungoverned).
-import type { MintedLaneKey } from "../../hooks/lib/lane-auth.ts";
+import type { MintedLaneKey } from "../../hooks/lib/lanes/lane-auth.ts";
 
 export type GovernanceDecision =
 	| { mode: "governed"; key: string; keyId: string }

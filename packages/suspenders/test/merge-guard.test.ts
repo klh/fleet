@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { guardedMerge } from "../hooks/lib/merge-guard.ts";
+import { guardedMerge } from "../hooks/lib/fleet-loop/merge-guard.ts";
 
 const LOOP = join(import.meta.dir, "../hooks/bin/fleet-loop.ts");
 const MERGE_LEAK = "/Users/kk/dev/m"; // scrub:allow
@@ -68,8 +68,8 @@ function ship(
 			"bun",
 			"-e",
 			`
-		import {openStore,projectIdentity} from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/govdb.ts"))};
-		import {reviewContext,publishReviewReceipt} from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/review-receipt.ts"))};
+		import {openStore,projectIdentity} from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/govdb/govdb.ts"))};
+		import {reviewContext,publishReviewReceipt} from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/gates/review-receipt.ts"))};
 		const db=openStore(), project=projectIdentity(), c=reviewContext(process.cwd(),"suspenders/GUARD");
 		db.query("INSERT OR REPLACE INTO work_items(project,id,title,state,result_sha,created_at,updated_at) VALUES (?,'GUARD','fixture','DONE',?,?,?)").run(project,c.commit,Date.now(),Date.now());
 		db.run("CREATE TABLE IF NOT EXISTS work_completion_records(project TEXT,item TEXT,commit_sha TEXT,completed_by TEXT)");
@@ -236,6 +236,85 @@ test("malformed ordinary JSON is rejected", () => {
 	rejected(repo, before);
 	expect(readFileSync(join(repo, ".fleet/loop.log"), "utf8")).toContain(
 		"syntax rejected",
+	);
+});
+
+test("lib extraction (shrink + added file carrying the lines) is not file loss", () => {
+	// W1302.4: a 262-line helper shrank to a stub while the moved lines
+	// reappeared in a new lib file — the M-filter shrink rule read that as
+	// deletion and false-FAILed the branch three times, parking it.
+	const { repo } = fixture("export const valid = 1;\n");
+	const body = Array.from(
+		{ length: 230 },
+		(_, i) => `export const moved${i} = ${i};\n`,
+	).join("");
+	mkdirSync(join(repo, "tests/helpers"), { recursive: true });
+	writeFileSync(join(repo, "tests/helpers/old.ts"), body);
+	git(repo, "add", "tests/helpers/old.ts");
+	git(repo, "commit", "-m", "seed helper");
+	const seeded = git(repo, "rev-parse", "HEAD").out;
+	git(repo, "branch", "-D", "suspenders/GUARD");
+	git(repo, "checkout", "-b", "suspenders/GUARD");
+	mkdirSync(join(repo, "lib"), { recursive: true });
+	writeFileSync(
+		join(repo, "lib/new.ts"),
+		`// extracted\n${body}export const tail = 1;\n`,
+	);
+	writeFileSync(join(repo, "tests/helpers/old.ts"), "export const stub = 0;\n");
+	git(repo, "add", "lib/new.ts");
+	git(repo, "add", "tests/helpers/old.ts");
+	git(repo, "commit", "-m", "extract");
+	git(repo, "checkout", "main");
+	ship(repo);
+	expect(git(repo, "rev-parse", "HEAD").out).not.toBe(seeded);
+	expect(readFileSync(join(repo, ".fleet/loop.log"), "utf8")).toContain(
+		"MERGED",
+	);
+});
+
+test("shrink whose added sibling does not carry the lines still refuses", () => {
+	const { repo } = fixture("export const valid = 1;\n");
+	const body = Array.from(
+		{ length: 230 },
+		(_, i) => `export const gone${i} = ${i};\n`,
+	).join("");
+	writeFileSync(join(repo, "real.ts"), body);
+	git(repo, "add", "real.ts");
+	git(repo, "commit", "-m", "seed");
+	const seeded = git(repo, "rev-parse", "HEAD").out;
+	git(repo, "branch", "-D", "suspenders/GUARD");
+	git(repo, "checkout", "-b", "suspenders/GUARD");
+	writeFileSync(join(repo, "real.ts"), "export const stub = 0;\n");
+	writeFileSync(join(repo, "unrelated.ts"), "export const u = 1;\n");
+	git(repo, "add", "real.ts");
+	git(repo, "add", "unrelated.ts");
+	git(repo, "commit", "-m", "shrink");
+	git(repo, "checkout", "main");
+	ship(repo);
+	rejected(repo, seeded);
+	expect(readFileSync(join(repo, ".fleet/loop.log"), "utf8")).toContain(
+		"candidate removes",
+	);
+});
+
+test("one added copy cannot cancel repeated removed lines", () => {
+	const { repo } = fixture("export const valid = 1;\n");
+	const repeated = "// repeated source line\n";
+	writeFileSync(join(repo, "real.ts"), repeated.repeat(230));
+	git(repo, "add", "real.ts");
+	git(repo, "commit", "-m", "seed repeated lines");
+	const seeded = git(repo, "rev-parse", "HEAD").out;
+	git(repo, "branch", "-D", "suspenders/GUARD");
+	git(repo, "checkout", "-b", "suspenders/GUARD");
+	writeFileSync(join(repo, "real.ts"), "export const stub = 0;\n");
+	writeFileSync(join(repo, "added.ts"), `${repeated}export const kept = 1;\n`);
+	git(repo, "add", "real.ts", "added.ts");
+	git(repo, "commit", "-m", "remove repeated lines");
+	git(repo, "checkout", "main");
+	ship(repo);
+	rejected(repo, seeded);
+	expect(readFileSync(join(repo, ".fleet/loop.log"), "utf8")).toContain(
+		"candidate removes",
 	);
 });
 

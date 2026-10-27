@@ -15,44 +15,52 @@
 
 import type { Database } from "bun:sqlite";
 import { basename } from "node:path";
-import { automaticRecoveryCheck } from "../lib/automatic-recovery.ts";
-import { budgetFlagClear } from "../lib/budget-flag.ts";
 import { itemCapsuleKey } from "../lib/capsule-fence.ts";
-import { unmergedDeps, unmergedNote } from "../lib/dep-merge-gate.ts";
-import { assertCaps, projectRootOf, resolveSidOf } from "../lib/govdb.ts";
+import { detectClient } from "../lib/executors/detect.ts";
+import { automaticRecoveryCheck } from "../lib/fleet-loop/automatic-recovery.ts";
+import { triggerMergeOnDone } from "../lib/fleet-loop/merge-on-done.ts";
+import { unmergedDeps, unmergedNote } from "../lib/gates/dep-merge-gate.ts";
+import { reproGateRefusal } from "../lib/gates/repro-gate.ts";
+import { assertCaps, projectRootOf, resolveSidOf } from "../lib/govdb/govdb.ts";
 import {
 	recordKnowledgeSuggestion,
 	renderKnowledgeSuggestion,
 	suggestKnowledge,
-} from "../lib/kev-curation.ts";
-import { rebindKeptLaneContext } from "../lib/lane-context.ts";
-import { doneSpendStamp, parseDoneSpend } from "../lib/lane-done-spend.ts";
-import { doneEffortStamp } from "../lib/lane-effort.ts";
-import { publishCompletionBlock } from "../lib/lane-stop-publisher.ts";
-import { gitBadge, gitObservation, mergeReadyWhy } from "../lib/lane-git.ts";
-import { laneAlive } from "../lib/lane-liveness.ts";
+} from "../lib/knowledge/kev-curation.ts";
+import { rebindKeptLaneContext } from "../lib/lanes/lane-context.ts";
+import {
+	doneSpendStamp,
+	parseDoneSpend,
+} from "../lib/lanes/lane-done-spend.ts";
+import { doneEffortStamp } from "../lib/lanes/lane-effort.ts";
+import {
+	gitBadge,
+	gitObservation,
+	mergeReadyWhy,
+} from "../lib/lanes/lane-git.ts";
+import { laneAlive } from "../lib/lanes/lane-liveness.ts";
 import {
 	loadLaneRegistry,
 	loadLaneRegistryFile,
-} from "../lib/lane-registry.ts";
-import { itemAttribution, renderAttribution } from "../lib/lane-spend.ts";
-import { triggerMergeOnDone } from "../lib/merge-on-done.ts";
+} from "../lib/lanes/lane-registry.ts";
+import { itemAttribution, renderAttribution } from "../lib/lanes/lane-spend.ts";
+import { publishCompletionBlock } from "../lib/lanes/lane-stop-publisher.ts";
 import {
 	claimantLanes,
 	matchingClaimantLane,
 	reclaimAll,
-} from "../lib/reclaim-all.ts";
+} from "../lib/lanes/reclaim-all.ts";
 import {
 	parseDuration,
 	probeClaim,
 	setReclaimHold,
-} from "../lib/reclaim-liveness.ts";
+} from "../lib/lanes/reclaim-liveness.ts";
 import {
 	parseReclaimReason,
 	reclaimGateDecision,
-} from "../lib/reclaim-sticky.ts";
-import { reproGateRefusal } from "../lib/repro-gate.ts";
+} from "../lib/lanes/reclaim-sticky.ts";
 import { attachManagedSubscribe, reapIfIdle } from "../lib/subscribe-attach.ts";
+import { budgetFlagClear } from "../lib/usage/budget-flag.ts";
 import { dieFor, idList, type Parsed, runCli } from "../lib/verb-kit.ts";
 import {
 	applyAllocations,
@@ -61,15 +69,15 @@ import {
 	nextChildIdOf,
 	planAllocation,
 	renderAllocPlan,
-} from "../lib/work-alloc.ts";
+} from "../lib/work/work-alloc.ts";
 import {
 	type CompletionRecord,
 	completionRecord,
 	persistCompletion,
 	prepareCompletion,
-} from "../lib/work-completion-record.ts";
-import { EFFORTS } from "../lib/work-effort.ts";
-import { evidencePatternsOf } from "../lib/work-fence.ts";
+} from "../lib/work/work-completion-record.ts";
+import { EFFORTS } from "../lib/work/work-effort.ts";
+import { evidencePatternsOf } from "../lib/work/work-fence.ts";
 import {
 	amber,
 	cyan,
@@ -81,39 +89,39 @@ import {
 	freeDependents,
 	get,
 	green,
-	insertItem,
 	type Item,
+	insertItem,
 	MUTATING_CMDS,
 	nextRootId,
 	PROJECT,
 	reaches,
+	red,
 	releaseClaim,
 	releaseObserved,
-	red,
 	retireItemWorktree,
 	rollUp,
-	setWorkVerb,
 	setState,
-} from "../lib/work-graph.ts";
-import { queueCompletionKnowledge } from "../lib/work-knowledge.ts";
-import { runMigrateLedger } from "../lib/work-migrate-ledger.ts";
-import { exportMirror } from "../lib/work-mirror.ts";
-import { GLYPH, renderRow, renderTimestamps } from "../lib/work-render.ts";
+	setWorkVerb,
+} from "../lib/work/work-graph.ts";
+import { queueCompletionKnowledge } from "../lib/work/work-knowledge.ts";
+import { runMigrateLedger } from "../lib/work/work-migrate-ledger.ts";
+import { exportMirror } from "../lib/work/work-mirror.ts";
+import { GLYPH, renderRow, renderTimestamps } from "../lib/work/work-render.ts";
 import {
 	buildReportTable,
 	parseReportWindow,
 	reportRows,
 	reportTableLinkOpts,
-} from "../lib/work-report.ts";
-import { retryFailedItem } from "../lib/work-retry.ts";
-import { validateTags } from "../lib/work-tags.ts";
-import { VERBS } from "../lib/work-verbs.ts";
+} from "../lib/work/work-report.ts";
+import { retryFailedItem } from "../lib/work/work-retry.ts";
+import { validateTags } from "../lib/work/work-tags.ts";
+import { VERBS } from "../lib/work/work-verbs.ts";
 import {
 	parseWaitUntil,
 	waitForPrerequisite,
 	wakeAfterEvidence,
-} from "../lib/work-wait.ts";
-import { provisionForTake } from "../lib/worktree-provision.ts";
+} from "../lib/work/work-wait.ts";
+import { provisionForTake } from "../lib/work/worktree-provision.ts";
 
 const die = dieFor("work");
 
@@ -527,6 +535,9 @@ const dispatchVerb = async (
 		// prepareCompletion so the durable lane-context channel is consulted
 		// before anything is refused; the CAS UPDATE then closes the race.
 		const tok = flag("--token") ?? process.env.KLH_CLAIM_TOKEN ?? null;
+		// W1731: ambient client detection — advisory to the claim-check's
+		// reader choice; the registered launch identity outranks it.
+		const detected = await detectClient();
 		let record: CompletionRecord;
 		try {
 			record = prepareCompletion(db(), {
@@ -537,6 +548,7 @@ const dispatchVerb = async (
 				sha,
 				summary: flag("--summary"),
 				token: tok,
+				detected,
 			});
 		} catch (error) {
 			try {

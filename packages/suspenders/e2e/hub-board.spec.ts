@@ -19,11 +19,20 @@ const SHOTS = "/tmp/w353-shots";
 
 let hub: Board | null = null;
 let local: Board | null = null;
+let hubSha = "";
 
 test.beforeAll(async () => {
 	mkdirSync(SHOTS, { recursive: true });
 	hub = await startBoard("hub");
 	local = await startBoard("local");
+	// W1294.2: real completion evidence — the done-gate verifies the sha is a
+	// commit in the repo; the hub scratch repo's own base commit rides the call
+	const gp = Bun.spawnSync(
+		["git", "-C", mustHub().MY_PROJ, "rev-parse", "HEAD"],
+		{ stdout: "pipe", stderr: "pipe" },
+	);
+	hubSha = gp.stdout.toString().trim();
+	expect(hubSha).toMatch(/^[0-9a-f]{40}$/);
 });
 
 test.afterAll(async () => {
@@ -81,9 +90,9 @@ async function openTasks(page: Page): Promise<void> {
 	await page.getByRole("button", { name: "Tasks" }).click();
 }
 
-test("delegated item rides declare → reconcile → done on the hub board GUI", async ({
-	page,
-}) => {
+test("delegated item rides declare → reconcile → done on the hub board GUI", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const H = mustHub();
 	const look = watch(page);
 	const TITLE = "Delegate: reconcile hub policy manifest on the spoke";
@@ -129,16 +138,29 @@ test("delegated item rides declare → reconcile → done on the hub board GUI",
 	const card = page.locator(`#kanban .kcard[data-kid="${id}"]`);
 	await expect(card).toBeVisible();
 	const working = page.locator("#kanban .kcol", {
-		has: page.locator("h3", { hasText: "working" }),
+		has: page.locator("h3", { hasText: "claimed" }),
 	});
 	await expect(working.locator(`.kcard[data-kid="${id}"]`)).toBeVisible();
 	await expect(card).toContainText(ORIGIN); // delegation provenance, on the card
 	await page.screenshot({ path: `${SHOTS}/2-reconciled.png`, fullPage: true });
 
-	// DONE — the spoke closes it; the hub GUI moves it to done
-	const SHA = "d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3";
+	// DONE — the spoke closes it; the hub GUI moves it to done (the done-gate
+	// requires the completion paragraph and verifies the sha is a real commit
+	// in the repo — the hub scratch repo's own base commit is the evidence)
+	const SHA = hubSha;
 	H.workOk(
-		["done", id, "--as", "spoke-lane", "--sha", SHA, "--token", token],
+		[
+			"done",
+			id,
+			"--as",
+			"spoke-lane",
+			"--sha",
+			SHA,
+			"--token",
+			token,
+			"--summary",
+			"Delegated item closed by the spoke lane with the reported sha; the hub board GUI must move the card to done.",
+		],
 		"spoke reports done up to the hub graph",
 	);
 	await openTasks(page);
@@ -169,9 +191,9 @@ test("delegated item rides declare → reconcile → done on the hub board GUI",
 	look.clean();
 });
 
-test("scope isolation: local work never leaks to the hub board", async ({
-	page,
-}) => {
+test("scope isolation: local work never leaks to the hub board", {
+	tag: "@ui",
+}, async ({ page }) => {
 	const H = mustHub();
 	const L = mustLocal();
 	const look = watch(page);
