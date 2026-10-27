@@ -209,7 +209,6 @@ packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83
 # (curl doc samples "your-api-key…", ABCD… dummy bench constant, T1/hub
 # provider test fixtures, Azure documented sample JWT), first-hand read of
 # every flagged line 2026-10-23 — not secrets
-05177bc10f165d2e06e5278067c6c34487e80b51:packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83
 7460585736357db9bd5b2dd57fa5e3b3c49943bf:packages/belt/bench/arena/gen.ts:generic-api-key:936
 7460585736357db9bd5b2dd57fa5e3b3c49943bf:packages/buckle/docs/providers/azure__azure_anthropic.md:curl-auth-header:270
 7460585736357db9bd5b2dd57fa5e3b3c49943bf:packages/buckle/docs/providers/azure__index.md:generic-api-key:539
@@ -268,8 +267,3 @@ packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83
 7460585736357db9bd5b2dd57fa5e3b3c49943bf:packages/suspenders/test/fleet-board-flows.test.ts:generic-api-key:443
 7460585736357db9bd5b2dd57fa5e3b3c49943bf:packages/suspenders/test/prompt-transform.test.ts:generic-api-key:418
 7460585736357db9bd5b2dd57fa5e3b3c49943bf:packages/suspenders/test/scrub-gate.test.ts:generic-api-key:32
-c484e03c7178f330ec6814a28077aef6bed8593e:packages/suspenders/test/hub-providers.test.ts:generic-api-key:102
-c484e03c7178f330ec6814a28077aef6bed8593e:packages/suspenders/test/hub-providers.test.ts:generic-api-key:163
-c484e03c7178f330ec6814a28077aef6bed8593e:packages/suspenders/test/hub-providers.test.ts:generic-api-key:189
-c484e03c7178f330ec6814a28077aef6bed8593e:packages/suspenders/test/hub-providers.test.ts:generic-api-key:29
-c484e03c7178f330ec6814a28077aef6bed8593e:packages/suspenders/test/hub-providers.test.ts:generic-api-key:42
