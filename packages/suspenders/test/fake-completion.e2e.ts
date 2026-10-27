@@ -1,0 +1,141 @@
+import { expect, test } from "@playwright/test";
+import {
+	scanCompletionDiff,
+	type FakeCompletionHit,
+} from "../hooks/lib/executors/fake-completion.ts";
+
+// Marker text is assembled in these tests too: the closing diff of the lane
+// that lands this scanner is itself scanned by the gate it ships.
+
+const assemble = (...parts: string[]): string => parts.join("");
+
+const diffFor = (added: string[], path = "src/product.ts"): string =>
+	[
+		`diff --git a/${path} b/${path}`,
+		"index 1111111..2222222 100644",
+		`--- a/${path}`,
+		`+++ b/${path}`,
+		`@@ -0,0 +1,${added.length} @@`,
+		...added.map((text) => `+${text}`),
+		"",
+	].join("\n");
+
+test("added gated-test lines are flagged with new-side line numbers", () => {
+	const diff = diffFor([
+		"export const ok = 1;",
+		assemble("it", ".skip(", '"later", () => {});'),
+		"export const fine = 2;",
+	]);
+	const hits = scanCompletionDiff(diff);
+	expect(hits).toHaveLength(1);
+	expect(hits[0]?.path).toBe("src/product.ts");
+	expect(hits[0]?.line).toBe(2);
+	expect(hits[0]?.marker).toBe("skip-gate");
+});
+
+test("every marker family is caught", () => {
+	const hits = scanCompletionDiff(
+		diffFor(
+			[
+				assemble("test.describe", ".only(", '"edge"'),
+				assemble("test", ".todo(", '"later"'),
+				assemble("x", "it(", '"legacy"'),
+				assemble("// ", "TO", "DO", ": wire the parser"),
+				assemble('throw new Error("', "not ", "implemented", '");'),
+			],
+			"src/stub.ts",
+		),
+	);
+	expect(hits.map((hit) => hit.marker)).toEqual([
+		"skip-gate",
+		"skip-gate",
+		"x-gate",
+		"stub-note",
+		"placeholder-throw",
+	]);
+});
+
+test("removed and context lines never flag", () => {
+	const diff = [
+		"diff --git a/src/x.ts b/src/x.ts",
+		"--- a/src/x.ts",
+		"+++ b/src/x.ts",
+		"@@ -2,2 +2,2 @@",
+		assemble("-// ", "TO", "DO", ": retired with the old code"),
+		" context stays unflagged",
+		"+export const replacement = 1;",
+		"",
+	].join("\n");
+	expect(scanCompletionDiff(diff)).toHaveLength(0);
+});
+
+test("honest proposal prose is not an executable placeholder", () => {
+	const prose = assemble(
+		"The proposals below remain un",
+		"implemented unless stated otherwise.",
+	);
+	expect(scanCompletionDiff(diffFor([prose], "how-to-review.md"))).toEqual([]);
+});
+
+test("placeholder throws remain blocked for multiple error forms", () => {
+	for (const prefix of [
+		"throw new Error(",
+		"throw TypeError(",
+		"if (missing) throw ",
+	]) {
+		const line = assemble(prefix, '"not ', "implemented", '");');
+		expect(scanCompletionDiff(diffFor([line]))[0]?.marker).toBe(
+			"placeholder-throw",
+		);
+	}
+});
+
+test("multiline source placeholders and documentation code gates remain blocked", () => {
+	const message = assemble('"not ', "implemented", '");');
+	expect(
+		scanCompletionDiff(diffFor(["throw new Error(", message]))[0]?.marker,
+	).toBe("placeholder-throw");
+	expect(
+		scanCompletionDiff(diffFor([`throw new Error(${message}`], "guide.md"))[0]
+			?.marker,
+	).toBe("placeholder-throw");
+	const stub = assemble("TO", "DO", ": unfinished implementation");
+	expect(scanCompletionDiff(diffFor([stub], "guide.md"))[0]?.marker).toBe(
+		"stub-note",
+	);
+});
+
+test("deleted files and no-newline marks do not break numbering", () => {
+	const diff = [
+		"diff --git a/src/gone.ts b/src/gone.ts",
+		"deleted file mode 100644",
+		"--- a/src/gone.ts",
+		"+++ /dev/null",
+		"@@ -1 +0,0 @@",
+		"-export const gone = 1;",
+		"diff --git a/src/keep.ts b/src/keep.ts",
+		"--- a/src/keep.ts",
+		"+++ b/src/keep.ts",
+		"@@ -1,2 +1,3 @@",
+		"+export const first = 1;",
+		"\\No newline at end of file",
+		"+export const second = 2;",
+		"",
+	].join("\n");
+	const hits: FakeCompletionHit[] = scanCompletionDiff(diff);
+	expect(hits).toHaveLength(0);
+});
+
+test("multi-file diffs attribute hits to the right path and line", () => {
+	const diff = [
+		diffFor(["export const a = 1;"], "src/one.ts"),
+		diffFor(
+			["export const b = 2;", assemble("it", ".only(", '"hot"')],
+			"src/two.ts",
+		),
+	].join("\n");
+	const hits = scanCompletionDiff(diff);
+	expect(hits).toHaveLength(1);
+	expect(hits[0]?.path).toBe("src/two.ts");
+	expect(hits[0]?.line).toBe(2);
+});

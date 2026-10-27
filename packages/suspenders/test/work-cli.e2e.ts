@@ -1,0 +1,867 @@
+// test/work-cli.test.ts — end-to-end suite for the Work Graph CLI (bin/work.ts).
+// Every test spawns `bun bin/work.ts <cmd>` against an isolated temp HOME
+// (fresh governor.db) and a temp git repo created under process.cwd() for
+// project identity. The repo must NEVER live under /tmp: the bash gate
+// exempts /tmp paths by design, so a /tmp checkout would silently test
+// nothing (on Linux os.tmpdir() IS /tmp). Each temp repo gets a real
+// `git init`: an empty mkdir'd .git is NOT a valid gitdir, and discovery
+// would walk up into the checkout's own .git, colliding project identity.
+
+import { Database } from "bun:sqlite";
+import { expect, test } from "@playwright/test";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { gitInit, tmpDir, cleanupDirs } from "./helpers/fixture-kit.ts";
+import { isResumableClaim } from "../scripts/lib/resumable-claim.ts";
+
+const HOME = tmpDir("claude-work-cli-home-");
+const REPO = tmpDir("suspenders-work-cli-repo-");
+gitInit(REPO, { baseline: true });
+const env = { ...process.env, HOME };
+const BIN = join(import.meta.dir, "..", "hooks", "bin");
+const DB = join(HOME, ".cache", "claude-governor", "governor.db");
+
+function workIn(
+	cwd: string,
+	...args: string[]
+): { out: string; err: string; code: number } {
+	const p = Bun.spawnSync(["bun", join(BIN, "work.ts"), ...args], {
+		cwd,
+		env,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	return {
+		out: p.stdout.toString(),
+		err: p.stderr.toString(),
+		code: p.exitCode,
+	};
+}
+const work = (...args: string[]) => workIn(REPO, ...args);
+const idOf = (out: string): string =>
+	(out.match(/W\d+(?:\.\d+)*/) ?? [])[0] ?? "";
+const rootNum = (id: string): number => Number(id.slice(1).split(".")[0]);
+const firstLine = (s: string): string => (s.split("\n")[0] ?? "").trim();
+
+function withDb(fn: (db: Database) => void): void {
+	const db = new Database(DB, { create: true });
+	fn(db);
+	db.close();
+}
+
+/** take → done: the disciplined completion path (W643: carries the
+ * take-minted claim token — `work done` refuses a gated claim without it). */
+function finish(
+	id: string,
+	sid: string,
+): { code: number; out: string; err: string } {
+	return finishAs(id, sid);
+}
+
+let productRevision = 0;
+function productCommit(label: string): string {
+	writeFileSync(
+		join(REPO, "fixture-product.ts"),
+		`export const revision = ${++productRevision};\n`,
+	);
+	for (const args of [
+		["add", "fixture-product.ts"],
+		[
+			"-c",
+			"user.name=Fixture",
+			"-c",
+			"user.email=fixture@example.invalid",
+			"commit",
+			"-qm",
+			label,
+		],
+	]) {
+		const result = Bun.spawnSync(["git", "-C", REPO, ...args], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		if (result.exitCode !== 0) throw new Error(result.stderr.toString());
+	}
+	return Bun.spawnSync(["git", "-C", REPO, "rev-parse", "HEAD"], {
+		stdout: "pipe",
+	})
+		.stdout.toString()
+		.trim();
+}
+
+/** W643: claim-and-close in one — take mints the token, done must carry it. */
+function finishAs(
+	id: string,
+	sid: string,
+	sha?: string,
+): { code: number; out: string; err: string } {
+	const t = work("take", id, "--as", sid);
+	if (t.code !== 0) return t;
+	const tok = /claim token: ([0-9a-f]{48})/.exec(t.out)?.[1];
+	if (!tok) throw new Error("Fixture take must mint its original claim token");
+	const commit = sha ?? productCommit(`Implement fixture product for ${id}`);
+	const result = work(
+		"done",
+		id,
+		"--as",
+		sid,
+		"--sha",
+		commit,
+		"--summary",
+		`Implemented the isolated fixture product for ${id} to verify work graph state transitions with real commit evidence.`,
+		"--token",
+		tok,
+	);
+	if (result.code === 0) {
+		const completed = JSON.parse(work("show", id, "--json").out);
+		expect(completed.completion).toMatchObject({
+			commit_sha: commit,
+			completed_by: sid,
+		});
+	}
+	return result;
+}
+
+test.afterAll(() => {
+	cleanupDirs(HOME, REPO);
+});
+
+test("show --json gives dispatcher state and exact owner in either flag order", () => {
+	const id = idOf(
+		work("add", "JSON state test", "--desc", "state: CLAIMED by wrong-owner")
+			.out,
+	);
+	expect(work("take", id, "--as", "json-owner").code).toBe(0);
+	for (const args of [
+		["show", id, "--json"],
+		["show", "--json", id],
+	]) {
+		const result = work(...args);
+		expect(result.code).toBe(0);
+		expect(JSON.parse(result.out)).toMatchObject({
+			id,
+			state: "CLAIMED",
+			owner_sid: "json-owner",
+		});
+		expect(isResumableClaim(result.out, id, "json-owner")).toBe(true);
+		expect(isResumableClaim(result.out, id, "wrong-owner")).toBe(false);
+	}
+	expect(work("show", id).out).toContain("owner_sid: json-owner");
+	expect(work("show", "W99999999", "--json").code).not.toBe(0);
+	expect(work("show", "--json").code).not.toBe(0);
+});
+
+test("show takes comma- or space-separated id lists (W795)", () => {
+	const a = idOf(work("add", "showlist a", "--by", "t").out);
+	const b = idOf(work("add", "showlist b", "--by", "t").out);
+	// comma-separated: one rendered item header per line (W902: each item
+	// also carries its created/updated dual-stamp lines under the header)
+	const comma = work("show", `${a},${b}`);
+	expect(comma.code).toBe(0);
+	const lines = comma.out.trim().split("\n");
+	const headers = lines.filter((l) => l.includes(a) || l.includes(b));
+	expect(headers).toHaveLength(2);
+	expect(headers[0]).toContain(a);
+	expect(headers[1]).toContain(b);
+	// W902: both twins render — UTC Z and an explicit local offset
+	expect(comma.out).toMatch(/created: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z \(/);
+	expect(comma.out).toMatch(/updated: .*[+-]\d{2}:\d{2}\)/);
+	// space-separated: identical result
+	const spaced = work("show", a, b);
+	expect(spaced.code).toBe(0);
+	expect(firstLine(spaced.out)).toContain(a);
+	expect(spaced.out).toContain(b);
+	// --json: NDJSON, one object per id
+	const json = work("show", "--json", `${a},${b}`);
+	expect(json.code).toBe(0);
+	const rows = json.out
+		.trim()
+		.split("\n")
+		.map((l) => JSON.parse(l));
+	expect(rows.map((r) => (r as { id: string }).id)).toEqual([a, b]);
+	// a bad id in the list still dies with the standard refusal
+	expect(work("show", `${a},W99999999`).code).not.toBe(0);
+});
+
+test("retry takes comma-separated id lists (W795)", () => {
+	const fa = idOf(work("add", "retrylist a", "--by", "t").out);
+	const fb = idOf(work("add", "retrylist b", "--by", "t").out);
+	expect(work("fail", fa, "--note", "x").code).toBe(0);
+	expect(work("fail", fb, "--note", "x").code).toBe(0);
+	const r = work("retry", `${fa},${fb}`);
+	expect(r.code).toBe(0);
+	expect(r.out).toContain(`${fa} READY`);
+	expect(r.out).toContain(`${fb} READY`);
+});
+
+test("stats reports project graph counts as structured data", () => {
+	const result = work("stats");
+	expect(result.code).toBe(0);
+	const stats = JSON.parse(result.out);
+	expect(stats.project).toBeTruthy();
+	expect(stats.counts.CLAIMED).toBeGreaterThan(0);
+	expect(stats.latest_done).toBeNull();
+});
+
+test.describe("add — id allocation", () => {
+	test("root ids allocate sequentially per project", () => {
+		const a = idOf(work("add", "alpha item").out);
+		const b = idOf(work("add", "beta item").out);
+		expect(a).toMatch(/^W\d+$/);
+		expect(rootNum(b)).toBe(rootNum(a) + 1);
+	});
+
+	test("child ids nest under --parent", () => {
+		const p = idOf(work("add", "parent item").out);
+		expect(idOf(work("add", "kid one", "--parent", p).out)).toBe(`${p}.1`);
+		expect(idOf(work("add", "kid two", "--parent", p).out)).toBe(`${p}.2`);
+	});
+
+	test("missing title and unknown options are refused", () => {
+		expect(work("add").err).toContain("usage: add <title>");
+		expect(work("add", "x", "--bogus", "y").err).toContain(
+			"unknown option: --bogus",
+		);
+	});
+});
+
+test.describe("take — CAS claim", () => {
+	test("take claims; a second take is refused", () => {
+		const a = idOf(work("add", "contested").out);
+		expect(work("take", a, "--as", "lane-one").code).toBe(0);
+		const again = work("take", a, "--as", "lane-two");
+		expect(again.code).toBe(2);
+		// W515 assignTask wording: a non-READY item refuses as "claim refused"
+		expect(again.err).toContain("claim refused");
+	});
+
+	test("take refuses nonexistent ids and unmet dependencies", () => {
+		expect(work("take", "W404", "--as", "any").err).toContain(
+			"no such work item",
+		);
+		const g = idOf(work("add", "gate target").out);
+		const d = idOf(work("add", "dependent").out);
+		work("block", d, "--on", g);
+		expect(work("take", d, "--as", "any").err).toContain("unmet dependencies");
+	});
+
+	test("concurrent takes race: exactly one CAS wins", async () => {
+		const id = idOf(work("add", "race item").out);
+		const procs = ["racer-1", "racer-2"].map((sid) =>
+			Bun.spawn(["bun", join(BIN, "work.ts"), "take", id, "--as", sid], {
+				cwd: REPO,
+				env,
+				stdout: "pipe",
+				stderr: "pipe",
+			}),
+		);
+		const codes = await Promise.all(procs.map((p) => p.exited));
+		expect(codes.filter((c) => c === 0).length).toBe(1);
+	});
+});
+
+test.describe("split — shatter, child ids, roll-up", () => {
+	test("split creates dotted child ids and shatters the parent", () => {
+		const p = idOf(work("add", "shatter me").out);
+		const s = work(
+			"split",
+			p,
+			"child a",
+			"child b",
+			"--reason",
+			"independent-scopes",
+		);
+		expect(s.code).toBe(0);
+		expect(s.out).toContain(`${p}.1`);
+		expect(s.out).toContain(`${p}.2`);
+		expect(firstLine(work("show", p).out)).toContain("SHATTERED");
+	});
+
+	test("split without --reason is refused", () => {
+		const p = idOf(work("add", "no reason").out);
+		expect(work("split", p, "a", "b").err).toContain("usage: split");
+	});
+
+	test("--keep leaves the claimed child with the owner", () => {
+		const p = idOf(work("add", "keep root").out);
+		expect(work("take", p, "--as", "lane-keep").code).toBe(0);
+		const s = work(
+			"split",
+			p,
+			"kept",
+			"handed",
+			"--reason",
+			"independent-scopes",
+			"--keep",
+			"1",
+		);
+		expect(s.code).toBe(0);
+		expect(firstLine(work("show", `${p}.1`).out)).toContain("CLAIMED");
+		expect(firstLine(work("show", `${p}.2`).out)).toContain("READY");
+	});
+
+	test("--keep rebinds the keeping lane's context to the kept child (W628)", () => {
+		const p = idOf(work("add", "keep rebind").out);
+		expect(work("take", p, "--as", "lane-rebind").code).toBe(0);
+		mkdirSync(join(REPO, ".fleet"), { recursive: true });
+		const contextPath = join(REPO, ".fleet", "lane-context.json");
+		writeFileSync(
+			contextPath,
+			JSON.stringify({
+				sid: "lane-rebind",
+				item: p,
+				baseline: "abc",
+				launchedAt: 1,
+			}),
+		);
+		const s = work(
+			"split",
+			p,
+			"kept",
+			"handed",
+			"--reason",
+			"independent-scopes",
+			"--keep",
+			"1",
+		);
+		expect(s.code).toBe(0);
+		expect(s.out).toContain("rebound");
+		const rebound = JSON.parse(readFileSync(contextPath, "utf8"));
+		expect(rebound.item).toBe(`${p}.1`);
+		expect(rebound.sid).toBe("lane-rebind");
+		expect(rebound.baseline).toBe("abc"); // evidence baseline survives
+		rmSync(contextPath); // the shared REPO outlives this test — no context leaks
+	});
+
+	test("split leaves foreign lane contexts untouched (W628)", () => {
+		const p = idOf(work("add", "keep foreign").out);
+		expect(work("take", p, "--as", "lane-x").code).toBe(0);
+		mkdirSync(join(REPO, ".fleet"), { recursive: true });
+		const contextPath = join(REPO, ".fleet", "lane-context.json");
+		writeFileSync(contextPath, JSON.stringify({ sid: "other-lane", item: p }));
+		const s = work(
+			"split",
+			p,
+			"kept",
+			"handed",
+			"--reason",
+			"independent-scopes",
+			"--keep",
+			"1",
+		);
+		expect(s.code).toBe(0);
+		expect(s.out).not.toContain("rebound");
+		const untouched = JSON.parse(readFileSync(contextPath, "utf8"));
+		expect(untouched.sid).toBe("other-lane");
+		expect(untouched.item).toBe(p);
+		rmSync(contextPath);
+	});
+});
+
+test.describe("done — roll-up for shattered parents", () => {
+	test("parent stays SHATTERED until every required child is DONE, then rolls up", () => {
+		const p = idOf(work("add", "rollup root").out);
+		expect(
+			work("split", p, "c1", "c2", "--reason", "independent-scopes").code,
+		).toBe(0);
+		expect(work("done", `${p}.1`, "--sha", "s1").code).not.toBe(0); // this repo: READY work cannot be marked done...
+		expect(finishAs(`${p}.1`, "lane-r1").code).toBe(0);
+		expect(firstLine(work("show", p).out)).toContain("SHATTERED");
+		expect(finishAs(`${p}.2`, "lane-r2").code).toBe(0);
+		expect(firstLine(work("show", p).out)).toContain("DONE");
+	});
+
+	test("nested shatters roll up recursively", () => {
+		const q = idOf(work("add", "nested root").out);
+		expect(
+			work("split", q, "x", "y", "--reason", "independent-scopes").code,
+		).toBe(0);
+		expect(
+			work("split", `${q}.1`, "x1", "x2", "--reason", "independent-scopes")
+				.code,
+		).toBe(0);
+		expect(finishAs(`${q}.2`, "lane-n2").code).toBe(0);
+		expect(firstLine(work("show", q).out)).toContain("SHATTERED");
+		expect(finishAs(`${q}.1.1`, "lane-n11").code).toBe(0);
+		expect(firstLine(work("show", q).out)).toContain("SHATTERED");
+		expect(finishAs(`${q}.1.2`, "lane-n12").code).toBe(0);
+		expect(firstLine(work("show", `${q}.1`).out)).toContain("DONE");
+		expect(firstLine(work("show", q).out)).toContain("DONE");
+	});
+
+	test("FAILED required child blocks the parent; supersession closes", () => {
+		const p = idOf(work("add", "failure root").out);
+		expect(
+			work("split", p, "a", "b", "--reason", "independent-scopes").code,
+		).toBe(0);
+		expect(work("fail", `${p}.1`, "--note", "blew up").code).toBe(0);
+		expect(finish(`${p}.2`, "lane-fb").code).toBe(0);
+		expect(firstLine(work("show", p).out)).toContain("SHATTERED"); // FAILED blocks
+		expect(work("supersede", `${p}.1`, "--by", `${p}.9`).code).toBe(0);
+		expect(firstLine(work("show", p).out)).toContain("DONE");
+	});
+
+	test("supersede emits work.superseded so decision auto-cancel can match (W879)", () => {
+		const s = idOf(work("add", "supersede event").out);
+		expect(work("supersede", s, "--by", `${s}-next`).code).toBe(0);
+		withDb((db) => {
+			const row = db
+				.query("SELECT kind FROM events WHERE work = ? AND kind = ?")
+				.get(s, "work.superseded");
+			expect(row).not.toBeNull();
+		});
+	});
+
+	test("done without an id prints usage", () => {
+		expect(work("done").err).toContain(
+			"usage: done <id> [--as sid] --sha <sha>",
+		);
+	});
+});
+
+test.describe("cancel — W182 CANCELLED terminal state", () => {
+	test("cancel closes with a required note, clears the claim, emits work.cancelled", () => {
+		const c = idOf(work("add", "cancel me").out);
+		expect(work("cancel", c).code).toBe(2); // --note required
+		expect(work("take", c, "--as", "lane-cx").code).toBe(0);
+		const done = work("cancel", c, "--note", "no longer wanted");
+		expect(done.code).toBe(0);
+		expect(done.out).toContain("CANCELLED");
+		expect(firstLine(work("show", c).out)).toContain("CANCELLED");
+		expect(work("mine", "--as", "lane-cx").out).not.toContain(c); // claim released
+		withDb((db) => {
+			const row = db
+				.query("SELECT owner_sid, state FROM work_items WHERE id = ?")
+				.get(c) as { owner_sid: string | null; state: string };
+			expect(row.state).toBe("CANCELLED");
+			expect(row.owner_sid).toBeNull();
+		});
+	});
+
+	test("terminal states refuse cancel; list/mine hide CANCELLED", () => {
+		const t = idOf(work("add", "already closed").out);
+		expect(finishAs(t, "lane-t1").code).toBe(0);
+		const again = work("cancel", t, "--note", "x");
+		expect(again.code).toBe(2);
+		expect(again.err).toContain("already closed");
+		const z = idOf(work("add", "cancelled hidden").out);
+		expect(work("cancel", z, "--note", "why").code).toBe(0);
+		expect(work("list").out).not.toContain(z);
+		expect(work("owned").out).not.toContain(z);
+	});
+
+	test("a CANCELLED child keeps its SHATTERED parent open (rollUp doctrine)", () => {
+		const q = idOf(work("add", "cancel rollup root").out);
+		expect(
+			work("split", q, "x", "y", "--reason", "independent-scopes").code,
+		).toBe(0);
+		expect(work("take", `${q}.1`, "--as", "lane-cq").code).toBe(0);
+		expect(work("cancel", `${q}.1`, "--note", "dead end").code).toBe(0);
+		expect(firstLine(work("show", q).out)).toContain("SHATTERED"); // NOT rolled up
+	});
+});
+
+test.describe("ready — dependency gating", () => {
+	test("blocked items leave ready until their dependency is DONE", () => {
+		const a = idOf(work("add", "gate a").out);
+		const b = idOf(work("add", "gate b").out);
+		expect(work("block", b, "--on", a).code).toBe(0);
+		let ready = work("ready").out;
+		expect(ready).toContain(a);
+		expect(ready).not.toContain(b);
+		expect(work("show", b).out).toContain(`depends on: ${a}(READY)`);
+		expect(finishAs(a, "lane-gate").code).toBe(0); // claim before done (transition guard)
+		ready = work("ready").out;
+		expect(ready).toContain(b);
+	});
+
+	test("claimed items are not ready; list still shows them", () => {
+		const c = idOf(work("add", "claimed item").out);
+		expect(work("take", c, "--as", "lane-c").code).toBe(0);
+		expect(work("ready").out).not.toContain(c);
+		expect(work("list").out).toContain(c);
+	});
+});
+
+test.describe("capability filter on take", () => {
+	test("requires ⊆ session capabilities or take refuses", () => {
+		withDb((db) => {
+			const ins = db.query(
+				"INSERT INTO sessions (sid, project, role, parent_sid, worktree, started_at, hb, state, capabilities, transcript_path) VALUES (?, ?, 'worker', NULL, NULL, ?, ?, 'RUNNING', ?, NULL)",
+			);
+			ins.run("cap-fs", REPO, Date.now(), Date.now(), "shell,fs");
+			ins.run("cap-build", REPO, Date.now(), Date.now(), "shell,build");
+		});
+		const c = idOf(work("add", "needs a compiler", "--requires", "build").out);
+		const no = work("take", c, "--as", "cap-fs");
+		expect(no.code).toBe(2);
+		expect(no.err).toContain("requires [build]");
+		expect(work("take", c, "--as", "cap-build").code).toBe(0);
+		// no requires = no constraint, even for an unregistered sid
+		const u = idOf(work("add", "no capability gate").out);
+		expect(work("take", u, "--as", "never-bootstrapped").code).toBe(0);
+	});
+});
+
+test.describe("mine / owned / orphaned", () => {
+	test("mine filters by owner, owned lists all, orphaned finds dead claims", () => {
+		const m = idOf(work("add", "owned item").out);
+		expect(work("take", m, "--as", "lane-mine").code).toBe(0);
+		expect(work("mine", "--as", "lane-mine").out).toContain(m);
+		expect(work("mine", "--as", "lane-nobody").out).toContain(
+			"(nothing owned)",
+		);
+		expect(work("owned").out).toContain(m);
+		// temp HOME has no transcripts ⇒ every claim is dead ⇒ orphaned
+		expect(work("orphaned").out).toContain(m);
+	});
+
+	test("mine without --as prints usage", () => {
+		expect(work("mine").err).toContain("usage: mine --as <sid>");
+	});
+});
+
+test.describe("release / reclaim", () => {
+	test("release returns the item to READY and drops ownership", () => {
+		const d = idOf(work("add", "release me").out);
+		expect(work("take", d, "--as", "lane-rel").code).toBe(0);
+		expect(work("release", d, "--as", "lane-rel").code).toBe(0);
+		expect(work("mine", "--as", "lane-rel").out).toContain("(nothing owned)");
+		expect(work("ready").out).toContain(d);
+	});
+
+	test("reclaim rescues CLAIMED and ORPHANED, refuses READY", () => {
+		const r = idOf(work("add", "reclaim me").out);
+		expect(work("take", r, "--as", "lane-gone").code).toBe(0);
+		expect(work("reclaim", r).code).toBe(0);
+		expect(firstLine(work("show", r).out)).toContain("READY");
+		withDb((db) =>
+			db
+				.query(
+					"UPDATE work_items SET state = 'ORPHANED' WHERE project = (SELECT project FROM work_items WHERE id = ?) AND id = ?",
+				)
+				.run(r, r),
+		);
+		expect(work("reclaim", r).code).toBe(0);
+		const stale = work("reclaim", r); // now READY — nothing to reclaim
+		expect(stale.code).toBe(2);
+		expect(stale.err).toContain("only CLAIMED/RUNNING/ORPHANED");
+	});
+});
+
+test.describe("block — dependencies and cycles", () => {
+	test("block on a missing item is refused", () => {
+		const e = idOf(work("add", "edge case").out);
+		expect(work("block", e, "--on", "W404").err).toContain("no such work item");
+	});
+
+	test("cycle-forming blocks are refused", () => {
+		const a = idOf(work("add", "cycle a").out);
+		const b = idOf(work("add", "cycle b").out);
+		expect(work("block", b, "--on", a).code).toBe(0);
+		const cyc = work("block", a, "--on", b);
+		expect(cyc.code).toBe(2);
+		expect(cyc.err).toContain("dependency cycle");
+	});
+
+	test("unblock clears the edge and frees the item for ready", () => {
+		const u = idOf(work("add", "unblock target").out);
+		const w = idOf(work("add", "unblock waiter").out);
+		work("block", w, "--on", u);
+		expect(work("ready").out).not.toContain(w);
+		expect(work("unblock", w, "--on", u).code).toBe(0);
+		expect(work("ready").out).toContain(w);
+	});
+});
+
+test.describe("project partitioning", () => {
+	test("another repo sees none of this project's work", () => {
+		const repo2 = tmpDir("suspenders-work-cli-repo2-");
+		gitInit(repo2);
+		try {
+			expect(workIn(repo2, "list").out).toContain("(none)");
+			const any = idOf(work("add", "visibility probe").out);
+			expect(workIn(repo2, "show", any).err).toContain(
+				"no such work item in this project",
+			);
+		} finally {
+			rmSync(repo2, { recursive: true, force: true });
+		}
+	});
+});
+
+test.describe("usage surface", () => {
+	test("arg-less commands print their usage and exit 2", () => {
+		expect(work("take").err).toContain("usage: take <id> --as <sid>");
+		expect(work("supersede", "W1").err).toContain(
+			"usage: supersede <id> --by <new-id>",
+		);
+		expect(work("block", "W1").err).toContain(
+			"usage: block <id> --on <other-id>",
+		);
+	});
+
+	test("unknown command dies, --help wins everywhere", () => {
+		expect(work("bogus-cmd").err).toContain("unknown command");
+		expect(work("--help").code).toBe(0);
+		expect(work("add", "x", "--help").code).toBe(0);
+	});
+});
+
+test.describe("finish helper sanity", () => {
+	test("take → done marks DONE with the sha", () => {
+		const f = idOf(work("add", "finish probe").out);
+		const r = finish(f, "lane-finish");
+		expect(r.code).toBe(0);
+		expect(firstLine(work("show", f).out)).toContain("DONE");
+	});
+});
+
+test.describe("split gate — more than 2 children requires --plan", () => {
+	test("1-2 child splits stay free", () => {
+		const p = idOf(work("add", "free split").out);
+		expect(
+			work("split", p, "a", "b", "--reason", "independent-scopes").code,
+		).toBe(0);
+	});
+
+	test("3+ children without --plan is refused, no partial state", () => {
+		const p = idOf(work("add", "drive-by fan-out").out);
+		const r = work("split", p, "a", "b", "c", "--reason", "independent-scopes");
+		expect(r.code).toBe(2);
+		expect(r.err).toContain("--plan");
+		expect(firstLine(work("show", p).out)).toContain("READY"); // parent untouched
+		expect(work("list").out).not.toContain(`${p}.1`); // no children created
+	});
+
+	test("--plan must reference an existing graph item", () => {
+		const p = idOf(work("add", "phantom plan").out);
+		const r = work(
+			"split",
+			p,
+			"a",
+			"b",
+			"c",
+			"--reason",
+			"independent-scopes",
+			"--plan",
+			"W404",
+		);
+		expect(r.code).toBe(2);
+		expect(r.err).toContain("--plan");
+		expect(r.err).toContain("W404");
+	});
+
+	test("3 children with a registered plan shatter atomically", () => {
+		const plan = idOf(work("add", "the registered plan").out);
+		const p = idOf(work("add", "gated fan-out").out);
+		const r = work(
+			"split",
+			p,
+			"a",
+			"b",
+			"c",
+			"--reason",
+			"independent-scopes",
+			"--plan",
+			plan,
+		);
+		expect(r.code).toBe(0);
+		expect(r.out).toContain(`${p}.3`);
+		expect(firstLine(work("show", p).out)).toContain("SHATTERED");
+	});
+});
+
+test.describe("migrate-ledger", () => {
+	test("imports unresolved lines", () => {
+		const led = join(REPO, "OPS-LEDGER.md");
+		writeFileSync(
+			led,
+			[
+				"# Ops ledger",
+				"",
+				"- IN-FLIGHT: fix the flange",
+				"- [ ] write the parser battery",
+				"- [x] closed long ago",
+				"2. BLOCKED: wait on vendor",
+				"3. PAUSED — revisit quoting",
+				"- OWNER-GATED: publish the board",
+				"",
+				"## Architecture",
+				"The system uses a queue.",
+				"",
+				"```",
+				"- TODO: example in a fence, must be skipped",
+				"```",
+				"",
+			].join("\n"),
+		);
+		const r = work("migrate-ledger", led);
+		expect(r.code).toBe(0);
+		// five unresolved lines imported; markers and numbering stripped
+		for (const t of [
+			"fix the flange",
+			"write the parser battery",
+			"wait on vendor",
+			"revisit quoting",
+			"publish the board",
+		]) {
+			expect(r.out).toContain(t);
+			expect(work("list").out).toContain(t);
+		}
+		// checked task, prose, heading, fenced example: none imported
+		expect(r.out).not.toContain("closed long ago");
+		expect(work("list").out).not.toContain("closed long ago");
+		expect(r.out).not.toContain("example in a fence");
+	});
+
+	test("tombstone appended, points at the graph, single on re-run", () => {
+		const led = join(REPO, "OPS-LEDGER.md");
+		const r = work("migrate-ledger", led);
+		expect(r.code).toBe(0);
+		const text = readFileSync(led, "utf8");
+		expect(text).toContain("Migrated to the Work Graph");
+		expect(text).toContain("work done <id> --sha <sha>");
+		expect(text.split("<!-- work-migrate-tombstone -->").length - 1).toBe(1);
+	});
+
+	test("idempotent on re-run: no new items", () => {
+		const led = join(REPO, "OPS-LEDGER.md");
+		const count = (s: string): number =>
+			(s.match(/·|◐|▶|⚠|⏸|⊞|◌|✗/g) ?? []).length;
+		const before = count(work("list").out);
+		const r = work("migrate-ledger", led);
+		expect(r.code).toBe(0);
+		expect(count(work("list").out)).toBe(before);
+		expect(r.out).toContain("already in the graph");
+	});
+
+	test("dedupes against items already in the graph", () => {
+		work("add", "sync the cache");
+		const led2 = join(REPO, "LEDGER2.md");
+		writeFileSync(led2, "- TODO sync the cache\n- [ ] brand new thing\n");
+		const r = work("migrate-ledger", led2);
+		expect(r.code).toBe(0);
+		expect(r.out).toContain("already in the graph");
+		const list = work("list").out;
+		expect(list.split("sync the cache").length - 1).toBe(1);
+	});
+
+	test("imported items stay READY — a human closes them", () => {
+		const led3 = join(REPO, "LEDGER3.md");
+		writeFileSync(led3, "- TODO unique threshold work\n");
+		const r = work("migrate-ledger", led3);
+		expect(r.code).toBe(0);
+		expect(firstLine(work("show", idOf(r.out)).out)).toContain("READY");
+	});
+
+	test("missing path or missing file is refused", () => {
+		expect(work("migrate-ledger").err).toContain(
+			"usage: migrate-ledger <path>",
+		);
+		expect(work("migrate-ledger", join(REPO, "NOPE.md")).code).toBe(2);
+	});
+});
+
+test.describe("dep-merge ancestor gate (W60)", () => {
+	const g = (...a: string[]) =>
+		Bun.spawnSync(["git", "-C", REPO, ...a], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+	const commit = (msg: string) =>
+		g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", msg);
+
+	test("DONE dep with a sha not on main gates ready/take/done; merge opens it; unverifiable sha fails open", () => {
+		g("symbolic-ref", "HEAD", "refs/heads/main");
+		writeFileSync(join(REPO, "w60-base.txt"), "base");
+		g("add", "w60-base.txt");
+		commit("w60 base");
+		g("checkout", "-q", "-b", "w60-side");
+		writeFileSync(join(REPO, "w60-side.txt"), "side");
+		g("add", "w60-side.txt");
+		commit("w60 side");
+		const sha = g("rev-parse", "HEAD").stdout.toString().trim();
+		g("checkout", "-q", "main");
+
+		const dep = idOf(work("add", "dep lane (merge gate)").out);
+		const depOn = idOf(work("add", "dependent lane (merge gate)").out);
+		expect(work("block", depOn, "--on", dep).code).toBe(0);
+
+		// dep lands DONE with the unmerged sha — done output names the gated dependent
+		const d = finishAs(dep, "lane-w60", sha);
+		expect(d.code).toBe(0);
+		expect(d.out).toContain(`dep ${dep} done but unmerged (sha not on main)`);
+		expect(d.out).toContain(`${depOn} stays gated`);
+
+		// take refuses with the spec-exact note
+		const t = work("take", depOn, "--as", "lane-w60b");
+		expect(t.code).toBe(2);
+		expect(t.err).toContain(`dep ${dep} done but unmerged (sha not on main)`);
+
+		// ready excludes the item and prints the why-note
+		expect(work("ready").out).toContain(`${depOn} stays gated`);
+		expect(work("ready").out).not.toContain(`· ${depOn}`);
+
+		// fail-open: an unverifiable sha (unknown object) is NOT a verified
+		// negative — the dep counts and the dependent unblocks
+		const dep2 = idOf(work("add", "failopen dep lane").out);
+		const depOn2 = idOf(work("add", "failopen dependent lane").out);
+		expect(work("block", depOn2, "--on", dep2).code).toBe(0);
+		g("checkout", "-q", "-b", "w60-missing-object");
+		const missingSha = productCommit(
+			"Real dependency product before object loss",
+		);
+		g("checkout", "-q", "main");
+		const d2 = finishAs(dep2, "lane-w60c", missingSha);
+		expect(d2.code).toBe(0);
+		// Model unavailable Git evidence AFTER a genuine verified completion,
+		// rather than accepting an invented SHA at the completion boundary.
+		rmSync(
+			join(
+				REPO,
+				".git",
+				"objects",
+				missingSha.slice(0, 2),
+				missingSha.slice(2),
+			),
+		);
+		const available = work("ready");
+		expect(available.out).toContain(depOn2);
+		expect(work("take", depOn2, "--as", "lane-w60d").code).toBe(0);
+
+		// merging the side branch makes the sha an ancestor — gate opens
+		g("merge", "-q", "--no-edit", "w60-side");
+		expect(work("take", depOn, "--as", "lane-w60e").code).toBe(0);
+	});
+});
+
+test.describe("report — W892 supervisor micro-metrics", () => {
+	test("riding/queued/done letters; --ids strict; bad window dies", () => {
+		const a = idOf(work("add", "report riding item", "--by", "t").out);
+		expect(work("take", a, "--as", "lane-r1").code).toBe(0);
+		const q = idOf(work("add", "report queued item", "--by", "t").out);
+		const dn = idOf(work("add", "report done item", "--by", "t").out);
+		expect(finish(dn, "lane-r2").code).toBe(0);
+		const out = work("report").out;
+		expect(out).toContain("TOKENS  CACHE  OUT/MIN");
+		const rowOf = (id: string): string =>
+			out.split("\n").find((l) => l.startsWith(id)) ?? "";
+		expect(rowOf(a)).toMatch(/\bR\b/);
+		expect(rowOf(q)).toMatch(/\bQ\b/);
+		expect(rowOf(dn)).toMatch(/\bD\b/);
+		const ids = work("report", "--ids", `${a},${dn}`);
+		expect(ids.code).toBe(0);
+		const idRows = ids.out
+			.split("\n")
+			.filter((l) => l.startsWith(a) || l.startsWith(dn));
+		expect(idRows.length).toBe(2);
+		expect(ids.out.split("\n").some((l) => l.startsWith(q))).toBe(false);
+		const miss = work("report", "--ids", "W99999999");
+		expect(miss.code).toBe(2);
+		expect(miss.err).toContain("no such work item");
+		const badWin = work("report", "--done-window", "week");
+		expect(badWin.code).toBe(2);
+		expect(badWin.err).toContain("bad --done-window");
+	});
+});

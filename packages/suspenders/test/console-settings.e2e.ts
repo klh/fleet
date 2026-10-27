@@ -1,0 +1,488 @@
+// console-settings.test.ts — W147: the board console shell + settings flow.
+// Unit: policy parse/patch/diff + board-settings merge on TEMP files only.
+// HTTP: console routes against a real board on a throwaway port with a temp
+// HOME and BELT_POLICY pinned to a TEMP COPY of the policy — never the live
+// belt policy, never the committed default.
+
+import { expect, test } from "@playwright/test";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import {
+	ConfigError,
+	diffLines,
+	parsePolicy,
+	patchPolicyJson,
+	patchPolicyText,
+	policyWritePath,
+	readBoardSettings,
+	resolvePolicy,
+	applyBoardSettings,
+	boardSettingsPath,
+	formToBoardSettings,
+} from "../hooks/lib/board/board-config.ts";
+
+const HOME = mkdtempSync(join(tmpdir(), "w147-home-"));
+const REPO = mkdtempSync(join(tmpdir(), "w147-repo-"));
+mkdirSync(join(REPO, ".git"), { recursive: true });
+const POLICY = join(HOME, "policy-copy.yaml");
+const POLICY_JSON = join(HOME, "policy-copy.json");
+const REG = join(HOME, "registry.json");
+writeFileSync(
+	POLICY,
+	`# kept comment — operators edit this file, never code
+version: 1
+
+gateway:
+  num_retries: 1
+  allowed_fails: 3
+  cooldown_time: 30
+  fallbacks:
+    glm-5.3-flash: [local-swarm, gpt-5.2, claude-sonnet-5]
+`,
+);
+
+const env = {
+	...process.env,
+	HOME,
+	BELT_POLICY: POLICY,
+	KLH_LOCAL_REGISTRY: REG,
+	SUSPENDERS_LLM_URL: "http://127.0.0.1:1/v1/chat/completions",
+	SUSPENDERS_BELT_URL: "http://127.0.0.1:1",
+	SUSPENDERS_MDNS: "0",
+	// W360: probes ride stub deps — DOWN tiles are deterministic and no real
+	// loopback port is touched (the live stack running here flipped them UP)
+	SUSPENDERS_PROBE_DEPS: "stub",
+};
+const bin = join(import.meta.dir, "..", "hooks", "bin");
+// random port per run — a leaked board from a dead run must never answer
+const PORT = 20000 + Math.floor(Math.random() * 20000);
+const BASE = `http://127.0.0.1:${PORT}`;
+writeFileSync(
+	REG,
+	`[{"name":"bar","port":7792,"created_at":"2026-09-28T10:58:27.897Z"}]`,
+);
+
+const proc = Bun.spawn(
+	["bun", join(bin, "fleet-board.ts"), "--port", String(PORT)],
+	{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
+);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+async function waitUp() {
+	for (let i = 0; i < 100; i++) {
+		try {
+			if ((await fetch(`${BASE}/api/data`)).ok) return;
+		} catch {}
+		await sleep(100);
+	}
+	throw new Error("console test board did not start");
+}
+await waitUp();
+
+test.afterAll(async () => {
+	proc.kill();
+	await proc.exited;
+	rmSync(HOME, { recursive: true, force: true });
+	rmSync(REPO, { recursive: true, force: true });
+});
+
+// W264: the board's HTML pages hand the browser its write token as an
+// HttpOnly cookie — the form posts below ride it exactly as a browser would
+const COOKIE = (
+	(await fetch(`${BASE}/console/settings/suspenders`)).headers.get(
+		"set-cookie",
+	) ?? ""
+).split(";")[0];
+
+// form-post helper (no Origin header → loopback Host + cookie token path)
+const postForm = async (
+	path: string,
+	fields: Record<string, string>,
+): Promise<Response> =>
+	fetch(`${BASE}${path}`, {
+		method: "POST",
+		redirect: "manual",
+		headers: {
+			"content-type": "application/x-www-form-urlencoded",
+			cookie: COOKIE,
+		},
+		body: new URLSearchParams(fields).toString(),
+	});
+
+const POLICY_TEXT = readFileSync(POLICY, "utf8");
+
+test.describe("policy config surface (board-config)", () => {
+	test("parsePolicy: valid doc, defaults, budgets validated", () => {
+		const gw = parsePolicy(POLICY_TEXT);
+		expect(gw.num_retries).toBe(1);
+		expect(gw.cooldown_time).toBe(30);
+		expect(gw.fallbacks["glm-5.3-flash"]).toEqual([
+			"local-swarm",
+			"gpt-5.2",
+			"claude-sonnet-5",
+		]);
+		expect(() => parsePolicy("gateway:\n  num_retries: -2\n")).toThrow(
+			ConfigError,
+		);
+		expect(() => parsePolicy(":::not yaml [")).toThrow(ConfigError);
+	});
+
+	test("flashx is refused everywhere (owner directive)", () => {
+		expect(() =>
+			parsePolicy(
+				"gateway:\n  fallbacks:\n    glm-5.3-flash: [flashx, local-swarm]\n",
+			),
+		).toThrow(/flashx/);
+	});
+
+	test("patchPolicyText: budgets + ladder edit in place, comments kept, invalid never lands", () => {
+		const next = patchPolicyText(POLICY_TEXT, {
+			num_retries: 2,
+			ladder: { model: "glm-5.3-flash", tiers: ["local-swarm", "gpt-5.2"] },
+		});
+		expect(next).toContain("# kept comment");
+		expect(next).toContain("num_retries: 2");
+		expect(next).toContain("glm-5.3-flash: [local-swarm, gpt-5.2]");
+		expect(() =>
+			patchPolicyText(POLICY_TEXT, {
+				ladder: { model: "glm-5.3-flash", tiers: ["flashx"] },
+			}),
+		).toThrow(ConfigError);
+		expect(readFileSync(POLICY, "utf8")).toContain("num_retries: 1");
+	});
+
+	test("diffLines: prefix/suffix trimmed, del+add blocks", () => {
+		const d = diffLines("a\nb\nc\n", "a\nB\nc\n");
+		expect(d).toEqual(["- b", "+ B"]);
+	});
+
+	test("JSON policy patch preserves unrelated values and changes every ladder", () => {
+		const source = JSON.stringify({
+			version: 1,
+			extra: { keep: 7 },
+			gateway: {
+				num_retries: 1,
+				allowed_fails: 3,
+				cooldown_time: 30,
+				fallbacks: { "glm-5.3-flash": ["local-swarm"], other: ["cloud"] },
+			},
+		});
+		const next = JSON.parse(
+			patchPolicyJson(source, {
+				num_retries: 2,
+				ladders: {
+					"glm-5.3-flash": ["local-swarm", "cloud"],
+					other: ["cloud", "local-swarm"],
+				},
+			}),
+		);
+		expect(next.extra).toEqual({ keep: 7 });
+		expect(next.gateway.fallbacks.other).toEqual(["cloud", "local-swarm"]);
+		expect(parsePolicy(JSON.stringify(next)).num_retries).toBe(2);
+	});
+
+	test("board settings: validate, form coercion, apply round-trip on a temp file", () => {
+		const p = join(HOME, "board-settings.json");
+		const patch = formToBoardSettings({
+			status_refresh_s: "12",
+			harvest_ttl_s: "",
+			default_actor: "demo:carol@demo",
+		});
+		expect(patch).toEqual({
+			status_refresh_s: 12,
+			harvest_ttl_s: null,
+			default_actor: "demo:carol@demo",
+		});
+		expect(() => formToBoardSettings({ status_refresh_s: "nope" })).toThrow(
+			ConfigError,
+		);
+		applyBoardSettings(p, patch);
+		const st = readBoardSettings(p);
+		expect(st.exists).toBe(true);
+		expect(st.settings.status_refresh_s).toBe(12);
+		expect(st.settings.harvest_ttl_s).toBeUndefined();
+		const st2 = readBoardSettings(p);
+		expect(() =>
+			applyBoardSettings(p, { status_refresh_s: 5 }, st2.mtimeMs + 9999),
+		).toThrow(/changed since the preview/);
+		expect(readBoardSettings(p).settings.status_refresh_s).toBe(12);
+	});
+	test("W183.2 form coercion: default_executors comma-list parses to the chain", () => {
+		expect(
+			formToBoardSettings({
+				status_refresh_s: "",
+				harvest_ttl_s: "",
+				default_actor: "",
+				default_executors: "llm:local:8901, glm-5.3-flash ,, claude",
+			}).default_executors,
+		).toEqual(["llm:local:8901", "glm-5.3-flash", "claude"]);
+		// empty clears — dispatch falls back to bare claude
+		expect(
+			formToBoardSettings({
+				status_refresh_s: "",
+				harvest_ttl_s: "",
+				default_actor: "",
+				default_executors: "",
+			}).default_executors,
+		).toEqual([]);
+	});
+
+	test("all board controls coerce and empty optional settings clear", () => {
+		const patch = formToBoardSettings({
+			enabled_executors: "claude, llm:local:8901",
+			recommendation_url: "http://127.0.0.1:8903/v1",
+			recommendation_model: "local-reason",
+			"prompt.condense": "false",
+			"prompt.enhance": "true",
+			"prompt.debug": "true",
+			"prompt.log": "false",
+		});
+		expect(patch.enabled_executors).toEqual(["claude", "llm:local:8901"]);
+		expect(patch["prompt.enhance"]).toBe(true);
+		expect(patch["prompt.condense"]).toBe(false);
+		const p = join(HOME, "all-board-settings.json");
+		applyBoardSettings(p, patch);
+		expect(readBoardSettings(p).settings).toMatchObject(patch);
+		applyBoardSettings(
+			p,
+			formToBoardSettings({ enabled_executors: "", recommendation_model: "" }),
+		);
+		expect(readBoardSettings(p).settings.enabled_executors).toBeUndefined();
+		expect(readBoardSettings(p).settings.recommendation_model).toBeUndefined();
+	});
+
+	test("resolvePolicy + policyWritePath walk env → runtime → default", () => {
+		const r = resolvePolicy({
+			env: { BELT_POLICY: POLICY } as unknown as NodeJS.ProcessEnv,
+			home: HOME,
+		});
+		expect(r?.path).toBe(POLICY);
+		expect(r?.source).toBe("legacy");
+		mkdirSync(join(HOME, ".claude", "local-llm"), { recursive: true });
+		const rt = join(HOME, ".claude", "local-llm", "routing-policy.yaml");
+		writeFileSync(rt, POLICY_TEXT);
+		const r2 = resolvePolicy({
+			env: {} as NodeJS.ProcessEnv,
+			home: HOME,
+			beltRepo: "/nonexistent-belt",
+		});
+		expect(r2?.source).toBe("legacy");
+		const wp = policyWritePath({
+			env: { HOME } as unknown as NodeJS.ProcessEnv,
+		});
+		expect(wp).toBe(join(HOME, ".claude", "local-llm", "routing-policy.json"));
+	});
+});
+
+test.describe("console routes (real board, temp config)", () => {
+	test("shell on / and /usage; console sections render", async () => {
+		const home = await (await fetch(`${BASE}/`)).text();
+		expect(home).toContain("<klh-topbar");
+		expect(home).toContain('href="/console/buckle"');
+		expect(home).toContain('href="/console/local"');
+		expect(home).toContain('src="/vendor/klh-topbar.js"');
+		// W995/W1149: /usage serves a client redirect into the shell's hash
+		// navigation; the usage surface itself renders inside the shell at
+		// /#usage — hash never reaches the server, so the / fetch above is
+		// the shell assertion.
+		const usage = await (await fetch(`${BASE}/usage`)).text();
+		expect(usage).toContain("<title>Opening Usage</title>");
+		expect(usage).toContain('href="/#usage"');
+		const belt = await (await fetch(`${BASE}/console/buckle`)).text();
+		expect(belt).toContain("Routing policy");
+		expect(belt).toContain("glm-5.3-flash");
+		expect(belt).toContain("local-swarm");
+		expect(belt).toContain("aria-current"); // belt menu item active
+		// stub probes → every tile classifies DOWN, deterministically
+		expect(belt).toMatch(/DOWN/);
+		const local = await (await fetch(`${BASE}/console/local`)).text();
+		expect(local).toContain("bar");
+		expect(local).toContain("7792");
+	});
+
+	test("W273: service rows + re-probe endpoint + vendored row module", async () => {
+		const belt = await (await fetch(`${BASE}/console/buckle`)).text();
+		expect(belt).toContain("<klh-service-row");
+		expect(belt).toContain('data-service="belt-gateway-4000"');
+		const all = (await (await fetch(`${BASE}/api/services`)).json()) as {
+			ok: boolean;
+			services: { id: string; recovery: unknown }[];
+		};
+		expect(all.ok).toBe(true);
+		expect(all.services.length).toBeGreaterThan(5);
+		expect(all.services.every((s) => s.recovery !== null)).toBe(true);
+		const one = await fetch(`${BASE}/api/services/probe?id=buckle-4101`);
+		expect(one.status).toBe(200);
+		const d = (await one.json()) as { service: { id: string; state: string } };
+		expect(d.service.id).toBe("buckle-4101");
+		expect(["up", "degraded", "down"]).toContain(d.service.state);
+		const bad = await fetch(`${BASE}/api/services/probe?id=nope`);
+		expect(bad.status).toBe(404);
+		const js = await fetch(`${BASE}/vendor/klh-service-row.js`);
+		expect(js.status).toBe(200);
+		expect(await js.text()).toContain("klh-service-row");
+	});
+
+	test("/api/console/me: unassigned until an actor is stamped", async () => {
+		const d = (await (await fetch(`${BASE}/api/console/me`)).json()) as Record<
+			string,
+			unknown
+		>;
+		expect(d.ok).toBe(true);
+		expect(d.actor).toBe("unassigned");
+		expect(Array.isArray(d.actors)).toBe(true);
+	});
+
+	test("settings form pages render with current values", async () => {
+		const belt = await (await fetch(`${BASE}/console/settings/belt`)).text();
+		expect(belt).toContain('name="num_retries"');
+		expect(belt).toContain('value="1"');
+		const buck = await (await fetch(`${BASE}/console/settings/buckle`)).text();
+		expect(buck).toContain('name="tier_glm-5.3-flash_0"');
+		const susp = await (
+			await fetch(`${BASE}/console/settings/suspenders`)
+		).text();
+		expect(susp).toContain('name="status_refresh_s"');
+	});
+
+	test("preview → apply migrates the TEMP policy copy to JSON", async () => {
+		const before = readFileSync(POLICY, "utf8");
+		const pv = await postForm("/console/settings/preview", {
+			feature: "belt",
+			num_retries: "2",
+			allowed_fails: "",
+			cooldown_time: "",
+		});
+		const page = await pv.text();
+		expect(page).toContain('pre class="diff"');
+		const values = page.match(/name="values" value="([^"]*)"/)?.[1] ?? "";
+		const mtime = page.match(/name="mtime" value="([^"]*)"/)?.[1] ?? "";
+		expect(Buffer.from(values, "base64").toString("utf8")).toContain(
+			"num_retries",
+		);
+		const ap = await postForm("/console/settings/apply", {
+			feature: "belt",
+			values,
+			mtime,
+		});
+		expect(ap.status).toBe(303);
+		expect(readFileSync(POLICY, "utf8")).toBe(before);
+		expect(parsePolicy(readFileSync(POLICY_JSON, "utf8")).num_retries).toBe(2);
+		expect(statSync(POLICY_JSON).mode & 0o777).toBe(0o600);
+	});
+
+	test("invalid config rejected with the parse error, nothing written", async () => {
+		const before = readFileSync(POLICY, "utf8");
+		const pv = await postForm("/console/settings/preview", {
+			feature: "buckle",
+			"ladder_glm-5.3-flash": "flashx, local-swarm",
+			cooldown_time: "",
+		});
+		const page = await pv.text();
+		expect(page).toMatch(/flashx is refused/);
+		const ap = await postForm("/console/settings/apply", {
+			feature: "buckle",
+			values: Buffer.from(
+				JSON.stringify({
+					ladder: { model: "glm-5.3-flash", tiers: ["flashx"] },
+				}),
+			).toString("base64"),
+			mtime: String(statSync(POLICY_JSON).mtimeMs),
+		});
+		expect(await ap.text()).toMatch(/flashx/);
+		expect(readFileSync(POLICY, "utf8")).toBe(before);
+		expect(parsePolicy(readFileSync(POLICY_JSON, "utf8")).num_retries).toBe(2);
+	});
+
+	test("suspenders knobs round-trip on the temp HOME", async () => {
+		const pv = await postForm("/console/settings/preview", {
+			feature: "suspenders",
+			status_refresh_s: "9",
+			harvest_ttl_s: "120",
+			default_actor: "demo:carol@demo",
+		});
+		const page = await pv.text();
+		const values = page.match(/name="values" value="([^"]*)"/)?.[1] ?? "";
+		const mtime = page.match(/name="mtime" value="([^"]*)"/)?.[1] ?? "";
+		const ap = await postForm("/console/settings/apply", {
+			feature: "suspenders",
+			values,
+			mtime,
+		});
+		expect(ap.status).toBe(303);
+		const st = readBoardSettings(boardSettingsPath(HOME));
+		expect(st.settings.status_refresh_s).toBe(9);
+		expect(st.settings.harvest_ttl_s).toBe(120);
+	});
+	test("W183.2: the executor-preference editor renders + the chain round-trips", async () => {
+		const page = await (
+			await fetch(`${BASE}/console/settings/suspenders`)
+		).text();
+		expect(page).toContain("<klh-executor-editor");
+		expect(page).toContain("/vendor/klh-console-forms.js");
+		expect(page).toContain('name="default_executors"');
+		for (const field of [
+			"enabled_executors",
+			"recommendation_url",
+			"recommendation_model",
+			"prompt.condense",
+			"prompt.enhance",
+			"prompt.debug",
+			"prompt.log",
+		])
+			expect(page).toContain(`name="${field}"`);
+		// the add-picker catalog rides the options attribute (bare executors at minimum)
+		expect(page).toContain("&quot;value&quot;:&quot;claude&quot;");
+		// write a chain through the same preview → apply flow the editor posts
+		const pv = await postForm("/console/settings/preview", {
+			feature: "suspenders",
+			status_refresh_s: "",
+			harvest_ttl_s: "",
+			default_actor: "",
+			default_executors: "llm:desktop:glm-x,claude",
+		});
+		const page2 = await pv.text();
+		const values = page2.match(/name="values" value="([^"]*)"/)?.[1] ?? "";
+		const mtime = page2.match(/name="mtime" value="([^"]*)"/)?.[1] ?? "";
+		const ap = await postForm("/console/settings/apply", {
+			feature: "suspenders",
+			values,
+			mtime,
+		});
+		expect(ap.status).toBe(303);
+		expect(
+			readBoardSettings(boardSettingsPath(HOME)).settings.default_executors,
+		).toEqual(["llm:desktop:glm-x", "claude"]);
+		// the form now carries the saved chain in its hidden input
+		const after = await (
+			await fetch(`${BASE}/console/settings/suspenders`)
+		).text();
+		expect(after).toContain('value="llm:desktop:glm-x,claude"');
+	});
+
+	test("W174: applies land in the admin audit trail", async () => {
+		const d = (await (await fetch(`${BASE}/api/console/audit`)).json()) as {
+			ok: boolean;
+			audit: Record<string, unknown>[];
+		};
+		expect(d.ok).toBe(true);
+		const actions = d.audit.map((r) => String(r.action));
+		// the earlier round-trip tests applied policy + suspenders settings,
+		// and the invalid-apply test wrote a failure record
+		expect(actions).toContain("settings.apply");
+		expect(actions).toContain("policy.apply");
+		expect(
+			d.audit.some((r) => String(r.detail ?? "").startsWith("error:")),
+		).toBe(true);
+		const page = await (await fetch(`${BASE}/console/settings`)).text();
+		expect(page).toContain("admin audit");
+		expect(page).toContain("settings.apply");
+	});
+});

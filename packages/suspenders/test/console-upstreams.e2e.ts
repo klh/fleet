@@ -1,0 +1,81 @@
+import { expect, test } from "@playwright/test";
+import { readEffectiveUpstreams } from "../hooks/board/console-upstreams.ts";
+
+test("machine override replaces groups, adds aliases, preserves defaults and never exposes credentials", () => {
+	const base = JSON.stringify({
+		groups: {
+			flash: [{ url: "http://base", dialect: "anthropic" }],
+			local: [{ url: "http://local", dialect: "openai" }],
+		},
+	});
+	const override = JSON.stringify({
+		groups: {
+			flash: [
+				{ url: "http://a" },
+				{ url: "http://b" },
+				{ url: "http://c" },
+				{ url: "http://d" },
+			],
+			"zai-fast": [{ api_key: "private-secret", url: "https://provider" }],
+			dormant: [],
+		},
+	});
+	const result = readEffectiveUpstreams({
+		basePath: "base",
+		overridePath: "runtime",
+		hasFile: () => true,
+		readFile: (path) => (path === "base" ? base : override),
+	});
+	expect(result?.groups).toEqual([
+		{ name: "flash", tiers: 4, dormant: false, source: "machine override" },
+		{ name: "local", tiers: 1, dormant: false, source: "fleet default" },
+		{ name: "zai-fast", tiers: 1, dormant: false, source: "machine override" },
+		{ name: "dormant", tiers: 0, dormant: true, source: "machine override" },
+	]);
+	expect(result?.source).toBe("fleet default + machine override");
+	expect(JSON.stringify(result)).not.toContain("private-secret");
+	expect(JSON.stringify(result)).not.toContain("https://provider");
+});
+
+test("unreadable or malformed selected override never silently shows the base as effective", () => {
+	for (const override of ["{broken json", "no groups here"]) {
+		expect(
+			readEffectiveUpstreams({
+				basePath: "base",
+				overridePath: "runtime",
+				hasFile: () => true,
+				readFile: (path) =>
+					path === "base"
+						? JSON.stringify({ groups: { default: [] } })
+						: override,
+			}),
+		).toBeNull();
+	}
+	expect(
+		readEffectiveUpstreams({
+			basePath: "base",
+			overridePath: "runtime",
+			hasFile: () => true,
+			readFile: (path) => {
+				if (path === "runtime") throw new Error("unreadable");
+				return JSON.stringify({ groups: { default: [] } });
+			},
+		}),
+	).toBeNull();
+});
+
+test("absent override retains base including explicit dormant groups", () => {
+	expect(
+		readEffectiveUpstreams({
+			basePath: "base",
+			overridePath: "absent",
+			hasFile: () => false,
+			readFile: () => JSON.stringify({ groups: { disabled: [] } }),
+		}),
+	).toEqual({
+		groups: [
+			{ name: "disabled", tiers: 0, dormant: true, source: "fleet default" },
+		],
+		source: "fleet default",
+	});
+});

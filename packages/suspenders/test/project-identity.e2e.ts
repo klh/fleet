@@ -1,0 +1,352 @@
+// test/project-identity.test.ts — W460: `coord project rekey` migrates the
+// board-owned `decisions` table together with the six graph tables (guarded
+// when a coord-only store has no decisions table yet), it stays REFUSED when
+// the destination holds work items, and the worktree/harvest project
+// resolvers derive the canonical identity (git-common-dir realpath) inside
+// linked worktrees too. Temp-HOME spawn recipe per test/consult-kb.test.ts;
+// never touches a real governor.db.
+import { expect, test } from "@playwright/test";
+import {
+	mkdtempSync,
+	rmSync,
+	mkdirSync,
+	writeFileSync,
+	realpathSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { Database } from "bun:sqlite";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
+import {
+	capsuleProjectTag,
+	itemCapsuleKey,
+} from "../hooks/lib/capsule-fence.ts";
+import { launchSchema } from "../scripts/lib/launch-fencing.ts";
+import { acquireLaunchLease } from "../scripts/lib/launch-preflight.ts";
+
+const HOME = mkdtempSync(join(tmpdir(), "suspenders-pid-"));
+const REPO = mkdtempSync(join(tmpdir(), "suspenders-pid-repo-"));
+mkdirSync(join(REPO, ".git"), { recursive: true });
+const env = { ...process.env, HOME };
+const coord = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
+const wt = join(import.meta.dir, "..", "hooks", "bin", "worktree.ts");
+const govdb = join(import.meta.dir, "..", "hooks", "lib", "govdb", "govdb.ts");
+const DB = join(HOME, ".cache", "claude-governor", "governor.db");
+
+// projectIdentity(), mirrored: git-common-dir from inside the temp repo —
+// Git walks UP through a scaffolded .git to the parent checkout, so the
+// identity is the PARENT repo's .git; seeds must match it exactly
+function projectOf(dir: string): string {
+	const r = Bun.spawnSync(["git", "-C", dir, "rev-parse", "--git-common-dir"], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	if (r.exitCode === 0) {
+		const d = new TextDecoder().decode(r.stdout).trim();
+		if (d) return realpathSync(resolve(dir, d));
+	}
+	return realpathSync(dir);
+}
+const PROJ = projectOf(REPO);
+const TARGET = `${PROJ}-v2`;
+const TS = Date.now();
+
+function run(cwd: string, bin: string, ...args: string[]) {
+	const p = Bun.spawnSync(["bun", bin, ...args], {
+		cwd,
+		env,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	return {
+		out: p.stdout.toString(),
+		err: p.stderr.toString(),
+		code: p.exitCode,
+	};
+}
+
+function seedItem(project: string, id: string) {
+	const db = new Database(DB);
+	db.query(
+		"INSERT INTO work_items (project, id, title, created_at, updated_at) VALUES (?, ?, 'rekey seed', ?, ?)",
+	).run(project, id, TS, TS);
+	db.close();
+}
+
+// bootstrap: first CLI open runs the migrations so the seeds have a schema
+run(REPO, coord, "kb", "stats");
+
+test.afterAll(() => {
+	rmSync(HOME, { recursive: true, force: true });
+	rmSync(REPO, { recursive: true, force: true });
+});
+
+test.describe("coord project rekey (W460)", () => {
+	test("moves the board-owned decisions rows together with the graph", () => {
+		const db = new Database(DB);
+		// board-owned DDL (hooks/board/context.ts) — coord-only stores only get
+		// it after a board boot, so the test materializes it like the board does
+		db.run(`CREATE TABLE IF NOT EXISTS decisions (
+			event_id INTEGER PRIMARY KEY,
+			target TEXT NOT NULL,
+			project TEXT,
+			state TEXT NOT NULL DEFAULT 'OPEN',
+			created_at INTEGER NOT NULL
+		)`);
+		seedItem(PROJ, "W1");
+		db.query(
+			"INSERT INTO decisions (event_id, target, project, created_at) VALUES (1, 'coord:1 NEED_DECISION', ?, ?)",
+		).run(PROJ, TS);
+		db.query(
+			"INSERT INTO work_spend_histogram (project,work_id,bucket_ms,fresh,cached,out_tok) VALUES (?,?,?,10,20,3)",
+		).run(PROJ, "W1", TS);
+		db.close();
+
+		const r = run(REPO, coord, "project", "rekey", PROJ, TARGET);
+		expect(r.code).toBe(0);
+		expect(r.out).toContain("decisions");
+
+		const rd = new Database(DB, { readonly: true });
+		const dec = rd
+			.query("SELECT project FROM decisions WHERE event_id = 1")
+			.get() as { project: string };
+		const item = rd
+			.query("SELECT project FROM work_items WHERE id = 'W1'")
+			.get() as { project: string };
+		const histogram = rd
+			.query(
+				"SELECT project,fresh,cached FROM work_spend_histogram WHERE work_id='W1'",
+			)
+			.get() as { project: string; fresh: number; cached: number };
+		rd.close();
+		expect(dec.project).toBe(TARGET);
+		expect(item.project).toBe(TARGET);
+		expect(histogram).toEqual({ project: TARGET, fresh: 10, cached: 20 });
+	});
+
+	test("refused when the destination already holds work items", () => {
+		seedItem(PROJ, "W2");
+		const r = run(REPO, coord, "project", "rekey", TARGET, PROJ);
+		expect(r.code).not.toBe(0);
+		expect(`${r.err}${r.out}`).toContain("rekey refused");
+		// the occupying row is untouched by the refused rekey
+		const rd = new Database(DB, { readonly: true });
+		const item = rd
+			.query("SELECT project FROM work_items WHERE id = 'W2'")
+			.get() as { project: string };
+		rd.close();
+		expect(item.project).toBe(PROJ);
+	});
+
+	test("item capsule facts keys ride the rekey (W687 project-scoped tags)", () => {
+		// fresh pair — earlier tests already moved PROJ→TARGET
+		const P3 = `${PROJ}-p3`;
+		const T3 = `${PROJ}-p3-v2`;
+		const db = new Database(DB);
+		seedItem(P3, "W9");
+		db.query(
+			"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, 'lane-a', 1, ?)",
+		).run(itemCapsuleKey(P3, "W9"), '{"checkpoint":"none","done":"half"}', TS);
+		db.close();
+
+		const r = run(REPO, coord, "project", "rekey", P3, T3);
+		expect(r.code).toBe(0);
+		expect(r.out).toContain("capsule facts");
+
+		const rd = new Database(DB, { readonly: true });
+		try {
+			// the row moved to the target tag, value intact; nothing stranded
+			const moved = rd
+				.query("SELECT value FROM facts WHERE key = ?")
+				.get(itemCapsuleKey(T3, "W9")) as { value: string } | undefined;
+			expect(moved?.value).toBe('{"checkpoint":"none","done":"half"}');
+			expect(
+				rd
+					.query("SELECT COUNT(*) AS n FROM facts WHERE key LIKE ?")
+					.get(`work.capsule.${capsuleProjectTag(P3)}.%`),
+			).toEqual({ n: 0 });
+		} finally {
+			rd.close();
+		}
+	});
+
+	test("coord-only store without a decisions table still rekeys", () => {
+		const H2 = mkdtempSync(join(tmpdir(), "suspenders-pid2-"));
+		const env2 = { ...process.env, HOME: H2 };
+		const DB2 = join(H2, ".cache", "claude-governor", "governor.db");
+		try {
+			const boot = Bun.spawnSync(["bun", coord, "kb", "stats"], {
+				cwd: REPO,
+				env: env2,
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+			expect(boot.exitCode).toBe(0);
+			// sanity: no board ever booted in this HOME
+			const probe = new Database(DB2, { readonly: true });
+			const absent = probe
+				.query(
+					"SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'decisions'",
+				)
+				.get();
+			probe.close();
+			expect(absent).toBeNull();
+
+			// that store gets its own graph row on the from-key
+			const db2 = new Database(DB2);
+			db2
+				.query(
+					"INSERT INTO work_items (project, id, title, created_at, updated_at) VALUES (?, 'W9', 'fresh store', ?, ?)",
+				)
+				.run(TARGET, TS, TS);
+			db2.close();
+
+			const TARGET2 = `${PROJ}-v3`;
+			const p = Bun.spawnSync(
+				["bun", coord, "project", "rekey", TARGET, TARGET2],
+				{ cwd: REPO, env: env2, stdout: "pipe", stderr: "pipe" },
+			);
+			expect(p.exitCode).toBe(0);
+			// the graph actually moved in THAT store too
+			const rd = new Database(DB2, { readonly: true });
+			const item = rd
+				.query("SELECT project FROM work_items WHERE id = 'W9'")
+				.get() as { project: string };
+			rd.close();
+			expect(item.project).toBe(TARGET2);
+		} finally {
+			rmSync(H2, { recursive: true, force: true });
+		}
+	});
+});
+
+test.describe("project identity resolver (W460)", () => {
+	test("linked worktree resolves to the parent common dir, not the .git file", () => {
+		const R = mkdtempSync(join(tmpdir(), "suspenders-pid-wtrepo-"));
+		try {
+			const git = (args: string[], cwd = R) =>
+				Bun.spawnSync(["git", "-C", cwd, ...args], {
+					stdout: "pipe",
+					stderr: "pipe",
+				});
+			expect(git(["init", "-q"]).exitCode).toBe(0);
+			writeFileSync(join(R, "f.txt"), "x");
+			expect(git(["add", "-A"]).exitCode).toBe(0);
+			expect(
+				git(["commit", "-q", "-m", "init", "--allow-empty"]).exitCode,
+			).toBe(0);
+			mkdirSync(join(R, ".worktrees"));
+			const link = join(R, ".worktrees", "link");
+			expect(git(["worktree", "add", link, "-b", "linkbr"]).exitCode).toBe(0);
+
+			// worktree.ts's derived path must anchor at the PARENT repo root even
+			// when the CLI runs from inside a linked worktree (the old nearest-.git
+			// walk bound the worktree's .git FILE and nested .worktrees inside it)
+			const r = run(link, wt, "path", "WRES");
+			expect(r.code).toBe(0);
+			// `path` only PRINTS the derived dir (never creates it) — anchor the
+			// expectation at realpath(R), the parent repo root
+			expect(r.out.trim()).toBe(join(realpathSync(R), ".worktrees", "WRES"));
+
+			// and the canonical identity itself: linked worktree == parent repo
+			const idr = Bun.spawnSync(
+				[
+					"bun",
+					"-e",
+					`import { projectIdentity } from ${JSON.stringify(govdb)}; console.log(projectIdentity());`,
+				],
+				{ cwd: link, env, stdout: "pipe", stderr: "pipe" },
+			);
+			expect(idr.exitCode).toBe(0);
+			expect(idr.stdout.toString().trim()).toBe(projectOf(R));
+		} finally {
+			rmSync(R, { recursive: true, force: true });
+		}
+	});
+});
+
+function launchRows(db: Database, project: string, item: string) {
+	launchSchema(db as unknown as GovernorStore);
+	acquireLaunchLease(
+		db as unknown as GovernorStore,
+		project,
+		"fixture-lane",
+		"nonce",
+	);
+	db.query("INSERT INTO lane_launch_budgets VALUES (?,?,?)").run(
+		project,
+		item,
+		3,
+	);
+	db.query(
+		"INSERT INTO lane_launch_intents VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+	).run(
+		project,
+		item,
+		"fixture-lane",
+		"nonce",
+		100,
+		"/fixture/executor",
+		"fixture-host",
+		2,
+		"REGISTERED",
+		42,
+		"birth",
+	);
+}
+test("launch intents, item budgets and leases migrate atomically with project identity", () => {
+	const from = `${PROJ}-launch-old`,
+		to = `${PROJ}-launch-new`;
+	seedItem(from, "WLAUNCH");
+	const db = new Database(DB);
+	launchRows(db, from, "WLAUNCH");
+	const tables = [
+		"lane_launch_intents",
+		"lane_launch_budgets",
+		"lane_launch_leases",
+	];
+	const original = tables.map(
+		(table) =>
+			db.query(`SELECT * FROM ${table} WHERE project=?`).get(from) as Record<
+				string,
+				unknown
+			>,
+	);
+	db.close();
+	const result = run(REPO, coord, "project", "rekey", from, to);
+	expect(result.code).toBe(0);
+	const read = new Database(DB, { readonly: true });
+	tables.forEach((table, index) => {
+		expect(
+			read.query(`SELECT * FROM ${table} WHERE project=?`).get(to),
+		).toEqual({ ...original[index], project: to });
+	});
+	read.close();
+});
+test("a destination launch record refuses rekey without partial graph or budget migration", () => {
+	const from = `${PROJ}-launch-collision-old`,
+		to = `${PROJ}-launch-collision-new`;
+	seedItem(from, "WLAUNCHCOLLISION");
+	const db = new Database(DB);
+	launchRows(db, from, "WLAUNCHCOLLISION");
+	acquireLaunchLease(db as unknown as GovernorStore, to, "other", "hold");
+	db.close();
+	const result = run(REPO, coord, "project", "rekey", from, to);
+	expect(result.code).not.toBe(0);
+	expect(result.out + result.err).toContain(
+		"target already holds launch records",
+	);
+	const read = new Database(DB, { readonly: true });
+	expect(
+		read
+			.query("SELECT project FROM work_items WHERE id=?")
+			.get("WLAUNCHCOLLISION"),
+	).toEqual({ project: from });
+	for (const table of ["lane_launch_intents", "lane_launch_budgets"])
+		expect(
+			read
+				.query(`SELECT project FROM ${table} WHERE item=?`)
+				.get("WLAUNCHCOLLISION"),
+		).toEqual({ project: from });
+	read.close();
+});
