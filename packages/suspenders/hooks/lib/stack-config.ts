@@ -204,6 +204,13 @@ export const HubProfileSchema = z
 		/** Display-only provider placement while its credential-gated route
 		 *  is being prepared; never enables an upstream or draws a path. */
 		provider_intents: z.array(z.string()).optional(),
+		/** W1124.8.2.1: central provider profiles this hub REQUIRES (stack
+		 *  `providers` map names — the shared resolver lives in
+		 *  speedy/src/provider-config.ts). hubctl push resolves each and
+		 *  materializes the 0600 provider.env ON the hub (key → profile env
+		 *  binding, never printed). Unset/empty = no central delivery — the
+		 *  ladder-key path (secrets.upstream_keys) stands unchanged. */
+		provider_requirements: z.array(z.string()).optional(),
 		/** W483: nightly dark window "HH:MM-HH:MM" (may cross midnight) — the
 		 *  hub is EXPECTED down in it (NAS DSM poweroff); routing skips. */
 		quiet_hours: z.string().optional(),

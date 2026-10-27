@@ -134,11 +134,11 @@ packages/buckle/docs/providers/wandb_inference.md:curl-auth-header:133
 packages/suspenders/test/fleet-board-flows.test.ts:generic-api-key:415
 packages/suspenders/test/fleet-board-flows.test.ts:generic-api-key:436
 packages/suspenders/test/fleet-board-flows.test.ts:generic-api-key:443
-packages/suspenders/test/hub-providers.test.ts:generic-api-key:29
-packages/suspenders/test/hub-providers.test.ts:generic-api-key:42
-packages/suspenders/test/hub-providers.test.ts:generic-api-key:102
-packages/suspenders/test/hub-providers.test.ts:generic-api-key:163
-packages/suspenders/test/hub-providers.test.ts:generic-api-key:189
+packages/suspenders/test/hub-providers.test.ts:generic-api-key:30
+packages/suspenders/test/hub-providers.test.ts:generic-api-key:43
+packages/suspenders/test/hub-providers.test.ts:generic-api-key:107
+packages/suspenders/test/hub-providers.test.ts:generic-api-key:203
+packages/suspenders/test/hub-providers.test.ts:generic-api-key:229
 # W1233/W1234 integration (W1260): fixture file deleted from every branch tip,
 # so only the commit-anchored fingerprint below matches the full-history scan —
 # the branches' bare-path variants are subsumed by it

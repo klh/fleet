@@ -79,6 +79,10 @@ const DEPS: Array<{ from: string; to: string }> = [
 		to: "http-trace.ts",
 	},
 	{
+		from: "packages/speedy/src/provider-config.ts",
+		to: "provider-config.ts",
+	},
+	{
 		from: "packages/telemetry/src/prefer-header.ts",
 		to: "prefer-header.ts",
 	},
@@ -116,6 +120,7 @@ const REWRITE: Array<[RegExp, string]> = [
 	[/^(@klh\/kernel\/src\/)(.+)$/, "./"],
 	// W1475: hubs.ts imports its hub-profile cluster by package name.
 	[/^@klh\/suspenders\/(deploy|hooks\/lib)\/(.+)$/, "./"],
+	[/^(\.\.\/)+speedy\/src\/(.+)$/, "./"],
 ];
 
 const mapSpec = (spec: string): string | undefined => {

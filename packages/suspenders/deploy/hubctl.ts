@@ -66,6 +66,12 @@ import {
 	assertDeployRefsExist,
 	resolveHubOrigin,
 } from "./hub-ref-preflight.ts";
+import {
+	PROVIDER_ENV_FILENAME,
+	providerIdentityByEnv,
+	renderProviderEnv,
+	requiredProviders,
+} from "../hooks/lib/hub-providers.ts";
 import { composeUpArgv, sshOpts } from "./hub-remote.ts";
 import { mergedHubUpstreams } from "./openrouter-free.ts";
 import {
@@ -327,12 +333,31 @@ function redactedRender(envText: string): string {
  *  keeps merge-over-base through its own UNFLAGGED override file. Always
  *  rendered: compose mounts it. */
 export function renderUpstreams(hub: HubProfile): string {
+	// W1124.8.2.1 / C74: stamp non-secret central-provider identity onto
+	// deployment rows whose key env matches a required profile's binding
+	// (soft — unknown/unbound profiles leave rows untouched, never keys).
+	const identity = providerIdentityByEnv(hub);
+	const groups = Object.fromEntries(
+		Object.entries(mergeZaiHubUpstreams(hub, mergedHubUpstreams(hub))).map(
+			([group, rows]) => [
+				group,
+				rows.map((row) => {
+					const env =
+						typeof row.api_key_env === "string" ? row.api_key_env : null;
+					const id = env ? identity[env] : undefined;
+					return id
+						? {
+								...row,
+								provider: id.provider,
+								providerProfile: id.providerProfile,
+							}
+						: row;
+				}),
+			],
+		),
+	);
 	return `${JSON.stringify(
-		{
-			version: 1,
-			inherit_defaults: false,
-			groups: mergeZaiHubUpstreams(hub, mergedHubUpstreams(hub)),
-		},
+		{ version: 1, inherit_defaults: false, groups },
 		null,
 		"\t",
 	)}\n`;
@@ -521,6 +546,34 @@ function pushUpstreamEnv(hub: HubProfile, dir: string): void {
 	runOnHub(hub, `/bin/sh -c ${quote(UPSTREAM_ENV_SCRIPT)} sh ${args}`);
 }
 
+/** W1124.8.2.1: materialize `<dir>/provider.env` ON the hub (0600 compose
+ *  env_file) from the profile's required CENTRAL provider profiles. The
+ *  rendered body rides stdin over the ssh path (values never enter argv,
+ *  never print); no requirements = an empty file (env_file stays valid). */
+function pushProviderEnv(hub: HubProfile, dir: string): void {
+	const required = requiredProviders(hub);
+	const destination = `${dir}/${PROVIDER_ENV_FILENAME}`;
+	const body = renderProviderEnv(required);
+	if (hub.deploy?.ssh) {
+		execFileSync(
+			"ssh",
+			[
+				...sshOpts(hub),
+				hub.deploy.ssh,
+				`/bin/sh -c 'umask 077; cat > ${JSON.stringify(destination)}'`,
+			],
+			{ input: body, timeout: 30_000 },
+		);
+	} else {
+		writeFileSync(destination, body, { mode: 0o600 });
+		chmodSync(destination, 0o600);
+	}
+	const names = required.map((r) => r.env).join(",");
+	console.log(
+		`+ ${destination} (${required.length} provider profile${required.length === 1 ? "" : "s"}: ${names || "none"})`,
+	);
+}
+
 /** Write the required policy before either fresh activation or reload. */
 function pushGatewayPolicy(hub: HubProfile, dir: string): void {
 	// Materialize policy beside the ladder: defaults preserved, overrides validated.
@@ -624,6 +677,8 @@ function pushConfig(
 	}
 	pushGatewayPolicy(hub, dir);
 	pushUpstreamEnv(hub, dir);
+	// W1124.8.2.1: central provider profiles → the 0600 provider.env
+	pushProviderEnv(hub, dir);
 	// W983: the 0600 owner-prefs file (compose binds it at BUCKLE_PREFS)
 	if (hub.deploy?.ssh) {
 		execFileSync(
