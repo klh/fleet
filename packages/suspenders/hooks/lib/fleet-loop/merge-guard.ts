@@ -7,6 +7,7 @@ import {
 	scrubRules,
 } from "../scrub.ts";
 import { binaryPaths, blobFindings } from "../scrub-git.ts";
+import { TEST_FILE, testRelocationDelta } from "./merge-guard-relocation.ts";
 
 type Result = { code: number; tail: string };
 type Options = {
@@ -84,10 +85,20 @@ function validateTree(repo: string, before: string, tree: string): Result {
 	for (const [added, removed, path] of rows) {
 		const addCount = Number(added);
 		const loss = Number(removed) - (movedIntoAdded.get(path) ?? 0);
-		if (loss >= 200 && loss >= addCount * 10)
-			return fail(
-				`merge guard: candidate removes ${loss} lines from ${JSON.stringify(path)} with only ${addCount} added`,
-			);
+		if (loss >= 200 && loss >= addCount * 10) {
+			if (!TEST_FILE.test(path))
+				return fail(
+					`merge guard: candidate removes ${loss} lines from ${JSON.stringify(path)} with only ${addCount} added`,
+				);
+			// W1216.2: mass line loss on a test file is allowed ONLY as a proven
+			// structural relocation — the candidate's test-name delta must net
+			// to zero candidate-wide. Erosion keeps the original verdict.
+			const reloc = testRelocationDelta(repo, before, tree);
+			if (!reloc.balanced)
+				return fail(
+					`merge guard: candidate removes ${loss} lines from ${JSON.stringify(path)} with only ${addCount} added — test relocation unproven: ${reloc.why}`,
+				);
+		}
 	}
 	const changed = command(repo, [
 		"git",
