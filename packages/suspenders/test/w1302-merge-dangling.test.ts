@@ -333,6 +333,21 @@ describe("W1302.2 post-merge dangling-path scan", () => {
 		).toEqual([]);
 	});
 
+	// W1772: the minted dangling path packages/suspenders/hooks/lib/fleet-loop/
+	// hooks/bin/license-audit.ts never existed — maintenance.ts joins the
+	// literal onto the suspenders package root (suspendersRoot()), where the
+	// target lives. Bare-form literal, so the W1302.2.1 reference scope never
+	// judges it; pin all three facts so the false positive stays dead.
+	test("W1772: maintenance.ts license-audit literal is package-root-relative, not a reference", () => {
+		const maint = join(P, "hooks/lib/fleet-loop/maintenance.ts");
+		const body = readFileSync(maint, "utf8");
+		expect(pathLiterals(body)).toContain("hooks/bin/license-audit.ts");
+		expect(existsSync(join(P, "hooks/bin/license-audit.ts"))).toBe(true);
+		expect(
+			unresolvedSpecifiers(P, "HEAD", ["hooks/lib/fleet-loop/maintenance.ts"]),
+		).toEqual([]);
+	});
+
 	test("probe2 catches the W1304 incident shape (../bin runner missing)", async () => {
 		const repo = await base();
 		await Bun.write(
