@@ -235,15 +235,21 @@ describe("mineOffenders + readMiningLines", () => {
 			const a = mineOffenders(T0 + 3_600_000);
 			expect(a.offenders.map((o) => o.lane)).toEqual(["laneX", "laneY"]);
 			expect(a.offenders[0]?.topReason).toBe("streak");
-			const art = { at: Date.now(), days: 7, offenders: a.offenders };
+			// W1294.14: one fixture clock for the whole round-trip — the artifact
+			// stamp AND the reader's nowMs derive from it, so the freshness
+			// probes are deterministic (Date.now() here raced the T0-anchored
+			// probe and the stale branch never fired).
+			const at = T0 + 3_600_000;
+			const art = { at, days: 7, offenders: a.offenders };
 			const tmp = `${import.meta.dir}/w826-mining-artifact.json`;
 			writeFileSync(tmp, JSON.stringify(art));
-			expect(readMiningLines(Date.now(), 8 * 86_400_000, tmp)[0]).toContain(
-				"laneX",
-			);
-			expect(readMiningLines(T0 + 9 * 86_400_000, 8 * 86_400_000, tmp)).toEqual(
-				[],
-			);
+			expect(readMiningLines(at, 8 * 86_400_000, tmp)[0]).toContain("laneX");
+			expect(
+				readMiningLines(at + 8 * 86_400_000, 8 * 86_400_000, tmp),
+			).toHaveLength(2);
+			expect(
+				readMiningLines(at + 8 * 86_400_000 + 1, 8 * 86_400_000, tmp),
+			).toEqual([]);
 			unlinkSync(tmp);
 		} finally {
 			if (prev === undefined) delete process.env.SUSPENDERS_BUCKLE_DB;
