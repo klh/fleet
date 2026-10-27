@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
 	validateZaiSnapshot,
@@ -100,5 +102,24 @@ describe("Z.ai LiteLLM account rows", () => {
 		expect(zaiCatalogFile("/h", { ZAI_CATALOG_FILE: "/x/z.json" })).toBe(
 			"/x/z.json",
 		);
+	});
+
+	// W1786: the dangling-path scanner misread the gateway-config fail-fast
+	// guard MESSAGE as a repo path — packages/belt/bin/"Z.ai catalog needs a
+	// validated zai remote in remotes.json" never existed (git log --all is
+	// empty). Pin the absence and the guard literal: any future restore or
+	// reword is a conscious change, not scanner noise.
+	test("W1786: phantom scanner path stays absent; guard is a message literal", () => {
+		expect(
+			existsSync(
+				join(
+					import.meta.dir,
+					"../bin/Z.ai catalog needs a validated zai remote in remotes.json",
+				),
+			),
+		).toBe(false);
+		expect(
+			readFileSync(join(import.meta.dir, "../bin/gateway-config.ts"), "utf8"),
+		).toContain('"Z.ai catalog needs a validated zai remote in remotes.json"');
 	});
 });
