@@ -261,6 +261,19 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		argv: (root) => [join(root, "hooks/bin/knowledge-sync.ts")],
 	},
 	{
+		// W1227: the knowledge consolidation sweep — deterministic term overlap
+		// pairs live rows and PROPOSES consolidate-delete/update proposals into
+		// the dispose gate; never auto-deletes (similarity is not authority),
+		// executed updates carry provenance forward mechanically, competing
+		// explanations stay retained. No inference leg; when one lands it rides
+		// Buckle only.
+		name: "knowledge-consolidate",
+		everySeconds: 21_600,
+		nice: 10,
+		timeoutMs: 120_000,
+		argv: (root) => [join(root, "hooks/bin/coord.ts"), "knowledge-consolidate"],
+	},
+	{
 		// Machine-local inference key + opted-in hub gate the catalog fetch.
 		// A changed route set regenerates LiteLLM and reloads Buckle; failures
 		// retain the previous applied marker for the next cadence.

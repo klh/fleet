@@ -4,6 +4,10 @@
 // adapter lives in ./sqlite-store.ts, the distill clients in
 // ./distill-clients.ts, the prompt policy in ./prompt-policy.ts.
 import type { KnowledgeHit } from "./knowledge.ts";
+import type {
+	ConsolidateOpts,
+	ConsolidationSweep,
+} from "./knowledge-consolidate.ts";
 import type { DecayOpts, ProposalDraft } from "./knowledge-curate.ts";
 
 export type { KnowledgeHit };
@@ -88,6 +92,10 @@ export interface KnowledgeProposalView {
 	decidedAt: number | null;
 	topic: string;
 	fact: string;
+	// W1227: consolidate-* rows render their kind + payload so the dispose
+	// gate reviews the exact minted action
+	kind: string;
+	payload: string | null;
 }
 
 // W381 (from parked/W208): one decay sweep's outcome — proposed are the
@@ -195,6 +203,12 @@ export interface KnowledgeStore {
 		decision: "approve" | "dismiss",
 		opts?: { by?: string; note?: string; supersededBy?: number | null },
 	): Promise<{ ok: boolean; retired: boolean }>;
+	// W1227 consolidation: similarity proposes (never auto-deletes); the
+	// dispose gate executes via disposeProposal's kind dispatch. No inference
+	// leg today — when one lands it rides Buckle only.
+	consolidate(
+		opts?: ConsolidateOpts & { by?: string },
+	): Promise<ConsolidationSweep>;
 }
 
 // W244 — outcome of one reprocessCheck pass. requeued/marked are did-counts
