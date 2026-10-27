@@ -10,7 +10,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pkg: [blam, buckle, speedy, belt, suspenders]
+        include:
+          # W2173.5.3: the graph bottom + small kits gate pushes too — kernel
+          # (4 suites, the declared graph bottom), local (4), local-llm (5,
+          # co-located *.test.ts under the package root).
+          - pkg: blam
+            path: packages/blam/test/
+          - pkg: buckle
+            path: packages/buckle/test/
+          - pkg: speedy
+            path: packages/speedy/test/
+          - pkg: belt
+            path: packages/belt/test/
+          - pkg: suspenders
+            path: packages/suspenders/test/
+          - pkg: kernel
+            path: packages/kernel/test/
+          - pkg: local
+            path: packages/local/
+          - pkg: local-llm
+            path: packages/local-llm/
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,7 +42,7 @@ jobs:
             (cd packages/${{ matrix.pkg }} && bun install --frozen-lockfile)
           fi
       - name: tests
-        run: bun test packages/${{ matrix.pkg }}/test/
+        run: bun test ${{ matrix.path }}
 
   # W715: the AGENTS.md laws as CI gates (W694 L4/L5) — the 1500-line .ts
   # limit and the shell-script ban (tracked .sh must EQUAL the allowlist

@@ -74,16 +74,19 @@ local-llm/spawner.ts -> belt (../belt/bin/spawner.ts)
 local/bin/observation.ts -> local-llm (../../local-llm/observation.ts)
 suspenders/deploy/hub-metrics.ts -> buckle (../../buckle/src/metrics-connector.ts)
 suspenders/deploy/hub-policy.ts -> buckle (../../buckle/src/policy.ts)
-suspenders/deploy/trace-tunnel.test.ts -> telemetry (../../telemetry/src/remote-traces.ts)
 suspenders/deploy/trace-tunnel.ts -> telemetry (../../telemetry/src/remote-traces.ts)
-suspenders/deploy/zai-catalog.test.ts -> belt (../../belt/bin/zai-catalog-rows.ts)
-suspenders/deploy/zai-catalog.test.ts -> buckle (../../buckle/src/route-ladder-validator.ts)
-suspenders/deploy/zai-catalog.test.ts -> buckle (../../buckle/src/upstreams.ts)
+suspenders/deploy/zai-catalog.ts -> belt (../../belt/bin/zai-catalog-rows.ts)
+suspenders/deploy/zai-catalog.ts -> buckle (../../buckle/src/outbound-guard.ts)
+suspenders/deploy/zai-catalog.ts -> buckle (../../buckle/src/provider-pressure.ts)
 suspenders/deploy/zai-catalog.ts -> belt (../../belt/bin/zai-catalog-rows.ts)
 suspenders/deploy/zai-catalog.ts -> buckle (../../buckle/src/outbound-guard.ts)
 suspenders/deploy/zai-catalog.ts -> buckle (../../buckle/src/provider-pressure.ts)
 suspenders/e2e/belt-dashboard.spec.ts -> belt (../../belt/bin/klh-theme.ts)
 suspenders/e2e/console-network-hours.spec.ts -> buckle (../../buckle/src/ledger.ts)
+// W2173.5.3: the ONE canonical playwright config builder (tests/playwright.base.ts) —
+// deliberate central-config edge; the repo layer is not an npm package, so the
+// @klh/* rule has no face here. Every fleet playwright config imports THIS.
+suspenders/e2e/playwright.config.ts -> (repo) (../../../tests/playwright.base.ts)
 suspenders/hooks/bin/fallback-drill.ts -> buckle (../../../buckle/src/usage.ts)
 suspenders/hooks/bin/prefix-keepwarm.ts -> buckle (../../../buckle/src/usage.ts)
 suspenders/hooks/board/buckle-observation-relay.ts -> buckle (../../../buckle/src/network-read-model.ts)
@@ -99,6 +102,14 @@ suspenders/hooks/lib/inventory-probe.ts -> belt (../../../belt/bin/inventory-pro
 suspenders/hooks/lib/observation.ts -> local-llm (../../../local-llm/observation.ts)
 suspenders/hooks/lib/servicemon.ts -> telemetry (../../../telemetry/src/http-trace.ts)
 suspenders/scripts/install-llm-steps.ts -> belt (../../belt/bin/litellm-target.ts)
+// W2173.5.3: co-located tests moved scripts|deploy|hooks -> test/ — same
+// edges, re-pathed (net-zero ratchet movement). suspenders/scripts/lib
+// route-preflight.test.ts and refresh-dashboards.test.ts stayed put: name
+// collisions in test/ + dir anchors.
+suspenders/test/trace-tunnel.test.ts -> telemetry (../../telemetry/src/remote-traces.ts)
+suspenders/test/zai-catalog.test.ts -> belt (../../belt/bin/zai-catalog-rows.ts)
+suspenders/test/zai-catalog.test.ts -> buckle (../../buckle/src/route-ladder-validator.ts)
+suspenders/test/zai-catalog.test.ts -> buckle (../../buckle/src/upstreams.ts)
 suspenders/scripts/lib/lane-settings.ts -> telemetry (../../../telemetry/src/prefer-header.ts)
 suspenders/scripts/lib/watchdog-memory.ts -> belt (../../../belt/bin/registry.ts)
 suspenders/scripts/lib/watchdog-memory.ts -> local-llm (../../../local-llm/memory-policy.ts)
