@@ -13,6 +13,8 @@
 	},
 	"devDependencies": {
 		"@anthropic-ai/sdk": "^1.1.0",
+		"@klh/suspenders": "workspace:*",
+		"@playwright/test": "1.63.0",
 		"@types/bun": "latest",
 		"openai": "^7.42.0"
 	},
