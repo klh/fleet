@@ -4,6 +4,11 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { GovernorStore } from "../govdb/govdb-store.ts";
 import type { ReviewContext } from "./review-receipt.ts";
+import {
+	type ProcessProbeFn,
+	psProcessProbe,
+	sameProcess,
+} from "../same-process.ts";
 import { reviewRoundCapRefusal } from "./review-round-cap.ts";
 
 interface Request {
@@ -16,6 +21,10 @@ interface Request {
 	/** W1280: detached reviewer pid — lets reconcileReviewLegs tell an active
 	 * leg from a stale one instead of waiting out the 25-minute lease. */
 	pid?: number;
+	/** W2180: process birth recorded at stampReviewPid — pid identity pairs
+	 * with the start time (same-process check); legacy pid-only rows keep the
+	 * conservative W1280 fallback (ESRCH alone kills). */
+	process_start_ms?: number;
 	/** W1243: transport failures (leg down, 429/503 waves) defer without
 	 * consuming the 3-verdict-attempt budget — attempts is refunded on a
 	 * failed finish and deferred counts the backoffs instead. */
@@ -221,22 +230,17 @@ export function stampReviewPid(
 		const request = JSON.parse(row.value) as Request;
 		if (request.token !== token || request.state !== "RUNNING") return;
 		request.pid = pid;
+		request.process_start_ms = Date.now();
 		db.query(
 			"UPDATE facts SET value = ?, version = version + 1, ts = ? WHERE key = ?",
 		).run(JSON.stringify(request), Date.now(), key);
 	})();
 }
 
-/** W1280: liveness probe — ESRCH is death, anything else (EPERM, etc.) is
- * conservatively alive so the lease expiry remains the only backstop. */
-const pidAlive = (pid: number): boolean | null => {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (error) {
-		return (error as NodeJS.ErrnoException).code === "ESRCH" ? false : null;
-	}
-};
+// W1280 probed pid-alone (kill(pid,0)); W2180 replaces that with the shared
+// same-process identity (pid + start, <2s tolerance): ESRCH or a recycled pid
+// is stale, same or unknown stays active — an unprobeable leg is never death
+// evidence, and the lease expiry remains the only other backstop.
 export interface ReconcileSummary {
 	examined: number;
 	active: number;
@@ -246,9 +250,15 @@ export interface ReconcileSummary {
 /** W1280: sweep RUNNING review requests and recover stale legs — a reviewer
  * whose pid is gone died without finishing (hard kill, lost machine), so
  * finish its request NOW (attempt refund + capped backoff) instead of
- * stranding it for the full 25-minute lease. Live legs and legacy requests
- * without a stamped pid are left untouched (never kill live unknown legs). */
-export function reconcileReviewLegs(db: GovernorStore): ReconcileSummary {
+ * stranding it for the full 25-minute lease. W2180: a live pid whose start
+ * sits outside the 2s tolerance of its stamp is a RECYCLED pid — death
+ * evidence. Live legs whose start cannot be observed (or legacy pid-only
+ * rows) stay untouched: unknown is never death, the lease remains the only
+ * other backstop. */
+export function reconcileReviewLegs(
+	db: GovernorStore,
+	probe: ProcessProbeFn = psProcessProbe,
+): ReconcileSummary {
 	const summary = { examined: 0, active: 0, stale: 0, recovered: 0 };
 	const rows = db
 		.query("SELECT key, value FROM facts WHERE source = 'review-scheduler'")
@@ -263,12 +273,16 @@ export function reconcileReviewLegs(db: GovernorStore): ReconcileSummary {
 		if (request.state !== "RUNNING") continue;
 		summary.examined += 1;
 		if (typeof request.pid !== "number" || request.pid <= 0) continue;
-		if (pidAlive(request.pid) !== false) {
+		const verdict = sameProcess(
+			{ pid: request.pid, processStartMs: request.process_start_ms },
+			probe,
+		);
+		if (verdict === "dead" || verdict === "recycled") {
+			summary.stale += 1;
+			recoverStaleLeg(db, row, request, summary, verdict);
+		} else {
 			summary.active += 1;
-			continue;
 		}
-		summary.stale += 1;
-		recoverStaleLeg(db, row, request, summary);
 	}
 	return summary;
 }
@@ -280,6 +294,7 @@ function recoverStaleLeg(
 	row: { key: string },
 	request: Request,
 	summary: ReconcileSummary,
+	verdict: "dead" | "recycled",
 ): void {
 	const fresh = db
 		.query("SELECT value FROM facts WHERE key = ?")
@@ -293,7 +308,9 @@ function recoverStaleLeg(
 		row.key,
 		request.token,
 		true,
-		`reviewer pid ${request.pid} no longer alive (W1280 reconcile); attempt refunded`,
+		verdict === "recycled"
+			? `reviewer pid ${request.pid} recycled by a different process (start mismatch, W2180); attempt refunded`
+			: `reviewer pid ${request.pid} no longer alive (W1280 reconcile); attempt refunded`,
 	);
 }
 

@@ -23,6 +23,10 @@ import {
 	HARNESS_INSTALL_PATHS,
 	HARNESS_PROCESS_NAMES,
 } from "../executors/registry.ts";
+import {
+	RECYCLE_TOLERANCE_MS,
+	etimeToMs,
+} from "../same-process.ts";
 
 export type LaneRef = {
 	sid: string;
@@ -245,29 +249,19 @@ function commandToken(args: string): { token: string; rest: string } | null {
 
 // W1072.3 behavioral contract: every liveness anchor ages out. The roster
 // carries etime= so the recorded pid's process START is observable — a
-// process that began more than the recycle grace after the lane launched
-// cannot be the recorded process (recycled pid), so it reads absent and
-// the transcript term (15-min floor) decides instead.
-const RECYCLE_GRACE_MS = 10_000;
-const PS_ELAPSED_RE = /^(?:\d+-)?(?:\d{1,2}:){0,2}\d{1,2}$/;
-const elapsedMs = (token: string): number | null => {
-	if (!PS_ELAPSED_RE.test(token)) return null;
-	const [day, time] = token.split("-");
-	const [h, m, s] = (time ?? day).split(":").map(Number);
-	return (((time ? Number(day) * 24 : 0) + h) * 60 + m) * 60_000 + s * 1_000;
-};
-
-// etime= rosters carry `pid etime args` — strip both leading columns when
-// present so args= matching sees the command line only. Rows without the
-// elapsed column (legacy fakes) pass through untouched.
+// process born after the launch stamp (beyond the shared 2s same-process
+// tolerance, W2180) cannot be the recorded process (recycled pid), so it
+// reads absent and the transcript term (15-min floor) decides instead. The
+// etime grammar lives once in same-process.ts (W2180).
 const parseRosterRow = (
 	row: string,
 ): { args: string; elapsed: number | null } => {
 	const rest = row.replace(/^\s*\d+\s+/, "").trimStart();
 	const token = rest.match(/^\S+?(?=\s|$)/)?.[0] ?? "";
-	return PS_ELAPSED_RE.test(token)
-		? { args: rest.slice(token.length).trimStart(), elapsed: elapsedMs(token) }
-		: { args: rest, elapsed: null };
+	const elapsed = etimeToMs(token);
+	return elapsed === null
+		? { args: rest, elapsed: null }
+		: { args: rest.slice(token.length).trimStart(), elapsed };
 };
 
 /** Recognize the executable, or a Node/Bun script entrypoint, never later arguments. */
@@ -395,15 +389,16 @@ export function laneProcessIdentity(
 			(row) => Number.parseInt(row.trim(), 10) === lane.pid,
 		);
 		if (!row) return false;
-		// W1072.3 start-time identity: etime= makes the pid's process start
-		// observable. A process that began after the lane launched (beyond the
-		// grace) is a recycled pid — absent evidence, never liveness; the
-		// transcript term decides. Started BEFORE the launch stamp stays legacy
-		// ambiguity (a re-stamped registry row must not read dead — W51).
+		// W1072.3 start-time identity, W2180 shared tolerance: etime= makes the
+		// pid's process start observable. A process born after the lane
+		// launched (beyond RECYCLE_TOLERANCE_MS) is a recycled pid — absent
+		// evidence, never liveness; the transcript term decides. Started BEFORE
+		// the launch stamp stays legacy ambiguity (a re-stamped registry row
+		// must not read dead — W51, the conservative same fallback).
 		const { args, elapsed } = parseRosterRow(row);
 		if (elapsed !== null && typeof lane.launchedAt === "number") {
 			const start = Date.now() - elapsed;
-			if (start > lane.launchedAt + RECYCLE_GRACE_MS) return false;
+			if (start > lane.launchedAt + RECYCLE_TOLERANCE_MS) return false;
 		}
 		const harness = isHarnessProcess(args);
 		if (harness === false) return false;

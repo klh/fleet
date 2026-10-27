@@ -202,3 +202,59 @@ test("reconcile finishes a dead reviewer's lease now, spares live and legacy leg
 	expect(recovered.attempts).toBe(0); // verdict budget refunded
 	live.kill();
 });
+
+// W2180: pid+start-time identity on the reconcile sweep — a live pid whose
+// process start sits outside the 2s tolerance of its stamp is a recycled pid
+// (a different process owns the number), so the leg is death evidence even
+// though kill(pid,0) would bless it.
+test("reconcile reads a recycled pid as stale — live pid, foreign start", () => {
+	const f = fixture();
+	scheduleReview({ ...f.options, spawn: f.spawn });
+	stampReviewPid(f.db, keyOf(f, "W1"), requestOf(f).token, 4242);
+	const summary = reconcileReviewLegs(f.db, () => ({
+		alive: true,
+		startMs: Date.now() - 3_600_000, // born an hour before the stamp
+	}));
+	expect(summary).toEqual({ examined: 1, active: 0, stale: 1, recovered: 1 });
+	const stale = requestOf(f);
+	expect(stale.state).toBe("ERROR");
+	expect(stale.attempts).toBe(0); // verdict budget still refunded
+});
+
+// W2180 conservative fallback: a leg that is alive but whose start cannot be
+// observed is never death evidence — unknown stays active, the 25-minute
+// lease remains the only backstop.
+test("reconcile keeps an unprobeable-start leg active — unknown is not death", () => {
+	const f = fixture();
+	scheduleReview({ ...f.options, spawn: f.spawn });
+	stampReviewPid(f.db, keyOf(f, "W1"), requestOf(f).token, 4242);
+	const summary = reconcileReviewLegs(f.db, () => ({
+		alive: true,
+		startMs: null,
+	}));
+	expect(summary).toEqual({ examined: 1, active: 1, stale: 0, recovered: 0 });
+	expect(requestOf(f).state).toBe("RUNNING");
+});
+
+// W2180 upgrade path: legacy pid-only rows (stamped before the start-time
+// law) keep W1280 behavior — ESRCH alone kills, a live-but-unattributable
+// pid never does.
+test("legacy pid-only stamps stay conservative — ESRCH dies, live stays", () => {
+	const f = fixture();
+	scheduleReview({ ...f.options, spawn: f.spawn });
+	stampReviewPid(f.db, keyOf(f, "W1"), requestOf(f).token, 4242);
+	const row = f.db
+		.query("SELECT value FROM facts WHERE key=?")
+		.get(keyOf(f, "W1")) as { value: string };
+	const legacy = JSON.parse(row.value) as { process_start_ms?: number };
+	delete legacy.process_start_ms;
+	f.db
+		.query("UPDATE facts SET value=? WHERE key=?")
+		.run(JSON.stringify(legacy), keyOf(f, "W1"));
+	expect(
+		reconcileReviewLegs(f.db, () => ({ alive: true, startMs: 0 })),
+	).toEqual({ examined: 1, active: 1, stale: 0, recovered: 0 });
+	expect(
+		reconcileReviewLegs(f.db, () => ({ alive: false, startMs: null })),
+	).toEqual({ examined: 1, active: 0, stale: 1, recovered: 1 });
+});
