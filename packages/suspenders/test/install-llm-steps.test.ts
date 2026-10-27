@@ -24,6 +24,7 @@ import {
 	defaultRun,
 	diagnosticTail,
 	downloadModels,
+	beltBin,
 	ensureLiteLlmMetricsDependency,
 	gatewayConfigStale,
 	refreshSupervisor,
@@ -103,6 +104,18 @@ describe("W771.2 contract flips", () => {
 		]) {
 			expect(step(name)?.v1).toBe("real");
 		}
+	});
+});
+
+describe("W1792 belt closure entry pins", () => {
+	test("beltBin resolves under the belt package, where router-shim.ts lives", () => {
+		// W1792 regression pin: the "router-shim.ts" bare literal in
+		// seedLocalLlm's belt-closure refresh joins onto beltBin(ctx) —
+		// packages/belt/bin at runtime — NOT the referencing file's own
+		// scripts/ dir (the dangling-path scanner's false positive).
+		const ctx = ctxFor(tmp("w1792-pin"));
+		expect(beltBin(ctx)).toBe(join(REPO, "..", "belt", "bin"));
+		expect(existsSync(join(beltBin(ctx), "router-shim.ts"))).toBe(true);
 	});
 });
 
