@@ -146,13 +146,18 @@ export const runSeedGroup = async (
 	timedOut = winner === "deadline";
 	if (timedOut) {
 		killGroup("SIGTERM");
-		const grace = bounded(termGraceMs);
-		const exitedInGrace = await Promise.race([
-			exitPromise.then(() => true),
-			grace.p.then(() => false),
-		]);
-		grace.cancel();
-		if (!exitedInGrace) killGroup("SIGKILL");
+		// W1175: the grace verdict is the GROUP's, never the direct child's.
+		// A parent may exit promptly on TERM while a TERM-ignoring descendant
+		// keeps the group alive — keying escalation on child exit (the
+		// W1124.12.2 shape) skipped the group SIGKILL exactly then and
+		// returned survivors:true with no escalation. The probe decides.
+		const graceDeadline = Date.now() + termGraceMs;
+		let downAfterTerm = !isGroupAlive(pgid);
+		while (!downAfterTerm && Date.now() < graceDeadline) {
+			await sleep(25);
+			downAfterTerm = !isGroupAlive(pgid);
+		}
+		if (!downAfterTerm) killGroup("SIGKILL");
 	}
 	// bounded reap: reaped direct child + reparented/init-reaped descendants
 	// (a zombie still answers kill(0) until reaped — poll until ESRCH or the

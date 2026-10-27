@@ -357,7 +357,15 @@ export const ensureStarter = async (
 	// can exit 1 on trailing diagnostics (observed live 2026-10-07: the
 	// unrecognized_model line) while the session + usage are perfectly valid.
 	const sessionId = parseSessionId(`${res.out} ${res.err ?? ""}`);
-	if (!sessionId) {
+	// W1175 fail-closed gate: an UNSAFE seed never banks a session id. Unsafe
+	// = the deadline fired (timedOut), the runner reported surviving
+	// descendants (survivors), or verification explicitly failed
+	// (verifiedDown false) — even when the killed turn printed a session id,
+	// banking it would fork every later lane from a wedged seed. A completed
+	// seed with no adverse verdict (verifiedDown null) keeps the session-id
+	// criterion alone.
+	const unsafeSeed = timedOut || survivors || res.verifiedDown === false;
+	if (unsafeSeed || !sessionId) {
 		const failure: StarterSeedFailure = {
 			phase: "starter-seed",
 			// signal-cancelled seeds never exited — the spawnSync shape also
@@ -365,13 +373,25 @@ export const ensureStarter = async (
 			code: res.code ?? 1,
 			stderrTail: flattenTail(res.err || res.out),
 		};
-		if (timedOut) {
-			failure.timedOut = true;
+		if (unsafeSeed) {
+			failure.timedOut = timedOut;
 			failure.verifiedDown = verifiedDown;
 			failure.survivors = survivors;
 		}
+		// W1175: each phrase follows its OWN flag — never claim "timed out"
+		// without the deadline flag, never claim a verified group-down without
+		// the verifiedDown flag (an explicit false is UNVERIFIED, not down).
+		const unsafeNote = unsafeSeed
+			? `${timedOut ? ", timed out" : ""}${
+					survivors
+						? `, survivors possible (verifiedDown=${verifiedDown})`
+						: verifiedDown
+							? ", group verified down"
+							: ", unverified (verifiedDown=false)"
+				}`
+			: "";
 		options.log?.(
-			`starter seed failed (${harness}, phase ${failure.phase}, code ${failure.code}${timedOut ? `, timed out, ${survivors ? `survivors possible (verifiedDown=${verifiedDown})` : "group verified down"}` : ""}): ${failure.stderrTail}`,
+			`starter seed failed (${harness}, phase ${failure.phase}, code ${failure.code}${unsafeNote}): ${failure.stderrTail}`,
 		);
 		return { kind: "failure", failure };
 	}
