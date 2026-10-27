@@ -4,9 +4,9 @@
 // id, client-side budget policy, gateway fallback, kill switch). No sockets —
 // fetcher-injected; no machine files — home-injected.
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { scratchWorld } from "../../test-kit/src/index.ts";
 import {
 	directModelId,
 	directChat,
@@ -18,8 +18,8 @@ import {
 	resolveTarget,
 } from "../bin/router-policy.ts";
 
-// temp HOME root: .claude/local-llm/direct-tiers.json inside it
-const tempHome = (): string => mkdtempSync(join(tmpdir(), "dt-home-"));
+// temp HOME root: .claude/local-llm/direct-tiers.json inside it (@klh/test-kit)
+const tempHome = (): ReturnType<typeof scratchWorld> => scratchWorld();
 
 const writeArtifact = (home: string, body: string): string => {
 	const path = join(home, ".claude/local-llm/direct-tiers.json");
@@ -30,7 +30,8 @@ const writeArtifact = (home: string, body: string): string => {
 
 describe("direct-tier artifact resolution (W280)", () => {
 	test("artifact rows normalize to /v1 and feed resolveTarget", () => {
-		const home = tempHome();
+		const w = tempHome();
+		const home = w.home;
 		try {
 			writeArtifact(
 				home,
@@ -42,12 +43,13 @@ describe("direct-tier artifact resolution (W280)", () => {
 			expect(t.direct).toBe(true);
 			expect(t.base).toBe("http://127.0.0.1:8902/v1");
 		} finally {
-			rmSync(home, { recursive: true, force: true });
+			w.clean();
 		}
 	});
 
 	test("corrupt/empty artifacts yield null so the YAML chain answers", () => {
-		const home = tempHome();
+		const w = tempHome();
+		const home = w.home;
 		try {
 			const path = writeArtifact(home, "[1,2]");
 			expect(readDirectTiersArtifact(path)).toBeNull();
@@ -58,12 +60,13 @@ describe("direct-tier artifact resolution (W280)", () => {
 			writeArtifact(home, '"scalar"');
 			expect(readDirectTiersArtifact(path)).toBeNull();
 		} finally {
-			rmSync(home, { recursive: true, force: true });
+			w.clean();
 		}
 	});
 
 	test("grammar-failing rows are skipped, valid rows survive", () => {
-		const home = tempHome();
+		const w = tempHome();
+		const home = w.home;
 		try {
 			const path = writeArtifact(
 				home,
@@ -78,7 +81,7 @@ describe("direct-tier artifact resolution (W280)", () => {
 			const tiers = loadDirectTiers(undefined, home);
 			expect(tiers).toEqual({ "local-coder": "http://127.0.0.1:8901/v1" });
 		} finally {
-			rmSync(home, { recursive: true, force: true });
+			w.clean();
 		}
 	});
 });
@@ -184,7 +187,8 @@ describe("directChat (W280)", () => {
 	});
 
 	test("loadGatewayKey: env wins, file fallback, honest error", () => {
-		const dir = mkdtempSync(join(tmpdir(), "dt-key-"));
+		const w = tempHome();
+		const dir = w.home;
 		try {
 			const keyPath = join(dir, ".claude/local-llm/litellm.key");
 			mkdirSync(join(dir, ".claude/local-llm"), { recursive: true });
@@ -200,7 +204,7 @@ describe("directChat (W280)", () => {
 			expect(threw).toContain("direct-client");
 			expect(threw).toContain("LITELLM_KEY env or");
 		} finally {
-			rmSync(dir, { recursive: true, force: true });
+			w.clean();
 		}
 	});
 });

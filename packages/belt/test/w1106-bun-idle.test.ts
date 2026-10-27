@@ -8,8 +8,8 @@
 // real buckle server boots, and the belt model-proxy runs as MAIN against a
 // silent SSE upstream — a quiet turn past Bun's 10s default survives.
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
+import { scratchWorld } from "../../test-kit/src/index.ts";
 import { join } from "node:path";
 import { createModelProxy } from "../bin/model-proxy.ts";
 import { startServer } from "../../buckle/src/server.ts";
@@ -108,7 +108,8 @@ function spawnProxyAsMain(
 
 describe("W1106 Bun idle law on active inference hops", () => {
 	test("buckle arms idleTimeout 0 for real and serves health on :0", async () => {
-		const home = mkdtempSync(join(tmpdir(), "buckle-idle-"));
+		const world = scratchWorld();
+		const home = world.home;
 		const upstreams = join(home, "upstreams.yaml");
 		writeFileSync(
 			upstreams,
@@ -127,7 +128,7 @@ describe("W1106 Bun idle law on active inference hops", () => {
 			expect(res.status).toBe(200);
 		} finally {
 			server.stop(true);
-			rmSync(home, { recursive: true, force: true });
+			world.clean();
 		}
 		// the REAL boot's serve options rode the spy — idle cutoff disabled
 		const opts = captured[before];
@@ -167,7 +168,8 @@ describe("W1106 Bun idle law on active inference hops", () => {
 	});
 
 	test("model-proxy as MAIN survives a quiet SSE turn past the idle default", async () => {
-			const home = mkdtempSync(join(tmpdir(), "belt-model-proxy-"));
+			const world = scratchWorld();
+			const home = world.home;
 			const upstream = quietSseUpstream();
 			const proxyPort = 21109 + (process.pid % 512);
 			const child = spawnProxyAsMain(upstream.port, proxyPort, home);
@@ -209,7 +211,7 @@ describe("W1106 Bun idle law on active inference hops", () => {
 				child.kill();
 				await child.exited;
 				upstream.stop(true);
-				rmSync(home, { recursive: true, force: true });
+				world.clean();
 			}
 		},
 		20_000,

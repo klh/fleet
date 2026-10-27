@@ -5,14 +5,13 @@ import { describe, expect, test } from "bun:test";
 import {
 	existsSync,
 	mkdirSync,
-	mkdtempSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { Database } from "bun:sqlite";
+import { scratchWorld } from "../../test-kit/src/index.ts";
 import {
 	ggufFileName,
 	hubOrigin,
@@ -37,7 +36,7 @@ import {
 const sha = (content: string): string =>
 	createHash("sha256").update(content).digest("hex");
 
-const tmpStore = (): string => mkdtempSync(join(tmpdir(), "model-store-"));
+const tmpStore = (): string => scratchWorld().home;
 
 /** Fake origin: files = {path: content}; declares real sha256 + size. */
 function fakeOrigin(files: Record<string, string>): Origin {

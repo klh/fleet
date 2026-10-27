@@ -7,16 +7,17 @@
 // copy + runtime-heal/closure verification only; an interrupted install
 // releases via the EXIT trap on the failure path.)
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { scratchWorld } from "../../test-kit/src/index.ts";
 
 const INSTALL = join(import.meta.dir, "..", "install.sh");
 
 /** Run install.sh --dry-run against a sandbox prefix. The dry path exits
  *  before any mutation: no copy, no heal, no tier.json, no launchd. */
 function dryRun(flags: string[] = [], opts?: { heldLock?: boolean }): DryRun {
-	const prefix = mkdtempSync(join(tmpdir(), "belt-install-dry-"));
+	const world = scratchWorld();
+	const prefix = world.home;
 	if (opts?.heldLock) {
 		// a concurrent owner holds the lock dir
 		mkdirSync(join(prefix, ".belt-overlay.lock"));
@@ -36,7 +37,7 @@ function dryRun(flags: string[] = [], opts?: { heldLock?: boolean }): DryRun {
 		stderr: proc.exitCode === 0 ? "" : proc.stderr.toString(),
 		entriesAfter: readdirSync(prefix),
 	};
-	rmSync(prefix, { recursive: true, force: true });
+	world.clean();
 	return out;
 }
 
