@@ -27,6 +27,8 @@ Check current code and the work graph before acting on an old recommendation.
 | [Parked-branch audit](parked-branch-audit-2026-10-07.md), [disposition](parked-branch-disposition-2026-10-19.md) | Discovery and later classification; verify refs and merges before cleanup. |
 | [Enterprise packaging proposal](enterprise-packaging-v0.md), [W688.4 verification](enterprise-packaging-w688-4-record.md) | Proposed product boundary and a later implementation receipt. |
 | [W975 Settings delivery](decision-w975-settings-json-policy.md), [W996 duplicate closure](decision-w996-settings-structured-forms.md) | W996 verified W975 and changed no code; use W975 for implementation details. |
+| Design and plan records ([docs/design/](design/)) | Per-item design, plan, and disposition records named `w<item>-*`; the dangling-path scanner false-positive class has ONE indexed record: [dangling-path-false-positives](design/dangling-path-false-positives.md) | New false-positive closures append a row there — never a new per-item file |
+| Review receipts and re-reviews ([docs/reviews/](reviews/)) | Reviewer verdict evidence (`w<item>-*` receipts) for the review ladder | Read together with the work item's `work.review` events — the doc is evidence, the graph is state |
 
 The `decision-*`, `record-*`, `review-*`, `w*`, and dated research files are
 historical records. Their titles identify the item or date; they remain in

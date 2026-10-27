@@ -13,3 +13,6 @@ node_modules/
 
 # lane-local opt-in env for live capacity-ramp runs (W1266.1) — never commit
 .klh-*.env
+
+# machine-local agent settings (W2173.6) — never commit
+.claude/

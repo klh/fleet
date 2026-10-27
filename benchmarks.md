@@ -240,7 +240,7 @@ double-count ~2×).
 
 THE canonical benchmark table for belt (owner law, 2026-10-02). The
 questions we ask of each model class live in
-[bench-questions.md](packages/belt/bench-questions.md); raw append-only
+[bench-questions.md](packages/belt/bench/bench-questions.md); raw append-only
 records in [bench/benchmarks.jsonl](packages/belt/bench/benchmarks.jsonl).
 
 Runner: `bun bin/bench-suite.ts --port <port> --model <id> --label <short>`
@@ -256,8 +256,8 @@ Question: does the fleet stack beat pure llm API access? Sealed harness
 (manifest `6253f5092545542e`, methodology + labels in
 [bench-plan.md](packages/belt/bench-plan.md)), single-stream, nonce-cold,
 AC power. Runs: `2026-10-02T21-31-09` (n=12,
-[REPORT-n12.md](packages/belt/REPORT-n12.md)) and `2026-10-02T22-09-09`
-(n=33, [REPORT-n33.md](packages/belt/REPORT-n33.md)). The post-W270-fix
+[REPORT-n12.md](packages/belt/bench/REPORT-n12.md)) and `2026-10-02T22-09-09`
+(n=33, [REPORT-n33.md](packages/belt/bench/REPORT-n33.md)). The post-W270-fix
 run (REPORT-postw270.md) had not landed when this table was compiled — see
 the gap note below.
 

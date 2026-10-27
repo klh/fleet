@@ -3,7 +3,8 @@
 Date 2026-10-22 · lane `autow1134-p98b319584008df14` · item W1134 · the decision
 record for "lift or reject". Sources: nimbalyst.com (home, wiki, wiki-teams,
 context-graph, features, docs, harness) — full-page captures banked as
-scrub-clean `.txt` under `.fleet-survey/` (this branch), read in full for this
+scrub-clean `.txt` under `.fleet-survey/` (since removed at W2173.6 — preserved
+in git history), read in full for this
 survey. Fleet-side ground truth verified in-repo: `kb.knowledge` schema
 (`packages/suspenders/hooks/lib/govdb-knowledge.ts:69`), board decision
 endpoints (`packages/suspenders/hooks/bin/fleet-board.ts:2` —
@@ -138,7 +139,8 @@ edges the Context Graph sells, just not rendered as one.
   re-double-spend the doc-covered-ground cost the W94 A/B measured (+45%
   tokens).
 - **Nimbalyst adoption of any kind** — MIT-licensed and good, but the fleet
-  stack is the harness; the captures stay as reference under `.fleet-survey/`.
+  stack is the harness; the captures stayed as reference under
+  `.fleet-survey/` until W2173.6 removed them (git history preserves them).
 
 ## Recommendation
 

@@ -28,7 +28,7 @@ reasons per row there.
 5. **Model selection is task-shaped**: code → :8901, menial → :8902, reasoning → :8903, Danish → :8906, rerank → :8913.
 6. **Degraded mode**: remote tokens expire → `ANTHROPIC_BASE_URL=http://127.0.0.1:4000` keeps Claude Code on the local swarm at local speed; every workload class stays covered (verified end-to-end 2026-09-27).
 
-## Router-shim bench fixes (W270, [n=33 report](../REPORT-n33.md), 2026-10-02)
+## Router-shim bench fixes (W270, [n=33 report](../bench/REPORT-n33.md), 2026-10-02)
 
 - **Code signal**: strong signals (fence, language, "write a function",
   call signature, declarations) route to `:8901`; generic weak words

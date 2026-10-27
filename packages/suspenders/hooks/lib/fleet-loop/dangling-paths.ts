@@ -239,6 +239,16 @@ function findRefsTo(
 
 const EVENT_KIND = "code.dangling-path";
 
+/** The repair-item description minted for one finding. False-positive
+ * closures append a row to the ONE indexed disposition record instead of
+ * minting a new per-item doc (W2173.6). */
+export function repairDescription(ref: DanglingRef, mergedSha: string): string {
+	const where = ref.line
+		? `${ref.refBy}:${ref.line}`
+		: `${ref.refBy} (${ref.specifier})`;
+	return `The merge that produced ${mergedSha} left ${ref.target} missing while ${where} still references it (${JSON.stringify(ref.specifier)}). Restore the path, rewrite the reference, or supersede this item with the reason. Verify imports and focused tests after the repair. If the finding is a false positive, close as a no-op and append one row to docs/design/dangling-path-false-positives.md — do not mint a new per-item record.`;
+}
+
 /** Bank one finding in the graph: deduped by title against still-open items. */
 export function bankDanglingRef(
 	repo: string,
@@ -249,9 +259,6 @@ export function bankDanglingRef(
 	const db = openStore();
 	try {
 		const project = projectIdentity(repo);
-		const where = ref.line
-			? `${ref.refBy}:${ref.line}`
-			: `${ref.refBy} (${ref.specifier})`;
 		const title = `Repair dangling path ${ref.target} referenced by ${ref.refBy}`;
 		const existing = db
 			.query(
@@ -259,7 +266,7 @@ export function bankDanglingRef(
 			)
 			.get(project, title) as { id: string } | null;
 		if (existing) return; // already queued — idempotent across retries
-		const description = `The merge that produced ${mergedSha} left ${ref.target} missing while ${where} still references it (${JSON.stringify(ref.specifier)}). Restore the path, rewrite the reference, or supersede this item with the reason. Verify imports and focused tests after the repair.`;
+		const description = repairDescription(ref, mergedSha);
 		const bin =
 			process.env.SUSPENDERS_PREFIX ??
 			join(process.env.HOME ?? "", ".claude/hooks/suspenders");
