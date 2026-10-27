@@ -28,6 +28,14 @@ describe("wireModelMatch", () => {
 			"match",
 		);
 		expect(wireModelMatch("gpt-4o", "openai/gpt-4o")).toBe("match");
+		// dated snapshot stamps are the same class served (W1814: the haiku
+		// review leg serves claude-haiku-4-5-20251001 for claude-haiku-4-5)
+		expect(
+			wireModelMatch("claude-haiku-4-5", "claude-haiku-4-5-20251001"),
+		).toBe("match");
+		expect(
+			wireModelMatch("claude-haiku-4-5-20251001", "claude-haiku-4-5"),
+		).toBe("match");
 	});
 
 	test("other model classes mismatch", () => {
@@ -38,6 +46,11 @@ describe("wireModelMatch", () => {
 		expect(wireModelMatch("glm-5.3-flash", "grok-4-flash")).toBe("mismatch");
 		// flash vs full tier of the same family is a different class
 		expect(wireModelMatch("glm-5.3-flash", "glm-5.3")).toBe("mismatch");
+		// a non-numeric dash extension is a generation bump, not a stamp
+		expect(wireModelMatch("glm-5", "glm-5-3-flash")).toBe("mismatch");
+		expect(wireModelMatch("claude-haiku-4-5", "claude-haiku-4-5-latest")).toBe(
+			"mismatch",
+		);
 	});
 });
 

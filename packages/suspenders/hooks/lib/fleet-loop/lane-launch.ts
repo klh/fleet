@@ -89,6 +89,7 @@ import {
 	recordLaneExecutor,
 	writeExecutorCvFacts,
 } from "../executors/executor-cv.ts";
+import { launchToken } from "../executors/detect.ts";
 import { adapterFor } from "../executors/registry.ts";
 import { openStore, projectIdentity } from "../govdb/govdb.ts";
 import { resolveHub } from "../hub/hub-locate.ts";
@@ -115,6 +116,7 @@ import {
 } from "../lanes/lane-retry-budget.ts";
 import { laneSid as sidOf } from "../lanes/laneslug.ts";
 import { launchParent } from "../lanes/launch-parent.ts";
+import { restorableBaseline } from "../lanes/original-baseline.ts";
 import { verifiedContextContinuation } from "../lanes/reclaim-context.ts";
 import { type Posture, recordPlaidTrace } from "../plaid/plaid.ts";
 import { policyBriefLines } from "../session-policy.ts";
@@ -515,8 +517,15 @@ export const dispatchLane = async (
 		);
 		attempt = intent.attempt;
 		// W620: stamp the join keys future trust folds attribute by (W105
-		// parity with the board path) — model fact only when a pin exists
-		recordLaneExecutor(store, sid, pick.name, pick.model);
+		// parity with the board path) — model fact only when a pin exists.
+		// W1731: the executor token must read back as the SPAWNED adapter —
+		// completion picks the transcript evidence reader from it.
+		recordLaneExecutor(
+			store,
+			sid,
+			launchToken(pick.name, pick.bin),
+			pick.model,
+		);
 		recordPlaidTrace(store, sid, POSTURE, routeName);
 
 		const expected = `suspenders/${item}`;
@@ -893,6 +902,16 @@ export const dispatchLane = async (
 		// Immutable evidence base survives resumes and later main-branch merges.
 		const completionContext = `${wt}/.fleet/lane-context.json`;
 		mkdirSync(`${wt}/.fleet`, { recursive: true });
+		// W1730: a fresh context over the item's own earlier product (a released
+		// manual take, a re-minted tree) starts at its registered original base
+		// — HEAD when none verifies or its span holds no own commits
+		const freshBaseline = () => {
+			const head = sh(["git", "-C", wt, "rev-parse", "HEAD"]);
+			return (
+				restorableBaseline(store, { project, item, tree: wt }, head)?.sha ??
+				head
+			);
+		};
 		if (takeToken) {
 			// W643: merge the fresh take token into the activation context —
 			// create-with-baseline when absent, token-only merge when it exists
@@ -911,7 +930,7 @@ export const dispatchLane = async (
 						: {
 								sid,
 								item,
-								baseline: sh(["git", "-C", wt, "rev-parse", "HEAD"]),
+								baseline: freshBaseline(),
 								launchedAt: Date.now(),
 								claimToken: takeToken,
 							},
@@ -923,7 +942,7 @@ export const dispatchLane = async (
 				JSON.stringify({
 					sid,
 					item,
-					baseline: sh(["git", "-C", wt, "rev-parse", "HEAD"]),
+					baseline: freshBaseline(),
 					launchedAt: Date.now(),
 				}),
 			);

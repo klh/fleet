@@ -49,3 +49,14 @@ must=glm-5.3-flash
 # one-off candidates tried first.
 # hub=desktop
 # hub-url=https://hub.example.local:4101
+#
+# ── the `prefer` CLI (W1354) — the supported way to set this ─────────────
+# The coordinator-edit-gate blocks direct .prefer edits (structural repo
+# write); `prefer set hub=<label>` (installed next to coord/work) is the
+# gate-exempt, validated write for exactly this pin:
+#   prefer set hub=desktop
+#   prefer show
+# SOFT vs PIN: a quoted must=/prefer= line is a soft hint — dispatch
+# follows it only when nothing stronger objects (no chain directive ⇒
+# W1353 WARN naming what the default ladder picked). hub= is what actually
+# pins the chain to a gateway.

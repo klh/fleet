@@ -17,6 +17,7 @@
 		"@clack/prompts": "1.8.1",
 		"@klh/blam": "2.0.0",
 		"@klh/buckle": "2.0.0",
+		"@vercel/detect-agent": "1.2.7",
 		"cli-table3": "0.6.5",
 		"execa": "10.2.1",
 		"lit": "3.3.3",

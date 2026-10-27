@@ -66,13 +66,19 @@ export function mintItemWorktree(
 			err: r.err || r.out || "git worktree add failed",
 		};
 	symlinkBuildDirs(root, target);
+	// W1730: a fresh mint receipts the commit its branch was created at — the
+	// item's registered original baseline (lanes/original-baseline.ts)
 	if (project)
 		emitWorktreeEvent(
 			id,
 			project,
 			branchExists
 				? { path: target, branch, branch_existed: "1" }
-				: { path: target, branch },
+				: {
+						path: target,
+						branch,
+						base: git(["rev-parse", `refs/heads/${branch}`]).out,
+					},
 		);
 	return { path: target, ok: true };
 }

@@ -23,14 +23,25 @@ export type WireModelMatch = "match" | "mismatch";
 
 /** Same model class = equal cores, or one core extending the other at a dash
  *  boundary — upstream stamps carry routing prefixes (`zai-glm-5.3-flash`
- *  serves the `glm-5.3-flash` class; `grok-4-flash` does not). */
+ *  serves the `glm-5.3-flash` class; `grok-4-flash` does not), and a
+ *  `-YYYYMMDD` snapshot stamp is the same class served dated
+ *  (`claude-haiku-4-5` serves as `claude-haiku-4-5-20251001`). A
+ *  non-numeric extension is a different generation, not a stamp (`glm-5` vs
+ *  `glm-5.3-flash`). */
+const snapshotStamp = (core: string, base: string): boolean =>
+	core.startsWith(`${base}-`) && /^\d{8}$/.test(core.slice(base.length + 1));
+
 export const wireModelMatch = (
 	requested: string,
 	served: string,
 ): WireModelMatch => {
 	const a = modelCore(requested);
 	const b = modelCore(served);
-	return a === b || a.endsWith(`-${b}`) || b.endsWith(`-${a}`)
+	return a === b ||
+		a.endsWith(`-${b}`) ||
+		b.endsWith(`-${a}`) ||
+		snapshotStamp(b, a) ||
+		snapshotStamp(a, b)
 		? "match"
 		: "mismatch";
 };

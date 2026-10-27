@@ -32,9 +32,9 @@ class U extends s {
 					(i) => e`<span class="ufgroup" data-label=${i.label}>
 						${i.options.map(
 							(
-								o,
-							) => e`<a class=${o.on ? "ufilter on" : "ufilter"} href=${o.href}
-									>${o.label}</a
+								n,
+							) => e`<a class=${n.on ? "ufilter on" : "ufilter"} href=${n.href}
+									>${n.label}</a
 								>`,
 						)}
 					</span>`,
@@ -110,14 +110,14 @@ var v = (a) =>
 				: a >= 1000
 					? `${(a / 1000).toFixed(1)}K`
 					: String(Math.round(a)),
-	T = (a) => `${(a * 100).toFixed(1)}%`,
+	y = (a) => `${(a * 100).toFixed(1)}%`,
 	_ = (a, i = !1) => {
 		if (a === null) return "—";
-		const o = new Date(a);
-		if (Number.isNaN(o.getTime())) return "—";
+		const n = new Date(a);
+		if (Number.isNaN(n.getTime())) return "—";
 		const l = (d) => String(d).padStart(2, "0"),
-			n = `${l(o.getHours())}:${l(o.getMinutes())}`;
-		return i ? `${n}:${l(o.getSeconds())}` : n;
+			o = `${l(n.getHours())}:${l(n.getMinutes())}`;
+		return i ? `${o}:${l(n.getSeconds())}` : o;
 	};
 class q extends s {
 	static properties = {
@@ -129,6 +129,7 @@ class q extends s {
 		model: { type: String, state: !0 },
 		day: { type: String, state: !0 },
 		missOnly: { type: Boolean, state: !0 },
+		sla: { type: Object, state: !0 },
 	};
 	constructor() {
 		super();
@@ -139,7 +140,8 @@ class q extends s {
 			(this.days = 7),
 			(this.model = ""),
 			(this.day = ""),
-			(this.missOnly = !1);
+			(this.missOnly = !1),
+			(this.sla = null);
 	}
 	connectedCallback() {
 		super.connectedCallback(), this.refresh();
@@ -164,7 +166,37 @@ class q extends s {
 				})
 				.catch((i) => {
 					(this.err = String(i.message ?? i)), (this.loading = !1);
-				});
+				}),
+			this.fetchSla();
+	}
+	fetchSla() {
+		fetch("/api/usage/cache-sla?window_min=60", {
+			signal: AbortSignal.timeout(15000),
+		})
+			.then((a) => (a.ok ? a.json() : null))
+			.then((a) => {
+				this.sla = a;
+			})
+			.catch(() => {
+				this.sla = null;
+			});
+	}
+	slaLine() {
+		const a = this.sla;
+		if (a === null || a.lanes.length === 0) return t;
+		const i = a.lanes.map(
+				(l) => e`<span class=${l.breaching ? "uwarn" : ""}>${l.lane}
+					${y(l.hitShare)}</span>`,
+			),
+			n =
+				a.breaches.length > 0
+					? `${String(a.breaches.length)} breach(es)`
+					: "ok";
+		return e`<p class="ufoot">
+			cache-SLA (${String(a.windowMinutes)}m rolling, threshold
+			${y(a.threshold)}, ≥${String(a.minRequests)} req):
+			${i.map((l, o) => (o === 0 ? l : e`, ${l}`))} — ${n}
+		</p>`;
 	}
 	render() {
 		if (this.err)
@@ -182,7 +214,7 @@ class q extends s {
 	}
 	lanePanel(a) {
 		const i = a.hubs.filter((l) => !l.ok),
-			o = a.hubs.filter((l) => (l.excluded ?? 0) > 0);
+			n = a.hubs.filter((l) => (l.excluded ?? 0) > 0);
 		return e`<div class="upanel">
 			<div class="uhead">
 				<h2>CACHE EFFICIENCY · WARM RATIO PER LANE</h2>
@@ -199,6 +231,7 @@ class q extends s {
 					}
 				</p>
 			</div>
+			${this.slaLine()}
 			${this.filterRow(a)}
 			${
 				a.overall.requests > a.overall.known
@@ -211,7 +244,7 @@ class q extends s {
 				a.probes.requests > 0
 					? e`<p class="ufoot">Readiness probes: ${String(a.probes.requests)}
 					requests in this window (last ${_(a.probes.last_ts)}), warm
-					${a.probes.known > 0 ? T(a.probes.warm_ratio) : "—"} — synthetic
+					${a.probes.known > 0 ? y(a.probes.warm_ratio) : "—"} — synthetic
 					healthcheck traffic, excluded from the lane and model ratios
 					above.</p>`
 					: t
@@ -226,7 +259,7 @@ class q extends s {
 			}
 			${i.length > 0 ? e`<p class="uwarn">Missing request data: ${i.map((l) => `${l.label} (${l.reason ?? "unavailable"})`).join(", ")}. Rates cover responding sources only.</p>` : t}
 			${a.hubs.some((l) => l.ok && (l.rawRows ?? l.rows) >= 500) ? e`<p class="uwarn">A source reached the 500-request read limit. Rates cover its newest requests only.</p>` : t}
-			${o.length > 0 ? e`<p class="uwarn">Excluded non-model audit rows from ${o.map((l) => l.label).join(", ")}. Those hubs may still use the older request filter, so their 500-row cap can hide model traffic until updated.</p>` : t}
+			${n.length > 0 ? e`<p class="uwarn">Excluded non-model audit rows from ${n.map((l) => l.label).join(", ")}. Those hubs may still use the older request filter, so their 500-row cap can hide model traffic until updated.</p>` : t}
 			${this.reasonsTable(a.overall.reasons, "ALL LANES", a.overall.known)}
 			${this.modelTable(a.models)}
 			${this.laneTable(a.lanes, i.length > 0)}
@@ -244,7 +277,7 @@ class q extends s {
 					(i) => e`<tr>
 						<td>${i.model}</td><td class="unum">${v(i.requests)}</td>
 						<td class="unum">${v(i.known)}</td>
-						<td>${i.known > 0 ? T(i.warm_ratio) : "—"}</td>
+						<td>${i.known > 0 ? y(i.warm_ratio) : "—"}</td>
 						<td class="unum">${v(i.cache_r_tok)}</td><td>${i.status}</td>
 					</tr>`,
 				)}</tbody>
@@ -252,7 +285,7 @@ class q extends s {
 	}
 	filterRow(a) {
 		const i = [...new Set(a.lanes.flatMap((l) => l.models))].sort(),
-			o = [...new Set(a.lanes.flatMap((l) => l.day_series.map((n) => n.d)))]
+			n = [...new Set(a.lanes.flatMap((l) => l.day_series.map((o) => o.d)))]
 				.sort()
 				.reverse();
 		return e`<div class="ufrow">
@@ -293,7 +326,7 @@ class q extends s {
 						(this.day = l.target.value), this.refresh();
 					}}
 				>
-					${["", ...o].map(
+					${["", ...n].map(
 						(l) => e`<option value=${l} ?selected=${l === this.day}
 								>${l === "" ? "all" : l}</option
 							>`,
@@ -313,16 +346,16 @@ class q extends s {
 			<span class="uoverall">
 				${String(a.overall.requests)} req ·
 				${String(a.overall.known)} known · warm
-						<b>${a.overall.known > 0 ? T(a.overall.warm_ratio) : "—"}</b>
+						<b>${a.overall.known > 0 ? y(a.overall.warm_ratio) : "—"}</b>
 				${this.loading ? e`<span class="uempty">· refreshing…</span>` : t}
 			</span>
 		</div>`;
 	}
-	reasonsTable(a, i, o) {
+	reasonsTable(a, i, n) {
 		return e`<h3>MISS REASONS · ${i}</h3>
 			${
 				a.length === 0
-					? e`<p class="uempty">${o > 0 ? "no cache misses among the requests with reported usage" : "no cache verdicts in scope"}</p>`
+					? e`<p class="uempty">${n > 0 ? "no cache misses among the requests with reported usage" : "no cache verdicts in scope"}</p>`
 					: e`<table class="uacts">
 							<thead>
 								<tr>
@@ -352,7 +385,7 @@ class q extends s {
 			return e`<p class="uempty">
 				${i ? "lane data unavailable from the failed sources" : "no requests recorded for this scope"}
 			</p>`;
-		const o = Math.max(1, ...a.map((l) => l.requests));
+		const n = Math.max(1, ...a.map((l) => l.requests));
 		return e`<table class="uacts">
 			<thead>
 				<tr>
@@ -366,7 +399,7 @@ class q extends s {
 			</thead>
 			<tbody>
 				${a.map((l) => {
-					const n = l.known > 0 ? (l.warm / l.known) * 100 : 0;
+					const o = l.known > 0 ? (l.warm / l.known) * 100 : 0;
 					return e`<tr class="ulane">
 						<td title=${l.lane}>
 							<button class="ulaneButton" type="button" @click=${() => {
@@ -383,19 +416,19 @@ class q extends s {
 							<span class="ubarslot"
 								><i
 									class="ureq"
-									style=${`width:${String(Math.max(4, (l.requests / o) * 100))}%`}
+									style=${`width:${String(Math.max(4, (l.requests / n) * 100))}%`}
 								></i
 							></span>
 						</td>
 						<td>
 							<span class="uwr"
 								><i
-									class=${n >= 50 ? "uwarm" : "ucold"}
-									style=${`width:${String(Math.max(2, n))}%`}
-									title=${`${T(n / 100)} of ${String(l.known)} known`}
+									class=${o >= 50 ? "uwarm" : "ucold"}
+									style=${`width:${String(Math.max(2, o))}%`}
+									title=${`${y(o / 100)} of ${String(l.known)} known`}
 								></i
 							></span>
-							<span class="unum">${l.known > 0 ? T(n / 100) : "—"}</span>
+							<span class="unum">${l.known > 0 ? y(o / 100) : "—"}</span>
 						</td>
 						<td class="unum">${v(l.cache_r_tok)}</td>
 						<td class="unum" title=${l.cache_c_known ? `${String(l.cache_c_known)} requests reported cache writes` : "Provider did not report cache writes"}>${l.cache_c_known ? v(l.cache_c_tok) : "—"}</td>
@@ -408,7 +441,7 @@ class q extends s {
 	scopePanel(a) {
 		const i = a.lane_scope;
 		if (i === null) return t;
-		const o = i.requests,
+		const n = i.requests,
 			l = a.hubs;
 		return e`<div class="upanel">
 			<div class="uhead">
@@ -422,7 +455,7 @@ class q extends s {
 					← all lanes
 				</button>
 			</div>
-			${this.reasonsTable(i.reasons, i.lane, o.filter((n) => n.cache_reported === !0 || (n.cache_r ?? 0) > 0).length)}
+			${this.reasonsTable(i.reasons, i.lane, n.filter((o) => o.cache_reported === !0 || (o.cache_r ?? 0) > 0).length)}
 			<table class="uacts">
 				<thead>
 					<tr>
@@ -437,25 +470,25 @@ class q extends s {
 				</thead>
 				<tbody>
 					${
-						o.length === 0
+						n.length === 0
 							? e`<tr>
 								<td colspan="7" class="uempty">no requests in scope</td>
 							</tr>`
-							: o.map((n) => {
+							: n.map((o) => {
 									const d =
-										l.find((u) => u.label === n.hub)?.label ?? n.hub ?? "";
-									return e`<tr class=${n.ok === !1 ? "ubad" : ""}>
-					<td class="unum"><time datetime=${n.ts} title=${n.ts}>${_(n.ts, !0)}</time></td>
-									<td>${n.target_model ?? "—"}</td>
-									<td class="unum">${n.status === null ? "—" : String(n.status)}</td>
-									<td class="unum ${n.cache_r === 0 ? "ucoldtext" : ""}">
-										${n.cache_r === null ? "—" : v(n.cache_r)}
+										l.find((u) => u.label === o.hub)?.label ?? o.hub ?? "";
+									return e`<tr class=${o.ok === !1 ? "ubad" : ""}>
+					<td class="unum"><time datetime=${o.ts} title=${o.ts}>${_(o.ts, !0)}</time></td>
+									<td>${o.target_model ?? "—"}</td>
+									<td class="unum">${o.status === null ? "—" : String(o.status)}</td>
+									<td class="unum ${o.cache_r === 0 ? "ucoldtext" : ""}">
+										${o.cache_r === null ? "—" : v(o.cache_r)}
 									</td>
 									<td class="unum">
-										${n.cache_c_reported ? v(n.cache_c ?? 0) : "—"}
+										${o.cache_c_reported ? v(o.cache_c ?? 0) : "—"}
 									</td>
 									<td class="unum">
-										${n.duration_ms === null ? "—" : v(n.duration_ms)}
+										${o.duration_ms === null ? "—" : v(o.duration_ms)}
 									</td>
 									<td><span class="uchip">${d}</span></td>
 								</tr>`;
@@ -931,8 +964,8 @@ class J extends s {
 		const a = location.hash.replace(/^#monitor\/?/, "").split("/"),
 			i = G.find((l) => l.key === a[0]);
 		if (i !== void 0) this.dim = i.key;
-		const o = Y.find((l) => l.key === a[1]);
-		if (o !== void 0) this.metric = o.key;
+		const n = Y.find((l) => l.key === a[1]);
+		if (n !== void 0) this.metric = n.key;
 		(this.onTheme = () => this.mountChart(!0)),
 			document.addEventListener("klh-themechange", this.onTheme),
 			this.load();
@@ -953,11 +986,11 @@ class J extends s {
 			const i = await fetch(
 					`/api/usage/monitor?days=${String(this.days)}&dim=${this.dim}`,
 				),
-				o = await i.json();
+				n = await i.json();
 			if (a !== this.gen) return;
-			if (!i.ok || o.ok !== !0)
-				throw Error(o.error ?? `status ${String(i.status)}`);
-			(this.report = o),
+			if (!i.ok || n.ok !== !0)
+				throw Error(n.error ?? `status ${String(i.status)}`);
+			(this.report = n),
 				(this.loading = !1),
 				await this.updateComplete,
 				this.mountChart(!1);
@@ -981,15 +1014,15 @@ class J extends s {
 	}
 	mountChart(a) {
 		const i = globalThis.uPlot,
-			o = this.querySelector("#kmon-chart"),
+			n = this.querySelector("#kmon-chart"),
 			l = this.report?.series;
-		if (!i || !o || !l) return;
-		const n = this.metric,
-			d = l[n];
+		if (!i || !n || !l) return;
+		const o = this.metric,
+			d = l[o];
 		if (d === void 0) return;
 		if (a && this.chart !== null) this.chart.destroy(), (this.chart = null);
 		if (this.chart !== null) {
-			const m = o.clientWidth;
+			const m = n.clientWidth;
 			if (m > 0 && m !== this.chart.width)
 				this.chart.setSize({ width: m, height: 240 });
 			return;
@@ -997,33 +1030,33 @@ class J extends s {
 		const u = l.labels.length,
 			h = [{}];
 		for (let m = 0; m < u; m++) {
-			const y = C[m % C.length];
+			const x = C[m % C.length];
 			h.push({
 				label: l.labels[m],
-				stroke: y,
-				fill: n === "requests" || n === "throughput" ? y : void 0,
+				stroke: x,
+				fill: o === "requests" || o === "throughput" ? x : void 0,
 				width: 1.4,
 				points: { show: u <= 2 },
-				value: (_le, R) =>
-					R === null || !Number.isFinite(R)
+				value: (_le, T) =>
+					T === null || !Number.isFinite(T)
 						? "—"
-						: n === "throughput"
-							? z(R)
-							: n === "latency"
-								? `${String(Math.round(R))}ms`
-								: String(Math.round(R)),
+						: o === "throughput"
+							? z(T)
+							: o === "latency"
+								? `${String(Math.round(T))}ms`
+								: String(Math.round(T)),
 			});
 		}
-		const k = (m, y) =>
+		const k = (m, x) =>
 				getComputedStyle(document.documentElement).getPropertyValue(m).trim() ||
-				y,
+				x,
 			g = () => k("--klh-chart-axis", "#898781"),
 			p = () => k("--klh-chart-grid", "#2c2c2a"),
 			b = () => k("--klh-chart-hair", "#383835");
 		if (
 			((this.chart = new i(
 				{
-					width: o.clientWidth,
+					width: n.clientWidth,
 					height: 240,
 					legend: { show: !0, live: !0 },
 					scales: { x: { time: !0 } },
@@ -1045,22 +1078,22 @@ class J extends s {
 					],
 				},
 				d,
-				o,
+				n,
 			)),
 			typeof ResizeObserver === "function")
 		)
 			this.ro?.disconnect(),
 				(this.ro = new ResizeObserver(() => {
-					const m = o.clientWidth;
+					const m = n.clientWidth;
 					if (this.chart !== null && m > 0 && m !== this.chart.width)
 						this.chart.setSize({ width: m, height: 240 });
 				})),
-				this.ro.observe(o);
+				this.ro.observe(n);
 	}
 	render() {
 		const a = this.report,
 			i = a?.coverage,
-			o = (a?.hubs ?? []).filter((l) => !l.ok);
+			n = (a?.hubs ?? []).filter((l) => !l.ok);
 		return e`<style>
 				${se}
 			</style><div class="upanel kmon">
@@ -1087,7 +1120,7 @@ class J extends s {
 			</div>
 			<div class="ulegend">
 				${(a?.series?.labels ?? []).map(
-					(l, n) => e`<span><i style=${`background:${C[n % C.length]}`}></i
+					(l, o) => e`<span><i style=${`background:${C[o % C.length]}`}></i
 							>${l}</span>`,
 				)}
 			</div>
@@ -1106,7 +1139,7 @@ class J extends s {
 					</p>`
 					: t
 			}
-			${o.length > 0 ? e`<p class="uempty">hubs degraded: ${o.map((l) => `${l.label} (${l.reason ?? "unreachable"})`).join(" · ")}</p>` : t}
+			${n.length > 0 ? e`<p class="uempty">hubs degraded: ${n.map((l) => `${l.label} (${l.reason ?? "unreachable"})`).join(" · ")}</p>` : t}
 		</div>
 		<div class="upanel kmon">
 			<h2>GROUPS · ${this.dim.toUpperCase()}</h2>
@@ -1147,7 +1180,7 @@ var M = () => {
 		}
 	},
 	f = () => M()?.panels ?? null,
-	L = () => M()?.slot ?? {},
+	H = () => M()?.slot ?? {},
 	c = (a) =>
 		a >= 1e9
 			? `${(a / 1e9).toFixed(1)}B`
@@ -1157,8 +1190,8 @@ var M = () => {
 					? `${(a / 1000).toFixed(1)}K`
 					: String(Math.round(a)),
 	Q = (a) => (a == null || !Number.isFinite(a) ? "—" : c(a)),
-	x = (a) => `${(a * 100).toFixed(1)}%`,
-	S = r`
+	w = (a) => `${(a * 100).toFixed(1)}%`,
+	R = r`
 	.upanel {
 		display: block;
 		background: var(--klh-surface, #1c1b19);
@@ -1245,10 +1278,10 @@ class O extends s {
 	connectedCallback() {
 		super.connectedCallback(), (this.header = f()?.header ?? null);
 	}
-	chips(a, i, o) {
+	chips(a, i, n) {
 		return e`<span class="ufgroup" data-label=${a}
 			>${i.map(
-				(l) => e`<a class="${o}${l.on ? " on" : ""}" href=${l.href}
+				(l) => e`<a class="${n}${l.on ? " on" : ""}" href=${l.href}
 						>${l.label}</a
 					>`,
 			)}</span
@@ -1385,11 +1418,11 @@ N.styles = r`
 		margin: 14px 0;
 	}
 `;
-var w = (a, i) => a[i] ?? "#888",
-	A = (a, i, o) => {
+var S = (a, i) => a[i] ?? "#888",
+	A = (a, i, n) => {
 		const l = a.tok ? `${((a.tok / Math.max(1, i)) * 100).toFixed(2)}%` : "0";
 		return e`<i
-		style=${`width:${l};background:${w(o, a.g)}`}
+		style=${`width:${l};background:${S(n, a.g)}`}
 		title=${`${a.g}: ${c(a.tok)} tok`}
 	></i>`;
 	};
@@ -1406,7 +1439,7 @@ class D extends s {
 	connectedCallback() {
 		super.connectedCallback(),
 			(this.rows = f()?.actors?.rows ?? []),
-			(this.slot = L());
+			(this.slot = H());
 	}
 	render() {
 		const a = f()?.actors;
@@ -1416,16 +1449,16 @@ class D extends s {
 	}
 	body(a) {
 		const i = this.query.trim().toLocaleLowerCase(),
-			o = i
+			n = i
 				? a.filter((l) =>
-						[l.actor, ...l.chips, ...l.models.map((n) => n.m)].some((n) =>
-							n.toLocaleLowerCase().includes(i),
+						[l.actor, ...l.chips, ...l.models.map((o) => o.m)].some((o) =>
+							o.toLocaleLowerCase().includes(i),
 						),
 					)
 				: a;
 		return e`<div class="upanel">
 			<div class="actor-head">
-				<h2>ACTORS · ${String(o.length)} OF ${String(a.length)}</h2>
+				<h2>ACTORS · ${String(n.length)} OF ${String(a.length)}</h2>
 				<label>Search actor or model
 					<input type="search" .value=${this.query}
 						@input=${(l) => {
@@ -1434,7 +1467,7 @@ class D extends s {
 						placeholder="Name, team, or model" />
 				</label>
 			</div>
-			${!o.length ? e`<p class="uempty" role="status">No actors match this search.</p>` : t}
+			${!n.length ? e`<p class="uempty" role="status">No actors match this search.</p>` : t}
 			<div class="table-scroll"><table class="uacts">
 				<thead>
 					<tr>
@@ -1445,14 +1478,14 @@ class D extends s {
 					</tr>
 				</thead>
 				<tbody>
-					${o.map((l) => this.row(l))}
+					${n.map((l) => this.row(l))}
 				</tbody>
 			</table></div>
 		</div>`;
 	}
 	row(a) {
 		const i = [...(a.demo ? ["synthetic demo"] : []), ...a.chips].map(
-			(o) => e`<span class="uchip">${o}</span>`,
+			(n) => e`<span class="uchip">${n}</span>`,
 		);
 		return e`<tr class="uact">
 				<td>
@@ -1461,7 +1494,7 @@ class D extends s {
 				</td>
 				<td>
 					<div class="ubar" style=${`width:${a.barW}%`}>
-						${a.segs.map((o) => A(o, a.total, this.slot))}
+						${a.segs.map((n) => A(n, a.total, this.slot))}
 					</div>
 				</td>
 				<td class="unum">${c(a.total)}</td>
@@ -1493,7 +1526,7 @@ class D extends s {
 			<td>
 				<i
 					class="udot"
-					style=${`background:${w(this.slot, a.g)}`}
+					style=${`background:${S(this.slot, a.g)}`}
 				></i
 				>${a.m}
 			</td>
@@ -1503,7 +1536,7 @@ class D extends s {
 	}
 }
 D.styles = [
-	S,
+	R,
 	r`
 		.actor-head { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px; }
 		.actor-head h2 { margin:0; }
@@ -1594,14 +1627,14 @@ class F extends s {
 	}
 }
 F.styles = [
-	S,
+	R,
 	r`
 		:host {
 			display: block;
 		}
 	`,
 ];
-var H = {
+var L = {
 	context: "#3987e5",
 	planning: "#199e70",
 	code: "#d95926",
@@ -1627,7 +1660,7 @@ class I extends s {
 		return this.body(a);
 	}
 	body(a) {
-		const i = [...a.weekly].sort((o, l) => l.d.localeCompare(o.d))[0];
+		const i = [...a.weekly].sort((n, l) => l.d.localeCompare(n.d))[0];
 		return e`<div class="upanel">
 			<div class="uhead">
 				<h2>WORK MIX</h2>
@@ -1644,11 +1677,11 @@ class I extends s {
 	}
 	mix(a) {
 		return e`<div class="mixoverview">
-			<div class="mixbar" role="img" aria-label=${a.cells.map((i) => `${i.key} ${x(i.share)}`).join(", ")}>
-				${a.cells.map((i) => e`<span style=${`width:${x(i.share)};background:${H[i.key] ?? "#888"}`}></span>`)}
+			<div class="mixbar" role="img" aria-label=${a.cells.map((i) => `${i.key} ${w(i.share)}`).join(", ")}>
+				${a.cells.map((i) => e`<span style=${`width:${w(i.share)};background:${L[i.key] ?? "#888"}`}></span>`)}
 			</div>
 			<div class="mixlegend">
-				${a.cells.map((i) => e`<span><i style=${`background:${H[i.key] ?? "#888"}`}></i>${i.key} <b>${x(i.share)}</b></span>`)}
+				${a.cells.map((i) => e`<span><i style=${`background:${L[i.key] ?? "#888"}`}></i>${i.key} <b>${w(i.share)}</b></span>`)}
 			</div>
 		</div>`;
 	}
@@ -1667,21 +1700,21 @@ class I extends s {
 					(i) => e`<tr>
 					<td>${i.d}</td>
 					<td class="unum">${c(i.cost)}</td>
-					<td style="width:44%">${i.cells.map((o, l) => this.cell(o, l))}</td>
-					<td class="unum">${x(i.orient)}</td>
+					<td style="width:44%">${i.cells.map((n, l) => this.cell(n, l))}</td>
+					<td class="unum">${w(i.orient)}</td>
 				</tr>`,
 				)}
 			</tbody>
 		</table>`;
 	}
 	cell(a, i) {
-		const o = i > 0 ? e`<span class="usep">·</span>` : t;
-		if (!a.share) return e`${o}<span class="uempty">—</span>`;
-		const l = x(a.share);
-		return e`${o}<span class="ucwrap">
+		const n = i > 0 ? e`<span class="usep">·</span>` : t;
+		if (!a.share) return e`${n}<span class="uempty">—</span>`;
+		const l = w(a.share);
+		return e`${n}<span class="ucwrap">
 			<span class="ubar" style="width:100%"
 				><i
-					style=${`width:${l};background:${H[a.key] ?? "#888"}`}
+					style=${`width:${l};background:${L[a.key] ?? "#888"}`}
 					title=${`${a.key}: ${l}`}
 				></i></span
 			><span class="unum">${l}</span></span
@@ -1689,7 +1722,7 @@ class I extends s {
 	}
 	lanes(a) {
 		const i = a.length
-			? a.map((o) => this.laneRow(o))
+			? a.map((n) => this.laneRow(n))
 			: [
 					e`<tr>
 						<td colspan="6" class="uempty">
@@ -1717,7 +1750,7 @@ class I extends s {
 		return e`<tr>
 			<td><b>${a.actor}</b></td>
 			<td>${this.cell(a.cells[0], 0)}</td>
-			<td class="unum">${x(a.orient)}</td>
+			<td class="unum">${w(a.orient)}</td>
 			<td class="unum">${a.spr}</td>
 			<td class="unum">${c(a.cost)}</td>
 			<td class="unum">${c(a.req)}</td>
@@ -1725,7 +1758,7 @@ class I extends s {
 	}
 }
 I.styles = [
-	S,
+	R,
 	r`
 		.mixbar { display:flex; height:12px; overflow:hidden; border-radius:3px; background:var(--klh-edge, #555); }
 		.mixbar span { display:block; height:100%; }
@@ -1762,7 +1795,7 @@ class j extends s {
 	connectedCallback() {
 		super.connectedCallback(),
 			(this.panel = f()?.spokes ?? null),
-			(this.slot = L());
+			(this.slot = H());
 	}
 	render() {
 		const a = f()?.spokes;
@@ -1811,7 +1844,7 @@ class j extends s {
 	}
 }
 j.styles = [
-	S,
+	R,
 	r`
 		:host {
 			display: block;
@@ -1830,7 +1863,7 @@ class B extends s {
 	connectedCallback() {
 		super.connectedCallback(),
 			(this.panel = f()?.crosshub ?? null),
-			(this.slot = L());
+			(this.slot = H());
 	}
 	render() {
 		const a = f()?.crosshub;
@@ -1851,18 +1884,18 @@ class B extends s {
 	}
 	row(a) {
 		if (a.degraded) {
-			const o = a.reason ?? "No response from this hub",
-				l = /timed out|timeout/i.test(o)
+			const n = a.reason ?? "No response from this hub",
+				l = /timed out|timeout/i.test(n)
 					? "No response before the hub timeout"
 					: /typeerror|host is down|connection refused|unable to connect/i.test(
-								o,
+								n,
 							)
 						? "Cannot reach this hub"
-						: /hub answered (401|403)/.test(o)
+						: /hub answered (401|403)/.test(n)
 							? "Usage access denied"
-							: /hub answered 404/.test(o)
+							: /hub answered 404/.test(n)
 								? "Usage endpoint unavailable"
-								: /no url/i.test(o)
+								: /no url/i.test(n)
 									? "No usage endpoint configured"
 									: "Could not read usage from this hub";
 			return e`<tr>
@@ -1872,7 +1905,7 @@ class B extends s {
 				</td>
 				<td colspan="3">
 					${l}
-					<details><summary>Diagnostic</summary><code>${o}</code></details>
+					<details><summary>Diagnostic</summary><code>${n}</code></details>
 				</td>
 			</tr>`;
 		}
@@ -1885,7 +1918,7 @@ class B extends s {
 			</td>
 			<td>
 				<div class="ubar" style=${`width:${String(i)}%`}>
-					${a.segs.map((o) => A(o, a.total, this.slot))}
+					${a.segs.map((n) => A(n, a.total, this.slot))}
 				</div>
 			</td>
 			<td class="unum">${c(a.total)}</td>
@@ -1916,7 +1949,7 @@ class B extends s {
 	}
 }
 B.styles = [
-	S,
+	R,
 	r`
 		:host {
 			display: block;
@@ -1941,12 +1974,12 @@ class W extends s {
 	};
 	dayKey(a) {
 		const i = new Date(a),
-			o = (l) => String(l).padStart(2, "0");
-		return `${String(i.getFullYear())}-${o(i.getMonth() + 1)}-${o(i.getDate())}`;
+			n = (l) => String(l).padStart(2, "0");
+		return `${String(i.getFullYear())}-${n(i.getMonth() + 1)}-${n(i.getDate())}`;
 	}
 	dayLabel(a) {
-		const [i, o, l] = a.split("-");
-		return `${l}.${o}.${i?.slice(-2)}`;
+		const [i, n, l] = a.split("-");
+		return `${l}.${n}.${i?.slice(-2)}`;
 	}
 	hourLabel(a) {
 		return `${String(new Date(a).getHours()).padStart(2, "0")}:00`;
@@ -1965,16 +1998,16 @@ class W extends s {
 		const a = M()?.timeline ?? [],
 			i = a[0] ?? [];
 		this.hours = i
-			.map((l, n) => ({
+			.map((l, o) => ({
 				bucket: l * 1000,
-				tokens: a.slice(1).reduce((d, u) => d + (u[n] ?? 0), 0),
+				tokens: a.slice(1).reduce((d, u) => d + (u[o] ?? 0), 0),
 			}))
 			.filter((l) => l.tokens > 0)
 			.map((l) => l.bucket)
 			.reverse();
-		const o = Number(new URLSearchParams(location.search).get("hour"));
+		const n = Number(new URLSearchParams(location.search).get("hour"));
 		if (
-			((this.bucket = this.hours.includes(o) ? o : (this.hours[0] ?? 0)),
+			((this.bucket = this.hours.includes(n) ? n : (this.hours[0] ?? 0)),
 			this.bucket)
 		)
 			this.refresh();
@@ -1989,17 +2022,17 @@ class W extends s {
 			fetch(`/api/usage/hour?${i.toString()}`, {
 				signal: AbortSignal.timeout(15000),
 			})
-				.then((o) => {
-					if (!o.ok) throw Error(`HTTP ${String(o.status)}`);
-					return o.json();
+				.then((n) => {
+					if (!n.ok) throw Error(`HTTP ${String(n.status)}`);
+					return n.json();
 				})
-				.then((o) => {
+				.then((n) => {
 					if (a !== this.requestId) return;
-					(this.report = o.report), (this.loading = !1);
+					(this.report = n.report), (this.loading = !1);
 				})
-				.catch((o) => {
+				.catch((n) => {
 					if (a !== this.requestId) return;
-					(this.error = String(o.message ?? o)), (this.loading = !1);
+					(this.error = String(n.message ?? n)), (this.loading = !1);
 				});
 	}
 	selectHour(a) {
@@ -2011,12 +2044,12 @@ class W extends s {
 	}
 	render() {
 		if (!this.hours.length) return e``;
-		const a = [...new Set(this.hours.map((n) => this.dayKey(n)))],
+		const a = [...new Set(this.hours.map((o) => this.dayKey(o)))],
 			i = this.dayKey(this.bucket),
-			o = this.hours.filter((n) => this.dayKey(n) === i),
+			n = this.hours.filter((o) => this.dayKey(o) === i),
 			l =
-				this.report?.actors.flatMap((n) =>
-					n.byModel.map((d) => ({ actor: n.actor, ...d })),
+				this.report?.actors.flatMap((o) =>
+					o.byModel.map((d) => ({ actor: o.actor, ...d })),
 				) ?? [];
 		return e`<div class="upanel" id="usage-hour">
 			<div class="uhead">
@@ -2025,21 +2058,21 @@ class W extends s {
 			</div>
 			<label class="hour-picker">day
 				<select
-					@change=${(n) => {
-						const d = n.target.value,
+					@change=${(o) => {
+						const d = o.target.value,
 							u = this.hours.find((h) => this.dayKey(h) === d);
 						if (u !== void 0) this.selectHour(u);
 					}}
 				>
-					${a.map((n) => e`<option value=${n} ?selected=${n === i}>${this.dayLabel(n)}</option>`)}
+					${a.map((o) => e`<option value=${o} ?selected=${o === i}>${this.dayLabel(o)}</option>`)}
 				</select>
 			</label>
 			<label class="hour-picker">hour
 				<select
-					@change=${(n) => this.selectHour(Number(n.target.value))}
+					@change=${(o) => this.selectHour(Number(o.target.value))}
 					title=${new Date(this.bucket).toISOString()}
 				>
-					${o.map((n) => e`<option value=${String(n)} ?selected=${n === this.bucket} title=${new Date(n).toISOString()}>${this.hourLabel(n)}</option>`)}
+					${n.map((o) => e`<option value=${String(o)} ?selected=${o === this.bucket} title=${new Date(o).toISOString()}>${this.hourLabel(o)}</option>`)}
 				</select>
 			</label>
 			${this.loading ? e`<p class="uempty">Loading hour…</p>` : t}
@@ -2049,7 +2082,7 @@ class W extends s {
 				!this.loading && !this.error && l.length > 0
 					? e`<div class="hour-scroll"><table class="uacts">
 				<thead><tr><th>actor</th><th>model</th><th>group</th><th>input</th><th>cache read</th><th>cache write</th><th>output</th><th>requests</th></tr></thead>
-				<tbody>${l.map((n) => e`<tr><td>${n.actor}</td><td>${n.model}</td><td>${n.group}</td><td>${c(n.i)}</td><td>${c(n.cr)}</td><td>${c(n.cc)}</td><td>${c(n.o)}</td><td>${String(n.rq)}</td></tr>`)}</tbody>
+				<tbody>${l.map((o) => e`<tr><td>${o.actor}</td><td>${o.model}</td><td>${o.group}</td><td>${c(o.i)}</td><td>${c(o.cr)}</td><td>${c(o.cc)}</td><td>${c(o.o)}</td><td>${String(o.rq)}</td></tr>`)}</tbody>
 			</table></div>`
 					: t
 			}
@@ -2057,7 +2090,7 @@ class W extends s {
 	}
 }
 W.styles = [
-	S,
+	R,
 	r`
 	.hour-picker { display: flex; align-items: center; gap: 8px; margin: 10px 0; color: var(--klh-dim); font-size: 11px; }
 	.hour-picker select { background: var(--klh-surface); color: var(--klh-ink); border: 1px solid var(--klh-edge); padding: 5px; }
@@ -2117,7 +2150,7 @@ class K extends s {
 				</div>
 				<div class="ulegend">
 					${this.groups.map(
-						(a) => e`<span><i style=${`background:${w(this.slot, a)}`}></i
+						(a) => e`<span><i style=${`background:${S(this.slot, a)}`}></i
 								>${a}</span>`,
 					)}
 				</div>
@@ -2134,16 +2167,16 @@ class K extends s {
 		const i = (g, p) =>
 				getComputedStyle(document.documentElement).getPropertyValue(g).trim() ||
 				p,
-			o = () => i("--klh-chart-grid", "#2c2c2a"),
+			n = () => i("--klh-chart-grid", "#2c2c2a"),
 			l = () => i("--klh-chart-hair", "#383835"),
-			n = () => i("--klh-chart-axis", "#898781"),
+			o = () => i("--klh-chart-axis", "#898781"),
 			d = (_g, p) => p.map((b) => c(b)),
 			u = (g, p) => {
 				const b = {
 					side: g,
 					...(g === 3 ? { size: 72 } : {}),
-					stroke: n,
-					grid: { show: !0, stroke: o, width: 1 },
+					stroke: o,
+					grid: { show: !0, stroke: n, width: 1 },
 					ticks: { show: !0, stroke: l, width: 1 },
 				};
 				if (p) b.values = p;
@@ -2153,7 +2186,7 @@ class K extends s {
 		if (h && this.groups.length) {
 			const g = [{}];
 			for (const p of this.groups) {
-				const b = w(this.slot, p);
+				const b = S(this.slot, p);
 				g.push({
 					label: p,
 					stacked: !0,
@@ -2161,7 +2194,7 @@ class K extends s {
 					fill: b,
 					width: 1,
 					points: { show: !1 },
-					value: (_m, y) => Q(y),
+					value: (_m, x) => Q(x),
 				});
 			}
 			this.chart(
@@ -2193,8 +2226,8 @@ class K extends s {
 						{},
 						{
 							label: "tokens",
-							stroke: w(this.slot, "flash"),
-							fill: w(this.slot, "flash"),
+							stroke: S(this.slot, "flash"),
+							fill: S(this.slot, "flash"),
 							paths: a.paths?.bars({ size: [0.72, 100] }),
 							points: { show: !1 },
 							value: (_g, p) => Q(p),
@@ -2211,12 +2244,12 @@ class K extends s {
 				190,
 			);
 	}
-	chart(a, i, o, l, n) {
-		const d = new i(o, l, a);
+	chart(a, i, n, l, o) {
+		const d = new i(n, l, a);
 		this.charts.push(d);
 		const u = () => {
 			const h = a.clientWidth;
-			if (h > 0 && h !== d.width) d.setSize({ width: h, height: n });
+			if (h > 0 && h !== d.width) d.setSize({ width: h, height: o });
 		};
 		if (typeof ResizeObserver === "function") {
 			const h = new ResizeObserver(u);
@@ -2249,5 +2282,5 @@ export {
 	N as KlhUsageTiles,
 	O as KlhUsageHeader,
 	W as KlhUsageDrilldown,
-	x as pct1,
+	w as pct1,
 };

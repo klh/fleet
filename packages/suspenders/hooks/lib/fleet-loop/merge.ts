@@ -31,9 +31,9 @@ import {
 	doneShaResolves,
 	gitInProgress,
 	itemClaimOf,
-	mergeHoldActive,
 } from "../lanes/ladder-lease.ts";
 import { have } from "../run.ts";
+import { mergeHoldActive } from "./merge-hold.ts";
 import {
 	bankDanglingRef,
 	danglingReferences,

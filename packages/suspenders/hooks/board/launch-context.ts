@@ -9,7 +9,7 @@
 // labeled; items with neither get an honest "none" so the UI can say so.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { canonicalProjectRoot } from "../lib/lane-registry.ts";
+import { canonicalProjectRoot } from "../lib/lanes/lane-registry.ts";
 
 /** What a lane was told at launch, plus its provenance. */
 export interface LaunchContext {
