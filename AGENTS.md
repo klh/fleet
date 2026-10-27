@@ -100,6 +100,10 @@ GitHub push — W422.9/W422.1).
   from the owner TypeScript PaaS standard are dispositioned per row in
   docs/standard-dispositions.md (W1301) — a deviation without a tracked
   disposition is a defect.
+- Tests ride the kit: new tests MUST use the kit (`packages/test-kit/` —
+  `scratchWorld`/`runCli`/`freePort`/`waitUp`/`serveStub`) instead of
+  hand-rolled mkdtemp/spawn/port/stub helpers (W1135.1.3; migrating the
+  existing suites is W1135.1.4/.1.5).
 
 ## Supervisor reporting (W892, installed face W899/W906)
 
