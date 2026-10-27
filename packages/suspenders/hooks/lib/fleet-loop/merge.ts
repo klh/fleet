@@ -31,6 +31,12 @@ import {
 	danglingReferences,
 	unresolvedSpecifiers,
 } from "./dangling-paths.ts";
+import {
+	clearStuck,
+	ensureRepairItem,
+	isConflictWhy,
+	noteStuckDefer,
+} from "./ladder-repair.ts";
 import { guardedMerge } from "./merge-guard.ts";
 import { mergeHoldActive } from "./merge-hold.ts";
 import type { LoopDeps } from "./runtime.ts";
@@ -65,6 +71,7 @@ export function createMergeLadder(
 		bumpFail,
 		clearFail,
 	} = deps;
+	const STUCK = `${REPO}/.fleet/merge-stuck.json`;
 	// A rejected isolated ladder: preserve shared main, count the strike, park at 3.
 	function mergeFail(b: string, tail: string): void {
 		// guardedMerge cleans only its owned scratch worktree. Never abort an
@@ -89,13 +96,42 @@ export function createMergeLadder(
 			/* rejection remains recorded in loop.log if the bus is unavailable */
 		}
 		const n = bumpFail(b);
+		// W2179: a conflict with main is rebase work, never a silent defer
+		if (isConflictWhy(tail)) repairItem(b, "rebase", tail);
 		if (n >= 3) {
 			const parked = b.replace(/^([^/]+)\//, "parked/");
 			run(["git", "branch", "-m", b, parked]);
 			log(
-				`PARKED ${b} → ${parked} after ${n} failed ladder attempts — needs a repair lane`,
+				`PARKED ${b} → ${parked} after ${n} failed ladder attempts — ${repairItem(b, "repair", `parked as ${parked} after ${n} failed attempts: ${tail}`)}`,
 			);
 			clearFail(b);
+			clearStuck(STUCK, b);
+		}
+	}
+
+	// W2179: one open rebase/repair item per branch; mint failures log, never throw
+	function repairItem(
+		b: string,
+		kind: "rebase" | "repair",
+		detail: string,
+	): string {
+		try {
+			const r = ensureRepairItem(REPO, b, kind, detail);
+			if (r.minted) log(`REPAIR-QUEUED ${b} — ${kind} item ${r.id}`);
+			return r.id ? `repair item ${r.id}` : "repair item mint refused";
+		} catch (error) {
+			return `repair item mint failed: ${String(error).slice(0, 200)}`;
+		}
+	}
+
+	// W2179: a DONE branch deferred past the max age raises NEED_DECISION once
+	function deferStuck(b: string, item: string, why: string): void {
+		log(`MERGE-DEFER ${b} — ${why}`);
+		try {
+			if (noteStuckDefer(REPO, b, item, why, { file: STUCK }))
+				log(`STUCK ${b} — NEED_DECISION raised: ${why}`);
+		} catch {
+			/* the defer itself is already logged */
 		}
 	}
 
@@ -188,7 +224,7 @@ export function createMergeLadder(
 		// next cycle retries (a defer, not a strike).
 		const exact = doneShaResolves(REPO, b, claim);
 		if (!exact.ok) {
-			log(`MERGE-DEFER ${b} — ${exact.why}`);
+			deferStuck(b, claim.item, exact.why);
 			return;
 		}
 		const verifyReview = (candidate?: string) => {
@@ -218,7 +254,13 @@ export function createMergeLadder(
 		};
 		const review = verifyReview();
 		if (!review.ok) {
-			log(`MERGE-DEFER ${b} — review required: ${review.why}`);
+			// W2179: merge-tree failing to preview IS a conflict with main —
+			// strike it (rebase item, park at 3) instead of deferring forever
+			if (isConflictWhy(review.why)) {
+				mergeFail(b, `conflicts with main (${review.why})`);
+				return;
+			}
+			deferStuck(b, claim.item, `review required: ${review.why}`);
 			const store = openStore();
 			try {
 				log(
@@ -262,6 +304,7 @@ export function createMergeLadder(
 		if (mv.code === 0) {
 			let after = sh(["git", "rev-parse", "--short", "HEAD"]);
 			log(`MERGED ${b} ${before}→${after}`);
+			clearStuck(STUCK, b);
 			// W869 merge-time quality floor: auto-fix the branch's deferred cosmetic
 			// lint here on the shared checkout — a completion never runs outside
 			// worktrees, so merge time is the one honest moment (fail-open).
