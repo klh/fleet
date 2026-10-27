@@ -540,6 +540,9 @@ describe("runner e2e (W1212.1)", () => {
 		expect(tomb?.[tomb.indexOf("--ref") + 1]).toBe(
 			workEvidenceId(PROJ, HOST, "W1"),
 		);
+		// W1212.2: the tombstone pins the version the pass READ (the row
+		// landFacts inserted at v1) — the exact CAS pin
+		expect(tomb?.[tomb.indexOf("--if-version") + 1]).toBe("1");
 		// the retracted key stays inventoried — evidence returning reclaims it
 		expect(Object.keys(readState(o.statePath).inventory).length).toBe(2);
 		db.close();

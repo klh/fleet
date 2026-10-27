@@ -20,14 +20,17 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	DAILY_CLAIM_STAMP,
 	factSetArgs,
 	readExistingClaims,
 	runDaily,
-} from "../hooks/lib/decant-daily.ts";
+	sessionEvidenceId,
+	workEvidenceId,
+} from "../hooks/lib/fleet-loop/decant-daily.ts";
+import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
 
 setDefaultTimeout(120_000); // spawn-heavy: store-server + one bun child per write
 
@@ -132,6 +135,10 @@ if (a[0] === "ls") {
 const dir = join(home, "run");
 mkdirSync(dir, { recursive: true });
 const stubBin = writeDecantStub(dir);
+// W1212.1: work evidence is project-scoped and host-stamped — seed rows
+// under the project the runner (and its bin face, cwd=dir) resolves
+const PROJ = projectIdentity(dir);
+const HOST = hostname();
 // the store child pins REG to $HOME/.cache/claude-governor (govdb-util
 // REG_ROOT) — THIS is the db the seam reads and writes
 const DB = join(home, ".cache", "claude-governor", "governor.db");
@@ -143,6 +150,8 @@ const dailyOpts = () => ({
 	cwd: dir,
 	windowMs: 24 * 3600_000,
 	now: () => NOW,
+	project: PROJ,
+	host: HOST,
 	// NO spawn override — defaultFactSpawn fires the REAL coord children
 });
 
@@ -154,10 +163,10 @@ const workKeyOf = (id: string): string =>
 describe("real canonical seam (W1212.2 HTTP fixture)", () => {
 	test("first pass lands claims via REAL coord children over the HTTP store", async () => {
 		await rpc(
-			"INSERT INTO work_items (project, id, title, state, result_sha, updated_at, created_at) VALUES ('p', 'W1', 'done work item W1', 'DONE', 'sha-W1', ?, ?)",
-			[NOW - 60_000, NOW - 60_000],
+			"INSERT INTO work_items (project, id, title, state, result_sha, updated_at, created_at) VALUES (?, 'W1', 'done work item W1', 'DONE', 'sha-W1', ?, ?)",
+			[PROJ, NOW - 60_000, NOW - 60_000],
 		);
-		const r = runDaily(dailyOpts());
+		const r = await runDaily(dailyOpts());
 		expect(r.ok).toBe(true);
 		expect(r.created.length).toBe(2); // work:W1 + session:s1
 		expect(r.deduped).toEqual([]);
@@ -166,7 +175,7 @@ describe("real canonical seam (W1212.2 HTTP fixture)", () => {
 		const out = factGet(workKeyOf("W1"));
 		expect(out).toContain("(v1)");
 		expect(out).toContain(SETTER);
-		expect(out).toContain("ev work:W1");
+		expect(out).toContain(`ev ${workEvidenceId(PROJ, HOST, "W1")}`);
 	});
 
 	test("human edit between read and write survives; stale pins refused, row untouched", async () => {
@@ -193,8 +202,10 @@ describe("real canonical seam (W1212.2 HTTP fixture)", () => {
 		expect(h.code).toBe(0);
 		expect(readExistingClaims(DB)[sessKey]?.version).toBe(2);
 		// the decision half: a human-setter row dedupes — zero children fire
-		const r = runDaily(dailyOpts());
-		expect(r.deduped.length).toBe(2);
+		const r = await runDaily(dailyOpts());
+		// W1212.1 cursor: W1 sits behind the cursor — only the re-listed
+		// (human-edited) session claim is re-decided, and it dedupes
+		expect(r.deduped.length).toBe(1);
 		expect(r.created).toEqual([]);
 		expect(r.reclaimed).toEqual([]);
 		expect(r.tombstoned).toEqual([]);
@@ -203,7 +214,13 @@ describe("real canonical seam (W1212.2 HTTP fixture)", () => {
 		// refused by the real store — human value survives byte-for-byte
 		for (const mode of ["reclaim", "tombstone"] as const) {
 			const stale = runCli(
-				factSetArgs(sessKey, "mechanical overwrite", "session:s1", mode, 1),
+				factSetArgs(
+					sessKey,
+					"mechanical overwrite",
+					sessionEvidenceId(HOST, "s1"),
+					mode,
+					1,
+				),
 			);
 			expect(stale.code).toBe(2);
 			expect(stale.out).toContain("refused");
@@ -223,7 +240,7 @@ describe("real canonical seam (W1212.2 HTTP fixture)", () => {
 			factSetArgs(
 				key,
 				cur?.value ?? "",
-				"work:W1",
+				workEvidenceId(PROJ, HOST, "W1"),
 				"tombstone",
 				cur?.version ?? 0,
 			),
@@ -232,7 +249,10 @@ describe("real canonical seam (W1212.2 HTTP fixture)", () => {
 		const before = readExistingClaims(DB)[key];
 		expect(before?.verdict).toBe("retracted");
 		expect(before?.version).toBe(2);
-		const r = runDaily(dailyOpts());
+		// W1212.1 cursor: drop the state stamp so the pass re-collects W1 —
+		// the reclaim needs its evidence back in view
+		rmSync(dailyOpts().statePath, { force: true });
+		const r = await runDaily(dailyOpts());
 		expect(r.ok).toBe(true);
 		expect(r.reclaimed).toEqual([key]);
 		expect(readExistingClaims(DB)[key]?.verdict).toBe("fresh");
@@ -240,7 +260,7 @@ describe("real canonical seam (W1212.2 HTTP fixture)", () => {
 		// tombstone accept: evidence vanishes → the pass retracts, pinned at
 		// the version the reclaim left
 		await rpc("DELETE FROM work_items WHERE id = 'W1'", []);
-		const r2 = runDaily(dailyOpts());
+		const r2 = await runDaily(dailyOpts());
 		expect(r2.ok).toBe(true);
 		expect(r2.tombstoned).toEqual([key]);
 		const w = readExistingClaims(DB)[key];
@@ -251,12 +271,13 @@ describe("real canonical seam (W1212.2 HTTP fixture)", () => {
 
 	test("the real runner face (bin, --json) rides the same seam and exits 0", async () => {
 		await rpc(
-			"INSERT INTO work_items (project, id, title, state, result_sha, updated_at, created_at) VALUES ('p', 'W2', 'done work item W2', 'DONE', 'sha-W2', ?, ?)",
-			[NOW - 30_000, NOW - 30_000],
+			"INSERT INTO work_items (project, id, title, state, result_sha, updated_at, created_at) VALUES (?, 'W2', 'done work item W2', 'DONE', 'sha-W2', ?, ?)",
+			[PROJ, NOW - 30_000, NOW - 30_000],
 		);
 		const p = Bun.spawnSync(["bun", RUNNER, "--json", "--window-hours", "24"], {
 			stdout: "pipe",
 			stderr: "pipe",
+			cwd: dir,
 			env: { ...process.env }, // live env: fixture HOME + store redirect
 		});
 		expect(p.exitCode).toBe(0);
