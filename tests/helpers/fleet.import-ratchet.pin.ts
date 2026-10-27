@@ -119,6 +119,6 @@ suspenders/test/profile.test.ts -> buckle (../../buckle/src/gov/hub-seam.ts)
 suspenders/test/service-inventory.test.ts -> belt (../../belt/bin/registry.ts)
 suspenders/test/usage-provenance.test.ts -> belt (../../belt/bin/inventory-probe.ts)
 suspenders/test/watchdog-memory.test.ts -> local-llm (../../local-llm/memory-policy.ts)
-suspenders/test/work-cr.test.ts -> buckle (../../buckle/src/gov/reference-seam.ts)
-suspenders/test/work-cr.test.ts -> buckle (../../buckle/src/server.ts)
+suspenders/test/work-cr.e2e.ts -> buckle (../../buckle/src/gov/reference-seam.ts)
+suspenders/test/work-cr.e2e.ts -> buckle (../../buckle/src/server.ts)
 `;

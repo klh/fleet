@@ -1,0 +1,227 @@
+// test/dispatch-hub-e2e.test.ts — W357: multi-hub dispatch e2e. A repo
+// .prefer hub=DESKTOP must pin REAL lane traffic to the hub the resolver
+// walks to: the first ALIVE candidate wins (preference = candidate order),
+// a dead candidate falls through to the next one (NAS serves when the
+// DESKTOP candidate is down), a repo-declared one-off `hub-url=` outranks
+// the global registry, and an all-dead resolution degrades to the local
+// belt LOUDLY (surfaced note, never a silent wrong hub). Both "hubs" are
+// live Bun.serve instances on 127.0.0.1 — resolveHub does real HTTP probes
+// and dispatch pins real env; the resolution path itself is never mocked.
+// The fallback case uses the GHOST label (hub-locate.test.ts convention):
+// the mdns-guess step of the chain would hit the real desktop.local spoke
+// on :4101 on a live dev machine, and the proof must not depend on LAN
+// state. Pinning is asserted on every surface the lane actually sees:
+// the executor's process env dump, the 0600 lane-settings file dispatch
+// writes (settings env outranks the process env in the CLI), the lanes.json
+// registry row, and the dispatch stdout note.
+import { expect, test } from "@playwright/test";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
+import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
+import { dispatchHarness } from "./helpers/dispatch-harness.ts";
+test.describe("@api", () => {
+
+// fake executor (see executorBody below): dumps its process env — the
+// only proof of what the LANE actually saw — records its pid, and stays
+// alive past the 1s launch check.
+const { HOME, REPO, dispatchA, addItem, cleanup } = dispatchHarness(test.afterAll, {
+	tag: "w357-hub",
+	beltEnv: true,
+	executorBody:
+		'#!/bin/sh\nenv > "$HOME/lane-env-dump"\necho $$ >> "$HOME/lane-pids"\nexec /bin/sleep 30\n',
+	envOverrides: ({ HOME }) => ({
+		ANTHROPIC_BASE_URL: undefined,
+		SUSPENDERS_BELT_ENV: join(HOME, "belt.env"),
+	}),
+});
+
+const PIDFILE = join(HOME, "lane-pids");
+const ENVFILE = join(HOME, "lane-env-dump");
+
+// the two live hub stands-ins — DESKTOP and NAS, real HTTP on 127.0.0.1.
+// W615: hub-won lanes mint their lane key AT the hub, so the stand-ins
+// speak the admin mint (a per-stand-in bksk_ key) — attribution is asserted
+// end-to-end on the surfaces the lane actually sees.
+const hubFetch =
+	(name: string) =>
+	(req: Request): Response => {
+		if (req.method === "POST" && new URL(req.url).pathname === "/v1/admin/keys")
+			return Response.json(
+				{ key: `bksk_${name}_minted`, key_id: `${name}key12345` },
+				{ status: 201 },
+			);
+		return new Response(`${name} hub ok`);
+	};
+const desktopHub = Bun.serve({ port: 0, fetch: hubFetch("desktop") });
+const nasHub = Bun.serve({ port: 0, fetch: hubFetch("nas") });
+const oneOffHub = Bun.serve({ port: 0, fetch: hubFetch("oneoff") });
+const DESKTOP_URL = `http://127.0.0.1:${desktopHub.port}`;
+const NAS_URL = `http://127.0.0.1:${nasHub.port}`;
+const ONEOFF_URL = `http://127.0.0.1:${oneOffHub.port}`;
+
+// reaper: never leave a sleep-30 lane behind between cases
+const reapLanes = (): void => {
+	try {
+		for (const pid of readFileSync(PIDFILE, "utf8").trim().split("\n")) {
+			try {
+				process.kill(Number(pid));
+			} catch {}
+		}
+	} catch {}
+	rmSync(PIDFILE, { force: true });
+	rmSync(ENVFILE, { force: true });
+};
+
+// one dispatch case: a .prefer with hub intent + a scratch hubs.json
+// (SUSPENDERS_HUBS_FILE), a fresh item, the REAL dispatch-next.ts run.
+// The executor's env dump is read back BEFORE the lanes are reaped — the
+// reaper deletes the dump file, and the assertions need its content.
+const dispatchHubCase = async (
+	preferLines: string[],
+	registryEntries: Record<string, { candidates: string[]; token?: string }>,
+	opts: { allowUngoverned?: boolean } = {},
+): Promise<{
+	id: string;
+	sid: string;
+	out: string;
+	err: string;
+	envDump: string;
+}> => {
+	writeFileSync(join(REPO, ".prefer"), `${preferLines.join("\n")}\n`);
+	const regFile = join(HOME, "w357-hubs.json");
+	writeFileSync(regFile, JSON.stringify(registryEntries));
+	const id = await addItem("multi-hub dispatch e2e fixture");
+	const res = await dispatchA(
+		{ SUSPENDERS_HUBS_FILE: regFile },
+		"--item",
+		id,
+		...(opts.allowUngoverned ? ["--allow-ungoverned"] : []),
+	);
+	const envDump = existsSync(ENVFILE) ? readFileSync(ENVFILE, "utf8") : "";
+	reapLanes();
+	return {
+		id,
+		sid: laneSid(id, projectIdentity(REPO)),
+		out: res.out,
+		err: res.err,
+		envDump,
+	};
+};
+
+// the pinning surfaces, read back per case
+const laneSettings = (sid: string): { env: Record<string, string> } =>
+	JSON.parse(
+		readFileSync(join(REPO, ".fleet", `lane-settings-${sid}.json`), "utf8"),
+	);
+const laneRow = (sid: string): { hub?: string; agent?: string } => {
+	const rows = JSON.parse(
+		readFileSync(join(REPO, ".fleet", "lanes.json"), "utf8"),
+	) as { sid: string; hub?: string; agent?: string }[];
+	const row = rows.find((r) => r.sid === sid);
+	expect(row).toBeDefined();
+	return row as { sid: string; hub?: string; agent?: string };
+};
+
+test.afterAll(() => {
+	reapLanes();
+	desktopHub.stop(true);
+	nasHub.stop(true);
+	oneOffHub.stop(true);
+	cleanup();
+});
+
+test.describe("multi-hub dispatch e2e (W357): .prefer hub= candidates walk", () => {
+	test("prefer DESKTOP: first ALIVE candidate wins over NAS (preference = candidate order)", async () => {
+		const { id, sid, out, envDump } = await dispatchHubCase(["hub=DESKTOP"], {
+			DESKTOP: {
+				candidates: [DESKTOP_URL, NAS_URL],
+				token: "bksk_desktop_admin",
+			},
+		});
+		expect(out).toContain("dispatched ");
+		expect(out).toContain(`hub DESKTOP -> ${DESKTOP_URL} (registry hubs.json)`);
+		// W615: hub-won attribution — the 0600 lane settings pin the hub's
+		// /w/<sid> front and the hub-minted scoped key (what claude merges)
+		expect(laneSettings(sid).env.ANTHROPIC_BASE_URL).toBe(
+			`${DESKTOP_URL}/w/${sid}`,
+		);
+		expect(laneSettings(sid).env.ANTHROPIC_AUTH_TOKEN).toBe(
+			"bksk_desktop_minted",
+		);
+		expect(out).toContain(`lane attribution: hub DESKTOP /w/${sid}`);
+		// the lane process env carries the label + how the hub was found
+		expect(envDump).toContain("SUSPENDERS_HUB=DESKTOP");
+		expect(envDump).toContain("SUSPENDERS_HUB_VIA=registry hubs.json");
+		// the lane registry row carries hub + the [DESKTOP] agent label
+		const row = laneRow(sid);
+		expect(row.hub).toBe("DESKTOP");
+		expect(row.agent?.startsWith("[DESKTOP]")).toBe(true);
+		// fixture hygiene: the item really was dispatched (claim left on it)
+		expect(out).toContain(id);
+	}, 90_000);
+
+	test("failover: dead DESKTOP candidate falls through to the live NAS candidate", async () => {
+		const { sid, out, envDump } = await dispatchHubCase(["hub=DESKTOP"], {
+			DESKTOP: {
+				candidates: ["http://127.0.0.1:1", NAS_URL],
+				token: "bksk_desktop_admin",
+			},
+		});
+		expect(out).toContain("dispatched ");
+		expect(out).toContain(`hub DESKTOP -> ${NAS_URL} (registry hubs.json)`);
+		// W615: the failover hub gets the /w/<sid> attribution too
+		expect(laneSettings(sid).env.ANTHROPIC_BASE_URL).toBe(
+			`${NAS_URL}/w/${sid}`,
+		);
+		expect(laneSettings(sid).env.ANTHROPIC_AUTH_TOKEN).toBe("bksk_nas_minted");
+		expect(envDump).toContain("SUSPENDERS_HUB=DESKTOP");
+		expect(laneRow(sid).hub).toBe("DESKTOP");
+	}, 90_000);
+
+	test("repo one-off hub-url outranks the global registry (most specific intent wins)", async () => {
+		const { sid, out, envDump } = await dispatchHubCase(
+			["hub=DESKTOP", `hub-url=${ONEOFF_URL}`],
+			{ DESKTOP: { candidates: [NAS_URL], token: "bksk_desktop_admin" } },
+		);
+		expect(out).toContain("dispatched ");
+		expect(out).toContain(`hub DESKTOP -> ${ONEOFF_URL} (prefer hub-url)`);
+		// W615: the one-off hub front gets the /w/<sid> attribution too
+		expect(laneSettings(sid).env.ANTHROPIC_BASE_URL).toBe(
+			`${ONEOFF_URL}/w/${sid}`,
+		);
+		expect(laneSettings(sid).env.ANTHROPIC_AUTH_TOKEN).toBe(
+			"bksk_oneoff_minted",
+		);
+		expect(envDump).toContain("SUSPENDERS_HUB_VIA=prefer hub-url");
+	}, 90_000);
+
+	test("unreachable fallback: all candidates dead -> loud local-belt note, hub env absent, belt base pinned", async () => {
+		// GHOST label (hub-locate.test.ts convention): the resolver's
+		// mdns-guess step would otherwise hit the real desktop.local spoke
+		// on a live dev machine — the null-proof must not depend on LAN state
+		const { id, sid, out, envDump } = await dispatchHubCase(
+			["hub=GHOST"],
+			{ GHOST: { candidates: ["http://127.0.0.1:1"] } },
+			{ allowUngoverned: true },
+		);
+		expect(out).toContain("dispatched ");
+		// surfaced, never silent — the NOTE names the label and the fallback
+		expect(out).toContain("NOTE — hub=GHOST unreachable; using local belt");
+		// the dead-front probe ride is disclosed (--allow-ungoverned path)
+		expect(out).toContain("UNGOVERNED DISPATCH — operator override");
+		// no hub env reaches the lane; the belt default base stands
+		expect(envDump).not.toContain("SUSPENDERS_HUB=");
+		expect(laneSettings(sid).env.ANTHROPIC_BASE_URL).toBe(
+			"http://127.0.0.1:4000",
+		);
+		// the worktree brief carries the governance disclosure
+		const wtBrief = readFileSync(
+			join(REPO, ".worktrees", id, ".klh-brief.md"),
+			"utf8",
+		);
+		expect(wtBrief).toContain("GOVERNANCE: UNGOVERNED DISPATCH");
+	}, 120_000);
+});
+
+});

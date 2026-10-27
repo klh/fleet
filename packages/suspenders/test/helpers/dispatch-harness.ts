@@ -122,6 +122,10 @@ export const dispatchHarness = (
 		// W768: the starter flag is default-ON in production — stub executors
 		// can't seed, so fixture dispatches pin it off; starter suites opt in.
 		SUSPENDERS_LANE_STARTER: "off",
+		// W1294 sweep ports: playwright workers run with FORCE_COLOR=1, and the
+		// spread leaks it into `bun -e` children whose stdout the suites parse
+		// verbatim (bun ANSI-wraps console.log(null|false|numbers) under it).
+		FORCE_COLOR: "0",
 		...(opts.envOverrides?.({ HOME, REPO }) ?? {}),
 	};
 

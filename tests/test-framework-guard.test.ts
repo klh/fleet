@@ -21,8 +21,9 @@ const SELF = "tests/test-framework-guard.test.ts";
 // and integration — pinned at the landing count (debt: port the delta);
 // W1294.17.1.2 sweep-H slice-B re-pins DOWN (873 → 858); W1294.7 sweep-E
 // (56 belt/test files ported at W2178 integration) re-pins DOWN (858 → 802);
-// W1294.5 sweep (24 co-situated suspenders specs) re-pins DOWN (802 → 778).
-const PIN = 778;
+// W1294.5 sweep (24 co-situated suspenders specs) re-pins DOWN (802 → 778);
+// W1294.3 sweep-A (88 suspenders/test specs) re-pins DOWN (778 → 690).
+const PIN = 690;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });

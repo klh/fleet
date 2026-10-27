@@ -94,6 +94,9 @@ export async function boardFixture(
 		SUSPENDERS_KEV_URL: "http://127.0.0.1:1",
 		SUSPENDERS_BUCKLE_FRONT: "http://127.0.0.1:1",
 		SUSPENDERS_BELT_ENV: join(HOME, "absent-belt.env"),
+		// W1294 sweep ports: playwright workers run with FORCE_COLOR=1; parsed
+		// `bun -e` child stdout must stay plain (W670 pins ride the spread).
+		FORCE_COLOR: "0",
 		...opts?.env,
 	};
 	delete env.SUSPENDERS_SID;
