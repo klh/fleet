@@ -89,4 +89,7 @@ packages/suspenders/deploy/singbox/lifecycle.test.ts:generic-api-key:140
 packages/suspenders/deploy/singbox/lifecycle.test.ts:generic-api-key:176
 # W1203/W1226 disposition (base fixture, first-hand read 2026-10-22): invented
 # provider-key test fixture — the test asserts it never reaches an output surface
+# W1193: migrate-provider-keys test fixture (commit 05177bc1; file since deleted) —
+# invented "sk-value-…" sighting strings, scrub:allow-marked, the test asserts
+# sighting resolution and leak-negatives, first-hand read 2026-10-23 — not a secret
 05177bc10f165d2e06e5278067c6c34487e80b51:packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83
