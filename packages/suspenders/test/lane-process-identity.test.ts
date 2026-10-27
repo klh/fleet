@@ -13,6 +13,7 @@ import {
 	isHarnessProcess,
 	type ProcessInspector,
 } from "../hooks/lib/lanes/lane-liveness.ts";
+import { sameProcess } from "../hooks/lib/same-process.ts";
 import { safeToRetire } from "../hooks/lib/lanes/lane-registry.ts";
 import { alive } from "../hooks/lib/lanes/lane.ts";
 
@@ -441,5 +442,51 @@ test("fleet-loop refuses duplicate dispatch when process inspection fails", () =
 	expect(result.exitCode).toBe(1);
 	expect(result.stderr.toString()).toContain(
 		"process identity unknown; refusing duplicate dispatch",
+	);
+});
+
+// W2180 — the same-process contract (agent-relay handoff.py port): ESRCH is
+// death, an unobservable start (or a pid-only stamp) is never death, and a
+// live pid whose start sits outside the 2s tolerance is a recycled pid.
+test("sameProcess: ESRCH stays dead, unknown stays alive, recycled is death", () => {
+	const stamp = Date.now();
+	const leg = { pid: 4242, processStartMs: stamp };
+	const probe = (alive: boolean | null, startMs: number | null) => () => ({
+		alive,
+		startMs,
+	});
+	expect(sameProcess(leg, probe(false, null))).toBe("dead");
+	expect(sameProcess(leg, probe(null, null))).toBe("unknown");
+	expect(sameProcess(leg, probe(true, null))).toBe("unknown");
+	// ps etime floors to whole seconds: a genuine process reads ≤1s late, so
+	// ±1.9s is the same process and ±2.1s is a different one
+	expect(sameProcess(leg, probe(true, stamp - 1_900))).toBe("same");
+	expect(sameProcess(leg, probe(true, stamp + 1_900))).toBe("same");
+	expect(sameProcess(leg, probe(true, stamp - 2_100))).toBe("recycled");
+	expect(sameProcess(leg, probe(true, stamp + 2_100))).toBe("recycled");
+	// a pid-only stamp has nothing to compare — conservative unknown
+	expect(
+		sameProcess({ pid: 4242 }, probe(true, stamp - 3_600_000)),
+	).toBe("unknown");
+});
+
+// W2180 on the lane surface: the roster's etime column + the launch stamp
+// decide recycled-pid death via the shared 2s tolerance; a process born
+// BEFORE the stamp stays legacy ambiguity (W51 — a re-stamped registry row
+// must not read dead), which is the conservative same fallback.
+test("roster etime beyond the shared tolerance reads the lane recycled", () => {
+	const launched = Date.now() - 120_000;
+	const laneRow = { ...lane, launchedAt: launched };
+	// born 30s ago — after the launch stamp + tolerance: a recycled number
+	expect(
+		laneProcessIdentity(laneRow, roster("562 00:00:30 claude -p autow562")),
+	).toBe(false);
+	// born 119s ago — before the stamp: can't rule out same, never death
+	expect(
+		laneProcessIdentity(laneRow, roster("562 00:01:59 claude -p autow562")),
+	).toBe(true);
+	// no elapsed column (legacy fake roster): the recycle term never fires
+	expect(laneProcessIdentity(laneRow, roster("562 claude -p autow562"))).toBe(
+		true,
 	);
 });
