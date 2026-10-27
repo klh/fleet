@@ -75,6 +75,13 @@ export const CODE_WEAK =
 export const CODE_WEAK_MIN = 2; // distinct weak hits needed
 export const LONG_PROMPT_WORDS = 1500; // above this, weak hits never count
 
+/** W1117: the incoming request lifetime (client cancel) aborts the attempt
+ * alongside its own timeout/deadline signal. */
+const withCaller = (
+	caller: AbortSignal | undefined,
+	attempt: AbortSignal,
+): AbortSignal => (caller ? AbortSignal.any([caller, attempt]) : attempt);
+
 export function codeSignal(text: string): {
 	isCode: boolean;
 	strong: string[];
@@ -509,6 +516,8 @@ export interface CallOpts {
 	tools?: OpenAiToolDef[];
 	toolChoice?: unknown;
 	timeoutMs?: number;
+	/** Incoming request lifetime, including client cancellation and deadline. */
+	signal?: AbortSignal;
 	/** W257: performance.now() at request receipt — enables per-attempt
 	 *  timings on the used hop. */
 	startedAt?: number;
@@ -563,10 +572,13 @@ export async function viaLocal(
 					...(opts.requestId ? { "x-klh-request-id": opts.requestId } : {}),
 					...(opts.preference ? { "x-klh-prefer": opts.preference } : {}),
 				},
-				signal:
+				// W1117 caller lifetime joins the W1303.3 per-attempt deadline
+				signal: withCaller(
+					opts.signal,
 					opts.deadlineAtMs !== undefined
 						? attemptSignal(opts.timeoutMs ?? 120_000, opts.deadlineAtMs)
 						: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
+				),
 				body: JSON.stringify({
 					model: r.model,
 					messages,
@@ -678,12 +690,14 @@ export async function callHonoringRetryAfter<
 	call: () => Promise<T>,
 	capMs = RETRY_WAIT_CAP_MS,
 	sleep: (ms: number) => Promise<unknown> = Bun.sleep,
+	signal?: AbortSignal,
 ): Promise<T> {
 	const first = await call();
-	if (first.status !== 429) return first;
+	if (first.status !== 429 || signal?.aborted) return first;
 	const wait = first.retryAfterMs ?? capMs;
 	if (wait > capMs) return first;
 	await sleep(wait);
+	if (signal?.aborted) return first;
 	return call();
 }
 
@@ -746,7 +760,9 @@ export async function openLocalStream(
 					...(opts.requestId ? { "x-klh-request-id": opts.requestId } : {}),
 					...(opts.preference ? { "x-klh-prefer": opts.preference } : {}),
 				},
-				signal: ctrl.signal,
+				signal: opts.signal
+					? AbortSignal.any([ctrl.signal, opts.signal])
+					: ctrl.signal,
 				body: JSON.stringify({
 					model: r.model,
 					messages,
@@ -768,7 +784,7 @@ export async function openLocalStream(
 		if (res.ok && res.body && ct.includes("text/event-stream")) {
 			const primed = await primeLocalStream(
 				res.body,
-				ctrl.signal,
+				withCaller(opts.signal, ctrl.signal),
 				(pending) => {
 					cleanup = pending;
 				},

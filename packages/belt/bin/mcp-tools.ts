@@ -2,16 +2,45 @@
 //   knowledge_search — ranked retrieval over the fleet knowledge layer
 //     (knowledge.db cards + governor.db facts/consult_kb), prose-card output
 //     with trust markers so a remote consumer treats hits as leads, not facts.
-//   belt_infer — one-shot LLM completion routed through the local belt router
-//     (:4000, Anthropic wire). The fleet's routing ladder decides the model.
+//   belt_infer — one-shot LLM completion entering the local Buckle gate
+//     (Anthropic wire). Buckle's ladder decides the model; belt never
+//     shortcuts around Buckle (owner law 2026-10-21, event #55466).
 // Tool EXECUTION failures surface inside the result (isError) per the MCP
 // spec; protocol errors (unknown tool) are the server's JSON-RPC problem.
 import { searchKnowledge, type KnowledgeCard } from "./mcp-knowledge.ts";
+import type { InheritedDeadline } from "./hop-deadline.ts";
+import {
+	childHopContract,
+	encodeHopContract,
+	HOP_CONTRACT_HEADER,
+	rungIdOf,
+} from "../../telemetry/src/hop-contract.ts";
 
 export const SERVER_INFO = { name: "belt-mcp", version: "0.1.0" } as const;
 
-const ROUTER_URL = () =>
-	process.env.BELT_ROUTER_URL ?? "http://127.0.0.1:4000";
+const INFER_URL = () => process.env.BELT_INFER_URL ?? "http://127.0.0.1:4101";
+const INFER_KEY = () => process.env.BELT_INFER_KEY?.trim() ?? "";
+/** Fail-closed scoped Buckle auth (owner law: no keyless model call). The
+ *  URL is operator config; only credential SHAPE is validated here — the
+ *  gate itself verifies the key against its ledger. */
+const inferLeg = (): { url: string; key: string } => {
+	const key = INFER_KEY();
+	if (!key.startsWith("bksk_"))
+		throw new Error(
+			"belt infer unconfigured: BELT_INFER_KEY must be a scoped bksk_ credential",
+		);
+	const url = INFER_URL();
+	const origin = new URL(url);
+	if (
+		!["http:", "https:"].includes(origin.protocol) ||
+		origin.username ||
+		origin.password
+	)
+		throw new Error(
+			"belt infer: BELT_INFER_URL must be a credential-free http(s) URL",
+		);
+	return { url: origin.href.replace(/\/+$/, ""), key };
+};
 
 const FILTER_SCHEMA = {
 	domain: {
@@ -48,7 +77,7 @@ export const TOOLS = [
 	{
 		name: "belt_infer",
 		description:
-			"Run a one-shot LLM completion through the klh belt router (complexity-scored local swarm with cloud escalation). Use for drafting, summarizing, or answering a single prompt; the router picks the model. Not a chat session — each call is independent.",
+			"Run a one-shot LLM completion through the local Buckle gate (Buckle's ladder picks the model; belt never shortcuts Buckle). Use for drafting, summarizing, or answering a single prompt. Not a chat session — each call is independent.",
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -98,7 +127,11 @@ async function knowledgeSearch(args: Record<string, unknown>): Promise<string> {
 	].join("\n");
 }
 
-async function beltInfer(args: Record<string, unknown>): Promise<string> {
+async function beltInfer(
+	args: Record<string, unknown>,
+	signal?: AbortSignal,
+	inherited?: InheritedDeadline,
+): Promise<string> {
 	const prompt = typeof args.prompt === "string" ? args.prompt : "";
 	if (!prompt.trim()) throw new Error("prompt is required");
 	const body: Record<string, unknown> = {
@@ -107,17 +140,51 @@ async function beltInfer(args: Record<string, unknown>): Promise<string> {
 		messages: [{ role: "user", content: prompt }],
 	};
 	if (typeof args.system === "string") body.system = args.system;
-	const res = await fetch(`${ROUTER_URL()}/v1/messages`, {
+	const leg = inferLeg();
+	// W1117: emit the child hop contract on the Buckle leg — deadline is
+	// absolute passthrough, belt's rung appends, budget counts DOWN. No
+	// inherited contract → belt is the contract root (budget 99, empty path).
+	const deadlineMs = inherited?.deadlineMs ?? Date.now() + 120_000;
+	const rung = encodeHopContract(
+		childHopContract(
+			{
+				status: "ok",
+				deadlineMs,
+				budget: inherited?.contract?.budget ?? 99,
+				path: inherited?.contract?.path ?? [],
+			},
+			rungIdOf(
+				new URL(leg.url).hostname,
+				new URL(leg.url).port
+					? Number(new URL(leg.url).port)
+					: new URL(leg.url).protocol === "https:"
+						? 443
+						: 80,
+				"belt-router",
+			),
+		),
+	);
+	const res = await fetch(`${leg.url}/v1/messages`, {
 		method: "POST",
-		headers: { "content-type": "application/json" },
+		headers: {
+			"content-type": "application/json",
+			"x-api-key": leg.key,
+			authorization: `Bearer ${leg.key}`,
+			"anthropic-version": "2023-06-01",
+			...(rung ? { [HOP_CONTRACT_HEADER]: rung } : {}),
+		},
 		body: JSON.stringify(body),
-		signal: AbortSignal.timeout(120_000),
+		// W1117: the inherited absolute deadline is the ceiling — never a
+		// fresh 120s at this hop; the caller's abort still cancels first.
+		signal: AbortSignal.any([
+			...(signal ? [signal] : []),
+			AbortSignal.timeout(Math.max(1, deadlineMs - Date.now())),
+		]),
 	});
 	if (!res.ok) {
-		const detail = await res.text().catch(() => "");
-		throw new Error(
-			`belt router ${res.status}: ${detail.slice(0, 200) || "no detail"}`,
-		);
+		// no upstream-text echo: the body may carry prompt/key material
+		await res.text().catch(() => "");
+		throw new Error(`belt infer ${res.status}: upstream declined`);
 	}
 	const data = (await res.json()) as {
 		content?: { type?: string; text?: string }[];
@@ -126,19 +193,21 @@ async function beltInfer(args: Record<string, unknown>): Promise<string> {
 		.filter((b) => b.type === "text" && typeof b.text === "string")
 		.map((b) => b.text as string)
 		.join("");
-	if (!text) throw new Error("belt router returned no text content");
+	if (!text) throw new Error("belt infer returned no text content");
 	return text;
 }
 
 export const callTool = async (
 	name: string,
 	args: Record<string, unknown>,
+	signal?: AbortSignal,
+	inherited?: InheritedDeadline,
 ): Promise<{ text: string; isError: boolean }> => {
 	try {
 		if (name === "knowledge_search")
 			return { text: await knowledgeSearch(args), isError: false };
 		if (name === "belt_infer")
-			return { text: await beltInfer(args), isError: false };
+			return { text: await beltInfer(args, signal, inherited), isError: false };
 		throw new Error(`unknown tool: ${name}`);
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);

@@ -18,6 +18,12 @@ import {
 	childTraceparent,
 	safeUpstreamId,
 } from "../../telemetry/src/http-trace.ts";
+import {
+	childHopContract,
+	encodeHopContract,
+	HOP_CONTRACT_HEADER,
+	rungIdOf,
+} from "../../telemetry/src/hop-contract.ts";
 
 /** Z.AI GLM-5.3 doc-verified efforts: low|high|max — the model ALWAYS
  *  thinks (disable → 400; medium is not in the 5.3 set). The fleet axis
@@ -108,6 +114,11 @@ export async function escalate(
 		traceparent?: string;
 		requestId?: string;
 		preference?: string | null;
+		/** Shared ingress cancellation/deadline. */
+		signal?: AbortSignal;
+		/** W1117/W1086: the inherited hop contract — deadline passes through
+		 *  absolute (never re-based); belt appends its own rung id. */
+		hopContract?: { deadlineMs: number; budget: number; path: string[] };
 		onAttempt?: (receipt: {
 			hop: "buckle-gate" | "litellm";
 			traceparent: string | null;
@@ -142,6 +153,30 @@ export async function escalate(
 	const attemptTrace = opts.traceparent
 		? childTraceparent(opts.traceparent)
 		: null;
+	// W1117/W1086: emit the hop contract on the Buckle leg — deadline is
+	// absolute passthrough, belt's own rung appends to the visited path and
+	// the budget counts DOWN via childHopContract (one helper, both sides).
+	const rung = opts.hopContract
+		? encodeHopContract(
+				childHopContract(
+					{
+						status: "ok",
+						deadlineMs: opts.hopContract.deadlineMs,
+						budget: opts.hopContract.budget,
+						path: opts.hopContract.path,
+					},
+					rungIdOf(
+						new URL(leg.url).hostname,
+						new URL(leg.url).port
+							? Number(new URL(leg.url).port)
+							: new URL(leg.url).protocol === "https:"
+								? 443
+								: 80,
+						model,
+					),
+				),
+			)
+		: null;
 	const attemptId = `belt_${attemptTrace?.split("-")[1] ?? crypto.randomUUID().replaceAll("-", "")}_${attemptTrace?.split("-")[2] ?? crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
 	let status: number | undefined;
 	let retryAfter: number | undefined;
@@ -160,8 +195,11 @@ export async function escalate(
 				...(opts.requestId ? { "x-klh-request-id": opts.requestId } : {}),
 				...(attemptTrace ? { traceparent: attemptTrace } : {}),
 				...(opts.preference ? { "x-klh-prefer": opts.preference } : {}),
+				...(rung ? { [HOP_CONTRACT_HEADER]: rung } : {}),
 			},
-			signal: AbortSignal.timeout(120_000),
+			signal: opts.signal
+				? AbortSignal.any([opts.signal, AbortSignal.timeout(120_000)])
+				: AbortSignal.timeout(120_000),
 			body: JSON.stringify({
 				// Buckle group names — [1m] context aliases are not configured groups.
 				model,

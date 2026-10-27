@@ -67,10 +67,13 @@ export function createModelProxy(options: { upstream: string }) {
 				headers,
 			});
 		} catch {
-			headers.set("x-klh-refusal", "network");
+			const cancelled = request.signal.aborted;
+			headers.set("x-klh-refusal", cancelled ? "client_cancelled" : "network");
 			return Response.json(
-				{ error: "model upstream unavailable" },
-				{ status: inventory ? 503 : 502, headers },
+				{
+					error: cancelled ? "client cancelled" : "model upstream unavailable",
+				},
+				{ status: cancelled ? 499 : inventory ? 503 : 502, headers },
 			);
 		}
 	};

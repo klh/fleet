@@ -32,7 +32,9 @@ import { audioSpeech, audioTranscribe } from "./audio.ts";
 // W422.17.3 governor note: re-read after the /tmp splice that moved viaCloud
 // out; this adds the import for the extracted escalation leg.
 import { escalate } from "./escalate.ts";
+import { HOP_CONTRACT_HEADER, inheritDeadline } from "./hop-deadline.ts";
 import { livenessResponse } from "./health.ts";
+import { verifyUpstreamAuth } from "./router-auth.ts";
 import { promptFingerprint } from "./prompt-fingerprint.ts";
 import {
 	byPort,
@@ -361,6 +363,7 @@ async function ladder<R extends Attempt>(
 	call: (t: Specialist) => Promise<R>,
 	note: string[],
 	errors: string[],
+	signal?: AbortSignal,
 ): Promise<{
 	result: R;
 	used: Specialist;
@@ -376,7 +379,12 @@ async function ladder<R extends Attempt>(
 	let result =
 		primaryReady && !primaryReady.up
 			? ({ ok: false, status: 503, error: primaryReady.error } as R)
-			: await callHonoringRetryAfter(() => call(primary));
+			: await callHonoringRetryAfter(
+					() => call(primary),
+					undefined,
+					undefined,
+					signal,
+				);
 	let used = primary;
 	let coldDeferred = primaryReady !== undefined && !primaryReady.up;
 	let retryAfter =
@@ -386,6 +394,8 @@ async function ladder<R extends Attempt>(
 		breakers.success(pId);
 		return { result, used };
 	}
+	// W1117: a client cancel is not a specialist failure — no strike, no failover
+	if (signal?.aborted) return { result, used };
 	breakers.failure(pId);
 	errors.push(`:${primary.port} ${result.error ?? "empty"}`);
 	const fb = fallbackFor(route.port);
@@ -419,7 +429,16 @@ async function ladder<R extends Attempt>(
 			};
 		}
 	}
-	result = await callHonoringRetryAfter(() => call(fb));
+	if (signal?.aborted) {
+		fbRelease();
+		return { result, used, retryAfterMs: retryAfter, coldDeferred };
+	}
+	result = await callHonoringRetryAfter(
+		() => call(fb),
+		undefined,
+		undefined,
+		signal,
+	);
 	used = fb;
 	if (result.status === 429)
 		retryAfter = Math.max(retryAfter ?? 0, result.retryAfterMs ?? 0);
@@ -461,6 +480,52 @@ const condenseResponseHeaders = (
 	};
 };
 
+const ROUTER_BODY_MAX_BYTES = 8 * 1_048_576;
+
+async function readRouterBody(
+	req: Request,
+	signal: AbortSignal,
+): Promise<AnthropicBody> {
+	if (Number(req.headers.get("content-length")) > ROUTER_BODY_MAX_BYTES)
+		throw new Error("body too large");
+	if (!req.body) throw new Error("empty body");
+	const ingress = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
+	const reader = req.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let length = 0;
+	try {
+		for (;;) {
+			const next = await new Promise<Awaited<ReturnType<typeof reader.read>>>(
+				(resolve, reject) => {
+					if (ingress.aborted) return reject(ingress.reason);
+					const abort = () => reject(ingress.reason);
+					ingress.addEventListener("abort", abort, { once: true });
+					reader
+						.read()
+						.then(resolve, reject)
+						.finally(() => ingress.removeEventListener("abort", abort));
+				},
+			);
+			if (next.done) break;
+			length += next.value.byteLength;
+			if (length > ROUTER_BODY_MAX_BYTES) throw new Error("body too large");
+			chunks.push(next.value);
+		}
+	} catch (error) {
+		void reader.cancel().catch(() => {});
+		throw error;
+	} finally {
+		reader.releaseLock();
+	}
+	const bytes = new Uint8Array(length);
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return JSON.parse(new TextDecoder().decode(bytes)) as AnthropicBody;
+}
+
 Bun.serve({
 	port: ROUTER_PORT,
 	// W204: loopback-only — never a raw LAN bind; external access only via an
@@ -469,6 +534,10 @@ Bun.serve({
 	hostname: "127.0.0.1",
 	idleTimeout: 0, // streams may idle through a long prefill
 	async fetch(req) {
+		// W1117: cancellation propagates from byte one (req.signal); the
+		// ABSOLUTE deadline is joined after the body parses — a streaming
+		// request gets the stream-total budget (Buckle stream_total_timeout_s
+		// parity), never a fixed wall over a healthy SSE.
 		const url = new URL(req.url);
 		// W1081: every envelope identifies its emitter — the ingress trace
 		// begins once at fetch top so the early paths (404, audio, registry)
@@ -533,24 +602,74 @@ Bun.serve({
 			);
 		}
 
+		// W1117.5 (owner law, #55681): first ingress is authenticated Buckle —
+		// the hop header alone is not auth. Fail-closed: key unset = 503.
+		const auth = verifyUpstreamAuth(req);
+		if (auth.verdict !== "ok")
+			return stamped(
+				Response.json(
+					{
+						error:
+							auth.verdict === "unconfigured"
+								? "belt router unconfigured: BELT_UPSTREAM_KEY required"
+								: "unauthorized",
+					},
+					{ status: auth.verdict === "unconfigured" ? 503 : 401 },
+				),
+				"ingress",
+				{ refusal: auth.verdict === "unconfigured" ? "unconfigured" : "unauthorized" },
+			);
+
 		let body: AnthropicBody;
 		try {
-			body = await req.json();
-		} catch {
+			body = await readRouterBody(req, req.signal);
+		} catch (error) {
+			const tooLarge =
+				error instanceof Error && error.message === "body too large";
+			const timedOut = req.signal.aborted || error instanceof DOMException;
+			const status = tooLarge ? 413 : timedOut ? 408 : 400;
 			logRouting({
 				event: "request_completed",
 				trace_id: trace.traceId,
 				request_id: trace.requestId,
-				http_status: 400,
+				http_status: status,
 				outcome: "bad_json",
 				attempts: 0,
 			});
 			return stamped(
-				Response.json({ error: "bad json" }, { status: 400 }),
+				Response.json(
+					{
+						error: tooLarge
+							? "body too large"
+							: timedOut
+								? "request timeout"
+								: "bad json",
+					},
+					{ status },
+				),
 				"ingress",
 				{ refusal: "bad_json" },
 			);
 		}
+
+		// W1117: the deadline joins here — clamp the local budget to the
+		// inherited hop contract (absolute, never re-based); absent/invalid
+		// headers keep the Buckle-parity defaults. An expired contract is
+		// answered 504 — a past deadline is never re-based forward.
+		const inherited = inheritDeadline(
+			req.headers.get(HOP_CONTRACT_HEADER),
+			body.stream === true,
+		);
+		if (inherited === "expired")
+			return stamped(
+				Response.json({ error: "request deadline exceeded" }, { status: 504 }),
+				"ingress",
+				{ refusal: "deadline_expired" },
+			);
+		const requestSignal = AbortSignal.any([
+			req.signal,
+			AbortSignal.timeout(inherited.deadlineMs - Date.now()),
+		]);
 
 		const startTime = Date.now();
 		const t0 = performance.now();
@@ -665,7 +784,7 @@ Bun.serve({
 							traceparent: kevTrace,
 							"x-klh-request-id": trace.requestId,
 						},
-						signal: AbortSignal.timeout(4000),
+						signal: AbortSignal.any([requestSignal, AbortSignal.timeout(4000)]),
 						body: JSON.stringify({
 							model: "kev-latest",
 							state: text.slice(0, 4000),
@@ -925,6 +1044,7 @@ Bun.serve({
 			// best-effort route (REASON). One cloud attempt per request.
 			let triedCloud = false;
 			const tryCloud = async (wantFast: boolean): Promise<boolean> => {
+				if (requestSignal.aborted) return false;
 				triedCloud = true;
 				try {
 					const c = await escalate(body, {
@@ -933,6 +1053,20 @@ Bun.serve({
 						traceparent: trace.traceparent,
 						requestId: trace.requestId,
 						preference,
+						signal: requestSignal,
+						hopContract: inherited.contract
+							? {
+									deadlineMs: inherited.deadlineMs,
+									budget: inherited.contract.budget,
+									path: inherited.contract.path,
+								}
+							: {
+									// belt IS the root for this contract: stamp its own
+									// deadline so the return leg keeps one clock.
+									deadlineMs: inherited.deadlineMs,
+									budget: 99,
+									path: [],
+								},
 						onAttempt: recordAttempt,
 					});
 					if (c.note) note.push(c.note);
@@ -1021,6 +1155,7 @@ Bun.serve({
 								traceparent: trace.traceparent,
 								requestId: trace.requestId,
 								preference,
+								signal: requestSignal,
 								onAttempt: recordAttempt,
 							},
 						);
@@ -1030,6 +1165,7 @@ Bun.serve({
 					},
 					note,
 					errors,
+					requestSignal,
 				);
 				usedPort = opened.used.port;
 				usedModel = opened.used.model;
@@ -1084,11 +1220,13 @@ Bun.serve({
 							traceparent: trace.traceparent,
 							requestId: trace.requestId,
 							preference,
+							signal: requestSignal,
 							onAttempt: recordAttempt,
 						});
 					},
 					note,
 					errors,
+					requestSignal,
 				);
 				got.fbRelease?.();
 				usedPort = got.used.port;
