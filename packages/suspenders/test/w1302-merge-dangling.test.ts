@@ -596,6 +596,15 @@ const commitAll = (repo: string): string => {
 };
 
 describe("W1302.8 classified scan + one aggregate", () => {
+	test("W2161: vanished-payload error text is not a filesystem reference", () => {
+		const body =
+			'throw new Error("Payload faces vanished from the source tree: packages/belt/bin/dashboard.ts");\n';
+		expect(
+			referencesIn("packages/suspenders/test/sync-harness.test.ts", body),
+		).toEqual([]);
+		expect(referencesIn("scripts/sync-harness.ts", body)).toEqual([]);
+	});
+
 	test("W1705/W1614/W1628 shapes carry no reference; a real import survives", () => {
 		const jsdoc =
 			" * `./hub-remote.ts`), resolution proved.\n */\nexport const h = 1;\n";
