@@ -350,7 +350,7 @@ async function mintEnrollCode(
 		actor: p.actor ?? p.keyId,
 	});
 	return ok(
-		{ spoke_id: spokeId, code: out.code, expires_at: out.expiresAt },
+		{ spoke_id: body.value.spoke_id, code: out.code, expires_at: out.expiresAt },
 		201,
 	);
 }
