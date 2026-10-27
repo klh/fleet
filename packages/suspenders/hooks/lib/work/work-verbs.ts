@@ -26,6 +26,7 @@ export const ITEM_FLAGS = [
 	"--requires",
 	"--effort",
 	"--tag",
+	"--title",
 ];
 
 // ---- the verb registry (W651) -------------------------------------------
@@ -152,6 +153,13 @@ export const VERBS: VerbSpec[] = [
 		flags: [...ITEM_FLAGS],
 		minPos: 1,
 		reqFlags: ["--note"],
+	}),
+	defineVerb({
+		name: "edit",
+		usage:
+			"usage: edit <id> [--title t] [--desc d] [--tag a,b] [--priority n] [--reason r] — amend in place; terminal items refuse; CLAIMED items point at coord message <sid>",
+		flags: [...ITEM_FLAGS],
+		minPos: 1,
 	}),
 	defineVerb({
 		name: "supersede",

@@ -48,10 +48,7 @@ import {
 	renderAttribution,
 	resolveBuckleDb,
 } from "../lib/lanes/lane-spend.ts";
-import {
-	BACKFILL_EVENT,
-	backfillForItem,
-} from "../lib/lanes/lane-backfill.ts";
+import { BACKFILL_EVENT, backfillForItem } from "../lib/lanes/lane-backfill.ts";
 import { publishCompletionBlock } from "../lib/lanes/lane-stop-publisher.ts";
 import {
 	claimantLanes,
@@ -84,6 +81,7 @@ import {
 	persistCompletion,
 	prepareCompletion,
 } from "../lib/work/work-completion-record.ts";
+import { editPayload, editSteer, editWorkItem } from "../lib/work/work-edit.ts";
 import { EFFORTS } from "../lib/work/work-effort.ts";
 import { evidencePatternsOf } from "../lib/work/work-fence.ts";
 import {
@@ -711,13 +709,7 @@ const dispatchVerb = async (
 		const record = completionRecord(db(), PROJECT, id);
 		const sid = flag("--as") ?? String(record?.completed_by ?? "").trim();
 		if (!sid) die(`${id} has no closer sid on record — pass --as <sid>`);
-		const bf = backfillForItem(
-			db(),
-			PROJECT,
-			id,
-			sid,
-			resolveBuckleDb(),
-		);
+		const bf = backfillForItem(db(), PROJECT, id, sid, resolveBuckleDb());
 		if (!bf) {
 			console.log(
 				`${id}: no closer-key ledger rows in the close window — stays '-' (honest no-data)`,
@@ -811,6 +803,30 @@ const dispatchVerb = async (
 		})();
 		console.log(`${dim("⊘")} ${id} CANCELLED${note ? dim(` — ${note}`) : ""}`);
 		retireItemWorktree(id);
+	} else if (name === "edit") {
+		// W1128 — amend a live item in place; terminal states refuse (the
+		// ledger owns history). work.edited carries the changed fields; a
+		// CLAIMED item keeps its lane — steer it, never supersede it.
+		const id = pos[0] ?? "";
+		const pRaw = flag("--priority");
+		const r = editWorkItem(db(), PROJECT, id, {
+			title: flag("--title") ?? undefined,
+			desc: flag("--desc") ?? undefined,
+			tag: flag("--tag") ?? undefined,
+			...(pRaw !== null ? { priority: Number(pRaw) } : {}),
+		});
+		if (!r.ok) die(r.error);
+		const fields = Object.keys(r.changed);
+		const reason = flag("--reason") ?? "";
+		if (fields.length > 0) {
+			emit("work.edited", id, editPayload(r.changed, reason));
+			console.log(
+				`${green("✓")} ${cyan(id)} EDITED — ${fields.join(", ")}${reason ? dim(` — ${reason}`) : ""}`,
+			);
+		} else
+			console.log(`${amber("·")} ${id} unchanged — values already current`);
+		const steer = editSteer(r.state, r.owner);
+		if (steer) console.log(`${amber("●")} ${steer}`);
 	} else if (name === "supersede") {
 		const id = pos[0];
 		const byId = flag("--by");

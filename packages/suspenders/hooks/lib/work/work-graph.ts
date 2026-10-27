@@ -112,6 +112,7 @@ export const MUTATING_CMDS = new Set([
 	"wait",
 	"wake",
 	"cancel",
+	"edit",
 	"supersede",
 	"block",
 	"unblock",

@@ -236,6 +236,20 @@ describe("work verb matrix — lifecycle round trip", () => {
 	});
 });
 
+describe("work verb matrix — edit", () => {
+	test("edit amends a live item in place; terminal items refuse", () => {
+		const id = idOf(work("add", "edit bait").out);
+		cover("edit");
+		const r = work("edit", id, "--title", "edited bait", "--reason", "typo");
+		expect(r.code).toBe(0);
+		expect(JSON.parse(work("show", id, "--json").out).title).toBe(
+			"edited bait",
+		);
+		expect(work("cancel", id, "--note", "done with it").code).toBe(0);
+		expect(work("edit", id, "--title", "late").code).not.toBe(0);
+	});
+});
+
 describe("work verb matrix — reclaim", () => {
 	test("reclaim --expect-owner takes back a claimed item", () => {
 		const id = idOf(work("add", "reclaim bait").out);
