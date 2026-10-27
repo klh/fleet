@@ -16,17 +16,18 @@
 // whole doc — a color typo must not untag the tree's work items.
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { parseLawExpr } from "./repo-laws.ts";
 import { projectRootOf } from "./govdb/govdb.ts";
-
-export type PreferKey = "tag" | "color" | "prefer" | "must";
-
-export const PREFER_KEYS: readonly PreferKey[] = [
-	"tag",
-	"color",
-	"prefer",
-	"must",
-];
+import {
+	parsePreferFile,
+	PREFER_KEYS,
+	type PreferKey,
+} from "./prefer-parse.ts";
+export {
+	parsePreferFile,
+	PREFER_KEYS,
+	TAG_RE,
+	type PreferKey,
+} from "./prefer-parse.ts";
 
 export interface ResolvedPrefer {
 	tag: string | null;
@@ -41,10 +42,6 @@ export interface ResolvedPrefer {
 
 const FILE = ".prefer";
 const MAX_WALK = 64; // depth cap — never walk into a symlink farm
-// shared grammar (W846): work add --tag validates against the same token
-// grammar so item classification tags and tree tags can share one column
-export const TAG_RE = /^[a-z0-9][a-z0-9-]{0,31}$/i;
-const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
 const emptyResolved = (): ResolvedPrefer => ({
 	tag: null,
@@ -55,88 +52,8 @@ const emptyResolved = (): ResolvedPrefer => ({
 	errors: [],
 });
 
-const stripQuotes = (raw: string): string => {
-	const open = raw.indexOf('"');
-	if (open < 0) return raw.trim(); // unquoted tolerated
-	const close = raw.indexOf('"', open + 1);
-	// quoted value = between the quote pair; anything after it (e.g. a
-	// trailing `# comment`) is outside the value and ignored
-	return close < 0 ? raw.slice(open + 1).trim() : raw.slice(open + 1, close);
-};
-
-/** Parse one .prefer file: first valid definition per key wins; later
- *  duplicates are collected as errors. Values are double-quoted by canon
- *  (unquoted tolerated for tag/color; W519: unquoted single-token
- *  prefer=/must= lines are the executor chain's plane and are skipped).
- *  Unknown keys and per-key validation failures (tag shape, RGBHEX color,
- *  W96 routing expr) are loud, non-fatal. */
-export function parsePreferFile(
-	path: string,
-	text: string,
-): { values: Partial<Record<PreferKey, string>>; errors: string[] } {
-	const values: Partial<Record<PreferKey, string>> = {};
-	const errors: string[] = [];
-	const lines = text.split("\n");
-	for (let i = 0; i < lines.length; i++) {
-		const t = lines[i]?.trim() ?? "";
-		if (!t || t.startsWith("#")) continue;
-		const n = i + 1;
-		const eq = t.indexOf("=");
-		const key = (eq < 0 ? "" : t.slice(0, eq)).trim();
-		const raw = eq < 0 ? "" : t.slice(eq + 1).trim();
-		const at = `${path}:${String(n)}`;
-		if (!PREFER_KEYS.includes(key as PreferKey)) {
-			errors.push(
-				`${at}: unknown key '${t.slice(0, 24)}' — expected tag, color, prefer, must`,
-			);
-			continue;
-		}
-		const k = key as PreferKey;
-		// W519 plane split: an unquoted single token is the legacy executor
-		// chain's value shape (must=opus) — that plane's line, not ours
-		// (same skip as prefer-routing.ts; exec-chain.ts keeps the chain).
-		// Quoted and multi-token values stay routing; tag/color unaffected.
-		if (
-			(k === "prefer" || k === "must") &&
-			!raw.startsWith('"') &&
-			!/\s/.test(raw)
-		)
-			continue;
-		const val = stripQuotes(raw);
-		if (val === "") {
-			errors.push(`${at}: ${k}= needs a "value"`);
-			continue;
-		}
-		if (values[k] !== undefined) {
-			errors.push(`${at}: ${k}= set more than once (first wins)`);
-			continue;
-		}
-		if (k === "tag" && !TAG_RE.test(val)) {
-			errors.push(
-				`${at}: tag must be 1–32 chars [a-z0-9-], got '${val.slice(0, 24)}'`,
-			);
-			continue;
-		}
-		if (k === "color" && !COLOR_RE.test(val)) {
-			errors.push(
-				`${at}: color must be RGBHEX #RRGGBB, got '${val.slice(0, 24)}'`,
-			);
-			continue;
-		}
-		if (k === "prefer" || k === "must") {
-			const v = parseLawExpr(val);
-			if (!v.ok) {
-				errors.push(`${at}: ${k}=: ${v.why}`);
-				continue;
-			}
-		}
-		values[k] = val;
-	}
-	return { values, errors };
-}
-
 /** Walk upward from startDir collecting .prefer definitions — nearest file
- *  wins per key; the walk stops early once all four keys are known. */
+ *  wins per key; validate outer JSON even when all legacy keys are known. */
 export function resolvePrefer(startDir: string): ResolvedPrefer {
 	const out = emptyResolved();
 	let dir = startDir;
@@ -157,7 +74,6 @@ export function resolvePrefer(startDir: string): ResolvedPrefer {
 					out.sources[k] = f;
 				}
 		}
-		if (PREFER_KEYS.every((k) => out[k] !== null)) break;
 		const parent = dirname(dir);
 		if (parent === dir) break;
 		dir = parent;

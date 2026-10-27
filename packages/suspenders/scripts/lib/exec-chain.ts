@@ -6,7 +6,14 @@
 // by attempt index (a dead lane re-dispatch advances it; overrun parks on
 // the last entry), the same-bin tail rides claude native --fallback-model,
 // "claude" stays the appended last resort.
-import { readFileSync } from "node:fs";
+import {
+	parseExecutorPrefer,
+	preferOverlayOf,
+	readPreferText,
+	type PreferChainEntry,
+	type PreferExecutor,
+} from "../../hooks/lib/prefer-format.ts";
+export type { PreferChainEntry } from "../../hooks/lib/prefer-format.ts";
 // feed values (llm:<machine>:<tail>) translate to belt model ids via the
 // catalog grammar; lookups: swarm inventory + BYO local-models.json
 import { feedModelOf } from "../../hooks/board/executor-catalog.ts";
@@ -51,13 +58,6 @@ import { resolveLaneExecutor } from "./launch-preflight.ts";
  * doable on this machine it INVALIDATES the must= lines (one-shot, no
  * must edit needed); unavailable, the line vanishes and must stands
  * unchanged. A later can= line wins. */
-export interface PreferChainEntry {
-	value: string;
-	kind: "must" | "prefer" | "can";
-	/** 1-based source line — the W813 position tiebreak. */
-	line: number;
-}
-
 /** Audit metadata for the actual executor selection, never a routing input. */
 export interface PreferDecision {
 	source: "dotfile" | "default" | "posture";
@@ -81,59 +81,12 @@ export const posturePreference = (
 	can: selected.can,
 });
 
-export const preferOf = (
-	repo: string,
-): {
-	directives: PreferChainEntry[];
-	hub: string | null;
-	hubUrls: string[];
-	can: { value: string; line: number } | null;
-} => {
-	try {
-		const directives: PreferChainEntry[] = [];
-		let hub: string | null = null;
-		let hubUrlRaw = "";
-		let can: { value: string; line: number } | null = null;
-		const lines = readFileSync(`${repo}/.prefer`, "utf8").split("\n");
-		for (let li = 0; li < lines.length; li++) {
-			const line = lines[li] ?? "";
-			const i = line.indexOf("=");
-			if (i <= 0) continue;
-			const k = line.slice(0, i).trim();
-			const v = line.slice(i + 1).trim();
-			if (!v) continue;
-			// W519 plane split: a quoted value (or any value carrying a space)
-			// is the .prefer ROUTING plane (lib/prefer-routing.ts) — never an
-			// executor-chain entry; a chain entry with a space can only ever
-			// pin a garbage model. Legacy executor files (must=opus) are
-			// unquoted single tokens and ride the chain exactly as before.
-			if (v.startsWith('"') || /\s/.test(v)) continue;
-			if (k === "must" || k === "prefer") {
-				const kind: "must" | "prefer" = k === "must" ? "must" : "prefer";
-				// W813 comma-list: `must=a,b` = repeated lines on one line,
-				// left target tried first (position law orders LINES, not commas)
-				for (const value of v
-					.split(",")
-					.map((s) => s.trim())
-					.filter(Boolean))
-					directives.push({ value, kind, line: li + 1 });
-			} else if (k === "can") {
-				can = { value: v, line: li + 1 }; // later can= wins (position law)
-			} else if (k === "hub") hub = v;
-			else if (k === "hub-url") hubUrlRaw = v;
-		}
-		return {
-			directives,
-			hub,
-			hubUrls: hubUrlRaw
-				.split(",")
-				.map((s) => s.trim())
-				.filter(Boolean),
-			can,
-		};
-	} catch {
+export const preferOf = (repo: string): PreferExecutor => {
+	const path = `${repo}/.prefer`;
+	const text = readPreferText(path);
+	if (text === null || preferOverlayOf(path, text) !== null)
 		return { directives: [], hub: null, hubUrls: [], can: null };
-	}
+	return parseExecutorPrefer(text);
 };
 
 // W422: a chain token that names a registered agent rides its own binary;
