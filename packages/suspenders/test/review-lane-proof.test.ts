@@ -126,6 +126,8 @@ interface Case {
 	keptChild?: boolean;
 	// branch-tip file contents, relative to the fixture repo root
 	files: Record<string, string>;
+	// paths the branch removes (the old side of a test rename, W1306.1)
+	delete?: string[];
 	// the fact payload expectation after the stub executor PASSes
 	want: "proved" | "no-coverage" | "skipped";
 }
@@ -143,6 +145,7 @@ async function runCase(
 	expect(git(["checkout", "-b", branch]).code).toBe(0);
 	for (const [path, content] of Object.entries(c.files))
 		await Bun.write(join(REPO, path), content);
+	for (const path of c.delete ?? []) rmSync(join(REPO, path));
 	expect(git(["add", "-A"]).code).toBe(0);
 	expect(git(["commit", "-m", c.name]).code).toBe(0);
 	git(["checkout", "main"]); // the proof reads refs/heads/<branch>, not the checkout
@@ -211,6 +214,11 @@ beforeAll(async () => {
 	git(["config", "user.email", "w634@test"]);
 	git(["config", "user.name", "w634"]);
 	await Bun.write(join(REPO, "src.ts"), "export const base = 1;\n");
+	// a main-side test file branches may rename away (the W1306.1 delete side)
+	await Bun.write(
+		join(REPO, "legacy.test.ts"),
+		'import { test, expect } from "bun:test";\ntest("legacy", () => expect(1).toBe(1));\n',
+	);
 	expect(git(["add", "-A"]).code).toBe(0);
 	expect(git(["commit", "-m", "base"]).code).toBe(0);
 	addWork("w634 proof bootstrap"); // creates the store + reveals the project key
@@ -258,6 +266,39 @@ test("needs the change", () => {
 		name: "skipped",
 		files: {
 			"docs.md": "words\n",
+		},
+		want: "skipped",
+	},
+	{
+		// W1306.1: a rename pair lists the old path as branch-DELETED — the
+		// restore checkout must not carry it (one dead pathspec failed the
+		// whole proof) and the new-side test still proves coverage
+		name: "rename-pair",
+		files: {
+			"src.ts":
+				"export const base = 1;\nexport const double = (x: number): number => x * 2;\n",
+			"renamed.test.ts": `import { test, expect } from "bun:test";
+import { double } from "./src";
+test("needs the change", () => {
+	expect(double(2)).toBe(4);
+});
+`,
+		},
+		delete: ["legacy.test.ts"],
+		want: "proved",
+	},
+	{
+		// W1306.1: a playwright-only diff has no bun-collectable test file —
+		// the proof skips honestly (bun collects only *.test/*.spec names)
+		// instead of erroring or proving vacuously off collection noise
+		name: "playwright-only",
+		files: {
+			"src.ts": "export const base = 1;\nexport const marker = 'pw';\n",
+			"src.e2e.ts": `import { test, expect } from "@playwright/test";
+test("pw", () => {
+	expect(1).toBe(1);
+});
+`,
 		},
 		want: "skipped",
 	},
