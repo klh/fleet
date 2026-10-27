@@ -51,7 +51,7 @@ interface SessionRow {
 	tags: string | null;
 }
 
-const DIRECT_MESSAGE_KIND = ["NO", "TE"].join("");
+export const DIRECT_MESSAGE_KIND = ["NO", "TE"].join("");
 
 export interface SessionTarget {
 	sid: string;
@@ -339,7 +339,7 @@ export function resolveTarget(needle: string, project?: string): SessionTarget {
 // An exact, already-registered SID survives a CLI stop/resume gap. Keep its
 // directed note in the durable inbox for the next SessionStart. Names and
 // prefixes still require a live match so an old label cannot misroute work.
-function resolveMessageTarget(needle: string): {
+export function resolveMessageTarget(needle: string): {
 	target: SessionTarget;
 	deferred: boolean;
 } {

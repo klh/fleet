@@ -52,6 +52,7 @@ import { cmdGovernance } from "../coord/governance.ts";
 import { cmdHubs } from "../coord/hubs.ts";
 import {
 	cmdKnowledge,
+	cmdKnowledgeConsolidate,
 	cmdKnowledgeCurate,
 	cmdKnowledgeDispose,
 	cmdKnowledgeEnqueue,
@@ -64,9 +65,9 @@ import {
 	cmdKnowledgeReprocess,
 	cmdKnowledgeRetire,
 	cmdKnowledgeVerify,
-	cmdKnowledgeConsolidate,
 } from "../coord/knowledge.ts";
 import { setRest } from "../coord/shared.ts";
+import { cmdSteer } from "../coord/steer.ts";
 import { cmdSupervisor } from "../coord/supervisor.ts";
 import { cmdWisdom } from "../coord/wisdom.ts";
 import { defineVerb, runCli, type VerbSpec } from "../lib/verb-kit.ts";
@@ -400,6 +401,13 @@ const VERBS: VerbSpec[] = [
 			'usage: message <target-label-or-sid-or-substring> "text" [--as sid] | message --all "text" [--as sid]',
 		lax: true,
 		run: (p) => cmdMessage(p.rest),
+	}),
+	defineVerb({
+		name: "steer",
+		usage:
+			'usage: steer <sid|label> "input" [--as sid] | steer <sid|label> --decide — steer a RUNNING lane mid-turn (accepted | pending | failed), or render the advisory kev steer-vs-redo verdict',
+		lax: true,
+		run: (p) => cmdSteer(p.rest),
 	}),
 	defineVerb({
 		name: "delivery",
