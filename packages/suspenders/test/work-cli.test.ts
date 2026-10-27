@@ -8,12 +8,11 @@
 // would walk up into the checkout's own .git, colliding project identity.
 
 import { Database } from "bun:sqlite";
-import { expect, test } from "@playwright/test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { gitInit, tmpDir, cleanupDirs } from "./helpers/fixture-kit.ts";
 import { isResumableClaim } from "../scripts/lib/resumable-claim.ts";
-test.describe("@unit", () => {
 
 const HOME = tmpDir("claude-work-cli-home-");
 const REPO = tmpDir("suspenders-work-cli-repo-");
@@ -123,7 +122,7 @@ function finishAs(
 	return result;
 }
 
-test.afterAll(() => {
+afterAll(() => {
 	cleanupDirs(HOME, REPO);
 });
 
@@ -204,7 +203,7 @@ test("stats reports project graph counts as structured data", () => {
 	expect(stats.latest_done).toBeNull();
 });
 
-test.describe("add — id allocation", () => {
+describe("add — id allocation", () => {
 	test("root ids allocate sequentially per project", () => {
 		const a = idOf(work("add", "alpha item").out);
 		const b = idOf(work("add", "beta item").out);
@@ -226,7 +225,7 @@ test.describe("add — id allocation", () => {
 	});
 });
 
-test.describe("take — CAS claim", () => {
+describe("take — CAS claim", () => {
 	test("take claims; a second take is refused", () => {
 		const a = idOf(work("add", "contested").out);
 		expect(work("take", a, "--as", "lane-one").code).toBe(0);
@@ -261,7 +260,7 @@ test.describe("take — CAS claim", () => {
 	});
 });
 
-test.describe("split — shatter, child ids, roll-up", () => {
+describe("split — shatter, child ids, roll-up", () => {
 	test("split creates dotted child ids and shatters the parent", () => {
 		const p = idOf(work("add", "shatter me").out);
 		const s = work(
@@ -359,7 +358,7 @@ test.describe("split — shatter, child ids, roll-up", () => {
 	});
 });
 
-test.describe("done — roll-up for shattered parents", () => {
+describe("done — roll-up for shattered parents", () => {
 	test("parent stays SHATTERED until every required child is DONE, then rolls up", () => {
 		const p = idOf(work("add", "rollup root").out);
 		expect(
@@ -420,7 +419,7 @@ test.describe("done — roll-up for shattered parents", () => {
 	});
 });
 
-test.describe("cancel — W182 CANCELLED terminal state", () => {
+describe("cancel — W182 CANCELLED terminal state", () => {
 	test("cancel closes with a required note, clears the claim, emits work.cancelled", () => {
 		const c = idOf(work("add", "cancel me").out);
 		expect(work("cancel", c).code).toBe(2); // --note required
@@ -462,7 +461,7 @@ test.describe("cancel — W182 CANCELLED terminal state", () => {
 	});
 });
 
-test.describe("ready — dependency gating", () => {
+describe("ready — dependency gating", () => {
 	test("blocked items leave ready until their dependency is DONE", () => {
 		const a = idOf(work("add", "gate a").out);
 		const b = idOf(work("add", "gate b").out);
@@ -484,7 +483,7 @@ test.describe("ready — dependency gating", () => {
 	});
 });
 
-test.describe("capability filter on take", () => {
+describe("capability filter on take", () => {
 	test("requires ⊆ session capabilities or take refuses", () => {
 		withDb((db) => {
 			const ins = db.query(
@@ -504,7 +503,7 @@ test.describe("capability filter on take", () => {
 	});
 });
 
-test.describe("mine / owned / orphaned", () => {
+describe("mine / owned / orphaned", () => {
 	test("mine filters by owner, owned lists all, orphaned finds dead claims", () => {
 		const m = idOf(work("add", "owned item").out);
 		expect(work("take", m, "--as", "lane-mine").code).toBe(0);
@@ -522,7 +521,7 @@ test.describe("mine / owned / orphaned", () => {
 	});
 });
 
-test.describe("release / reclaim", () => {
+describe("release / reclaim", () => {
 	test("release returns the item to READY and drops ownership", () => {
 		const d = idOf(work("add", "release me").out);
 		expect(work("take", d, "--as", "lane-rel").code).toBe(0);
@@ -550,7 +549,7 @@ test.describe("release / reclaim", () => {
 	});
 });
 
-test.describe("block — dependencies and cycles", () => {
+describe("block — dependencies and cycles", () => {
 	test("block on a missing item is refused", () => {
 		const e = idOf(work("add", "edge case").out);
 		expect(work("block", e, "--on", "W404").err).toContain("no such work item");
@@ -575,7 +574,7 @@ test.describe("block — dependencies and cycles", () => {
 	});
 });
 
-test.describe("project partitioning", () => {
+describe("project partitioning", () => {
 	test("another repo sees none of this project's work", () => {
 		const repo2 = tmpDir("suspenders-work-cli-repo2-");
 		gitInit(repo2);
@@ -591,7 +590,7 @@ test.describe("project partitioning", () => {
 	});
 });
 
-test.describe("usage surface", () => {
+describe("usage surface", () => {
 	test("arg-less commands print their usage and exit 2", () => {
 		expect(work("take").err).toContain("usage: take <id> --as <sid>");
 		expect(work("supersede", "W1").err).toContain(
@@ -609,7 +608,7 @@ test.describe("usage surface", () => {
 	});
 });
 
-test.describe("finish helper sanity", () => {
+describe("finish helper sanity", () => {
 	test("take → done marks DONE with the sha", () => {
 		const f = idOf(work("add", "finish probe").out);
 		const r = finish(f, "lane-finish");
@@ -618,7 +617,7 @@ test.describe("finish helper sanity", () => {
 	});
 });
 
-test.describe("split gate — more than 2 children requires --plan", () => {
+describe("split gate — more than 2 children requires --plan", () => {
 	test("1-2 child splits stay free", () => {
 		const p = idOf(work("add", "free split").out);
 		expect(
@@ -673,7 +672,7 @@ test.describe("split gate — more than 2 children requires --plan", () => {
 	});
 });
 
-test.describe("migrate-ledger", () => {
+describe("migrate-ledger", () => {
 	test("imports unresolved lines", () => {
 		const led = join(REPO, "OPS-LEDGER.md");
 		writeFileSync(
@@ -764,7 +763,7 @@ test.describe("migrate-ledger", () => {
 	});
 });
 
-test.describe("dep-merge ancestor gate (W60)", () => {
+describe("dep-merge ancestor gate (W60)", () => {
 	const g = (...a: string[]) =>
 		Bun.spawnSync(["git", "-C", REPO, ...a], {
 			stdout: "pipe",
@@ -837,7 +836,7 @@ test.describe("dep-merge ancestor gate (W60)", () => {
 	});
 });
 
-test.describe("report — W892 supervisor micro-metrics", () => {
+describe("report — W892 supervisor micro-metrics", () => {
 	test("riding/queued/done letters; --ids strict; bad window dies", () => {
 		const a = idOf(work("add", "report riding item", "--by", "t").out);
 		expect(work("take", a, "--as", "lane-r1").code).toBe(0);
@@ -866,6 +865,4 @@ test.describe("report — W892 supervisor micro-metrics", () => {
 		expect(badWin.code).toBe(2);
 		expect(badWin.err).toContain("bad --done-window");
 	});
-});
-
 });

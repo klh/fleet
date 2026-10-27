@@ -2,20 +2,19 @@
 // set --if-version=N` compare-and-set guards. Temp HOME under tmpdir; every CLI
 // run happens in a bun subprocess so the parent test process never opens the
 // real governor.db (coord-events.test.ts recipe).
-import { expect, test } from "@playwright/test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { itemCapsuleKey } from "../hooks/lib/lanes/capsule-fence.ts";
 import { projectIdentity } from "../hooks/lib/govdb/govdb-project.ts";
-test.describe("@unit", () => {
 
-test.setTimeout(30_000); // spawn-heavy suite (bun:test 5s default flake floor)
+setDefaultTimeout(30_000); // spawn-heavy suite (bun:test 5s default flake floor)
 
 const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 const home = mkdtempSync(join(tmpdir(), "suspenders-coord-fact-cas-test-"));
 
-test.afterAll(() => rmSync(home, { recursive: true, force: true }));
+afterAll(() => rmSync(home, { recursive: true, force: true }));
 
 const runCli = (args: string[]): { code: number; out: string; err: string } => {
 	const p = Bun.spawnSync(["bun", COORD, ...args], {
@@ -34,7 +33,7 @@ const runCli = (args: string[]): { code: number; out: string; err: string } => {
 	};
 };
 
-test.describe("fact set --if-version — the facts CAS", () => {
+describe("fact set --if-version — the facts CAS", () => {
 	test("legacy write (no flag): blind upsert, version increments, output unchanged", () => {
 		const a = runCli(["fact", "set", "w606.plain", "first"]);
 		expect(a.code).toBe(0);
@@ -116,7 +115,7 @@ test.describe("fact set --if-version — the facts CAS", () => {
 	});
 });
 
-test.describe("capsule set --if-version=N — the capsule CAS", () => {
+describe("capsule set --if-version=N — the capsule CAS", () => {
 	test("CAS update lands, refusal carries current version, payload never leaks the flag", () => {
 		const s1 = runCli([
 			"capsule",
@@ -163,7 +162,7 @@ test.describe("capsule set --if-version=N — the capsule CAS", () => {
 
 // W617: --item banks the capsule on the ITEM (work.<id>.capsule) alongside
 // the lane key — a fresh claimer on a reclaimed item resumes informed.
-test.describe("capsule set --item <W-id> — the item-scoped capsule", () => {
+describe("capsule set --item <W-id> — the item-scoped capsule", () => {
 	test("set --item writes work.<id>.capsule AND the lane key; get --item reads it back", () => {
 		const s = runCli([
 			"capsule",
@@ -230,7 +229,7 @@ test.describe("capsule set --item <W-id> — the item-scoped capsule", () => {
 	});
 });
 
-test.describe("concurrent CAS — exactly one writer wins", () => {
+describe("concurrent CAS — exactly one writer wins", () => {
 	test("two racing --if-version writers: one exit 0, one refusal", async () => {
 		const seed = runCli([
 			"fact",
@@ -264,6 +263,4 @@ test.describe("concurrent CAS — exactly one writer wins", () => {
 		// winner's write landed exactly once more: v1 → v2
 		expect(runCli(["fact", "get", "w606.race"]).out).toContain("(v2)");
 	});
-});
-
 });

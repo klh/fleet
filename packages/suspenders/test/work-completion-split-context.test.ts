@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { afterEach, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -7,9 +7,8 @@ import {
 	fixture,
 	summary,
 } from "./helpers/work-completion-fixtures.ts";
-test.describe("@unit", () => {
 
-test.afterEach(() => drainCleanup());
+afterEach(() => drainCleanup());
 
 test("kept split child completes under the splitter's parent-bound context (W652.1)", () => {
 	const f = fixture();
@@ -147,6 +146,4 @@ test("a context bound to an unrelated item still cannot complete a split child",
 	);
 	expect(done.code).toBe(2);
 	expect(done.err).toContain("does not match this item and owner");
-});
-
 });

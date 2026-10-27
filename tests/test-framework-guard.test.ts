@@ -22,8 +22,9 @@ const SELF = "tests/test-framework-guard.test.ts";
 // W1294.17.1.2 sweep-H slice-B re-pins DOWN (873 → 858); W1294.7 sweep-E
 // (56 belt/test files ported at W2178 integration) re-pins DOWN (858 → 802);
 // W1294.5 sweep (24 co-situated suspenders specs) re-pins DOWN (802 → 778);
-// W1294.3 sweep-A (88 suspenders/test specs) re-pins DOWN (778 → 690).
-const PIN = 690;
+// W1294.3 sweep-A (82 suspenders/test specs) re-pins DOWN (778 → 696) — 6
+// post-commit gate inputs (.githooks/post-commit, bun-run) stay bun:test.
+const PIN = 696;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });

@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { expect, test } from "@playwright/test";
+import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
@@ -15,9 +15,8 @@ import {
 	fixture,
 	summary,
 } from "./helpers/work-completion-fixtures.ts";
-test.describe("@unit", () => {
 
-test.afterEach(() => drainCleanup());
+afterEach(() => drainCleanup());
 
 test("tail requires project disambiguation when clones share an item id", () => {
 	const f = fixture();
@@ -261,6 +260,4 @@ test("rekey refuses an orphaned destination completion without partially moving 
 	expect(JSON.parse(f.work("show", f.id, "--json").out).project).toBe(
 		original.project,
 	);
-});
-
 });

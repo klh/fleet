@@ -1,9 +1,8 @@
-import { expect, test } from "@playwright/test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-test.describe("@unit", () => {
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-coord-addressing-home-"));
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-coord-addressing-repo-"));
@@ -138,12 +137,12 @@ function seedSessions() {
 	db.close();
 }
 
-test.afterAll(() => {
+afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO, { recursive: true, force: true });
 });
 
-test.describe("coord targets", () => {
+describe("coord targets", () => {
 	test("lists live targets with canonical labels and full sids", () => {
 		seedSessions();
 		const r = run(["targets"]);
@@ -238,7 +237,7 @@ test.describe("coord targets", () => {
 	});
 });
 
-test.describe("coord message", () => {
+describe("coord message", () => {
 	test("resolves a unique label substring and emits a direct note to one lane", () => {
 		seedSessions();
 		const r = run([
@@ -420,6 +419,4 @@ test.describe("coord message", () => {
 			}
 		}
 	});
-});
-
 });
