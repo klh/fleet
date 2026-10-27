@@ -1,0 +1,48 @@
+{
+	"about": "W1476 reviewer surface: a change to any arm's paths (git blob at HEAD), env pins, the shared scoring files or the sealed set re-runs that arm on the whole set; review-rescore.ts ledgers the score delta",
+	"lanePlugin": "packages/suspenders/hooks/lib/gates/review-prompt.ts",
+	"minIntervalSeconds": 21600,
+	"maxFailureRate": 0.1,
+	"shared": [
+		"packages/belt/bench/arena/review-core.ts",
+		"packages/belt/bench/arena/review-parse.ts",
+		"packages/belt/bench/arena/review-score.ts"
+	],
+	"arms": {
+		"a": {
+			"paths": [
+				"packages/suspenders/hooks/lib/oracle-frame.ts",
+				"packages/belt/bench/arena/review-pipeline.ts",
+				"packages/belt/bench/arena/legs.ts",
+				"packages/belt/bin/registry.ts"
+			],
+			"env": ["REVIEW_ARM_A_PORT"]
+		},
+		"b": {
+			"paths": [
+				"packages/belt/bench/arena/review-pipeline.ts",
+				"packages/belt/bench/arena/legs.ts",
+				"packages/belt/bin/registry.ts"
+			],
+			"env": [
+				"REVIEW_HUNTER_PORT",
+				"REVIEW_REVIEWER_PORT",
+				"REVIEW_VERIFIER_PORT",
+				"REVIEW_FIXER_PORT",
+				"REVIEW_TRIAGE_PORT"
+			]
+		},
+		"lane": {
+			"paths": [
+				"AGENTS.md",
+				"REVIEW.md",
+				"how-to-review.md",
+				"packages/suspenders/hooks/lib/gates/review-prompt.ts",
+				"packages/suspenders/hooks/lib/gates/review-receipt.ts",
+				"packages/belt/bench/arena/review-lane-arm.ts"
+			],
+			"env": ["REVIEW_LANE_MODEL"],
+			"required": ["REVIEW_LANE_MODEL"]
+		}
+	}
+}

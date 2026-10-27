@@ -26,6 +26,7 @@ import {
 	parseVerdictLine,
 	parseVerify,
 } from "./review-parse.ts";
+import type { ArmId } from "./review-score.ts";
 
 // the EXACT oracle.ts review frame — arm parity single source (W832): the
 // arena pin imports oracle's frame lib instead of re-declaring it
@@ -82,7 +83,7 @@ export interface TraceRow {
 	err?: string;
 }
 export interface ArmRun {
-	arm: "a" | "b";
+	arm: ArmId;
 	findings: Finding[];
 	verdict: "PASS" | "FAIL";
 	roundsToPass: number;

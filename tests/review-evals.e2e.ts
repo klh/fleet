@@ -28,7 +28,7 @@ import {
 	tempRepo,
 } from "./helpers/review-evals.fixture.ts";
 
-test.describe({ tag: "@api" }, () => {
+test.describe("W1476 review evals: incident cases", { tag: "@api" }, () => {
 	test("classifyRevert: C156 contract — named, subject-only, re-lands, plain", () => {
 		const sha = "0123456789abcdef0123456789abcdef01234567";
 		expect(

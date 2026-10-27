@@ -31,6 +31,7 @@ const HEARTBEAT_BORN: Record<string, string> = {
 	"review-reconcile": "W1280",
 	"launch-janitor": "W1247",
 	"decant-daily": "W1212",
+	"review-rescore": "W1476",
 };
 
 // Retired com.suspenders.* labels that were never maintenance tasks —

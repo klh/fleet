@@ -18,6 +18,7 @@ import {
 	type Proof,
 	TEST_FILE,
 } from "../lib/gates/coverage-proof.ts";
+import { requestReviewLeg, reviewPrompt } from "../lib/gates/review-prompt.ts";
 import {
 	priorBlockingReviewLines,
 	publishReviewReceipt,
@@ -192,40 +193,20 @@ const reviewerSid = `review-${crypto.randomUUID()}`;
 db.query(
 	"INSERT INTO sessions (sid, project, role, started_at, hb, state) VALUES (?, ?, 'reviewer', ?, ?, 'RUNNING')",
 ).run(reviewerSid, project, Date.now(), Date.now());
-const prompt = [
-	`You are a read-only second-opinion reviewer for Work Graph item ${item} in ${repo}.`,
-	`Verify the work against the mission; you are auditing, NOT re-doing it. Do not edit anything.`,
-	`REVIEWED COMMIT ${boundContext.commit}; INTEGRATION BASE ${boundContext.base}`,
-	boundContext.text,
-	``,
-	// W1243.1.1 (FAIL62885): the old sentence implied the reviewer would see
-	// proof output and the model refused PASS citing its absence. The ordering
-	// is binding and must be unambiguous: the proof is harness-run AFTER the
-	// provisional PASS; absent pre-verdict proof is not a finding.
-	`PROOF ORDERING (Sinai rule, binding): the coverage proof is mechanical and runs in this harness, AFTER your verdict. You may emit a provisional PASS first; the harness then reverts the branch diff in a scratch checkout and requires the branch's new tests to fail there — tests that pass without the change downgrade the final verdict to FAIL.`,
-	`No proof command or proof output appears in this prompt, by design. The absence of pre-verdict proof output is NOT a finding — do not open a blocker for missing coverage proof; fail-closed enforcement of the proof is the harness's job, not yours.`,
-	`MISSION (work show):`,
-	`${String(w.title)}${w.description ? ` — ${String(w.description)}` : ""}`,
-	`state: ${String(w.state)}; owner: ${String(w.owner_sid ?? "none")}`,
-	``,
-	`ITEM THREAD (newest first, last 20):`,
-	...(thread.length ? thread : ["(no events)"]),
-	``,
-	`PRIOR BLOCKING IDS FOR THIS EXACT COMMIT (receipt evidence, may include incomplete ERROR output):`,
-	...(priorBlocking.length ? priorBlocking : ["(none)"]),
-	``,
-	`EXACT BRANCH DIFF (${boundContext.base}...${boundContext.commit}):`,
-	diff || "(no branch — review the thread/claims only)",
-	``,
-	`Report findings as terse bullets; every finding carries a stable ID — B<round>-<slug> (blocker) or N<round>-<slug> (note) — round = the round that FIRST reported it; IDs are never renumbered.`,
-	`ID discipline (W1263): B-prefix = merge-blocking defect, N-prefix = advisory. NEVER label advisory content with a B-prefix — every B-ID you emit blocks the merge until a reviewer explicitly resolves it, and advisory B-IDs accumulate a blocking union across review rounds that starves the merge ladder. When in doubt, use N.`,
-	`Review silently: do not announce next steps or ask to continue — your whole reply is findings bullets plus the verdict line.`,
-	`Explicitly resolved prior findings use a separate line RESOLVED: B<round>-<slug> followed by evidence. Unresolved blocker IDs prevent merge even with a PASS final line.`,
-	`Prior blocking IDs (W1263): for every B-ID in PRIOR BLOCKING IDS, your reply must carry one line — either re-open it (state it as a finding bullet) or close it (RESOLVED: B<id> <one-line evidence>). A clean PASS with prior IDs silently absent is not a resolution and will be rejected by the receipt contract.`,
-	`Evidence-kind caps severity: a file:line-only claim caps at blocker(high); a runtime-behavior claim without a trigger path caps at note(low).`,
-	`End your reply with ONE machine-parseable final line:`,
-	`VERDICT: PASS | VERDICT: FAIL - <reason>`,
-].join("\n");
+const prompt = reviewPrompt({
+	item,
+	repo,
+	commit: boundContext.commit,
+	base: boundContext.base,
+	context: boundContext.text,
+	title: String(w.title),
+	description: w.description ? String(w.description) : "",
+	state: String(w.state),
+	owner: String(w.owner_sid ?? "none"),
+	thread,
+	priorBlocking,
+	diff,
+});
 
 // ---- executor legs ----------------------------------------------------------
 type Leg =
@@ -272,63 +253,17 @@ async function requestLlm(
 	model: string,
 	key?: string,
 ): Promise<string> {
-	const response = await fetch(url, {
-		method: "POST",
-		headers: {
-			"content-type": "application/json",
-			...(key ? { authorization: `Bearer ${key}` } : {}),
+	const reply = await requestReviewLeg({
+		url,
+		model,
+		key,
+		prompt,
+		timeoutMs: LEG_TIMEOUT_MS,
+		onWireModel: (wire) => {
+			legWireModel = wire;
 		},
-		body: JSON.stringify({
-			model,
-			messages: [{ role: "user", content: prompt }],
-			// W1289: 8000 still cut Flash reviews off mid-reasoning before the
-			// required VERDICT line (W1286 receipt #70110). Leave room for the
-			// actual findings and terminal verdict after its reasoning pass.
-			max_tokens: 16000,
-			temperature: 0.2,
-		}),
-		signal: AbortSignal.timeout(LEG_TIMEOUT_MS),
 	});
-	if (!response.ok) throw new Error(`Review LLM HTTP ${response.status}`);
-	const body = (await response.json()) as {
-		model?: string;
-		choices?: {
-			finish_reason?: string;
-			message?: {
-				content?: string | null;
-				reasoning_content?: string | null;
-				reasoning?: string | null;
-			};
-		}[];
-		usage?: { completion_tokens?: number };
-	};
-	// W1236: an HTTP 200 with empty content is a leg FAILURE — finish_reason
-	// "length" means the thinking budget ate the completion. Returning "" here
-	// is the opaque "leg failed" receipt (verdict ERROR, no diagnostics).
-	// W1263: reasoning legs (GLM family) fill reasoning_content and can stop
-	// with content:"" while usage.completion_tokens>0 — the review text rides
-	// the reasoning field. Recovering it is diagnosis, not fabrication: the
-	// verdict parse and the Sinai coverage proof still gate the verdict.
-	const choice = body.choices?.[0];
-	const msg = choice?.message;
-	if (typeof body.model === "string" && body.model) legWireModel = body.model;
-	const content = msg?.content ?? "";
-	const reasoning = msg?.reasoning_content ?? msg?.reasoning ?? "";
-	if (content.trim()) return content;
-	if (reasoning.trim()) return reasoning;
-	// W1263: BOTH fields empty = upstream empty (not parser loss). The throw
-	// carries the SERVED wire model + full payload shape, so the ERROR receipt
-	// self-describes the exact review-leg route for the operator.
-	const wire = typeof body.model === "string" ? body.model : "unknown";
-	throw new Error(
-		`review leg returned empty content (model=${wire} finish_reason=${
-			choice?.finish_reason ?? "unknown"
-		}${
-			body.usage?.completion_tokens === undefined
-				? ""
-				: `, completion_tokens=${body.usage.completion_tokens}`
-		}, content_len=0, reasoning_len=0)`,
-	);
+	return reply.text;
 }
 async function runLeg(): Promise<string> {
 	if (leg?.kind === "buckle") {
