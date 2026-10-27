@@ -2,7 +2,7 @@
 // logic, attempt-stamping, fail-isolation and the registry guard. The spawn
 // is injected — no real children run here.
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -151,6 +151,13 @@ describe("maintenance sweep (W779)", () => {
 	test("registry guard: every folded runner resolves at the package root", () => {
 		expect(missingRunners()).toEqual([]);
 		expect(suspendersRoot()).toContain("suspenders");
+	});
+	test("quota-sweep runner resolves at the package root (W1769)", () => {
+		const task = MAINTENANCE_TASKS.find((t) => t.name === "quota-sweep");
+		if (!task) throw new Error("quota-sweep task missing from MAINTENANCE_TASKS");
+		const runner = task.argv(suspendersRoot())[0];
+		expect(runner).toBe(join(suspendersRoot(), "hooks/bin/quota-sweep.ts"));
+		expect(existsSync(runner)).toBe(true);
 	});
 	test("auto-install heartbeat argv pins --repo to the package root (W1243)", () => {
 		const task = MAINTENANCE_TASKS.find((t) => t.name === "auto-install");
