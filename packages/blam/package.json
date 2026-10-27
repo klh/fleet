@@ -10,11 +10,31 @@
 		"validate": "bun tools/label.ts validate dataset/incidents.jsonl"
 	},
 	"engines": {
-		"bun": ">=1.2"
+		"bun": "1.4.2"
 	},
 	"devDependencies": {
-		"@klh/belt": "workspace:*",
-		"@klh/buckle": "workspace:*",
-		"@klh/suspenders": "workspace:*"
-	}
+		"@klh/belt": "2.0.0",
+		"@klh/buckle": "2.0.0",
+		"@klh/suspenders": "2.0.0"
+	},
+	"exports": {
+		"./src/*": "./src/*",
+		"./test/*": "./test/*",
+		"./package.json": "./package.json"
+	},
+	"bin": {
+		"blam-label": "tools/label.ts"
+	},
+	"files": [
+		"src",
+		"test/fixtures",
+		"tools",
+		"dataset",
+		"schema",
+		"bench",
+		"docs",
+		"README.md",
+		"LICENSE",
+		"AGENTS.md"
+	]
 }

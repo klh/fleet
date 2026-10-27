@@ -47,29 +47,36 @@
       },
       "devDependencies": {
         "@klh/test-kit": "workspace:*",
+        "@playwright/test": "1.64.1",
       },
     },
     "packages/blam": {
       "name": "@klh/blam",
       "version": "2.0.0",
+      "bin": {
+        "blam-label": "tools/label.ts",
+      },
       "devDependencies": {
-        "@klh/belt": "workspace:*",
-        "@klh/buckle": "workspace:*",
-        "@klh/suspenders": "workspace:*",
+        "@klh/belt": "2.0.0",
+        "@klh/buckle": "2.0.0",
+        "@klh/suspenders": "2.0.0",
       },
     },
     "packages/buckle": {
       "name": "@klh/buckle",
       "version": "2.0.0",
+      "bin": {
+        "buckle": "./src/server.ts",
+      },
       "dependencies": {
-        "@klh/blam": "workspace:*",
-        "@klh/telemetry": "workspace:*",
-        "p-queue": "^9.3.3",
-        "zod": "^4.0.0",
+        "@klh/blam": "2.0.0",
+        "@klh/telemetry": "2.0.0",
+        "p-queue": "9.3.5",
+        "zod": "4.6.7",
       },
       "devDependencies": {
         "@anthropic-ai/sdk": "1.1.0",
-        "@klh/test-kit": "workspace:*",
+        "@klh/test-kit": "2.0.0",
         "@types/bun": "1.4.2",
         "openai": "7.42.0",
       },
@@ -84,23 +91,36 @@
     "packages/local": {
       "name": "@klh/local",
       "version": "2.0.0",
+      "bin": {
+        "klh-local": "bin/klh-local.ts",
+        "dashboard": "bin/dashboard.ts",
+      },
+      "dependencies": {
+        "lit": "3.3.3",
+      },
     },
     "packages/local-llm": {
       "name": "@klh/local-llm",
       "version": "2.0.0",
+      "bin": {
+        "lane-load-bench": "lane-load-bench.ts",
+      },
       "devDependencies": {
-        "@klh/test-kit": "workspace:*",
+        "@klh/test-kit": "2.0.0",
       },
     },
     "packages/speedy": {
       "name": "@klh/speedy",
       "version": "2.0.0",
+      "bin": {
+        "install-fleet": "bin/install-fleet.ts",
+        "quiet-output": "bin/quiet-output.ts",
+      },
       "dependencies": {
-        "shell-quote": "^1.12.0",
-        "yaml": "^2.9.1",
+        "shell-quote": "1.12.0",
       },
       "devDependencies": {
-        "lit": "^3.3.3",
+        "lit": "3.3.3",
       },
     },
     "packages/suspenders": {
@@ -270,7 +290,7 @@
 
     "code-block-writer": ["code-block-writer@13.0.3", "", {}, "sha512-Oofo0pq3IKnsFtuHqSF7TqBfr71aeyZDVJ0HpmqB7FBM2qEigL0iPONSCZSO9pE9dZTAxANe5XHG9Uy0YMv8cg=="],
 
-    "devtools-protocol": ["devtools-protocol@0.0.1724436", "", {}, "sha512-GcO1782pvzpmY4pQO1zjr8WZ95Wv8GodOs0v5J9QWwLGulTzfYIYECEd9iUsnqJmcehu+VMKxZquvjY8T2jhAA=="],
+    "devtools-protocol": ["devtools-protocol@0.0.1727723", "", {}, "sha512-laxmpDN+zItbpy5klVbHqBsZ38O2rC6VwI9W5daM11Pc3Dj2gruc2wwnHW48CB8wYiWHALDkA6vRg92U2cfdLA=="],
 
     "dns-packet": ["dns-packet@5.6.1", "", { "dependencies": { "@leichtgewicht/ip-codec": "^2.0.1" } }, "sha512-l4gcSouhcgIKRvyy99RNVOgxXiicE+2jZoNmaNmZ6JXiGajBOJAesk1OBlJuM5k2c+eudGdLxDqXuPCKIj6kpw=="],
 

@@ -7,13 +7,43 @@
 	"license": "SEE LICENSE IN LICENSE",
 	"packageManager": "bun@1.4.2",
 	"engines": {
-		"bun": ">=1.2"
+		"bun": "1.4.2"
 	},
 	"dependencies": {
-		"shell-quote": "^1.12.0",
-		"yaml": "^2.9.1"
+		"shell-quote": "1.12.0"
 	},
 	"devDependencies": {
-		"lit": "^3.3.3"
-	}
+		"lit": "3.3.3"
+	},
+	"exports": {
+		"./bin/*": "./bin/*",
+		"./hooks/*": "./hooks/*",
+		"./src/*": "./src/*",
+		"./statusline.ts": "./statusline.ts",
+		"./install-codex.ts": "./install-codex.ts",
+		"./package.json": "./package.json"
+	},
+	"bin": {
+		"install-fleet": "bin/install-fleet.ts",
+		"quiet-output": "bin/quiet-output.ts"
+	},
+	"files": [
+		"bin",
+		"hooks",
+		"src",
+		"commands",
+		"agents",
+		"skills",
+		"docs",
+		"references",
+		"assets",
+		"statusline.ts",
+		"install.sh",
+		"install-codex.ts",
+		"settings.example.json",
+		"README.md",
+		"LICENSE",
+		"ECOSYSTEM.md",
+		"AGENTS.md"
+	]
 }

@@ -6,10 +6,26 @@
 	"private": true,
 	"packageManager": "bun@1.4.2",
 	"engines": {
-		"bun": ">=1.2"
+		"bun": "1.4.2"
 	},
 	"devDependencies": {
-		"@klh/test-kit": "workspace:*"
+		"@klh/test-kit": "2.0.0"
 	},
-	"license": "SEE LICENSE IN LICENSE"
+	"license": "SEE LICENSE IN LICENSE",
+	"exports": {
+		"./*": "./*",
+		"./package.json": "./package.json"
+	},
+	"bin": {
+		"lane-load-bench": "lane-load-bench.ts"
+	},
+	"files": [
+		"*.ts",
+		"!*.test.ts",
+		"models.catalog.json",
+		"routing-policy.yaml",
+		"README.md",
+		"AGENTS.md",
+		"LICENSE"
+	]
 }
