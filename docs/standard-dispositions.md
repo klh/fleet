@@ -29,7 +29,7 @@ P1–P6.
 | 7 | HTTP kit | `@paas/http`: ETag/If-Match, Idempotency-Key, problem+json, shed, deadline | Kit LANDED as `packages/buckle/src/http-kit.ts` (in-package, NOT a separate `@paas/http` package): Retry-After clamped on every emission, problem+json error-kinds, Idempotency-Key replay, aids family on RouteTable | SPLIT: kit shape ACCEPTED-DIVERGENCE (in-package module, no standalone package) · mechanics LANDED (`10f1ccd4`/`7fc06769` server, `4db0f091`/`d3c0a839` client) | W1303.2 · W1303.3 |
 | 8 | Test framework | `@playwright/test` only, every test | bun:test unit + Playwright for e2e/load, two frameworks BY LAYER (W1238.2 decision `d8563e1c`); the `*.test.ts` → `*.e2e.ts` port sweep (W1306 `c2ff563d`, W1294.17.*) is DONE + pushed, unmerged at audit time | ACCEPTED-DIVERGENCE (documented decision, ports in flight) | W1238.2 |
 | 9 | One version | npm fixed-mode: every manifest bumps together, tagged | `stack.json` `version:` pins buckle+suspenders+belt (config-level pin) | ACCEPTED-DIVERGENCE · pipeline LANDED (`d69ec274`); the release cut itself rides W1311 | W1303.6 |
-| 10 | Review usefulness | Round cap 3; incidents become evals, rescored on reviewer change; measure human time, revert/incident rate as guardrail | Review scheduler enforces the round cap; W792 arena scores incident tasks (no add-on-revert trigger, no rescore); W846 measures decision latency (no approvals metric, no guardrail) | SPLIT: round cap LANDED (`4bfc1839`) · incidents→evals GAP · human-time GAP | W1303.7 · W1476 · W1477 |
+| 10 | Review usefulness | Round cap 3; incidents become evals, rescored on reviewer change; measure human time, revert/incident rate as guardrail | Review scheduler enforces the round cap; a revert or incident landing mints a review-arena case, and a reviewer prompt/model/tool change reruns the W792 arena on the whole sealed set; W846 measures decision latency (no approvals metric, no guardrail) | SPLIT: round cap LANDED (`4bfc1839`) · incidents→evals LANDED (`7b890e0f` trigger, `77a5ba4b` rescore) · human-time GAP | W1303.7 · W1476 · W1477 |
 | 11 | CI enforcement | Every rule enforced by a check, wired in CI: 1500-line cap, `check-deps` phantom imports, qlty in pre-push + CI, generated OpenAPI diffed in CI | Checks exist (law guards, import-law ratchet, `.githooks/pre-push`) but ride local hooks + lane gates; no fleet-owned CI workflow runs them on push | GAP | W1759 |
 
 ## Rationale per row
@@ -152,7 +152,7 @@ release verb (bump all package.json versions in one commit, rewrite `@klh/*`
 pins, tag, render the stack hint) with dry-run and tests (`d69ec274`). The
 release cut itself rides W1311 (fleet-2026-10).
 
-### 10 · Review usefulness mechanics — SPLIT: round cap LANDED, evals + human time GAP
+### 10 · Review usefulness mechanics — SPLIT: round cap + evals LANDED, human time GAP
 
 The standard's "Keeping review useful" section carries three mechanics that
 the W1303.5 tiers/CODEOWNERS/PR template do not cover; each is dispositioned
@@ -171,11 +171,25 @@ on its own, so the row never reads LANDED wholesale.
   the same shape. Fail-open on an unreadable history (the cap guards effort,
   never correctness). Code `hooks/lib/gates/review-round-cap.ts`, tests
   `test/review-scheduler.test.ts`.
-- **Incidents become evals — GAP (W1476).** Exists: the W792 review arena
-  scores reviewers on incident tasks mined from git history
-  (`packages/belt/bench/arena/review-incident.ts`) and the blam incident
-  set. Missing: the trigger (a revert or incident on main adds a case) and
-  the rescore (a reviewer prompt, model or tool change reruns the set).
+- **Incidents become evals — LANDED (W1476: trigger `7b890e0f`, rescore
+  `77a5ba4b`).** Trigger: after each merge the ladder's
+  `reviewEvalsAfterMerge` (`hooks/lib/fleet-loop/review-evals.ts`) reads the
+  landing range — a revert of a main commit (branch-internal undos and
+  re-lands drop) or a landing under an `incident`-tagged work root — banks
+  one `review.incident` event per commit and mints one deduplicated
+  `review,arena-case` work item per revert or incident root, naming the case
+  home (`packages/belt/bench/arena/review-incident.ts`). Rescore:
+  `review-run.ts --rescore-status` reports which arms (a, b, lane) saw their
+  reviewer surface — prompt, model pin, tooling (`review-surface.json`) or
+  the sealed set — change since their last scored run, from git and ledger
+  reads with no LLM call; `--rescore` reruns each due arm over the whole
+  sealed set on AC power and ledgers the per-arm score delta. The hourly
+  W779 task `review-rescore` (`hooks/lib/fleet-loop/review-rescore.ts`;
+  `SUSPENDERS_REVIEW_RESCORE=0` idles it) launches that run with a scoped,
+  always-revoked lane key and banks a `review.rescore` event plus the
+  `review.rescore.last` fact. Operator precondition: seal the set once
+  (`review-run.ts --design`). Tests `tests/review-evals.e2e.ts`,
+  `tests/review-rescore-arena.e2e.ts`, `tests/review-rescore.e2e.ts`.
 - **Measure human time — GAP (W1477).** Exists: W846 pilot-measure reports
   NEED_DECISION emit→settle latency (p50/p90) and per-item human minutes
   (`packages/belt/bench/pilot-measure.ts`). Missing: approvals per landing
