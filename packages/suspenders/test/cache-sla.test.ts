@@ -153,6 +153,16 @@ describe("test-local status.json fixture (W1780)", () => {
 	});
 });
 
+describe("cache-sla maintenance argv (W1782 dangling-path pin)", () => {
+	test("the cache-sla.ts literal is a runtime basename, not a repo-relative test path", () => {
+		const task = MAINTENANCE_TASKS.find((t) => t.name === "cache-sla");
+		const argv0 = task?.argv(suspendersRoot(), "/")[0] ?? "";
+		expect(argv0).toContain("cache-sla.ts");
+		expect(argv0).toContain("hooks/bin");
+		expect(existsSync(join(suspendersRoot(), "test/cache-sla.ts"))).toBe(false);
+	});
+});
+
 describe("cacheSlaStatusPath (W1779 dangling-path pin)", () => {
 	test("the sla.json literal resolves via KLH_CACHE_SLA_STATUS to the tmp fixture — no repo-relative sla.json", () => {
 		expect(cacheSlaStatusPath()).toBe(join(tmp, "sla.json"));
