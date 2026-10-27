@@ -7,6 +7,7 @@ import { launchClient, resolveClient } from "../executors/detect.ts";
 import { scanCompletionDiff } from "../executors/fake-completion.ts";
 import { type GovernorStore, projectRootOf } from "../govdb/govdb.ts";
 import { importLawVerdict } from "../import-law.ts";
+import { trailerVerdict } from "../lane-guard.ts";
 import { patchFirstVerdict } from "../patch-first.ts";
 import { resolveTranscriptPath } from "../transcript.ts";
 import {
@@ -534,6 +535,17 @@ export function prepareCompletion(
 		paths,
 	});
 	if (!bd.ok) throw new Error(bd.why ?? "bench-docs refusal");
+	// W1141 lane-guard: lane commits in the closure window carry the
+	// Fleet-Session trailer (Claude-Session-style transcript tracing) — audit
+	// default; SUSPENDERS_TRAILER_GATE=enforce (or machine conf) refuses.
+	const lg = trailerVerdict({
+		repo: shaRepo,
+		baseline,
+		sha,
+		sid: o.sid,
+	});
+	if (lg.note) console.log(lg.note);
+	if (!lg.ok) throw new Error(lg.why ?? "lane-guard trailer refusal");
 	// W511: fake-completion integrity scan on the closing diff's added lines —
 	// the gate refuses closure while gated tests, stub notes or
 	// placeholder-error throws ride the sha being claimed as done

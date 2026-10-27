@@ -458,7 +458,7 @@ const dispatchVerb = async (
 		// W870: never treeless claims — the claim's worktree mints/attaches
 		// here (dispatch's behavior, now the only behavior) and prints; the
 		// location-vs-claim gate binds edits to this tree.
-		const prov = provisionForTake(projectRootOf(PROJECT), id, PROJECT);
+		const prov = provisionForTake(projectRootOf(PROJECT), id, PROJECT, as);
 		if (!prov.ok)
 			console.error(
 				`worktree mint FAILED (${prov.err}) — ${id} stays claimed but TREELESS; fix the git failure, then worktree.ts retire ${id} and re-take to attach`,

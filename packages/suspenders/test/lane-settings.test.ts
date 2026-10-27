@@ -34,7 +34,7 @@ describe("lane-settings (W512)", () => {
 				}>;
 			};
 		};
-		expect(s.hooks.PreToolUse).toHaveLength(2);
+		expect(s.hooks.PreToolUse).toHaveLength(3);
 		const pin = s.hooks.PreToolUse[0];
 		expect(pin.matcher).toBe("Task");
 		expect(pin.hooks[0].type).toBe("command");
@@ -43,6 +43,11 @@ describe("lane-settings (W512)", () => {
 		expect(guard.matcher).toBeUndefined();
 		expect(guard.hooks[0].command).toContain("/gate.ts runaway");
 		expect(guard.hooks[0].timeout).toBe(10);
+		// W1141: the trailer hook rides the same block — Bash rewrites only.
+		const trailer = s.hooks.PreToolUse[2];
+		expect(trailer.matcher).toBe("Bash");
+		expect(trailer.hooks[0].command).toContain("/lane-commit-trailer.ts");
+		expect(trailer.hooks[0].timeout).toBe(10);
 	});
 
 	test("hook command pins the exact model via the prefix bin", () => {

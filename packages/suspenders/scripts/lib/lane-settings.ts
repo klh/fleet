@@ -12,6 +12,10 @@ import {
 	type PreferHeaderDecision,
 } from "../../../telemetry/src/prefer-header.ts";
 import { join } from "node:path";
+import {
+	LANE_GUARD_EGRESS_PORT,
+	loadLaneGuardConf,
+} from "../../hooks/lib/lane-guard.ts";
 import type { PreferRouting } from "./prefer-routing.ts";
 
 /** The Task-pin hook command written into the lane settings. process.execPath
@@ -58,6 +62,34 @@ function claudeEffortEnv(
 		CLAUDE_CODE_EFFORT_LEVEL: resolved,
 	};
 }
+// W1141 lane-guard egress: when the machine conf carries an allowlist, the
+// lane env pins every proxy-aware client (bun/curl/git/npm) at the local
+// egress proxy — nothing leaves the machine except allowlisted hostnames,
+// everything else is logged+denied at the proxy.
+const laneGuardEgressPort = (): number =>
+	Number(process.env.LANE_GUARD_EGRESS_PORT) > 0
+		? Number(process.env.LANE_GUARD_EGRESS_PORT)
+		: LANE_GUARD_EGRESS_PORT;
+
+const egressProxyEnv = (): Record<string, string> => {
+	const conf = loadLaneGuardConf();
+	if (!conf?.egress?.allow?.length) return {};
+	const url = `http://127.0.0.1:${laneGuardEgressPort()}`;
+	return { HTTPS_PROXY: url, HTTP_PROXY: url, ALL_PROXY: url };
+};
+
+// W1141 transcript tracing: the PreToolUse Bash hook rewrites lane git-commit
+// calls with the Fleet-Session/Fleet-Item trailers (the done gate verifies).
+const trailerHookEntry = (bin: string) => ({
+	matcher: "Bash",
+	hooks: [
+		{
+			type: "command",
+			command: `${process.execPath} ${bin}/lane-commit-trailer.ts`,
+			timeout: 10,
+		},
+	],
+});
 
 function customHeaders(
 	existing: string | undefined,
@@ -117,6 +149,7 @@ export const laneSettingsData = (
 				// fills the pin so EFFORT is never empty no-data in the report.
 				...claudeEffortEnv(env, effort),
 				...runawayEnv(env),
+				...egressProxyEnv(),
 			},
 			hooks: {
 				PreToolUse: [
@@ -139,6 +172,7 @@ export const laneSettingsData = (
 							},
 						],
 					},
+					trailerHookEntry(bin),
 				],
 			},
 		},

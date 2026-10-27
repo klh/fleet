@@ -178,6 +178,19 @@ services:
     logs: { out: "__HOME__/.claude-insights/fleet-board.log" }
     placeholders: ["__BUN__", "__HOME__", "__PREFIX__"]
 
+  # W1141 lane guard — resident push+egress proxies. INERT by posture: the
+  # push front answers 401 without a minted identity, the egress front only
+  # starts when the machine conf (~/.claude/lane-guard.json) carries an
+  # egress.allow list; absent conf = nothing wired, nothing denied.
+  - name: lane-guard
+    bunEntry: "__PREFIX__/bin/lane-guard.ts"
+    args: ["--repo", "__REPO__"]
+    env:
+      PATH: "__HOME__/.local/bin:__HOME__/.claude/local:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    schedule: { keepalive: true }
+    logs: { out: "__HOME__/.claude-insights/lane-guard.log" }
+    placeholders: ["__BUN__", "__HOME__", "__PREFIX__", "__REPO__"]
+
   # governor.db store API — resident, loopback :7794 (W92). DELIVERED NOT
   # INSTALLED: activation is a coordinator/owner step; remote machines point
   # GOVERNOR_STORE_URL at this host.

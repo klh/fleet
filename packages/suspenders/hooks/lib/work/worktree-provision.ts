@@ -8,6 +8,7 @@ import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { symlinkBuildDirs } from "../builddirs.ts";
 import { openStore } from "../govdb/govdb.ts";
+import { wireLanePushScope } from "../lane-guard.ts";
 import { resolveItemWorktree } from "./worktree-lookup.ts";
 
 export interface MintResult {
@@ -85,14 +86,22 @@ export function mintItemWorktree(
 
 // the claim-side provision: attach the standing tree, else mint. `work take`
 // prints this path; the location-vs-claim gate keys off the same resolution.
+// W1141: with the lane guard in enforce mode, a provisioned tree also gets
+// its scoped push credential (wireLanePushScope — per-worktree pushurl).
 export function provisionForTake(
 	root: string,
 	id: string,
 	project: string,
+	sid?: string,
 ): ProvisionResult {
 	const standing = resolveItemWorktree(root, id);
-	if (standing) return { path: standing, ok: true, attached: true };
-	return { ...mintItemWorktree(root, id, project), attached: false };
+	if (standing) {
+		if (sid) wireLanePushScope(root, standing, id, sid);
+		return { path: standing, ok: true, attached: true };
+	}
+	const minted = mintItemWorktree(root, id, project);
+	if (minted.ok && sid) wireLanePushScope(root, minted.path, id, sid);
+	return { ...minted, attached: false };
 }
 
 // the create verb's event shape, verbatim — the bus sees one kind for both
