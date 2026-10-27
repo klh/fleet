@@ -30,9 +30,6 @@ import {
 import type { StepContext, StepResult } from "./install-run.ts";
 import { payloadClosure } from "./lib/source-closure.ts";
 
-// These package imports are fulfilled by the staged payload links below.
-// They are private workspace packages, not packages to fetch from npm.
-const STAGED_PACKAGE_DEPENDENCIES = new Set(["@klh/blam", "@klh/buckle"]);
 /** Faces the installer bundle-validates in the staged payload (validate()).
  *  Exported for the W1119.2 installer/runtime-parity guard
  *  (test/bypass-gate.test.ts). */
@@ -427,13 +424,26 @@ export async function syncHarness(
 		const beltManifest = JSON.parse(
 			readFileSync(join(packageRoot, "belt", "package.json"), "utf8"),
 		);
+		// A25 (W1281.9): a dependency whose name matches a package shipped in
+		// this payload is private — it resolves from the staged link below,
+		// never from npm. Derived from the manifests, so a new @klh package
+		// needs no list edit here to avoid an npm 404.
+		const stagedNames = new Set(
+			shipped
+				.filter((rel) => rel.endsWith("/package.json"))
+				.map((rel) => {
+					const item = JSON.parse(readFileSync(join(payload, rel), "utf8"));
+					return typeof item.name === "string" ? item.name : null;
+				})
+				.filter((name): name is string => name !== null),
+		);
 		const dependencies: Record<string, string> = {};
 		for (const item of [manifest, beltManifest]) {
 			for (const [name, version] of Object.entries(item.dependencies ?? {})) {
 				if (
 					typeof version !== "string" ||
 					version.startsWith("workspace:") ||
-					STAGED_PACKAGE_DEPENDENCIES.has(name)
+					stagedNames.has(name)
 				)
 					continue;
 				if (dependencies[name] && dependencies[name] !== version)
@@ -490,8 +500,11 @@ export async function syncHarness(
 		// W1050: the resolver is a cold-cache ladder — on an empty Bun cache the
 		// offline leg fetches once via the network and re-verifies offline; both
 		// legs failing fails the sync early with the remedy.
-		await materializeDependencies(stage);
-		await materializeProduction(stage);
+		// A25 ordering (W1281.9): the scoped @klh links are staged BEFORE
+		// dependency materialization — a private name can never depend on the
+		// registry (offline resolver or the network fallback both see the link
+		// already in place; the manifest filter above keeps them out of the
+		// resolved graph entirely).
 		mkdirSync(join(stage, "node_modules"), { recursive: true });
 		// blam's package name is scoped (@klh/blam) — the link must sit at the
 		// scoped path or every `@klh/blam/...` import in the staged harness
@@ -507,6 +520,9 @@ export async function syncHarness(
 			"../../.harness/packages/buckle",
 			join(stage, "node_modules/@klh/buckle"),
 		);
+		await materializeDependencies(stage);
+		await materializeProduction(stage);
+		mkdirSync(join(stage, "node_modules"), { recursive: true });
 		for (const item of HOOK_ITEMS) {
 			if (!existsSync(join(suspenders, "hooks", item)))
 				throw new Error(`Missing harness payload: ${item}`);
