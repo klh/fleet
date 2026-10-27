@@ -15,20 +15,40 @@
 //    depth; the reference pointed at nonexistent hooks/lib/bin/ until a
 //    runtime failure exposed it (W1304, 2026-10-25).
 //
-// W1302.2.1 scoping: probe 2 judges only reference-form specifiers (dot-
-// prefixed relative or @klh/) in NON-fixture files — a test file's or
-// staging script's path-like strings denote synthetic trees (tmpdir fixture
-// repos, staged harness roots), never the repo tree; bare `dir/name.ext`
-// strings are data (staged-file lists, fixture names), not references.
-// Targets under runtime dirs (.harness/.worktrees/.test-home) are untracked
-// by convention and never judged. Probe 1 keeps whole-tree grep — a test
-// importing a deleted module is a real dangling edge.
+// W1302.2.1 scoping: only reference-form specifiers (dot-prefixed relative
+// or @klh/) are judged; targets under runtime dirs (.harness/.worktrees/
+// .test-home) and build output (node_modules/dist/build/out) are untracked
+// by convention and never judged.
 //
-// Findings mint deduplicated repair work items + `code.dangling-path`
-// events, mirroring the decomposition soft-cap pattern, so a dangling edge
-// is actionable in the graph instead of a log line.
+// W1302.8 (A22): both probes judge SYNTAX-classified references only
+// (dangling-classify.ts) — import specifiers, new URL / import.meta.resolve,
+// join(import.meta.dir, ...) and path-valued config keys. A quoted string is
+// data until syntax makes it a reference: the literal scan minted 400+
+// repairs from fixture names, JSDoc backticks, nested quotes and comment
+// apostrophes that desynced it. Test files carry their imports only (a test
+// importing a deleted module is a real edge); fixtures, skills, templates
+// and prose carry none.
+//
+// Findings bank into ONE open aggregate repair item per project: one
+// `code.dangling-path` event per dependency edge (target, refBy) never
+// recorded before. A recorded edge — any event or legacy per-edge item, in
+// any state, SUPERSEDED included — never re-mints; only a history whose
+// every holder is DONE (repaired) re-banks a re-broken edge. Findings are
+// never deleted.
 import { join } from "node:path";
-import { openStore, projectIdentity } from "../govdb/govdb.ts";
+import {
+	type GovernorStore,
+	openStore,
+	projectIdentity,
+} from "../govdb/govdb.ts";
+import { enqueueWorkItem } from "../work/work-enqueue.ts";
+import {
+	classifyFile,
+	quotedStrings,
+	type Reference,
+	referencesIn,
+	TEMPLATE_HOLE,
+} from "./dangling-classify.ts";
 
 export type DanglingRef = {
 	/** path that does not exist in the merged tree (deleted or never real) */
@@ -41,28 +61,14 @@ export type DanglingRef = {
 	specifier: string;
 };
 
-const SOURCE = /\.(?:[cm]?[jt]sx?|json|jsonc)$/i;
-const EXCLUDED = /(?:^|\/)(?:node_modules|vendor|generated|dist|build)\//;
-const PATH_LIKE =
-	/^(?:\.{1,2}\/|@klh\/)|\.(?:[cm]?[jt]sx?|json|jsonc|css|txt|md)$/i;
-const TEMPLATE_HOLE = /\$\{/;
-// quoted string bodies, longest-first alternation so adjacent quotes cannot
-// shadow one another
-const LITERAL = /(['"`])((?:\\.|(?!\1)[\s\S])*?)\1/g;
-// W1302.2.1: probe-2 specifier scope. Real ESM relative imports and runtime
-// path strings are dot-prefixed; package imports ride @klh/. Bare
-// `dir/name.ext` strings are data, not references — the W1356 / W1302.4.1.1
-// merges minted 160+ per-literal repairs from sync-harness and merge-guard
-// fixture strings before this scope landed. `...` marks a doc ellipsis.
-const REFERENCE_FORM = /^(?:\.{1,2}\/|@klh\/)/;
-const PLACEHOLDER = /\.\.\./;
-// Test/fixture files: their path-like strings denote synthetic trees (tmpdir
-// fixture repos, staged harness roots), never the repo tree.
-const FIXTURE_FILE =
-	/(?:^|\/)(?:test|tests|__tests__)\/|(?:\.test|\.spec|\.e2e)\.[cm]?[jt]sx?$/i;
-// Runtime dirs are untracked by convention — targets under them cannot be
-// judged "missing from the tree" by ls-tree.
-const RUNTIME_DIR = /(?:^|\/)(?:\.harness|\.worktrees|\.test-home)\//;
+// files whose references get judged: code, JSON config, markup/config text
+const JUDGED = /\.(?:[cm]?[jt]sx?|jsonc?|ya?ml|toml|html?|sh|plist)$/i;
+// runtime dirs and build output are untracked by convention — a target under
+// them cannot be judged "missing from the tree" by ls-tree
+const UNJUDGED_TARGET =
+	/(?:^|\/)(?:\.harness|\.worktrees|\.test-home|node_modules|dist|build|out)\//;
+// files read whole per probe: a huge reorg merge skips deeper audit
+const READ_CAP = 500;
 
 const git = (repo: string, args: string[]): string | null => {
 	const p = Bun.spawnSync(["git", "-C", repo, ...args], {
@@ -94,18 +100,18 @@ export function resolutionCandidates(resolved: string): string[] {
 	return list;
 }
 
-/** Probe 2: unresolvable path-like literals among the merge's own delta —
- * files added/modified by the merge whose relative or @klh specifiers
- * resolve onto no path in the merged tree. `files` = changed source paths
- * from the merge diff; existence is judged against `tree`. */
+/** Probe 2: unresolvable references among the merge's own delta — files
+ * added/modified by the merge whose syntax-classified references resolve
+ * onto no path in the merged tree. `files` = changed paths from the merge
+ * diff; existence is judged against `tree`. */
 export function unresolvedSpecifiers(
 	repo: string,
 	tree: string,
 	files: string[],
 ): DanglingRef[] {
 	const usable = files
-		.filter((f) => SOURCE.test(f) && !EXCLUDED.test(f) && !FIXTURE_FILE.test(f))
-		.slice(0, 500); // bounded fail-open: a huge reorg merge skips deeper audit
+		.filter((f) => JUDGED.test(f) && classifyFile(f) !== "inert")
+		.slice(0, READ_CAP);
 	if (!usable.length) return [];
 	const listing = git(repo, ["ls-tree", "-r", "--name-only", "-z", tree]);
 	if (listing === null) return [];
@@ -115,15 +121,27 @@ export function unresolvedSpecifiers(
 	for (const f of usable) {
 		const body = git(repo, ["show", `${tree}:${f}`]);
 		if (body === null) continue;
-		for (const spec of pathLiterals(body)) {
-			if (!REFERENCE_FORM.test(spec) || PLACEHOLDER.test(spec)) continue;
-			const resolved = resolveLiteral(spec, f);
-			if (resolved === null || RUNTIME_DIR.test(resolved)) continue;
-			if (resolutionCandidates(resolved).some((c) => present.has(c))) continue;
-			findings.push({ target: resolved, refBy: f, line: 0, specifier: spec });
+		for (const { spec } of referencesIn(f, body)) {
+			const target = missingTarget(spec, f, present);
+			if (target) findings.push({ target, refBy: f, line: 0, specifier: spec });
 		}
 	}
 	return findings;
+}
+
+/** The repo path `spec` (written in `refBy`) names when no candidate of it
+ * is in the tree; null when it resolves or cannot be judged — outside the
+ * repo or under an untracked dir, ls-tree never lists it. */
+function missingTarget(
+	spec: string,
+	refBy: string,
+	present: Set<string>,
+): string | null {
+	const resolved = resolveLiteral(spec, refBy);
+	if (resolved === null || /^\.\.(?:\/|$)/.test(resolved)) return null;
+	if (UNJUDGED_TARGET.test(resolved)) return null;
+	const candidates = resolutionCandidates(resolved);
+	return candidates.some((c) => present.has(c)) ? null : resolved;
 }
 
 /** Reference forms to grep a deleted path by: full path, extensionless full
@@ -189,10 +207,11 @@ function grepForms(repo: string, tree: string, forms: string[]): GrepHit[] {
 }
 
 /** Probe 1: live references to paths the merge deleted. Greps the merged
- * tree for each deleted path's reference forms, then keeps only hits whose
- * resolved literal lands on the deleted path (or its extensionless form) —
- * a same-basename file that still exists never misreports, and config
- * strings are covered alongside imports. */
+ * tree for each deleted path's reference forms; a file whose grep lines
+ * quote the path's name gets its syntax references resolved, and only one
+ * landing on the deleted path (or its extensionless form) with no candidate
+ * left in the tree counts — a same-basename file that still exists never
+ * misreports, and config keys are covered alongside imports. */
 export function danglingReferences(
 	repo: string,
 	before: string,
@@ -212,84 +231,197 @@ export function danglingReferences(
 	const listing = git(repo, ["ls-tree", "-r", "--name-only", "-z", after]);
 	if (listing === null) return [];
 	const present = new Set(listing.split("\0"));
-	return deleted.flatMap((p) => findRefsTo(repo, after, p, present));
+	const refsOf = referenceCache(repo, after);
+	return deleted.flatMap((p) => findRefsTo(repo, after, p, present, refsOf));
 }
 
-/** All dangling references to one deleted path, validated by resolution. */
+/** Per-scan memo of each file's syntax references in `tree`. Unjudged and
+ * inert files carry none; past READ_CAP files nothing more is read
+ * (bounded fail-open: a huge reorg merge skips deeper audit). */
+function referenceCache(repo: string, tree: string) {
+	const memo = new Map<string, Reference[]>();
+	return (file: string): Reference[] => {
+		const cached = memo.get(file);
+		if (cached) return cached;
+		let refs: Reference[] = [];
+		if (memo.size < READ_CAP && JUDGED.test(file)) {
+			const body =
+				classifyFile(file) === "inert"
+					? null
+					: git(repo, ["show", `${tree}:${file}`]);
+			if (body !== null) refs = referencesIn(file, body);
+		}
+		memo.set(file, refs);
+		return refs;
+	};
+}
+
+/** Last segments a reference to `p` can end with: the basename, its
+ * extensionless form and, for .ts, the ESM .js spelling. */
+function quotedNames(p: string): Set<string> {
+	const base = p.slice(p.lastIndexOf("/") + 1);
+	const stem = base.replace(/\.[^.]+$/, "");
+	const names = new Set([base, stem]);
+	if (base.endsWith(".ts")) names.add(`${stem}.js`);
+	return names;
+}
+
+/** All dangling references to one deleted path: one edge per referencing
+ * file, validated by syntax and resolution. */
 function findRefsTo(
 	repo: string,
 	tree: string,
 	p: string,
 	present: Set<string>,
+	refsOf: (file: string) => Reference[],
 ): DanglingRef[] {
 	if (present.has(p)) return []; // deleted then re-created in range
 	const targets = new Set([p, p.replace(/\.[^./]+$/, "")]);
-	const out: DanglingRef[] = [];
+	const names = quotedNames(p);
+	const byFile = new Map<string, GrepHit[]>();
 	for (const hit of grepForms(repo, tree, refForms(p))) {
-		for (const spec of pathLiterals(hit.content)) {
-			const resolved = resolveLiteral(spec, hit.file);
-			if (resolved === null) continue;
-			if (!resolutionCandidates(resolved).some((c) => targets.has(c))) continue;
-			out.push({ target: p, refBy: hit.file, line: hit.line, specifier: spec });
-			break;
-		}
+		const quoted = quotedStrings(hit.content);
+		if (!quoted.some((s) => names.has(s.slice(s.lastIndexOf("/") + 1))))
+			continue; // the line never quotes the path's name
+		byFile.set(hit.file, [...(byFile.get(hit.file) ?? []), hit]);
+	}
+	const out: DanglingRef[] = [];
+	for (const [file, hits] of byFile) {
+		const ref = refsOf(file).find((r) => {
+			const resolved = resolveLiteral(r.spec, file);
+			if (resolved === null) return false;
+			const candidates = resolutionCandidates(resolved);
+			if (!candidates.some((c) => targets.has(c))) return false;
+			return !candidates.some((c) => present.has(c));
+		});
+		if (!ref) continue;
+		const at = hits.find((h) => h.content.includes(ref.spec)) ?? hits[0];
+		out.push({
+			target: p,
+			refBy: file,
+			line: at?.line ?? 0,
+			specifier: ref.spec,
+		});
 	}
 	return out;
 }
 
 const EVENT_KIND = "code.dangling-path";
+/** The one open repair item findings bank into; the "Repair dangling path"
+ * prefix stays shared with the legacy per-edge items. */
+export const AGGREGATE_TITLE =
+	"Repair dangling paths found by the post-merge scan";
+const LEGACY_TITLE = /^Repair dangling path (.+) referenced by (.+)$/;
+const OPEN_STATE = "state NOT IN ('DONE', 'CANCELLED', 'SUPERSEDED')";
+const LISTED_EDGES = 20;
 
-/** Bank one finding in the graph: deduped by title against still-open items. */
-export function bankDanglingRef(
+export type BankOptions = {
+	db?: GovernorStore;
+	enqueue?: (title: string, description: string) => string;
+};
+
+const edgeKey = (target: string, refBy: string) =>
+	JSON.stringify([target, refBy]);
+
+/** Every edge the project already recorded: `code.dangling-path` events
+ * (aggregate or legacy per-edge) and legacy per-edge item titles. An edge
+ * stays known in any holder state — SUPERSEDED and a missing holder
+ * included; only an all-DONE (repaired) history lets it bank again. */
+function knownEdges(db: GovernorStore, project: string): Set<string> {
+	const states = new Map<string, string[]>();
+	const note = (target: unknown, refBy: unknown, state: unknown) => {
+		if (typeof target !== "string" || typeof refBy !== "string") return;
+		const key = edgeKey(target, refBy);
+		const seen = states.get(key) ?? [];
+		seen.push(typeof state === "string" ? state : "MISSING");
+		states.set(key, seen);
+	};
+	const events = db
+		.query(
+			"SELECT json_extract(e.payload, '$.target') AS target, json_extract(e.payload, '$.refBy') AS refBy, w.state AS state FROM events e LEFT JOIN work_items w ON w.project = ? AND w.id = e.scope WHERE e.kind = ? AND json_extract(e.payload, '$.project') = ?",
+		)
+		.all(project, EVENT_KIND, project) as Record<string, unknown>[];
+	for (const r of events) note(r.target, r.refBy, r.state);
+	const legacy = db
+		.query(
+			"SELECT title, state FROM work_items WHERE project = ? AND title LIKE 'Repair dangling path % referenced by %'",
+		)
+		.all(project) as { title: string; state: string }[];
+	for (const r of legacy) {
+		const m = LEGACY_TITLE.exec(r.title);
+		if (m) note(m[1], m[2], r.state);
+	}
+	const open = [...states].filter(([, s]) => s.some((x) => x !== "DONE"));
+	return new Set(open.map(([key]) => key));
+}
+
+/** Mint the aggregate repair item. Its description lists the batch that
+ * opened it; the events scoped to it stay the full, growing record. */
+function enqueueAggregate(
 	repo: string,
 	source: string,
-	ref: DanglingRef,
+	fresh: DanglingRef[],
 	mergedSha: string,
-): void {
-	const db = openStore();
+	options: BankOptions,
+): string {
+	const edges = fresh.slice(0, LISTED_EDGES).map((r) => {
+		const at = r.line ? `${r.refBy}:${r.line}` : r.refBy;
+		return `- ${r.target} <- ${at} (${JSON.stringify(r.specifier)})`;
+	});
+	if (fresh.length > LISTED_EDGES)
+		edges.push(`- ... ${fresh.length - LISTED_EDGES} more`);
+	const description = [
+		`The post-merge scan found references onto paths missing from the merged tree (first batch: merge ${mergedSha}). Each dependency edge is one ${EVENT_KIND} event scoped to this item (coord events --kinds ${EVENT_KIND} --json); later merges append new edges here instead of minting items.`,
+		...edges,
+		"Per edge: restore the path or rewrite the reference; verify imports and focused tests, then close this item. An edge re-broken after DONE banks again.",
+	].join("\n");
+	const work = options.enqueue
+		? options.enqueue(AGGREGATE_TITLE, description)
+		: enqueueWorkItem(repo, source, AGGREGATE_TITLE, description);
+	if (!work) throw new Error("Unable to queue the dangling-path aggregate");
+	return work;
+}
+
+/** Bank findings into the one open aggregate repair item: one event per
+ * edge not yet recorded (knownEdges); returns the newly banked edges. */
+export function bankDanglingRefs(
+	repo: string,
+	source: string,
+	refs: DanglingRef[],
+	mergedSha: string,
+	options: BankOptions = {},
+): DanglingRef[] {
+	if (!refs.length) return [];
+	const db = options.db ?? openStore();
 	try {
 		const project = projectIdentity(repo);
-		const where = ref.line
-			? `${ref.refBy}:${ref.line}`
-			: `${ref.refBy} (${ref.specifier})`;
-		const title = `Repair dangling path ${ref.target} referenced by ${ref.refBy}`;
-		const existing = db
+		const known = knownEdges(db, project);
+		const fresh = refs.filter((r) => {
+			const key = edgeKey(r.target, r.refBy);
+			if (known.has(key)) return false;
+			known.add(key); // in-batch duplicates bank once
+			return true;
+		});
+		if (!fresh.length) return [];
+		const open = db
 			.query(
-				"SELECT id FROM work_items WHERE project = ? AND title = ? AND state NOT IN ('DONE', 'SUPERSEDED') LIMIT 1",
+				`SELECT id FROM work_items WHERE project = ? AND title = ? AND ${OPEN_STATE} LIMIT 1`,
 			)
-			.get(project, title) as { id: string } | null;
-		if (existing) return; // already queued — idempotent across retries
-		const description = `The merge that produced ${mergedSha} left ${ref.target} missing while ${where} still references it (${JSON.stringify(ref.specifier)}). Restore the path, rewrite the reference, or supersede this item with the reason. Verify imports and focused tests after the repair.`;
-		const bin =
-			process.env.SUSPENDERS_PREFIX ??
-			join(process.env.HOME ?? "", ".claude/hooks/suspenders");
-		const result = Bun.spawnSync(
-			[
-				process.execPath,
-				join(bin, "bin/work.ts"),
-				"add",
-				title,
-				"--desc",
-				description,
-				"--by",
-				source,
-			],
-			{ cwd: repo, stdout: "pipe", stderr: "pipe" },
-		);
-		const work = result.stdout.toString().match(/\bW\d+(?:\.\d+)*\b/)?.[0];
-		if (!work)
-			throw new Error(`Unable to queue dangling-path repair: ${ref.target}`);
-		db.query(
+			.get(project, AGGREGATE_TITLE) as { id: string } | null;
+		const work =
+			open?.id ?? enqueueAggregate(repo, source, fresh, mergedSha, options);
+		const insert = db.query(
 			"INSERT INTO events(ts,source,kind,scope,payload,target) VALUES(?,?,?,?,?,NULL)",
-		).run(
-			Date.now(),
-			source,
-			EVENT_KIND,
-			work,
-			JSON.stringify({ project, ...ref, mergedSha, work }),
 		);
+		db.transaction(() => {
+			for (const ref of fresh) {
+				const payload = JSON.stringify({ project, ...ref, mergedSha, work });
+				insert.run(Date.now(), source, EVENT_KIND, work, payload);
+			}
+		})();
+		return fresh;
 	} finally {
-		db.close();
+		if (!options.db) db.close();
 	}
 }
 
@@ -313,15 +445,4 @@ export function resolveLiteral(
 		? refBy.slice(0, refBy.lastIndexOf("/"))
 		: ".";
 	return join(dir, specifier);
-}
-
-/** Every path-like string literal in the file body, in order. */
-export function pathLiterals(body: string): string[] {
-	const out: string[] = [];
-	for (const m of body.matchAll(LITERAL)) {
-		const spec = m[2];
-		if (!spec || TEMPLATE_HOLE.test(spec) || !PATH_LIKE.test(spec)) continue;
-		out.push(spec);
-	}
-	return out;
 }

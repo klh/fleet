@@ -55,7 +55,7 @@ export function claudeStopPause(
 }
 
 const run = promisify(execFile);
-const coord = new URL("../bin/coord.ts", import.meta.url).pathname;
+const coord = new URL("../../bin/coord.ts", import.meta.url).pathname;
 const read = async (sid: string, args: string[]) =>
 	(
 		await run(process.execPath, [coord, ...args, "--as", sid], {

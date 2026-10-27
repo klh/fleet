@@ -111,7 +111,7 @@ export function triggerMergeOnDone(repo: string, item: string): boolean {
 		const proc = Bun.spawn({
 			cmd: [
 				process.execPath,
-				join(import.meta.dir, "..", "bin", "fleet-loop.ts"),
+				join(import.meta.dir, "..", "..", "bin", "fleet-loop.ts"),
 				"flush",
 				"--repo",
 				repo,

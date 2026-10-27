@@ -421,7 +421,7 @@ export async function quotaSweep(deps: SweepDeps): Promise<SweepReport> {
 				owner: string;
 				revision: number;
 			}) => {
-				const bin = new URL("../bin/work.ts", import.meta.url).pathname;
+				const bin = new URL("../../bin/work.ts", import.meta.url).pathname;
 				const p = Bun.spawnSync(
 					[
 						process.execPath,
