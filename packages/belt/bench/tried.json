@@ -96,5 +96,12 @@
 		"date": "2026-10-07",
 		"slot": 8903,
 		"note": "W535 revisit: MLX port exists (20.6GB) but unservable — rapid-mlx 0.14.3's mlx_lm has no xing4_0 arch (Model type xing4_0 not supported); weights deleted, re-download when the runner supports it"
+	},
+	{
+		"id": "mlx-community/RavenX-CyberAgent-Qwen3.6-35B-A3B-Opus-4.7-OpenMythos-Pentester-BugHunter-RATH-mlx-4bit-mtp-msq",
+		"verdict": "tie",
+		"date": "2026-10-18",
+		"slot": 8903,
+		"note": "132.1 vs 128.4 tok/s nonce-cold"
 	}
 ]
