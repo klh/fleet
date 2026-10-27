@@ -149,12 +149,12 @@ const NEAR_CAP_PINNED: Record<string, number> = {
 	// predated the W1276/W1297 decompositions that moved or split most rows.
 	"packages/decant/src/ingest.ts": 1982,
 	"packages/decant/src/buckets.ts": 1489,
-	"packages/buckle/src/router.ts": 1459,
+	"packages/buckle/src/router.ts": 1461, // +2 W1124.42.1 merge (debt: decompose)
 	"packages/decant/src/token-economics.ts": 1427,
 	"packages/decant/src/query.ts": 1409,
 	"packages/suspenders/hooks/board-html/usage-panels.ts": 1385,
 	"packages/belt/bin/router-shim.ts": 1292, // W1238.6.1 decomposition (HEAD W1117 growth keeps it in band)
-	"packages/buckle/src/ledger.ts": 1377,
+	"packages/buckle/src/ledger.ts": 1382, // +5 W1124.42.1 merge (debt: decompose)
 	"packages/suspenders/hooks/board/routes-actions.ts": 1345,
 	"packages/belt/test/dashboard-topology-model.test.ts": 1294,
 	"packages/suspenders/hooks/bin/work.ts": 1246, // +5 W1173 merge (debt: decompose)

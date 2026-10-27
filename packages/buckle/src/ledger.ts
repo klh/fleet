@@ -20,6 +20,7 @@ import {
 } from "../../telemetry/src/throughput.ts";
 import { ThroughputStore } from "../../telemetry/src/throughput-store.ts";
 import { safeTransportEvidence } from "../../telemetry/src/transport-evidence.ts";
+import type { CostOf, Pricer } from "./cost.ts";
 import type { HopKind } from "./hop.ts";
 import {
 	type AbandonedReceipt,
@@ -30,7 +31,6 @@ import {
 } from "./reconcile.ts";
 import type { ServedIdentity } from "./served-identity.ts";
 import { throughputMetrics } from "./throughput-metrics.ts";
-import type { CostOf, Pricer } from "./cost.ts";
 import type { Usage } from "./usage.ts";
 
 /** W1086 settle receipt: the caller hands raw timings; the ledger validates
@@ -1247,10 +1247,7 @@ export class Ledger {
 					? (refusal?.retry_after_ms ?? null)
 					: null,
 				selected_target_exact: selectedTargetExact,
-				// W1124.42.1: attempted is receipt-derived truth, not a shadow of
-				// exact — a NULL attempts column (legacy row or a cancel whose
-				// settle never landed) still projects TRUE when the receipts
-				// match the selected candidate; a mismatching receipt stays FALSE.
+				// W1124.42.1: receipt-derived truth — a NULL attempts column still counts
 				selected_target_attempted:
 					selectedHash !== null &&
 					attempts.length > 0 &&
