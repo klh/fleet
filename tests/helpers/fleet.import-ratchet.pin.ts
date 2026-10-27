@@ -50,6 +50,14 @@ blam/test/improve-loop.test.ts -> suspenders (../../suspenders/hooks/lib/starter
 blam/test/improve-loop.test.ts -> suspenders (../../suspenders/hooks/lib/starter/starter-distribution.ts)
 blam/test/improve-loop.test.ts -> suspenders (../../suspenders/scripts/lib/lane-starter.ts)
 buckle/src/adapters/errors.ts -> telemetry (../../../telemetry/src/http-trace.ts)
+// W2173.5.3: pre-existing edges pinned deliberately (the closing diff's
+// moved-test re-paths surfaced them; zero new import sites — byte-identical
+// edges that predate this branch, verified against 9f43cdf6).
+buckle/src/proxy-ingress.ts -> telemetry (../../telemetry/src/prefer-header.ts)
+buckle/src/proxy-stream.ts -> telemetry (../../telemetry/src/http-trace.ts)
+buckle/src/wire-stamp.ts -> telemetry (../../telemetry/src/http-trace.ts)
+buckle/src/wire-stamp.ts -> telemetry (../../telemetry/src/prefer-header.ts)
+buckle/test/joined-trace-two-hop.test.ts -> telemetry (../../telemetry/src/remote-traces.ts)
 buckle/src/citizenship.ts -> telemetry (../../telemetry/src/http-trace.ts)
 buckle/src/gov/admin.ts -> telemetry (../../../telemetry/src/remote-traces.ts)
 buckle/src/gov/admin.ts -> telemetry (../../../telemetry/src/trace-log.ts)
