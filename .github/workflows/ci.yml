@@ -186,8 +186,6 @@ jobs:
   # masked.
   artifact-roundtrip:
     runs-on: ubuntu-latest
-    env:
-      ISO: ${{ runner.temp }}/fleet-home
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -195,6 +193,7 @@ jobs:
           bun-version: latest
       - name: isolated-HOME install, installed-entrypoint imports, shim, sweep
         env:
+          ISO: ${{ runner.temp }}/fleet-home
           BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-cache
         run: |
           set -e
@@ -238,15 +237,15 @@ jobs:
   # env_file even at config -q, the W234 lesson).
   hub-render:
     runs-on: ubuntu-latest
-    env:
-      KLH_STACK: ${{ runner.temp }}/ci-stack.json
-      HUBDIR: ${{ runner.temp }}/hub
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
       - name: render, dry-run round-trip, compose validation
+        env:
+          KLH_STACK: ${{ runner.temp }}/ci-stack.json
+          HUBDIR: ${{ runner.temp }}/hub
         run: |
           set -e
           cat > "$KLH_STACK" <<'JSON'
@@ -307,8 +306,8 @@ jobs:
   skills:
     strategy:
       fail-fast: false
-    matrix:
-      os: [ubuntu-latest, macos-latest, windows-latest]
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -317,3 +316,16 @@ jobs:
           bun-version: latest
       - name: skills discovery + install dry-run
         run: bun packages/suspenders/scripts/skills-ci.ts
+
+  # W1759: an invalid workflow file lands as a "workflow file issue" run
+  # with ZERO jobs — every other gate in this file silently stops enforcing.
+  # actionlint is the syntax+context validator; this job fails the push
+  # before GitHub rejects the workflow.
+  workflow-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: actionlint over every workflow
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 \
+            -color
