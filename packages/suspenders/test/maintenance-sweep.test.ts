@@ -169,6 +169,14 @@ describe("maintenance sweep (W779)", () => {
 			join("/fleet", "packages/suspenders"),
 		]);
 	});
+	test("metrics-alert runner argv resolves at the package root (W1773)", () => {
+		const task = MAINTENANCE_TASKS.find((t) => t.name === "metrics-alert");
+		if (!task)
+			throw new Error("metrics-alert task missing from MAINTENANCE_TASKS");
+		expect(task.argv("/r")).toEqual([join("/r", "hooks/bin/metrics-alert.ts")]);
+		const resolved = task.argv(suspendersRoot())[0];
+		expect(existsSync(resolved)).toBe(true);
+	});
 	test("stamps: corrupt or absent file reads as never-ran", () => {
 		writeFileSync(stampsPath, "not-json{");
 		expect(readStamps(stampsPath)).toEqual({});
