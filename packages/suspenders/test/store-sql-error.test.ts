@@ -32,7 +32,7 @@ describe("store sql refusal envelope", () => {
 				err: "UNIQUE constraint failed: t.a",
 				code: STORE_SQL_FAIL,
 				sqlite_code: "SQLITE_CONSTRAINT_PRIMARYKEY",
-				executed: false,
+				executed: "unknown",
 			});
 		} finally {
 			db.close();
@@ -169,7 +169,9 @@ describe("store RPC types SQL failures (W1173)", () => {
 		expect(dup.status).toBe(200);
 		expect(dup.body.code).toBe(STORE_SQL_FAIL);
 		expect(dup.body.sqlite_code).toBe("SQLITE_CONSTRAINT_PRIMARYKEY");
-		expect(dup.body.executed).toBe(false);
+		// W1173.1: an INSERT run-time collision cannot prove non-execution —
+		// the conservative evidence is unknown, never a retry invitation.
+		expect(dup.body.executed).toBe("unknown");
 		expect(String(dup.body.err)).toContain(
 			"UNIQUE constraint failed: work_completion_records.project",
 		);
@@ -207,7 +209,7 @@ try {
 		expect(r.typed).toBe(true);
 		expect(r.code).toBe(STORE_SQL_FAIL);
 		expect(r.sqlite).toBe("SQLITE_CONSTRAINT_PRIMARYKEY");
-		expect(r.executed).toBe(false);
+		expect(r.executed).toBe("unknown");
 		expect(r.msg).toContain("governor store: UNIQUE constraint failed");
 	});
 
@@ -226,5 +228,87 @@ try {
 		expect(body.code).toBe(STORE_SQL_FAIL);
 		expect(body.sqlite_code).toBe("SQLITE_ERROR");
 		expect(body.executed).toBe(false);
+	});
+});
+
+// ── W1173.1 B1: run-time SQL failures can carry partial statement effects ───
+// SQLite conflict clauses (UPDATE OR FAIL keeps the failing statement's own
+// pre-error row changes) mean a refused statement is NOT always a statement
+// with no effects — the envelope must never claim provable non-execution.
+describe("partial statement effects (W1173.1 B1)", () => {
+	let url = "";
+	beforeAll(async () => {
+		url = await startServer(await freePort());
+		childWire.url = url;
+	});
+
+	test("UPDATE OR FAIL reports unknown execution, partial effect persists", async () => {
+		// the B1 shape: unique rows 1,2,3; one UPDATE sets row 1 to 10, then
+		// row 2 collides — OR FAIL preserves the statement's own row change.
+		await rpc(
+			url,
+			"run",
+			"CREATE TABLE w1173_partial (id INTEGER PRIMARY KEY, v INTEGER UNIQUE)",
+		);
+		for (const v of [1, 2, 3])
+			await rpc(url, "run", "INSERT INTO w1173_partial (v) VALUES (?)", [v]);
+		const fail = await rpc(
+			url,
+			"run",
+			"UPDATE OR FAIL w1173_partial SET v = 10",
+		);
+		expect(fail.status).toBe(200);
+		expect(fail.body.code).toBe(STORE_SQL_FAIL);
+		expect(fail.body.sqlite_code).toBe("SQLITE_CONSTRAINT_UNIQUE");
+		// B1: non-execution is NOT provable here — the SELECT below proves the
+		// statement's own pre-error row change persisted.
+		expect(fail.body.executed).toBe("unknown");
+		const after = await rpc(
+			url,
+			"all",
+			"SELECT id, v FROM w1173_partial ORDER BY id",
+		);
+		expect(after.body.rows).toEqual([
+			{ id: 1, v: 10 },
+			{ id: 2, v: 2 },
+			{ id: 3, v: 3 },
+		]);
+	});
+
+	test("prepare-time refusal keeps provable executed:false on /rpc", async () => {
+		// a statement the PREPARE rejects never stepped — non-execution is
+		// provable there, and the evidence stays the strong false.
+		const r = await rpc(url, "get", "SELECT * FROM w1173_missing_table");
+		expect(r.status).toBe(200);
+		expect(r.body.code).toBe(STORE_SQL_FAIL);
+		expect(r.body.sqlite_code).toBe("SQLITE_ERROR");
+		expect(r.body.executed).toBe(false);
+	});
+
+	test("client binding does not blind-retry a SQL refusal", async () => {
+		// every HTTP round trip rides one curl spawnSync; the counter proves the
+		// write refusal surfaced after exactly ONE attempt — the client retry
+		// ladder reads BUSY/tx-open, never store_sql_fail.
+		const out = runChild(`const realSpawnSync = Bun.spawnSync;
+let curlCalls = 0;
+Bun.spawnSync = ((...a) => { curlCalls++; return realSpawnSync(...a); });
+const { openStore } = await import(${JSON.stringify(GOVDB_STORE)});
+const { StoreSqlError } = await import(${JSON.stringify(STORE_ERR_LIB)});
+const s = openStore();
+const before = curlCalls;
+try {
+	s.run("UPDATE OR FAIL w1173_partial SET v = 10");
+	console.log(JSON.stringify({ outcome: "unexpected-success" }));
+} catch (e) {
+	console.log(JSON.stringify({
+		typed: e instanceof StoreSqlError,
+		executed: e.refusal?.executed,
+		delta: curlCalls - before,
+	}));
+}`);
+		const r = JSON.parse(out);
+		expect(r.typed).toBe(true);
+		expect(r.executed).toBe("unknown");
+		expect(r.delta).toBe(1);
 	});
 });

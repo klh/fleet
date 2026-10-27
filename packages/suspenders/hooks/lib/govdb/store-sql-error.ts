@@ -3,16 +3,29 @@
 // `String(e)` (WS); the W1118 re-close collision reached lanes as an opaque
 // store error. One envelope, both transports, same shape discipline as the
 // W716 admission refusal (store-admission.ts): a stable code, the deterministic
-// message, and `executed: false` — a refused statement never proves execution.
+// message, and execution evidence.
+//
+// W1173.1 — the evidence is phase-truthful: `executed: false` only where
+// non-execution is PROVEN (the prepare refused the statement — it never
+// stepped). A run-time failure does NOT prove non-execution: SQLite conflict
+// clauses keep a failing statement's own pre-error row changes (UPDATE OR
+// FAIL persists the rows it already changed before the collision), so the
+// envelope reports `executed: "unknown"` — truthful, and never an invitation
+// to blind-retry a statement whose effects may already be persisted.
 export const STORE_SQL_FAIL = "store_sql_fail";
+
+/** Execution evidence for a refused statement. `false` = provably never
+ * stepped (prepare-time refusal); `"unknown"` = the driver rejected a
+ * stepping statement whose earlier effects may already be persisted. */
+export type SqlExecutionEvidence = false | "unknown";
 
 export interface StoreSqlRefusal {
 	err: string;
 	code: typeof STORE_SQL_FAIL;
 	/** The driver's SQLITE_* class code, e.g. SQLITE_CONSTRAINT_PRIMARYKEY. */
 	sqlite_code: string | null;
-	/** A refused statement is not a statement that ran. */
-	executed: false;
+	/** Execution evidence — provably-not-executed or honestly unknown. */
+	executed: SqlExecutionEvidence;
 }
 
 /** The typed error the HTTP client binding throws for a SQL-refusal body. */
@@ -28,19 +41,26 @@ export class StoreSqlError extends Error {
 export const storeSqlRefusal = (
 	err: string,
 	sqlite_code: string | null,
+	executed: SqlExecutionEvidence,
 ): StoreSqlRefusal => ({
 	err,
 	code: STORE_SQL_FAIL,
 	sqlite_code,
-	executed: false,
+	executed,
 });
 
 /** bun:sqlite throws SQLiteError with a SQLITE_* .code; it is not exported as
- * a class on this Bun, so classification is structural. */
+ * a class on this Bun, so classification is structural. The conservative
+ * default evidence is "unknown" — callers override to `false` only at a
+ * PROVEN boundary (the prepare phase, which never steps the statement). */
 export const classifySqlFailure = (e: unknown): StoreSqlRefusal | null => {
 	const code = (e as { code?: unknown } | null)?.code;
 	return typeof code === "string" && code.startsWith("SQLITE_")
-		? storeSqlRefusal(String((e as Error).message ?? "sql failure"), code)
+		? storeSqlRefusal(
+				String((e as Error).message ?? "sql failure"),
+				code,
+				"unknown",
+			)
 		: null;
 };
 
