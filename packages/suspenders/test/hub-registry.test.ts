@@ -34,6 +34,37 @@ afterAll(() => {
 });
 
 describe("hubRegistryFromStack", () => {
+	test("rejects invalid derived endpoints rather than inventing a front", () => {
+		for (const buckle_port of [0, -1, 1.5, 65536])
+			expect(() =>
+				hubRegistryFromStack({
+					hubs: { invalid: { host: "hub.example", buckle_port } },
+				}),
+			).toThrow("buckle_port");
+		expect(() =>
+			hubRegistryFromStack({
+				hubs: { invalid: { host: "hub.example/path", buckle_port: 4201 } },
+			}),
+		).toThrow("hub host");
+	});
+
+	test("projects the same Buckle endpoint from deploy-only profiles", () => {
+		const reg = hubRegistryFromStack({
+			hubs: {
+				derived: { host: "operator@hub.example", buckle_port: 4201 },
+				ipv6: { host: "::1", buckle_port: 4202 },
+				explicit: {
+					host: "ignored.example",
+					buckle_port: 4203,
+					url: "https://front.example/",
+				},
+			},
+		});
+		expect(reg.derived?.candidates).toEqual(["http://hub.example:4201"]);
+		expect(reg.ipv6?.candidates).toEqual(["http://[::1]:4202"]);
+		expect(reg.explicit?.candidates).toEqual(["https://front.example"]);
+	});
+
 	test("projects url profiles, trims trailing slashes, skips url-less hubs", () => {
 		const reg = hubRegistryFromStack({
 			hubs: {

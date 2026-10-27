@@ -12,7 +12,9 @@ import { resolveHub } from "../hooks/lib/hub/hub-locate.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "claude-hub-locate-home-"));
 const prevHome = process.env.HOME;
+const prevStack = process.env.KLH_STACK;
 process.env.HOME = HOME;
+process.env.KLH_STACK = join(HOME, "stack.json");
 mkdirSync(join(HOME, ".claude", "local-llm"), { recursive: true });
 
 const server = Bun.serve({
@@ -24,10 +26,26 @@ const liveUrl = `http://127.0.0.1:${server.port}`;
 afterAll(() => {
 	server.stop(true);
 	process.env.HOME = prevHome;
+	if (prevStack === undefined) delete process.env.KLH_STACK;
+	else process.env.KLH_STACK = prevStack;
 	rmSync(HOME, { recursive: true, force: true });
 });
 
 describe("resolveHub", () => {
+	test("resolves a stack host and buckle_port without a url or registry entry", async () => {
+		writeFileSync(
+			join(HOME, "stack.json"),
+			JSON.stringify({
+				version: "2.0.0",
+				hubs: { derived: { host: "127.0.0.1", buckle_port: server.port } },
+			}),
+			{ mode: 0o600 },
+		);
+		const hub = await resolveHub("DERIVED");
+		expect(hub?.via).toBe("stack.json");
+		expect(hub?.url).toBe(liveUrl);
+	});
+
 	test("env override wins outright, no probing", async () => {
 		process.env.SUSPENDERS_HUB_IKEA_URL = "http://unreachable.invalid:1";
 		const hub = await resolveHub("IKEA");
