@@ -24,6 +24,29 @@ export function verifiedPauseCheckpoint(
 	return { checkpoint };
 }
 
+/**
+ * W1124.30 bounded operator-pause contract — ONE deterministic text shared by
+ * the managed-runtime pause prompt and the Stop-gate feedback, so a pause turn
+ * never re-derives its own rules: dirty edits are the expected pause state,
+ * gates/push/completion detours are forbidden (they are what burned minutes in
+ * the W1052/W1094/W1131/W1196 pause transcripts), and the checkpoint proof
+ * stays a real ancestor sha verified in code (verifiedPauseCheckpoint), never
+ * a model self-claim.
+ */
+export function boundedPauseContract(sid: string): string {
+	return (
+		"PAUSE TURN IS BOUNDED — end the turn as soon as the checkpoint is banked. " +
+		"Dirty uncommitted edits are the expected pause state and stay exactly as-is. " +
+		"Do NOT run qlty fmt, qlty check or tests, do NOT push, " +
+		"do NOT run work done/release/retry, and do NOT rewrite .fleet/lane-context.json, " +
+		"the claim token or per-lane settings — claim, token and context baseline survive the pause unchanged. " +
+		"Committing is optional (gate-free, only an already-atomic boundary); otherwise leave the edits dirty. " +
+		`Bank the continuation: coord capsule set --as ${sid} --checkpoint=<current full HEAD sha> --done=<truthful progress> --next=<continuation>, ` +
+		`then coord paused --as ${sid} --sha <same full sha>. ` +
+		"The checkpoint must be a real existing ancestor of HEAD — never an invented sha or fabricated progress."
+	);
+}
+
 /** A pause is a lifecycle boundary, not a completed/failed work claim. */
 export function claudeStopPause(
 	store: { query(sql: string): { get(...args: unknown[]): unknown } },
@@ -51,7 +74,7 @@ export function claudeStopPause(
 	}
 	if (state === "PAUSED" && verifiedPauseCheckpoint(capsule, cwd))
 		return "paused";
-	return `STOP-GATE: pause checkpoint is not verified for ${sid}. Preserve your work claim. Commit safe progress, bank coord capsule set --as ${sid} --checkpoint=<real-full-ancestor-sha> --done=<progress> --next=<continuation>, then coord paused --as ${sid} --sha <same-full-sha>. Do not finish or fail the work item merely to pause.`;
+	return `STOP-GATE: pause checkpoint is not verified for ${sid}. ${boundedPauseContract(sid)} Do not finish or fail the work item merely to pause.`;
 }
 
 const run = promisify(execFile);
@@ -100,7 +123,10 @@ export function claudeWakeControl(
 }
 
 export function claudePausePrompt(sid: string, text: string): string {
-	return `${text}\nFLEET_MANAGED_PAUSE: Stop normal work at the smallest safe atomic boundary. Commit safe progress, then bank a continuation with coord capsule set --as ${sid} --checkpoint=<real-full-sha> --done=<progress> --next=<continuation>, then coord paused --as ${sid} --sha <same-full-sha>. Do not claim PAUSED without that canonical proof. End this turn after the checkpoint. Fleet will keep this native session waiting; do not run a polling loop or continue work until resume_ready.`;
+	return (
+		`${text}\nFLEET_MANAGED_PAUSE: ${boundedPauseContract(sid)} ` +
+		"End this turn after the checkpoint. Fleet keeps this native session waiting; do not run a polling loop or continue work until resume_ready."
+	);
 }
 
 export function claudeResumePrompt(sid: string, text: string): string {
