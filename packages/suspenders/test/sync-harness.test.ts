@@ -46,14 +46,22 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		mkdirSync(join(file, ".."), { recursive: true });
 		writeFileSync(file, value);
 	};
-	for (const name of ["suspenders", "belt", "local-llm", "blam", "buckle"])
+	// scoped names match the real payload packages (@klh/*) — the private-name
+	// derivation (W1281.9) keys on the manifest names as shipped.
+	for (const [dir, name] of [
+		["suspenders", "@klh/suspenders"],
+		["belt", "belt"],
+		["local-llm", "local-llm"],
+		["blam", "@klh/blam"],
+		["buckle", "@klh/buckle"],
+	] as const)
 		put(
-			`packages/${name}/package.json`,
+			`packages/${dir}/package.json`,
 			JSON.stringify({
 				name,
 				version: "1.0.0",
 				type: "module",
-				dependencies: name === "suspenders" ? { blam: "workspace:*" } : {},
+				dependencies: dir === "suspenders" ? { blam: "workspace:*" } : {},
 			}),
 		);
 	for (const name of [
@@ -335,6 +343,46 @@ test("installed harness resolves staged Fleet packages locally", async () => {
 	expect(installed.dependencies["@klh/buckle"]).toBeUndefined();
 	expect(existsSync(join(f.ctx.prefix, "node_modules/@klh/blam"))).toBe(true);
 	expect(existsSync(join(f.ctx.prefix, "node_modules/@klh/buckle"))).toBe(true);
+});
+
+// A25 (W1281.9): the private-name filter derives from the shipped manifests,
+// not a hardcoded pair — a NEW private @klh package must install without the
+// registry ever being consulted (the fixture has no @klh/* registry names;
+// the offline resolver would fail the sync on any leaked private dep).
+test("a new private staged package installs without consulting the registry", async () => {
+	const f = fixture();
+	f.put(
+		"packages/telemetry/package.json",
+		JSON.stringify({ name: "@klh/telemetry", version: "1.0.0", type: "module" }),
+	);
+	f.put(
+		"packages/suspenders/package.json",
+		JSON.stringify({
+			name: "@klh/suspenders",
+			version: "2.0.0",
+			type: "module",
+			dependencies: {
+				"@klh/blam": "2.0.0",
+				"@klh/buckle": "2.0.0",
+				"@klh/telemetry": "1.0.0",
+			},
+		}),
+	);
+	f.git("add", ".");
+	f.git(
+		"-c",
+		"user.name=Fixture",
+		"-c",
+		"user.email=fixture@example.invalid",
+		"commit",
+		"-m",
+		"third private dependency",
+	);
+	await syncHarness(f.ctx);
+	const installed = JSON.parse(
+		readFileSync(join(f.ctx.prefix, "package.json"), "utf8"),
+	);
+	expect(installed.dependencies["@klh/telemetry"]).toBeUndefined();
 });
 
 test.each(["syntax", "import", "execution"] as const)(
