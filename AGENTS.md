@@ -87,6 +87,11 @@ GitHub push — W422.9/W422.1).
   files ⇒ deps or devDeps). kernel imports nothing in fleet; domain
   packages may import kernel once it lands. Graph + entry-point map:
   docs/fleet.entry-points.map.md.
+- **One test framework (W1294)**: every test is a tagged `*.e2e.ts`
+  @playwright/test spec — the tracked non-decant `*.test.ts` count is
+  ratcheted shrink-only in tests/test-framework-guard.test.ts; a new
+  `*.test.ts` fails the guard. Every migration wave re-pins the ceiling
+  DOWN in the same landing (vendored decant exempt).
 
 ## Working agreements
 

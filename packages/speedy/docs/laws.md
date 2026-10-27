@@ -199,3 +199,13 @@ prettified parse error) instead of producing a malformed row. Buckle's
 `/v1/admin/*` bodies are migrated (`src/gov/admin-schemas.ts`).
 
 Source: AGENTS.md §Schema law (W1238.4); packages/buckle/AGENTS.md §Schema law
+
+## One test framework (W1294)
+
+Every test is a tagged `*.e2e.ts` @playwright/test spec — a new
+`*.test.ts` is a ratchet failure. The tracked non-decant `*.test.ts`
+count is ratcheted shrink-only in tests/test-framework-guard.test.ts;
+every migration wave re-pins the ceiling DOWN in the same landing
+(vendored decant exempt).
+
+Source: AGENTS.md §One test framework (W1294); tests/test-framework-guard.test.ts
