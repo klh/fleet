@@ -7,8 +7,8 @@
 // (hooks/lib/hub/hub-locate.ts + stack.yaml) — never a new one.
 //
 // resolveHubForPath precedence: the repo's .prefer pin (exec-chain `hub=`
-// parser + the W519 routing plane's first-token-vs-known-hubs) > repos
-// longest-prefix match > default. A repo pinning the ikea copilot sends THAT
+// parser — the SOLE pin, W1354.1: a quoted prefer= head token never routes)
+// > repos longest-prefix match > default. A repo pinning the ikea copilot sends THAT
 // repo through the ikea hub; everything else rides the configured default.
 //
 // Three emission faces per enabled app:
@@ -37,7 +37,6 @@ import { dirname, join, resolve as resolvePath } from "node:path";
 import { readRegistry, resolveHub } from "../../hooks/lib/hub/hub-locate.ts";
 import { tryLoadStack } from "../../hooks/lib/stack-config.ts";
 import { preferOf } from "./exec-chain.ts";
-import { parseRoutingPrefer } from "./prefer-routing.ts";
 import {
 	type Parsed,
 	type VerbSpec,
@@ -199,16 +198,18 @@ export const knownHubLabel = (
 ): string | null =>
 	known.find((l) => l.toLowerCase() === label.trim().toLowerCase()) ?? null;
 
-/** The .prefer pin: walk up from the path, nearest .prefer wins. Two planes
- *  share one file: the executor chain's unquoted `hub=Label` (exec-chain.ts
- *  preferOf — explicit, wins) and the W519 routing plane whose prefer
- *  expression's FIRST token names a known hub (`prefer = "ikea llms"` pins
- *  ikea when ikea is a registered label). parseRoutingPrefer flags the
- *  cross-plane `hub=` as unknown-key errors — expected noise, never fatal. */
-export function preferPin(
-	startPath: string,
-	known: string[] = knownHubs(),
-): { hub: string; hubUrls: string[]; source: string } | null {
+/** The .prefer pin: walk up from the path, nearest .prefer wins. The ONLY
+ *  pin is the executor chain's unquoted `hub=Label` (exec-chain.ts preferOf
+ *  — explicit, wins). W1354.1: the routing plane's quoted prefer= expression
+ *  never pins — a quoted must=/prefer= line is a SOFT hint (W1353), so its
+ *  head token naming a hub label no longer routes the repo (was: first token
+ *  vs known hubs). parseRoutingPrefer flags the cross-plane `hub=` as
+ *  unknown-key errors — expected noise, never fatal. */
+export function preferPin(startPath: string): {
+	hub: string;
+	hubUrls: string[];
+	source: string;
+} | null {
 	// a nonexistent path is fine — walk from its nearest existing ancestor
 	const st = existsSync(startPath) ? statSync(startPath) : null;
 	let dir = st?.isDirectory() ? startPath : dirname(resolvePath(startPath));
@@ -217,10 +218,6 @@ export function preferPin(
 		if (existsSync(f)) {
 			const p = preferOf(dir);
 			if (p.hub) return { hub: p.hub, hubUrls: p.hubUrls, source: f };
-			const routing = parseRoutingPrefer(f, readFileSync(f, "utf8"));
-			const head = routing.prefer?.trim().split(/\s+/)[0] ?? "";
-			const viaExpr = knownHubLabel(head, known);
-			if (viaExpr) return { hub: viaExpr, hubUrls: [], source: f };
 		}
 		const parent = dirname(dir);
 		if (parent === dir) break;
@@ -230,13 +227,13 @@ export function preferPin(
 }
 
 /** resolveHubForPath — the ONE decision: prefer-pin > repos longest-prefix >
- *  default. Pure over cfg + the injected known-hub set (no network). */
+ *  default. Pure over cfg (no network). W1354.1: the injected known-hub set
+ *  is gone with the head-token pin — only unquoted hub= pins. */
 export function resolveHubForPath(
 	path: string,
 	cfg: ConnectionsConfig,
-	known: string[] = knownHubs(),
 ): HubResolution {
-	const pin = preferPin(path, known);
+	const pin = preferPin(path);
 	if (pin) return { hub: pin.hub, via: "prefer-pin", source: pin.source };
 	const repo = longestPrefixHub(cfg.repos ?? {}, path);
 	if (repo) return { hub: repo.hub, via: "repos", source: repo.source };
