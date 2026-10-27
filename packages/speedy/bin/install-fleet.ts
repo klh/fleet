@@ -39,7 +39,6 @@
 import { spawnSync } from "node:child_process";
 import {
 	chmodSync,
-	cpSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
@@ -49,7 +48,7 @@ import {
 	statSync,
 	writeFileSync,
 } from "node:fs";
-import { hostname, homedir, tmpdir, userInfo } from "node:os";
+import { homedir, hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 
 // ─── Constants ────────────────────────────────────────────────────────────
@@ -67,7 +66,6 @@ const FLEET_CHECKOUT = () => process.env.FLEET_CHECKOUT;
 const SUSPENDERS_MARKER = () =>
 	join(fleetHome(), ".claude/hooks/suspenders/bin/work.ts");
 const SWARM_MARKER = () => join(fleetHome(), ".claude/local-llm/registry.ts");
-const BUCKLE_MARKER = () => join(fleetHome(), ".claude/buckle/src/server.ts");
 const KLH_LOCAL_MARKER = () => join(fleetHome(), ".local/bin/klh-local");
 const HUB_CONFIG = () => join(fleetHome(), ".claude/local-llm/hubs.json");
 const HUB_ENV = () => join(fleetHome(), ".claude/local-llm/hub.env");
@@ -165,8 +163,8 @@ export function buildPlan(flags: FleetFlags): PhaseStep[] {
 		steps.push({
 			phase: "buckle",
 			label:
-				"packages/buckle — bun install, launchd com.klh.buckle (shadow :4101)",
-			state: existsSync(BUCKLE_MARKER()) ? "present — skip" : "install",
+				"packages/buckle — router plane unit from deploy/services.yaml (buckle-spoke :4101), no hand-written plist",
+			state: "verify",
 		});
 	}
 	if (!flags.only || flags.only === "suspenders") {
@@ -342,85 +340,74 @@ function beltTier(root: string, flags: FleetFlags): PhaseResult {
 		: { ok: false, detail: "belt installer failed" };
 }
 
+// W1467: launchd units are manifest-owned (packages/suspenders/deploy/
+// services.yaml). The label comes from the ONE renderer — its import closure
+// carries no npm deps, so it runs before any bun install — never a hand plist.
+export interface ManifestUnit {
+	label: string;
+	port?: number;
+}
+
+export function manifestUnit(
+	root: string,
+	service: string,
+): ManifestUnit | null {
+	const renderer = join(
+		root,
+		"packages/suspenders/scripts/install-services.ts",
+	);
+	const argv = ["--target", "darwin", "--service", service, "--json"];
+	return withTempDir((out) => {
+		const r = spawnSync(process.execPath, [renderer, ...argv, "--out", out], {
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		if (r.status !== 0) return null;
+		try {
+			const rendered = JSON.parse(r.stdout) as {
+				services?: { files?: string[]; port?: number }[];
+			};
+			const unit = rendered.services?.[0];
+			const plist = unit?.files?.find((f) => f.endsWith(".plist"));
+			if (!plist) return null;
+			return { label: plist.replace(/\.plist$/, ""), port: unit?.port };
+		} catch {
+			return null;
+		}
+	});
+}
+
+// The router plane's unit is buckle-spoke (:4101, behind the activation
+// fence): the suspenders phase's install --with-launchd registers it and
+// boots out the retired hand-written com.klh.buckle (legacyLabels).
+const BUCKLE_SERVICE = "buckle-spoke";
+
 function bucklePhase(): PhaseResult {
-	const marker = BUCKLE_MARKER();
-	if (existsSync(marker)) {
-		return { ok: true, detail: "buckle already deployed" };
-	}
-	const bunAbs = resolveBun();
 	return withFleetCheckout((root) => {
-		const source = root ? join(root, "packages/buckle") : null;
-		if (!source || !existsSync(join(source, "src/server.ts"))) {
+		if (!root || !existsSync(join(root, "packages/buckle/src/server.ts"))) {
 			return {
 				ok: false,
 				detail:
 					"no fleet checkout available (clone failed) — continuing without the router plane",
 			};
 		}
-		const target = join(fleetHome(), ".claude/buckle");
-		mkdirSync(target, { recursive: true });
-		cpSync(source, target, {
-			recursive: true,
-			// a dev checkout carries node_modules/.git — the target reinstalls fresh
-			filter: (src) => !/(^|\/)node_modules$|(^|\/)\.git$/.test(src),
-		});
-		const inst = spawnSync(bunAbs, ["install"], {
-			cwd: target,
-			stdio: "inherit",
-		});
-		if (inst.status !== 0)
-			warn("buckle bun install failed (optional) — continuing without it");
-		const plist = writeBucklePlist(target, bunAbs);
-		let loadNote = "plist written, not loaded";
-		if (plist) {
-			const uid = String(userInfo().uid);
-			const boot = spawnSync("launchctl", ["bootstrap", `gui/${uid}`, plist], {
-				stdio: "pipe",
-			});
-			loadNote =
-				boot.status === 0
-					? "launchd loaded (com.klh.buckle)"
-					: "launchd bootstrap skipped (already loaded or unsupported)";
+		const unit = manifestUnit(root, BUCKLE_SERVICE);
+		if (!unit) {
+			return {
+				ok: false,
+				detail: `deploy/services.yaml renders no ${BUCKLE_SERVICE} unit — router plane unowned`,
+			};
 		}
+		const port = unit.port === undefined ? "" : ` :${unit.port}`;
+		const agents = join(fleetHome(), "Library/LaunchAgents");
+		const state = existsSync(join(agents, `${unit.label}.plist`))
+			? "registered"
+			: "the suspenders phase (install --with-launchd) registers it";
 		return {
 			ok: true,
-			detail: `buckle in ${target} — shadow :4101, logs in ~/.claude-insights/ (${loadNote})`,
+			detail: `${unit.label}${port} owned by deploy/services.yaml — ${state}`,
 		};
 	});
-}
-
-// com.klh.buckle — absolute paths everywhere (launchd has no shell, no PATH).
-function writeBucklePlist(target: string, bunAbs: string): string | null {
-	if (process.platform !== "darwin") return null;
-	const home = fleetHome();
-	const insights = join(home, ".claude-insights");
-	mkdirSync(insights, { recursive: true });
-	const plistPath = join(home, "Library/LaunchAgents/com.klh.buckle.plist");
-	mkdirSync(join(home, "Library/LaunchAgents"), { recursive: true });
-	const plist = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>com.klh.buckle</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>${bunAbs}</string>
-    <string>${join(target, "src/server.ts")}</string>
-  </array>
-  <key>WorkingDirectory</key><string>${target}</string>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>HOME</key><string>${home}</string>
-  </dict>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>${join(insights, "buckle.log")}</string>
-  <key>StandardErrorPath</key><string>${join(insights, "buckle.err")}</string>
-</dict>
-</plist>
-`;
-	writeFileSync(plistPath, plist);
-	return plistPath;
 }
 
 function suspendersPhase(flags: FleetFlags): PhaseResult {

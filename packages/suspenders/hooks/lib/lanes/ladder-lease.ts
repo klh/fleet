@@ -66,13 +66,15 @@ export function shaResolves(
 	return { ok: true, why: "" };
 }
 
-// W1072.2: the operator merge hold — an explicit `.fleet/merge-hold` marker
-// distinct from the dispatch pause. Manual integration (cherry-picks, review
-// merges) owns the checkout while it exists; the ladder defers ALL merges
-// for its lifetime. A deferral, not a failure: no strike, no NEED_DECISION.
-export function mergeHoldActive(repo: string): boolean {
-	return existsSync(join(repo, ".fleet", "merge-hold"));
-}
+// W1072.2 + W1302.1: the operator merge hold — an explicit `.fleet/merge-hold`
+// marker distinct from the dispatch pause. Manual integration (cherry-picks,
+// review merges) owns the checkout while it exists; the ladder defers ALL
+// merges for its lifetime. A deferral, not a failure: no strike. The
+// implementation lives in fleet-loop/merge-hold.ts since W1302.1 — the hold
+// is a contract (owner/reason/expiresAt), not a bare marker: malformed or
+// expired holds read as inactive there and enforceMergeHold sets them aside
+// with a NEED_DECISION, so no hold defers merges forever (A2).
+export { mergeHoldActive } from "../fleet-loop/merge-hold.ts";
 
 // W1072.2: Git in-progress state in the integration checkout — a cherry-pick,
 // merge, or rebase the operator (or a crashed runner) left unconcluded. The

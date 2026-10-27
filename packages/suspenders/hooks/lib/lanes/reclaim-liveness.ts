@@ -100,6 +100,10 @@ export type ClaimObservation = {
 	now?: number;
 	/** W1072.3: injected ps roster (tests) — the recycled-pid bound rides it. */
 	inspect?: ProcessInspector;
+	/** W1302.5: lane sid → ACTIVE in-flight request at the buckle gate. When
+	 *  the transport names the owner, the claim reads alive — production at
+	 *  the gate is not idleness (O1), with or without a lane-registry entry. */
+	transport?: Map<string, boolean>;
 };
 
 /** Read-only verdict — no counter writes, safe for listing surfaces. */
@@ -113,8 +117,13 @@ export function probeClaim(
 	const holdUntil =
 		lease && lease.holdUntil > now ? (lease.holdUntil as number) : null;
 	let verdict: ReclaimVerdict = obs.lane
-		? laneVerdict(obs.lane, obs.inspect)
+		? laneVerdict(obs.lane, obs.inspect, undefined, obs.transport)
 		: "unknown";
+	// W1302.5: transport evidence outranks a missing registry row — a claimant
+	// holding an in-flight gate request reads alive before any death path
+	// (W972 session absence included) can classify it.
+	if (verdict !== "alive" && obs.transport?.get(obs.owner) === true)
+		verdict = "alive";
 	let deathEvidence: string | undefined;
 	if (verdict !== "alive" && hbFresh(store, obs.owner, now)) verdict = "alive";
 	// W972: positive absence on BOTH terms is death evidence, not lookup

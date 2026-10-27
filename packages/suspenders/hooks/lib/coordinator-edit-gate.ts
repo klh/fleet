@@ -168,7 +168,7 @@ export function sessionRole(cwd: string): SessionRole {
 }
 
 export const coordinatorDenyText = (rel: string): string =>
-	`coordinator-edit-gate: ${rel} is a structural repo write — dispatch it instead: work add + dispatch (or work take); lanes carry the write role. Direct coordinator writes: *.md (docs/specs/plans) and .fleet/** only. SUSPENDERS_COORD_EDIT_GATE=0 disables.`;
+	`coordinator-edit-gate: ${rel} is a structural repo write — dispatch it instead: work add + dispatch (or work take); lanes carry the write role. Direct coordinator writes: *.md (docs/specs/plans) and .fleet/** only. Repo .prefer hub pins: \`prefer set hub=<label>\` (W1354) is the supported exempt write. SUSPENDERS_COORD_EDIT_GATE=0 disables.`;
 
 // W14: void, not never — chained in the pre-files pipeline (one process per
 // Edit/Write); deny() exits hard, every other path returns and the chain

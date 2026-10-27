@@ -12,6 +12,7 @@ import { type AidsLedger, parseAids, tokensEstimate } from "./aids.ts";
 import { alignBody, alignForUpstream } from "./align.ts";
 import { type DietStore, pruneOptsOf, pruneTrajectory } from "./diet.ts";
 import type { Expander } from "./expand.ts";
+import { RouteTable } from "./http-kit.ts";
 import { readBoundedJson } from "./ingress-body.ts";
 import type { AidsPolicy } from "./policy.ts";
 import type { Preseeder } from "./preseed.ts";
@@ -326,27 +327,61 @@ export function gateCacheAlign(
 	return aligned?.body ?? null;
 }
 
-/** The aids route table, dispatched from createApp. Unknown /aids/* paths
- *  fall through (404 from the main dispatch). */
+// W1303.2: the family dispatch rides the shared kit RouteTable (URLPattern
+// matching, automatic HEAD/OPTIONS, 404-vs-405 decided structurally, wrong
+// method → 405 problem + Allow). Responses keep the family's ok:true json
+// shape — adoption changes the routing law, not the payload grammar.
+// Compiled once per deps instance (URLPattern construction is the cost).
+const aidsTables = new WeakMap<AidsDeps, RouteTable>();
+
+function aidsTableOf(deps: AidsDeps): RouteTable {
+	let t = aidsTables.get(deps);
+	if (t !== undefined) return t;
+	t = new RouteTable(
+		[
+			{
+				method: "POST",
+				pattern: "/aids/preseed",
+				handler: ({ req }) => aidsPreseed(deps, req),
+			},
+			{
+				method: "POST",
+				pattern: "/aids/expand",
+				// bare deps (no expander) 404 honestly — the AppDeps contract
+				handler: ({ req }) => (deps.expander ? aidsExpand(deps, req) : null),
+			},
+			{
+				method: "GET",
+				pattern: "/aids/status",
+				handler: () => aidsStatus(deps),
+			},
+			{
+				method: "GET",
+				pattern: "/aids/rollup",
+				handler: ({ url }) =>
+					aidsRollup(deps, Number(url.searchParams.get("hours") ?? "24")),
+			},
+			{
+				method: "GET",
+				pattern: "/aids/events",
+				handler: ({ url }) =>
+					aidsEvents(deps, Number(url.searchParams.get("since") ?? "0")),
+			},
+		],
+		{ service: "buckle" },
+	);
+	aidsTables.set(deps, t);
+	return t;
+}
+
+/** The aids route table, dispatched from createApp (W1303.2: rides the kit
+ *  RouteTable). Unknown /aids/* paths fall through (404 from the main
+ *  dispatch). */
 export async function aidsRoutes(
 	deps: AidsDeps,
 	req: Request,
-	path: string,
 ): Promise<Response | null> {
-	const url = new URL(req.url);
-	if (req.method === "POST" && path === "/aids/preseed")
-		return aidsPreseed(deps, req);
-	if (req.method === "POST" && path === "/aids/expand") {
-		// bare deps (no expander) 404 honestly — the AppDeps contract
-		if (!deps.expander) return null;
-		return aidsExpand(deps, req);
-	}
-	if (req.method === "GET" && path === "/aids/status") return aidsStatus(deps);
-	if (req.method === "GET" && path === "/aids/rollup")
-		return aidsRollup(deps, Number(url.searchParams.get("hours") ?? "24"));
-	if (req.method === "GET" && path === "/aids/events")
-		return aidsEvents(deps, Number(url.searchParams.get("since") ?? "0"));
-	return null;
+	return aidsTableOf(deps).serve(req);
 }
 
 /** GET /aids/events?since=MS — raw event pull for the suspenders-side

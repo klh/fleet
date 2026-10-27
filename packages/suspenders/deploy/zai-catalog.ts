@@ -13,7 +13,9 @@ import {
 	parseZaiModelIds,
 	readZaiSnapshot,
 	ZAI_CATALOG_URL,
+	zaiCatalogFile,
 	type ZaiCatalogSnapshot,
+	ZaiSnapshotStaleError,
 } from "../../belt/bin/zai-catalog-rows.ts";
 import { assertProviderConcurrencyErrorCodes } from "../../buckle/src/provider-pressure.ts";
 import { validateOutboundGuardConfig } from "../../buckle/src/outbound-guard.ts";
@@ -156,6 +158,45 @@ export function writeZaiSnapshot(
 		throw error;
 	}
 	return changed;
+}
+
+export type ZaiStaleResult =
+	| { kind: "refreshed"; models: number }
+	| { kind: "delta"; added: string[]; removed: string[] }
+	| { kind: "failed"; why: string };
+
+// Timestamp-only stale snapshot: rewrite in place only when the live chat model set matches. null = nothing to repair.
+export async function refreshStaleZaiSnapshot(
+	home: string,
+	fetcher: typeof fetch = fetch,
+	env: Record<string, string | undefined> = process.env,
+): Promise<ZaiStaleResult | null> {
+	const path = zaiCatalogFile(home, env);
+	let stale: ZaiCatalogSnapshot;
+	try {
+		readZaiSnapshot(path);
+		return null;
+	} catch (error) {
+		if (!(error instanceof ZaiSnapshotStaleError)) return null;
+		stale = error.snapshot;
+	}
+	try {
+		const keyFile = join(home, ".claude", "local-llm", "zai.key");
+		const live = await fetchZaiCatalog(keyFile, fetcher);
+		const added = live.model_ids.filter((id) => !stale.model_ids.includes(id));
+		const removed = stale.model_ids.filter(
+			(id) => !live.model_ids.includes(id),
+		);
+		if (added.length > 0 || removed.length > 0)
+			return { kind: "delta", added, removed };
+		writeZaiSnapshot(path, live);
+		return { kind: "refreshed", models: live.model_ids.length };
+	} catch (error) {
+		return {
+			kind: "failed",
+			why: error instanceof Error ? error.message : String(error),
+		};
+	}
 }
 
 export function mergeZaiHubUpstreams(

@@ -110,6 +110,11 @@ export interface BeltView {
 	/** W858.10.3: the /api/console/network payload — SSR seed for the
 	 *  Network overview card; the card re-fetches live every 10s. */
 	network: NetworkPayload | null;
+	/** W1294.2.1: the belt read feed answered 200 for its chunk set — the
+	 *  belt page emits the topology/model-access script tags only then, so a
+	 *  stale runtime home degrades gracefully instead of 404-console-erroring
+	 *  on every load. */
+	beltAssetsUp?: boolean;
 }
 
 // W669.11: the belt policy card's display slice — four states, rendered by
@@ -192,6 +197,18 @@ const CARDS_SCRIPT = `<script type="module" src="/vendor/klh-console-cards.js"><
 // W695.3.2: the settings form widgets (executor editor, diff view) bundle
 const FORMS_SCRIPT = `<script type="module" src="/vendor/klh-console-forms.js"></script>`;
 
+// W1294.2.1: the topology/model-access chunks live in belt's runtime home,
+// not this repo. When the read feed's freshness probe failed
+// (beltAssetsUp === false) the page swaps the tags for a heal hint — a
+// stale install must not console-error on every load. Absent flag (legacy
+// view builders) keeps the tags.
+const beltAssetScripts = (v: BeltView): string =>
+	v.beltAssetsUp === false
+		? `<p class="dimpl">Belt asset feed unavailable — topology renderers disabled (heal with packages/belt/install.sh).</p>`
+		: `<script type="module" src="/console/buckle-assets/dashboard-topology.js"></script>` +
+			`<script type="module" src="/console/buckle-assets/dashboard-topology-hubs.js"></script>` +
+			`<script type="module" src="/console/buckle-assets/dashboard-model-access.js"></script>`;
+
 export const beltPage = (v: BeltView, me?: ConsoleMe): string => {
 	const body =
 		`<style>${PILL_CSS}${PAGE_CSS}${INVENTORY_CSS}</style>` +
@@ -212,9 +229,7 @@ export const beltPage = (v: BeltView, me?: ConsoleMe): string => {
 		upstreamsCard(v) +
 		`</details>` +
 		`<script>globalThis.KLH_GATEWAY_READ_BASE = "/api/console/buckle";</script>` +
-		`<script type="module" src="/console/buckle-assets/dashboard-topology.js"></script>` +
-		`<script type="module" src="/console/buckle-assets/dashboard-topology-hubs.js"></script>` +
-		`<script type="module" src="/console/buckle-assets/dashboard-model-access.js"></script>` +
+		beltAssetScripts(v) +
 		CARDS_SCRIPT;
 	return consolePage("Buckle gateway", "buckle", body, me);
 };

@@ -6,7 +6,10 @@
 // parity: registry process identity + claimant transcript + governor
 // heartbeat, death repeated STRIKES_TO_RECLAIM consecutive passes
 // (fact-counted), `work extend` leases honored, unknown NEVER releases
-// (monitor doctrine W51: lookup failure is never death).
+// (monitor doctrine W51: lookup failure is never death). W1302.5: an
+// optional transport map (lane sid → ACTIVE in-flight request at the
+// buckle gate) keeps a producing claimant out of the reaper — missing
+// evidence never blocks (the O1 admission-misfire guard).
 
 import {
 	automaticRecoveryCheck,
@@ -42,6 +45,7 @@ export function reclaimAll(
 	store: GovernorStore,
 	project: string,
 	registryDir: string,
+	transport?: Map<string, boolean>,
 ): ReclaimAllRow[] {
 	const claimants = lanesBySid(registryDir);
 	const rows = store
@@ -79,6 +83,7 @@ export function reclaimAll(
 			owner,
 			revision: Number(r.updated_at),
 			lane: claim.lane,
+			transport,
 		});
 		if (d.action !== "release") {
 			out.push({ id, action: "held", why: d.why });

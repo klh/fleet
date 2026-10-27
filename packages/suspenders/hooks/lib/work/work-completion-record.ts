@@ -3,8 +3,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { benchDocsVerdict } from "../gates/bench-docs-gate.ts";
 import { claimCheckVerdict } from "../gates/claim-check.ts";
+import { launchClient, resolveClient } from "../executors/detect.ts";
 import { scanCompletionDiff } from "../executors/fake-completion.ts";
 import { type GovernorStore, projectRootOf } from "../govdb/govdb.ts";
+import { importLawVerdict } from "../import-law.ts";
 import { patchFirstVerdict } from "../patch-first.ts";
 import { resolveTranscriptPath } from "../transcript.ts";
 import {
@@ -132,6 +134,32 @@ export function completionTranscriptPath(
 		cwd,
 		transcript_path: session?.transcript_path ?? undefined,
 	});
+}
+
+/** W1731 design.client-adapter-dispatch: the client whose registry evidence
+ * reader parses the transcript above. The launcher-registered
+ * lane.<sid>.executor fact wins (a lane cannot self-assert it); ambient
+ * detection fills in only when none exists, and a disagreement — a nested
+ * agent's inherited environment — warns loudly and is never adopted. */
+export function completionClient(
+	db: CompletionStore,
+	sid: string,
+	detected: string | null,
+): string {
+	let launch: string | null = null;
+	try {
+		const row = db
+			.query(
+				"SELECT value FROM facts WHERE key = ? AND source IN ('dispatch', 'fleet-board')",
+			)
+			.get(`lane.${sid}.executor`) as { value?: string | null } | null;
+		launch = launchClient(row?.value);
+	} catch {
+		// Legacy fixture without a facts table: no registered launch identity.
+	}
+	const resolved = resolveClient(launch, detected);
+	if (resolved.mismatch) console.error(`warning: ${resolved.mismatch}`);
+	return resolved.client;
 }
 const productPath = (path: string): boolean =>
 	!/^((\.fleet|\.claude|\.agents|node_modules)(\/|$)|\.klh-(brief|done)\.md$|\.workgraph\.jsonl$)/.test(
@@ -277,6 +305,8 @@ export function prepareCompletion(
 		summary: string | null;
 		/** W643: --token / KLH_CLAIM_TOKEN as passed by work done. */
 		token?: string | null;
+		/** W1731: ambient client detection (detectClient) — advisory only. */
+		detected?: string | null;
 	},
 ): CompletionRecord {
 	let context: LaneContext | null = null;
@@ -552,9 +582,24 @@ export function prepareCompletion(
 		tryGit(shaRepo, "merge-base", "--is-ancestor", baseline, branchBase)
 			? branchBase
 			: null;
+	// W1302.4 import-law ratchet: relative reach-in edges ADDED by this
+	// branch refuse closure — the boundary drifts at the lane, not at
+	// CI/merge (the W1286.1 drift surfaced only at merge). The base is the
+	// widest honest window: branch merge-base over the claim baseline, the
+	// cross-repo diff base, or the closing commit's parent.
+	const il = importLawVerdict({
+		repo: shaRepo,
+		paths,
+		baseRef: crossRepo
+			? (diffBase ?? `${sha}^`)
+			: (claimCheckBase ?? baseline ?? `${sha}^`),
+		sha,
+	});
+	if (!il.ok) throw new Error(il.why ?? "import-law refusal");
 	const cc = claimCheckVerdict({
 		transcriptPath:
 			completionTranscriptPath(db, o.project, o.sid, o.cwd) ?? undefined,
+		client: completionClient(db, o.sid, o.detected ?? null),
 		capsuleDone:
 			(capsule.item === o.item || (!o.summary && !capsule.item)) &&
 			typeof capsule.done === "string"

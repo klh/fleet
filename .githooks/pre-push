@@ -5,6 +5,11 @@
 command -v bun >/dev/null 2>&1 || exit 0
 FLEET_ROOT="$(git rev-parse --show-toplevel)"
 bun "$FLEET_ROOT/.githooks/post-commit" --full || exit 1
+# W1303.4 schema-first: the committed buckle OpenAPI must match the wire
+# schemas (fail only when the tool exists in this repo).
+if [ -f "$FLEET_ROOT/packages/buckle/bin/gen-openapi.ts" ]; then
+  bun "$FLEET_ROOT/packages/buckle/bin/gen-openapi.ts" --check || exit 1
+fi
 P="${SUSPENDERS_PREFIX:-$HOME/.claude/hooks/suspenders}"
 [ -f "$P/hooks/bin/scrub-gate.ts" ] || P="$(git rev-parse --show-toplevel)/packages/suspenders"
 [ -f "$P/hooks/bin/scrub-gate.ts" ] || exit 0

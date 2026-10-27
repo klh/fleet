@@ -62,6 +62,7 @@ import { loadAgentRules } from "./lib/agent-rules.ts";
 import { recoverOrphanClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import { isDeferredItem } from "./lib/dispatch-defers.ts";
+import type { ChosenExecutor } from "./lib/dispatch-executor-note.ts";
 import { fleetReport } from "./lib/fleet-report.ts";
 import { activeRateLimitWalls } from "./lib/launch-backoff.ts";
 import {
@@ -246,6 +247,8 @@ const launchWaits: string[] = [];
 // W695.1: seed-failure fallbacks — dispatched cold because the starter seed
 // failed. Surfaced in the final summary line and carried on the registry row.
 const seedFallbacks: string[] = [];
+// W1353: one row per lane launched/previewed this run — the tail's executor table.
+const chosenExecutors: ChosenExecutor[] = [];
 const routeAdmission = new RouteAdmission(
 	!DRY && !NO_BELT,
 	probeBuckleFront,
@@ -332,6 +335,7 @@ const dispatchItem = async (
 			governanceRefusals,
 			launchWaits,
 			seedFallbacks,
+			chosenExecutors,
 			governanceMode,
 			routingExtra,
 			itemCapsuleGet,
@@ -641,6 +645,7 @@ const main = async (): Promise<void> => {
 		launchWaits,
 		starved,
 		report: fleetReport(REPO),
+		chosen: chosenExecutors,
 	});
 };
 

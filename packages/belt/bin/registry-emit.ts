@@ -117,16 +117,52 @@ export function emitBuckleUpstreams(
 export const registryJson = (doc: RegistryDoc = registryDoc()): string =>
 	`${JSON.stringify(doc, null, "\t")}\n`;
 
+// W1221: the tier manifest carries the hub knowledge sink's recall faces when
+// the machine conf points at one (SUSPENDERS_KNOWLEDGE_SINK_URL) — lanes read
+// tier.json to route knowledge questions to the sink instead of re-deriving
+// them. Belt reads env directly; no cross-package import (import law).
+const sinkEnv = (v: string | undefined): string | null => {
+	const t = (v ?? "").trim();
+	return t.length > 0 ? t : null;
+};
+
+/** The knowledge-sink block, or null when the sink conf is absent. */
+export function knowledgeSinkBlock(
+	env: NodeJS.ProcessEnv = process.env,
+): Record<string, unknown> | null {
+	const url = sinkEnv(env.SUSPENDERS_KNOWLEDGE_SINK_URL);
+	if (!url) return null;
+	return {
+		url,
+		faces: {
+			query: "POST /knowledge/query {question}",
+			sql: "POST /knowledge/sql {sql}",
+			search: "POST /search {query}",
+		},
+		scopes: {
+			query: "buckle:knowledge:QUERY_",
+			sql: "buckle:knowledge:READ_",
+		},
+		auth: "bksk_ key (belt.env BUCKLE_ADMIN_KEY mints per-lane)",
+	};
+}
+
 /** Tier manifest — the machine's resident-fleet config (tier + warm ports)
  *  as ONE emission both runtime consumers read (W507): the swarm supervisor
  *  takes `tier` via residentSet(), llm-keepwarm takes `warm_ports` directly.
  *  Service units carry no tier env; a missing manifest fails safe to the
  *  ≤4GB set in llm-keepwarm. Emission-time tier = BELT_TIER env override →
- *  an existing manifest → "full" (resolveTier's precedence). Hash-stable. */
+ *  an existing manifest → "full" (resolveTier's precedence). Hash-stable.
+ *  W1221: carries the knowledge-sink block when the sink conf resolves. */
 export function emitTierManifest(): string {
 	const tier = resolveTier();
 	const warm = residentSet().map((s) => s.port);
-	return `${JSON.stringify({ version: 1, tier, warm_ports: warm }, null, "\t")}\n`;
+	const knowledge = knowledgeSinkBlock();
+	return `${JSON.stringify(
+		{ version: 1, tier, warm_ports: warm, ...(knowledge ? { knowledge } : {}) },
+		null,
+		"\t",
+	)}\n`;
 }
 
 /** Strong ETag over the exact body bytes. */

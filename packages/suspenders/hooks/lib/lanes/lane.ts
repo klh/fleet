@@ -12,6 +12,7 @@ import {
 } from "./lane-registry.ts";
 import { attachSubscribe } from "../subscribe-attach.ts";
 import { jobslabEnv, jobslabFor, jobslabPrefix } from "./jobslab.ts";
+import type { EvidenceNormalizer } from "../gates/claim-evidence.ts";
 
 // W422 surface consolidation law: the spawn-args adapter INTERFACE. Core
 // dispatch carries ZERO executor branches — every agent's specifics live in
@@ -68,6 +69,16 @@ export interface ExecutorAdapter {
 	 *  install must be discoverable without the shell's PATH (W626: the
 	 *  launchd-context liveness read every lane unknown). */
 	installPaths?: string[];
+	/** W1731: how a @vercel/detect-agent result canonicalizes to this id —
+	 *  `names` match exactly or as a `<name>_` prefix (versioned AI_AGENT
+	 *  values); `markers`, when set, are env var NAMES of which one must be
+	 *  present (presence only, never values): a credential alone never
+	 *  identifies a running client. Advisory — launch identity wins. */
+	detect?: { names: readonly string[]; markers?: readonly string[] };
+	/** W1731: this client's transcript evidence reader (normalized prose +
+	 *  own-initiated test output). Absent = no evidence adapter: a test-pass
+	 *  claim from a lane of this client fails closed. */
+	evidence?: EvidenceNormalizer;
 }
 
 export function executorLaunch(

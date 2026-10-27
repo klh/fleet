@@ -173,7 +173,7 @@ describe("retry + cooldown in the walk", () => {
 		expect(attempted).toEqual(["http://copilot", "http://glm"]);
 		expect(slept).toEqual([]);
 	});
-	test("an exhausted quota wall keeps the provider retry-after", async () => {
+	test("an exhausted quota wall relays the provider retry-after CLAMPED", async () => {
 		const slept: number[] = [];
 		const router = new Router(POLICY, {
 			pool: poolOf([["claude", ["http://copilot"]]]),
@@ -196,7 +196,10 @@ describe("retry + cooldown in the walk", () => {
 		expect(result.kind).toBe("client-error");
 		if (result.kind === "client-error") {
 			expect(result.response.status).toBe(429);
-			expect(result.response.headers.get("retry-after")).toBe("996295");
+			// W1303.2: the weeks-long provider retry-after relays CLAMPED to
+			// the kit max (default 300s) — a quota wall never sleeps a client
+			// for weeks (the pre-clamp bug this test used to pin).
+			expect(result.response.headers.get("retry-after")).toBe("300");
 		}
 		expect(slept).toEqual([]);
 	});

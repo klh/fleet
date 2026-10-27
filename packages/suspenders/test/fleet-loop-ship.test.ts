@@ -236,6 +236,40 @@ describe("fleet-loop ship mode (W64)", () => {
 		rmSync(repo, { recursive: true, force: true });
 	});
 
+	test("ship fails loudly when the requested branch was parked", async () => {
+		const repo = await scratchRepo();
+		expect(
+			g(repo, ["branch", "-m", "suspenders/SHIP1", "parked/SHIP1"]).exitCode,
+		).toBe(0);
+		const r = ship(repo, ["--branch", "suspenders/SHIP1"]);
+		expect(r.code).toBe(1);
+		expect(r.err).toContain("suspenders/SHIP1");
+		expect(r.err).toContain("missing");
+		expect(log(repo)).toContain("branch ref missing");
+		expect(
+			g(repo, ["branch", "--list", "parked/SHIP1"]).stdout.toString(),
+		).not.toBe("");
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	test("ship fails loudly when the requested branch was deleted", async () => {
+		const repo = await scratchRepo();
+		expect(
+			g(repo, [
+				"worktree",
+				"remove",
+				"--force",
+				join(repo, ".worktrees", "SHIP1"),
+			]).exitCode,
+		).toBe(0);
+		expect(g(repo, ["branch", "-D", "suspenders/SHIP1"]).exitCode).toBe(0);
+		const r = ship(repo, ["--branch", "suspenders/SHIP1"]);
+		expect(r.code).toBe(1);
+		expect(r.err).toContain("branch ref missing: suspenders/SHIP1");
+		expect(log(repo)).toContain("branch ref missing");
+		rmSync(repo, { recursive: true, force: true });
+	});
+
 	test("failed ladder: FAIL, merge aborted, branch kept, strike counted", async () => {
 		const repo = await scratchRepo();
 		seedClosure(

@@ -179,7 +179,7 @@ test("every fleet-loop maintenance face ships in the payload trees", () => {
 	for (const task of MAINTENANCE_TASKS) {
 		const argv0 = task.argv("/", "/")[0];
 		// faces resolve inside the suspenders payload the installer archives
-		// (SOURCE_PATHS cover packages/suspenders/{hooks,scripts,deploy})
+		// (the computed payload closure ships packages/suspenders/{hooks,scripts,deploy})
 		expect(
 			/^\/(hooks|scripts|deploy)\//.test(argv0),
 			`${task.name} face escapes the payload trees: ${argv0}`,

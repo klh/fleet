@@ -1,7 +1,6 @@
 // hooks/board/routes-console.ts — W147 console: /console /console/buckle /console/local /api/console/me /console/settings(+preview/apply) (W157 route module).
 // The fetch fragment moved verbatim (route order preserved by the
 // entry's handler list); returns null when nothing matches.
-
 import {
 	beltPage,
 	type Feature,
@@ -20,7 +19,7 @@ import {
 	resolvePolicy,
 } from "../lib/board/board-config.ts";
 import { scrub } from "../lib/servicemon.ts";
-import { buckleReadProxy } from "./buckle-read-proxy.ts";
+import { beltAssetUp, buckleReadProxy } from "./buckle-read-proxy.ts";
 import { consoleMe, gatherBeltView, gatherLocalView } from "./console-view.ts";
 import { BELT_REPO, BUCKLE_REPO, db } from "./context.ts";
 import { json, writeGuard } from "./helpers.ts";
@@ -48,7 +47,11 @@ export async function handleConsole(
 		return Response.redirect(new URL("/console/buckle", url).toString(), 301);
 	if (url.pathname === "/console/buckle") {
 		const me = consoleMe();
-		return new Response(await beltPage(await gatherBeltView(), me), {
+		// W1294.2.1: probe the belt feed's chunk set once per render — the
+		// page drops its topology script tags when the runtime home is stale.
+		const view = await gatherBeltView();
+		view.beltAssetsUp = await beltAssetUp();
+		return new Response(await beltPage(view, me), {
 			headers: {
 				"content-type": "text/html; charset=utf-8",
 				"cache-control": "no-store",

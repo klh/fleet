@@ -3,7 +3,9 @@
 Read-only architecture map (restructure proposal Phase 1,
 docs/restructure-proposal-2026-10-23.md, Amendment B SAFE NOW: no runtime
 changes). Every number here is regenerable in one command from the
-import-graph lib; the guard pins the law that keeps it true.
+import-graph lib; the guard pins the law that keeps it true. (W1302.4: the
+lib moved to `packages/suspenders/hooks/lib/import-graph.ts`; the
+tests/helpers path is its re-export shim — both import paths work.)
 
 Regenerate:
 

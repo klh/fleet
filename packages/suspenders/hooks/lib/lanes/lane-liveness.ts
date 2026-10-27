@@ -485,7 +485,12 @@ export const laneVerdict = (
 	l: LaneRef,
 	inspect: ProcessInspector = inspectProcesses,
 	transcripts?: Map<string, boolean>,
+	transport?: Map<string, boolean>,
 ): LaneVerdict => {
+	// W1302.5: an ACTIVE in-flight request at the buckle gate named for this
+	// sid is positive liveness on any host — the transport outranks a stale
+	// transcript (O1: production at the gate is not idleness).
+	if (transport?.get(l.sid) === true) return "alive";
 	if (l.host !== undefined && l.host !== THIS_HOST)
 		return (
 			transcripts

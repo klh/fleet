@@ -220,6 +220,31 @@ test("review prompt exposes exact-commit blockers even when the event note trunc
 	expect(lines.join("\n")).not.toContain("B9-other-commit");
 });
 
+test("W1302.6: a PASS served by a mismatched wire model never authorizes a merge", () => {
+	const f = fixture();
+	// O3 replay: requested glm-5.3-flash, the leg served chatgpt/gpt-6-sol
+	publishReviewReceipt(f.db, "project", "W1", {
+		...f.receipt,
+		requested_model: "glm-5.3-flash",
+		wire_model: "chatgpt/gpt-6-sol",
+	});
+	expect(f.check()).toMatchObject({
+		ok: false,
+		why: expect.stringContaining("mismatched wire model"),
+	});
+});
+
+test("W1302.6: routing-stamped alias of the requested class still authorizes", () => {
+	const f = fixture();
+	// zai-glm-5.3-flash serves the glm-5.3-flash class (O3 evidence)
+	publishReviewReceipt(f.db, "project", "W1", {
+		...f.receipt,
+		requested_model: "glm-5.3-flash",
+		wire_model: "zai-glm-5.3-flash",
+	});
+	expect(f.check().ok).toBe(true);
+});
+
 test("moving integration base or changing applicable instruction invalidates receipt", () => {
 	const f = fixture();
 	publishReviewReceipt(f.db, "project", "W1", f.receipt);

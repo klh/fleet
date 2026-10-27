@@ -8,6 +8,8 @@
 // here. Duplicates of today's StartInterval/StartCalendarInterval units are
 // impossible by construction: the retired labels ride the services.yaml
 // legacyLabels boot-out list, so install --with-launchd unloads them.
+// test/maintenance-legacy-drift.test.ts (W1256.1) gates the pairing: a new
+// task is either folded (label on legacyLabels) or listed heartbeat-born.
 //
 // Semantics kept from the launchd era:
 //   everySeconds ≥ cadence spacing (fire when now-last ≥ every, launchd
@@ -223,6 +225,16 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		everySeconds: 300,
 		timeoutMs: 120_000,
 		argv: (root) => [join(root, "hooks/bin/metrics-alert.ts")],
+	},
+	{
+		// W1139.1: the rolling per-lane cache hit-share SLA sweep — reads
+		// buckle's W458.4 lane-cache NDJSON every 15 min, writes the status
+		// JSON the board face (/api/usage/cache-sla) + badge read; exit 1 (a
+		// fail log here) when a lane sits below the threshold with sample.
+		name: "cache-sla",
+		everySeconds: 900,
+		timeoutMs: 60_000,
+		argv: (root) => [join(root, "hooks/bin/cache-sla.ts")],
 	},
 	{
 		// W944: the enterprise knowledge sync — decant headless (sync →

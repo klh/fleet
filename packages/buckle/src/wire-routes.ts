@@ -1,6 +1,8 @@
 // src/wire-routes.ts — route dispatch (createApp): lane prefixes, named
 // bases, LLM ingress, sidestore routes, and the final 404/405 law.
 
+import { aidsRoutes } from "./aids-routes.ts";
+import type { AppDeps } from "./app-deps.ts";
 import {
 	allowOf,
 	lanePrefixOf,
@@ -11,11 +13,9 @@ import {
 import { dietRoutes } from "./diet.ts";
 import { principalOf } from "./gov/federation.ts";
 import { handleNamedIngress, namedIngressOf } from "./ingress-routes.ts";
-import { aidsRoutes } from "./aids-routes.ts";
 import { pipelineRoutes } from "./pipeline.ts";
 import { proxy } from "./proxy-ingress.ts";
 import { repoPolicyRoutes } from "./repo-policy-routes.ts";
-import type { AppDeps } from "./app-deps.ts";
 
 interface App {
 	fetch(req: Request): Promise<Response>;
@@ -118,7 +118,7 @@ export function createApp(deps: AppDeps): App {
 						},
 			);
 		}
-		const aidsRouted = await aidsRoutes(deps, req, path);
+		const aidsRouted = await aidsRoutes(deps, req);
 		if (aidsRouted) return aidsRouted;
 		const pipeRouted = await pipelineRoutes(deps, req, path);
 		if (pipeRouted) return pipeRouted;

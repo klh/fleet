@@ -257,3 +257,12 @@ target (coordinator evidence #69199, minted as W1273).
   120 accepted). Replaced by: ceiling = `min(30s, queueWaitMs/4, 16x
   effective pace)` — doubling headroom above the contract to find the
   boundary, with the recovery ladder bounded to ≤62 successes.
+- **Stacking kit backoff on the AIMD pool's notBefore (W1303.3)** — when the
+  resilience kit's full-jitter backoff sums WITH the admission pool's
+  notBefore (both layers wait after a 429), recovery waits double-count the
+  provider's Retry-After: fixture leg summed gate wait + kit backoff for
+  every throttled attempt. Replaced by: the kit consults the pool gate once
+  per wait and a positive gate wait supersedes kit backoff — the pool's
+  notBefore already embeds Retry-After via lease feedback (W1078), so
+  exactly one layer waits; kit-only paths still clamp Retry-After
+  (30 s demand → retryAfterCapMs).
