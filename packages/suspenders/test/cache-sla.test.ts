@@ -130,6 +130,9 @@ describe("readCacheSlaStatus", () => {
 		expect(back?.breaches).toEqual(report.breaches);
 		expect(back?.lanes.length).toBe(1);
 		expect(readCacheSlaStatus(join(tmp, "absent.json"))).toBeNull();
+		// W1781: "absent.json" is a tmp fixture name, never a repo path —
+		// pin the absence so a future restore is a conscious change.
+		expect(existsSync("packages/suspenders/test/absent.json")).toBe(false);
 		writeFileSync(path, "{nope");
 		expect(readCacheSlaStatus(path)).toBeNull();
 		expect(existsSync(cacheSlaStatusPath())).toBe(false);
