@@ -1,0 +1,414 @@
+Start Here | Nimbalyst Docs
+, which blocks non-essential analytics for EU/EEA,
+UK, and Switzerland visitors until they opt in. -->
+We use analytics tools to understand how this site is used. Analytics are optional. See our
+Cookie Policy
+.
+Decline
+Allow analytics
+Wiki
+Wiki Teams
+App
+App Overview
+Core Features
+Extensions
+Mobile
+Why Nimbalyst
+Context Graph
+Download
+Pricing
+Docs
+Resources
+Blog
+Use Cases
+For Developers
+For Product Managers
+Compare
+Agent Harness
+Agent Skills
+Open Source
+About
+Wiki
+App
+Wiki
+Wiki Teams
+App
+App Overview
+Core Features
+Extensions
+Mobile
+Why Nimbalyst
+Context Graph
+Download
+Pricing
+Docs
+Resources
+Blog
+Use Cases
+For Developers
+For Product Managers
+Compare
+Agent Harness
+Agent Skills
+Open Source
+About
+Wiki GitHub
+App GitHub
+Search docs
+Start Here
+Nimbalyst Wiki
+&rarr;
+Nimbalyst Wiki Teams
+&rarr;
+Nimbalyst App
+&rarr;
+Nimbalyst Wiki
+Nimbalyst Wiki Overview
+Set Up Your Wiki
+Pages, Types, and Fields
+Decisions, Questions, Links, and Views
+Everything a Page Can Hold
+Capture Decisions at the End of a Session
+Ask the Wiki What Was Decided
+Read and Edit the Wiki in Your Browser
+Local Wiki Files and Location
+Three ways to use it
+Wiki in Your Coding Agent
+Wiki in the Nimbalyst App
+&rarr;
+Nimbalyst Wiki Teams
+&rarr;
+From Your Agent to the App to Your Team
+Wiki Plugin and nim CLI Reference
+Nimbalyst Wiki Teams
+Nimbalyst Wiki Teams Overview
+Move Your Local Wiki to Teams
+Invite Your Team
+Web Console (console.nimbalyst.com)
+Use the Nimbalyst App with Your Team
+Nimbalyst App
+Getting Started
+Why Nimbalyst?
+Nimbalyst Tutorial and Demo Videos
+Quickstart
+Major Bugs, Outages, Feedback, Discord, Support, Releases
+Release Announcement Archive
+VISUAL EDITORS POWERED BY AI
+Markdown (WYSIWYG)
+Mermaid Diagrams and Images
+Mockups
+Canvas
+Animations
+Data Models
+CSV
+Browser
+Calc Sheets
+Mind Map
+Excalidraw
+PDF Viewer
+Code Editor
+FILE MANAGEMENT
+File History and Restore
+File Search, File Tree, and Tabs
+Multi-Folder Projects
+Project Graph
+Share Link to a File
+File Edits Sidebar
+SESSION MANAGEMENT
+Agent Window & Session Management
+AI Usage Report
+View Files in Agent Mode
+Workstreams
+Import Claude Code Sessions
+/ Commands and Skills
+AI Actions
+Interactive Prompts (PromptForUserInput)
+Automations
+Share Link to a Session
+TASK MANAGEMENT
+Tracker Overview
+Item Types and Fields
+Views: Kanban, List, and Tag Board
+Item Detail, Comments, Activity
+Creating Items
+Referencing Tracker Items
+Linking Tracker Items
+Sharing Plans and Trackers
+AI Integration
+Linking Sessions and Tracked Items
+Custom Tracker Types
+The nim CLI
+Local Config
+WIKI
+Wiki in the Nimbalyst App
+TEAMS
+Team Collaboration Overview
+Nimbalyst Teams: Step by Step
+Collaborative Documents
+Collaborative Trackers
+Ask Your Team for Feedback
+Decision Blocks in Documents
+Set Up Nimbalyst Teams and Organizations
+DEVELOPER FEATURES
+Coding with Coding Agents & Nimbalyst
+Basics on Code/Git for Non-Devs
+Turn on/off Developer Mode
+Terminal Window
+Worktrees
+Working with Git
+Pull Request Reviews
+Agent Teams
+EXTENSIONS
+Extension System & Marketplace
+Building Your Own Extensions
+MOBILE
+Mobile App
+Voice on Mobile
+SETUP Nimbalyst
+AI Provider Setup and Notifications
+Application, Account, and Project Settings
+Claude Code in Vertex, Bedrock
+MCP
+Alpha Features
+Voice Mode
+Reference
+Open, Safe, Private, Secure
+Open Data, Workflow, File Storage
+Permissions and Safety
+Privacy
+Session and Window State Storage
+Security
+FAQs
+Troubleshooting
+Database Backups and Restore
+Detailed Install Guides
+Windows: Detailed Install Guide
+Mac: Detailed Install Guide
+Start Here / Start Here
+Search docs
+Start Here
+Nimbalyst Wiki
+Nimbalyst Wiki Teams
+Nimbalyst App
+Nimbalyst Wiki
+Nimbalyst Wiki Overview
+Set Up Your Wiki
+Pages, Types, and Fields
+Decisions, Questions, Links, and Views
+Everything a Page Can Hold
+Capture Decisions at the End of a Session
+Ask the Wiki What Was Decided
+Read and Edit the Wiki in Your Browser
+Local Wiki Files and Location
+Three ways to use it
+Wiki in Your Coding Agent
+Wiki in the Nimbalyst App
+Nimbalyst Wiki Teams
+From Your Agent to the App to Your Team
+Wiki Plugin and nim CLI Reference
+Nimbalyst Wiki Teams
+Nimbalyst Wiki Teams Overview
+Move Your Local Wiki to Teams
+Invite Your Team
+Web Console (console.nimbalyst.com)
+Use the Nimbalyst App with Your Team
+Nimbalyst App
+Getting Started
+Why Nimbalyst?
+Nimbalyst Tutorial and Demo Videos
+Quickstart
+Major Bugs, Outages, Feedback, Discord, Support, Releases
+Release Announcement Archive
+VISUAL EDITORS POWERED BY AI
+Markdown (WYSIWYG)
+Find & Replace and ToC
+AI Editing, Red/Green Diff, Approval
+Set Document Type
+Mermaid Diagrams and Images
+Mockups
+Canvas
+Animations
+Data Models
+CSV
+Browser
+Calc Sheets
+Mind Map
+Excalidraw
+PDF Viewer
+Code Editor
+FILE MANAGEMENT
+File History and Restore
+File Search, File Tree, and Tabs
+Multi-Folder Projects
+Project Graph
+Share Link to a File
+File Edits Sidebar
+SESSION MANAGEMENT
+Agent Window & Session Management
+AI Usage Report
+View Files in Agent Mode
+Workstreams
+Import Claude Code Sessions
+/ Commands and Skills
+AI Actions
+Interactive Prompts (PromptForUserInput)
+Automations
+Share Link to a Session
+TASK MANAGEMENT
+Tracker Overview
+Item Types and Fields
+Views: Kanban, List, and Tag Board
+Item Detail, Comments, Activity
+Creating Items
+Referencing Tracker Items
+Linking Tracker Items
+Sharing Plans and Trackers
+AI Integration
+Linking Sessions and Tracked Items
+Custom Tracker Types
+The nim CLI
+Local Config
+WIKI
+Wiki in the Nimbalyst App
+TEAMS
+Team Collaboration Overview
+Nimbalyst Teams: Step by Step
+Collaborative Documents
+Collaborative Trackers
+Ask Your Team for Feedback
+Decision Blocks in Documents
+Set Up Nimbalyst Teams and Organizations
+DEVELOPER FEATURES
+Coding with Coding Agents & Nimbalyst
+Basics on Code/Git for Non-Devs
+Turn on/off Developer Mode
+Terminal Window
+Worktrees
+Working with Git
+Pull Request Reviews
+Agent Teams
+EXTENSIONS
+Extension System & Marketplace
+Building Your Own Extensions
+Getting Started
+Custom Editors
+AI Tools
+Manifest Reference
+API Reference
+MOBILE
+Mobile App
+Voice on Mobile
+SETUP Nimbalyst
+AI Provider Setup and Notifications
+Application, Account, and Project Settings
+Claude Code in Vertex, Bedrock
+MCP
+Alpha Features
+Voice Mode
+Reference
+Open, Safe, Private, Secure
+Open Data, Workflow, File Storage
+Permissions and Safety
+Privacy
+Session and Window State Storage
+Security
+FAQs
+Troubleshooting
+Database Backups and Restore
+Detailed Install Guides
+Windows: Detailed Install Guide
+Mac: Detailed Install Guide
+Start Here
+There are three ways to use Nimbalyst. They all work on the same files and pages, so you can start with one today and add the next later without moving anything.
+Nimbalyst Wiki
+Add the
+Nimbalyst Wiki
+to the agents you already use: Claude Code, Codex (CLI or app), Cowork, Cursor, VS Code, or any other MCP agent. Your agents distill their work into a wiki of notes, open questions, and decisions, written as markdown files in your repo, and you read and edit it in your browser.
+Free, no app or account.
+Go to the
+Wiki docs
+.
+Nimbalyst Wiki Teams
+Share the wiki with your team. Your agent moves your local wiki up in one step, then you, your teammates, and all of your agents work in the same pages in real time. Teammates read and edit in the browser with nothing to install.
+Paid, free during beta.
+Go to the
+Nimbalyst Wiki Teams docs
+.
+Nimbalyst App
+A visual workspace on top of the Claude Code and Codex you already have: sessions, red/green diffs, visual editors for markdown, mockups, diagrams, and data, task tracking, git, and the same wiki in Wiki mode. With your team, it adds shared documents and trackers.
+Free, for macOS, Windows, and Linux.
+Go to the
+Nimbalyst App docs
+.
+Not sure?
+Start with the wiki in the agent you already use, whether that is Claude Code, the Codex app, Cowork, Cursor, or VS Code. Move it to Teams when other people need it. Download the app when you want visual editing of mockups, diagrams, and typed tables next to your sessions, tasks, and code. See
+From Your Agent to the App to Your Team
+for how the three fit together.
+Next
+Nimbalyst Wiki Overview
+On this page
+Nimbalyst Wiki
+Nimbalyst Wiki Teams
+Nimbalyst App
+Not sure?
+View as Markdown
+llms.txt
+A wiki your coding agents write for you, and a visual workspace for working with Claude Code, Codex and other agents.
+Explore
+Product Overview
+Use Cases
+Solutions
+Wiki
+Wiki updates by email
+Wiki Teams
+App
+App Collaboration
+Features
+Pricing
+Agent Harness
+Harness Blueprint
+Harness Benchmark
+Blog
+Changelog
+Open Source
+About
+Docs
+Solutions
+All solutions
+Developers
+Product managers
+Feature teams
+Startups
+Marketing teams
+Research and science
+Quant research
+Customer-facing engineering
+Consulting and SIs
+Compare
+All comparisons
+Claude Code GUI
+Claude Code Desktop App
+Codex GUI
+Codex Desktop App
+AI Mockup Generator
+Legal
+Trust and Compliance
+Terms of Service
+Privacy Policy
+California Privacy Notice
+Cookie Policy
+Cookie settings
+Sub-processors
+Data Processing Agreement
+SOC-2 Type 2 certified
+Community
+Open Source
+App GitHub
+Wiki GitHub
+Discord
+LinkedIn
+Youtube
+X
+TikTok
+Instagram
+&copy; 2026 Nimbalyst All rights reserved.

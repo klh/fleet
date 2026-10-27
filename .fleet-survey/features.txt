@@ -1,0 +1,386 @@
+Nimbalyst Features — Visual Editors & Agent Management
+, which blocks non-essential analytics for EU/EEA,
+UK, and Switzerland visitors until they opt in. -->
+We use analytics tools to understand how this site is used. Analytics are optional. See our
+Cookie Policy
+.
+Decline
+Allow analytics
+Wiki
+Wiki Teams
+App
+App Overview
+Core Features
+Extensions
+Mobile
+Why Nimbalyst
+Context Graph
+Download
+Pricing
+Docs
+Resources
+Blog
+Use Cases
+For Developers
+For Product Managers
+Compare
+Agent Harness
+Agent Skills
+Open Source
+About
+App
+Download Free
+Wiki
+Wiki Teams
+App
+App Overview
+Core Features
+Extensions
+Mobile
+Why Nimbalyst
+Context Graph
+Download
+Pricing
+Docs
+Resources
+Blog
+Use Cases
+For Developers
+For Product Managers
+Compare
+Agent Harness
+Agent Skills
+Open Source
+About
+Download Free
+App GitHub
+Nimbalyst Features
+Nimbalyst is an agent-native visual workspace that lets builders work with Claude Code and Codex on files, sessions, and tasks in a single interface
+Markdown Editor
+Drawing & Diagrams
+Agent Sessions
+Developer Features
+Planning & Tracking
+Team Collaboration
+Context Graph
+Agent Integration
+Extensions
+Open & Secure
+Mobile App
+Markdown Editor
+Research, write, plan, document in a local, agentic, WYSIWYG AI-powered markdown editor
+Approve AI red/green changes.
+Use AI and Claude Code and Codex to research, write, inspect your code, and edit markdown
+Work with AI and agents in your planning and spec documents, with your code, and in your workflow.
+Editable WYSIWYG and native markdown
+Work in a first-class fast markdown editor
+Red / Green diffs show AI changes for approval
+Review every change the AI makes. Accept, reject, or edit
+Text, lists, tables, code
+Full markdown support across every content type
+Images
+Embed images inline. AI can see images.
+File history with restore
+Every document version is saved. Browse history and restore any prior state of your file.
+Learn more about the Markdown Editor →
+Drawing & Diagrams
+Create and edit drawings and diagrams visually with your agents
+Use Mermaid and Excalidraw to diagram systems, flows, and architecture
+AI-generated Mermaid diagrams
+Describe a flowchart, sequence diagram, or class diagram in plain language and Claude Code and Codex generates the Mermaid code instantly.
+Live rendered in markdown
+Mermaid diagrams render inline in your markdown files with a live preview. Edit the Mermaid yourself or with your agent.
+Draw with Excalidraw
+Sketch architecture diagrams, user flows, and system maps on an infinite canvas with Excalidraw edit by hand or with AI.
+AI-powered drawing
+Describe what you want and Claude Code and Codex places, connects, and styles Excalidraw elements for you. Iterate conversationally or with the drawing tools.
+Learn more about Diagrams & Drawing →
+Agent Sessions
+Manage your agents&#39; work across parallel sessions in a UI
+Run multiple agents simultaneously. Organize them. Find, resume, branch. Connect sessions to files and files to sessions.
+Run multiple sessions in parallel. Alert when done.
+Kick off agents across different tasks and get notified as each one completes.
+Tie sessions to files and files to sessions
+Every session is linked to the files it read and wrote. Optionally open edited files and review.
+Search & resume your persistent AI sessions
+Sessions are saved and searchable. Pick up any conversation exactly where you left off. Branch. Archive.
+Learn more about Agent Sessions →
+Developer Features
+Code with agents, review pull requests, manage files, and ship changes
+Use Developer Mode in Nimbalyst&#39;s agent-native workspace to chat, edit code, inspect pull requests, review diffs, work in isolated branches, and prepare commits without leaving the workspace. PR Review is currently enabled through the Developer Mode toggle in Settings.
+Review pull requests in Developer Mode
+Open a repository&#39;s pull request list, conversation, files changed, commits, and checks inside the workspace.
+Review with AI
+Start an agent review from the pull request. Your agent reads the diff and drafts the review in the same workspace.
+Open a pull request in a worktree
+Check out the pull request branch in an isolated worktree with its own agent session.
+Triage reviews with the tracker
+Move pull requests through Backlog, Needs Review, Inspecting, and Safe using tracker-backed review status.
+Instruct your coding agent.
+Talk to Claude Code and Codex in a full chat interface. Describe what to build, @ mention files, use / commands and skills, and watch it work.
+Read and human edit code in Monaco editor. Use AI to edit.
+Full Monaco editor with syntax highlighting. Edit manually or ask AI to make targeted changes.
+See files changed by agent session
+A sidebar lists every file the agent read or wrote. Review what changed before you commit.
+Integrated terminal
+Run commands, scripts, and build tools without leaving Nimbalyst. Full terminal access alongside your editor and agent sessions.
+Git management
+View diffs, stage changes, and manage branches from a visual git interface built into your workspace.
+AI-assisted git commits
+Claude Code and Codex reviews your staged changes and drafts a commit message. Review, edit, and commit in one step.
+Worktree support
+Work on multiple branches simultaneously with git worktrees. Each worktree gets its own editor context and agent sessions.
+Learn more about Developer Tools →
+Planning & Tracking
+Plans and tasks that your agents can actually use
+When task management lives inside the workspace, agents read your plans while working and update them as they go. No separate tool to sync. No stale tickets. Stored as markdown frontmatter so any human or agent can read and update.
+Agents see your backlog as they work
+Because plans live in your workspace, agents pick up context, priorities, and dependencies without you re-explaining. Better context in, better work out.
+Cross-plan status in one view
+Kanban board, priority, progress, and owner across all your plans. Decisions, bugs, tasks, and ideas tracked in one dashboard.
+To-dos, tasks, ideas in your doc
+Tag items inline as @task, @idea, @bug, or @decision. They surface in your sidebar and plans automatically. Agents update them as they complete work.
+Learn more about Task Management →
+Team Collaboration
+Bring your team into the same workspace as your agents
+Everything you do solo with your agents, now shared. Real-time multiplayer across your docs, tasks, and diagrams, with each teammate&#39;s Claude Code and Codex agents working in the same shared workspace. Part of Nimbalyst for Teams.
+Real-time collaborative editing
+Work in true multiplayer on shared markdown, mockups, diagrams, and every extension editor. Each teammate&#39;s local agent edits the same documents alongside you.
+Promote a local file to shared
+Take any local file and promote it to a shared document in a click. Review the full history of changes on every shared doc.
+Collaborative task management
+Shared kanban boards and trackers for work across your team and its agents. Your local agents read and update the same tracker your teammates do.
+One connected workspace
+Shared docs, local files, trackers, and agent sessions live together and link to each other. Less tool-switching and less lost context, so the team and its agents move faster.
+Review in the browser
+Send a teammate the link and your shared plan opens at console.nimbalyst.com. Live editing, labeled cursors, and inline comments, with nothing to install.
+Download and start your team →
+Learn more about Nimbalyst for Teams →
+Context Graph
+Every artifact is a node in one shared graph
+Tracker items, plans, specs, diagrams, mockups, sessions, diffs, and files all live in the same workspace with typed links between them. Humans and agents traverse the same graph.
+One workspace, one graph
+Session
+Plan
+Spec
+Diagram
+Mockup
+Tracker
+Diff
+Files
+Thread
+Every artifact is a first-class node
+Tracker items, plans, specs, diagrams, mockups, sessions, diffs, files, commits, and decisions are all nodes. No second-class artifacts living outside the graph.
+Typed edges connect the work
+Tracker item to plan, plan to diagram, diagram to session, session to diff, diff to files. Each link has a type so traversal is meaningful, not just blind backlinks.
+Agents traverse in one call
+Ask your agent to pick up where the last session left off. One traversal pulls the related plan, prior session, design diagram, and affected files. No more re-stitching seven tabs.
+Browsable visually
+Open a diagram from inside a tracker item. Jump from a diff back to the session that produced it. The graph is editable inline, not a separate database.
+Records the decisions, too
+Decisions and their reasons become nodes. Future sessions can read why streaks reset at local midnight, not just that they do.
+Portable across agents
+Claude Code, Codex, OpenCode all plug into the same graph. Switching the underlying model does not rebuild the workspace.
+Read the case for an integrated workspace →
+Agent Integration
+Multi-agent workspace for Claude Code, Codex, and more
+Run Claude Code and Codex side by side, with OpenCode and GitHub Copilot available as alpha providers. Use the best agent for each task, with shared context, MCP servers, and a unified workflow.
+Claude Code
+Built around Claude Code. Chat, plan, code, and review
+Codex
+Run OpenAI Codex alongside Claude Code. Use the best agent for each task.
+OpenCode (alpha)
+Bring the open-source OpenCode agent into your workspace. Run it side by side with Claude Code and Codex on the same files and tasks.
+GitHub Copilot (alpha)
+Plug GitHub Copilot in as another agent provider. Use your existing Copilot subscription inside the same session manager and visual editors.
+/ commands and skills
+Extend your agent with custom slash commands and skills. Project-specific or personal, versioned with your repo, and shareable with your team.
+MCP support
+Connect your agents to external tools and services via Model Context Protocol. Linear, GitHub, Slack, databases, and more — all accessible from your sessions.
+CLAUDE.md / Agents.md
+Configure agent behavior with project-level instruction files. Set context, constraints, and conventions that your agents follow automatically.
+Learn more about Agent Integration →
+Extensions
+First-class extensions, not guests
+Every editor in Nimbalyst uses the same EditorHost contract, whether it ships built-in or comes from a third-party extension
+Same contract as built-in editors
+Built-in editors and third-party extensions share the same EditorHost foundation. There is no second-class tier for extensions.
+Real editors, not side panels
+Register a file type and ship a full editor inside the workspace. Your custom format gets the same treatment markdown does.
+Shared agent hooks
+Agents talk to your extension through the same structured hooks the built-in editors use. An MCP-aware agent can edit your custom format with no special integration.
+Marketplace plus build-your-own
+Browse extensions for diagrams, data, AI, and developer workflows, or ship your own. Existing extensions cover an Astro website editor, a visual git log, a mindmap, slides, and a 3D object editor.
+Browse the marketplace →
+Learn more about Extensions →
+Open & Secure
+Its your content and your data.
+Everything is open, local, and yours.
+Open storage of content and status in markdown
+All content and metadata lives in plain markdown and other standard files on your filesystem. No proprietary formats, no lock-in.
+Use your own AI APIs
+Bring your own API keys for Claude, OpenAI, and more. Run entirely locally with LM Studio. You&#39;re always in control.
+We don&#39;t collect your data
+Your data lives locally in your file system and is synced via GitHub if you choose. We collect usage data only, and you can opt out.
+Permission System
+Fine-grained control over what agents can do. Set trust levels, permission modes, allowed tools, and filesystem access per project.
+SOC 2
+Certified
+Nimbalyst
+SECURE
+Nimbalyst is SOC Certified
+Nimbalyst is SOC 2 Type 2 Certified
+Nimbalyst is SOC 2 Certified
+Nimbalyst is SOC 2 Type 2 certified. Enterprise-ready security you can trust.
+Nimbalyst is open source
+The desktop and iOS apps are MIT licensed and the source is on GitHub. Read the code, file issues, build extensions, or fork the project on GitHub at github.com/Nimbalyst/nimbalyst.
+View on GitHub →
+Open source page →
+Learn more about Security & Privacy →
+Mobile App
+Manage your agent sessions from your phone
+The iOS app pairs with your desktop Nimbalyst in seconds. Start sessions, review diffs, and resume stalled agents from anywhere.
+Sessions in your pocket
+See every active, completed, and paused session at a glance. Start new work and resume a stalled agent with a voice note or typed instruction.
+Review diffs on mobile
+Swipe through file changes as red/green diffs optimized for the phone. Approve or reject changes and leave comments for the agent.
+Push notifications and desktop sync
+Get notified when a session finishes or needs your approval. Everything you do on mobile syncs straight back to your desktop workspace.
+Download on the App Store →
+Learn more about the Mobile App →
+Explore
+All features
+Markdown Editor
+WYSIWYG AI-powered writing and planning
+Diagrams & Drawing
+Mermaid and Excalidraw with AI generation
+Mockup Editor
+AI wireframes and UI mockups for developers
+AI Data Modeling
+AI-powered ERDs and database schema design
+Spreadsheet Editor
+AI-powered CSV and spreadsheet editing
+Agent Sessions
+Run and manage parallel AI coding sessions
+Agent Orchestration
+Kanban board for multi-agent workflows
+Task Management
+Organize tasks, bugs, features, and ideas
+Team Collaboration
+Real-time multiplayer docs, tasks, and diagrams with your agents
+Developer Tools
+Monaco editor, terminal, and code review
+Agent Integration
+Claude Code, Codex, MCP, and slash commands
+Extensions
+Build editors for any file type with shared agent hooks
+AI-Powered Git
+Visual diffs, AI commits, and worktrees
+Security & Privacy
+Local-first, BYOK, SOC 2 compliant
+Mobile App
+Manage sessions from your phone
+Automations
+Trigger workflows on events and schedules
+Commands & Skills
+Built-in and custom slash commands
+AI Context
+CLAUDE.md, cross-file refs, and deep context
+FAQ
+Frequently Asked Questions
+What editors does Nimbalyst support?
+Nimbalyst includes 7+ visual editors: a WYSIWYG markdown editor, Monaco code editor, CSV spreadsheet editor, UI mockup editor, Excalidraw diagram editor, data model/ERD editor, and Mermaid diagram editor. All editors support AI-assisted editing with Claude Code and Codex.
+Can I use Nimbalyst with both Claude Code and Codex?
+Yes. Nimbalyst supports both Claude Code (by Anthropic) and Codex (by OpenAI) as coding agents. You can run sessions with either agent side by side and use the best one for each task.
+How does the AI diff review work?
+When an AI agent edits a file, Nimbalyst shows the changes as a red/green inline diff directly in the editor. You can review each change and choose to keep, revert, or edit it before accepting. This works across all editor types including markdown, code, and mockups.
+How do I use PR Review with an agent?
+Enable Developer Mode, open a workspace with a GitHub remote, and select Pull Requests. You can browse the conversation and changes, start Review with AI, or open the branch in an isolated worktree with an agent session.
+Does Nimbalyst support MCP servers?
+Yes. Nimbalyst has built-in Model Context Protocol (MCP) support. You can connect your agents to external tools and services like Linear, GitHub, Slack, databases, and more — all accessible from within your sessions.
+Is my data stored locally?
+Yes. All your content and metadata lives in plain markdown and standard files on your local filesystem. There are no proprietary formats. You own your data, and you can use git to version and sync it.
+Is Nimbalyst open source?
+Yes. The Nimbalyst desktop and iOS apps are MIT licensed and the source is on GitHub. The code is on GitHub at https://github.com/Nimbalyst/nimbalyst. See the open source page for licensing details and the tech stack.
+What tools can I use to manage AI coding sessions?
+Nimbalyst provides a complete session management environment for AI coding agents. You can run multiple Claude Code and Codex sessions in parallel, organize them on a kanban board, search and resume past sessions, track which files each session modified, and review all changes with inline diffs. There&#39;s also a mobile app for managing sessions on the go.
+From the Blog
+Deep dives on Nimbalyst features
+Best AI-Native Editors for Markdown, Mockups, and Diagrams
+How visual editors integrated with AI agents change the way you plan and build.
+Best Session Managers for Claude Code and Codex
+Compare tools for organizing, searching, and resuming your AI coding sessions.
+How to Review Agent Code Changes Visually
+Why visual diff review matters when AI agents touch dozens of files per session.
+Best Practices for Coding with Agents
+A 9-step workflow from spec to ship using Nimbalyst and Claude Code.
+Nimbalyst: the open-source visual workspace for building with Codex, Claude Code, and more
+Download Nimbalyst
+Free for individuals.
+Works with your existing Claude Code or Codex subscription or API key.
+Other downloads:
+Apple Silicon Mac
+Intel Mac
+Windows
+Linux
+Wiki Teams
+is one multiplayer wiki for your whole team and all of your agents.
+A wiki your coding agents write for you, and a visual workspace for working with Claude Code, Codex and other agents.
+Explore
+Product Overview
+Use Cases
+Solutions
+Wiki
+Wiki updates by email
+Wiki Teams
+App
+App Collaboration
+Features
+Pricing
+Agent Harness
+Harness Blueprint
+Harness Benchmark
+Blog
+Changelog
+Open Source
+About
+Docs
+Solutions
+All solutions
+Developers
+Product managers
+Feature teams
+Startups
+Marketing teams
+Research and science
+Quant research
+Customer-facing engineering
+Consulting and SIs
+Compare
+All comparisons
+Claude Code GUI
+Claude Code Desktop App
+Codex GUI
+Codex Desktop App
+AI Mockup Generator
+Legal
+Trust and Compliance
+Terms of Service
+Privacy Policy
+California Privacy Notice
+Cookie Policy
+Cookie settings
+Sub-processors
+Data Processing Agreement
+SOC-2 Type 2 certified
+Community
+Open Source
+App GitHub
+Wiki GitHub
+Discord
+LinkedIn
+Youtube
+X
+TikTok
+Instagram
+&copy; 2026 Nimbalyst All rights reserved.

@@ -14,6 +14,21 @@ export type ZaiCatalogSnapshot = {
 	excluded_model_ids: string[];
 };
 
+// Timestamp-only failure: carries the parsed snapshot so an installer can verify + refresh it.
+export class ZaiSnapshotStaleError extends Error {
+	constructor(readonly snapshot: ZaiCatalogSnapshot) {
+		super("Z.ai catalog snapshot is stale; refresh before deploy");
+		this.name = "ZaiSnapshotStaleError";
+	}
+}
+
+// ONE snapshot path shared by the generator and the install preflight.
+export const zaiCatalogFile = (
+	home: string,
+	env: Record<string, string | undefined> = process.env,
+): string =>
+	env.ZAI_CATALOG_FILE ?? `${home}/.claude/local-llm/zai-models.json`;
+
 export function parseZaiModelIds(raw: unknown): {
 	model_ids: string[];
 	excluded_model_ids: string[];
@@ -64,10 +79,14 @@ export function validateZaiSnapshot(
 	const excluded = Array.isArray(doc.excluded_model_ids)
 		? doc.excluded_model_ids
 		: [];
+	const snapshot = {
+		...doc,
+		excluded_model_ids: [...excluded],
+	} as ZaiCatalogSnapshot;
 	const age = now - Date.parse(doc.generated_at ?? "");
 	if (!Number.isFinite(age) || age < 0 || age > ZAI_CATALOG_MAX_AGE_MS)
-		throw new Error("Z.ai catalog snapshot is stale; refresh before deploy");
-	return { ...doc, excluded_model_ids: [...excluded] } as ZaiCatalogSnapshot;
+		throw new ZaiSnapshotStaleError(snapshot);
+	return snapshot;
 }
 
 export function readZaiSnapshot(

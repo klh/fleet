@@ -11,6 +11,7 @@
 //   smoke    spawn the FLATTENED runtime on a scratch port and require
 //            /health 200 — a missing module fails the install loudly here
 //            instead of looping the launchd revive on :4000
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 
@@ -234,6 +235,58 @@ export async function flatHomeSource(
 	rel: string,
 ): Promise<string> {
 	return (await shimRealSource(root, rel)) ?? join(root, rel);
+}
+
+/** W1468: a kit twin and the belt/bin artifact the runtime home heals from. */
+export interface RuntimeTwin {
+	kit: string;
+	artifact: string;
+}
+
+/** The dual-home twin set (packages/local-llm AGENTS.md shim list). */
+export const RUNTIME_TWINS: readonly RuntimeTwin[] = [
+	{
+		kit: "packages/local-llm/registry.ts",
+		artifact: "packages/belt/bin/registry.ts",
+	},
+	{
+		kit: "packages/local-llm/spawner.ts",
+		artifact: "packages/belt/bin/spawner.ts",
+	},
+	{
+		kit: "packages/local-llm/litellm-target.ts",
+		artifact: "packages/belt/bin/litellm-target.ts",
+	},
+];
+
+/** The one allowlisted twin delta: a FULL re-export of the pinned artifact. */
+export function twinShimSource(twin: RuntimeTwin): string {
+	return `export * from "${relative(dirname(twin.kit), twin.artifact)}";`;
+}
+
+/**
+ * Drift verdicts for every twin under root (the repo or a staged payload);
+ * empty = each kit twin carries the pinned face. A narrowed re-export hides
+ * artifact exports; a byte copy is a second module instance (spawner's
+ * single-flight map splits) whose `./` imports resolve against kit siblings.
+ * A kit absent from root has no second variant to drift.
+ */
+export function twinDrift(
+	root: string,
+	twins: readonly RuntimeTwin[] = RUNTIME_TWINS,
+): string[] {
+	const drift: string[] = [];
+	for (const twin of twins) {
+		const kit = join(root, twin.kit);
+		if (!existsSync(kit)) continue;
+		if (!existsSync(join(root, twin.artifact)))
+			drift.push(`${twin.kit}: pinned artifact ${twin.artifact} is missing`);
+		else if (
+			normalizeSource(readFileSync(kit, "utf8")) !== twinShimSource(twin)
+		)
+			drift.push(`${twin.kit}: not the full re-export of ${twin.artifact}`);
+	}
+	return drift;
 }
 
 /** The W741 refresh report: which home files healed, which already agreed. */

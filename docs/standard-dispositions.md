@@ -25,10 +25,12 @@ P1–P6.
 | 3 | Installer | npm workspaces, `install-strategy=linked`, `npm ci`, second lockfile banned | bun workspaces + one `bun.lock`, bun runtime throughout | ACCEPTED-DIVERGENCE (strictness via guards) | W1303.1 |
 | 4 | Hub deploys | Images `npm install` their own package, never mount the repo | Hub containers mount git-pulled volumes at the pinned stack ref | ACCEPTED-DIVERGENCE | W1303.1 |
 | 5 | File naming | `<namespace>.<thing>.<role>.<ext>` everywhere | kebab-case (layout convention W669); dot-roles for NEW modules only | ACCEPTED-DIVERGENCE (scoped adoption) | — |
-| 6 | Validation | Zod defines every shape; types derived; `gen-openapi --check` | `JSON.parse` is the one config parser; zod in a handful of files, no discipline | SPLIT: config parser ACCEPTED-DIVERGENCE · wire contracts GAP | W1303.4 |
-| 7 | HTTP kit | `@paas/http`: ETag/If-Match, Idempotency-Key, problem+json, shed, deadline | No kit: URLPattern 0, Idempotency-Key 0, problem+json 0, Retry-After unclamped | GAP (two kits) | W1303.2 · W1303.3 |
-| 8 | Test framework | `@playwright/test` only, every test | bun:test (~458 suites in suspenders alone) + Playwright for e2e | ACCEPTED-DIVERGENCE | — |
-| 9 | One version | npm fixed-mode: every manifest bumps together, tagged | `stack.json` `version:` pins buckle+suspenders+belt (config-level pin) | ACCEPTED-DIVERGENCE (pipeline part GAP) | W1303.6 |
+| 6 | Validation | Zod defines every shape; types derived; `gen-openapi --check` | `JSON.parse` is the one config parser; zod in a handful of files, no discipline | SPLIT: config parser ACCEPTED-DIVERGENCE · wire contracts LANDED (`df2a3f0f`) | W1303.4 |
+| 7 | HTTP kit | `@paas/http`: ETag/If-Match, Idempotency-Key, problem+json, shed, deadline | Kit LANDED as `packages/buckle/src/http-kit.ts` (in-package, NOT a separate `@paas/http` package): Retry-After clamped on every emission, problem+json error-kinds, Idempotency-Key replay, aids family on RouteTable | SPLIT: kit shape ACCEPTED-DIVERGENCE (in-package module, no standalone package) · mechanics LANDED (`10f1ccd4`/`7fc06769` server, `4db0f091`/`d3c0a839` client) | W1303.2 · W1303.3 |
+| 8 | Test framework | `@playwright/test` only, every test | bun:test unit + Playwright for e2e/load, two frameworks BY LAYER (W1238.2 decision `d8563e1c`); the `*.test.ts` → `*.e2e.ts` port sweep (W1306 `c2ff563d`, W1294.17.*) is DONE + pushed, unmerged at audit time | ACCEPTED-DIVERGENCE (documented decision, ports in flight) | W1238.2 |
+| 9 | One version | npm fixed-mode: every manifest bumps together, tagged | `stack.json` `version:` pins buckle+suspenders+belt (config-level pin) | ACCEPTED-DIVERGENCE · pipeline LANDED (`d69ec274`); the release cut itself rides W1311 | W1303.6 |
+| 10 | Review usefulness | Round cap 3; incidents become evals, rescored on reviewer change; measure human time, revert/incident rate as guardrail | Review scheduler enforces the round cap; W792 arena scores incident tasks (no add-on-revert trigger, no rescore); W846 measures decision latency (no approvals metric, no guardrail) | SPLIT: round cap LANDED (`4bfc1839`) · incidents→evals GAP · human-time GAP | W1303.7 · W1476 · W1477 |
+| 11 | CI enforcement | Every rule enforced by a check, wired in CI: 1500-line cap, `check-deps` phantom imports, qlty in pre-push + CI, generated OpenAPI diffed in CI | Checks exist (law guards, import-law ratchet, `.githooks/pre-push`) but ride local hooks + lane gates; no fleet-owned CI workflow runs them on push | GAP | W1759 |
 
 ## Rationale per row
 
@@ -105,43 +107,91 @@ tracked gap item today.
   Amendment A) makes `JSON.parse` the ONE parser for every fleet config read;
   machine conf stays 0600 operator-owned. Zod may validate AFTER parse on new
   surfaces, but nothing replaces the parser.
-- **Wire contracts — GAP → W1303.4.** Buckle proxy API, board API payloads
-  and the hubctl `stack.json` shape have hand-written duplicate types and no
-  schema discipline (measured: zod present in a handful of files only).
-  W1303.4 (P4) lands zod wire contracts with derived types, deletes the
-  hand-written duplicates, and adds `gen-openapi --check` to the push gate.
-  The kernel stays zod-free (C83) — schema-first is a surface law, not a
-  kernel law.
+- **Wire contracts — LANDED (W1303.4, `df2a3f0f`).** Zod wire contracts with
+  derived types landed for the buckle proxy API, board API payloads and the
+  hubctl `stack.json` shape; the hand-written duplicates are gone.
+  `gen-openapi --check` runs in `.githooks/pre-push` (green at audit time,
+  W1714 @ `b7d773f0`). The kernel stays zod-free (C83) — schema-first is a
+  surface law, not a kernel law.
 
-### 7 · HTTP contract kit — GAP → W1303.2 and W1303.3
+### 7 · HTTP contract kit — LANDED (server `10f1ccd4`/`7fc06769`, client `4db0f091`/`d3c0a839`)
 
-Not a defensible divergence: measured absence (URLPattern 0, Idempotency-Key
-0, problem+json 0, ETag partial, Retry-After unclamped — the unclamped value
-is a known incident class: a quota wall can stall a client for weeks).
-W1303.2 (P2) builds the server kit — semantic status matrix, one error-kinds
-module emitting problem+json, Idempotency-Key replay, Retry-After clamp,
-ETag/If-Match, 202 pattern, shed + `x-request-deadline` — proving on the
-buckle gate and board routes. W1303.3 (P3) builds the client resilience kit
-on the existing AIMD admission ledger (W1280) and gap escalation (W1273)
-rather than duplicating them: timeouts, capped jittered backoff, retry
-budget, breaker, failover ladder.
+The GAP was a measured absence (URLPattern 0, Idempotency-Key 0, problem+json
+0, ETag partial, Retry-After unclamped — the unclamped value is a known
+incident class: a quota wall can stall a client for weeks). It closed with a
+recorded divergence: the standard's `@paas/http` standalone package became an
+in-package module, `packages/buckle/src/http-kit.ts` — no separate `@klh/http`
+package exists or is planned. W1303.2 (P2) landed the server kit — semantic
+status matrix, one error-kinds module emitting problem+json, Idempotency-Key
+replay, Retry-After clamp, ETag/If-Match, 202 pattern, shed +
+`x-request-deadline` — wired onto the buckle gate and board decomposed
+handlers (`7fc06769`), with the clamp proven on every Retry-After emission.
+W1303.3 (P3) landed the client resilience kit on the existing AIMD admission
+ledger (W1280) and gap escalation (W1273) rather than duplicating them:
+timeouts, capped jittered backoff, retry budget, breaker, failover ladder
+(bench rows `d3c0a839`).
 
-### 8 · bun:test vs Playwright-only — ACCEPTED-DIVERGENCE
+### 8 · Test framework — ACCEPTED-DIVERGENCE, decided in W1238.2 (`d8563e1c`)
 
-The standard's single-framework rule is greenfield. Migrating ~458 bun:test
-suites in suspenders alone (plus belt/buckle/blam) is pure churn with no
-defect class behind it; Playwright stays for browser e2e where it is already
-the tool. No migration item exists or is planned. Owner decision: Amendment
-C — "no migration item".
+The standard's single-framework rule is greenfield. The owner decision is
+W1238.2: two frameworks BY LAYER — bun:test for unit, Playwright for
+e2e/load — with probes proving the PW runner cannot host bun-native specs
+(`d8563e1c`). The migration direction exists and is in flight: the
+`*.test.ts` → `*.e2e.ts` port sweep (W1306 `c2ff563d`, the W1294.17.*
+slices; W1294's playwright-only migration plan itself FAILED) is DONE +
+pushed, unmerged at audit time. This rationale supersedes the earlier "no
+migration item exists or is planned" text, which contradicted W1238.2 and
+the in-flight ports.
 
-### 9 · Config-level version pin vs manifest fixed-mode — ACCEPTED-DIVERGENCE, pipeline GAP
+### 9 · Config-level version pin vs manifest fixed-mode — ACCEPTED-DIVERGENCE, pipeline LANDED (`d69ec274`)
 
 Where the version lives is deliberate: `stack.json` `version:` is the pin
-hubs pull (config-over-code), not an npm fixed-mode bump. What is missing is
-the proof that manifests, tag and pin agree at release time — tags exist but
-no pipeline guarantees it. W1303.6 (P6) lands the release verb (bump all
-package.json versions in one commit, rewrite `@klh/*` pins, tag, render the
-stack hint) with dry-run and tests.
+hubs pull (config-over-code), not an npm fixed-mode bump. The proof that
+manifests, tag and pin agree at release time landed with W1303.6 (P6): the
+release verb (bump all package.json versions in one commit, rewrite `@klh/*`
+pins, tag, render the stack hint) with dry-run and tests (`d69ec274`). The
+release cut itself rides W1311 (fleet-2026-10).
+
+### 10 · Review usefulness mechanics — SPLIT: round cap LANDED, evals + human time GAP
+
+The standard's "Keeping review useful" section carries three mechanics that
+the W1303.5 tiers/CODEOWNERS/PR template do not cover; each is dispositioned
+on its own, so the row never reads LANDED wholesale.
+
+- **Round cap of 3 — LANDED (W1303.7, `4bfc1839`).** `scheduleReview`
+  launches no reviewer once the item — plus the parents it repairs (children
+  tagged `repair` and `review`) — holds three failed review passes: distinct
+  (commit, base, instructions) contexts whose latest bound receipt FAILED;
+  transport ERROR legs never count. At the cap it emits one NEED_DECISION to
+  the completion author: rethink the approach (supersede the item) or raise
+  `SUSPENDERS_REVIEW_ROUND_CAP` (`0` disables). Contexts, not commits, are
+  the unit on purpose: the live non-converging loop is re-review of an
+  unchanged commit on every main move — W1075's round-8 receipt reads
+  "byte-identical to every prior FAIL round", and W1030.6 and W1124.20 show
+  the same shape. Fail-open on an unreadable history (the cap guards effort,
+  never correctness). Code `hooks/lib/gates/review-round-cap.ts`, tests
+  `test/review-scheduler.test.ts`.
+- **Incidents become evals — GAP (W1476).** Exists: the W792 review arena
+  scores reviewers on incident tasks mined from git history
+  (`packages/belt/bench/arena/review-incident.ts`) and the blam incident
+  set. Missing: the trigger (a revert or incident on main adds a case) and
+  the rescore (a reviewer prompt, model or tool change reruns the set).
+- **Measure human time — GAP (W1477).** Exists: W846 pilot-measure reports
+  NEED_DECISION emit→settle latency (p50/p90) and per-item human minutes
+  (`packages/belt/bench/pilot-measure.ts`). Missing: approvals per landing
+  (no human-approval connector exists — `how-to-review.md`, W1130) and the
+  revert/incident-rate guardrail that tightens the tiers; its threshold is
+  an owner decision.
+
+### 11 · CI enforcement — GAP → W1759
+
+The standard's enforcement doctrine ("a rule without a check is a wish",
+:175/:198/:257/:587) assumes the checks run in CI: the 1500-line cap, the
+check-deps phantom-import guard, `qlty check` in pre-push AND CI, generated
+OpenAPI diffed in CI. Fleet has all the checks — law guards
+(`tests/law-guards.test.ts`), the import-law ratchet,
+`.githooks/pre-push` — but they ride local hooks and lane gates only; no
+fleet-owned CI workflow runs them on push. W1759 owns wiring them into CI.
 
 ## Already aligned (no disposition needed)
 
@@ -152,9 +202,9 @@ defaults untouched, committed `.githooks`; `CLAUDE.md → @AGENTS.md`;
 native-first Lit with no `innerHTML`, bundled never CDN; agent-first review
 riding `oracle review`; decisions-not-queues (`coord emit NEED_DECISION`);
 every rule enforced by a check. Recorded in Amendment C; re-verified against
-post-reorg main by W1302's structural-prevention plan (lands with the W1302
-merge; `docs/structural-prevention-plan.md` rides branch
-`suspenders/W1302` until then — verified 2026-10-25, W1301.1).
+post-reorg main by W1302's structural-prevention plan (landed: W1302 merged
+to main 2026-10-26; `docs/structural-prevention-plan.md` is on main —
+verified 2026-10-26, W1301.1.1).
 
 ## Maintenance
 

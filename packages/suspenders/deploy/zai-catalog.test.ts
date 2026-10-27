@@ -1,15 +1,18 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import {
 	chmodSync,
+	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	parseZaiModelIds,
+	readZaiSnapshot,
 	ZAI_CATALOG_URL,
 	type ZaiCatalogSnapshot,
 } from "../../belt/bin/zai-catalog-rows.ts";
@@ -19,6 +22,7 @@ import type { HubProfile } from "../hooks/lib/stack-config.ts";
 import {
 	fetchZaiCatalog,
 	mergeZaiHubUpstreams,
+	refreshStaleZaiSnapshot,
 	writeZaiSnapshot,
 } from "./zai-catalog.ts";
 
@@ -303,5 +307,137 @@ describe("Z.ai account catalog", () => {
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
+	});
+});
+
+const staleHomes: string[] = [];
+afterAll(() => {
+	for (const dir of staleHomes.splice(0))
+		rmSync(dir, { recursive: true, force: true });
+});
+
+// W1469 fixture: a HOME whose Z.ai snapshot is `ageMs` old (default 3 days).
+const staleHome = (modelIds: string[], ageMs = 3 * 86_400_000, key = true) => {
+	const home = mkdtempSync(join(tmpdir(), "zai-stale-test-"));
+	staleHomes.push(home);
+	const llm = join(home, ".claude", "local-llm");
+	mkdirSync(llm, { recursive: true });
+	const path = join(llm, "zai-models.json");
+	const aged = {
+		...zaiSnapshot(modelIds),
+		generated_at: new Date(Date.now() - ageMs).toISOString(),
+	};
+	writeFileSync(path, JSON.stringify(aged), { mode: 0o600 });
+	if (key)
+		writeFileSync(join(llm, "zai.key"), "test-secret\n", { mode: 0o600 });
+	return { home, path, llm };
+};
+
+const liveFetcher = (ids: string[], calls: string[] = []) =>
+	(async (url: string | URL | Request) => {
+		calls.push(String(url));
+		return Response.json({ data: ids.map((id) => ({ id })) });
+	}) as typeof fetch;
+
+describe("W1469 stale Z.ai snapshot preflight", () => {
+	test("timestamp-only staleness: refreshed in place, one fetch, key never persisted", async () => {
+		const { home, path } = staleHome(["glm-4.7", "glm-5.3", "glm-5.3-flash"]);
+		expect(() => readZaiSnapshot(path)).toThrow("stale");
+		const calls: string[] = [];
+		const live = liveFetcher(["glm-5.3-flash", "glm-4.7", "glm-5.3"], calls);
+		const result = await refreshStaleZaiSnapshot(home, live, {});
+		expect(result).toEqual({ kind: "refreshed", models: 3 });
+		expect(calls).toEqual([ZAI_CATALOG_URL]);
+		expect(readZaiSnapshot(path).model_ids).toEqual([
+			"glm-4.7",
+			"glm-5.3",
+			"glm-5.3-flash",
+		]);
+		expect(statSync(path).mode & 0o777).toBe(0o600);
+		expect(readFileSync(path, "utf8")).not.toContain("test-secret");
+	});
+
+	test("real model-set delta: reported, snapshot left stale and byte-identical", async () => {
+		const { home, path } = staleHome(["glm-4.7", "glm-5.3"]);
+		const before = readFileSync(path, "utf8");
+		const live = liveFetcher(["glm-5.3", "glm-5.4"]);
+		expect(await refreshStaleZaiSnapshot(home, live, {})).toEqual({
+			kind: "delta",
+			added: ["glm-5.4"],
+			removed: ["glm-4.7"],
+		});
+		expect(readFileSync(path, "utf8")).toBe(before);
+		expect(() => readZaiSnapshot(path)).toThrow("stale");
+	});
+
+	test("unverifiable (HTTP 429, no key file): failed loudly, snapshot untouched", async () => {
+		const { home, path } = staleHome(["glm-5.3"]);
+		const before = readFileSync(path, "utf8");
+		const limited = (async () =>
+			new Response(null, { status: 429 })) as typeof fetch;
+		const result = await refreshStaleZaiSnapshot(home, limited, {});
+		expect(result).toMatchObject({ kind: "failed" });
+		expect(JSON.stringify(result)).toContain("HTTP 429");
+		const keyless = staleHome(["glm-5.3"], undefined, false);
+		expect(
+			await refreshStaleZaiSnapshot(keyless.home, liveFetcher(["glm-5.3"]), {}),
+		).toMatchObject({ kind: "failed" });
+		expect(readFileSync(path, "utf8")).toBe(before);
+	});
+
+	test("fresh, absent, or structurally invalid snapshots cost zero fetches", async () => {
+		const calls: string[] = [];
+		const live = liveFetcher(["glm-5.3"], calls);
+		expect(
+			await refreshStaleZaiSnapshot(
+				staleHome(["glm-5.3"], 60_000).home,
+				live,
+				{},
+			),
+		).toBeNull();
+		const absent = staleHome(["glm-5.3"]);
+		rmSync(absent.path);
+		expect(await refreshStaleZaiSnapshot(absent.home, live, {})).toBeNull();
+		const invalid = staleHome(["glm-5.3"]);
+		writeFileSync(invalid.path, JSON.stringify({ version: 2 }), {
+			mode: 0o600,
+		});
+		expect(await refreshStaleZaiSnapshot(invalid.home, live, {})).toBeNull();
+		expect(calls).toEqual([]);
+	});
+
+	test("excluded-only drift (new non-chat id) refreshes silently", async () => {
+		const { home, path } = staleHome(["glm-5.3"]);
+		const live = liveFetcher(["glm-5.3", "glm-4.6v"]);
+		expect(await refreshStaleZaiSnapshot(home, live, {})).toEqual({
+			kind: "refreshed",
+			models: 1,
+		});
+		expect(readZaiSnapshot(path).excluded_model_ids).toEqual(["glm-4.6v"]);
+	});
+
+	test("ZAI_CATALOG_FILE override is the path repaired, not the HOME default", async () => {
+		const aside = staleHome(["glm-5.3"]);
+		const base = staleHome(["glm-4.7"]);
+		const before = readFileSync(base.path, "utf8");
+		const env = { ZAI_CATALOG_FILE: aside.path };
+		const live = liveFetcher(["glm-5.3"]);
+		expect(await refreshStaleZaiSnapshot(base.home, live, env)).toEqual({
+			kind: "refreshed",
+			models: 1,
+		});
+		expect(readZaiSnapshot(aside.path).model_ids).toEqual(["glm-5.3"]);
+		expect(readFileSync(base.path, "utf8")).toBe(before);
+	});
+
+	test("future-dated timestamp is repaired like an expired one", async () => {
+		const { home, path } = staleHome(["glm-5.3"], -3_600_000);
+		expect(() => readZaiSnapshot(path)).toThrow("stale");
+		const live = liveFetcher(["glm-5.3"]);
+		expect(await refreshStaleZaiSnapshot(home, live, {})).toEqual({
+			kind: "refreshed",
+			models: 1,
+		});
+		expect(readZaiSnapshot(path).model_ids).toEqual(["glm-5.3"]);
 	});
 });

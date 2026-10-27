@@ -35,7 +35,7 @@ import {
 	registerSkills,
 	releaseNotify,
 } from "./install-wire-steps.ts";
-import { SOURCE_PATHS, syncHarness } from "./sync-harness.ts";
+import { sourcePaths, syncHarness } from "./sync-harness.ts";
 import { upgradeGateway } from "./upgrade-gateway.ts";
 
 export interface StepContext {
@@ -465,10 +465,11 @@ export async function executePlan(
 				name: step.name,
 				status: "planned",
 				// W1295: syncHarness names its ship list so a dry-run proves the
-				// payload (agent-rules rides SOURCE_PATHS since W1295).
+				// payload — W1466: the computed closure (read-only: git ls-tree +
+				// module reads), the same list a real sync archives.
 				note:
 					step.name === "syncHarness"
-						? `planned (dry-run — zero side effects); payload: ${SOURCE_PATHS.join(", ")}`
+						? `planned (dry-run — zero side effects); payload: ${(await sourcePaths(ctx.repo)).join(", ")}`
 						: "planned (dry-run — zero side effects)",
 			});
 			continue;

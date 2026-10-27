@@ -16,226 +16,54 @@
 // inbox dumps and task notifications — pair to nothing this session
 // called, so they never satisfy a claim.
 //
+// W1731 client-adapter dispatch: run events come only from the evidence
+// reader the executor registry carries for the resolved client (launch
+// identity > detected > default — the completion caller resolves it);
+// claims are read through every registered reader, so no identity hides
+// one. A client without a reader yields zero runs: its claim fails closed.
+//
 // Fail-open: an unreadable/absent transcript yields no transcript claims
 // (capsule text still counts), untimestamped events are dropped, and stat
 // failures skip a path. Completion callers cannot disable this evidence check.
 import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
+import {
+	adapterForExact,
+	EVIDENCE_NORMALIZERS,
+} from "../executors/registry.ts";
+import {
+	assemble,
+	type ClaimEvent,
+	isClaim,
+	normalizeTranscript,
+	runCounts,
+	type TranscriptEvents,
+} from "./claim-evidence.ts";
 
 /** transcript scan window — bounded tail, never the unbounded file. */
 export const CLAIM_CHECK_SCAN_BYTES = 8 * 1024 * 1024;
 /** mtime grace after the last passing run (post-test formatting lands here). */
 export const CLAIM_CHECK_GRACE_MS = 120_000;
 
-const assemble = (...parts: string[]): string => parts.join("");
+// The claim/run vocabulary is the shared evidence surface (claim-evidence.ts);
+// re-exported so existing importers of this gate keep one entry point.
+export { isClaim, isPassingRun, runCounts } from "./claim-evidence.ts";
+export type { ClaimEvent, TranscriptEvents } from "./claim-evidence.ts";
 
-// claim vocabulary — assistant prose only; briefs and user turns never claim
-const CLAIM_RES: RegExp[] = [
-	/\b(?:all\s+)?tests?\s+(?:pass|passed|passing|green)\b/i,
-	/\btests?\s+are\s+(?:passing|green)\b/i,
-	/\bsuite\s+(?:is\s+)?(?:green|passing)\b/i,
-];
-const NEG_PRE =
-	/\b(?:no|not|never|without|cannot|didn't|doesn't|won't|can't)\b[^.]*$/i;
-const RUN_PASS = /(\d+)\s+pass(?:ed)?\b/i;
-const RUN_FAIL = /(\d+)\s+fail(?:ed|ure)?\b/i;
-// W917 origin gate: a run event is the output of a test invocation the
-// session's own assistant initiated — the paired tool_use command must BE
-// a test run. Relayed counts from other sessions (WS-inbox dumps, task
-// notifications) ride no such call, so they never count. Assembled from
-// parts so this file's own source never trips the W511 scan.
-const TEST_CMD_RE = new RegExp(
-	assemble(
-		"\\b(?:bun|npm|yarn|pnpm)\\s+(?:run\\s+)?(?:--?[a-z-]+\\s+)*",
-		"test\\b|\\bvitest\\b|\\bjest\\b|\\bnode\\s+--test\\b|\\bcargo\\s+",
-		"test\\b|\\bgo\\s+test\\b|\\bpytest\\b",
-	),
-	"i",
-);
-const CODEX_TEST_START =
-	/^(?:bun|npm|yarn|pnpm)\s+(?:run\s+)?test\b|^(?:vitest|jest|pytest)\b|^node\s+--test\b|^cargo\s+test\b|^go\s+test\b/i;
-
-/** The Codex functions.exec script must directly invoke one test command.
- * A relayed inbox message or a script that merely mentions "bun test" is
- * not execution evidence. Reject shell chaining and computed commands. */
-const codexInitiatedTest = (source: string): boolean => {
-	const calls = [
-		...source.matchAll(
-			/tools\.exec_command\(\s*\{\s*cmd\s*:\s*("(?:\\.|[^"\\])*")/g,
-		),
-	];
-	if (calls.length !== 1) return false;
-	let command: string;
-	try {
-		command = JSON.parse(calls[0]?.[1] ?? "") as string;
-	} catch {
-		return false;
-	}
-	return CODEX_TEST_START.test(command.trim()) && !/[;&|`]/.test(command);
-};
-
-/** a test-pass claim in lane prose (negations in the preceding window void it). */
-export const isClaim = (text: string): boolean =>
-	CLAIM_RES.some((re) => {
-		const m = re.exec(text);
-		if (!m) return false;
-		const at = m.index ?? 0;
-		return !NEG_PRE.test(text.slice(Math.max(0, at - 40), at));
-	});
-
-/** pass/fail counts from a test-summary tool output (bun/jest/vitest sums). */
-export const runCounts = (
+/** Extract claim events (assistant prose, through every registered reader)
+ *  and run events (W917 origin gate) through `client`'s registry evidence
+ *  reader only — W1731 design.client-adapter-dispatch: each transcript
+ *  format is its adapter's reader, never a branch here. An unregistered
+ *  client, or one with no reader, yields zero runs. Untimestamped lines drop. */
+export function transcriptEventsFromText(
 	text: string,
-): { pass: number; fail: number } | null => {
-	const p = RUN_PASS.exec(text);
-	const f = RUN_FAIL.exec(text);
-	if (!p && !f) return null;
-	return { pass: p ? Number(p[1]) : 0, fail: f ? Number(f[1]) : 0 };
-};
-
-export const isPassingRun = (text: string): boolean => {
-	const c = runCounts(text);
-	return c !== null && c.pass > 0 && c.fail === 0;
-};
-
-export interface ClaimEvent {
-	ts: number;
-	text: string;
-}
-export interface TranscriptEvents {
-	claims: ClaimEvent[];
-	runs: ClaimEvent[];
-}
-
-type ContentPart = {
-	type?: unknown;
-	text?: unknown;
-	content?: unknown;
-	id?: unknown;
-	input?: unknown;
-	tool_use_id?: unknown;
-};
-
-const toolResultText = (c: ContentPart): string => {
-	if (typeof c.content === "string") return c.content;
-	if (!Array.isArray(c.content)) return "";
-	return c.content
-		.map((p: unknown) => {
-			const part = p as ContentPart;
-			return typeof part?.text === "string" ? part.text : "";
-		})
-		.join("\n");
-};
-
-/** Extract claim events (assistant prose only) and run events (only from
- *  results of assistant-initiated test invocations — W917 origin gate) from
- *  transcript JSONL text. Untimestamped lines drop. */
-export function transcriptEventsFromText(text: string): TranscriptEvents {
-	const out: TranscriptEvents = { claims: [], runs: [] };
-	const keep = (ev: ClaimEvent, into: ClaimEvent[]): void => {
-		if (ev.ts > 0) into.push(ev);
-	};
-	// W917 origin gate: tool_use id → did this session's own assistant ask
-	// for a test run? Only results of such calls become run events;
-	// unpaired or non-test results are foreign noise and drop.
-	const initiated = new Map<string, boolean>();
-	const codexInitiated = new Map<string, boolean>();
-	for (const lineOf of text.split("\n")) {
-		if (lineOf.length < 2) continue;
-		let obj: Record<string, unknown>;
-		try {
-			obj = JSON.parse(lineOf) as Record<string, unknown>;
-		} catch {
-			continue;
-		}
-		const ts = Date.parse(String(obj.timestamp ?? "")) || 0;
-		const payload = obj.payload as Record<string, unknown> | undefined;
-		if (obj.type === "response_item" && payload) {
-			if (payload.type === "custom_tool_call" && payload.name === "exec") {
-				const id = payload.call_id;
-				if (typeof id === "string")
-					codexInitiated.set(
-						id,
-						typeof payload.input === "string" &&
-							codexInitiatedTest(payload.input),
-					);
-			} else if (payload.type === "custom_tool_call_output") {
-				const id = payload.call_id;
-				if (typeof id === "string" && codexInitiated.get(id)) {
-					const parts = payload.output;
-					if (Array.isArray(parts)) {
-						const content = parts
-							.map((part: unknown) =>
-								part &&
-								typeof part === "object" &&
-								typeof (part as ContentPart).text === "string"
-									? (part as ContentPart).text
-									: "",
-							)
-							.join("\n");
-						if (content.includes("Script completed") && runCounts(content))
-							keep({ ts, text: content }, out.runs);
-					}
-				}
-			} else if (payload.type === "message" && payload.role === "assistant") {
-				const parts = payload.content;
-				if (Array.isArray(parts))
-					for (const part of parts as ContentPart[])
-						if (
-							part?.type === "output_text" &&
-							typeof part.text === "string" &&
-							isClaim(part.text)
-						)
-							keep({ ts, text: part.text }, out.claims);
-			}
-			continue;
-		}
-		const msg = obj.message as
-			| { role?: unknown; content?: unknown }
-			| undefined;
-		const assistant = msg?.role === "assistant" || obj.type === "assistant";
-		const content = msg?.content;
-		let paired = false;
-		// sweep 1 (W917 origin gate): register the assistant's own tool_use
-		// ids and whether each command WAS a test invocation.
-		if (Array.isArray(content) && assistant)
-			for (const c of content as ContentPart[]) {
-				if (!c || typeof c !== "object") continue;
-				if (c.type !== "tool_use") continue;
-				const id = typeof c.id === "string" ? c.id : "";
-				const cmd = (c.input as { command?: unknown } | undefined)?.command;
-				initiated.set(id, typeof cmd === "string" && TEST_CMD_RE.test(cmd));
-			}
-		if (Array.isArray(content))
-			for (const c of content as ContentPart[]) {
-				if (!c || typeof c !== "object") continue;
-				if (c.type === "tool_result") {
-					const id = typeof c.tool_use_id === "string" ? c.tool_use_id : "";
-					if (!id || !initiated.get(id)) continue; // foreign: drop
-					paired = true;
-					const t = toolResultText(c);
-					if (t && runCounts(t)) keep({ ts, text: t }, out.runs);
-				} else if (
-					assistant &&
-					c.type === "text" &&
-					typeof c.text === "string" &&
-					isClaim(c.text)
-				)
-					keep({ ts, text: c.text }, out.claims);
-			}
-		const tur = obj.toolUseResult as unknown;
-		const turTexts: string[] = [];
-		if (typeof tur === "string") turTexts.push(tur);
-		else if (tur && typeof tur === "object")
-			for (const k of ["stdout", "stderr"] as const) {
-				const v = (tur as Record<string, unknown>)[k];
-				if (typeof v === "string") turTexts.push(v);
-			}
-		if (paired)
-			for (const turText of turTexts)
-				if (runCounts(turText)) keep({ ts, text: turText }, out.runs);
-	}
-	return out;
+	client: string,
+): TranscriptEvents {
+	return normalizeTranscript(
+		text,
+		EVIDENCE_NORMALIZERS,
+		adapterForExact(client)?.evidence,
+	);
 }
 
 /** Bounded tail of a transcript file (last cap bytes, aligned to a line
@@ -484,6 +312,9 @@ const statMtime = (p: string): number | null => {
 export const claimCheckVerdict = (o: {
 	transcriptPath?: string;
 	transcriptText?: string;
+	/** W1731: the resolved client (registry id) whose evidence reader yields
+	 *  run events — the caller's launch > detected > default resolution. */
+	client: string;
 	capsuleDone?: string;
 	capsuleTs?: number;
 	/** Only this item's current claim epoch may provide prose or run evidence. */
@@ -512,7 +343,7 @@ export const claimCheckVerdict = (o: {
 		o.transcriptText ??
 		(o.transcriptPath ? transcriptWindow(o.transcriptPath, o.scanBytes) : null);
 	const events = text
-		? transcriptEventsFromText(text)
+		? transcriptEventsFromText(text, o.client)
 		: { claims: [], runs: [] };
 	const started = o.claimStartedAt ?? 0;
 	const claims = events.claims.filter((event) => event.ts >= started);
@@ -538,13 +369,15 @@ export const claimCheckVerdict = (o: {
 	if (!counts || counts.pass === 0 || counts.fail > 0)
 		miss = {
 			claim: lastClaim,
-			why: !counts
-				? runs.length
-					? "every test run in the transcript is after the claim"
-					: "no test run found in the transcript"
-				: counts.fail > 0
-					? `last run before the claim failed (${counts.pass} pass / ${counts.fail} fail)`
-					: "no passing run before the claim",
+			why: !adapterForExact(o.client)?.evidence
+				? `no transcript evidence adapter for client ${o.client} — its runs cannot be read, so the claim fails closed`
+				: !counts
+					? runs.length
+						? "every test run in the transcript is after the claim"
+						: `no test run found in the transcript (read as ${o.client})`
+					: counts.fail > 0
+						? `last run before the claim failed (${counts.pass} pass / ${counts.fail} fail)`
+						: "no passing run before the claim",
 		};
 	if (!miss) {
 		const horizon = lastRun?.ts ?? 0;

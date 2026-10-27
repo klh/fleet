@@ -89,8 +89,8 @@ export function compareSemver(a: string, b: string): number {
 }
 
 /** Expand root `workspaces` globs (single-`*` segments, `!` negation — the
- *  forms this repo uses) to repo-relative dirs that contain a package.json. */
-export function workspaceDirs(repo: string, patterns: string[]): string[] {
+ *  forms this repo uses) to repo-relative dirs, whatever they hold. */
+export function workspaceDirsAll(repo: string, patterns: string[]): string[] {
 	const pos: string[] = [];
 	const neg: string[] = [];
 	for (const p of patterns) {
@@ -121,10 +121,17 @@ export function workspaceDirs(repo: string, patterns: string[]): string[] {
 		}
 	};
 	for (const pat of pos) walk(repo, pat.split("/"), "");
-	const dirs = [...found].filter(
+	return [...found].filter(
 		(d) => !neg.some((n) => d === n || d.startsWith(`${n}/`)),
 	);
-	return dirs.filter((d) => existsSync(join(repo, d, "package.json")));
+}
+
+/** `workspaceDirsAll`, narrowed to the dirs that hold a package.json —
+ *  the release core's manifest-discovery set. */
+export function workspaceDirs(repo: string, patterns: string[]): string[] {
+	return workspaceDirsAll(repo, patterns).filter((d) =>
+		existsSync(join(repo, d, "package.json")),
+	);
 }
 
 /** The one-version set: the root manifest + every workspace manifest. */
@@ -154,7 +161,7 @@ export function discoverManifests(repo: string): ManifestRef[] {
 	return refs.sort((a, b) => a.rel.localeCompare(b.rel));
 }
 
-const DEP_MAPS = [
+export const DEP_MAPS = [
 	"dependencies",
 	"devDependencies",
 	"peerDependencies",

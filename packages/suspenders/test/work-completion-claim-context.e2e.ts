@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
+import { registeredOriginalBaseline } from "../hooks/lib/lanes/original-baseline.ts";
 import { assignTask } from "../hooks/lib/work/work-alloc.ts";
 
 import {
@@ -479,4 +480,231 @@ test("concurrent CLI retakes leave only the winning owner in row and context", a
 	).toBe(row.owner_sid);
 });
 
+type Fixture = ReturnType<typeof fixture>;
+const tokenOf = (out: string) =>
+	/claim token: ([0-9a-f]{48})/.exec(out)?.[1] ?? "";
+const releaseAs = (f: Fixture, sid: string) =>
+	expect(
+		f.work(
+			"reclaim",
+			f.id,
+			"--reason",
+			"user",
+			"--force",
+			"--expect-owner",
+			sid,
+		).code,
+	).toBe(0);
+const completeAs = (f: Fixture, tree: string, sid: string, token: string) =>
+	Bun.spawnSync(
+		[
+			process.execPath,
+			workFile,
+			"done",
+			f.id,
+			"--as",
+			sid,
+			"--token",
+			token,
+			"--sha",
+			Bun.spawnSync(["git", "-C", tree, "rev-parse", "HEAD"])
+				.stdout.toString()
+				.trim(),
+			"--summary",
+			"Resumed the released claim's original product from its registered tree base.",
+		],
+		{ cwd: tree, env: f.env, stdout: "pipe", stderr: "pipe" },
+	);
+function probeGraph<T>(
+	f: Fixture,
+	probe: (store: GovernorStore, project: string) => T,
+): T {
+	const db = new Database(
+		join(f.home, ".cache", "claude-governor", "governor.db"),
+	);
+	try {
+		const store = {
+			local: true,
+			query: db.query.bind(db),
+			run: db.run.bind(db),
+		};
+		return probe(store as GovernorStore, realpathSync(join(f.repo, ".git")));
+	} finally {
+		db.close();
+	}
+}
+const lastClaimed = (f: Fixture) =>
+	probeGraph(f, (store, project) => {
+		const row = store
+			.query(
+				"SELECT payload FROM events WHERE kind='work.claimed' AND project=? AND work=? ORDER BY id DESC LIMIT 1",
+			)
+			.get(project, f.id) as { payload: string };
+		return JSON.parse(row.payload);
+	});
+// W1730: the W1357/W1315.1 shape — the original claim left a span on the item
+// branch and was released; the retake minted its context at the tree's HEAD
+function releasedRetake(span: "product" | "none" | "fast-forward" | "merge") {
+	const f = fixture();
+	const tree = join(f.repo, ".worktrees", f.id);
+	const inTree = (...args: string[]) =>
+		Bun.spawnSync(["git", "-C", tree, ...args], {
+			env: f.env,
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+	if (span === "product") {
+		writeFileSync(join(tree, "retaken.ts"), "export const original = true;\n");
+		expect(inTree("add", "retaken.ts").exitCode).toBe(0);
+		expect(inTree("commit", "-m", "original claim product").exitCode).toBe(0);
+	} else if (span !== "none") {
+		const how = span === "merge" ? "--no-ff" : "--ff-only";
+		expect(inTree("merge", how, "-m", "integration", f.sha).exitCode).toBe(0);
+	}
+	const head = inTree("rev-parse", "HEAD").stdout.toString().trim();
+	const release = (sid: string) => releaseAs(f, sid);
+	release("completion-lane");
+	const taken = f.work("take", f.id, "--as", "retake-lane");
+	expect(taken.code).toBe(0);
+	const contextPath = join(tree, ".fleet", "lane-context.json");
+	mkdirSync(join(tree, ".fleet"), { recursive: true });
+	writeFileSync(
+		contextPath,
+		JSON.stringify({
+			sid: "retake-lane",
+			item: f.id,
+			baseline: head,
+			launchedAt: Date.now(),
+			claimToken: tokenOf(taken.out),
+		}),
+	);
+	return { f, tree, head, contextPath, release };
+}
+
+test("W1730 retake over the released claim's own product resumes its registered original baseline", () => {
+	const { f, tree, head, contextPath, release } = releasedRetake("product");
+	const stale = JSON.parse(readFileSync(contextPath, "utf8")).claimToken;
+	// the HEAD-minted context hides the original product: the W1357 refusal
+	expect(completeAs(f, tree, "retake-lane", stale).stderr.toString()).toContain(
+		"Completion has no product commit evidence",
+	);
+	release("retake-lane");
+	const taken = f.work("take", f.id, "--as", "replacement-lane");
+	expect(taken.code).toBe(0);
+	expect(JSON.parse(readFileSync(contextPath, "utf8")).baseline).toBe(
+		f.baseline,
+	);
+	const receipt = lastClaimed(f);
+	expect(receipt.context_origin.baseline).toBe(head);
+	expect(receipt.baseline_restored).toMatchObject({
+		from: head,
+		to: f.baseline,
+	});
+	const completed = completeAs(f, tree, "replacement-lane", tokenOf(taken.out));
+	expect(completed.stderr.toString()).not.toContain("no product commit");
+	expect(completed.exitCode).toBe(0);
+	const shown = JSON.parse(f.work("show", f.id, "--json").out);
+	expect(shown.state).toBe("DONE");
+	expect(shown.completion.baseline_sha).toBe(f.baseline);
+	// a completed item never re-offers its credited product
+	const args = { item: f.id, tree };
+	expect(
+		probeGraph(f, (store, project) =>
+			registeredOriginalBaseline(store, { project, ...args }),
+		),
+	).toBeNull();
+});
+
+test("W1730 a retake inheriting no product or only integrated work keeps the W917 empty-window refusal", () => {
+	for (const span of ["none", "fast-forward", "merge"] as const) {
+		const { f, tree, head, contextPath, release } = releasedRetake(span);
+		release("retake-lane");
+		const taken = f.work("take", f.id, "--as", "replacement-lane");
+		expect(taken.code).toBe(0);
+		expect(JSON.parse(readFileSync(contextPath, "utf8")).baseline).toBe(head);
+		expect(lastClaimed(f).baseline_restored).toBeUndefined();
+		const refused = completeAs(f, tree, "replacement-lane", tokenOf(taken.out));
+		expect(refused.stderr.toString()).toContain(
+			"Completion has no product commit evidence",
+		);
+		expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe(
+			"CLAIMED",
+		);
+	}
+});
+
+test("W1730 a context older than its re-minted tree's registered base is refused", () => {
+	const f = fixture();
+	const tree = join(f.repo, ".worktrees", f.id);
+	const release = (sid: string) => releaseAs(f, sid);
+	release("completion-lane");
+	for (const args of [
+		["worktree", "remove", "--force", tree],
+		["branch", "-D", `suspenders/${f.id}`],
+	])
+		expect(Bun.spawnSync(["git", "-C", f.repo, ...args]).exitCode).toBe(0);
+	const taken = f.work("take", f.id, "--as", "remint-lane");
+	expect(taken.code).toBe(0);
+	// the carried-over context claims the pre-mint base: a window over
+	// integration history the re-minted tree never produced
+	const bytes = JSON.stringify({
+		sid: "remint-lane",
+		item: f.id,
+		baseline: f.baseline,
+		launchedAt: Date.now(),
+		claimToken: tokenOf(taken.out),
+	});
+	mkdirSync(join(tree, ".fleet"), { recursive: true });
+	writeFileSync(join(tree, ".fleet", "lane-context.json"), bytes);
+	release("remint-lane");
+	const refused = f.work("take", f.id, "--as", "replacement-lane");
+	expect(refused.code).not.toBe(0);
+	expect(`${refused.out}${refused.err}`).toContain(
+		"predates its registered original tree base",
+	);
+	expect(readFileSync(join(tree, ".fleet", "lane-context.json"), "utf8")).toBe(
+		bytes,
+	);
+	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("READY");
+});
+
+test("W1730 the registered original base binds project, item, tree and an agreeing mint receipt", () => {
+	const f = fixture();
+	const tree = join(f.repo, ".worktrees", f.id);
+	probeGraph(f, (store, project) => {
+		const args = { project, item: f.id, tree };
+		const mint = store
+			.query(
+				"SELECT payload FROM events WHERE kind='work.tree' AND project=? AND work=? ORDER BY id DESC LIMIT 1",
+			)
+			.get(project, f.id) as { payload: string };
+		expect(JSON.parse(mint.payload).base).toBe(f.baseline);
+		expect(registeredOriginalBaseline(store, args)?.sha).toBe(f.baseline);
+		for (const foreign of [
+			{ item: "W999999" },
+			{ project: `${project}.foreign` },
+			{ tree: f.repo },
+		])
+			expect(
+				registeredOriginalBaseline(store, { ...args, ...foreign }),
+			).toBeNull();
+		// a newer fresh receipt that disagrees with git's creation entry voids it
+		store
+			.query(
+				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'worktree', 'work.tree', ?, ?, NULL)",
+			)
+			.run(
+				Date.now(),
+				f.id,
+				JSON.stringify({
+					work: f.id,
+					project,
+					path: tree,
+					branch: `suspenders/${f.id}`,
+					base: "f".repeat(40),
+				}),
+			);
+		expect(registeredOriginalBaseline(store, args)).toBeNull();
+	});
+});
 });

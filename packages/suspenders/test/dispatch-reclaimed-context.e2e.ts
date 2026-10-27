@@ -167,4 +167,62 @@ test("fresh dirty tree without canonical context cannot be adopted", async () =>
 	}
 }, 30_000);
 
+test("W1730 a released manual tree with its own product launches from its registered original base", async () => {
+	const stub = stubBuckle(true);
+	let fixturePid: number | undefined;
+	try {
+		const id = await h.addItem("Resume released manual product fixture");
+		const sid = laneSid(id, projectIdentity(h.REPO));
+		const manual = await h.toolA(
+			{},
+			"work.ts",
+			"take",
+			id,
+			"--as",
+			"manual-original",
+		);
+		expect(manual.code).toBe(0);
+		const tree = join(h.REPO, ".worktrees", id);
+		const git = (...args: string[]) =>
+			Bun.spawnSync([
+				"git",
+				"-C",
+				tree,
+				"-c",
+				"user.name=t",
+				"-c",
+				"user.email=t@example.invalid",
+				...args,
+			]);
+		const base = git("rev-parse", "HEAD").stdout.toString().trim();
+		writeFileSync(join(tree, "original.ts"), "export const original = true;\n");
+		expect(git("add", "original.ts").exitCode).toBe(0);
+		expect(git("commit", "-m", "original manual product").exitCode).toBe(0);
+		expect(
+			(await h.toolA({}, "work.ts", "reclaim", id, "--reason", "user")).code,
+		).toBe(0);
+		const result = await h.dispatchA(
+			{
+				SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${stub.port}`,
+				SUSPENDERS_BELT_ENV: join(h.HOME, "belt.env"),
+				SUSPENDERS_RESUME_RETAKE: "off",
+			},
+			"--item",
+			id,
+		);
+		expect(result.out).toContain(`dispatched ${id} → ${sid}`);
+		fixturePid = JSON.parse(
+			readFileSync(join(h.REPO, ".fleet", "lanes.json"), "utf8"),
+		).find((lane: { item: string }) => lane.item === id)?.pid;
+		// a HEAD-minted context (the W1357/W1315.1 refusal) hides original.ts
+		const context = JSON.parse(
+			readFileSync(join(tree, ".fleet", "lane-context.json"), "utf8"),
+		);
+		expect(context.sid).toBe(sid);
+		expect(context.baseline).toBe(base);
+	} finally {
+		if (fixturePid) process.kill(fixturePid, "SIGTERM");
+		stub.stop();
+	}
+}, 30_000);
 });

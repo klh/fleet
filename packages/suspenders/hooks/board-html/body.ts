@@ -159,6 +159,7 @@ export const BODY = String.raw`
 <aside id="drawer" role="dialog" aria-modal="false" aria-labelledby="drawerTitle" hidden>
   <div class="dwhead"><h2 id="drawerTitle">Task</h2><button id="drawerClose" type="button" aria-label="close task details">&times;</button></div>
   <div id="drawerBody"></div>
+  <div id="taskLaunch"></div>
   <div id="taskDiff"></div>
   <div id="taskTail"></div>
 </aside>

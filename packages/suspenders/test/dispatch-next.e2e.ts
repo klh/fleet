@@ -365,6 +365,15 @@ test.describe("dry-run dispatch", () => {
 			expect(out.out).toContain("SOFT");
 			expect(out.out).toContain('ROUTING: .prefer must="cloud"');
 			expect(out.out).toContain("RESERVED");
+			// W1353: quoted-only .prefer never reached the executor chain — the
+			// preview names the executor it picked and WARNs, per lane and in the tail
+			expect(out.out).toMatch(
+				/DRY executor W\d+: \S+ model=\S+ hub=\S+ picked-by=default ladder/,
+			);
+			expect(out.out).toContain('WARN — quoted .prefer must="cloud"');
+			expect(out.out).toContain(
+				"dispatch executors (what each lane actually launched with):",
+			);
 		} finally {
 			rmSync(join(REPO, ".prefer"));
 		}
@@ -591,6 +600,26 @@ test.describe("must/prefer chain (W813 position law: later directives win, CLI-a
 		expect(first.out).toContain("DRY chain attempt 0/1 -> copilot");
 		expect(first.out).not.toContain("fallback-model");
 		rmSync(join(REPO, ".prefer"));
+	});
+
+	// W1353: a quoted line is routing-plane only; the unquoted must= on line 2
+	// is the chain directive, so the preview names it and raises no WARN.
+	test("quoted must + unquoted must=: the chain line is disclosed as picked-by, no WARN", () => {
+		writeFileSync(
+			join(REPO, ".prefer"),
+			['must = "cloud"', "must=opus", ""].join("\n"),
+		);
+		try {
+			const added = tool("work.ts", "add", "chain quoted-plus-unquoted item");
+			const id = (added.out.match(/W\d+/) ?? [])[0] ?? "";
+			expect(id).toBeTruthy();
+			const out = dispatch("--dry-run", "--item", id);
+			expect(out.out).toContain("picked-by=.prefer must line 2");
+			expect(out.out).toContain("model=opus");
+			expect(out.out).not.toContain("WARN — quoted .prefer");
+		} finally {
+			rmSync(join(REPO, ".prefer"));
+		}
 	});
 });
 
