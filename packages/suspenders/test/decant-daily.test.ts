@@ -15,7 +15,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
 	CLAIM_PREFIX,
 	claimKey,
@@ -259,7 +259,9 @@ describe("registry (W1212)", () => {
 	test("decant-daily entry: daily calendar, runner resolves at the root", () => {
 		const t = MAINTENANCE_TASKS.find((x) => x.name === "decant-daily");
 		expect(t?.calendar).toEqual({ hour: 4, minute: 30 });
-		expect(t?.argv("/r", "/repo")[0]).toContain("decant-daily.ts");
+		const pkgRoot = resolve(import.meta.dir, "..");
+		expect(t?.argv(pkgRoot, "/repo")[0]).toContain("decant-daily.ts");
+		expect(existsSync(t?.argv(pkgRoot, "/repo")[0] ?? "")).toBe(true);
 		expect(missingRunners()).toEqual([]);
 	});
 });
