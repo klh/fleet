@@ -73,6 +73,67 @@ packages/decant/test/distill.test.ts:curl-auth-header:169
 # W1124.8.2.1: hub provider-delivery fixtures — invented "zk-live-…" profile keys;
 # every test asserts the raw value NEVER reaches an output surface (leak-negative
 # assertions), first-hand read 2026-10-22 — not secrets
+# W1102: full-history push-scan dispositions, ported path-scoped (commit-prefixed
+# pre-cutover rows above are inert across duplicate histories). First-hand reads
+# 2026-10-23: vendored buckle provider docs carry placeholder auth examples;
+# test rows are fixtures asserting redaction/non-leak; gen.ts:936 is a synthetic
+# bench alphabet. hub-providers = W1124.8.2.1, migrate-provider-keys = W1226.
+packages/belt/bench/arena/gen.ts:generic-api-key:936
+packages/buckle/docs/providers/azure__azure_anthropic.md:curl-auth-header:270
+packages/buckle/docs/providers/azure__index.md:generic-api-key:539
+packages/buckle/docs/providers/azure_document_intelligence.md:curl-auth-header:77
+packages/buckle/docs/providers/azure_document_intelligence.md:curl-auth-header:186
+packages/buckle/docs/providers/azure_document_intelligence.md:curl-auth-header:236
+packages/buckle/docs/providers/azure_document_intelligence.md:curl-auth-header:285
+packages/buckle/docs/providers/bedrock_agentcore.md:curl-auth-header:270
+packages/buckle/docs/providers/bedrock_agentcore.md:curl-auth-header:387
+packages/buckle/docs/providers/clf_ai_gateway.md:curl-auth-header:130
+packages/buckle/docs/providers/docker_model_runner.md:curl-auth-header:257
+packages/buckle/docs/providers/docker_model_runner.md:curl-auth-header:267
+packages/buckle/docs/providers/edenai.md:curl-auth-header:382
+packages/buckle/docs/providers/edenai.md:curl-auth-header:396
+packages/buckle/docs/providers/edenai.md:curl-auth-header:406
+packages/buckle/docs/providers/edenai.md:curl-auth-header:420
+packages/buckle/docs/providers/edenai.md:curl-auth-header:425
+packages/buckle/docs/providers/edenai.md:curl-auth-header:431
+packages/buckle/docs/providers/edenai.md:curl-auth-header:436
+packages/buckle/docs/providers/edenai.md:curl-auth-header:445
+packages/buckle/docs/providers/edenai.md:curl-auth-header:450
+packages/buckle/docs/providers/edenai.md:curl-auth-header:453
+packages/buckle/docs/providers/empiriolabs.md:curl-auth-header:146
+packages/buckle/docs/providers/fireworks_ai.md:curl-auth-header:433
+packages/buckle/docs/providers/github_copilot.md:curl-auth-header:169
+packages/buckle/docs/providers/hyperbolic.md:curl-auth-header:256
+packages/buckle/docs/providers/hyperbolic.md:curl-auth-header:266
+packages/buckle/docs/providers/manus.md:curl-auth-header:98
+packages/buckle/docs/providers/manus.md:curl-auth-header:118
+packages/buckle/docs/providers/manus.md:curl-auth-header:259
+packages/buckle/docs/providers/manus.md:curl-auth-header:279
+packages/buckle/docs/providers/manus.md:curl-auth-header:298
+packages/buckle/docs/providers/manus.md:curl-auth-header:315
+packages/buckle/docs/providers/meta.md:curl-auth-header:407
+packages/buckle/docs/providers/meta.md:curl-auth-header:422
+packages/buckle/docs/providers/meta_llama.md:curl-auth-header:287
+packages/buckle/docs/providers/meta_llama.md:curl-auth-header:297
+packages/buckle/docs/providers/moonshot.md:curl-auth-header:205
+packages/buckle/docs/providers/moonshot.md:curl-auth-header:215
+packages/buckle/docs/providers/nebius.md:curl-auth-header:145
+packages/buckle/docs/providers/novita.md:curl-auth-header:97
+packages/buckle/docs/providers/nscale.md:curl-auth-header:167
+packages/buckle/docs/providers/publicai.md:curl-auth-header:194
+packages/buckle/docs/providers/publicai.md:curl-auth-header:204
+packages/buckle/docs/providers/replicate.md:curl-auth-header:121
+packages/buckle/docs/providers/scaleway.md:curl-auth-header:56
+packages/buckle/docs/providers/scaleway.md:curl-auth-header:112
+packages/buckle/docs/providers/v0.md:curl-auth-header:284
+packages/buckle/docs/providers/v0.md:curl-auth-header:294
+packages/buckle/docs/providers/vercel_ai_gateway.md:curl-auth-header:232
+packages/buckle/docs/providers/vercel_ai_gateway.md:curl-auth-header:242
+packages/buckle/docs/providers/vertex_ocr.md:curl-auth-header:77
+packages/buckle/docs/providers/wandb_inference.md:curl-auth-header:133
+packages/suspenders/test/fleet-board-flows.test.ts:generic-api-key:415
+packages/suspenders/test/fleet-board-flows.test.ts:generic-api-key:436
+packages/suspenders/test/fleet-board-flows.test.ts:generic-api-key:443
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:29
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:42
 packages/suspenders/test/hub-providers.test.ts:generic-api-key:102
@@ -93,3 +154,6 @@ packages/suspenders/deploy/singbox/lifecycle.test.ts:generic-api-key:176
 # invented "sk-value-…" sighting strings, scrub:allow-marked, the test asserts
 # sighting resolution and leak-negatives, first-hand read 2026-10-23 — not a secret
 05177bc10f165d2e06e5278067c6c34487e80b51:packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83
+packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83
+packages/suspenders/test/prompt-transform.test.ts:generic-api-key:418
+packages/suspenders/test/scrub-gate.test.ts:generic-api-key:32
