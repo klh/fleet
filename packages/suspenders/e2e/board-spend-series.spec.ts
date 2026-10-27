@@ -78,6 +78,17 @@ test("gui: lanes kanban paints the micro-strip sparkline + strip text", {
 	// the sparkline painted as inline SVG (fresh + cached histogram bars)
 	await expect(page.locator(".kspark svg rect.spark-fresh")).toHaveCount(1);
 	await expect(page.locator(".kspark svg rect.spark-cached")).toHaveCount(1);
+	// W2060: the drawn svg spans the plot container's real width (no fixed 180)
+	const widths = await page.evaluate(() => {
+		const plot = document.querySelector(".ksparkplot");
+		const svg = plot?.querySelector("svg");
+		return {
+			plot: plot?.clientWidth ?? 0,
+			drawn: svg ? Number(svg.getAttribute("width")) : 0,
+		};
+	});
+	expect(widths.plot).toBeGreaterThan(0);
+	expect(widths.drawn).toBe(widths.plot);
 	// the tasks table carries the strip as the tok cell tooltip
 	await page.goto(`${b.BASE}/#tasks`);
 	await expect(
