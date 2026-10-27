@@ -623,6 +623,30 @@ describe("diff erosion", () => {
 		expect(scanClosingDiff(diff)).toEqual([]);
 	});
 
+	test("a bun:test -> @playwright .e2e.ts move counts as a test file (W1294.5)", () => {
+		const diff = [
+			DIFF_DELETED,
+			"diff --git a/src/calc.e2e.ts b/src/calc.e2e.ts",
+			"--- /dev/null",
+			"+++ b/src/calc.e2e.ts",
+			"@@ -0,0 +1,1 @@",
+			'+	test("legacy case", () => {});',
+		].join("\n");
+		expect(scanClosingDiff(diff)).toEqual([]);
+	});
+
+	test("a test() -> test.fixme() port still credits the test name (W1294.5)", () => {
+		const diff = [
+			"diff --git a/src/route.test.ts b/src/route.test.ts",
+			"--- a/src/route.test.ts",
+			"+++ b/src/route.test.ts",
+			"@@ -3,1 +3,1 @@",
+			'-	test("legacy direct route", () => {',
+			'+	test.fixme("legacy direct route", () => {',
+		].join("\n");
+		expect(scanClosingDiff(diff)).toEqual([]);
+	});
+
 	test("a same-hunk, one-for-one test rewrite preserves coverage", () => {
 		const diff = [
 			"diff --git a/src/route.test.ts b/src/route.test.ts",

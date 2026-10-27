@@ -100,12 +100,12 @@ export interface ClaimCheckHit {
 }
 
 const TEST_FILE =
-	/(?:^|[/\\])(?:tests?|e2e|spec|__tests__)[/\\]|\.(?:test|spec)\.[cm]?[jt]sx?$/i;
+	/(?:^|[/\\])(?:tests?|e2e|spec|__tests__)[/\\]|\.(?:test|spec|e2e)\.[cm]?[jt]sx?$/i;
 const TEST_CALL_NAME = new RegExp(
 	assemble(
 		"\\b(",
 		"describe|it|test",
-		")\\s*\\(\\s*([\"'`])([^\"'`]{1,160}?)\\2",
+		")(?:\\.(?:fixme|skip|only))?\\s*\\(\\s*([\"'`])([^\"'`]{1,160}?)\\2",
 	),
 );
 const XFAIL_RE = new RegExp(

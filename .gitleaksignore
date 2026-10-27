@@ -153,6 +153,12 @@ packages/suspenders/test/hub-providers.test.ts:generic-api-key:229
 packages/suspenders/deploy/singbox/lifecycle.test.ts:generic-api-key:83
 packages/suspenders/deploy/singbox/lifecycle.test.ts:generic-api-key:140
 packages/suspenders/deploy/singbox/lifecycle.test.ts:generic-api-key:176
+# W1294.5: same fake fixture tokens — file migrated to a playwright spec
+# (the W1260.1 disposition carries over verbatim); @unit describe wrap at
+# close re-indented the file, lines re-pinned 83/140/176 -> 84/141/177.
+packages/suspenders/deploy/singbox/lifecycle.e2e.ts:generic-api-key:84
+packages/suspenders/deploy/singbox/lifecycle.e2e.ts:generic-api-key:141
+packages/suspenders/deploy/singbox/lifecycle.e2e.ts:generic-api-key:177
 # W1203/W1226 disposition (base fixture, first-hand read 2026-10-22): invented
 # provider-key test fixture — the test asserts it never reaches an output surface
 # W1193: migrate-provider-keys test fixture (commit 05177bc1; file since deleted) —
