@@ -68,6 +68,28 @@ describe("Buckle console read proxy", () => {
 			"http://127.0.0.1:7791/dashboard-model-access.js",
 		]);
 	});
+
+	test("HEAD rides the same allowlist without a response body", async () => {
+		const calls: string[] = [];
+		const fakeFetch = ((url: string) => {
+			calls.push(url);
+			return Promise.resolve(new Response(null, { status: 200 }));
+		}) as typeof fetch;
+		const req = request("/api/console/buckle/api/status", "HEAD");
+		const response = await buckleReadProxy(req, new URL(req.url), fakeFetch);
+		expect(response?.status).toBe(200);
+		expect(await response?.text()).toBe("");
+		expect(calls).toEqual(["http://127.0.0.1:7791/api/status"]);
+	});
+
+	test("belt unreachable degrades to 503, not a thrown failure", async () => {
+		const fakeFetch = (() =>
+			Promise.reject(new Error("ECONNREFUSED"))) as typeof fetch;
+		const req = request("/api/console/buckle/api/network");
+		const response = await buckleReadProxy(req, new URL(req.url), fakeFetch);
+		expect(response?.status).toBe(503);
+		expect(await response?.text()).toBe("Buckle read feed unavailable");
+	});
 });
 
 describe("beltAssetUp (W1294.2.1 freshness probe)", () => {
