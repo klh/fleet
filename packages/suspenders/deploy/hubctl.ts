@@ -47,6 +47,12 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+	PROVIDER_ENV_FILENAME,
+	providerIdentityByEnv,
+	renderProviderEnv,
+	requiredProviders,
+} from "../hooks/lib/hub-providers.ts";
 // stack.json is parsed by the ONE reader (W356) — hubctl renders deploys
 // from it, coord hubs projects the topology from it
 import {
@@ -66,12 +72,6 @@ import {
 	assertDeployRefsExist,
 	resolveHubOrigin,
 } from "./hub-ref-preflight.ts";
-import {
-	PROVIDER_ENV_FILENAME,
-	providerIdentityByEnv,
-	renderProviderEnv,
-	requiredProviders,
-} from "../hooks/lib/hub-providers.ts";
 import { composeUpArgv, sshOpts } from "./hub-remote.ts";
 import { mergedHubUpstreams } from "./openrouter-free.ts";
 import {
@@ -607,7 +607,12 @@ function reloadUpstreams(
 ): void {
 	const dir = requireDir(hub);
 	const ref = hubEnvRef(hub, dir);
-	if (!ref || !version || ref !== version)
+	// W1092: overlay hubs pin their OWN deployable ref — the .env rides
+	// repos.ref, never the shared stack version — so the gate compares
+	// against the ref renderEnv wrote (the one resolveHubOrigin), and the
+	// ladder reload works on overlay origins too.
+	const expected = version ? resolveHubOrigin(hub, version).ref : undefined;
+	if (!ref || !expected || ref !== expected)
 		throw new Error(
 			`hubctl reload-upstreams refused: ${name} has stale or unpinned deploy ref; run hubctl push ${name} first`,
 		);
