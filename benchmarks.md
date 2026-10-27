@@ -80,6 +80,21 @@ W775 arch), session replay from existing work-graph/coord events. Fleet
 A/B: none applicable to a landscape survey; re-evaluation trigger = a
 surveyed tool ships proof of remote-lane execution or replay UX in
 production use.
+## Race dispatch — N cheap lanes + judge vs 1 strong lane (W1143, 2026-10-23; protocol landed, fleet run pending)
+
+Decision the row will support: whether racing `N` concurrent cheap-tier
+attempts (temp 0.7) through a fresh-context blind pairwise judge + skeptic
+beats one strong-lane shot on well-scoped items, per token/quality/wall —
+i.e. does the machine race-policy switch (`race-policy.json`, default OFF)
+ever earn its keep. Protocol and gates are landed
+(`packages/suspenders/bench/w1143/` — sealed belt-arena classes b+e, honest
+race wall = max(attempt walls) + judge wall, serial ratio, race-oracle =
+mechanical best-of-N as the no-judge upper bound, judge tokens accounted
+separately); `scripts/race-item.ts` plans per item. **No fleet numbers yet —
+the live run is deferred** (lane-capacity observation + the operator AC
+gate). When it runs: n=24 sealed tasks is smoke-grade vs the ≥130-paired
+doctrine — directional for the dispatch-pattern decision only; judge
+selection error reads as oracle − winner.
 
 ## W960 harness self-improvement smoke (2026-10-20; AC)
 
