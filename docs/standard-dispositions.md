@@ -6,6 +6,8 @@ Owner law: a deviation from the house standard without a tracked disposition
 is a defect. This file is the disposition ledger for every deliberate
 divergence of fleet from the TypeScript PaaS monorepo engineering standard
 ([paas-engineering-standard-2026-10-23.md](paas-engineering-standard-2026-10-23.md)).
+Completeness companion: [paas-compliance-coverage.md](paas-compliance-coverage.md)
+(W1303) proves every standard clause is enforced, owned, or dispositioned.
 
 Scope ruling (restructure proposal
 [Amendment C](restructure-proposal-2026-10-23.md#amendment-c--alignment-with-the-paas-engineering-standard)):
@@ -30,7 +32,10 @@ P1–P6.
 | 8 | Test framework | `@playwright/test` only, every test | bun:test unit + Playwright for e2e/load, two frameworks BY LAYER (W1238.2 decision `d8563e1c`); the `*.test.ts` → `*.e2e.ts` port sweep (W1306 `c2ff563d`, W1294.17.*) is DONE + pushed, unmerged at audit time | ACCEPTED-DIVERGENCE (documented decision, ports in flight) | W1238.2 |
 | 9 | One version | npm fixed-mode: every manifest bumps together, tagged | `stack.json` `version:` pins buckle+suspenders+belt (config-level pin) | ACCEPTED-DIVERGENCE · pipeline LANDED (`d69ec274`); the release cut itself rides W1311 | W1303.6 |
 | 10 | Review usefulness | Round cap 3; incidents become evals, rescored on reviewer change; measure human time, revert/incident rate as guardrail | Review scheduler enforces the round cap; W792 arena scores incident tasks (no add-on-revert trigger, no rescore); W846 measures decision latency (no approvals metric, no guardrail) | SPLIT: round cap LANDED (`4bfc1839`) · incidents→evals GAP · human-time GAP | W1303.7 · W1476 · W1477 |
-| 11 | CI enforcement | Every rule enforced by a check, wired in CI: 1500-line cap, `check-deps` phantom imports, qlty in pre-push + CI, generated OpenAPI diffed in CI | Checks exist (law guards, import-law ratchet, `.githooks/pre-push`) but ride local hooks + lane gates; no fleet-owned CI workflow runs them on push | GAP | W1759 |
+| 11 | CI enforcement | Every rule enforced by a check, wired in CI: 1500-line cap, `check-deps` phantom imports, qlty in pre-push + CI, generated OpenAPI diffed in CI | Checks exist (law guards, import-law ratchet, `.githooks/pre-push`); `.github/workflows/ci.yml` runs TWO of them on push — `laws` job (:31-39, 1500-line cap + shell ban) and `imports` job (:45-53, import law). Residual CI gap: `qlty check`, `gen-openapi --check`, `check-versions`/`check-deps`/`check-pack` still ride local hooks only | GAP (narrowed) | W1759 |
+| 12 | TS strictness base | Shared `tsconfig.base.json`; every package extends it | No base file; root `tsconfig.json` is the single config and relaxes `noUnusedLocals`/`noUnusedParameters`/`noPropertyAccessFromIndexSignature` (:18-20) under `strict: true` | ACCEPTED-DIVERGENCE | — |
+| 13 | Git settings subset | `pull.rebase=true`, `rebase.autoStash`, `rebase.updateRefs`, `fetch.prune=true` set repo-wide | All four unset | ACCEPTED-DIVERGENCE (merge-ladder model) | — |
+| 14 | qlty plugin config | Qlty defaults, committed as `qlty init` generated them | Root `.qlty/qlty.toml` customized: ~15+ monorepo `exclude_patterns` (:19-68, each with a W-receipt), `smells` comment-mode, prettier `disabled` (:105-106, biome owns formatting), 4 extra plugins (actionlint, shellcheck, trufflehog, zizmor) | ACCEPTED-DIVERGENCE | — |
 
 ## Rationale per row
 
@@ -155,7 +160,12 @@ release cut itself rides W1311 (fleet-2026-10).
 ### 10 · Review usefulness mechanics — SPLIT: round cap LANDED, evals + human time GAP
 
 The standard's "Keeping review useful" section carries three mechanics that
-the W1303.5 tiers/CODEOWNERS/PR template do not cover; each is dispositioned
+the tier scheme does not cover. (A companion standard section reasons about
+CODEOWNERS and a PR template as if present — they do NOT exist in this tree
+as of 2026-10-27; review ownership is the owner plus the guarded merge
+ladder's `oracle review` leg, and the tier/codelist mechanics ride
+W1303.5's landed classifier where noted in the coverage doc.) Each of the
+three mechanics is dispositioned
 on its own, so the row never reads LANDED wholesale.
 
 - **Round cap of 3 — LANDED (W1303.7, `4bfc1839`).** `scheduleReview`
@@ -183,22 +193,59 @@ on its own, so the row never reads LANDED wholesale.
   revert/incident-rate guardrail that tightens the tiers; its threshold is
   an owner decision.
 
-### 11 · CI enforcement — GAP → W1759
+### 11 · CI enforcement — GAP (narrowed) → W1759
 
-The standard's enforcement doctrine ("a rule without a check is a wish",
-:175/:198/:257/:587) assumes the checks run in CI: the 1500-line cap, the
-check-deps phantom-import guard, `qlty check` in pre-push AND CI, generated
-OpenAPI diffed in CI. Fleet has all the checks — law guards
-(`tests/law-guards.test.ts`), the import-law ratchet,
-`.githooks/pre-push` — but they ride local hooks and lane gates only; no
-fleet-owned CI workflow runs them on push. W1759 owns wiring them into CI.
+The earlier "no fleet-owned CI workflow runs them on push" claim was FALSE:
+`.github/workflows/ci.yml` already runs two of the checks on every push — the
+`laws` job (:31-39, the 1500-line cap + shell-script ban via
+`tests/law-guards.test.ts`) and the `imports` job (:45-53, the cross-package
+import law via `tests/cross-package-imports.test.ts`). The residual gap is the
+rest of the check set — `qlty check`, `gen-openapi --check`,
+`check-versions`/`check-deps`/`check-pack` — which still ride
+`.githooks/pre-push` and lane gates only. W1759 owns wiring those into CI.
+
+### 12 · No shared tsconfig.base.json — ACCEPTED-DIVERGENCE
+
+The standard's strictness contract rides a shared `tsconfig.base.json` that
+every package extends. Fleet has no base file: the root `tsconfig.json` is
+the single compiler config, and it deliberately relaxes three flags under
+`strict: true` — `noUnusedLocals`, `noUnusedParameters`,
+`noPropertyAccessFromIndexSignature` (:18-20). Unused-symbol hygiene is
+delegated to the biome noUnusedImports/noUnusedVariables on-write gates,
+which block every write. One compiler surface for the whole monorepo means
+the config drift the base file prevents cannot occur; minting a base file is
+churn without a failure mode. This row exists so the relaxation is tracked,
+not silent.
+
+### 13 · Git settings subset unset — ACCEPTED-DIVERGENCE
+
+`pull.rebase`, `rebase.autoStash`, `rebase.updateRefs` and `fetch.prune` are
+all unset (verified against repo + global config, 2026-10-27). These tune a
+rebase-forward human workflow; fleet lands through the guarded merge ladder
+(disposition #1) where lanes never `git pull` on a shared branch and the
+ladder publishes `--ff-only`, so the rebase knobs have no actor to apply to.
+`fetch.prune` is the only candidate with standalone value; adopting it is
+cheap future hygiene, not a tracked gap.
+
+### 14 · qlty config customized — ACCEPTED-DIVERGENCE
+
+The earlier "qlty defaults untouched" claim was FALSE. The root
+`.qlty/qlty.toml` is deliberately customized: the `exclude_patterns` set
+(:19-68) — default ignores plus monorepo rows (byte-sealed bench arenas
+W749/W792/W823, the vendored decant tree W950/W1303.1.10, `.fleet/**`,
+`.worktrees/**`) each carrying a receipt comment; `smells` in comment mode;
+the prettier plugin `disabled` (:105-106, biome owns code formatting,
+prettier owns markdown only); and four extra plugins beyond `qlty init`
+defaults (actionlint, shellcheck, trufflehog, zizmor). Each row backs a
+landed law or a vendored-bytes rule — the customizations ARE the checkable
+surface, not a divergence from it.
 
 ## Already aligned (no disposition needed)
 
 Laws fleet and the standard share verbatim — 1500-line hard cap with the
 1200 near-cap stop; DRY on the second duplicate; no shell scripts (TypeScript
-on Bun); config off-repo (machine-level 0600, placeholders in repo); qlty
-defaults untouched, committed `.githooks`; `CLAUDE.md → @AGENTS.md`;
+on Bun); config off-repo (machine-level 0600, placeholders in repo); committed
+`.githooks` (qlty config is dispositioned custom, row 14); `CLAUDE.md → @AGENTS.md`;
 native-first Lit with no `innerHTML`, bundled never CDN; agent-first review
 riding `oracle review`; decisions-not-queues (`coord emit NEED_DECISION`);
 every rule enforced by a check. Recorded in Amendment C; re-verified against

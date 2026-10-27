@@ -26,7 +26,7 @@ Standard sections → fleet state. "Child" = the W1303.x item that owns closure.
 | 8 Semantic errors, one handler | No error-kinds module; problem+json absent | W1303.2 | LANDED 10f1ccd4 |
 | 9 Good HTTP citizen (server) | URLPattern 0, Idempotency-Key 0, problem+json 0, ETag partial, Retry-After unclamped | W1303.2 | LANDED 10f1ccd4 |
 | 9 Good HTTP citizen (client) | Timeouts/backoff/breaker scattered across buckle admission + belt router, no deadline propagation | W1303.3 | LANDED d3c0a839 |
-| 10 Every folder a package, installed strictly | Conforms: exports/files/bin/engines + exact pins across all 11 packages; telemetry manifest landed; guards green in push gate | W1303.1 (.1.6-.1.10) | LANDED 8826faf8 · 42f66ce0 · 756fb519 · 95da80fb · 346d14ed |
+| 10 Every folder a package, installed strictly | Conforms: exports/files/bin/engines + exact pins across all 10 packages (10 manifests on tree, 2026-10-27); telemetry manifest landed; guards green in push gate | W1303.1 (.1.6-.1.10) | LANDED 8826faf8 · 42f66ce0 · 756fb519 · 95da80fb · 346d14ed |
 | 11 Same shape everywhere | Partial: shared qlty, .githooks, AGENTS.md; naming diverges (row 4) | W1303.1 + dispositions | SPLIT |
 | 12 Config off-repo | Machine-level 0600 conf (stack.json, local-llm/*.env), repo placeholders only — law W1253 | landed checks | ALIGNED |
 | Repository layout (six groups, workspaces) | packages/* monorepo, bun workspaces; layout differs by design | dispositions #3 #4 | DISPOSITIONED |
