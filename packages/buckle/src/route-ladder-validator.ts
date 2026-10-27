@@ -13,12 +13,36 @@ export interface BuckleRouteConfig {
 	 * a loopback with (a deploy.ssh hub): the local specialist registry is
 	 * not reachable evidence for its machine-local deployments. */
 	remoteHost?: boolean;
+	/** W1094: loopback leaves THIS pool's own inventory declares (a hub's
+	 * rendered ollama/swarm rows) — resolved on that device, exempt from the
+	 * local-unmapped check. Committed-base specialist rows are NOT terminals:
+	 * owner law routes local models via Belt (trace b73f8a2d, review #55637). */
+	terminals?: string[];
 }
 
 export interface LiteLlmRouteConfig {
 	id: string;
 	origins: string[];
 	config: unknown;
+	/** W1094: true = the origin is a known engine but this snapshot holds NO
+	 *  config proof (a hub-side engine seen from the Mac). Rows targeting it
+	 *  are reported unverified_engine — never silently green, never failed
+	 *  on checks the absent config cannot answer. */
+	unverified?: boolean;
+	/**
+	 * Deployment URLs the buckle front serves through this engine (W1094):
+	 * a row pointing at a litellm origin must declare
+	 * `adapter_config.proxy_kind: "litellm"` — without it the front's
+	 * x-litellm-num-retries / stream-timeout headers never reach the engine,
+	 * so its fallbacks stay unbounded. Rows that do NOT name a litellm origin
+	 * must NOT carry the kind (a wrong marker routes a plain provider as an
+	 * engine and strands the ladder).
+	 */
+	litellmOriginUrls?: string[];
+	/** W1094: loopback serving leaves the engine ITSELF resolves (model_list
+	 *  api_bases onto local specialists) — exempt for this engine's rows
+	 *  only, never a global pass (review #55637). */
+	terminals?: string[];
 }
 
 export interface BeltRouteConfig {
@@ -54,7 +78,22 @@ export interface RouteLadderFinding {
 		| "missing_fallback"
 		| "unroutable_group"
 		| "deadline_budget"
-		| "invalid_config";
+		| "missing_proxy_kind"
+		| "unknown_engine_model"
+		| "invalid_config"
+		/** W1094: one bounded ladder revisits an origin it already walked —
+		 *  the live walk re-enters a rate-limited origin (trace audit #55796:
+		 *  429 twice on one origin, then twice on the next). */
+		| "repeat_origin"
+		/** W1094: a group name that asserts a model family is served by a
+		 *  primary deployment of a DIFFERENT family — a pinned gpt-6-sol
+		 *  request silently rides zai-glm (trace audit #55799). */
+		| "model_family_mismatch"
+		/** W1094 unverified face — reported, never silently green, non-gating
+		 *  (the proof lives on another device). */
+		| "unverified_engine"
+		| "unverified_target"
+		| "unverified_catalog";
 	layer: "buckle" | "litellm" | "belt" | "fleet";
 	path: string;
 	detail: string;
@@ -92,6 +131,64 @@ function recordOf(value: unknown): Record<string, unknown> | null {
 		: null;
 }
 
+// W1094 model-family preflight (#55799): the family token a group name or
+// model id asserts — the first alpha segment that is not a provider prefix.
+// "gpt-6-sol" → gpt · "zai-glm-5.3-flash" → glm · "claude-sonnet-5" →
+// claude. Unmatched names derive nothing (no family asserted → no check).
+const PROVIDER_PREFIXES = new Set([
+	"openai",
+	"anthropic",
+	"azure",
+	"bedrock",
+	"vertex",
+	"openrouter",
+	"zai",
+	"github",
+	"copilot",
+	"litellm",
+	"aws",
+	"google",
+	"groq",
+	"together",
+	"fireworks",
+	"dashscope",
+	"local",
+]);
+
+/** The asserted model family of a group/model name, or null when the name
+ *  derives nothing (unknown tokens, bare ids). */
+export function familyOf(name: string): string | null {
+	for (const token of name.toLowerCase().split(/[-._/]/)) {
+		if (!/^[a-z]+$/.test(token) || PROVIDER_PREFIXES.has(token)) continue;
+		return token;
+	}
+	return null;
+}
+
+// W1094 (#55799): families a group name can ASSERT for the mismatch check.
+// Role names (local-coder, relay) derive no family — an mlx mapping behind
+// them is legitimate serving, not a pinned-family betrayal.
+const MODEL_FAMILIES = new Set([
+	"gpt",
+	"glm",
+	"claude",
+	"qwen",
+	"llama",
+	"gemini",
+	"deepseek",
+	"mistral",
+	"kimi",
+	"grok",
+	"phi",
+]);
+
+/** The asserted model family of a name when it names a KNOWN model family,
+ *  else null (no assertion → no mismatch check). */
+function assertedFamily(name: string): string | null {
+	const family = familyOf(name);
+	return family !== null && MODEL_FAMILIES.has(family) ? family : null;
+}
+
 function fallbackRows(value: unknown): Record<string, string[]> {
 	const rows: Record<string, string[]> = {};
 	const entries = Array.isArray(value) ? value : [value];
@@ -114,10 +211,17 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 } {
 	const errors: RouteLadderFinding[] = [];
 	const services = new Map<string, Target>();
+	// W1094 repeat_origin: prefix (layer:id) -> the origins that serve it.
+	// The walk flags a RE-ingress: leaving a service and entering it again
+	// later in one walk is the recursive gateway visit owner law forbids.
+	const serviceOrigins = new Map<string, Set<string>>();
+	// Full node string -> its service prefix (ids embed ":port", so the
+	// prefix cannot be re-derived from the node by splitting).
+	const nodePrefix = new Map<string, string>();
 	const terminals = new Set(
 		(inputs.terminalOrigins ?? [])
 			.map(originOf)
-		.filter((origin): origin is string => origin !== null),
+			.filter((origin): origin is string => origin !== null),
 	);
 	// A remoteHost source judges only its own declared terminals: the
 	// machine-local registry (specialists et al) is not its loopback.
@@ -167,9 +271,100 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 							item.id,
 							`service origin ${origin} is ambiguous with ${previous.layer}:${previous.id}`,
 						);
-					else services.set(origin, { layer, id: item.id });
+					else {
+						services.set(origin, { layer, id: item.id });
+						const prefix = `${layer}:${item.id}`;
+						const known = serviceOrigins.get(prefix);
+						if (known) known.add(origin);
+						else serviceOrigins.set(prefix, new Set([origin]));
+					}
 				}
 			}
+	}
+	// W1094 engine-kind preflight: a deployment into a litellm origin must
+	// declare adapter_config.proxy_kind=litellm — without it the front's
+	// x-litellm-num-retries / stream-timeout headers are inert and the
+	// engine's own fallbacks stay unbounded. The effective wire model
+	// (dep.model ?? group — the id the front sends the engine) must exist in
+	// the engine's model_list; engine rows unreferenced by buckle are fine
+	// (broad catalogs).
+	const engineOrigins = new Set<string>();
+	for (const lite of inputs.litellms ?? [])
+		for (const origin of lite.origins.map(originOf))
+			if (origin !== null) engineOrigins.add(origin);
+	// W1094: a hub-side engine this snapshot has no config for is reported
+	// unverified, not silently treated as configured.
+	const unverifiedEngines = new Set<string>();
+	for (const lite of inputs.litellms ?? []) {
+		if (!lite.unverified) continue;
+		for (const origin of lite.origins.map(originOf))
+			if (origin !== null) unverifiedEngines.add(origin);
+	}
+	const engineModels = new Map<string, Set<string>>();
+	for (const lite of inputs.litellms ?? []) {
+		if (lite.unverified) continue;
+		const doc = recordOf(lite.config);
+		const rows = Array.isArray(doc?.model_list) ? doc?.model_list : [];
+		const names = new Set<string>();
+		for (const row of rows.map(recordOf))
+			if (typeof row?.model_name === "string") names.add(row.model_name);
+		for (const origin of lite.origins.map(originOf))
+			if (origin !== null) engineModels.set(origin, names);
+	}
+	for (const buckle of inputs.buckles) {
+		for (const rung of buckle.pool.groups()) {
+			for (const dep of buckle.pool.deployments(rung)) {
+				const origin = originOf(dep.url);
+				const kind = recordOf(dep.adapter_config)?.proxy_kind;
+				if (origin !== null && unverifiedEngines.has(origin)) {
+					finding(
+						"unverified_engine",
+						"buckle",
+						`buckle:${buckle.id}:${rung}`,
+						`engine row ${origin} has no config in this snapshot — membership unverified`,
+					);
+					continue;
+				}
+				if (origin !== null && engineOrigins.has(origin)) {
+					if (kind !== "litellm")
+						finding(
+							"missing_proxy_kind",
+							"buckle",
+							`buckle:${buckle.id}:${rung}`,
+							`engine row ${origin} lacks adapter_config.proxy_kind=litellm`,
+						);
+					else {
+						const names = engineModels.get(origin);
+						if (names && !names.has(dep.model ?? rung))
+							finding(
+								"unknown_engine_model",
+								"buckle",
+								`buckle:${buckle.id}:${rung}`,
+								`engine wire model ${dep.model ?? rung} absent from the engine model_list`,
+							);
+					}
+				} else if (kind === "litellm")
+					finding(
+						"invalid_config",
+						"buckle",
+						`buckle:${buckle.id}:${rung}`,
+						`proxy_kind=litellm on a non-engine row ${origin ?? dep.url}`,
+					);
+			}
+		}
+	}
+	const buckleGroups = new Map<string, Set<string>>();
+	const perPoolTerminals = new Map<string, Set<string>>();
+	for (const buckle of inputs.buckles) {
+		buckleGroups.set(buckle.id, new Set(buckle.pool.groups()));
+		perPoolTerminals.set(
+			buckle.id,
+			new Set(
+				(buckle.terminals ?? [])
+					.map(originOf)
+					.filter((origin): origin is string => origin !== null),
+			),
+		);
 	}
 	const link = (
 		from: string,
@@ -177,6 +372,7 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 		model: string,
 		requireService = false,
 		remoteHost = false,
+		poolTerminals?: Set<string>,
 	) => {
 		const origin = originOf(rawUrl);
 		if (!origin) {
@@ -185,11 +381,16 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 		}
 		const service = services.get(origin);
 		if (!service) {
+			// W1094: a loopback leaf the DECLARING pool's own inventory
+			// renders (e.g. the hub's ollama) is resolved on that device;
+			// a global terminal set would let one device's Belt vouch for
+			// another's port (trace b73f8a2d, review #55637).
+			const ownLeaf = poolTerminals?.has(origin) === true;
 			if (
 				requireService ||
 				(localUrl(rawUrl) &&
-					(!terminals.has(origin) ||
-						(remoteHost && !declared.has(origin))))
+					!ownLeaf &&
+					(!terminals.has(origin) || (remoteHost && !declared.has(origin))))
 			)
 				finding(
 					"unmapped_local_target",
@@ -199,13 +400,25 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 				);
 			return;
 		}
+		// W1094: an inter-Buckle edge selects a GROUP on the target hub —
+		// the model string must be a group that hub actually serves, or the
+		// walk strands there (unroutable, not silently accepted).
+		if (service.layer === "buckle" && !buckleGroups.get(service.id)?.has(model))
+			finding(
+				"unroutable_group",
+				"fleet",
+				from,
+				`target buckle ${service.id} has no group ${model}`,
+			);
 		const to = `${service.layer}:${service.id}:${model}`;
+		nodePrefix.set(to, `${service.layer}:${service.id}`);
 		addEdge(from, to);
 	};
 	for (const buckle of inputs.buckles) {
 		const groups = new Set(buckle.pool.groups());
 		for (const group of groups) {
 			const node = `buckle:${buckle.id}:${group}`;
+			nodePrefix.set(node, `buckle:${buckle.id}`);
 			addNode(node);
 			const ladder = [group, ...(buckle.policy.fallbacks?.[group] ?? [])];
 			let configured = 0;
@@ -221,23 +434,27 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 				}
 				for (const dep of buckle.pool.deployments(rung)) {
 					configured++;
-					const target = services.get(originOf(dep.url) ?? "");
-					if (
-						target?.layer === "litellm" &&
-						dep.adapter_config?.proxy_kind !== "litellm"
-					)
-						finding(
-							"invalid_config",
-							"buckle",
-							node,
-							`deployment ${dep.url} targets configured LiteLLM ${target.id} without adapter_config.proxy_kind: litellm`,
-						);
+					// W1094 (#55799): the PRIMARY rung serves the group's own
+					// asserted family — a pinned gpt-6-sol request must never
+					// silently ride zai-glm. Fallback rungs may cross families.
+					if (rung === group) {
+						const asserted = assertedFamily(group);
+						const served = assertedFamily(dep.model ?? rung);
+						if (asserted && served && served !== asserted)
+							finding(
+								"model_family_mismatch",
+								"buckle",
+								node,
+								`primary rung serves family ${served} for group ${group} (asserts ${asserted})`,
+							);
+					}
 					link(
 						node,
 						dep.url,
 						dep.model ?? rung,
 						dep.buckle === true,
 						buckle.remoteHost === true,
+						perPoolTerminals.get(buckle.id),
 					);
 				}
 			}
@@ -271,6 +488,18 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 		}
 	}
 	for (const lite of inputs.litellms ?? []) {
+		// W1094: an unverified engine carries NO config in this snapshot —
+		// there is nothing to shape-check; its rows report unverified_engine
+		// in the buckle loop above.
+		if (lite.unverified) continue;
+		// W1094: loopback serving leaves the engine ITSELF resolves — its
+		// model_list api_bases land on the specialists it fronts. This is a
+		// per-engine pass, never a global one (review #55637).
+		const ownTerminals = new Set(
+			(lite.terminals ?? [])
+				.map(originOf)
+				.filter((origin): origin is string => origin !== null),
+		);
 		const doc = recordOf(lite.config);
 		const modelRows = doc?.model_list;
 		if (!Array.isArray(modelRows)) {
@@ -284,6 +513,7 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 			if (typeof group !== "string") continue;
 			models.add(group);
 			const node = `litellm:${lite.id}:${group}`;
+			nodePrefix.set(node, `litellm:${lite.id}`);
 			addNode(node);
 			const params = recordOf(row?.litellm_params);
 			if (typeof params?.api_base === "string") {
@@ -291,7 +521,23 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 					typeof params.model === "string"
 						? params.model.replace(/^[^/]+\//, "")
 						: group;
-				link(node, params.api_base, upstreamModel);
+				link(node, params.api_base, upstreamModel, false, false, ownTerminals);
+			}
+			// W1094 (#55799): an engine row whose wire model serves a different
+			// KNOWN family than its group name asserts — the pinned request
+			// rides the wrong family INSIDE the engine, where this ladder
+			// cannot see it.
+			const wire = typeof params?.model === "string" ? params.model : null;
+			if (wire !== null) {
+				const asserted = assertedFamily(group);
+				const served = assertedFamily(wire);
+				if (asserted && served && served !== asserted)
+					finding(
+						"model_family_mismatch",
+						"litellm",
+						node,
+						`engine row ${group} serves family ${served} (asserts ${asserted})`,
+					);
 			}
 		}
 		const settings = recordOf(doc?.litellm_settings);
@@ -356,7 +602,7 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 	}
 	const seen = new Set<string>();
 	const stack = new Set<string>();
-	const visit = (node: string, path: string[]) => {
+	const visit = (node: string, path: string[], origins: string[]): void => {
 		if (stack.has(node)) {
 			const cycle = [...path.slice(path.indexOf(node)), node];
 			finding(
@@ -370,11 +616,33 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 			return;
 		}
 		if (seen.has(node)) return;
+		// W1094 repeat_origin (#55796): flag a RE-ingress — leaving a service
+		// and entering it again later in one walk. Consecutive hops on the
+		// same service are one visit (an engine's internal fallback list),
+		// not a repeat.
+		const prefix = nodePrefix.get(node);
+		const own =
+			prefix === undefined ? null : (serviceOrigins.get(prefix) ?? null);
+		const last = origins[origins.length - 1];
+		if (own !== null && own.size > 0 && last !== undefined && !own.has(last)) {
+			const repeated = [...own].find((origin) => origins.includes(origin));
+			if (repeated !== undefined) {
+				finding(
+					"repeat_origin",
+					"fleet",
+					node,
+					`walk re-enters ${repeated}: ${[...path, node].join(" -> ")}`,
+				);
+				return;
+			}
+		}
 		seen.add(node);
 		stack.add(node);
-		for (const next of edges.get(node) ?? []) visit(next, [...path, node]);
+		const fresh = own === null ? [] : [...own].filter((o) => o !== last);
+		for (const next of edges.get(node) ?? [])
+			visit(next, [...path, node], [...origins, ...fresh]);
 		stack.delete(node);
 	};
-	for (const node of edges.keys()) visit(node, []);
+	for (const node of edges.keys()) visit(node, [], []);
 	return { errors, checkedNodes: edges.size };
 }
