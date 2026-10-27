@@ -8,6 +8,8 @@
 export const REACH_IN_PIN = `
 belt/bench/arena/transforms.ts -> blam (../../../blam/src/condense/tiers.ts)
 belt/bench/arena/transforms.ts -> blam (../../../blam/src/condense/version.ts)
+belt/bench/central-config.e2e.ts -> (repo) (../../../playwright.base.ts)
+belt/bench/playwright.config.ts -> (repo) (../../../playwright.base.ts)
 belt/bin/dashboard.ts -> telemetry (../../telemetry/src/http-trace.ts)
 belt/bin/escalate.ts -> telemetry (../../telemetry/src/http-trace.ts)
 belt/bin/health.ts -> telemetry (../../telemetry/src/http-trace.ts)
