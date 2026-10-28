@@ -9,6 +9,15 @@ import { stripGitEnv } from "../packages/suspenders/hooks/lib/fixture-isolation.
 const root = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], {
 	stdout: "pipe",
 }).stdout.toString().trim();
+// W2178: fail closed when a *.e2e.ts is collected by no playwright config
+const coverage = Bun.spawnSync(
+	[process.execPath, resolve(root, "scripts/check-playwright-coverage.ts")],
+	{ cwd: root, stdout: "inherit", stderr: "inherit" },
+);
+if (coverage.exitCode !== 0) {
+	console.error("Playwright spec coverage failed after commit; repair before pushing.");
+	process.exit(coverage.exitCode || 1);
+}
 const suite = [
 	"help-no-store.test.ts",
 	"verb-surface.test.ts",
