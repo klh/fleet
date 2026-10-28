@@ -9,13 +9,14 @@
 //     (--bin <path> | --belt <machine>:<port>[:<model>] | --llm-url <url> [--llm-model <m>])
 // exits 0 on a landed verdict, 2 on a failed leg (verdict=error recorded).
 
-import { existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	addedWorkspaceDependencies,
 	missingImportsExplained,
 	type Proof,
+	shareNodeModules,
 	TEST_FILE,
 } from "../lib/gates/coverage-proof.ts";
 import { requestReviewLeg, reviewPrompt } from "../lib/gates/review-prompt.ts";
@@ -438,10 +439,13 @@ async function coverageProof(branch: string): Promise<Proof> {
 				detail: `worktree add failed: ${wt.out.trim().slice(0, 150)}`,
 			};
 		added = true;
-		// the scratch tree shares the repo's node_modules (bun workspaces)
-		const nm = join(repo, "node_modules");
-		if (existsSync(nm) && !existsSync(join(scratch, "node_modules")))
-			symlinkSync(nm, join(scratch, "node_modules"), "dir");
+		// the scratch tree shares the repo's node_modules (bun workspaces):
+		// the ROOT closure AND every package-local packages/<pkg>/node_modules —
+		// workspace deps (@klh/*) resolve through the package-local links a
+		// fresh git worktree lacks, without which provable tests importing
+		// them die as "Cannot find module" and the review errors out as
+		// environmental (the W2198 trail).
+		shareNodeModules(repo, scratch, manifestPaths);
 		// disable the change: reverse the full diff (drops the new tests too)…
 		const patch = join(scratch, "proof.patch");
 		await Bun.write(patch, gitRun(["diff", `main...${branch}`]).out);

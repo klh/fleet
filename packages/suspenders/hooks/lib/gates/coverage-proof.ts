@@ -5,7 +5,8 @@
 // ADDED is the proof itself — the change is what provides the module — so it
 // must not classify as an environmental failure. Only a missing import that
 // does NOT resolve onto a diff-added module is tooling/dependency noise.
-import { posix } from "node:path";
+import { existsSync, mkdirSync, symlinkSync } from "node:fs";
+import { dirname, join, posix } from "node:path";
 
 // test paths only: the proof keeps these, reverses everything else
 export const TEST_FILE =
@@ -157,3 +158,29 @@ export const missingImportsExplained = (
 	}
 	return true;
 };
+
+/** Share the repo node_modules with a proof scratch (W2199): the ROOT
+ *  closure AND every package-local packages/<pkg>/node_modules — workspace
+ *  deps resolve through the package-local links a fresh git worktree
+ *  lacks; without them provable tests importing one die as Cannot-find-
+ *  module and the review errors as environmental (the W2198 trail).
+ *  manifestPaths are repo-relative <pkg>/package.json paths naming the
+ *  packages whose tests run in the scratch. */
+export function shareNodeModules(
+	repo: string,
+	scratch: string,
+	manifestPaths: readonly string[],
+): void {
+	const root = join(repo, "node_modules");
+	if (existsSync(root) && !existsSync(join(scratch, "node_modules")))
+		symlinkSync(root, join(scratch, "node_modules"), "dir");
+	for (const manifest of manifestPaths) {
+		const srcDir = join(repo, dirname(manifest), "node_modules");
+		if (!existsSync(srcDir)) continue;
+		const dst = join(scratch, dirname(manifest), "node_modules");
+		if (!existsSync(dst)) {
+			mkdirSync(dirname(dst), { recursive: true });
+			symlinkSync(srcDir, dst, "dir");
+		}
+	}
+}

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
-import { withFileLock } from "../file-lock.ts";
+import { withFileLock } from "../lanes/file-lock.ts";
 import { legacyNameOf, writeJsonConf } from "../kernel-conf.ts";
 import { resolvePosture } from "./posture.resolve.ts";
 import { parsePostureDocument, type PostureDocument } from "./posture.zod.ts";
