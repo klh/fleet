@@ -3,29 +3,44 @@
 // val/num are exported for the entrypoint's flush/ship mode blocks.
 
 import { resolve } from "node:path";
+import { z } from "zod";
 import { canonicalProjectRoot } from "../lanes/lane-registry.ts";
+import { loopDie } from "./loop-errors.ts";
 
-export type LoopConfig = {
+/** W2173.7 zod-first: the schema is THE definition of the loop's parsed
+ *  argv config; the type is derived, never hand-written. */
+export const LoopModeSchema = z.enum([
+	"once",
+	"watch",
+	"lanes",
+	"dispatch",
+	"flush",
+	"ship",
+	"posture",
+]);
+
+export const LoopConfigSchema = z.object({
 	/** re-passed to `once` children by watch mode */
-	argv: string[];
-	MODE: string;
+	argv: z.array(z.string()),
+	MODE: LoopModeSchema,
 	/** the entrypoint's import.meta.dir — dialect wire paths anchor here */
-	binDir: string;
-	REPO: string;
-	CALLER_REPO: string;
-	MAIN: string;
-	GLOB: string;
-	LADDER: string | undefined;
-	AGENT: string;
-	EFFORT: string | undefined;
-	LADDER_TIMEOUT_MS: number;
-	DISPATCH: string | undefined;
-	EVERY_MS: number;
-	CYCLE_TIMEOUT_MS: number;
-	LOG: string;
-	FAILS: string;
-	STALL_WARN_MS: number;
-};
+	binDir: z.string().min(1),
+	REPO: z.string().min(1),
+	CALLER_REPO: z.string().min(1),
+	MAIN: z.string().min(1),
+	GLOB: z.string().min(1),
+	LADDER: z.string().optional(),
+	AGENT: z.string().min(1),
+	EFFORT: z.string().optional(),
+	LADDER_TIMEOUT_MS: z.number().nonnegative(),
+	DISPATCH: z.string().optional(),
+	EVERY_MS: z.number().nonnegative(),
+	CYCLE_TIMEOUT_MS: z.number().nonnegative(),
+	LOG: z.string().min(1),
+	FAILS: z.string().min(1),
+	STALL_WARN_MS: z.number().nonnegative(),
+});
+export type LoopConfig = z.infer<typeof LoopConfigSchema>;
 
 // flag lookups close over a specific argv — parseLoopConfig and the
 // entrypoint's flush/ship blocks share this one definition (W740)
@@ -44,18 +59,11 @@ export function parseLoopConfig(argv: string[], binDir: string): LoopConfig {
 	const MODE = argv[0];
 	if (
 		!MODE ||
-		![
-			"once",
-			"watch",
-			"lanes",
-			"dispatch",
-			"flush",
-			"ship",
-			"posture",
-		].includes(MODE) ||
+		!LoopModeSchema.safeParse(MODE).success ||
 		!argv.includes("--repo")
 	) {
-		console.error(
+		loopDie(
+			"loop.usage",
 			`usage: fleet-loop once|watch|lanes|dispatch|ship|posture --repo <dir> [--glob lane/autow*] [--main main]\n` +
 				`          posture [steady|plaid]        the W911 plaid switch — read shows; arg writes\n` +
 				`          [--ladder <cmd template with {branch}>]  default: plain git merge --no-ff\n` +
@@ -65,11 +73,12 @@ export function parseLoopConfig(argv: string[], binDir: string): LoopConfig {
 				`          ship --branch <branch>                   one branch through the ladder (board ship trigger)\n` +
 				`          flush --repo <dir> [--item <id>] [--await <secs>]   merge DONE+verified branches (W641); --item waits out the closing lane first (W249)\n` +
 				`          [--every 120] [--cycle-timeout 15] [--log <file>]   (watch mode)\n`,
+			MODE ? 1 : 0,
 		);
-		process.exit(MODE ? 1 : 0);
 	}
 	const requestedRepo = val("--repo");
-	if (!requestedRepo) process.exit(1); // usage block above already explained
+	if (!requestedRepo)
+		loopDie("loop.config_invalid", "--repo <dir> is required");
 	const CALLER_REPO = resolve(requestedRepo);
 	const REPO = canonicalProjectRoot(CALLER_REPO);
 	const MAIN = val("--main", "main");
@@ -83,7 +92,7 @@ export function parseLoopConfig(argv: string[], binDir: string): LoopConfig {
 	const CYCLE_TIMEOUT_MS = num("--cycle-timeout", 15) * 60_000;
 	const LOG = val("--log", `${REPO}/.fleet/loop.log`);
 	const FAILS = `${REPO}/.fleet/merge-fails.json`;
-	return {
+	return LoopConfigSchema.parse({
 		argv,
 		MODE,
 		binDir,
@@ -101,5 +110,5 @@ export function parseLoopConfig(argv: string[], binDir: string): LoopConfig {
 		LOG,
 		FAILS,
 		STALL_WARN_MS: num("--stall-warn-min", 10) * 60_000,
-	};
+	});
 }

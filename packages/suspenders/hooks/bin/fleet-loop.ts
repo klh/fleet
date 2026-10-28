@@ -39,6 +39,7 @@ import {
 	enforceMergeHold,
 	mergeHoldActive,
 } from "../lib/fleet-loop/merge-hold.ts";
+import { describeError, loopDie } from "../lib/fleet-loop/loop-errors.ts";
 import { flushOnDoneWait } from "../lib/fleet-loop/merge-on-done.ts";
 import { createReclaimSweep } from "../lib/fleet-loop/reclaim-sweep.ts";
 import { createRetire } from "../lib/fleet-loop/retire.ts";
@@ -167,7 +168,11 @@ async function cycle(): Promise<void> {
 	// (the wisdom-sweep rule): enforcement can never take down the cycle.
 	try {
 		enforceMergeHold(REPO, log);
-	} catch {}
+	} catch (e) {
+		log(
+			`MERGE-HOLD enforcement failed (fail-isolated, loop.hold_enforcement_failed): ${describeError(e)}`,
+		);
+	}
 	// 1. never enter a cycle with leftover merge state. MERGE_HEAD is either
 	// a LIVE merge (another runner mid-flight — hands off) or crashed-run
 	// debris (heal: surgical abort, guarded reset as last resort).
@@ -292,7 +297,11 @@ if (MODE === "flush") {
 	// provenance) never defers the sweep forever (A2). Fail-isolated.
 	try {
 		enforceMergeHold(REPO, log);
-	} catch {}
+	} catch (e) {
+		log(
+			`MERGE-HOLD enforcement failed (fail-isolated, loop.hold_enforcement_failed): ${describeError(e)}`,
+		);
+	}
 	if (existsSync(`${REPO}/.git/MERGE_HEAD`)) {
 		const live = mergeRunnerAlive();
 		if (live) {
@@ -375,14 +384,17 @@ if (MODE === "flush") {
 if (MODE === "ship") {
 	const b = val("--branch");
 	if (!b) {
-		console.error("ship requires --branch <branch>");
-		process.exit(1);
+		loopDie("loop.ship_missing_branch", "ship requires --branch <branch>");
 	}
 	// W1302.1: same refuse/age-out as cycle/flush — a stale or malformed hold
 	// never blocks a one-click ship forever. Fail-isolated.
 	try {
 		enforceMergeHold(REPO, log);
-	} catch {}
+	} catch (e) {
+		log(
+			`MERGE-HOLD enforcement failed (fail-isolated, loop.hold_enforcement_failed): ${describeError(e)}`,
+		);
+	}
 	// W101 ship-vs-daemon race: same merge-liveness discipline as cycle
 	// step 1 — a live daemon ladder is hands-off (a blind abort here killed
 	// the daemon's in-flight merge, FAIL-struck the innocent branch, and
@@ -391,7 +403,9 @@ if (MODE === "ship") {
 	const live = mergeRunnerAlive();
 	if (live) {
 		log(`SHIP-VETO ${b} — merge runner pid ${live} mid-flight, ship refused`);
-		console.error(`ship refused: merge runner pid ${live} mid-flight`);
+		console.error(
+			`loop.ship_veto: ship refused — merge runner pid ${live} mid-flight`,
+		);
 		process.exit(1);
 	}
 	// never enter with leftover merge state (same as cycle step 1);
@@ -410,8 +424,7 @@ if (MODE === "ship") {
 		`SHIP ${b} ${receipt.outcome}${receipt.head ? ` ${receipt.head}` : ""}${receipt.why ? ` — ${receipt.why}` : ""}`,
 	);
 	if (receipt.outcome === "missing") {
-		console.error(`ship refused: branch ref missing: ${b}`);
-		process.exit(1);
+		loopDie("loop.ship_branch_missing", `branch ref missing: ${b}`);
 	}
 	process.exit(0);
 }
@@ -524,7 +537,11 @@ while (true) {
 		);
 		try {
 			child.kill(9);
-		} catch {}
+		} catch (e) {
+			log(
+				`WATCHDOG kill failed pid=${child.pid} (loop.watchdog_kill_failed): ${describeError(e)}`,
+			);
+		}
 	}, CYCLE_TIMEOUT_MS);
 	await child.exited;
 	clearTimeout(timer);

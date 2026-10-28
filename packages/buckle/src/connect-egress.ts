@@ -12,7 +12,17 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { isIPv4 } from "node:net";
+import { z } from "zod";
+import { clampRetryAfter, parseRequestDeadline } from "./http-kit.ts";
+import { createLogger } from "./log.ts";
 import type { ConnectPolicyBlock, GatewayPolicy } from "./policy.ts";
+
+const egressLog = createLogger("connect-egress");
+
+/** W2173.7 HTTP citizenship: the egress identifies itself on every HTTP
+ *  answer it writes over the wire (the 200 + every deny). The tunnel itself
+ *  stays opaque TLS (C111) — no UA rides the relayed bytes, by design. */
+export const CONNECT_EGRESS_UA = "buckle-connect-egress/1.0";
 
 export const CONNECT_PORT_DEFAULT = 4103;
 /** belt's live gateway address — the serve face refuses it (server.ts) and
@@ -23,17 +33,21 @@ export const CONNECT_FORBIDDEN_PORT = 4100;
 export const CONNECT_APPS = ["claude", "chatgpt", "vscode", "codex"] as const;
 export type ConnectApp = (typeof CONNECT_APPS)[number] | "unknown";
 
-export interface ConnectTunnelConfig {
-	enabled: boolean;
-	port: number;
-	ports: number[];
-	allow: string[];
-	idleTimeoutMs: number;
-	maxTunnels: number;
+/** W2173.7 zod-first: the schema is THE definition of the egress config —
+ *  connectConfigOf guards its inputs, then the assembled config must parse
+ *  (a guard/schema drift fails loud at boot). */
+export const ConnectTunnelConfigSchema = z.object({
+	enabled: z.literal(true),
+	port: z.number().int().min(1).max(65535),
+	ports: z.array(z.number().int().min(1).max(65535)).min(1),
+	allow: z.array(z.string().min(1)).min(1),
+	idleTimeoutMs: z.number().int().positive(),
+	maxTunnels: z.number().int().min(1),
 	/** SSRF/private/metadata denial — default on, tighten-only. */
-	denyPrivate: boolean;
-	token: string;
-}
+	denyPrivate: z.boolean(),
+	token: z.string().min(1),
+});
+export type ConnectTunnelConfig = z.infer<typeof ConnectTunnelConfigSchema>;
 
 /** W1259 inflight-index contract (#67712): ingested VERBATIM via
  *  acceptConnectSnapshot — rows carry `app` per owner #67711 (Basic
@@ -70,6 +84,39 @@ export type ResolverFn = (
 	opts: { all: true },
 ) => Promise<{ address: string; family: number }[]>;
 
+// ─── dial citizenship (W2173.7) ─────────────────────────────────────────────
+
+/** Bounded dial backoff (seconds→ms): the delay after attempt N failed,
+ *  CLAMPED through http-kit's clampRetryAfter — a dial ladder never sleeps
+ *  unbounded, and a caller deadline shorter than the cap wins anyway. */
+export const dialBackoffMs = (
+	attempt: number,
+	backoffBaseS: number,
+	backoffMaxS: number,
+): number =>
+	attempt >= 1
+		? clampRetryAfter(attempt * backoffBaseS, backoffMaxS) * 1000
+		: 0;
+
+/** The dial budget for one attempt: min(configured timeout, the remaining
+ *  caller x-request-deadline propagated on the CONNECT head). A caller
+ *  deadline tighter than the configured timeout wins (deadline
+ *  propagation end-to-end, http-kit's DEADLINE_HEADER grammar). */
+export const dialBudgetMs = (
+	connectTimeoutMs: number,
+	deadlineHeader: string | undefined,
+	now: () => number = Date.now,
+): number => {
+	if (deadlineHeader === undefined) return connectTimeoutMs;
+	const d = parseRequestDeadline(
+		new Headers({ "x-request-deadline": deadlineHeader }),
+		now,
+	);
+	return d === null
+		? connectTimeoutMs
+		: Math.min(connectTimeoutMs, Math.max(0, d.remainingMs));
+};
+
 // ─── config ─────────────────────────────────────────────────────────────────
 
 /** Resolve the egress config from policy + env. null = INERT (the endpoint
@@ -96,7 +143,9 @@ export function connectConfigOf(
 	if (ports.length === 0) return null;
 	const idle = Number(block.idle_timeout_s ?? 300);
 	const max = Number(block.max_tunnels ?? 64);
-	return {
+	// the schema is the contract — a guard above drifting from the schema
+	// fails loud here instead of shipping a malformed config
+	return ConnectTunnelConfigSchema.parse({
 		enabled: true,
 		port,
 		ports,
@@ -105,7 +154,7 @@ export function connectConfigOf(
 		idleTimeoutMs: Number.isFinite(idle) && idle > 0 ? idle * 1000 : 300_000,
 		maxTunnels: Number.isInteger(max) && max >= 1 ? max : 64,
 		denyPrivate: block.deny_private !== false,
-	};
+	});
 }
 
 // ─── SSRF guard ─────────────────── adapters/egress.ts is the outbound sibling
@@ -265,11 +314,11 @@ export function authAppOf(
 	token: string,
 ): ConnectApp | null {
 	if (!header || token.length === 0) return null;
-	const m = /^Basic\s+([A-Za-z0-9+/=]+)$/i.exec(header.trim());
-	if (!m) return null;
+	const parsed = ProxyAuthorizationSchema.safeParse(header.trim());
+	if (!parsed.success) return null;
 	let decoded = "";
 	try {
-		decoded = Buffer.from(m[1] ?? "", "base64").toString("utf8");
+		decoded = Buffer.from(parsed.data, "base64").toString("utf8");
 	} catch {
 		return null;
 	}
@@ -461,7 +510,9 @@ export class ConnectEgress {
 		if (leg.idle) clearTimeout(leg.idle);
 		this.live.delete(leg);
 		try {
-			s.write(`HTTP/1.1 ${code} ${why}\r\n\r\n`);
+			s.write(
+				`HTTP/1.1 ${code} ${why}\r\nuser-agent: ${CONNECT_EGRESS_UA}\r\n\r\n`,
+			);
 			s.end();
 		} catch {
 			s.close();
@@ -500,24 +551,21 @@ export class ConnectEgress {
 		rest: Buffer,
 	): Promise<void> {
 		const lines = head.split("\r\n");
-		const m = /^CONNECT\s+(\S+)\s+HTTP\/1\.[01]$/i.exec(lines[0] ?? "");
-		if (!m) {
+		// W2173.7 zod-first: the request-line shape is schema-validated, not
+		// inline-regexed — a malformed line 405s before any auth work.
+		const line = ConnectRequestLineSchema.safeParse(lines[0] ?? "");
+		if (!line.success) {
 			this.fail(s, leg, 405, "Method Not Allowed");
 			return;
 		}
-		const auth = lines
-			.slice(1)
-			.map((l) => {
-				const i = l.indexOf(":");
-				return i < 0
-					? null
-					: ([
-							l.slice(0, i).trim().toLowerCase(),
-							l.slice(i + 1).trim(),
-						] as const);
-			})
-			.find((p) => p?.[0] === "proxy-authorization");
-		const app = authAppOf(auth?.[1], this.cfg.token);
+		const headers = new Map<string, string>();
+		for (const l of lines.slice(1)) {
+			const i = l.indexOf(":");
+			if (i < 0) continue;
+			headers.set(l.slice(0, i).trim().toLowerCase(), l.slice(i + 1).trim());
+		}
+		const auth = headers.get("proxy-authorization");
+		const app = authAppOf(auth, this.cfg.token);
 		if (!app) {
 			this.fail(s, leg, 407, "Proxy Authentication Required");
 			return;
@@ -526,7 +574,7 @@ export class ConnectEgress {
 			this.fail(s, leg, 503, "Service Unavailable");
 			return;
 		}
-		const authority = parseAuthority(m[1] ?? "");
+		const authority = parseAuthority(line.data.authority);
 		if (!authority) {
 			this.fail(s, leg, 400, "Bad Request");
 			return;
@@ -540,7 +588,13 @@ export class ConnectEgress {
 			this.fail(s, leg, 403, "Forbidden");
 			return;
 		}
-		const peer = await this.dial(verdict.ip, authority.port);
+		// W2173.7: the dial budget = configured timeout tightened by the
+		// caller's x-request-deadline (deadline propagation end-to-end).
+		const budgetMs = dialBudgetMs(
+			this.opts.connectTimeoutMs ?? 5000,
+			headers.get("x-request-deadline"),
+		);
+		const peer = await this.dial(verdict.ip, authority.port, budgetMs);
 		if (!peer.ok) {
 			this.fail(s, leg, 502, "Bad Gateway");
 			return;
@@ -571,28 +625,61 @@ export class ConnectEgress {
 				"Held CONNECT tunnels opened.",
 			)
 			.inc({ app }, 1);
-		s.write("HTTP/1.1 200 Connection established\r\n\r\n");
+		s.write(
+			`HTTP/1.1 200 Connection established\r\nuser-agent: ${CONNECT_EGRESS_UA}\r\n\r\n`,
+		);
 		if (rest.length > 0) this.spliceUp(leg, rest);
 	}
 
-	/** Bounded upstream dial: Bun.connect raced against an unref'd connect
-	 *  deadline — a hung SYN never holds the tunnel. Loser sockets end(). */
-	private dial(
+	/** W2173.7 bounded dial ladder: up to opts.dialAttempts (default 2)
+	 *  Bun.connect attempts on a clampRetryAfter-bounded backoff — a
+	 *  transient upstream refusal gets a bounded second chance; the caller
+	 *  deadline (budgetMs) caps the whole ladder. */
+	private async dial(
 		ip: string,
 		port: number,
+		budgetMs: number,
 	): Promise<{ ok: true; value: EgressSocket } | { ok: false }> {
-		const timeoutMs = this.opts.connectTimeoutMs ?? 5000;
+		const attempts = Math.max(1, this.opts.dialAttempts ?? 2);
+		const baseS = this.opts.backoffBaseS ?? 1;
+		const maxS = this.opts.backoffMaxS ?? 3;
+		for (let attempt = 1; attempt <= attempts; attempt++) {
+			const peer = await this.dialOnce(ip, port, Math.max(1, budgetMs));
+			if (peer.ok) return peer;
+			if (attempt >= attempts) return { ok: false };
+			const delay = dialBackoffMs(attempt, baseS, maxS);
+			if (delay > 0) await Bun.sleep(delay);
+		}
+		return { ok: false };
+	}
+
+	/** One Bun.connect attempt raced against the signal-owned deadline; a
+	 *  hung SYN never holds the tunnel. Loser sockets end(). */
+	private dialOnce(
+		ip: string,
+		port: number,
+		budgetMs: number,
+	): Promise<{ ok: true; value: EgressSocket } | { ok: false }> {
+		const timeoutMs = Math.max(1, budgetMs);
 		return new Promise((res) => {
 			let settled = false;
+			let timer: ReturnType<typeof setTimeout> | undefined;
 			const done = (
 				r: { ok: true; value: EgressSocket } | { ok: false },
 			): void => {
 				if (settled) return;
 				settled = true;
-				clearTimeout(timer);
+				if (timer) clearTimeout(timer);
 				res(r);
 			};
-			const timer = setTimeout(() => done({ ok: false }), timeoutMs);
+			// W2173.7: the deadline rides an AbortSignal — abort() settles the
+			// race and the unref'd timer only arms the signal (a pending
+			// deadline never holds the event loop).
+			const ctrl = new AbortController();
+			ctrl.signal.addEventListener("abort", () => done({ ok: false }), {
+				once: true,
+			});
+			timer = setTimeout(() => ctrl.abort(), timeoutMs);
 			timer.unref?.();
 			const upHandler = (peer: object): void =>
 				this.teardown((peer as EgressSocket).data as Leg | undefined);
@@ -642,10 +729,15 @@ export class ConnectEgress {
 	}
 }
 
-/** Optional wiring: injectable resolver (tests) + bounded dial + metrics. */
+/** Optional wiring: injectable resolver (tests) + bounded dial + metrics.
+ *  W2173.7 adds the dial-ladder knobs: dialAttempts (total attempts,
+ *  default 2) and the clampRetryAfter-bounded backoff params. */
 export interface ConnectEgressOpts {
 	resolve?: ResolverFn;
 	connectTimeoutMs?: number;
+	dialAttempts?: number;
+	backoffBaseS?: number;
+	backoffMaxS?: number;
 	sm?: {
 		counter(
 			name: string,
@@ -654,24 +746,46 @@ export interface ConnectEgressOpts {
 	};
 }
 
-/** CONNECT authority → {host, port}. v6 must be bracketed ([::1]:443);
- *  a bare-colon host without brackets refuses (ambiguous). */
+/** CONNECT request line — "CONNECT <authority> HTTP/1.x" (case-insensitive
+ *  method, 1.0 or 1.1). The schema is THE definition of the line shape. */
+export const ConnectRequestLineSchema = z
+	.string()
+	.regex(
+		/^CONNECT\s+(\S+)\s+HTTP\/1\.[01]$/i,
+		"expected: CONNECT <host>:<port> HTTP/1.0|1.1",
+	)
+	.transform((s) => ({
+		authority: s.trim().split(/\s+/)[1] ?? "",
+	}));
+
+/** Proxy-Authorization Basic credential (RFC 7617 shape) — parses to the
+ *  base64 payload (the prefix is stripped by the transform). */
+export const ProxyAuthorizationSchema = z
+	.string()
+	.regex(/^Basic\s+([A-Za-z0-9+/=]+)$/i, "expected: Basic <base64>")
+	.transform((s) => s.replace(/^Basic\s+/i, ""));
+
+/** CONNECT authority → {host, port}. Zod-first (W2173.7): the schema is
+ *  THE definition — v6 must be bracketed ([::1]:443); a bare-colon host
+ *  without brackets refuses (ambiguous). */
+const AUTHORITY_RE = /^(?:\[(.+)\]|([^:\]]+)):([0-9]{1,5})$/;
+export const AuthoritySchema = z
+	.string()
+	.regex(AUTHORITY_RE, "expected: host:port or [v6]:port")
+	.transform((s): { host: string; port: number } | null => {
+		const m = AUTHORITY_RE.exec(s.trim());
+		if (!m) return null;
+		const port = Number(m[3]);
+		if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+		return { host: m[1] !== undefined ? `[${m[1]}]` : (m[2] ?? ""), port };
+	});
+
+/** CONNECT authority → {host, port} | null (null = refused authority). */
 export const parseAuthority = (
 	raw: string,
 ): { host: string; port: number } | null => {
-	const s = raw.trim();
-	const brack = /^\[(.+)\]:(\d+)$/.exec(s);
-	if (brack) {
-		const port = Number(brack[2]);
-		return port >= 1 && port <= 65535 ? { host: `[${brack[1]}]`, port } : null;
-	}
-	const i = s.lastIndexOf(":");
-	if (i <= 0) return null;
-	const host = s.slice(0, i);
-	const port = Number(s.slice(i + 1));
-	if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
-	if (host.includes(":")) return null; // bare v6 — refuse
-	return { host, port };
+	const r = AuthoritySchema.safeParse(raw.trim());
+	return r.success ? (r.data ?? null) : null;
 };
 
 /** Boot seam: resolve config; null = inert (no listener). Throws on port
@@ -688,8 +802,8 @@ export function startConnectEgress(
 			`connect egress: port ${cfg.port} collides with the buckle serve face`,
 		);
 	const egress = new ConnectEgress(cfg, opts).start();
-	console.log(
-		`buckle: connect egress on 127.0.0.1:${egress.port} — apps ${CONNECT_APPS.join("/")}+buckle, destinations [${cfg.allow.join(", ")}]:${cfg.ports.join("/")}, TLS stays opaque`,
+	egressLog.info(
+		`connect egress on 127.0.0.1:${egress.port} — apps ${CONNECT_APPS.join("/")}+buckle, destinations [${cfg.allow.join(", ")}]:${cfg.ports.join("/")}, TLS stays opaque`,
 	);
 	return egress;
 }

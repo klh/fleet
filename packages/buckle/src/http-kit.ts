@@ -15,6 +15,7 @@
 // is the default) and adds the statuses citizenship's gate table lacks
 // (412/428/504).
 import { createHash } from "node:crypto";
+import { z } from "zod";
 import { PROBLEM_SLUGS } from "./citizenship.ts";
 
 // ── (2) semantic status matrix ──────────────────────────────────────────────
@@ -89,25 +90,28 @@ const TITLES: Record<number, string> = {
 
 // ── (3) ONE error-kinds module — HttpProblem → problem+json ────────────────
 
-/** Per-field validation error (the 422 payload). */
-export interface FieldError {
-	field: string;
-	why: string;
-}
+/** Per-field validation error (the 422 payload). W2173.7 zod-first: the
+ *  schema is THE definition; the type is derived, never hand-written. */
+export const FieldErrorSchema = z.object({
+	field: z.string().min(1),
+	why: z.string().min(1),
+});
+export type FieldError = z.infer<typeof FieldErrorSchema>;
 
-export interface ProblemInit {
+export const ProblemInitSchema = z.object({
 	/** Stable machine code — `service.slug` by convention (buckle.*,
 	 *  board.*). Never renamed, only added to. */
-	code: string;
-	why: string;
-	instance?: string;
-	fields?: FieldError[];
+	code: z.string().min(1),
+	why: z.string().min(1),
+	instance: z.string().optional(),
+	fields: z.array(FieldErrorSchema).optional(),
 	/** Seconds; CLAMPED to the configured max at emission time. */
-	retryAfterS?: number;
-	next?: string[];
+	retryAfterS: z.number().optional(),
+	next: z.array(z.string()).optional(),
 	/** Extra wire headers (allow, www-authenticate, ...). */
-	headers?: Record<string, string>;
-}
+	headers: z.record(z.string(), z.string()).optional(),
+});
+export type ProblemInit = z.infer<typeof ProblemInitSchema>;
 
 /** The ONE error kind a service throws/returns. Carries kind + stable code +
  *  the problem fields; toProblemResponse renders it. Never leak internals —
