@@ -122,7 +122,15 @@ import { laneSid as sidOf } from "../lanes/laneslug.ts";
 import { launchParent } from "../lanes/launch-parent.ts";
 import { restorableBaseline } from "../lanes/original-baseline.ts";
 import { verifiedContextContinuation } from "../lanes/reclaim-context.ts";
-import { type Posture, recordPlaidTrace } from "../plaid/plaid.ts";
+import {
+	type Posture,
+	PLAID_CATALOG_UNAVAILABLE,
+	recordPlaidTrace,
+} from "../plaid/plaid.ts";
+import {
+	admitPostureLaunch,
+	resolveDispatchPosture,
+} from "../posture/posture.admission.ts";
 import { policyBriefLines } from "../policy/session-policy.ts";
 import { darkHubNow, policyForRepo, tryLoadStack } from "../stack-config.ts";
 import { quotaProviderPenalty } from "../usage/exec-quota.ts";
@@ -432,6 +440,43 @@ export const dispatchLane = async (
 				`REFUSED ${item} — selected executor unavailable; nothing claimed or minted`,
 			);
 			return null;
+		}
+		// W1315.3: a configured posture rides the SHARED hub/model policy —
+		// admission (health holds + atomic shared ceilings, running and
+		// reserved lanes across all projects) replaces the special plaid
+		// pick. Unconfigured machines keep the legacy branches until the
+		// W1315.6 rollout cuts them over.
+		const posture = resolveDispatchPosture(tryLoadStack(), CALLER_REPO);
+		if (posture) {
+			// modelHealth null = probe ran, catalog unavailable — hold
+			// fail-closed (plaid-preflight semantics).
+			if (PLAID_MODEL_HEALTH === null) {
+				console.log(`SKIP ${item} — ${PLAID_CATALOG_UNAVAILABLE}`);
+				return null;
+			}
+			const admitted = admitPostureLaunch({
+				store,
+				resolved: posture,
+				sid,
+				usable: (e) => !(e.model && PLAID_MODEL_HEALTH?.get(e.model)),
+			});
+			if (!admitted.ok) {
+				launchWaits.push(item);
+				console.log(`WAIT ${item} — ${admitted.reason}`);
+				return null;
+			}
+			pick = { ...pick, model: admitted.entry.model, hub: admitted.entry.hub };
+			// The posture may swap the model — resolve the binary from the
+			// MERGED pick (W1009.2 mixed-spawn guard).
+			bin = resolveLaneExecutor(pick.bin);
+			if (!bin) {
+				governanceRefusals.push(item);
+				console.log(
+					`REFUSED ${item} — executor unavailable: ${pick.bin}; nothing claimed or minted`,
+				);
+				store.close();
+				return null;
+			}
 		}
 		// Plaid picks the least-loaded healthy provider. Steady uses .prefer.
 		// W1102.1: the plaid preflight (host-pressure hold + pool plan +
