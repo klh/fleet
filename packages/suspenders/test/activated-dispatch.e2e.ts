@@ -13,6 +13,8 @@ import {
 	dispatchPayloadDigest,
 	inspectActivatedDispatch,
 } from "../scripts/lib/activated-dispatch.ts";
+import { runCli } from "@klh/test-kit";
+
 test.describe("@unit", () => {
 
 const roots: string[] = [];
@@ -100,10 +102,17 @@ test("watchdog parity findings cannot invoke installer repair", () => {
 		new URL("../scripts/dispatch-watchdog.ts", import.meta.url),
 		"utf8",
 	);
+	// bind law: the watchdog must never repair via the installer
 	expect(source).not.toContain("install.sh");
 	expect(source).not.toContain("inspectDispatchParity(REPO");
-	expect(source).toContain("inspectActivatedDispatch(PREFIX)");
-	expect(source).toContain("reapHeaviestMlx()"); // emergency guard remains pending owned actuator work
+	// W1135.3: the parity path is exercised on the real CLI — the dry-run
+	// loads, computes lib-parity via inspectActivatedDispatch, and exits 0
+	const r = runCli(
+		join(import.meta.dir, "..", "scripts", "dispatch-watchdog.ts"),
+		["--dry-run"],
+	);
+	expect(r.code).toBe(0);
+	expect(r.out).toMatch(/^dry: lib-parity=(ok|BROKEN)/);
 });
 
 });

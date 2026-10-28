@@ -73,11 +73,18 @@ test("scripts/ consumers reach the lane kit through hooks/lib, not local copies"
 	expect(localKitImports).toEqual([]);
 });
 
-test("enrollment resolves the shared modules in-tree, no cross-tree layout probing", () => {
+test("enrollment resolves the shared modules in-tree, no cross-tree layout probing", async () => {
 	const src = readFileSync(join(HOOKS_LIB, "lanes", "hook-scripts.ts"), "utf8");
 	expect(src).not.toContain("scriptsLibPath");
 	expect(src).not.toContain(`"scripts"`);
-	expect(src).toContain(`await import("./lane-auth.ts")`);
+	// W1135.3: the in-tree resolution edge is exercised, not grepped — the
+	// same dynamic import hook-scripts performs resolves at runtime and
+	// exposes the real auth surface
+	const hs = await import(join(HOOKS_LIB, "lanes", "hook-scripts.ts"));
+	expect(typeof hs.enrollTopLevel).toBe("function");
+	const la = await import(join(HOOKS_LIB, "lanes", "lane-auth.ts"));
+	expect(typeof la.enrollSessionKey).toBe("function");
+	expect(typeof la.retireLaneKey).toBe("function");
 });
 
 });

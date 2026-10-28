@@ -16,6 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
+import { buildVendorArgv } from "../scripts/build-vendor.ts";
 
 const ROOT = join(import.meta.dir, "..");
 const VENDOR = join(ROOT, "hooks/board-html/vendor");
@@ -58,9 +59,10 @@ describe("vendor-hash (W292)", () => {
 		const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 		const script: string = pkg.scripts["build:vendor"];
 		expect(script).toBe("bun scripts/build-vendor.ts");
-		// the pinned flags + entries live in the build face, not the
-		// package.json line (W1107.2.2) — still one source of truth
-		const src = readFileSync(join(ROOT, "scripts/build-vendor.ts"), "utf8");
+		// W1135.3: the pinned flags + entries ride the build face's runtime
+		// identity, not a source grep (W1107.2.2 one-source-of-truth kept) —
+		// buildVendorArgv IS the argv the build runs
+		const argv = buildVendorArgv(join(ROOT, "hooks", "board-html"));
 		for (const token of [
 			"--minify",
 			"--production",
@@ -70,7 +72,7 @@ describe("vendor-hash (W292)", () => {
 			"hooks/board-html/klh-components.ts",
 			"hooks/board-html/klh-service-row.ts",
 		])
-			expect(src).toContain(token);
+			expect(argv).toContain(token);
 	});
 
 	test("committed vendor artifacts byte-match a fresh production build", () => {
