@@ -40,6 +40,7 @@ export { laneKeyDecision, parseGovernanceMode, probeFrontDecision };
 // THEN.D (W1255.6): the per-lane launch machine rides hooks/lib/fleet-loop and
 // the refill face declares through the verb kit (CLI Toolkit Law, W651).
 import { dispatchLane } from "../hooks/lib/fleet-loop/lane-launch.ts";
+import { danglingFixHolds } from "../hooks/lib/fleet-loop/dangling-rejudge.ts";
 import { openStore, projectIdentity } from "../hooks/lib/govdb/govdb.ts";
 // W494.1: the worktree-cwd probe is the shared EVIDENCE helper now — the
 // verdict itself lives in hooks/lib/lanes/lane-liveness.ts (pid/heartbeat, never cwd)
@@ -579,8 +580,22 @@ const main = async (): Promise<void> => {
 		(id) => sidOf(id, projectIdentity(REPO)),
 	);
 	for (const s of skips) console.log(s);
+	// W2189: repairs frozen by a merged-but-uninstalled classifier fix never
+	// launch from the pool (explicit --item stays operator-explicit).
+	const fixHolds = capStore
+		? danglingFixHolds(
+				capStore,
+				REPO,
+				dispatchable.map((r) => ({ id: r.id, title: r.title })),
+			)
+		: new Map<string, string>();
 	capStore?.close();
 	for (const r of dispatchable) {
+		const holdWhy = fixHolds.get(r.id);
+		if (holdWhy) {
+			console.log(`DANGLING-FIX-HOLD ${r.id} — ${holdWhy}`);
+			continue;
+		}
 		if (!canLaunch()) break;
 		const out = await dispatchItem(r.id, live, undefined, dispatched.length);
 		if (out) dispatched.push(out);

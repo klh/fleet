@@ -35,14 +35,14 @@ const LITERAL = /(['"`])((?:\\.|(?!\1)[\s\S])*?)\1/g;
 
 const INERT_FILE =
 	/(?:^|\/)(?:fixtures?|__fixtures__|testdata|skills|skills-available|templates?|scaffolds?|docs|vendor|generated|node_modules|dist|build|packages\/decant)\/|\.(?:template|tmpl)\.[cm]?[jt]sx?$|\.(?:md|mdx|rst|txt|adoc)$/i;
-const TEST_FILE =
+export const TEST_FILE =
 	/(?:^|\/)(?:tests?|__tests__|e2e|bench|benchmarks?)\/|\.(?:test|spec|e2e|bench)\.[cm]?[jt]sx?$/i;
 const CODE_FILE = /\.[cm]?[jt]sx?$/i;
 const JSON_FILE = /\.jsonc?$/i;
 const SHEBANG = /^#![^\n]*/;
 // real ESM specifiers and runtime path strings are dot-prefixed; package
 // imports ride @klh/ — bare names are npm packages or data
-const REFERENCE_FORM = /^(?:\.{1,2}\/|@klh\/)/;
+export const REFERENCE_FORM = /^(?:\.{1,2}\/|@klh\/)/;
 const CONCRETE = /^[^\s\\*?{}[\]]+$/;
 // non-import references only count when they name code, config or markup
 const ASSET_EXT =
