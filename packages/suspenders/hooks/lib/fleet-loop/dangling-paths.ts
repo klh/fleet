@@ -380,6 +380,27 @@ function knownEdges(db: GovernorStore, project: string): Set<string> {
 	return new Set(open.map(([key]) => key));
 }
 
+/** The aggregate repair-item description: the opening batch's edges, and
+ * the closure rule — false positives append one row to the ONE indexed
+ * disposition record, never a new per-item doc (W2173.6). */
+export function aggregateDescription(
+	fresh: DanglingRef[],
+	mergedSha: string,
+): string {
+	const edges = fresh.slice(0, LISTED_EDGES).map((r) => {
+		const at = r.line ? `${r.refBy}:${r.line}` : r.refBy;
+		return `- ${r.target} <- ${at} (${JSON.stringify(r.specifier)})`;
+	});
+	if (fresh.length > LISTED_EDGES)
+		edges.push(`- ... ${fresh.length - LISTED_EDGES} more`);
+	return [
+		`The post-merge scan found references onto paths missing from the merged tree (first batch: merge ${mergedSha}). Each dependency edge is one ${EVENT_KIND} event scoped to this item (coord events --kinds ${EVENT_KIND} --json); later merges append new edges here instead of minting items.`,
+		...edges,
+		"Per edge: restore the path or rewrite the reference; verify imports and focused tests, then close this item. An edge re-broken after DONE banks again.",
+		"A false-positive edge closes as a no-op: append one row to docs/design/dangling-path-false-positives.md — do not mint a new per-item record.",
+	].join("\n");
+}
+
 /** Mint the aggregate repair item. Its description lists the batch that
  * opened it; the events scoped to it stay the full, growing record. */
 function enqueueAggregate(
@@ -389,17 +410,7 @@ function enqueueAggregate(
 	mergedSha: string,
 	options: BankOptions,
 ): string {
-	const edges = fresh.slice(0, LISTED_EDGES).map((r) => {
-		const at = r.line ? `${r.refBy}:${r.line}` : r.refBy;
-		return `- ${r.target} <- ${at} (${JSON.stringify(r.specifier)})`;
-	});
-	if (fresh.length > LISTED_EDGES)
-		edges.push(`- ... ${fresh.length - LISTED_EDGES} more`);
-	const description = [
-		`The post-merge scan found references onto paths missing from the merged tree (first batch: merge ${mergedSha}). Each dependency edge is one ${EVENT_KIND} event scoped to this item (coord events --kinds ${EVENT_KIND} --json); later merges append new edges here instead of minting items.`,
-		...edges,
-		"Per edge: restore the path or rewrite the reference; verify imports and focused tests, then close this item. An edge re-broken after DONE banks again.",
-	].join("\n");
+	const description = aggregateDescription(fresh, mergedSha);
 	const work = options.enqueue
 		? options.enqueue(AGGREGATE_TITLE, description)
 		: enqueueWorkItem(repo, source, AGGREGATE_TITLE, description);

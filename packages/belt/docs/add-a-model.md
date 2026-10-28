@@ -52,7 +52,7 @@ curl -s http://localhost:PORT/v1/chat/completions -H 'content-type: application/
 ## 4. Bench it
 
 The standard rig is the 4-prompt suite — exact question text and sample-size
-laws in [bench-questions.md](../bench-questions.md); curated numbers in the fleet-root
+laws in [bench-questions.md](../bench/bench-questions.md); curated numbers in the fleet-root
 [benchmarks.md](../../../benchmarks.md). The Danish prompt is deliberate:
 multilingual is a fleet requirement.
 

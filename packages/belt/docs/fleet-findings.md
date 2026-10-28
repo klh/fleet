@@ -105,7 +105,7 @@ back mushy — use `use_case` only unless you calibrate that head yourself.
 ## Benchmarking discipline
 
 Belt questions (per-class question sets, sample-size laws, runner contracts)
-live in [bench-questions.md](../bench-questions.md); curated fleet tables in the
+live in [bench-questions.md](../bench/bench-questions.md); curated fleet tables in the
 fleet-root [benchmarks.md](../../../benchmarks.md); raw append-only records in
 bench/benchmarks.jsonl.
 

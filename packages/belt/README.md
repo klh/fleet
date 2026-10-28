@@ -105,7 +105,7 @@ bun bin/bench-suite.ts --port 8901 --model mlx-community/Qwen3-Coder-30B-A3B-Ins
 - [`bench/benchmarks.jsonl`](bench/benchmarks.jsonl) — the measured record
   (committed)
 - [Fleet benchmarks](../../benchmarks.md) — curated results and rejection log;
-  [Belt questions](bench-questions.md) — protocols; [historical results](bench/RESULTS.md)
+  [Belt questions](bench/bench-questions.md) — protocols; [historical results](bench/RESULTS.md)
 - [`docs/add-a-model.md`](docs/add-a-model.md) — **how to add a new model**:
   registry → download → serve → bench → adopt/reject, with rejections recorded
   in [fleet benchmarks](../../benchmarks.md#rejection-log)

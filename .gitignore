@@ -17,3 +17,5 @@ test-results/
 
 # W1294.16: playwright artifacts from the buckle/test sweep-G family
 packages/buckle/test/test-results/
+# machine-local agent settings (W2173.6) — never commit
+.claude/

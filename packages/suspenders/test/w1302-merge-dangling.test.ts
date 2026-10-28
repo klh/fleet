@@ -22,6 +22,7 @@ import {
 } from "../hooks/lib/fleet-loop/dangling-classify.ts";
 import {
 	AGGREGATE_TITLE,
+	aggregateDescription,
 	type DanglingRef,
 	bankDanglingRefs,
 	danglingReferences,
@@ -246,6 +247,18 @@ describe("W1302.2 post-merge dangling-path scan", () => {
 	test("pathLiterals: template holes and non-strings never extracted", () => {
 		expect(pathLiterals(`const u = \`dir/\${name}.ts\`;`)).toEqual([]);
 		expect(pathLiterals("const q = 7;")).toEqual([]);
+	});
+
+	test("aggregateDescription: false positives point at the ONE indexed record (W2173.6)", () => {
+		const ref = {
+			target: "x/gone.ts",
+			refBy: "x/user.ts",
+			line: 7,
+			specifier: "./gone.ts",
+		};
+		const desc = aggregateDescription([ref], "abc123");
+		expect(desc).toContain("docs/design/dangling-path-false-positives.md");
+		expect(desc).toContain("x/user.ts:7");
 	});
 
 	test("resolveLiteral: relative, @klh, and non-judged forms", () => {
