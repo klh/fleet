@@ -2,87 +2,57 @@
 // packages (speedy blam local local-llm kernel) conform to the P1 package
 // contract (explicit exports/files/bin/engines, exact pins, API preserved
 // for every name-based cross-package consumer). Tagged @api spec per the
-// W1294.1 one-framework ratchet — no new *.test.ts.
+// W1294.1 one-framework ratchet — no new *.test.ts. Spec-shape law: helpers
+// and types live in tests/helpers/p1-contract-small.ts.
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
-
-const ROOT = process.cwd(); // playwright CLI runs from repo root
-const readManifest = (p: string): Record<string, unknown> =>
-	JSON.parse(readFileSync(join(ROOT, "packages", p, "package.json"), "utf8"));
-const EXACT = /^\d+\.\d+\.\d+$/;
-const PACKAGES = ["kernel", "local-llm", "local", "speedy", "blam"] as const;
-
-/** Name-based @klh/<pkg>/... specifiers used by any file under packages/ + tests/. */
-function crossPackageSpecifiers(pkg: string): string[] {
-	const found = new Set<string>();
-	const specifiers = new RegExp(`["']@klh/${pkg}/([^"']+)["']`, "g");
-	const walk = (dir: string): void => {
-		for (const entry of readdirSync(dir)) {
-			const path = join(dir, entry);
-			if (statSync(path).isDirectory()) {
-				if (entry === "node_modules" || entry === ".harness") continue;
-				walk(path);
-			} else if (/\.(ts|tsx|js|mjs)$/.test(entry)) {
-				for (const m of readFileSync(path, "utf8").matchAll(specifiers))
-					// placeholder literals ("@klh/blam/...") in fixtures are not specifiers
-					if (/[a-z0-9]/i.test(m[1] ?? "")) found.add(m[1] ?? "");
-			}
-		}
-	};
-	walk(join(ROOT, "packages"));
-	walk(join(ROOT, "tests"));
-	return [...found];
-}
-
-const covered = (sub: string, patterns: string[]): boolean =>
-	patterns.some((raw) => {
-		const pattern = raw.replace("./", "");
-		if (!pattern.includes("*")) return sub === pattern;
-		const star = pattern.indexOf("*");
-		const head = pattern.slice(0, star);
-		const tail = pattern.slice(star + 1);
-		return (
-			sub.startsWith(head) &&
-			sub.endsWith(tail) &&
-			sub.length >= head.length + tail.length
-		);
-	});
+import {
+	covered,
+	crossPackageSpecifiers,
+	DEP_GROUPS,
+	EXACT,
+	field,
+	list,
+	PACKAGES,
+	ROOT,
+	RUNNABLES,
+	readManifest,
+} from "./helpers/p1-contract-small.ts";
 
 test.describe("@api", () => {
 	for (const pkg of PACKAGES) {
-		const manifest = readManifest(pkg);
-		const dir = join(ROOT, "packages", pkg);
-		const depGroups = ["dependencies", "devDependencies", "peerDependencies"];
-
 		test(`${pkg}: manifest parses with name, module type, exact engines pin`, () => {
+			const manifest = readManifest(pkg);
 			expect(manifest.name).toBe(`@klh/${pkg}`);
 			expect(manifest.type).toBe("module");
-			expect((manifest.engines as Record<string, string>).bun).toMatch(EXACT);
+			expect(field(manifest, "engines").bun).toMatch(EXACT);
 		});
 
 		test(`${pkg}: every dependency pin is exact MAJOR.MINOR.PATCH`, () => {
-			for (const group of depGroups)
-				for (const [name, spec] of Object.entries<string>(
-					(manifest[group] ?? {}) as Record<string, string>,
-				))
-					expect(spec, `${group}/${name}`).toMatch(EXACT);
+			const manifest = readManifest(pkg);
+			for (const group of DEP_GROUPS)
+				for (const entry of Object.entries(field(manifest, group)))
+					expect(entry[1], `${group}/${entry[0]}`).toMatch(EXACT);
 		});
 
 		test(`${pkg}: exports map explicit; every target resolves on disk`, () => {
-			const exportsMap = manifest.exports as Record<string, string>;
+			const dir = join(ROOT, "packages", pkg);
+			const exportsMap = field(readManifest(pkg), "exports");
 			expect(Object.keys(exportsMap).length).toBeGreaterThan(0);
-			for (const [key, target] of Object.entries(exportsMap)) {
-				expect(key.startsWith("./"), key).toBe(true);
+			for (const entry of Object.entries(exportsMap)) {
+				expect(entry[0].startsWith("./"), entry[0]).toBe(true);
 				// wildcard targets resolve via their directory prefix: ./src/* -> src/
-				const probe = target.endsWith("/*") ? target.slice(0, -2) : target;
-				expect(existsSync(join(dir, probe)), `${key} -> ${target}`).toBe(true);
+				const probe = entry[1].endsWith("/*") ? entry[1].slice(0, -2) : entry[1];
+				expect(existsSync(join(dir, probe)), `${entry[0]} -> ${entry[1]}`).toBe(
+					true,
+				);
 			}
 		});
 
 		test(`${pkg}: exports cover every name-based cross-package import (API preserved)`, () => {
-			const patterns = Object.keys(manifest.exports as Record<string, string>);
+			const patterns = Object.keys(field(readManifest(pkg), "exports"));
 			for (const sub of crossPackageSpecifiers(pkg)) {
 				// the scan must see blam's real consumers or it proves nothing
 				if (pkg === "blam")
@@ -99,7 +69,8 @@ test.describe("@api", () => {
 		});
 
 		test(`${pkg}: files allowlist ships the runtime tree, never tests`, () => {
-			const files = manifest.files as string[];
+			const dir = join(ROOT, "packages", pkg);
+			const files = list(readManifest(pkg), "files");
 			expect(files.length).toBeGreaterThan(0);
 			for (const entry of files) {
 				if (entry.startsWith("!")) continue;
@@ -119,15 +90,9 @@ test.describe("@api", () => {
 		});
 
 		test(`${pkg}: bin map entries exist and are executable faces`, () => {
-			const bin = (manifest.bin ?? {}) as Record<string, string>;
-			const runnables: Record<string, string[]> = {
-				kernel: [],
-				"local-llm": ["lane-load-bench"],
-				local: ["klh-local", "dashboard"],
-				speedy: ["install-fleet", "quiet-output"],
-				blam: ["blam-label"],
-			};
-			expect(Object.keys(bin).sort()).toEqual(runnables[pkg].sort());
+			const dir = join(ROOT, "packages", pkg);
+			const bin = field(readManifest(pkg), "bin");
+			expect(Object.keys(bin).sort()).toEqual(RUNNABLES[pkg].sort());
 			for (const target of Object.values(bin)) {
 				const path = join(dir, target);
 				expect(existsSync(path), target).toBe(true);
@@ -143,24 +108,20 @@ test.describe("@api", () => {
 
 	test("blam: @klh sibling pins agree with the workspace versions", () => {
 		const blam = readManifest("blam");
-		const devDeps = blam.devDependencies as Record<string, string>;
-		for (const sibling of ["belt", "buckle", "suspenders"]) {
-			expect(devDeps[`@klh/${sibling}`]).toBe(
-				(readManifest(sibling).version as string) ?? "",
-			);
-		}
+		const devDeps = field(blam, "devDependencies");
+		for (const sibling of ["belt", "buckle", "suspenders"])
+			expect(devDeps[`@klh/${sibling}`]).toBe(readManifest(sibling).version);
 		// and the exact-pin law holds for the suspenders -> blam direction too
-		const suspenders = readManifest("suspenders");
-		expect(
-			(suspenders.dependencies as Record<string, string>)["@klh/blam"],
-		).toBe(blam.version);
+		expect(field(readManifest("suspenders"), "dependencies")["@klh/blam"]).toBe(
+			blam.version,
+		);
 	});
 
 	test("speedy: dead yaml dependency is gone (W1253 law: JSON only)", () => {
 		const speedy = readManifest("speedy");
 		const deps = {
-			...(speedy.dependencies as Record<string, string>),
-			...(speedy.devDependencies as Record<string, string>),
+			...field(speedy, "dependencies"),
+			...field(speedy, "devDependencies"),
 		};
 		expect(deps.yaml).toBeUndefined();
 		expect(deps["shell-quote"]).toBe("1.12.0");
