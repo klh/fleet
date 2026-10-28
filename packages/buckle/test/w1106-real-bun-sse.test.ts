@@ -296,23 +296,31 @@ async function startChainBuckle(mockUrl: string): Promise<{
 	dir: string;
 }> {
 	const dir = mkdtempSync(join(tmpdir(), "w1106-chain-"));
+	// W1253 Amendment A: fleet config is JSON — JSON.parse is the one parser
 	await Bun.write(
-		join(dir, "upstreams.yaml"),
-		`groups:\n  claude-sonnet-5:\n    - url: ${mockUrl}\n      dialect: anthropic\n`,
+		join(dir, "upstreams.json"),
+		JSON.stringify({
+			groups: {
+				"claude-sonnet-5": [{ url: mockUrl, dialect: "anthropic" }],
+			},
+		}),
 	);
 	await Bun.write(
-		join(dir, "policy.yaml"),
-		"gateway:\n" +
-			"  num_retries: 0\n" +
-			"  request_timeout_s: 120\n" +
-			"  first_byte_budget_s: 400\n" +
-			"  stream_idle_timeout_s: 300\n" +
-			"  stream_total_timeout_s: 400\n",
+		join(dir, "policy.json"),
+		JSON.stringify({
+			gateway: {
+				num_retries: 0,
+				request_timeout_s: 120,
+				first_byte_budget_s: 400,
+				stream_idle_timeout_s: 300,
+				stream_total_timeout_s: 400,
+			},
+		}),
 	);
 	const server = startServer({
 		port: 0,
-		upstreamsPath: join(dir, "upstreams.yaml"),
-		policyPath: join(dir, "policy.yaml"),
+		upstreamsPath: join(dir, "upstreams.json"),
+		policyPath: join(dir, "policy.json"),
 		dbPath: ":memory:",
 		auth: { rootKey: "canary-key" },
 	});

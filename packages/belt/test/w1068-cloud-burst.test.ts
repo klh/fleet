@@ -71,6 +71,7 @@ beforeAll(async () => {
 				...env,
 				BELT_ROUTER_PORT: String(port),
 				BELT_UPSTREAM_BASE: `http://127.0.0.1:${local.port}`,
+				BELT_UPSTREAM_KEY: "bksk_test-scoped-fake", // W1117: router fails closed without one
 				BELT_PORT_CAPS: "8903:1", // the local reason tier stays capped at 1
 				BELT_ESCALATE_URL: `http://127.0.0.1:${gate.port}`,
 				BELT_ESCALATE_KEY: "bksk_test-scoped-key",
@@ -103,6 +104,7 @@ const post = (traceId: string) =>
 		method: "POST",
 		headers: {
 			"content-type": "application/json",
+			"x-api-key": "bksk_test-scoped-fake", // W1117 ingress credential
 			traceparent: `00-${traceId}-aaaaaaaaaaaaaaaa-01`,
 			"x-klh-request-id": `w1068-${traceId.slice(0, 8)}`,
 		},

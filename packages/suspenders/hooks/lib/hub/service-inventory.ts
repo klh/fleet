@@ -6,7 +6,7 @@ export { probePathFor } from "./inventory-probe.ts";
 
 const candidates = [
 	process.env.BELT_REGISTRY ?? "",
-	new URL("../../../../../belt/bin/registry.ts", import.meta.url).pathname,
+	new URL("../../../../belt/bin/registry.ts", import.meta.url).pathname,
 	`${process.env.HOME}/.claude/local-llm/registry.ts`,
 ];
 const path = candidates.find((p) => existsSync(p));

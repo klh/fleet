@@ -241,10 +241,10 @@ describe("fleet-loop flush mode (W641)", () => {
 	});
 
 	// W1124.36 gate ordering: a conflicted merge preview makes reviewContext's
-	// merge-tree throw, so the branch defers at the review gate BEFORE the
-	// ladder — never merged, never struck, no decision requested. The real
-	// ladder-fail strike path is covered by the exit-7 test below.
-	test("conflicted verified branch: review-deferred before the ladder — never merged", async () => {
+	// merge-tree throw BEFORE the ladder — never merged. W2179: that throw IS
+	// a conflict with main, so it strikes (rebase item queued) instead of
+	// deferring forever (the 153-branch dead end of 2026-10-27).
+	test("conflicted verified branch: struck before the ladder (W2179) — never merged", async () => {
 		const repo = await base();
 		const item = mint(repo);
 		const head = await laneBranch(repo, item);
@@ -259,17 +259,17 @@ describe("fleet-loop flush mode (W641)", () => {
 		const r = flush(repo);
 		expect(r.code).toBe(0);
 		expect(log(repo)).toContain(
-			`MERGE-DEFER suspenders/${item} — review required:`,
+			`FAIL suspenders/${item} — isolated ladder rejected, shared checkout preserved, branch left for inspection: conflicts with main`,
 		);
-		// hands-off: branch + main preserved, no strike, no decision requested
+		// branch + main preserved; one strike banked, the rejection surfaced
 		expect(branchGone(repo, item)).toBe(false);
 		expect(
 			g(repo, ["rev-list", "--count", "main"]).stdout.toString().trim(),
 		).toBe(mainCount);
-		expect(existsSync(join(repo, ".fleet", "merge-fails.json"))).toBe(false);
-		expect(events(repo, "NEED_DECISION")).toBe(0);
+		expect(existsSync(join(repo, ".fleet", "merge-fails.json"))).toBe(true);
+		expect(events(repo, "NEED_DECISION")).toBe(1);
 		expect(log(repo)).toContain(
-			`FLUSH merged=0 integrated=0 deferred=1 failed=0`,
+			`FLUSH merged=0 integrated=0 deferred=0 failed=1`,
 		);
 		rmSync(repo, { recursive: true, force: true });
 	});

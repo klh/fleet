@@ -289,12 +289,16 @@ describe("W1129 mirror events — timing replay survives the mirror read", () =>
 			ev(3, now, "work.claimed", "W10", "lane-b"),
 			ev(4, now, "consult", "W10"),
 		]);
-		const r = run(REPO2, HOME_FRESH, "report");
+		// W1131: off-tty the report picks the md medium — pin the plain table
+		// for the replayed timing cells; CONSULT rides the json contract only
+		const r = run(REPO2, HOME_FRESH, "report", "--format", "plain");
 		expect(r.code).toBe(0);
 		expect(r.err).toContain("serving from .workgraph.jsonl mirror");
 		expect(r.out).toContain("W9");
 		expect(r.out).toContain("W10");
 		expect(r.out).toContain("59m"); // replayed agent wall — real timing, not a dash
-		expect(r.out).toContain("Y"); // CONSULT replays from the mirror
+		const j = run(REPO2, HOME_FRESH, "report", "--format", "json");
+		expect(j.code).toBe(0);
+		expect(j.out).toMatch(/"consult":\s*true/); // W10's consult replays from the mirror
 	});
 });

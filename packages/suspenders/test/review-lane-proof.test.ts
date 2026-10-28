@@ -556,7 +556,7 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 		expect(h).toContain("reasoning_len=0");
 	});
 
-	test("W1302.6: served wire model of another class downgrades PASS to FAIL", async () => {
+	test("W1302.6/W1760: served wire model of another class grades PASS down to ERROR", async () => {
 		// O3/W1278.1 replay: requested glm-5.3-flash, served chatgpt/gpt-6-sol
 		const { id, fact } = await runCase(
 			{
@@ -574,10 +574,10 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 						},
 					],
 				}),
-			0,
+			2, // W1760: an untrusted verdict is ERROR (exit 2), never a FAIL round
 			"glm-5.3-flash",
 		);
-		expect(fact.verdict).toBe("FAIL");
+		expect(fact.verdict).toBe("ERROR");
 		expect(fact.wire_match).toBe("mismatch");
 		expect(String(fact.headline)).toContain("wire-model mismatch");
 		const db = new Database(DB_PATH, { readonly: true });
@@ -590,7 +590,7 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 		).payload;
 		db.close();
 		const receipt = JSON.parse(JSON.parse(payload).receipt as string);
-		expect(receipt.verdict).toBe("FAIL");
+		expect(receipt.verdict).toBe("ERROR");
 		expect(receipt.requested_model).toBe("glm-5.3-flash");
 		expect(receipt.wire_model).toBe("chatgpt/gpt-6-sol");
 	});

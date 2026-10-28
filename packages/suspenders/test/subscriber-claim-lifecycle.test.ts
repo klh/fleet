@@ -66,7 +66,7 @@ async function exerciseSubscriberLifecycle(mode: "claim" | "watcher") {
 	const subscriber = async (action: string) =>
 		call([
 			"-e",
-			`const m=await import(${JSON.stringify(join(f.hooks, "lib/subscribe-attach.ts"))}); console.log(m.${action}(${JSON.stringify(f.sid)}));`,
+			`const m=await import(${JSON.stringify(join(f.hooks, "lib/lanes/subscribe-attach.ts"))}); console.log(m.${action}(${JSON.stringify(f.sid)}));`,
 		]);
 	try {
 		for (let i = 0; i < 50; i++) {
@@ -224,7 +224,7 @@ async function exerciseSubscriberLifecycle(mode: "claim" | "watcher") {
 		await reader;
 		const dead = await call([
 			"-e",
-			`const {openStore}=await import(${JSON.stringify(join(f.hooks, "lib/govdb/govdb-store.ts"))}); const {reapIfIdle}=await import(${JSON.stringify(join(f.hooks, "lib/subscribe-attach.ts"))});const db=openStore();db.query("UPDATE sessions SET state='CLOSED' WHERE sid=?").run(${JSON.stringify(f.sid)});db.query("UPDATE work_items SET state='READY',owner_sid=NULL WHERE id=?").run(${JSON.stringify(f.id)});console.log(reapIfIdle(db,${JSON.stringify(f.sid)}));`,
+			`const {openStore}=await import(${JSON.stringify(join(f.hooks, "lib/govdb/govdb-store.ts"))}); const {reapIfIdle}=await import(${JSON.stringify(join(f.hooks, "lib/lanes/subscribe-attach.ts"))});const db=openStore();db.query("UPDATE sessions SET state='CLOSED' WHERE sid=?").run(${JSON.stringify(f.sid)});db.query("UPDATE work_items SET state='READY',owner_sid=NULL WHERE id=?").run(${JSON.stringify(f.id)});console.log(reapIfIdle(db,${JSON.stringify(f.sid)}));`,
 		]);
 		expect(dead).toBe("true\n");
 		expect(await subscriber("subscribeLive")).toBe("false\n");

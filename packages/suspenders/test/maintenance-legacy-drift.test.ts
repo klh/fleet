@@ -36,6 +36,10 @@ const HEARTBEAT_BORN: Record<string, string> = {
 	"launch-janitor": "W1247",
 	"decant-daily": "W1212",
 	"review-rescore": "W1476",
+	"cred-gap-scan": "W1211",
+	"knowledge-consolidate": "W1227",
+	"zai-catalog-refresh": "W1029.1",
+	"cost-alert": "W1132",
 };
 
 // Retired com.suspenders.* labels that were never maintenance tasks —

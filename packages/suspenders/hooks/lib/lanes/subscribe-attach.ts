@@ -32,7 +32,7 @@ export type {
 // location for old installs.
 export const coordCliPath = (): string => {
 	for (const p of [
-		join(import.meta.dir, "..", "bin", "coord.ts"),
+		join(import.meta.dir, "..", "..", "bin", "coord.ts"),
 		`${process.env.HOME}/.claude/bin/coord.ts`,
 	])
 		if (existsSync(p)) return p;

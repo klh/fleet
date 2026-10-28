@@ -78,7 +78,10 @@ function fixture({ alive, host }: { alive: boolean; host: string }): {
 				worktree: wt,
 				branch: "test-none",
 				host,
-				launchedAt: Date.now() - 3_600_000,
+				// W2180: a live pid born after the launch stamp (beyond the 2s
+				// same-process tolerance) reads recycled — stamp the live lane at
+				// its process birth; the frozen artifact mtimes carry the stall
+				launchedAt: alive ? Date.now() : Date.now() - 3_600_000,
 			},
 		]),
 	);

@@ -84,7 +84,7 @@ const frontUp = await fetch(`${FRONT}/status`, {
 	.catch(() => false);
 if (!frontUp) die(3, `buckle front ${FRONT} did not answer /status`);
 
-const laneWrap = join(import.meta.dir, "../../../../buckle/bin/lane-wrap.ts");
+const laneWrap = join(import.meta.dir, "../../../buckle/bin/lane-wrap.ts");
 const wrapPlan = Bun.spawnSync(
 	[
 		process.execPath,

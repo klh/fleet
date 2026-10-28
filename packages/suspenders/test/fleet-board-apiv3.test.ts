@@ -96,6 +96,7 @@ describe("board api v3 (docs/board-api.md)", () => {
 				"owner_sid",
 				"parent_id",
 				"project",
+				"report", // W1199: work.report artifact record (null when none)
 				"requires",
 				"scope",
 				"signal",

@@ -237,8 +237,8 @@ function spendStripInner(sp){
 function spendStripHtml(t, cls){
   var sp = t && t.spend ? t.spend : null;
   var key = esc(String(t.project || '')) + '|' + esc(String(t.id));
-  var inner = spendStripInner(sp);
-  var spendPart = '<div class="kspend' + (cls ? ' ' + cls : '') + ' dim"><div class="ksparkplot"><span class="kspark" data-spark="' + key + '"></span><div class="ksparkaxis"><span>first request</span><span>latest</span></div></div><span class="kspendtxt" title="Attributed totals for this work item">' + esc(inner) + '</span></div>';
+  // no attributed spend = no spend strip (the pre-W970 guard, lost in the port)
+  var spendPart = sp ? '<div class="kspend' + (cls ? ' ' + cls : '') + ' dim"><div class="ksparkplot"><span class="kspark" data-spark="' + key + '"></span><div class="ksparkaxis"><span>first request</span><span>latest</span></div></div><span class="kspendtxt" title="Attributed totals for this work item">' + esc(spendStripInner(sp)) + '</span></div>' : '';
   var attemptPart = '';
   if (attemptView) attemptPart = '<div class="kattemptwrap dim"><span class="kattemptlabel">current attempt · fixed 90 min · 3 min/bin</span><span class="kattempt" data-attempt="' + key + '"></span></div>';
   return spendPart + attemptPart;
