@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "../src/server.ts";
-import { DEFAULT_THROUGHPUT_POLICY } from "../../telemetry/src/throughput.ts";
+import { DEFAULT_THROUGHPUT_POLICY } from "@klh/telemetry/src/throughput.ts";
 
 test("actual fallback HTTP settles truthful served identity and exposes it through the existing admin connector", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "throughput-http-"));

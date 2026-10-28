@@ -16,7 +16,7 @@ import {
 import {
 	encodeHopContract,
 	rungIdOf,
-} from "../../telemetry/src/hop-contract.ts";
+} from "@klh/telemetry/src/hop-contract.ts";
 import { createApp, type AppDeps } from "../src/handlers.ts";
 import type { Ledger } from "../src/ledger.ts";
 import { testDeps } from "./deps.ts";

@@ -14,7 +14,7 @@ import {
 	encodeHopContract,
 	HOP_CONTRACT_HEADER,
 	rungIdOf,
-} from "../../telemetry/src/hop-contract.ts";
+} from "@klh/telemetry/src/hop-contract.ts";
 
 export const SERVER_INFO = { name: "belt-mcp", version: "0.1.0" } as const;
 

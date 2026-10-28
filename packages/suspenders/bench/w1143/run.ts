@@ -17,10 +17,10 @@ import {
 	sha,
 	stripThink,
 	TASK_DIR,
-} from "../../../belt/bench/arena/core.ts";
-import { load1 } from "../../../belt/bench/arena/legs.ts";
-import { loadTasks, verifyManifest } from "../../../belt/bench/arena/seal.ts";
-import { scoreText, type Score } from "../../../belt/bench/arena/scoring.ts";
+} from "@klh/belt/bench/arena/core.ts";
+import { load1 } from "@klh/belt/bench/arena/legs.ts";
+import { loadTasks, verifyManifest } from "@klh/belt/bench/arena/seal.ts";
+import { scoreText, type Score } from "@klh/belt/bench/arena/scoring.ts";
 import {
 	runTournament,
 	type Attempt,

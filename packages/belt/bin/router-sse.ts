@@ -7,8 +7,8 @@ import type { RequestTimings } from "./router-core.ts";
 import {
 	emptyStreamError,
 	StreamSemantics,
-} from "../../buckle/src/stream-semantics.ts";
-import { upstreamErrorDetail } from "../../buckle/src/error-detail.ts";
+} from "@klh/buckle/src/stream-semantics.ts";
+import { upstreamErrorDetail } from "@klh/buckle/src/error-detail.ts";
 /** Drops <think>…</think> spans across chunk boundaries. */
 export function thinkFilter(): (chunk: string) => string {
 	let inThink = false;

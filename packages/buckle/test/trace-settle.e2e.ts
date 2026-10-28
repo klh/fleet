@@ -3,7 +3,7 @@
 // traceRead() joins requests + attempts + settle by trace id — the LiteLLM
 // call id read never probes, it rides route_attempt.call_id.
 import { expect, test } from "@playwright/test";
-import { buildSettleFact } from "../../telemetry/src/http-trace.ts";
+import { buildSettleFact } from "@klh/telemetry/src/http-trace.ts";
 import { Ledger } from "../src/ledger.ts";
 
 test.describe({ tag: "@unit" }, () => {

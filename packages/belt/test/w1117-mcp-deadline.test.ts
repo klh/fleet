@@ -9,7 +9,7 @@ import {
 	encodeHopContract,
 	parseHopContract,
 	rungIdOf,
-} from "../../telemetry/src/hop-contract.ts";
+} from "@klh/telemetry/src/hop-contract.ts";
 
 setDefaultTimeout(30_000);
 

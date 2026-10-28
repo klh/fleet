@@ -5,8 +5,8 @@
 // pass on the judge tier; self-preferential bias guarded by blind slots
 // (the judge never sees attempt ids, arms or temperature) and randomized
 // presentation order per comparison.
-import { type R, rng, sha } from "../../../belt/bench/arena/core.ts";
-import { capMiddle } from "../../../belt/bench/arena/judge.ts";
+import { type R, rng, sha } from "@klh/belt/bench/arena/core.ts";
+import { capMiddle } from "@klh/belt/bench/arena/judge.ts";
 
 export interface Attempt {
 	id: string;

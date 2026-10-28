@@ -12,7 +12,7 @@ import {
 	type ResolvedProvider,
 	loadProviderConfig,
 	resolveProvider,
-} from "../../../speedy/src/provider-config.ts";
+} from "@klh/speedy/src/provider-config.ts";
 import type { HubProfile } from "./stack-config.ts";
 
 /** The hub-side env file hubctl push materializes (compose env_file). */

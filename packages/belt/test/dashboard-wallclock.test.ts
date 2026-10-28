@@ -6,7 +6,7 @@ import { dualShort, dualStamp } from "../bin/dashboard-wallclock.js";
 import {
 	dualShort as libShort,
 	dualStamp as libStamp,
-} from "../../suspenders/hooks/lib/wallclock.ts";
+} from "@klh/suspenders/hooks/lib/wallclock.ts";
 
 // 2026-10-19T15:44:54Z — the W902 mint instant (local twin depends on the
 // machine's offset, so only the UTC half is asserted verbatim)

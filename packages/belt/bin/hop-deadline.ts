@@ -8,7 +8,7 @@ import {
 	HOP_CONTRACT_HEADER,
 	parseHopContract,
 	type HopContractParse,
-} from "../../telemetry/src/hop-contract.ts";
+} from "@klh/telemetry/src/hop-contract.ts";
 
 /** Local budgets (Buckle-parity): whole-exchange cap for non-stream
  *  exchanges, stream-total for SSE bodies. */

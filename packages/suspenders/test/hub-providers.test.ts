@@ -22,7 +22,7 @@ import {
 	requiredProviders,
 	tryLoadProviderConfig,
 } from "../hooks/lib/hub-providers.ts";
-import { resolveProvider } from "../../speedy/src/provider-config.ts";
+import { resolveProvider } from "@klh/speedy/src/provider-config.ts";
 
 const PROVIDERS = {
 	"zai-coding": {

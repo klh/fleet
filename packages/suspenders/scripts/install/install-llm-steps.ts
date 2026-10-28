@@ -27,12 +27,12 @@ import {
 	litellmToolInstallArgs,
 	prismaPreflight,
 	prometheusPreflight,
-} from "../../../belt/bin/litellm-target.ts";
+} from "@klh/belt/bin/litellm-target.ts";
 import {
 	type auditLiteLlmEnv,
 	integrityEvidence,
 	writeReceipt,
-} from "../../../belt/bin/litellm-integrity.ts";
+} from "@klh/belt/bin/litellm-integrity.ts";
 import {
 	refreshStaleZaiSnapshot,
 	type ZaiStaleResult,

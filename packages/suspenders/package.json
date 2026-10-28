@@ -19,6 +19,7 @@
 		"@klh/blam": "2.0.0",
 		"@klh/buckle": "2.0.0",
 		"@klh/kernel": "2.0.0",
+		"@klh/speedy": "2.0.0",
 		"@klh/telemetry": "2.0.0",
 		"@vercel/detect-agent": "1.2.7",
 		"cli-table3": "0.6.5",
