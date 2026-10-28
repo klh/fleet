@@ -305,9 +305,11 @@ export const CONNECT_ENV_USER = "buckle";
 
 /** Probe the CONNECT face over the real wire before any proxy env is set:
  *  ride Bun fetch's proxy support through the face to an allowed AI
- *  destination. A completed exchange (any HTTP status) proves the face
- *  relayed the CONNECT; connection failure = no face. Callers never emit
- *  proxy env from a dead probe. */
+ *  destination. A completed exchange proves the face relayed the CONNECT
+ *  (the destination's HTTP status is the DESTINATION's answer, not the
+ *  face's — the face's own verdict is implicit in the exchange completing);
+ *  connection failure = no face. Callers never emit proxy env from a dead
+ *  probe. */
 export async function probeConnectFace(
 	face: ConnectFace,
 	destination = "https://api.anthropic.com/",
@@ -320,7 +322,10 @@ export async function probeConnectFace(
 			signal: AbortSignal.timeout(timeoutMs),
 			redirect: "manual",
 		});
-		return { ok: true, why: `face answered ${r.status} over CONNECT` };
+		return {
+			ok: true,
+			why: `CONNECT relayed (destination answered ${r.status})`,
+		};
 	} catch (e) {
 		return { ok: false, why: `no CONNECT face: ${String(e).slice(0, 120)}` };
 	}
@@ -654,6 +659,12 @@ async function dispatch(name: string, parsed: Parsed): Promise<number> {
 			connectLive = connect;
 			console.error(`connections: ${probe.why}`);
 		}
+	} else if (face !== "singbox") {
+		// W2198 review N2: unconfigured must be LOUD too — the install path
+		// says why; the verb path owed the same reason on stderr.
+		console.error(
+			"connections: BUCKLE_CONNECT_TOKEN unset — proxy pairs render as UNSET rows (enable gateway.connect on the spoke)",
+		);
 	}
 	const text = renderFace(face, apps, ep.url, connectLive);
 	assertNoSecrets(text);
