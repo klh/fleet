@@ -252,6 +252,80 @@ export const proxyBaseOf = (url: string): string => {
 
 export const NO_PROXY_DEFAULT = "127.0.0.1,::1,localhost,*.local,.local,*.lan";
 
+// ─── the authenticated CONNECT face (W2198) ──────────────────────────────────
+
+/** The live authenticated CONNECT egress (connect-egress.ts) the proxy env
+ *  pairs MUST point at — never a buckle serve port (4101/4111 serve the API
+ *  gate, not CONNECT; pointing proxy env there poisons every inheriting GUI
+ *  app — the 2026-10-28 outage this fix closes). */
+export interface ConnectFace {
+	host: string;
+	port: number;
+	token: string;
+}
+
+/** Resolve the CONNECT face for a hub URL: host from the hub, port/token
+ *  from machine config (BUCKLE_CONNECT_PORT default 4103; the token rides
+ *  env BUCKLE_CONNECT_TOKEN, or BUCKLE_CONNECT_TOKEN_FILE, or the default
+ *  0600 mint file — machine-minted on the gateway host, never committed).
+ *  null = not configured — every proxy-env emission MUST skip loudly, never
+ *  fall back to a serve port. */
+export const CONNECT_TOKEN_FILE_DEFAULT = (): string =>
+	join(process.env.HOME ?? "", ".claude", "local-llm", "buckle-connect.key");
+
+export function connectFaceOf(
+	hubUrl: string,
+	env: Record<string, string | undefined> = process.env,
+): ConnectFace | null {
+	let token = (env.BUCKLE_CONNECT_TOKEN ?? "").trim();
+	if (token === "" && env.BUCKLE_CONNECT_TOKEN_FILE) {
+		try {
+			token = readFileSync(env.BUCKLE_CONNECT_TOKEN_FILE, "utf8").trim();
+		} catch {
+			token = "";
+		}
+	}
+	if (token === "") {
+		try {
+			token = readFileSync(CONNECT_TOKEN_FILE_DEFAULT(), "utf8").trim();
+		} catch {
+			token = "";
+		}
+	}
+	if (token === "") return null;
+	const port = Number(env.BUCKLE_CONNECT_PORT ?? "") || CONNECT_PORT_DEFAULT;
+	return { host: new URL(hubUrl).hostname, port, token };
+}
+
+/** The CONNECT identity env-honoring clients ride. The shared env face is
+ *  process-anonymous by construction — `buckle` is the generic bucket
+ *  (connect-egress.ts maps it to app "unknown"); per-app identities exist
+ *  only in the singbox face's per-process rules. */
+export const CONNECT_ENV_USER = "buckle";
+
+/** Probe the CONNECT face over the real wire before any proxy env is set:
+ *  ride Bun fetch's proxy support through the face to an allowed AI
+ *  destination. A completed exchange (any HTTP status) proves the face
+ *  relayed the CONNECT; connection failure = no face. Callers never emit
+ *  proxy env from a dead probe. */
+export async function probeConnectFace(
+	face: ConnectFace,
+	destination = "https://api.anthropic.com/",
+	timeoutMs = 2500,
+): Promise<{ ok: boolean; why: string }> {
+	const proxy = `http://${CONNECT_ENV_USER}:${face.token}@${face.host}:${face.port}`;
+	try {
+		const r = await fetch(destination, {
+			proxy,
+			signal: AbortSignal.timeout(timeoutMs),
+			redirect: "manual",
+		});
+		return { ok: true, why: `face answered ${r.status} over CONNECT` };
+	} catch (e) {
+		return { ok: false, why: `no CONNECT face: ${String(e).slice(0, 120)}` };
+	}
+}
+
 export interface EnvPair {
 	key: string;
 	value: string;
@@ -259,16 +333,36 @@ export interface EnvPair {
 	app?: AppName;
 }
 
-/** env face + launchctl face share the pair vocabulary: the hub relay for
- *  proxied traffic, the hub's buckle gateway face for Anthropic-wire clients
- *  (claude only — W1230 pattern). Token values never ride these pairs. */
-export function facePairs(enabled: AppName[], url: string): EnvPair[] {
-	const proxy = proxyBaseOf(url);
-	const pairs: EnvPair[] = [
-		{ key: "HTTPS_PROXY", value: proxy },
-		{ key: "HTTP_PROXY", value: proxy },
-		{ key: "NO_PROXY", value: NO_PROXY_DEFAULT },
-	];
+/** env face + launchctl face share the pair vocabulary: the authenticated
+ *  CONNECT relay (creds embedded — the ONLY channel an env-honoring client
+ *  can authenticate through; Proxy-Authorization cannot be pre-set via env)
+ *  for proxied traffic, the hub's buckle gateway face for Anthropic-wire
+ *  clients (claude only — W1230 pattern). W2198: the proxy pairs REQUIRE a
+ *  probed-live ConnectFace — a serve port never rides proxy env. The relay
+ *  token is machine-minted, CONNECT-scoped and loopback-bound — provider
+ *  keys still never ride these pairs (assertNoSecrets law unchanged). */
+export function facePairs(
+	enabled: AppName[],
+	url: string,
+	connect?: ConnectFace | null,
+): EnvPair[] {
+	const pairs: EnvPair[] = [];
+	if (connect) {
+		const proxy = `http://${CONNECT_ENV_USER}:${connect.token}@${connect.host}:${connect.port}`;
+		pairs.push(
+			{ key: "HTTPS_PROXY", value: proxy },
+			{ key: "HTTP_PROXY", value: proxy },
+		);
+	} else {
+		// W2198: an absent face emits ACTIVE UNSET rows (empty value — the
+		// launchctl runner maps them to unsetenv) so a reinstall clears any
+		// previous install's dead serve-port proxy instead of leaving it.
+		pairs.push(
+			{ key: "HTTPS_PROXY", value: "" },
+			{ key: "HTTP_PROXY", value: "" },
+		);
+	}
+	pairs.push({ key: "NO_PROXY", value: NO_PROXY_DEFAULT });
 	if (enabled.includes("claude"))
 		pairs.push({ key: "ANTHROPIC_BASE_URL", value: url, app: "claude" });
 	return pairs;
@@ -451,14 +545,21 @@ const emitUndo = (pairs: EnvPair[], face: "env" | "launchctl"): string[] =>
 		? pairs.map((p) => `# undo: unset ${p.key}`)
 		: pairs.map((p) => `# undo: launchctl unsetenv ${p.key}`);
 
-const renderFace = (face: string, apps: AppName[], url: string): string => {
+const renderFace = (
+	face: string,
+	apps: AppName[],
+	url: string,
+	connect?: ConnectFace | null,
+): string => {
 	if (face === "singbox")
 		return `${JSON.stringify(singboxConfig(apps, url), null, "\t")}\n`;
-	const pairs = facePairs(apps, url);
+	const pairs = facePairs(apps, url, connect);
 	const lines = pairs.map((p) =>
 		face === "env"
 			? `export ${p.key}=${p.value}`
-			: `launchctl setenv ${p.key} ${p.value}`,
+			: p.value === ""
+				? `launchctl unsetenv ${p.key}`
+				: `launchctl setenv ${p.key} ${p.value}`,
 	);
 	return `${[...lines, ...emitUndo(pairs, face as "env" | "launchctl")].join("\n")}\n`;
 };
@@ -536,7 +637,25 @@ async function dispatch(name: string, parsed: Parsed): Promise<number> {
 		);
 		return 1;
 	}
-	const text = renderFace(face, apps, ep.url);
+	// W2198: the env/launchctl faces ride the authenticated CONNECT face —
+	// resolved from machine env, probed live BEFORE any emission. Not
+	// configured or not answering = the face renders proxy-free (NO_PROXY +
+	// the claude serve base URL only) with the reason on stderr — never a
+	// serve port in proxy env.
+	const connect = connectFaceOf(ep.url);
+	let connectLive: ConnectFace | null = null;
+	if (face !== "singbox" && connect) {
+		const probe = await probeConnectFace(connect);
+		if (!probe.ok) {
+			console.error(
+				`connections: ${probe.why} — proxy pairs render as UNSET rows`,
+			);
+		} else {
+			connectLive = connect;
+			console.error(`connections: ${probe.why}`);
+		}
+	}
+	const text = renderFace(face, apps, ep.url, connectLive);
 	assertNoSecrets(text);
 	const out = parsed.flag("--out");
 	if (out && face === "singbox") {

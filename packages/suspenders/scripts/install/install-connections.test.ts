@@ -1,6 +1,8 @@
 // W1234 — wireConnections step tests: the ask pauses without --yes, --yes
 // writes once at mode 600, the existing file is NEVER overwritten, the
-// launchctl face is injectable (tests never touch the host).
+// launchctl face + CONNECT probe are injectable (tests never touch the host).
+// W2198: proxy pairs ride the probed-live authenticated CONNECT face — a
+// dead/absent face actively UNSETS the proxy vars, never a serve port.
 import {
 	existsSync,
 	mkdtempSync,
@@ -15,6 +17,7 @@ import {
 	defaultTemplate,
 	GUI_PROXY_ASK,
 	wireConnections,
+	type ConnectProbe,
 	type LaunchctlRun,
 } from "./install-connections.ts";
 
@@ -22,11 +25,20 @@ const SETENV: string[][] = [];
 const recorder: LaunchctlRun = async (pairs) => {
 	for (const p of pairs) SETENV.push([p.key, p.value]);
 };
+const okProbe: ConnectProbe = async () => ({
+	ok: true,
+	why: "face answered 200 over CONNECT",
+});
+const deadProbe: ConnectProbe = async () => ({
+	ok: false,
+	why: "no CONNECT face: connection refused",
+});
 
 afterAll(() => {
 	delete process.env.SUSPENDERS_CONNECTIONS_FILE;
 	delete process.env.SUSPENDERS_DEFAULT_HUB;
 	delete process.env.SUSPENDERS_HUB_TESTHUB_URL;
+	delete process.env.BUCKLE_CONNECT_TOKEN;
 });
 
 const tmpFile = (): string => {
@@ -34,13 +46,19 @@ const tmpFile = (): string => {
 	return join(root, "connections.json");
 };
 
-test("absent + --yes: writes mode 600, applies the launchctl face, prints undo", async () => {
+test("absent + --yes + live face: writes mode 600, authenticated proxy pairs, undo", async () => {
 	const p = tmpFile();
 	process.env.SUSPENDERS_CONNECTIONS_FILE = p;
 	process.env.SUSPENDERS_DEFAULT_HUB = "TESTHUB";
 	process.env.SUSPENDERS_HUB_TESTHUB_URL = "http://hub.test:4101";
+	process.env.BUCKLE_CONNECT_TOKEN = "test-connect-token";
 	SETENV.length = 0;
-	const r = await wireConnections({ yes: true } as never, recorder);
+	const r = await wireConnections(
+		{ yes: true } as never,
+		recorder,
+		undefined,
+		okProbe,
+	);
 	expect(r.status).toBe("ok");
 	expect(statSync(p).mode & 0o777).toBe(0o600);
 	const keys = SETENV.map((s) => s[0]);
@@ -48,10 +66,36 @@ test("absent + --yes: writes mode 600, applies the launchctl face, prints undo",
 	expect(keys).toContain("HTTP_PROXY");
 	expect(keys).toContain("NO_PROXY");
 	expect(keys).toContain("ANTHROPIC_BASE_URL");
+	// W2198: proxy pairs carry the authenticated CONNECT URL (creds ride
+	// the URL — env-honoring clients cannot pre-set Proxy-Authorization),
+	// pointing at the CONNECT port 4103, never the serve port
+	const proxy = SETENV.find((s) => s[0] === "HTTPS_PROXY")?.[1];
+	expect(proxy).toBe("http://buckle:test-connect-token@hub.test:4103");
 	// the buckle gateway face rides ANTHROPIC_BASE_URL, never a token
 	const baseUrl = SETENV.find((s) => s[0] === "ANTHROPIC_BASE_URL")?.[1];
 	expect(baseUrl).toBe("http://hub.test:4101");
 	expect(r.note).toContain("undo");
+});
+
+test("dead face: proxy vars actively UNSET, non-proxy pairs still land", async () => {
+	const p = tmpFile();
+	process.env.SUSPENDERS_CONNECTIONS_FILE = p;
+	process.env.SUSPENDERS_DEFAULT_HUB = "TESTHUB";
+	process.env.SUSPENDERS_HUB_TESTHUB_URL = "http://hub.test:4101";
+	process.env.BUCKLE_CONNECT_TOKEN = "test-connect-token";
+	SETENV.length = 0;
+	const r = await wireConnections(
+		{ yes: true } as never,
+		recorder,
+		undefined,
+		deadProbe,
+	);
+	expect(r.status).toBe("ok");
+	const proxy = SETENV.find((s) => s[0] === "HTTPS_PROXY")?.[1];
+	expect(proxy).toBe("");
+	const baseUrl = SETENV.find((s) => s[0] === "ANTHROPIC_BASE_URL")?.[1];
+	expect(baseUrl).toBe("http://hub.test:4101");
+	expect(r.note).toContain("probe FAILED");
 });
 
 test("idempotent: the second run never overwrites and re-applies the same face", async () => {
@@ -59,11 +103,17 @@ test("idempotent: the second run never overwrites and re-applies the same face",
 	process.env.SUSPENDERS_CONNECTIONS_FILE = p;
 	process.env.SUSPENDERS_DEFAULT_HUB = "TESTHUB";
 	process.env.SUSPENDERS_HUB_TESTHUB_URL = "http://hub.test:4101";
+	process.env.BUCKLE_CONNECT_TOKEN = "test-connect-token";
 	SETENV.length = 0;
-	await wireConnections({ yes: true } as never, recorder);
+	await wireConnections({ yes: true } as never, recorder, undefined, okProbe);
 	const before = readFileSync(p, "utf8");
 	const firstFace = JSON.stringify(SETENV);
-	const second = await wireConnections({ yes: true } as never, recorder);
+	const second = await wireConnections(
+		{ yes: true } as never,
+		recorder,
+		undefined,
+		okProbe,
+	);
 	expect(readFileSync(p, "utf8")).toBe(before);
 	expect(JSON.stringify(SETENV.slice(SETENV.length / 2))).toBe(firstFace);
 	expect(second.note).toContain("never overwritten");
