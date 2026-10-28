@@ -19,3 +19,6 @@ test-results/
 packages/buckle/test/test-results/
 # machine-local agent settings (W2173.6) — never commit
 .claude/
+# research scratch: raw third-party page captures + fetch tooling stay local;
+# the analysis is docs/w1075-conductor-jepsen-applicability.md
+.research-*/
