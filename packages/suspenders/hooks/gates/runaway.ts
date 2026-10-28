@@ -22,6 +22,7 @@ import {
 	scanTail,
 	stableKey,
 	writeUsageState,
+	isClosureCmd,
 } from "../lib/gates/runaway.ts";
 import {
 	resolveTranscriptPath,
@@ -62,8 +63,15 @@ export function runawayGate(hook: HookInput): never {
 	if (cfg.disabled || !sid || !tool) allow();
 	const tp = resolveTranscriptPath(hook);
 	if (!tp) allow(); // resolution miss never flips a verdict (W642)
+	// W2196 closure escape: the recovery verbs are NEVER denied — a latched
+	// lane can always commit, bank a capsule, or close its item
+	if (
+		tool === "Bash" &&
+		isClosureCmd((hook.tool_input as { command?: string })?.command)
+	)
+		allow();
 	const tail = transcriptTail(tp, cfg.tailBytes);
-	const v = scanTail(tail, tool, stableKey(hook.tool_input ?? {}));
+	const v = scanTail(tail, tool, stableKey(hook.tool_input ?? {}), cfg.quietMs);
 	if (v.repeats >= cfg.repeatMax) {
 		const detail = `${tool} identical-args call #${v.repeats + 1} back-to-back (cap ${cfg.repeatMax}) in the recent transcript window`;
 		incident(hook, "repeat", detail);

@@ -23,6 +23,7 @@ export type RunawayConfig = {
 	rates: Rates;
 	tailBytes: number;
 	scanCapBytes: number;
+	quietMs: number;
 };
 
 export type RateRow = {
@@ -54,6 +55,9 @@ export function runawayConfig(
 			65_536,
 			num("SUSPENDERS_RUNAWAY_SCAN_CAP_BYTES", 16_777_216),
 		),
+		// W2196: a latched fail-streak self-clears once the transcript shows
+		// this much quiet (no NEW real failure) after the newest counted one
+		quietMs: Math.max(0, num("SUSPENDERS_RUNAWAY_QUIET_MS", 300_000)),
 	};
 }
 
@@ -94,6 +98,50 @@ function stableStringify(v: unknown): string {
 		.join(",")}}`;
 }
 
+// W2196 closure escape: the documented recovery verbs — git commit, work
+// done, coord capsule set, coord ack — never trip the guard and are never
+// tripped BY it (a latched lane can always close out).
+export function isClosureCmd(command: string | undefined): boolean {
+	if (!command) return false;
+	return /^\s*(git commit\b|work done\b|coord (capsule set|ack)\b|(bun|node)\s+\S*(work|coord)\.ts (done|capsule set|ack)\b)/.test(
+		command,
+	);
+}
+
+// W2196 benign deny classes: hook-gate denials, approval/permission
+// refusals and expected git exits are not real tool failures — they are
+// transparent to the fail-streak (neither counted nor streak-breaking), so
+// a deny storm can never latch the guard.
+export function isBenignDenial(
+	command: string | undefined,
+	text: string,
+): boolean {
+	if (isClosureCmd(command)) return true;
+	// hook gate denials name themselves in the deny message
+	if (
+		/(runaway-guard|mutation-size|claim-location|location-vs-claim|coordinator-edit-gate|read-gate|content gate|write-gate|config gate|ledger gate|anchor)/i.test(
+			text,
+		)
+	)
+		return true;
+	// approval / permission refusals: a policy said no — not a crash
+	if (
+		/(requested by the user|user doesn't want to proceed|permission to use .+ has been denied|requires approval)/i.test(
+			text,
+		)
+	)
+		return true;
+	// expected git exits: merge conflicts and clean-tree refusals
+	if (
+		/^\s*git\b/.test(command ?? "") &&
+		/(CONFLICT|Automatic merge failed|needs merge|unmerged files|no changes added to commit|nothing to commit)/i.test(
+			text,
+		)
+	)
+		return true;
+	return false;
+}
+
 // ---- tail scan: repeats + consecutive failures in the recent window ----
 
 export type TailVerdict = { repeats: number; failStreak: number };
@@ -109,17 +157,25 @@ export function scanTail(
 	text: string,
 	tool: string,
 	inputKey: string,
+	quietMs = 0,
 ): TailVerdict {
 	const key = `${tool}:${inputKey}`;
 	const pending = new Map<string, string>(); // tool_use id → bash command
-	const results: { err: boolean; cmd: string | undefined; text: string }[] = [];
+	const results: {
+		err: boolean;
+		cmd: string | undefined;
+		text: string;
+		ts: number;
+	}[] = [];
 	let repeats = 0; // trailing run of calls identical to the pending one
+	let maxTs = 0; // newest row timestamp seen (quiet-window anchor, W2196)
 	// every line parses on its own: a tail-starting partial line just fails
 	// JSON.parse and is skipped, complete lines always count
 	for (const line of text.split("\n")) {
 		if (!line) continue;
 		let row: {
 			type?: string;
+			timestamp?: string;
 			message?: {
 				content?: {
 					type?: string;
@@ -139,6 +195,8 @@ export function scanTail(
 		}
 		const content = row?.message?.content;
 		if (!Array.isArray(content)) continue;
+		const rowTs = Date.parse(row?.timestamp ?? "") || 0;
+		if (rowTs > maxTs) maxTs = rowTs;
 		if (row?.type === "assistant") {
 			for (const c of content) {
 				if (c?.type !== "tool_use") continue;
@@ -165,17 +223,24 @@ export function scanTail(
 					err: c.is_error === true,
 					cmd: pending.get(c.tool_use_id ?? ""),
 					text: t.slice(0, 300),
+					ts: rowTs,
 				});
 			}
 		}
 	}
 	let streak = 0;
+	// quiet window (W2196): the ts of the newest COUNTED failure in the run
+	let lastErrTs = 0;
 	for (let i = results.length - 1; i >= 0; i--) {
 		const r = results[i];
 		if (!r?.err) break;
-		if (isNoise(r.cmd, r.text)) continue;
+		if (isBenignDenial(r.cmd, r.text) || isNoise(r.cmd, r.text)) continue;
 		streak++;
+		if (lastErrTs === 0) lastErrTs = r.ts;
 	}
+	// W2196: a latched guard self-clears after a quiet window — the newest
+	// counted failure is stale (its tail shows only benign/silent rows since)
+	if (quietMs > 0 && lastErrTs > 0 && maxTs - lastErrTs >= quietMs) streak = 0;
 	return { repeats, failStreak: streak };
 }
 

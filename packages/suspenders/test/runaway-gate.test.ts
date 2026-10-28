@@ -357,6 +357,167 @@ describe("runaway gate: dollar breaker", () => {
 	});
 });
 
+describe("W2196 recovery escapes", () => {
+	// timestamped row builders — live transcripts carry `timestamp`
+	const iso = (offsetMs: number): string =>
+		new Date(Date.now() - offsetMs).toISOString();
+	const jline = (o: unknown): string => [JSON.stringify(o), ""].join("\n");
+	const useTs = (id: string, cmd: string, offMs: number): string =>
+		jline({
+			type: "assistant",
+			timestamp: iso(offMs),
+			message: {
+				content: [
+					{ type: "tool_use", id, name: "Bash", input: { command: cmd } },
+				],
+			},
+		});
+	const n = (p: string, i: number): string => [p, i].join("");
+	const resTs = (
+		tid: string,
+		err: boolean,
+		text: string,
+		offMs: number,
+	): string =>
+		jline({
+			type: "user",
+			timestamp: iso(offMs),
+			message: {
+				content: [
+					{
+						type: "tool_result",
+						tool_use_id: tid,
+						is_error: err,
+						content: text,
+					},
+				],
+			},
+		});
+
+	test("isClosureCmd matches the recovery verbs", async () => {
+		const { isClosureCmd } = await import("../hooks/lib/gates/runaway.ts");
+		expect(isClosureCmd("git commit -m x")).toBe(true);
+		expect(
+			isClosureCmd("bun ~/.claude/hooks/suspenders/bin/work.ts done W1"),
+		).toBe(true);
+		expect(isClosureCmd("coord capsule set --as s")).toBe(true);
+		expect(isClosureCmd("coord ack e1 --as s")).toBe(true);
+		expect(isClosureCmd("git status")).toBe(false);
+		expect(isClosureCmd(undefined)).toBe(false);
+	});
+
+	test("hook-gate deny storm is transparent — no latch", async () => {
+		const { scanTail, stableKey } = await import(
+			"../hooks/lib/gates/runaway.ts"
+		);
+		let t = "";
+		for (let i = 0; i < 8; i++)
+			t +=
+				useTs(n("d", i), n("deny ", i), 60_000) +
+				resTs(
+					n("d", i),
+					true,
+					"runaway-guard: 6 consecutive tool failures",
+					59_000,
+				);
+		const v = scanTail(t, "Bash", stableKey({ command: "next" }), 300_000);
+		expect(v.failStreak).toBe(0);
+	});
+
+	test("real failures older than the quiet window self-clear", async () => {
+		const { scanTail, stableKey } = await import(
+			"../hooks/lib/gates/runaway.ts"
+		);
+		let t = "";
+		for (let i = 0; i < 6; i++)
+			t +=
+				useTs(n("q", i), n("bad ", i), 600_000) +
+				resTs(n("q", i), true, "boom", 599_000);
+		// benign deny rows since (transparent — they do NOT break the run)
+		for (let i = 0; i < 3; i++)
+			t +=
+				useTs(n("b", i), n("deny ", i), 10_000) +
+				resTs(n("b", i), true, "runaway-guard: blocked", 9_000);
+		expect(
+			scanTail(t, "Bash", stableKey({ command: "next" }), 300_000).failStreak,
+		).toBe(0);
+		// quiet window disabled: the old streak still counts
+		expect(
+			scanTail(t, "Bash", stableKey({ command: "next" }), 0).failStreak,
+		).toBe(6);
+	});
+
+	test("closure calls are never denied, even fully latched", () => {
+		let t = "";
+		for (let i = 0; i < 6; i++)
+			t +=
+				use(n("f", i), "Bash", { command: n("bad ", i) }) +
+				res(n("f", i), true, "boom");
+		const r = runGate(t, {
+			tool_name: "Bash",
+			tool_input: { command: "git commit -m W2196: close" },
+		});
+		expect(r.out.trim()).toBe("{}");
+	});
+
+	test("deny-storm transcript allows the next regular call", () => {
+		let t = "";
+		for (let i = 0; i < 8; i++)
+			t +=
+				use(n("s", i), "Bash", { command: n("deny ", i) }) +
+				res(
+					n("s", i),
+					true,
+					"runaway-guard: 6 consecutive tool failures (cap 6). This call is blocked",
+				);
+		const r = runGate(t, {
+			tool_name: "Bash",
+			tool_input: { command: "echo next" },
+		});
+		expect(r.out.trim()).toBe("{}");
+	});
+
+	test("expected git conflict exits do not latch the streak", async () => {
+		const { scanTail, stableKey } = await import(
+			"../hooks/lib/gates/runaway.ts"
+		);
+		let t = "";
+		for (let i = 0; i < 6; i++)
+			t +=
+				useTs(n("g", i), "git rebase main", 60_000) +
+				resTs(
+					n("g", i),
+					true,
+					"CONFLICT (content): Merge conflict in a.ts; Automatic merge failed.",
+					59_000,
+				);
+		expect(
+			scanTail(t, "Bash", stableKey({ command: "git status" }), 300_000)
+				.failStreak,
+		).toBe(0);
+	});
+
+	test("write-gate approval denials do not count", async () => {
+		const { scanTail, stableKey } = await import(
+			"../hooks/lib/gates/runaway.ts"
+		);
+		let t = "";
+		for (let i = 0; i < 6; i++)
+			t +=
+				useTs(n("w", i), n("edit ", i), 60_000) +
+				resTs(
+					n("w", i),
+					true,
+					"permission to use Edit has been denied (requested by the user)",
+					59_000,
+				);
+		expect(
+			scanTail(t, "Bash", stableKey({ command: "echo next" }), 300_000)
+				.failStreak,
+		).toBe(0);
+	});
+});
+
 describe("runaway incidents + usage state", () => {
 	const cmd = { command: "bun test" };
 
