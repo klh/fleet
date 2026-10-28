@@ -13,7 +13,11 @@ import {
 	resolveBuckleDb,
 } from "../lib/lanes/lane-spend.ts";
 import { preferForProject } from "../lib/work/prefer.ts";
-import { claimWindows, type TimingEventRow } from "../lib/work/work-timing.ts";
+import {
+	claimWindows,
+	TIMING_KINDS,
+	type TimingEventRow,
+} from "../lib/work/work-timing.ts";
 import { utcZ } from "../lib/wallclock.ts";
 import { db, type WorkItemRow } from "./context.ts";
 import { chunked } from "./helpers.ts";
@@ -168,7 +172,7 @@ export function depEdges(): Map<
 function claimEventScan(): TimingEventRow[] {
 	return db
 		.query(
-			"SELECT project, id, ts, kind, payload FROM events WHERE kind IN ('work.claimed','work.released','work.done','work.failed') ORDER BY ts, id",
+			`SELECT project, id, ts, kind, payload FROM events WHERE kind IN ${TIMING_KINDS} ORDER BY ts, id`,
 		)
 		.all() as TimingEventRow[];
 }
