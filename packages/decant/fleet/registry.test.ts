@@ -1,9 +1,14 @@
 // fleet/registry.test.ts — registry parity + extension points (W950).
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { IngestConfig } from "../src/ingest.ts";
 import { homeCtx, registerSessionSource, sessionSourcePaths, sessionSources } from "./registry.ts";
 
-const FIXTURE = "/tmp/w950-registry-fixture";
+const FIXTURE = mkdtempSync(join(tmpdir(), "w950-registry-fixture-"));
+
+afterAll(() => rmSync(FIXTURE, { recursive: true, force: true }));
 
 function fixtureConfig(): IngestConfig {
   return {
@@ -50,17 +55,19 @@ test("gemini + opencode config-driven branches", () => {
 });
 
 test("registerSessionSource extends and replaces by id", () => {
+  const gooseA = join(FIXTURE, "goose-sessions-a");
+  const gooseB = join(FIXTURE, "goose-sessions-b");
   registerSessionSource({
     id: "goose",
     tool: "claude_code",
-    dirs: () => ["/tmp/w950-goose-sessions"],
+    dirs: () => [gooseA],
   });
   expect(sessionSources().map((a) => a.id)).toContain("goose");
   registerSessionSource({
     id: "goose",
     tool: "claude_code",
-    dirs: () => ["/tmp/w950-goose-sessions-2"],
+    dirs: () => [gooseB],
   });
   const goose = sessionSources().find((a) => a.id === "goose");
-  expect(goose?.dirs(homeCtx(), fixtureConfig())).toEqual(["/tmp/w950-goose-sessions-2"]);
+  expect(goose?.dirs(homeCtx(), fixtureConfig())).toEqual([gooseB]);
 });

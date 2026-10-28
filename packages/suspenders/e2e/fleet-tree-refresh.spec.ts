@@ -20,20 +20,15 @@ import {
 	test,
 } from "@playwright/test";
 import { handleFleetTree } from "../hooks/board/routes-fleet-tree.ts";
+import { unusedPort } from "../test/helpers/board-fixture-core.ts";
 
 let browser: Browser;
 let page: Page;
 let HOME: string;
 const stops: { stop: () => void }[] = [];
 
-// dead port: bind, read the OS-picked port, release
-const dead = Bun.serve({
-	hostname: "127.0.0.1",
-	port: 0,
-	fetch: () => new Response(),
-});
-const DEAD = dead.port;
-dead.stop(true);
+// dead port: bind, read the OS-picked port, release (shared helper)
+const DEAD = unusedPort();
 
 // the stoppable lane leaf (scenario B)
 let laneSrv = Bun.serve({
@@ -205,7 +200,7 @@ const refresh = async () => {
 test("startup renders live hub, protected hub, dead hub and simulation root", {
 	tag: "@ui",
 }, async () => {
-	const t = await page.locator("#tree").innerText();
+	const t = await page.locator("#tree").textContent();
 	expect(t).toContain("nas");
 	expect(t).toContain("discovery: available");
 	expect(t).toContain("authorization required · capacity unknown"); // vault 401
@@ -223,7 +218,7 @@ test("startup renders live hub, protected hub, dead hub and simulation root", {
 test("W565 demo roots stay namespaced and unprobed leaves stay neutral", {
 	tag: "@ui",
 }, async () => {
-	const t = await page.locator("#tree").innerText();
+	const t = await page.locator("#tree").textContent();
 	expect(t).toContain("nas (demo)");
 	// DOM-level namespace: one live "nas" rootlabel, demo doubles carry
 	// namespaced labels on the demo class
@@ -255,7 +250,7 @@ test("W569 authorized discovery renders authorized, denied and unknown hubs", {
 	tag: "@ui",
 }, async () => {
 	await refresh();
-	const t = await page.locator("#tree").innerText();
+	const t = await page.locator("#tree").textContent();
 	expect(seenAuth).toContain("Bearer bksk_e2e_good");
 	expect(seenAuth).toContain("Bearer bksk_e2e_wrong");
 	expect(t).toContain("vaultkey");
@@ -301,7 +296,7 @@ test("inaccessible registry serves last-good snapshot with the stale badge", {
 	guarded.stop(true);
 	await refresh();
 	await expect(page.locator("#stamp")).toContainText("stale — last good");
-	const t = await page.locator("#tree").innerText();
+	const t = await page.locator("#tree").textContent();
 	expect(t).toContain("nas");
 	expect(t).toContain("discovery: available"); // last-good content retained
 	expect(t).toContain("shadow-prod (simulation)");

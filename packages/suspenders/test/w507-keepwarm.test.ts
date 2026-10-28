@@ -2,7 +2,7 @@
 // manifest's warm_ports (no launchd tier env, no hardcoded port list). HOME
 // redirect keeps the remotes-probe leg off the real machine config.
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -18,6 +18,13 @@ describe("llm-keepwarm reads the tier manifest (W507)", () => {
 			manifest,
 			JSON.stringify({ tier: "minimal", warm_ports: [8902] }),
 		);
+		// warmTargets maps warm_ports → aliases through the direct-tiers
+		// catalog under HOME — seed one 8902 row or every port is disjoint.
+		mkdirSync(join(home, ".claude", "local-llm"), { recursive: true });
+		writeFileSync(
+			join(home, ".claude", "local-llm", "direct-tiers.json"),
+			JSON.stringify({ "kit-coder": "http://127.0.0.1:8902/v1" }),
+		);
 		const env = {
 			...process.env,
 			HOME: home,
@@ -31,12 +38,19 @@ describe("llm-keepwarm reads the tier manifest (W507)", () => {
 		expect(out).not.toContain(":8903");
 
 		const missing = Bun.spawnSync(["bun", KEEPWARM], {
-			env: { ...env, BELT_TIER_MANIFEST: "/tmp/w507-kein-manifest.json" },
+			env: {
+				...env,
+				BELT_TIER_MANIFEST: join(
+					tmpdir(),
+					`w507-kein-manifest-${process.pid}.json`,
+				),
+			},
 		});
 		expect(missing.exitCode).toBe(0);
 		const missOut = missing.stdout.toString();
-		expect(missOut).toContain(":8902");
-		expect(missOut).toContain(":8913");
-		expect(missOut).not.toContain(":8903");
+		// W1119: a missing/unreadable manifest warms NOTHING this pass —
+		// under-warming heals in one pass, warming past the manifest cannot.
+		expect(missOut).not.toContain(":8902");
+		expect(missOut).not.toContain(":8913");
 	}, 20000);
 });
