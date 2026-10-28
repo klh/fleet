@@ -1,6 +1,6 @@
 {
 	"name": "@klh/telemetry",
-	"version": "2.0.2",
+	"version": "2.0.3",
 	"description": "telemetry — shared trace/hop-contract headers: http-trace, transport evidence, prefer-header, remote traces, trace log",
 	"type": "module",
 	"private": true,

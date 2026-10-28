@@ -1,6 +1,6 @@
 {
 	"name": "@klh/local-llm",
-	"version": "2.0.2",
+	"version": "2.0.3",
 	"description": "MLX local swarm kit — real modules belt resolves through shims (memory-policy, observation) + config stubs; the supervisor and registry are belt-owned (W284)",
 	"type": "module",
 	"private": true,
@@ -9,10 +9,10 @@
 		"bun": "1.4.2"
 	},
 	"dependencies": {
-		"@klh/belt": "2.0.2"
+		"@klh/belt": "2.0.3"
 	},
 	"devDependencies": {
-		"@klh/test-kit": "2.0.2"
+		"@klh/test-kit": "2.0.3"
 	},
 	"license": "SEE LICENSE IN LICENSE",
 	"exports": {
