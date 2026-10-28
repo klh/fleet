@@ -4,9 +4,9 @@
 // Bun.serve servers on port 0 — no live tenant, no real keys.
 import { expect, test } from "@playwright/test";
 import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
-import { mkdtempSync, rmSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { statSync } from "node:fs";
 import { join } from "node:path";
+import { scratchWorld } from "@klh/test-kit";
 import {
 	awaitDeviceApproval,
 	beginDeviceLogin,
@@ -31,20 +31,20 @@ import {
 	type AgentDeps,
 } from "../bin/m365/agent-endpoint.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "w261-m365-"));
+const world = scratchWorld();
+const dir = world.home;
 const CACHE = join(dir, "tokens.json");
-test.afterAll(() => rmSync(dir, { recursive: true, force: true }));
+test.afterAll(() => world.clean());
 
 // --- stub upstreams (one server plays OIDC + Graph + JWKS) ---
 
-const STUB_PORT = 0;
 let tokenGrants = 0; // device-code approvals issued
 const refreshAttempts: string[] = [];
 let graphMode: "ok" | "unauth" | "garbage" = "ok";
 let graphCalls = 0;
 
 const stub = Bun.serve({
-	port: STUB_PORT,
+	port: 0,
 	hostname: "127.0.0.1",
 	fetch: async (req) => {
 		const url = new URL(req.url);

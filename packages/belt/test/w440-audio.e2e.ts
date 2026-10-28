@@ -5,9 +5,9 @@
 // sandboxed HOME. Missing key = clean 503 naming the env NAME; upstream
 // errors carry the host, never a key value.
 import { expect, test } from "@playwright/test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+
 import { join } from "node:path";
+import { freePort, scratchWorld } from "@klh/test-kit";
 import { audioBase, speak } from "../bin/audio.ts";
 import {
 	AUDIO_SERVICES,
@@ -58,20 +58,10 @@ const VENDOR = Bun.serve({
 });
 
 const SHIM = new URL("../bin/router-shim.ts", import.meta.url).pathname;
-const findFreePort = (): number => {
-	const s = Bun.serve({
-		port: 0,
-		hostname: "127.0.0.1",
-		fetch: () => new Response(null),
-	});
-	const p = s.port ?? 0;
-	s.stop(true);
-	return p;
-};
 
-const PORT = findFreePort();
-const PORT_NOKEY = findFreePort();
-const HOME = mkdtempSync(join(tmpdir(), "w440-shim-home-"));
+const PORT = await freePort();
+const PORT_NOKEY = await freePort();
+const HOME = scratchWorld().home;
 const proc = Bun.spawn(["bun", SHIM], {
 	env: {
 		...process.env,

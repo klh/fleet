@@ -2,17 +2,11 @@
 // ingest + verify, catalog-diff sync into tmp stores, and the face: W764
 // auth envelope on /blobs, fail-closed 503, sync route.
 import { expect, test } from "@playwright/test";
-import {
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { Database } from "bun:sqlite";
+import { scratchWorld } from "@klh/test-kit";
 import {
 	ggufFileName,
 	hubOrigin,
@@ -37,7 +31,7 @@ import {
 const sha = (content: string): string =>
 	createHash("sha256").update(content).digest("hex");
 
-const tmpStore = (): string => mkdtempSync(join(tmpdir(), "model-store-"));
+const tmpStore = (): string => scratchWorld().home;
 
 /** Fake origin: files = {path: content}; declares real sha256 + size. */
 function fakeOrigin(files: Record<string, string>): Origin {
