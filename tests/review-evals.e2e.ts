@@ -8,9 +8,9 @@
 // (./helpers/review-evals.fixture.ts); spec-file shape law: imports + test
 // registrations only, plain statements inside test bodies.
 import { expect, test } from "@playwright/test";
+import { classifyRevert } from "../packages/kernel/src/kernel.revert.module.ts";
 import {
 	caseText,
-	classifyRevert,
 	revertLandings,
 } from "../packages/suspenders/hooks/lib/fleet-loop/review-evals.ts";
 import {

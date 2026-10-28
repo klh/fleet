@@ -33,6 +33,7 @@ the W1249 import-direction lint guard.
 | host-guard | `suspenders/hooks/lib/host-guard.ts` (belt imports it cross-package — the cycle W1254 breaks on migration); belt model-store imports the kernel face (W1471) | `test/kernel.twin-parity.test.ts` (2-way byte-equal) |
 | loopback | `suspenders/hooks/lib/loopback.ts` (the LOOPBACK host list host-guard also carries; buckle egress, belt kv-ship/mcp-server re-derive it); belt hubs.ts imports the kernel face (W1475) | `test/kernel.twin-parity.test.ts` (2-way byte-equal) |
 | servicemon | `suspenders/hooks/lib/servicemon.ts` with the W1081 citizenship stamp INJECTED (required `stamp` option — telemetry's `stampResponse` satisfies it, so kernel imports nothing); belt model-store imports it (W1471) | `test/kernel.twin-parity.test.ts` (byte-equal below DEFAULT_BUCKETS modulo the stamp seam + seam behavior) |
+| revert | W1868: the C156 classifier + landing rule, twins DELETED in the landing (`suspenders/hooks/lib/fleet-loop/review-evals.ts` + `belt/bench/review-guardrail.ts` both import the kernel face); the ancestor check is an INJECTED predicate | `test/kernel.revert.test.ts` (behavior) |
 
 ## Out of kernel (named in the proposal, deliberately excluded here)
 

@@ -10,6 +10,12 @@
 
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+// C156 classifier + landing rule: kernel face since W1868
+// (packages/kernel/src/kernel.revert.module.ts) — W1476/W1477 twins retired.
+import {
+	classifyRevert,
+	isRevertLanding,
+} from "@klh/kernel/src/kernel.revert.module.ts";
 import type { DecisionRow, TaskRow } from "./pilot-measure.ts";
 
 export type ReviewTier = "low" | "medium" | "high";
@@ -34,14 +40,11 @@ const CONF_KEYS: ReadonlySet<string> = new Set([
 	"decision",
 ]);
 
-// C156 (agreed with W1476, whose review-evals.ts holds the suspenders copy;
-// belt cannot import suspenders — W1249 — so this is the local twin, kernel
-// promotion is the follow-up). A revert-of-revert is a re-land and gets NO
-// row: git <2.43 writes `Revert "Revert …`, git >=2.43 `Reapply "…"` (whose
-// body still says "This reverts commit").
-const RELAND_SUBJECT = /^(?:Revert "Revert |Reapply ")/;
-const REVERT_SUBJECT = /^Revert "/;
-const REVERTS_BODY = /This reverts commit ([0-9a-f]{40})/;
+// C156 (agreed with W1476): the classifier + landing rule live in
+// @klh/kernel since W1868 (packages/kernel/src/kernel.revert.module.ts).
+// A revert-of-revert is a re-land and gets NO row: git <2.43 writes
+// `Revert "Revert …`, git >=2.43 `Reapply "…"` (whose body still says
+// "This reverts commit").
 const ITEM_ID = /\b(W\d+(?:\.\d+)*)\b/;
 const INCIDENT_TAG = "incident";
 
@@ -157,18 +160,6 @@ export interface ReviewInput {
 	tasks: ItemRef[];
 	commits: CommitRecord[];
 	conf: GuardrailConf;
-}
-
-/** C156 classifier: `{reverts}` for a revert (the body's 40-hex, null on a
- * subject-only match); null for anything else, re-lands included. */
-export function classifyRevert(
-	subject: string,
-	body: string,
-): { reverts: string | null } | null {
-	if (RELAND_SUBJECT.test(subject)) return null;
-	const hex = REVERTS_BODY.exec(body)?.[1] ?? null;
-	if (hex) return { reverts: hex };
-	return REVERT_SUBJECT.test(subject) ? { reverts: null } : null;
 }
 
 /** `git log --format=%H%x1f%ct%x1f%s%x1f%b%x1e` output → commit records. */
@@ -633,8 +624,15 @@ export function gitRevertCommits(
 		gitLines(repo, ["rev-list", "--first-parent", "HEAD"]),
 	);
 	return parseGitRecords(log.stdout ?? "").filter((r) => {
-		const target = classifyRevert(r.subject, r.body)?.reverts;
-		return !target || landedRevert(repo, firstParent, r.commit, target);
+		// the --grep pre-filter already narrowed to revert-ish commits; a
+		// null classification (re-lands, plain subjects) stays a row
+		const hit = classifyRevert(r.subject, r.body);
+		return (
+			!hit ||
+			isRevertLanding(r.subject, r.body, (target) =>
+				landedRevert(repo, firstParent, r.commit, target),
+			)
+		);
 	});
 }
 
