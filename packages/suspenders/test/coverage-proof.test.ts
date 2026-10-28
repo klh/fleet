@@ -6,13 +6,20 @@
 // integration face replays the exact coverageProof mechanics (reverse the
 // full diff, restore the new tests, bun test in the scratch tree).
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
 	addedWorkspaceDependencies,
 	missingImports,
 	missingImportsExplained,
+	shareNodeModules,
 	TEST_FILE,
 } from "../hooks/lib/gates/coverage-proof.ts";
 
@@ -233,4 +240,32 @@ test("scratch without the change: real bun test failure classifies explained (W1
 	expect(
 		missingImportsExplained(withDep, ["pkg/mod.ts"], ["pkg/mod.test.ts"]),
 	).toBe(false);
+});
+
+// W2199: the proof scratch must share package-local node_modules too — bun
+// workspaces resolve workspace deps (@klh/*) through packages/<pkg>/node_modules
+// links a fresh git worktree lacks; without the links provable tests die as
+// Cannot-find-module and reviews error as environmental (the W2198 trail).
+test("shareNodeModules links root AND package-local node_modules into a scratch", () => {
+	const root = mkdtempSync(join(tmpdir(), "share-nm-"));
+	roots.push(root);
+	mkdirSync(join(root, "node_modules"), { recursive: true });
+	// repo shape: root node_modules + one package with package-local node_modules
+	W(join(root, "packages", "one", "package.json"), "{}");
+	W(join(root, "packages", "two", "package.json"), "{}");
+	const local = join(root, "packages", "one", "node_modules");
+	mkdirSync(local, { recursive: true });
+	// scratch: fresh worktree shape — no node_modules anywhere
+	const scratch = mkdtempSync(join(tmpdir(), "share-nm-scratch-"));
+	roots.push(scratch);
+	shareNodeModules(root, scratch, [
+		"packages/one/package.json",
+		"packages/two/package.json",
+	]);
+	// root closure shared
+	expect(existsSync(join(scratch, "node_modules"))).toBe(true);
+	// package-local linked where the source repo HAS one…
+	expect(existsSync(join(scratch, "packages", "one", "node_modules"))).toBe(true);
+	// …and NOT invented where it does not
+	expect(existsSync(join(scratch, "packages", "two", "node_modules"))).toBe(false);
 });
