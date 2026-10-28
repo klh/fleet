@@ -87,3 +87,9 @@ packages/suspenders/test/hub-providers.test.ts:generic-api-key:189
 packages/suspenders/deploy/singbox/lifecycle.test.ts:generic-api-key:83
 packages/suspenders/deploy/singbox/lifecycle.test.ts:generic-api-key:140
 packages/suspenders/deploy/singbox/lifecycle.test.ts:generic-api-key:176
+# W2183: migrate-provider-keys.test.ts fixture tokens (never real — the
+# migration CLI plans on injected files/env; values are dummy sk- strings).
+9bcd46261570333ae77f6403979e810aa67f6f9d:packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:82
+9bcd46261570333ae77f6403979e810aa67f6f9d:packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:107
+2c41bcf668aa1f56a584e71880bd238d67e81a20:packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:82
+2c41bcf668aa1f56a584e71880bd238d67e81a20:packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:107
