@@ -1,6 +1,6 @@
 {
 	"name": "@klh/blam",
-	"version": "2.0.1",
+	"version": "2.0.2",
 	"description": "BLAM — Benchmark of LLM Agent Mishaps: a failure taxonomy, labeled dataset, and reproducible benchmark for LLM agent fleets on shared repositories",
 	"type": "module",
 	"license": "SEE LICENSE IN LICENSE",
@@ -13,11 +13,11 @@
 		"bun": "1.4.2"
 	},
 	"dependencies": {
-		"@klh/suspenders": "2.0.1"
+		"@klh/suspenders": "2.0.2"
 	},
 	"devDependencies": {
-		"@klh/belt": "2.0.1",
-		"@klh/buckle": "2.0.1",
+		"@klh/belt": "2.0.2",
+		"@klh/buckle": "2.0.2",
 		"@playwright/test": "1.64.1"
 	},
 	"exports": {
