@@ -7,7 +7,8 @@
 		"The glm ladder folds the 2026-10-04/06 zai-twin rescue rows with the 2026-10-01 cloud legs (zai twin → local swarm → gpt-5.2 → claude-sonnet-5).",
 		"aids/tags are buckle-enforced (belt ignores); classes/roles/reasoning + litellm_* knobs are belt emission knobs (buckle ignores).",
 		"W1267: Z.ai 1302/1305 are GENERIC rate/overload codes — never declare them account occupancy; declared-account codes are balance/entitlement classes (e.g. 1113/1311) and stay typed errors, never pacing.",
-		"W1260.2 authenticated CONNECT egress (opaque AI TLS relay for the Sing http outbounds). Fail-closed triad — the endpoint exists only when enabled AND BUCKLE_CONNECT_TOKEN is set (machine env, 0600, never in the repo) AND allow is non-empty; otherwise no listener, no egress. Ports beyond 443 and deny_private:false are deliberate operator acts."
+		"W1260.2 authenticated CONNECT egress (opaque AI TLS relay for the Sing http outbounds). Fail-closed triad — the endpoint exists only when enabled AND BUCKLE_CONNECT_TOKEN is set (machine env, 0600, never in the repo) AND allow is non-empty; otherwise no listener, no egress. Ports beyond 443 and deny_private:false are deliberate operator acts.",
+		"W914 litellm-ops passthrough: gateway.litellm_ops.group names the upstream pool group serving the byte-faithful ops paths (files/batches/audio-multipart/images-edits — src/litellm-ops.ts); the runtime copy overrides operator-first (config-over-code)."
 	],
 	"version": 1,
 	"gateway": {
@@ -19,6 +20,9 @@
 		"enable_pre_call_checks": true,
 		"stream_idle_timeout_s": 60,
 		"stream_total_timeout_s": 900,
+		"litellm_ops": {
+			"group": "litellm-ops"
+		},
 		"request_timeout_s": 360,
 		"first_byte_budget_s": 390,
 		"fallbacks": {

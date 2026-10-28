@@ -64,6 +64,11 @@ export interface GatewayPolicy {
 	// compatible); buckle starts the endpoint only when enabled AND
 	// BUCKLE_CONNECT_TOKEN is set AND allow is non-empty.
 	connect?: ConnectPolicyBlock;
+	/** W914 litellm-ops passthrough group (config-over-code): the upstream
+	 *  pool group serving files/batches/audio-multipart/images-edits ops.
+	 *  Registry default "litellm-ops"; machine override via the runtime
+	 *  routing-policy.json. */
+	litellm_ops?: { group?: string };
 }
 
 /** W142 aids policy (routing-policy.yaml `aids:` block). Belt ignores the

@@ -2,8 +2,8 @@
 // decide + router sharing one Cooldowns instance (the W140 seam,
 // server-shaped). e2e tests build deps through here.
 
-import { AidsLedger } from "../src/aids.ts";
 import type { AccountPolicyDoc } from "../src/account-policy.ts";
+import { AidsLedger } from "../src/aids.ts";
 import { CandidateTable } from "../src/candidates.ts";
 import { Cooldowns } from "../src/cooldown.ts";
 import { decideRoute } from "../src/decide.ts";
@@ -78,5 +78,6 @@ export function testDeps(
 		decide,
 		table,
 		accountPolicy: opts?.accountPolicy,
+		policy,
 	};
 }
