@@ -430,15 +430,15 @@ export async function syncHarness(
 		// this payload is private — it resolves from the staged link below,
 		// never from npm. Derived from the manifests, so a new @klh package
 		// needs no list edit here to avoid an npm 404.
-		const stagedNames = new Set(
-			shipped
-				.filter((rel) => rel.endsWith("/package.json"))
-				.map((rel) => {
-					const item = JSON.parse(readFileSync(join(payload, rel), "utf8"));
-					return typeof item.name === "string" ? item.name : null;
-				})
-				.filter((name): name is string => name !== null),
-		);
+		// package name → its payload dir (packages/<dir>), one entry per
+		// shipped manifest; the scoped links below ride the same map
+		const stagedDirs = new Map<string, string>();
+		for (const rel of shipped.filter((p) => p.endsWith("/package.json"))) {
+			const item = JSON.parse(readFileSync(join(payload, rel), "utf8"));
+			if (typeof item.name === "string")
+				stagedDirs.set(item.name, dirname(rel));
+		}
+		const stagedNames = new Set(stagedDirs.keys());
 		const dependencies: Record<string, string> = {};
 		for (const item of [manifest, beltManifest]) {
 			for (const [name, version] of Object.entries(item.dependencies ?? {})) {
@@ -508,26 +508,17 @@ export async function syncHarness(
 		// already in place; the manifest filter above keeps them out of the
 		// resolved graph entirely).
 		mkdirSync(join(stage, "node_modules"), { recursive: true });
-		// blam's package name is scoped (@klh/blam) — the link must sit at the
-		// scoped path or every `@klh/blam/...` import in the staged harness
-		// fails to resolve and validate (2026-10-08 install blocker).
+		// every shipped @klh package gets its scoped link — the W1249 import
+		// law routes cross-package imports by package name, so a missing link
+		// fails the staged import graph (2026-10-08 blam, W1303.2 buckle,
+		// W1238.3 telemetry, W2193 belt — now derived, never listed).
 		mkdirSync(join(stage, "node_modules/@klh"), { recursive: true });
-		// link content is relative to the link's own dir (node_modules/@klh):
-		// up two to stage/, then into .harness/packages/blam
-		link("../../.harness/packages/blam", join(stage, "node_modules/@klh/blam"));
-		// W1303.2: the board's http-kit import rides the package name —
-		// @klh/buckle needs the same scoped link (buckle/src is already a
-		// staged payload for the gateway bundle).
-		link(
-			"../../.harness/packages/buckle",
-			join(stage, "node_modules/@klh/buckle"),
-		);
-		// W1238.3: named @klh/telemetry imports (servicemon, buckle) resolve
-		// through the same scoped link in the staged harness.
-		link(
-			"../../.harness/packages/telemetry",
-			join(stage, "node_modules/@klh/telemetry"),
-		);
+		for (const [name, dir] of stagedDirs) {
+			if (!name.startsWith("@klh/")) continue;
+			// link content is relative to the link's own dir (node_modules/@klh):
+			// up two to stage/, then into .harness/<packages/dir>
+			link(`../../.harness/${dir}`, join(stage, "node_modules", name));
+		}
 		await materializeDependencies(stage);
 		await materializeProduction(stage);
 		mkdirSync(join(stage, "node_modules"), { recursive: true });

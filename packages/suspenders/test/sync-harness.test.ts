@@ -53,8 +53,8 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 	// derivation (W1281.9) keys on the manifest names as shipped.
 	for (const [dir, name] of [
 		["suspenders", "@klh/suspenders"],
-		["belt", "belt"],
-		["local-llm", "local-llm"],
+		["belt", "@klh/belt"],
+		["local-llm", "@klh/local-llm"],
 		["blam", "@klh/blam"],
 		["buckle", "@klh/buckle"],
 		["telemetry", "@klh/telemetry"],
@@ -948,6 +948,12 @@ test("SUSPENDERS_SYNC_ALLOW_BRANCH=1 is the explicit lane-testing escape (W1243)
 function commitTwin(f: ReturnType<typeof fixture>, kit: string): void {
 	f.put("packages/belt/bin/spawner.ts", "export const pending = new Map();");
 	f.put("packages/local-llm/spawner.ts", kit);
+	// the payload ships the faces' import closure — the real graph reaches
+	// the kit twin, so the fixture must too or no twin is ever checked
+	f.put(
+		"packages/belt/bin/twin-edge.ts",
+		'export * from "../../local-llm/spawner.ts";',
+	);
 	f.git("add", ".");
 	f.git(
 		"-c",
@@ -974,7 +980,7 @@ test("a diverged runtime twin is refused before publication (W1468)", async () =
 
 test("the published kit twin and its belt artifact are one module (W1468)", async () => {
 	const f = fixture();
-	commitTwin(f, '// shared lifecycle\nexport * from "../belt/bin/spawner.ts";');
+	commitTwin(f, '// shared lifecycle\nexport * from "@klh/belt/bin/spawner.ts";');
 	await syncHarness(f.ctx);
 	const same = Bun.spawnSync(
 		[
