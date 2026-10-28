@@ -12,6 +12,8 @@ import {
 import { topologySnapshot } from "../../../buckle/src/topology-read-model.ts";
 import { cachedProbes } from "./console-view.ts";
 import { withRecovery } from "./service-probe.ts";
+import { db } from "./context.ts";
+import { downModelGroups } from "../lib/hub/model-health.ts";
 
 /** /api/console/network payload — read model + the local spoke probe. */
 export interface NetworkPayload {
@@ -19,8 +21,11 @@ export interface NetworkPayload {
 	ts: string;
 	network: NetworkOverviewResult;
 	/** The monitored buckle-4101 row (state + detail + recovery map), null
-	 *  when the recovery map lacks the entry. */
+	 *  when the recovery board db lacks the entry. */
 	gateway: ReturnType<typeof withRecovery> | null;
+	/** W2194: model groups the health sweep currently grades DOWN (fresh
+	 *  facts only — stale facts age out of the DOWN display). */
+	model_health: { down: string[] };
 }
 
 export const NETWORK_GATEWAY_ID = "buckle-4101";
@@ -28,11 +33,19 @@ export const NETWORK_GATEWAY_ID = "buckle-4101";
 export async function networkPayload(): Promise<NetworkPayload> {
 	const gateway =
 		(await cachedProbes()).find((p) => p.id === NETWORK_GATEWAY_ID) ?? null;
+	let down: string[] = [];
+	try {
+		down = downModelGroups(db);
+	} catch {
+		// fail-soft: the card renders the absent state — unavailable beats
+		// a false all-up (the payload's own honesty law).
+	}
 	return {
+		model_health: { down },
+		gateway: gateway ? withRecovery(gateway) : null,
+		network: networkOverview(resolveNetworkDbPaths(process.env)),
 		ok: true,
 		ts: new Date().toISOString(),
-		network: networkOverview(resolveNetworkDbPaths(process.env)),
-		gateway: gateway ? withRecovery(gateway) : null,
 	};
 }
 

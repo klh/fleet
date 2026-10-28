@@ -7,6 +7,7 @@ import type { Database } from "bun:sqlite";
 import { resolveStoreHttpBase } from "../govdb/govdb-store.ts";
 import { resolveBuckleDb } from "../lanes/lane-spend.ts";
 import { idList } from "../verb-kit.ts";
+import { downModelGroups } from "../hub/model-health.ts";
 import {
 	buildReportContract,
 	parseReportWindow,
@@ -210,6 +211,7 @@ export const runReportVerb = async (a: ReportVerbArgs): Promise<void> => {
 			now,
 			boardBase,
 			lanesOtherProjects: lanesOther > 0 ? lanesOther : null,
+			modelHealthDown: downModelGroups(db),
 		});
 	const contract = build();
 	// §10 mode outputs — every branch renders FROM the same contract

@@ -291,6 +291,21 @@ const topRows = (n: OkNet): TemplateResult => {
 		</div>`;
 };
 
+/** W2194 model health row: the DOWN groups the sweep graded (fresh facts
+ *  only); the absent state says WHY instead of a false all-up. */
+const modelHealthRows = (p: NetworkPayload): TemplateResult =>
+	p.model_health.down.length === 0
+		? html`<div class="hrow">
+				<span class="hname">model health</span>
+				<span class="unknown">no DOWN groups in fresh facts</span>
+			</div>`
+		: html`<div class="hrow">
+				<span class="hname">model health</span>
+				${p.model_health.down.map(
+					(core) => html`<span class="num hot">DOWN ${core}</span>`,
+				)}
+			</div>`;
+
 /** The SSR-seed/live payload → card body. Ledger sections first, observed
  *  hubs second; every empty section says WHY (unwired, no traffic). */
 const networkCardRender = (p: NetworkPayload): TemplateResult => {
@@ -299,6 +314,7 @@ const networkCardRender = (p: NetworkPayload): TemplateResult => {
 		return html`${spokeRow(p)}
 			<p class="unknown">${n.reason}</p>`;
 	return html`${spokeRow(p)}
+		${modelHealthRows(p)}
 		${topRows(n)}
 		${hubSection(n)}
 		${

@@ -77,6 +77,7 @@ import {
 	resolveLaneExecutor,
 } from "../../../scripts/lib/launch-preflight.ts";
 import { plaidLaunchPreflight } from "../../../scripts/lib/plaid-launch.ts";
+import { rePinModelPick } from "../hub/model-health.ts";
 import type { PreferRouting } from "../../../scripts/lib/prefer-routing.ts";
 import { isResumableClaim } from "../../../scripts/lib/resumable-claim.ts";
 import {
@@ -516,6 +517,16 @@ export const dispatchLane = async (
 			}
 			routeName = pre.routeName;
 			if (pre.note) console.log(`NOTE — ${pre.note}`);
+		}
+		// W2194: the pin-layer fallback — a pinned model that is DOWN (per the
+		// fresh model.health facts) re-pins to the freshest healthy group,
+		// loudly. Never a silent alias: the re-pinned id is what every leg
+		// REQUESTS from here on, so the W1302.6 wire audit grades the new pin
+		// as itself.
+		if (process.env.SUSPENDERS_MODEL_HEALTH !== "0") {
+			const rePin = rePinModelPick(store, pick.model);
+			if (rePin.note) console.log(rePin.note);
+			if (rePin.model) pick = { ...pick, model: rePin.model };
 		}
 		const route = await routeAdmission.check(pick.model);
 		if (route.pause) {
