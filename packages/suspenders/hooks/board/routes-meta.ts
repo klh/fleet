@@ -30,7 +30,7 @@ Board: http://127.0.0.1:7799 (LAN: http://suspenders.local:7799 via klh-local's 
 - GET /api/tail       live lane tail for the drawer: the owning lane's .fleet/lane-<sid>.log (last 32KB) + transcript recent lines; JSON {ok,id,sid,log,transcript,recent}
 - GET /console        redirect to /console/buckle (the klh console shell: klh·fleet strip linking the belt.local · suspenders.local · bar.local sites, then the belt gateway | fleet board | local services menu + settings gear + actor avatar)
 - GET /console/buckle   gateway view (read-only): fleet service rows (every recovery-map service; DOWN/degraded rows expand into what happened, likely cause and copyable recovery commands + re-probe — W273), resolved routing-policy.yaml (ladder, budgets), buckle upstreams pool, belt API reachability
-- GET /api/services   W273: {ok, services:[{id,name,port,up,state:up|degraded|down,detail,probed_at,recovery:{what,causes[],recovery:[{label,cmd}]}}]} — every monitored service probed now
+- GET /api/services   W273: {ok, services:[{id,name,port,up,state:up|degraded|down,detail,probed_at,recovery:{what,causes[],recovery:[{label,cmd}]}}]} — every monitored service, over the console 15s probe cache (W361)
 - GET /api/services/probe?id=  W273 re-probe one service: {ok, service} (same row shape); unknown id → 404
 - GET /console/local  Caddy-served .local services from the klh-local registry (static view)
 - GET /console/settings   settings hub — one entry per feature (belt budgets, buckle ladder+cooldowns, suspenders board knobs); every write previews a diff + confirms
