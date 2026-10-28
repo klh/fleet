@@ -8,7 +8,7 @@
 // Tool EXECUTION failures surface inside the result (isError) per the MCP
 // spec; protocol errors (unknown tool) are the server's JSON-RPC problem.
 import { searchKnowledge, type KnowledgeCard } from "./mcp-knowledge.ts";
-import type { InheritedDeadline } from "./hop-deadline.ts";
+import type { InheritedDeadline } from "./hop-inherit.ts";
 import {
 	childHopContract,
 	encodeHopContract,

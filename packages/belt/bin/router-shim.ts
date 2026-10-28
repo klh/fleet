@@ -32,7 +32,7 @@ import { audioSpeech, audioTranscribe } from "./audio.ts";
 // W422.17.3 governor note: re-read after the /tmp splice that moved viaCloud
 // out; this adds the import for the extracted escalation leg.
 import { escalate } from "./escalate.ts";
-import { HOP_CONTRACT_HEADER, inheritDeadline } from "./hop-deadline.ts";
+import { HOP_CONTRACT_HEADER, inheritDeadline } from "./hop-inherit.ts";
 import { livenessResponse } from "./health.ts";
 import { verifyUpstreamAuth } from "./router-auth.ts";
 import { promptFingerprint } from "./prompt-fingerprint.ts";

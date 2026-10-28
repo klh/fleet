@@ -1,4 +1,4 @@
-// hop-deadline.ts — W1117: belt's consume-side of the shared W1086 hop
+// hop-inherit.ts (was hop-deadline.ts; renamed W2178 — flat-home basename collision with buckle/src/hop-deadline.ts) — W1117: belt's consume-side of the shared W1086 hop
 // contract. Belt CLAMPS its own local budget to an inherited absolute
 // deadline; it never re-roots a fresh timer at this hop (owner law:
 // Buckle→Belt→Buckle return keeps the ORIGINAL deadline). Absent/invalid

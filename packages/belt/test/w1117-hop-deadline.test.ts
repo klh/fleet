@@ -3,7 +3,7 @@ import {
 	inheritDeadline,
 	ROUTER_EXCHANGE_MS,
 	ROUTER_STREAM_TOTAL_MS,
-} from "../bin/hop-deadline.ts";
+} from "../bin/hop-inherit.ts";
 import {
 	encodeHopContract,
 	rungIdOf,

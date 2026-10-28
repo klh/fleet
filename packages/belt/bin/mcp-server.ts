@@ -31,7 +31,7 @@ import {
 	HOP_CONTRACT_HEADER,
 	type InheritedDeadline,
 	inheritDeadline,
-} from "./hop-deadline.ts";
+} from "./hop-inherit.ts";
 
 // Machine-level config (config-over-code): BELT_MCP_* / BELT_INFER_URL live
 // in ~/.claude/local-llm/belt-mcp.env (0600, operator-owned, never the repo).

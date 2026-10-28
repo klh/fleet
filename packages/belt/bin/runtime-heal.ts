@@ -34,6 +34,10 @@ const DEPS: Array<{ from: string; to: string }> = [
 	},
 	{ from: "packages/suspenders/deploy/zai-catalog.ts", to: "zai-catalog.ts" },
 	{
+		from: "packages/suspenders/deploy/catalog-http.ts",
+		to: "catalog-http.ts",
+	},
+	{
 		from: "packages/suspenders/hooks/lib/kernel-conf.ts",
 		to: "kernel-conf.ts",
 	},
@@ -92,6 +96,24 @@ const DEPS: Array<{ from: string; to: string }> = [
 		from: "packages/telemetry/src/transport-evidence.ts",
 		to: "transport-evidence.ts",
 	},
+	// W2178: buckle ledger.ts grew the throughput closure (@klh/telemetry
+	// package imports + its own reconcile/throughput-metrics siblings).
+	{ from: "packages/buckle/src/reconcile.ts", to: "reconcile.ts" },
+	{
+		from: "packages/buckle/src/throughput-metrics.ts",
+		to: "throughput-metrics.ts",
+	},
+	{ from: "packages/telemetry/src/throughput.ts", to: "throughput.ts" },
+	// escalate.ts + hop-inherit.ts value-import the hop contract
+	{ from: "packages/telemetry/src/hop-contract.ts", to: "hop-contract.ts" },
+	{
+		from: "packages/telemetry/src/throughput-store.ts",
+		to: "throughput-store.ts",
+	},
+	{
+		from: "packages/telemetry/src/throughput-rollup.ts",
+		to: "throughput-rollup.ts",
+	},
 	{
 		from: "packages/local-llm/models.catalog.ts",
 		to: "models.catalog.ts",
@@ -118,6 +140,12 @@ const REWRITE: Array<[RegExp, string]> = [
 	// W1471: the flat home has no node_modules — @klh/kernel package imports
 	// (model-store's host-guard + servicemon faces) heal to the flat copies.
 	[/^(@klh\/kernel\/src\/)(.+)$/, "./"],
+	[/^(@klh\/telemetry\/src\/)(.+)$/, "./"],
+	// W2178: zai-catalog's buckle guard chain rides package imports now
+	[
+		/^(@klh\/buckle\/src\/)((?:stream-semantics|error-detail|provider-pressure|outbound-guard|sse|resilience)\.ts)$/,
+		"./",
+	],
 	// W1475: hubs.ts imports its hub-profile cluster by package name.
 	[/^@klh\/suspenders\/(deploy|hooks\/lib)\/(.+)$/, "./"],
 	[/^(\.\.\/)+speedy\/src\/(.+)$/, "./"],
