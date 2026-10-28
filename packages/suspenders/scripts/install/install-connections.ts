@@ -10,11 +10,14 @@ import { tryLoadStack } from "../../hooks/lib/stack-config.ts";
 import {
 	type AppName,
 	assertNoSecrets,
+	type ConnectFace,
+	connectFaceOf,
 	CONNECTIONS_PATH,
 	type ConnectionsConfig,
 	enabledAppsOf,
 	facePairs,
 	loadConnections,
+	probeConnectFace,
 	resolveEndpoint,
 	writeDefaultConfig,
 } from "../lib/connections.ts";
@@ -29,6 +32,12 @@ export type LaunchctlRun = (
 	pairs: { key: string; value: string }[],
 ) => Promise<void>;
 
+/** CONNECT-face probe — injectable for the same reason (tests stub the
+ *  wire; the real one dials the live egress). */
+export type ConnectProbe = (
+	face: ConnectFace,
+) => Promise<{ ok: boolean; why: string }>;
+
 /** hub-resolution face — injectable for the same reason (the real chain
  *  probes dns-sd/mdns for seconds on a miss). */
 export type EndpointResolve = (
@@ -38,7 +47,11 @@ export type EndpointResolve = (
 const realLaunchctlRun: LaunchctlRun = async (pairs) => {
 	const { execa } = await import("execa");
 	for (const p of pairs)
-		await execa("launchctl", ["setenv", p.key, p.value], { reject: false });
+		await execa(
+			"launchctl",
+			p.value === "" ? ["unsetenv", p.key] : ["setenv", p.key, p.value],
+			{ reject: false },
+		);
 };
 
 /** The template written when connections.json is ABSENT. Default-ON
@@ -70,20 +83,44 @@ export function defaultHubLabel(): string | null {
 	return first ?? null;
 }
 
+/** Actively clear stale GUI-domain proxy vars (W2198: the reinstall must
+ *  not leave a previous install's dead proxy pointing at a serve port). The
+ *  facePairs(null) shape already emits the empty-value unset rows for
+ *  HTTPS_PROXY/HTTP_PROXY alongside the always-true pairs. */
+
 /** Apply the launchctl face for the enabled apps against the resolved
- *  default hub. Returns the human note; never throws on an unresolved hub —
- *  that degrades the note (the file write is the durable part). */
+ *  default hub. W2198: proxy pairs ride the authenticated CONNECT egress —
+ *  resolve the face from machine env, PROBE it live, and only then setenv.
+ *  No face / dead probe = the proxy vars are actively UNSET (a reinstall
+ *  must never re-poison the GUI domain with a serve-port proxy) and the
+ *  note says why. Never throws on an unresolved hub — that degrades the
+ *  note (the file write is the durable part). */
 async function applyLaunchctlFace(
 	cfg: ConnectionsConfig,
 	run: LaunchctlRun,
 	resolve: EndpointResolve,
+	probe: ConnectProbe = probeConnectFace,
+	env: Record<string, string | undefined> = process.env,
 ): Promise<string> {
 	const apps: AppName[] = enabledAppsOf(cfg);
 	if (apps.length === 0) return "launchctl face skipped (no enabled apps)";
 	const ep = await resolve(cfg.default);
 	if (!ep)
 		return `launchctl face skipped (default hub '${cfg.default}' unresolved — check the hubs registry or stack.yaml)`;
-	const pairs = facePairs(apps, ep.url);
+	const connect = connectFaceOf(ep.url, env);
+	const verdict = connect ? await probe(connect) : null;
+	if (!verdict?.ok) {
+		const why = connect
+			? `CONNECT probe FAILED (${verdict?.why})`
+			: "BUCKLE_CONNECT_TOKEN unset — enable gateway.connect on the spoke";
+		// still apply the non-proxy pairs (claude serve base URL) — the GUI
+		// claude apps ride the gateway API directly, only the generic proxy
+		// pairs require the live CONNECT face
+		const bare = facePairs(apps, ep.url, null);
+		await run(bare);
+		return `launchctl face: ${why}; proxy vars unset, ${bare.length} non-proxy pairs applied`;
+	}
+	const pairs = facePairs(apps, ep.url, connect);
 	assertNoSecrets(pairs.map((p) => `${p.key}=${p.value}`).join("\n"));
 	await run(pairs);
 	const keys = pairs.map((p) => p.key).join(", ");
@@ -91,12 +128,13 @@ async function applyLaunchctlFace(
 }
 
 /** The wireConnections step: ask, write-once, apply the launchctl face.
- *  `resolve` is injectable (tests stub hub resolution — the real chain
- *  probes dns-sd/mdns for seconds on a miss). */
+ *  `resolve`/`probe` are injectable (tests stub hub resolution and the
+ *  CONNECT wire — the real chain probes dns-sd/mdns for seconds on a miss). */
 export async function wireConnections(
 	ctx: StepContext,
 	run: LaunchctlRun = realLaunchctlRun,
 	resolve: EndpointResolve = resolveEndpoint,
+	probe: ConnectProbe = probeConnectFace,
 ): Promise<StepResult> {
 	const path = CONNECTIONS_PATH();
 	if (existsSync(path)) {
@@ -106,7 +144,7 @@ export async function wireConnections(
 				status: "failed",
 				note: `connections.json at ${path} unparseable: ${load.why}`,
 			};
-		const applied = await applyLaunchctlFace(load.config, run, resolve);
+		const applied = await applyLaunchctlFace(load.config, run, resolve, probe);
 		return {
 			status: "ok",
 			note: `connections.json present (never overwritten) — ${applied}`,
@@ -126,7 +164,7 @@ export async function wireConnections(
 	const cfg = defaultTemplate(hub);
 	assertNoSecrets(JSON.stringify(cfg));
 	writeDefaultConfig(path, cfg);
-	const applied = await applyLaunchctlFace(cfg, run, resolve);
+	const applied = await applyLaunchctlFace(cfg, run, resolve, probe);
 	return {
 		status: "ok",
 		note: `${GUI_PROXY_ASK} — consented (--yes): wrote ${path} (mode 600, default hub ${hub}) and applied ${applied}`,
