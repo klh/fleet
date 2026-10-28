@@ -190,6 +190,12 @@ export async function runDispatch(
 			take.code === 0
 				? (/claim token: ([0-9a-f]{48})/.exec(take.out)?.[1] ?? null)
 				: null;
+		// W609/W2186: the claim epoch — same capture + pin channels as the
+		// token; the lane CASes done/fail/start on it (work-transition.ts).
+		const takeEpoch =
+			take.code === 0
+				? (/claim epoch: (\d+)/.exec(take.out)?.[1] ?? null)
+				: null;
 		const claim = store
 			.query(
 				"SELECT updated_at FROM work_items WHERE project=? AND id=? AND owner_sid=? AND state IN ('CLAIMED','RUNNING')",
@@ -301,6 +307,7 @@ export async function runDispatch(
 		writeFileSync(`${wt}/.klh-brief.md`, brief);
 		const env = { ...process.env, ...executor.env };
 		if (takeToken) env.KLH_CLAIM_TOKEN = takeToken;
+		if (takeEpoch) env.KLH_CLAIM_EPOCH = takeEpoch;
 		delete env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
 		if (AGENT !== "codex") {
 			env.SUSPENDERS_SID = sid;

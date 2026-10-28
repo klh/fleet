@@ -87,6 +87,12 @@ import {
 import { EFFORTS } from "../lib/work/work-effort.ts";
 import { evidencePatternsOf } from "../lib/work/work-fence.ts";
 import {
+	CLAIM_EPOCH_ENV,
+	fenceEpoch,
+	fenceOf,
+	transitionOrDie,
+} from "../lib/work/work-transition.ts";
+import {
 	amber,
 	cyan,
 	db,
@@ -222,6 +228,11 @@ const dispatchVerb = async (
 	name: string,
 	{ pos, flag, rest }: Parsed,
 ): Promise<void> => {
+	// W609/W2186: the caller's fence epoch — --claim-epoch over the
+	// KLH_CLAIM_EPOCH lane env; absent = unfenced manual path (fenceEpoch
+	// dies on garbage)
+	const claimedEpoch = (): number | null =>
+		fenceEpoch(flag("--claim-epoch"), process.env[CLAIM_EPOCH_ENV], die);
 	if (name === "add") {
 		const title = pos[0];
 		if (!title)
@@ -471,6 +482,12 @@ const dispatchVerb = async (
 			console.log(
 				`claim token: ${claimed.token}  (present it to work done via --token; re-take after a reclaim mints a new one)`,
 			);
+		// W609/W2186: the claim epoch rides the take printout — spawn paths
+		// parse it into the KLH_CLAIM_EPOCH env pin (same channel as the token).
+		if (claimed.epoch !== undefined)
+			console.log(
+				`claim epoch: ${claimed.epoch}  (done/fail/start CAS on it — pass --claim-epoch or ${CLAIM_EPOCH_ENV} in the lane env)`,
+			);
 	} else if (name === "release") {
 		const id = pos[0];
 		const as = flag("--as");
@@ -504,7 +521,13 @@ const dispatchVerb = async (
 			die(
 				`${id} is owned by ${String(it.owner_sid ?? "?").slice(0, 8)} — ${String(as).slice(0, 8)} cannot start it`,
 			);
-		if (it.state !== "RUNNING") setState(id, "RUNNING");
+		if (it.state !== "RUNNING")
+			transitionOrDie(
+				db(),
+				fenceOf(PROJECT, it, claimedEpoch()),
+				{ state: "RUNNING" },
+				die,
+			);
 		console.log(`${green("▶")} ${id}`);
 	} else if (name === "summary") {
 		const id = pos[0];
@@ -578,13 +601,16 @@ const dispatchVerb = async (
 			die(error instanceof Error ? error.message : String(error));
 		}
 		const tx = db().transaction(() => {
-			persistCompletion(db(), record);
-			// W643 CAS: the write lands ONLY on the exact claim the token opened
-			// — state + owner + token-hash in the WHERE; a reclaim+re-take in
-			// flight changes the hash → 0 rows → refused (never clobber).
+			// W643 CAS + W609/W2186 epoch: the write lands ONLY on the exact
+			// claim the token opened AND the epoch the lane was minted —
+			// token-hash + epoch both in the WHERE; a reclaim+re-take in flight
+			// changes both → 0 rows → refused BEFORE any record write (never
+			// clobber, never a mid-tx UNIQUE crash from a record that lost its
+			// race).
+			const epoch = claimedEpoch();
 			const cas = db()
 				.query(
-					"UPDATE work_items SET state = 'DONE', owner_sid = NULL, result_sha = ?, updated_at = ? WHERE project = ? AND id = ? AND state IN ('CLAIMED','RUNNING') AND owner_sid IS ? AND claim_token_hash IS ?",
+					`UPDATE work_items SET state = 'DONE', owner_sid = NULL, result_sha = ?, updated_at = ? WHERE project = ? AND id = ? AND state IN ('CLAIMED','RUNNING') AND owner_sid IS ? AND claim_token_hash IS ?${epoch != null ? " AND claim_epoch = ?" : ""}`,
 				)
 				.run(
 					record.commit_sha,
@@ -593,11 +619,13 @@ const dispatchVerb = async (
 					id,
 					it.owner_sid ?? null,
 					it.claim_token_hash ?? null,
+					...(epoch != null ? [epoch] : []),
 				);
 			if (cas.changes === 0)
 				throw new Error(
 					`${id} claim changed — stale writer refused (never clobber)`,
 				);
+			persistCompletion(db(), record);
 			emit("work.done", id, {
 				sha: record.commit_sha,
 				verified: true,
@@ -742,7 +770,12 @@ const dispatchVerb = async (
 				die(
 					`${id} is not an unfinished claim owned by ${as} — failure refused`,
 				);
-			setState(id, "FAILED");
+			transitionOrDie(
+				db(),
+				fenceOf(PROJECT, it, claimedEpoch()),
+				{ state: "FAILED" },
+				die,
+			);
 			emit("work.failed", id, { note });
 		})();
 		console.log(`${red("✗")} ${id} FAILED${note ? dim(` — ${note}`) : ""}`);
