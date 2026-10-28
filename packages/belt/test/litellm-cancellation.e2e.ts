@@ -51,6 +51,7 @@ test("the real gateway generator enables cancellation in private YAML without ch
 });
 
 test("actual LiteLLM cancels pre-header provider work only when disconnect handling is enabled; streaming cancellation remains intact @unit", async () => {
+	test.setTimeout(30000);
 	const proxyBin = Bun.which("litellm");
 	if (!proxyBin)
 		throw Error(
@@ -327,4 +328,4 @@ test("actual LiteLLM cancels pre-header provider work only when disconnect handl
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
-}, 30000);
+});

@@ -7,6 +7,7 @@ export {
 } from "./scratch-world.ts";
 export { type CliResult, type RunCliOpts, runCli } from "./run-cli.ts";
 export {
+	boundPort,
 	freePort,
 	freePortSync,
 	type WaitUpOpts,

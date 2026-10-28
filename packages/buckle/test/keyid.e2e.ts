@@ -3,7 +3,7 @@
 import { expect, test } from "@playwright/test";
 import { keyIdFromToken, tokenFromHeaders } from "../src/ledger.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	test("keyIdFromToken: credential → stable truncated sha-256, never the token", () => {
 		const id1 = keyIdFromToken("sekrit-token");
 		expect(keyIdFromToken("sekrit-token")).toBe(id1);

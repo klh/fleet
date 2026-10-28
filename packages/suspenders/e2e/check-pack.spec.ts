@@ -21,7 +21,7 @@ import {
 	siblingClosure,
 } from "../scripts/check-pack.ts";
 
-test.describe({ tag: "@pack" }, () => {
+test.describe("@pack", () => {
 	const kinds = (findings: readonly Finding[]): string[] =>
 		findings.map((f) => f.kind);
 

@@ -29,6 +29,7 @@ const h = dispatchHarness(test.afterAll, {
 
 test.describe("W1124.12 fresh worker rides the managed profile", () => {
 	test("lane spawn argv carries strict empty MCP + scoped tools", async () => {
+		test.setTimeout(30000);
 		const id = await h.addItem("worker profile spawn probe");
 		const result = await h.dispatchWith(
 			{ SUSPENDERS_LANE_STARTER: "off" },
@@ -52,7 +53,7 @@ test.describe("W1124.12 fresh worker rides the managed profile", () => {
 		expect(argv[toolsAt + 1]).toBe(WORKER_MANAGED_PROFILE.tools);
 		// hooks stay live — never --bare, never a bypass
 		expect(argv).not.toContain("--bare");
-	}, 30000);
+	});
 });
 
 // W1124.12.1: the serializer quotes EVERY argument (not only space-bearing
@@ -61,6 +62,7 @@ test.describe("W1124.12 fresh worker rides the managed profile", () => {
 // space-free JSON payload (the exact shape the old quoting mangled).
 test.describe("W1124.12.1 spawnClaude argv fidelity", () => {
 	test("every argument survives sh -c with boundaries intact", async () => {
+		test.setTimeout(20000);
 		const dir = join(h.HOME, "argv-fidelity");
 		mkdirSync(dir, { recursive: true });
 		const stub = join(dir, "capture.sh");
@@ -85,7 +87,7 @@ test.describe("W1124.12.1 spawnClaude argv fidelity", () => {
 			"a b",
 			'{"k":"v"}',
 		]);
-	}, 20000);
+	});
 });
 
 });

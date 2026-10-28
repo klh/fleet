@@ -50,7 +50,7 @@ const covered = (sub: string, patterns: string[]): boolean =>
 		);
 	});
 
-test.describe({ tag: "@api" }, () => {
+test.describe("@api", () => {
 	for (const pkg of PACKAGES) {
 		const manifest = readManifest(pkg);
 		const dir = join(ROOT, "packages", pkg);

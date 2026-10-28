@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { Ledger, type RouteAuditDecision } from "../src/ledger.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const selected = "127.0.0.1:4000:glm-5.3-flash";
 	const candidate = createHash("sha256")
 		.update(selected)

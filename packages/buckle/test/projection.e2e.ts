@@ -5,7 +5,7 @@ import { appendFile, rm } from "node:fs/promises";
 import type { Observation } from "../src/observe.ts";
 import { LaneProjection, OutboxTailer } from "../src/projection.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const SRC = "buckle://nas/boot1";
 	let seq = 0;
 	const obs = (

@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { startServer } from "../src/server.ts";
 import { startMockUpstream, type MockUpstream } from "./mock.ts";
 
-test.describe({ tag: "@api" }, () => {
+test.describe("@api", () => {
 	const ROOT = "buckle-guard-root";
 
 	const CHAT = "/v1/chat/completions";
@@ -124,6 +124,7 @@ test.describe({ tag: "@api" }, () => {
 
 	test.describe("W1257.1 outbound guard E2E", () => {
 		test("blocked rung: zero upstream calls, refusal inside the gate", async () => {
+			test.setTimeout(20_000);
 			const blocked = await startMockUpstream(() =>
 				Response.json({ error: { message: "blocked" } }, { status: 500 }),
 			);
@@ -139,9 +140,10 @@ test.describe({ tag: "@api" }, () => {
 				gate.stop();
 				blocked.close();
 			}
-		}, 20_000);
+		});
 
 		test("blocked rung + healthy rung: 200 via the healthy leg, zero blocked calls", async () => {
+			test.setTimeout(20_000);
 			const blocked = await startMockUpstream(() =>
 				Response.json({ error: { message: "blocked" } }, { status: 500 }),
 			);
@@ -165,7 +167,7 @@ test.describe({ tag: "@api" }, () => {
 				blocked.close();
 				healthy.close();
 			}
-		}, 20_000);
+		});
 
 		test("pool load fails closed on malformed guard config", async () => {
 			// W1294.16: startGate rejects async — playwright's toThrow is

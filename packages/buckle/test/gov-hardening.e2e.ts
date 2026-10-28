@@ -13,7 +13,7 @@ import {
 import { hashKey } from "../src/gov/keys.ts";
 import { rootMatches } from "../src/gov/middleware.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const b64 = (s: string): string => Buffer.from(s).toString("base64url");
 	const body = new TextEncoder().encode('{"m":1}');
 

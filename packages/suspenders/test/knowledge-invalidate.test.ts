@@ -100,8 +100,8 @@ describe("w1228 knowledge invalidation", () => {
 			files: ["b.md"],
 			item: "W9",
 			sha: "abc123def456",
-			via: "work.done",
-		} as const;
+			via: "work.done" as const,
+		};
 		const plan = inv.planKnowledgeInvalidation(
 			[{ id, source_ref: "b.md", area: null, fact: "pointer to b.md" }],
 			[{ key: "lesson.f", value: "names b.md too" }],

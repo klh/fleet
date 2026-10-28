@@ -8,7 +8,7 @@ import { Database } from "bun:sqlite";
 import { Budgets } from "../src/gov/budgets.ts";
 import { applyGovernanceSchema } from "../src/gov/schema.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	function fileDb(): Database {
 		const path = `/tmp/w843-spend-${Date.now()}-${process.pid}-${Math.random()
 			.toString(36)

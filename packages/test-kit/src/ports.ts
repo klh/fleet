@@ -1,9 +1,17 @@
 // src/ports.ts — freePort() + waitUp() (W1135.1.3): the audited loopback
 // port-reservation and 100x100ms readiness-poll idioms, verbatim
 // (test/profile.test.ts freePort; test/helpers/board-fixture.ts waitUp).
+
+/** Bun types Server.port as optional (unix-socket servers have none); a TCP
+ *  bind always reports one, so absence is a broken invariant — throw. */
+export const boundPort = (p: number | undefined): number => {
+	if (p === undefined) throw new Error("boundPort: server bound no TCP port");
+	return p;
+};
+
 export const freePort = async (): Promise<number> => {
 	const s = Bun.serve({ port: 0, fetch: () => new Response("ok") });
-	const p = s.port;
+	const p = boundPort(s.port);
 	s.stop(true);
 	return p;
 };
@@ -16,7 +24,7 @@ export const freePortSync = (): number => {
 		port: 0,
 		fetch: () => new Response(),
 	});
-	const p = s.port;
+	const p = boundPort(s.port);
 	s.stop(true);
 	return p;
 };

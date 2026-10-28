@@ -17,7 +17,7 @@ import {
 	type LaneCacheRow,
 } from "../src/cache-boundary.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const b = (over: Partial<CacheBoundary> = {}): CacheBoundary => ({
 		provider: "anthropic",
 		tenant: "ws-1",

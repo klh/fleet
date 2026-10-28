@@ -6,6 +6,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { boundPort } from "@klh/test-kit";
 import type { HopReceipt } from "@klh/telemetry/src/http-trace.ts";
 import { readRemoteTraces } from "@klh/telemetry/src/remote-traces.ts";
 import { Router, UpstreamError } from "../src/router.ts";
@@ -159,7 +160,7 @@ function refusingUpstream(): { port: number; stop(): void } {
 				},
 			),
 	});
-	return { port: upstream.port, stop: () => upstream.stop(true) };
+	return { port: boundPort(upstream.port), stop: () => upstream.stop(true) };
 }
 
 /** The far leg that hangs once the request arrives — the client cancels
@@ -182,7 +183,11 @@ function hangingUpstream(): {
 			return new Response(null, { status: 500 }); // unreachable
 		},
 	});
-	return { port: upstream.port, reached, stop: () => upstream.stop(true) };
+	return {
+		port: boundPort(upstream.port),
+		reached,
+		stop: () => upstream.stop(true),
+	};
 }
 
 type HopHarness = {
@@ -284,6 +289,7 @@ test("remote projection retains refusal attribution across the joined trace", as
 		await response.text();
 		const remote = await readRemoteTraces(peersPath, traceId);
 		const peer = remote.peers[0];
+		if (!peer) throw new Error("remote projection returned no peer");
 		expect(peer.attempts[0]).toMatchObject({
 			status: 429,
 			refusal: "rate_limited",
@@ -295,7 +301,7 @@ test("remote projection retains refusal attribution across the joined trace", as
 	} finally {
 		front.stop(true);
 		server.stop(true);
-		upstream.stop(true);
+		upstream.stop();
 		rmSync(dir, { recursive: true, force: true });
 		if (previousPeers === undefined) delete process.env.BUCKLE_TRACE_PEERS_FILE;
 		else process.env.BUCKLE_TRACE_PEERS_FILE = previousPeers;
@@ -321,7 +327,7 @@ test("a real HTTP cancellation keeps attempt truth in ledger and remote projecti
 		});
 		const conn = await Bun.connect({
 			hostname: "127.0.0.1",
-			port: server.port,
+			port: boundPort(server.port),
 			socket: { data() {} },
 		});
 		conn.write(
@@ -362,6 +368,7 @@ test("a real HTTP cancellation keeps attempt truth in ledger and remote projecti
 		// 2) the authenticated remote connector sees the same truth
 		const remote = await readRemoteTraces(peersPath, traceId);
 		const peer = remote.peers[0];
+		if (!peer) throw new Error("remote projection returned no peer");
 		expect(peer.requests[0]).toMatchObject({
 			ok: 0,
 			status: 499,
@@ -375,7 +382,7 @@ test("a real HTTP cancellation keeps attempt truth in ledger and remote projecti
 		});
 	} finally {
 		server.stop(true);
-		upstream.stop(true);
+		upstream.stop();
 		rmSync(dir, { recursive: true, force: true });
 		if (previousPeers === undefined) delete process.env.BUCKLE_TRACE_PEERS_FILE;
 		else process.env.BUCKLE_TRACE_PEERS_FILE = previousPeers;
@@ -401,6 +408,7 @@ test("remote projection retains the safe request target rows across the joined t
 		await response.text();
 		const remote = await readRemoteTraces(peersPath, traceId);
 		const peer = remote.peers[0];
+		if (!peer) throw new Error("remote projection returned no peer");
 		expect(peer.requests[0]).toMatchObject({
 			ok: 0,
 			status: 429,
@@ -413,7 +421,7 @@ test("remote projection retains the safe request target rows across the joined t
 	} finally {
 		front.stop(true);
 		server.stop(true);
-		upstream.stop(true);
+		upstream.stop();
 		rmSync(dir, { recursive: true, force: true });
 		if (previousPeers === undefined) delete process.env.BUCKLE_TRACE_PEERS_FILE;
 		else process.env.BUCKLE_TRACE_PEERS_FILE = previousPeers;

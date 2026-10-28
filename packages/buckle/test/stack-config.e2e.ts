@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { loadExecutors, type StackExecutor } from "../src/stack-config.ts";
 import { agentRecipes } from "../src/agents.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	let dir: string;
 	let path: string;
 

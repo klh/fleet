@@ -19,7 +19,7 @@ import {
 	scopesToStorage,
 } from "../src/gov/scopes.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	function govDb(): Database {
 		const db = new Database(":memory:", { create: true });
 		applyGovernanceSchema(db);

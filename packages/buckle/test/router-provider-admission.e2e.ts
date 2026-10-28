@@ -9,7 +9,7 @@ import { parsePolicy } from "../src/policy.ts";
 import { Router } from "../src/router.ts";
 import type { Deployment, UpstreamPool } from "../src/upstreams.ts";
 
-test.describe({ tag: "@api" }, () => {
+test.describe("@api", () => {
 	// W1294.16: fixture repaired to the W1253 JSON law — the legacy yaml literal
 	// pre-dates it and died at module load (A/B-proven broken on main).
 	const POLICY = parsePolicy(`{

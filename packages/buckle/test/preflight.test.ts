@@ -9,7 +9,13 @@ import { join } from "node:path";
 
 const BIN = new URL("../bin/preflight.ts", import.meta.url).pathname;
 
-function fixture(dir: string, marked: boolean): Record<string, string> {
+interface Fixture {
+	upstreamsPath: string;
+	stackPath: string;
+	env: Record<string, string>;
+}
+
+function fixture(dir: string, marked: boolean): Fixture {
 	const kind = marked ? { adapter_config: { proxy_kind: "litellm" } } : {};
 	writeFileSync(
 		join(dir, "upstreams.json"),
@@ -58,11 +64,7 @@ function fixture(dir: string, marked: boolean): Record<string, string> {
 	};
 }
 
-function preflight(fix: {
-	upstreamsPath: string;
-	stackPath: string;
-	env: Record<string, string>;
-}): { code: number; out: string } {
+function preflight(fix: Fixture): { code: number; out: string } {
 	const proc = Bun.spawnSync({
 		// --upstreams is the BASE file (replaces the committed default) and
 		// --stack replaces the machine stack; BUCKLE_UPSTREAMS is an

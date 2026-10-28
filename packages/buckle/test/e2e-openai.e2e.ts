@@ -7,7 +7,7 @@ import { testDeps } from "./deps.ts";
 import { createApp, type AppDeps } from "../src/handlers.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
 
-test.describe({ tag: "@api" }, () => {
+test.describe("@api", () => {
 	function deps(pool: UpstreamPool): AppDeps {
 		return testDeps(pool);
 	}

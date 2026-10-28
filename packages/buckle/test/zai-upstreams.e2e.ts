@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { upstreamUrlOf } from "../src/adapters/types.ts";
 import { loadUpstreams } from "../src/upstreams.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const fixture = join(import.meta.dir, "../upstreams.zai.json");
 
 	test.describe("Z.ai hub upstream template", () => {

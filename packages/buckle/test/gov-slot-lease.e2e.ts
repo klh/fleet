@@ -11,7 +11,7 @@ import { Slots } from "../src/gov/slots.ts";
 import { issueViaAdmin, startGate } from "./gate.ts";
 import { startMockUpstream } from "./mock.ts";
 
-test.describe({ tag: "@api" }, () => {
+test.describe("@api", () => {
 	const SLOTS = { global: 1, perTeam: 0 };
 
 	async function issueKey(base: string): Promise<string> {

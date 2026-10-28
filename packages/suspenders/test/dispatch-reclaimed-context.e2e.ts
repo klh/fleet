@@ -13,6 +13,7 @@ const h = dispatchHarness(test.afterAll, {
 });
 
 test("canonical reclaimed dirty context starts a fresh transcript and keeps its baseline", async () => {
+	test.setTimeout(30_000);
 	const stub = stubBuckle(true);
 	let fixturePid: number | undefined;
 	try {
@@ -133,9 +134,10 @@ test("canonical reclaimed dirty context starts a fresh transcript and keeps its 
 		if (fixturePid) process.kill(fixturePid, "SIGTERM");
 		stub.stop();
 	}
-}, 30_000);
+});
 
 test("fresh dirty tree without canonical context cannot be adopted", async () => {
+	test.setTimeout(30_000);
 	const stub = stubBuckle(true);
 	try {
 		const id = await h.addItem("Unrelated dirty tree fixture");
@@ -165,9 +167,10 @@ test("fresh dirty tree without canonical context cannot be adopted", async () =>
 	} finally {
 		stub.stop();
 	}
-}, 30_000);
+});
 
 test("W1730 a released manual tree with its own product launches from its registered original base", async () => {
+	test.setTimeout(30_000);
 	const stub = stubBuckle(true);
 	let fixturePid: number | undefined;
 	try {
@@ -224,5 +227,5 @@ test("W1730 a released manual tree with its own product launches from its regist
 		if (fixturePid) process.kill(fixturePid, "SIGTERM");
 		stub.stop();
 	}
-}, 30_000);
+});
 });

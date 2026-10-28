@@ -72,6 +72,7 @@ const modelFront = (ids: string[]) => {
 
 test.describe("W1124.3 plaid local-coder: dry-run + installed-face launch selection", () => {
 	test("dry-run: the explicit local-coder pin is admitted, health checked at launch", async () => {
+		test.setTimeout(90_000);
 		machineRoutes();
 		plaidPosture();
 		const item = await addItem("W1124.3 local-coder dry-run fixture");
@@ -92,9 +93,10 @@ test.describe("W1124.3 plaid local-coder: dry-run + installed-face launch select
 		} finally {
 			rmSync(join(REPO, ".fleet", "posture"));
 		}
-	}, 90_000);
+	});
 
 	test("installed face: served local-coder is pool-admitted as its own provider", async () => {
+		test.setTimeout(90_000);
 		machineRoutes();
 		plaidPosture();
 		await addItem("W1124.3 local-coder dispatch fixture");
@@ -113,9 +115,10 @@ test.describe("W1124.3 plaid local-coder: dry-run + installed-face launch select
 			front.stop();
 			rmSync(join(REPO, ".fleet", "posture"));
 		}
-	}, 90_000);
+	});
 
 	test("installed face: unserved pin walls the launch (MUST, fail-closed)", async () => {
+		test.setTimeout(90_000);
 		machineRoutes();
 		plaidPosture();
 		const item = await addItem("W1124.3 local-coder unserved fixture");
@@ -137,9 +140,10 @@ test.describe("W1124.3 plaid local-coder: dry-run + installed-face launch select
 			front.stop();
 			rmSync(join(REPO, ".fleet", "posture"));
 		}
-	}, 90_000);
+	});
 
 	test("installed face: unreachable front holds every plaid launch (fail-closed)", async () => {
+		test.setTimeout(90_000);
 		machineRoutes();
 		plaidPosture();
 		const item = await addItem("W1124.3 local-coder dead-front fixture");
@@ -160,7 +164,7 @@ test.describe("W1124.3 plaid local-coder: dry-run + installed-face launch select
 		} finally {
 			rmSync(join(REPO, ".fleet", "posture"));
 		}
-	}, 90_000);
+	});
 });
 
 });

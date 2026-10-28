@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { Ledger } from "../src/ledger.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	test("Buckle joins bounded hop receipts by trace without serving bodies", () => {
 		const ledger = new Ledger(":memory:");
 		const traceId = "a".repeat(32);

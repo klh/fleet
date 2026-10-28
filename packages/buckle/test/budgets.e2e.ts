@@ -4,7 +4,7 @@
 import { expect, test } from "@playwright/test";
 import { BudgetBooks } from "../src/budgets.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const SEC = (n: number): number => 1_800_000_000_000 + n * 1000;
 
 	test.describe("BudgetBooks", () => {

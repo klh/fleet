@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { ProviderAdmissionCore } from "../src/provider-admission-core.ts";
 import { parsePolicy } from "../src/policy.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	test("account recovery configuration is explicit and bounded", () => {
 		const policy = {
 			concurrency: 50,
@@ -56,6 +56,7 @@ test.describe({ tag: "@unit" }, () => {
 	});
 
 	test("rolling healthy evidence recovers pacing without an idle reset", async () => {
+		test.setTimeout(5000);
 		// 1:100 time scale of the installed 500ms base; no provider or machine state.
 		const core = new ProviderAdmissionCore({
 			concurrency: 50,
@@ -91,7 +92,7 @@ test.describe({ tag: "@unit" }, () => {
 		expect(core.snapshot().outstanding).toBe(0);
 		expect(peakActive).toBeLessThan(50);
 		expect(Math.max(...waits)).toBeLessThan(800);
-	}, 5000);
+	});
 
 	async function compareRun(decreasePercent: number, providerGapMs = 0) {
 		const core = new ProviderAdmissionCore({
@@ -145,6 +146,7 @@ test.describe({ tag: "@unit" }, () => {
 	}
 
 	test("explicit recovery horizon trades queue dwell against actual provider refusals", async () => {
+		test.setTimeout(15000);
 		const oldTransient = await compareRun(5),
 			middleTransient = await compareRun(10),
 			newTransient = await compareRun(20);
@@ -179,5 +181,5 @@ test.describe({ tag: "@unit" }, () => {
 				newLimited,
 			}),
 		);
-	}, 15000);
+	});
 });

@@ -629,7 +629,7 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 		id: number,
 		decision: "approve" | "dismiss",
 		opts: { by?: string; note?: string; supersededBy?: number | null } = {},
-	): Promise<{ ok: boolean; retired: boolean }> {
+	): Promise<{ ok: boolean; retired: boolean; stale?: boolean }> {
 		// W1227: consolidation proposals (kind consolidate-*) execute through
 		// their own CAS transaction — approve applies the MINTED payload.
 		const head = this.db

@@ -9,7 +9,7 @@ import {
 	type BenchRow,
 } from "../src/shadow-week.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const row = (over: Partial<BenchRow>): BenchRow => ({
 		scenario: "stream-short",
 		gate: true,

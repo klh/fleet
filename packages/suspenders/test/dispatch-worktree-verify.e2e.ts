@@ -17,6 +17,7 @@ const { HOME, REPO, toolA, dispatchA, addItem } = dispatchHarness(test.afterAll,
 
 test.describe("leftover worktree verification before spawn (W349)", () => {
 	test("wrong-branch leftover is recreated before spawn", async () => {
+		test.setTimeout(60_000);
 		const stub = stubBuckle(true);
 		const id = await addItem("W349 wrong-branch leftover fixture");
 		const sid = laneSid(id, projectIdentity(REPO));
@@ -48,9 +49,10 @@ test.describe("leftover worktree verification before spawn (W349)", () => {
 		expect(existsSync(join(dir, ".klh-brief.md"))).toBe(true);
 		stub.stop();
 		rmSync(join(REPO, ".fleet", "lanes.json"), { force: true });
-	}, 60_000);
+	});
 
 	test("dirty wrong-branch leftover refuses the spawn and keeps the residue", async () => {
+		test.setTimeout(60_000);
 		const stub = stubBuckle(true);
 		const id = await addItem("W349 dirty leftover fixture");
 		const sid = laneSid(id, projectIdentity(REPO));
@@ -80,9 +82,10 @@ test.describe("leftover worktree verification before spawn (W349)", () => {
 		).toBe("READY");
 		stub.stop();
 		rmSync(join(REPO, ".fleet", "lanes.json"), { force: true });
-	}, 60_000);
+	});
 
 	test("right-branch residue refuses a fresh spawn; a resume stands", async () => {
+		test.setTimeout(60_000);
 		const stub = stubBuckle(true);
 		const id = await addItem("W349 unbanked residue fixture");
 		const sid = laneSid(id, projectIdentity(REPO));
@@ -124,9 +127,10 @@ test.describe("leftover worktree verification before spawn (W349)", () => {
 		expect(existsSync(join(dir, ".klh-brief.md"))).toBe(true);
 		stub.stop();
 		rmSync(join(REPO, ".fleet", "lanes.json"), { force: true });
-	}, 60_000);
+	});
 
 	test("dry-run previews the recreation without performing it", async () => {
+		test.setTimeout(60_000);
 		const id = await addItem("W349 dry-run leftover fixture");
 		const sid = laneSid(id, projectIdentity(REPO));
 		// W870: take provisions the tree — no explicit create needed
@@ -148,7 +152,7 @@ test.describe("leftover worktree verification before spawn (W349)", () => {
 				.stdout.toString()
 				.trim(),
 		).toBe(`suspenders/foreign-${id}`);
-	}, 60_000);
+	});
 });
 
 });

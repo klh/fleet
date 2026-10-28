@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { ProviderAdmissionCore } from "../src/provider-admission-core.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const policy = {
 		concurrency: 50,
 		intervalCap: 1,
@@ -12,6 +12,7 @@ test.describe({ tag: "@unit" }, () => {
 	};
 
 	test("forty callers complete 202 useful turns around fourteen delayed pressure signals", async () => {
+		test.setTimeout(15_000);
 		const core = new ProviderAdmissionCore(policy);
 		let attempts = 0,
 			useful = 0,
@@ -59,7 +60,7 @@ test.describe({ tag: "@unit" }, () => {
 		expect(peakGap).toBeLessThanOrEqual(32);
 		expect(p95).toBeLessThan(1000);
 		expect(core.snapshot().outstanding).toBe(0);
-	}, 15_000);
+	});
 
 	test("fresh RetryAfter survives coalescing and stale successful feedback", async () => {
 		const core = new ProviderAdmissionCore({ ...policy, intervalMs: 10 });

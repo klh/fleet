@@ -76,6 +76,7 @@ test("detail paginates by cursor over the scoped edge rows", async () => {
 });
 
 test("the stream snapshots, pushes server-filtered deltas, and signals resync", async () => {
+	test.setTimeout(15_000);
 	const ac = new AbortController();
 	const stream = await fetch(
 		`${f.BASE}/api/lane-model/stream?peer=stream-peer`,
@@ -113,5 +114,5 @@ test("the stream snapshots, pushes server-filtered deltas, and signals resync", 
 	expect(await readUntil("event: delta")).toBe(true);
 	expect(seen.join("")).toContain("stream-lane");
 	ac.abort();
-}, 15_000);
+});
 

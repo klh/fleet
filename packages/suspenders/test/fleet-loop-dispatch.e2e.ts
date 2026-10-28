@@ -144,6 +144,7 @@ test.describe("codex dispatch workspace parity", () => {
 });
 
 test("direct launch survives registry loss, rejects duplicate and retains budget after reclaim", async () => {
+	test.setTimeout(30000);
 	const newItem =
 		(tool("work.ts", "add", "direct crash fence fixture").out.match(/W\d+/) ??
 			[])[0] ?? "";
@@ -239,7 +240,7 @@ test("direct launch survives registry loss, rejects duplicate and retains budget
 		writeFileSync(stop, "stop");
 		db.close();
 	}
-}, 30000);
+});
 
 test("actual supported work show uses canonical checkout and holds mismatched project", async () => {
 	const { canonicalWorkClaim } = await import(

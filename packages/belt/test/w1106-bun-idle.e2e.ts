@@ -173,6 +173,7 @@ test.describe("W1106 Bun idle law on active inference hops", () => {
 	});
 
 	test("model-proxy as MAIN survives a quiet SSE turn past the idle default @unit", async () => {
+		test.setTimeout(20_000);
 		const world = scratchWorld();
 		const home = world.home;
 		const upstream = quietSseUpstream();
@@ -218,7 +219,7 @@ test.describe("W1106 Bun idle law on active inference hops", () => {
 			upstream.stop(true);
 			world.clean();
 		}
-	}, 20_000);
+	});
 
 	test("model-proxy chat: client abort propagates into the upstream body @unit", async () => {
 		// one chunk, then silent-until-cancelled — cancel() firing proves

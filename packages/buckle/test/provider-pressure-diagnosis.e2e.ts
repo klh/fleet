@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { ProviderAdmissionCore } from "../src/provider-admission-core.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	type Pressure = "concurrency" | "rate";
 	async function run(
 		typed: boolean,
@@ -89,6 +89,7 @@ test.describe({ tag: "@unit" }, () => {
 	}
 
 	test("matched forty-caller pressure shapes retain queue and refusal evidence", async () => {
+		test.setTimeout(60000);
 		const results = [];
 		for (const serviceMs of [8, 20, 50])
 			for (const wall of ["occupancy", "rate", "mixed"] as const) {
@@ -109,5 +110,5 @@ test.describe({ tag: "@unit" }, () => {
 				results,
 			}),
 		);
-	}, 60000);
+	});
 });

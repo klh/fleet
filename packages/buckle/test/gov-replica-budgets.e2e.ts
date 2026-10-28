@@ -12,7 +12,7 @@ import { Budgets } from "../src/gov/budgets.ts";
 import { Slots, slotsFromEnv } from "../src/gov/slots.ts";
 import { applyGovernanceSchema } from "../src/gov/schema.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	// W1135.1.7: scratch db dirs go to mkdtemp, cleaned after the suite.
 	const tmpDirs: string[] = [];
 	test.afterAll(() => {

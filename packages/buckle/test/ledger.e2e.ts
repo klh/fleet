@@ -2,7 +2,7 @@
 import { expect, test } from "@playwright/test";
 import { Ledger } from "../src/ledger.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	test.describe("Ledger", () => {
 		test("upsert-adds within one hour bucket", () => {
 			const db = new Ledger(":memory:");

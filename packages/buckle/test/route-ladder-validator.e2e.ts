@@ -3,7 +3,7 @@ import { validateRouteLadders } from "../src/route-ladder-validator.ts";
 import type { GatewayPolicy } from "../src/policy.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	function pool(
 		rows: Record<
 			string,

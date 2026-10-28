@@ -2,7 +2,7 @@
 import { expect, test } from "@playwright/test";
 import { Cooldowns } from "../src/cooldown.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const mkDep = (group: string, url: string) => ({
 		group,
 		url,

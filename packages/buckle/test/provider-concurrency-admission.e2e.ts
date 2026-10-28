@@ -7,7 +7,7 @@ import {
 } from "../src/provider-admission-core.ts";
 import { Router } from "../src/router.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const policy = {
 		concurrency: 6,
 		intervalCap: 6,

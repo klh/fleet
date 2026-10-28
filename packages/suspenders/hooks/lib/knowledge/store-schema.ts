@@ -202,7 +202,7 @@ export interface KnowledgeStore {
 		id: number,
 		decision: "approve" | "dismiss",
 		opts?: { by?: string; note?: string; supersededBy?: number | null },
-	): Promise<{ ok: boolean; retired: boolean }>;
+	): Promise<{ ok: boolean; retired: boolean; stale?: boolean }>; // stale: W1227 consolidate CAS refusal
 	// W1227 consolidation: similarity proposes (never auto-deletes); the
 	// dispose gate executes via disposeProposal's kind dispatch. No inference
 	// leg today — when one lands it rides Buckle only.

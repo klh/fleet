@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadUpstreams, mergeUpstreams } from "../src/upstreams.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const dirs: string[] = [];
 	const scratch = (): string => {
 		const d = mkdtempSync(join(tmpdir(), "buckle-inherit-"));

@@ -6,7 +6,7 @@ import type { GatewayPolicy } from "../src/policy.ts";
 import { Router } from "../src/router.ts";
 import type { Dialect, UpstreamPool } from "../src/upstreams.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const POLICY: GatewayPolicy = {
 		num_retries: 1,
 		allowed_fails: 3,

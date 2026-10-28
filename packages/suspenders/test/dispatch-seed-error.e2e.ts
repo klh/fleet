@@ -16,6 +16,7 @@ const { HOME, REPO, tool, dispatchWith } = dispatchHarness(test.afterAll, {
 
 test.describe("W695.1 starter-seed error propagation", () => {
 	test("seed failure surfaces exit code + stderr tail + preflight + registry row", async () => {
+		test.setTimeout(30000);
 		const added = tool("work.ts", "add", "seed error propagation probe");
 		const id = added.out.match(/W\d+/)?.[0] ?? "";
 		expect(id).toBeTruthy();
@@ -45,7 +46,7 @@ test.describe("W695.1 starter-seed error propagation", () => {
 		const mine = lanes.find((l) => l.item === id);
 		expect(mine?.seedError?.phase).toBe("starter-seed");
 		expect(mine?.seedError?.preflight).toBeUndefined();
-	}, 30000);
+	});
 });
 
 });

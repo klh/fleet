@@ -13,7 +13,7 @@ import { createApp, type AppDeps } from "../src/handlers.ts";
 import { parsePolicy } from "../src/policy.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
 
-test.describe({ tag: "@api" }, () => {
+test.describe("@api", () => {
 	const postChat = (
 		app: AppDeps extends never
 			? never

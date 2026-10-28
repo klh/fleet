@@ -227,7 +227,7 @@ test("tokens + jaccard: >2-char lowercase tokens, identical = 1, disjoint = 0", 
 });
 
 test("consolidateBetter + consolidatedFact: evidence > confidence > recency", () => {
-	const mk = (o: Partial<ConsolidateRowShape>): ConsolidateRowShape => ({
+	const mk = (o: Partial<ConsolidateRowShape> = {}): ConsolidateRowShape => ({
 		id: 0,
 		topic: "",
 		fact: "",

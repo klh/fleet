@@ -15,7 +15,7 @@ import { CandidateTable } from "../src/candidates.ts";
 import { Cooldowns } from "../src/cooldown.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const cd = new Cooldowns(3, 30);
 
 	test.describe("residency — floor + resolution", () => {

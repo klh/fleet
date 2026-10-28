@@ -281,6 +281,7 @@ test("CLI scoped orphan listing and expected-owner reclaim preserve other claims
 });
 
 test("authoritative remote guarded release is one transaction and refused guard changes nothing", async () => {
+	test.setTimeout(30000);
 	const home = tmpDir("work-release-remote-");
 	directories.push(home);
 	const reservation = Bun.serve({
@@ -381,6 +382,6 @@ test("authoritative remote guarded release is one transaction and refused guard 
 		server.kill("SIGKILL");
 		await server.exited;
 	}
-}, 30000);
+});
 
 });

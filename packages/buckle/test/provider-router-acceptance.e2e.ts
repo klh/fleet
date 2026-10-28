@@ -29,7 +29,7 @@ const request = (group: string, signal?: AbortSignal) => ({
 	key: "",
 	signal,
 });
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	test("account aliases share a lease until the response body reaches EOF", async () => {
 		let close!: () => void;
 		let starts = 0;

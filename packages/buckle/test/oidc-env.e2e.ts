@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 import { claimSatisfiesScope, createJwtValidator } from "../src/gov/jwt.ts";
 import { oidcGateOptsFromEnv } from "../src/gov/oidc-env.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const FULL = {
 		BUCKLE_OIDC_ISSUER: "https://login.microsoftonline.com/t372/v2.0",
 		BUCKLE_OIDC_JWKS_URI:

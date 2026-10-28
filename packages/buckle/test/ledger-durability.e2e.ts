@@ -4,7 +4,7 @@
 import { expect, test } from "@playwright/test";
 import { Ledger } from "../src/ledger.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const rec = (in_tok: number): Parameters<Ledger["record"]>[0] => ({
 		key: "",
 		group: "g",

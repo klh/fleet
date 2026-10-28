@@ -26,7 +26,7 @@ const BASE_ROW = {
 	hop: "origin" as const,
 };
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	test("W925 keyset cursor walks a >500 same-ts tie group", () => {
 		const ledger = new Ledger(
 			`/tmp/buckle-w925-keyset-${Date.now()}-${process.pid}.db`,

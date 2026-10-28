@@ -66,16 +66,16 @@ export async function cmdSteer(rest: string[]): Promise<void> {
 	const decide = rest.includes("--decide");
 	const targetNeedle = rest[0];
 	const text = rest[1];
-	if (!targetNeedle || (!decide && !text))
-		die(
-			'usage: steer <sid|label> "input" [--as sid] | steer <sid|label> --decide',
-		);
+	const usage =
+		'usage: steer <sid|label> "input" [--as sid] | steer <sid|label> --decide';
+	if (!targetNeedle || (!decide && !text)) return die(usage);
 	const root = canonicalProjectRoot(process.cwd());
 	const { target, deferred } = resolveMessageTarget(targetNeedle);
 	if (decide) {
 		await reportSteerDecision(root, target.sid);
 		return;
 	}
+	if (!text) return die(usage); // narrows: --decide returned above
 	if (existsSync(join(root, ".fleet", STEER_PAUSE_FILE)))
 		die(`steering paused — .fleet/${STEER_PAUSE_FILE} kill switch is set`);
 	const hits = scanLine(text, scrubRules());

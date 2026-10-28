@@ -113,7 +113,7 @@ describe("mirror writer — mutating commands export the graph", () => {
 		const lines = mirrorLines(REPO);
 		expect(lines.length).toBe(2); // one item + meta
 		const items = lines.slice(0, -1).map((l) => JSON.parse(l));
-		const meta = JSON.parse(lines[lines.length - 1]);
+		const meta = JSON.parse(lines.at(-1) ?? "{}");
 		expect(meta.type).toBe("meta");
 		expect(meta.project).toBe(pid(REPO));
 		expect(meta.count).toBe(items.length);
@@ -133,9 +133,9 @@ describe("mirror writer — mutating commands export the graph", () => {
 		const items = mirrorItems(REPO);
 		const ta = items.find((i) => i.id === a);
 		const tb = items.find((i) => i.id === b);
-		expect(ta.state).toBe("CLAIMED");
-		expect(ta.owner_sid).toBe("mirror-lane");
-		expect(tb.deps).toEqual([a]);
+		expect(ta?.state).toBe("CLAIMED");
+		expect(ta?.owner_sid).toBe("mirror-lane");
+		expect(tb?.deps).toEqual([a]);
 	});
 
 	test("reads with rows in the DB never touch the mirror", () => {
@@ -224,10 +224,10 @@ describe("meta bookkeeping", () => {
 		work("add", "meta probe one");
 		work("add", "meta probe two");
 		const items = mirrorItems(REPO);
-		const meta = JSON.parse(mirrorLines(REPO).slice(-1)[0]);
+		const meta = JSON.parse(mirrorLines(REPO).at(-1) ?? "{}");
 		expect(meta.count).toBe(items.length);
 		expect(meta.count).toBeGreaterThanOrEqual(5);
-		const maxDb = Math.max(...items.map((i) => i.updated_at));
+		const maxDb = Math.max(...items.map((i) => Number(i.updated_at)));
 		expect(meta.max_updated_at).toBe(maxDb);
 	});
 });
@@ -259,7 +259,7 @@ describe("W1129 mirror events — timing replay survives the mirror read", () =>
 			.slice(0, -1)
 			.map((l) => JSON.parse(l) as Record<string, unknown>)
 			.filter((o) => o.type === "event");
-		const meta = JSON.parse(mirrorLines(REPO).slice(-1)[0]);
+		const meta = JSON.parse(mirrorLines(REPO).at(-1) ?? "{}");
 		expect(meta.events).toBe(objs.length);
 		expect(meta.events_truncated).toBe(false);
 		expect(objs.map((e) => e.kind)).toContain("work.claimed");

@@ -216,8 +216,9 @@ export function promoteLandedFindings(
 function touchedFiles(
 	repo: string,
 	base: string | null | undefined,
-	sha: string,
+	sha: string | null | undefined,
 ): string[] | null {
+	if (!sha) return null; // no landing sha — nothing to diff (fail-open)
 	const argv = base
 		? ["git", "-C", repo, "diff", "--name-only", `${base}..${sha}`]
 		: ["git", "-C", repo, "show", "--name-only", "--pretty=format:", sha];

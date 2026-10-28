@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { startServer } from "../src/server.ts";
 import { type MockUpstream, startMockUpstream } from "./mock.ts";
 
-test.describe({ tag: "@api" }, () => {
+test.describe("@api", () => {
 	const PRIOR_LITELLM_KEY = process.env.LITELLM_KEY;
 	const ENGINE_KEY = "litellm-master-key-fixture";
 	process.env.LITELLM_KEY = ENGINE_KEY;

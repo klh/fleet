@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadUpstreams } from "../src/upstreams.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	test.describe("configured deployment priority", () => {
 		test("loads numeric priority and refuses invalid values", () => {
 			const dir = mkdtempSync(join(tmpdir(), "buckle-priority-"));

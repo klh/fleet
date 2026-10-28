@@ -341,6 +341,7 @@ test.describe("prisma preflight — alert, never auto-install", () => {
 	});
 
 	test("failing preflight → logged once + alert even while up @unit", async () => {
+		test.setTimeout(15_000);
 		const port = freePort();
 		const f = files();
 		const t = litellmTarget({
@@ -381,7 +382,7 @@ test.describe("prisma preflight — alert, never auto-install", () => {
 		} finally {
 			engine.stop(true);
 		}
-	}, 15_000);
+	});
 });
 
 test.describe("native LiteLLM Prometheus metrics dependency", () => {
@@ -416,6 +417,7 @@ test.describe("native LiteLLM Prometheus metrics dependency", () => {
 
 test.describe("supervision — stub litellm spawn/kill/respawn/backoff", () => {
 	test("spawned with keys from files, killed, respawned inside backoff, healthy again @unit", async () => {
+		test.setTimeout(20_000);
 		const port = freePort();
 		const f = files();
 		let spawns = 0;
@@ -466,9 +468,10 @@ test.describe("supervision — stub litellm spawn/kill/respawn/backoff", () => {
 
 		sup.stop(true);
 		await done;
-	}, 20_000);
+	});
 
 	test("missing keys → spawn fails loudly, breaker caps the retries @unit", async () => {
+		test.setTimeout(15_000);
 		const port = freePort();
 		const f = files();
 		const t = litellmTarget({
@@ -492,7 +495,7 @@ test.describe("supervision — stub litellm spawn/kill/respawn/backoff", () => {
 		expect(readFileSync(f.logFile, "utf8")).toContain("missing LITELLM_KEY");
 		sup.stop(true);
 		await done;
-	}, 15_000);
+	});
 
 	test("wedged engine (bound, 500s) is killed after hungThreshold and respawned @unit", async () => {
 		const port = freePort();

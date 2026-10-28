@@ -6,7 +6,7 @@ import { expect, test } from "@playwright/test";
 import { buildSettleFact } from "@klh/telemetry/src/http-trace.ts";
 import { Ledger } from "../src/ledger.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const TRACE = "a".repeat(32);
 
 	test("buildSettleFact clamps offsets and reduces errors to a bounded kind", () => {

@@ -3,7 +3,7 @@
 import { expect, test } from "@playwright/test";
 import { Ledger } from "../src/ledger.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const rec = (n: number, pad = "") => ({
 		key: pad,
 		group: `g${n}`,

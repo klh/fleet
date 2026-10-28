@@ -2,7 +2,7 @@
 import { expect, test } from "@playwright/test";
 import { retryAfterS, retryDelayS } from "../src/cooldown.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	test.describe("retryDelayS", () => {
 		test("zero provider wait cannot collapse retries into an immediate burst", () => {
 			expect(retryDelayS(0, 0, () => 0, 8, 60)).toBe(1);

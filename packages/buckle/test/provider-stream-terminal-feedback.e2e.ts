@@ -4,7 +4,7 @@ import {
 	ProviderAdmissionCore,
 } from "../src/provider-admission-core.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const policy = {
 		concurrency: 2,
 		intervalCap: 2,

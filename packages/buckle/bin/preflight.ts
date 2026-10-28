@@ -29,7 +29,7 @@ import {
 } from "../src/route-ladder-validator.ts";
 import { loadGatewayPolicy, parsePolicy } from "../src/policy.ts";
 import type { GatewayPolicy } from "../src/policy.ts";
-import { loadUpstreams } from "../src/upstreams.ts";
+import { type Deployment, loadUpstreams } from "../src/upstreams.ts";
 
 const arg = (name: string): string | null => {
 	const i = process.argv.indexOf(`--${name}`);
@@ -46,10 +46,12 @@ const litellmPath =
 const stackPath =
 	arg("stack") ?? process.env.KLH_STACK ?? `${home}/.config/klh/stack.json`;
 
-const die = (message: string): never => {
+// a function declaration (not an arrow const) so TS narrows definite
+// assignment across die() calls below
+function die(message: string): never {
 	console.error(`preflight: ${message}`);
 	process.exit(2);
-};
+}
 
 // ── upstream pool: the live machine file is the default base ───────────────
 const explicitUpstreams = arg("upstreams");
@@ -234,11 +236,12 @@ const buckles: BuckleRouteConfig[] = [
 				pool: {
 					groups: () => groups,
 					deployments: (group: string) =>
-						(rows[group] ?? []).map((row) => ({
-							...row,
-							group,
-							dialect: "openai" as const,
-						})),
+						// stack.json rows are opaque JSON; the validator reads
+						// url defensively, so the Deployment shape is asserted
+						(rows[group] ?? []).map(
+							(row) =>
+								({ ...row, group, dialect: "openai" }) as unknown as Deployment,
+						),
 				},
 				terminals: ownTerminals,
 			},

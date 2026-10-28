@@ -10,7 +10,7 @@ import { parsePolicy } from "../src/policy.ts";
 import { Router } from "../src/router.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const POLICY = parsePolicy(
 		'{"gateway":{"num_retries":1,"allowed_fails":99,"cooldown_time":30,"fallbacks":{"glm-5.3-flash":["gpt-5.2"]}},"tags":{"glm-5.3-flash":["fast","cheap","general"],"gpt-5.2":["frontier","reasoning","code"]}}',
 	);

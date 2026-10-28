@@ -11,7 +11,7 @@ import {
 	TokenBucket,
 } from "../src/gov/store-auth.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	function govDb(): Database {
 		const db = new Database(":memory:", { create: true });
 		applyGovernanceSchema(db);

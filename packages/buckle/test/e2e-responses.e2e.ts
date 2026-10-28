@@ -13,7 +13,7 @@ import { createApp, type AppDeps } from "../src/handlers.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
 import { issueViaAdmin, startGate } from "./gate.ts";
 
-test.describe({ tag: "@api" }, () => {
+test.describe("@api", () => {
 	const INBOUND = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 
 	function poolOf(url: string): UpstreamPool {

@@ -282,14 +282,17 @@ export function planConsolidation(
 // under CAS. The carry block records both sides' provenance: the audit trail
 // of what the merged row must retain (CrewAI source-drop regression guard).
 function buildDraft(v: PairVerdict): ConsolidationDraft {
+	const action = v.action;
+	if (action === "retain")
+		throw new Error("buildDraft: a retain verdict drafts no proposal");
 	const nominee = v.loser;
 	const winner = v.winner;
 	const reason =
-		v.action === "delete"
+		action === "delete"
 			? `consolidate-delete: k#${nominee.id} restates k#${winner.id} (overlap ${v.sim.toFixed(2)}) — approve retires k#${nominee.id} superseded-by k#${winner.id}`
 			: `consolidate-update: k#${nominee.id} overlaps k#${winner.id} (${v.sim.toFixed(2)}) — approve merges the residue into k#${winner.id} and retires k#${nominee.id} superseded-by k#${winner.id}; provenance carried forward`;
 	const payload = JSON.stringify({
-		action: v.action,
+		action,
 		nominee: { id: nominee.id, version: nominee.version },
 		winner: { id: winner.id, version: winner.version },
 		sim: v.sim,
@@ -297,7 +300,7 @@ function buildDraft(v: PairVerdict): ConsolidationDraft {
 		carry: { winner: provenanceOf(winner), loser: provenanceOf(nominee) },
 	});
 	return {
-		action: v.action,
+		action,
 		nominee,
 		winner,
 		sim: v.sim,

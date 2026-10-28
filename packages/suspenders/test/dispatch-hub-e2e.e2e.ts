@@ -133,6 +133,7 @@ test.afterAll(() => {
 
 test.describe("multi-hub dispatch e2e (W357): .prefer hub= candidates walk", () => {
 	test("prefer DESKTOP: first ALIVE candidate wins over NAS (preference = candidate order)", async () => {
+		test.setTimeout(90_000);
 		const { id, sid, out, envDump } = await dispatchHubCase(["hub=DESKTOP"], {
 			DESKTOP: {
 				candidates: [DESKTOP_URL, NAS_URL],
@@ -159,9 +160,10 @@ test.describe("multi-hub dispatch e2e (W357): .prefer hub= candidates walk", () 
 		expect(row.agent?.startsWith("[DESKTOP]")).toBe(true);
 		// fixture hygiene: the item really was dispatched (claim left on it)
 		expect(out).toContain(id);
-	}, 90_000);
+	});
 
 	test("failover: dead DESKTOP candidate falls through to the live NAS candidate", async () => {
+		test.setTimeout(90_000);
 		const { sid, out, envDump } = await dispatchHubCase(["hub=DESKTOP"], {
 			DESKTOP: {
 				candidates: ["http://127.0.0.1:1", NAS_URL],
@@ -177,9 +179,10 @@ test.describe("multi-hub dispatch e2e (W357): .prefer hub= candidates walk", () 
 		expect(laneSettings(sid).env.ANTHROPIC_AUTH_TOKEN).toBe("bksk_nas_minted");
 		expect(envDump).toContain("SUSPENDERS_HUB=DESKTOP");
 		expect(laneRow(sid).hub).toBe("DESKTOP");
-	}, 90_000);
+	});
 
 	test("repo one-off hub-url outranks the global registry (most specific intent wins)", async () => {
+		test.setTimeout(90_000);
 		const { sid, out, envDump } = await dispatchHubCase(
 			["hub=DESKTOP", `hub-url=${ONEOFF_URL}`],
 			{ DESKTOP: { candidates: [NAS_URL], token: "bksk_desktop_admin" } },
@@ -194,9 +197,10 @@ test.describe("multi-hub dispatch e2e (W357): .prefer hub= candidates walk", () 
 			"bksk_oneoff_minted",
 		);
 		expect(envDump).toContain("SUSPENDERS_HUB_VIA=prefer hub-url");
-	}, 90_000);
+	});
 
 	test("unreachable fallback: all candidates dead -> loud local-belt note, hub env absent, belt base pinned", async () => {
+		test.setTimeout(120_000);
 		// GHOST label (hub-locate.test.ts convention): the resolver's
 		// mdns-guess step would otherwise hit the real desktop.local spoke
 		// on a live dev machine — the null-proof must not depend on LAN state
@@ -221,7 +225,7 @@ test.describe("multi-hub dispatch e2e (W357): .prefer hub= candidates walk", () 
 			"utf8",
 		);
 		expect(wtBrief).toContain("GOVERNANCE: UNGOVERNED DISPATCH");
-	}, 120_000);
+	});
 });
 
 });

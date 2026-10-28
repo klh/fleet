@@ -10,6 +10,7 @@ const { HOME, REPO, g, addItem, dispatchA, toolA } = dispatchHarness(test.afterA
 });
 
 test("attributable internal route failures hold before claim and key mint", async () => {
+	test.setTimeout(60_000);
 	const calls: string[] = [];
 	const server = Bun.serve({
 		port: 0,
@@ -67,6 +68,6 @@ test("attributable internal route failures hold before claim and key mint", asyn
 	} finally {
 		server.stop(true);
 	}
-}, 60_000);
+});
 
 });

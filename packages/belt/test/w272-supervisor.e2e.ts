@@ -118,6 +118,7 @@ test.describe("policy", () => {
 
 test.describe("supervisor — real stub children on stub ports", () => {
 	test("orphan adopted, then its death is detected and the shim respawned + bound @unit", async () => {
+		test.setTimeout(20_000);
 		const port = freePort();
 		// pre-existing server NOT spawned by the supervisor (the PPID-1 orphan)
 		const orphan = Bun.serve({
@@ -179,7 +180,7 @@ test.describe("supervisor — real stub children on stub ports", () => {
 
 		sup.stop(true);
 		await done;
-	}, 20_000);
+	});
 
 	test("healthy router with an old code revision is replaced without touching a model @unit", async () => {
 		let desired = "revision-a";
@@ -402,6 +403,7 @@ test.describe("supervisor — real stub children on stub ports", () => {
 		return f;
 	}
 	test("probe-after-respawn: a live pid that never binds is NOT up @unit", async () => {
+		test.setTimeout(10_000);
 		const port = freePort();
 		const kills: number[] = [];
 		const t: Target = {
@@ -436,7 +438,7 @@ test.describe("supervisor — real stub children on stub ports", () => {
 		);
 		sup.stop(true);
 		await done;
-	}, 10_000);
+	});
 });
 
 test.describe("supervisor — stub probes + fake children", () => {
@@ -590,6 +592,7 @@ test.describe("supervisor — stub probes + fake children", () => {
 	});
 
 	test("crash loop backs off exponentially @unit", async () => {
+		test.setTimeout(15_000);
 		const at: number[] = [];
 		const t: Target = {
 			name: "crashy",
@@ -618,7 +621,7 @@ test.describe("supervisor — stub probes + fake children", () => {
 		for (let i = 1; i < gaps.length; i++)
 			expect(gaps[i] as number).toBeGreaterThan(gaps[i - 1] as number);
 		expect(gaps[3] as number).toBeGreaterThanOrEqual(600);
-	}, 15_000);
+	});
 
 	test("circuit breaker stops respawning after N restarts and marks unhealthy @unit", async () => {
 		let spawns = 0;

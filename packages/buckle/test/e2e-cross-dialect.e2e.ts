@@ -11,7 +11,7 @@ import type { Deployment, UpstreamPool } from "../src/upstreams.ts";
 import { testDeps } from "./deps.ts";
 import { type MockUpstream, startMockUpstream } from "./mock.ts";
 
-test.describe({ tag: "@api" }, () => {
+test.describe("@api", () => {
 	const GROUP = "duo";
 
 	function poolOf(deps: Array<Omit<Deployment, "group">>): UpstreamPool {

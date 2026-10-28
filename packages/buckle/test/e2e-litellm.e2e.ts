@@ -15,7 +15,7 @@ import { startServer } from "../src/server.ts";
 import { startMockUpstream, type MockUpstream } from "./mock.ts";
 import { issueViaAdmin } from "./gate.ts";
 
-test.describe({ tag: "@api" }, () => {
+test.describe("@api", () => {
 	const ROOT = "buckle-litellm-root";
 
 	// The engine fixture enforces litellm's master_key: a row without
@@ -164,6 +164,7 @@ test.describe({ tag: "@api" }, () => {
 
 	test.describe("W219.1 litellm-as-engine", () => {
 		test("engine answers behind the gate with full audit; down degrades by ladder; denials never reach it", async () => {
+			test.setTimeout(20_000);
 			const engine = await startLitellmFixture();
 			const direct = await startMockUpstream(() =>
 				Response.json({
@@ -275,6 +276,6 @@ test.describe({ tag: "@api" }, () => {
 				engine.up.close();
 				direct.close();
 			}
-		}, 20_000);
+		});
 	});
 });

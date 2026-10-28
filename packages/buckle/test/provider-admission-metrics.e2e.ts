@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { providerAdmissionMetrics } from "../src/provider-admission-metrics.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	test("pool metrics use only fixed numeric fields and escaped configured IDs", () => {
 		const text = providerAdmissionMetrics({
 			'account"\n\\': {

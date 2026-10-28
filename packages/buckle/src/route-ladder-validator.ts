@@ -23,7 +23,8 @@ export interface BuckleRouteConfig {
 export interface LiteLlmRouteConfig {
 	id: string;
 	origins: string[];
-	config: unknown;
+	/** Parsed engine config; absent on `unverified` rows (no proof held). */
+	config?: unknown;
 	/** W1094: true = the origin is a known engine but this snapshot holds NO
 	 *  config proof (a hub-side engine seen from the Mac). Rows targeting it
 	 *  are reported unverified_engine — never silently green, never failed

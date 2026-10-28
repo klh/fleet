@@ -6,7 +6,7 @@ import { GENESIS, verifyAuthChain } from "../src/gov/audit-chain.ts";
 import { KeyStore } from "../src/gov/keys.ts";
 import { applyGovernanceSchema } from "../src/gov/schema.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	function seeded(n = 5): { db: Database; ks: KeyStore } {
 		const db = new Database(":memory:", { create: true });
 		applyGovernanceSchema(db);

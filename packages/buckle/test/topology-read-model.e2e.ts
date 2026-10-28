@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { LaneProjection } from "../src/projection.ts";
 import { topologySnapshot } from "../src/topology-read-model.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const TRACE = "a".repeat(32);
 	const TRACEPARENT = `00-${TRACE}-${"b".repeat(16)}-01`;
 	const instant = Date.UTC(2026, 9, 20, 11, 0);

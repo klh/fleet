@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { Router, UpstreamError } from "../src/router.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const pool = {
 		groups: () => ["primary", "fallback", "last"],
 		deployments: (group: string) => [

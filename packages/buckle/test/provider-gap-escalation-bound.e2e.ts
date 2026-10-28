@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { ProviderAdmissionCore } from "../src/provider-admission-core.ts";
 import { Router } from "../src/router.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	// W1273 incident shape, scaled 1:100 in time: intervalCap 5 / intervalMs 20ms
 	// gives the installed 20ms base pace; the pre-fix escalation ceiling was
 	// min(30s, queueWaitMs/4) = 500ms — 125x the base pace — so a burst of Z.ai
@@ -132,6 +132,7 @@ test.describe({ tag: "@unit" }, () => {
 	}
 
 	test("a sustained 1302 wave cannot serialize the pool: slots stay productive and drain promptly", async () => {
+		test.setTimeout(20000);
 		upstream.acceptAfter = Date.now() + 900;
 		upstream.accepted = 0;
 		upstream.refused = 0;
@@ -159,5 +160,5 @@ test.describe({ tag: "@unit" }, () => {
 			peakActive,
 			Date.now() - start,
 		);
-	}, 20000);
+	});
 });

@@ -31,7 +31,7 @@ import {
 } from "./helpers/fleet.import-graph.lib.ts";
 import { REACH_IN_PIN } from "./helpers/fleet.import-ratchet.pin.ts";
 
-test.describe({ tag: "@api" }, () => {
+test.describe("@api", () => {
 	test("clean fleet — zero findings, root resolved absolute", async () => {
 		const root = makeFleetFixture(() => {});
 		try {

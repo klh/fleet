@@ -4,7 +4,7 @@ import type { HopReceipt } from "../../telemetry/src/http-trace.ts";
 import { Router } from "../src/router.ts";
 import { startMockUpstream } from "./mock.ts";
 
-test.describe({ tag: "@api" }, () => {
+test.describe("@api", () => {
 	test("dead Buckle peer ejects on connect and the fallback serves promptly", async () => {
 		const dead = Bun.serve({ port: 0, fetch: () => new Response("unused") });
 		const deadUrl = `http://127.0.0.1:${dead.port}`;

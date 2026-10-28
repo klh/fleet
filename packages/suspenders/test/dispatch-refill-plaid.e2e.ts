@@ -78,6 +78,7 @@ const residueItem = async (title: string): Promise<string> => {
 
 test.describe("W1145 plaid refill: machine routes + item-local deferrals", () => {
 	test("machine plaid_routes ride; a residue deferral lets the next READY item launch", async () => {
+		test.setTimeout(90_000);
 		machineRoutes();
 		plaidPosture();
 		const a = await residueItem("W1145 residue deferral fixture");
@@ -111,7 +112,7 @@ test.describe("W1145 plaid refill: machine routes + item-local deferrals", () =>
 		} finally {
 			rmSync(join(REPO, ".fleet", "posture"));
 		}
-	}, 90_000);
+	});
 });
 
 });

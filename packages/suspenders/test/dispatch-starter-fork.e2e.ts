@@ -19,6 +19,7 @@ sleep 2
 
 test.describe("W768 starter fork rides the dispatch spawn", () => {
 	test("lane spawn carries --resume <seed-id> --fork-session", async () => {
+		test.setTimeout(30000);
 		const id = await h.addItem("starter fork spawn probe");
 		const result = await h.dispatchWith(
 			{ SUSPENDERS_LANE_STARTER: "on" },
@@ -33,7 +34,7 @@ test.describe("W768 starter fork rides the dispatch spawn", () => {
 		// args are the ground truth for "the fork actually rode".
 		const argsLog = readFileSync(join(h.HOME, "claude-args.log"), "utf8");
 		expect(argsLog).toContain("--resume seed-stub-w768 --fork-session");
-	}, 30000);
+	});
 });
 
 });

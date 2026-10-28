@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { ProviderAdmissionCore } from "../src/provider-admission-core.ts";
 import { Router } from "../src/router.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const policy = {
 		concurrency: 40,
 		intervalCap: 40,
@@ -66,6 +66,7 @@ test.describe({ tag: "@unit" }, () => {
 	});
 
 	test("maximum adaptive backoff still grants within a shorter caller budget", async () => {
+		test.setTimeout(3000);
 		const core = new ProviderAdmissionCore({ ...policy, queueWaitMs: 400 });
 		for (let i = 0; i < 10; i++) {
 			const lease = await core.acquire(undefined, 150);
@@ -82,9 +83,10 @@ test.describe({ tag: "@unit" }, () => {
 		const lease = await core.acquire(undefined, 150);
 		expect(Date.now() - started).toBeLessThan(150);
 		lease.release();
-	}, 3000);
+	});
 
 	test("forty concurrent callers share adaptive pacing against a real-clock one-request-per-second provider", async () => {
+		test.setTimeout(90_000);
 		let lastAccepted = 0;
 		let accepted = 0;
 		let rejected = 0;
@@ -159,5 +161,5 @@ test.describe({ tag: "@unit" }, () => {
 		expect(router.providerAdmissionSnapshot().account?.rateLimitedTotal).toBe(
 			rejected,
 		);
-	}, 90_000);
+	});
 });

@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import type { HopReceipt } from "../../telemetry/src/http-trace.ts";
 import { Router } from "../src/router.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	test("Buckle emits one bounded receipt per attempted rung across a fallback", async () => {
 		const receipts: HopReceipt[] = [];
 		const router = new Router(

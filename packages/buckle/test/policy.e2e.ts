@@ -9,7 +9,7 @@ import {
 	parsePolicy,
 } from "../src/policy.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	test("parsePolicy: defaults when gateway section absent", () => {
 		const p = parsePolicy("{}");
 		expect(p.num_retries).toBe(1);

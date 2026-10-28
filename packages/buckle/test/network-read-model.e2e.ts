@@ -17,7 +17,7 @@ import {
 } from "../src/network-read-model.ts";
 import { LaneProjection } from "../src/projection.ts";
 
-test.describe({ tag: "@unit" }, () => {
+test.describe("@unit", () => {
 	const tmpDir = (): string => mkdtempSync(join(tmpdir(), "net-model-"));
 
 	/** A settled ok route with provider-reported usage, ts = now. */

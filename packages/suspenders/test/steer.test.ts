@@ -171,7 +171,7 @@ describe("decideSteerOrRedo", () => {
 		globalThis.fetch = (async () => {
 			kevCalls++;
 			throw new Error("kev must not be consulted");
-		}) as typeof fetch;
+		}) as unknown as typeof fetch;
 		try {
 			const dead = await decideSteerOrRedo({
 				...base,
