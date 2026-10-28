@@ -8,7 +8,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { execPick } from "../scripts/lib/exec-chain.ts";
+import { execPick, preferFileOf } from "../scripts/lib/exec-chain.ts";
 import { specialistByPort } from "../hooks/board/local-swarm.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "w183-chain-home-"));
@@ -289,5 +289,160 @@ describe("W813 chain semantics: comma-lists, hub targets, position law, can=", (
 		expect(p.name).toBe("fable");
 		expect(p.fallbackModels).toEqual(["glm-flash2"]);
 		rmSync(join(REPO, ".prefer"));
+	});
+});
+
+describe("W1470 upward walk: a tree-root chain reaches the repos below it", () => {
+	const TREE = mkdtempSync(join(tmpdir(), "w1470-tree-"));
+	const MID = join(TREE, "group");
+	const WORK = join(MID, "repo");
+	mkdirSync(WORK, { recursive: true });
+	const put = (dir: string, text: string): void =>
+		writeFileSync(join(dir, ".prefer"), text);
+	const fresh = (): void => {
+		for (const d of [TREE, MID, WORK])
+			rmSync(join(d, ".prefer"), { force: true });
+		writeFileSync(settingsFile, JSON.stringify({ default_executors: [] }));
+	};
+	afterAll(() => rmSync(TREE, { recursive: true, force: true }));
+
+	test("tree-root must= governs a repo with no .prefer of its own", () => {
+		fresh();
+		put(TREE, "must=glm-5.3-flash\n");
+		const p = execPick(0, WORK);
+		expect(p.name).toBe("glm-5.3-flash");
+		expect(p.chainLen).toBe(1);
+		expect(p.preference).toEqual({
+			source: "dotfile",
+			directive: "must",
+			line: 1,
+			index: 0,
+			target: "glm-5.3-flash",
+			can: "absent",
+		});
+	});
+
+	test("collision: the repo's must= shadows the tree's must= lines wholesale", () => {
+		fresh();
+		put(TREE, "must=glm-5.3-flash\nmust=glm-flash2\n");
+		put(WORK, "must=fable\n");
+		const p = execPick(0, WORK);
+		expect(p.name).toBe("fable");
+		expect(p.chainLen).toBe(1);
+		expect(p.fallbackModels).toEqual([]);
+	});
+
+	test("keys resolve independently; a nearer file outranks a farther one's later line", () => {
+		fresh();
+		put(TREE, "# one\n# two\n# three\nprefer=glm-flash2\n");
+		put(WORK, "must=glm-5.3-flash\n");
+		const p = execPick(0, WORK);
+		expect(p.name).toBe("glm-5.3-flash");
+		expect(p.preference).toMatchObject({ directive: "must", line: 1 });
+		expect(p.fallbackModels).toEqual(["glm-flash2"]);
+		expect(execPick(1, WORK).name).toBe("glm-flash2");
+	});
+
+	test("position law across files: the repo's prefer= rides above the tree's must=", () => {
+		fresh();
+		put(TREE, "must=glm-5.3-flash\n");
+		put(WORK, "prefer=glm-flash2\n");
+		const p = execPick(0, WORK);
+		expect(p.name).toBe("glm-flash2");
+		expect(p.preference.directive).toBe("prefer");
+		expect(execPick(1, WORK).name).toBe("glm-5.3-flash");
+	});
+
+	test("can=: the nearest file's can= wins and a doable one invalidates the tree's must=", () => {
+		fresh();
+		put(TREE, "must=fable\ncan=glm-flash2\n");
+		put(WORK, "can=glm-5.3-flash\n");
+		const cv = new Map([
+			["glm-flash2", 5],
+			["glm-5.3-flash", 5],
+		]);
+		const p = execPick(0, WORK, cv);
+		expect(p.name).toBe("glm-5.3-flash");
+		expect(p.chainLen).toBe(1);
+		expect(p.preference).toMatchObject({ directive: "can", can: "active" });
+	});
+
+	test("can=: an unproven nearer can= still shadows the tree's doable one", () => {
+		fresh();
+		put(TREE, "must=fable\ncan=glm-flash2\n");
+		put(WORK, "can=glm-5.3-flash\n");
+		const p = execPick(0, WORK, new Map([["glm-flash2", 5]]));
+		expect(p.name).toBe("fable");
+		expect(p.preference.can).toBe("unavailable");
+	});
+
+	test("can=: the tree's can= is inherited when the repo defines none", () => {
+		fresh();
+		put(TREE, "must=fable\ncan=glm-flash2\n");
+		const p = execPick(0, WORK, new Map([["glm-flash2", 5]]));
+		expect(p.name).toBe("glm-flash2");
+		expect(p.chainLen).toBe(1);
+		expect(p.preference.can).toBe("active");
+	});
+
+	test("hub=: the tree's label is inherited; the repo's hub= overrides it", () => {
+		fresh();
+		put(TREE, "hub=nas\nmust=glm-5.3-flash\n");
+		const inherited = execPick(0, WORK);
+		expect(inherited.hub).toBe("nas");
+		expect(inherited.agent).toBe("[NAS] glm-5.3-flash");
+		put(WORK, "hub=desktop\n");
+		const own = execPick(0, WORK);
+		expect(own.hub).toBe("desktop");
+		expect(own.agent).toBe("[DESKTOP] glm-5.3-flash");
+	});
+
+	test("hub-url= rides with its hub: a farther file's URLs never attach to a nearer hub", () => {
+		fresh();
+		put(TREE, "hub=nas\nhub-url=https://nas.example:4101\n");
+		const inherited = execPick(0, WORK);
+		expect(inherited.hub).toBe("nas");
+		expect(inherited.hubUrls).toEqual(["https://nas.example:4101"]);
+		put(WORK, "hub=desktop\n");
+		const own = execPick(0, WORK);
+		expect(own.hub).toBe("desktop");
+		expect(own.hubUrls).toEqual([]);
+	});
+
+	test("hub-url= in a nearer file refines the tree's hub label", () => {
+		fresh();
+		put(TREE, "hub=nas\nhub-url=https://nas.example:4101\n");
+		put(WORK, "hub-url=https://alt.example:4101\n");
+		const p = execPick(0, WORK);
+		expect(p.hub).toBe("nas");
+		expect(p.hubUrls).toEqual(["https://alt.example:4101"]);
+	});
+
+	test("tag/color and quoted routing lines in a nearer file shadow no chain key", () => {
+		fresh();
+		put(TREE, "must=glm-5.3-flash\n");
+		put(
+			MID,
+			'tag = "ikea"\ncolor = "#0058A3"\nmust = "claude-sonnet-5"\nprefer = "ikea llms"\n',
+		);
+		const p = execPick(0, WORK);
+		expect(p.name).toBe("glm-5.3-flash");
+		expect(p.chainLen).toBe(1);
+	});
+
+	test("preferFileOf reads exactly one directory — no walk", () => {
+		fresh();
+		put(TREE, "must=glm-5.3-flash\nhub=nas\n");
+		expect(preferFileOf(WORK)).toEqual({
+			directives: [],
+			hub: null,
+			hubUrls: [],
+			can: null,
+		});
+		const own = preferFileOf(TREE);
+		expect(own.hub).toBe("nas");
+		expect(own.directives).toEqual([
+			{ value: "glm-5.3-flash", kind: "must", line: 1, rank: 0 },
+		]);
 	});
 });
