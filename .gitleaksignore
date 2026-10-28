@@ -273,3 +273,17 @@ packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83
 7460585736357db9bd5b2dd57fa5e3b3c49943bf:packages/suspenders/test/fleet-board-flows.test.ts:generic-api-key:443
 7460585736357db9bd5b2dd57fa5e3b3c49943bf:packages/suspenders/test/prompt-transform.test.ts:generic-api-key:418
 7460585736357db9bd5b2dd57fa5e3b3c49943bf:packages/suspenders/test/scrub-gate.test.ts:generic-api-key:32
+# W950: vendored decant snapshot — upstream redaction-test fixture (fake key, the
+# test asserts it is scrubbed), first-hand read 2026-10-19 — not a secret
+packages/decant/test/distill.test.ts:curl-auth-header:169
+# W1124.8.2.1: hub provider-delivery fixtures — invented "zk-live-…" profile keys;
+# every test asserts the raw value NEVER reaches an output surface (leak-negative
+# assertions), first-hand read 2026-10-22 — not secrets
+packages/suspenders/test/hub-providers.test.ts:generic-api-key:29
+packages/suspenders/test/hub-providers.test.ts:generic-api-key:42
+packages/suspenders/test/hub-providers.test.ts:generic-api-key:102
+packages/suspenders/test/hub-providers.test.ts:generic-api-key:163
+packages/suspenders/test/hub-providers.test.ts:generic-api-key:189
+# W1226: provider-keys migration CLI test fixture row (invented key, asserted to
+# never reach an output surface), first-hand read 2026-10-23 — not a secret
+05177bc10f165d2e06e5278067c6c34487e80b51:packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:83

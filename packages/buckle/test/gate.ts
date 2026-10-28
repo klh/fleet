@@ -31,6 +31,8 @@ export interface StartGateOptions {
 	dialect?: string;
 	jwt?: GateJwt;
 	slots?: { global: number; perTeam: number };
+	/** W1118: admission-slot lease length (ms) — short leases make sweeps deterministic. */
+	slotLeaseMs?: number;
 	/** Test seam for the app-owned request-body deadline. */
 	ingressBodyTimeoutMs?: number;
 	/** Gateway policy yaml, written next to the scratch upstreams file. */
@@ -40,7 +42,12 @@ export interface StartGateOptions {
 const yamlFor = (opts: StartGateOptions): string => {
 	if (opts.yaml) return opts.yaml;
 	const model = opts.model ?? "glm-5.3-flash";
-	return `groups:\n  ${model}:\n    - url: ${opts.upstreamUrl}\n      dialect: ${opts.dialect ?? "openai"}\n`;
+	// W1253: JSON content — the upstreams parser is JSON-only.
+	return JSON.stringify({
+		groups: {
+			[model]: [{ url: opts.upstreamUrl, dialect: opts.dialect ?? "openai" }],
+		},
+	});
 };
 
 /** One real gate on a scratch port: writes the upstreams (+policy) yaml
@@ -57,7 +64,8 @@ export async function startGate(
 	await Bun.write(`${dir}.yaml`, yamlFor(opts));
 	await Bun.write(
 		`${dir}-policy.yaml`,
-		opts.policyYaml ?? "gateway:\n  num_retries: 1\n  allowed_fails: 3\n",
+		opts.policyYaml ??
+			JSON.stringify({ gateway: { num_retries: 1, allowed_fails: 3 } }),
 	);
 	const server = startServer({
 		port: 0,
@@ -72,6 +80,7 @@ export async function startGate(
 		...(opts.ingressBodyTimeoutMs
 			? { ingressBodyTimeoutMs: opts.ingressBodyTimeoutMs }
 			: {}),
+		...(opts.slotLeaseMs ? { slotLeaseMs: opts.slotLeaseMs } : {}),
 	});
 	return {
 		base: `http://127.0.0.1:${server.port}`,

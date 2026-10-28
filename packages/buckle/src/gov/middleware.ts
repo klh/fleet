@@ -41,8 +41,13 @@ import { type Federation, stashPrincipal } from "./federation.ts";
 import { createJwtValidator, type JwtOpts, jwtScopeCheck } from "./jwt.ts";
 import { hashKey, KeyStore } from "./keys.ts";
 import { applyGovernanceSchema } from "./schema.ts";
+import {
+	Slots,
+	type SlotLease,
+	type SlotLimits,
+	slotsFromEnv,
+} from "./slots.ts";
 import { ALL_SCOPES, hasScope, scopesFromStorage } from "./scopes.ts";
-import { type SlotLimits, Slots, slotsFromEnv } from "./slots.ts";
 
 export interface GovernanceOpts {
 	dbPath: string;
@@ -66,6 +71,9 @@ export interface GovernanceOpts {
 	/** W1118: the shared request-body deadline — the gate's bounded JSON
 	 *  reads (admin/federation) honor the same knob the proxy path uses. */
 	ingressBodyTimeoutMs?: number;
+	/** W1118 #55606: admission slot lease (ms) — the sweep deadline a
+	 *  holder keeps without renewing. Default 120s; tests shrink it. */
+	slotLeaseMs?: number;
 }
 
 export interface Principal {
@@ -144,7 +152,12 @@ export class Governance {
 		applyGovernanceSchema(this.db);
 		this.keys = new KeyStore(this.db);
 		this.budgets = new Budgets(this.db);
-		this.slots = new Slots(this.db, opts.slots ?? slotsFromEnv());
+		this.slots = new Slots(
+			this.db,
+			opts.slots ?? slotsFromEnv(),
+			Date.now,
+			opts.slotLeaseMs,
+		);
 		this.ingressBodyTimeoutMs =
 			opts.ingressBodyTimeoutMs ?? INGRESS_BODY_TIMEOUT_MS;
 		this.jwtValidator = opts.jwt ? createJwtValidator(opts.jwt) : null;
@@ -589,10 +602,39 @@ export class Governance {
 		inner: (req: Request) => Response | Promise<Response>,
 	): Promise<Response> {
 		// W468 admission control first: a slot is held for the whole
-		// generation; root keeps break-glass access during a storm. The
-		// finally below hands the slot back whatever the outcome.
-		if (p.kind !== "root" && !this.slots.acquire(p.team))
-			return this.slotLimited(path, rid, p);
+		// generation; root keeps break-glass access during a storm. W1118:
+		// the lease is exact ownership — a streaming response RENEWS it per
+		// chunk so the sweep never reclaims a live stream, and release fires
+		// when the stream actually settles, not when headers return.
+		let lease: SlotLease | null = null;
+		let handed = false;
+		// heartbeat starts at ACQUISITION, not body handoff — a pre-headers
+		// walk slower than leaseMs must not lose its slot to the sweep.
+		let stopHb: (() => void) | null = null;
+		if (p.kind !== "root") {
+			lease = this.slots.acquire(p.team);
+			if (lease === null) return this.slotLimited(path, rid, p);
+			stopHb = this.startLeaseHeartbeat(lease);
+		}
+		/** W1118 #55674: budgeted and fast paths both funnel here — a
+		 *  streaming body keeps its lease riding the stream (renew per
+		 *  chunk, deadline hold, release at settle); a null body (or a
+		 *  locked one that cannot be wrapped) settles now. */
+		const settle = (resp: Response): Response => {
+			if (lease === null) return resp;
+			const body = resp.body;
+			if (body !== null && !body.locked) {
+				handed = true;
+				return new Response(this.leaseForStream(req, lease, body, stopHb), {
+					status: resp.status,
+					statusText: resp.statusText,
+					headers: resp.headers,
+				});
+			}
+			stopHb?.();
+			lease.release();
+			return resp;
+		};
 		try {
 			// W843: an unbounded rpm/tpm key still consults the books when its
 			// team carries a spend ceiling — the ceiling must never be
@@ -604,7 +646,7 @@ export class Governance {
 					team.limits.spend === null ||
 					team.limits.spend === undefined)
 			)
-				return await inner(req);
+				return settle(await inner(req));
 			const chk = this.budgets.check(
 				p.keyId,
 				limits,
@@ -616,14 +658,83 @@ export class Governance {
 			const resp = await inner(req);
 			// http-citizenship: the trio rides every budgeted response.
 			if (view !== null) stampRateLimit(resp.headers, view);
-			return resp;
+			// W1118: a streaming body outlives this frame — its lease rides the
+			// stream (renew per chunk, release at settle); the rest settle now.
+			return settle(resp);
 		} finally {
-			if (p.kind !== "root") this.slots.release(p.team);
+			// the handed-off lease releases at stream settle, never here
+			if (lease !== null && !handed) {
+				stopHb?.();
+				lease.release();
+			}
 		}
 	}
 
-	/** Pool full (429): audit + envelope; Retry-After is a short constant —
-	 *  slots free as in-flight generations settle, unlike a window reset. */
+	/** W1118 #55606: a streaming body keeps the gate frame alive only until
+	 *  headers return — the admission lease must ride the stream itself.
+	 *  Chunks renew; a QUIET stretch is covered by a heartbeat that re-arms
+	 *  the absolute sweep deadline every leaseMs/2 (W1106 canaries sit
+	 *  >120s with zero chunks). Bounded: cleared at settle/cancel, so the
+	 *  sweep reclaims a crashed replica at its last deadline. */
+	/** The W1118 lease heartbeat: re-arms the absolute sweep deadline every
+	 *  leaseMs/2 so a holder with zero chunks (pre-headers walk, quiet SSE)
+	 *  is never swept while the process is alive. Cleared at settle/cancel;
+	 *  bounded — a crashed replica stops beating and is reclaimed. */
+	private startLeaseHeartbeat(lease: SlotLease): () => void {
+		const hb = setInterval(
+			() => {
+				// W1118 #57099: an uncaught throw in a timer callback kills the
+				// process. The lease's own no-throw contract (slots.ts touch)
+				// covers DB faults; this guard keeps ANY fault from a lease
+				// implementation from reaching the event loop.
+				try {
+					lease.hold(this.slots.leaseMs);
+				} catch (e) {
+					console.error(`buckle: lease heartbeat hold failed: ${String(e)}`);
+				}
+			},
+			Math.max(1, Math.floor(this.slots.leaseMs / 2)),
+		);
+		return (): void => clearInterval(hb);
+	}
+
+	private leaseForStream(
+		req: Request,
+		lease: SlotLease,
+		body: ReadableStream,
+		stopHb: (() => void) | null,
+	): ReadableStream {
+		// W1118 #55606: the REAL client-abort hook is the request signal —
+		// Bun aborts it when the socket drops, independent of whether the
+		// readable side's cancel fires. Release is idempotent; the
+		// transformer's flush/cancel stay as the settle-path release.
+		req.signal?.addEventListener(
+			"abort",
+			() => {
+				stopHb?.();
+				lease.release();
+			},
+			{ once: true },
+		);
+		// identity pipe: every chunk renews the lease, settle/cancel releases
+		return body.pipeThrough(
+			new TransformStream<Uint8Array, Uint8Array>({
+				transform: (chunk, controller) => {
+					lease.renew();
+					controller.enqueue(chunk);
+				},
+				flush: () => {
+					stopHb?.();
+					lease.release();
+				},
+				cancel: () => {
+					stopHb?.(); // readable side went away (client abort)
+					lease.release();
+				},
+			}),
+		);
+	}
+
 	private slotLimited(path: string, rid: string, p: Principal): Response {
 		this.auditDenial({
 			rid,
