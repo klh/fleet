@@ -7,9 +7,9 @@
 // baseline per row is the policy budget for the row's effort pin (fallback:
 // the two-stage implement budget — unpinned pre-policy lanes ran implement).
 import type { Database } from "bun:sqlite";
-import { openStore, projectIdentity } from "../hooks/lib/govdb.ts";
-import { itemAttribution } from "../hooks/lib/lane-spend.ts";
-import { workTiming } from "../hooks/lib/work-timing.ts";
+import { openStore, projectIdentity } from "../hooks/lib/govdb/govdb.ts";
+import { itemAttribution } from "../hooks/lib/lanes/lane-spend.ts";
+import { workTiming } from "../hooks/lib/work/work-timing.ts";
 
 const POLICY_LIVE_MS = Date.parse("2026-10-22T16:51:37Z"); // commit 1b88d58a
 // like-for-like: pre baseline = lanes first-claimed within this window

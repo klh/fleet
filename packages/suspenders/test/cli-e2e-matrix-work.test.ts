@@ -153,7 +153,11 @@ describe("work verb matrix — split + migrate-ledger + report/allocate", () => 
 		);
 		expect(s.code).toBe(0);
 		cover("report");
-		expect(work("report").out).toContain("ITEM");
+		// W1131: a non-tty report renders the md medium (grouped rows, no
+		// ITEM header) — assert the split children land in it
+		const report = work("report").out;
+		expect(report).toContain(`${parent}.1`);
+		expect(report).toContain("childA");
 		cover("allocate");
 		expect(JSON.parse(work("allocate", "--json").out)).toBeInstanceOf(Array);
 		cover("lanes");
@@ -279,6 +283,40 @@ describe("work verb matrix — stamp (W1211 credential requires)", () => {
 			"gh,tool-jq",
 		);
 		cover("stamp");
+	});
+});
+
+describe("work verb matrix — post-close faces (backfill, report-regen)", () => {
+	test("both refuse an open item and serve a DONE one", () => {
+		const open = idOf(work("add", "post-close bait").out);
+		const id = idOf(work("add", "post-close closed").out);
+		const token = tokenOf(work("take", id, "--as", "s7").out);
+		const sha = commitIn(fx.REPO, "post close leg");
+		const closed = work(
+			"done",
+			id,
+			"--as",
+			"s7",
+			"--sha",
+			sha,
+			"--token",
+			token,
+			"--summary",
+			"closed so the post-close faces have a DONE item with a completion record to read",
+		);
+		expect(closed.code).toBe(0);
+		cover("backfill");
+		expect(work("backfill", open).code).not.toBe(0);
+		const bf = work("backfill", id);
+		expect(bf.code).toBe(0);
+		expect(bf.out).toContain(id);
+		cover("report-regen");
+		const md = join(fx.REPO, "post-close.md");
+		writeFileSync(md, "# post-close\n\nthe item's markdown record\n");
+		expect(work("report-regen", open, "--file", md).code).not.toBe(0);
+		const rr = work("report-regen", id, "--file", md);
+		expect(rr.code).toBe(0);
+		expect(rr.out).toContain("report →");
 	});
 });
 

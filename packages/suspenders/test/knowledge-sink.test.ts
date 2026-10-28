@@ -14,13 +14,27 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ROLL_KEY_HEADER } from "../hooks/lib/knowledge-roll.ts";
-import { postRoll, type SyncTarget } from "../hooks/lib/knowledge-sync.ts";
+import { ROLL_KEY_HEADER } from "../hooks/lib/knowledge/knowledge-roll.ts";
+import { postRoll, type SyncTarget } from "../hooks/lib/knowledge/knowledge-sync.ts";
 import { unusedPort } from "./helpers/board-fixture.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "w12171-sink-home-"));
-const GOVDB_TS = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
-const STORE_TS = join(import.meta.dir, "..", "hooks", "lib", "sqlite-store.ts");
+const GOVDB_TS = join(
+	import.meta.dir,
+	"..",
+	"hooks",
+	"lib",
+	"govdb",
+	"govdb.ts",
+);
+const STORE_TS = join(
+	import.meta.dir,
+	"..",
+	"hooks",
+	"lib",
+	"knowledge",
+	"sqlite-store.ts",
+);
 const API_TS = join(import.meta.dir, "..", "hooks", "bin", "knowledge-api.ts");
 const PROBE_TS = join(
 	import.meta.dir,

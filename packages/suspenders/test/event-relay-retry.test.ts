@@ -12,9 +12,9 @@ import {
 	type ForwardDirectOpts,
 	type RelayDirectEventWire,
 	relayOutboxRecord,
-} from "../hooks/lib/event-relay.ts";
-import { handleEventRelay } from "../hooks/lib/event-relay.ts";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
+} from "../hooks/lib/federation/event-relay.ts";
+import { handleEventRelay } from "../hooks/lib/federation/event-relay.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 
 const NOW = 1_790_000_000_000;
 // relay kind literal, joined so the ripgrep rule stays quiet

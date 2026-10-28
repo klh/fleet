@@ -470,6 +470,9 @@ export function relayOutboxRecord(
 	db: GovernorStore,
 	deliveryId: string,
 ): RelayOutboxRow | null {
+	// a store that never relayed has no outbox yet — reading one is a miss,
+	// not a "no such table" crash (coord delivery on a fresh governor.db)
+	ensureEventRelayOutbox(db);
 	return (
 		(db
 			.query("SELECT * FROM event_relay_outbox WHERE delivery_id = ?")

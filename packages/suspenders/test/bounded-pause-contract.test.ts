@@ -8,7 +8,7 @@ import {
 	claudePausePrompt,
 	claudeStopPause,
 	verifiedPauseCheckpoint,
-} from "../hooks/lib/claude-pause.ts";
+} from "../hooks/lib/executors/claude-pause.ts";
 import { pausedLaneFixture } from "./helpers/paused-lane.ts";
 
 const sid = "bounded-pause-fixture";

@@ -413,6 +413,30 @@ test.describe("coord verb matrix — session bootstrap + read faces", () => {
 	});
 });
 
+test.describe("coord verb matrix — steer, consolidate, delivery", () => {
+	test("steer refuses without a live target; consolidate sweeps; delivery misses honestly", () => {
+		cover("steer");
+		const usage = coord("steer");
+		expect(usage.code).toBe(2);
+		expect(usage.err).toContain("usage: steer");
+		const ghost = coord("steer", "ghost-lane", "hello");
+		expect(ghost.code).toBe(2);
+		expect(ghost.err).toContain("no live session target");
+		const steers = fx.q<{ n: number }>(
+			"SELECT COUNT(*) AS n FROM events WHERE kind LIKE '%steer%'",
+		);
+		expect(steers[0]?.n).toBe(0);
+		cover("knowledge-consolidate");
+		const sweep = coord("knowledge-consolidate");
+		expect(sweep.code).toBe(0);
+		expect(sweep.out).toContain("consolidate: 0 proposed");
+		cover("delivery");
+		const miss = coord("delivery", "nope-1");
+		expect(miss.code).toBe(2);
+		expect(miss.err).toContain("no relay delivery nope-1");
+	});
+});
+
 test.describe("coord verb matrix — registry parity (must stay last)", () => {
 	test("every verb on the --help door face has a matrix scenario", () => {
 		expect(covered).not.toBe(new Set());
