@@ -10,7 +10,7 @@
     },
     "packages/belt": {
       "name": "@klh/belt",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "bin": {
         "audio": "bin/audio.ts",
         "bench-routing": "bin/bench-routing.ts",
@@ -58,7 +58,7 @@
     },
     "packages/blam": {
       "name": "@klh/blam",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "bin": {
         "blam-label": "tools/label.ts",
       },
@@ -73,7 +73,7 @@
     },
     "packages/buckle": {
       "name": "@klh/buckle",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "bin": {
         "buckle": "./src/server.ts",
       },
@@ -96,11 +96,11 @@
     },
     "packages/kernel": {
       "name": "@klh/kernel",
-      "version": "2.0.0",
+      "version": "2.0.1",
     },
     "packages/local": {
       "name": "@klh/local",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "bin": {
         "klh-local": "bin/klh-local.ts",
         "dashboard": "bin/dashboard.ts",
@@ -112,7 +112,7 @@
     },
     "packages/local-llm": {
       "name": "@klh/local-llm",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "bin": {
         "lane-load-bench": "lane-load-bench.ts",
       },
@@ -125,7 +125,7 @@
     },
     "packages/speedy": {
       "name": "@klh/speedy",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "bin": {
         "install-fleet": "bin/install-fleet.ts",
         "quiet-output": "bin/quiet-output.ts",
@@ -139,7 +139,7 @@
     },
     "packages/suspenders": {
       "name": "@klh/suspenders",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "bin": {
         "coord": "hooks/bin/coord.ts",
         "work": "hooks/bin/work.ts",
@@ -180,11 +180,11 @@
     },
     "packages/telemetry": {
       "name": "@klh/telemetry",
-      "version": "2.0.0",
+      "version": "2.0.1",
     },
     "packages/test-kit": {
       "name": "@klh/test-kit",
-      "version": "2.0.0",
+      "version": "2.0.1",
     },
   },
   "packages": {

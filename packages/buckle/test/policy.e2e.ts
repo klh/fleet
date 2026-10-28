@@ -80,6 +80,9 @@ test.describe("@unit", () => {
 			retry_max_delay_s: 8,
 			retry_after_cap_s: 60,
 			request_timeout_s: 120,
+			// W2192 (W1096 re-land): reachability probe bound (dead origin,
+			// never slow inference)
+			connect_timeout_s: 5,
 			first_byte_budget_s: 240,
 			// W450 long-generation deadlines
 			stream_idle_timeout_s: 60,

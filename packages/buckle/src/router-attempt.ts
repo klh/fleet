@@ -112,6 +112,7 @@ export async function tryOnce(
 	timeoutMs: number,
 	stream?: { idleMs: number; totalMs: number },
 	walkRemainingMs = timeoutMs,
+	connectMs?: number,
 ): Promise<TryOutcome> {
 	const wireReq = bridgeRequest(req, dep);
 	if (wireReq === null)
@@ -168,7 +169,13 @@ export async function tryOnce(
 		timeoutMs = Math.min(timeoutMs, remainingMs);
 	}
 	try {
-		const raw = await host.fetchImpl(dep, wireReq, timeoutMs, stream);
+		const raw = await host.fetchImpl(
+			dep,
+			wireReq,
+			timeoutMs,
+			stream,
+			connectMs,
+		);
 		const resp = lease === undefined ? raw : bindProviderLease(raw, lease);
 		if (resp.ok) {
 			host.cooldowns.success(dep);
@@ -409,7 +416,8 @@ export async function defaultFetchImpl(
 	req: UpstreamRequest,
 	timeoutMs: number,
 	stream?: { idleMs: number; totalMs: number },
+	connectMs?: number,
 ): Promise<Response> {
 	const { defaultFetch } = await import("./wire.ts");
-	return defaultFetch(dep, req, timeoutMs, stream);
+	return defaultFetch(dep, req, timeoutMs, stream, connectMs);
 }

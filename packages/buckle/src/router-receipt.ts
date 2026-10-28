@@ -59,6 +59,16 @@ export function reportAttempt(
 			.slice(0, 16),
 		status,
 		refusal,
+		layer:
+			refusal === "connect_unreachable"
+				? "connect"
+				: refusalOrigin === "local-admission"
+					? "gateway"
+					: refusalOrigin === "upstream" || refusalOrigin === "bridged-upstream"
+						? "upstream"
+						: refusal === null && status !== null
+							? "upstream"
+							: "network",
 		durationMs: Math.max(0, host.now() - startedAt),
 		retryAfterMs,
 		upstreamId: requestId ?? null,

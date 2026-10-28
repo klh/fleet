@@ -43,6 +43,14 @@ export interface HopReceipt {
 	candidate: string;
 	status: number | null;
 	refusal: string | null;
+	/** W2191 (W1096 re-land, reconciled): the layer that owned the attempt's
+	 *  end — "connect" = the pre-exchange reachability probe bounded it (no
+	 *  exchange ran; transport stays null), "network" = the transport path
+	 *  owned the end (transport.timeoutPhase names the phase when the end
+	 *  was a deadline; covers mid-exchange failure and the caller-abort
+	 *  end), "upstream" = an HTTP answer arrived, "gateway" = the gateway
+	 *  itself refused locally (local admission). */
+	layer: "connect" | "network" | "upstream" | "gateway";
 	durationMs: number;
 	retryAfterMs: number | null;
 	upstreamId: string | null;

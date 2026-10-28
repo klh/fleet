@@ -44,6 +44,7 @@ export class Router {
 		req: UpstreamRequest,
 		timeoutMs: number,
 		stream?: { idleMs: number; totalMs: number },
+		connectMs?: number,
 	) => Promise<Response>;
 	readonly metrics?: RouterMetrics;
 	/** W1078: one admission core per explicitly configured account pool —

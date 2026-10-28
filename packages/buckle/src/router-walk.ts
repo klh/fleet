@@ -84,6 +84,17 @@ export async function attemptTier(
 			1,
 			Math.min(perAttemptMs, st.deadlineMs - host.now()),
 		);
+		// W2192 (W1096 re-land): the reachability probe bound (policy
+		// connect_timeout_s, clamped to the walk remainder) — a dead origin
+		// resolves within this window as a connect-layer failure, never at
+		// the model first-byte deadline.
+		const connectMs = Math.max(
+			1,
+			Math.min(
+				(host.policy.connect_timeout_s ?? 5) * 1000,
+				st.deadlineMs - host.now(),
+			),
+		);
 		st.attempts++;
 		const startedAt = host.now();
 		const observedReq = { ...req, transport: new TransportObservation() };
@@ -96,6 +107,7 @@ export async function attemptTier(
 				timeoutMs,
 				stream,
 				st.deadlineMs - startedAt,
+				connectMs,
 			);
 		} catch (error) {
 			if (req.signal?.aborted) {
