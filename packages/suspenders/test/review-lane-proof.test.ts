@@ -301,7 +301,9 @@ test("pw", () => {
 `,
 		},
 		want: "skipped",
-		// W2181 (rebased): mid-run scratch write banks the run as unknown		// W2181: the branch's own test writes into the scratch mid-run — the
+	},
+	{
+		// W2181: the branch's own test writes into the scratch mid-run — the
 		// after-fingerprint verdict is not unchanged, so the run banks unknown
 		// even though the failed counts would have read proved
 		name: "midrun-write-unknown",

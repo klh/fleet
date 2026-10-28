@@ -638,7 +638,7 @@ const wireHeadline = wireMismatch
 const effective =
 	verdict === "PASS" && wireMismatch
 		? "ERROR"
-		: proof?.status === "error"
+		: proof?.status === "error" || proof?.status === "unknown"
 			? "ERROR"
 			: proof?.status === "no-coverage"
 				? "FAIL"
