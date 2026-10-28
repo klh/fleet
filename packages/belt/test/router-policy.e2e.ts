@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
 	emitClassTiers,
+	emitGeneralSettings,
 	emitLiteLlmSettings,
 	emitRouterSettings,
 	loadGatewayPolicy,
@@ -429,5 +430,28 @@ test.describe("role-class schema (W648, oh-my-codex §1 lift)", () => {
 		expect(doc.classes.spark).toEqual(["local-extract", "local-coder"]);
 		expect(doc.roles["reviewer-low"]).toBe("frontier");
 		expect(doc.reasoning.default).toBe("medium");
+	});
+
+	test("background health checks default on, reject non-boolean, gate the general_settings block (W886) @unit", () => {
+		const base = parsePolicy(JSON.stringify({ version: 1 }));
+		expect(base.litellm_health_checks).toBe(true);
+		for (const invalid of [null, 0, 1, "true", [], {}])
+			expect(() =>
+				parsePolicy(
+					JSON.stringify({ gateway: { litellm_health_checks: invalid } }),
+				),
+			).toThrow("must be a boolean");
+		const on = Bun.YAML.parse(emitGeneralSettings(base)) as {
+			general_settings: Record<string, unknown>;
+		};
+		expect(on.general_settings.background_health_checks).toBe(true);
+		expect(on.general_settings.health_check_interval).toBe(300);
+		expect(on.general_settings.cancel_on_disconnect).toBe(true);
+		expect(on.general_settings.master_key).toBe("os.environ/LITELLM_KEY");
+		const off = Bun.YAML.parse(
+			emitGeneralSettings({ ...base, litellm_health_checks: false }),
+		) as { general_settings: Record<string, unknown> };
+		expect(off.general_settings.background_health_checks).toBeUndefined();
+		expect(off.general_settings.master_key).toBe("os.environ/LITELLM_KEY");
 	});
 });

@@ -19,6 +19,7 @@ import { litellmRows } from "./registry-emit.ts";
 import { buildRemoteEntries } from "./remotes-validate.ts";
 import {
 	emitClassTiers,
+	emitGeneralSettings,
 	emitLiteLlmSettings,
 	emitRouterSettings,
 	loadDirectTiers,
@@ -135,7 +136,16 @@ if (existsSync(chatGptModelsPath)) {
 // MUST equal the id Claude sends verbatim ([1m] included). z.ai anthropic
 // endpoint is keyed today; api.anthropic.com activates when ANTHROPIC_API_KEY
 // lands. Appended AFTER the yaml build above? No — rebuild with both lists:
-const anth = [
+type AnthRow = {
+	name: string;
+	model: string;
+	base: string;
+	key: string;
+	/** Dormant key-gated rows stay out of the background /health loop —
+	 *  every 300s probe would be a doomed external call (W886). */
+	dormant?: boolean;
+};
+const anth: AnthRow[] = [
 	// [1m] never hits the wire — Claude Code strips it client-side as a
 	// context hint; the wire id is bare (proven: [1m] 1211s on z.ai directly,
 	// bare id works). Same model_name as the openai-dialect entries = one
@@ -163,12 +173,14 @@ const anth = [
 		model: "anthropic/claude-sonnet-5",
 		base: "https://api.anthropic.com",
 		key: "os.environ/ANTHROPIC_API_KEY",
+		dormant: true,
 	},
 	{
 		name: "claude-haiku-4-5",
 		model: "anthropic/claude-haiku-4-5",
 		base: "https://api.anthropic.com",
 		key: "os.environ/ANTHROPIC_API_KEY",
+		dormant: true,
 	},
 	{
 		// Degradation tier: the local swarm ingress (:4000). LiteLLM POSTs
@@ -186,6 +198,7 @@ const anth = [
 		model: "openai/gpt-5.2",
 		base: "https://api.openai.com/v1",
 		key: "os.environ/OPENAI_API_KEY",
+		dormant: true,
 	},
 ];
 const anthEntries = anth
@@ -195,7 +208,10 @@ const anthEntries = anth
 			`    litellm_params:\n` +
 			`      model: ${a.model}\n` +
 			`      api_base: ${a.base}\n` +
-			`      api_key: ${a.key}`,
+			`      api_key: ${a.key}` +
+			(a.dormant
+				? "\n    model_info:\n      disable_background_health_check: true"
+				: ""),
 	)
 	.join("\n");
 // Router policy (retries, outlier ejection) + the fallback ladders come from
@@ -214,9 +230,7 @@ const fullYaml =
 	emitRouterSettings(policy) +
 	"\n" +
 	emitLiteLlmSettings(policy) +
-	// Cancel abandoned pre-header provider work, not just the client socket.
-	// LiteLLM's separate streaming finalizer still owns post-header cleanup.
-	`general_settings:\n  master_key: os.environ/LITELLM_KEY\n  cancel_on_disconnect: true\n`;
+	emitGeneralSettings(policy);
 const out = `${HOME}/.claude/local-llm/litellm.yaml`;
 const temp = `${out}.${crypto.randomUUID()}.tmp`;
 try {
