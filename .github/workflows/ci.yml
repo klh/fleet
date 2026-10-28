@@ -25,6 +25,43 @@ jobs:
       - name: tests
         run: bun test packages/${{ matrix.pkg }}/test/
 
+  # W2178: the converted *.e2e.ts corpus (W1294 one-framework) runs under
+  # playwright — `bun test` never collects it. Each config must collect at
+  # least `min` tests: "No tests found" (dual-require, a spec that fails to
+  # build, an orphaned testMatch) is red, never a green no-op. Raise a floor
+  # when a corpus grows; lowering one is a reviewed deletion.
+  playwright:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { dir: packages/belt/test, min: 470, project: unit }
+          - { dir: packages/belt/bench, min: 130, project: unit }
+          - { dir: packages/buckle/test, min: 360, project: unit }
+          - { dir: packages/blam/test, min: 6, project: unit }
+          - { dir: packages/suspenders/test, min: 860, project: unit }
+          - { dir: packages/suspenders/deploy, min: 90, project: unit }
+          - { dir: packages/suspenders/e2e, min: 100, browser: true }
+          - { dir: tests, min: 80, project: api }
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      # root devDep @playwright/test: playwright.base.ts and every package
+      # config resolve ONE copy (two copies = "Requiring @playwright/test
+      # second time" → No tests found)
+      - name: root install (frozen)
+        run: bun install --frozen-lockfile
+      - name: every *.e2e.ts is collected by some config
+        run: bun scripts/check-playwright-coverage.ts
+      - name: chromium (browser suites only)
+        if: matrix.browser
+        run: bun --bun playwright install --with-deps chromium
+      - name: playwright ${{ matrix.dir }} (min ${{ matrix.min }})
+        run: bun scripts/playwright-ci.ts ${{ matrix.dir }} ${{ matrix.min }} ${{ matrix.project && format('--project={0}', matrix.project) || '' }}
+
   # W715: the AGENTS.md laws as CI gates (W694 L4/L5) — the 1500-line .ts
   # limit and the shell-script ban (tracked .sh must EQUAL the allowlist
   # pinned in the guard). Same root-tests pattern as the docs job.
