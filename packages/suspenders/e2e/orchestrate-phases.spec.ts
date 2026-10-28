@@ -36,15 +36,20 @@ test("preview phases render as honest rows", async ({ page }) => {
 		join(b.HOME, ".cache/claude-governor/write-token"),
 		"utf8",
 	).trim();
+	// W1303.2: settings writes are conditional — If-Match the GET etag
+	const cur = await (await fetch(`${b.BASE}/api/prompt/settings`)).json();
 	const on = await fetch(`${b.BASE}/api/prompt/settings`, {
 		method: "POST",
 		headers: {
 			"content-type": "application/json",
 			"x-klh-write-token": token,
+			"if-match": cur.etag,
 		},
 		body: JSON.stringify({ "prompt.log": true }),
 	});
-	expect(on.ok).toBe(true);
+	expect(on.ok, `${on.status} ${await on.clone().text()}`).toBe(true);
+	// the orchestrate panel is a collapsed <details> on HEAD's board
+	await page.locator("details:has(#orchPreview) > summary").click();
 	const el = page.locator("klh-prompt-preview#orchPreview");
 	await expect(el).toBeVisible();
 	await el.evaluate(

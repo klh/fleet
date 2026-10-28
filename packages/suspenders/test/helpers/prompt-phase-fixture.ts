@@ -21,6 +21,7 @@ export function phaseDeps(): PrepareDeps {
 			{ label: "system prompt", text: "SYS" },
 			{ label: "repo context", text: "\n\nREPO CONTEXT:\nctx-é" },
 		],
+		compose: (f: string) => `GOAL:\n${f}\n\nREPO CONTEXT:\nctx-é`,
 	};
 }
 
