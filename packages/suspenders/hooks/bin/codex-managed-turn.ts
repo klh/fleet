@@ -53,13 +53,25 @@ class ManagedTurn {
 		this.child.on("error", (error) =>
 			this.failWaiters(new Error(error.message)),
 		);
+		// W2178: a dead app-server fails every pending rpc (and an in-flight
+		// turn) at once — never strand the wrapper on an 8s rpc timeout or an
+		// unresolvable `completed`.
+		this.child.on("exit", (code, signal) => {
+			this.failWaiters(
+				new Error(`app-server exited (${signal ?? `code ${code}`})`),
+			);
+			this.completedResolve?.("failed");
+		});
 		const lines = createInterface({ input: this.child.stdout });
 		lines.on("line", (line) => this.onLine(line));
 		this.child.stderr.on("data", () => {});
 	}
 
 	private failWaiters(error: Error): void {
-		for (const waiter of this.pending.values()) waiter.reject(error);
+		for (const waiter of this.pending.values()) {
+			clearTimeout(waiter.timer);
+			waiter.reject(error);
+		}
 		this.pending.clear();
 	}
 
