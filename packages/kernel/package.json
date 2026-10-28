@@ -1,6 +1,6 @@
 {
 	"name": "@klh/kernel",
-	"version": "2.0.0",
+	"version": "2.0.1",
 	"description": "Dependency-free fleet primitives — the ONE bottom of the package graph: kernel imports nothing in fleet; every package may import kernel",
 	"type": "module",
 	"license": "SEE LICENSE IN LICENSE",
@@ -12,5 +12,8 @@
 		"./src/*": "./src/*",
 		"./package.json": "./package.json"
 	},
-	"files": ["src", "AGENTS.md"]
+	"files": [
+		"src",
+		"AGENTS.md"
+	]
 }
