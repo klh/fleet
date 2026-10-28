@@ -79,7 +79,7 @@ describe("planMigration sightings", () => {
 		writeFileSync(join(home, "belt.env"), "T1_API_KEY=sk-value-12345678\n"); // scrub:allow
 		writeFileSync(
 			join(home, "buckle-spoke.env"),
-			"T1_API_KEY=sk-other-87654321\n",
+			"T1_API_KEY=sk-other-87654321\n", // scrub:allow
 		); // scrub:allow
 		const stack = stackWith(conf, `"anthropic": {"env": "T1_API_KEY"}`);
 		const opts = {
@@ -104,7 +104,7 @@ describe("planMigration sightings", () => {
 		writeFileSync(join(home, "belt.env"), "T1_API_KEY=sk-value-12345678\n"); // scrub:allow
 		writeFileSync(
 			join(home, "buckle-spoke.env"),
-			"T1_API_KEY=sk-other-87654321\n",
+			"T1_API_KEY=sk-other-87654321\n", // scrub:allow
 		); // scrub:allow
 		const stack = stackWith(conf, `"anthropic": {"env": "T1_API_KEY"}`);
 		const amb = mpk.planMigration({
