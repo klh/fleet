@@ -366,7 +366,6 @@ async function requestLeg(legIndex: number): Promise<string> {
 
 const PROOF_TIMEOUT_MS = 5 * 60_000;
 
-
 async function coverageProof(branch: string): Promise<Proof> {
 	if (
 		gitRun(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])
