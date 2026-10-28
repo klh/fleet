@@ -39,6 +39,22 @@ status):
     bun deploy/hubctl.ts deploy <name>    # the same chain, hubctl-direct
     bash install.sh --hub <name> --dry-run  # renders the hub .env only
 
+## Central provider keys
+
+Upstream API keys are declared once, in the machine `stack.json`
+`providers:` block — a profile row carries the inline `key` (machine file
+only, 0600) plus the `env` name it is served under at runtime.
+One-time migration gathers the old sources (the `~/.claude/local-llm/*.env`
+provider vars and the process environment), writes each profile's `key`
+inline, and touches nothing else:
+
+    bun scripts/migrate-provider-keys.ts            # dry-run plan, masked
+    bun scripts/migrate-provider-keys.ts --apply    # 0600 backup + atomic write
+
+Disagreeing sources for one profile are ambiguous: the apply refuses until
+an explicit `--map profile=<file:VAR|ENV_NAME>` pins the source. The run is
+idempotent — profiles already carrying `key` are skipped.
+
 Docker Desktop (this Mac): the desktop hub's deploy.dir is a local path and
 no ssh target is declared, so mint/push/up run locally. NAS ($NAS_HOST —
 same template, compose-managed via `--hub`; retires the W310 Docker Desktop
