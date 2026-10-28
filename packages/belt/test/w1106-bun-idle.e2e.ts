@@ -12,7 +12,7 @@ import { writeFileSync } from "node:fs";
 import { scratchWorld } from "@klh/test-kit";
 import { join } from "node:path";
 import { createModelProxy } from "../bin/model-proxy.ts";
-import { startServer } from "../../buckle/src/server.ts";
+import { startServer } from "@klh/buckle/src/server.ts";
 
 // ── Bun.serve spy seam ─────────────────────────────────────────────
 // The entrypoints arm their timers in Bun.serve(opts) at boot; the seam

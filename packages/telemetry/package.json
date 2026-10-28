@@ -13,6 +13,8 @@
 		"test": "bun test"
 	},
 	"exports": {
+		".": "./src/index.ts",
+		"./src/index.ts": "./src/index.ts",
 		"./src/hop-contract.ts": "./src/hop-contract.ts",
 		"./src/http-trace.ts": "./src/http-trace.ts",
 		"./src/prefer-header.ts": "./src/prefer-header.ts",
@@ -24,6 +26,7 @@
 		"./src/transport-evidence.ts": "./src/transport-evidence.ts"
 	},
 	"files": [
-		"src"
+		"src",
+		"README.md"
 	]
 }

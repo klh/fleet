@@ -8,7 +8,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { startServer } from "../../buckle/src/server.ts";
+import { startServer } from "@klh/buckle/src/server.ts";
 
 test("the real gateway generator enables cancellation in private YAML without changing authentication @unit", async () => {
 	const home = mkdtempSync("/tmp/gateway-cancel-config-");

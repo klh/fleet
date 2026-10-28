@@ -10,6 +10,7 @@
 		"bun": "1.4.2"
 	},
 	"dependencies": {
+		"@klh/local-llm": "2.0.0",
 		"lit": "3.3.3"
 	},
 	"scripts": {

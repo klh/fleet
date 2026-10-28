@@ -3,4 +3,4 @@ export {
 	observation,
 	observationFresh,
 	type Observation,
-} from "../../local-llm/observation.ts";
+} from "@klh/local-llm/observation.ts";
