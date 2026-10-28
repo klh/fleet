@@ -141,6 +141,7 @@ export interface StreamReceipt {
  *  full Usage joins (in/out tokens too) — per-request inspection surfaces
  *  tokens in/out beside the cache columns. */
 export type RouteAuditUsage = Usage;
+const UNTIL_RID_SQL = "(ts < ? OR (ts = ? AND rid < ?))"; // W925 keyset page
 
 /** W824 GET /v1/admin/requests query — all filters optional, limit is the
  *  row cap (validated + clamped in the caller, re-clamped here). */
@@ -149,6 +150,7 @@ export interface RequestReadQuery {
 	/** Inclusive ISO-ts window (lexical compare — audit ts is ISO). */
 	since?: string | null;
 	until?: string | null;
+	beforeRid?: string | null; // W925: with until, the (ts, rid) keyset cursor
 	/** The presented-credential key id (route_audit.actor). */
 	key?: string | null;
 	lane?: string | null;
@@ -1181,16 +1183,14 @@ export class Ledger {
 			args.push(q.model);
 		}
 		if (q.inference === true) where.push("target_model IS NOT NULL");
-		if (q.errors === true) {
-			where.push("ok = 0");
-		}
+		if (q.errors === true) where.push("ok = 0");
 		if (q.since) {
 			where.push("ts >= ?");
 			args.push(q.since);
 		}
 		if (q.until) {
-			where.push("ts < ?");
-			args.push(q.until);
+			where.push(q.beforeRid ? UNTIL_RID_SQL : "ts < ?");
+			args.push(q.until, ...(q.beforeRid ? [q.until, q.beforeRid] : []));
 		}
 		const rows = this.db
 			.query(requestsReadSql(where, limit))
