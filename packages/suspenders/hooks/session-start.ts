@@ -8,7 +8,7 @@ import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { renderFleetReport } from "../scripts/lib/fleet-report.ts";
-import { checkpointPath } from "./lib/lanes/checkpoint.ts";
+import { machineCredScope } from "./lib/cred-scope.ts";
 // W1124.12: an explicit worker role skips the SUPERVISOR DEFAULT + report
 // injection — a managed lane is not a loop-arming runtime (same ruling as
 // the isSubagent branch, source of truth = lane-settings.ts role marker).
@@ -19,16 +19,21 @@ import {
 	projectIdentity,
 	sweepStaleSessions,
 } from "./lib/govdb/govdb.ts";
-import { enrollTopLevel } from "./lib/lanes/hook-scripts.ts";
-import { machineCredScope } from "./lib/cred-scope.ts";
-import { run } from "./lib/run.ts";
 import {
 	SINK_QUERY_SCOPE,
 	sinkConf,
 	sinkConfigured,
 } from "./lib/knowledge/knowledge-sink-client.ts";
-import { checkSessionPolicies } from "./lib/policy/session-policy.ts";
-import { attachSubscribe, subagentLaneSuffix } from "./lib/lanes/subscribe-attach.ts";
+import { checkpointPath } from "./lib/lanes/checkpoint.ts";
+import { enrollTopLevel } from "./lib/lanes/hook-scripts.ts";
+import {
+	nativeTitleFromTranscript,
+	renameSession,
+} from "./lib/lanes/session-rename.ts";
+import {
+	attachSubscribe,
+	subagentLaneSuffix,
+} from "./lib/lanes/subscribe-attach.ts";
 import {
 	canonicalRepo,
 	launchctlTable,
@@ -42,6 +47,8 @@ import {
 	supervisorControlStatus,
 	supervisorRefillDirective,
 } from "./lib/lanes/supervisor-refill.ts";
+import { checkSessionPolicies } from "./lib/policy/session-policy.ts";
+import { run } from "./lib/run.ts";
 
 type In = {
 	session_id?: string;
@@ -240,6 +247,17 @@ db.query(UPSERT).run(
 	input.transcript_path ?? null,
 	actorDefault,
 );
+// W954: native-rename sync at bootstrap — a CLI /rename (claude-code
+// custom-title) on an idle session otherwise stays UUID-labelled until its
+// first Stop gate (fleet-knowledge #47607). Fail-open display sync.
+const nativeTitle = nativeTitleFromTranscript(input.transcript_path ?? null);
+if (nativeTitle) {
+	try {
+		renameSession(db, lane, nativeTitle);
+	} catch {
+		// a display sync never breaks a bootstrap
+	}
+}
 const out = [
 	isSubagent
 		? `SUBAGENT LANE ${lane.slice(0, 24)}  project=${pname(project)}`

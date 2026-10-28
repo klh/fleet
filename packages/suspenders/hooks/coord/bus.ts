@@ -23,20 +23,21 @@ import {
 	sidResolvesLocally,
 } from "../lib/federation/event-relay.ts";
 import { localHubLabel } from "../lib/federation/federation-work.ts";
-import { resolveStoreHttpBase } from "../lib/govdb/govdb.ts";
+import { openStore, resolveStoreHttpBase } from "../lib/govdb/govdb.ts";
 import { type LaneRef, laneVerdict } from "../lib/lanes/lane-liveness.ts";
 import { loadLaneRegistry } from "../lib/lanes/lane-registry.ts";
+import { startNativeRenameWatch } from "../lib/lanes/session-rename.ts";
 import { managedSubscriberIdentity } from "../lib/lanes/subscribe-attach.ts";
 import { type EventPublication, emitStoredEvent } from "./event-publish.ts";
 import { advanceCursor, fetchEventsPaged } from "./event-scan.ts";
 import {
-	type Ev,
 	amber,
 	arg,
 	cyan,
 	db,
 	die,
 	dim,
+	type Ev,
 	green,
 	projectIdentity,
 	red,
@@ -347,6 +348,9 @@ export async function cmdWait(rest: string[]): Promise<void> {
 	const kinds = arg("--kinds")?.split(",").filter(Boolean) ?? [];
 	const forever = rest.includes("--forever");
 	const deadline = Date.now() + Number(arg("--max-seconds") ?? 30) * 1000;
+	// W954: the --forever fallback face is persistent too — it carries the
+	// same native-rename watcher as the WS subscribe.
+	if (forever) startNativeRenameWatch(openStore(), as);
 	let interval = 250;
 	for (;;) {
 		const cur =
@@ -503,6 +507,10 @@ export async function cmdSubscribe(rest: string[]): Promise<void> {
 			process.exit(0);
 		}
 	}, 30_000);
+	// W954: the subscribe face doubles as the native-rename watcher — a
+	// /rename on an IDLE session lands in the transcript, and this is the one
+	// always-alive process that can catch it before a turn end. Fail-open.
+	startNativeRenameWatch(openStore(), as);
 	await new Promise<void>(() => {}); // live for the process's whole life
 }
 
