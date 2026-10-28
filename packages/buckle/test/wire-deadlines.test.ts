@@ -1,13 +1,14 @@
 // test/wire-deadlines.test.ts — W450: slow/quiet streams survive their
 // configured deadlines; deadline breaches abort with a timeout RouterError.
 import { describe, expect, test } from "bun:test";
+import type { UpstreamRequest } from "../src/router.ts";
 import {
 	defaultFetch,
 	HubConnectError,
 	type StreamGuards,
+	tcpConnects,
 } from "../src/wire.ts";
 import { startMockUpstream } from "./mock.ts";
-import type { UpstreamRequest } from "../src/router.ts";
 
 const enc = (s: string): Uint8Array => new TextEncoder().encode(s);
 
@@ -222,6 +223,56 @@ describe("W450 stream deadlines", () => {
 		const r = await defaultFetch(dep(up.url), req(false), 5000);
 		expect(r.status).toBe(200);
 		expect(await r.text()).toContain("x");
+		up.close();
+	});
+
+	test("W2191: plain row dead origin fails at connect, bounded, never at the model deadline", async () => {
+		const closed = Bun.serve({ port: 0, fetch: () => new Response("ok") });
+		const url = `http://127.0.0.1:${closed.port}`;
+		closed.stop(true);
+		const started = Date.now();
+		const error = await defaultFetch(
+			dep(url),
+			req(false),
+			120_000,
+			undefined,
+			1_000,
+		).catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(HubConnectError);
+		expect(Date.now() - started).toBeLessThan(4000);
+	});
+
+	test("W2191: blackholed origin resolves at the connect bound, not the 120s model deadline", async () => {
+		// 192.0.2.1 is TEST-NET-1: routable nowhere — the blackhole fixture
+		const started = Date.now();
+		const error = await defaultFetch(
+			dep("http://192.0.2.1:4301"),
+			req(false),
+			120_000,
+			undefined,
+			300,
+		).catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(HubConnectError);
+		const dt = Date.now() - started;
+		expect(dt).toBeGreaterThanOrEqual(250);
+		expect(dt).toBeLessThan(4000);
+	});
+
+	test("W2191: slow inference on a live origin is never cut off by the connect bound", async () => {
+		const up = await startMockUpstream(async () => {
+			await Bun.sleep(700);
+			return Response.json({ ok: true });
+		});
+		const r = await defaultFetch(dep(up.url), req(false), 5000, undefined, 250);
+		expect(r.status).toBe(200);
+		expect(await r.text()).toContain("ok");
+		up.close();
+	});
+
+	test("W2191: tcpConnects live origin answers, dead one does not", async () => {
+		const up = await startMockUpstream(() => Response.json({ ok: true }));
+		expect(await tcpConnects(up.url, 1000)).toBe(true);
+		expect(await tcpConnects("http://192.0.2.1:4301", 200)).toBe(false);
 		up.close();
 	});
 });

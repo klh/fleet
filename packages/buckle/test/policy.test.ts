@@ -4,8 +4,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	POLICY_DEFAULTS,
 	loadGatewayPolicy,
+	POLICY_DEFAULTS,
 	parsePolicy,
 } from "../src/policy.ts";
 
@@ -79,6 +79,9 @@ test("POLICY_DEFAULTS: fixed constants from the ported semantics", () => {
 		retry_max_delay_s: 8,
 		retry_after_cap_s: 60,
 		request_timeout_s: 120,
+		// W2191 (W1096 re-land): reachability probe bound (dead origin, never
+		// slow inference)
+		connect_timeout_s: 5,
 		first_byte_budget_s: 240,
 		// W450 long-generation deadlines
 		stream_idle_timeout_s: 60,

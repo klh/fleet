@@ -283,6 +283,7 @@ export interface RouterDeps {
 		req: UpstreamRequest,
 		timeoutMs: number,
 		stream?: { idleMs: number; totalMs: number },
+		connectMs?: number,
 	) => Promise<Response>;
 	metrics?: RouterMetrics;
 	/** W1077: injectable liveness probe (tests stub it; default = a plain
@@ -300,6 +301,7 @@ export class Router {
 		req: UpstreamRequest,
 		timeoutMs: number,
 		stream?: { idleMs: number; totalMs: number },
+		connectMs?: number,
 	) => Promise<Response>;
 	private readonly metrics?: RouterMetrics;
 	/** W1078: one admission core per explicitly configured account pool —
@@ -391,6 +393,7 @@ export class Router {
 		timeoutMs: number,
 		stream?: { idleMs: number; totalMs: number },
 		walkRemainingMs = timeoutMs,
+		connectMs?: number,
 	): Promise<TryOutcome> {
 		const wireReq = bridgeRequest(req, dep);
 		if (wireReq === null)
@@ -447,7 +450,13 @@ export class Router {
 			timeoutMs = Math.min(timeoutMs, remainingMs);
 		}
 		try {
-			const raw = await this.fetchImpl(dep, wireReq, timeoutMs, stream);
+			const raw = await this.fetchImpl(
+				dep,
+				wireReq,
+				timeoutMs,
+				stream,
+				connectMs ?? 5_000,
+			);
 			const resp = lease === undefined ? raw : bindProviderLease(raw, lease);
 			if (resp.ok) {
 				this.cooldowns.success(dep);
@@ -660,6 +669,17 @@ export class Router {
 				.slice(0, 16),
 			status,
 			refusal,
+			layer:
+				refusal === "connect_unreachable"
+					? "connect"
+					: refusalOrigin === "local-admission"
+						? "gateway"
+						: refusalOrigin === "upstream" ||
+								refusalOrigin === "bridged-upstream"
+							? "upstream"
+							: refusal === null && status !== null
+								? "upstream"
+								: "network",
 			durationMs: Math.max(0, this.now() - startedAt),
 			retryAfterMs,
 			upstreamId: requestId ?? null,
@@ -744,6 +764,17 @@ export class Router {
 				1,
 				Math.min(perAttemptMs, st.deadlineMs - this.now()),
 			);
+			// W2191 (W1096 re-land): the reachability probe bound (policy
+			// connect_timeout_s, clamped to the walk remainder) — a dead origin
+			// resolves within this window as a connect-layer failure, never at
+			// the model first-byte deadline.
+			const connectMs = Math.max(
+				1,
+				Math.min(
+					(this.policy.connect_timeout_s ?? 5) * 1000,
+					st.deadlineMs - this.now(),
+				),
+			);
 			st.attempts++;
 			const startedAt = this.now();
 			const observedReq = { ...req, transport: new TransportObservation() };
@@ -755,6 +786,7 @@ export class Router {
 					timeoutMs,
 					stream,
 					st.deadlineMs - startedAt,
+					connectMs,
 				);
 			} catch (error) {
 				if (req.signal?.aborted) {
@@ -1392,7 +1424,8 @@ async function defaultFetchImpl(
 	req: UpstreamRequest,
 	timeoutMs: number,
 	stream?: { idleMs: number; totalMs: number },
+	connectMs?: number,
 ): Promise<Response> {
 	const { defaultFetch } = await import("./wire.ts");
-	return defaultFetch(dep, req, timeoutMs, stream);
+	return defaultFetch(dep, req, timeoutMs, stream, connectMs);
 }
