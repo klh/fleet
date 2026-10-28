@@ -13,7 +13,7 @@ import {
 	SPECIALISTS,
 	platformDefinitions,
 	type Platform,
-} from "../belt/bin/registry.ts";
+} from "@klh/belt/bin/registry.ts";
 
 export interface CatalogEntry {
 	id: string;

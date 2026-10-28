@@ -1,5 +1,5 @@
-import { SseSniffer } from "../../buckle/src/sse.ts";
-import { upstreamErrorDetail } from "../../buckle/src/error-detail.ts";
+import { SseSniffer } from "@klh/buckle/src/sse.ts";
+import { upstreamErrorDetail } from "@klh/buckle/src/error-detail.ts";
 
 /** Backend admission may run inside its SSE generator, after HTTP 200.
  * Keep the caller's original deadline until usable output commits the stream.

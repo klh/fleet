@@ -1,9 +1,9 @@
-import type { SpawnLedger } from "../../../belt/bin/spawn-admission.ts";
-import { byPort } from "../../../belt/bin/registry.ts";
+import type { SpawnLedger } from "@klh/belt/bin/spawn-admission.ts";
+import { byPort } from "@klh/belt/bin/registry.ts";
 import {
 	coldLoadTimeoutMs,
 	wiredGuardGb,
-} from "../../../local-llm/memory-policy.ts";
+} from "@klh/local-llm/memory-policy.ts";
 
 /** Emergency reaping starts above the admission ceiling, not at it. */
 export const emergencyWiredLimitGb = (configured: string): number =>

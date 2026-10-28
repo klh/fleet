@@ -786,6 +786,16 @@ async function main(): Promise<void> {
 	);
 }
 
+if (
+	import.meta.main &&
+	(process.argv.includes("--help") || process.argv.includes("-h"))
+) {
+	console.log(
+		"usage: bun bench/local-reason-overnight.ts --rounds 10 [--smoke] [--tasks code,review] [--run-id <id>]",
+	);
+	process.exit(0);
+}
+
 if (import.meta.main) {
 	main().catch((e) => {
 		console.error(String(e));

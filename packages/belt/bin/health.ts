@@ -1,5 +1,5 @@
 // W1081: health envelopes identify their emitter like every other face.
-import { stampHopHeaders } from "../../telemetry/src/http-trace.ts";
+import { stampHopHeaders } from "@klh/telemetry/src/http-trace.ts";
 
 /** Process liveness only; outside-process sidecars own service health. */
 export function livenessResponse(

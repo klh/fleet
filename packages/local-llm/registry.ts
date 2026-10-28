@@ -5,4 +5,4 @@
 // so the kit's relative imports (./registry.ts inside spawner.ts/swarm.ts)
 // keep one obvious path. Port↔model pairs exist ONLY in belt's registry;
 // change a model THERE and every consumer follows.
-export * from "../belt/bin/registry.ts";
+export * from "@klh/belt/bin/registry.ts";

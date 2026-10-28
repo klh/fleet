@@ -1,1 +1,1 @@
-export { probePathFor } from "../../../../belt/bin/inventory-probe.ts";
+export { probePathFor } from "@klh/belt/bin/inventory-probe.ts";

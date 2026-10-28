@@ -12,7 +12,7 @@
 import {
 	stampHopHeaders,
 	stampResponse,
-} from "../../telemetry/src/http-trace.ts";
+} from "@klh/telemetry/src/http-trace.ts";
 
 // W1471: belt's ONE citizenship stamp for the kernel servicemon `stamp`
 // seam (model-store) — re-exported here so the telemetry edge stays single.

@@ -11,8 +11,8 @@ import {
 	byPort,
 	residentSet,
 	type Specialist,
-} from "../../../local-llm/registry.ts";
-import { ensureUp } from "../../../local-llm/spawner.ts";
+} from "@klh/local-llm/registry.ts";
+import { ensureUp } from "@klh/local-llm/spawner.ts";
 
 export const SUGGEST = {
 	DRAFT_MIN: 8,

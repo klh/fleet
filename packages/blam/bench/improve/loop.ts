@@ -7,17 +7,17 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { assertNoSecrets } from "../../../suspenders/hooks/lib/starter/secret-guard.ts";
+import { assertNoSecrets } from "@klh/suspenders/hooks/lib/starter/secret-guard.ts";
 import {
 	listStarters,
 	type StarterArtifact,
 	starterRegistryDir,
-} from "../../../suspenders/hooks/lib/starter/starter-artifacts.ts";
+} from "@klh/suspenders/hooks/lib/starter/starter-artifacts.ts";
 import {
 	promoteStarter,
 	readStarterAuthorized,
-} from "../../../suspenders/hooks/lib/starter/starter-distribution.ts";
-import { starterInstructionContext } from "../../../suspenders/scripts/lib/lane-starter.ts";
+} from "@klh/suspenders/hooks/lib/starter/starter-distribution.ts";
+import { starterInstructionContext } from "@klh/suspenders/scripts/lib/lane-starter.ts";
 import { gatePromotion } from "../../src/promotion.ts";
 import {
 	command,

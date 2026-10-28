@@ -11,16 +11,15 @@
 import { envInt } from "./admission.ts";
 import { EXTERNAL, type Specialist } from "./registry.ts";
 import { anthropicMessagesToOpenAi } from "./router-tools.ts";
-import { childTraceparent } from "../../telemetry/src/http-trace.ts";
+import { childTraceparent } from "@klh/telemetry/src/http-trace.ts";
 import { primeLocalStream } from "./stream-prelude.ts";
-import { upstreamErrorDetail } from "../../buckle/src/error-detail.ts";
 // W1303.3: the shared resilience kit — the router's Retry-After parse and
 // per-attempt signals now delegate to it (one implementation, both routers).
 import {
 	attemptSignal,
 	callDeadlineMs,
 	parseRetryAfterHeader,
-} from "../../buckle/src/resilience.ts";
+} from "@klh/buckle/src/resilience.ts";
 
 // SSE wire translation (OpenAI → Anthropic) lives in router-sse.ts
 // (W1238.6.1 decomposition); re-exported so the router-core face stays put.

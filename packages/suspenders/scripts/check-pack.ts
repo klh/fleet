@@ -336,7 +336,9 @@ const stageClosure = (
 };
 
 // The scratch app manifest: root deps ride the entry tarball; overrides
-// pin every private sibling to its tarball (no workspace context there).
+// pin every private package — the entry included, since a cyclic sibling
+// (belt ⇄ suspenders) depends back on it — to its tarball (no workspace
+// context there; an unpinned entry resolves to the registry and 404s).
 const scratchAppManifest = (
 	pkgName: string,
 	tarballs: Record<string, string>,
@@ -346,9 +348,7 @@ const scratchAppManifest = (
 			name: "check-pack-scratch",
 			private: true,
 			dependencies: { [pkgName]: tarballs[pkgName] },
-			overrides: Object.fromEntries(
-				Object.entries(tarballs).filter(([n]) => n !== pkgName),
-			),
+			overrides: tarballs,
 		},
 		null,
 		"\t",

@@ -8,6 +8,9 @@
 	"engines": {
 		"bun": "1.4.2"
 	},
+	"dependencies": {
+		"@klh/belt": "2.0.0"
+	},
 	"devDependencies": {
 		"@klh/test-kit": "2.0.0"
 	},

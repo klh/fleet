@@ -9,7 +9,7 @@ import { condenseTier } from "@klh/blam/src/condense/tiers.ts";
 import {
 	parseDirectTiersArtifact,
 	resolveTarget,
-} from "../../../belt/bin/router-policy.ts";
+} from "@klh/belt/bin/router-policy.ts";
 import { scrub } from "../lib/servicemon.ts";
 import type { PromptSettingsWire } from "./schemas.ts";
 

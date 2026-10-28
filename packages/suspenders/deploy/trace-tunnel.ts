@@ -20,7 +20,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
-import { parsePeers } from "../../telemetry/src/remote-traces.ts";
+import { parsePeers } from "@klh/telemetry/src/remote-traces.ts";
 import type { HubProfile } from "../hooks/lib/stack-config.ts";
 import { DEFAULT_CONNECT_TIMEOUT } from "./hub-remote.ts";
 

@@ -153,6 +153,33 @@ describe("checkVersions — root manifest", () => {
 		]);
 		rmSync(dir, { recursive: true, force: true });
 	});
+
+	test("the shared test runner is the one allowed root devDependency", () => {
+		const dir = fixture({
+			root: {
+				name: "fleet",
+				private: true,
+				version: "2.0.0",
+				workspaces: ["packages/*"],
+				devDependencies: { "@playwright/test": "1.64.1" },
+			},
+		});
+		expect(checkVersions(dir).findings).toEqual([]);
+		rmSync(dir, { recursive: true, force: true });
+		const other = fixture({
+			root: {
+				name: "fleet",
+				private: true,
+				version: "2.0.0",
+				workspaces: ["packages/*"],
+				devDependencies: { "@playwright/test": "1.64.1", zod: "4.0.0" },
+			},
+		});
+		expect(checkVersions(other).findings.map((f) => f.code)).toEqual([
+			"root-deps",
+		]);
+		rmSync(other, { recursive: true, force: true });
+	});
 });
 
 describe("checkVersions — workspace coverage", () => {
@@ -225,19 +252,12 @@ describe("checkVersions — scoped runs", () => {
 });
 
 describe("checkVersions — real repo (read-only probe)", () => {
-	test("green where P1 conformance landed (suspenders), red where not", () => {
+	test("suspenders green; repo root + workspace coverage clean (W1303.1.10 landed)", () => {
 		const repo = join(import.meta.dir, "..", "..", "..", "..");
-		const clean = checkVersions(repo, "suspenders");
-		expect(clean.ok).toBe(true);
-		const whole = checkVersions(repo);
-		expect(whole.ok).toBe(false);
-		// telemetry has no manifest yet (W1303.1.10 owns it)
-		expect(
-			whole.findings.some(
-				(f) =>
-					f.code === "missing-manifest" &&
-					f.file === "packages/telemetry/package.json",
-			),
-		).toBe(true);
+		expect(checkVersions(repo, "suspenders").ok).toBe(true);
+		const structural = checkVersions(repo).findings.filter(
+			(f) => f.code === "root-deps" || f.code === "missing-manifest",
+		);
+		expect(structural).toEqual([]);
 	});
 });

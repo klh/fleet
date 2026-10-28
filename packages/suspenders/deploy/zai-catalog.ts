@@ -16,7 +16,7 @@ import {
 	zaiCatalogFile,
 	type ZaiCatalogSnapshot,
 	ZaiSnapshotStaleError,
-} from "../../belt/bin/zai-catalog-rows.ts";
+} from "@klh/belt/bin/zai-catalog-rows.ts";
 import { validateOutboundGuardConfig } from "@klh/buckle/src/outbound-guard.ts";
 import { assertProviderConcurrencyErrorCodes } from "@klh/buckle/src/provider-pressure.ts";
 import type { HubProfile } from "../hooks/lib/stack-config.ts";

@@ -10,7 +10,7 @@ import {
 	encodePreferHeader,
 	PREFER_HEADER,
 	type PreferHeaderDecision,
-} from "../../../telemetry/src/prefer-header.ts";
+} from "@klh/telemetry/src/prefer-header.ts";
 import { join } from "node:path";
 import {
 	LANE_GUARD_EGRESS_PORT,

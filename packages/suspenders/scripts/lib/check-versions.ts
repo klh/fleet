@@ -18,6 +18,11 @@ import {
 	workspaceDirsAll,
 } from "./release-version.ts";
 
+// Root devDependencies the repo root may carry: the one test runner every
+// workspace's playwright config resolves from the root (a per-package copy
+// = dual-require "two different versions of @playwright/test").
+const ROOT_DEV_TOOLING: ReadonlySet<string> = new Set(["@playwright/test"]);
+
 export type VersionFindingCode =
 	| "root-deps"
 	| "missing-manifest"
@@ -78,17 +83,18 @@ export function checkVersions(
 		return pkgName !== undefined && pkgName.replace(/^@klh\//, "") === scoped;
 	};
 
-	// 1 · the root manifest is not a package: no dependency maps
+	// 1 · the root manifest is not a package: no dependency maps — except the
+	// shared test runner as a root devDependency (ROOT_DEV_TOOLING), which
+	// the root playwright configs need to resolve ONE @playwright/test copy
 	if (inScope("package.json", rootJson.name)) {
 		for (const m of DEP_MAPS) {
 			const map = rootJson[m];
-			if (
-				map === undefined ||
-				map === null ||
-				typeof map !== "object" ||
-				Object.keys(map as Record<string, string>).length === 0
-			)
+			if (map === undefined || map === null || typeof map !== "object")
 				continue;
+			const names = Object.keys(map as Record<string, string>).filter(
+				(n) => !(m === "devDependencies" && ROOT_DEV_TOOLING.has(n)),
+			);
+			if (names.length === 0) continue;
 			findings.push({
 				code: "root-deps",
 				file: "package.json",

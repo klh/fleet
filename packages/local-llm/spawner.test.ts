@@ -6,7 +6,7 @@
 // suspenders/test/belt-bin-overlay-flat-home.test.ts).
 import { describe, expect, test } from "bun:test";
 
-import * as belt from "../belt/bin/spawner.ts";
+import * as belt from "@klh/belt/bin/spawner.ts";
 import * as kit from "./spawner.ts";
 
 describe("kit spawner is belt's lifecycle at runtime", () => {

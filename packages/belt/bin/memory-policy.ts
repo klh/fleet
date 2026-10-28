@@ -3,4 +3,4 @@ export {
 	modelBudgetGb,
 	rapidMemoryArgs,
 	wiredGuardGb,
-} from "../../local-llm/memory-policy.ts";
+} from "@klh/local-llm/memory-policy.ts";

@@ -31,12 +31,9 @@ import {
 	writeToken,
 } from "@klh/kernel/src/kernel.host-guard.module.ts";
 import { servicemon } from "@klh/kernel/src/kernel.servicemon.module.ts";
-import { KeyStore } from "../../buckle/src/gov/keys.ts";
-import {
-	PullAuthorizer,
-	TokenBucket,
-} from "../../buckle/src/gov/store-auth.ts";
-import { loadCatalog } from "../../local-llm/models.catalog.ts";
+import { KeyStore } from "@klh/buckle/src/gov/keys.ts";
+import { PullAuthorizer, TokenBucket } from "@klh/buckle/src/gov/store-auth.ts";
+import { loadCatalog } from "@klh/local-llm/models.catalog.ts";
 import { stampResponse } from "./http-citizenship.ts";
 import {
 	hfOrigin,

@@ -19,6 +19,7 @@
 		"@klh/blam": "2.0.0",
 		"@klh/buckle": "2.0.0",
 		"@klh/kernel": "2.0.0",
+		"@klh/local-llm": "2.0.0",
 		"@klh/speedy": "2.0.0",
 		"@klh/telemetry": "2.0.0",
 		"@vercel/detect-agent": "1.2.7",
@@ -63,7 +64,11 @@
 		"NOTICE",
 		"ECOSYSTEM.md",
 		"AGENTS.md",
-		"CLAUDE.md"
+		"CLAUDE.md",
+		"!**/*.test.ts",
+		"!**/*.e2e.ts",
+		"!**/*.fixtures.ts",
+		"!**/playwright.config.ts"
 	],
 	"bin": {
 		"coord": "hooks/bin/coord.ts",

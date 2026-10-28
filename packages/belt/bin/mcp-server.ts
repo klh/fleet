@@ -80,6 +80,12 @@ const EXTRA_HOSTS = (process.env.BELT_MCP_HOSTS ?? "")
 	.map((h) => h.trim())
 	.filter(Boolean);
 
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+	console.log(
+		"usage: bun mcp-server.ts — belt MCP server (Streamable HTTP on BELT_MCP_BIND:BELT_MCP_PORT, default 127.0.0.1:7793); env BELT_MCP_TENANT/BELT_MCP_AUDIENCE (Entra auth), BELT_MCP_DEV=1, BELT_MCP_HOSTS, BELT_MCP_REQUEST_MS",
+	);
+	process.exit(0);
+}
 if (!AUTH && !DEV) {
 	console.error(
 		"belt-mcp: no Entra config (BELT_MCP_TENANT / BELT_MCP_AUDIENCE) — status only; MCP tools unavailable.",

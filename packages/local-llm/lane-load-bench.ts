@@ -97,8 +97,7 @@ export const PROMPTS: [Prompt, ...Prompt[]] = [
 		id: "danish",
 		text: 'Oversæt til dansk (svar KUN med oversættelsen): "The fleet moves as one."',
 		maxTokens: 48,
-		grade: (out) =>
-			out.trim().length > 0 && !lowerIncludes(out, "the fleet"),
+		grade: (out) => out.trim().length > 0 && !lowerIncludes(out, "the fleet"),
 	},
 ];
 
@@ -155,7 +154,7 @@ const failGen = (totalMs: number, error: string): GenResult => ({
 // SSE parse: `data: {...}` lines; TTFT = first content delta
 export async function readStream(
 	res: Response,
-	prompt: Prompt,
+	_prompt: Prompt,
 	t0: number,
 	now: () => number = Date.now,
 ): Promise<GenResult> {
@@ -188,9 +187,12 @@ async function scanSse(
 }
 
 // pure SSE line consumer (exported for tests): data lines → text + chunks
-export function consumeLines(
-	buf: string,
-): { rest: string; text: string; chunks: number; ttft: boolean } {
+export function consumeLines(buf: string): {
+	rest: string;
+	text: string;
+	chunks: number;
+	ttft: boolean;
+} {
 	const parts = buf.split("\n");
 	const rest = parts.pop() ?? ""; // partial tail held back
 	let text = "";
@@ -326,6 +328,17 @@ export function appendRows(rows: BenchRow[]): void {
 }
 
 export const benchConcurrency = (s: Specialist): number => s.maxInflight ?? 4;
+
+const USAGE =
+	"usage: bun lane-load-bench.ts [--roles code,general] [--rounds N] [--concurrency N] [--max-tokens N] [--json]";
+
+if (
+	import.meta.main &&
+	process.argv.some((a) => a === "--help" || a === "-h")
+) {
+	console.log(USAGE);
+	process.exit(0);
+}
 
 if (import.meta.main) {
 	const roles = (arg("--roles") ?? "")
