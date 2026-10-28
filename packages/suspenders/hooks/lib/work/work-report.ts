@@ -483,6 +483,9 @@ export interface ReportContract {
 		lanes_per_hub: Record<string, number>;
 	};
 	footer: { lanes_other_projects: number | null };
+	/** W2194: model groups the health sweep currently grades DOWN — the one
+	 *  shared health signal every view renders (never re-derived per view). */
+	model_health: { down: string[] };
 }
 
 /** rows → the versioned contract (§1). Every view renders FROM this — the
@@ -496,6 +499,7 @@ export const buildReportContract = (
 		now?: number;
 		boardBase?: string;
 		lanesOtherProjects?: number | null;
+		modelHealthDown?: string[];
 	},
 ): ReportContract => {
 	const now = opts.now ?? Date.now();
@@ -535,6 +539,7 @@ export const buildReportContract = (
 			lanes_per_hub: lanesPerHub,
 		},
 		footer: { lanes_other_projects: opts.lanesOtherProjects ?? null },
+		model_health: { down: opts.modelHealthDown ?? [] },
 	};
 };
 

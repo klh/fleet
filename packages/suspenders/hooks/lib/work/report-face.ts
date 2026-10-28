@@ -11,6 +11,7 @@ import {
 	TASK_CAP,
 } from "./work-report.ts";
 import { buildReportTable } from "./work-report-render.ts";
+import { downModelGroups, type ModelHealthStore } from "../hub/model-health.ts";
 
 /** One expandable row of the pane: the report cells live in `table` (the
  *  verbatim renderer output); a row carries its expand key + live stamp. */
@@ -63,10 +64,11 @@ export const reportFace = (
 		...("ledger" in opts ? { ledger: opts.ledger } : {}),
 	});
 	const last = lastEventMap(db, project);
+	const down = downModelGroups(db as unknown as ModelHealthStore);
 	return {
 		ts: now,
 		project,
-		table: buildReportTable(rows),
+		table: buildReportTable(rows, { modelHealthDown: down }),
 		rows: rows.map((r: ReportRow) => ({
 			id: r.id,
 			st: reportGlyph(r.state),

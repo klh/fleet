@@ -69,7 +69,7 @@ import{r,e,t,s}from"./lit-17452e2304aadd9e.js";import{a}from"./lit-2142d9e64fc25
 	.routeHead { color:var(--klh-dim); font:var(--klh-text-xs) var(--klh-font-mono); text-transform:uppercase; border-bottom:1px solid var(--klh-edge); }
 	.routeRow { border-bottom:1px solid var(--klh-edge-faint); padding:var(--klh-space-2) 0; }
 	@media(max-width:680px){.netMetrics{gap:var(--klh-space-2)}.netMetric strong{font-size:14px}.hourSeries{height:64px}}
-`,S=(n)=>Math.max(0,Math.round((Date.now()-Date.parse(n))/1000)),g=(n)=>n.gateway?e`<p>
+`,N=(n)=>Math.max(0,Math.round((Date.now()-Date.parse(n))/1000)),g=(n)=>n.gateway?e`<p>
 				<span class="hname">local spoke</span>
 				<span class=${n.gateway.state==="up"?"live":"hot"}>
 					${n.gateway.state}</span
@@ -78,7 +78,7 @@ import{r,e,t,s}from"./lit-17452e2304aadd9e.js";import{a}from"./lit-2142d9e64fc25
 			</p>`:e`<p>
 				<span class="hname">local spoke</span>
 				<span class="unknown">not in the probe map</span>
-			</p>`,N=(n)=>{let l=n.lifecycle;if(!l.loss.length&&!l.rows.length)return e`<div class="hrow">
+			</p>`,S=(n)=>{let l=n.lifecycle;if(!l.loss.length&&!l.rows.length)return e`<div class="hrow">
 			<span class="hname">lifecycle</span>
 			<span class="unknown">no projected events here</span>
 		</div>`;return e`<div class="hrow">
@@ -122,7 +122,7 @@ import{r,e,t,s}from"./lit-17452e2304aadd9e.js";import{a}from"./lit-2142d9e64fc25
 				<span class="hname">unsettled</span>
 				${n.unsettled.map((l)=>e`<span class="num">${l.kind}: ${l.n}</span>`)}
 			</div>`:t}
-	${N(n)}`,M=(n)=>{let l=n.out60===null?null:Math.round(n.out60/60);return e`<div class="hrow">
+	${S(n)}`,D=(n)=>{let l=n.out60===null?null:Math.round(n.out60/60);return e`<div class="hrow">
 		<span class="hname">${n.kind} · ${n.host??"unknown"}${n.port?`:${n.port}`:""}</span>
 		<span class="num">${n.model??""}</span>
 		<span class="num">${n.req60} req/60s</span>
@@ -134,7 +134,7 @@ import{r,e,t,s}from"./lit-17452e2304aadd9e.js";import{a}from"./lit-2142d9e64fc25
 			class="bar"
 			style="width:${T(l)*14}px;background:var(--klh-edge)"
 		></span>
-	</div>`},D=(n)=>e`<div class="routeRow">
+	</div>`},M=(n)=>e`<div class="routeRow">
 	<time class="unknown" datetime=${n.ts} title=${o(n.ts)}>${i(n.ts)}</time>
 	<span class="title">${n.target_model??"model unknown"}</span>
 	<span class="unknown" title=${n.lane||"No lane attribution"}>${n.lane?`lane ${n.lane.replace(/^autow([\d.]+)-.*/,"W$1")}`:"unattributed"}</span>
@@ -158,11 +158,18 @@ import{r,e,t,s}from"./lit-17452e2304aadd9e.js";import{a}from"./lit-2142d9e64fc25
 						></span>`)}
 				</div>
 				<div class="hourRange"><span>${d?h(d.hour):""}</span><span>${m?h(m.hour):""}</span></div>
-		</div>`},E=(n)=>{let l=n.network;if(!l.ok)return e`${g(n)}
+		</div>`},E=(n)=>n.model_health.down.length===0?e`<div class="hrow">
+				<span class="hname">model health</span>
+				<span class="unknown">no DOWN groups in fresh facts</span>
+			</div>`:e`<div class="hrow">
+				<span class="hname">model health</span>
+				${n.model_health.down.map((l)=>e`<span class="num hot">DOWN ${l}</span>`)}
+			</div>`,j=(n)=>{let l=n.network;if(!l.ok)return e`${g(n)}
 			<p class="unknown">${l.reason}</p>`;return e`${g(n)}
+		${E(n)}
 		${O(l)}
 		${C(l)}
-		${l.throughput.interfaces.length?l.throughput.interfaces.map(M):e`<div class="hrow">
+		${l.throughput.interfaces.length?l.throughput.interfaces.map(D):e`<div class="hrow">
 					<span class="hname">interfaces</span>
 					<span class="unknown">no settled traffic in window</span>
 				</div>`}
@@ -170,14 +177,14 @@ import{r,e,t,s}from"./lit-17452e2304aadd9e.js";import{a}from"./lit-2142d9e64fc25
 			<summary>Recent settled routes · ${l.routes.length}</summary>
 			<div class="routesBody">
 				<div class="routeHead"><span>Time</span><span>Model</span><span>Lane</span><span>Target</span><span>Latency</span><span>Tokens</span></div>
-				${l.routes.length?l.routes.map(D):e`<p class="unknown">No settled routes yet</p>`}
+				${l.routes.length?l.routes.map(M):e`<p class="unknown">No settled routes yet</p>`}
 			</div>
 		</details>
 		<p class="legend">
 			edge width 1-4px = measured output tok/s (60s): ≥100 → 4 · ≥20 → 3 ·
 			≥5 → 2 · else 1 · null = unknown (gray), never zero
-		</p>`},j=async()=>{try{let n=await fetch("/api/console/network",{cache:"no-store"});if(!n.ok)return null;return await n.json()}catch{return null}};class k extends s{static properties={heading:{type:String},data:{type:Object}};static styles=[a,_];live=null;err="";timer=null;constructor(){super();this.heading="",this.data=null}connectedCallback(){super.connectedCallback(),this.refresh(),this.timer=setInterval(()=>void this.refresh(),1e4)}disconnectedCallback(){if(super.disconnectedCallback(),this.timer)clearInterval(this.timer)}async refresh(){let n=await j();if(n)this.live=n,this.err="";else this.err="refresh failed — last known values shown"}render(){let n=this.live??this.data;if(!n)return e`<h2>${this.heading}</h2><p class="dimpl">loading…</p>`;let l=this.err?e`<p class="unknown">${this.err}</p>`:t;return e`<h2>${this.heading} · live ${R(S(n.ts))}</h2>
-			${l}${E(n)}`}}customElements.define("klh-network-card",k);var w=(n,l)=>n.flatMap((p,d)=>d?[e`${l}`,p]:[p]);class v extends s{static properties={heading:{type:String},compact:{type:Boolean},foot:{type:String},data:{type:Object}};static styles=[a];constructor(){super();this.heading="",this.compact=!1,this.foot="",this.data=null}render(){let n=this.data;if(!n)return e`${t}`;if(n.kind==="missing")return e`<h2>${this.heading}</h2>
+		</p>`},P=async()=>{try{let n=await fetch("/api/console/network",{cache:"no-store"});if(!n.ok)return null;return await n.json()}catch{return null}};class k extends s{static properties={heading:{type:String},data:{type:Object}};static styles=[a,_];live=null;err="";timer=null;constructor(){super();this.heading="",this.data=null}connectedCallback(){super.connectedCallback(),this.refresh(),this.timer=setInterval(()=>void this.refresh(),1e4)}disconnectedCallback(){if(super.disconnectedCallback(),this.timer)clearInterval(this.timer)}async refresh(){let n=await P();if(n)this.live=n,this.err="";else this.err="refresh failed — last known values shown"}render(){let n=this.live??this.data;if(!n)return e`<h2>${this.heading}</h2><p class="dimpl">loading…</p>`;let l=this.err?e`<p class="unknown">${this.err}</p>`:t;return e`<h2>${this.heading} · live ${R(N(n.ts))}</h2>
+			${l}${j(n)}`}}customElements.define("klh-network-card",k);var w=(n,l)=>n.flatMap((p,d)=>d?[e`${l}`,p]:[p]);class v extends s{static properties={heading:{type:String},compact:{type:Boolean},foot:{type:String},data:{type:Object}};static styles=[a];constructor(){super();this.heading="",this.compact=!1,this.foot="",this.data=null}render(){let n=this.data;if(!n)return e`${t}`;if(n.kind==="missing")return e`<h2>${this.heading}</h2>
 				<p class="dimpl">
 					no routing-policy.yaml found on the belt chain (BELT_POLICY/
 					BUCKLE_POLICY → ~/.claude/local-llm/ → committed default)

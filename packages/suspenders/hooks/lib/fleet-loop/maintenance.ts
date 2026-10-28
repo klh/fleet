@@ -26,6 +26,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { appendSweepNotice, pausePath, readPause } from "./sweep-state.ts";
 import type { LoopDeps } from "./runtime.ts";
+import { MODEL_HEALTH_SWEEP_S } from "../hub/model-health.ts";
 
 export interface MaintenanceTask {
 	/** registry name — also the stamp key and the log tag */
@@ -383,6 +384,19 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 			repo,
 		],
 		cwd: (repo) => repo,
+	},
+	{
+		// W2194: the hub model-health sweep — every configured hub + the local
+		// spoke probes each catalog group through ITS OWN buckle front (~10min,
+		// hubs parallel, groups staggered), banking model.health.<core> facts
+		// the dispatch + review-scheduler pin layers re-pin from when a pinned
+		// group is DOWN. Exit 1 = down groups present (the heartbeat notices).
+		// SUSPENDERS_MODEL_HEALTH=0 disables the sweep.
+		name: "model-health-sweep",
+		everySeconds: MODEL_HEALTH_SWEEP_S,
+		nice: 10,
+		timeoutMs: 240_000,
+		argv: (root) => [join(root, "hooks/bin/model-health-sweep.ts")],
 	},
 ];
 

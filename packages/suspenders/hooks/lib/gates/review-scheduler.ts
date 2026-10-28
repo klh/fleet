@@ -10,6 +10,7 @@ import {
 	sameProcess,
 } from "../same-process.ts";
 import { reviewRoundCapRefusal } from "./review-round-cap.ts";
+import { rePinModelPick } from "../hub/model-health.ts";
 
 interface Request {
 	state: "RUNNING" | "DONE" | "ERROR";
@@ -29,6 +30,10 @@ interface Request {
 	 * consuming the 3-verdict-attempt budget — attempts is refunded on a
 	 * failed finish and deferred counts the backoffs instead. */
 	deferred?: number;
+	/** W2194: when the health sweep had the pinned group DOWN, the model the
+	 * request was re-pinned FROM — the receipt shows the swap, never a
+	 * silent alias (the wire audit still grades the new pin as itself). */
+	repinned_from?: string;
 }
 /** W1243: capped transport backoff — 1m doubling to a 15m ceiling. */
 const backoffMs = (deferred: number): number =>
@@ -350,7 +355,20 @@ export function scheduleReview(o: {
 				.query("SELECT value FROM facts WHERE key = ?")
 				.get(`lane.${author.completed_by}.model`) as { value: string } | null)
 		: null;
-	const model = env.SUSPENDERS_REVIEW_MODEL || pin?.value;
+	// W2194: the pin-layer fallback — a pinned model that is DOWN (per the
+	// fresh model.health facts) re-pins to the freshest healthy group,
+	// loudly; the request records repinned_from (never a silent alias — the
+	// W1302.6 wire audit grades the new pin as itself).
+	let model = env.SUSPENDERS_REVIEW_MODEL || pin?.value;
+	let repinnedFrom: string | null = null;
+	if (model && env.SUSPENDERS_MODEL_HEALTH !== "0") {
+		const rePin = rePinModelPick(o.db, model);
+		if (rePin.note) console.log(rePin.note);
+		if (rePin.model) {
+			repinnedFrom = model;
+			model = rePin.model;
+		}
+	}
 	if (!model)
 		return "review unavailable: configure SUSPENDERS_REVIEW_MODEL or restore original lane model fact";
 	const key = reviewRequestKey(o.project, o.item, o.context);
@@ -429,6 +447,7 @@ export function scheduleReview(o: {
 			leaseUntil: now + 25 * 60_000,
 			token,
 			nextAt: 0,
+			...(repinnedFrom ? { repinned_from: repinnedFrom } : {}),
 		};
 		o.db
 			.query(
@@ -482,7 +501,9 @@ export function scheduleReview(o: {
 				);
 			});
 		}
-		return `review requested through Buckle (${model})`;
+		return `review requested through Buckle (${model})${
+			repinnedFrom ? ` — re-pinned from ${repinnedFrom} (group DOWN)` : ""
+		}`;
 	} catch {
 		finishReviewRequest(o.db, key, token, true);
 		return "review launch failed; bounded retry retained";

@@ -194,6 +194,8 @@ export const footerLine = (c: ReportContract, hidden: Col[]): string => {
 	if (hubs.length) bits.push(hubs.map(([h, n]) => `${h}×${n}`).join(" "));
 	if (c.footer.lanes_other_projects)
 		bits.push(`+${c.footer.lanes_other_projects} in other repos`);
+	if (c.model_health.down.length)
+		bits.push(`down: ${c.model_health.down.join("/")}`);
 	if (hidden.length)
 		bits.push(`hidden: ${hidden.map((h) => h.header).join("/")}`);
 	return bits.join(" · ");
@@ -218,6 +220,8 @@ export const renderMd = (c: ReportContract): string => {
 		if (i.model) bits.push(i.hub ? `${i.model}@${i.hub}` : i.model);
 		lines.push(`- ${bits.join(" · ")} — ${truncateTask(i.title)}`);
 	}
+	if (c.model_health.down.length)
+		lines.push(`**model health** — DOWN: ${c.model_health.down.join(", ")}`);
 	return lines.join("\n");
 };
 
@@ -257,9 +261,18 @@ export const renderReport = (
  *  the work.ts verb keep their call shape; §6 narrow default, §12 fixes). */
 export const buildReportTable = (
 	rows: ReportRow[],
-	opts: { links?: boolean; baseUrl?: string; wide?: boolean } = {},
+	opts: {
+		links?: boolean;
+		baseUrl?: string;
+		wide?: boolean;
+		modelHealthDown?: string[];
+	} = {},
 ): string => {
 	const base = opts.baseUrl ?? reportBoardBase();
-	const c = buildReportContract(rows, { project: "", boardBase: base });
+	const c = buildReportContract(rows, {
+		project: "",
+		boardBase: base,
+		modelHealthDown: opts.modelHealthDown,
+	});
 	return renderTty(c, { format: "tty", links: opts.links, wide: opts.wide });
 };
