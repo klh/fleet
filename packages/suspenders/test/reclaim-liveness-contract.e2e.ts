@@ -67,10 +67,15 @@ test("W1072.3 recycled pid: a process started after the lane launched is not liv
 	expect(
 		laneProcessIdentity(lane, roster("562 00:01:00 claude -p autow562")),
 	).toBe(true);
-	// started 9s after launch — inside the grace → still the lane
+	// W2180: started 1s after launch — inside the 2s same-process tolerance →
+	// still the lane
+	expect(
+		laneProcessIdentity(lane, roster("562 00:00:59 claude -p autow562")),
+	).toBe(true);
+	// started 9s after launch — beyond the 2s tolerance → recycled
 	expect(
 		laneProcessIdentity(lane, roster("562 00:00:51 claude -p autow562")),
-	).toBe(true);
+	).toBe(false);
 	// started 11s after launch → recycled → absent evidence
 	expect(
 		laneProcessIdentity(lane, roster("562 00:00:49 claude -p autow562")),
