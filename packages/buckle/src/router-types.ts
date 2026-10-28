@@ -189,6 +189,7 @@ export interface RouterDeps {
 		req: UpstreamRequest,
 		timeoutMs: number,
 		stream?: { idleMs: number; totalMs: number },
+		connectMs?: number,
 	) => Promise<Response>;
 	metrics?: RouterMetrics;
 	/** W1077: injectable liveness probe (tests stub it; default = a plain
@@ -210,6 +211,7 @@ export interface RouterHost {
 		req: UpstreamRequest,
 		timeoutMs: number,
 		stream?: { idleMs: number; totalMs: number },
+		connectMs?: number,
 	) => Promise<Response>;
 	readonly metrics?: RouterMetrics;
 	readonly pools: Map<string, ProviderAdmissionCore>;
