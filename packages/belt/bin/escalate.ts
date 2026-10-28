@@ -1,4 +1,8 @@
 #!/usr/bin/env bun
+import {
+	childTraceparent,
+	safeUpstreamId,
+} from "../../telemetry/src/http-trace.ts";
 // escalate.ts — W422.17.3: the :4000 router's cloud-escalation leg, moved out
 // of router-shim.ts so the gate ride is unit-testable. Fleet law (W422.17,
 // owner 2026-10-05): every LLM egress rides the buckle gate. When the
@@ -8,16 +12,17 @@
 // other rider. Missing or non-scoped gate credentials disable cloud egress;
 // settings.json must never reopen a direct LiteLLM path around Buckle.
 import type { AnthropicBody } from "./router-core.ts";
-import { applyBudget, retryAfterMs } from "./router-core.ts";
+import {
+	type AnthropicToolUse,
+	applyBudget,
+	retryAfterMs,
+	type UpstreamUsage,
+} from "./router-core.ts";
 import {
 	loadGatewayPolicy,
-	resolveReasoningEffort,
 	type ReasoningEffort,
+	resolveReasoningEffort,
 } from "./router-policy.ts";
-import {
-	childTraceparent,
-	safeUpstreamId,
-} from "../../telemetry/src/http-trace.ts";
 
 /** Z.AI GLM-5.3 doc-verified efforts: low|high|max — the model ALWAYS
  *  thinks (disable → 400; medium is not in the 5.3 set). The fleet axis
@@ -50,6 +55,10 @@ export interface EscalateResult {
 	upstreamCallId?: string;
 	upstreamRid?: string;
 	attemptId?: string;
+	/** W2182: tool_use blocks the cloud leg returned (same shape as local). */
+	toolUses?: AnthropicToolUse[];
+	/** W2182: the cloud leg's own usage numbers when it reported them. */
+	usage?: UpstreamUsage;
 }
 
 function upstreamError(raw: string, status: number): string {
@@ -174,6 +183,12 @@ export async function escalate(
 				reasoning_effort: pinned,
 				...(body.system === undefined ? {} : { system: body.system }),
 				messages: body.messages,
+				// W2182: tools ride the escalation — a cloud answer must be able to
+				// come back as tool_use, or the executor narrates and edits nothing.
+				...(body.tools === undefined ? {} : { tools: body.tools }),
+				...(body.tool_choice === undefined
+					? {}
+					: { tool_choice: body.tool_choice }),
 			}),
 		});
 		status = res.status;
@@ -197,14 +212,47 @@ export async function escalate(
 				...(upstreamRid ? { upstreamRid } : {}),
 			};
 		}
-		const j = (await res.json()) as { content?: Array<{ text?: string }> };
-		const text = (j.content ?? [])
-			.map((b) => b.text ?? "")
+		const j = (await res.json()) as {
+			content?: Array<{
+				type?: unknown;
+				id?: unknown;
+				name?: unknown;
+				input?: unknown;
+				text?: unknown;
+			}>;
+			usage?: {
+				input_tokens?: number;
+				output_tokens?: number;
+				cache_read_input_tokens?: number;
+				cache_creation_input_tokens?: number;
+			};
+		};
+		const blocks = j.content ?? [];
+		const text = blocks
+			.map((b) => (b.type === "text" ? (b.text ?? "") : ""))
 			.join("")
 			.trim();
-		if (!text) failureKind = "empty";
+		const toolUses: AnthropicToolUse[] = blocks.flatMap((b) => {
+			if (typeof b.id !== "string" || typeof b.name !== "string") return [];
+			if (b.type !== "tool_use") return [];
+			return [{ type: "tool_use", id: b.id, name: b.name, input: b.input }];
+		});
+		if (!text && toolUses.length === 0) failureKind = "empty";
+		const num = (v: unknown): number | undefined =>
+			typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
+		const usage: UpstreamUsage = {};
+		const inp = num(j.usage?.input_tokens);
+		if (inp !== undefined) usage.inputTokens = inp;
+		const outp = num(j.usage?.output_tokens);
+		if (outp !== undefined) usage.outputTokens = outp;
+		const cr = num(j.usage?.cache_read_input_tokens);
+		if (cr !== undefined) usage.cacheReadTokens = cr;
+		const cw = num(j.usage?.cache_creation_input_tokens);
+		if (cw !== undefined) usage.cacheWriteTokens = cw;
 		return {
 			text,
+			...(toolUses.length > 0 ? { toolUses } : {}),
+			...(Object.keys(usage).length > 0 ? { usage } : {}),
 			model,
 			status: res.status,
 			note: budget.note,
