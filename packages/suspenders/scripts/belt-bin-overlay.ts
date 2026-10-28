@@ -241,12 +241,13 @@ export function isPureReexportShim(source: string): boolean {
 	// re-exports and stays shim-legal
 	if (/(^|\n)\s*export\s+(?:type|interface)\s+[A-Za-z_$]/.test(body))
 		return false;
-	// a shim re-exports from OUTSIDE only — any `./` specifier means the file
-	// is real code with kit siblings (entries with side effects included)
-	const specs = [...source.matchAll(/(["'])((?:\.\.?\/)[^"']+)\1/g)].map(
-		(m) => m[2],
-	);
-	if (specs.length === 0 || specs.some((s) => !s.startsWith("..")))
+	// a shim re-exports from OUTSIDE only (`../` or, since the W1249 import
+	// law, `@klh/<pkg>/<path>`) — any `./` specifier means the file is real
+	// code with kit siblings (entries with side effects included)
+	const specs = [
+		...source.matchAll(/(["'])((?:\.\.?\/|@klh\/)[^"']+)\1/g),
+	].map((m) => m[2]);
+	if (specs.length === 0 || specs.some((s) => s.startsWith("./")))
 		return false;
 	return true;
 }
@@ -258,8 +259,10 @@ export async function shimRealSource(
 	const file = join(root, rel);
 	const source = await Bun.file(file).text();
 	if (!isPureReexportShim(source)) return null;
-	for (const match of source.matchAll(/["'](\.\.[^"']+)["']/g)) {
-		const resolved = resolve(dirname(file), match[1]);
+	for (const match of source.matchAll(/["'](\.\.[^"']+|@klh\/[^"']+)["']/g)) {
+		const resolved =
+			klhSpecPath(match[1], dirname(file)) ??
+			resolve(dirname(file), match[1]);
 		if (relative(root, resolved).startsWith("..")) return resolved;
 	}
 	return null;
@@ -297,7 +300,8 @@ export const RUNTIME_TWINS: readonly RuntimeTwin[] = [
 
 /** The one allowlisted twin delta: a FULL re-export of the pinned artifact. */
 export function twinShimSource(twin: RuntimeTwin): string {
-	return `export * from "${relative(dirname(twin.kit), twin.artifact)}";`;
+	// W1249 import law: the cross-package face rides the package name
+	return `export * from "@klh/${twin.artifact.replace(/^packages\//, "")}";`;
 }
 
 /**

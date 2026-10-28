@@ -360,11 +360,13 @@ export function machineVersionHint(target?: string): MachinePin {
 			stackPath,
 			line: `STACK VERSION PIN: unset — set "version:" in ${stackPath} to pin every hub's git ref`,
 		};
+	// hubs pull the pin as a git ref and the release tag is `v<version>` —
+	// the hint names the tag (a bare `2.0.1` is no ref anywhere)
 	const verdict =
 		target !== undefined
-			? target === pin
+			? pin === target || pin === `v${target}`
 				? "matches"
-				: `DRIFTS → set to ${target}`
+				: `DRIFTS → set to v${target}`
 			: "current";
 	return {
 		pin,

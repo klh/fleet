@@ -272,6 +272,13 @@ describe("machine pin hint (render-only)", () => {
 			const m = machineVersionHint("3.2.1");
 			expect(m.pin).toBe("3.2.1");
 			expect(m.line).toContain("matches");
+			// the pin is a git ref: the v-tag matches, drift names the v-tag
+			writeFileSync(
+				join(tmp, "stack.json"),
+				JSON.stringify({ version: "v3.2.1", hubs: {} }),
+			);
+			expect(machineVersionHint("3.2.1").line).toContain("matches");
+			expect(machineVersionHint("3.2.2").line).toContain("set to v3.2.2");
 		} finally {
 			if (prev === undefined) delete process.env.KLH_STACK;
 			else process.env.KLH_STACK = prev;

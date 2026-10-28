@@ -70,10 +70,9 @@ function ctxFor(llmHome: string, repo = REPO): StepContext {
 	const prefix = join(llmHome, "prefix-unused");
 	if (!existsSync(join(prefix, "node_modules"))) {
 		mkdirSync(prefix, { recursive: true });
-		symlinkSync(
-			join(REPO, "..", "..", "node_modules"),
-			join(prefix, "node_modules"),
-		);
+		// the package's own node_modules (isolated linker: the repo root
+		// carries only the test runner) mirrors the installed prefix's
+		symlinkSync(join(REPO, "node_modules"), join(prefix, "node_modules"));
 	}
 	return {
 		repo,
