@@ -8,9 +8,9 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
+import { classifyRevert } from "@klh/kernel/src/kernel.revert.module.ts";
 import {
 	buildReview,
-	classifyRevert,
 	evaluateGuardrail,
 	gitRevertCommits,
 	humanByItem,

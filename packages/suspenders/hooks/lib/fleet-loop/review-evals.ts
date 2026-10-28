@@ -7,8 +7,8 @@
 // IncidentDef in the W792 review arena
 // (packages/belt/bench/arena/review-incident.ts).
 //
-// Revert (C156; W1477 keeps a parity copy in packages/belt/bench/
-// review-guardrail.ts until the kernel promotion): the body names the
+// Revert (C156; the classifier + landing rule live in @klh/kernel since
+// W1868 — packages/kernel/src/kernel.revert.module.ts): the body names the
 // reverted commit (`This reverts commit <40hex>`) or the subject starts
 // `Revert "` (reverts=null on a subject-only match). A revert of a revert
 // (`Revert "Revert ` or git >=2.43's `Reapply "`) re-lands the original — no
@@ -26,6 +26,9 @@ import {
 } from "../govdb/govdb.ts";
 import { enqueueWorkItem, itemByTitle } from "../work/work-enqueue.ts";
 import { splitTags } from "../work/work-tags.ts";
+import {
+	isRevertLanding,
+} from "@klh/kernel/src/kernel.revert.module.ts";
 
 export const REVIEW_INCIDENT_KIND = "review.incident";
 export const CASE_TAGS = ["review", "arena-case"];
@@ -63,18 +66,6 @@ const short = (sha: string): string => sha.slice(0, 10);
 const clip = (text: string): string =>
 	text.length > 90 ? `${text.slice(0, 87)}...` : text;
 
-/** C156 pure classifier: a revert names its target (null when only the
- *  subject says so); null = not a revert, or a re-land. */
-export function classifyRevert(
-	subject: string,
-	body: string,
-): { reverts: string | null } | null {
-	if (/^(?:Revert "Revert |Reapply ")/.test(subject)) return null;
-	const named = /This reverts commit ([0-9a-f]{40})/.exec(body)?.[1];
-	if (named) return { reverts: named };
-	return /^Revert "/.test(subject) ? { reverts: null } : null;
-}
-
 /** Reverts a landing brought onto main, oldest first; branch-internal undos
  *  (the named target was not on main before the merge) are dropped. */
 export function revertLandings(
@@ -95,15 +86,18 @@ export function revertLandings(
 		const [commit = "", subject = "", body = ""] = record
 			.trimStart()
 			.split("\x1f");
-		const hit = commit ? classifyRevert(subject, body) : null;
+		const hit = commit
+			? isRevertLanding(subject, body, (reverts) =>
+					// exit 1 = definitely not on main; unknown objects stay reverts
+					git(repo, [
+						"merge-base",
+						"--is-ancestor",
+						reverts,
+						before,
+					]).exitCode !== 1,
+				)
+			: null;
 		if (!hit) continue;
-		// exit 1 = definitely not on main; unknown objects stay reverts
-		if (
-			hit.reverts &&
-			git(repo, ["merge-base", "--is-ancestor", hit.reverts, before])
-				.exitCode === 1
-		)
-			continue;
 		out.push({ commit, subject, reverts: hit.reverts });
 	}
 	return out;
