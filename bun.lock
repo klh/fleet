@@ -40,6 +40,7 @@
       },
       "dependencies": {
         "@klh/blam": "2.0.0",
+        "@klh/buckle": "2.0.0",
         "@klh/kernel": "2.0.0",
         "@klh/suspenders": "2.0.0",
         "bonjour-service": "1.4.4",
@@ -60,6 +61,7 @@
         "@klh/belt": "2.0.0",
         "@klh/buckle": "2.0.0",
         "@klh/suspenders": "2.0.0",
+        "@playwright/test": "1.64.1",
       },
     },
     "packages/buckle": {
@@ -77,6 +79,7 @@
       "devDependencies": {
         "@anthropic-ai/sdk": "1.1.0",
         "@klh/test-kit": "2.0.0",
+        "@playwright/test": "1.64.1",
         "@types/bun": "1.4.2",
         "openai": "7.42.0",
       },
@@ -96,6 +99,7 @@
         "dashboard": "bin/dashboard.ts",
       },
       "dependencies": {
+        "@klh/local-llm": "2.0.0",
         "lit": "3.3.3",
       },
     },
