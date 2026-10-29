@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import {
+	chmodSync,
 	mkdtempSync,
 	mkdirSync,
 	readFileSync,
@@ -9,10 +10,104 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { scratchWorld } from "@klh/test-kit";
 import { guardedMerge } from "../hooks/lib/fleet-loop/merge-guard.ts";
 
 const LOOP = join(import.meta.dir, "../hooks/bin/fleet-loop.ts");
 const MERGE_LEAK = "/Users/kk/dev/m"; // scrub:allow
+
+test("direct main merges cannot bypass exact-commit review", () => {
+	const world = scratchWorld({ prefix: "fleet-direct-merge-" });
+	try {
+		const hookRoot = join(import.meta.dir, "../../../.githooks");
+		const hookDir = join(world.repo, ".githooks");
+		mkdirSync(hookDir);
+		for (const name of ["pre-merge-commit", "pre-commit"]) {
+			const target = join(hookDir, name);
+			writeFileSync(target, readFileSync(join(hookRoot, name)));
+			chmodSync(target, 0o755);
+		}
+		expect(git(world.repo, "branch", "-M", "main").code).toBe(0);
+		expect(git(world.repo, "config", "core.hooksPath", ".githooks").code).toBe(
+			0,
+		);
+		expect(git(world.repo, "checkout", "-b", "suspenders/BYPASS").code).toBe(0);
+		writeFileSync(join(world.repo, "change.txt"), "review not approved\n");
+		expect(git(world.repo, "add", "change.txt").code).toBe(0);
+		expect(
+			git(
+				world.repo,
+				"-c",
+				"user.name=Fixture",
+				"-c",
+				"user.email=fixture@example.invalid",
+				"commit",
+				"-m",
+				"candidate",
+			).code,
+		).toBe(0);
+		expect(git(world.repo, "checkout", "main").code).toBe(0);
+		const before = git(world.repo, "rev-parse", "HEAD").out;
+		const direct = git(
+			world.repo,
+			"-c",
+			"user.name=Fixture",
+			"-c",
+			"user.email=fixture@example.invalid",
+			"merge",
+			"--no-ff",
+			"suspenders/BYPASS",
+			"-m",
+			"direct merge",
+		);
+		expect(direct.code).not.toBe(0);
+		expect(`${direct.out}${direct.err}`).toContain(
+			"Direct merge into main refused",
+		);
+		expect(git(world.repo, "rev-parse", "HEAD").out).toBe(before);
+		git(world.repo, "merge", "--abort");
+		const staged = git(
+			world.repo,
+			"merge",
+			"--no-ff",
+			"--no-commit",
+			"suspenders/BYPASS",
+		);
+		expect(staged.code).toBe(0);
+		const commit = git(
+			world.repo,
+			"-c",
+			"user.name=Fixture",
+			"-c",
+			"user.email=fixture@example.invalid",
+			"commit",
+			"-m",
+			"direct staged merge",
+		);
+		expect(commit.code).not.toBe(0);
+		expect(`${commit.out}${commit.err}`).toContain(
+			"Direct merge into main refused",
+		);
+		expect(git(world.repo, "rev-parse", "HEAD").out).toBe(before);
+		expect(git(world.repo, "merge", "--abort").code).toBe(0);
+		expect(git(world.repo, "checkout", "--detach", before).code).toBe(0);
+		const guardedScratch = git(
+			world.repo,
+			"-c",
+			"user.name=Fixture",
+			"-c",
+			"user.email=fixture@example.invalid",
+			"merge",
+			"--no-ff",
+			"suspenders/BYPASS",
+			"-m",
+			"guarded scratch merge",
+		);
+		expect(guardedScratch.code).toBe(0);
+	} finally {
+		world.clean();
+	}
+});
 const repos: string[] = [];
 const git = (repo: string, ...args: string[]) => {
 	const p = Bun.spawnSync(["git", ...args], {
