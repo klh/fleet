@@ -173,7 +173,16 @@ export function writeMigrateFixtures(w: SettingsHome): {
 	return { stack: stackPath, hubs: hubsPath, env: envPath };
 }
 
-const KnobScanSkip = new Set(["node_modules", ".git", "test-results"]);
+// .worktrees/.claude/.fleet hold nested lane checkouts + runtime state in the
+// shared main checkout — never source of this tree
+const KnobScanSkip = new Set([
+	"node_modules",
+	".git",
+	"test-results",
+	".worktrees",
+	".claude",
+	".fleet",
+]);
 
 /** Count direct `process.env.<KNOB>` reads for the mapped env-knob names,
  *  outside @klh/settings, decant, and test trees (the ratchet scanner). */
