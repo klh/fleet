@@ -8,7 +8,7 @@ export const BODY = String.raw`
   <span class="mark">FLEET BOARD</span>
   <div class="right">
     <label class="board-search" for="boardSearch" hidden>Search <input id="boardSearch" type="search" placeholder="tasks, lanes, decisions" autocomplete="off" aria-label="Search tasks, lanes, and decisions"></label>
-    <span id="conn"></span>
+    <klh-board-mediator><klh-conn-banner id="conn"></klh-conn-banner></klh-board-mediator>
     <span id="stamp"></span>
     <span id="blockedn" title="Gated work items: READY with unmet dependencies, WAITING, BLOCKED, or PAUSED. The Lanes BLOCKED count uses its own display state."></span>
     <button id="needsn" type="button"></button>

@@ -20,7 +20,7 @@ import {
 } from "./tasks.ts";
 import { decisionEvalStatus, decisionEvals } from "./decide-eval.ts";
 import { buildBeltEntries } from "./executor-catalog.ts";
-import { json } from "./helpers.ts";
+import { json, jsonEtag } from "./helpers.ts";
 import { launchContextForItem } from "./launch-context.ts";
 import { projectList, signalFor, syncDecisions, unblockedBy } from "./lanes.ts";
 import { attemptTimelinesPayload } from "./attempt-timeline.ts";
@@ -105,7 +105,7 @@ export const executorFeed = async (): Promise<ExecutorEntry[]> => {
 };
 
 export async function handleData(
-	_req: Request,
+	req: Request,
 	url: URL,
 ): Promise<Response | null> {
 	if (url.pathname === "/api/work-summary")
@@ -124,7 +124,7 @@ export async function handleData(
 	}
 	if (url.pathname === "/api/data") {
 		const sid = url.searchParams.get("session") ?? "";
-		return json(sid ? payloadFor(sid) : payload());
+		return jsonEtag(req, sid ? payloadFor(sid) : payload());
 	}
 	{
 		// W217/W273/W292: the vendored Lit component bundles (offline — built
@@ -146,6 +146,7 @@ export async function handleData(
 				vf === "klh-console-cards.js" ||
 				vf === "klh-console-forms.js" ||
 				vf === "klh-ent-zone.js" ||
+				vf === "klh-board-mediator.js" ||
 				isLitChunk)
 		) {
 			const f = `${import.meta.dir}/../board-html/vendor/${vf}`;
@@ -157,7 +158,8 @@ export async function handleData(
 	if (url.pathname === "/api/decisions")
 		// full decision records + counts — the decisions feed the UI polls.
 		// Default OPEN-only; &history=1 folds in the resolved rows
-		return json(
+		return jsonEtag(
+			req,
 			decisionsPayload(
 				url.searchParams.get("history") === "1",
 				url.searchParams.get("project"),
@@ -184,7 +186,7 @@ export async function handleData(
 		const p = url.searchParams.get("project");
 		const done = url.searchParams.get("done");
 		const doneArg = done === "all" ? "all" : Math.max(0, Number(done) || 12);
-		return json({
+		return jsonEtag(req, {
 			ok: true,
 			projects: projectList(),
 			tasks: tasks(p, doneArg),
@@ -195,7 +197,7 @@ export async function handleData(
 		// 5s-memoized, one ledger read per window; the
 		// card sparklines poll this at 30s, never /api/tasks.
 		// attempts: W1188 comparable current-attempt timelines.
-		return json({
+		return jsonEtag(req, {
 			ok: true,
 			series: workSpendSeriesPayload(),
 			attempts: attemptTimelinesPayload(),

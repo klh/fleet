@@ -37,6 +37,8 @@ P1–P6.
 | 13 | Git settings subset | `pull.rebase=true`, `rebase.autoStash`, `rebase.updateRefs`, `fetch.prune=true` set repo-wide | All four unset | ACCEPTED-DIVERGENCE (merge-ladder model) | — |
 | 14 | qlty plugin config | Qlty defaults, committed as `qlty init` generated them | Root `.qlty/qlty.toml` customized: ~15+ monorepo `exclude_patterns` (:19-68, each with a W-receipt), `smells` comment-mode, prettier `disabled` (:105-106, biome owns formatting), 4 extra plugins (actionlint, shellcheck, trufflehog, zizmor) | ACCEPTED-DIVERGENCE | — |
 
+| 15 | Board client components | Events up, data down: one mediator owns fetching; stateless leaves; typed composed events; zod on every wire shape; HTTP citizenship (ETag/304, Retry-After, jittered backoff, timeouts, concurrency cap) | One page-wide `FeedStore` owns every polled board feed (ETag/304, Retry-After, full-jitter backoff, AbortSignal timeouts, page-wide cap 4, hidden pause); `<klh-board-mediator>` owns it and feeds the stateless `<klh-conn-banner>`; kanban / lanes table / decisions / drawer / sparklines are still legacy string-chunk renderers reading the store through feed callbacks | SPLIT: store + HTTP mechanics + banner LANDED · remaining leaves GAP · tail/usage/report self-polling ACCEPTED-DIVERGENCE | — |
+
 ## Rationale per row
 
 ### 1 · Merge ladder vs rebase-only main — ACCEPTED-DIVERGENCE
@@ -258,6 +260,33 @@ prettier owns markdown only); and four extra plugins beyond `qlty init`
 defaults (actionlint, shellcheck, trufflehog, zizmor). Each row backs a
 landed law or a vendored-bytes rule — the customizations ARE the checkable
 surface, not a divergence from it.
+
+### 15 · Board client components — SPLIT
+
+- **LANDED (2026-10-29).** `hooks/board-html/feed-store.ts` is the one
+  page-wide owner of every polled board feed (data, decisions, history,
+  tasks, activity, setup, spend series, task drawer, execution trace): one
+  request in flight per feed, a page-wide concurrency cap, RTT-stretched
+  cadence, full-jitter capped backoff, clamped 429/503 `Retry-After`,
+  `AbortSignal` timeouts, `document.hidden` pause, scope discard + rescope
+  abort, `If-None-Match`/304. The server answers the four hot feeds with a
+  weak ETag over the body minus its `ts` stamp (`hooks/board/etag.ts`).
+  `<klh-board-mediator>` owns the store, installs the zod/mini feed
+  contracts (`feed-schemas.ts`, also parsed server-side in
+  `test/decision-project-scope.test.ts`), and hands the stateless
+  `<klh-conn-banner>` its verdict; the banner asks for a refetch with the
+  typed `FeedRefreshRequestedEvent` (bubbles + composed, readonly field,
+  stopped at the mediator).
+- **GAP.** Kanban, lanes table, decisions, task drawer and sparklines are
+  still string-chunk renderers (UI-law safe: `setNodes`/`sigSet`, no
+  `innerHTML`) that read feed state through `FeedStore.define` callbacks
+  instead of mediator properties; activity/setup/history/drawer feeds
+  validate with hand-written `accept()` checks, not zod. Each leaf moves
+  under the mediator as it is ported.
+- **ACCEPTED-DIVERGENCE.** The lane tail (`tail.ts`, 2s floor, own scope
+  discard — its contract is pinned by the cross-repo tail test), the usage
+  pane (key-change guarded) and the report pane (own single-flight row)
+  keep their own polling.
 
 ## Already aligned (no disposition needed)
 

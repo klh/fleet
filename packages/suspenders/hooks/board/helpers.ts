@@ -12,6 +12,9 @@ export function json(data: unknown, status = 200): Response {
 	});
 }
 
+// polled feeds: json() + weak ETag / 304 (etag.ts — dependency-free, unit-tested)
+export { jsonEtag } from "./etag.ts";
+
 // write endpoints are for the human at this board — the shared W264
 // perimeter guard (lib/host-guard.ts): host allowlist, Origin ∈ allowlist
 // AND Origin == Host for browsers, per-install write token on every write.

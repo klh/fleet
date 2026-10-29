@@ -4,21 +4,7 @@
 import { embedDualShort } from "../lib/wallclock.ts";
 // biome-ignore lint/complexity/noUselessStringRaw: byte-compat (W157)
 export const ACTIVITY = String.raw`// --- 5: activity feed (Activity tab, /api/activity, newest first) ---
-function pollAct(){
-  if (actBusy || curTab !== 'activity') return;
-  actBusy = true;
-  var scope = projQuery();
-  fetch('/api/activity?limit=300' + (scope ? '&' + scope.slice(1) : ''), { signal: AbortSignal.timeout(8000) })
-    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(function(j){
-      if (scope !== projQuery()) return;
-      if (!j || j.ok === false || !Array.isArray(j.events)) throw new Error('bad /api/activity payload');
-      actData = j; actOkAt = Date.now(); actErr = null; actLoaded = true;
-      noteProjects(j.projects);
-    })
-    .catch(function(e){ if (scope === projQuery()) actErr = String((e && e.message) || e); })
-    .finally(function(){ actBusy = false; renderAct(); if (scope !== projQuery()) pollAct(); });
-}
+function pollAct(){ feeds.kick('act', true); }
 function renderAct(){
   var errEl = byId('actErr');
   var body = byId('actBody');

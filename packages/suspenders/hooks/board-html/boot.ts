@@ -3,7 +3,6 @@
 // non-ASCII escaping in String.raw reproduces the served page bytes.
 // biome-ignore lint/complexity/noUselessStringRaw: byte-compat (W157)
 export const BOOT = String.raw`function renderAll(){
-  renderConn();
   renderFleet();
   renderDecisions();
   renderTab();
