@@ -20,8 +20,7 @@
 // W1136: rides the shared fixtures — the auto pageWatcher replaces the
 // local watch() copy; the module-level hub world stays (it stands up a real
 // buckle boot + federation seam, far more than one board).
-import type { Page } from "@playwright/test";
-import { expect, test } from "./fixtures";
+
 import {
 	existsSync,
 	mkdirSync,
@@ -32,10 +31,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { unusedPort } from "./harness";
-import { dispatchHarness } from "../test/helpers/dispatch-harness.ts";
-import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
+import type { Page } from "@playwright/test";
 import { projectIdentity } from "../hooks/lib/govdb/govdb-project.ts";
+import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
+import { unusedPort } from "../test/helpers/board-harness";
+import { dispatchHarness } from "../test/helpers/dispatch-harness.ts";
+import { expect, test } from "./fixtures";
 
 test.describe.configure({ mode: "serial" });
 test.setTimeout(300_000);

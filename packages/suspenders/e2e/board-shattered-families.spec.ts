@@ -7,10 +7,11 @@
 // W1136: rides the shared fixtures — cleanBoard (fresh world per test) +
 // the auto pageWatcher; the beforeAll(startBoard) copy is gone, and each
 // test seeds its own shattered family (hermetic, no shared module state).
-import { expect, test } from "./fixtures";
+
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Board } from "./harness";
+import type { Board } from "../test/helpers/board-harness";
+import { expect, test } from "./fixtures";
 
 const COLOR = "#0058A3";
 // #0058A3 = rgb(0, 88, 163)

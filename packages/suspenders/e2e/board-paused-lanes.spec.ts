@@ -1,11 +1,12 @@
 // W1136: rides the shared fixtures — the test-scoped cleanBoard gives the
 // paused-lane world its own scratch HOME/repo (the beforeAll startBoard copy
 // is gone); afterEach kills the seeded keepalive worker.
-import { expect, test } from "./fixtures";
+
 import { Database } from "bun:sqlite";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Board } from "./harness";
+import type { Board } from "../test/helpers/board-harness";
+import { expect, test } from "./fixtures";
 
 let worker: ReturnType<typeof Bun.spawn> | undefined;
 

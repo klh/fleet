@@ -14,12 +14,13 @@
 // Boards are spawned per world, never one shared server — webServer stays
 // out (W353 doctrine). Browsers resolve from the machine cache; the shared
 // pre-flight lives in global-setup.ts.
-import { expect, test as base, type APIRequestContext } from "@playwright/test";
-import { basename } from "node:path";
-import { startBoard, type Board } from "./harness";
 
-export { expect };
+import { basename } from "node:path";
+import { type APIRequestContext, test as base, expect } from "@playwright/test";
+import { type Board, startBoard } from "../test/helpers/board-harness";
+
 export type { Board };
+export { expect };
 
 /** startBoard options (env pins + board args), as a fixture option. */
 export interface BoardOpts {

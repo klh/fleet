@@ -8,11 +8,12 @@
 // pinned via boardOptions), the api fixture (no raw fetch), per-test ledger
 // seeds with per-test keys, and the auto pageWatcher; the
 // beforeAll(startBoard) copy is gone.
-import { expect, test } from "./fixtures";
+
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { Board } from "./harness";
+import type { Board } from "../test/helpers/board-harness";
+import { expect, test } from "./fixtures";
 import { measureSpark } from "./spark-geom";
 
 test.use({ boardOptions: { env: { SUSPENDERS_BUCKLE_DB: "" } } });

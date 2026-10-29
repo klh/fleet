@@ -6,9 +6,10 @@
 // the beforeAll(startBoard) copy is gone, and the desktop/narrow viewport
 // split is the projects matrix (chromium-desktop / chromium-narrow) instead
 // of manual setViewportSize calls.
-import { expect, test } from "./fixtures";
+
 import type { Page } from "@playwright/test";
-import type { Board } from "./harness";
+import type { Board } from "../test/helpers/board-harness";
+import { expect, test } from "./fixtures";
 
 const STATES = [
 	"READY",
