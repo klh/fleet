@@ -3,6 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	BUN_IDLE_TIMEOUT,
+	defaultDbPath,
 	FORBIDDEN_PORT,
 	MAX_REQUEST_BODY_BYTES,
 	resolvePort,
@@ -10,6 +11,27 @@ import {
 	startServer,
 } from "../src/server.ts";
 import { startMockUpstream } from "./mock.ts";
+
+// W1246: the dbPath default rides the runtime home — a bare "buckle.db"
+// (cwd-relative) is how the repo root grew db junk. env wins, home next,
+// bare fallback only when HOME is absent (test/CI conditions).
+describe("defaultDbPath (W1246)", () => {
+	test("BUCKLE_DB wins over the runtime home", () => {
+		expect(defaultDbPath({ BUCKLE_DB: "/x/y.db", HOME: "/tmp/h" })).toBe(
+			"/x/y.db",
+		);
+	});
+
+	test("runtime home default", () => {
+		expect(defaultDbPath({ HOME: "/tmp/h" })).toBe(
+			"/tmp/h/.claude/local-llm/buckle.db",
+		);
+	});
+
+	test("bare cwd fallback only without HOME", () => {
+		expect(defaultDbPath({})).toBe("buckle.db");
+	});
+});
 
 describe("resolvePort guard", () => {
 	test("4100 refused from explicit arg", () => {
@@ -64,11 +86,13 @@ describe("e2e through Bun.serve", () => {
 			}),
 		);
 		const dir = `/tmp/buckle-test-${Date.now()}-${process.pid}`;
-		const cfg = `groups:\n  glm-5.3-flash:\n    - url: ${upstream.url}\n      dialect: openai\n`;
-		await Bun.write(`${dir}/upstreams.yaml`, cfg);
+		const cfg = JSON.stringify({
+			groups: { "glm-5.3-flash": [{ url: upstream.url, dialect: "openai" }] },
+		});
+		await Bun.write(`${dir}/upstreams.json`, cfg);
 		const server = startServer({
 			port: 0,
-			upstreamsPath: `${dir}/upstreams.yaml`,
+			upstreamsPath: `${dir}/upstreams.json`,
 			dbPath: ":memory:",
 			auth: { rootKey: "test-key" },
 		});
@@ -100,11 +124,13 @@ describe("e2e through Bun.serve", () => {
 			Response.json({ id: "x", choices: [], usage: {} }),
 		);
 		const dir = `/tmp/buckle-cap-${Date.now()}-${process.pid}`;
-		const cfg = `groups:\n  glm-5.3-flash:\n    - url: ${upstream.url}\n      dialect: openai\n`;
-		await Bun.write(`${dir}/upstreams.yaml`, cfg);
+		const cfg = JSON.stringify({
+			groups: { "glm-5.3-flash": [{ url: upstream.url, dialect: "openai" }] },
+		});
+		await Bun.write(`${dir}/upstreams.json`, cfg);
 		const server = startServer({
 			port: 0,
-			upstreamsPath: `${dir}/upstreams.yaml`,
+			upstreamsPath: `${dir}/upstreams.json`,
 			dbPath: ":memory:",
 			auth: { rootKey: "cap-key" },
 		});
@@ -125,11 +151,13 @@ describe("http citizenship at the observability seam (W155)", () => {
 	test("OPTIONS → 204 + Allow; wrong method → 405 + Allow on /status and /metrics", async () => {
 		const upstream = await startMockUpstream(() => Response.json({ id: "x" }));
 		const dir = `/tmp/buckle-cit-${Date.now()}-${process.pid}`;
-		const cfg = `groups:\n  glm-5.3-flash:\n    - url: ${upstream.url}\n      dialect: openai\n`;
-		await Bun.write(`${dir}/upstreams.yaml`, cfg);
+		const cfg = JSON.stringify({
+			groups: { "glm-5.3-flash": [{ url: upstream.url, dialect: "openai" }] },
+		});
+		await Bun.write(`${dir}/upstreams.json`, cfg);
 		const server = startServer({
 			port: 0,
-			upstreamsPath: `${dir}/upstreams.yaml`,
+			upstreamsPath: `${dir}/upstreams.json`,
 			dbPath: ":memory:",
 			auth: { rootKey: "cit-key" },
 		});
@@ -161,11 +189,13 @@ describe("http citizenship at the observability seam (W155)", () => {
 	test("GET /status carries a strong ETag; If-None-Match → 304", async () => {
 		const upstream = await startMockUpstream(() => Response.json({ id: "x" }));
 		const dir = `/tmp/buckle-etag-${Date.now()}-${process.pid}`;
-		const cfg = `groups:\n  glm-5.3-flash:\n    - url: ${upstream.url}\n      dialect: openai\n`;
-		await Bun.write(`${dir}/upstreams.yaml`, cfg);
+		const cfg = JSON.stringify({
+			groups: { "glm-5.3-flash": [{ url: upstream.url, dialect: "openai" }] },
+		});
+		await Bun.write(`${dir}/upstreams.json`, cfg);
 		const server = startServer({
 			port: 0,
-			upstreamsPath: `${dir}/upstreams.yaml`,
+			upstreamsPath: `${dir}/upstreams.json`,
 			dbPath: ":memory:",
 			auth: { rootKey: "cit-key" },
 		});

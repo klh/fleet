@@ -59,7 +59,7 @@ export function runMintOnHub(
 	const root = hub.secrets?.buckle_root_key;
 	if (!port || !root)
 		throw new Error(
-			`hub ${hubName} needs buckle_port + secrets.buckle_root_key in stack.yaml`,
+			`hub ${hubName} needs buckle_port + secrets.buckle_root_key in stack.json`,
 		);
 	execMintOnHub(runner, hub, String(port), root, body, storeTo);
 }
@@ -203,7 +203,7 @@ export function verifyKeyFile(
 	const root = hub.secrets?.buckle_root_key;
 	if (!port || !root) {
 		console.log(
-			`hubctl verify-key: hub ${hubName} needs buckle_port + secrets.buckle_root_key in stack.yaml`,
+			`hubctl verify-key: hub ${hubName} needs buckle_port + secrets.buckle_root_key in stack.json`,
 		);
 		return false;
 	}

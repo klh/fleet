@@ -46,8 +46,8 @@ services:
       HOME: /state/hub-home
       BUCKLE_PORT: ${SIM_BUCKLE_PORT:-17001}
       BUCKLE_DB: /state/buckle/buckle.db
-      BUCKLE_POLICY: /src/buckle/routing-policy.yaml
-      BUCKLE_UPSTREAMS: /src/buckle/upstreams.yaml
+      BUCKLE_POLICY: /src/buckle/routing-policy.json
+      BUCKLE_UPSTREAMS: /src/buckle/upstreams.json
       BUCKLE_SECRETS_HOME: /state/secrets
       BUCKLE_AUTH: ${SIM_BUCKLE_AUTH:-on}
     volumes:

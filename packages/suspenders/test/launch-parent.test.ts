@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { launchParent } from "../scripts/lib/launch-parent.ts";
+import { launchParent } from "../hooks/lib/launch-parent.ts";
 
 test("launch parent requires durable creator provenance in the same live project", () => {
 	const db = new Database(":memory:");

@@ -14,7 +14,7 @@ import {
 	type ProcessInspector,
 } from "../hooks/lib/lane-liveness.ts";
 import { safeToRetire } from "../hooks/lib/lane-registry.ts";
-import { alive } from "../scripts/lib/lane.ts";
+import { alive } from "../hooks/lib/lane.ts";
 
 const lane = { sid: "autow562", item: "W562", pid: 562 };
 const roster =

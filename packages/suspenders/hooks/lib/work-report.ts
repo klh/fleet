@@ -283,8 +283,9 @@ export const CACHE_LEGEND =
 /** W976: the ONE cli-table3 config — borderless (empty border chars emit no
  *  lines), two-space gutters via the `middle` char, zero cell padding. The
  *  separator row of per-column dashes is pushed as a plain data row; escapes
- *  (OSC 8) are width-zero in the lib's ANSI-aware math. */
-const REPORT_TABLE_CHARS = {
+ *  (OSC 8) are width-zero in the lib's ANSI-aware math. W1258: the coord
+ *  fleet table (hooks/coord/fleet-table.ts) rides the same config. */
+export const REPORT_TABLE_CHARS = {
 	top: "",
 	"top-mid": "",
 	"top-left": "",

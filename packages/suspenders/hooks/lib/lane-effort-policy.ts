@@ -16,7 +16,6 @@
 // not caps.
 
 import { existsSync, readFileSync } from "node:fs";
-import { YAML } from "bun";
 import { openStore, projectIdentity } from "./govdb.ts";
 import { effortForPriority } from "./lane-effort.ts";
 
@@ -91,14 +90,13 @@ export class EffortPolicyError extends Error {}
 const isEffortWord = (v: unknown): v is EffortWord =>
 	typeof v === "string" && (EFFORT_WORDS as readonly string[]).includes(v);
 
-/** Parse + validate a policy document (YAML or JSON). Throws
+/** Parse + validate a policy document (JSON only — W1253: fleet config is
+ *  JSON; the legacy .yaml name parses when its content is JSON). Throws
  *  EffortPolicyError naming the offending key. */
 export const parseEffortPolicy = (text: string): EffortPolicy => {
 	let doc: Record<string, unknown>;
 	try {
-		doc = (
-			text.trimStart().startsWith("{") ? JSON.parse(text) : YAML.parse(text)
-		) as Record<string, unknown>;
+		doc = JSON.parse(text) as Record<string, unknown>;
 	} catch (e) {
 		throw new EffortPolicyError(
 			`effort policy parse failed: ${e instanceof Error ? e.message : String(e)}`,

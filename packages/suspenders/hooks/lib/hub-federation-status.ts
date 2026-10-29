@@ -1,6 +1,6 @@
 // hooks/lib/hub-federation-status.ts — W231 hub admin plane: the
 // federation status lens for /console/hub. Peers come from the same
-// precedence the peers loop uses (HUB_PEERS → stack.yaml hubs.<me>.peers);
+// precedence the peers loop uses (HUB_PEERS → stack.json hubs.<me>.peers);
 // each peer's last-known store (the peers loop writes it atomically) is
 // the status evidence — version in force, pulled-at, and a derived
 // live/stale/down verdict against a freshness window. Never throws: a

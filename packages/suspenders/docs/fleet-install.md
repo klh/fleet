@@ -143,3 +143,55 @@ test can still see `installed: true` for those entries on a machine that
 happens to have that app installed. Our own tests scope "nothing installed"
 assertions to `supported` targets only, since those are the only ones whose
 detection we rely on for wiring decisions.
+
+## Buckle route configuration (--buckle-route)
+
+W1265 adds a route-config axis ATOP the same detection: each detected tool
+gets its inference base pointed at a Buckle named base, so requests ride the
+gateway (and the /w/<lane> attribution prefix when --buckle-lane is given).
+Detection is unchanged — this mode only maps catalog AgentTypes to the native
+config face each tool reads its base URL from.
+
+    bun hooks/bin/fleet-install.ts --buckle-route \
+      --buckle-front http://<buckle-host>:4101 \
+      [--buckle-lane <lane-slug>] [--buckle-provider zai] [--yes]
+
+Without --yes (or with --dry-run) the mode prints the plan table and writes
+nothing:
+
+    TOOL          CONFIG FILE              BASE URL                               WIRE       PROVIDER  MODEL    DISABLE ACTION
+    claude-code   ~/.claude/settings.json  http://host:4101/w/lane/zai/anthropic  anthropic  zai       glm-5.3  remove env.ANTHROPIC_BASE_URL
+    codex         ~/.codex/config.toml     http://host:4101/w/lane/zai/openai/v1  openai     zai       glm-5.3  remove [model_providers.buckle] + model_provider
+    grok          ~/.grok/config.toml      http://host:4101/w/lane/zai/openai     openai     zai       glm-5.3  hand-revert .grok/config.toml [model.*] base_url + api_backend
+
+The mapping (hooks/lib/buckle-route.ts):
+
+- **claude-code — settings-json**: merges env.ANTHROPIC_BASE_URL into
+  ~/.claude/settings.json. The client appends /v1/messages, so the base ends
+  at the wire name. Auth stays manual: set ANTHROPIC_AUTH_TOKEN to a buckle
+  key minted via the admin API — the installer never writes tokens.
+- **codex — codex-toml**: splices a [model_providers.buckle] section
+  (base_url ending /v1, wire_api = "responses") into the USER-LEVEL
+  ~/.codex/config.toml and sets top-level model_provider = "buckle".
+  Project-level .codex/config.toml CANNOT set the provider (Codex ignores
+  model_provider/model_providers there — owner-verified 2026-10-24), so only
+  the user file is written. A conflicting existing model_provider refuses
+  instead of being stomped.
+- **grok — manual**: documented face only ([model.*] base_url + api_backend
+  in ~/.grok/config.toml); no automated write today.
+- **everything else — none**: gated rows, same honesty as hook wiring.
+
+VS Code has NO key in the vendored registry, so there is no row for it here;
+its face is the chatLanguageModels.json Custom Endpoint (per-model full URL,
+apiKey/requestHeaders, set statefulResponses=false for a stateless gateway) —
+configure it by hand against the same named base. Tools absent from
+BUCKLE_ROUTES never get a write; the Buckle-compatibility capability stays a
+DISTINCT axis from detected/skill-installable/hook-wired (W298 honesty law).
+
+Named-base ingress contract (buckle side): /{w/<lane>/}[<provider>/]anthropic
+and .../openai accept only their own wire paths (wrong wire = 404
+buckle.wire_mismatch, wrong method = 405, both local with zero outbound);
+--buckle-provider zai pins candidates to the zai adapter (Z.ai Coding Plan)
+and refuses cross-dialect bridging with a typed 503. Legacy bare /v1 paths
+are preserved. NOTE: the /w/<lane> prefix is lane ATTRIBUTION telemetry —
+authenticated repo-identity/tier enforcement is W1265.1.

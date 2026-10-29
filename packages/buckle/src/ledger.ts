@@ -759,9 +759,12 @@ export class Ledger {
 			safeCorrelationId(row.upstreamId) ?? null,
 			safeCorrelationId(row.callId) ?? null,
 			safeRefusalCode(row.upstreamRefusalCode),
+			// W1257: local-admission is a first-class refusal origin — persist
+			// it, never NULL it; a local answer must be provable in the trace.
 			row.refusalOrigin === "upstream" ||
 				row.refusalOrigin === "bridged-upstream" ||
-				row.refusalOrigin === "network"
+				row.refusalOrigin === "network" ||
+				row.refusalOrigin === "local-admission"
 				? row.refusalOrigin
 				: null,
 			safeCorrelationId(row.providerPool) ?? null,

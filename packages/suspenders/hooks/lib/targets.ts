@@ -101,6 +101,16 @@ const BUCKLE_ROUTE: Partial<Record<AgentType, boolean | "unknown">> = {
 	codex: true,
 };
 
+/** W1264.2: catalog targets whose BUCKLE_ROUTE evidence is `true` — the one
+ * derived set the egress visibility model consumes (hooks/lib/
+ * egress-visibility.ts). Single source of truth: derived from THIS table,
+ * never duplicated. */
+export const VERIFIED_BUCKLE_ROUTES: ReadonlySet<AgentType> = new Set(
+	(Object.keys(BUCKLE_ROUTE) as AgentType[]).filter(
+		(type) => BUCKLE_ROUTE[type] === true,
+	),
+);
+
 /** Evidence-backed capability states for one catalog target (W918). The
  *  honesty law: skills-dir detection and skill-installability are NOT
  *  runnable evidence — headless spawn requires a registered spawnable

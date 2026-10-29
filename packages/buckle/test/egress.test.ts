@@ -189,31 +189,50 @@ describe("upstream base URL law", () => {
 	test("loadUpstreams fails closed naming the group", () => {
 		const dir = `/tmp/buckle-egress-${Date.now()}-${process.pid}`;
 		mkdirSync(dir, { recursive: true });
-		const p = `${dir}/u.yaml`;
-		writeFileSync(
-			p,
-			"groups:\n  meta:\n    - url: http://169.254.169.254\n      dialect: openai\n",
-		);
+		const p = `${dir}/u.json`;
+		const write = (doc: unknown): void => writeFileSync(p, JSON.stringify(doc));
+		write({
+			groups: { meta: [{ url: "http://169.254.169.254", dialect: "openai" }] },
+		});
 		expect(() => loadUpstreams(p)).toThrow(/group "meta".*refused/);
-		writeFileSync(
-			p,
-			"groups:\n  direct-openrouter:\n    - url: https://openrouter.ai/api/v1\n" +
-				"      dialect: openai\n      adapter: openai-compat\n",
-		);
+		write({
+			groups: {
+				"direct-openrouter": [
+					{
+						url: "https://openrouter.ai/api/v1",
+						dialect: "openai",
+						adapter: "openai-compat",
+					},
+				],
+			},
+		});
 		expect(() => loadUpstreams(p)).toThrow(
 			/group "direct-openrouter".*through LiteLLM/,
 		);
-		writeFileSync(
-			p,
-			"groups:\n  az:\n    - url: https://r.openai.azure.com\n      dialect: openai\n" +
-				"      adapter: azure-openai\n      adapter_config:\n        api_version: v\n" +
-				"        entra:\n          tenant_id: t\n          client_id: c\n" +
-				"          client_secret_env: S\n          token_host: evil.example\n",
-		);
+		write({
+			groups: {
+				az: [
+					{
+						url: "https://r.openai.azure.com",
+						dialect: "openai",
+						adapter: "azure-openai",
+						adapter_config: {
+							api_version: "v",
+							entra: {
+								tenant_id: "t",
+								client_id: "c",
+								client_secret_env: "S",
+								token_host: "evil.example",
+							},
+						},
+					},
+				],
+			},
+		});
 		expect(() => loadUpstreams(p)).toThrow(/group "az".*allowlist/);
 	});
 
-	test("the committed upstreams.yaml passes the law", () => {
+	test("the committed upstreams.json passes the law", () => {
 		expect(() => loadUpstreams()).not.toThrow();
 	});
 });

@@ -64,7 +64,7 @@ function row(id: number):
 
 let SqliteKnowledgeStore: new (
 	db: Database,
-) => import("../hooks/lib/knowledge-ports.ts").SqliteKnowledgeStore;
+) => import("../hooks/lib/sqlite-store.ts").SqliteKnowledgeStore;
 let knowledgeSearch: typeof import("../hooks/lib/knowledge.ts").knowledgeSearch;
 
 test("boot: trust columns heal on open", () => {
@@ -77,7 +77,7 @@ test("boot: trust columns heal on open", () => {
 });
 
 test("boot2: store + search imports", async () => {
-	({ SqliteKnowledgeStore } = await import("../hooks/lib/knowledge-ports.ts"));
+	({ SqliteKnowledgeStore } = await import("../hooks/lib/sqlite-store.ts"));
 	({ knowledgeSearch } = await import("../hooks/lib/knowledge.ts"));
 });
 

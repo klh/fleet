@@ -48,6 +48,8 @@ export const LIVE_HEARTBEAT_WINDOW_MS = 30 * 60_000;
 const TRANSCRIPT_LIVE_WINDOW_MS = 15 * 60_000;
 
 export interface LivenessRow {
+	sid?: string;
+	project?: string | null;
 	hb: number;
 	parent_sid: string | null;
 	role: string | null;
@@ -58,7 +60,20 @@ export interface LivenessRow {
 // shared by broadcast/targets/message so the three never disagree.
 export function isLiveSession(row: LivenessRow, now = Date.now()): boolean {
 	if (row.hb > now - LIVE_HEARTBEAT_WINDOW_MS) return true;
-	if (row.parent_sid !== null) return false;
+	// W1261: stale hb is not CLI death — hb advances only through the
+	// file-edit gate, so a lane mid-long-turn (Bash/test phases never hit it)
+	// reads dead here while its harness process is alive (`work lanes` proves
+	// it via process identity). A live registry process is decisive for ANY
+	// row, parented or not; a stale heartbeat or a missing subscriber is
+	// never death evidence. Identity false/unknown falls through to the
+	// transcript term — the same 15-min freshness `laneAlive` ORs in — never
+	// straight to death.
+	if (
+		row.project != null &&
+		row.sid != null &&
+		managedSubscriberIdentity(row.project, row.sid) === true
+	)
+		return true;
 	if (row.transcript_path) {
 		try {
 			return (
@@ -144,7 +159,7 @@ export function broadcastNote(
 	const targets = (
 		db
 			.query(
-				"SELECT sid, hb, parent_sid, role, transcript_path FROM sessions WHERE state = 'RUNNING'",
+				"SELECT sid, project, hb, parent_sid, role, transcript_path FROM sessions WHERE state = 'RUNNING'",
 			)
 			.all() as (LivenessRow & { sid: string })[]
 	).filter((row) => isLiveSession(row, now));

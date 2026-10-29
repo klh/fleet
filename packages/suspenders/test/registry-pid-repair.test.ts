@@ -11,7 +11,7 @@ import {
 	wrapperWitness,
 	type RepairProbe,
 } from "../scripts/lib/registry-pid-repair.ts";
-import type { Lane } from "../scripts/lib/lane.ts";
+import type { Lane } from "../hooks/lib/lane.ts";
 
 const roots: string[] = [];
 const fixture = () => {

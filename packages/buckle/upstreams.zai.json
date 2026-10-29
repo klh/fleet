@@ -10,7 +10,15 @@
 				"api_key_env": "Z_AI_API_KEY",
 				"adapter_config": {
 					"path_rewrite": {
-						"/v1/chat/completions": "/api/paas/v4/chat/completions"
+						"/v1/chat/completions": "/api/coding/paas/v4/chat/completions"
+					},
+					"blocked_outbound": {
+						"paths": ["/api/paas/v4/"],
+						"corrections": {
+							"anthropic": "https://api.z.ai/api/anthropic/v1/messages",
+							"openai": "https://api.z.ai/api/coding/paas/v4/chat/completions",
+							"responses": "https://api.z.ai/api/v1/responses"
+						}
 					}
 				}
 			}
@@ -24,7 +32,15 @@
 				"api_key_env": "Z_AI_API_KEY",
 				"adapter_config": {
 					"path_rewrite": {
-						"/v1/chat/completions": "/api/paas/v4/chat/completions"
+						"/v1/chat/completions": "/api/coding/paas/v4/chat/completions"
+					},
+					"blocked_outbound": {
+						"paths": ["/api/paas/v4/"],
+						"corrections": {
+							"anthropic": "https://api.z.ai/api/anthropic/v1/messages",
+							"openai": "https://api.z.ai/api/coding/paas/v4/chat/completions",
+							"responses": "https://api.z.ai/api/v1/responses"
+						}
 					}
 				}
 			}
@@ -38,7 +54,15 @@
 				"api_key_env": "Z_AI_API_KEY",
 				"adapter_config": {
 					"path_rewrite": {
-						"/v1/chat/completions": "/api/paas/v4/chat/completions"
+						"/v1/chat/completions": "/api/coding/paas/v4/chat/completions"
+					},
+					"blocked_outbound": {
+						"paths": ["/api/paas/v4/"],
+						"corrections": {
+							"anthropic": "https://api.z.ai/api/anthropic/v1/messages",
+							"openai": "https://api.z.ai/api/coding/paas/v4/chat/completions",
+							"responses": "https://api.z.ai/api/v1/responses"
+						}
 					}
 				}
 			}
@@ -52,7 +76,15 @@
 				"api_key_env": "Z_AI_API_KEY",
 				"adapter_config": {
 					"path_rewrite": {
-						"/v1/chat/completions": "/api/paas/v4/chat/completions"
+						"/v1/chat/completions": "/api/coding/paas/v4/chat/completions"
+					},
+					"blocked_outbound": {
+						"paths": ["/api/paas/v4/"],
+						"corrections": {
+							"anthropic": "https://api.z.ai/api/anthropic/v1/messages",
+							"openai": "https://api.z.ai/api/coding/paas/v4/chat/completions",
+							"responses": "https://api.z.ai/api/v1/responses"
+						}
 					}
 				}
 			}
@@ -66,7 +98,15 @@
 				"api_key_env": "Z_AI_API_KEY",
 				"adapter_config": {
 					"path_rewrite": {
-						"/v1/chat/completions": "/api/paas/v4/chat/completions"
+						"/v1/chat/completions": "/api/coding/paas/v4/chat/completions"
+					},
+					"blocked_outbound": {
+						"paths": ["/api/paas/v4/"],
+						"corrections": {
+							"anthropic": "https://api.z.ai/api/anthropic/v1/messages",
+							"openai": "https://api.z.ai/api/coding/paas/v4/chat/completions",
+							"responses": "https://api.z.ai/api/v1/responses"
+						}
 					}
 				}
 			}

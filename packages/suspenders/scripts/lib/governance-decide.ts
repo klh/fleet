@@ -4,7 +4,7 @@
 // REFUSE: no scopes, no attribution, no budgets — governance never silently
 // vanishes; belt-direct survives only as the explicit, loud, audited
 // --allow-ungoverned operator override.
-import type { MintedLaneKey } from "./lane-auth.ts";
+import type { MintedLaneKey } from "../../hooks/lib/lane-auth.ts";
 
 export type GovernanceDecision =
 	| { mode: "governed"; key: string; keyId: string }

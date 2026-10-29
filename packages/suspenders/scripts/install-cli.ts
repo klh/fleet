@@ -140,7 +140,7 @@ export function parseFlags(
 	}
 	if (raw.hub !== undefined && hub === null) {
 		return {
-			error: "--hub needs a hub name from ~/.config/klh/stack.yaml",
+			error: "--hub needs a hub name from ~/.config/klh/stack.json",
 			flags,
 		};
 	}

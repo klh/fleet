@@ -36,7 +36,9 @@ async function chain(classified: boolean) {
 							error: {
 								code: "1302",
 								type: "rate_limit_error",
-								message: "synthetic occupancy pressure",
+								message: classified
+									? "synthetic concurrent occupancy pressure"
+									: "synthetic occupancy pressure",
 							},
 						},
 						{ status: 429 },
@@ -186,11 +188,15 @@ async function chain(classified: boolean) {
 
 test("two actual Buckle hops recover semantic output without inventory probing or synthetic occupancy cooldown", async () => {
 	const before = await chain(false);
-	expect(before.follow.status).toBe(429);
-	expect(before.follow.body.error.code).toBeUndefined();
-	expect(Number(before.follow.retryAfter)).toBeGreaterThan(20);
+	// W1257: the follow-up arrives inside the hub's rate-limit cooldown —
+	// it answers a typed LOCAL 503 hold (no_route story at the front), the
+	// pool stays bounded by the provider's own Retry-After (~1s), and no
+	// fabricated 429 masquerades as the provider
+	expect(before.follow.status).toBe(503);
+	expect(before.follow.body.error).toBeUndefined();
+	expect(Number(before.follow.retryAfter ?? 0)).toBeLessThanOrEqual(30);
 	expect(before.pool.adaptiveGapMs).toBe(2);
-	expect(before.pool.notBeforeMs).toBeGreaterThan(Date.now() + 20000);
+	expect(before.pool.notBeforeMs).toBeLessThan(Date.now() + 2000);
 	expect(before.calls).toBe(6);
 	const after = await chain(true);
 	expect(after.follow.status).toBe(200);
@@ -204,6 +210,7 @@ test("two actual Buckle hops recover semantic output without inventory probing o
 test("deployment classification validates once and preserves unknown429 auth server and transport circuit protection", async () => {
 	for (const mode of [
 		"known",
+		"concurrent",
 		"unknown",
 		"auth",
 		"server",
@@ -224,8 +231,11 @@ test("deployment classification validates once and preserves unknown429 auth ser
 				return Response.json(
 					{
 						error: {
-							code: mode === "known" ? "1302" : "1113",
+							code: mode === "unknown" ? "1113" : "1302",
 							type: "rate_limit_error",
+							...(mode === "concurrent"
+								? { message: "too many concurrent requests, please retry" }
+								: {}),
 						},
 					},
 					{
@@ -242,8 +252,11 @@ test("deployment classification validates once and preserves unknown429 auth ser
 			body: { model: "fixture" },
 			key: "",
 		});
-		expect(cooldowns.benched(dep)).toBe(mode !== "known");
-		if (mode === "known") {
+		// W1257: only EXPLICIT provider concurrency evidence spares the bench
+		// (account occupancy ≠ deployment health); a bare configured code is
+		// rate pressure and benches like any throttle
+		expect(cooldowns.benched(dep)).toBe(mode !== "concurrent");
+		if (mode === "known" || mode === "concurrent") {
 			expect(result.kind).toBe("client-error");
 			if (result.kind === "client-error") {
 				expect(result.response.status).toBe(429);

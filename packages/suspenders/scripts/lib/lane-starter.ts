@@ -36,7 +36,7 @@ import {
 	laneEnv,
 	probeBuckleFrontVerdict,
 	type FrontProbeVerdict,
-} from "./lane.ts";
+} from "../../hooks/lib/lane.ts";
 
 export const STARTER_FLAG = "SUSPENDERS_LANE_STARTER";
 // Registry cap — bounded history means bounded REGISTRY too: retired starter

@@ -5,6 +5,7 @@
 // once — the issue response — and verify answers valid/revoked/expired
 // without echoing hashes.
 import { beginDrain, drainInfo } from "../drain.ts";
+import { inflightIndex } from "./inflight.ts";
 import { allowOf, methodNotAllowed, problem } from "../citizenship.ts";
 import { readBoundedJson } from "../ingress-body.ts";
 import { readBeltTrace } from "../../../telemetry/src/trace-log.ts";
@@ -153,6 +154,13 @@ export async function handleAdmin(
 	}
 	if (method === "GET" && path === "/v1/admin/slots") {
 		return ok({ held: gov.slots.held(), provider_pools: gov.providerPools() });
+	}
+	// W1259: the exact in-flight index — active LLM request rows (rid, trace
+	// id, account, lane, model, upstream, hop, start/age, state), CONNECT
+	// tunnel rows (W1260.2 seam), the bounded settled ring and aggregate
+	// counts. Admin READ_ gate class; no key material, no prompts.
+	if (method === "GET" && path === "/v1/admin/inflight") {
+		return ok(inflightIndex());
 	}
 	// W824 per-request inspection over the usage ledger: capped, filtered,
 	// read-only (gate class enforces buckle:admin:READ_); key NAME/team join

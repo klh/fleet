@@ -28,7 +28,7 @@ const { openGovernorDb, openKnowledgeDb, knowledgeSqlViolation } = await import(
 	`../hooks/lib/govdb.ts?split=${encodeURIComponent(HOME)}`
 );
 const { SqliteKnowledgeStore } = await import(
-	`../hooks/lib/knowledge-ports.ts?split=${encodeURIComponent(HOME)}`
+	`../hooks/lib/sqlite-store.ts?split=${encodeURIComponent(HOME)}`
 );
 const { knowledgeSearch } = await import(
 	`../hooks/lib/knowledge.ts?split=${encodeURIComponent(HOME)}`

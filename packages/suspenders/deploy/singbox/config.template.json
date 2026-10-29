@@ -1,0 +1,99 @@
+{
+	"log": { "level": "info", "output": "<SINGBOX_LOG_FILE>", "timestamp": true },
+	"dns": {
+		"servers": [
+			{ "type": "local", "tag": "dns-local" },
+			{ "type": "udp", "tag": "dns-upstream", "server": "1.1.1.1" }
+		],
+		"rules": [{ "outbound": "any", "server": "dns-local" }],
+		"final": "dns-local"
+	},
+	"inbounds": [
+		{
+			"type": "tun",
+			"tag": "tun-in",
+			"address": ["198.18.0.1/30"],
+			"auto_route": true,
+			"strict_route": true
+		}
+	],
+	"outbounds": [
+		{
+			"type": "http",
+			"tag": "buckle-connect-claude",
+			"server": "127.0.0.1",
+			"server_port": "<BUCKLE_CONNECT_PORT>",
+			"username": "claude",
+			"password": "<BUCKLE_CONNECT_TOKEN>"
+		},
+		{
+			"type": "http",
+			"tag": "buckle-connect-chatgpt",
+			"server": "127.0.0.1",
+			"server_port": "<BUCKLE_CONNECT_PORT>",
+			"username": "chatgpt",
+			"password": "<BUCKLE_CONNECT_TOKEN>"
+		},
+		{
+			"type": "http",
+			"tag": "buckle-connect-codex",
+			"server": "127.0.0.1",
+			"server_port": "<BUCKLE_CONNECT_PORT>",
+			"username": "codex",
+			"password": "<BUCKLE_CONNECT_TOKEN>"
+		},
+		{
+			"type": "http",
+			"tag": "buckle-connect-vscode",
+			"server": "127.0.0.1",
+			"server_port": "<BUCKLE_CONNECT_PORT>",
+			"username": "vscode",
+			"password": "<BUCKLE_CONNECT_TOKEN>"
+		},
+		{
+			"type": "http",
+			"tag": "buckle-connect-buckle",
+			"server": "127.0.0.1",
+			"server_port": "<BUCKLE_CONNECT_PORT>",
+			"username": "buckle",
+			"password": "<BUCKLE_CONNECT_TOKEN>"
+		},
+		{ "type": "direct", "tag": "direct" },
+		{ "type": "block", "tag": "block" }
+	],
+	"route": {
+		"rules": [
+			{ "protocol": "dns", "action": "hijack-dns" },
+			{ "action": "sniff" },
+			{ "ip_is_private": true, "outbound": "direct" },
+			{ "domain_suffix": [".local", ".lan"], "outbound": "direct" },
+			{
+				"process_path_regex": ["(?i)/Claude\\.app/"],
+				"domain_suffix": ["anthropic.com", "claude.ai", "openai.com", "chatgpt.com"],
+				"outbound": "buckle-connect-claude"
+			},
+			{
+				"process_path_regex": ["(?i)/ChatGPT\\.app/"],
+				"domain_suffix": ["anthropic.com", "claude.ai", "openai.com", "chatgpt.com"],
+				"outbound": "buckle-connect-chatgpt"
+			},
+			{
+				"process_path_regex": ["(?i)(/Visual Studio Code\\.app/|/Code Helper)"],
+				"domain_suffix": ["anthropic.com", "claude.ai", "openai.com", "chatgpt.com"],
+				"outbound": "buckle-connect-vscode"
+			},
+			{
+				"domain_suffix": ["anthropic.com", "claude.ai", "openai.com", "chatgpt.com"],
+				"outbound": "buckle-connect-buckle"
+			}
+		],
+		"final": "direct",
+		"auto_detect_interface": true
+	},
+	"experimental": {
+		"clash_api": {
+			"external_controller": "127.0.0.1:<CLASH_API_PORT>",
+			"secret": "<CLASH_API_SECRET>"
+		}
+	}
+}

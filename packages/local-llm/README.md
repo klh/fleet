@@ -116,7 +116,7 @@ backend was absent because the minimal legacy swarm did not supervise it.
 No shim, no `:4102`. Buckle serves the claude-* lane models straight from the
 Copilot seat (Anthropic-wire `/v1/messages` on api.githubcopilot.com, Bearer
 `GITHUB_COPILOT_PAT` from the 0600 `copilot.key` chain). Overlay template:
-`packages/buckle/upstreams.copilot.yaml`.
+`packages/buckle/upstreams.copilot.json`.
 
 ## Config stubs
 

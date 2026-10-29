@@ -1,15 +1,25 @@
 import { expect, test } from "bun:test";
-import { YAML } from "bun";
 import { renderHubPolicy } from "../deploy/hub-policy.ts";
-const base =
-	"version: 1\ngateway:\n  num_retries: 1\n  request_timeout_s: 120\n  first_byte_budget_s: 240\n  fallbacks:\n    primary: [secondary]\n";
+const base = JSON.stringify(
+	{
+		version: 1,
+		gateway: {
+			num_retries: 1,
+			request_timeout_s: 120,
+			first_byte_budget_s: 240,
+			fallbacks: { primary: ["secondary"] },
+		},
+	},
+	null,
+	"\t",
+);
 test("absent hub gateway is byte-identical repository policy", () => {
 	expect(renderHubPolicy(base)).toBe(base);
 });
 test("explicit zero retry and empty inner ladder survive rendering", () => {
-	const p = YAML.parse(
+	const p = JSON.parse(
 		renderHubPolicy(base, { num_retries: 0, fallbacks: {} }),
-	);
+	) as { gateway: Record<string, unknown> };
 	expect(p.gateway.num_retries).toBe(0);
 	expect(p.gateway.fallbacks).toEqual({});
 	expect(p.gateway.request_timeout_s).toBe(120);
@@ -60,17 +70,19 @@ test("fresh push materializes required policy before any up invocation", () => {
 		);
 		if (run.exitCode !== 0)
 			throw new Error(run.stdout.toString() + run.stderr.toString());
-		const file = join(destination, "routing-policy.hub.yaml");
-		const policy = YAML.parse(readFileSync(file, "utf8"));
+		const file = join(destination, "routing-policy.hub.json");
+		const policy = JSON.parse(readFileSync(file, "utf8")) as {
+			gateway: { num_retries: number; fallbacks: Record<string, never> };
+		};
 		expect(policy.gateway.num_retries).toBe(0);
 		expect(policy.gateway.fallbacks).toEqual({});
 		expect(statSync(file).mode & 0o777).toBe(0o600);
 		const compose = readFileSync(join(destination, "hub-compose.yaml"), "utf8");
 		expect(compose).toContain(
-			"./routing-policy.hub.yaml:/etc/klh/routing-policy.hub.yaml:ro",
+			"./routing-policy.hub.json:/etc/klh/routing-policy.hub.json:ro",
 		);
 		expect(compose).toContain(
-			"BUCKLE_POLICY: /etc/klh/routing-policy.hub.yaml",
+			"BUCKLE_POLICY: /etc/klh/routing-policy.hub.json",
 		);
 		// Reload must replace the policy too, before recreating the container.
 		const updated = JSON.parse(readFileSync(stack, "utf8"));
@@ -92,7 +104,10 @@ test("fresh push materializes required policy before any up invocation", () => {
 		);
 		if (reload.exitCode !== 0)
 			throw new Error(reload.stdout.toString() + reload.stderr.toString());
-		expect(YAML.parse(readFileSync(file, "utf8")).gateway.num_retries).toBe(2);
+		const reloaded = JSON.parse(readFileSync(file, "utf8")) as {
+			gateway: { num_retries: number };
+		};
+		expect(reloaded.gateway.num_retries).toBe(2);
 		expect(statSync(file).mode & 0o777).toBe(0o600);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });

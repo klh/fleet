@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "../src/server.ts";
 import { startMockUpstream, type MockUpstream } from "./mock.ts";
+import { issueViaAdmin } from "./gate.ts";
 
 const ROOT = "buckle-litellm-root";
 
@@ -82,33 +83,38 @@ async function startEngineGate(
 	direct: MockUpstream,
 ): Promise<EngineGate> {
 	const dir = mkdtempSync(join(tmpdir(), "buckle-litellm-"));
-	const upstreams = `${dir}/upstreams.yaml`;
-	const policy = `${dir}/policy.yaml`;
+	const upstreams = `${dir}/upstreams.json`;
+	const policy = `${dir}/policy.json`;
 	const prefs = `${dir}/prefs.json`;
 	const dbPath = `${dir}/buckle.db`;
 	await Bun.write(
 		upstreams,
-		`version: 1
-groups:
-  glm-5.3-flash:
-    - url: ${engine.url}
-      dialect: openai
-      adapter: openai-compat
-      model: zai-glm-5.3-flash
-      api_key_env: LITELLM_KEY
-    - url: ${direct.url}
-      dialect: openai
-      adapter: openai-compat
-`,
+		JSON.stringify({
+			version: 1,
+			groups: {
+				"glm-5.3-flash": [
+					{
+						url: engine.url,
+						dialect: "openai",
+						adapter: "openai-compat",
+						model: "zai-glm-5.3-flash",
+						api_key_env: "LITELLM_KEY",
+					},
+					{
+						url: direct.url,
+						dialect: "openai",
+						adapter: "openai-compat",
+					},
+				],
+			},
+		}),
 	);
 	await Bun.write(
 		policy,
-		`version: 1
-gateway:
-  num_retries: 1
-  allowed_fails: 1
-  cooldown_time: 60
-`,
+		JSON.stringify({
+			version: 1,
+			gateway: { num_retries: 1, allowed_fails: 1, cooldown_time: 60 },
+		}),
 	);
 	await Bun.write(
 		prefs,
@@ -127,19 +133,6 @@ gateway:
 		dbPath,
 		stop: () => server.stop(true),
 	};
-}
-
-async function issueViaAdmin(
-	base: string,
-	body: Record<string, unknown>,
-): Promise<{ key: string; keyId: string }> {
-	const res = await fetch(`${base}/v1/admin/keys`, {
-		method: "POST",
-		headers: { authorization: `Bearer ${ROOT}` },
-		body: JSON.stringify(body),
-	});
-	const out = (await res.json()) as { key: string; key_id: string };
-	return { key: out.key, keyId: out.key_id };
 }
 
 /** The ledger flush timer is 5s; one wait past it lets a second connection
@@ -178,14 +171,22 @@ describe("W219.1 litellm-as-engine", () => {
 		);
 		const gate = await startEngineGate(engine.up, direct);
 		try {
-			const { key } = await issueViaAdmin(gate.base, {
-				name: "lane",
-				scopes: ["buckle:proxy:WRITE_"],
-			});
-			const { key: roKey } = await issueViaAdmin(gate.base, {
-				name: "ro",
-				scopes: ["buckle:proxy:READ_"],
-			});
+			const { key } = await issueViaAdmin(
+				gate.base,
+				{
+					name: "lane",
+					scopes: ["buckle:proxy:WRITE_"],
+				},
+				ROOT,
+			);
+			const { key: roKey } = await issueViaAdmin(
+				gate.base,
+				{
+					name: "ro",
+					scopes: ["buckle:proxy:READ_"],
+				},
+				ROOT,
+			);
 			const post = (token: string) =>
 				fetch(`${gate.base}${CHAT}`, {
 					method: "POST",

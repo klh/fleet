@@ -872,7 +872,7 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 	const rs = reapDeadSubscribes((sid) => {
 		const row = db
 			.query(
-				"SELECT hb, parent_sid, role, transcript_path, state FROM sessions WHERE sid = ?",
+				"SELECT sid, project, hb, parent_sid, role, transcript_path, state FROM sessions WHERE sid = ?",
 			)
 			.get(sid) as (LivenessRow & { state: string }) | undefined;
 		return !row || row.state === "CLOSED" || !isLiveSession(row);

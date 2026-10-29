@@ -58,13 +58,16 @@ describe("upstreams adapter field", () => {
 	test("derive-from-dialect back-compat + explicit override", async () => {
 		const upstream = await startMockUpstream(() => Response.json({ ok: true }));
 		const dir = `/tmp/buckle-adapters-${Date.now()}-${process.pid}`;
-		const cfg =
-			`groups:\n` +
-			`  g1:\n    - url: ${upstream.url}\n      dialect: openai\n` +
-			`  g2:\n    - url: ${upstream.url}\n      dialect: openai\n` +
-			`      adapter: openai-compat\n`;
-		await Bun.write(`${dir}/upstreams.yaml`, cfg);
-		const pool = loadUpstreams(`${dir}/upstreams.yaml`);
+		const cfg = JSON.stringify({
+			groups: {
+				g1: [{ url: upstream.url, dialect: "openai" }],
+				g2: [
+					{ url: upstream.url, dialect: "openai", adapter: "openai-compat" },
+				],
+			},
+		});
+		await Bun.write(`${dir}/upstreams.json`, cfg);
+		const pool = loadUpstreams(`${dir}/upstreams.json`);
 		expect(pool.deployments("g1")[0]?.adapter).toBe("openai-compat");
 		expect(pool.deployments("g2")[0]?.adapter).toBe("openai-compat");
 		upstream.close();
@@ -72,21 +75,37 @@ describe("upstreams adapter field", () => {
 
 	test("unknown adapter = startup fatal naming the group", async () => {
 		const dir = `/tmp/buckle-adapters-${Date.now()}-${process.pid}`;
-		const cfg =
-			`groups:\n  bad:\n    - url: http://127.0.0.1:9\n` +
-			`      dialect: openai\n      adapter: frobnicate\n`;
-		await Bun.write(`${dir}/upstreams.yaml`, cfg);
-		expect(() => loadUpstreams(`${dir}/upstreams.yaml`)).toThrow(/group "bad"/);
+		const cfg = JSON.stringify({
+			groups: {
+				bad: [
+					{
+						url: "http://127.0.0.1:9",
+						dialect: "openai",
+						adapter: "frobnicate",
+					},
+				],
+			},
+		});
+		await Bun.write(`${dir}/upstreams.json`, cfg);
+		expect(() => loadUpstreams(`${dir}/upstreams.json`)).toThrow(/group "bad"/);
 	});
 });
 
 describe("tier-2 family named in config (W150)", () => {
 	test("bedrock named in config loads; resolution is deferred to request time", () => {
 		const dir = `/tmp/buckle-adapters-${Date.now()}-${process.pid}`;
-		const cfg =
-			`groups:\n  aws:\n    - url: http://127.0.0.1:9\n` +
-			`      dialect: openai\n      adapter: bedrock\n`;
-		const p = `${dir}/u.yaml`;
+		const cfg = JSON.stringify({
+			groups: {
+				aws: [
+					{
+						url: "http://127.0.0.1:9",
+						dialect: "openai",
+						adapter: "bedrock",
+					},
+				],
+			},
+		});
+		const p = `${dir}/u.json`;
 		mkdirSync(dir, { recursive: true });
 		writeFileSync(p, cfg);
 		const pool = loadUpstreams(p);

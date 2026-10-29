@@ -6,17 +6,27 @@ import { join } from "node:path";
 import { startServer } from "../src/server.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "policy-manifest-"));
-writeFileSync(join(dir, "upstreams.yaml"), "groups: {}\n");
+writeFileSync(join(dir, "upstreams.json"), JSON.stringify({ groups: {} }));
 writeFileSync(
-	join(dir, "policy.yaml"),
-	"rows:\n  - id: fixture-policy\n    repoClass: any\n    check: [{exists: LICENSE}]\n    missingQuestion: Implement a license?\n    policySource: operator:fixture-v1\n",
+	join(dir, "policy.json"),
+	JSON.stringify({
+		rows: [
+			{
+				id: "fixture-policy",
+				repoClass: "any",
+				check: [{ exists: "LICENSE" }],
+				missingQuestion: "Implement a license?",
+				policySource: "operator:fixture-v1",
+			},
+		],
+	}),
 );
 const server = startServer({
 	port: 0,
 	dbPath: ":memory:",
 	secretsHome: dir,
-	upstreamsPath: join(dir, "upstreams.yaml"),
-	repoPolicyPath: join(dir, "policy.yaml"),
+	upstreamsPath: join(dir, "upstreams.json"),
+	repoPolicyPath: join(dir, "policy.json"),
 	auth: { rootKey: "manifest-fixture-key" },
 });
 afterAll(() => {

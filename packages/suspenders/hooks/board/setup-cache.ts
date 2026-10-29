@@ -5,7 +5,7 @@
 // warms it at start; the first caller after a cold boot awaits the one in-flight
 // compute, later responses are instant; past the TTL a stale snapshot answers
 // while the next compute runs in the background.
-import { setupChecks } from "./data.ts";
+import { setupChecks } from "./setup.ts";
 
 const TTL_MS = 120_000;
 

@@ -4,7 +4,7 @@
 // the adapter has never run a lane — no verified spawn recipe, no
 // Buckle-front proof; catalog rows stay spawnable=false/buckle=unknown
 // until a real install + e2e lane proof.
-import type { ExecutorAdapter } from "../../../scripts/lib/lane.ts";
+import type { ExecutorAdapter } from "../../lane.ts";
 
 export const grokAdapter: ExecutorAdapter = {
 	id: "grok",

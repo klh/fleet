@@ -18,28 +18,33 @@ import {
 } from "../hooks/lib/lane-effort-policy.ts";
 
 describe("parseEffortPolicy", () => {
-	test("parses a full YAML policy with flow mappings and regex rules", () => {
-		const p = parseEffortPolicy(`version: 1
-default: two-stage
-single_effort: medium
-classify:
-  - when: { tags_any: [verification, security, edgecase, hardware] }
-    effort: high
-  - when:
-      title_re: "\\b(verify|audit|security)\\b"
-    effort: high
-  - when: { tags_any: [research, exploration] }
-    effort: medium
-  - when: { tags_any: [crud, rulebook, mechanical] }
-    effort: low
-two_stage:
-  implement: low
-  verify: high
-budgets:
-  low: 100000
-  medium: 200000
-  high: 300000
-`);
+	test("parses a full JSON policy with regex rules", () => {
+		const p = parseEffortPolicy(
+			JSON.stringify({
+				version: 1,
+				default: "two-stage",
+				single_effort: "medium",
+				classify: [
+					{
+						when: {
+							tags_any: ["verification", "security", "edgecase", "hardware"],
+						},
+						effort: "high",
+					},
+					{
+						when: { title_re: "\\b(verify|audit|security)\\b" },
+						effort: "high",
+					},
+					{ when: { tags_any: ["research", "exploration"] }, effort: "medium" },
+					{
+						when: { tags_any: ["crud", "rulebook", "mechanical"] },
+						effort: "low",
+					},
+				],
+				two_stage: { implement: "low", verify: "high" },
+				budgets: { low: 100000, medium: 200000, high: 300000 },
+			}),
+		);
 		expect(p.version).toBe(1);
 		expect(p.default).toBe("two-stage");
 		expect(p.classify.length).toBe(4);
@@ -54,28 +59,34 @@ budgets:
 	});
 
 	test("rejects bad version, effort words, regexes, and rule shapes", () => {
-		expect(() => parseEffortPolicy("version: 2\ndefault: two-stage")).toThrow(
-			/version: 1 only/,
-		);
+		expect(() =>
+			parseEffortPolicy(JSON.stringify({ version: 2, default: "two-stage" })),
+		).toThrow(/version: 1 only/);
 		expect(() =>
 			parseEffortPolicy(
-				"classify:\n  - when: { tags_any: [security] }\n    effort: max",
+				JSON.stringify({
+					classify: [{ when: { tags_any: ["security"] }, effort: "max" }],
+				}),
 			),
 		).toThrow(/effort: must be low\|medium\|high/);
 		expect(() =>
 			parseEffortPolicy(
-				'classify:\n  - when: { title_re: "(\\\\b(unterminated" }\n    effort: low',
+				JSON.stringify({
+					classify: [
+						{ when: { title_re: "(\\b(unterminated" }, effort: "low" },
+					],
+				}),
 			),
 		).toThrow(/invalid regex/);
-		expect(() => parseEffortPolicy("classify:\n  - effort: low")).toThrow(
-			/when: needs/,
-		);
-		expect(() => parseEffortPolicy("budgets:\n  max: 5")).toThrow(
-			/budgets\.max: unknown effort word/,
-		);
-		expect(() => parseEffortPolicy("budgets:\n  low: -1")).toThrow(
-			/must be a number >= 0/,
-		);
+		expect(() =>
+			parseEffortPolicy(JSON.stringify({ classify: [{ effort: "low" }] })),
+		).toThrow(/when: needs/);
+		expect(() =>
+			parseEffortPolicy(JSON.stringify({ budgets: { max: 5 } })),
+		).toThrow(/budgets\.max: unknown effort word/);
+		expect(() =>
+			parseEffortPolicy(JSON.stringify({ budgets: { low: -1 } })),
+		).toThrow(/must be a number >= 0/);
 	});
 
 	test("accepts JSON and the built-in defaults verbatim", () => {
@@ -107,10 +118,13 @@ describe("loadEffortPolicy (conf chain)", () => {
 		);
 	});
 
-	test("runtime json beats yaml; env pin beats both", () => {
+	test("runtime json beats legacy name; env pin beats both", () => {
 		writeConf(
 			"lane-effort-policy.yaml",
-			"classify:\n  - when: { tags_any: [aaab] }\n    effort: low\n",
+			JSON.stringify({
+				version: 1,
+				classify: [{ when: { tags_any: ["aaab"] }, effort: "low" }],
+			}),
 		);
 		writeConf(
 			"lane-effort-policy.json",
@@ -123,7 +137,8 @@ describe("loadEffortPolicy (conf chain)", () => {
 		expect(r.source).toBe("runtime");
 		expect(r.path).toContain(".json");
 		expect(r.policy.classify[0].when.tags_any).toEqual(["zzz9"]);
-		const pin = writeConf("pinned.yaml", "default: single\n");
+		// a legacy-named pin still resolves — its content must be JSON (W1253)
+		const pin = writeConf("pinned.yaml", JSON.stringify({ default: "single" }));
 		const envd = loadEffortPolicy({
 			env: { SUSPENDERS_EFFORT_POLICY: pin },
 			home: HOME,
@@ -133,11 +148,11 @@ describe("loadEffortPolicy (conf chain)", () => {
 	});
 
 	test("invalid conf → defaults + surfaced warning (never silent)", () => {
-		writeConf("lane-effort-policy.yaml", "default: nonsense\n");
+		writeConf("lane-effort-policy.json", "{not json");
 		const r = loadEffortPolicy({ env: {}, home: HOME });
 		expect(r.source).toBe("default");
 		expect(r.policy.default).toBe("two-stage");
-		expect(r.warning).toContain("default:");
+		expect(r.warning).toContain("parse failed");
 	});
 });
 
@@ -167,7 +182,9 @@ describe("classification + decision", () => {
 	});
 
 	test("single mode pins one effort for unmatched items", () => {
-		const p = parseEffortPolicy("default: single\nsingle_effort: medium\n");
+		const p = parseEffortPolicy(
+			JSON.stringify({ default: "single", single_effort: "medium" }),
+		);
 		const d = effortDecision(p, { title: "Add a nav field" });
 		expect(d.effort).toBe("medium");
 		expect(d.verifyEffort).toBeNull();

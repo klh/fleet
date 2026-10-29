@@ -77,7 +77,7 @@ describe("W1077 probe-before-fail", () => {
 		expect(result.kind).toBe("upstream");
 	});
 
-	test("no-sel walk: dead probe stays benched - client-error", async () => {
+	test("no-sel walk: dead probe stays benched - typed local 503 hold", async () => {
 		const router = new Router(POLICY, {
 			pool,
 			cooldowns: benchedCooldowns(),
@@ -86,7 +86,13 @@ describe("W1077 probe-before-fail", () => {
 			fetchImpl: async () => Response.json({ ok: true }),
 		});
 		const result = await router.execute(req);
-		expect(result.kind).toBe("client-error");
+		// W1257: a benched tier with a dead probe answers a typed LOCAL hold,
+		// never a fabricated provider 429
+		expect(result.kind).toBe("exhausted");
+		if (result.kind !== "exhausted") throw new Error("hold lost");
+		expect(result.status).toBe(503);
+		expect(result.error).toContain("gateway cooldown");
+		expect(result.error).toContain("not the provider");
 	});
 
 	test("selected path (production): benched row recovers on live probe", async () => {

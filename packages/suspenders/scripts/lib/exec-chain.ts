@@ -23,7 +23,7 @@ import {
 	adapterFor,
 	isSpawnableExecutor,
 } from "../../hooks/lib/executors/registry.ts";
-// W813: chain tokens may name HUBS (a stack.yaml/hubs.json label rides
+// W813: chain tokens may name HUBS (a stack.json/hubs.json label rides
 // that hub); can= doability probes resolveLaneExecutor + darkHubNow + the
 // cv tally — all sync, so execPick stays sync.
 import { readRegistry } from "../../hooks/lib/hub-locate.ts";
@@ -159,7 +159,7 @@ const slotOf = (e: string): { model: string | null; bin: string } | null => {
 	return model ? { model, bin: binOf(e) } : null;
 };
 
-// W813: a chain token may name a HUB — known = a stack.yaml hub profile or
+// W813: a chain token may name a HUB — known = a stack.json hub profile or
 // hubs.json registry label (case-insensitive, resolveHub precedent). A hub
 // slot rides the default executor (claude, NO model pin — the hub's belt
 // routes the model).

@@ -45,17 +45,21 @@ async function startGate(upstreamUrl: string): Promise<{
 		.toString(36)
 		.slice(2, 6)}`;
 	await Bun.write(
-		`${dir}.yaml`,
-		`groups:\n  glm-5.3-flash:\n    - url: ${upstreamUrl}\n      dialect: anthropic\n`,
+		`${dir}.json`,
+		JSON.stringify({
+			groups: {
+				"glm-5.3-flash": [{ url: upstreamUrl, dialect: "anthropic" }],
+			},
+		}),
 	);
 	// Hermetic policy: `{}` is a valid minimal GatewayPolicy. Without an
 	// explicit path the server resolves the LIVE machine routing-policy
 	// (operator-edited mid-session) and pool-policy churn breaks the lane.
-	await Bun.write(`${dir}.policy.yaml`, "{}\n");
+	await Bun.write(`${dir}.policy.json`, "{}");
 	const server = startServer({
 		port: 0,
-		policyPath: `${dir}.policy.yaml`,
-		upstreamsPath: `${dir}.yaml`,
+		policyPath: `${dir}.policy.json`,
+		upstreamsPath: `${dir}.json`,
 		dbPath: ":memory:",
 		auth: { rootKey: ROOT },
 	});

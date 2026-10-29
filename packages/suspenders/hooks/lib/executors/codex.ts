@@ -1,6 +1,6 @@
 // hooks/lib/executors/codex.ts — the codex CLI adapter (W422 law: one file
 // per agent; facts verified W73/W296 + the 0.158 binary probes).
-import type { ExecutorAdapter } from "../../../scripts/lib/lane.ts";
+import type { ExecutorAdapter } from "../../lane.ts";
 
 export const codexAdapter: ExecutorAdapter = {
 	id: "codex",

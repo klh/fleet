@@ -1,8 +1,8 @@
 // src/repo-policy.ts — W7 repo-policy gate engine: hub-connected sessions
 // run policy CHECKS on the repo in view, keyed by repo-class. Every policy
 // is a DATA row {id, repoClass, detect, check, missingQuestion, policySource}
-// in repo-policy.yaml (same resolution chain as routing-policy.yaml —
-// operators edit the YAML, never code; rows are additive without code
+// in repo-policy.json (same resolution chain as routing-policy.json —
+// operators edit the JSON, never code; rows are additive without code
 // changes). Silent when satisfied: an applied row whose checks all pass
 // contributes no prose; a found gap contributes exactly one actionable
 // missing-question to the owner. IKEA-internal policy text never commits —
@@ -10,13 +10,12 @@
 // policySource: "fact:<name>", resolved only on the local owner-report
 // path (bin/repo-policy.ts --resolve-facts), never on the wire, never fed
 // to a model.
-import { YAML } from "bun";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 
-/** The committed default rows (repo root, beside routing-policy.yaml). */
+/** The committed default rows (repo root, beside routing-policy.json). */
 export const REPO_POLICY_DEFAULT = new URL(
-	"../repo-policy.yaml",
+	"../repo-policy.json",
 	import.meta.url,
 ).pathname;
 
@@ -286,12 +285,13 @@ export function loadRepoPolicies(explicitPath?: string): {
 	const candidates = [
 		explicitPath,
 		process.env.BUCKLE_REPO_POLICY,
+		`${process.env.HOME ?? ""}/.claude/local-llm/repo-policy.json`,
 		`${process.env.HOME ?? ""}/.claude/local-llm/repo-policy.yaml`,
 		REPO_POLICY_DEFAULT,
 	].filter((p): p is string => typeof p === "string" && p.length > 0);
 	for (const p of candidates) {
 		if (!existsSync(p)) continue;
-		const doc = YAML.parse(readFileSync(p, "utf8")) as {
+		const doc = JSON.parse(readFileSync(p, "utf8")) as {
 			rows?: unknown;
 		} | null;
 		const rawRows = Array.isArray(doc?.rows) ? doc.rows : [];

@@ -2,7 +2,7 @@
 // between THIS device and a hub's trace-receipt plane. The hub gate is plain
 // HTTP on the LAN; direct HTTP would carry the read key in the clear and the
 // hub's TLS front carries an untrusted certificate — so the connector never
-// points at the hub directly. The tunnel is configured by stack.yaml
+// points at the hub directly. The tunnel is configured by stack.json
 // (hubs.<label>.trace_tunnel: listen_port / target_port / read_key) and the
 // read key rides the ssh channel, never plain LAN HTTP; the connector sees
 // only a loopback URL on this device (the one non-https form its URL law
@@ -138,7 +138,7 @@ export function tunnelArgv(plan: TraceTunnelPlan): string[] {
 
 /** The connector peer row this tunnel serves — the loopback URL is the one
  *  non-https form the connector's URL law admits, and the tokenFile is the
- *  0600 read key PATH from stack.yaml. */
+ *  0600 read key PATH from stack.json. */
 export function tracePeerEntry(plan: TraceTunnelPlan): TracePeerEntry {
 	return {
 		hubId: plan.hub,
@@ -424,7 +424,7 @@ export async function traceTunnelVerb(
 		process.exit(2);
 	}
 	if (plan === null) {
-		console.log(`hub ${name} declares no trace_tunnel in stack.yaml`);
+		console.log(`hub ${name} declares no trace_tunnel in stack.json`);
 		process.exit(2);
 	}
 	await runTunnelSub(plan, name, sub, flags);

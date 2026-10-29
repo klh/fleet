@@ -57,6 +57,9 @@ export class SseSniffer {
 	 *  even when a terminal marker follows. */
 	private sawError = false;
 	private errorKind: string | null = null;
+	/** W1267: the in-band failure's provider code ("1302", "1113", …) when
+	 *  the failure frame carried one — admission pressure classification. */
+	private errorCode: string | null = null;
 	/** W1106 empty-stream guard: semantic observation of every data frame —
 	 *  a protocol terminal WITHOUT usable output is a typed failure, not a
 	 *  completed turn (the 483-byte envelope class). */
@@ -200,6 +203,23 @@ export class SseSniffer {
 		return this.errorKind ?? this.semanticFailure();
 	}
 
+	/** W1267: the provider code carried by an in-band failure frame
+	 *  ("1302", "1113", …), null when no in-band failure or no code. The
+	 *  admission layer classifies pressure from this code — HTTP200 streams
+	 *  that end in response.failed/incomplete or an event:error frame are
+	 *  refusal evidence, never healthy transport EOF. */
+	inBandCode(): string | null {
+		return this.sawError ? this.errorCode : null;
+	}
+
+	/** W1267: the in-band failure verdict alone — null when the stream saw
+	 *  NO in-band failure frame. Kept separate from the code so admission
+	 *  can refuse healthy credit for uncoded failures without inventing a
+	 *  fake 429. */
+	inBandFailure(): string | null {
+		return this.sawError ? (this.errorKind ?? "in_band") : null;
+	}
+
 	private markError(kind: string): void {
 		this.sawError = true;
 		this.errorKind = kind;
@@ -216,6 +236,7 @@ export class SseSniffer {
 			this.markError(
 				typeof err.type === "string" ? `in_band:${err.type}` : "in_band",
 			);
+			this.errorCode = typeof err.code === "string" ? err.code : null;
 			return;
 		}
 		// Responses-wire failures arrive as bare data frames (no event name):
@@ -227,6 +248,8 @@ export class SseSniffer {
 					? `in_band:${inner.code}`
 					: "in_band",
 			);
+			this.errorCode =
+				inner && typeof inner.code === "string" ? inner.code : null;
 			return;
 		}
 		if (

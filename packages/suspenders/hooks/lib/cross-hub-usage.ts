@@ -1,7 +1,7 @@
 // hooks/lib/cross-hub-usage.ts — W365 cross-hub usage rollup: aggregate the
 // per-hub GET /federation/usage reports (the hub-stored fed class windows +
 // aid rollups) into the local board's usage views. Hubs enumerate from the
-// ONE stack config (stack.yaml hubs) + the global registry (hubs.json) —
+// ONE stack config (stack.json hubs) + the global registry (hubs.json) —
 // labels travel in config; URLs/tokens resolve at runtime (config-over-code).
 // Each hub fetches independently and degrades alone: a down hub lands a
 // degraded row, never blocks the others. Results are TTL-cached per label
@@ -77,7 +77,7 @@ export interface CrossHubReport {
 	};
 }
 
-// ─── enumeration: labels from stack.yaml hubs ∪ hubs.json registry ────────
+// ─── enumeration: labels from stack.json hubs ∪ hubs.json registry ────────
 const normLabel = (l: string): string => l.trim().toLowerCase();
 
 export interface CrossHubEnv extends Record<string, string | undefined> {
@@ -89,7 +89,7 @@ export interface CrossHubEnv extends Record<string, string | undefined> {
 }
 
 /** Hub labels this board aggregates, case-insensitively deduped, sorted.
- *  stack.yaml hubs are the machine truth; hubs.json registry keys join. */
+ *  stack.json hubs are the machine truth; hubs.json registry keys join. */
 export function crossHubLabels(
 	opts: { env?: CrossHubEnv; stack?: StackConfig | null } = {},
 ): string[] {
@@ -155,12 +155,12 @@ export function resolveHubEndpoints(
 		if (typeof prof?.url === "string" && prof.url.length > 0)
 			out.push({
 				url: prof.url.replace(/\/$/, ""),
-				via: "stack.yaml",
+				via: "stack.json",
 				token: stackToken,
 			});
 	}
 	// registry keys are operator config (hubs.json labels like "NAS") while
-	// panel labels travel lowercase — the stack.yaml leg matches case-
+	// panel labels travel lowercase — the stack.json leg matches case-
 	// insensitively, so the registry leg must too, or an upper/lower split
 	// config strands every row unresolved.
 	const reg = Object.entries(readRegistryFrom(opts.env)).find(
@@ -390,7 +390,7 @@ export async function crossHubRollup(
 		const eps = endpointsFor(label);
 		if (eps.length === 0) {
 			row.unresolved = true;
-			row.reason = "no url in stack.yaml/hubs.json for this label";
+			row.reason = "no url in stack.json/hubs.json for this label";
 			rows.push(row);
 			cache.set(normLabel(label), { atMs: now, row });
 			continue;

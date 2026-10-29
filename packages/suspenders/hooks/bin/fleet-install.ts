@@ -27,6 +27,13 @@ import {
 	listTargets,
 } from "../lib/targets.ts";
 import {
+	applyBuckleRoute,
+	planBuckleRoutes,
+	renderBuckleRouteTable,
+	type IngressProvider,
+} from "../lib/buckle-route.ts";
+
+import {
 	defineVerb,
 	dieFor,
 	parseVerb,
@@ -40,6 +47,11 @@ interface Flags {
 	yes: boolean;
 	dryRun: boolean;
 	capabilities: boolean;
+	buckleRoute: boolean;
+	buckleFront?: string;
+	buckleLane?: string;
+	buckleProvider?: string;
+	buckleHome?: string;
 }
 
 // W820.2: argv rides verb-kit (W651) — embedded door. -y folds to --yes
@@ -50,9 +62,15 @@ function flagsOf(argv: string[]): Flags {
 	const SPEC = defineVerb({
 		name: "fleet-install",
 		usage:
-			"usage: bun fleet-install.ts [--agent <name|*>] [--yes] [--dry-run] [--capabilities]",
-		flags: ["--agent"],
-		switches: ["--yes", "--dry-run", "--capabilities"],
+			"usage: bun fleet-install.ts [--agent <name|*>] [--yes] [--dry-run] [--capabilities] [--buckle-route] [--buckle-front <url>] [--buckle-lane <slug>] [--buckle-provider zai] [--buckle-home <dir>]",
+		flags: [
+			"--agent",
+			"--buckle-front",
+			"--buckle-lane",
+			"--buckle-provider",
+			"--buckle-home",
+		],
+		switches: ["--yes", "--dry-run", "--capabilities", "--buckle-route"],
 	});
 	if (norm.includes("--help") || norm.includes("-h")) {
 		console.log(renderVerbHelp(SPEC));
@@ -70,6 +88,11 @@ function flagsOf(argv: string[]): Flags {
 		yes: parsed.flag("--yes") === "true",
 		dryRun: parsed.flag("--dry-run") === "true",
 		capabilities: parsed.flag("--capabilities") === "true",
+		buckleRoute: parsed.flag("--buckle-route") === "true",
+		buckleFront: parsed.flag("--buckle-front"),
+		buckleLane: parsed.flag("--buckle-lane"),
+		buckleProvider: parsed.flag("--buckle-provider"),
+		buckleHome: parsed.flag("--buckle-home"),
 	};
 }
 
@@ -102,6 +125,58 @@ async function wireTarget(
 	};
 }
 
+/** W1265 --buckle-route: plan (and, with --yes, write) each detected
+ * tool's native route face onto a Buckle named base. Detection rides the
+ * SAME catalog pass as hook wiring; this adds only the route-config axis.
+ * Front URL is flag-or-env, never guessed (config-over-code). */
+async function runBuckleRouteMode(flags: Flags): Promise<void> {
+	const front = flags.buckleFront ?? process.env.BUCKLE_ROUTE_FRONT;
+	if (front === undefined || front === "") {
+		p.log.error(
+			"--buckle-route needs --buckle-front <url> (or BUCKLE_ROUTE_FRONT) — refusing to guess a gateway",
+		);
+		process.exit(1);
+	}
+	const providerOpt = flags.buckleProvider?.trim() || undefined;
+	if (providerOpt !== undefined && providerOpt !== "zai") {
+		p.log.error(`unknown --buckle-provider '${providerOpt}' (supported: zai)`);
+		process.exit(1);
+	}
+	const provider = providerOpt as IngressProvider | undefined;
+	const spinner = p.spinner();
+	spinner.start("Detecting installed CLI/agent targets…");
+	const all = await detectFleetTargets(REPO);
+	const agents = flags.agent
+		? flags.agent.filter((a) => a !== "*")
+		: all.filter((t) => t.installed).map((t) => t.type);
+	spinner.stop(`${agents.length} target(s) in scope`);
+	const plans = planBuckleRoutes({
+		agents,
+		front,
+		lane: flags.buckleLane,
+		provider,
+		home: flags.buckleHome,
+	});
+	if (plans.length === 0) {
+		p.outro("No detected tool has a Buckle route face — nothing to plan");
+		return;
+	}
+	p.log.message(renderBuckleRouteTable(plans));
+	if (flags.dryRun || !flags.yes) {
+		p.outro("Plan only — re-run with --yes to write these configs");
+		return;
+	}
+	let wrote = 0;
+	for (const plan of plans) {
+		const res = applyBuckleRoute(plan);
+		if (res.ok) {
+			wrote++;
+			p.log.success(`${plan.agent} → ${res.path}`);
+		} else p.log.error(`${plan.agent}: ${res.why}`);
+	}
+	p.outro(`Buckle route written to ${wrote}/${plans.length} tool(s)`);
+}
+
 async function main(): Promise<void> {
 	const flags = flagsOf(process.argv.slice(2));
 	p.intro("suspenders fleet-install — wire hook gates across CLI targets");
@@ -119,6 +194,11 @@ async function main(): Promise<void> {
 			);
 		}
 		process.exit(0);
+	}
+
+	if (flags.buckleRoute) {
+		await runBuckleRouteMode(flags);
+		return;
 	}
 
 	const spinner = p.spinner();

@@ -21,39 +21,40 @@ async function startFed(
 	stop: () => void;
 }> {
 	const dir = `/tmp/w154-fed-${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 6)}`;
-	const policy = [
-		"version: 1",
-		"gateway:",
-		"  num_retries: 1",
-		"  allowed_fails: 3",
-		"  cooldown_time: 30",
-		"  fallbacks:",
-		"    glm-5.3-flash: [local-swarm, gpt-5.2]",
-		"tags:",
-		"  glm-5.3-flash: [fast, cheap, general]",
-		"  local-swarm: [local, general]",
-		"  gpt-5.2: [frontier]",
-		"",
-	].join("\n");
-	const upstreams = [
-		"version: 1",
-		"groups:",
-		"  glm-5.3-flash:",
-		"    - url: http://127.0.0.1:8501",
-		"      dialect: openai",
-		"  local-swarm:",
-		"    - url: http://127.0.0.1:8502",
-		"      dialect: openai",
-		"      visibility: spoke-private",
-		"  gpt-5.2: []",
-		"",
-	].join("\n");
-	await Bun.write(`${dir}.policy.yaml`, policy);
-	await Bun.write(`${dir}.upstreams.yaml`, upstreams);
+	const policy = JSON.stringify({
+		version: 1,
+		gateway: {
+			num_retries: 1,
+			allowed_fails: 3,
+			cooldown_time: 30,
+			fallbacks: { "glm-5.3-flash": ["local-swarm", "gpt-5.2"] },
+		},
+		tags: {
+			"glm-5.3-flash": ["fast", "cheap", "general"],
+			"local-swarm": ["local", "general"],
+			"gpt-5.2": ["frontier"],
+		},
+	});
+	const upstreams = JSON.stringify({
+		version: 1,
+		groups: {
+			"glm-5.3-flash": [{ url: "http://127.0.0.1:8501", dialect: "openai" }],
+			"local-swarm": [
+				{
+					url: "http://127.0.0.1:8502",
+					dialect: "openai",
+					visibility: "spoke-private",
+				},
+			],
+			"gpt-5.2": [],
+		},
+	});
+	await Bun.write(`${dir}.policy.json`, policy);
+	await Bun.write(`${dir}.upstreams.json`, upstreams);
 	const srv = startServer({
 		port: 0,
-		policyPath: `${dir}.policy.yaml`,
-		upstreamsPath: `${dir}.upstreams.yaml`,
+		policyPath: `${dir}.policy.json`,
+		upstreamsPath: `${dir}.upstreams.json`,
 		dbPath: ":memory:",
 		auth: { rootKey: ROOT, ...opts },
 	});

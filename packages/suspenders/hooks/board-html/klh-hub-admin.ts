@@ -554,7 +554,7 @@ class KlhHubAdmin extends LitElement {
 			${
 				this.fedidle
 					? html`<p class="dim">
-						no peer edges declared (HUB_PEERS / stack.yaml hubs.&lt;me&gt;.peers)
+						no peer edges declared (HUB_PEERS / stack.json hubs.&lt;me&gt;.peers)
 						— idle
 					</p>`
 					: html`

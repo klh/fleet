@@ -20,7 +20,7 @@ import {
 	readLaneRegistry,
 } from "../hooks/lib/lane-registry.ts";
 import { classifyPrune, registryMain } from "../scripts/lib/registry-cli.ts";
-import type { Lane } from "../scripts/lib/lane.ts";
+import type { Lane } from "../hooks/lib/lane.ts";
 
 setDefaultTimeout(30_000);
 

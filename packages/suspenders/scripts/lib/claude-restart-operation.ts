@@ -44,7 +44,7 @@ import {
 	sameMachine,
 	type LaunchIntent,
 } from "./launch-fencing.ts";
-import { adminKey, BUCKLE_FRONT } from "./lane-auth.ts";
+import { adminKey, BUCKLE_FRONT } from "../../hooks/lib/lane-auth.ts";
 import { adapterForExact } from "../../hooks/lib/executors/registry.ts";
 import { materializeRestartSettings } from "./claude-restart-settings.ts";
 import { restartTreeHash as treeHash } from "./restart-tree-snapshot.ts";

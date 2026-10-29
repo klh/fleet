@@ -1,4 +1,4 @@
-import { makeStore, enqueueKnowledge } from "../lib/knowledge-ports.ts";
+import { makeStore, enqueueKnowledge } from "../lib/sqlite-store.ts";
 import {
 	proseCards,
 	withTrust,

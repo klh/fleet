@@ -409,7 +409,7 @@ const usage = (): void => {
   --dry-run       print the plan for ALL recipes, write nothing
   --verify        run each recipe's local probe (never a paid endpoint)
   --all           skip the picker (select every recipe)
-  --base-url URL  gateway base (override; default from stack.yaml executors, else ${DEFAULT_BASE_URL})
+  --base-url URL  gateway base (override; default from stack.json executors, else ${DEFAULT_BASE_URL})
   --force         allow appending into a non-empty config (.bak made first)
 
   picker keys: number toggle · a all · e all + everywhere (env → ~/.zshrc)

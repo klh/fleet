@@ -2,7 +2,6 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parse } from "yaml";
 
 const dir = mkdtempSync(join(tmpdir(), "fleet-hub-layout-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -10,7 +9,7 @@ const template = readFileSync(
 	join(import.meta.dir, "../deploy/hub-compose.yaml"),
 	"utf8",
 );
-const compose = parse(template);
+const compose = Bun.YAML.parse(template);
 
 function render(
 	version?: string,
@@ -125,7 +124,7 @@ test("all hub services share one pinned monorepo with prepared dependencies", ()
 		`\${HUB_FLEET_SRC:-/src/fleet/packages}/buckle`,
 	);
 	expect(compose.services["buckle-hub"].environment.BUCKLE_POLICY).toBe(
-		`\${HUB_FLEET_SRC:-/src/fleet/packages}/buckle/routing-policy.yaml`,
+		"/etc/klh/routing-policy.hub.json",
 	);
 	expect(cmd("board-hub")).toContain(
 		`\${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/hooks/bin/fleet-board.ts`,
@@ -217,7 +216,7 @@ test("unset repos.src uses the current public package root", () => {
 	expect(template.split(knob).length - 1).toBeGreaterThan(0);
 	const resolved = template.replaceAll(knob, "/src/fleet/packages");
 	expect(resolved).not.toContain(knob);
-	const current = parse(resolved);
+	const current = Bun.YAML.parse(resolved);
 	expect(current.services["buckle-hub"].working_dir).toContain(
 		"/src/fleet/packages/buckle",
 	);

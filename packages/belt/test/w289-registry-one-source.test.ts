@@ -55,17 +55,23 @@ describe("direct tiers are emitted-only (W289)", () => {
 	});
 
 	test("legacy string rows still parse", () => {
-		expect(parseDirect("direct:\n  x: http://localhost:8902\n")).toEqual({
+		expect(
+			parseDirect(JSON.stringify({ direct: { x: "http://localhost:8902" } })),
+		).toEqual({
 			x: "http://localhost:8902/v1",
 		});
 	});
 
 	test("non-loopback url throws in both shapes", () => {
 		expect(() =>
-			parseDirect("direct:\n  x: https://evil.example/v1\n"),
+			parseDirect(JSON.stringify({ direct: { x: "https://evil.example/v1" } })),
 		).toThrow(/loopback/);
 		expect(() =>
-			parseDirect("direct:\n  x:\n    url: https://evil.example/v1\n"),
+			parseDirect(
+				JSON.stringify({
+					direct: { x: { url: "https://evil.example/v1" } },
+				}),
+			),
 		).toThrow(/loopback/);
 	});
 
@@ -90,13 +96,15 @@ describe("loadDirectTiers chain (W289)", () => {
 		}
 	});
 
-	test("runtime YAML rows (legacy shape) still win", () => {
+	test("runtime JSON under the legacy yaml name still wins (read-both)", () => {
 		const home = mkdtempSync(join(tmpdir(), "w289-home-"));
 		try {
 			mkdirSync(join(home, ".claude/local-llm"), { recursive: true });
 			writeFileSync(
 				join(home, ".claude/local-llm/routing-policy.yaml"),
-				"direct:\n  legacy: http://127.0.0.1:8902\n",
+				JSON.stringify({
+					direct: { legacy: "http://127.0.0.1:8902" },
+				}),
 			);
 			expect(loadDirectTiers(undefined, home)).toEqual({
 				legacy: "http://127.0.0.1:8902/v1",

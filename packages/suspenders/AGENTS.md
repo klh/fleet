@@ -147,6 +147,39 @@ dirty the shared checkout. The merge ladder auto-fixes whatever still lands
 (`qltyFixMergedFiles` in hooks/lib/fleet-loop/merge.ts: `qlty check --fix` +
 the cached biome binary, committed on main).
 
+## Write gates — one block per deny
+
+The pre-files chain (hooks/gates/chain.ts) runs coordinator-edit → anchor →
+content → claim-location → governor → mutation-size → ledger → config, and
+the read gate rides PreToolUse(Read). Every deny message names its escape
+hatch; these are the five a lane meets:
+
+- **read-gate** (`hooks/gates/read.ts`) — a Read that would pull more than
+  ~40KB into context denies before the harness. Knob:
+  `SUSPENDERS_MAX_READ=<bytes>` raises the cap, `0` disables; the reread
+  nudge rides `SUSPENDERS_REREAD_NUDGE=0`. Sanctioned: re-issue with
+  `limit`/`offset`, or rg/jq/tail for the records you want.
+- **anchor** (`hooks/gates/anchor.ts`, W110) — an Edit `old_string` that is
+  not in the file denies BEFORE the harness, with the nearest-match 3-line
+  context and a paste-ready rg probe attached. No knob (fail-open past
+  8MB). Sanctioned: correct the anchor from the hint; empty probe output =
+  the anchor is wholly gone — re-read the file.
+- **mutation-size** (`hooks/gates/mutation-size.ts`, W5) — an Edit/Write
+  changing more than 40 lines on an EXISTING file denies (new files are
+  exempt; max(old, new) counts). Knob: `SUSPENDERS_MAX_MUTATION=<N>` raises
+  the cap, `0` disables. Sanctioned: split into smaller anchored edits, or
+  a mechanical transform (sd / ast-grep / bun -e splice).
+- **coordinator-edit-gate** (`hooks/lib/coordinator-edit-gate.ts`, W834) —
+  a coordinator session's structural repo write denies; lanes pass. Knob:
+  `SUSPENDERS_COORD_EDIT_GATE=0` disables. Sanctioned: dispatch it —
+  `work add` + dispatch (or `work take`); coordinators write `*.md` and
+  `.fleet/**` directly.
+- **claim-location** (`hooks/gates/claim-location.ts`, W870) — a claimed
+  item's edits bind to its registered worktree (`.worktrees/<id>`);
+  main-checkout writes from the claim holder deny. No knob. Sanctioned:
+  work in the tree your `work take` printed; shared-root files land via
+  the CLI verbs.
+
 ## 1500-Line Hard Limit
 
 Any .ts (or equivalent) that grows past **1500 lines MUST be decomposed**:

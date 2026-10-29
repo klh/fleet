@@ -1,0 +1,11 @@
+{
+	"name": "@klh/kernel",
+	"version": "2.0.0",
+	"description": "Dependency-free fleet primitives — the ONE bottom of the package graph: kernel imports nothing in fleet; every package may import kernel",
+	"type": "module",
+	"license": "SEE LICENSE IN LICENSE",
+	"private": true,
+	"engines": {
+		"bun": ">=1.2"
+	}
+}

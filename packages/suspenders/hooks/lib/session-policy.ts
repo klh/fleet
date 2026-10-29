@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import type { Database } from "bun:sqlite";
+import { isLoopbackHostname } from "./loopback.ts";
 import {
 	activeException,
 	type DecisionRecord,
@@ -286,10 +287,7 @@ export async function checkSessionPolicies(options: {
 				url.hash ||
 				url.pathname !== "/" ||
 				(url.protocol !== "https:" &&
-					!(
-						url.protocol === "http:" &&
-						["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
-					))
+					!(url.protocol === "http:" && isLoopbackHostname(url.hostname)))
 			)
 				throw new Error("hub policy requires HTTPS (loopback HTTP allowed)");
 			if (!/^[a-f0-9]{64}$/.test(hub.sha256))

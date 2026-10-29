@@ -57,8 +57,11 @@ describe("inherit_defaults (W1123)", () => {
 	});
 
 	test("an unconfigured hub exposes no local-swarm rows via BUCKLE_UPSTREAMS", () => {
-		const over = join(scratch(), "upstreams.hub.yaml");
-		writeFileSync(over, "version: 1\ninherit_defaults: false\ngroups: {}\n");
+		const over = join(scratch(), "upstreams.hub.json");
+		writeFileSync(
+			over,
+			JSON.stringify({ version: 1, inherit_defaults: false, groups: {} }),
+		);
 		const pool = loadWithOverride(over);
 		expect(pool.groups()).toEqual([]);
 		expect(pool.deployments("local-swarm")).toEqual([]);

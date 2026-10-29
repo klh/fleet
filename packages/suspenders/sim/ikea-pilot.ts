@@ -115,34 +115,57 @@ function buildWorld(): void {
 	// the org's health policy row — the exact requested question, scoped to
 	// the service identity the org assigns (never a checkout path)
 	writeFileSync(
-		join(ROOT, "pilot-policy.yaml"),
-		`version: 1
-rows:
-  - id: corp-health-endpoints
-    repoClass: api
-    detect:
-      - existsAny: [server.ts, src/server.ts]
-    check:
-      - grepAny: [server.ts, src/server.ts]
-        pattern: "/health|/status"
-    missingQuestion: "This repo does not seem to have health and status endpoints. According to IKEA policy it should. Do you want me to implement them for you?"
-    policySource: "operator:ikea-health-v1"
-    serviceId: orders-api
-    policyId: corp.api.independent-health
-    orgId: org-pilot
-  - id: corp-health-endpoints-payments
-    repoClass: api
-    detect:
-      - existsAny: [server.ts, src/server.ts]
-    check:
-      - grepAny: [server.ts, src/server.ts]
-        pattern: "/health|/status"
-    missingQuestion: "This payments repo does not seem to have health and status endpoints. According to IKEA policy it should. Do you want me to implement them for you?"
-    policySource: "operator:ikea-health-v1"
-    serviceId: payments-api
-    policyId: corp.api.independent-health
-    orgId: org-pilot
-`,
+		join(ROOT, "pilot-policy.json"),
+		JSON.stringify(
+			{
+				version: 1,
+				rows: [
+					{
+						id: "corp-health-endpoints",
+						repoClass: "api",
+						detect: [
+							{
+								existsAny: ["server.ts", "src/server.ts"],
+							},
+						],
+						check: [
+							{
+								grepAny: ["server.ts", "src/server.ts"],
+								pattern: "/health|/status",
+							},
+						],
+						missingQuestion:
+							"This repo does not seem to have health and status endpoints. According to IKEA policy it should. Do you want me to implement them for you?",
+						policySource: "operator:ikea-health-v1",
+						serviceId: "orders-api",
+						policyId: "corp.api.independent-health",
+						orgId: "org-pilot",
+					},
+					{
+						id: "corp-health-endpoints-payments",
+						repoClass: "api",
+						detect: [
+							{
+								existsAny: ["server.ts", "src/server.ts"],
+							},
+						],
+						check: [
+							{
+								grepAny: ["server.ts", "src/server.ts"],
+								pattern: "/health|/status",
+							},
+						],
+						missingQuestion:
+							"This payments repo does not seem to have health and status endpoints. According to IKEA policy it should. Do you want me to implement them for you?",
+						policySource: "operator:ikea-health-v1",
+						serviceId: "payments-api",
+						policyId: "corp.api.independent-health",
+						orgId: "org-pilot",
+					},
+				],
+			},
+			"\t",
+		),
 	);
 	// the service repo: an API with no health endpoint (the gap)
 	mkdirSync(join(ROOT, "orders-api-alice"), { recursive: true });
@@ -191,8 +214,8 @@ const EXACT_QUESTION =
  *  read-only transport probes of the LIVE hubs. */
 async function orgHubLegs(): Promise<ReturnType<typeof startServer>> {
 	process.env.BUCKLE_AUTH = "off";
-	process.env.BUCKLE_POLICY = join(WT, "packages/buckle/routing-policy.yaml");
-	process.env.BUCKLE_REPO_POLICY = join(ROOT, "pilot-policy.yaml");
+	process.env.BUCKLE_POLICY = join(WT, "packages/buckle/routing-policy.json");
+	process.env.BUCKLE_REPO_POLICY = join(ROOT, "pilot-policy.json");
 	process.env.BUCKLE_SECRETS_HOME = join(ROOT, "secrets");
 	const hub = startServer({ port: 17801, dbPath: join(ROOT, "buckle.db") });
 	await manifestLeg();
@@ -622,15 +645,15 @@ async function exceptionLeg(): Promise<void> {
  *  sessions stay silent. Revocation is enforcement, not a crash. */
 async function revokedLeg(): Promise<void> {
 	writeFileSync(
-		join(ROOT, "pilot-policy-revoked.yaml"),
-		"version: 1\nrows: []\n",
+		join(ROOT, "pilot-policy-revoked.json"),
+		`${JSON.stringify({ version: 1, rows: [] })}\n`,
 	);
-	process.env.BUCKLE_REPO_POLICY = join(ROOT, "pilot-policy-revoked.yaml");
+	process.env.BUCKLE_REPO_POLICY = join(ROOT, "pilot-policy-revoked.json");
 	const revoked = startServer({
 		port: 17821,
 		dbPath: join(ROOT, "buckle-revoked.db"),
 	});
-	process.env.BUCKLE_REPO_POLICY = join(ROOT, "pilot-policy.yaml");
+	process.env.BUCKLE_REPO_POLICY = join(ROOT, "pilot-policy.json");
 	const cfg = join(ROOT, "repo-policy-revoked.json");
 	writeFileSync(
 		cfg,

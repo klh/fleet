@@ -27,7 +27,7 @@ import {
 	pidAlive,
 	type LaneRef,
 } from "../../hooks/lib/lane-liveness.ts";
-import { loadLanes, type Lane } from "./lane.ts";
+import { loadLanes, type Lane } from "../../hooks/lib/lane.ts";
 import { repairManagedWrapperPid } from "./registry-pid-repair.ts";
 
 // W651: the verb registry owns the surface — help is generated, parsing rides

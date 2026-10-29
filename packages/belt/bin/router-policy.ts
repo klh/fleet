@@ -1,6 +1,7 @@
 // bin/router-policy.ts — load + emit belt's LiteLLM routing policy. The
-// committed YAML default; a runtime routing-policy.json (or legacy YAML)
-// overrides it, and
+// ONE committed default is buckle/routing-policy.json (W1253: fleet config
+// is JSON); a runtime routing-policy.json overrides it — a legacy .yaml
+// NAME is still resolved (read-both) but only JSON content parses — and
 // BELT_POLICY overrides both. bin/gateway-config.ts emits the `gateway`
 // section as router_settings plus the ladders as litellm_settings.fallbacks
 // (W219.2 — the placement the installed litellm reads; verified in pinned
@@ -17,7 +18,6 @@
 // the inner router and preserves the existing default of one. Operators opt
 // into zero for verified Buckle-fronted deployments. SDK retries stay disabled.
 // Owner directives: never flashx; operators edit machine config, never code.
-import { YAML } from "bun";
 import { existsSync, readFileSync } from "node:fs";
 import { chatEntries } from "./registry.ts";
 
@@ -83,13 +83,12 @@ const parsePolicyDocument = (
 	text: string,
 	format: "auto" | "json" | "yaml" = "auto",
 ): Record<string, unknown> => {
-	const trimmed = text.trimStart();
-	const isJson =
-		format === "json" ||
-		(format === "auto" && (trimmed.startsWith("{") || trimmed.startsWith("[")));
-	const doc = isJson
-		? (JSON.parse(text) as unknown)
-		: (YAML.parse(text) as unknown);
+	if (format === "yaml") {
+		throw new Error(
+			"router-policy: yaml policy format retired (W1253) — fleet routing policy is JSON",
+		);
+	}
+	const doc = JSON.parse(text) as unknown;
 	if (doc === null || typeof doc !== "object" || Array.isArray(doc))
 		throw new Error("router-policy: policy must be an object");
 	return doc as Record<string, unknown>;
@@ -98,9 +97,6 @@ const parsePolicyDocument = (
 const jsonSibling = (path: string): string =>
 	path.replace(/\.ya?ml$/i, ".json");
 
-const formatOf = (path: string): "json" | "yaml" =>
-	path.endsWith(".json") ? "json" : "yaml";
-
 const policyCandidates = (
 	pinned: (string | undefined)[],
 	home: string,
@@ -108,8 +104,8 @@ const policyCandidates = (
 	...pinned.flatMap((path) => (path ? [jsonSibling(path), path] : [])),
 	`${home}/.claude/local-llm/routing-policy.json`,
 	`${home}/.claude/local-llm/routing-policy.yaml`,
-	new URL("./routing-policy.json", import.meta.url).pathname,
-	new URL("./routing-policy.yaml", import.meta.url).pathname,
+	// the ONE committed default (W1253): buckle hosts the merged fleet policy
+	new URL("../../buckle/routing-policy.json", import.meta.url).pathname,
 ];
 
 function validateInnerRetries(value: unknown): number {
@@ -134,18 +130,27 @@ function validateInnerFallbacks(value: unknown): boolean {
 }
 
 /** Resolution order: explicit path → BELT_POLICY → runtime copy in the
- *  local-llm dir → the committed default in bin/. */
+ *  local-llm dir → the ONE committed default (buckle/routing-policy.json).
+ *  Read-both (W1253): both file NAMES are candidates but the content is
+ *  always parsed as JSON — a legacy-named file whose content is still YAML
+ *  is skipped (never fatal mid-chain) so a rolling deploy keeps resolving
+ *  the migrated sibling. */
 export function loadGatewayPolicy(explicitPath?: string): GatewayPolicy {
 	const candidates = policyCandidates(
 		[explicitPath, process.env.BELT_POLICY],
 		process.env.HOME ?? "",
 	);
+	let last = "no candidate exists";
 	for (const p of candidates) {
 		if (!existsSync(p)) continue;
-		return parsePolicy(readFileSync(p, "utf8"), formatOf(p));
+		try {
+			return parsePolicy(readFileSync(p, "utf8"));
+		} catch (e) {
+			last = `${p}: ${e instanceof Error ? e.message : String(e)}`;
+		}
 	}
 	throw new Error(
-		"router-policy: no routing-policy.json or legacy YAML (BELT_POLICY, ~/.claude/local-llm/, bin/)",
+		`router-policy: no readable routing-policy.json (W1253: fleet policy is JSON — run the install migrate step for a legacy yaml): ${last}`,
 	);
 }
 
@@ -199,7 +204,7 @@ export function emitLiteLlmSettings(p: GatewayPolicy): string {
 // proxy hop itself (Python request path + latency-based-routing bookkeeping),
 // not belt code. Hot local classes therefore skip :4100 and hit the
 // specialist port directly; the gateway keeps cloud ladders + fallbacks.
-// The `direct:` tier map is EMITTED-ONLY (W289): routing-policy.yaml no
+// The `direct:` tier map is EMITTED-ONLY (W289): routing-policy.json no
 // longer carries a hand-written section — registry-emit `direct` writes the
 // object-shaped rows (bin/registry.ts is the one source); parseDirect still
 // reads the legacy `alias: <url>` shape so operator YAML survives.
@@ -316,25 +321,26 @@ export function loadDirectTiers(
 	);
 	for (const p of pinned.flatMap((path) => [jsonSibling(path), path])) {
 		if (!existsSync(p)) continue;
-		return parseDirect(readFileSync(p, "utf8"), formatOf(p));
+		return parseDirect(readFileSync(p, "utf8"));
 	}
 	const artifact = readDirectTiersArtifact(
 		`${h}/.claude/local-llm/direct-tiers.json`,
 	);
 	if (artifact) return artifact;
-	const runtimeJson = `${h}/.claude/local-llm/routing-policy.json`;
-	if (existsSync(runtimeJson)) {
-		const rows = parseDirect(readFileSync(runtimeJson, "utf8"), "json");
-		if (Object.keys(rows).length > 0) return rows;
-	}
-	const candidates = [
+	// runtime policy: JSON name first, then the legacy NAME as read-both —
+	// non-JSON content there is skipped, never fatal (W1253)
+	const runtimePaths = [
+		`${h}/.claude/local-llm/routing-policy.json`,
 		`${h}/.claude/local-llm/routing-policy.yaml`,
-		new URL("./routing-policy.yaml", import.meta.url).pathname,
-	].filter((p) => p.length > 0);
-	for (const p of candidates) {
+	];
+	for (const p of runtimePaths) {
 		if (!existsSync(p)) continue;
-		const rows = parseDirect(readFileSync(p, "utf8"), formatOf(p));
-		if (Object.keys(rows).length > 0) return rows;
+		try {
+			const rows = parseDirect(readFileSync(p, "utf8"));
+			if (Object.keys(rows).length > 0) return rows;
+		} catch {
+			// skip unparseable candidate
+		}
 	}
 	return directTiersFromRegistry();
 }
@@ -351,7 +357,7 @@ export function resolveTarget(
 }
 
 // ─── role-class routing (W648, oh-my-codex §1 lift) ───
-// Declarative class rows in routing-policy.yaml: classes map
+// Declarative class rows in routing-policy.json: classes map
 // frontier/standard/spark to ordered group ladders (the groups are the
 // existing litellm model_name / buckle group / direct-tier aliases — buckle
 // and litellm keep resolving group → provider natively). Any role or lane

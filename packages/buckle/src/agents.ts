@@ -108,7 +108,7 @@ const copilotBaseOf = (
 ): string => stackRow(exec, "copilot").openai_base ?? baseUrl;
 
 /** The seed table. `baseUrl` is the openai-dialect base (…/v1); anthropic
- *  entries derive their root from it. W230: `exec` = the stack.yaml
+ *  entries derive their root from it. W230: `exec` = the stack.json
  *  executors rows — exec[id] ?? exec.default override a row's base/model;
  *  flags and env stay the override layer. */
 export const agentRecipes = (
@@ -190,8 +190,7 @@ export const agentRecipes = (
 			env: {
 				COPILOT_PROVIDER_BASE_URL: copilotBaseOf(baseUrl, exec),
 				COPILOT_PROVIDER_TYPE: "openai",
-				COPILOT_MODEL:
-					stackRow(exec, "copilot").model ?? DEFAULT_MODEL,
+				COPILOT_MODEL: stackRow(exec, "copilot").model ?? DEFAULT_MODEL,
 			},
 		},
 		probe: {

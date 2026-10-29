@@ -181,7 +181,7 @@ describe("seedLocalLlm", () => {
 			"router-shim.ts",
 			"memory-policy.ts",
 			"belt.env",
-			"routing-policy.yaml",
+			"routing-policy.json",
 		]) {
 			expect(existsSync(join(home, file))).toBe(true);
 		}

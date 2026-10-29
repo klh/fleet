@@ -3,7 +3,7 @@
 // at a temp fixture per test; default agentRecipes calls stay machine-free
 // (exec defaults to {}).
 import { beforeEach, afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadExecutors, type StackExecutor } from "../src/stack-config.ts";
@@ -14,7 +14,7 @@ let path: string;
 
 beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), "w230-buckle-"));
-	path = join(dir, "stack.yaml");
+	path = join(dir, "stack.json");
 	process.env.KLH_STACK = path;
 });
 
@@ -27,8 +27,11 @@ describe("loadExecutors (W230)", () => {
 	test("parses the executors section", () => {
 		writeFileSync(
 			path,
-			"executors:\n" +
-				"  copilot: { openai_base: 'http://row:1/v1', model: row-model }\n",
+			JSON.stringify({
+				executors: {
+					copilot: { openai_base: "http://row:1/v1", model: "row-model" },
+				},
+			}),
 		);
 		const ex = loadExecutors();
 		expect(ex.copilot?.openai_base).toBe("http://row:1/v1");
@@ -39,8 +42,8 @@ describe("loadExecutors (W230)", () => {
 		expect(loadExecutors()).toEqual({});
 	});
 
-	test("malformed YAML degrades to {} (config never blocks)", () => {
-		writeFileSync(path, "executors: [unclosed\n  - bad\n");
+	test("malformed JSON degrades to {} (config never blocks)", () => {
+		writeFileSync(path, "{not json");
 		expect(loadExecutors()).toEqual({});
 	});
 });
@@ -58,9 +61,7 @@ describe("agentRecipes exec overrides (W230)", () => {
 			{ copilot: { openai_base: "http://row:9/v1", model: "row-model" } },
 			"copilot",
 		);
-		expect(cop?.reroute.env?.COPILOT_PROVIDER_BASE_URL).toBe(
-			"http://row:9/v1",
-		);
+		expect(cop?.reroute.env?.COPILOT_PROVIDER_BASE_URL).toBe("http://row:9/v1");
 		expect(cop?.reroute.env?.COPILOT_MODEL).toBe("row-model");
 		expect(cop?.probe.url).toBe("http://row:9/v1/models");
 	});

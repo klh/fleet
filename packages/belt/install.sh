@@ -5,7 +5,7 @@
 # metal check), --with-launchd loads the macOS KeepAlive
 # agents and supersedes the legacy labels.
 # Idempotent: re-running just refreshes the files.
-#   ./install.sh [--with-models] [--with-launchd] [--skip-download] [--tier minimal|full]
+#   ./install.sh [--with-models] [--with-launchd] [--skip-download] [--tier minimal|full] [--dry-run]
 # --tier minimal scopes the resident fleet to ram ≤ 4GB (extract :8902 +
 # rerank :8913) — the fleet a 16GB machine holds. A BELT_TIER=minimal filter,
 # not new infrastructure.
@@ -16,15 +16,16 @@ PREFIX="${BELT_PREFIX:-$HOME/.claude/local-llm}"
 
 command -v bun >/dev/null || { echo "belt needs bun — https://bun.sh first"; exit 1; }
 
-WITH_MODELS=false WITH_LAUNCHD=false SKIP_DL=false TIER="" TIER_SET=false
+WITH_MODELS=false WITH_LAUNCHD=false SKIP_DL=false TIER="" TIER_SET=false DRY_RUN=false
 while [ $# -gt 0 ]; do
   case $1 in
     --with-models) WITH_MODELS=true ;;
     --with-launchd) WITH_LAUNCHD=true ;;
     --skip-download) SKIP_DL=true ;;
+    --dry-run) DRY_RUN=true ;;
     --tier) TIER="${2:-}"; TIER_SET=true; shift ;;
     --tier=*) TIER="${1#--tier=}"; TIER_SET=true ;;
-    *) echo "unknown flag: $1 (use --with-models / --with-launchd / --skip-download / --tier minimal|full)" >&2; exit 1 ;;
+    *) echo "unknown flag: $1 (use --with-models / --with-launchd / --skip-download / --tier minimal|full / --dry-run)" >&2; exit 1 ;;
   esac
   shift
 done
@@ -46,13 +47,38 @@ if [ "$TIER" = "full" ] && ! $TIER_SET; then
 fi
 
 echo "→ installing to $PREFIX"
-mkdir -p "$PREFIX"
 # W1104.1: the runtime-revision hash (router-runtime-revision.ts) treats a
 # runtime holding .belt-overlay.lock as "refresh in progress" and reports no
 # revision, so the supervisor keeps serving a healthy router until the copy
 # is complete. Fail closed on a concurrent owner; release on success AND
 # failure (the EXIT trap covers the runtime-heal failure path below).
 LOCK="$PREFIX/.belt-overlay.lock"
+# W1135.2: --dry-run emits the step order without mutating anything — the
+# lock-order test asserts the emitted sequence (lock → copy → heal → release
+# → tier manifest) as REAL emitted output, never source text. The lock probe
+# is real even in dry-run: a held lock still refuses.
+if $DRY_RUN; then
+  if [ -e "$LOCK" ]; then
+    echo "✗ $LOCK exists — another belt install/refresh owns the runtime;" >&2
+    echo "  remove it only once no installer is running" >&2
+    exit 1
+  fi
+  echo "→ [dry] acquire $LOCK"
+  echo "→ [dry] copy bin/* + observation.ts → $PREFIX"
+  echo "→ [dry] bun runtime-heal.ts (closure heal + probe)"
+  echo "→ [dry] release $LOCK — before tier/model/launchd activation"
+  echo "→ [dry] tier manifest: $TIER → $PREFIX/tier.json"
+  if $WITH_MODELS || $WITH_LAUNCHD; then
+    echo "→ [dry] bun setup/llm-stack.ts"
+  fi
+  if $WITH_LAUNCHD; then
+    echo "→ [dry] launchd bootstrap + legacy boot-out"
+  fi
+  echo
+  echo "dry run — nothing was written to $PREFIX"
+  exit 0
+fi
+mkdir -p "$PREFIX"
 if ! mkdir "$LOCK" 2>/dev/null; then
   echo "✗ $LOCK exists — another belt install/refresh owns the runtime;" >&2
   echo "  remove it only once no installer is running" >&2

@@ -74,7 +74,7 @@ ${itemRows(v.local.items)}
 }
 
 const footerHtml = (v: FedWorkView): string =>
-	`<footer>W370 federated work view · me=${esc(v.me)} · edges light up with HUB_PEERS (or stack.yaml hubs.&lt;me&gt;.peers) + SUSPENDERS_FEDERATION_WORK_TOKEN</footer>`;
+	`<footer>W370 federated work view · me=${esc(v.me)} · edges light up with HUB_PEERS (or stack.json hubs.&lt;me&gt;.peers) + SUSPENDERS_FEDERATION_WORK_TOKEN</footer>`;
 
 export function federationWorkPage(v: FedWorkView): string {
 	return `<!doctype html>

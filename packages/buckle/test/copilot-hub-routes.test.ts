@@ -6,8 +6,8 @@ import {
 	type UpstreamConfig,
 } from "../src/copilot-hub-routes.ts";
 
-const template = Bun.YAML.parse(
-	readFileSync(join(import.meta.dir, "../upstreams.copilot.yaml"), "utf8"),
+const template = JSON.parse(
+	readFileSync(join(import.meta.dir, "../upstreams.copilot.json"), "utf8"),
 ) as UpstreamConfig;
 const hubUrl = "http://127.0.0.1:4201";
 

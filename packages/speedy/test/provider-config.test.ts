@@ -1,5 +1,5 @@
 // W1124.8.1 — the central provider schema + resolver. Fixtures write a real
-// private stack.yaml (mode 600) and read it back through the public API —
+// private stack.json (mode 600) and read it back through the public API —
 // file-posture enforcement included. Key material in fixtures is fake.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -15,15 +15,15 @@ import {
 let home = "";
 let stackPath = "";
 
-const writeStack = (body: string, mode = 0o600): void => {
-	writeFileSync(stackPath, body);
+const writeStack = (conf: unknown, mode = 0o600): void => {
+	writeFileSync(stackPath, `${JSON.stringify(conf, null, "\t")}\n`);
 	chmodSync(stackPath, mode);
 };
 
 beforeAll(() => {
 	home = join(import.meta.dir, `.fixture-home-${process.pid}`);
 	mkdirSync(home, { recursive: true });
-	stackPath = join(home, "stack.yaml");
+	stackPath = join(home, "stack.json");
 	process.env.KLH_STACK = stackPath;
 });
 
@@ -34,27 +34,26 @@ afterAll(() => {
 
 describe("loadProviderConfig", () => {
 	test("reads mode-600 stack, returns typed profiles", () => {
-		writeStack(
-			[
-				"providers:",
-				"  zai-coding:",
-				"    provider: zai",
-				"    key: fake-key-coding",
-				"    env: ZAI_CODING_API_KEY",
-				"    endpoints:",
-				"      openai: https://api.example/v1",
-				"      anthropic: https://api.example/anthropic",
-				"  zai-general:",
-				"    provider: zai",
-				"    key: fake-key-general",
-				"  anthropic:",
-				"    provider: anthropic",
-				"    key: fake-key-anthropic",
-				"    env: ANTHROPIC_API_KEY",
-				"    endpoints:",
-				"      catalog: https://example/catalog.json",
-			].join("\n"),
-		);
+		writeStack({
+			providers: {
+				"zai-coding": {
+					provider: "zai",
+					key: "fake-key-coding",
+					env: "ZAI_CODING_API_KEY",
+					endpoints: {
+						openai: "https://api.example/v1",
+						anthropic: "https://api.example/anthropic",
+					},
+				},
+				"zai-general": { provider: "zai", key: "fake-key-general" },
+				anthropic: {
+					provider: "anthropic",
+					key: "fake-key-anthropic",
+					env: "ANTHROPIC_API_KEY",
+					endpoints: { catalog: "https://example/catalog.json" },
+				},
+			},
+		});
 		const cfg = loadProviderConfig();
 		expect(Object.keys(cfg).sort()).toEqual([
 			"anthropic",
@@ -67,29 +66,31 @@ describe("loadProviderConfig", () => {
 	});
 
 	test("stack without providers section = valid empty config", () => {
-		writeStack("hubs: {}\nversion: test-pin\n");
+		writeStack({ hubs: {}, version: "test-pin" });
 		expect(loadProviderConfig()).toEqual({});
 	});
 
 	test("missing file throws with the path, never values", () => {
-		expect(() => loadProviderConfig(join(home, "absent.yaml"))).toThrow(
+		expect(() => loadProviderConfig(join(home, "absent.json"))).toThrow(
 			/not readable/,
 		);
 	});
 
 	test("loose file mode refused (posture is part of the schema)", () => {
-		writeStack("providers: {}\n", 0o644);
+		writeStack({ providers: {} }, 0o644);
 		expect(() => loadProviderConfig()).toThrow(/mode 600/);
 	});
 
-	test("non-YAML body throws, path only in the message", () => {
-		writeStack("\t::: not yaml [[[\n");
-		expect(() => loadProviderConfig()).toThrow(/not parseable YAML/);
+	test("non-JSON body throws, path only in the message", () => {
+		writeFileSync(stackPath, "{not json");
+		chmodSync(stackPath, 0o600);
+		expect(() => loadProviderConfig()).toThrow(/not parseable JSON/);
 	});
 
-	test("non-mapping YAML body (bare scalar) throws, never silent {}", () => {
-		writeStack("just-a-string\n");
-		expect(() => loadProviderConfig()).toThrow(/must be a YAML mapping/);
+	test("non-mapping JSON body (bare scalar) throws, never silent {}", () => {
+		writeFileSync(stackPath, '"just-a-string"\n');
+		chmodSync(stackPath, 0o600);
+		expect(() => loadProviderConfig()).toThrow(/must be a JSON mapping/);
 	});
 
 	test("PROVIDER_STACK_PATH honors KLH_STACK", () => {

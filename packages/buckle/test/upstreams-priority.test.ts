@@ -7,7 +7,7 @@ import { loadUpstreams } from "../src/upstreams.ts";
 describe("configured deployment priority", () => {
 	test("loads numeric priority and refuses invalid values", () => {
 		const dir = mkdtempSync(join(tmpdir(), "buckle-priority-"));
-		const path = join(dir, "upstreams.yaml");
+		const path = join(dir, "upstreams.json");
 		const write = (priority: unknown) =>
 			writeFileSync(
 				path,

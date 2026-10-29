@@ -20,12 +20,18 @@ if (!modelId) {
 }
 console.log(`acceptance: swarm model discovered: ${modelId}`);
 
-const cfg = `groups:\n  glm-5.3-flash:\n    - url: ${SWARM}\n      dialect: openai\n      model: ${modelId}\n`;
+// W1253: conf fixtures are JSON (the ONE parser) — .json law name
+const cfg = {
+	groups: {
+		"glm-5.3-flash": [{ url: SWARM, dialect: "openai", model: modelId }],
+	},
+};
 const dir = `/tmp/buckle-acceptance-${Date.now()}`;
-await Bun.write(`${dir}/upstreams.yaml`, cfg);
+const upstreamsPath = `${dir}/upstreams.json`;
+await Bun.write(upstreamsPath, `${JSON.stringify(cfg, null, "\t")}\n`);
 const server = startServer({
 	port: PORT,
-	upstreamsPath: `${dir}/upstreams.yaml`,
+	upstreamsPath,
 	dbPath: ":memory:",
 });
 const base = `http://127.0.0.1:${server.port}`;

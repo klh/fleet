@@ -325,24 +325,32 @@ const zaiAccountInventory = async (
 const configuredGroups = async (
 	home: string,
 ): Promise<Map<string, string[]>> => {
-	try {
-		const yaml = Bun.YAML.parse(
-			await Bun.file(join(LOCAL(home), "upstreams.yaml")).text(),
-		) as {
-			groups?: Record<string, { url?: string; model?: string }[]>;
-		};
-		const routes = new Map<string, string[]>();
-		for (const [group, targets] of Object.entries(yaml.groups ?? {})) {
-			for (const target of targets ?? []) {
-				if (!target.url?.startsWith("https://api.githubcopilot.com")) continue;
-				const model = target.model ?? group;
-				routes.set(model, [...(routes.get(model) ?? []), group]);
+	// W1253 read-both: the upstreams conf is JSON; a legacy .yaml NAME still
+	// resolves when it holds JSON content (the install migrates once, .bak)
+	const paths = [
+		join(LOCAL(home), "upstreams.json"),
+		join(LOCAL(home), "upstreams.yaml"),
+	];
+	for (const p of paths) {
+		try {
+			const doc = JSON.parse(await readFile(p, "utf8")) as {
+				groups?: Record<string, { url?: string; model?: string }[]>;
+			};
+			const routes = new Map<string, string[]>();
+			for (const [group, targets] of Object.entries(doc.groups ?? {})) {
+				for (const target of targets ?? []) {
+					if (!target.url?.startsWith("https://api.githubcopilot.com"))
+						continue;
+					const model = target.model ?? group;
+					routes.set(model, [...(routes.get(model) ?? []), group]);
+				}
 			}
+			return routes;
+		} catch {
+			// next candidate
 		}
-		return routes;
-	} catch {
-		return new Map();
 	}
+	return new Map();
 };
 
 const cliStatus = async (

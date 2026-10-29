@@ -8,7 +8,8 @@ import {
 	projectIdentity,
 } from "../lib/govdb.ts";
 import { trustOf, withTrust } from "../lib/knowledge.ts";
-import { type KnowledgeHit, makeStore } from "../lib/knowledge-ports.ts";
+import type { KnowledgeHit } from "../lib/store-schema.ts";
+import { makeStore } from "../lib/sqlite-store.ts";
 import { ensureConsultTrust } from "./consult-trust.ts";
 
 export {
@@ -20,11 +21,8 @@ export {
 	tokenUsage,
 	workTiming,
 } from "../lib/govdb.ts";
-export {
-	currentPromptHash,
-	enqueueKnowledge,
-	makeStore,
-} from "../lib/knowledge-ports.ts";
+export { currentPromptHash } from "../lib/prompt-policy.ts";
+export { enqueueKnowledge, makeStore } from "../lib/sqlite-store.ts";
 export { createHash, readFileSync, realpathSync, resolve };
 
 export interface Ev {

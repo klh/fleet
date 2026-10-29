@@ -7,7 +7,7 @@ import {
 	repairLaneRegistryPid,
 } from "../../hooks/lib/lane-registry.ts";
 import { processBirth } from "./launch-fencing.ts";
-import type { Lane } from "./lane.ts";
+import type { Lane } from "../../hooks/lib/lane.ts";
 
 type ProcessRow = { pid: number; ppid: number; args: string };
 type Birth = { birth: string } | false | null;

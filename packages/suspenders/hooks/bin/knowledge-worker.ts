@@ -23,14 +23,10 @@
 // usage: bun hooks/bin/knowledge-worker.ts          (daemon: 5s poll loop)
 //        bun hooks/bin/knowledge-worker.ts --once   (drain queued, exit)
 import PQueue from "p-queue";
-import {
-	currentPromptHash,
-	makeDistillClient,
-	makeStore,
-	type KnowledgeStore,
-	type DistillItem,
-	type NearDupProposal,
-} from "../lib/knowledge-ports.ts";
+import { currentPromptHash } from "../lib/prompt-policy.ts";
+import { makeDistillClient, type DistillItem } from "../lib/distill-clients.ts";
+import { makeStore } from "../lib/sqlite-store.ts";
+import type { KnowledgeStore, NearDupProposal } from "../lib/store-schema.ts";
 import {
 	docForRef,
 	loadDocs,

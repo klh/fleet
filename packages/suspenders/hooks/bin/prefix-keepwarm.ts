@@ -19,7 +19,7 @@
 //              capture client works.
 //   --report   cache telemetry from the spoke ledger (route_audit per lane,
 //              router_usage per model) — the before/after measurement.
-// Auth: the session-enrollment shape (scripts/lib/lane-auth.ts) — a scoped
+// Auth: the session-enrollment shape (hooks/lib/lane-auth.ts) — a scoped
 // bksk_ key named prefix-keepwarm, reuse window inside the 24h TTL, 0600
 // meta+settings files under the runtime home. The key is never logged.
 
@@ -28,11 +28,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { type Usage, usageFromAnthropic } from "../../../buckle/src/usage.ts";
-import {
-	adminKey,
-	BUCKLE_FRONT,
-	enrollSessionKey,
-} from "../../scripts/lib/lane-auth.ts";
+import { adminKey, BUCKLE_FRONT, enrollSessionKey } from "../lib/lane-auth.ts";
 import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 
 /** The keepwarm's lane identity on the front (/w/<SID>, route_audit.lane). */

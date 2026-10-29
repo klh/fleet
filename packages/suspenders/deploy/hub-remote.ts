@@ -8,7 +8,7 @@ import type { HubProfile } from "../hooks/lib/stack-config.ts";
 export const DEFAULT_CONNECT_TIMEOUT = 10;
 
 /** ssh/scp -o flags — an unreachable hub fails in seconds (not ~75s of TCP
- *  retries) and never blocks on a password prompt. Timeout is the stack.yaml
+ *  retries) and never blocks on a password prompt. Timeout is the stack.json
  *  `deploy.connect_timeout` knob (seconds). */
 export function sshOpts(hub: HubProfile): string[] {
 	const t = hub.deploy?.connect_timeout;
@@ -27,7 +27,7 @@ export function composeUpArgv(hub: HubProfile): string[] {
 	const dir = hub.deploy?.dir;
 	if (!dir)
 		throw new Error(
-			"hub has no deploy.dir in stack.yaml — declare where hub-compose.yaml + .env live on the hub",
+			"hub has no deploy.dir in stack.json — declare where hub-compose.yaml + .env live on the hub",
 		);
 	const docker = hub.deploy?.docker ?? "docker";
 	const script = `${docker} compose -f ${JSON.stringify(`${dir}/hub-compose.yaml`)} --project-directory ${JSON.stringify(dir)} up -d`;

@@ -587,7 +587,7 @@ describe("direct-tier bypass policy (engine hop)", () => {
 	test("committed policy no longer carries a hand-written direct: section", () => {
 		const d = parseDirect(
 			readFileSync(
-				new URL("../bin/routing-policy.yaml", import.meta.url).pathname,
+				new URL("../../buckle/routing-policy.json", import.meta.url).pathname,
 				"utf8",
 			),
 		);
@@ -608,9 +608,11 @@ describe("direct-tier bypass policy (engine hop)", () => {
 
 	test("non-loopback bases are rejected; /v1 is normalised", () => {
 		expect(() =>
-			parseDirect("direct:\n  x: https://evil.example/v1\n"),
+			parseDirect(JSON.stringify({ direct: { x: "https://evil.example/v1" } })),
 		).toThrow(/loopback/);
-		expect(parseDirect("direct:\n  x: http://localhost:8902\n")).toEqual({
+		expect(
+			parseDirect(JSON.stringify({ direct: { x: "http://localhost:8902" } })),
+		).toEqual({
 			x: "http://localhost:8902/v1",
 		});
 	});

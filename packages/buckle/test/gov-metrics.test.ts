@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
 	MetricsConnector,
 	type MetricsConnectorOpts,
+	validatedMetricsUrl,
 } from "../src/metrics-connector.ts";
 import { startServer } from "../src/server.ts";
 
@@ -302,5 +303,12 @@ describe("Buckle private metrics connector", () => {
 		expect(response.headers.get("x-buckle-litellm-metrics-status")).toBe(
 			"timeout",
 		);
+	});
+
+	test("the docker host gateway name is loopback-equivalent for plain http", () => {
+		expect(
+			validatedMetricsUrl("http://host.docker.internal:4100/metrics/"),
+		).not.toBeNull();
+		expect(validatedMetricsUrl("http://hub.lan:4100/metrics/")).toBeNull();
 	});
 });

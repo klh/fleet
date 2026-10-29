@@ -18,6 +18,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { isAbsolute } from "node:path";
+import { isLoopbackHostname } from "./loopback.ts";
 
 export interface SyncPolicy {
 	/** decant aggregate rollups (day/tool/model) — sync-by-default class */
@@ -65,10 +66,7 @@ function identity(value: unknown): value is string {
 function validTargetUrl(raw: string): URL | null {
 	try {
 		const url = new URL(raw);
-		if (
-			url.protocol === "http:" &&
-			!["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
-		)
+		if (url.protocol === "http:" && !isLoopbackHostname(url.hostname))
 			return null;
 		if (
 			!["http:", "https:"].includes(url.protocol) ||

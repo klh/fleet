@@ -9,8 +9,8 @@ import {
 	hubAttributionDecision,
 	type GovernanceDecision,
 } from "./governance-decide.ts";
-import { applyLaneAttribution } from "./lane.ts";
-import { hubCredential, mintLaneKey } from "./lane-auth.ts";
+import { applyLaneAttribution } from "../../hooks/lib/lane.ts";
+import { hubCredential, mintLaneKey } from "../../hooks/lib/lane-auth.ts";
 
 export interface HubAttribution {
 	decision: GovernanceDecision;

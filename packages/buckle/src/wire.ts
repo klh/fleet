@@ -9,6 +9,7 @@ import { RouterError } from "./adapters/errors.ts";
 // .include_usage injection; LiteLLM streaming_handler.py semantics, MIT) —
 // the 37-test regression net pins the bytes.
 import { resolveAdapter } from "./adapters/index.ts";
+import { outboundBlockOf } from "./outbound-guard.ts";
 import { poolWarm } from "./pool-warm.ts";
 import type { UpstreamRequest } from "./router.ts";
 import { childSpanOf, stripPrivateTrace } from "./trace.ts";
@@ -75,6 +76,12 @@ export async function defaultFetch(
 ): Promise<Response> {
 	const adapter = resolveAdapter(dep);
 	const wire = await adapter.buildCall(dep, req, req.body);
+	// W1257.1 outbound guard: the adapter-built URL (post path_rewrite) is
+	// checked BEFORE any network side effect — a blocked attempt throws
+	// before fetch and before the buckle peer /status probe, so zero
+	// upstream calls ever leave this process for the blocked endpoint.
+	const blocked = outboundBlockOf(dep, req.path, wire.url);
+	if (blocked) throw blocked;
 	// W461 stage 1: one child traceparent per outbound attempt — same trace
 	// id, fresh span id (retry ordinals distinct). Baggage never rides the
 	// upstream leg (external-provider egress redaction): providers get the

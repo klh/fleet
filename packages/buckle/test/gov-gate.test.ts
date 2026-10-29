@@ -3,71 +3,17 @@
 // API, team ceilings, budget 429s with retry-after, and the JWT validator
 // seam against a locally-hosted JWKS endpoint (RS256, WebCrypto-signed).
 import { describe, expect, test } from "bun:test";
-import { startServer } from "../src/server.ts";
 import { startMockUpstream } from "./mock.ts";
-
-const ROOT = "buckle-test-root";
-
-interface GateServer {
-	base: string;
-	stop(): void;
-}
-
-async function startGate(
-	upstreamUrl: string,
-	jwt?: {
-		issuers: Array<{ issuer: string; jwksUri: string }>;
-		audience: string;
-	},
-	cfgOverride?: string,
-	slots?: { global: number; perTeam: number },
-): Promise<GateServer> {
-	const dir = `/tmp/buckle-gate-${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 6)}`;
-	const cfg =
-		cfgOverride ??
-		`groups:\n  glm-5.3-flash:\n    - url: ${upstreamUrl}\n      dialect: openai\n`;
-	await Bun.write(`${dir}.yaml`, cfg);
-	const server = startServer({
-		port: 0,
-		upstreamsPath: `${dir}.yaml`,
-		dbPath: ":memory:",
-		auth: { rootKey: ROOT, jwt, slots },
-	});
-	return {
-		base: `http://127.0.0.1:${server.port}`,
-		stop: () => server.stop(true),
-	};
-}
-
-async function issueViaAdmin(
-	base: string,
-	body: Record<string, unknown>,
-): Promise<{ key: string; keyId: string }> {
-	const res = await fetch(`${base}/v1/admin/keys`, {
-		method: "POST",
-		headers: { authorization: `Bearer ${ROOT}` },
-		body: JSON.stringify(body),
-	});
-	const out = (await res.json()) as { key: string; key_id: string };
-	return { key: out.key, keyId: out.key_id };
-}
+import { chat, issueViaAdmin, ROOT, startGate } from "./gate.ts";
 
 const CHAT_BODY = JSON.stringify({ model: "glm-5.3-flash", stream: false });
-
-async function chat(base: string, token: string | null): Promise<Response> {
-	return fetch(`${base}/v1/chat/completions`, {
-		method: "POST",
-		headers: token === null ? {} : { authorization: `Bearer ${token}` },
-		body: CHAT_BODY,
-	});
-}
 
 describe("gate: auth rejections have stable machine-readable shapes", () => {
 	test("missing header → 401 buckle.auth_missing; bad key → 401 buckle.invalid_key", async () => {
 		const upstream = await startMockUpstream(() =>
 			Response.json({ id: "x", choices: [], usage: {} }),
 		);
-		const gate = await startGate(upstream.url);
+		const gate = await startGate({ upstreamUrl: upstream.url });
 		const none = await chat(gate.base, null);
 		expect(none.status).toBe(401);
 		const noneBody = (await none.json()) as { code: string };
@@ -89,7 +35,7 @@ describe("gate: auth rejections have stable machine-readable shapes", () => {
 		const chatUp = await startMockUpstream(() =>
 			Response.json({ id: "ok-xk", choices: [], usage: {} }),
 		);
-		const gate = await startGate(chatUp.url);
+		const gate = await startGate({ upstreamUrl: chatUp.url });
 		// copilot's anthropic dialect rides the official SDK: x-api-key, no
 		// Authorization header — the gate must authenticate it (W422.17.2)
 		const xkChat = await fetch(`${gate.base}/v1/chat/completions`, {
@@ -104,11 +50,10 @@ describe("gate: auth rejections have stable machine-readable shapes", () => {
 				usage: { input_tokens: 1, output_tokens: 1 },
 			}),
 		);
-		const msgGate = await startGate(
-			msgUp.url,
-			undefined,
-			`groups:\n  glm-5.3-flash:\n    - url: ${msgUp.url}\n      dialect: anthropic\n`,
-		);
+		const msgGate = await startGate({
+			upstreamUrl: msgUp.url,
+			dialect: "anthropic",
+		});
 		// a minted bksk_ key rides x-api-key too (per-lane keys, not just root)
 		const { key } = await issueViaAdmin(msgGate.base, {
 			name: "lane-xk",
@@ -138,7 +83,7 @@ describe("gate: auth rejections have stable machine-readable shapes", () => {
 				usage: { prompt_tokens: 1, completion_tokens: 1 },
 			}),
 		);
-		const gate = await startGate(upstream.url);
+		const gate = await startGate({ upstreamUrl: upstream.url });
 		const { key, keyId } = await issueViaAdmin(gate.base, {
 			name: "lane",
 			scopes: ["buckle:proxy:WRITE_"],
@@ -162,7 +107,7 @@ describe("gate: auth rejections have stable machine-readable shapes", () => {
 
 	test("READ_ key on POST → 403 buckle.insufficient_scope; /health stays public", async () => {
 		const upstream = await startMockUpstream(() => Response.json({ id: "x" }));
-		const gate = await startGate(upstream.url);
+		const gate = await startGate({ upstreamUrl: upstream.url });
 		const { key } = await issueViaAdmin(gate.base, {
 			name: "ro",
 			scopes: ["buckle:proxy:READ_"],
@@ -184,7 +129,7 @@ describe("gate: auth rejections have stable machine-readable shapes", () => {
 		const upstream = await startMockUpstream(() =>
 			Response.json({ id: "x", choices: [], usage: {} }),
 		);
-		const gate = await startGate(upstream.url);
+		const gate = await startGate({ upstreamUrl: upstream.url });
 		const { key } = await issueViaAdmin(gate.base, {
 			name: "thin",
 			scopes: ["buckle:proxy:WRITE_"],
@@ -211,7 +156,7 @@ describe("gate: auth rejections have stable machine-readable shapes", () => {
 		const upstream = await startMockUpstream(() =>
 			Response.json({ id: "x", choices: [], usage: {} }),
 		);
-		const gate = await startGate(upstream.url);
+		const gate = await startGate({ upstreamUrl: upstream.url });
 		await fetch(`${gate.base}/v1/admin/teams`, {
 			method: "POST",
 			headers: { authorization: `Bearer ${ROOT}` },
@@ -307,9 +252,12 @@ describe("gate: JWT validator seam (IdP-neutral claims, RS256 via JWKS)", () => 
 		const upstream = await startMockUpstream(() =>
 			Response.json({ id: "jx", choices: [], usage: {} }),
 		);
-		const gate = await startGate(upstream.url, {
-			issuers: [{ issuer: "https://idp.test", jwksUri: jwks.jwksUrl }],
-			audience: "buckle",
+		const gate = await startGate({
+			upstreamUrl: upstream.url,
+			jwt: {
+				issuers: [{ issuer: "https://idp.test", jwksUri: jwks.jwksUrl }],
+				audience: "buckle",
+			},
 		});
 		const tok = await signJwt(jwks.priv, {
 			...baseClaims(),
@@ -330,11 +278,14 @@ describe("gate: JWT validator seam (IdP-neutral claims, RS256 via JWKS)", () => 
 		const upstream = await startMockUpstream(() =>
 			Response.json({ id: "jx", choices: [], usage: {} }),
 		);
-		const gate = await startGate(upstream.url, {
-			issuers: [
-				{ issuer: "https://idp.test", jwksUri: "http://127.0.0.1:1/jwks" },
-			],
-			audience: "buckle",
+		const gate = await startGate({
+			upstreamUrl: upstream.url,
+			jwt: {
+				issuers: [
+					{ issuer: "https://idp.test", jwksUri: "http://127.0.0.1:1/jwks" },
+				],
+				audience: "buckle",
+			},
 		});
 		const h = b64url(
 			enc.encode(JSON.stringify({ alg: "RS256", typ: "JWT", kid: "t1" })),
@@ -361,7 +312,7 @@ describe("gate: rate trio on success (W155)", () => {
 		const upstream = await startMockUpstream(() =>
 			Response.json({ id: "x", choices: [], usage: {} }),
 		);
-		const gate = await startGate(upstream.url);
+		const gate = await startGate({ upstreamUrl: upstream.url });
 		const { key } = await issueViaAdmin(gate.base, {
 			name: "trio",
 			scopes: ["buckle:proxy:WRITE_"],
@@ -387,7 +338,7 @@ describe("gate: rate trio on success (W155)", () => {
 describe("gate: introspection + problem 404/405 (W155)", () => {
 	test("OPTIONS answers 204 + Allow pre-auth; 405 + Allow on known paths", async () => {
 		const upstream = await startMockUpstream(() => Response.json({ id: "x" }));
-		const gate = await startGate(upstream.url);
+		const gate = await startGate({ upstreamUrl: upstream.url });
 		const opt = await fetch(`${gate.base}/v1/models`, { method: "OPTIONS" });
 		expect(opt.status).toBe(204);
 		expect(opt.headers.get("allow")).toContain("OPTIONS");
@@ -424,9 +375,9 @@ describe("gate: W468 admission-control slots", () => {
 			if (n === 0) await blocked;
 			return Response.json({ id: "x", choices: [], usage: {} });
 		});
-		const gate = await startGate(upstream.url, undefined, undefined, {
-			global: 1,
-			perTeam: 0,
+		const gate = await startGate({
+			upstreamUrl: upstream.url,
+			slots: { global: 1, perTeam: 0 },
 		});
 		const { key } = await issueViaAdmin(gate.base, {
 			name: "slots",

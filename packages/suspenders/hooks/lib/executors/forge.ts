@@ -5,7 +5,7 @@
 // OpenAI-compatible provider env) — NO binary probe yet, the forge seat
 // install is owner-gated. resolveLaneExecutor refuses forge today (same
 // gate as grok/cline) until the seat lands and the spawn recipe is probed.
-import type { ExecutorAdapter } from "../../../scripts/lib/lane.ts";
+import type { ExecutorAdapter } from "../../lane.ts";
 
 export const forgeAdapter: ExecutorAdapter = {
 	id: "forge",

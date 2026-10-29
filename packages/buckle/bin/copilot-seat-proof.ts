@@ -1,6 +1,6 @@
 // bin/copilot-seat-proof.ts — W695.6.2 live proof: a lane-shaped /v1/messages
 // request WITH tools rides an in-process buckle onto the REAL GitHub Copilot
-// seat (the claude-* groups in the machine upstreams.yaml). Run after the seat
+// seat (the claude-* groups in the machine upstreams.json). Run after the seat
 // quota lifts (~2026-11-01) and the pinned-cloud gate ruling lands — until then
 // the must-hint leg 429s into the retry-after floor and the pinned leg
 // no_routes at attempts=0 (finding.w695.6.2). Secrets (root key, PAT) stay
@@ -20,7 +20,7 @@ process.env.GITHUB_COPILOT_PAT = readFileSync(
 
 const server = startServer({
 	port: PORT,
-	upstreamsPath: process.env.BUCKLE_UPSTREAMS ?? `${LLM}/upstreams.yaml`,
+	upstreamsPath: process.env.BUCKLE_UPSTREAMS ?? `${LLM}/upstreams.json`,
 	dbPath: `/tmp/buckle-copilot-proof-${Date.now()}.db`,
 	auth: { rootKey },
 });

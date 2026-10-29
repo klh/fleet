@@ -1,0 +1,75 @@
+{
+	"comment": [
+		"Buckle upstream pool (W1253 Amendment A: fleet config is JSON).",
+		"Group name == wire id (the model string clients put in the request body). Loopback-only by committed default; cloud tiers are DORMANT — they appear in the ladder but resolve to zero deployments until an operator supplies them at runtime via BUCKLE_UPSTREAMS (a second JSON merged over this one; keys come from env vars named in api_key_env, never from committed files).",
+		"Fields: url (upstream base), dialect (openai | anthropic), optional model (upstream's real model id when the group alias differs — the request body's model field is patched; absent = forward verbatim), optional api_key_env (env var name holding the bearer key), optional priority (non-negative integer; lower wins among healthy deployments of equal fit — set in the machine BUCKLE_UPSTREAMS override).",
+		"W206: committed anthropic-dialect rows for the Claude Code model ids are dormant until ANTHROPIC_API_KEY exists at runtime (keys live in env vars, never committed).",
+		"W426: dialect no longer walls a group off — same-dialect rows rank first, other-dialect rows translate natively (bodies/SSE, both directions, streaming included); count_tokens never translates.",
+		"W219.1 litellm-as-engine pattern (activation = machine BUCKLE_UPSTREAMS override): url http://127.0.0.1:4100, adapter openai-compat, model = litellm model_name, adapter_config {proxy_kind: litellm}, api_key_env LITELLM_KEY."
+	],
+	"version": 1,
+	"groups": {
+		"glm-5.3-flash": [
+			{
+				"url": "http://127.0.0.1:8902",
+				"dialect": "openai",
+				"adapter": "openai-compat"
+			}
+		],
+		"local-swarm": [
+			{
+				"url": "http://127.0.0.1:8902",
+				"dialect": "openai",
+				"adapter": "openai-compat"
+			},
+			{
+				"url": "http://127.0.0.1:8901",
+				"dialect": "openai",
+				"adapter": "openai-compat"
+			},
+			{
+				"url": "http://127.0.0.1:8903",
+				"dialect": "openai",
+				"adapter": "openai-compat"
+			},
+			{
+				"url": "http://127.0.0.1:8906",
+				"dialect": "openai",
+				"adapter": "openai-compat"
+			}
+		],
+		"gpt-5.2": [],
+		"claude-sonnet-5": [
+			{
+				"url": "https://api.anthropic.com",
+				"dialect": "anthropic",
+				"adapter": "anthropic",
+				"api_key_env": "ANTHROPIC_API_KEY"
+			}
+		],
+		"claude-fable-5-1": [
+			{
+				"url": "https://api.anthropic.com",
+				"dialect": "anthropic",
+				"adapter": "anthropic",
+				"api_key_env": "ANTHROPIC_API_KEY"
+			}
+		],
+		"claude-opus-5-5": [
+			{
+				"url": "https://api.anthropic.com",
+				"dialect": "anthropic",
+				"adapter": "anthropic",
+				"api_key_env": "ANTHROPIC_API_KEY"
+			}
+		],
+		"claude-haiku-4-5": [
+			{
+				"url": "https://api.anthropic.com",
+				"dialect": "anthropic",
+				"adapter": "anthropic",
+				"api_key_env": "ANTHROPIC_API_KEY"
+			}
+		]
+	}
+}

@@ -8,7 +8,7 @@
 //     "command": "bun",
 //     "args": ["~/.claude/hooks/suspenders/bin/knowledge-mcp.ts"]
 //   }
-import { makeStore } from "../lib/knowledge-ports.ts";
+import { makeStore } from "../lib/sqlite-store.ts";
 import { proseCards } from "../lib/knowledge.ts";
 import { createInterface } from "node:readline";
 

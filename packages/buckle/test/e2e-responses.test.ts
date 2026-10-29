@@ -9,8 +9,8 @@ import { describe, expect, test } from "bun:test";
 import { startMockUpstream } from "./mock.ts";
 import { testDeps } from "./deps.ts";
 import { createApp, type AppDeps } from "../src/handlers.ts";
-import { startServer } from "../src/server.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
+import { issueViaAdmin, startGate } from "./gate.ts";
 
 const INBOUND = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 
@@ -188,13 +188,11 @@ describe("responses ingress (W912)", () => {
 describe("responses ingress through the governance gate (W912)", () => {
 	test("scoped auth + rpm budget: 200, then 429; lane prefix gated too", async () => {
 		const upstream = await startMockUpstream(() => Response.json(RESPONSE_OBJ));
-		const server = startServer({
-			port: 0,
-			upstreamsPath: await gateCfg(upstream.url),
-			dbPath: ":memory:",
-			auth: { rootKey: ROOT },
+		const gate = await startGate({
+			upstreamUrl: upstream.url,
+			model: "gpt-5.3-codex",
 		});
-		const base = `http://127.0.0.1:${server.port}`;
+		const base = gate.base;
 		const { key } = await issueViaAdmin(base, {
 			name: "codex-lane",
 			scopes: ["buckle:proxy:WRITE_"],
@@ -219,31 +217,7 @@ describe("responses ingress through the governance gate (W912)", () => {
 			body: RESPONSES_BODY,
 		});
 		expect(anon.status).toBe(401);
-		server.stop(true);
+		gate.stop();
 		upstream.close();
 	});
 });
-
-const ROOT = "buckle-test-root";
-
-async function gateCfg(upstreamUrl: string): Promise<string> {
-	const p = `/tmp/buckle-resp-gate-${Date.now()}-${process.pid}.yaml`;
-	await Bun.write(
-		p,
-		`groups:\n  gpt-5.3-codex:\n    - url: ${upstreamUrl}\n      dialect: openai\n`,
-	);
-	return p;
-}
-
-async function issueViaAdmin(
-	base: string,
-	body: Record<string, unknown>,
-): Promise<{ key: string }> {
-	const res = await fetch(`${base}/v1/admin/keys`, {
-		method: "POST",
-		headers: { authorization: `Bearer ${ROOT}` },
-		body: JSON.stringify(body),
-	});
-	const out = (await res.json()) as { key: string };
-	return { key: out.key };
-}

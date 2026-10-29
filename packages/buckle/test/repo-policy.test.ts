@@ -199,7 +199,7 @@ describe("row runner semantics", () => {
 describe("loader chain", () => {
 	test("committed default parses: 3 rows, stable ids", () => {
 		const { rows, source } = loadRepoPolicies();
-		expect(source.endsWith("repo-policy.yaml")).toBe(true);
+		expect(source.endsWith("repo-policy.json")).toBe(true);
 		expect(rows.map((r) => r.id)).toEqual([
 			"api-health-endpoint",
 			"repo-license",
@@ -209,10 +209,20 @@ describe("loader chain", () => {
 	});
 	test("explicit path wins over env and defaults", () => {
 		const dir = fixture({});
-		const path = join(dir, "rows.yaml");
+		const path = join(dir, "rows.json");
 		writeFileSync(
 			path,
-			`rows:\n  - id: mine\n    repoClass: any\n    check:\n      - exists: LICENSE\n    missingQuestion: q?\n    policySource: commit\n`,
+			JSON.stringify({
+				rows: [
+					{
+						id: "mine",
+						repoClass: "any",
+						check: ["exists: LICENSE"],
+						missingQuestion: "q?",
+						policySource: "commit",
+					},
+				],
+			}),
 		);
 		const { rows } = loadRepoPolicies(path);
 		expect(rows.map((r) => r.id)).toEqual(["mine"]);
@@ -220,10 +230,12 @@ describe("loader chain", () => {
 	});
 	test("malformed row throws naming the row", () => {
 		const dir = fixture({});
-		const path = join(dir, "bad.yaml");
+		const path = join(dir, "bad.json");
 		writeFileSync(
 			path,
-			`rows:\n  - repoClass: any\n    check:\n      - exists: x\n`,
+			JSON.stringify({
+				rows: [{ repoClass: "any", check: ["exists: x"] }],
+			}),
 		);
 		expect(() => loadRepoPolicies(path)).toThrow(/missing id/);
 		cleanup(dir);

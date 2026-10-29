@@ -34,7 +34,7 @@ must=glm-5.3-flash
 # (one-shot — no must edit needed); unavailable, the line vanishes and
 # the must stands unchanged. Doability probes, all sync:
 #   executor → its binary resolves (SUSPENDERS_<NAME>_BIN or install paths)
-#   hub      → label known in stack.yaml / hubs.json, not in quiet hours
+#   hub      → label known in stack.json / hubs.json, not in quiet hours
 #   model    → proven on this machine (cv tally) with no quota exhaustion
 # A later can= line wins. Target = a single model or hub token.
 # can=copilot
@@ -42,7 +42,7 @@ must=glm-5.3-flash
 #
 # ── hub= / hub-url= — whole-chain hub pinning ────────────────────────────
 # hub=Label resolves to a real endpoint (hub-locate.ts: env override →
-# hub-url candidates → stack.yaml → hubs.json → mDNS); unreachable hub
+# hub-url candidates → stack.json → hubs.json → mDNS); unreachable hub
 # degrades to local belt, loud, never silent. hub-url= adds repo-declared
 # one-off candidates tried first.
 # hub=desktop

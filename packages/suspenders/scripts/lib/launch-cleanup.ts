@@ -14,8 +14,12 @@ import {
 	releaseLaunchLease,
 	renewLaunchLease,
 } from "./launch-preflight.ts";
-import { adminKey, hubCredential, revokeLaneKey } from "./lane-auth.ts";
-import type { spawnClaude } from "./lane.ts";
+import {
+	adminKey,
+	hubCredential,
+	revokeLaneKey,
+} from "../../hooks/lib/lane-auth.ts";
+import type { spawnClaude } from "../../hooks/lib/lane.ts";
 import type { GovernorStore } from "../../hooks/lib/govdb.ts";
 
 type CleanupCtx = {
@@ -74,9 +78,7 @@ export const launchCleanup = async (ctx: CleanupCtx): Promise<void> => {
 			try {
 				finishFailedLaunch(store, intent);
 			} catch (error) {
-				log(
-					`LAUNCH-CLEANUP ${item} — intent update failed: ${String(error)}`,
-				);
+				log(`LAUNCH-CLEANUP ${item} — intent update failed: ${String(error)}`);
 			}
 		}
 		if (childStopped && claimRevision !== undefined) {
@@ -112,9 +114,7 @@ export const launchCleanup = async (ctx: CleanupCtx): Promise<void> => {
 					`LAUNCH-CLEANUP ${item} — own key ${ownedKeyId} ${revoked ? "revoked" : "revoke failed; TTL bounds it"}`,
 				);
 			} catch (error) {
-				log(
-					`LAUNCH-CLEANUP ${item} — own key revoke failed: ${String(error)}`,
-				);
+				log(`LAUNCH-CLEANUP ${item} — own key revoke failed: ${String(error)}`);
 			}
 		}
 		for (const [path, expected] of ownsFiles && childStopped

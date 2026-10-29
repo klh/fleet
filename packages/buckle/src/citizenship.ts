@@ -104,6 +104,8 @@ export function allowOf(path: string): string | null {
 	// W824 per-request inspection: read-only admin surface (HEAD rides the
 	// spokes precedent — GET-class only, no body variants).
 	if (path === "/v1/admin/requests") return "GET, OPTIONS";
+	// W1259: the exact in-flight index — read-only admin surface.
+	if (path === "/v1/admin/inflight") return "GET, OPTIONS";
 	if (path === "/v1/admin/metrics") return "GET, OPTIONS";
 	if (path === "/v1/admin/traces") return "GET, OPTIONS";
 	if (path === "/v1/admin/observations") return "GET, OPTIONS";

@@ -1,7 +1,9 @@
 import PQueue from "p-queue";
+import { SseSniffer } from "./sse.ts";
 import {
 	assertProviderConcurrencyErrorCodes,
 	type ProviderPressure,
+	providerPressureOf,
 } from "./provider-pressure.ts";
 
 export {
@@ -70,12 +72,24 @@ export interface ProviderLease {
 		status: number,
 		retryAfterS: number | null,
 		pressure?: ProviderPressure,
+		/** W1267: the in-band provider code when the refusal rode a 200
+		 *  stream — the pool reclassifies pressure from THIS code. */
+		providerCode?: string | null,
 	): void;
 }
 export class ProviderAdmissionFull extends Error {}
 
 // Leave room for several paced starts within the configured admission wait.
 const MAX_ADAPTIVE_GAP_MS = 30_000;
+
+/** W1267: in-band failures pace only when the provider NAMED rate/overload
+ *  — a rate-limit error type or a known Z.ai rate code. Typed upstream
+ *  failures (1113 insufficient balance, 1311 entitlement) and unknown codes
+ *  stay nonhealthy neutral: they are not capacity pressure. */
+const RATE_SHAPED_KIND = /rate_limit|rate limit|overload/i;
+const RATE_SHAPED_CODES: ReadonlySet<string> = new Set(["1302", "1305"]);
+export const inBandFailurePaces = (kind: string, code: string): boolean =>
+	RATE_SHAPED_CODES.has(code) || RATE_SHAPED_KIND.test(kind);
 
 /** One instance per explicit account-pool ID at its authoritative egress.
  * maxOutstanding includes running requests: the whole retained set is bounded.
@@ -324,7 +338,12 @@ export class ProviderAdmissionCore {
 					const startedOccupancy = this.queue.pending;
 					grant({
 						release,
-						feedback: (status, retryAfterS, pressure = "rate") => {
+						feedback: (
+							status,
+							retryAfterS,
+							pressure = "rate",
+							providerCode,
+						) => {
 							// An aborted lease cannot become healthy if its transport
 							// later reaches EOF. Error bodies may settle before parsing
 							// their pressure feedback, so refusals remain observable.
@@ -336,7 +355,11 @@ export class ProviderAdmissionCore {
 								startedOccupancy,
 								status,
 								retryAfterS,
-								pressure,
+								// W1267: an in-band provider code outranks the caller's
+								// pressure guess — the pool policy is the classification.
+								providerCode !== undefined && providerCode !== null
+									? providerPressureOf(this.policy, providerCode)
+									: pressure,
 							);
 						},
 					});
@@ -371,6 +394,12 @@ export function bindProviderLease(
 		lease.release();
 		throw error;
 	}
+	// W1267: the SAME terminal classifier handlers.ts banks — a body-free
+	// watch for in-band failure frames on an otherwise-healthy transport.
+	// Provider refusals ride HTTP200 SSE (event:error envelopes, Responses
+	// response.failed/incomplete); crediting those EOFs healthy would feed
+	// recovery on refusals and starve honest pacing.
+	const watch = new SseSniffer("openai");
 	const release = () => {
 		lease.release();
 		reader.releaseLock();
@@ -380,10 +409,30 @@ export function bindProviderLease(
 			try {
 				const next = await reader.read();
 				if (next.done) {
-					if (response.ok) lease.feedback?.(response.status, null);
+					if (response.ok) {
+						watch.flush();
+						// W1267: branch on the in-band failure VERDICT first — an
+						// HTTP200 stream that carried response.failed/incomplete or
+						// an event:error frame is refusal evidence, never healthy
+						// transport EOF. Only a KNOWN provider code becomes pressure
+						// feedback (429-shaped, classified from the code); uncoded
+						// failures stay neutral — no healthy credit, no fake 429.
+						const failure = watch.inBandFailure();
+						if (failure !== null) {
+							const code = watch.inBandCode();
+							// Only a rate/overload-shaped coded failure becomes 429
+							// pressure; balance/entitlement and unknown codes ride
+							// the typed-error path (router), never pacing.
+							if (code !== null && inBandFailurePaces(failure, code))
+								lease.feedback?.(429, null, "rate", code);
+						} else lease.feedback?.(response.status, null);
+					}
 					release();
 					controller.close();
-				} else controller.enqueue(next.value);
+				} else {
+					watch.push(next.value);
+					controller.enqueue(next.value);
+				}
 			} catch (error) {
 				release();
 				controller.error(error);

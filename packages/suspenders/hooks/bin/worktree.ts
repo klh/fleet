@@ -21,7 +21,7 @@ import {
 	registryWorktrees,
 	resolveItemWorktree,
 } from "../lib/worktree-lookup.ts";
-import { retireLaneKey } from "../../scripts/lib/lane-auth.ts";
+import { retireLaneKey } from "../lib/lane-auth.ts";
 import {
 	defineVerb,
 	runCli,

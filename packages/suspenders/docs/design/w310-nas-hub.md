@@ -2,7 +2,7 @@
 
 The first real hub of the start-topology, deployed tonight. Real hosts live
 in runtime config (`~/.config/klh/stack.yaml`, mode 600 — to be created from
-deploy/stack.example.yaml); this record uses `$NAS_HOST`.
+deploy/stack.example.json); this record uses `$NAS_HOST`.
 
 ## What runs
 
@@ -41,7 +41,7 @@ persistent home for it; W317 tracks the register-reload EACCES quirk).
 
 ## Open
 
-- stack.yaml: create from deploy/stack.example.yaml — needs owner values
+- stack.yaml: create from deploy/stack.example.json — needs owner values
   (Entra tenant/app, hub peers).
 - NAS buckle repo copy is W200-era — redeploy on next buckle main cut-over.
 - W314 (work-CR delegation e2e) + W315 (Playwright boards e2e) close the
