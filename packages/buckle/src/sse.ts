@@ -434,7 +434,12 @@ export function sseReframer(
 			try {
 				const j: unknown = JSON.parse(payload);
 				if (j && typeof j === "object") parsed = j as AnyRec;
-				if (j && typeof j === "object" && (j as AnyRec).type === "ping") {
+				if (
+					evt !== "error" &&
+					j &&
+					typeof j === "object" &&
+					(j as AnyRec).type === "ping"
+				) {
 					drop("ping", payload.slice(0, 80));
 					c.enqueue(encoder.encode(SSE_KEEPALIVE)); // W1106: socket fed
 					return;
