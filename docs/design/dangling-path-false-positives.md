@@ -13,6 +13,9 @@ names.
 
 | Item | Flagged target | Why it never dangled |
 | --- | --- | --- |
+| W1787 | `packages/bad` in `packages/suspenders/deploy/zai-catalog.test.ts` | String-literal fixture argument to `parseZaiModelIds`, never a repo reference; `git log --all` empty; rewritten to a non-path-shaped id so the scanner stops re-firing (e2c4f06a) |
+| W1788 | `zai-models.json` in `zai-catalog*.test.ts` | Machine-local runtime conf (`$HOME/.claude/local-llm/` via `zaiCatalogFile`, belt zai-catalog-rows.ts); the test literals are tmpdir fixtures; repo-path absence pinned in-suite (0006311c) |
+| W1789 | `models.json` in `zai-catalog.test.ts` | `join(mkdtempSync(dir), ...)` tmpdir fixtures the test writes itself; never existed on any ref; absence pinned in-suite (6c63f3d8) |
 | W1795 | `packages/suspenders/scripts/routing-policy.json` | Scanner resolves bare relative literals against the referencing file's directory (`resolveLiteral`); the string is data, not a reference |
 | W1796 | `packages/suspenders/scripts/supervisor.ts` | Substring content check read as a relative import |
 | W1797 | `packages/suspenders/scripts/health.ts` | The reference resolves into the runtime home (`packages/belt/bin/health.ts` exists since a8bd4a12); `scripts/health.ts` never existed in this repo |

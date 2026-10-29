@@ -2,6 +2,8 @@
 // Pieces moved verbatim from bin/fleet-board.ts; exports widened so
 // sibling modules and the route modules import them.
 
+import type { Database } from "bun:sqlite";
+import { existsSync } from "node:fs";
 import { BIND } from "./context.ts";
 import { hostGuard } from "../lib/host-guard.ts";
 
@@ -114,6 +116,26 @@ export function chunked<T>(
 	size = 400,
 ): void {
 	for (let i = 0; i < values.length; i += size) fn(values.slice(i, i + size));
+}
+
+// W1787: a work-items project is board-visible only when its repo still
+// EXISTS on this machine, or its items carry an origin (`host:agent` — the
+// remote machines' rows must keep rendering). Rows written by a test's
+// in-process HOME swap into the shared store (the W1762 rejudge fixture
+// class: OS-tmpdir git projects like `/var/folders/.../T/w1762-rejudge-*`)
+// are LONG gone from disk — they must never surface as board columns or
+// feed cards. Session-only projects (live lanes without items) are exempt:
+// remote lanes have no origin column and no local disk presence.
+export function visibleItemProjects(db: Database): string[] {
+	const rows = db
+		.query(
+			"SELECT project AS p, MAX(origin IS NOT NULL) AS remote FROM work_items GROUP BY project",
+		)
+		.all() as { p: string; remote: number }[];
+	return rows
+		.filter((r) => r.remote === 1 || existsSync(r.p))
+		.map((r) => r.p)
+		.sort();
 }
 
 // W798: a handler throw must never surface as an empty-body error (the

@@ -20,7 +20,7 @@ import {
 } from "../lib/work/work-timing.ts";
 import { utcZ } from "../lib/wallclock.ts";
 import { db, type WorkItemRow } from "./context.ts";
-import { chunked } from "./helpers.ts";
+import { chunked, visibleItemProjects } from "./helpers.ts";
 import {
 	ago,
 	type TaskSignal,
@@ -349,17 +349,21 @@ function completionTailMap(): Map<
 /** Lightweight all-project Work Graph counts for dashboards. */
 
 export function workStateCounts(): Record<string, number> {
-	const rows = db
-		.query(
-			`SELECT w.state AS state,
+	// W9201: reaped scratch/test projects never count toward dashboards.
+	const visible = new Set(visibleItemProjects(db));
+	const rows = (
+		db
+			.query(
+				`SELECT w.project AS project, w.state AS state,
 			CASE WHEN w.state = 'READY' AND EXISTS (
 				SELECT 1 FROM work_deps d
 				LEFT JOIN work_items dependency ON dependency.project = d.project AND dependency.id = d.depends_on
 				WHERE d.project = w.project AND d.work_id = w.id AND dependency.state IS NOT 'DONE'
 			) THEN 1 ELSE 0 END AS blocked
 		 FROM work_items w WHERE w.state != 'SUPERSEDED'`,
-		)
-		.all() as { state: string; blocked: number }[];
+			)
+			.all() as { project: string; state: string; blocked: number }[]
+	).filter((r) => visible.has(r.project));
 	const counts = {
 		ready: 0,
 		working: 0,
@@ -401,6 +405,10 @@ export function tasks(
 					)
 					.all()
 	) as WorkItemRow[];
+	// W9201: reaped scratch/test projects never render in the aggregate
+	// feed — explicit ?project= opt-in still serves them (deep-link honesty).
+	const visible = p && p !== "all" ? null : new Set(visibleItemProjects(db));
+	const feedRows = visible ? rows.filter((w) => visible.has(w.project)) : rows;
 	const openByTask = new Map<string, number>();
 	for (const r of db
 		.query(
@@ -417,12 +425,12 @@ export function tasks(
 	// W682: terminal history caps per project (the client kanban renders 12
 	// done cards per project; the completed table opts into the full feed
 	// with ?done=all) — the 1.4MB wire was mostly buried DONE rows.
-	let feed = rows;
+	let feed = feedRows;
 	if (done !== "all") {
 		const cap =
 			typeof done === "number" && done >= 0 ? done : TASKS_DONE_CAP_DEFAULT;
 		const seen = new Map<string, number>();
-		feed = rows.filter((w) => {
+		feed = feedRows.filter((w) => {
 			if (!TASKS_TERMINAL_STATES.has(w.state)) return true;
 			const n = seen.get(w.project) ?? 0;
 			if (n >= cap) return false;
@@ -494,18 +502,24 @@ function failNoteMaps(works: string[]): Map<string, string | null> {
 }
 
 export function board(): Record<string, unknown>[] {
-	const projects = db
-		.query(
-			"SELECT DISTINCT project FROM work_items WHERE state NOT IN ('DONE','SUPERSEDED') OR state = 'DONE'",
-		)
-		.all() as { project: string }[];
+	// W9201: reaped scratch/test projects never render as board columns.
+	const visible = new Set(visibleItemProjects(db));
+	const projects = (
+		db
+			.query(
+				"SELECT DISTINCT project FROM work_items WHERE state NOT IN ('DONE','SUPERSEDED') OR state = 'DONE'",
+			)
+			.all() as { project: string }[]
+	).filter((r) => visible.has(r.project));
 	// W685: the per-project N+1 (items + deps + failNote per FAILED item)
 	// batches into three all-project reads — 136 store RPCs → 4 per compute.
-	const items = db
-		.query(
-			"SELECT project, id, state, owner_sid, origin, title, priority, result_sha, requires, updated_at FROM work_items ORDER BY project, priority DESC, id",
-		)
-		.all() as (WorkItemRow & { project: string })[];
+	const items = (
+		db
+			.query(
+				"SELECT project, id, state, owner_sid, origin, title, priority, result_sha, requires, updated_at FROM work_items ORDER BY project, priority DESC, id",
+			)
+			.all() as (WorkItemRow & { project: string })[]
+	).filter((w) => visible.has(w.project));
 	const depRows = db
 		.query(
 			"SELECT project, work_id, depends_on FROM work_deps WHERE depends_on IS NOT NULL AND NOT EXISTS (SELECT 1 FROM work_items w WHERE w.project = work_deps.project AND w.id = work_deps.depends_on AND w.state = 'DONE')",
