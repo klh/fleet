@@ -166,6 +166,7 @@ export async function attemptTier(
 			if (st.rateLimit) break;
 			st.status = error.status;
 			st.error = `no healthy upstream for ${req.group} (${error.message})`;
+			st.peerTrace = null;
 			st.lastFailure = {
 				source: "network",
 				status: error.status,
@@ -241,6 +242,7 @@ export async function attemptTier(
 			// exhausted ladder answers 503 + window-derived Retry-After.
 			st.status = r.status;
 			st.error = r.error;
+			st.peerTrace = null;
 			st.lastFailure = {
 				source: "local-admission",
 				status: r.status,
@@ -268,6 +270,7 @@ export async function attemptTier(
 		);
 		st.status = r.status;
 		st.error = r.error;
+		st.peerTrace = r.peerTrace;
 		st.lastFailure = {
 			source: r.refusalSource,
 			status: r.status,
@@ -357,6 +360,7 @@ function walkExpired(host: RouterHost, st: WalkState): boolean {
 	if (host.now() < st.deadlineMs) return false;
 	st.status = 504;
 	st.error = "Buckle first-byte walk deadline exceeded";
+	st.peerTrace = null;
 	st.lastFailure = { source: "network", status: 504, kind: "walk_deadline" };
 	return true;
 }
@@ -464,8 +468,10 @@ async function walkSelected(
 	);
 	// W1080: name the real refusal — an all-unbridgeable selection is a
 	// body the transform rejected, not an unhealthy upstream.
-	if (ordered.length === 0 && sel.ordered.length > 0)
+	if (ordered.length === 0 && sel.ordered.length > 0) {
 		st.error = `all ${String(sel.ordered.length)} selected row(s) unbridgeable — the transform rejected this request body`;
+		st.peerTrace = null;
+	}
 	// The escalation law owns EVERY prefer/no-hint cloud delivery: the
 	// hint ranks the head, it does not authorize leaving the machine
 	// (W136 §5.2 — prefs AND tier-warrant AND failed-twice, all AND-ed).
@@ -602,6 +608,7 @@ function exhausted(st: WalkState): ExecuteResult {
 		kind: "exhausted",
 		status: st.status,
 		error: st.error,
+		peerTrace: st.peerTrace,
 		attempts: st.attempts,
 		lastFailure: st.lastFailure,
 		...(st.lastFailure?.status === 503 &&

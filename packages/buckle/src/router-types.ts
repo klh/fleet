@@ -43,6 +43,8 @@ export type ExecuteResult =
 			error: string;
 			attempts: number;
 			lastFailure?: FailureProvenance;
+			/** Bounded, validated downstream Buckle error chain. */
+			peerTrace?: string | null;
 			retryAfterS?: number;
 	  };
 
@@ -128,6 +130,7 @@ export type TryOutcome = {
 			refusalSource: "upstream" | "bridged-upstream";
 			requestId?: string;
 			callId?: string;
+			peerTrace?: string | null;
 			upstreamRefusalCode?: string | null;
 			/** W1118.1: set when this failure IS a peer's typed hop-contract
 			 *  refusal (x-belt-error hop_contract_*) — always rides exhaustTier
@@ -147,6 +150,7 @@ export interface WalkState {
 	attempts: number;
 	status: number;
 	error: string;
+	peerTrace?: string | null;
 	deadlineMs: number;
 	/** Account Retry-After or admission timeout cannot heal through an alias. */
 	unavailablePools?: Set<string>;
