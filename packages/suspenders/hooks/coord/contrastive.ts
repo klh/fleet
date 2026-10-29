@@ -16,6 +16,25 @@
 // URL-pinned; the per-leg model id is config-over-code env
 // (CONTRASTIVE_<LEG>_MODEL), and the compose leg IS the pinned default
 // (pinnedLeg).
+
+import {
+	assignIds,
+	type ComposedPick,
+	composePrompt,
+	parseCompose,
+	STAGE_ATTEMPTS,
+} from "../lib/contrastive-selection.ts";
+import { consultDeadline } from "../lib/federation/consult-expiry.ts";
+import { buckleChat } from "../lib/hub/inference-buckle.ts";
+import {
+	CLOUD_HINT,
+	CLOUD_MODEL,
+	ORACLE_SYSTEM,
+	PINNED_HINT,
+	PINNED_MODEL,
+	pinnedLeg,
+} from "../lib/hub/oracle-legs.ts";
+import { consultVersion, ensureConsultTrust } from "./consult-trust.ts";
 import {
 	cyan,
 	db,
@@ -25,24 +44,6 @@ import {
 	kbNorm,
 	projectIdentity,
 } from "./shared.ts";
-import { consultVersion, ensureConsultTrust } from "./consult-trust.ts";
-import { consultDeadline } from "../lib/federation/consult-expiry.ts";
-import {
-	pinnedLeg,
-	PINNED_HINT,
-	PINNED_MODEL,
-	CLOUD_MODEL,
-	CLOUD_HINT,
-	ORACLE_SYSTEM,
-} from "../lib/hub/oracle-legs.ts";
-import { buckleChat } from "../lib/hub/inference-buckle.ts";
-import {
-	assignIds,
-	composePrompt,
-	parseCompose,
-	STAGE_ATTEMPTS,
-	type ComposedPick,
-} from "../lib/contrastive-selection.ts";
 
 const LEG_MAX_TOKENS = 1500;
 const LEG_TIMEOUT_MS = 300_000;

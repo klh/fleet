@@ -4,7 +4,9 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { assertCapsuleBounds, itemCapsuleKey } from "../lib/lanes/capsule-fence.ts";
+import { expireConsults } from "../lib/federation/consult-expiry.ts";
+import { openIdentity } from "../lib/govdb/govdb.ts";
+import { archiveAndPrune, pruneArchiveFiles } from "../lib/govdb/retention.ts";
 import {
 	ConfidenceError,
 	glyphFor,
@@ -12,8 +14,6 @@ import {
 	parseStamp,
 	renderStamp,
 } from "../lib/knowledge/confidence.ts";
-import { expireConsults } from "../lib/federation/consult-expiry.ts";
-import { openIdentity } from "../lib/govdb/govdb.ts";
 import {
 	recordKnowledgeSuggestion,
 	renderKnowledgeSuggestion,
@@ -23,9 +23,12 @@ import {
 	searchSink,
 	sinkConfigured,
 } from "../lib/knowledge/knowledge-sink-client.ts";
-import { archiveAndPrune, pruneArchiveFiles } from "../lib/govdb/retention.ts";
-import { run } from "../lib/run.ts";
+import {
+	assertCapsuleBounds,
+	itemCapsuleKey,
+} from "../lib/lanes/capsule-fence.ts";
 import { reapDeadSubscribes } from "../lib/lanes/subscribe-attach.ts";
+import { run } from "../lib/run.ts";
 import { parseVerb } from "../lib/verb-kit.ts";
 import { isLiveSession, type LivenessRow } from "./bus.ts";
 import { ensureConsultTrust } from "./consult-trust.ts";

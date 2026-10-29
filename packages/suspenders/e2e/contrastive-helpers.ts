@@ -2,10 +2,10 @@
 // consult e2e spec. Plain node APIs so the spec runs under any playwright
 // runtime; store reads ride `bun -e` (bun:sqlite lives in the bun runtime).
 import { execFile, spawn } from "node:child_process";
-import { mkdtempSync, rmSync, mkdirSync, realpathSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { createServer } from "node:http";
 import { promisify } from "node:util";
 
 const execFileP = promisify(execFile);

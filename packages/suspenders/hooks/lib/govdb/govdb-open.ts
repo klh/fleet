@@ -4,17 +4,17 @@
 // govdb-knowledge.ts, the delta-trigger template in govdb-deltas.ts.
 import type { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
-import { migrateEventsShred } from "./events-shred.ts";
-import { createDeltasTriggers } from "./govdb-deltas.ts";
-import {
-	migrateKnowledgeLayer,
-	migrateKnowledgeSplit,
-} from "../knowledge/govdb-knowledge.ts";
-import { columnNames, openWALDb, REG } from "./govdb-util.ts";
 import {
 	CONFIDENCE_HISTORY_DDL,
 	CONFIDENCE_HISTORY_INDEX_DDL,
 } from "../knowledge/confidence.ts";
+import {
+	migrateKnowledgeLayer,
+	migrateKnowledgeSplit,
+} from "../knowledge/govdb-knowledge.ts";
+import { migrateEventsShred } from "./events-shred.ts";
+import { createDeltasTriggers } from "./govdb-deltas.ts";
+import { columnNames, openWALDb, REG } from "./govdb-util.ts";
 import { migrateIdentitySplit } from "./identity-db.ts";
 import { migrateIdentityRegistry } from "./identity-registry.ts";
 

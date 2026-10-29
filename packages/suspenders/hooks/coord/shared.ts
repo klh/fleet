@@ -8,8 +8,8 @@ import {
 	projectIdentity,
 } from "../lib/govdb/govdb.ts";
 import { trustOf, withTrust } from "../lib/knowledge/knowledge.ts";
-import type { KnowledgeHit } from "../lib/knowledge/store-schema.ts";
 import { makeStore } from "../lib/knowledge/sqlite-store.ts";
+import type { KnowledgeHit } from "../lib/knowledge/store-schema.ts";
 import { ensureConsultTrust } from "./consult-trust.ts";
 
 export {
@@ -109,6 +109,7 @@ export const kbNorm = (s: string): string => kbTerms(s, 1).join(" ");
 
 // W927 domain grouping — the lib is the one definition (DRY)
 import { domainVisible } from "../lib/contrastive-selection.ts";
+
 export { domainVisible };
 
 export function kbLookup(
