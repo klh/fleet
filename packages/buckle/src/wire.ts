@@ -1,6 +1,7 @@
 import { connect as netConnect } from "node:net";
 import { PREFER_HEADER } from "@klh/telemetry/src/prefer-header.ts";
 import type { TransportEvidence } from "@klh/telemetry/src/transport-evidence.ts";
+import { safeCorrelationId } from "@klh/telemetry/src/http-trace.ts";
 import { RouterError } from "./adapters/errors.ts";
 // src/wire.ts — upstream request construction, now through the adapter
 // registry (W134 §4.1): the deployment's family adapter builds the wire
@@ -159,6 +160,11 @@ export async function defaultFetch(
 	// to waits for chunks, so do not set a short wall-clock cap on generation.
 	if (dep.adapter_config?.proxy_kind === "litellm") {
 		wire.headers["x-litellm-num-retries"] = "0";
+		// W2260: relay our audit rid as x-request-id — LiteLLM echoes it on
+		// its response headers and its own logs, giving the cross-hop join
+		// key (buckle rid ↔ litellm log line) without provider hardcoding.
+		const relayRid = safeCorrelationId(req.rid);
+		if (relayRid) wire.headers["x-request-id"] = relayRid;
 		if (!stream)
 			wire.headers["x-litellm-timeout"] = String(
 				Math.max(0.001, timeoutMs / 1000),

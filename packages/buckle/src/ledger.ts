@@ -30,6 +30,7 @@ import {
 	reconcileAbandonedReceipt,
 } from "./reconcile.ts";
 import type { ServedIdentity } from "./served-identity.ts";
+import type { StreamReceipt } from "./stream-correlation.ts";
 import { throughputMetrics } from "./throughput-metrics.ts";
 import type { Usage } from "./usage.ts";
 
@@ -116,21 +117,6 @@ export interface RouteAuditOutcome {
 	/** W1106 body-free stream termination receipt: typed terminal + progress
 	 *  counters, never payload. null/absent = the request did not stream. */
 	stream_receipt?: StreamReceipt | null;
-}
-
-/** W1106: how a streaming body actually ended — typed terminal, upstream
- *  progress counters, last-chunk timestamp (ms from t0). Body-free: no
- *  prompt or completion content ever rides this. */
-export interface StreamReceipt {
-	/** upstream_eof = clean provider close; upstream_error:<kind> = the
-	 *  provider died mid-stream; downstream_cancel = the client hung up;
-	 *  upstream_idle/total_deadline = the wire guards fired. */
-	terminal: string;
-	/** bytes/chunks seen FROM the upstream (activity evidence). */
-	bytes_in: number;
-	chunks_in: number;
-	/** ms from request start to the last upstream chunk (null = none). */
-	last_chunk_ms: number | null;
 }
 
 /** W457 cache telemetry: provider-reported cache numbers joined onto the

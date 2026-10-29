@@ -10,6 +10,10 @@ import { jsonResponse } from "./proxy-body.ts";
 import { observe, type Ctx } from "./request-context.ts";
 import { SseSniffer, sseReframer } from "./sse.ts";
 import {
+	hopCorrelationOf,
+	streamActivityOf,
+} from "./stream-correlation.ts";
+import {
 	blackHole,
 	once,
 	terminalOf,
@@ -33,6 +37,9 @@ export function streamResponse(
 	result: Extract<ExecuteResult, { kind: "upstream" }>,
 ): Response | Promise<Response> {
 	const upstream = result.response;
+	// W2260: the upstream's own correlation ids (bounded, no payload) —
+	// joins this stream's receipt to the provider/LiteLLM-side log row.
+	const hop = hopCorrelationOf(upstream.headers);
 	if (!upstream.body) return jsonResponse(deps, ctx, result);
 	const sniffer = new SseSniffer(ctx.dialect);
 	const [sniffBranch, clientBranch] = upstream.body.tee();
@@ -111,6 +118,9 @@ export function streamResponse(
 	// (anthropic message_stop / openai [DONE] / response.completed) is a
 	// TRUNCATED turn — never a completed success.
 	let streamTruncated = false;
+	// W2260: ping keepalives the reframer dropped — with framesSeen() this
+	// separates a 200-then-incomplete semantic stream from a ping-only one.
+	let pingDrops = 0;
 	// W1106 (#55446/#55461): typed in-band failure from the body (anthropic
 	// event:error, openai response.failed/incomplete) — non-success even
 	// when a terminal marker follows. null = none seen.
@@ -225,11 +235,32 @@ export function streamResponse(
 				bytes_in: bytesIn,
 				chunks_in: chunksIn,
 				last_chunk_ms: lastChunkMs,
+				// W2260: semantic | ping_only | none — 200-then-incomplete vs
+				// ping-only activity vs a true no-byte stall, without payload.
+				activity: streamActivityOf(sniffer.framesSeen(), pingDrops),
+				// W2260: a failed/truncated stream that delivered ZERO
+				// client-visible semantic frames could be retried without
+				// duplicating output; once semantic bytes flowed, a retry
+				// double-delivers. A client/deploy close is never retryable.
+				retry_eligible:
+					!success &&
+					!streamCancelled &&
+					!drainedCut &&
+					sniffer.framesSeen() === 0,
+				upstream_request_id: hop.upstreamRequestId,
+				litellm_call_id: hop.litellmCallId,
 			},
 		});
 		deps.sm
 			.counter("buckle_route_decisions_total", "Routing decisions.")
 			.inc({ decision, dialect: ctx.dialect });
+		// W2260: one bounded terminal line per finished stream — the hop
+		// correlation row (rid + provider echo ids + activity class) that
+		// makes a truncated stream traceable ACROSS hops without payload.
+		if (!success)
+			console.warn(
+				`buckle: stream ended incomplete rid=${ctx.rid} terminal=${terminalOf(streamFailed, streamFailureKind, streamCancelled, drainedCut, streamTruncated, streamInBand)} activity=${streamActivityOf(sniffer.framesSeen(), pingDrops)} bytes=${bytesIn} chunks=${chunksIn} last_ms=${lastChunkMs ?? "-"} upstream=${hop.upstreamRequestId ?? "-"} call=${hop.litellmCallId ?? "-"} candidate=${result.candidateId}`,
+			);
 		if (ctx.admitted)
 			observe(deps, ctx, "lane.request.ended", {
 				outcome: decision,
@@ -276,7 +307,10 @@ export function streamResponse(
 						"SSE events dropped by the re-framer (ping keepalives, quarantined upstream framing defects).",
 					)
 					.inc({ reason });
-				console.warn(`buckle: sse reframe dropped (${reason}): ${preview}`);
+				if (reason === "ping") pingDrops++; // W2260: ping-only activity evidence
+				console.warn(
+					`buckle: sse reframe dropped (${reason}) rid=${ctx.rid} upstream=${hop.upstreamRequestId ?? "-"} call=${hop.litellmCallId ?? "-"}: ${preview}`,
+				);
 			},
 			ctx.dialect,
 			(kind) => {

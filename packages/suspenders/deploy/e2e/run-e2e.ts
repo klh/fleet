@@ -4,6 +4,9 @@
 // mission probes against the LIVE containers:
 //   1. admin key lifecycle   — mint (root → bksk_ admin), use, revoke, 401
 //   2. chat through buckle   — anthropic + openai dialects, direct + caddy
+//   2b. semantic sse         — W2260: a streamed completion must carry the
+//                              FULL semantic turn (marker + [DONE]), never
+//                              a bare HTTP 200
 //   3. enroll a hub          — enrollment code → spoke token → fed pull
 //   4. dispatch a lane       — real dispatch-next.ts pins the lane to the
 //                              compose hub; the stub executor routes one
@@ -197,6 +200,48 @@ async function probeChatThroughBuckle(root: string): Promise<ProbeResult> {
 		name: "chat-through-buckle",
 		ok,
 		detail: `gate /v1/messages → ${viaGate.status} "${viaGate.sample}", caddy /v1/chat/completions → ${viaCaddy.status} "${viaCaddy.sample}"`,
+	};
+}
+
+/** W2260 deploy smoke: a STREAMING completion through the gate must carry
+ *  the complete semantic SSE turn — the marker delta AND the protocol
+ *  terminal (`data: [DONE]`) — in the client-visible byte stream. HTTP 200
+ *  or /healthz alone never proves a stream completed (the W2260 incident:
+ *  HTTP 200, 188 bytes, then a 60s silent close); this probe fails on any
+ *  200-then-incomplete body. Bounded evidence: frame counts + the terminal
+ *  marker, never payload. `base` is the no-daemon fixture seam (the
+ *  e2e-harness spec aims it at a local stub; the runner passes nothing). */
+export async function probeSemanticSseStream(
+	root: string,
+	base: string = BUCKLE,
+): Promise<ProbeResult> {
+	const res = await fetch(`${base}/v1/chat/completions`, {
+		method: "POST",
+		headers: { authorization: `Bearer ${root}` },
+		body: JSON.stringify({
+			model: "glm-5.3-flash",
+			stream: true,
+			messages: [{ role: "user", content: "Reply with the single word: ok" }],
+		}),
+		signal: AbortSignal.timeout(30_000),
+	});
+	if (res.status !== 200) {
+		return {
+			name: "semantic-sse-complete",
+			ok: false,
+			detail: `stream POST → ${res.status} (want 200)`,
+		};
+	}
+	const text = await res.text();
+	const deltas = (text.match(/"content":"[^"]*"/g) ?? []).length;
+	// SSE protocol terminal — the openai dialect's final data frame. A body
+	// that ends WITHOUT it after HTTP 200 is the incident shape (truncated).
+	const done = text.includes("data: [DONE]\n\n");
+	const marker = text.includes(MARKER);
+	return {
+		name: "semantic-sse-complete",
+		ok: deltas > 0 && done && marker,
+		detail: `stream → ${res.status}, ${deltas} content deltas, marker ${marker}, terminal ${done}`,
 	};
 }
 
@@ -428,6 +473,9 @@ async function main(): Promise<void> {
 	]);
 	const results: ProbeResult[] = [];
 	results.push(await probeChatThroughBuckle(root));
+	// W2260: 200/health never proves a stream completed — require the full
+	// semantic SSE turn (marker + [DONE]) before the stack calls itself up.
+	results.push(await probeSemanticSseStream(root));
 	results.push(await probeAdminLifecycle(root));
 	results.push(await probeEnrollHub(admin.key));
 	if (skipDispatch) {
