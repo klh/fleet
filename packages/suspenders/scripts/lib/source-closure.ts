@@ -150,7 +150,15 @@ function shipList(ship: Set<string>, files: Set<string>): string[] {
 		if (top === "packages" && pkg && files.has(manifest)) ship.add(manifest);
 	}
 	const sorted = [...ship].sort();
-	return sorted.filter((p) => !sorted.some((q) => p.startsWith(`${q}/`)));
+	// a package manifest nested under its own shipped package-root dirspec
+	// (the bare-import ship unit) STAYS — A25's private-name map and the
+	// dev-field shed loop key on shipped rows ending in /package.json, and
+	// folding it there hid the package from both (the v2.1.2 spoke install
+	// still 404'd @klh/settings at npm).
+	return sorted.filter(
+		(p) =>
+			p.endsWith("/package.json") || !sorted.some((q) => p.startsWith(`${q}/`)),
+	);
 }
 
 export interface PayloadClosureInput {

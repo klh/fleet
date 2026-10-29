@@ -175,8 +175,11 @@ describe("payloadClosure bare package imports (fork H)", () => {
 		expect(report.paths).toEqual([
 			"packages/app/bin",
 			"packages/app/package.json",
-			// the bare form ships the package subtree as one dir pathspec
+			// the bare form ships the package subtree AND its manifest row —
+			// A25's private-name map keys on manifest rows, so folding it
+			// under the dirspec hid the package (v2.1.2 install 404 at npm)
 			"packages/settings",
+			"packages/settings/package.json",
 		]);
 	});
 });
