@@ -60,6 +60,7 @@ import { handleMeta } from "../board/routes-meta.ts";
 import { handleReports } from "../board/routes-reports.ts";
 import { handleObservations } from "../board/routes-observations.ts";
 import { handleOrch } from "../board/routes-orch.ts";
+import { handlePosture } from "../board/routes-posture.ts";
 import { handleSuggest } from "../board/routes-suggest.ts";
 import { handleTheme, isThemePath } from "../board/routes-theme.ts";
 import { handleUsage } from "../board/routes-usage.ts";
@@ -161,6 +162,7 @@ const base = {
 			handleConsultIngress,
 			handleActions,
 			handleOrch,
+			handlePosture,
 			handleFiles,
 			handleSuggest,
 			handleConsole,

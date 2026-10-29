@@ -48,6 +48,7 @@ export const BODY = String.raw`
   </div>
 </details>
 <klh-board-tabs id="boardTabs"></klh-board-tabs>
+<klh-posture-panel id="posturePanel"></klh-posture-panel>
 <div id="hashChipBar"></div>
 <main>
 <section id="tab-decisions">
