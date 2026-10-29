@@ -17,7 +17,7 @@ import {
 	type FileMeta,
 	type Origin,
 } from "../bin/model-store-lib.ts";
-import { createApp, openKeyLedger } from "../bin/model-store.ts";
+import { createApp, main, openKeyLedger } from "../bin/model-store.ts";
 import { applyGovernanceSchema } from "@klh/buckle/src/gov/schema.ts";
 import { KeyStore } from "@klh/buckle/src/gov/keys.ts";
 import {
@@ -393,4 +393,9 @@ test.describe("model-store face", () => {
 			server.stop(true);
 		}
 	});
+});
+
+test("bin proof: --help exits without serving (check-pack pack leg)", async () => {
+	const code = await main(["--help"]);
+	expect(code).toBe(0);
 });
