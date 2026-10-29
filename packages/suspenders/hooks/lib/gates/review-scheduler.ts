@@ -3,14 +3,15 @@ import { mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { GovernorStore } from "../govdb/govdb-store.ts";
-import type { ReviewContext } from "./review-receipt.ts";
+import { rePinModelPick } from "../hub/model-health.ts";
 import {
 	type ProcessProbeFn,
 	psProcessProbe,
 	sameProcess,
 } from "../same-process.ts";
+import { modelCapabilityClasses } from "../stack-config.ts";
+import type { ReviewContext } from "./review-receipt.ts";
 import { reviewRoundCapRefusal } from "./review-round-cap.ts";
-import { rePinModelPick } from "../hub/model-health.ts";
 
 interface Request {
 	state: "RUNNING" | "DONE" | "ERROR";
@@ -362,7 +363,8 @@ export function scheduleReview(o: {
 	let model = env.SUSPENDERS_REVIEW_MODEL || pin?.value;
 	let repinnedFrom: string | null = null;
 	if (model && env.SUSPENDERS_MODEL_HEALTH !== "0") {
-		const rePin = rePinModelPick(o.db, model);
+		// W2264: the fallback pool rides the machine conf capability classes
+		const rePin = rePinModelPick(o.db, model, modelCapabilityClasses());
 		if (rePin.note) console.log(rePin.note);
 		if (rePin.model) {
 			repinnedFrom = model;

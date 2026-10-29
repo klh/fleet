@@ -77,7 +77,6 @@ import {
 	resolveLaneExecutor,
 } from "../../../scripts/lib/launch-preflight.ts";
 import { plaidLaunchPreflight } from "../../../scripts/lib/plaid-launch.ts";
-import { rePinModelPick } from "../hub/model-health.ts";
 import type { PreferRouting } from "../../../scripts/lib/prefer-routing.ts";
 import { isResumableClaim } from "../../../scripts/lib/resumable-claim.ts";
 import {
@@ -87,17 +86,18 @@ import {
 	resumeStartNotes,
 } from "../../../scripts/lib/resume-from.ts";
 import { verdictRepeatGate } from "../../../scripts/lib/verdict-repeat-gate.ts";
-import { capsuleValidity } from "../lanes/capsule-fence.ts";
+import { launchToken } from "../executors/detect.ts";
 import {
 	cvMap,
 	executorCv,
 	recordLaneExecutor,
 	writeExecutorCvFacts,
 } from "../executors/executor-cv.ts";
-import { launchToken } from "../executors/detect.ts";
 import { adapterFor } from "../executors/registry.ts";
 import { openStore, projectIdentity } from "../govdb/govdb.ts";
 import { resolveHub } from "../hub/hub-locate.ts";
+import { rePinModelPick } from "../hub/model-health.ts";
+import { capsuleValidity } from "../lanes/capsule-fence.ts";
 import { jobslabFor, jobslabTag, laneClassOf } from "../lanes/jobslab.ts";
 import {
 	applyLaneAttribution,
@@ -124,16 +124,21 @@ import { launchParent } from "../lanes/launch-parent.ts";
 import { restorableBaseline } from "../lanes/original-baseline.ts";
 import { verifiedContextContinuation } from "../lanes/reclaim-context.ts";
 import {
-	type Posture,
 	PLAID_CATALOG_UNAVAILABLE,
+	type Posture,
 	recordPlaidTrace,
 } from "../plaid/plaid.ts";
+import { policyBriefLines } from "../policy/session-policy.ts";
 import {
 	admitPostureLaunch,
 	resolveDispatchPosture,
 } from "../posture/posture.admission.ts";
-import { policyBriefLines } from "../policy/session-policy.ts";
-import { darkHubNow, policyForRepo, tryLoadStack } from "../stack-config.ts";
+import {
+	darkHubNow,
+	modelCapabilityClasses,
+	policyForRepo,
+	tryLoadStack,
+} from "../stack-config.ts";
 import { quotaProviderPenalty } from "../usage/exec-quota.ts";
 
 /** The entrypoint-bound closures + run-config the launch machine consumes.
@@ -524,7 +529,8 @@ export const dispatchLane = async (
 		// REQUESTS from here on, so the W1302.6 wire audit grades the new pin
 		// as itself.
 		if (process.env.SUSPENDERS_MODEL_HEALTH !== "0") {
-			const rePin = rePinModelPick(store, pick.model);
+			// W2264: the fallback pool rides the machine conf capability classes
+			const rePin = rePinModelPick(store, pick.model, modelCapabilityClasses());
 			if (rePin.note) console.log(rePin.note);
 			if (rePin.model) pick = { ...pick, model: rePin.model };
 		}
