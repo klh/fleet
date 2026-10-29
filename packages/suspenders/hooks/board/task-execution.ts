@@ -5,7 +5,11 @@ import {
 	laneVerdict,
 	type ProcessInspection,
 } from "../lib/lanes/lane-liveness.ts";
-import { newerLane, readLaneRegistry } from "../lib/lanes/lane-registry.ts";
+import {
+	memoProjectRoot,
+	newerLane,
+	readLaneRegistry,
+} from "../lib/lanes/lane-registry.ts";
 import {
 	type ExecutionClaim,
 	type ExecutionEvidence,
@@ -43,7 +47,7 @@ export function taskExecutionSnapshot(
 	);
 	for (const project of new Set(claims.map((c) => c.project))) {
 		try {
-			const registry = readLaneRegistry<Registered>(project);
+			const registry = readLaneRegistry<Registered>(project, memoProjectRoot);
 			if (!registry.known) continue;
 			const latest = new Map<string, Registered>();
 			for (const row of registry.lanes) {
