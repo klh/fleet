@@ -1,12 +1,12 @@
 // bin/provider-profiles.ts — belt's contract twin of the central provider
 // resolver (packages/speedy/src/provider-config.ts, W1124.8.1). Provider
-// profiles live ONLY in the private machine stack.yaml (mode 600): the raw
+// profiles live ONLY in the private machine stack.json (mode 600): the raw
 // operator key is the CENTRAL value; `env` is an OUTPUT binding (the env
 // var NAME a gateway materializes at runtime); `endpoints` carries the
 // http(s) URL each wire dialect rides. No ambient-env read and no legacy
 // key-file fallback HERE — values flow private config → resolved profile →
 // materialized runtime binding. This twin exists because the flat runtime
-// home (~/.claude/local-llm) is npm-free (Bun.YAML + node builtins only);
+// home (~/.claude/local-llm) is npm-free (JSON.parse + node builtins only);
 // test/provider-profiles.test.ts runs BOTH loaders on the same fixtures so
 // the contracts cannot drift.
 import { readFileSync, statSync, type Stats } from "node:fs";
@@ -37,11 +37,11 @@ export interface ResolvedProvider {
 	endpoints: ProviderEndpoints;
 }
 
-/** Private stack.yaml location — KLH_STACK overrides (tests); `home` pins
+/** Private stack.json location — KLH_STACK overrides (tests); `home` pins
  *  the fixture root where the caller already threads one (model-access). */
 export const providerStackPath = (home?: string): string =>
 	process.env.KLH_STACK ??
-	join(home ?? homedir(), ".config", "klh", "stack.yaml");
+	join(home ?? homedir(), ".config", "klh", "stack.json");
 
 const MAX_STACK_BYTES = 1024 * 1024;
 const ENV_NAME_RE = /^[A-Z][A-Z0-9_]*$/;
@@ -157,12 +157,12 @@ export function loadProviderProfiles(
 		fail(`stack config ${path} is over the 1 MiB cap`);
 	let parsed: unknown;
 	try {
-		parsed = Bun.YAML.parse(read(path));
+		parsed = JSON.parse(read(path)) as unknown;
 	} catch {
-		fail(`stack config ${path} is not parseable YAML`);
+		fail(`stack config ${path} is not parseable JSON`);
 	}
 	if (parsed !== undefined && parsed !== null && !isRecord(parsed))
-		fail(`stack config ${path} must be a YAML mapping`);
+		fail(`stack config ${path} must be a JSON mapping`);
 	const providers = isRecord(parsed)
 		? (parsed as { providers?: unknown }).providers
 		: undefined;

@@ -1,13 +1,7 @@
 // W277 — litellm (:4100) joins the supervised set. Stub servers on free ports
 // only — never touches the live :4100 engine or the real key files.
 import { expect, test } from "@playwright/test";
-import {
-	mkdtempSync,
-	mkdirSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -74,7 +68,11 @@ const paths = (over: Partial<LitellmPaths> = {}): LitellmPaths => {
 writeFileSync(
 	join(dir, "stack.json"),
 	`${JSON.stringify(
-		{ providers: { "zai-coding": { provider: "zai", key: ZAI, env: "Z_AI_API_KEY" } } },
+		{
+			providers: {
+				"zai-coding": { provider: "zai", key: ZAI, env: "Z_AI_API_KEY" },
+			},
+		},
 		null,
 		"\t",
 	)}\n`,
@@ -126,7 +124,7 @@ const start = (sup: Supervisor): Promise<void> => {
 const stateOf = (sup: Supervisor, port: number) =>
 	sup.snapshot().targets.find((t) => t.port === port);
 
-describe("keys — central profiles + env, never echoed", () => {
+test.describe("keys — central profiles + env, never echoed", () => {
 	test("profile value used when env is empty", () => {
 		expect(loadKeys(paths(), {})).toEqual({
 			Z_AI_API_KEY: ZAI,
@@ -152,11 +150,24 @@ describe("keys — central profiles + env, never echoed", () => {
 
 	test("profile-bound optional keys resolve from the central stack", () => {
 		writeFileSync(
-			join(dir, "stack-optional.yaml"),
-			`providers:\n  zai-coding:\n    provider: zai\n    key: ${ZAI}\n    env: Z_AI_API_KEY\n  openai-main:\n    provider: openai\n    key: file-o\n    env: OPENAI_API_KEY\n`,
+			join(dir, "stack-optional.json"),
+			`${JSON.stringify(
+				{
+					providers: {
+						"zai-coding": { provider: "zai", key: ZAI, env: "Z_AI_API_KEY" },
+						"openai-main": {
+							provider: "openai",
+							key: "file-o",
+							env: "OPENAI_API_KEY",
+						},
+					},
+				},
+				null,
+				"\t",
+			)}\n`,
 			{ mode: 0o600 },
 		);
-		const configured = paths({ stackConfig: join(dir, "stack-optional.yaml") });
+		const configured = paths({ stackConfig: join(dir, "stack-optional.json") });
 		const env = { Z_AI_API_KEY: "z", LITELLM_KEY: "m" };
 		expect(loadKeys(configured, env).OPENAI_API_KEY).toBe("file-o");
 		expect(
@@ -178,14 +189,16 @@ describe("keys — central profiles + env, never echoed", () => {
 		writeFileSync(
 			loose,
 			`${JSON.stringify({
-				providers: { "zai-coding": { provider: "zai", key: ZAI, env: "Z_AI_API_KEY" } },
+				providers: {
+					"zai-coding": { provider: "zai", key: ZAI, env: "Z_AI_API_KEY" },
+				},
 			})}\n`,
 			{ mode: 0o644 },
 		);
 		const env = {};
-		expect(() =>
-			loadKeys(paths({ stackConfig: loose }), env),
-		).toThrow(new RegExp(`Z_AI_API_KEY.*${loose.replace(/\./g, "\\.")}`));
+		expect(() => loadKeys(paths({ stackConfig: loose }), env)).toThrow(
+			new RegExp(`Z_AI_API_KEY.*${loose.replace(/\./g, "\\.")}`),
+		);
 	});
 
 	test("missing keys throw naming the source, not a value @unit", () => {
@@ -227,13 +240,12 @@ describe("keys — central profiles + env, never echoed", () => {
 			argv: [
 				process.execPath,
 				"-e",
-				'console.log(JSON.stringify({ NO_DOCS: process.env.NO_DOCS, NO_REDOC: process.env.NO_REDOC, NO_OPENAPI: process.env.NO_OPENAPI, Z_AI_API_KEY: process.env.Z_AI_API_KEY }))',
+				"console.log(JSON.stringify({ NO_DOCS: process.env.NO_DOCS, NO_REDOC: process.env.NO_REDOC, NO_OPENAPI: process.env.NO_OPENAPI, Z_AI_API_KEY: process.env.Z_AI_API_KEY }))",
 			],
 		});
 		const child = t.spawn?.();
 		await child?.exited;
-		const line =
-			readFileSync(p.log, "utf8").trimEnd().split("\n").pop() ?? "";
+		const line = readFileSync(p.log, "utf8").trimEnd().split("\n").pop() ?? "";
 		const env = JSON.parse(line) as Record<string, string | undefined>;
 		expect(env).toEqual({
 			NO_DOCS: "true",

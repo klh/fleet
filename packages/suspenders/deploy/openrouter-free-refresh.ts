@@ -3,11 +3,6 @@
 // W1124.8.4: the inference key comes from the inherited env or the CENTRAL
 // provider profile (OPENROUTER_API_KEY) — the legacy openrouter.key file
 // gate is retired.
-import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { readFileSync, renameSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import {
 	PROVIDER_STACK_PATH,
 	loadProviderConfig,
@@ -17,9 +12,8 @@ import type { StackConfig } from "../hooks/lib/stack-config.ts";
 import { fetchFreeSnapshot, writeFreeSnapshot } from "./openrouter-free.ts";
 import * as activation from "./litellm-activation.ts";
 
-const home = process.env.HOME ?? homedir();
-const generator = join(home, ".claude/local-llm/gateway-config.ts");
-const liteKeyFile = join(home, ".claude/local-llm/litellm.key");
+/** W1124.8.4: true when an OPENROUTER_API_KEY binding exists — the
+ *  inherited env value or the central profile bound to that env NAME. */
 
 /** W1124.8.4: true when an OPENROUTER_API_KEY binding exists — the
  *  inherited env value or the central profile bound to that env NAME. */

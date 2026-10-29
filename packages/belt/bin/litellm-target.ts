@@ -129,13 +129,15 @@ const fromProfileEnv = (
 	return resolved?.key ?? null;
 };
 
-/** Central profiles first, then the zai legacy 0600 config for the
- *  required leg. Throws naming the SOURCE, never a value. */
+/** Central provider profiles (env first) + the LiteLLM master key file for
+ *  the required legs. Throws naming the SOURCE, never a value. The `stat`
+ *  injection rides for callers/tests that pin fixture posture; the profile
+ *  loader owns the 0600 gate itself. */
 export function loadKeys(
 	paths: LitellmPaths = DEFAULT_PATHS,
 	env: Env = process.env,
 	read: ReadFile = readText,
-	stat: StatFile = statSync,
+	_stat?: StatFile,
 ): LitellmKeys {
 	const master =
 		env.LITELLM_KEY || tryRead(read, paths.masterKeyFile)?.trim() || null;

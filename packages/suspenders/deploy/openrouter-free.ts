@@ -195,7 +195,7 @@ export const readInferenceKey = (
 	);
 	if (profile?.key) return profile.key;
 	throw new Error(
-		"OpenRouter inference key: set OPENROUTER_API_KEY in the environment or a provider profile (stack.yaml providers, env: OPENROUTER_API_KEY)",
+		"OpenRouter inference key: set OPENROUTER_API_KEY in the environment or a provider profile (stack.json providers, env: OPENROUTER_API_KEY)",
 	);
 };
 

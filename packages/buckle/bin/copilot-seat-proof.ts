@@ -27,7 +27,7 @@ const pat =
 	"";
 if (!pat) {
 	console.log(
-		"Copilot PAT: set GITHUB_COPILOT_PAT in the environment or a provider profile (stack.yaml providers, env: GITHUB_COPILOT_PAT)",
+		"Copilot PAT: set GITHUB_COPILOT_PAT in the environment or a provider profile (stack.json providers, env: GITHUB_COPILOT_PAT)",
 	);
 	process.exit(1);
 }

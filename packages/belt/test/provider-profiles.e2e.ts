@@ -1,9 +1,9 @@
 // W1124.8.4 — provider-profile contract parity: belt's npm-free twin
-// (bin/provider-profiles.ts, Bun.YAML) and the speedy central resolver
-// (speedy/src/provider-config.ts, `yaml` npm) MUST answer identically on
-// the same fixtures, or a gateway row and the hub delivery leg drift.
-// Fixture key material is fake; fixtures are real mode-600 files.
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+// (bin/provider-profiles.ts) and the speedy central resolver
+// (speedy/src/provider-config.ts) MUST answer identically on the same
+// fixtures, or a gateway row and the hub delivery leg drift. Fixtures are
+// real mode-600 JSON files; fixture key material is fake.
+import { expect, test } from "@playwright/test";
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,38 +28,44 @@ const writeStack = (body: string, mode = 0o600): void => {
 	chmodSync(stackPath, mode);
 };
 
-beforeAll(() => {
+const CODED = `${JSON.stringify(
+	{
+		providers: {
+			"zai-coding": {
+				provider: "zai",
+				key: "fake-zai-key",
+				env: "Z_AI_API_KEY",
+				endpoints: { anthropic: "https://api.z.ai/api/anthropic" },
+			},
+			"zai-general": {
+				provider: "zai",
+				key: "fake-general-key",
+				env: "Z_AI_GENERAL_API_KEY",
+				endpoints: { anthropic: "https://general.z.ai/api/anthropic" },
+			},
+		},
+	},
+	null,
+	"\t",
+)}\n`;
+
+test.beforeAll(() => {
 	dir = join(tmpdir(), `provider-parity-${process.pid}`);
 	mkdirSync(dir, { recursive: true });
-	stackPath = join(dir, "stack.yaml");
+	stackPath = join(dir, "stack.json");
 });
 
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+test.afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-const CODED = `providers:
-  zai-coding:
-    provider: zai
-    key: fake-zai-key
-    env: Z_AI_API_KEY
-    endpoints:
-      anthropic: https://api.z.ai/api/anthropic
-  zai-general:
-    provider: zai
-    key: fake-general-key
-    env: Z_AI_GENERAL_API_KEY
-    endpoints:
-      anthropic: https://general.z.ai/api/anthropic
-`;
-
-describe("provider-profile parity (belt twin ↔ speedy resolver)", () => {
-	test("identical typed profiles from the same stack", () => {
+test.describe("provider-profile parity (belt twin ↔ speedy resolver)", () => {
+	test("identical typed profiles from the same stack @unit", () => {
 		writeStack(CODED);
 		expect(loadProviderProfiles(stackPath)).toEqual(
 			loadProviderConfig(stackPath),
 		);
 	});
 
-	test("profileForEnv resolves the same binding in both", () => {
+	test("profileForEnv resolves the same binding in both @unit", () => {
 		const belt = loadProviderProfiles(stackPath);
 		const speedy = loadProviderConfig(stackPath);
 		expect(profileForEnv("Z_AI_API_KEY", belt)?.name).toBe("zai-coding");
@@ -71,7 +77,7 @@ describe("provider-profile parity (belt twin ↔ speedy resolver)", () => {
 		expect(speedyEnv("NOPE_KEY", speedy)).toBeNull();
 	});
 
-	test("endpoint match picks zai-coding, never the sibling zai profile", () => {
+	test("endpoint match picks zai-coding, never the sibling zai profile @unit", () => {
 		const belt = loadProviderProfiles(stackPath);
 		const speedy = loadProviderConfig(stackPath);
 		for (const match of [
@@ -93,13 +99,17 @@ describe("provider-profile parity (belt twin ↔ speedy resolver)", () => {
 		).toBeNull();
 	});
 
-	test("legacy declarations and env collisions reject identically", () => {
+	test("legacy declarations and env collisions reject identically @unit", () => {
 		for (const [load, validate] of [
 			[loadProviderProfiles, validateProviderProfiles],
 			[loadProviderConfig, validateProviderConfig],
 		] as const) {
 			writeStack(
-				"providers:\n  x:\n    provider: zai\n    key: k\n    key_file: /old/path\n",
+				`${JSON.stringify({
+					providers: {
+						x: { provider: "zai", key: "k", key_file: "/old/path" },
+					},
+				})}\n`,
 			);
 			expect(() => load(stackPath)).toThrow("legacy key_file");
 			expect(() =>
@@ -111,21 +121,21 @@ describe("provider-profile parity (belt twin ↔ speedy resolver)", () => {
 		}
 	});
 
-	test("file posture enforced identically (mode, absence)", () => {
+	test("file posture enforced identically (mode, absence) @unit", () => {
 		writeStack(CODED, 0o644);
 		expect(() => loadProviderProfiles(stackPath)).toThrow("mode 600");
 		expect(() => loadProviderConfig(stackPath)).toThrow("mode 600");
-		expect(() => loadProviderProfiles(join(dir, "absent.yaml"))).toThrow(
+		expect(() => loadProviderProfiles(join(dir, "absent.json"))).toThrow(
 			"not readable",
 		);
-		expect(() => loadProviderConfig(join(dir, "absent.yaml"))).toThrow(
+		expect(() => loadProviderConfig(join(dir, "absent.json"))).toThrow(
 			"not readable",
 		);
 		writeStack(CODED);
 	});
 
-	test("errors stay redacted — no fixture key material in any message", () => {
-		writeStack("providers:\n  x: []\n");
+	test("errors stay redacted — no fixture key material in any message @unit", () => {
+		writeStack(`${JSON.stringify({ providers: { x: [] } })}\n`);
 		for (const attempt of [
 			() => loadProviderProfiles(stackPath),
 			() => loadProviderConfig(stackPath),
