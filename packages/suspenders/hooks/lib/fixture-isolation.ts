@@ -31,12 +31,20 @@ type Env = Record<string, string | undefined>;
 
 // every env key starting with GIT_ is dropped (GIT_DIR, GIT_WORK_TREE,
 // GIT_INDEX_FILE, GIT_CONFIG*, GIT_AUTHOR_*, GIT_COMMITTER_*, GIT_SSH*,
-// GIT_TRACE*, ...). The prefix rule is the incident-proven bound: the same
-// strip 9b98d661 landed in .githooks/post-commit, now shared here.
+// GIT_TRACE*, ...), plus the two KLH_CLAIM_* lane pins. The prefix rule is
+// the incident-proven bound: the same strip 9b98d661 landed in
+// .githooks/post-commit, now shared here. W2307: a dispatched lane rides
+// KLH_CLAIM_EPOCH/KLH_CLAIM_TOKEN in env; gate-spawned suites that spread
+// process.env fenced fixture items at the LANE's epoch ("transition fenced
+// off: expected epoch=1, found epoch=0", 8 deterministic fails, W2288
+// 2026-10-29) — fixture children must never inherit a claim identity.
+const CLAIM_ENV_KEYS = ["KLH_CLAIM_EPOCH", "KLH_CLAIM_TOKEN"] as const;
 export function stripGitEnv(base: Env = process.env): Env {
 	const clean: Env = {};
+	const claim = new Set<string>(CLAIM_ENV_KEYS);
 	for (const key of Object.keys(base)) {
 		if (key.startsWith("GIT_")) continue;
+		if (claim.has(key)) continue;
 		clean[key] = base[key];
 	}
 	return clean;

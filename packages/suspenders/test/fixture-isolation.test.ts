@@ -59,6 +59,23 @@ describe("stripGitEnv", () => {
 		expect(out.GIT_AUTHOR_EMAIL).toBeUndefined();
 		expect(out.HOME).toBe("/somewhere");
 	});
+	// W2307: the dispatch lane's claim pins must not survive into spawned
+	// test children — the inherited epoch fences fresh fixture items
+	// ("transition fenced off: expected epoch=1, found epoch=0", W2288).
+	test("drops the KLH_CLAIM_* lane pins a dispatched lane rides", () => {
+		const out = stripGitEnv({
+			HOME: "/somewhere",
+			KLH_CLAIM_EPOCH: "1",
+			KLH_CLAIM_TOKEN: "a".repeat(48),
+			KLH_CLAIM_OTHER: "kept — only the two pinned keys are claim identity",
+		});
+		expect(out.KLH_CLAIM_EPOCH).toBeUndefined();
+		expect(out.KLH_CLAIM_TOKEN).toBeUndefined();
+		expect(out.KLH_CLAIM_OTHER).toBe(
+			"kept — only the two pinned keys are claim identity",
+		);
+		expect(out.HOME).toBe("/somewhere");
+	});
 });
 
 describe("fixtureEnv", () => {
