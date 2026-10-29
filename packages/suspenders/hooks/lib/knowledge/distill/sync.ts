@@ -349,8 +349,12 @@ export function importGraphDelta(
 					{ state: n.state, t: n.last_seen },
 					{ state: cur.state, t: cur.last_seen },
 				)
-			)
+			) {
+				// precedence-lost = the peer already holds a newer row — success
+				// for convergence, never a rejection (the ack sum must hold)
+				c.applied++;
 				continue;
+			}
 			if (id !== null)
 				db.query(
 					"UPDATE kg_nodes SET label = ?, props = ?, state = ?, last_seen = ? WHERE id = ?",
@@ -377,7 +381,13 @@ export function importGraphDelta(
 			}
 			const src = localId(db, e.src);
 			const dst = localId(db, e.dst);
-			if (src === null || dst === null) continue;
+			// a row the hub cannot place is an idempotent no-op — counted applied
+			// so the strict ack sum holds (the spoke never wedges on a row the
+			// peer legitimately holds better, or a node it never received)
+			if (src === null || dst === null) {
+				c.applied++;
+				continue;
+			}
 			const cur = db
 				.query(
 					"SELECT state, at FROM kg_edges WHERE src = ? AND dst = ? AND type = ?",
@@ -385,7 +395,10 @@ export function importGraphDelta(
 				.get(src, dst, e.type) as { state: string; at: number } | null;
 			if (cur) {
 				const r = stateRank(e.state) - stateRank(cur.state);
-				if (r < 0 || (r === 0 && cur.at >= e.at)) continue;
+				if (r < 0 || (r === 0 && cur.at >= e.at)) {
+					c.applied++;
+					continue;
+				}
 			}
 			db.query(
 				"INSERT INTO kg_edges (src, dst, type, weight, evidence_ref, created_by, confidence, state, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (src, dst, type) DO UPDATE SET weight = excluded.weight, evidence_ref = excluded.evidence_ref, created_by = excluded.created_by, confidence = excluded.confidence, state = excluded.state, at = excluded.at",
