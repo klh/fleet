@@ -8,11 +8,19 @@ import {
 	lanePrefixOf,
 	methodNotAllowed,
 	options204,
+	pending404,
 	problem,
 } from "./citizenship.ts";
 import { dietRoutes } from "./diet.ts";
+import {
+	ENDPOINTS,
+	matchEndpoint,
+	methodsOf,
+	registryDocument,
+} from "./endpoints.ts";
 import { principalOf } from "./gov/federation.ts";
 import { handleNamedIngress, namedIngressOf } from "./ingress-routes.ts";
+import { opsRoutes } from "./litellm-ops.ts";
 import { modelsFace, modelsRoute } from "./models-route.ts";
 import { pipelineRoutes } from "./pipeline.ts";
 import { proxy } from "./proxy-ingress.ts";
@@ -46,30 +54,36 @@ export function createApp(deps: AppDeps): App {
 		const laneRoute = lanePrefixOf(path);
 		if (laneRoute.lane !== "") {
 			const inner = laneRoute.path;
-			const ingress =
-				inner === "/v1/chat/completions" ||
-				inner === "/v1/messages" ||
-				inner === "/v1/messages/count_tokens" ||
-				inner === "/v1/responses" ||
-				inner === "/v1/models";
-			if (method === "OPTIONS" && ingress)
-				return options204(allowOf(inner) ?? "OPTIONS");
+			// W914: the registry decides lane reachability — the /w/<slug>
+			// prefix is attribution only and never widens surface.
+			const laneMethods = methodsOf(inner);
+			const reachable =
+				laneMethods.length > 0 &&
+				laneMethods.some((m) => matchEndpoint(m, inner)?.lane === true);
+			if (!reachable)
+				return problem({
+					status: 404,
+					code: "buckle.no_route",
+					why: `no route: ${method} ${path}`,
+				});
+			if (method === "OPTIONS") return options204(allowOf(inner) ?? "OPTIONS");
 			if (method === "GET" && inner === "/v1/models")
 				return modelsRoute(deps, req, laneRoute.lane);
-			if (method === "POST" && inner === "/v1/chat/completions")
-				return proxy(req, "openai", inner, deps, laneRoute.lane);
-			if (method === "POST" && inner === "/v1/responses")
-				return proxy(req, "openai", inner, deps, laneRoute.lane);
-			if (method === "POST" && inner === "/v1/messages/count_tokens")
-				return proxy(req, "anthropic", inner, deps, laneRoute.lane);
-			if (method === "POST" && inner === "/v1/messages")
-				return proxy(req, "anthropic", inner, deps, laneRoute.lane);
-			if (ingress) return methodNotAllowed(inner);
-			return problem({
-				status: 404,
-				code: "buckle.no_route",
-				why: `no route: ${method} ${path}`,
-			});
+			if (method === "GET" && inner === "/v1/endpoints")
+				return Response.json(registryDocument());
+			const ops = await opsRoutes(deps, req, inner, laneRoute.lane);
+			if (ops !== null) return ops;
+			const spec = matchEndpoint(method, inner);
+			// a pending registration is versioned but NOT served at this head
+			if (spec !== null && spec.pending !== undefined)
+				return pending404(spec, method, path);
+			if (
+				spec !== null &&
+				spec.dispatch === "dialect" &&
+				spec.dialect !== undefined
+			)
+				return proxy(req, spec.dialect, inner, deps, laneRoute.lane);
+			return methodNotAllowed(inner);
 		}
 		if (method === "GET" && path === "/v1/models")
 			return modelsRoute(deps, req, null);
@@ -136,6 +150,29 @@ export function createApp(deps: AppDeps): App {
 		if (method === "POST" && path === "/v1/chat/completions") {
 			return proxy(req, "openai", path, deps);
 		}
+		// W914: the registry's dialect rows drive the bare-path dispatch —
+		// one loop, never a hand row per path (the table is the one truth).
+		for (const e of ENDPOINTS) {
+			if (
+				e.dispatch === "dialect" &&
+				e.dialect !== undefined &&
+				e.method === method &&
+				e.path === path
+			)
+				return proxy(req, e.dialect, path, deps);
+		}
+		if (method === "GET" && path === "/v1/endpoints") {
+			return Response.json(registryDocument());
+		}
+		// W914 litellm-ops passthrough (files/batches/audio/images-edits) —
+		// registry-declared, byte-faithful, audited.
+		const ops = await opsRoutes(deps, req, path);
+		if (ops !== null) return ops;
+		// registered-but-pending paths 404 honestly (Allow never advertises
+		// a method the head refuses)
+		const bareSpec = matchEndpoint(method, path);
+		if (bareSpec !== null && bareSpec.pending !== undefined)
+			return pending404(bareSpec, method, path);
 		// W912: the OpenAI Responses ingress — same openai dialect, the path
 		// forwards verbatim (responses-only models are NEVER re-targeted at
 		// chat completions; other-dialect hops are ineligible by bridge law).

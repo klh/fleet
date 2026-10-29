@@ -80,5 +80,6 @@ export function testDeps(
 		decide,
 		table,
 		accountPolicy: opts?.accountPolicy,
+		policy,
 	};
 }

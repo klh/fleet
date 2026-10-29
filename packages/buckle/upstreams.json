@@ -5,7 +5,8 @@
 		"Fields: url (upstream base), dialect (openai | anthropic), optional model (upstream's real model id when the group alias differs — the request body's model field is patched; absent = forward verbatim), optional api_key_env (env var name holding the bearer key), optional priority (non-negative integer; lower wins among healthy deployments of equal fit — set in the machine BUCKLE_UPSTREAMS override).",
 		"W206: committed anthropic-dialect rows for the Claude Code model ids are dormant until ANTHROPIC_API_KEY exists at runtime (keys live in env vars, never committed).",
 		"W426: dialect no longer walls a group off — same-dialect rows rank first, other-dialect rows translate natively (bodies/SSE, both directions, streaming included); count_tokens never translates.",
-		"W219.1 litellm-as-engine pattern (activation = machine BUCKLE_UPSTREAMS override): url http://127.0.0.1:4100, adapter openai-compat, model = litellm model_name, adapter_config {proxy_kind: litellm}, api_key_env LITELLM_KEY."
+		"W219.1 litellm-as-engine pattern (activation = machine BUCKLE_UPSTREAMS override): url http://127.0.0.1:4100, adapter openai-compat, model = litellm model_name, adapter_config {proxy_kind: litellm}, api_key_env LITELLM_KEY.",
+		"W914 litellm-ops: the ops passthrough group — byte-faithful relay for the registered files/batches/audio-multipart/images-edits paths (src/litellm-ops.ts resolves the first healthy openai row of this group; Bearer = the row's api_key_env, read at fetch time). Activation = the machine BUCKLE_UPSTREAMS override, same as the litellm pattern."
 	],
 	"version": 1,
 	"groups": {
