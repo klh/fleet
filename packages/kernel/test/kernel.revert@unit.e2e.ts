@@ -2,7 +2,7 @@
 // classifier + landing rule. The twins were DELETED in the same landing
 // (W1476 review-evals.ts, W1477 review-guardrail.ts), so there is no
 // byte-parity block in kernel.twin-parity.test.ts — this file is the pin.
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "@playwright/test";
 import {
 	classifyRevert,
 	isRevertLanding,

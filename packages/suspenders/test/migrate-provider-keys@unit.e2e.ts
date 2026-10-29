@@ -3,7 +3,7 @@
 // inline keys into the machine stack.json providers block, atomic 0600 with
 // a timestamped 0600 backup, refusing ambiguity without an explicit --map).
 // Pure-function suite: plans resolve from injected files/env only.
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "@playwright/test";
 import {
 	mkdirSync,
 	mkdtempSync,

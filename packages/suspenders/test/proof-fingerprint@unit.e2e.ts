@@ -2,7 +2,7 @@
 // face for workspaceFingerprint (determinism, mid-run write, deletion,
 // unreadable → null) and fingerprintVerdict (unknown semantics: either side
 // null = unknown; mismatch = changed; equal = unchanged).
-import { afterAll, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	chmodSync,
 	mkdirSync,
@@ -24,7 +24,7 @@ const tree = (): string => {
 	return root;
 };
 
-afterAll(() => {
+test.afterAll(() => {
 	// bun rmSync(force) can silently leave the fixture's .git — bounded 2nd pass
 	for (const r of roots) {
 		for (const inner of ["locked", "sub"])
@@ -45,7 +45,7 @@ test("unchanged tree: identical hashes across two fingerprints", () => {
 	writeFileSync(join(root, "sub/b.ts"), "export const b = 2;\n");
 	const before = workspaceFingerprint(root);
 	const after = workspaceFingerprint(root);
-	expect(before).toBeString();
+	expect(typeof before).toBe("string");
 	expect(before).toBe(after);
 });
 

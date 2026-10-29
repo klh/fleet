@@ -24,7 +24,11 @@ const SELF = "tests/test-framework-guard.test.ts";
 // W1294.5 sweep (24 co-situated suspenders specs) re-pins DOWN (802 → 778);
 // W1294.3 sweep-A (82 suspenders/test specs) re-pins DOWN (778 → 696) — 6
 // post-commit gate inputs (.githooks/post-commit, bun-run) stay bun:test.
-const PIN = 696;
+// W2279 ratchet repair (2026-10-29): the 3 un-ported stragglers (kernel
+// revert classifier pin, migrate-provider-keys CLI, proof-fingerprint unit
+// face) ported 1:1 to tagged @unit e2e specs — re-pin to the measured
+// candidate count (guard's own counting, never arithmetic from a stale base).
+const PIN = 674;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });
