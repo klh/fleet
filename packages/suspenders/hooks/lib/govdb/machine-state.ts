@@ -50,17 +50,20 @@ export function migrateMachineState(db: MsDb): number {
 	ensureMachineState(db);
 	let moved = 0;
 	for (const p of MACHINE_STATE_PREFIXES) {
-		db.query(
-			"INSERT OR IGNORE INTO machine_state (key, value, source, ts) SELECT key, value, COALESCE(source, ''), ts FROM facts WHERE key >= ? AND key < ?",
-		).run(p, upper(p));
-		// count first: DELETE .changes also counts the facts_fts/deltas
-		// trigger writes, so it overstates the rows moved
+		// read-probe first: an already-migrated db must never take the write
+		// lock on open (every CLI open would contend with live writers —
+		// verb-surface caught BUSY). Counting first also dodges DELETE
+		// .changes, which includes the facts_fts/deltas trigger writes.
 		const n = (
 			db
 				.query("SELECT COUNT(*) AS n FROM facts WHERE key >= ? AND key < ?")
 				.get(p, upper(p)) as { n: number } | null
 		)?.n;
 		if (!n) continue;
+		// INSERT OR IGNORE then DELETE: an interrupted pass re-runs safely
+		db.query(
+			"INSERT OR IGNORE INTO machine_state (key, value, source, ts) SELECT key, value, COALESCE(source, ''), ts FROM facts WHERE key >= ? AND key < ?",
+		).run(p, upper(p));
 		db.query("DELETE FROM facts WHERE key >= ? AND key < ?").run(p, upper(p));
 		moved += n;
 	}
