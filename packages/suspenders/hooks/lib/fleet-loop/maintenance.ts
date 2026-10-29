@@ -24,9 +24,9 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { appendSweepNotice, pausePath, readPause } from "./sweep-state.ts";
-import type { LoopDeps } from "./runtime.ts";
 import { MODEL_HEALTH_SWEEP_S } from "../hub/model-health.ts";
+import type { LoopDeps } from "./runtime.ts";
+import { appendSweepNotice, pausePath, readPause } from "./sweep-state.ts";
 
 export interface MaintenanceTask {
 	/** registry name — also the stamp key and the log tag */

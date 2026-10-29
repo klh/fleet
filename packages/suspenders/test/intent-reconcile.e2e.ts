@@ -6,24 +6,25 @@
 // lane. Also pins the W2260 no-blanket-reclaim bound: an intent whose
 // process verdict is ALIVE is never failed, whatever the work state says —
 // claimant-liveness contradictions belong to the reclaim path, not here.
-import { expect, test } from "@playwright/test";
+
 import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
-import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
+import { expect, test } from "@playwright/test";
 import {
-	heldLaunchItems,
-	launchSchema,
-	type LaunchIntent,
-} from "../scripts/lib/launch-fencing.ts";
-import { acquireLaunchLease } from "../scripts/lib/launch-preflight.ts";
+	MAINTENANCE_TASKS,
+	suspendersRoot,
+} from "../hooks/lib/fleet-loop/maintenance.ts";
+import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 import {
 	reconcileTerminalLaunchIntents,
 	TERMINAL_WORK_STATES,
 } from "../scripts/lib/intent-reconcile.ts";
 import {
-	MAINTENANCE_TASKS,
-	suspendersRoot,
-} from "../hooks/lib/fleet-loop/maintenance.ts";
+	heldLaunchItems,
+	type LaunchIntent,
+	launchSchema,
+} from "../scripts/lib/launch-fencing.ts";
+import { acquireLaunchLease } from "../scripts/lib/launch-preflight.ts";
 
 const unknown = (): "unknown" => "unknown";
 const alive = (): "alive" => "alive";
@@ -136,8 +137,7 @@ test.describe("@unit", () => {
 
 	test("every terminal work state reconciles; READY/CLAIMED never do", () => {
 		const { store } = fixture();
-		for (const state of TERMINAL_WORK_STATES)
-			plant(store, `T-${state}`, state);
+		for (const state of TERMINAL_WORK_STATES) plant(store, `T-${state}`, state);
 		plant(store, "N-READY", "READY");
 		plant(store, "N-CLAIMED", "CLAIMED");
 		const report = reconcileTerminalLaunchIntents({

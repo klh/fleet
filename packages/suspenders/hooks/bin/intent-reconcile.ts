@@ -1,4 +1,9 @@
 #!/usr/bin/env bun
+import {
+	type ReconcileReport,
+	reconcileTerminalLaunchIntents,
+} from "../../scripts/lib/intent-reconcile.ts";
+import { inspectLaunchIntent } from "../../scripts/lib/launch-fencing.ts";
 // hooks/bin/intent-reconcile.ts — CLI face of the W2262 stale launch-intent
 // reconcile (scripts/lib/intent-reconcile.ts). Fails lane_launch_intents rows
 // whose work item is TERMINAL (DONE/SUPERSEDED/CANCELLED/FAILED) and whose
@@ -11,11 +16,6 @@
 // live lanes).
 import { openStore, projectIdentity } from "../lib/govdb/govdb.ts";
 import { canonicalProjectRoot } from "../lib/lanes/lane-registry.ts";
-import { inspectLaunchIntent } from "../../scripts/lib/launch-fencing.ts";
-import {
-	reconcileTerminalLaunchIntents,
-	type ReconcileReport,
-} from "../../scripts/lib/intent-reconcile.ts";
 import {
 	defineVerb,
 	dieFor,
@@ -25,8 +25,7 @@ import {
 
 const SPEC = defineVerb({
 	name: "intent-reconcile",
-	usage:
-		"usage: bun intent-reconcile.ts [--act] [--json] [--repo <dir>]",
+	usage: "usage: bun intent-reconcile.ts [--act] [--json] [--repo <dir>]",
 	flags: ["--repo"],
 	switches: ["--act", "--json"],
 });

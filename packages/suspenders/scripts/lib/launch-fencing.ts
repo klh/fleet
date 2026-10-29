@@ -1,17 +1,17 @@
+import { dlopen, FFIType, ptr } from "bun:ffi";
 import {
+	existsSync,
+	mkdirSync,
 	readFileSync,
 	realpathSync,
-	mkdirSync,
 	writeFileSync,
-	existsSync,
 } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
-import { dlopen, FFIType, ptr } from "bun:ffi";
-import { openStore, type GovernorStore } from "../../hooks/lib/govdb/govdb.ts";
+import { type GovernorStore, openStore } from "../../hooks/lib/govdb/govdb.ts";
 import { sameMachine } from "../../hooks/lib/host-identity.ts";
-import { compareProcessBirth, darwinProcessBirth } from "./process-birth.ts";
 import { TERMINAL_WORK_STATES } from "./intent-reconcile.ts";
+import { compareProcessBirth, darwinProcessBirth } from "./process-birth.ts";
 
 export type LaunchIntent = {
 	project: string;

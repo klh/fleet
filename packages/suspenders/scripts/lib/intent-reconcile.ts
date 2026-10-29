@@ -63,7 +63,12 @@ export interface ReconcileReport {
 export function reconcileTerminalLaunchIntents(
 	deps: ReconcileDeps,
 ): ReconcileReport {
-	const inspect = deps.inspect ?? ((): IntentInspect => () => "unknown")();
+	const inspect =
+		deps.inspect ??
+		(
+			(): IntentInspect => () =>
+				"unknown"
+		)();
 	const now = deps.now ?? ((): number => Date.now());
 	const act = deps.act ?? false;
 	const workState =
