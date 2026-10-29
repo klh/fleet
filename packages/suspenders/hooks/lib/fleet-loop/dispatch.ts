@@ -485,7 +485,7 @@ export async function runDispatch(
 				}
 			}
 			writeFileSync(`${wt}/.git`, `gitdir: ${store}\n`);
-			const dependencies = installWorktreeDependencies(wt);
+			const dependencies = installWorktreeDependencies(REPO, wt);
 			if (!dependencies.ok) {
 				console.error(
 					`codex workspace dependencies failed: ${dependencies.note}`,
