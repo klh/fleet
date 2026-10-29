@@ -1,4 +1,12 @@
-import { mkdirSync, realpathSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	unlinkSync,
+	mkdirSync,
+	realpathSync,
+	renameSync,
+	writeFileSync,
+} from "node:fs";
 import { join, relative } from "node:path";
 import {
 	addedDiffLines,
@@ -394,16 +402,32 @@ function mergeCandidate(options: Options): Result {
 		const finalReview = options.verifyReview?.(sha);
 		if (finalReview && !finalReview.ok)
 			return fail(`review required: ${finalReview.why}`);
+		// W2255.2: the publish grant is a one-use attestation minted HERE, only
+		// after the final canonical verifyReview PASS, and bound to old/new —
+		// never a caller-supplied env pair, which any local process could forge.
+		const attest = command(
+			repo,
+			["git", "rev-parse", "--git-path", "fleet-main-publish-attestation.json"],
+			timeoutMs,
+		);
+		if (attest.code !== 0)
+			return fail("merge guard: cannot resolve attestation path");
+		const attestationPath = attest.out.trim();
+		const temp = `${attestationPath}.${crypto.randomUUID()}`;
+		writeFileSync(
+			temp,
+			JSON.stringify({ old: head, new: sha, at: Date.now() }),
+			{ mode: 0o600, flag: "wx" },
+		);
+		chmodSync(temp, 0o600);
+		renameSync(temp, attestationPath);
 		const publish = command(
 			repo,
 			["git", "merge", "--ff-only", "--no-edit", sha],
 			timeoutMs,
-			{
-				...process.env,
-				FLEET_GUARDED_MAIN_OLD: head,
-				FLEET_GUARDED_MAIN_NEW: sha,
-			},
 		);
+		if (publish.code !== 0 && existsSync(attestationPath))
+			unlinkSync(attestationPath);
 		return publish.code === 0
 			? { code: 0, tail: "" }
 			: fail(`merge guard: publication refused: ${publish.err.slice(-1600)}`);

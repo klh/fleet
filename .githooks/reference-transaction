@@ -52,6 +52,12 @@ if (main.length === 0) process.exit(0);
 const path = grantPath();
 if (phase !== "prepared") {
 	if (existsSync(path)) unlinkSync(path);
+	const staleAttest = run(
+		"rev-parse",
+		"--git-path",
+		"fleet-main-publish-attestation.json",
+	);
+	if (existsSync(staleAttest)) unlinkSync(staleAttest);
 	process.exit(0);
 }
 if (main.length !== 1) deny("multiple main updates in one transaction");
@@ -59,11 +65,36 @@ const [old, next] = main[0] ?? [];
 if (!old || !next || !/^[a-f0-9]{40,64}$/.test(old) || !/^[a-f0-9]{40,64}$/.test(next))
 	deny("invalid main ref pair");
 if (old === next) process.exit(0);
-if (
-	process.env.FLEET_GUARDED_MAIN_OLD === old &&
-	process.env.FLEET_GUARDED_MAIN_NEW === next
-)
-	process.exit(0);
+// W2255.2: the ONLY guarded-publication credential is the one-use
+// attestation merge-guard.ts mints after canonical verifyReview PASS,
+// bound to this exact old→new pair. A caller-supplied env pair is forgeable
+// by any local process and grants nothing.
+const attestPath = run(
+	"rev-parse",
+	"--git-path",
+	"fleet-main-publish-attestation.json",
+);
+if (existsSync(attestPath)) {
+	let attestation: { old?: unknown; new?: unknown; at?: unknown };
+	try {
+		if ((statSync(attestPath).mode & 0o777) !== 0o600)
+			deny("publish attestation has unsafe mode");
+		attestation = JSON.parse(readFileSync(attestPath, "utf8"));
+	} catch {
+		deny("publish attestation unreadable");
+	}
+	if (
+		attestation.old === old &&
+		attestation.new === next &&
+		typeof attestation.at === "number" &&
+		Date.now() - attestation.at <= 120_000 &&
+		Date.now() >= attestation.at
+	) {
+		unlinkSync(attestPath);
+		process.exit(0);
+	}
+	deny("publish attestation is stale or for another ref pair");
+}
 if (!existsSync(path)) deny("no exact publication grant");
 let grant: { old?: unknown; tree?: unknown; at?: unknown };
 try {

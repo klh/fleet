@@ -83,6 +83,26 @@ test("direct main merges cannot bypass exact-commit review", () => {
 			"Main ref update refused",
 		);
 		expect(git(world.repo, "rev-parse", "HEAD").out).toBe(before);
+		// W2255.2: the caller-supplied env pair that used to be trusted alone
+		// is forgeable by any local process — it must NOT impersonate the
+		// guarded publish, which now requires the one-use minted attestation.
+		const forged = gitWithEnv(
+			world.repo,
+			{
+				FLEET_GUARDED_MAIN_OLD: before,
+				FLEET_GUARDED_MAIN_NEW: git(
+					world.repo,
+					"rev-parse",
+					"suspenders/BYPASS",
+				).out,
+			},
+			"merge",
+			"--ff-only",
+			"suspenders/BYPASS",
+		);
+		expect(forged.code).not.toBe(0);
+		expect(`${forged.out}${forged.err}`).toContain("Main ref update refused");
+		expect(git(world.repo, "rev-parse", "HEAD").out).toBe(before);
 		expect(git(world.repo, "reset", "--hard", "HEAD").code).toBe(0);
 		const staged = git(
 			world.repo,
@@ -144,6 +164,23 @@ test("direct main merges cannot bypass exact-commit review", () => {
 	}
 });
 const repos: string[] = [];
+const gitWithEnv = (
+	repo: string,
+	env: Record<string, string>,
+	...args: string[]
+) => {
+	const p = Bun.spawnSync(["git", ...args], {
+		cwd: repo,
+		env: { ...process.env, ...env },
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	return {
+		code: p.exitCode,
+		out: p.stdout.toString().trim(),
+		err: p.stderr.toString(),
+	};
+};
 const git = (repo: string, ...args: string[]) => {
 	const p = Bun.spawnSync(["git", ...args], {
 		cwd: repo,
