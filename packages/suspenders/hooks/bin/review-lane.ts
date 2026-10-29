@@ -19,22 +19,22 @@ import {
 	shareNodeModules,
 	TEST_FILE,
 } from "../lib/gates/coverage-proof.ts";
-import { requestReviewLeg, reviewPrompt } from "../lib/gates/review-prompt.ts";
 import {
-	priorBlockingReviewLines,
-	publishReviewReceipt,
-	reviewContext,
-	reviewFindingIds,
-} from "../lib/gates/review-receipt.ts";
+	fingerprintVerdict,
+	workspaceFingerprint,
+} from "../lib/gates/proof-fingerprint.ts";
+import { requestReviewLeg, reviewPrompt } from "../lib/gates/review-prompt.ts";
 import {
 	parseFallbackModels,
 	renderTrail,
 	walkLegs,
 } from "../lib/gates/review-quota.ts";
 import {
-	fingerprintVerdict,
-	workspaceFingerprint,
-} from "../lib/gates/proof-fingerprint.ts";
+	priorBlockingReviewLines,
+	publishReviewReceipt,
+	reviewContext,
+	reviewFindingIds,
+} from "../lib/gates/review-receipt.ts";
 import {
 	finishReviewRequest,
 	reviewRequestKey,

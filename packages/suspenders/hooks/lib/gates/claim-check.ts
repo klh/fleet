@@ -48,10 +48,10 @@ export const CLAIM_CHECK_SCAN_BYTES = 8 * 1024 * 1024;
 /** mtime grace after the last passing run (post-test formatting lands here). */
 export const CLAIM_CHECK_GRACE_MS = 120_000;
 
+export type { ClaimEvent, TranscriptEvents } from "./claim-evidence.ts";
 // The claim/run vocabulary is the shared evidence surface (claim-evidence.ts);
 // re-exported so existing importers of this gate keep one entry point.
 export { isClaim, isPassingRun, runCounts } from "./claim-evidence.ts";
-export type { ClaimEvent, TranscriptEvents } from "./claim-evidence.ts";
 
 /** Extract claim events (assistant prose, through every registered reader)
  *  and run events (W917 origin gate) through `client`'s registry evidence
