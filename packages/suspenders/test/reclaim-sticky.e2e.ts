@@ -33,7 +33,7 @@ test.describe("@unit", () => {
 		const db = new Database(":memory:");
 		databases.push(db);
 		db.run(
-			"CREATE TABLE work_items(project TEXT, id TEXT, state TEXT, owner_sid TEXT, scope TEXT, updated_at INTEGER, alloc_reason TEXT, origin TEXT, claim_token_hash TEXT, result_sha TEXT, PRIMARY KEY(project, id))",
+			"CREATE TABLE work_items(project TEXT, id TEXT, state TEXT, owner_sid TEXT, scope TEXT, updated_at INTEGER, alloc_reason TEXT, origin TEXT, claim_token_hash TEXT, result_sha TEXT, claim_epoch INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(project, id))",
 		);
 		db.run(
 			"CREATE TABLE claims(sid TEXT, scope TEXT, intent TEXT, hot INTEGER, ts INTEGER, tp TEXT)",
@@ -48,7 +48,7 @@ test.describe("@unit", () => {
 			"CREATE TABLE work_deps(work_id TEXT, project TEXT, depends_on TEXT)",
 		);
 		db.run(
-			"INSERT INTO work_items VALUES ('p','W1','CLAIMED','o1','src',100,NULL,NULL,NULL,NULL)",
+			"INSERT INTO work_items VALUES ('p','W1','CLAIMED','o1','src',100,NULL,NULL,NULL,NULL,0)",
 		);
 		return {
 			local: true,

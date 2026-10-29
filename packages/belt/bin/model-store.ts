@@ -185,6 +185,15 @@ export function buildServer(): { stop: () => void; port: number } {
  *  `serve` (default) runs the face; sync-on-boot knob pre-warms the store. */
 export async function main(argv: string[]): Promise<number> {
 	const cmd = argv[0] ?? "serve";
+	// the check-pack bin proof runs every bin under --help; serving instead
+	// of exiting wedges the pre-push gate when no sibling holds the port
+	if (cmd === "--help" || cmd === "-h") {
+		console.log(`model-store — the hub model store face + CLI
+usage: bun belt/bin/model-store.ts [serve] | sync [--from <url>]
+  serve (default)  HTTP face on MODEL_STORE_PORT (default 7797)
+  sync             one-shot catalog sync; exit 0 iff no entry failed`);
+		return 0;
+	}
 	if (cmd === "sync") {
 		const from = argv[argv.indexOf("--from") + 1] ?? "";
 		const chain = from
