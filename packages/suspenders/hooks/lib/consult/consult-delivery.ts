@@ -112,6 +112,11 @@ export interface DeliveryDeps {
 	bank?: (title: string, text: string, ref: string) => Promise<string>;
 	/** advisory lessons attached when the oracle cannot answer */
 	lessons?: (question: string) => string[];
+	/** cite the entry that answered, so asker feedback can vote on it */
+	cite?: (
+		consultId: number,
+		hit: OracleHitShape & { source_ref?: string | null },
+	) => void;
 }
 
 export interface ConsultRequest {
@@ -264,6 +269,7 @@ export async function submitConsult(
 				id,
 			);
 			pushJson(db, id, "channels", { ch: "knowledge", at: now });
+			deps.cite?.(id, hit.hit);
 			deps.emit({
 				kind: "consult.answer",
 				to: req.asker,

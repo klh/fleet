@@ -16,6 +16,21 @@ import {
 } from "../lib/knowledge/knowledge-roll.ts";
 import { openKnowledgeDb } from "../lib/knowledge/govdb-knowledge.ts";
 import { promoteActorError } from "../lib/knowledge/promote-actor.ts";
+import { z } from "zod";
+import { coordSettings } from "../lib/consult/consult-config.ts";
+import {
+	answerMark,
+	type OracleTier,
+	oracleEligibility,
+	outranks,
+} from "../lib/consult/oracle.ts";
+import { entryDemoted } from "../lib/knowledge/knowledge-votes.ts";
+
+const HubConsultSchema = z.object({
+	question: z.string().trim().min(3).max(4000),
+	as: z.string().optional(),
+	priority: z.enum(["high", "normal", "low"]).optional(),
+});
 import {
 	aeLeavesFace,
 	aeMergeFace,
@@ -49,6 +64,8 @@ import {
 //   POST /retire   {id, superseded_by?}
 //   POST /note     {id, sid, what}
 //   GET  /verify[/<id>]
+//   POST /v1/consult {question, as?, priority?} — phase 4 oracle-first face
+//     (answered_by knowledge + trust mark, or lessons for lane delivery)
 // W1218: POST /knowledge/query {question, limit?} — NL in, the pinned SQL
 //   LLM translates, the SAME read-only lint executes; rows + sql + elapsed.
 //   POST /knowledge/sql {sql, params?, limit?} — direct parameterized
@@ -352,6 +369,43 @@ const base = {
 					preamble: KNOWLEDGE_PRECEDENCE,
 					cards: proseCards(query, out, root),
 					hits: out,
+				});
+			}
+			// hub design phase 4: the consult face — ORACLE FIRST on the hub's
+			// knowledge. An eligible hit (active+verified, or candidate marked
+			// unreviewed; never drift, never vote-demoted) answers; a miss
+			// returns advisory lessons and the caller delivers lane-side.
+			if (req.method === "POST" && path === "/v1/consult") {
+				const parsed = HubConsultSchema.safeParse(body);
+				if (!parsed.success)
+					return json({ error: z.prettifyError(parsed.error) }, 400);
+				const q = parsed.data.question;
+				const hits = withTrust(await store.search({ query: q, limit: 10 }));
+				const kb = openKnowledgeDb();
+				let pick: { h: KnowledgeHit; tier: OracleTier } | null = null;
+				try {
+					const threshold = coordSettings().knowledge.downvote_threshold;
+					for (const h of hits) {
+						const tier = oracleEligibility(h);
+						if (!tier || entryDemoted(kb, h.id, threshold)) continue;
+						if (outranks({ tier, overlap: 0 }, pick && { ...pick, overlap: 0 }))
+							pick = { h, tier };
+					}
+				} finally {
+					kb.close();
+				}
+				if (!pick)
+					return json({
+						answered_by: null,
+						lessons: proseCards(q, hits.slice(0, 3).map(scrubHit), API_ROOT),
+					});
+				const h = authed ? pick.h : scrubHit(pick.h);
+				return json({
+					answered_by: "knowledge",
+					tier: pick.tier,
+					answer: h.fact ?? h.snippet,
+					mark: answerMark(pick.tier, h, "C<local>"),
+					hit: h,
 				});
 			}
 			if (req.method === "POST" && path === "/curate") {

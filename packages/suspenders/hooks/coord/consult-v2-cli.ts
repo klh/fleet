@@ -24,6 +24,10 @@ import {
 	parsePriority,
 	parseRoute,
 } from "../lib/consult/consult-v2.ts";
+import {
+	ensureConsultFederation,
+	recordCitations,
+} from "../lib/federation/consult-federation.ts";
 import { suggestKnowledge } from "../lib/knowledge/kev-curation.ts";
 import { curationGate, deferToReview } from "../lib/knowledge/kev-review.ts";
 import { applyVote } from "../lib/knowledge/knowledge-votes.ts";
@@ -94,6 +98,18 @@ export function liveDeps(): DeliveryDeps {
 		lessons: (q) => {
 			const l = lessonLookup(q);
 			return l ? [`${l.key}: ${l.value.slice(0, 200)}`] : [];
+		},
+		cite: (consultId, hit) => {
+			if (hit.id == null) return;
+			ensureConsultFederation(db);
+			recordCitations(db, consultId, [
+				{
+					kind: "fact",
+					refId: hit.id,
+					sourceRef: hit.source_ref ?? null,
+					sourceHash: null,
+				},
+			]);
 		},
 	};
 }
