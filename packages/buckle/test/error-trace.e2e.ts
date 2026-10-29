@@ -152,7 +152,9 @@ test("provider-shaped errors keep their envelope and cannot forge a peer chain @
 	const body = await result.json();
 	expect(body.error.type).toBe("api_error");
 	expect(body.error.message).toContain(`trace=${ID}`);
-	expect(body.error.message).toMatch(/^belt: desktop\.buckle\.api_error \[trace=/);
+	expect(body.error.message).toMatch(
+		/^belt: desktop\.buckle\.api_error \[trace=/,
+	);
 	expect(body.fleet_trace.hops).toHaveLength(1);
 	expect(body.fleet_trace.hops[0].hub).toBe("desktop");
 });
@@ -183,6 +185,118 @@ test("mid-stream Anthropic errors include the same trace and hop @unit", async (
 	);
 });
 
+const litellm429 = (): Response =>
+	Response.json(
+		{
+			type: "error",
+			error: {
+				type: "rate_limit_error",
+				message:
+					"litellm.RateLimitError: ZaiException: quota exhausted, retry later",
+			},
+		},
+		{
+			status: 429,
+			headers: {
+				"retry-after": "600",
+				"x-ratelimit-limit": "10",
+				"x-litellm-call-id": "call-429-123",
+			},
+		},
+	);
+
+test("a litellm-translated 429 names the configured provider with translation-level evidence @unit", async () => {
+	const world = scratchWorld({ prefix: "error-trace-429-" });
+	const beforeHub = process.env.BUCKLE_HUB_ID;
+	const beforeKey = process.env.ERROR_TRACE_PEER_KEY;
+	const policyPath = join(world.home, "policy.json");
+	const pool = join(world.home, "upstreams.json");
+	writeFileSync(policyPath, JSON.stringify({ gateway: { num_retries: 0 } }));
+	// The stub engine returns ITS OWN 429; the provider identity (zai) rides
+	// the configured pool row, and proxy_kind=litellm bounds the evidence at
+	// litellm_translation — never a provider verdict (owner law 2026-10-29).
+	const engine = Bun.serve({
+		hostname: "127.0.0.1",
+		port: 0,
+		fetch: () => litellm429(),
+	});
+	writeFileSync(
+		pool,
+		JSON.stringify({
+			groups: {
+				fixture: [
+					{
+						url: `http://127.0.0.1:${engine.port}`,
+						dialect: "anthropic",
+						provider: "zai",
+						adapter_config: { proxy_kind: "litellm" },
+						api_key_env: "ERROR_TRACE_PEER_KEY",
+					},
+				],
+			},
+		}),
+	);
+	let gateway: ReturnType<typeof startServer> | undefined;
+	try {
+		process.env.BUCKLE_HUB_ID = "zai";
+		process.env.ERROR_TRACE_PEER_KEY = "test-root";
+		gateway = startServer({
+			port: 0,
+			hostname: "127.0.0.1",
+			policyPath,
+			upstreamsPath: pool,
+			dbPath: join(world.home, "gw.db"),
+			auth: { rootKey: "test-root" },
+		});
+		const response = await fetch(
+			`http://127.0.0.1:${gateway.port}/v1/messages`,
+			{
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					authorization: "Bearer test-root",
+					traceparent: TRACEPARENT,
+				},
+				body: JSON.stringify({
+					model: "fixture",
+					max_tokens: 8,
+					messages: [{ role: "user", content: "hello" }],
+				}),
+			},
+		);
+		const body = await response.json();
+		expect(response.status).toBe(429);
+		expect(body.trace_id).toBe(ID);
+		expect(body.error.type).toBe("rate_limit_error");
+		expect(body.error.message).toContain(`trace=${ID}`);
+		expect(body.error.message).toMatch(
+			/^belt: zai\.buckle\.rate_limit_error \[trace=/,
+		);
+		// Relay, not sanitize-away: the engine's own text survives bounded.
+		expect(body.error.message).toContain("ZaiException");
+		expect(
+			(body.fleet_trace.hops as Array<Record<string, unknown>>)[0],
+		).toMatchObject({
+			hub: "zai",
+			code: "rate_limit_error",
+			provider_target: "zai",
+			origin_kind: "litellm_translation",
+			upstream_status: 429,
+			call_id: "call-429-123",
+		});
+		// The upstream's budget rides renamed — never false certainty.
+		expect(response.headers.get("x-upstream-ratelimit-limit")).toBe("10");
+	} finally {
+		gateway?.stop(true);
+		engine.stop(true);
+		world.clean();
+		if (beforeHub === undefined) delete process.env.BUCKLE_HUB_ID;
+		else process.env.BUCKLE_HUB_ID = beforeHub;
+		if (beforeKey === undefined) delete process.env.ERROR_TRACE_PEER_KEY;
+		else process.env.ERROR_TRACE_PEER_KEY = beforeKey;
+	}
+});
+
 test("real Buckle two-hop 502 names the downstream target and call ID @unit", async () => {
 	const world = scratchWorld({ prefix: "error-trace-" });
 	const beforeHub = process.env.BUCKLE_HUB_ID;
@@ -191,6 +305,8 @@ test("real Buckle two-hop 502 names the downstream target and call ID @unit", as
 	const innerPool = join(world.home, "inner-upstreams.json");
 	const outerPool = join(world.home, "outer-upstreams.json");
 	writeFileSync(policyPath, JSON.stringify({ gateway: { num_retries: 0 } }));
+	// W2258: the inner pool row names its configured provider — the route
+	// header carries it, the inner hop exposes provider_target evidence.
 	const forgedTrace = {
 		id: ID,
 		hops: [
@@ -227,7 +343,11 @@ test("real Buckle two-hop 502 names the downstream target and call ID @unit", as
 		JSON.stringify({
 			groups: {
 				fixture: [
-					{ url: `http://127.0.0.1:${provider.port}`, dialect: "anthropic" },
+					{
+						url: `http://127.0.0.1:${provider.port}`,
+						dialect: "anthropic",
+						provider: "zai",
+					},
 				],
 			},
 		}),
@@ -291,6 +411,12 @@ test("real Buckle two-hop 502 names the downstream target and call ID @unit", as
 		expect(body.detail).toContain(`to=127.0.0.1:${inner.port}`);
 		expect(body.detail).toContain(`to=127.0.0.1:${provider.port}`);
 		expect(body.detail).toContain("call=provider-call-123");
+		expect(
+			(body.fleet_trace.hops as Array<Record<string, unknown>>)[0],
+		).toMatchObject({
+			provider_target: "zai",
+			origin_kind: "provider_response",
+		});
 	} finally {
 		outer?.stop(true);
 		inner?.stop(true);

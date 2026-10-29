@@ -43,6 +43,19 @@ const FleetErrorHopSchema = z.object({
 	upstream_status: z.number().int().min(100).max(599).optional(),
 	upstream_request_id: SafeIdSchema.optional(),
 	call_id: SafeIdSchema.optional(),
+	/** Configured provider of the leg that failed (never inferred from
+	 *  error text — config identity only, so LiteLLM hops carry the
+	 *  provider they were configured for, not litellm itself). */
+	provider_target: z
+		.string()
+		.regex(/^\w[\w.-]{0,63}$/)
+		.refine((value) => !SECRET_PREFIX.test(value))
+		.optional(),
+	/** Evidence level for provider_target: "provider_response" = the
+	 *  provider's own endpoint answered; "litellm_translation" = the
+	 *  status came from a litellm translation layer, the provider rides
+	 *  configuration only. Never inferred from error text. */
+	origin_kind: z.enum(["provider_response", "litellm_translation"]).optional(),
 });
 const FleetErrorTraceSchema = z.object({
 	id: z.string().regex(TRACE_ID),
@@ -97,6 +110,8 @@ function currentHop(resp: Response, hub: string, code: string | null) {
 	const callId = safeCorrelationId(resp.headers.get("x-litellm-call-id"));
 	const status = Number(resp.headers.get("x-klh-upstream-status"));
 	let target: string | undefined;
+	let providerTarget: string | undefined;
+	let providerSource: "provider_response" | "litellm_translation" | undefined;
 	try {
 		const route = object(JSON.parse(resp.headers.get("x-belt-route") ?? ""));
 		const row = object(route?.target);
@@ -110,6 +125,14 @@ function currentHop(resp: Response, hub: string, code: string | null) {
 			port <= 65535
 		)
 			target = `${host}:${port}`;
+		providerTarget =
+			safeProviderErrorToken(route?.provider_target) ?? undefined;
+		providerSource =
+			route?.provider_source === "litellm_translation"
+				? "litellm_translation"
+				: providerTarget
+					? "provider_response"
+					: undefined;
 	} catch {
 		// A missing route header is expected for auth and admin errors.
 	}
@@ -120,6 +143,12 @@ function currentHop(resp: Response, hub: string, code: string | null) {
 		...(code ? { code } : {}),
 		...(rid ? { rid } : {}),
 		...(target ? { target } : {}),
+		...(providerTarget
+			? {
+					provider_target: providerTarget,
+					...(providerSource ? { origin_kind: providerSource } : {}),
+				}
+			: {}),
 		...(Number.isInteger(status) && status >= 100 && status <= 599
 			? { upstream_status: status }
 			: {}),

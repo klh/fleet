@@ -18,6 +18,48 @@ import {
 // seam (model-store) — re-exported here so the telemetry edge stays single.
 export { stampResponse };
 
+/** The W2258 origin-qualified error prefix: `belt: <hub>.belt.<code> — `.
+ *  Every belt-generated client-visible error detail starts with it (the
+ *  router-shim's direct errors included). Hub rides BELT_HUB_ID; an
+ *  unconfigured/degenerate hub label stays bounded ("local"). */
+export const beltOriginPrefix = (code: string): string => {
+	const configuredHub = process.env.BELT_HUB_ID;
+	const hub =
+		configuredHub && /^[A-Za-z0-9][\w.-]{0,63}$/.test(configuredHub)
+			? configuredHub
+			: "local";
+	const safeCode = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(code)
+		? code.replace(/^belt\./, "")
+		: "problem";
+	return `belt: ${hub}.belt.${safeCode} — `;
+};
+
+/** The router ladder's upstream-decline envelope: a provider/refusal status
+ *  translated to the Anthropic wire with the origin-qualified detail prefix
+ *  and the 429 Retry-After pass-through. Lives here (http citizenship, not
+ *  router flow) — W2258's decomposition of router-shim.ts. */
+export const upstreamDecline = (
+	status: number,
+	retryAfterMs: number | undefined,
+	details: string[],
+): Response => {
+	const retrySeconds = Math.max(1, Math.ceil((retryAfterMs ?? 0) / 1000));
+	const rateLimited = status === 429;
+	return Response.json(
+		{
+			type: "error",
+			error: {
+				type: rateLimited ? "overloaded_error" : "api_error",
+				message: `${beltOriginPrefix("upstream_error")}router: upstream HTTP ${status} (${details.join("; ")})${rateLimited ? `; retry after ${retrySeconds}s` : ""}`,
+			},
+		},
+		{
+			status: rateLimited ? 429 : 502,
+			headers: rateLimited ? { "retry-after": String(retrySeconds) } : {},
+		},
+	);
+};
+
 export const problem = (
 	status: number,
 	title: string,
@@ -27,15 +69,7 @@ export const problem = (
 	why?: string,
 	headers?: Record<string, string>,
 ): Response => {
-	const configuredHub = process.env.BELT_HUB_ID;
-	const hub =
-		configuredHub && /^[A-Za-z0-9][\w.-]{0,63}$/.test(configuredHub)
-			? configuredHub
-			: "local";
-	const safeCode = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(code)
-		? code.replace(/^belt\./, "")
-		: "problem";
-	const prefix = `belt: ${hub}.belt.${safeCode} — `;
+	const prefix = beltOriginPrefix(code);
 	const res = new Response(
 		JSON.stringify(
 			{
