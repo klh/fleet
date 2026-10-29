@@ -14,7 +14,7 @@ import {
 	PROVIDER_STACK_PATH,
 	loadProviderConfig,
 	profileForEnv,
-} from "../../speedy/src/provider-config.ts";
+} from "@klh/speedy/src/provider-config.ts";
 import type { HubProfile } from "../hooks/lib/stack-config.ts";
 
 export const OPENROUTER_CATALOG_URL =

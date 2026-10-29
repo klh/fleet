@@ -18,7 +18,7 @@ import {
 	profileForEndpoint as speedyEndpoint,
 	profileForEnv as speedyEnv,
 	validateProviderConfig,
-} from "../../speedy/src/provider-config.ts";
+} from "@klh/speedy/src/provider-config.ts";
 
 let dir = "";
 let stackPath = "";

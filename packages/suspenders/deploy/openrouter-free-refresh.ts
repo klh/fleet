@@ -7,7 +7,7 @@ import {
 	PROVIDER_STACK_PATH,
 	loadProviderConfig,
 	profileForEnv,
-} from "../../speedy/src/provider-config.ts";
+} from "@klh/speedy/src/provider-config.ts";
 import type { StackConfig } from "../hooks/lib/stack-config.ts";
 import { fetchFreeSnapshot, writeFreeSnapshot } from "./openrouter-free.ts";
 import * as activation from "./litellm-activation.ts";

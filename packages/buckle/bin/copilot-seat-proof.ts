@@ -14,7 +14,7 @@ import {
 	PROVIDER_STACK_PATH,
 	loadProviderConfig,
 	profileForEnv,
-} from "../../speedy/src/provider-config.ts";
+} from "@klh/speedy/src/provider-config.ts";
 
 const LLM = `${process.env.HOME}/.claude/local-llm`;
 const PORT = resolvePort(4104);

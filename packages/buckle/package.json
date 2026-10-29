@@ -42,6 +42,7 @@
 	},
 	"dependencies": {
 		"@klh/blam": "2.0.4",
+		"@klh/speedy": "2.0.4",
 		"@klh/telemetry": "2.0.4",
 		"p-queue": "9.3.5",
 		"zod": "4.6.7"
