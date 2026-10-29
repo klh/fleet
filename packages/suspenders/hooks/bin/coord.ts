@@ -253,7 +253,7 @@ const VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "knowledge-promote",
-		usage: "usage: knowledge-promote <id>",
+		usage: "usage: knowledge-promote <id> --by <human>",
 		lax: true,
 		run: (p) => cmdKnowledgePromote(p.rest),
 	}),

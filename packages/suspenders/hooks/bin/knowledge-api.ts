@@ -15,6 +15,7 @@ import {
 	ROLL_KEY_HEADER,
 } from "../lib/knowledge/knowledge-roll.ts";
 import { openKnowledgeDb } from "../lib/knowledge/govdb-knowledge.ts";
+import { promoteActorError } from "../lib/knowledge/promote-actor.ts";
 import {
 	aeLeavesFace,
 	aeMergeFace,
@@ -379,7 +380,13 @@ const base = {
 			if (req.method === "POST" && path === "/promote") {
 				const id = num(body.id);
 				if (!id) return json({ error: "id required" }, 400);
-				return json({ promoted: await store.promote(id) });
+				// D9: the wire names its human actor, same guard as the CLI
+				const by = str(body.by);
+				const refused = promoteActorError(by, {});
+				if (refused) return json({ error: refused }, 403);
+				const promoted = await store.promote(id);
+				if (promoted) await store.note(id, by ?? "", "promoted");
+				return json({ promoted });
 			}
 			if (req.method === "POST" && path === "/retire") {
 				const id = num(body.id);

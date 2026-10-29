@@ -219,7 +219,9 @@ function decantSessions(config: SyncConfig, cwd: string): SessionMetrics[] {
 /** The syncable fact vocabulary: lesson. + finding. keys — the two classes
  *  lanes bank as durable knowledge. Anything else (work-adjacent fact rows,
  *  scratch keys) never crosses the machine boundary. */
-export const SYNCABLE_FACT = /^(lesson|finding)\./;
+// D8: lesson.seen.<sid> is per-session session-start bookkeeping, not
+// knowledge — it never crosses the machine boundary.
+export const SYNCABLE_FACT = /^(?!lesson\.seen\.)(lesson|finding)\./;
 export const MAX_FACT_VALUE = 2000;
 
 /** W1226: the provenance fields that cross the sync, with the per-field cap.
@@ -326,7 +328,7 @@ export function collectFacts(
 		).some((c) => c.name === "provenance");
 		const rows = db
 			.query(
-				`SELECT key, value, source, version, ts${hasProv ? ", provenance" : ""} FROM facts WHERE key LIKE 'lesson.%' OR key LIKE 'finding.%' ORDER BY key`,
+				`SELECT key, value, source, version, ts${hasProv ? ", provenance" : ""} FROM facts WHERE (key LIKE 'lesson.%' AND key NOT LIKE 'lesson.seen.%') OR key LIKE 'finding.%' ORDER BY key`,
 			)
 			.all() as {
 			key: string;

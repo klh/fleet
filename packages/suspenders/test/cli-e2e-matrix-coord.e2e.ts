@@ -227,7 +227,7 @@ test.describe("coord verb matrix — knowledge lifecycle", () => {
 		);
 		expect(row.length).toBe(1);
 		cover("knowledge-promote");
-		expect(coord("knowledge-promote", String(row[0].id)).out).toContain(
+		expect(coord("knowledge-promote", String(row[0].id), "--by", "owner").out).toContain(
 			"active",
 		);
 		cover("knowledge-grade");

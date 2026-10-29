@@ -96,6 +96,10 @@ export function ftsTerms(q: string): string {
 const ORIGIN_PRIOR_SQL =
 	"CASE k.origin_kind WHEN 'incident' THEN 0.0 WHEN 'lesson' THEN 0.5 WHEN 'decision' THEN 1.0 ELSE 1.5 END";
 
+// D9 (hub design): reviewed rows outrank unreviewed — every active row
+// sorts ahead of every candidate, the bm25/age/origin score orders within.
+const STATE_TIER_SQL = "(CASE k.state WHEN 'active' THEN 0 ELSE 1 END)";
+
 // axis filters shared verbatim by the primary match and the 1-hop expansion —
 // knowledge_fts is content-linked to knowledge, so k.* filters read the same
 const AXIS_FILTER_SQL =
@@ -153,7 +157,7 @@ WHERE k.id NOT IN (${marks})
 	${AXIS_FILTER_SQL}
 	${CONF_FLOOR_SQL}
 	AND ${anyEdge}
-ORDER BY (CASE via WHEN 'pointer' THEN 0.0 ELSE 2.0 END) + ${ORIGIN_PRIOR_SQL}
+ORDER BY ${STATE_TIER_SQL}, (CASE via WHEN 'pointer' THEN 0.0 ELSE 2.0 END) + ${ORIGIN_PRIOR_SQL}
 	+ (${Date.now()} - COALESCE(k.updated_at, k.ts)) / 86400000.0 * 0.05
 LIMIT ?`,
 		)
@@ -235,7 +239,7 @@ export function knowledgeSearch(
 		AND knowledge_fts.state ${LIVE_STATES_SQL}
 		${AXIS_FILTER_SQL}
 		${CONF_FLOOR_SQL}
-	ORDER BY rank + (${Date.now()} - COALESCE(k.updated_at, k.ts)) / 86400000.0 * 0.05
+	ORDER BY ${STATE_TIER_SQL}, rank + (${Date.now()} - COALESCE(k.updated_at, k.ts)) / 86400000.0 * 0.05
 		+ ${ORIGIN_PRIOR_SQL}
 	LIMIT ?`,
 					)
