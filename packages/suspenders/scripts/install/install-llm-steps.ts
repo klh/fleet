@@ -30,7 +30,7 @@ import {
 } from "@klh/belt/bin/litellm-target.ts";
 import { atomicWrite0600 } from "@klh/kernel/src/kernel.atomic.module.ts";
 import {
-	type auditLiteLlmEnv,
+	auditLiteLlmEnv,
 	integrityEvidence,
 	writeReceipt,
 } from "@klh/belt/bin/litellm-integrity.ts";

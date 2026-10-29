@@ -223,6 +223,11 @@ describe("ensureLiteLlmIntegrity (W1197)", () => {
 		const outcome = await ensureLiteLlmIntegrity(
 			ctxFor(tmp("w1197-err")),
 			(l) => lines.push(l),
+			{
+				audit: async () => {
+					throw new Error("audit unavailable");
+				},
+			},
 		);
 		expect(outcome.verdict).toBe("error");
 		expect(lines[0]).toContain("skipped");
