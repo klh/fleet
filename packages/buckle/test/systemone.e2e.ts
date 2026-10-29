@@ -8,6 +8,7 @@
 import { expect, test } from "@playwright/test";
 import { createApp } from "../src/handlers.ts";
 import { testDeps } from "./deps.ts";
+import { issueViaAdmin, startGate, type GateServer } from "./gate.ts";
 import { startMockUpstream, type MockUpstream } from "./mock.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
 
@@ -43,18 +44,40 @@ test.describe("@api", () => {
 	});
 
 	const okUpstreamBody = (): Record<string, unknown> => ({
-		model: "kev-0.4",
-		answers: {
-			use_case: {
-				type: "choice",
-				choice: "coding",
-				confidence: 0.9,
-				probabilities: { coding: 0.9, research: 0.1 },
-			},
+	model: "kev-0.4",
+	answers: {
+		use_case: {
+			type: "choice",
+			choice: "coding",
+			confidence: 0.9,
+			probabilities: { coding: 0.9, research: 0.1 },
 		},
-		usage: { input_tokens: 70, output_tokens: 8 },
-		latency_ms: 42,
+	},
+	usage: { input_tokens: 70, output_tokens: 8 },
+	latency_ms: 42,
+});
+
+/** The scoped-key leg of the gate test: mint a proxy-WRITE lane key, ride
+ *  the front door, expect the typed answer through. */
+const laneKeyLeg = async (base: string): Promise<void> => {
+	const lane = await issueViaAdmin(base, {
+		name: "w1120-lane",
+		scopes: ["buckle:proxy:WRITE_"],
 	});
+	const ok = await fetch(`${base}/v1/systemone`, {
+		method: "POST",
+		headers: {
+			"content-type": "application/json",
+			authorization: `Bearer ${lane.key}`,
+		},
+		body: JSON.stringify(req()),
+	});
+	expect(ok.status).toBe(200);
+	const j = (await ok.json()) as {
+		answers?: Record<string, { choice?: string }>;
+	};
+	expect(j.answers?.use_case?.choice).toBe("coding");
+};
 
 	const withKey = (): void => {
 		process.env.BUCKLE_SYSTEMONE_TEST_KEY = "k-s1-test";
@@ -292,5 +315,44 @@ test.describe("@api", () => {
 		);
 		expect(res.status).toBe(204);
 		expect(res.headers.get("allow")).toContain("POST");
+	});
+
+	test("no direct caller bypass: the gated route demands a credential", async () => {
+		let kev: MockUpstream | undefined;
+		let gate: GateServer | undefined;
+		try {
+			kev = await startMockUpstream(() =>
+				new Response(JSON.stringify(okUpstreamBody()), { status: 200 }),
+			);
+			withKey();
+			gate = await startGate({
+				upstreamUrl: kev.url,
+				// explicit .json policy path — the .yaml name is retired (W1253)
+				// and a misnamed file silently falls through to the machine conf
+				policyYaml: JSON.stringify({
+					gateway: {
+						num_retries: 1,
+						allowed_fails: 3,
+						systemone: {
+							url: kev.url,
+							api_key_env: "BUCKLE_SYSTEMONE_TEST_KEY",
+						},
+					},
+				}),
+				policyJson: true,
+			});
+			// no credential → 401 before the route runs (never an anonymous hop)
+			const anon = await fetch(`${gate.base}/v1/systemone`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(req()),
+			});
+			expect(anon.status).toBe(401);
+			await laneKeyLeg(gate.base);
+		} finally {
+			dropKey();
+			gate?.stop();
+			kev?.close();
+		}
 	});
 });
