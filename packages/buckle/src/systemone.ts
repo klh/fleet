@@ -32,8 +32,7 @@ export const SystemOneRequestSchema = z.object({
 				criteria: z
 					.record(z.string().min(1).max(256), z.string().max(4_000))
 					.refine(
-						(o) =>
-							Object.keys(o).length >= 1 && Object.keys(o).length <= 16,
+						(o) => Object.keys(o).length >= 1 && Object.keys(o).length <= 16,
 						"criteria: 1..16 options",
 					),
 			}),
@@ -76,7 +75,6 @@ export async function systemoneRoute(
 	req: Request,
 	deps: AppDeps,
 ): Promise<Response> {
-	const hubId = deps.hubId ?? "local";
 	const t0 = Date.now();
 	const rid = `r${ridsafe(6)}`;
 	const traceparent =
@@ -86,16 +84,34 @@ export async function systemoneRoute(
 	// Fail closed: no configured target means this gateway carries no
 	// systemone traffic — a typed local refusal, zero outbound.
 	if (!cfg?.url || cfg.url.length === 0)
-		return refuse(deps, rid, traceId, t0, 503, "systemone_unconfigured",
-			"gateway.systemone.url is not configured — SystemOne ingress is disabled on this deployment");
+		return refuse(
+			deps,
+			rid,
+			traceId,
+			503,
+			"systemone_unconfigured",
+			"gateway.systemone.url is not configured — SystemOne ingress is disabled on this deployment",
+		);
 	const keyEnv = cfg.api_key_env;
 	if (!keyEnv || keyEnv.length === 0)
-		return refuse(deps, rid, traceId, t0, 503, "systemone_unconfigured",
-			"gateway.systemone.api_key_env is not configured — SystemOne refuses to forward unauthenticated");
+		return refuse(
+			deps,
+			rid,
+			traceId,
+			503,
+			"systemone_unconfigured",
+			"gateway.systemone.api_key_env is not configured — SystemOne refuses to forward unauthenticated",
+		);
 	const key = process.env[keyEnv] ?? "";
 	if (key.length === 0)
-		return refuse(deps, rid, traceId, t0, 503, "systemone_no_key",
-			`env ${keyEnv} is unset — no upstream credential, refusing (fail closed)`);
+		return refuse(
+			deps,
+			rid,
+			traceId,
+			503,
+			"systemone_no_key",
+			`env ${keyEnv} is unset — no upstream credential, refusing (fail closed)`,
+		);
 	const read = await readBoundedJson(req, deps.ingressBodyTimeoutMs);
 	if (!read.ok)
 		return problem({
@@ -177,7 +193,10 @@ async function forwardUpstream(
 				traceparent,
 				"x-klh-request-id": rid,
 			},
-			body: JSON.stringify({ state: arg.body.state, questions: arg.body.questions }),
+			body: JSON.stringify({
+				state: arg.body.state,
+				questions: arg.body.questions,
+			}),
 			// Deadline + cancel aware: the caller's disconnect aborts the
 			// upstream exchange; the configured ceiling bounds a hung one.
 			signal: AbortSignal.any([
@@ -198,11 +217,19 @@ async function forwardUpstream(
 			refusalOrigin: null,
 			retryAfterMs: null,
 		});
-		settle(deps, rid, traceId, t0, false, timedOut ? "upstream_timeout" : canceled ? "client_abort" : "network");
+		settle(
+			deps,
+			rid,
+			traceId,
+			false,
+			timedOut ? "upstream_timeout" : canceled ? "client_abort" : "network",
+		);
 		if (canceled) return new Response(null, { status: 499 });
 		return problem({
 			status: timedOut ? 504 : 502,
-			code: timedOut ? "buckle.systemone_timeout" : "buckle.systemone_unreachable",
+			code: timedOut
+				? "buckle.systemone_timeout"
+				: "buckle.systemone_unreachable",
 			why: timedOut
 				? `SystemOne upstream did not answer within ${String(cfg.timeout_ms ?? SYSTEMONE_TIMEOUT_MS)}ms`
 				: "SystemOne upstream unreachable",
@@ -212,8 +239,17 @@ async function forwardUpstream(
 	// Upstream budget refusals relay as-is (the upstream's budget is the
 	// client's information); everything else non-ok is a typed 502.
 	if (res.status === 429) {
-		receipt(deps, { rid, traceId, origin, status: 429, layer: "upstream", durationMs, refusalOrigin: "upstream", retryAfterMs: retryAfterOf(res) });
-		settle(deps, rid, traceId, t0, false, "rate_limited");
+		receipt(deps, {
+			rid,
+			traceId,
+			origin,
+			status: 429,
+			layer: "upstream",
+			durationMs,
+			refusalOrigin: "upstream",
+			retryAfterMs: retryAfterOf(res),
+		});
+		settle(deps, rid, traceId, false, "rate_limited");
 		const ra = res.headers.get("retry-after");
 		return problem({
 			status: 429,
@@ -223,8 +259,17 @@ async function forwardUpstream(
 		});
 	}
 	if (!res.ok) {
-		receipt(deps, { rid, traceId, origin, status: res.status, layer: "upstream", durationMs, refusalOrigin: "upstream", retryAfterMs: null });
-		settle(deps, rid, traceId, t0, false, "upstream_error");
+		receipt(deps, {
+			rid,
+			traceId,
+			origin,
+			status: res.status,
+			layer: "upstream",
+			durationMs,
+			refusalOrigin: "upstream",
+			retryAfterMs: null,
+		});
+		settle(deps, rid, traceId, false, "upstream_error");
 		return problem({
 			status: 502,
 			code: "buckle.systemone_upstream",
@@ -235,14 +280,32 @@ async function forwardUpstream(
 	try {
 		wire = await res.json();
 	} catch {
-		receipt(deps, { rid, traceId, origin, status: res.status, layer: "upstream", durationMs, refusalOrigin: "upstream", retryAfterMs: null });
-		settle(deps, rid, traceId, t0, false, "malformed_decision");
+		receipt(deps, {
+			rid,
+			traceId,
+			origin,
+			status: res.status,
+			layer: "upstream",
+			durationMs,
+			refusalOrigin: "upstream",
+			retryAfterMs: null,
+		});
+		settle(deps, rid, traceId, false, "malformed_decision");
 		return malformed();
 	}
 	const parsed = UpstreamResponseSchema.safeParse(wire);
 	if (!parsed.success) {
-		receipt(deps, { rid, traceId, origin, status: res.status, layer: "upstream", durationMs, refusalOrigin: "upstream", retryAfterMs: null });
-		settle(deps, rid, traceId, t0, false, "malformed_decision");
+		receipt(deps, {
+			rid,
+			traceId,
+			origin,
+			status: res.status,
+			layer: "upstream",
+			durationMs,
+			refusalOrigin: "upstream",
+			retryAfterMs: null,
+		});
+		settle(deps, rid, traceId, false, "malformed_decision");
 		return malformed();
 	}
 	// Semantic success demands EVERY question answered with a choice from
@@ -251,13 +314,31 @@ async function forwardUpstream(
 	for (const [id, q] of Object.entries(arg.body.questions)) {
 		const a = parsed.data.answers[id];
 		if (!a || !(a.choice in q.criteria)) {
-			receipt(deps, { rid, traceId, origin, status: res.status, layer: "upstream", durationMs, refusalOrigin: "upstream", retryAfterMs: null });
-			settle(deps, rid, traceId, t0, false, "malformed_decision");
+			receipt(deps, {
+				rid,
+				traceId,
+				origin,
+				status: res.status,
+				layer: "upstream",
+				durationMs,
+				refusalOrigin: "upstream",
+				retryAfterMs: null,
+			});
+			settle(deps, rid, traceId, false, "malformed_decision");
 			return malformed();
 		}
 	}
-	receipt(deps, { rid, traceId, origin, status: res.status, layer: "upstream", durationMs, refusalOrigin: null, retryAfterMs: null });
-	settle(deps, rid, traceId, t0, true, null);
+	receipt(deps, {
+		rid,
+		traceId,
+		origin,
+		status: res.status,
+		layer: "upstream",
+		durationMs,
+		refusalOrigin: null,
+		retryAfterMs: null,
+	});
+	settle(deps, rid, traceId, true, null);
 	return Response.json({
 		model: parsed.data.model ?? "kev-latest",
 		answers: parsed.data.answers,
@@ -323,7 +404,6 @@ function settle(
 	deps: AppDeps,
 	rid: string,
 	traceId: string,
-	t0: number,
 	ok: boolean,
 	kind: string | null,
 ): void {
@@ -367,11 +447,10 @@ function refuse(
 	deps: AppDeps,
 	rid: string,
 	traceId: string,
-	t0: number,
 	status: number,
 	code: string,
 	why: string,
 ): Response {
-	settle(deps, rid, traceId, t0, false, code);
+	settle(deps, rid, traceId, false, code);
 	return problem({ status, code: `buckle.${code}`, why });
 }

@@ -7,10 +7,11 @@
 // hop receipt; a lane-prefixed path never widens the surface.
 import { expect, test } from "@playwright/test";
 import { createApp } from "../src/handlers.ts";
-import { testDeps } from "./deps.ts";
-import { issueViaAdmin, startGate, type GateServer } from "./gate.ts";
-import { startMockUpstream, type MockUpstream } from "./mock.ts";
+import { newTraceparent } from "../src/trace.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
+import { testDeps } from "./deps.ts";
+import { type GateServer, issueViaAdmin, startGate } from "./gate.ts";
+import { type MockUpstream, startMockUpstream } from "./mock.ts";
 
 // systemone never routes through the candidate table — an empty pool.
 const EMPTY: UpstreamPool = { groups: () => [], deployments: () => [] };
@@ -31,7 +32,9 @@ test.describe("@api", () => {
 			}),
 		);
 
-	const req = (overrides?: Record<string, unknown>): Record<string, unknown> => ({
+	const req = (
+		overrides?: Record<string, unknown>,
+	): Record<string, unknown> => ({
 		state: "the request asks about routing tiers",
 		questions: {
 			use_case: {
@@ -44,40 +47,45 @@ test.describe("@api", () => {
 	});
 
 	const okUpstreamBody = (): Record<string, unknown> => ({
-	model: "kev-0.4",
-	answers: {
-		use_case: {
-			type: "choice",
-			choice: "coding",
-			confidence: 0.9,
-			probabilities: { coding: 0.9, research: 0.1 },
+		model: "kev-0.4",
+		answers: {
+			use_case: {
+				type: "choice",
+				choice: "coding",
+				confidence: 0.9,
+				probabilities: { coding: 0.9, research: 0.1 },
+			},
 		},
-	},
-	usage: { input_tokens: 70, output_tokens: 8 },
-	latency_ms: 42,
-});
+		usage: { input_tokens: 70, output_tokens: 8 },
+		latency_ms: 42,
+	});
 
-/** The scoped-key leg of the gate test: mint a proxy-WRITE lane key, ride
- *  the front door, expect the typed answer through. */
-const laneKeyLeg = async (base: string): Promise<void> => {
-	const lane = await issueViaAdmin(base, {
-		name: "w1120-lane",
-		scopes: ["buckle:proxy:WRITE_"],
-	});
-	const ok = await fetch(`${base}/v1/systemone`, {
-		method: "POST",
-		headers: {
-			"content-type": "application/json",
-			authorization: `Bearer ${lane.key}`,
-		},
-		body: JSON.stringify(req()),
-	});
-	expect(ok.status).toBe(200);
-	const j = (await ok.json()) as {
-		answers?: Record<string, { choice?: string }>;
+	/** The scoped-key leg of the gate test: mint a proxy-WRITE lane key, ride
+	 *  the front door, expect the typed answer through. */
+	const laneKeyLeg = async (base: string): Promise<void> => {
+		const lane = await issueViaAdmin(base, {
+			name: "w1120-lane",
+			scopes: ["buckle:proxy:WRITE_"],
+		});
+		const ok = await fetch(`${base}/v1/systemone`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				authorization: `Bearer ${lane.key}`,
+			},
+			body: JSON.stringify(req()),
+		});
+		expect(ok.status).toBe(200);
+		const j = (await ok.json()) as {
+			answers?: Record<string, { choice?: string }>;
+		};
+		expect(j.answers?.use_case?.choice).toBe("coding");
 	};
-	expect(j.answers?.use_case?.choice).toBe("coding");
-};
+
+	/** The trace leg's upstream: always 500s — the receipt + audit row carry
+	 *  the failure onto the trace. */
+	const traceLegUpstream = async (): Promise<MockUpstream> =>
+		startMockUpstream(() => new Response("{}", { status: 500 }));
 
 	const withKey = (): void => {
 		process.env.BUCKLE_SYSTEMONE_TEST_KEY = "k-s1-test";
@@ -111,11 +119,12 @@ const laneKeyLeg = async (base: string): Promise<void> => {
 	test("success: typed decision relayed with usage + latency", async () => {
 		let kev: MockUpstream | undefined;
 		try {
-			kev = await startMockUpstream(() =>
-				new Response(JSON.stringify(okUpstreamBody()), {
-					status: 200,
-					headers: { "content-type": "application/json" },
-				}),
+			kev = await startMockUpstream(
+				() =>
+					new Response(JSON.stringify(okUpstreamBody()), {
+						status: 200,
+						headers: { "content-type": "application/json" },
+					}),
 			);
 			withKey();
 			const deps = testDeps(EMPTY, {
@@ -157,14 +166,10 @@ const laneKeyLeg = async (base: string): Promise<void> => {
 		try {
 			kev = await startMockUpstream(() => {
 				const body = okUpstreamBody();
-				const answers = body.answers as Record<
-					string,
-					Record<string, unknown>
-				>;
+				const answers = body.answers as Record<string, Record<string, unknown>>;
 				answers.use_case.choice = "trading";
-				(
-					answers.use_case.probabilities as Record<string, number>
-				).trading = 0.99;
+				(answers.use_case.probabilities as Record<string, number>).trading =
+					0.99;
 				return new Response(JSON.stringify(body), { status: 200 });
 			});
 			withKey();
@@ -317,12 +322,45 @@ const laneKeyLeg = async (base: string): Promise<void> => {
 		expect(res.headers.get("allow")).toContain("POST");
 	});
 
+	test("trace: semantic outcome + upstream hop land on the ledger", async () => {
+		let kev: MockUpstream | undefined;
+		try {
+			kev = await traceLegUpstream();
+			withKey();
+			const deps = testDeps(EMPTY, {
+				systemonePolicy: {
+					url: kev.url,
+					api_key_env: "BUCKLE_SYSTEMONE_TEST_KEY",
+				},
+			});
+			const app = createApp(deps);
+			const tp = newTraceparent();
+			const res = await post(app, "http://buckle.test", req(), {
+				headers: { "content-type": "application/json", traceparent: tp },
+			});
+			expect(res.status).toBe(502);
+			deps.ledger.flush();
+			const read = deps.ledger.traceRead(tp.split("-")[1] ?? "");
+			expect(read.attempts[0]?.hop).toBe("systemone");
+			expect(read.attempts[0]?.status).toBe(500);
+			const reqs = read.requests as Array<{
+				dialect?: string;
+				error_code?: string | null;
+			}>;
+			expect(reqs[0]?.dialect).toBe("systemone");
+			expect(reqs[0]?.error_code).toBe("upstream_error");
+		} finally {
+			dropKey();
+			kev?.close();
+		}
+	});
+
 	test("no direct caller bypass: the gated route demands a credential", async () => {
 		let kev: MockUpstream | undefined;
 		let gate: GateServer | undefined;
 		try {
-			kev = await startMockUpstream(() =>
-				new Response(JSON.stringify(okUpstreamBody()), { status: 200 }),
+			kev = await startMockUpstream(
+				() => new Response(JSON.stringify(okUpstreamBody()), { status: 200 }),
 			);
 			withKey();
 			gate = await startGate({

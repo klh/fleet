@@ -66,7 +66,9 @@ export async function startGate(
 		.toString(36)
 		.slice(2, 6)}`;
 	await Bun.write(`${dir}.yaml`, yamlFor(opts));
-	const policyName = opts.policyJson ? `${dir}-policy.json` : `${dir}-policy.yaml`;
+	const policyName = opts.policyJson
+		? `${dir}-policy.json`
+		: `${dir}-policy.yaml`;
 	await Bun.write(
 		policyName,
 		opts.policyYaml ??
