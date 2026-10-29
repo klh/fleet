@@ -82,6 +82,13 @@ export async function payloadCoverage(
 // join|resolve(import.meta.dir, lit...)).
 const PACKAGE_SPEC =
 	/(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*)["']@klh\/([a-z0-9-]+)\/([^"'?]+)[^"']*["']/g;
+// Bare root imports — `import { setting } from "@klh/settings"` — carry no
+// subpath, so the subpath form above never matches them and the package
+// silently drops out of the payload (the install then 404s the scoped name
+// at npm, fork-H syncHarness failure 2026-10-29). The bare form ships the
+// package subtree.
+const BARE_PACKAGE_SPEC =
+	/(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*)["']@klh\/([a-z0-9-]+)["']/g;
 const URL_ASSET =
 	/\bnew\s+URL\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*,?\s*\)/g;
 const DIR_ASSET =
@@ -101,6 +108,8 @@ function codeEdges(source: string, abs: string, root: string): string[] {
 	);
 	for (const [, pkg = "", sub = ""] of source.matchAll(PACKAGE_SPEC))
 		out.push(`packages/${pkg}/${sub}`);
+	for (const [, pkg = ""] of source.matchAll(BARE_PACKAGE_SPEC))
+		out.push(`packages/${pkg}`);
 	return out;
 }
 
@@ -212,8 +221,10 @@ export async function payloadClosure(
 			.text()
 			.catch(() => null);
 		if (source === null) continue;
+		// a bare @klh/<pkg> edge is the package ROOT (a dir) — accept it
+		// like the dir-valued asset edges below
 		for (const edge of codeEdges(source, abs, root))
-			if (files.has(edge)) shipPath(shipUnit(edge));
+			if (files.has(edge) || dirs.has(edge)) shipPath(shipUnit(edge));
 		for (const asset of assetEdges(source, abs, root))
 			if (!isAnchor(asset) && (files.has(asset) || dirs.has(asset)))
 				shipPath(asset);
