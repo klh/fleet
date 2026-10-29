@@ -1,5 +1,7 @@
-import { expect, test } from "bun:test";
-import { registryEntries } from "../../belt/bin/registry.ts";
+// test/service-inventory.test.ts — sweep-G slice-7 port (W1294.9.7):
+// bun:test -> @playwright/test @unit, titles verbatim.
+import { expect, test } from "@playwright/test";
+import { registryEntries } from "@klh/belt/bin/registry.ts";
 import {
 	MODEL_INVENTORY,
 	matchingRegistrations,

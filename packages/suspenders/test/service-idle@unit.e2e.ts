@@ -1,4 +1,6 @@
-import { describe, expect, test } from "bun:test";
+// test/service-idle.test.ts — sweep-G slice-7 port (W1294.9.7):
+// bun:test -> @playwright/test @unit, titles verbatim.
+import { expect, test } from "@playwright/test";
 import { isOnDemandIdle } from "../hooks/board/supervisor-snapshot.ts";
 import {
 	probeService,
@@ -39,7 +41,7 @@ const deps = (status?: number, doc: unknown = snapshot): ProbeDeps => ({
 	readSupervisor: () => doc,
 });
 
-describe("on-demand service state", () => {
+test.describe("on-demand service state", () => {
 	test("requires recent document and target probes with no active alert", () => {
 		expect(isOnDemandIdle(snapshot, 8901, now.getTime())).toBe(true);
 		for (const doc of [

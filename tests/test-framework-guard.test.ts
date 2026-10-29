@@ -23,8 +23,11 @@ const SELF = "tests/test-framework-guard.test.ts";
 // (56 belt/test files ported at W2178 integration) re-pins DOWN (858 → 802);
 // W1294.5 sweep (24 co-situated suspenders specs) re-pins DOWN (802 → 778);
 // W1294.3 sweep-A (82 suspenders/test specs) re-pins DOWN (778 → 696) — 6
-// post-commit gate inputs (.githooks/post-commit, bun-run) stay bun:test.
-const PIN = 696;
+// post-commit gate inputs (.githooks/post-commit, bun-run) stay bun:test;
+// W1294.9.7 sweep-G slice-7 (the 4 service-* family specs) re-pins DOWN
+// (696 → 673) — the exact non-decant count measured by THIS guard's own
+// git ls-files counting at the closing sha.
+const PIN = 673;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });
