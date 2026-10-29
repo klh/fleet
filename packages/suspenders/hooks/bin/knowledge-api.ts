@@ -15,6 +15,7 @@ import {
 	ROLL_KEY_HEADER,
 } from "../lib/knowledge/knowledge-roll.ts";
 import { openKnowledgeDb } from "../lib/knowledge/govdb-knowledge.ts";
+import { landGraphWire } from "../lib/knowledge/distill/sync.ts";
 import { promoteActorError } from "../lib/knowledge/promote-actor.ts";
 import { z } from "zod";
 import { coordSettings } from "../lib/consult/consult-config.ts";
@@ -89,6 +90,9 @@ const WRITE_ROUTES = new Set([
 	"/promote",
 	"/retire",
 	"/note",
+	// fork G: the spoke graph delta lands here (landGraphWire), machine-bound
+	// via the roll key — same W264 perimeter as the other mutating faces.
+	"/graph",
 ]);
 const json = (data: unknown, status = 200): Response =>
 	Response.json(data, { status });
@@ -308,6 +312,30 @@ const base = {
 			const landed = aggregateClaims(rollDb, body.claims, machine);
 			if (!landed.ok)
 				return json({ error: landed.error ?? "roll rejected" }, 422);
+			return json(landed);
+		}
+		// fork G — the spoke graph delta. Same auth as the roll (the
+		// machine-scoped TTL key binds the landing origin; the write token is
+		// the operator path with machine riding the body). POST /graph
+		// {graph: GraphDelta} → landGraphWire under the sync precedence —
+		// human rejections terminal, keyed rows, per-origin vote tallies —
+		// and the batch-matched counts ack the spoke's cursor discipline.
+		if (path === "/graph") {
+			if (req.method !== "POST")
+				return new Response(null, {
+					status: 405,
+					headers: { allow: "POST" },
+				});
+			const key = req.headers.get(ROLL_KEY_HEADER) ?? "";
+			const keyed = key ? rollKeyOk(key) : { ok: false, machine: null };
+			const machine = keyed.ok
+				? keyed.machine
+				: tokenOk(req)
+					? str(body.machine)
+					: null;
+			if (!machine) return json({ error: "roll key required" }, 403);
+			const landed = landGraphWire(rollDb, body.graph, machine);
+			if (!landed.ok) return json({ ok: false, error: landed.error }, 400);
 			return json(landed);
 		}
 		// W1214 — hub-to-hub knowledge anti-entropy (the /ae/* faces). Every
