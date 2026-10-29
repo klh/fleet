@@ -1,13 +1,7 @@
 // W277 — litellm (:4100) joins the supervised set. Stub servers on free ports
 // only — never touches the live :4100 engine or the real key files.
 import { expect, test } from "@playwright/test";
-import {
-	mkdtempSync,
-	mkdirSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -54,25 +48,36 @@ Bun.serve({ port, hostname: "127.0.0.1", fetch: (req) => {
 );
 
 const paths = (over: Partial<LitellmPaths> = {}): LitellmPaths => {
-	const zaiKeyFile = join(dir, "zai.key");
 	const masterKeyFile = join(dir, "litellm.key");
-	writeFileSync(zaiKeyFile, ZAI, { mode: 0o600 });
 	writeFileSync(masterKeyFile, `${MASTER}\n`, { mode: 0o600 });
 	return {
 		...DEFAULT_PATHS,
-		zaiKeyFile,
 		masterKeyFile,
-		// pinned into the tmpdir like the other keys — spreading DEFAULT_PATHS
-		// left the optional-key files on the REAL machine paths, so loadKeys
-		// hoisted live secret values into test output (W670 fixture-knob family)
-		anthropicKeyFile: join(dir, "anthropic-absent.key"),
-		openaiKeyFile: join(dir, "openai-absent.key"),
-		copilotKeyFile: join(dir, "copilot-absent.key"),
-		openrouterKeyFile: join(dir, "openrouter-absent.key"),
+		// W1124.8.4: provider keys resolve from the central profiles in the
+		// fixture stack (env overrides first) — the legacy zai config.json
+		// and per-provider *.key files are gone from loadKeys.
+		stackConfig: join(dir, "stack.json"),
 		log: join(dir, "litellm.log"),
 		...over,
 	};
 };
+
+// The fixture central stack: the Z.ai profile binds env Z_AI_API_KEY with
+// the value the litellm stub requires; no providers section would be a
+// valid empty config, but this suite pins the profile-driven leg.
+writeFileSync(
+	join(dir, "stack.json"),
+	`${JSON.stringify(
+		{
+			providers: {
+				"zai-coding": { provider: "zai", key: ZAI, env: "Z_AI_API_KEY" },
+			},
+		},
+		null,
+		"\t",
+	)}\n`,
+	{ mode: 0o600 },
+);
 
 let seq = 0;
 const files = () => {
@@ -119,20 +124,20 @@ const start = (sup: Supervisor): Promise<void> => {
 const stateOf = (sup: Supervisor, port: number) =>
 	sup.snapshot().targets.find((t) => t.port === port);
 
-test.describe("keys — env first, then the 0600 files, never echoed", () => {
-	test("files are read when env is empty @unit", () => {
+test.describe("keys — central profiles + env, never echoed", () => {
+	test("profile value used when env is empty", () => {
 		expect(loadKeys(paths(), {})).toEqual({
 			Z_AI_API_KEY: ZAI,
 			LITELLM_KEY: MASTER,
 		});
 	});
 
-	test("inherited env wins over files @unit", () => {
+	test("inherited env wins over the profile", () => {
 		const k = loadKeys(paths(), { Z_AI_API_KEY: "e1", LITELLM_KEY: "e2" });
 		expect(k).toEqual({ Z_AI_API_KEY: "e1", LITELLM_KEY: "e2" });
 	});
 
-	test("anthropic key: env wins, file fallback, absent = omitted (optional) @unit", () => {
+	test("optional keys: absent profile = omitted, env override binds", () => {
 		const k = loadKeys(paths(), { Z_AI_API_KEY: "z", LITELLM_KEY: "m" });
 		expect(k.ANTHROPIC_API_KEY).toBeUndefined();
 		const f = loadKeys(paths(), {
@@ -141,71 +146,64 @@ test.describe("keys — env first, then the 0600 files, never echoed", () => {
 			ANTHROPIC_API_KEY: "env-a",
 		});
 		expect(f.ANTHROPIC_API_KEY).toBe("env-a");
-		writeFileSync(join(dir, "anthropic-test.key"), "file-a\n", { mode: 0o600 });
-		const g = loadKeys({
-			...paths(),
-			anthropicKeyFile: join(dir, "anthropic-test.key"),
-		});
-		expect(g.ANTHROPIC_API_KEY).toBe("file-a");
 	});
 
-	test("OpenAI key: env wins, file fallback, absent = omitted (optional) @unit", () => {
+	test("profile-bound optional keys resolve from the central stack", () => {
+		writeFileSync(
+			join(dir, "stack-optional.json"),
+			`${JSON.stringify(
+				{
+					providers: {
+						"zai-coding": { provider: "zai", key: ZAI, env: "Z_AI_API_KEY" },
+						"openai-main": {
+							provider: "openai",
+							key: "file-o",
+							env: "OPENAI_API_KEY",
+						},
+					},
+				},
+				null,
+				"\t",
+			)}\n`,
+			{ mode: 0o600 },
+		);
+		const configured = paths({ stackConfig: join(dir, "stack-optional.json") });
 		const env = { Z_AI_API_KEY: "z", LITELLM_KEY: "m" };
-		expect(loadKeys(paths(), env).OPENAI_API_KEY).toBeUndefined();
-		const keyFile = join(dir, "openai-test.key");
-		writeFileSync(keyFile, "file-o\n", { mode: 0o600 });
-		const configured = paths({ openaiKeyFile: keyFile });
 		expect(loadKeys(configured, env).OPENAI_API_KEY).toBe("file-o");
 		expect(
 			loadKeys(configured, { ...env, OPENAI_API_KEY: "env-o" }).OPENAI_API_KEY,
 		).toBe("env-o");
 	});
 
-	test("OpenRouter inference key is optional, file-backed, and env-overridable @unit", () => {
-		const keyFile = join(dir, "openrouter-test.key");
-		writeFileSync(keyFile, "openrouter-test-secret\n", { mode: 0o600 });
-		const configured = paths({ openrouterKeyFile: keyFile });
+	test("an unreadable or profile-less stack degrades optional legs to null", () => {
+		const configured = paths({ stackConfig: join(dir, "absent-stack.json") });
 		expect(
 			loadKeys(configured, { Z_AI_API_KEY: "z", LITELLM_KEY: "m" })
 				.OPENROUTER_API_KEY,
-		).toBe("openrouter-test-secret");
-		expect(
-			loadKeys(configured, {
-				Z_AI_API_KEY: "z",
-				LITELLM_KEY: "m",
-				OPENROUTER_API_KEY: "override",
-			}).OPENROUTER_API_KEY,
-		).toBe("override");
+		).toBeUndefined();
 	});
 
-	test("zai key file must be a regular non-empty 0600 file @unit", () => {
+	test("required zai leg throws naming the stack path when posture fails @unit", () => {
+		// wrong mode (0644) → the required Z.ai leg throws naming the path
+		const loose = join(dir, "stack-loose.json");
+		writeFileSync(
+			loose,
+			`${JSON.stringify({
+				providers: {
+					"zai-coding": { provider: "zai", key: ZAI, env: "Z_AI_API_KEY" },
+				},
+			})}\n`,
+			{ mode: 0o644 },
+		);
 		const env = {};
-		// a rejected source throws naming the path only — never a value
-		const rejects = (file: string) =>
-			expect(() => loadKeys(paths({ zaiKeyFile: file }), env)).toThrow(
-				new RegExp(`Z_AI_API_KEY.*${file.replace(/\./g, "\\.")}`),
-			);
-		// wrong mode (0644) → rejected
-		const loose = join(dir, "zai-loose.key");
-		writeFileSync(loose, ZAI, { mode: 0o644 });
-		rejects(loose);
-		// empty file → rejected
-		const empty = join(dir, "zai-empty.key");
-		writeFileSync(empty, "", { mode: 0o600 });
-		rejects(empty);
-		// directory → rejected
-		const asDir = join(dir, "zai-dir.key");
-		mkdirSync(asDir);
-		rejects(asDir);
-		// absent → rejected
-		rejects(join(dir, "nope.key"));
-		// present regular 0600 non-empty → accepted
-		expect(loadKeys(paths(), env).Z_AI_API_KEY).toBe(ZAI);
+		expect(() => loadKeys(paths({ stackConfig: loose }), env)).toThrow(
+			new RegExp(`Z_AI_API_KEY.*${loose.replace(/\./g, "\\.")}`),
+		);
 	});
 
 	test("missing keys throw naming the source, not a value @unit", () => {
 		const p = paths({
-			zaiKeyFile: join(dir, "nope.json"),
+			stackConfig: join(dir, "nope.json"),
 			masterKeyFile: join(dir, "nope.key"),
 		});
 		expect(() => loadKeys(p, {})).toThrow(/Z_AI_API_KEY.*LITELLM_KEY/);
@@ -242,13 +240,12 @@ test.describe("keys — env first, then the 0600 files, never echoed", () => {
 			argv: [
 				process.execPath,
 				"-e",
-				'console.log(JSON.stringify({ NO_DOCS: process.env.NO_DOCS, NO_REDOC: process.env.NO_REDOC, NO_OPENAPI: process.env.NO_OPENAPI, Z_AI_API_KEY: process.env.Z_AI_API_KEY }))',
+				"console.log(JSON.stringify({ NO_DOCS: process.env.NO_DOCS, NO_REDOC: process.env.NO_REDOC, NO_OPENAPI: process.env.NO_OPENAPI, Z_AI_API_KEY: process.env.Z_AI_API_KEY }))",
 			],
 		});
 		const child = t.spawn?.();
 		await child?.exited;
-		const line =
-			readFileSync(p.log, "utf8").trimEnd().split("\n").pop() ?? "";
+		const line = readFileSync(p.log, "utf8").trimEnd().split("\n").pop() ?? "";
 		const env = JSON.parse(line) as Record<string, string | undefined>;
 		expect(env).toEqual({
 			NO_DOCS: "true",

@@ -18,6 +18,11 @@
 // Missing → log + alert status. Never auto-installed in-process.
 
 import { openSync, readFileSync, statSync } from "node:fs";
+import {
+	type ProviderEntry,
+	loadProviderProfiles,
+	profileForEnv,
+} from "./provider-profiles.ts";
 import type { Child, Target } from "./supervisor.ts";
 
 const HOME = process.env.HOME ?? "";
@@ -59,22 +64,13 @@ export interface LitellmPaths {
 	bin: string;
 	python: string;
 	config: string;
-	/** Canonical private Fleet Z.ai key file (regular file, non-empty, 0600). */
-	zaiKeyFile: string;
 	masterKeyFile: string;
-	/** Anthropic upstream key for litellm.yaml rows pointing at
-	 *  api.anthropic.com (claude-sonnet-5 / claude-haiku-4-5). Optional:
-	 *  without it only the claude upstreams fail, the gateway still serves. */
-	anthropicKeyFile: string;
-	/** OpenAI API key for optional LiteLLM cloud rows. */
-	openaiKeyFile: string;
-	/** GitHub Copilot seat token (IKEA Copilot suite) for litellm.yaml rows
-	 *  pointing at api.githubcopilot.com. Optional: without it only the
-	 *  copilot upstreams fail, the gateway still serves. */
-	copilotKeyFile: string;
-	/** OpenRouter inference key, distinct from its management key. Optional:
-	 * without it generated OpenRouter rows remain absent. */
-	openrouterKeyFile: string;
+	/** W1124.8.4: the private stack.json carrying the central provider
+	 *  profiles (mode 600). Provider keys (Z_AI_API_KEY, ANTHROPIC_API_KEY,
+	 *  OPENAI_API_KEY, COPILOT_API_KEY, OPENROUTER_API_KEY) resolve env
+	 *  first, then the profile whose OUTPUT binding names the env var.
+	 *  KLH_STACK overrides like the speedy loader. */
+	stackConfig: string;
 	log: string;
 }
 
@@ -82,12 +78,8 @@ export const DEFAULT_PATHS: LitellmPaths = {
 	bin: `${HOME}/.local/bin/litellm`,
 	python: `${HOME}/.local/share/uv/tools/litellm/bin/python`,
 	config: `${HOME}/.claude/local-llm/litellm.yaml`,
-	zaiKeyFile: `${HOME}/.claude/local-llm/zai.key`,
 	masterKeyFile: `${HOME}/.claude/local-llm/litellm.key`,
-	anthropicKeyFile: `${HOME}/.claude/local-llm/anthropic.key`,
-	openaiKeyFile: `${HOME}/.claude/local-llm/openai.key`,
-	copilotKeyFile: `${HOME}/.claude/local-llm/copilot.key`,
-	openrouterKeyFile: `${HOME}/.claude/local-llm/openrouter.key`,
+	stackConfig: process.env.KLH_STACK ?? `${HOME}/.config/klh/stack.json`,
 	log: `${HOME}/.claude/local-llm/litellm-gateway.log`,
 };
 
@@ -114,54 +106,53 @@ const tryRead = (read: ReadFile, path: string): string | null => {
 	}
 };
 
-const tryStat = (stat: StatFile, path: string) => {
+/** W1124.8.4: resolve one provider profile by its OUTPUT env binding —
+ *  the central stack.json value rides the inherited env or the resolved
+ *  profile (never a key-file convention). A present env value wins (the
+ *  spawn-time override path); an unreadable/malformed stack or a profile
+ *  without this binding returns null — optional legs degrade, the
+ *  REQUIRED legs throw naming the source. */
+const fromProfileEnv = (
+	envName: string,
+	env: Env,
+	stackPath: string,
+	read: ReadFile,
+): string | null => {
+	if (env[envName]) return env[envName] as string;
+	let profiles: Record<string, ProviderEntry>;
 	try {
-		return stat(path);
+		profiles = loadProviderProfiles(stackPath, read);
 	} catch {
 		return null;
 	}
+	const resolved = profileForEnv(envName, profiles);
+	return resolved?.key ?? null;
 };
 
-/** Canonical Z.ai source: a REGULAR, non-empty, 0600 key file. Anything
- *  else (absent, empty, wrong mode, directory/symlink) reads as no key —
- *  the failure then names the path, never a value. */
-function zaiKeyFromFile(
-	read: ReadFile,
-	stat: StatFile,
-	path: string,
-): string | null {
-	const st = tryStat(stat, path);
-	if (!st?.isFile() || (st.mode & 0o777) !== 0o600) return null;
-	const raw = tryRead(read, path);
-	if (!raw) return null;
-	const key = raw.trim();
-	return key ? key : null;
-}
-
-/** Env first, then the 0600 files. Throws naming the SOURCE, never a value. */
+/** Central provider profiles (env first) + the LiteLLM master key file for
+ *  the required legs. Throws naming the SOURCE, never a value. The `stat`
+ *  injection rides for callers/tests that pin fixture posture; the profile
+ *  loader owns the 0600 gate itself. */
 export function loadKeys(
 	paths: LitellmPaths = DEFAULT_PATHS,
 	env: Env = process.env,
 	read: ReadFile = readText,
-	stat: StatFile = statSync,
+	_stat?: StatFile,
 ): LitellmKeys {
-	const zai = env.Z_AI_API_KEY || zaiKeyFromFile(read, stat, paths.zaiKeyFile);
 	const master =
 		env.LITELLM_KEY || tryRead(read, paths.masterKeyFile)?.trim() || null;
-	const anthropic =
-		env.ANTHROPIC_API_KEY ||
-		tryRead(read, paths.anthropicKeyFile)?.trim() ||
-		null;
-	const openai =
-		env.OPENAI_API_KEY || tryRead(read, paths.openaiKeyFile)?.trim() || null;
-	const copilot =
-		env.COPILOT_API_KEY || tryRead(read, paths.copilotKeyFile)?.trim() || null;
-	const openrouter =
-		env.OPENROUTER_API_KEY ||
-		tryRead(read, paths.openrouterKeyFile)?.trim() ||
-		null;
+	const profileKey = (envName: string): string | null =>
+		fromProfileEnv(envName, env, paths.stackConfig, read);
+	const zai = profileKey("Z_AI_API_KEY");
+	const anthropic = profileKey("ANTHROPIC_API_KEY");
+	const openai = profileKey("OPENAI_API_KEY");
+	const copilot = profileKey("COPILOT_API_KEY");
+	const openrouter = profileKey("OPENROUTER_API_KEY");
 	const missing: string[] = [];
-	if (!zai) missing.push(`Z_AI_API_KEY (env or ${paths.zaiKeyFile})`);
+	if (!zai)
+		missing.push(
+			`Z_AI_API_KEY (env or a provider profile in ${paths.stackConfig} with env binding Z_AI_API_KEY)`,
+		);
 	if (!master) missing.push(`LITELLM_KEY (env or ${paths.masterKeyFile})`);
 	if (!zai || !master) throw new Error(`missing ${missing.join(", ")}`);
 	return {
