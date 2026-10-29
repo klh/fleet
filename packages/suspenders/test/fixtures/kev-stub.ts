@@ -23,3 +23,7 @@ const server = Bun.serve({
 		}),
 });
 console.log(server.port);
+// a caller may pin the port report to a file (playwright workers swallow
+// child stdout — the env-named file is the reliable channel)
+if (process.env.KEV_STUB_PORT_FILE)
+	await Bun.write(process.env.KEV_STUB_PORT_FILE, `${server.port}`);

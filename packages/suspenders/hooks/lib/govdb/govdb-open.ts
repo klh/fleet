@@ -4,18 +4,18 @@
 // govdb-knowledge.ts, the delta-trigger template in govdb-deltas.ts.
 import type { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
-import { migrateEventsShred } from "./events-shred.ts";
-import { createDeltasTriggers } from "./govdb-deltas.ts";
 import { migrateReadIndexes } from "./govdb-indexes.ts";
-import {
-	migrateKnowledgeLayer,
-	migrateKnowledgeSplit,
-} from "../knowledge/govdb-knowledge.ts";
-import { columnNames, openWALDb, REG } from "./govdb-util.ts";
 import {
 	CONFIDENCE_HISTORY_DDL,
 	CONFIDENCE_HISTORY_INDEX_DDL,
 } from "../knowledge/confidence.ts";
+import {
+	migrateKnowledgeLayer,
+	migrateKnowledgeSplit,
+} from "../knowledge/govdb-knowledge.ts";
+import { migrateEventsShred } from "./events-shred.ts";
+import { createDeltasTriggers } from "./govdb-deltas.ts";
+import { columnNames, openWALDb, REG } from "./govdb-util.ts";
 import { migrateIdentitySplit } from "./identity-db.ts";
 import { migrateIdentityRegistry } from "./identity-registry.ts";
 import { migrateMachineState } from "./machine-state.ts";
@@ -157,6 +157,14 @@ export function openGovernorDb(): Database {
 	const consultCols = columnNames(db, "consults");
 	if (!consultCols.includes("deadline_at"))
 		db.run("ALTER TABLE consults ADD COLUMN deadline_at INTEGER");
+	// W927 consult-v2 (re-land W2184): contrastive consults record the
+	// label→leg mapping on the row for the report only (the compose prompt
+	// never sees identity); domain stamps the grouping word retrieval filters
+	// on.
+	if (!consultCols.includes("legs"))
+		db.run("ALTER TABLE consults ADD COLUMN legs TEXT");
+	if (!consultCols.includes("domain"))
+		db.run("ALTER TABLE consults ADD COLUMN domain TEXT");
 	// session registry (coord bootstrap): who exists, where, doing what role
 	db.run(
 		"CREATE TABLE IF NOT EXISTS sessions (sid TEXT PRIMARY KEY, project TEXT, role TEXT, parent_sid TEXT, worktree TEXT, started_at INTEGER NOT NULL, hb INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'RUNNING')",
@@ -495,6 +503,10 @@ export function openGovernorDb(): Database {
 			db.run("ALTER TABLE facts ADD COLUMN stale_at INTEGER");
 		if (!factsCols.includes("stale_reason"))
 			db.run("ALTER TABLE facts ADD COLUMN stale_reason TEXT");
+		// W927 (re-land W2184): facts gain the domain grouping word —
+		// lesson.* retrieval filters on it (domainVisible).
+		if (!factsCols.includes("domain"))
+			db.run("ALTER TABLE facts ADD COLUMN domain TEXT");
 	}
 	const ckCols = columnNames(db, "consult_kb");
 	if (ckCols.length) {
@@ -502,6 +514,13 @@ export function openGovernorDb(): Database {
 			db.run("ALTER TABLE consult_kb ADD COLUMN confidence REAL");
 		if (!ckCols.includes("confidence_stamp"))
 			db.run("ALTER TABLE consult_kb ADD COLUMN confidence_stamp TEXT");
+		// W927 experience carry (re-land W2184): the library.py memory fields
+		// ride every stored answer — lesson = the solution body itself,
+		// evidence = the artifact pointer (file:line / URL / ticket), domain
+		// the grouping word retrieval filters on.
+		for (const c of ["cue", "lesson", "evidence", "domain"] as const)
+			if (!ckCols.includes(c))
+				db.run(`ALTER TABLE consult_kb ADD COLUMN ${c} TEXT`);
 	}
 	db.run(CONFIDENCE_HISTORY_DDL);
 	db.run(CONFIDENCE_HISTORY_INDEX_DDL);

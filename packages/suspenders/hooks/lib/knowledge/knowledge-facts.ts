@@ -48,10 +48,10 @@ export function sourceRefOf(key: string, stamp: string | null): string | null {
 }
 
 export const KF_COLUMNS =
-	"key, value, source, version, ts, confidence, confidence_stamp, provenance, stale_at, stale_reason";
+	"key, value, source, version, ts, confidence, confidence_stamp, provenance, stale_at, stale_reason, domain";
 
 const DDL = [
-	"CREATE TABLE IF NOT EXISTS knowledge_facts (key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER NOT NULL DEFAULT 1, ts INTEGER NOT NULL, confidence REAL, confidence_stamp TEXT, provenance TEXT, stale_at INTEGER, stale_reason TEXT, origin_kind TEXT, source_ref TEXT)",
+	"CREATE TABLE IF NOT EXISTS knowledge_facts (key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER NOT NULL DEFAULT 1, ts INTEGER NOT NULL, confidence REAL, confidence_stamp TEXT, provenance TEXT, stale_at INTEGER, stale_reason TEXT, domain TEXT, origin_kind TEXT, source_ref TEXT)",
 	"CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_facts_fts USING fts5(value, key, content='knowledge_facts', content_rowid='rowid')",
 	"CREATE TRIGGER IF NOT EXISTS knowledge_facts_ai AFTER INSERT ON knowledge_facts BEGIN INSERT INTO knowledge_facts_fts (rowid, value, key) VALUES (new.rowid, new.value, new.key); END",
 	"CREATE TRIGGER IF NOT EXISTS knowledge_facts_ad AFTER DELETE ON knowledge_facts BEGIN INSERT INTO knowledge_facts_fts (knowledge_facts_fts, rowid, value, key) VALUES ('delete', old.rowid, old.value, old.key); END",
@@ -62,6 +62,13 @@ const ensured = new WeakSet<object>();
 export function ensureKnowledgeFacts(kb: Database): void {
 	if (ensured.has(kb)) return;
 	for (const s of DDL) kb.run(s);
+	// W2228 re-land: domain rides the guarded-ALTER heal (the additive house
+	// pattern) so pre-domain knowledge dbs gain the column on open.
+	const cols = (kb.query("PRAGMA table_info(knowledge_facts)").all() as {
+		name: string;
+	}[]).map((c) => c.name);
+	if (cols.length && !cols.includes("domain"))
+		kb.run("ALTER TABLE knowledge_facts ADD COLUMN domain TEXT");
 	ensured.add(kb);
 }
 
@@ -100,7 +107,7 @@ export function migrateKnowledgeFacts(
 	try {
 		ensureKnowledgeFacts(kb);
 		const ins = kb.query(
-			`INSERT OR IGNORE INTO knowledge_facts (${KF_COLUMNS}, origin_kind, source_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT OR IGNORE INTO knowledge_facts (${KF_COLUMNS}, origin_kind, source_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		);
 		// legacy governor dbs may predate the confidence/provenance/stale ALTERs
 		// (this runs before govdb-open heals them): absent columns read NULL
@@ -132,6 +139,7 @@ export function migrateKnowledgeFacts(
 						r.provenance,
 						r.stale_at,
 						r.stale_reason,
+						r.domain,
 						originKindOf(r.key),
 						sourceRefOf(r.key, r.confidence_stamp),
 					);
@@ -157,6 +165,7 @@ export interface KnowledgeFactRow {
 	provenance: string | null;
 	stale_at: number | null;
 	stale_reason: string | null;
+	domain: string | null;
 }
 
 /** The read API: knowledge fact rows by prefix, newest/keyed order, bounded. */
