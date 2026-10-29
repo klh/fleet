@@ -92,7 +92,14 @@ export const checkBun = (_ctx: DoctorContext): CheckResult => {
 	};
 };
 
-const AGENT_CLIS = ["claude", "codex", "copilot"];
+// W1812: which CLIs matter is registry data — the spawnable adapters (the
+// catalog-only rows would warn forever on machines without grok/cline).
+import { EXECUTOR_ADAPTERS } from "../executors/registry.ts";
+
+/** The CLI vocabulary the doctor probes — the spawnable adapter rows. */
+export const AGENT_CLIS: string[] = EXECUTOR_ADAPTERS.filter(
+	(a) => a.spawnable,
+).map((a) => a.bin);
 
 export const checkAgentClis = (_ctx: DoctorContext): CheckResult => {
 	const found = AGENT_CLIS.filter((c) => Bun.which(c) !== null);
@@ -103,7 +110,7 @@ export const checkAgentClis = (_ctx: DoctorContext): CheckResult => {
 		detail:
 			found.length > 0
 				? `found: ${found.join(", ")}`
-				: "no agent CLI found (claude/codex/copilot)",
+				: `no agent CLI found (${AGENT_CLIS.join("/")})`,
 	};
 };
 

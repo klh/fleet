@@ -7,38 +7,6 @@
 
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
-import { symlinkBuildDirs } from "../work/builddirs.ts";
-import { openStore, projectIdentity } from "../govdb/govdb.ts";
-import { mergeLaneRegistry } from "../lanes/lane-registry.ts";
-import { laneSid } from "../lanes/laneslug.ts";
-import { laneProcessIdentity } from "../lanes/lane-liveness.ts";
-import { condensePrompt } from "../../board/prompt-transform.ts";
-import {
-	jobslabFor,
-	jobslabPrefix,
-	jobslabTag,
-	laneClassOf,
-} from "../lanes/jobslab.ts";
-import {
-	acquireLaunchLease,
-	releaseFailedLaunch,
-	releaseLaunchLease,
-	selectLaneCarrier,
-} from "../../../scripts/lib/launch-preflight.ts";
-import {
-	assertLaunchClaim,
-	awaitLaunchRegistration,
-	fencedExecutor,
-	finishFailedLaunch,
-	inspectLaunchIntent,
-	launchIntent,
-	nextReservedAttempt,
-	reserveLaunchIntent,
-	terminateOwnLaunch,
-	type LaunchIntent,
-} from "../../../scripts/lib/launch-fencing.ts";
-import { launchParent } from "../lanes/launch-parent.ts";
-import { laneAttemptLimit } from "../lanes/lane-retry-budget.ts";
 import {
 	launchLogAppended,
 	launchLogSize,
@@ -46,27 +14,59 @@ import {
 	readLaunchBackoff,
 	scheduleLaunchBackoff,
 } from "../../../scripts/lib/launch-backoff.ts";
-import { reproGateForItem } from "../gates/repro-gate.ts";
-import { recordLaneExecutor } from "../executors/executor-cv.ts";
 import {
-	credScopeGap,
+	assertLaunchClaim,
+	awaitLaunchRegistration,
+	fencedExecutor,
+	finishFailedLaunch,
+	inspectLaunchIntent,
+	type LaunchIntent,
+	launchIntent,
+	nextReservedAttempt,
+	reserveLaunchIntent,
+	terminateOwnLaunch,
+} from "../../../scripts/lib/launch-fencing.ts";
+import {
+	acquireLaunchLease,
+	releaseFailedLaunch,
+	releaseLaunchLease,
+	selectLaneCarrier,
+} from "../../../scripts/lib/launch-preflight.ts";
+import { isResumableClaim } from "../../../scripts/lib/resumable-claim.ts";
+import { condensePrompt } from "../../board/prompt-transform.ts";
+import {
 	credRoutingRefusal,
+	credScopeGap,
 	laneProviderEnv,
 	machineCredScope,
 } from "../cred-scope.ts";
-import { emitLoopEvent } from "./events.ts";
+import { recordLaneExecutor } from "../executors/executor-cv.ts";
 import { adapterFor } from "../executors/registry.ts";
+import { reproGateForItem } from "../gates/repro-gate.ts";
+import { openStore, projectIdentity } from "../govdb/govdb.ts";
+// W254: pointer-grade injection — file-map + done-definition digest for the
+// direct-launch brief, gated per W113 on repo size (hooks/lib/lanes/brief-intel.ts)
+import { briefIntel, renderIntel } from "../lanes/brief-intel.ts";
+import {
+	jobslabFor,
+	jobslabPrefix,
+	jobslabTag,
+	laneClassOf,
+} from "../lanes/jobslab.ts";
 import {
 	applyLaneAttribution,
 	executorLaunch,
 	probeBuckleFront,
 } from "../lanes/lane.ts";
 import { ensureLaneKey, laneKeyMetaPath } from "../lanes/lane-auth.ts";
-// W254: pointer-grade injection — file-map + done-definition digest for the
-// direct-launch brief, gated per W113 on repo size (hooks/lib/lanes/brief-intel.ts)
-import { briefIntel, renderIntel } from "../lanes/brief-intel.ts";
-import { isResumableClaim } from "../../../scripts/lib/resumable-claim.ts";
+import { laneProcessIdentity } from "../lanes/lane-liveness.ts";
+import { mergeLaneRegistry } from "../lanes/lane-registry.ts";
+import { laneAttemptLimit } from "../lanes/lane-retry-budget.ts";
+import { laneSid } from "../lanes/laneslug.ts";
+import { launchParent } from "../lanes/launch-parent.ts";
+import { symlinkBuildDirs } from "../work/builddirs.ts";
 import { flagFns, type LoopConfig } from "./config.ts";
+import { emitLoopEvent } from "./events.ts";
 import type { LoopDeps } from "./runtime.ts";
 export async function runDispatch(
 	config: LoopConfig,
@@ -117,7 +117,8 @@ export async function runDispatch(
 		process.exit(1);
 	}
 	const bin = carrier.bin;
-	const executor = executorLaunch(adapterFor(AGENT), bin);
+	const adapter = adapterFor(AGENT);
+	const executor = executorLaunch(adapter, bin);
 	const store = openStore(),
 		project = projectIdentity(REPO),
 		nonce = crypto.randomUUID();
@@ -245,10 +246,11 @@ export async function runDispatch(
 		);
 
 		// reuse path: an existing worktree (dead lane's leftover) is used as-is —
-		// only a missing one is created. Codex workspaces are NOT git worktrees:
-		// a plain dir whose .git file points at the private store (see below).
+		// only a missing one is created. W1812: plain-dir workspaces are an
+		// adapter fact (codex: a plain dir whose .git file points at the
+		// private store, below) — no per-client branch here.
 		if (!existsSync(wt)) {
-			if (AGENT === "codex") {
+			if (adapter.workspace === "plain-dir") {
 				mkdirSync(wt, { recursive: true });
 				// build dirs symlinked from the repo root — parity with worktree.ts
 				// create, so codex lanes skip reinstalls too
@@ -272,7 +274,9 @@ export async function runDispatch(
 			})
 				.stdout?.toString()
 				.trim() || `suspenders/${item}`;
-		if (AGENT !== "codex") {
+		// W1812: session registration is an adapter fact — codex has no coord
+		// session to bootstrap (SUSPENDERS_SID env is its identity channel).
+		if (adapter.registersSession !== false) {
 			const parentSid = launchParent(store, project, item);
 			const registered = runTool([
 				`${process.env.HOME}/.claude/hooks/suspenders/bin/coord.ts`,
@@ -346,10 +350,11 @@ export async function runDispatch(
 		);
 		if (takeToken) env.KLH_CLAIM_TOKEN = takeToken;
 		delete env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
-		if (AGENT !== "codex") {
-			env.SUSPENDERS_SID = sid;
+		// W73/W296/W1812: the fleet sid rides EVERY dialect's lane env; the
+		// canonical identity protocol only where the adapter registers a session.
+		env.SUSPENDERS_SID = sid;
+		if (adapter.registersSession !== false)
 			env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL = "canonical-v1";
-		}
 		// W1119.2 single-buckle-inference: a fleet-loop lane rides the buckle
 		// front attributed — probe + scoped-key mint fail CLOSED (no solo/
 		// ungoverned bypass on this verb): a miss throws into the catch below
@@ -381,18 +386,13 @@ export async function runDispatch(
 		delete env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
 		delete env.ANTHROPIC_DEFAULT_OPUS_MODEL;
 		delete env.ANTHROPIC_DEFAULT_SONNET_MODEL;
-		if (AGENT === "codex") {
+		// W1812: private git store is an adapter fact — the codex seatbelt
+		// denies every write into any .git directory (name-based, verified
+		// empirically 2026-09-28), so the lane commits into a non-.git store
+		// wired via GIT_DIR/GIT_WORK_TREE (the main object db stays protected).
+		if (adapter.privateGitStore === true) {
 			env.GIT_DIR = `${wt}/.gitstore`;
 			env.GIT_WORK_TREE = wt;
-			// W73: the fleet sid rides the lane env — hooks inherit it, making
-			// SUSPENDERS_SID the primary identity channel for the codex adapter
-			// (ppid-walk into lanes.json stays the fallback, lib/fleetlane.ts).
-			env.SUSPENDERS_SID = sid;
-		} else if (AGENT === "copilot") {
-			// W296: same identity-channel parity as codex above, minus the
-			// seatbelt-driven private git store workaround — these dialects use
-			// normal worktrees, so only the sid needs to ride the lane env.
-			env.SUSPENDERS_SID = sid;
 		}
 		// W432: same rule as dispatch-next — the lane prompt points at the
 		// READABLE worktree copy, not the canonical .fleet path lanes can't read.
@@ -407,12 +407,9 @@ export async function runDispatch(
 		// file (not per-worktree), so this is safe to re-run on every dispatch.
 		// W1811: grok/cline retired from dispatch until transcript evidence
 		// readers land — their dialect wiring stays (hooks/dialects/) but no
-		// dispatch path can launch an evidence-blind lane.
-		const WIRE_BY_AGENT: Record<string, string> = {
-			codex: "codex",
-			copilot: "copilot",
-		};
-		const wireDialect = WIRE_BY_AGENT[AGENT];
+		// dispatch path can launch an evidence-blind lane. W1812: the wiring
+		// target is the adapter's wireDialect row, not a per-agent map.
+		const wireDialect = adapter.wireDialect;
 		if (wireDialect) {
 			const wire = Bun.spawnSync(
 				[process.execPath, `${binDir}/../dialects/${wireDialect}/wire.ts`],
@@ -429,14 +426,15 @@ export async function runDispatch(
 				throw new Error("direct launch preparation failed");
 			}
 		}
-		// codex lanes: codex's seatbelt denies every write into any .git
-		// directory (name-based, verified empirically 2026-09-28), so the standard
-		// worktree layout (admin dir + objects under REPO/.git) can never commit.
-		// The lane gets a PRIVATE git store under a non-.git name inside its
-		// workspace, wired with GIT_DIR/GIT_WORK_TREE env: main-repo objects are
-		// shared read-only via alternates; the lane's own objects/refs land in
-		// the private store — the main object db stays seatbelt-protected.
-		if (AGENT === "codex") {
+		// W1812: the private git store init is an adapter fact (the codex
+		// seatbelt denies every write into any .git directory — name-based,
+		// verified empirically 2026-09-28 — so the standard worktree layout
+		// can never commit). The lane gets a PRIVATE store under a non-.git
+		// name inside its workspace, wired with GIT_DIR/GIT_WORK_TREE env:
+		// main-repo objects are shared read-only via alternates; the lane's
+		// own objects/refs land in the private store — the main object db
+		// stays seatbelt-protected.
+		if (adapter.privateGitStore === true) {
 			const store = `${wt}/.gitstore`;
 			if (!existsSync(`${store}/HEAD`)) {
 				Bun.spawnSync(["git", "init", "--quiet", "--bare", store]);
@@ -483,37 +481,36 @@ export async function runDispatch(
 			}
 			writeFileSync(`${wt}/.git`, `gitdir: ${store}\n`);
 		}
-		const agentArgs =
-			AGENT === "codex"
-				? // full access — owner directive 2026-09-28: codex lanes are
-					// EQUIVALENT to claude lanes (same trust class, unsandboxed).
-					// The seatbelt structurally denies git writes, which forked the
-					// protocol into lane-commits vs coordinator-commits; one
-					// approach, two backends. The private git store stays: even
-					// unsandboxed, a codex lane's commits never touch the main
-					// object db until the coordinator merges.
-					["exec", "--sandbox", "danger-full-access", prompt]
-				: AGENT === "copilot"
-					? // W223.1 — copilot's own non-interactive flags (verified via
-						// `copilot --help`): -p/--prompt exits after one turn;
-						// --allow-all-tools is REQUIRED for non-interactive mode
-						// (copilot otherwise blocks on a confirmation prompt it can
-						// never receive headless); --allow-all-paths matches the
-						// other dialects' unsandboxed worktree access.
-						["-p", prompt, "--allow-all-tools", "--allow-all-paths"].concat(
-							// W183.1 — only forward when the owner actually chose
-							// a level; belt/llm: dispatch never reaches this branch
-							// (separate litellm-gateway stack, out of scope here).
-							EFFORT ? ["--reasoning-effort", EFFORT] : [],
-						)
-					: [
-							"-p",
-							prompt,
-							"--allowedTools",
-							"Bash(git:*) Bash(bun:*) Bash(qlty:*) Bash(rg:*) Bash(eza:*) Bash(ls:*) Bash(mkdir:*) Bash(sd:*) Bash(sed:*) Bash(diff) Edit Write",
-							"--permission-mode",
-							"acceptEdits",
-						];
+		// W422/W1812: the spawn tail is the adapter's recipe — no per-agent
+		// ternary in dispatch core. codex: exec + danger-full-access (owner
+		// directive 2026-09-28: codex lanes are EQUIVALENT to claude lanes —
+		// same trust class, unsandboxed; the private git store still keeps
+		// the main object db protected until the coordinator merges).
+		// promptLast grammar (W1009.1): exec-style argv carries the prompt
+		// LAST, so the flag tail sits between the subcommand and the prompt.
+		const agentArgs = adapter.promptLast
+			? [
+					...adapter.promptArgs("").slice(0, -1),
+					...adapter.spawnArgs({
+						fallbackModels: [],
+						settingsArgs: [],
+						forkArgs: [],
+						// W183.1 — only forward when the owner actually chose a
+						// level; belt/llm: dispatch never reaches this branch
+						// (separate litellm-gateway stack, out of scope here).
+						effort: EFFORT ?? undefined,
+					}),
+					prompt,
+				]
+			: [
+					...adapter.promptArgs(prompt),
+					...adapter.spawnArgs({
+						fallbackModels: [],
+						settingsArgs: [],
+						forkArgs: [],
+						effort: EFFORT ?? undefined,
+					}),
+				];
 		// Detached harness children survive dispatcher process-group teardown.
 		// unref only releases Bun's event-loop reference. exec keeps
 		// the registry PID, stdin EOF avoids input waits, and logs feed the board.

@@ -26,6 +26,17 @@ export const codexAdapter: ExecutorAdapter = {
 	names: ["codex"],
 	bin: "codex",
 	spawnable: true,
+	// W1812 fleet-loop facts, formerly dispatch.ts branches (W73/W296
+	// verified): the seatbelt layout is a plain dir + symlinked build dirs
+	// (never a git worktree), the lane commits via a private .gitstore
+	// (GIT_DIR/GIT_WORK_TREE in the lane env), and there is no coord session
+	// to bootstrap — SUSPENDERS_SID rides the env as the primary identity
+	// channel (the ppid-walk into lanes.json stays the fallback).
+	workspace: "plain-dir",
+	privateGitStore: true,
+	registersSession: false,
+	// W296/W1811: the dialect gate wiring target (hooks/dialects/codex/).
+	wireDialect: "codex",
 	// W1052.2.2: lanes ride the managed app-server turn (steerable, socket-
 	// surfaced, NDJSON-pumped) — the native binary rides the env channel.
 	managedRuntime: {
@@ -56,10 +67,15 @@ export const codexAdapter: ExecutorAdapter = {
 	// `exec resume <id>` chaining verified on the 0.158 binary (W454 probe);
 	// wiring waits on the spawn-recipe composition (module header, W454).
 	forkArgs: () => null,
+	// W626/W1812: the homebrew install launchd's bare PATH hides — probed
+	// when `which` misses (second-opinion bin resolution + lane-liveness).
+	installPaths: ["/opt/homebrew/bin/codex"],
 	// seatbelt workspaces + AGENTS.md sandbox facts live in the codex dialect
 	// (hooks/dialects/codex/) until fleet-loop rides the registry.
 	processNames: ["codex"],
 	// W1731: CODEX_SANDBOX / CODEX_CI / CODEX_THREAD_ID → "codex".
 	detect: { names: ["codex"] },
+	// W1812: free-text vocabulary — ".codex/" home dirs, codex worktrees.
+	match: ["codex"],
 	evidence: codexEvidence,
 };

@@ -34,6 +34,9 @@ export interface SpawnArgsSpec {
 	settingsArgs?: string[];
 	/** Starter-session fork args (W454). */
 	forkArgs?: string[];
+	/** The lane's effort level — adapters that carry effort on argv append
+	 *  their own flag (copilot --reasoning-effort); absent = no-op. */
+	effort?: string;
 }
 
 export interface ExecutorAdapter {
@@ -90,6 +93,22 @@ export interface ExecutorAdapter {
 	 *  file) — the exact model on the governed Buckle provider at the lane's
 	 *  effort. Present ⇒ a pinned lane without a governed ride refuses. */
 	modelArgs?: (ride: LaneRide) => string[];
+	/** W1812: the workspace shape the fleet-loop dispatcher prepares —
+	 *  "plain-dir" (codex's seatbelt layout: plain dir + symlinked build
+	 *  dirs) or the default git worktree. */
+	workspace?: "worktree" | "plain-dir";
+	/** W1812: false = the dialect has no coord session to bootstrap — the
+	 *  fleet sid rides the lane env only, no canonical identity protocol. */
+	registersSession?: boolean;
+	/** W1812: the lane commits into a private .gitstore (GIT_DIR/GIT_WORK_TREE
+	 *  wired in the lane env; the main object db stays protected). */
+	privateGitStore?: boolean;
+	/** W1812: the hooks/dialects/<name>/ wire target for gate wiring. */
+	wireDialect?: string;
+	/** W1812: substrings identifying this client in free text (transcript
+	 *  paths, worktree names, tool labels) — the addressing scans ride these;
+	 *  absent = unmatched (the raw slug fallback applies). */
+	match?: string[];
 }
 
 export type LaneWire = "messages" | "chat" | "responses";

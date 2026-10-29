@@ -4,24 +4,24 @@
 // agent in EXECUTOR_ADAPTERS; core files carry zero executor branches.
 import { describe, expect, test } from "bun:test";
 import {
-	EXECUTOR_ADAPTERS,
-	HARNESS_PROCESS_NAMES,
-	adapterFor,
-	adapterForExact,
-	isSpawnableExecutor,
-	LEGACY_DISPATCHABLE_AGENTS,
-} from "../hooks/lib/executors/registry.ts";
-import {
 	CLAUDE_ALLOWED_TOOLS,
 	workerManagedArgs,
 } from "../hooks/lib/executors/claude.ts";
 import { codexRideArgs } from "../hooks/lib/executors/codex.ts";
-import { laneRideOf } from "../scripts/lib/lane-ride.ts";
-import { servesWire, wirePick } from "../scripts/lib/lane-wire.ts";
+import {
+	adapterFor,
+	adapterForExact,
+	EXECUTOR_ADAPTERS,
+	HARNESS_PROCESS_NAMES,
+	isSpawnableExecutor,
+	LEGACY_DISPATCHABLE_AGENTS,
+} from "../hooks/lib/executors/registry.ts";
 import {
 	DEFAULT_ALLOWED_TOOLS,
 	executorLaunch,
 } from "../hooks/lib/lanes/lane.ts";
+import { laneRideOf } from "../scripts/lib/lane-ride.ts";
+import { servesWire, wirePick } from "../scripts/lib/lane-wire.ts";
 
 describe("W422 executor-adapter registry", () => {
 	test("managed launch is adapter data and preserves the native executable separately", () => {
@@ -108,7 +108,10 @@ describe("W422 executor-adapter registry", () => {
 	test("every legacy-dispatchable token carries transcript evidence", () => {
 		for (const token of LEGACY_DISPATCHABLE_AGENTS) {
 			const adapter = adapterForExact(token);
-			expect(adapter?.evidence, `${token} dispatches and must be readable`).toBeDefined();
+			expect(
+				adapter?.evidence,
+				`${token} dispatches and must be readable`,
+			).toBeDefined();
 		}
 		// retired until a reader verified against a real native session file lands
 		expect(LEGACY_DISPATCHABLE_AGENTS).not.toContain("grok");
@@ -119,13 +122,22 @@ describe("W422 executor-adapter registry", () => {
 	test("copilot adapter: W223.1 tail + W223.2 hard brief gate", () => {
 		const copilot = adapterFor("copilot");
 		expect(copilot.briefHardGate).toBe(true);
+		// W1812 convergence: --allow-all-paths (the fleet-loop delta) rides the
+		// one adapter row for every spawner; the lane's effort rides copilot's
+		// own --reasoning-effort via spec.effort (absent = no flag).
 		expect(copilot.spawnArgs({})).toEqual([
 			"--allow-all-tools",
+			"--allow-all-paths",
 			"--disable-builtin-mcps",
 		]);
-		expect(copilot.spawnArgs({ forkArgs: ["--session-id", "s9"] })).toEqual([
+		expect(
+			copilot.spawnArgs({ effort: "high", forkArgs: ["--session-id", "s9"] }),
+		).toEqual([
 			"--allow-all-tools",
+			"--allow-all-paths",
 			"--disable-builtin-mcps",
+			"--reasoning-effort",
+			"high",
 			"--session-id",
 			"s9",
 		]);
@@ -135,6 +147,15 @@ describe("W422 executor-adapter registry", () => {
 		const codex = adapterFor("codex");
 		expect(codex.promptArgs("m")).toEqual(["exec", "m"]);
 		expect(codex.spawnArgs({})).toEqual(["--sandbox", "danger-full-access"]);
+		// W1812 fleet-loop facts: the workspace shape, the private git store,
+		// the absent coord-session registration, the dialect wire target, and
+		// the homebrew install path all ride the ONE adapter row — dispatch
+		// core carries no codex branches.
+		expect(codex.workspace).toBe("plain-dir");
+		expect(codex.privateGitStore).toBe(true);
+		expect(codex.registersSession).toBe(false);
+		expect(codex.wireDialect).toBe("codex");
+		expect(codex.installPaths).toEqual(["/opt/homebrew/bin/codex"]);
 	});
 	test("claude spawnArgs composes the full dispatch tail in order", () => {
 		expect(
@@ -318,5 +339,48 @@ describe("W1712 wire-aware executor selection", () => {
 			laneRideOf({ ...LANE_ENV, ANTHROPIC_AUTH_TOKEN: "" }, "m", "low").ok,
 		).toBe(false);
 		expect(laneRideOf(LANE_ENV, 'm" model_provider="x', "low").ok).toBe(false);
+	});
+
+	test("W1812 retire-the-branches: adapter facts replace dispatch-core branches", () => {
+		// claude keeps the defaults: git worktree, no private store, a
+		// registered coord session, no dialect wire target — the codex row
+		// (asserted above) carries the deltas.
+		const claude = adapterForExact("claude");
+		expect(claude?.workspace).toBeUndefined();
+		expect(claude?.privateGitStore).toBeUndefined();
+		expect(claude?.registersSession).toBeUndefined();
+		expect(claude?.wireDialect).toBeUndefined();
+		expect(adapterForExact("copilot")?.wireDialect).toBe("copilot");
+	});
+
+	test("W1812 free-text tool vocabulary is adapter match rows", () => {
+		const reg = require("../hooks/lib/executors/registry.ts");
+		// Substrings land on their adapter; the claude row rides LAST so a
+		// copilot path never degrades to a claude label.
+		expect(reg.toolTokenForText("~/x/.codex/sessions/r.jsonl")).toBe("codex");
+		expect(reg.toolTokenForText("~/x/.claude/projects/a.jsonl")).toBe(
+			"claude",
+		);
+		expect(reg.toolTokenForText("lane .worktrees/W5 copilot")).toBe("copilot");
+		expect(reg.toolTokenForText("grok-4 transcript")).toBe("grok");
+		expect(reg.toolTokenForText("no client marker here")).toBeNull();
+	});
+
+	test("W1812 install paths expand home-relative rows, no fs probing", () => {
+		const reg = require("../hooks/lib/executors/registry.ts");
+		expect(reg.expandInstallPaths("codex", "/h")).toEqual([
+			"/opt/homebrew/bin/codex",
+		]);
+		expect(reg.expandInstallPaths("copilot", "/h")).toEqual([
+			"/h/.local/bin/copilot",
+		]);
+		expect(reg.expandInstallPaths("grok", "/h")).toEqual([]);
+	});
+
+	test("W1812 doctor probes exactly the spawnable adapter bins", () => {
+		const doc = require("../hooks/lib/fleet-loop/doctor.ts");
+		expect(doc.AGENT_CLIS).toEqual(
+			EXECUTOR_ADAPTERS.filter((a) => a.spawnable).map((a) => a.bin),
+		);
 	});
 });

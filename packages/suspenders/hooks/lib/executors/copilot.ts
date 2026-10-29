@@ -25,7 +25,12 @@ export const copilotAdapter: ExecutorAdapter = {
 	// Fork args append when the spec carries them.
 	spawnArgs: (spec) => [
 		"--allow-all-tools",
+		// W223.1: unsandboxed worktree access — formerly fleet-loop's
+		// dispatch.ts delta, converged into the one adapter row (W1812).
+		"--allow-all-paths",
 		"--disable-builtin-mcps",
+		// The lane's effort level rides copilot's own flag (W776).
+		...(spec.effort ? ["--reasoning-effort", spec.effort] : []),
 		...(spec.forkArgs ?? []),
 	],
 	promptArgs: (prompt) => ["-p", prompt],
@@ -42,6 +47,8 @@ export const copilotAdapter: ExecutorAdapter = {
 	// W918.5: the ensureShims launcher lands at ~/.local/bin/copilot — probe
 	// it when `which` misses (launchd runs a bare PATH, W626).
 	installPaths: ["~/.local/bin/copilot"],
+	// W296/W1811: the dialect gate wiring target (hooks/dialects/copilot/).
+	wireDialect: "copilot",
 	// W1731: the detector also answers "github-copilot" for a human shell
 	// that merely holds COPILOT_GITHUB_TOKEN — a running client must show a
 	// runtime marker too (AI_AGENT reaches here only as github-copilot[-cli]).
@@ -49,5 +56,8 @@ export const copilotAdapter: ExecutorAdapter = {
 		names: ["github-copilot"],
 		markers: ["AI_AGENT", "COPILOT_MODEL", "COPILOT_ALLOW_ALL"],
 	},
+	// W1812: free-text vocabulary (paths, tool labels) — checked before the
+	// claude default so a copilot path never degrades to a claude label.
+	match: ["copilot"],
 	evidence: copilotEvidence,
 };

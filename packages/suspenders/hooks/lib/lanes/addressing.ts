@@ -1,4 +1,7 @@
 import { basename } from "node:path";
+// W1812: the client vocabulary is adapter data — the scan helper lives in
+// the executor registry beside the rows it reads.
+import { toolTokenForText } from "../executors/registry.ts";
 
 export interface SessionLabelInput {
 	sid: string;
@@ -81,11 +84,8 @@ export function normalizeTool(value: string | null | undefined): string | null {
 	if (!raw) return null;
 	const normalized = raw.toLowerCase();
 	if (normalized.startsWith("llm:")) return "llm";
-	if (normalized.includes("copilot")) return "copilot";
-	if (normalized.includes("codex")) return "codex";
-	if (normalized.includes("grok")) return "grok";
-	if (normalized.includes("claude")) return "claude";
-	return slugifyLabelPart(normalized, "tool");
+	// W1812: the substring ladder is adapter data (registry match rows).
+	return toolTokenForText(normalized) ?? slugifyLabelPart(normalized, "tool");
 }
 
 export function inferTool(session: SessionLabelInput): string {
@@ -98,12 +98,9 @@ export function inferTool(session: SessionLabelInput): string {
 	const pathish = `${session.transcript_path ?? ""} ${session.worktree ?? ""}`
 		.toLowerCase()
 		.trim();
-	if (pathish.includes("copilot")) return "copilot";
-	if (pathish.includes("/.codex/") || pathish.includes("codex")) return "codex";
-	if (pathish.includes("grok")) return "grok";
-	if (pathish.includes("/.claude/") || pathish.includes("claude"))
-		return "claude";
-	return "claude";
+	// W1812: adapter match rows; the registry scan's claude row is the
+	// default-tail, and no match still lands on the default tool.
+	return toolTokenForText(pathish) ?? "claude";
 }
 
 export function inferHub(session: SessionLabelInput): string {
