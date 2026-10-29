@@ -67,7 +67,7 @@ export function mintItemWorktree(
 			err: r.err || r.out || "git worktree add failed",
 		};
 	symlinkBuildDirs(root, target);
-	const dependencies = installWorktreeDependencies(target);
+	const dependencies = installWorktreeDependencies(root, target);
 	if (!dependencies.ok)
 		return { path: target, ok: false, err: dependencies.note };
 	// W1730: a fresh mint receipts the commit its branch was created at — the
@@ -99,7 +99,7 @@ export function provisionForTake(
 ): ProvisionResult {
 	const standing = resolveItemWorktree(root, id);
 	if (standing) {
-		const dependencies = installWorktreeDependencies(standing);
+		const dependencies = installWorktreeDependencies(root, standing);
 		if (!dependencies.ok)
 			return {
 				path: standing,
