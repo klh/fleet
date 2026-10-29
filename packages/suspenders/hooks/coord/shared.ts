@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto";
+import {
+	listKnowledgeFacts,
+	withKnowledgeFacts,
+} from "../lib/knowledge/knowledge-facts.ts";
 import { readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { factDemoted } from "../lib/federation/consult-federation-hub.ts";
@@ -181,14 +185,10 @@ export function lessonLookup(
 		),
 	];
 	if (!terms.length) return null;
-	const rows = db
-		.query(
-			"SELECT key, value FROM facts WHERE key LIKE 'lesson.%' AND key NOT LIKE 'lesson.seen.%'",
-		)
-		.all() as {
-		key: string;
-		value: string;
-	}[];
+	// hub design phase 3: lessons are read from the knowledge store
+	const rows = withKnowledgeFacts((kb) =>
+		listKnowledgeFacts(kb, { prefixes: ["lesson."] }),
+	).map((r) => ({ key: r.key, value: r.value ?? "" }));
 	let best: { key: string; value: string; score: number } | null = null;
 	for (const r of rows) {
 		const hay = `${r.key} ${r.value}`.toLowerCase().split(/[^a-z0-9_.-]+/);

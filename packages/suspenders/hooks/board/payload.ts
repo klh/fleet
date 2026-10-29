@@ -3,6 +3,10 @@
 // trust panel. W1255.4: moved verbatim from board/data.ts (per-domain split).
 
 // W1196: dispatch holds — named, TTL'd pause state (same lib as dispatch).
+import {
+	listKnowledgeFacts,
+	withKnowledgeFacts,
+} from "../lib/knowledge/knowledge-facts.ts";
 import { dispatchHoldRows } from "../lib/lanes/dispatch-hold.ts";
 import { observation } from "../lib/board/observation.ts";
 import { plaidStatus } from "../lib/plaid/plaid.ts";
@@ -102,11 +106,14 @@ export function llm(): unknown {
 // evidence, researched}) — the shape the `coord fact` schema note teaches.
 // Plain-text facts ride with trust=null (honest: nothing to render).
 export function factsTrust(): unknown[] {
-	const rows = db
-		.query(
-			"SELECT key, value, ts FROM facts WHERE key LIKE 'lesson.%' OR key LIKE 'finding.%' ORDER BY ts DESC LIMIT 40",
-		)
-		.all() as { key: string; value: string; ts: number }[];
+	// hub design phase 3: knowledge facts live in the knowledge store
+	const rows = withKnowledgeFacts((kb) =>
+		listKnowledgeFacts(kb, {
+			prefixes: ["lesson.", "finding."],
+			order: "ts_desc",
+			limit: 40,
+		}),
+	).map((r) => ({ key: r.key, value: r.value ?? "", ts: r.ts }));
 	return rows.map((r) => {
 		let trust: Record<string, unknown> | null = null;
 		try {

@@ -253,8 +253,13 @@ describe("w1228 knowledge invalidation", () => {
 			.query("SELECT value FROM facts WHERE key = 'lesson.old'")
 			.get();
 		expect(gone).toBeNull();
-		const kept = gov
-			.query("SELECT value FROM facts WHERE key = 'lesson.new'")
+		// phase 3: the child's open migrated lessons into knowledge.db
+		const goneKb = kb
+			.query("SELECT value FROM knowledge_facts WHERE key = 'lesson.old'")
+			.get();
+		expect(goneKb).toBeNull();
+		const kept = kb
+			.query("SELECT value FROM knowledge_facts WHERE key = 'lesson.new'")
 			.get();
 		expect(kept).not.toBeNull();
 		expect(await run(["gc", "--forget", "activity.tp.:1"])).toBe(2);

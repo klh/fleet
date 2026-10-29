@@ -4,6 +4,10 @@
 // active work) and source is `resume`, then injects the restart packet
 // (SESSION / REBIND / OWNED / READY / INBOX / HEAD). Stdout is injected as
 // session context. CLAUDE_FLEET_BOOTSTRAP=0 opts out entirely.
+import {
+	listKnowledgeFacts,
+	withKnowledgeFacts,
+} from "./lib/knowledge/knowledge-facts.ts";
 import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
@@ -502,15 +506,19 @@ if (!isSubagent && input.cwd) {
 	const wm = db
 		.query("SELECT value FROM facts WHERE key = ?")
 		.get(`lesson.seen.${sid}`) as { value: string } | null;
-	const rows = db
-		.query(
-			"SELECT key, value, ts FROM facts WHERE key LIKE 'lesson.%' AND key NOT LIKE 'lesson.seen.%' AND ts > ? ORDER BY ts LIMIT 5",
-		)
-		.all(Number(wm?.value ?? 0)) as {
-		key: string;
-		value: string;
-		ts: number;
-	}[];
+	// hub design phase 3: lessons live in the knowledge store (knowledge.db);
+	// the seen-watermark stays session bookkeeping in governor facts
+	let rows: { key: string; value: string; ts: number }[] = [];
+	try {
+		rows = withKnowledgeFacts((kb) =>
+			listKnowledgeFacts(kb, {
+				prefixes: ["lesson."],
+				since: Number(wm?.value ?? 0),
+				order: "ts",
+				limit: 5,
+			}),
+		).map((r) => ({ key: r.key, value: r.value ?? "", ts: r.ts }));
+	} catch {} // knowledge store unreadable: no lesson push this session
 	if (rows.length) {
 		for (const r of rows) {
 			const v =

@@ -11,12 +11,13 @@
 // Credential-free by construction (local reads + local store) — hub-safe
 // per W1211. Exit 0 = clean pass · 1 = collect or child errors (the sweep
 // fail-logs; the cursor did not advance, the next fire re-collects).
-import {
-	DAILY_LIMIT,
-	runDaily,
-	type DailyRunResult,
-} from "../lib/fleet-loop/decant-daily.ts";
+import { DAILY_LIMIT, runDaily } from "../lib/fleet-loop/decant-daily.ts";
 import { defineVerb, parseVerb } from "../lib/verb-kit.ts";
+import { gateDecantWrites } from "../lib/fleet-loop/decant-gate.ts";
+import { suggestKnowledge } from "../lib/knowledge/kev-curation.ts";
+import { deferToReview } from "../lib/knowledge/kev-review.ts";
+import { withKnowledgeDb } from "../lib/knowledge/sqlite-store.ts";
+import { projectIdentity } from "../lib/govdb/govdb-project.ts";
 
 const daily = defineVerb({
 	name: "decant-daily",
@@ -53,6 +54,13 @@ const result = await runDaily({
 	// W1220 dual-write: the local facts stay primary; the upward roll to the
 	// configured hub sink rides after them, fail-open (never moves the exit).
 	roll: true,
+	// phase 3: new decant claims pass the Kev store/noise/review gate
+	gate: (writes) =>
+		gateDecantWrites(writes, {
+			curate: suggestKnowledge,
+			defer: (e) => withKnowledgeDb((kb) => deferToReview(kb, e)),
+			project: projectIdentity(process.cwd()),
+		}),
 });
 
 if (json) {
