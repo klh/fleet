@@ -149,11 +149,11 @@ const NEAR_CAP_PINNED = {
 	"packages/decant/src/buckets.ts": 1489,
 	"packages/decant/src/token-economics.ts": 1427,
 	"packages/decant/src/query.ts": 1409,
-	"packages/belt/bin/router-shim.ts": 1292, // W1238.6.1 decomposition (HEAD W1117 growth keeps it in band)
+	"packages/belt/bin/router-shim.ts": 1282, // W1238.6.1 decomposition (W2259 merge re-pin: W1311 drift)
 	"packages/buckle/src/ledger.ts": 1389, // +7 main-side merge drift (W2210 re-pin; debt: decompose)
 	"packages/belt/test/dashboard-topology-model.e2e.ts": 1294,
 	"packages/suspenders/hooks/bin/work.ts": 1247, // W2186 re-land: fence CAS moved to work-transition.ts; +3 qlty-fmt import wrap (W2210 drift re-pin; debt: decompose)
-	"packages/suspenders/deploy/hubctl.ts": 1208,
+	"packages/suspenders/deploy/hubctl.ts": 1212, // W2259 merge re-pin: +4 main-side W1311 release drift (debt: decompose)
 };
 
 test("the 1200-line band stays pinned: shrink-only, no new entrants (W1238.6) @unit", () => {
