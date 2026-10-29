@@ -12,10 +12,13 @@ without changing prompt semantics or model?
 ## Method
 
 `bun packages/buckle/bin/latency-report.ts` (landed this item) reads the
-buckle ledger read-only and renders matched request-size vs first-byte
+buckle ledger read-only and renders matched request-size vs transport
 latency from `route_attempt.transport_json` (requestBodyBytes, headersMs,
-firstBodyByteMs) joined to `route_audit.stream_receipt`. Verified live
-2026-10-29 (~133k attempts):
+firstBodyByteMs) joined to `route_audit.stream_receipt`. headersMs and
+firstBodyByteMs render SEPARATELY (W2247.1): headersMs is time-to-headers,
+firstBodyByteMs is the actual first body byte, aggregated from observed
+values only. Verified live 2026-10-29 (~133k attempts) — the render below
+predates the W2247.1 metric correction (headers-only columns):
 
 ```
 attempts with transport evidence: 133102
@@ -29,9 +32,26 @@ bucket      n      hdrMs p50/p90/max      reqKB avg   queueWait p50
 500k+       22582      3086/8022/383548         732              0
 ```
 
+## Correction (W2247.1 — review B1-first-byte-metric)
+
+The original report labelled `headersMs` "first-byte latency". headersMs
+is time-to-HEADERS: for non-streaming requests it includes the provider's
+whole generation (finding 2), so it is NOT a first-byte metric. The report
+now renders the two separately:
+
+- `headersMs` aggregates keep the historical size-vs-latency finding
+  (r = −0.061 across all four size buckets, multi-minute tail in every
+  bucket) — correctly labelled a HEADERS finding.
+- `firstBodyByteMs` is aggregated from observed values only, with its n
+  rendered beside it; rows without a first-body byte are excluded — never
+  backfilled from headersMs, never fabricated when absent (the report
+  prints `no first-body observations` instead of an invented aggregate).
+- The routing/timeout semantics are untouched: no fabricated live
+  first-byte aggregate is claimed beyond what `firstBodyByteMs` observed.
+
 ## Findings
 
-1. **Request size is NOT the driver.** Pearson r(requestBytes, headersMs)
+1. **Request size is NOT the driver — of headers time.** Pearson r(requestBytes, headersMs)
    = −0.061 over ~133k attempts. The medians climb only mildly with size
    (0.9 s → 3.1 s p50 from <10k to 500k+); the multi-minute tail exists in
    EVERY size bucket (max 1012 s on <10KB requests).
@@ -61,6 +81,9 @@ bucket      n      hdrMs p50/p90/max      reqKB avg   queueWait p50
 
 - Landed: `src/latency-report.ts` + `bin/latency-report.ts` (read-only
   diagnostic face, `--db` override) + `test/latency-report.e2e.ts`.
+  W2247.1 corrected the metric: `firstBodyByteMs` renders separately from
+  `headersMs` with honest n counts; regressions cover distinct values and
+  missing-first-body rows (never fabricated).
 - Recommended, NOT landed (owner call): callers wanting low first-byte
   latency should request streaming (SSE first chunk ≈ headers+1 frame);
   for non-streaming requests no safe mid-flight progress signal exists —

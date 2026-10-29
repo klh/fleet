@@ -1,12 +1,14 @@
-// bin/latency-report.ts — W2247 CLI face: renders the request-size vs
-// first-byte-latency report from a buckle ledger (read-only, never writes).
+// bin/latency-report.ts — W2247/W2247.1 CLI face: renders the request-size
+// vs headers/first-body latency report from a buckle ledger (read-only,
+// never writes).
 //
 //	bun bin/latency-report.ts [--db PATH]
 //
 // Default db rides defaultDbPath() (BUCKLE_DB or the runtime home). The
-// diagnosis this tool banks: large request bodies are NOT the first-byte
-// latency driver (r ≈ -0.06 over 132k attempts, 2026-10-29); the tail is
-// non-streaming generation time — see docs/design/w2247-*.md.
+// diagnosis this tool banks (HEADERS metric, r ≈ -0.06 over 132k attempts,
+// 2026-10-29): large request bodies are NOT the headers-time driver; the
+// tail is non-streaming generation time. firstBodyByteMs is rendered
+// separately from observed values only — see docs/design/w2247-*.md.
 import { Database } from "bun:sqlite";
 import {
 	latencyReport,
