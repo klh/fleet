@@ -129,7 +129,7 @@ interface Case {
 	// paths the branch removes (the old side of a test rename, W1306.1)
 	delete?: string[];
 	// the fact payload expectation after the stub executor PASSes
-	want: "proved" | "no-coverage" | "skipped";
+	want: "proved" | "no-coverage" | "skipped" | "unknown";
 }
 
 async function runCase(
@@ -302,6 +302,25 @@ test("pw", () => {
 		},
 		want: "skipped",
 	},
+	{
+		// W2181: the branch's own test writes into the scratch mid-run — the
+		// after-fingerprint verdict is not unchanged, so the run banks unknown
+		// even though the failed counts would have read proved
+		name: "midrun-write-unknown",
+		files: {
+			"src.ts":
+				"export const base = 1;\nexport const double = (x: number): number => x * 2;\n",
+			"src.test.ts": `import { test, expect } from "bun:test";
+import { writeFileSync } from "node:fs";
+import * as src from "./src";
+test("needs the change", () => {
+	writeFileSync("midrun-w2181.txt", "planted mid-run");
+	expect("double" in src).toBe(true);
+});
+`,
+		},
+		want: "unknown",
+	},
 ];
 
 describe("W634 review-lane coverage proof (Sinai rule)", () => {
@@ -417,13 +436,26 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 
 	for (const c of cases) {
 		test(`case ${c.name}: stub PASS + proof → ${c.want}`, async () => {
-			const { id, fact } = await runCase(c);
+			// an unknown proof downgrades the verdict to ERROR — the failed-leg exit
+			const { id, fact } = await runCase(
+				c,
+				undefined,
+				c.want === "unknown" ? 2 : 0,
+			);
 			results[c.name] = fact;
 			ids[c.name] = id;
-			expect(fact.verdict).toBe(c.want === "no-coverage" ? "FAIL" : "PASS");
+			expect(fact.verdict).toBe(
+				c.want === "no-coverage"
+					? "FAIL"
+					: c.want === "unknown"
+						? "ERROR"
+						: "PASS",
+			);
 			const coverage = fact.coverage as Record<string, unknown>;
 			expect(coverage.status).toBe(c.want);
 			expect(String(fact.headline)).toContain("coverage-proof");
+			if (c.want === "unknown")
+				expect(String(fact.headline)).toContain("unknown");
 			if (c.want === "proved")
 				expect(Number(coverage.failed)).toBeGreaterThan(0);
 		});
