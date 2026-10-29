@@ -239,9 +239,10 @@ test.describe("@unit", () => {
 		});
 
 		const caddy = Bun.which("caddy");
-		test("real caddy validates loopback + lan fragments", () => {
-			// test.skipIf(!caddy) → playwright conditional skip (name kept)
-			test.skip(!caddy, "caddy not on PATH");
+		// bun test.skipIf(!caddy) → conditional registration (name kept);
+		// absent caddy = test not collected, same skipIf semantics
+		if (caddy)
+			test("real caddy validates loopback + lan fragments", () => {
 			const { sites, caddyfile } = setup();
 			const validate = (cf: string) => {
 				const p = Bun.spawnSync([caddy ?? "", "validate", "--config", cf], {
