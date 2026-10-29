@@ -385,6 +385,22 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		argv: (root) => [join(root, "hooks/bin/coord.ts"), "consult-tick"],
 	},
 	{
+		// fork G: the idle-time knowledge distiller — one --once pass per
+		// fire (the bin's own idle gate decides busy/paused/out-of-window and
+		// exits 0 without spending); visits stalest-first under the per-day
+		// token budget, proposes candidates for review, never auto-activates.
+		// SUSPENDERS_KNOWLEDGE_DISTILL=0 or .fleet/distill-paused kills it.
+		name: "knowledge-distill",
+		everySeconds: 600,
+		nice: 10,
+		timeoutMs: 900_000,
+		argv: (root) => [
+			join(root, "hooks/bin/knowledge-distill.ts"),
+			"run",
+			"--once",
+		],
+	},
+	{
 		// W969 Signals-lite — per-run silent-failure scan of closed lanes
 		// through the pinned oracle leg (:8903 default): bounded evidence
 		// (transcript tail + capsule + done payload), fixed four-class prompt,

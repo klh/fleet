@@ -47,6 +47,12 @@ const TABLES: [string, string][] = [
 		"distill_state",
 		"CREATE TABLE distill_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
 	],
+	[
+		// peer vote tallies landed off the wire — one row per (entry content
+		// key, origin machine); tallies never sum across origins
+		"kg_peer_votes",
+		"CREATE TABLE kg_peer_votes (key TEXT NOT NULL, origin TEXT NOT NULL, up INTEGER NOT NULL, down INTEGER NOT NULL, down_lanes INTEGER NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (key, origin)) WITHOUT ROWID",
+	],
 ];
 
 const INDEXES: [string, string][] = [
