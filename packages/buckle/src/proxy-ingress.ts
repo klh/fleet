@@ -2,19 +2,19 @@
 // wire aids, account-policy verdict, routing decision + entitlement scope.
 
 import { rungIdOf } from "@klh/telemetry/src/hop-contract.ts";
-import { z } from "zod";
 import {
 	PREFER_HEADER,
 	parsePreferHeader,
 } from "@klh/telemetry/src/prefer-header.ts";
+import { z } from "zod";
 import {
 	applyAccountPolicy,
 	preferAfterScope,
 	REPO_CLAIM_HEADER,
 	scopeSelection,
 } from "./account-policy.ts";
-import { affKeyOf } from "./affinity.ts";
 import { resolveAdapter } from "./adapters/index.ts";
+import { affKeyOf } from "./affinity.ts";
 import { applyWireAids } from "./aids-routes.ts";
 import type { AppDeps } from "./app-deps.ts";
 import { scoreComplexity, textFromMessages } from "./complexity.ts";
@@ -259,6 +259,19 @@ export async function proxy(
 			sel.sel.head.dep.provider,
 		);
 	ctx.sel = preferAfterScope(scoped.sel, ctx.hint);
+	// W2257.1: an estimate is entitlement-bound — the scoped domain must
+	// still hold a row for the EXACT requested group. A policy-fallback head
+	// is entitled delivery for another group, never an estimate for this
+	// one; scoped-to-zero for the requested group refuses typed, zero outbound.
+	if (estimateCount && !ctx.sel.ordered.some((row) => row.group === ctx.group))
+		return deny(
+			deps,
+			ctx,
+			503,
+			`no entitled upstream for '${ctx.group}' within the account boundary — count estimate refused, zero outbound`,
+			"buckle.tier_no_upstream",
+			"errored",
+		);
 	if (estimateCount) return estimatedCountTokens(deps, ctx, body);
 	return runExecute(req, ctx, path, body, deps);
 }
