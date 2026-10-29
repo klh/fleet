@@ -1,6 +1,6 @@
 {
 	"name": "@klh/test-kit",
-	"version": "2.0.3",
+	"version": "2.0.4",
 	"description": "Shared test primitives for the fleet monorepo: scratchWorld, runCli, freePort/waitUp, serveStub",
 	"type": "module",
 	"module": "src/index.ts",

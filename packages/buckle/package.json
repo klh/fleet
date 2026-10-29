@@ -1,6 +1,6 @@
 {
 	"name": "@klh/buckle",
-	"version": "2.0.3",
+	"version": "2.0.4",
 	"module": "src/server.ts",
 	"type": "module",
 	"private": true,
@@ -31,7 +31,7 @@
 		"start": "bun run src/server.ts"
 	},
 	"devDependencies": {
-		"@klh/test-kit": "2.0.3",
+		"@klh/test-kit": "2.0.4",
 		"@anthropic-ai/sdk": "1.1.0",
 		"@playwright/test": "1.64.1",
 		"@types/bun": "1.4.2",
@@ -41,8 +41,8 @@
 		"typescript": "^7"
 	},
 	"dependencies": {
-		"@klh/blam": "2.0.3",
-		"@klh/telemetry": "2.0.3",
+		"@klh/blam": "2.0.4",
+		"@klh/telemetry": "2.0.4",
 		"p-queue": "9.3.5",
 		"zod": "4.6.7"
 	},

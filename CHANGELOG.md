@@ -6,6 +6,12 @@ machine-level `~/.config/klh/stack.yaml` names the same ref and `hubctl` renders
 it as what every hub pulls. Details for a release live in the work graph and
 package docs, not here — this file records the release line only.
 
+## 2.0.4 — 2026-10-29
+
+- W2236
+- W2237
+- W2238
+
 ## 2.0.3 — 2026-10-28
 
 - W2198

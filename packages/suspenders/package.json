@@ -1,6 +1,6 @@
 {
 	"name": "@klh/suspenders",
-	"version": "2.0.3",
+	"version": "2.0.4",
 	"description": "A control plane for agent fleets — SQLite state, capability-aware dispatch, zombie detection, decisions with LLM recommendations, a consult knowledge base, and a live fleet board",
 	"type": "module",
 	"workspaces": [
@@ -15,13 +15,13 @@
 	},
 	"dependencies": {
 		"@clack/prompts": "1.8.1",
-		"@klh/belt": "2.0.3",
-		"@klh/blam": "2.0.3",
-		"@klh/buckle": "2.0.3",
-		"@klh/kernel": "2.0.3",
-		"@klh/local-llm": "2.0.3",
-		"@klh/speedy": "2.0.3",
-		"@klh/telemetry": "2.0.3",
+		"@klh/belt": "2.0.4",
+		"@klh/blam": "2.0.4",
+		"@klh/buckle": "2.0.4",
+		"@klh/kernel": "2.0.4",
+		"@klh/local-llm": "2.0.4",
+		"@klh/speedy": "2.0.4",
+		"@klh/telemetry": "2.0.4",
 		"@vercel/detect-agent": "1.2.7",
 		"cli-table3": "0.6.5",
 		"execa": "10.2.1",
@@ -39,7 +39,7 @@
 		"bun": "1.4.2"
 	},
 	"devDependencies": {
-		"@klh/test-kit": "2.0.3",
+		"@klh/test-kit": "2.0.4",
 		"@playwright/test": "1.64.1",
 		"acorn": "8.19.0",
 		"chromium-bidi": "12.1.0",
