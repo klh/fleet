@@ -25,11 +25,20 @@ set this machine-level JSON field (mode 0600):
 "updates": { "mode": "latest", "check_interval_s": 300 }
 ```
 
+Each hub profile can set `"auto_update": true` or `false`. Absent means it
+inherits `updates.mode`; an explicit `false` vetoes automatic rollout even
+when the stack mode is `latest`. Explicit `true` opts that hub in under the
+default `manual` mode. Because all non-canary hubs share one `stack.version`,
+the controller updates them together only when **every** non-canary hub
+permits automatic updates. A mixed choice raises one decision for the
+release; `apply --yes` remains an explicit all-hub installation. The `check`
+output shows each hub's effective `auto_update` value.
+
 The release source is the single origin configured in hub `repos`. If hubs
 use different origins, set `updates.origin` to the intended release source.
 With no configured hub origin, the managing checkout's `origin` is used.
 
-`latest` makes the heartbeat apply the newest stable release to all managed
+An enabled automatic rollout applies the newest stable release to all managed
 hubs. A hub with `version_override` remains pinned as a canary. Quiet hours
 defer the whole update. Every candidate ref must exist on its configured
 origin before `stack.json` changes. The updater writes a 0600 backup, changes

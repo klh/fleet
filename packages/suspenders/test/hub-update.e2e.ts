@@ -9,6 +9,7 @@ import {
 } from "../hooks/lib/stack-config.ts";
 import {
 	applyRelease,
+	automaticUpdatePolicy,
 	checkDue,
 	compareReleaseTags,
 	latestReleaseTag,
@@ -77,6 +78,43 @@ test("auto-update is an explicit, validated machine setting @unit", () => {
 			updates: { mode: "latest", check_interval_s: 5 },
 		}).success,
 	).toBe(false);
+	expect(
+		StackConfigSchema.safeParse({
+			hubs: { alpha: { host: "alpha.invalid", auto_update: true } },
+		}).success,
+	).toBe(true);
+	expect(
+		StackConfigSchema.safeParse({
+			hubs: { alpha: { host: "alpha.invalid", auto_update: "yes" } },
+		}).success,
+	).toBe(false);
+});
+
+test("per-hub opt-in requires unanimous managed-hub consent @unit", () => {
+	const configured = stack();
+	expect(automaticUpdatePolicy(configured)).toEqual({
+		ready: false,
+		blocked: ["nas", "desktop"],
+	});
+	const nas = configured.hubs.nas;
+	const desktop = configured.hubs.desktop;
+	if (!nas || !desktop) throw new Error("fixture hubs missing");
+	nas.auto_update = true;
+	expect(automaticUpdatePolicy(configured)).toEqual({
+		ready: false,
+		blocked: ["desktop"],
+	});
+	desktop.auto_update = true;
+	expect(automaticUpdatePolicy(configured)).toEqual({
+		ready: true,
+		blocked: [],
+	});
+	configured.updates = { mode: "latest" };
+	desktop.auto_update = false;
+	expect(automaticUpdatePolicy(configured)).toEqual({
+		ready: false,
+		blocked: ["desktop"],
+	});
 });
 
 test("release source follows operator config and check cadence @unit", () => {

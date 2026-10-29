@@ -103,7 +103,14 @@ export function withUpdateLock<T>(action: () => T, path = LOCK_PATH()): T {
 		mkdirSync(path, { mode: 0o700 });
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-		const owner = Number(readFileSync(join(path, "pid"), "utf8"));
+		let owner: number;
+		try {
+			owner = Number(readFileSync(join(path, "pid"), "utf8"));
+		} catch {
+			throw new Error(
+				"hub update lock has no readable owner; inspect before clearing it",
+			);
+		}
 		if (!Number.isSafeInteger(owner) || owner <= 0)
 			throw new Error(
 				"hub update lock has no valid owner; inspect before clearing it",
@@ -254,6 +261,22 @@ export interface HubUpdateRow {
 	updateAvailable: boolean;
 	deploymentDrift: boolean;
 	canary: boolean;
+	autoUpdate: boolean;
+}
+
+/** One shared version can advance automatically only when every managed hub
+ * consents. Explicit canaries retain their independently reviewed pin. */
+export function automaticUpdatePolicy(stack: StackConfig): {
+	ready: boolean;
+	blocked: string[];
+} {
+	const managed = Object.entries(stack.hubs).filter(
+		([, hub]) => !hub.version_override,
+	);
+	const blocked = managed
+		.filter(([, hub]) => !(hub.auto_update ?? stack.updates?.mode === "latest"))
+		.map(([name]) => name);
+	return { ready: managed.length > 0 && blocked.length === 0, blocked };
 }
 
 export function updateRows(
@@ -272,6 +295,9 @@ export function updateRows(
 			updateAvailable: !hub.version_override && releaseAvailable(pin, latest),
 			deploymentDrift: actual !== pin,
 			canary: !!hub.version_override,
+			autoUpdate:
+				!hub.version_override &&
+				(hub.auto_update ?? stack.updates?.mode === "latest"),
 		};
 	});
 }
@@ -354,6 +380,8 @@ export function applyRelease(
 		quietHours?: (hub: HubProfile) => boolean;
 	} = {},
 ): void {
+	if (!stack.version)
+		throw new Error("automatic hub update requires a pinned stack version");
 	if (!releaseAvailable(stack.version, tag))
 		throw new Error(
 			`${tag} is not newer than ${stack.version ?? "the current pin"}`,
@@ -415,13 +443,8 @@ export function applyRelease(
 	writeStack(path, after, before);
 	const rollbackFailed: string[] = [];
 	for (const name of changed) {
-		console.error(`rolling back ${name} to ${stack.version ?? "prior pin"}`);
-		if (
-			!deployOne(
-				name,
-				stack.hubs[name]?.version_override ?? stack.version ?? "",
-			)
-		)
+		console.error(`rolling back ${name} to ${stack.version}`);
+		if (!deployOne(name, stack.hubs[name]?.version_override ?? stack.version))
 			rollbackFailed.push(name);
 	}
 	if (rollbackFailed.length === 0) unlinkSync(backup);
@@ -504,15 +527,16 @@ function main(): void {
 		return;
 	const latest = publishedRelease(releaseOriginOf(stack, checkoutOrigin()));
 	const rows = updateRows(stack, latest);
+	const policy = automaticUpdatePolicy(stack);
 	if (verb === "check") {
 		if (flags.includes("--json"))
 			console.log(
-				JSON.stringify({ mode: stack.updates?.mode ?? "manual", rows }),
+				JSON.stringify({ mode: stack.updates?.mode ?? "manual", policy, rows }),
 			);
 		else
 			for (const row of rows)
 				console.log(
-					`${row.hub}: installed=${row.installed ?? "unknown"} pinned=${row.pinned ?? "unknown"} latest=${latest}${row.canary ? " (canary pinned)" : row.deploymentDrift ? " — deployment drift" : row.updateAvailable ? " — update available" : " — current"}`,
+					`${row.hub}: installed=${row.installed ?? "unknown"} pinned=${row.pinned ?? "unknown"} latest=${latest}${row.canary ? " (canary pinned)" : row.deploymentDrift ? " — deployment drift" : row.updateAvailable ? " — update available" : " — current"} auto_update=${row.autoUpdate}`,
 				);
 		if (!flags.includes("--json") && rows.some((row) => row.updateAvailable))
 			console.log(
@@ -520,13 +544,13 @@ function main(): void {
 			);
 		if (!flags.includes("--json") && rows.some((row) => row.deploymentDrift))
 			console.log(
-				"Repair before upgrade: hubctl deploy <hub> (reconcile repairs automatically only in updates.mode=latest)",
+				"Repair before upgrade: hubctl deploy <hub> (reconcile repairs automatically only when every managed hub permits auto-update)",
 			);
 		return;
 	}
 	const drift = rows.filter((row) => row.deploymentDrift);
 	if (drift.length > 0 && verb === "reconcile") {
-		if (stack.updates?.mode === "latest") repairDrift(stack, drift);
+		if (policy.ready) repairDrift(stack, drift);
 		else {
 			const names = drift.map((row) => row.hub).join(", ");
 			notifyAvailable(
@@ -549,8 +573,16 @@ function main(): void {
 		if (verb === "reconcile") stampCheck(nowMs);
 		return;
 	}
-	if (verb === "reconcile" && stack.updates?.mode !== "latest") {
-		notifyAvailable(latest);
+	if (verb === "reconcile" && !policy.ready) {
+		const hold = policy.blocked.length
+			? ` Automatic rollout is held because ${policy.blocked.join(", ")} have not enabled auto_update; the shared stack version advances together.`
+			: "";
+		notifyAvailable(
+			latest,
+			run,
+			NOTICE_PATH(),
+			`Fleet ${latest} is available for configured hubs.${hold} Review with bun packages/suspenders/deploy/hub-update.ts check, then install with bun packages/suspenders/deploy/hub-update.ts apply --yes, or enable auto_update for every managed hub.`,
+		);
 		console.log(`Fleet ${latest} available; decision requested`);
 		stampCheck(nowMs);
 		return;
