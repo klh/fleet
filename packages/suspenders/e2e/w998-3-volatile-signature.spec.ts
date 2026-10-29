@@ -10,7 +10,7 @@
 
 import { Database } from "bun:sqlite";
 import { expect, test } from "@playwright/test";
-import { startBoard } from "./harness.ts";
+import { startBoard } from "../test/helpers/board-harness";
 
 test.describe.configure({ mode: "serial" });
 

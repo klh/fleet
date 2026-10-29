@@ -5,7 +5,7 @@
 // pattern); the failure note rides `work fail --note` so the /api/tasks
 // feed carries it like production.
 import { expect, test } from "@playwright/test";
-import { startBoard } from "./harness.ts";
+import { startBoard } from "../test/helpers/board-harness";
 
 const failureDetail =
 	"launch budget exhausted after 3 backoff rounds; upstream 429 wall held for the whole routing walk and the retry queue deadline cascaded";

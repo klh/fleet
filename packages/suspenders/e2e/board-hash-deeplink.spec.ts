@@ -3,7 +3,7 @@
 // drawer; ?project/?q scope + filter; unknown params warn without
 // breaking the tab switch; legacy #task= stays compatible.
 import { expect, test } from "@playwright/test";
-import { type Board, startBoard } from "./harness";
+import { type Board, startBoard } from "../test/helpers/board-harness";
 
 test.describe.configure({ mode: "serial" });
 

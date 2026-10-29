@@ -5,7 +5,7 @@
 // strip that every page wears above it. Screenshots land in /tmp/w658-shots.
 import { mkdirSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
-import { type Board, startBoard } from "./harness";
+import { type Board, startBoard } from "../test/helpers/board-harness";
 
 test.describe.configure({ mode: "serial" });
 

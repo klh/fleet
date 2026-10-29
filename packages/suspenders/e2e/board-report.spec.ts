@@ -4,7 +4,7 @@
 // (scratch HOME + repo) against a REAL work graph minted via the work CLI —
 // no mocks on the transport or the renderer.
 import { expect, test } from "@playwright/test";
-import { type Board, startBoard } from "./harness";
+import { type Board, startBoard } from "../test/helpers/board-harness";
 
 test.describe.configure({ mode: "serial" });
 
