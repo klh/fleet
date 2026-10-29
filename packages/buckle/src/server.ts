@@ -214,6 +214,8 @@ export function buildDeps(
 	const cooldowns = new Cooldowns(
 		policy.allowed_fails ?? 3,
 		policy.cooldown_time ?? 30,
+		Date.now,
+		{ cfg: policy.resilience },
 	);
 	// W235 locked residency floors: resolve once at boot (env + compiled
 	// floor, tighten-only); the candidate table benches outsiders.

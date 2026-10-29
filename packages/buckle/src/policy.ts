@@ -16,6 +16,7 @@ import {
 	type ThroughputPolicy,
 } from "@klh/telemetry/src/throughput.ts";
 import { buildCostPolicy, type CostPolicy } from "./cost.ts";
+import { parseResilience, type ResilienceConfig } from "./resilience-config.ts";
 import {
 	assertProviderPoolPolicy,
 	type ProviderPoolPolicy,
@@ -84,6 +85,9 @@ export interface GatewayPolicy {
 	// CONFIG — no rates ship in-repo). null = absent block, nothing prices;
 	// a malformed table is startup-fatal (fail-closed like provider_pools).
 	cost?: CostPolicy | null;
+	/** Fail-fast resilience knobs (src/resilience-config.ts) — zod-parsed at
+	 *  load; absent block = RESILIENCE_DEFAULTS. */
+	resilience?: ResilienceConfig;
 }
 
 /** W142 aids policy (routing-policy.yaml `aids:` block). Belt ignores the
@@ -176,6 +180,7 @@ export const POLICY_DEFAULTS: Required<
 		| "stream_total_timeout_s"
 		| "aids"
 		| "provider_pools"
+		| "resilience"
 	>
 > & {
 	retry_max_delay_s: number;
@@ -220,6 +225,7 @@ export function parsePolicy(
 		tags: doc?.tags ?? {},
 		aids: doc?.aids ?? {},
 		cost: buildCostPolicy(doc?.cost),
+		resilience: parseResilience(gateway.resilience),
 	};
 	const attempt = policy.request_timeout_s ?? POLICY_DEFAULTS.request_timeout_s;
 	const walk =

@@ -58,8 +58,26 @@ test("drill rejects a retrying policy that would exceed its attempt budget", asy
 	).rejects.toThrow("attempt budget");
 });
 
-test("Anthropic lane drill follows the fallback and accounts for virtual retry wait", async () => {
-	const report = await runForcedFailoverDrill({
+test("Anthropic lane drill follows the fallback with zero in-gateway wait", async () => {
+	const report = await runForcedFailoverDrill(anthropicDrill(1, 2_000));
+	expect(report.ok).toBe(true);
+	// fail fast: a 503 + Retry-After is never slept on nor replayed on the
+	// same rung — the walk hops once, immediately, to the healthy fallback
+	expect(report.simulatedWaitMs).toBe(0);
+	expect(report.attempts.map((attempt) => attempt.group)).toEqual([
+		"primary",
+		"local",
+	]);
+});
+
+test("a Retry-After beyond the drill wall budget still never sleeps", async () => {
+	const report = await runForcedFailoverDrill(anthropicDrill(2, 1_000));
+	expect(report.ok).toBe(true);
+	expect(report.simulatedWaitMs).toBe(0);
+});
+
+function anthropicDrill(retryAfterS: number, maxWallMs: number) {
+	return {
 		policy: {
 			num_retries: 1,
 			request_timeout_s: 2,
@@ -69,61 +87,23 @@ test("Anthropic lane drill follows the fallback and accounts for virtual retry w
 		},
 		pool: {
 			groups: () => ["primary", "local"],
-			deployments: (group) => [
+			deployments: (group: string) => [
 				{
 					group,
-					url: `https://${group}.example.invalid`,
-					dialect: "anthropic",
+					url: `https://.example.invalid`,
+					dialect: "anthropic" as const,
 				},
 			],
 		},
 		group: "primary",
 		fallback: "local",
-		failureStatus: 503,
-		dialect: "anthropic",
-		retryAfterS: 1,
+		failureStatus: 503 as const,
+		dialect: "anthropic" as const,
+		retryAfterS,
 		maxAttempts: 4,
-		maxWallMs: 2_000,
-	});
-	expect(report.ok).toBe(true);
-	expect(report.simulatedWaitMs).toBe(1_000);
-	expect(report.attempts.map((attempt) => attempt.group)).toEqual([
-		"primary",
-		"primary",
-		"local",
-	]);
-});
-
-test("Anthropic drill wall budget refuses a retry wait that exceeds it", async () => {
-	await expect(
-		runForcedFailoverDrill({
-			policy: {
-				num_retries: 1,
-				request_timeout_s: 2,
-				first_byte_budget_s: 4,
-				retry_after_cap_s: 2,
-				fallbacks: { primary: ["local"] },
-			},
-			pool: {
-				groups: () => ["primary", "local"],
-				deployments: (group) => [
-					{
-						group,
-						url: `https://${group}.example.invalid`,
-						dialect: "anthropic",
-					},
-				],
-			},
-			group: "primary",
-			fallback: "local",
-			failureStatus: 503,
-			dialect: "anthropic",
-			retryAfterS: 2,
-			maxAttempts: 4,
-			maxWallMs: 1_000,
-		}),
-	).rejects.toThrow("drill retry wait exceeds wall budget");
-});
+		maxWallMs,
+	};
+}
 
 const sharedAccountPlan = {
 	policy: {

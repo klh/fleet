@@ -220,21 +220,30 @@ const burst = async (base: string, n: number): Promise<Response[]> =>
 	);
 
 /** Every answer in a refusal wave is the provider's own 429, relayed
- *  verbatim, or a typed LOCAL admission 503 for the Retry-After deferral
- *  window — never a fabricated 429 story (W1257). */
+ *  verbatim, or a typed LOCAL answer (problem body) — the shared cold mark's
+ *  instant 429 or an admission 503 — never a fabricated provider envelope
+ *  (W1257). The body shape, not the status, tells them apart. */
 async function assertRefusalWave(
 	responses: Response[],
 	code: string,
 	messageFragment: string,
 ): Promise<void> {
-	const relayed = responses.filter((r) => r.status === 429);
-	const local = responses.filter((r) => r.status === 503);
-	expect(relayed.length + local.length).toBe(responses.length);
+	type Wire = {
+		error?: { code: string; type: string; message: string };
+		detail?: string;
+	};
+	const read = await Promise.all(
+		responses.map(async (r) => ({ r, body: (await r.json()) as Wire })),
+	);
+	const relayed = read.filter((x) => x.body.error !== undefined);
+	const local = read.filter((x) => x.body.error === undefined);
+	expect(local.every((x) => x.r.status === 429 || x.r.status === 503)).toBe(
+		true,
+	);
 	expect(relayed.length).toBeGreaterThan(0);
-	for (const response of relayed) {
-		const body = (await response.json()) as {
-			error: { code: string; type: string; message: string };
-		};
+	for (const { r: response, body } of relayed) {
+		if (body.error === undefined) continue;
+		expect(response.status).toBe(429);
 		expect(body.error.code).toBe(code);
 		expect(body.error.type).toBe("rate_limit_error");
 		expect(body.error.message).toContain(messageFragment);
@@ -242,12 +251,11 @@ async function assertRefusalWave(
 			1,
 		);
 	}
-	for (const response of local) {
-		const body = (await response.json()) as { detail: string };
-		// front-local W1078 refusals carry the pool wording; a 503 raised
-		// deeper in the chain relays as the front's typed no_route — both
-		// honest LOCAL stories, neither a fabricated provider body
-		expect(body.detail).toMatch(/provider account pool|no_route/);
+	for (const { body } of local) {
+		// front-local W1078 refusals carry the pool wording; the shared cold
+		// mark names itself; a 503 raised deeper relays as the front's typed
+		// no_route — honest LOCAL stories, never a fabricated provider body
+		expect(body.detail).toMatch(/provider account pool|no_route|cold mark/);
 	}
 }
 
@@ -289,7 +297,7 @@ test("provider 429 1302 and 1311 relay exact status code message through both bu
 		await assertRefusalWave(first, "1302", "Rate limit reached for requests");
 		// the provider's Retry-After defers the pool ~1s; waves inside that
 		// window answer from the local queue, not upstream — wait it out
-		await Bun.sleep(1100);
+		await Bun.sleep(2500); // > the hub cold (ceil 2s) the front inherits + 20% jitter
 		// entitlement (1311) and balance (1113) are the provider's business
 		// words: relayed verbatim, never pool backoff either way
 		mode.code = ENTITLEMENT_BODY.code;
@@ -299,7 +307,7 @@ test("provider 429 1302 and 1311 relay exact status code message through both bu
 			"1311",
 			"current subscription plan does not yet include FlashX",
 		);
-		await Bun.sleep(1100);
+		await Bun.sleep(2500); // > the hub cold (ceil 2s) the front inherits + 20% jitter
 		mode.code = BALANCE_BODY.code;
 		mode.message = BALANCE_BODY.message;
 		await assertRefusalWave(
@@ -311,9 +319,12 @@ test("provider 429 1302 and 1311 relay exact status code message through both bu
 		mode.message = RATE_BODY.message;
 		// let the wave-3 Retry-After deferral expire so the trace request
 		// below gets a REAL relayed upstream rung (the provenance proof)
-		await Bun.sleep(1100);
+		await Bun.sleep(2500); // > the hub cold (ceil 2s) the front inherits + 20% jitter
 		for (const base of [chain.frontBase, chain.hubBase]) {
-			expect(await poolMetric(base, "adaptive_concurrency")).toBe(50);
+			// AIMD: the one 1302 rate epoch halved the window (50 → 25 —
+			// fewer in flight, never an outage); 1311/1113 are business
+			// refusals and never shrink it
+			expect(await poolMetric(base, "adaptive_concurrency")).toBe(25);
 			expect(await poolMetric(base, "concurrency_limited_total")).toBe(0);
 		}
 		const traceId = "d".repeat(32);
@@ -358,7 +369,7 @@ test("provider 429 1302 and 1311 relay exact status code message through both bu
 		chain.cleanup();
 		rmSync(dir, { recursive: true, force: true });
 	}
-});
+}, 15_000); // three honest cold windows waited out, never slept in-gateway
 
 test("local admission overflow answers typed local 503, never a fabricated 429", async () => {
 	const mode: ChainMode = { ...RATE_BODY, status429: false, holdMs: 60 };
@@ -388,7 +399,7 @@ test("local admission overflow answers typed local 503, never a fabricated 429",
 	}
 });
 
-test("rate-limit cooldown answers a typed local 503 hold with banked provider words, never a fabricated 429", async () => {
+test("rate-limit cooldown answers an instant local 429 from the shared cold mark with banked provider words", async () => {
 	const mode: ChainMode = { ...RATE_BODY, status429: true, holdMs: 0 };
 	// allowed_fails 1: the first refusal benches the leg for the whole
 	// cooldown window; killing the fake makes every bench probe fail, so the
@@ -410,11 +421,12 @@ test("rate-limit cooldown answers a typed local 503 hold with banked provider wo
 		chain.stopFake();
 		const holds = await burst(chain.hubBase, 3);
 		expect(holds.map((r) => r.status)).toEqual(
-			Array.from({ length: 3 }, () => 503),
+			Array.from({ length: 3 }, () => 429),
 		);
 		for (const response of holds) {
 			const body = (await response.json()) as { detail: string };
-			expect(body.detail).toContain("gateway cooldown");
+			// problem body (local), never the provider envelope
+			expect(body.detail).toContain("shared cold mark");
 			expect(body.detail).toContain("not the provider");
 			expect(body.detail).toContain("last provider refusal: code 1302");
 			expect(body.detail).toContain("Rate limit reached for requests");

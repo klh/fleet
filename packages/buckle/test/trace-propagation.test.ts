@@ -10,11 +10,12 @@ import type { UpstreamPool } from "../src/upstreams.ts";
 
 const INBOUND = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 
-function deps(url: string, numRetries = 0): AppDeps {
+function deps(url: string | string[], numRetries = 0): AppDeps {
 	return testDeps(
 		{
 			groups: () => ["glm-5.3-flash"],
-			deployments: (g) => [{ group: g, url, dialect: "openai" as const }],
+			deployments: (g) =>
+				[url].flat().map((u) => ({ group: g, url: u, dialect: "openai" as const })),
 		} satisfies UpstreamPool,
 		{
 			policy: { num_retries: numRetries, allowed_fails: 99, cooldown_time: 30 },
@@ -79,23 +80,28 @@ describe("traceparent propagation (W461 stage 1)", () => {
 		upstream.close();
 	});
 
-	test("retry ordinals distinct: same trace id, different span id per attempt", async () => {
-		const upstream = await startMockUpstream((_req, _body, n) =>
-			n === 1
-				? Response.json({ e: 1 }, { status: 500 })
-				: Response.json({ id: "1", choices: [] }),
+	test("failover ordinals distinct: same trace id, different span id per attempt", async () => {
+		// fail fast: a 500 is never replayed on its rung — the one hop goes
+		// to the next healthy deployment, and both knocks share the trace
+		const sick = await startMockUpstream(() =>
+			Response.json({ e: 1 }, { status: 500 }),
 		);
-		const app = createApp(deps(upstream.url, 1));
-		const res = await app.fetch(POST(upstream.url, { traceparent: INBOUND }));
+		const well = await startMockUpstream(() =>
+			Response.json({ id: "1", choices: [] }),
+		);
+		const app = createApp(deps([sick.url, well.url], 1));
+		const res = await app.fetch(POST(sick.url, { traceparent: INBOUND }));
 		expect(res.status).toBe(200);
-		expect(upstream.calls).toHaveLength(2);
-		const [a, b] = upstream.calls.map((c) =>
+		expect(sick.calls).toHaveLength(1);
+		expect(well.calls).toHaveLength(1);
+		const [a, b] = [...sick.calls, ...well.calls].map((c) =>
 			(c.headers.get("traceparent") ?? "").split("-"),
 		);
 		expect(a?.[1]).toBe("4bf92f3577b34da6a3ce929d0e0e4736");
 		expect(b?.[1]).toBe("4bf92f3577b34da6a3ce929d0e0e4736");
 		expect(a?.[2]).not.toBe(b?.[2]);
-		upstream.close();
+		sick.close();
+		well.close();
 	});
 
 	test("bridged hop (openai client → anthropic upstream) carries the child trace", async () => {

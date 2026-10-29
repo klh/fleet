@@ -9,6 +9,8 @@ import { Cooldowns } from "./cooldown.ts";
 import { type HopContract, hopContractRoot } from "./hop-deadline.ts";
 import type { GatewayPolicy } from "./policy.ts";
 import { ProviderAdmissionCore } from "./provider-admission-core.ts";
+import { RetryBudget } from "./resilience.ts";
+import { RESILIENCE_DEFAULTS } from "./resilience-config.ts";
 import {
 	defaultFetchImpl,
 	providerConcurrencyCodesOf,
@@ -51,6 +53,8 @@ export class Router {
 	 *  every deployment bound to the id shares the SAME instance (one
 	 *  configured authority counts each actual provider attempt once). */
 	readonly pools: Map<string, ProviderAdmissionCore>;
+	/** Immediate-failover hop budget (resilience.failover_budget). */
+	readonly failover: RetryBudget;
 
 	constructor(
 		readonly policy: GatewayPolicy,
@@ -62,6 +66,7 @@ export class Router {
 				policy.allowed_fails ?? 3,
 				policy.cooldown_time ?? 30,
 				deps.now,
+				{ cfg: policy.resilience, rng: deps.rng },
 			);
 		this.now = deps.now ?? Date.now;
 		this.rng = deps.rng ?? Math.random;
@@ -86,10 +91,20 @@ export class Router {
 		// Bindings validate fail-closed here: a deployment bound to a pool
 		// with no policy (or a malformed id) refuses startup — admission is
 		// never silently disabled once configured.
+		const r = policy.resilience ?? RESILIENCE_DEFAULTS;
+		this.failover = new RetryBudget({
+			ratio: r.failover_budget.ratio,
+			minPerWindow: r.failover_budget.min_per_window,
+			windowMs: r.failover_budget.window_s * 1000,
+			now: this.now,
+		});
 		this.pools = new Map(
 			Object.entries(policy.provider_pools ?? {}).map(([id, p]) => [
 				id,
-				new ProviderAdmissionCore(p),
+				new ProviderAdmissionCore(p, {
+					rateDecreasePercent: r.rate_concurrency_decrease_percent,
+					minConcurrency: r.min_concurrency,
+				}),
 			]),
 		);
 		for (const group of deps.pool.groups())

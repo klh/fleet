@@ -13,6 +13,7 @@ import type { RouteSelection } from "./decide.ts";
 import type { HopContract } from "./hop-deadline.ts";
 import type { GatewayPolicy } from "./policy.ts";
 import type { ProviderAdmissionCore } from "./provider-admission-core.ts";
+import type { RetryBudget } from "./resilience.ts";
 import type { TraceContext } from "./trace.ts";
 import type { Deployment, Dialect, UpstreamPool } from "./upstreams.ts";
 export type ExecuteResult =
@@ -46,6 +47,8 @@ export type ExecuteResult =
 			/** Bounded, validated downstream Buckle error chain. */
 			peerTrace?: string | null;
 			retryAfterS?: number;
+			/** A quota-wall cold hold: the client must not retry into it. */
+			quota?: boolean;
 	  };
 
 interface FailureProvenance {
@@ -165,6 +168,16 @@ export interface WalkState {
 	 *  the remaining walk (selected rows, gated ladder, tier fallbacks)
 	 *  stops instead of detouring around the refusing rung. */
 	hopRefusal?: string | null;
+	/** Upstream HTTP refusals seen this walk — arms the one-retry-layer
+	 *  failover cap (resilience.max_failover_hops). */
+	httpRefusals?: number;
+	/** The hop cap or failover budget refused another attempt: the walk
+	 *  stops and answers the honest refusal now. */
+	capped?: boolean;
+	/** Every candidate of a tier sat behind the shared cold mark: the local
+	 *  instant answer (429 + Retry-After; quota walls say x-should-retry:
+	 *  false) — no upstream was knocked. */
+	coldHold?: { retryAfterS: number; quota: boolean; error: string };
 }
 /** Thrown when an upstream is unreachable (network/timeout); the walk
  *  catches it and keeps going (ladder), rethrows on caller abort. */
@@ -219,4 +232,7 @@ export interface RouterHost {
 	) => Promise<Response>;
 	readonly metrics?: RouterMetrics;
 	readonly pools: Map<string, ProviderAdmissionCore>;
+	/** Fleet-wide cap on immediate failover hops (keyed by requested group)
+	 *  — a budget on hops, never on delayed retries (there are none). */
+	readonly failover?: RetryBudget;
 }

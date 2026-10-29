@@ -11,6 +11,7 @@ import {
 import { safeTimeoutPhase } from "@klh/telemetry/src/transport-evidence.ts";
 import {
 	normalizeUpstreamError,
+	RouterError,
 	routerErrorEnvelope,
 } from "./adapters/errors.ts";
 import { resolveAdapter } from "./adapters/index.ts";
@@ -21,12 +22,17 @@ import { clampRetryAfter } from "./http-kit.ts";
 import { peerErrorTrace } from "./error-trace.ts";
 import type { GatewayPolicy } from "./policy.ts";
 import {
+	RESILIENCE_DEFAULTS,
+	type ResilienceConfig,
+} from "./resilience-config.ts";
+import {
 	assertProviderConcurrencyErrorCodes,
 	bindProviderLease,
 	ProviderAdmissionFull,
 	type ProviderLease,
 	type ProviderPoolPolicy,
 	providerPressureOf,
+	refusalShrinks,
 } from "./provider-admission-core.ts";
 import {
 	type RouterHost,
@@ -149,18 +155,27 @@ export async function tryOnce(
 	// remaining walk budget (deadlines only shrink); a granted lease
 	// clears the wait timer, so active streams keep their own guards.
 	const poolId = providerPoolIdOf(dep);
+	// Shared cold mark (anti-stampede): a cold account is never knocked; a
+	// half-open one admits exactly ONE probe. A lost race answers locally,
+	// instantly — no fetch, no queue, no sleep.
+	if (!host.cooldowns.cold.claimProbe(dep))
+		return coldRefusal(host, dep, poolId, null);
 	const admission = poolId === null ? undefined : host.pools.get(poolId);
 	let lease: ProviderLease | undefined;
 	let queueWaitMs = 0;
 	if (admission !== undefined && poolId !== null) {
 		const queuedAt = host.now();
 		try {
-			// Admission may use its configured wait inside the remaining
-			// walk, leaving a minimum fetch opportunity. The network timeout
+			// Admission may wait inside the remaining walk, clamped by the
+			// resilience max_queue_wait_ms — a SHORT bounded queue, never the
+			// multi-minute hold a pool policy may declare. The network timeout
 			// is an upper bound, never a second budget beyond the walk.
 			lease = await admission.acquire(
 				req.signal,
-				Math.max(1, walkRemainingMs - 1),
+				Math.max(
+					1,
+					Math.min(walkRemainingMs - 1, resilienceOf(host).max_queue_wait_ms),
+				),
 			);
 		} catch (error) {
 			if (req.signal?.aborted) throw error;
@@ -172,11 +187,18 @@ export async function tryOnce(
 					error instanceof ProviderAdmissionFull ? "full" : "expired",
 					poolId,
 					Math.max(0, Math.round(host.now() - queuedAt)),
+					error instanceof ProviderAdmissionFull ? error.retryAfterMs : null,
 				);
 			}
 			throw error;
 		}
 		queueWaitMs = Math.max(0, Math.round(host.now() - queuedAt));
+		// a queued caller re-checks the mark at grant: a sibling's refusal
+		// while it waited colds the account — still no knock (N → 1)
+		if (host.cooldowns.cold.state(dep) === "cold") {
+			lease.release();
+			return coldRefusal(host, dep, poolId, queueWaitMs);
+		}
 		const remainingMs = walkRemainingMs - queueWaitMs;
 		if (remainingMs <= 0) {
 			lease.release();
@@ -233,11 +255,33 @@ export async function tryOnce(
 			err.providerCode,
 			err.message,
 		);
-		lease?.feedback?.(resp.status, ra, pressure);
+		lease?.feedback?.(
+			resp.status,
+			ra,
+			pressure,
+			undefined,
+			refusalShrinks(err.providerCode),
+		);
+		// One refusal colds the ACCOUNT for every caller (short for rate
+		// pressure, long for a declared quota wall) — account occupancy
+		// (explicit concurrency evidence) stays the pool's AIMD business.
+		// A peer gateway's quota verdict rides x-should-retry: false.
+		const quotaWall =
+			isQuotaWall(err.providerCode, resilienceOf(host)) ||
+			(resp.status === 429 && resp.headers.get("x-should-retry") === "false");
+		const limited = quotaWall || err.kind === "rate_limited";
+		// a peer gateway answering from ITS cold mark speaks problem+json —
+		// relay that local story as-is, never re-wrap it as a provider envelope
+		const peerLocal =
+			limited &&
+			(replay.headers.get("content-type") ?? "").includes("problem+json");
+		if (quotaWall || (err.kind === "rate_limited" && pressure !== "concurrency"))
+			host.cooldowns.cold.cool(dep, { retryAfterS: ra, quota: quotaWall });
+		const shown = limited ? asRateLimited(err, ra) : err;
 		// W1257: bank the provider's own refusal words at every rate-limit
 		// rung — a later bench-window hold answers with THE PROVIDER's
 		// last-seen code/type/message as attributed context, never silence.
-		if (err.kind === "rate_limited")
+		if (limited)
 			host.cooldowns.noteRateLimitDetail(dep, {
 				code: err.providerCode,
 				type: err.providerType,
@@ -253,31 +297,29 @@ export async function tryOnce(
 			providerErrorCode: safeProviderErrorToken(err.providerCode),
 			providerErrorType: safeProviderErrorToken(err.providerType),
 			ok: false as const,
-			response:
-				err.kind === "rate_limited"
-					? Response.json(routerErrorEnvelope(err, req.dialect), {
-							status: 429,
-							headers: {
-								...Object.fromEntries(
-									[...replay.headers].filter(([k]) => k !== "retry-after"),
-								),
-								"content-type": "application/json",
-								// W1303.2 clamp: the upstream's retry-after relays
-								// clamped — a quota wall never sleeps a client for
-								// weeks (http-kit).
-								...(ra === null
-									? {}
-									: {
-											"retry-after": String(
-												clampRetryAfter(retryAfterS(replay.headers) ?? ra),
-											),
-										}),
-							},
-						})
-					: replay,
-			status: resp.status,
+			response: limited
+				? new Response(
+						peerLocal
+							? replay.body
+							: JSON.stringify(routerErrorEnvelope(shown, req.dialect)),
+						{
+						status: 429,
+						headers: limitedHeaders(
+							replay.headers,
+							// An upstream-answered refusal relays the PROVIDER's
+							// Retry-After, clamped at emission (W1303.2: a quota
+							// wall never sleeps a client for weeks); callers the
+							// shared cold mark answers locally get its remainder.
+							ra === null ? null : (retryAfterS(replay.headers) ?? ra),
+							quotaWall,
+							peerLocal,
+						),
+					},
+				)
+				: replay,
+			status: limited ? 429 : resp.status,
 			retryAfterS: ra,
-			kind: err.kind,
+			kind: shown.kind,
 			contextWindow: err.contextWindow,
 			refusalSource: "upstream" as const,
 			requestId,
@@ -326,7 +368,10 @@ export async function tryOnce(
 		// a 5xx is the upstream's fault whatever its body claims; 404 is a
 		// deployment-level miss (model absent there) — both fail over
 		const clientFault =
-			err.kind === "bad_request" && resp.status < 500 && resp.status !== 404;
+			!limited &&
+			err.kind === "bad_request" &&
+			resp.status < 500 &&
+			resp.status !== 404;
 		if (clientFault) {
 			// W987: a client-fault rung is THIS deployment refusing the ride
 			// (its model/feature set), not the request being unrouteable —
@@ -344,11 +389,13 @@ export async function tryOnce(
 		}
 		// Account occupancy is not deployment health. Keep the real refusal
 		// and provider Retry-After; never synthesize an outage/cooldown for it.
-		if (!(resp.status === 429 && pressure === "concurrency")) {
-			host.cooldowns.failure(
-				dep,
-				err.kind === "rate_limited" ? "rate_limited" : "other",
-			);
+		// Rate/quota refusals already colded the account above (shared mark,
+		// not the consecutive-failure ejection).
+		if (limited) {
+			if (pressure !== "concurrency" || quotaWall)
+				host.metrics?.cooldown(`${dep.group}|${dep.url}`);
+		} else {
+			host.cooldowns.failure(dep, "other");
 			host.metrics?.cooldown(`${dep.group}|${dep.url}`);
 		}
 		return {
@@ -360,12 +407,14 @@ export async function tryOnce(
 			// credential belongs to this dep, not the request — so they
 			// walk on instead of exhausting the tier (the copilot seat's
 			// intermittent 401 vetoed the whole ladder before this).
-			exhaustTier: err.kind !== "auth" && !err.retryable,
+			exhaustTier: shown.kind !== "auth" && !shown.retryable,
 		};
 	} catch (e) {
 		// W1078: no Response exists to hold the lease — release before any
 		// classification/wrap so a failed fetch never leaks its slot.
 		lease?.release();
+		// a cancelled half-open probe never wedges the account
+		host.cooldowns.cold.releaseProbe(dep);
 		if (req.signal?.aborted) throw e;
 		const connectFailure = e instanceof HubConnectError;
 		const timedOut =
@@ -424,6 +473,7 @@ function admissionRefusal(
 	cause: "full" | "expired",
 	providerPool: string,
 	queueWaitMs: number,
+	pausedForMs: number | null = null,
 ): TryOutcome {
 	return {
 		ok: false,
@@ -435,9 +485,86 @@ function admissionRefusal(
 			cause === "full"
 				? `provider account pool for ${dep.url} is saturated — admission refused locally (W1078)`
 				: `provider account pool wait expired for ${dep.url} — admission timed out locally (W1078)`,
-		retryAfterS: Math.ceil(policy.intervalMs / 1000),
+		// A pool paused past the caller's wait answers with the honest pause
+		// remainder (clamped at emission), else the window-derived floor.
+		retryAfterS: Math.max(
+			Math.ceil(policy.intervalMs / 1000),
+			pausedForMs === null ? 0 : Math.ceil(pausedForMs / 1000),
+		),
 	};
 }
+
+/** The shared cold mark answering locally — no fetch, no sleep. */
+function coldRefusal(
+	host: RouterHost,
+	dep: Deployment,
+	providerPool: string | null,
+	queueWaitMs: number | null,
+): TryOutcome {
+	return {
+		ok: false,
+		localAdmission: true,
+		providerPool,
+		queueWaitMs,
+		status: 503,
+		error: `upstream ${dep.url} is cooling down (shared cold mark) — answered locally, no upstream knock`,
+		retryAfterS: host.cooldowns.cold.remainingS(dep) ?? 1,
+	};
+}
+
+/** A quota wall surfaces as the rate-limit kind (one client contract:
+ *  429 + Retry-After); its provider code/type/words ride unchanged. */
+function asRateLimited(err: RouterError, ra: number | null): RouterError {
+	if (err.kind === "rate_limited") return err;
+	return new RouterError(
+		"rate_limited",
+		429,
+		err.message,
+		err.family,
+		ra,
+		false,
+		err.providerCode,
+		err.providerType,
+		err.traceId,
+	);
+}
+
+/** Client headers for a limited refusal: provider headers minus its raw
+ *  retry-after, the clamped honest one, and — on a quota wall only —
+ *  x-should-retry: false (the Anthropic SDK honours it: the client fails
+ *  fast instead of burning its retry ladder into a wall). */
+function limitedHeaders(
+	provider: Headers,
+	retryAfterS: number | null,
+	quotaWall: boolean,
+	keepBody = false,
+): Record<string, string> {
+	return {
+		...Object.fromEntries(
+			[...provider].filter(
+				([k]) => k !== "retry-after" && k !== "content-length",
+			),
+		),
+		"content-type": keepBody
+			? (provider.get("content-type") ?? "application/problem+json")
+			: "application/json",
+		...(retryAfterS === null
+			? {}
+			: { "retry-after": String(clampRetryAfter(retryAfterS)) }),
+		...(quotaWall ? { "x-should-retry": "false" } : {}),
+	};
+}
+
+/** The resolved resilience block (absent policy block = defaults). */
+export const resilienceOf = (host: RouterHost): ResilienceConfig =>
+	host.policy.resilience ?? RESILIENCE_DEFAULTS;
+
+/** Balance/plan exhaustion — a declared quota-wall code (config). Rate
+ *  pressure (1302/1305, plain 429) is NEVER a wall. */
+export const isQuotaWall = (
+	code: string | number | null,
+	cfg: ResilienceConfig,
+): boolean => code !== null && cfg.quota_wall_codes.includes(String(code));
 export async function defaultFetchImpl(
 	dep: Deployment,
 	req: UpstreamRequest,

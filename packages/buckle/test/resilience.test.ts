@@ -237,13 +237,12 @@ describe("ordered failover (kit §7a)", () => {
 				{ id: "b", run: runOf("b", [ok("vb")], spy) },
 			],
 			perCallMs: 1_000,
-			sleep: async () => {},
 		});
 		expect(r.ok).toBe(true);
 		expect(r.candidate).toBe("b");
 		expect(spy.calls).toEqual(["a", "b"]);
 	});
-	test("replay limit bounds same-upstream attempts, then walks on", async () => {
+	test("a status refusal never replays the same upstream — one immediate hop", async () => {
 		const spy: Spy = { calls: [] };
 		const always503 = async (): Promise<Stub> => {
 			spy.calls.push("a");
@@ -255,13 +254,11 @@ describe("ordered failover (kit §7a)", () => {
 				{ id: "b", run: runOf("b", [ok("vb")], spy) },
 			],
 			perCallMs: 1_000,
-			maxReplays: 1,
-			rng: () => 0,
-			sleep: async () => {},
+			maxReplays: 3,
 		});
 		expect(r.ok).toBe(true);
 		expect(r.candidate).toBe("b");
-		expect(spy.calls.filter((c) => c === "a").length).toBe(2);
+		expect(spy.calls).toEqual(["a", "b"]);
 	});
 	test("open breakers skip the candidate entirely", async () => {
 		const spy: Spy = { calls: [] };
@@ -279,7 +276,7 @@ describe("ordered failover (kit §7a)", () => {
 		expect(r.candidate).toBe("b");
 		expect(spy.calls).toEqual(["b"]);
 	});
-	test("transport throw counts as one failed attempt, bounded by replays", async () => {
+	test("a transport reset earns one immediate replay, then walks on", async () => {
 		const spy: Spy = { calls: [] };
 		const throwing = async (): Promise<Stub> => {
 			spy.calls.push("a");
@@ -292,14 +289,12 @@ describe("ordered failover (kit §7a)", () => {
 			],
 			perCallMs: 1_000,
 			maxReplays: 1,
-			rng: () => 0,
-			sleep: async () => {},
 		});
 		expect(r.ok).toBe(true);
 		expect(r.candidate).toBe("b");
 		expect(spy.calls.filter((c) => c === "a").length).toBe(2);
 	});
-	test("retry budget exhausted stops replaying the same upstream", async () => {
+	test("an exhausted budget refuses the failover hop — answers now", async () => {
 		const spy: Spy = { calls: [] };
 		const budgets = new RetryBudget({ minPerWindow: 0 });
 		const always503 = async (): Promise<Stub> => {
@@ -313,59 +308,50 @@ describe("ordered failover (kit §7a)", () => {
 			],
 			perCallMs: 1_000,
 			budgets,
-			rng: () => 0,
-			sleep: async () => {},
 		});
-		expect(r.ok).toBe(true);
-		expect(r.candidate).toBe("b");
-		expect(spy.calls.filter((c) => c === "a").length).toBe(1);
+		expect(r.ok).toBe(false);
+		expect(spy.calls).toEqual(["a"]);
+		expect(r.failures.at(-1)?.reason).toBe("budget-exhausted");
 	});
-	test("gate wait supersedes kit backoff (single pacing authority)", async () => {
+	test("a gate wait refuses the candidate instead of sleeping", async () => {
 		const spy: Spy = { calls: [] };
-		let admits = 0;
-		const waits: number[] = [];
-		const flaky = async (): Promise<Stub> => {
-			spy.calls.push("a");
-			return admits === 0 ? fail(429) : ok("va");
-		};
-		const r = await resilientCall({
-			candidates: [{ id: "a", run: flaky }],
-			perCallMs: 1_000,
-			admit: async () => {
-				admits++;
-				return admits === 1 ? 30 : null;
-			},
-			sleep: async (ms) => {
-				waits.push(ms);
-			},
-			rng: () => 0.5,
-		});
-		expect(r.ok).toBe(true);
-		expect(waits).toEqual([30]);
-	});
-	test("without a gate the kit waits its own clamped backoff, once", async () => {
-		const waits: number[] = [];
-		let calls = 0;
 		const r = await resilientCall({
 			candidates: [
-				{
-					id: "a",
-					run: async () => {
-						calls++;
-						return calls === 1 ? fail(503) : ok("va");
-					},
-				},
+				{ id: "a", run: runOf("a", [ok("va")], spy) },
+				{ id: "b", run: runOf("b", [ok("vb")], spy) },
 			],
 			perCallMs: 1_000,
-			retryAfterCapMs: 1_000,
-			rng: () => 0.5,
-			sleep: async (ms) => {
-				waits.push(ms);
-			},
+			admit: (() => {
+				let gated = 0;
+				return async () => (gated++ === 0 ? 30 : null);
+			})(),
 		});
+		// no sleep exists: a refused, b (gate clear after a skip) — a never
+		// knocked; the refusal carries the gate's honest not-before
 		expect(r.ok).toBe(true);
-		// no Retry-After on a 503 → full jitter over min(cap, 100·2^0) = 50ms
-		expect(waits).toEqual([50]);
+		expect(r.candidate).toBe("b");
+		expect(spy.calls).toEqual(["b"]);
+		expect(r.failures[0]).toEqual({
+			candidate: "a",
+			reason: "admission-refused",
+			attempts: 0,
+			retryAfterMs: 30,
+		});
+	});
+	test("hop limit: a refusing ladder answers after ONE hop, fast", async () => {
+		const spy: Spy = { calls: [] };
+		const t0 = performance.now();
+		const r = await resilientCall({
+			candidates: ["a", "b", "c"].map((id) => ({
+				id,
+				run: runOf(id, [fail(429)], spy),
+			})),
+			perCallMs: 1_000,
+		});
+		expect(r.ok).toBe(false);
+		expect(spy.calls).toEqual(["a", "b"]);
+		expect(r.failures.at(-1)?.reason).toBe("hop-limit");
+		expect(performance.now() - t0).toBeLessThan(100);
 	});
 });
 
@@ -432,10 +418,8 @@ describe("A/B: no double-retry stacking with the existing AIMD path", () => {
 		queueWaitMs: 2_000,
 		recovery: { successWindow: 8, decreasePercent: 5 },
 	};
-	test("leg A — AIMD-paced: the pool owns the wait, the kit adds none", async () => {
+	test("leg A — AIMD-paced: a paused pool refuses, the kit never waits", async () => {
 		const core = new ProviderAdmissionCore(policy);
-		const gateWaits: number[] = [];
-		const kitWaits: number[] = [];
 		let attempt = 0;
 		const r = await resilientCall({
 			candidates: [
@@ -460,26 +444,17 @@ describe("A/B: no double-retry stacking with the existing AIMD path", () => {
 				const wait = notBefore - Date.now();
 				return wait > 0 ? wait : null;
 			},
-			sleep: async (ms) => {
-				gateWaits.push(ms);
-			},
-			// the kit's own sleep channel is never the gate's channel — the
-			// gate path routes waits into gateWaits; the kit backoff channel
-			// would land in kitWaits only if the kit added its own wait
-			rng: () => 0.5,
 		});
-		expect(r.ok).toBe(true);
-		expect(attempt).toBe(2);
-		// every wait is pool-origin (both gate reads inside notBefore): the
-		// kit's backoff channel never fired — waits do not sum with backoff
-		expect(gateWaits.length).toBe(2);
-		expect(gateWaits.every((w) => w >= 0 && w < 1_000)).toBe(true);
-		expect(kitWaits.length).toBe(0);
+		// the 429 fed the pool once; nothing replays a status refusal and
+		// nothing sleeps — the honest refusal is the answer
+		expect(r.ok).toBe(false);
+		expect(attempt).toBe(1);
+		expect(r.failures[0]?.reason).toBe("status 429");
 		expect(core.snapshot().rateLimitedTotal).toBe(1);
 	});
-	test("leg B — kit-only: one clamped backoff wait, one replay", async () => {
-		const waits: number[] = [];
+	test("leg B — kit-only: a 429 answers at once, no replay", async () => {
 		let attempt = 0;
+		const t0 = performance.now();
 		const r = await resilientCall({
 			candidates: [
 				{
@@ -493,15 +468,9 @@ describe("A/B: no double-retry stacking with the existing AIMD path", () => {
 				},
 			],
 			perCallMs: 2_000,
-			retryAfterCapMs: 100,
-			rng: () => 0.5,
-			sleep: async (ms) => {
-				waits.push(ms);
-			},
 		});
-		expect(r.ok).toBe(true);
-		expect(attempt).toBe(2);
-		// Retry-After honored but CLAMPED: 30s demand → the 100ms cap
-		expect(waits).toEqual([100]);
+		expect(r.ok).toBe(false);
+		expect(attempt).toBe(1);
+		expect(performance.now() - t0).toBeLessThan(100);
 	});
 });

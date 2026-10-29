@@ -122,7 +122,10 @@ export async function runForcedFailoverDrill(
 			key: "",
 			signal: controller.signal,
 		});
-		const attempts = receipts.map((receipt, index) => ({
+		// attempts pair with wire knocks — a local-admission receipt (the
+		// shared cold mark answering) never reached fetchImpl
+		const wire = receipts.filter((r) => r.hop !== "local-admission");
+		const attempts = wire.map((receipt, index) => ({
 			group: attemptedGroups[index] ?? "unknown",
 			status: receipt.status,
 			layer: "buckle" as const,
