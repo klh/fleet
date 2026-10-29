@@ -240,8 +240,8 @@ test.describe("@unit", () => {
 
 		const caddy = Bun.which("caddy");
 		test("real caddy validates loopback + lan fragments", () => {
-			// test.skipIf(!caddy) → in-body skip (playwright port, name kept)
-			if (!caddy) test.skip(true, "caddy not on PATH");
+			// test.skipIf(!caddy) → playwright conditional skip (name kept)
+			test.skip(!caddy, "caddy not on PATH");
 			const { sites, caddyfile } = setup();
 			const validate = (cf: string) => {
 				const p = Bun.spawnSync([caddy ?? "", "validate", "--config", cf], {
