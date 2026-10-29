@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { embedDualStamp } from "../lib/wallclock.ts";
 import { BODY } from "./body.ts";
+import { connVerdict } from "./conn-verdict.ts";
 import {
 	matchesHubScope,
 	selectGovernorCompletions,
@@ -410,43 +412,29 @@ test("Governor claims and event rows use the same hub and project scope", () => 
 });
 
 test("header expires a snapshot even when the request was just received", () => {
-	const attributes: Record<string, string> = {};
-	const conn = {
-		markup: "",
-		title: "",
-		getAttribute: (key: string) => attributes[key],
-		setAttribute: (key: string, value: string) => {
-			attributes[key] = value;
-		},
-	};
+	// the banner is <klh-conn-banner>; its verdict is the pure conn-verdict.ts
 	const now = Date.now();
-	const data = {
-		observation: {
-			source: "board",
-			target: "ledger",
-			scope: "all",
-			observedAt: now - 2000,
-			expiresAt: now - 1,
+	const conn = connVerdict(
+		{
+			observation: {
+				source: "board",
+				target: "ledger",
+				scope: "all",
+				observedAt: now - 2000,
+				expiresAt: now - 1,
+			},
+			dataOkAt: now,
+			dataErr: null,
+			decOkAt: now,
+			decErr: null,
+			decLoaded: true,
+			now,
 		},
-	};
-	const render = new Function(
-		"lastData",
-		"byId",
-		"ago",
-		"esc",
-		"setNodes",
-		`var dataOkAt = Date.now(); var decOkAt = Date.now(); var dataErr = null; var decErr = null; var decLoaded = true; ${RENDERS}; renderConn();`,
-	);
-	render(
-		data,
-		(id: string) => (id === "conn" ? conn : null),
 		String,
-		String,
-		(el: typeof conn, html: string) => {
-			el.markup = html;
-		},
+		embedDualStamp,
 	);
-	expect(conn.markup).toContain("stale snapshot");
+	expect(conn.cls).toBe("stale");
+	expect(conn.txt).toContain("stale snapshot");
 	expect(conn.title).toContain("Source: board · target: ledger · scope: all");
 	expect(conn.title).toContain("expires:");
 });

@@ -15,8 +15,10 @@ import { events } from "./events.ts";
 import { laneObservationSnapshot } from "./lane-observations.ts";
 import { ago, labelFrom, labelMaps, laneGitSnapshot } from "./lanes.ts";
 import { getObservationRelayStatus } from "./observation-relay.ts";
+import { boundSessions } from "./session-bound.ts";
+import { type FeedBody, etagBody } from "./etag.ts";
 import { claims, inbox, laneFacts, sessions } from "./sessions.ts";
-import { board, type SessionView } from "./tasks.ts";
+import { board } from "./tasks.ts";
 
 // W663 follow-up (2026-10-12): the UI polls /api/data + /api/decisions every
 // ~1s while one compute costs ~2s (store round-trips on hub bindings) —
@@ -135,7 +137,7 @@ export function factsTrust(): unknown[] {
 					trust = { rating, detail, evidence, researched };
 			}
 		} catch {} // plain-text fact — honest null marker
-		return { key: r.key, value: r.value, tsAgo: ago(r.ts), trust };
+		return { key: r.key, value: r.value, ts: r.ts, tsAgo: ago(r.ts), trust };
 	});
 }
 
@@ -143,20 +145,27 @@ export function payload() {
 	return feedMemo().data;
 }
 
-// W685 payload bounds: /api/data served EVERY session ever (1898 rows /
-// 423KB) and a labels map mirroring it; the fleet view renders current +
-// recent lanes in full and pages history, so the deep CLOSED tail rode the
-// wire for nothing. Non-CLOSED always ride; CLOSED keeps the newest cap.
-const SESSION_HISTORY_CAP = 400;
+// the serialized /api/data body, stringified once per feed build (keyed on
+// the memo object's identity) instead of once per poll
+let _feedBody: { of: unknown; cached: FeedBody } | null = null;
 
-function boundSessions(ss: SessionView[]): SessionView[] {
-	if (ss.length <= SESSION_HISTORY_CAP) return ss;
-	const live = ss.filter((s) => s.state !== "CLOSED");
-	const closed = ss
-		.filter((s) => s.state === "CLOSED")
-		.sort((a, b) => b.hbAgo - a.hbAgo)
-		.slice(0, SESSION_HISTORY_CAP - Math.min(live.length, SESSION_HISTORY_CAP));
-	return [...live, ...closed];
+export function payloadBody(): FeedBody {
+	const feed = feedMemo();
+	if (_feedBody?.of !== feed)
+		_feedBody = { of: feed, cached: etagBody(feed.data, feed.at) };
+	return _feedBody.cached;
+}
+
+/** /api/sessions — the full session history /api/data no longer carries,
+ * newest heartbeat first, one page at a time. */
+export function sessionsPage(offset: number, limit: number) {
+	const all = sessions().sort((a, b) => (b.hb || 0) - (a.hb || 0));
+	return {
+		total: all.length,
+		offset,
+		limit,
+		sessions: all.slice(offset, offset + limit),
+	};
 }
 
 function buildPayload(): unknown {

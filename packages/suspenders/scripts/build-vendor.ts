@@ -33,6 +33,7 @@ const SOURCES = [
 	"hooks/board-html/klh-console-cards.ts",
 	"hooks/board-html/klh-console-forms.ts",
 	"hooks/board-html/klh-ent-zone.ts",
+	"hooks/board-html/klh-board-mediator.ts",
 ] as const;
 const FLAGS = [
 	"--root",

@@ -17,8 +17,26 @@ import {
 	workExecution,
 } from "../lib/work/work-execution.ts";
 import { artifactEvidence } from "./artifact-events.ts";
+import { boardKnob } from "./board-knobs.ts";
 
 type Registered = LaneRef & { attempt?: number };
+
+// One `ps` per window, not per /api/tasks compute: a process table
+// SUSPENDERS_BOARD_PS_MEMO_MS (default 2000) old reads the same liveness —
+// lease verdicts already tolerate transcript/heartbeat lag far above that.
+let _ps: { at: number; inspection: ProcessInspection } | null = null;
+
+function processTable(now: number): ProcessInspection {
+	const ttl = boardKnob("board.ps_memo_ms");
+	if (_ps && now - _ps.at < ttl && now >= _ps.at) return _ps.inspection;
+	const ps = Bun.spawnSync(["ps", "-axo", "pid=,args="], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const inspection = { exitCode: ps.exitCode, stdout: ps.stdout.toString() };
+	_ps = { at: now, inspection };
+	return inspection;
+}
 
 /** One read snapshot for the whole feed. No per-card process/store probe. */
 export function taskExecutionSnapshot(
@@ -26,14 +44,7 @@ export function taskExecutionSnapshot(
 	claims: readonly ExecutionClaim[],
 	now = Date.now(),
 ) {
-	const process = Bun.spawnSync(["ps", "-axo", "pid=,args="], {
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	const inspection: ProcessInspection = {
-		exitCode: process.exitCode,
-		stdout: process.stdout.toString(),
-	};
+	const inspection = processTable(now);
 	const inspect = () => inspection;
 	const facts = new Map(
 		(

@@ -1,8 +1,15 @@
 // hooks/board-html/core.ts — hash filter, esc/sig helpers, polling loop (W157 client chunk).
 // String.raw matches the original single-template semantics; bun's
 // non-ASCII escaping in String.raw reproduces the served page bytes.
+import { ago, agoShort, msAgo } from "./board-format.ts";
+import { stampAges } from "./feed-ages.ts";
+import { FeedStore } from "./feed-store.ts";
+
 // biome-ignore lint/complexity/noUselessStringRaw: byte-compat (W157)
-export const CORE = String.raw`// --- #filter=<text> deep-link (statusline worker indicators link here) ---
+export const CORE = String.raw`// --- the ONE page-wide feed store (feed-store.ts; the Lit mediator adopts it) ---
+var FeedStore = ${FeedStore.toString()};
+var feeds = globalThis.klhFeeds || (globalThis.klhFeeds = new FeedStore());
+// --- #filter=<text> deep-link (statusline worker indicators link here) ---
 var hashFilter = ''; // raw needle from the hash; '' = no filtering
 var boardQuery = ''; // live search, independent of deep-link filters
 function boardMatch(parts){
@@ -161,22 +168,16 @@ function sigSetKeep(el, sig, html, attr){
     if (nb) nb.focus();
   }
 }
-function ago(s){
-  if (s == null || s < 0) return '';
-  if (s < 10) return 'just now';
-  if (s < 60) return s + 's ago';
-  if (s < 3600) { var m = Math.round(s / 60); return m + (m === 1 ? ' minute' : ' minutes') + ' ago'; }
-  if (s < 86400) { var h = Math.round(s / 3600); return h + (h === 1 ? ' hour' : ' hours') + ' ago'; }
-  var dd = Math.round(s / 86400); return dd + (dd === 1 ? ' day' : ' days') + ' ago';
-}
-function agoShort(s){
-  if (s == null || s < 0) return '-';
-  if (s < 60) return s + 's';
-  if (s < 3600) return Math.round(s / 60) + 'm';
-  if (s < 86400) return Math.round(s / 3600) + 'h';
-  return Math.round(s / 86400) + 'd';
-}
-function msAgo(ts){ return ts != null ? Math.max(0, Math.round((Date.now() - ts) / 1000)) : null; }
+// the ONE age vocabulary (board-format.ts) — Lit components import the same
+${ago.toString()}
+${agoShort.toString()}
+${msAgo.toString()}
+// absolute stamps → ages on a 304 (feed-ages.ts), on the server clock: the
+// skew is measured from the last 200 build stamp
+${stampAges.toString()}
+var feedSkew = 0;
+function noteSkew(j){ if (j && typeof j.ts === 'number') feedSkew = Date.now() - j.ts; }
+function restamp(j){ stampAges(j, Date.now() - feedSkew); }
 // W891 — state letters: the displayed state's initial rides the pill/status
 // word, colored by the klh semantic state tokens (F red, R blue, D green,
 // Q gray) — hues resolve through vars, never literals.
@@ -272,39 +273,46 @@ function noteProjects(list){
   sel.value = cur === 'all' || knownProj[cur] ? cur : 'all';
   if (pendingProj) scopeProjectSelect(pendingProj); // W890: ?project= arrived before the option list did
 }
-function pollData(){
-  if (dataBusy) return;
-  dataBusy = true;
-  fetch('/api/data', { signal: AbortSignal.timeout(8000) })
-    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(function(j){
-      if (!j || typeof j.ts !== 'number' || !Array.isArray(j.projects)) throw new Error('bad /api/data payload');
-      if (j.ts >= lastDataTs) { lastData = j; lastDataTs = j.ts; }
-      noteProjects(j.projects.map(function(p){ return p.project; }).concat((j.sessions || []).map(function(s){ return s.project; })));
-      noteProjects(((j.laneObservations || {}).lanes || []).map(function(o){ return o.project; }));
-      dataOkAt = Date.now(); dataErr = null;
-    })
-    .catch(function(e){ dataErr = String((e && e.message) || e); })
-    .finally(function(){ dataBusy = false; renderAll(); });
+// Feeds own fetching (one in flight, adaptive cadence, scope-safe); the
+// poll* names stay as forced kicks for the retry buttons and tab switches.
+feeds.define('data', {
+  url: function(){ return '/api/data'; },
+  accept: function(j){ if (!j || typeof j.ts !== 'number' || !Array.isArray(j.projects)) throw new Error('bad /api/data payload'); },
+  ok: function(j, changed){
+    dataOkAt = Date.now(); dataErr = null;
+    if (!changed) { if (lastData === j) { restamp(j); renderAll(); } return; }
+    if (j.ts < lastDataTs) return;
+    noteSkew(j); lastData = j; lastDataTs = j.ts;
+    noteProjects(j.projects.map(function(p){ return p.project; }).concat((j.sessions || []).map(function(s){ return s.project; })));
+    noteProjects(((j.laneObservations || {}).lanes || []).map(function(o){ return o.project; }));
+    renderAll();
+  },
+  fail: function(e){ dataErr = e; renderAll(); }
+});
+function pollData(){ feeds.kick('data', true); }
+feeds.define('dec', {
+  url: function(){ return '/api/decisions' + projQuery(); },
+  accept: function(j){ if (!j || typeof j.ts !== 'number' || !Array.isArray(j.decisions)) throw new Error('bad /api/decisions payload'); },
+  ok: function(j, changed){
+    decOkAt = Date.now(); decErr = null; decLoaded = true;
+    if (!changed) { if (lastDec === j) { restamp(j); renderAll(); } return; }
+    noteSkew(j); lastDec = j;
+    noteProjects(j.projects);
+    noteNew(j.decisions);
+    renderAll();
+  },
+  fail: function(e){ decErr = e; renderAll(); }
+});
+function pollDec(){ feeds.kick('dec', true); }
+// 1Hz render heartbeat: ages tick in place (sig-guarded, no fetch); due
+// feeds fire from here only when their adaptive cadence says so.
+function tick(){
+  renderAll();
+  feeds.kickDue(); // data/dec/tasks/act/hist/setup/spend/task/exec — each gates on its url()
+  if (curTab === 'usage') pollUsage(); // own key-change guard, not a polled feed
+  else if (curTab === 'report') pollReport(); // W1198 own single-flight row
+  if (task.id) pollTail(); // own 2s floor + scope discard (tail.ts)
 }
-function pollDec(){
-  if (decBusy) return;
-  decBusy = true;
-  var scope = projQuery();
-  fetch('/api/decisions' + scope, { signal: AbortSignal.timeout(8000) })
-    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(function(j){
-      if (scope !== projQuery()) return;
-      if (!j || typeof j.ts !== 'number' || !Array.isArray(j.decisions)) throw new Error('bad /api/decisions payload');
-      if (!lastDec || j.ts >= lastDec.ts) lastDec = j;
-      decOkAt = Date.now(); decErr = null; decLoaded = true;
-      noteProjects(j.projects);
-      noteNew(j.decisions);
-    })
-    .catch(function(e){ if (scope === projQuery()) decErr = String((e && e.message) || e); })
-    .finally(function(){ decBusy = false; renderAll(); if (scope !== projQuery()) pollDec(); });
-}
-function tick(){ renderConn(); pollData(); pollDec(); pollActiveTab(); pollSpendSeries(false); if (task.id) { pollTask(false); pollTail(); } }
 function noteNew(list){
   var base = projBaseline || !decBaseline;
   projBaseline = false;

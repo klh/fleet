@@ -6,6 +6,7 @@ import type { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { migrateEventsShred } from "./events-shred.ts";
 import { createDeltasTriggers } from "./govdb-deltas.ts";
+import { migrateReadIndexes } from "./govdb-indexes.ts";
 import {
 	migrateKnowledgeLayer,
 	migrateKnowledgeSplit,
@@ -415,6 +416,7 @@ export function openGovernorDb(): Database {
 	// per-row json_extract the DuckDB-2.0 finding measured (board 1s poll,
 	// timing/token replays) rides columns now.
 	migrateEventsShred(db);
+	migrateReadIndexes(db); // reader_cursors + events_source_ts (govdb-indexes.ts)
 	// v15 (W459.5) — identity registry: additive DDL after the shred (nothing
 	// order-dependent; the registry mints rows, never rewrites existing ones).
 	migrateIdentityRegistry(db);

@@ -3,21 +3,13 @@
 // non-ASCII escaping in String.raw reproduces the served page bytes.
 // biome-ignore lint/complexity/noUselessStringRaw: byte-compat (W157)
 export const HISTORY = String.raw`// --- 3: decision history (collapsed under OPEN, /api/decisions&history=1) ---
-function pollHist(){
-  if (!histOpen || histBusy || curTab !== 'decisions') return;
-  histBusy = true;
-  var q = projQuery();
-  fetch('/api/decisions' + q + (q ? '&' : '?') + 'history=1', { signal: AbortSignal.timeout(8000) })
-    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(function(j){
-      if (q !== projQuery()) return;
-      if (!j || j.ok === false || !Array.isArray(j.decisions)) throw new Error('bad /api/decisions payload');
-      histData = j; histOkAt = Date.now(); histErr = null; histLoaded = true;
-      noteProjects(j.projects);
-    })
-    .catch(function(e){ if (q === projQuery()) histErr = String((e && e.message) || e); })
-    .finally(function(){ histBusy = false; renderHist(); if (q !== projQuery()) pollHist(); });
-}
+feeds.define('hist', {
+  url: function(){ if (!histOpen || curTab !== 'decisions') return null; var q = projQuery(); return '/api/decisions' + q + (q ? '&' : '?') + 'history=1'; },
+  accept: function(j){ if (!j || j.ok === false || !Array.isArray(j.decisions)) throw new Error('bad /api/decisions payload'); },
+  ok: function(j, changed){ histOkAt = Date.now(); histErr = null; histLoaded = true; if (!changed) return; histData = j; noteProjects(j.projects); renderHist(); },
+  fail: function(e){ histErr = e; renderHist(); }
+});
+function pollHist(){ feeds.kick('hist', true); }
 function renderHist(){
   var st = byId('histState');
   var errEl = byId('histErr');
