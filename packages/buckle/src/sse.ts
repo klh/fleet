@@ -344,6 +344,7 @@ export function sseReframer(
 	onDrop?: (reason: "ping" | "corrupt", preview: string) => void,
 	guardDialect?: Dialect,
 	onFailure?: (kind: string) => void,
+	onErrorPayload?: (payload: string) => string,
 ): TransformStream<Uint8Array, Uint8Array> {
 	const decoder = new TextDecoder();
 	const encoder = new TextEncoder();
@@ -360,6 +361,13 @@ export function sseReframer(
 	let eventType = "";
 	/** data: lines of the event being assembled (joined with \n at emit) */
 	let dataLines: string[] = [];
+	const errorPayload = (payload: string): string => {
+		try {
+			return onErrorPayload?.(payload) ?? payload;
+		} catch {
+			return payload;
+		}
+	};
 
 	const drop = (reason: "ping" | "corrupt", preview: string): void => {
 		try {
@@ -379,8 +387,8 @@ export function sseReframer(
 		const error = emptyStreamError(kind as EmptyStreamKind);
 		const body =
 			guardDialect === "anthropic"
-				? `event: error\ndata: ${JSON.stringify({ type: "error", error })}\n\n`
-				: `data: ${JSON.stringify({ error })}\n\n`;
+				? `event: error\ndata: ${errorPayload(JSON.stringify({ type: "error", error }))}\n\n`
+				: `data: ${errorPayload(JSON.stringify({ error }))}\n\n`;
 		c.enqueue(encoder.encode(body));
 	};
 
@@ -440,8 +448,8 @@ export function sseReframer(
 					c.enqueue(
 						encoder.encode(
 							guardDialect === "anthropic"
-								? `event: error\ndata: ${JSON.stringify({ type: "error", error })}\n\n`
-								: `data: ${JSON.stringify({ error })}\n\n`,
+								? `event: error\ndata: ${errorPayload(JSON.stringify({ type: "error", error }))}\n\n`
+								: `data: ${errorPayload(JSON.stringify({ error }))}\n\n`,
 						),
 					);
 					return false;
@@ -458,7 +466,7 @@ export function sseReframer(
 					))
 			) {
 				terminals = [];
-				c.enqueue(encoder.encode(frame(payload)));
+				c.enqueue(encoder.encode(frame(errorPayload(payload))));
 				rejected = true;
 				return;
 			}

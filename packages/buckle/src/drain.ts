@@ -71,7 +71,11 @@ export function onDrain(fn: (info: DrainInfo) => void): () => void {
  *  `event: error` + the {type:"error"} envelope; openai rides a bare data
  *  frame with its own server_error taxonomy. code gateway_restarting, the
  *  request id, and retry guidance in the message. */
-export function drainTerminalFrame(dialect: Dialect, rid: string): string {
+export function drainTerminalFrame(
+	dialect: Dialect,
+	rid: string,
+	trace?: { id: string; hub: string },
+): string {
 	const message =
 		"Gateway restarting for a planned deployment — reconnect and retry with backoff.";
 	const error =
@@ -87,6 +91,30 @@ export function drainTerminalFrame(dialect: Dialect, rid: string): string {
 		dialect === "anthropic"
 			? { type: "error", error, request_id: rid }
 			: { error, request_id: rid };
+	const safeTrace =
+		trace &&
+		/^[0-9a-f]{32}$/.test(trace.id) &&
+		/^[A-Za-z0-9][\w.-]{0,63}$/.test(trace.hub)
+			? trace
+			: undefined;
+	if (safeTrace) {
+		error.message = `${message} [trace=${safeTrace.id}; origin=${safeTrace.hub}; target=buckle]`;
+		Object.assign(error, { trace_id: safeTrace.id });
+		Object.assign(envelope, {
+			trace_id: safeTrace.id,
+			fleet_trace: {
+				id: safeTrace.id,
+				hops: [
+					{
+						hub: safeTrace.hub,
+						service: "buckle",
+						status: 200,
+						code: "gateway_restarting",
+					},
+				],
+			},
+		});
+	}
 	return dialect === "anthropic"
 		? `event: error\ndata: ${JSON.stringify(envelope)}\n\n`
 		: `data: ${JSON.stringify(envelope)}\n\n`;
@@ -117,10 +145,11 @@ export function writeDrainTerminal(
 	ctl: TransformStreamDefaultController<Uint8Array> | null,
 	dialect: Dialect,
 	rid: string,
+	trace?: { id: string; hub: string },
 ): boolean {
 	if (ctl === null) return false;
 	try {
-		ctl.enqueue(enc.encode(drainTerminalFrame(dialect, rid)));
+		ctl.enqueue(enc.encode(drainTerminalFrame(dialect, rid, trace)));
 		ctl.terminate();
 		return true;
 	} catch {

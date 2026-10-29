@@ -9,10 +9,16 @@
 // Fail-closed: the endpoint does not EXIST unless gateway.connect.enabled is
 // true AND BUCKLE_CONNECT_TOKEN is set AND connect.allow is non-empty; deny
 // answers are 407 (auth) / 403 (destination) / 503 (capacity), then close.
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import {
+	createHash,
+	randomBytes,
+	randomUUID,
+	timingSafeEqual,
+} from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { isIPv4 } from "node:net";
 import { z } from "zod";
+import { traceIdOf } from "@klh/telemetry/src/http-trace.ts";
 import { clampRetryAfter, parseRequestDeadline } from "./http-kit.ts";
 import { createLogger } from "./log.ts";
 import type { ConnectPolicyBlock, GatewayPolicy } from "./policy.ts";
@@ -388,6 +394,7 @@ const MAX_HEADER_BYTES = 8192;
 const MAX_PENDING_BYTES = 8 * 1024 * 1024;
 
 interface Leg {
+	traceId: string;
 	phase: "head" | "tunnel";
 	buf: Buffer;
 	id?: string;
@@ -441,6 +448,7 @@ export class ConnectEgress {
 	 *  by Bun — assigned here, per the W624-class socket.data lesson). */
 	private onOpen(s: EgressSocket): void {
 		const leg: Leg = {
+			traceId: randomBytes(16).toString("hex"),
 			phase: "head",
 			buf: Buffer.alloc(0),
 			pendingUp: 0,
@@ -472,7 +480,13 @@ export class ConnectEgress {
 			leg.buf = Buffer.concat([leg.buf, chunk]);
 			if (leg.buf.length > MAX_HEADER_BYTES) {
 				this.registry.deny("headers");
-				this.fail(s, leg, 431, "Request Header Fields Too Large");
+				this.fail(
+					s,
+					leg,
+					431,
+					"Request Header Fields Too Large",
+					"connect.headers_too_large",
+				);
 				return;
 			}
 			const end = leg.buf.indexOf("\r\n\r\n");
@@ -504,14 +518,34 @@ export class ConnectEgress {
 	}
 
 	/** Answer the deny (407/403/431/503...), count the reason, close. */
-	private fail(s: EgressSocket, leg: Leg, code: number, why: string): void {
+	private fail(
+		s: EgressSocket,
+		leg: Leg,
+		code: number,
+		why: string,
+		cause: string,
+	): void {
 		this.registry.deny(why);
 		leg.closed = true; // no further onData races — the close event reaps
 		if (leg.idle) clearTimeout(leg.idle);
 		this.live.delete(leg);
 		try {
+			const hub = /^[A-Za-z0-9][\w.-]{0,63}$/.test(this.opts.hubId ?? "")
+				? this.opts.hubId
+				: "local";
+			const body = JSON.stringify({
+				type: "/problems/connect_egress",
+				title: why,
+				status: code,
+				code: cause,
+				trace_id: leg.traceId,
+				fleet_trace: {
+					id: leg.traceId,
+					hops: [{ hub, service: "buckle", status: code, code: cause }],
+				},
+			});
 			s.write(
-				`HTTP/1.1 ${code} ${why}\r\nuser-agent: ${CONNECT_EGRESS_UA}\r\n\r\n`,
+				`HTTP/1.1 ${code} ${why}\r\nuser-agent: ${CONNECT_EGRESS_UA}\r\nx-klh-trace-id: ${leg.traceId}\r\nx-klh-error-origin: ${hub}\r\nx-klh-error-code: ${cause}\r\ncontent-type: application/problem+json\r\ncontent-length: ${Buffer.byteLength(body)}\r\nconnection: close\r\n\r\n${body}`,
 			);
 			s.end();
 		} catch {
@@ -555,7 +589,7 @@ export class ConnectEgress {
 		// inline-regexed — a malformed line 405s before any auth work.
 		const line = ConnectRequestLineSchema.safeParse(lines[0] ?? "");
 		if (!line.success) {
-			this.fail(s, leg, 405, "Method Not Allowed");
+			this.fail(s, leg, 405, "Method Not Allowed", "connect.method");
 			return;
 		}
 		const headers = new Map<string, string>();
@@ -564,19 +598,20 @@ export class ConnectEgress {
 			if (i < 0) continue;
 			headers.set(l.slice(0, i).trim().toLowerCase(), l.slice(i + 1).trim());
 		}
+		leg.traceId = traceIdOf(headers.get("traceparent") ?? null) ?? leg.traceId;
 		const auth = headers.get("proxy-authorization");
 		const app = authAppOf(auth, this.cfg.token);
 		if (!app) {
-			this.fail(s, leg, 407, "Proxy Authentication Required");
+			this.fail(s, leg, 407, "Proxy Authentication Required", "connect.auth");
 			return;
 		}
 		if (this.registry.size >= this.cfg.maxTunnels) {
-			this.fail(s, leg, 503, "Service Unavailable");
+			this.fail(s, leg, 503, "Service Unavailable", "connect.capacity");
 			return;
 		}
 		const authority = parseAuthority(line.data.authority);
 		if (!authority) {
-			this.fail(s, leg, 400, "Bad Request");
+			this.fail(s, leg, 400, "Bad Request", "connect.authority");
 			return;
 		}
 		const verdict = await destinationVerdict(
@@ -585,7 +620,13 @@ export class ConnectEgress {
 			this.opts.resolve,
 		);
 		if (!verdict.ok) {
-			this.fail(s, leg, 403, "Forbidden");
+			this.fail(
+				s,
+				leg,
+				403,
+				"Forbidden",
+				`connect.${verdict.why.replaceAll("-", "_")}`,
+			);
 			return;
 		}
 		// W2173.7: the dial budget = configured timeout tightened by the
@@ -596,7 +637,7 @@ export class ConnectEgress {
 		);
 		const peer = await this.dial(verdict.ip, authority.port, budgetMs);
 		if (!peer.ok) {
-			this.fail(s, leg, 502, "Bad Gateway");
+			this.fail(s, leg, 502, "Bad Gateway", "connect.dial");
 			return;
 		}
 		if (leg.closed) {
@@ -733,6 +774,7 @@ export class ConnectEgress {
  *  W2173.7 adds the dial-ladder knobs: dialAttempts (total attempts,
  *  default 2) and the clampRetryAfter-bounded backoff params. */
 export interface ConnectEgressOpts {
+	hubId?: string;
 	resolve?: ResolverFn;
 	connectTimeoutMs?: number;
 	dialAttempts?: number;
