@@ -4,7 +4,6 @@
 // chunks stay evaluable standalone (the board-* suites eval TASKS/SETUP bytes
 // without a store); concatenated after them, before BOOT. Each url() gates on
 // the active tab / open drawer, so inactive feeds never fetch.
-// biome-ignore lint/complexity/noUselessStringRaw: byte-compat (W157)
 export const FEEDS = String.raw`// --- feeds: tasks/lanes, spend sparklines, task drawer, activity, setup ---
 feeds.define('tasks', {
   url: function(){

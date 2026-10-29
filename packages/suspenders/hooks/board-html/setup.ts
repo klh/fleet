@@ -26,15 +26,15 @@ function renderSetup(){
   var errEl = byId('setupErr');
   var body = byId('setupBody');
   if (!setupLoaded && !setupErr) {
-    clearErr(errEl);
+    errEl.text = '';
     sigSet(body, 'loading', '<div class="state dim">loading setup checks...</div>');
     return;
   }
   if (setupErr) {
     var when = setupOkAt ? ago(Math.round((Date.now() - setupOkAt) / 1000)) : 'never';
-    errBanner(errEl, 'setup checks unavailable — last good ' + when, function(){ setupErr = null; pollSetup(); });
+    errEl.text = 'setup checks unavailable — last good ' + when;
   } else {
-    clearErr(errEl);
+    errEl.text = '';
   }
   if (!setupData) return;
   var cs = setupData.checks || [];

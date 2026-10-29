@@ -326,21 +326,4 @@ function toast(msg){
   byId('toasts').appendChild(t);
   setTimeout(function(){ t.remove(); }, 6000);
 }
-// sig-guarded inline error banner with a retry button; keeps last good data visible
-function errBanner(el, text, onretry){
-  if (el.getAttribute('data-sig') === text) return;
-  el.setAttribute('data-sig', text);
-  el.textContent = text + ' ';
-  var rb = document.createElement('button');
-  rb.className = 'retry';
-  rb.type = 'button';
-  rb.textContent = 'retry';
-  rb.addEventListener('click', onretry);
-  el.appendChild(rb);
-}
-function clearErr(el){
-  if (el.getAttribute('data-sig') === '') return;
-  el.setAttribute('data-sig', '');
-  el.textContent = '';
-}
 `;

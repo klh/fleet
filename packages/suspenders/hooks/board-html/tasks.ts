@@ -284,15 +284,15 @@ function renderTasks(){
   var errEl = byId('tasksErr');
   var body = byId('tasksBody');
   if (!tasksLoaded && !tasksErr) {
-    clearErr(errEl);
+    errEl.text = '';
     sigSet(body, 'loading', '<tr><td colspan="9" class="dim">loading tasks...</td></tr>');
     return;
   }
   if (tasksErr) {
     var when = tasksOkAt ? ago(Math.round((Date.now() - tasksOkAt) / 1000)) : 'never';
-    errBanner(errEl, 'task list unavailable — last good ' + when, function(){ tasksErr = null; pollTasks(); });
+    errEl.text = 'task list unavailable — last good ' + when;
   } else {
-    clearErr(errEl);
+    errEl.text = '';
   }
   if (!tasksData) return; // nothing good yet — keep loading/error row
   var taskSection = byId('tab-tasks');
@@ -733,10 +733,10 @@ function renderKanban(){
   if (!el) return;
   if (!tasksLoaded && !tasksErr) { sigSet(el, 'loading', '<div class="state dim">loading lanes...</div>'); return; }
   if (tasksErr) {
-    errBanner(byId('kanbanErr'), 'lane board unavailable' + (tasksOkAt ? ' — last good ' + ago(Math.round((Date.now() - tasksOkAt) / 1000)) : ''), function(){ tasksErr = null; pollTasks(); });
+    byId('kanbanErr').text = ('lane board unavailable' + (tasksOkAt ? ' — last good ' + ago(Math.round((Date.now() - tasksOkAt) / 1000)) : ''));
     if (!tasksData) return; // nothing good yet — banner instead of stale cards
   } else {
-    clearErr(byId('kanbanErr'));
+    byId('kanbanErr').text = '';
   }
   if (!tasksData) return;
   var ts = tasksData.tasks;
@@ -1051,8 +1051,14 @@ function renderDrawer(){
   var body = byId('drawerBody');
   if (!d) {
     if (!task.err) return; // keep the loading row
-    body.setAttribute('data-sig', '');
-    errBanner(body, 'task unavailable — ' + String(task.err).slice(0, 120), function(){ task.err = null; pollTask(true); });
+    var eb = body.querySelector('klh-err-banner');
+    if (!eb) {
+      body.setAttribute('data-sig', '');
+      eb = document.createElement('klh-err-banner');
+      eb.feed = 'task';
+      body.replaceChildren(eb);
+    }
+    eb.text = 'task unavailable — ' + String(task.err).slice(0, 120);
     return;
   }
   var t = d.task;

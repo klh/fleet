@@ -23,8 +23,8 @@ function pollReport(){
 }
 function renderReport(){
   var err = byId('reportErr');
-  if (reportErr) { errBanner(err, reportErr, pollReport); return; }
-  clearErr(err);
+  err.text = reportErr || '';
+  if (reportErr) return;
   if (!reportData) return;
   setText(byId('reportStamp'), 'the work report · checked ' + ago(msAgo(reportOkAt)) + ' · ' + ((reportData.rows || []).length) + ' rows');
   setText(byId('reportTable'), reportData.table || '(no rows)');
