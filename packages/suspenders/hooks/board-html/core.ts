@@ -7,7 +7,7 @@ import { FeedStore } from "./feed-store.ts";
 // biome-ignore lint/complexity/noUselessStringRaw: byte-compat (W157)
 export const CORE = String.raw`// --- the ONE page-wide feed store (feed-store.ts; the Lit mediator adopts it) ---
 var FeedStore = ${FeedStore.toString()};
-var feeds = globalThis.klhFeeds || (globalThis.klhFeeds = new FeedStore());
+var feeds = globalThis.klhFeeds || (globalThis.klhFeeds = new FeedStore().share()); // one poller per browser: Web Lock leader, BroadcastChannel snapshots
 // --- #filter=<text> deep-link (statusline worker indicators link here) ---
 var hashFilter = ''; // raw needle from the hash; '' = no filtering
 var boardQuery = ''; // live search, independent of deep-link filters

@@ -16,6 +16,14 @@
 //     otherwise a payload whose numeric `ts` (same URL) equals the last one
 //     reports changed=false, so subscribers re-render only when their slice
 //     moved.
+// Cross-tab (share()): ONE poller per browser. A Web Lock elects the leader
+// tab; every other tab is a follower that never fetches — its kick() posts a
+// `want` over BroadcastChannel and the leader answers with `snap`s. The
+// leader polls its own scope plus any follower scope that differs (a
+// demand-driven shadow feed per foreign URL, same single-flight/cadence
+// machinery), and follower wants also drive the leader while it is hidden.
+// Closing the leader releases the lock; the next follower resumes its feeds
+// at their due times. No locks/channel (vm tests, old browsers) = solo.
 // The class is SELF-CONTAINED (no imports, only platform globals probed with
 // typeof) because the legacy chunk scope embeds it via toString() — the
 // renders.ts embedDualStamp precedent — while the Lit mediator adopts the
@@ -54,6 +62,31 @@ export type FeedEnv = {
 	hidden: () => boolean;
 	maxInFlight: number;
 };
+export type FeedRole = "solo" | "leader" | "follower";
+export type LockLike = {
+	request: (name: string, cb: () => Promise<unknown>) => Promise<unknown>;
+};
+export type ChannelLike = {
+	postMessage: (m: unknown) => void;
+	onmessage: ((e: { data: unknown }) => void) | null;
+};
+export type ShareOpts = {
+	locks?: LockLike | null;
+	channel?: ChannelLike | null;
+	name?: string;
+};
+export type ShareMsg =
+	| { t: "want"; feed: string; url: string; need: boolean }
+	| {
+			t: "snap";
+			feed: string;
+			url: string;
+			err: string | null;
+			changed: boolean;
+			data?: unknown;
+			key: unknown;
+			rtt: number;
+	  };
 type Feed = {
 	spec: Required<Pick<FeedSpec, "everyMs" | "maxMs" | "timeoutMs">> & FeedSpec;
 	state: FeedState;
@@ -68,6 +101,8 @@ type Feed = {
 	nextAt: number;
 	queued: boolean;
 	validator: ((j: unknown) => void) | null;
+	shadowOf: string | null; // leader-side poller for a follower's scope
+	wantAt: number;
 };
 
 export class FeedStore {
@@ -76,6 +111,12 @@ export class FeedStore {
 	inFlight: number;
 	queue: (() => void)[];
 	validators: Record<string, (j: unknown) => void>;
+	role: FeedRole;
+	channel: ChannelLike | null;
+	peerAt: number;
+	// toString-embedded: knobs live on the class, never module scope
+	static SHADOW_TTL_MS = 600000; // a foreign scope nobody wants for 10 min
+	static PEER_TTL_MS = 60000; // no wants for 1 min = no followers to post to
 	constructor(env?: Partial<FeedEnv>) {
 		const g = globalThis;
 		const doc = typeof g.document === "object" ? g.document : null;
@@ -101,12 +142,15 @@ export class FeedStore {
 		this.inFlight = 0;
 		this.queue = [];
 		this.validators = {};
+		this.role = "solo";
+		this.channel = null;
+		this.peerAt = 0;
 		if (doc && typeof doc.addEventListener === "function")
 			doc.addEventListener("visibilitychange", () => {
 				if (!this.env.hidden()) this.kickDue();
 			});
 	}
-	define(name: string, spec: FeedSpec) {
+	define(name: string, spec: FeedSpec, shadowOf?: string) {
 		this.feeds[name] = {
 			spec: Object.assign(
 				{ everyMs: 1000, maxMs: 30000, timeoutMs: 8000 },
@@ -134,22 +178,24 @@ export class FeedStore {
 			retryAfterMs: 0,
 			nextAt: 0,
 			queued: false,
-			validator: this.validators[name] || null,
+			validator: this.validators[shadowOf || name] || null,
+			shadowOf: shadowOf || null,
+			wantAt: 0,
 		};
 		return this;
 	}
 	/** Schema gate (the mediator installs zod parses): throws = feed error. */
 	validate(name: string, fn: (j: unknown) => void) {
 		this.validators[name] = fn; // define() order-proof: either side first
-		const f = this.feeds[name];
-		if (f) f.validator = fn;
+		for (const f of Object.values(this.feeds))
+			if (f === this.feeds[name] || f.shadowOf === name) f.validator = fn;
 	}
 	get(name: string) {
 		const f = this.feeds[name];
 		return f ? f.state : null;
 	}
 	names() {
-		return Object.keys(this.feeds);
+		return Object.keys(this.feeds).filter((n) => !this.feeds[n].shadowOf);
 	}
 	subscribe(name: string, fn: (st: FeedState, changed: boolean) => void) {
 		const f = this.feeds[name];
@@ -158,6 +204,122 @@ export class FeedStore {
 		return () => {
 			f.subs.delete(fn);
 		};
+	}
+	/** Join the browser-wide poller: follower until the leader lock lands. */
+	share(opts?: ShareOpts) {
+		const g = globalThis as unknown as {
+			navigator?: { locks?: LockLike };
+			BroadcastChannel?: new (n: string) => ChannelLike;
+			location?: { pathname?: string };
+		};
+		const o = opts || {};
+		const name = o.name || `klh-feeds:${g.location?.pathname || "/"}`;
+		const locks = o.locks !== undefined ? o.locks : g.navigator?.locks;
+		let channel = o.channel !== undefined ? o.channel : null;
+		if (!channel && o.channel === undefined && g.BroadcastChannel && locks)
+			channel = new g.BroadcastChannel(name);
+		if (!locks || !channel || this.role !== "solo") return this;
+		this.role = "follower";
+		this.channel = channel;
+		channel.onmessage = (e) => this.onShare(e.data as ShareMsg);
+		locks.request(name, () => {
+			this.lead();
+			return new Promise(() => {}); // held until the tab closes
+		});
+		return this;
+	}
+	/** Won the lock: resume every feed at its due time (one interval max). */
+	lead() {
+		this.role = "leader";
+		const now = this.env.now();
+		for (const name of this.names()) {
+			const f = this.feeds[name];
+			if (f.spec.manual || f.state.busy) continue;
+			if (now >= f.nextAt || !f.state.loaded) this.kick(name);
+			else this.schedule(name, f, f.nextAt - now);
+		}
+	}
+	onShare(m: ShareMsg) {
+		if (!m || typeof m !== "object") return;
+		if (m.t === "want" && this.role === "leader") this.onWant(m);
+		else if (m.t === "snap" && this.role === "follower") this.deliver(m);
+	}
+	/** Leader: a follower needs `url` for `feed` — answer or poll for it. */
+	onWant(m: Extract<ShareMsg, { t: "want" }>) {
+		const own = this.feeds[m.feed];
+		if (!own || own.shadowOf || typeof m.url !== "string") return;
+		const now = this.env.now();
+		this.peerAt = now;
+		const name = own.spec.url() === m.url ? m.feed : this.shadow(m.feed, m.url);
+		const f = this.feeds[name];
+		f.wantAt = now;
+		if (m.need && f.state.loaded && f.keyUrl === m.url)
+			this.publish(name, f, m.url, null, true);
+		if (f.state.busy || (f.state.loaded && now < f.nextAt)) return;
+		this.kick(name, true);
+	}
+	shadow(feed: string, url: string) {
+		const name = `${feed}\u0000${url}`;
+		if (!this.feeds[name]) {
+			const now = this.env.now();
+			for (const n of Object.keys(this.feeds))
+				if (
+					this.feeds[n].shadowOf &&
+					now - this.feeds[n].wantAt > FeedStore.SHADOW_TTL_MS
+				)
+					delete this.feeds[n];
+			const s = this.feeds[feed].spec;
+			this.define(
+				name,
+				{
+					url: () => url,
+					everyMs: s.everyMs,
+					maxMs: s.maxMs,
+					timeoutMs: s.timeoutMs,
+					accept: s.accept,
+					manual: true, // wants are its clock — no timers
+				},
+				feed,
+			);
+		}
+		return name;
+	}
+	/** Follower: land a leader snapshot as if this tab had fetched it. */
+	deliver(m: Extract<ShareMsg, { t: "snap" }>) {
+		const f = this.feeds[m.feed];
+		if (!f || f.spec.url() !== m.url) return; // not this tab's scope
+		let changed = false;
+		let data: unknown = null;
+		if (!m.err) {
+			if (m.changed && m.data !== undefined) {
+				changed = m.key === undefined || m.key !== f.key || f.keyUrl !== m.url;
+				data = m.data;
+			} else if (f.keyUrl !== m.url || f.key !== m.key) {
+				return this.want(m.feed, f, m.url, true); // missed the payload
+			}
+			f.key = m.key;
+			f.keyUrl = m.url;
+		}
+		this.apply(m.feed, f, m.err, data, changed, Number(m.rtt) || 0);
+	}
+	want(feed: string, f: Feed, url: string, need: boolean) {
+		f.nextAt = this.env.now() + this.delayFor(f); // no want storm
+		if (this.channel) this.channel.postMessage({ t: "want", feed, url, need });
+	}
+	publish(name: string, f: Feed, url: string, err: string | null, ch: boolean) {
+		if (!this.channel || this.env.now() - this.peerAt > FeedStore.PEER_TTL_MS)
+			return;
+		const msg: ShareMsg = {
+			t: "snap",
+			feed: f.shadowOf || name,
+			url,
+			err,
+			changed: ch,
+			key: f.key,
+			rtt: f.state.rttMs,
+		};
+		if (ch && !err) msg.data = f.state.data;
+		this.channel.postMessage(msg);
 	}
 	/** Heartbeat: request every active feed whose next poll is due. */
 	kickDue() {
@@ -196,6 +358,8 @@ export class FeedStore {
 		const gap = f.spec.minGapMs;
 		if (!force && gap && f.state.at && this.env.now() - f.state.at < gap)
 			return;
+		if (this.role === "follower")
+			return this.want(name, f, url, Boolean(force) || f.keyUrl !== url);
 		this.request(name, f, url);
 	}
 	release() {
@@ -258,31 +422,8 @@ export class FeedStore {
 				if (current) this.request(name, f, current);
 				return;
 			}
-			st.at = this.env.now();
-			st.rttMs = st.at - started;
-			if (err) {
-				st.fails++;
-				st.err = err;
-				if (f.spec.fail) f.spec.fail(err);
-			} else {
-				st.fails = 0;
-				st.err = null;
-				f.retryAfterMs = 0;
-				st.okAt = st.at;
-				st.loaded = true;
-				if (changed) st.data = data;
-				if (f.spec.ok) {
-					try {
-						f.spec.ok(st.data, changed);
-					} catch (e) {
-						st.err = String((e as Error)?.message || e);
-						if (f.spec.fail) f.spec.fail(st.err);
-					}
-				}
-			}
-			if (f.spec.settle) f.spec.settle(st);
-			for (const fn of f.subs) fn(st, changed || Boolean(err));
-			this.schedule(name, f);
+			this.apply(name, f, err, data, changed, this.env.now() - started);
+			if (this.role === "leader") this.publish(name, f, url, err, changed);
 		};
 		const onResponse = (r: Response) => {
 			if (r?.status === 304) {
@@ -321,6 +462,43 @@ export class FeedStore {
 			onError(e);
 		}
 	}
+	/** Land one result (own fetch or leader snapshot): state, callbacks,
+	 * subscribers, next cadence. */
+	apply(
+		name: string,
+		f: Feed,
+		err: string | null,
+		data: unknown,
+		changed: boolean,
+		rttMs: number,
+	) {
+		const st = f.state;
+		st.at = this.env.now();
+		st.rttMs = rttMs;
+		if (err) {
+			st.fails++;
+			st.err = err;
+			if (f.spec.fail) f.spec.fail(err);
+		} else {
+			st.fails = 0;
+			st.err = null;
+			f.retryAfterMs = 0;
+			st.okAt = st.at;
+			st.loaded = true;
+			if (changed) st.data = data;
+			if (f.spec.ok) {
+				try {
+					f.spec.ok(st.data, changed);
+				} catch (e) {
+					st.err = String((e as Error)?.message || e);
+					if (f.spec.fail) f.spec.fail(st.err);
+				}
+			}
+		}
+		if (f.spec.settle) f.spec.settle(st);
+		for (const fn of f.subs) fn(st, changed || Boolean(err));
+		this.schedule(name, f);
+	}
 	/** Retry-After seconds or HTTP-date → ms, clamped to [1s, 5min]. */
 	retryAfter(r: Response) {
 		const h = r.headers?.get ? r.headers.get("retry-after") : null;
@@ -342,13 +520,14 @@ export class FeedStore {
 		}
 		return Math.min(s.maxMs, Math.max(s.everyMs, st.rttMs * 2));
 	}
-	schedule(name: string, f: Feed) {
-		const delay = this.delayFor(f);
+	schedule(name: string, f: Feed, after?: number) {
+		const delay = after === undefined ? this.delayFor(f) : after;
 		f.nextAt = this.env.now() + delay;
 		if (!this.env.setTimer || f.spec.manual) return;
 		if (f.timer !== null && this.env.clearTimer) this.env.clearTimer(f.timer);
 		f.timer = null;
-		if (this.env.hidden()) return; // visibilitychange resumes via kickDue
+		// hidden: visibilitychange resumes via kickDue; followers never poll
+		if (this.env.hidden() || this.role === "follower") return;
 		f.timer = this.env.setTimer(() => {
 			f.timer = null;
 			this.kick(name);

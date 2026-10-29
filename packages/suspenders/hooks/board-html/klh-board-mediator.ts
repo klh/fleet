@@ -22,7 +22,7 @@ declare global {
 
 /** The one page-wide store, whichever script reaches it first. */
 export function boardFeeds(): FeedStore {
-	globalThis.klhFeeds ??= new FeedStore();
+	globalThis.klhFeeds ??= new FeedStore().share();
 	return globalThis.klhFeeds;
 }
 
