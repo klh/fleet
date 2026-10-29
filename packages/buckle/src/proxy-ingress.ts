@@ -32,7 +32,14 @@ import {
 } from "./ingress-body.ts";
 import { keyIdFromToken, tokenFromHeaders } from "./ledger.ts";
 import { runExecute } from "./proxy-execute.ts";
-import { type Ctx, newRid, observe, trafficKindOf } from "./request-context.ts";
+import {
+	type Ctx,
+	newRid,
+	observe,
+	safeAuditPath,
+	safeAuditToken,
+	trafficKindOf,
+} from "./request-context.ts";
 import {
 	allowlistedBaggage,
 	newTraceparent,
@@ -84,6 +91,11 @@ export async function proxy(
 	};
 	ctx.signal = req.signal;
 	ctx.t0 = Date.now();
+	// W2256: capture the audit provenance BEFORE any denial can fire — every
+	// refused request still names what it asked for and how it arrived.
+	ctx.auditPath = safeAuditPath(path);
+	ctx.auditAllowCross = null; // decided later at the decide seam
+	ctx.auditProviderPin = safeAuditToken(pin);
 	beginInflight(ctx); // W1259: the exact in-flight index starts here
 	const hint = hintFromHeaders(req.headers);
 	if (!hint.ok) return deny(deps, ctx, 400, hint.why, "bad_hint", "denied");
@@ -228,6 +240,11 @@ export async function proxy(
 			(pin === undefined && path !== "/v1/messages/count_tokens"),
 		providerPin: pin,
 	});
+	// W2256: the decided bridging posture rides ctx — denials below this seam
+	// audit it (a selection-shaped refusal keeps the requested context).
+	ctx.auditAllowCross =
+		estimateCount ||
+		(pin === undefined && path !== "/v1/messages/count_tokens");
 	if (!sel.ok) {
 		deps.sm
 			.counter("buckle_route_decisions_total", "Routing decisions.")
