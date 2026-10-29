@@ -42,6 +42,7 @@ const HEARTBEAT_BORN: Record<string, string> = {
 	"cost-alert": "W1132",
 	"model-health-sweep": "W2194",
 	"hub-update": "W2239.3",
+	"intent-reconcile": "W2262",
 };
 
 // Retired com.suspenders.* labels that were never maintenance tasks —

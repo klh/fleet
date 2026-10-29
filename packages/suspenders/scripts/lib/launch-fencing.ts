@@ -11,6 +11,7 @@ import { dlopen, FFIType, ptr } from "bun:ffi";
 import { openStore, type GovernorStore } from "../../hooks/lib/govdb/govdb.ts";
 import { sameMachine } from "../../hooks/lib/host-identity.ts";
 import { compareProcessBirth, darwinProcessBirth } from "./process-birth.ts";
+import { TERMINAL_WORK_STATES } from "./intent-reconcile.ts";
 
 export type LaunchIntent = {
 	project: string;
@@ -123,7 +124,19 @@ export function heldLaunchItems(
 		.all(project) as LaunchIntent[];
 	return new Set(
 		rows
-			.filter((row) => inspectLaunchIntent(row) !== "dead")
+			.filter((row) => {
+				if (inspectLaunchIntent(row) === "dead") return false;
+				// W2262: a terminal-work intent (DONE/SUPERSEDED/CANCELLED/FAILED
+				// item) is dead weight even when its process verdict is unknown —
+				// no live claim exists for the fence to protect. Fenced row-state
+				// reconciliation (reconcileTerminalLaunchIntents) owns the actual
+				// state flip + audit; this read just stops the phantom slot from
+				// counting. A live or ambiguous NONTERMINAL intent keeps holding.
+				const w = store
+					.query("SELECT state FROM work_items WHERE project=? AND id=?")
+					.get(project, row.item) as { state: string } | null;
+				return !(w && TERMINAL_WORK_STATES.includes(w.state));
+			})
 			.map((row) => row.item),
 	);
 }

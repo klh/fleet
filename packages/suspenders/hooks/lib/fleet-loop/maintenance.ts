@@ -201,6 +201,26 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		cwd: (repo) => repo,
 	},
 	{
+		// W2262: the stale launch-intent reconcile — incident 2026-10-29: ten
+		// REGISTERED unknown-liveness rows for TERMINAL (DONE) items held
+		// phantom admission slots and refused urgent dispatch at 7/8. Fails
+		// intents whose work item is terminal AND whose process verdict is not
+		// alive (CAS on the exact row + audit event); never touches a live lane
+		// or a nonterminal item. Every 10 min; the W1201 named pause
+		// (pauseTask("intent-reconcile", ...)) stops it.
+		name: "intent-reconcile",
+		everySeconds: 600,
+		nice: 10,
+		timeoutMs: 120_000,
+		argv: (root, repo) => [
+			join(root, "hooks/bin/intent-reconcile.ts"),
+			"--act",
+			"--repo",
+			repo,
+		],
+		cwd: (repo) => repo,
+	},
+	{
 		// W1247: the .fleet launch-debris janitor — dispatch/supervise fence
 		// every lane launch with launch-<nonce>.{json,sh,json.registered} in
 		// <REPO>/.fleet and nothing removed them (6,805-file backlog,
