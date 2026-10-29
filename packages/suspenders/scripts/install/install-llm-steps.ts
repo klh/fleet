@@ -167,6 +167,10 @@ const GENERATOR_FILES = [
 	"openrouter-free-rows.ts",
 	"zai-catalog-rows.ts",
 	"chatgpt-subscription-rows.ts",
+	// W2271: gateway-config imports ./fallback-health.ts — reachable ONLY
+	// through this generator (no router/supervisor closure edge), so the regen
+	// sync must carry it kit→home or the home copy dies on module-not-found.
+	"fallback-health.ts",
 ];
 
 /** Home files whose bytes the GENERATED yaml depends on: the generator
