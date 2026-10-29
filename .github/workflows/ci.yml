@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pkg: [blam, buckle, speedy, belt, suspenders, telemetry]
+        pkg: [buckle, belt, suspenders]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,7 +38,12 @@ jobs:
           - { dir: packages/belt/test, min: 470, project: unit }
           - { dir: packages/belt/bench, min: 130, project: unit }
           - { dir: packages/buckle/test, min: 360, project: unit }
-          - { dir: packages/blam/test, min: 6, project: unit }
+          - { dir: packages/blam/test, min: 169, project: unit }
+          - { dir: packages/kernel/test, min: 27, project: unit }
+          - { dir: packages/local-llm, min: 23, project: unit }
+          - { dir: packages/local/test, min: 34, project: unit }
+          - { dir: packages/speedy/test, min: 53, project: unit }
+          - { dir: packages/telemetry/test, min: 33, project: unit }
           - { dir: packages/suspenders/test, min: 860, project: unit }
           - { dir: packages/suspenders/deploy, min: 90, project: unit }
           - { dir: packages/suspenders/e2e, min: 100, browser: true }

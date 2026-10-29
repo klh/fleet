@@ -1,7 +1,9 @@
-import { afterEach, expect, test } from "bun:test";
+// W1294.12 sweep-I: ported from improve-loop.test.ts to @playwright/test.
+
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import { getStarter } from "../../suspenders/hooks/lib/starter/starter-artifacts.ts";
 import {
 	promoteStarter,
@@ -90,63 +92,71 @@ function fixture(seed = true, heldoutCount = 3): ImprovementManifest {
 	};
 }
 
-afterEach(() => {
+test.afterEach(() => {
 	for (const root of roots.splice(0))
 		rmSync(root, { recursive: true, force: true });
 });
 
-test("proposes, probes, composes, validates held-out tasks and promotes the live starter", async () => {
-	const manifest = fixture(true, 130);
-	const result = await runImprovement(manifest);
-	expect(result.promotion.promote).toBe(true);
-	expect(result.starter.to).toBe(2);
-	expect(result.heldout).toHaveLength(130);
-	expect(result.lift?.tokensSaved).toBe(100);
-	const stored = getStarter(manifest.starterRepo, "lane-orientation", 2);
-	expect(stored.ok).toBe(true);
-	expect(starterSeedPrompt(join(manifest.starterRepo, ".fleet"))).toContain(
-		"fast candidate",
-	);
-	expect(
-		starterSeedPrompt(join(manifest.starterRepo, ".fleet"), "other-model"),
-	).not.toContain("fast candidate");
-	expect(readFileSync(result.reportFile, "utf8")).toContain("artifactDigest");
-}, 60_000);
+test.describe("@unit", () => {
+	test("proposes, probes, composes, validates held-out tasks and promotes the live starter", async () => {
+		// bun pinned 60s on this 130-heldout spawn-heavy test; headroom for
+		// sibling-lane load (playwright port, parity-or-better)
+		test.setTimeout(180_000);
+		const manifest = fixture(true, 130);
+		const result = await runImprovement(manifest);
+		expect(result.promotion.promote).toBe(true);
+		expect(result.starter.to).toBe(2);
+		expect(result.heldout).toHaveLength(130);
+		expect(result.lift?.tokensSaved).toBe(100);
+		const stored = getStarter(manifest.starterRepo, "lane-orientation", 2);
+		expect(stored.ok).toBe(true);
+		expect(starterSeedPrompt(join(manifest.starterRepo, ".fleet"))).toContain(
+			"fast candidate",
+		);
+		expect(
+			starterSeedPrompt(join(manifest.starterRepo, ".fleet"), "other-model"),
+		).not.toContain("fast candidate");
+		expect(readFileSync(result.reportFile, "utf8")).toContain("artifactDigest");
+	});
 
-test("a held-out regression refuses promotion and does not change the starter", async () => {
-	const manifest = fixture();
-	manifest.executor[2] = manifest.executor[2].replace(
-		"'done\\n'",
-		"p.includes('fast candidate')?'wrong\\n':'done\\n'",
-	);
-	const result = await runImprovement(manifest);
-	expect(result.promotion.promote).toBe(false);
-	expect(result.heldout).toHaveLength(1);
-	expect(result.heldout[0]?.candidatePassed).toBe(false);
-	expect(getStarter(manifest.starterRepo, "lane-orientation", 2).ok).toBe(
-		false,
-	);
-	expect(starterSeedPrompt(join(manifest.starterRepo, ".fleet"))).toContain(
-		"slow baseline",
-	);
-});
+	test("a held-out regression refuses promotion and does not change the starter", async () => {
+		const manifest = fixture();
+		manifest.executor[2] = manifest.executor[2].replace(
+			"'done\\n'",
+			"p.includes('fast candidate')?'wrong\\n':'done\\n'",
+		);
+		const result = await runImprovement(manifest);
+		expect(result.promotion.promote).toBe(false);
+		expect(result.heldout).toHaveLength(1);
+		expect(result.heldout[0]?.candidatePassed).toBe(false);
+		expect(getStarter(manifest.starterRepo, "lane-orientation", 2).ok).toBe(
+			false,
+		);
+		expect(starterSeedPrompt(join(manifest.starterRepo, ".fleet"))).toContain(
+			"slow baseline",
+		);
+	});
 
-test("first run can establish a promoted starter from the fixed built-in prompt", async () => {
-	const manifest = fixture(false, 130);
-	const result = await runImprovement(manifest);
-	expect(result.starter.from).toBe(0);
-	expect(result.starter.to).toBe(1);
-	expect(
-		starterSeedPrompt(join(manifest.starterRepo, ".fleet"), manifest.model),
-	).toContain("fast candidate");
-}, 60_000);
+	test("first run can establish a promoted starter from the fixed built-in prompt", async () => {
+		// bun pinned 60s on this 130-heldout spawn-heavy test; headroom for
+		// sibling-lane load (playwright port, parity-or-better)
+		test.setTimeout(180_000);
+		const manifest = fixture(false, 130);
+		const result = await runImprovement(manifest);
+		expect(result.starter.from).toBe(0);
+		expect(result.starter.to).toBe(1);
+		expect(
+			starterSeedPrompt(join(manifest.starterRepo, ".fleet"), manifest.model),
+		).toContain("fast candidate");
+	});
 
-test("a three-task pilot records evidence but cannot alter the shared starter", async () => {
-	const manifest = fixture();
-	const result = await runImprovement(manifest);
-	expect(result.promotion.promote).toBe(false);
-	expect(result.promotion.why).toContain("130");
-	expect(getStarter(manifest.starterRepo, "lane-orientation", 2).ok).toBe(
-		false,
-	);
+	test("a three-task pilot records evidence but cannot alter the shared starter", async () => {
+		const manifest = fixture();
+		const result = await runImprovement(manifest);
+		expect(result.promotion.promote).toBe(false);
+		expect(result.promotion.why).toContain("130");
+		expect(getStarter(manifest.starterRepo, "lane-orientation", 2).ok).toBe(
+			false,
+		);
+	});
 });
