@@ -1,10 +1,10 @@
 // src/app-deps.ts — AppDeps: the wire handlers' dependency contract
 // (W1297 split out of handlers.ts; the interface body is byte-identical).
 
+import type { AccountPolicyDoc } from "./account-policy.ts";
 import type { RpcAdmission } from "./admission.ts";
 import type { PrefixAffinity } from "./affinity.ts";
 import type { AidsLedger } from "./aids.ts";
-import type { AccountPolicyDoc } from "./account-policy.ts";
 import type { LaneTelemetryLog } from "./cache-boundary.ts";
 import type { PrefixLedger } from "./cache-fingerprint.ts";
 import type { CandidateTable } from "./candidates.ts";
@@ -14,13 +14,14 @@ import type { Expander } from "./expand.ts";
 import type { Federation } from "./gov/federation.ts";
 import type { RouteHint } from "./hints.ts";
 import type { Ledger } from "./ledger.ts";
-import type { Preseeder } from "./preseed.ts";
-import type { AidsPolicy } from "./policy.ts";
+import type { ObservationOutbox } from "./observe.ts";
 import type { CondenseStore } from "./pipeline.ts";
+import type { AidsPolicy } from "./policy.ts";
+import type { Preseeder } from "./preseed.ts";
 import type { RepoPolicyRow } from "./repo-policy.ts";
 import type { Router } from "./router.ts";
 import type { Servicemon } from "./servicemon.ts";
-import type { ObservationOutbox } from "./observe.ts";
+import type { SystemOneConfig } from "./systemone.ts";
 import type { Dialect, UpstreamPool } from "./upstreams.ts";
 
 export interface AppDeps {
@@ -86,4 +87,8 @@ export interface AppDeps {
 	// W706: this hub's stable id (BUCKLE_HUB_ID) — the peer/origin identity
 	// stamped on relay legs + observations. Absent → "local".
 	hubId?: string;
+	// W1120 SystemOne ingress: the configured kev-class upstream (gateway.
+	// systemone). Optional — absent/unset = the route fails closed (typed
+	// 503, zero outbound).
+	systemonePolicy?: SystemOneConfig;
 }

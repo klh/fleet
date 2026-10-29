@@ -17,6 +17,7 @@ import { modelsFace, modelsRoute } from "./models-route.ts";
 import { pipelineRoutes } from "./pipeline.ts";
 import { proxy } from "./proxy-ingress.ts";
 import { repoPolicyRoutes } from "./repo-policy-routes.ts";
+import { systemoneRoute } from "./systemone.ts";
 
 interface App {
 	fetch(req: Request): Promise<Response>;
@@ -147,6 +148,12 @@ export function createApp(deps: AppDeps): App {
 		}
 		if (method === "POST" && path === "/v1/messages") {
 			return proxy(req, "anthropic", path, deps);
+		}
+		// W1120: the typed SystemOne ingress — authenticated via the gate's
+		// proxy class, admitted + traced, forwarding to the configured
+		// kev-class upstream (gateway.systemone). Fails closed when unset.
+		if (method === "POST" && path === "/v1/systemone") {
+			return systemoneRoute(req, deps);
 		}
 		// known path, wrong method → 405 + Allow (admin paths stay 404 here —
 		// the gate routes them post-auth, where handleAdmin answers 405).

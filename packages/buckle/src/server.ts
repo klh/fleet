@@ -6,6 +6,7 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { z } from "zod";
 import { loadAccountPolicy } from "./account-policy.ts";
 import { RpcAdmission } from "./admission.ts";
 import { PrefixAffinity } from "./affinity.ts";
@@ -15,8 +16,11 @@ import { PrefixLedger } from "./cache-fingerprint.ts";
 import { CandidateTable } from "./candidates.ts";
 import { type ConnectEgress, startConnectEgress } from "./connect-egress.ts";
 import { Cooldowns } from "./cooldown.ts";
+import { pricerOf } from "./cost.ts";
 import { decideRoute } from "./decide.ts";
 import { DietStore } from "./diet.ts";
+import { errorResponse } from "./error-response.ts";
+import { traceErrorResponse } from "./error-trace.ts";
 import { directCall, Expander, pickLocalDirect } from "./expand.ts";
 import { Federation } from "./gov/federation.ts";
 import { ManifestSigner } from "./gov/federation-signing.ts";
@@ -28,8 +32,6 @@ import type {
 } from "./gov/hub-seam.ts";
 import { createGovernance, type GovernanceOpts } from "./gov/middleware.ts";
 import { oidcGateOptsFromEnv } from "./gov/oidc-env.ts";
-import { HttpProblem, problemOf } from "./http-kit.ts";
-import { createLogger } from "./log.ts";
 import {
 	loadOverlay,
 	overlayModuleAdaptation,
@@ -37,16 +39,14 @@ import {
 } from "./gov/overlay-loader.ts";
 import { residencyFromEnv, resolveResidency } from "./gov/residency.ts";
 import { type AppDeps, createApp } from "./handlers.ts";
-import { errorResponse } from "./error-response.ts";
-import { traceErrorResponse } from "./error-trace.ts";
-import { pricerOf } from "./cost.ts";
-import { z } from "zod";
 import type { RouteHint } from "./hints.ts";
+import { HttpProblem, problemOf } from "./http-kit.ts";
 import {
 	boundedIngressRequest,
 	MAX_REQUEST_BODY_BYTES,
 } from "./ingress-body.ts";
 import { Ledger } from "./ledger.ts";
+import { createLogger } from "./log.ts";
 import { ObservationOutbox } from "./observe.ts";
 import { type GatewayPolicy, loadGatewayPolicy, loadPrefs } from "./policy.ts";
 import { poolWarm, prewarm } from "./pool-warm.ts";
@@ -398,6 +398,9 @@ export function buildDeps(
 		observations,
 		ingressBodyTimeoutMs: opts.ingressBodyTimeoutMs,
 		hubId: process.env.BUCKLE_HUB_ID ?? "local",
+		// W1120: the SystemOne ingress target (gateway.systemone). Absent
+		// block = the route fails closed at request time.
+		systemonePolicy: policy.systemone,
 	};
 }
 
