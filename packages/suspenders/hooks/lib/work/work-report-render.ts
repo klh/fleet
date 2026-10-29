@@ -6,6 +6,7 @@
 // every row already carries glyph + word; --no-color / NO_COLOR /
 // TERM=dumb kill it, FORCE_COLOR forces it on a non-TTY.
 
+import { controllerStatusLine } from "../fleet-loop/controller-status.ts";
 import {
 	agentClock,
 	buildReportContract,
@@ -179,9 +180,16 @@ export const renderTty = (c: ReportContract, o: RenderOpts): string => {
 		lines.push(row(i));
 	}
 	if (c.items.some((i) => i.blind_cache)) lines.push(CACHE_LEGEND);
-	lines.push(footerLine(c, hidden));
+	lines.push(footerLine(c, hidden), ...controllerLines(c));
 	return lines.join("\n");
 };
+
+/** fork E: one line per project whose controller is held, alive or dead —
+ *  "absent" with no holds renders nothing (the JSON contract keeps it). */
+export const controllerLines = (c: ReportContract): string[] =>
+	(c.controllers ?? [])
+		.filter((s) => s.state !== "absent" || s.holds.length > 0)
+		.map(controllerStatusLine);
 
 /** §6/§7 footer: totals, lanes per hub, and the hidden-column summary. */
 export const footerLine = (c: ReportContract, hidden: Col[]): string => {
@@ -222,6 +230,7 @@ export const renderMd = (c: ReportContract): string => {
 	}
 	if (c.model_health.down.length)
 		lines.push(`**model health** — DOWN: ${c.model_health.down.join(", ")}`);
+	for (const l of controllerLines(c)) lines.push(`- ${l}`);
 	return lines.join("\n");
 };
 

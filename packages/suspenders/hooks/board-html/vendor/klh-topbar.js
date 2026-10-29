@@ -1,5 +1,5 @@
-import{l,r,e,s}from"./lit-17452e2304aadd9e.js";import{c,d,p}from"./lit-4f60f1ddad88fe50.js";var o=(t)=>t&&t!=="unassigned"?t.charAt(0).toUpperCase():"?",v=(t)=>["team","department"].filter((a)=>t[a]).join(" · ")||"no team tags";class h extends s{static properties={me:{type:Object},open:{state:!0},themePref:{state:!0}};static styles=r`
-		${l(p)}
+import{l,n,e,r}from"./lit-801c06b16c5fa88d.js";import{c,u,d}from"./lit-ffb9ca81bfe985c2.js";var o=(t)=>t&&t!=="unassigned"?t.charAt(0).toUpperCase():"?",h=(t)=>["team","department"].filter((a)=>t[a]).join(" · ")||"no team tags";class p extends r{static properties={me:{type:Object},open:{state:!0},themePref:{state:!0}};static styles=n`
+		${l(d)}
 		:host {
 			display: block;
 		}
@@ -124,17 +124,17 @@ import{l,r,e,s}from"./lit-17452e2304aadd9e.js";import{c,d,p}from"./lit-4f60f1dda
 			font-size: 10.5px;
 			color: var(--klh-dim);
 		}
-	`;constructor(){super();this.open=!1,this.themePref="system",this.onDocClick=this.onDocClick.bind(this),this.onDocKeydown=this.onDocKeydown.bind(this),this.onThemeChange=this.onThemeChange.bind(this)}connectedCallback(){if(super.connectedCallback(),document.addEventListener("click",this.onDocClick),document.addEventListener("keydown",this.onDocKeydown),document.addEventListener("klh-themechange",this.onThemeChange),this.themePref=window.klhTheme?.pref()??"system",!this.me)this.hydrate()}disconnectedCallback(){super.disconnectedCallback(),document.removeEventListener("click",this.onDocClick),document.removeEventListener("keydown",this.onDocKeydown),document.removeEventListener("klh-themechange",this.onThemeChange)}async hydrate(){try{let t=await fetch("/api/console/me");if(!t.ok)return;let a=await t.json();if(!a.ok)return;this.me=a,window.__execPrefs=a.executor_prefs??[]}catch{}}onDocClick(t){if(this.open&&!t.composedPath().includes(this))this.open=!1}onDocKeydown(t){if(this.open&&t.key==="Escape")this.open=!1,this.renderRoot.querySelector(".cavbtn")?.focus()}onThemeChange(t){let a=t.detail;if(a)this.themePref=a.pref}toggle(){this.open=!this.open}setTheme(t){let a=t.target.value;window.klhTheme?.set(a)}actorOptions(){let t=this.me;if(!t)return[];let a=t.defaultActor??t.default_actor??"",n=t.actors.slice();if(a&&!n.includes(a))n.unshift(a);return n.length?n:["unassigned"]}mePanel(){let t=this.me,a=t.actor||"unassigned",n=t.defaultActor??t.default_actor??"";return e`
+	`;constructor(){super();this.open=!1,this.themePref="system",this.onDocClick=this.onDocClick.bind(this),this.onDocKeydown=this.onDocKeydown.bind(this),this.onThemeChange=this.onThemeChange.bind(this)}connectedCallback(){if(super.connectedCallback(),document.addEventListener("click",this.onDocClick),document.addEventListener("keydown",this.onDocKeydown),document.addEventListener("klh-themechange",this.onThemeChange),this.themePref=window.klhTheme?.pref()??"system",!this.me)this.hydrate()}disconnectedCallback(){super.disconnectedCallback(),document.removeEventListener("click",this.onDocClick),document.removeEventListener("keydown",this.onDocKeydown),document.removeEventListener("klh-themechange",this.onThemeChange)}async hydrate(){try{let t=await fetch("/api/console/me");if(!t.ok)return;let a=await t.json();if(!a.ok)return;this.me=a,window.__execPrefs=a.executor_prefs??[]}catch{}}onDocClick(t){if(this.open&&!t.composedPath().includes(this))this.open=!1}onDocKeydown(t){if(this.open&&t.key==="Escape")this.open=!1,this.renderRoot.querySelector(".cavbtn")?.focus()}onThemeChange(t){let a=t.detail;if(a)this.themePref=a.pref}toggle(){this.open=!this.open}setTheme(t){let a=t.target.value;window.klhTheme?.set(a)}actorOptions(){let t=this.me;if(!t)return[];let a=t.defaultActor??t.default_actor??"",s=t.actors.slice();if(a&&!s.includes(a))s.unshift(a);return s.length?s:["unassigned"]}mePanel(){let t=this.me,a=t.actor||"unassigned",s=t.defaultActor??t.default_actor??"";return e`
 			<div class="cavhead">
 				<span class="cavbig">${o(a)}</span>
 				<span>
 					<span class="cavname">${a}</span><br />
-					<span class="cavsub">${v(t.tags??{})}</span>
+					<span class="cavsub">${h(t.tags??{})}</span>
 				</span>
 			</div>
 			<div class="cavsec">switch actor (demo preview)</div>
 			<select aria-label="switch actor (demo preview)">
-				${this.actorOptions().map((i)=>e`<option value=${i} ?selected=${i===n}>
+				${this.actorOptions().map((i)=>e`<option value=${i} ?selected=${i===s}>
 							${i}
 						</option>`)}
 			</select>
@@ -149,7 +149,7 @@ import{l,r,e,s}from"./lit-17452e2304aadd9e.js";import{c,d,p}from"./lit-4f60f1dda
 				<div class="klh-settings-panel" role="group" aria-label="settings">
 					<fieldset class="klh-theme">
 						<legend>theme</legend>
-						${d.map((t)=>e`
+						${u.map((t)=>e`
 								<label>
 									<input
 										type="radio"
@@ -187,4 +187,4 @@ import{l,r,e,s}from"./lit-17452e2304aadd9e.js";import{c,d,p}from"./lit-4f60f1dda
 					</span>
 				</span>
 			</nav>
-		`}}customElements.define("klh-topbar",h);
+		`}}customElements.define("klh-topbar",p);

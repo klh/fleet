@@ -46,8 +46,10 @@ import { openStore, projectIdentity } from "../hooks/lib/govdb/govdb.ts";
 // verdict itself lives in hooks/lib/lanes/lane-liveness.ts (pid/heartbeat, never cwd)
 import {
 	laneProcessIdentity,
+	laneAlive as sharedLaneAlive,
 	worktreeLive,
 } from "../hooks/lib/lanes/lane-liveness.ts";
+import { liveForCapacity } from "./lib/lane-capacity.ts";
 import {
 	canonicalProjectRoot,
 	loadLaneRegistry,
@@ -418,12 +420,15 @@ const main = async (): Promise<void> => {
 	// live only if the audit votes yes AND a claude/codex process actually
 	// sits in its worktree, with a 10-minute launch grace so a fresh spawn
 	// isn't re-dispatched before its cwd shows up in lsof.
-	const live = lanes.filter(
-		(l) =>
+	// D4: a lane the shared verdict calls live holds its slot even when its
+	// process cwd is not the worktree (lib/lane-capacity.ts).
+	const live = liveForCapacity(lanes, {
+		shared: sharedLaneAlive,
+		dispatch: (l) =>
 			laneAlive(l, audit) &&
 			(worktreeLive(l.worktree) ||
 				Date.now() - (l.launchedAt ?? 0) < 10 * 60_000),
-	);
+	});
 	const heldSlots = [...held].filter(
 		(item) => !live.some((l) => l.item === item),
 	).length;

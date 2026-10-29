@@ -49,12 +49,19 @@
 // stale refusal is a first-class outcome (never an error, never a silent
 // overwrite): the pass holds its cursor and the next fire re-reads and
 // re-decides on the moved row.
+import {
+	mergeKnowledgeFactsReadonly,
+	siblingKnowledgeDb,
+} from "../knowledge/knowledge-facts.ts";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { join, resolve } from "node:path";
-import { type DailyRollResult, pushDailyRoll } from "../knowledge/decant-roll.ts";
+import {
+	type DailyRollResult,
+	pushDailyRoll,
+} from "../knowledge/decant-roll.ts";
 import { projectIdentity, projectRootOf } from "../govdb/govdb-project.ts";
 import { openStore } from "../govdb/govdb-store.ts";
 import { REG } from "../govdb/govdb-util.ts";
@@ -456,6 +463,11 @@ export interface DailyRunOpts {
 	roll?: boolean | { configPath?: string; statePath?: string };
 	now?: () => number;
 	spawn?: FactSpawn;
+	/** phase 3: the Kev store/noise/review gate over NEW claims (decant-gate.ts);
+	 *  the bin injects it, the library default stays ungated. */
+	gate?: (
+		writes: ClaimWrite[],
+	) => Promise<{ keep: ClaimWrite[]; noise: string[]; deferred: string[] }>;
 }
 
 export interface DailyRunResult {
@@ -667,7 +679,13 @@ export function readExistingClaims(
 			version: number | null;
 			confidence_stamp: string | null;
 		}[];
-		for (const row of rows) existing[row.key] = stampOf(row);
+		// phase 3: decant claims live in knowledge.db; the store wins per key
+		for (const row of mergeKnowledgeFactsReadonly(
+			rows,
+			siblingKnowledgeDb(path),
+			[CLAIM_PREFIX],
+		))
+			existing[row.key] = stampOf(row);
 	} catch {
 		// missing facts table → empty map
 	} finally {
@@ -789,6 +807,12 @@ export async function runDaily(
 	);
 	for (const w of decision.writes) r.planned.push(`${w.mode}:${w.claim.key}`);
 	for (const t of decision.tombstones) r.planned.push(`tombstone:${t.key}`);
+	if (opts.gate && !opts.dryRun && collected.workOk) {
+		const g = await opts.gate(decision.writes);
+		decision.writes = g.keep;
+		for (const k of g.noise) r.skipped.push(`kev noise: ${k}`);
+		for (const k of g.deferred) r.skipped.push(`kev review: ${k}`);
+	}
 	applyDaily(decision, r, opts, collected.workOk);
 	r.ok = r.errors.length === 0 && r.stale.length === 0;
 	if (!opts.dryRun && r.ok) {

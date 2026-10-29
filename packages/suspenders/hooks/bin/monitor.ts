@@ -38,6 +38,7 @@ import {
 	projectRootOf,
 	sweepStaleSessions,
 } from "../lib/govdb/govdb.ts";
+import { ensureMachineState, msSet } from "../lib/govdb/machine-state.ts";
 
 const db = openStore();
 const now = Date.now();
@@ -285,15 +286,15 @@ const dead = db
 for (const d of dead) {
 	if (waiting.has(d.target)) continue; // waiting on you, not dead
 	const fk = `deadletter.${d.id}`;
-	const seen = db.query("SELECT ts FROM facts WHERE key = ?").get(fk) as {
-		ts: number;
-	} | null;
+	// machine_state, not facts (hub design D3): alert stamps are telemetry
+	ensureMachineState(db);
+	const seen = db
+		.query("SELECT ts FROM machine_state WHERE key = ?")
+		.get(fk) as { ts: number } | null;
 	const age = Math.round((now - d.ts) / 60_000);
 	const label = `dead letter #${d.id} ${d.kind} → ${d.target.slice(0, 10)} undrained ${age}m`;
 	if (!seen || now - seen.ts > 6 * 3_600_000) {
-		db.query(
-			"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, ?, 'monitor', 1, ?)",
-		).run(fk, label, now);
+		msSet(db, fk, label, "monitor", now);
 		issues.push(`${label} — cursor behind, never auto-acked`);
 	} else
 		issues.push(

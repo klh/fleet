@@ -5,6 +5,12 @@
 // or its text names a touched path. Facts (governor.db) flag when the fact
 // text names a touched path. Pure planner + injected-handle apply, the
 // knowledge-curate.ts doctrine — the callers own the IO.
+import {
+	ensureKnowledgeFacts,
+	isKnowledgeFactKey,
+	KNOWLEDGE_FACT_PREFIXES,
+	listKnowledgeFacts,
+} from "./knowledge-facts.ts";
 import type { Database } from "bun:sqlite";
 import { extractDocPaths } from "./knowledge.ts";
 import { makeStamp, parseStamp } from "./confidence.ts";
@@ -131,9 +137,20 @@ export function applyKnowledgeInvalidation(
 			.run(JSON.stringify(list), now, `${reason} (${m.why})`, m.id);
 	}
 	for (const m of plan.facts) {
+		const why = `${reason} (${m.why})`;
+		// phase 3: a knowledge-shaped key may sit in knowledge.db (migrated) or
+		// still in governor facts (pre-migration writer) — mark wherever it is
 		handles.gov
 			.query("UPDATE facts SET stale_at = ?, stale_reason = ? WHERE key = ?")
-			.run(now, `${reason} (${m.why})`, m.key ?? "");
+			.run(now, why, m.key ?? "");
+		if (isKnowledgeFactKey(m.key ?? "")) {
+			ensureKnowledgeFacts(handles.kb);
+			handles.kb
+				.query(
+					"UPDATE knowledge_facts SET stale_at = ?, stale_reason = ? WHERE key = ?",
+				)
+				.run(now, why, m.key ?? "");
+		}
 	}
 	handles.gov
 		.query(
@@ -167,13 +184,25 @@ export function promoteLandedFindings(
 	gov: Database,
 	item: string,
 	sha: string | null | undefined,
+	kb: Database | null = null,
 ): { promoted: string[] } {
-	const rows = gov
-		.query("SELECT key, confidence_stamp FROM facts WHERE key LIKE 'finding.%'")
-		.all() as { key: string; confidence_stamp: string | null }[];
+	// phase 3: findings live in knowledge.db knowledge_facts; rows a
+	// pre-migration writer left in governor facts are promoted in place
+	if (kb) ensureKnowledgeFacts(kb);
+	const stores: [Database, "facts" | "knowledge_facts"][] = [[gov, "facts"]];
+	if (kb) stores.push([kb, "knowledge_facts"]);
+	const rows = stores.flatMap(([owner, table]) =>
+		(
+			owner
+				.query(
+					`SELECT key, confidence_stamp FROM ${table} WHERE key LIKE 'finding.%'`,
+				)
+				.all() as { key: string; confidence_stamp: string | null }[]
+		).map((r) => ({ ...r, owner, table })),
+	);
 	const evidence = `${item} landed @ ${sha ?? "?"}`;
 	const promoted: string[] = [];
-	for (const r of rows) {
+	for (const { owner, table, ...r } of rows) {
 		if (!isFindingKey(r.key, item)) continue;
 		const prior = parseStamp(r.confidence_stamp);
 		if (prior && prior.value >= LANDING_PROMOTE_VALUE) continue;
@@ -184,16 +213,15 @@ export function promoteLandedFindings(
 			verdict: "confirmed",
 			prior,
 		});
-		const put =
-			"UPDATE facts SET confidence = ?, confidence_stamp = ? WHERE key = ?";
-		gov.query(put).run(stamp.value, JSON.stringify(stamp), r.key);
+		const put = `UPDATE ${table} SET confidence = ?, confidence_stamp = ? WHERE key = ?`;
+		owner.query(put).run(stamp.value, JSON.stringify(stamp), r.key);
 		const led =
 			"INSERT INTO confidence_history (ts, tbl, row_key, value, setter, evidence, verdict, ref, prior, prior_setter, prior_ts, by_sid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 		gov
 			.query(led)
 			.run(
 				stamp.ts,
-				"facts",
+				table,
 				r.key,
 				stamp.value,
 				stamp.setter,
@@ -261,13 +289,18 @@ export function invalidateForLanding(opts: {
 			"SELECT id, source_ref, area, fact FROM knowledge WHERE state NOT IN ('retired', 'graveyard')",
 		)
 		.all() as KnowledgeCandidate[];
-	const facts = gov
-		.query(
-			"SELECT key, value FROM facts WHERE key NOT LIKE 'lane.%' AND key NOT LIKE 'activity.tp.%' AND key NOT LIKE 'usage.%'",
-		)
-		.all() as FactCandidate[];
+	const facts = [
+		...(gov
+			.query(
+				"SELECT key, value FROM facts WHERE key NOT LIKE 'lane.%' AND key NOT LIKE 'activity.tp.%' AND key NOT LIKE 'usage.%'",
+			)
+			.all() as FactCandidate[]),
+		...listKnowledgeFacts(kb, { prefixes: KNOWLEDGE_FACT_PREFIXES }).map(
+			(r) => ({ key: r.key, value: r.value ?? "" }) as FactCandidate,
+		),
+	];
 	const plan = planKnowledgeInvalidation(knowledge, facts, meta);
 	const counts = applyKnowledgeInvalidation({ gov, kb }, plan, meta);
-	const { promoted } = promoteLandedFindings(gov, opts.item, opts.sha);
+	const { promoted } = promoteLandedFindings(gov, opts.item, opts.sha, kb);
 	return { knowledge: counts.knowledge, facts: counts.facts, promoted };
 }

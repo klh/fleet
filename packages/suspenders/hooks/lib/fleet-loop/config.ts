@@ -39,6 +39,12 @@ export const LoopConfigSchema = z.object({
 	LOG: z.string().min(1),
 	FAILS: z.string().min(1),
 	STALL_WARN_MS: z.number().nonnegative(),
+	/** fork E: this cycle's dispatch target, dealt by the multi-project
+	 *  controller from the global lane ceiling (absent = fleet_loop.lane_target) */
+	LANE_TARGET: z.number().int().nonnegative().optional(),
+	/** fork E: a registered (non-primary) repo's cycle — hub-wide sweeps
+	 *  (runtime sync, wisdom, rogue, maintenance) stay with the primary */
+	PROJECT_ONLY: z.boolean(),
 });
 export type LoopConfig = z.infer<typeof LoopConfigSchema>;
 
@@ -110,5 +116,7 @@ export function parseLoopConfig(argv: string[], binDir: string): LoopConfig {
 		LOG,
 		FAILS,
 		STALL_WARN_MS: num("--stall-warn-min", 10) * 60_000,
+		LANE_TARGET: val("--lane-target") ? num("--lane-target", 0) : undefined,
+		PROJECT_ONLY: argv.includes("--project-only"),
 	});
 }

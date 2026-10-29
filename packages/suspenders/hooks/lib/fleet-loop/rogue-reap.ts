@@ -42,6 +42,10 @@ export const SERVE_MARKERS: readonly string[] = [
 	"router-shim.ts",
 	"dashboard.ts",
 	"store-server.ts",
+	// 2026-10-29: knowledge-api ×6 + its health probe ×2 leaked from a dead
+	// lane's .worktrees/W2214 and survived every cycle (no marker matched)
+	"knowledge-api.ts",
+	"healthcheck/probe.ts",
 ];
 
 // W973: fleet-ish tmp dirs host A/B lane copies (w894-base, w858-base,

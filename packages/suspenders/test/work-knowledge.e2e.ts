@@ -89,7 +89,8 @@ test("Kev noise skips ingest; an enqueue failure leaves a visible event", async 
 			store,
 			record,
 			"Repair FTS",
-			verdict("unavailable"),
+			// D7: review stores (as candidate); unavailable would defer
+			verdict("review"),
 			enqueue,
 		),
 	).toEqual({ status: "failed" });

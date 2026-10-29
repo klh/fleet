@@ -3,6 +3,7 @@
 import type { Database } from "bun:sqlite";
 import type { KevCuration } from "../knowledge/kev-curation.ts";
 import { invalidateForLanding } from "../knowledge/knowledge-invalidate.ts";
+import { curationGate, deferToReview } from "../knowledge/kev-review.ts";
 import {
 	enqueueKnowledge,
 	withKnowledgeDb,
@@ -16,10 +17,29 @@ export async function queueCompletionKnowledge(
 	verdict: KevCuration,
 	enqueue: typeof enqueueKnowledge = enqueueKnowledge,
 ): Promise<
-	{ status: "queued"; qid: number } | { status: "skipped" | "failed" }
+	| { status: "queued"; qid: number }
+	| { status: "skipped" | "failed" | "deferred" }
 > {
-	if (verdict.choice === "noise" || !record.summary.trim())
-		return { status: "skipped" };
+	const gate = curationGate(verdict.choice);
+	if (gate === "drop" || !record.summary.trim()) return { status: "skipped" };
+	// D7: no verdict is not a store verdict — park it for the Kev drain
+	if (gate === "defer") {
+		try {
+			withKnowledgeDb((kb) =>
+				deferToReview(kb, {
+					kind: "work",
+					reference: record.item,
+					title,
+					text: record.summary,
+					sid: record.completed_by,
+					project: record.project,
+				}),
+			);
+			return { status: "deferred" };
+		} catch {
+			return { status: "failed" };
+		}
+	}
 	try {
 		const qid = await enqueue({
 			source: `work.done ${record.item}`,
@@ -69,9 +89,7 @@ export function landCompletionKnowledge(
 	title: string,
 	verdict: KevCuration,
 	opts: { repo: string },
-): Promise<
-	{ status: "queued"; qid: number } | { status: "skipped" | "failed" }
-> {
+): ReturnType<typeof queueCompletionKnowledge> {
 	try {
 		const inv = withKnowledgeDb((kb) =>
 			invalidateForLanding({

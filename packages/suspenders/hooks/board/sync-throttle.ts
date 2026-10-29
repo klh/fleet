@@ -6,36 +6,41 @@
 // Its transitions are idempotent + monotonic, so running them on a floor is
 // safe: at most once per window, and only when new events arrived or the
 // idle re-check window lapsed (delivery degradation is time-based). Board
-// writes pass force. SUSPENDERS_BOARD_SYNC_FLOOR_MS (default 5000; 0 = every
-// call) and SUSPENDERS_BOARD_SYNC_IDLE_MS (default 30000) are the knobs.
+// writes pass force. SUSPENDERS_BOARD_SYNC_FLOOR_MS (minimum gap between
+// passes; default 0 = sync whenever the bus moved) and
+// SUSPENDERS_BOARD_SYNC_IDLE_MS (default 30000) are the knobs. The floor was
+// 5000 while a pass full-scanned the bus; the backfills now read only above
+// the reader_cursors mark (board/reader-cursor.ts, ~4ms a pass on the
+// 2026-10-29 snapshot), so a new event syncs on the next poll — the W798
+// freshness contract — and an idle bus still re-checks only every 30s.
 
-const knob = (name: string, fallback: number): number => {
-	const raw = Number(process.env[name] ?? fallback);
-	return Number.isFinite(raw) && raw >= 0 ? raw : fallback;
-};
+import { boardKnob } from "./board-knobs.ts";
 
-const state = { at: 0, maxEventId: -1 };
+const state: { at: number; stamp: number | string } = { at: 0, stamp: -1 };
 
 export function shouldSync(
-	maxEventId: number,
+	stamp: number | string,
 	force: boolean,
 	now: number = Date.now(),
 ): boolean {
 	if (force || state.at === 0) return true;
-	const floor = knob("SUSPENDERS_BOARD_SYNC_FLOOR_MS", 5000);
+	const floor = boardKnob("board.sync_floor_ms");
 	const age = now - state.at;
 	if (age < floor) return false;
-	if (maxEventId !== state.maxEventId) return true;
-	return age >= knob("SUSPENDERS_BOARD_SYNC_IDLE_MS", 30_000);
+	if (stamp !== state.stamp) return true;
+	return age >= boardKnob("board.sync_idle_ms");
 }
 
-export function markSynced(maxEventId: number, now: number = Date.now()): void {
+export function markSynced(
+	stamp: number | string,
+	now: number = Date.now(),
+): void {
 	state.at = now;
-	state.maxEventId = maxEventId;
+	state.stamp = stamp;
 }
 
 /** Test seam: forget the last sync so the next call runs. */
 export function resetSyncThrottle(): void {
 	state.at = 0;
-	state.maxEventId = -1;
+	state.stamp = -1;
 }

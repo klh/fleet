@@ -8,7 +8,7 @@
 // ledger fails soft (no cost section — metrics never blocks on the gateway).
 
 import { Database } from "bun:sqlite";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import {
 	type ClaimWindow,
 	claimWindows,
@@ -113,12 +113,41 @@ export function resolveBuckleDb(home = process.env.HOME ?? ""): string | null {
 	return spoke && existsSync(spoke) ? spoke : null;
 }
 
+/** The ledger's change stamp: every committed write lands in the -wal file
+ *  (size/mtime move) and a checkpoint rewrites the main file, so an
+ *  unchanged stamp means an unchanged ledger. Cheaper than opening it. */
+export function ledgerStamp(dbPath: string): string {
+	const part = (p: string): string => {
+		try {
+			const s = statSync(p);
+			return `${s.size}:${s.mtimeMs}`;
+		} catch {
+			return "-";
+		}
+	};
+	return `${part(dbPath)}|${part(`${dbPath}-wal`)}`;
+}
+
+// laneSpendRows memo: itemAttribution runs once PER PROJECT per attribution
+// window (25 projects = 25 identical full GROUP BY scans of the ledger).
+// Keyed on the source high-water (path, lower bound, ledger stamp), so an
+// unchanged ledger is read once, however many projects or windows ask.
+let _spendMemo: { key: string; rows: LaneSpendRow[] } | null = null;
+
 /** Per-lane, per-hour, per-model_group token spend from the buckle ledger.
  *  `fromBucket` is a "YYYY-MM-DDTHH:00" UTC lower bound (lexicographic). */
 export function laneSpendRows(
 	dbPath: string,
 	fromBucket: string,
 ): LaneSpendRow[] {
+	const key = `${dbPath}\0${fromBucket}\0${ledgerStamp(dbPath)}`;
+	if (_spendMemo?.key === key) return _spendMemo.rows;
+	const rows = readLaneSpendRows(dbPath, fromBucket);
+	_spendMemo = { key, rows };
+	return rows;
+}
+
+function readLaneSpendRows(dbPath: string, fromBucket: string): LaneSpendRow[] {
 	const d = new Database(dbPath, { readonly: true });
 	try {
 		const cost = hasCostCol(d, "router_usage")

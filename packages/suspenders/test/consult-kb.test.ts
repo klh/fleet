@@ -7,13 +7,16 @@ import { mkdtempSync, rmSync, mkdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Database } from "bun:sqlite";
+import { startKevStub } from "./fixtures/kev-stub-start.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-kb-"));
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-kb-repo-"));
 mkdirSync(join(REPO, ".git"), { recursive: true });
 const OTHER_REPO = mkdtempSync(join(tmpdir(), "suspenders-kb-other-"));
 mkdirSync(join(OTHER_REPO, ".git"), { recursive: true });
-const env = { ...process.env, HOME, SUSPENDERS_KEV_URL: "http://127.0.0.1:1" };
+// D7: harvest needs a Kev verdict now (a missing one defers, never stores)
+const kev = await startKevStub("store");
+const env = { ...process.env, HOME, SUSPENDERS_KEV_URL: kev.url };
 const coord = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 const DB = join(HOME, ".cache", "claude-governor", "governor.db");
 // projectIdentity(), mirrored: git-common-dir from inside the temp repo —
@@ -106,6 +109,7 @@ beforeEach(() => {
 });
 
 afterAll(() => {
+	kev.stop();
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO, { recursive: true, force: true });
 	rmSync(OTHER_REPO, { recursive: true, force: true });

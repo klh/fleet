@@ -6,6 +6,7 @@ import type { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { migrateEventsShred } from "./events-shred.ts";
 import { createDeltasTriggers } from "./govdb-deltas.ts";
+import { migrateReadIndexes } from "./govdb-indexes.ts";
 import {
 	migrateKnowledgeLayer,
 	migrateKnowledgeSplit,
@@ -17,6 +18,8 @@ import {
 } from "../knowledge/confidence.ts";
 import { migrateIdentitySplit } from "./identity-db.ts";
 import { migrateIdentityRegistry } from "./identity-registry.ts";
+import { migrateMachineState } from "./machine-state.ts";
+import { migrateKnowledgeFacts } from "../knowledge/knowledge-facts.ts";
 
 export function openGovernorDb(): Database {
 	mkdirSync(REG(), { recursive: true });
@@ -385,6 +388,8 @@ export function openGovernorDb(): Database {
 		);
 		db.run("PRAGMA user_version = 12");
 	}
+	migrateMachineState(db); // hub design D3 — see machine-state.ts
+	migrateKnowledgeFacts(db); // hub design phase 3 — see knowledge-facts.ts
 	// v13 (W210) — team entitlement ceilings (the v9→v11-era promise): the
 	// W141 buckle teams shape (rpm_ceiling/tpm_ceiling) verbatim + tok_ceiling
 	// (the api_keys max_tokens budget at team grain). NULL = no ceiling.
@@ -419,6 +424,7 @@ export function openGovernorDb(): Database {
 	// per-row json_extract the DuckDB-2.0 finding measured (board 1s poll,
 	// timing/token replays) rides columns now.
 	migrateEventsShred(db);
+	migrateReadIndexes(db); // reader_cursors + events_source_ts (govdb-indexes.ts)
 	// v15 (W459.5) — identity registry: additive DDL after the shred (nothing
 	// order-dependent; the registry mints rows, never rewrites existing ones).
 	migrateIdentityRegistry(db);

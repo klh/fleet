@@ -12,7 +12,9 @@ import { Database } from "bun:sqlite";
 import {
 	quotaSweep,
 	lineIsQuota,
+	limitKindOf,
 	auditRowIsQuota,
+	auditRowKind,
 	projectRootOf,
 } from "../hooks/lib/fleet-loop/quota-sweep.ts";
 
@@ -132,14 +134,25 @@ const recorders = (override?: { code: number; out: string }) => {
 	};
 };
 
+// a genuine quota wall (zai 1113 insufficient balance) — the pickup
+// mechanics below ride it; rate limits are a separate class (fork E)
+const QUOTA_TAIL =
+	'API Error: {"error":{"code":"1113","message":"insufficient balance"}}\n';
+
 const ISO = (agoMs: number): string =>
 	new Date(Date.now() - agoMs).toISOString();
 
 describe("pure helpers", () => {
-	test("429 counts only on error-shaped lines (prose never matches)", () => {
+	test("quota = balance/plan walls only; 429 is a rate limit, never quota", () => {
+		expect(
+			limitKindOf("API Error: Request rejected (429) · litellm.RateLimitError"),
+		).toBe("rate-limited");
 		expect(
 			lineIsQuota("API Error: Request rejected (429) · litellm.RateLimitError"),
-		).toBeTrue();
+		).toBeFalse();
+		expect(
+			limitKindOf("some 429 rate from belt/route_audit in a report paragraph"),
+		).toBeNull();
 		expect(
 			lineIsQuota("some 429 rate from belt/route_audit in a report paragraph"),
 		).toBeFalse();
@@ -150,15 +163,20 @@ describe("pure helpers", () => {
 			lineIsQuota("Your credit balance is too low to access the API"),
 		).toBeTrue();
 	});
-	test("audit row: status 429 or hard signature in text fields", () => {
-		expect(auditRowIsQuota({ ts: ISO(0), actor: "a", status: 429 })).toBeTrue();
+	test("audit row: 429 / rate_limit_error are rate limits; quota text is quota", () => {
 		expect(
-			auditRowIsQuota({
+			auditRowIsQuota({ ts: ISO(0), actor: "a", status: 429 }),
+		).toBeFalse();
+		expect(auditRowKind({ ts: ISO(0), actor: "a", status: 429 })).toBe(
+			"rate-limited",
+		);
+		expect(
+			auditRowKind({
 				ts: ISO(0),
 				actor: "a",
 				error_code: "rate_limit_error",
 			}),
-		).toBeTrue();
+		).toBe("rate-limited");
 		expect(
 			auditRowIsQuota({
 				ts: ISO(0),
@@ -180,11 +198,7 @@ describe("pure helpers", () => {
 describe("quotaSweep", () => {
 	test("terminal 429 tail + dead sid → exhausted, pickup fires", async () => {
 		const root = tempRoot();
-		laneLog(
-			root,
-			"autow1",
-			"working\nAPI Error: Request rejected (429) rate_limit_error\n",
-		);
+		laneLog(root, "autow1", `working\n${QUOTA_TAIL}`);
 		const rec = recorders();
 		const report = await quotaSweep({
 			db: governor([
@@ -205,11 +219,7 @@ describe("quotaSweep", () => {
 
 	test("global reclaim pause holds the reclaim, evidence still reported", async () => {
 		const root = tempRoot();
-		laneLog(
-			root,
-			"autow1",
-			"working\nAPI Error: Request rejected (429) rate_limit_error\n",
-		);
+		laneLog(root, "autow1", `working\n${QUOTA_TAIL}`);
 		mkdirSync(`${root}/.fleet`, { recursive: true });
 		writeFileSync(`${root}/.fleet/reclaim-paused`, "paused\n");
 		const rec = recorders();
@@ -236,7 +246,7 @@ describe("quotaSweep", () => {
 
 	test("lane still writing (fresh log) → live, watched not reclaimed", async () => {
 		const root = tempRoot();
-		laneLog(root, "autow2", "API Error (429)\n", 60_000); // 1 min ago
+		laneLog(root, "autow2", QUOTA_TAIL, 60_000); // 1 min ago
 		const rec = recorders();
 		const report = await quotaSweep({
 			db: governor([{ id: "W2", project: root, owner_sid: "autow2" }]),
@@ -253,7 +263,7 @@ describe("quotaSweep", () => {
 
 	test("fresh claimant transcript → live (backoff), no action", async () => {
 		const root = tempRoot();
-		laneLog(root, "autow3", "API Error (429)\n");
+		laneLog(root, "autow3", QUOTA_TAIL);
 		const rec = recorders();
 		const report = await quotaSweep({
 			db: governor([{ id: "W3", project: root, owner_sid: "autow3" }]),
@@ -268,7 +278,7 @@ describe("quotaSweep", () => {
 
 	test("lane that finished (DONE last) is orphaned's job, not quota's", async () => {
 		const root = tempRoot();
-		laneLog(root, "autow4", "API Error (429)\n… work report …\nDONE abc1234\n");
+		laneLog(root, "autow4", `${QUOTA_TAIL}… work report …\nDONE abc1234\n`);
 		const rec = recorders();
 		const report = await quotaSweep({
 			db: governor([{ id: "W4", project: root, owner_sid: "autow4" }]),
@@ -282,7 +292,7 @@ describe("quotaSweep", () => {
 		expect(rec.reclaimed.length).toBe(0);
 	});
 
-	test("route_audit: attributed 429 corroborates a dead sid; others count unattributed", async () => {
+	test("route_audit: attributed 429 marks a dead sid rate-limited; others count unattributed", async () => {
 		const root = tempRoot();
 		const dbPath = buckle(root, [
 			{ ts: ISO(10 * 60_000), actor: "k1", hint: "/w/autow5", status: 429 },
@@ -298,12 +308,14 @@ describe("quotaSweep", () => {
 			...rec.deps,
 			recentEmit: () => false,
 		});
-		expect(report.verdicts[0]?.exhausted).toBeTrue();
+		expect(report.verdicts[0]?.exhausted).toBeFalse();
+		expect(report.verdicts[0]?.rateLimited).toBeTrue();
 		expect(
 			report.verdicts[0]?.hits.some((h) => h.source === "route_audit"),
 		).toBeTrue();
 		expect(report.auditUnattributed).toBe(1);
 		expect(rec.reclaimed.length).toBe(1);
+		expect(rec.emitted.length).toBe(0); // never quota.exhausted
 	});
 
 	test("route_audit lookback window respected", async () => {
@@ -323,7 +335,7 @@ describe("quotaSweep", () => {
 
 	test("emit dedup: recent event skips emit, reclaim still runs", async () => {
 		const root = tempRoot();
-		laneLog(root, "autow7", "API Error (429)\n");
+		laneLog(root, "autow7", QUOTA_TAIL);
 		const rec = recorders();
 		const report = await quotaSweep({
 			db: governor([{ id: "W7", project: root, owner_sid: "autow7" }]),
@@ -341,7 +353,7 @@ describe("quotaSweep", () => {
 
 	test("report-only (no --act): verdicts surface, nothing mutates", async () => {
 		const root = tempRoot();
-		laneLog(root, "autow8", "API Error (429)\n");
+		laneLog(root, "autow8", QUOTA_TAIL);
 		const rec = recorders();
 		const report = await quotaSweep({
 			db: governor([{ id: "W8", project: root, owner_sid: "autow8" }]),
@@ -375,7 +387,7 @@ describe("quotaSweep", () => {
 			...rec.deps,
 			recentEmit: () => false,
 		});
-		expect(report.verdicts[0]?.exhausted).toBeTrue();
+		expect(report.verdicts[0]?.rateLimited).toBeTrue();
 		expect(
 			report.verdicts[0]?.hits.some((h) => h.source === "transcript"),
 		).toBeTrue();
@@ -384,7 +396,7 @@ describe("quotaSweep", () => {
 
 	test("OPEN-decision holder is never reclaimed, only alerted", async () => {
 		const root = tempRoot();
-		laneLog(root, "autow11", "API Error (429)\n");
+		laneLog(root, "autow11", QUOTA_TAIL);
 		const rec = recorders();
 		const report = await quotaSweep({
 			db: governor([{ id: "W11", project: root, owner_sid: "autow11" }]),
@@ -413,7 +425,7 @@ describe("quotaSweep", () => {
 
 	test("W573: reclaim rides CAS pins and succeeds on a matching receipt", async () => {
 		const root = tempRoot();
-		laneLog(root, "autow12", "API Error (429)\n");
+		laneLog(root, "autow12", QUOTA_TAIL);
 		const rec = recorders();
 		const report = await quotaSweep({
 			db: governor([
@@ -439,7 +451,7 @@ describe("quotaSweep", () => {
 
 	test("W573: failed reclaim reports held, never fleet pickup", async () => {
 		const root = tempRoot();
-		laneLog(root, "autow13", "API Error (429)\n");
+		laneLog(root, "autow13", QUOTA_TAIL);
 		const rec = recorders({ code: 1, out: "owner changed — reclaim refused" });
 		const report = await quotaSweep({
 			db: governor([
@@ -464,7 +476,7 @@ describe("quotaSweep", () => {
 
 	test("W573: forged receipt (code 0, mismatched pins) holds, never releases", async () => {
 		const root = tempRoot();
-		laneLog(root, "autow14", "API Error (429)\n");
+		laneLog(root, "autow14", QUOTA_TAIL);
 		const rec = recorders({
 			code: 0,
 			out: JSON.stringify({

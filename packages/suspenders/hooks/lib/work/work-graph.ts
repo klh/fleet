@@ -11,6 +11,7 @@
 import type { GovernorStore } from "../govdb/govdb.ts";
 import { openStore, projectIdentity, projectRootOf } from "../govdb/govdb.ts";
 import { unmergedDeps, unmergedNote } from "../gates/dep-merge-gate.ts";
+import type { ReclaimReason } from "../lanes/reclaim-sticky.ts";
 import { dieFor } from "../verb-kit.ts";
 import { mergeTags } from "./work-tags.ts";
 import { MIRROR_NAME, mirrorOrNull } from "./work-mirror.ts";
@@ -364,6 +365,7 @@ export function releaseObserved(
 	by: string,
 	reason: "owner-release" | "operator-reclaim" | "reclaim-all",
 	guard?: () => boolean,
+	cause?: ReclaimReason,
 ): boolean {
 	return releaseWorkClaim(
 		db(),
@@ -374,7 +376,7 @@ export function releaseObserved(
 			state: String(it.state),
 			updatedAt: Number(it.updated_at),
 		},
-		{ by, reason },
+		{ by, reason, cause },
 		guard,
 	);
 }

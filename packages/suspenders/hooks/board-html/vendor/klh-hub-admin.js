@@ -1,4 +1,4 @@
-import{r,e,t,s}from"./lit-17452e2304aadd9e.js";var g=["dim","ok","warn","bad","info","accent"],p=(a)=>{let o=String(a??"").toLowerCase();return g.includes(o)?o:"dim"};class m extends s{static properties={tone:{type:String,reflect:!0}};static styles=r`
+import{n,e,t,r}from"./lit-801c06b16c5fa88d.js";var g=["dim","ok","warn","bad","info","accent"],p=(a)=>{let o=String(a??"").toLowerCase();return g.includes(o)?o:"dim"};class m extends r{static properties={tone:{type:String,reflect:!0}};static styles=n`
 		:host {
 			display: inline-block;
 			font: var(--klh-text-xs, 10px)/1.6 var(--klh-font-mono);
@@ -31,7 +31,7 @@ import{r,e,t,s}from"./lit-17452e2304aadd9e.js";var g=["dim","ok","warn","bad","i
 			color: var(--klh-accent, #d8900f);
 			border-color: var(--klh-accent, #d8900f);
 		}
-	`;constructor(){super();this.tone="dim"}render(){return e`<slot></slot>`}}customElements.define("klh-tag",m);var u=(a)=>a===null?"forever":new Intl.DateTimeFormat("da-DK",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit",hour12:!1}).format(new Date(a)),f=(a)=>a===null?"—":a.replace("T"," ").slice(0,19);class k extends s{static properties={tokens:{state:!0},issued:{state:!0},pkeys:{state:!0},peers:{state:!0},fedme:{state:!0},fedidle:{state:!0},busy:{state:!0},err:{state:!0},tokenFilter:{state:!0},tokenSearch:{state:!0},tokenPage:{state:!0}};constructor(){super();this.tokens=null,this.issued=null,this.pkeys=null,this.peers=null,this.fedme=null,this.fedidle=!0,this.busy=!1,this.err=null,this.tokenFilter="active",this.tokenSearch="",this.tokenPage=0}connectedCallback(){super.connectedCallback(),this.refresh()}async refresh(){this.busy=!0,this.err=null;try{let[a,o,n]=await Promise.all([fetch("/api/hub/tokens").then((l)=>l.json()),fetch("/api/hub/provider-keys").then((l)=>l.json()),fetch("/api/hub/federation").then((l)=>l.json())]);this.tokens=a.tokens??[],this.pkeys=o.home!==void 0?{home:o.home,files:o.files??[],keys:o.keys??[]}:null,this.peers=n.peers??null,this.fedme=n.me??null,this.fedidle=n.idle!==!1}catch(a){this.err=a instanceof Error?a.message:String(a)}finally{this.busy=!1}}async issue(a){let o=new FormData(a);this.busy=!0,this.err=null;try{let n=await fetch("/api/hub/tokens",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({actor:o.get("actor"),label:o.get("label"),team:o.get("team"),token_class:o.get("token_class"),scopes:String(o.get("scopes")??"").split(",").map((c)=>c.trim()).filter(Boolean),access_ttl_days:Number(o.get("access_ttl_days")??0)||null,refresh_ttl_days:Number(o.get("refresh_ttl_days")??0)||null})}),l=await n.json();if(!n.ok||!l.ok)throw Error(l.error??`HTTP ${String(n.status)}`);this.issued=l.token,a.reset(),await this.refresh()}catch(n){this.err=n instanceof Error?n.message:String(n)}finally{this.busy=!1}}async revoke(a){if(a.length===0)return;let o=`Revoke ALL token rows for actor "${a}"? The actor's access dies at once.`;if(!window.confirm(o))return;this.busy=!0,this.err=null;try{let n=await fetch("/api/hub/tokens/revoke",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({actor:a})}),l=await n.json();if(!n.ok||!l.ok)throw Error(l.error??`HTTP ${String(n.status)}`);await this.refresh()}catch(n){this.err=n instanceof Error?n.message:String(n)}finally{this.busy=!1}}static styles=[r`
+	`;constructor(){super();this.tone="dim"}render(){return e`<slot></slot>`}}customElements.define("klh-tag",m);var u=(a)=>a===null?"forever":new Intl.DateTimeFormat("da-DK",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit",hour12:!1}).format(new Date(a)),f=(a)=>a===null?"—":a.replace("T"," ").slice(0,19);class k extends r{static properties={tokens:{state:!0},issued:{state:!0},pkeys:{state:!0},peers:{state:!0},fedme:{state:!0},fedidle:{state:!0},busy:{state:!0},err:{state:!0},tokenFilter:{state:!0},tokenSearch:{state:!0},tokenPage:{state:!0}};constructor(){super();this.tokens=null,this.issued=null,this.pkeys=null,this.peers=null,this.fedme=null,this.fedidle=!0,this.busy=!1,this.err=null,this.tokenFilter="active",this.tokenSearch="",this.tokenPage=0}connectedCallback(){super.connectedCallback(),this.refresh()}async refresh(){this.busy=!0,this.err=null;try{let[a,o,s]=await Promise.all([fetch("/api/hub/tokens").then((l)=>l.json()),fetch("/api/hub/provider-keys").then((l)=>l.json()),fetch("/api/hub/federation").then((l)=>l.json())]);this.tokens=a.tokens??[],this.pkeys=o.home!==void 0?{home:o.home,files:o.files??[],keys:o.keys??[]}:null,this.peers=s.peers??null,this.fedme=s.me??null,this.fedidle=s.idle!==!1}catch(a){this.err=a instanceof Error?a.message:String(a)}finally{this.busy=!1}}async issue(a){let o=new FormData(a);this.busy=!0,this.err=null;try{let s=await fetch("/api/hub/tokens",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({actor:o.get("actor"),label:o.get("label"),team:o.get("team"),token_class:o.get("token_class"),scopes:String(o.get("scopes")??"").split(",").map((c)=>c.trim()).filter(Boolean),access_ttl_days:Number(o.get("access_ttl_days")??0)||null,refresh_ttl_days:Number(o.get("refresh_ttl_days")??0)||null})}),l=await s.json();if(!s.ok||!l.ok)throw Error(l.error??`HTTP ${String(s.status)}`);this.issued=l.token,a.reset(),await this.refresh()}catch(s){this.err=s instanceof Error?s.message:String(s)}finally{this.busy=!1}}async revoke(a){if(a.length===0)return;let o=`Revoke ALL token rows for actor "${a}"? The actor's access dies at once.`;if(!window.confirm(o))return;this.busy=!0,this.err=null;try{let s=await fetch("/api/hub/tokens/revoke",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({actor:a})}),l=await s.json();if(!s.ok||!l.ok)throw Error(l.error??`HTTP ${String(s.status)}`);await this.refresh()}catch(s){this.err=s instanceof Error?s.message:String(s)}finally{this.busy=!1}}static styles=[n`
 		:host {
 			display: block;
 			max-width: 1000px;
@@ -66,7 +66,7 @@ import{r,e,t,s}from"./lit-17452e2304aadd9e.js";var g=["dim","ok","warn","bad","i
 		td {
 			border-bottom: 1px solid var(--klh-edge-faint, rgba(255, 255, 255, 0.06));
 		}
-	`,r`
+	`,n`
 		.mono {
 			font: 11px/1.5 var(--klh-font-mono);
 		}
@@ -86,7 +86,7 @@ import{r,e,t,s}from"./lit-17452e2304aadd9e.js";var g=["dim","ok","warn","bad","i
 			color: var(--klh-danger-ink, #c96a4f);
 			border-color: var(--klh-danger, #af2f12);
 		}
-	`,r`
+	`,n`
 		button {
 			font: 600 11px/1.6 var(--klh-font-mono);
 			padding: 3px 12px;
@@ -177,7 +177,7 @@ import{r,e,t,s}from"./lit-17452e2304aadd9e.js";var g=["dim","ok","warn","bad","i
 			</p>
 			${this.err===null?t:e`<div class="err" role="alert">${this.err}</div>`}
 			${this.renderTokens()} ${this.renderKeys()} ${this.renderFederation()}
-		`}renderTokens(){let a=this.tokens??[],o=a.filter((i)=>i.state==="active").length,n=this.tokenSearch.trim().toLowerCase(),l=a.filter((i)=>(this.tokenFilter==="all"||i.state===this.tokenFilter)&&(!n||[i.key_id,i.actor,i.team,i.label,...i.scopes].filter(Boolean).join(" ").toLowerCase().includes(n))),c=Math.max(1,Math.ceil(l.length/12)),d=Math.min(this.tokenPage,c-1),h=l.slice(d*12,(d+1)*12);return e`
+		`}renderTokens(){let a=this.tokens??[],o=a.filter((i)=>i.state==="active").length,s=this.tokenSearch.trim().toLowerCase(),l=a.filter((i)=>(this.tokenFilter==="all"||i.state===this.tokenFilter)&&(!s||[i.key_id,i.actor,i.team,i.label,...i.scopes].filter(Boolean).join(" ").toLowerCase().includes(s))),c=Math.max(1,Math.ceil(l.length/12)),d=Math.min(this.tokenPage,c-1),h=l.slice(d*12,(d+1)*12);return e`
 			<details>
 				<summary>Issue a token</summary>
 				<form @submit=${this.onIssue}>

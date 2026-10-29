@@ -23,7 +23,7 @@ type LaneEntry = FleetLane & {
 
 // One ppid hop via ps — /proc is Linux-only and the fleet is darwin-first.
 // 0 means the walk ends here (dead pid, permission, or launchd reached).
-const ppid = (pid: number): number => {
+export const ppid = (pid: number): number => {
 	const p = Bun.spawnSync(["ps", "-o", "ppid=", "-p", String(pid)], {
 		stdout: "pipe",
 		stderr: "ignore",
@@ -36,6 +36,14 @@ const ppid = (pid: number): number => {
 // Fleet root = the nearest ancestor dir owning .fleet/lanes.json. Lane cwds
 // live BELOW it (worktrees at <root>/.worktrees/<item>), so walking UP from
 // cwd finds it; other repos resolve to null after a few existsSync calls.
+// The pid whose ancestry identifies the caller: the thin gate client pins
+// SUSPENDERS_GATE_CLIENT_PID into the daemon request env; per-call gates
+// fall back to this process.
+export const gateClientPid = (): number => {
+	const n = Number(process.env.SUSPENDERS_GATE_CLIENT_PID);
+	return Number.isSafeInteger(n) && n > 1 ? n : process.pid;
+};
+
 export const lanesFileFor = (cwd: string): string => {
 	let dir = resolve(cwd);
 	for (;;) {
@@ -60,9 +68,12 @@ export function resolveFleetLane(cwd: string): FleetLane | null {
 	// recycled pid CAN impersonate a lane (a dead entry's pid reused by a live
 	// ancestor) — accepted: the guard's miss direction is fail-CLOSED (an
 	// over-deny of the user's own push), never a silent lane bypass.
-	const chain = new Set<number>([process.pid]);
-	for (let p = process.ppid; p > 1 && chain.size < 27; p = ppid(p))
-		chain.add(p);
+	// hub-of-one phase 5: inside the governor daemon the hook process is the
+	// store-server — the walk starts at the gate client pid it was handed
+	const client = gateClientPid();
+	const chain = new Set<number>([client]);
+	const first = client === process.pid ? process.ppid : ppid(client);
+	for (let p = first; p > 1 && chain.size < 27; p = ppid(p)) chain.add(p);
 	for (const e of entries) {
 		if (e.pid > 1 && chain.has(e.pid))
 			return {
