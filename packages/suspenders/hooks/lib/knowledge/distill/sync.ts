@@ -419,12 +419,12 @@ export function importGraphDelta(
 			c.applied++;
 		}
 		for (const v of delta.votes) {
-			const r = db
-				.query(
-					"INSERT INTO kg_peer_votes (key, origin, up, down, down_lanes, at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (key, origin) DO UPDATE SET up = excluded.up, down = excluded.down, down_lanes = excluded.down_lanes, at = excluded.at WHERE excluded.at > kg_peer_votes.at",
-				)
-				.run(v.key, origin, v.up, v.down, v.down_lanes, v.at);
-			if (r.changes > 0) c.applied++;
+			// a stale tally (not newer than the row we hold) is a no-op for
+			// convergence, never a rejection — the ack sum must hold on re-sends
+			db.query(
+				"INSERT INTO kg_peer_votes (key, origin, up, down, down_lanes, at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (key, origin) DO UPDATE SET up = excluded.up, down = excluded.down, down_lanes = excluded.down_lanes, at = excluded.at WHERE excluded.at > kg_peer_votes.at",
+			).run(v.key, origin, v.up, v.down, v.down_lanes, v.at);
+			c.applied++;
 		}
 	})();
 	return c;
