@@ -6,11 +6,21 @@
 // messages ↔ chat both ways (W426) but forwards /v1/responses verbatim
 // (W912): a Responses-only model is never re-targeted at chat. Unknown (null)
 // never refuses and never re-selects.
+
+import {
+	defaultCapabilitySnapshotPath,
+	groupWireEndpoints,
+	readCapabilitySnapshot,
+} from "@klh/belt/bin/model-capabilities.ts";
 import {
 	adapterForExact,
 	EXECUTOR_ADAPTERS,
 } from "../../hooks/lib/executors/registry.ts";
 import type { LaneWire } from "../../hooks/lib/lanes/lane.ts";
+import {
+	type StackConfig,
+	tryLoadStack,
+} from "../../hooks/lib/stack-config.ts";
 
 export const WIRE_PATH: Record<LaneWire, string> = {
 	messages: "/v1/messages",
@@ -40,6 +50,32 @@ export type GroupEndpoints = (
 
 /** Production source until W1711's registry join lands: always unknown. */
 export const unknownEndpoints: GroupEndpoints = async () => null;
+
+/** W1729: freshness window for capability records at dispatch time — a
+ *  record older than this reads unknown (never refuses, never re-selects). */
+export const WIRE_SNAPSHOT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/** W1729: the production join. The stack's upstreams groups supply row
+ *  IDENTITY only (url + exact provider model id); the endpoint facts come
+ *  from the canonical capability snapshot (belt defaultCapabilitySnapshotPath)
+ *  via W1711's groupWireEndpoints — never inferred from config. An absent
+ *  group, an unknown row or an unreadable snapshot reads unknown. */
+export const stackWireEndpoints =
+	(
+		stack: StackConfig | null = tryLoadStack(),
+		snapshotPath: string = defaultCapabilitySnapshotPath(),
+	): GroupEndpoints =>
+	async (group) => {
+		const rows = Object.values(stack?.hubs ?? {}).flatMap(
+			(hub) =>
+				(hub.upstreams?.groups?.[group] ?? []) as Array<
+					Record<string, unknown>
+				>,
+		);
+		if (!rows.length) return null;
+		const { registry } = await readCapabilitySnapshot(snapshotPath);
+		return groupWireEndpoints(rows, registry, WIRE_SNAPSHOT_MAX_AGE_MS);
+	};
 
 export type WirePick =
 	| { ok: true; bin: string; switched: boolean }
