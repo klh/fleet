@@ -12,11 +12,16 @@ export function errorResponse(
 	status: number,
 	why: string,
 	code?: string | null,
+	provider?: string | null,
 ): Response {
+	const service =
+		typeof provider === "string" && /^\w[\w.-]{0,127}$/.test(provider)
+			? `${provider}.`
+			: "";
 	return problem({
 		status,
 		code: code ?? `buckle.${PROBLEM_SLUGS[status] ?? "problem"}`,
-		why: code ? `belt: ${code} — ${scrubText(why)}` : scrubText(why),
+		why: code ? `belt: ${service}${code} — ${scrubText(why)}` : scrubText(why),
 	});
 }
 
