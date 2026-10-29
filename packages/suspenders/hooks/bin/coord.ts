@@ -106,7 +106,8 @@ const VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "subscribe",
-		usage: "usage: subscribe --as <sid> [--scope s] [--kinds a,b]",
+		usage:
+			"usage: subscribe --as <sid> [--scope s] [--kinds a,b] | subscribe --machine (one socket per machine, fans out to every session log)",
 		lax: true,
 		run: (p) => cmdSubscribe(p.rest),
 	}),

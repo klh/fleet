@@ -22,6 +22,7 @@ import {
 	writeSessionState,
 } from "./session-state.ts";
 import { subagentLaneSuffix } from "./subscribe-attach.ts";
+import { isControllerSession } from "./session-contract.ts";
 // W1124.12: worker-role lanes never arm the refill loop (mid-session either).
 import { sessionRole } from "../gates/coordinator-edit-gate.ts";
 
@@ -119,7 +120,9 @@ export function midSessionSupervisorRefill(
 			.get(sid, project) as { parent_sid: string | null } | null;
 		if (
 			session?.parent_sid ||
-			(process.env.SUSPENDERS_SID && process.env.SUSPENDERS_SID !== sid)
+			(process.env.SUSPENDERS_SID && process.env.SUSPENDERS_SID !== sid) ||
+			// hub-of-one phase 6: only the controller session is a supervisor
+			!isControllerSession(store, project)
 		)
 			return "";
 		const eventId = lastEventId(store as Database, project);

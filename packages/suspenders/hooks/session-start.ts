@@ -32,7 +32,10 @@ import {
 } from "./lib/lanes/session-rename.ts";
 import {
 	attachSubscribe,
+	isSubagentLane,
+	machineSubscribeLive,
 	subagentLaneSuffix,
+	subscribeMode,
 } from "./lib/lanes/subscribe-attach.ts";
 import {
 	canonicalRepo,
@@ -47,6 +50,10 @@ import {
 	supervisorControlStatus,
 	supervisorRefillDirective,
 } from "./lib/lanes/supervisor-refill.ts";
+import {
+	isControllerSession,
+	workerContract,
+} from "./lib/lanes/session-contract.ts";
 import { checkSessionPolicies } from "./lib/policy/session-policy.ts";
 import { run } from "./lib/run.ts";
 
@@ -288,11 +295,22 @@ if (existsSync(ckpt)) {
 // live subscribe ONCE per session — agents never poll the plane. The
 // attach recipe is shared with spawnClaude's spawn-level attach (W417.1);
 // idempotent: a live subscribe for this lane id is detected and left alone.
-if (attachSubscribe(lane))
+// hub-of-one phase 5: in machine mode ONE subscriber serves every session —
+// the line renders whether this bootstrap spawned it or found it live
+const spawnedSubscribe = attachSubscribe(lane);
+if (spawnedSubscribe && subscribeMode() === "session")
 	out.push(
 		"WS inbox live: coord subscribe --as " +
 			lane +
 			" (events push; never poll)",
+	);
+else if (
+	subscribeMode() === "machine" &&
+	!isSubagentLane(lane) &&
+	(spawnedSubscribe || machineSubscribeLive())
+)
+	out.push(
+		`WS inbox live: coord subscribe --machine (one socket per machine; events for ${lane} push into its log — never poll)`,
 	);
 
 // automagic hygiene: every bootstrap sweeps stale sessions fleet-wide —
@@ -355,6 +373,10 @@ const readyN = (
 ).n;
 if (!isSubagent && !isWorkerRole)
 	seedSupervisorRefill(db as Database, project, sid, readyN);
+// hub-of-one phase 6: the fleet-loop controller lease holder is the ONLY
+// supervisor; every other top-level interactive session is a worker
+const topLevel = !isSubagent && !isWorkerRole;
+const supervisor = topLevel && isControllerSession(db, project);
 const cur = db
 	.query("SELECT event_id FROM cursors WHERE sid = ?")
 	.get(lane) as { event_id: number } | null;
@@ -396,12 +418,13 @@ if (mine.length || inbox > 0 || readyN > 0 || head) {
 	// homes (global CLAUDE.md, repo AGENTS.md) can never arm a shallow loop.
 	// READY>0 keeps the arming header + W892 table; subagent and worker-role
 	// lanes stay exempt (neither is a loop-arming runtime, W1124.12).
-	if (!isSubagent && !isWorkerRole && readyN > 0) {
+	// Phase 6: these supervisor faces render for the controller session only.
+	if (supervisor && readyN > 0) {
 		out.push(
 			supervisorRefillDirective(readyN, supervisorControlStatus(db, project)),
 		);
 	}
-	if (readyN > 0 && !isSubagent && !isWorkerRole) {
+	if (readyN > 0 && supervisor) {
 		// W899: the SUPERVISOR DEFAULT contract EMITS the W892 table —
 		// session-start only CALLS the one implementation (lib/work-report.ts),
 		// the same shape the install tail and lane briefs carry.
@@ -413,8 +436,11 @@ if (mine.length || inbox > 0 || readyN > 0 || head) {
 // guard — a fresh session in a non-fleet project (no owned items, empty
 // inbox, READY=0, no integration head) receives the live contract too, so
 // acceptance is every top-level bootstrap, fleet project or not.
-if (!isSubagent && !isWorkerRole && readyN === 0) {
+if (supervisor && readyN === 0) {
 	out.push(supervisorContractNotice(supervisorControlStatus(db, project)));
+} else if (topLevel && !supervisor) {
+	// every other top-level interactive session: the worker contract
+	out.push(workerContract(readyN, supervisorControlStatus(db, project)));
 }
 
 // W422.17.1 interactive-session enrollment — top-level sessions mint (or
