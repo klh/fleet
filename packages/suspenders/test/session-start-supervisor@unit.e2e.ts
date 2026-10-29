@@ -3,19 +3,20 @@
 // work (compliance by injection, not model-recall). Top-level sessions only —
 // a subagent lane is not a loop-arming runtime. Isolated temp HOME + repos,
 // spawns the real hook.
-import { describe, test, expect, afterAll } from "bun:test";
+
+import { Database } from "bun:sqlite";
 import {
 	appendFileSync,
+	mkdirSync,
 	mkdtempSync,
 	rmSync,
-	mkdirSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Database } from "bun:sqlite";
-import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
+import { expect, test } from "@playwright/test";
 import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
+import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
 import {
 	acquireControllerLease,
 	currentControllerIdentity,
@@ -134,13 +135,13 @@ function holdLease(project: string): void {
 	}
 }
 
-afterAll(() => {
+test.afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO_A, { recursive: true, force: true });
 	rmSync(REPO_B, { recursive: true, force: true });
 });
 
-describe("supervisor-default directive (W637)", () => {
+test.describe("supervisor-default directive (W637)", () => {
 	test("phase 6: an interactive session without the controller lease gets the worker contract", () => {
 		const r = runHook(REPO_A, join(HOME, "tp-a.jsonl"));
 		expect(r.code).toBe(0);

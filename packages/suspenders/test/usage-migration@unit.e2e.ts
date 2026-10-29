@@ -1,27 +1,27 @@
-import { afterEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
 	appendFileSync,
-	mkdtempSync,
 	mkdirSync,
+	mkdtempSync,
 	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { expect, test } from "@playwright/test";
+import { usagePage } from "../hooks/bin/usage-page-html.ts";
+import { buildUsageReport } from "../hooks/lib/usage/usage.ts";
 import { harvestUsage } from "../hooks/lib/usage/usage-harvest.ts";
-import { prepareUsageRebuild } from "../hooks/lib/usage/usage-rebuild.ts";
 import {
 	activateTranscriptUsage,
 	deactivateTranscriptUsage,
 } from "../hooks/lib/usage/usage-migration.ts";
-import { buildUsageReport } from "../hooks/lib/usage/usage.ts";
-import { usagePage } from "../hooks/bin/usage-page-html.ts";
+import { prepareUsageRebuild } from "../hooks/lib/usage/usage-rebuild.ts";
 
 const dirs: string[] = [];
 const dbs: Database[] = [];
-afterEach(() => {
+test.afterEach(() => {
 	for (const db of dbs.splice(0)) db.close();
 	for (const dir of dirs.splice(0))
 		rmSync(dir, { recursive: true, force: true });

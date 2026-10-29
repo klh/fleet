@@ -3,11 +3,12 @@
 // stop modes) refreshes the sessions row's hb and fills an empty
 // transcript_path; CLOSED rows are never resurrected; a missing row
 // fail-opens. Isolated temp HOME + repo, spawns the REAL gate.ts stop path.
-import { describe, test, expect, afterAll } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+
+import { Database } from "bun:sqlite";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Database } from "bun:sqlite";
+import { expect, test } from "@playwright/test";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-hb-"));
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-hb-repo-"));
@@ -75,12 +76,12 @@ function stop(dialect: string[], payload: Record<string, unknown>) {
 	return { out: p.stdout.toString(), code: p.exitCode };
 }
 
-afterAll(() => {
+test.afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO, { recursive: true, force: true });
 });
 
-describe("session heartbeat (W294)", () => {
+test.describe("session heartbeat (W294)", () => {
 	test("stop refreshes hb + fills an empty transcript_path", () => {
 		const sid = "hb-fill-aaaa0001";
 		seed(sid);

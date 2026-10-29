@@ -1,4 +1,3 @@
-import { afterAll, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import {
@@ -12,23 +11,24 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import {
-	checkSessionPolicies,
 	boundedPolicyEvaluation,
+	checkSessionPolicies,
 	evaluateSessionPolicy,
 	policyAuthority,
 } from "../hooks/lib/policy/session-policy.ts";
+import { HEALTH_POLICY_ID } from "../hooks/lib/policy-workflow/health-policy.ts";
 import {
-	proposeRemediation,
 	decideRemediation,
 	getRemediationById,
+	proposeRemediation,
 } from "../hooks/lib/policy-workflow/store.ts";
-import { HEALTH_POLICY_ID } from "../hooks/lib/policy-workflow/health-policy.ts";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
-const fixture = await boardFixture(0, afterAll);
+const fixture = await boardFixture(0, test.afterAll);
 const home = mkdtempSync(join(tmpdir(), "session-policy-"));
-afterAll(() => rmSync(home, { recursive: true, force: true }));
+test.afterAll(() => rmSync(home, { recursive: true, force: true }));
 const rows = [
 	{
 		id: "service-health",
@@ -56,7 +56,7 @@ const server = Bun.serve({
 		return Response.json({ ok: true, version: 1, sha256, rows });
 	},
 });
-afterAll(() => server.stop(true));
+test.afterAll(() => server.stop(true));
 const keyFile = join(home, "key");
 writeFileSync(keyFile, "fixture-private-key", { mode: 0o600 });
 const configPath = join(home, "policy.json");
@@ -68,7 +68,7 @@ writeFileSync(
 	}),
 );
 const db = new Database(`${fixture.HOME}/.cache/claude-governor/governor.db`);
-afterAll(() => db.close());
+test.afterAll(() => db.close());
 const options = {
 	db,
 	repo: fixture.REPO,
