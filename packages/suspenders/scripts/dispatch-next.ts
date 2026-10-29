@@ -70,6 +70,7 @@ import type { ChosenExecutor } from "./lib/dispatch-executor-note.ts";
 // root entries (lib/dispatch-usage.ts — schema discovery, 1500-law split).
 import { dispatchHelpEpilog, verbHeadIndex } from "./lib/dispatch-usage.ts";
 import { fleetReport } from "./lib/fleet-report.ts";
+import { stackWireEndpoints } from "./lib/lane-wire.ts";
 import { activeRateLimitWalls } from "./lib/launch-backoff.ts";
 import {
 	heldLaunchItems,
@@ -341,6 +342,7 @@ const dispatchItem = async (
 			itemCapsuleGet,
 			...(ROLE ? { role: ROLE } : {}),
 			routeAdmission,
+			wireEndpoints: stackWireEndpoints(),
 			sh,
 			run,
 			workCli,
