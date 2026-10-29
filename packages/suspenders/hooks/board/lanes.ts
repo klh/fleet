@@ -38,6 +38,7 @@ import {
 import { coordSubscribeLog } from "../lib/lanes/subscribe-attach.ts";
 import { db, type EventRow } from "./context.ts";
 import { chunked } from "./helpers.ts";
+import { markSynced, shouldSync } from "./sync-throttle.ts";
 
 // W682: config facts ride a 3s memo — the liveness verdicts read them per
 // project chunk (80 fact reads per cold /api/data on the profiled fleet);
@@ -226,7 +227,18 @@ function backfillLaneStopDecisions(): void {
 	}
 }
 
-export function syncDecisions(): void {
+// Polls ride the sync-throttle floor; board writes pass { force: true } so
+// their own transition is visible on the very next read.
+export function syncDecisions(opts: { force?: boolean } = {}): void {
+	const maxEventId =
+		(db.query("SELECT MAX(id) AS m FROM events").get() as { m: number | null })
+			?.m ?? 0;
+	if (!shouldSync(maxEventId, opts.force === true)) return;
+	reconcileDecisions();
+	markSynced(maxEventId);
+}
+
+function reconcileDecisions(): void {
 	const now = Date.now();
 	backfillLaneStopDecisions();
 	// A later claim starts a new activation. Retire only typed operational
