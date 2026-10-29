@@ -203,3 +203,84 @@ test("malformed raw HTTP remains Bun's pre-application parser boundary @api", as
 		server.stop(true);
 	}
 });
+
+test("an inner hub's 413 retains its origin across a second Buckle hub @api", async () => {
+	const world = scratchWorld({ prefix: "ingress-limit-relay-" });
+	const priorHub = process.env.BUCKLE_HUB_ID;
+	const priorKey = process.env.INGRESS_LIMIT_PEER_KEY;
+	const policyPath = join(world.home, "policy.json");
+	const innerPool = join(world.home, "inner-upstreams.json");
+	const outerPool = join(world.home, "outer-upstreams.json");
+	writeFileSync(policyPath, JSON.stringify({ gateway: { num_retries: 0 } }));
+	writeFileSync(innerPool, JSON.stringify({ groups: {} }));
+	let inner: ReturnType<typeof startServer> | undefined;
+	let outer: ReturnType<typeof startServer> | undefined;
+	try {
+		process.env.BUCKLE_HUB_ID = "inner";
+		inner = startServer({
+			port: 0,
+			hostname: "127.0.0.1",
+			policyPath,
+			upstreamsPath: innerPool,
+			dbPath: join(world.home, "inner.db"),
+			auth: { rootKey: "test-root" },
+			ingressBodyMaxBytes: 1024,
+		});
+		process.env.INGRESS_LIMIT_PEER_KEY = "test-root";
+		writeFileSync(
+			outerPool,
+			JSON.stringify({
+				groups: {
+					fixture: [
+						{
+							url: `http://127.0.0.1:${inner.port}`,
+							dialect: "anthropic",
+							buckle: true,
+							api_key_env: "INGRESS_LIMIT_PEER_KEY",
+						},
+					],
+				},
+			}),
+		);
+		process.env.BUCKLE_HUB_ID = "outer";
+		outer = startServer({
+			port: 0,
+			hostname: "127.0.0.1",
+			policyPath,
+			upstreamsPath: outerPool,
+			dbPath: join(world.home, "outer.db"),
+			auth: { rootKey: "test-root" },
+		});
+		const response = await fetch(`http://127.0.0.1:${outer.port}/v1/messages`, {
+			method: "POST",
+			headers,
+			body: JSON.stringify({
+				model: "fixture",
+				max_tokens: 8,
+				messages: [{ role: "user", content: "x".repeat(2048) }],
+			}),
+		});
+		// The outer hub reports a 502 for its failed upstream attempt, while
+		// the trace preserves the inner hub's actual 413 and origin.
+		expect(response.status).toBe(502);
+		expect(response.headers.get("x-klh-trace-id")).toBe("a".repeat(32));
+		expect(response.headers.get("x-klh-error-origin")).toBe("inner");
+		expect(await response.json()).toMatchObject({
+			trace_id: "a".repeat(32),
+			fleet_trace: {
+				hops: [
+					{ hub: "inner", status: 413, code: "buckle.body_too_large" },
+					{ hub: "outer", status: 502, upstream_status: 413 },
+				],
+			},
+		});
+	} finally {
+		outer?.stop(true);
+		inner?.stop(true);
+		world.clean();
+		if (priorHub === undefined) delete process.env.BUCKLE_HUB_ID;
+		else process.env.BUCKLE_HUB_ID = priorHub;
+		if (priorKey === undefined) delete process.env.INGRESS_LIMIT_PEER_KEY;
+		else process.env.INGRESS_LIMIT_PEER_KEY = priorKey;
+	}
+});

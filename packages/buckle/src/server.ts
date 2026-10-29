@@ -108,6 +108,13 @@ export const ServerDataOptsSchema = z.object({
 	port: z.number().int().min(0).max(65535).optional(),
 	/** Test seam for the app-owned request-body deadline; production uses 120s. */
 	ingressBodyTimeoutMs: z.number().int().positive().optional(),
+	/** Tighten-only test seam for proving relayed 413s; production uses 32 MiB. */
+	ingressBodyMaxBytes: z
+		.number()
+		.int()
+		.min(1)
+		.max(MAX_REQUEST_BODY_BYTES)
+		.optional(),
 	/** W1118 #55606: admission slot lease (ms) — BUCKLE_SLOT_LEASE_MS
 	 *  overrides; default 120s. Tests shrink it for deterministic sweeps. */
 	slotLeaseMs: z.number().int().positive().optional(),
@@ -461,7 +468,7 @@ export function startServer(opts: ServerOpts = {}): ReturnType<
 			try {
 				const bounded = await boundedIngressRequest(
 					req,
-					MAX_REQUEST_BODY_BYTES,
+					opts.ingressBodyMaxBytes ?? MAX_REQUEST_BODY_BYTES,
 					opts.ingressBodyTimeoutMs,
 				);
 				if (!bounded.ok)
