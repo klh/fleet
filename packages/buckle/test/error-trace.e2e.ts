@@ -183,6 +183,7 @@ test("mid-stream Anthropic errors include the same trace and hop @unit", async (
 	expect(frame).toContain(
 		'"fleet_trace":{"id":"4bf92f3577b34da6a3ce929d0e0e4736"',
 	);
+	expect(frame).toContain("belt: desktop.buckle.stream_failed — ");
 });
 
 const litellm429 = (): Response =>
@@ -421,6 +422,78 @@ test("real Buckle two-hop 502 names the downstream target and call ID @unit", as
 		outer?.stop(true);
 		inner?.stop(true);
 		provider.stop(true);
+		world.clean();
+		if (beforeHub === undefined) delete process.env.BUCKLE_HUB_ID;
+		else process.env.BUCKLE_HUB_ID = beforeHub;
+		if (beforeKey === undefined) delete process.env.ERROR_TRACE_PEER_KEY;
+		else process.env.ERROR_TRACE_PEER_KEY = beforeKey;
+	}
+});
+
+test("count_tokens 503 refusal is origin-qualified and traced @unit", async () => {
+	const world = scratchWorld({ prefix: "error-trace-count-tokens-" });
+	const beforeHub = process.env.BUCKLE_HUB_ID;
+	const beforeKey = process.env.ERROR_TRACE_PEER_KEY;
+	const policyPath = join(world.home, "policy.json");
+	const pool = join(world.home, "upstreams.json");
+	writeFileSync(policyPath, JSON.stringify({ gateway: { num_retries: 0 } }));
+	// count_tokens never bridges (openai wire has no count endpoint): a pool
+	// with ONLY openai rows refuses pre-dispatch — zero outbound, and the
+	// 503 problem+json body still carries the origin-qualified detail.
+	writeFileSync(
+		pool,
+		JSON.stringify({
+			groups: {
+				fixture: [
+					{
+						url: "http://127.0.0.1:1",
+						dialect: "openai",
+						provider: "zai",
+						api_key_env: "ERROR_TRACE_PEER_KEY",
+					},
+				],
+			},
+		}),
+	);
+	let gateway: ReturnType<typeof startServer> | undefined;
+	try {
+		process.env.BUCKLE_HUB_ID = "desktop";
+		process.env.ERROR_TRACE_PEER_KEY = "test-root";
+		gateway = startServer({
+			port: 0,
+			hostname: "127.0.0.1",
+			policyPath,
+			upstreamsPath: pool,
+			dbPath: join(world.home, "gw.db"),
+			auth: { rootKey: "test-root" },
+		});
+		const response = await fetch(
+			`http://127.0.0.1:${gateway.port}/v1/messages/count_tokens`,
+			{
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					authorization: "Bearer test-root",
+					traceparent: TRACEPARENT,
+				},
+				body: JSON.stringify({
+					model: "fixture",
+					messages: [{ role: "user", content: "hello" }],
+				}),
+			},
+		);
+		const body = await response.json();
+		expect(response.status).toBe(503);
+		expect(body.code).toBe("no_route");
+		expect(body.trace_id).toBe(ID);
+		expect(body.detail).toMatch(/^belt: desktop\.buckle\.no_route /);
+		expect(body.detail).toContain(`trace=${ID}; origin=desktop`);
+		expect(body.why).toBe(body.detail);
+		expect(
+			(body.fleet_trace.hops as Array<Record<string, unknown>>)[0],
+		).toMatchObject({ hub: "desktop", status: 503, code: "no_route" });
+	} finally {
+		gateway?.stop(true);
 		world.clean();
 		if (beforeHub === undefined) delete process.env.BUCKLE_HUB_ID;
 		else process.env.BUCKLE_HUB_ID = beforeHub;

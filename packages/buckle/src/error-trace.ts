@@ -88,6 +88,13 @@ function stripOriginPrefix(value: string): string {
 		: value;
 }
 
+/** The `belt: <hub>.buckle.<code> — ` prefix for the buckle-authored stream
+ *  terminals (mid-stream death, planned drain) — the same bounded grammar as
+ *  the response path; degenerate hub labels stay "local". */
+export function streamOriginPrefix(hub: string, code: string): string {
+	return `${originPrefix({ hub, service: "buckle" }, code, 200)} — `;
+}
+
 function object(value: unknown): JsonObject | null {
 	return value !== null && typeof value === "object" && !Array.isArray(value)
 		? (value as JsonObject)
