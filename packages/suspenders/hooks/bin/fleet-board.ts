@@ -63,6 +63,7 @@ import { handleOrch } from "../board/routes-orch.ts";
 import { handlePosture } from "../board/routes-posture.ts";
 import { handleSuggest } from "../board/routes-suggest.ts";
 import { handleTheme, isThemePath } from "../board/routes-theme.ts";
+import { handleTrace } from "../board/routes-trace.ts";
 import { handleUsage } from "../board/routes-usage.ts";
 import {
 	CAP_AUTH_ISSUANCE,
@@ -173,6 +174,7 @@ const base = {
 						)
 					: null,
 			handleEnterprise,
+			handleTrace,
 			handleMeta,
 		]) {
 			const r = await h(req, url);

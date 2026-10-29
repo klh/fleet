@@ -211,6 +211,9 @@ services:
       BUCKLE_DB: /state/buckle/buckle.db
       # Stable routing identity for relay baggage and per-hop audit rows.
       BUCKLE_HUB_ID: ${HUB_NAME:-desktop}
+      # W2268: clickable trace details base — board-hub serves /console/trace.
+      # Empty default keeps the spoke inert (no link stamped, no fabricated page).
+      BUCKLE_TRACE_URL_BASE: ${HUB_TRACE_URL_BASE:-}
       # W858.10.3: lane-observation outbox → projection db at <path>.db
       # (server.ts W461 stage 2; the network read model resolves the same
       # chain) — hubs project per-hub request edges for the Network overview
