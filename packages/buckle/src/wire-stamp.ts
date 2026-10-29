@@ -42,6 +42,9 @@ export function stamped(
 	route: {
 		decision: string;
 		row?: CandidateRow;
+		/** Configured provider of the failing/delivered leg (config identity,
+		 *  never inferred from error text) — rides x-belt-route. */
+		providerTarget?: string;
 		streaming?: boolean;
 		code?: string | null;
 		refusal?:
@@ -70,6 +73,16 @@ export function stamped(
 			model: route.row.model,
 		};
 		payload.latency_class = latencyClass(route.row.estimate_ms);
+	}
+	if (route.providerTarget) {
+		payload.provider_target = route.providerTarget;
+		// Evidence level: a litellm engine hop reports its OWN status, the
+		// provider rides configuration only (owner law 2026-10-29 — never
+		// label a translation layer's verdict as the provider's response).
+		payload.provider_source =
+			route.row?.dep.adapter_config?.proxy_kind === "litellm"
+				? "litellm_translation"
+				: "provider_response";
 	}
 	if (ctx.tier) payload.tier = ctx.tier;
 	if (ctx.lane) payload.lane = ctx.lane;

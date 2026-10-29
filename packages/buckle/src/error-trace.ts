@@ -43,6 +43,19 @@ const FleetErrorHopSchema = z.object({
 	upstream_status: z.number().int().min(100).max(599).optional(),
 	upstream_request_id: SafeIdSchema.optional(),
 	call_id: SafeIdSchema.optional(),
+	/** Configured provider of the leg that failed (never inferred from
+	 *  error text — config identity only, so LiteLLM hops carry the
+	 *  provider they were configured for, not litellm itself). */
+	provider_target: z
+		.string()
+		.regex(/^\w[\w.-]{0,63}$/)
+		.refine((value) => !SECRET_PREFIX.test(value))
+		.optional(),
+	/** Evidence level for provider_target: "provider_response" = the
+	 *  provider's own endpoint answered; "litellm_translation" = the
+	 *  status came from a litellm translation layer, the provider rides
+	 *  configuration only. Never inferred from error text. */
+	origin_kind: z.enum(["provider_response", "litellm_translation"]).optional(),
 });
 const FleetErrorTraceSchema = z.object({
 	id: z.string().regex(TRACE_ID),
@@ -50,6 +63,37 @@ const FleetErrorTraceSchema = z.object({
 });
 
 type JsonObject = Record<string, unknown>;
+
+function originPrefix(
+	hop: { hub: string; service: string; code?: string } | undefined,
+	code: string | null,
+	status: number,
+): string {
+	const hub = hop?.hub ?? "local";
+	const service = hop?.service ?? "buckle";
+	const rawCode =
+		safeProviderErrorToken(hop?.code ?? code) ??
+		PROBLEM_SLUGS[status] ??
+		"problem";
+	const shortCode = rawCode.startsWith(`${service}.`)
+		? rawCode.slice(service.length + 1)
+		: rawCode;
+	return `belt: ${hub}.${service}.${shortCode}`;
+}
+
+function stripOriginPrefix(value: string): string {
+	const separator = value.indexOf(" — ");
+	return value.startsWith("belt: ") && separator >= 0
+		? value.slice(separator + 3)
+		: value;
+}
+
+/** The `belt: <hub>.buckle.<code> — ` prefix for the buckle-authored stream
+ *  terminals (mid-stream death, planned drain) — the same bounded grammar as
+ *  the response path; degenerate hub labels stay "local". */
+export function streamOriginPrefix(hub: string, code: string): string {
+	return `${originPrefix({ hub, service: "buckle" }, code, 200)} — `;
+}
 
 function object(value: unknown): JsonObject | null {
 	return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -73,6 +117,8 @@ function currentHop(resp: Response, hub: string, code: string | null) {
 	const callId = safeCorrelationId(resp.headers.get("x-litellm-call-id"));
 	const status = Number(resp.headers.get("x-klh-upstream-status"));
 	let target: string | undefined;
+	let providerTarget: string | undefined;
+	let providerSource: "provider_response" | "litellm_translation" | undefined;
 	try {
 		const route = object(JSON.parse(resp.headers.get("x-belt-route") ?? ""));
 		const row = object(route?.target);
@@ -86,6 +132,14 @@ function currentHop(resp: Response, hub: string, code: string | null) {
 			port <= 65535
 		)
 			target = `${host}:${port}`;
+		providerTarget =
+			safeProviderErrorToken(route?.provider_target) ?? undefined;
+		providerSource =
+			route?.provider_source === "litellm_translation"
+				? "litellm_translation"
+				: providerTarget
+					? "provider_response"
+					: undefined;
 	} catch {
 		// A missing route header is expected for auth and admin errors.
 	}
@@ -96,6 +150,12 @@ function currentHop(resp: Response, hub: string, code: string | null) {
 		...(code ? { code } : {}),
 		...(rid ? { rid } : {}),
 		...(target ? { target } : {}),
+		...(providerTarget
+			? {
+					provider_target: providerTarget,
+					...(providerSource ? { origin_kind: providerSource } : {}),
+				}
+			: {}),
 		...(Number.isInteger(status) && status >= 100 && status <= 599
 			? { upstream_status: status }
 			: {}),
@@ -179,15 +239,15 @@ export function traceStreamErrorPayload(
 		error.trace_id = id;
 		if (typeof error.message === "string") {
 			const priorMarker = / \[trace=[0-9a-f]{32};[^\]]{0,600}\]$/;
-			const message = error.message.replace(priorMarker, "");
+			const message = stripOriginPrefix(error.message.replace(priorMarker, ""));
 			const origin = trace.hops[0]?.hub ?? hub;
-			error.message = `${message.slice(0, 2048)} [trace=${id}; origin=${origin}; target=${target ?? "unknown"}]`;
+			error.message = `${originPrefix(trace.hops[0], code, 200)} — ${message.slice(0, 2048)} [trace=${id}; origin=${origin}; target=${target ?? "unknown"}]`;
 		}
 	} else if (typeof body.message === "string") {
 		const priorMarker = / \[trace=[0-9a-f]{32};[^\]]{0,600}\]$/;
-		const message = body.message.replace(priorMarker, "");
+		const message = stripOriginPrefix(body.message.replace(priorMarker, ""));
 		const origin = trace.hops[0]?.hub ?? hub;
-		body.message = `${message.slice(0, 2048)} [trace=${id}; origin=${origin}; target=${target ?? "unknown"}]`;
+		body.message = `${originPrefix(trace.hops[0], code, 200)} — ${message.slice(0, 2048)} [trace=${id}; origin=${origin}; target=${target ?? "unknown"}]`;
 	}
 	return JSON.stringify(body);
 }
@@ -270,7 +330,7 @@ export async function traceErrorResponse(
 	// parsing succeeds or it retains the whole error body under backpressure.
 	void resp.body?.cancel().catch(() => {});
 	const code = safeProviderErrorToken(
-		body.code ?? object(body.error)?.code ?? null,
+		body.code ?? object(body.error)?.code ?? object(body.error)?.type ?? null,
 	);
 	const peerHeader = resp.headers.get("x-klh-peer-error-trace");
 	let prior: z.infer<typeof FleetErrorTraceSchema> | null = null;
@@ -307,23 +367,25 @@ export async function traceErrorResponse(
 		)
 		.join(" > ");
 	const marker = `[trace=${id}; origin=${origin}; hops=${path}]`;
-	if (typeof body.detail === "string") {
-		const detail = body.detail.replace(
-			/ \[trace=[0-9a-f]{32};[^\]]{0,600}\]$/,
+	const prefix = originPrefix(trace.hops[0], code, resp.status);
+	const present = (value: string): string => {
+		const bare = stripOriginPrefix(value).replace(
+			/^\[trace=[0-9a-f]{32};[^\]]{0,600}\] — /,
 			"",
 		);
-		const separator = detail.indexOf(" — ");
-		body.detail =
-			separator >= 0
-				? `${detail.slice(0, separator)} ${marker} — ${detail.slice(separator + 3, separator + 2051)}`
-				: `${marker} — ${detail.slice(0, 2048)}`;
+		return `${prefix} ${marker} — ${bare.slice(0, 2048)}`;
+	};
+	if (typeof body.detail === "string") {
+		body.detail = present(body.detail);
 		if (typeof body.why === "string") body.why = body.detail;
 	} else {
 		const error = object(body.error);
 		if (error) {
 			error.trace_id = id;
 			if (typeof error.message === "string")
-				error.message = `${marker} — ${error.message.slice(0, 2048)}`;
+				error.message = present(error.message);
+		} else if (typeof body.message === "string") {
+			body.message = present(body.message);
 		}
 	}
 	headers.delete("x-klh-peer-error-trace");

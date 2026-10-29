@@ -56,6 +56,10 @@ test.describe("remaining Buckle error boundaries @api", () => {
 		expect(body.type).toBe("error");
 		expect(body.error.type).toBe("overloaded_error");
 		expect(body.error.message).toContain(`trace=${TRACE_ID}`);
+		// The FIRST hop's origin qualifies the detail — the relay keeps it.
+		expect(body.error.message).toMatch(
+			/^belt: hub-a\.buckle\.overloaded_error — /,
+		);
 		expect(body.error.trace_id).toBe(TRACE_ID);
 		expect(body.fleet_trace.id).toBe(TRACE_ID);
 		expect(body.fleet_trace.hops.map((h) => h.hub)).toEqual(["hub-a", "hub-b"]);
@@ -240,6 +244,9 @@ test.describe("remaining Buckle error boundaries @api", () => {
 			};
 			expect(body.error.code).toBe("gateway_restarting");
 			expect(body.error.message).toContain(`trace=${TRACE_ID}`);
+			expect(body.error.message).toMatch(
+				/^belt: hub-d\.buckle\.gateway_restarting — /,
+			);
 			expect(body.error.trace_id).toBe(TRACE_ID);
 			expect(body.fleet_trace.hops[0]?.hub).toBe("hub-d");
 		}

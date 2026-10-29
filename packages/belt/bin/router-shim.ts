@@ -34,6 +34,7 @@ import { audioSpeech, audioTranscribe } from "./audio.ts";
 import { escalate } from "./escalate.ts";
 import { HOP_CONTRACT_HEADER, inheritDeadline } from "./hop-inherit.ts";
 import { livenessResponse } from "./health.ts";
+import { beltOriginPrefix, upstreamDecline } from "./http-citizenship.ts";
 import { verifyUpstreamAuth } from "./router-auth.ts";
 import { promptFingerprint } from "./prompt-fingerprint.ts";
 import {
@@ -131,28 +132,6 @@ async function loadPrefs(): Promise<Prefs> {
 // cloud gate: operator cost law — only prefs can authorize the cloud leg
 const cloudAllowed = (p: Prefs): boolean =>
 	p.allow_cloud === true && p.cost_speed !== "cost";
-
-function upstreamDecline(
-	status: number,
-	retryAfterMs: number | undefined,
-	details: string[],
-): Response {
-	const retrySeconds = Math.max(1, Math.ceil((retryAfterMs ?? 0) / 1000));
-	const rateLimited = status === 429;
-	return Response.json(
-		{
-			type: "error",
-			error: {
-				type: rateLimited ? "overloaded_error" : "api_error",
-				message: `router: upstream HTTP ${status} (${details.join("; ")})${rateLimited ? `; retry after ${retrySeconds}s` : ""}`,
-			},
-		},
-		{
-			status: rateLimited ? 429 : 502,
-			headers: rateLimited ? { "retry-after": String(retrySeconds) } : {},
-		},
-	);
-}
 
 // ─── routes derived from registry.ts (single source of truth) ───
 // fail fast at boot on a misconfigured registry, not mid-request
@@ -510,7 +489,10 @@ Bun.serve({
 
 		if (req.method !== "POST" || url.pathname !== "/v1/messages") {
 			return stamped(
-				Response.json({ error: "not found" }, { status: 404 }),
+				Response.json(
+					{ error: `${beltOriginPrefix("no_route")}not found` },
+					{ status: 404 },
+				),
 				"ingress",
 				{ refusal: "no_route" },
 			);
@@ -525,13 +507,16 @@ Bun.serve({
 					{
 						error:
 							auth.verdict === "unconfigured"
-								? "belt router unconfigured: BELT_UPSTREAM_KEY required"
-								: "unauthorized",
+								? `${beltOriginPrefix("unconfigured")}belt router unconfigured: BELT_UPSTREAM_KEY required`
+								: `${beltOriginPrefix("unauthorized")}unauthorized`,
 					},
 					{ status: auth.verdict === "unconfigured" ? 503 : 401 },
 				),
 				"ingress",
-				{ refusal: auth.verdict === "unconfigured" ? "unconfigured" : "unauthorized" },
+				{
+					refusal:
+						auth.verdict === "unconfigured" ? "unconfigured" : "unauthorized",
+				},
 			);
 
 		let body: AnthropicBody;
@@ -554,10 +539,10 @@ Bun.serve({
 				Response.json(
 					{
 						error: tooLarge
-							? "body too large"
+							? `${beltOriginPrefix("bad_json")}body too large`
 							: timedOut
-								? "request timeout"
-								: "bad json",
+								? `${beltOriginPrefix("request_timeout")}request timeout`
+								: `${beltOriginPrefix("bad_json")}bad json`,
 					},
 					{ status },
 				),
@@ -576,7 +561,12 @@ Bun.serve({
 		);
 		if (inherited === "expired")
 			return stamped(
-				Response.json({ error: "request deadline exceeded" }, { status: 504 }),
+				Response.json(
+					{
+						error: `${beltOriginPrefix("deadline_expired")}request deadline exceeded`,
+					},
+					{ status: 504 },
+				),
 				"ingress",
 				{ refusal: "deadline_expired" },
 			);
@@ -1195,7 +1185,7 @@ Bun.serve({
 							type: "error",
 							error: {
 								type: "api_error",
-								message: `router: all routes empty (${[...note, ...errors].join("; ")})`,
+								message: `${beltOriginPrefix("all_routes_empty")}router: all routes empty (${[...note, ...errors].join("; ")})`,
 							},
 						},
 						{ status: 502 },
