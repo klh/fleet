@@ -320,6 +320,8 @@ function handleResult(
 			result.error,
 			"no_route",
 		);
+		if (result.peerTrace)
+			response.headers.set("x-klh-peer-error-trace", result.peerTrace);
 		if (deferred)
 			response.headers.set(
 				"retry-after",

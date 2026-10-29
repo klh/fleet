@@ -63,15 +63,34 @@ export function writeErrorEvent(
 	writable: WritableStream<Uint8Array>,
 	dialect: Dialect,
 	err: unknown,
+	trace?: { id: string; hub: string },
 ): void {
-	const message = scrubText(
+	const raw = scrubText(
 		err instanceof Error ? err.message : "upstream stream failed",
 	);
+	const message = trace
+		? `${raw.slice(0, 2048)} [trace=${trace.id}; origin=${trace.hub}; hops=${trace.hub}:502/stream_failed]`
+		: raw;
 	const w = writable.getWriter();
 	const envelope =
 		err instanceof RouterError
 			? routerErrorEnvelope(err, dialect, message)
 			: { error: { message, type: "api_error", code: "stream_failed" } };
+	if (trace) {
+		const detail = envelope.error as Record<string, unknown>;
+		detail.trace_id = trace.id;
+		envelope.fleet_trace = {
+			id: trace.id,
+			hops: [
+				{
+					hub: trace.hub,
+					service: "buckle",
+					status: 502,
+					code: "stream_failed",
+				},
+			],
+		};
+	}
 	const body =
 		dialect === "anthropic"
 			? `event: error\ndata: ${JSON.stringify({ type: "error", ...envelope })}\n\n`
