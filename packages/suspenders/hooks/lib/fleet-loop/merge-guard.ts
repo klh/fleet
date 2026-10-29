@@ -8,6 +8,7 @@ import {
 } from "../gates/scrub.ts";
 import { binaryPaths, blobFindings } from "../gates/scrub-git.ts";
 import { TEST_FILE, testRelocationDelta } from "./merge-guard-relocation.ts";
+import { mintPublishGrant } from "./publish-grant.ts";
 
 type Result = { code: number; tail: string };
 type Options = {
@@ -17,6 +18,15 @@ type Options = {
 	ladder?: string;
 	timeoutMs: number;
 	verifyReview?: (candidate?: string) => { ok: boolean; why: string };
+	// W2270: when present, a one-use publish_grants row is minted in the
+	// coordination store after the final exact-commit PASS review — the ONLY
+	// credential the reference-transaction hook honors for a fast-forward of
+	// refs/heads/main.
+	publishGrant?: {
+		store: import("../govdb/govdb-store.ts").GovernorStore;
+		project: string;
+		item: string;
+	};
 };
 const MARKERS = "^([<]{7,}|[=]{7,}|[>]{7,}|[|]{7,})([[:space:]].*)?$";
 const SOURCE = /\.(?:[cm]?[jt]s|[jt]sx)$/i;
@@ -388,6 +398,25 @@ function mergeCandidate(options: Options): Result {
 		const finalReview = options.verifyReview?.(sha);
 		if (finalReview && !finalReview.ok)
 			return fail(`review required: ${finalReview.why}`);
+		// W2270: mint the one-use publication grant only now — after the final
+		// canonical verifyReview PASS, bound to this exact old→new pair. The
+		// reference-transaction hook independently re-verifies the receipt
+		// before consuming it, so minting is necessary but never sufficient.
+		if (options.publishGrant) {
+			try {
+				mintPublishGrant(options.publishGrant.store, {
+					project: options.publishGrant.project,
+					item: options.publishGrant.item,
+					branch,
+					old: head,
+					new: sha,
+				});
+			} catch (error) {
+				return fail(
+					`merge guard: cannot mint publication grant: ${String(error).slice(0, 300)}`,
+				);
+			}
+		}
 		const publish = command(
 			repo,
 			["git", "merge", "--ff-only", "--no-edit", sha],

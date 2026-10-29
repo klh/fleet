@@ -75,6 +75,18 @@ export function openGovernorDb(): Database {
 	db.run("CREATE INDEX IF NOT EXISTS events_kind_id ON events(kind, id)");
 	db.run("CREATE INDEX IF NOT EXISTS events_kind_ts ON events(kind, ts)");
 	db.run("CREATE INDEX IF NOT EXISTS events_target_id ON events(target, id)");
+	// W2270: one-use main-publication grants. The reference-transaction hook
+	// consumes an unconsumed row bound to the exact old→new pair (minted by
+	// the merge guard only after the final exact-commit PASS review) before
+	// any fast-forward of refs/heads/main is allowed. DDL is duplicated in
+	// lib/fleet-loop/publish-grant.ts so stores opened by long-lived server
+	// processes self-heal without re-running this open.
+	db.run(
+		"CREATE TABLE IF NOT EXISTS publish_grants (id INTEGER PRIMARY KEY AUTOINCREMENT, project TEXT NOT NULL, item TEXT NOT NULL, branch TEXT NOT NULL, old_sha TEXT NOT NULL, new_sha TEXT NOT NULL, minted_at INTEGER NOT NULL, consumed_at INTEGER)",
+	);
+	db.run(
+		"CREATE INDEX IF NOT EXISTS publish_grants_lookup ON publish_grants(project, branch, old_sha, new_sha, consumed_at)",
+	);
 	// work graph: hierarchical, claimable, shatterable work items (bin/work.ts).
 	// project = repo root realpath — partitions the graph per project so
 	// sessions in different repos never see (or steal) each other's work.

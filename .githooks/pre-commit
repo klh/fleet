@@ -2,8 +2,17 @@
 # scrub gate (W236) — staged content through hooks/bin/scrub-gate.ts.
 # Enable on this machine: git config core.hooksPath .githooks
 # Absent stack → fail-inert (exit 0); the harness gate covers fleet lanes.
+ROOT="$(git rev-parse --show-toplevel)"
+# `git merge --no-commit` skips pre-merge-commit; the eventual git commit
+# must still use the guarded Fleet ladder when HEAD is main.
+if [ -f "$(git rev-parse --git-path MERGE_HEAD)" ]; then
+	command -v bun >/dev/null 2>&1 || { echo "Direct merge into main refused: Bun is required for the Fleet merge guard." >&2; exit 1; }
+	[ -f "$ROOT/.githooks/pre-merge-commit" ] || exit 1
+	bun "$ROOT/.githooks/pre-merge-commit" || exit $?
+fi
 command -v bun >/dev/null 2>&1 || exit 0
 P="${SUSPENDERS_PREFIX:-$HOME/.claude/hooks/suspenders}"
-[ -f "$P/hooks/bin/scrub-gate.ts" ] || P="$(git rev-parse --show-toplevel)/packages/suspenders"
-[ -f "$P/hooks/bin/scrub-gate.ts" ] || exit 0
-exec bun "$P/hooks/bin/scrub-gate.ts" hook commit
+[ -f "$P/hooks/bin/scrub-gate.ts" ] || P="$ROOT/packages/suspenders"
+if [ -f "$P/hooks/bin/scrub-gate.ts" ]; then
+	bun "$P/hooks/bin/scrub-gate.ts" hook commit || exit $?
+fi
