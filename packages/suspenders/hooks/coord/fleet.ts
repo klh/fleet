@@ -20,6 +20,7 @@ import { renameSession } from "../lib/lanes/session-rename.ts";
 import { attachSubscribe } from "../lib/lanes/subscribe-attach.ts";
 import { ensureCompletionIdentityMigration } from "../lib/work/work-completion-record.ts";
 import { claimWindows } from "../lib/work/work-timing.ts";
+import { msSet } from "../lib/govdb/machine-state.ts";
 import { ageOf, formatEventLine } from "./bus.ts";
 import { listLiveTargets } from "./addressing.ts";
 import { cmdBind, cmdEnroll, cmdVerify } from "./identity.ts";
@@ -684,9 +685,7 @@ export async function cmdMetrics(rest: string[]): Promise<void> {
 		},
 	};
 	const snapKey = `metrics.snapshot.${new Date(now).toISOString().slice(0, 10)}`;
-	db.query(
-		"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, 'coord', 1, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, version = version + 1, ts = excluded.ts",
-	).run(snapKey, JSON.stringify(snap), now);
+	msSet(db, snapKey, JSON.stringify(snap), "coord", now);
 	console.log(`  ${dim(`snapshot → ${snapKey}`)}`);
 }
 

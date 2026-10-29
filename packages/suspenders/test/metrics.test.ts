@@ -173,10 +173,10 @@ describe("W3 — coord metrics", () => {
 		expect(out).toContain("tok      -");
 	});
 
-	test("writes the metrics.snapshot.<date> fact", () => {
+	test("writes the metrics.snapshot.<date> machine_state row", () => {
 		expect(out).toContain("snapshot → metrics.snapshot.");
 		const rows = query(
-			`SELECT value FROM facts WHERE key = 'metrics.snapshot.${new Date().toISOString().slice(0, 10)}'`,
+			`SELECT value FROM machine_state WHERE key = 'metrics.snapshot.${new Date().toISOString().slice(0, 10)}'`,
 		);
 		expect(rows.length).toBe(1);
 		const snap = JSON.parse((rows[0] as { value: string }).value);
@@ -276,7 +276,7 @@ utimesSync(tp, new Date(st.atimeMs), new Date(st.mtimeMs)); // same mtime, new c
 const r2 = dump(tokenUsage(db, P, now));
 utimesSync(tp, new Date(st.atimeMs + 1000), new Date(st.mtimeMs + 1000)); // bump mtime → re-parse and refresh
 const r3 = dump(tokenUsage(db, P, now));
-const fact = db.query("SELECT value FROM facts WHERE key = ?").get(${JSON.stringify(TOKKEY)});
+const fact = db.query("SELECT value FROM machine_state WHERE key = ?").get(${JSON.stringify(TOKKEY)});
 console.log(JSON.stringify({ r1, r2, r3, fact: fact ? JSON.parse(fact.value) : null, mtime: st.mtimeMs }));
 db.close();`),
 	);
@@ -313,7 +313,7 @@ describe("W24 — tokenUsage: windowed summation + mtime cache", () => {
 		});
 	});
 
-	test("cache fact follows the version-increment upsert shape", () => {
+	test("token cache row lands in machine_state (hub design D3)", () => {
 		expect(fact).toEqual({
 			in: 6000,
 			out: 600,

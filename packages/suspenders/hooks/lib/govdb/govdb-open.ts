@@ -17,6 +17,7 @@ import {
 } from "../knowledge/confidence.ts";
 import { migrateIdentitySplit } from "./identity-db.ts";
 import { migrateIdentityRegistry } from "./identity-registry.ts";
+import { migrateMachineState } from "./machine-state.ts";
 
 export function openGovernorDb(): Database {
 	mkdirSync(REG(), { recursive: true });
@@ -377,6 +378,11 @@ export function openGovernorDb(): Database {
 		);
 		db.run("PRAGMA user_version = 12");
 	}
+	// hub design D3: telemetry prefixes (harvest./metrics./deadletter./
+	// executor.) leave facts for machine_state — idempotent PK-range move,
+	// four empty index probes once migrated (no user_version: a lazily
+	// ensured table must also heal a store-server that predates it).
+	migrateMachineState(db);
 	// v13 (W210) — team entitlement ceilings (the v9→v11-era promise): the
 	// W141 buckle teams shape (rpm_ceiling/tpm_ceiling) verbatim + tok_ceiling
 	// (the api_keys max_tokens budget at team grain). NULL = no ceiling.

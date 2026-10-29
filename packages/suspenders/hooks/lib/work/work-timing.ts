@@ -5,6 +5,7 @@
 // json_extract scan the DuckDB-2.0 finding measured is gone.
 import type { Database } from "bun:sqlite";
 import { readFileSync, statSync } from "node:fs";
+import { msGet, msSet } from "../govdb/machine-state.ts";
 import {
 	type DoneSpend,
 	spendFromDonePayload,
@@ -285,13 +286,7 @@ export function tokenUsage(
 			let maxM = 0;
 			for (const tp of paths) maxM = Math.max(maxM, statSync(tp).mtimeMs); // missing file throws → fail soft below
 			const key = `metrics.tokens.${project.replace(/[^A-Za-z0-9._-]/g, "-")}.${work}`;
-			const cached = JSON.parse(
-				(
-					db.query("SELECT value FROM facts WHERE key = ?").get(key) as {
-						value?: string;
-					} | null
-				)?.value ?? "null",
-			) as {
+			const cached = JSON.parse(msGet(db, key) ?? "null") as {
 				in: number;
 				out: number;
 				cacheR: number;
@@ -336,9 +331,8 @@ export function tokenUsage(
 				}
 			}
 			out.set(work, t);
-			db.query(
-				"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, 'coord', 1, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, version = version + 1, ts = excluded.ts",
-			).run(
+			msSet(
+				db,
 				key,
 				JSON.stringify({
 					in: t.in,
@@ -348,6 +342,7 @@ export function tokenUsage(
 					at: nowMs,
 					tpMtime: maxM,
 				}),
+				"coord",
 				nowMs,
 			);
 		} catch {

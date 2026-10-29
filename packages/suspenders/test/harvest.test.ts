@@ -334,7 +334,7 @@ describe("end-to-end", () => {
 		).toBe(1);
 		expect(
 			count(
-				"SELECT COUNT(*) AS n FROM facts WHERE key LIKE 'harvest.cursor.%'",
+				"SELECT COUNT(*) AS n FROM machine_state WHERE key LIKE 'harvest.cursor.%'",
 			),
 		).toBe(3); // two claude files + one codex rollout
 		// rerun: nothing new, cluster already known
