@@ -4,7 +4,7 @@
 // ${HOME}/.cache/claude-governor/archive/ before deletion, so gc loses
 // nothing it deletes. Batches bound the memory (streams-over-buffers law) —
 // no whole-table SELECT.
-import type { GovernorStore } from "./govdb.ts";
+
 import {
 	appendFileSync,
 	mkdirSync,
@@ -13,6 +13,7 @@ import {
 	statSync,
 } from "node:fs";
 import { join } from "node:path";
+import type { GovernorStore } from "./govdb.ts";
 
 const BATCH = 500;
 
@@ -21,11 +22,16 @@ export function archiveDir(): string {
 	return join(process.env.HOME ?? ".", ".cache", "claude-governor", "archive");
 }
 
-// append the rows older than spec.cut to <table>-<YYYY-MM-DD>.ndjson, then
-// delete them. Concurrent inserts are safe: new rows carry now-ish ts values
-// above the cut, so the DELETE removes only the archived set. Archive-write
-// failure THROWS (the caller decides prune-skipping) — nothing is deleted
-// that was not archived first. Returns the archived (and deleted) row count.
+// W2274: archive-then-delete PER BATCH, keyed on the table's primary key.
+// The pre-fix shape selected `WHERE ts < cut LIMIT 500` with no cursor and
+// ran one DELETE only after the loop — any table with >BATCH stale rows
+// re-selected the same 500 forever, appending duplicate NDJSON lines and
+// never deleting. Now each batch is archived, then exactly those rows are
+// deleted by pk in one tx, so the next SELECT sees the remainder.
+// Concurrent inserts are safe: new rows carry now-ish ts values above the
+// cut, so they never enter a batch. Archive-write failure THROWS (the
+// caller decides prune-skipping) — nothing is deleted that was not
+// archived first. Returns the archived (and deleted) row count.
 export function archiveAndPrune(
 	store: GovernorStore,
 	spec: {
@@ -33,6 +39,8 @@ export function archiveAndPrune(
 		tsCol: string;
 		cut: number;
 		cols: string[];
+		// the table's PRIMARY KEY columns — the per-batch DELETE rides them
+		pkCols: string[];
 		// pin the archive target (HOME races between bun test files would
 		// otherwise move it mid-run)
 		dir?: string;
@@ -51,9 +59,7 @@ export function archiveAndPrune(
 	const sel = store.query(
 		`SELECT ${spec.cols.join(", ")} FROM ${spec.table} WHERE ${spec.tsCol} < ?${floorSql} LIMIT ${BATCH}`,
 	);
-	const del = store.query(
-		`DELETE FROM ${spec.table} WHERE ${spec.tsCol} < ?${floorSql}`,
-	);
+	const pkWhere = spec.pkCols.map((c) => `${c} = ?`).join(" AND ");
 	const params =
 		spec.floorCol && spec.floorVal != null
 			? [spec.cut, spec.floorVal]
@@ -72,9 +78,19 @@ export function archiveAndPrune(
 		appendFileSync(file, `${lines}\n`);
 		wrote = true;
 		total += rows.length;
+		// archive-then-delete per batch: exactly the rows just archived.
+		// PK ordering guarantees forward progress even when ts ties (every
+		// ts < cut, so the same row can never satisfy the next SELECT).
+		store.transaction(() => {
+			for (const r of rows) {
+				store.run(
+					`DELETE FROM ${spec.table} WHERE ${pkWhere}`,
+					...spec.pkCols.map((c) => r[c]),
+				);
+			}
+		})();
 		if (rows.length < BATCH) break;
 	}
-	if (total) del.run(...params);
 	return total;
 }
 
