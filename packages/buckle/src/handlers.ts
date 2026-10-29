@@ -42,7 +42,7 @@ import {
 	options204,
 	problem,
 } from "./citizenship.ts";
-import { errorResponse, scrubText } from "./error-response.ts";
+import { errorResponse } from "./error-response.ts";
 import { scoreComplexity, textFromMessages } from "./complexity.ts";
 import {
 	type DecideResult,
@@ -263,26 +263,6 @@ function stamped(
 	return resp;
 }
 
-<<<<<<< HEAD
-=======
-/** Buckle-GENERATED error body: problem+json with the stable code in `code`
- *  (http-citizenship). Two documented exceptions: upstream pass-through
- *  errors ride the upstream's body verbatim (client-error), and mid-stream
- *  failures speak SSE (the status is already sent). */
-export function errorResponse(
-	status: number,
-	why: string,
-	code?: string | null,
-): Response {
-	return problem({
-		status,
-		code: code ?? `buckle.${PROBLEM_SLUGS[status] ?? "problem"}`,
-		why: code ? `belt: ${code} — ${scrubText(why)}` : scrubText(why),
-	});
-}
-
-
->>>>>>> suspenders/W1265
 /** W921 traffic kind: a request is READINESS traffic only when a
  *  root-authenticated principal carries the healthcheck's
  *  `x-klh-traffic: readiness` mark — a lane key (or any non-root

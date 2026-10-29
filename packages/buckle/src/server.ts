@@ -249,12 +249,8 @@ export function buildDeps(
 			prefs,
 			fallbackGroups: rest.allowCross ? policy.fallbacks?.[rest.group] : [],
 		});
-<<<<<<< HEAD
-	const dbPath = opts.dbPath ?? defaultDbPath();
-=======
 	};
-	const dbPath = opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db";
->>>>>>> suspenders/W1265
+	const dbPath = opts.dbPath ?? defaultDbPath();
 	const federation = new Federation({
 		dbPath,
 		ingressBodyTimeoutMs: opts.ingressBodyTimeoutMs,
