@@ -323,6 +323,15 @@ afterAll(() => {
 		rmSync(dir, { recursive: true, force: true });
 });
 
+// W1788: the post-merge dangling-path scanner reads this suite's
+// join(dir, "zai-models.json") fixture literals as repo-relative references.
+// The snapshot is machine-local runtime conf ($HOME/.claude/local-llm/ or
+// ZAI_CATALOG_FILE — zaiCatalogFile is the one path, belt
+// zai-catalog-rows.test.ts:100) — pin the repo path absent.
+test("zai-models.json stays machine-local, never a repo path", () => {
+	expect(existsSync(join(import.meta.dir, "zai-models.json"))).toBe(false);
+});
+
 // W1469 fixture: a HOME whose Z.ai snapshot is `ageMs` old (default 3 days).
 const staleHome = (modelIds: string[], ageMs = 3 * 86_400_000, key = true) => {
 	const home = mkdtempSync(join(tmpdir(), "zai-stale-test-"));
