@@ -1,6 +1,8 @@
 // W1234 — connections.ts tests: precedence, longest-prefix boundary, app
 // filtering, 600-mode write, no-secrets assertion, schema refusals. All
 // tmp-scoped; the known-hub set is injected, never the machine registry.
+
+import { expect, test } from "bun:test";
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -8,12 +10,12 @@ import {
 	statSync,
 	writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { expect, test } from "bun:test";
+import { join } from "node:path";
+import { AI_DESTINATION_SUFFIXES } from "../../deploy/singbox/watched.ts";
 import {
-	type ConnectionsConfig,
 	assertNoSecrets,
+	type ConnectionsConfig,
 	enabledAppsOf,
 	facePairs,
 	loadConnections,
@@ -24,7 +26,6 @@ import {
 	singboxConfig,
 	writeDefaultConfig,
 } from "./connections.ts";
-import { AI_DESTINATION_SUFFIXES } from "../../deploy/singbox/watched.ts";
 
 const cfg = (over: Partial<ConnectionsConfig> = {}): ConnectionsConfig => ({
 	version: 1,

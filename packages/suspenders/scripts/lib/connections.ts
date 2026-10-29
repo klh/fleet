@@ -34,15 +34,6 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve as resolvePath } from "node:path";
-import { readRegistry, resolveHub } from "../../hooks/lib/hub/hub-locate.ts";
-import { tryLoadStack } from "../../hooks/lib/stack-config.ts";
-import { preferOf } from "./exec-chain.ts";
-import {
-	type Parsed,
-	type VerbSpec,
-	defineVerb,
-	runCli,
-} from "../../hooks/lib/verb-kit.ts";
 import {
 	AI_DESTINATION_SUFFIXES,
 	CONNECT_PORT_DEFAULT,
@@ -50,6 +41,15 @@ import {
 	connectTagOf,
 	guiTransports,
 } from "../../deploy/singbox/watched.ts";
+import { readRegistry, resolveHub } from "../../hooks/lib/hub/hub-locate.ts";
+import { tryLoadStack } from "../../hooks/lib/stack-config.ts";
+import {
+	defineVerb,
+	type Parsed,
+	runCli,
+	type VerbSpec,
+} from "../../hooks/lib/verb-kit.ts";
+import { preferOf } from "./exec-chain.ts";
 
 // ─── schema ──────────────────────────────────────────────────────────────────
 
