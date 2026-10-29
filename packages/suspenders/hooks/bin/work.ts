@@ -15,7 +15,7 @@
 
 import type { Database } from "bun:sqlite";
 import { basename } from "node:path";
-import { itemCapsuleKey } from "../lib/lanes/capsule-fence.ts";
+import { enforceFeedbackObligation } from "../lib/consult/feedback-obligation.ts";
 import {
 	advertisedCaps,
 	assertRequires,
@@ -24,10 +24,12 @@ import {
 } from "../lib/cred-scope.ts";
 import { detectClient } from "../lib/executors/detect.ts";
 import { automaticRecoveryCheck } from "../lib/fleet-loop/automatic-recovery.ts";
+import { rejudgeDangling } from "../lib/fleet-loop/dangling-rejudge.ts";
 import { triggerMergeOnDone } from "../lib/fleet-loop/merge-on-done.ts";
 import { unmergedDeps, unmergedNote } from "../lib/gates/dep-merge-gate.ts";
 import { reproGateRefusal } from "../lib/gates/repro-gate.ts";
 import { projectRootOf, resolveSidOf } from "../lib/govdb/govdb.ts";
+import { itemCapsuleKey } from "../lib/lanes/capsule-fence.ts";
 import { BACKFILL_EVENT, backfillForItem } from "../lib/lanes/lane-backfill.ts";
 import { rebindKeptLaneContext } from "../lib/lanes/lane-context.ts";
 import {
@@ -65,11 +67,13 @@ import {
 	parseReclaimReason,
 	reclaimGateDecision,
 } from "../lib/lanes/reclaim-sticky.ts";
-import { attachManagedSubscribe, reapIfIdle } from "../lib/lanes/subscribe-attach.ts";
+import {
+	attachManagedSubscribe,
+	reapIfIdle,
+} from "../lib/lanes/subscribe-attach.ts";
 import { budgetFlagClear } from "../lib/usage/budget-flag.ts";
 import { dieFor, idList, type Parsed, runCli } from "../lib/verb-kit.ts";
 import { curateCompletionKnowledge } from "../lib/work/completion-curation.ts";
-import { enforceFeedbackObligation } from "../lib/consult/feedback-obligation.ts";
 import {
 	applyAllocations,
 	assignTask,
@@ -840,6 +844,20 @@ const dispatchVerb = async (
 		// without this emit, linked NEED_DECISIONs hang OPEN (finding.w781)
 		emit("work.superseded", id, { note: `superseded by ${byId}` });
 		console.log(`${dim("■")} ${id} superseded by ${byId}`);
+	} else if (name === "rejudge") {
+		// W1762: one classifier-driven pass over open dangling-path repairs —
+		// rejects supersede with the classifier sha as reason; survivors and
+		// their code.dangling-path edges stay untouched.
+		if (pos[0] !== "dangling") die("usage: rejudge dangling [--dry-run]");
+		const result = rejudgeDangling(db(), projectRootOf(PROJECT), {
+			dryRun: flag("--dry-run") !== null,
+		});
+		if ("error" in result) die(`rejudge: ${result.error}`);
+		for (const { id, reason } of result.superseded)
+			console.log(`${dim("■")} ${id} superseded — ${reason}`);
+		console.log(
+			`REJUDGE classifier ${result.classifier.slice(0, 12)}: ${result.superseded.length} superseded, ${result.kept} kept, ${result.unevidenced} unevidenced`,
+		);
 	} else if (name === "block") {
 		const id = pos[0];
 		const on = flag("--on");
