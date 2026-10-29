@@ -22,7 +22,7 @@ test("dependency install uses independent file backends on every platform", () =
 	expect(dependencyInstallArgs("linux")).toContain("--backend=copyfile");
 });
 
-test("parallel lane setup keeps package files private to each checkout", async () => {
+test("lane setup keeps package files private to each checkout (injected runner; real overlap proven in builddirs-parallel)", async () => {
 	const world = scratchWorld({ prefix: "w2254-dependencies-" });
 	try {
 		const rootModules = join(world.repo, "node_modules");
@@ -64,36 +64,39 @@ test("parallel lane setup keeps package files private to each checkout", async (
 	}
 });
 
-test("live and unprobeable legacy links stay intact without an install", () => {
+test("legacy shared links stay intact and non-fatal whatever the activity", () => {
 	const world = scratchWorld({ prefix: "w2254-legacy-link-" });
 	try {
 		const modules = join(world.repo, "node_modules");
 		mkdirSync(modules);
+		writeFileSync(join(modules, "sentinel.js"), "root");
 		const lane = join(world.repo, "lane");
 		mkdirSync(lane);
 		writeFileSync(join(lane, "package.json"), '{"name":"fixture"}\n');
 		writeFileSync(join(lane, "bun.lock"), "fixture lock");
 		symlinkSync(modules, join(lane, "node_modules"));
 		let calls = 0;
-		for (const activity of [true, null]) {
-			const result = installWorktreeDependencies(world.repo, lane, {
-				processIdentity: () => activity,
-				run: () => {
-					calls++;
-					return { exitCode: 0 };
-				},
-			});
-			expect(result.ok).toBe(false);
-			expect(result.note).toContain("shared");
-		}
+		// W2254.1: no activity distinction survives — a point-in-time probe
+		// cannot prove quiescence, so EVERY legacy link is preserved without
+		// an install attempt. The active-checkout race regression lives in
+		// builddirs-parallel.e2e.ts.
+		const result = installWorktreeDependencies(world.repo, lane, {
+			run: () => {
+				calls++;
+				return { exitCode: 0 };
+			},
+		});
+		expect(result.ok).toBe(true);
+		expect(result.note).toContain("preserved");
 		expect(calls).toBe(0);
 		expect(readlinkSync(join(lane, "node_modules"))).toBe(modules);
+		expect(readFileSync(join(modules, "sentinel.js"), "utf8")).toBe("root");
 	} finally {
 		world.clean();
 	}
 });
 
-test("an idle Fleet root link migrates privately while other links stay intact", () => {
+test("an idle Fleet root link is still preserved, never migrated", () => {
 	const world = scratchWorld({ prefix: "w2254-idle-migration-" });
 	try {
 		const rootModules = join(world.repo, "node_modules");
@@ -108,18 +111,20 @@ test("an idle Fleet root link migrates privately while other links stay intact",
 		symlinkSync(rootModules, join(lane, "node_modules"));
 		symlinkSync(rootModules, join(peer, "node_modules"));
 		const result = installWorktreeDependencies(world.repo, lane, {
-			processIdentity: () => false,
 			run: (cwd) => {
 				mkdirSync(join(cwd, "node_modules"));
 				writeFileSync(join(cwd, "node_modules", "sentinel.js"), "private");
 				return { exitCode: 0 };
 			},
 		});
+		// W2254.1: idleness no longer licenses migration — "idle" was the
+		// point-in-time verdict the race invalidated. The link stands, the
+		// peer's link stands, the shared tree is untouched.
 		expect(result.ok).toBe(true);
-		expect(lstatSync(join(lane, "node_modules")).isDirectory()).toBe(true);
+		expect(result.note).toContain("preserved");
 		expect(
-			readFileSync(join(lane, "node_modules", "sentinel.js"), "utf8"),
-		).toBe("private");
+			readlinkSync(join(lane, "node_modules")),
+		).toBe(rootModules);
 		expect(readFileSync(join(rootModules, "sentinel.js"), "utf8")).toBe("root");
 		expect(readlinkSync(join(peer, "node_modules"))).toBe(rootModules);
 	} finally {
@@ -142,23 +147,25 @@ test("unrelated links and missing lockfiles never migrate", () => {
 		symlinkSync(operatorModules, link);
 		let calls = 0;
 		const options = {
-			processIdentity: () => false,
 			run: () => {
 				calls++;
 				return { exitCode: 0 };
 			},
 		};
-		expect(installWorktreeDependencies(world.repo, lane, options).ok).toBe(
-			false,
-		);
+		const foreign = installWorktreeDependencies(world.repo, lane, options);
+		expect(foreign.ok).toBe(false);
+		expect(foreign.note).toContain("preserved");
 		expect(readlinkSync(link)).toBe(operatorModules);
-		// Only the exact Fleet root link is eligible, and only with a lockfile.
+		// The Fleet-root link never migrates either — with or without a lock.
 		rmSync(link);
 		symlinkSync(rootModules, link);
+		const kept = installWorktreeDependencies(world.repo, lane, options);
+		expect(kept.ok).toBe(true);
+		expect(kept.note).toContain("preserved");
 		rmSync(join(lane, "bun.lock"));
-		expect(installWorktreeDependencies(world.repo, lane, options).ok).toBe(
-			false,
-		);
+		const unlocked = installWorktreeDependencies(world.repo, lane, options);
+		expect(unlocked.ok).toBe(true);
+		expect(unlocked.note).toContain("preserved");
 		expect(readlinkSync(link)).toBe(rootModules);
 		expect(calls).toBe(0);
 	} finally {

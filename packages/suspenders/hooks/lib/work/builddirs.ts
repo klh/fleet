@@ -1,16 +1,12 @@
 // builddirs.ts — non-package build dirs may be shared with a fresh lane.
 // node_modules must be installed inside each checkout: a shared symlink lets
 // `bun install --force` in one lane delete dependencies used by every lane.
-import {
-	existsSync,
-	lstatSync,
-	readlinkSync,
-	rmSync,
-	symlinkSync,
-	unlinkSync,
-} from "node:fs";
+// W2254.1: a legacy shared node_modules link is NEVER unlinked automatically.
+// No point-in-time probe proves an idle checkout — a process can start between
+// the verdict and the unlink, and non-harness users are invisible to it — so
+// migration stays an explicit operator action.
+import { existsSync, lstatSync, readlinkSync, rmSync, symlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { worktreeProcessIdentity } from "../lanes/lane-liveness.ts";
 
 export function symlinkBuildDirs(repo: string, into: string): void {
 	for (const d of [".venv", "vendor", "target"]) {
@@ -38,7 +34,6 @@ export type DependencyInstallRunner = (
 
 export interface DependencyInstallOptions {
 	run?: DependencyInstallRunner;
-	processIdentity?: (worktree: string) => boolean | null;
 }
 
 export const dependencyInstallArgs = (
@@ -68,20 +63,20 @@ export function installWorktreeDependencies(
 		if (target !== resolve(repo, "node_modules"))
 			return {
 				ok: false,
-				note: "operator node_modules link preserved; only the Fleet root link can be migrated automatically",
+				note: "operator node_modules link preserved; it names a tree outside the Fleet root",
 			};
-		if (!hasLock)
-			return {
-				ok: false,
-				note: "shared node_modules link preserved; this checkout lacks package.json or bun.lock for a private install",
-			};
-		const live = (options.processIdentity ?? worktreeProcessIdentity)(into);
-		if (live !== false)
-			return {
-				ok: false,
-				note: `shared node_modules link preserved; lane activity is ${live === true ? "live" : "unknown"}, so migration requires an idle checkout`,
-			};
-		unlinkSync(modules);
+		// W2254.1: legacy shared links are NEVER migrated automatically. The
+		// removed probe (worktreeProcessIdentity) was point-in-time: a process
+		// can start between a false verdict and the unlink, and non-harness
+		// users are invisible to it — no probe proves quiescence. Unlinking a
+		// link an active checkout still reads would break that checkout, so
+		// the link stands; the checkout keeps working on the shared tree.
+		// Migration is an explicit operator action on a provably idle tree:
+		// rm <link> && bun install --frozen-lockfile (never automated).
+		return {
+			ok: true,
+			note: `legacy shared node_modules link preserved (W2254.1: automatic migration removed); operator migrates an idle checkout manually: rm ${modules} && ${dependencyInstallArgs().join(" ")}`,
+		};
 	}
 	if (standing?.isDirectory())
 		return { ok: true, note: "existing private node_modules kept" };
