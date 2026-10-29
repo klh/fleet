@@ -1,6 +1,8 @@
 // reclaim-sticky.ts — W831: reclaim reason discriminator + sticky-until-resume
 // marker (Chorus control-handler lift). A reclaim records WHY the claim died
-// (user = operator-initiated, crash = automation-detected death); the marker
+// (user = operator-initiated, crash = automation-detected death, rate-limited
+// = a dead lane whose tail is a provider rate limit — concurrency pressure,
+// never a quota wall, so it is never a dispatch-stop signal); the marker
 // is sticky — only the next successful claim (resume) clears it. No sweep
 // re-arms or removes it, so a reclaimed item converges instead of dangling.
 // The gate helper encodes the double-check: a user reclaim refuses a
@@ -8,7 +10,13 @@
 // itself to the bulk-pass standard (positive death evidence required).
 import type { GovernorStore } from "../govdb/govdb.ts";
 
-export type ReclaimReason = "user" | "crash";
+export type ReclaimReason = "user" | "crash" | "rate-limited";
+
+const REASONS: readonly ReclaimReason[] = ["user", "crash", "rate-limited"];
+
+/** Automation-detected reasons demand positive death evidence. */
+export const automatedReclaim = (reason: ReclaimReason): boolean =>
+	reason !== "user";
 
 export type ReclaimMarker = {
 	reason: ReclaimReason;
@@ -23,7 +31,7 @@ const markerKey = (project: string, id: string): string =>
 
 export const parseReclaimReason = (
 	raw: string | undefined,
-): ReclaimReason | null => (raw === "user" || raw === "crash" ? raw : null);
+): ReclaimReason | null => REASONS.find((r) => r === raw) ?? null;
 
 /** Sticky marker write — idempotent (latest wins), never re-armed by sweeps. */
 export function markReclaimed(
@@ -52,9 +60,8 @@ export function readReclaimMarker(
 			.get(markerKey(project, id)) as { value: string } | null;
 		if (!row) return null;
 		const v = JSON.parse(row.value) as Partial<ReclaimMarker>;
-		return v.reason === "user" || v.reason === "crash"
-			? { reason: v.reason, from: v.from ?? null, at: v.at ?? 0 }
-			: null;
+		const reason = parseReclaimReason(v.reason);
+		return reason ? { reason, from: v.from ?? null, at: v.at ?? 0 } : null;
 	} catch {
 		return null;
 	}
@@ -80,12 +87,12 @@ export function reclaimGateDecision(
 	reason: ReclaimReason,
 	force: boolean,
 ): { ok: boolean; why: string } {
-	if (reason === "crash") {
+	if (automatedReclaim(reason)) {
 		return verdict === "dead"
-			? { ok: true, why: "claimant verifiably dead (crash reclaim)" }
+			? { ok: true, why: `claimant verifiably dead (${reason} reclaim)` }
 			: {
 					ok: false,
-					why: `claimant liveness is ${verdict}, not verifiably dead — crash reclaims demand death evidence`,
+					why: `claimant liveness is ${verdict}, not verifiably dead — ${reason} reclaims demand death evidence`,
 				};
 	}
 	if (verdict !== "alive")

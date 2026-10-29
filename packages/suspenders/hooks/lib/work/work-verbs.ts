@@ -212,7 +212,7 @@ export const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "reclaim",
 		usage:
-			"usage: reclaim <id> [--reason user|crash] [--force] [--expect-owner sid] [--expect-updated-at revision] [--json] | reclaim all",
+			"usage: reclaim <id> [--reason user|crash|rate-limited] [--force] [--expect-owner sid] [--expect-updated-at revision] [--json] | reclaim all",
 		flags: [
 			...ITEM_FLAGS,
 			"--force",

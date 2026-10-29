@@ -7,6 +7,7 @@
 // actionable-first (needs-you → working → waiting → done); unreported
 // metrics render as UNKNOWN (—), never a measured 0 (W1131 §5).
 
+import type { ControllerStatus } from "../fleet-loop/controller-status.ts";
 import type { Database } from "bun:sqlite";
 import {
 	type GroupSpend,
@@ -486,6 +487,9 @@ export interface ReportContract {
 	/** W2194: model groups the health sweep currently grades DOWN — the one
 	 *  shared health signal every view renders (never re-derived per view). */
 	model_health: { down: string[] };
+	/** fork E: per-project controller status (lease holder, last cycle,
+	 *  holds) — the CONTROL SNAPSHOT facts, one row per reported project */
+	controllers: ControllerStatus[];
 }
 
 /** rows → the versioned contract (§1). Every view renders FROM this — the
@@ -500,6 +504,7 @@ export const buildReportContract = (
 		boardBase?: string;
 		lanesOtherProjects?: number | null;
 		modelHealthDown?: string[];
+		controllers?: ControllerStatus[];
 	},
 ): ReportContract => {
 	const now = opts.now ?? Date.now();
@@ -540,6 +545,7 @@ export const buildReportContract = (
 		},
 		footer: { lanes_other_projects: opts.lanesOtherProjects ?? null },
 		model_health: { down: opts.modelHealthDown ?? [] },
+		controllers: opts.controllers ?? [],
 	};
 };
 

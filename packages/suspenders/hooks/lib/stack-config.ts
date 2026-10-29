@@ -12,15 +12,36 @@ import type { GatewayPolicy } from "@klh/buckle/src/policy.ts";
 import { readJsonConfEither } from "./kernel-conf.ts";
 import { PostureDocumentSchema } from "./posture/posture.zod.ts";
 
+/** Fork E (hub-of-one): one repo the hub's fleet-loop supervises. `path` is
+ *  any directory inside the repo (canonicalized to the project root at
+ *  cycle time); glob/ladder/dispatch_cmd/main override the loop's own
+ *  flags for this repo; lane_target is an optional per-project sub-cap
+ *  under the global fleet_loop.lane_target ceiling. */
+export const FleetLoopProjectSchema = z
+	.object({
+		path: z.string().min(1),
+		glob: z.string().min(1).optional(),
+		ladder: z.string().min(1).optional(),
+		dispatch_cmd: z.string().min(1).optional(),
+		main: z.string().min(1).optional(),
+		lane_target: z.number().int().nonnegative().optional(),
+		enabled: z.boolean().optional(),
+	})
+	.strict();
+export type FleetLoopProject = z.infer<typeof FleetLoopProjectSchema>;
+
 /** W2242: the fleet-loop daemon block — lane target / dispatch target /
  *  cycle cadence / config poll interval. Every knob optional; the resolver
- *  (fleetLoopSettings) owns the defaults, never a plist. */
+ *  (fleetLoopSettings) owns the defaults, never a plist. Fork E: `projects`
+ *  is the hub's project registry — with it, lane_target is the GLOBAL lane
+ *  ceiling across every supervised repo. */
 export const FleetLoopConfigSchema = z
 	.object({
 		lane_target: z.number().int().positive().optional(),
 		dispatch_target: z.number().int().positive().optional(),
 		every_s: z.number().int().positive().optional(),
 		config_poll_s: z.number().int().positive().optional(),
+		projects: z.array(FleetLoopProjectSchema).optional(),
 	})
 	.loose();
 
@@ -410,6 +431,27 @@ export function fleetLoopSettings(
 			block?.dispatch_target ?? FLEET_LOOP_DEFAULTS.dispatchTarget,
 		everyS: block?.every_s ?? FLEET_LOOP_DEFAULTS.everyS,
 		pollS: block?.config_poll_s ?? FLEET_LOOP_DEFAULTS.pollS,
+	};
+}
+
+/** Fork E: the hub's project registry (fleet_loop.projects), every row
+ *  zod-validated — a malformed registry yields NO projects plus the parse
+ *  issues (drift fails loud in the loop log, never a half-read registry).
+ *  Disabled rows are kept; the loop skips them. */
+export function fleetLoopRegistry(stack?: StackConfig | null): {
+	projects: FleetLoopProject[];
+	issues: string[];
+} {
+	const block = (stack === undefined ? tryLoadStack() : stack)?.fleet_loop;
+	const parsed = z
+		.array(FleetLoopProjectSchema)
+		.safeParse(block?.projects ?? []);
+	if (parsed.success) return { projects: parsed.data, issues: [] };
+	return {
+		projects: [],
+		issues: parsed.error.issues.map(
+			(i) => `fleet_loop.projects.${i.path.join(".")}: ${i.message}`,
+		),
 	};
 }
 
