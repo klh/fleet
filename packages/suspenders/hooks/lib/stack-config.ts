@@ -337,6 +337,20 @@ export const HubProfileSchema = z
  *  except hubs; an empty file is a valid empty config (loader contract).
  *  W1253 Amendment A: JSON.parse stays the ONE parser; this schema types
  *  the parsed value (stackConfIssues validates strictly when asked). */
+/** W2264 capability classes: class name → member model groups (wire ids or
+ *  class cores; matched by the dash-extension law). Machine conf only —
+ *  repos carry placeholders. A model named in ANY class is out of the
+ *  shared unclassified pool; same-class members are the ONLY eligible
+ *  re-pin targets for a pin of that class (fail closed). */
+export const ModelHealthConfigSchema = z
+	.object({
+		capability_classes: z.record(z.string(), z.array(z.string().min(1)).min(1)),
+	})
+	.strict();
+
+// W1303.4 schema-first: derived from ModelHealthConfigSchema — never hand-written.
+export type ModelHealthConfig = z.infer<typeof ModelHealthConfigSchema>;
+
 export const StackConfigSchema = z
 	.object({
 		/** Models without provider prompt-cache reporting; local KV reuse is
@@ -370,6 +384,9 @@ export const StackConfigSchema = z
 		policies: z.record(z.string(), RepoPolicySchema).optional(),
 		/** W2242: the fleet-loop daemon block (targets + cadence). */
 		fleet_loop: FleetLoopConfigSchema.optional(),
+		/** W2264: the model-health block — the capability-class taxonomy the
+		 *  pin-layer fallback may re-pin within. */
+		model_health: ModelHealthConfigSchema.optional(),
 	})
 	.loose();
 
@@ -542,6 +559,28 @@ export function policyForRepo(
 		if (key.toLowerCase() === base) return row;
 	}
 	return pol["*"];
+}
+
+/** W2264: the model-health capability-class taxonomy from the machine conf
+ *  (model_health.capability_classes) — class → member groups. House
+ *  resolver pattern (`stack === undefined` → tryLoadStack, injectable for
+ *  tests). Drift fails LOUD and skips (remotes.ts doctrine): prettified
+ *  issues to console.error, then unconfigured — a drifted taxonomy never
+ *  crashes the dispatch/review picker, it degrades to the unclassified
+ *  pool. */
+export function modelCapabilityClasses(
+	stack?: StackConfig | null,
+): Record<string, string[]> {
+	const block = (stack === undefined ? tryLoadStack() : stack)?.model_health;
+	if (block === undefined) return {};
+	const parsed = ModelHealthConfigSchema.safeParse(block);
+	if (!parsed.success) {
+		console.error(
+			`model_health: failed schema validation — skipping capability classes\n${z.prettifyError(parsed.error)}`,
+		);
+		return {};
+	}
+	return parsed.data.capability_classes;
 }
 
 const unquote = (v: string): string => {

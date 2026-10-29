@@ -6,9 +6,11 @@
 // the sweep roundtrip through a real store, and the W1302.6 audit property:
 // a re-pin rewrites the REQUEST, so serving the old pin is still a mismatch.
 import { expect, test } from "@playwright/test";
+import { wireModelMismatch } from "../hooks/lib/gates/wire-model-check.ts";
 import { openMemoryStore } from "../hooks/lib/govdb/govdb.ts";
 import {
 	bankModelHealth,
+	classOfModel,
 	downModelGroups,
 	healthKeyOf,
 	healthStatusOf,
@@ -20,7 +22,10 @@ import {
 	rePinModelPick,
 	sweepOnce,
 } from "../hooks/lib/hub/model-health.ts";
-import { wireModelMismatch } from "../hooks/lib/gates/wire-model-check.ts";
+import {
+	modelCapabilityClasses,
+	type StackConfig,
+} from "../hooks/lib/stack-config.ts";
 
 const NOW = 1_800_000_000_000;
 const mkDb = () => {
@@ -254,5 +259,118 @@ test.describe("@unit model-health (W2194)", () => {
 		expect(wireModelMismatch("glm-4.5-air", "glm-5.3-flash")).toBe(true);
 		// serving the new pin (or its hub-prefixed spell) matches
 		expect(wireModelMismatch("glm-4.5-air", "zai-glm-4.5-air")).toBe(false);
+	});
+
+	test("W2264: sql freshest is EXCLUDED from a coding pin pool; same-class pool still eligible", () => {
+		const classes = { sql: ["sql"], coding: ["glm-5.3-flash", "glm-4.5-air"] };
+		const facts = new Map([
+			["model.health.glm-5-3-flash", fact({ status: "down", ts: NOW })],
+			[
+				"model.health.sql",
+				fact({
+					status: "up",
+					ts: NOW,
+					wireId: "sql",
+					latencyMs: 5,
+					servedModel: "sql-served",
+				}),
+			],
+			[
+				"model.health.glm-4-5-air",
+				fact({
+					status: "up",
+					ts: NOW - 60_000,
+					wireId: "glm-4.5-air",
+					latencyMs: 80,
+					servedModel: "glm-4.5-air",
+				}),
+			],
+		]);
+		// sql is the freshest healthy group; the class gate still excludes it
+		const pick = pickHealthyGroup(facts, "glm-5.3-flash", NOW, classes);
+		expect(pick?.group).toBe("glm-4.5-air");
+		// fail closed: ONLY sql is healthy → null (pin stands, no cross-class re-pin)
+		const sqlOnly = new Map([
+			["model.health.glm-5-3-flash", fact({ status: "down", ts: NOW })],
+			["model.health.sql", fact({ status: "up", ts: NOW, wireId: "sql" })],
+		]);
+		expect(pickHealthyGroup(sqlOnly, "glm-5.3-flash", NOW, classes)).toBeNull();
+		// the re-pin face: pin-stands NOTE, never a foreign-class model
+		const db = mkDb();
+		bankModelHealth(
+			db,
+			new Map([
+				["glm-5-3-flash", fact({ status: "down", ts: Date.now() })],
+				["sql", fact({ status: "up", ts: Date.now(), wireId: "sql" })],
+			]),
+		);
+		const stands = rePinModelPick(db, "glm-5.3-flash", classes);
+		expect(stands.model).toBeUndefined();
+		expect(stands.note).toContain("pin stands");
+		// unclassified models keep W2194 fallback among themselves: with ONLY
+		// sql classified, glm-5.3-flash pin still falls back to glm-4.5-air
+		const sqlTagged = { sql: ["sql"] };
+		expect(
+			pickHealthyGroup(facts, "glm-5.3-flash", NOW, sqlTagged)?.group,
+		).toBe("glm-4.5-air");
+		// a same-class member is eligible and the note carries the MEASURED
+		// served model (the served-model audit)
+		const db2 = mkDb();
+		bankModelHealth(
+			db2,
+			new Map([
+				["glm-5-3-flash", fact({ status: "down", ts: Date.now() })],
+				[
+					"glm-4-5-air",
+					fact({
+						status: "up",
+						ts: Date.now(),
+						wireId: "glm-4.5-air",
+						servedModel: "zai-glm-4.5-air",
+					}),
+				],
+			]),
+		);
+		const repin = rePinModelPick(db2, "glm-5.3-flash", classes);
+		expect(repin.model).toBe("glm-4.5-air");
+		expect(repin.note).toContain("as zai-glm-4.5-air");
+	});
+
+	test("W2264 conf: classOfModel folds hub prefixes; drifted conf fails loud and skips", () => {
+		// dash-extension law folds the hub routing prefix into the member class
+		expect(
+			classOfModel("zai-glm-5-3-flash", { coding: ["glm-5.3-flash"] }),
+		).toBe("coding");
+		expect(classOfModel("sql", { sql: ["sql"] })).toBe("sql");
+		expect(classOfModel("sql", undefined)).toBeUndefined();
+		expect(classOfModel("sql", {})).toBeUndefined();
+		// conf resolver: valid taxonomy passes through; drift fails LOUD
+		// (console.error) and degrades to unconfigured (schema law — skip,
+		// never crash)
+		const err = console.error;
+		let loud = 0;
+		console.error = () => {
+			loud++;
+		};
+		try {
+			expect(
+				modelCapabilityClasses({
+					hubs: {},
+					model_health: { capability_classes: { sql: ["sql"] } },
+				}),
+			).toEqual({ sql: ["sql"] });
+			expect(modelCapabilityClasses({ hubs: {} })).toEqual({});
+			expect(
+				modelCapabilityClasses({
+					hubs: {},
+					model_health: {
+						capability_classes: { sql: "x" },
+					} as unknown as StackConfig,
+				}),
+			).toEqual({});
+			expect(loud).toBe(1);
+		} finally {
+			console.error = err;
+		}
 	});
 });

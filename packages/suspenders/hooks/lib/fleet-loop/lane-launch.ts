@@ -103,7 +103,7 @@ import {
 import { adapterFor } from "../executors/registry.ts";
 import { openStore, projectIdentity } from "../govdb/govdb.ts";
 import { resolveHub } from "../hub/hub-locate.ts";
-import { rePinModelPick } from "../hub/model-health.ts";
+import { rePinFallback } from "../hub/model-health.ts";
 import { capsuleValidity } from "../lanes/capsule-fence.ts";
 import { jobslabFor, jobslabTag, laneClassOf } from "../lanes/jobslab.ts";
 import {
@@ -535,7 +535,7 @@ export const dispatchLane = async (
 		// REQUESTS from here on, so the W1302.6 wire audit grades the new pin
 		// as itself.
 		if (process.env.SUSPENDERS_MODEL_HEALTH !== "0") {
-			const rePin = rePinModelPick(store, pick.model);
+			const rePin = rePinFallback(store, pick.model);
 			if (rePin.note) console.log(rePin.note);
 			if (rePin.model) pick = { ...pick, model: rePin.model };
 		}
