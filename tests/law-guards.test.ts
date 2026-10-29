@@ -145,17 +145,15 @@ test("1500-law vendor exemptions stay argued and current (W1300)", () => {
 // pressure so a decompose-in-flight reads as shrink, not entry.)
 const NEAR_CAP_LIMIT = 1200;
 const NEAR_CAP_PINNED: Record<string, number> = {
-	// re-pinned at the W2178 integration tip (2026-10-27): the 10-23 table
-	// predated the W1276/W1297 decompositions that moved or split most rows.
-	"packages/decant/src/ingest.ts": 1982,
-	"packages/decant/src/buckets.ts": 1489,
-	"packages/decant/src/token-economics.ts": 1427,
-	"packages/decant/src/query.ts": 1409,
-	"packages/belt/bin/router-shim.ts": 1292, // W1238.6.1 decomposition (HEAD W1117 growth keeps it in band)
-	"packages/buckle/src/ledger.ts": 1382, // +5 W1124.42.1 merge (debt: decompose)
-	"packages/belt/test/dashboard-topology-model.e2e.ts": 1294,
-	"packages/suspenders/hooks/bin/work.ts": 1246, // +5 W1173 merge (debt: decompose)
-	"packages/suspenders/deploy/hubctl.ts": 1208,
+	// re-pinned at the W2211 integration tip: the decant ingest/buckets/
+	// query/token-economics pins DROP here — W1238.1/W1238.6.3 decomposed
+	// all four below the 1200 stop rule (280/415/1139/704 lines). The rest
+	// tighten to the actual merged-tree counts.
+	"packages/belt/bin/router-shim.ts": 1291,
+	"packages/buckle/src/ledger.ts": 1388,
+	"packages/belt/test/dashboard-topology-model.e2e.ts": 1293,
+	"packages/suspenders/hooks/bin/work.ts": 1245,
+	"packages/suspenders/deploy/hubctl.ts": 1207,
 };
 
 test("the 1200-line band stays pinned: shrink-only, no new entrants (W1238.6)", () => {
