@@ -26,7 +26,10 @@ import {
 	transcriptsAliveBatch,
 	verdictBySid,
 } from "../lib/lanes/lane-liveness.ts";
-import { loadLaneRegistry } from "../lib/lanes/lane-registry.ts";
+import {
+	loadLaneRegistry,
+	memoProjectRoot,
+} from "../lib/lanes/lane-registry.ts";
 import {
 	laneStopNotice,
 	laneStopTarget,
@@ -514,7 +517,7 @@ const registryRows = (project: string | null): LaneRef[] => {
 	if (hit && Date.now() < hit.until) return hit.rows;
 	let rows: LaneRef[] = [];
 	try {
-		rows = project ? loadLaneRegistry(project) : [];
+		rows = project ? loadLaneRegistry(project, memoProjectRoot) : [];
 	} catch {}
 	laneRegistryCache.set(key, { until: Date.now() + 3_000, rows });
 	return rows;

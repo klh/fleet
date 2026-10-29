@@ -9,7 +9,7 @@
 // labeled; items with neither get an honest "none" so the UI can say so.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { canonicalProjectRoot } from "../lib/lanes/lane-registry.ts";
+import { memoProjectRoot } from "../lib/lanes/lane-registry.ts";
 
 /** What a lane was told at launch, plus its provenance. */
 export interface LaunchContext {
@@ -32,7 +32,7 @@ export interface LaunchContextItem {
 
 /** The dispatch brief record for one lane sid (never a URL-derived path). */
 export function briefFileFor(project: string, sid: string): string {
-	return join(canonicalProjectRoot(project), ".fleet", `brief-${sid}.md`);
+	return join(memoProjectRoot(project), ".fleet", `brief-${sid}.md`);
 }
 
 const labeled = (name: string, value: string | null | undefined): string =>
