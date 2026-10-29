@@ -23,6 +23,7 @@ import { claimWindows } from "../lib/work/work-timing.ts";
 import { ageOf, formatEventLine } from "./bus.ts";
 import { listLiveTargets } from "./addressing.ts";
 import { cmdBind, cmdEnroll, cmdVerify } from "./identity.ts";
+import { cmdProjectRegistry } from "./project-registry-cli.ts";
 import type { Database, Ev } from "./shared.ts";
 // hooks/coord/fleet.ts — fleet-wide reads: bootstrap, fleet, metrics, doctor-session, diff (W157 command modules).
 // Handler bodies moved verbatim from bin/coord.ts's if/else chain —
@@ -1023,9 +1024,10 @@ export async function cmdProject(rest: string[]): Promise<void> {
 	if (sub === "enroll") return cmdEnroll(rest);
 	if (sub === "bind") return cmdBind(rest);
 	if (sub === "verify") return cmdVerify(rest);
+	if (cmdProjectRegistry(rest)) return;
 	if (sub !== "rekey")
 		die(
-			"usage: coord project identity | coord project rekey <old> <new> | coord project enroll|bind|verify",
+			"usage: coord project identity | rekey <old> <new> | enroll|bind|verify | register|unregister|list",
 		);
 	const pos = rest.slice(1).filter((a) => !a.startsWith("--"));
 	const [from, to] = pos;
