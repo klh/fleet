@@ -8,7 +8,7 @@ import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { serveStub } from "../../../test-kit/src/index.ts";
+import { serveStub } from "@klh/test-kit";
 import type {
 	CurationChoice,
 	CurationInput,
