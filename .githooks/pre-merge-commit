@@ -1,0 +1,16 @@
+#!/usr/bin/env bun
+// Direct merges into main bypass Fleet's exact-commit review receipt gate.
+// The guarded ladder merges in a detached scratch checkout and publishes by
+// fast-forward, so it never reaches this hook on main.
+import { spawnSync } from "node:child_process";
+
+const branch = spawnSync("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], {
+	encoding: "utf8",
+});
+if (branch.status !== 0) process.exit(0);
+if (branch.stdout.trim() === "main") {
+	console.error(
+		"Direct merge into main refused: use Fleet's guarded merge/flush after an exact-commit PASS review receipt.",
+	);
+	process.exit(1);
+}

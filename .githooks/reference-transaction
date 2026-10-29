@@ -1,0 +1,86 @@
+#!/usr/bin/env bun
+// Protect the main ref itself: pre-merge-commit does not run for a fast-forward.
+// The guarded Fleet ladder grants one exact old→new publication; ordinary
+// commits receive a short-lived old HEAD + staged-tree grant from pre-commit.
+import { spawnSync } from "node:child_process";
+import {
+	chmodSync,
+	existsSync,
+	readFileSync,
+	renameSync,
+	statSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs";
+import { randomUUID } from "node:crypto";
+
+const run = (...args: string[]): string => {
+	const result = spawnSync("git", args, { encoding: "utf8" });
+	if (result.status !== 0) throw new Error(`git ${args[0]} failed`);
+	return result.stdout.trim();
+};
+const grantPath = (): string => run("rev-parse", "--git-path", "fleet-main-ref-grant.json");
+const deny = (reason: string): never => {
+	console.error(`Main ref update refused: ${reason}. Use Fleet's guarded merge/flush.`);
+	process.exit(1);
+};
+
+if (process.argv[2] === "--grant") {
+	if (run("symbolic-ref", "--quiet", "--short", "HEAD") !== "main")
+		process.exit(0);
+	const path = grantPath();
+	const temp = `${path}.${randomUUID()}`;
+	writeFileSync(
+		temp,
+		JSON.stringify({ old: run("rev-parse", "HEAD"), tree: run("write-tree"), at: Date.now() }),
+		{ mode: 0o600, flag: "wx" },
+	);
+	chmodSync(temp, 0o600);
+	renameSync(temp, path);
+	process.exit(0);
+}
+
+const phase = process.argv[2];
+if (!phase || !["preparing", "prepared", "committed", "aborted"].includes(phase))
+	deny("unknown reference transaction phase");
+if (phase === "preparing") process.exit(0);
+const main = readFileSync(0, "utf8")
+	.split("\n")
+	.map((line) => line.trim().split(/\s+/))
+	.filter((row) => row.length === 3 && row[2] === "refs/heads/main");
+if (main.length === 0) process.exit(0);
+const path = grantPath();
+if (phase !== "prepared") {
+	if (existsSync(path)) unlinkSync(path);
+	process.exit(0);
+}
+if (main.length !== 1) deny("multiple main updates in one transaction");
+const [old, next] = main[0] ?? [];
+if (!old || !next || !/^[a-f0-9]{40,64}$/.test(old) || !/^[a-f0-9]{40,64}$/.test(next))
+	deny("invalid main ref pair");
+if (old === next) process.exit(0);
+if (
+	process.env.FLEET_GUARDED_MAIN_OLD === old &&
+	process.env.FLEET_GUARDED_MAIN_NEW === next
+)
+	process.exit(0);
+if (!existsSync(path)) deny("no exact publication grant");
+let grant: { old?: unknown; tree?: unknown; at?: unknown };
+try {
+	if ((statSync(path).mode & 0o777) !== 0o600) deny("publication grant has unsafe mode");
+	grant = JSON.parse(readFileSync(path, "utf8"));
+} catch {
+	deny("publication grant unreadable");
+}
+if (
+	grant.old !== old ||
+	typeof grant.at !== "number" ||
+	Date.now() - grant.at > 120_000 ||
+	Date.now() < grant.at
+)
+	deny("publication grant is stale or for another HEAD");
+const parents = run("rev-list", "--parents", "-n", "1", next).split(" ");
+if (parents.length !== 2 || parents[1] !== old)
+	deny("main update is not the approved ordinary commit");
+if (run("show", "-s", "--format=%T", next) !== grant.tree)
+	deny("main update does not match the reviewed index tree");
