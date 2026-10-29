@@ -2,13 +2,13 @@
 // machine config (stack.yaml hub.overlay), materialized by hubctl render as
 // HUB_KLH_OVERLAY_* .env knobs (the compose template maps them to the
 // buckle-hub container's KLH_OVERLAY_* env; empty = unset = solo posture).
-import { afterAll, describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const dir = mkdtempSync(join(tmpdir(), "fleet-hub-overlay-"));
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+test.afterAll(() => rmSync(dir, { recursive: true, force: true }));
 const deployDir = join(dir, "hub");
 mkdirSync(deployDir);
 const stack = join(dir, "stack.json");
@@ -43,7 +43,7 @@ function hubctl(verb: string, hub: string) {
 	return { code: r.exitCode, out: new TextDecoder().decode(r.stdout) };
 }
 
-describe("hubctl render — overlay knobs (W688.3)", () => {
+test.describe("hubctl render — overlay knobs (W688.3)", () => {
 	test("overlay hub renders HUB_KLH_OVERLAY_* into the .env", () => {
 		const r = hubctl("render", "ov");
 		expect(r.code).toBe(0);

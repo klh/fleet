@@ -7,7 +7,7 @@
 // Rendering rides the real install-services.ts subprocess — the exact
 // mechanism the step uses — so parity covers the wiring, not just the
 // emitter. Field-equivalence, not byte-equality: the emitter reformats.
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -66,7 +66,7 @@ function sedPass(
 		.join("\n");
 }
 
-describe("registerLaunchd parity (W490.2)", () => {
+test.describe("registerLaunchd parity (W490.2)", () => {
 	const outDir = mkdtempSync(join(tmpdir(), "w490-parity-"));
 
 	test("install-services.ts renders the template file set via the step mechanism", async () => {

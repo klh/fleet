@@ -1,10 +1,10 @@
-import { afterAll, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const dir = mkdtempSync(join(tmpdir(), "fleet-hub-layout-"));
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+test.afterAll(() => rmSync(dir, { recursive: true, force: true }));
 const template = readFileSync(
 	join(import.meta.dir, "../deploy/hub-compose.yaml"),
 	"utf8",

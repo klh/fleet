@@ -1,7 +1,7 @@
 // W701: hubctl ssh/scp legs carry -o ConnectTimeout + BatchMode so an
 // unreachable hub fails fast. Fake ssh/scp record argv; one real-ssh case
 // aims at an unroutable TEST-NET address with a 1s knob.
-import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	chmodSync,
 	mkdirSync,
@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-setDefaultTimeout(30_000);
+test.setTimeout(30_000);
 const dir = mkdtempSync(join(tmpdir(), "fleet-hub-sshto-"));
 const bin = join(dir, "bin");
 mkdirSync(bin);
@@ -36,7 +36,7 @@ const stackFor = (deploy: Record<string, unknown>): string => {
 	);
 	return f;
 };
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+test.afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 function hubctl(verb: string, stack: string, path = process.env.PATH) {
 	writeFileSync(calls, "");

@@ -3,7 +3,7 @@
 // fake docker/curl/openssl log every call, the .env renders from the stack
 // fixture, the compose template lands byte-equal, outside-process probes gate
 // the exit code — and install.sh --hub routes the full front into the chain.
-import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	chmodSync,
 	existsSync,
@@ -19,7 +19,7 @@ import { hubctlRouteFixture } from "./support/hubctl-route-fixture.ts";
 
 // every test spawns the full hubctl chain (route-preflight subprocess +
 // fake docker/curl/git children) — the 5s default trips under fleet load
-setDefaultTimeout(30_000);
+test.setTimeout(30_000);
 
 const dir = mkdtempSync(join(tmpdir(), "fleet-hub-deploy-"));
 const bin = join(dir, "bin");
@@ -135,7 +135,7 @@ function hubctl(
 	return { code: r.exitCode, out: r.stdout.toString() + r.stderr.toString() };
 }
 
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+test.afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 test("deploy runs the full chain: mint → push → up → probes gate exit", () => {
 	resetCalls();

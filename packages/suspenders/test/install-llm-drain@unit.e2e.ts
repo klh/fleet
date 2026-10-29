@@ -3,13 +3,13 @@
 // never expose a truncated secret: the 8KB window is line-aligned (the
 // partial line at the cut is dropped whole), so per-line scrub rules see
 // every kept line from its start.
-import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultRun } from "../scripts/install/install-llm-steps.ts";
 
-setDefaultTimeout(60_000);
+test.setTimeout(60_000);
 
 const dirs: string[] = [];
 const tmp = (label: string): string => {
@@ -17,7 +17,7 @@ const tmp = (label: string): string => {
 	dirs.push(dir);
 	return dir;
 };
-afterAll(() => {
+test.afterAll(() => {
 	for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -60,7 +60,7 @@ const runFixture = async (
 	}
 };
 
-describe("W1205.2 truncated stderr never reveals a secret suffix", () => {
+test.describe("W1205.2 truncated stderr never reveals a secret suffix", () => {
 	test("a key straddling the window cut is dropped with its partial line", async () => {
 		const dir = tmp("straddle");
 		const gen = writeFixture(dir);

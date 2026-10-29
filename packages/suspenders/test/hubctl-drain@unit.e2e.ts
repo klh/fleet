@@ -3,7 +3,7 @@
 // inlined into the command line), aims it at the declared gate port, holds
 // the bounded grace, and degrades to a logged skip — never a deploy
 // failure. The runner is injected: no ssh, no docker, no real hub.
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	drainGatewayBeforeRecreate,
 	drainGraceSeconds,
@@ -31,7 +31,7 @@ const withGrace = (value: string | null, fn: () => void): void => {
 	}
 };
 
-describe("W1156 drainGraceSeconds", () => {
+test.describe("W1156 drainGraceSeconds", () => {
 	test("unset knob defaults to 3; a bare value clamps into 1..10", () => {
 		withGrace(null, () => expect(drainGraceSeconds()).toBe(3));
 		withGrace("7", () => expect(drainGraceSeconds()).toBe(7));
@@ -46,7 +46,7 @@ describe("W1156 drainGraceSeconds", () => {
 	});
 });
 
-describe("W1156 drainGatewayBeforeRecreate", () => {
+test.describe("W1156 drainGatewayBeforeRecreate", () => {
 	test("composes the on-hub script: root key as arg, drain POST, bounded sleep", () => {
 		withGrace(null, () => {
 			const profile = hubOf();

@@ -6,13 +6,13 @@
 // $PREFIX/scripts resolved __REPO__/../buckle into the generation snapshot
 // (no packages/buckle) and the buckle-spoke crash-looped, fail-closing
 // governance:strict dispatch on 2026-10-11.
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveStableRepo } from "../scripts/install/install-launchd.ts";
 
-describe("resolveStableRepo", () => {
+test.describe("resolveStableRepo", () => {
 	test("passes a pinned checkout through (no normalization)", () => {
 		const checkout = mkdtempSync(join(tmpdir(), "w631-checkout-"));
 		mkdirSync(join(checkout, ".git"));

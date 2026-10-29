@@ -6,7 +6,7 @@
 // (W631 stable-worktree authority guard). Contract: an invalid linked
 // worktree leaves the original prefix, settings and services byte-identical;
 // a valid plan still runs its normal steps.
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -136,7 +136,7 @@ function assertUntouched(
 	expect(readdirSync(join(f.root, "state"))).toEqual(["harness"]);
 }
 
-describe("registerLaunchdPreflight", () => {
+test.describe("registerLaunchdPreflight", () => {
 	test("predicts the W631 stable-worktree refusal for a linked worktree", () => {
 		const f = buildFixture("worktree");
 		const findings = registerLaunchdPreflight(planCtx(f));
@@ -164,7 +164,7 @@ describe("registerLaunchdPreflight", () => {
 
 // The incident contract at plan level: the refused run executes NO step and
 // leaves every persistent surface byte-identical.
-describe("executePlan --with-launchd mutation preflight", () => {
+test.describe("executePlan --with-launchd mutation preflight", () => {
 	test("refused worktree plan mutates nothing (the 2026-10-23 incident)", async () => {
 		const f = buildFixture("worktree");
 		const before = seededBytes(f);

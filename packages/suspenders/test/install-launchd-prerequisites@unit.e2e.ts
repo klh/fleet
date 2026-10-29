@@ -1,7 +1,7 @@
 // test/install-launchd-prerequisites.test.ts — W2177: --with-launchd runs
 // unless a step the launchd units depend on failed; an optional step such
 // as registerCaddy failing no longer strands every service unregistered.
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import type {
 	StepName,
 	StepOutcomeRow,
@@ -15,7 +15,7 @@ const row = (name: StepName, status: StepStatus): StepOutcomeRow => ({
 	note: "",
 });
 
-describe("W2177 launchdPrerequisitesHeld", () => {
+test.describe("W2177 launchdPrerequisitesHeld", () => {
 	test("optional step failures keep launchd registration on", () => {
 		expect(
 			launchdPrerequisitesHeld([

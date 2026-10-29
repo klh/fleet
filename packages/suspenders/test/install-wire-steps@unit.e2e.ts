@@ -2,7 +2,7 @@
 // registerSkills / releaseNotify steps. The W549 truthfulness and the W631
 // posture guard move here from the retired install.sh caddy block; the bash
 // block extraction tests retired with the block.
-import { afterEach, describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	chmodSync,
 	existsSync,
@@ -23,7 +23,7 @@ import {
 import type { StepContext } from "../scripts/install/install-run.ts";
 
 const dirs: string[] = [];
-afterEach(() => {
+test.afterEach(() => {
 	for (const dir of dirs.splice(0)) {
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -63,7 +63,7 @@ async function withPath(fakeBin: string, fn: () => Promise<void>) {
 	}
 }
 
-describe("registerCaddy (W549 truthful outcome, native)", () => {
+test.describe("registerCaddy (W549 truthful outcome, native)", () => {
 	test("tools absent → skipped, nothing attempted", async () => {
 		const { ctx } = fixture();
 		const res = await registerCaddy(ctx);
@@ -90,7 +90,7 @@ describe("registerCaddy (W549 truthful outcome, native)", () => {
 	});
 });
 
-describe("registerCaddy register paths", () => {
+test.describe("registerCaddy register paths", () => {
 	test("fresh klh-local + register ok → ok", async () => {
 		const { root, ctx } = fixture();
 		stubExec(
@@ -125,7 +125,7 @@ describe("registerCaddy register paths", () => {
 	});
 });
 
-describe("registerSkills", () => {
+test.describe("registerSkills", () => {
 	const oldEcosystemSkill = `---
 name: klh-ecosystem-map
 ---
@@ -292,7 +292,7 @@ Poll your inbox at session start
 			expect(res.note).toContain("verified 1 Claude skills");
 		});
 		const args = readFileSync(captured, "utf8");
-		expect(args).toStartWith("--bun\nskills@1.7.2\nadd\n");
+		expect(args.startsWith("--bun\nskills@1.7.2\nadd\n")).toBe(true);
 		expect(args).toContain(join(realpathSync(root), "skills"));
 		expect(args).toContain("claude-code");
 	});
@@ -316,7 +316,7 @@ Poll your inbox at session start
 	});
 });
 
-describe("releaseNotify", () => {
+test.describe("releaseNotify", () => {
 	test("coord absent at the prefix → skipped (fresh machine)", async () => {
 		const { ctx } = fixture();
 		const res = await releaseNotify(ctx);
