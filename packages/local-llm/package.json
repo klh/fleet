@@ -12,7 +12,8 @@
 		"@klh/belt": "2.0.4"
 	},
 	"devDependencies": {
-		"@klh/test-kit": "2.0.4"
+		"@klh/test-kit": "2.0.4",
+		"@playwright/test": "1.64.1"
 	},
 	"license": "SEE LICENSE IN LICENSE",
 	"exports": {
@@ -24,7 +25,7 @@
 	},
 	"files": [
 		"*.ts",
-		"!*.test.ts",
+		"!*.e2e.ts",
 		"models.catalog.json",
 		"routing-policy.yaml",
 		"README.md",
