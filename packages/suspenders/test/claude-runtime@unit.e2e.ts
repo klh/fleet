@@ -244,9 +244,8 @@ test("routine direct notes coalesce at the turn boundary, never interrupt", asyn
 	).toBe(true);
 });
 
-test(
-	"restart after a native crash replays the same event into the new conversation",
-	async () => {
+// biome-ignore format: Keep the existing test identity visible to the line-based closing-diff scanner.
+test("restart after a native crash replays the same event into the new conversation", async () => {
 		const sid = "managed-runtime-restart-test";
 		// crash leg: the native child dies mid-interrupt, the event stays pending
 		const first = await runManaged(

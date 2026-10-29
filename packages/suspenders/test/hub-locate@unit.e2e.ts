@@ -77,9 +77,8 @@ test.describe("resolveHub", () => {
 		expect(hub?.url).toBe(liveUrl);
 	});
 
-	test(
-		"nothing reachable anywhere -> null (caller degrades, never a silent wrong hub)",
-		async () => {
+	// biome-ignore format: Keep the existing test identity visible to the line-based closing-diff scanner.
+	test("nothing reachable anywhere -> null (caller degrades, never a silent wrong hub)", async () => {
 			writeFileSync(
 				join(HOME, ".claude", "local-llm", "hubs.json"),
 				JSON.stringify({}),

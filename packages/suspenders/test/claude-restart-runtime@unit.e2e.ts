@@ -8,9 +8,8 @@ import {
 import { signalClaudeDirectEvent } from "../hooks/lib/executors/claude-wake.ts";
 import { pausedLaneFixture } from "./helpers/paused-lane.ts";
 
-test(
-	"restarted runtime stays silent PAUSED, resumes exact UUID and interrupts active continuation",
-	async () => {
+// biome-ignore format: Keep the existing test identity visible to the line-based closing-diff scanner.
+test("restarted runtime stays silent PAUSED, resumes exact UUID and interrupts active continuation", async () => {
 		const f = pausedLaneFixture();
 		const settings = join(f.home, "settings.json");
 		writeFileSync(settings, "{}", { mode: 0o600 });

@@ -2,9 +2,8 @@ import { rmSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import { pausedLaneFixture } from "./helpers/paused-lane.ts";
 
-test(
-	"restart authority reads actual claimed graph and refuses unpaused, foreign and forged checkpoints",
-	() => {
+// biome-ignore format: Keep the existing test identity visible to the line-based closing-diff scanner.
+test("restart authority reads actual claimed graph and refuses unpaused, foreign and forged checkpoints", () => {
 		const f = pausedLaneFixture();
 		const module = new URL(
 			"../scripts/lib/claude-restart-operation.ts",
