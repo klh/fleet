@@ -155,7 +155,7 @@ Poll your inbox at session start
 	function stubSkillsInstall(fakeBin: string): void {
 		stubExec(
 			fakeBin,
-			"npx",
+			"bunx",
 			'#!/bin/sh\nmkdir -p "$HOME/.claude/skills/fleet"\nprintf installed > "$HOME/.claude/skills/fleet/SKILL.md"\nexit 0\n',
 		);
 	}
@@ -173,14 +173,14 @@ Poll your inbox at session start
 		const fakeBin = join(root, "fakebin");
 		stubExec(
 			fakeBin,
-			"npx",
+			"bunx",
 			"#!/bin/sh\necho 'cache missing yaml/index.js' >&2\nexit 1\n",
 		);
 		await withPath(fakeBin, async () => {
 			const res = await registerSkills(ctx);
 			expect(res.status).toBe("failed");
 			expect(res.note).toContain("run manually:");
-			expect(res.note).toContain("npx skills add");
+			expect(res.note).toContain("bunx --bun skills@1.7.2 add");
 			expect(res.note).toContain("cache missing yaml/index.js");
 		});
 	});
@@ -253,7 +253,7 @@ Poll your inbox at session start
 		addSkill(root, "fleet");
 		const legacy = installedLegacySkill(root, ".claude");
 		const fakeBin = join(root, "fakebin");
-		stubExec(fakeBin, "npx", "#!/bin/sh\nexit 1\n");
+		stubExec(fakeBin, "bunx", "#!/bin/sh\nexit 1\n");
 		await withPath(fakeBin, async () => {
 			expect((await registerSkills(ctx)).status).toBe("failed");
 		});
@@ -263,7 +263,7 @@ Poll your inbox at session start
 	test("zero-exit without installed SKILL.md → failed", async () => {
 		const { root, ctx } = fixture();
 		addSkill(root, "fleet");
-		stubExec(join(root, "fakebin"), "npx", "#!/bin/sh\nexit 0\n");
+		stubExec(join(root, "fakebin"), "bunx", "#!/bin/sh\nexit 0\n");
 		await withPath(join(root, "fakebin"), async () => {
 			const res = await registerSkills(ctx);
 			expect(res.status).toBe("failed");
@@ -280,10 +280,10 @@ Poll your inbox at session start
 		const run = (args: string[]) => Bun.spawnSync(["git", "-C", root, ...args]);
 		run(["init", "-q"]);
 		const fakeBin = join(root, "fakebin");
-		const captured = join(root, "npx-args.txt");
+		const captured = join(root, "bunx-args.txt");
 		stubExec(
 			fakeBin,
-			"npx",
+			"bunx",
 			`#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(captured)}\nmkdir -p "$HOME/.claude/skills/fleet"\nprintf installed > "$HOME/.claude/skills/fleet/SKILL.md"\nexit 0\n`,
 		);
 		await withPath(fakeBin, async () => {
@@ -292,29 +292,27 @@ Poll your inbox at session start
 			expect(res.note).toContain("verified 1 Claude skills");
 		});
 		const args = readFileSync(captured, "utf8");
-		expect(args).toStartWith("skills\nadd\n");
+		expect(args).toStartWith("--bun\nskills@1.7.2\nadd\n");
 		expect(args).toContain(join(realpathSync(root), "skills"));
 		expect(args).toContain("claude-code");
 	});
 
-	test("skills runner is npx — bunx never invoked (W1044)", async () => {
+	test("skills runner is pinned bunx --bun, independent of Node 20", async () => {
 		const { root, ctx } = fixture();
 		addSkill(root, "fleet");
 		const fakeBin = join(root, "fakebin");
-		const ran = join(root, "npx-ran.txt");
+		const ran = join(root, "bunx-ran.txt");
 		stubExec(
 			fakeBin,
-			"npx",
-			`#!/bin/sh\nprintf npx > ${JSON.stringify(ran)}\nmkdir -p "$HOME/.claude/skills/fleet"\nprintf installed > "$HOME/.claude/skills/fleet/SKILL.md"\nexit 0\n`,
+			"bunx",
+			`#!/bin/sh\nprintf bunx > ${JSON.stringify(ran)}\nmkdir -p "$HOME/.claude/skills/fleet"\nprintf installed > "$HOME/.claude/skills/fleet/SKILL.md"\nexit 0\n`,
 		);
-		// A bunx invocation fails the step: the W1044 defect shipped the
-		// register step through a bunx cache that lacked yaml/index.js.
-		stubExec(fakeBin, "bunx", "#!/bin/sh\nexit 3\n");
+		stubExec(fakeBin, "npx", "#!/bin/sh\nexit 3\n");
 		await withPath(fakeBin, async () => {
 			const res = await registerSkills(ctx);
 			expect(res.status).toBe("ok");
 		});
-		expect(readFileSync(ran, "utf8")).toBe("npx");
+		expect(readFileSync(ran, "utf8")).toBe("bunx");
 	});
 });
 

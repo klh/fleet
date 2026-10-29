@@ -13,9 +13,9 @@
 // (ctx.noLlm / ctx.skipModels) — the SUSPENDERS_LEGACY_* env handoff is
 // retired with the bash front.
 import {
-	chmodSync,
 	copyFileSync,
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	readFileSync,
 	statSync,
@@ -28,8 +28,9 @@ import {
 	prismaPreflight,
 	prometheusPreflight,
 } from "@klh/belt/bin/litellm-target.ts";
+import { atomicWrite0600 } from "@klh/kernel/src/kernel.atomic.module.ts";
 import {
-	type auditLiteLlmEnv,
+	auditLiteLlmEnv,
 	integrityEvidence,
 	writeReceipt,
 } from "@klh/belt/bin/litellm-integrity.ts";
@@ -47,7 +48,10 @@ import {
 	wireBuckleUpstreamsEnv,
 } from "../lib/belt-upstream-key.ts";
 import { readBoundedTail } from "../lib/bounded-tail.ts";
-import { validateBeltWiredGuard } from "../lib/belt-wired-guard.ts";
+import {
+	freshWiredGuardGb,
+	validateBeltWiredGuard,
+} from "../lib/belt-wired-guard.ts";
 
 const kitDir = (ctx: StepContext): string => join(ctx.repo, "..", "local-llm");
 export const beltBin = (ctx: StepContext): string =>
@@ -79,7 +83,9 @@ export async function ensureLiteLlmMetricsDependency(
 	if (probe(python) === null) return "present";
 	const uv = deps.uv === undefined ? Bun.which("uv") : deps.uv;
 	if (!uv)
-		throw new Error("uv missing; LiteLLM metrics dependency unavailable");
+		throw new Error(
+			"uv missing on PATH; install uv from https://docs.astral.sh/uv/getting-started/installation/, verify with `uv --version`, then rerun the full install",
+		);
 	const args = litellmToolInstallArgs(uv);
 	const run =
 		deps.run ??
@@ -374,10 +380,16 @@ export async function seedLocalLlm(
 	const log = logFor(ctx);
 	mkdirSync(ctx.llmHome, { recursive: true });
 	const beltEnv = join(ctx.llmHome, "belt.env");
-	if (!existsSync(beltEnv)) {
-		copyFileSync(join(kitDir(ctx), "belt.env"), beltEnv);
-		chmodSync(beltEnv, 0o600);
-		log(`+ ${beltEnv} (stub — configure before install)`);
+	if (!lstatSync(beltEnv, { throwIfNoEntry: false })) {
+		const template = readFileSync(join(kitDir(ctx), "belt.env"), "utf8");
+		const guardGb = freshWiredGuardGb();
+		atomicWrite0600(
+			beltEnv,
+			`${template.replace(/\n*$/, "\n")}BELT_WIRED_GUARD_GB=${guardGb}\n`,
+		);
+		log(
+			`+ ${beltEnv} (0600 stub; wired guard ${guardGb} GiB from host memory)`,
+		);
 	}
 	const guard = validateBeltWiredGuard(beltEnv);
 	if (!guard.ok)
@@ -495,6 +507,13 @@ export async function seedLocalLlm(
 			log(`+ ${target} (stub — fill/verify at activation)`);
 		}
 	}
+	const remotes = join(ctx.llmHome, "remotes.json");
+	if (!lstatSync(remotes, { throwIfNoEntry: false })) {
+		atomicWrite0600(remotes, '{"machines":[]}\n');
+		log(
+			`+ ${remotes} (0600 empty remote registry; add operator routes when ready)`,
+		);
+	}
 	// W889: the heal never re-ran the gateway generator — W219.2's fallback
 	// fix sat present-not-live in litellm.yaml for days (yaml generated
 	// 10-15, heal 10-19 15:30). Post-copy: sync the no-closure generator
@@ -525,6 +544,9 @@ export interface DownloadDeps {
 	models?: string[];
 	/** per-model download runner; overridable for tests */
 	spawnDownload?: (python: string, model: string) => Promise<number>;
+	/** Platform override for tests; real installs use the running host. */
+	platform?: NodeJS.Platform;
+	arch?: string;
 }
 
 const DOWNLOAD_SNIPPET =
@@ -582,6 +604,16 @@ export async function downloadModels(
 		return {
 			status: "skipped",
 			note: "not a fleet checkout — no belt/bin kit sibling to derive models from",
+		};
+	}
+	if (
+		deps.pythonPath === undefined &&
+		((deps.platform ?? process.platform) !== "darwin" ||
+			(deps.arch ?? process.arch) !== "arm64")
+	) {
+		return {
+			status: "skipped",
+			note: `MLX model download requires Apple Silicon macOS; ${deps.platform ?? process.platform}/${deps.arch ?? process.arch} cannot run mlx-lm, so no models were downloaded`,
 		};
 	}
 	const log = logFor(ctx);
