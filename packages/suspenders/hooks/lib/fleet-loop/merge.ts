@@ -33,6 +33,7 @@ import {
 	danglingReferences,
 	unresolvedSpecifiers,
 } from "./dangling-paths.ts";
+import { recordDanglingFix } from "./dangling-rejudge.ts";
 import {
 	clearStuck,
 	ensureRepairItem,
@@ -424,6 +425,29 @@ export function createMergeLadder(
 					log(
 						`DANGLING-PATHS ${b}: ${dangling.length} finding(s), ${banked.length} new edge(s) banked`,
 					);
+				// W2189: a merge that touches the classifier banks a
+				// code.dangling-fix event when open repairs exist — the
+				// dispatch hold releases on the INSTALLED receipt revision
+				// containing this sha, never on a work item's DONE.
+				const fixStore = openStore();
+				try {
+					const openRepairs = fixStore
+						.query(
+							"SELECT 1 FROM work_items WHERE project = ? AND title LIKE 'Repair dangling path%' AND state NOT IN ('DONE','CANCELLED','SUPERSEDED') LIMIT 1",
+						)
+						.get(projectIdentity(REPO));
+					if (
+						openRepairs &&
+						changed.some(
+							(f) =>
+								f.endsWith("fleet-loop/dangling-classify.ts") ||
+								f.endsWith("fleet-loop/dangling-paths.ts"),
+						)
+					)
+						recordDanglingFix(fixStore, projectIdentity(REPO), after);
+				} finally {
+					fixStore.close();
+				}
 			} catch (error) {
 				log(
 					`DANGLING-SCAN-FAILED ${b}: ${error instanceof Error ? error.message : String(error)}`,

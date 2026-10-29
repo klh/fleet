@@ -115,6 +115,7 @@ export const MUTATING_CMDS = new Set([
 	"cancel",
 	"edit",
 	"supersede",
+	"rejudge",
 	"block",
 	"unblock",
 	"split",
