@@ -1,3 +1,4 @@
+// W1294.8: ported 1:1 from cross-package-imports.test.ts to @playwright/test (@unit).
 // W649 cross-package import guard: every `from "@klh/<pkg>"` (static or
 // dynamic) under packages/X must be a DECLARED dependency of X
 // (package.json "dependencies"). The installed artifact links only the
@@ -5,14 +6,18 @@
 // dies at first run on the hub, so this guard fails the build instead.
 // Also pins the known edge set so the scan cannot silently rot to zero
 // coverage (a broken regex must fail here, not in production).
-import { expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { klhEdges, scanFleet } from "./helpers/fleet.import-graph.lib.ts";
 
-const fleet = await scanFleet(join(import.meta.dir, ".."));
+let fleet = null;
 
-test("the regex scanner and the transpiler lib agree on @klh edges (W1249)", () => {
+test.beforeAll(async () => {
+	fleet = await scanFleet(join(import.meta.dir, ".."));
+});
+
+test("the regex scanner and the transpiler lib agree on @klh edges (W1249) @unit", () => {
 	// Two independent scanners over one tree: the regex in this file and the
 	// Bun.Transpiler scan in the lib must derive the same (source → target)
 	// edge set. Disagreement = one of them rotted.
@@ -22,7 +27,7 @@ test("the regex scanner and the transpiler lib agree on @klh edges (W1249)", () 
 				`${e.sourcePkg}->${e.targetPkg}:${e.spec.split("/").slice(0, 2).join("/")}`,
 		),
 	);
-	const regex = new Set<string>();
+	const regex = new Set();
 	for (const pkg of readdirSync(
 		join(import.meta.dir, "..", "packages"),
 	).sort()) {
@@ -49,7 +54,7 @@ const PACKAGES = join(ROOT, "packages");
  *  no manifest). Dev-only is legal for checkout-only tooling (blam/tools
  *  benches) — the installed artifact never ships those paths; the shipped
  *  graph itself is proven by the CI artifact-roundtrip job. */
-function declared(pkg: string): Set<string> {
+function declared(pkg) {
 	const manifest = join(PACKAGES, pkg, "package.json");
 	if (!existsSync(manifest)) return new Set();
 	const pkgJson = JSON.parse(readFileSync(manifest, "utf8"));
@@ -62,7 +67,7 @@ function declared(pkg: string): Set<string> {
 }
 
 /** All package-local .ts files, node_modules workspace links excluded. */
-function sources(pkg: string): string[] {
+function sources(pkg) {
 	return [
 		...new Bun.Glob("**/*.ts").scanSync({
 			cwd: join(PACKAGES, pkg),
@@ -72,8 +77,8 @@ function sources(pkg: string): string[] {
 }
 
 /** @klh/* specifiers imported by a package's own sources. */
-function imported(pkg: string): Set<string> {
-	const found = new Set<string>();
+function imported(pkg) {
+	const found = new Set();
 	for (const file of sources(pkg)) {
 		const src = readFileSync(join(PACKAGES, pkg, file), "utf8");
 		for (const m of src.matchAll(
@@ -85,7 +90,7 @@ function imported(pkg: string): Set<string> {
 	return found;
 }
 
-test("every cross-package @klh import is declared by the importing package", () => {
+test("every cross-package @klh import is declared by the importing package @unit", () => {
 	for (const pkg of readdirSync(PACKAGES).sort()) {
 		if (!existsSync(join(PACKAGES, pkg, "package.json"))) continue;
 		const deps = declared(pkg);
@@ -98,7 +103,7 @@ test("every cross-package @klh import is declared by the importing package", () 
 	}
 });
 
-test("every declared @klh dependency exists as a package", () => {
+test("every declared @klh dependency exists as a package @unit", () => {
 	for (const pkg of readdirSync(PACKAGES).sort()) {
 		for (const dep of declared(pkg)) {
 			const name = dep.slice("@klh/".length);
@@ -110,9 +115,9 @@ test("every declared @klh dependency exists as a package", () => {
 	}
 });
 
-test("the guard has teeth: the known cross-package edges are detected", () => {
+test("the guard has teeth: the known cross-package edges are detected @unit", () => {
 	// Subset, not equality — new edges may land; a zero or broken scan may not.
-	const known: [string, string][] = [
+	const known = [
 		["belt", "blam"],
 		["blam", "belt"],
 		["blam", "suspenders"],
