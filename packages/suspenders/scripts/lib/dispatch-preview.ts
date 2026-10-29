@@ -61,6 +61,9 @@ export type DispatchBriefArgs = {
 	capsule: Record<string, string> | null;
 	pick: { agent?: string };
 	resumeBrief: string[];
+	/** W609/W2186: the CLAIM FENCE line rides the brief when the take minted
+	 *  an epoch (resume paths have none here — the env pin still carries it). */
+	extraBrief?: string[];
 	landing?: string;
 };
 
@@ -71,6 +74,7 @@ export const composeDispatchBrief = (
 	d: DispatchPreviewDeps,
 	a: DispatchBriefArgs,
 ): { brief: string; intel: ReturnType<typeof briefIntel> } => {
+
 	const t = performance.now();
 	try {
 		const intel = briefIntel(d.REPO, `${a.item} ${a.show.out}`);
@@ -92,6 +96,7 @@ export const composeDispatchBrief = (
 			extra: [
 				...d.routingExtra(),
 				...a.resumeBrief,
+				...(a.extraBrief ?? []),
 				...d.policyBriefExtra(projectIdentity(d.REPO)),
 			],
 		});
@@ -99,6 +104,7 @@ export const composeDispatchBrief = (
 	} finally {
 		recordPhase("brief.compose", performance.now() - t);
 	}
+
 };
 
 /** The --dry-run branch of dispatchItem, moved from dispatch-next.ts:

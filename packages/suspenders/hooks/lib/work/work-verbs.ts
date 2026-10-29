@@ -27,6 +27,8 @@ export const ITEM_FLAGS = [
 	"--effort",
 	"--tag",
 	"--title",
+	// W609/W2186: the claim fence rides done/fail/start (work-transition.ts)
+	"--claim-epoch",
 ];
 
 // ---- the verb registry (W651) -------------------------------------------

@@ -42,6 +42,7 @@ import { flagIntegratedCode } from "../hooks/lib/work/decomposition.ts";
 import { shaOnMain as gateShaOnMain } from "../hooks/lib/gates/dep-merge-gate.ts";
 import { openStore } from "../hooks/lib/govdb/govdb.ts";
 import { laneAlive } from "../hooks/lib/lanes/lane-liveness.ts";
+import { fenceBriefLine } from "../hooks/lib/work/work-transition.ts";
 import { supSid } from "../hooks/lib/lanes/laneslug.ts";
 import {
 	composeBrief,
@@ -385,6 +386,12 @@ const main = async (): Promise<void> => {
 				take.code === 0
 					? (/claim token: ([0-9a-f]{48})/.exec(take.out)?.[1] ?? null)
 					: null;
+			// W609/W2186: the claim epoch — same capture + pin channels as the
+			// token; the lane CASes done/fail/start on it (work-transition.ts).
+			const takeEpoch =
+				take.code === 0
+					? (/claim epoch: (\d+)/.exec(take.out)?.[1] ?? null)
+					: null;
 			parentToken = takeToken ?? parentToken;
 			const claimedRow = store
 				.query(
@@ -472,6 +479,9 @@ const main = async (): Promise<void> => {
 				aids: AIDS,
 				extra: [
 					...preferRoutingBriefLines(resolveRoutingPrefer(REPO)),
+					...(takeEpoch
+						? [fenceBriefLine(item, Number(takeEpoch))]
+						: []),
 					`SUPERVISION: this lane runs under micro-supervisor ${SUP} (subtree of ${PARENT}). It reads the graph + your capsule every cycle; you are reachable via coord inbox --as ${sid}.`,
 					`On a conflict or ambiguity you cannot resolve: bun ${BIN}/coord.ts emit NEED_DECISION --to ${SUP} --note "..." --as ${sid} — never silently wait.`,
 				],
@@ -483,6 +493,7 @@ const main = async (): Promise<void> => {
 				{
 					...process.env,
 					...(takeToken ? { KLH_CLAIM_TOKEN: takeToken } : {}),
+					...(takeEpoch ? { KLH_CLAIM_EPOCH: takeEpoch } : {}),
 				},
 				false,
 			);
