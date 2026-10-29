@@ -6,9 +6,10 @@
 // equality. A new .sh fails the guard until an explicit allowlist entry
 // argues why bun won't do; removing a .sh must drop its entry too, so the
 // list cannot rot silently.
-import { expect, test } from "bun:test";
+
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import {
 	LINE_LIMIT_EXEMPT,
 	lineLimitExemption,
@@ -59,7 +60,7 @@ const SH_ALLOWLIST = [
 // HTML-string DOM writes are NEVER allowed; module code and script tags
 // must load from the repo (offline LAN), never a CDN.
 // The vendored third-party bundles under /vendor/ are the pinned exception.
-const UI_LAW_PATTERNS: Array<[RegExp, string]> = [
+const UI_LAW_PATTERNS = [
 	[/\.innerHTML\s*\+?=/, ".innerHTML= — never HTML-string DOM writes"],
 	[/\.outerHTML\s*\+?=/, ".outerHTML= — never HTML-string DOM writes"],
 	[/document\.write\s*\(/, "document.write("],
@@ -69,10 +70,10 @@ const UI_LAW_PATTERNS: Array<[RegExp, string]> = [
 		"remote module import — vendor it, never CDN",
 	],
 ];
-const UI_LAW_HTML_PATTERNS: Array<[RegExp, string]> = [
+const UI_LAW_HTML_PATTERNS = [
 	[/<script[^>]+src=["']https?:/, "remote <script src> — vendor it, never CDN"],
 ];
-const UI_LAW_ALLOWLIST = [/\/vendor\//, /^tests\/law-guards\.test\.ts$/];
+const UI_LAW_ALLOWLIST = [/\/vendor\//, /^tests\/law-guards\.e2e\.ts$/];
 const UI_LAW_GLOBS = [
 	"*.ts",
 	"*.tsx",
@@ -85,10 +86,10 @@ const UI_LAW_GLOBS = [
 	"*.svg",
 ];
 
-function tracked(...patterns: string[]): string[] {
+function tracked(...patterns) {
 	const out = Bun.spawnSync(["git", "ls-files", ...patterns], { cwd: ROOT });
 	if (out.exitCode !== 0) {
-		throw new Error(`git ls-files ${pattern} failed: ${out.stderr}`);
+		throw new Error(`git ls-files ${patterns.join(" ")} failed: ${out.stderr}`);
 	}
 	return new TextDecoder()
 		.decode(out.stdout)
@@ -97,12 +98,9 @@ function tracked(...patterns: string[]): string[] {
 		.filter(Boolean);
 }
 
-test("no tracked .ts exceeds the 1500-line law", () => {
+test("no tracked .ts exceeds the 1500-line law @unit", () => {
 	const over = tracked("*.ts")
-		.map(
-			(f) =>
-				[f, readFileSync(join(ROOT, f), "utf8").split("\n").length] as const,
-		)
+		.map((f) => [f, readFileSync(join(ROOT, f), "utf8").split("\n").length])
 		.filter(([f, n]) => n > LINE_LIMIT && !lineLimitExemption(f));
 	expect(
 		over.map(([f, n]) => `${f}: ${n} > ${LINE_LIMIT}`),
@@ -110,11 +108,11 @@ test("no tracked .ts exceeds the 1500-line law", () => {
 	).toEqual([]);
 });
 
-test("line-limit scan has teeth (real tracked .ts population)", () => {
+test("line-limit scan has teeth (real tracked .ts population) @unit", () => {
 	expect(tracked("*.ts").length).toBeGreaterThan(500);
 });
 
-test("1500-law vendor exemptions stay argued and current (W1300)", () => {
+test("1500-law vendor exemptions stay argued and current (W1300) @unit", () => {
 	for (const row of LINE_LIMIT_EXEMPT) {
 		// tracked + still over the cap — an exemption for a split-away or
 		// shrunk file is stale: delete the row, never accumulate.
@@ -144,7 +142,7 @@ test("1500-law vendor exemptions stay argued and current (W1300)", () => {
 // over-cap pair: L4 reds their size today, the pin adds shrink-only
 // pressure so a decompose-in-flight reads as shrink, not entry.)
 const NEAR_CAP_LIMIT = 1200;
-const NEAR_CAP_PINNED: Record<string, number> = {
+const NEAR_CAP_PINNED = {
 	// re-pinned at the W2178 integration tip (2026-10-27): the 10-23 table
 	// predated the W1276/W1297 decompositions that moved or split most rows.
 	"packages/decant/src/ingest.ts": 1982,
@@ -158,14 +156,14 @@ const NEAR_CAP_PINNED: Record<string, number> = {
 	"packages/suspenders/deploy/hubctl.ts": 1208,
 };
 
-test("the 1200-line band stays pinned: shrink-only, no new entrants (W1238.6)", () => {
+test("the 1200-line band stays pinned: shrink-only, no new entrants (W1238.6) @unit", () => {
 	const counts = new Map(
-		tracked("*.ts").map(
-			(f) =>
-				[f, readFileSync(join(ROOT, f), "utf8").split("\n").length] as const,
-		),
+		tracked("*.ts").map((f) => [
+			f,
+			readFileSync(join(ROOT, f), "utf8").split("\n").length,
+		]),
 	);
-	const offenders: string[] = [];
+	const offenders = [];
 	for (const [f, n] of counts) {
 		const pin = NEAR_CAP_PINNED[f];
 		if (pin === undefined && n >= NEAR_CAP_LIMIT)
@@ -178,11 +176,11 @@ test("the 1200-line band stays pinned: shrink-only, no new entrants (W1238.6)", 
 			);
 		else if (pin !== undefined && n < pin && n >= NEAR_CAP_LIMIT)
 			offenders.push(
-				`${f}: ${n} shrank inside the band — tighten its NEAR_CAP_PINNED pin to ${n} in tests/law-guards.test.ts`,
+				`${f}: ${n} shrank inside the band — tighten its NEAR_CAP_PINNED pin to ${n} in tests/law-guards.e2e.ts`,
 			);
 		else if (pin !== undefined && n < NEAR_CAP_LIMIT)
 			offenders.push(
-				`${f}: ${n} left the band — drop its NEAR_CAP_PINNED entry in tests/law-guards.test.ts`,
+				`${f}: ${n} left the band — drop its NEAR_CAP_PINNED entry in tests/law-guards.e2e.ts`,
 			);
 	}
 	expect(
@@ -196,21 +194,21 @@ test("the 1200-line band stays pinned: shrink-only, no new entrants (W1238.6)", 
 		).toBe(true);
 });
 
-test("1200-line band ratchet has teeth (real pinned population)", () => {
+test("1200-line band ratchet has teeth (real pinned population) @unit", () => {
 	// a real, non-empty population — decompositions shrink it (W1298 took two
 	// files out), so the floor only rejects an emptied pin map
 	expect(Object.keys(NEAR_CAP_PINNED).length).toBeGreaterThan(5);
 });
 
-test("tracked .sh files match the pinned allowlist exactly", () => {
+test("tracked .sh files match the pinned allowlist exactly @unit", () => {
 	expect(
 		tracked("*.sh").sort(),
-		"a new .sh needs an explicit entry in tests/law-guards.test.ts (shell-script ban)",
+		"a new .sh needs an explicit entry in tests/law-guards.e2e.ts (shell-script ban)",
 	).toEqual(SH_ALLOWLIST);
 });
 
-test("no tracked code file writes HTML strings into the DOM or imports from a CDN", () => {
-	const offenders: string[] = [];
+test("no tracked code file writes HTML strings into the DOM or imports from a CDN @unit", () => {
+	const offenders = [];
 	for (const f of tracked(...UI_LAW_GLOBS)) {
 		if (UI_LAW_ALLOWLIST.some((re) => re.test(f))) continue;
 		const text = readFileSync(join(ROOT, f), "utf8");
@@ -227,7 +225,7 @@ test("no tracked code file writes HTML strings into the DOM or imports from a CD
 	).toEqual([]);
 });
 
-test("UI-law scan has teeth (real tracked code population)", () => {
+test("UI-law scan has teeth (real tracked code population) @unit", () => {
 	expect(tracked(...UI_LAW_GLOBS).length).toBeGreaterThan(500);
 });
 
@@ -236,7 +234,7 @@ test("UI-law scan has teeth (real tracked code population)", () => {
 // are exactly that; the ONE dual-stamp vocabulary (UTC Z + local twin,
 // hooks/lib/wallclock.ts) is the only allowed absolute-time form. Storage
 // stays epoch-ms. The vendored third-party bundles are the pinned exception.
-const WALLCLOCK_PATTERNS: Array<[RegExp, string]> = [
+const WALLCLOCK_PATTERNS = [
 	[/toLocaleTimeString\s*\(/, "toLocaleTimeString("],
 	[
 		/\.toLocaleString\s*\(\s*\)/,
@@ -244,8 +242,8 @@ const WALLCLOCK_PATTERNS: Array<[RegExp, string]> = [
 	],
 ];
 
-test("no tracked code file renders a bare local time without its UTC twin (W902)", () => {
-	const offenders: string[] = [];
+test("no tracked code file renders a bare local time without its UTC twin (W902) @unit", () => {
+	const offenders = [];
 	for (const f of tracked(...UI_LAW_GLOBS)) {
 		if (UI_LAW_ALLOWLIST.some((re) => re.test(f))) continue;
 		const text = readFileSync(join(ROOT, f), "utf8");
@@ -259,7 +257,7 @@ test("no tracked code file renders a bare local time without its UTC twin (W902)
 	).toEqual([]);
 });
 
-test("W902 wall-clock scan has teeth (patterns fire on the banned forms)", () => {
+test("W902 wall-clock scan has teeth (patterns fire on the banned forms) @unit", () => {
 	const samples = [
 		"new Date(x).toLocaleTimeString()",
 		"new Date(x).toLocaleString()",
@@ -285,7 +283,7 @@ import {
 	walkLicenses,
 } from "../packages/suspenders/hooks/lib/fleet-loop/license-audit.ts";
 
-test("installed dependencies stay permissive (Fleet personal-use license perimeter)", () => {
+test("installed dependencies stay permissive (Fleet personal-use license perimeter) @unit", () => {
 	const rows = walkLicenses(ROOT);
 	expect(
 		rows.length,
@@ -298,14 +296,14 @@ test("installed dependencies stay permissive (Fleet personal-use license perimet
 	).toEqual([]);
 });
 
-test("classifyLicense knows the allowlist (license guard has teeth)", () => {
+test("classifyLicense knows the allowlist (license guard has teeth) @unit", () => {
 	expect(classifyLicense("MIT")).toBe("permissive");
 	expect(classifyLicense("GPL-3.0-only")).toBe("copyleft");
 	expect(classifyLicense("")).toBe("unknown");
 	expect(PERMISSIVE.length).toBeGreaterThan(5);
 });
 
-test("vendored third-party bundles keep their license banners", () => {
+test("vendored third-party bundles keep their license banners @unit", () => {
 	const rows = verifyVendorHeaders(ROOT);
 	const missing = rows.filter((r) => r.header === "missing");
 	expect(
@@ -319,7 +317,7 @@ test("vendored third-party bundles keep their license banners", () => {
 // run — every CI clause stops enforcing. actionlint is the validator; the
 // guard rides the local law gate (CI enforces unconditionally via the
 // workflow-lint job, so a missing local binary skips rather than reds).
-test("tracked workflow files lint clean (actionlint)", async () => {
+test("tracked workflow files lint clean (actionlint) @unit", async () => {
 	if (!Bun.which("actionlint")) return; // absent locally — CI workflow-lint covers it
 	const run = Bun.spawnSync(
 		["actionlint", ...tracked(".github/workflows/*.yml")],
