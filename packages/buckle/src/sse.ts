@@ -168,9 +168,12 @@ export class SseSniffer {
 				}
 				this.semantics.observe(parsed, this.dialect);
 				this.data(parsed);
+				if (this.eventType === "error" && this.errorKind === null)
+					this.markError("in_band");
 			}
 		} catch {
 			// non-JSON data: not usage-bearing, ignore honestly
+			if (this.eventType === "error") this.markError("in_band");
 		}
 		this.eventType = "";
 	}
@@ -368,6 +371,21 @@ export function sseReframer(
 			return payload;
 		}
 	};
+	const malformedError = (
+		c: TransformStreamDefaultController<Uint8Array>,
+	): void => {
+		const error = {
+			type: "api_error",
+			code: "malformed_upstream_error",
+			message: "Upstream error event did not contain a JSON object",
+		};
+		c.enqueue(
+			encoder.encode(
+				`event: error\ndata: ${errorPayload(JSON.stringify(guardDialect === "anthropic" ? { type: "error", error } : { error }))}\n\n`,
+			),
+		);
+		rejected = true;
+	};
 
 	const drop = (reason: "ping" | "corrupt", preview: string): void => {
 		try {
@@ -404,6 +422,10 @@ export function sseReframer(
 			return;
 		}
 		if (payload.length === 0) {
+			if (evt === "error") {
+				malformedError(c);
+				return;
+			}
 			if (evt.length > 0) c.enqueue(encoder.encode(`event: ${evt}\n\n`));
 			return;
 		}
@@ -418,9 +440,17 @@ export function sseReframer(
 					return;
 				}
 			} catch {
+				if (evt === "error") {
+					malformedError(c);
+					return;
+				}
 				drop("corrupt", payload.slice(0, 80));
 				return;
 			}
+		}
+		if (evt === "error" && parsed === null) {
+			malformedError(c);
+			return;
 		}
 		// W1106 empty-stream guard (#56010): observe the re-assembled frame;
 		// a SUCCESS terminal without usable output swaps for the typed
@@ -460,7 +490,8 @@ export function sseReframer(
 			// A real source error wins over any previously held success metadata.
 			if (
 				parsed &&
-				(parsed.error != null ||
+				(evt === "error" ||
+					parsed.error != null ||
 					["error", "response.failed", "response.incomplete"].includes(
 						String(parsed.type),
 					))

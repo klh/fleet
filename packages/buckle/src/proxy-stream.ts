@@ -291,6 +291,7 @@ export function streamResponse(
 					process.env.BUCKLE_HUB_ID ?? "local",
 					ctx.rid,
 					result.candidateId,
+					result.deployment.buckle === true,
 				),
 		),
 	);
