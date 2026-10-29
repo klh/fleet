@@ -41,6 +41,7 @@ const HEARTBEAT_BORN: Record<string, string> = {
 	"zai-catalog-refresh": "W1029.1",
 	"cost-alert": "W1132",
 	"model-health-sweep": "W2194",
+	"governor-gc": "W2274",
 	"hub-update": "W2239.3",
 };
 
