@@ -323,6 +323,7 @@ export async function runDispatch(
 			``,
 			`PROTOCOL: BEFORE any edit, read AGENTS.md in the repo root and follow it (plan-first, shatter judgment, gates, done protocol, final-line vocabulary).`,
 			`Inbox: check again before finishing — coordinator and board messages still arrive after dispatch: bun ~/.claude/hooks/suspenders/bin/coord.ts inbox --as ${sid}.`,
+			`Knowledge answers: a consult answered from knowledge obliges you to report back — coord consult-reply C## --feedback resolved|failed --evidence "..." (work done names any you owe).`,
 			`Work in the EXISTING worktree ${wt} (branch ${branch}).`,
 			`Finish: bun ~/.claude/hooks/suspenders/bin/work.ts done ${item} --sha <branch-head>.`,
 			`Final line: DONE <sha> | SPLIT ${item} | BLOCKED (after 3 honest attempts, tree restored).`,

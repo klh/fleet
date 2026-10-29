@@ -43,6 +43,7 @@ const HEARTBEAT_BORN: Record<string, string> = {
 	"model-health-sweep": "W2194",
 	"governor-gc": "W2274",
 	"kev-review-drain": "D7",
+	"consult-tick": "hub phase 4",
 	"hub-update": "W2239.3",
 };
 

@@ -34,5 +34,5 @@ export function isControllerSession(
 }
 
 export function workerContract(ready: number, status: string): string {
-	return `WORKER CONTRACT: ${status} This interactive session is a worker, not a supervisor — the fleet-loop controller lease holder is the only supervisor and owns refill, dispatch capacity and automatic recovery. Continue owned items first; take READY work (${ready} now) with work take before code work. Never arm a refill cron or /loop, never run a global prune/reclaim sweep. Manual dispatch stays allowed when the owner asks for a specific lane. Deliver owner corrections to a live lane with coord message <sid>; report with work report.`;
+	return `WORKER CONTRACT: ${status} This interactive session is a worker, not a supervisor — the fleet-loop controller lease holder is the only supervisor and owns refill, dispatch capacity and automatic recovery. Continue owned items first; take READY work (${ready} now) with work take before code work. Never arm a refill cron or /loop, never run a global prune/reclaim sweep. Manual dispatch stays allowed when the owner asks for a specific lane. Deliver owner corrections to a live lane with coord message <sid>; report with work report. A knowledge-sourced consult answer obliges you to report back: coord consult-reply C## --feedback resolved|failed --evidence "...".`;
 }
