@@ -72,6 +72,7 @@ import {
 	cmdKnowledgeReviewDrain,
 	cmdKnowledgeVerify,
 } from "../coord/knowledge.ts";
+import { cmdSettings } from "../coord/settings.ts";
 import { setRest } from "../coord/shared.ts";
 import { cmdSteer } from "../coord/steer.ts";
 import { cmdSupervisor } from "../coord/supervisor.ts";
@@ -415,6 +416,13 @@ const VERBS: VerbSpec[] = [
 		usage: "usage: hubs [--label name] [--json]",
 		lax: true,
 		run: (p) => cmdHubs(p.rest),
+	}),
+	defineVerb({
+		name: "settings",
+		usage:
+			"usage: settings get <path> | set <path> <json> | unset <path> | validate | show [--effective] [--origin] | schema [--write] | migrate [--dry-run] [--stack p] [--hubs p] [--env-file p]... [--plist p]... | render-hub <label> — the per-install ~/.config/klh/settings.json",
+		lax: true,
+		run: (p) => cmdSettings(p.rest),
 	}),
 	defineVerb({
 		name: "supervisor",
