@@ -18,7 +18,7 @@ import {
 	decideSteerOrRedo,
 	lanePhase,
 	logReadOf,
-	STEER_WINDOW_MS,
+	steerWindowMs,
 	steerStateDoc,
 } from "../hooks/lib/steer-decision.ts";
 
@@ -251,8 +251,8 @@ describe("steerStateDoc", () => {
 		expect(doc).toContain("~2000 out/min");
 		expect(doc).toContain("probe alive");
 	});
-	test("STEER_WINDOW_MS is the one-steer-per-hour gate", () => {
-		expect(STEER_WINDOW_MS).toBe(3_600_000);
+	test("the steer window is config-driven: steer.min_interval_s, default 180s", () => {
+		expect(steerWindowMs({ HOME })).toBe(180_000);
 	});
 });
 

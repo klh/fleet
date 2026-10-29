@@ -8,7 +8,10 @@ import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Database } from "bun:sqlite";
 import { cleanupDirs, tmpDir } from "./helpers/fixture-kit.ts";
-import { knowledgeSearch, type KnowledgeHit } from "../hooks/lib/knowledge/knowledge.ts";
+import {
+	knowledgeSearch,
+	type KnowledgeHit,
+} from "../hooks/lib/knowledge/knowledge.ts";
 
 const HOME = tmpDir("suspenders-knowledge-");
 const REPO = tmpDir("suspenders-knowledge-repo-");
@@ -458,7 +461,10 @@ describe("knowledge search", () => {
 		const sys = run(["knowledge", "marker", "--origin-system", "mac-m5max"]);
 		expect(sys.out).toContain("k#1");
 		expect(sys.out).not.toContain("k#2");
-		const p = run(["knowledge-promote", "1"]);
+		const machine = run(["knowledge-promote", "1", "--by", "kev"]);
+		expect(machine.err).toContain("machine/session actor"); // D9
+		expect(machine.code).not.toBe(0);
+		const p = run(["knowledge-promote", "1", "--by", "owner"]);
 		expect(p.out).toContain("#1 → active");
 		expect(
 			q<{ state: string }>("SELECT state FROM knowledge WHERE id = 1")[0].state,

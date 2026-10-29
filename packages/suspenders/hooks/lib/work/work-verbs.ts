@@ -27,6 +27,8 @@ export const ITEM_FLAGS = [
 	"--effort",
 	"--tag",
 	"--title",
+	// W609/W2186: the claim fence rides done/fail/start (work-transition.ts)
+	"--claim-epoch",
 ];
 
 // ---- the verb registry (W651) -------------------------------------------
@@ -212,7 +214,7 @@ export const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "reclaim",
 		usage:
-			"usage: reclaim <id> [--reason user|crash] [--force] [--expect-owner sid] [--expect-updated-at revision] [--json] | reclaim all",
+			"usage: reclaim <id> [--reason user|crash|rate-limited] [--force] [--expect-owner sid] [--expect-updated-at revision] [--json] | reclaim all",
 		flags: [
 			...ITEM_FLAGS,
 			"--force",

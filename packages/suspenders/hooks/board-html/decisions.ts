@@ -50,30 +50,13 @@ function decAge(d){
   if (d.created_ts) return Math.max(0, Math.round((Date.now() - d.created_ts) / 1000));
   return null;
 }
-// feed failure banner (sig-guarded; never rendered as "0 pending")
-function showDecFeedError(errEl){
-  var when = decOkAt ? ago(Math.round((Date.now() - decOkAt) / 1000)) : 'never';
-  var sig = 'unavailable|' + when;
-  if (errEl.getAttribute('data-sig') !== sig) {
-    errEl.setAttribute('data-sig', sig);
-    errEl.textContent = 'decision feed unavailable — last good ' + when;
-    var rb = document.createElement('button');
-    rb.className = 'retry';
-    rb.type = 'button';
-    rb.textContent = 'retry';
-    rb.addEventListener('click', function(){ decErr = null; pollDec(); });
-    errEl.appendChild(rb);
-  }
-  errEl.style.display = 'block';
-}
 // one explicit state, never render failure as zero pending
 function renderDecisions(){
   try {
     renderDecisionsInner();
   } catch (e) {
     var errEl = byId('decErr');
-    errEl.textContent = 'decision render failed — last good data kept';
-    errEl.style.display = 'block';
+    errEl.text = 'decision render failed — last good data kept';
   }
 }
 function projBase(){
@@ -118,16 +101,16 @@ function renderDecisionsInner(){
   var errEl = byId('decErr');
   if (!decLoaded) {
     setText(st, 'loading decisions...');
-    errEl.style.display = 'none';
+    errEl.text = '';
   } else if (decErr) {
     setText(st, '');
-    showDecFeedError(errEl);
+    errEl.text = 'decision feed unavailable — last good ' + (decOkAt ? ago(Math.round((Date.now() - decOkAt) / 1000)) : 'never');
   } else if (all.length) {
     setText(st, boardQuery || hashFilter ? visibleCount + ' of ' + all.length + ' decisions shown' : all.length + ' decision' + (all.length === 1 ? '' : 's') + ' need you');
-    errEl.style.display = 'none';
+    errEl.text = '';
   } else {
     setText(st, 'No pending decisions · checked ' + ago(Math.round((Date.now() - decOkAt) / 1000)));
-    errEl.style.display = 'none';
+    errEl.text = '';
   }
   // badge always visible while pending; "(N)" in title while collapsed
   var badge = byId('needsn');

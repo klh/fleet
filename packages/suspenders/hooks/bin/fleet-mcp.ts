@@ -49,6 +49,11 @@ import {
 	type ItemTiming,
 } from "../lib/govdb/govdb.ts";
 import { unmergedDeps } from "../lib/gates/dep-merge-gate.ts";
+import {
+	KNOWLEDGE_FACT_PREFIXES,
+	mergeKnowledgeFactsReadonly,
+} from "../lib/knowledge/knowledge-facts.ts";
+import { knowledgeDbPath } from "../lib/knowledge/govdb-knowledge.ts";
 
 const VERSION = "0.1.0";
 
@@ -281,14 +286,20 @@ function coordFleet(): string {
 }
 
 function factGet(key: string): string {
-	const r = db()
-		.query("SELECT value, version, ts, source FROM facts WHERE key = ?")
-		.get(key) as {
+	const gov = db()
+		.query("SELECT key, value, version, ts, source FROM facts WHERE key = ?")
+		.all(key) as {
+		key: string;
 		value: string;
 		version: number;
 		ts: number;
 		source: string | null;
-	} | null;
+	}[];
+	// phase 3: knowledge-shaped keys live in knowledge.db
+	const r =
+		mergeKnowledgeFactsReadonly(gov, knowledgeDbPath(), [key]).find(
+			(x) => x.key === key,
+		) ?? null;
 	if (r === null) return `no fact: ${key}`;
 	return `${key} = ${r.value} (v${r.version}${r.source ? `, ${r.source}` : ""}, ${new Date(r.ts).toISOString()})`;
 }
@@ -296,11 +307,16 @@ function factGet(key: string): string {
 function factList(prefix: string | null, limit: number): string {
 	const where = prefix ? "WHERE key LIKE ?" : "";
 	const args: (string | number)[] = prefix ? [`${prefix}%`, limit] : [limit];
-	const rows = db()
+	const govRows = db()
 		.query(
 			`SELECT key, value, version FROM facts ${where} ORDER BY key LIMIT ?`,
 		)
 		.all(...args) as { key: string; value: string; version: number }[];
+	const rows = mergeKnowledgeFactsReadonly(
+		govRows,
+		knowledgeDbPath(),
+		prefix ? [prefix] : KNOWLEDGE_FACT_PREFIXES,
+	).slice(0, limit);
 	if (rows.length === 0) return `(no facts${prefix ? ` under ${prefix}` : ""})`;
 	const more = rows.length >= limit ? "+" : "";
 	const lines = rows.map(

@@ -48,33 +48,46 @@ export function archiveAndPrune(
 	const dir = spec.dir ?? archiveDir();
 	const floorSql =
 		spec.floorCol && spec.floorVal != null ? ` AND ${spec.floorCol} <= ?` : "";
+	// W2274: keyset batches — each batch is archived, then exactly that batch
+	// is deleted by rowid, so the next SELECT advances. The old shape re-read
+	// the same LIMIT window forever once more than BATCH rows were stale
+	// (DELETE ran only after the loop) — gc never finished and never pruned.
 	const sel = store.query(
-		`SELECT ${spec.cols.join(", ")} FROM ${spec.table} WHERE ${spec.tsCol} < ?${floorSql} LIMIT ${BATCH}`,
+		`SELECT rowid AS __rid, ${spec.cols.join(", ")} FROM ${spec.table} WHERE ${spec.tsCol} < ?${floorSql} AND rowid > ? ORDER BY rowid LIMIT ${BATCH}`,
 	);
-	const del = store.query(
-		`DELETE FROM ${spec.table} WHERE ${spec.tsCol} < ?${floorSql}`,
-	);
-	const params =
+	const base =
 		spec.floorCol && spec.floorVal != null
 			? [spec.cut, spec.floorVal]
 			: [spec.cut];
 	let total = 0;
 	let wrote = false;
+	let after = -1;
 	for (;;) {
-		const rows = sel.all(...params) as Record<string, unknown>[];
+		const rows = sel.all(...base, after) as Record<string, unknown>[];
 		if (!rows.length) break;
 		if (!wrote) mkdirSync(dir, { recursive: true });
 		const file = join(
 			dir,
 			`${spec.table}-${new Date().toISOString().slice(0, 10)}.ndjson`,
 		);
-		const lines = rows.map((r) => JSON.stringify(r)).join("\n");
+		const rids: number[] = [];
+		const lines = rows
+			.map(({ __rid, ...r }) => {
+				rids.push(Number(__rid));
+				return JSON.stringify(r);
+			})
+			.join("\n");
 		appendFileSync(file, `${lines}\n`);
 		wrote = true;
+		store
+			.query(
+				`DELETE FROM ${spec.table} WHERE rowid IN (${rids.map(() => "?").join(",")})`,
+			)
+			.run(...rids);
 		total += rows.length;
+		after = rids[rids.length - 1] ?? after;
 		if (rows.length < BATCH) break;
 	}
-	if (total) del.run(...params);
 	return total;
 }
 

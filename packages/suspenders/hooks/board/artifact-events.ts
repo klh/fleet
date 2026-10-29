@@ -5,6 +5,7 @@
 // become artifact evidence (fail-soft per event).
 import type { GovernorStore } from "../lib/govdb/govdb.ts";
 import type { ArtifactEvidence } from "../lib/work/work-execution.ts";
+import { memoOnEvents } from "./events-memo.ts";
 
 type Event = {
 	ts: number;
@@ -14,7 +15,14 @@ type Event = {
 	payload: string | null;
 };
 
-export function artifactEvidence(db: GovernorStore): ArtifactEvidence[] {
+// both readers poll (tasks feed, attempt timelines); the scan + JSON parse of
+// up to 5000 payloads reruns only when the bus high-water moves
+export const artifactEvidence = (
+	db: GovernorStore,
+): readonly ArtifactEvidence[] =>
+	memoOnEvents("artifactEvidence", db, () => scanArtifacts(db));
+
+function scanArtifacts(db: GovernorStore): ArtifactEvidence[] {
 	const artifacts: ArtifactEvidence[] = [];
 	const rows = db
 		.query(

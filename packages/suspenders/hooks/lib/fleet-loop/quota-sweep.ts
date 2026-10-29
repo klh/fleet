@@ -35,16 +35,38 @@ const LIVE_HB_MS = 30 * 60_000; // sessions heartbeat window (bus parity)
 const TAIL_BYTES = 8192; // terminal signatures live in the log's last words
 const EMIT_DEDUP_MS = 24 * 3600_000; // one quota.exhausted event per sid/day
 
-// terminal credit/quota shapes, grounded in real lane-log deaths
-// (API Error (429) + litellm.RateLimitError bodies, zai 1210 balance) —
-// HARD always qualifies; a bare 429 qualifies only on an error-shaped line
-// so prose quoting "429" in a report never counts.
-const HARD_SIG =
-	/rate_limit_error|insufficient[ _](?:credit|balance|quota)|credit balance (?:is )?too low|exceeded your current quota|quota (?:exhaust|exceed)|billing (?:hard )?limit/i;
-const SOFT_429 = /\b429\b/;
+// Two limit classes, grounded in real lane-log deaths — never conflated:
+//   quota        genuine balance/plan walls (insufficient balance/credit,
+//                exceeded current quota, billing limit, zai 1113): the
+//                provider will not serve again until a top-up or reset.
+//   rate-limited concurrency/request-rate pressure (rate_limit_error, zai
+//                1302 "Rate limit reached for requests" / 1305, a bare 429):
+//                work continues the same day — never quota.exhausted, never
+//                a dispatch-stop signal (buckle publishes per-pool discovered
+//                concurrency for dispatch sizing instead).
+// Bare codes qualify only on an error-shaped line, so prose quoting "429"
+// or "1302" in a report never counts.
+const QUOTA_SIG =
+	/insufficient[ _](?:credit|balance|quota)|credit balance (?:is )?too low|exceeded your current quota|quota (?:exhaust|exceed)|billing (?:hard )?limit/i;
+const QUOTA_CODE = /\b1113\b/;
+const RATE_SIG = /rate_limit_error|rate limit reached/i;
+const RATE_CODE = /\b(?:429|1302|1305)\b/;
+const errorShaped = (text: string): boolean => /\b(?:error|code)\b/i.test(text);
+
+export type LimitKind = "quota" | "rate-limited";
+
+/** Classify a text fragment: quota wins over rate-limited (a 429 body that
+ *  names an insufficient balance is a quota wall). */
+export const limitKindOf = (text: string): LimitKind | null => {
+	if (QUOTA_SIG.test(text) || (QUOTA_CODE.test(text) && errorShaped(text)))
+		return "quota";
+	if (RATE_SIG.test(text) || (RATE_CODE.test(text) && errorShaped(text)))
+		return "rate-limited";
+	return null;
+};
 
 export const lineIsQuota = (line: string): boolean =>
-	HARD_SIG.test(line) || (SOFT_429.test(line) && /\berror\b/i.test(line));
+	limitKindOf(line) === "quota";
 
 export type AuditRowLike = {
 	ts: string;
@@ -56,11 +78,15 @@ export type AuditRowLike = {
 	status?: number | null;
 };
 
+export const auditRowKind = (r: AuditRowLike): LimitKind | null => {
+	const text = `${r.error_code ?? ""} ${r.err ?? ""} ${r.why ?? ""}`;
+	const kind = limitKindOf(text);
+	if (kind) return kind;
+	return r.status === 429 ? "rate-limited" : null;
+};
+
 export const auditRowIsQuota = (r: AuditRowLike): boolean =>
-	r.status === 429 ||
-	HARD_SIG.test(`${r.error_code ?? ""} ${r.err ?? ""} ${r.why ?? ""}`) ||
-	(SOFT_429.test(`${r.error_code ?? ""} ${r.err ?? ""}`) &&
-		/\berror\b/i.test(`${r.error_code ?? ""} ${r.err ?? ""}`));
+	auditRowKind(r) === "quota";
 
 // W459.1: projectRootOf moved to govdb.ts — the ONE path getter (this module
 // re-exports it for existing importers).
@@ -73,6 +99,7 @@ const scrub = (s: string): string => s.replace(/\/Users\/[^/\s'"]+/g, "~");
 
 export type QuotaHit = {
 	source: "lane-log" | "transcript" | "route_audit";
+	kind: LimitKind;
 	ts: number;
 	detail: string;
 };
@@ -80,6 +107,8 @@ export type QuotaHit = {
 export type SidVerdict = {
 	sid: string;
 	exhausted: boolean;
+	/** dead lane whose only limit evidence is a rate limit (never quota) */
+	rateLimited: boolean;
 	live: boolean;
 	hits: QuotaHit[];
 	claims: Array<{
@@ -128,6 +157,7 @@ export type SweepDeps = {
 		root: string;
 		owner: string;
 		revision: number;
+		reason: "crash" | "rate-limited";
 	}) => { code: number; out: string };
 	recentEmit?: (db: Database, sid: string, now: number) => boolean;
 };
@@ -312,7 +342,8 @@ export async function quotaSweep(deps: SweepDeps): Promise<SweepReport> {
 			}>;
 			bdb.close();
 			for (const r of rows) {
-				if (!auditRowIsQuota(r)) continue;
+				const kind = auditRowKind(r);
+				if (!kind) continue;
 				const text = `${r.actor ?? ""} ${r.hint ?? ""} ${r.why ?? ""} ${r.err ?? ""}`;
 				const hitSid = [...bySid.keys()].find((s) => s && text.includes(s));
 				if (!hitSid) {
@@ -328,6 +359,7 @@ export async function quotaSweep(deps: SweepDeps): Promise<SweepReport> {
 				const list = auditHits.get(hitSid) ?? [];
 				list.push({
 					source: "route_audit",
+					kind,
 					ts: Date.parse(r.ts) || now,
 					detail,
 				});
@@ -351,9 +383,11 @@ export async function quotaSweep(deps: SweepDeps): Promise<SweepReport> {
 			const text = readFileSync(logPath, "utf8");
 			if (/^DONE\b/.test(lastNonEmpty(text))) finished = true;
 			for (const line of text.slice(-TAIL_BYTES).split("\n")) {
-				if (lineIsQuota(line))
+				const kind = limitKindOf(line);
+				if (kind)
 					hits.push({
 						source: "lane-log",
+						kind,
 						ts: mtimeMs,
 						detail: scrub(line.slice(0, 160)),
 					});
@@ -363,36 +397,46 @@ export async function quotaSweep(deps: SweepDeps): Promise<SweepReport> {
 		if (!hits.some((h) => h.source === "lane-log")) {
 			const tail = transcriptTail(projectsDir, sid);
 			if (tail)
-				for (const line of tail.text.split("\n"))
-					if (lineIsQuota(line))
+				for (const line of tail.text.split("\n")) {
+					const kind = limitKindOf(line);
+					if (kind)
 						hits.push({
 							source: "transcript",
+							kind,
 							ts: tail.mtimeMs,
 							detail: scrub(line.slice(0, 160)),
 						});
+				}
 		}
 		const live = logFresh || probeLive(sid);
 		const waiting = deps.waitingSids?.has(sid) === true;
-		let exhausted = hits.length > 0 && !live && !finished;
+		const quotaHits = hits.filter((h) => h.kind === "quota");
+		let exhausted = quotaHits.length > 0 && !live && !finished;
+		let rateLimited =
+			hits.length > 0 && quotaHits.length === 0 && !live && !finished;
 		let note: string;
 		if (finished) {
 			exhausted = false;
 			note = "lane finished (DONE) — claims close via done/orphaned, not quota";
-		} else if (exhausted && waiting) {
+		} else if ((exhausted || rateLimited) && waiting) {
 			exhausted = false;
+			rateLimited = false;
 			note =
-				"quota signatures + lane dead but holds an OPEN decision — alert only, no reclaim";
+				"limit signatures + lane dead but holds an OPEN decision — alert only, no reclaim";
 		} else if (exhausted) {
-			note = `quota-exhausted: ${hits[hits.length - 1]?.detail ?? "signature"}`;
+			note = `quota-exhausted: ${quotaHits[quotaHits.length - 1]?.detail ?? "signature"}`;
+		} else if (rateLimited) {
+			note = `rate-limited (concurrency, not quota): ${hits[hits.length - 1]?.detail ?? "signature"}`;
 		} else if (hits.length > 0 && live) {
 			note =
-				"quota signatures but lane live (backoff/retry) — watched, not reclaimed";
+				"limit signatures but lane live (backoff/retry) — watched, not reclaimed";
 		} else {
 			note = "clean";
 		}
 		const verdict: SidVerdict = {
 			sid,
 			exhausted,
+			rateLimited,
 			live,
 			hits,
 			claims,
@@ -400,8 +444,10 @@ export async function quotaSweep(deps: SweepDeps): Promise<SweepReport> {
 		};
 		verdicts.push(verdict);
 
-		// 4. act — only on an exhausted verdict, only when asked
-		if (!exhausted || !deps.act) continue;
+		// 4. act — only on a dead-lane verdict, only when asked. A rate-limited
+		// death reclaims with its own reason and never emits quota.exhausted.
+		if (!(exhausted || rateLimited) || !deps.act) continue;
+		const reason = exhausted ? "crash" : "rate-limited";
 		if (
 			claims.some((claim) =>
 				automaticRecoveryPaused(projectRootOf(claim.project)),
@@ -422,6 +468,7 @@ export async function quotaSweep(deps: SweepDeps): Promise<SweepReport> {
 				root: string;
 				owner: string;
 				revision: number;
+				reason: "crash" | "rate-limited";
 			}) => {
 				const bin = new URL("../../bin/work.ts", import.meta.url).pathname;
 				const p = Bun.spawnSync(
@@ -431,7 +478,7 @@ export async function quotaSweep(deps: SweepDeps): Promise<SweepReport> {
 						"reclaim",
 						claim.id,
 						"--reason",
-						"crash",
+						claim.reason,
 						"--expect-owner",
 						claim.owner,
 						"--expect-updated-at",
@@ -458,6 +505,7 @@ export async function quotaSweep(deps: SweepDeps): Promise<SweepReport> {
 				root: projectRootOf(c.project),
 				owner: c.owner,
 				revision: c.revision,
+				reason,
 			});
 			const released =
 				r.code === 0 &&
@@ -475,7 +523,7 @@ export async function quotaSweep(deps: SweepDeps): Promise<SweepReport> {
 				detail: `${c.id} ${released ? "→ READY (receipt verified)" : `RECLAIM FAILED (${r.out.slice(0, 80)})`}`,
 			});
 		}
-		if (!recentEmit(deps.db, sid, now)) {
+		if (exhausted && !recentEmit(deps.db, sid, now)) {
 			const held = failedIds.length > 0 ? `; held: ${failedIds.join(",")}` : "";
 			const eventNote = `${sid} ${verdict.note}; claims ${releasedIds.join(",") || "none"} → READY, dispatch refills${held}`;
 			const doEmit =
@@ -496,9 +544,9 @@ export async function quotaSweep(deps: SweepDeps): Promise<SweepReport> {
 	// one aggregated broadcast per sweep (live lanes' inboxes + SessionStart)
 	// W573: only receipt-verified releases read as "reclaimed" here — a held
 	// or failed reclaim is listed as held, never as fleet pickup.
-	if (deps.act && verdicts.some((v) => v.exhausted)) {
+	if (deps.act && verdicts.some((v) => v.exhausted || v.rateLimited)) {
 		const lines = verdicts
-			.filter((v) => v.exhausted)
+			.filter((v) => v.exhausted || v.rateLimited)
 			.map((v) => {
 				const reclaimed = v.claims
 					.filter((c) => releasedByClaim.get(c.id) === true)
@@ -509,7 +557,7 @@ export async function quotaSweep(deps: SweepDeps): Promise<SweepReport> {
 				return `  ${v.sid}: ${v.note}; reclaimed ${reclaimed.join(",") || "nothing"}${heldOut.length > 0 ? `; held: ${heldOut.join(",")}` : ""}`;
 			})
 			.join("\n");
-		const note = `[quota-sweep] quota-exhausted lane(s) picked up (claims → READY, dispatch refills):\n${lines}`;
+		const note = `[quota-sweep] dead limit-hit lane(s) picked up (claims → READY, dispatch refills):\n${lines}`;
 		const doBroadcast =
 			deps.broadcast ??
 			(async (n: string) => {

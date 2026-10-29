@@ -29,6 +29,11 @@ import {
 	cmdConsults,
 	cmdWhoKnows,
 } from "../coord/consult.ts";
+import {
+	cmdAsk,
+	cmdConsultDefer,
+	cmdConsultTick,
+} from "../coord/consult-v2-cli.ts";
 import { cmdCoordinate } from "../coord/coordination.ts";
 import { cmdExecutorCv } from "../coord/executor-cv.ts";
 import {
@@ -64,8 +69,10 @@ import {
 	cmdKnowledgePropose,
 	cmdKnowledgeReprocess,
 	cmdKnowledgeRetire,
+	cmdKnowledgeReviewDrain,
 	cmdKnowledgeVerify,
 } from "../coord/knowledge.ts";
+import { cmdSettings } from "../coord/settings.ts";
 import { setRest } from "../coord/shared.ts";
 import { cmdSteer } from "../coord/steer.ts";
 import { cmdSupervisor } from "../coord/supervisor.ts";
@@ -105,7 +112,8 @@ const VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "subscribe",
-		usage: "usage: subscribe --as <sid> [--scope s] [--kinds a,b]",
+		usage:
+			"usage: subscribe --as <sid> [--scope s] [--kinds a,b] | subscribe --machine (one socket per machine, fans out to every session log)",
 		lax: true,
 		run: (p) => cmdSubscribe(p.rest),
 	}),
@@ -221,6 +229,27 @@ const VERBS: VerbSpec[] = [
 		run: (p) => cmdConsultReply(p.rest),
 	}),
 	defineVerb({
+		name: "ask",
+		usage:
+			'usage: ask "<question>" --to <sid>|<sid,sid>|fleet|hub:<name> [--kind ask|tell|bank] [--priority high|normal|low] [--non-blocking] [--scope s] --as <sid> — consult v2: oracle first, high+direct = interrupt (steer), else BTW digest',
+		lax: true,
+		run: (p) => cmdAsk(p.rest),
+	}),
+	defineVerb({
+		name: "consult-defer",
+		usage:
+			'usage: consult-defer <C##> --reason "<why>" --as <recipient-sid> — explicit defer of an interrupt consult',
+		lax: true,
+		run: (p) => cmdConsultDefer(p.rest),
+	}),
+	defineVerb({
+		name: "consult-tick",
+		usage:
+			"usage: consult-tick — flush queued interrupts whose window opened (coalesced) and escalate un-acked ones",
+		lax: true,
+		run: (p) => cmdConsultTick(p.rest),
+	}),
+	defineVerb({
 		name: "consults",
 		usage: "usage: consults --as <sid>",
 		lax: true,
@@ -253,7 +282,7 @@ const VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "knowledge-promote",
-		usage: "usage: knowledge-promote <id>",
+		usage: "usage: knowledge-promote <id> --by <human>",
 		lax: true,
 		run: (p) => cmdKnowledgePromote(p.rest),
 	}),
@@ -262,6 +291,13 @@ const VERBS: VerbSpec[] = [
 		usage: "usage: knowledge-retire <id> [--superseded-by <id>]",
 		lax: true,
 		run: (p) => cmdKnowledgeRetire(p.rest),
+	}),
+	defineVerb({
+		name: "knowledge-review-drain",
+		usage:
+			"usage: knowledge-review-drain [--limit n] — re-ask Kev for entries parked while it was unavailable (D7)",
+		lax: true,
+		run: () => cmdKnowledgeReviewDrain(),
 	}),
 	defineVerb({
 		name: "knowledge-grade",
@@ -319,6 +355,36 @@ const VERBS: VerbSpec[] = [
 		run: (p) => cmdKnowledgeConsolidate(p.rest),
 	}),
 	defineVerb({
+		// fork G: the idle-time distiller (lazy import — coord startup stays lean)
+		name: "knowledge-distill",
+		usage: "usage: knowledge-distill status|run|pause|resume|watch [--help]",
+		lax: true,
+		run: async (p) => {
+			const m = await import("../lib/knowledge/distill/cli.ts");
+			return m.dispatchSub(
+				"knowledge-distill",
+				"idle distiller:",
+				m.DISTILL_VERBS,
+				p.rest,
+			);
+		},
+	}),
+	defineVerb({
+		name: "knowledge-graph",
+		usage:
+			"usage: knowledge-graph about|neighbours|path|contradictions [--help]",
+		lax: true,
+		run: async (p) => {
+			const m = await import("../lib/knowledge/distill/cli.ts");
+			return m.dispatchSub(
+				"knowledge-graph",
+				"knowledge graph:",
+				m.GRAPH_VERBS,
+				p.rest,
+			);
+		},
+	}),
+	defineVerb({
 		name: "knowledge-reprocess",
 		usage: "usage: knowledge-reprocess [--apply]",
 		switches: ["--apply"],
@@ -352,6 +418,13 @@ const VERBS: VerbSpec[] = [
 		run: (p) => cmdHubs(p.rest),
 	}),
 	defineVerb({
+		name: "settings",
+		usage:
+			"usage: settings get <path> | set <path> <json> | unset <path> | validate | show [--effective] [--origin] | schema [--write] | migrate [--dry-run] [--stack p] [--hubs p] [--env-file p]... [--plist p]... | render-hub <label> — the per-install ~/.config/klh/settings.json",
+		lax: true,
+		run: (p) => cmdSettings(p.rest),
+	}),
+	defineVerb({
 		name: "supervisor",
 		usage: "usage: supervisor ensure [service...] | status [--json]",
 		lax: true,
@@ -360,7 +433,7 @@ const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "project",
 		usage:
-			"usage: project identity | project rekey <old> <new> | project enroll|bind|verify",
+			"usage: project identity | rekey <old> <new> | enroll|bind|verify | register|unregister|list (fleet-loop registry)",
 		lax: true,
 		run: (p) => cmdProject(p.rest),
 	}),
@@ -438,7 +511,7 @@ await runCli({
 		"  bootstrap --as <sid> --name <label> stamps a user-facing lane name (coord fleet + the board show it)",
 		"  coordinate --topic work|claims|capacity — bounded peer-coordination round (W977.1); answer via consult-reply, bounded wait = coord wait --kinds consult.answer",
 		"  executor-cv [--apply] — the executor trust tally folded from work events (W620)",
-		"  project identity | project rekey <old> <new> — graph identity migration (W428)",
+		"  project identity | project rekey <old> <new> — graph identity migration (W428); project register|unregister|list — the hub fleet-loop registry",
 		"  project enroll|bind|verify — managed-project enrollment pilot (W459.5, docs/identity-enrollment-pilot.md)",
 	].join("\n"),
 	onVerb: (_name, p) => {

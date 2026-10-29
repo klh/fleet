@@ -42,7 +42,10 @@ import { traceErrorResponse } from "./error-trace.ts";
 import { pricerOf } from "./cost.ts";
 import { z } from "zod";
 import type { RouteHint } from "./hints.ts";
-import { MAX_REQUEST_BODY_BYTES } from "./ingress-body.ts";
+import {
+	boundedIngressRequest,
+	MAX_REQUEST_BODY_BYTES,
+} from "./ingress-body.ts";
 import { Ledger } from "./ledger.ts";
 import { ObservationOutbox } from "./observe.ts";
 import { type GatewayPolicy, loadGatewayPolicy, loadPrefs } from "./policy.ts";
@@ -105,6 +108,13 @@ export const ServerDataOptsSchema = z.object({
 	port: z.number().int().min(0).max(65535).optional(),
 	/** Test seam for the app-owned request-body deadline; production uses 120s. */
 	ingressBodyTimeoutMs: z.number().int().positive().optional(),
+	/** Tighten-only test seam for proving relayed 413s; production uses 32 MiB. */
+	ingressBodyMaxBytes: z
+		.number()
+		.int()
+		.min(1)
+		.max(MAX_REQUEST_BODY_BYTES)
+		.optional(),
 	/** W1118 #55606: admission slot lease (ms) — BUCKLE_SLOT_LEASE_MS
 	 *  overrides; default 120s. Tests shrink it for deterministic sweeps. */
 	slotLeaseMs: z.number().int().positive().optional(),
@@ -444,9 +454,12 @@ export function startServer(opts: ServerOpts = {}): ReturnType<
 	const server = Bun.serve({
 		hostname,
 		port,
-		// W199.2: the explicit body cap — over-cap requests get Bun's 413 and
-		// never reach the governance gate, the ledger or the pool.
-		maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
+		// Bun's pre-fetch 413 cannot carry a trace. The outer fetch guard
+		// enforces the same 32 MiB cap before route/auth; Infinity prevents a
+		// second, untraceable limit from firing first. Malformed raw HTTP can
+		// still be rejected by Bun's parser before fetch (400); that is a
+		// transport boundary, not a Buckle-generated error.
+		maxRequestBodySize: Infinity,
 		// W1106 (owner directive 2026-10-21): Bun's HTTP idle timer is OFF
 		// for every request — a fixed connection cutoff cannot arbitrate
 		// quiet LLM streams (Bun ignores outgoing bytes; the ~120s fleet
@@ -455,9 +468,20 @@ export function startServer(opts: ServerOpts = {}): ReturnType<
 		idleTimeout: BUN_IDLE_TIMEOUT,
 		fetch: async (req) => {
 			try {
+				const bounded = await boundedIngressRequest(
+					req,
+					opts.ingressBodyMaxBytes ?? MAX_REQUEST_BODY_BYTES,
+					opts.ingressBodyTimeoutMs,
+				);
+				if (!bounded.ok)
+					return traceErrorResponse(
+						req,
+						errorResponse(bounded.status, bounded.why, bounded.code),
+						deps.hubId ?? "local",
+					);
 				return await traceErrorResponse(
 					req,
-					await inner(req),
+					await inner(bounded.request),
 					deps.hubId ?? "local",
 				);
 			} catch {

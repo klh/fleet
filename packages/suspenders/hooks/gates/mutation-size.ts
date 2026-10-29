@@ -4,6 +4,7 @@
 // 60-line Edit lands silently and disk stays wrong until a re-read. New files
 // are exempt (nothing on disk to corrupt). SUSPENDERS_MAX_MUTATION=<N> sets
 // the cap; 0 disables the gate.
+import { setting } from "@klh/settings";
 import { deny, type HookInput } from "../lib/hookio.ts";
 import { existsSync, readFileSync } from "node:fs";
 
@@ -41,7 +42,7 @@ export function mutationCap(raw: string | undefined): number {
 export function mutationSizeGate(hook: HookInput): void {
 	const tool = hook.tool_name;
 	if (tool !== "Edit" && tool !== "Write") return;
-	const cap = mutationCap(process.env.SUSPENDERS_MAX_MUTATION);
+	const cap = setting("gates.max_mutation_lines");
 	if (cap === 0) return;
 	const ti = (hook.tool_input ?? {}) as EditWriteInput;
 	const F = ti.file_path ?? ti.notebook_path ?? "";

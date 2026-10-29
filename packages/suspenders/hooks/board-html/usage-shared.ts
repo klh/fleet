@@ -5,6 +5,7 @@
 // share.
 import { type CSSResultGroup, css, html, type TemplateResult } from "lit";
 import type { UsagePanels, UsageSeg } from "../bin/usage-chrome.ts";
+import { byId } from "./board-dom.ts";
 
 // ─── shared payload read ──────────────────────────────────────────────────
 export interface PanelRoot {
@@ -13,9 +14,10 @@ export interface PanelRoot {
 	timeline?: number[][];
 	byHour?: number[][];
 	panels?: UsagePanels;
+	head?: unknown;
 }
 export const readPayload = (): Partial<PanelRoot> | null => {
-	const el = document.getElementById("usage-data");
+	const el = byId("usage-data");
 	if (!el) return null;
 	try {
 		return JSON.parse(el.textContent ?? "") as Partial<PanelRoot>;

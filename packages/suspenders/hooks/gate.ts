@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 // ~/.claude/hooks/gate.ts — THE single hook entrypoint.
-// Every hook registration is `bun gate.ts <event>`; this file owns stdin,
-// dispatch, and nothing else. Gate logic lives in gates/*.ts, contracts in
-// lib/hookio.ts, execution in lib/run.ts. One pattern everywhere.
+// Every hook registration is `bun gate.ts <event>`; this file owns stdin and
+// nothing else. The event switch lives in gate-dispatch.ts (lazy per-event
+// imports), gate logic in gates/*.ts, contracts in lib/hookio.ts.
 //
 //   bun gate.ts pre-bash    PreToolUse  (Bash: secrets/governor-lease/edit/skill/tool gates)
 //   bun gate.ts pre-files   PreToolUse  (Edit|Write|NotebookEdit: leases → mutation-size →
@@ -14,126 +14,26 @@
 //                            offset per lane)
 //   bun gate.ts stop        Stop        (claim-done gate)
 //   bun gate.ts session     SessionStart (optional operator motd)
-import { readHook, allow } from "./lib/hookio.ts";
-import { bashGate } from "./gates/bash.ts";
-import { filesGate } from "./gates/files.ts";
-import { governorGate } from "./gates/governor.ts";
-import { readGate } from "./gates/read.ts";
-import { stopGate } from "./gates/stop.ts";
-import { postFailGate } from "./gates/post-fail.ts";
-import { pushGate } from "./gates/push.ts";
-import { preCompactGate } from "./gates/precompact.ts";
-import { preFilesChain } from "./gates/chain.ts";
-import { runawayGate } from "./gates/runaway.ts";
-import { skillLogGate } from "./gates/skill-log.ts";
+//
+// Hub-of-one phase 5: with SUSPENDERS_GATE_DAEMON=1 the hot events
+// (lib/gate-daemon/schema.ts DAEMON_EVENTS) are evaluated by the warm hub
+// governor (store-server POST /gate/<event>, loopback only). Any daemon
+// failure falls back to evaluating the same gate here — never fail-open.
+import { gateViaDaemon } from "./lib/gate-daemon/client.ts";
+import { parseHook } from "./lib/hookio.ts";
 
-const hook = await readHook();
 const event = process.argv[2] ?? "";
+const raw = await new Response(Bun.stdin).text();
 
-switch (event) {
-	// biome-ignore lint/suspicious/noFallthroughSwitchClause: bashGate is `: never` — the call ends the case
-	case "pre-bash":
-		bashGate(hook); // exits: single-gate event (deny/nudge/allow)
-	// biome-ignore lint/suspicious/noFallthroughSwitchClause: runawayGate is `: never` — the call ends the case
-	case "runaway":
-		runawayGate(hook); // W830: transcript-backed repeat/fail-streak/dollar breaker (lanes)
-	// biome-ignore lint/suspicious/noFallthroughSwitchClause: skillLogGate is `: never` — the call ends the case
-	case "pre-skill":
-		skillLogGate(hook); // W1144: Skill-invocation instrumentation (NDJSON append, always allows)
-	// biome-ignore lint/suspicious/noFallthroughSwitchClause: preFilesChain is `: never` — the call ends the case
-	case "pre-files":
-		preFilesChain(hook); // W14 chain — one process, allow() closes
-	// biome-ignore lint/suspicious/noFallthroughSwitchClause: filesGate is `: never` — the call ends the case
-	case "post-files":
-		filesGate(hook);
-	// biome-ignore lint/suspicious/noFallthroughSwitchClause: postFailGate is `: never` — the call ends the case
-	case "post-fail":
-		postFailGate(hook); // W514: tool-failure counter + anti-thrash guidance
-	// biome-ignore lint/suspicious/noFallthroughSwitchClause: pushGate is `: never` — the call ends the case
-	case "push":
-		pushGate(hook); // W417.4: tail new subscribe-log lines into context
-	// biome-ignore lint/suspicious/noFallthroughSwitchClause: allow()/exit end this native hook on every path
-	case "claude-wake": {
-		const { waitForClaudeWake } = await import(
-			"./lib/executors/claude-wake.ts"
-		);
-		const { hookLaneId } = await import("./lib/lanes/subscribe-attach.ts");
-		const text = await waitForClaudeWake(hookLaneId(hook));
-		if (text) {
-			process.stderr.write(`${text}\n`);
-			process.exit(2); // asyncRewake delivers a native system reminder
-		}
-		allow();
-	}
-	// biome-ignore lint/suspicious/noFallthroughSwitchClause: allow() is `: never` — the case always exits
-	case "pre-read":
-		readGate(hook); // W110: void — fat-read deny / re-read nudge, else falls through
-		allow();
-	// biome-ignore lint/suspicious/noFallthroughSwitchClause: governorGate is `: never` — the call ends the case
-	case "governor":
-		governorGate(hook); // standalone registration (MultiEdit matcher) — no longer chains
-		allow();
-	// biome-ignore lint/suspicious/noFallthroughSwitchClause: stopGate is `: never` — the call ends the case
-	case "stop":
-		stopGate(hook);
-	// biome-ignore lint/suspicious/noFallthroughSwitchClause: preCompactGate is `: never` — the call ends the case
-	case "precompact":
-		preCompactGate(hook); // W642: flush lane state to .fleet/state-<sid>.md pre-compaction
-	// biome-ignore lint/suspicious/noFallthroughSwitchClause: codexGate never resolves — await parks the case
-	case "codex": {
-		// W73 codex adapter — dialect bound by argv (`gate.ts codex <mode>`):
-		// payload normalization + decision translation + fleet sid resolution
-		// live in gates/codex.ts + lib/codex.ts; gates keep zero codex knowledge.
-		const { codexGate } = await import("./dialects/codex/gate.ts");
-		await codexGate(process.argv[3] ?? "", hook as Record<string, unknown>);
-	}
-	// biome-ignore lint/suspicious/noFallthroughSwitchClause: copilotGate never resolves — await parks the case
-	case "copilot": {
-		// W296 copilot adapter — dialect bound by argv (`gate.ts copilot <mode>`):
-		// modes are matcher-routed (pre-bash/pre-files/pre-read/post-files/
-		// session/session-end/stop), mirroring Claude's own settings.example.json
-		// wiring rather than codex's content-sniffed pre-tool/post-tool pair.
-		const { copilotGate } = await import("./dialects/copilot/gate.ts");
-		await copilotGate(process.argv[3] ?? "", hook as Record<string, unknown>);
-	}
-	// biome-ignore lint/suspicious/noFallthroughSwitchClause: grokGate never resolves - await parks the case
-	case "grok": {
-		// W296 grok-cli adapter - dialect bound by argv (`gate.ts grok <mode>`):
-		// payload normalization + decision translation + fleet sid resolution
-		// live in gates/grok.ts + lib/grok.ts; gates keep zero grok knowledge.
-		const { grokGate } = await import("./dialects/grok/gate.ts");
-		await grokGate(process.argv[3] ?? "", hook as Record<string, unknown>);
-	}
-	// biome-ignore lint/suspicious/noFallthroughSwitchClause: clineGate never resolves — await parks the case
-	case "cline": {
-		// W296 cline adapter — dialect bound by argv (`gate.ts cline <mode>`):
-		// payload normalization + decision translation + fleet sid resolution
-		// live in gates/cline.ts + lib/cline.ts; gates keep zero cline knowledge.
-		const { clineGate } = await import("./dialects/cline/gate.ts");
-		await clineGate(process.argv[3] ?? "", hook as Record<string, unknown>);
-	}
-	// biome-ignore lint/suspicious/noFallthroughSwitchClause: context()/exit is `: never` — the case always exits
-	case "session": {
-		// optional operator motd — drop a file at ~/.cache/claude-governor/motd.md
-		// and it surfaces at every session start; absent file = silent no-op
-		const { existsSync, statSync, readFileSync } = await import("node:fs");
-		const motd = `${process.env.HOME ?? ""}/.cache/claude-governor/motd.md`;
-		if (existsSync(motd) && statSync(motd).size > 0) {
-			const { context } = await import("./lib/hookio.ts");
-			context(readFileSync(motd, "utf8").slice(0, 2000), "SessionStart");
-		} else {
-			process.stdout.write("{}");
-			process.exit(0);
-		}
-	}
-	// biome-ignore lint/suspicious/noFallthroughSwitchClause: askGate exits the process on every path — the await parks the case like the dialect gates
-	case "ask": {
-		// W817 ask-in-session: UserPromptSubmit fleet-meta triage (kev-gated)
-		// — routes owner questions to the coordinator via the consult plane
-		const { askGate } = await import("./gates/ask.ts");
-		await askGate(hook);
-	}
-	default:
-		process.stdout.write("{}");
-		process.exit(0);
+const remote = await gateViaDaemon(event, raw);
+if (remote) {
+	if (remote.stdout) process.stdout.write(remote.stdout);
+	if (remote.stderr) process.stderr.write(remote.stderr);
+	process.exit(remote.code);
 }
+
+const { dispatchGate } = await import("./gate-dispatch.ts");
+await dispatchGate(event, parseHook(raw));
+// every gate decides and exits; a gate that returned is an allow
+process.stdout.write("{}");
+process.exit(0);

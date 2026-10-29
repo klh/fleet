@@ -15,6 +15,23 @@ import {
 	ROLL_KEY_HEADER,
 } from "../lib/knowledge/knowledge-roll.ts";
 import { openKnowledgeDb } from "../lib/knowledge/govdb-knowledge.ts";
+import { landGraphWire } from "../lib/knowledge/distill/sync.ts";
+import { promoteActorError } from "../lib/knowledge/promote-actor.ts";
+import { z } from "zod";
+import { coordSettings } from "../lib/consult/consult-config.ts";
+import {
+	answerMark,
+	type OracleTier,
+	oracleEligibility,
+	outranks,
+} from "../lib/consult/oracle.ts";
+import { entryDemoted } from "../lib/knowledge/knowledge-votes.ts";
+
+const HubConsultSchema = z.object({
+	question: z.string().trim().min(3).max(4000),
+	as: z.string().optional(),
+	priority: z.enum(["high", "normal", "low"]).optional(),
+});
 import {
 	aeLeavesFace,
 	aeMergeFace,
@@ -48,6 +65,8 @@ import {
 //   POST /retire   {id, superseded_by?}
 //   POST /note     {id, sid, what}
 //   GET  /verify[/<id>]
+//   POST /v1/consult {question, as?, priority?} — phase 4 oracle-first face
+//     (answered_by knowledge + trust mark, or lessons for lane delivery)
 // W1218: POST /knowledge/query {question, limit?} — NL in, the pinned SQL
 //   LLM translates, the SAME read-only lint executes; rows + sql + elapsed.
 //   POST /knowledge/sql {sql, params?, limit?} — direct parameterized
@@ -71,6 +90,9 @@ const WRITE_ROUTES = new Set([
 	"/promote",
 	"/retire",
 	"/note",
+	// fork G: the spoke graph delta lands here (landGraphWire), machine-bound
+	// via the roll key — same W264 perimeter as the other mutating faces.
+	"/graph",
 ]);
 const json = (data: unknown, status = 200): Response =>
 	Response.json(data, { status });
@@ -292,6 +314,30 @@ const base = {
 				return json({ error: landed.error ?? "roll rejected" }, 422);
 			return json(landed);
 		}
+		// fork G — the spoke graph delta. Same auth as the roll (the
+		// machine-scoped TTL key binds the landing origin; the write token is
+		// the operator path with machine riding the body). POST /graph
+		// {graph: GraphDelta} → landGraphWire under the sync precedence —
+		// human rejections terminal, keyed rows, per-origin vote tallies —
+		// and the batch-matched counts ack the spoke's cursor discipline.
+		if (path === "/graph") {
+			if (req.method !== "POST")
+				return new Response(null, {
+					status: 405,
+					headers: { allow: "POST" },
+				});
+			const key = req.headers.get(ROLL_KEY_HEADER) ?? "";
+			const keyed = key ? rollKeyOk(key) : { ok: false, machine: null };
+			const machine = keyed.ok
+				? keyed.machine
+				: tokenOk(req)
+					? str(body.machine)
+					: null;
+			if (!machine) return json({ error: "roll key required" }, 403);
+			const landed = landGraphWire(rollDb, body.graph, machine);
+			if (!landed.ok) return json({ ok: false, error: landed.error }, 400);
+			return json(landed);
+		}
 		// W1214 — hub-to-hub knowledge anti-entropy (the /ae/* faces). Every
 		// one is token-gated RIGHT HERE (peer callers hold the install write
 		// token; anonymous callers get 403 even on the reads — the roots
@@ -353,6 +399,43 @@ const base = {
 					hits: out,
 				});
 			}
+			// hub design phase 4: the consult face — ORACLE FIRST on the hub's
+			// knowledge. An eligible hit (active+verified, or candidate marked
+			// unreviewed; never drift, never vote-demoted) answers; a miss
+			// returns advisory lessons and the caller delivers lane-side.
+			if (req.method === "POST" && path === "/v1/consult") {
+				const parsed = HubConsultSchema.safeParse(body);
+				if (!parsed.success)
+					return json({ error: z.prettifyError(parsed.error) }, 400);
+				const q = parsed.data.question;
+				const hits = withTrust(await store.search({ query: q, limit: 10 }));
+				const kb = openKnowledgeDb();
+				let pick: { h: KnowledgeHit; tier: OracleTier } | null = null;
+				try {
+					const threshold = coordSettings().knowledge.downvote_threshold;
+					for (const h of hits) {
+						const tier = oracleEligibility(h);
+						if (!tier || entryDemoted(kb, h.id, threshold)) continue;
+						if (outranks({ tier, overlap: 0 }, pick && { ...pick, overlap: 0 }))
+							pick = { h, tier };
+					}
+				} finally {
+					kb.close();
+				}
+				if (!pick)
+					return json({
+						answered_by: null,
+						lessons: proseCards(q, hits.slice(0, 3).map(scrubHit), API_ROOT),
+					});
+				const h = authed ? pick.h : scrubHit(pick.h);
+				return json({
+					answered_by: "knowledge",
+					tier: pick.tier,
+					answer: h.fact ?? h.snippet,
+					mark: answerMark(pick.tier, h, "C<local>"),
+					hit: h,
+				});
+			}
 			if (req.method === "POST" && path === "/curate") {
 				return json(
 					await store.curate({
@@ -379,7 +462,13 @@ const base = {
 			if (req.method === "POST" && path === "/promote") {
 				const id = num(body.id);
 				if (!id) return json({ error: "id required" }, 400);
-				return json({ promoted: await store.promote(id) });
+				// D9: the wire names its human actor, same guard as the CLI
+				const by = str(body.by);
+				const refused = promoteActorError(by, {});
+				if (refused) return json({ error: refused }, 403);
+				const promoted = await store.promote(id);
+				if (promoted) await store.note(id, by ?? "", "promoted");
+				return json({ promoted });
 			}
 			if (req.method === "POST" && path === "/retire") {
 				const id = num(body.id);

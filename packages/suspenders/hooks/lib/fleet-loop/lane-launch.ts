@@ -34,6 +34,7 @@ import {
 	type DispatchPreviewDeps,
 	dryDispatchPreview,
 } from "../../../scripts/lib/dispatch-preview.ts";
+import { fenceBriefLine } from "../work/work-transition.ts";
 import {
 	execPick,
 	posturePreference,
@@ -47,11 +48,17 @@ import {
 	applyInsertion,
 	insertionCtx,
 } from "../../../scripts/lib/insertion.ts";
+import { laneRideOf } from "../../../scripts/lib/lane-ride.ts";
 import { laneSettingsData } from "../../../scripts/lib/lane-settings.ts";
 import {
 	dispatchStarterFork,
 	starterStartLine,
 } from "../../../scripts/lib/lane-starter.ts";
+import {
+	type GroupEndpoints,
+	unknownEndpoints,
+	wirePick,
+} from "../../../scripts/lib/lane-wire.ts";
 import {
 	launchFailBackoff,
 	launchLogSize,
@@ -77,7 +84,6 @@ import {
 	resolveLaneExecutor,
 } from "../../../scripts/lib/launch-preflight.ts";
 import { plaidLaunchPreflight } from "../../../scripts/lib/plaid-launch.ts";
-import { rePinModelPick } from "../hub/model-health.ts";
 import type { PreferRouting } from "../../../scripts/lib/prefer-routing.ts";
 import { isResumableClaim } from "../../../scripts/lib/resumable-claim.ts";
 import {
@@ -87,17 +93,18 @@ import {
 	resumeStartNotes,
 } from "../../../scripts/lib/resume-from.ts";
 import { verdictRepeatGate } from "../../../scripts/lib/verdict-repeat-gate.ts";
-import { capsuleValidity } from "../lanes/capsule-fence.ts";
+import { launchToken } from "../executors/detect.ts";
 import {
 	cvMap,
 	executorCv,
 	recordLaneExecutor,
 	writeExecutorCvFacts,
 } from "../executors/executor-cv.ts";
-import { launchToken } from "../executors/detect.ts";
 import { adapterFor } from "../executors/registry.ts";
 import { openStore, projectIdentity } from "../govdb/govdb.ts";
 import { resolveHub } from "../hub/hub-locate.ts";
+import { rePinModelPick } from "../hub/model-health.ts";
+import { capsuleValidity } from "../lanes/capsule-fence.ts";
 import { jobslabFor, jobslabTag, laneClassOf } from "../lanes/jobslab.ts";
 import {
 	applyLaneAttribution,
@@ -124,15 +131,15 @@ import { launchParent } from "../lanes/launch-parent.ts";
 import { restorableBaseline } from "../lanes/original-baseline.ts";
 import { verifiedContextContinuation } from "../lanes/reclaim-context.ts";
 import {
-	type Posture,
 	PLAID_CATALOG_UNAVAILABLE,
+	type Posture,
 	recordPlaidTrace,
 } from "../plaid/plaid.ts";
+import { policyBriefLines } from "../policy/session-policy.ts";
 import {
 	admitPostureLaunch,
 	resolveDispatchPosture,
 } from "../posture/posture.admission.ts";
-import { policyBriefLines } from "../policy/session-policy.ts";
 import { darkHubNow, policyForRepo, tryLoadStack } from "../stack-config.ts";
 import { quotaProviderPenalty } from "../usage/exec-quota.ts";
 
@@ -163,6 +170,9 @@ export type LaneLaunchDeps = {
 	/** W1295: `--role` agent-rules override; absent = composer auto-selects. */
 	role?: string;
 	routeAdmission: RouteAdmission;
+	/** W1712: a pinned model's known endpoint union (the W1711 registry
+	 *  join); absent = unknown — never refuses, never re-selects. */
+	wireEndpoints?: GroupEndpoints;
 	sh: (cmd: string[], cwd?: string) => string;
 	run: (cmd: string[], cwd?: string) => { code: number; out: string };
 	workCli: (...args: string[]) => string;
@@ -206,6 +216,7 @@ export const dispatchLane = async (
 		itemCapsuleGet,
 		role,
 		routeAdmission,
+		wireEndpoints = unknownEndpoints,
 		sh,
 		run,
 		workCli,
@@ -528,6 +539,33 @@ export const dispatchLane = async (
 			if (rePin.note) console.log(rePin.note);
 			if (rePin.model) pick = { ...pick, model: rePin.model };
 		}
+
+		// W1712: the executor must speak the pinned model's wire. A steady
+		// model pin rides the default CLI, so a provably unserved wire moves
+		// the SAME model to a carrier that speaks it; a plaid route's explicit
+		// executor+model pairing refuses instead.
+		const wire = await wirePick(pick, wireEndpoints, routeName === null);
+		if (!wire.ok) {
+			governanceRefusals.push(item);
+			console.log(`REFUSED ${item} — ${wire.why}; nothing claimed or minted`);
+			store.close();
+			return null;
+		}
+		if (wire.switched) {
+			console.log(
+				`NOTE — wire: ${pick.model} rides ${wire.bin} (${pick.bin} cannot speak its wire)`,
+			);
+			pick = { ...pick, bin: wire.bin, fallbackModels: [] };
+			bin = resolveLaneExecutor(pick.bin);
+			if (!bin) {
+				governanceRefusals.push(item);
+				console.log(
+					`REFUSED ${item} — executor unavailable: ${pick.bin}; nothing claimed or minted`,
+				);
+				store.close();
+				return null;
+			}
+		}
 		const route = await routeAdmission.check(pick.model);
 		if (route.pause) {
 			const why =
@@ -561,6 +599,12 @@ export const dispatchLane = async (
 		const takeToken =
 			take.code === 0
 				? (/claim token: ([0-9a-f]{48})/.exec(take.out)?.[1] ?? null)
+				: null;
+		// W609/W2186: the claim epoch — same capture + pin channels as the
+		// token; the lane CASes done/fail/start on it (work-transition.ts).
+		const takeEpoch =
+			take.code === 0
+				? (/claim epoch: (\d+)/.exec(take.out)?.[1] ?? null)
 				: null;
 		const claimedRow = store
 			.query(
@@ -704,6 +748,9 @@ export const dispatchLane = async (
 			capsule,
 			pick,
 			resumeBrief: resumeBriefLine(resumeDecision),
+			...(takeEpoch
+				? { extraBrief: [fenceBriefLine(item, Number(takeEpoch))] }
+				: {}),
 		});
 		if (intel.skip) log(`BRIEF-INTEL skip ${item}: ${intel.skip}`);
 		// W223.2 dual-harness brief verification, W422-shaped: the harness id
@@ -737,7 +784,11 @@ export const dispatchLane = async (
 		// env + spawn recipe shared with supervise.ts per executor (W223):
 		// copilot takes --allow-all-tools, claude keeps the allowedTools recipe
 		const env = laneEnv(
-			{ ...process.env, ...(takeToken ? { KLH_CLAIM_TOKEN: takeToken } : {}) },
+			{
+				...process.env,
+				...(takeToken ? { KLH_CLAIM_TOKEN: takeToken } : {}),
+				...(takeEpoch ? { KLH_CLAIM_EPOCH: takeEpoch } : {}),
+			},
 			NO_BELT,
 		);
 		Object.assign(env, executor.env);
@@ -962,6 +1013,20 @@ export const dispatchLane = async (
 		writeFileSync(laneSettings, settingsData);
 		chmodSync(laneSettings, 0o600);
 		const settingsArgs = ["--settings", laneSettings];
+		// W1712: an argv-pinned executor (adapter.modelArgs) rides the lane's
+		// own Buckle /w/<sid> on the minted key with the exact pin — never
+		// the executor's personal seat; no governed ride = launch refused.
+		const pinArgs: string[] = [];
+		if (adapter.modelArgs && pick.model) {
+			const effort = dispatchLaneEffort(store, project, item);
+			const ride = laneRideOf(env, pick.model, effort);
+			if (!ride.ok) throw new Error(ride.why);
+			pinArgs.push(...adapter.modelArgs(ride.ride));
+			appendFileSync(
+				laneLog,
+				`model ride ${item}: ${pick.model} via ${ride.ride.base}\n`,
+			);
+		}
 		// Immutable evidence base survives resumes and later main-branch merges.
 		const completionContext = `${wt}/.fleet/lane-context.json`;
 		mkdirSync(`${wt}/.fleet`, { recursive: true });
@@ -1031,11 +1096,14 @@ export const dispatchLane = async (
 			// settings/fork composition; dispatch carries no executor branches.
 			promptArgs: adapter.promptArgs(resumePrompt),
 			promptLast: adapter.promptLast === true,
-			cliArgs: adapter.spawnArgs({
-				fallbackModels: pick.fallbackModels,
-				settingsArgs,
-				forkArgs: laneForkArgs,
-			}),
+			cliArgs: [
+				...pinArgs,
+				...adapter.spawnArgs({
+					fallbackModels: pick.fallbackModels,
+					settingsArgs,
+					forkArgs: laneForkArgs,
+				}),
+			],
 			fleetDir: FLEET,
 			sid,
 		});

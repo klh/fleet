@@ -45,6 +45,10 @@ import {
 	hasCapability,
 	readCapabilities,
 } from "../lib/federation/profile.ts";
+import {
+	type GateRouteDeps,
+	handleGateRoute,
+} from "../lib/gate-daemon/route.ts";
 import { servicemon } from "../lib/servicemon.ts";
 import { classifySqlFailure } from "../lib/govdb/store-sql-error.ts";
 import {
@@ -249,12 +253,33 @@ function maybeBroadcastInsert(sql: string, rowid: number): void {
 	if (!row) return;
 	for (const ws of sockets) {
 		const f = ws.data;
-		if (row.target !== null && row.target !== f.as) continue;
+		// `*` = the machine subscriber (hub-of-one phase 5): one socket per
+		// machine receives every row and fans out to per-session logs
+		if (f.as !== "*" && row.target !== null && row.target !== f.as) continue;
 		if (f.scope && row.scope && !scopeCoversLocal(f.scope, row.scope)) continue;
 		if (f.kinds.length && !f.kinds.includes(row.kind)) continue;
 		ws.send(JSON.stringify(row));
 	}
 }
+
+// hub governor daemon (lib/gate-daemon): gates write governor.db directly
+// inside this process, so their event inserts are published here after the
+// run — the same per-row filter as an /rpc insert
+const gateDeps: GateRouteDeps = {
+	maxEventId: () =>
+		(
+			db.query("SELECT COALESCE(MAX(id), 0) AS m FROM events").get() as {
+				m: number;
+			}
+		).m,
+	publishAfter: (id) => {
+		if (!sockets.size) return;
+		const rows = db
+			.query("SELECT id FROM events WHERE id > ? ORDER BY id")
+			.all(id) as { id: number }[];
+		for (const r of rows) maybeBroadcastInsert("INSERT INTO events", r.id);
+	},
+};
 
 interface RpcBody {
 	id?: string;
@@ -616,12 +641,15 @@ const base = {
 			if (idbKbHit) return Response.json({ err: kbOnIdb(idbKbHit) });
 			return Response.json(await idbHandler(idbBody));
 		}
-		if (req.method !== "POST" || url.pathname !== "/rpc")
+		const isGate = url.pathname.startsWith("/gate/");
+		if (!isGate && (req.method !== "POST" || url.pathname !== "/rpc"))
 			return new Response("not found", { status: 404 });
 		if (AUTH_CONFIGURED && !TOKEN)
 			return new Response("Store authority unavailable", { status: 503 });
 		if (TOKEN && req.headers.get("x-governor-token") !== TOKEN)
 			return new Response("forbidden", { status: 403 });
+		// hub-of-one phase 5: the hub governor daemon (same token rule)
+		if (isGate) return handleGateRoute(req, url, gateDeps);
 		const body = (await req.json()) as RpcBody;
 		const invalid = validateRpcBody(body);
 		if (invalid === "bad request")

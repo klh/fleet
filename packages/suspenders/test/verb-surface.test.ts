@@ -1,6 +1,7 @@
 // Every registered Work Graph and coordination verb must remain callable.
 // Stateful round trips live beside this surface check (consult, capsule, work).
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
+import { scratchWorld } from "@klh/test-kit";
 import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +12,11 @@ const ROOT = resolve(import.meta.dir, "../../..");
 // lane worktrees by cwd, and this suite runs from lane cwds — spawn the
 // child CLIs from a neutral directory (scripts still resolve from ROOT).
 const NEUTRAL = mkdtempSync(join(tmpdir(), "verb-surface-"));
+// Help smokes still open governor.db/knowledge.db (and run their open-time
+// migrations) — a scratch HOME + local store keeps every commit gate off the
+// operator's live state.
+const WORLD = scratchWorld({ prefix: "verb-surface-" });
+afterAll(() => WORLD.clean());
 // These checks spawn every CLI/verb in series; process startup varies under
 // concurrent Fleet work, while the contract being tested has no time limit.
 const HELP_SMOKE_TIMEOUT_MS = 30_000;
@@ -25,6 +31,7 @@ function cli(
 ): { code: number; output: string } {
 	const run = Bun.spawnSync([process.execPath, resolve(ROOT, path), ...args], {
 		cwd: NEUTRAL,
+		env: WORLD.env,
 		stdout: "pipe",
 		stderr: "pipe",
 	});

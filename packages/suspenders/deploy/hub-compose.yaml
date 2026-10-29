@@ -493,6 +493,7 @@ services:
       FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HOME: /state/belt-home
       BELT_PORT: "7791"
+      BELT_HUB_ID: ${HUB_NAME:-desktop}
     volumes:
       - fleet-repo:/src/fleet:ro
       - belt-state:/state/belt-home

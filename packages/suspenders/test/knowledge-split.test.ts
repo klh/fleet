@@ -146,6 +146,11 @@ const TRUST_KEYS = [
 	"researched_at",
 	"graveyard_reason",
 	"confidence_stamp",
+	// post-split additive healing columns (provenance/invalidation) — the v9
+	// fixture predates them, same strip doctrine
+	"provenance",
+	"stale_at",
+	"stale_reason",
 ];
 const stripTrust = (hits: unknown[]): unknown[] =>
 	hits.map((h) =>
@@ -157,10 +162,10 @@ const stripTrust = (hits: unknown[]): unknown[] =>
 				)
 			: h,
 	);
-const searchJson = (db: Database): string =>
+const searchJson = (db: Database, aux: Database = db): string =>
 	JSON.stringify(
 		QUERIES.map(([query, filters]) =>
-			stripTrust(knowledgeSearch(db, query, filters)),
+			stripTrust(knowledgeSearch(db, query, filters, aux)),
 		),
 	);
 
@@ -176,7 +181,10 @@ describe("W166 knowledge.db split", () => {
 		// hermetic (knowledge.test.ts covers makeStore end-to-end via env-HOME
 		// subprocesses).
 		const store = new SqliteKnowledgeStore(openKnowledgeDb(), openGovernorDb());
-		const after = searchJson((store as unknown as { db: Database }).db);
+		// D1: the post-split store searches knowledge.db + the governor's
+		// facts/consult_kb legs — the same hit set the v9 handle returned
+		const s = store as unknown as { db: Database; gov: Database };
+		const after = searchJson(s.db, s.gov);
 		expect(after).toBe(before);
 	});
 

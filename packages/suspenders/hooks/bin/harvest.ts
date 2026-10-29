@@ -9,6 +9,7 @@
 // usage: bun harvest.ts scan|run --repo <path> [--days N]  (scan writes nothing)
 // env:   HOME (transcript roots; launchd sets it — no other config)
 import { openStore, projectIdentity } from "../lib/govdb/govdb.ts";
+import { msGet, msList, msSet } from "../lib/govdb/machine-state.ts";
 import { makeStamp } from "../lib/knowledge/confidence.ts";
 import {
 	clusterSignals,
@@ -54,17 +55,11 @@ const project = projectIdentity(repo);
 
 const cursorKey = (path: string): string => `harvest.cursor.${mungePath(path)}`;
 const seenKey = (key: string): string => `harvest.seen.${mungePath(key)}`;
-const fact = (key: string): string | null =>
-	(
-		db.query("SELECT value FROM facts WHERE key = ?").get(key) as
-			| { value: string }
-			| undefined
-	)?.value ?? null;
+// machine bookkeeping rides machine_state (hub design D3), never facts
+const fact = (key: string): string | null => msGet(db, key);
 
 const cursors = new Map<string, number>();
-for (const r of db
-	.query("SELECT key, value FROM facts WHERE key LIKE 'harvest.cursor.%'")
-	.all() as { key: string; value: string }[]) {
+for (const r of msList(db, "harvest.cursor.")) {
 	cursors.set(r.key, Number(r.value) || 0);
 }
 
@@ -171,16 +166,12 @@ const applyTx = db.transaction(() => {
 			kr.lastInsertRowid,
 			problem,
 		);
-		db.query(
-			"INSERT OR REPLACE INTO facts (key, value, ts) VALUES (?, '1', ?)",
-		).run(seenKey(c.key), now);
+		msSet(db, seenKey(c.key), "1", "harvest", now);
 		written++;
 		wroteKeys.add(c.key);
 	}
 	for (const [path, at] of newOffsets)
-		db.query(
-			"INSERT OR REPLACE INTO facts (key, value, ts) VALUES (?, ?, ?)",
-		).run(cursorKey(path), String(at), now);
+		msSet(db, cursorKey(path), String(at), "harvest", now);
 	if (written > 0)
 		db.query(
 			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'harvest', 'HARVEST', ?, ?, NULL)",

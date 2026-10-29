@@ -17,7 +17,8 @@ Board: http://127.0.0.1:7799 (LAN: http://suspenders.local:7799 via klh-local's 
 ## GET endpoints
 
 - GET /               this board (HTML; polls /api/* every second)
-- GET /api/data       full control-plane state: sessions, projects, claims, events, zombies, consults, llm usage; ?session=<sid> adds lane focus (inbox, lane facts)
+- GET /api/data       full control-plane state: sessions, projects, claims, events, zombies, consults, llm usage; ?session=<sid> adds lane focus (inbox, lane facts); sessions bounded to current + newest 400 (sessionsTotal counts all); rows carry absolute stamps beside the *Ago ages; weak ETag, If-None-Match → 304
+- GET /api/sessions   full session history, newest heartbeat first (?offset=<n>&limit=<n>; default 200, cap 1000)
 - GET /api/decisions  decision forks; default OPEN only, ?history=1 adds resolved rows
 - GET /api/tasks      every work item, newest activity first (?project=<path> or all; <path> = the repo's git-common-dir — the work graph identity, e.g. /repo/.git — the bare repo root 404s)
 - GET /api/task       one work item + its bus events + its decisions (?project=<path>&id=<id>)

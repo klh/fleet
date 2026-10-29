@@ -62,12 +62,24 @@ function outD(d: DialectDecision): never {
 let HOOK: HookInput = {};
 
 export async function readHook(): Promise<HookInput> {
+	return parseHook(await new Response(Bun.stdin).text());
+}
+
+// hub-of-one phase 5: the gate entrypoint reads stdin once and either ships
+// the raw payload to the governor daemon or parses it here — same stash,
+// same "{} on garbage" semantics as readHook().
+export function parseHook(raw: string): HookInput {
 	try {
-		HOOK = JSON.parse(await new Response(Bun.stdin).text());
+		HOOK = JSON.parse(raw);
 	} catch {
 		HOOK = {};
 	}
 	return HOOK;
+}
+
+// the daemon host injects each request's payload without touching stdin
+export function setHook(hook: HookInput): void {
+	HOOK = hook;
 }
 
 // ---- denied-call audit (W80) ----

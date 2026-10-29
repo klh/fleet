@@ -41,6 +41,9 @@ const HEARTBEAT_BORN: Record<string, string> = {
 	"zai-catalog-refresh": "W1029.1",
 	"cost-alert": "W1132",
 	"model-health-sweep": "W2194",
+	"governor-gc": "W2274",
+	"kev-review-drain": "D7",
+	"consult-tick": "hub phase 4",
 	"hub-update": "W2239.3",
 };
 
@@ -56,6 +59,18 @@ const suspendersLegacy = loadLegacyLabels().filter((l) => l.startsWith(PREFIX));
 const stripped = new Set(suspendersLegacy.map((l) => l.slice(PREFIX.length)));
 
 describe("maintenance/legacyLabels drift contract (W1256.1)", () => {
+	test("hub release check is scheduled on the controller at a bounded cadence", () => {
+		const updater = MAINTENANCE_TASKS.find(
+			(task) => task.name === "hub-update",
+		);
+		expect(updater).toBeDefined();
+		expect(updater?.everySeconds).toBe(120);
+		expect(updater?.argv("/suspenders", "/fleet")).toEqual([
+			"/suspenders/deploy/hub-update.ts",
+			"reconcile",
+		]);
+	});
+
 	test("every task is exactly one partition: folded (label covered) or heartbeat-born", () => {
 		for (const name of tasks) {
 			const covered = stripped.has(name);

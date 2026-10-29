@@ -1,6 +1,7 @@
 import { LitElement, css, html } from "lit";
 import type { RecoverySnapshot } from "../board/recovery.ts";
 import { observationFresh } from "../lib/board/observation.ts";
+import { byId } from "./board-dom.ts";
 
 class KlhRecovery extends LitElement {
 	static properties = {
@@ -73,9 +74,7 @@ class KlhRecovery extends LitElement {
 		if ((e.target as HTMLElement)?.id === "proj") void this.refresh();
 	};
 	private async refresh(): Promise<void> {
-		const project =
-			(document.getElementById("proj") as HTMLSelectElement | null)?.value ??
-			"all";
+		const project = byId<HTMLSelectElement>("proj")?.value ?? "all";
 		if (this.busy && project === this.project) return;
 		const generation = ++this.generation;
 		if (project !== this.project) {

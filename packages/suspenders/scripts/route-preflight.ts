@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 // Read-only route gate. The graph is built from the same machine config the
 // gateways render; no route, key, service, or work item is changed here.
+import { setting } from "@klh/settings";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -319,7 +320,7 @@ export async function machineRoutePreflight(
 				]),
 			)
 		: {};
-	const deadlineMs = Number(process.env.SUSPENDERS_LANE_DEADLINE_MS || 900000);
+	const deadlineMs = setting("dispatch.lane_deadline_ms");
 	return checkRoutePreflight(
 		{
 			stack,

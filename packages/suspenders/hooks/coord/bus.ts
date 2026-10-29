@@ -11,12 +11,6 @@ import { statSync } from "node:fs";
 import { hostname } from "node:os";
 import { signalClaudeDirectEvent } from "../lib/executors/claude-wake.ts";
 import {
-	codexSockForSession,
-	codexThreadForSession,
-	deliverSubscribedCodexEvent,
-} from "../lib/executors/codex-direct-delivery.ts";
-import { steerCodexDirectEvent } from "../lib/executors/codex-steer.ts";
-import {
 	type ForeignLaneHit,
 	foreignLaneMatch,
 	forwardDirectEvent,
@@ -29,6 +23,7 @@ import { loadLaneRegistry } from "../lib/lanes/lane-registry.ts";
 import { startNativeRenameWatch } from "../lib/lanes/session-rename.ts";
 import { managedSubscriberIdentity } from "../lib/lanes/subscribe-attach.ts";
 import { type EventPublication, emitStoredEvent } from "./event-publish.ts";
+import { queueCodexDelivery } from "./subscribe-delivery.ts";
 import { advanceCursor, fetchEventsPaged } from "./event-scan.ts";
 import {
 	amber,
@@ -414,6 +409,10 @@ export function subscriberPendingControl(sid: string) {
 }
 
 export async function cmdSubscribe(rest: string[]): Promise<void> {
+	// hub-of-one phase 5: ONE subscriber per machine fans out to every
+	// session's log (coord/subscribe-machine.ts)
+	if (rest.includes("--machine"))
+		return (await import("./subscribe-machine.ts")).cmdSubscribeMachine();
 	const as =
 		arg("--as") ?? die("usage: subscribe --as <sid> [--scope s] [--kinds a,b]");
 	const scope = arg("--scope");
@@ -457,36 +456,7 @@ export async function cmdSubscribe(rest: string[]): Promise<void> {
 			console.log(formatEventLine(event));
 			if (event.target !== as) return;
 			signalClaudeDirectEvent({ ...event, target: as }, as);
-			delivery = delivery
-				.then(async () => {
-					const threadId = codexThreadForSession(db, as);
-					if (!threadId) return;
-					// Managed lanes steer over their per-lane socket (W1052.2.2);
-					// detached exec lanes keep the shared-daemon proxy fallback.
-					const sock = codexSockForSession(db, as);
-					const proxy = process.env.SUSPENDERS_CODEX_BIN;
-					const result = await deliverSubscribedCodexEvent(
-						event,
-						as,
-						threadId,
-						sock,
-						proxy
-							? (direct, opts) =>
-									steerCodexDirectEvent(direct, {
-										...opts,
-										command: [proxy, "app-server", "proxy"],
-									})
-							: undefined,
-					);
-					console.error(
-						`coord Codex delivery #${event.id}: ${result.state}${result.state === "steered" ? ` turn=${result.turnId}` : ` ${result.reason}`}; Fleet inbox remains durable`,
-					);
-				})
-				.catch((error) => {
-					console.error(
-						`coord Codex delivery #${event.id}: queued ${String(error)}`,
-					);
-				});
+			delivery = queueCodexDelivery(delivery, event, as);
 		});
 		ws.addEventListener("close", () => {
 			setTimeout(connect, backoff);

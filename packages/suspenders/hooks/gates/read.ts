@@ -15,6 +15,7 @@
 //      non-blocking additionalContext nudge (the fleet-loop.ts 37x case).
 //      Advisory: SUSPENDERS_REREAD_NUDGE=0 disables.
 
+import { setting } from "@klh/settings";
 import { readFileSync, statSync } from "node:fs";
 import { clampHeadTail, readSliceLines } from "../lib/gates/clamp.ts";
 import {
@@ -104,7 +105,7 @@ export function dataSliceDeny(
 
 /** 3rd+ same-path read in a session → advisory nudge, read proceeds. */
 export function rereadNudge(sid: string, F: string, label: string): void {
-	if (process.env.SUSPENDERS_REREAD_NUDGE === "0") return;
+	if (!setting("gates.reread_nudge")) return;
 	const n = bumpPathCount("reads", sid, F);
 	if (n < 3 || n % 3 !== 0) return;
 	nudge(
@@ -138,7 +139,7 @@ export function readGate(hook: HookInput): void {
 	} catch {
 		return; // missing/unreadable → harness's own error, precise and cheap
 	}
-	const cap = readCapBytes(process.env.SUSPENDERS_MAX_READ);
+	const cap = setting("gates.max_read_bytes");
 	const reason = fatReadDeny(size, hasLimit, cap, F);
 	if (reason) deny(clampedFileView(F, size, cap, reason));
 	if (hasLimit && DATA_RE.test(F) && cap > 0 && size <= READ_MEASURE_MAX) {

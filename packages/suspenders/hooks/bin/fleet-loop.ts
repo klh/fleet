@@ -24,16 +24,20 @@
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import {
-	controllerWatchBoundary,
-	currentControllerIdentity,
-} from "../../scripts/lib/controller-fence.ts";
+import { currentControllerIdentity } from "../../scripts/lib/controller-fence.ts";
 import { broadcastNote } from "../coord/bus.ts";
 import { wisdomSweep } from "../coord/wisdom.ts";
 import { flagFns, parseLoopConfig } from "../lib/fleet-loop/config.ts";
 import { runDispatch } from "../lib/fleet-loop/dispatch.ts";
 import { createMaintenanceSweep } from "../lib/fleet-loop/maintenance.ts";
 import { createMergeLadder } from "../lib/fleet-loop/merge.ts";
+// fork E (hub-of-one): one controller supervises every registered repo
+import {
+	projectChildArgs,
+	projectsBoundary,
+	projectTargets,
+} from "../lib/fleet-loop/multi-project.ts";
+import { supervisedProjects } from "../lib/fleet-loop/project-registry.ts";
 // W1302.1: the hold as a contract — the predicate + controller enforcement
 import {
 	enforceMergeHold,
@@ -47,7 +51,7 @@ import { createRogueSweep } from "../lib/fleet-loop/rogue-sweep.ts";
 import { createRuntime } from "../lib/fleet-loop/runtime.ts";
 import { createRuntimeSync } from "../lib/fleet-loop/runtime-sync.ts";
 import { createStallWatch } from "../lib/fleet-loop/stall-watch.ts";
-import { openStore, projectIdentity } from "../lib/govdb/govdb.ts";
+import { openStore } from "../lib/govdb/govdb.ts";
 // W641: the ladder's govdb lease gate — shared flush predicate, one source
 import {
 	doneShaResolves,
@@ -71,7 +75,7 @@ import {
 // block — the launchd plist hardcodes nothing. An explicit --every flag
 // stays a one-shot override that wins for this process.
 import { createLoopConfigWatch } from "../lib/fleet-loop/loop-config-watch.ts";
-import { STACK_PATH } from "../lib/stack-config.ts";
+import { fleetLoopRegistry, STACK_PATH } from "../lib/stack-config.ts";
 
 const config = parseLoopConfig(process.argv.slice(2), import.meta.dir);
 const {
@@ -224,7 +228,7 @@ async function cycle(): Promise<void> {
 	// fail-isolated (the wisdom-sweep rule): a sync bug can never take down
 	// the merge/dispatch loop.
 	try {
-		runtimeSync();
+		if (!config.PROJECT_ONLY) runtimeSync();
 	} catch (e) {
 		log(
 			`RUNTIME-SYNC failed (fail-isolated): ${e instanceof Error ? e.message : String(e)}`,
@@ -234,10 +238,12 @@ async function cycle(): Promise<void> {
 	// 3. refill the fleet — policy lives in the repo's dispatch script.
 	// W2242: a template without its own --target rides the central
 	// fleet_loop.lane_target (live hot-applied) — never a plist constant.
+	// fork E: a multi-project controller deals this cycle's target
+	// (--lane-target) from the global ceiling; absent = the central target.
 	if (DISPATCH) {
 		const t = DISPATCH.includes("--target")
 			? DISPATCH
-			: `${DISPATCH} --target ${loopWatch.settings().laneTarget}`;
+			: `${DISPATCH} --target ${config.LANE_TARGET ?? loopWatch.settings().laneTarget}`;
 		runTemplate(t, "", LADDER_TIMEOUT_MS);
 	}
 
@@ -258,6 +264,9 @@ async function cycle(): Promise<void> {
 	// stub mints, evidence-less closures, broadcast floods. Its ONLY writes
 	// are NEED_DECISION emissions + finding.wisdom.* facts; fail-isolated so
 	// a sweep bug can never take down the merge/dispatch loop.
+	// fork E: steps 5, 6 and 8 are hub-wide — only the primary's cycle runs
+	// them (a registered repo's child carries --project-only).
+	if (config.PROJECT_ONLY) return;
 	try {
 		const w = wisdomSweep();
 		if (w.emitted > 0)
@@ -507,7 +516,34 @@ log(
 const CONTROLLER_NONCE = crypto.randomUUID();
 let controllerIdentity: ReturnType<typeof currentControllerIdentity> | null =
 	null;
-let standbyLogged = false;
+const standbyLogged = new Set<string>();
+let lastRegistryIssues = "";
+let rotation = 0;
+
+// one killable `once` child under the watchdog timer
+const runCycleChild = async (args: string[], cwd: string): Promise<void> => {
+	const child = Bun.spawn([process.execPath, import.meta.path, ...args], {
+		cwd,
+		stdout: "inherit",
+		stderr: "inherit",
+		stdin: "ignore",
+	});
+	const timer = setTimeout(() => {
+		log(
+			`WATCHDOG killed cycle pid=${child.pid} after ${CYCLE_TIMEOUT_MS / 60000}min — hung spawn/gate`,
+		);
+		try {
+			child.kill(9);
+		} catch (e) {
+			log(
+				`WATCHDOG kill failed pid=${child.pid} (loop.watchdog_kill_failed): ${describeError(e)}`,
+			);
+		}
+	}, CYCLE_TIMEOUT_MS);
+	await child.exited;
+	clearTimeout(timer);
+};
+
 while (true) {
 	if (!controllerIdentity) {
 		try {
@@ -526,50 +562,68 @@ while (true) {
 			process.exit(1);
 		}
 	}
-	const fenceStore = openStore();
-	const verdict = controllerWatchBoundary(
-		fenceStore,
-		projectIdentity(REPO),
-		controllerIdentity,
+	// fork E: the hub's project registry (stack.json fleet_loop.projects),
+	// re-read every boundary (hot-applied). No rows ⇒ the single-repo loop
+	// of before: one project (--repo), no lane dealing.
+	const registry = fleetLoopRegistry();
+	const resolved = supervisedProjects(
+		{
+			repo: CALLER_REPO,
+			glob: GLOB,
+			ladder: config.LADDER,
+			dispatch: DISPATCH,
+			main: config.MAIN,
+		},
+		registry.projects,
 	);
-	fenceStore.close();
-	if (verdict === "standby") {
-		if (!standbyLogged) {
-			log(
-				`CONTROLLER-STANDBY pid=${process.pid} — a provably alive controller holds the authority; standing by, no cycles`,
+	const issues = [...registry.issues, ...resolved.issues].join("; ");
+	if (issues && issues !== lastRegistryIssues)
+		log(`REGISTRY-ISSUES (fail-loud, rows skipped): ${issues}`);
+	lastRegistryIssues = issues;
+	const multi = resolved.projects.length > 1;
+	const fenceStore = openStore();
+	let boundary: ReturnType<typeof projectsBoundary>;
+	let targets = new Map<string, number>();
+	try {
+		boundary = projectsBoundary(
+			fenceStore,
+			resolved.projects,
+			controllerIdentity,
+		);
+		if (multi && !boundary.handoff)
+			targets = projectTargets(
+				fenceStore,
+				boundary.acting,
+				loopWatch.settings().laneTarget,
+				rotation++,
 			);
-			standbyLogged = true;
-		}
-		await Bun.sleep(everyMs());
-		continue;
+	} finally {
+		fenceStore.close();
 	}
-	standbyLogged = false;
-	if (verdict === "handoff") {
+	if (boundary.dropped.length > 0)
 		log(
-			`CONTROLLER-RELEASED pid=${process.pid} — owner-requested handoff released at idle boundary; KeepAlive respawns the successor`,
+			`CONTROLLER-DROPPED ${boundary.dropped.join(", ")} — left the registry`,
+		);
+	if (boundary.handoff) {
+		log(
+			`CONTROLLER-RELEASED pid=${process.pid} — owner-requested handoff (${boundary.handoff.key}) released every project lease at idle boundary; KeepAlive respawns the successor`,
 		);
 		process.exit(0);
 	}
-	const childArgs = argv.slice(1);
-	const repoIndex = childArgs.indexOf("--repo");
-	if (repoIndex >= 0) childArgs[repoIndex + 1] = CALLER_REPO;
-	const child = Bun.spawn(
-		[process.execPath, import.meta.path, "once", ...childArgs],
-		{ cwd: REPO, stdout: "inherit", stderr: "inherit", stdin: "ignore" },
-	);
-	const timer = setTimeout(() => {
+	for (const p of boundary.standby) {
+		if (standbyLogged.has(p.key)) continue;
 		log(
-			`WATCHDOG killed cycle pid=${child.pid} after ${CYCLE_TIMEOUT_MS / 60000}min — hung spawn/gate`,
+			`CONTROLLER-STANDBY pid=${process.pid} project=${p.key} — a provably alive controller holds the authority; standing by, no cycles`,
 		);
-		try {
-			child.kill(9);
-		} catch (e) {
-			log(
-				`WATCHDOG kill failed pid=${child.pid} (loop.watchdog_kill_failed): ${describeError(e)}`,
-			);
-		}
-	}, CYCLE_TIMEOUT_MS);
-	await child.exited;
-	clearTimeout(timer);
+		standbyLogged.add(p.key);
+	}
+	for (const p of boundary.acting) {
+		standbyLogged.delete(p.key);
+		const target = multi ? targets.get(p.key) : undefined;
+		await runCycleChild(
+			projectChildArgs(p, argv, CALLER_REPO, target),
+			p.primary ? REPO : p.repo,
+		);
+	}
 	await Bun.sleep(everyMs());
 }

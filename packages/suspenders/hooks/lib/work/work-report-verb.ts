@@ -3,6 +3,7 @@
 // by MEDIUM, §10 modes, §11 scoping — every view renders FROM the §1
 // versioned contract (work-report.ts), never from the graph.
 
+import { controllerStatus } from "../fleet-loop/controller-status.ts";
 import type { Database } from "bun:sqlite";
 import { resolveStoreHttpBase } from "../govdb/govdb-store.ts";
 import { resolveBuckleDb } from "../lanes/lane-spend.ts";
@@ -212,6 +213,7 @@ export const runReportVerb = async (a: ReportVerbArgs): Promise<void> => {
 			boardBase,
 			lanesOtherProjects: lanesOther > 0 ? lanesOther : null,
 			modelHealthDown: downModelGroups(db),
+			controllers: projects.map((p) => controllerStatus(db, p, now)),
 		});
 	const contract = build();
 	// §10 mode outputs — every branch renders FROM the same contract

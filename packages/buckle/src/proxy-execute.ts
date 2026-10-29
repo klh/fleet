@@ -170,6 +170,14 @@ export async function runExecute(
 	return finishResponse(deps, ctx, sel, result, resp);
 }
 
+/** The failing/delivered leg's configured provider for the wire evidence
+ *  hop field: walk provenance wins, else the selected head row. */
+function resultLastProvider(result: ExecuteResult): string | undefined {
+	if (result.kind === "client-error") return result.provider;
+	if (result.kind === "exhausted") return result.lastFailure?.provider;
+	return undefined;
+}
+
 /** Stamps the delivered outcome onto the response + audit + EWMA.
  *  Delivered ≠ selected → decision "fallback" (delivery truth outranks
  *  ranking truth; W136 §7.6). */
@@ -274,6 +282,7 @@ function finishResponse(
 		row,
 		code,
 		refusal,
+		providerTarget: resultLastProvider(result) ?? row?.dep.provider,
 		streaming,
 		attempts: result.attempts,
 		upstreamStatus:

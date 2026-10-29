@@ -38,6 +38,10 @@
 //     machine's standing provenance ts — so every arrival order of one
 //     event set converges to the same visibility. A same-ts replay is
 //     exact: zero writes, byte-identical row.
+import {
+	mergeKnowledgeFactsReadonly,
+	siblingKnowledgeDb,
+} from "./knowledge-facts.ts";
 import { Database } from "bun:sqlite";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -707,7 +711,7 @@ export function collectClaims(
 		};
 	}
 	if (db) {
-		const rows = db
+		const govRows = db
 			.query(
 				"SELECT key, value, version, ts, confidence, confidence_stamp FROM facts WHERE key LIKE 'claim.%' OR key LIKE 'decant.claim.%' ORDER BY key",
 			)
@@ -719,6 +723,12 @@ export function collectClaims(
 			confidence: number | null;
 			confidence_stamp: string | null;
 		}[];
+		// hub design phase 3: claims (incl. decant's) live in knowledge.db
+		const rows = mergeKnowledgeFactsReadonly(
+			govRows,
+			siblingKnowledgeDb(dbPath),
+			["claim.", "decant.claim."],
+		);
 		for (const r of rows) {
 			if (!r.value) continue;
 			if (state.claims?.[r.key] === r.version) continue; // cursor: sent already

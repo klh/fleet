@@ -335,7 +335,7 @@ const count2 = (db: Database, sql: string): number =>
 	(db.query(sql).get() as { n: number }).n;
 
 describe("monitor 5b — dead letters", () => {
-	test("old targeted event + RUNNING target + no cursor advance → alert + dedupe fact", () => {
+	test("old targeted event + RUNNING target + no cursor advance → alert + dedupe row", () => {
 		fresh2();
 		seed2((db) => {
 			insSession2(db, LANE2, "RUNNING");
@@ -348,20 +348,20 @@ describe("monitor 5b — dead letters", () => {
 		expect(
 			count2(
 				d,
-				"SELECT COUNT(*) AS n FROM facts WHERE key LIKE 'deadletter.%'",
+				"SELECT COUNT(*) AS n FROM machine_state WHERE key LIKE 'deadletter.%'",
 			),
 		).toBe(1);
 		d.close();
 	});
 
-	test("dedupe: second run keeps one fact, re-alerts with (alerted …m ago)", () => {
+	test("dedupe: second run keeps one row, re-alerts with (alerted …m ago)", () => {
 		const r2 = run2();
 		expect(r2.err).toContain("(alerted");
 		const d = new Database(DB2, { readonly: true });
 		expect(
 			count2(
 				d,
-				"SELECT COUNT(*) AS n FROM facts WHERE key LIKE 'deadletter.%'",
+				"SELECT COUNT(*) AS n FROM machine_state WHERE key LIKE 'deadletter.%'",
 			),
 		).toBe(1);
 		d.close();

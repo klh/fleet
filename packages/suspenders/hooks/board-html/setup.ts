@@ -3,18 +3,7 @@
 // non-ASCII escaping in String.raw reproduces the served page bytes.
 // biome-ignore lint/complexity/noUselessStringRaw: byte-compat (W157)
 export const SETUP = String.raw`// --- 6: setup checklist (Setup tab, /api/setup) ---
-function pollSetup(){
-  if (setupBusy) return;
-  setupBusy = true;
-  fetch('/api/setup', { signal: AbortSignal.timeout(8000) })
-    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(function(j){
-      if (!j || j.ok === false || !Array.isArray(j.checks)) throw new Error('bad /api/setup payload');
-      setupData = j; setupOkAt = Date.now(); setupErr = null; setupLoaded = true;
-    })
-    .catch(function(e){ setupErr = String((e && e.message) || e); })
-    .finally(function(){ setupBusy = false; renderSetup(); });
-}
+function pollSetup(){ feeds.kick('setup', true); }
 // W858.7.21: checks group by what they verify — this machine's wiring
 // (files, plists, settings) vs network probes. REMOTE_CHECKS pins the
 // minority; unmapped ids default to local (never hidden, worst case a
@@ -37,15 +26,15 @@ function renderSetup(){
   var errEl = byId('setupErr');
   var body = byId('setupBody');
   if (!setupLoaded && !setupErr) {
-    clearErr(errEl);
+    errEl.text = '';
     sigSet(body, 'loading', '<div class="state dim">loading setup checks...</div>');
     return;
   }
   if (setupErr) {
     var when = setupOkAt ? ago(Math.round((Date.now() - setupOkAt) / 1000)) : 'never';
-    errBanner(errEl, 'setup checks unavailable — last good ' + when, function(){ setupErr = null; pollSetup(); });
+    errEl.text = 'setup checks unavailable — last good ' + when;
   } else {
-    clearErr(errEl);
+    errEl.text = '';
   }
   if (!setupData) return;
   var cs = setupData.checks || [];

@@ -165,7 +165,7 @@ export const INSTALL_CONTRACT = {
 				prompt:
 					"Proxy desktop GUIs (VS Code, ChatGPT, Claude) through the hub? [Y/n]",
 				unattended:
-					"the wireConnections step answers it: existing connections.json is never overwritten (face re-applies only); absent file + --yes writes the mode-600 template (default hub = SUSPENDERS_DEFAULT_HUB or the first stack.yaml profile; all four apps default-ON per W1260.1 — CONNECT relay, TLS opaque, never MITM); without --yes the step pauses with a resume_command",
+					"the wireConnections step answers it: existing connections.json is never overwritten; absent file + --yes writes the mode-600 template (default hub = SUSPENDERS_DEFAULT_HUB or the first stack.yaml profile; all four apps default-ON per W1260.1 — CONNECT relay, TLS opaque, never MITM). W2284: the universal launchctl proxy face is retired — every run ends with the launchd domain clean; routing rides the scoped env/singbox faces; without --yes the step pauses with a resume_command",
 			},
 			{
 				prompt: "install the macOS launchd agents?",
@@ -398,7 +398,7 @@ export const INSTALL_CONTRACT = {
 		{
 			name: "wireConnections",
 			oneLiner:
-				"ask 'Proxy desktop GUIs (VS Code, ChatGPT, Claude) through the hub? [Y/n]': yes writes ~/.fleet/config/connections.json (mode 600, NEVER overwritten when present) + applies the launchctl setenv face; idempotent",
+				"ask 'Proxy desktop GUIs (VS Code, ChatGPT, Claude) through the hub? [Y/n]': yes writes ~/.fleet/config/connections.json (mode 600, NEVER overwritten when present); W2284 retired the universal launchctl proxy face — every run UNSETS the proxy trio (launchd domain ends clean); idempotent",
 			mutates: true,
 			optIn: false,
 			v1: "real",

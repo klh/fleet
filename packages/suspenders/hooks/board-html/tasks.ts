@@ -150,24 +150,7 @@ function paintSort(){
     b.textContent = (b.getAttribute('data-label') || '') + (active ? (taskSort.dir === 1 ? ' \u25B4' : ' \u25BE') : '');
   }
 }
-function pollTasks(){
-  if (tasksBusy || (curTab !== 'tasks' && curTab !== 'lanes')) return;
-  tasksBusy = true;
-  // W682: the server trims terminal history to 12/project by default; the
-  // opt-in completed table asks for the full feed back.
-  var showDone = false;
-  try { showDone = localStorage.getItem('taskShowDone') === '1'; } catch(e) {}
-  var dq = 'done=' + (showDone ? 'all' : '12');
-  fetch('/api/tasks' + projQuery() + (projQuery() ? '&' : '?') + dq, { signal: AbortSignal.timeout(8000) })
-    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(function(j){
-      if (!j || j.ok === false || !Array.isArray(j.tasks)) throw new Error('bad /api/tasks payload');
-      tasksData = j; tasksOkAt = Date.now(); tasksErr = null; tasksLoaded = true;
-      noteProjects(j.projects);
-    })
-    .catch(function(e){ tasksErr = String((e && e.message) || e); })
-    .finally(function(){ tasksBusy = false; renderTasks(); renderKanban(); });
-}
+function pollTasks(){ feeds.kick('tasks', true); }
 // W518: the .prefer tag + color ride every board row (W517's lib resolves
 // the repo tree's .prefer; taskShape emits t.tag + t.tag_color — the stamped
 // tag wins, color is always the live tree color). Absent color = no
@@ -301,15 +284,15 @@ function renderTasks(){
   var errEl = byId('tasksErr');
   var body = byId('tasksBody');
   if (!tasksLoaded && !tasksErr) {
-    clearErr(errEl);
+    errEl.text = '';
     sigSet(body, 'loading', '<tr><td colspan="9" class="dim">loading tasks...</td></tr>');
     return;
   }
   if (tasksErr) {
     var when = tasksOkAt ? ago(Math.round((Date.now() - tasksOkAt) / 1000)) : 'never';
-    errBanner(errEl, 'task list unavailable — last good ' + when, function(){ tasksErr = null; pollTasks(); });
+    errEl.text = 'task list unavailable — last good ' + when;
   } else {
-    clearErr(errEl);
+    errEl.text = '';
   }
   if (!tasksData) return; // nothing good yet — keep loading/error row
   var taskSection = byId('tab-tasks');
@@ -750,10 +733,10 @@ function renderKanban(){
   if (!el) return;
   if (!tasksLoaded && !tasksErr) { sigSet(el, 'loading', '<div class="state dim">loading lanes...</div>'); return; }
   if (tasksErr) {
-    errBanner(byId('kanbanErr'), 'lane board unavailable' + (tasksOkAt ? ' — last good ' + ago(Math.round((Date.now() - tasksOkAt) / 1000)) : ''), function(){ tasksErr = null; pollTasks(); });
+    byId('kanbanErr').text = ('lane board unavailable' + (tasksOkAt ? ' — last good ' + ago(Math.round((Date.now() - tasksOkAt) / 1000)) : ''));
     if (!tasksData) return; // nothing good yet — banner instead of stale cards
   } else {
-    clearErr(byId('kanbanErr'));
+    byId('kanbanErr').text = '';
   }
   if (!tasksData) return;
   var ts = tasksData.tasks;
@@ -879,30 +862,7 @@ function showSparkTip(e, bar){
   tip.style.left = Math.max(8, left) + 'px';
   tip.style.top = (above >= 8 ? above : e.clientY + 12) + 'px';
 }
-function pollSpendSeries(force){
-  if (spendSeriesBusy) return;
-  if (!force && spendSeriesAt && Date.now() - spendSeriesAt < 30000) return;
-  if (curTab !== 'tasks' && curTab !== 'lanes' && !task.id) return;
-  spendSeriesBusy = true;
-  fetch('/api/spend-series', { signal: AbortSignal.timeout(8000) })
-    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(function(j){
-      if (!j || j.ok === false || !j.series) throw new Error('bad /api/spend-series payload');
-      var m = {};
-      for (var k in j.series) m[k.split('\u0000').join('|')] = j.series[k];
-      spendSeries = m; spendSeriesAt = Date.now();
-      var a = {};
-      if (j.attempts) for (var k2 in j.attempts) a[k2.split('\u0000').join('|')] = j.attempts[k2];
-      attemptData = a;
-    })
-    .catch(function(){}) // garnish — never an error surface
-    .finally(function(){
-      spendSeriesBusy = false;
-      if (byId('kanban')) paintSparks(byId('kanban'));
-      var db2 = byId('drawerBody');
-      if (task.id && db2 && !byId('drawer').hidden) paintSparks(db2);
-    });
-}
+function pollSpendSeries(force){ feeds.kick('spend', !!force); }
 // W1203: the window derives from the MEASURED track, never a fixed bin count
 // — bins = floor(track / SPARK_STEP_PX) at the token-design cell, the bin
 // duration = SPARK_MIN_BIN_MS (the design bin: 6px <-> 3 minutes), and the
@@ -1082,36 +1042,8 @@ function closeTask(keepHash){
   var b = id ? document.querySelector('#tasksBody [data-task="' + id + '"]') : null;
   if (b) b.focus(); // row was re-rendered while open — refocus its button
 }
-function pollTask(force){
-  if (!task.id || task.busy) return;
-  if (!force && task.okAt && Date.now() - task.okAt < 5000) return; // drawer refresh throttle
-  task.busy = true;
-  // the task's own project beats the global filter — 'all' must still resolve
-  var qp = task.proj ? '?project=' + encodeURIComponent(task.proj) : projQuery();
-  fetch('/api/task' + qp + (qp ? '&' : '?') + 'id=' + encodeURIComponent(task.id), { signal: AbortSignal.timeout(8000) })
-    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(function(j){
-      if (!j || j.ok === false) throw new Error((j && j.error) || 'bad /api/task payload');
-      if (!j.task || !Array.isArray(j.events)) throw new Error('bad /api/task payload');
-      task.data = j; task.err = null; task.okAt = Date.now();
-      pollExecutionTrace();
-      fetchLaunch();
-    })
-    .catch(function(e){ task.err = String((e && e.message) || e); })
-    .finally(function(){ task.busy = false; renderDrawer(); });
-}
-function pollExecutionTrace(){
-  if (!task.id || task.executionBusy || (task.executionAt && Date.now() - task.executionAt < 30000)) return;
-  var id = task.id, proj = task.proj || (task.data && task.data.task && task.data.task.project);
-  if (!proj) return;
-  var sameTask = function(){ return task.id === id && (task.proj || (task.data && task.data.task && task.data.task.project)) === proj; };
-  task.executionBusy = true; task.executionAt = Date.now(); task.executionErr = null;
-  fetch('/api/task/execution?project=' + encodeURIComponent(proj) + '&id=' + encodeURIComponent(id), { signal: AbortSignal.timeout(20000) })
-    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(function(j){ if (sameTask()) task.execution = j; })
-    .catch(function(e){ if (sameTask()) task.executionErr = String(e && e.message || e); })
-    .finally(function(){ if (sameTask()) { task.executionBusy = false; renderDrawer(); } });
-}
+function pollTask(force){ feeds.kick('task', !!force); }
+function pollExecutionTrace(){ feeds.kick('exec', !task.execution && !task.executionErr); task.executionBusy = feeds.get('exec').busy; }
 function renderDrawer(){
   if (!task.id) return;
   var d = task.data;
@@ -1119,8 +1051,14 @@ function renderDrawer(){
   var body = byId('drawerBody');
   if (!d) {
     if (!task.err) return; // keep the loading row
-    body.setAttribute('data-sig', '');
-    errBanner(body, 'task unavailable — ' + String(task.err).slice(0, 120), function(){ task.err = null; pollTask(true); });
+    var eb = body.querySelector('klh-err-banner');
+    if (!eb) {
+      body.setAttribute('data-sig', '');
+      eb = document.createElement('klh-err-banner');
+      eb.feed = 'task';
+      body.replaceChildren(eb);
+    }
+    eb.text = 'task unavailable — ' + String(task.err).slice(0, 120);
     return;
   }
   var t = d.task;

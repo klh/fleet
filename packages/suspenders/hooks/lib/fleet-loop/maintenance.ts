@@ -61,6 +61,22 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		argv: (root) => [join(root, "hooks/bin/db-backup.ts")],
 	},
 	{
+		// W2274: governor.db retention — events/audit/usage archive-and-prune
+		// plus the deltas ring. Nothing scheduled gc before, so the db grew
+		// unbounded (980 MB, deltas 596 MB). Window knob: SUSPENDERS_GC_DAYS.
+		name: "governor-gc",
+		calendar: { hour: 4, minute: 10 },
+		nice: 10,
+		timeoutMs: 600_000,
+		argv: (root) => [
+			join(root, "hooks/bin/coord.ts"),
+			"gc",
+			...(process.env.SUSPENDERS_GC_DAYS
+				? ["--days", process.env.SUSPENDERS_GC_DAYS]
+				: []),
+		],
+	},
+	{
 		name: "harvest",
 		everySeconds: 900,
 		timeoutMs: 240_000,
@@ -344,6 +360,45 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		nice: 10,
 		timeoutMs: 300_000,
 		argv: (root) => [join(root, "hooks/bin/decant-daily.ts")],
+	},
+	{
+		// hub design D7: re-ask Kev for knowledge parked while it was
+		// unavailable (kev_review in knowledge.db) — store/review → ingest
+		// queue, noise → dropped; never fail-open.
+		name: "kev-review-drain",
+		everySeconds: 1800,
+		nice: 10,
+		timeoutMs: 300_000,
+		argv: (root) => [
+			join(root, "hooks/bin/coord.ts"),
+			"knowledge-review-drain",
+		],
+	},
+	{
+		// hub design phase 4: flush queued consult interrupts whose window
+		// opened (one coalesced steer per recipient) and walk the escalation
+		// chain (re-steer → inbox + notice → fleet) for un-acked ones.
+		name: "consult-tick",
+		everySeconds: 60,
+		nice: 5,
+		timeoutMs: 60_000,
+		argv: (root) => [join(root, "hooks/bin/coord.ts"), "consult-tick"],
+	},
+	{
+		// fork G: the idle-time knowledge distiller — one --once pass per
+		// fire (the bin's own idle gate decides busy/paused/out-of-window and
+		// exits 0 without spending); visits stalest-first under the per-day
+		// token budget, proposes candidates for review, never auto-activates.
+		// SUSPENDERS_KNOWLEDGE_DISTILL=0 or .fleet/distill-paused kills it.
+		name: "knowledge-distill",
+		everySeconds: 600,
+		nice: 10,
+		timeoutMs: 900_000,
+		argv: (root) => [
+			join(root, "hooks/bin/knowledge-distill.ts"),
+			"run",
+			"--once",
+		],
 	},
 	{
 		// W969 Signals-lite — per-run silent-failure scan of closed lanes

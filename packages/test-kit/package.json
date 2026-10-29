@@ -1,6 +1,6 @@
 {
 	"name": "@klh/test-kit",
-	"version": "2.0.4",
+	"version": "2.1.0",
 	"description": "Shared test primitives for the fleet monorepo: scratchWorld, runCli, freePort/waitUp, serveStub",
 	"type": "module",
 	"module": "src/index.ts",
@@ -9,7 +9,7 @@
 	},
 	"private": true,
 	"engines": {
-		"bun": ">=1.2"
+		"bun": "1.4.2"
 	},
 	"license": "SEE LICENSE IN LICENSE"
 }

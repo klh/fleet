@@ -219,6 +219,26 @@ export function releaseControllerLease(
 	return gone.changes === 1;
 }
 
+/** Fork E: release every lease this controller holds except `keep` — the
+ * multi-project loop drops authority over repos that left the registry, and
+ * (keep empty) releases all of it when any one project's handoff fires, so
+ * the KeepAlive successor assumes every project together. */
+export function releaseControllerLeasesExcept(
+	store: GovernorStore,
+	nonce: string,
+	keep: readonly string[] = [],
+): string[] {
+	controllerFenceSchema(store);
+	const held = (
+		store.query(`SELECT project FROM ${LEASES} WHERE nonce=?`).all(nonce) as {
+			project: string;
+		}[]
+	).map((r) => r.project);
+	const dropped = held.filter((p) => !keep.includes(p));
+	for (const p of dropped) releaseControllerLease(store, p, nonce);
+	return dropped;
+}
+
 /** Owner-invoked handoff request. With a live lease the request must name
  * the holder's nonce exactly; with no lease it may target a fresh
  * assumption (from_nonce null). Overwrites a cancelled/stale prior request. */

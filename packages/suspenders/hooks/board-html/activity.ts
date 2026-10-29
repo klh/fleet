@@ -4,35 +4,21 @@
 import { embedDualShort } from "../lib/wallclock.ts";
 // biome-ignore lint/complexity/noUselessStringRaw: byte-compat (W157)
 export const ACTIVITY = String.raw`// --- 5: activity feed (Activity tab, /api/activity, newest first) ---
-function pollAct(){
-  if (actBusy || curTab !== 'activity') return;
-  actBusy = true;
-  var scope = projQuery();
-  fetch('/api/activity?limit=300' + (scope ? '&' + scope.slice(1) : ''), { signal: AbortSignal.timeout(8000) })
-    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(function(j){
-      if (scope !== projQuery()) return;
-      if (!j || j.ok === false || !Array.isArray(j.events)) throw new Error('bad /api/activity payload');
-      actData = j; actOkAt = Date.now(); actErr = null; actLoaded = true;
-      noteProjects(j.projects);
-    })
-    .catch(function(e){ if (scope === projQuery()) actErr = String((e && e.message) || e); })
-    .finally(function(){ actBusy = false; renderAct(); if (scope !== projQuery()) pollAct(); });
-}
+function pollAct(){ feeds.kick('act', true); }
 function renderAct(){
   var errEl = byId('actErr');
   var body = byId('actBody');
   var hist = byId('actHist');
   if (!actLoaded && !actErr) {
-    clearErr(errEl);
+    errEl.text = '';
     sigSet(body, 'loading', '<div class="r"><span class="dim">loading activity...</span></div>');
     return;
   }
   if (actErr) {
     var when = actOkAt ? ago(Math.round((Date.now() - actOkAt) / 1000)) : 'never';
-    errBanner(errEl, 'activity feed unavailable — last good ' + when, function(){ actErr = null; pollAct(); });
+    errEl.text = 'activity feed unavailable — last good ' + when;
   } else {
-    clearErr(errEl);
+    errEl.text = '';
   }
   if (!actData) return;
   var ev = (actData.events || []).filter(function(e){ return scopedSource(e.source, e.project); });

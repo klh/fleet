@@ -11,6 +11,11 @@
 //               let-ride (no fuzzy verdict without it).
 import { statSync } from "node:fs";
 import { join } from "node:path";
+import {
+	type CoordConfig,
+	coordSettings,
+	steerIntervalMs,
+} from "./consult/consult-config.ts";
 import { type KevOption, kevTypedDecision } from "./knowledge/kev.ts";
 import { transcriptTail } from "./lanes/transcript.ts";
 
@@ -38,8 +43,15 @@ export function logReadOf(root: string, sid: string): LogRead {
 	return { phase: lanePhase(tail), ageMs };
 }
 
-/** W1035 gates: one steer per sid per hour (the W947 dedupe window). */
-export const STEER_WINDOW_MS = 3_600_000;
+/** W1035 gates: one steer per sid per window. Owner correction 2026-10-29:
+ *  the window is config (`steer.min_interval_s` in the coord config, default
+ *  180 s) — consult interrupts ride their own `consult.interrupt.*` knobs. */
+export function steerWindowMs(
+	env: NodeJS.ProcessEnv = process.env,
+	cfg: CoordConfig = coordSettings(env),
+): number {
+	return steerIntervalMs(cfg);
+}
 
 /** The kill-switch filename, relative to the project root's .fleet/. */
 export const STEER_PAUSE_FILE = "steer-paused";

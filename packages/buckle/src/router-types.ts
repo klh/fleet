@@ -34,6 +34,13 @@ export type ExecuteResult =
 			attempts: number;
 			refusalSource: "upstream" | "cooldown";
 			failureKind: ErrorKind;
+			/** Configured provider of the leg that produced this refusal. */
+			provider?: string;
+			/** Evidence level for that provider identity (owner law 2026-10-29):
+			 *  provider_response = the provider's own endpoint answered;
+			 *  litellm_translation = the status came from a litellm
+			 *  translation layer, the provider rides configuration only. */
+			providerSource?: "provider_response" | "litellm_translation";
 	  }
 	| {
 			kind: "aborted";
@@ -54,6 +61,12 @@ export type ExecuteResult =
 
 interface FailureProvenance {
 	source: "upstream" | "bridged-upstream" | "network" | "local-admission";
+	/** Configured provider of the failing leg (config identity, never
+	 *  inferred from error text). */
+	provider?: string;
+	/** provider_response = the provider's own endpoint answered;
+	 *  litellm_translation = the status came from a litellm layer. */
+	providerSource?: "provider_response" | "litellm_translation";
 	status: number;
 	kind: string;
 	requestId?: string;
@@ -163,6 +176,10 @@ export interface WalkState {
 		response: Response;
 		tier: string;
 		source: "upstream" | "cooldown";
+		/** Configured provider of the rate-limited leg. */
+		provider?: string;
+		/** provider_response | litellm_translation (see FailureProvenance). */
+		providerSource?: "provider_response" | "litellm_translation";
 	};
 	lastFailure?: FailureProvenance;
 	/** W1118.1: a peer's hop-contract refusal is a chain verdict — once set,

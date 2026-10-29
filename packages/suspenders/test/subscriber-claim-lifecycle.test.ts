@@ -38,6 +38,8 @@ async function exerciseSubscriberLifecycle(mode: "claim" | "watcher") {
 			"fixtures/claude-stream-pause.ts",
 		),
 		SUSPENDERS_FIXTURE_ACK_PAUSE: "1",
+		// per-sid subscriber lifecycle is the session-mode contract
+		SUSPENDERS_SUBSCRIBE_MODE: "session",
 		SUSPENDERS_FIXTURE_NATIVE_UUID: crypto.randomUUID(),
 	};
 	const frames: Record<string, unknown>[] = [];

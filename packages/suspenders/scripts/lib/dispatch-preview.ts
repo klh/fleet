@@ -61,6 +61,9 @@ export type DispatchBriefArgs = {
 	capsule: Record<string, string> | null;
 	pick: { agent?: string };
 	resumeBrief: string[];
+	/** W609/W2186: the CLAIM FENCE line rides the brief when the take minted
+	 *  an epoch (resume paths have none here — the env pin still carries it). */
+	extraBrief?: string[];
 	landing?: string;
 };
 
@@ -92,6 +95,7 @@ export const composeDispatchBrief = (
 			extra: [
 				...d.routingExtra(),
 				...a.resumeBrief,
+				...(a.extraBrief ?? []),
 				...d.policyBriefExtra(projectIdentity(d.REPO)),
 			],
 		});

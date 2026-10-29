@@ -160,6 +160,7 @@ export async function attemptTier(
 			st.peerTrace = null;
 			st.lastFailure = {
 				source: "network",
+				provider: dep.provider,
 				status: error.status,
 				kind: "network",
 				transportTimeoutPhase:
@@ -236,6 +237,7 @@ export async function attemptTier(
 			st.peerTrace = null;
 			st.lastFailure = {
 				source: "local-admission",
+				provider: dep.provider,
 				status: r.status,
 				kind: "local_admission",
 				retryAfterS: r.retryAfterS,
@@ -262,6 +264,7 @@ export async function attemptTier(
 		st.peerTrace = r.peerTrace;
 		st.lastFailure = {
 			source: r.refusalSource,
+			provider: dep.provider,
 			status: r.status,
 			kind: r.kind,
 			transportTimeoutPhase: r.transportTimeoutPhase,
@@ -292,16 +295,15 @@ export async function attemptTier(
 			}
 			continue;
 		}
-		if (r.kind === "rate_limited") {
-			if (!st.rateLimit)
-				st.rateLimit = { response: r.response, tier, source: "upstream" };
+		if (r.kind === "rate_limited" && !st.rateLimit) {
+			st.rateLimit = {
+				response: r.response,
+				tier,
+				source: "upstream",
+				provider: dep.provider,
+			};
 			// A refusal applies to every alias of the account: skip it within
 			// this walk (the shared cold mark holds it for later requests).
-			const account = providerPoolIdOf(dep);
-			if (account !== null) {
-				st.unavailablePools ??= new Set();
-				st.unavailablePools.add(account);
-			}
 		}
 		if (r.contextWindow) st.ctxWindow = r.response;
 		if (r.exhaustTier) {
@@ -575,6 +577,7 @@ function exhausted(st: WalkState): ExecuteResult {
 			attempts: st.attempts,
 			refusalSource: st.rateLimit.source,
 			failureKind: "rate_limited",
+			...(st.rateLimit.provider ? { provider: st.rateLimit.provider } : {}),
 		};
 	if (st.ctxWindow)
 		return {
