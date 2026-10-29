@@ -13,6 +13,7 @@ import { join } from "node:path";
 import {
 	DEFAULT_PATHS,
 	LITELLM_DOCS_OFF_ENV,
+	cloudTransportEnv,
 	LITELLM_OK_STATUS,
 	LITELLM_PROMETHEUS_SPEC,
 	type LitellmPaths,
@@ -233,22 +234,21 @@ test.describe("keys — env first, then the 0600 files, never echoed", () => {
 		expect(argv[0].endsWith("/.local/bin/litellm")).toBe(true);
 	});
 
-	test("spawn env carries the docs-kill switches (W886), keys still load", async () => {
+	test("spawn env carries docs switches and excludes the GUI proxy", async () => {
 		const p = paths();
 		const t = litellmTarget({
 			paths: p,
-			env: {},
+			env: { HTTPS_PROXY: "http://buckle:gui-token@127.0.0.1:4103" },
 			port: freePort(),
 			argv: [
 				process.execPath,
 				"-e",
-				'console.log(JSON.stringify({ NO_DOCS: process.env.NO_DOCS, NO_REDOC: process.env.NO_REDOC, NO_OPENAPI: process.env.NO_OPENAPI, Z_AI_API_KEY: process.env.Z_AI_API_KEY }))',
+				"console.log(JSON.stringify({ NO_DOCS: process.env.NO_DOCS, NO_REDOC: process.env.NO_REDOC, NO_OPENAPI: process.env.NO_OPENAPI, Z_AI_API_KEY: process.env.Z_AI_API_KEY, HTTPS_PROXY: process.env.HTTPS_PROXY }))",
 			],
 		});
 		const child = t.spawn?.();
 		await child?.exited;
-		const line =
-			readFileSync(p.log, "utf8").trimEnd().split("\n").pop() ?? "";
+		const line = readFileSync(p.log, "utf8").trimEnd().split("\n").pop() ?? "";
 		const env = JSON.parse(line) as Record<string, string | undefined>;
 		expect(env).toEqual({
 			NO_DOCS: "true",
@@ -261,6 +261,35 @@ test.describe("keys — env first, then the 0600 files, never echoed", () => {
 			NO_REDOC: "true",
 			NO_OPENAPI: "true",
 		});
+	});
+
+	test("GUI launchd proxy never reaches provider transport unless explicitly configured @unit", () => {
+		const inherited = {
+			HTTPS_PROXY: "http://buckle:token@127.0.0.1:4103",
+			HTTP_PROXY: "http://buckle:token@127.0.0.1:4103",
+			https_proxy: "http://other-proxy:8080",
+			ALL_PROXY: "socks5://other-proxy:1080",
+			NO_PROXY: "localhost",
+			Z_AI_API_KEY: ZAI,
+		};
+		const direct = cloudTransportEnv(inherited);
+		for (const name of [
+			"HTTPS_PROXY",
+			"HTTP_PROXY",
+			"https_proxy",
+			"ALL_PROXY",
+		])
+			expect(direct[name]).toBeUndefined();
+		expect(direct.NO_PROXY).toBe("localhost");
+		expect(direct.Z_AI_API_KEY).toBe(ZAI);
+		expect(inherited.HTTPS_PROXY).toContain("4103");
+		const explicit = cloudTransportEnv({
+			...inherited,
+			BELT_CLOUD_PROXY_URL: "http://operator-proxy:3128",
+		});
+		expect(explicit.HTTPS_PROXY).toBe("http://operator-proxy:3128");
+		expect(explicit.HTTP_PROXY).toBe("http://operator-proxy:3128");
+		expect(explicit.ALL_PROXY).toBeUndefined();
 	});
 });
 

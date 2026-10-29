@@ -104,6 +104,31 @@ type Env = Record<string, string | undefined>;
 type ReadFile = (path: string) => string;
 type StatFile = (path: string) => { isFile(): boolean; mode: number };
 
+/** The GUI CONNECT proxy is installed in the launchd session. LiteLLM is a
+ * backend, so inheriting those variables silently changes every provider
+ * request. A provider proxy requires an explicit machine-level override. */
+export function cloudTransportEnv(env: Env): Env {
+	const child = { ...env };
+	for (const name of [
+		"HTTP_PROXY",
+		"HTTPS_PROXY",
+		"ALL_PROXY",
+		"http_proxy",
+		"https_proxy",
+		"all_proxy",
+	])
+		delete child[name];
+	const proxy = env.BELT_CLOUD_PROXY_URL?.trim();
+	if (proxy) {
+		const url = new URL(proxy);
+		if (!["http:", "https:"].includes(url.protocol))
+			throw new Error("BELT_CLOUD_PROXY_URL must be an HTTP(S) URL");
+		child.HTTP_PROXY = proxy;
+		child.HTTPS_PROXY = proxy;
+	}
+	return child;
+}
+
 const readText: ReadFile = (path) => readFileSync(path, "utf8");
 
 const tryRead = (read: ReadFile, path: string): string | null => {
@@ -270,7 +295,7 @@ export function litellmTarget(deps: LitellmTargetDeps = {}): Target {
 				stdin: "ignore",
 				stdout: fd,
 				stderr: fd,
-				env: { ...env, ...keys, ...LITELLM_DOCS_OFF_ENV },
+				env: { ...cloudTransportEnv(env), ...keys, ...LITELLM_DOCS_OFF_ENV },
 			});
 		},
 	};
