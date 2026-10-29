@@ -6,6 +6,7 @@
 // W14: re-verify runs filesCheck IN-PROCESS — the old loop spawned one
 // `bun gate.ts post-files` per changed file (up to 50 bun processes per Stop).
 
+import { setting } from "@klh/settings";
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { openStore } from "../lib/govdb/govdb.ts";
@@ -38,14 +39,8 @@ const CODE_EXT =
 // research-oh-my-claude L2). Converts silent context exhaustion into one
 // cheap, bounded intervention: at >= GUARD pct block the stop with a
 // checkpoint directive, max 2 blocks/session.
-const GUARD_PCT = Math.min(
-	99,
-	Math.max(1, Number(process.env.SUSPENDERS_CONTEXT_GUARD_PCT ?? 75) || 75),
-);
-const CRITICAL_PCT = Math.min(
-	100,
-	Math.max(1, Number(process.env.SUSPENDERS_CONTEXT_CRITICAL_PCT ?? 95) || 95),
-);
+const GUARD_PCT = Math.min(99, setting("gates.context_guard_pct"));
+const CRITICAL_PCT = Math.min(100, setting("gates.context_critical_pct"));
 const CONTEXT_GUARD_CAP = 2;
 const ABORT_OR_LIMIT =
 	/\[Request interrupted by user|"isApiErrorMessage":true|usage limit|credit balance|rate limit/i;

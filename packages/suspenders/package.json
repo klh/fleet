@@ -20,6 +20,7 @@
 		"@klh/buckle": "2.0.4",
 		"@klh/kernel": "2.0.4",
 		"@klh/local-llm": "2.0.4",
+		"@klh/settings": "2.0.4",
 		"@klh/speedy": "2.0.4",
 		"@klh/telemetry": "2.0.4",
 		"@vercel/detect-agent": "1.2.7",

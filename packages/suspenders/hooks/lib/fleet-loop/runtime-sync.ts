@@ -10,6 +10,7 @@
 // cycle), and a failed sync never advances the stamp — the next cycle
 // retries. SUSPENDERS_MAINTENANCE=0 disables (ops escape hatch, one env for
 // the whole heartbeat family).
+import { setting } from "@klh/settings";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { readStamp } from "../../../scripts/lib/auto-install.ts";
@@ -59,7 +60,7 @@ export function createRuntimeSync(
 	const root = suspendersRoot();
 	const runner = join(root, "scripts/post-merge-sync.ts");
 	const runtimeSync = (): RuntimeSyncResult => {
-		if (process.env.SUSPENDERS_MAINTENANCE === "0")
+		if (!setting("fleet_loop.maintenance"))
 			return { ran: false, labels: [], reason: "disabled" };
 		const stamp = readStamp(statePath);
 		const head = sh(["git", "rev-parse", MAIN]) || null;

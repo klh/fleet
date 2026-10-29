@@ -7,6 +7,7 @@
 // fleet-loop retireMerged). Dispatch is FAIL-CLOSED (W463): a mint failure
 // refuses the lane unless the operator passes --allow-ungoverned.
 
+import { setting } from "@klh/settings";
 import {
 	chmodSync,
 	existsSync,
@@ -38,8 +39,7 @@ export const LANE_KEY_TTL_S = 24 * 60 * 60;
  *  so a half-open partition degrades to the fail-closed null/false paths
  *  (the covered REFUSED machinery) instead of hanging the dispatch with a
  *  half-launched claim. Env-pinnable for tests (W670: read at call time). */
-const laneKeyTimeoutMs = (): number =>
-	Number(process.env.SUSPENDERS_LANE_KEY_TIMEOUT_MS) || 5_000;
+const laneKeyTimeoutMs = (): number => setting("dispatch.lane_key_timeout_ms");
 
 export type MintedLaneKey = { key: string; keyId: string };
 

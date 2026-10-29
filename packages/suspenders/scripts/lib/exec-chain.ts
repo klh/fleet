@@ -33,7 +33,10 @@ import {
 // W813: chain tokens may name HUBS (a stack.json/hubs.json label rides
 // that hub); can= doability probes resolveLaneExecutor + darkHubNow + the
 // cv tally — all sync, so execPick stays sync.
-import { readRegistry } from "../../hooks/lib/hub/hub-locate.ts";
+import {
+	readRegistry,
+	unknownHubWarning,
+} from "../../hooks/lib/hub/hub-locate.ts";
 import { readUserPlane } from "../../hooks/lib/policy/repo-laws.ts";
 import { darkHubNow, tryLoadStack } from "../../hooks/lib/stack-config.ts";
 import { resolveLaneExecutor } from "./launch-preflight.ts";
@@ -81,12 +84,21 @@ export const posturePreference = (
 	can: selected.can,
 });
 
+/** `.prefer hub=<label>` warnings already printed by this process. */
+const warnedHubs = new Set<string>();
+
 export const preferOf = (repo: string): PreferExecutor => {
 	const path = `${repo}/.prefer`;
 	const text = readPreferText(path);
 	if (text === null || preferOverlayOf(path, text) !== null)
 		return { directives: [], hub: null, hubUrls: [], can: null };
-	return parseExecutorPrefer(text);
+	const parsed = parseExecutorPrefer(text);
+	const unknown = parsed.hub ? unknownHubWarning(parsed.hub) : null;
+	if (unknown && !warnedHubs.has(unknown)) {
+		warnedHubs.add(unknown);
+		process.stderr.write(`${unknown}\n`);
+	}
+	return parsed;
 };
 
 // W422: a chain token that names a registered agent rides its own binary;
