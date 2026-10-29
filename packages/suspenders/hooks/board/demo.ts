@@ -192,7 +192,7 @@ export function seedDemo(): void {
 		db.run("ROLLBACK");
 		throw e;
 	}
-	syncDecisions(); // materializes all four forks from the real NEED events
+	syncDecisions({ force: true }); // materializes all four forks from the real NEED events
 	// two of them the human already answered — answered_at = now so the
 	// ACK heuristic can't re-fire on the (older) seeded events
 	for (const [id, note, to] of [

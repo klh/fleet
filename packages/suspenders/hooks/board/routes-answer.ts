@@ -74,7 +74,7 @@ export async function handleAnswerActions(
 			return classRuling(parsed.body.ids, note);
 		if (!id || !to || !note || !token)
 			return json({ ok: false, error: "missing id, to, note or token" }, 400);
-		syncDecisions();
+		syncDecisions({ force: true });
 		const row = db
 			.query(
 				"SELECT state, answer_note, answer_token, answer_to, target, project FROM decisions WHERE event_id = ?",
@@ -210,7 +210,7 @@ export async function handleAnswerActions(
 		if (!ev) return json({ ok: false, error: `unknown event id: ${id}` }, 404);
 		if (!isDecisionKind(ev.kind))
 			return json({ ok: false, error: `not a decision event: ${id}` }, 400);
-		syncDecisions();
+		syncDecisions({ force: true });
 		const row = db
 			.query("SELECT state FROM decisions WHERE event_id = ?")
 			.get(id) as { state: string } | null;
@@ -261,7 +261,7 @@ function classRuling(ids: unknown, note: string): Response {
 		: [];
 	if (!classIds.length || !note)
 		return json({ ok: false, error: "missing note or valid ids" }, 400);
-	syncDecisions();
+	syncDecisions({ force: true });
 	const applied: number[] = [];
 	const skipped: number[] = [];
 	for (const cid of classIds) {

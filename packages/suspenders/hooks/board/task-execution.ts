@@ -4,8 +4,13 @@ import {
 	laneProcessIdentity,
 	laneVerdict,
 	type ProcessInspection,
+	transcriptsAliveBatch,
 } from "../lib/lanes/lane-liveness.ts";
-import { newerLane, readLaneRegistry } from "../lib/lanes/lane-registry.ts";
+import {
+	memoProjectRoot,
+	newerLane,
+	readLaneRegistry,
+} from "../lib/lanes/lane-registry.ts";
 import {
 	type ExecutionClaim,
 	type ExecutionEvidence,
@@ -41,9 +46,18 @@ export function taskExecutionSnapshot(
 	const claimed = new Set(
 		claims.map((c) => `${c.project}\0${c.id}\0${c.owner_sid}`),
 	);
+	// W2273 follow-up: collect first, then ONE bounded transcript walk for
+	// every claimed lane — the per-row laneVerdict walk re-read the whole
+	// ~/.claude/projects tree once per dead lane (negatives never memoize),
+	// which pinned the board's event loop on /api/tasks.
+	const pending: {
+		project: string;
+		row: Registered;
+		lifecycle: { value: string; ts: number } | null;
+	}[] = [];
 	for (const project of new Set(claims.map((c) => c.project))) {
 		try {
-			const registry = readLaneRegistry<Registered>(project);
+			const registry = readLaneRegistry<Registered>(project, memoProjectRoot);
 			if (!registry.known) continue;
 			const latest = new Map<string, Registered>();
 			for (const row of registry.lanes) {
@@ -56,22 +70,25 @@ export function taskExecutionSnapshot(
 				const recorded = facts.get(`lane.${row.sid}.state`);
 				const lifecycle =
 					recorded && recorded.ts >= (row.launchedAt ?? 0) ? recorded : null;
-				lanes.set(`${project}\0${row.item}\0${row.sid}`, {
-					project,
-					item: row.item,
-					sid: row.sid,
-					observedAt: now,
-					process: laneProcessIdentity(row, inspect),
-					lease: laneVerdict(row, inspect),
-					lifecycle: lifecycle?.value ?? null,
-					lifecycleAt: lifecycle?.ts ?? null,
-					attempt: row.attempt ?? null,
-				});
+				pending.push({ project, row, lifecycle });
 			}
 		} catch {
 			/* Missing/remote registry remains unknown, never dead. */
 		}
 	}
+	const transcripts = transcriptsAliveBatch(pending.map((p) => p.row.sid));
+	for (const { project, row, lifecycle } of pending)
+		lanes.set(`${project}\0${row.item}\0${row.sid}`, {
+			project,
+			item: row.item,
+			sid: row.sid,
+			observedAt: now,
+			process: laneProcessIdentity(row, inspect),
+			lease: laneVerdict(row, inspect, transcripts),
+			lifecycle: lifecycle?.value ?? null,
+			lifecycleAt: lifecycle?.ts ?? null,
+			attempt: row.attempt ?? null,
+		});
 	const artifacts = artifactEvidence(db);
 	return (claim: ExecutionClaim) =>
 		workExecution(

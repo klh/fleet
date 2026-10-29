@@ -18,7 +18,7 @@ function retryOperatorGate(
 	force: boolean,
 ): Response | null {
 	if (force) return null;
-	syncDecisions();
+	syncDecisions({ force: true });
 	const open = db
 		.query(
 			"SELECT event_id FROM decisions WHERE project = ? AND task_id = ? AND state = 'OPEN' LIMIT 1",

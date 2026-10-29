@@ -18,6 +18,8 @@ import {
 	responseOpenAIToAnthropic,
 } from "./adapters/tools.ts";
 import { chatgptSafeBody, isChatgptGroupModel } from "./chatgpt-bridge.ts";
+import { upstreamErrorDetail } from "./error-detail.ts";
+import { peerErrorTrace } from "./error-trace.ts";
 import type { UpstreamRequest } from "./router.ts";
 import { SSE_KEEPALIVE } from "./sse.ts";
 import type { Deployment, Dialect } from "./upstreams.ts";
@@ -83,24 +85,35 @@ export function bridgeResponse(
 	resp: Response,
 	client: Dialect,
 	stream: boolean,
+	trustedPeer = false,
 ): Response {
 	const headers = new Headers(resp.headers);
 	headers.delete("content-length");
 	headers.delete("content-encoding");
 	if (stream && client === "anthropic" && resp.body) {
 		headers.set("content-type", "text/event-stream");
-		return new Response(resp.body.pipeThrough(openAIToAnthropicSse()), {
-			status: resp.status,
-			headers,
-		});
+		return new Response(
+			resp.body.pipeThrough(
+				openAIToAnthropicSse(trustedPeer ? resp : undefined),
+			),
+			{
+				status: resp.status,
+				headers,
+			},
+		);
 	}
 	if (stream && client === "openai" && resp.body) {
 		// anthropic SSE upstream → openai chunk frames (W426 mirror)
 		headers.set("content-type", "text/event-stream");
-		return new Response(resp.body.pipeThrough(anthropicToOpenAISse()), {
-			status: resp.status,
-			headers,
-		});
+		return new Response(
+			resp.body.pipeThrough(
+				anthropicToOpenAISse(trustedPeer ? resp : undefined),
+			),
+			{
+				status: resp.status,
+				headers,
+			},
+		);
 	}
 	headers.set("content-type", "application/json");
 	const body = resp.text().then((text) => {
@@ -150,11 +163,31 @@ function wireEvent(e: AnthropicEvent, inTok: number): string {
 	return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
+function bridgeErrorDetail(
+	wire: unknown,
+): ReturnType<typeof upstreamErrorDetail> {
+	const detail = upstreamErrorDetail(wire);
+	return detail.type === "ping" ? { ...detail, type: "api_error" } : detail;
+}
+
+function trustedStreamTrace(
+	peer: Response | undefined,
+	wire: unknown,
+): unknown {
+	if (!peer) return null;
+	const trace = peerErrorTrace(
+		peer,
+		wire,
+		peer.headers.get("x-klh-trace-id") ?? "",
+		true,
+	);
+	return trace ? JSON.parse(trace) : null;
+}
+
 /** openai SSE bytes → anthropic SSE bytes (streaming, one decoder). */
-export function openAIToAnthropicSse(): TransformStream<
-	Uint8Array,
-	Uint8Array
-> {
+export function openAIToAnthropicSse(
+	peer?: Response,
+): TransformStream<Uint8Array, Uint8Array> {
 	const dec = new TextDecoder();
 	const enc = new TextEncoder();
 	const tx = new OpenAIToAnthropicStream();
@@ -181,22 +214,34 @@ export function openAIToAnthropicSse(): TransformStream<
 			c.enqueue(enc.encode(SSE_KEEPALIVE));
 			return;
 		}
-		if (payload === "[DONE]") {
+		if (payload === "[DONE]" && evt !== "error") {
 			// W1106.2: the source's success license — flush may now emit the
 			// anthropic terminal (a failed source never gets here licensed:
 			// noteDone alone can't clear the in-band failure poison).
 			tx.noteDone();
 			return;
 		}
-		if (payload.length === 0) return;
+		if (payload.length === 0 && evt !== "error") return;
+		let parsed: unknown;
 		try {
-			emit(tx.push(JSON.parse(payload)), c);
-			// W1106: a ping-shaped frame produces zero AnthropicEvents — emit the
-			// keepalive so the downstream socket never idles inside a quiet window.
-			if (tx.sawPing) c.enqueue(enc.encode(SSE_KEEPALIVE));
+			parsed = JSON.parse(payload);
 		} catch {
-			// non-JSON frame: nothing to translate
+			if (evt !== "error") return;
+			parsed = { message: "malformed upstream error frame" };
 		}
+		if (evt === "error") {
+			const events = tx.push({ error: bridgeErrorDetail(parsed) });
+			const prior = trustedStreamTrace(peer, parsed);
+			if (prior)
+				for (const item of events)
+					if (item.event === "error") item.data.fleet_trace = prior;
+			emit(events, c);
+			return;
+		}
+		emit(tx.push(parsed), c);
+		// W1106: a ping-shaped frame produces zero AnthropicEvents — emit the
+		// keepalive so the downstream socket never idles inside a quiet window.
+		if (tx.sawPing) c.enqueue(enc.encode(SSE_KEEPALIVE));
 	};
 	const line = (
 		l: string,
@@ -247,10 +292,9 @@ function openaiFrame(chunk: AnyRec): string {
  *  The mirror of openAIToAnthropicSse: parses `event:`/`data:` pairs, feeds
  *  AnthropicToOpenAIStream, emits `data: {...}` chunk frames and the final
  *  `data: [DONE]` sentinel (openai include_usage semantics). */
-export function anthropicToOpenAISse(): TransformStream<
-	Uint8Array,
-	Uint8Array
-> {
+export function anthropicToOpenAISse(
+	peer?: Response,
+): TransformStream<Uint8Array, Uint8Array> {
 	const dec = new TextDecoder();
 	const enc = new TextEncoder();
 	const tx = new AnthropicToOpenAIStream();
@@ -276,12 +320,27 @@ export function anthropicToOpenAISse(): TransformStream<
 			event = "";
 			return;
 		}
-		if (payload.length === 0) return;
+		if (payload.length === 0 && evt !== "error") return;
 		let parsed: unknown;
 		try {
 			parsed = JSON.parse(payload);
 		} catch {
-			event = ""; // non-JSON frame: nothing to translate
+			if (evt !== "error") {
+				event = ""; // non-JSON frame: nothing to translate
+				return;
+			}
+			parsed = { message: "malformed upstream error frame" };
+		}
+		if (evt === "error") {
+			const chunks = tx.push({
+				event: "error",
+				data: { type: "error", error: bridgeErrorDetail(parsed) },
+			});
+			const prior = trustedStreamTrace(peer, parsed);
+			if (prior)
+				for (const chunk of chunks) if (chunk.error) chunk.fleet_trace = prior;
+			emit(chunks, c);
+			event = "";
 			return;
 		}
 		if (

@@ -145,8 +145,9 @@ export function traceStreamErrorPayload(
 	if (!body) return payload;
 	const hub = HUB_LABEL.test(hubLabel) ? hubLabel : "local";
 	const error = object(body.error) ?? object(object(body.response)?.error);
+	const payloadType = body.type === "ping" ? null : body.type;
 	const code =
-		safeProviderErrorToken(error?.code ?? error?.type ?? body.type) ??
+		safeProviderErrorToken(error?.code ?? error?.type ?? payloadType) ??
 		"stream_error";
 	const target = safeProviderErrorToken(targetId) ?? undefined;
 	const peer =

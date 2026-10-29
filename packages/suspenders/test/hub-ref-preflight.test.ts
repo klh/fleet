@@ -10,7 +10,33 @@ import {
 	resolveHubOrigin,
 	FLEET_ORIGIN,
 } from "../deploy/hub-ref-preflight.ts";
-import type { HubProfile } from "../hooks/lib/stack-config.ts";
+import { stackAtRelease, updateRows } from "../deploy/hub-update.ts";
+import type { HubProfile, StackConfig } from "../hooks/lib/stack-config.ts";
+
+test("independent overlay SHA is deployed ref, not drift or an auto-advanced release", () => {
+	const sha = "a".repeat(40);
+	const configured: StackConfig = {
+		version: "v2.0.4",
+		hubs: {
+			overlay: {
+				host: "overlay.invalid",
+				repos: {
+					buckle: "https://git.example.invalid/private/fleet.git",
+					ref: sha,
+				},
+			},
+		},
+	};
+	expect(updateRows(configured, "v2.0.5", () => sha)[0]).toMatchObject({
+		pinned: sha,
+		deploymentDrift: false,
+		updateAvailable: false,
+		pinnedOverlay: true,
+	});
+	expect(stackAtRelease(configured, "v2.0.5").hubs.overlay?.repos?.ref).toBe(
+		sha,
+	);
+});
 
 const served: RefProbe = () => ({
 	status: 0,

@@ -12,6 +12,7 @@ import { db } from "./context.ts";
 import { activity, workEvents } from "./events.ts";
 import { decisionsPayload, taskDecisions } from "./decisions.ts";
 import { payload, payloadFor } from "./payload.ts";
+import { pollMemo } from "./poll-memo.ts";
 import {
 	taskShape,
 	tasks,
@@ -158,9 +159,13 @@ export async function handleData(
 		// full decision records + counts — the decisions feed the UI polls.
 		// Default OPEN-only; &history=1 folds in the resolved rows
 		return json(
-			decisionsPayload(
-				url.searchParams.get("history") === "1",
-				url.searchParams.get("project"),
+			pollMemo(
+				`decisions\0${url.searchParams.get("history")}\0${url.searchParams.get("project")}`,
+				() =>
+					decisionsPayload(
+						url.searchParams.get("history") === "1",
+						url.searchParams.get("project"),
+					),
 			),
 		);
 	{
@@ -180,15 +185,15 @@ export async function handleData(
 		// W682: terminal history (DONE/CANCELLED/ORPHANED) caps at the newest
 		// 12 rows per project by default — the kanban renders 12 done cards —
 		// `?done=all` restores the complete feed (the opt-in completed table).
-		syncDecisions(); // fork counts must reflect events the poll hasn't seen
 		const p = url.searchParams.get("project");
 		const done = url.searchParams.get("done");
 		const doneArg = done === "all" ? "all" : Math.max(0, Number(done) || 12);
-		return json({
-			ok: true,
-			projects: projectList(),
-			tasks: tasks(p, doneArg),
-		});
+		return json(
+			pollMemo(`tasks\0${p}\0${doneArg}`, () => {
+				syncDecisions(); // fork counts must reflect events the poll hasn't seen
+				return { ok: true, projects: projectList(), tasks: tasks(p, doneArg) };
+			}),
+		);
 	}
 	if (url.pathname === "/api/spend-series") {
 		// Per-item one-minute request usage keyed project\0id.

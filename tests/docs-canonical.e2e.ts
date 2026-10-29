@@ -1,21 +1,23 @@
+// W1294.8: ported 1:1 from docs-canonical.test.ts to @playwright/test (@unit).
 // W422.16 drift guard: one canonical doc per package.
 // AGENTS.md holds the truth (lane protocol + package law); CLAUDE.md must be
 // the one-line @AGENTS.md stub. Real content in a CLAUDE.md, a CLAUDE.md
 // without an AGENTS.md sibling, or a stub pointing at a stub = drift = fail.
-import { expect, test } from "bun:test";
+
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 
 const ROOT = join(import.meta.dir, "..");
 const STUB = "@AGENTS.md";
 
-test("root: AGENTS.md is the canonical law, CLAUDE.md is the stub", () => {
+test("root: AGENTS.md is the canonical law, CLAUDE.md is the stub @unit", () => {
 	const law = readFileSync(join(ROOT, "AGENTS.md"), "utf8");
 	expect(law.length).toBeGreaterThan(200); // a stub must never point at a stub
 	expect(readFileSync(join(ROOT, "CLAUDE.md"), "utf8").trim()).toBe(STUB);
 });
 
-test("every package: CLAUDE.md is the @AGENTS.md stub and AGENTS.md carries the truth", () => {
+test("every package: CLAUDE.md is the @AGENTS.md stub and AGENTS.md carries the truth @unit", () => {
 	for (const pkg of readdirSync(join(ROOT, "packages")).sort()) {
 		const cl = join(ROOT, "packages", pkg, "CLAUDE.md");
 		if (!existsSync(cl)) continue; // docs-less packages (local-llm) are fine
