@@ -345,7 +345,8 @@ function cloudSet(pool: readonly CandidateRow[]): Set<string> {
 /** The W136 escalation law (§5.2), all conditions AND-ed: cloud rungs of
  *  the ladder fire only when the owner switch allows, cost mode isn't
  *  active, the tier warrants (COMPLEX+ or quality mode), and local delivery
- *  already failed twice (primary + one bounded fallback attempted). */
+ *  already failed its knock (fail-fast: one knock per rung per walk, so the
+ *  old "failed twice" retry counter is one genuine failure — W2244.1). */
 export function mayEscalate(args: {
 	group: string;
 	tier?: string;
@@ -360,6 +361,6 @@ export function mayEscalate(args: {
 		(args.tier === "COMPLEX" ||
 			args.tier === "VERY_COMPLEX" ||
 			args.prefs.cost_speed === "quality") &&
-		args.attempts >= 2
+		args.attempts >= 1
 	);
 }

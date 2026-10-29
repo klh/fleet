@@ -228,7 +228,7 @@ test.describe("@api", () => {
 				expect(degraded.status).toBe(200);
 				const degradedBody = (await degraded.json()) as { id: string };
 				expect(degradedBody.id).toBe("direct-1");
-				expect(chatCalls(engine.up)).toHaveLength(3); // phase-1 try + the rung's own retry, then benched
+				expect(chatCalls(engine.up)).toHaveLength(2); // phase-1 try + phase-2's one knock (fail-fast), then benched
 				expect(chatCalls(direct)).toHaveLength(1);
 
 				// Phase 3 — the engine is benched (cooldown state), but the decision
@@ -245,7 +245,7 @@ test.describe("@api", () => {
 				expect(denied.status).toBe(403);
 				const deniedBody = (await denied.json()) as { code: string };
 				expect(deniedBody.code).toBe("buckle.insufficient_scope");
-				expect(chatCalls(engine.up)).toHaveLength(5);
+				expect(chatCalls(engine.up)).toHaveLength(2); // fail-fast: phase-1 + phase-2's one knock; phase-3 rode the refreshed decision to direct
 
 				// The full route_audit story, committed on the shared db file.
 				const rows = await auditRowsOf(gate.dbPath, 4);
@@ -265,7 +265,9 @@ test.describe("@api", () => {
 				expect(r2.target_port).toBe(engine.up.port);
 				expect(r2.status).toBe(200);
 				expect(r2.ok).toBe(1);
-				expect(r3.target_port).toBe(engine.up.port);
+				// phase 3 rode the refreshed decision view to the direct rung
+				// (no bench knock under fail-fast)
+				expect(r3.target_port).toBe(direct.port);
 				expect(r3.ok).toBe(1);
 				// phase 4: the denial row (denied audits too)
 				expect(r4.decision).toBe("denied");

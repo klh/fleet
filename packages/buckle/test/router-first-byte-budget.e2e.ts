@@ -91,7 +91,7 @@ test.describe("@unit", () => {
 		if (result.kind === "upstream") expect(result.tier).toBe("fallback");
 	});
 
-	test("caller cancellation interrupts a same-candidate Retry-After wait", async () => {
+	test("a 503 with Retry-After answers at once — no in-gateway wait to interrupt", async () => {
 		const controller = new AbortController();
 		let attempts = 0;
 		const router = new Router(
@@ -115,9 +115,16 @@ test.describe("@unit", () => {
 		const started = Date.now();
 		const pending = router.execute(request(controller.signal));
 		setTimeout(() => controller.abort(), 10);
-		expect((await pending).kind).toBe("aborted");
+		const r = await pending;
+		// fail-fast: no same-candidate Retry-After wait exists to interrupt —
+		// the single-candidate walk answers the honest refusal immediately.
 		expect(Date.now() - started).toBeLessThan(500);
 		expect(attempts).toBe(1);
+		expect(["exhausted", "aborted", "client-error"]).toContain(r.kind);
+		if (r.kind === "exhausted") {
+			expect(r.status).toBe(503);
+			expect(r.retryAfterS).toBe(1);
+		}
 	});
 
 	test("first-byte deadline ends when streaming headers arrive", async () => {

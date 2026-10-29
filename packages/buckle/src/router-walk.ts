@@ -6,11 +6,11 @@ import { safeCorrelationId } from "@klh/telemetry/src/http-trace.ts";
 import { TransportObservation } from "@klh/telemetry/src/transport-evidence.ts";
 import { bridgeRequest } from "./bridge.ts";
 import { type CandidateRow, candIdOf } from "./candidates.ts";
-import { retryDelayS } from "./cooldown.ts";
 import { mayEscalate, type RouteSelection } from "./decide.ts";
 import { FLASHX } from "./policy.ts";
-import { providerPoolIdOf, tryOnce } from "./router-attempt.ts";
+import { providerPoolIdOf, resilienceOf, tryOnce } from "./router-attempt.ts";
 import {
+	coldMarkedDeps,
 	probeBenchedLeg,
 	rememberCooledRateLimit,
 	tierCandidates,
@@ -25,7 +25,13 @@ import type {
 } from "./router-types.ts";
 import { UpstreamError } from "./router-types.ts";
 import type { Deployment } from "./upstreams.ts";
-/** Same-tier retry loop (num_retries + 1 attempts across candidates). */
+/** Same-tier failover (fail fast — owner correction 2026-10-29): each
+ *  candidate is tried at most ONCE, in order, with NO in-gateway sleep.
+ *  Hops after an upstream HTTP refusal are bounded by max_failover_hops
+ *  WITHIN the tier (fallback-tier transitions are ladder routing, not
+ *  failover hops); the failover budget bounds them fleet-wide. The
+ *  outermost client owns the one retry layer (honest 429/503 +
+ *  Retry-After). */
 export async function attemptTier(
 	host: RouterHost,
 	req: UpstreamRequest,
@@ -33,8 +39,7 @@ export async function attemptTier(
 	candidates: Deployment[],
 	st: WalkState,
 ): Promise<ExecuteResult | null> {
-	const retries = host.policy.num_retries ?? 1;
-	const capS = host.policy.retry_max_delay_s ?? 8;
+	const tierStartRefusals = st.httpRefusals ?? 0;
 	const floorCapS = host.policy.retry_after_cap_s ?? 60;
 	const perAttemptMs = (host.policy.request_timeout_s ?? 120) * 1000;
 	// W450: streaming bodies get idle+total guards; non-streaming keeps
@@ -46,40 +51,26 @@ export async function attemptTier(
 					totalMs: (host.policy.stream_total_timeout_s ?? 900) * 1000,
 				}
 			: undefined;
-	// W987: skip-grade rung failures (auth, client-fault) advance to the
-	// next candidate free — the retry budget only buys repeat attempts
-	// for failures that can heal (5xx/timeouts/rate limits).
-	let skipped = 0;
+	// W987: skip-grade rung failures (auth, client-fault, local admission)
+	// advance to the next candidate free; only heal-able failures (5xx/
+	// timeouts/rate limits) spend the mayFailover hop allowance.
+	let cursor = 0;
 	const timedOutOrigins = new Set<string>();
-	let pendingRetry: { candidateId: string; delayMs: number } | undefined;
-	for (let attempt = 0; attempt <= retries; attempt++) {
+	while (cursor < candidates.length) {
 		if (req.signal?.aborted) return halt(st.attempts);
 		if (walkExpired(host, st)) break;
-		const raw = attempt + skipped;
 		const nextIndex = candidates.findIndex(
 			(candidate, index) =>
-				index >= Math.min(raw, candidates.length - 1) &&
+				index >= cursor &&
 				!timedOutOrigins.has(new URL(candidate.url).origin) &&
 				!st.unavailablePools?.has(providerPoolIdOf(candidate) ?? ""),
 		);
-		if (nextIndex > raw) skipped += nextIndex - raw;
 		const dep = nextIndex < 0 ? undefined : candidates[nextIndex];
 		if (!dep) break;
-		if (pendingRetry?.candidateId === candIdOf(dep)) {
-			const remainingMs = st.deadlineMs - host.now();
-			// Retry-After constrains this candidate only. A healthy fallback
-			// must get the remaining budget instead of waiting it away.
-			if (pendingRetry.delayMs >= remainingMs) break;
-			await waitBeforeRetry(
-				host,
-				pendingRetry.delayMs,
-				req.signal,
-				remainingMs,
-			);
-			if (req.signal?.aborted) return halt(st.attempts);
-			if (walkExpired(host, st)) break;
-		}
-		pendingRetry = undefined;
+		cursor = nextIndex + 1;
+		// One retry layer: after an upstream HTTP refusal, at most
+		// max_failover_hops immediate hops within this tier (budgeted).
+		if (!mayFailover(host, req, st, tierStartRefusals)) break;
 		const timeoutMs = Math.max(
 			1,
 			Math.min(perAttemptMs, st.deadlineMs - host.now()),
@@ -251,8 +242,6 @@ export async function attemptTier(
 				kind: "local_admission",
 				retryAfterS: r.retryAfterS,
 			};
-			if (raw + 1 >= candidates.length) break;
-			skipped++;
 			continue;
 		}
 		reportAttempt(
@@ -290,6 +279,8 @@ export async function attemptTier(
 							Math.min(Math.ceil(r.retryAfterS), Math.max(1, floorCapS)),
 						),
 		};
+		// An upstream HTTP refusal arms the one-retry-layer cap (mayFailover).
+		st.httpRefusals = (st.httpRefusals ?? 0) + 1;
 		if (walkExpired(host, st)) break;
 		if (r.kind === "network" || r.kind === "timeout") {
 			// A peer transport failure has the same walk semantics as a
@@ -304,65 +295,60 @@ export async function attemptTier(
 			}
 			continue;
 		}
-		if (r.kind === "rate_limited") {
-			if (!st.rateLimit)
-				st.rateLimit = {
-					response: r.response,
-					tier,
-					source: "upstream",
-					provider: dep.provider,
-				};
-			// An explicit provider not-before applies to every alias of the
-			// account. Skip it within this walk; the shared core retains the
-			// backoff for subsequent requests. Without Retry-After, keep the
-			// configured adaptive retry policy for transient burst feedback.
-			const account = providerPoolIdOf(dep);
-			if (account !== null && r.retryAfterS !== null && r.retryAfterS > 0) {
-				st.unavailablePools ??= new Set();
-				st.unavailablePools.add(account);
-			}
+		if (r.kind === "rate_limited" && !st.rateLimit) {
+			st.rateLimit = {
+				response: r.response,
+				tier,
+				source: "upstream",
+				provider: dep.provider,
+			};
+			// A refusal applies to every alias of the account: skip it within
+			// this walk (the shared cold mark holds it for later requests).
 		}
 		if (r.contextWindow) st.ctxWindow = r.response;
 		if (r.exhaustTier) {
 			if (r.hopRefusal) st.hopRefusal = r.hopRefusal;
 			break;
 		}
-		// A provider that asks us to wait beyond the configured retry cap is
-		// quota-blocked. Retrying the same deployment cannot heal within this
-		// walk; try another deployment or the policy fallback immediately.
-		// Keep its 429 in st.rateLimit for an exhausted ladder to relay.
-		if (
-			r.kind === "rate_limited" &&
-			r.retryAfterS !== null &&
-			r.retryAfterS > floorCapS
-		) {
-			if (raw + 1 >= candidates.length) break;
-			skipped++;
-			continue;
-		}
 		// W987: an auth/client-fault rung failed on THIS deployment (its
 		// credential or its model) — the bench already happened in
-		// tryOnce; advance to the next candidate free (no retry budget,
-		// no backoff sleep).
-		if (r.clientFault || r.kind === "auth") {
-			if (raw + 1 >= candidates.length) break;
-			skipped++;
-			continue;
-		}
-		if (attempt < retries)
-			pendingRetry = {
-				candidateId: candIdOf(dep),
-				delayMs:
-					retryDelayS(
-						st.attempts - 1,
-						r.retryAfterS,
-						host.rng,
-						capS,
-						floorCapS,
-					) * 1000,
-			};
+		// tryOnce; advance to the next candidate free.
+		if (r.clientFault || r.kind === "auth") continue;
+		// Heal-able failure: an immediate hop to the NEXT candidate (never a
+		// same-candidate replay, never a sleep), bounded by mayFailover.
 	}
 	return null;
+}
+/** May the walk take another upstream attempt? The first upstream HTTP
+ *  refusal is free; after it, at most max_failover_hops further hops
+ *  WITHIN this tier (fallback-tier transitions are ladder routing, not
+ *  failover hops), each spending the per-group failover budget. A refused
+ *  hop caps the walk (st.capped) — the client gets the honest refusal
+ *  now. */
+function mayFailover(
+	host: RouterHost,
+	req: UpstreamRequest,
+	st: WalkState,
+	tierStartRefusals: number,
+): boolean {
+	const refusals = st.httpRefusals ?? 0;
+	if (refusals === 0) {
+		host.failover?.record(req.group, false);
+		return true;
+	}
+	const hops = resilienceOf(host).max_failover_hops;
+	const tierHops = refusals - tierStartRefusals;
+	if (
+		tierHops > hops ||
+		(host.failover && !host.failover.canRetry(req.group))
+	) {
+		st.capped = true;
+		return false;
+	}
+	// a NEW tier's first candidate is ladder routing (free); only a hop
+	// INSIDE a tier after its refusal spends the fleet failover budget
+	host.failover?.record(req.group, tierHops >= 1);
+	return true;
 }
 function walkExpired(host: RouterHost, st: WalkState): boolean {
 	if (host.now() < st.deadlineMs) return false;
@@ -371,32 +357,6 @@ function walkExpired(host: RouterHost, st: WalkState): boolean {
 	st.peerTrace = null;
 	st.lastFailure = { source: "network", status: 504, kind: "walk_deadline" };
 	return true;
-}
-async function waitBeforeRetry(
-	host: RouterHost,
-	ms: number,
-	signal: AbortSignal | undefined,
-	remainingMs: number,
-): Promise<void> {
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), remainingMs);
-	const onAbort = () => controller.abort();
-	signal?.addEventListener("abort", onAbort, { once: true });
-	if (signal?.aborted) controller.abort();
-	try {
-		const aborted = controller.signal.aborted
-			? Promise.resolve()
-			: new Promise<void>((resolve) =>
-					controller.signal.addEventListener("abort", () => resolve(), {
-						once: true,
-					}),
-				);
-		await Promise.race([host.sleepMs(ms, controller.signal), aborted]);
-	} finally {
-		clearTimeout(timer);
-		signal?.removeEventListener("abort", onAbort);
-		controller.abort();
-	}
 }
 /** Ladder walk: requested group first, then the policy fallback list.
  *  flashx tiers are refused (owner directive); dormant groups (zero
@@ -432,13 +392,22 @@ export async function executeWalk(
 		// W1118.1: a peer's hop refusal ends the whole walk — the contract
 		// binds every fleet leg, a fallback rung must not serve what the
 		// refusing rung's verdict condemned.
-		if (st.hopRefusal) break;
+		if (st.hopRefusal || st.capped) break;
 		if (FLASHX.test(tier)) {
 			host.metrics?.refused(tier);
 			continue;
 		}
 		const candidates = tierCandidates(host, tier, req);
 		if (candidates.length === 0) {
+			// fail-fast gate ride (anti-stampede): a walker arriving while the
+			// account is cold or probe-busy still reaches tryOnce's ride block
+			// — a probe-busy leg's in-flight verdict re-admits the riding
+			// batch (the drain), a cold one refuses locally at once.
+			const marked = coldMarkedDeps(host, tier, req);
+			if (marked.length > 0) {
+				const r = await attemptTier(host, req, tier, marked, st);
+				if (r !== null) return r;
+			}
 			// W1077: probe-before-fail - a benched wall must not outlive the
 			// upstream. Probe one benched leg; a live leg clears its bench
 			// and rejoins this tier walk instead of stranding the request.
@@ -507,7 +476,7 @@ async function walkSelected(
 		if (req.signal?.aborted) return halt(st.attempts);
 		if (walkExpired(host, st)) break;
 		// W1118.1: a peer hop-contract refusal ends the selected walk too.
-		if (st.hopRefusal) break;
+		if (st.hopRefusal || st.capped) break;
 		if (gate(row)) continue;
 		if (host.cooldowns.rateLimitRemainingS(row.dep) !== null) {
 			// W1077: probe-before-skip in the PRODUCTION selected path - a
@@ -536,7 +505,7 @@ async function walkSelected(
 }
 /** Ladder rungs after selection: flashx refused, cloud rungs fire only
  *  under the W136 escalation law (allow_cloud, not cost mode, tier
- *  warrants or quality, local failed twice). */
+ *  warrants or quality, local failed its knock (fail-fast, one knock per rung)). */
 async function gatedLadder(
 	host: RouterHost,
 	req: UpstreamRequest,
@@ -550,7 +519,7 @@ async function gatedLadder(
 		// W1118.1: a peer's hop refusal ends the whole walk — the contract
 		// binds every fleet leg, a fallback rung must not serve what the
 		// refusing rung's verdict condemned.
-		if (st.hopRefusal) break;
+		if (st.hopRefusal || st.capped) break;
 		if (FLASHX.test(tier)) {
 			host.metrics?.refused(tier);
 			continue;
@@ -580,6 +549,12 @@ async function gatedLadder(
 				(entitled === null || entitled.has(candIdOf(d))),
 		);
 		if (candidates.length === 0) {
+			// fail-fast gate ride (anti-stampede): see executeWalk's branch
+			const marked = coldMarkedDeps(host, tier, req);
+			if (marked.length > 0) {
+				const r = await attemptTier(host, req, tier, marked, st);
+				if (r !== null) return r;
+			}
 			rememberCooledRateLimit(host, tier, req, st);
 			continue;
 		}
@@ -612,6 +587,24 @@ function exhausted(st: WalkState): ExecuteResult {
 			attempts: st.attempts,
 			refusalSource: "upstream",
 			failureKind: "bad_request",
+		};
+	// Shared cold mark: the instant local 429 (no upstream knocked) outranks
+	// a generic exhausted 502 — it carries the honest Retry-After.
+	if (st.coldHold)
+		return {
+			kind: "exhausted",
+			status: 429,
+			error: st.coldHold.error,
+			peerTrace: null,
+			attempts: st.attempts,
+			lastFailure: {
+				source: "local-admission",
+				status: 429,
+				kind: "rate_limited",
+				retryAfterS: st.coldHold.retryAfterS,
+			},
+			retryAfterS: st.coldHold.retryAfterS,
+			quota: st.coldHold.quota,
 		};
 	return {
 		kind: "exhausted",

@@ -125,7 +125,8 @@ test.describe("@unit", () => {
 			expect(result.kind).toBe("upstream");
 			if (result.kind === "upstream")
 				expect(result.deployment.url).toBe(local.url);
-			expect(attempted).toEqual([hub.url, hub.url, local.url]);
+			// fail-fast: one knock per rung, immediate failover, no replay
+			expect(attempted).toEqual([hub.url, local.url]);
 		});
 		test("gate open + COMPLEX: local fails twice → cloud rung delivers", async () => {
 			const { router, decide, executed } = rig(
@@ -139,7 +140,8 @@ test.describe("@unit", () => {
 			const r = await router.execute(REQ(sel, "COMPLEX"));
 			expect(r.kind).toBe("upstream");
 			if (r.kind === "upstream") expect(r.tier).toBe("gpt-5.2");
-			expect(executed).toEqual(["glm-5.3-flash", "glm-5.3-flash", "gpt-5.2"]);
+			// fail-fast: one knock, then the ladder escalates at once
+			expect(executed).toEqual(["glm-5.3-flash", "gpt-5.2"]);
 		});
 
 		test("gate closed (SIMPLE): cloud rung skipped, exhausted", async () => {
@@ -169,7 +171,8 @@ test.describe("@unit", () => {
 			// the fitted candidate fails → exhausted, NEVER a cloud substitute
 			// (law 2 applied to delivery, not just selection)
 			expect(r.kind).toBe("exhausted");
-			expect(executed).toEqual(["glm-5.3-flash", "glm-5.3-flash"]);
+			// fail-fast: the fitted rung takes its one knock, exhausted
+			expect(executed).toEqual(["glm-5.3-flash"]);
 		});
 	});
 
@@ -185,7 +188,7 @@ test.describe("@unit", () => {
 			["glm-5.3-flash", ["http://127.0.0.1:1"]],
 		];
 
-		test("no-hint COMPLEX: cloud head gated, local tried twice, then ladder escalates", async () => {
+		test("no-hint COMPLEX: cloud head gated, local fails its knock, ladder escalates", async () => {
 			const { router, decide, executed } = rig(CLOUD_FIRST, {
 				allowCloud: true,
 				tier: "COMPLEX",
@@ -194,8 +197,9 @@ test.describe("@unit", () => {
 			const r = await router.execute(REQ(sel, "COMPLEX"));
 			expect(r.kind).toBe("upstream");
 			if (r.kind === "upstream") expect(r.tier).toBe("gpt-5.2");
-			// gated at attempts=0, local earns the escalation with two failures
-			expect(executed).toEqual(["glm-5.3-flash", "glm-5.3-flash", "gpt-5.2"]);
+			// gated at attempts=0; one local knock earns the escalation
+			// (fail-fast: the old "failed twice" retry counter is one failure)
+			expect(executed).toEqual(["glm-5.3-flash", "gpt-5.2"]);
 		});
 
 		test("no-hint SIMPLE: cloud head gated, never delivered", async () => {

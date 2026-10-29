@@ -17,11 +17,12 @@
 //   7. fallback ladder fresh-cache → stale-cache-marked → degraded →
 //      unavailable, every step warn-logged.
 //
-// No-stack contract (the W1303.3 A/B): when a pacing gate (`admit`) is
-// provided, the kit consults it ONCE per retry decision — a positive gate
-// wait supersedes the kit's own backoff, because the pool's notBefore
-// already embeds the provider's Retry-After via lease feedback — so the
-// two layers never SUM into a double wait.
+// FAIL FAST (owner correction 2026-10-29 — retry/backoff layers inside the
+// gateway multiplied into escalating hangs): resilientCall NEVER sleeps. A
+// pacing gate that wants a wait refuses the candidate; a refusal fails over
+// at most maxHops times (budgeted) or answers now; only a transport reset
+// earns one immediate replay. backoffMs / clampRetryAfterMs stay as the pure
+// recipe for the OUTERMOST client — the one retry owner.
 
 /** Minimal response shape the kit classifies; headers when the host has
  *  them (only the idempotency-key probe reads them). */
@@ -314,20 +315,17 @@ export interface ResilientCallOpts {
 	candidates: Candidate<unknown>[];
 	perCallMs: number;
 	deadlineAtMs?: number;
-	/** Same-candidate replays per candidate (default 2). */
+	/** Immediate same-candidate replays for TRANSPORT failures only (a
+	 *  reset socket; default 1). A status refusal never replays. */
 	maxReplays?: number;
+	/** Immediate failover hops after a candidate was knocked (default 1). */
+	maxHops?: number;
 	breakers?: Breakers;
+	/** Caps the immediate hops/replays an upstream's failures may buy. */
 	budgets?: RetryBudget;
-	/** Retry-After clamp — the kit never waits longer than this on an
-	 *  upstream demand (default 5s). */
-	retryAfterCapMs?: number;
-	/** Pool pacing gate: consulted once per wait; a positive wait supersedes
-	 *  kit backoff (no-stack contract). Returns ms to wait, or null when
-	 *  admitted immediately. */
+	/** Pacing gate: a positive wait REFUSES the candidate (fail fast) —
+	 *  the kit never sleeps. Returns ms the gate would want, or null. */
 	admit?: () => Promise<number | null>;
-	backoffBaseMs?: number;
-	rng?: () => number;
-	sleep?: (ms: number) => Promise<unknown>;
 	log?: (level: "warn" | "info", msg: string) => void;
 }
 
@@ -335,6 +333,8 @@ export interface CandidateFailure {
 	candidate: string;
 	reason: string;
 	attempts: number;
+	/** The gate's own not-before, for the caller's honest Retry-After. */
+	retryAfterMs?: number;
 }
 
 export interface ResilientOutcome {
@@ -343,144 +343,98 @@ export interface ResilientOutcome {
 	candidate?: string;
 	failures: CandidateFailure[];
 }
+type KitLog = (level: "warn" | "info", msg: string) => void;
 
-const sleepDefault = (ms: number): Promise<unknown> =>
-	new Promise((r) => setTimeout(r, ms));
-
-/** The composed client: ordered candidates with per-upstream breakers,
- *  budgeted full-jitter replays, clamped Retry-After, deadline-bounded
- *  attempt signals, and an AIMD pacing gate — exactly one pacing authority
- *  per wait. */
+/** One candidate: an attempt plus at most maxReplays IMMEDIATE transport
+ *  replays (budgeted). Status refusals return at once. Never a sleep. */
+async function knockCandidate(
+	c: Candidate<unknown>,
+	opts: ResilientCallOpts,
+	hopping: boolean,
+	log: KitLog,
+): Promise<{ ok: true; value: unknown } | { ok: false; failure: CandidateFailure }> {
+	const maxReplays = opts.maxReplays ?? 1;
+	let attempts = 0;
+	while (true) {
+		attempts++;
+		let result: AttemptResult<unknown> = { ok: false };
+		let transport = false;
+		try {
+			result = await c.run(attemptSignal(opts.perCallMs, opts.deadlineAtMs));
+		} catch (error) {
+			transport = true;
+			log(
+				"warn",
+				`resilience: ${c.id} transport failure: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+		opts.budgets?.record(c.id, attempts > 1 || hopping);
+		if (result.ok) {
+			opts.breakers?.success(c.id);
+			return { ok: true, value: result.value };
+		}
+		opts.breakers?.failure(c.id);
+		const budgetOk = !opts.budgets || opts.budgets.canRetry(c.id);
+		if (transport && attempts <= maxReplays && budgetOk) continue;
+		const reason = transport ? "transport" : `status ${String(result.status)}`;
+		return { ok: false, failure: { candidate: c.id, reason, attempts } };
+	}
+}
+/** Free refusals before any knock: an open breaker, a spent deadline, or
+ *  a pacing gate that wants a wait (refused now, never slept). */
+async function refuseFast(
+	c: Candidate<unknown>,
+	opts: ResilientCallOpts,
+	log: KitLog,
+): Promise<CandidateFailure | null> {
+	if (opts.breakers && !opts.breakers.canAttempt(c.id)) {
+		log("warn", `resilience: ${c.id} breaker open — skip`);
+		return { candidate: c.id, reason: "breaker-open", attempts: 0 };
+	}
+	if (opts.deadlineAtMs !== undefined && opts.deadlineAtMs <= Date.now())
+		return { candidate: c.id, reason: "deadline-exhausted", attempts: 0 };
+	const gate = opts.admit ? await opts.admit() : null;
+	if (gate === null || gate <= 0) return null;
+	log("warn", `resilience: ${c.id} admission refused (${String(gate)}ms)`);
+	return {
+		candidate: c.id,
+		reason: "admission-refused",
+		attempts: 0,
+		retryAfterMs: gate,
+	};
+}
+/** The composed client, FAIL FAST (owner correction 2026-10-29): ordered
+ *  candidates behind per-upstream breakers, deadline-bounded attempts, at
+ *  most maxHops immediate failovers (budgeted) — NEVER a sleep. A refusal
+ *  is answered now; the outermost client owns the one retry layer. */
 export const resilientCall = async (
 	opts: ResilientCallOpts,
 ): Promise<ResilientOutcome> => {
 	const log = opts.log ?? (() => {});
-	const sleep = opts.sleep ?? sleepDefault;
-	const maxReplays = opts.maxReplays ?? 2;
-	const capMs = opts.retryAfterCapMs ?? 5_000;
+	const maxHops = opts.maxHops ?? 1;
 	const failures: CandidateFailure[] = [];
+	let knocked: string | null = null;
+	let hops = 0;
 	for (const c of opts.candidates) {
-		if (opts.breakers && !opts.breakers.canAttempt(c.id)) {
-			log("warn", `resilience: ${c.id} breaker open — skip`);
-			failures.push({ candidate: c.id, reason: "breaker-open", attempts: 0 });
+		const refused = await refuseFast(c, opts, log);
+		if (refused !== null) {
+			failures.push(refused);
+			if (refused.reason === "deadline-exhausted") break;
 			continue;
 		}
-		const state = { attempts: 0 };
-		while (true) {
-			const remaining = opts.deadlineAtMs
-				? opts.deadlineAtMs - Date.now()
-				: Number.POSITIVE_INFINITY;
-			if (remaining <= 0) {
-				failures.push({
-					candidate: c.id,
-					reason: "deadline-exhausted",
-					attempts: state.attempts,
-				});
+		if (knocked !== null) {
+			const spent = hops >= maxHops;
+			if (spent || (opts.budgets && !opts.budgets.canRetry(knocked))) {
+				const reason = spent ? "hop-limit" : "budget-exhausted";
+				failures.push({ candidate: c.id, reason, attempts: 0 });
 				break;
 			}
-			// Pacing gate — consulted once per wait: a positive gate wait
-			// supersedes kit backoff (the pool's notBefore already embeds
-			// Retry-After via lease feedback). One layer acts per wait.
-			const gate = opts.admit ? await opts.admit() : null;
-			if (gate !== null && gate > 0) {
-				if (gate >= remaining) {
-					log("warn", `resilience: ${c.id} admission refuses within deadline`);
-					failures.push({
-						candidate: c.id,
-						reason: "admission-refused",
-						attempts: state.attempts,
-					});
-					break;
-				}
-				await sleep(Math.min(gate, remaining));
-			}
-			state.attempts++;
-			let result: AttemptResult<unknown>;
-			try {
-				result = await c.run(attemptSignal(opts.perCallMs, opts.deadlineAtMs));
-			} catch (error) {
-				result = { ok: false };
-				log(
-					"warn",
-					`resilience: ${c.id} transport failure: ${error instanceof Error ? error.message : String(error)}`,
-				);
-			}
-			if (result.ok) {
-				opts.breakers?.success(c.id);
-				opts.budgets?.record(c.id, false);
-				return {
-					ok: true,
-					value: result.value,
-					candidate: c.id,
-					failures,
-				};
-			}
-			opts.breakers?.failure(c.id);
-			opts.budgets?.record(c.id, false);
-			const shaped = {
-				status: result.status,
-				method: c.method,
-				headers: c.headers,
-			};
-			if (!retryableFailure(shaped)) {
-				log(
-					"info",
-					`resilience: ${c.id} status ${String(result.status)} not retryable — failover`,
-				);
-				failures.push({
-					candidate: c.id,
-					reason: `status ${String(result.status)} not retryable`,
-					attempts: state.attempts,
-				});
-				break;
-			}
-			if (state.attempts > maxReplays) {
-				failures.push({
-					candidate: c.id,
-					reason: "replay-limit",
-					attempts: state.attempts,
-				});
-				break;
-			}
-			if (opts.budgets && !opts.budgets.canRetry(c.id)) {
-				log("warn", `resilience: ${c.id} retry budget exhausted`);
-				failures.push({
-					candidate: c.id,
-					reason: "budget-exhausted",
-					attempts: state.attempts,
-				});
-				break;
-			}
-			// Wait: gate OR kit backoff/Retry-After — never both for one wait.
-			const remaining2 = opts.deadlineAtMs
-				? opts.deadlineAtMs - Date.now()
-				: Number.POSITIVE_INFINITY;
-			let waitMs: number;
-			if (opts.admit) {
-				const gate2 = await opts.admit();
-				waitMs = gate2 === null || gate2 <= 0 ? 0 : Math.min(gate2, remaining2);
-			} else {
-				const ra = clampRetryAfterMs(result.retryAfterMs, capMs);
-				waitMs =
-					ra !== undefined
-						? ra
-						: backoffMs(
-								state.attempts - 1,
-								capMs,
-								opts.rng,
-								opts.backoffBaseMs,
-							);
-			}
-			if (waitMs >= remaining2) {
-				failures.push({
-					candidate: c.id,
-					reason: "deadline-exhausted",
-					attempts: state.attempts,
-				});
-				break;
-			}
-			await sleep(waitMs);
+			hops++;
 		}
+		const r = await knockCandidate(c, opts, knocked !== null, log);
+		if (r.ok) return { ok: true, value: r.value, candidate: c.id, failures };
+		failures.push(r.failure);
+		knocked = c.id;
 	}
 	return { ok: false, failures };
 };

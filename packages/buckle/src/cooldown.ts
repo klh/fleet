@@ -8,6 +8,11 @@
 // outlier ejection (allowed_fails consecutive failures bench a deployment
 // for cooldown_time seconds; success resets the counter — cooldown_cache /
 // cooldown_handlers semantics at fixed-policy scale).
+import { ColdMarks } from "./cold-marks.ts";
+import {
+	RESILIENCE_DEFAULTS,
+	type ResilienceConfig,
+} from "./resilience-config.ts";
 import type { Deployment } from "./upstreams.ts";
 
 /** Backoff delay in seconds before the next same-tier attempt. The provider
@@ -68,17 +73,25 @@ export class Cooldowns {
 		ProviderRateLimitDetail
 	>();
 
+	/** The shared per-account cold marks (rate/quota refusals): one knock
+	 *  per window, single-flight half-open probe (src/cold-marks.ts). */
+	readonly cold: ColdMarks;
+
 	constructor(
 		private readonly allowedFails: number,
 		private readonly cooldownS: number,
 		private readonly now: () => number = Date.now,
-	) {}
+		opts: { cfg?: ResilienceConfig; rng?: () => number } = {},
+	) {
+		this.cold = new ColdMarks(now, opts.cfg ?? RESILIENCE_DEFAULTS, opts.rng);
+	}
 
 	private static key(dep: Deployment): string {
 		return `${dep.group}|${dep.url}`;
 	}
 
 	failure(dep: Deployment, reason: "rate_limited" | "other" = "other"): void {
+		this.cold.releaseProbe(dep);
 		const k = Cooldowns.key(dep);
 		const n = (this.fails.get(k) ?? 0) + 1;
 		this.fails.set(k, n);
@@ -96,10 +109,11 @@ export class Cooldowns {
 		this.until.set(k, this.now() + this.cooldownS * 1000);
 		this.reasons.set(k, "other");
 		this.fails.set(k, 0);
+		this.cold.releaseProbe(dep);
 	}
 
 	remainingS(dep: Deployment): number | null {
-		if (!this.benched(dep)) return null;
+		if (!this.ejected(dep)) return this.cold.remainingS(dep);
 		return Math.max(
 			1,
 			Math.ceil(
@@ -110,6 +124,7 @@ export class Cooldowns {
 	}
 
 	success(dep: Deployment): void {
+		this.cold.success(dep);
 		const k = Cooldowns.key(dep);
 		this.fails.set(k, 0);
 		this.until.delete(k);
@@ -118,7 +133,9 @@ export class Cooldowns {
 
 	/** Remaining ejection time only when a provider throttle caused it. */
 	rateLimitRemainingS(dep: Deployment): number | null {
-		if (!this.benched(dep)) return null;
+		const cold = this.cold.remainingS(dep);
+		if (cold !== null) return cold;
+		if (!this.ejected(dep)) return null;
 		const k = Cooldowns.key(dep);
 		if (this.reasons.get(k) !== "rate_limited") return null;
 		return this.remainingS(dep);
@@ -139,7 +156,15 @@ export class Cooldowns {
 		return this.rateLimitDetails.get(k) ?? null;
 	}
 
+	/** Outlier-ejected OR held cold by the shared mark. A half-open probe in
+	 *  flight is NOT benched: its RTT burst reaches tryOnce and rides the
+	 *  probe's verdict there instead of being pruned before it. */
 	benched(dep: Deployment): boolean {
+		return this.ejected(dep) || this.cold.state(dep) === "cold";
+	}
+
+	/** The consecutive-failure ejection alone (allowed_fails window). */
+	ejected(dep: Deployment): boolean {
 		const until = this.until.get(Cooldowns.key(dep));
 		if (until === undefined) return false;
 		if (until <= this.now()) {

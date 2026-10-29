@@ -36,6 +36,12 @@ test("a real provider refusal retains bounded code type and call id in the admin
 						dialect: "openai",
 					},
 				],
+				fixture2: [
+					{
+						url: `http://127.0.0.1:${upstream.port}`,
+						dialect: "openai",
+					},
+				],
 			},
 		}),
 	);
@@ -59,6 +65,13 @@ test("a real provider refusal retains bounded code type and call id in the admin
 		JSON.stringify({
 			groups: {
 				fixture: [
+					{
+						url: `http://127.0.0.1:${server.port}`,
+						dialect: "openai",
+						api_key_env: "W1191_PEER_KEY",
+					},
+				],
+				fixture2: [
 					{
 						url: `http://127.0.0.1:${server.port}`,
 						dialect: "openai",
@@ -134,7 +147,9 @@ test("a real provider refusal retains bounded code type and call id in the admin
 				traceparent: `00-${secondTrace}-1111111111111111-01`,
 			},
 			body: JSON.stringify({
-				model: "fixture",
+				// a separate group: the first refusal colded "fixture" for every
+				// caller (shared cold mark) — this one must reach the provider
+				model: "fixture2",
 				messages: [{ role: "user", content: "hello" }],
 			}),
 		});

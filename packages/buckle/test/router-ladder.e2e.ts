@@ -73,11 +73,9 @@ test.describe("@unit", () => {
 			const r = await router.execute(req());
 			expect(r.kind).toBe("upstream");
 			if (r.kind === "upstream") expect(r.tier).toBe("gpt-5.2");
-			// flash 2 attempts (1+num_retries), swarm 2, gpt 1 → 5
+			// fail-fast: one knock per rung, in order, no same-candidate replay
 			expect(attempted).toEqual([
 				"glm-5.3-flash|http://flash",
-				"glm-5.3-flash|http://flash",
-				"local-swarm|http://swarm",
 				"local-swarm|http://swarm",
 				"gpt-5.2|http://gpt",
 			]);

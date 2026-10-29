@@ -75,9 +75,30 @@ export interface ProviderLease {
 		/** W1267: the in-band provider code when the refusal rode a 200
 		 *  stream — the pool reclassifies pressure from THIS code. */
 		providerCode?: string | null,
+		/** AIMD gate: false = a typed business refusal (1113, 1311) that
+		 *  paces but never shrinks the window; default = shrink. */
+		shrink?: boolean,
 	): void;
 }
-export class ProviderAdmissionFull extends Error {}
+export class ProviderAdmissionFull extends Error {
+	/** Set when the refusal is a pause (provider not-before) that outlasts
+	 *  the caller's wait — the honest remainder for Retry-After. */
+	constructor(
+		message: string,
+		readonly retryAfterMs: number | null = null,
+	) {
+		super(message);
+	}
+}
+
+/** Fail-fast AIMD knobs (gateway.resilience): multiplicative decrease of
+ *  the in-flight window on RATE pressure (Z.ai 1302/1305, plain 429 —
+ *  owner correction 2026-10-29: a smaller concurrency, never an outage). 0
+ *  keeps the W1273 pace-only behavior. */
+export interface ProviderAimdOpts {
+	rateDecreasePercent?: number;
+	minConcurrency?: number;
+}
 
 // Absolute emergency bound. The operative escalation ceiling is derived per
 // pool in the constructor: a paced start may never be spaced wider than the
@@ -92,6 +113,10 @@ const RATE_SHAPED_KIND = /rate_limit|rate limit|overload/i;
 const RATE_SHAPED_CODES: ReadonlySet<string> = new Set(["1302", "1305"]);
 export const inBandFailurePaces = (kind: string, code: string): boolean =>
 	RATE_SHAPED_CODES.has(code) || RATE_SHAPED_KIND.test(kind);
+/** May this refusal shrink the AIMD window? A plain 429 (no provider code)
+ *  or a rate-shaped code yes; typed business refusals never. */
+export const refusalShrinks = (code: string | number | null): boolean =>
+	code === null || RATE_SHAPED_CODES.has(String(code));
 
 /** One instance per explicit account-pool ID at its authoritative egress.
  * maxOutstanding includes running requests: the whole retained set is bounded.
@@ -124,8 +149,21 @@ export class ProviderAdmissionCore {
 	private congestionUntilMs = 0;
 	private recoveredAtMs = 0;
 	private resumeTimer?: ReturnType<typeof setTimeout>;
-	constructor(private readonly policy: ProviderPoolPolicy) {
+	private readonly rateDecreasePercent: number;
+	private readonly minConcurrency: number;
+	constructor(
+		private readonly policy: ProviderPoolPolicy,
+		aimd: ProviderAimdOpts = {},
+	) {
 		assertProviderPoolPolicy(policy);
+		this.rateDecreasePercent = Math.max(
+			0,
+			Math.min(90, aimd.rateDecreasePercent ?? 0),
+		);
+		this.minConcurrency = Math.max(
+			1,
+			Math.min(policy.concurrency, aimd.minConcurrency ?? 1),
+		);
 		this.queue = new PQueue({
 			concurrency: policy.concurrency,
 			intervalCap: policy.intervalCap,
@@ -181,6 +219,7 @@ export class ProviderAdmissionCore {
 		status: number,
 		retryAfterS: number | null,
 		pressure: ProviderPressure,
+		shrink = true,
 	): void {
 		const now = Date.now();
 		if (status === 429) {
@@ -237,6 +276,18 @@ export class ProviderAdmissionCore {
 						this.notBeforeMs,
 						Date.now() + this.adaptiveGapMs,
 					);
+					// AIMD multiplicative decrease: rate pressure shrinks the
+					// in-flight window (one decrease per pressure epoch);
+					// additive increase stays the success-window recovery.
+					if (this.rateDecreasePercent > 0 && shrink) {
+						this.adaptiveConcurrency = Math.max(
+							this.minConcurrency,
+							Math.floor(
+								this.adaptiveConcurrency * (1 - this.rateDecreasePercent / 100),
+							),
+						);
+						this.queue.concurrency = this.adaptiveConcurrency;
+					}
 				}
 			}
 			// Even a coalesced 429 invalidates the healthy streak. It must not
@@ -310,15 +361,26 @@ export class ProviderAdmissionCore {
 		if (caller?.aborted) return Promise.reject(caller.reason);
 		if (this.outstanding >= this.policy.maxOutstanding)
 			return Promise.reject(new ProviderAdmissionFull("Provider queue full"));
+		const waitMs =
+			maxWaitMs === undefined
+				? this.policy.queueWaitMs
+				: Math.min(this.policy.queueWaitMs, maxWaitMs);
+		// Fail fast: a pool paused (provider not-before) past this caller's
+		// wait can never start it in time — refuse NOW with the honest
+		// remainder instead of holding the caller until its wait expires.
+		const pausedMs = this.notBeforeMs - Date.now();
+		if (pausedMs >= waitMs)
+			return Promise.reject(
+				new ProviderAdmissionFull(
+					"Provider pool paused past the caller wait",
+					pausedMs,
+				),
+			);
 		this.outstanding++;
 		const deadline = new AbortController();
 		const signal = caller
 			? AbortSignal.any([caller, deadline.signal])
 			: deadline.signal;
-		const waitMs =
-			maxWaitMs === undefined
-				? this.policy.queueWaitMs
-				: Math.min(this.policy.queueWaitMs, maxWaitMs);
 		const timer = setTimeout(
 			() =>
 				deadline.abort(
@@ -360,6 +422,7 @@ export class ProviderAdmissionCore {
 							retryAfterS,
 							pressure = "rate",
 							providerCode,
+							shrink,
 						) => {
 							// An aborted lease cannot become healthy if its transport
 							// later reaches EOF. Error bodies may settle before parsing
@@ -377,6 +440,8 @@ export class ProviderAdmissionCore {
 								providerCode !== undefined && providerCode !== null
 									? providerPressureOf(this.policy, providerCode)
 									: pressure,
+								shrink ??
+									(providerCode === undefined || refusalShrinks(providerCode)),
 							);
 						},
 					});

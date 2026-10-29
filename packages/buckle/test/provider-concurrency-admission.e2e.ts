@@ -69,7 +69,11 @@ test.describe("@unit", () => {
 			});
 			const snapshot = router.providerAdmissionSnapshot().account;
 			expect(snapshot?.concurrencyLimitedTotal).toBe(concurrency ? 1 : 0);
-			expect(snapshot?.adaptiveConcurrency).toBe(concurrency ? 1 : 6);
+			// fail-fast AIMD (owner correction #2): a rate-shaped 1302 paces
+			// (gap doubles) AND multiplicatively shrinks the in-flight window
+			// (50% default); explicit concurrency evidence collapses it to the
+			// refused-lease occupancy bound instead.
+			expect(snapshot?.adaptiveConcurrency).toBe(concurrency ? 1 : 3);
 			expect(snapshot?.adaptiveGapMs).toBe(concurrency ? 1 : 2);
 		}
 	});
@@ -181,8 +185,10 @@ test.describe("@unit", () => {
 		const lease = await core.acquire();
 		lease.feedback?.(429, 1, "concurrency");
 		const started = Date.now();
+		// fail-fast: the paused pool refuses NOW with the honest remainder —
+		// it never holds the caller until its wait expires.
 		await expect(core.acquire(undefined, 20)).rejects.toMatchObject({
-			name: "TimeoutError",
+			message: "Provider pool paused past the caller wait",
 		});
 		expect(Date.now() - started).toBeLessThan(200);
 		expect(core.snapshot().notBeforeMs).toBeGreaterThan(started + 800);

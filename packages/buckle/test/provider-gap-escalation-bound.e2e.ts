@@ -47,11 +47,11 @@ test.describe("@unit", () => {
 	});
 
 	const reproConfig = {
-		num_retries: 20,
 		allowed_fails: 1000,
 		request_timeout_s: 30,
 		first_byte_budget_s: 30,
 		provider_pools: { account: incidentPolicy },
+		resilience: { rate_cooldown_s: 1, rate_cooldown_max_s: 2 },
 	};
 
 	const reproPool = {
@@ -109,29 +109,10 @@ test.describe("@unit", () => {
 	// Exact slot/throughput contract for the drain after the wave: every caller
 	// served, every refusal still counted, the gap never passed the interval
 	// contract, slots actually ran concurrently, and the drain was prompt.
-	function expectProductiveDrain(
-		bodies: string[],
-		refused: number,
-		router: Router,
-		peakGap: number,
-		peakActive: number,
-		wallMs: number,
-	) {
-		const snap = router.providerAdmissionSnapshot().account;
-		expect(bodies).toHaveLength(24);
-		expect(bodies.every((body) => body === "useful result")).toBe(true);
-		expect(refused).toBeGreaterThanOrEqual(10);
-		expect(snap?.rateLimitedTotal).toBe(refused);
-		expect(peakGap).toBeGreaterThanOrEqual(8);
-		expect(peakGap).toBeLessThanOrEqual(64);
-		// A serialized pool (pre-fix: 500ms gap vs 45ms work) holds exactly ONE
-		// active lease; paced starts at the 20ms contract overlap the 45ms work.
-		expect(peakActive).toBeGreaterThanOrEqual(2);
-		expect(wallMs).toBeLessThan(4000);
-		expect(snap?.outstanding).toBe(0);
-	}
+	// (W1273's gap-ceiling and recovery budget stay pinned by the pacing test
+	// above; the wave test below pins the fail-fast herd + drain contract.)
 
-	test("a sustained 1302 wave cannot serialize the pool: slots stay productive and drain promptly", async () => {
+	test("a sustained 1302 wave cannot serialize the pool: one knock, local herd answer, prompt drain", async () => {
 		test.setTimeout(20000);
 		upstream.acceptAfter = Date.now() + 900;
 		upstream.accepted = 0;
@@ -139,26 +120,40 @@ test.describe("@unit", () => {
 		const router = new Router(reproConfig, {
 			pool: reproPool,
 			sleepMs: async () => {},
+			rng: () => 0, // no jitter: the rate cold is exactly 1s
 			fetchImpl: () => upstream.fetch(),
 		});
-		const start = Date.now();
-		let peakGap = 0;
-		let peakActive = 0;
-		const sampler = setInterval(() => {
-			const snap = router.providerAdmissionSnapshot().account;
-			if (!snap) return;
-			peakGap = Math.max(peakGap, snap.adaptiveGapMs);
-			peakActive = Math.max(peakActive, snap.active);
-		}, 10);
-		const bodies = await drainCallers(router);
-		clearInterval(sampler);
-		expectProductiveDrain(
-			bodies,
-			upstream.refused,
-			router,
-			peakGap,
-			peakActive,
-			Date.now() - start,
+		// fail-fast: the FIRST walk's knock eats the 1302 and colds the
+		// account; the rest of the herd answers locally at once.
+		const attempts = await Promise.allSettled(
+			Array.from({ length: 24 }, async () => {
+				const response = await router.execute({
+					group: "a",
+					dialect: "anthropic",
+					path: "/v1/messages",
+					key: "",
+					body: { stream: false },
+				});
+				return response.kind === "upstream"
+					? "upstream"
+					: (response as { kind: string }).kind;
+			}),
 		);
+		const kinds = attempts.map((a) =>
+			a.status === "fulfilled" ? a.value : "throw",
+		);
+		const herdLocal = kinds.filter((k) => k !== "upstream").length;
+		expect(herdLocal).toBeGreaterThanOrEqual(23); // N−1 answered locally
+		expect(upstream.refused).toBeLessThanOrEqual(2); // one knock per window
+		// the client (the ONE retry owner) honors the Retry-After; once the
+		// window lapses the half-open probe reopens the account and the
+		// riding batch delivers — every caller, promptly
+		await Bun.sleep(1050);
+		const drainStart = Date.now();
+		const bodies = await drainCallers(router);
+		expect(bodies).toHaveLength(24);
+		expect(bodies.every((body) => body === "useful result")).toBe(true);
+		expect(Date.now() - drainStart).toBeLessThan(4000);
+		expect(router.providerAdmissionSnapshot().account?.outstanding).toBe(0);
 	});
 });

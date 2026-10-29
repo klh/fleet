@@ -192,7 +192,7 @@ describe("W1266 Coding Plan concurrency", () => {
 		upstream.close();
 	});
 
-	test("1302 classification is data: mapped collapses, unmapped paces with the ceiling intact", async () => {
+	test("1302 classification is data: mapped collapses, unmapped colds the account and AIMD-decreases", async () => {
 		const mk = (mapped: boolean): Router =>
 			new Router(
 				parsePolicy(
@@ -246,13 +246,17 @@ describe("W1266 Coding Plan concurrency", () => {
 		const before = mapped.providerAdmissionSnapshot().account;
 		expect(before?.concurrencyLimitedTotal).toBe(16);
 		expect(before?.adaptiveConcurrency ?? 6).toBeLessThan(6);
-		// AFTER — retune: same burst, pure rate pressure; ceiling holds.
+		// AFTER — retune: same burst, pure rate pressure. The shared cold
+		// mark stops the herd at the in-flight wave (16 callers → 6 knocks,
+		// the queued 10 answer locally), and the rate epoch multiplicatively
+		// decreases the discovered concurrency (AIMD) instead of sleeping.
 		const unmapped = mk(false);
 		await burst(unmapped);
 		const after = unmapped.providerAdmissionSnapshot().account;
 		expect(after?.concurrencyLimitedTotal).toBe(0);
-		expect(after?.rateLimitedTotal).toBe(16);
-		expect(after?.adaptiveConcurrency).toBe(6);
+		expect(after?.rateLimitedTotal).toBe(6);
+		expect(after?.adaptiveConcurrency).toBeLessThan(6);
+		expect(after?.adaptiveConcurrency).toBeGreaterThanOrEqual(1);
 		expect(after?.adaptiveGapMs).toBeGreaterThan(POOL_LIMITS.intervalMs);
 	});
 

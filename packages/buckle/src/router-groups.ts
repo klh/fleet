@@ -30,6 +30,20 @@ export function tierCandidates(
 	);
 	return [...same, ...cross];
 }
+/** Cold-marked deps of a tier (cold or probe-busy): the legs the plain
+ *  candidate filter drops — but a probe-busy leg must stay REACHABLE so
+ *  its in-flight verdict can be ridden (tryOnce's gate block); a cold
+ *  leg's coldRefusal renders the identical exhausted relay. */
+export function coldMarkedDeps(
+	host: RouterHost,
+	tier: string,
+	req: UpstreamRequest,
+): Deployment[] {
+	return host.deps.pool
+		.deployments(tier)
+		.filter((d) => host.cooldowns.cold.blocking(d))
+		.filter((d) => bridgeRequest(req, d) !== null);
+}
 /** W1077: one cheap liveness probe against a benched leg. Any HTTP
  *  response (even 401/404 - the leg ANSWERS) proves liveness: clear the
  *  bench and hand the leg back for the walk. null = nothing probeable
@@ -43,26 +57,32 @@ export async function probeBenchedLeg(
 ): Promise<Deployment | null> {
 	const remainingMs = st.deadlineMs - host.now();
 	if (remainingMs <= 0 || req.signal?.aborted) return null;
+	// Liveness proves a DEAD leg answers again — never that a rate/quota
+	// refusal healed (a quota-walled API still serves /v1/models). Cold
+	// marks recover only through their single-flight half-open probe.
+	const probeable = (d: Deployment): boolean =>
+		host.cooldowns.ejected(d) && !host.cooldowns.cold.blocking(d);
 	const target =
 		dep ??
 		host.deps.pool
 			.deployments(tier)
-			.find((d) => host.cooldowns.benched(d) && bridgeRequest(req, d) !== null);
-	if (target === undefined || !host.cooldowns.benched(target)) return null;
+			.find((d) => probeable(d) && bridgeRequest(req, d) !== null);
+	if (target === undefined || !probeable(target)) return null;
 	const timeout = AbortSignal.timeout(Math.min(remainingMs, 3_000));
 	const signal = req.signal ? AbortSignal.any([req.signal, timeout]) : timeout;
-	const resp =
-		(await host.deps.probe?.(target, signal)) ??
-		(await fetch(`${target.url}/v1/models`, {
-			method: "GET",
-			signal,
-		}).catch(() => null));
+	const resp = host.deps.probe
+		? await host.deps.probe(target, signal)
+		: await fetch(`${target.url}/v1/models`, {
+				method: "GET",
+				signal,
+			}).catch(() => null);
 	if (resp === null) return null;
 	host.cooldowns.success(target);
 	return target;
 }
-/** A temporarily ejected rate-limited tier still has an actionable
- * outcome: a typed LOCAL hold — never a fabricated provider 429 (W1257).
+/** A cold (rate-limited / quota-walled) tier still has an actionable
+ * outcome: the typed LOCAL instant 429 + Retry-After — its body names the
+ * gateway's shared cold mark, never a fabricated provider envelope (W1257).
  * The provider's own last-seen refusal words ride as attributed context;
  * a real upstream rung later in the walk still outranks the memory. */
 export function rememberCooledRateLimit(
@@ -71,6 +91,9 @@ export function rememberCooledRateLimit(
 	req: UpstreamRequest,
 	st: WalkState,
 ): void {
+	// this walk already holds the provider's own refusal — it answers
+	// verbatim; a memory receipt would only shadow it in the audit trail
+	if (st.rateLimit) return;
 	const legs = host.deps.pool
 		.deployments(tier)
 		.filter((dep) => bridgeRequest(req, dep) !== null)
@@ -88,13 +111,18 @@ export function rememberCooledRateLimit(
 	const words = d
 		? `; last provider refusal: code ${String(d.code ?? "unknown")} ${d.type ?? "type unknown"} "${d.message.slice(0, 240)}"`
 		: "";
-	st.status = 503;
-	st.error = `provider ${tier} rate-limit cooldown — answered from gateway cooldown, not the provider (${String(soonest.seconds)}s left; W1257)${words}`;
-	st.lastFailure = {
-		source: "local-admission",
-		status: 503,
-		kind: "local_admission",
-		retryAfterS: soonest.seconds,
+	// Shared cold mark: an instant LOCAL 429 + Retry-After (no upstream
+	// knocked — the provenance names the gateway, never a fabricated
+	// provider body, W1257). A quota wall tells the client not to retry.
+	const quota = legs.some((leg) => host.cooldowns.cold.quotaWall(leg.dep));
+	const seconds = Math.min(
+		soonest.seconds ?? 1,
+		st.coldHold?.retryAfterS ?? Number.POSITIVE_INFINITY,
+	);
+	st.coldHold = {
+		retryAfterS: seconds,
+		quota: quota || st.coldHold?.quota === true,
+		error: `provider ${tier} ${quota ? "quota wall" : "rate-limit"} cooldown — answered from the gateway's shared cold mark, not the provider (${String(seconds)}s left)${words}`,
 	};
 	// one local-admission attempt receipt with the banked provider tokens,
 	// so the trace tells the truth about where this answer came from
@@ -104,9 +132,9 @@ export function rememberCooledRateLimit(
 		soonest.dep,
 		st.attempts,
 		host.now(),
-		503,
+		429,
 		"rate_limited",
-		soonest.seconds,
+		seconds,
 		undefined,
 		undefined,
 		null,

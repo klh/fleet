@@ -105,7 +105,7 @@ for (const stream of [false, true]) {
 	});
 }
 
-test("handler relays a cooled provider throttle as 429; W1077 probe grants one recovery attempt", async () => {
+test("handler relays a cooled provider throttle as 429; the cold mark answers the next caller without a knock", async () => {
 	let calls = 0;
 	const upstream = await startMockUpstream(() => {
 		calls++;
@@ -132,11 +132,10 @@ test("handler relays a cooled provider throttle as 429; W1077 probe grants one r
 		const cooled = await app.fetch(request());
 		expect(cooled.status).toBe(429);
 		expect(Number(cooled.headers.get("retry-after"))).toBeGreaterThan(0);
-		// W1077: the benched leg gets ONE liveness probe + one recovery
-		// attempt per request (still 429, still relayed verbatim); the probe
-		// GET also reaches the mock upstream, so calls = r1-attempt + r2-probe
-		// + r2-attempt = 3.
-		expect(calls).toBe(3);
+		// Fail fast: the shared cold mark answers r2 locally — no liveness
+		// probe (a rate-limited API still serves /v1/models) and no recovery
+		// knock until the jittered cooldown expires: one upstream hit total.
+		expect(calls).toBe(1);
 		expect(deps.ledger.auditRows().map((r) => r.status)).toEqual([429, 429]);
 	} finally {
 		upstream.close();
@@ -189,8 +188,9 @@ test("already committed Anthropic SSE preserves the provider rate-limit event", 
 	}
 });
 
-test("retry jitter grows with attempts but never delays the next fallback rung", async () => {
+test("a 429 never sleeps the walk: one knock per rung, immediate failover", async () => {
 	const slept: number[] = [];
+	const knocked: string[] = [];
 	const router = new Router(
 		{
 			num_retries: 1,
@@ -208,11 +208,13 @@ test("retry jitter grows with attempts but never delays the next fallback rung",
 			sleepMs: async (ms) => {
 				slept.push(ms);
 			},
-			fetchImpl: async () =>
-				Response.json(
+			fetchImpl: async (dep) => {
+				knocked.push(dep.group);
+				return Response.json(
 					{ error: { message: "limited" } },
 					{ status: 429, headers: { "retry-after": "0" } },
-				),
+				);
+			},
 		},
 	);
 	await router.execute({
@@ -222,7 +224,8 @@ test("retry jitter grows with attempts but never delays the next fallback rung",
 		body: {},
 		key: "",
 	});
-	expect(slept).toEqual([1250, 4250]); // One retry per candidate; no cross-rung sleep.
+	expect(slept).toEqual([]); // ZERO in-gateway sleeps on 429.
+	expect(knocked).toEqual(["primary", "fallback"]); // one hop, no replays
 });
 
 test("quota-wall retry-after (W695.6.1): floor capped, 429 + retry-after still relayed", async () => {

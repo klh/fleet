@@ -310,10 +310,15 @@ test.describe("@api", () => {
 				expect(r1.response.status).toBe(429);
 			}
 			const r2 = await router.execute(req("m1"));
-			// The error body releases the lease, but the shared pool must still
-			// honor the provider's Retry-After before starting another request.
-			expect(fetches).toBe(2);
-			expect(r2.kind).toBe("client-error");
+			// fail-fast herd protection: the shared cold mark answers the next
+			// caller LOCALLY (banked provider words, honest remainder) — zero
+			// new upstream knocks during the provider's Retry-After window.
+			expect(fetches).toBe(1);
+			expect(r2.kind).toBe("exhausted");
+			if (r2.kind === "exhausted") {
+				expect(r2.status).toBe(429);
+				expect(r2.error).toContain("cold mark");
+			}
 		});
 
 		test("queue wait consumes the walk budget without reducing the independent network cap", async () => {
@@ -419,12 +424,16 @@ test.describe("@api", () => {
 		expect(
 			router.providerAdmissionSnapshot()["zai-main"]?.notBeforeMs,
 		).toBeGreaterThan(Date.now() + 50000);
-		const controller = new AbortController();
-		const second = router.execute(req("alias", controller.signal));
-		await Bun.sleep(25);
+		// fail-fast: the shared cold mark answers the alias walk LOCALLY at
+		// once (N → 1 herd protection, banked provider words) — the old
+		// abort-race premise is gone because nothing waits.
+		const second = await router.execute(req("alias"));
+		expect(second.kind).toBe("exhausted");
+		if (second.kind === "exhausted") {
+			expect(second.status).toBe(429);
+			expect(second.error).toContain("cold mark");
+		}
 		expect(calls).toEqual(["primary", "local"]);
-		controller.abort();
-		expect((await second).kind).toBe("aborted");
 	});
 
 	test("queue expiry is local evidence and skips account aliases before an independent fallback", async () => {

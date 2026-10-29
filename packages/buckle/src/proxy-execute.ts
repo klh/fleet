@@ -191,7 +191,9 @@ function finishResponse(
 	let decision: DecisionKind = sel.decision;
 	let row: CandidateRow | undefined = sel.head;
 	let code: string | null = null;
-	const rateLimited = result.kind === "client-error" && resp.status === 429;
+	const rateLimited =
+		(result.kind === "client-error" || result.kind === "exhausted") &&
+		resp.status === 429;
 	if (result.kind === "upstream") {
 		row = deps.table.rowFor(result.candidateId) ?? sel.head;
 		if (result.candidateId !== sel.head.candidate_id) decision = "fallback";
@@ -322,13 +324,25 @@ function handleResult(
 ): Response | Promise<Response> {
 	if (result.kind === "aborted") return new Response(null, { status: 499 });
 	if (result.kind === "exhausted") {
-		const deferred = result.status === 503 && result.retryAfterS !== undefined;
+		// 503 = this gateway/pool cannot serve now; 429 = the shared cold mark
+		// answered locally (no upstream knocked). Both carry an honest,
+		// clamped Retry-After; the outermost client owns the retry.
+		const deferred =
+			(result.status === 503 || result.status === 429) &&
+			result.retryAfterS !== undefined;
 		const walkDeadline = result.lastFailure?.kind === "walk_deadline";
 		const response = errorResponse(
-			walkDeadline ? 504 : deferred ? 503 : 502,
+			walkDeadline ? 504 : deferred ? result.status : 502,
 			result.error,
-			"no_route",
+			result.status === 429 && deferred
+				? result.quota
+					? "quota_exhausted"
+					: "rate_limited"
+				: "no_route",
 		);
+		// A quota wall is not retryable on any client clock: the Anthropic
+		// SDK honours x-should-retry: false and fails fast.
+		if (result.quota === true) response.headers.set("x-should-retry", "false");
 		if (result.peerTrace)
 			response.headers.set("x-klh-peer-error-trace", result.peerTrace);
 		if (deferred)

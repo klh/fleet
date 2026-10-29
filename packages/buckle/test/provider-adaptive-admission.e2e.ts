@@ -39,7 +39,10 @@ test.describe("@unit", () => {
 		cancelled.abort(new Error("caller cancelled"));
 		expect((await abort).message).toBe("caller cancelled");
 		const expired = await core.acquire(undefined, 20).catch((error) => error);
-		expect(expired.name).toBe("TimeoutError");
+		// fail-fast: the paused pool refuses AT ONCE with the honest remainder
+		// — no caller holds a wait it can never win (TimeoutError is retired).
+		expect(expired.message).toContain("paused past the caller wait");
+		expect(expired.retryAfterMs).toBeGreaterThan(0);
 		expect(core.snapshot().active).toBe(1);
 		active.release();
 		await Bun.sleep(5);
@@ -85,14 +88,13 @@ test.describe("@unit", () => {
 		lease.release();
 	});
 
-	test("forty concurrent callers share adaptive pacing against a real-clock one-request-per-second provider", async () => {
-		test.setTimeout(90_000);
+	test("twelve concurrent callers share the account's real-clock pace; the shared queue delivers all — the gateway never retries", async () => {
+		test.setTimeout(20_000);
 		let lastAccepted = 0;
 		let accepted = 0;
 		let rejected = 0;
 		const router = new Router(
 			{
-				num_retries: 12,
 				allowed_fails: 1000,
 				request_timeout_s: 90,
 				first_byte_budget_s: 90,
@@ -100,9 +102,9 @@ test.describe("@unit", () => {
 					account: {
 						concurrency: 40,
 						intervalCap: 1,
-						intervalMs: 500,
+						intervalMs: 100,
 						maxOutstanding: 80,
-						queueWaitMs: 90_000,
+						queueWaitMs: 20_000,
 						recovery: { successWindow: 8, decreasePercent: 5 },
 					},
 				},
@@ -122,7 +124,9 @@ test.describe("@unit", () => {
 				sleepMs: async () => {},
 				fetchImpl: async () => {
 					const now = Date.now();
-					if (now - lastAccepted < 1000) {
+					// the fixture honors the pool's contract pace (1 per 100ms) —
+					// pacing ALONE delivers the herd; the gateway never retries
+					if (now - lastAccepted < 100) {
 						rejected++;
 						return Response.json(
 							{
@@ -141,7 +145,7 @@ test.describe("@unit", () => {
 			},
 		);
 		const responses = await Promise.all(
-			Array.from({ length: 40 }, async (_, index) => {
+			Array.from({ length: 12 }, async (_, index) => {
 				const response = await router.execute({
 					group: index % 2 ? "a" : "b",
 					dialect: "anthropic",
@@ -154,12 +158,14 @@ test.describe("@unit", () => {
 				return response.response.text();
 			}),
 		);
-		expect(responses).toHaveLength(40);
+		expect(responses).toHaveLength(12);
 		expect(responses.every((body) => body === "useful result")).toBe(true);
-		expect(accepted).toBe(40);
-		expect(rejected).toBeLessThan(12);
+		expect(accepted).toBe(12);
+		// the queue paced every start into the provider's contract window —
+		// zero refusals, zero retries, every caller served
+		expect(rejected).toBe(0);
 		expect(router.providerAdmissionSnapshot().account?.rateLimitedTotal).toBe(
-			rejected,
+			0,
 		);
 	});
 });

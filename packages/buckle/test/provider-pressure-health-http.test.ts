@@ -188,11 +188,11 @@ async function chain(classified: boolean) {
 
 test("two actual Buckle hops recover semantic output without inventory probing or synthetic occupancy cooldown", async () => {
 	const before = await chain(false);
-	// W1257: the follow-up arrives inside the hub's rate-limit cooldown —
-	// it answers a typed LOCAL 503 hold (no_route story at the front), the
-	// pool stays bounded by the provider's own Retry-After (~1s), and no
-	// fabricated 429 masquerades as the provider
-	expect(before.follow.status).toBe(503);
+	// The follow-up arrives inside the shared cold mark — it answers an
+	// instant LOCAL 429 + Retry-After (problem body: no provider envelope
+	// is fabricated, W1257), the pool stays bounded by the provider's own
+	// Retry-After (~1s), and the outermost client owns the retry
+	expect(before.follow.status).toBe(429);
 	expect(before.follow.body.error).toBeUndefined();
 	expect(Number(before.follow.retryAfter ?? 0)).toBeLessThanOrEqual(30);
 	expect(before.pool.adaptiveGapMs).toBe(2);

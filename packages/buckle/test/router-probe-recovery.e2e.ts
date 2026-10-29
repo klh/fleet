@@ -73,7 +73,7 @@ test.describe("@unit", () => {
 			expect(result.kind).toBe("upstream");
 		});
 
-		test("no-sel walk: dead probe stays benched - typed local 503 hold", async () => {
+		test("no-sel walk: dead probe stays benched - typed local 429 hold", async () => {
 			const router = new Router(POLICY, {
 				pool,
 				cooldowns: benchedCooldowns(),
@@ -82,12 +82,13 @@ test.describe("@unit", () => {
 				fetchImpl: async () => Response.json({ ok: true }),
 			});
 			const result = await router.execute(req);
-			// W1257: a benched tier with a dead probe answers a typed LOCAL hold,
-			// never a fabricated provider 429
+			// W1257 + fail-fast: a rate-limit-benched tier with a dead probe
+			// answers a typed LOCAL hold — the honest 429 + Retry-After the
+			// outermost client retries on, attributed to the gateway (never
+			// passed off as a fresh provider refusal)
 			expect(result.kind).toBe("exhausted");
 			if (result.kind !== "exhausted") throw new Error("hold lost");
-			expect(result.status).toBe(503);
-			expect(result.error).toContain("gateway cooldown");
+			expect(result.status).toBe(429);
 			expect(result.error).toContain("not the provider");
 		});
 
