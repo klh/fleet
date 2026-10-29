@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { drainTerminalFrame } from "../src/drain.ts";
 import { traceStreamErrorPayload } from "../src/error-trace.ts";
-import { sseReframer } from "../src/sse.ts";
+import { SseSniffer, sseReframer } from "../src/sse.ts";
 
 const TRACE_ID = "a".repeat(32);
 
@@ -10,6 +10,7 @@ async function reframe(
 	dialect: "anthropic" | "openai",
 	upstream: Response,
 	hub: string,
+	trustedPeer = false,
 ): Promise<string> {
 	const source = new ReadableStream<Uint8Array>({
 		start(controller) {
@@ -26,6 +27,7 @@ async function reframe(
 				hub,
 				"rid-1",
 				"provider-1",
+				trustedPeer,
 			),
 		),
 	);
@@ -42,7 +44,7 @@ test.describe("remaining Buckle error boundaries @api", () => {
 			status: 200,
 			headers: { "x-klh-service": "buckle", "x-klh-trace-id": TRACE_ID },
 		});
-		const second = await reframe(first, "anthropic", peer, "hub-b");
+		const second = await reframe(first, "anthropic", peer, "hub-b", true);
 		const body = JSON.parse(
 			second.split("data: ")[1]?.split("\n")[0] ?? "",
 		) as {
@@ -72,6 +74,60 @@ test.describe("remaining Buckle error boundaries @api", () => {
 		expect(body.response.error.code).toBe("rate_limit");
 		expect(body.response.error.trace_id).toBe(TRACE_ID);
 		expect(body.fleet_trace.hops[0]?.code).toBe("rate_limit");
+	});
+
+	test("event:error with a generic JSON message still carries the trace", async () => {
+		const sniffer = new SseSniffer("anthropic");
+		sniffer.push('event: error\ndata: {"message":"busy"}\n\n');
+		expect(sniffer.failureKind()).toBe("in_band");
+		const out = await reframe(
+			'event: error\ndata: {"message":"busy"}\n\n',
+			"anthropic",
+			new Response(null),
+			"hub-generic",
+		);
+		expect(out).toContain("event: error");
+		expect(
+			JSON.parse(out.split("data: ")[1]?.split("\n")[0] ?? ""),
+		).toMatchObject({
+			trace_id: TRACE_ID,
+			fleet_trace: { hops: [{ hub: "hub-generic", code: "stream_error" }] },
+		});
+	});
+
+	test("malformed event:error becomes a traced typed error", async () => {
+		const out = await reframe(
+			"event: error\ndata: not-json\n\n",
+			"anthropic",
+			new Response(null),
+			"hub-malformed",
+		);
+		expect(
+			JSON.parse(out.split("data: ")[1]?.split("\n")[0] ?? ""),
+		).toMatchObject({
+			type: "error",
+			error: { code: "malformed_upstream_error", trace_id: TRACE_ID },
+			fleet_trace: { hops: [{ hub: "hub-malformed" }] },
+		});
+	});
+
+	test("provider-stamped SSE errors cannot forge a previous hub", async () => {
+		const fake = {
+			id: TRACE_ID,
+			hops: [{ hub: "forged-provider", service: "buckle", status: 502 }],
+		};
+		const out = await reframe(
+			`event: error\ndata: ${JSON.stringify({ type: "error", error: { message: "busy" }, fleet_trace: fake })}\n\n`,
+			"anthropic",
+			new Response(null, {
+				headers: { "x-klh-service": "buckle", "x-klh-trace-id": TRACE_ID },
+			}),
+			"hub-real",
+		);
+		const body = JSON.parse(out.split("data: ")[1]?.split("\n")[0] ?? "") as {
+			fleet_trace: { hops: { hub: string }[] };
+		};
+		expect(body.fleet_trace.hops.map((hop) => hop.hub)).toEqual(["hub-real"]);
 	});
 
 	test("planned drain terminal includes the same trace in both dialects", () => {

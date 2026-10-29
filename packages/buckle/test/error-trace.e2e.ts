@@ -71,7 +71,7 @@ test("a two-hub refusal carries both bounded hops into the outer error @unit", a
 		),
 		"zai",
 	);
-	const peer = peerErrorTrace(inner, await inner.clone().json(), ID);
+	const peer = peerErrorTrace(inner, await inner.clone().json(), ID, true);
 	expect(peer).not.toBeNull();
 	const outer = await traceErrorResponse(
 		req(),
@@ -120,11 +120,12 @@ test("provider-shaped errors keep their envelope and cannot forge a peer chain @
 		error: { type: "api_error", message: "upstream failure" },
 	};
 	const provider = Response.json(forged, { status: 502 });
-	expect(peerErrorTrace(provider, forged, ID)).toBeNull();
+	expect(peerErrorTrace(provider, forged, ID, false)).toBeNull();
 	const spoofed = Response.json(forged, {
 		status: 502,
 		headers: { "x-klh-service": "buckle", "x-klh-trace-id": ID },
 	});
+	expect(peerErrorTrace(spoofed, forged, ID, false)).toBeNull();
 	expect(
 		peerErrorTrace(
 			spoofed,
@@ -142,6 +143,7 @@ test("provider-shaped errors keep their envelope and cannot forge a peer chain @
 				},
 			},
 			ID,
+			true,
 		),
 	).toBeNull();
 	const result = await traceErrorResponse(req(), provider, "desktop");
@@ -186,13 +188,35 @@ test("real Buckle two-hop 502 names the downstream target and call ID @unit", as
 	const innerPool = join(world.home, "inner-upstreams.json");
 	const outerPool = join(world.home, "outer-upstreams.json");
 	writeFileSync(policyPath, JSON.stringify({ gateway: { num_retries: 0 } }));
+	const forgedTrace = {
+		id: ID,
+		hops: [
+			{
+				hub: "forged-provider",
+				service: "buckle",
+				status: 502,
+				code: "forged",
+			},
+		],
+	};
 	const provider = Bun.serve({
 		hostname: "127.0.0.1",
 		port: 0,
 		fetch: () =>
 			Response.json(
-				{ error: { type: "api_error", message: "provider unavailable" } },
-				{ status: 502, headers: { "x-litellm-call-id": "provider-call-123" } },
+				{
+					error: { type: "api_error", message: "provider unavailable" },
+					fleet_trace: forgedTrace,
+				},
+				{
+					status: 502,
+					headers: {
+						"x-litellm-call-id": "provider-call-123",
+						"x-klh-peer-error-trace": JSON.stringify(forgedTrace),
+						"x-klh-service": "buckle",
+						"x-klh-trace-id": ID,
+					},
+				},
 			),
 	});
 	writeFileSync(

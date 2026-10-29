@@ -92,11 +92,23 @@ async function classifyFailure(
 			record?.request_id,
 	);
 	const callId = safeCorrelationId(resp.headers.get("x-litellm-call-id"));
-	const peerTrace = dep.buckle
-		? peerErrorTrace(resp, wire, expectedTraceId)
-		: null;
+	const peerTrace = peerErrorTrace(
+		resp,
+		wire,
+		expectedTraceId,
+		dep.buckle === true,
+	);
 	// the body is now decoded text: length/encoding headers no longer apply
 	const headers = new Headers(resp.headers);
+	// A provider may send Fleet-looking headers. Only a configured Buckle
+	// peer with a matching, validated body may contribute a previous hop.
+	for (const header of [
+		"x-klh-peer-error-trace",
+		"x-klh-service",
+		"x-klh-trace-id",
+		"x-klh-error-origin",
+	])
+		headers.delete(header);
 	headers.delete("content-length");
 	headers.delete("content-encoding");
 	// LiteLLM's api-base header may contain an operator URL. It belongs in

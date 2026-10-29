@@ -16,7 +16,9 @@ export const SSE_HEADERS = (h: Headers): Headers => {
 		if (
 			k === "content-length" ||
 			k === "transfer-encoding" ||
-			k === "connection"
+			k === "connection" ||
+			k === "x-klh-peer-error-trace" ||
+			k === "x-klh-error-origin"
 		)
 			continue;
 		out.set(k, v);

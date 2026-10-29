@@ -111,8 +111,10 @@ export function peerErrorTrace(
 	resp: Response,
 	wire: unknown,
 	expectedId: string,
+	trustedPeer: boolean,
 ): string | null {
 	if (
+		!trustedPeer ||
 		resp.headers.get("x-klh-service") !== "buckle" ||
 		resp.headers.get("x-klh-trace-id") !== expectedId
 	)
@@ -131,6 +133,7 @@ export function traceStreamErrorPayload(
 	hubLabel: string,
 	rid: string,
 	targetId: string,
+	trustedPeer = false,
 ): string {
 	if (!TRACE_ID.test(id)) return payload;
 	let body: JsonObject | null = null;
@@ -142,9 +145,12 @@ export function traceStreamErrorPayload(
 	if (!body) return payload;
 	const hub = HUB_LABEL.test(hubLabel) ? hubLabel : "local";
 	const error = object(body.error) ?? object(object(body.response)?.error);
-	const code = safeProviderErrorToken(error?.code ?? error?.type ?? body.type);
+	const code =
+		safeProviderErrorToken(error?.code ?? error?.type ?? body.type) ??
+		"stream_error";
 	const target = safeProviderErrorToken(targetId) ?? undefined;
 	const peer =
+		trustedPeer &&
 		upstream.headers.get("x-klh-service") === "buckle" &&
 		upstream.headers.get("x-klh-trace-id") === id
 			? FleetErrorTraceSchema.safeParse(body.fleet_trace)
@@ -176,6 +182,11 @@ export function traceStreamErrorPayload(
 			const origin = trace.hops[0]?.hub ?? hub;
 			error.message = `${message.slice(0, 2048)} [trace=${id}; origin=${origin}; target=${target ?? "unknown"}]`;
 		}
+	} else if (typeof body.message === "string") {
+		const priorMarker = / \[trace=[0-9a-f]{32};[^\]]{0,600}\]$/;
+		const message = body.message.replace(priorMarker, "");
+		const origin = trace.hops[0]?.hub ?? hub;
+		body.message = `${message.slice(0, 2048)} [trace=${id}; origin=${origin}; target=${target ?? "unknown"}]`;
 	}
 	return JSON.stringify(body);
 }
