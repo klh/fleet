@@ -12,6 +12,39 @@ import type { GatewayPolicy } from "@klh/buckle/src/policy.ts";
 import { readJsonConfEither } from "./kernel-conf.ts";
 import { PostureDocumentSchema } from "./posture/posture.zod.ts";
 
+/** W2242: the fleet-loop daemon block — lane target / dispatch target /
+ *  cycle cadence / config poll interval. Every knob optional; the resolver
+ *  (fleetLoopSettings) owns the defaults, never a plist. */
+export const FleetLoopConfigSchema = z
+	.object({
+		lane_target: z.number().int().positive().optional(),
+		dispatch_target: z.number().int().positive().optional(),
+		every_s: z.number().int().positive().optional(),
+		config_poll_s: z.number().int().positive().optional(),
+	})
+	.loose();
+
+// W1303.4 schema-first: derived from FleetLoopConfigSchema above — never hand-written.
+export type FleetLoopConfig = z.infer<typeof FleetLoopConfigSchema>;
+
+/** Resolved fleet-loop settings — config-over-code (W2242): the daemon's
+ *  numbers come from the machine stack conf, CLI flags stay explicit
+ *  one-shot overrides, and these are the fallback defaults when the block
+ *  is absent (the plist hardcodes nothing). */
+export interface FleetLoopSettings {
+	laneTarget: number;
+	dispatchTarget: number;
+	everyS: number;
+	pollS: number;
+}
+
+export const FLEET_LOOP_DEFAULTS: FleetLoopSettings = {
+	laneTarget: 6,
+	dispatchTarget: 8,
+	everyS: 120,
+	pollS: 10,
+};
+
 // ─── W1303.4 schema-first: zod is THE definition of the stack conf shape ──
 // JSON.parse stays the ONE parser (W1253 Amendment A); these schemas type
 // the parsed value and validate it AFTER parse (stackConfIssues — strict
@@ -301,6 +334,8 @@ export const StackConfigSchema = z
 		/** W230: policies — per-repo routing policy (must/prefer law
 		 *  expressions, hub label, residency regions). */
 		policies: z.record(z.string(), RepoPolicySchema).optional(),
+		/** W2242: the fleet-loop daemon block (targets + cadence). */
+		fleet_loop: FleetLoopConfigSchema.optional(),
 	})
 	.loose();
 
@@ -355,6 +390,23 @@ export function stackConfIssues(conf: unknown = loadStack()): string[] {
 			(i) => `${i.path.join(".") || "<root>"}: ${i.message}`,
 		) ?? []
 	);
+}
+
+/** W2242 fleet-loop: resolve the daemon's targets + cadence from the
+ *  machine conf's fleet_loop block over FLEET_LOOP_DEFAULTS — the ONE
+ *  resolver (loop watcher and dispatch-next both read through it; the
+ *  launchd plist hardcodes nothing). */
+export function fleetLoopSettings(
+	stack?: StackConfig | null,
+): FleetLoopSettings {
+	const block = (stack === undefined ? tryLoadStack() : stack)?.fleet_loop;
+	return {
+		laneTarget: block?.lane_target ?? FLEET_LOOP_DEFAULTS.laneTarget,
+		dispatchTarget:
+			block?.dispatch_target ?? FLEET_LOOP_DEFAULTS.dispatchTarget,
+		everyS: block?.every_s ?? FLEET_LOOP_DEFAULTS.everyS,
+		pollS: block?.config_poll_s ?? FLEET_LOOP_DEFAULTS.pollS,
+	};
 }
 
 /** W230 executors: the row for `id`, falling through to the `default` row

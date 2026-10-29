@@ -102,7 +102,7 @@ describe("services manifest (W488.1)", () => {
 		const args = d.ProgramArguments as string[];
 		const cmd = args[args.indexOf("--dispatch-cmd") + 1];
 		expect(cmd).toBe(
-			`${FIXTURE.bun} ${FIXTURE.prefix}/scripts/dispatch-next.ts --target 8`,
+			`${FIXTURE.bun} ${FIXTURE.prefix}/scripts/dispatch-next.ts`,
 		);
 		// WorkingDirectory/--repo stay the operator work repo — distinct from
 		// the immutable policy-code root the child script is sourced from
