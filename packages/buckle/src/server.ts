@@ -37,6 +37,8 @@ import {
 } from "./gov/overlay-loader.ts";
 import { residencyFromEnv, resolveResidency } from "./gov/residency.ts";
 import { type AppDeps, createApp } from "./handlers.ts";
+import { errorResponse } from "./error-response.ts";
+import { traceErrorResponse } from "./error-trace.ts";
 import { pricerOf } from "./cost.ts";
 import { z } from "zod";
 import type { RouteHint } from "./hints.ts";
@@ -449,7 +451,21 @@ export function startServer(opts: ServerOpts = {}): ReturnType<
 		// outage). Buckle's own guards (wire.ts upstream idle/total,
 		// first-byte budget) are the ONLY deadlines.
 		idleTimeout: BUN_IDLE_TIMEOUT,
-		fetch: inner,
+		fetch: async (req) => {
+			try {
+				return await traceErrorResponse(
+					req,
+					await inner(req),
+					deps.hubId ?? "local",
+				);
+			} catch {
+				return traceErrorResponse(
+					req,
+					errorResponse(500, "internal gateway failure", "internal_error"),
+					deps.hubId ?? "local",
+				);
+			}
+		},
 	});
 	// W1260.2: the authenticated CONNECT egress (opaque AI TLS relay). Inert
 	// unless policy enables it AND BUCKLE_CONNECT_TOKEN is set AND allow is

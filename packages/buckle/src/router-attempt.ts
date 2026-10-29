@@ -6,6 +6,7 @@ import {
 	safeCorrelationId,
 	safeProviderErrorToken,
 	safeRefusalCode,
+	traceIdOf,
 } from "@klh/telemetry/src/http-trace.ts";
 import { safeTimeoutPhase } from "@klh/telemetry/src/transport-evidence.ts";
 import {
@@ -17,6 +18,7 @@ import { deriveAdapter } from "./adapters/types.ts";
 import { bridgeRequest, bridgeResponse } from "./bridge.ts";
 import { retryAfterS } from "./cooldown.ts";
 import { clampRetryAfter } from "./http-kit.ts";
+import { peerErrorTrace } from "./error-trace.ts";
 import type { GatewayPolicy } from "./policy.ts";
 import {
 	assertProviderConcurrencyErrorCodes,
@@ -59,7 +61,11 @@ async function readCapped(resp: Response): Promise<string> {
 }
 /** Non-ok upstream reply → normalized RouterError (status + body signature
  *  + retry-after header/body) and a replayable copy of the response. */
-async function classifyFailure(dep: Deployment, resp: Response) {
+async function classifyFailure(
+	dep: Deployment,
+	resp: Response,
+	expectedTraceId: string,
+) {
 	const text = await readCapped(resp);
 	let wire: unknown = null;
 	try {
@@ -86,6 +92,9 @@ async function classifyFailure(dep: Deployment, resp: Response) {
 			record?.request_id,
 	);
 	const callId = safeCorrelationId(resp.headers.get("x-litellm-call-id"));
+	const peerTrace = dep.buckle
+		? peerErrorTrace(resp, wire, expectedTraceId)
+		: null;
 	// the body is now decoded text: length/encoding headers no longer apply
 	const headers = new Headers(resp.headers);
 	headers.delete("content-length");
@@ -97,12 +106,13 @@ async function classifyFailure(dep: Deployment, resp: Response) {
 	if (!callId) headers.delete("x-litellm-call-id");
 	if (requestId) headers.set("x-klh-upstream-request-id", requestId);
 	if (callId) headers.set("x-litellm-call-id", callId);
+	if (peerTrace) headers.set("x-klh-peer-error-trace", peerTrace);
 	const replay = new Response(text, {
 		status: resp.status,
 		statusText: resp.statusText,
 		headers,
 	});
-	return { err, replay, requestId, callId };
+	return { err, replay, requestId, callId, peerTrace };
 }
 /** One upstream attempt, outcome classified for the walk. */
 export async function tryOnce(
@@ -200,7 +210,11 @@ export async function tryOnce(
 				queueWaitMs: lease ? queueWaitMs : null,
 			};
 		}
-		const { err, replay, requestId, callId } = await classifyFailure(dep, resp);
+		const { err, replay, requestId, callId, peerTrace } = await classifyFailure(
+			dep,
+			resp,
+			traceIdOf(req.trace?.traceparent ?? null) ?? "",
+		);
 		const ra = err.retryAfterS ?? retryAfterS(resp.headers, host.now);
 		const pressure = providerPressureOf(
 			{ concurrencyErrorCodes: providerConcurrencyCodesOf(dep, host.policy) },
@@ -256,6 +270,7 @@ export async function tryOnce(
 			refusalSource: "upstream" as const,
 			requestId,
 			callId,
+			peerTrace,
 			upstreamRefusalCode: safeRefusalCode(resp.headers.get("x-klh-refusal")),
 		};
 		// W1118.1: a peer's hop-contract refusal is a chain verdict — the

@@ -314,7 +314,10 @@ export function streamResponse(
 			}
 			finish();
 			if (!streamCancelled)
-				writeErrorEvent(downstream.writable, ctx.dialect, err);
+				writeErrorEvent(downstream.writable, ctx.dialect, err, {
+					id: ctx.trace.traceparent.split("-")[1] ?? "",
+					hub: deps.hubId ?? "local",
+				});
 		})
 		.catch(() => {
 			// W1106: the error-event write failed = the client is gone; the
