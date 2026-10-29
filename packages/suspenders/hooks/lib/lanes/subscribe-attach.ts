@@ -7,7 +7,13 @@
 // sid known at dispatch) so every lane has a push inbox from birth.
 // Idempotent per sid: an anchored pgrep detects a live subscribe for the
 // sid and leaves it alone — re-attach is a no-op.
-import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
+import {
+	closeSync,
+	existsSync,
+	mkdirSync,
+	openSync,
+	readFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { resolveFleetLane } from "./fleetlane.ts";
@@ -56,9 +62,29 @@ export const subscribeMode = (): "machine" | "session" =>
 // socket of its own (directed events still reach it via the lane inbox drain)
 export const isSubagentLane = (sid: string): boolean => sid.includes("#agent-");
 
-const MACHINE_PATTERN = "coord[.]ts subscribe --machine$";
-export const machineSubscribeLive = (): boolean =>
-	Bun.spawnSync(["/usr/bin/pgrep", "-f", MACHINE_PATTERN]).exitCode === 0;
+// HOME-scoped liveness: the machine subscriber records its pid under this
+// HOME (a process-table pgrep would match another HOME's — or a test's —
+// subscriber); the pid only counts while it is still a machine subscriber
+export const machineSubscribePidFile = (): string =>
+	`${process.env.HOME}/.claude-insights/coord-subscribe-machine.pid`;
+export const machineSubscribePid = (): number => {
+	let pid = 0;
+	try {
+		pid = Number(readFileSync(machineSubscribePidFile(), "utf8").trim());
+	} catch {
+		return 0;
+	}
+	if (!Number.isSafeInteger(pid) || pid < 2) return 0;
+	const p = Bun.spawnSync(["/bin/ps", "-o", "command=", "-p", String(pid)], {
+		stdout: "pipe",
+		stderr: "ignore",
+	});
+	return p.exitCode === 0 &&
+		/coord[.]ts subscribe --machine/.test(p.stdout.toString())
+		? pid
+		: 0;
+};
+export const machineSubscribeLive = (): boolean => machineSubscribePid() > 0;
 
 // Claude Code subagents share the parent's session_id; session-start
 // registers (and attaches their subscribe under) `<sid>#<agent>` — the lane

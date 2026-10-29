@@ -9,13 +9,20 @@
 //     gate tails it beside the session's own log (offset per lane)
 // On every (re)connect it replays the durable pause/resume control for each
 // RUNNING session — the per-session subscriber's catch-up, for all of them.
-import { appendFileSync, mkdirSync } from "node:fs";
+import {
+	appendFileSync,
+	mkdirSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
 import { dirname } from "node:path";
 import { signalClaudeDirectEvent } from "../lib/executors/claude-wake.ts";
 import { resolveStoreHttpBase } from "../lib/govdb/govdb.ts";
 import {
 	MACHINE_ALL_LOG_ID,
 	coordSubscribeLog,
+	machineSubscribePid,
+	machineSubscribePidFile,
 } from "../lib/lanes/subscribe-attach.ts";
 import { formatEventLine, subscriberPendingControl } from "./bus.ts";
 import { db, type Ev } from "./shared.ts";
@@ -49,6 +56,15 @@ export async function cmdSubscribeMachine(): Promise<void> {
 		);
 		return;
 	}
+	// one per HOME: a second subscriber (racing session starts) steps aside
+	const other = machineSubscribePid();
+	if (other && other !== process.pid) {
+		console.log(`(machine subscriber already live: pid ${other})`);
+		return;
+	}
+	const pidFile = machineSubscribePidFile();
+	mkdirSync(dirname(pidFile), { recursive: true });
+	writeFileSync(pidFile, `${process.pid}\n`, { mode: 0o600 });
 	const params = new URLSearchParams({ as: "*" });
 	if (bound.token) params.set("token", bound.token);
 	const url = `${bound.base.replace(/^http/, "ws")}/subscribe?${params}`;
@@ -95,5 +111,14 @@ export async function cmdSubscribeMachine(): Promise<void> {
 		ws.addEventListener("error", () => ws.close());
 	};
 	connect();
-	await new Promise<void>(() => {}); // lives for the machine's session
+	// lives for the machine's session — until its HOME's pidfile stops naming
+	// it (HOME removed, or a newer subscriber took over): then step aside
+	setInterval(() => {
+		let owner = "";
+		try {
+			owner = readFileSync(pidFile, "utf8").trim();
+		} catch {}
+		if (owner !== String(process.pid)) process.exit(0);
+	}, 30_000);
+	await new Promise<void>(() => {});
 }

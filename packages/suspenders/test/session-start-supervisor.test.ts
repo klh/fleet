@@ -116,6 +116,24 @@ function runPush(
 	};
 }
 
+// hub-of-one phase 6: the controller lease holder is the only supervisor.
+// This test process holds the lease, and it is an ancestor of every hook it
+// spawns, so the spawned session IS the controller session.
+function holdLease(project: string): void {
+	const db = new Database(DB);
+	try {
+		expect(
+			acquireControllerLease(
+				db as unknown as GovernorStore,
+				project,
+				currentControllerIdentity("fixture-controller", import.meta.path),
+			),
+		).toBe(true);
+	} finally {
+		db.close();
+	}
+}
+
 afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO_A, { recursive: true, force: true });
@@ -123,23 +141,26 @@ afterAll(() => {
 });
 
 describe("supervisor-default directive (W637)", () => {
-	test("W1069: fresh non-fleet session (READY=0) receives the contract notice", () => {
+	test("phase 6: an interactive session without the controller lease gets the worker contract", () => {
 		const r = runHook(REPO_A, join(HOME, "tp-a.jsonl"));
 		expect(r.code).toBe(0);
 		expect(r.out).not.toContain("SUPERVISOR DEFAULT");
-		expect(r.out).toContain("SUPERVISOR CONTRACT");
+		expect(r.out).not.toContain("SUPERVISOR CONTRACT");
+		expect(r.out).toContain("WORKER CONTRACT");
+		expect(r.out).toContain("only supervisor");
+		expect(r.out).toContain("Manual dispatch stays allowed");
 		expect(r.out).not.toContain("/loop refill");
 		expect(r.out).not.toContain("work reclaim all");
-		expect(r.out).toContain("canonical guarded landing");
 		expect(r.out).toContain("controller=absent");
-		expect(r.out).toContain("not a grant of controller authority");
 	});
 
-	test("work added after empty SessionStart notifies once without arming through PostToolUse", () => {
+	test("work added after empty SessionStart: workers stay quiet, the controller session is notified once", () => {
 		const first = runWork(REPO_A, ["add", "first new work"]);
 		expect(first.exitCode).toBe(0);
 		const command =
 			"bun ~/.claude/hooks/suspenders/bin/work.ts add 'first new work'";
+		expect(runPush(REPO_A, command).out).not.toContain("SUPERVISOR DEFAULT");
+		holdLease(projectIdentity(REPO_A));
 		const prompt = runPush(REPO_A, command);
 		expect(prompt.code).toBe(0);
 		expect(prompt.out).toContain("SUPERVISOR DEFAULT: READY 1 > 0");
@@ -155,6 +176,7 @@ describe("supervisor-default directive (W637)", () => {
 		const repo = mkdtempSync(join(tmpdir(), "suspenders-sup-child-"));
 		try {
 			expect(runHook(repo, join(HOME, "child-parent.jsonl")).code).toBe(0);
+			holdLease(projectIdentity(repo));
 			expect(runWork(repo, ["add", "child created work"]).exitCode).toBe(0);
 			const r = runPush(repo, "work add 'child created work'", {
 				agent_id: "native-agent-1",
@@ -173,6 +195,7 @@ describe("supervisor-default directive (W637)", () => {
 		try {
 			expect(runHook(repo, join(HOME, "split-parent.jsonl")).code).toBe(0);
 			const project = projectIdentity(repo);
+			holdLease(project);
 			const db = new Database(DB);
 			db.run(
 				"INSERT INTO work_items (project, id, title, state, priority, owner_sid, required, created_at, updated_at) VALUES (?, 'WSPLIT', 'parent', 'CLAIMED', 0, ?, 1, ?, ?)",
@@ -203,37 +226,31 @@ describe("supervisor-default directive (W637)", () => {
 		}
 	});
 
-	test("top-level start with READY>0 renders advisory guidance without a loop", () => {
+	test("top-level worker start with READY>0 renders the worker contract, no supervisor face", () => {
 		const first = runHook(REPO_B, join(HOME, "tp-b.jsonl"));
 		expect(first.code).toBe(0);
 		seedReady(PROJECT_B);
 		const r = runHook(REPO_B, join(HOME, "tp-b.jsonl"));
 		expect(r.code).toBe(0);
-		expect(r.out).toContain("SUPERVISOR DEFAULT");
+		expect(r.out).not.toContain("SUPERVISOR DEFAULT");
+		expect(r.out).toContain("WORKER CONTRACT");
 		expect(r.out).not.toContain("/loop refill");
 		expect(r.out).toContain("READY 1");
+		expect(r.out).toContain("(1 now) with work take");
 		expect(r.out).toContain("coord message <sid>");
-		expect(r.out).toContain("never cancel the lane just to revise its prompt");
 	});
 
 	test("canonical live controller and both holds are observed without granting a second loop", () => {
 		mkdirSync(join(REPO_B, ".fleet"), { recursive: true });
 		writeFileSync(join(REPO_B, ".fleet/dispatch-paused"), "deployment hold");
 		writeFileSync(join(REPO_B, ".fleet/reclaim-paused"), "recovery hold");
-		const db = new Database(DB);
-		try {
-			expect(
-				acquireControllerLease(
-					db as unknown as GovernorStore,
-					PROJECT_B,
-					currentControllerIdentity("fixture-controller", import.meta.path),
-				),
-			).toBe(true);
-		} finally {
-			db.close();
-		}
+		holdLease(PROJECT_B);
 		const r = runHook(REPO_B, join(HOME, "held-controller.jsonl"));
 		expect(r.code).toBe(0);
+		// the controller's own session is the one supervisor
+		expect(r.out).toContain("SUPERVISOR DEFAULT");
+		expect(r.out).not.toContain("WORKER CONTRACT");
+		expect(r.out).toContain("never cancel the lane just to revise its prompt");
 		expect(r.out).toContain("controller=alive; dispatch=held; reclaim=held");
 		expect(r.out).toContain("Snapshot is not authorization");
 		expect(r.out).not.toContain("/loop refill");
