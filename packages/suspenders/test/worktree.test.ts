@@ -9,6 +9,8 @@ import {
 	rmSync,
 	existsSync,
 	readFileSync,
+	lstatSync,
+	readlinkSync,
 	writeFileSync,
 	mkdirSync,
 	cpSync,
@@ -69,9 +71,10 @@ afterAll(() => {
 });
 
 describe("worktree lifecycle", () => {
-	test("create → isolated tree, branch, gitignore; dirty retire refuses; clean retire removes and keeps the branch", () => {
+	test("create → isolated tree, branch, gitignore, symlinks; dirty retire refuses; clean retire removes and keeps the branch", () => {
 		// repo needs a commit for worktree add to branch from
 		writeFileSync(join(REPO, "README.md"), "x");
+		writeFileSync(join(REPO, ".gitignore"), "node_modules\n.venv\n");
 		Bun.spawnSync(["git", "-C", REPO, "add", "-A"], {
 			stdout: "ignore",
 			stderr: "ignore",
@@ -82,6 +85,7 @@ describe("worktree lifecycle", () => {
 		);
 		mkdirSync(join(REPO, "node_modules"), { recursive: true });
 		writeFileSync(join(REPO, "node_modules", "m.js"), "x");
+		mkdirSync(join(REPO, ".venv"));
 
 		const added = work("add", "isolated work");
 		expect(added.code).toBe(0);
@@ -101,6 +105,10 @@ describe("worktree lifecycle", () => {
 		const dir = join(REPO, ".worktrees", id);
 		expect(existsSync(dir)).toBe(true);
 		expect(existsSync(join(dir, "node_modules"))).toBe(false); // no shared dependency link
+		expect(lstatSync(join(dir, ".venv")).isSymbolicLink()).toBe(true);
+		expect(readlinkSync(join(dir, ".venv"))).toBe(
+			realpathSync(join(REPO, ".venv")),
+		);
 		expect(readFileSync(join(REPO, "node_modules", "m.js"), "utf8")).toBe("x");
 		const gi = readFileSync(join(REPO, ".gitignore"), "utf8");
 		expect(gi).toContain(".worktrees/");

@@ -7,9 +7,11 @@ import { expect, test } from "@playwright/test";
 import {
 	chmodSync,
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	readFileSync,
 	readdirSync,
+	readlinkSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -45,6 +47,7 @@ test.describe("@unit", () => {
 	// scratch repo: a commit and a root dependency sentinel that lanes must not share
 	mkdirSync(join(REPO, "node_modules"), { recursive: true });
 	writeFileSync(join(REPO, "node_modules", "m.js"), "x");
+	mkdirSync(join(REPO, ".venv"));
 	writeFileSync(join(REPO, ".gitignore"), "node_modules/\n");
 	g(["add", "-A"]);
 	g(["commit", "-m", "base"]);
@@ -109,13 +112,16 @@ test.describe("@unit", () => {
 				'"state":"READY"',
 			);
 		});
-		test("fresh workspace does not share dependencies; resume leaves them alone", async () => {
+		test("fresh workspace symlinks build dirs; resume leaves them alone", async () => {
 			const d1 = await dispatch();
 			expect(d1.err).toContain("executor exited during launch");
 			const wt = join(REPO, ".worktrees", id);
 			expect(existsSync(wt)).toBe(true);
 			const modules = join(wt, "node_modules");
 			expect(existsSync(modules)).toBe(false);
+			const venv = join(wt, ".venv");
+			expect(lstatSync(venv).isSymbolicLink()).toBe(true);
+			expect(readlinkSync(venv)).toBe(join(REPO, ".venv"));
 			expect(readFileSync(join(REPO, "node_modules", "m.js"), "utf8")).toBe(
 				"x",
 			);
@@ -138,6 +144,7 @@ test.describe("@unit", () => {
 			const d2 = await dispatch();
 			expect(d2.err).toContain("launch backoff");
 			expect(existsSync(modules)).toBe(false);
+			expect(readlinkSync(venv)).toBe(join(REPO, ".venv"));
 			expect(readdirSync(wt).filter((e) => e === "node_modules")).toHaveLength(
 				0,
 			);
