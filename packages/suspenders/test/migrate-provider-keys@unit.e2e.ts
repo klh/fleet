@@ -3,7 +3,7 @@
 // inline keys into the machine stack.json providers block, atomic 0600 with
 // a timestamped 0600 backup, refusing ambiguity without an explicit --map).
 // Pure-function suite: plans resolve from injected files/env only.
-import { afterAll, describe, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-migrate-keys-"));
-afterAll(() => rmSync(HOME, { recursive: true, force: true }));
+test.afterAll(() => rmSync(HOME, { recursive: true, force: true }));
 
 const mpk = await import("../scripts/migrate-provider-keys.ts");
 
@@ -38,7 +38,7 @@ function area(name: string): { conf: string; home: string } {
 	return { conf, home };
 }
 
-describe("parseMapEntries", () => {
+test.describe("parseMapEntries", () => {
 	test("splits profile=source pairs; malformed entries throw", () => {
 		expect(
 			mpk.parseMapEntries(["zai-coding=belt.env:Z_AI_API_KEY", "b=ENV2"]),
@@ -48,7 +48,7 @@ describe("parseMapEntries", () => {
 	});
 });
 
-describe("planMigration", () => {
+test.describe("planMigration", () => {
 	test("stack without a providers section plans empty; apply refuses", () => {
 		const { conf } = area("no-providers");
 		const stack = join(conf, "stack.json");
@@ -171,7 +171,7 @@ describe("planMigration", () => {
 	});
 });
 
-describe("applyMigration", () => {
+test.describe("applyMigration", () => {
 	test("writes key inline, preserves siblings, 0600, backs up pre state", () => {
 		const { conf, home } = area("apply");
 		writeFileSync(join(home, "belt.env"), "T2_API_KEY=sk-apply-value-99999\n"); // scrub:allow
@@ -268,7 +268,7 @@ describe("applyMigration", () => {
 	});
 });
 
-describe("renderPlan", () => {
+test.describe("renderPlan", () => {
 	test("masks every sighting; prefixes mark skip/migrate/ambiguous", () => {
 		const plans = [
 			{
@@ -303,7 +303,7 @@ describe("renderPlan", () => {
 	});
 });
 
-describe("runMigration (CLI door)", () => {
+test.describe("runMigration (CLI door)", () => {
 	test("--help exits 0; malformed --map exits 2", () => {
 		expect(mpk.runMigration(["--help"])).toBe(0);
 		expect(mpk.runMigration(["--map", "broken"])).toBe(2);

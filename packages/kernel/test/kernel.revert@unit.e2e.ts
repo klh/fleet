@@ -2,7 +2,7 @@
 // classifier + landing rule. The twins were DELETED in the same landing
 // (W1476 review-evals.ts, W1477 review-guardrail.ts), so there is no
 // byte-parity block in kernel.twin-parity.test.ts — this file is the pin.
-import { describe, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
 	classifyRevert,
 	isRevertLanding,
@@ -10,7 +10,7 @@ import {
 
 const sha = "0123456789abcdef0123456789abcdef01234567";
 
-describe("kernel revert: C156 classifier", () => {
+test.describe("kernel revert: C156 classifier", () => {
 	test("named body hex wins over the subject", () => {
 		expect(
 			classifyRevert('Revert "W1 add x"', `This reverts commit ${sha}.\n`),
@@ -47,7 +47,7 @@ describe("kernel revert: C156 classifier", () => {
 	});
 });
 
-describe("kernel revert: landing rule (injected ancestor predicate)", () => {
+test.describe("kernel revert: landing rule (injected ancestor predicate)", () => {
 	test("named revert counts when the target passes the predicate", () => {
 		expect(
 			isRevertLanding(
