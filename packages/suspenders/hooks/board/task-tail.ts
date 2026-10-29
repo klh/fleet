@@ -1,5 +1,9 @@
 import type { GovernorStore } from "../lib/govdb/govdb.ts";
-import { newerLane, readLaneRegistry } from "../lib/lanes/lane-registry.ts";
+import {
+	memoProjectRoot,
+	newerLane,
+	readLaneRegistry,
+} from "../lib/lanes/lane-registry.ts";
 import { transcriptTailAll } from "./lanes.ts";
 
 interface TaskClaim {
@@ -31,7 +35,7 @@ export function taskTailSnapshot(
 	const attempts = new Map<string, Attempt>();
 	for (const project of new Set(claims.map((w) => w.project))) {
 		try {
-			const read = readLaneRegistry<Attempt>(project);
+			const read = readLaneRegistry<Attempt>(project, memoProjectRoot);
 			if (!read.known) continue;
 			for (const row of read.lanes) {
 				const key = `${project}\0${row.item}\0${row.sid}`;

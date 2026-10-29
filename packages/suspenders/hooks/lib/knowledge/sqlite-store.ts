@@ -451,7 +451,7 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 	}
 
 	async search(filters: KnowledgeSearchFilters): Promise<KnowledgeHit[]> {
-		return knowledgeSearch(this.db, filters.query, filters);
+		return knowledgeSearch(this.db, filters.query, filters, this.bus());
 	}
 
 	async emitLanded(

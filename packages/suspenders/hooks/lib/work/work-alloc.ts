@@ -334,6 +334,10 @@ export type AssignOutcome = {
 	/** W643: the raw claim token, minted fresh at every successful take —
 	 *  printed once by work take; only its sha256 rides the item row. */
 	token?: string;
+	/** W609/W2186: the claim epoch minted by this take (+1 per READY→CLAIMED
+	 *  CAS) — printed by take, pinned as KLH_CLAIM_EPOCH by the spawn paths,
+	 *  CAS'd by done/fail/start (work-transition.ts). */
+	epoch?: number;
 };
 
 // assignTask — the SOLE assignment gateway (oh-my-codex lift): CAS
@@ -466,7 +470,7 @@ export function assignTask(
 			};
 		const r = store
 			.query(
-				"UPDATE work_items SET state = 'CLAIMED', owner_sid = ?, alloc_reason = ?, origin = COALESCE(?, origin), updated_at = ? WHERE project = ? AND id = ? AND state = 'READY' AND updated_at = ?",
+				"UPDATE work_items SET state = 'CLAIMED', owner_sid = ?, alloc_reason = ?, origin = COALESCE(?, origin), updated_at = ?, claim_epoch = claim_epoch + 1 WHERE project = ? AND id = ? AND state = 'READY' AND updated_at = ?",
 			)
 			.run(
 				args.sid,
@@ -486,6 +490,11 @@ export function assignTask(
 				"UPDATE work_items SET claim_token_hash = ? WHERE project = ? AND id = ?",
 			)
 			.run(claimTokenHash(token), project, args.id);
+		// W609/W2186: the epoch minted by THIS take's CAS (above) — read back
+		// for the take printout + the spawn-path env pin.
+		const minted = store
+			.query("SELECT claim_epoch FROM work_items WHERE project = ? AND id = ?")
+			.get(project, args.id) as { claim_epoch: number };
 		// W831 sticky-until-resume: a successful claim IS the resume — the
 		// reclaim marker (reclaim.reason.<project>.<id>) converges here.
 		clearReclaimMarker(store, project, args.id);
@@ -537,7 +546,7 @@ export function assignTask(
 					}),
 					args.sid,
 				);
-		return { ok: true, token };
+		return { ok: true, token, epoch: minted.claim_epoch };
 	});
 	try {
 		return claim();

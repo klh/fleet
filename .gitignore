@@ -1,6 +1,7 @@
 node_modules/
 *.log
 .DS_Store
+tests/test-results/
 .fleet/
 .workgraph.jsonl
 .pilot-measure/

@@ -3,12 +3,14 @@
 // (both header families), and the problem+json shape.
 import { expect, test } from "@playwright/test";
 import {
+	beltOriginPrefix,
 	citizenshipGate,
 	etagJson,
 	etagOf,
 	ifNoneMatchHits,
 	problem,
 	rateLimiter,
+	upstreamDecline,
 } from "../bin/http-citizenship.ts";
 
 const ROUTES = {
@@ -68,10 +70,10 @@ test.describe("problem+json (RFC 9457)", () => {
 			type: "about:blank",
 			title: "Too Many Requests",
 			status: 429,
-			detail: "slow down",
+			detail: "belt: local.belt.rate_limited — slow down",
 			instance: "/api/route",
 			code: "belt.rate_limited",
-			why: "rpm window exhausted",
+			why: "belt: local.belt.rate_limited — rpm window exhausted",
 		});
 	});
 
@@ -154,6 +156,71 @@ test.describe("rate-limit trio on /api/route", () => {
 		expect(v.headers["ratelimit-remaining"]).toBe("0");
 		expect(v.headers["x-ratelimit-remaining"]).toBe("0");
 		expect(v.headers["ratelimit-limit"]).toBe("2");
+	});
+
+	test("every citizenship status renders the origin-qualified belt prefix @unit", async () => {
+		const slugs: Array<[number, string]> = [
+			[400, "bad_request"],
+			[401, "authentication_error"],
+			[403, "permission_error"],
+			[404, "not_found"],
+			[405, "method_not_allowed"],
+			[409, "state_conflict"],
+			[422, "invalid_request"],
+			[429, "rate_limit_error"],
+			[500, "internal_error"],
+			[502, "upstream_error"],
+			[503, "service_unavailable"],
+			[504, "upstream_timeout"],
+		];
+		for (const [status, slug] of slugs) {
+			const res = problem(
+				status,
+				"Problem",
+				`belt.${slug}`,
+				"detail",
+				"/x",
+				"why",
+			);
+			const body = (await res.json()) as { detail: string };
+			expect(res.status).toBe(status);
+			expect(body.detail.startsWith(`belt: local.belt.${slug} — `)).toBe(true);
+		}
+	});
+
+	test("beltOriginPrefix qualifies hub and code, degenerate input bounded @unit", () => {
+		expect(beltOriginPrefix("no_route")).toBe("belt: local.belt.no_route — ");
+		expect(beltOriginPrefix("belt.x")).toBe("belt: local.belt.x — ");
+		expect(beltOriginPrefix("../evil")).toBe("belt: local.belt.problem — ");
+		const saved = process.env.BELT_HUB_ID;
+		try {
+			process.env.BELT_HUB_ID = "nas";
+			expect(beltOriginPrefix("upstream_error")).toBe(
+				"belt: nas.belt.upstream_error — ",
+			);
+			process.env.BELT_HUB_ID = "../;drop";
+			expect(beltOriginPrefix("no_route")).toBe("belt: local.belt.no_route — ");
+		} finally {
+			if (saved === undefined) delete process.env.BELT_HUB_ID;
+			else process.env.BELT_HUB_ID = saved;
+		}
+	});
+
+	test("upstreamDecline prefixes the ladder decline and keeps retry-after @unit", async () => {
+		const limited = upstreamDecline(429, 90_000, ["zai: 429 slow down"]);
+		expect(limited.status).toBe(429);
+		expect(limited.headers.get("retry-after")).toBe("90");
+		const l = (await limited.json()) as {
+			error: { type: string; message: string };
+		};
+		expect(l.error.type).toBe("overloaded_error");
+		expect(
+			l.error.message.startsWith("belt: local.belt.upstream_error — router:"),
+		).toBe(true);
+		const declined = upstreamDecline(502, undefined, ["boom"]);
+		expect(declined.status).toBe(502);
+		const d = (await declined.json()) as { error: { type: string } };
+		expect(d.error.type).toBe("api_error");
 	});
 
 	test("windows are per key and reset when the window expires @unit", () => {

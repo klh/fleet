@@ -6,6 +6,7 @@
 // closure, so the package boundary drifts at the lane, never at CI/merge
 // (the W1286.1 drift surfaced only at merge). Inherited edges at the ratchet
 // base pass; SUSPENDERS_IMPORT_LAW=0 disables.
+import { setting } from "@klh/settings";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { edgeKey, edgesOfContent, type ImportEdge } from "./import-graph.ts";
@@ -70,7 +71,7 @@ export const importLawVerdict = (o: {
 	sha: string;
 	disabled?: boolean;
 }): ImportLawVerdict => {
-	const disabled = o.disabled ?? process.env.SUSPENDERS_IMPORT_LAW === "0";
+	const disabled = o.disabled ?? !setting("gates.import_law");
 	if (disabled) return { ok: true };
 	const violations: { path: string; edge: string }[] = [];
 	for (const path of o.paths) {

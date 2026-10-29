@@ -11,6 +11,7 @@
 // --classify`; unavailable → the local bounds decide (degrade open).
 // Inbound consults are answered via consult-reply and never fire a round
 // reflexively.
+import { setting } from "@klh/settings";
 import type { Database } from "bun:sqlite";
 import { kevTypedDecision } from "../knowledge/kev.ts";
 
@@ -25,10 +26,9 @@ export interface CoordBounds {
 
 // env knobs, not code (config-over-code; routes-consult idiom)
 export const coordBounds = (): CoordBounds => ({
-	maxPeers: Number(process.env.SUSPENDERS_COORD_MAX_PEERS ?? 2) || 2,
-	rateWindowMs:
-		Number(process.env.SUSPENDERS_COORD_RATE_WINDOW_MS ?? 60_000) || 60_000,
-	rateMax: Number(process.env.SUSPENDERS_COORD_RATE_MAX ?? 3) || 3,
+	maxPeers: setting("dispatch.coord_max_peers"),
+	rateWindowMs: setting("dispatch.coord_rate_window_ms"),
+	rateMax: setting("dispatch.coord_rate_max"),
 });
 
 // ─── wire format ───

@@ -14,10 +14,13 @@
 // Three emission faces per enabled app:
 //   env face        HTTPS_PROXY/HTTP_PROXY/NO_PROXY + ANTHROPIC_BASE_URL to
 //                   the hub's buckle gateway face (W1230 pattern) — for
-//                   shells/tools that honor proxy env.
-//   launchctl face  the same pairs via `launchctl setenv` — Dock-launched
-//                   GUIs (vscode/chatgpt/claude) inherit them; survives until
-//                   reboot, the install re-applies.
+//                   shells/tools that honor proxy env. OPT-IN: rendered for
+//                   eval in a specific shell, never applied machine-wide.
+//   launchctl face  RETIRED (W2284, owner ruling 2026-10-29: the buckle
+//                   proxy is NOT a system proxy) — `launchctl setenv`
+//                   pollutes the whole launchd user domain (every terminal,
+//                   npm, git and test run). The install step now only
+//                   unsets; GUIs ride the singbox face instead.
 //   enforcement     OPTIONAL sing-box config (JSON, authenticated CONNECT
 //   face            relay ONLY — TLS opaque end-to-end, never MITM;
 //                   W1231/W1233/W1260.2): TUN + AI-qualified process rules
@@ -34,15 +37,6 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve as resolvePath } from "node:path";
-import { readRegistry, resolveHub } from "../../hooks/lib/hub/hub-locate.ts";
-import { tryLoadStack } from "../../hooks/lib/stack-config.ts";
-import { preferOf } from "./exec-chain.ts";
-import {
-	type Parsed,
-	type VerbSpec,
-	defineVerb,
-	runCli,
-} from "../../hooks/lib/verb-kit.ts";
 import {
 	AI_DESTINATION_SUFFIXES,
 	CONNECT_PORT_DEFAULT,
@@ -50,6 +44,15 @@ import {
 	connectTagOf,
 	guiTransports,
 } from "../../deploy/singbox/watched.ts";
+import { readRegistry, resolveHub } from "../../hooks/lib/hub/hub-locate.ts";
+import { tryLoadStack } from "../../hooks/lib/stack-config.ts";
+import {
+	defineVerb,
+	type Parsed,
+	runCli,
+	type VerbSpec,
+} from "../../hooks/lib/verb-kit.ts";
+import { preferOf } from "./exec-chain.ts";
 
 // ─── schema ──────────────────────────────────────────────────────────────────
 
@@ -338,14 +341,17 @@ export interface EnvPair {
 	app?: AppName;
 }
 
-/** env face + launchctl face share the pair vocabulary: the authenticated
- *  CONNECT relay (creds embedded — the ONLY channel an env-honoring client
- *  can authenticate through; Proxy-Authorization cannot be pre-set via env)
- *  for proxied traffic, the hub's buckle gateway face for Anthropic-wire
- *  clients (claude only — W1230 pattern). W2198: the proxy pairs REQUIRE a
- *  probed-live ConnectFace — a serve port never rides proxy env. The relay
- *  token is machine-minted, CONNECT-scoped and loopback-bound — provider
- *  keys still never ride these pairs (assertNoSecrets law unchanged). */
+/** The env face's pair vocabulary: the authenticated CONNECT relay (creds
+ *  embedded — the ONLY channel an env-honoring client can authenticate
+ *  through; Proxy-Authorization cannot be pre-set via env) for proxied
+ *  traffic, the hub's buckle gateway face for Anthropic-wire clients
+ *  (claude only — W1230 pattern). W2198: the proxy pairs REQUIRE a
+ *  probed-live ConnectFace — a serve port never rides proxy env. W2284:
+ *  these pairs are rendered ONLY by the opt-in `connections emit env`
+ *  face (an explicit eval in a specific shell) — nothing applies them
+ *  machine-wide any more. The relay token is machine-minted,
+ *  CONNECT-scoped and loopback-bound — provider keys still never ride
+ *  these pairs (assertNoSecrets law unchanged). */
 export function facePairs(
 	enabled: AppName[],
 	url: string,
@@ -359,9 +365,9 @@ export function facePairs(
 			{ key: "HTTP_PROXY", value: proxy },
 		);
 	} else {
-		// W2198: an absent face emits ACTIVE UNSET rows (empty value — the
-		// launchctl runner maps them to unsetenv) so a reinstall clears any
-		// previous install's dead serve-port proxy instead of leaving it.
+		// W2198: an absent face emits ACTIVE UNSET rows (empty value) so a
+		// shell that evals this face clears any stale proxy instead of
+		// leaving a dead serve-port proxy behind.
 		pairs.push(
 			{ key: "HTTPS_PROXY", value: "" },
 			{ key: "HTTP_PROXY", value: "" },
@@ -528,7 +534,7 @@ const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "emit",
 		usage:
-			"usage: emit <env|launchctl|singbox> [--app <name>] [--out <file>] — the routing faces",
+			"usage: emit <env|singbox> [--app <name>] [--out <file>] — the routing faces (the universal launchctl face is retired — W2284)",
 		minPos: 1,
 		flags: ["--app", "--out"],
 	}),
@@ -545,10 +551,8 @@ export const resolveEndpoint = (
 		h ? { url: h.url, via: h.via } : null,
 	);
 
-const emitUndo = (pairs: EnvPair[], face: "env" | "launchctl"): string[] =>
-	face === "env"
-		? pairs.map((p) => `# undo: unset ${p.key}`)
-		: pairs.map((p) => `# undo: launchctl unsetenv ${p.key}`);
+const emitUndo = (pairs: EnvPair[]): string[] =>
+	pairs.map((p) => `# undo: unset ${p.key}`);
 
 const renderFace = (
 	face: string,
@@ -559,14 +563,8 @@ const renderFace = (
 	if (face === "singbox")
 		return `${JSON.stringify(singboxConfig(apps, url), null, "\t")}\n`;
 	const pairs = facePairs(apps, url, connect);
-	const lines = pairs.map((p) =>
-		face === "env"
-			? `export ${p.key}=${p.value}`
-			: p.value === ""
-				? `launchctl unsetenv ${p.key}`
-				: `launchctl setenv ${p.key} ${p.value}`,
-	);
-	return `${[...lines, ...emitUndo(pairs, face as "env" | "launchctl")].join("\n")}\n`;
+	const lines = pairs.map((p) => `export ${p.key}=${p.value}`);
+	return `${[...lines, ...emitUndo(pairs)].join("\n")}\n`;
 };
 
 // dispatch — show | resolve | emit
@@ -614,11 +612,13 @@ async function dispatch(name: string, parsed: Parsed): Promise<number> {
 		);
 		return r.hub && ep ? 0 : 1;
 	}
-	// emit <face>
+	// emit <face> — the launchctl face is retired (W2284: a universal
+	// launchd-domain proxy is NOT the intent; the install step unsets, the
+	// scoped env/singbox faces route)
 	const face = parsed.pos[0] ?? "";
-	if (!["env", "launchctl", "singbox"].includes(face)) {
+	if (!["env", "singbox"].includes(face)) {
 		console.error(
-			`connections: unknown face '${face}' — env|launchctl|singbox`,
+			`connections: unknown face '${face}' — env|singbox (launchctl retired, W2284)`,
 		);
 		return 2;
 	}
@@ -642,14 +642,14 @@ async function dispatch(name: string, parsed: Parsed): Promise<number> {
 		);
 		return 1;
 	}
-	// W2198: the env/launchctl faces ride the authenticated CONNECT face —
+	// W2198: the env face rides the authenticated CONNECT face —
 	// resolved from machine env, probed live BEFORE any emission. Not
 	// configured or not answering = the face renders proxy-free (NO_PROXY +
 	// the claude serve base URL only) with the reason on stderr — never a
 	// serve port in proxy env.
 	const connect = connectFaceOf(ep.url);
 	let connectLive: ConnectFace | null = null;
-	if (face !== "singbox" && connect) {
+	if (face === "env" && connect) {
 		const probe = await probeConnectFace(connect);
 		if (!probe.ok) {
 			console.error(
@@ -659,7 +659,7 @@ async function dispatch(name: string, parsed: Parsed): Promise<number> {
 			connectLive = connect;
 			console.error(`connections: ${probe.why}`);
 		}
-	} else if (face !== "singbox") {
+	} else if (face === "env") {
 		// W2198 review N2: unconfigured must be LOUD too — the install path
 		// says why; the verb path owed the same reason on stderr.
 		console.error(

@@ -19,6 +19,10 @@ import {
 } from "./shared.ts";
 import { claimedWorkOf } from "../lib/lanes/lane-effort.ts";
 import { CONSOLIDATE_MAX_ROWS } from "../lib/knowledge/knowledge-consolidate.ts";
+import { promoteActorError } from "../lib/knowledge/promote-actor.ts";
+import { drainKevReview } from "../lib/knowledge/kev-review.ts";
+import { suggestKnowledge } from "../lib/knowledge/kev-curation.ts";
+import { openKnowledgeDb } from "../lib/knowledge/govdb-knowledge.ts";
 
 export async function cmdKnowledge(rest: string[]): Promise<void> {
 	// W91 — ranked FTS5 search over the knowledge layer: distilled knowledge
@@ -111,10 +115,34 @@ export async function cmdKnowledgeEnqueue(_rest: string[]): Promise<void> {
 export async function cmdKnowledgePromote(rest: string[]): Promise<void> {
 	// candidate → active: THE gated promotion step (humans/merges only)
 	const id = Number(rest[0]);
-	if (!id) die("usage: knowledge-promote <id>");
-	const ok = await makeStore().promote(id);
+	if (!id) die("usage: knowledge-promote <id> --by <human>");
+	// D9: the gate names a human actor; a lane or machine setter is refused
+	const by = arg("--by");
+	const refused = promoteActorError(by);
+	if (refused) die(refused);
+	const store = makeStore();
+	const ok = await store.promote(id);
 	if (!ok) die(`knowledge #${id} is not a candidate (or missing)`);
-	console.log(`${green("✓")} knowledge #${id} → active`);
+	await store.note(id, by ?? "", "promoted");
+	console.log(`${green("✓")} knowledge #${id} → active (by ${by})`);
+}
+
+export async function cmdKnowledgeReviewDrain(): Promise<void> {
+	// D7: re-ask Kev for entries parked while it was unavailable
+	const limit = Number(arg("--limit") ?? 20) || 20;
+	const kb = openKnowledgeDb();
+	try {
+		const r = await drainKevReview(kb, {
+			suggest: suggestKnowledge,
+			enqueue: enqueueKnowledge,
+			limit,
+		});
+		console.log(
+			`kev-review: ${r.stored} stored · ${r.dropped} dropped · ${r.pending} still pending · ${r.expired} expired`,
+		);
+	} finally {
+		kb.close();
+	}
 }
 
 export async function cmdKnowledgeRetire(rest: string[]): Promise<void> {

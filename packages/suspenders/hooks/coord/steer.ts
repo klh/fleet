@@ -6,8 +6,8 @@
 // drain — the inbox IS the fallback transport.
 //
 // Ack semantics (response.steer shape): accepted (queued), pending (lane
-// mid-tool), failed (lane dead). Gates: one steer per sid per hour (W947
-// dedupe window), the scrub ruleset (never steer with secrets), and the
+// mid-tool), failed (lane dead). Gates: one steer per sid per window (W947
+// dedupe window; steer.min_interval_s config), the scrub ruleset (never steer with secrets), and the
 // .fleet/steer-paused kill switch. --decide is the advisory kev decider
 // (steer / redo / let-ride; deterministic overrides first).
 import { existsSync } from "node:fs";
@@ -22,7 +22,7 @@ import {
 	ackFor,
 	logReadOf,
 	STEER_PAUSE_FILE,
-	STEER_WINDOW_MS,
+	steerWindowMs,
 } from "../lib/steer-decision.ts";
 import { DIRECT_MESSAGE_KIND, resolveMessageTarget } from "./addressing.ts";
 import { emitEvent, queueDirectedReceipt } from "./bus.ts";
@@ -31,14 +31,34 @@ import { reportSteerDecision } from "./steer-decide.ts";
 
 type SteerLane = LaneRef & { attempt?: number; agent?: string };
 
-/** Facts-ledger rate gate: one steer per sid per hour (W947 window). A steer
- *  that never emitted (failed on liveness) never consumed the budget. */
+/** Facts-ledger rate gate: one steer per sid per `steer.min_interval_s`
+ *  (coord config). A steer that never emitted (failed on liveness) never
+ *  consumed the budget. */
 function steerRateLimited(sid: string, now = Date.now()): boolean {
 	const prev = db
 		.query("SELECT value FROM facts WHERE key = ?")
 		.get(`lane.${sid}.steer.at`) as { value: string } | null;
 	const at = Number(prev?.value ?? 0);
-	return now - at < STEER_WINDOW_MS;
+	return now - at < steerWindowMs();
+}
+
+/** Phase 4: the consult INTERRUPT leg rides the steer transport with the
+ *  same kill switch, scrub check and liveness probe — but not the steer rate
+ *  gate: consult interrupts are budgeted by the consult.interrupt knobs. */
+export function steerForConsult(
+	sid: string,
+	text: string,
+	source: string,
+	root = canonicalProjectRoot(process.cwd()),
+): "accepted" | "pending" | "failed" {
+	if (existsSync(join(root, ".fleet", STEER_PAUSE_FILE))) return "failed";
+	if (scanLine(text, scrubRules()).length) return "failed";
+	const row = loadLaneRegistry<SteerLane>(root).find((l) => l.sid === sid);
+	if (!row || laneVerdict(row) !== "alive") return "failed";
+	emitSteer(sid, text, source);
+	return ackFor("alive", logReadOf(root, sid).phase) === "pending"
+		? "pending"
+		: "accepted";
 }
 
 function stampSteerFact(sid: string, now = Date.now()): void {
@@ -98,7 +118,7 @@ export async function cmdSteer(rest: string[]): Promise<void> {
 	}
 	if (steerRateLimited(target.sid)) {
 		console.log(
-			`${red("✖")} steer rate-limited → @${target.sid.slice(0, 8)} — one steer per sid per hour`,
+			`${red("✖")} steer rate-limited → @${target.sid.slice(0, 8)} — one steer per sid per steer.min_interval_s (${Math.round(steerWindowMs() / 1000)}s)`,
 		);
 		process.exitCode = 1;
 		return;

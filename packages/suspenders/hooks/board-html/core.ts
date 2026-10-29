@@ -3,6 +3,7 @@
 // non-ASCII escaping in String.raw reproduces the served page bytes.
 import { byId } from "./board-dom.ts";
 import { ago, agoShort, msAgo } from "./board-format.ts";
+import { stampAges } from "./feed-ages.ts";
 import { FeedStore } from "./feed-store.ts";
 
 // biome-ignore lint/complexity/noUselessStringRaw: byte-compat (W157)
@@ -172,6 +173,12 @@ function sigSetKeep(el, sig, html, attr){
 ${ago.toString()}
 ${agoShort.toString()}
 ${msAgo.toString()}
+// absolute stamps → ages on a 304 (feed-ages.ts), on the server clock: the
+// skew is measured from the last 200 build stamp
+${stampAges.toString()}
+var feedSkew = 0;
+function noteSkew(j){ if (j && typeof j.ts === 'number') feedSkew = Date.now() - j.ts; }
+function restamp(j){ stampAges(j, Date.now() - feedSkew); }
 // W891 — state letters: the displayed state's initial rides the pill/status
 // word, colored by the klh semantic state tokens (F red, R blue, D green,
 // Q gray) — hues resolve through vars, never literals.
@@ -274,8 +281,9 @@ feeds.define('data', {
   accept: function(j){ if (!j || typeof j.ts !== 'number' || !Array.isArray(j.projects)) throw new Error('bad /api/data payload'); },
   ok: function(j, changed){
     dataOkAt = Date.now(); dataErr = null;
-    if (!changed || j.ts < lastDataTs) return;
-    lastData = j; lastDataTs = j.ts;
+    if (!changed) { if (lastData === j) { restamp(j); renderAll(); } return; }
+    if (j.ts < lastDataTs) return;
+    noteSkew(j); lastData = j; lastDataTs = j.ts;
     noteProjects(j.projects.map(function(p){ return p.project; }).concat((j.sessions || []).map(function(s){ return s.project; })));
     noteProjects(((j.laneObservations || {}).lanes || []).map(function(o){ return o.project; }));
     renderAll();
@@ -288,8 +296,8 @@ feeds.define('dec', {
   accept: function(j){ if (!j || typeof j.ts !== 'number' || !Array.isArray(j.decisions)) throw new Error('bad /api/decisions payload'); },
   ok: function(j, changed){
     decOkAt = Date.now(); decErr = null; decLoaded = true;
-    if (!changed) return;
-    lastDec = j;
+    if (!changed) { if (lastDec === j) { restamp(j); renderAll(); } return; }
+    noteSkew(j); lastDec = j;
     noteProjects(j.projects);
     noteNew(j.decisions);
     renderAll();

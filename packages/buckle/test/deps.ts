@@ -2,8 +2,8 @@
 // decide + router sharing one Cooldowns instance (the W140 seam,
 // server-shaped). e2e tests build deps through here.
 
-import { AidsLedger } from "../src/aids.ts";
 import type { AccountPolicyDoc } from "../src/account-policy.ts";
+import { AidsLedger } from "../src/aids.ts";
 import { CandidateTable } from "../src/candidates.ts";
 import { Cooldowns } from "../src/cooldown.ts";
 import { decideRoute } from "../src/decide.ts";
@@ -23,6 +23,9 @@ export function testDeps(
 		prefs?: Prefs;
 		sleepMs?: (ms: number) => Promise<void>;
 		accountPolicy?: AccountPolicyDoc | null;
+		/** External cooldown state — lets a test bench a deployment before
+		 *  the first decision (eject + table.rebuild()). */
+		cooldowns?: Cooldowns;
 	},
 ): AppDeps {
 	const policy: GatewayPolicy = opts?.policy ?? {
@@ -30,10 +33,9 @@ export function testDeps(
 		allowed_fails: 3,
 		cooldown_time: 30,
 	};
-	const cooldowns = new Cooldowns(
-		policy.allowed_fails ?? 3,
-		policy.cooldown_time ?? 30,
-	);
+	const cooldowns =
+		opts?.cooldowns ??
+		new Cooldowns(policy.allowed_fails ?? 3, policy.cooldown_time ?? 30);
 	const table = new CandidateTable({ pool, policy, cooldowns });
 	const router = new Router(policy, {
 		pool,

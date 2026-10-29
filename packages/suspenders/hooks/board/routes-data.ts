@@ -11,7 +11,9 @@ import { beltRegistry } from "./belt.ts";
 import { db } from "./context.ts";
 import { activity, workEvents } from "./events.ts";
 import { decisionsPayload, taskDecisions } from "./decisions.ts";
-import { payload, payloadFor } from "./payload.ts";
+import { payloadBody, payloadFor, sessionsPage } from "./payload.ts";
+import { stateHighWater } from "./events-memo.ts";
+import { pollMemoBody } from "./poll-memo.ts";
 import {
 	taskShape,
 	tasks,
@@ -20,7 +22,7 @@ import {
 } from "./tasks.ts";
 import { decisionEvalStatus, decisionEvals } from "./decide-eval.ts";
 import { buildBeltEntries } from "./executor-catalog.ts";
-import { json, jsonEtag } from "./helpers.ts";
+import { json, jsonEtag, respondCached } from "./helpers.ts";
 import { launchContextForItem } from "./launch-context.ts";
 import { projectList, signalFor, syncDecisions, unblockedBy } from "./lanes.ts";
 import { attemptTimelinesPayload } from "./attempt-timeline.ts";
@@ -124,7 +126,19 @@ export async function handleData(
 	}
 	if (url.pathname === "/api/data") {
 		const sid = url.searchParams.get("session") ?? "";
-		return jsonEtag(req, sid ? payloadFor(sid) : payload());
+		return respondCached(
+			req,
+			sid ? pollMemoBody(`data\0${sid}`, () => payloadFor(sid)) : payloadBody(),
+		);
+	}
+	if (url.pathname === "/api/sessions") {
+		// on-demand history behind the bounded /api/data sessions slice
+		const int = (k: string, d: number, max: number) => {
+			const n = Math.trunc(Number(url.searchParams.get(k) ?? d));
+			return Number.isFinite(n) ? Math.min(Math.max(n, 0), max) : d;
+		};
+		const page = sessionsPage(int("offset", 0, 1e9), int("limit", 200, 1000));
+		return jsonEtag(req, page);
 	}
 	{
 		// W217/W273/W292: the vendored Lit component bundles (offline — built
@@ -158,11 +172,15 @@ export async function handleData(
 	if (url.pathname === "/api/decisions")
 		// full decision records + counts — the decisions feed the UI polls.
 		// Default OPEN-only; &history=1 folds in the resolved rows
-		return jsonEtag(
+		return respondCached(
 			req,
-			decisionsPayload(
-				url.searchParams.get("history") === "1",
-				url.searchParams.get("project"),
+			pollMemoBody(
+				`decisions\0${url.searchParams.get("history")}\0${url.searchParams.get("project")}\0${stateHighWater(db)}`,
+				() =>
+					decisionsPayload(
+						url.searchParams.get("history") === "1",
+						url.searchParams.get("project"),
+					),
 			),
 		);
 	{
@@ -182,15 +200,18 @@ export async function handleData(
 		// W682: terminal history (DONE/CANCELLED/ORPHANED) caps at the newest
 		// 12 rows per project by default — the kanban renders 12 done cards —
 		// `?done=all` restores the complete feed (the opt-in completed table).
-		syncDecisions(); // fork counts must reflect events the poll hasn't seen
 		const p = url.searchParams.get("project");
 		const done = url.searchParams.get("done");
 		const doneArg = done === "all" ? "all" : Math.max(0, Number(done) || 12);
-		return jsonEtag(req, {
-			ok: true,
-			projects: projectList(),
-			tasks: tasks(p, doneArg),
-		});
+		return respondCached(
+			req,
+			// keyed on the bus high-water too: a CLI emit/claim/done (every one
+			// appends an event) is visible on the next poll, not a window later
+			pollMemoBody(`tasks\0${p}\0${doneArg}\0${stateHighWater(db)}`, () => {
+				syncDecisions(); // fork counts must reflect events the poll hasn't seen
+				return { ok: true, projects: projectList(), tasks: tasks(p, doneArg) };
+			}),
+		);
 	}
 	if (url.pathname === "/api/spend-series") {
 		// Per-item one-minute request usage keyed project\0id.

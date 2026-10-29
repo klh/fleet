@@ -6,16 +6,19 @@ import {
 	PREFER_HEADER,
 	parsePreferHeader,
 } from "@klh/telemetry/src/prefer-header.ts";
+import { z } from "zod";
 import {
 	applyAccountPolicy,
 	preferAfterScope,
 	REPO_CLAIM_HEADER,
 	scopeSelection,
 } from "./account-policy.ts";
+import { resolveAdapter } from "./adapters/index.ts";
 import { affKeyOf } from "./affinity.ts";
 import { applyWireAids } from "./aids-routes.ts";
 import type { AppDeps } from "./app-deps.ts";
 import { scoreComplexity, textFromMessages } from "./complexity.ts";
+import { CountTokensBodySchema, estimatedCountTokens } from "./count-tokens.ts";
 import { principalOf } from "./gov/federation.ts";
 import { beginInflight } from "./gov/inflight.ts";
 import { hintFromHeaders } from "./hints.ts";
@@ -59,6 +62,7 @@ export async function proxy(
 		hintRaw: "",
 		hint: null,
 		t0: 0,
+		trafficKind: trafficKindOf(req),
 		tier: "",
 		condenseIn: false,
 		affKey: null,
@@ -78,7 +82,6 @@ export async function proxy(
 			peer: inboundHop.peer,
 		},
 	};
-	ctx.trafficKind = trafficKindOf(req);
 	ctx.signal = req.signal;
 	ctx.t0 = Date.now();
 	beginInflight(ctx); // W1259: the exact in-flight index starts here
@@ -113,6 +116,19 @@ export async function proxy(
 				);
 		}
 		return deny(deps, ctx, 400, "invalid JSON body", null, "denied");
+	}
+	if (path === "/v1/messages/count_tokens") {
+		const countBody = CountTokensBodySchema.safeParse(body);
+		if (!countBody.success)
+			return deny(
+				deps,
+				ctx,
+				400,
+				z.prettifyError(countBody.error),
+				"invalid_count_tokens_body",
+				"denied",
+			);
+		body = countBody.data;
 	}
 	const model = typeof body.model === "string" ? body.model : "";
 	if (model.length === 0)
@@ -190,6 +206,16 @@ export async function proxy(
 		return deny(deps, ctx, verdict.status, verdict.why, verdict.code, "denied");
 	}
 	if (verdict.acct !== undefined) ctx.acct = verdict.acct;
+	const matchingGroup = deps.pool
+		.deployments(model)
+		.filter((dep) => pin === undefined || dep.adapter === pin);
+	const estimateCount =
+		path === "/v1/messages/count_tokens" &&
+		matchingGroup.length > 0 &&
+		!matchingGroup.some(
+			(dep) =>
+				dep.dialect === "anthropic" && resolveAdapter(dep).caps.countTokens,
+		);
 	const sel = deps.decide({
 		group: model,
 		dialect,
@@ -197,7 +223,9 @@ export async function proxy(
 		hintRaw: ctx.hintRaw,
 		// count_tokens never bridges (openai wire has no count endpoint); a
 		// provider-pinned route never bridges either (W1265)
-		allowCross: pin === undefined && path !== "/v1/messages/count_tokens",
+		allowCross:
+			estimateCount ||
+			(pin === undefined && path !== "/v1/messages/count_tokens"),
 		providerPin: pin,
 	});
 	if (!sel.ok) {
@@ -231,5 +259,19 @@ export async function proxy(
 			sel.sel.head.dep.provider,
 		);
 	ctx.sel = preferAfterScope(scoped.sel, ctx.hint);
+	// W2257.1: an estimate is entitlement-bound — the scoped domain must
+	// still hold a row for the EXACT requested group. A policy-fallback head
+	// is entitled delivery for another group, never an estimate for this
+	// one; scoped-to-zero for the requested group refuses typed, zero outbound.
+	if (estimateCount && !ctx.sel.ordered.some((row) => row.group === ctx.group))
+		return deny(
+			deps,
+			ctx,
+			503,
+			`no entitled upstream for '${ctx.group}' within the account boundary — count estimate refused, zero outbound`,
+			"buckle.tier_no_upstream",
+			"errored",
+		);
+	if (estimateCount) return estimatedCountTokens(deps, ctx, body);
 	return runExecute(req, ctx, path, body, deps);
 }

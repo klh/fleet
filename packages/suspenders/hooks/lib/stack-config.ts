@@ -4,23 +4,50 @@
 // install migrate step runs — W1253 Amendment A: fleet config is JSON).
 // deploy/hubctl.ts renders deploys from it; coord hubs (W356) projects the
 // topology from it. KLH_STACK overrides the path (tests).
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { z } from "zod";
 import type { GatewayPolicy } from "@klh/buckle/src/policy.ts";
+import {
+	resolveSettings,
+	settingsPath,
+	toLegacyProfile,
+	warnDeprecated,
+} from "@klh/settings";
 import { readJsonConfEither } from "./kernel-conf.ts";
 import { PostureDocumentSchema } from "./posture/posture.zod.ts";
 
+/** Fork E (hub-of-one): one repo the hub's fleet-loop supervises. `path` is
+ *  any directory inside the repo (canonicalized to the project root at
+ *  cycle time); glob/ladder/dispatch_cmd/main override the loop's own
+ *  flags for this repo; lane_target is an optional per-project sub-cap
+ *  under the global fleet_loop.lane_target ceiling. */
+export const FleetLoopProjectSchema = z
+	.object({
+		path: z.string().min(1),
+		glob: z.string().min(1).optional(),
+		ladder: z.string().min(1).optional(),
+		dispatch_cmd: z.string().min(1).optional(),
+		main: z.string().min(1).optional(),
+		lane_target: z.number().int().nonnegative().optional(),
+		enabled: z.boolean().optional(),
+	})
+	.strict();
+export type FleetLoopProject = z.infer<typeof FleetLoopProjectSchema>;
+
 /** W2242: the fleet-loop daemon block — lane target / dispatch target /
  *  cycle cadence / config poll interval. Every knob optional; the resolver
- *  (fleetLoopSettings) owns the defaults, never a plist. */
+ *  (fleetLoopSettings) owns the defaults, never a plist. Fork E: `projects`
+ *  is the hub's project registry — with it, lane_target is the GLOBAL lane
+ *  ceiling across every supervised repo. */
 export const FleetLoopConfigSchema = z
 	.object({
 		lane_target: z.number().int().positive().optional(),
 		dispatch_target: z.number().int().positive().optional(),
 		every_s: z.number().int().positive().optional(),
 		config_poll_s: z.number().int().positive().optional(),
+		projects: z.array(FleetLoopProjectSchema).optional(),
 	})
 	.loose();
 
@@ -141,6 +168,10 @@ export const HubProfileSchema = z
 		/** Reviewed canary ref for this hub only (W1094.1 posture) — other
 		 *  hubs keep the shared stack version pinned. */
 		version_override: z.string().optional(),
+		/** Per-hub automatic release consent. An explicit false vetoes a
+		 *  scheduled update even when updates.mode is latest. An absent value
+		 *  inherits the stack-wide mode. */
+		auto_update: z.boolean().optional(),
 		/** W1094.1: hub-machine terminal endpoints (model engines etc.) the
 		 *  route preflight gate may treat as leaves ON THIS hub — never
 		 *  inherited from the Mac specialist registry. */
@@ -225,6 +256,9 @@ export const HubProfileSchema = z
 		/** W230: the buckle front URL this hub serves — resolveHub consults it
 		 *  (before the hubs.json registry) — plus an optional front token. */
 		url: z.string().optional(),
+		/** settings.json `hubs.<label>.candidates` (the retired hubs.json
+		 *  registry's candidate URLs, folded under the same label). */
+		candidates: z.array(z.string()).optional(),
 		token: z.string().optional(),
 		/** Local 0600 file containing a hub-scoped admin read key. */
 		token_file: z.string().optional(),
@@ -364,9 +398,63 @@ export type RepoPolicy = z.infer<typeof RepoPolicySchema>;
  *  optional, an empty file is a valid empty config). JSON only (W1253
  *  Amendment A); the legacy stack.yaml name parses when its content is
  *  already JSON — real yaml needs the install migrate step first. */
+let lastStackSource: "settings" | "stack.json" = "stack.json";
+
+/** Which file loadStack() answered from ("settings" | "stack.json") —
+ *  hub-locate's via strings name the real source during the transition. */
+export function stackSource(): "settings" | "stack.json" {
+	return lastStackSource;
+}
+
 export function loadStack(): StackConfig {
+	// settings.json is THE per-install config: when it exists (and KLH_STACK
+	// does not pin a legacy file explicitly) the stack view projects from it;
+	// stack.json stays the read-compat fallback for one release.
+	const projected =
+		process.env.KLH_STACK === undefined ? stackFromSettings() : null;
+	if (projected) {
+		lastStackSource = "settings";
+		return projected;
+	}
+	lastStackSource = "stack.json";
 	const raw = readJsonConfEither(STACK_PATH()) as StackConfig | null;
+	if (raw && process.env.KLH_STACK === undefined && process.stderr.isTTY)
+		warnDeprecated(
+			"stack.json",
+			`${STACK_PATH()} is deprecated — run \`coord settings migrate\` (settings.json is the per-install config)`,
+		);
 	return { ...(raw ?? {}), hubs: raw?.hubs ?? {} };
+}
+
+/** The StackConfig projection of settings.json (null = no settings file,
+ *  or it failed the StackConfig shape — the legacy file then answers). */
+function stackFromSettings(): StackConfig | null {
+	if (!existsSync(settingsPath())) return null;
+	const s = resolveSettings({ quiet: true }).settings;
+	const hubs: Record<string, HubProfile> = {};
+	for (const [label, hub] of Object.entries(s.hubs)) {
+		const prof = toLegacyProfile(hub) as Record<string, unknown>;
+		// settings-only rows (hubs.json folds) may carry just url/candidates
+		// and no host — the legacy schema wants a string; "" is inert
+		// (hubBuckleUrl returns null on an empty host, the candidates walk
+		// never reads it).
+		if (prof.host === undefined) prof.host = "";
+		hubs[label] = prof as HubProfile;
+	}
+	const { lane_target, dispatch_target, every_s, config_poll_s } = s.fleet_loop;
+	const parsed = StackConfigSchema.safeParse({
+		version: s.version,
+		updates: s.updates,
+		auth: s.auth,
+		postures: s.postures,
+		providers: s.providers,
+		executors: s.executors,
+		policies: s.policies,
+		cache_unsupported_models: s.cache_unsupported_models,
+		fleet_loop: { lane_target, dispatch_target, every_s, config_poll_s },
+		hubs,
+	});
+	return parsed.success ? parsed.data : null;
 }
 
 /** loadStack() with every failure (missing file, malformed YAML) → null —
@@ -406,6 +494,27 @@ export function fleetLoopSettings(
 			block?.dispatch_target ?? FLEET_LOOP_DEFAULTS.dispatchTarget,
 		everyS: block?.every_s ?? FLEET_LOOP_DEFAULTS.everyS,
 		pollS: block?.config_poll_s ?? FLEET_LOOP_DEFAULTS.pollS,
+	};
+}
+
+/** Fork E: the hub's project registry (fleet_loop.projects), every row
+ *  zod-validated — a malformed registry yields NO projects plus the parse
+ *  issues (drift fails loud in the loop log, never a half-read registry).
+ *  Disabled rows are kept; the loop skips them. */
+export function fleetLoopRegistry(stack?: StackConfig | null): {
+	projects: FleetLoopProject[];
+	issues: string[];
+} {
+	const block = (stack === undefined ? tryLoadStack() : stack)?.fleet_loop;
+	const parsed = z
+		.array(FleetLoopProjectSchema)
+		.safeParse(block?.projects ?? []);
+	if (parsed.success) return { projects: parsed.data, issues: [] };
+	return {
+		projects: [],
+		issues: parsed.error.issues.map(
+			(i) => `fleet_loop.projects.${i.path.join(".")}: ${i.message}`,
+		),
 	};
 }
 

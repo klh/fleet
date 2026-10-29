@@ -91,7 +91,7 @@
         "openai": "7.42.0",
       },
       "peerDependencies": {
-        "typescript": "^7",
+        "typescript": "7.0.2",
       },
     },
     "packages/kernel": {
@@ -121,6 +121,17 @@
       },
       "devDependencies": {
         "@klh/test-kit": "2.0.4",
+      },
+    },
+    "packages/settings": {
+      "name": "@klh/settings",
+      "version": "2.0.4",
+      "dependencies": {
+        "@klh/kernel": "2.0.4",
+        "zod": "4.6.7",
+      },
+      "devDependencies": {
+        "@playwright/test": "1.64.1",
       },
     },
     "packages/speedy": {
@@ -155,6 +166,7 @@
         "@klh/buckle": "2.0.4",
         "@klh/kernel": "2.0.4",
         "@klh/local-llm": "2.0.4",
+        "@klh/settings": "2.0.4",
         "@klh/speedy": "2.0.4",
         "@klh/telemetry": "2.0.4",
         "@vercel/detect-agent": "1.2.7",
@@ -209,6 +221,8 @@
     "@klh/local": ["@klh/local@workspace:packages/local"],
 
     "@klh/local-llm": ["@klh/local-llm@workspace:packages/local-llm"],
+
+    "@klh/settings": ["@klh/settings@workspace:packages/settings"],
 
     "@klh/speedy": ["@klh/speedy@workspace:packages/speedy"],
 

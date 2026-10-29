@@ -61,8 +61,41 @@ export function canonicalProjectRoot(input: string): string {
 	return realpathSync(primary);
 }
 
-export const laneRegistryFile = (input: string): string =>
-	join(canonicalProjectRoot(input), ".fleet", "lanes.json");
+export type ProjectRootResolver = (input: string) => string;
+
+const ROOT_MEMO_TTL_MS = 300_000;
+const rootMemo = new Map<
+	string,
+	{ at: number; root?: string; error?: unknown }
+>();
+
+/** canonicalProjectRoot behind a TTL memo (failures included) — for
+ * poll-driven readers such as the board, where a git spawn per project per
+ * request blocks the event loop (W2273). A checkout's common dir is stable;
+ * the TTL only bounds staleness after a repo is moved or deleted. */
+export function memoProjectRoot(
+	input: string,
+	now = Date.now(),
+	ttlMs = ROOT_MEMO_TTL_MS,
+): string {
+	const key = resolve(input);
+	let hit = rootMemo.get(key);
+	if (!hit || now - hit.at >= ttlMs) {
+		try {
+			hit = { at: now, root: canonicalProjectRoot(key) };
+		} catch (error) {
+			hit = { at: now, error };
+		}
+		rootMemo.set(key, hit);
+	}
+	if (hit.root === undefined) throw hit.error;
+	return hit.root;
+}
+
+export const laneRegistryFile = (
+	input: string,
+	resolveRoot: ProjectRootResolver = canonicalProjectRoot,
+): string => join(resolveRoot(input), ".fleet", "lanes.json");
 export type RegistryRead<T> =
 	| { known: true; lanes: T[] }
 	| { known: false; lanes: []; error: string };
@@ -85,8 +118,9 @@ function readFile<T extends RegistryLane>(file: string): RegistryRead<T> {
 }
 export function readLaneRegistry<T extends RegistryLane>(
 	input: string,
+	resolveRoot?: ProjectRootResolver,
 ): RegistryRead<T> {
-	return readFile<T>(laneRegistryFile(input));
+	return readFile<T>(laneRegistryFile(input, resolveRoot));
 }
 export function loadLaneRegistryFile<T extends RegistryLane>(
 	file: string,
@@ -96,8 +130,11 @@ export function loadLaneRegistryFile<T extends RegistryLane>(
 		throw new Error(`Cannot read lane registry: ${state.error}`);
 	return state.lanes;
 }
-export function loadLaneRegistry<T extends RegistryLane>(input: string): T[] {
-	return loadLaneRegistryFile<T>(laneRegistryFile(input));
+export function loadLaneRegistry<T extends RegistryLane>(
+	input: string,
+	resolveRoot?: ProjectRootResolver,
+): T[] {
+	return loadLaneRegistryFile<T>(laneRegistryFile(input, resolveRoot));
 }
 
 export function newerLane<T extends RegistryLane>(current: T, incoming: T): T {

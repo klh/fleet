@@ -27,6 +27,7 @@ export interface SessionView {
 	state: string;
 	parent: string | null;
 	project: string | null;
+	hb: number; // absolute ms — the client derives hbAgo (board-html/feed-ages.ts)
 	hbAgo: number;
 	executor: string | null;
 	model: string | null;
@@ -59,6 +60,7 @@ export function sessions(): SessionView[] {
 		state: s.state,
 		parent: s.parent_sid,
 		project: s.project,
+		hb: s.hb,
 		hbAgo: ago(s.hb),
 		...(laneModel.get(s.sid) ?? {
 			executor: null,
@@ -89,6 +91,7 @@ export function claims(): unknown[] {
 		scope: c.scope,
 		intent: c.intent,
 		hot: !!c.hot,
+		ts: c.ts,
 		tsAgo: ago(c.ts),
 	}));
 }
@@ -123,6 +126,7 @@ export function inbox(sid: string): unknown[] {
 			.all(sid, cur) as EventRow[]
 	).map((e) => ({
 		id: e.id,
+		ts: e.ts,
 		tsAgo: ago(e.ts),
 		source: e.source,
 		kind: e.kind,

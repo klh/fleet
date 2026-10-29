@@ -106,13 +106,20 @@ const policyProvenance = (
 
 export function decisionRecords(
 	project: string | null = null,
+	openOnly = false,
 ): Record<string, unknown>[] {
 	const selected = project && project !== "all" ? project : null;
+	// the default feed is OPEN-only: filtering in SQL skips the resolved
+	// rows' liveness/advice/payload enrichment the caller would discard
+	const where = [
+		...(selected ? ["d.project = ?"] : []),
+		...(openOnly ? ["d.state = 'OPEN'"] : []),
+	];
 	const rows = db
 		.query(
 			`SELECT d.*, w.title AS task_title, w.state AS task_state FROM decisions d
 			LEFT JOIN work_items w ON w.project = d.project AND w.id = d.task_id
-			${selected ? "WHERE d.project = ?" : ""}
+			${where.length ? `WHERE ${where.join(" AND ")}` : ""}
 			ORDER BY (d.state = 'OPEN') DESC, d.event_id DESC LIMIT 200`,
 		)
 		.all(...(selected ? [selected] : [])) as {
@@ -226,7 +233,7 @@ export function decisionsPayload(
 	// W798: always-fresh — sync + records recompute per call; only /api/data
 	// rides the memo (feedMemo).
 	syncDecisions();
-	const recs = collapseDups(decisionRecords(selected));
+	const recs = collapseDups(decisionRecords(selected, !history));
 	const open = recs.filter((r) => r.state === "OPEN") as {
 		project?: string | null;
 	}[];

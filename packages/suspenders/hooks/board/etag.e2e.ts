@@ -39,4 +39,27 @@ test.describe("@unit", () => {
 		const b = jsonEtag(req(), { ok: true, tasks: [1] }).headers.get("etag");
 		expect(a).not.toBe(b);
 	});
+
+	test("relative ages and build stamps never move the tag; absolute stamps do", () => {
+		const feed = (now, hb) => ({
+			ts: now,
+			decisionsTs: now,
+			observation: { observedAt: now, expiresAt: now + 5000 },
+			laneObservations: { ts: now, lanes: [{ sid: "s1" }] },
+			sessions: [{ sid: "s1", hb, hbAgo: Math.round((now - hb) / 1000) }],
+			tasks: [{ id: "W1", age_s: now - hb }],
+		});
+		const tag = jsonEtag(req(), feed(10_000, 1000)).headers.get("etag") ?? "";
+		const later = jsonEtag(req(tag), feed(99_000, 1000));
+		expect(later.status).toBe(304);
+		const beat = jsonEtag(req(tag), feed(99_000, 2000));
+		expect(beat.status).toBe(200);
+		expect(beat.headers.get("etag")).not.toBe(tag);
+	});
+
+	test("a nested `ts` outside laneObservations still counts", () => {
+		const a = jsonEtag(req(), { events: [{ id: 1, ts: 1 }] });
+		const b = jsonEtag(req(), { events: [{ id: 1, ts: 2 }] });
+		expect(a.headers.get("etag")).not.toBe(b.headers.get("etag"));
+	});
 });

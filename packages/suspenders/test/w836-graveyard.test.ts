@@ -148,6 +148,31 @@ test("recall ranking excludes graveyard rows", async () => {
 	expect(ids).toContain(live);
 });
 
+test("D9: active rows outrank a stronger-matching candidate", () => {
+	const kb = freshKb();
+	const now = Date.now();
+	// the candidate repeats the terms (better bm25) and is fresher
+	const cand = Number(
+		kb
+			.query(
+				"INSERT INTO knowledge (ts, topic, fact, confidence, state, updated_at) VALUES (?, 'tierzap tierzap tierzap', 'tierzap tierzap', 0.8, 'candidate', ?)",
+			)
+			.run(now, now).lastInsertRowid,
+	);
+	const act = Number(
+		kb
+			.query(
+				"INSERT INTO knowledge (ts, topic, fact, confidence, state, updated_at) VALUES (?, 'old note', 'mentions tierzap once in a long body of other words', 0.8, 'active', ?)",
+			)
+			.run(now - 30 * 86400000, now - 30 * 86400000).lastInsertRowid,
+	);
+	const ids = knowledgeSearch(kb, "tierzap")
+		.filter((h) => h.kind === "knowledge")
+		.map((h) => h.id);
+	expect(ids.indexOf(act)).toBeGreaterThanOrEqual(0);
+	expect(ids.indexOf(act)).toBeLessThan(ids.indexOf(cand));
+});
+
 test("coord fact set/get output carries the schema note (spawn smoke)", () => {
 	const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 	const run = (args: string[]): string => {

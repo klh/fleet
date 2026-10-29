@@ -6,6 +6,7 @@
 // real CLI (consult-kb recipe) against an in-process mock hub.
 
 import { Database } from "bun:sqlite";
+import { startKevStub } from "./fixtures/kev-stub-start.ts";
 import { afterAll, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
@@ -32,7 +33,18 @@ const HOME = mkdtempSync(join(tmpdir(), "suspenders-fed-"));
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-fed-repo-"));
 mkdirSync(join(REPO, ".git"), { recursive: true });
 mkdirSync(join(REPO, "docs"), { recursive: true });
-const env = { ...process.env, HOME, SUSPENDERS_KEV_URL: "http://127.0.0.1:1" };
+// D7: harvest needs a Kev verdict now (a missing one defers, never stores)
+const kev = await startKevStub("store");
+// phase 4: demotion needs knowledge.downvote_threshold distinct lanes
+// (default 2); this suite's single asker proves the one-lane path
+const COORD_CONF = join(HOME, "coord.json");
+writeFileSync(COORD_CONF, JSON.stringify({ knowledge: { downvote_threshold: 1 } }));
+const env = {
+	...process.env,
+	HOME,
+	SUSPENDERS_KEV_URL: kev.url,
+	SUSPENDERS_COORD_CONFIG: COORD_CONF,
+};
 const coord = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 const DB = join(HOME, ".cache", "claude-governor", "governor.db");
 const KDB = join(HOME, ".cache", "claude-governor", "knowledge.db");
@@ -183,6 +195,7 @@ const Q_SCOPED = "how should the veil cache invalidate across pods";
 
 afterAll(() => {
 	hub.stop(true);
+	kev.stop();
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO, { recursive: true, force: true });
 });
@@ -359,6 +372,67 @@ test("resolved feedback is audit-only — no demotion", () => {
 		"SELECT COUNT(*) AS n FROM events WHERE kind = 'knowledge.stale' AND payload LIKE '%C4%'",
 	)[0] as { n: number };
 	expect(stale?.n).toBe(0);
+});
+
+// phase 4 (owner 2026-10-29): candidates answer, marked unreviewed
+function seedCandidate(topic: string, fact: string, file: string, drift = false) {
+	const id = seedFact(topic, fact, file);
+	const d = new Database(KDB);
+	d.query("UPDATE knowledge SET state = 'candidate' WHERE id = ?").run(id);
+	if (drift) writeFileSync(join(REPO, file), "# moved on\n");
+	d.close();
+	return id;
+}
+const cidOf = (out: string) => out.match(/\bC(\d+)\b/)?.[0] ?? "";
+const LANE = "deadbeef-lane-33333333";
+
+test("phase 4: a candidate answers via coord ask, marked unreviewed — zero interrupts", () => {
+	seedCandidate("walrus ledger compaction", "compact the walrus ledger after every rotation", "docs/walrus.md");
+	const a = run(["ask", "compact walrus ledger after rotation", "--to", LANE, "--priority", "high", "--as", ASKER]);
+	expect(a.code).toBe(0);
+	expect(a.out).toContain("ANSWERED");
+	expect(a.out).toContain("trust: candidate · unreviewed");
+	expect(a.out).toContain(`report: coord consult-reply ${cidOf(a.out)} --feedback`);
+	const steered = rows("SELECT COUNT(*) AS n FROM events WHERE target = ?", LANE)[0] as { n: number };
+	expect(steered.n).toBe(0);
+});
+
+test("phase 4: a drifted candidate never answers — normal delivery", () => {
+	seedCandidate("otter cache warmup", "warm the otter cache before the canary", "docs/otter.md", true);
+	const a = run(["ask", "warm otter cache before canary", "--to", LANE, "--priority", "high", "--as", ASKER]);
+	expect(a.code).toBe(0);
+	expect(a.out).not.toContain("ANSWERED");
+	expect(a.out).toMatch(/INBOX|STEER/);
+});
+
+test("phase 4: failed from 2 lanes demotes into review + re-delivers; resolved only counts", () => {
+	const two = join(HOME, "coord-two.json");
+	writeFileSync(two, JSON.stringify({ knowledge: { downvote_threshold: 2 } }));
+	const o = { SUSPENDERS_COORD_CONFIG: two };
+	const id = seedCandidate("heron shard rebalance", "rebalance heron shards before the cutover", "docs/heron.md");
+	const Q = "rebalance heron shards before cutover";
+	const ask = (as: string) => run(["ask", Q, "--to", LANE, "--priority", "high", "--as", as], o);
+	const fb = (out: string, outcome: string, as: string) =>
+		run(["consult-reply", cidOf(out), "--feedback", outcome, "--evidence", `${outcome} here`, "--as", as], o);
+	const up = fb(ask("lane-up-1").out, "resolved", "lane-up-1");
+	expect(up.out).toContain("votes up 1 down 0");
+	const a1 = ask("lane-down-1");
+	expect(a1.out).toContain("ANSWERED");
+	const f1 = fb(a1.out, "failed", "lane-down-1");
+	expect(f1.out).toContain("(1/2 lanes)");
+	expect(f1.out).toContain("re-delivered");
+	const a2 = ask("lane-down-2");
+	expect(a2.out).toContain("ANSWERED"); // one lane is not enough
+	const f2 = fb(a2.out, "failed", "lane-down-2");
+	expect(f2.out).toContain("demoted out of answering");
+	const k = new Database(KDB);
+	const rv = k.query("SELECT kind, state, text FROM kev_review WHERE reference = ?").get(`k#${id}`) as { kind: string; state: string; text: string };
+	const st = k.query("SELECT state FROM knowledge WHERE id = ?").get(id) as { state: string };
+	k.close();
+	expect(rv.kind).toBe("downvote");
+	expect(rv.text).toContain("failed here");
+	expect(st.state).toBe("candidate"); // never deleted, never auto-changed
+	expect(ask("lane-down-3").out).not.toContain("ANSWERED");
 });
 
 test("hub wire: ANSWERED writes answer + hub citations + trace event", async () => {

@@ -20,6 +20,9 @@ import {
 	subscribeLive,
 } from "../hooks/lib/lanes/subscribe-attach.ts";
 
+// per-sid attach is the session-mode contract (machine mode: one socket per
+// machine — covered by hooks/coord/subscribe-machine.e2e.ts)
+process.env.SUSPENDERS_SUBSCRIBE_MODE = "session";
 const dir = mkdtempSync(join(tmpdir(), "subscribe-attach-"));
 const stubDir = join(dir, "bin");
 mkdirSync(stubDir, { recursive: true });
@@ -69,7 +72,7 @@ test("subscriber survives the bootstrap process exiting", async () => {
 			"-e",
 			`import { attachSubscribe } from ${JSON.stringify(modulePath)}; attachSubscribe(${JSON.stringify(sid)}, { coord: ${JSON.stringify(stub)} });`,
 		],
-		{ stdout: "pipe", stderr: "pipe" },
+		{ env: { ...process.env }, stdout: "pipe", stderr: "pipe" },
 	);
 	expect(parent.exitCode).toBe(0);
 	const deadline = Date.now() + 3000;

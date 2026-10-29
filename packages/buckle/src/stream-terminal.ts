@@ -4,6 +4,7 @@
 // scrubbed error-text face. Leaf module — imports only adapters/errors +
 // sse types, never handlers.
 import { RouterError, routerErrorEnvelope } from "./adapters/errors.ts";
+import { streamOriginPrefix } from "./error-trace.ts";
 import type { SseSniffer } from "./sse.ts";
 import type { Dialect } from "./upstreams.ts";
 
@@ -69,7 +70,7 @@ export function writeErrorEvent(
 		err instanceof Error ? err.message : "upstream stream failed",
 	);
 	const message = trace
-		? `${raw.slice(0, 2048)} [trace=${trace.id}; origin=${trace.hub}; hops=${trace.hub}:502/stream_failed]`
+		? `${streamOriginPrefix(trace.hub, "stream_failed")}${raw.slice(0, 2048)} [trace=${trace.id}; origin=${trace.hub}; hops=${trace.hub}:502/stream_failed]`
 		: raw;
 	const w = writable.getWriter();
 	const envelope =

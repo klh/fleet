@@ -1,3 +1,4 @@
+import { setting } from "@klh/settings";
 import { mkdirSync, realpathSync } from "node:fs";
 import { join, relative } from "node:path";
 import {
@@ -142,7 +143,7 @@ function validateTree(repo: string, before: string, tree: string): Result {
 	// W694 H1: the merge ladder publishes via `merge --no-ff` + `--ff-only` in
 	// a scratch worktree — the Bash scrub gate never sees it. Scan the whole
 	// candidate delta (added lines vs integration HEAD) before publication.
-	if (process.env.SUSPENDERS_SCRUB !== "0") {
+	if (setting("gates.scrub")) {
 		const d = command(repo, [
 			"git",
 			"diff",

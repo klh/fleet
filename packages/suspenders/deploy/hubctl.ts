@@ -68,6 +68,7 @@ import {
 } from "../scripts/lib/prefer-hub-line.ts";
 import { hubMetricsEnv } from "./hub-metrics.ts";
 import { renderHubPolicy } from "./hub-policy.ts";
+import { hubSettingsText } from "./hub-settings-render.ts";
 import {
 	assertDeployRefsExist,
 	resolveHubOrigin,
@@ -1091,8 +1092,7 @@ function main(): void {
 	const auth = stack.auth;
 	if (!hubName || verb === "--help" || verb === "-h") {
 		console.log(
-			"usage: hubctl <render|mint|push|up|status|deploy|reload-upstreams|manifest|exec|mint-lane-key> <hub> — config: ~/.config/klh/stack.json\n" +
-				"       up accepts --force: proceed on a stale/unpinned hub .env (refused by default)\n" +
+			"usage: hubctl <render|mint|push|up|status|deploy|reload-upstreams|manifest|exec|mint-lane-key> <hub> — config: ~/.config/klh/settings.json hubs.<label> (stack.json read-compat)\n       render --settings prints the hub's rendered settings.json (machine doc + hubs.<label>.settings overlay)\n       up accepts --force: proceed on a stale/unpinned hub .env (refused by default)\n" +
 				"       exec runs allowlisted read-only probes; mint-lane-key mints a\n" +
 				"       short-lived lane key ON the hub (root credential never leaves it)\n" +
 				"       mint-service-key mints a PERSISTENT proxy-only service credential\n" +
@@ -1121,8 +1121,12 @@ function main(): void {
 		process.exit(failed === 0 ? 0 : 1);
 	}
 	switch (verb) {
-		case "render":
-			console.log(redactedRender(renderEnv(hub, hubName, auth, hubVersion)));
+		case "render": // --settings: the hub's rendered settings.json
+			console.log(
+				flags.includes("--settings")
+					? hubSettingsText(hubName)
+					: redactedRender(renderEnv(hub, hubName, auth, hubVersion)),
+			);
 			return;
 		case "mint":
 			mintRootKey(hub);

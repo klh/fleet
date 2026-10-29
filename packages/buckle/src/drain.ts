@@ -5,6 +5,7 @@
 // its real cause and gets no gateway_restarting terminal). Every other
 // break — upstream timeout, network death, crash — keeps its real cause:
 // the drain never labels a break it did not observe.
+import { streamOriginPrefix } from "./error-trace.ts";
 import type { Dialect } from "./upstreams.ts";
 
 export interface DrainInfo {
@@ -98,7 +99,7 @@ export function drainTerminalFrame(
 			? trace
 			: undefined;
 	if (safeTrace) {
-		error.message = `${message} [trace=${safeTrace.id}; origin=${safeTrace.hub}; target=buckle]`;
+		error.message = `${streamOriginPrefix(safeTrace.hub, "gateway_restarting")}${message} [trace=${safeTrace.id}; origin=${safeTrace.hub}; target=buckle]`;
 		Object.assign(error, { trace_id: safeTrace.id });
 		Object.assign(envelope, {
 			trace_id: safeTrace.id,

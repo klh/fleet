@@ -14,6 +14,10 @@
 // x-klh-write-token, origin-only URLs. No content ever crosses: the payload
 // builder reads decant stats/ls ONLY (never export/show/search — transcript
 // surfaces), and facts pass redactSecrets before serialization.
+import {
+	mergeKnowledgeFactsReadonly,
+	siblingKnowledgeDb,
+} from "./knowledge-facts.ts";
 import { readFileSync, writeFileSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { REG } from "../govdb/govdb-util.ts";
@@ -219,7 +223,9 @@ function decantSessions(config: SyncConfig, cwd: string): SessionMetrics[] {
 /** The syncable fact vocabulary: lesson. + finding. keys — the two classes
  *  lanes bank as durable knowledge. Anything else (work-adjacent fact rows,
  *  scratch keys) never crosses the machine boundary. */
-export const SYNCABLE_FACT = /^(lesson|finding)\./;
+// D8: lesson.seen.<sid> is per-session session-start bookkeeping, not
+// knowledge — it never crosses the machine boundary.
+export const SYNCABLE_FACT = /^(?!lesson\.seen\.)(lesson|finding)\./;
 export const MAX_FACT_VALUE = 2000;
 
 /** W1226: the provenance fields that cross the sync, with the per-field cap.
@@ -324,9 +330,9 @@ export function collectFacts(
 		const hasProv = (
 			db.query("PRAGMA table_info(facts)").all() as { name: string }[]
 		).some((c) => c.name === "provenance");
-		const rows = db
+		const govRows = db
 			.query(
-				`SELECT key, value, source, version, ts${hasProv ? ", provenance" : ""} FROM facts WHERE key LIKE 'lesson.%' OR key LIKE 'finding.%' ORDER BY key`,
+				`SELECT key, value, source, version, ts${hasProv ? ", provenance" : ""} FROM facts WHERE (key LIKE 'lesson.%' AND key NOT LIKE 'lesson.seen.%') OR key LIKE 'finding.%' ORDER BY key`,
 			)
 			.all() as {
 			key: string;
@@ -336,6 +342,12 @@ export function collectFacts(
 			ts: number;
 			provenance?: string | null;
 		}[];
+		// hub design phase 3: lessons/findings live in knowledge.db
+		const rows = mergeKnowledgeFactsReadonly(
+			govRows,
+			siblingKnowledgeDb(dbPath),
+			["lesson.", "finding."],
+		);
 		for (const r of rows) {
 			if (!SYNCABLE_FACT.test(r.key)) continue;
 			if (state.facts[r.key] === r.version) continue;

@@ -169,6 +169,7 @@ export async function attemptTier(
 			st.peerTrace = null;
 			st.lastFailure = {
 				source: "network",
+				provider: dep.provider,
 				status: error.status,
 				kind: "network",
 				transportTimeoutPhase:
@@ -245,6 +246,7 @@ export async function attemptTier(
 			st.peerTrace = null;
 			st.lastFailure = {
 				source: "local-admission",
+				provider: dep.provider,
 				status: r.status,
 				kind: "local_admission",
 				retryAfterS: r.retryAfterS,
@@ -273,6 +275,7 @@ export async function attemptTier(
 		st.peerTrace = r.peerTrace;
 		st.lastFailure = {
 			source: r.refusalSource,
+			provider: dep.provider,
 			status: r.status,
 			kind: r.kind,
 			transportTimeoutPhase: r.transportTimeoutPhase,
@@ -303,7 +306,12 @@ export async function attemptTier(
 		}
 		if (r.kind === "rate_limited") {
 			if (!st.rateLimit)
-				st.rateLimit = { response: r.response, tier, source: "upstream" };
+				st.rateLimit = {
+					response: r.response,
+					tier,
+					source: "upstream",
+					provider: dep.provider,
+				};
 			// An explicit provider not-before applies to every alias of the
 			// account. Skip it within this walk; the shared core retains the
 			// backoff for subsequent requests. Without Retry-After, keep the
@@ -594,6 +602,7 @@ function exhausted(st: WalkState): ExecuteResult {
 			attempts: st.attempts,
 			refusalSource: st.rateLimit.source,
 			failureKind: "rate_limited",
+			...(st.rateLimit.provider ? { provider: st.rateLimit.provider } : {}),
 		};
 	if (st.ctxWindow)
 		return {

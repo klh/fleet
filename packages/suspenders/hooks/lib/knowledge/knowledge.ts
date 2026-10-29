@@ -96,6 +96,10 @@ export function ftsTerms(q: string): string {
 const ORIGIN_PRIOR_SQL =
 	"CASE k.origin_kind WHEN 'incident' THEN 0.0 WHEN 'lesson' THEN 0.5 WHEN 'decision' THEN 1.0 ELSE 1.5 END";
 
+// D9 (hub design): reviewed rows outrank unreviewed — every active row
+// sorts ahead of every candidate, the bm25/age/origin score orders within.
+const STATE_TIER_SQL = "(CASE k.state WHEN 'active' THEN 0 ELSE 1 END)";
+
 // axis filters shared verbatim by the primary match and the 1-hop expansion —
 // knowledge_fts is content-linked to knowledge, so k.* filters read the same
 const AXIS_FILTER_SQL =
@@ -153,7 +157,7 @@ WHERE k.id NOT IN (${marks})
 	${AXIS_FILTER_SQL}
 	${CONF_FLOOR_SQL}
 	AND ${anyEdge}
-ORDER BY (CASE via WHEN 'pointer' THEN 0.0 ELSE 2.0 END) + ${ORIGIN_PRIOR_SQL}
+ORDER BY ${STATE_TIER_SQL}, (CASE via WHEN 'pointer' THEN 0.0 ELSE 2.0 END) + ${ORIGIN_PRIOR_SQL}
 	+ (${Date.now()} - COALESCE(k.updated_at, k.ts)) / 86400000.0 * 0.05
 LIMIT ?`,
 		)
@@ -192,10 +196,16 @@ function stripCas(h: KnowledgeHit): KnowledgeHit {
 	return out as KnowledgeHit;
 }
 
+// D1 (hub design): since the W166 split, facts_fts and consult_kb live in
+// governor.db while knowledge rows live in knowledge.db. `aux` is the
+// governor handle for legs 2-3; it defaults to `db` for a pre-split handle
+// that still holds every table. Without it the knowledge-only store's
+// facts/consult_kb legs hit "no such table" and were silently skipped.
 export function knowledgeSearch(
 	db: Database,
 	query: string,
 	filters: KnowledgeFilters = {},
+	aux: Database = db,
 ): KnowledgeHit[] {
 	const match = ftsTerms(query);
 	if (!match) return [];
@@ -229,7 +239,7 @@ export function knowledgeSearch(
 		AND knowledge_fts.state ${LIVE_STATES_SQL}
 		${AXIS_FILTER_SQL}
 		${CONF_FLOOR_SQL}
-	ORDER BY rank + (${Date.now()} - COALESCE(k.updated_at, k.ts)) / 86400000.0 * 0.05
+	ORDER BY ${STATE_TIER_SQL}, rank + (${Date.now()} - COALESCE(k.updated_at, k.ts)) / 86400000.0 * 0.05
 		+ ${ORIGIN_PRIOR_SQL}
 	LIMIT ?`,
 					)
@@ -281,42 +291,48 @@ export function knowledgeSearch(
 	} catch {} // pre-v6 db opened raw — skip honestly
 	// 2. facts (key+value) — first search index for facts; ranked, no gate.
 	// W181 F2: scoped searches exclude them (facts carry no scope tags).
+	// phase 3: knowledge facts live in knowledge.db knowledge_facts; governor
+	// facts keep the control-plane rows (and pre-migration knowledge rows)
 	if (auxEligible) {
-		try {
-			out.push(
-				...db
-					.query(
-						`SELECT f.key, f.ts, f.confidence,
-	snippet(facts_fts, 0, '[', ']', '…', 12) AS snip
-	FROM facts_fts
-	JOIN facts f ON f.rowid = facts_fts.rowid
-	WHERE facts_fts MATCH ?
+		for (const [h, t] of [
+			[db, "knowledge_facts"],
+			[aux, "facts"],
+		] as const)
+			try {
+				out.push(
+					...h
+						.query(
+							`SELECT f.key, f.ts, f.confidence,
+	snippet(${t}_fts, 0, '[', ']', '…', 12) AS snip
+	FROM ${t}_fts
+	JOIN ${t} f ON f.rowid = ${t}_fts.rowid
+	WHERE ${t}_fts MATCH ?
 	ORDER BY rank LIMIT ?`,
-					)
-					.all(match, limit)
-					.map((r: unknown): KnowledgeHit | null => {
-						const o = r as {
-							key: string;
-							ts: number;
-							confidence: number | null;
-							snip?: string;
-						};
-						if (
-							minConf != null &&
-							(o.confidence == null || o.confidence < minConf)
 						)
-							return null;
-						return {
-							kind: "fact" as const,
-							id: 0,
-							ts: o.ts,
-							snippet: o.snip ?? "",
-							key: o.key,
-						};
-					})
-					.filter((h): h is KnowledgeHit => h !== null),
-			);
-		} catch {} // facts_fts absent — skip honestly
+						.all(match, limit)
+						.map((r: unknown): KnowledgeHit | null => {
+							const o = r as {
+								key: string;
+								ts: number;
+								confidence: number | null;
+								snip?: string;
+							};
+							if (
+								minConf != null &&
+								(o.confidence == null || o.confidence < minConf)
+							)
+								return null;
+							return {
+								kind: "fact" as const,
+								id: 0,
+								ts: o.ts,
+								snippet: o.snip ?? "",
+								key: o.key,
+							};
+						})
+						.filter((h): h is KnowledgeHit => h !== null),
+				);
+			} catch {} // facts_fts absent — skip honestly
 	}
 	// 3. consult_kb — answered consults (problem → solution) joined in.
 	// W181 F2: the domain filter matches the consult's project tag; area/
@@ -324,7 +340,7 @@ export function knowledgeSearch(
 	if (consultEligible) {
 		try {
 			out.push(
-				...db
+				...aux
 					.query(
 						`SELECT k.id, k.problem, k.solution, k.created_at AS ts, k.confidence,
 	snippet(consult_kb_fts, 0, '[', ']', '…', 12) AS snip

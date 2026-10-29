@@ -75,10 +75,11 @@ if (json) {
 	for (const a of report.actions)
 		console.log(`✓ ${a.kind} ${a.sid ? `${a.sid} ` : ""}${a.detail}`);
 	const exhausted = report.verdicts.filter((v) => v.exhausted).length;
+	const limited = report.verdicts.filter((v) => v.rateLimited).length;
 	console.log(
-		`${report.verdicts.length} claimant sid(s) scanned, ${exhausted} quota-exhausted` +
+		`${report.verdicts.length} claimant sid(s) scanned, ${exhausted} quota-exhausted, ${limited} rate-limited (dead)` +
 			(report.auditDb
-				? ` · route_audit: ${report.auditUnattributed} unattributed 429/quota row(s) in window`
+				? ` · route_audit: ${report.auditUnattributed} unattributed limit row(s) in window`
 				: " · route_audit: source unavailable"),
 	);
 }

@@ -26,7 +26,10 @@ import {
 	type HubProfile,
 	type StackConfig,
 } from "../hooks/lib/stack-config.ts";
-import { assertDeployRefsExist } from "./hub-ref-preflight.ts";
+import {
+	assertDeployRefsExist,
+	resolveHubOrigin,
+} from "./hub-ref-preflight.ts";
 import { sshOpts } from "./hub-remote.ts";
 
 const TAG = /^v(\d+)\.(\d+)\.(\d+)$/;
@@ -60,8 +63,20 @@ export function latestReleaseTag(lsRemote: string): string | null {
 	return tags.sort(compareReleaseTags).at(-1) ?? null;
 }
 
-/** A release updates one Fleet version and every hub's deploy ref. A canary
- * version_override stays pinned by explicit operator intent. */
+/** A private overlay ref that differs from the shared release is an explicit
+ * operator pin. A matching release tag advances only after origin preflight. */
+export function pinnedOverlayRef(
+	hub: HubProfile,
+	version: string | undefined,
+): boolean {
+	return (
+		resolveHubOrigin(hub, hub.version_override ?? version).overlay &&
+		hub.repos?.ref !== version
+	);
+}
+
+/** A release updates the shared Fleet version and release-tracking refs.
+ * Independent overlay SHA/tag and explicit canary pins stay unchanged. */
 export function stackAtRelease(stack: StackConfig, tag: string): StackConfig {
 	if (!parts(tag)) throw new Error("release tag must be vMAJOR.MINOR.PATCH");
 	return {
@@ -70,7 +85,7 @@ export function stackAtRelease(stack: StackConfig, tag: string): StackConfig {
 		hubs: Object.fromEntries(
 			Object.entries(stack.hubs).map(([name, hub]) => [
 				name,
-				hub.version_override
+				hub.version_override || pinnedOverlayRef(hub, stack.version)
 					? hub
 					: {
 							...hub,
@@ -79,6 +94,15 @@ export function stackAtRelease(stack: StackConfig, tag: string): StackConfig {
 			]),
 		),
 	};
+}
+
+/** The deployed ref is not necessarily the shared version: an overlay's
+ * repos.ref can be a separate reviewed SHA or tag. */
+export function hubDeployRef(
+	hub: HubProfile,
+	version: string | undefined,
+): string {
+	return resolveHubOrigin(hub, hub.version_override ?? version).ref;
 }
 
 export function releaseAvailable(
@@ -103,7 +127,14 @@ export function withUpdateLock<T>(action: () => T, path = LOCK_PATH()): T {
 		mkdirSync(path, { mode: 0o700 });
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-		const owner = Number(readFileSync(join(path, "pid"), "utf8"));
+		let owner: number;
+		try {
+			owner = Number(readFileSync(join(path, "pid"), "utf8"));
+		} catch {
+			throw new Error(
+				"hub update lock has no readable owner; inspect before clearing it",
+			);
+		}
 		if (!Number.isSafeInteger(owner) || owner <= 0)
 			throw new Error(
 				"hub update lock has no valid owner; inspect before clearing it",
@@ -254,6 +285,23 @@ export interface HubUpdateRow {
 	updateAvailable: boolean;
 	deploymentDrift: boolean;
 	canary: boolean;
+	pinnedOverlay: boolean;
+	autoUpdate: boolean;
+}
+
+/** One shared version can advance automatically only when every managed hub
+ * consents. Explicit canaries retain their independently reviewed pin. */
+export function automaticUpdatePolicy(stack: StackConfig): {
+	ready: boolean;
+	blocked: string[];
+} {
+	const managed = Object.entries(stack.hubs).filter(
+		([, hub]) => !hub.version_override && !pinnedOverlayRef(hub, stack.version),
+	);
+	const blocked = managed
+		.filter(([, hub]) => !(hub.auto_update ?? stack.updates?.mode === "latest"))
+		.map(([name]) => name);
+	return { ready: managed.length > 0 && blocked.length === 0, blocked };
 }
 
 export function updateRows(
@@ -262,16 +310,25 @@ export function updateRows(
 	installed: (hub: HubProfile) => string | null = installedHubRef,
 ): HubUpdateRow[] {
 	return Object.entries(stack.hubs).map(([name, hub]) => {
-		const pin = hub.version_override ?? stack.version;
+		const pin = hubDeployRef(hub, stack.version);
 		const actual = installed(hub);
+		const pinnedOverlay = pinnedOverlayRef(hub, stack.version);
 		return {
 			hub: name,
 			installed: actual,
 			pinned: pin ?? null,
 			latest,
-			updateAvailable: !hub.version_override && releaseAvailable(pin, latest),
+			updateAvailable:
+				!hub.version_override &&
+				!pinnedOverlay &&
+				releaseAvailable(stack.version, latest),
 			deploymentDrift: actual !== pin,
 			canary: !!hub.version_override,
+			pinnedOverlay,
+			autoUpdate:
+				!hub.version_override &&
+				!pinnedOverlay &&
+				(hub.auto_update ?? stack.updates?.mode === "latest"),
 		};
 	});
 }
@@ -354,6 +411,8 @@ export function applyRelease(
 		quietHours?: (hub: HubProfile) => boolean;
 	} = {},
 ): void {
+	if (!stack.version)
+		throw new Error("automatic hub update requires a pinned stack version");
 	if (!releaseAvailable(stack.version, tag))
 		throw new Error(
 			`${tag} is not newer than ${stack.version ?? "the current pin"}`,
@@ -373,9 +432,10 @@ export function applyRelease(
 	for (const [name, hub] of Object.entries(stack.hubs)) {
 		if (hub.version_override) continue;
 		const actual = (deps.installed ?? installedHubRef)(hub);
-		if (actual !== stack.version)
+		const expected = hubDeployRef(hub, stack.version);
+		if (actual !== expected)
 			throw new Error(
-				`hub ${name} runs ${actual ?? "unknown"}, expected ${stack.version ?? "a pinned release"}; repair deployment drift before upgrading`,
+				`hub ${name} runs ${actual ?? "unknown"}, expected ${expected}; repair deployment drift before upgrading`,
 			);
 	}
 	for (const [name, hub] of Object.entries(candidate.hubs))
@@ -397,13 +457,22 @@ export function applyRelease(
 			const hub = candidate.hubs[name];
 			return !!hub && deploy(name, hub, expected, run);
 		});
-	const changed = Object.keys(stack.hubs).filter(
-		(name) => !stack.hubs[name]?.version_override,
-	);
+	const changed = Object.keys(stack.hubs).filter((name) => {
+		const beforeHub = stack.hubs[name];
+		const afterHub = candidate.hubs[name];
+		return (
+			!!beforeHub &&
+			!!afterHub &&
+			hubDeployRef(beforeHub, stack.version) !== hubDeployRef(afterHub, tag)
+		);
+	});
 	let failed = false;
 	for (const name of changed) {
-		console.log(`updating ${name} to ${tag}`);
-		if (!deployOne(name, tag)) {
+		const hub = candidate.hubs[name];
+		if (!hub) throw new Error(`candidate hub ${name} missing`);
+		const expected = hubDeployRef(hub, tag);
+		console.log(`updating ${name} to ${expected}`);
+		if (!deployOne(name, expected)) {
 			failed = true;
 			break;
 		}
@@ -415,14 +484,10 @@ export function applyRelease(
 	writeStack(path, after, before);
 	const rollbackFailed: string[] = [];
 	for (const name of changed) {
-		console.error(`rolling back ${name} to ${stack.version ?? "prior pin"}`);
-		if (
-			!deployOne(
-				name,
-				stack.hubs[name]?.version_override ?? stack.version ?? "",
-			)
-		)
-			rollbackFailed.push(name);
+		const hub = stack.hubs[name];
+		const expected = hub ? hubDeployRef(hub, stack.version) : stack.version;
+		console.error(`rolling back ${name} to ${expected}`);
+		if (!deployOne(name, expected)) rollbackFailed.push(name);
 	}
 	if (rollbackFailed.length === 0) unlinkSync(backup);
 	throw new Error(
@@ -504,15 +569,16 @@ function main(): void {
 		return;
 	const latest = publishedRelease(releaseOriginOf(stack, checkoutOrigin()));
 	const rows = updateRows(stack, latest);
+	const policy = automaticUpdatePolicy(stack);
 	if (verb === "check") {
 		if (flags.includes("--json"))
 			console.log(
-				JSON.stringify({ mode: stack.updates?.mode ?? "manual", rows }),
+				JSON.stringify({ mode: stack.updates?.mode ?? "manual", policy, rows }),
 			);
 		else
 			for (const row of rows)
 				console.log(
-					`${row.hub}: installed=${row.installed ?? "unknown"} pinned=${row.pinned ?? "unknown"} latest=${latest}${row.canary ? " (canary pinned)" : row.deploymentDrift ? " — deployment drift" : row.updateAvailable ? " — update available" : " — current"}`,
+					`${row.hub}: installed=${row.installed ?? "unknown"} pinned=${row.pinned ?? "unknown"} latest=${latest}${row.canary ? " (canary pinned)" : row.pinnedOverlay ? " (overlay ref pinned)" : row.deploymentDrift ? " — deployment drift" : row.updateAvailable ? " — update available" : " — current"} auto_update=${row.autoUpdate}`,
 				);
 		if (!flags.includes("--json") && rows.some((row) => row.updateAvailable))
 			console.log(
@@ -520,13 +586,13 @@ function main(): void {
 			);
 		if (!flags.includes("--json") && rows.some((row) => row.deploymentDrift))
 			console.log(
-				"Repair before upgrade: hubctl deploy <hub> (reconcile repairs automatically only in updates.mode=latest)",
+				"Repair before upgrade: hubctl deploy <hub> (reconcile repairs automatically only when every managed hub permits auto-update)",
 			);
 		return;
 	}
 	const drift = rows.filter((row) => row.deploymentDrift);
 	if (drift.length > 0 && verb === "reconcile") {
-		if (stack.updates?.mode === "latest") repairDrift(stack, drift);
+		if (policy.ready) repairDrift(stack, drift);
 		else {
 			const names = drift.map((row) => row.hub).join(", ");
 			notifyAvailable(
@@ -549,8 +615,16 @@ function main(): void {
 		if (verb === "reconcile") stampCheck(nowMs);
 		return;
 	}
-	if (verb === "reconcile" && stack.updates?.mode !== "latest") {
-		notifyAvailable(latest);
+	if (verb === "reconcile" && !policy.ready) {
+		const hold = policy.blocked.length
+			? ` Automatic rollout is held because ${policy.blocked.join(", ")} have not enabled auto_update; the shared stack version advances together.`
+			: "";
+		notifyAvailable(
+			latest,
+			run,
+			NOTICE_PATH(),
+			`Fleet ${latest} is available for configured hubs.${hold} Review with bun packages/suspenders/deploy/hub-update.ts check, then install with bun packages/suspenders/deploy/hub-update.ts apply --yes, or enable auto_update for every managed hub.`,
+		);
 		console.log(`Fleet ${latest} available; decision requested`);
 		stampCheck(nowMs);
 		return;
@@ -561,7 +635,7 @@ function main(): void {
 	if (!to || to !== latest)
 		throw new Error(`only latest published release ${latest} can be applied`);
 	applyRelease(stack, to);
-	console.log(`Fleet ${to} healthy on all managed hubs`);
+	console.log(`Fleet ${to} healthy on all release-tracking hubs`);
 	if (verb === "reconcile") stampCheck(nowMs);
 }
 

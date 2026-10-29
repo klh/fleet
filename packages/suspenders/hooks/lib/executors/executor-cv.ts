@@ -9,6 +9,7 @@
 import { hostname } from "node:os";
 import { shaOnMain } from "../gates/dep-merge-gate.ts";
 import type { GovernorStore } from "../govdb/govdb.ts";
+import { msList, msSet } from "../govdb/machine-state.ts";
 
 export type ExecutorCvRow = { cv: number; valid: number; invalid: number };
 
@@ -77,8 +78,10 @@ export function executorCv(
 	const open = new Map<string, string>(); // item → claimant sid
 	const tally = new Map<string, ExecutorCvRow>();
 	const row = (key: string): ExecutorCvRow => {
-		let r = tally.get(key);
-		if (!r) tally.set(key, (r = { cv: 0, valid: 0, invalid: 0 }));
+		const hit = tally.get(key);
+		if (hit) return hit;
+		const r = { cv: 0, valid: 0, invalid: 0 };
+		tally.set(key, r);
 		return r;
 	};
 	const rows = store
@@ -139,15 +142,12 @@ export const cvMap = (
 	host = hostname(),
 ): Map<string, number> =>
 	new Map(
-		(
-			store
-				.query("SELECT key, value FROM facts WHERE key LIKE ?")
-				.all(`executor.${host}.%.cv`) as { key: string; value: string }[]
-		).map((r) => {
-			const prefix = `executor.${host}.`;
-			const cls = r.key.slice(prefix.length, -".cv".length);
-			return [cls, Number(r.value) || 0];
-		}),
+		msList(store, `executor.${host}.`)
+			.filter((r) => r.key.endsWith(".cv"))
+			.map((r) => {
+				const cls = r.key.slice(`executor.${host}.`.length, -".cv".length);
+				return [cls, Number(r.value) || 0];
+			}),
 	);
 
 /** Bank the tally as facts (source executor-cv), the measure the DEFAULT
@@ -159,11 +159,7 @@ export const writeExecutorCvFacts = (
 	const now = Date.now();
 	let n = 0;
 	for (const [key, t] of tally) {
-		store
-			.query(
-				"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, ?, 'executor-cv', 1, ?)",
-			)
-			.run(key, String(t.cv), now);
+		msSet(store, key, String(t.cv), "executor-cv", now);
 		n++;
 	}
 	return n;
