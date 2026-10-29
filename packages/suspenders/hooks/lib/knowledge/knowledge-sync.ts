@@ -14,6 +14,10 @@
 // x-klh-write-token, origin-only URLs. No content ever crosses: the payload
 // builder reads decant stats/ls ONLY (never export/show/search — transcript
 // surfaces), and facts pass redactSecrets before serialization.
+import {
+	mergeKnowledgeFactsReadonly,
+	siblingKnowledgeDb,
+} from "./knowledge-facts.ts";
 import { readFileSync, writeFileSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { REG } from "../govdb/govdb-util.ts";
@@ -326,7 +330,7 @@ export function collectFacts(
 		const hasProv = (
 			db.query("PRAGMA table_info(facts)").all() as { name: string }[]
 		).some((c) => c.name === "provenance");
-		const rows = db
+		const govRows = db
 			.query(
 				`SELECT key, value, source, version, ts${hasProv ? ", provenance" : ""} FROM facts WHERE (key LIKE 'lesson.%' AND key NOT LIKE 'lesson.seen.%') OR key LIKE 'finding.%' ORDER BY key`,
 			)
@@ -338,6 +342,12 @@ export function collectFacts(
 			ts: number;
 			provenance?: string | null;
 		}[];
+		// hub design phase 3: lessons/findings live in knowledge.db
+		const rows = mergeKnowledgeFactsReadonly(
+			govRows,
+			siblingKnowledgeDb(dbPath),
+			["lesson.", "finding."],
+		);
 		for (const r of rows) {
 			if (!SYNCABLE_FACT.test(r.key)) continue;
 			if (state.facts[r.key] === r.version) continue;

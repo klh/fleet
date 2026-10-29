@@ -11,7 +11,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-w466-"));
-const REAL_HOME = process.env.HOME;
 const REG = join(HOME, ".cache/claude-governor");
 const GOVDB = join(REG, "governor.db");
 const BIN = join(import.meta.dir, "../hooks/bin");
@@ -44,6 +43,9 @@ describe("W466 fact list bounding", () => {
 	test("knowledge facts render; machine cursor namespaces stay hidden", () => {
 		mkdirSync(REG, { recursive: true });
 		expect(coord(["fact", "set", "lesson.w466", "bounded"]).code).toBe(0);
+		// phase 3: lesson.* lands in knowledge.db — a control-plane fact opens
+		// governor.db for the raw cursor seeds below
+		expect(coord(["fact", "set", "w466.control", "x"]).code).toBe(0);
 		raw(
 			"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, 'test', 1, strftime('%s','now')*1000)",
 			"activity.tp.aaaa",
@@ -130,11 +132,12 @@ describe("W466 govdb v12 migration", () => {
 			expect(r.v).toBeGreaterThanOrEqual(12);
 			expect(r.moved).toEqual(["activity.tp.cccc"]);
 			expect(r.left).toBe(0);
-			// non-cursor knowledge rows are untouched
-			const kept = new Database(join(reg, "governor.db"), {
+			// knowledge rows are not cursors — phase 3 moves them, intact, into
+			// the knowledge store (knowledge.db knowledge_facts)
+			const kept = new Database(join(reg, "knowledge.db"), {
 				readonly: true,
 			})
-				.query("SELECT value FROM facts WHERE key = 'lesson.keep'")
+				.query("SELECT value FROM knowledge_facts WHERE key = 'lesson.keep'")
 				.get() as {
 				value: string;
 			};

@@ -29,6 +29,11 @@ import {
 	cmdConsults,
 	cmdWhoKnows,
 } from "../coord/consult.ts";
+import {
+	cmdAsk,
+	cmdConsultDefer,
+	cmdConsultTick,
+} from "../coord/consult-v2-cli.ts";
 import { cmdCoordinate } from "../coord/coordination.ts";
 import { cmdExecutorCv } from "../coord/executor-cv.ts";
 import {
@@ -221,6 +226,27 @@ const VERBS: VerbSpec[] = [
 			'usage: consult-reply <C##> "<answer>" [--decline] [--version ref] --as <expert-sid> | consult-reply <C##> --feedback resolved|failed|unused [--evidence result] [--version ref] --as <asker-sid>',
 		lax: true,
 		run: (p) => cmdConsultReply(p.rest),
+	}),
+	defineVerb({
+		name: "ask",
+		usage:
+			'usage: ask "<question>" --to <sid>|<sid,sid>|fleet|hub:<name> [--kind ask|tell|bank] [--priority high|normal|low] [--non-blocking] [--scope s] --as <sid> — consult v2: oracle first, high+direct = interrupt (steer), else BTW digest',
+		lax: true,
+		run: (p) => cmdAsk(p.rest),
+	}),
+	defineVerb({
+		name: "consult-defer",
+		usage:
+			'usage: consult-defer <C##> --reason "<why>" --as <recipient-sid> — explicit defer of an interrupt consult',
+		lax: true,
+		run: (p) => cmdConsultDefer(p.rest),
+	}),
+	defineVerb({
+		name: "consult-tick",
+		usage:
+			"usage: consult-tick — flush queued interrupts whose window opened (coalesced) and escalate un-acked ones",
+		lax: true,
+		run: (p) => cmdConsultTick(p.rest),
 	}),
 	defineVerb({
 		name: "consults",

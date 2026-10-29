@@ -2,9 +2,19 @@
 // Handler bodies moved verbatim from bin/coord.ts's if/else chain —
 // one-tab indent preserved, output byte-compatible.
 
+import {
+	ensureKnowledgeFacts,
+	isKnowledgeFactKey,
+	originKindOf,
+	sourceRefOf,
+} from "../lib/knowledge/knowledge-facts.ts";
+import { openKnowledgeDb } from "../lib/knowledge/govdb-knowledge.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { assertCapsuleBounds, itemCapsuleKey } from "../lib/lanes/capsule-fence.ts";
+import {
+	assertCapsuleBounds,
+	itemCapsuleKey,
+} from "../lib/lanes/capsule-fence.ts";
 import {
 	ConfidenceError,
 	glyphFor,
@@ -59,11 +69,28 @@ function parseIfVersion(raw: string | null): number | null {
 	return n;
 }
 
+// hub design phase 3: knowledge-shaped keys (lesson./finding./claim./
+// decant.claim.) live in knowledge.db knowledge_facts; everything else
+// stays in governor facts. One router, every fact verb rides it.
+let kbHandle: ReturnType<typeof openKnowledgeDb> | null = null;
+function factStore(key: string): {
+	h: typeof db;
+	t: "facts" | "knowledge_facts";
+} {
+	if (!isKnowledgeFactKey(key)) return { h: db, t: "facts" };
+	if (!kbHandle) {
+		kbHandle = openKnowledgeDb();
+		ensureKnowledgeFacts(kbHandle);
+	}
+	return { h: kbHandle as unknown as typeof db, t: "knowledge_facts" };
+}
+
 function casWrite(
 	key: string,
 	expected: number | null,
 	write: () => void,
 ): { ok: boolean; cur: number | null } {
+	const { h, t } = factStore(key);
 	if (expected == null) {
 		write();
 		return { ok: true, cur: null };
@@ -71,10 +98,10 @@ function casWrite(
 	let cur: number | null = null;
 	for (let attempt = 0; ; attempt++) {
 		try {
-			const ok = db.transaction(() => {
-				const r = db
-					.query("SELECT version FROM facts WHERE key = ?")
-					.get(key) as { version: number } | undefined;
+			const ok = h.transaction(() => {
+				const r = h.query(`SELECT version FROM ${t} WHERE key = ?`).get(key) as
+					| { version: number }
+					| undefined;
 				cur = r ? r.version : null;
 				// absent normalizes to 0: --if-version 0 is the create-only
 				// expectation
@@ -253,9 +280,10 @@ export async function cmdFact(rest: string[]): Promise<void> {
 						ts: `${Date.now()}`,
 					})
 				: null;
+		const { h: fh, t: ft } = factStore(key);
 		const r = casWrite(key, expected, () => {
-			const cur = db
-				.query("SELECT confidence_stamp FROM facts WHERE key = ?")
+			const cur = fh
+				.query(`SELECT confidence_stamp FROM ${ft} WHERE key = ?`)
 				.get(key) as { confidence_stamp: string | null } | undefined;
 			const prior = parseStamp(cur?.confidence_stamp);
 			let stamp: ReturnType<typeof makeStamp> | null = null;
@@ -274,24 +302,27 @@ export async function cmdFact(rest: string[]): Promise<void> {
 					throw e;
 				}
 			}
-			db.query(
-				"INSERT INTO facts (key, value, source, version, ts, confidence, confidence_stamp, provenance) VALUES (?, ?, ?, 1, ?, ?, ?, ?) " +
-					"ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, version = version + 1, ts = excluded.ts, confidence = excluded.confidence, confidence_stamp = excluded.confidence_stamp, provenance = excluded.provenance",
+			const stampJson = stamp ? JSON.stringify(stamp) : null;
+			const kf = ft === "knowledge_facts";
+			fh.query(
+				`INSERT INTO ${ft} (key, value, source, version, ts, confidence, confidence_stamp, provenance${kf ? ", origin_kind, source_ref" : ""}) VALUES (?, ?, ?, 1, ?, ?, ?, ?${kf ? ", ?, ?" : ""}) ` +
+					`ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, version = version + 1, ts = excluded.ts, confidence = excluded.confidence, confidence_stamp = excluded.confidence_stamp, provenance = excluded.provenance${kf ? ", source_ref = COALESCE(excluded.source_ref, source_ref)" : ""}`,
 			).run(
 				key,
 				value,
 				src,
 				Date.now(),
 				stamp?.value ?? null,
-				stamp ? JSON.stringify(stamp) : null,
+				stampJson,
 				provenance,
+				...(kf ? [originKindOf(key), sourceRefOf(key, stampJson)] : []),
 			);
 			if (stamp)
 				db.query(
 					"INSERT INTO confidence_history (ts, tbl, row_key, value, setter, evidence, verdict, ref, prior, prior_setter, prior_ts, by_sid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 				).run(
 					stamp.ts,
-					"facts",
+					ft,
 					key,
 					stamp.value,
 					stamp.setter,
@@ -309,8 +340,8 @@ export async function cmdFact(rest: string[]): Promise<void> {
 				`fact ${key}: --if-version ${expected} refused — current version ${r.cur ?? "unset"}`,
 			);
 		console.log(`fact ${key} = ${value}`);
-		const stamped = db
-			.query("SELECT confidence_stamp FROM facts WHERE key = ?")
+		const stamped = fh
+			.query(`SELECT confidence_stamp FROM ${ft} WHERE key = ?`)
 			.get(key) as { confidence_stamp: string | null } | undefined;
 		const st = parseStamp(stamped?.confidence_stamp);
 		if (st)
@@ -319,11 +350,16 @@ export async function cmdFact(rest: string[]): Promise<void> {
 			);
 		console.log(dim(FACT_SCHEMA_NOTE));
 	} else if (sub === "get") {
-		const r = db
-			.query(
-				"SELECT value, version, ts, confidence, confidence_stamp, provenance, stale_at, stale_reason FROM facts WHERE key = ?",
-			)
-			.get(rest[1] ?? "") as
+		const { h: gh, t: gt } = factStore(rest[1] ?? "");
+		const getSql = (t: string) =>
+			`SELECT value, version, ts, confidence, confidence_stamp, provenance, stale_at, stale_reason FROM ${t} WHERE key = ?`;
+		// mixed-version window: an older writer may still land a knowledge key in
+		// governor facts until the next open migrates it — read through to it
+		const r = (gh.query(getSql(gt)).get(rest[1] ?? "") ??
+			(gt === "knowledge_facts"
+				? db.query(getSql("facts")).get(rest[1] ?? "")
+				: null) ??
+			undefined) as
 			| {
 					value: string;
 					version: number;
@@ -367,11 +403,23 @@ export async function cmdFact(rest: string[]): Promise<void> {
 		}
 		const orderLimit =
 			limit > 0 ? ` ORDER BY key LIMIT ${Math.floor(limit)}` : " ORDER BY key";
-		const rows = db
-			.query(
-				`SELECT key, value, version, ts, confidence, confidence_stamp, stale_at, stale_reason FROM facts WHERE ${where}${orderLimit}`,
-			)
-			.all(...params) as {
+		const listSql = (t: string) =>
+			`SELECT key, value, version, ts, confidence, confidence_stamp, stale_at, stale_reason FROM ${t} WHERE ${where}${orderLimit}`;
+		const kbRows = (() => {
+			try {
+				const { h } = factStore("lesson._probe");
+				return h.query(listSql("knowledge_facts")).all(...params);
+			} catch {
+				return [];
+			}
+		})();
+		const merged = new Map<string, unknown>();
+		for (const r of [...db.query(listSql("facts")).all(...params), ...kbRows])
+			merged.set((r as { key: string }).key, r);
+		const rows = [...merged.entries()]
+			.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+			.map(([, r]) => r)
+			.slice(0, limit > 0 ? Math.floor(limit) : undefined) as {
 			key: string;
 			value: string;
 			version: number;
@@ -409,7 +457,8 @@ export async function cmdFact(rest: string[]): Promise<void> {
 		// that cleans the W773 row
 		const key = rest[1];
 		if (!key) die("usage: fact rm <key>");
-		const n = db.query("DELETE FROM facts WHERE key = ?").run(key).changes;
+		const { h: rh, t: rt } = factStore(key);
+		const n = rh.query(`DELETE FROM ${rt} WHERE key = ?`).run(key).changes;
 		if (!n) die(`fact rm: no such key "${key}"`);
 		console.log(`${green("✓")} fact ${key} removed`);
 	} else
@@ -879,9 +928,25 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 				`gc: --forget refuses "${prefix}" — word/dot/dash prefixes only, machine cursor namespaces are never forgettable`,
 			);
 		const cutS = Date.now() - days * 86_400_000;
-		const n = db
-			.query("DELETE FROM facts WHERE key LIKE ? AND ts < ?")
-			.run(`${prefix}%`, cutS).changes;
+		// phase 3: knowledge-shaped rows forget from knowledge.db; counted by
+		// SELECT (DELETE .changes includes trigger writes)
+		const kbH = factStore("lesson._probe").h;
+		const kn =
+			(
+				kbH
+					.query(
+						"SELECT COUNT(*) AS n FROM knowledge_facts WHERE key LIKE ? AND ts < ?",
+					)
+					.get(`${prefix}%`, cutS) as { n: number } | null
+			)?.n ?? 0;
+		kbH
+			.query("DELETE FROM knowledge_facts WHERE key LIKE ? AND ts < ?")
+			.run(`${prefix}%`, cutS);
+		const n =
+			kn +
+			db
+				.query("DELETE FROM facts WHERE key LIKE ? AND ts < ?")
+				.run(`${prefix}%`, cutS).changes;
 		forgot.push(`${prefix.replace(/\.$/, "")}>${days}d: ${n}`);
 	}
 	if (forgot.length) console.log(`gc: forgot ${forgot.join(", ")}`);

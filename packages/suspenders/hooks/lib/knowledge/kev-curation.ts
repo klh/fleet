@@ -4,7 +4,7 @@ import type { Database } from "bun:sqlite";
 import { kevTypedDecision } from "./kev.ts";
 import { kevCurationTimeoutMs } from "./kev-review.ts";
 
-export type CurationKind = "work" | "consult" | "capsule";
+export type CurationKind = "work" | "consult" | "capsule" | "decant";
 export type CurationChoice = "store" | "noise" | "review" | "unavailable";
 
 export interface CurationInput {

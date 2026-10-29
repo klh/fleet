@@ -291,42 +291,48 @@ export function knowledgeSearch(
 	} catch {} // pre-v6 db opened raw — skip honestly
 	// 2. facts (key+value) — first search index for facts; ranked, no gate.
 	// W181 F2: scoped searches exclude them (facts carry no scope tags).
+	// phase 3: knowledge facts live in knowledge.db knowledge_facts; governor
+	// facts keep the control-plane rows (and pre-migration knowledge rows)
 	if (auxEligible) {
-		try {
-			out.push(
-				...aux
-					.query(
-						`SELECT f.key, f.ts, f.confidence,
-	snippet(facts_fts, 0, '[', ']', '…', 12) AS snip
-	FROM facts_fts
-	JOIN facts f ON f.rowid = facts_fts.rowid
-	WHERE facts_fts MATCH ?
+		for (const [h, t] of [
+			[db, "knowledge_facts"],
+			[aux, "facts"],
+		] as const)
+			try {
+				out.push(
+					...h
+						.query(
+							`SELECT f.key, f.ts, f.confidence,
+	snippet(${t}_fts, 0, '[', ']', '…', 12) AS snip
+	FROM ${t}_fts
+	JOIN ${t} f ON f.rowid = ${t}_fts.rowid
+	WHERE ${t}_fts MATCH ?
 	ORDER BY rank LIMIT ?`,
-					)
-					.all(match, limit)
-					.map((r: unknown): KnowledgeHit | null => {
-						const o = r as {
-							key: string;
-							ts: number;
-							confidence: number | null;
-							snip?: string;
-						};
-						if (
-							minConf != null &&
-							(o.confidence == null || o.confidence < minConf)
 						)
-							return null;
-						return {
-							kind: "fact" as const,
-							id: 0,
-							ts: o.ts,
-							snippet: o.snip ?? "",
-							key: o.key,
-						};
-					})
-					.filter((h): h is KnowledgeHit => h !== null),
-			);
-		} catch {} // facts_fts absent — skip honestly
+						.all(match, limit)
+						.map((r: unknown): KnowledgeHit | null => {
+							const o = r as {
+								key: string;
+								ts: number;
+								confidence: number | null;
+								snip?: string;
+							};
+							if (
+								minConf != null &&
+								(o.confidence == null || o.confidence < minConf)
+							)
+								return null;
+							return {
+								kind: "fact" as const,
+								id: 0,
+								ts: o.ts,
+								snippet: o.snip ?? "",
+								key: o.key,
+							};
+						})
+						.filter((h): h is KnowledgeHit => h !== null),
+				);
+			} catch {} // facts_fts absent — skip honestly
 	}
 	// 3. consult_kb — answered consults (problem → solution) joined in.
 	// W181 F2: the domain filter matches the consult's project tag; area/

@@ -1,6 +1,15 @@
 import { createHash } from "node:crypto";
+import {
+	listKnowledgeFacts,
+	withKnowledgeFacts,
+} from "../lib/knowledge/knowledge-facts.ts";
 import { readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
+import {
+	type OracleTier,
+	oracleEligibility,
+	outranks,
+} from "../lib/consult/oracle.ts";
 import { factDemoted } from "../lib/federation/consult-federation-hub.ts";
 import {
 	type GovernorStore,
@@ -181,14 +190,10 @@ export function lessonLookup(
 		),
 	];
 	if (!terms.length) return null;
-	const rows = db
-		.query(
-			"SELECT key, value FROM facts WHERE key LIKE 'lesson.%' AND key NOT LIKE 'lesson.seen.%'",
-		)
-		.all() as {
-		key: string;
-		value: string;
-	}[];
+	// hub design phase 3: lessons are read from the knowledge store
+	const rows = withKnowledgeFacts((kb) =>
+		listKnowledgeFacts(kb, { prefixes: ["lesson."] }),
+	).map((r) => ({ key: r.key, value: r.value ?? "" }));
 	let best: { key: string; value: string; score: number } | null = null;
 	for (const r of rows) {
 		const hay = `${r.key} ${r.value}`.toLowerCase().split(/[^a-z0-9_.-]+/);
@@ -210,30 +215,33 @@ export function lessonLookup(
 // (trustOf via withTrust) is answered BY THE PLANE, trust attached — no
 // expert round-trip. Same deterministic overlap bar as kbLookup; 1-hop
 // pointer neighbors never answer (they matched the graph, not the question).
+// Phase 4 (owner 2026-10-29): candidates answer too, marked unreviewed;
+// drift/retired/rejected never answer; active outranks candidate (D9);
+// entries downvoted past knowledge.downvote_threshold lanes are demoted.
+export type OracleFactHit = KnowledgeHit & { oracle: OracleTier };
 export async function factLookup(
 	question: string,
-): Promise<KnowledgeHit | null> {
+): Promise<OracleFactHit | null> {
 	const terms = [...new Set(kbTerms(question))];
 	if (!terms.length) return null;
 	const hits = withTrust(
 		await makeStore().search({ query: question, limit: 10 }),
 	);
-	let best: KnowledgeHit | null = null;
-	let bestOverlap = 0;
+	let best: { h: KnowledgeHit; tier: OracleTier; overlap: number } | null =
+		null;
 	for (const h of hits) {
-		if (h.kind !== "knowledge" || h.hop || h.trust !== "verified") continue;
+		const tier = oracleEligibility(h);
+		if (!tier) continue;
 		if (factDemoted(db, h.id)) continue;
 		const hay = `${h.topic ?? ""} ${h.fact ?? ""}`
 			.toLowerCase()
 			.split(/[^a-z0-9_.-]+/);
 		const shared = terms.filter((t) => hay.includes(t));
 		const overlap = shared.length / terms.length;
-		if (shared.length >= 2 && overlap >= 0.6 && overlap > bestOverlap) {
-			best = h;
-			bestOverlap = overlap;
-		}
+		if (shared.length < 2 || overlap < 0.6) continue;
+		if (outranks({ tier, overlap }, best)) best = { h, tier, overlap };
 	}
-	return best;
+	return best ? { ...best.h, oracle: best.tier } : null;
 }
 
 export function renderKnowledgeHit(

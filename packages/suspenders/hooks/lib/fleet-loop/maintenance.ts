@@ -375,6 +375,16 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		],
 	},
 	{
+		// hub design phase 4: flush queued consult interrupts whose window
+		// opened (one coalesced steer per recipient) and walk the escalation
+		// chain (re-steer → inbox + notice → fleet) for un-acked ones.
+		name: "consult-tick",
+		everySeconds: 60,
+		nice: 5,
+		timeoutMs: 60_000,
+		argv: (root) => [join(root, "hooks/bin/coord.ts"), "consult-tick"],
+	},
+	{
 		// W969 Signals-lite — per-run silent-failure scan of closed lanes
 		// through the pinned oracle leg (:8903 default): bounded evidence
 		// (transcript tail + capsule + done payload), fixed four-class prompt,

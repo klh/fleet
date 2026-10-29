@@ -44,8 +44,12 @@ export function ensureKevReview(kb: Database): void {
 	kb.run(DDL);
 }
 
+/** downvote = a knowledge entry demoted by asker feedback (phase 4): it
+ *  waits for a human reviewer, never for a Kev re-curation pass. */
+export type ReviewKind = CurationKind | "downvote";
+
 export interface ReviewEntry {
-	kind: CurationKind;
+	kind: ReviewKind;
 	reference: string;
 	title: string;
 	text: string;
@@ -101,7 +105,7 @@ export async function drainKevReview(
 	const out: DrainOutcome = { stored: 0, dropped: 0, pending: 0, expired: 0 };
 	const rows = kb
 		.query(
-			"SELECT id, kind, reference, title, text, sid, attempts FROM kev_review WHERE state = 'pending' ORDER BY id LIMIT ?",
+			"SELECT id, kind, reference, title, text, sid, attempts FROM kev_review WHERE state = 'pending' AND kind <> 'downvote' ORDER BY id LIMIT ?",
 		)
 		.all(deps.limit ?? 20) as (ReviewEntry & {
 		id: number;
@@ -112,7 +116,7 @@ export async function drainKevReview(
 	);
 	for (const r of rows) {
 		const v = await deps.suggest({
-			kind: r.kind,
+			kind: r.kind as CurationKind,
 			title: r.title,
 			text: r.text,
 			reference: r.reference,
