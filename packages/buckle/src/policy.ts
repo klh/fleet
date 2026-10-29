@@ -84,6 +84,11 @@ export interface GatewayPolicy {
 	// CONFIG — no rates ship in-repo). null = absent block, nothing prices;
 	// a malformed table is startup-fatal (fail-closed like provider_pools).
 	cost?: CostPolicy | null;
+	/** W914 litellm-ops passthrough group (config-over-code): the upstream
+	 *  pool group serving files/batches/audio-multipart/images-edits ops.
+	 *  Registry default "litellm-ops"; machine override via the runtime
+	 *  routing-policy.json. */
+	litellm_ops?: { group?: string };
 }
 
 /** W142 aids policy (routing-policy.yaml `aids:` block). Belt ignores the

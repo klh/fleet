@@ -81,6 +81,9 @@ export interface Ctx {
 	/** W461 stage 2: set once the admitted observation is published —
 	 *  ended events only ride admitted requests. */
 	admitted?: boolean;
+	/** W914: set when the registry denies aids for this path — the
+	 *  no-injection reason recorded on the audit row. */
+	aidsSkip?: string;
 }
 
 /** W461 stage 2: publish one lane observation for this request. Inert

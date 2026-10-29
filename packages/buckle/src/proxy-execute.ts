@@ -73,7 +73,10 @@ export async function runExecute(
 		tier: ctx.tier,
 		allow_cloud: sel.prefs.allow_cloud,
 		error_code: null,
-		why: sel.why,
+		why:
+			ctx.aidsSkip === undefined
+				? sel.why
+				: `${sel.why} | aids skipped (injection: none — ${ctx.aidsSkip})`,
 		hop: hopKindOf(ctx.hop),
 		traffic_kind: ctx.trafficKind,
 		repo_hash: ctx.acct?.repoHash ?? null,

@@ -7,6 +7,10 @@ import {
 	parsePreferHeader,
 } from "@klh/telemetry/src/prefer-header.ts";
 import {
+	PREFER_HEADER,
+	parsePreferHeader,
+} from "../../telemetry/src/prefer-header.ts";
+import {
 	applyAccountPolicy,
 	preferAfterScope,
 	REPO_CLAIM_HEADER,
@@ -16,6 +20,7 @@ import { affKeyOf } from "./affinity.ts";
 import { applyWireAids } from "./aids-routes.ts";
 import type { AppDeps } from "./app-deps.ts";
 import { scoreComplexity, textFromMessages } from "./complexity.ts";
+import { matchEndpoint } from "./endpoints.ts";
 import { principalOf } from "./gov/federation.ts";
 import { beginInflight } from "./gov/inflight.ts";
 import { hintFromHeaders } from "./hints.ts";
@@ -144,15 +149,22 @@ export async function proxy(
 	// W461 stage 2: admitted — unsampled, published before any routing.
 	ctx.admitted = true;
 	observe(deps, ctx, "lane.request.admitted");
-	const wire = await applyWireAids(
-		deps,
-		req.headers.get("x-belt-aids"),
-		body,
-		dialect,
-		ctx.rid,
-	);
-	body = wire.body;
-	ctx.condenseIn = wire.condenseIn;
+	// W914: aids ride semantically supported bodies only — the registry's
+	// injection verdict gates the aid pass; a denial records its reason.
+	const spec = matchEndpoint("POST", path);
+	if (spec?.injection === "none") {
+		ctx.aidsSkip = spec.why ?? "opaque path";
+	} else {
+		const wire = await applyWireAids(
+			deps,
+			req.headers.get("x-belt-aids"),
+			body,
+			dialect,
+			ctx.rid,
+		);
+		body = wire.body;
+		ctx.condenseIn = wire.condenseIn;
+	}
 	ctx.affKey = deps.affinity ? affKeyOf(body) : null;
 	ctx.group = model;
 	ctx.model = model;
