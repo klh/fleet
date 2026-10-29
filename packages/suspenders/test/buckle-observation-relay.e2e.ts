@@ -2,9 +2,9 @@ import { expect, test } from "./pw";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { exportObservations } from "../../buckle/src/observation-export.ts";
-import type { Observation } from "../../buckle/src/observe.ts";
-import { LaneProjection } from "../../buckle/src/projection.ts";
+import { exportObservations } from "@klh/buckle/src/observation-export.ts";
+import type { Observation } from "@klh/buckle/src/observe.ts";
+import { LaneProjection } from "@klh/buckle/src/projection.ts";
 import {
 	type BuckleObservationPeerState,
 	peersFromStack,

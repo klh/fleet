@@ -20,7 +20,7 @@ import {
 	spokeCapabilities,
 	type CapabilityFlags,
 } from "../hooks/lib/federation/profile.ts";
-import { buildCapabilities } from "../../buckle/src/gov/hub-seam.ts";
+import { buildCapabilities } from "@klh/buckle/src/gov/hub-seam.ts";
 
 const eqFlags = (a: CapabilityFlags, b: CapabilityFlags): boolean =>
 	ALL_CAPABILITIES.every((k) => a[k] === b[k]);

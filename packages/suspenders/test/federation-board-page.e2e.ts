@@ -4,8 +4,8 @@
 // the key).
 import { expect, test } from "./pw";
 import { handleFederationUsage } from "../hooks/board/routes-federation.ts";
-import { startServer } from "../../buckle/src/server.ts";
-import { createReferenceGovSeam } from "../../buckle/src/gov/reference-seam.ts";
+import { startServer } from "@klh/buckle/src/server.ts";
+import { createReferenceGovSeam } from "@klh/buckle/src/gov/reference-seam.ts";
 
 const ROOT = "buckle-test-root";
 

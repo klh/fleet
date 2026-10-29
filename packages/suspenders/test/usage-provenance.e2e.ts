@@ -2,7 +2,7 @@ import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
 import { seedUsage } from "../hooks/lib/usage/usage-seed.ts";
 import { buildUsageReport } from "../hooks/lib/usage/usage.ts";
-import { probePathFor } from "../../belt/bin/inventory-probe.ts";
+import { probePathFor } from "@klh/belt/bin/inventory-probe.ts";
 
 function seeded() {
 	const db = new Database(":memory:");

@@ -9,8 +9,8 @@ import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { resolveNetworkDbPaths } from "../../buckle/src/network-read-model.ts";
-import { LaneProjection } from "../../buckle/src/projection.ts";
+import { resolveNetworkDbPaths } from "@klh/buckle/src/network-read-model.ts";
+import { LaneProjection } from "@klh/buckle/src/projection.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "w858net-home-"));
 const REPO = mkdtempSync(join(tmpdir(), "w858net-repo-"));

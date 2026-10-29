@@ -1,5 +1,5 @@
 import { expect, test } from "./pw";
-import { registryEntries } from "../../belt/bin/registry.ts";
+import { registryEntries } from "@klh/belt/bin/registry.ts";
 import {
 	MODEL_INVENTORY,
 	matchingRegistrations,

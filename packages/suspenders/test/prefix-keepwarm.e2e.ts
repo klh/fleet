@@ -15,7 +15,7 @@ import {
 	reportCache,
 	type CapturedPrefix,
 } from "../hooks/bin/prefix-keepwarm.ts";
-import { usageFromAnthropic } from "../../buckle/src/usage.ts";
+import { usageFromAnthropic } from "@klh/buckle/src/usage.ts";
 
 test.setTimeout(20_000);
 

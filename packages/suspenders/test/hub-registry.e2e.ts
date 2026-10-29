@@ -169,7 +169,7 @@ test.describe("writeHubRegistry", () => {
 	});
 
 	test("belt readHubs parses the generated file (cross-package contract)", async () => {
-		const { readHubs } = await import("../../belt/bin/hubs.ts");
+		const { readHubs } = await import("@klh/belt/bin/hubs.ts");
 		// regenerate over a fresh roster so two labels coexist
 		writeFileSync(
 			file,
