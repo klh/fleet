@@ -79,5 +79,4 @@ suspenders/scripts/route-preflight.ts -> buckle (../../buckle/src/router.ts)
 suspenders/scripts/route-preflight.ts -> buckle (../../buckle/src/upstreams.ts)
 suspenders/sim/ikea-pilot.ts -> buckle (../../buckle/src/server.ts)
 suspenders/test/playwright.config.ts -> (repo) (../../../playwright.base.ts)
-suspenders/test/watchdog-memory.e2e.ts -> local-llm (../../local-llm/memory-policy.ts)
 `;

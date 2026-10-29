@@ -2,7 +2,7 @@ import { expect, test } from "./pw";
 import {
 	coldLoadTimeoutMs,
 	wiredGuardGb,
-} from "../../local-llm/memory-policy.ts";
+} from "@klh/local-llm/memory-policy.ts";
 import {
 	emergencyWiredLimitGb,
 	loadingReservation,
