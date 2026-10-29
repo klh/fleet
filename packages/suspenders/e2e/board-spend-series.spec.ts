@@ -117,8 +117,8 @@ test("gui: spark bars span the measured track edge-to-edge at both widths", {
 		tasks: Array<{ id: string; project: string }>;
 	};
 	const mine = feed.tasks.find((t) => t.id === wId);
-	expect(mine, `no tasks row for ${wId}`).toBeDefined();
-	const key = `${mine?.project}\u0000${wId}`;
+	if (!mine) throw new Error(`no tasks row for ${wId}`);
+	const key = `${mine.project}\u0000${wId}`;
 	await page.route("**/api/spend-series", (route) =>
 		route.fulfill({
 			contentType: "application/json",
