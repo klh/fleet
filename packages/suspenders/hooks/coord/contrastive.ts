@@ -34,7 +34,7 @@ import {
 	CLOUD_MODEL,
 	CLOUD_HINT,
 	ORACLE_SYSTEM,
-} from "../lib/oracle-legs.ts";
+} from "../lib/hub/oracle-legs.ts";
 import { buckleChat } from "../lib/hub/inference-buckle.ts";
 import {
 	assignIds,
