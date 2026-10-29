@@ -14,6 +14,11 @@
 //   ERROR   /status last_error is fresh (< 5 min)
 //   SPIKE   an alert-counter increased since the previous pass
 //   QUEUE   oldest READY work item older than the queue-age threshold
+//   THROUGHPUT  buckle_throughput_incident_active 0->1 (W1124.23.2): a
+//              throughput-degradation incident onset; RECOVER when the
+//              gauge clears or its cohort series drops out of the window.
+//              Rides the admin metrics join (below) — the public /metrics
+//              face deliberately stays Buckle-only (W1124.23.1).
 //
 // usage: metrics-alert [--help] — the `run` verb is the default (W656.3
 //   verb-kit): [--watch <s>] [--json]; targets: METRICS_ALERT_TARGETS env
@@ -51,7 +56,8 @@ export type AlertKind =
 	| "HEALTH"
 	| "ERROR"
 	| "SPIKE"
-	| "QUEUE";
+	| "QUEUE"
+	| "THROUGHPUT";
 
 export interface Alert {
 	kind: AlertKind;
@@ -64,13 +70,38 @@ export const QUEUE_AGE_MS =
 	Number(process.env.METRICS_ALERT_QUEUE_HOURS ?? 24) * 3_600_000;
 const SCRAPE_TIMEOUT_MS = 5_000;
 const ERROR_FRESH_MS = 5 * 60_000;
-// families whose increase means something broke (delta-diffed per pass)
+// families whose increase means something broke (delta-diffed base surface)
 export const ALERT_COUNTERS = [
 	"buckle_ledger_dropped_total",
 	"buckle_cooldown_ejections_total",
 	"buckle_ladder_fallbacks_total",
 	"buckle_flashx_refusals_total",
 ] as const;
+
+// W1124.23.2: the throughput incident detail rides the admin-gated metrics
+// join (buckle:admin:READ_), not the public /metrics face. When the key is
+// configured the scrape joins it; otherwise the alert class stays silent
+// (absent key = absent surface, never a fabricated DROP).
+export const ADMIN_METRICS_PATH = "/v1/admin/metrics";
+export const BUCKLE_ADMIN_CONF = `${homedir()}/.claude/local-llm/belt.env`;
+export const adminKeyOf = (env = process.env): string | null => {
+	const file = env.METRICS_ALERT_BUCKLE_ADMIN_KEY_FILE ?? BUCKLE_ADMIN_CONF;
+	try {
+		const line = readFileSync(file, "utf8")
+			.split("\n")
+			.find((l) => l.startsWith("BUCKLE_ADMIN_KEY="));
+		return line?.slice("BUCKLE_ADMIN_KEY=".length).trim() || null;
+	} catch {
+		return null;
+	}
+};
+export const joinAdminSeries = (base: Series[], extra: Series[]): Series[] => {
+	const seen = new Set(base.map((s) => `${s.name}|${labelKey(s.labels)}`));
+	return [
+		...base,
+		...extra.filter((s) => !seen.has(`${s.name}|${labelKey(s.labels)}`)),
+	];
+};
 
 const INSIGHTS = `${homedir()}/.claude-insights`;
 export const STATE_PATH = `${INSIGHTS}/metrics-alert-state.json`;
@@ -153,6 +184,30 @@ export function counterSpikes(
 			});
 	}
 	return out;
+}
+
+// W1124.23.2: incident onsets from the W1124.23.1 throughput buckets.
+// Onset = gauge 0->1 (or series appearing at 1); 1->1 across passes is the
+// SAME incident, never re-fired. Cohort labels ride the alert detail.
+export const THROUGHPUT_INCIDENT_GAUGE = "buckle_throughput_incident_active";
+
+export function throughputOnsets(prev: Series[], cur: Series[]) {
+	const before = new Map(
+		prev
+			.filter((s) => s.name === THROUGHPUT_INCIDENT_GAUGE)
+			.map((s) => [labelKey(s.labels), s.value] as const),
+	);
+	return cur
+		.filter(
+			(s) =>
+				s.name === THROUGHPUT_INCIDENT_GAUGE &&
+				s.value === 1 &&
+				before.get(labelKey(s.labels)) !== 1,
+		)
+		.map((s) => ({
+			labels: labelKey(s.labels),
+			detail: `throughput incident active: ${labelKey(s.labels)}`,
+		}));
 }
 
 // ---- status-side alerts (pure, exported for tests) ------------------------
@@ -248,13 +303,21 @@ export async function scrapeTarget(
 	let status: StatusBody | null = null;
 	try {
 		const opts = { signal: AbortSignal.timeout(SCRAPE_TIMEOUT_MS) };
-		const [mRes, sRes] = await Promise.all([
+		const key = adminKeyOf();
+		const [mRes, sRes, aRes] = await Promise.all([
 			fetchFn(`${url}/metrics`, opts),
 			fetchFn(`${url}/status`, opts),
+			key
+				? fetchFn(`${url}${ADMIN_METRICS_PATH}`, {
+						...opts,
+						headers: { authorization: `Bearer ${key}` },
+					}).catch(() => null)
+				: Promise.resolve(null),
 		]);
 		if (!mRes.ok || !sRes.ok)
 			throw new Error(`HTTP ${mRes.status}/${sRes.status}`);
 		cur = parseProm(await mRes.text());
+		if (aRes?.ok) cur = joinAdminSeries(cur, parseProm(await aRes.text()));
 		status = (await sRes.json()) as StatusBody;
 	} catch (error) {
 		st.misses += 1;
@@ -301,6 +364,31 @@ export function diffAlerts(
 			target: st.url,
 			detail: `${s.name}{${s.labels}} +${s.delta}`,
 		});
+	for (const t of throughputOnsets(st.series, cur)) {
+		st.active[`THROUGHPUT:${t.labels}`] = "on";
+		alerts.push({
+			kind: "THROUGHPUT",
+			target: st.url,
+			detail: t.detail,
+		});
+	}
+	// a tracked incident gauge no longer at 1 (cleared, or the cohort
+	// series vanished with the retention window) recovers the alert
+	for (const key of Object.keys(st.active)) {
+		if (!key.startsWith("THROUGHPUT:")) continue;
+		const labels = key.slice("THROUGHPUT:".length);
+		const gauge = cur.find(
+			(s) =>
+				s.name === THROUGHPUT_INCIDENT_GAUGE && labelKey(s.labels) === labels,
+		);
+		if (gauge?.value === 1) continue;
+		delete st.active[key];
+		alerts.push({
+			kind: "RECOVER",
+			target: st.url,
+			detail: `throughput incident cleared: ${labels}`,
+		});
+	}
 	if (status)
 		for (const a of statusAlerts(status, now))
 			alerts.push({ kind: a.kind, target: st.url, detail: a.detail });
