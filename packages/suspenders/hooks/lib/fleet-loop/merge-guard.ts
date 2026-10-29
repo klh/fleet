@@ -22,9 +22,15 @@ const MARKERS = "^([<]{7,}|[=]{7,}|[>]{7,}|[|]{7,})([[:space:]].*)?$";
 const SOURCE = /\.(?:[cm]?[jt]s|[jt]sx)$/i;
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024;
 
-function command(cwd: string, args: string[], timeout = 60_000) {
+function command(
+	cwd: string,
+	args: string[],
+	timeout = 60_000,
+	env: Record<string, string | undefined> = process.env,
+) {
 	const p = Bun.spawnSync(args, {
 		cwd,
+		env,
 		stdout: "pipe",
 		stderr: "pipe",
 		timeout,
@@ -392,6 +398,11 @@ function mergeCandidate(options: Options): Result {
 			repo,
 			["git", "merge", "--ff-only", "--no-edit", sha],
 			timeoutMs,
+			{
+				...process.env,
+				FLEET_GUARDED_MAIN_OLD: head,
+				FLEET_GUARDED_MAIN_NEW: sha,
+			},
 		);
 		return publish.code === 0
 			? { code: 0, tail: "" }
