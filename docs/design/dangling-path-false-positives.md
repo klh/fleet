@@ -19,6 +19,7 @@ names.
 | W1798 | `packages/suspenders/test/swarm.ts` | Test hits are runtime-home joins (`join(home, "swarm.ts")`), not repo-file references |
 | W1799 | `packages/suspenders/test/supervisor.ts` | Path never existed on any branch; test hits are runtime string literals, not imports |
 | W1801 | `packages/suspenders/test/new-health.ts` | Path never existed; hits are runtime fixtures (`writeFileSync(join(home, "new-health.ts"))`) |
+| W1800 | `packages/suspenders/test/new-supervisor.ts` | Path never existed (empty `git log --all`); hits are runtime fixtures (`writeFileSync(join(home, "new-supervisor.ts"))` passed as the `supervisorSource` dep) — same class as W1801/W1799 |
 | W1806 | `packages/suspenders/test/gen.ts` | The string is fixture data |
 | W1809 | `packages/suspenders/test/oversize.ts` | Path never existed on any branch; the hit is a tmpdir fixture the test itself writes |
 | W1815 | `lane-launch.ts` | The flagged string is a SQL statement |
