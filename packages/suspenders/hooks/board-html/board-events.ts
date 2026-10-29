@@ -21,8 +21,19 @@ export class FeedRefreshRequestedEvent extends BoardEvent {
 	}
 }
 
+/** A local (non-feed) error banner asks its owner to clear it. */
+export class ErrorDismissRequestedEvent extends BoardEvent {
+	static readonly eventName = "error-dismiss-requested" as const;
+	readonly source: string;
+	constructor(source: string) {
+		super(ErrorDismissRequestedEvent.eventName);
+		this.source = source;
+	}
+}
+
 declare global {
 	interface HTMLElementEventMap {
+		"error-dismiss-requested": ErrorDismissRequestedEvent;
 		"feed-refresh-requested": FeedRefreshRequestedEvent;
 	}
 }

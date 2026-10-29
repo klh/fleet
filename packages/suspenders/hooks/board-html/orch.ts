@@ -55,12 +55,17 @@ function renderDrop(){
   if (drop.busy) h += '<div class="dim">attaching…</div>';
   sigSet(el, sig, h);
 }
+// local (non-feed) <klh-err-banner>s ask their owner to clear them
+if (typeof document !== 'undefined' && document.addEventListener)
+  document.addEventListener('error-dismiss-requested', function(e){
+    if (e.source === 'orchDropErr') orchDropErr(null);
+    else if (e.source === 'orchErr') { orch.err = null; renderOrch(); }
+  });
 function orchDropErr(msg){
   var el = byId('orchDropErr');
   if (!el) return;
   drop.err = msg ? String(msg) : null;
-  if (drop.err) errBanner(el, drop.err, function(){ orchDropErr(null); });
-  else clearErr(el);
+  el.text = drop.err || '';
 }
 function orchClearFiles(){
   drop.files = [];
@@ -107,8 +112,7 @@ function renderOrch(){
 	if (host && (orch.busy || orch.regBusy || orch.prop || orch.err || orchCtx)) host.open = true;
   renderOrchContext();
   var errEl = byId('orchErr');
-  if (orch.err) errBanner(errEl, orch.err, function(){ orch.err = null; renderOrch(); });
-  else clearErr(errEl);
+  errEl.text = orch.err || '';
   var go = byId('orchGo');
   if (go) {
     go.disabled = orch.busy || !!(orchCtx && (orchCtx.loading || !orchCtx.targets || !orchCtx.targets[orchCtx.route]));

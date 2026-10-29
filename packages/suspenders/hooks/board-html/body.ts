@@ -4,11 +4,12 @@
 import { usageHosts } from "../bin/usage-page-html.ts";
 // biome-ignore lint/complexity/noUselessStringRaw: byte-compat (W157)
 export const BODY = String.raw`
+<klh-board-mediator>
 <header>
   <span class="mark">FLEET BOARD</span>
   <div class="right">
     <label class="board-search" for="boardSearch" hidden>Search <input id="boardSearch" type="search" placeholder="tasks, lanes, decisions" autocomplete="off" aria-label="Search tasks, lanes, and decisions"></label>
-    <klh-board-mediator><klh-conn-banner id="conn"></klh-conn-banner></klh-board-mediator>
+    <klh-conn-banner id="conn"></klh-conn-banner>
     <span id="stamp"></span>
     <span id="blockedn" title="Gated work items: READY with unmet dependencies, WAITING, BLOCKED, or PAUSED. The Lanes BLOCKED count uses its own display state."></span>
     <button id="needsn" type="button"></button>
@@ -41,9 +42,9 @@ export const BODY = String.raw`
       <input id="orchFile" type="file" multiple hidden>
     </div>
     <div id="orchFiles"></div>
-    <div id="orchDropErr"></div>
+    <klh-err-banner id="orchDropErr" hidden></klh-err-banner>
     <klh-prompt-preview id="orchPreview"></klh-prompt-preview>
-    <div id="orchErr"></div>
+    <klh-err-banner id="orchErr" hidden></klh-err-banner>
     <div id="orchOut"></div>
   </div>
 </details>
@@ -54,7 +55,7 @@ export const BODY = String.raw`
 <section id="tab-decisions">
   <section id="decisions">
     <h2><button id="decToggle" type="button"><span id="decCaret">-</span> Decisions needed</button><span id="decState" aria-live="polite">loading decisions...</span></h2>
-    <div id="decErr"></div>
+    <klh-err-banner id="decErr" feed="dec" hidden></klh-err-banner>
     <div id="decList"></div>
   </section>
   <div id="hist">
@@ -62,7 +63,7 @@ export const BODY = String.raw`
       <button id="histHead" type="button" aria-expanded="false"><span id="histCaret">+</span> History</button>
       <span id="histState"></span>
     </div>
-    <div id="histErr"></div>
+    <klh-err-banner id="histErr" feed="hist" hidden></klh-err-banner>
     <div id="histBody"></div>
   </div>
 </section>
@@ -84,7 +85,7 @@ export const BODY = String.raw`
     <button type="button" data-focus="waiting">Waiting <span data-count="waiting">0</span></button>
   </nav>
 
-  <div id="tasksErr" class="taberr"></div>
+  <klh-err-banner id="tasksErr" class="taberr" feed="tasks" hidden></klh-err-banner>
   <table id="tasksTbl">
     <thead><tr>
       <th scope="col" data-k="id"><button type="button" class="thsort" data-label="id">id</button></th>
@@ -101,14 +102,14 @@ export const BODY = String.raw`
   </table>
 </section>
 <section id="tab-lanes" hidden>
-  <div id="kanbanErr" class="taberr"></div>
+  <klh-err-banner id="kanbanErr" class="taberr" feed="tasks" hidden></klh-err-banner>
   <nav id="kstatusnav" class="kstatusnav" aria-label="Jump to lane status">
     <button type="button" id="attemptView" class="taskOrder" aria-pressed="false" title="Current-attempt timeline per card: one fixed 90-minute window, 3-minute bins — queue / firstbyte / tool / pause segments, artifact milestones as diamonds, gaps unknown. Spend sparkline keeps its full-history truth view.">attempt view</button>
   </nav>
   <div class="kwrap"><div id="kanban"><div class="state dim">loading lanes...</div></div></div>
 </section>
 <section id="tab-activity" hidden>
-  <div id="actErr" class="taberr"></div>
+  <klh-err-banner id="actErr" class="taberr" feed="act" hidden></klh-err-banner>
   <div id="actHist" class="acthist"></div>
   <div class="feed"><div id="actBody"><div class="r"><span class="dim">loading activity...</span></div></div></div>
 </section>
@@ -116,7 +117,7 @@ export const BODY = String.raw`
   <div class="taskbar">
     <span id="reportStamp" class="dim" role="status"></span>
   </div>
-  <div id="reportErr" class="taberr"></div>
+  <klh-err-banner id="reportErr" class="taberr" feed="report" hidden></klh-err-banner>
   <pre id="reportTable" class="rpttable">loading the work report...</pre>
   <nav id="reportRows" class="rptstrip" aria-label="Expand a report row for its live lane detail"></nav>
   <div id="reportDetail" class="rptdetail"></div>
@@ -154,7 +155,7 @@ export const BODY = String.raw`
   <details class="sec govpanel"><summary>Event stream</summary><div class="feed"><div class="filters" id="filters"></div><div id="events"></div></div></details>
 </section>
 <section id="tab-setup" hidden>
-  <div id="setupErr" class="taberr"></div>
+  <klh-err-banner id="setupErr" class="taberr" feed="setup" hidden></klh-err-banner>
   <p id="setupSummary" class="setupsummary dim" aria-live="polite"></p>
   <div class="grid" id="setupBody"><div class="state dim">loading setup checks...</div></div>
 </section>
@@ -176,6 +177,7 @@ export const BODY = String.raw`
   <div id="taskTail"></div>
 </aside>
 <div id="toasts" aria-live="polite"></div>
+</klh-board-mediator>
 <script>
 var sel = document.getElementById('proj'); // global project filter (full git-common-dir paths, 'all' = no filter)
 var lastData = null; // last good /api/data

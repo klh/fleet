@@ -10,15 +10,15 @@ function renderAct(){
   var body = byId('actBody');
   var hist = byId('actHist');
   if (!actLoaded && !actErr) {
-    clearErr(errEl);
+    errEl.text = '';
     sigSet(body, 'loading', '<div class="r"><span class="dim">loading activity...</span></div>');
     return;
   }
   if (actErr) {
     var when = actOkAt ? ago(Math.round((Date.now() - actOkAt) / 1000)) : 'never';
-    errBanner(errEl, 'activity feed unavailable — last good ' + when, function(){ actErr = null; pollAct(); });
+    errEl.text = 'activity feed unavailable — last good ' + when;
   } else {
-    clearErr(errEl);
+    errEl.text = '';
   }
   if (!actData) return;
   var ev = (actData.events || []).filter(function(e){ return scopedSource(e.source, e.project); });

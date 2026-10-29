@@ -14,19 +14,19 @@ function renderHist(){
   var st = byId('histState');
   var errEl = byId('histErr');
   var body = byId('histBody');
-  if (!histOpen) { setText(st, ''); clearErr(errEl); return; }
+  if (!histOpen) { setText(st, ''); errEl.text = ''; return; }
   var rows = [];
   if (histData) {
     var ds = histData.decisions || [];
     for (var i = 0; i < ds.length; i++) if (decisionInProject(ds[i]) && ds[i].state && ds[i].state !== 'OPEN') rows.push(ds[i]);
   }
-  if (!histLoaded && !histErr) { setText(st, 'loading history...'); clearErr(errEl); return; }
+  if (!histLoaded && !histErr) { setText(st, 'loading history...'); errEl.text = ''; return; }
   if (histErr) {
     var when = histOkAt ? ago(Math.round((Date.now() - histOkAt) / 1000)) : 'never';
-    errBanner(errEl, 'history unavailable — last good ' + when, function(){ histErr = null; pollHist(); });
+    errEl.text = 'history unavailable — last good ' + when;
     setText(st, rows.length ? rows.length + ' archived · stale' : 'unavailable');
   } else {
-    clearErr(errEl);
+    errEl.text = '';
     setText(st, rows.length ? rows.length + ' archived' : '(no archived decisions)');
   }
   if (!rows.length) { sigSet(body, 'empty', ''); return; }

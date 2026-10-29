@@ -54,8 +54,6 @@ function runSetupRender(checks: Record<string, unknown>[]): string {
 		esc: (s: unknown) => String(s),
 		byId: () => ({}),
 		setText: () => {},
-		clearErr: () => {},
-		errBanner: () => {},
 		sigSet: (_el: unknown, _sig: unknown, html: string) => {
 			captured.html = html;
 		},
@@ -70,13 +68,39 @@ function runSetupRender(checks: Record<string, unknown>[]): string {
 describe("W858.7.21 setup checklist grouping", () => {
 	test("local wiring vs remote reachability, no check hidden", () => {
 		const html = runSetupRender([
-			{ id: "llm", label: "Advice LLM endpoint", ok: false, detail: "x", fix: "local LLM stack docs" },
-			{ id: "db", label: "Control-plane database", ok: true, detail: "d", fix: null },
-			{ id: "hubs", label: "Hub reachability", ok: false, detail: "nas no answer at http://127.0.0.1:9", fix: "bun deploy/hubctl.ts status nas" },
-			{ id: "bind", label: "LAN binding", ok: true, detail: "127.0.0.1", fix: null },
+			{
+				id: "llm",
+				label: "Advice LLM endpoint",
+				ok: false,
+				detail: "x",
+				fix: "local LLM stack docs",
+			},
+			{
+				id: "db",
+				label: "Control-plane database",
+				ok: true,
+				detail: "d",
+				fix: null,
+			},
+			{
+				id: "hubs",
+				label: "Hub reachability",
+				ok: false,
+				detail: "nas no answer at http://127.0.0.1:9",
+				fix: "bun deploy/hubctl.ts status nas",
+			},
+			{
+				id: "bind",
+				label: "LAN binding",
+				ok: true,
+				detail: "127.0.0.1",
+				fix: null,
+			},
 		]);
 		expect(html).toContain('sgroup">Local wiring <span class="dim">(2)</span>');
-		expect(html).toContain('sgroup">Remote reachability <span class="dim">(2)</span>');
+		expect(html).toContain(
+			'sgroup">Remote reachability <span class="dim">(2)</span>',
+		);
 		// every check renders exactly once — none hidden, none duplicated
 		for (const label of [
 			"Advice LLM endpoint",

@@ -6,13 +6,15 @@
 import { LitElement, css, html, nothing } from "lit";
 import { FeedRefreshRequestedEvent } from "./board-events.ts";
 import type { ConnVerdict } from "./conn-verdict.ts";
+import { retryButtonStyles } from "./klh-err-banner.ts";
 
 export class KlhConnBanner extends LitElement {
 	static properties = { verdict: { attribute: false } };
 
 	declare verdict: ConnVerdict | null;
 
-	static styles = css`
+	static styles = [
+		css`
 		:host {
 			font-size: 11px;
 			color: var(--klh-dim);
@@ -35,18 +37,9 @@ export class KlhConnBanner extends LitElement {
 		.dot.err {
 			background: var(--klh-danger);
 		}
-		.retry {
-			background: none;
-			border: 1px solid var(--klh-danger);
-			color: var(--klh-danger-ink);
-			border-radius: 2px;
-			font: inherit;
-			font-size: 10px;
-			padding: 1px 8px;
-			cursor: pointer;
-			margin-left: 8px;
-		}
-	`;
+	`,
+		retryButtonStyles,
+	];
 
 	constructor() {
 		super();
