@@ -354,6 +354,36 @@ const VERBS: VerbSpec[] = [
 		run: (p) => cmdKnowledgeConsolidate(p.rest),
 	}),
 	defineVerb({
+		// fork G: the idle-time distiller (lazy import — coord startup stays lean)
+		name: "knowledge-distill",
+		usage: "usage: knowledge-distill status|run|pause|resume|watch [--help]",
+		lax: true,
+		run: async (p) => {
+			const m = await import("../lib/knowledge/distill/cli.ts");
+			return m.dispatchSub(
+				"knowledge-distill",
+				"idle distiller:",
+				m.DISTILL_VERBS,
+				p.rest,
+			);
+		},
+	}),
+	defineVerb({
+		name: "knowledge-graph",
+		usage:
+			"usage: knowledge-graph about|neighbours|path|contradictions [--help]",
+		lax: true,
+		run: async (p) => {
+			const m = await import("../lib/knowledge/distill/cli.ts");
+			return m.dispatchSub(
+				"knowledge-graph",
+				"knowledge graph:",
+				m.GRAPH_VERBS,
+				p.rest,
+			);
+		},
+	}),
+	defineVerb({
 		name: "knowledge-reprocess",
 		usage: "usage: knowledge-reprocess [--apply]",
 		switches: ["--apply"],
