@@ -80,9 +80,9 @@ describe("Z.ai account catalog", () => {
 			model_ids: ["glm-4.7", "glm-5.3", "glm-5.3-flash"],
 			excluded_model_ids: [],
 		});
-		expect(() => parseZaiModelIds({ data: [{ id: "../../bad" }] })).toThrow(
-			"no chat GLM models",
-		);
+		expect(() =>
+			parseZaiModelIds({ data: [{ id: "not-a-glm-model" }] }),
+		).toThrow("no chat GLM models");
 	});
 
 	test("filters non-chat IDs while keeping the chat GLMs", () => {
