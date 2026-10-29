@@ -141,6 +141,10 @@ export const HubProfileSchema = z
 		/** Reviewed canary ref for this hub only (W1094.1 posture) — other
 		 *  hubs keep the shared stack version pinned. */
 		version_override: z.string().optional(),
+		/** Per-hub automatic release consent. An explicit false vetoes a
+		 *  scheduled update even when updates.mode is latest. An absent value
+		 *  inherits the stack-wide mode. */
+		auto_update: z.boolean().optional(),
 		/** W1094.1: hub-machine terminal endpoints (model engines etc.) the
 		 *  route preflight gate may treat as leaves ON THIS hub — never
 		 *  inherited from the Mac specialist registry. */
