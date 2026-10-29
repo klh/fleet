@@ -1,6 +1,6 @@
 {
 	"name": "@klh/speedy",
-	"version": "2.1.0",
+	"version": "2.1.1",
 	"private": true,
 	"description": "the developer environment layer — CLI tools, curated skills, personas, hooks, settings, harness configuration",
 	"type": "module",
