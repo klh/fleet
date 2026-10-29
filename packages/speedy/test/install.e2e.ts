@@ -1,6 +1,8 @@
-// W185 — install.sh contract tests (bun test). Sandboxed HOME + mock W173 hub;
-// never touches the real ~/.claude on this machine.
-import { afterAll, describe, test, expect } from "bun:test";
+// W185 — install.sh contract tests. Sandboxed HOME + mock W173 hub; never
+// touches the real ~/.claude on this machine.
+// W1294.12 sweep-I: ported from install.test.ts to @playwright/test (@api —
+// mock hub enrollment protocol over loopback HTTP).
+import { expect, test } from "@playwright/test";
 import {
 	existsSync,
 	readFileSync,
@@ -19,7 +21,7 @@ const INSTALL = join(REPO, "install.sh");
 // W1135.1.7: sandboxed homes are unique mkdtemp dirs, never a fixed
 // /tmp/w185-home-<pid> family; leftovers from dead runs self-clean.
 const tmpDirs: string[] = [];
-afterAll(() => {
+test.afterAll(() => {
 	for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -104,7 +106,7 @@ async function runHub(
 	return { code, out: out + err };
 }
 
-describe("install.sh", () => {
+test.describe("@api install.sh", () => {
 	test("parses (bash -n)", () => {
 		const r = Bun.spawnSync(["bash", "-n", INSTALL]);
 		expect(r.exitCode).toBe(0);
