@@ -7,6 +7,7 @@
 // standard side-effect import.
 import { css, html, LitElement, nothing, type TemplateResult } from "lit";
 import type { UsageCoveragePanel } from "../bin/usage-chrome.ts";
+import { readPanels } from "./usage-shared.ts";
 
 // same formatting ramp as the sibling usage panels (self-contained: the
 // sibling module's exports would make the vendor bundle cycle)
@@ -20,21 +21,8 @@ const fmtTok = (n: number): string =>
 				: String(Math.round(n));
 const pct1 = (x: number): string => `${(x * 100).toFixed(1)}%`;
 
-const readCoverage = (): UsageCoveragePanel | null => {
-	const el = document.getElementById("usage-data");
-	if (!el) return null;
-	try {
-		return (
-			(
-				JSON.parse(el.textContent ?? "") as {
-					panels?: { coverage?: UsageCoveragePanel };
-				}
-			).panels?.coverage ?? null
-		);
-	} catch {
-		return null;
-	}
-};
+const readCoverage = (): UsageCoveragePanel | null =>
+	readPanels()?.coverage ?? null;
 
 export class KlhUsageCoverage extends LitElement {
 	static properties = { panel: { type: Object, state: true } };

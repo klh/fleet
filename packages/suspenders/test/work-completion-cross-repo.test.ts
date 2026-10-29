@@ -3,6 +3,7 @@ import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
+import { FeedStore } from "../hooks/board-html/feed-store.ts";
 import { TAIL } from "../hooks/board-html/tail.ts";
 import {
 	type CompletionRecord,
@@ -199,32 +200,40 @@ test("cross-repo completion fails closed without a scope repo or with an unknown
 test("tail requests carry project and discard stale cross-project responses", async () => {
 	const task = { id: "W1", proj: "/project/a/.git", data: null };
 	const pending: { url: string; resolve: (response: unknown) => void }[] = [];
-	const fetch = (url: string) =>
-		new Promise((resolve) => pending.push({ url, resolve }));
+	// the tail rides the board FeedStore: its scope discard drops project A
+	const feeds = new FeedStore({
+		fetch: (url) =>
+			new Promise((resolve) =>
+				pending.push({ url, resolve }),
+			) as Promise<Response>,
+		setTimer: null,
+		clearTimer: null,
+		hidden: () => false,
+	});
 	const api = new Function(
 		"task",
-		"fetch",
-		"AbortSignal",
-		`${TAIL}\nrenderTaskTail=function(){}; return {fetchTail,resetTail,state:function(){return tailView;}};`,
-	)(task, fetch, AbortSignal);
-	api.fetchTail();
-	expect(
-		new URL(pending[0].url, "http://localhost").searchParams.get("project"),
-	).toBe(task.proj);
+		"feeds",
+		`${TAIL}\nrenderTaskTail=function(){}; feeds.define('tail', {url: tailUrl, accept: tailAccept, settle: tailLanded}); return {toggleTail,resetTail,state:function(){return tailView;}};`,
+	)(task, feeds);
+	const project = (i: number) =>
+		new URL(pending[i].url, "http://localhost").searchParams.get("project");
+	const answer = (summary: string) => ({
+		ok: true,
+		status: 200,
+		headers: new Headers(),
+		json: async () => ({ ok: true, summary }),
+	});
+	api.toggleTail();
+	expect(project(0)).toBe(task.proj);
 	task.proj = "/project/b/.git";
 	api.resetTail();
-	api.fetchTail();
-	pending[0].resolve({
-		status: 200,
-		json: async () => ({ ok: true, summary: "project A" }),
-	});
+	api.toggleTail();
+	pending[0].resolve(answer("project A"));
 	await Bun.sleep(0);
 	expect(api.state().data).toBeNull();
 	expect(api.state().busy).toBe(true);
-	pending[1].resolve({
-		status: 200,
-		json: async () => ({ ok: true, summary: "project B" }),
-	});
+	expect(project(1)).toBe(task.proj);
+	pending[1].resolve(answer("project B"));
 	await Bun.sleep(0);
 	expect(api.state().data.summary).toBe("project B");
 });

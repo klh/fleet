@@ -1,9 +1,7 @@
 // The board owns Usage navigation; the Lit panels continue to read the
 // same #usage-data contract as the former standalone document.
 export const USAGE = `
-var usageKey = null;
-var usageBusy = false;
-var usageRequest = 0;
+var usageKey = null; // the params of the payload now in #usage-data
 var usageSectionKey = '';
 function usageParams(){
   var parsed = parseHashQuery(location.hash);
@@ -24,33 +22,23 @@ function usageSection(){
     if (target) { usageSectionKey = location.hash; target.scrollIntoView({block: 'start'}); }
   }, 0);
 }
+// the view is the store's manual 'usage' feed (FEEDS): fetched only when
+// the hash params change; a change mid-flight discards the stale view
+function usageUrl(){ return curTab === 'usage' ? '/api/usage/view?' + usageParams().toString() : null; }
 function pollUsage(){
   if (curTab !== 'usage') return;
-  var params = usageParams();
-  var key = params.toString();
-  if (usageKey === key) { usageSection(); return; }
-  if (usageBusy) return;
-  usageBusy = true;
-  var request = ++usageRequest;
+  if (usageKey === usageParams().toString()) { usageSection(); return; }
   var state = byId('usageState');
   state.hidden = false;
   state.textContent = 'loading usage...';
-  fetch('/api/usage/view?' + key, {signal: AbortSignal.timeout(20000)})
-    .then(function(response){ if (!response.ok) throw Error('HTTP ' + response.status); return response.json(); })
-    .then(function(data){
-      if (request !== usageRequest) return;
-      byId('usage-data').textContent = JSON.stringify(data.payload);
-      var host = byId('usageBody');
-      host.replaceChildren(byId('usageTemplate').content.cloneNode(true));
-      usageKey = key;
-      state.hidden = true;
-      usageSection();
-    })
-    .catch(function(error){
-      if (request !== usageRequest) return;
-      state.textContent = 'Usage could not load: ' + String(error.message || error);
-    })
-    .finally(function(){ usageBusy = false; if (curTab === 'usage' && key !== usageParams().toString()) pollUsage(); });
+  feeds.kick('usage', true);
+}
+function usageLanded(data){
+  byId('usage-data').textContent = JSON.stringify(data.payload);
+  byId('usageBody').replaceChildren(byId('usageTemplate').content.cloneNode(true));
+  usageKey = usageParams().toString();
+  byId('usageState').hidden = true;
+  usageSection();
 }
 byId('usageBody').addEventListener('click', function(event){
   var anchor = event.composedPath().find(function(node){ return node && node.tagName === 'A'; });

@@ -4,22 +4,16 @@
 // expand: lane tail + last event, refetched on a 30s cadence while open.
 // DOM rides the chunk sinks (sigSet + esc) per the UI law.
 export const REPORT = String.raw`// --- W1198: live work-report pane ---
-var reportData = null; var reportOkAt = 0; var reportErr = null; var reportBusy = false;
-var reportOpen = null; var reportDetail = null; var reportDetailBusy = false; var reportDetailErr = null;
-var reportTimer = null;
-function pollReport(){
-  if (curTab !== 'report') { if (reportTimer) closeReportRow(); return; }
-  if (reportBusy) return;
-  reportBusy = true;
-  var scope = projQuery();
-  fetch('/api/report' + scope, { signal: AbortSignal.timeout(8000) })
-    .then(function(r){ if (!r.ok) throw Error('HTTP ' + r.status); return r.json(); })
-    .then(function(j){
-      if (scope !== projQuery()) return;
-      reportData = j; reportOkAt = Date.now(); reportErr = null;
-    })
-    .catch(function(e){ if (scope === projQuery()) reportErr = String(e.message || e); })
-    .finally(function(){ reportBusy = false; renderReport(); });
+var reportData = null; var reportOkAt = 0; var reportErr = null;
+var reportOpen = null; var reportDetail = null; var reportDetailErr = null;
+// the pane and the expanded row are the store's 'report' / 'reportRow'
+// feeds (FEEDS): one request in flight each, scope discard on a project
+// switch, the row on a bounded 30s cadence only while expanded
+function pollReport(){ feeds.kick('report', true); }
+function reportRowUrl(){
+  if (curTab !== 'report' || !reportOpen) return null;
+  var project = sel.value && sel.value !== 'all' ? sel.value : (reportData ? reportData.project : '');
+  return '/api/report-row?project=' + encodeURIComponent(project) + '&id=' + encodeURIComponent(reportOpen);
 }
 function renderReport(){
   var err = byId('reportErr');
@@ -51,7 +45,7 @@ function paintReportOpen(){
 function renderReportDetail(){
   var box = byId('reportDetail');
   if (!reportOpen) { sigSet(box, '', ''); return; }
-  var loading = reportDetail == null && !reportDetailErr && reportDetailBusy;
+  var loading = reportDetail == null && !reportDetailErr && feeds.get('reportRow').busy;
   var stamp = reportOpen + ':' + (reportDetail ? reportDetail.ts : '') + ':' + (reportDetailErr || '');
   if (loading) { sigSet(box, 'loading', 'loading row detail...'); return; }
   var head = '';
@@ -72,28 +66,13 @@ function renderReportDetail(){
 }
 function closeReportRow(){
   reportOpen = null; reportDetail = null; reportDetailErr = null;
-  if (reportTimer) { clearInterval(reportTimer); reportTimer = null; }
   renderReportDetail();
   paintReportOpen();
 }
 function openReportRow(id){
   reportOpen = id; reportDetail = null; reportDetailErr = null;
-  if (reportTimer) clearInterval(reportTimer);
-  fetchReportDetail();
-  // W1198 bounded fallback: one row, 30s, only while expanded — the W663
-  // class never fans out per-sid.
-  reportTimer = setInterval(fetchReportDetail, 30000);
+  feeds.kick('reportRow', true);
   paintReportOpen();
-}
-function fetchReportDetail(){
-  if (reportDetailBusy || !reportOpen) return;
-  reportDetailBusy = true;
-  var project = sel.value && sel.value !== 'all' ? sel.value : (reportData ? reportData.project : '');
-  fetch('/api/report-row?project=' + encodeURIComponent(project) + '&id=' + encodeURIComponent(reportOpen), { signal: AbortSignal.timeout(8000) })
-    .then(function(r){ if (!r.ok) throw Error('HTTP ' + r.status); return r.json(); })
-    .then(function(j){ if (j.ok === false) throw Error(j.error || 'row not found'); reportDetail = j; reportDetailErr = null; })
-    .catch(function(e){ reportDetailErr = String(e.message || e); })
-    .finally(function(){ reportDetailBusy = false; renderReportDetail(); });
 }
 byId('reportRows').addEventListener('click', function(e){
   var b = e.target.closest && e.target.closest('[data-rid]');

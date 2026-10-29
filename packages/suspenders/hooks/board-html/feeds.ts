@@ -69,4 +69,25 @@ feeds.define('setup', {
   ok: function(j, changed){ setupOkAt = Date.now(); setupErr = null; setupLoaded = true; if (changed) setupData = j; renderSetup(); },
   fail: function(e){ setupErr = e; renderSetup(); }
 });
+// lane tail (tail.ts): 2s while the drawer's tail is open
+feeds.define('tail', { everyMs: 2000, url: tailUrl, accept: tailAccept, settle: tailLanded });
+// work-report pane + its one expanded row (report.ts)
+feeds.define('report', {
+  everyMs: 2000,
+  url: function(){ return curTab === 'report' ? '/api/report' + projQuery() : null; },
+  ok: function(j){ reportData = j; reportOkAt = Date.now(); reportErr = null; renderReport(); },
+  fail: function(e){ reportErr = e; renderReport(); }
+});
+feeds.define('reportRow', {
+  everyMs: 30000, url: reportRowUrl,
+  accept: function(j){ if (!j || j.ok === false) throw new Error((j && j.error) || 'row not found'); },
+  ok: function(j){ reportDetail = j; reportDetailErr = null; renderReportDetail(); },
+  fail: function(e){ reportDetailErr = e; renderReportDetail(); }
+});
+// usage view (usage.ts): manual — refetched only when the hash params move
+feeds.define('usage', {
+  manual: true, timeoutMs: 20000, url: usageUrl,
+  ok: function(j){ usageLanded(j); },
+  fail: function(e){ var s = byId('usageState'); s.hidden = false; s.textContent = 'Usage could not load: ' + e; }
+});
 `;

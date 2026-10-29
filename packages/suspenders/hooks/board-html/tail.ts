@@ -16,25 +16,25 @@ function toggleTail(){
   if (tailView.open) { tailView.pin = true; if (!tailView.data && !tailView.err) fetchTail(); }
   renderTaskTail();
 }
-function fetchTail(){
-  if (tailView.busy || !task.id) return;
-  var tailId = task.id, tailProject = task.proj || (task.data && task.data.project) || '', tailState = tailView;
-  tailView.busy = true; tailView.err = null;
-  fetch('/api/tail?id=' + encodeURIComponent(tailId) + (tailProject ? '&project=' + encodeURIComponent(tailProject) : ''), { signal: AbortSignal.timeout(8000) })
-    .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return { status: r.status, j: j || {} }; }); })
-    .then(function(res){
-      if (tailView !== tailState || task.id !== tailId || (task.proj || (task.data && task.data.project) || '') !== tailProject) return;
-      tailView.busy = false; tailView.at = Date.now();
-      if (res.status === 200 && res.j && res.j.ok) { tailView.data = res.j; tailView.okAt = Date.now(); }
-      else tailView.err = (res.j && res.j.error) || 'HTTP ' + res.status;
-      renderTaskTail();
-    })
-    .catch(function(e){ if (tailView !== tailState || task.id !== tailId || (task.proj || (task.data && task.data.project) || '') !== tailProject) return; tailView.busy = false; tailView.err = String((e && e.message) || e); renderTaskTail(); });
+// the tail is the store's 'tail' feed (FEEDS): 2s cadence while open, one
+// request in flight, and a scope move (task/project/closed) mid-flight
+// discards the stale answer and fetches the current scope
+function tailUrl(){
+  if (!tailView.open || !task.id) return null;
+  var proj = task.proj || (task.data && task.data.project) || '';
+  return '/api/tail?id=' + encodeURIComponent(task.id) + (proj ? '&project=' + encodeURIComponent(proj) : '');
 }
-function pollTail(){
-  if (!tailView.open || tailView.busy || !task.id) return;
-  if (Date.now() - tailView.at < 2000) return;
-  fetchTail();
+function tailAccept(j){ if (!j || !j.ok) throw new Error((j && j.error) || 'bad /api/tail payload'); }
+function tailLanded(st){
+  tailView.busy = false; tailView.at = st.at;
+  if (st.err) tailView.err = st.err;
+  else { tailView.err = null; tailView.data = st.data; tailView.okAt = st.okAt; }
+  renderTaskTail();
+}
+function fetchTail(){
+  feeds.kick('tail', true);
+  var st = feeds.get('tail');
+  tailView.busy = !!(st && st.busy); tailView.err = null;
 }
 function renderTaskTail(){
   var el = byId('taskTail');

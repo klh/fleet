@@ -432,7 +432,7 @@ export class FeedStore {
 			}
 			if (r && (r.status === 429 || r.status === 503))
 				f.retryAfterMs = this.retryAfter(r);
-			if (!r?.ok) throw new Error(`HTTP ${r ? r.status : "?"}`);
+			if (!r?.ok) return this.failure(r);
 			const tag = r.headers?.get ? r.headers.get("etag") : null;
 			return r.json().then((j: unknown) => {
 				if (f.spec.accept) f.spec.accept(j); // throws on a bad payload
@@ -498,6 +498,20 @@ export class FeedStore {
 		if (f.spec.settle) f.spec.settle(st);
 		for (const fn of f.subs) fn(st, changed || Boolean(err));
 		this.schedule(name, f);
+	}
+	/** A non-2xx answer as an error: the body `error` when JSON carries one. */
+	failure(r: Response | null) {
+		const http = new Error(`HTTP ${r ? r.status : "?"}`);
+		if (!r || typeof r.json !== "function") return Promise.reject(http);
+		return r.json().then(
+			(j: { error?: unknown } | null) => {
+				const msg = j && typeof j.error === "string" ? j.error : "";
+				throw msg ? new Error(msg) : http;
+			},
+			() => {
+				throw http;
+			},
+		);
 	}
 	/** Retry-After seconds or HTTP-date → ms, clamped to [1s, 5min]. */
 	retryAfter(r: Response) {

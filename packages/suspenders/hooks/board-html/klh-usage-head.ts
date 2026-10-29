@@ -5,6 +5,7 @@
 // host. Shadow DOM, --klh-* tokens, lit-html templates only. Bundled with
 // usage-panels.js (imported there), so no extra vendor entry or page script.
 import { LitElement, css, html, nothing, type TemplateResult } from "lit";
+import { readPayload } from "./usage-shared.ts";
 
 export interface UsageHeadOption {
 	label: string;
@@ -23,16 +24,8 @@ export interface UsageHead {
 	filters: UsageHeadGroup[];
 }
 
-const readHead = (): UsageHead | null => {
-	const el = document.getElementById("usage-data");
-	if (!el) return null;
-	try {
-		const p = JSON.parse(el.textContent ?? "") as { head?: UsageHead };
-		return p.head ?? null;
-	} catch {
-		return null;
-	}
-};
+const readHead = (): UsageHead | null =>
+	(readPayload()?.head as UsageHead | undefined) ?? null;
 
 export class KlhUsageHead extends LitElement {
 	static properties = { head: { type: Object, state: true } };

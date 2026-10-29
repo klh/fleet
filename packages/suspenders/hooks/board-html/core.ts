@@ -1,6 +1,7 @@
 // hooks/board-html/core.ts — hash filter, esc/sig helpers, polling loop (W157 client chunk).
 // String.raw matches the original single-template semantics; bun's
 // non-ASCII escaping in String.raw reproduces the served page bytes.
+import { byId } from "./board-dom.ts";
 import { ago, agoShort, msAgo } from "./board-format.ts";
 import { FeedStore } from "./feed-store.ts";
 
@@ -135,7 +136,7 @@ function trySelectCard(){
     return;
   } // card not rendered yet — pendingSelect survives, the next renderKanban retries
 }
-function byId(id){ return document.getElementById(id); }
+var byId = ${byId.toString()};
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
 function setText(el, v){ if (el && el.textContent !== v) el.textContent = v; }
 // W669.11: the last string sinks retired (UI law). Fragments parse
@@ -300,10 +301,7 @@ function pollDec(){ feeds.kick('dec', true); }
 // feeds fire from here only when their adaptive cadence says so.
 function tick(){
   renderAll();
-  feeds.kickDue(); // data/dec/tasks/act/hist/setup/spend/task/exec — each gates on its url()
-  if (curTab === 'usage') pollUsage(); // own key-change guard, not a polled feed
-  else if (curTab === 'report') pollReport(); // W1198 own single-flight row
-  if (task.id) pollTail(); // own 2s floor + scope discard (tail.ts)
+  feeds.kickDue(); // every feed (FEEDS + data/dec/hist) — each gates on its url()
 }
 function noteNew(list){
   var base = projBaseline || !decBaseline;
