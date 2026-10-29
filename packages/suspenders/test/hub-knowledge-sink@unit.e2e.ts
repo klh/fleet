@@ -1,8 +1,8 @@
-import { afterAll, expect, test } from "bun:test";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpDir } from "./helpers/fixture-kit.ts";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import { parse } from "yaml";
+import { tmpDir } from "./helpers/fixture-kit.ts";
 
 // W1217: the NAS knowledge sink as config — a hub profile that declares
 // `knowledge:` enables the `knowledge` compose profile (the knowledge-api
@@ -12,7 +12,7 @@ import { parse } from "yaml";
 // W1213's /roll aggregation routes ride it once that branch integrates.
 
 const dir = tmpDir("hub-knowledge-sink-");
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+test.afterAll(() => rmSync(dir, { recursive: true, force: true }));
 type Svc = Record<string, unknown> & {
 	volumes?: unknown[];
 	environment?: Record<string, string>;

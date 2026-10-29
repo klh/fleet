@@ -3,7 +3,7 @@
 // feeds requiredProviders → renderProviderEnv → hubctl push's 0600
 // provider.env on the target. Secrets stay central: tests assert the env
 // BINDING lands, never the raw key in any output surface.
-import { expect, test } from "bun:test";
+
 import {
 	chmodSync,
 	mkdtempSync,
@@ -14,15 +14,16 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resolveProvider } from "@klh/speedy/src/provider-config.ts";
+import { expect, test } from "@playwright/test";
 import {
-	PROVIDER_ENV_FILENAME,
 	centralProviderProfiles,
+	PROVIDER_ENV_FILENAME,
 	providerIdentityByEnv,
 	renderProviderEnv,
 	requiredProviders,
 	tryLoadProviderConfig,
 } from "../hooks/lib/hub-providers.ts";
-import { resolveProvider } from "@klh/speedy/src/provider-config.ts";
 
 const PROVIDERS = {
 	"zai-coding": {

@@ -1,6 +1,6 @@
-import { expect, test } from "bun:test";
 import { chmodSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import { signalClaudeDirectEvent } from "../hooks/lib/executors/claude-wake.ts";
 import { pausedLaneFixture } from "./helpers/paused-lane.ts";
 
@@ -128,9 +128,9 @@ async function exerciseRefusedResume(): Promise<void> {
 			if (f.result === "CHECKPOINTED" || f.result === "RESUMED")
 				expect(f.pid).toBe(initPid);
 		}
-		expect(await call(["fact", "get", `lane.${sid}.state`])).toStartWith(
-			"RUNNING ",
-		);
+		expect(
+			(await call(["fact", "get", `lane.${sid}.state`])).startsWith("RUNNING "),
+		).toBe(true);
 	} finally {
 		clearTimeout(timer);
 		if (child.exitCode === null) child.kill();
@@ -219,8 +219,10 @@ async function exercisePause(interruptDuringResume: boolean): Promise<void> {
 						paused = true;
 						expect(frame.checkpoint).toMatch(/^[a-f0-9]{40}$/);
 						expect(
-							await call(["fact", "get", `lane.${sid}.state`]),
-						).toStartWith("PAUSED ");
+							(await call(["fact", "get", `lane.${sid}.state`])).startsWith(
+								"PAUSED ",
+							),
+						).toBe(true);
 						signal(11, "NOTE");
 						await Bun.sleep(40);
 						expect(child.exitCode).toBeNull();
@@ -271,9 +273,9 @@ async function exercisePause(interruptDuringResume: boolean): Promise<void> {
 			).toBe(true);
 			expect(frames.some((f) => f.result === "RESUMED")).toBe(false);
 		}
-		expect(await call(["fact", "get", `lane.${sid}.state`])).toStartWith(
-			"RUNNING ",
-		);
+		expect(
+			(await call(["fact", "get", `lane.${sid}.state`])).startsWith("RUNNING "),
+		).toBe(true);
 	} finally {
 		clearTimeout(timer);
 		if (child.exitCode === null) child.kill();

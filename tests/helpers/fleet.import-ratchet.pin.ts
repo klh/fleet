@@ -86,7 +86,7 @@ suspenders/test/federation-board-page.test.ts -> buckle (../../buckle/src/gov/re
 suspenders/test/federation-board-page.test.ts -> buckle (../../buckle/src/server.ts)
 suspenders/test/federation-report.test.ts -> buckle (../../buckle/src/gov/reference-seam.ts)
 suspenders/test/federation-report.test.ts -> buckle (../../buckle/src/server.ts)
-suspenders/test/hub-registry.test.ts -> belt (../../belt/bin/hubs.ts)
+suspenders/test/hub-registry@unit.e2e.ts -> belt (../../belt/bin/hubs.ts)
 suspenders/test/playwright.config.ts -> (repo) (../../../playwright.base.ts)
 suspenders/test/prefix-keepwarm.test.ts -> buckle (../../buckle/src/usage.ts)
 suspenders/test/profile.test.ts -> buckle (../../buckle/src/gov/hub-seam.ts)

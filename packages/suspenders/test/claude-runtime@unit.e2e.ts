@@ -1,11 +1,11 @@
-import { afterAll, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import { signalClaudeDirectEvent } from "../hooks/lib/executors/claude-wake.ts";
 
 const home = mkdtempSync(join(tmpdir(), "fleet-claude-runtime-"));
-afterAll(() => rmSync(home, { recursive: true, force: true }));
+test.afterAll(() => rmSync(home, { recursive: true, force: true }));
 
 /** Spawn the managed runtime against a fixture; inject one direct event
  * (urgent: interrupt-class, else boundary-class) after the native init. */
@@ -244,37 +244,46 @@ test("routine direct notes coalesce at the turn boundary, never interrupt", asyn
 	).toBe(true);
 });
 
-test("restart after a native crash replays the same event into the new conversation", async () => {
-	const sid = "managed-runtime-restart-test";
-	// crash leg: the native child dies mid-interrupt, the event stays pending
-	const first = await runManaged(sid, "claude-stream-native-exit.ts", 9, true);
-	expect(first.code).toBe(0);
-	expect(first.output).toContain('"state":"queued"');
-	expect(first.output).not.toContain('"state":"delivered"');
-	// restart leg: a fresh runtime process is the resume path
-	const second = await runManaged(sid, "claude-stream-native.ts", 9, true);
-	expect(second.code).toBe(0);
-	const frames = second.output
-		.trim()
-		.split("\n")
-		.map((line) => JSON.parse(line));
-	const injected = frames.filter(
-		(frame) =>
-			frame.type === "fleet.claude.delivery" &&
-			(frame.state === "injected" ||
-				frame.state === "interrupted-and-injected") &&
-			frame.event === "9",
-	);
-	expect(injected).toHaveLength(1);
-	expect(
-		frames.some(
+test(
+	"restart after a native crash replays the same event into the new conversation",
+	async () => {
+		const sid = "managed-runtime-restart-test";
+		// crash leg: the native child dies mid-interrupt, the event stays pending
+		const first = await runManaged(
+			sid,
+			"claude-stream-native-exit.ts",
+			9,
+			true,
+		);
+		expect(first.code).toBe(0);
+		expect(first.output).toContain('"state":"queued"');
+		expect(first.output).not.toContain('"state":"delivered"');
+		// restart leg: a fresh runtime process is the resume path
+		const second = await runManaged(sid, "claude-stream-native.ts", 9, true);
+		expect(second.code).toBe(0);
+		const frames = second.output
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		const injected = frames.filter(
 			(frame) =>
 				frame.type === "fleet.claude.delivery" &&
-				frame.state === "delivered" &&
+				(frame.state === "injected" ||
+					frame.state === "interrupted-and-injected") &&
 				frame.event === "9",
-		),
-	).toBe(true);
-	// retired exactly once: the watermark advanced, a further read is null
-	const wake = await import("../hooks/lib/executors/claude-wake.ts");
-	expect(wake.consumeClaudeWake(sid, home, "managed")).toBeNull();
-}, 15000);
+		);
+		expect(injected).toHaveLength(1);
+		expect(
+			frames.some(
+				(frame) =>
+					frame.type === "fleet.claude.delivery" &&
+					frame.state === "delivered" &&
+					frame.event === "9",
+			),
+		).toBe(true);
+		// retired exactly once: the watermark advanced, a further read is null
+		const wake = await import("../hooks/lib/executors/claude-wake.ts");
+		expect(wake.consumeClaudeWake(sid, home, "managed")).toBeNull();
+	},
+	{ timeout: 15_000 },
+);

@@ -1,13 +1,13 @@
-import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import { waitForClaudeWake } from "../hooks/lib/executors/claude-wake.ts";
 import { projectIdentity } from "../hooks/lib/govdb/govdb-project.ts";
 
 const home = mkdtempSync(join(tmpdir(), "claude-direct-subscribe-"));
 const processes: ReturnType<typeof Bun.spawn>[] = [];
-afterAll(() => {
+test.afterAll(() => {
 	for (const process of processes) process.kill();
 	rmSync(home, { recursive: true, force: true });
 });

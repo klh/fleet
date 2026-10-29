@@ -1,23 +1,23 @@
-import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { expect, test } from "@playwright/test";
 import {
+	type ClaudeRestartSnapshot,
 	checkpointedClaudeRestart,
-	restartBootstrap,
-	restartHash,
-	restartContinuationProof,
 	pausedNativeBoundary,
-	validateRestartBoundary,
+	type RestartDependencies,
+	restartBootstrap,
+	restartContinuationProof,
+	restartHash,
 	restartTranscriptMatches,
 	retiredRestartSnapshot,
-	type ClaudeRestartSnapshot,
-	type RestartDependencies,
+	validateRestartBoundary,
 } from "../hooks/lib/executors/claude-restart.ts";
 import { processBirth } from "../scripts/lib/launch-fencing.ts";
 
 const directories: string[] = [];
-afterEach(() => {
+test.afterEach(() => {
 	for (const dir of directories.splice(0))
 		rmSync(dir, { recursive: true, force: true });
 });
@@ -100,22 +100,26 @@ test("checkpointed restart reserves phases and preserves lane authority", async 
 	).rejects.toThrow("reconcile before retry");
 	expect(f.actions.filter((x) => x === "start")).toHaveLength(1);
 });
-test.each([
+// port delta: playwright has no test.each — the bun .each case table
+// became a for-of registration with the cases interpolated per row.
+for (const reason of [
 	"active inference",
 	"stale claim",
 	"changed dirty files",
 	"missing capsule",
 	"invalid key",
-])("refuses %s before retirement", async (reason) => {
-	const f = fixture();
-	f.deps.validate = async () => {
-		throw new Error(reason);
-	};
-	await expect(
-		checkpointedClaudeRestart(f.path, f.snapshot, f.deps),
-	).rejects.toThrow(reason);
-	expect(f.actions).toEqual([]);
-});
+]) {
+	test(`refuses ${reason} before retirement`, async () => {
+		const f = fixture();
+		f.deps.validate = async () => {
+			throw new Error(reason);
+		};
+		await expect(
+			checkpointedClaudeRestart(f.path, f.snapshot, f.deps),
+		).rejects.toThrow(reason);
+		expect(f.actions).toEqual([]);
+	});
+}
 test("reused or unknown PID never receives retirement signal", async () => {
 	const f = fixture();
 	f.live.set(100, "unrelated-reused-pid");
@@ -196,7 +200,15 @@ test("checkpointed retirement waits for both actual child processes before one r
 	const reader = old.stdout.getReader();
 	const line = await reader.read();
 	reader.releaseLock();
-	const nativePid = Number(new TextDecoder().decode(line.value).trim());
+	// port delta: playwright's worker env forces color, so the child's
+	// console.log(pid) arrives ANSI-wrapped — strip the escapes before
+	// parsing (runtime-built RegExp; no control char in source).
+	const nativePid = Number(
+		new TextDecoder()
+			.decode(line.value ?? new Uint8Array())
+			.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), "")
+			.trim(),
+	);
 	const oldBirth = processBirth(old.pid);
 	const nativeBirth = processBirth(nativePid);
 	if (!oldBirth || !nativeBirth)

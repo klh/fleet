@@ -4,10 +4,11 @@
 // env override -> repo one-off candidates -> global registry -> mDNS guess
 // -> null (degrade). Uses a scratch HOME + a real tiny Bun.serve() instance
 // as the "alive" probe target — no network beyond 127.0.0.1.
-import { afterAll, describe, expect, test } from "bun:test";
+
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import { resolveHub } from "../hooks/lib/hub/hub-locate.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "claude-hub-locate-home-"));
@@ -23,7 +24,7 @@ const server = Bun.serve({
 });
 const liveUrl = `http://127.0.0.1:${server.port}`;
 
-afterAll(() => {
+test.afterAll(() => {
 	server.stop(true);
 	process.env.HOME = prevHome;
 	if (prevStack === undefined) delete process.env.KLH_STACK;
@@ -31,7 +32,7 @@ afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 });
 
-describe("resolveHub", () => {
+test.describe("resolveHub", () => {
 	test("resolves a stack host and buckle_port without a url or registry entry", async () => {
 		writeFileSync(
 			join(HOME, "stack.json"),
@@ -76,14 +77,18 @@ describe("resolveHub", () => {
 		expect(hub?.url).toBe(liveUrl);
 	});
 
-	test("nothing reachable anywhere -> null (caller degrades, never a silent wrong hub)", async () => {
-		writeFileSync(
-			join(HOME, ".claude", "local-llm", "hubs.json"),
-			JSON.stringify({}),
-		);
-		const hub = await resolveHub("GHOST", ["http://unreachable.invalid:4"]);
-		expect(hub).toBeNull();
-	}, 15_000);
+	test(
+		"nothing reachable anywhere -> null (caller degrades, never a silent wrong hub)",
+		async () => {
+			writeFileSync(
+				join(HOME, ".claude", "local-llm", "hubs.json"),
+				JSON.stringify({}),
+			);
+			const hub = await resolveHub("GHOST", ["http://unreachable.invalid:4"]);
+			expect(hub).toBeNull();
+		},
+		{ timeout: 15_000 },
+	);
 
 	test("blank label is never resolved", async () => {
 		expect(await resolveHub("   ")).toBeNull();

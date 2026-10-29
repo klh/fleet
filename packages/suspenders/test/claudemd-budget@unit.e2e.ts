@@ -2,10 +2,11 @@
 // audit (oh-my-claude research L7). Pins the estimator heuristics and the
 // repo walk on a fixture tree; the real fleet files are audited by running
 // the script, not in this suite.
-import { describe, test, expect, afterAll } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import {
 	auditRepo,
 	auditText,
@@ -15,9 +16,9 @@ import {
 
 const TMP = mkdtempSync(join(tmpdir(), "suspenders-claudemd-"));
 
-afterAll(() => rmSync(TMP, { recursive: true, force: true }));
+test.afterAll(() => rmSync(TMP, { recursive: true, force: true }));
 
-describe("claudemd instruction budget", () => {
+test.describe("claudemd instruction budget", () => {
 	test("counts list items, table rows as instructions", () => {
 		const text = [
 			"# Title",

@@ -4,10 +4,11 @@
 // (store injected — the route module itself never opens the live db).
 // HOME is a temp dir set BEFORE the dynamic imports — govdb binds REG at
 // module load (the auth.test.ts pattern).
-import { afterAll, describe, expect, test } from "bun:test";
+
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 
 const REAL_HOME = process.env.HOME;
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-hub-admin-home-"));
@@ -17,7 +18,7 @@ process.env.BUCKLE_SECRETS_HOME = join(HOME, "secrets");
 // materializes the token file on first ensure)
 process.env.SUSPENDERS_WRITE_TOKEN_FILE = join(HOME, "write-token");
 
-afterAll(() => {
+test.afterAll(() => {
 	process.env.HOME = REAL_HOME;
 	delete process.env.BUCKLE_SECRETS_HOME;
 	rmSync(HOME, { recursive: true, force: true });
@@ -66,7 +67,7 @@ const call = async (
 	return r as Response;
 };
 
-describe("hub-tokens (masked inventory + audited issue/revoke)", () => {
+test.describe("hub-tokens (masked inventory + audited issue/revoke)", () => {
 	test("issue mints raw material once + lands audit rows", async () => {
 		const pair = hubTokens.issueHubToken(
 			idb,
@@ -156,7 +157,7 @@ describe("hub-tokens (masked inventory + audited issue/revoke)", () => {
 	});
 });
 
-describe("hub-provider-keys (masked inventory)", () => {
+test.describe("hub-provider-keys (masked inventory)", () => {
 	test("maskSecret never shows more than a 4-char tail", () => {
 		expect(pkeys.maskSecret("sk-ant-0123456789abcdef")).toBe("••••cdef"); // scrub:allow
 		expect(pkeys.maskSecret("short")).toBe("••••");
@@ -206,7 +207,7 @@ describe("hub-provider-keys (masked inventory)", () => {
 	});
 });
 
-describe("hub-federation-status", () => {
+test.describe("hub-federation-status", () => {
 	test("no peer edges = honest idle", () => {
 		const s = fed.federationStatus({ labels: [], env: {} });
 		expect(s.idle).toBe(true);
@@ -239,7 +240,7 @@ describe("hub-federation-status", () => {
 	});
 });
 
-describe("routes-hub-admin", () => {
+test.describe("routes-hub-admin", () => {
 	test("unrelated path returns null (falls through the board chain)", async () => {
 		expect(
 			await routes.handleHubAdmin(

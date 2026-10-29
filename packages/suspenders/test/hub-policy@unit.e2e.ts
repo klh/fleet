@@ -1,5 +1,6 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { renderHubPolicy } from "../deploy/hub-policy.ts";
+
 const base = JSON.stringify(
 	{
 		version: 1,
