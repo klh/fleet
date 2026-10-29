@@ -202,7 +202,12 @@ export async function tryOnce(
 		if (resp.ok) {
 			host.cooldowns.success(dep);
 			const response = bridged
-				? bridgeResponse(resp, req.dialect, req.body.stream === true)
+				? bridgeResponse(
+						resp,
+						req.dialect,
+						req.body.stream === true,
+						dep.buckle === true,
+					)
 				: resp;
 			// W1078 canary metadata (body-free, set AFTER the bridge so both
 			// dialects preserve it): proves which configured pool served the

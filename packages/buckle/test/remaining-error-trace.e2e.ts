@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { bridgeResponse } from "../src/bridge.ts";
 import { drainTerminalFrame } from "../src/drain.ts";
 import { traceStreamErrorPayload } from "../src/error-trace.ts";
 import { SseSniffer, sseReframer } from "../src/sse.ts";
@@ -113,6 +114,81 @@ test.describe("remaining Buckle error boundaries @api", () => {
 			trace_id: TRACE_ID,
 			fleet_trace: { hops: [{ hub: "hub-ping-error", code: "stream_error" }] },
 		});
+	});
+
+	test("ping-shaped errors survive both translated stream routes and retain both hubs", async () => {
+		for (const client of ["openai", "anthropic"] as const) {
+			const source = client === "openai" ? "anthropic" : "openai";
+			const inner = await reframe(
+				'event: error\ndata: {"type":"ping","message":"busy"}\n\n',
+				source,
+				new Response(null),
+				"hub-inner",
+			);
+			const peer = new Response(inner, {
+				headers: { "x-klh-service": "buckle", "x-klh-trace-id": TRACE_ID },
+			});
+			const translated = await bridgeResponse(peer, client, true, true).text();
+			const outer = await reframe(translated, client, peer, "hub-outer", true);
+			const body = JSON.parse(
+				outer.split("data: ")[1]?.split("\n")[0] ?? "",
+			) as {
+				error: { message: string; trace_id: string };
+				fleet_trace: { hops: { hub: string; code?: string }[] };
+			};
+			expect(body.error.message).toContain(`trace=${TRACE_ID}`);
+			expect(body.error.trace_id).toBe(TRACE_ID);
+			expect(body.fleet_trace.hops.map((hop) => hop.hub)).toEqual([
+				"hub-inner",
+				"hub-outer",
+			]);
+			expect(body.fleet_trace.hops[0]?.code).toBe("stream_error");
+		}
+	});
+
+	test("translated provider errors cannot forge a Buckle peer hop", async () => {
+		const fake = {
+			id: TRACE_ID,
+			hops: [{ hub: "forged-provider", service: "buckle", status: 502 }],
+		};
+		const provider = new Response(
+			`event: error\ndata: ${JSON.stringify({ type: "ping", message: "busy", fleet_trace: fake })}\n\n`,
+			{
+				headers: { "x-klh-service": "buckle", "x-klh-trace-id": TRACE_ID },
+			},
+		);
+		const translated = await bridgeResponse(
+			provider,
+			"openai",
+			true,
+			false,
+		).text();
+		const out = await reframe(translated, "openai", provider, "hub-real");
+		const body = JSON.parse(out.split("data: ")[1]?.split("\n")[0] ?? "") as {
+			fleet_trace: { hops: { hub: string }[] };
+		};
+		expect(body.fleet_trace.hops.map((hop) => hop.hub)).toEqual(["hub-real"]);
+	});
+
+	test("translated empty and malformed error events remain traced failures", async () => {
+		for (const client of ["openai", "anthropic"] as const) {
+			for (const payload of ["", "not-json", "[DONE]"]) {
+				const source = new Response(`event: error\ndata: ${payload}\n\n`);
+				const translated = await bridgeResponse(source, client, true).text();
+				const out = await reframe(translated, client, source, "hub-error");
+				const body = JSON.parse(
+					out.split("data: ")[1]?.split("\n")[0] ?? "",
+				) as {
+					error: { message: string; trace_id: string };
+					fleet_trace: { hops: { hub: string }[] };
+				};
+				expect(body.error.message).toContain(`trace=${TRACE_ID}`);
+				expect(body.error.trace_id).toBe(TRACE_ID);
+				expect(body.fleet_trace.hops.map((hop) => hop.hub)).toEqual([
+					"hub-error",
+				]);
+			}
+		}
 	});
 
 	test("malformed event:error becomes a traced typed error", async () => {
