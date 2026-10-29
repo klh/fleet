@@ -5,12 +5,12 @@
 // prove both probe verdicts: a relaying face answers "200 Connection
 // established" and the probe reports ok; a dead port reports not-ok with
 // the reason. Rides the kit (W1135.1.3) for ports; the socket face is the
-// probe's own protocol, which serveStub cannot speak.
-import { expect, setDefaultTimeout, test } from "bun:test";
+// probe's own protocol, which serveStub cannot speak. W1294: tagged
+// @playwright spec — the bun:test variant broke the whole package sweep
+// --list under the canonical loader (W1315.8).
+import { expect, test } from "@playwright/test";
 import { freePort } from "@klh/test-kit";
 import { probeConnectFace } from "../lib/connections.ts";
-
-setDefaultTimeout(30_000);
 
 test("probeConnectFace: live CONNECT relay → ok, dead port → not ok (real wire)", async () => {
 	const port = await freePort();
