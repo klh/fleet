@@ -278,6 +278,16 @@ export const StackConfigSchema = z
 		/** The stack version: ONE string pins buckle+suspenders+belt — the
 		 *  ref every repo sidecar pulls. Absent = main (dev posture). */
 		version: z.string().optional(),
+		/** The controller's release reconciliation. Manual is the default;
+		 * latest opts into the scheduled, all-hub upgrade path. */
+		updates: z
+			.object({
+				mode: z.enum(["manual", "latest"]),
+				origin: z.string().min(1).optional(),
+				check_interval_s: z.number().int().min(60).max(86_400).optional(),
+			})
+			.strict()
+			.optional(),
 		postures: PostureDocumentSchema.optional(),
 		hubs: z.record(z.string(), HubProfileSchema),
 		/** W372 auth posture (scoped tokens + Entra/OIDC — machine file only). */
