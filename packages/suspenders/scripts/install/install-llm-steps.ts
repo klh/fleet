@@ -13,6 +13,7 @@
 // (ctx.noLlm / ctx.skipModels) — the SUSPENDERS_LEGACY_* env handoff is
 // retired with the bash front.
 import {
+	chmodSync,
 	copyFileSync,
 	existsSync,
 	lstatSync,
@@ -23,6 +24,11 @@ import {
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import {
+	auditLiteLlmEnv,
+	integrityEvidence,
+	writeReceipt,
+} from "@klh/belt/bin/litellm-integrity.ts";
+import {
 	DEFAULT_PATHS,
 	litellmToolInstallArgs,
 	prismaPreflight,
@@ -30,28 +36,23 @@ import {
 } from "@klh/belt/bin/litellm-target.ts";
 import { atomicWrite0600 } from "@klh/kernel/src/kernel.atomic.module.ts";
 import {
-	auditLiteLlmEnv,
-	integrityEvidence,
-	writeReceipt,
-} from "@klh/belt/bin/litellm-integrity.ts";
-import {
 	refreshStaleZaiSnapshot,
 	type ZaiStaleResult,
 } from "../../deploy/zai-catalog.ts";
 import { scrubRules } from "../../hooks/lib/gates/scrub.ts";
 import { writeHubRegistry } from "../../hooks/lib/hub/hub-registry.ts";
 import { refreshFlatHome, smokeRouter } from "../belt-bin-overlay.ts";
-import type { StepContext, StepResult } from "./install-run.ts";
 import {
 	ensureBeltUpstreamKey,
 	wireBeltRow,
 	wireBuckleUpstreamsEnv,
 } from "../lib/belt-upstream-key.ts";
-import { readBoundedTail } from "../lib/bounded-tail.ts";
 import {
 	freshWiredGuardGb,
 	validateBeltWiredGuard,
 } from "../lib/belt-wired-guard.ts";
+import { readBoundedTail } from "../lib/bounded-tail.ts";
+import type { StepContext, StepResult } from "./install-run.ts";
 
 const kitDir = (ctx: StepContext): string => join(ctx.repo, "..", "local-llm");
 export const beltBin = (ctx: StepContext): string =>
@@ -505,6 +506,24 @@ export async function seedLocalLlm(
 		} else {
 			copyFileSync(source, target);
 			log(`+ ${target} (stub — fill/verify at activation)`);
+		}
+	}
+	// W1265.2.1: the repo-tier policy reconciles the same way — the W1265.2
+	// mandatory general default as material bytes, seeded 0600 write-once so
+	// hosts get their tier classes at install time; an existing file is
+	// operator-owned and never clobbered. Absent at runtime = the in-code
+	// general default (safe), so a failed seed here stays a note.
+	const tierPolicy = join(ctx.llmHome, "repo-tier-policy.yaml");
+	if (existsSync(tierPolicy)) {
+		log(`= ${tierPolicy} kept (operator-owned runtime copy)`);
+	} else {
+		const source = join(beltBin(ctx), "../../buckle/repo-tier-policy.yaml");
+		if (existsSync(source)) {
+			copyFileSync(source, tierPolicy);
+			chmodSync(tierPolicy, 0o600);
+			log(`+ ${tierPolicy} (general default — operator-owned after seed)`);
+		} else {
+			log("repo-tier-policy seed skipped (stale kit — placeholder absent)");
 		}
 	}
 	const remotes = join(ctx.llmHome, "remotes.json");
