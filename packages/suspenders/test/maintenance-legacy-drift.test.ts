@@ -45,6 +45,7 @@ const HEARTBEAT_BORN: Record<string, string> = {
 	"kev-review-drain": "D7",
 	"consult-tick": "hub phase 4",
 	"hub-update": "W2239.3",
+	"knowledge-distill": "6cec9094 — fork G knowledge distiller",
 };
 
 // Retired com.suspenders.* labels that were never maintenance tasks —
