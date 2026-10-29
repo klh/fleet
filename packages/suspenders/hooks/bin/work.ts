@@ -61,11 +61,15 @@ import {
 	probeClaim,
 	setReclaimHold,
 } from "../lib/lanes/reclaim-liveness.ts";
+import { emitDoneBroadcast } from "../lib/done-broadcast.ts";
 import {
 	parseReclaimReason,
 	reclaimGateDecision,
 } from "../lib/lanes/reclaim-sticky.ts";
-import { attachManagedSubscribe, reapIfIdle } from "../lib/lanes/subscribe-attach.ts";
+import {
+	attachManagedSubscribe,
+	reapIfIdle,
+} from "../lib/lanes/subscribe-attach.ts";
 import { budgetFlagClear } from "../lib/usage/budget-flag.ts";
 import { dieFor, idList, type Parsed, runCli } from "../lib/verb-kit.ts";
 import { curateCompletionKnowledge } from "../lib/work/completion-curation.ts";
@@ -677,6 +681,21 @@ const dispatchVerb = async (
 			sid: String(it.owner_sid ?? as ?? ""),
 			project: PROJECT,
 		});
+		// W822.1: the done handler itself broadcasts the condensed summary —
+		// kev-scored on the local SystemOne, fail-open, total (never an error
+		// path of done). Silence means hub deploy or kill switch.
+		const b = await emitDoneBroadcast(db(), {
+			id,
+			title: String(it.title ?? id),
+			sha: record?.commit_sha ?? sha ?? null,
+			summary: record?.summary ?? flag("--summary"),
+			description: (it.description as string | null) ?? null,
+			source: String(it.owner_sid ?? as ?? "manual"),
+		});
+		if (b)
+			console.log(
+				`${dim("↯")} broadcast ${b.id} kev=${b.label} → ${b.targets} live session(s)`,
+			);
 	} else if (name === "report-regen") {
 		// W1199 post-close face (`report` is the W892 supervisor table) — strict.
 		const id = pos[0];

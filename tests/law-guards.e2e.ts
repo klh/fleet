@@ -149,10 +149,10 @@ const NEAR_CAP_PINNED = {
 	"packages/decant/src/buckets.ts": 1489,
 	"packages/decant/src/token-economics.ts": 1427,
 	"packages/decant/src/query.ts": 1409,
-	"packages/belt/bin/router-shim.ts": 1292, // W1238.6.1 decomposition (HEAD W1117 growth keeps it in band)
+	"packages/belt/bin/router-shim.ts": 1282, // W1238.6.1 decomposition (W2231 tighten: shrink landed upstream)
 	"packages/buckle/src/ledger.ts": 1389, // +7 main-side merge drift (W2210 re-pin; debt: decompose)
 	"packages/belt/test/dashboard-topology-model.e2e.ts": 1294,
-	"packages/suspenders/hooks/bin/work.ts": 1246, // +5 W1173 merge (debt: decompose)
+	"packages/suspenders/hooks/bin/work.ts": 1265, // +5 W1173 merge, +18 W2187 re-land (debt: decompose)
 	"packages/suspenders/deploy/hubctl.ts": 1208,
 };
 

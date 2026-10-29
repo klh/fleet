@@ -496,9 +496,9 @@ const defaultEmit = (kind: string, note: string): void => {
 const defaultBroadcast = (note: string): void => {
 	try {
 		const { broadcastNote } = require("../../coord/bus.ts") as {
-			broadcastNote: (n: string, source: string) => unknown;
+			broadcastNote: (store: unknown, n: string, source: string) => unknown;
 		};
-		broadcastNote(note, "credit-forecast");
+		broadcastNote(openStore(), note, "credit-forecast");
 	} catch {
 		// best-effort
 	}
