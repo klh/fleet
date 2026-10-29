@@ -99,47 +99,35 @@ function expectAligned(rows: BadgeGeom[]) {
 // local name — semantics identical, the run still reports these as skips.
 const projectSkip = test.skip;
 
-test(
-	"badge outline aligns with the card top-left border, all states",
-	{
-		tag: "@ui",
-	},
-	async ({ page, board }, testInfo) => {
-		projectSkip(
-			testInfo.project.name !== "chromium-desktop",
-			"desktop project runs the desktop-width assertion",
-		);
-		expectAligned(await measure(page, board));
-	},
-);
+test("badge outline aligns with the card top-left border, all states", {
+	tag: "@ui",
+}, async ({ page, board }) => {
+	projectSkip(
+		test.info().project.name !== "chromium-desktop",
+		"desktop project runs the desktop-width assertion",
+	);
+	expectAligned(await measure(page, board));
+});
 
-test(
-	"alignment holds in the light theme",
-	{
-		tag: "@ui",
-	},
-	async ({ page, board }, testInfo) => {
-		projectSkip(
-			testInfo.project.name !== "chromium-desktop",
-			"desktop project runs the theme assertion",
-		);
-		// pre-paint pref (theme.ts reads localStorage klh-theme before first render)
-		await page.addInitScript(() => localStorage.setItem("klh-theme", "light"));
-		expectAligned(await measure(page, board));
-		await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-	},
-);
+test("alignment holds in the light theme", {
+	tag: "@ui",
+}, async ({ page, board }) => {
+	projectSkip(
+		test.info().project.name !== "chromium-desktop",
+		"desktop project runs the theme assertion",
+	);
+	// pre-paint pref (theme.ts reads localStorage klh-theme before first render)
+	await page.addInitScript(() => localStorage.setItem("klh-theme", "light"));
+	expectAligned(await measure(page, board));
+	await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+});
 
-test(
-	"alignment holds at a narrow viewport",
-	{
-		tag: "@ui",
-	},
-	async ({ page, board }, testInfo) => {
-		projectSkip(
-			testInfo.project.name !== "chromium-narrow",
-			"narrow project runs the narrow assertion",
-		);
-		expectAligned(await measure(page, board));
-	},
-);
+test("alignment holds at a narrow viewport", {
+	tag: "@ui",
+}, async ({ page, board }) => {
+	projectSkip(
+		test.info().project.name !== "chromium-narrow",
+		"narrow project runs the narrow assertion",
+	);
+	expectAligned(await measure(page, board));
+});

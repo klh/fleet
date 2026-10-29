@@ -35,8 +35,9 @@ test("core SKU: page hides the zone and coerces the deep-link", {
 	await page.goto(`${board.BASE}/`);
 	const tabs = page.locator("klh-board-tabs");
 	await expect(tabs).toBeVisible();
-	// the seven core tabs only — the enterprise tab never appears
-	await expect(tabs.getByRole("button")).toHaveCount(7);
+	// the eight core tabs (Usage landed with the usage panels) — the
+	// enterprise tab never appears
+	await expect(tabs.getByRole("button")).toHaveCount(8);
 	// the section exists but stays hidden
 	await expect(page.locator("#tab-enterprise")).toBeHidden();
 
@@ -48,62 +49,58 @@ test("core SKU: page hides the zone and coerces the deep-link", {
 	await expect(page.locator("#tab-enterprise")).toBeHidden();
 });
 
-test(
-	"entitled: tab appears, zone renders the seven panels",
-	{
-		tag: "@ui",
-	},
-	async ({ page, peerBoard }, testInfo) => {
-		testInfo.setTimeout(40_000);
-		await page.goto(`${peerBoard.BASE}/`);
-		const tabs = page.locator("klh-board-tabs");
-		const entBtn = tabs.getByRole("button", { name: "Enterprise" });
-		await expect(entBtn).toBeVisible({ timeout: 20_000 });
+test("entitled: tab appears, zone renders the seven panels", {
+	tag: "@ui",
+}, async ({ page, peerBoard }) => {
+	test.setTimeout(40_000);
+	await page.goto(`${peerBoard.BASE}/`);
+	const tabs = page.locator("klh-board-tabs");
+	const entBtn = tabs.getByRole("button", { name: "Enterprise" });
+	await expect(entBtn).toBeVisible({ timeout: 20_000 });
 
-		await entBtn.click();
-		const zone = page.locator("#tab-enterprise klh-ent-zone");
-		await expect(zone).toBeVisible();
-		await expect(zone).toHaveAttribute("active", "");
+	await entBtn.click();
+	const zone = page.locator("#tab-enterprise klh-ent-zone");
+	await expect(zone).toBeVisible();
+	await expect(zone).toHaveAttribute("active", "");
 
-		// zone chrome: badge + tenant
-		await expect(zone.locator(".badge")).toHaveText("ENTERPRISE");
-		await expect(zone.locator(".tenant")).toHaveText("acme-corp");
+	// zone chrome: badge + tenant
+	await expect(zone.locator(".badge")).toHaveText("ENTERPRISE");
+	await expect(zone.locator(".tenant")).toHaveText("acme-corp");
 
-		// the seven family panels render (one host each)
-		await expect(
-			zone.locator("klh-ent-identity h3", { hasText: "Identity" }),
-		).toBeVisible();
+	// the seven family panels render (one host each)
+	await expect(
+		zone.locator("klh-ent-identity h3", { hasText: "Identity" }),
+	).toBeVisible();
 
-		// identity slice data is real: ada (employee, enforced) + bob
-		// (contractor, off)
-		const identity = zone.locator("klh-ent-identity");
-		await expect(identity.locator("td", { hasText: "ada" })).toBeVisible();
-		await expect(
-			identity.locator(".chip", { hasText: "contractor" }),
-		).toBeVisible();
-		await expect(
-			identity.locator(".chip", { hasText: "enforced" }),
-		).toBeVisible();
+	// identity slice data is real: ada (employee, enforced) + bob
+	// (contractor, off)
+	const identity = zone.locator("klh-ent-identity");
+	await expect(identity.locator("td", { hasText: "ada" })).toBeVisible();
+	await expect(
+		identity.locator(".chip", { hasText: "contractor" }),
+	).toBeVisible();
+	await expect(
+		identity.locator(".chip", { hasText: "enforced" }),
+	).toBeVisible();
 
-		// usage anomaly flags
-		await expect(
-			zone.locator("klh-ent-usage .chip", { hasText: "flag" }),
-		).toBeVisible();
+	// usage anomaly flags
+	await expect(
+		zone.locator("klh-ent-usage .chip", { hasText: "flag" }),
+	).toBeVisible();
 
-		// failed slice renders its honest why (vault)
-		await expect(
-			zone.locator("klh-ent-vault .state.bad", {
-				hasText: "vault surface not wired",
-			}),
-		).toBeVisible();
+	// failed slice renders its honest why (vault)
+	await expect(
+		zone.locator("klh-ent-vault .state.bad", {
+			hasText: "vault surface not wired",
+		}),
+	).toBeVisible();
 
-		// the render-and-look artifact (not committed — lane evidence)
-		await page
-			.locator("#tab-enterprise")
-			.screenshot({ path: `/tmp/w7751-zone-${testInfo.retry}.png` })
-			.catch(() => {});
-	},
-);
+	// the render-and-look artifact (not committed — lane evidence)
+	await page
+		.locator("#tab-enterprise")
+		.screenshot({ path: `/tmp/w7751-zone-${test.info().retry}.png` })
+		.catch(() => {});
+});
 
 // the seven family panels render one host each (W1136: parameterized —
 // the old spec ran this as a for-loop inside the entitled test)

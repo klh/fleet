@@ -40,37 +40,29 @@ async function assertOrder(page: Page) {
 // local name — semantics identical, the run still reports these as skips.
 const projectSkip = test.skip;
 
-test(
-	"column order holds at desktop width",
-	{
-		tag: "@ui",
-	},
-	async ({ page, board }, testInfo) => {
-		projectSkip(
-			testInfo.project.name !== "chromium-desktop",
-			"desktop project runs the desktop-width assertion",
-		);
-		await page.goto(`${board.BASE}/#lanes`);
-		await expect(page.locator(".kanban .kcol")).toHaveCount(ORDER.length);
-		await assertOrder(page);
-	},
-);
+test("column order holds at desktop width", {
+	tag: "@ui",
+}, async ({ page, board }) => {
+	projectSkip(
+		test.info().project.name !== "chromium-desktop",
+		"desktop project runs the desktop-width assertion",
+	);
+	await page.goto(`${board.BASE}/#lanes`);
+	await expect(page.locator(".kanban .kcol")).toHaveCount(ORDER.length);
+	await assertOrder(page);
+});
 
-test(
-	"column order holds on a narrow screen",
-	{
-		tag: "@ui",
-	},
-	async ({ page, board }, testInfo) => {
-		projectSkip(
-			testInfo.project.name !== "chromium-narrow",
-			"narrow project runs the narrow-screen assertion",
-		);
-		await page.goto(`${board.BASE}/#lanes`);
-		await expect(page.locator(".kanban .kcol")).toHaveCount(ORDER.length);
-		await assertOrder(page);
-	},
-);
+test("column order holds on a narrow screen", {
+	tag: "@ui",
+}, async ({ page, board }) => {
+	projectSkip(
+		test.info().project.name !== "chromium-narrow",
+		"narrow project runs the narrow-screen assertion",
+	);
+	await page.goto(`${board.BASE}/#lanes`);
+	await expect(page.locator(".kanban .kcol")).toHaveCount(ORDER.length);
+	await assertOrder(page);
+});
 
 test("empty conditional columns follow filtered task transitions and keep jump targets stable", {
 	tag: "@ui",
