@@ -195,8 +195,10 @@ export async function traceErrorResponse(
 	if (!body) throw new Error("error trace body unavailable");
 	if (fallback) {
 		headers.set("content-type", fallback.contentType);
-		void resp.body?.cancel().catch(() => {});
 	}
+	// smallJson reads a clone; the original tee branch must be closed even when
+	// parsing succeeds or it retains the whole error body under backpressure.
+	void resp.body?.cancel().catch(() => {});
 	const code = safeProviderErrorToken(
 		body.code ?? object(body.error)?.code ?? null,
 	);
