@@ -140,6 +140,11 @@ describe("Z.ai account catalog", () => {
 		const dir = mkdtempSync(join(tmpdir(), "zai-catalog-test-"));
 		try {
 			const path = join(dir, "models.json");
+			// "models.json" here is join(tmpdir, ...): the test writes the
+			// fixture itself, never a repo path — git history holds no
+			// deploy/models.json in any commit (W1789 disposition, W1790
+			// precedent). Pin its absence so a restore is a conscious change.
+			expect(existsSync(join(import.meta.dir, "models.json"))).toBe(false);
 			const snapshot: ZaiCatalogSnapshot = {
 				version: 1,
 				source: ZAI_CATALOG_URL,
