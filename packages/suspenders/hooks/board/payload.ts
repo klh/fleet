@@ -129,7 +129,7 @@ export function factsTrust(): unknown[] {
 					trust = { rating, detail, evidence, researched };
 			}
 		} catch {} // plain-text fact — honest null marker
-		return { key: r.key, value: r.value, tsAgo: ago(r.ts), trust };
+		return { key: r.key, value: r.value, ts: r.ts, tsAgo: ago(r.ts), trust };
 	});
 }
 

@@ -1,34 +1,37 @@
 // hooks/board/etag.ts — HTTP citizenship for the polled board feeds
 // (/api/data, /api/decisions, /api/tasks, /api/spend-series): a weak ETag
-// over the body MINUS the top-level `ts` response stamp, so an unchanged
+// over the body MINUS its build stamps and relative ages, so an unchanged
 // slice answers If-None-Match with a bodyless 304 instead of re-sending the
 // same JSON every poll. Dependency-free (helpers.ts re-exports it) so the
 // unit spec never opens the governor store.
 //
-// ONE stringify per body: the ts-less basis is serialized once, hashed, and
-// the wire body is that basis with `ts` spliced back in front — the poll
-// memo (poll-memo.ts) caches the result, so every request in a window
-// reuses the same bytes + tag and a 304 costs no serialization at all.
+// The poll memo (poll-memo.ts) caches the result, so the body + the hashed
+// basis serialize once per window, every request in the window reuses the
+// same bytes + tag, and a 304 costs no serialization at all.
 import { createHash } from "node:crypto";
 
 export type FeedBody = { at: number; body: string; etag: string };
 
+// Fields that move every build without the feed changing: top-level build
+// stamps, and every relative age (`*Ago`, `age_s`) — those ride beside an
+// absolute stamp the client re-derives them from (board-html/feed-ages.ts),
+// so a 304 never freezes an age on screen.
+const VOLATILE_TOP = new Set(["ts", "decisionsTs", "observation"]);
+const RELATIVE_AGE = /Ago$|^age_s$/;
+
 export function etagBody(data: unknown, at: number = Date.now()): FeedBody {
-	let body: string;
-	let basis: string;
-	if (
-		data !== null &&
-		typeof data === "object" &&
-		!Array.isArray(data) &&
-		typeof (data as { ts?: unknown }).ts === "number"
-	) {
-		const { ts, ...rest } = data as { ts: number };
-		basis = JSON.stringify(rest);
-		body = basis === "{}" ? `{"ts":${ts}}` : `{"ts":${ts},${basis.slice(1)}`;
-	} else {
-		body = basis = JSON.stringify(data);
-	}
-	const hash = createHash("sha1").update(basis).digest("base64url");
+	const body = JSON.stringify(data);
+	const top = data !== null && typeof data === "object" ? data : null;
+	const lane = (top as { laneObservations?: unknown } | null)?.laneObservations;
+	const basis = JSON.stringify(data, function (this: unknown, k, v) {
+		if (RELATIVE_AGE.test(k)) return undefined;
+		if (this === top && VOLATILE_TOP.has(k)) return undefined;
+		if (this === lane && k === "ts") return undefined;
+		return v;
+	});
+	const hash = createHash("sha1")
+		.update(basis ?? "")
+		.digest("base64url");
 	return { at, body, etag: `W/"${hash.slice(0, 22)}"` };
 }
 

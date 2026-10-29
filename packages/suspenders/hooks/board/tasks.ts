@@ -559,6 +559,7 @@ export function board(): Record<string, unknown>[] {
 			blocked: blocked.has(w.id),
 			deps: openDeps[w.id] ?? null,
 			note: w.state === "FAILED" ? (failNotes.get(w.id) ?? null) : null,
+			updatedAt: w.updated_at,
 			updatedAgo: ago(w.updated_at),
 		});
 		return {

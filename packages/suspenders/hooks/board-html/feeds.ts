@@ -17,7 +17,7 @@ feeds.define('tasks', {
     return '/api/tasks' + q + (q ? '&' : '?') + 'done=' + (showDone ? 'all' : '12');
   },
   accept: function(j){ if (!j || j.ok === false || !Array.isArray(j.tasks)) throw new Error('bad /api/tasks payload'); },
-  ok: function(j, changed){ tasksOkAt = Date.now(); tasksErr = null; tasksLoaded = true; if (!changed) return; tasksData = j; noteProjects(j.projects); renderTasks(); renderKanban(); },
+  ok: function(j, changed){ tasksOkAt = Date.now(); tasksErr = null; tasksLoaded = true; if (!changed) { if (tasksData === j) { restamp(j); renderTasks(); renderKanban(); } return; } tasksData = j; noteProjects(j.projects); renderTasks(); renderKanban(); },
   fail: function(e){ tasksErr = e; renderTasks(); renderKanban(); }
 });
 // sparklines are garnish — never an error surface (no fail handler)

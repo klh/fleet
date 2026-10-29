@@ -95,6 +95,7 @@ export function events(): unknown[] {
 		}
 		return {
 			id: e.id,
+			ts: e.ts,
 			tsAgo: ago(e.ts),
 			source: e.source,
 			kind: e.kind,
