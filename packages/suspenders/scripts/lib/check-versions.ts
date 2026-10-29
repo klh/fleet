@@ -4,6 +4,9 @@
 // manifest. Fails when:
 //   · any version or dependency spec is not plain MAJOR.MINOR.PATCH
 //     (including @klh/* siblings — no ranges, no workspace:* protocol)
+//   · engines.bun is declared but not pinned exact (W2173.3 — the
+//     toolchain pin is a spec like every dep; telemetry's exact pin is
+//     the model)
 //   · the workspaces disagree on the repo version
 //   · the root manifest declares dependencies
 //   · a directory under the workspaces globs has no package.json
@@ -28,6 +31,7 @@ export type VersionFindingCode =
 	| "missing-manifest"
 	| "bad-version"
 	| "bad-dep-spec"
+	| "bad-engine"
 	| "drift"
 	| "no-such-package";
 
@@ -144,6 +148,21 @@ export function checkVersions(
 					file: ref.rel,
 					message: `${map}: ${dep}@${spec} is not pinned exact MAJOR.MINOR.PATCH`,
 				});
+		// engines.bun: declared → exact pin (absent engines stays legal)
+		const engines = json.engines;
+		if (
+			typeof engines === "object" &&
+			engines !== null &&
+			typeof (engines as Record<string, unknown>).bun === "string" &&
+			!SEMVER_RE.test((engines as Record<string, string>).bun)
+		)
+			findings.push({
+				code: "bad-engine",
+				file: ref.rel,
+				message: `engines: bun@${
+					(engines as Record<string, string>).bun
+				} is not pinned exact MAJOR.MINOR.PATCH`,
+			});
 	}
 
 	// 4 · the workspaces agree on ONE version (drift rows outside a scoped

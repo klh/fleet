@@ -41,7 +41,7 @@ export interface KevDecision {
  *  service. Mirrors the belt-locate idiom (env → default; callers degrade
  *  when nothing answers). */
 export function kevUrl(): string {
-	return process.env.SUSPENDERS_KEV_URL?.replace(/\/$/, "") ?? KEV_DEFAULT_URL;
+	return setting("knowledge.kev_url").replace(/\/$/, "");
 }
 
 /** Fork payload options → the typed-decision option set (consumer-side
@@ -141,3 +141,4 @@ export function kevProbabilityLines(d: KevDecision): string[] {
 		.sort((a, b) => b[1] - a[1])
 		.map(([label, p]) => `${label} ${Math.round(p * 100)}%`);
 }
+import { setting } from "@klh/settings";

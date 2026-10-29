@@ -4,6 +4,7 @@
 // explicit: dispatch briefs for near-cap files carry a patch-only directive,
 // and `work done` verifies the diff shape — churn beyond the budget on a
 // near-cap file refuses closure unless the item IS a decomposition.
+import { setting } from "@klh/settings";
 import { spawnSync } from "node:child_process";
 
 /** a .ts file at or past this line count is near-cap (the 1500 hard cap
@@ -100,7 +101,7 @@ export const patchFirstVerdict = (o: {
 	budget?: number;
 	disabled?: boolean;
 }): PatchFirstVerdict => {
-	const disabled = o.disabled ?? process.env.SUSPENDERS_PATCH_FIRST === "0";
+	const disabled = o.disabled ?? !setting("gates.patch_first");
 	if (disabled) return { ok: true };
 	if (isDecompositionItem(o.title, o.desc)) return { ok: true };
 	const threshold = o.threshold ?? PATCH_FIRST_THRESHOLD;

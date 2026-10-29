@@ -5,6 +5,7 @@
 // entries) and written atomically (session-state IO, 0600 tmp+rename).
 // Fail-open law: ANY state trouble (unreadable, unwritable, corrupt) means
 // the message is delivered — throttling must never silence a safety message.
+import { setting } from "@klh/settings";
 import { createHash } from "node:crypto";
 import {
 	readSessionState,
@@ -31,7 +32,7 @@ type CooldownState = Record<string, number>;
  *  Expired entries are dropped and the map capped at the newest CAP —
  *  the file stays bounded. A failed write only loses the throttle. */
 export function advisorySeen(sid: string, message: string): boolean {
-	const ttl = cooldownMs(process.env.SUSPENDERS_ADVISORY_COOLDOWN_MS);
+	const ttl = setting("gates.advisory_cooldown_ms");
 	if (ttl === 0) return false;
 	const key = createHash("sha256").update(message).digest("hex");
 	const file = sessionStatePath("advcd", sid);

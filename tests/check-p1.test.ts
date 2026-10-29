@@ -7,10 +7,10 @@ import { P1_PIN } from "../tests/helpers/p1-findings.pin.ts";
 const root = resolve(import.meta.dir, "..");
 
 const row = (over: Partial<P1Finding>): P1Finding => ({
-	check: "versions",
-	pkg: "buckle",
+	check: "pack",
+	pkg: "suspenders",
 	prefix:
-		"packages/buckle/package.json: peerDependencies: typescript@^7 is not pinned exact MAJOR.MINOR.PATCH",
+		'unresolved-dep: node_modules/@klh/suspenders/scripts/build-vendor.ts: "acorn" does not resolve from the install',
 	...over,
 });
 
@@ -18,6 +18,12 @@ describe("check-p1 pin matcher", () => {
 	test("a row excuses the finding its prefix names", () => {
 		const f = row({});
 		expect(P1_PIN.some((r) => isPinned(r, f))).toBe(true);
+	});
+
+	test("the W2173.3 typescript pin row is gone (exact 7.0.2 landed)", () => {
+		expect(
+			P1_PIN.some((r) => r.check === "versions" && r.pkg === "buckle"),
+		).toBe(false);
 	});
 
 	test("a row does not excuse another package or check", () => {

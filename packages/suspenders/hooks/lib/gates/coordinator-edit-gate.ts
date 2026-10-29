@@ -37,6 +37,7 @@
 // — the superlite incidents.jsonl analog — and the deny text is the
 // dispatch-it-instead redirect. SUSPENDERS_COORD_EDIT_GATE=0 disables
 // (owner kill switch, the scrub-gate pattern).
+import { setting } from "@klh/settings";
 import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { RECEIPT_FILE } from "../install/harness-manifest.ts";
@@ -183,7 +184,7 @@ export const coordinatorDenyText = (rel: string): string =>
 // continues. Cheap exits first: kill switch, tool, path, repo scope,
 // allowlist — role resolution (the ps walk) pays only on would-be blocks.
 export function coordinatorEditGate(hook: HookInput): void {
-	if (process.env.SUSPENDERS_COORD_EDIT_GATE === "0") return;
+	if (!setting("gates.coordinator_edit_gate")) return;
 	if (!EDIT_TOOLS.has(hook.tool_name ?? "")) return;
 	let f = hook.tool_input?.file_path ?? hook.tool_input?.notebook_path ?? "";
 	if (!f) return;

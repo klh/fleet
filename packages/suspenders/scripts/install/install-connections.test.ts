@@ -1,8 +1,11 @@
 // W1234 — wireConnections step tests: the ask pauses without --yes, --yes
-// writes once at mode 600, the existing file is NEVER overwritten, the
-// launchctl face + CONNECT probe are injectable (tests never touch the host).
-// W2198: proxy pairs ride the probed-live authenticated CONNECT face — a
-// dead/absent face actively UNSETS the proxy vars, never a serve port.
+// writes once at mode 600, the existing file is NEVER overwritten. W2284:
+// the universal launchctl face is RETIRED — the step only UNSETS the proxy
+// trio in the launchd user domain (owner ruling 2026-10-29: the buckle
+// proxy is NOT a system proxy); the runner is injectable so tests never
+// touch the host.
+
+import { afterAll, expect, test } from "bun:test";
 import {
 	existsSync,
 	mkdtempSync,
@@ -10,35 +13,27 @@ import {
 	statSync,
 	writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterAll, expect, test } from "bun:test";
+import { join } from "node:path";
 import {
 	defaultTemplate,
 	GUI_PROXY_ASK,
+	RETIRED_LAUNCHCTL_KEYS,
 	wireConnections,
-	type ConnectProbe,
-	type LaunchctlRun,
 } from "./install-connections.ts";
 
 const SETENV: string[][] = [];
-const recorder: LaunchctlRun = async (pairs) => {
+const recorder = async (pairs: { key: string; value: string }[]) => {
 	for (const p of pairs) SETENV.push([p.key, p.value]);
 };
-const okProbe: ConnectProbe = async () => ({
-	ok: true,
-	why: "face answered 200 over CONNECT",
-});
-const deadProbe: ConnectProbe = async () => ({
-	ok: false,
-	why: "no CONNECT face: connection refused",
+const stubResolve = async () => ({
+	url: "http://hub.test:4101",
+	via: "test-stub",
 });
 
 afterAll(() => {
 	delete process.env.SUSPENDERS_CONNECTIONS_FILE;
 	delete process.env.SUSPENDERS_DEFAULT_HUB;
-	delete process.env.SUSPENDERS_HUB_TESTHUB_URL;
-	delete process.env.BUCKLE_CONNECT_TOKEN;
 });
 
 const tmpFile = (): string => {
@@ -46,89 +41,87 @@ const tmpFile = (): string => {
 	return join(root, "connections.json");
 };
 
-test("absent + --yes + live face: writes mode 600, authenticated proxy pairs, undo", async () => {
+test("absent + --yes: writes mode 600 template, unsets the retired proxy trio", async () => {
 	const p = tmpFile();
 	process.env.SUSPENDERS_CONNECTIONS_FILE = p;
 	process.env.SUSPENDERS_DEFAULT_HUB = "TESTHUB";
-	process.env.SUSPENDERS_HUB_TESTHUB_URL = "http://hub.test:4101";
-	process.env.BUCKLE_CONNECT_TOKEN = "test-connect-token";
 	SETENV.length = 0;
 	const r = await wireConnections(
 		{ yes: true } as never,
 		recorder,
-		undefined,
-		okProbe,
+		stubResolve,
 	);
 	expect(r.status).toBe("ok");
 	expect(statSync(p).mode & 0o777).toBe(0o600);
-	const keys = SETENV.map((s) => s[0]);
-	expect(keys).toContain("HTTPS_PROXY");
-	expect(keys).toContain("HTTP_PROXY");
-	expect(keys).toContain("NO_PROXY");
-	expect(keys).toContain("ANTHROPIC_BASE_URL");
-	// W2198: proxy pairs carry the authenticated CONNECT URL (creds ride
-	// the URL — env-honoring clients cannot pre-set Proxy-Authorization),
-	// pointing at the CONNECT port 4103, never the serve port
-	const proxy = SETENV.find((s) => s[0] === "HTTPS_PROXY")?.[1];
-	expect(proxy).toBe("http://buckle:test-connect-token@hub.test:4103");
-	// the buckle gateway face rides ANTHROPIC_BASE_URL, never a token
-	const baseUrl = SETENV.find((s) => s[0] === "ANTHROPIC_BASE_URL")?.[1];
-	expect(baseUrl).toBe("http://hub.test:4101");
-	expect(r.note).toContain("undo");
+	// every retired key arrives as an UNSET row — the step never setenvs
+	const rows = SETENV.filter(([k]) =>
+		(RETIRED_LAUNCHCTL_KEYS as readonly string[]).includes(k),
+	);
+	expect(rows.map(([k, v]) => [k, v])).toEqual(
+		RETIRED_LAUNCHCTL_KEYS.map((k) => [k, ""]),
+	);
+	// no value rows: nothing in this run may carry a proxy URL
+	expect(SETENV.some(([, v]) => v !== "")).toBe(false);
+	expect(r.note).toContain("retired");
 });
 
-test("dead face: proxy vars actively UNSET, non-proxy pairs still land", async () => {
+test("existing file: never overwritten, domain still ends clean", async () => {
 	const p = tmpFile();
 	process.env.SUSPENDERS_CONNECTIONS_FILE = p;
 	process.env.SUSPENDERS_DEFAULT_HUB = "TESTHUB";
-	process.env.SUSPENDERS_HUB_TESTHUB_URL = "http://hub.test:4101";
-	process.env.BUCKLE_CONNECT_TOKEN = "test-connect-token";
+	writeFileSync(
+		p,
+		JSON.stringify({ version: 1, default: "TESTHUB", apps: {}, repos: {} }),
+	);
 	SETENV.length = 0;
 	const r = await wireConnections(
 		{ yes: true } as never,
 		recorder,
-		undefined,
-		deadProbe,
+		stubResolve,
 	);
 	expect(r.status).toBe("ok");
-	const proxy = SETENV.find((s) => s[0] === "HTTPS_PROXY")?.[1];
-	expect(proxy).toBe("");
-	const baseUrl = SETENV.find((s) => s[0] === "ANTHROPIC_BASE_URL")?.[1];
-	expect(baseUrl).toBe("http://hub.test:4101");
-	expect(r.note).toContain("probe FAILED");
+	expect(readFileSync(p, "utf8")).toBe(
+		JSON.stringify({ version: 1, default: "TESTHUB", apps: {}, repos: {} }),
+	);
+	expect(SETENV.some(([, v]) => v !== "")).toBe(false);
+	expect(r.note).toContain("never overwritten");
 });
 
-test("idempotent: the second run never overwrites and re-applies the same face", async () => {
+test("idempotent: the second run converges (same bytes, same unsets)", async () => {
 	const p = tmpFile();
 	process.env.SUSPENDERS_CONNECTIONS_FILE = p;
 	process.env.SUSPENDERS_DEFAULT_HUB = "TESTHUB";
-	process.env.SUSPENDERS_HUB_TESTHUB_URL = "http://hub.test:4101";
-	process.env.BUCKLE_CONNECT_TOKEN = "test-connect-token";
 	SETENV.length = 0;
-	await wireConnections({ yes: true } as never, recorder, undefined, okProbe);
+	await wireConnections({ yes: true } as never, recorder, stubResolve);
 	const before = readFileSync(p, "utf8");
-	const firstFace = JSON.stringify(SETENV);
+	const first = JSON.stringify(SETENV);
 	const second = await wireConnections(
 		{ yes: true } as never,
 		recorder,
-		undefined,
-		okProbe,
+		stubResolve,
 	);
 	expect(readFileSync(p, "utf8")).toBe(before);
-	expect(JSON.stringify(SETENV.slice(SETENV.length / 2))).toBe(firstFace);
+	expect(JSON.stringify(SETENV.slice(SETENV.length / 2))).toBe(first);
 	expect(second.note).toContain("never overwritten");
 });
 
-test("absent without --yes: pauses with the exact ASK, writes nothing", async () => {
+test("absent without --yes: pauses with the exact ASK, writes nothing, domain still cleared", async () => {
 	const p = tmpFile();
 	process.env.SUSPENDERS_CONNECTIONS_FILE = p;
 	process.env.SUSPENDERS_DEFAULT_HUB = "TESTHUB";
 	SETENV.length = 0;
-	const r = await wireConnections({ yes: false } as never, recorder);
+	const r = await wireConnections(
+		{ yes: false } as never,
+		recorder,
+		stubResolve,
+	);
 	expect(r.status).toBe("need_user_action");
 	expect(r.note).toContain(GUI_PROXY_ASK);
 	expect(existsSync(p)).toBe(false);
-	expect(SETENV.length).toBe(0);
+	// W2284: the pause path STILL reclaims the launchd domain (hygiene is
+	// unconditional), and every row is an unset
+	expect(SETENV.length).toBe(RETIRED_LAUNCHCTL_KEYS.length);
+	expect(SETENV.every(([, v]) => v === "")).toBe(true);
 });
 
 test("defaultTemplate: every GUI app + codex default-ON (W1260.1, CONNECT relay)", () => {
@@ -143,15 +136,21 @@ test("unparseable existing file is a truthful failed row, never a rewrite", asyn
 	const p = tmpFile();
 	process.env.SUSPENDERS_CONNECTIONS_FILE = p;
 	writeFileSync(p, "{not json");
-	const r = await wireConnections({ yes: true } as never, recorder);
+	SETENV.length = 0;
+	const r = await wireConnections(
+		{ yes: true } as never,
+		recorder,
+		stubResolve,
+	);
 	expect(r.status).toBe("failed");
 	expect(readFileSync(p, "utf8")).toBe("{not json");
 });
 
-test("unresolved default hub: the face degrades, the file still lands", async () => {
+test("unresolved hub: the clear is unconditional, the step degrades honestly", async () => {
 	const p = tmpFile();
 	process.env.SUSPENDERS_CONNECTIONS_FILE = p;
 	process.env.SUSPENDERS_DEFAULT_HUB = "TESTHUB";
+	SETENV.length = 0;
 	const r = await wireConnections(
 		{ yes: true } as never,
 		recorder,
@@ -159,5 +158,6 @@ test("unresolved default hub: the face degrades, the file still lands", async ()
 	);
 	expect(r.status).toBe("ok");
 	expect(statSync(p).mode & 0o777).toBe(0o600);
-	expect(r.note).toContain("launchctl face skipped");
+	expect(SETENV.length).toBe(RETIRED_LAUNCHCTL_KEYS.length);
+	expect(r.note).toContain("UNSET");
 });

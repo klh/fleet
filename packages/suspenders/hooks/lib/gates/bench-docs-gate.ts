@@ -35,8 +35,7 @@ export const benchDocsVerdict = (o: {
 	paths: string[];
 	disabled?: boolean;
 }): BenchDocsVerdict => {
-	if (o.disabled ?? process.env.SUSPENDERS_DONE_DOCS === "0")
-		return { ok: true };
+	if (o.disabled ?? !setting("gates.done_docs")) return { ok: true };
 	if (!isBenchItem(o.title, o.desc)) return { ok: true };
 	const missing = BENCH_DOC_PATHS.filter((p) => !o.paths.includes(p));
 	if (!missing.length) return { ok: true };
@@ -50,3 +49,4 @@ export const benchDocsVerdict = (o: {
 			`what-didnt-work entry — owner directive #47519. Escape hatch: SUSPENDERS_DONE_DOCS=0.`,
 	};
 };
+import { setting } from "@klh/settings";
