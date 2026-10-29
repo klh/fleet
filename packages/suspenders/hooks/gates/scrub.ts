@@ -8,6 +8,7 @@
 // disables. Git plumbing
 // failure is fail-inert (a broken diff never blocks); findings deny with
 // file:line + the marker recipe.
+import { setting } from "@klh/settings";
 import { deny } from "../lib/hookio.ts";
 import { run } from "../lib/run.ts";
 import {
@@ -40,7 +41,7 @@ function segRepoDir(seg: string[], segCwd: string): string {
 }
 
 export function scrubGateSegments(segs: string[][], cwd: string): void {
-	if (process.env.SUSPENDERS_SCRUB === "0") return; // owner kill switch
+	if (!setting("gates.scrub")) return; // owner kill switch
 	let segCwd = cwd;
 	for (const seg of segs) {
 		const v = verb(seg);

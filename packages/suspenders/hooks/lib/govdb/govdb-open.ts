@@ -207,6 +207,14 @@ export function openGovernorDb(): Database {
 	// each match, else done refuses. NULL = no required evidence.
 	if (!wiCols.includes("evidence"))
 		db.run("ALTER TABLE work_items ADD COLUMN evidence TEXT");
+	// W609/W2186 — claim-epoch fencing (lib/work/work-transition.ts): minted
+	// by take (+1 on the READY→CLAIMED CAS), CAS'd by done/fail/start so a
+	// zombie writer whose guard read raced a reclaim + re-take writes nothing.
+	// 0 = pre-fence rows; done ALSO carries the W643 token hash in its WHERE.
+	if (!wiCols.includes("claim_epoch"))
+		db.run(
+			"ALTER TABLE work_items ADD COLUMN claim_epoch INTEGER NOT NULL DEFAULT 0",
+		);
 	// WAITING is an explicit external prerequisite, never an allocator candidate.
 	if (!wiCols.includes("wait_kind"))
 		db.run("ALTER TABLE work_items ADD COLUMN wait_kind TEXT");

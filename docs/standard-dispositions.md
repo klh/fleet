@@ -276,7 +276,13 @@ surface, not a divergence from it.
   `test/decision-project-scope.test.ts`), and hands the stateless
   `<klh-conn-banner>` its verdict; the banner asks for a refetch with the
   typed `FeedRefreshRequestedEvent` (bubbles + composed, readonly field,
-  stopped at the mediator).
+  stopped at the mediator). `FeedStore.share()` makes it one poller per
+  browser: a Web Lock elects the leader tab, followers never fetch and land
+  its BroadcastChannel snapshots; closing the leader hands over. The
+  mediator wraps the whole board body; every feed-failure banner is a
+  stateless `<klh-err-banner feed=…>` whose retry is a
+  `FeedRefreshRequestedEvent` (the legacy `errBanner`/`clearErr` helper is
+  gone).
 - **GAP.** Kanban, lanes table, decisions, task drawer and sparklines are
   still string-chunk renderers (UI-law safe: `setNodes`/`sigSet`, no
   `innerHTML`) that read feed state through `FeedStore.define` callbacks

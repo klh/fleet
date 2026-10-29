@@ -12,7 +12,13 @@
 // style <label>.local guess (the suspenders.local/belt.local precedent) →
 // null (callers degrade to local belt — never a silent wrong hub).
 import { readFileSync } from "node:fs";
-import { darkHubNow, loadStack, type HubProfile } from "../stack-config.ts";
+import { expandHome, warnDeprecated } from "@klh/settings";
+import {
+	darkHubNow,
+	loadStack,
+	stackSource,
+	type HubProfile,
+} from "../stack-config.ts";
 import { BUCKLE_SPOKE_PORT } from "../loopback.ts";
 import { hubBuckleUrl } from "./hub-endpoint.ts";
 
@@ -35,6 +41,40 @@ export function readRegistry(): HubRegistry {
 	} catch {
 		return {};
 	}
+}
+
+/** A hub's front token: the legacy inline value, else the first line of
+ *  its 0600 `token_file` (settings.json never holds the value itself). */
+export function profileToken(prof: HubProfile): string | undefined {
+	if (prof.token) return prof.token;
+	if (!prof.token_file) return undefined;
+	try {
+		const first = readFileSync(expandHome(prof.token_file), "utf8").split(
+			"\n",
+		)[0];
+		return first?.trim() || undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/** Every hub label this machine knows (settings/stack hubs + legacy
+ *  registry), for `.prefer hub=<label>` validation. */
+export function knownHubLabels(): string[] {
+	let stackLabels: string[] = [];
+	try {
+		stackLabels = Object.keys(loadStack().hubs);
+	} catch {}
+	return [...new Set([...stackLabels, ...Object.keys(readRegistry())])].sort();
+}
+
+/** `.prefer hub=<label>` check: null when known, else a warning naming
+ *  the known labels (an unknown label silently degrades to local belt). */
+export function unknownHubWarning(label: string): string | null {
+	const known = knownHubLabels();
+	const want = label.trim().toLowerCase();
+	if (!want || known.some((l) => l.toLowerCase() === want)) return null;
+	return `.prefer hub=${label.trim()}: unknown hub label — known: ${known.join(", ") || "none"} (add it under hubs in settings.json)`;
 }
 
 const HUB_SERVICE_TYPE = "_klh-hub._tcp";
@@ -128,35 +168,47 @@ export async function resolveHub(
 	// token) is the machine truth for a labeled hub; hubs.json stays the
 	// fallback lookup. Missing/bad file just continues the chain.
 	let prof: HubProfile | undefined;
+	let viaHub: "settings hubs" | "stack.json" = "settings hubs";
 	try {
 		const hubs = loadStack().hubs;
 		prof = Object.entries(hubs).find(
 			([l]) => l.toLowerCase() === norm.toLowerCase(),
 		)?.[1];
+		if (stackSource() !== "settings") viaHub = "stack.json";
 	} catch {
-		// no/bad stack.json — the chain continues to the registry
+		// no/bad config — the chain continues to the registry
 	}
 	const url = prof ? hubBuckleUrl(prof) : null;
+	const token = prof ? profileToken(prof) : undefined;
 	if (url && (await alive(url)))
-		return {
-			label: norm,
-			url,
-			token: prof?.token,
-			via: "stack.json",
-		};
-	// 3. global registry (mode 600, never committed — operator config, same
-	// trust class as belt.json/belt-tokens.json). W1256.2: this file is a
-	// GENERATED projection of the stack config (hooks/lib/hub/hub-registry.ts,
-	// written at install) — the hand-maintained second registry retires.
+		return { label: norm, url, token, via: viaHub };
+	// 2c. settings.json `hubs.<label>.candidates` — the folded hubs.json
+	// registry rows, same label.
+	for (const cand of prof?.candidates ?? []) {
+		if (await alive(cand))
+			return {
+				label: norm,
+				url: cand.replace(/\/$/, ""),
+				token,
+				via: `${viaHub} candidates`,
+			};
+	}
+	// 3. legacy global registry (hubs.json, one-release fallback — `coord
+	// settings migrate` folds it into settings.json hubs.<label>).
 	const reg = readRegistry()[norm] ?? readRegistry()[norm.toUpperCase()];
 	for (const cand of reg?.candidates ?? []) {
-		if (await alive(cand))
+		if (await alive(cand)) {
+			warnDeprecated(
+				"hubs.json",
+				`${REGISTRY_PATH()} is deprecated — run \`coord settings migrate\` (hubs.<label>.candidates in settings.json)`,
+			);
 			return {
 				label: norm,
 				url: cand.replace(/\/$/, ""),
 				token: reg?.token,
 				via: "registry hubs.json",
 			};
+		}
 	}
 	// 4. DNS-SD browse — same convention belt/bin/remotes.ts already uses for
 	// LLM discovery (_klh-llm._tcp, avahi on linux / dns-sd on macOS), one

@@ -152,8 +152,8 @@ const NEAR_CAP_PINNED = {
 	"packages/belt/bin/router-shim.ts": 1282, // tightened W2233 merge (upstream shrink; W2231 precedent)
 	"packages/buckle/src/ledger.ts": 1389, // +7 main-side merge drift (W2210 re-pin; debt: decompose)
 	"packages/belt/test/dashboard-topology-model.e2e.ts": 1294,
-	"packages/suspenders/hooks/bin/work.ts": 1254, // W2233 merge (rejudge/backfill faces out to libs; fmt rewrap)
-	"packages/suspenders/deploy/hubctl.ts": 1208,
+	"packages/suspenders/hooks/bin/work.ts": 1252, // W2233 merge: W2189 rejudge/backfill verb faces + W2186 fence-CAS decomposition, merged
+	"packages/suspenders/deploy/hubctl.ts": 1212, // +4 main-side merge drift (W2210 ledger precedent)
 };
 
 test("the 1200-line band stays pinned: shrink-only, no new entrants (W1238.6) @unit", () => {

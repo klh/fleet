@@ -30,6 +30,9 @@ export interface SyncPolicy {
 	/** W1213: CAS'd claim-roll entries (claim.* facts) ride UP to targets
 	 *  configured with rollUrl + rollKeyFile */
 	claims: boolean;
+	/** fork G: the knowledge graph delta (kg_nodes/kg_edges/vote tallies)
+	 *  rides the same roll channel — scrub-only export, machine-bound origin */
+	graph: boolean;
 }
 
 export interface SyncTarget {
@@ -60,6 +63,7 @@ export const DEFAULT_POLICY: SyncPolicy = {
 	metricsSessions: false,
 	facts: true,
 	claims: true,
+	graph: true,
 };
 
 export const SYNC_CONFIG_PATH = (): string =>
@@ -174,6 +178,7 @@ function parsePolicy(value: unknown): SyncPolicy {
 		metricsSessions: p.metricsSessions ?? DEFAULT_POLICY.metricsSessions,
 		facts: p.facts ?? DEFAULT_POLICY.facts,
 		claims: p.claims ?? DEFAULT_POLICY.claims,
+		graph: p.graph ?? DEFAULT_POLICY.graph,
 	};
 }
 

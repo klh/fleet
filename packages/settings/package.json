@@ -1,0 +1,35 @@
+{
+	"name": "@klh/settings",
+	"version": "2.1.0",
+	"description": "The ONE per-install settings.json (~/.config/klh/settings.json): one zod v4 SettingsSchema, the typed reader every fleet package imports, env-knob deprecation map, migration from stack.json/hubs.json, per-hub overlays",
+	"type": "module",
+	"license": "SEE LICENSE IN LICENSE",
+	"private": true,
+	"packageManager": "bun@1.4.2",
+	"engines": {
+		"bun": "1.4.2"
+	},
+	"module": "src/index.ts",
+	"exports": {
+		".": "./src/index.ts",
+		"./settings.schema.json": "./settings.schema.json",
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"src",
+		"scripts",
+		"settings.schema.json",
+		"AGENTS.md"
+	],
+	"scripts": {
+		"schema": "bun scripts/gen-schema.ts --write",
+		"test": "bun --bun playwright test -c test/playwright.config.ts"
+	},
+	"dependencies": {
+		"@klh/kernel": "2.1.0",
+		"zod": "4.6.7"
+	},
+	"devDependencies": {
+		"@playwright/test": "1.64.1"
+	}
+}

@@ -14,6 +14,7 @@ import { type Observation, connVerdict } from "./conn-verdict.ts";
 import { FEED_SCHEMAS, feedValidator } from "./feed-schemas.ts";
 import { type FeedState, FeedStore } from "./feed-store.ts";
 import "./klh-conn-banner.ts";
+import "./klh-err-banner.ts";
 import type { KlhConnBanner } from "./klh-conn-banner.ts";
 
 declare global {
@@ -22,7 +23,7 @@ declare global {
 
 /** The one page-wide store, whichever script reaches it first. */
 export function boardFeeds(): FeedStore {
-	globalThis.klhFeeds ??= new FeedStore();
+	globalThis.klhFeeds ??= new FeedStore().share();
 	return globalThis.klhFeeds;
 }
 

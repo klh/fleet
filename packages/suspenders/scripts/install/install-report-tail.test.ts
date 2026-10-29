@@ -80,4 +80,28 @@ describe("stack version tail (W1303.6)", () => {
 			new TextDecoder().decode(status.stdout ?? new Uint8Array()).trim(),
 		).not.toContain("stack.json");
 	});
+	test("pin target is the deployable tag ref, never a bare semver (W1311)", () => {
+		const repo = tempDir("tag-repo");
+		const git = (...args: string[]) =>
+			Bun.spawnSync(["git", "-C", repo, ...args], {
+				env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null" },
+			}).exitCode;
+		expect(git("init", "-q")).toBe(0);
+		const who = ["-c", "user.email=t@t", "-c", "user.name=t"];
+		expect(git(...who, "commit", "-q", "--allow-empty", "-m", "i")).toBe(0);
+		expect(git("tag", "v3.2.1")).toBe(0);
+		const stack = join(tempDir("stack"), "stack.json");
+		const prev = process.env.KLH_STACK;
+		process.env.KLH_STACK = stack;
+		try {
+			writeFileSync(stack, JSON.stringify({ version: "v3.2.1", hubs: {} }));
+			expect(stackVersionTail(repo)).toContain("(matches)");
+			const stale = { version: "fleet-2026-10-25-a69f2c4c", hubs: {} };
+			writeFileSync(stack, JSON.stringify(stale));
+			expect(stackVersionTail(repo)).toContain("DRIFTS → set to v3.2.1)");
+		} finally {
+			if (prev === undefined) delete process.env.KLH_STACK;
+			else process.env.KLH_STACK = prev;
+		}
+	});
 });

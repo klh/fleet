@@ -1,4 +1,4 @@
-import{n,e,t,r}from"./lit-801c06b16c5fa88d.js";import{o}from"./lit-0a3e1e27c2ae4009.js";import{i,a}from"./lit-6a02dab585465de0.js";var u=(s)=>{if(s===null||!Number.isFinite(s))return"—";if(Math.abs(s)>=1e6)return`${(s/1e6).toFixed(1)}M`;if(Math.abs(s)>=1000)return`${(s/1000).toFixed(1)}k`;return String(s)},R=(s)=>s===null?"unknown":s<90?`${s}s`:`${Math.round(s/60)}m`,T=(s)=>{if(s===null)return 1;if(s>=100)return 4;if(s>=20)return 3;if(s>=5)return 2;return 1},_=n`
+import{n,e,t,r}from"./lit-df39549a6b261b0c.js";import{o}from"./lit-ffc154e6abb8ef7a.js";import{i,a}from"./lit-f6984dc231d4b8e7.js";var u=(s)=>{if(s===null||!Number.isFinite(s))return"—";if(Math.abs(s)>=1e6)return`${(s/1e6).toFixed(1)}M`;if(Math.abs(s)>=1000)return`${(s/1000).toFixed(1)}k`;return String(s)},R=(s)=>s===null?"unknown":s<90?`${s}s`:`${Math.round(s/60)}m`,T=(s)=>{if(s===null)return 1;if(s>=100)return 4;if(s>=20)return 3;if(s>=5)return 2;return 1},_=n`
 	.hrow {
 		display: flex;
 		gap: 8px;

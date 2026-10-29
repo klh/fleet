@@ -1,0 +1,33 @@
+# CODEOWNERS — always-human paths (W1303.5)
+#
+# These are the high-risk tier paths from how-to-review.md: the referee and
+# its perimeter. Changes here need human review; agent approval never fills
+# a human slot. Everything else rides the ordinary tier ladder.
+#
+# Note: GitHub CODEOWNERS reviews advisory here — the fleet merge ladder is
+# the enforcement point (risk-tier gate, hooks/lib/gates/risk-tier.ts).
+
+# Repo governance + CI
+/.github/                       @klh
+/.githooks/                     @klh
+
+# Installer + service manifests
+/install.sh                     @klh
+/**/*.plist                     @klh
+
+# The gates themselves (check tools)
+/packages/suspenders/hooks/gates/   @klh
+/packages/suspenders/tests/law-guards.test.ts @klh
+
+# Scrub gate + denylist surface
+/packages/suspenders/hooks/lib/scrub.ts      @klh
+/packages/suspenders/hooks/lib/scrub-git.ts  @klh
+
+# Hub infra: hubctl, compose, probes
+/packages/suspenders/deploy/    @klh
+
+# Buckle auth chain (keys, scopes, minting, admin)
+/packages/buckle/src/gov/       @klh
+
+# Machine-level config templates (config-over-code surfaces)
+/packages/buckle/upstreams.copilot.json   @klh

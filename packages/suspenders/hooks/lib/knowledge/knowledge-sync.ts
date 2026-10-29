@@ -39,6 +39,14 @@ import {
 	ROLL_KEY_HEADER,
 	type RollEntry,
 } from "./knowledge-roll.ts";
+// fork G: the graph delta rides the roll channel — scrub-only export on the
+// spoke, machine-bound landing on the hub (the key IS the origin).
+import { collectGraphWire, type WireBatch } from "./distill/sync.ts";
+
+/** fork G: the spoke's per-pass graph budget — keeps one graph POST inside
+ *  transport headroom; anything larger waits for the next pass (the batch
+ *  cursor carries the resume point; the landing is idempotent). */
+export const GRAPH_WIRE_MAX_BYTES = 40_000;
 
 export interface SyncPayload {
 	originHub: string;
@@ -97,6 +105,10 @@ export interface SyncState {
 	/** W1213: versions of claim.* facts already accepted by every roll target */
 	claims: Record<string, number>;
 	metricsAt: number;
+	/** fork G: graph-delta watermark — everything landed by every roll target
+	 *  at/after this t is re-collectable at zero rows (the landing is
+	 *  idempotent by precedence). */
+	graph: number;
 }
 
 export const syncStatePath = (): string =>
@@ -107,7 +119,7 @@ export function readSyncState(path: string): SyncState {
 	try {
 		const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
 		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-			return { facts: {}, metricsAt: 0 };
+			return { facts: {}, metricsAt: 0, graph: 0 };
 		const s = parsed as Record<string, unknown>;
 		const facts: Record<string, number> = {};
 		if (s.facts && typeof s.facts === "object" && !Array.isArray(s.facts))
@@ -121,9 +133,10 @@ export function readSyncState(path: string): SyncState {
 			facts,
 			claims,
 			metricsAt: typeof s.metricsAt === "number" ? s.metricsAt : 0,
+			graph: typeof s.graph === "number" ? s.graph : 0,
 		};
 	} catch {
-		return { facts: {}, claims: {}, metricsAt: 0 };
+		return { facts: {}, claims: {}, metricsAt: 0, graph: 0 };
 	}
 }
 
@@ -382,6 +395,9 @@ export interface CollectedPayload {
 	decantOk: boolean;
 	/** W1213: facts-key → version for the collected claims (cursor fodder) */
 	claimsCursor: Record<string, number>;
+	/** fork G: the graph batch riding the roll channel this pass — null when
+	 *  the policy is off or no roll-capable target exists (cursor frozen) */
+	graphBatch: WireBatch | null;
 }
 
 /** One collection pass: decant refresh + policy-gated projections + the
@@ -440,6 +456,34 @@ export function collectPayload(
 		claims = cc.send;
 		claimsCursor = cc.cursor;
 	}
+	// fork G: the graph delta rides the same roll channel — collected under a
+	// byte budget so one pass stays transport-sized; truncation resumes from
+	// the batch cursor on the next fully-acked pass.
+	let graphBatch: WireBatch | null = null;
+	if (config.policy.graph && rollTargets.length > 0) {
+		const kbPath = siblingKnowledgeDb(
+			opts.dbPath !== undefined ? opts.dbPath : `${REG()}/governor.db`,
+		);
+		let kb: Database | null = null;
+		if (kbPath) {
+			try {
+				kb = new Database(kbPath, { readonly: true, create: false });
+			} catch {
+				kb = null;
+			}
+		}
+		if (kb) {
+			const hasGraph =
+				kb
+					.query(
+						"SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'kg_nodes'",
+					)
+					.get() !== null;
+			if (hasGraph)
+				graphBatch = collectGraphWire(kb, state.graph, GRAPH_WIRE_MAX_BYTES);
+			kb.close();
+		}
+	}
 	return {
 		payload: {
 			originHub: config.localHub,
@@ -450,6 +494,7 @@ export function collectPayload(
 		skipped,
 		decantOk,
 		claimsCursor,
+		graphBatch,
 	};
 }
 
@@ -503,6 +548,55 @@ export function validateIngestAck(
 		return {
 			ok: false,
 			error: `ingest ack accounts for ${String(c.metrics)} of ${batch.sentMetrics} sent metrics rows`,
+		};
+	return { ok: true, error: null };
+}
+
+/** fork G: the graph face's ack contract — the graph cursor advances only
+ *  on an explicit, batch-matched positive ack: ok === true, `received` must
+ *  equal the sent batch and applied+rejected must partition it exactly —
+ *  a row in neither bucket means the hub silently dropped it (wedge loudly).
+ *  A rejected row means the peer's scrub set disagrees with ours — wedge
+ *  the cursor too. Precedence-lost rows count as applied (the peer was
+ *  already newer — that is success, not loss). */
+export function validateGraphAck(
+	body: string,
+	batch: { sentRows: number },
+): { ok: boolean; error: string | null } {
+	let ack: unknown;
+	try {
+		ack = JSON.parse(body);
+	} catch {
+		return { ok: false, error: "graph ack unparseable" };
+	}
+	if (!ack || typeof ack !== "object" || Array.isArray(ack))
+		return { ok: false, error: "graph ack not an object" };
+	const a = ack as Record<string, unknown>;
+	if (a.ok !== true) {
+		const why = typeof a.error === "string" ? a.error : "no positive ok flag";
+		return { ok: false, error: `graph ack not positive: ${why}` };
+	}
+	const c = a.counts as Record<string, unknown> | undefined;
+	if (!c || typeof c !== "object" || Array.isArray(c))
+		return { ok: false, error: "graph ack carries no counts" };
+	for (const k of ["received", "applied", "rejected"] as const) {
+		if (!isNum(c[k]))
+			return { ok: false, error: `graph ack ${k} counter not numeric` };
+	}
+	if (c.rejected > 0)
+		return { ok: false, error: `graph ack rejects ${c.rejected} row(s)` };
+	// batch-match: the hub must have seen exactly what we sent, and
+	// applied+rejected must partition it (received = the whole batch)
+	if (c.received !== batch.sentRows)
+		return {
+			ok: false,
+			error: `graph ack received ${String(c.received)} of ${batch.sentRows} sent rows`,
+		};
+	const counted = c.applied + c.rejected;
+	if (counted !== batch.sentRows)
+		return {
+			ok: false,
+			error: `graph ack accounts for ${String(counted)} of ${batch.sentRows} sent rows`,
 		};
 	return { ok: true, error: null };
 }
@@ -609,6 +703,52 @@ export async function postRoll(
 	}
 }
 
+export interface GraphOutcome {
+	target: string;
+	ok: boolean;
+	sentRows: number;
+	error: string | null;
+}
+
+/** fork G: one graph push — POST {rollUrl}/graph under the machine-scoped
+ *  TTL roll key (the key binds the landing origin, the payload carries no
+ *  identity), validated by the same discipline as the claim roll (W1213.2.1):
+ *  only a batch-matched positive ack counts. */
+export async function postGraph(
+	target: SyncTarget,
+	batch: WireBatch,
+): Promise<GraphOutcome> {
+	const sentRows =
+		batch.delta.nodes.length +
+		batch.delta.edges.length +
+		batch.delta.votes.length;
+	const base = { target: String(target.rollUrl), sentRows };
+	if (!target.rollUrl || !target.rollKeyFile)
+		return { ...base, ok: false, error: "roll not configured" };
+	try {
+		const token = readSyncToken(target.rollKeyFile);
+		const res = await fetch(`${target.rollUrl}/graph`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				[ROLL_KEY_HEADER]: token,
+			},
+			body: JSON.stringify({ graph: batch.delta }),
+		});
+		if (!res.ok) return { ...base, ok: false, error: `HTTP ${res.status}` };
+		const ack = validateGraphAck(await res.text(), { sentRows });
+		if (!ack.ok)
+			return { ...base, ok: false, error: ack.error ?? "graph ack rejected" };
+		return { ...base, ok: true, error: null };
+	} catch (e) {
+		return {
+			...base,
+			ok: false,
+			error: e instanceof Error ? e.message : String(e),
+		};
+	}
+}
+
 export async function postTarget(
 	target: SyncTarget,
 	payload: SyncPayload,
@@ -694,6 +834,7 @@ export async function syncOnce(
 	});
 	const outcomes: SyncOutcome[] = [];
 	const rollOutcomes: RollOutcome[] = [];
+	const graphOutcomes: GraphOutcome[] = [];
 	for (const target of config.targets) {
 		if (target.hubId && target.hubId === config.localHub) continue;
 		outcomes.push(await postTarget(target, collected.payload));
@@ -701,6 +842,10 @@ export async function syncOnce(
 		// ingest and the knowledge-api roll are separate faces, separate auth.
 		if (target.rollUrl && target.rollKeyFile)
 			rollOutcomes.push(await postRoll(target, collected.payload.claims));
+		// fork G: roll-capable targets ALSO take the graph delta — the graph
+		// rides the roll face's machine-scoped key, never the write token.
+		if (collected.graphBatch && target.rollUrl && target.rollKeyFile)
+			graphOutcomes.push(await postGraph(target, collected.graphBatch));
 	}
 	const allOk = outcomes.length > 0 && outcomes.every((o) => o.ok === true);
 	if (allOk) {
@@ -714,6 +859,14 @@ export async function syncOnce(
 		rollOutcomes.length > 0 && rollOutcomes.every((o) => o.ok === true);
 	if (rollAllOk) {
 		Object.assign(state.claims, collected.claimsCursor);
+		writeSyncState(statePath, state);
+	}
+	// fork G: the graph cursor stamps only when EVERY graph push accepted —
+	// a partial pass re-sends (the landing is idempotent by precedence).
+	const graphAllOk =
+		graphOutcomes.length > 0 && graphOutcomes.every((o) => o.ok === true);
+	if (graphAllOk && collected.graphBatch) {
+		state.graph = collected.graphBatch.cursor;
 		writeSyncState(statePath, state);
 	}
 	return {

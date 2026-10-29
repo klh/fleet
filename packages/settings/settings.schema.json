@@ -1,0 +1,1430 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"type": "object",
+	"properties": {
+		"$schema": {
+			"description": "JSON Schema pointer for editors (settings.schema.json)",
+			"type": "string"
+		},
+		"version": {
+			"description": "THE stack version: one string pins buckle+suspenders+belt",
+			"type": "string",
+			"minLength": 1,
+			"maxLength": 4096
+		},
+		"updates": {
+			"description": "Release reconciliation",
+			"type": "object",
+			"properties": {
+				"mode": {
+					"default": "manual",
+					"type": "string",
+					"enum": ["manual", "latest"]
+				},
+				"origin": {
+					"description": "Release origin",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 4096
+				},
+				"check_interval_s": {
+					"type": "integer",
+					"minimum": 60,
+					"maximum": 86400
+				}
+			},
+			"additionalProperties": false
+		},
+		"auth": {
+			"description": "Auth posture",
+			"type": "object",
+			"properties": {
+				"required": {
+					"type": "boolean"
+				},
+				"tokens": {
+					"type": "object",
+					"properties": {
+						"ttlHours": {
+							"type": "number",
+							"minimum": 0,
+							"maximum": 8760
+						}
+					},
+					"additionalProperties": false
+				},
+				"oidc": {
+					"type": "object",
+					"properties": {
+						"enforced": {
+							"type": "boolean"
+						},
+						"issuer": {
+							"description": "OIDC issuer",
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 4096
+						},
+						"jwksUri": {
+							"description": "JWKS URI",
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 4096
+						},
+						"audience": {
+							"description": "Audience",
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 4096
+						},
+						"requiredScope": {
+							"description": "Required scope",
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 4096
+						}
+					},
+					"additionalProperties": false
+				}
+			},
+			"additionalProperties": false
+		},
+		"providers": {
+			"default": {},
+			"description": "Where upstream keys live (names/paths only)",
+			"type": "object",
+			"propertyNames": {
+				"type": "string"
+			},
+			"additionalProperties": {
+				"type": "object",
+				"properties": {
+					"env": {
+						"description": "Env NAME carrying the key",
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4096
+					},
+					"key_file": {
+						"description": "0600 dotenv file PATH holding the key",
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4096
+					},
+					"key_name": {
+						"description": "Variable name inside key_file",
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4096
+					},
+					"base_url": {
+						"description": "Provider base URL",
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4096
+					}
+				},
+				"additionalProperties": false
+			}
+		},
+		"executors": {
+			"default": {},
+			"description": "Per-executor gateway bases + model pin",
+			"type": "object",
+			"propertyNames": {
+				"type": "string"
+			},
+			"additionalProperties": {
+				"type": "object",
+				"properties": {
+					"anthropic_base": {
+						"description": "Anthropic-wire gateway base",
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4096
+					},
+					"openai_base": {
+						"description": "OpenAI-wire gateway base",
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4096
+					},
+					"model": {
+						"description": "Model pin",
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4096
+					}
+				},
+				"additionalProperties": false
+			}
+		},
+		"policies": {
+			"default": {},
+			"description": "Per-repo routing policy",
+			"type": "object",
+			"propertyNames": {
+				"type": "string"
+			},
+			"additionalProperties": {
+				"type": "object",
+				"properties": {
+					"must": {
+						"description": "must law expression",
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4096
+					},
+					"prefer": {
+						"description": "prefer law expression",
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4096
+					},
+					"hub": {
+						"description": "Hub label",
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4096
+					},
+					"residency": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						}
+					}
+				},
+				"additionalProperties": false
+			}
+		},
+		"postures": {
+			"description": "Posture document (validated by its owner)",
+			"type": "object",
+			"propertyNames": {
+				"type": "string"
+			},
+			"additionalProperties": {}
+		},
+		"cache_unsupported_models": {
+			"default": [],
+			"description": "Models without provider prompt-cache reporting",
+			"maxItems": 256,
+			"type": "array",
+			"items": {
+				"type": "string",
+				"minLength": 1,
+				"maxLength": 4096
+			}
+		},
+		"hubs": {
+			"default": {},
+			"description": "Hubs keyed by .prefer label",
+			"type": "object",
+			"propertyNames": {
+				"type": "string",
+				"minLength": 1,
+				"maxLength": 64,
+				"pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+			},
+			"additionalProperties": {
+				"type": "object",
+				"properties": {
+					"host": {
+						"description": "Hub host (ssh user@ stripped for routing)",
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4096
+					},
+					"display_name": {
+						"description": "Human-facing label",
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4096
+					},
+					"console_url": {
+						"description": "Browser-facing console URL",
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4096
+					},
+					"role": {
+						"description": "This machine's relation to the hub",
+						"type": "string",
+						"enum": ["local", "remote", "peer"]
+					},
+					"candidates": {
+						"description": "Candidate front URLs resolveHub walks (hubs.json)",
+						"maxItems": 256,
+						"type": "array",
+						"items": {
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 4096
+						}
+					},
+					"url": {
+						"description": "The buckle front URL this hub serves",
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4096
+					},
+					"token_file": {
+						"description": "PATH of a 0600 file holding the hub front token",
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4096
+					},
+					"version_override": {
+						"description": "Reviewed canary ref for this hub only",
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4096
+					},
+					"ports": {
+						"type": "object",
+						"properties": {
+							"buckle": {
+								"description": "Buckle gateway port",
+								"type": "integer",
+								"minimum": 1,
+								"maximum": 65535
+							},
+							"board": {
+								"description": "Fleet board port",
+								"type": "integer",
+								"minimum": 1,
+								"maximum": 65535
+							},
+							"store": {
+								"description": "Store-server port",
+								"type": "integer",
+								"minimum": 1,
+								"maximum": 65535
+							},
+							"belt": {
+								"description": "Belt router port",
+								"type": "integer",
+								"minimum": 1,
+								"maximum": 65535
+							},
+							"model_store": {
+								"description": "Hub model store port",
+								"type": "integer",
+								"minimum": 1,
+								"maximum": 65535
+							},
+							"buckle_ready": {
+								"description": "buckle-ready synthetic readiness port",
+								"type": "integer",
+								"minimum": 1,
+								"maximum": 65535
+							}
+						},
+						"additionalProperties": false,
+						"description": "Service ports this hub serves"
+					},
+					"health_ports": {
+						"type": "object",
+						"properties": {
+							"buckle": {
+								"description": "buckle-health sidecar port",
+								"type": "integer",
+								"minimum": 1,
+								"maximum": 65535
+							},
+							"board": {
+								"description": "board-health sidecar port",
+								"type": "integer",
+								"minimum": 1,
+								"maximum": 65535
+							},
+							"store": {
+								"description": "store-health sidecar port",
+								"type": "integer",
+								"minimum": 1,
+								"maximum": 65535
+							},
+							"belt": {
+								"description": "belt-health sidecar port",
+								"type": "integer",
+								"minimum": 1,
+								"maximum": 65535
+							},
+							"model_store": {
+								"description": "model-store health sidecar port",
+								"type": "integer",
+								"minimum": 1,
+								"maximum": 65535
+							}
+						},
+						"additionalProperties": false,
+						"description": "Outside-process health sidecar ports"
+					},
+					"binds": {
+						"type": "object",
+						"properties": {
+							"buckle": {
+								"description": "Buckle bind address",
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 4096
+							},
+							"board": {
+								"description": "Board bind address",
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 4096
+							},
+							"belt": {
+								"description": "Belt bind address",
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 4096
+							}
+						},
+						"additionalProperties": false,
+						"description": "Bind addresses"
+					},
+					"allowed_hosts": {
+						"description": "Host header allowlist",
+						"maxItems": 256,
+						"type": "array",
+						"items": {
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 4096
+						}
+					},
+					"peers": {
+						"description": "Peer hub labels",
+						"maxItems": 256,
+						"type": "array",
+						"items": {
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 4096
+						}
+					},
+					"services_json": {
+						"description": "Services manifest override",
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4096
+					},
+					"quiet_hours": {
+						"description": "Nightly dark window HH:MM-HH:MM (routing skips)",
+						"type": "string",
+						"pattern": "^\\d{1,2}:\\d{2}-\\d{1,2}:\\d{2}$"
+					},
+					"knowledge": {
+						"type": "object",
+						"properties": {
+							"port": {
+								"description": "Knowledge sink port",
+								"type": "integer",
+								"minimum": 1,
+								"maximum": 65535
+							},
+							"health_port": {
+								"description": "Sink health",
+								"type": "integer",
+								"minimum": 1,
+								"maximum": 65535
+							}
+						},
+						"additionalProperties": false
+					},
+					"ready_model": {
+						"description": "Model the readiness leg asks",
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4096
+					},
+					"buckle_entry": {
+						"description": "Buckle entrypoint override",
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4096
+					},
+					"http_upstream_hosts": {
+						"description": "Private hosts reachable over plain http",
+						"maxItems": 256,
+						"type": "array",
+						"items": {
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 4096
+						}
+					},
+					"provider_intents": {
+						"description": "Display-only provider placements",
+						"maxItems": 256,
+						"type": "array",
+						"items": {
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 4096
+						}
+					},
+					"provider_requirements": {
+						"description": "Central provider profiles this hub requires",
+						"maxItems": 256,
+						"type": "array",
+						"items": {
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 4096
+						}
+					},
+					"deploy": {
+						"type": "object",
+						"properties": {
+							"ssh": {
+								"description": "ssh target (user@host)",
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 4096
+							},
+							"dir": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Deploy dir on the hub device"
+							},
+							"docker": {
+								"description": "docker binary path on the hub",
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 4096
+							},
+							"compose": {
+								"description": "compose invocation override",
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 4096
+							},
+							"connect_timeout": {
+								"type": "integer",
+								"minimum": 1,
+								"maximum": 600
+							}
+						},
+						"required": ["dir"],
+						"additionalProperties": false,
+						"description": "Deploy target (git-pulled volumes, never host paths)"
+					},
+					"repos": {
+						"type": "object",
+						"properties": {
+							"ref": {
+								"description": "Git ref pin",
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 4096
+							},
+							"buckle": {
+								"description": "buckle origin override",
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 4096
+							},
+							"suspenders": {
+								"description": "suspenders origin override",
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 4096
+							},
+							"belt": {
+								"description": "belt origin override",
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 4096
+							},
+							"src": {
+								"description": "Packages root inside the clone",
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 4096
+							}
+						},
+						"additionalProperties": false
+					},
+					"secrets": {
+						"type": "object",
+						"properties": {
+							"buckle_root_key": {
+								"description": "PATH of the 0600 buckle root key on the hub",
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 4096
+							},
+							"buckle_service_key": {
+								"description": "PATH of the 0600 buckle service key",
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 4096
+							},
+							"buckle_service_key_env": {
+								"description": "Env NAME carrying the service key",
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 4096
+							},
+							"upstream_keys": {
+								"description": "Upstream key env NAME → 0600 file PATH",
+								"type": "object",
+								"propertyNames": {
+									"type": "string"
+								},
+								"additionalProperties": {
+									"type": "string"
+								}
+							}
+						},
+						"additionalProperties": false,
+						"description": "Secret PATHS on the owning device — values never live here"
+					},
+					"belt_model": {
+						"description": "Belt-owned OpenAI model wire",
+						"type": "object",
+						"propertyNames": {
+							"type": "string"
+						},
+						"additionalProperties": {}
+					},
+					"route_preflight": {
+						"description": "Route preflight terminal origins",
+						"type": "object",
+						"propertyNames": {
+							"type": "string"
+						},
+						"additionalProperties": {}
+					},
+					"mdns": {
+						"description": "mDNS announcer knobs",
+						"type": "object",
+						"propertyNames": {
+							"type": "string"
+						},
+						"additionalProperties": {}
+					},
+					"overlay": {
+						"description": "Overlay code-loader knobs",
+						"type": "object",
+						"propertyNames": {
+							"type": "string"
+						},
+						"additionalProperties": {}
+					},
+					"trace_tunnel": {
+						"description": "Trace tunnel front",
+						"type": "object",
+						"propertyNames": {
+							"type": "string"
+						},
+						"additionalProperties": {}
+					},
+					"upstreams": {
+						"description": "The hub's real upstream ladder",
+						"type": "object",
+						"propertyNames": {
+							"type": "string"
+						},
+						"additionalProperties": {}
+					},
+					"buckle_prefs": {
+						"description": "Routing-decision gates",
+						"type": "object",
+						"propertyNames": {
+							"type": "string"
+						},
+						"additionalProperties": {}
+					},
+					"metrics": {
+						"description": "Native metrics connector",
+						"type": "object",
+						"propertyNames": {
+							"type": "string"
+						},
+						"additionalProperties": {}
+					},
+					"buckle_gateway": {
+						"description": "Per-hub buckle gateway policy overrides",
+						"type": "object",
+						"propertyNames": {
+							"type": "string"
+						},
+						"additionalProperties": {}
+					},
+					"settings": {
+						"description": "Deep-partial SettingsSchema overlay for this hub's own install (validated after merge)",
+						"type": "object",
+						"propertyNames": {
+							"type": "string"
+						},
+						"additionalProperties": {}
+					}
+				},
+				"additionalProperties": false
+			}
+		},
+		"fleet_loop": {
+			"description": "The hub supervisor loop: lane caps, cadence, registered repos",
+			"default": {},
+			"type": "object",
+			"properties": {
+				"lane_target": {
+					"default": 6,
+					"description": "Global live-lane ceiling across every registered repo",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 200
+				},
+				"dispatch_target": {
+					"default": 8,
+					"description": "Dispatch refill target per cycle",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 200
+				},
+				"every_s": {
+					"default": 120,
+					"description": "Fleet-loop cycle cadence (seconds)",
+					"type": "integer",
+					"minimum": 10,
+					"maximum": 3600
+				},
+				"config_poll_s": {
+					"default": 10,
+					"description": "Config re-read interval (seconds)",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 600
+				},
+				"maintenance": {
+					"default": true,
+					"description": "Run the maintenance task set each cycle",
+					"type": "boolean"
+				},
+				"merge_stuck_hours": {
+					"default": 6,
+					"description": "Merge-ladder stuck alarm age (hours)",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 168
+				},
+				"projects": {
+					"default": [],
+					"description": "Registered repos (empty = the --repo arg only)",
+					"maxItems": 64,
+					"type": "array",
+					"items": {
+						"type": "object",
+						"properties": {
+							"path": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Repo checkout path (~/ expands)"
+							},
+							"glob": {
+								"description": "Branch glob the merge ladder considers",
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 4096
+							},
+							"ladder": {
+								"description": "Merge ladder name for this repo",
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 4096
+							},
+							"dispatch_cmd": {
+								"description": "Dispatch command override for this repo",
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 4096
+							},
+							"main": {
+								"description": "Main branch name (default: the repo's HEAD branch)",
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 4096
+							},
+							"lane_target": {
+								"description": "Per-repo lane sub-cap under fleet_loop.lane_target",
+								"type": "integer",
+								"minimum": 0,
+								"maximum": 200
+							},
+							"enabled": {
+								"default": true,
+								"description": "Supervise this repo",
+								"type": "boolean"
+							}
+						},
+						"required": ["path"],
+						"additionalProperties": false
+					}
+				}
+			},
+			"additionalProperties": false
+		},
+		"consult": {
+			"description": "Consult routing, interrupts and feedback",
+			"default": {},
+			"type": "object",
+			"properties": {
+				"feedback": {
+					"description": "Knowledge-answer feedback obligation",
+					"default": {},
+					"type": "object",
+					"properties": {
+						"require_on_done": {
+							"default": false,
+							"description": "Block `work done` while a knowledge answer this lane received is unreported",
+							"type": "boolean"
+						}
+					},
+					"additionalProperties": false
+				},
+				"interrupt": {
+					"description": "High-priority direct consults delivered as steers",
+					"default": {},
+					"type": "object",
+					"properties": {
+						"min_interval_s": {
+							"default": 180,
+							"description": "Min seconds between interrupts (steers) per recipient",
+							"type": "integer",
+							"minimum": 120,
+							"maximum": 300
+						},
+						"per_sender_min_interval_s": {
+							"default": 180,
+							"description": "Min seconds between interrupts per sender",
+							"type": "integer",
+							"minimum": 120,
+							"maximum": 300
+						}
+					},
+					"additionalProperties": false
+				},
+				"oracle": {
+					"description": "Oracle pre-check before consult delivery",
+					"default": {},
+					"type": "object",
+					"properties": {
+						"min_trust": {
+							"default": "candidate",
+							"description": "Lowest knowledge state the oracle may answer from (candidate answers are marked unreviewed)",
+							"type": "string",
+							"enum": ["candidate", "active"]
+						}
+					},
+					"additionalProperties": false
+				},
+				"spawn_timeout_ms": {
+					"default": 30000,
+					"description": "Board consult spawn timeout (ms)",
+					"type": "integer",
+					"minimum": 1000,
+					"maximum": 600000
+				},
+				"max_concurrent": {
+					"default": 2,
+					"description": "Concurrent board consult spawns",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 64
+				},
+				"federation_file": {
+					"description": "Consult federation peers file",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 4096
+				}
+			},
+			"additionalProperties": false
+		},
+		"knowledge": {
+			"description": "Knowledge store, Kev curation, sink, distiller",
+			"default": {},
+			"type": "object",
+			"properties": {
+				"downvote_threshold": {
+					"default": 2,
+					"description": "Distinct failed-feedback lanes before an entry leaves answering",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 20
+				},
+				"kev_timeout_ms": {
+					"default": 8000,
+					"description": "Kev curation timeout before the review queue",
+					"type": "integer",
+					"minimum": 100,
+					"maximum": 120000
+				},
+				"kev_url": {
+					"default": "http://127.0.0.1:8912",
+					"description": "Kev specialist base URL",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 4096
+				},
+				"sink": {
+					"description": "Hub knowledge sink client",
+					"default": {},
+					"type": "object",
+					"properties": {
+						"url": {
+							"description": "Hub knowledge sink origin",
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 4096
+						},
+						"key_file": {
+							"description": "0600 file holding the sink bksk_ key (never inline)",
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 4096
+						},
+						"timeout_ms": {
+							"default": 2000,
+							"description": "Sink request timeout (ms)",
+							"type": "integer",
+							"minimum": 100,
+							"maximum": 60000
+						}
+					},
+					"additionalProperties": false
+				},
+				"distill": {
+					"description": "Idle-time knowledge walker/distiller",
+					"default": {},
+					"type": "object",
+					"properties": {
+						"enabled": {
+							"default": false,
+							"description": "Run the idle-time knowledge distiller on this hub",
+							"type": "boolean"
+						},
+						"idle_lanes_max": {
+							"default": 1,
+							"description": "Max live lanes for the hub to count as idle",
+							"type": "integer",
+							"minimum": 0,
+							"maximum": 64
+						},
+						"quiet_minutes": {
+							"default": 15,
+							"description": "Minutes of quiet before a run starts",
+							"type": "integer",
+							"minimum": 1,
+							"maximum": 1440
+						},
+						"window": {
+							"description": "Optional HH:MM-HH:MM window the distiller may run in",
+							"type": "string",
+							"pattern": "^\\d{1,2}:\\d{2}-\\d{1,2}:\\d{2}$"
+						},
+						"model_group": {
+							"default": "distill",
+							"description": "Buckle model group the distiller asks (map it in routing policy)",
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 4096
+						},
+						"token_budget_per_day": {
+							"default": 200000,
+							"description": "Daily token budget for distillation",
+							"type": "integer",
+							"minimum": 0,
+							"maximum": 100000000
+						},
+						"max_job_ms": {
+							"default": 600000,
+							"description": "Max wall time per job (ms)",
+							"type": "integer",
+							"minimum": 1000,
+							"maximum": 3600000
+						},
+						"max_visit_age_days": {
+							"default": 30,
+							"description": "Every entry is revisited within this many days (else overdue)",
+							"type": "integer",
+							"minimum": 1,
+							"maximum": 365
+						}
+					},
+					"additionalProperties": false
+				}
+			},
+			"additionalProperties": false
+		},
+		"board": {
+			"description": "Fleet board (:7799)",
+			"default": {},
+			"type": "object",
+			"properties": {
+				"poll_memo_ms": {
+					"default": 1000,
+					"description": "Polled-feed refresh floor (0 = off)",
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 60000
+				},
+				"sync_floor_ms": {
+					"default": 5000,
+					"description": "syncDecisions refresh floor (ms)",
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 600000
+				},
+				"sync_idle_ms": {
+					"default": 30000,
+					"description": "syncDecisions idle re-check (ms)",
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 3600000
+				},
+				"front_timeout_ms": {
+					"default": 600,
+					"description": "Buckle front probe bound (ms)",
+					"type": "integer",
+					"minimum": 100,
+					"maximum": 10000
+				},
+				"report_stall_ms": {
+					"default": 7200000,
+					"description": "Lane silence before work report lists it under needs-you",
+					"type": "integer",
+					"minimum": 60000,
+					"maximum": 86400000
+				},
+				"mdns": {
+					"default": true,
+					"description": "Announce the board over mDNS (demo boards never do)",
+					"type": "boolean"
+				}
+			},
+			"additionalProperties": false
+		},
+		"gates": {
+			"description": "Hook gates (read, mutation, scrub, done checks)",
+			"default": {},
+			"type": "object",
+			"properties": {
+				"max_read_bytes": {
+					"default": 40960,
+					"description": "Read-gate cap (0 = off)",
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 67108864
+				},
+				"reread_nudge": {
+					"default": true,
+					"description": "Nudge on repeated full re-reads",
+					"type": "boolean"
+				},
+				"max_mutation_lines": {
+					"default": 40,
+					"description": "Mutation-size cap (0 = off)",
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 100000
+				},
+				"coordinator_edit_gate": {
+					"default": true,
+					"description": "Deny coordinator structural writes",
+					"type": "boolean"
+				},
+				"scrub": {
+					"default": true,
+					"description": "Scrub gate on commit/push",
+					"type": "boolean"
+				},
+				"scrub_denylist": {
+					"default": "~/.claude/local-llm/scrub-denylist",
+					"description": "Machine-local scrub denylist (path; ~/ expands)",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 4096
+				},
+				"patch_first": {
+					"default": true,
+					"description": "Near-cap patch-first done check",
+					"type": "boolean"
+				},
+				"import_law": {
+					"default": true,
+					"description": "Import-law done check",
+					"type": "boolean"
+				},
+				"done_docs": {
+					"default": true,
+					"description": "Bench-docs done check",
+					"type": "boolean"
+				},
+				"trailer_gate": {
+					"default": "audit",
+					"description": "Lane commit trailer gate mode",
+					"type": "string",
+					"enum": ["enforce", "audit", "off"]
+				},
+				"advisory_cooldown_ms": {
+					"default": 300000,
+					"description": "Repeat advisory suppression TTL (0 = off)",
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 86400000
+				},
+				"nudge_cooldown_ms": {
+					"default": 300000,
+					"description": "Hook nudge cooldown",
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 86400000
+				},
+				"context_guard_pct": {
+					"default": 75,
+					"description": "Stop-gate context warning (%)",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 100
+				},
+				"context_critical_pct": {
+					"default": 95,
+					"description": "Stop-gate context critical (%)",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 100
+				},
+				"daemon": {
+					"default": false,
+					"description": "Run gates in the store-server daemon (fork B)",
+					"type": "boolean"
+				}
+			},
+			"additionalProperties": false
+		},
+		"steer": {
+			"description": "Mid-turn steer delivery",
+			"default": {},
+			"type": "object",
+			"properties": {
+				"min_interval_s": {
+					"default": 180,
+					"description": "Min seconds between steers per lane",
+					"type": "integer",
+					"minimum": 60,
+					"maximum": 3600
+				}
+			},
+			"additionalProperties": false
+		},
+		"buckle": {
+			"description": "Buckle gateway resilience, admission and shedding knobs",
+			"default": {},
+			"type": "object",
+			"properties": {
+				"retry_after_cap_s": {
+					"default": 60,
+					"description": "Clamp on a provider Retry-After before relaying",
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 3600
+				},
+				"retry_after_s": {
+					"default": 2,
+					"description": "Retry-After emitted on local shedding",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 3600
+				},
+				"retry_after_max_s": {
+					"default": 3600,
+					"description": "Max Retry-After buckle emits",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 86400
+				},
+				"max_inflight": {
+					"default": 256,
+					"description": "Admission in-flight ceiling",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 100000
+				},
+				"slot_lease_ms": {
+					"default": 120000,
+					"description": "Admission slot lease (ms)",
+					"type": "integer",
+					"minimum": 1000,
+					"maximum": 3600000
+				},
+				"affinity": {
+					"default": true,
+					"description": "Prefix-cache affinity routing",
+					"type": "boolean"
+				},
+				"affinity_ttl_s": {
+					"default": 300,
+					"description": "Affinity TTL (seconds)",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 86400
+				},
+				"failover_max_hops": {
+					"default": 1,
+					"description": "Immediate failover hops per request",
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 8
+				},
+				"quota_wall_codes": {
+					"default": ["1113"],
+					"description": "Provider codes meaning balance/plan exhaustion (long cooldown, dispatch stop)",
+					"maxItems": 256,
+					"type": "array",
+					"items": {
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4096
+					}
+				},
+				"concurrency_error_codes": {
+					"default": ["1302", "1305"],
+					"description": "Provider codes for concurrency/rate pressure (shrink concurrency, never a quota wall; W1257 still needs message evidence for concurrency)",
+					"maxItems": 256,
+					"type": "array",
+					"items": {
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 4096
+					}
+				},
+				"breaker": {
+					"description": "Per-upstream circuit breaker",
+					"default": {},
+					"type": "object",
+					"properties": {
+						"failure_threshold": {
+							"default": 5,
+							"description": "Failures before the breaker opens",
+							"type": "integer",
+							"minimum": 1,
+							"maximum": 1000
+						},
+						"open_ms": {
+							"default": 30000,
+							"description": "Open (cold) period before one probe",
+							"type": "integer",
+							"minimum": 100,
+							"maximum": 3600000
+						}
+					},
+					"additionalProperties": false
+				},
+				"shedding": {
+					"description": "Load shedding (503/429 + Retry-After)",
+					"default": {},
+					"type": "object",
+					"properties": {
+						"queue_max": {
+							"default": 32,
+							"description": "Bounded admission queue length",
+							"type": "integer",
+							"minimum": 0,
+							"maximum": 100000
+						},
+						"queue_wait_ms": {
+							"default": 2000,
+							"description": "Max queue wait before 503",
+							"type": "integer",
+							"minimum": 0,
+							"maximum": 120000
+						},
+						"interactive_reserved_share": {
+							"default": 0.25,
+							"description": "Capacity share reserved for interactive keys",
+							"type": "number",
+							"minimum": 0,
+							"maximum": 1
+						}
+					},
+					"additionalProperties": false
+				}
+			},
+			"additionalProperties": false
+		},
+		"dispatch": {
+			"description": "Lane dispatch",
+			"default": {},
+			"type": "object",
+			"properties": {
+				"lane_effort": {
+					"default": "medium",
+					"description": "Default lane effort level",
+					"type": "string",
+					"enum": ["low", "medium", "high", "xhigh", "max"]
+				},
+				"lane_max_attempts": {
+					"default": 3,
+					"description": "Launch attempts per item",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 100
+				},
+				"lane_deadline_ms": {
+					"default": 900000,
+					"description": "Route preflight deadline",
+					"type": "integer",
+					"minimum": 1000,
+					"maximum": 86400000
+				},
+				"lane_key_timeout_ms": {
+					"default": 5000,
+					"description": "Per-lane key mint timeout",
+					"type": "integer",
+					"minimum": 100,
+					"maximum": 120000
+				},
+				"plaid_pressure_hold": {
+					"default": false,
+					"description": "Hold plaid dispatch under pressure",
+					"type": "boolean"
+				},
+				"coord_max_peers": {
+					"default": 2,
+					"description": "Peer coordination fan cap",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 64
+				},
+				"coord_rate_window_ms": {
+					"default": 60000,
+					"description": "Coordination window",
+					"type": "integer",
+					"minimum": 1000,
+					"maximum": 3600000
+				},
+				"coord_rate_max": {
+					"default": 3,
+					"description": "Coordination rounds per window",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 1000
+				}
+			},
+			"additionalProperties": false
+		},
+		"paths": {
+			"description": "Filesystem locations",
+			"default": {},
+			"type": "object",
+			"properties": {
+				"local_llm_home": {
+					"default": "~/.claude/local-llm",
+					"description": "local-llm runtime home (path; ~/ expands)",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 4096
+				},
+				"routing_policy": {
+					"default": "~/.claude/local-llm/routing-policy.json",
+					"description": "Operator routing ladder (separate data file, not knobs) (path; ~/ expands)",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 4096
+				},
+				"upstreams": {
+					"default": "~/.claude/local-llm/upstreams.json",
+					"description": "Upstream group overrides (separate data file, not knobs) (path; ~/ expands)",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 4096
+				},
+				"repo_tier_policy": {
+					"description": "Buckle repo→tier account policy file",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 4096
+				},
+				"suspenders_prefix": {
+					"default": "~/.claude/hooks/suspenders",
+					"description": "Installed suspenders prefix (path; ~/ expands)",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 4096
+				},
+				"shim_bin": {
+					"default": "~/.local/bin",
+					"description": "Where coord/work/dispatch shims go (path; ~/ expands)",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 4096
+				},
+				"governor_dir": {
+					"default": "~/.cache/claude-governor",
+					"description": "governor.db directory (path; ~/ expands)",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 4096
+				},
+				"decant_db": {
+					"default": "~/.decant/decant.db",
+					"description": "Decant transcript archive (path; ~/ expands)",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 4096
+				},
+				"drop_dir": {
+					"description": "Drop directory for handoffs",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 4096
+				}
+			},
+			"additionalProperties": false
+		},
+		"telemetry": {
+			"description": "Logging and reporting",
+			"default": {},
+			"type": "object",
+			"properties": {
+				"log_level": {
+					"default": "info",
+					"description": "Service log level",
+					"type": "string",
+					"enum": ["debug", "info", "warn", "error"]
+				},
+				"no_hyperlink": {
+					"default": false,
+					"description": "Disable OSC-8 hyperlinks in CLI output",
+					"type": "boolean"
+				},
+				"report_link_base": {
+					"description": "Base URL for work report deep links",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 4096
+				},
+				"self_hub_label": {
+					"default": "mac",
+					"description": "Label this machine renders as in reports",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 4096
+				},
+				"cache_telemetry": {
+					"default": true,
+					"description": "Emit prompt-cache telemetry rows",
+					"type": "boolean"
+				}
+			},
+			"additionalProperties": false
+		}
+	},
+	"additionalProperties": false,
+	"description": "klh fleet per-install settings (~/.config/klh/settings.json)"
+}

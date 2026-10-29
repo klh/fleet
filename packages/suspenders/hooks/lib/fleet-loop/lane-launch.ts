@@ -34,6 +34,7 @@ import {
 	type DispatchPreviewDeps,
 	dryDispatchPreview,
 } from "../../../scripts/lib/dispatch-preview.ts";
+import { fenceBriefLine } from "../work/work-transition.ts";
 import {
 	execPick,
 	posturePreference,
@@ -599,6 +600,12 @@ export const dispatchLane = async (
 			take.code === 0
 				? (/claim token: ([0-9a-f]{48})/.exec(take.out)?.[1] ?? null)
 				: null;
+		// W609/W2186: the claim epoch — same capture + pin channels as the
+		// token; the lane CASes done/fail/start on it (work-transition.ts).
+		const takeEpoch =
+			take.code === 0
+				? (/claim epoch: (\d+)/.exec(take.out)?.[1] ?? null)
+				: null;
 		const claimedRow = store
 			.query(
 				"SELECT updated_at FROM work_items WHERE project=? AND id=? AND owner_sid=? AND state IN ('CLAIMED','RUNNING')",
@@ -741,6 +748,9 @@ export const dispatchLane = async (
 			capsule,
 			pick,
 			resumeBrief: resumeBriefLine(resumeDecision),
+			...(takeEpoch
+				? { extraBrief: [fenceBriefLine(item, Number(takeEpoch))] }
+				: {}),
 		});
 		if (intel.skip) log(`BRIEF-INTEL skip ${item}: ${intel.skip}`);
 		// W223.2 dual-harness brief verification, W422-shaped: the harness id
@@ -774,7 +784,11 @@ export const dispatchLane = async (
 		// env + spawn recipe shared with supervise.ts per executor (W223):
 		// copilot takes --allow-all-tools, claude keeps the allowedTools recipe
 		const env = laneEnv(
-			{ ...process.env, ...(takeToken ? { KLH_CLAIM_TOKEN: takeToken } : {}) },
+			{
+				...process.env,
+				...(takeToken ? { KLH_CLAIM_TOKEN: takeToken } : {}),
+				...(takeEpoch ? { KLH_CLAIM_EPOCH: takeEpoch } : {}),
+			},
 			NO_BELT,
 		);
 		Object.assign(env, executor.env);

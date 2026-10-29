@@ -141,7 +141,7 @@ select { background:var(--klh-surface); color:var(--klh-ink); border:1px solid v
 #decCaret { display:inline-block; width:10px; }
 #decState { margin-left:auto; color:var(--klh-dim); font-weight:400; text-transform:none; letter-spacing:0; font-size:12px; }
 #decErr { padding:0 14px 8px; color:var(--klh-danger-ink); font-size:12px; }
-#decErr:empty { display:none; }
+#decErr[hidden] { display:none; }
 #decisions.closed #decList, #decisions.closed #decErr { display:none; }
 .dec { border-top:1px solid var(--klh-edge-faint); padding:10px 14px 12px; }
 #decList .dec:first-child { border-top:none; }
@@ -183,7 +183,7 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 #histCaret { display:inline-block; width:10px; }
 #histState { font-size:12px; color:var(--klh-dim); }
 #histErr { padding:0 14px 8px; color:var(--klh-danger-ink); font-size:12px; }
-#histErr:empty { display:none; }
+#histErr[hidden] { display:none; }
 #histBody { display:none; }
 .hrow { border-top:1px solid var(--klh-edge-faint); padding:8px 14px 10px; font-size:12px; color:var(--klh-dim); display:flex; gap:10px; align-items:baseline; }
 .hrow .hq { color:var(--klh-ink-3); word-break:break-word; }
@@ -192,7 +192,7 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .pill.hst { flex:none; color:var(--klh-dim); border-color:var(--klh-edge-strong); font-size:9px; }
 .pill.hst.open { color:var(--klh-danger-ink); border-color:var(--klh-danger); }
 .taberr { color:var(--klh-danger-ink); font-size:12px; margin-bottom:10px; }
-.taberr:empty { display:none; }
+.taberr[hidden] { display:none; }
 #tasksTbl { width:100%; border-collapse:collapse; font-size:12.5px; }
 #tasksTbl th { text-align:left; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--klh-dim); border-bottom:1px solid var(--klh-edge); padding:6px 10px; }
 #tasksTbl td { border-bottom:1px solid var(--klh-edge-faint); padding:7px 10px; vertical-align:top; }

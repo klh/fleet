@@ -364,6 +364,11 @@ console.log(createHash("sha256").update(readFileSync(${JSON.stringify(KDB)}, "ut
 			);
 			cover("executor-cv");
 			expect(coord("executor-cv").code).toBe(0);
+			cover("settings");
+			expect(coord("settings", "validate").code).toBe(0);
+			expect(coord("settings", "get", "steer.min_interval_s").out).toContain(
+				"180",
+			);
 			cover("resume-session");
 			expect(
 				coord("resume-session", "--as", "lane-c", "--from", "lane-a").code,
@@ -493,18 +498,20 @@ console.log(createHash("sha256").update(readFileSync(${JSON.stringify(KDB)}, "ut
 			expect(tick.out).toContain("nothing due");
 		});
 		test("knowledge-distill status + knowledge-graph read faces (G)", () => {
-		coord("bootstrap", "--as", "lane-a");
-		cover("knowledge-distill");
-		const st = coord("knowledge-distill", "status", "--json");
-		expect(st.code).toBe(0);
-		expect(JSON.parse(st.out)).toHaveProperty("enabled");
-		cover("knowledge-graph");
-		// an absent key refuses with exit 2 (usage) — the honest miss face
-		const miss = coord("knowledge-graph");
-		expect(miss.code).toBe(2);
-		expect(miss.out).toContain("knowledge graph: about | neighbours | path | contradictions");
-	});
-	test("knowledge-review-drain reports the empty drain honestly (D7 face)", () => {
+			coord("bootstrap", "--as", "lane-a");
+			cover("knowledge-distill");
+			const st = coord("knowledge-distill", "status", "--json");
+			expect(st.code).toBe(0);
+			expect(JSON.parse(st.out)).toHaveProperty("enabled");
+			cover("knowledge-graph");
+			// an absent key refuses with exit 2 (usage) — the honest miss face
+			const miss = coord("knowledge-graph");
+			expect(miss.code).toBe(2);
+			expect(miss.out).toContain(
+				"knowledge graph: about | neighbours | path | contradictions",
+			);
+		});
+		test("knowledge-review-drain reports the empty drain honestly (D7 face)", () => {
 			cover("knowledge-review-drain");
 			// fresh fixture HOME: kev_review exists and is empty → no Kev call,
 			// the pass renders its zero counters deterministically

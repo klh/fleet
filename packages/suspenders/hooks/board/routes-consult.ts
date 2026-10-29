@@ -12,6 +12,7 @@
 // whose heartbeat this module refreshes on every call — live while the
 // agent talks, swept honest when it goes quiet. Per-sid rate cap + 10-min
 // answer dedup keep a chatty connector from storming the expert queue.
+import { setting } from "@klh/settings";
 import { db, CLI } from "./context.ts";
 import { json, readJsonCapped, writeGuard } from "./helpers.ts";
 import { projectList } from "./lanes.ts";
@@ -28,10 +29,8 @@ const dedup = new Map<string, { at: number; project: string; cid: number }>();
 // ingress spawn (a queued consult storm cannot flood the host with coord
 // processes), and the child output read is size-capped so a spewing child
 // cannot buffer the board unboundedly. Knobs are env, not code.
-const SPAWN_TIMEOUT_MS =
-	Number(process.env.SUSPENDERS_CONSULT_SPAWN_TIMEOUT_MS ?? 30_000) || 30_000;
-const MAX_CONCURRENT =
-	Number(process.env.SUSPENDERS_CONSULT_MAX_CONCURRENT ?? 2) || 2;
+const SPAWN_TIMEOUT_MS = setting("consult.spawn_timeout_ms");
+const MAX_CONCURRENT = setting("consult.max_concurrent");
 const BODY_CAP = 64 * 1024; // request body ceiling (readJsonCapped, 413 past it)
 const OUT_CAP = 16 * 1024; // child output ceiling per stream (read capped)
 
@@ -51,7 +50,8 @@ async function acquireSpawnSlot(): Promise<void> {
 
 function releaseSpawnSlot(): void {
 	const next = spawnWaiters.shift();
-	if (next) next(); // slot transfers — activeSpawns already counts it
+	if (next)
+		next(); // slot transfers — activeSpawns already counts it
 	else activeSpawns--;
 }
 
@@ -158,20 +158,22 @@ function touchAgent(sid: string, project: string): string | null {
 	const now = Date.now();
 	const row = db
 		.query("SELECT project, role, state FROM sessions WHERE sid = ?")
-		.get(sid) as
-		| { project: string | null; role: string | null; state: string }
-		| null;
+		.get(sid) as {
+		project: string | null;
+		role: string | null;
+		state: string;
+	} | null;
 	if (row) {
 		// W947 (verdict #47393 finding 2): sid is identity, never a revive —
 		// ANY non-external role refuses the takeover regardless of state (a
 		// CLOSED lane sid is still a lane's identity).
-		if (row.role !== "external")
-			return "sid belongs to a non-external session";
+		if (row.role !== "external") return "sid belongs to a non-external session";
 		if (row.project && row.project !== project)
 			return "sid is bound to another project";
-		db.query(
-			"UPDATE sessions SET hb = ?, state = 'RUNNING' WHERE sid = ?",
-		).run(now, sid);
+		db.query("UPDATE sessions SET hb = ?, state = 'RUNNING' WHERE sid = ?").run(
+			now,
+			sid,
+		);
 		return null;
 	}
 	db.query(
@@ -229,7 +231,9 @@ export async function handleConsultIngress(
 		const b = parsed.body as Record<string, unknown>;
 		const project = String(b?.project ?? "").trim();
 		const sid = String(b?.sid ?? "").trim();
-		const q = String(b?.q ?? "").trim().slice(0, 4000);
+		const q = String(b?.q ?? "")
+			.trim()
+			.slice(0, 4000);
 		const scope = String(b?.scope ?? "").trim();
 		const target = String(b?.target ?? "").trim();
 		const best = b?.best === true;
@@ -251,9 +255,11 @@ export async function handleConsultIngress(
 				.query(
 					"SELECT state, answer, expert_sid FROM consults WHERE id = ? AND project = ?",
 				)
-				.get(seen.cid, project) as
-				| { state: string; answer: string | null; expert_sid: string | null }
-				| null;
+				.get(seen.cid, project) as {
+				state: string;
+				answer: string | null;
+				expert_sid: string | null;
+			} | null;
 			if (!cur)
 				return json(
 					{ ok: false, output: "deduped consult no longer exists" },
@@ -358,9 +364,14 @@ export async function handleConsultIngress(
 		const b = parsed.body as Record<string, unknown>;
 		const project = String(b?.project ?? "").trim();
 		const sid = String(b?.sid ?? "").trim();
-		const note = String(b?.note ?? "").trim().slice(0, 2000);
+		const note = String(b?.note ?? "")
+			.trim()
+			.slice(0, 2000);
 		if (!project || !SID_RE.test(sid) || !note)
-			return json({ ok: false, error: "project, sid and note are required" }, 400);
+			return json(
+				{ ok: false, error: "project, sid and note are required" },
+				400,
+			);
 		if (!projectList().includes(project))
 			return json({ ok: false, error: `unknown project: ${project}` }, 404);
 		const agentErr = touchAgent(sid, project);
@@ -390,8 +401,7 @@ export async function handleConsultIngress(
 		const guard = writeGuard(req, url);
 		if (guard) return guard;
 		const sid = decodeURIComponent(m[1] ?? "");
-		if (!SID_RE.test(sid))
-			return json({ ok: false, error: "bad sid" }, 400);
+		if (!SID_RE.test(sid)) return json({ ok: false, error: "bad sid" }, 400);
 		const project = (url.searchParams.get("project") ?? "").trim();
 		if (!projectList().includes(project))
 			return json(
