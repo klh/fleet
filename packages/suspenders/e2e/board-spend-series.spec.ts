@@ -4,60 +4,59 @@
 // harness: scratch HOME + repo, OS-picked port, dead loopback upstreams.
 // The ledger rides SUSPENDERS_BUCKLE_DB="" (spoke-home resolution) so the
 // ambient env pin can never leak into the fixture (W670 doctrine).
-
+// W1136: rides the shared fixtures — worker board (SUSPENDERS_BUCKLE_DB
+// pinned via boardOptions), the api fixture (no raw fetch), per-test ledger
+// seeds with per-test keys, and the auto pageWatcher; the
+// beforeAll(startBoard) copy is gone.
+import { expect, test } from "./fixtures";
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { expect, test } from "@playwright/test";
-import { startBoard } from "../test/helpers/board-harness";
-import { measureSpark } from "./spark-geom.ts";
+import type { Board } from "./harness";
+import { measureSpark } from "./spark-geom";
 
-// W1203: no serial mode — the tests below share the beforeAll board but no
-// mutable state, so a failure in one must not skip the others.
-let b: Awaited<ReturnType<typeof startBoard>>;
-let wId = "";
+test.use({ boardOptions: { env: { SUSPENDERS_BUCKLE_DB: "" } } });
 
-test.beforeAll(async () => {
-	b = await startBoard("w887", { env: { SUSPENDERS_BUCKLE_DB: "" } });
-	wId = b.mintedId(b.workOk(["add", "spend series item"], "add"));
+/** Seed one claimed item + its ledger row on the board (per-test key). */
+function seedSpend(b: Board, n: number): string {
+	const wId = b.mintedId(b.workOk(["add", `spend series item ${n}`], "add"));
 	// the claim window is the attribution input: claim as the lane sid the
 	// ledger keys its spend to
-	b.workOk(["take", wId, "--as", "autow887-x"], "take");
+	const sid = `autow1136-${n}`;
+	b.workOk(["take", wId, "--as", sid], "take");
+	// W1136: the series reads the route_audit ledger (laneRequestSpendRows);
+	// the kanban strip totals read the hourly router_usage⋈api_keys join
+	// (laneSpendRows/itemAttribution) — seed BOTH faces with the same numbers
 	const ledger = join(b.HOME, ".claude/local-llm/buckle.db");
 	mkdirSync(dirname(ledger), { recursive: true });
 	const d = new Database(ledger);
-	// the hourly attribution feed rides router_usage+api_keys (W635) while the
-	// per-request series (W887) reads route_audit — the fixture feeds both
-	d.run("CREATE TABLE api_keys (key_id TEXT PRIMARY KEY, name TEXT)");
 	d.run(
-		"CREATE TABLE router_usage (hour_bucket TEXT, key TEXT, model_group TEXT, model TEXT DEFAULT '', in_tok INTEGER DEFAULT 0, out_tok INTEGER DEFAULT 0, cache_r INTEGER DEFAULT 0, cache_c INTEGER DEFAULT 0, requests INTEGER DEFAULT 0)",
-	);
-	d.run("INSERT INTO api_keys VALUES ('k1', 'autow887-x')");
-	// route_audit is the per-request attribution source (workSpendSeries
-	// fails soft to no-points without it — the hourly router_usage row alone
-	// stopped producing a series when attribution moved to per-request rows).
-	d.run(
-		"CREATE TABLE route_audit (ts TEXT, lane TEXT, in_tok INTEGER, out_tok INTEGER, cache_r INTEGER, cache_c INTEGER)",
+		"CREATE TABLE IF NOT EXISTS api_keys (key_id TEXT PRIMARY KEY, name TEXT)",
 	);
 	d.run(
-		"INSERT INTO route_audit VALUES (?, 'autow887-x', 500, 100, 50, 10)",
+		"CREATE TABLE IF NOT EXISTS router_usage (hour_bucket TEXT, key TEXT, model_group TEXT, model TEXT DEFAULT '', in_tok INTEGER DEFAULT 0, out_tok INTEGER DEFAULT 0, cache_r INTEGER DEFAULT 0, cache_c INTEGER DEFAULT 0, requests INTEGER DEFAULT 0)",
+	);
+	d.run(
+		"CREATE TABLE IF NOT EXISTS route_audit (ts TEXT, lane TEXT, model TEXT DEFAULT '', in_tok INTEGER DEFAULT 0, out_tok INTEGER DEFAULT 0, cache_r INTEGER DEFAULT 0, cache_c INTEGER DEFAULT 0, latency_ms INTEGER DEFAULT 0)",
+	);
+	d.run("INSERT OR IGNORE INTO api_keys VALUES (?, ?)", [`k${n}`, sid]);
+	d.run(
+		"INSERT INTO router_usage (hour_bucket, key, model_group, model, in_tok, out_tok, cache_r, cache_c, requests) VALUES (?, ?, 'glm-5.3-flash', 'glm-5.3-flash', 500, 100, 50, 10, 3)",
+		[`${new Date().toISOString().slice(0, 13)}:00`, `k${n}`],
+	);
+	d.run("INSERT INTO route_audit VALUES (?, ?, '', 500, 100, 50, 10, 3)", [
 		new Date().toISOString(),
-	);
-	d.run(
-		"INSERT INTO router_usage VALUES (?, 'k1', 'glm-5.3-flash', 'glm-5.3-flash', 500, 100, 50, 10, 3)",
-		[`${new Date().toISOString().slice(0, 13)}:00`],
-	);
+		sid,
+	]);
 	d.close();
-});
-
-test.afterAll(async () => {
-	await b.stop();
-});
+	return wId;
+}
 
 test("api: spend-series attributes the claimed item's ledger row", {
 	tag: "@ui",
-}, async () => {
-	const r = await fetch(`${b.BASE}/api/spend-series`).then((r) => r.json());
+}, async ({ board, api }) => {
+	const wId = seedSpend(board, 1);
+	const r = await (await api.get("/api/spend-series")).json();
 	expect(r.ok).toBe(true);
 	const hit = Object.entries(
 		r.series as Record<string, [number, number, number, number][]>,
@@ -72,33 +71,26 @@ test("api: spend-series attributes the claimed item's ledger row", {
 
 test("gui: lanes kanban paints the micro-strip sparkline + strip text", {
 	tag: "@ui",
-}, async ({ page }) => {
-	await page.goto(`${b.BASE}/#lanes`);
+}, async ({ page, cleanBoard }) => {
+	// a fresh board process: the spend-series memo boots cold so the seeded
+	// item's series is in the FIRST /api/spend-series payload (the worker
+	// board's 5s memo still held the api test's W1-only series at goto)
+	const wId = seedSpend(cleanBoard, 2);
+	await page.goto(`${cleanBoard.BASE}/#lanes`);
+	// scope to the seeded card — the worker board may carry earlier claimed
+	// items whose strips paint too (strict mode)
+	const card = page.locator(`.kcard[data-kid="${wId}"]`);
 	// the strip text (fresh 500 · cached 60 → 11% cache) rides the card
-	await expect(page.locator(".kspend .kspendtxt")).toContainText("tok/m", {
+	await expect(card.locator(".kspend .kspendtxt")).toContainText("tok/m", {
 		timeout: 20_000,
 	});
-	await expect(page.locator(".kspend .kspendtxt")).toContainText("% cache");
-	// the sparkline painted as inline SVG (stacked fresh + cached bars)
-	await expect(
-		page.locator(".kspark svg rect.spark-fresh").first(),
-	).toBeVisible();
-	await expect(
-		page.locator(".kspark svg rect.spark-cached").first(),
-	).toBeVisible();
-	// W2060: the drawn svg spans the plot container's real width (no fixed 180)
-	const widths = await page.evaluate(() => {
-		const plot = document.querySelector(".ksparkplot");
-		const svg = plot?.querySelector("svg");
-		return {
-			plot: plot?.clientWidth ?? 0,
-			drawn: svg ? Number(svg.getAttribute("width")) : 0,
-		};
-	});
-	expect(widths.plot).toBeGreaterThan(0);
-	expect(widths.drawn).toBe(widths.plot);
+	await expect(card.locator(".kspend .kspendtxt")).toContainText("% cache");
+	// the sparkline painted as inline SVG (fresh + cached bars — the
+	// renderer draws stacked rect bars, not polylines)
+	await expect(card.locator(".kspark svg rect.spark-fresh")).toHaveCount(1);
+	await expect(card.locator(".kspark svg rect.spark-cached")).toHaveCount(1);
 	// the tasks table carries the strip as the tok cell tooltip
-	await page.goto(`${b.BASE}/#tasks`);
+	await page.goto(`${cleanBoard.BASE}/#tasks`);
 	await expect(
 		page.locator('#tasksBody td.num[title*="tok/m"]').first(),
 	).toContainText(/\d/);
@@ -106,9 +98,9 @@ test("gui: lanes kanban paints the micro-strip sparkline + strip text", {
 
 // W1203: bars derive bins + window from the MEASURED track — edge-to-edge
 // tiling at default and narrow widths, fixed pixel bars, no stretching.
-test("gui: spark bars span the measured track edge-to-edge at both widths", async ({
-	page,
-}) => {
+test("gui: spark bars span the measured track edge-to-edge at both widths", {
+	tag: "@ui",
+}, async ({ page, cleanBoard }) => {
 	// 24h of 1-minute points — every bin ≥3min wide holds data, so the bar
 	// count IS the measured bin count and the newest point rides the last bin.
 	const t0 = Date.now() - 1440 * 60_000;
@@ -118,25 +110,27 @@ test("gui: spark bars span the measured track edge-to-edge at both widths", asyn
 		50,
 		20,
 	]);
-	// the board's own key for the item (project half = its project identity)
-	const live = await fetch(`${b.BASE}/api/spend-series`).then((r) => r.json());
-	const key =
-		Object.keys(live.series as Record<string, unknown>).find((k) =>
-			k.endsWith(`\u0000${wId}`),
-		) ?? `${b.MY_PROJ}\u0000${wId}`;
+	const wId = seedSpend(cleanBoard, 3);
+	// the board owns the key for the item (project half = the project string
+	// the tasks feed itself serves — the git-common-dir, .git-suffixed)
+	const feed = (await (await fetch(`${cleanBoard.BASE}/api/tasks`)).json()) as {
+		tasks: Array<{ id: string; project: string }>;
+	};
+	const mine = feed.tasks.find((t) => t.id === wId);
+	if (!mine) throw new Error(`no tasks row for ${wId}`);
+	const key = `${mine.project}\u0000${wId}`;
 	await page.route("**/api/spend-series", (route) =>
 		route.fulfill({
 			contentType: "application/json",
 			body: JSON.stringify({ ok: true, series: { [key]: pts } }),
 		}),
 	);
-	await page.goto(`${b.BASE}/#lanes`);
+	await page.goto(`${cleanBoard.BASE}/#lanes`);
 	// the series paints after an async fetch — measure only once bars exist
 	await expect(
 		page.locator(`.kcard[data-kid="${wId}"] .kspark svg rect`).first(),
 	).toBeVisible();
 	const card = await measureSpark(page, `.kcard[data-kid="${wId}"]`);
-	// no dead gap: the svg tiles the track and both edge bars hug the edges
 	expect(Math.abs(card.svgW - card.trackW)).toBeLessThanOrEqual(0.6);
 	expect(card.barCount).toBe(Math.floor(card.spanW / 6));
 	for (const w of card.barWidths)
@@ -146,7 +140,6 @@ test("gui: spark bars span the measured track edge-to-edge at both widths", asyn
 	expect(card.trackW - card.lastRight).toBeGreaterThanOrEqual(0.5);
 	expect(card.trackW - card.lastRight).toBeLessThanOrEqual(2);
 	expect(card.axisLabel).toBe(card.axisExpected); // labels from actual span
-	// drawer cluster rides the same rule at its wider track (5px bars)
 	await page.locator(`.kcard[data-kid="${wId}"] .tidbtn`).click();
 	await expect(
 		page.locator("#drawerBody .kspend-drawer .kspark svg rect").first(),

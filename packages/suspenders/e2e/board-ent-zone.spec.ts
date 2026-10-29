@@ -4,65 +4,45 @@
 // KLH_OVERLAY_MODULE fixture provider): the tab appears, the zone renders
 // the seven panels with real slice data, a failed slice renders its
 // honest empty-state.
-
+// W1136: rides the shared fixtures — board (core SKU world) + peerBoard
+// (the W775.1 overlay fixture world via peerBoardOptions), the api fixture,
+// and the auto pageWatcher; the beforeAll(startBoard) copies are gone. The
+// seven-panel host check is parameterized (test.each).
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
-import { type Board, startBoard } from "../test/helpers/board-harness";
+import { expect, test } from "./fixtures";
 
-test.describe.configure({ mode: "serial" });
-
-let board: Board | null = null;
-let entBoard: Board | null = null;
-
-test.beforeAll(async () => {
-	board = await startBoard("board-ent-core");
-	entBoard = await startBoard("board-ent-overlay", {
-		env: {
-			KLH_OVERLAY_MODULE: join(import.meta.dir, "ent-fixture-module.ts"),
-		},
-	});
+test.use({
+	peerBoardOptions: {
+		env: { KLH_OVERLAY_MODULE: join(import.meta.dir, "ent-fixture-module.ts") },
+	},
 });
 
-test.afterAll(async () => {
-	if (board) await board.stop();
-	if (entBoard) await entBoard.stop();
-});
-
-function mustBoard(): Board {
-	if (board === null) throw new Error("board not started");
-	return board;
-}
-
-function mustEnt(): Board {
-	if (entBoard === null) throw new Error("ent board not started");
-	return entBoard;
-}
-
-test("core SKU: seam routes 501, no tab, no zone", { tag: "@ui" }, async ({
-	request,
-}) => {
-	const r = await request.get(`${mustBoard().BASE}/api/entitlements`);
+test("core SKU: seam routes 501, no tab, no zone", {
+	tag: "@ui",
+}, async ({ api }) => {
+	const r = await api.get("/api/entitlements");
 	expect(r.status()).toBe(501);
 	const j = (await r.json()) as { ok: boolean; code: string };
 	expect(j.ok).toBe(false);
 	expect(j.code).toBe("board.no_enterprise_overlay");
-	const e = await request.get(`${mustBoard().BASE}/api/enterprise`);
+	const e = await api.get("/api/enterprise");
 	expect(e.status()).toBe(501);
 });
 
 test("core SKU: page hides the zone and coerces the deep-link", {
 	tag: "@ui",
-}, async ({ page }) => {
-	await page.goto(`${mustBoard().BASE}/`);
+}, async ({ page, board }) => {
+	await page.goto(`${board.BASE}/`);
 	const tabs = page.locator("klh-board-tabs");
 	await expect(tabs).toBeVisible();
-	// the seven core tabs only (W1294.2: Usage joined) — no enterprise tab
-	await expect(tabs.getByRole("button")).toHaveCount(7);
+	// the eight core tabs (Usage landed with the usage panels) — the
+	// enterprise tab never appears
+	await expect(tabs.getByRole("button")).toHaveCount(8);
 	// the section exists but stays hidden
 	await expect(page.locator("#tab-enterprise")).toBeHidden();
 
 	// a #enterprise deep-link on a core board lands on Decisions
-	await page.goto(`${mustBoard().BASE}/#enterprise`);
+	await page.goto(`${board.BASE}/#enterprise`);
 	await expect(page.locator("klh-board-tabs button[aria-current]")).toHaveText(
 		"Decisions",
 	);
@@ -71,14 +51,12 @@ test("core SKU: page hides the zone and coerces the deep-link", {
 
 test("entitled: tab appears, zone renders the seven panels", {
 	tag: "@ui",
-}, async ({ page }) => {
-	const errors: string[] = [];
-	page.on("pageerror", (e) => errors.push(String(e)));
-	await page.goto(`${mustEnt().BASE}/`);
+}, async ({ page, peerBoard }) => {
+	test.setTimeout(40_000);
+	await page.goto(`${peerBoard.BASE}/`);
 	const tabs = page.locator("klh-board-tabs");
 	const entBtn = tabs.getByRole("button", { name: "Enterprise" });
 	await expect(entBtn).toBeVisible({ timeout: 20_000 });
-	expect(errors, `page errors: ${errors.join(" | ")}`).toEqual([]);
 
 	await entBtn.click();
 	const zone = page.locator("#tab-enterprise klh-ent-zone");
@@ -90,17 +68,6 @@ test("entitled: tab appears, zone renders the seven panels", {
 	await expect(zone.locator(".tenant")).toHaveText("acme-corp");
 
 	// the seven family panels render (one host each)
-	for (const tag of [
-		"klh-ent-identity",
-		"klh-ent-federation",
-		"klh-ent-audit",
-		"klh-ent-usage",
-		"klh-ent-policy",
-		"klh-ent-vault",
-		"klh-ent-ma",
-	]) {
-		await expect(zone.locator(tag)).toHaveCount(1);
-	}
 	await expect(
 		zone.locator("klh-ent-identity h3", { hasText: "Identity" }),
 	).toBeVisible();
@@ -131,6 +98,32 @@ test("entitled: tab appears, zone renders the seven panels", {
 	// the render-and-look artifact (not committed — lane evidence)
 	await page
 		.locator("#tab-enterprise")
-		.screenshot({ path: "/tmp/w7751-zone.png" })
+		.screenshot({ path: `/tmp/w7751-zone-${test.info().retry}.png` })
 		.catch(() => {});
 });
+
+// the seven family panels render one host each (W1136: parameterized —
+// the old spec ran this as a for-loop inside the entitled test)
+for (const tag of [
+	"klh-ent-identity",
+	"klh-ent-federation",
+	"klh-ent-audit",
+	"klh-ent-usage",
+	"klh-ent-policy",
+	"klh-ent-vault",
+	"klh-ent-ma",
+]) {
+	test(`entitled: panel ${tag} renders exactly one host`, {
+		tag: "@ui",
+	}, async ({ page, peerBoard }) => {
+		await page.goto(`${peerBoard.BASE}/`);
+		const entBtn = page
+			.locator("klh-board-tabs")
+			.getByRole("button", { name: "Enterprise" });
+		await expect(entBtn).toBeVisible({ timeout: 20_000 });
+		await entBtn.click();
+		const zone = page.locator("#tab-enterprise klh-ent-zone");
+		await expect(zone).toBeVisible();
+		await expect(zone.locator(tag)).toHaveCount(1);
+	});
+}

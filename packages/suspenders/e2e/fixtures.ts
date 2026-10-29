@@ -1,0 +1,175 @@
+// e2e/fixtures.ts — W1136: the ONE extended test every e2e spec consumes.
+// Replaces the per-spec beforeAll(startBoard) copies (23 of them) with:
+//
+//   board      — per-WORKER real fleet-board from the one shared harness
+//   peerBoard  — lazy per-worker SECOND board for two-world specs
+//                (hub/local scope isolation, core/entitled enterprise)
+//   cleanBoard — a fresh scratch world per TEST (hermetic single-test specs)
+//   pageWatcher— auto-attaches pageerror + console-error collection and
+//                asserts clean at teardown — a GUI defect fails the test,
+//                never test noise (the W353 watch() contract, fleet-wide)
+//   api        — APIRequestContext pinned to the board BASE (kills raw fetch
+//                cross-checks against the live board API)
+//
+// Boards are spawned per world, never one shared server — webServer stays
+// out (W353 doctrine). Browsers resolve from the machine cache; the shared
+// pre-flight lives in global-setup.ts.
+import { expect, test as base, type APIRequestContext } from "@playwright/test";
+import { basename } from "node:path";
+import { startBoard, type Board } from "./harness";
+
+export { expect };
+export type { Board };
+
+/** startBoard options (env pins + board args), as a fixture option. */
+export interface BoardOpts {
+	env?: NodeJS.ProcessEnv;
+	args?: string[];
+}
+
+type TestOptions = {
+	boardOptions: BoardOpts;
+	peerBoardOptions: BoardOpts;
+	cleanBoardOptions: BoardOpts;
+	/** console-error texts matching any of these are watcher-exempt (designed
+	 *  noise only — a spec must name its exemptions in its header comment). */
+	watcherIgnore: RegExp[];
+	/** resource-load 404s on URLs matching this are watcher-exempt (designed
+	 *  fallback probes on partial stub servers) — the browser's "Failed to
+	 *  load resource" line still requires the wire to have REALLY carried
+	 *  that 404, and every other 404 stays a failure. PASS A SINGLE REGEX:
+	 *  a 2-element array override reads as Playwright's fixture tuple
+	 *  [value, options] and silently degrades to element 0. */
+	watcherAllow404: RegExp | RegExp[];
+};
+
+type WorkerFixtures = {
+	board: Board;
+	peerBoard: Board;
+};
+
+type TestFixtures = {
+	cleanBoard: Board;
+	pageWatcher: undefined;
+	api: APIRequestContext;
+};
+
+export const test = base.extend<TestFixtures & WorkerFixtures & TestOptions>({
+	// board/peerBoardOptions are worker-scoped (the worker boards consume
+	// them; test.use overrides happen at file/describe level only)
+	boardOptions: [{}, { option: true, scope: "worker" }],
+	peerBoardOptions: [{}, { option: true, scope: "worker" }],
+	cleanBoardOptions: [{}, { option: true }],
+	watcherIgnore: [[], { option: true }],
+	watcherAllow404: [[], { option: true }],
+
+	board: [
+		async ({ boardOptions }, use, workerInfo) => {
+			const board = await startBoard(
+				`w${workerInfo.workerIndex}-${workerInfo.project.name}`,
+				boardOptions,
+			);
+			await use(board);
+			await board.stop();
+		},
+		{ scope: "worker" },
+	],
+
+	// lazy: only the two-world specs (hub-board, board-ent-zone) pay for it
+	peerBoard: [
+		async ({ peerBoardOptions }, use, workerInfo) => {
+			const peer = await startBoard(
+				`w${workerInfo.workerIndex}-peer-${workerInfo.project.name}`,
+				peerBoardOptions,
+			);
+			await use(peer);
+			await peer.stop();
+		},
+		{ scope: "worker" },
+	],
+
+	cleanBoard: [
+		async ({ cleanBoardOptions }, use, testInfo) => {
+			const world = await startBoard(
+				`t-${basename(testInfo.file, ".spec.ts")}`,
+				cleanBoardOptions,
+			);
+			await use(world);
+			await world.stop();
+		},
+		{ scope: "test" },
+	],
+
+	pageWatcher: [
+		async ({ page, watcherIgnore, watcherAllow404 }, use) => {
+			// single-regex or array override both accepted (see TestOptions —
+			// a 2-element array override collides with PW's fixture tuple form)
+			const allow404 = Array.isArray(watcherAllow404)
+				? watcherAllow404
+				: [watcherAllow404];
+			const pageErrors: string[] = [];
+			const consoleErrors: { text: string; url: string }[] = [];
+			// the W775.1 ent-zone probes /api/entitlements + /api/enterprise at
+			// connect and polls them for the life of the page — provider-less
+			// those answer the DESIGNED honest 501 (the GUI probe keys on the
+			// status), so the resource-load console noise those two endpoints
+			// provoke is exempted, with the response listener proving every 501
+			// is one of them
+			const entProbe = /\/api\/(entitlements|enterprise)(\?|$)/;
+			const seen501: string[] = [];
+			const seen404: string[] = [];
+			page.on("response", (r) => {
+				if (r.status() === 501) seen501.push(r.url());
+				else if (r.status() === 404) seen404.push(r.url());
+			});
+			page.on("pageerror", (e) => pageErrors.push(String(e)));
+			page.on("console", (m) => {
+				if (m.type() === "error")
+					consoleErrors.push({ text: m.text(), url: m.location().url });
+			});
+			await use();
+			expect(pageErrors, "uncaught page exceptions").toEqual([]);
+			// browser resource-load lines ("Failed to load resource") are the
+			// network's honest trace, not page-code defects: 501s pass only when
+			// the wire carried one on the ent-zone probe endpoints; 404s pass
+			// only on a spec-declared designed fallback URL. Every non-resource
+			// console.error stays a GUI defect.
+			const rogue = consoleErrors
+				.filter(({ text, url }) => {
+					if (text.startsWith("Failed to load resource")) {
+						if (
+							text.includes("status of 501") &&
+							seen501.some((u) => entProbe.test(u))
+						)
+							return false;
+						if (
+							text.includes("status of 404") &&
+							allow404.some((re) => re.test(url))
+						)
+							return false;
+						return true;
+					}
+					return !watcherIgnore.some((rx) => rx.test(text));
+				})
+				.map(({ text, url }) => `${text} [${url}]`);
+			expect(
+				rogue,
+				`console errors (404s seen: ${seen404.join(" ") || "none"})`,
+			).toEqual([]);
+			expect(
+				seen501.filter((u) => !entProbe.test(u)),
+				"501s outside the ent-zone probe endpoints",
+			).toEqual([]);
+		},
+		{ auto: true },
+	],
+
+	api: [
+		async ({ board }, use) => {
+			const api = await base.request.newContext({ baseURL: board.BASE });
+			await use(api);
+			await api.dispose();
+		},
+		{ scope: "test" },
+	],
+});
