@@ -5,7 +5,7 @@
 import { expect, test } from "@playwright/test";
 import { join } from "node:path";
 import { countKnobEnvSites } from "./helpers.ts";
-import { ENV_MAP } from "@klh/settings";
+import { ENV_MAP } from "../src/index.ts";
 
 test("direct knob env reads outside @klh/settings stay at the pin", () => {
 	const root = join(import.meta.dir, "..", "..", "..");

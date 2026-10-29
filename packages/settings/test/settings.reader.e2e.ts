@@ -16,7 +16,7 @@ import {
 	setting,
 	SettingsError,
 	settings,
-} from "@klh/settings";
+} from "../src/index.ts";
 
 test.afterEach(() => {
 	resetSettingsCache();

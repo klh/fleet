@@ -11,7 +11,7 @@ import {
 	scratchSettingsHome,
 	writeMigrateFixtures,
 } from "./helpers.ts";
-import { resetSettingsCache, runSettingsCli } from "@klh/settings";
+import { resetSettingsCache, runSettingsCli } from "../src/index.ts";
 
 test.afterEach(() => {
 	resetSettingsCache();

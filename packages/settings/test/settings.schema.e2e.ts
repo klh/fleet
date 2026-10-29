@@ -8,7 +8,7 @@ import {
 	resetSettingsCache,
 	resolveSettings,
 	settingsJsonSchemaText,
-} from "@klh/settings";
+} from "../src/index.ts";
 
 test.afterEach(() => {
 	resetSettingsCache();

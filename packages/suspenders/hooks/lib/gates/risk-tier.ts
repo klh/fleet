@@ -11,7 +11,7 @@ import {
 	consumeRiskApprovals,
 	countRiskApprovals,
 	riskApprovalSrc,
-} from "../approvals.ts";
+} from "./approvals.ts";
 import type { GovernorStore } from "../govdb/govdb-store.ts";
 
 export type RiskTier = "low" | "medium" | "high";
