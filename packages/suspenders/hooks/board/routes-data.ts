@@ -11,7 +11,7 @@ import { beltRegistry } from "./belt.ts";
 import { db } from "./context.ts";
 import { activity, workEvents } from "./events.ts";
 import { decisionsPayload, taskDecisions } from "./decisions.ts";
-import { payloadBody, payloadFor } from "./payload.ts";
+import { payloadBody, payloadFor, sessionsPage } from "./payload.ts";
 import { stateHighWater } from "./events-memo.ts";
 import { pollMemoBody } from "./poll-memo.ts";
 import {
@@ -130,6 +130,15 @@ export async function handleData(
 			req,
 			sid ? pollMemoBody(`data\0${sid}`, () => payloadFor(sid)) : payloadBody(),
 		);
+	}
+	if (url.pathname === "/api/sessions") {
+		// on-demand history behind the bounded /api/data sessions slice
+		const int = (k: string, d: number, max: number) => {
+			const n = Math.trunc(Number(url.searchParams.get(k) ?? d));
+			return Number.isFinite(n) ? Math.min(Math.max(n, 0), max) : d;
+		};
+		const page = sessionsPage(int("offset", 0, 1e9), int("limit", 200, 1000));
+		return jsonEtag(req, page);
 	}
 	{
 		// W217/W273/W292: the vendored Lit component bundles (offline — built
