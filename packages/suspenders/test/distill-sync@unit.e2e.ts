@@ -92,10 +92,11 @@ spoke.run(
 // batch-matched acks (both pinned in knowledge-sync.test.ts); /graph runs
 // the REAL landing law — the sink's exact auth (rollKeyOk against the
 // scratch keys file) then landGraphWire — so the assertions read hub rows,
-// not stub bookkeeping. failC wedges hub C on /graph.
+// not stub bookkeeping. failC wedges hub C on /graph (B keeps landing — a
+// genuine partial pass).
 let failC = false;
 
-const stubHub = (db) =>
+const stubHub = (db, wedged = () => false) =>
 	serveStub((req, body) => {
 		const path = new URL(req.url).pathname;
 		if (path === "/api/knowledge-ingest")
@@ -109,7 +110,7 @@ const stubHub = (db) =>
 				counts: { merged: 0, versions: 0, tombstoned: 0, stale: 0, dupes: 0 },
 			});
 		if (path !== "/graph") return Response.json({ error: "nf" }, 404);
-		if (failC) return Response.json({ ok: false, error: "injected" });
+		if (wedged()) return Response.json({ ok: false, error: "injected" });
 		const keyed = rollKeyOk(req.headers.get(ROLL_KEY_HEADER) ?? "", {
 			path: keysPath,
 		});
@@ -120,7 +121,7 @@ const stubHub = (db) =>
 	});
 
 const hubB = stubHub(dbB);
-const hubC = stubHub(dbC);
+const hubC = stubHub(dbC, () => failC);
 
 // the 0600 spoke config: both targets roll-capable — the graph rides only
 // when rollUrl + rollKeyFile are configured. One 0600 key file serves both
