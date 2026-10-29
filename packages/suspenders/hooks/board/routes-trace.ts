@@ -7,8 +7,9 @@
 // allowlist on ALL requests, enforced in fleet-board.ts before this handler).
 // Unknown / missing / expired traces and an unreachable or erroring Buckle
 // all say so honestly — never a fabricated page.
-import { adminKey, BUCKLE_FRONT } from "../lib/lanes/lane-auth.ts";
+
 import { consolePage, esc } from "../bin/console-html.ts";
+import { adminKey, BUCKLE_FRONT } from "../lib/lanes/lane-auth.ts";
 import { consoleMe } from "./console-view.ts";
 import { json } from "./helpers.ts";
 
