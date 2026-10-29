@@ -38,6 +38,8 @@ import {
 import { coordSubscribeLog } from "../lib/lanes/subscribe-attach.ts";
 import { db, type EventRow } from "./context.ts";
 import { chunked } from "./helpers.ts";
+import { stateHighWater } from "./events-memo.ts";
+import { cursorForPass, writeCursor } from "./reader-cursor.ts";
 import { markSynced, shouldSync } from "./sync-throttle.ts";
 
 // W682: config facts ride a 3s memo — the liveness verdicts read them per
@@ -187,11 +189,11 @@ export function enrich(
 // after an answer → ACKNOWLEDGED. Idempotent + monotonic; safe on every poll.
 // Recover only the latest typed stop for a still-owned, unfinished item. Generic
 // untargeted broadcasts and historical/retaken activations remain untouched.
-function backfillLaneStopDecisions(): void {
+function backfillLaneStopDecisions(since = 0): void {
 	const seen = new Set<string>();
 	const events = db
 		.query(`SELECT e.id,e.ts,e.source,e.payload FROM events e
- WHERE e.kind='NEED_DECISION' AND e.target IS NULL AND json_valid(e.payload)
+ WHERE e.kind='NEED_DECISION' AND e.id > ? AND e.target IS NULL AND json_valid(e.payload)
  AND EXISTS (SELECT 1 FROM work_items w
  WHERE w.project=json_extract(e.payload,'$.project')
  AND w.id=json_extract(e.payload,'$.item') AND w.owner_sid=e.source
@@ -200,7 +202,7 @@ function backfillLaneStopDecisions(): void {
  WHERE claim.kind='work.claimed' AND claim.id > e.id
  AND claim.project=json_extract(e.payload,'$.project')
  AND claim.work=json_extract(e.payload,'$.item')) ORDER BY e.id DESC`)
-		.all() as {
+		.all(since) as {
 		id: number;
 		ts: number;
 		source: string;
@@ -233,14 +235,23 @@ export function syncDecisions(opts: { force?: boolean } = {}): void {
 	const maxEventId =
 		(db.query("SELECT MAX(id) AS m FROM events").get() as { m: number | null })
 			?.m ?? 0;
-	if (!shouldSync(maxEventId, opts.force === true)) return;
-	reconcileDecisions();
-	markSynced(maxEventId);
+	// the transitions also read work_items/sessions: a direct table write
+	// (DONE flip, no event) must trigger a pass too — the delta-log head moves
+	const stamp = stateHighWater(db);
+	if (!shouldSync(stamp, opts.force === true)) return;
+	reconcileDecisions(maxEventId);
+	markSynced(stamp);
 }
 
-function reconcileDecisions(): void {
+// the bus backfills (lane-stop + NEED%) read only events above the persisted
+// cursor (board/reader-cursor.ts); the state transitions below scan the small
+// decisions table and stay full every pass
+const DECISIONS_CURSOR = "board.decisions";
+
+export function reconcileDecisions(maxEventId: number): void {
 	const now = Date.now();
-	backfillLaneStopDecisions();
+	const since = cursorForPass(DECISIONS_CURSOR, now);
+	backfillLaneStopDecisions(since);
 	// A later claim starts a new activation. Retire only typed operational
 	// incidents from the earlier activation, never a generic human decision.
 	for (const event of db
@@ -275,9 +286,9 @@ function reconcileDecisions(): void {
 	// change them together.
 	for (const e of db
 		.query(
-			"SELECT id, ts, source, target, scope, payload FROM events WHERE kind LIKE 'NEED%' AND target IS NOT NULL AND id NOT IN (SELECT event_id FROM decisions) ORDER BY id",
+			"SELECT id, ts, source, target, scope, payload FROM events WHERE id > ? AND kind LIKE 'NEED%' AND target IS NOT NULL AND id NOT IN (SELECT event_id FROM decisions) ORDER BY id",
 		)
-		.all() as EventRow[]) {
+		.all(since) as EventRow[]) {
 		db.query(
 			"INSERT OR IGNORE INTO decisions (event_id, target, state, delivery, created_at, answer_token) VALUES (?, ?, 'OPEN', ?, ?, ?)",
 		).run(
@@ -355,6 +366,9 @@ function reconcileDecisions(): void {
 		db.query(
 			"UPDATE decisions SET state = 'ACKNOWLEDGED', ack_ts = ?, answer_token = ? WHERE event_id = ? AND state = 'ANSWERED'",
 		).run(now, crypto.randomUUID(), d.id);
+	// advance only to the MAX(id) read before the pass: anything appended
+	// while it ran is above the mark and lands on the next one
+	writeCursor(DECISIONS_CURSOR, maxEventId, now);
 }
 
 export const pidAlive = (pid: number): boolean => {

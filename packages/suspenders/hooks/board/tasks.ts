@@ -20,6 +20,7 @@ import {
 } from "../lib/work/work-timing.ts";
 import { utcZ } from "../lib/wallclock.ts";
 import { db, type WorkItemRow } from "./context.ts";
+import { memoOnEvents } from "./events-memo.ts";
 import { chunked } from "./helpers.ts";
 import {
 	ago,
@@ -168,13 +169,18 @@ export function depEdges(): Map<
 
 // ONE claim-replay event scan (the W635/W776/W887 attribution inputs) —
 // shared by workAttribution + workSpendSeries so each memo window pays a
-// single read.
+// single read, recomputed only when the bus high-water moves (events-memo.ts).
 function claimEventScan(): TimingEventRow[] {
-	return db
-		.query(
-			`SELECT project, id, ts, kind, payload FROM events WHERE kind IN ${TIMING_KINDS} ORDER BY ts, id`,
-		)
-		.all() as TimingEventRow[];
+	return memoOnEvents(
+		"claimEventScan",
+		db,
+		() =>
+			db
+				.query(
+					`SELECT project, id, ts, kind, payload FROM events WHERE kind IN ${TIMING_KINDS} ORDER BY ts, id`,
+				)
+				.all() as TimingEventRow[],
+	);
 }
 
 // W776 — per-item attribution (spend + wall) for the tasks feed, memoized

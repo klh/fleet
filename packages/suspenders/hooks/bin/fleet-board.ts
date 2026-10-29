@@ -46,6 +46,7 @@ import {
 } from "../board/routes-actions.ts";
 import { handleConsole } from "../board/routes-console.ts";
 import { handleConsultIngress } from "../board/routes-consult.ts";
+import { clearPollMemo } from "../board/poll-memo.ts";
 import { handleData } from "../board/routes-data.ts";
 import { handleDrawer } from "../board/routes-drawer.ts";
 import { handleEnterprise } from "../board/routes-enterprise.ts";
@@ -145,6 +146,10 @@ const base = {
 	hostname: BIND,
 	async fetch(req) {
 		const url = new URL(req.url);
+		// a board write (answer/dismiss/ack…) must show on the very next poll,
+		// not up to one memo window later (board/poll-memo.ts): drop the memo
+		// once the write handler has run
+		const write = req.method !== "GET" && req.method !== "HEAD";
 		// W157: the original 30-route if-chain, order preserved, split into
 		// per-area handlers — first match wins exactly as before
 		for (const h of [
@@ -176,7 +181,10 @@ const base = {
 			handleMeta,
 		]) {
 			const r = await h(req, url);
-			if (r) return r;
+			if (r) {
+				if (write) clearPollMemo();
+				return r;
+			}
 		}
 		return new Response("not found", { status: 404 });
 	},

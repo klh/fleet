@@ -11,6 +11,7 @@ import { events } from "./events.ts";
 import { laneObservationSnapshot } from "./lane-observations.ts";
 import { ago, labelFrom, labelMaps, laneGitSnapshot } from "./lanes.ts";
 import { getObservationRelayStatus } from "./observation-relay.ts";
+import { type MemoBody, serializeBody } from "./poll-memo.ts";
 import { claims, inbox, laneFacts, sessions } from "./sessions.ts";
 import { board, type SessionView } from "./tasks.ts";
 
@@ -134,6 +135,17 @@ export function factsTrust(): unknown[] {
 
 export function payload() {
 	return feedMemo().data;
+}
+
+// the serialized /api/data body, stringified once per feed build (keyed on
+// the memo object's identity) instead of once per poll
+let _feedBody: { of: unknown; cached: MemoBody } | null = null;
+
+export function payloadBody(): MemoBody {
+	const feed = feedMemo();
+	if (_feedBody?.of !== feed)
+		_feedBody = { of: feed, cached: serializeBody(feed.data, feed.at) };
+	return _feedBody.cached;
 }
 
 // W685 payload bounds: /api/data served EVERY session ever (1898 rows /
