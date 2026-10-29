@@ -12,6 +12,7 @@ import {
 	encodeProjectDir,
 	resolveTranscriptPath,
 } from "../hooks/lib/lanes/transcript.ts";
+import { startKevStub } from "./fixtures/kev-stub-start.ts";
 
 import {
 	drainCleanup,
@@ -97,23 +98,64 @@ test("completion persists a paragraph with immutable commit evidence after owner
 	expect(record.commit_sha).toBe(f.sha);
 	expect(record.completed_by).toBe("completion-lane");
 	expect(JSON.parse(f.work("show", f.id, "--json").out).owner_sid).toBeNull();
-	expect(done.out).toContain("knowledge candidate queued #");
+	// D7: a refused Kev verdict defers to kev_review, it never queues
+	expect(done.out).toContain("knowledge deferred to the Kev review queue");
 	const knowledge = new Database(
 		join(f.home, ".cache/claude-governor/knowledge.db"),
 	);
-	const queued = knowledge
-		.query("SELECT source, state, origin_sid FROM knowledge_queue")
+	const deferred = knowledge
+		.query("SELECT kind, reference, sid, state FROM kev_review")
 		.get() as {
-		source: string;
+		kind: string;
+		reference: string;
+		sid: string;
 		state: string;
-		origin_sid: string;
 	};
-	expect(queued).toMatchObject({
-		source: `work.done ${f.id}`,
-		state: "queued",
-		origin_sid: "completion-lane",
+	expect(deferred).toMatchObject({
+		kind: "work",
+		reference: f.id,
+		sid: "completion-lane",
+		state: "pending",
 	});
 	knowledge.close();
+});
+
+test("a stored Kev verdict queues the completion knowledge candidate", async () => {
+	const stub = await startKevStub("store");
+	try {
+		const f = fixture();
+		f.env.SUSPENDERS_KEV_URL = stub.url;
+		const done = f.work(
+			"done",
+			f.id,
+			"--as",
+			"completion-lane",
+			"--sha",
+			f.sha,
+			"--summary",
+			summary,
+		);
+		expect(done.code).toBe(0);
+		expect(done.out).toContain("knowledge candidate queued #");
+		const knowledge = new Database(
+			join(f.home, ".cache/claude-governor/knowledge.db"),
+		);
+		const queued = knowledge
+			.query("SELECT source, state, origin_sid FROM knowledge_queue")
+			.get() as {
+			source: string;
+			state: string;
+			origin_sid: string;
+		};
+		expect(queued).toMatchObject({
+			source: `work.done ${f.id}`,
+			state: "queued",
+			origin_sid: "completion-lane",
+		});
+		knowledge.close();
+	} finally {
+		stub.stop();
+	}
 });
 
 test("prior shared-session test claim and another item's capsule cannot block this close", () => {
