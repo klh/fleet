@@ -32,6 +32,10 @@ import {
 	walkLegs,
 } from "../lib/gates/review-quota.ts";
 import {
+	fingerprintVerdict,
+	workspaceFingerprint,
+} from "../lib/gates/proof-fingerprint.ts";
+import {
 	finishReviewRequest,
 	reviewRequestKey,
 } from "../lib/gates/review-scheduler.ts";
@@ -459,6 +463,13 @@ async function coverageProof(branch: string): Promise<Proof> {
 		const back = gitRun(["checkout", "--", ...provable], scratch);
 		if (back.code !== 0)
 			return { status: "error", detail: "test restore failed" };
+		// W2181 (verify.py): the run's output dir is emptied first — the
+		// reverse-apply patch is dead weight once applied, and nothing planted
+		// may ride the run — then the scratch is fingerprinted before and
+		// after: a tree that changed mid-run (or can no longer be read)
+		// banks as unknown, never proved, never no-coverage.
+		rmSync(patch, { force: true });
+		const before = workspaceFingerprint(scratch);
 		// run the new tests without the change
 		const p = Bun.spawn([process.execPath, "test", ...provable], {
 			stdin: "ignore",
@@ -474,6 +485,12 @@ async function coverageProof(branch: string): Promise<Proof> {
 		clearTimeout(timer);
 		await p.exited;
 		const output = `${outText}\n${errText}`;
+		const fp = fingerprintVerdict(before, workspaceFingerprint(scratch));
+		if (fp !== "unchanged")
+			return {
+				status: "unknown",
+				detail: `scratch tree ${fp === "changed" ? "changed mid-run" : "could not be fingerprinted"} during the proof run — result banks unknown, never proved`,
+			};
 		if (/Cannot find (package|module)/.test(output)) {
 			// W1262 (W1258 regression): a missing import that names a module the
 			// diff ADDED means the reversed change is what provides the module —
@@ -620,10 +637,12 @@ const wireHeadline = wireMismatch
 // W1760: an untrusted verdict is never a review ROUND — the round cap counts
 // FAIL receipts only, so a routing-fallback downgrade grades ERROR (the
 // scheduler refunds the attempt and retries on the requested class).
+// W2181: an unknown proof (scratch changed mid-run) never rides PASS —
+// the run counts are untrustworthy, so the verdict re-drives as ERROR.
 const effective =
 	verdict === "PASS" && wireMismatch
 		? "ERROR"
-		: proof?.status === "error"
+		: proof?.status === "error" || proof?.status === "unknown"
 			? "ERROR"
 			: proof?.status === "no-coverage"
 				? "FAIL"

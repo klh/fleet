@@ -7,6 +7,7 @@
 // and the disable knob.
 import { afterAll, describe, expect, test } from "bun:test";
 import {
+	chmodSync,
 	mkdirSync,
 	mkdtempSync,
 	rmSync,
@@ -587,7 +588,41 @@ describe("stale evidence: test-affecting files after the pass", () => {
 		).toBe(true);
 	});
 
-	afterAll(() => rmSync(DIR, { recursive: true, force: true }));
+	test("unreadable path banks the claim unknown, never passed (W2181)", () => {
+		// a passing run exists in-window; the tree state cannot be read —
+		// the pass cannot be proven to predate the current tree
+		const locked = join(DIR, "locked");
+		mkdirSync(locked);
+		writeFileSync(join(locked, "m.ts"), "export const m = 1;\n");
+		chmodSync(locked, 0o000);
+		const r = v({
+			transcriptText: transcript,
+			paths: ["locked/m.ts"],
+			statRoot: DIR,
+		});
+		expect(r.ok).toBe(false);
+		expect(r.why).toContain("cannot be proven unchanged");
+		expect(r.why).toContain("unknown, never passed");
+	});
+
+	test("a path absent at closure rides the closing diff's own deletion", () => {
+		expect(
+			v({
+				transcriptText: transcript,
+				paths: ["deleted-at-close.ts"],
+				statRoot: DIR,
+			}).ok,
+		).toBe(true);
+	});
+
+	afterAll(() => {
+		try {
+			chmodSync(join(DIR, "locked"), 0o755);
+		} catch {
+			// the locked dir was never created
+		}
+		rmSync(DIR, { recursive: true, force: true });
+	});
 });
 
 describe("diff erosion", () => {

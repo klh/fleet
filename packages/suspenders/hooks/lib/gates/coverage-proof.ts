@@ -13,7 +13,7 @@ export const TEST_FILE =
 	/(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(test|spec)_/;
 
 export type Proof = {
-	status: "proved" | "no-coverage" | "skipped" | "error";
+	status: "proved" | "no-coverage" | "skipped" | "error" | "unknown";
 	detail: string;
 	failed?: number;
 	passed?: number;

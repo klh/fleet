@@ -23,8 +23,11 @@
 // one. A client without a reader yields zero runs: its claim fails closed.
 //
 // Fail-open: an unreadable/absent transcript yields no transcript claims
-// (capsule text still counts), untimestamped events are dropped, and stat
-// failures skip a path. Completion callers cannot disable this evidence check.
+// (capsule text still counts) and untimestamped events are dropped. Path
+// state is not fail-open (W2181): a path absent at closure rides the closing
+// diff's own deletion, but a path whose state cannot be read banks the claim
+// UNKNOWN — a tree that cannot be proven unchanged never passes.
+// Completion callers cannot disable this evidence check.
 import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -295,20 +298,23 @@ export function scanClosingDiff(diff: string): ClaimCheckHit[] {
 
 export type ClaimCheckVerdict = { ok: boolean; why?: string };
 
-const statMtime = (p: string): number | null => {
+/** Path state at closure: mtime, absent (ENOENT — the closing diff's own
+ *  deletion), or null = unreadable (W2181: banks the claim unknown). */
+const statState = (p: string): { mtime: number } | { absent: true } | null => {
 	try {
-		return statSync(p).mtimeMs;
-	} catch {
-		return null;
+		return { mtime: statSync(p).mtimeMs };
+	} catch (e) {
+		return (e as { code?: string }).code === "ENOENT" ? { absent: true } : null;
 	}
 };
 
 /** The done-gate verdict (W833): a test-pass claim needs a passing own run
  *  by closure. A later run can correct an unsupported interim claim, but a
  *  final capsule claim must follow its evidence. Test-affecting files must
- *  remain unchanged after that run, and the closing
- *  diff free of suite erosion. Fails open on missing/unreadable evidence;
- *  Completion evidence is mandatory, independent of the caller's environment. */
+ *  remain unchanged after that run (unreadable state banks unknown, W2181),
+ *  and the closing diff free of suite erosion. Fails open on
+ *  missing/unreadable TRANSCRIPT evidence; Completion evidence is mandatory,
+ *  independent of the caller's environment. */
 export const claimCheckVerdict = (o: {
 	transcriptPath?: string;
 	transcriptText?: string;
@@ -385,14 +391,21 @@ export const claimCheckVerdict = (o: {
 			const grace = o.graceMs ?? CLAIM_CHECK_GRACE_MS;
 			const root = o.statRoot ?? process.cwd();
 			const stale: string[] = [];
+			const unreadable: string[] = [];
 			for (const p of o.paths.filter(testAffectingPath)) {
-				const m = statMtime(join(root, p));
-				if (m !== null && m > horizon + grace)
+				const s = statState(join(root, p));
+				if (s === null) unreadable.push(p);
+				else if (!s.absent && s.mtime > horizon + grace)
 					stale.push(
-						`${p} (modified ${new Date(m).toISOString()}, after run ${new Date(horizon).toISOString()} + ${Math.round(grace / 1000)}s grace)`,
+						`${p} (modified ${new Date(s.mtime).toISOString()}, after run ${new Date(horizon).toISOString()} + ${Math.round(grace / 1000)}s grace)`,
 					);
 			}
-			if (stale.length)
+			if (unreadable.length)
+				miss = {
+					claim: lastClaim,
+					why: `the workspace cannot be proven unchanged after the last passing run — stat failed on:\n  ${unreadable.join("\n  ")}\n  (W2181: an unreadable tree banks the claim unknown, never passed; restore readability, then rerun the suite)`,
+				};
+			else if (stale.length)
 				miss = {
 					claim: lastClaim,
 					why: `test-affecting files changed after the last passing run:\n  ${stale.join("\n  ")}\n  rerun the suite so the pass predates the changes`,
