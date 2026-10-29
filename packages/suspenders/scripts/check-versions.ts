@@ -13,7 +13,10 @@ import { join } from "node:path";
 import { defineVerb, runCli } from "../hooks/lib/verb-kit.ts";
 import { checkVersions } from "./lib/check-versions.ts";
 
-const repo = join(import.meta.dir, "..", "..", "..");
+// CHECK_VERSIONS_REPO overrides the scan root — the CLI contract's red-path
+// test drives the real script against a scratch fixture repo.
+const repo =
+	process.env.CHECK_VERSIONS_REPO || join(import.meta.dir, "..", "..", "..");
 
 const check = defineVerb({
 	name: "check",
