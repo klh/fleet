@@ -350,3 +350,16 @@ split.tensors.count = the ORIGINAL model's total tensor count (658), not the
 per-part count; and the ThinkingCap thinking style can exceed a 700-token
 output budget inside reasoning_content alone, emptying message.content — a
 budget artifact, not looping.
+
+- **Quoting a context A/B from cohort bookkeeping alone** — W1138, twice
+  over: (1) the rightsizing lands ON the fleet, so no lane runs rightsized
+  law text before the landing commit AND before root deploys it as the
+  live instruction surface — until then every "AFTER" lane is unexposed;
+  (2) close-time membership with a DONE/FAILED-only cohort renders
+  survivorship completion (the 2026-10-22 bank printed 100% while 29
+  churned items were invisible). context-rightsizing-ab.ts now cohorts by
+  last-claim instant (the exposure proxy), counts churn against
+  completion, prints `ARMS MEASURED` at AFTER n ≥ 10 and never declares
+  the arms comparable; the zero-out attribution mass still floors
+  med_out_per_min (0*) — all floors, never rates. See
+  [W1138 arms](benchmarks.md#context-engineering-rightsizing--ledger-ab-arms-w1138-2026-10-22).
