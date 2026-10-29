@@ -4,12 +4,12 @@
 // their card tail falls to the last coord event in the spawn-attached
 // subscribe log (~/.claude-insights/coord-subscribe-<sid>.log). Claude-class
 // lanes keep their transcript tail — the subscribe line only fills the gap.
-import { afterAll, describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { boardFixture } from "./helpers/board-fixture.ts";
-const { HOME, GREPO, BASE, run } = await boardFixture(0, afterAll);
+const { HOME, GREPO, BASE, run } = await boardFixture(0, test.afterAll);
 
 const subLog = (sid: string) =>
 	join(HOME, ".claude-insights", `coord-subscribe-${sid}.log`);
@@ -33,7 +33,7 @@ function task(id: string): Promise<Record<string, unknown> | undefined> {
 		);
 }
 
-describe("W417.6 lane-card tail at the subscribe log (cross-executor)", () => {
+test.describe("W417.6 lane-card tail at the subscribe log (cross-executor)", () => {
 	test("codex-class lane — no transcript, card tail falls to the subscribe log's last event", async () => {
 		const sid = "codex-lane-w4176";
 		expect(

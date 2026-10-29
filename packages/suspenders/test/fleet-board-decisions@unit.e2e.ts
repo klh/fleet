@@ -4,7 +4,7 @@
 // port — so one bun test run keeps the family files isolated.
 
 import { Database } from "bun:sqlite";
-import { afterAll, describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
@@ -23,9 +23,9 @@ const {
 	fork,
 	addWork,
 	BASE,
-} = await boardFixture(0, afterAll);
+} = await boardFixture(0, test.afterAll);
 
-describe("decision lifecycle (docs/decisions-api.md)", () => {
+test.describe("decision lifecycle (docs/decisions-api.md)", () => {
 	test("fork survives inbox ack; answer rotates the token; replay 200, stale 409, then ack", async () => {
 		expect(
 			run("coord.ts", ["bootstrap", "--as", "board-lane", "--role", "worker"])

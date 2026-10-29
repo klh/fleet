@@ -1,10 +1,9 @@
 // fleet-board.test.ts — the fleet-board HTTP surface (W157 split; the
 // factory fixture in test/helpers/board-fixture.ts gives every test
 // file its own scratch HOME + board; flows live in fleet-board-flows.
-import { afterAll, describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 
 import { Database } from "bun:sqlite";
-import { realpathSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import { isDecisionKind } from "../hooks/lib/govdb/govdb.ts";
@@ -21,7 +20,6 @@ const {
 	PORT,
 	BASE,
 	run,
-	q,
 	sleep,
 	getData,
 	myProject,
@@ -30,9 +28,9 @@ const {
 	rawPost,
 	fork,
 	addWork,
-} = await boardFixture(0, afterAll);
+} = await boardFixture(0, test.afterAll);
 
-describe("served page", () => {
+test.describe("served page", () => {
 	test("inline script parses as JS (catches template corruption)", async () => {
 		const r = await fetch(`${BASE}/`);
 		expect(r.status).toBe(200);
@@ -86,7 +84,7 @@ describe("served page", () => {
 	});
 });
 
-describe("endpoint hardening", () => {
+test.describe("endpoint hardening", () => {
 	test("unknown and non-decision event ids are rejected, not no-opped", async () => {
 		expect((await post("/api/ack", { id: 999999 })).status).toBe(404);
 		const unknownAns = await post("/api/answer", {
@@ -385,7 +383,7 @@ describe("endpoint hardening", () => {
 	});
 });
 
-describe("dashboard accuracy", () => {
+test.describe("dashboard accuracy", () => {
 	test("advise job reconciles: error fact clears the spinner state", async () => {
 		run("coord.ts", [
 			"emit",
@@ -465,7 +463,7 @@ describe("dashboard accuracy", () => {
 // round-trip (usage zeros if the server omits usage; failures carry error);
 // the board aggregates today's calls into per-model token sums, joined
 // against optional llm.budget.<model> facts.
-describe("W28 llm telemetry", () => {
+test.describe("W28 llm telemetry", () => {
 	test("routing log + per-model budgets reach /api/data", async () => {
 		const db = new Database(`${HOME}/.cache/claude-governor/governor.db`);
 		const t = Date.now();
@@ -545,7 +543,7 @@ describe("W28 llm telemetry", () => {
 // item's repo + suspenders/<id> branch (worktree.ts naming) and diffs it
 // against the merge-base with main; POST /api/comment routes a review note
 // to the owning lane over the coord bus.
-describe("W55 per-item diff + review comments", () => {
+test.describe("W55 per-item diff + review comments", () => {
 	test("served page wires the diff toggle + comment flow; llms.txt lists both routes", async () => {
 		const page = await (await fetch(`${BASE}/`)).text();
 		expect(page).toContain("diffbtn");
@@ -750,7 +748,7 @@ describe("W55 per-item diff + review comments", () => {
 
 // W76 — live lane tail (lane log + transcript fallback) and message-to-lane
 // (coord NOTE as the published coordinator identity, fallback fleet-board).
-describe("W76 lane tail + message-to-lane", () => {
+test.describe("W76 lane tail + message-to-lane", () => {
 	test("served page wires the tail toggle + message input; llms.txt lists both routes", async () => {
 		const page = await (await fetch(`${BASE}/`)).text();
 		expect(page).toContain("tailbtn");

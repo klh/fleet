@@ -6,7 +6,7 @@
 // with the first file's afterAll).
 
 import { Database } from "bun:sqlite";
-import { afterAll, describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	mkdirSync,
 	readFileSync,
@@ -18,7 +18,7 @@ import { join } from "node:path";
 import { boardFixture, unusedPort } from "./helpers/board-fixture.ts";
 
 const { TOKEN, HOME, REPO, GREPO, env, bin, BASE, MY_PROJ, post, waitUp } =
-	await boardFixture(0, afterAll);
+	await boardFixture(0, test.afterAll);
 
 // W157: in the monolith, W55's body ran `git init -b main` in GREPO
 // before W64/W57 needed it; files get separate fixture instances now,
@@ -39,7 +39,7 @@ const { TOKEN, HOME, REPO, GREPO, env, bin, BASE, MY_PROJ, post, waitUp } =
 	g(["commit", "-m", "base"]);
 }
 
-describe("W64 ship trigger", () => {
+test.describe("W64 ship trigger", () => {
 	const g = (args: string[], cwd = GREPO) =>
 		Bun.spawnSync(["/usr/bin/git", ...args], {
 			cwd,
@@ -201,7 +201,7 @@ describe("W64 ship trigger", () => {
 	});
 });
 
-describe("W57 orchestrate box", () => {
+test.describe("W57 orchestrate box", () => {
 	const OPORT = unusedPort();
 	const OB = `http://127.0.0.1:${OPORT}`;
 	const MPORT = unusedPort();
@@ -260,7 +260,7 @@ describe("W57 orchestrate box", () => {
 			stderr: "pipe",
 		},
 	);
-	afterAll(async () => {
+	test.afterAll(async () => {
 		orchProc.kill();
 		await orchProc.exited;
 		mock.stop(true);
