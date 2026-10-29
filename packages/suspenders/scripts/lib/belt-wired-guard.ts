@@ -1,4 +1,45 @@
 import { lstatSync, readFileSync } from "node:fs";
+import { totalmem } from "node:os";
+
+const GIB = 1024 ** 3;
+const CGROUP_LIMITS = [
+	"/sys/fs/cgroup/memory.max",
+	"/sys/fs/cgroup/memory/memory.limit_in_bytes",
+];
+
+/** Container memory limits can be lower than os.totalmem(). Invalid or
+ * unlimited cgroup values leave the host figure unchanged. */
+export function effectiveMemoryBytes(
+	hostBytes: number,
+	limitBodies: readonly string[],
+): number {
+	let effective = hostBytes;
+	for (const body of limitBodies) {
+		const value = body.trim();
+		if (!/^\d+$/.test(value)) continue;
+		const bytes = Number(value);
+		if (Number.isSafeInteger(bytes) && bytes > 0 && bytes < effective)
+			effective = bytes;
+	}
+	return effective;
+}
+
+/** Reserve half the available memory for the OS and other processes. A
+ * fresh install gets a conservative machine value; an existing belt.env is
+ * never inferred or rewritten. */
+export function freshWiredGuardGb(
+	hostBytes = totalmem(),
+	limitBodies: readonly string[] = CGROUP_LIMITS.map((path) => {
+		try {
+			return readFileSync(path, "utf8");
+		} catch {
+			return "";
+		}
+	}),
+): string {
+	const bytes = effectiveMemoryBytes(hostBytes, limitBodies);
+	return String(Math.max(0.01, Math.floor((bytes / GIB) * 50) / 100));
+}
 
 export type BeltWiredGuardValidation =
 	| { ok: true; value: string }

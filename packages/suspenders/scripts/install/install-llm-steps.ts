@@ -13,9 +13,9 @@
 // (ctx.noLlm / ctx.skipModels) — the SUSPENDERS_LEGACY_* env handoff is
 // retired with the bash front.
 import {
-	chmodSync,
 	copyFileSync,
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	readFileSync,
 	statSync,
@@ -28,6 +28,7 @@ import {
 	prismaPreflight,
 	prometheusPreflight,
 } from "@klh/belt/bin/litellm-target.ts";
+import { atomicWrite0600 } from "@klh/kernel/src/kernel.atomic.module.ts";
 import {
 	type auditLiteLlmEnv,
 	integrityEvidence,
@@ -47,7 +48,10 @@ import {
 	wireBuckleUpstreamsEnv,
 } from "../lib/belt-upstream-key.ts";
 import { readBoundedTail } from "../lib/bounded-tail.ts";
-import { validateBeltWiredGuard } from "../lib/belt-wired-guard.ts";
+import {
+	freshWiredGuardGb,
+	validateBeltWiredGuard,
+} from "../lib/belt-wired-guard.ts";
 
 const kitDir = (ctx: StepContext): string => join(ctx.repo, "..", "local-llm");
 export const beltBin = (ctx: StepContext): string =>
@@ -374,10 +378,16 @@ export async function seedLocalLlm(
 	const log = logFor(ctx);
 	mkdirSync(ctx.llmHome, { recursive: true });
 	const beltEnv = join(ctx.llmHome, "belt.env");
-	if (!existsSync(beltEnv)) {
-		copyFileSync(join(kitDir(ctx), "belt.env"), beltEnv);
-		chmodSync(beltEnv, 0o600);
-		log(`+ ${beltEnv} (stub — configure before install)`);
+	if (!lstatSync(beltEnv, { throwIfNoEntry: false })) {
+		const template = readFileSync(join(kitDir(ctx), "belt.env"), "utf8");
+		const guardGb = freshWiredGuardGb();
+		atomicWrite0600(
+			beltEnv,
+			`${template.replace(/\n*$/, "\n")}BELT_WIRED_GUARD_GB=${guardGb}\n`,
+		);
+		log(
+			`+ ${beltEnv} (0600 stub; wired guard ${guardGb} GiB from host memory)`,
+		);
 	}
 	const guard = validateBeltWiredGuard(beltEnv);
 	if (!guard.ok)

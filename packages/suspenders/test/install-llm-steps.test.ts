@@ -10,6 +10,7 @@ import {
 } from "bun:test";
 import {
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -229,12 +230,21 @@ describe("ensureLiteLlmIntegrity (W1197)", () => {
 });
 
 describe("seedLocalLlm", () => {
-	test("refuses a fresh home without a configured wired guard", async () => {
-		const home = tmpHome("seed-missing-guard");
+	test("fresh home seeds a safe wired guard from effective memory", async () => {
+		const home = tmpHome("seed-auto-guard");
+		const res = await seedLocalLlm(ctxFor(home));
+		expect(res.status).toBe("ok");
+		expect(validateBeltWiredGuard(join(home, "belt.env")).ok).toBe(true);
+		expect(existsSync(join(home, "swarm.ts"))).toBe(true);
+	});
+
+	test("does not replace a broken operator belt.env symlink", async () => {
+		const home = tmpHome("seed-broken-symlink");
+		const env = join(home, "belt.env");
+		symlinkSync(join(home, "missing-operator-file"), env);
 		const res = await seedLocalLlm(ctxFor(home));
 		expect(res.status).toBe("failed");
-		expect(res.note).toContain("BELT_WIRED_GUARD_GB");
-		expect(existsSync(join(home, "swarm.ts"))).toBe(false);
+		expect(lstatSync(env).isSymbolicLink()).toBe(true);
 	});
 
 	test("seeds a fresh prefix with the operator guard intact", async () => {

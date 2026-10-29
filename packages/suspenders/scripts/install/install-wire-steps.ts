@@ -18,6 +18,14 @@ import type { StepContext, StepResult } from "./install-run.ts";
 import { fleetSkillNames, readSkillLock } from "../install-skill-prune.ts";
 
 const CADDY_LABEL = "com.klh-local.caddy";
+// Match the vendored skills-agents registry pin; --bun avoids Node 20's
+// missing fs/promises.glob export on otherwise supported fresh systems.
+const SKILLS_CLI = "skills@1.7.2";
+const skillsCommand = (args: string[]): string[] => [
+	"--bun",
+	SKILLS_CLI,
+	...args,
+];
 
 /** Bootstrap a LaunchAgent whose plist exists but launchd does not hold;
  *  true only when it was idle and is now loaded. A live job is never
@@ -133,20 +141,20 @@ export async function registerSkills(ctx: StepContext): Promise<StepResult> {
 	const pruned = fleetSkillNames(readSkillLock(ctx.home), skillsDir);
 	if (pruned.length > 0) {
 		const removed = await execa(
-			"npx",
-			["skills", "remove", ...pruned, "-g", "-y"],
+			"bunx",
+			skillsCommand(["remove", ...pruned, "-g", "-y"]),
 			{ stdin: "ignore", reject: false, env: { HOME: ctx.home } },
 		);
 		if (removed.exitCode !== 0) {
 			return {
 				status: "failed",
-				note: `skills prune failed (${pruned.length} fleet skills) — run manually: npx skills remove ${pruned.join(" ")} -g -y`,
+				note: `skills prune failed (${pruned.length} fleet skills) — run manually: bunx --bun ${SKILLS_CLI} remove ${pruned.join(" ")} -g -y`,
 			};
 		}
 	}
 	const res = await execa(
-		"npx",
-		["skills", "add", skillsDir, "-g", "-y", "-a", "claude-code"],
+		"bunx",
+		skillsCommand(["add", skillsDir, "-g", "-y", "-a", "claude-code"]),
 		{ stdin: "ignore", reject: false, env: { HOME: ctx.home } },
 	);
 	if (res.exitCode !== 0) {
@@ -156,7 +164,7 @@ export async function registerSkills(ctx: StepContext): Promise<StepResult> {
 			.slice(-240);
 		return {
 			status: "failed",
-			note: `skills registration failed${stderr ? `: ${stderr}` : ""} — run manually: npx skills add ${skillsDir} -g -y -a claude-code`,
+			note: `skills registration failed${stderr ? `: ${stderr}` : ""} — run manually: bunx --bun ${SKILLS_CLI} add ${skillsDir} -g -y -a claude-code`,
 		};
 	}
 	const installed = join(ctx.home, ".claude", "skills");
