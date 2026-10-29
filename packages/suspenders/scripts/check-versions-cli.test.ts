@@ -20,11 +20,11 @@ const run = (args: string[]) => {
 };
 
 describe("check-versions CLI (W1303.1.6)", () => {
-	test("bare door = whole-repo check; red today, exit 1, findings listed", () => {
+	test("bare door = whole-repo check; green since W2173.3 closed the residue, exit 0", () => {
 		const r = run([]);
-		expect(r.code).toBe(1);
+		expect(r.code).toBe(0);
 		expect(r.out).toContain("manifest(s) scanned");
-		expect(r.out).toContain("versions: FAILED");
+		expect(r.out).toContain("versions: OK");
 	});
 
 	test("scoped clean package exits 0 with OK", () => {
@@ -32,13 +32,6 @@ describe("check-versions CLI (W1303.1.6)", () => {
 		expect(r.code).toBe(0);
 		expect(r.out).toContain("package suspenders");
 		expect(r.out).toContain("versions: OK");
-	});
-
-	test("scoped offending package exits 1 naming its findings", () => {
-		const r = run(["check", "speedy"]);
-		expect(r.code).toBe(1);
-		expect(r.out).toContain("packages/speedy/package.json");
-		expect(r.out).toContain("versions: FAILED");
 	});
 
 	test("--json renders the report shape, exit follows ok", () => {
@@ -52,7 +45,7 @@ describe("check-versions CLI (W1303.1.6)", () => {
 		expect(report.ok).toBe(true);
 		expect(report.findings).toEqual([]);
 		expect(report.manifests).toBe(1);
-		const bad = run(["--json"]);
+		const bad = run(["check", "no-such-pkg", "--json"]);
 		expect(bad.code).toBe(1);
 		const whole = JSON.parse(bad.out) as { ok: boolean };
 		expect(whole.ok).toBe(false);

@@ -113,6 +113,42 @@ describe("checkVersions — pin exactness", () => {
 	});
 });
 
+describe("checkVersions — engines pins (W2173.3)", () => {
+	test("engines.bun range flags bad-engine", () => {
+		const dir = fixture({
+			alpha: {
+				name: "@klh/alpha",
+				version: "2.0.0",
+				engines: { bun: ">=1.2" },
+			},
+		});
+		expect(checkVersions(dir).findings).toEqual([
+			{
+				code: "bad-engine",
+				file: "packages/alpha/package.json",
+				message: "engines: bun@>=1.2 is not pinned exact MAJOR.MINOR.PATCH",
+			},
+		]);
+		rmSync(dir, { recursive: true, force: true });
+	});
+	test("exact engines.bun stays green; absent engines stays legal", () => {
+		const pinned = fixture({
+			alpha: {
+				name: "@klh/alpha",
+				version: "2.0.0",
+				engines: { bun: "1.4.2" },
+			},
+		});
+		expect(checkVersions(pinned).findings).toEqual([]);
+		rmSync(pinned, { recursive: true, force: true });
+		const absent = fixture({
+			alpha: { name: "@klh/alpha", version: "2.0.0" },
+		});
+		expect(checkVersions(absent).findings).toEqual([]);
+		rmSync(absent, { recursive: true, force: true });
+	});
+});
+
 describe("checkVersions — one-version agreement", () => {
 	test("a drifted manifest flags drift naming the repo version", () => {
 		const dir = fixture({

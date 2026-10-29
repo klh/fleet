@@ -91,7 +91,7 @@
         "openai": "7.42.0",
       },
       "peerDependencies": {
-        "typescript": "^7",
+        "typescript": "7.0.2",
       },
     },
     "packages/kernel": {
