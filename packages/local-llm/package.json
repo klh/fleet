@@ -26,6 +26,7 @@
 	"files": [
 		"*.ts",
 		"!*.e2e.ts",
+		"!playwright.config.ts",
 		"models.catalog.json",
 		"routing-policy.yaml",
 		"README.md",

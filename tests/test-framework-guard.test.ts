@@ -24,10 +24,10 @@ const SELF = "tests/test-framework-guard.test.ts";
 // W1294.5 sweep (24 co-situated suspenders specs) re-pins DOWN (802 → 778);
 // W1294.3 sweep-A (82 suspenders/test specs) re-pins DOWN (778 → 696) — 6
 // post-commit gate inputs (.githooks/post-commit, bun-run) stay bun:test.
-// W1294.12 sweep-I (2026-10-29) re-pins DOWN: baseline tree measured 674
+// W1294.12 sweep-I (2026-10-29) re-pins DOWN: baseline tree measured 676
 // under the guard's own counting (696 pin − 20 removed by earlier sibling
 // landings already in this branch's base); this wave ports all 35 remaining
-// specs in speedy/local/telemetry/kernel/local-llm/blam → measured 641.
+// specs in speedy/local/telemetry/kernel/local-llm/blam → 676 − 35 = 641.
 const PIN = 641;
 
 function trackedTestFiles(): string[] {
