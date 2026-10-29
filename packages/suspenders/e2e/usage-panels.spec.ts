@@ -4,19 +4,22 @@
 // builders' output plus the real /vendor bundles; chromium drives both
 // dashboards: hosts must upgrade, shadow content must paint, uPlot must
 // mount, and full-page screenshots land as evidence.
+// W1136: rides the shared fixtures — the auto pageWatcher guards every
+// navigation (no console-error/pageerror escape); the usage-server child
+// process stays (it serves the page builders directly, not a fleet-board).
+import { expect, test } from "./fixtures";
 
-import { spawn } from "node:child_process";
-import {
-	copyFileSync,
-	mkdtempSync,
-	rmSync,
-	statSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+// the usage stub serves only /api/usage/cache-drill + /api/usage/monitor —
+// the page's other designed /api/usage/* fallback probes 404 here on
+// purpose (their honest empty-states are the fixture), so those
+// resource-load console lines are declared, URL-scoped, watcher-exempt
+test.use({ watcherAllow404: /\/api\/(usage\/|theme|console\/me)/ });
+import { copyFileSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { freePort, waitUp } from "@klh/test-kit";
-import { expect, test } from "@playwright/test";
+import { spawn } from "node:child_process";
+import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
 let scratch = "";
 let proc: ReturnType<typeof spawn> | null = null;

@@ -4,32 +4,30 @@
 // the parent's --prefer color), not as a READY-column sibling. Scratch board
 // + scratch repo (harness.ts); the repo's .prefer carries the color both
 // cards inherit.
-
+// W1136: rides the shared fixtures — cleanBoard (fresh world per test) +
+// the auto pageWatcher; the beforeAll(startBoard) copy is gone, and each
+// test seeds its own shattered family (hermetic, no shared module state).
+import { expect, test } from "./fixtures";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
-import { type Board, startBoard } from "./harness";
-
-test.describe.configure({ mode: "serial" });
+import type { Board } from "./harness";
 
 const COLOR = "#0058A3";
 // #0058A3 = rgb(0, 88, 163)
 const COLOR_RGB = "rgb(0, 88, 163)";
 
-let board: Board | null = null;
-let parentId = "";
-let childId = "";
-let child2Id = "";
-
-test.beforeAll(async () => {
-	board = await startBoard("board-shattered-families");
+/** Seed one shattered family on a fresh world; returns the card ids. */
+function seedFamily(b: Board): {
+	parentId: string;
+	childId: string;
+	child2Id: string;
+} {
 	// tree identity: the scratch repo's own .prefer carries the color
 	writeFileSync(
-		join(board.MY_PROJ, ".prefer"),
+		join(b.MY_PROJ, ".prefer"),
 		`tag = "ikea"\ncolor = "${COLOR}"\n`,
 	);
-	const b = mustBoard();
-	parentId = b.mintedId(
+	const parentId = b.mintedId(
 		b.workOk(["add", "shattered families parent"], "mint parent"),
 	);
 	// atomic shatter: parent → SHATTERED, the minted children → READY
@@ -46,26 +44,18 @@ test.beforeAll(async () => {
 		"shatter the parent",
 	);
 	const kids = [...splitOut.matchAll(/\b(W\d+\.\d+)\b/g)].map((m) => m[1]);
-	childId = kids[0] ?? "";
-	child2Id = kids[1] ?? "";
+	const childId = kids[0] ?? "";
+	const child2Id = kids[1] ?? "";
 	expect(childId, `no dotted child ids in: ${splitOut}`).toBeTruthy();
 	expect(child2Id, `second child id missing in: ${splitOut}`).toBeTruthy();
-});
-
-test.afterAll(async () => {
-	if (board) await board.stop();
-});
-
-function mustBoard(): Board {
-	if (board === null) throw new Error("board not started");
-	return board;
+	return { parentId, childId, child2Id };
 }
 
 test("split child nests beneath the SHATTERED parent card with the parent color", {
 	tag: "@ui",
-}, async ({ page }) => {
-	const b = mustBoard();
-	await page.goto(`${b.BASE}/#lanes`);
+}, async ({ page, cleanBoard }) => {
+	const { parentId, childId, child2Id } = seedFamily(cleanBoard);
+	await page.goto(`${cleanBoard.BASE}/#lanes`);
 	const parentCard = page
 		.locator(".kcard")
 		.filter({ has: page.locator(`[data-task="${parentId}"]`) });
@@ -113,9 +103,9 @@ test("split child nests beneath the SHATTERED parent card with the parent color"
 
 test("the child leaves the READY column — no scattered duplicate", {
 	tag: "@ui",
-}, async ({ page }) => {
-	const b = mustBoard();
-	await page.goto(`${b.BASE}/#lanes`);
+}, async ({ page, cleanBoard }) => {
+	const { childId } = seedFamily(cleanBoard);
+	await page.goto(`${cleanBoard.BASE}/#lanes`);
 	const readyCol = page
 		.locator(".kcol")
 		.filter({ has: page.locator("h3", { hasText: "ready" }) });
