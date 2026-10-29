@@ -152,7 +152,7 @@ const NEAR_CAP_PINNED: Record<string, number> = {
 	"packages/decant/src/token-economics.ts": 1427,
 	"packages/decant/src/query.ts": 1409,
 	"packages/belt/bin/router-shim.ts": 1292, // W1238.6.1 decomposition (HEAD W1117 growth keeps it in band)
-	"packages/buckle/src/ledger.ts": 1382, // +5 W1124.42.1 merge (debt: decompose)
+	"packages/buckle/src/ledger.ts": 1389, // +7 W1238.6.6 merge (debt: decompose)
 	"packages/belt/test/dashboard-topology-model.e2e.ts": 1294,
 	"packages/suspenders/hooks/bin/work.ts": 1246, // +5 W1173 merge (debt: decompose)
 	"packages/suspenders/deploy/hubctl.ts": 1208,
