@@ -60,6 +60,16 @@ export interface GatewayPolicy {
 	// exchanges keep request_timeout_s as their whole-exchange cap.
 	stream_idle_timeout_s?: number;
 	stream_total_timeout_s?: number;
+	/** W2266: terminal-SSE failure circuit breaker — consecutive post-header
+	 *  stream failures (stream_failed/stream_truncated) on ONE deployment
+	 *  bench it for stream_cooldown_time_s so the next request heads an
+	 *  allowed healthy alternate from the configured ladder. A healthy
+	 *  stream resets the counter. Downstream cancels never count (they are
+	 *  the client's, not the upstream's). Sharing allowed_fails/cooldown_time
+	 *  defaults with the pre-header ejection keeps one posture when the
+	 *  operator configures nothing. */
+	stream_allowed_fails?: number;
+	stream_cooldown_time_s?: number;
 	// W142 knowledge-aids policy (buckle enforcement, belt ignores): the
 	// preseed allowlist is the operator's on-switch per domain; compress is
 	// DEFAULT-OFF per the W137 economics (cache reads are 0.1x — compression
@@ -196,6 +206,8 @@ export const POLICY_DEFAULTS: Required<
 	first_byte_budget_s: 240,
 	stream_idle_timeout_s: 60,
 	stream_total_timeout_s: 900,
+	stream_allowed_fails: 3,
+	stream_cooldown_time_s: 30,
 };
 
 /** Parse a policy file: gateway knobs + the W136 tags block. JSON only

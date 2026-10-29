@@ -20,6 +20,7 @@ import type { CondenseStore } from "./pipeline.ts";
 import type { RepoPolicyRow } from "./repo-policy.ts";
 import type { Router } from "./router.ts";
 import type { Servicemon } from "./servicemon.ts";
+import type { StreamBreaker } from "./stream-breaker.ts";
 import type { ObservationOutbox } from "./observe.ts";
 import type { Dialect, UpstreamPool } from "./upstreams.ts";
 
@@ -78,6 +79,10 @@ export interface AppDeps {
 	// W450 bounded RPC admission: in-flight slot bound over the proxy path.
 	// Optional — bare deps (testDeps, dev) admit unbounded (current shape).
 	admission?: RpcAdmission;
+	// W2266: terminal-SSE failure circuit breaker — post-header stream
+	// failures bench the delivering deployment for the next request.
+	// Optional — bare deps (dev) route without a breaker honestly.
+	streamBreaker?: StreamBreaker;
 	/** Injection seam for the 120s ingress body deadline. */
 	ingressBodyTimeoutMs?: number;
 	// W461 stage 2: the bounded observation outbox. Optional — absent =

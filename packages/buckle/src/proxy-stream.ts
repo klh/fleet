@@ -154,6 +154,26 @@ export function streamResponse(
 			sniffer.cacheReported(),
 			sniffer.cacheWriteReported(),
 		);
+		// W2266: the receipt's own terminal feeds the terminal-SSE circuit
+		// breaker. Downstream cancels / drain cuts never count (the client's
+		// or the gateway's, not the upstream's); a completed stream resets
+		// the row's consecutive-failure count. The bench affects only the
+		// NEXT request — this stream is already over, never a mid-stream
+		// re-route.
+		deps.streamBreaker?.terminal(
+			result.deployment,
+			streamCancelled
+				? { kind: "downstream_cancel" }
+				: drainedCut
+					? { kind: "drain_cut" }
+					: streamFailed
+						? { kind: "failed", failureKind: streamFailureKind }
+						: streamInBand !== null
+							? { kind: "in_band", failureKind: streamInBand }
+							: streamTruncated
+								? { kind: "truncated" }
+								: { kind: "completed" },
+		);
 		const selected = ctx.sel?.head.candidate_id;
 		// W1106 (#55344): a downstream cancel is a DISTINCT non-success —
 		// ok:0/decision errored, no affinity bind, no candidate success

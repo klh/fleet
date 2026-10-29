@@ -55,6 +55,7 @@ import { LaneProjection, OutboxTailer } from "./projection.ts";
 import { loadRepoPolicies } from "./repo-policy.ts";
 import { Router, type RouterMetrics } from "./router.ts";
 import { servicemon } from "./servicemon.ts";
+import { StreamBreaker, streamBreakerConfig } from "./stream-breaker.ts";
 import type { Dialect } from "./upstreams.ts";
 import { loadUpstreams } from "./upstreams.ts";
 
@@ -230,6 +231,13 @@ export function buildDeps(
 	const residency = resolveResidency(residencyFromEnv(process.env));
 	const table = new CandidateTable({ pool, policy, cooldowns, residency });
 	table.start();
+	// W2266: the terminal-SSE breaker rides the SAME Cooldowns instance —
+	// one benched() surface, two failure counters/windows. A fresh bench
+	// rebuilds the candidate table so the next decision reads it NOW.
+	const streamBreaker = new StreamBreaker(cooldowns, {
+		...streamBreakerConfig(policy),
+		onChange: () => table.rebuild(),
+	});
 	// W4 intent expansion: the local direct tier (aids.expand.group, default
 	// local-swarm) serves the enhance digest — structurally local (never a
 	// cloud row), one direct call, never the ladder (the W288 retarget).
@@ -378,6 +386,7 @@ export function buildDeps(
 		policy,
 		ledger,
 		admission,
+		streamBreaker,
 		aids,
 		preseeder,
 		aidsPolicy,

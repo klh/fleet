@@ -92,8 +92,15 @@ export class Cooldowns {
 	/** An unreachable peer is absent now; no repeated model-size timeout is
 	 * needed before its candidate is removed from the walk. */
 	eject(dep: Deployment): void {
+		this.benchFor(dep, this.cooldownS);
+	}
+
+	/** W2266: bench for an explicit window — the terminal-SSE stream breaker
+	 *  rides the same benched() surface the walk and the candidate table
+	 *  read, with its own independently configured duration. */
+	benchFor(dep: Deployment, seconds: number): void {
 		const k = Cooldowns.key(dep);
-		this.until.set(k, this.now() + this.cooldownS * 1000);
+		this.until.set(k, this.now() + Math.max(1, seconds) * 1000);
 		this.reasons.set(k, "other");
 		this.fails.set(k, 0);
 	}

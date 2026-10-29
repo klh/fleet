@@ -87,6 +87,9 @@ test.describe("@unit", () => {
 			// W450 long-generation deadlines
 			stream_idle_timeout_s: 60,
 			stream_total_timeout_s: 900,
+			// W2266 terminal-SSE breaker: the ejection posture carries over
+			stream_allowed_fails: 3,
+			stream_cooldown_time_s: 30,
 		});
 	});
 

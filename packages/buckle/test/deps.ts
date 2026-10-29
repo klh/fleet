@@ -14,6 +14,7 @@ import type { GatewayPolicy, Prefs } from "../src/policy.ts";
 import { Preseeder } from "../src/preseed.ts";
 import { Router } from "../src/router.ts";
 import { servicemon } from "../src/servicemon.ts";
+import { StreamBreaker, streamBreakerConfig } from "../src/stream-breaker.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
 
 export function testDeps(
@@ -23,6 +24,9 @@ export function testDeps(
 		prefs?: Prefs;
 		sleepMs?: (ms: number) => Promise<void>;
 		accountPolicy?: AccountPolicyDoc | null;
+		/** W2266: injectable cooldown clock — bench-window tests advance it
+		 *  instead of sleeping real seconds. */
+		now?: () => number;
 	},
 ): AppDeps {
 	const policy: GatewayPolicy = opts?.policy ?? {
@@ -33,8 +37,16 @@ export function testDeps(
 	const cooldowns = new Cooldowns(
 		policy.allowed_fails ?? 3,
 		policy.cooldown_time ?? 30,
+		opts?.now,
 	);
+	// W2266: the terminal-SSE breaker rides the SAME Cooldowns instance the
+	// walk reads — server-shaped: a fresh bench rebuilds the table NOW so
+	// the next decision skips the failing row (never the 5s-tick delay).
 	const table = new CandidateTable({ pool, policy, cooldowns });
+	const streamBreaker = new StreamBreaker(cooldowns, {
+		...streamBreakerConfig(policy),
+		onChange: () => table.rebuild(),
+	});
 	const router = new Router(policy, {
 		pool,
 		cooldowns,
@@ -77,6 +89,7 @@ export function testDeps(
 		pool,
 		decide,
 		table,
+		streamBreaker,
 		accountPolicy: opts?.accountPolicy,
 	};
 }
