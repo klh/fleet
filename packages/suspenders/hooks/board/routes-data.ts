@@ -13,7 +13,7 @@ import { activity, workEvents } from "./events.ts";
 import { decisionsPayload, taskDecisions } from "./decisions.ts";
 import { payloadBody, payloadFor } from "./payload.ts";
 import { stateHighWater } from "./events-memo.ts";
-import { jsonBody, pollMemoBody } from "./poll-memo.ts";
+import { pollMemoBody } from "./poll-memo.ts";
 import {
 	taskShape,
 	tasks,
@@ -22,7 +22,7 @@ import {
 } from "./tasks.ts";
 import { decisionEvalStatus, decisionEvals } from "./decide-eval.ts";
 import { buildBeltEntries } from "./executor-catalog.ts";
-import { json } from "./helpers.ts";
+import { json, jsonEtag, respondCached } from "./helpers.ts";
 import { launchContextForItem } from "./launch-context.ts";
 import { projectList, signalFor, syncDecisions, unblockedBy } from "./lanes.ts";
 import { attemptTimelinesPayload } from "./attempt-timeline.ts";
@@ -126,7 +126,7 @@ export async function handleData(
 	}
 	if (url.pathname === "/api/data") {
 		const sid = url.searchParams.get("session") ?? "";
-		return jsonBody(
+		return respondCached(
 			req,
 			sid ? pollMemoBody(`data\0${sid}`, () => payloadFor(sid)) : payloadBody(),
 		);
@@ -151,6 +151,7 @@ export async function handleData(
 				vf === "klh-console-cards.js" ||
 				vf === "klh-console-forms.js" ||
 				vf === "klh-ent-zone.js" ||
+				vf === "klh-board-mediator.js" ||
 				isLitChunk)
 		) {
 			const f = `${import.meta.dir}/../board-html/vendor/${vf}`;
@@ -162,7 +163,7 @@ export async function handleData(
 	if (url.pathname === "/api/decisions")
 		// full decision records + counts — the decisions feed the UI polls.
 		// Default OPEN-only; &history=1 folds in the resolved rows
-		return jsonBody(
+		return respondCached(
 			req,
 			pollMemoBody(
 				`decisions\0${url.searchParams.get("history")}\0${url.searchParams.get("project")}\0${stateHighWater(db)}`,
@@ -193,7 +194,7 @@ export async function handleData(
 		const p = url.searchParams.get("project");
 		const done = url.searchParams.get("done");
 		const doneArg = done === "all" ? "all" : Math.max(0, Number(done) || 12);
-		return jsonBody(
+		return respondCached(
 			req,
 			// keyed on the bus high-water too: a CLI emit/claim/done (every one
 			// appends an event) is visible on the next poll, not a window later
@@ -208,7 +209,7 @@ export async function handleData(
 		// 5s-memoized, one ledger read per window; the
 		// card sparklines poll this at 30s, never /api/tasks.
 		// attempts: W1188 comparable current-attempt timelines.
-		return json({
+		return jsonEtag(req, {
 			ok: true,
 			series: workSpendSeriesPayload(),
 			attempts: attemptTimelinesPayload(),

@@ -1,7 +1,8 @@
 // poll-memo — the board's polled feeds serve one serialization per window,
 // with an etag, and answer a matching If-None-Match with an empty 304.
 import { expect, test } from "@playwright/test";
-import { clearPollMemo, jsonBody, pollMemoBody } from "./poll-memo.ts";
+import { respondCached as jsonBody } from "./etag.ts";
+import { clearPollMemo, pollMemoBody } from "./poll-memo.ts";
 
 test("pollMemoBody stringifies once per window and re-serializes after it @unit", () => {
 	clearPollMemo();
@@ -37,7 +38,7 @@ test("jsonBody serves cached bytes and 304s a matching If-None-Match @unit", asy
 	// a compressing front may weaken/suffix the tag — still the same body
 	const weak = jsonBody(
 		new Request("http://x/api/tasks", {
-			headers: { "if-none-match": `W/${cached.etag.slice(0, -1)}-gzip"` },
+			headers: { "if-none-match": `${cached.etag.slice(0, -1)}-gzip"` },
 		}),
 		cached,
 	);

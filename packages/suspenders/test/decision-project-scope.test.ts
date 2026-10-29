@@ -3,6 +3,12 @@ import { Database } from "bun:sqlite";
 import { createContext, runInContext } from "node:vm";
 import { CORE } from "../hooks/board-html/core.ts";
 import { DECISIONS } from "../hooks/board-html/decisions.ts";
+import {
+	DataFeedSchema,
+	DecisionsFeedSchema,
+	SpendSeriesFeedSchema,
+	TasksFeedSchema,
+} from "../hooks/board-html/feed-schemas.ts";
 import { HISTORY } from "../hooks/board-html/history.ts";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
@@ -57,6 +63,28 @@ describe("decision API project scope", () => {
 		expect(empty.count).toBe(0);
 		expect(empty.byProject).toEqual({});
 		expect(empty.decisions).toEqual([]);
+	});
+	test("polled feeds satisfy the shared zod contracts and answer If-None-Match", async () => {
+		for (const [path, schema] of [
+			["/api/data", DataFeedSchema],
+			["/api/decisions", DecisionsFeedSchema],
+			["/api/tasks", TasksFeedSchema],
+			["/api/spend-series", SpendSeriesFeedSchema],
+		] as const) {
+			const first = await fetch(`${fixture.BASE}${path}`);
+			const etag = first.headers.get("etag") ?? "";
+			expect(etag).toMatch(/^W\//);
+			expect(schema.safeParse(await first.json()).success).toBe(true);
+			const again = await fetch(`${fixture.BASE}${path}`, {
+				headers: { "if-none-match": etag },
+			});
+			// 304 while the slice is unchanged; a moved slice re-sends a body
+			if (again.status !== 304) {
+				expect(again.status).toBe(200);
+				expect(again.headers.get("etag")).not.toBe(etag);
+			}
+			await again.arrayBuffer();
+		}
 	});
 	test("default and explicit all retain the global feed", async () => {
 		const global = await feed();

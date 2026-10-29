@@ -1,4 +1,4 @@
-import{r,e,t,s}from"./lit-17452e2304aadd9e.js";var i=[["decisions","Decisions"],["tasks","Tasks"],["lanes","Lanes"],["activity","Activity"],["report","Report"],["governor","Governor"],["setup","Setup"],["usage","Usage"]];class n extends s{static properties={current:{type:String,reflect:!0},extraTabs:{type:Array,attribute:!1}};static styles=r`
+import{n,e,t,r}from"./lit-801c06b16c5fa88d.js";var i=[["decisions","Decisions"],["tasks","Tasks"],["lanes","Lanes"],["activity","Activity"],["report","Report"],["governor","Governor"],["setup","Setup"],["usage","Usage"]];class s extends r{static properties={current:{type:String,reflect:!0},extraTabs:{type:Array,attribute:!1}};static styles=n`
 		:host {
 			display: block;
 		}
@@ -77,4 +77,4 @@ import{r,e,t,s}from"./lit-17452e2304aadd9e.js";var i=[["decisions","Decisions"],
 						</button>
 					`)}
 			</nav>
-		`}}if(!customElements.get("klh-board-tabs"))customElements.define("klh-board-tabs",n);export{i as BOARD_TABS};
+		`}}if(!customElements.get("klh-board-tabs"))customElements.define("klh-board-tabs",s);export{i as BOARD_TABS};

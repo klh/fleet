@@ -13,31 +13,8 @@ import {
 export const RENDERS = `// --- 1: overall status + connection health (live / stale / error) ---
 var dualStamp = ${embedDualStamp.toString()}; // W902: the ONE stamp vocabulary — chunk scopes cannot import the lib
 var dualShort = ${embedDualShort.toString()};
-function renderConn(){
-  var observed = lastData && lastData.observation;
-  var dAge = observed && typeof observed.observedAt === 'number' ? Math.max(0, Math.round((Date.now() - observed.observedAt) / 1000)) : dataOkAt ? Math.round((Date.now() - dataOkAt) / 1000) : -1;
-  var evidenceStale = observed && (!Number.isFinite(observed.expiresAt) || observed.expiresAt <= Date.now() || observed.observedAt > Date.now() + 5000);
-  var cAge = decOkAt ? Math.round((Date.now() - decOkAt) / 1000) : -1;
-  var cls, txt;
-  if (dataErr && !dataOkAt) { cls = 'err'; txt = 'connecting'; }
-  else if (dataErr) { cls = 'err'; txt = 'error — last good ' + ago(dAge); }
-  else if (evidenceStale || dAge >= 5) { cls = 'stale'; txt = 'stale snapshot — observed ' + ago(dAge); }
-  else { cls = 'live'; txt = 'live'; }
-  var dec;
-  if (!decLoaded) dec = 'decisions loading';
-  else if (decErr) dec = 'decisions unavailable';
-  else dec = 'decisions checked ' + ago(cAge);
-  var sig = cls + '|' + txt + '|' + dec;
-  var el = byId('conn');
-  el.title = observed ? 'Source: ' + observed.source + ' · target: ' + observed.target + ' · scope: ' + observed.scope + ' · observed: ' + dualStamp(observed.observedAt) + ' · expires: ' + dualStamp(observed.expiresAt) : 'Legacy feed without observation provenance';
-  if (el.getAttribute('data-sig') !== sig) {
-    el.setAttribute('data-sig', sig);
-    setNodes(el, '<span class="dot ' + cls + '"></span>' + esc(txt) + ' <span class="dim">| ' + esc(dec) + '</span>' +
-      (dataErr ? ' <button class="retry" id="connRetry" type="button">retry</button>' : ''));
-    var rb = byId('connRetry');
-    if (rb) rb.addEventListener('click', function(){ dataErr = null; pollData(); });
-  }
-}
+// (the connection banner is <klh-conn-banner> under <klh-board-mediator>:
+// conn-verdict.ts computes it from the data + dec feed states)
 // Current status is based on recent heartbeat evidence, not persistent state alone.
 var selectGovernorLanes = ${selectGovernorLanes.toString()};
 var mergeReadyWhy = ${mergeReadyWhy.toString()};
