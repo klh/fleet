@@ -2,6 +2,9 @@
 // cache-align, wire gating, and the aid-rollup seam. Verified-only packets,
 // byte-stable renders, est_tok_saved NULL at event time.
 import { expect, test } from "@playwright/test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { AidsLedger, parseAids, tokensEstimate } from "../src/aids.ts";
 import type { AidsDeps } from "../src/aids-routes.ts";
 import {
@@ -29,6 +32,12 @@ import {
 import { servicemon } from "../src/servicemon.ts";
 
 test.describe({ tag: "@unit" }, () => {
+	// W1135.1.7: preseed fixtures live in mkdtemp dirs, never the repo tree.
+	const tmpRoots: string[] = [];
+	test.afterAll(async () => {
+		for (const dir of tmpRoots) rmSync(dir, { recursive: true, force: true });
+	});
+
 	const mkDeps = (policy: AidsPolicy): AidsDeps => ({
 		aids: new AidsLedger(":memory:"),
 		preseeder: new Preseeder({ policy }),
@@ -192,7 +201,8 @@ test.describe({ tag: "@unit" }, () => {
 		});
 
 		test("injects verified rows; cache hit reuses without a second search", async () => {
-			const root = `${import.meta.dir}/.tmp-cache-repo`;
+			const root = mkdtempSync(join(tmpdir(), "buckle-aids-cache-"));
+			tmpRoots.push(root);
 			const readme = "cache-reuse fixture README content";
 			await Bun.write(`${root}/README.md`, readme);
 			const realHash = new Bun.CryptoHasher("sha256")
@@ -221,7 +231,8 @@ test.describe({ tag: "@unit" }, () => {
 		});
 
 		test("doc-covered rows drop; packet still injects the rest", async () => {
-			const root = `${import.meta.dir}/.tmp-doc-repo`;
+			const root = mkdtempSync(join(tmpdir(), "buckle-aids-doc-"));
+			tmpRoots.push(root);
 			await Bun.write(
 				`${root}/docs/learned.md`,
 				"the post-files gate runs qlty-fmt plus fast lint on every write",

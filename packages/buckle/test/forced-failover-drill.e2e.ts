@@ -67,8 +67,26 @@ test.describe({ tag: "@unit" }, () => {
 		).rejects.toThrow("attempt budget");
 	});
 
-	test("Anthropic lane drill follows the fallback and accounts for virtual retry wait", async () => {
-		const report = await runForcedFailoverDrill({
+	test("Anthropic lane drill follows the fallback with zero in-gateway wait", async () => {
+		const report = await runForcedFailoverDrill(anthropicDrill(1, 2_000));
+		expect(report.ok).toBe(true);
+		// fail fast: a 503 + Retry-After is never slept on nor replayed on the
+		// same rung — the walk hops once, immediately, to the healthy fallback
+		expect(report.simulatedWaitMs).toBe(0);
+		expect(report.attempts.map((attempt) => attempt.group)).toEqual([
+			"primary",
+			"local",
+		]);
+	});
+
+	test("a Retry-After beyond the drill wall budget still never sleeps", async () => {
+		const report = await runForcedFailoverDrill(anthropicDrill(2, 1_000));
+		expect(report.ok).toBe(true);
+		expect(report.simulatedWaitMs).toBe(0);
+	});
+
+	function anthropicDrill(retryAfterS: number, maxWallMs: number) {
+		return {
 			policy: {
 				num_retries: 1,
 				request_timeout_s: 2,
@@ -78,30 +96,23 @@ test.describe({ tag: "@unit" }, () => {
 			},
 			pool: {
 				groups: () => ["primary", "local"],
-				deployments: (group) => [
+				deployments: (group: string) => [
 					{
 						group,
-						url: `https://${group}.example.invalid`,
-						dialect: "anthropic",
+						url: `https://.example.invalid`,
+						dialect: "anthropic" as const,
 					},
 				],
 			},
 			group: "primary",
 			fallback: "local",
-			failureStatus: 503,
-			dialect: "anthropic",
-			retryAfterS: 1,
+			failureStatus: 503 as const,
+			dialect: "anthropic" as const,
+			retryAfterS,
 			maxAttempts: 4,
-			maxWallMs: 2_000,
-		});
-		expect(report.ok).toBe(true);
-		expect(report.simulatedWaitMs).toBe(1_000);
-		expect(report.attempts.map((attempt) => attempt.group)).toEqual([
-			"primary",
-			"primary",
-			"local",
-		]);
-	});
+			maxWallMs,
+		};
+	}
 
 	const sharedAccountPlan = {
 		policy: {
@@ -163,6 +174,46 @@ test.describe({ tag: "@unit" }, () => {
 				expect(report.simulatedWaitMs).toBe(0);
 			},
 		);
+
+	test("gate evidence: 429 Retry-After attributed verbatim, waits policy-capped, walk bounded", async () => {
+		const report = await runForcedFailoverDrill({
+			policy: {
+				num_retries: 1,
+				request_timeout_s: 2,
+				retry_after_cap_s: 2,
+				fallbacks: { primary: ["local"] },
+			},
+			pool: {
+				groups: () => ["primary", "local"],
+				deployments: (group) => [
+					{ group, url: `https://${group}.example.invalid`, dialect: "openai" },
+				],
+			},
+			group: "primary",
+			fallback: "local",
+			failureStatus: 429,
+			retryAfterS: 30,
+			maxAttempts: 4,
+			maxWallMs: 2_000,
+		});
+		// Trace evidence: the 429's Retry-After lands on the failed attempt
+		// VERBATIM (server-said), never silently dropped or rewritten.
+		expect(report.attempts[0]).toMatchObject({
+			group: "primary",
+			status: 429,
+			retryAfterMs: 30_000,
+		});
+		// The walk never WAITS on an account-pressure 429 — it skips to the
+		// independent fallback (W1174); the 30s is attributed, not slept.
+		expect(report.simulatedWaitMs).toBe(0);
+		// No recursive gateway visit: the failed primary is visited once
+		// (429 skips same-group retry), the fallback delivered once.
+		const counts = new Map<string, number>();
+		for (const a of report.attempts)
+			counts.set(a.group, (counts.get(a.group) ?? 0) + 1);
+		for (const n of counts.values()) expect(n).toBe(1);
+		expect(report.deliveredGroup).toBe("local");
+	});
 
 	test("an all-same-account ladder truthfully cannot deliver through its blocked alias", async () => {
 		const started = performance.now();
