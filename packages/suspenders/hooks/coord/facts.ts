@@ -196,9 +196,12 @@ export async function cmdFact(rest: string[]): Promise<void> {
 			value.startsWith("--")
 		)
 			die(
-				"usage: fact set <key> <value> | fact set <key> --text <text> [--source s] [--if-version n] [--trigger t] [--explanation e] [--procedure p] [--verification v] [--source-commit sha] [--applicability a]",
+				"usage: fact set <key> <value> | fact set <key> --text <text> [--source s] [--domain d] [--if-version n] [--trigger t] [--explanation e] [--procedure p] [--verification v] [--source-commit sha] [--applicability a]",
 			);
 		const src = arg("--source") ?? "coord";
+		// W927 (re-land W2184): the grouping word retrieval filters on —
+		// lesson.* domain scoping rides domainVisible.
+		const dom = arg("--domain");
 		// W953 confidence doctrine: --confidence REQUIRES --setter (provenance
 		// law — a grade without a logged setter is invalid). Verdict lifecycles
 		// (superseded/contradicted) require --ref per addendum 2. The stamp
@@ -275,8 +278,8 @@ export async function cmdFact(rest: string[]): Promise<void> {
 				}
 			}
 			db.query(
-				"INSERT INTO facts (key, value, source, version, ts, confidence, confidence_stamp, provenance) VALUES (?, ?, ?, 1, ?, ?, ?, ?) " +
-					"ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, version = version + 1, ts = excluded.ts, confidence = excluded.confidence, confidence_stamp = excluded.confidence_stamp, provenance = excluded.provenance",
+				"INSERT INTO facts (key, value, source, version, ts, confidence, confidence_stamp, provenance, domain) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?) " +
+					"ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, version = version + 1, ts = excluded.ts, confidence = excluded.confidence, confidence_stamp = excluded.confidence_stamp, provenance = excluded.provenance, domain = COALESCE(?, domain)",
 			).run(
 				key,
 				value,
@@ -285,6 +288,8 @@ export async function cmdFact(rest: string[]): Promise<void> {
 				stamp?.value ?? null,
 				stamp ? JSON.stringify(stamp) : null,
 				provenance,
+				dom,
+				dom,
 			);
 			if (stamp)
 				db.query(
@@ -703,8 +708,15 @@ export async function cmdKb(rest: string[]): Promise<void> {
 			.all(project) as { ms: number }[];
 		const median = lat.length ? lat[Math.floor(lat.length / 2)].ms : 0;
 		const s = (k: string) => byState.find((b) => b.state === k)?.n ?? 0;
+		const contrastive = (
+			db
+				.query(
+					"SELECT COUNT(*) AS n FROM consults WHERE project = ? AND expert_sid = 'contrastive'",
+				)
+				.get(project) as { n: number }
+		).n;
 		console.log(
-			`kb: ${tot} solutions · ${hits} repeat questions auto-answered · consults: ${s("OPEN")} open, ${s("ANSWERED")} human, ${s("KB")} via kb, ${s("DECLINED")} declined`,
+			`kb: ${tot} solutions · ${hits} repeat questions auto-answered · consults: ${s("OPEN")} open, ${s("ANSWERED")} human, ${s("KB")} via kb, ${s("DECLINED")} declined, ${s("REFUSED")} refused, ${contrastive} contrastive`,
 		);
 		const outcomes = db
 			.query(
@@ -904,7 +916,7 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 	const x = expireConsults(db, Date.now());
 	const cd = db
 		.query(
-			"DELETE FROM consults WHERE state IN ('ANSWERED','DECLINED','EXPIRED') AND answered_at < ? AND answered_at IS NOT NULL",
+			"DELETE FROM consults WHERE state IN ('ANSWERED','DECLINED','EXPIRED','REFUSED') AND answered_at < ? AND answered_at IS NOT NULL",
 		)
 		.run(cut).changes;
 	const sw = db.local ? sweepStaleSessions(db as Database) : 0;
