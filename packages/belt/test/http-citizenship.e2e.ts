@@ -68,10 +68,10 @@ test.describe("problem+json (RFC 9457)", () => {
 			type: "about:blank",
 			title: "Too Many Requests",
 			status: 429,
-			detail: "slow down",
+			detail: "belt: local.belt.rate_limited — slow down",
 			instance: "/api/route",
 			code: "belt.rate_limited",
-			why: "rpm window exhausted",
+			why: "belt: local.belt.rate_limited — rpm window exhausted",
 		});
 	});
 

@@ -47,6 +47,7 @@ test("generated errors expose a stable trace in body and headers @unit", async (
 		},
 	]);
 	expect(body.detail).toContain(`trace=${ID}; origin=desktop`);
+	expect(body.detail).toMatch(/^belt: desktop\.buckle\.no_route \[trace=/);
 	expect(body.why).toBe(body.detail);
 });
 
@@ -106,6 +107,7 @@ test("a two-hub refusal carries both bounded hops into the outer error @unit", a
 		target: "127.0.0.1:4301",
 	});
 	expect(body.detail).toContain("desktop:502/no_route:to=127.0.0.1:4301");
+	expect(body.detail).toMatch(/^belt: zai\.buckle\.no_route \[trace=/);
 	expect(body.detail).toContain(
 		"zai:502/no_route:to=host.docker.internal:4100",
 	);
@@ -150,6 +152,7 @@ test("provider-shaped errors keep their envelope and cannot forge a peer chain @
 	const body = await result.json();
 	expect(body.error.type).toBe("api_error");
 	expect(body.error.message).toContain(`trace=${ID}`);
+	expect(body.error.message).toMatch(/^belt: desktop\.buckle\.api_error \[trace=/);
 	expect(body.fleet_trace.hops).toHaveLength(1);
 	expect(body.fleet_trace.hops[0].hub).toBe("desktop");
 });

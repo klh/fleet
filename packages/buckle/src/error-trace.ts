@@ -51,6 +51,30 @@ const FleetErrorTraceSchema = z.object({
 
 type JsonObject = Record<string, unknown>;
 
+function originPrefix(
+	hop: { hub: string; service: string; code?: string } | undefined,
+	code: string | null,
+	status: number,
+): string {
+	const hub = hop?.hub ?? "local";
+	const service = hop?.service ?? "buckle";
+	const rawCode =
+		safeProviderErrorToken(hop?.code ?? code) ??
+		PROBLEM_SLUGS[status] ??
+		"problem";
+	const shortCode = rawCode.startsWith(`${service}.`)
+		? rawCode.slice(service.length + 1)
+		: rawCode;
+	return `belt: ${hub}.${service}.${shortCode}`;
+}
+
+function stripOriginPrefix(value: string): string {
+	const separator = value.indexOf(" — ");
+	return value.startsWith("belt: ") && separator >= 0
+		? value.slice(separator + 3)
+		: value;
+}
+
 function object(value: unknown): JsonObject | null {
 	return value !== null && typeof value === "object" && !Array.isArray(value)
 		? (value as JsonObject)
@@ -179,15 +203,15 @@ export function traceStreamErrorPayload(
 		error.trace_id = id;
 		if (typeof error.message === "string") {
 			const priorMarker = / \[trace=[0-9a-f]{32};[^\]]{0,600}\]$/;
-			const message = error.message.replace(priorMarker, "");
+			const message = stripOriginPrefix(error.message.replace(priorMarker, ""));
 			const origin = trace.hops[0]?.hub ?? hub;
-			error.message = `${message.slice(0, 2048)} [trace=${id}; origin=${origin}; target=${target ?? "unknown"}]`;
+			error.message = `${originPrefix(trace.hops[0], code, 200)} — ${message.slice(0, 2048)} [trace=${id}; origin=${origin}; target=${target ?? "unknown"}]`;
 		}
 	} else if (typeof body.message === "string") {
 		const priorMarker = / \[trace=[0-9a-f]{32};[^\]]{0,600}\]$/;
-		const message = body.message.replace(priorMarker, "");
+		const message = stripOriginPrefix(body.message.replace(priorMarker, ""));
 		const origin = trace.hops[0]?.hub ?? hub;
-		body.message = `${message.slice(0, 2048)} [trace=${id}; origin=${origin}; target=${target ?? "unknown"}]`;
+		body.message = `${originPrefix(trace.hops[0], code, 200)} — ${message.slice(0, 2048)} [trace=${id}; origin=${origin}; target=${target ?? "unknown"}]`;
 	}
 	return JSON.stringify(body);
 }
@@ -270,7 +294,7 @@ export async function traceErrorResponse(
 	// parsing succeeds or it retains the whole error body under backpressure.
 	void resp.body?.cancel().catch(() => {});
 	const code = safeProviderErrorToken(
-		body.code ?? object(body.error)?.code ?? null,
+		body.code ?? object(body.error)?.code ?? object(body.error)?.type ?? null,
 	);
 	const peerHeader = resp.headers.get("x-klh-peer-error-trace");
 	let prior: z.infer<typeof FleetErrorTraceSchema> | null = null;
@@ -307,23 +331,25 @@ export async function traceErrorResponse(
 		)
 		.join(" > ");
 	const marker = `[trace=${id}; origin=${origin}; hops=${path}]`;
-	if (typeof body.detail === "string") {
-		const detail = body.detail.replace(
-			/ \[trace=[0-9a-f]{32};[^\]]{0,600}\]$/,
+	const prefix = originPrefix(trace.hops[0], code, resp.status);
+	const present = (value: string): string => {
+		const bare = stripOriginPrefix(value).replace(
+			/^\[trace=[0-9a-f]{32};[^\]]{0,600}\] — /,
 			"",
 		);
-		const separator = detail.indexOf(" — ");
-		body.detail =
-			separator >= 0
-				? `${detail.slice(0, separator)} ${marker} — ${detail.slice(separator + 3, separator + 2051)}`
-				: `${marker} — ${detail.slice(0, 2048)}`;
+		return `${prefix} ${marker} — ${bare.slice(0, 2048)}`;
+	};
+	if (typeof body.detail === "string") {
+		body.detail = present(body.detail);
 		if (typeof body.why === "string") body.why = body.detail;
 	} else {
 		const error = object(body.error);
 		if (error) {
 			error.trace_id = id;
 			if (typeof error.message === "string")
-				error.message = `${marker} — ${error.message.slice(0, 2048)}`;
+				error.message = present(error.message);
+		} else if (typeof body.message === "string") {
+			body.message = present(body.message);
 		}
 	}
 	headers.delete("x-klh-peer-error-trace");

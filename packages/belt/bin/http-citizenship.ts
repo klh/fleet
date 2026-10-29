@@ -27,16 +27,25 @@ export const problem = (
 	why?: string,
 	headers?: Record<string, string>,
 ): Response => {
+	const configuredHub = process.env.BELT_HUB_ID;
+	const hub =
+		configuredHub && /^[A-Za-z0-9][\w.-]{0,63}$/.test(configuredHub)
+			? configuredHub
+			: "local";
+	const safeCode = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(code)
+		? code.replace(/^belt\./, "")
+		: "problem";
+	const prefix = `belt: ${hub}.belt.${safeCode} — `;
 	const res = new Response(
 		JSON.stringify(
 			{
 				type: "about:blank",
 				title,
 				status,
-				detail,
+				detail: `${prefix}${detail}`,
 				instance,
 				code,
-				...(why ? { why } : {}),
+				...(why ? { why: `${prefix}${why}` } : {}),
 			},
 			null,
 			2,
