@@ -362,6 +362,19 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		argv: (root) => [join(root, "hooks/bin/decant-daily.ts")],
 	},
 	{
+		// hub design D7: re-ask Kev for knowledge parked while it was
+		// unavailable (kev_review in knowledge.db) — store/review → ingest
+		// queue, noise → dropped; never fail-open.
+		name: "kev-review-drain",
+		everySeconds: 1800,
+		nice: 10,
+		timeoutMs: 300_000,
+		argv: (root) => [
+			join(root, "hooks/bin/coord.ts"),
+			"knowledge-review-drain",
+		],
+	},
+	{
 		// W969 Signals-lite — per-run silent-failure scan of closed lanes
 		// through the pinned oracle leg (:8903 default): bounded evidence
 		// (transcript tail + capsule + done payload), fixed four-class prompt,

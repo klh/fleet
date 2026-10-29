@@ -64,6 +64,7 @@ import {
 	cmdKnowledgePropose,
 	cmdKnowledgeReprocess,
 	cmdKnowledgeRetire,
+	cmdKnowledgeReviewDrain,
 	cmdKnowledgeVerify,
 } from "../coord/knowledge.ts";
 import { setRest } from "../coord/shared.ts";
@@ -262,6 +263,13 @@ const VERBS: VerbSpec[] = [
 		usage: "usage: knowledge-retire <id> [--superseded-by <id>]",
 		lax: true,
 		run: (p) => cmdKnowledgeRetire(p.rest),
+	}),
+	defineVerb({
+		name: "knowledge-review-drain",
+		usage:
+			"usage: knowledge-review-drain [--limit n] — re-ask Kev for entries parked while it was unavailable (D7)",
+		lax: true,
+		run: () => cmdKnowledgeReviewDrain(),
 	}),
 	defineVerb({
 		name: "knowledge-grade",

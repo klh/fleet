@@ -4,6 +4,8 @@
 
 import { consultDeadline } from "../lib/federation/consult-expiry.ts";
 import { makeStamp } from "../lib/knowledge/confidence.ts";
+import { curationGate, deferToReview } from "../lib/knowledge/kev-review.ts";
+import { withKnowledgeDb } from "../lib/knowledge/sqlite-store.ts";
 import {
 	type ConsultEnvelope,
 	citationsFor,
@@ -497,7 +499,6 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 				title: c.question,
 				text,
 				reference: String(cid),
-				timeoutMs: 1500,
 			});
 	db.query(
 		"UPDATE consults SET state = ?, answer = ?, answered_at = ? WHERE id = ?",
@@ -506,7 +507,22 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 	// W618 dedup: a same-project row with the same normalized problem+answer
 	// fingerprint absorbs the reply — hits/last_hit_at bump, a differing answer
 	// appends as a refinement — instead of forking a near-duplicate row.
-	if (!decline && verdict?.choice !== "noise") {
+	// D7: no Kev verdict parks the answer for the Kev drain, never stores it
+	const gate = verdict ? curationGate(verdict.choice) : "drop";
+	if (gate === "defer")
+		try {
+			withKnowledgeDb((kb) =>
+				deferToReview(kb, {
+					kind: "consult",
+					reference: String(cid),
+					title: c.question,
+					text,
+					sid: as,
+					project: c.project ?? "",
+				}),
+			);
+		} catch {} // the answer is durable; review parking is best effort
+	if (gate === "store") {
 		const nq = kbNorm(c.question);
 		const na = kbNorm(text);
 		const dup = (

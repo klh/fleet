@@ -27,7 +27,6 @@ export async function curateCompletionKnowledge(args: {
 		title: args.title,
 		text: args.text,
 		reference: args.item,
-		timeoutMs: 1500,
 	});
 	try {
 		recordKnowledgeSuggestion(args.db, verdict, {
@@ -48,6 +47,8 @@ export async function curateCompletionKnowledge(args: {
 	);
 	if (knowledge.status === "queued")
 		console.log(`knowledge candidate queued #${knowledge.qid}`);
+	else if (knowledge.status === "deferred")
+		console.log("knowledge deferred to the Kev review queue (Kev unavailable)");
 	else if (knowledge.status === "failed")
 		console.error(
 			`knowledge enqueue failed for ${args.item}; completion remains done`,

@@ -6,6 +6,7 @@
 // real CLI (consult-kb recipe) against an in-process mock hub.
 
 import { Database } from "bun:sqlite";
+import { startKevStub } from "./fixtures/kev-stub-start.ts";
 import { afterAll, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
@@ -32,7 +33,9 @@ const HOME = mkdtempSync(join(tmpdir(), "suspenders-fed-"));
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-fed-repo-"));
 mkdirSync(join(REPO, ".git"), { recursive: true });
 mkdirSync(join(REPO, "docs"), { recursive: true });
-const env = { ...process.env, HOME, SUSPENDERS_KEV_URL: "http://127.0.0.1:1" };
+// D7: harvest needs a Kev verdict now (a missing one defers, never stores)
+const kev = await startKevStub("store");
+const env = { ...process.env, HOME, SUSPENDERS_KEV_URL: kev.url };
 const coord = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 const DB = join(HOME, ".cache", "claude-governor", "governor.db");
 const KDB = join(HOME, ".cache", "claude-governor", "knowledge.db");
@@ -183,6 +186,7 @@ const Q_SCOPED = "how should the veil cache invalidate across pods";
 
 afterAll(() => {
 	hub.stop(true);
+	kev.stop();
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO, { recursive: true, force: true });
 });

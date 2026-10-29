@@ -20,6 +20,9 @@ import {
 import { claimedWorkOf } from "../lib/lanes/lane-effort.ts";
 import { CONSOLIDATE_MAX_ROWS } from "../lib/knowledge/knowledge-consolidate.ts";
 import { promoteActorError } from "../lib/knowledge/promote-actor.ts";
+import { drainKevReview } from "../lib/knowledge/kev-review.ts";
+import { suggestKnowledge } from "../lib/knowledge/kev-curation.ts";
+import { openKnowledgeDb } from "../lib/knowledge/govdb-knowledge.ts";
 
 export async function cmdKnowledge(rest: string[]): Promise<void> {
 	// W91 — ranked FTS5 search over the knowledge layer: distilled knowledge
@@ -122,6 +125,24 @@ export async function cmdKnowledgePromote(rest: string[]): Promise<void> {
 	if (!ok) die(`knowledge #${id} is not a candidate (or missing)`);
 	await store.note(id, by ?? "", "promoted");
 	console.log(`${green("✓")} knowledge #${id} → active (by ${by})`);
+}
+
+export async function cmdKnowledgeReviewDrain(): Promise<void> {
+	// D7: re-ask Kev for entries parked while it was unavailable
+	const limit = Number(arg("--limit") ?? 20) || 20;
+	const kb = openKnowledgeDb();
+	try {
+		const r = await drainKevReview(kb, {
+			suggest: suggestKnowledge,
+			enqueue: enqueueKnowledge,
+			limit,
+		});
+		console.log(
+			`kev-review: ${r.stored} stored · ${r.dropped} dropped · ${r.pending} still pending · ${r.expired} expired`,
+		);
+	} finally {
+		kb.close();
+	}
 }
 
 export async function cmdKnowledgeRetire(rest: string[]): Promise<void> {

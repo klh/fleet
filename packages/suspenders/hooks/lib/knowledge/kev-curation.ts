@@ -2,6 +2,7 @@
 // A verdict never changes the work or consult trust state by itself.
 import type { Database } from "bun:sqlite";
 import { kevTypedDecision } from "./kev.ts";
+import { kevCurationTimeoutMs } from "./kev-review.ts";
 
 export type CurationKind = "work" | "consult" | "capsule";
 export type CurationChoice = "store" | "noise" | "review" | "unavailable";
@@ -53,7 +54,7 @@ export async function suggestKnowledge(
 					"Potentially useful but incomplete or uncertain; an agent should check it",
 			},
 		],
-		timeoutMs: input.timeoutMs ?? 8000,
+		timeoutMs: input.timeoutMs ?? kevCurationTimeoutMs(),
 	});
 	const confidence = decision?.confidence ?? null;
 	const choice: CurationChoice = !decision
