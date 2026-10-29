@@ -1,9 +1,10 @@
 // test/lane-wrap.test.ts — W2: ephemeral config injection for codex-class
 // lanes. Covers the pure plan, materialization (modes 0700/0600), cleanup,
 // the secret-reference law, and the user-config-untouched sentinel.
-import { expect, test } from "@playwright/test";
+
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import { agentRecipes } from "../src/agents.ts";
 import { buildWrap, materializeWrap } from "../src/lane-wrap.ts";
 
