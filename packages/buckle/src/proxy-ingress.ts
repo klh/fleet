@@ -7,10 +7,6 @@ import {
 	parsePreferHeader,
 } from "@klh/telemetry/src/prefer-header.ts";
 import {
-	PREFER_HEADER,
-	parsePreferHeader,
-} from "../../telemetry/src/prefer-header.ts";
-import {
 	applyAccountPolicy,
 	preferAfterScope,
 	REPO_CLAIM_HEADER,
