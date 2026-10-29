@@ -30,6 +30,20 @@ export function tierCandidates(
 	);
 	return [...same, ...cross];
 }
+/** Cold-marked deps of a tier (cold or probe-busy): the legs the plain
+ *  candidate filter drops — but a probe-busy leg must stay REACHABLE so
+ *  its in-flight verdict can be ridden (tryOnce's gate block); a cold
+ *  leg's coldRefusal renders the identical exhausted relay. */
+export function coldMarkedDeps(
+	host: RouterHost,
+	tier: string,
+	req: UpstreamRequest,
+): Deployment[] {
+	return host.deps.pool
+		.deployments(tier)
+		.filter((d) => host.cooldowns.cold.blocking(d))
+		.filter((d) => bridgeRequest(req, d) !== null);
+}
 /** W1077: one cheap liveness probe against a benched leg. Any HTTP
  *  response (even 401/404 - the leg ANSWERS) proves liveness: clear the
  *  bench and hand the leg back for the walk. null = nothing probeable
@@ -56,12 +70,12 @@ export async function probeBenchedLeg(
 	if (target === undefined || !probeable(target)) return null;
 	const timeout = AbortSignal.timeout(Math.min(remainingMs, 3_000));
 	const signal = req.signal ? AbortSignal.any([req.signal, timeout]) : timeout;
-	const resp =
-		(await host.deps.probe?.(target, signal)) ??
-		(await fetch(`${target.url}/v1/models`, {
-			method: "GET",
-			signal,
-		}).catch(() => null));
+	const resp = host.deps.probe
+		? await host.deps.probe(target, signal)
+		: await fetch(`${target.url}/v1/models`, {
+				method: "GET",
+				signal,
+			}).catch(() => null);
 	if (resp === null) return null;
 	host.cooldowns.success(target);
 	return target;

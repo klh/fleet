@@ -208,7 +208,7 @@ test.describe("@unit", () => {
 			expect(slept).toEqual([]);
 		});
 
-		test("a rate-limited deployment answers a typed local 503 hold while benched, then recovers", async () => {
+		test("a rate-limited deployment answers the shared cold mark locally, then recovers via the half-open probe", async () => {
 			let now = 1_000;
 			let calls = 0;
 			const router = new Router(
@@ -216,6 +216,7 @@ test.describe("@unit", () => {
 				{
 					pool: poolOf([["glm", ["http://glm"]]]),
 					now: () => now,
+					rng: () => 0,
 					fetchImpl: async () => {
 						calls++;
 						return calls === 1
@@ -236,23 +237,28 @@ test.describe("@unit", () => {
 			};
 			const first = await router.execute(req);
 			expect(first.kind).toBe("client-error");
-			// W1257: inside the bench window the gateway answers a typed LOCAL
-			// 503 hold carrying the provider's last-seen refusal words as
-			// attributed context — never a fabricated provider 429
+			if (first.kind === "client-error") {
+				// the provider's own 429 relays verbatim with its Retry-After
+				expect(first.response.status).toBe(429);
+				expect(first.response.headers.get("retry-after")).toBe("7");
+			}
+			// N → 1: the shared cold mark answers the next caller LOCALLY from
+			// the banked provider refusal — no second knock, honest remainder
 			const benched = await router.execute(req);
 			expect(benched.kind).toBe("exhausted");
 			if (benched.kind !== "exhausted") throw new Error("rate limit lost");
-			expect(benched.status).toBe(503);
-			expect(benched.retryAfterS).toBe(30);
-			expect(benched.error).toContain("gateway cooldown");
+			expect(benched.status).toBe(429);
+			expect(benched.retryAfterS).toBe(7);
+			expect(benched.error).toContain("shared cold mark");
 			expect(benched.error).toContain("not the provider");
 			expect(calls).toBe(1);
-			now += 30_000;
+			now += 7_000;
+			// expiry → the single half-open probe knocks and delivers
 			expect((await router.execute(req)).kind).toBe("upstream");
 			expect(calls).toBe(2);
 		});
 
-		test("upstream retry-after is honored before the same-tier retry", async () => {
+		test("upstream retry-after relays clamped; the single-candidate walk answers at once", async () => {
 			let calls = 0;
 			const slept: number[] = [];
 			const policy = { ...POLICY, num_retries: 1 };
@@ -281,9 +287,11 @@ test.describe("@unit", () => {
 				body: { model: "g", stream: false },
 				key: "",
 			});
-			expect(r.kind).toBe("upstream");
-			expect(calls).toBe(2);
-			expect(slept).toEqual([1000]); // Provider floor honored, with a nonzero exponential minimum.
+			// fail-fast: one knock, the refusal relays (W1303.2 clamp floors
+			// the sub-second provider RA at 1), the OUTER client owns the retry
+			expect(r.kind).toBe("client-error");
+			expect(calls).toBe(1);
+			expect(slept).toEqual([]);
 		});
 
 		test("allowed_fails consecutive failures eject the deployment", async () => {
@@ -293,6 +301,8 @@ test.describe("@unit", () => {
 				pool: poolOf([["g", ["http://only"]]]),
 				rng: () => 0,
 				sleepMs: async () => {},
+				// the ejected leg's liveness probe stays dead — no third knock
+				probe: async () => null,
 				fetchImpl: async () => {
 					calls++;
 					return Response.json({ e: 1 }, { status: 500 });
@@ -307,9 +317,12 @@ test.describe("@unit", () => {
 			};
 			const r1 = await router.execute(req);
 			expect(r1.kind).toBe("exhausted");
-			expect(calls).toBe(2); // 1 + num_retries
+			expect(calls).toBe(1); // fail-fast: one knock per walk
 			const r2 = await router.execute(req);
 			expect(r2.kind).toBe("exhausted");
+			expect(calls).toBe(2); // second knock reaches allowed_fails → eject
+			const r3 = await router.execute(req);
+			expect(r3.kind).toBe("exhausted");
 			expect(calls).toBe(2); // benched — no new upstream calls
 		});
 
@@ -336,9 +349,15 @@ test.describe("@unit", () => {
 				body: { model: "g", stream: false },
 				key: "",
 			};
+			// fail-fast: walk 1 reaches allowed_fails (one knock), walk 2's
+			// knock ejects; the recovery probe rides walk 3 after the window
 			expect((await router.execute(req)).kind).toBe("exhausted");
+			expect(calls).toBe(1);
+			expect((await router.execute(req)).kind).toBe("exhausted");
+			expect(calls).toBe(2); // ejected — benched from here
 			t += 30_000;
 			expect((await router.execute(req)).kind).toBe("upstream");
+			expect(calls).toBe(3);
 		});
 	});
 });

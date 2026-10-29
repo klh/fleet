@@ -10,7 +10,8 @@ import { type HopContract, hopContractRoot } from "./hop-deadline.ts";
 import type { GatewayPolicy } from "./policy.ts";
 import { ProviderAdmissionCore } from "./provider-admission-core.ts";
 import { RetryBudget } from "./resilience.ts";
-import { RESILIENCE_DEFAULTS } from "./resilience-config.ts";
+import { parseResilience } from "./resilience-config.ts";
+import type { ResilienceConfig } from "./resilience-config.ts";
 import {
 	defaultFetchImpl,
 	providerConcurrencyCodesOf,
@@ -55,18 +56,24 @@ export class Router {
 	readonly pools: Map<string, ProviderAdmissionCore>;
 	/** Immediate-failover hop budget (resilience.failover_budget). */
 	readonly failover: RetryBudget;
+	/** The zod-parsed fail-fast resilience block (src/resilience-config.ts). */
+	readonly resilience: ResilienceConfig;
 
 	constructor(
 		readonly policy: GatewayPolicy,
 		readonly deps: RouterDeps,
 	) {
+		// one parse at the seam: a hand-built policy's partial resilience
+		// block resolves its defaults here; a malformed block refuses
+		// construction (fail closed, Schema law)
+		this.resilience = parseResilience(policy.resilience);
 		this.cooldowns =
 			deps.cooldowns ??
 			new Cooldowns(
 				policy.allowed_fails ?? 3,
 				policy.cooldown_time ?? 30,
 				deps.now,
-				{ cfg: policy.resilience, rng: deps.rng },
+				{ cfg: this.resilience, rng: deps.rng },
 			);
 		this.now = deps.now ?? Date.now;
 		this.rng = deps.rng ?? Math.random;
@@ -91,7 +98,7 @@ export class Router {
 		// Bindings validate fail-closed here: a deployment bound to a pool
 		// with no policy (or a malformed id) refuses startup — admission is
 		// never silently disabled once configured.
-		const r = policy.resilience ?? RESILIENCE_DEFAULTS;
+		const r = this.resilience;
 		this.failover = new RetryBudget({
 			ratio: r.failover_budget.ratio,
 			minPerWindow: r.failover_budget.min_per_window,

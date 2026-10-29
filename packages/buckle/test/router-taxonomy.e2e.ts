@@ -133,7 +133,7 @@ test.describe("@unit", () => {
 			expect(h.attempted.length).toBe(2);
 		});
 
-		test("body error.metadata.retry_after is honored", async () => {
+		test("body error.metadata.retry_after: answered at once, no in-gateway sleep", async () => {
 			const h = harness((_u, n) =>
 				n === 1
 					? Response.json(
@@ -147,8 +147,13 @@ test.describe("@unit", () => {
 						)
 					: Response.json({ ok: 1 }),
 			);
-			await h.run();
-			expect(h.slept).toEqual([1000]); // Provider minimum plus the exponential retry floor.
+			const r = await h.run();
+			// fail-fast: the provider's 429 never sleeps the walk — the ladder
+			// fails over to the next rung AT ONCE (the OUTER client owns any
+			// retry, per the relayed Retry-After).
+			expect(h.slept).toEqual([]);
+			expect(h.attempted).toEqual(["http://small", "http://big"]);
+			expect(r.kind).toBe("upstream");
 		});
 
 		test("auth 401 exhausts the tier and falls through the ladder", async () => {

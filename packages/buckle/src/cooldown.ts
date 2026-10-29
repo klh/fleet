@@ -109,6 +109,7 @@ export class Cooldowns {
 		this.until.set(k, this.now() + this.cooldownS * 1000);
 		this.reasons.set(k, "other");
 		this.fails.set(k, 0);
+		this.cold.releaseProbe(dep);
 	}
 
 	remainingS(dep: Deployment): number | null {
@@ -155,9 +156,11 @@ export class Cooldowns {
 		return this.rateLimitDetails.get(k) ?? null;
 	}
 
-	/** Outlier-ejected OR blocked by the shared cold mark. */
+	/** Outlier-ejected OR held cold by the shared mark. A half-open probe in
+	 *  flight is NOT benched: its RTT burst reaches tryOnce and rides the
+	 *  probe's verdict there instead of being pruned before it. */
 	benched(dep: Deployment): boolean {
-		return this.ejected(dep) || this.cold.blocking(dep);
+		return this.ejected(dep) || this.cold.state(dep) === "cold";
 	}
 
 	/** The consecutive-failure ejection alone (allowed_fails window). */

@@ -14,6 +14,7 @@ import type { HopContract } from "./hop-deadline.ts";
 import type { GatewayPolicy } from "./policy.ts";
 import type { ProviderAdmissionCore } from "./provider-admission-core.ts";
 import type { RetryBudget } from "./resilience.ts";
+import type { ResilienceConfig } from "./resilience-config.ts";
 import type { TraceContext } from "./trace.ts";
 import type { Deployment, Dialect, UpstreamPool } from "./upstreams.ts";
 export type ExecuteResult =
@@ -218,6 +219,8 @@ export interface RouterDeps {
  *  fetchImpl/metrics/pools. Router satisfies it structurally (W1299). */
 export interface RouterHost {
 	readonly policy: GatewayPolicy;
+	/** The zod-parsed resilience block (Router resolves it once). */
+	readonly resilience?: ResilienceConfig;
 	readonly deps: RouterDeps;
 	readonly cooldowns: Cooldowns;
 	readonly now: () => number;

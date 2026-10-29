@@ -8,8 +8,9 @@ import { bridgeRequest } from "./bridge.ts";
 import { type CandidateRow, candIdOf } from "./candidates.ts";
 import { mayEscalate, type RouteSelection } from "./decide.ts";
 import { FLASHX } from "./policy.ts";
-import { providerPoolIdOf, tryOnce } from "./router-attempt.ts";
+import { providerPoolIdOf, resilienceOf, tryOnce } from "./router-attempt.ts";
 import {
+	coldMarkedDeps,
 	probeBenchedLeg,
 	rememberCooledRateLimit,
 	tierCandidates,
@@ -26,10 +27,11 @@ import { UpstreamError } from "./router-types.ts";
 import type { Deployment } from "./upstreams.ts";
 /** Same-tier failover (fail fast — owner correction 2026-10-29): each
  *  candidate is tried at most ONCE, in order, with NO in-gateway sleep.
- *  num_retries bounds the heal-able hops inside the tier; the resilience
- *  max_failover_hops + failover budget bound hops across the whole walk
- *  after an upstream HTTP refusal. The outermost client owns the one retry
- *  layer (honest 429/503 + Retry-After). */
+ *  Hops after an upstream HTTP refusal are bounded by max_failover_hops
+ *  WITHIN the tier (fallback-tier transitions are ladder routing, not
+ *  failover hops); the failover budget bounds them fleet-wide. The
+ *  outermost client owns the one retry layer (honest 429/503 +
+ *  Retry-After). */
 export async function attemptTier(
 	host: RouterHost,
 	req: UpstreamRequest,
@@ -37,7 +39,7 @@ export async function attemptTier(
 	candidates: Deployment[],
 	st: WalkState,
 ): Promise<ExecuteResult | null> {
-	const retries = host.policy.num_retries ?? 1;
+	const tierStartRefusals = st.httpRefusals ?? 0;
 	const floorCapS = host.policy.retry_after_cap_s ?? 60;
 	const perAttemptMs = (host.policy.request_timeout_s ?? 120) * 1000;
 	// W450: streaming bodies get idle+total guards; non-streaming keeps
@@ -51,8 +53,7 @@ export async function attemptTier(
 			: undefined;
 	// W987: skip-grade rung failures (auth, client-fault, local admission)
 	// advance to the next candidate free; only heal-able failures (5xx/
-	// timeouts/rate limits) spend the num_retries hop allowance.
-	let healHops = 0;
+	// timeouts/rate limits) spend the mayFailover hop allowance.
 	let cursor = 0;
 	const timedOutOrigins = new Set<string>();
 	while (cursor < candidates.length) {
@@ -68,8 +69,8 @@ export async function attemptTier(
 		if (!dep) break;
 		cursor = nextIndex + 1;
 		// One retry layer: after an upstream HTTP refusal, at most
-		// max_failover_hops immediate hops (budgeted fleet-wide).
-		if (!mayFailover(host, req, st)) break;
+		// max_failover_hops immediate hops within this tier (budgeted).
+		if (!mayFailover(host, req, st, tierStartRefusals)) break;
 		const timeoutMs = Math.max(
 			1,
 			Math.min(perAttemptMs, st.deadlineMs - host.now()),
@@ -312,33 +313,39 @@ export async function attemptTier(
 		// tryOnce; advance to the next candidate free.
 		if (r.clientFault || r.kind === "auth") continue;
 		// Heal-able failure: an immediate hop to the NEXT candidate (never a
-		// same-candidate replay, never a sleep), bounded by num_retries.
-		healHops++;
-		if (healHops > retries) break;
+		// same-candidate replay, never a sleep), bounded by mayFailover.
 	}
 	return null;
 }
-/** May the walk take another upstream attempt? Free until the first
- *  upstream HTTP refusal; after it, at most max_failover_hops immediate
- *  hops, each spending the per-group failover budget. A refused hop caps
- *  the walk (st.capped) — the client gets the honest refusal now. */
+/** May the walk take another upstream attempt? The first upstream HTTP
+ *  refusal is free; after it, at most max_failover_hops further hops
+ *  WITHIN this tier (fallback-tier transitions are ladder routing, not
+ *  failover hops), each spending the per-group failover budget. A refused
+ *  hop caps the walk (st.capped) — the client gets the honest refusal
+ *  now. */
 function mayFailover(
 	host: RouterHost,
 	req: UpstreamRequest,
 	st: WalkState,
+	tierStartRefusals: number,
 ): boolean {
 	const refusals = st.httpRefusals ?? 0;
 	if (refusals === 0) {
 		host.failover?.record(req.group, false);
 		return true;
 	}
-	const cfg = host.policy.resilience;
-	const hops = cfg?.max_failover_hops ?? 1;
-	if (refusals > hops || (host.failover && !host.failover.canRetry(req.group))) {
+	const hops = resilienceOf(host).max_failover_hops;
+	const tierHops = refusals - tierStartRefusals;
+	if (
+		tierHops > hops ||
+		(host.failover && !host.failover.canRetry(req.group))
+	) {
 		st.capped = true;
 		return false;
 	}
-	host.failover?.record(req.group, true);
+	// a NEW tier's first candidate is ladder routing (free); only a hop
+	// INSIDE a tier after its refusal spends the fleet failover budget
+	host.failover?.record(req.group, tierHops >= 1);
 	return true;
 }
 function walkExpired(host: RouterHost, st: WalkState): boolean {
@@ -390,6 +397,15 @@ export async function executeWalk(
 		}
 		const candidates = tierCandidates(host, tier, req);
 		if (candidates.length === 0) {
+			// fail-fast gate ride (anti-stampede): a walker arriving while the
+			// account is cold or probe-busy still reaches tryOnce's ride block
+			// — a probe-busy leg's in-flight verdict re-admits the riding
+			// batch (the drain), a cold one refuses locally at once.
+			const marked = coldMarkedDeps(host, tier, req);
+			if (marked.length > 0) {
+				const r = await attemptTier(host, req, tier, marked, st);
+				if (r !== null) return r;
+			}
 			// W1077: probe-before-fail - a benched wall must not outlive the
 			// upstream. Probe one benched leg; a live leg clears its bench
 			// and rejoins this tier walk instead of stranding the request.
@@ -487,7 +503,7 @@ async function walkSelected(
 }
 /** Ladder rungs after selection: flashx refused, cloud rungs fire only
  *  under the W136 escalation law (allow_cloud, not cost mode, tier
- *  warrants or quality, local failed twice). */
+ *  warrants or quality, local failed its knock (fail-fast, one knock per rung)). */
 async function gatedLadder(
 	host: RouterHost,
 	req: UpstreamRequest,
@@ -531,6 +547,12 @@ async function gatedLadder(
 				(entitled === null || entitled.has(candIdOf(d))),
 		);
 		if (candidates.length === 0) {
+			// fail-fast gate ride (anti-stampede): see executeWalk's branch
+			const marked = coldMarkedDeps(host, tier, req);
+			if (marked.length > 0) {
+				const r = await attemptTier(host, req, tier, marked, st);
+				if (r !== null) return r;
+			}
 			rememberCooledRateLimit(host, tier, req, st);
 			continue;
 		}
