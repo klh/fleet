@@ -69,6 +69,7 @@ import { attachManagedSubscribe, reapIfIdle } from "../lib/lanes/subscribe-attac
 import { budgetFlagClear } from "../lib/usage/budget-flag.ts";
 import { dieFor, idList, type Parsed, runCli } from "../lib/verb-kit.ts";
 import { curateCompletionKnowledge } from "../lib/work/completion-curation.ts";
+import { enforceFeedbackObligation } from "../lib/consult/feedback-obligation.ts";
 import {
 	applyAllocations,
 	assignTask,
@@ -514,10 +515,9 @@ const dispatchVerb = async (
 			die(
 				`${id} is owned by ${String(it.owner_sid ?? "?").slice(0, 8)} — ${String(as).slice(0, 8)} cannot complete it`,
 			);
-		// W835 merge-ready precondition warning — never blocks (merge-on-done
-		// owns the actual merge): observe the close's cwd; warn when the
-		// branch is dirty/conflicted or has nothing new to merge. Unknown
-		// (null) stays silent.
+		// W835 merge-ready warning, never blocks (merge-on-done owns the merge):
+		// warn when the close's branch is dirty/conflicted or has nothing new.
+		enforceFeedbackObligation(db(), id, it, die); // phase 4: owed feedback
 		const git = gitObservation(process.cwd());
 		if (git.mergeReady === false)
 			console.log(

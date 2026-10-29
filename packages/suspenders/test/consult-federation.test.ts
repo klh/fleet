@@ -35,7 +35,16 @@ mkdirSync(join(REPO, ".git"), { recursive: true });
 mkdirSync(join(REPO, "docs"), { recursive: true });
 // D7: harvest needs a Kev verdict now (a missing one defers, never stores)
 const kev = await startKevStub("store");
-const env = { ...process.env, HOME, SUSPENDERS_KEV_URL: kev.url };
+// phase 4: demotion needs knowledge.downvote_threshold distinct lanes
+// (default 2); this suite's single asker proves the one-lane path
+const COORD_CONF = join(HOME, "coord.json");
+writeFileSync(COORD_CONF, JSON.stringify({ knowledge: { downvote_threshold: 1 } }));
+const env = {
+	...process.env,
+	HOME,
+	SUSPENDERS_KEV_URL: kev.url,
+	SUSPENDERS_COORD_CONFIG: COORD_CONF,
+};
 const coord = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 const DB = join(HOME, ".cache", "claude-governor", "governor.db");
 const KDB = join(HOME, ".cache", "claude-governor", "knowledge.db");

@@ -2,6 +2,14 @@
 // Handler bodies moved verbatim from bin/coord.ts's if/else chain —
 // one-tab indent preserved, output byte-compatible.
 
+import { ensureConsultV2 } from "../lib/consult/consult-delivery.ts";
+import { answerMark } from "../lib/consult/oracle.ts";
+import {
+	fleetAnswerable,
+	recordKnowledgeVotes,
+	redeliverAfterFailedKnowledge,
+	settleAnswer,
+} from "./consult-v2-cli.ts";
 import { consultDeadline } from "../lib/federation/consult-expiry.ts";
 import { makeStamp } from "../lib/knowledge/confidence.ts";
 import { curationGate, deferToReview } from "../lib/knowledge/kev-review.ts";
@@ -276,15 +284,27 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 				Date.now(),
 			);
 		const cid = `C${r.lastInsertRowid}`;
+		// phase 4: every knowledge answer carries the trust mark + the
+		// feedback handle the asker is obliged to use
+		const mark = answerMark(factHit.oracle, factHit, cid);
+		ensureConsultV2(db);
+		db.query(
+			"UPDATE consults SET answer = ?, answered_by = 'knowledge', trust = ? WHERE id = ?",
+		).run(
+			`${factHit.fact ?? ""}\n${mark}`,
+			`${factHit.state ?? "active"} · ${factHit.oracle} · hash ${factHit.trust ?? "unverified"} · k#${factHit.id}`,
+			r.lastInsertRowid,
+		);
 		const payload = JSON.stringify({
 			consult: cid,
 			state: "FACT",
 			...link,
-			answer: factHit.fact ?? "",
+			answer: `${factHit.fact ?? ""}\n${mark}`,
 			fact: {
 				id: factHit.id,
 				topic: factHit.topic,
 				trust: factHit.trust,
+				tier: factHit.oracle,
 				source: factHit.source_ref,
 			},
 		});
@@ -305,7 +325,7 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 		]);
 		recordRouteStage(db, Number(r.lastInsertRowid), "fact");
 		console.log(
-			`${green("✓")} ${cyan(cid)} answered from a verified fleet fact ${dim(`k#${factHit.id} "${factHit.topic}" [hash ${factHit.trust}] — --no-kb routes to a human`)}`,
+			`${green("✓")} ${cyan(cid)} answered from ${factHit.oracle === "trusted" ? "a verified fleet fact" : "an UNREVIEWED candidate fact"} ${dim(`k#${factHit.id} "${factHit.topic}" [hash ${factHit.trust}] — --no-kb routes to a human`)}\n  ${factHit.fact ?? ""}\n  ${mark}`,
 		);
 	} else {
 		const pending = (
@@ -434,13 +454,22 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 					c.expert_sid,
 				);
 			})();
+			// phase 4: the oracle owns the votes (failed = down, resolved = up)
+			const votes = recordKnowledgeVotes(
+				c,
+				cites.map((x) => x.refId),
+				feedback,
+				evidence,
+				as,
+			);
 			if (feedback === "failed") {
 				const stale = applyStaleFeedback(db, c.id);
+				const re = await redeliverAfterFailedKnowledge(c.id);
 				console.log(
-					`FEEDBACK ${cid} failed — ${stale.demoted.length} fact citation(s) demoted`,
+					`FEEDBACK ${cid} failed — ${stale.demoted.length} fact citation(s) demoted · ${votes}${re ? `\n${re}` : ""}`,
 				);
 			} else {
-				console.log(`FEEDBACK ${cid} ${feedback}`);
+				console.log(`FEEDBACK ${cid} ${feedback} · ${votes}`);
 			}
 			return;
 		}
@@ -488,9 +517,11 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 		console.log(`FEEDBACK ${cid} ${feedback}`);
 		return;
 	}
-	if (c.expert_sid !== as)
+	// phase 4: a fleet-routed consult takes the first answer from any lane
+	const fleetOpen = !decline && fleetAnswerable(c.id);
+	if (c.expert_sid !== as && !fleetOpen)
 		die(`${cid} is addressed to ${String(c.expert_sid).slice(0, 8)}, not you`);
-	if (c.state !== "OPEN") die(`${cid} is ${c.state}`);
+	if (!["OPEN", "QUEUED"].includes(c.state)) die(`${cid} is ${c.state}`);
 	const st = decline ? "DECLINED" : "ANSWERED";
 	const verdict = decline
 		? null
@@ -500,9 +531,13 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 				text,
 				reference: String(cid),
 			});
-	db.query(
-		"UPDATE consults SET state = ?, answer = ?, answered_at = ? WHERE id = ?",
-	).run(st, decline ? null : text, Date.now(), c.id);
+	const won = db
+		.query(
+			"UPDATE consults SET state = ?, answer = ?, answered_at = ? WHERE id = ? AND state IN ('OPEN', 'QUEUED')",
+		)
+		.run(st, decline ? null : text, Date.now(), c.id);
+	if (!won.changes) die(`${cid} was settled first by another answer`);
+	if (!decline) settleAnswer(c.id, as);
 	// Store candidates, but only asker-verified outcomes permit automatic reuse.
 	// W618 dedup: a same-project row with the same normalized problem+answer
 	// fingerprint absorbs the reply — hits/last_hit_at bump, a differing answer

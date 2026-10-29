@@ -18,6 +18,7 @@ import {
 	readSync,
 	statSync,
 } from "node:fs";
+import { btwDigest } from "../lib/consult/consult-v2.ts";
 import { allow, context, deny, type HookInput } from "../lib/hookio.ts";
 import {
 	MACHINE_ALL_LOG_ID,
@@ -66,12 +67,15 @@ export function tailSubscribeLog(logPath: string, offset: number): TailResult {
 		// FIFO: show the OLDEST unread lines, hold the burst remainder for
 		// the next fire — advance past SHOWN only (cmdWait cursor precedent)
 		const shownN = Math.min(lines.length, SHOW_LINES);
-		const shown = lines
-			.slice(0, shownN)
-			.map((l) => l.replace(ANSI, "").trimEnd())
-			.filter(
-				(line) => line && !/^\s*#\d+\s+\S+\s+BROADCAST(?:\s|$)/.test(line),
-			);
+		// phase 4: consult.btw lines collapse into ONE digest per boundary
+		const shown = btwDigest(
+			lines
+				.slice(0, shownN)
+				.map((l) => l.replace(ANSI, "").trimEnd())
+				.filter(
+					(line) => line && !/^\s*#\d+\s+\S+\s+BROADCAST(?:\s|$)/.test(line),
+				),
+		);
 		let newOffset = off;
 		for (let i = 0; i < shownN; i++) newOffset += lines[i].length + 1;
 		const held = lines.length - shownN;

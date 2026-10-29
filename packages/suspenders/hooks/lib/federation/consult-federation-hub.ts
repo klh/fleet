@@ -17,6 +17,7 @@ import {
 
 export type { HubAnswer };
 
+import { coordSettings } from "../consult/consult-config.ts";
 import { openKnowledgeDb } from "../govdb/govdb.ts";
 import { type HubLocation, resolveHub } from "../hub/hub-locate.ts";
 
@@ -204,6 +205,7 @@ export function applyStaleFeedback(
 			.query("SELECT state FROM knowledge WHERE id = ?")
 			.get(c.refId) as { state: string } | undefined;
 		if (!row || ["retired", "graveyard"].includes(row.state)) continue;
+		if (!factDemoted(db, c.refId)) continue; // below the lane threshold
 		demoted.push(c.refId);
 		db.query(
 			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'knowledge.stale', NULL, ?, '')",
@@ -220,16 +222,24 @@ export function applyStaleFeedback(
 	return { demoted };
 }
 
-// factDemoted — the read-side predicate: a fact with a failed cited consult
-// no longer auto-answers (factLookup consults this before scoring).
-export function factDemoted(db: GovernorStore, factId: number): boolean {
+// factDemoted — the read-side predicate: a fact cited by failed consults
+// from `knowledge.downvote_threshold` DISTINCT lanes (phase 4, owner
+// 2026-10-29; default 2) no longer auto-answers (factLookup consults this
+// before scoring). The knowledge_votes mirror in knowledge.db carries the
+// same votes for the graph and the review queue.
+export function factDemoted(
+	db: GovernorStore,
+	factId: number,
+	threshold = coordSettings().knowledge.downvote_threshold,
+): boolean {
 	ensureConsultFederation(db);
 	try {
-		return !!db
+		const r = db
 			.query(
-				"SELECT 1 FROM consult_citations c JOIN consult_feedback f ON f.consult_id = c.consult_id WHERE c.kind = 'fact' AND c.ref_id = ? AND f.outcome = 'failed' LIMIT 1",
+				"SELECT COUNT(DISTINCT f.source) AS n FROM consult_citations c JOIN consult_feedback f ON f.consult_id = c.consult_id WHERE c.kind = 'fact' AND c.ref_id = ? AND f.outcome = 'failed'",
 			)
-			.get(factId);
+			.get(factId) as { n: number } | null;
+		return (r?.n ?? 0) >= threshold;
 	} catch {
 		return false;
 	}
