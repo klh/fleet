@@ -66,6 +66,13 @@ import {
 	writePosture,
 } from "../lib/plaid/plaid.ts";
 
+// W2242 config-over-code: watch mode's cadence (and the refill targets the
+// dispatch script resolves) come from the machine stack conf's fleet_loop
+// block — the launchd plist hardcodes nothing. An explicit --every flag
+// stays a one-shot override that wins for this process.
+import { createLoopConfigWatch } from "../lib/fleet-loop/loop-config-watch.ts";
+import { STACK_PATH } from "../lib/stack-config.ts";
+
 const config = parseLoopConfig(process.argv.slice(2), import.meta.dir);
 const {
 	argv,
@@ -81,6 +88,18 @@ const {
 const runtime = createRuntime(config);
 const { val, num } = flagFns(argv);
 const { log, sh, lanes } = runtime;
+// W2242: the live settings watcher — hot-applies fleet_loop changes (no
+// launchd reload). An explicit --every flag stays a one-shot override that
+// wins for this process and never observes the watcher.
+const EXPLICIT_EVERY = argv.includes("--every");
+const pollFlag = argv.indexOf("--config-poll");
+const loopWatch = createLoopConfigWatch({
+	path: STACK_PATH(),
+	intervalMs: pollFlag >= 0 ? Number(argv[pollFlag + 1]) * 1000 : undefined,
+	log,
+});
+const everyMs = (): number =>
+	EXPLICIT_EVERY ? EVERY_MS : loopWatch.settings().everyS * 1000;
 const { laneIsAlive, retireMerged } = createRetire(runtime);
 const { mergeOne, mergeRunnerAlive, healCrashedMerge } = createMergeLadder({
 	...runtime,
@@ -212,8 +231,15 @@ async function cycle(): Promise<void> {
 		);
 	}
 
-	// 3. refill the fleet — policy lives in the repo's dispatch script
-	if (DISPATCH) runTemplate(DISPATCH, "", LADDER_TIMEOUT_MS);
+	// 3. refill the fleet — policy lives in the repo's dispatch script.
+	// W2242: a template without its own --target rides the central
+	// fleet_loop.lane_target (live hot-applied) — never a plist constant.
+	if (DISPATCH) {
+		const t = DISPATCH.includes("--target")
+			? DISPATCH
+			: `${DISPATCH} --target ${loopWatch.settings().laneTarget}`;
+		runTemplate(t, "", LADDER_TIMEOUT_MS);
+	}
 
 	// 4. stall watchdog (autow428): warn while the claim is still warm
 	// W1302.5: refresh the buckle in-flight snapshot first — a lane holding
@@ -476,7 +502,7 @@ if (MODE === "once") {
 // idle cycle boundary when the owner requested a handoff (launchd KeepAlive
 // respawns the successor; lanes are separate processes, never touched).
 log(
-	`fleet-loop start pid=${process.pid} repo=${REPO} glob=${GLOB} every=${EVERY_MS / 1000}s watchdog=${CYCLE_TIMEOUT_MS / 60000}min`,
+	`fleet-loop start pid=${process.pid} repo=${REPO} glob=${GLOB} every=${everyMs() / 1000}s watchdog=${CYCLE_TIMEOUT_MS / 60000}min`,
 );
 const CONTROLLER_NONCE = crypto.randomUUID();
 let controllerIdentity: ReturnType<typeof currentControllerIdentity> | null =
@@ -514,7 +540,7 @@ while (true) {
 			);
 			standbyLogged = true;
 		}
-		await Bun.sleep(EVERY_MS);
+		await Bun.sleep(everyMs());
 		continue;
 	}
 	standbyLogged = false;
@@ -545,5 +571,5 @@ while (true) {
 	}, CYCLE_TIMEOUT_MS);
 	await child.exited;
 	clearTimeout(timer);
-	await Bun.sleep(EVERY_MS);
+	await Bun.sleep(everyMs());
 }

@@ -40,6 +40,7 @@ export { laneKeyDecision, parseGovernanceMode, probeFrontDecision };
 // THEN.D (W1255.6): the per-lane launch machine rides hooks/lib/fleet-loop and
 // the refill face declares through the verb kit (CLI Toolkit Law, W651).
 import { dispatchLane } from "../hooks/lib/fleet-loop/lane-launch.ts";
+import { fleetLoopSettings } from "../hooks/lib/stack-config.ts";
 import { openStore, projectIdentity } from "../hooks/lib/govdb/govdb.ts";
 // W494.1: the worktree-cwd probe is the shared EVIDENCE helper now — the
 // verdict itself lives in hooks/lib/lanes/lane-liveness.ts (pid/heartbeat, never cwd)
@@ -140,7 +141,11 @@ if (!parsedArgv.ok) {
 const val = (flag: string): string | undefined =>
 	parsedArgv.parsed.flag(flag) ?? undefined;
 // Steady posture's target. Plaid ignores this numeric ceiling.
-const TARGET = Number(val("--target") ?? 6);
+// W2242 config-over-code: explicit --target flag → stack conf
+// fleet_loop.dispatch_target → lane_target → the code default (6).
+const TARGET = val("--target")
+	? Number(val("--target"))
+	: fleetLoopSettings().dispatchTarget;
 // Spawn helpers keep call sites cwd-free.
 const sh = (cmd: string[], cwd = REPO): string => shShared(cmd, cwd);
 const run = (cmd: string[], cwd = REPO): { code: number; out: string } =>
