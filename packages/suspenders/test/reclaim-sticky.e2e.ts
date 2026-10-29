@@ -19,14 +19,12 @@ import { releaseWorkClaim } from "../hooks/lib/work/work-release.ts";
 import { assignTask } from "../hooks/lib/work/work-alloc.ts";
 import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 test.describe("@unit", () => {
-
 	const databases: Database[] = [];
 	const directories: string[] = [];
 	test.afterEach(() => {
 		for (const db of databases.splice(0)) db.close();
 		for (const dir of directories.splice(0))
 			rmSync(dir, { recursive: true, force: true });
-
 	});
 
 	// the tables the three modules touch: facts (marker), work_items/claims/

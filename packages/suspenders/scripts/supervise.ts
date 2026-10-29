@@ -479,9 +479,7 @@ const main = async (): Promise<void> => {
 				aids: AIDS,
 				extra: [
 					...preferRoutingBriefLines(resolveRoutingPrefer(REPO)),
-					...(takeEpoch
-						? [fenceBriefLine(item, Number(takeEpoch))]
-						: []),
+					...(takeEpoch ? [fenceBriefLine(item, Number(takeEpoch))] : []),
 					`SUPERVISION: this lane runs under micro-supervisor ${SUP} (subtree of ${PARENT}). It reads the graph + your capsule every cycle; you are reachable via coord inbox --as ${sid}.`,
 					`On a conflict or ambiguity you cannot resolve: bun ${BIN}/coord.ts emit NEED_DECISION --to ${SUP} --note "..." --as ${sid} — never silently wait.`,
 				],

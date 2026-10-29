@@ -74,7 +74,6 @@ export const composeDispatchBrief = (
 	d: DispatchPreviewDeps,
 	a: DispatchBriefArgs,
 ): { brief: string; intel: ReturnType<typeof briefIntel> } => {
-
 	const t = performance.now();
 	try {
 		const intel = briefIntel(d.REPO, `${a.item} ${a.show.out}`);
@@ -104,7 +103,6 @@ export const composeDispatchBrief = (
 	} finally {
 		recordPhase("brief.compose", performance.now() - t);
 	}
-
 };
 
 /** The --dry-run branch of dispatchItem, moved from dispatch-next.ts:
