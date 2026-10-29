@@ -3,9 +3,10 @@
 // AGENTS.md holds the truth (lane protocol + package law); CLAUDE.md must be
 // the one-line @AGENTS.md stub. Real content in a CLAUDE.md, a CLAUDE.md
 // without an AGENTS.md sibling, or a stub pointing at a stub = drift = fail.
-import { expect, test } from "@playwright/test";
+
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 
 const ROOT = join(import.meta.dir, "..");
 const STUB = "@AGENTS.md";

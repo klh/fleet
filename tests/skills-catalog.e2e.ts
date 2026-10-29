@@ -5,9 +5,10 @@
 // (2) the `review` skill names the fleet-documented review-trap classes and
 // the seeded fixture documents the same trap classes. This is a documentation
 // contract test, not an execution of an agent or evidence of review quality.
-import { expect, test } from "@playwright/test";
-import { readFileSync, readdirSync, existsSync } from "node:fs";
+
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 
 const ROOT = join(import.meta.dir, "..");
 const SKILLS = join(ROOT, "skills");

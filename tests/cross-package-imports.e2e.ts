@@ -6,9 +6,10 @@
 // dies at first run on the hub, so this guard fails the build instead.
 // Also pins the known edge set so the scan cannot silently rot to zero
 // coverage (a broken regex must fail here, not in production).
-import { expect, test } from "@playwright/test";
+
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import { klhEdges, scanFleet } from "./helpers/fleet.import-graph.lib.ts";
 
 let fleet = null;

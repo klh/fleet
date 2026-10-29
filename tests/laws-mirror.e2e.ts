@@ -6,9 +6,10 @@
 // citations with no path token must declare themselves "external";
 // (3) coverage: every root AGENTS.md §Laws bold lead has a mirror section;
 // (4) teeth: the checks demand a real mirror (≥15 sections, ≥10 sources).
-import { expect, test } from "@playwright/test";
+
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 
 const ROOT = join(import.meta.dir, "..");
 const LAWS = readFileSync(join(ROOT, "packages/speedy/docs/laws.md"), "utf8");
