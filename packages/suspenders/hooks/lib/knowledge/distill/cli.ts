@@ -81,6 +81,7 @@ async function watchVerb(): Promise<number> {
 export const DISTILL_VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "status",
+		help: "what the distiller sees right now: overdue, lease, pause, per-job lookback",
 		usage: "usage: knowledge-distill status [--json]",
 		switches: ["--json"],
 		run: (p) => {
@@ -100,6 +101,7 @@ export const DISTILL_VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "run",
+		help: "one distiller pass over the unvisited entries (jobs selectable, force overrides the idle gate)",
 		usage:
 			"usage: knowledge-distill run [--once] [--force] [--job extract,decant,staleness,crosslink,dedupe,contradiction,distill] [--json]",
 		switches: ["--once", "--force", "--json"],
@@ -108,7 +110,8 @@ export const DISTILL_VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "pause",
-		usage: "usage: knowledge-distill pause — writes the kill-switch file",
+		help: "writes the kill-switch file — every run gate reads it before doing work",
+		usage: "usage: knowledge-distill pause",
 		run: () => {
 			const h = productionHandles();
 			try {
@@ -123,7 +126,8 @@ export const DISTILL_VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "resume",
-		usage: "usage: knowledge-distill resume — removes the kill-switch file",
+		help: "removes the kill-switch file — the next gated run proceeds",
+		usage: "usage: knowledge-distill resume",
 		run: () => {
 			const h = productionHandles();
 			try {
@@ -137,8 +141,8 @@ export const DISTILL_VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "watch",
-		usage:
-			"usage: knowledge-distill watch — the long-running hub loop (interval_s)",
+		help: "the long-running hub loop: one idle-gated run per interval_s",
+		usage: "usage: knowledge-distill watch",
 		run: watchVerb,
 	}),
 ];
@@ -158,6 +162,7 @@ const withGraph = <T>(
 export const GRAPH_VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "about",
+		help: "which knowledge entries touch a target (path, label, W-id, :port, key)",
 		usage:
 			"usage: knowledge-graph about <path|label|W-id|:port|KEY> [--limit n] [--json]",
 		minPos: 1,
@@ -187,6 +192,7 @@ export const GRAPH_VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "neighbours",
+		help: "the graph around one entry, breadth-limited",
 		usage:
 			"usage: knowledge-graph neighbours <knowledge-id|#node|key> [--depth n] [--limit n] [--json]",
 		minPos: 1,
@@ -217,6 +223,7 @@ export const GRAPH_VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "path",
+		help: "the shortest entry-to-entry chain through the graph",
 		usage: "usage: knowledge-graph path <a> <b> [--depth n] [--json]",
 		minPos: 2,
 		flags: ["--depth"],
@@ -244,6 +251,7 @@ export const GRAPH_VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "contradictions",
+		help: "entries flagged as contradicting each other (the curation queue)",
 		usage: "usage: knowledge-graph contradictions [--json]",
 		switches: ["--json"],
 		run: (p) =>

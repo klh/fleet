@@ -32,6 +32,9 @@ export type VerbSpec = {
 	name: string;
 	/** one-line usage — die'd on parse violation, printed by per-verb help */
 	usage?: string;
+	/** one-line description — the per-verb help's body and the registry
+	 *  listing's per-verb line; a spec without one renders as before */
+	help?: string;
 	/** value-taking flags; a known flag consumes the next token (first wins) */
 	flags?: string[];
 	/** boolean switches — checked BEFORE flags, consume no value */
@@ -123,16 +126,20 @@ export const parseVerb = (spec: VerbSpec, rest: string[]): ParseOutcome => {
 	};
 };
 
-// per-verb help: the usage line + the flag vocabulary (switches fold in)
+// per-verb help: the usage line, the description, the flag vocabulary
+// (switches fold in)
 export const renderVerbHelp = (spec: VerbSpec): string => {
 	const lines: string[] = [spec.usage ?? `usage: ${spec.name}`];
+	if (spec.help) lines.push(`  ${spec.help}`);
 	const flags = [...(spec.flags ?? [])];
 	for (const s of spec.switches ?? []) if (!flags.includes(s)) flags.push(s);
 	if (flags.length) lines.push(`  flags: ${flags.join(" ")}`);
 	return lines.join("\n");
 };
 
-// whole-registry help: about + every verb name in registration order (+epilog)
+// whole-registry help: about + every verb name in registration order; a
+// registry whose specs carry help lines renders one description line per
+// verb (the per-verb help body, deduplicated from the specs themselves)
 export const renderRegistryHelp = (
 	prog: string,
 	about: string,
@@ -141,6 +148,9 @@ export const renderRegistryHelp = (
 ): string => {
 	void prog;
 	const lines = [`${about} ${verbs.map((v) => v.name).join(" | ")}`];
+	const described = verbs.filter((v) => v.help);
+	if (described.length)
+		for (const v of described) lines.push(`  ${v.name} — ${v.help}`);
 	if (epilog) lines.push(epilog);
 	return lines.join("\n");
 };
