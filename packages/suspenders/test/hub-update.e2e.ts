@@ -9,10 +9,13 @@ import {
 } from "../hooks/lib/stack-config.ts";
 import {
 	applyRelease,
+	automaticUpdatePolicy,
 	checkDue,
 	compareReleaseTags,
+	hubDeployRef,
 	latestReleaseTag,
 	notifyAvailable,
+	pinnedOverlayRef,
 	publishedRelease,
 	releaseAvailable,
 	releaseOriginOf,
@@ -77,6 +80,43 @@ test("auto-update is an explicit, validated machine setting @unit", () => {
 			updates: { mode: "latest", check_interval_s: 5 },
 		}).success,
 	).toBe(false);
+	expect(
+		StackConfigSchema.safeParse({
+			hubs: { alpha: { host: "alpha.invalid", auto_update: true } },
+		}).success,
+	).toBe(true);
+	expect(
+		StackConfigSchema.safeParse({
+			hubs: { alpha: { host: "alpha.invalid", auto_update: "yes" } },
+		}).success,
+	).toBe(false);
+});
+
+test("per-hub opt-in requires unanimous managed-hub consent @unit", () => {
+	const configured = stack();
+	expect(automaticUpdatePolicy(configured)).toEqual({
+		ready: false,
+		blocked: ["nas", "desktop"],
+	});
+	const nas = configured.hubs.nas;
+	const desktop = configured.hubs.desktop;
+	if (!nas || !desktop) throw new Error("fixture hubs missing");
+	nas.auto_update = true;
+	expect(automaticUpdatePolicy(configured)).toEqual({
+		ready: false,
+		blocked: ["desktop"],
+	});
+	desktop.auto_update = true;
+	expect(automaticUpdatePolicy(configured)).toEqual({
+		ready: true,
+		blocked: [],
+	});
+	configured.updates = { mode: "latest" };
+	desktop.auto_update = false;
+	expect(automaticUpdatePolicy(configured)).toEqual({
+		ready: false,
+		blocked: ["desktop"],
+	});
 });
 
 test("release source follows operator config and check cadence @unit", () => {
@@ -221,6 +261,146 @@ test("one version updates managed refs and preserves explicit canary @unit", () 
 			(row) => row.deploymentDrift,
 		),
 	).toEqual([false, false, true]);
+});
+
+test("release-tracking overlay advances its own ref and rolls back on failed health @unit", () => {
+	const world = scratchWorld({ prefix: "hub-update-overlay-" });
+	try {
+		const configured = stack();
+		const overlay = configured.hubs.desktop;
+		if (!overlay) throw new Error("fixture overlay missing");
+		overlay.repos = {
+			buckle: "https://git.example.invalid/private/fleet.git",
+			ref: "v2.0.4",
+		};
+		const path = join(world.home, "stack.json");
+		const original = `${JSON.stringify(configured, null, 2)}\n`;
+		writeFileSync(path, original, { mode: 0o600 });
+		expect(hubDeployRef(overlay, configured.version)).toBe("v2.0.4");
+		expect(pinnedOverlayRef(overlay, configured.version)).toBe(false);
+		expect(stackAtRelease(configured, "v2.0.5").hubs.desktop?.repos?.ref).toBe(
+			"v2.0.5",
+		);
+		const row = updateRows(configured, "v2.0.5", () => "v2.0.4").find(
+			(item) => item.hub === "desktop",
+		);
+		expect(row).toMatchObject({
+			pinned: "v2.0.4",
+			deploymentDrift: false,
+			updateAvailable: true,
+			pinnedOverlay: false,
+		});
+		const calls: string[] = [];
+		const results = [true, false, true, true];
+		expect(() =>
+			applyRelease(configured, "v2.0.5", {
+				path,
+				installed: () => "v2.0.4",
+				quietHours: () => false,
+				preflight: (hub, name, version) => {
+					calls.push(`preflight:${name}:${hub.repos?.ref ?? ""}:${version}`);
+				},
+				deployHub: (name, expected) => {
+					calls.push(`deploy:${name}:${expected}`);
+					return results.shift() ?? false;
+				},
+			}),
+		).toThrow("old pin and hub health restored");
+		expect(calls).toContain("preflight:desktop:v2.0.5:v2.0.5");
+		expect(calls.filter((call) => call.startsWith("deploy:"))).toEqual([
+			"deploy:nas:v2.0.5",
+			"deploy:desktop:v2.0.5",
+			"deploy:nas:v2.0.4",
+			"deploy:desktop:v2.0.4",
+		]);
+		expect(readFileSync(path, "utf8")).toBe(original);
+	} finally {
+		world.clean();
+	}
+});
+
+test("unpublished overlay release tag blocks the shared pin before deployment @unit", () => {
+	const world = scratchWorld({ prefix: "hub-update-overlay-preflight-" });
+	try {
+		const configured = stack();
+		const overlay = configured.hubs.desktop;
+		if (!overlay) throw new Error("fixture overlay missing");
+		overlay.repos = {
+			buckle: "https://git.example.invalid/private/fleet.git",
+			ref: "v2.0.4",
+		};
+		const path = join(world.home, "stack.json");
+		const original = `${JSON.stringify(configured, null, 2)}\n`;
+		writeFileSync(path, original, { mode: 0o600 });
+		let deployed = false;
+		expect(() =>
+			applyRelease(configured, "v2.0.5", {
+				path,
+				installed: () => "v2.0.4",
+				quietHours: () => false,
+				preflight: (hub, name) => {
+					if (name === "desktop" && hub.repos?.ref === "v2.0.5")
+						throw new Error("overlay origin does not serve v2.0.5");
+				},
+				deployHub: () => {
+					deployed = true;
+					return true;
+				},
+			}),
+		).toThrow("overlay origin does not serve v2.0.5");
+		expect(deployed).toBe(false);
+		expect(readFileSync(path, "utf8")).toBe(original);
+	} finally {
+		world.clean();
+	}
+});
+
+test("independent overlay SHA remains pinned while release-tracking hubs advance @unit", () => {
+	const world = scratchWorld({ prefix: "hub-update-overlay-sha-" });
+	try {
+		const configured = stack();
+		const overlay = configured.hubs.desktop;
+		if (!overlay) throw new Error("fixture overlay missing");
+		const sha = "a".repeat(40);
+		overlay.repos = {
+			buckle: "https://git.example.invalid/private/fleet.git",
+			ref: sha,
+		};
+		const path = join(world.home, "stack.json");
+		writeFileSync(path, `${JSON.stringify(configured, null, 2)}\n`, {
+			mode: 0o600,
+		});
+		expect(pinnedOverlayRef(overlay, configured.version)).toBe(true);
+		expect(stackAtRelease(configured, "v2.0.5").hubs.desktop?.repos?.ref).toBe(
+			sha,
+		);
+		const row = updateRows(configured, "v2.0.5", (hub) =>
+			hub === overlay ? sha : (hub.version_override ?? "v2.0.4"),
+		).find((item) => item.hub === "desktop");
+		expect(row).toMatchObject({
+			pinned: sha,
+			deploymentDrift: false,
+			updateAvailable: false,
+			pinnedOverlay: true,
+		});
+		const deployed: string[] = [];
+		applyRelease(configured, "v2.0.5", {
+			path,
+			installed: (hub) => (hub === overlay ? sha : "v2.0.4"),
+			quietHours: () => false,
+			preflight: () => {},
+			deployHub: (name, expected) => {
+				deployed.push(`${name}:${expected}`);
+				return true;
+			},
+		});
+		expect(deployed).toEqual(["nas:v2.0.5"]);
+		const saved = JSON.parse(readFileSync(path, "utf8")) as StackConfig;
+		expect(saved.version).toBe("v2.0.5");
+		expect(saved.hubs.desktop?.repos?.ref).toBe(sha);
+	} finally {
+		world.clean();
+	}
 });
 
 test("failed hub health restores the old pin and deploys it to every managed hub @unit", () => {

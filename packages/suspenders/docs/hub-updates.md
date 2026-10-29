@@ -25,12 +25,30 @@ set this machine-level JSON field (mode 0600):
 "updates": { "mode": "latest", "check_interval_s": 300 }
 ```
 
+Each hub profile can set `"auto_update": true` or `false`. Absent means it
+inherits `updates.mode`; an explicit `false` vetoes automatic rollout even
+when the stack mode is `latest`. Explicit `true` opts that hub in under the
+default `manual` mode. Because all non-canary hubs share one `stack.version`,
+the controller updates them together only when **every** non-canary hub
+permits automatic updates. A mixed choice raises one decision for the
+release; `apply --yes` remains an explicit all-hub installation. The `check`
+output shows each hub's effective `auto_update` value.
+
 The release source is the single origin configured in hub `repos`. If hubs
 use different origins, set `updates.origin` to the intended release source.
 With no configured hub origin, the managing checkout's `origin` is used.
 
-`latest` makes the heartbeat apply the newest stable release to all managed
-hubs. A hub with `version_override` remains pinned as a canary. Quiet hours
+For an overlay origin, `hubs.<name>.repos.ref` is the actual deployed ref.
+When it equals the current shared release tag, the updater advances it to the
+new tag only after that tag passes preflight on the overlay origin. An
+independent SHA or other ref stays pinned and appears as `overlay ref pinned`
+in `check`; it does not claim to have advanced that hub's code. The deployed
+`.env` and live container are compared with this resolved ref throughout
+upgrade and rollback.
+
+An enabled automatic rollout applies the newest stable release to all
+release-tracking hubs. A hub with `version_override` remains pinned as a canary.
+Quiet hours
 defer the whole update. Every candidate ref must exist on its configured
 origin before `stack.json` changes. The updater writes a 0600 backup, changes
 the one version pin atomically, deploys through `hubctl`, and checks the
