@@ -37,7 +37,7 @@ import {
 } from "../lib/lanes/lane-stop-decision.ts";
 import { coordSubscribeLog } from "../lib/lanes/subscribe-attach.ts";
 import { db, type EventRow } from "./context.ts";
-import { chunked } from "./helpers.ts";
+import { chunked, visibleItemProjects } from "./helpers.ts";
 import { stateHighWater } from "./events-memo.ts";
 import { cursorForPass, writeCursor } from "./reader-cursor.ts";
 import { markSynced, shouldSync } from "./sync-throttle.ts";
@@ -794,13 +794,26 @@ export function labelFrom(
 
 // every project the control plane knows — the UI's global filter options
 export function projectList(): string[] {
-	return (
+	// W9201: reaped scratch/test projects never re-enter the UI as filter
+	// options — the work-items side rides the visibility rule (repo exists
+	// or origin-carrying); session-only projects (live lanes without items)
+	// pass through unfiltered.
+	const visible = new Set(visibleItemProjects(db));
+	const itemProjects = (
+		db.query("SELECT DISTINCT project AS p FROM work_items").all() as {
+			p: string;
+		}[]
+	)
+		.map((r) => r.p)
+		.filter((p) => visible.has(p));
+	const sessionProjects = (
 		db
 			.query(
-				"SELECT project AS p FROM work_items UNION SELECT project AS p FROM sessions WHERE project IS NOT NULL ORDER BY p",
+				"SELECT DISTINCT project AS p FROM sessions WHERE project IS NOT NULL",
 			)
 			.all() as { p: string }[]
 	).map((r) => r.p);
+	return [...new Set([...itemProjects, ...sessionProjects])].sort();
 }
 
 // owner_label (docs/board-api.md): the owner's newest claim intent, else the
