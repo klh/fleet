@@ -1,4 +1,4 @@
-import { expect } from "bun:test";
+import { expect } from "../pw";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
