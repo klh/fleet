@@ -32,7 +32,11 @@ import { expect, type Page, test } from "@playwright/test";
 import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
 import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
 import { dispatchHarness } from "../test/helpers/dispatch-harness.ts";
-import { type Board, startBoard, unusedPort } from "./harness";
+import {
+	type Board,
+	startBoard,
+	unusedPort,
+} from "../test/helpers/board-harness";
 
 test.describe.configure({ mode: "serial" });
 test.setTimeout(300_000);

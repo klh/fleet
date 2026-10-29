@@ -9,7 +9,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { expect, test } from "@playwright/test";
-import { startBoard } from "./harness.ts";
+import { startBoard } from "../test/helpers/board-harness";
 import { measureSpark } from "./spark-geom.ts";
 
 // W1203: no serial mode — the tests below share the beforeAll board but no
