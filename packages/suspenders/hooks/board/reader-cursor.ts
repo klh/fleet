@@ -12,12 +12,8 @@
 // i.e. exactly the old full-scan behaviour.
 
 import { READER_CURSORS_DDL } from "../lib/govdb/govdb-indexes.ts";
+import { boardKnob } from "./board-knobs.ts";
 import { db } from "./context.ts";
-
-const knob = (name: string, fallback: number): number => {
-	const raw = Number(process.env[name] ?? fallback);
-	return Number.isFinite(raw) && raw >= 0 ? raw : fallback;
-};
 
 let ensured = false;
 // process start counts as a full pass: a restart resumes from the persisted
@@ -58,7 +54,7 @@ export function writeCursor(
 /** The cursor a pass should read above: 0 when the periodic full reconcile is
  * due (and that pass is then stamped as the last full one). */
 export function cursorForPass(name: string, now = Date.now()): number {
-	if (now - lastFullAt >= knob("SUSPENDERS_BOARD_FULL_RECONCILE_MS", 300_000)) {
+	if (now - lastFullAt >= boardKnob("board.full_reconcile_ms")) {
 		lastFullAt = now;
 		return 0;
 	}

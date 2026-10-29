@@ -14,10 +14,7 @@
 // 2026-10-29 snapshot), so a new event syncs on the next poll — the W798
 // freshness contract — and an idle bus still re-checks only every 30s.
 
-const knob = (name: string, fallback: number): number => {
-	const raw = Number(process.env[name] ?? fallback);
-	return Number.isFinite(raw) && raw >= 0 ? raw : fallback;
-};
+import { boardKnob } from "./board-knobs.ts";
 
 const state: { at: number; stamp: number | string } = { at: 0, stamp: -1 };
 
@@ -27,11 +24,11 @@ export function shouldSync(
 	now: number = Date.now(),
 ): boolean {
 	if (force || state.at === 0) return true;
-	const floor = knob("SUSPENDERS_BOARD_SYNC_FLOOR_MS", 0);
+	const floor = boardKnob("board.sync_floor_ms");
 	const age = now - state.at;
 	if (age < floor) return false;
 	if (stamp !== state.stamp) return true;
-	return age >= knob("SUSPENDERS_BOARD_SYNC_IDLE_MS", 30_000);
+	return age >= boardKnob("board.sync_idle_ms");
 }
 
 export function markSynced(

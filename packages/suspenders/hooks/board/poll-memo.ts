@@ -10,21 +10,17 @@
 // Stringify once per window, hash once (the etag), and every request in the
 // window gets the same bytes — or a 304 when its If-None-Match still matches.
 // The serializer + tag + 304 responder are the one etag.ts implementation.
+import { boardKnob } from "./board-knobs.ts";
 import { type FeedBody, etagBody } from "./etag.ts";
 
 const memo = new Map<string, FeedBody>();
-
-const windowMs = (): number => {
-	const raw = Number(process.env.SUSPENDERS_BOARD_POLL_MEMO_MS ?? 1000);
-	return Number.isFinite(raw) && raw >= 0 ? raw : 1000;
-};
 
 export function pollMemoBody(
 	key: string,
 	compute: () => unknown,
 	now: number = Date.now(),
 ): FeedBody {
-	const ttl = windowMs();
+	const ttl = boardKnob("board.poll_memo_ms");
 	if (ttl > 0) {
 		const hit = memo.get(key);
 		if (hit && now - hit.at < ttl) return hit;

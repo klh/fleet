@@ -17,6 +17,7 @@ import {
 	workExecution,
 } from "../lib/work/work-execution.ts";
 import { artifactEvidence } from "./artifact-events.ts";
+import { boardKnob } from "./board-knobs.ts";
 
 type Registered = LaneRef & { attempt?: number };
 
@@ -26,8 +27,7 @@ type Registered = LaneRef & { attempt?: number };
 let _ps: { at: number; inspection: ProcessInspection } | null = null;
 
 function processTable(now: number): ProcessInspection {
-	const raw = Number(process.env.SUSPENDERS_BOARD_PS_MEMO_MS ?? 2000);
-	const ttl = Number.isFinite(raw) && raw >= 0 ? raw : 2000;
+	const ttl = boardKnob("board.ps_memo_ms");
 	if (_ps && now - _ps.at < ttl && now >= _ps.at) return _ps.inspection;
 	const ps = Bun.spawnSync(["ps", "-axo", "pid=,args="], {
 		stdout: "pipe",
