@@ -4,7 +4,7 @@
 // same decision with the same exit code; a dead daemon falls back to the
 // local evaluation (never fail-open); the host restores env/cwd/exit.
 import { expect, test } from "@playwright/test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { freePort, scratchWorld, waitUp } from "@klh/test-kit";
 
@@ -13,6 +13,9 @@ const GATE = join(HOOKS, "gate.ts");
 const STORE = join(HOOKS, "bin", "store-server.ts");
 
 test.describe("@unit gate daemon", () => {
+	// one store-server per describe: the metrics leg reads the calls the
+	// parity legs made, so every test rides the same worker
+	test.describe.configure({ mode: "serial" });
 	const world = scratchWorld({ prefix: "gate-daemon-" });
 	let port = 0;
 	let server: ReturnType<typeof Bun.spawn> | null = null;
@@ -45,8 +48,9 @@ test.describe("@unit gate daemon", () => {
 		payload: object,
 		daemon: string,
 		store = `http://127.0.0.1:${port}`,
+		argv = ["bun", GATE, event],
 	) => {
-		const p = Bun.spawnSync(["bun", GATE, event], {
+		const p = Bun.spawnSync(argv, {
 			cwd: world.repo,
 			env: {
 				...world.env,
@@ -104,6 +108,49 @@ test.describe("@unit gate daemon", () => {
 			const viaDaemon = run(event, payload, "1");
 			expect(viaDaemon).toEqual(local);
 		});
+
+	// lane identity walks the CALLER's process ancestry. The lane pid is a
+	// wrapper that is gate.ts's parent but NOT an ancestor of store-server, so
+	// only a daemon that walks the client pid can resolve it
+	test("daemon parity: lane identity resolves through the client pid", () => {
+		mkdirSync(join(world.repo, ".fleet"), { recursive: true });
+		const lanes = join(world.repo, ".fleet", "lanes.json");
+		const wrap = join(world.home, "lane-wrap.ts");
+		writeFileSync(
+			wrap,
+			`import { writeFileSync } from "node:fs";
+const [lanes, gate, event] = process.argv.slice(2);
+writeFileSync(lanes, JSON.stringify([{ sid: "autow70d", item: "W70D", pid: process.pid, branch: "suspenders/W70D", worktree: process.cwd() }]));
+const raw = await new Response(Bun.stdin).text();
+const p = Bun.spawnSync(["bun", gate, event], { stdin: new TextEncoder().encode(raw), stdout: "pipe", env: process.env });
+process.stdout.write(p.stdout);
+process.exit(p.exitCode ?? 1);
+`,
+		);
+		const wrapped = ["bun", wrap, lanes, GATE, "push"];
+		const store = `http://127.0.0.1:${port}`;
+		// the push gate tails the RESOLVED lane's inbox log: a line only the
+		// lane autow70d can see proves which identity each arm resolved
+		const log = join(
+			world.home,
+			".claude-insights",
+			"coord-subscribe-autow70d.log",
+		);
+		mkdirSync(join(world.home, ".claude-insights"), { recursive: true });
+		const payload = {
+			...base(),
+			hook_event_name: "PostToolUse",
+			tool_name: "Read",
+		};
+		appendFileSync(log, "#1 NOTE via-daemon\n");
+		expect(run("push", payload, "1", store, wrapped).out).toContain(
+			"via-daemon",
+		);
+		appendFileSync(log, "#2 NOTE via-local\n");
+		expect(run("push", payload, "0", store, wrapped).out).toContain(
+			"via-local",
+		);
+	});
 
 	test("the daemon path really served the hot events", async () => {
 		const metrics = await (

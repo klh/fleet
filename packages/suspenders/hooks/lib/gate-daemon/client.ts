@@ -82,11 +82,15 @@ export async function gateViaDaemon(
 			},
 			body: JSON.stringify({
 				raw,
-				env: Object.fromEntries(
-					Object.entries(env).filter(
-						(e): e is [string, string] => typeof e[1] === "string",
+				env: {
+					...Object.fromEntries(
+						Object.entries(env).filter(
+							(e): e is [string, string] => typeof e[1] === "string",
+						),
 					),
-				),
+					// identity gates walk the CALLER's ancestry, not the daemon's
+					SUSPENDERS_GATE_CLIENT_PID: String(process.pid),
+				},
 				cwd: process.cwd(),
 			}),
 			signal: AbortSignal.timeout(timeoutMs),
