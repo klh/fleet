@@ -470,7 +470,10 @@ export function startServer(opts: ServerOpts = {}): ReturnType<
 	// W1260.2: the authenticated CONNECT egress (opaque AI TLS relay). Inert
 	// unless policy enables it AND BUCKLE_CONNECT_TOKEN is set AND allow is
 	// non-empty; attaches when live so tests can stop it.
-	const connectEgress = startConnectEgress(deps.policy, port, { sm: deps.sm });
+	const connectEgress = startConnectEgress(deps.policy, port, {
+		sm: deps.sm,
+		hubId: process.env.BUCKLE_HUB_ID,
+	});
 	return Object.assign(server, { gov, connectEgress }) as ReturnType<
 		typeof Bun.serve
 	> & {

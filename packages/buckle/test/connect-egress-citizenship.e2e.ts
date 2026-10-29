@@ -79,7 +79,30 @@ test.describe("CONNECT E2E: UA citizenship (W2173.7) @api", () => {
 		const t = await openTunnel(egress.port, "api.openai.com:443", null);
 		expect(t.status).toContain("407");
 		expect(t.status).toContain(`user-agent: ${CONNECT_EGRESS_UA}`);
+		const id = /x-klh-trace-id: ([0-9a-f]{32})/.exec(t.status)?.[1];
+		expect(id).toMatch(/^[0-9a-f]{32}$/);
+		expect(t.status).toContain("x-klh-error-origin: local");
+		expect(t.status).toContain("x-klh-error-code: connect.auth");
+		expect(t.status).toContain("content-type: application/problem+json");
 		egress.stop();
+	});
+
+	test("destination and authority failures retain distinct origin codes", async () => {
+		const egress = mkEgress(testPort(3));
+		const auth = `Basic ${Buffer.from(`claude:${TOKEN}`).toString("base64")}`;
+		try {
+			const denied = await openTunnel(egress.port, "example.com:443", auth);
+			expect(denied.status).toContain("403 Forbidden");
+			expect(denied.status).toContain(
+				"x-klh-error-code: connect.not_allowlisted",
+			);
+			expect(denied.status).toMatch(/x-klh-trace-id: [0-9a-f]{32}/);
+			const invalid = await openTunnel(egress.port, "bad-authority", auth);
+			expect(invalid.status).toContain("400 Bad Request");
+			expect(invalid.status).toContain("x-klh-error-code: connect.authority");
+		} finally {
+			egress.stop();
+		}
 	});
 });
 

@@ -2,6 +2,7 @@
 // W616.1 re-framer, W1106 stream receipts, W1156 drain terminals.
 
 import { RouterError } from "./adapters/errors.ts";
+import { traceStreamErrorPayload } from "./error-trace.ts";
 import { affinityOn } from "./affinity.ts";
 import { onDrain, writeDrainTerminal } from "./drain.ts";
 import { endInflight } from "./gov/inflight.ts";
@@ -92,7 +93,10 @@ export function streamResponse(
 			downstreamAbort.abort();
 			return;
 		}
-		streamDrained = writeDrainTerminal(drainCtl, ctx.dialect, ctx.rid);
+		streamDrained = writeDrainTerminal(drainCtl, ctx.dialect, ctx.rid, {
+			id: ctx.trace.traceparent.split("-")[1] ?? "",
+			hub: process.env.BUCKLE_HUB_ID ?? "local",
+		});
 		// A delivered cut tears the tee + upstream now (bounded grace), but
 		// through the abort bus's pipes only — streamCancelled stays false so
 		// the receipt keeps the drained cause, never downstream_cancel.
@@ -279,6 +283,15 @@ export function streamResponse(
 				streamFailed = true;
 				streamFailureKind = kind;
 			},
+			(payload) =>
+				traceStreamErrorPayload(
+					payload,
+					upstream,
+					ctx.trace.traceparent.split("-")[1] ?? "",
+					process.env.BUCKLE_HUB_ID ?? "local",
+					ctx.rid,
+					result.candidateId,
+				),
 		),
 	);
 	sanitized

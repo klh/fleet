@@ -28,7 +28,7 @@ const FleetErrorHopSchema = z.object({
 		.regex(HUB_LABEL)
 		.refine((value) => !SECRET_PREFIX.test(value)),
 	service: z.literal("buckle"),
-	status: z.number().int().min(400).max(599),
+	status: z.number().int().min(100).max(599),
 	code: z
 		.string()
 		.regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)
@@ -120,6 +120,64 @@ export function peerErrorTrace(
 	const parsed = FleetErrorTraceSchema.safeParse(object(wire)?.fleet_trace);
 	if (!parsed.success || parsed.data.id !== expectedId) return null;
 	return JSON.stringify(parsed.data);
+}
+
+/** Annotate a provider's in-band SSE failure without changing its dialect
+ * envelope. A relay admits an earlier hop only from a stamped Buckle peer. */
+export function traceStreamErrorPayload(
+	payload: string,
+	upstream: Response,
+	id: string,
+	hubLabel: string,
+	rid: string,
+	targetId: string,
+): string {
+	if (!TRACE_ID.test(id)) return payload;
+	let body: JsonObject | null = null;
+	try {
+		body = object(JSON.parse(payload));
+	} catch {
+		return payload;
+	}
+	if (!body) return payload;
+	const hub = HUB_LABEL.test(hubLabel) ? hubLabel : "local";
+	const error = object(body.error) ?? object(object(body.response)?.error);
+	const code = safeProviderErrorToken(error?.code ?? error?.type ?? body.type);
+	const target = safeProviderErrorToken(targetId) ?? undefined;
+	const peer =
+		upstream.headers.get("x-klh-service") === "buckle" &&
+		upstream.headers.get("x-klh-trace-id") === id
+			? FleetErrorTraceSchema.safeParse(body.fleet_trace)
+			: null;
+	const hops =
+		peer?.success && peer.data.id === id ? peer.data.hops.slice(-3) : [];
+	const trace = {
+		id,
+		hops: [
+			...hops,
+			{
+				hub,
+				service: "buckle" as const,
+				status: 200,
+				...(code ? { code } : {}),
+				...(target ? { target } : {}),
+				...(safeCorrelationId(rid) ? { rid } : {}),
+			},
+		],
+	};
+	// SSE errors ride HTTP 200; their hop status remains 200 in the trace.
+	body.trace_id = id;
+	body.fleet_trace = trace;
+	if (error) {
+		error.trace_id = id;
+		if (typeof error.message === "string") {
+			const priorMarker = / \[trace=[0-9a-f]{32};[^\]]{0,600}\]$/;
+			const message = error.message.replace(priorMarker, "");
+			const origin = trace.hops[0]?.hub ?? hub;
+			error.message = `${message.slice(0, 2048)} [trace=${id}; origin=${origin}; target=${target ?? "unknown"}]`;
+		}
+	}
+	return JSON.stringify(body);
 }
 
 async function smallJson(resp: Response): Promise<JsonObject | null> {
