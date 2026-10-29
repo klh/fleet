@@ -13,6 +13,8 @@
 
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+// W1303.3: per-specialist breakers ride the shared resilience kit.
+import { Breakers } from "../../buckle/src/resilience.ts";
 import {
 	beginTrace,
 	childTraceparent,
@@ -54,6 +56,8 @@ import {
 } from "./router-condense.ts";
 import {
 	type AnthropicBody,
+	type AnthropicToolUse,
+	anthropicSseFromBlocks,
 	anthropicSseFromOpenAi,
 	anthropicSseFromText,
 	applyBudget,
@@ -70,11 +74,11 @@ import {
 	toOpenAiMessages,
 	toOpenAiTools,
 	toolChoiceToOpenAi,
+	type UpstreamUsage,
+	usageRow,
 	viaLocal,
 } from "./router-core.ts";
 import { parseToolArgs } from "./router-tools.ts";
-// W1303.3: per-specialist breakers ride the shared resilience kit.
-import { Breakers } from "../../buckle/src/resilience.ts";
 import { ensureAvailable } from "./spawner.ts";
 
 // W504: per-provider request caps — registry rows carry maxInflight for the
@@ -808,6 +812,12 @@ Bun.serve({
 			let finish: string | undefined;
 			/** W789: tool calls captured from the local ladder's answer. */
 			let resultToolCalls: OpenAiToolCall[] | undefined;
+			/** W2182: the serving local leg's usage (non-stream ladder result). */
+			let localUsage: UpstreamUsage | undefined;
+			/** W2182: the escalation leg's tool_use blocks + usage, when cloud
+			 *  answered. Text-only answers leave both undefined. */
+			let escalatedToolUses: AnthropicToolUse[] | undefined;
+			let escalatedUsage: UpstreamUsage | undefined;
 			let usedPort: number = route.port;
 			let usedModel = route.model;
 			let localTimings: RequestTimings | undefined;
@@ -992,8 +1002,11 @@ Bun.serve({
 					}
 					if (c.status === 429)
 						retryAfter = Math.max(retryAfter ?? 0, c.retryAfterMs ?? 0);
-					if (!c.text) return false;
+					if (!c.text && !(c.toolUses && c.toolUses.length > 0)) return false;
 					response = c.text;
+					if (c.toolUses && c.toolUses.length > 0)
+						escalatedToolUses = c.toolUses;
+					if (c.usage) escalatedUsage = c.usage;
 					usedPort = 0;
 					usedModel = `z.ai:${c.model}`;
 					note.push("escalated → cloud(z.ai)");
@@ -1153,6 +1166,7 @@ Bun.serve({
 					response = got.result.response;
 					finish = got.result.finish;
 					resultToolCalls = got.result.toolCalls;
+					localUsage = got.result.usage;
 				}
 			}
 
@@ -1165,13 +1179,18 @@ Bun.serve({
 			if (
 				!response &&
 				!(resultToolCalls && resultToolCalls.length > 0) &&
+				!(escalatedToolUses && escalatedToolUses.length > 0) &&
 				cloudAllowedForRequest &&
 				!triedCloud
 			) {
 				await tryCloud(score.tier !== "VERY_COMPLEX");
 			}
 
-			if (!response && !(resultToolCalls && resultToolCalls.length > 0)) {
+			if (
+				!response &&
+				!(resultToolCalls && resultToolCalls.length > 0) &&
+				!(escalatedToolUses && escalatedToolUses.length > 0)
+			) {
 				// A cold local leg is a retryable capacity refusal, not an upstream
 				// provider failure. Preserve its backoff hint for the caller.
 				if (retryAfter !== undefined) {
@@ -1222,19 +1241,27 @@ Bun.serve({
 			});
 			const id = `msg_${route.role}_${Date.now()}`;
 			const routing = routingInfo();
-			if (wantStream)
+			if (wantStream) {
+				// W2182: buffered answers may carry tool_use blocks + usage — emit
+				// with the blocks translator, never the text-only one.
+				const blocks = [
+					...(response ? [{ type: "text", text: response }] : []),
+					...(escalatedToolUses ?? []),
+				];
 				return stamped(
 					new Response(
-						anthropicSseFromText(
-							response,
+						anthropicSseFromBlocks(
+							blocks,
 							{ id, model: body.model, routing, timings },
 							finish,
+							escalatedUsage ?? localUsage,
 						),
 						{ headers: sseHeaders(routing) },
 					),
 					lastHop,
 					hopFields(),
 				);
+			}
 			// W789: tool_use blocks after any text; stop_reason tool_use wins.
 			const content: Array<Record<string, unknown>> = [
 				...(response ? [{ type: "text", text: response }] : []),
@@ -1244,7 +1271,12 @@ Bun.serve({
 					name: c.function.name,
 					input: parseToolArgs(c.function.arguments),
 				})),
+				...(escalatedToolUses ?? []),
 			];
+			// W2182: the leg that answered owns the usage row — escalation beats
+			// local, a local non-stream leg reports its own numbers, anything
+			// else stays honestly zero.
+			const usage = escalatedUsage ?? localUsage;
 			return stamped(
 				Response.json(
 					{
@@ -1254,10 +1286,11 @@ Bun.serve({
 						model: body.model,
 						content,
 						stop_reason:
-							resultToolCalls && resultToolCalls.length > 0
+							(resultToolCalls && resultToolCalls.length > 0) ||
+							(escalatedToolUses && escalatedToolUses.length > 0)
 								? "tool_use"
 								: stopReason(finish),
-						usage: { input_tokens: 0, output_tokens: 0 },
+						usage: usageRow(usage),
 						_routing: routing,
 						_server_timings: timings,
 					},
