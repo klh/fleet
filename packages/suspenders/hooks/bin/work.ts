@@ -1149,7 +1149,7 @@ const dispatchVerb = async (
 			// --force is the explicit operator decision (board force leg).
 			const rawReason = flag("--reason");
 			if (rawReason && !parseReclaimReason(rawReason))
-				die(`invalid --reason ${rawReason} — user | crash`);
+				die(`invalid --reason ${rawReason} — user | crash | rate-limited`);
 			const reclaimReason = parseReclaimReason(rawReason) ?? "user";
 			const verdict = probeClaim(db(), PROJECT, {
 				id,
@@ -1187,7 +1187,7 @@ const dispatchVerb = async (
 					revision: Number(it.updated_at),
 					lane: claimantLanes(process.cwd()).get(String(it.owner_sid ?? "")),
 				}).ok;
-			if (reclaimReason === "crash" && !crashGuard())
+			if (reclaimReason !== "user" && !crashGuard())
 				die(
 					`${id} automatic recovery refused — pause, wait, or death unverified`,
 				);
@@ -1196,7 +1196,8 @@ const dispatchVerb = async (
 					it,
 					"operator-reclaim",
 					"operator-reclaim",
-					reclaimReason === "crash" ? crashGuard : undefined,
+					reclaimReason !== "user" ? crashGuard : undefined,
+					reclaimReason,
 				)
 			)
 				die(`${id} claim changed — reclaim refused; inspect before retrying`);
