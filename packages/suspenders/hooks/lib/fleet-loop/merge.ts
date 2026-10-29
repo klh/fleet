@@ -42,6 +42,12 @@ import {
 import { guardedMerge } from "./merge-guard.ts";
 import { mergeHoldActive } from "./merge-hold.ts";
 import { reviewEvalsAfterMerge } from "./review-evals.ts";
+import {
+	candidatePaths,
+	classifyRiskTier,
+	emitRiskDecision,
+	type RiskClassification,
+} from "../gates/risk-tier.ts";
 import type { LoopDeps } from "./runtime.ts";
 
 // W1183: the ladder reports what ACTUALLY happened — never a count of
@@ -316,6 +322,54 @@ export function createMergeLadder(
 				branch: b,
 				outcome: "deferred",
 				why: `review required: ${review.why}`,
+			};
+		}
+		// W1303.5 risk tiers: the change sets the tier, not the author; blast
+		// radius sets the bar. Low merges after the machine receipt; medium/high
+		// defer with a deduped NEED_DECISION event instead of a silent guarded
+		// merge — agent approval never fills a human slot (how-to-review.md).
+		// SUSPENDERS_RISK_TIERS=0 is the operator escape hatch (manual merges).
+		let risk: RiskClassification;
+		try {
+			risk =
+				process.env.SUSPENDERS_RISK_TIERS === "0"
+					? { tier: "low", approvals: 0, reasons: [] }
+					: classifyRiskTier(candidatePaths(REPO, "HEAD", b));
+		} catch (error) {
+			log(
+				`MERGE-DEFER ${b} — risk tier unavailable: ${String(error).slice(0, 300)}`,
+			);
+			return {
+				branch: b,
+				outcome: "deferred",
+				why: "risk tier unavailable",
+			};
+		}
+		if (risk.approvals > 0) {
+			try {
+				const store = openStore();
+				try {
+					emitRiskDecision(
+						store,
+						projectIdentity(REPO),
+						claim.item,
+						REPO,
+						b,
+						risk,
+					);
+				} finally {
+					store.close();
+				}
+			} catch {
+				/* the RISK-DEFER log line is the durable record if the bus is down */
+			}
+			log(
+				`RISK-DEFER ${b} — ${risk.tier} tier needs ${risk.approvals} human approval(s): ${risk.reasons.join("; ")}`,
+			);
+			return {
+				branch: b,
+				outcome: "deferred",
+				why: `risk tier ${risk.tier} needs ${risk.approvals} human approval(s)`,
 			};
 		}
 		// liveness marker: a crash between --no-commit and commit leaves
