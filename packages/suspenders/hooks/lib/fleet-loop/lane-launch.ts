@@ -53,6 +53,7 @@ import {
 	starterStartLine,
 } from "../../../scripts/lib/lane-starter.ts";
 import {
+	activeRateLimitWalls,
 	launchFailBackoff,
 	launchLogSize,
 	parkExhaustedLaunch,
@@ -77,6 +78,15 @@ import {
 	resolveLaneExecutor,
 } from "../../../scripts/lib/launch-preflight.ts";
 import { plaidLaunchPreflight } from "../../../scripts/lib/plaid-launch.ts";
+// W2263: provider-neutral pool placement + fenced reservation — the
+// common launch path admission every dispatch rides.
+import { kevPlacement } from "./kev-placement.ts";
+import {
+	poolOccupancy,
+	recordPlacementReason,
+	resolveProviderPools,
+	reservePoolSlot,
+} from "./provider-pools.ts";
 import { rePinModelPick } from "../hub/model-health.ts";
 import type { PreferRouting } from "../../../scripts/lib/prefer-routing.ts";
 import { isResumableClaim } from "../../../scripts/lib/resumable-claim.ts";
@@ -527,6 +537,58 @@ export const dispatchLane = async (
 			const rePin = rePinModelPick(store, pick.model);
 			if (rePin.note) console.log(rePin.note);
 			if (rePin.model) pick = { ...pick, model: rePin.model };
+		}
+		// W2263 provider pools: placement sees the live occupancy/cooldown
+		// snapshot BEFORE the model is chosen; owner pins (dotfile
+		// must/prefer/can, --route) are never rerouted — a full pinned
+		// pool WAITs. Unlisted models ride no ceiling (opt-in pools).
+		const pools = resolveProviderPools(tryLoadStack());
+		if (Object.keys(pools).length > 0) {
+			// plaid's route pick already carries health evidence — treat it
+			// as pinned so placement gates/reserves but never reroutes it
+			const pinnedModel =
+				ROUTE ??
+				(pick.preference.source === "dotfile" || POSTURE === "plaid"
+					? laneModelOf(pick)
+					: null);
+			const { counts } = poolOccupancy(store, pools);
+			const walls = activeRateLimitWalls(store, project);
+			const placement = await kevPlacement({
+				pools,
+				counts,
+				cooling: quota,
+				walls,
+				pinnedModel,
+			});
+			if (!placement.ok) {
+				launchWaits.push(item);
+				console.log(`WAIT ${item} — ${placement.reason}`);
+				return null;
+			}
+			if (
+				placement.decision.via !== "pinned" &&
+				placement.decision.model !== pick.model
+			) {
+				console.log(
+					`NOTE — placement: ${pick.model ?? "(default ladder)"} → ${placement.decision.model} (${placement.decision.reason})`,
+				);
+				pick = { ...pick, model: placement.decision.model };
+			} else console.log(`NOTE — placement: ${placement.decision.reason}`);
+			recordPlacementReason(store, sid, placement.decision.reason);
+			// fenced reservation: the tx re-reads occupancy and stamps the
+			// slot — concurrent dispatchers cannot double-book a ceiling.
+			// A later launch failure leaves the slot to the 30-min window.
+			const slot = reservePoolSlot({
+				store,
+				pools,
+				sid,
+				model: laneModelOf(pick),
+			});
+			if (!slot.ok) {
+				launchWaits.push(item);
+				console.log(`WAIT ${item} — ${slot.reason}`);
+				return null;
+			}
 		}
 		const route = await routeAdmission.check(pick.model);
 		if (route.pause) {

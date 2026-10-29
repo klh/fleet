@@ -71,7 +71,7 @@ import {
 // block — the launchd plist hardcodes nothing. An explicit --every flag
 // stays a one-shot override that wins for this process.
 import { createLoopConfigWatch } from "../lib/fleet-loop/loop-config-watch.ts";
-import { STACK_PATH } from "../lib/stack-config.ts";
+import { effectiveDispatchTarget, STACK_PATH } from "../lib/stack-config.ts";
 
 const config = parseLoopConfig(process.argv.slice(2), import.meta.dir);
 const {
@@ -234,10 +234,13 @@ async function cycle(): Promise<void> {
 	// 3. refill the fleet — policy lives in the repo's dispatch script.
 	// W2242: a template without its own --target rides the central
 	// fleet_loop.lane_target (live hot-applied) — never a plist constant.
+	// W2263 (#89251): the effective target is min(lane_target,
+	// dispatch_target) — the loop may no longer bypass an operator's
+	// dispatch_target reduction by passing lane_target alone.
 	if (DISPATCH) {
 		const t = DISPATCH.includes("--target")
 			? DISPATCH
-			: `${DISPATCH} --target ${loopWatch.settings().laneTarget}`;
+			: `${DISPATCH} --target ${effectiveDispatchTarget(loopWatch.settings())}`;
 		runTemplate(t, "", LADDER_TIMEOUT_MS);
 	}
 

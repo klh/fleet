@@ -10,17 +10,21 @@ import { basename, join } from "node:path";
 import { z } from "zod";
 import type { GatewayPolicy } from "@klh/buckle/src/policy.ts";
 import { readJsonConfEither } from "./kernel-conf.ts";
+import { ProviderPoolsSchema } from "./fleet-loop/provider-pools.ts";
 import { PostureDocumentSchema } from "./posture/posture.zod.ts";
 
 /** W2242: the fleet-loop daemon block — lane target / dispatch target /
  *  cycle cadence / config poll interval. Every knob optional; the resolver
- *  (fleetLoopSettings) owns the defaults, never a plist. */
+ *  (fleetLoopSettings) owns the defaults, never a plist.
+ *  W2263: provider_pools declares provider-neutral per-pool capacity
+ *  (schema + reservation live in fleet-loop/provider-pools.ts). */
 export const FleetLoopConfigSchema = z
 	.object({
 		lane_target: z.number().int().positive().optional(),
 		dispatch_target: z.number().int().positive().optional(),
 		every_s: z.number().int().positive().optional(),
 		config_poll_s: z.number().int().positive().optional(),
+		provider_pools: ProviderPoolsSchema.optional(),
 	})
 	.loose();
 
@@ -399,19 +403,31 @@ export function stackConfIssues(conf: unknown = loadStack()): string[] {
 /** W2242 fleet-loop: resolve the daemon's targets + cadence from the
  *  machine conf's fleet_loop block over FLEET_LOOP_DEFAULTS — the ONE
  *  resolver (loop watcher and dispatch-next both read through it; the
- *  launchd plist hardcodes nothing). */
+ *  launchd plist hardcodes nothing).
+ *  W2263 (#89251 RCA): the fleet loop passes lane_target as dispatch
+ *  --target, so a lone dispatch_target reduction never bound the loop —
+ *  effectiveTarget is the min of both, the one number refill obeys. */
 export function fleetLoopSettings(
 	stack?: StackConfig | null,
 ): FleetLoopSettings {
 	const block = (stack === undefined ? tryLoadStack() : stack)?.fleet_loop;
+	const laneTarget = block?.lane_target ?? FLEET_LOOP_DEFAULTS.laneTarget;
+	const dispatchTarget =
+		block?.dispatch_target ?? FLEET_LOOP_DEFAULTS.dispatchTarget;
 	return {
-		laneTarget: block?.lane_target ?? FLEET_LOOP_DEFAULTS.laneTarget,
-		dispatchTarget:
-			block?.dispatch_target ?? FLEET_LOOP_DEFAULTS.dispatchTarget,
+		laneTarget,
+		dispatchTarget,
 		everyS: block?.every_s ?? FLEET_LOOP_DEFAULTS.everyS,
 		pollS: block?.config_poll_s ?? FLEET_LOOP_DEFAULTS.pollS,
 	};
 }
+
+/** W2263: the ONE effective refill target — min(lane_target,
+ *  dispatch_target). An operator reducing EITHER knob must bound the
+ *  loop (fleet-loop passes lane_target as --target; a lone
+ *  dispatch_target cut used to be silently bypassed). */
+export const effectiveDispatchTarget = (s: FleetLoopSettings): number =>
+	Math.min(s.laneTarget, s.dispatchTarget);
 
 /** W230 executors: the row for `id`, falling through to the `default` row
  *  when the id has none of its own. `id` omitted = the default row. */
