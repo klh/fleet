@@ -13,21 +13,21 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { chatGptSubscriptionRows } from "./chatgpt-subscription-rows.ts";
-import { openRouterFreeRows } from "./openrouter-free-rows.ts";
-import { chatEntries, ROUTER } from "./registry.ts";
-import { litellmRows } from "./registry-emit.ts";
-import { buildRemoteEntries } from "./remotes-validate.ts";
 import {
 	groupBasesFromModelList,
 	probeDeploymentHealth,
 	suppressUnreachableFallbacks,
 } from "./fallback-health.ts";
+import { openRouterFreeRows } from "./openrouter-free-rows.ts";
 import {
-	type ProviderEntry,
 	loadProviderProfiles,
+	type ProviderEntry,
 	profileForEndpoint,
 	profileForEnv,
 } from "./provider-profiles.ts";
+import { chatEntries, ROUTER } from "./registry.ts";
+import { litellmRows } from "./registry-emit.ts";
+import { buildRemoteEntries } from "./remotes-validate.ts";
 import {
 	emitClassTiers,
 	emitGeneralSettings,

@@ -1,9 +1,10 @@
 // W277 — litellm (:4100) joins the supervised set. Stub servers on free ports
 // only — never touches the live :4100 engine or the real key files.
-import { expect, test } from "@playwright/test";
+
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import {
 	DEFAULT_PATHS,
 	LITELLM_DOCS_OFF_ENV,
@@ -515,7 +516,13 @@ test.describe("supervision — stub litellm spawn/kill/respawn/backoff", () => {
 		const sup = new Supervisor([t], {
 			...files(),
 			...fast,
-			probe: async () => ({ tcp: true, http: healthy }),
+			// Wedged holder on the port: bound but not answering; killPort
+			// releases the listen socket (W1104.1 release-wait sees tcp=false)
+			// and the respawn binds it again — model all three phases.
+			probe: async () => ({
+				tcp: healthy || !killed.includes(port),
+				http: healthy,
+			}),
 			killPort: (p) => killed.push(p),
 		});
 		const done = start(sup);
