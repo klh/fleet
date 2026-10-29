@@ -192,10 +192,16 @@ function stripCas(h: KnowledgeHit): KnowledgeHit {
 	return out as KnowledgeHit;
 }
 
+// D1 (hub design): since the W166 split, facts_fts and consult_kb live in
+// governor.db while knowledge rows live in knowledge.db. `aux` is the
+// governor handle for legs 2-3; it defaults to `db` for a pre-split handle
+// that still holds every table. Without it the knowledge-only store's
+// facts/consult_kb legs hit "no such table" and were silently skipped.
 export function knowledgeSearch(
 	db: Database,
 	query: string,
 	filters: KnowledgeFilters = {},
+	aux: Database = db,
 ): KnowledgeHit[] {
 	const match = ftsTerms(query);
 	if (!match) return [];
@@ -284,7 +290,7 @@ export function knowledgeSearch(
 	if (auxEligible) {
 		try {
 			out.push(
-				...db
+				...aux
 					.query(
 						`SELECT f.key, f.ts, f.confidence,
 	snippet(facts_fts, 0, '[', ']', '…', 12) AS snip
@@ -324,7 +330,7 @@ export function knowledgeSearch(
 	if (consultEligible) {
 		try {
 			out.push(
-				...db
+				...aux
 					.query(
 						`SELECT k.id, k.problem, k.solution, k.created_at AS ts, k.confidence,
 	snippet(consult_kb_fts, 0, '[', ']', '…', 12) AS snip
