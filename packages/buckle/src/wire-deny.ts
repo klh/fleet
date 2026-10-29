@@ -4,7 +4,7 @@
 import type { AppDeps } from "./app-deps.ts";
 import { errorResponse } from "./error-response.ts";
 import { hopKindOf } from "./hop.ts";
-import { observe, type Ctx } from "./request-context.ts";
+import { type Ctx, observe } from "./request-context.ts";
 import { stamped } from "./wire-stamp.ts";
 
 /** A refusal at the wire seam (bad hint, bad body): the denied audit row
@@ -16,6 +16,7 @@ export function deny(
 	why: string,
 	code: string | null,
 	decision: "denied" | "errored",
+	provider?: string | null,
 ): Response {
 	deps.ledger.auditDecision({
 		rid: ctx.rid,
@@ -52,7 +53,7 @@ export function deny(
 			"Proxy refusals by origin and HTTP status.",
 		)
 		.inc({ source: "buckle", status: String(status) });
-	return auditAndStamp(deps, ctx, status, why, code, decision);
+	return auditAndStamp(deps, ctx, status, why, code, decision, provider);
 }
 
 /** Outcome row + dialect envelope + stamped headers for a refusal. */
@@ -63,6 +64,7 @@ function auditAndStamp(
 	why: string,
 	code: string | null,
 	decision: "denied" | "errored",
+	provider?: string | null,
 ): Response {
 	deps.ledger.auditOutcome(ctx.rid, {
 		status,
@@ -70,6 +72,6 @@ function auditAndStamp(
 		ok: false,
 		err: why,
 	});
-	const resp = errorResponse(status, why, code);
+	const resp = errorResponse(status, why, code, provider);
 	return stamped(resp, ctx, { decision, code, refusal: "buckle", attempts: 0 });
 }

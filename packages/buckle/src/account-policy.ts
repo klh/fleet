@@ -23,12 +23,13 @@
 // installer mints per-tool keys (name = tool or lane sid) and binds the
 // class in this table; disabling the boundary = removing the file / unsetting
 // the env (the simple disable the installer surfaces).
-import { existsSync, readFileSync } from "node:fs";
+
 import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { YAML } from "bun";
-import { hintFit, hintTotal, type RouteHint } from "./hints.ts";
 import type { CandidateRow } from "./candidates.ts";
 import type { RouteSelection } from "./decide.ts";
+import { hintFit, hintTotal, type RouteHint } from "./hints.ts";
 
 /** One repo class: the tier + the compatible upstream set. */
 export interface AccountClass {
@@ -46,14 +47,14 @@ export interface AccountClass {
 	 *  verified x-klh-repo claim MANDATORY (missing claim = refusal). */
 	general?: boolean;
 	/** Provider globs this class must never reach (matched against the
-	 *  deployment adapter AND the URL host). The general default denies the
+	 *  configured provider, deployment adapter, AND URL host). The general default denies the
 	 *  enterprise adapter — no IKEA/personal crossover on general traffic. */
 	denyProviders?: string[];
 	/** Repo/workspace root globs the class covers — the verified identity.
 	 *  A client claim must match one; absent = the key binding stands alone. */
 	repos?: string[];
-	/** Provider globs (matched against the deployment adapter name AND the
-	 *  URL host). Absent = unrestricted on this axis. */
+	/** Provider globs (matched against the explicit deployment provider,
+	 *  falling back to the adapter for legacy rows). Absent = unrestricted. */
 	providers?: string[];
 	/** Model group globs (the wire id clients send). Absent = unrestricted. */
 	groups?: string[];
@@ -358,14 +359,18 @@ export function scopeSelection(
  *  class provider globs (adapter OR host), the class group globs. */
 function rowInScope(row: CandidateRow, acct: AcctContext): boolean {
 	const host = hostOf(row);
-	if (acct.pin !== null && !pinMatches(row.dep.adapter, host, acct.pin))
+	if (
+		acct.pin !== null &&
+		!pinMatches(row.dep.provider, row.dep.adapter, host, acct.pin)
+	)
 		return false;
-	// Allowlist = ADAPTER axis only (W1265.2): a loopback host must never
-	// smuggle an enterprise row past a personal allowlist — unknown adapter
-	// rows refuse. The deny axis stays broad (adapter OR host).
+	// Allowlist = configured provider identity, or the adapter on legacy rows.
+	// The URL host cannot admit a row across the account boundary.
 	if (
 		acct.allowedHosts !== null &&
-		!acct.allowedHosts.some((g) => globMatch(g, row.dep.adapter ?? "", true))
+		!acct.allowedHosts.some((g) =>
+			globMatch(g, row.dep.provider ?? row.dep.adapter ?? "", true),
+		)
 	)
 		return false;
 	// W1265.2 deny axis: the class must never reach these providers (the
@@ -373,7 +378,9 @@ function rowInScope(row: CandidateRow, acct: AcctContext): boolean {
 	if (
 		acct.deniedHosts?.some(
 			(g) =>
-				globMatch(g, row.dep.adapter ?? "", true) || globMatch(g, host, true),
+				globMatch(g, row.dep.provider ?? "", true) ||
+				globMatch(g, row.dep.adapter ?? "", true) ||
+				globMatch(g, host, true),
 		)
 	)
 		return false;
@@ -385,13 +392,16 @@ function rowInScope(row: CandidateRow, acct: AcctContext): boolean {
 	return true;
 }
 
-/** The /zai pin: adapter named zai, or the host carries it. */
+/** The /zai pin: explicit provider, legacy adapter, or URL host. */
 function pinMatches(
+	provider: string | undefined,
 	adapter: string | undefined,
 	host: string,
 	pin: string,
 ): boolean {
-	return adapter === pin || globMatch(`*${pin}*`, host, true);
+	return (
+		provider === pin || adapter === pin || globMatch(`*${pin}*`, host, true)
+	);
 }
 
 /** W1265.2 discovery binding (GET/HEAD /v1/models): resolveClass's key→class
@@ -406,28 +416,55 @@ export function discoveryFilter(
 		claimRepo: string | null;
 		lane: string | null;
 	},
-): { ok: true; groups: string[] | null } | { ok: false; status: 403; code: string; why: string } {
+):
+	| { ok: true; groups: string[] | null }
+	| { ok: false; status: 403; code: string; why: string } {
 	if (doc === null || doc === undefined) return { ok: true, groups: null };
 	if (input.kind === "root") return { ok: true, groups: null };
 	const key = input.keyName;
 	if (key === null)
-		return { ok: false, status: 403, code: "buckle.repo_unknown", why: "key (unnamed) binds no repo class — refused before listing" };
+		return {
+			ok: false,
+			status: 403,
+			code: "buckle.repo_unknown",
+			why: "key (unnamed) binds no repo class — refused before listing",
+		};
 	const hit = classFor(doc, key);
 	if (hit === null)
-		return { ok: false, status: 403, code: "buckle.repo_unknown", why: `key '${key.slice(0, 48)}' binds no repo class — refused before listing` };
+		return {
+			ok: false,
+			status: 403,
+			code: "buckle.repo_unknown",
+			why: `key '${key.slice(0, 48)}' binds no repo class — refused before listing`,
+		};
 	if (input.lane !== null && input.lane !== "" && input.lane !== key)
-		return { ok: false, status: 403, code: "buckle.lane_bind_mismatch", why: `lane slug '${input.lane.slice(0, 64)}' does not match the authenticated session key — refused before listing` };
+		return {
+			ok: false,
+			status: 403,
+			code: "buckle.lane_bind_mismatch",
+			why: `lane slug '${input.lane.slice(0, 64)}' does not match the authenticated session key — refused before listing`,
+		};
 	if (
 		hit.cls.general !== true &&
 		(hit.cls.repos ?? []).length > 0 &&
 		input.claimRepo === null
 	)
-		return { ok: false, status: 403, code: "buckle.repo_unverified", why: `class '${hit.cls.id}' is repo-bound — a verified x-klh-repo claim is required before listing` };
+		return {
+			ok: false,
+			status: 403,
+			code: "buckle.repo_unverified",
+			why: `class '${hit.cls.id}' is repo-bound — a verified x-klh-repo claim is required before listing`,
+		};
 	if (
 		input.claimRepo !== null &&
 		!(hit.cls.repos ?? []).some((p) => globMatch(p, input.claimRepo))
 	)
-		return { ok: false, status: 403, code: "buckle.repo_claim_mismatch", why: "x-klh-repo claim does not match the key's bound repo class — refused (spoofed or stale claim)" };
+		return {
+			ok: false,
+			status: 403,
+			code: "buckle.repo_claim_mismatch",
+			why: "x-klh-repo claim does not match the key's bound repo class — refused (spoofed or stale claim)",
+		};
 	return { ok: true, groups: hit.cls.groups ?? null };
 }
 
@@ -439,7 +476,10 @@ export function discoveryFilter(
  *  candidate. must= needs no pass: its ordered holds full fits only, so the
  *  scope filter preserves must semantics (unsatisfiable = scoped-to-zero
  *  refusal, zero outbound). */
-export function preferAfterScope(sel: RouteSelection, hint: RouteHint | null): RouteSelection {
+export function preferAfterScope(
+	sel: RouteSelection,
+	hint: RouteHint | null,
+): RouteSelection {
 	if (sel.accountScoped !== true || hint === null || sel.verb !== "prefer")
 		return sel;
 	const head = sel.ordered[0];
@@ -464,8 +504,8 @@ export function preferAfterScope(sel: RouteSelection, hint: RouteHint | null): R
 }
 
 /** The W1265.2 mandatory default: absent operator config still gives a
- *  SAFE explicit general-work class — any NAMED key rides the personal/
- *  local ALLOWLIST only (zai, openrouter, loopback/.local swarm rows);
+ *  SAFE explicit general-work class — any NAMED key rides the personal
+ *  provider ALLOWLIST only (zai, openrouter);
  *  unknown and enterprise rows refuse. Anonymous traffic refuses. Never a
  *  silent inert posture. */
 export function defaultAccountPolicy(): {

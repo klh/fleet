@@ -1,21 +1,26 @@
 // src/proxy-ingress.ts — the proxy ingress: request context, body read,
 // wire aids, account-policy verdict, routing decision + entitlement scope.
 
+import { rungIdOf } from "@klh/telemetry/src/hop-contract.ts";
+import {
+	PREFER_HEADER,
+	parsePreferHeader,
+} from "@klh/telemetry/src/prefer-header.ts";
 import {
 	applyAccountPolicy,
 	preferAfterScope,
 	REPO_CLAIM_HEADER,
 	scopeSelection,
 } from "./account-policy.ts";
-import { applyWireAids } from "./aids-routes.ts";
 import { affKeyOf } from "./affinity.ts";
+import { applyWireAids } from "./aids-routes.ts";
+import type { AppDeps } from "./app-deps.ts";
 import { scoreComplexity, textFromMessages } from "./complexity.ts";
 import { principalOf } from "./gov/federation.ts";
 import { beginInflight } from "./gov/inflight.ts";
 import { hintFromHeaders } from "./hints.ts";
 import { hopFromBaggage, laneFromBaggage } from "./hop.ts";
 import { admitHopContract, HOP_CONTRACT_HEADER } from "./hop-deadline.ts";
-import { rungIdOf } from "@klh/telemetry/src/hop-contract.ts";
 import {
 	INGRESS_BODY_TIMEOUT_MS,
 	IngressBodyError,
@@ -23,20 +28,15 @@ import {
 	readIngressJson,
 } from "./ingress-body.ts";
 import { keyIdFromToken, tokenFromHeaders } from "./ledger.ts";
-import { newRid, observe, trafficKindOf, type Ctx } from "./request-context.ts";
-import { deny } from "./wire-deny.ts";
 import { runExecute } from "./proxy-execute.ts";
-import {
-	PREFER_HEADER,
-	parsePreferHeader,
-} from "@klh/telemetry/src/prefer-header.ts";
+import { type Ctx, newRid, observe, trafficKindOf } from "./request-context.ts";
 import {
 	allowlistedBaggage,
 	newTraceparent,
 	parseTraceparent,
 } from "./trace.ts";
 import type { Dialect } from "./upstreams.ts";
-import type { AppDeps } from "./app-deps.ts";
+import { deny } from "./wire-deny.ts";
 
 export async function proxy(
 	req: Request,
@@ -221,7 +221,15 @@ export async function proxy(
 	// boundary). Scoped to zero = typed refusal, zero outbound.
 	const scoped = scopeSelection(sel.sel, ctx.acct);
 	if (!scoped.ok)
-		return deny(deps, ctx, scoped.status, scoped.why, scoped.code, "errored");
+		return deny(
+			deps,
+			ctx,
+			scoped.status,
+			scoped.why,
+			scoped.code,
+			"errored",
+			sel.sel.head.dep.provider,
+		);
 	ctx.sel = preferAfterScope(scoped.sel, ctx.hint);
 	return runExecute(req, ctx, path, body, deps);
 }
