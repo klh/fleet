@@ -95,6 +95,26 @@ test.describe("remaining Buckle error boundaries @api", () => {
 		});
 	});
 
+	test("event:error with a ping-shaped payload remains a traced error", async () => {
+		const frame = 'event: error\ndata: {"type":"ping","message":"busy"}\n\n';
+		const sniffer = new SseSniffer("anthropic");
+		sniffer.push(frame);
+		expect(sniffer.failureKind()).toBe("in_band");
+		const out = await reframe(
+			frame,
+			"anthropic",
+			new Response(null),
+			"hub-ping-error",
+		);
+		expect(out).toContain("event: error");
+		expect(
+			JSON.parse(out.split("data: ")[1]?.split("\n")[0] ?? ""),
+		).toMatchObject({
+			trace_id: TRACE_ID,
+			fleet_trace: { hops: [{ hub: "hub-ping-error", code: "stream_error" }] },
+		});
+	});
+
 	test("malformed event:error becomes a traced typed error", async () => {
 		const out = await reframe(
 			"event: error\ndata: not-json\n\n",
