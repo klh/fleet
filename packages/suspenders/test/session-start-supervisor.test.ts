@@ -193,6 +193,7 @@ describe("supervisor-default directive (W637)", () => {
 				".claude-insights",
 				`coord-subscribe-${PARENT}.log`,
 			);
+			mkdirSync(join(HOME, ".claude-insights"), { recursive: true });
 			appendFileSync(log, "#1 work.shattered WSPLIT\n");
 			const prompt = runPush(repo, "true");
 			expect(prompt.out).toContain("SUPERVISOR DEFAULT: READY 2 > 0");

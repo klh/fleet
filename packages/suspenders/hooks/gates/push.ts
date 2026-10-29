@@ -10,9 +10,17 @@
 // the next fire — advance past SHOWN only, the cmdWait cursor precedent.
 // Silent when nothing new. Advisory law: any failure stays silent (allow),
 // it never blocks the tool that just ran.
-import { existsSync, fstatSync, openSync, readSync, closeSync } from "node:fs";
+import {
+	closeSync,
+	existsSync,
+	fstatSync,
+	openSync,
+	readSync,
+	statSync,
+} from "node:fs";
 import { allow, context, deny, type HookInput } from "../lib/hookio.ts";
 import {
+	MACHINE_ALL_LOG_ID,
 	coordSubscribeLog,
 	hookLaneId,
 } from "../lib/lanes/subscribe-attach.ts";
@@ -83,12 +91,34 @@ export function pushedContext(hook: HookInput): string {
 	if (process.env.SUSPENDERS_PUSH_TAIL === "0") return "";
 	const laneId = hookLaneId(hook);
 	if (!laneId) return "";
+	return [ownTail(laneId), sharedTail(laneId)].filter(Boolean).join("\n");
+}
+
+function ownTail(laneId: string): string {
 	const log = coordSubscribeLog(laneId);
 	if (!existsSync(log)) return "";
 	const stateFile = sessionStatePath("subtail", laneId);
 	const prev = readSessionState<{ off: number }>(stateFile)?.off ?? 0;
 	const r = tailSubscribeLog(log, prev);
 	if (r.newOffset !== prev) writeSessionState(stateFile, { off: r.newOffset });
+	return r.text;
+}
+
+// hub-of-one phase 5: untargeted events ride ONE machine-wide log. A lane's
+// first read starts at the current end — a new session never replays the
+// machine's history (the per-session log was born empty for the same reason)
+function sharedTail(laneId: string): string {
+	const log = coordSubscribeLog(MACHINE_ALL_LOG_ID);
+	if (!existsSync(log)) return "";
+	const stateFile = sessionStatePath("subtail-all", laneId);
+	const saved = readSessionState<{ off: number }>(stateFile);
+	if (!saved) {
+		writeSessionState(stateFile, { off: statSync(log).size });
+		return "";
+	}
+	const r = tailSubscribeLog(log, saved.off);
+	if (r.newOffset !== saved.off)
+		writeSessionState(stateFile, { off: r.newOffset });
 	return r.text;
 }
 

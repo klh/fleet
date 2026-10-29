@@ -42,6 +42,24 @@ export const coordCliPath = (): string => {
 export const coordSubscribeLog = (sid: string): string =>
 	`${process.env.HOME}/.claude-insights/coord-subscribe-${sid}.log`;
 
+// hub-of-one phase 5: untargeted events land ONCE in this shared log (the
+// machine subscriber); the push gate tails it beside each session's own
+export const MACHINE_ALL_LOG_ID = "_all";
+
+// `machine` (default): one `coord subscribe --machine` per machine fans out
+// to per-session logs. `session`: the legacy one-socket-per-session shape
+// (SUSPENDERS_SUBSCRIBE_MODE=session is the escape hatch).
+export const subscribeMode = (): "machine" | "session" =>
+	process.env.SUSPENDERS_SUBSCRIBE_MODE === "session" ? "session" : "machine";
+
+// a native subagent shares its parent's conversation: it never opens a
+// socket of its own (directed events still reach it via the lane inbox drain)
+export const isSubagentLane = (sid: string): boolean => sid.includes("#agent-");
+
+const MACHINE_PATTERN = "coord[.]ts subscribe --machine$";
+export const machineSubscribeLive = (): boolean =>
+	Bun.spawnSync(["/usr/bin/pgrep", "-f", MACHINE_PATTERN]).exitCode === 0;
+
 // Claude Code subagents share the parent's session_id; session-start
 // registers (and attaches their subscribe under) `<sid>#<agent>` — the lane
 // id every subscribe-log consumer must derive the same way. Shared by
@@ -75,14 +93,21 @@ export const attachSubscribe = (
 	sid: string,
 	opts: { coord?: string } = {},
 ): boolean => {
-	if (subscribeLive(sid)) return false;
+	if (isSubagentLane(sid)) return false;
+	const machine = subscribeMode() === "machine";
+	if (machine ? machineSubscribeLive() : subscribeLive(sid)) return false;
 	const coord = opts.coord ?? coordCliPath();
 	if (!existsSync(coord)) return false;
-	const log = coordSubscribeLog(sid);
+	// machine mode: the subscriber's own stdout/stderr go to a machine log;
+	// event lines are appended per target by the subscriber itself
+	const log = coordSubscribeLog(machine ? "_machine" : sid);
+	const args = machine
+		? [coord, "subscribe", "--machine"]
+		: [coord, "subscribe", "--as", sid];
 	mkdirSync(dirname(log), { recursive: true });
 	const fd = openSync(log, "a", 0o600);
 	try {
-		const child = spawn(process.execPath, [coord, "subscribe", "--as", sid], {
+		const child = spawn(process.execPath, args, {
 			cwd: "/",
 			detached: true,
 			stdio: ["ignore", fd, fd],
