@@ -14,6 +14,7 @@ import type { GatewayPolicy, Prefs } from "../src/policy.ts";
 import { Preseeder } from "../src/preseed.ts";
 import { Router } from "../src/router.ts";
 import { servicemon } from "../src/servicemon.ts";
+import type { SystemOneConfig } from "../src/systemone.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
 
 export function testDeps(
@@ -23,6 +24,7 @@ export function testDeps(
 		prefs?: Prefs;
 		sleepMs?: (ms: number) => Promise<void>;
 		accountPolicy?: AccountPolicyDoc | null;
+		systemonePolicy?: SystemOneConfig;
 	},
 ): AppDeps {
 	const policy: GatewayPolicy = opts?.policy ?? {
@@ -78,5 +80,6 @@ export function testDeps(
 		decide,
 		table,
 		accountPolicy: opts?.accountPolicy,
+		systemonePolicy: opts?.systemonePolicy,
 	};
 }

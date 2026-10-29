@@ -396,6 +396,9 @@ export function buildDeps(
 		observations,
 		ingressBodyTimeoutMs: opts.ingressBodyTimeoutMs,
 		hubId: process.env.BUCKLE_HUB_ID ?? "local",
+		// W1120: the SystemOne ingress target (gateway.systemone). Absent
+		// block = the route fails closed at request time.
+		systemonePolicy: policy.systemone,
 	};
 }
 
