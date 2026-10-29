@@ -156,6 +156,15 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		cwd: (repo) => repo,
 	},
 	{
+		// W2239.3: one provider-agnostic release check for every configured
+		// hub. Manual mode raises one decision per tag; latest mode runs the
+		// guarded all-hub update and rolls back on a failed health verdict.
+		name: "hub-update",
+		everySeconds: 120,
+		timeoutMs: 1_200_000,
+		argv: (root) => [join(root, "deploy/hub-update.ts"), "reconcile"],
+	},
+	{
 		name: "soak",
 		calendar: { hour: 3, minute: 15 },
 		nice: 10,
