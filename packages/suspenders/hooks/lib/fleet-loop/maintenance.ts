@@ -61,22 +61,6 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		argv: (root) => [join(root, "hooks/bin/db-backup.ts")],
 	},
 	{
-		// W2274: governor.db retention — events/audit/usage archive-and-prune
-		// plus the deltas ring. Nothing scheduled gc before, so the db grew
-		// unbounded (980 MB, deltas 596 MB). Window knob: SUSPENDERS_GC_DAYS.
-		name: "governor-gc",
-		calendar: { hour: 4, minute: 10 },
-		nice: 10,
-		timeoutMs: 600_000,
-		argv: (root) => [
-			join(root, "hooks/bin/coord.ts"),
-			"gc",
-			...(process.env.SUSPENDERS_GC_DAYS
-				? ["--days", process.env.SUSPENDERS_GC_DAYS]
-				: []),
-		],
-	},
-	{
 		name: "harvest",
 		everySeconds: 900,
 		timeoutMs: 240_000,
@@ -463,7 +447,14 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		calendar: { hour: 4, minute: 0 },
 		nice: 10,
 		timeoutMs: 600_000,
-		argv: (root) => [join(root, "hooks/bin/coord.ts"), "gc", "--vacuum"],
+		argv: (root) => [
+			join(root, "hooks/bin/coord.ts"),
+			"gc",
+			"--vacuum",
+			...(process.env.SUSPENDERS_GC_DAYS
+				? ["--days", process.env.SUSPENDERS_GC_DAYS]
+				: []),
+		],
 	},
 	{
 		// W2194: the hub model-health sweep — every configured hub + the local
