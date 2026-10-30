@@ -22,311 +22,362 @@ import {
 import { classifyPrune, registryMain } from "../scripts/lib/registry-cli.ts";
 import type { Lane } from "../hooks/lib/lanes/lane.ts";
 test.describe("@unit", () => {
+	test.setTimeout(30_000);
 
-test.setTimeout(30_000);
-
-const roots: string[] = [];
-const fleetOf = (): string => {
-	const root = mkdtempSync(join(tmpdir(), "w636-registry-"));
-	roots.push(root);
-	return join(root, ".fleet");
-};
-
-const row = (sid: string, over: Partial<Lane> = {}): Lane => ({
-	sid,
-	item: "W636",
-	pid: 0,
-	branch: "suspenders/W636",
-	worktree: "/unused",
-	launchedAt: 1,
-	...over,
-});
-
-const capture = async (
-	fn: () => number | Promise<number>,
-): Promise<{ lines: string[]; code: number }> => {
-	const buf: string[] = [];
-	const orig = console.log;
-	console.log = (...a: unknown[]) => buf.push(a.join(" "));
-	try {
-		const code = await fn();
-		return { lines: buf, code };
-	} finally {
-		console.log = orig;
-	}
-};
-
-test.describe("classifyPrune", () => {
-	test("dead prunes, live/unknown refuse, absent no-ops", () => {
-		const now = Date.now();
-		const verdicts = new Map([
-			["d", "dead"],
-			["l", "alive"],
-			["u", "unknown"],
-		] as const);
-		const plan = classifyPrune(
-			[
-				row("d"),
-				row("l"),
-				row("u", { launchedAt: now }),
-				row("u-aged", { launchedAt: 1 }),
-			],
-			["d", "l", "u", "u-aged", "gone"],
-			(l) => verdicts.get(l.sid) ?? "unknown",
-		);
-		expect(plan.get("d")?.class).toBe("prunable");
-		expect(plan.get("d")?.warrant).toBe("dead");
-		expect(plan.get("l")?.class).toBe("refused-live");
-		expect(plan.get("u")?.class).toBe("refused-unknown");
-		expect(plan.get("u-aged")?.class).toBe("prunable");
-		expect(plan.get("u-aged")?.warrant).toBe("age-trusted");
-		expect(plan.get("gone")?.class).toBe("absent");
-	});
-
-	test("age trust needs pid-less AND >24h — age alone never prunes", () => {
-		const now = Date.now();
-		const verdictOf = (): "unknown" => "unknown";
-		const plan = classifyPrune(
-			[
-				row("aged-pidless", { launchedAt: 1 }),
-				row("young-pidless", { launchedAt: now }),
-				row("aged-pid", { launchedAt: 1, pid: 42 }),
-			],
-			["aged-pidless", "young-pidless", "aged-pid"],
-			verdictOf,
-			now,
-			() => true,
-		);
-		expect(plan.get("aged-pidless")?.class).toBe("prunable");
-		expect(plan.get("aged-pidless")?.warrant).toBe("age-trusted");
-		expect(plan.get("young-pidless")?.class).toBe("refused-unknown");
-		// a recorded pid means the probe may still find the process — protected
-		expect(plan.get("aged-pid")?.class).toBe("refused-unknown");
-	});
-
-	test("W777 pid-dead warrant: unknown + probed-dead pid + lease → prunable", () => {
-		const now = Date.now();
-		const verdictOf = (): "unknown" => "unknown";
-		const probes = new Map<number, boolean | undefined>([
-			[42, false], // probed dead (ESRCH)
-			[43, true], // recycled pid reads alive — protected
-			[44, undefined], // unprobeable — protected
-		]);
-		const plan = classifyPrune(
-			[
-				row("pd", { launchedAt: 1, pid: 42 }),
-				row("pa", { launchedAt: 1, pid: 43 }),
-				row("pu", { launchedAt: 1, pid: 44 }),
-				row("py", { launchedAt: now, pid: 42 }),
-			],
-			["pd", "pa", "pu", "py"],
-			verdictOf,
-			now,
-			(pid) => probes.get(pid),
-		);
-		expect(plan.get("pd")?.class).toBe("prunable");
-		expect(plan.get("pd")?.warrant).toBe("pid-dead");
-		expect(plan.get("pa")?.class).toBe("refused-unknown");
-		expect(plan.get("pu")?.class).toBe("refused-unknown");
-		expect(plan.get("py")?.class).toBe("refused-unknown");
-	});
-});
-
-test.describe("pruneLaneRegistry", () => {
-	test("removes only guard-passing requested sids, keeps the rest", () => {
-		const fleet = fleetOf();
-		mergeLaneRegistry(fleet, [row("keep-a"), row("drop-b"), row("keep-c")]);
-		const result = pruneLaneRegistry<Lane>(
-			fleet,
-			["drop-b", "nope"],
-			(r) => r.sid === "drop-b",
-		);
-		expect(result.removed.map((r) => r.sid)).toEqual(["drop-b"]);
-		expect(readLaneRegistry<Lane>(fleet).lanes.map((r) => r.sid)).toEqual([
-			"keep-a",
-			"keep-c",
-		]);
-	});
-
-	test("guard refusal, empty request and absent registry are safe no-ops", () => {
-		const fleet = fleetOf();
-		mergeLaneRegistry(fleet, [row("a"), row("b")]);
-		const before = readFileSync(join(fleet, "lanes.json"), "utf8");
-		expect(
-			pruneLaneRegistry<Lane>(fleet, ["a"], () => false).removed,
-		).toHaveLength(0);
-		expect(pruneLaneRegistry<Lane>(fleet, [], () => true).removed).toHaveLength(
-			0,
-		);
-		expect(readFileSync(join(fleet, "lanes.json"), "utf8")).toBe(before);
-		expect(
-			pruneLaneRegistry<Lane>(fleetOf(), ["x"], () => true).removed,
-		).toHaveLength(0);
-	});
-
-	test("refuses a corrupt registry", () => {
-		const fleet = fleetOf();
-		mkdirSync(fleet, { recursive: true });
-		writeFileSync(join(fleet, "lanes.json"), "truncated {");
-		expect(() => pruneLaneRegistry<Lane>(fleet, ["a"], () => true)).toThrow(
-			"unreadable",
-		);
-	});
-});
-
-test.describe("registry CLI (real liveness verdict)", () => {
-	test("prunes a provably-dead pid-less entry on this host", async () => {
-		const fleet = fleetOf();
-		const sid = `autow636-dead-${Math.random().toString(36).slice(2, 8)}`;
-		mergeLaneRegistry(fleet, [row(sid), row("stayer")]);
-		const out = await capture(() =>
-			registryMain(["prune", "--sid", sid, "stayer"], { fleet }),
-		);
-		expect(out.lines.join("\n")).toContain(
-			`PRUNED ${sid} — dead lane entry (item W636)`,
-		);
-		const left = readLaneRegistry<Lane>(fleet).lanes.map((r) => r.sid);
-		expect(left).toEqual(["stayer"]);
-	});
-
-	test("retains a young foreign-host entry: exit 1, unknown, row untouched", async () => {
-		const fleet = fleetOf();
-		const sid = `autow636-remote-${Math.random().toString(36).slice(2, 8)}`;
-		mergeLaneRegistry(fleet, [
-			row(sid, { host: "elsewhere.example", launchedAt: Date.now() }),
-		]);
-		const r = await capture(() =>
-			registryMain(["prune", "--sid", sid], { fleet }),
-		);
-		expect(r.code).toBe(1);
-		expect(r.lines.join("\n")).toContain(
-			`RETAINED ${sid} — unknown liveness (probe uncertain; never force-pruned)`,
-		);
-		expect(readLaneRegistry<Lane>(fleet).lanes).toHaveLength(1);
-	});
-
-	test("prunes an aged pid-less foreign entry on the age-trust warrant", async () => {
-		const fleet = fleetOf();
-		const sid = `autow636-aged-${Math.random().toString(36).slice(2, 8)}`;
-		mergeLaneRegistry(fleet, [
-			row(sid, { host: "elsewhere.example", launchedAt: 1 }),
-		]);
-		const out = await capture(() =>
-			registryMain(["prune", "--sid", sid], { fleet }),
-		);
-		expect(out.lines.join("\n")).toContain(
-			`PRUNED ${sid} — age-trusted unknown: no pid ever recorded, >24h (item W636)`,
-		);
-		expect(out.code).toBe(0);
-		expect(readLaneRegistry<Lane>(fleet).lanes).toHaveLength(0);
-	});
-
-	test("prunes a foreign-host row whose recorded pid probes dead (W777)", async () => {
-		const fleet = fleetOf();
-		const sid = `autow777-remote-${Math.random().toString(36).slice(2, 8)}`;
-		const dead = Bun.spawnSync(["sleep", "0"]).pid;
-		mergeLaneRegistry(fleet, [
-			row(sid, { host: "elsewhere.example", launchedAt: 1, pid: dead }),
-		]);
-		const out = await capture(() =>
-			registryMain(["prune", "--sid", sid], { fleet }),
-		);
-		expect(out.lines.join("\n")).toContain(
-			`PRUNED ${sid} — recorded pid probed dead, past reclaim lease (item W636)`,
-		);
-		expect(out.code).toBe(0);
-		expect(readLaneRegistry<Lane>(fleet).lanes).toHaveLength(0);
-	});
-
-	test("retains a foreign-host row whose recorded pid probes alive", async () => {
-		const fleet = fleetOf();
-		const sid = `autow777-live-${Math.random().toString(36).slice(2, 8)}`;
-		mergeLaneRegistry(fleet, [
-			row(sid, { host: "elsewhere.example", launchedAt: 1, pid: process.pid }),
-		]);
-		const r = await capture(() =>
-			registryMain(["prune", "--sid", sid], { fleet }),
-		);
-		expect(r.code).toBe(1);
-		expect(r.lines.join("\n")).toContain(
-			`RETAINED ${sid} — unknown liveness (probe uncertain; never force-pruned)`,
-		);
-		expect(readLaneRegistry<Lane>(fleet).lanes).toHaveLength(1);
-	});
-
-	test("dry-run reports without writing; forget is a prune alias", async () => {
-		const fleet = fleetOf();
-		const sid = `autow636-dry-${Math.random().toString(36).slice(2, 8)}`;
-		mergeLaneRegistry(fleet, [row(sid)]);
-		const dry = await capture(() =>
-			registryMain(["prune", "--sid", sid, "--dry-run"], { fleet }),
-		);
-		expect(dry.code).toBe(0);
-		expect(dry.lines.join("\n")).toContain(`WOULD PRUNE ${sid} — prunable`);
-		expect(readLaneRegistry<Lane>(fleet).lanes).toHaveLength(1);
-		const gone = await capture(() =>
-			registryMain(["forget", "--sid", sid], { fleet }),
-		);
-		expect(gone.code).toBe(0);
-		expect(readLaneRegistry<Lane>(fleet).lanes).toHaveLength(0);
-	});
-
-	test("list --json prints entries with verdicts", async () => {
-		const fleet = fleetOf();
-		mergeLaneRegistry(fleet, [row("lst-1")]);
-		const r = await capture(() => registryMain(["list", "--json"], { fleet }));
-		expect(r.code).toBe(0);
-		const parsed = JSON.parse(r.lines[0]) as Array<{
-			sid: string;
-			verdict: string;
-		}>;
-		expect(parsed.map((x) => x.sid)).toEqual(["lst-1"]);
-		expect(parsed[0].verdict).toBe("dead");
-	});
-
-	test("usage verbs exit 2; NO ENTRY is a clean no-op", async () => {
-		const fleet = fleetOf();
-		expect((await capture(() => registryMain([], { fleet }))).code).toBe(2);
-		expect((await capture(() => registryMain(["bogus"], { fleet }))).code).toBe(
-			2,
-		);
-		const miss = await capture(() =>
-			registryMain(["prune", "--sid", "ghost"], { fleet }),
-		);
-		expect(miss.code).toBe(0);
-		expect(miss.lines.join("\n")).toContain("NO ENTRY ghost");
-	});
-});
-
-test.describe("router wiring", () => {
-	test("dispatch-next.ts registry prune runs the verb end to end", () => {
-		const root = mkdtempSync(join(tmpdir(), "w636-router-"));
+	const roots: string[] = [];
+	const fleetOf = (): string => {
+		const root = mkdtempSync(join(tmpdir(), "w636-registry-"));
 		roots.push(root);
-		const fleet = join(root, ".fleet");
-		const sid = `autow636-spawn-${Math.random().toString(36).slice(2, 8)}`;
-		mergeLaneRegistry(fleet, [row(sid)]);
-		const p = Bun.spawnSync(
-			[
-				process.execPath,
-				join(import.meta.dir, "..", "scripts", "dispatch-next.ts"),
-				"registry",
-				"prune",
-				"--sid",
-				sid,
-				"--repo",
-				root,
-			],
-			{ stdout: "pipe", stderr: "pipe", env: { ...process.env } },
-		);
-		expect(p.exitCode).toBe(0);
-		expect(p.stdout.toString()).toContain(`PRUNED ${sid}`);
-		expect(readLaneRegistry<Lane>(fleet).lanes).toHaveLength(0);
+		return join(root, ".fleet");
+	};
+
+	const row = (sid: string, over: Partial<Lane> = {}): Lane => ({
+		sid,
+		item: "W636",
+		pid: 0,
+		branch: "suspenders/W636",
+		worktree: "/unused",
+		launchedAt: 1,
+		...over,
 	});
-});
 
-test.afterEach(() => {
-	for (const root of roots.splice(0))
-		rmSync(root, { recursive: true, force: true });
-});
+	const capture = async (
+		fn: () => number | Promise<number>,
+	): Promise<{ lines: string[]; code: number }> => {
+		const buf: string[] = [];
+		const orig = console.log;
+		console.log = (...a: unknown[]) => buf.push(a.join(" "));
+		try {
+			const code = await fn();
+			return { lines: buf, code };
+		} finally {
+			console.log = orig;
+		}
+	};
 
+	test.describe("classifyPrune", () => {
+		test("dead prunes, live/unknown refuse, absent no-ops", () => {
+			const now = Date.now();
+			const verdicts = new Map([
+				["d", "dead"],
+				["l", "alive"],
+				["u", "unknown"],
+			] as const);
+			const plan = classifyPrune(
+				[
+					row("d"),
+					row("l"),
+					row("u", { launchedAt: now }),
+					row("u-aged", { launchedAt: 1 }),
+				],
+				["d", "l", "u", "u-aged", "gone"],
+				(l) => verdicts.get(l.sid) ?? "unknown",
+			);
+			expect(plan.get("d")?.class).toBe("prunable");
+			expect(plan.get("d")?.warrant).toBe("dead");
+			expect(plan.get("l")?.class).toBe("refused-live");
+			expect(plan.get("u")?.class).toBe("refused-unknown");
+			expect(plan.get("u-aged")?.class).toBe("prunable");
+			expect(plan.get("u-aged")?.warrant).toBe("age-trusted");
+			expect(plan.get("gone")?.class).toBe("absent");
+		});
+
+		test("age trust needs pid-less AND >24h; recorded pids get a 48h stale bound (W2311)", () => {
+			const now = Date.now();
+			const verdictOf = (): "unknown" => "unknown";
+			const plan = classifyPrune(
+				[
+					row("aged-pidless", { launchedAt: 1 }),
+					row("young-pidless", { launchedAt: now }),
+					row("aged-pid", { launchedAt: 1, pid: 42 }),
+				],
+				["aged-pidless", "young-pidless", "aged-pid"],
+				verdictOf,
+				now,
+				() => true,
+			);
+			expect(plan.get("aged-pidless")?.class).toBe("prunable");
+			expect(plan.get("aged-pidless")?.warrant).toBe("age-trusted");
+			expect(plan.get("young-pidless")?.class).toBe("refused-unknown");
+			// W2311: a recorded pid the probe can never settle (recycled reads
+			// alive) holds its slot only up to the stale bound — past 48h the
+			// transcript-cold verdict plus age prunes, same class as pid-less
+			expect(plan.get("aged-pid")?.class).toBe("prunable");
+			expect(plan.get("aged-pid")?.warrant).toBe("age-trusted-stale");
+		});
+
+		test("W777 pid-dead warrant: unknown + probed-dead pid + lease → prunable", () => {
+			const now = Date.now();
+			const verdictOf = (): "unknown" => "unknown";
+			const probes = new Map<number, boolean | undefined>([
+				[42, false], // probed dead (ESRCH)
+				[43, true], // recycled pid reads alive — young rows stay protected
+				[44, undefined], // unprobeable — young rows stay protected
+			]);
+			const plan = classifyPrune(
+				[
+					row("pd", { launchedAt: 1, pid: 42 }),
+					// W2311: the stale-bound cases live in their own test; these rows
+					// stay YOUNG so pid-dead stays the only warrant under test
+					row("pa", { launchedAt: now, pid: 43 }),
+					row("pu", { launchedAt: now, pid: 44 }),
+					row("py", { launchedAt: now, pid: 42 }),
+				],
+				["pd", "pa", "pu", "py"],
+				verdictOf,
+				now,
+				(pid) => probes.get(pid),
+			);
+			expect(plan.get("pd")?.class).toBe("prunable");
+			expect(plan.get("pd")?.warrant).toBe("pid-dead");
+			expect(plan.get("pa")?.class).toBe("refused-unknown");
+			expect(plan.get("pu")?.class).toBe("refused-unknown");
+			expect(plan.get("py")?.class).toBe("refused-unknown");
+		});
+
+		test("W2311 stale-unknown warrant: unsettled pid + >48h → prunable", () => {
+			const now = Date.now();
+			const verdictOf = (): "unknown" => "unknown";
+			// the ghost shape that wedged dispatch: weeks-old rows whose recorded
+			// pids recycle or vanish (W400/W565/W737 vintage)
+			const stale = 1; // epoch — far older than any bound
+			const probes = new Map<number, boolean | undefined>([
+				[43, true], // recycled pid reads alive
+				[44, undefined], // unprobeable
+				[42, false], // probed dead — the tighter pid-dead warrant governs
+			]);
+			const plan = classifyPrune(
+				[
+					row("pa-stale", { launchedAt: stale, pid: 43 }),
+					row("pu-stale", { launchedAt: stale, pid: 44 }),
+					row("pd-stale", { launchedAt: stale, pid: 42 }),
+					row("pa-young", { launchedAt: now, pid: 43 }),
+					row("pu-young", { launchedAt: now, pid: 44 }),
+				],
+				["pa-stale", "pu-stale", "pd-stale", "pa-young", "pu-young"],
+				verdictOf,
+				now,
+				(pid) => probes.get(pid),
+			);
+			expect(plan.get("pa-stale")?.class).toBe("prunable");
+			expect(plan.get("pa-stale")?.warrant).toBe("age-trusted-stale");
+			expect(plan.get("pu-stale")?.class).toBe("prunable");
+			expect(plan.get("pu-stale")?.warrant).toBe("age-trusted-stale");
+			// probed death keeps the tighter pid-dead warrant at the same age
+			expect(plan.get("pd-stale")?.warrant).toBe("pid-dead");
+			// young rows keep full protection regardless of probe outcome
+			expect(plan.get("pa-young")?.class).toBe("refused-unknown");
+			expect(plan.get("pu-young")?.class).toBe("refused-unknown");
+		});
+	});
+
+	test.describe("pruneLaneRegistry", () => {
+		test("removes only guard-passing requested sids, keeps the rest", () => {
+			const fleet = fleetOf();
+			mergeLaneRegistry(fleet, [row("keep-a"), row("drop-b"), row("keep-c")]);
+			const result = pruneLaneRegistry<Lane>(
+				fleet,
+				["drop-b", "nope"],
+				(r) => r.sid === "drop-b",
+			);
+			expect(result.removed.map((r) => r.sid)).toEqual(["drop-b"]);
+			expect(readLaneRegistry<Lane>(fleet).lanes.map((r) => r.sid)).toEqual([
+				"keep-a",
+				"keep-c",
+			]);
+		});
+
+		test("guard refusal, empty request and absent registry are safe no-ops", () => {
+			const fleet = fleetOf();
+			mergeLaneRegistry(fleet, [row("a"), row("b")]);
+			const before = readFileSync(join(fleet, "lanes.json"), "utf8");
+			expect(
+				pruneLaneRegistry<Lane>(fleet, ["a"], () => false).removed,
+			).toHaveLength(0);
+			expect(
+				pruneLaneRegistry<Lane>(fleet, [], () => true).removed,
+			).toHaveLength(0);
+			expect(readFileSync(join(fleet, "lanes.json"), "utf8")).toBe(before);
+			expect(
+				pruneLaneRegistry<Lane>(fleetOf(), ["x"], () => true).removed,
+			).toHaveLength(0);
+		});
+
+		test("refuses a corrupt registry", () => {
+			const fleet = fleetOf();
+			mkdirSync(fleet, { recursive: true });
+			writeFileSync(join(fleet, "lanes.json"), "truncated {");
+			expect(() => pruneLaneRegistry<Lane>(fleet, ["a"], () => true)).toThrow(
+				"unreadable",
+			);
+		});
+	});
+
+	test.describe("registry CLI (real liveness verdict)", () => {
+		test("prunes a provably-dead pid-less entry on this host", async () => {
+			const fleet = fleetOf();
+			const sid = `autow636-dead-${Math.random().toString(36).slice(2, 8)}`;
+			mergeLaneRegistry(fleet, [row(sid), row("stayer")]);
+			const out = await capture(() =>
+				registryMain(["prune", "--sid", sid, "stayer"], { fleet }),
+			);
+			expect(out.lines.join("\n")).toContain(
+				`PRUNED ${sid} — dead lane entry (item W636)`,
+			);
+			const left = readLaneRegistry<Lane>(fleet).lanes.map((r) => r.sid);
+			expect(left).toEqual(["stayer"]);
+		});
+
+		test("retains a young foreign-host entry: exit 1, unknown, row untouched", async () => {
+			const fleet = fleetOf();
+			const sid = `autow636-remote-${Math.random().toString(36).slice(2, 8)}`;
+			mergeLaneRegistry(fleet, [
+				row(sid, { host: "elsewhere.example", launchedAt: Date.now() }),
+			]);
+			const r = await capture(() =>
+				registryMain(["prune", "--sid", sid], { fleet }),
+			);
+			expect(r.code).toBe(1);
+			expect(r.lines.join("\n")).toContain(
+				`RETAINED ${sid} — unknown liveness (probe uncertain; never force-pruned)`,
+			);
+			expect(readLaneRegistry<Lane>(fleet).lanes).toHaveLength(1);
+		});
+
+		test("prunes an aged pid-less foreign entry on the age-trust warrant", async () => {
+			const fleet = fleetOf();
+			const sid = `autow636-aged-${Math.random().toString(36).slice(2, 8)}`;
+			mergeLaneRegistry(fleet, [
+				row(sid, { host: "elsewhere.example", launchedAt: 1 }),
+			]);
+			const out = await capture(() =>
+				registryMain(["prune", "--sid", sid], { fleet }),
+			);
+			expect(out.lines.join("\n")).toContain(
+				`PRUNED ${sid} — age-trusted unknown: no pid ever recorded, >24h (item W636)`,
+			);
+			expect(out.code).toBe(0);
+			expect(readLaneRegistry<Lane>(fleet).lanes).toHaveLength(0);
+		});
+
+		test("prunes a foreign-host row whose recorded pid probes dead (W777)", async () => {
+			const fleet = fleetOf();
+			const sid = `autow777-remote-${Math.random().toString(36).slice(2, 8)}`;
+			const dead = Bun.spawnSync(["sleep", "0"]).pid;
+			mergeLaneRegistry(fleet, [
+				row(sid, { host: "elsewhere.example", launchedAt: 1, pid: dead }),
+			]);
+			const out = await capture(() =>
+				registryMain(["prune", "--sid", sid], { fleet }),
+			);
+			expect(out.lines.join("\n")).toContain(
+				`PRUNED ${sid} — recorded pid probed dead, past reclaim lease (item W636)`,
+			);
+			expect(out.code).toBe(0);
+			expect(readLaneRegistry<Lane>(fleet).lanes).toHaveLength(0);
+		});
+
+		test("retains a foreign-host row whose recorded pid probes alive", async () => {
+			const fleet = fleetOf();
+			const sid = `autow777-live-${Math.random().toString(36).slice(2, 8)}`;
+			mergeLaneRegistry(fleet, [
+				// young: W2311 bounds recorded-pid protection at 48h, so an AGED
+				// live-probing row would now prune as age-trusted-stale
+				row(sid, {
+					host: "elsewhere.example",
+					launchedAt: Date.now(),
+					pid: process.pid,
+				}),
+			]);
+			const r = await capture(() =>
+				registryMain(["prune", "--sid", sid], { fleet }),
+			);
+			expect(r.code).toBe(1);
+			expect(r.lines.join("\n")).toContain(
+				`RETAINED ${sid} — unknown liveness (probe uncertain; never force-pruned)`,
+			);
+			expect(readLaneRegistry<Lane>(fleet).lanes).toHaveLength(1);
+		});
+
+		test("dry-run reports without writing; forget is a prune alias", async () => {
+			const fleet = fleetOf();
+			const sid = `autow636-dry-${Math.random().toString(36).slice(2, 8)}`;
+			mergeLaneRegistry(fleet, [row(sid)]);
+			const dry = await capture(() =>
+				registryMain(["prune", "--sid", sid, "--dry-run"], { fleet }),
+			);
+			expect(dry.code).toBe(0);
+			expect(dry.lines.join("\n")).toContain(`WOULD PRUNE ${sid} — prunable`);
+			expect(readLaneRegistry<Lane>(fleet).lanes).toHaveLength(1);
+			const gone = await capture(() =>
+				registryMain(["forget", "--sid", sid], { fleet }),
+			);
+			expect(gone.code).toBe(0);
+			expect(readLaneRegistry<Lane>(fleet).lanes).toHaveLength(0);
+		});
+
+		test("list --json prints entries with verdicts", async () => {
+			const fleet = fleetOf();
+			mergeLaneRegistry(fleet, [row("lst-1")]);
+			const r = await capture(() =>
+				registryMain(["list", "--json"], { fleet }),
+			);
+			expect(r.code).toBe(0);
+			const parsed = JSON.parse(r.lines[0]) as Array<{
+				sid: string;
+				verdict: string;
+			}>;
+			expect(parsed.map((x) => x.sid)).toEqual(["lst-1"]);
+			expect(parsed[0].verdict).toBe("dead");
+		});
+
+		test("usage verbs exit 2; NO ENTRY is a clean no-op", async () => {
+			const fleet = fleetOf();
+			expect((await capture(() => registryMain([], { fleet }))).code).toBe(2);
+			expect(
+				(await capture(() => registryMain(["bogus"], { fleet }))).code,
+			).toBe(2);
+			// W2311: a bare prune used to crash (ReferenceError: USAGE) — it must
+			// render the verb's own usage line and exit 2 instead
+			const bare = await capture(() => registryMain(["prune"], { fleet }));
+			expect(bare.code).toBe(2);
+			expect(bare.lines.join("\n")).toContain("usage: prune --sid");
+			const miss = await capture(() =>
+				registryMain(["prune", "--sid", "ghost"], { fleet }),
+			);
+			expect(miss.code).toBe(0);
+			expect(miss.lines.join("\n")).toContain("NO ENTRY ghost");
+		});
+	});
+
+	test.describe("router wiring", () => {
+		test("dispatch-next.ts registry prune runs the verb end to end", () => {
+			const root = mkdtempSync(join(tmpdir(), "w636-router-"));
+			roots.push(root);
+			const fleet = join(root, ".fleet");
+			const sid = `autow636-spawn-${Math.random().toString(36).slice(2, 8)}`;
+			mergeLaneRegistry(fleet, [row(sid)]);
+			const p = Bun.spawnSync(
+				[
+					process.execPath,
+					join(import.meta.dir, "..", "scripts", "dispatch-next.ts"),
+					"registry",
+					"prune",
+					"--sid",
+					sid,
+					"--repo",
+					root,
+				],
+				{ stdout: "pipe", stderr: "pipe", env: { ...process.env } },
+			);
+			expect(p.exitCode).toBe(0);
+			expect(p.stdout.toString()).toContain(`PRUNED ${sid}`);
+			expect(readLaneRegistry<Lane>(fleet).lanes).toHaveLength(0);
+		});
+	});
+
+	test.afterEach(() => {
+		for (const root of roots.splice(0))
+			rmSync(root, { recursive: true, force: true });
+	});
 });
