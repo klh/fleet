@@ -61,8 +61,8 @@ export const activeRateLimitWalls = (
 	}
 	return walls;
 };
-const RETRY_STEPS_MS = [5_000, 10_000, 23_000, 43_000, 55_000] as const;
-const MAX_RETRY_AFTER_MS = 15 * 60_000;
+export const RETRY_STEPS_MS = [5_000, 10_000, 23_000, 43_000, 55_000] as const;
+export const MAX_RETRY_AFTER_MS = 15 * 60_000;
 
 const key = (project: string, item: string): string =>
 	`${KEY_PREFIX}${Bun.hash(project).toString(16)}.${item}`;
