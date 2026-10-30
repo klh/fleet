@@ -18,8 +18,11 @@ export function fixture(opts: { title?: string } = {}) {
 	const home = join(repo, ".test-home");
 	const env = { ...process.env, HOME: home, GOVERNOR_STORE_URL: "" };
 	// W670: never leak the spawning lane's claim token into fixture children —
-	// the context channel, not ambient env, must carry the take-minted token
+	// the context channel, not ambient env, must carry the take-minted token.
+	// W2307: KLH_CLAIM_EPOCH leaks the same way and fences fixture items at
+	// the lane's epoch — the context channel owns the claim identity, both keys.
 	delete env.KLH_CLAIM_TOKEN;
+	delete env.KLH_CLAIM_EPOCH;
 	const git = (...args: string[]) =>
 		Bun.spawnSync(["git", "-C", repo, ...args], {
 			stdout: "pipe",
@@ -79,8 +82,10 @@ export function crossFixture(opts: { scope?: boolean; marker?: boolean } = {}) {
 		HOME: join(repo, ".test-home"),
 		GOVERNOR_STORE_URL: "",
 	};
-	// W670: strip the spawning lane's claim token (see fixture() above)
+	// W670: strip the spawning lane's claim token (see fixture() above);
+	// W2307: and its epoch — both claim pins, same leak vector
 	delete env.KLH_CLAIM_TOKEN;
+	delete env.KLH_CLAIM_EPOCH;
 	const gitIn = (dir: string, ...args: string[]) => {
 		const p = Bun.spawnSync(["git", "-C", dir, ...args], {
 			stdout: "pipe",
