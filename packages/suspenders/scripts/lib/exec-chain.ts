@@ -22,7 +22,10 @@ import {
 // W813: chain tokens may name HUBS (a stack.json/hubs.json label rides
 // that hub); can= doability probes resolveLaneExecutor + darkHubNow + the
 // cv tally — all sync, so execPick stays sync.
-import { readRegistry } from "../../hooks/lib/hub/hub-locate.ts";
+import {
+	readRegistry,
+	unknownHubWarning,
+} from "../../hooks/lib/hub/hub-locate.ts";
 import { readUserPlane } from "../../hooks/lib/policy/repo-laws.ts";
 import {
 	parseExecutorPrefer,
