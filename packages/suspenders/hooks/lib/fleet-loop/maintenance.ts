@@ -450,6 +450,20 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		cwd: (repo) => repo,
 	},
 	{
+		// W2309: the hub port-publishing self-heal — per live hub profile,
+		// probe for the exact restart-policy signature (health face red +
+		// container Up/(healthy) + NetworkSettings.Ports = {}) and run the
+		// matching remedy ONCE (remote = hubctl up, local Docker Desktop =
+		// compose up -d --force-recreate), re-probe, BROADCAST the verdict.
+		// Docker Desktop down is reported, never auto-launched. Quiet-hours
+		// hubs are skipped. `.fleet/hub-port-heal-paused` pauses.
+		name: "hub-port-heal",
+		everySeconds: 900,
+		nice: 10,
+		timeoutMs: 600_000,
+		argv: (root) => [join(root, "hooks/bin/hub-port-heal.ts"), "--act"],
+	},
+	{
 		// W2194: the hub model-health sweep — every configured hub + the local
 		// spoke probes each catalog group through ITS OWN buckle front (~10min,
 		// hubs parallel, groups staggered), banking model.health.<core> facts

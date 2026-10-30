@@ -3,14 +3,18 @@
 // Command strings ride ssh as ONE argv element (BatchMode + ConnectTimeout);
 // local compose runs through /bin/sh -c exactly as hubctl's runOnHub does.
 
-import type { HubProfile } from "../hooks/lib/stack-config.ts";
+/** The deploy slice the remote argv builders read — structural so the
+ *  W2309 hub-port-heal can reuse the flags without a full profile. */
+export interface HubDeployRef {
+	deploy?: { ssh?: string; connect_timeout?: number };
+}
 
 export const DEFAULT_CONNECT_TIMEOUT = 10;
 
 /** ssh/scp -o flags — an unreachable hub fails in seconds (not ~75s of TCP
  *  retries) and never blocks on a password prompt. Timeout is the stack.json
  *  `deploy.connect_timeout` knob (seconds). */
-export function sshOpts(hub: HubProfile): string[] {
+export function sshOpts(hub: HubDeployRef): string[] {
 	const t = hub.deploy?.connect_timeout;
 	const secs =
 		typeof t === "number" && Number.isFinite(t) && t > 0
