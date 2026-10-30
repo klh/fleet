@@ -64,7 +64,45 @@ function projBase(){
   var b = String(sel.value).split('/').pop() || sel.value;
   return b.replace(/\.git$/, '');
 }
+// W2310: gated/blocked work items — the same needs-you rows the report
+// emits (payload .gated, computed FROM the report row set server-side).
+// Keyed nodes like decList; native elements via setNodes only.
+function gatedMatches(g){
+  return hashMatch([g.id]) && boardMatch([g.id, g.title, g.project]);
+}
+function gatedNodeEl(id){ return document.querySelector('.gated[data-id="' + id + '"]'); }
+function renderGated(){
+  var box = byId('gatedList');
+  if (!box) return;
+  var gs = (lastDec && lastDec.gated) || [];
+  var want = {};
+  for (var i = 0; i < gs.length; i++) want[gs[i].id] = true;
+  for (var c = box.children.length - 1; c >= 0; c--) {
+    var kid = box.children[c];
+    if (!want[kid.getAttribute('data-id')]) kid.remove();
+  }
+  for (var j = 0; j < gs.length; j++) {
+    var g = gs[j];
+    var q = gatedNodeEl(g.id);
+    if (!q) {
+      q = document.createElement('div');
+      q.className = 'gated';
+      q.setAttribute('data-id', g.id);
+      setNodes(q, '<div class="dhead"><span class="dproj mono"></span><span class="dwho"></span><span class="dage dim"></span></div>' +
+        '<div class="dq"></div>' +
+        '<div class="dadv rec"></div>');
+      box.appendChild(q);
+    }
+    setText(q.querySelector('.dproj'), g.project || '(unknown project)');
+    setText(q.querySelector('.dwho'), g.id + ' · ' + (g.reason === 'gated' ? 'owner-gated' : 'blocked'));
+    setText(q.querySelector('.dage'), ago(g.age_s));
+    setText(q.querySelector('.dq'), g.title || '(untitled)');
+    setText(q.querySelector('.dadv'), g.best_action || '');
+    q.style.display = gatedMatches(g) ? '' : 'none';
+  }
+}
 function renderDecisionsInner(){
+  renderGated();
   var all = openDecs();
   var visibleCount = all.filter(decisionMatches).length;
   var live = {};

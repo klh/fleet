@@ -57,6 +57,8 @@ export const BODY = String.raw`
     <h2><button id="decToggle" type="button"><span id="decCaret">-</span> Decisions needed</button><span id="decState" aria-live="polite">loading decisions...</span></h2>
     <klh-err-banner id="decErr" feed="dec" hidden></klh-err-banner>
     <div id="decList"></div>
+    <h3 class="gatedhead">Gated work <span class="dim">owner-gated + blocked items — the report's needs-you rows</span></h3>
+    <div id="gatedList"></div>
   </section>
   <div id="hist">
     <div class="histhead">
