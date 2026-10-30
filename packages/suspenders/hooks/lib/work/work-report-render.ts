@@ -19,6 +19,7 @@ import {
 	type ReportRow,
 	TASK_CAP,
 } from "./work-report.ts";
+import { capacityLine } from "./report-capacity.ts";
 import { reportBoardBase } from "./work-report-live.ts";
 
 /** The §2 formats: chosen by MEDIUM, not by CLI — --format tty|md|plain|json. */
@@ -198,6 +199,9 @@ export const footerLine = (c: ReportContract, hidden: Col[]): string => {
 		`out ${compactTokens(c.totals.output_tokens)}`,
 		`cache saved ${compactTokens(c.totals.cache_read_tokens)}`,
 	];
+	// W2314: saturation rides the footer FIRST — occupancy vs target is the
+	// one number the operator scans for (§4 actionable-first).
+	if (c.capacity) bits.push(capacityLine(c.capacity));
 	const hubs = Object.entries(c.totals.lanes_per_hub);
 	if (hubs.length) bits.push(hubs.map(([h, n]) => `${h}×${n}`).join(" "));
 	if (c.footer.lanes_other_projects)

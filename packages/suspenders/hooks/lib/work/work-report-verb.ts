@@ -9,6 +9,8 @@ import { resolveStoreHttpBase } from "../govdb/govdb-store.ts";
 import { resolveBuckleDb } from "../lanes/lane-spend.ts";
 import { idList } from "../verb-kit.ts";
 import { downModelGroups } from "../hub/model-health.ts";
+import { loadLaneRegistry } from "../lanes/lane-registry.ts";
+import { reportCapacity, type ReportCapacity } from "./report-capacity.ts";
 import {
 	buildReportContract,
 	parseReportWindow,
@@ -113,6 +115,9 @@ export interface ReportVerbArgs {
 	ledger?: string | null;
 	/** pin: the --watch loop swapped for a test double */
 	watch?: (first: ReportContract, build: () => ReportContract) => Promise<void>;
+	/** pin: W2314 saturation triple (tests); unset computes it from the
+	 *  graph + registry + intents store for the FIRST reported project. */
+	capacity?: ReportCapacity;
 }
 
 /** The `work report` verb (§2/§10/§11): flags → scope → rows → contract →
@@ -205,6 +210,14 @@ export const runReportVerb = async (a: ReportVerbArgs): Promise<void> => {
 	const lanesOther = new Set(
 		live.filter((l) => !ownerSids.has(l.sid)).map((l) => l.sid),
 	).size;
+	// W2314: the saturation triple for the scope's primary project (—all
+	// renders the first; per-project saturation is the board pane's feed).
+	// Registry read fails soft to empty — saturation without admitted lanes.
+	let registry: ReturnType<typeof loadLaneRegistry> = [];
+	try {
+		registry = loadLaneRegistry(scopeProject);
+	} catch {}
+	const capacity = a.capacity ?? reportCapacity(db, scopeProject, registry);
 	const build = (): ReportContract =>
 		buildReportContract(rows, {
 			project: scopeProject,
@@ -214,6 +227,7 @@ export const runReportVerb = async (a: ReportVerbArgs): Promise<void> => {
 			lanesOtherProjects: lanesOther > 0 ? lanesOther : null,
 			modelHealthDown: downModelGroups(db),
 			controllers: projects.map((p) => controllerStatus(db, p, now)),
+			capacity,
 		});
 	const contract = build();
 	// §10 mode outputs — every branch renders FROM the same contract
