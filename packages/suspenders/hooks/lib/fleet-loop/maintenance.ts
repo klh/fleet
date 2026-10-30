@@ -24,9 +24,9 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { appendSweepNotice, pausePath, readPause } from "./sweep-state.ts";
-import type { LoopDeps } from "./runtime.ts";
 import { MODEL_HEALTH_SWEEP_S } from "../hub/model-health.ts";
+import type { LoopDeps } from "./runtime.ts";
+import { appendSweepNotice, pausePath, readPause } from "./sweep-state.ts";
 
 export interface MaintenanceTask {
 	/** registry name — also the stamp key and the log tag */
@@ -462,6 +462,19 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		nice: 10,
 		timeoutMs: 600_000,
 		argv: (root) => [join(root, "hooks/bin/hub-port-heal.ts"), "--act"],
+	},
+	{
+		// W2318 HoldAndDrain: when the active dispatch hold carries
+		// mode:"drain", steer live lanes to checkpoint and land (never kill);
+		// idle exit when the hold is absent or plain `hold`. Resteer window
+		// and episode dedupe live in hooks/lib/lanes/hold-drain.ts.
+		// SUSPENDERS_HOLD_DRAIN=0 or .fleet/hold-drain-paused disables.
+		name: "hold-drain",
+		everySeconds: 300,
+		nice: 10,
+		timeoutMs: 60_000,
+		argv: (root) => [join(root, "hooks/bin/hold-drain.ts")],
+		cwd: (repo) => repo,
 	},
 	{
 		// W2194: the hub model-health sweep — every configured hub + the local

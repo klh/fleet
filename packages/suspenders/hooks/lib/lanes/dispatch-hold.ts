@@ -14,18 +14,27 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { z } from "zod";
 
-/** The recorded hold — the bare `dispatch-paused` marker is deprecated. */
-export interface DispatchHold {
-	/** Who set it (lane sid, `operator@host`, …) — never anonymous. */
-	by: string;
-	/** Why dispatch is paused, shown on the board and the WAIT line. */
-	reason: string;
-	/** ISO timestamp of when the hold landed. */
-	set_at: string;
-	/** Hours until auto-lift. Default 4; expiry auto-lifts and logs. */
-	ttl_hours: number;
-}
+/**
+ * Hold mode (W2318, Kueue StopPolicy vocabulary): `hold` = the W1196 default
+ * (new dispatch refuses, live lanes keep running untouched); `drain` =
+ * HoldAndDrain — the fleet-loop additionally STEERS live lanes toward
+ * checkpointing and landing, never killing (lanes are not checkpointable
+ * mid-flight). Not an intent state: launch-fencing owns those.
+ */
+export const HOLD_MODES = ["hold", "drain"] as const;
+export type HoldMode = (typeof HOLD_MODES)[number];
+
+/** Schema law: the hold file is config a service consumes — zod is the parser. */
+export const DispatchHoldSchema = z.object({
+	by: z.string().min(1),
+	reason: z.string().min(1),
+	set_at: z.string(),
+	ttl_hours: z.number().positive().finite(),
+	mode: z.enum(HOLD_MODES).default("hold"),
+});
+export type DispatchHold = z.infer<typeof DispatchHoldSchema>;
 
 /** One dispatch-hold observation for consumers (dispatcher, board payload). */
 export interface HoldObservation {
@@ -59,22 +68,12 @@ const logHold = (fleetDir: string, row: Record<string, unknown>): void => {
 /** Parse + validate; a hold missing attribution or a real timestamp is not one. */
 const parseHold = (raw: string): DispatchHold | null => {
 	try {
-		const j = JSON.parse(raw) as Partial<DispatchHold>;
-		if (typeof j.by !== "string" || j.by.length === 0) return null;
-		if (typeof j.reason !== "string" || j.reason.length === 0) return null;
-		const at = Date.parse(j.set_at ?? "");
+		const j: unknown = JSON.parse(raw);
+		const parsed = DispatchHoldSchema.safeParse(j);
+		if (!parsed.success) return null;
+		const at = Date.parse(parsed.data.set_at);
 		if (!Number.isFinite(at)) return null;
-		return {
-			by: j.by,
-			reason: j.reason,
-			set_at: new Date(at).toISOString(),
-			ttl_hours:
-				typeof j.ttl_hours === "number" &&
-				Number.isFinite(j.ttl_hours) &&
-				j.ttl_hours > 0
-					? j.ttl_hours
-					: HOLD_TTL_HOURS_DEFAULT,
-		};
+		return { ...parsed.data, set_at: new Date(at).toISOString() };
 	} catch {
 		return null;
 	}
@@ -94,6 +93,7 @@ export const setHold = (
 	by: string,
 	reason: string,
 	ttlHours: number = HOLD_TTL_HOURS_DEFAULT,
+	mode: HoldMode = "hold",
 ): DispatchHold => {
 	mkdirSync(fleetDir, { recursive: true });
 	const hold: DispatchHold = {
@@ -101,6 +101,7 @@ export const setHold = (
 		reason,
 		set_at: new Date().toISOString(),
 		ttl_hours: ttlHours,
+		mode,
 	};
 	writeFileSync(holdPath(fleetDir), `${JSON.stringify(hold, null, "\t")}\n`);
 	logHold(fleetDir, {
@@ -108,6 +109,7 @@ export const setHold = (
 		by,
 		reason,
 		ttl_hours: ttlHours,
+		mode,
 		expires_at: holdExpiresAt(hold),
 	});
 	rmSync(join(fleetDir, LEGACY_MARKER), { force: true });
@@ -178,6 +180,8 @@ export const dispatchHoldGate = (fleetDir: string): string | null => {
 		return 'WAIT — dispatch paused by a bare .fleet/dispatch-paused marker (deprecated: no attribution, no expiry) — set a recorded hold: dispatch hold --reason "..."';
 	}
 	const minutes = Math.max(0, Math.round(obs.remainingMs / 60_000));
+	if (obs.hold.mode === "drain")
+		return `WAIT — dispatch draining by ${obs.hold.by} for ${minutes} more min (set ${obs.hold.set_at}, ttl ${obs.hold.ttl_hours}h): ${obs.hold.reason}; live lanes are steered to checkpoint and land, never killed`;
 	return `WAIT — dispatch paused by ${obs.hold.by} for ${minutes} more min (set ${obs.hold.set_at}, ttl ${obs.hold.ttl_hours}h): ${obs.hold.reason}; live lanes keep running`;
 };
 
@@ -190,6 +194,7 @@ export interface DispatchHoldRow {
 	expires_at: string | null;
 	remaining_min: number | null;
 	legacy: boolean;
+	mode: HoldMode;
 }
 
 export const dispatchHoldRows = (
@@ -208,6 +213,7 @@ export const dispatchHoldRows = (
 			expires_at: obs.legacy ? null : holdExpiresAt(obs.hold),
 			remaining_min: obs.legacy ? null : Math.round(obs.remainingMs / 60_000),
 			legacy: obs.legacy,
+			mode: obs.legacy ? "hold" : obs.hold.mode,
 		});
 	}
 	return rows;

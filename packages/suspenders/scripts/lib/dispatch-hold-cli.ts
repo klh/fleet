@@ -9,7 +9,9 @@ import { resolve } from "node:path";
 import {
 	type DispatchHold,
 	dispatchHoldActive,
+	HOLD_MODES,
 	HOLD_TTL_HOURS_DEFAULT,
+	type HoldMode,
 	holdExpiresAt,
 	releaseHold,
 	setHold,
@@ -27,16 +29,20 @@ const val = (argv: string[], flag: string): string | undefined => {
 };
 
 const usage = (): string[] => [
-	"Usage: dispatch hold --reason <why> [--ttl-hours N] [--by <who>]",
-	"                      [--fleet <dir>]",
+	"Usage: dispatch hold --reason <why> [--ttl-hours N] [--mode hold|drain]",
+	"                      [--by <who>] [--fleet <dir>]",
 	"       dispatch release [--by <who>] [--fleet <dir>]",
 	"",
 	"Set or lift the dispatch hold. A hold is recorded state",
-	"(.fleet/dispatch-paused.json: by, reason, set_at, ttl_hours), never a",
-	"bare marker: every set/release lands in .fleet/dispatch-hold.log, the",
+	"(.fleet/dispatch-paused.json: by, reason, set_at, ttl_hours, mode), never",
+	"a bare marker: every set/release lands in .fleet/dispatch-hold.log, the",
 	"board shows by+reason+expiry, and an expired hold auto-lifts and logs.",
 	`Default ttl is ${HOLD_TTL_HOURS_DEFAULT}h; the bare dispatch-paused marker is deprecated`,
 	"(still held, logged as a deprecation on observe).",
+	"",
+	"--mode drain (W2318, Kueue HoldAndDrain): maintenance window — the",
+	"fleet-loop steers live lanes to checkpoint and land (never kill); new",
+	"dispatch stays held. Default mode is hold.",
 	"",
 	"--fleet <dir> redirects the door's writes to that dir (default: the",
 	"canonical checkout's .fleet); a redirected hold/release names the dir in",
@@ -85,9 +91,20 @@ export const holdMain = (argv: string[], opts: HoldDoorOpts): number => {
 		console.log("REFUSED — --ttl-hours must be 0 < ttl <= 720");
 		return 2;
 	}
-	const hold: DispatchHold = setHold(fleetDir, by, reason, ttl);
+	const rawMode = val(argv, "--mode");
+	const mode =
+		rawMode === undefined || rawMode.length === 0
+			? "hold"
+			: (rawMode as HoldMode);
+	if (!HOLD_MODES.includes(mode)) {
+		console.log(`REFUSED — --mode must be one of ${HOLD_MODES.join("|")}`);
+		return 2;
+	}
+	const hold: DispatchHold = setHold(fleetDir, by, reason, ttl, mode);
 	console.log(
-		`HOLD — dispatch paused by ${hold.by} until ${holdExpiresAt(hold)} (${hold.ttl_hours}h): ${hold.reason}${where()}`,
+		mode === "drain"
+			? `HOLD — dispatch draining by ${hold.by} until ${holdExpiresAt(hold)} (${hold.ttl_hours}h): ${hold.reason}${where()}; live lanes get steered to checkpoint`
+			: `HOLD — dispatch paused by ${hold.by} until ${holdExpiresAt(hold)} (${hold.ttl_hours}h): ${hold.reason}${where()}`,
 	);
 	return 0;
 };

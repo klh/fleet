@@ -223,7 +223,7 @@ function renderFleet(){
   // W1196: named dispatch holds — who holds, why, until when (WAIT-line parity).
   var dh = (d.dispatchHolds || []).filter(function(r){ return sel.value === 'all' || r.project === sel.value; });
   if (dh.length) {
-    line += ' · hold by ' + dh[0].by + ' — ' + dh[0].reason + (dh[0].legacy ? ' · legacy marker, no expiry' : ' · expires ' + dh[0].expires_at + ' (' + dh[0].remaining_min + ' min left)');
+    line += ' · hold by ' + dh[0].by + ' — ' + dh[0].reason + (dh[0].mode === 'drain' ? ' · DRAINING (lanes steered to checkpoint)' : '') + (dh[0].legacy ? ' · legacy marker, no expiry' : ' · expires ' + dh[0].expires_at + ' (' + dh[0].remaining_min + ' min left)');
     if (dh.length > 1) line += ' · +' + (dh.length - 1) + ' more hold(s)';
   }
   var el = byId('fleetLine');
