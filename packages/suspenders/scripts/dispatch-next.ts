@@ -37,10 +37,10 @@ export type { GovernanceDecision } from "./lib/governance-decide.ts";
 export { hubAttributionDecision } from "./lib/governance-decide.ts";
 export { laneKeyDecision, parseGovernanceMode, probeFrontDecision };
 
+import { danglingFixHolds } from "../hooks/lib/fleet-loop/dangling-rejudge.ts";
 // THEN.D (W1255.6): the per-lane launch machine rides hooks/lib/fleet-loop and
 // the refill face declares through the verb kit (CLI Toolkit Law, W651).
 import { dispatchLane } from "../hooks/lib/fleet-loop/lane-launch.ts";
-import { fleetLoopSettings } from "../hooks/lib/stack-config.ts";
 import { openStore, projectIdentity } from "../hooks/lib/govdb/govdb.ts";
 // W494.1: the worktree-cwd probe is the shared EVIDENCE helper now — the
 // verdict itself lives in hooks/lib/lanes/lane-liveness.ts (pid/heartbeat, never cwd)
@@ -49,7 +49,6 @@ import {
 	laneAlive as sharedLaneAlive,
 	worktreeLive,
 } from "../hooks/lib/lanes/lane-liveness.ts";
-import { liveForCapacity } from "./lib/lane-capacity.ts";
 import {
 	canonicalProjectRoot,
 	loadLaneRegistry,
@@ -58,6 +57,7 @@ import {
 import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
 // W911: the bounded plaid posture — the ONE override of the execPick chain.
 import { plaidProbeHealth, readPosture } from "../hooks/lib/plaid/plaid.ts";
+import { fleetLoopSettings } from "../hooks/lib/stack-config.ts";
 import { forecastPush } from "../hooks/lib/usage/credit-forecast.ts";
 import { parseVerb, renderRegistryHelp } from "../hooks/lib/verb-kit.ts";
 // W1295: the agent-rules role library rides the launch path
@@ -75,6 +75,7 @@ import type { ChosenExecutor } from "./lib/dispatch-executor-note.ts";
 // root entries (lib/dispatch-usage.ts — schema discovery, 1500-law split).
 import { dispatchHelpEpilog, verbHeadIndex } from "./lib/dispatch-usage.ts";
 import { fleetReport } from "./lib/fleet-report.ts";
+import { liveForCapacity } from "./lib/lane-capacity.ts";
 import { stackWireEndpoints } from "./lib/lane-wire.ts";
 import { activeRateLimitWalls } from "./lib/launch-backoff.ts";
 import {
@@ -596,8 +597,22 @@ const main = async (): Promise<void> => {
 		(id) => sidOf(id, projectIdentity(REPO)),
 	);
 	for (const s of skips) console.log(s);
+	// W1762: repairs frozen by a merged-but-uninstalled classifier fix never
+	// launch from the pool (explicit --item stays operator-explicit).
+	const fixHolds = capStore
+		? danglingFixHolds(
+				capStore,
+				REPO,
+				dispatchable.map((r) => ({ id: r.id, title: r.title })),
+			)
+		: new Map<string, string>();
 	capStore?.close();
 	for (const r of dispatchable) {
+		const holdWhy = fixHolds.get(r.id);
+		if (holdWhy) {
+			console.log(`DANGLING-FIX-HOLD ${r.id} — ${holdWhy}`);
+			continue;
+		}
 		if (!canLaunch()) break;
 		const out = await dispatchItem(r.id, live, undefined, dispatched.length);
 		if (out) {
