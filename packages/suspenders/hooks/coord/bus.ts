@@ -10,6 +10,13 @@
 import { statSync } from "node:fs";
 import { hostname } from "node:os";
 import { signalClaudeDirectEvent } from "../lib/executors/claude-wake.ts";
+// W822.1: the broadcast core moved to lib/broadcast-core.ts (store-first) so
+// the work CLI's done broadcast shares it without coord/shared.ts's import
+// open; re-exports keep the coord modules' import specifiers stable. The
+// liveness term there carries the newer session check (W1261 identity term).
+import { broadcastNote } from "../lib/broadcast-core.ts";
+export { broadcastNote, isLiveSession } from "../lib/broadcast-core.ts";
+export type { LivenessRow } from "../lib/broadcast-core.ts";
 import {
 	type ForeignLaneHit,
 	foreignLaneMatch,
@@ -38,50 +45,11 @@ import {
 	red,
 } from "./shared.ts";
 
-export const LIVE_HEARTBEAT_WINDOW_MS = 30 * 60_000;
 // Mirrors govdb.ts's sweepStaleSessions liveTranscript window: a transcript
 // (or lane log, for non-Claude dialects) written this recently means the
 // process is genuinely still running.
 const TRANSCRIPT_LIVE_WINDOW_MS = 15 * 60_000;
-
-export interface LivenessRow {
-	sid?: string;
-	project?: string | null;
-	hb: number;
-	parent_sid: string | null;
-	role: string | null;
-	transcript_path: string | null;
-}
-
-// isLiveSession: the ONE "is this RUNNING row actually still alive" check,
-// shared by broadcast/targets/message so the three never disagree.
-export function isLiveSession(row: LivenessRow, now = Date.now()): boolean {
-	if (row.hb > now - LIVE_HEARTBEAT_WINDOW_MS) return true;
-	// W1261: stale hb is not CLI death — hb advances only through the
-	// file-edit gate, so a lane mid-long-turn (Bash/test phases never hit it)
-	// reads dead here while its harness process is alive (`work lanes` proves
-	// it via process identity). A live registry process is decisive for ANY
-	// row, parented or not; a stale heartbeat or a missing subscriber is
-	// never death evidence. Identity false/unknown falls through to the
-	// transcript term — the same 15-min freshness `laneAlive` ORs in — never
-	// straight to death.
-	if (
-		row.project != null &&
-		row.sid != null &&
-		managedSubscriberIdentity(row.project, row.sid) === true
-	)
-		return true;
-	if (row.transcript_path) {
-		try {
-			return (
-				statSync(row.transcript_path).mtimeMs > now - TRANSCRIPT_LIVE_WINDOW_MS
-			);
-		} catch {
-			// transcript missing/unreadable — fall through to the role check
-		}
-	}
-	return row.role === "coordinator";
-}
+const LIVE_HEARTBEAT_WINDOW_MS = 30 * 60_000;
 
 export function subscriberSessionAlive(sid: string, now = Date.now()): boolean {
 	const row = db
@@ -125,58 +93,6 @@ export function queueDirectedReceipt(eventId: number, sid: string): void {
 		"INSERT INTO direct_message_receipts (event_id, sid, queued_at) VALUES (?, ?, ?) ON CONFLICT(event_id) DO NOTHING",
 	).run(eventId, sid, Date.now());
 }
-
-export function broadcastNote(
-	note: string,
-	source: string,
-	now = Date.now(),
-): { id: string; targets: number; deduped?: boolean } {
-	// W470: note-dedupe — the same note re-broadcast within 24h returns the
-	// earlier broadcast id instead of minting a new one (W438 C7: one note
-	// re-minted again and again). SessionStart injection already covers late
-	// joiners; a re-broadcast adds nothing but undrainable inbox rows.
-	const prior = (
-		db
-			.query(
-				"SELECT payload FROM events WHERE kind = 'BROADCAST' AND ts >= ? ORDER BY id DESC",
-			)
-			.all(now - 24 * 3_600_000) as { payload: string | null }[]
-	).find((r) => {
-		try {
-			return JSON.parse(r.payload ?? "{}").note === note;
-		} catch {
-			return false;
-		}
-	});
-	if (prior) {
-		const priorId = (JSON.parse(prior.payload ?? "{}") as { id?: string }).id;
-		if (priorId) return { id: priorId, targets: 0, deduped: true };
-	}
-	const bid = `b${now}`;
-	const targets = (
-		db
-			.query(
-				"SELECT sid, project, hb, parent_sid, role, transcript_path FROM sessions WHERE state = 'RUNNING'",
-			)
-			.all() as (LivenessRow & { sid: string })[]
-	).filter((row) => isLiveSession(row, now));
-	const ins = db.query(
-		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'BROADCAST', NULL, ?, ?)",
-	);
-	for (const target of targets)
-		ins.run(now, source, JSON.stringify({ id: bid, note }), target.sid);
-	const upsert = db.query(
-		"INSERT INTO facts (key, value, ts) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, ts = excluded.ts",
-	);
-	upsert.run(`broadcast.${bid}`, note, now);
-	upsert.run(
-		"broadcast.latest",
-		JSON.stringify({ id: bid, ts: now, note }),
-		now,
-	);
-	return { id: bid, targets: targets.length };
-}
-
 export async function cmdEmit(rest: string[]): Promise<void> {
 	const kind = rest[0];
 	if (!kind)
@@ -215,7 +131,7 @@ export async function cmdBroadcast(_rest: string[]): Promise<void> {
 	const note = arg("--note");
 	if (!note) die('usage: broadcast --note "..." [--as sid]');
 	const source = arg("--as") ?? "owner";
-	const sent = broadcastNote(note, source);
+	const sent = broadcastNote(db, note, source);
 	console.log(
 		sent.deduped
 			? `${green("✓")} broadcast ${sent.id} already live (deduped, 24h window) — no new inbox rows`

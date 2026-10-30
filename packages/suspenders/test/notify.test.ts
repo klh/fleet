@@ -60,6 +60,23 @@ describe("classify", () => {
 		);
 		expect(classify(ev("work.landed", "W2", {}))).toBeNull();
 	});
+	test("BROADCAST: the kev label gates the fan-out (W822.1)", () => {
+		expect(
+			classify(
+				ev("BROADCAST", null, {
+					id: "b1",
+					note: "n",
+					kev: "actionable-now",
+				}),
+			)?.cls,
+		).toBe("done-broadcast");
+		expect(
+			classify(
+				ev("BROADCAST", null, { id: "b1", note: "n", kev: "interesting" }),
+			),
+		).toBeNull();
+		expect(classify(ev("BROADCAST", null, { id: "b1", note: "n" }))).toBeNull();
+	});
 	test("scrubs home paths and key material from outbound text", () => {
 		const home = ["", "Users", "someone"].join("/");
 		const tok = ["ghp", "abcdefghijklmnopqrstuvwxyz0123456789"].join("_");

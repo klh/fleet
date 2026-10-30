@@ -37,3 +37,8 @@ classes:
     channels: [desktop]
     dedupe_s: 3600
     rate_limit: { max: 10, per_s: 3600 }
+  done-broadcast: # W822.1 BROADCAST kev=actionable-now (work done) — the
+    # interesting/noise tiers batch into the W822 pulse digest instead
+    channels: [desktop]
+    dedupe_s: 1800
+    rate_limit: { max: 10, per_s: 3600 }
