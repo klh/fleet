@@ -103,6 +103,19 @@ export type HubLinkObservation = {
 	now: number;
 };
 
+/** Map a probe leg's exit to an observation verdict. The MultiKueue
+ * connectionState shape (multikueuecluster.go:206-250): a transport refusal
+ * — ssh exit 255, connection refused/reset, timeout — IS the disconnect
+ * observation (the hub host itself is dark), so loss accrues; only a local
+ * spawn failure (ssh binary missing, code 127) is NO observation — W51,
+ * lookup failure is never death. */
+export function classifyProbeRun(code: number): "reachable" | "lost" | "none" {
+	if (code === 0) return "reachable";
+	if (code === 255 || code === 1) return "lost"; // ssh transport refused/failed
+	if (code === 124 || code === 143) return "lost"; // timeout / SIGTERM'd probe
+	return "none"; // local spawn failure (127 etc.) — probe never ran
+}
+
 export type LostHubAction = "ok" | "grace" | "requeue";
 
 /** One observation → episode + action. The clock anchors at the first loss

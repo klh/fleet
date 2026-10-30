@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	classifyLostHub,
+	classifyProbeRun,
 	hubClaims,
 	hubForLaneHost,
 	hubLostGraceMs,
@@ -137,6 +138,19 @@ test.describe("@unit", () => {
 			expect(hubLostGraceMs("junk")).toBe(15 * 60_000);
 			expect(hubLostGraceMs("10")).toBe(60_000);
 			expect(hubLostGraceMs("120000")).toBe(120_000);
+		});
+	});
+
+	test.describe("classifyProbeRun — transport refusal IS loss", () => {
+		test("ssh refusal/timeout accrue loss; spawn failure is no observation", () => {
+			// 0 reachable handled by the caller via the 200 check; probe-exit map:
+			expect(classifyProbeRun(0)).toBe("reachable");
+			expect(classifyProbeRun(255)).toBe("lost"); // ssh: connect refused/host down
+			expect(classifyProbeRun(1)).toBe("lost"); // curl non-2xx/ssh generic
+			expect(classifyProbeRun(124)).toBe("lost"); // timeout
+			expect(classifyProbeRun(143)).toBe("lost"); // SIGTERM'd probe
+			expect(classifyProbeRun(127)).toBe("none"); // binary missing — never ran
+			expect(classifyProbeRun(2)).toBe("none"); // usage error — never ran
 		});
 	});
 

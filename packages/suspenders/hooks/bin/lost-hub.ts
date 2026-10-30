@@ -21,6 +21,7 @@ import { emitLoopEvent } from "../lib/fleet-loop/events.ts";
 import { realHubExec } from "../lib/fleet-loop/hub-port-heal.ts";
 import {
 	classifyLostHub,
+	classifyProbeRun,
 	hubClaims,
 	lostHubPaused,
 	readEpisode,
@@ -81,8 +82,10 @@ async function main(argv: string[]): Promise<number> {
 			continue;
 		}
 		const run = exec(target, healthProbeScript(target.healthPort));
-		if (run.code !== 0) {
-			// unprobeable ≠ lost (W51) — record NO observation this pass
+		const seen = classifyProbeRun(run.code);
+		if (seen === "none") {
+			// local spawn failure — the probe never ran: NO observation (W51),
+			// the anchored clock keeps, nothing releases on absent evidence
 			reports.push({
 				hub: name,
 				verdict: "unprobeable",
@@ -90,7 +93,9 @@ async function main(argv: string[]): Promise<number> {
 			});
 			continue;
 		}
-		const reachable = run.out.trim() === "200";
+		// transport refusal IS the disconnect observation (MultiKueue
+		// connectionState): a dark hub host accrues loss toward the grace
+		const reachable = seen === "reachable" && run.out.trim() === "200";
 		const prev = readEpisode(store, project, name);
 		const verdict = classifyLostHub(
 			prev,
