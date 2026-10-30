@@ -217,6 +217,26 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		cwd: (repo) => repo,
 	},
 	{
+		// W2321.5: the hub-exec orphan GC — origin-marked lane worktrees
+		// (.fleet/lane-context.json) + serve processes on hubs with a
+		// lane_gc.repo_root, reaped only when the claim is TERMINAL at the
+		// authority and the tip is merged-or-pushed. Authority unreachable =
+		// scan-only (connectivity-gated, the MultiKueue runGC law). Hubs
+		// without lane_gc are a no-op. `.fleet/hub-orphan-gc-paused`-style
+		// pausing rides the lane_gc config absence (unset = opted out).
+		name: "hub-orphan-gc",
+		everySeconds: 1800,
+		nice: 10,
+		timeoutMs: 300_000,
+		argv: (root, repo) => [
+			join(root, "hooks/bin/hub-orphan-gc.ts"),
+			"--act",
+			"--repo",
+			repo,
+		],
+		cwd: (repo) => repo,
+	},
+	{
 		// W1247: the .fleet launch-debris janitor — dispatch/supervise fence
 		// every lane launch with launch-<nonce>.{json,sh,json.registered} in
 		// <REPO>/.fleet and nothing removed them (6,805-file backlog,
