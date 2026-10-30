@@ -88,6 +88,7 @@ import {
 	verifyConfiguredServiceKey as serviceKeyVerdict,
 	verifyKeyFile,
 } from "./service-key.ts";
+import { mintHubCredentialVerb } from "./hub-credential.ts";
 import { traceTunnelVerb } from "./trace-tunnel.ts";
 import { mergeZaiHubUpstreams } from "./zai-catalog.ts";
 
@@ -1093,15 +1094,10 @@ function main(): void {
 	if (!hubName || verb === "--help" || verb === "-h") {
 		console.log(
 			"usage: hubctl <render|mint|push|up|status|deploy|reload-upstreams|manifest|exec|mint-lane-key> <hub> — config: ~/.config/klh/settings.json hubs.<label> (stack.json read-compat)\n       render --settings prints the hub's rendered settings.json (machine doc + hubs.<label>.settings overlay)\n       up accepts --force: proceed on a stale/unpinned hub .env (refused by default)\n" +
-				"       exec runs allowlisted read-only probes; mint-lane-key mints a\n" +
-				"       short-lived lane key ON the hub (root credential never leaves it)\n" +
-				"       mint-service-key mints a PERSISTENT proxy-only service credential\n" +
-				"       (no expiry, --out keyfile at 0600, metadata only on stdout) for\n" +
-				"       spoke/persistent links; verify-key checks a\n" +
-				"       configured cross-hub key and fails on expired/revoked with the\n" +
-				"       hub's actual code; trace-tunnel <hub> up|status|down|peer runs\n" +
-				"       the W1097 managed ssh tunnel for the bounded trace connector\n" +
-				"       (hubs.<label>.trace_tunnel in stack.json)",
+				"       exec runs allowlisted read-only probes; mint-lane-key mints a\n       short-lived lane key ON the hub (root credential never leaves it);\n       mint-service-key mints a PERSISTENT proxy-only service credential\n" +
+				"       (no expiry, --out keyfile at 0600, metadata only on stdout) for\n       spoke/persistent links; mint-hub-credential mints the machine's\n       hub credential (admin:WRITE_ — W2321.1, hub-credential.ts);\n" +
+				"       verify-key checks a configured cross-hub key and fails on\n       expired/revoked with the hub's actual code; trace-tunnel <hub>\n       up|status|down|peer runs the W1097 managed ssh tunnel for the\n" +
+				"       bounded trace connector (hubs.<label>.trace_tunnel in stack.json)\n",
 		);
 		process.exit(hubName ? 0 : 2);
 	}
@@ -1181,6 +1177,10 @@ function main(): void {
 			mintServiceKey(serviceKeyRunner, hub, hubName, name, out);
 			return;
 		}
+		case "mint-hub-credential":
+			// W2321.1: the machine's hub credential — hub-credential.ts owns it.
+			mintHubCredentialVerb(serviceKeyRunner, hub, hubName, flags);
+			return;
 		case "verify-key": {
 			const file = flagVal(flags, "--file");
 			const envName = flagVal(flags, "--env");
