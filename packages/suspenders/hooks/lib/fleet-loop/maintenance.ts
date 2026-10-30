@@ -24,9 +24,9 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { appendSweepNotice, pausePath, readPause } from "./sweep-state.ts";
-import type { LoopDeps } from "./runtime.ts";
 import { MODEL_HEALTH_SWEEP_S } from "../hub/model-health.ts";
+import type { LoopDeps } from "./runtime.ts";
+import { appendSweepNotice, pausePath, readPause } from "./sweep-state.ts";
 
 export interface MaintenanceTask {
 	/** registry name — also the stamp key and the log tag */
@@ -448,6 +448,22 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 			repo,
 		],
 		cwd: (repo) => repo,
+	},
+	{
+		// W2274: governor.db retention — `coord gc --vacuum` daily off-peak so
+		// the deltas/events/facts churn (harvest.*, metrics.*, executor.*)
+		// cannot grow the file unbounded again (2026-10-29: 980 MB). VACUUM
+		// is an exclusive full-file rewrite — the one place it fits is an
+		// idle-hours fire; prunes alone would only bank freelist pages.
+		// archive-before-delete keeps the NDJSON long-term store under
+		// ~/.cache/claude-governor/archive/. Nothing here is a ledger table —
+		// work items are never auto-deleted. SUSPENDERS_MAINTENANCE=0
+		// disables (ops escape).
+		name: "gov-gc",
+		calendar: { hour: 4, minute: 0 },
+		nice: 10,
+		timeoutMs: 600_000,
+		argv: (root) => [join(root, "hooks/bin/coord.ts"), "gc", "--vacuum"],
 	},
 	{
 		// W2194: the hub model-health sweep — every configured hub + the local

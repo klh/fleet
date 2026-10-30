@@ -11,10 +11,9 @@ import {
 import { openKnowledgeDb } from "../lib/knowledge/govdb-knowledge.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import {
-	assertCapsuleBounds,
-	itemCapsuleKey,
-} from "../lib/lanes/capsule-fence.ts";
+import { expireConsults } from "../lib/federation/consult-expiry.ts";
+import { openIdentity } from "../lib/govdb/govdb.ts";
+import { archiveAndPrune, pruneArchiveFiles } from "../lib/govdb/retention.ts";
 import {
 	ConfidenceError,
 	glyphFor,
@@ -22,8 +21,6 @@ import {
 	parseStamp,
 	renderStamp,
 } from "../lib/knowledge/confidence.ts";
-import { expireConsults } from "../lib/federation/consult-expiry.ts";
-import { openIdentity } from "../lib/govdb/govdb.ts";
 import {
 	recordKnowledgeSuggestion,
 	renderKnowledgeSuggestion,
@@ -33,9 +30,12 @@ import {
 	searchSink,
 	sinkConfigured,
 } from "../lib/knowledge/knowledge-sink-client.ts";
-import { archiveAndPrune, pruneArchiveFiles } from "../lib/govdb/retention.ts";
-import { run } from "../lib/run.ts";
+import {
+	assertCapsuleBounds,
+	itemCapsuleKey,
+} from "../lib/lanes/capsule-fence.ts";
 import { reapDeadSubscribes } from "../lib/lanes/subscribe-attach.ts";
+import { run } from "../lib/run.ts";
 import { parseVerb } from "../lib/verb-kit.ts";
 import { isLiveSession, type LivenessRow } from "./bus.ts";
 import { ensureConsultTrust } from "./consult-trust.ts";
@@ -804,7 +804,7 @@ export async function cmdKb(rest: string[]): Promise<void> {
 	} else die('usage: kb stats | kb list | kb search "<query words>"');
 }
 
-export async function cmdGc(_rest: string[]): Promise<void> {
+export async function cmdGc(rest: string[]): Promise<void> {
 	// retention: events + closed sessions + their cursors age out; terminal
 	// work items are the ledger and are NEVER auto-deleted
 	const days = Number(arg("--days") ?? 30);
@@ -830,6 +830,7 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 		table: "events",
 		tsCol: "ts",
 		cut,
+		pkCols: ["id"],
 		floorCol: "id",
 		floorVal: floor ?? undefined,
 		cols: ["id", "ts", "source", "kind", "scope", "payload", "target"],
@@ -856,6 +857,7 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 		table: "route_audit",
 		tsCol: "ts",
 		cut: Date.now() - ms(auditDays),
+		pkCols: ["rid"],
 		cols: [
 			"rid",
 			"ts",
@@ -876,12 +878,14 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 		table: "auth_events",
 		tsCol: "ts",
 		cut: Date.now() - ms(usageDays),
+		pkCols: ["id"],
 		cols: ["id", "ts", "actor", "event", "jti", "via"],
 	});
 	const ur = pruneSafe(db, {
 		table: "usage_rollup",
 		tsCol: "hour_bucket",
 		cut: Date.now() - ms(usageDays),
+		pkCols: ["hour_bucket", "actor", "model"],
 		cols: [
 			"hour_bucket",
 			"actor",
@@ -898,9 +902,20 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 		table: "admin_audit",
 		tsCol: "ts",
 		cut: Date.now() - ms(365),
+		pkCols: ["id"],
 		cols: ["id", "ts", "actor", "action", "target", "detail"],
 	});
 	const af = pruneArchiveFiles(365);
+	// W2274: DELETE frees pages to the freelist but never returns bytes to
+	// the OS — --vacuum rebuilds the db file after the prunes (opt-in: it is
+	// an exclusive full-file rewrite, so it rides the off-peak heartbeat fire
+	// that passes the flag, never the default human-invoked gc).
+	// bare-flag presence — arg() reads rest[i+1], which is null both when a
+	// flag is bare and when it is absent, so presence rides the array
+	if (rest.includes("--vacuum")) {
+		db.run("VACUUM");
+		console.log("gc: vacuumed governor.db");
+	}
 	const s = db
 		.query("DELETE FROM sessions WHERE state = 'CLOSED' AND hb < ?")
 		.run(cut).changes;
