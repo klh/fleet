@@ -8,6 +8,7 @@ import {
 	type ReportContract,
 	type ReportItem,
 } from "./work-report.ts";
+import { capacityLine } from "./report-capacity.ts";
 import { reportBoardBase } from "./work-report-live.ts";
 import {
 	type RenderOpts,
@@ -163,7 +164,7 @@ export const writeDeltaState = (path: string, c: ReportContract): void => {
 };
 
 /** --statusline (§10): ONE line, ANSI allowed. Needs-you first (§4), then
- *  the live shape, hubs (§8), and the stall grace. */
+ *  the live shape, hubs (§8), W2314 saturation, and the stall grace. */
 export const renderStatusline = (c: ReportContract): string => {
 	const count = (sec: string): number =>
 		c.items.filter((i) => i.section === sec).length;
@@ -176,6 +177,7 @@ export const renderStatusline = (c: ReportContract): string => {
 		`· ${count("waiting")}`,
 		`✓ ${count("done")}`,
 		hubs,
+		c.capacity ? capacityLine(c.capacity) : "",
 		`stall>${agentClock(c.stall_ms)}`,
 	]
 		.filter(Boolean)

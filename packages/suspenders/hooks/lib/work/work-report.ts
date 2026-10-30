@@ -16,6 +16,7 @@ import {
 } from "../lanes/lane-spend.ts";
 import type { LaneLive } from "./work-report-live.ts";
 import { reportBoardBase } from "./work-report-live.ts";
+import type { ReportCapacity } from "./report-capacity.ts";
 
 /** One table row: graph state joined to its spend attribution. */
 export interface ReportRow {
@@ -599,6 +600,10 @@ export interface ReportContract {
 	/** fork E: per-project controller status (lease holder, last cycle,
 	 *  holds) — the CONTROL SNAPSHOT facts, one row per reported project */
 	controllers: ControllerStatus[];
+	/** W2314 Kueue saturation triple (pending/held/admitted vs the steady
+	 *  target) — null = the caller pinned no capacity facts (the contract
+	 *  renders no saturation line, never a fabricated 0). */
+	capacity: ReportCapacity | null;
 }
 
 /** rows → the versioned contract (§1). Every view renders FROM this — the
@@ -614,6 +619,9 @@ export const buildReportContract = (
 		lanesOtherProjects?: number | null;
 		modelHealthDown?: string[];
 		controllers?: ControllerStatus[];
+		/** W2314: the saturation triple — unset keeps capacity null (views
+		 *  render no saturation line, never a fabricated zero). */
+		capacity?: ReportCapacity;
 	},
 ): ReportContract => {
 	const now = opts.now ?? Date.now();
@@ -655,6 +663,7 @@ export const buildReportContract = (
 		footer: { lanes_other_projects: opts.lanesOtherProjects ?? null },
 		model_health: { down: opts.modelHealthDown ?? [] },
 		controllers: opts.controllers ?? [],
+		capacity: opts.capacity ?? null,
 	};
 };
 
