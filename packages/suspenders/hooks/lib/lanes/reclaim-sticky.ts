@@ -2,7 +2,10 @@
 // marker (Chorus control-handler lift). A reclaim records WHY the claim died
 // (user = operator-initiated, crash = automation-detected death, rate-limited
 // = a dead lane whose tail is a provider rate limit — concurrency pressure,
-// never a quota wall, so it is never a dispatch-stop signal); the marker
+// never a quota wall, so it is never a dispatch-stop signal; lost-hub =
+// W2321.4's lost-hub requeue — the claim lapsed because the HUB vanished
+// past the first-loss grace, not because the lane died (it may still be
+// running hub-side); the marker
 // is sticky — only the next successful claim (resume) clears it. No sweep
 // re-arms or removes it, so a reclaimed item converges instead of dangling.
 // The gate helper encodes the double-check: a user reclaim refuses a
@@ -10,9 +13,14 @@
 // itself to the bulk-pass standard (positive death evidence required).
 import type { GovernorStore } from "../govdb/govdb.ts";
 
-export type ReclaimReason = "user" | "crash" | "rate-limited";
+export type ReclaimReason = "user" | "crash" | "rate-limited" | "lost-hub";
 
-const REASONS: readonly ReclaimReason[] = ["user", "crash", "rate-limited"];
+const REASONS: readonly ReclaimReason[] = [
+	"user",
+	"crash",
+	"rate-limited",
+	"lost-hub",
+];
 
 /** Automation-detected reasons demand positive death evidence. */
 export const automatedReclaim = (reason: ReclaimReason): boolean =>

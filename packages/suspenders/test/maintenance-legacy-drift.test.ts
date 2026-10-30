@@ -46,6 +46,8 @@ const HEARTBEAT_BORN: Record<string, string> = {
 	"consult-tick": "hub phase 4",
 	"hub-update": "W2239.3",
 	"hub-port-heal": "W2309",
+	"lost-hub-sweep": "W2321.4",
+	"knowledge-distill": "fork G — idle-time knowledge distiller",
 };
 
 // Retired com.suspenders.* labels that were never maintenance tasks —
