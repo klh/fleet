@@ -406,14 +406,20 @@ function mergeCandidate(options: Options): Result {
 		// W2255.2: the publish grant is a one-use attestation minted HERE, only
 		// after the final canonical verifyReview PASS, and bound to old/new —
 		// never a caller-supplied env pair, which any local process could forge.
+		// W2293: `--git-path` can return a cwd-relative path; the fs calls below
+		// resolve against process.cwd(), not `repo` — anchor to the absolute git
+		// dir (in a linked worktree `.git` is a file, and ENOTDIR kills the mint).
 		const attest = command(
 			repo,
-			["git", "rev-parse", "--git-path", "fleet-main-publish-attestation.json"],
+			["git", "rev-parse", "--absolute-git-dir"],
 			timeoutMs,
 		);
 		if (attest.code !== 0)
 			return fail("merge guard: cannot resolve attestation path");
-		const attestationPath = attest.out.trim();
+		const attestationPath = join(
+			attest.out.trim(),
+			"fleet-main-publish-attestation.json",
+		);
 		const temp = `${attestationPath}.${crypto.randomUUID()}`;
 		writeFileSync(
 			temp,

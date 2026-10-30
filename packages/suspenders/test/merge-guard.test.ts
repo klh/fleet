@@ -1,4 +1,9 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
+// The bypass spec spawns ~15 sequential git children (each firing three
+// bun-backed hooks) — under combined-suite load that exceeds bun's 5s
+// default and kills the in-flight spawn (exitCode null). Same shape as
+// advise-panel/advise-gated: one file-level ceiling.
+setDefaultTimeout(30_000);
 import {
 	chmodSync,
 	mkdtempSync,
