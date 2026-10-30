@@ -29,6 +29,7 @@ import { unmergedDeps, unmergedNote } from "../lib/gates/dep-merge-gate.ts";
 import { reproGateRefusal } from "../lib/gates/repro-gate.ts";
 import { projectRootOf, resolveSidOf } from "../lib/govdb/govdb.ts";
 import { BACKFILL_EVENT, backfillForItem } from "../lib/lanes/lane-backfill.ts";
+import { runBackfillVerb } from "../lib/work/hub-evidence.ts";
 import { rebindKeptLaneContext } from "../lib/lanes/lane-context.ts";
 import {
 	doneSpendStamp,
@@ -696,27 +697,26 @@ const dispatchVerb = async (
 		});
 		console.log(`${green("▸")} report → ${artifact.path}`);
 	} else if (name === "backfill") {
-		// W2059: link an already-closed item's closer-session ledger rows as a
-		// work.attribution stamp. sid default = the completion record's closer.
-		const id = pos[0];
-		if (!id) die("usage: backfill <id> [--as sid]");
-		const it = get(id);
-		if (it.state !== "DONE")
-			die(`${id} is ${it.state} — backfill attributes a DONE item's close`);
-		const record = completionRecord(db(), PROJECT, id);
-		const sid = flag("--as") ?? String(record?.completed_by ?? "").trim();
-		if (!sid) die(`${id} has no closer sid on record — pass --as <sid>`);
-		const bf = backfillForItem(db(), PROJECT, id, sid, resolveBuckleDb());
-		if (!bf) {
-			console.log(
-				`${id}: no closer-key ledger rows in the close window — stays '-' (honest no-data)`,
-			);
-		} else {
-			emit(BACKFILL_EVENT, id, { backfill: JSON.stringify(bf), sid });
-			console.log(
-				`${green("✓")} ${cyan(id)} attribution backfilled: fresh ${bf.fresh} · cached ${bf.cached} · out ${bf.out} · ${bf.requests} req · groups ${Object.keys(bf.groups).join(",") || "-"}`,
-			);
-		}
+		// W2059 (+ W2321.3 --hub): the verb body lives in
+		// lib/work/hub-evidence.ts runBackfillVerb — work.ts is pinned
+		// near-cap, the branch stays a one-line delegation.
+		await runBackfillVerb(
+			{
+				store: db(),
+				project: PROJECT,
+				get,
+				completionRecord,
+				backfillForItem,
+				resolveBuckleDb,
+				emit,
+				die,
+				log: console.log,
+				green,
+				cyan,
+			},
+			pos[0],
+			flag,
+		);
 	} else if (name === "fail") {
 		const id = pos[0];
 		const note = flag("--note") ?? "";
