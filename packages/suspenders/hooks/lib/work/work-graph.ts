@@ -8,15 +8,16 @@
 // identifies a row by id alone, NO work_deps query omits project. Row access
 // goes through get/setState/deps, which own the project bind; the only
 // exception is take's CAS, which needs the state guard in its WHERE.
+
+import { unmergedDeps, unmergedNote } from "../gates/dep-merge-gate.ts";
 import type { GovernorStore } from "../govdb/govdb.ts";
 import { openStore, projectIdentity, projectRootOf } from "../govdb/govdb.ts";
-import { unmergedDeps, unmergedNote } from "../gates/dep-merge-gate.ts";
 import type { ReclaimReason } from "../lanes/reclaim-sticky.ts";
 import { dieFor } from "../verb-kit.ts";
-import { mergeTags } from "./work-tags.ts";
-import { MIRROR_NAME, mirrorOrNull } from "./work-mirror.ts";
 import { preferTagFor } from "./prefer.ts";
+import { MIRROR_NAME, mirrorOrNull } from "./work-mirror.ts";
 import { releaseWorkClaim } from "./work-release.ts";
+import { mergeTags } from "./work-tags.ts";
 import { resolveItemWorktree } from "./worktree-lookup.ts";
 
 const die = dieFor("work");
@@ -138,6 +139,7 @@ export function setState(
 	state: string,
 	owner?: string | null,
 	sha?: string | null,
+	store: GovernorStore = db(),
 ): void {
 	const sets = ["state = ?", "updated_at = ?"];
 	const vals: (string | number)[] = [state, Date.now()];
@@ -149,7 +151,7 @@ export function setState(
 		sets.push("result_sha = ?");
 		vals.push(sha);
 	}
-	db()
+	store
 		.query(
 			`UPDATE work_items SET ${sets.join(", ")} WHERE project = ? AND id = ?`,
 		)
@@ -161,8 +163,9 @@ export function emit(
 	id: string,
 	extra: Record<string, string> = {},
 	source = "work",
+	store: GovernorStore = db(),
 ): void {
-	db()
+	store
 		.query(
 			"INSERT INTO events (ts, source, kind, scope, payload, target) SELECT ?, ?, ?, scope, ?, NULL FROM work_items WHERE project = ? AND id = ?",
 		)
@@ -265,20 +268,23 @@ export function freeDependents(id: string): {
 	return { freed, gated };
 }
 
-export function nextRootId(): string {
+export function nextRootId(
+	store: GovernorStore = db(),
+	project: string = PROJECT,
+): string {
 	// atomic per-project allocation: one upsert statement is the allocator, so
 	// concurrent `work add` races each get a distinct id instead of one losing
 	// to a UNIQUE error. Seeds from existing max, then increments.
-	const tx = db().transaction(() => {
-		db()
+	const tx = store.transaction(() => {
+		store
 			.query(
 				"INSERT INTO work_sequences (project, next_id) SELECT ?, COALESCE(MAX(CAST(SUBSTR(id, 2) AS INTEGER)), 0) + 1 FROM work_items WHERE project = ? AND id GLOB 'W[0-9]*' AND id NOT LIKE '%.%' ON CONFLICT(project) DO UPDATE SET next_id = next_id + 1",
 			)
-			.run(PROJECT, PROJECT);
+			.run(project, project);
 		return (
-			db()
+			store
 				.query("SELECT next_id FROM work_sequences WHERE project = ?")
-				.get(PROJECT) as { next_id: number }
+				.get(project) as { next_id: number }
 		).next_id;
 	});
 	return `W${tx()}`;
@@ -297,8 +303,9 @@ export function insertItem(
 	effort: string | null = null,
 	evidence: string | null = null,
 	extraTags: string | null = null,
+	store: GovernorStore = db(),
 ): void {
-	db()
+	store
 		.query(
 			"INSERT INTO work_items (id, parent_id, title, state, priority, created_by, scope, why_parallel, project, required, requires, tags, effort, evidence, created_at, updated_at, description) VALUES (?, ?, ?, 'READY', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)",
 		)
@@ -327,10 +334,11 @@ export function releaseClaim(
 	sid: string,
 	scope: string | null,
 	itemId?: string,
+	store: GovernorStore = db(),
 ): void {
 	// release the autoClaim (sid,scope) AND legacy/intent-scoped claims that
 	// reference this item — scopeless items otherwise leak claims on DONE
-	db()
+	store
 		.query(
 			"DELETE FROM claims WHERE sid = ? AND (scope = ? OR (? IS NOT NULL AND intent LIKE ? || ' %'))",
 		)

@@ -41,3 +41,62 @@ export const parseGetRequest = (
 		? { ok: true, name: parsed.data.name }
 		: { ok: false, error: z.prettifyError(parsed.error) };
 };
+
+// ---- v0.1 writes (W2328) --------------------------------------------------
+
+/** WorkItems/Create (AIP-133): title required; the add-verb surface. */
+export const CreateWorkItemRequestSchema = z.object({
+	title: z.string().min(1).max(2_000),
+	parent: z
+		.string()
+		.regex(/^W[\d.]+$/)
+		.optional(),
+	priority: z.number().int().min(0).max(100).optional(),
+	tags: z.array(z.string().min(1).max(64)).max(16).optional(),
+	description: z.string().max(8_000).optional(),
+	scope: z.string().max(200).optional(),
+	reason: z.string().max(2_000).optional(),
+	evidence: z.string().max(2_000).optional(),
+});
+export type CreateWorkItemRequest = z.output<
+	typeof CreateWorkItemRequestSchema
+>;
+
+/** WorkItems/Update (AIP-134): name-keyed, update_mask'd (the four mutable
+ *  fields), reason rides work.edited. */
+export const UpdateWorkItemRequestSchema = z.object({
+	name: z.string().min(1).max(512),
+	update_mask: z.array(z.string().min(1).max(64)).max(8).optional(),
+	title: z.string().min(1).max(2_000).optional(),
+	description: z.string().max(8_000).optional(),
+	priority: z.number().int().min(0).max(100).optional(),
+	tags: z.array(z.string().min(1).max(64)).max(16).optional(),
+	reason: z.string().max(2_000).optional(),
+});
+export type UpdateWorkItemRequest = z.output<
+	typeof UpdateWorkItemRequestSchema
+>;
+
+/** WorkItems/Delete (AIP-135, soft): name-keyed CANCELLED transition. */
+export const DeleteWorkItemRequestSchema = z.object({
+	name: z.string().min(1).max(512),
+	note: z.string().max(2_000).optional().default(""),
+});
+export type DeleteWorkItemRequest = z.output<
+	typeof DeleteWorkItemRequestSchema
+>;
+
+/** Lanes/Message + Lanes/Steer (custom methods, AIP-136): name-keyed directed
+ *  input. Message carries an optional urgent class; Steer rides the verb's
+ *  own gates, not dataplane policy. */
+const LaneWriteRequestSchema = z.object({
+	name: z.string().min(1).max(512),
+	text: z.string().min(1).max(8_000),
+	source: z.string().max(200).optional(),
+});
+export const LaneMessageRequestSchema = LaneWriteRequestSchema.extend({
+	urgent: z.boolean().optional(),
+});
+export const LaneSteerRequestSchema = LaneWriteRequestSchema;
+export type LaneMessageRequest = z.output<typeof LaneMessageRequestSchema>;
+export type LaneSteerRequest = z.output<typeof LaneSteerRequestSchema>;
