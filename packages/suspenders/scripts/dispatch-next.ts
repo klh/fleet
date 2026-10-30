@@ -72,10 +72,10 @@ import { dispatchHelpEpilog, verbHeadIndex } from "./lib/dispatch-usage.ts";
 import { fleetReport } from "./lib/fleet-report.ts";
 import { stackWireEndpoints } from "./lib/lane-wire.ts";
 import { activeRateLimitWalls } from "./lib/launch-backoff.ts";
-import {
-	heldLaunchItems,
-	readConfiguredLaunches,
-} from "./lib/launch-fencing.ts";
+import { readConfiguredLaunches } from "./lib/launch-fencing.ts";
+// W2317: the unknown-liveness surface gate — bounded re-probe exhaustion is
+// an event (one NEED_DECISION per episode), never a slot-holding wedge.
+import { unknownSurfaceGate } from "./lib/launch-refusal.ts";
 // W636 decomposition: the READY-pool helpers + the archived-origin landing
 // guard moved to lib modules; the re-exports keep supervise.ts and the test
 // suites on their dispatch-next import path.
@@ -378,11 +378,36 @@ const main = async (): Promise<void> => {
 	// daemonized `claude -p` re-parents away from the recorded pid within minutes.
 	const lanes = loadLanes();
 	const audit = laneAudit();
-	const held = DRY
-		? new Set<string>()
+	// W2317: ONE held read per cycle doubles as the bounded unknown-liveness
+	// probe (heldLaunchReport advances attempts) — exhaustion surfaces a
+	// NEED_DECISION and releases the slot instead of wedging capacity.
+	const heldReport = DRY
+		? { held: new Set<string>(), surfaced: [] }
 		: readConfiguredLaunches((store) =>
-				heldLaunchItems(store, projectIdentity(REPO)),
+				unknownSurfaceGate(
+					store,
+					projectIdentity(REPO),
+					(note) =>
+						void run(
+							coordCli(
+								"emit",
+								"NEED_DECISION",
+								"--as",
+								"dispatch",
+								"--scope",
+								"suspenders",
+								"--note",
+								note,
+							),
+						),
+					log,
+				),
 			);
+	const held = heldReport.held;
+	for (const s of heldReport.surfaced)
+		console.log(
+			`SURFACED ${s.item} — unknown liveness, ${s.attempts}/${s.maxAttempts} re-probes; capacity released (W2317)`,
+		);
 	// Old automatic claims can outlive their registry rows. Reconstruct the
 	// original sid instead of reclaiming it and losing capsule/retry identity.
 	// W928: the capture + candidate math ride scripts/lib/claim-recovery.ts.

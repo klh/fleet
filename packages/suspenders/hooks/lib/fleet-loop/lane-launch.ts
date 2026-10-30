@@ -60,13 +60,13 @@ import {
 	wirePick,
 } from "../../../scripts/lib/lane-wire.ts";
 import {
-	launchFailBackoff,
 	launchLogSize,
 	parkExhaustedLaunch,
 	readLaunchBackoff,
 	rearmLaunchHold,
 } from "../../../scripts/lib/launch-backoff.ts";
 import { launchCleanup } from "../../../scripts/lib/launch-cleanup.ts";
+import { launchFailureCatch } from "../../../scripts/lib/launch-refusal.ts";
 import {
 	assertLaunchClaim,
 	awaitLaunchRegistration,
@@ -1167,13 +1167,14 @@ export const dispatchLane = async (
 		return `${item}→${sid}(pid ${proc.pid})`;
 	} catch (error) {
 		governanceRefusals.push(item);
-		const backoff =
-			launchedProc?.exitCode !== null && launchedProc !== undefined
-				? launchFailBackoff(store, project, item, laneLog, attempt, logAtSpawn)
-				: null;
-		console.log(
-			`REFUSED ${item} — launch failed: ${String(error)}${backoff ? `; ${backoff.kind} retry after ${new Date(backoff.eligibleAt).toISOString()}` : ""}`,
+		// W2317: the ONE refusal seam — Transient backoff vs Permanent
+		// FAILED+NEED_DECISION; the unwind (W1165 evidence + effects) lives in
+		// scripts/lib/launch-refusal.ts, keeping this file inside the 1200 stop.
+		const exit = launchFailureCatch(
+			{ item, laneLog, attempt, logAtSpawn, proc: launchedProc },
+			{ project, sid, store, run, workCli, coordCli, log },
 		);
+		console.log(`REFUSED ${item} — launch failed: ${String(error)}; ${exit.note}`);
 		log(`REFUSED ${item} → ${sid} — launch failed: ${String(error)}`);
 		return null;
 	} finally {

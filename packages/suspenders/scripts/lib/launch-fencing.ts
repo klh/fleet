@@ -8,6 +8,7 @@ import {
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { dlopen, FFIType, ptr } from "bun:ffi";
+import { z } from "zod";
 import { openStore, type GovernorStore } from "../../hooks/lib/govdb/govdb.ts";
 import { sameMachine } from "../../hooks/lib/host-identity.ts";
 import { compareProcessBirth, darwinProcessBirth } from "./process-birth.ts";
@@ -27,6 +28,77 @@ export type LaunchIntent = {
 };
 export type ProcessBirth = { birth: string; command: string };
 const TABLE = "lane_launch_intents";
+
+// — W2317 (Kueue pattern 5): the ONE launch-refusal vocabulary ———————————
+// Every pre-launch gate folds its failure into Transient (backoff + requeue)
+// or Permanent (FAILED + NEED_DECISION) through classifyLaunchRefusal; the
+// bounded unknown-liveness re-probe carries a RequeueSpec. No second enum,
+// no second requeue shape (program contract, lesson.kueue-program-contract).
+
+/** Kueue AdmissionCheck failure semantics: Retry ↔ Transient (release the
+ *  reservation and backoff), Rejected ↔ Permanent (deactivate + surface). */
+export const LaunchRefusalSchema = z.enum(["Transient", "Permanent"]);
+export type LaunchRefusal = z.infer<typeof LaunchRefusalSchema>;
+
+/** A permanent refusal is never retried by machinery: the item lands FAILED
+ *  (work retry stays the operator's call) with a NEED_DECISION surfaced. */
+export type LaunchRefusalVerdict = {
+	disposition: LaunchRefusal;
+	reason: string;
+};
+
+/** Kueue requeueState {count, requeueAt} as fleet's one re-probe shape:
+ *  requeueAt epoch ms (0 = immediate); attempts/maxAttempts bound the
+ *  probe so unknown liveness is an INPUT, never a slot-holding state. */
+export const RequeueSpecSchema = z.object({
+	disposition: LaunchRefusalSchema,
+	requeueAt: z.number().int(),
+	attempts: z.number().int().min(0),
+	maxAttempts: z.number().int().min(1),
+});
+export type RequeueSpec = z.infer<typeof RequeueSpecSchema>;
+
+/** Exit 125 = the launch fence's own refusal (registration/lease/claim) —
+ *  contention with a live dispatcher, not a property of this workload. */
+const REGISTRATION_EXIT = 125;
+/** Configuration-class codes from classifyLaunchFailure: retrying cannot
+ *  fix a bad flag, key or cert — Kueue's Rejected, not Retry. */
+const PERMANENT_CODES = new Set(["invalid-launch-or-auth"]);
+const PERMANENT_STDERR =
+	/unknown option|unrecognized arguments?|unsupported\s*params?|invalid api key|\b401\b|\b403\b|cert(?:ificate)? (?:expired|invalid)|ERR_TLS_CERT/i;
+
+/** Pure Transient/Permanent classifier over a launch-refusal input: code =
+ *  the launch-backoff fact code (429, invalid-launch-or-auth,
+ *  upstream-unavailable, transport-unavailable, launch-exited,
+ *  quota-exhausted …); stderr/exitCode optional side-evidence. No store,
+ *  no clock — both dispatch seams and tests share it. Unknown codes are
+ *  Transient (the honest default: an unproven failure never deactivates). */
+export function classifyLaunchRefusal(input: {
+	code: string;
+	stderr?: string;
+	exitCode?: number | null;
+}): LaunchRefusalVerdict {
+	const code = input.code.trim();
+	if (PERMANENT_CODES.has(code))
+		return {
+			disposition: "Permanent",
+			reason: `${code}: launch configuration/auth is wrong; retrying cannot fix it`,
+		};
+	if (input.exitCode === REGISTRATION_EXIT)
+		return {
+			disposition: "Transient",
+			reason: "exit 125: launch fence refused (registration/lease/claim contention)",
+		};
+	if (input.stderr && PERMANENT_STDERR.test(input.stderr))
+		return {
+			disposition: "Permanent",
+			reason: `stderr matches configuration/auth refusal: ${code}`,
+		};
+	return {
+		disposition: "Transient",
+		reason: `${code}: transient launch failure — backoff and requeue`,
+	};
+}
 export function readConfiguredLaunches<T>(
 	read: (store: GovernorStore) => T,
 ): T {
@@ -117,15 +189,166 @@ export function heldLaunchItems(
 	store: GovernorStore,
 	project: string,
 ): Set<string> {
+	return heldLaunchReport(store, project).held;
+}
+
+// — W2317: the bounded unknown-liveness re-probe ————————————————
+// An unknown inspect verdict is an INPUT to a bounded probe cycle, never a
+// slot-holding state (the W417.4 disease: recycled pids + incomparable
+// births held capacity forever). Each heldLaunchReport call IS one probe:
+// attempts advance, requeueAt spaces them, exhaustion surfaces the intent
+// (operator door: dispatch intent fail) instead of wedging the slot.
+
+/** One probe spaced 30s → 2m → 5m; exhaustion after DEFAULT_REPROBE_MAX. */
+const REPROBE_STEPS_MS = [30_000, 120_000, 300_000];
+export const DEFAULT_REPROBE_MAX_ATTEMPTS = 3;
+const REPROBE_PREFIX = "dispatch.intent-reprobe.";
+const reprobeKey = (project: string, item: string): string =>
+	`${REPROBE_PREFIX}${Bun.hash(project).toString(16)}.${item}`;
+
+export type SurfacedIntent = {
+	item: string;
+	sid: string;
+	pid: number | null;
+	attempts: number;
+	maxAttempts: number;
+	/** true only on the cycle the bound was first hit — the once-per-episode
+	 *  emit signal (the fact itself is the grinder-style flag). */
+	justExhausted: boolean;
+};
+export type HeldLaunchReport = {
+	held: Set<string>;
+	surfaced: SurfacedIntent[];
+};
+
+function readReprobeSpec(
+	store: GovernorStore,
+	project: string,
+	item: string,
+): RequeueSpec | null {
+	try {
+		const row = store
+			.query("SELECT value FROM facts WHERE key=?")
+			.get(reprobeKey(project, item)) as { value: string } | null;
+		if (!row) return null;
+		// Schema law: an unparsable/foreign row is drift — fail open to a
+		// fresh episode, never wedge capacity on a bad fact.
+		const parsed = RequeueSpecSchema.safeParse(JSON.parse(row.value));
+		return parsed.success ? parsed.data : null;
+	} catch {
+		return null;
+	}
+}
+
+function writeReprobeSpec(
+	store: GovernorStore,
+	project: string,
+	item: string,
+	spec: RequeueSpec,
+): void {
+	try {
+		store
+			.query(
+				"INSERT INTO facts(key,value,source,version,ts) VALUES (?,?,?,1,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,source=excluded.source,version=version+1,ts=excluded.ts",
+			)
+			.run(
+				reprobeKey(project, item),
+				JSON.stringify(spec),
+				"dispatch",
+				Date.now(),
+			);
+	} catch {
+		// a dark facts table never wedges dispatch (fail-open doctrine)
+	}
+}
+
+/** Retire a re-probe episode: a fresh reservation or a FAILED transition
+ *  ends it — a later unknown episode for the same item starts at attempt 1. */
+function clearReprobeEpisode(
+	store: GovernorStore,
+	project: string,
+	item: string,
+): void {
+	try {
+		store
+			.query("DELETE FROM facts WHERE key=?")
+			.run(reprobeKey(project, item));
+	} catch {
+		// fail-open
+	}
+}
+
+/** Advance one intent's re-probe bound. Verdict unknown: schedule the next
+ *  probe or mark exhaustion; verdict proved: retire the episode fact. */
+function reprobeStep(
+	store: GovernorStore,
+	intent: LaunchIntent,
+	verdict: "alive" | "dead" | "unknown",
+	now: number,
+): "held" | "exhausted" | "cleared" {
+	if (verdict !== "unknown") {
+		// a proved verdict resolves the episode: the fact resets so a later
+		// unknown episode starts fresh at attempt 1
+		if (readReprobeSpec(store, intent.project, intent.item))
+			writeReprobeSpec(store, intent.project, intent.item, {
+				disposition: "Transient",
+				requeueAt: 0,
+				attempts: 0,
+				maxAttempts: DEFAULT_REPROBE_MAX_ATTEMPTS,
+			});
+		return "cleared";
+	}
+	const prior = readReprobeSpec(store, intent.project, intent.item);
+	const maxAttempts = prior?.maxAttempts ?? DEFAULT_REPROBE_MAX_ATTEMPTS;
+	if (prior && prior.attempts >= maxAttempts) return "still-exhausted";
+	if (prior && now < prior.requeueAt) return "held";
+	const attempts = (prior?.attempts ?? 0) + 1;
+	writeReprobeSpec(store, intent.project, intent.item, {
+		disposition: "Transient",
+		requeueAt:
+			now +
+			REPROBE_STEPS_MS[Math.min(attempts - 1, REPROBE_STEPS_MS.length - 1)],
+		attempts: Math.min(attempts, maxAttempts),
+		maxAttempts,
+	});
+	return attempts >= maxAttempts ? "exhausted" : "held";
+}
+
+/** The dispatch-cycle read: which items hold launch capacity, and which
+ *  unknown-liveness intents exhausted their re-probe bound (surfaced —
+ *  capacity released, one NEED_DECISION per episode rides the caller).
+ *  This call IS the probe cadence: one dispatch cycle = one attempt. */
+export function heldLaunchReport(
+	store: GovernorStore,
+	project: string,
+	now = Date.now(),
+	inspect: (
+		intent: LaunchIntent,
+	) => "alive" | "dead" | "unknown" = inspectLaunchIntent,
+): HeldLaunchReport {
 	launchSchema(store);
 	const rows = store
 		.query(`SELECT * FROM ${TABLE} WHERE project=? AND state!='FAILED'`)
 		.all(project) as LaunchIntent[];
-	return new Set(
-		rows
-			.filter((row) => inspectLaunchIntent(row) !== "dead")
-			.map((row) => row.item),
-	);
+	const held = new Set<string>();
+	const surfaced: SurfacedIntent[] = [];
+	for (const row of rows) {
+		const verdict = inspect(row);
+		if (verdict === "dead") continue;
+		const step = reprobeStep(store, row, verdict, now);
+		if (step === "exhausted" || step === "still-exhausted") {
+			const prior = readReprobeSpec(store, row.project, row.item);
+			surfaced.push({
+				item: row.item,
+				sid: row.sid,
+				pid: row.pid,
+				attempts: prior?.attempts ?? DEFAULT_REPROBE_MAX_ATTEMPTS,
+				maxAttempts: prior?.maxAttempts ?? DEFAULT_REPROBE_MAX_ATTEMPTS,
+				justExhausted: step === "exhausted",
+			});
+		} else held.add(row.item);
+	}
+	return { held, surfaced };
 }
 function command(args: string[]): string | null {
 	const result = Bun.spawnSync(args, { stdout: "pipe", stderr: "ignore" });
@@ -274,6 +497,9 @@ export function reserveLaunchIntent(
 				"INSERT INTO lane_launch_budgets VALUES (?,?,?) ON CONFLICT(project,item) DO UPDATE SET reservations=excluded.reservations",
 			)
 			.run(input.project, input.item, attempt + 1);
+		// W2317: a fresh reservation is a fresh episode — prior unknown-liveness
+		// probe state never carries into the new attempt's bound.
+		clearReprobeEpisode(store, input.project, input.item);
 		const intent: LaunchIntent = {
 			...input,
 			executor: realpathSync(input.executor),
@@ -361,6 +587,9 @@ export function finishFailedLaunch(
 			`UPDATE ${TABLE} SET state='FAILED' WHERE project=? AND item=? AND nonce=?`,
 		)
 		.run(intent.project, intent.item, intent.nonce);
+	// W2317: a FAILED intent is out of the held set by the state filter —
+	// its probe episode must not linger either.
+	clearReprobeEpisode(store, intent.project, intent.item);
 }
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 export function fencedExecutor(
