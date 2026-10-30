@@ -2,6 +2,12 @@
 // batched advice/role/payload lookups, per-item decision rows.
 // W1255.4: moved verbatim from board/data.ts (per-domain split, THEN.B).
 import { usableRecommendation } from "../lib/govdb/advice-quality.ts";
+import {
+	bestActionFor,
+	needsYouReason,
+	type ReportRow,
+	reportRows,
+} from "../lib/work/work-report.ts";
 import { db } from "./context.ts";
 import { collapseDups } from "./decision-dups.ts";
 import { chunked } from "./helpers.ts";
@@ -11,6 +17,7 @@ import {
 	labelFrom,
 	labelMaps,
 	payloadOf,
+	projectList,
 	syncDecisions,
 } from "./lanes.ts";
 
@@ -225,6 +232,74 @@ export function decisionRecords(
 	});
 }
 
+/** W2310: gated/blocked work items rendered FROM the report row set
+ *  (reportRows) — the ONE needs-you source, so the decisions drawer and
+ *  `work report` cannot disagree. Each row carries the shared best-action
+ *  text. Decision/stalled rows are skipped — those render as decision
+ *  cards or stay in the working section. */
+/** One gated row → the drawer's card shape (project fixed by the caller). */
+function gatedShape(
+	r: ReportRow,
+	p: string,
+	reason: string,
+): {
+	id: string;
+	project: string;
+	title: string;
+	state: string;
+	reason: string;
+	best_action: string;
+	updated_at: number;
+	age_s: number;
+} {
+	return {
+		id: r.id,
+		project: p,
+		title: r.title,
+		state: r.state,
+		reason,
+		best_action: bestActionFor(
+			r.state,
+			r.stalled,
+			r.decision,
+			reason === "blocked"
+				? { blockedBy: r.blockedBy ?? undefined }
+				: { ownerGated: true },
+		),
+		updated_at: r.updatedAt,
+		age_s: Math.max(0, Math.round((Date.now() - r.updatedAt) / 1000)),
+	};
+}
+
+export function gatedRows(project: string | null): unknown[] {
+	const selected = project && project !== "all" ? project : null;
+	const out: unknown[] = [];
+	for (const p of selected ? [selected] : projectList()) {
+		let rows: ReportRow[];
+		try {
+			rows = reportRows(db as never, p, { ledger: null }).rows;
+		} catch {
+			continue; // no graph tables for this project — fail soft
+		}
+		for (const r of rows) {
+			const reason = needsYouReason(
+				r.state,
+				r.stalled,
+				r.decision,
+				r.ownerGated || r.blockedBy?.length
+					? {
+							ownerGated: r.ownerGated,
+							blockedBy: r.blockedBy ?? undefined,
+						}
+					: undefined,
+			);
+			if (reason !== "gated" && reason !== "blocked") continue;
+			out.push(gatedShape(r, p, reason));
+		}
+	}
+	return out;
+}
+
 export function decisionsPayload(
 	history: boolean,
 	project: string | null = null,
@@ -243,5 +318,13 @@ export function decisionsPayload(
 	const byProject: Record<string, number> = {};
 	for (const r of open)
 		if (r.project) byProject[r.project] = (byProject[r.project] ?? 0) + 1;
-	return { ts: Date.now(), count: open.length, byProject, decisions: shown };
+	return {
+		ts: Date.now(),
+		count: open.length,
+		byProject,
+		decisions: shown,
+		// W2310: gated/blocked items ride the same feed — the drawer shows
+		// every needs-you row the work report emits, not just decision events
+		gated: gatedRows(project),
+	};
 }
