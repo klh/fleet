@@ -19,7 +19,10 @@ import {
 	PRUNE_ALLOWLIST,
 	payloadChecksum,
 } from "../hooks/lib/install/harness-manifest.ts";
-import { hubCapabilities, spokeCapabilities } from "../hooks/lib/federation/profile.ts";
+import {
+	hubCapabilities,
+	spokeCapabilities,
+} from "../hooks/lib/federation/profile.ts";
 import { twinDrift } from "./belt-bin-overlay.ts";
 import {
 	type PlannedShim,
@@ -426,26 +429,28 @@ export async function syncHarness(
 		const beltManifest = JSON.parse(
 			readFileSync(join(packageRoot, "belt", "package.json"), "utf8"),
 		);
-		// A25 (W1281.9): a dependency whose name matches a package shipped in
-		// this payload is private — it resolves from the staged link below,
-		// never from npm. Derived from the manifests, so a new @klh package
-		// needs no list edit here to avoid an npm 404.
-		// package name → its payload dir (packages/<dir>), one entry per
-		// shipped manifest; the scoped links below ride the same map
-		const stagedDirs = new Map<string, string>();
+		// W2308: the stage root declares .harness/packages/* as a workspaces
+		// root (the generated manifest below), so every shipped @klh/* package
+		// resolves from the payload itself — the platform mechanism, no
+		// private-name map and no staged links. Fleet packages NEVER come from
+		// npm: @klh rows are dropped from the ROOT resolved graph wholesale,
+		// and the W661 closure walk stays the loud gate for an unshipped
+		// import (it fails the sync before any install runs).
+		// member name → payload dir, one entry per shipped manifest; the shed
+		// loop below prunes rows staged members cannot resolve
+		const memberDirs = new Map<string, string>();
 		for (const rel of shipped.filter((p) => p.endsWith("/package.json"))) {
 			const item = JSON.parse(readFileSync(join(payload, rel), "utf8"));
 			if (typeof item.name === "string")
-				stagedDirs.set(item.name, dirname(rel));
+				memberDirs.set(item.name, dirname(rel));
 		}
-		const stagedNames = new Set(stagedDirs.keys());
 		const dependencies: Record<string, string> = {};
 		for (const item of [manifest, beltManifest]) {
 			for (const [name, version] of Object.entries(item.dependencies ?? {})) {
 				if (
 					typeof version !== "string" ||
 					version.startsWith("workspace:") ||
-					stagedNames.has(name)
+					name.startsWith("@klh/")
 				)
 					continue;
 				if (dependencies[name] && dependencies[name] !== version)
@@ -454,12 +459,29 @@ export async function syncHarness(
 			}
 		}
 		// every shipped manifest (the closure ships each touched package's)
-		// sheds its dev-only fields
+		// sheds its dev-only fields and prunes rows the stage cannot resolve
+		// (W2308): bun's workspace resolution makes member manifests
+		// load-bearing, so an @klh row to an UNSHIPPED sibling (e.g. the
+		// @klh/kernel-style row riding a partial closure) or a workspace:
+		// row to a non-member would 404 the install — the W661 walk already
+		// proved every staged import resolves within the payload, so these
+		// rows are dead manifest weight here. Rows to shipped siblings stay:
+		// one-version law keeps the ranges satisfied, bun links them.
 		for (const rel of shipped.filter((p) => p.endsWith("/package.json"))) {
 			const path = join(payload, rel);
 			const item = JSON.parse(readFileSync(path, "utf8"));
 			delete item.devDependencies;
 			delete item.workspaces;
+			for (const [name, version] of Object.entries(
+				(item.dependencies ?? {}) as Record<string, unknown>,
+			)) {
+				if (
+					!memberDirs.has(name) &&
+					(name.startsWith("@klh/") ||
+						(typeof version === "string" && version.startsWith("workspace:")))
+				)
+					delete item.dependencies?.[name];
+			}
 			writeFileSync(path, JSON.stringify(item));
 		}
 		// W165: the spoke profile ships no hub-only code — the modules are
@@ -490,6 +512,7 @@ export async function syncHarness(
 				name: "fleet-installed-harness",
 				private: true,
 				type: "module",
+				workspaces: [".harness/packages/*"],
 				dependencies,
 			}),
 		);
@@ -501,26 +524,25 @@ export async function syncHarness(
 		// lockfile-only combination can incorrectly return without writing a lock.
 		// W1050: the resolver is a cold-cache ladder — on an empty Bun cache the
 		// offline leg fetches once via the network and re-verifies offline; both
-		// legs failing fails the sync early with the remedy.
-		// A25 ordering (W1281.9): the scoped @klh links are staged BEFORE
-		// dependency materialization — a private name can never depend on the
-		// registry (offline resolver or the network fallback both see the link
-		// already in place; the manifest filter above keeps them out of the
-		// resolved graph entirely).
-		mkdirSync(join(stage, "node_modules"), { recursive: true });
-		// every shipped @klh package gets its scoped link — the W1249 import
-		// law routes cross-package imports by package name, so a missing link
-		// fails the staged import graph (2026-10-08 blam, W1303.2 buckle,
-		// W1238.3 telemetry, W2193 belt — now derived, never listed).
+		// legs failing fails the sync early with the remedy. Workspace members
+		// (W2308) ride the same install: bun links member-to-member itself;
+		// the root-level links below are the runtime seam for prefix-root
+		// faces and come after materialization by design.
+		await materializeDependencies(stage);
+		await materializeProduction(stage);
+		// runtime seam for the prefix-root published faces (W2308): bun's
+		// workspace links land member-to-member only, and bun never consults
+		// the workspaces field at resolve time — faces published at the
+		// prefix root (e.g. local-llm/spawner.ts) resolve @klh/* by walking
+		// prefix/node_modules, so every shipped member gets a root link
+		// derived from the same memberDirs map the shed prune uses.
 		mkdirSync(join(stage, "node_modules/@klh"), { recursive: true });
-		for (const [name, dir] of stagedDirs) {
+		for (const [name, dir] of memberDirs) {
 			if (!name.startsWith("@klh/")) continue;
 			// link content is relative to the link's own dir (node_modules/@klh):
 			// up two to stage/, then into .harness/<packages/dir>
 			link(`../../.harness/${dir}`, join(stage, "node_modules", name));
 		}
-		await materializeDependencies(stage);
-		await materializeProduction(stage);
 		mkdirSync(join(stage, "node_modules"), { recursive: true });
 		for (const item of HOOK_ITEMS) {
 			if (!existsSync(join(suspenders, "hooks", item)))

@@ -5,6 +5,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	renameSync,
 	rmSync,
 	statSync,
@@ -49,8 +50,8 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		mkdirSync(join(file, ".."), { recursive: true });
 		writeFileSync(file, value);
 	};
-	// scoped names match the real payload packages (@klh/*) — the private-name
-	// derivation (W1281.9) keys on the manifest names as shipped.
+	// scoped names match the real payload packages (@klh/*) — the stage
+	// workspaces glob (W2308) resolves member names as shipped.
 	for (const [dir, name] of [
 		["suspenders", "@klh/suspenders"],
 		["belt", "@klh/belt"],
@@ -328,7 +329,9 @@ test("installed harness resolves staged Fleet packages locally", async () => {
 			name: "@klh/suspenders",
 			version: "2.0.0",
 			type: "module",
-			dependencies: { "@klh/blam": "2.0.0", "@klh/buckle": "2.0.0" },
+			// rows must satisfy the staged member versions — an unsatisfied
+			// range sends bun to the registry, which has no @klh packages
+			dependencies: { "@klh/blam": "1.0.0", "@klh/buckle": "1.0.0" },
 		}),
 	);
 	f.git("add", ".");
@@ -345,10 +348,31 @@ test("installed harness resolves staged Fleet packages locally", async () => {
 	const installed = JSON.parse(
 		readFileSync(join(f.ctx.prefix, "package.json"), "utf8"),
 	);
+	// W2308: fleet packages resolve through the stage's workspaces glob —
+	// bun links each shipped member into the DEPENDING member's own
+	// node_modules/@klh; the stage root ALSO carries @klh links as the
+	// runtime seam for prefix-root published faces. npm never serves them.
+	expect(installed.workspaces).toEqual([".harness/packages/*"]);
 	expect(installed.dependencies["@klh/blam"]).toBeUndefined();
 	expect(installed.dependencies["@klh/buckle"]).toBeUndefined();
-	expect(existsSync(join(f.ctx.prefix, "node_modules/@klh/blam"))).toBe(true);
-	expect(existsSync(join(f.ctx.prefix, "node_modules/@klh/buckle"))).toBe(true);
+	for (const name of ["blam", "buckle"]) {
+		for (const linkPath of [
+			// install seam: bun's member-to-member workspace link
+			join(
+				f.ctx.prefix,
+				".harness/packages/suspenders/node_modules/@klh",
+				name,
+			),
+			// runtime seam: prefix-root link for published faces
+			join(f.ctx.prefix, "node_modules/@klh", name),
+		]) {
+			expect(existsSync(linkPath)).toBe(true);
+			// every link resolves into the staged payload, not a registry copy
+			expect(realpathSync(linkPath)).toBe(
+				realpathSync(join(f.ctx.prefix, ".harness/packages", name)),
+			);
+		}
+	}
 });
 
 // A25 (W1281.9): the private-name filter derives from the shipped manifests,
@@ -359,7 +383,11 @@ test("a new private staged package installs without consulting the registry", as
 	const f = fixture();
 	f.put(
 		"packages/telemetry/package.json",
-		JSON.stringify({ name: "@klh/telemetry", version: "1.0.0", type: "module" }),
+		JSON.stringify({
+			name: "@klh/telemetry",
+			version: "1.0.0",
+			type: "module",
+		}),
 	);
 	f.put(
 		"packages/suspenders/package.json",
@@ -368,8 +396,8 @@ test("a new private staged package installs without consulting the registry", as
 			version: "2.0.0",
 			type: "module",
 			dependencies: {
-				"@klh/blam": "2.0.0",
-				"@klh/buckle": "2.0.0",
+				"@klh/blam": "1.0.0",
+				"@klh/buckle": "1.0.0",
 				"@klh/telemetry": "1.0.0",
 			},
 		}),
@@ -980,7 +1008,10 @@ test("a diverged runtime twin is refused before publication (W1468)", async () =
 
 test("the published kit twin and its belt artifact are one module (W1468)", async () => {
 	const f = fixture();
-	commitTwin(f, '// shared lifecycle\nexport * from "@klh/belt/bin/spawner.ts";');
+	commitTwin(
+		f,
+		'// shared lifecycle\nexport * from "@klh/belt/bin/spawner.ts";',
+	);
 	await syncHarness(f.ctx);
 	const same = Bun.spawnSync(
 		[

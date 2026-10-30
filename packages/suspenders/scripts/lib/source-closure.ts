@@ -151,10 +151,11 @@ function shipList(ship: Set<string>, files: Set<string>): string[] {
 	}
 	const sorted = [...ship].sort();
 	// a package manifest nested under its own shipped package-root dirspec
-	// (the bare-import ship unit) STAYS — A25's private-name map and the
-	// dev-field shed loop key on shipped rows ending in /package.json, and
-	// folding it there hid the package from both (the v2.1.2 spoke install
-	// still 404'd @klh/settings at npm).
+	// (the bare-import ship unit) STAYS — the stage workspaces glob (W2308)
+	// and the dev-field shed loop key on shipped rows ending in
+	// /package.json (a member without its manifest isn't a member), and
+	// folding it there hid the package (the v2.1.2 spoke install still
+	// 404'd @klh/settings at npm).
 	return sorted.filter(
 		(p) =>
 			p.endsWith("/package.json") || !sorted.some((q) => p.startsWith(`${q}/`)),
