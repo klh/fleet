@@ -1,10 +1,10 @@
 import { Database } from "bun:sqlite";
-import { afterAll, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
-const fixture = await boardFixture(0, afterAll);
+const fixture = await boardFixture(0, test.afterAll);
 const {
 	HOME,
 	REPO,

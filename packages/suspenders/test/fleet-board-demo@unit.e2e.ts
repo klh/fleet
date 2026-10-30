@@ -1,12 +1,13 @@
 // Demo board is isolated from the live board and other test files.
-import { afterAll, describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { join } from "node:path";
 import { boardFixture, unusedPort } from "./helpers/board-fixture.ts";
+
 type Row = Record<string, unknown>;
 const { HOME, REPO, TOKEN, env, bin, q, waitUp, setDemoProc } =
-	await boardFixture(0, afterAll);
+	await boardFixture(0, test.afterAll);
 
-describe("demo mode (--demo)", () => {
+test.describe("demo mode (--demo)", () => {
 	const DEMO_PORT = unusedPort();
 	const DEMO_BASE = `http://127.0.0.1:${DEMO_PORT}`;
 	const demoProj = `${HOME}/.cache/claude-governor/demo`;
