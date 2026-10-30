@@ -592,7 +592,7 @@ export const dispatchLane = async (
 				console.log(
 					`SKIP ${item} — claim could not be taken or resumed: ${take.out.split("\n")[0]}`,
 				);
-				return deferItem(item, show, sid);
+				return deferItem(item, show, sid, DRY ? undefined : FLEET);
 			}
 			// claimed by this sid from a previous dispatch attempt — resume
 		}
@@ -663,7 +663,7 @@ export const dispatchLane = async (
 				console.log(
 					`SKIP ${item} — leftover worktree sits on ${cur || "(detached)"} AND is dirty — residue is never silently discarded; worktree.ts retire ${item} --force, then re-dispatch`,
 				);
-				return deferItem(item);
+				return deferItem(item, undefined, undefined, DRY ? undefined : FLEET);
 			}
 			const skip = recreateWorktree(item, sid, claimRevision);
 			if (skip) {
@@ -692,7 +692,7 @@ export const dispatchLane = async (
 			console.log(
 				`SKIP ${item} — worktree holds unbanked residue on the item branch — never spawn into unbanked state; worktree.ts retire ${item} --force, then re-dispatch`,
 			);
-			return deferItem(item);
+			return deferItem(item, undefined, undefined, DRY ? undefined : FLEET);
 		}
 		const branch = cur || expected;
 		const show = run(workCli("show", item));
@@ -766,7 +766,7 @@ export const dispatchLane = async (
 			console.log(
 				`SKIP ${item} — brief refused by ${adapter.briefHarness} verification: ${why} — launch refused; claim cleanup follows, nothing spawned`,
 			);
-			return deferItem(item);
+			return deferItem(item, undefined, undefined, DRY ? undefined : FLEET);
 		}
 		if (!verdict.ok)
 			console.log(
