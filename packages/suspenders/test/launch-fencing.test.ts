@@ -18,15 +18,18 @@ import {
 import {
 	fencedExecutor,
 	finishFailedLaunch,
+	forgetTerminalIntents,
 	heldLaunchItems,
 	inspectLaunchIntent,
 	launchIntent,
+	launchSchema,
 	processBirth,
 	registerLaunch,
 	reserveLaunchIntent,
 	terminateOwnLaunch,
 	type LaunchIntent,
 } from "../scripts/lib/launch-fencing.ts";
+import { releaseWorkClaim } from "../hooks/lib/work/work-release.ts";
 const dirs: string[] = [];
 const children: Bun.Subprocess[] = [];
 
@@ -352,3 +355,109 @@ for (const phase of ["before-fork", "after-fork", "after-register"] as const) {
 		}
 	}, 10000);
 }
+
+test("W2313: release/reclaim stamps the launch intent FORGOTTEN \u2014 held set shrinks, inspect reads dead", () => {
+	const db = new Database(":memory:");
+	db.run(
+		"CREATE TABLE work_items(project TEXT,id TEXT,owner_sid TEXT,updated_at INTEGER,state TEXT,scope TEXT)",
+	);
+	db.run(
+		"INSERT INTO work_items VALUES ('project','W1','lane',100,'CLAIMED',NULL)",
+	);
+	db.run("CREATE TABLE claims(sid TEXT, intent TEXT, scope TEXT)");
+	db.run(
+		"CREATE TABLE events(ts INTEGER, source TEXT, kind TEXT, scope TEXT, payload TEXT, target TEXT)",
+	);
+	const store = db as unknown as GovernorStore;
+	acquireLaunchLease(store, "project", "lane", "nonce");
+	const intent = reserveLaunchIntent(
+		store,
+		{
+			project: "project",
+			item: "W1",
+			sid: "lane",
+			nonce: "nonce",
+			revision: 100,
+			executor: process.execPath,
+		},
+		3,
+	);
+	expect(inspectLaunchIntent(intent)).toBe("unknown");
+	expect([...heldLaunchItems(store, "project")]).toEqual(["W1"]);
+	// owner release \u2014 the ONE core every release/reclaim/reclaim-all path rides
+	expect(
+		releaseWorkClaim(
+			store,
+			{
+				project: "project",
+				id: "W1",
+				owner: "lane",
+				state: "CLAIMED",
+				updatedAt: 100,
+			},
+			{ by: "lane", reason: "owner-release" },
+		),
+	).toBe(true);
+	const row = launchIntent(store, "project", "W1") as LaunchIntent;
+	expect(row.state).toBe("FORGOTTEN");
+	expect(inspectLaunchIntent(row)).toBe("dead");
+	expect([...heldLaunchItems(store, "project")]).toEqual([]);
+	// a forgotten intent never blocks re-reservation
+	releaseLaunchLease(store, "project", "lane", "nonce");
+	acquireLaunchLease(store, "project", "lane", "nonce2");
+	db.run(
+		"UPDATE work_items SET owner_sid='lane',updated_at=101,state='CLAIMED'",
+	);
+	expect(() =>
+		reserveLaunchIntent(
+			store,
+			{
+				project: "project",
+				item: "W1",
+				sid: "lane",
+				nonce: "nonce2",
+				revision: 101,
+				executor: process.execPath,
+			},
+			3,
+		),
+	).not.toThrow();
+});
+
+test("W2313: one-shot sweep stamps intents on terminal work items FORGOTTEN once", () => {
+	const db = new Database(":memory:");
+	db.run(
+		"CREATE TABLE work_items(project TEXT,id TEXT,owner_sid TEXT,updated_at INTEGER,state TEXT)",
+	);
+	db.run(
+		"CREATE TABLE facts(key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER NOT NULL DEFAULT 1, ts INTEGER NOT NULL)",
+	);
+	db.run(
+		"INSERT INTO work_items VALUES ('project','W1','lane',100,'DONE'),('project','W2','lane',100,'CLAIMED'),('project','W3','lane',100,'RUNNING')",
+	);
+	const store = db as unknown as GovernorStore;
+	launchSchema(store);
+	for (const [item, state] of [
+		["W1", "PREPARING"],
+		["W2", "REGISTERED"],
+		["W3", "REGISTERED"],
+	] as const)
+		db.run(
+			"INSERT INTO lane_launch_intents VALUES ('project',?,'lane','n-'||?,100,'bun','host',0,?,NULL,NULL)",
+			[item, item, state],
+		);
+	forgetTerminalIntents(store);
+	expect((launchIntent(store, "project", "W1") as LaunchIntent).state).toBe(
+		"FORGOTTEN",
+	);
+	expect((launchIntent(store, "project", "W2") as LaunchIntent).state).toBe(
+		"REGISTERED",
+	);
+	// guarded by the facts marker: a second pass is a no-op (W2 stays as-is
+	// even after it turns terminal post-sweep)
+	db.run("UPDATE work_items SET state='DONE' WHERE id='W2'");
+	forgetTerminalIntents(store);
+	expect((launchIntent(store, "project", "W2") as LaunchIntent).state).toBe(
+		"REGISTERED",
+	);
+});

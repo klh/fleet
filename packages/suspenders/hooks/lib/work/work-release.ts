@@ -1,4 +1,5 @@
 import type { GovernorStore } from "../govdb/govdb.ts";
+import { forgetLaunchIntent } from "../../../scripts/lib/launch-fencing.ts";
 import { markReclaimed, type ReclaimReason } from "../lanes/reclaim-sticky.ts";
 
 export type ExpectedWorkClaim = {
@@ -40,6 +41,8 @@ export function releaseWorkClaim(
 				expected.updatedAt,
 			);
 		if (!changed.changes) return false;
+		// W2313: the claim ended — its launch intent can never be live again.
+		forgetLaunchIntent(store, expected.project, expected.id);
 		const row = store
 			.query("SELECT scope FROM work_items WHERE project=? AND id=?")
 			.get(expected.project, expected.id) as { scope: string | null };

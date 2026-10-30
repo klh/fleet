@@ -71,13 +71,61 @@ export function launchSchema(store: GovernorStore): void {
 			"SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name IN ('lane_launch_intents','lane_launch_budgets')",
 		)
 		.get() as { n: number };
-	if (tables.n === 2) return;
+	if (tables.n === 2) {
+		forgetTerminalIntents(store);
+		return;
+	}
 	store.run(
 		`CREATE TABLE IF NOT EXISTS ${TABLE}(project TEXT NOT NULL,item TEXT NOT NULL,sid TEXT NOT NULL,nonce TEXT NOT NULL,revision INTEGER NOT NULL,executor TEXT NOT NULL,host TEXT NOT NULL,attempt INTEGER NOT NULL,state TEXT NOT NULL,pid INTEGER,birth TEXT,PRIMARY KEY(project,item))`,
 	);
 	store.run(
 		"CREATE TABLE IF NOT EXISTS lane_launch_budgets(project TEXT NOT NULL,item TEXT NOT NULL,reservations INTEGER NOT NULL,PRIMARY KEY(project,item))",
 	);
+}
+/** W2313 one-shot migration: an intent row whose work item is terminal can
+ * never be live again — stamp FORGOTTEN once, guarded by a facts marker so
+ * the sweep cost is one indexed SELECT on steady state. */
+const FORGET_SWEEP_KEY = "launch-intent.forget-sweep-v1";
+const TERMINAL_WORK_STATES = "('DONE','FAILED','CANCELLED','SUPERSEDED','SHATTERED')";
+export function forgetTerminalIntents(store: GovernorStore): void {
+	const have = store
+		.query(
+			"SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name IN ('facts','work_items')",
+		)
+		.get() as { n: number };
+	if (have.n < 2) return;
+	if (store.query("SELECT value FROM facts WHERE key=?").get(FORGET_SWEEP_KEY))
+		return;
+	store.run(
+		`UPDATE ${TABLE} SET state='FORGOTTEN' WHERE state NOT IN ('FAILED','FORGOTTEN') AND EXISTS (SELECT 1 FROM work_items w WHERE w.project=${TABLE}.project AND w.id=${TABLE}.item AND w.state IN ${TERMINAL_WORK_STATES})`,
+	);
+	store
+		.query(
+			"INSERT INTO facts(key,value,source,version,ts) VALUES (?,?,'dispatch',1,?) ON CONFLICT(key) DO NOTHING",
+		)
+		.run(FORGET_SWEEP_KEY, "1", Date.now());
+}
+/** W2313: the work ended — record it on the intent (Kueue's FORGOTTEN) inside
+ * the caller's transaction. No-op without a row or without the table (a graph
+ * that never launched this item has nothing to forget); FAILED stays FAILED. */
+export function forgetLaunchIntent(
+	store: GovernorStore,
+	project: string,
+	item: string,
+): void {
+	if (
+		!store
+			.query(
+				"SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+			)
+			.get(TABLE)
+	)
+		return;
+	store
+		.query(
+			`UPDATE ${TABLE} SET state='FORGOTTEN' WHERE project=? AND item=? AND state NOT IN ('FAILED','FORGOTTEN')`,
+		)
+		.run(project, item);
 }
 export function launchIntent(
 	store: GovernorStore,
@@ -119,7 +167,9 @@ export function heldLaunchItems(
 ): Set<string> {
 	launchSchema(store);
 	const rows = store
-		.query(`SELECT * FROM ${TABLE} WHERE project=? AND state!='FAILED'`)
+		.query(
+			`SELECT * FROM ${TABLE} WHERE project=? AND state NOT IN ('FAILED','FORGOTTEN')`,
+		)
 		.all(project) as LaunchIntent[];
 	return new Set(
 		rows
@@ -209,7 +259,7 @@ export function inspectLaunchIntent(
 	intent: LaunchIntent,
 	inspect = processBirth,
 ): "alive" | "dead" | "unknown" {
-	if (intent.state === "FAILED") return "dead";
+	if (intent.state === "FAILED" || intent.state === "FORGOTTEN") return "dead";
 	if (!sameMachine(intent.host, hostname()) || !intent.pid || !intent.birth)
 		return "unknown";
 	const current = inspect(intent.pid);
