@@ -61,6 +61,7 @@ import {
 	probeClaim,
 	setReclaimHold,
 } from "../lib/lanes/reclaim-liveness.ts";
+import { emitDoneBroadcast } from "../lib/done-broadcast.ts";
 import {
 	parseReclaimReason,
 	reclaimGateDecision,
@@ -678,6 +679,21 @@ const dispatchVerb = async (
 			sid: String(it.owner_sid ?? as ?? ""),
 			project: PROJECT,
 		});
+		// W822.1: the done handler itself broadcasts the condensed summary —
+		// kev-scored on the local SystemOne, fail-open, total (never an error
+		// path of done). Silence means hub deploy or kill switch.
+		const b = await emitDoneBroadcast(db(), {
+			id,
+			title: String(it.title ?? id),
+			sha: record?.commit_sha ?? sha ?? null,
+			summary: record?.summary ?? flag("--summary"),
+			description: (it.description as string | null) ?? null,
+			source: String(it.owner_sid ?? as ?? "manual"),
+		});
+		if (b)
+			console.log(
+				`${dim("↯")} broadcast ${b.id} kev=${b.label} → ${b.targets} live session(s)`,
+			);
 	} else if (name === "report-regen") {
 		// W1199 post-close face (`report` is the W892 supervisor table) — strict.
 		const id = pos[0];
