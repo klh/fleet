@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { writeFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
-import { scratchWorld } from "../../test-kit/src/index.ts";
+import { scratchWorld } from "@klh/test-kit";
 import {
 	clearDeferral,
 	deferralOf,
