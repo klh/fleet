@@ -1,29 +1,27 @@
 // scripts/lib/exec-chain.ts — W183.2: the lane executor chain, decomposed
 // out of dispatch-next.ts (1500-line law). One module owns the chain
-// vocabulary: the repo .prefer file chain (must=/prefer=/can=/hub=,
-// dotfiles-win)
+// vocabulary: the .prefer file chain (must=/prefer=/can=/hub=, dotfiles-win;
+// W1470: found by an upward walk, the nearest file defining a key wins it)
 // and the ordered default_executors fallback chain — execPick walks either
 // by attempt index (a dead lane re-dispatch advances it; overrun parks on
 // the last entry), the same-bin tail rides claude native --fallback-model,
 // "claude" stays the appended last resort.
+import { existsSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import {
+	type PreferChainEntry,
 	parseExecutorPrefer,
 	preferOverlayOf,
 	readPreferText,
-	type PreferChainEntry,
-	type PreferExecutor,
 } from "../../hooks/lib/prefer-format.ts";
+
 export type { PreferChainEntry } from "../../hooks/lib/prefer-format.ts";
+
 // feed values (llm:<machine>:<tail>) translate to belt model ids via the
 // catalog grammar; lookups: swarm inventory + BYO local-models.json
 import { feedModelOf } from "../../hooks/board/executor-catalog.ts";
 import { specialistByPort } from "../../hooks/board/local-swarm.ts";
 import { readBoardSettings } from "../../hooks/lib/board/board-config.ts";
-// W374: the per-provider quota measure — providerOf keys a chain slot to its
-// provider; quota demotion reorders the DEFAULT ladder only (a .prefer MUST
-// chain is owner intent, W228 parity with the W620 cv reorder).
-import type { ProviderPenalty } from "../../hooks/lib/usage/exec-quota.ts";
-import { providerOf } from "../../hooks/lib/usage/exec-quota.ts";
 // W422: which chain tokens are their own CLI vs belt model pins is ADAPTER
 // data (registry.ts) — the if copilot/else-claude ternaries retired here.
 import {
@@ -39,16 +37,28 @@ import {
 } from "../../hooks/lib/hub/hub-locate.ts";
 import { readUserPlane } from "../../hooks/lib/policy/repo-laws.ts";
 import { darkHubNow, tryLoadStack } from "../../hooks/lib/stack-config.ts";
+// W374: the per-provider quota measure — providerOf keys a chain slot to its
+// provider; quota demotion reorders the DEFAULT ladder only (a .prefer MUST
+// chain is owner intent, W228 parity with the W620 cv reorder).
+import type { ProviderPenalty } from "../../hooks/lib/usage/exec-quota.ts";
+import { providerOf } from "../../hooks/lib/usage/exec-quota.ts";
 import { resolveLaneExecutor } from "./launch-preflight.ts";
 
-/** Repo dotfile (.prefer, dotfiles-win law): `must=` / `prefer=` / `can=`
- * / `hub=Label` / `hub-url=url[,url...]` — a repo pins its executor chain
- * and hub label. `hub` is resolved to a real endpoint by hub-locate.ts
- * (owner directive 2026-10-03: "local hub to remote hubs scenario" — label
- * is not just a display prefix); `hub-url` adds repo-declared one-off
- * candidates tried before the global registry (most specific intent wins).
- * Policy still gates: an executor the W201 allow-list denies SKIPs with a
- * loud note.
+/** Dotfile (.prefer, dotfiles-win law): `must=` / `prefer=` / `can=`
+ * / `hub=Label` / `hub-url=url[,url...]` — a repo (or a tree root above it)
+ * pins its executor chain and hub label. `hub` is resolved to a real
+ * endpoint by hub-locate.ts (owner directive 2026-10-03: "local hub to
+ * remote hubs scenario" — label is not just a display prefix); `hub-url`
+ * adds repo-declared one-off candidates tried before the global registry
+ * (most specific intent wins). Policy still gates: an executor the W201
+ * allow-list denies SKIPs with a loud note.
+ *
+ * W1470 WALK: preferOf() reads every `.prefer` from the working path up to
+ * the filesystem root (tree-plane semantics, hooks/lib/prefer.ts); the
+ * nearest file defining a key (must / prefer / can / hub) supplies it, and
+ * `hub-url` rides with its hub — a farther file's URLs never attach to a
+ * nearer file's hub. Across files the position law extends: a nearer file
+ * reads as "below" a farther one, so its directives outrank it.
  *
  * `must=`/`prefer=` may repeat and carry comma-lists (W813: `must=a,b` =
  * two targets on one line, the LEFT one tried first). W813 POSITION LAW:
@@ -60,7 +70,7 @@ import { resolveLaneExecutor } from "./launch-preflight.ts";
  * W813 `can=<model|hub>` — the developer override: when the target is
  * doable on this machine it INVALIDATES the must= lines (one-shot, no
  * must edit needed); unavailable, the line vanishes and must stands
- * unchanged. A later can= line wins. */
+ * unchanged. A later can= line wins within a file, the nearer file across them. */
 /** Audit metadata for the actual executor selection, never a routing input. */
 export interface PreferDecision {
 	source: "dotfile" | "default" | "posture";
@@ -87,18 +97,67 @@ export const posturePreference = (
 /** `.prefer hub=<label>` warnings already printed by this process. */
 const warnedHubs = new Set<string>();
 
-export const preferOf = (repo: string): PreferExecutor => {
-	const path = `${repo}/.prefer`;
+/** One file's parsed chain; `rank` = distance on the upward walk (0 = nearest). */
+export interface PreferChain {
+	directives: (PreferChainEntry & { rank: number })[];
+	hub: string | null;
+	hubUrls: string[];
+	can: ({ value: string; line: number } & { rank: number }) | null;
+}
+
+/** Exactly `<dir>/.prefer`, no walk (connections.ts preferPin owns its walk). */
+export const preferFileOf = (dir: string, rank = 0): PreferChain => {
+	const path = `${dir}/.prefer`;
 	const text = readPreferText(path);
 	if (text === null || preferOverlayOf(path, text) !== null)
 		return { directives: [], hub: null, hubUrls: [], can: null };
 	const parsed = parseExecutorPrefer(text);
-	const unknown = parsed.hub ? unknownHubWarning(parsed.hub) : null;
+	return {
+		directives: parsed.directives.map((d) => ({ ...d, rank })),
+		hub: parsed.hub,
+		hubUrls: parsed.hubUrls,
+		can: parsed.can ? { ...parsed.can, rank } : null,
+	};
+};
+
+const MAX_WALK = 64; // depth cap — never walk into a symlink farm (prefer.ts parity)
+
+/** W1470: walks upward from `start`; the nearest file defining a key wins it. */
+export const preferOf = (start: string): PreferChain => {
+	const files: PreferChain[] = [];
+	let dir = resolve(start);
+	for (let i = 0; i < MAX_WALK; i++) {
+		if (existsSync(join(dir, ".prefer")))
+			files.push(preferFileOf(dir, files.length));
+		const parent = dirname(dir);
+		if (parent === dir) break;
+		dir = parent;
+	}
+	const linesOf = (
+		kind: "must" | "prefer",
+	): (PreferChainEntry & { rank: number })[] =>
+		files
+			.find((f) => f.directives.some((d) => d.kind === kind))
+			?.directives.filter((d) => d.kind === kind) ?? [];
+	const hubFile = files.find((f) => f.hub !== null);
+	const urlFile = files.find((f) => f.hubUrls.length > 0);
+	// a farther file's hub-url never attaches to a nearer file's hub label
+	const urlsFarther =
+		!!urlFile && !!hubFile && files.indexOf(urlFile) > files.indexOf(hubFile);
+	const hub = hubFile?.hub ?? null;
+	// warn once per process on the EFFECTIVE hub (a farther file's label is
+	// never used, so it is not noise) — W-settings landing on the W1470 walk
+	const unknown = hub ? unknownHubWarning(hub) : null;
 	if (unknown && !warnedHubs.has(unknown)) {
 		warnedHubs.add(unknown);
 		process.stderr.write(`${unknown}\n`);
 	}
-	return parsed;
+	return {
+		directives: [...linesOf("must"), ...linesOf("prefer")],
+		hub,
+		hubUrls: urlsFarther ? [] : (urlFile?.hubUrls ?? []),
+		can: files.find((f) => f.can !== null)?.can ?? null,
+	};
 };
 
 // W422: a chain token that names a registered agent rides its own binary;
@@ -170,10 +229,10 @@ const chainEntriesOf = (
 	const canTok =
 		prefer.can && canDoable(prefer.can.value, cvOf, quota) ? prefer.can : null;
 	const kept = prefer.directives.filter((d) => !canTok || d.kind !== "must");
-	if (canTok)
-		kept.push({ value: canTok.value, kind: "can", line: canTok.line });
-	// stable sort: equal lines keep file order (comma-list left-first)
-	kept.sort((a, b) => b.line - a.line);
+	if (canTok) kept.push({ ...canTok, kind: "can" });
+	// stable sort: nearer file first (W1470), then later line (position law);
+	// equal lines keep file order (comma-list left-first)
+	kept.sort((a, b) => a.rank - b.rank || b.line - a.line);
 	return {
 		entries: kept,
 		can: canTok ? "active" : prefer.can ? "unavailable" : "absent",
@@ -325,7 +384,8 @@ export const execPick = (
 	const quotaWhy = (slot: {
 		name: string;
 		model: string | null;
-	}): string | null => quota?.get(providerOf(slot.model ?? slot.name)) ?? null;
+	}): string | null =>
+		quota?.get(providerOf(slot.model ?? slot.name) ?? "") ?? null;
 	const penaltyOf = (slot: { name: string; model: string | null }): number =>
 		quotaWhy(slot) ? 1 : 0;
 	const wouldBe = chain[Math.min(attempt, chain.length - 1)];
