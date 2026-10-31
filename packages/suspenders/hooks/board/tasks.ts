@@ -74,6 +74,9 @@ export function taskShape(
 		state: w.state,
 		failure_note:
 			w.state === "FAILED" || w.state === "WAITING" ? failureNote : null,
+		// W2333 (Kueue F4): the machine-readable reason — retry policy and the
+		// board filter on the kind, never transcript-diving. NULL-safe (pre-F4).
+		fail_reason: w.fail_reason ?? null,
 		wait_kind: w.wait_kind ?? null,
 		wait_reason: w.wait_reason ?? null,
 		wait_until_utc: w.wait_until ? utcZ(w.wait_until) : null,

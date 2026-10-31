@@ -132,7 +132,7 @@ export const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "fail",
 		usage:
-			'usage: fail <id> --note "repro: <failing command + output> | no-repro: <why> (environment gone / flake proven / carrier death)" [--as sid]',
+			'usage: fail <id> --note "repro: <failing command + output> | no-repro: <why> (environment gone / flake proven / carrier death)" [--as sid] — W2333: stamps the classified LaunchFailure kind (rate-limit/upstream/transport/configuration/unknown) on the row + work.failed payload ($.reason)',
 		flags: [...ITEM_FLAGS],
 	}),
 	defineVerb({
