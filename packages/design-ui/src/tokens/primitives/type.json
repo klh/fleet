@@ -1,0 +1,17 @@
+{
+	"type": {
+		"size-2xs": "10px",
+		"size-xs": "10.5px",
+		"size-s": "11px",
+		"size-m": "12px",
+		"size-l": "13px",
+		"size-xl": "14px",
+		"size-2xl": "16px",
+		"size-3xl": "18px",
+		"size-4xl": "22px",
+		"track-label": "0.09em",
+		"track-wide": "0.14em",
+		"mono-stack": "ui-monospace, SFMono-Regular, Menlo, monospace",
+		"sans-stack": "system-ui, -apple-system, sans-serif"
+	}
+}

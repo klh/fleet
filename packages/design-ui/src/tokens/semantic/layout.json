@@ -1,0 +1,8 @@
+{
+	"board-pad-x": "24px",
+	"board-mast-rule-w": "3px",
+	"board-label-track": "0.09em",
+	"board-label-size": "10px",
+	"focus-ring-w": "2px",
+	"focus-ring-offset": "2px"
+}

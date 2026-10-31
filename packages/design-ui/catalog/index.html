@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>klh design-ui catalog</title>
+		<link rel="stylesheet" href="../src/tokens/dist/tokens.css" />
+		<link rel="stylesheet" href="../src/tokens/dist/themes/light.css" />
+		<link rel="stylesheet" href="../src/tokens/dist/themes/high-contrast.css" />
+		<style>
+			body {
+				margin: 0;
+				background: var(--klh-c-surface);
+				color: var(--klh-c-ink);
+				font-family: var(--klh-typo-sans-stack);
+			}
+			.pair {
+				display: grid;
+				grid-template-columns: 1fr 1fr;
+			}
+			.pair > section {
+				padding: var(--klh-space-5);
+				border-inline-start: var(--board-mast-rule-w) solid var(--klh-c-accent);
+			}
+			.pair h2 {
+				font-size: var(--klh-typo-size-s);
+				text-transform: uppercase;
+				letter-spacing: var(--klh-typo-track-label);
+			}
+		</style>
+	</head>
+	<body>
+		<h1>klh design-ui catalog</h1>
+		<p>
+			Prototype | component, side by side, light and dark. Deep catalog detail
+			lands in W2269.1.5; this skeleton hosts the token surface and the seed
+			theme events.
+		</p>
+		<div class="pair">
+			<section>
+				<h2>dark (root default)</h2>
+				<div class="swatches" id="swatches-dark"></div>
+			</section>
+			<section data-theme="light">
+				<h2>light</h2>
+				<div class="swatches" id="swatches-light"></div>
+			</section>
+		</div>
+		<script type="module" src="./catalog.ts"></script>
+		<script type="application/json" id="token-names">
+			["--klh-c-surface", "--klh-c-ink", "--klh-c-accent", "--klh-c-status-ok", "--klh-c-status-err", "--klh-c-focus", "--board-pad-x"]
+		</script>
+	</body>
+</html>

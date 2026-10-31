@@ -1,0 +1,21 @@
+{
+	"surface": "#ffffff",
+	"surface-raised": "#ece9e2",
+	"surface-sunken": "#fbfaf7",
+	"surface-field": "#ffffff",
+	"surface-overlay": "#ffffff",
+	"ink": "#1c1b19",
+	"ink-muted": "#3b3934",
+	"ink-faint": "#55524b",
+	"ink-disabled": "#6b675f",
+	"edge": "#ece9e2",
+	"edge-strong": "#55524b",
+	"accent": "#a86a00",
+	"accent-ink": "#ffffff",
+	"accent-bg": "#fbf1dc",
+	"focus": "#a86a00",
+	"status-ok": "#4a7c4e",
+	"status-warn": "#a86a00",
+	"status-err": "#b3402e",
+	"status-info": "#1d5dbf"
+}
