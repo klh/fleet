@@ -85,8 +85,11 @@ export function retryFailedItem(
 				};
 		}
 		releaseStaleClaims(store, it, id);
+		// W2333 (Kueue F4): the stamped reason belongs to the terminal record
+		// it explained — a re-opened item carries no stale reason (Kueue resets
+		// the count on reactivate; the next FAILED write stamps a fresh kind).
 		store.run(
-			"UPDATE work_items SET state='READY', owner_sid=NULL, updated_at=? WHERE project=? AND id=?",
+			"UPDATE work_items SET state='READY', owner_sid=NULL, fail_reason=NULL, updated_at=? WHERE project=? AND id=?",
 			Date.now(),
 			project,
 			id,

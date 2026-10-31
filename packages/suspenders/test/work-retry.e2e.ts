@@ -8,14 +8,14 @@ test.describe("@unit", () => {
 function fixture() {
 	const db = new Database(":memory:");
 	db.run(
-		"CREATE TABLE work_items(project TEXT, id TEXT, state TEXT, owner_sid TEXT, scope TEXT, updated_at INTEGER)",
+		"CREATE TABLE work_items(project TEXT, id TEXT, state TEXT, owner_sid TEXT, scope TEXT, fail_reason TEXT, updated_at INTEGER)",
 	);
 	db.run("CREATE TABLE claims(sid TEXT, scope TEXT, intent TEXT)");
 	db.run(
 		"CREATE TABLE facts(key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER, ts INTEGER)",
 	);
 	db.run(
-		"INSERT INTO work_items VALUES ('project','W1','FAILED','lane','s',100)",
+		"INSERT INTO work_items VALUES ('project','W1','FAILED','lane','s',NULL,100)",
 	);
 	db.run("INSERT INTO claims VALUES ('lane','s','W1 anything')");
 	launchSchema(db as unknown as GovernorStore);
@@ -76,6 +76,17 @@ test("READY without a budget reservation is refused (nothing to retry)", () => {
 	const r = retryFailedItem(store, "project", "W1");
 	expect(r.ok).toBe(false);
 	expect(r.error).toContain("nothing to retry");
+});
+
+test("W2333: retry clears the terminal fail_reason — no stale kind on the next life", () => {
+	const store = fixture();
+	store.run("UPDATE work_items SET fail_reason='rate-limit' WHERE id='W1'");
+	const r = retryFailedItem(store, "project", "W1");
+	expect(r.ok).toBe(true);
+	const it = store
+		.query("SELECT fail_reason FROM work_items WHERE id='W1'")
+		.get() as { fail_reason: string | null };
+	expect(it.fail_reason).toBeNull();
 });
 
 });

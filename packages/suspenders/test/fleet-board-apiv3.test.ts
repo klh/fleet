@@ -86,6 +86,7 @@ describe("board api v3 (docs/board-api.md)", () => {
 				"created_at_utc",
 				"execution",
 				"executor",
+				"fail_reason", // W2333 (Kueue F4): the machine-readable FAILED reason
 				"failure_note",
 				"id",
 				"locality",

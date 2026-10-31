@@ -88,8 +88,8 @@ import {
 	completionRecord,
 	persistCompletion,
 	prepareCompletion,
-	reactivationRefusalMessage,
 } from "../lib/work/work-completion-record.ts";
+import { runFailVerb } from "../lib/work/work-fail.ts";
 import { editPayload, editSteer, editWorkItem } from "../lib/work/work-edit.ts";
 import { EFFORTS } from "../lib/work/work-effort.ts";
 import { evidencePatternsOf } from "../lib/work/work-fence.ts";
@@ -183,6 +183,7 @@ const showOne = (id: string, json: boolean): void => {
 		"alloc_reason",
 		"wait_kind",
 		"wait_reason",
+		...(it.state === "FAILED" ? (["fail_reason"] as const) : []),
 		"description",
 	] as const) {
 		if (it[k]) console.log(`  ${dim(`${k}:`)} ${it[k]}`);
@@ -737,25 +738,18 @@ const dispatchVerb = async (
 	} else if (name === "fail") {
 		const id = pos[0];
 		const note = flag("--note") ?? "";
-		const as = flag("--as");
-		db().transaction(() => {
-			const it = get(id ?? "");
-			// W1173/W1173.1.1: refuse on the retained record (caller ignored) —
-			// an unavailable lookup dies too, never reads as "no record".
-			const refusal = reactivationRefusalMessage(db(), PROJECT, id ?? "");
-			if (refusal) die(refusal);
-			if (
-				as &&
-				(it.owner_sid !== resolveSidOf(db(), String(as)) ||
-					!["CLAIMED", "RUNNING"].includes(it.state as string))
-			)
-				die(
-					`${id} is not an unfinished claim owned by ${as} — failure refused`,
-				);
-			transitionStateOrDie(db(), PROJECT, it, claimedEpoch(), "FAILED", die);
-			emit("work.failed", id, { note });
-		})();
-		console.log(`${red("✗")} ${id} FAILED${note ? dim(` — ${note}`) : ""}`);
+		// W2333 (Kueue F4): the terminal write stamps its enumerated reason
+		// (LaunchFailure kind) — lib/work/work-fail.ts owns the handler.
+		const kind = runFailVerb(
+			db(),
+			PROJECT,
+			{ id: id ?? "", note, as: flag("--as"), epoch: claimedEpoch() },
+			(k, i, extra) => emit(k, i, extra),
+			die,
+		);
+		console.log(
+			`${red("✗")} ${id} FAILED [${kind}]${note ? dim(` — ${note}`) : ""}`,
+		);
 	} else if (name === "retry") {
 		for (const id of idList(pos)) {
 			const r = retryFailedItem(db(), PROJECT, id);
