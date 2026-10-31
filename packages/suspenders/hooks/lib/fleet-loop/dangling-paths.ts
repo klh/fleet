@@ -70,7 +70,7 @@ export type DanglingRef = {
 // files whose references get judged: code, JSON config, markup/config text
 const JUDGED = /\.(?:[cm]?[jt]sx?|jsonc?|ya?ml|toml|html?|sh|plist)$/i;
 // runtime dirs and build output are untracked by convention — a target under
-// them cannot be judged "missing from the tree" by ls-tree (W1762 rejudge
+// them cannot be judged "missing from the tree" by ls-tree (W2189 rejudge
 // re-uses the same rule over banked legacy evidence)
 export const UNJUDGED_TARGET =
 	/(?:^|\/)(?:\.harness|\.worktrees|\.test-home|node_modules|dist|build|out)\//;

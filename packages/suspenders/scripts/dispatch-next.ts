@@ -600,7 +600,7 @@ const main = async (): Promise<void> => {
 		(id) => sidOf(id, projectIdentity(REPO)),
 	);
 	for (const s of skips) console.log(s);
-	// W1762: repairs frozen by a merged-but-uninstalled classifier fix never
+	// W2189: repairs frozen by a merged-but-uninstalled classifier fix never
 	// launch from the pool (explicit --item stays operator-explicit).
 	const fixHolds = capStore
 		? danglingFixHolds(
