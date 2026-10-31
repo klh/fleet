@@ -15,6 +15,11 @@
 // `work extend <id> --for 45m` (Hermes claim-extend lift).
 import type { GovernorStore } from "../govdb/govdb.ts";
 import {
+	claimantPreBootDeath,
+	readSessionStamp,
+	type BootEpoch,
+} from "./boot-death.ts";
+import {
 	type LaneRef,
 	laneVerdict,
 	type ProcessInspector,
@@ -104,6 +109,10 @@ export type ClaimObservation = {
 	 *  the transport names the owner, the claim reads alive — production at
 	 *  the gate is not idleness (O1), with or without a lane-registry entry. */
 	transport?: Map<string, boolean>;
+	/** W2337 test seam — overrides the machine boot-epoch probe. */
+	bootEpoch?: BootEpoch | null;
+	/** W2337 test seam — overrides the WS-presence pgrep. */
+	wsPresence?: (sid: string) => boolean;
 };
 
 /** Read-only verdict — no counter writes, safe for listing surfaces. */
@@ -135,6 +144,24 @@ export function probeClaim(
 		if (death?.dead) {
 			verdict = "dead";
 			deathEvidence = `no lane entry + ${death.why}`;
+		}
+	}
+	// W2337 boot boundary: a machine reboot no process survives is positive
+	// death evidence for the otherwise-unknown claimant (stale RUNNING row,
+	// no registry entry, no transcript — the Oct 30 machine-death wedge).
+	// Every registry stamp pre-dating the current boot + no WS presence =
+	// dead; an unobservable epoch or a post-boot stamp stays unknown.
+	if (verdict === "unknown") {
+		const boot = claimantPreBootDeath({
+			sid: obs.owner,
+			session: readSessionStamp(store, obs.owner),
+			lane: obs.lane,
+			...(obs.bootEpoch !== undefined ? { epoch: obs.bootEpoch } : {}),
+			...(obs.wsPresence ? { presence: obs.wsPresence } : {}),
+		});
+		if (boot?.dead) {
+			verdict = "dead";
+			deathEvidence = boot.why;
 		}
 	}
 	return deathEvidence

@@ -22,6 +22,9 @@ export type ReclaimMarker = {
 	reason: ReclaimReason;
 	from: string | null;
 	at: number;
+	/** W2337: the operator justification when a forced automated reclaim
+	 * proceeded on an unknown verdict (audit trail; absent otherwise). */
+	justification?: string;
 };
 
 // facts key is globally unique — project + item namespace it (reclaim-liveness
@@ -40,11 +43,17 @@ export function markReclaimed(
 	id: string,
 	reason: ReclaimReason,
 	from: string | null,
+	justification?: string,
 ): void {
 	store.run(
 		"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, 'work', 1, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, version = version + 1, ts = excluded.ts",
 		markerKey(project, id),
-		JSON.stringify({ reason, from, at: Date.now() } satisfies ReclaimMarker),
+		JSON.stringify({
+			reason,
+			from,
+			at: Date.now(),
+			...(justification?.trim() ? { justification } : {}),
+		} satisfies ReclaimMarker),
 		Date.now(),
 	);
 }
@@ -61,7 +70,16 @@ export function readReclaimMarker(
 		if (!row) return null;
 		const v = JSON.parse(row.value) as Partial<ReclaimMarker>;
 		const reason = parseReclaimReason(v.reason);
-		return reason ? { reason, from: v.from ?? null, at: v.at ?? 0 } : null;
+		return reason
+			? {
+					reason,
+					from: v.from ?? null,
+					at: v.at ?? 0,
+					...(typeof v.justification === "string" && v.justification.trim()
+						? { justification: v.justification }
+						: {}),
+				}
+			: null;
 	} catch {
 		return null;
 	}
@@ -81,19 +99,27 @@ export function clearReclaimMarker(
 /** The reclaim double-check, as a total decision over (verdict, reason, force).
  * dead → proceed; unknown → proceed (the attended per-item path; the bulk pass
  * keeps the strict standard); alive → refuse unless forced. A crash reason
- * claims automation-detected death, so it demands positive death evidence. */
+ * claims automation-detected death, so it demands positive death evidence —
+ * W2337: an operator may still proceed on unknown by carrying --force AND a
+ * recorded justification (the operator IS the death evidence of last resort). */
 export function reclaimGateDecision(
 	verdict: "alive" | "dead" | "unknown",
 	reason: ReclaimReason,
 	force: boolean,
+	justification?: string,
 ): { ok: boolean; why: string } {
 	if (automatedReclaim(reason)) {
-		return verdict === "dead"
-			? { ok: true, why: `claimant verifiably dead (${reason} reclaim)` }
-			: {
-					ok: false,
-					why: `claimant liveness is ${verdict}, not verifiably dead — ${reason} reclaims demand death evidence`,
-				};
+		if (verdict === "dead")
+			return { ok: true, why: `claimant verifiably dead (${reason} reclaim)` };
+		if (verdict === "unknown" && force && justification?.trim())
+			return {
+				ok: true,
+				why: `claimant unknown — forced ${reason} reclaim on operator justification`,
+			};
+		return {
+			ok: false,
+			why: `claimant liveness is ${verdict}, not verifiably dead — ${reason} reclaims demand death evidence${verdict === "unknown" ? " (or --force --justification <text>)" : ""}`,
+		};
 	}
 	if (verdict !== "alive")
 		return { ok: true, why: `claimant ${verdict} — operator reclaim proceeds` };
