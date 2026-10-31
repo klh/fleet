@@ -211,6 +211,17 @@ export const HubProfileSchema = z
 			})
 			.loose()
 			.optional(),
+		/** W2329: the hub dataplane face (work-graph resource API, own port —
+		 *  NOT the LLM gateway front door; docs/design/dataplane-api.md).
+		 *  Declaring it enables the `dataplane` compose profile (api container
+		 *  + health probe sidecar, the knowledge-sink pattern). */
+		dataplane: z
+			.object({
+				port: z.number().optional(),
+				health_port: z.number().optional(),
+			})
+			.loose()
+			.optional(),
 		/** W467 synthetic readiness: the buckle-ready sidecar's completion-leg
 		 *  verdict port; ready_model must be one the ladder serves. */
 		buckle_ready_port: z.number().optional(),

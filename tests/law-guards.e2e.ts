@@ -153,7 +153,7 @@ const NEAR_CAP_PINNED = {
 	"packages/buckle/src/ledger.ts": 1389,
 	"packages/belt/test/dashboard-topology-model.e2e.ts": 1294,
 	"packages/suspenders/hooks/bin/work.ts": 1272, // W2348 merge re-pin to measured count (W2333 shrank it; debt: decompose)
-	"packages/suspenders/deploy/hubctl.ts": 1212, // W2261 merge re-pin to measured count; W2299 merge reconciled with parked/W2259's identical count (debt: decompose)
+	"packages/suspenders/deploy/hubctl.ts": 1212, // W2261 merge re-pin; W2299 reconciled parked/W2259; W2398 merge keeps 1212 — W2381's profile extraction (hub-profiles.ts) does not change hubctl.ts on the merged tree (debt: decompose)
 };
 
 test("the 1200-line band stays pinned: shrink-only, no new entrants (W1238.6) @unit", () => {
