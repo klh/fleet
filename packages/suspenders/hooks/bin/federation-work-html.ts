@@ -9,6 +9,7 @@ import type {
 	FedWorkView,
 	WorkFeedItem,
 } from "../lib/federation/federation-work.ts";
+import { THEME_HEAD } from "../lib/theme.ts";
 
 const esc = (s: string): string =>
 	s
@@ -44,24 +45,24 @@ ${itemRows(p.feed.items)}
 }
 
 const pageCss =
-	(): string => `body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 2rem auto; max-width: 60rem; padding: 0 1rem; color: #1a1a2e; background: #fafafa; }
+	(): string => `body { font: var(--klh-text-lg)/1.6 var(--klh-font-sans); margin: 2rem auto; max-width: 60rem; padding: 0 1rem; color: var(--klh-ink); background: var(--klh-bg); }
 h1 { font-size: 1.3rem; }
 h2 { font-size: 1.05rem; margin-bottom: 0.3rem; }
-.meta { color: #555; font-size: 0.8rem; margin-top: 0; }
-.degraded { color: #a33; font-size: 0.85rem; }
+.meta { color: var(--klh-ink-2); font-size: 0.8rem; margin-top: 0; }
+.degraded { color: var(--klh-danger-ink); font-size: 0.85rem; }
 .badge { font-size: 0.7rem; padding: 0.1rem 0.45rem; border-radius: 0.6rem; vertical-align: middle; }
-.badge.live { background: #d8f3dc; color: #1b4332; }
-.badge.deg { background: #ffe5d9; color: #7f2f13; }
+.badge.live { background: var(--klh-ok-bg); color: var(--klh-ok-ink); }
+.badge.deg { background: var(--klh-danger-bg); color: var(--klh-danger-ink); }
 table { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
-th, td { text-align: left; padding: 0.28rem 0.5rem; border-bottom: 1px solid #e5e5e5; }
-th { color: #555; font-weight: 500; }
-td.id { color: #555; white-space: nowrap; }
-.st { font-size: 0.72rem; padding: 0.08rem 0.4rem; border-radius: 0.5rem; background: #e8e8f0; }
-.st-ready { background: #d8f3dc; }
-.st-claimed, .st-running { background: #dbe7ff; }
-.st-blocked, .st-failed { background: #ffe5d9; }
+th, td { text-align: left; padding: 0.28rem 0.5rem; border-bottom: 1px solid var(--klh-edge); }
+th { color: var(--klh-ink-2); font-weight: 500; }
+td.id { color: var(--klh-ink-2); white-space: nowrap; }
+.st { font-size: 0.72rem; padding: 0.08rem 0.4rem; border-radius: 0.5rem; background: var(--klh-edge-soft); }
+.st-ready { background: var(--klh-ok-bg); }
+.st-claimed, .st-running { background: var(--klh-accent-bg); }
+.st-blocked, .st-failed { background: var(--klh-danger-bg); }
 section.scope { margin-top: 1.6rem; }
-footer { margin-top: 2rem; color: #777; font-size: 0.72rem; }`;
+footer { margin-top: 2rem; color: var(--klh-dim); font-size: 0.72rem; }`;
 
 function localSection(v: FedWorkView): string {
 	return `<section class="scope">
@@ -83,6 +84,7 @@ export function federationWorkPage(v: FedWorkView): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>federated work — ${esc(v.me)}</title>
+${THEME_HEAD}
 <style>
 ${pageCss()}
 </style>

@@ -398,7 +398,7 @@ const executorPrefsEditor = (
 			]),
 		).values(),
 	);
-	return `<klh-executor-editor options="${esc(JSON.stringify(opts))}"><input type="hidden" name="default_executors" value="${esc(current.join(","))}"></klh-executor-editor>${FORMS_SCRIPT}`;
+	return `<klh-executor-editor options="${esc(JSON.stringify(opts))}" value="${esc(current.join(","))}"></klh-executor-editor>${FORMS_SCRIPT}`;
 };
 
 const boardControlFields = (

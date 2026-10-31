@@ -418,7 +418,9 @@ describe("console routes (real board, temp config)", () => {
 		).text();
 		expect(page).toContain("<klh-executor-editor");
 		expect(page).toContain("/vendor/klh-console-forms.js");
-		expect(page).toContain('name="default_executors"');
+		// W2269.1.4: the chain rides the element's value attribute +
+		// ElementInternals setFormValue — no light-DOM carrier input anymore
+		expect(page).toMatch(/klh-executor-editor[^>]+value="/);
 		for (const field of [
 			"enabled_executors",
 			"recommendation_url",

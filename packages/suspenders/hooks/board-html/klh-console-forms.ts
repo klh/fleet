@@ -92,9 +92,11 @@ const FORM_CSS = css`
 // the exact shape formToBoardSettings parses); shadow rows render from it
 // and every edit writes it back.
 class KlhExecutorEditor extends LitElement {
+	static formAssociated = true;
 	static properties = {
 		heading: { type: String },
 		options: { type: Array },
+		value: { type: String },
 		chain: { state: true },
 		pick: { state: true },
 	};
@@ -102,8 +104,10 @@ class KlhExecutorEditor extends LitElement {
 
 	declare heading: string;
 	declare options: ExecutorOption[];
+	declare value: string;
 	declare chain: string[];
 	declare pick: string;
+	#handle: ElementInternals | undefined;
 
 	constructor() {
 		super();
@@ -111,25 +115,21 @@ class KlhExecutorEditor extends LitElement {
 		this.options = [];
 		this.chain = [];
 		this.pick = "";
-	}
-
-	private get carrier(): HTMLInputElement | null {
-		return this.querySelector('input[name="default_executors"]');
+		this.#handle = this.attachInternals();
 	}
 
 	connectedCallback(): void {
 		super.connectedCallback();
-		const v = this.carrier?.value ?? "";
-		this.chain = v
+		this.chain = (this.getAttribute("value") ?? "")
 			.split(",")
 			.map((s) => s.trim())
 			.filter(Boolean);
+		this.#handle?.setFormValue(this.chain.join(","));
 	}
 
 	private set(next: string[]): void {
 		this.chain = next;
-		const c = this.carrier;
-		if (c) c.value = next.join(",");
+		this.#handle?.setFormValue(next.join(","));
 	}
 
 	private move(i: number, d: number): void {
