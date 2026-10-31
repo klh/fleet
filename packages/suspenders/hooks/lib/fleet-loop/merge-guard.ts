@@ -432,6 +432,11 @@ function mergeCandidate(options: Options): Result {
 			repo,
 			["git", "merge", "--ff-only", "--no-edit", sha],
 			timeoutMs,
+			{
+				...process.env,
+				FLEET_GUARDED_MAIN_OLD: head,
+				FLEET_GUARDED_MAIN_NEW: sha,
+			},
 		);
 		if (publish.code !== 0 && existsSync(attestationPath))
 			unlinkSync(attestationPath);
