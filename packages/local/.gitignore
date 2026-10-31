@@ -3,4 +3,3 @@ node_modules/
 *.log
 .env*
 .workgraph.jsonl
-bin/vendor/

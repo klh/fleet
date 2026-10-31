@@ -41,11 +41,11 @@ const board = await Bun.build({
 	plugins: [
 		{
 			name: "fleet-lit-shared",
-			// lit resolves to the served /vendor/lit-shared.js runtime — one lit
+			// lit resolves to the sibling lit-shared\.js runtime — one lit
 			// copy per page, same as the pre-extraction inline module imported.
 			setup(builder) {
 				builder.onResolve({ filter: /^lit$/ }, () => ({
-					path: "/vendor/lit-shared.js",
+					path: "./lit-shared.js",
 					external: true,
 				}));
 			},

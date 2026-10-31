@@ -38,6 +38,7 @@ buckle/test/provider-feedback-http.test.ts -> telemetry (../../telemetry/src/rem
 buckle/test/transport-evidence.test.ts -> telemetry (../../telemetry/src/remote-traces.ts)
 buckle/test/transport-evidence.test.ts -> telemetry (../../telemetry/src/transport-evidence.ts)
 decant/fleet/after-sync.ts -> suspenders (../../suspenders/hooks/lib/vendor/skills-agents.ts)
+local/e2e/playwright.config.ts -> (repo) (../../../playwright.base.ts)
 local-llm/litellm-target.ts -> belt (../belt/bin/litellm-target.ts)
 local-llm/models.catalog.ts -> belt (../belt/bin/registry.ts)
 local-llm/registry.ts -> belt (../belt/bin/registry.ts)
