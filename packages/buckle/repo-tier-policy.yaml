@@ -1,0 +1,16 @@
+# W1265.2.1 placeholder — the W1265.2 mandatory general default as material
+# bytes. install (seedLocalLlm) reconciles this to the machine runtime copy
+# ~/.claude/local-llm/repo-tier-policy.yaml (0600, write-once — an existing
+# file is operator-owned and never clobbered). Read by
+# packages/buckle/src/account-policy.ts (YAML.parse; the chain: explicit →
+# BUCKLE_REPO_TIER_POLICY → this path → the in-code general default).
+version: 1
+classes:
+  - id: general
+    tier: general
+    keys: ["*"]
+    # adapter-axis allowlist — personal providers only; unknown and
+    # enterprise adapters refuse (no crossover, no implicit provider switch
+    # on general traffic). Edit freely — this file is operator-owned after
+    # the first seed.
+    providers: ["zai", "openrouter"]
