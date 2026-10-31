@@ -12,12 +12,12 @@
 // (steer / redo / let-ride; deterministic overrides first).
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { scanLine, scrubRules } from "../lib/gates/scrub.ts";
 import { type LaneRef, laneVerdict } from "../lib/lanes/lane-liveness.ts";
 import {
 	canonicalProjectRoot,
 	loadLaneRegistry,
 } from "../lib/lanes/lane-registry.ts";
-import { scanLine, scrubRules } from "../lib/gates/scrub.ts";
 import {
 	ackFor,
 	logReadOf,
@@ -34,7 +34,7 @@ type SteerLane = LaneRef & { attempt?: number; agent?: string };
 /** Facts-ledger rate gate: one steer per sid per `steer.min_interval_s`
  *  (coord config). A steer that never emitted (failed on liveness) never
  *  consumed the budget. */
-function steerRateLimited(sid: string, now = Date.now()): boolean {
+export function steerRateLimited(sid: string, now = Date.now()): boolean {
 	const prev = db
 		.query("SELECT value FROM facts WHERE key = ?")
 		.get(`lane.${sid}.steer.at`) as { value: string } | null;
@@ -61,13 +61,13 @@ export function steerForConsult(
 		: "accepted";
 }
 
-function stampSteerFact(sid: string, now = Date.now()): void {
+export function stampSteerFact(sid: string, now = Date.now()): void {
 	db.query(
 		"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, ?, 1, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, version = version + 1, ts = excluded.ts",
 	).run(`lane.${sid}.steer.at`, String(now), "coord steer", now);
 }
 
-function emitSteer(sid: string, text: string, source: string): number {
+export function emitSteer(sid: string, text: string, source: string): number {
 	const id = emitEvent({
 		kind: DIRECT_MESSAGE_KIND,
 		note: text,
