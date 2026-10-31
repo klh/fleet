@@ -8,30 +8,35 @@
 // the dispatch refusal check and `work lanes` trust), or the age/pid-dead
 // trust below — re-verified under the registry lock. Live and young-unknown
 // reads are REFUSALS, never silent skips.
+
+import { openStore } from "../../hooks/lib/govdb/govdb.ts";
+import { type Lane, loadLanes } from "../../hooks/lib/lanes/lane.ts";
+import {
+	type LaneRef,
+	laneVerdict,
+	pidAlive,
+} from "../../hooks/lib/lanes/lane-liveness.ts";
+import {
+	pendingManagedRestart,
+	pruneLaneRegistry,
+} from "../../hooks/lib/lanes/lane-registry.ts";
 import {
 	defineVerb,
+	type Parsed,
 	parseVerb,
 	renderRegistryHelp,
 	renderVerbHelp,
-	type Parsed,
 	type VerbSpec,
 } from "../../hooks/lib/verb-kit.ts";
-import {
-	pruneLaneRegistry,
-	pendingManagedRestart,
-} from "../../hooks/lib/lanes/lane-registry.ts";
-import { openStore } from "../../hooks/lib/govdb/govdb.ts";
 import { captureLaneDeaths } from "./lane-death-capture.ts";
-import {
-	laneVerdict,
-	pidAlive,
-	type LaneRef,
-} from "../../hooks/lib/lanes/lane-liveness.ts";
-import { loadLanes, type Lane } from "../../hooks/lib/lanes/lane.ts";
 import { repairManagedWrapperPid } from "./registry-pid-repair.ts";
 
 // W651: the verb registry owns the surface — help is generated, parsing rides
 // the kit's pure door (this is an embedded main: the caller owns exit codes).
+// W2311: the usage line is a const so the prune error path renders the SAME
+// string (the bare USAGE reference crashed every no-arg prune invocation).
+const PRUNE_USAGE =
+	"usage: prune --sid <sid> [--sid ...] [--dry-run] | prune --all-dead [--dry-run]";
 const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "list",
@@ -41,8 +46,7 @@ const VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "prune",
-		usage:
-			"usage: prune --sid <sid> [--sid ...] [--dry-run] | prune --all-dead [--dry-run]",
+		usage: PRUNE_USAGE,
 		flags: ["--sid"],
 		switches: ["--dry-run", "--all-dead"],
 		lax: true,
@@ -88,6 +92,14 @@ export const UNKNOWN_PRUNE_AGE_MS = 24 * 60 * 60 * 1000;
  * dead pid closes the escape hatch the age trust reserved for recorded pids. */
 export const RECLAIM_LEASE_MS = 15 * 60_000;
 
+/** W2311 stale bound for pid-recorded unknowns the probe can never settle:
+ * a recycled pid reads alive, an unprobeable one answers nothing — neither
+ * proves the lane process survives, and the transcript-cold verdict plus
+ * 48h bounds the over-subscription risk exactly like W636.1 does for
+ * pid-less rows. Without it such rows hold dispatch slots forever (the
+ * W400/W565/W737 vintage ghosts wedged every --item dispatch). */
+export const STALE_UNKNOWN_PRUNE_AGE_MS = 48 * 60 * 60 * 1000;
+
 /** Why a row may leave the registry: "dead" = shared verdict dead;
  * "age-trusted" = W636.1: unknown + pid-less + >24h; "pid-dead" = W777:
  * unknown + recorded pid probed dead (kill -0 → ESRCH) + past the reclaim
@@ -95,8 +107,14 @@ export const RECLAIM_LEASE_MS = 15 * 60_000;
  * dead pid proves the recorded process is gone — the last escape hatch rows
  * whose host stamp drifted (hostname rename reads foreign-host, so the
  * process term never consults the pid) needed to wedge dispatch forever.
+ * "age-trusted-stale" = W2311: unknown + recorded pid the probe can never
+ * settle (recycled reads alive, unprobeable answers nothing) + >48h.
  * Null = protected. */
-export type PruneWarrant = "dead" | "age-trusted" | "pid-dead";
+export type PruneWarrant =
+	| "dead"
+	| "age-trusted"
+	| "pid-dead"
+	| "age-trusted-stale";
 export const pruneWarrant = (
 	row: Lane,
 	v: "alive" | "dead" | "unknown",
@@ -111,10 +129,12 @@ export const pruneWarrant = (
 		return now - (row.launchedAt ?? 0) >= UNKNOWN_PRUNE_AGE_MS
 			? "age-trusted"
 			: null;
-	// unknown + recorded pid: prune only on probed death past the lease.
-	return pidLive === false && now - (row.launchedAt ?? 0) >= RECLAIM_LEASE_MS
-		? "pid-dead"
-		: null;
+	// unknown + recorded pid: probed death past the lease prunes tighter;
+	// a probe that can never settle (alive = recycled pid, undefined =
+	// unprobeable) gets the W2311 stale bound — young rows keep protection.
+	const age = now - (row.launchedAt ?? 0);
+	if (pidLive === false) return age >= RECLAIM_LEASE_MS ? "pid-dead" : null;
+	return age >= STALE_UNKNOWN_PRUNE_AGE_MS ? "age-trusted-stale" : null;
 };
 
 /** Pure prune classification — verdictOf injects the shared liveness surface
@@ -198,9 +218,11 @@ const printPruneVerdict = (
 		console.log(
 			c.warrant === "age-trusted"
 				? `PRUNED ${sid} — age-trusted unknown: no pid ever recorded, >24h (item ${c.row?.item})`
-				: c.warrant === "pid-dead"
-					? `PRUNED ${sid} — recorded pid probed dead, past reclaim lease (item ${c.row?.item})`
-					: `PRUNED ${sid} — dead lane entry (item ${c.row?.item})`,
+				: c.warrant === "age-trusted-stale"
+					? `PRUNED ${sid} — age-trusted-stale unknown: recorded pid unprovable (recycled or gone), >48h (item ${c.row?.item})`
+					: c.warrant === "pid-dead"
+						? `PRUNED ${sid} — recorded pid probed dead, past reclaim lease (item ${c.row?.item})`
+						: `PRUNED ${sid} — dead lane entry (item ${c.row?.item})`,
 		);
 	else if (c.class === "refused-live")
 		console.log(`RETAINED ${sid} — live lane (probe confirmed); entry stays`);
@@ -228,7 +250,7 @@ const prunePlanFor = (
 	const allDead = parsed.flag("--all-dead") === "true";
 	const explicit = parsed.all("--sid").filter((v) => v.length > 0);
 	if (!allDead && !explicit.length) {
-		console.log(USAGE);
+		console.log(PRUNE_USAGE);
 		return null;
 	}
 	const now = Date.now();
@@ -285,16 +307,18 @@ const pruneVerb = (parsed: Parsed, fleet: string): number => {
 	return refused > 0 ? 1 : 0;
 };
 
-// generated help: about + registry verbs + the W636.1 warrant prose
-const EPILOG = `An entry is prunable on a warrant (W636.1 + W777): the shared liveness
-verdict "dead" — recorded pid gone (or never recorded) with anchored
-harness args absent AND the claimant transcript stale past the 15-min
-reclaim lease — OR age-based trust: verdict "unknown" AND no pid ever
-recorded (pid=0/absent) AND the entry launched >24h ago — OR W777
+// generated help: about + registry verbs + the warrant prose
+const EPILOG = `An entry is prunable on a warrant (W636.1 + W777 + W2311): the shared
+liveness verdict "dead" — recorded pid gone (or never recorded) with
+anchored harness args absent AND the claimant transcript stale past the
+15-min reclaim lease — OR age-based trust: verdict "unknown" AND no pid
+ever recorded (pid=0/absent) AND the entry launched >24h ago — OR W777
 pid-dead trust: verdict "unknown" WITH a recorded pid probed dead (kill -0
-→ ESRCH) AND the entry launched past the 15-min reclaim lease. Live
-entries, young-unknown entries, and rows whose pid probes ALIVE retain —
-a recycled pid reads alive and keeps full protection.
+→ ESRCH) AND the entry launched past the 15-min reclaim lease — OR W2311
+stale trust: verdict "unknown" WITH a recorded pid the probe can never
+settle (a recycled pid reads alive, an unprobeable one answers nothing)
+AND the entry launched >48h ago. Live entries and young-unknown entries
+retain; recorded-pid rows are age-bounded, never protected forever.
 Exit codes: 0 pruned/clean, 1 refused (live/young-unknown retained), 2 usage.`;
 
 // W1124.33: the dispatch ROOT usage entry for this verb family — the verb
