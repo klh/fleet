@@ -1,15 +1,17 @@
-import { expect, test } from "./pw";
 import {
-	mkdtempSync,
+	chmodSync,
 	mkdirSync,
+	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	writeFileSync,
-	realpathSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { scratchWorld } from "@klh/test-kit";
 import { guardedMerge } from "../hooks/lib/fleet-loop/merge-guard.ts";
+import { expect, test } from "./pw";
 
 const LOOP = join(import.meta.dir, "../hooks/bin/fleet-loop.ts");
 const MERGE_LEAK = "/Users/kk/dev/m"; // scrub:allow
@@ -26,6 +28,24 @@ const git = (repo: string, ...args: string[]) => {
 		err: p.stderr.toString(),
 	};
 };
+const gitWithEnv = (
+	repo: string,
+	env: Record<string, string>,
+	...args: string[]
+) => {
+	const p = Bun.spawnSync(["git", ...args], {
+		cwd: repo,
+		env: { ...process.env, ...env },
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	return {
+		code: p.exitCode,
+		out: p.stdout.toString().trim(),
+		err: p.stderr.toString(),
+	};
+};
+
 function fixture(content: string, name = "change.ts") {
 	const repo = realpathSync(mkdtempSync(join(tmpdir(), "fleet-merge-guard-")));
 	repos.push(repo);
@@ -112,6 +132,154 @@ function rejected(repo: string, before: string) {
 test.afterEach(() => {
 	for (const repo of repos.splice(0))
 		rmSync(repo, { recursive: true, force: true });
+});
+
+test("direct main merges cannot bypass exact-commit review", () => {
+	const world = scratchWorld({ prefix: "fleet-direct-merge-" });
+	try {
+		const hookRoot = join(import.meta.dir, "../../../.githooks");
+		const hookDir = join(world.repo, ".githooks");
+		mkdirSync(hookDir);
+		for (const name of [
+			"pre-merge-commit",
+			"pre-commit",
+			"reference-transaction",
+		]) {
+			const target = join(hookDir, name);
+			writeFileSync(target, readFileSync(join(hookRoot, name)));
+			chmodSync(target, 0o755);
+		}
+		expect(git(world.repo, "branch", "-M", "main").code).toBe(0);
+		expect(git(world.repo, "config", "core.hooksPath", ".githooks").code).toBe(
+			0,
+		);
+		const branch = git(world.repo, "checkout", "-b", "suspenders/BYPASS");
+		expect(branch.code, branch.err).toBe(0);
+		writeFileSync(join(world.repo, "change.txt"), "review not approved\n");
+		expect(git(world.repo, "add", "change.txt").code).toBe(0);
+		expect(
+			git(
+				world.repo,
+				"-c",
+				"user.name=Fixture",
+				"-c",
+				"user.email=fixture@example.invalid",
+				"commit",
+				"-m",
+				"candidate",
+			).code,
+		).toBe(0);
+		expect(git(world.repo, "checkout", "main").code).toBe(0);
+		const before = git(world.repo, "rev-parse", "HEAD").out;
+		const direct = git(
+			world.repo,
+			"-c",
+			"user.name=Fixture",
+			"-c",
+			"user.email=fixture@example.invalid",
+			"merge",
+			"--no-ff",
+			"suspenders/BYPASS",
+			"-m",
+			"direct merge",
+		);
+		expect(direct.code).not.toBe(0);
+		expect(`${direct.out}${direct.err}`).toContain(
+			"Direct merge into main refused",
+		);
+		expect(git(world.repo, "rev-parse", "HEAD").out).toBe(before);
+		const abortedDirect = git(world.repo, "merge", "--abort");
+		expect(abortedDirect.code, abortedDirect.err).toBe(0);
+		const fastForward = git(
+			world.repo,
+			"merge",
+			"--ff-only",
+			"suspenders/BYPASS",
+		);
+		expect(fastForward.code).not.toBe(0);
+		expect(`${fastForward.out}${fastForward.err}`).toContain(
+			"Main ref update refused",
+		);
+		expect(git(world.repo, "rev-parse", "HEAD").out).toBe(before);
+		// W2255.2: the caller-supplied env pair that used to be trusted alone
+		// is forgeable by any local process — it must NOT impersonate the
+		// guarded publish, which now requires the one-use minted attestation.
+		const forged = gitWithEnv(
+			world.repo,
+			{
+				FLEET_GUARDED_MAIN_OLD: before,
+				FLEET_GUARDED_MAIN_NEW: git(
+					world.repo,
+					"rev-parse",
+					"suspenders/BYPASS",
+				).out,
+			},
+			"merge",
+			"--ff-only",
+			"suspenders/BYPASS",
+		);
+		expect(forged.code).not.toBe(0);
+		expect(`${forged.out}${forged.err}`).toContain("Main ref update refused");
+		expect(git(world.repo, "rev-parse", "HEAD").out).toBe(before);
+		expect(git(world.repo, "reset", "--hard", "HEAD").code).toBe(0);
+		const staged = git(
+			world.repo,
+			"merge",
+			"--no-ff",
+			"--no-commit",
+			"suspenders/BYPASS",
+		);
+		expect(staged.code, staged.err).toBe(0);
+		const commit = git(
+			world.repo,
+			"-c",
+			"user.name=Fixture",
+			"-c",
+			"user.email=fixture@example.invalid",
+			"commit",
+			"-m",
+			"direct staged merge",
+		);
+		expect(commit.code).not.toBe(0);
+		expect(`${commit.out}${commit.err}`).toContain(
+			"Direct merge into main refused",
+		);
+		expect(git(world.repo, "rev-parse", "HEAD").out).toBe(before);
+		expect(git(world.repo, "merge", "--abort").code).toBe(0);
+		writeFileSync(
+			join(world.repo, "release-note.txt"),
+			"ordinary release commit\n",
+		);
+		expect(git(world.repo, "add", "release-note.txt").code).toBe(0);
+		expect(
+			git(
+				world.repo,
+				"-c",
+				"user.name=Fixture",
+				"-c",
+				"user.email=fixture@example.invalid",
+				"commit",
+				"-m",
+				"ordinary release commit",
+			).code,
+		).toBe(0);
+		expect(git(world.repo, "checkout", "--detach", before).code).toBe(0);
+		const guardedScratch = git(
+			world.repo,
+			"-c",
+			"user.name=Fixture",
+			"-c",
+			"user.email=fixture@example.invalid",
+			"merge",
+			"--no-ff",
+			"suspenders/BYPASS",
+			"-m",
+			"guarded scratch merge",
+		);
+		expect(guardedScratch.code).toBe(0);
+	} finally {
+		world.clean();
+	}
 });
 
 test("canonical ship defers unreviewed DONE without parking or pretending it landed", () => {
