@@ -12,7 +12,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { flagIntegratedCode } from "../work/decomposition.ts";
 import {
 	checkReviewReceipt,
 	recordLanding,
@@ -28,11 +27,13 @@ import {
 	itemClaimOf,
 } from "../lanes/ladder-lease.ts";
 import { have } from "../run.ts";
+import { flagIntegratedCode } from "../work/decomposition.ts";
 import {
 	bankDanglingRefs,
 	danglingReferences,
 	unresolvedSpecifiers,
 } from "./dangling-paths.ts";
+import { CLASSIFIER_PATHS, recordDanglingFix } from "./dangling-rejudge.ts";
 import {
 	clearStuck,
 	ensureRepairItem,
@@ -424,6 +425,22 @@ export function createMergeLadder(
 					log(
 						`DANGLING-PATHS ${b}: ${dangling.length} finding(s), ${banked.length} new edge(s) banked`,
 					);
+				// W1762: a merge that touches the classifier files banks a
+				// code.dangling-fix event when open repairs exist — the
+				// dispatch hold releases on the INSTALLED receipt revision
+				// containing this sha, never on a work item's DONE.
+				const store = openStore();
+				try {
+					const openRepairs = store
+						.query(
+							"SELECT 1 FROM work_items WHERE project = ? AND title LIKE 'Repair dangling path %' AND state NOT IN ('DONE','CANCELLED','SUPERSEDED') LIMIT 1",
+						)
+						.get(projectIdentity(REPO));
+					if (openRepairs && changed.some((f) => CLASSIFIER_PATHS.includes(f)))
+						recordDanglingFix(store, projectIdentity(REPO), after);
+				} finally {
+					store.close();
+				}
 			} catch (error) {
 				log(
 					`DANGLING-SCAN-FAILED ${b}: ${error instanceof Error ? error.message : String(error)}`,
