@@ -152,6 +152,38 @@ describe("payloadClosure computes the ship list (W1466)", () => {
 	});
 });
 
+// Fork H (2026-10-29): bare root imports — `from "@klh/settings"` — carry
+// no subpath, so the subpath-only walker silently dropped the package from
+// the payload and the install 404'd the scoped name at npm. The bare form
+// ships the package subtree + its manifest.
+describe("payloadClosure bare package imports (fork H)", () => {
+	test("a bare @klh/<pkg> import ships the package subtree + manifest", async () => {
+		const tracked = [
+			file(
+				"packages/app/bin/face.ts",
+				`import { setting } from "@klh/settings";\nexport const face = setting;\n`,
+			),
+			file("packages/app/package.json", "{}\n"),
+			file("packages/settings/package.json", "{}\n"),
+			file("packages/settings/src/index.ts", "export const setting = 1;\n"),
+		];
+		const report = await payloadClosure({
+			repoRoot: root,
+			faces: ["packages/app/bin/face.ts"],
+			tracked,
+		});
+		expect(report.paths).toEqual([
+			"packages/app/bin",
+			"packages/app/package.json",
+			// the bare form ships the package subtree AND its manifest row —
+			// A25's private-name map keys on manifest rows, so folding it
+			// under the dirspec hid the package (v2.1.2 install 404 at npm)
+			"packages/settings",
+			"packages/settings/package.json",
+		]);
+	});
+});
+
 // W1466: sync-harness ships the computed closure (sourcePaths); CI re-walks
 // the real repo so the coverage walker agrees with it and the runtime
 // assets no import names (rules dir, gate policies, hook stubs) ride along.
