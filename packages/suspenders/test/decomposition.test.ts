@@ -65,10 +65,13 @@ test("argued vendor-exemption rows never mint decomposition work (W1300)", () =>
 	f.write("packages/decant/src/ingest.ts", 2000);
 	f.write("target.ts", 1501);
 	const tip = f.commit();
-	// the byte-pure vendored snapshot path stays exempt — re-syncs must not
-	// auto-mint a "DRY and decompose" item against the vendor bytes; the
-	// ordinary over-cap file still flags.
+	// W2211 retired the decant ingest.ts row (decomposed below the cap), so
+	// the vendor path NOW flags like any over-cap file — the sweep is the
+	// shrink-only pressure that keeps a re-synced oversized snapshot from
+	// re-entering silently. An argued row still exempts its path (the
+	// exemption lib stays the one switch).
 	expect(oversizedMergedFiles(f.repo, f.base, tip)).toMatchObject([
+		{ path: "packages/decant/src/ingest.ts", lines: 2000 },
 		{ path: "target.ts", lines: 1501 },
 	]);
 });
