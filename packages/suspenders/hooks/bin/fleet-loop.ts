@@ -75,7 +75,11 @@ import {
 // block — the launchd plist hardcodes nothing. An explicit --every flag
 // stays a one-shot override that wins for this process.
 import { createLoopConfigWatch } from "../lib/fleet-loop/loop-config-watch.ts";
-import { fleetLoopRegistry, STACK_PATH } from "../lib/stack-config.ts";
+import {
+	effectiveDispatchTarget,
+	fleetLoopRegistry,
+	STACK_PATH,
+} from "../lib/stack-config.ts";
 
 const config = parseLoopConfig(process.argv.slice(2), import.meta.dir);
 const {
@@ -239,11 +243,19 @@ async function cycle(): Promise<void> {
 	// W2242: a template without its own --target rides the central
 	// fleet_loop.lane_target (live hot-applied) — never a plist constant.
 	// fork E: a multi-project controller deals this cycle's target
-	// (--lane-target) from the global ceiling; absent = the central target.
+	// (--lane-target) from the global ceiling; absent = the central
+	// knobs — W2263 (#89251): the effective target is min(lane_target,
+	// dispatch_target), so the loop may no longer bypass an operator's
+	// dispatch_target reduction by passing lane_target alone.
 	if (DISPATCH) {
+		const settings = loopWatch.settings();
+		const target = effectiveDispatchTarget({
+			...settings,
+			laneTarget: config.LANE_TARGET ?? settings.laneTarget,
+		});
 		const t = DISPATCH.includes("--target")
 			? DISPATCH
-			: `${DISPATCH} --target ${config.LANE_TARGET ?? loopWatch.settings().laneTarget}`;
+			: `${DISPATCH} --target ${target}`;
 		runTemplate(t, "", LADDER_TIMEOUT_MS);
 	}
 

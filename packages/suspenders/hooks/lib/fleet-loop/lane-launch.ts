@@ -56,7 +56,6 @@ import {
 import {
 	type GroupEndpoints,
 	unknownEndpoints,
-	wirePick,
 } from "../../../scripts/lib/lane-wire.ts";
 import {
 	launchFailBackoff,
@@ -65,6 +64,7 @@ import {
 	readLaunchBackoff,
 	rearmLaunchHold,
 } from "../../../scripts/lib/launch-backoff.ts";
+import { admitModel } from "./model-admission.ts";
 import { launchCleanup } from "../../../scripts/lib/launch-cleanup.ts";
 import {
 	assertLaunchClaim,
@@ -541,40 +541,28 @@ export const dispatchLane = async (
 			if (rePin.note) console.log(rePin.note);
 			if (rePin.model) pick = { ...pick, model: rePin.model };
 		}
-		// W1712: the executor must speak the pinned model's wire. A steady
-		// model pin rides the default CLI, so a provably unserved wire moves
-		// the SAME model to a carrier that speaks it; a plaid route's explicit
-		// executor+model pairing refuses instead.
-		const wire = await wirePick(pick, wireEndpoints, routeName === null);
-		if (!wire.ok) {
-			governanceRefusals.push(item);
-			console.log(`REFUSED ${item} — ${wire.why}; nothing claimed or minted`);
-			store.close();
-			return null;
-		}
-		if (wire.switched) {
-			console.log(
-				`NOTE — wire: ${pick.model} rides ${wire.bin} (${pick.bin} cannot speak its wire)`,
-			);
-			pick = { ...pick, bin: wire.bin, fallbackModels: [] };
-			bin = resolveLaneExecutor(pick.bin);
-			if (!bin) {
-				governanceRefusals.push(item);
-				console.log(
-					`REFUSED ${item} — executor unavailable: ${pick.bin}; nothing claimed or minted`,
-				);
-				store.close();
-				return null;
-			}
-		}
-		const route = await routeAdmission.check(pick.model);
-		if (route.pause) {
-			const why =
-				route.reason ??
-				`${pick.model} has ${route.failures} recent, exactly attributed route refusals; retry when evidence clears`;
-			console.log(`WAIT ${item} — ${why}`);
-			return null;
-		}
+		// The model admission gates (model-admission.ts): W2263 pool
+		// placement may reroute the model, W1712 wire-pick may switch the
+		// executor, route health may WAIT — each may block the launch.
+		const admitted = await admitModel({
+			store,
+			project,
+			sid,
+			item,
+			pick,
+			bin,
+			routePin: ROUTE,
+			posture: POSTURE,
+			quota,
+			wireEndpoints,
+			routeName,
+			routeAdmission,
+			governanceRefusals,
+			launchWaits,
+		});
+		if (admitted.verdict !== "proceed") return null;
+		pick = admitted.pick;
+		bin = admitted.bin;
 		// W1813: the origin agent suffix is the SPAWNED adapter id — the same
 		// identity launchToken registers (W1731); never a hardcoded claude.
 		const take = run(
