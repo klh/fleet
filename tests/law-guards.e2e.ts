@@ -143,14 +143,14 @@ test("1500-law vendor exemptions stay argued and current (W1300) @unit", () => {
 // pressure so a decompose-in-flight reads as shrink, not entry.)
 const NEAR_CAP_LIMIT = 1200;
 const NEAR_CAP_PINNED = {
-	// re-pinned at the W2178 integration tip (2026-10-27): the 10-23 table
-	// predated the W1276/W1297 decompositions that moved or split most rows.
-	"packages/decant/src/ingest.ts": 1982,
-	"packages/decant/src/buckets.ts": 1489,
-	"packages/decant/src/token-economics.ts": 1427,
-	"packages/decant/src/query.ts": 1409,
-	"packages/belt/bin/router-shim.ts": 1282, // W1238.6.1 decomposition (W2261 re-pin; W2299 merge reconciled with parked/W2259's identical count)
-	"packages/buckle/src/ledger.ts": 1389, // +7 main-side merge drift (W2210 re-pin; debt: decompose)
+	// re-pinned at the W2303 integration tip (merge of parked/W2251 into
+	// 2026-10-30 main): the decant ingest/buckets/query/token-economics
+	// pins DROP here — W1238.1/W1238.6.3 decomposed all four below the
+	// 1200 stop rule. The rest re-pin to the actual merged-tree counts
+	// (work.ts rides the W2294 lineage: W2186 CAS extraction + W822.1
+	// done-broadcast call; debt: decompose).
+	"packages/belt/bin/router-shim.ts": 1282,
+	"packages/buckle/src/ledger.ts": 1389,
 	"packages/belt/test/dashboard-topology-model.e2e.ts": 1294,
 	"packages/suspenders/hooks/bin/work.ts": 1272, // W2348 merge re-pin to measured count (W2333 shrank it; debt: decompose)
 	"packages/suspenders/deploy/hubctl.ts": 1212, // W2261 merge re-pin to measured count; W2299 merge reconciled with parked/W2259's identical count (debt: decompose)
@@ -197,7 +197,7 @@ test("the 1200-line band stays pinned: shrink-only, no new entrants (W1238.6) @u
 test("1200-line band ratchet has teeth (real pinned population) @unit", () => {
 	// a real, non-empty population — decompositions shrink it (W1298 took two
 	// files out), so the floor only rejects an emptied pin map
-	expect(Object.keys(NEAR_CAP_PINNED).length).toBeGreaterThan(5);
+	expect(Object.keys(NEAR_CAP_PINNED).length).toBeGreaterThan(3);
 });
 
 test("tracked .sh files match the pinned allowlist exactly @unit", () => {
