@@ -152,7 +152,7 @@ const NEAR_CAP_PINNED = {
 	"packages/belt/bin/router-shim.ts": 1282, // W1238.6.1 decomposition (W2261 re-pin; W2299 merge reconciled with parked/W2259's identical count)
 	"packages/buckle/src/ledger.ts": 1389, // +7 main-side merge drift (W2210 re-pin; debt: decompose)
 	"packages/belt/test/dashboard-topology-model.e2e.ts": 1294,
-	"packages/suspenders/hooks/bin/work.ts": 1271, // W2387 merge re-pin to measured count (W2333 fail-verb extraction + main-side drift; debt: decompose)
+	"packages/suspenders/hooks/bin/work.ts": 1272, // W2387 merge re-pin to measured count (W2333 fail-verb extraction + main-side drift; debt: decompose)
 	// hubctl.ts left the band: W2329 extracted deploy/hub-profiles.ts (1189 lines)
 };
 
