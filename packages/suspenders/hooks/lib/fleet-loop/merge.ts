@@ -338,6 +338,15 @@ export function createMergeLadder(
 			}),
 		);
 		const before = sh(["git", "rev-parse", "--short", "HEAD"]);
+		// W2270: the publication grant is minted inside guardedMerge after the
+		// final verifyReview PASS; without a store the grant cannot mint and
+		// the reference-transaction hook fails the publish closed.
+		let grantStore: ReturnType<typeof openStore> | undefined;
+		try {
+			grantStore = openStore();
+		} catch {
+			grantStore = undefined;
+		}
 		const mv = guardedMerge({
 			repo: REPO,
 			callerRepo: CALLER_REPO,
@@ -345,7 +354,15 @@ export function createMergeLadder(
 			ladder: LADDER,
 			timeoutMs: LADDER_TIMEOUT_MS,
 			verifyReview,
+			publishGrant: grantStore
+				? {
+						store: grantStore,
+						project: projectIdentity(REPO),
+						item: claim.item,
+					}
+				: undefined,
 		});
+		grantStore?.close();
 		let receipt: MergeReceipt;
 		if (mv.code === 0) {
 			let after = sh(["git", "rev-parse", "--short", "HEAD"]);

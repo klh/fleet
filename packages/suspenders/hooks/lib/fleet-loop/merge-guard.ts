@@ -1,13 +1,5 @@
 import { setting } from "@klh/settings";
-import {
-	chmodSync,
-	existsSync,
-	unlinkSync,
-	mkdirSync,
-	realpathSync,
-	renameSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdirSync, realpathSync } from "node:fs";
 import { join, relative } from "node:path";
 import {
 	addedDiffLines,
@@ -17,6 +9,7 @@ import {
 } from "../gates/scrub.ts";
 import { binaryPaths, blobFindings } from "../gates/scrub-git.ts";
 import { TEST_FILE, testRelocationDelta } from "./merge-guard-relocation.ts";
+import { mintPublishGrant } from "./publish-grant.ts";
 
 type Result = { code: number; tail: string };
 type Options = {
@@ -26,6 +19,15 @@ type Options = {
 	ladder?: string;
 	timeoutMs: number;
 	verifyReview?: (candidate?: string) => { ok: boolean; why: string };
+	// W2270: when present, a one-use publish_grants row is minted in the
+	// coordination store after the final exact-commit PASS review — the ONLY
+	// credential the reference-transaction hook honors for a fast-forward of
+	// refs/heads/main.
+	publishGrant?: {
+		store: import("../govdb/govdb-store.ts").GovernorStore;
+		project: string;
+		item: string;
+	};
 };
 const MARKERS = "^([<]{7,}|[=]{7,}|[>]{7,}|[|]{7,})([[:space:]].*)?$";
 const SOURCE = /\.(?:[cm]?[jt]s|[jt]sx)$/i;
@@ -403,38 +405,30 @@ function mergeCandidate(options: Options): Result {
 		const finalReview = options.verifyReview?.(sha);
 		if (finalReview && !finalReview.ok)
 			return fail(`review required: ${finalReview.why}`);
-		// W2255.2: the publish grant is a one-use attestation minted HERE, only
-		// after the final canonical verifyReview PASS, and bound to old/new —
-		// never a caller-supplied env pair, which any local process could forge.
-		// W2293: `--git-path` can return a cwd-relative path; the fs calls below
-		// resolve against process.cwd(), not `repo` — anchor to the absolute git
-		// dir (in a linked worktree `.git` is a file, and ENOTDIR kills the mint).
-		const attest = command(
-			repo,
-			["git", "rev-parse", "--absolute-git-dir"],
-			timeoutMs,
-		);
-		if (attest.code !== 0)
-			return fail("merge guard: cannot resolve attestation path");
-		const attestationPath = join(
-			attest.out.trim(),
-			"fleet-main-publish-attestation.json",
-		);
-		const temp = `${attestationPath}.${crypto.randomUUID()}`;
-		writeFileSync(
-			temp,
-			JSON.stringify({ old: head, new: sha, at: Date.now() }),
-			{ mode: 0o600, flag: "wx" },
-		);
-		chmodSync(temp, 0o600);
-		renameSync(temp, attestationPath);
+		// W2270: mint the one-use publication grant only now — after the final
+		// canonical verifyReview PASS, bound to this exact old→new pair. The
+		// reference-transaction hook independently re-verifies the receipt
+		// before consuming it, so minting is necessary but never sufficient.
+		if (options.publishGrant) {
+			try {
+				mintPublishGrant(options.publishGrant.store, {
+					project: options.publishGrant.project,
+					item: options.publishGrant.item,
+					branch,
+					old: head,
+					new: sha,
+				});
+			} catch (error) {
+				return fail(
+					`merge guard: cannot mint publication grant: ${String(error).slice(0, 300)}`,
+				);
+			}
+		}
 		const publish = command(
 			repo,
 			["git", "merge", "--ff-only", "--no-edit", sha],
 			timeoutMs,
 		);
-		if (publish.code !== 0 && existsSync(attestationPath))
-			unlinkSync(attestationPath);
 		return publish.code === 0
 			? { code: 0, tail: "" }
 			: fail(`merge guard: publication refused: ${publish.err.slice(-1600)}`);
