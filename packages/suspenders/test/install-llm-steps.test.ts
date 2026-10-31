@@ -56,16 +56,6 @@ const tmpHome = (label: string): string => {
 	mkdirSync(base, { recursive: true });
 	const dir = mkdtempSync(join(base, label));
 	dirs.push(dir);
-	// The flat-home closure heal copies kit files that import bare `zod`
-	// (stack-config.ts); bun build resolves from the runtime dir up-walk, so
-	// the fixture home needs a resolvable stub (resolution only — never run).
-	const zodStub = join(dir, "node_modules/zod");
-	mkdirSync(zodStub, { recursive: true });
-	writeFileSync(
-		join(zodStub, "package.json"),
-		JSON.stringify({ name: "zod", version: "0.0.0-fixture" }),
-	);
-	writeFileSync(join(zodStub, "index.js"), "export const z = {};\n");
 	return dir;
 };
 
