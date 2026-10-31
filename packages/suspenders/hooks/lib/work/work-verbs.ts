@@ -15,6 +15,8 @@ export const ITEM_FLAGS = [
 	"--desc",
 	"--by",
 	"--reason",
+	// W2337: recorded justification for a forced automated reclaim on unknown
+	"--justification",
 	"--kind",
 	"--until",
 	"--keep",
@@ -214,7 +216,7 @@ export const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "reclaim",
 		usage:
-			"usage: reclaim <id> [--reason user|crash|rate-limited] [--force] [--expect-owner sid] [--expect-updated-at revision] [--json] | reclaim all",
+			"usage: reclaim <id> [--reason user|crash|rate-limited] [--force] [--justification text] [--expect-owner sid] [--expect-updated-at revision] [--json] | reclaim all",
 		flags: [
 			...ITEM_FLAGS,
 			"--force",
@@ -222,7 +224,9 @@ export const VERBS: VerbSpec[] = [
 			"--expect-updated-at",
 			"--json",
 		],
-		switches: ["--json"],
+		// --force is a boolean: as a value flag it swallowed the next token
+		// (--force --justification x consumed --justification as its value)
+		switches: ["--force", "--json"],
 		minPos: 1,
 	}),
 	defineVerb({

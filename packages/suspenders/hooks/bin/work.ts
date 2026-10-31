@@ -23,7 +23,6 @@ import {
 	stampRequires,
 } from "../lib/cred-scope.ts";
 import { detectClient } from "../lib/executors/detect.ts";
-import { automaticRecoveryCheck } from "../lib/fleet-loop/automatic-recovery.ts";
 import { triggerMergeOnDone } from "../lib/fleet-loop/merge-on-done.ts";
 import { unmergedDeps, unmergedNote } from "../lib/gates/dep-merge-gate.ts";
 import { reproGateRefusal } from "../lib/gates/repro-gate.ts";
@@ -130,6 +129,7 @@ import { GLYPH, renderRow, renderTimestamps } from "../lib/work/work-render.ts";
 import { runStats } from "../lib/work/work-report.ts";
 import { attachCloseReport, regenReport } from "../lib/work/work-report-cli.ts";
 import { runReportVerb } from "../lib/work/work-report-verb.ts";
+import { releaseReclaimedClaim } from "../lib/work/reclaim-verb.ts";
 import { retryFailedItem } from "../lib/work/work-retry.ts";
 import { validateTags } from "../lib/work/work-tags.ts";
 import { VERBS } from "../lib/work/work-verbs.ts";
@@ -1162,11 +1162,15 @@ const dispatchVerb = async (
 				);
 			// W831 kill-path double-check: the bulk pass's liveness truth. A live
 			// claimant refuses (ghost claims = two writers); crash/rate-limited
-			// demand death evidence; --force is the operator decision (board leg).
+			// demand death evidence — W2337: positive boot-boundary evidence
+			// (claimant pre-dates the current boot, no process/transcript/WS
+			// presence) counts, and --force --justification is the operator
+			// decision of last resort on an unknown verdict.
 			const rawReason = flag("--reason");
 			if (rawReason && !parseReclaimReason(rawReason))
 				die(`invalid --reason ${rawReason} — user | crash | rate-limited`);
 			const reclaimReason = parseReclaimReason(rawReason) ?? "user";
+			const justification = flag("--justification") ?? undefined;
 			const verdict = probeClaim(db(), PROJECT, {
 				id,
 				owner: String(it.owner_sid ?? ""),
@@ -1181,6 +1185,7 @@ const dispatchVerb = async (
 				verdict,
 				reclaimReason,
 				!!flag("--force"),
+				justification,
 			);
 			if (!gate.ok) die(`${id} reclaim refused — ${gate.why}`);
 			const expectedOwner = flag("--expect-owner");
@@ -1193,30 +1198,21 @@ const dispatchVerb = async (
 					Number(revision) !== it.updated_at)
 			)
 				die(`${id} revision changed — reclaim refused`);
-			const crashGuard = () =>
-				automaticRecoveryCheck({
-					repo: process.cwd(),
-					store: db(),
-					project: PROJECT,
-					id,
-					owner: String(it.owner_sid ?? ""),
-					revision: Number(it.updated_at),
-					lane: claimantLanes(process.cwd()).get(String(it.owner_sid ?? "")),
-				}).ok;
-			if (reclaimReason !== "user" && !crashGuard())
-				die(
-					`${id} automatic recovery refused — pause, wait, or death unverified`,
-				);
-			if (
-				!releaseObserved(
-					it,
-					"operator-reclaim",
-					"operator-reclaim",
-					reclaimReason !== "user" ? crashGuard : undefined,
-					reclaimReason,
-				)
-			)
-				die(`${id} claim changed — reclaim refused; inspect before retrying`);
+			const release = releaseReclaimedClaim({
+				store: db(),
+				project: PROJECT,
+				repo: process.cwd(),
+				id,
+				owner: String(it.owner_sid ?? ""),
+				state: String(it.state),
+				updatedAt: Number(it.updated_at),
+				reason: reclaimReason,
+				...(justification ? { justification } : {}),
+				force: !!flag("--force"),
+				lane: () =>
+					claimantLanes(process.cwd()).get(String(it.owner_sid ?? "")),
+			});
+			if (!release.ok) die(release.why);
 			console.log(
 				rest.includes("--json")
 					? JSON.stringify({

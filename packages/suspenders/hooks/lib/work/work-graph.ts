@@ -366,6 +366,7 @@ export function releaseObserved(
 	reason: "owner-release" | "operator-reclaim" | "reclaim-all",
 	guard?: () => boolean,
 	cause?: ReclaimReason,
+	justification?: string,
 ): boolean {
 	return releaseWorkClaim(
 		db(),
@@ -376,7 +377,7 @@ export function releaseObserved(
 			state: String(it.state),
 			updatedAt: Number(it.updated_at),
 		},
-		{ by, reason, cause },
+		{ by, reason, cause, ...(justification ? { justification } : {}) },
 		guard,
 	);
 }
