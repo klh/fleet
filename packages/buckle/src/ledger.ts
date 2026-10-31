@@ -30,6 +30,7 @@ import {
 	reconcileAbandonedReceipt,
 } from "./reconcile.ts";
 import type { ServedIdentity } from "./served-identity.ts";
+import { migrateLedgerSchema } from "./ledger-schema.ts";
 import { throughputMetrics } from "./throughput-metrics.ts";
 import type { Usage } from "./usage.ts";
 
@@ -99,6 +100,15 @@ export interface RouteAuditDecision {
 	repo_hash?: string | null;
 	account_tier?: string | null;
 	key_name?: string | null;
+	/** W2256 wire-deny provenance — a denial can strike before any selection
+	 *  exists, so these ride the decision row itself. request_path = the
+	 *  canonical bare path after lane/named-base unwrapping (never the raw
+	 *  URL); allow_cross = whether cross-dialect bridging was in play;
+	 *  provider_pin = the catalog provider pin when the request rode a
+	 *  pinned named base (null = unpinned). Absent = legacy row. */
+	request_path?: string | null;
+	allow_cross?: boolean | null;
+	provider_pin?: string | null;
 }
 
 export interface RouteAuditOutcome {
@@ -225,6 +235,12 @@ export interface RequestReadRow {
 	retry_after_ms: number | null;
 	selected_target_exact: boolean;
 	selected_target_attempted: boolean;
+	/** W2256 wire-deny provenance: the canonical request path, whether
+	 *  cross-dialect bridging was in play, and the provider pin. NULL =
+	 *  legacy row (predates the columns). */
+	request_path: string | null;
+	allow_cross: number | null;
+	provider_pin: string | null;
 }
 
 interface AttemptProvenanceRow {
@@ -242,88 +258,8 @@ INSERT INTO route_audit (
   target_kind, target_host, target_port, target_model,
   decision, latency_class, tier, allow_cloud, error_code, why, hop,
   traffic_kind, repo_hash, account_tier, key_name,
-  requested_group, requested_effort
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`;
-
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS router_usage (
-  hour_bucket TEXT NOT NULL,
-  key TEXT NOT NULL DEFAULT '',
-  model_group TEXT NOT NULL,
-  model TEXT NOT NULL DEFAULT '',
-  in_tok INTEGER NOT NULL DEFAULT 0,
-  out_tok INTEGER NOT NULL DEFAULT 0,
-  cache_r INTEGER NOT NULL DEFAULT 0,
-  cache_c INTEGER NOT NULL DEFAULT 0,
-  requests INTEGER NOT NULL DEFAULT 0,
-  cost_usd REAL,
-  rate_version TEXT NOT NULL DEFAULT '',
-  PRIMARY KEY (hour_bucket, key, model_group, model)
-);
-CREATE TABLE IF NOT EXISTS route_audit (
-  rid TEXT PRIMARY KEY,
-	trace_id TEXT,
-  ts TEXT NOT NULL,
-  actor TEXT NOT NULL DEFAULT '',
-  lane TEXT NOT NULL DEFAULT '',
-  dialect TEXT NOT NULL DEFAULT '',
-  hint TEXT NOT NULL DEFAULT '',
-  candidates_seen INTEGER NOT NULL DEFAULT 0,
-  candidates_top TEXT NOT NULL DEFAULT '',
-  target_kind TEXT, target_host TEXT, target_port INTEGER, target_model TEXT,
-  decision TEXT NOT NULL DEFAULT '',
-  latency_class TEXT NOT NULL DEFAULT 'unproven',
-  tier TEXT NOT NULL DEFAULT '',
-  allow_cloud INTEGER NOT NULL DEFAULT 0,
-  error_code TEXT,
-  why TEXT NOT NULL DEFAULT '',
-  status INTEGER, duration_ms INTEGER, ok INTEGER, err TEXT,
-  attempts INTEGER,
-  cache_r INTEGER, cache_c INTEGER, cache_reported INTEGER,
-  cache_c_reported INTEGER,
-  in_tok INTEGER, out_tok INTEGER,
-  cost_usd REAL,
-  rate_version TEXT NOT NULL DEFAULT '',
-  hop TEXT,
-  traffic_kind TEXT,
-  repo_hash TEXT, account_tier TEXT, key_name TEXT
-);
-CREATE TABLE IF NOT EXISTS route_attempt (
-  rid TEXT NOT NULL,
-  ordinal INTEGER NOT NULL,
-  trace_id TEXT NOT NULL,
-  ts TEXT NOT NULL,
-  service TEXT NOT NULL,
-  hop TEXT NOT NULL,
-  candidate TEXT NOT NULL,
-  status INTEGER,
-  refusal TEXT,
-  layer TEXT,
-  duration_ms INTEGER NOT NULL,
-  retry_after_ms INTEGER,
-  upstream_id TEXT,
-  call_id TEXT,
-	upstream_refusal_code TEXT,
-	refusal_origin TEXT,
-	provider_pool TEXT,
-	queue_wait_ms INTEGER,
-	provider_error_code TEXT,
-	provider_error_type TEXT,
-	transport_json TEXT,
-  PRIMARY KEY (rid, ordinal)
-);
-CREATE INDEX IF NOT EXISTS route_attempt_trace ON route_attempt(trace_id, ts);
-CREATE TABLE IF NOT EXISTS stream_settle (
-  rid TEXT PRIMARY KEY,
-  trace_id TEXT NOT NULL,
-  ts TEXT NOT NULL,
-  first_byte_ms INTEGER,
-  last_byte_ms INTEGER,
-  closer TEXT NOT NULL,
-  failure_kind TEXT
-);
-CREATE INDEX IF NOT EXISTS stream_settle_trace ON stream_settle(trace_id, ts);
+  requested_group, requested_effort, request_path, allow_cross, provider_pin
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 const UPSERT = `
@@ -459,137 +395,7 @@ export class Ledger {
 		this.throughputPolicy = opts.throughputPolicy ?? DEFAULT_THROUGHPUT_POLICY;
 		this.db = new Database(path, { create: true });
 		this.db.exec("PRAGMA journal_mode = WAL");
-		this.db.exec(SCHEMA);
-		// W1: pre-lane databases keep their table (CREATE IF NOT EXISTS won't
-		// add the column) — ALTER it in; a duplicate column just means the
-		// schema is already current.
-		try {
-			this.db.exec(
-				"ALTER TABLE route_audit ADD COLUMN lane TEXT NOT NULL DEFAULT ''",
-			);
-		} catch {
-			// column exists — schema current
-		}
-		// W457: cache telemetry columns (pre-cache databases heal; one ALTER
-		// per missing column, checked via pragma — idempotent on every open).
-		const auditCols = (
-			this.db
-				.query("SELECT name FROM pragma_table_info('route_audit')")
-				.all() as Array<{ name: string }>
-		).map((r) => r.name);
-		for (const column of [
-			"requested_group",
-			"requested_effort",
-			"served_model",
-			"served_provider",
-			"served_provider_profile",
-			"served_evidence",
-		]) {
-			if (!auditCols.includes(column))
-				this.db.run(`ALTER TABLE route_audit ADD COLUMN ${column} TEXT`);
-		}
-		if (!auditCols.includes("settled_at"))
-			this.db.run("ALTER TABLE route_audit ADD COLUMN settled_at INTEGER");
-		if (!auditCols.includes("demand_observed"))
-			this.db.run("ALTER TABLE route_audit ADD COLUMN demand_observed INTEGER");
-		this.db.exec(
-			"CREATE INDEX IF NOT EXISTS route_audit_settled ON route_audit(settled_at)",
-		);
-		if (!auditCols.includes("cache_r"))
-			this.db.run("ALTER TABLE route_audit ADD COLUMN cache_r INTEGER");
-		if (!auditCols.includes("cache_c"))
-			this.db.run("ALTER TABLE route_audit ADD COLUMN cache_c INTEGER");
-		if (!auditCols.includes("cache_reported"))
-			this.db.run("ALTER TABLE route_audit ADD COLUMN cache_reported INTEGER");
-		if (!auditCols.includes("cache_c_reported"))
-			this.db.run(
-				"ALTER TABLE route_audit ADD COLUMN cache_c_reported INTEGER",
-			);
-		// W706: hop marker (pre-W706 databases heal the same way; NULL hop =
-		// unmarked legacy row — billable, the pre-W706 default).
-		if (!auditCols.includes("hop"))
-			this.db.run("ALTER TABLE route_audit ADD COLUMN hop TEXT");
-		// W824: attempts + per-request token columns heal onto pre-W824 dbs
-		// the same way — idempotent per open (pragma-checked), NULL = the
-		// row predates the column (honest unknown, never zero-faked).
-		if (!auditCols.includes("attempts"))
-			this.db.run("ALTER TABLE route_audit ADD COLUMN attempts INTEGER");
-		if (!auditCols.includes("in_tok"))
-			this.db.run("ALTER TABLE route_audit ADD COLUMN in_tok INTEGER");
-		if (!auditCols.includes("out_tok"))
-			this.db.run("ALTER TABLE route_audit ADD COLUMN out_tok INTEGER");
-		if (!auditCols.includes("trace_id"))
-			this.db.run("ALTER TABLE route_audit ADD COLUMN trace_id TEXT");
-		// W921: traffic kind (pre-W921 databases heal the same way; NULL =
-		// the row predates the column — unmarked legacy).
-		if (!auditCols.includes("traffic_kind"))
-			this.db.run("ALTER TABLE route_audit ADD COLUMN traffic_kind TEXT");
-		// W1106: body-free stream termination receipt — JSON {bytes_in,
-		// chunks_in, last_chunk_ms, terminal}; NULL = the row predates the
-		// column or the request never streamed.
-		if (!auditCols.includes("stream_receipt"))
-			this.db.run("ALTER TABLE route_audit ADD COLUMN stream_receipt TEXT");
-		// W1265.1: account-policy provenance on the decision row (pre-W1265.1
-		// databases heal the same way; NULL = the row predates the policy).
-		if (!auditCols.includes("repo_hash"))
-			this.db.run("ALTER TABLE route_audit ADD COLUMN repo_hash TEXT");
-		if (!auditCols.includes("account_tier"))
-			this.db.run("ALTER TABLE route_audit ADD COLUMN account_tier TEXT");
-		if (!auditCols.includes("key_name"))
-			this.db.run("ALTER TABLE route_audit ADD COLUMN key_name TEXT");
-		// W1124.31: audited abandoned-receipt verdict — JSON {verdict:"abandoned",
-		// at, actor, reason, age_ms, boot_origin}; NULL = never reconciled (the
-		// receipt may still be live). A reconciled row keeps status/ok NULL:
-		// no invented HTTP code, no retrospective provider blame.
-		if (!auditCols.includes("reconciled"))
-			this.db.run("ALTER TABLE route_audit ADD COLUMN reconciled TEXT");
-		// W1132: cost columns heal onto pre-cost databases the same way —
-		// NULL cost + '' version = the row predates pricing (honest unknown,
-		// never zero-faked).
-		if (!auditCols.includes("cost_usd"))
-			this.db.run("ALTER TABLE route_audit ADD COLUMN cost_usd REAL");
-		if (!auditCols.includes("rate_version"))
-			this.db.run(
-				"ALTER TABLE route_audit ADD COLUMN rate_version TEXT NOT NULL DEFAULT ''",
-			);
-		const usageCols = (
-			this.db
-				.query("SELECT name FROM pragma_table_info('router_usage')")
-				.all() as Array<{ name: string }>
-		).map((r) => r.name);
-		if (!usageCols.includes("cost_usd"))
-			this.db.run("ALTER TABLE router_usage ADD COLUMN cost_usd REAL");
-		if (!usageCols.includes("rate_version"))
-			this.db.run(
-				"ALTER TABLE router_usage ADD COLUMN rate_version TEXT NOT NULL DEFAULT ''",
-			);
-		this.db.run(
-			"CREATE INDEX IF NOT EXISTS route_audit_trace ON route_audit(trace_id, ts)",
-		);
-		const attemptCols = this.db
-			.query("SELECT name FROM pragma_table_info('route_attempt')")
-			.all()
-			.map((row) => (row as { name: string }).name);
-		if (!attemptCols.includes("upstream_refusal_code"))
-			this.db.run(
-				"ALTER TABLE route_attempt ADD COLUMN upstream_refusal_code TEXT",
-			);
-		if (!attemptCols.includes("refusal_origin"))
-			this.db.run("ALTER TABLE route_attempt ADD COLUMN refusal_origin TEXT");
-		if (!attemptCols.includes("provider_pool"))
-			this.db.run("ALTER TABLE route_attempt ADD COLUMN provider_pool TEXT");
-		if (!attemptCols.includes("queue_wait_ms"))
-			this.db.run("ALTER TABLE route_attempt ADD COLUMN queue_wait_ms INTEGER");
-		for (const column of ["provider_error_code", "provider_error_type"]) {
-			if (!attemptCols.includes(column))
-				this.db.run(`ALTER TABLE route_attempt ADD COLUMN ${column} TEXT`);
-		}
-		if (!attemptCols.includes("transport_json"))
-			this.db.run("ALTER TABLE route_attempt ADD COLUMN transport_json TEXT");
-		// W2191 (W1096 re-land): failure layer on attempt receipts (pre-land
-		// databases heal the same way; NULL layer = the row predates it).
-		if (!attemptCols.includes("layer"))
-			this.db.run("ALTER TABLE route_attempt ADD COLUMN layer TEXT");
+		migrateLedgerSchema(this.db);
 		this.upsert = this.db.query(UPSERT);
 		this.insAudit = this.db.query(INSERT_AUDIT);
 		this.updAudit = this.db.query(UPDATE_AUDIT);
@@ -994,6 +800,9 @@ export class Ledger {
 			row.key_name ?? null,
 			row.requested_group ?? null,
 			row.requested_effort ?? null,
+			row.request_path ?? null,
+			row.allow_cross === undefined ? null : row.allow_cross ? 1 : 0,
+			row.provider_pin ?? null,
 		);
 	}
 
@@ -1341,7 +1150,8 @@ function requestsReadSql(where: string[], limit: number): string {
 		target_port, target_model, decision, latency_class, tier,
 		allow_cloud, hop, error_code, why, status, duration_ms, ok, err,
 		attempts, cache_r, cache_c, cache_reported, cache_c_reported, in_tok, out_tok,
-		cost_usd, rate_version, traffic_kind, stream_receipt, requested_group, served_model, served_provider, served_provider_profile, served_evidence, reconciled
+		cost_usd, rate_version, traffic_kind, stream_receipt, requested_group, served_model, served_provider, served_provider_profile, served_evidence, reconciled,
+		request_path, allow_cross, provider_pin
 		FROM route_audit ${clause}
 		ORDER BY ts DESC, rid DESC LIMIT ${limit}`;
 }

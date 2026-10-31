@@ -18,7 +18,12 @@ import { hopBaggageOf, hopKindOf } from "./hop.ts";
 import { clampRetryAfter } from "./http-kit.ts";
 import { jsonResponse } from "./proxy-body.ts";
 import { streamResponse } from "./proxy-stream.ts";
-import { type Ctx, observe } from "./request-context.ts";
+import {
+	type Ctx,
+	observe,
+	safeAuditPath,
+	safeAuditToken,
+} from "./request-context.ts";
 import { type ExecuteResult, UpstreamError } from "./router.ts";
 import { requestedEffort, servedIdentity } from "./served-identity.ts";
 import { deny } from "./wire-deny.ts";
@@ -56,6 +61,9 @@ export async function runExecute(
 		rid: ctx.rid,
 		requested_group: ctx.group,
 		requested_effort: requestedEffort(body),
+		request_path: safeAuditPath(ctx.auditPath),
+		allow_cross: ctx.auditAllowCross,
+		provider_pin: safeAuditToken(ctx.auditProviderPin),
 		trace_id: ctx.trace.traceparent.split("-")[1],
 		ts: new Date().toISOString(),
 		actor: ctx.key,
