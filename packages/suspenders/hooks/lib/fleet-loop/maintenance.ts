@@ -24,9 +24,9 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { appendSweepNotice, pausePath, readPause } from "./sweep-state.ts";
-import type { LoopDeps } from "./runtime.ts";
 import { MODEL_HEALTH_SWEEP_S } from "../hub/model-health.ts";
+import type { LoopDeps } from "./runtime.ts";
+import { appendSweepNotice, pausePath, readPause } from "./sweep-state.ts";
 
 export interface MaintenanceTask {
 	/** registry name — also the stamp key and the log tag */
@@ -210,6 +210,26 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		timeoutMs: 120_000,
 		argv: (root, repo) => [
 			join(root, "hooks/bin/rogue-reap.ts"),
+			"--act",
+			"--repo",
+			repo,
+		],
+		cwd: (repo) => repo,
+	},
+	{
+		// W2262: the stale launch-intent reconcile — incident 2026-10-29: ten
+		// REGISTERED unknown-liveness rows for TERMINAL (DONE) items held
+		// phantom admission slots and refused urgent dispatch at 7/8. Fails
+		// intents whose work item is terminal AND whose process verdict is not
+		// alive (CAS on the exact row + audit event); never touches a live lane
+		// or a nonterminal item. Every 10 min; the W1201 named pause
+		// (pauseTask("intent-reconcile", ...)) stops it.
+		name: "intent-reconcile",
+		everySeconds: 600,
+		nice: 10,
+		timeoutMs: 120_000,
+		argv: (root, repo) => [
+			join(root, "hooks/bin/intent-reconcile.ts"),
 			"--act",
 			"--repo",
 			repo,

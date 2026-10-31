@@ -46,6 +46,7 @@ const HEARTBEAT_BORN: Record<string, string> = {
 	"consult-tick": "hub phase 4",
 	"hub-update": "W2239.3",
 	"hub-port-heal": "W2309",
+	"intent-reconcile": "W2262",
 };
 
 // Retired com.suspenders.* labels that were never maintenance tasks —
