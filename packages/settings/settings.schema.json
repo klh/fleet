@@ -712,6 +712,18 @@
 					"minimum": 1,
 					"maximum": 168
 				},
+				"review_fallback_models": {
+					"description": "Reviewer secondary-model ladder CSV (SUSPENDERS_REVIEW_FALLBACK_MODELS; the env var stays the override)",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 4096
+				},
+				"review_stepdown_classes": {
+					"description": "Context-poor reviewer model classes CSV (SUSPENDERS_REVIEW_STEPDOWN_CLASSES; the env var stays the override)",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 4096
+				},
 				"projects": {
 					"default": [],
 					"description": "Registered repos (empty = the --repo arg only)",

@@ -3,6 +3,7 @@ import { mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { GovernorStore } from "../govdb/govdb-store.ts";
+import type { FleetLoopSettings } from "../stack-config.ts";
 import type { ReviewContext } from "./review-receipt.ts";
 import {
 	type ProcessProbeFn,
@@ -319,6 +320,30 @@ function recoverStaleLeg(
 	);
 }
 
+/** W2351: the review spawn env — the machine conf's reviewer rows (the
+ *  fleet_loop block, delivered through the injected live-settings getter)
+ *  fill the keys the environment leaves unset. Env stays the override;
+ *  conf is the durable source. An explicitly EMPTY env row counts as set
+ *  (the operator's kill switch); no settings = env-only, byte-identical to
+ *  the pre-W2351 spawn. Returns a shallow copy — `base` never mutates. */
+export function reviewSpawnEnv(
+	base: NodeJS.ProcessEnv,
+	settings?: FleetLoopSettings,
+): NodeJS.ProcessEnv {
+	const filled = { ...base };
+	if (
+		filled.SUSPENDERS_REVIEW_FALLBACK_MODELS === undefined &&
+		settings?.reviewFallbackModels !== undefined
+	)
+		filled.SUSPENDERS_REVIEW_FALLBACK_MODELS = settings.reviewFallbackModels;
+	if (
+		filled.SUSPENDERS_REVIEW_STEPDOWN_CLASSES === undefined &&
+		settings?.reviewStepdownClasses !== undefined
+	)
+		filled.SUSPENDERS_REVIEW_STEPDOWN_CLASSES = settings.reviewStepdownClasses;
+	return filled;
+}
+
 /** One durable lease per exact review context; same-commit FAIL is never
  * retried as a lottery. Verdicts spend the 3-attempt budget; transport
  * failures — including crashed-runner leases (#62309) — refund their attempt
@@ -331,6 +356,10 @@ export function scheduleReview(o: {
 	repo: string;
 	context: ReviewContext;
 	env?: NodeJS.ProcessEnv;
+	/** W2351: the live fleet_loop settings getter (the loop passes its
+	 *  hot-applied watcher view) — the conf's reviewer rows fill the spawn
+	 *  env where the environment is unset. Absent = env-only. */
+	settings?: () => FleetLoopSettings;
 	spawn?: (args: string[], env: NodeJS.ProcessEnv) => void;
 }): string {
 	const env = o.env ?? process.env;
@@ -457,6 +486,10 @@ export function scheduleReview(o: {
 		return true;
 	})();
 	if (reserved !== true) return reserved;
+	// W2351: the conf's reviewer rows ride the spawn — env rows win where
+	// set, the conf fills where unset, so a respawned/envless watch still
+	// hands the reviewer its operator ladder.
+	const spawnEnv = reviewSpawnEnv(env, o.settings?.());
 	const args = [
 		process.execPath,
 		new URL("../../bin/review-lane.ts", import.meta.url).pathname,
@@ -470,8 +503,8 @@ export function scheduleReview(o: {
 		model,
 		// W1313: the routing ladder's secondary reviewers ride the spawned
 		// reviewer — explicit arg beats inherited env for traceability.
-		...(env.SUSPENDERS_REVIEW_FALLBACK_MODELS
-			? ["--fallback-models", env.SUSPENDERS_REVIEW_FALLBACK_MODELS]
+		...(spawnEnv.SUSPENDERS_REVIEW_FALLBACK_MODELS
+			? ["--fallback-models", spawnEnv.SUSPENDERS_REVIEW_FALLBACK_MODELS]
 			: []),
 		"--request-key",
 		key,
@@ -479,9 +512,9 @@ export function scheduleReview(o: {
 		token,
 	];
 	try {
-		if (o.spawn) o.spawn(args, env);
+		if (o.spawn) o.spawn(args, spawnEnv);
 		else {
-			const child = launchDetachedReview(args, env, o.repo);
+			const child = launchDetachedReview(args, spawnEnv, o.repo);
 			// W1280: the pid lets reconcileReviewLegs recover a stale leg now
 			// instead of waiting out the 25-minute lease.
 			stampReviewPid(o.db, key, token, child.pid);

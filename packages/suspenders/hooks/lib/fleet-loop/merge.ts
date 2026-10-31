@@ -28,6 +28,7 @@ import {
 	itemClaimOf,
 } from "../lanes/ladder-lease.ts";
 import { have } from "../run.ts";
+import type { FleetLoopSettings } from "../stack-config.ts";
 import {
 	bankDanglingRefs,
 	danglingReferences,
@@ -73,6 +74,10 @@ export function createMergeLadder(
 		LADDER_TIMEOUT_MS: number;
 		laneIsAlive: (b: string) => boolean | null;
 		retireMerged: (b: string) => void;
+		/** W2351: the live fleet_loop settings getter (the loop watcher's
+		 *  hot-applied view) — rides into scheduleReview so the reviewer
+		 *  spawn env sources the conf's reviewer rows. Absent = env-only. */
+		settings?: () => FleetLoopSettings;
 	},
 ): MergeLadder {
 	const {
@@ -89,6 +94,7 @@ export function createMergeLadder(
 		retireMerged,
 		bumpFail,
 		clearFail,
+		settings,
 	} = deps;
 	const STUCK = `${REPO}/.fleet/merge-stuck.json`;
 	// A rejected isolated ladder: preserve shared main, count the strike, park at 3.
@@ -305,7 +311,7 @@ export function createMergeLadder(
 			const store = openStore();
 			try {
 				log(
-					`REVIEW ${b} — ${scheduleReview({ db: store, project: projectIdentity(REPO), item: claim.item, repo: REPO, context: reviewContext(REPO, b) })}`,
+					`REVIEW ${b} — ${scheduleReview({ db: store, project: projectIdentity(REPO), item: claim.item, repo: REPO, context: reviewContext(REPO, b), settings })}`,
 				);
 			} catch (error) {
 				log(`REVIEW-DEFER ${b} — ${String(error).slice(0, 300)}`);

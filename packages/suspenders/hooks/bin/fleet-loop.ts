@@ -112,6 +112,9 @@ const { mergeOne, mergeRunnerAlive, healCrashedMerge } = createMergeLadder({
 	LADDER_TIMEOUT_MS,
 	laneIsAlive,
 	retireMerged,
+	// W2351: the reviewer spawn env sources the conf's reviewer rows through
+	// the live watcher view — hot-applied, no launchd reload.
+	settings: () => loopWatch.settings(),
 });
 // W1302.5: the ONE transport probe — both the stall watchdog and the
 // auto-reclaim sweep read the buckle in-flight index through it (≤1 bounded
