@@ -130,8 +130,10 @@ const observed = (observation, now) =>
 
 const stateOf = (up, fresh) => (!fresh ? "unknown" : up ? "up" : "down");
 
-/** Shared host→provider-key normalization: the W1040 inference probe CLI keys
- *  its feed with this, so topology joins need no second mapping. */
+/** Shared host→provider-key normalization: the W1040 inference probe CLI
+ *  keys its feed with this, and the hub observation resolver (hubs.ts)
+ *  imports it so configured upstreams and observed hops name the same
+ *  provider. */
 export const providerKey = (host) => {
 	const value = String(host || "").toLowerCase();
 	if (value.endsWith("githubcopilot.com")) return "copilot";
@@ -225,6 +227,31 @@ export function gatewayTraffic(payload, now = Date.now()) {
 			observedTargets: 0,
 		},
 	);
+}
+
+/** W993: one hub→provider edge. Observed when the hub's own ledger saw
+ *  traffic in the window; configured-only pairs stay dashed with no counts
+ *  (unknown is never displayed as zero). */
+export function hubProviderLink(hub, provider, observation) {
+	if (observation) {
+		return {
+			from: `hub:${hub.name.toLowerCase()}`,
+			target: `provider:${provider.key}`,
+			evidence: "observed",
+			requests15: observation.successes15 + observation.failures15,
+			failures15: observation.failures15,
+			source: `${hub.displayName || hub.name} Buckle ledger`,
+			lastSeen: Date.parse(observation.lastAt),
+		};
+	}
+	return {
+		from: `hub:${hub.name.toLowerCase()}`,
+		target: `provider:${provider.key}`,
+		evidence: "configured",
+		requests15: null,
+		failures15: null,
+		source: `${hub.displayName || hub.name} configured upstream`,
+	};
 }
 
 export function buildTopology(
@@ -379,8 +406,13 @@ export function buildTopology(
 			const price = record.provider ? record.prices?.[record.provider] : null;
 			if (price) gatewayModelCosts[exposure.routeModel ?? record.id] = price;
 		}
+		// W993: only unambiguous cloud hosts become provider keys — raw hosts
+		// (local/unknown targets) never mint provider cards or edges.
 		const configuredProviders = new Set(
-			(routes?.providerHosts ?? []).map(providerKey),
+			(routes?.providerHosts ?? [])
+				.map((host) => [providerKey(host), host.toLowerCase()])
+				.filter(([mapped, raw]) => mapped !== raw)
+				.map(([mapped]) => mapped),
 		);
 		for (const hosts of Object.values(routes?.providerHostsByModel ?? {})) {
 			for (const provider of new Set(hosts.map(providerKey))) {
@@ -492,7 +524,12 @@ export function buildTopology(
 		}
 	}
 	for (const hub of hubCards) {
-		for (const key of hub.providerIntents ?? []) {
+		// W993: configured upstreams seed provider cards too — a hub with
+		// hosts but no declared intent still surfaces its provider edges.
+		for (const key of new Set([
+			...(hub.providerIntents ?? []),
+			...(hub.providerKeys ?? []),
+		])) {
 			if (providers.some((provider) => provider.key === key)) continue;
 			providers.push({
 				key,
@@ -501,7 +538,9 @@ export function buildTopology(
 						? "OpenRouter"
 						: key === "chatgpt"
 							? "ChatGPT"
-							: key[0].toUpperCase() + key.slice(1),
+							: key === "copilot"
+								? "IKEA Copilot"
+								: key[0].toUpperCase() + key.slice(1),
 				state: "unconfigured",
 				models: [],
 				endpoints: 0,
@@ -630,6 +669,26 @@ export function buildTopology(
 				source: audit15 ? "local Buckle ledger" : "Buckle ledger unavailable",
 				lastSeen: lastFailure,
 			});
+	}
+	// W993: hub-to-provider edges join the hub's configured upstreams to its
+	// own ledger observations. A fresh observation upgrades the edge to
+	// observed with the hub's request counts; configured-only pairs stay
+	// dashed. The pairing gate mirrors the UI (providerKeys || intents).
+	for (const hub of hubCards) {
+		for (const provider of providers) {
+			if (
+				!hub.providerKeys?.includes(provider.key) &&
+				!hub.providerIntents?.includes(provider.key)
+			)
+				continue;
+			const observation = (context?.hubProviderObservations ?? []).find(
+				(row) =>
+					String(row.hub).toLowerCase() === hub.name.toLowerCase() &&
+					row.provider === provider.key &&
+					isFresh(row.lastAt, now, ROUTE_MS),
+			);
+			links.push(hubProviderLink(hub, provider, observation));
+		}
 	}
 	return {
 		router: stateOf(status?.router?.up, localFresh),
