@@ -27,6 +27,7 @@ import { requestReviewLeg, reviewPrompt } from "../lib/gates/review-prompt.ts";
 import {
 	parseFallbackModels,
 	renderTrail,
+	stepdownRungOf,
 	walkLegs,
 } from "../lib/gates/review-quota.ts";
 import {
@@ -42,6 +43,10 @@ import {
 import { wireModelAudit } from "../lib/gates/wire-model-check.ts";
 import { openStore, projectRootOf } from "../lib/govdb/govdb.ts";
 import { resolveBelt } from "../lib/hub/belt-locate.ts";
+import {
+	pickHealthyGroup,
+	readModelHealthFacts,
+} from "../lib/hub/model-health.ts";
 import { branchForItem } from "../lib/lanes/item-branch.ts";
 import {
 	adminKey,
@@ -263,15 +268,34 @@ const requestedModel =
 // then the operator's secondary fallbacks (routing-ladder order via
 // --fallback-models / SUSPENDERS_REVIEW_FALLBACK_MODELS). bin/belt legs
 // have no model dial; they walk as one label with transport retries only.
+// W2344: a context-poor primary (env CSV SUSPENDERS_REVIEW_STEPDOWN_CLASSES
+// names its class, e.g. `sql` — a group whose tiny probe says up but whose
+// real context window cannot carry a full review payload) gets ONE
+// step-down rung appended when the operator ladder carries none: the
+// freshest healthy group OUTSIDE that class, so a deterministic
+// context-overflow 503 on rung 1 steps down instead of ERRORing. The pin
+// still runs first — the rung is a ladder tail, never a silent re-pin.
 const legModel =
 	leg?.kind === "buckle" || leg?.kind === "llm" ? leg.model : null;
+const operatorFallbacks = (model: string): string[] =>
+	parseFallbackModels(
+		parsedArgs.parsed.flag("--fallback-models") ??
+			process.env.SUSPENDERS_REVIEW_FALLBACK_MODELS,
+	).filter((m) => m !== model);
+const fallbacks = legModel ? operatorFallbacks(legModel) : [];
 const walkModels = legModel
 	? [
 			legModel,
-			...parseFallbackModels(
-				parsedArgs.parsed.flag("--fallback-models") ??
-					process.env.SUSPENDERS_REVIEW_FALLBACK_MODELS,
-			).filter((m) => m !== legModel),
+			...fallbacks,
+			// explicit operator ladder wins — the synthetic rung only fills
+			// an EMPTY ladder (never reorders one)
+			...(fallbacks.length === 0
+				? stepdownRungOf(
+						legModel,
+						process.env.SUSPENDERS_REVIEW_STEPDOWN_CLASSES,
+						pickHealthyGroup(readModelHealthFacts(db), legModel),
+					)
+				: []),
 		]
 	: ["local"];
 async function requestLlm(
@@ -581,6 +605,15 @@ const walk = await walkLegs({
 	legLabels: walkModels,
 	request: (legIndex) => requestLeg(legIndex),
 	satisfied: (text) => verdictLineOf(text) !== undefined,
+	// W2344: near-instant transport failures (context-overflow 503 no_route)
+	// spend the leg after one attempt — no retries, no backoff, step down.
+	// Number("") is 0 = disabled: an explicitly-set empty env disables the
+	// fast-fail exactly like "0" (empty-env-is-set law), so fall to default
+	// only on absence.
+	fastFailMs:
+		process.env.SUSPENDERS_REVIEW_FAST_FAIL_MS === undefined
+			? 1000
+			: Number(process.env.SUSPENDERS_REVIEW_FAST_FAIL_MS),
 	sleep: (ms) => {
 		console.error(`review-lane ${item}: transport backoff ${ms}ms`);
 		return new Promise((resolve) => setTimeout(resolve, ms));

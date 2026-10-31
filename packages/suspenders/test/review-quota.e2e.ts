@@ -10,6 +10,7 @@ import {
 	isTransportFailure,
 	parseFallbackModels,
 	renderTrail,
+	stepdownRungOf,
 	walkLegs,
 } from "../hooks/lib/gates/review-quota.ts";
 
@@ -163,6 +164,10 @@ test.describe("walkLegs", () => {
 		const walk = await walkLegs({
 			legLabels: ["a", "b"],
 			attemptsPerLeg: 2,
+			// W2344: the stubbed 504s resolve in ~0ms — fast-fail would spend
+			// leg a after one attempt. Disable it: this test pins the SLOW
+			// saturation wall (real 504s take seconds), not overflow.
+			fastFailMs: 0,
 			request: stub.request,
 			sleep: noSleep,
 		});
@@ -200,6 +205,99 @@ test.describe("walkLegs", () => {
 		]);
 		// satisfied on the next leg — the walk's final state is success
 		expect(walk.failure).toBeNull();
+	});
+
+	// W2344: context-overflow fast-fail — the sql-class 503 no_route at
+	// <400ms is deterministic, not a burst: one attempt, no backoff, step
+	// down to the next rung.
+	test("near-instant 503 spends the leg after one attempt, no backoff", async () => {
+		const stub = stubSequencer({
+			"0": [new Error("Review LLM HTTP 503")],
+			"1": [`stepdown findings\n${VERDICT}`],
+		});
+		const sleeps: number[] = [];
+		const walk = await walkLegs({
+			legLabels: ["sql", "glm-5.3-flash"],
+			request: stub.request,
+			sleep: (ms) => {
+				sleeps.push(ms);
+				return Promise.resolve();
+			},
+		});
+		expect(stub.calls).toEqual([
+			{ leg: 0, attempt: 1 },
+			{ leg: 1, attempt: 1 },
+		]);
+		expect(sleeps).toEqual([]);
+		expect(walk.texts).toEqual([`stepdown findings\n${VERDICT}`]);
+		expect(walk.trail).toEqual([
+			{
+				leg: "sql",
+				attempt: 1,
+				ok: false,
+				error: "Review LLM HTTP 503",
+				ms: expect.any(Number),
+			},
+			{ leg: "glm-5.3-flash", attempt: 1, ok: true, ms: expect.any(Number) },
+		]);
+	});
+
+	test("fastFailMs 0 disables fast-fail (old 3-attempt ladder)", async () => {
+		const stub = stubSequencer({
+			"0": [
+				new Error("Review LLM HTTP 503"),
+				new Error("Review LLM HTTP 503"),
+				new Error("Review LLM HTTP 503"),
+			],
+		});
+		const walk = await walkLegs({
+			legLabels: ["sql"],
+			request: stub.request,
+			fastFailMs: 0,
+			sleep: noSleep,
+		});
+		expect(stub.calls).toHaveLength(3);
+		expect(walk.failure).toBe("Review LLM HTTP 503");
+	});
+
+	test("all rungs fast-fail: honest ERROR, failure carried", async () => {
+		const stub = stubSequencer({
+			"0": [new Error("Review LLM HTTP 503")],
+			"1": [new Error("Review LLM HTTP 503")],
+		});
+		const walk = await walkLegs({
+			legLabels: ["sql", "local-general"],
+			request: stub.request,
+			sleep: noSleep,
+		});
+		expect(walk.texts).toEqual([]);
+		expect(walk.failure).toBe("Review LLM HTTP 503");
+		expect(walk.trail).toHaveLength(2);
+	});
+});
+
+test.describe("stepdownRungOf", () => {
+	const alt = { group: "glm-5.3-flash" };
+	test("context-poor pin with a healthy alt yields one step-down rung", () => {
+		expect(stepdownRungOf("sql", "sql", alt)).toEqual(["glm-5.3-flash"]);
+	});
+	test("wire-class folding: zai-sql pin matches the sql class", () => {
+		expect(stepdownRungOf("zai-sql", "sql,embed", alt)).toEqual([
+			"glm-5.3-flash",
+		]);
+	});
+	test("non-poor pin gets no rung", () => {
+		expect(stepdownRungOf("glm-5.2", "sql", alt)).toEqual([]);
+	});
+	test("empty/absent classes CSV gets no rung", () => {
+		expect(stepdownRungOf("sql", undefined, alt)).toEqual([]);
+		expect(stepdownRungOf("sql", " , ", alt)).toEqual([]);
+	});
+	test("no alt gets no rung (no invented fallback)", () => {
+		expect(stepdownRungOf("sql", "sql", null)).toEqual([]);
+	});
+	test("same-class alt gets no rung", () => {
+		expect(stepdownRungOf("sql", "sql", { group: "sql" })).toEqual([]);
 	});
 });
 

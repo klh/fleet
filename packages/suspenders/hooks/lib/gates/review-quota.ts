@@ -6,6 +6,13 @@
 // backoff (2s doubling, bounded) and a SECONDARY reviewer model walked after
 // a sustained wall, with every attempt stamped into a retry trail the
 // receipt + review fact carry.
+// W2344: near-instant transport failures are DETERMINISTIC (context
+// overflow — the sql-class 4B group 503 no_route'd a ~350KB review payload
+// in <300ms while its tiny health probe says up), so a fast failure spends
+// the leg after one attempt and the walk steps DOWN to the next rung
+// instead of burning retries + backoff into an identical rejection.
+
+import { wireModelMatch } from "./wire-model-check.ts";
 
 export interface LegAttempt {
 	/** Leg label (model for wire legs, target/bin for local legs). */
@@ -40,6 +47,12 @@ export interface WalkOptions {
 	/** A reply that fails this check is not final — walk on (default: any
 	 * reply satisfies). */
 	satisfied?: (text: string) => boolean;
+	/** W2344: a transport failure completing under this many ms is a
+	 * deterministic rejection (context overflow: the upstream 503 no_route'd
+	 * the payload before generation), not a transient burst — the leg is
+	 * spent after ONE attempt, no backoff, walk to the next rung. Default
+	 * 1000ms; 0 disables. */
+	fastFailMs?: number;
 	request: (legIndex: number, attempt: number) => Promise<string>;
 }
 
@@ -61,6 +74,13 @@ export const isTransportFailure = (reason: string): boolean => {
 export const defaultBackoffMs = (_legIndex: number, attempt: number): number =>
 	Math.min(8000, 2000 * 2 ** Math.max(0, attempt - 1));
 
+/** W2344: a 5xx failure is a context-overflow candidate — upstream rejected
+ * the payload before generation (the sql-class 503 no_route on a ~350KB
+ * review payload). 429 is quota, NOT context: it retries regardless of how
+ * fast it returns (a rate-limiter can reject pre-generation too). */
+export const isContextOverflowCandidate = (reason: string): boolean =>
+	/\bHTTP 5\d\d\b/.test(reason);
+
 const realSleep = (ms: number): Promise<void> =>
 	new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -70,6 +90,7 @@ const realSleep = (ms: number): Promise<void> =>
  * Attempts are bounded: legs × attemptsPerLeg LLM calls max. */
 export async function walkLegs(o: WalkOptions): Promise<LegWalkResult> {
 	const attemptsPerLeg = o.attemptsPerLeg ?? 3;
+	const fastFailMs = o.fastFailMs ?? 1000;
 	const sleep = o.sleep ?? realSleep;
 	const texts: string[] = [];
 	const trail: LegAttempt[] = [];
@@ -108,9 +129,22 @@ export async function walkLegs(o: WalkOptions): Promise<LegWalkResult> {
 				});
 				failure = reason;
 				if (!transport) break; // terminal on this leg — walk to the next
-				transportTries += 1;
-				if (transportTries >= attemptsPerLeg) legSpent = true;
-				else await sleep((o.backoffMs ?? defaultBackoffMs)(legIndex, attempt));
+				// W2344: a near-instant 5xx is deterministic (context overflow —
+				// upstream 503 no_route'd the payload before generation); the
+				// same payload will be rejected identically, so retries +
+				// backoff only burn the lease. Spend the leg and step down.
+				if (
+					fastFailMs > 0 &&
+					isContextOverflowCandidate(reason) &&
+					Date.now() - at < fastFailMs
+				)
+					legSpent = true;
+				else {
+					transportTries += 1;
+					if (transportTries >= attemptsPerLeg) legSpent = true;
+					else
+						await sleep((o.backoffMs ?? defaultBackoffMs)(legIndex, attempt));
+				}
 			}
 		}
 	}
@@ -136,3 +170,22 @@ export const parseFallbackModels = (raw: string | undefined): string[] =>
 		.split(",")
 		.map((s) => s.trim())
 		.filter(Boolean);
+
+/** W2344: the context-overflow step-down rung. `classesCsv` names the
+ * context-poor model classes (SUSPENDERS_REVIEW_STEPDOWN_CLASSES, e.g.
+ * `sql`); when the pinned primary belongs to one and the operator ladder
+ * carries no fallback (caller's policy — an explicit ladder wins), `alt`
+ * (the freshest healthy OUTSIDE pick, e.g. pickHealthyGroup's result)
+ * becomes ONE appended rung — the pin still runs first, never silently
+ * re-pinned. Empty classes / non-poor pin / no alt / same-class alt → []. */
+export const stepdownRungOf = (
+	model: string,
+	classesCsv: string | undefined,
+	alt: { group: string } | null,
+): string[] => {
+	const classes = parseFallbackModels(classesCsv);
+	if (classes.length === 0) return [];
+	if (!classes.some((c) => wireModelMatch(model, c) === "match")) return [];
+	if (!alt || wireModelMatch(model, alt.group) === "match") return [];
+	return [alt.group];
+};
