@@ -23,7 +23,7 @@ import {
 	encodeHopContract,
 	HOP_CONTRACT_HEADER,
 	rungIdOf,
-} from "../../telemetry/src/hop-contract.ts";
+} from "@klh/telemetry/src/hop-contract.ts";
 
 /** Z.AI GLM-5.3 doc-verified efforts: low|high|max — the model ALWAYS
  *  thinks (disable → 400; medium is not in the 5.3 set). The fleet axis

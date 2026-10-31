@@ -7,7 +7,7 @@ import {
 import {
 	encodeHopContract,
 	rungIdOf,
-} from "../../telemetry/src/hop-contract.ts";
+} from "@klh/telemetry/src/hop-contract.ts";
 
 const NOW = 1_800_000_000_000;
 const header = (deadlineMs: number, budget = 3, path: string[] = []) =>

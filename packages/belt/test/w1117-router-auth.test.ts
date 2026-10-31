@@ -12,7 +12,7 @@ import { verifyUpstreamAuth } from "../bin/router-auth.ts";
 import {
 	encodeHopContract,
 	parseHopContract,
-} from "../../telemetry/src/hop-contract.ts";
+} from "@klh/telemetry/src/hop-contract.ts";
 
 setDefaultTimeout(30_000);
 
