@@ -152,7 +152,7 @@ const NEAR_CAP_PINNED = {
 	"packages/belt/bin/router-shim.ts": 1282,
 	"packages/buckle/src/ledger.ts": 1389,
 	"packages/belt/test/dashboard-topology-model.e2e.ts": 1294,
-	"packages/suspenders/hooks/bin/work.ts": 1272, // W2299 took max(1263, parked/W2259's stale 1247); W2333 fail-verb body → lib/work/work-fail.ts shrank to 1257; W2348 re-pin to measured 1272 (debt: decompose)
+	"packages/suspenders/hooks/bin/work.ts": 1262, // W2299 took max(1263, parked/W2259's stale 1247); W2348 re-pin 1272; W2384 merge tightens to the merged-tree count (W2333 fail-verb body → lib/work/work-fail.ts + W2186/W822.1/W2189 faces; debt: decompose)
 	"packages/suspenders/deploy/hubctl.ts": 1212, // W2261 merge re-pin to measured count; W2299 merge reconciled with parked/W2259's identical count (debt: decompose)
 };
 
