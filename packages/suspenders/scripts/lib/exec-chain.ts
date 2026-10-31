@@ -401,7 +401,8 @@ export const execPick = (
 	const quotaWhy = (slot: {
 		name: string;
 		model: string | null;
-	}): string | null => quota?.get(providerOf(slot.model ?? slot.name)) ?? null;
+	}): string | null =>
+		quota?.get(providerOf(slot.model ?? slot.name) ?? "") ?? null;
 	const penaltyOf = (slot: { name: string; model: string | null }): number =>
 		quotaWhy(slot) ? 1 : 0;
 	const wouldBe = chain[Math.min(attempt, chain.length - 1)];
