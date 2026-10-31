@@ -51,13 +51,19 @@ test.describe("@unit", () => {
 					"junk",
 				]),
 			).toBe("buckle:admin:WRITE_ buckle:proxy:WRITE_");
-			expect(ALL_SCOPES).toHaveLength(10);
+			expect(ALL_SCOPES).toHaveLength(12);
 			expect(ALL_SCOPES).toContain("buckle:spoke:READ_");
 			expect(ALL_SCOPES).toContain("buckle:spoke:WRITE_");
 			expect(ALL_SCOPES).toContain("buckle:store:READ_");
 			expect(ALL_SCOPES).toContain("buckle:store:WRITE_");
 			expect(ALL_SCOPES).toContain("buckle:knowledge:READ_");
 			expect(ALL_SCOPES).toContain("buckle:knowledge:QUERY_");
+			expect(ALL_SCOPES).toContain("buckle:dataplane:READ_");
+			expect(ALL_SCOPES).toContain("buckle:dataplane:WRITE_");
+			expect(hasScope(["buckle:dataplane:WRITE_"], "buckle:dataplane:READ_"))
+				.toBe(true);
+			expect(hasScope(["buckle:dataplane:READ_"], "buckle:dataplane:WRITE_"))
+				.toBe(false);
 		});
 	});
 
