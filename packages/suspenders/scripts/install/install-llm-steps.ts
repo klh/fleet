@@ -436,9 +436,12 @@ export async function seedLocalLlm(
 			return { status: "failed", note: integrity.note };
 		if (integrity.note.length > 0) log(integrity.note);
 	}
-	// W778: the flattened kit now imports npm deps (stack-config.ts → yaml)
-	// and the home has no manifest of its own — ride the prefix's offline
-	// node_modules (idempotent; a real operator dir is left alone).
+	// W778: the flattened kit imports npm deps (stack-config.ts → zod) and
+	// the home has no manifest of its own — ride the prefix's offline
+	// node_modules (idempotent; a real operator dir is left alone). W2343:
+	// every bare specifier in the belt/bin closure must be a PROD dep of
+	// the installed package (test/runtime-home-npm-closure.e2e.ts pins it)
+	// or the home copy ships a dark import at boot.
 	const nm = join(ctx.llmHome, "node_modules");
 	const wantNm = join(ctx.prefix, "node_modules");
 	if (existsSync(wantNm) && !existsSync(nm)) {
