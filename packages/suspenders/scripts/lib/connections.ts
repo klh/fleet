@@ -52,7 +52,7 @@ import {
 	runCli,
 	type VerbSpec,
 } from "../../hooks/lib/verb-kit.ts";
-import { preferOf } from "./exec-chain.ts";
+import { preferFileOf } from "./exec-chain.ts";
 
 // ─── schema ──────────────────────────────────────────────────────────────────
 
@@ -202,12 +202,11 @@ export const knownHubLabel = (
 	known.find((l) => l.toLowerCase() === label.trim().toLowerCase()) ?? null;
 
 /** The .prefer pin: walk up from the path, nearest .prefer wins. The ONLY
- *  pin is the executor chain's unquoted `hub=Label` (exec-chain.ts preferOf
- *  — explicit, wins). W1354.1: the routing plane's quoted prefer= expression
- *  never pins — a quoted must=/prefer= line is a SOFT hint (W1353), so its
- *  head token naming a hub label no longer routes the repo (was: first token
- *  vs known hubs). parseRoutingPrefer flags the cross-plane `hub=` as
- *  unknown-key errors — expected noise, never fatal. */
+ *  pin is the executor chain's unquoted `hub=Label` (exec-chain.ts
+ *  preferFileOf — explicit, wins). W1354.1: the routing plane's quoted
+ *  prefer= expression never pins — a quoted must=/prefer= line is a SOFT
+ *  hint (W1353), so its head token naming a hub label no longer routes
+ *  the repo (was: first token vs known hubs). */
 export function preferPin(startPath: string): {
 	hub: string;
 	hubUrls: string[];
@@ -219,7 +218,7 @@ export function preferPin(startPath: string): {
 	for (let i = 0; i < 64; i++) {
 		const f = join(dir, ".prefer");
 		if (existsSync(f)) {
-			const p = preferOf(dir);
+			const p = preferFileOf(dir);
 			if (p.hub) return { hub: p.hub, hubUrls: p.hubUrls, source: f };
 		}
 		const parent = dirname(dir);
