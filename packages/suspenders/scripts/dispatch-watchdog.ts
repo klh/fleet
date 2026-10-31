@@ -39,6 +39,10 @@ import {
 	type ServiceVerdict,
 } from "./lib/service-drift.ts";
 import {
+	retiredServiceLabels,
+	splitRetiredVerdicts,
+} from "./lib/retired-services.ts";
+import {
 	type LaneAudit,
 	watchdogLiveness,
 	watchdogProgress,
@@ -91,6 +95,14 @@ const libParity = (): {
 };
 
 // Explicit activation receipt, exact-domain inspection; never adopt a manual listener.
+const activatedRoot = (): string | null => {
+	try {
+		const activated = inspectActivatedDispatch(PREFIX);
+		return activated.state === "ok" ? activated.root : null;
+	} catch {
+		return null;
+	}
+};
 const effectiveServices = (): ServiceVerdict[] => {
 	try {
 		const activated = inspectActivatedDispatch(PREFIX);
@@ -393,7 +405,32 @@ const run = async (): Promise<number> => {
 		);
 
 	// 2. Service drift is read-only. Legitimate PID changes are not restart requests.
-	const services = effectiveServices();
+	// W2339: the audit universe is the CURRENT supervision model — labels the
+	// W779 heartbeat fold retired (manifest legacyLabels ∪ MAINTENANCE_TASKS,
+	// pairing law-guaranteed by test/maintenance-legacy-drift.test.ts) drop out
+	// of the receipt verdicts BEFORE drift detection; the receipt retains them
+	// as install-intent history, but "recorded unit unavailable" on a retired
+	// label is not supervision loss (13 NEED_DECISIONs per 5-min pass,
+	// 2026-10-31). Ghost fingerprints and their pending drift keys go with
+	// them, so a stale receipt can never re-card a retired label.
+	const root = activatedRoot();
+	const retired = retiredServiceLabels(
+		root === null
+			? undefined
+			: join(root, "packages/suspenders/deploy/services.yaml"),
+	);
+	const { audited: services, retiredGhosts } = splitRetiredVerdicts(
+		effectiveServices(),
+		retired,
+	);
+	for (const ghost of retiredGhosts) {
+		delete previous.serviceFingerprints?.[ghost.label];
+		delete decisionEmits[`drift:${ghost.label}`];
+	}
+	if (retiredGhosts.length && previous.loopPid !== null)
+		verdicts.push(
+			`${retiredGhosts.length} retired label(s) skipped: ${retiredGhosts.map((g) => g.label).join(", ")}`,
+		);
 	const drift = driftNotices(
 		services,
 		previous.serviceFingerprints,
