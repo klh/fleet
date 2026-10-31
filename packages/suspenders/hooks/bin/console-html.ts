@@ -1,6 +1,6 @@
 // hooks/bin/console-html.ts — W147: the console shell + server-rendered
 // console pages (belt gateway view, local services view, settings). Pure
-// string builders on the klh theme tokens (hooks/lib/theme.ts — var(--klh-*),
+// string builders on the klh theme tokens (hoo@klh/kernel/src/kernel.theme.module.ts — var(--klh-*),
 // dark/light via data-theme), inline SVG, no framework, no external deps.
 //
 // W658.2: the top bar retired into the klh-topbar Lit component
@@ -31,7 +31,7 @@ import {
 	fleetNav,
 	displayLabel,
 	THEME_HEAD,
-} from "../lib/theme.ts";
+} from "@klh/kernel/src/kernel.theme.module.ts";
 import type { RecoveryEntry } from "../lib/fleet-loop/recovery-map.ts";
 // W858.10.3: the Network overview payload (type-only — erased at runtime;
 // the card component owns the DOM)

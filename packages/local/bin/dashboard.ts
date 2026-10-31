@@ -38,8 +38,8 @@ import {
 	FLEET_NAV_CSS,
 	fleetNav,
 	settingsBlock,
-} from "./klh-theme.ts";
-import { handleTheme, isThemePath } from "./klh-theme-sync.ts";
+} from "@klh/kernel/src/kernel.theme.module.ts";
+import { handleTheme, isThemePath } from "@klh/kernel/src/kernel.theme-sync.module.ts";
 
 const HOME = process.env.HOME ?? "";
 const STATE = `${HOME}/.local/state/klh-local`;

@@ -11,7 +11,7 @@ import {
 import { dirname } from "node:path";
 import { hostnameOf, hostAllowlist } from "../lib/host-guard.ts";
 import { BIND } from "./context.ts";
-import { isPref, type ThemePref } from "../lib/theme.ts";
+import { isPref, type ThemePref } from "@klh/kernel/src/kernel.theme.module.ts";
 
 interface ThemeState {
 	pref: ThemePref;

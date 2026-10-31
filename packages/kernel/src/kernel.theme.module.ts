@@ -1,11 +1,12 @@
-// hooks/lib/theme.ts — W269/W291: the klh theme layer (colour roles, scale
-// tokens, settings gear, fleet strip), one source of truth for every klh GUI:
+// W269/W291/W2269.1.1: the klh theme layer (colour roles, scale tokens,
+// settings gear, fleet strip), one source of truth for every klh GUI:
 // the suspenders board SPA, console pages and /usage, plus the belt.local and
-// bar.local dashboards. Canonical home: klh/suspenders hooks/lib/theme.ts.
-// klh/belt and klh/local vendor it byte-identical as bin/klh-theme.ts (no
-// imports, no deps, so their pages still work offline). To change it: edit
-// the canonical file, bump KLH_THEME_VERSION (test/theme.test.ts pins the
-// hash), then re-copy it into both repos (docs/theme-tokens.md).
+// bar.local dashboards. Canonical home since W2269.1.1: @klh/kernel
+// src/kernel.theme.module.ts — the former vendored copies (suspenders
+// hooks/lib/theme.ts, belt/local bin/klh-theme.ts) are retired; consumers
+// import the kernel module directly and the flat deploy homes rewrite the
+// spec at publish time (W1475 flatten). To change it: edit this file and
+// bump KLH_THEME_VERSION (the drift tests pin the hash).
 //
 // Contract: `data-theme="dark|light"` on <html> swaps a CSS custom-property
 // token set — components never carry their own colors, only var(--klh-*).
@@ -17,7 +18,7 @@ export type ThemePref = Theme | "system";
 
 // Bumped on every change to this file; the vendored copies carry it too, so
 // "same version" means "same bytes" (each consumer's drift test checks it).
-export const KLH_THEME_VERSION = "1.4.3";
+export const KLH_THEME_VERSION = "1.4.4";
 
 export const THEME_KEY = "klh-theme";
 export const THEME_PREFS: readonly ThemePref[] = ["light", "dark", "system"];

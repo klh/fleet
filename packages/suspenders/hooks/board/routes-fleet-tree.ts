@@ -26,7 +26,7 @@ import {
 	FLEET_NAV_CSS,
 	fleetNav,
 	displayLabel,
-} from "../lib/theme.ts";
+} from "@klh/kernel/src/kernel.theme.module.ts";
 
 export const simulationAuthorizationSchema = z.object({
 	principal: z.string().trim().min(1).max(100),

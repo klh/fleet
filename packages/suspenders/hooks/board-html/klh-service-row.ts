@@ -7,7 +7,7 @@
 // Built by `bun run build:vendor` to hooks/board-html/vendor/ (one shared
 // lit-shared.js chunk with klh-components — offline, never CDN).
 import { LitElement, css, html, type TemplateResult } from "lit";
-import { displayLabel } from "../lib/theme.ts";
+import { displayLabel } from "@klh/kernel/src/kernel.theme.module.ts";
 import { dualShort, dualStamp } from "../lib/wallclock.ts"; // W902: one stamp vocabulary
 import {
 	type RowProbe,

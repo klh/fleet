@@ -13,7 +13,7 @@
 // `bun run build:vendor` into board-html/vendor/ (shared lit chunk), served
 // at /vendor/klh-topbar.js — offline, never CDN.
 import { LitElement, css, html, unsafeCSS, type TemplateResult } from "lit";
-import { THEME_KEY, THEME_PREFS, THEME_SETTINGS_CSS } from "../lib/theme.ts";
+import { THEME_KEY, THEME_PREFS, THEME_SETTINGS_CSS } from "@klh/kernel/src/kernel.theme.module.ts";
 
 // wire shape: server ConsoleMe or the /api/console/me response body (the
 // API spells default_actor + executor_prefs; the server type is camelCase)

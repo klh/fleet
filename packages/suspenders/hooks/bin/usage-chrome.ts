@@ -6,7 +6,7 @@
 // follows the entity, validated dark palette); component-ization per the UI
 // law rides the W184 staged Lit migration.
 import { readFileSync } from "node:fs";
-import { FLEET_NAV_CSS, fleetNav, THEME_HEAD } from "../lib/theme.ts";
+import { FLEET_NAV_CSS, fleetNav, THEME_HEAD } from "@klh/kernel/src/kernel.theme.module.ts";
 
 // uPlot 1.6.32 (MIT, © Leon Sorokin, https://github.com/leeoniya/uPlot) —
 // vendored single file, license header preserved at the top of the source.

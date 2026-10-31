@@ -1,14 +1,14 @@
-// klh-theme.test.ts — W281: belt wears the shared klh theme.
-// bin/klh-theme.ts is a byte-identical vendored copy of klh/suspenders
-// hooks/lib/theme.ts (see suspenders docs/theme-tokens.md, "Vendoring"):
-// never hand-edit it, re-vendor it and bump PIN together. The page test boots
-// the real dashboard on a free port (mDNS off, scratch HOME) and checks the
-// served HTML: tokens in <head>, one klh·fleet strip, the theme gear, and no
-// private palette left behind.
+// klh-theme.test.ts — W281, W2269.1.1 cutover: belt wears the shared klh
+// theme, single-sourced as @klh/kernel src/kernel.theme.module.ts. The former
+// bin/klh-theme.ts vendored copy is retired — the dashboard imports the
+// kernel module and the flat deploy homes rewrite the spec at publish time
+// (W1475 flatten). The page test boots the real dashboard on a free port
+// (mDNS off, scratch HOME) and checks the served HTML: tokens in <head>, one
+// klh·fleet strip, the theme gear, and no private palette left behind.
 import { expect, test } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import {
 	FLEET_NAV_CSS,
 	FLEET_NAV_JS,
@@ -17,60 +17,50 @@ import {
 	THEME_HEAD,
 	THEME_SETTINGS_CSS,
 	THEME_SETTINGS_JS,
-} from "../bin/klh-theme.ts";
+} from "@klh/kernel/src/kernel.theme.module.ts";
 
-const VENDORED = join(import.meta.dir, "..", "bin", "klh-theme.ts");
+const RETIRED = join(import.meta.dir, "..", "bin", "klh-theme.ts");
+const CANON = join(
+	import.meta.dir,
+	"..",
+	"..",
+	"kernel",
+	"src",
+	"kernel.theme.module.ts",
+);
 const PIN = {
-	version: "1.4.3",
-	sha256: "1d90f0790d47a701c5e246c91cd39a454577e02d3b1980655634a177648774f3",
+	version: "1.4.4",
+	sha256: "56c7010e59219346b2ecb901468df03999f04e2269abfe41f578605cbba7123c",
 };
 
 const sha256 = (bytes: Uint8Array | string): string =>
 	createHash("sha256").update(bytes).digest("hex");
 
-const versionOf = (src: string): string =>
-	/KLH_THEME_VERSION = "([^"]+)"/.exec(src)?.[1] ?? "";
-
-// The MERGED theme (origin/main) of a klh/suspenders checkout beside this
-// repo, or beside the repo a worktree hangs off. Uncommitted edits or a stale
-// local branch there never count; a lone clone skips the drift check.
-const mergedSource = (): Buffer | null => {
-	let dir = import.meta.dir;
-	for (let i = 0; i < 6; i++) {
-		const repo = join(dir, "suspenders");
-		if (existsSync(join(repo, "hooks", "lib", "theme.ts"))) {
-			const show = ["show", "origin/main:hooks/lib/theme.ts"];
-			const git = Bun.spawnSync(["git", "-C", repo, ...show]);
-			return git.exitCode === 0 ? git.stdout : null;
-		}
-		const parent = dirname(dir);
-		if (parent === dir) break;
-		dir = parent;
-	}
-	return null;
-};
-
 const count = (hay: string, needle: string): number =>
 	hay.split(needle).length - 1;
 
-test.describe("vendored klh theme (W281)", () => {
-	test("pinned: version + sha256 of bin/klh-theme.ts @ui", () => {
+test.describe("klh theme single-source (W2269.1.1)", () => {
+	test("pinned: version + sha256 of the kernel theme module @ui", () => {
 		expect(KLH_THEME_VERSION).toBe(PIN.version);
-		expect(sha256(readFileSync(VENDORED))).toBe(PIN.sha256);
+		expect(sha256(readFileSync(CANON))).toBe(PIN.sha256);
 	});
 
-	const source = mergedSource();
-	const sameVersion =
-		source !== null && versionOf(source.toString()) === KLH_THEME_VERSION;
-	// A newer suspenders theme only means "re-vendor when convenient"; the
-	// same version with different bytes is real drift. (In-body fixme: the
-	// module-level conditional form drops the declared test in this runner.)
-	test("no drift: same version as suspenders theme.ts means same bytes @ui", () => {
-		test.fixme(
-			!sameVersion,
-			"no matching suspenders theme.ts source in this checkout",
+	test("retired: no vendored copy survives in belt bin @ui", () => {
+		expect(existsSync(RETIRED)).toBe(false);
+	});
+
+	test("dashboard imports the kernel module, not a vendored copy @ui", () => {
+		const src = readFileSync(
+			join(import.meta.dir, "..", "bin", "dashboard.ts"),
+			"utf8",
 		);
-		expect(sha256(source ?? "")).toBe(sha256(readFileSync(VENDORED)));
+		expect(src).toContain(
+			"from \"@klh/kernel/src/kernel.theme.module.ts\"",
+		);
+		expect(src).toContain(
+			"from \"@klh/kernel/src/kernel.theme-sync.module.ts\"",
+		);
+		expect(src).not.toContain("./klh-theme");
 	});
 });
 

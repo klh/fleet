@@ -1,13 +1,10 @@
-// klh-theme-sync.ts — W997: the machine-scoped theme preference endpoint
-// (/api/theme + /api/theme/events) for this dashboard, so same-origin
-// http://localhost pages share the ONE preference the .local pages already
-// share through suspenders.local. Self-contained like ./klh-theme.ts (no
-// imports, no deps — pages must work offline). Canonical logic: klh/fleet
-// packages/suspenders hooks/board/routes-theme.ts + hooks/lib/host-guard.ts;
-// this vendored copy only inlines the host guard. The state file is the
-// shared one (~/.cache/claude-governor/ui-theme.json), so every writer
-// (board, belt, bar) bumps the same revision timeline and revisions stay
-// monotonic across processes (Date.now wins over +1).
+// W997/W2269.1.1: canonical klh-theme-sync — the shared machine theme
+// preference endpoint (handleTheme/isThemePath), single-sourced in kernel.
+// The former belt/local bin/klh-theme-sync.ts vendored copies are retired;
+// the board's routes-theme.ts keeps its own inlined host guard. The state
+// file is the shared one (~/.cache/claude-governor/ui-theme.json), so every
+// writer (board, belt, bar) bumps the same revision timeline and revisions
+// stay monotonic across processes (Date.now wins over +1).
 // The endpoint deliberately accepts only the three theme values; it does not
 // carry board credentials or expose any other setting across origins.
 import {

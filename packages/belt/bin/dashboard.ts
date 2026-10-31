@@ -7,8 +7,9 @@
 // Page styling follows the threads.dk instrument spec: warm near-black
 // ground, mono throughout, one accent, rows not cards. The colours, type
 // scale, dark/light theme and the klh·fleet strip come from the shared klh
-// theme vendored as ./klh-theme.ts (byte-identical to klh/suspenders
-// hooks/lib/theme.ts), so the page still works offline.
+// theme single-sourced as @klh/kernel/src/kernel.theme.module.ts (W2269.1.1;
+// flat deploy homes rewrite the spec at publish time), so the page still
+// works offline.
 //
 // Usage:
 //   bun dashboard.ts                  — serve on :7791 (env BELT_PORT overrides)
@@ -52,8 +53,8 @@ import {
 	THEME_HEAD,
 	THEME_SETTINGS_CSS,
 	THEME_SETTINGS_JS,
-} from "./klh-theme.ts";
-import { handleTheme, isThemePath } from "./klh-theme-sync.ts";
+} from "@klh/kernel/src/kernel.theme.module.ts";
+import { handleTheme, isThemePath } from "@klh/kernel/src/kernel.theme-sync.module.ts";
 import { metricsFor, metricsHistory, metricsSnapshot } from "./metrics.ts";
 import { type ModelAccess, modelAccess } from "./model-access.ts";
 import {
@@ -370,7 +371,7 @@ const remotesSnapshot = (): Promise<RemotesSnapshot> => {
 };
 
 // ─── page — embedded, no frameworks, no external assets (works offline) ───
-// Tokens, the theme gear and the klh·fleet strip come from ./klh-theme.ts (see
+// Tokens, the theme gear and the klh·fleet strip come from @klh/kernel/src/kernel.theme.module.ts (see
 // the file header); the page never hard-codes a colour.
 const PAGE = `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

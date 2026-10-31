@@ -10,6 +10,7 @@ import {
 	rename,
 	rm,
 	stat,
+	symlink,
 	writeFile,
 } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -27,7 +28,6 @@ export const dashboardCodeGroups = [
 			"dashboard-state.ts",
 			"metrics.ts",
 			"hubs.ts",
-			"klh-theme.ts",
 			"dashboard-observability.js",
 			"dashboard-model-access.js",
 			"dashboard-topology.js",
@@ -43,8 +43,6 @@ export const dashboardCodeGroups = [
 		files: [
 			"dashboard.ts",
 			"dashboard-page.html",
-			"klh-theme.ts",
-			"klh-theme-sync.ts",
 			"vendor/lit-shared.js",
 		],
 	},
@@ -157,6 +155,7 @@ export async function refreshDashboards(
 		// committed import graph so its runtime copy is self-contained.
 		const graphPaths = [
 			"packages/belt/bin",
+			"packages/kernel/src",
 			"packages/suspenders/deploy",
 			"packages/suspenders/hooks/lib",
 			"packages/local-llm",
@@ -179,6 +178,15 @@ export async function refreshDashboards(
 			revision,
 			[...new Set([...paths, ...graphPaths])],
 			stage,
+		);
+		// W2269.1.1: the theme single-source rides named @klh/kernel imports;
+		// the stage has no workspace links, so the bundles resolve the kernel
+		// closure against the captured archive copy (the harness does the same
+		// via its node_modules/@klh links).
+		await mkdir(join(stage, "node_modules/@klh"), { recursive: true });
+		await symlink(
+			join(stage, "packages/kernel"),
+			join(stage, "node_modules/@klh/kernel"),
 		);
 		for (const file of files) {
 			if (!(await lstat(join(stage, relative(repo, file.source)))).isFile())
@@ -218,6 +226,23 @@ export async function refreshDashboards(
 		await rename(
 			`${join(belt, "dashboard.ts")}.refreshing`,
 			join(belt, "dashboard.ts"),
+		);
+		// W2269.1.1: local bundles too — the theme single-source means its
+		// imports ride @klh/kernel, which a flat home cannot resolve; the
+		// bundled entry inlines the closure the way the belt home already did.
+		const localBuild = await Bun.build({
+			entrypoints: [join(stage, "packages/local/bin/dashboard.ts")],
+			target: "bun",
+		});
+		if (!localBuild.success)
+			throw new Error(localBuild.logs.map(String).join("\n"));
+		await writeFile(
+			`${join(local, "dashboard.ts")}.refreshing`,
+			await localBuild.outputs[0].text(),
+		);
+		await rename(
+			`${join(local, "dashboard.ts")}.refreshing`,
+			join(local, "dashboard.ts"),
 		);
 		for (const entry of [
 			join(belt, "dashboard.ts"),

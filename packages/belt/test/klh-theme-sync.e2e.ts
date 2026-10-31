@@ -11,7 +11,7 @@ import {
 	hostAllowlist,
 	readTheme,
 	themePath,
-} from "../bin/klh-theme-sync.ts";
+} from "@klh/kernel/src/kernel.theme-sync.module.ts";
 
 const url = "http://127.0.0.1/api/theme";
 const request = (
@@ -28,18 +28,21 @@ const request = (
 const scratch = (): string =>
 	join(mkdtempSync(join(tmpdir(), "klh-theme-sync-")), "ui-theme.json");
 
-test.describe("vendored theme sync (W997)", () => {
-	test("belt and local vendor byte-identical copies @unit", () => {
-		const belt = readFileSync(
-			join(import.meta.dir, "..", "bin", "klh-theme-sync.ts"),
-		);
-		const local = readFileSync(
-			join(import.meta.dir, "..", "..", "local", "bin", "klh-theme-sync.ts"),
-		);
-		expect(Buffer.from(belt).equals(Buffer.from(local))).toBe(true);
+test.describe("single-sourced theme sync (W997, W2269.1.1)", () => {
+	test("dashboards import the kernel sync module @unit", () => {
+		for (const bin of [
+			join(import.meta.dir, "..", "bin", "dashboard.ts"),
+			join(import.meta.dir, "..", "..", "local", "bin", "dashboard.ts"),
+		]) {
+			const src = readFileSync(bin, "utf8");
+			expect(src).toContain(
+				"from \"@klh/kernel/src/kernel.theme-sync.module.ts\"",
+			);
+			expect(src).not.toContain("./klh-theme-sync");
+		}
 	});
 
-	test("state file is the shared machine timeline (same as the board) @unit", () => {
+test("state file is the shared machine timeline (same as the board) @unit", () => {
 		expect(themePath()).toBe(
 			`${process.env.HOME}/.cache/claude-governor/ui-theme.json`,
 		);

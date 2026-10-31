@@ -2,7 +2,7 @@
 // the shell is the klh-topbar Lit component (avatar dropdown + settings
 // gear; me fetched live from /api/console/me by the component); the fleet
 // strip above it stays server-rendered theme.ts fleetNav().
-import { FLEET_NAV_CSS, fleetNav, THEME_HEAD } from "../lib/theme.ts";
+import { FLEET_NAV_CSS, fleetNav, THEME_HEAD } from "@klh/kernel/src/kernel.theme.module.ts";
 import { U_CSS, UPLOT_CSS, UPLOT_SRC } from "./usage-chrome.ts";
 
 const unesc = (s) =>
