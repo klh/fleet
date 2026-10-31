@@ -258,3 +258,92 @@ test("legacy pid-only stamps stay conservative — ESRCH dies, live stays", () =
 		reconcileReviewLegs(f.db, () => ({ alive: false, startMs: null })),
 	).toEqual({ examined: 1, active: 0, stale: 1, recovered: 1 });
 });
+
+// W2356: the 2026-10-31 over-freeze — a brief flap rode the doubling to the
+// 10m ceiling and each expiry re-admitted the whole herd onto the still-
+// flapping ladder, stacking ~35min of zero admissions. The pause ceiling is
+// now 2m and a lapsed pause admits ONE canary leg whose finish decides.
+test("pressure pause ceiling is 2m — sustained failures cannot stack a 10m freeze", () => {
+	const f = fixture();
+	setPressure(f, { fails: 5, openUntil: Date.now() - 1 });
+	failOnce(f);
+	const pressure = providerPressureOf(f.db);
+	expect(pressure.fails).toBe(6);
+	// 30s doubling would demand 960s at fails=6; the W2356 ceiling caps 2m
+	expect(pressure.openUntil).toBeGreaterThan(Date.now());
+	expect(pressure.openUntil).toBeLessThanOrEqual(Date.now() + 120_000);
+});
+test("lapsed pause admits ONE canary; a served canary fully reopens admission", () => {
+	const f = fixture();
+	failOnce(f); // fails=1, pause armed
+	setPressure(f, { openUntil: Date.now() - 1 }); // pause lapses
+	// first leg through the lapsed pause IS the canary
+	expect(
+		scheduleReview({ ...f.options, item: "W2", spawn: f.spawn }),
+	).toContain("requested through Buckle");
+	const stamped = providerPressureOf(f.db).probe;
+	expect(stamped?.key).toBe(keyOf(f, "W2"));
+	expect(stamped?.until).toBeGreaterThan(Date.now());
+	// peers hold while the canary flies — no herd refire
+	expect(
+		scheduleReview({ ...f.options, item: "W3", spawn: f.spawn }),
+	).toContain("probe in flight");
+	expect(f.launches).toHaveLength(2);
+	// served verdict: memory drained, probe cleared, full reopen
+	const w2 = requestOf(f, "W2");
+	finishReviewRequest(f.db, keyOf(f, "W2"), w2.token, false);
+	const drained = providerPressureOf(f.db);
+	expect(drained.fails).toBe(0);
+	expect(drained.openUntil).toBe(0);
+	expect(drained.probe).toBeUndefined();
+	expect(
+		scheduleReview({ ...f.options, item: "W3", spawn: f.spawn }),
+	).toContain("requested through Buckle");
+});
+test("failed canary re-arms the pause — peers never see a false reopen", () => {
+	const f = fixture();
+	failOnce(f);
+	setPressure(f, { openUntil: Date.now() - 1 });
+	expect(
+		scheduleReview({ ...f.options, item: "W2", spawn: f.spawn }),
+	).toContain("requested through Buckle");
+	const w2 = requestOf(f, "W2");
+	finishReviewRequest(f.db, keyOf(f, "W2"), w2.token, true);
+	const rearmed = providerPressureOf(f.db);
+	expect(rearmed.fails).toBe(2);
+	expect(rearmed.openUntil).toBeGreaterThan(Date.now());
+	expect(rearmed.probe).toBeUndefined();
+	expect(
+		scheduleReview({ ...f.options, item: "W3", spawn: f.spawn }),
+	).toContain("provider pressure");
+	expect(f.launches).toHaveLength(2);
+});
+test("hung canary self-releases when the probe window lapses", () => {
+	const f = fixture();
+	failOnce(f);
+	setPressure(f, { openUntil: Date.now() - 1 });
+	expect(
+		scheduleReview({ ...f.options, item: "W2", spawn: f.spawn }),
+	).toContain("requested through Buckle");
+	// the canary never finishes: its probe window lapses underneath it
+	setPressure(f, { probe: { key: keyOf(f, "W2"), until: Date.now() - 1 } });
+	expect(
+		scheduleReview({ ...f.options, item: "W3", spawn: f.spawn }),
+	).toContain("requested through Buckle");
+	// the new admission took over the canary slot
+	expect(providerPressureOf(f.db).probe?.key).toBe(keyOf(f, "W3"));
+});
+test("SUSPENDERS_REVIEW_CANARY=0 restores the W1280 full-herd reopen", () => {
+	const f = fixture();
+	failOnce(f);
+	setPressure(f, { openUntil: Date.now() - 1 });
+	const herd = {
+		...f.options,
+		env: { ...f.options.env, SUSPENDERS_REVIEW_CANARY: "0" },
+	};
+	for (const item of ["W2", "W3"])
+		expect(scheduleReview({ ...herd, item, spawn: f.spawn })).toContain(
+			"requested through Buckle",
+		);
+	expect(providerPressureOf(f.db).probe).toBeUndefined();
+});
