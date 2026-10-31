@@ -251,7 +251,19 @@ const leg: Leg | null = (() => {
 })();
 
 // ---- run the leg ------------------------------------------------------------
-const LEG_TIMEOUT_MS = 15 * 60_000;
+// W2405: the leg timeout is conf-driven (fleet_loop.review_leg_timeout_ms
+// via spawn env SUSPENDERS_REVIEW_LEG_TIMEOUT_MS). Absent = the 15m default;
+// 0 = uncapped (no AbortSignal.timeout, no bin-leg kill timer). Owner
+// directive 2026-10-31: remove the cap for now.
+const LEG_TIMEOUT_MS = Number(
+	process.env.SUSPENDERS_REVIEW_LEG_TIMEOUT_MS ?? 15 * 60_000,
+);
+// W2405: max_tokens likewise (SUSPENDERS_REVIEW_LEG_MAX_TOKENS): absent =
+// requestReviewLeg's 16000 fallback; 0 = omit the key (provider default).
+const legMaxTokens =
+	process.env.SUSPENDERS_REVIEW_LEG_MAX_TOKENS === undefined
+		? undefined
+		: Number(process.env.SUSPENDERS_REVIEW_LEG_MAX_TOKENS);
 // W1263: the SERVED wire model of the last OpenAI-wire leg attempt — receipts
 // never recorded which upstream actually answered, so the review-leg route
 // was untraceable from the receipt alone. Stamp it into the review fact.
@@ -309,6 +321,7 @@ async function requestLlm(
 		key,
 		prompt,
 		timeoutMs: LEG_TIMEOUT_MS,
+		...(legMaxTokens === undefined ? {} : { maxTokens: legMaxTokens }),
 		onWireModel: (wire) => {
 			legWireModel = wire;
 		},
@@ -347,9 +360,10 @@ async function requestLeg(legIndex: number): Promise<string> {
 			stderr: "pipe",
 			cwd: repo,
 		});
-		const timer = setTimeout(() => p.kill(), LEG_TIMEOUT_MS);
+		const timer =
+			LEG_TIMEOUT_MS > 0 ? setTimeout(() => p.kill(), LEG_TIMEOUT_MS) : null;
 		const out = await new Response(p.stdout).text();
-		clearTimeout(timer);
+		if (timer) clearTimeout(timer);
 		await p.exited;
 		return out;
 	}

@@ -51,6 +51,8 @@ export const FleetLoopConfigSchema = z
 		config_poll_s: z.number().int().positive().optional(),
 		review_fallback_models: z.string().min(1).optional(),
 		review_stepdown_classes: z.string().min(1).optional(),
+		review_leg_timeout_ms: z.number().int().nonnegative().optional(),
+		review_leg_max_tokens: z.number().int().nonnegative().optional(),
 		projects: z.array(FleetLoopProjectSchema).optional(),
 	})
 	.loose();
@@ -71,6 +73,8 @@ export interface FleetLoopSettings {
 	pollS: number;
 	reviewFallbackModels?: string;
 	reviewStepdownClasses?: string;
+	reviewLegTimeoutMs?: number;
+	reviewLegMaxTokens?: number;
 }
 
 export const FLEET_LOOP_DEFAULTS: FleetLoopSettings = {
@@ -518,6 +522,8 @@ export function fleetLoopSettings(
 		pollS: block?.config_poll_s ?? FLEET_LOOP_DEFAULTS.pollS,
 		reviewFallbackModels: block?.review_fallback_models,
 		reviewStepdownClasses: block?.review_stepdown_classes,
+		reviewLegTimeoutMs: block?.review_leg_timeout_ms,
+		reviewLegMaxTokens: block?.review_leg_max_tokens,
 	};
 }
 

@@ -366,6 +366,22 @@ export function reviewSpawnEnv(
 		settings?.reviewStepdownClasses !== undefined
 	)
 		filled.SUSPENDERS_REVIEW_STEPDOWN_CLASSES = settings.reviewStepdownClasses;
+	// W2405: the leg caps ride the same layering — env wins, conf fills,
+	// unset conf = the code defaults (review-lane.ts / review-prompt.ts).
+	if (
+		filled.SUSPENDERS_REVIEW_LEG_TIMEOUT_MS === undefined &&
+		settings?.reviewLegTimeoutMs !== undefined
+	)
+		filled.SUSPENDERS_REVIEW_LEG_TIMEOUT_MS = String(
+			settings.reviewLegTimeoutMs,
+		);
+	if (
+		filled.SUSPENDERS_REVIEW_LEG_MAX_TOKENS === undefined &&
+		settings?.reviewLegMaxTokens !== undefined
+	)
+		filled.SUSPENDERS_REVIEW_LEG_MAX_TOKENS = String(
+			settings.reviewLegMaxTokens,
+		);
 	return filled;
 }
 
