@@ -14,9 +14,10 @@ import {
 	type ItemAttribution,
 	itemAttribution,
 } from "../lanes/lane-spend.ts";
+import type { ReportCapacity } from "./report-capacity.ts";
 import type { LaneLive } from "./work-report-live.ts";
 import { reportBoardBase } from "./work-report-live.ts";
-import type { ReportCapacity } from "./report-capacity.ts";
+import { ownerGatedItem } from "./work-tags.ts";
 
 /** One table row: graph state joined to its spend attribution. */
 export interface ReportRow {
@@ -349,12 +350,11 @@ export const unmetDeps = (
 };
 
 /** W2310: the OWNER-GATED convention — a title prefix or the `operator`
- *  classification tag marks owner-only work auto-dispatch must not pick. */
-export const ownerGatedItem = (title: string, tags: string | null): boolean =>
-	title.startsWith("OWNER-GATED") ||
-	String(tags ?? "")
-		.split(",")
-		.includes("operator");
+ *  classification tag marks owner-only work auto-dispatch must not pick.
+ *  W2338: the definition lives in work-tags.ts (the take gate and the
+ *  allocator render from the same predicate); re-exported here for the
+ *  existing importers. */
+export { ownerGatedItem } from "./work-tags.ts";
 
 /** W892 row mapper: graph items ⋈ W776 attribution → table rows. */
 export const toReportRows = (

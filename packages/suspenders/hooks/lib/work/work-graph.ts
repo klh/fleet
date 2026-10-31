@@ -8,15 +8,16 @@
 // identifies a row by id alone, NO work_deps query omits project. Row access
 // goes through get/setState/deps, which own the project bind; the only
 // exception is take's CAS, which needs the state guard in its WHERE.
+
+import { unmergedDeps, unmergedNote } from "../gates/dep-merge-gate.ts";
 import type { GovernorStore } from "../govdb/govdb.ts";
 import { openStore, projectIdentity, projectRootOf } from "../govdb/govdb.ts";
-import { unmergedDeps, unmergedNote } from "../gates/dep-merge-gate.ts";
 import type { ReclaimReason } from "../lanes/reclaim-sticky.ts";
 import { dieFor } from "../verb-kit.ts";
-import { mergeTags } from "./work-tags.ts";
-import { MIRROR_NAME, mirrorOrNull } from "./work-mirror.ts";
 import { preferTagFor } from "./prefer.ts";
+import { MIRROR_NAME, mirrorOrNull } from "./work-mirror.ts";
 import { releaseWorkClaim } from "./work-release.ts";
+import { mergeTags, OWNER_GATE_TAG, ownerGatedItem } from "./work-tags.ts";
 import { resolveItemWorktree } from "./worktree-lookup.ts";
 
 const die = dieFor("work");
@@ -312,7 +313,14 @@ export function insertItem(
 			why,
 			PROJECT,
 			requires,
-			mergeTags(preferTagFor(projectRootOf(PROJECT)), extraTags),
+			// W2338: a gated title stamps the operator tag at mint — the
+			// machine gate keys on tags, never on title prose alone
+			mergeTags(
+				preferTagFor(projectRootOf(PROJECT)),
+				ownerGatedItem(title, extraTags)
+					? `${OWNER_GATE_TAG},${extraTags ?? ""}`
+					: (extraTags ?? ""),
+			),
 			effort,
 			evidence,
 			Date.now(),
