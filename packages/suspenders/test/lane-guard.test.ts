@@ -171,6 +171,25 @@ describe("trailer gate (W1141 transcript tracing)", () => {
 		expect(v.note).toBeUndefined();
 	});
 
+	test("trailer-value spillover line is skipped, not parsed", () => {
+		// W2224: %(trailers:valueonly) emits the value with a trailing
+		// newline, so a carried trailer spills its sid onto a tab-less line;
+		// reading parents off it crashed (undefined .split) before the skip.
+		const out = lines([
+			`0${"1".repeat(39)}\t0${"2".repeat(39)}\tautow1141-p98b319584008df14`,
+			"autow1141-p98b319584008df14",
+		]);
+		const v = trailerVerdict({
+			repo: "/tmp/unused",
+			baseline: `0${"0".repeat(39)}`,
+			sha: `0${"3".repeat(39)}`,
+			sid: "autow1141-p98b319584008df14",
+			run: runOf(out) as never,
+		});
+		expect(v.ok).toBe(true);
+		expect(v.note).toBeUndefined();
+	});
+
 	test("missing trailer → audit note; enforce → refusal; off → silent", () => {
 		const out = lines([`0${"1".repeat(39)}\t0${"2".repeat(39)}\t`]);
 		const base = {
