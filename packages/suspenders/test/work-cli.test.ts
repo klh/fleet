@@ -13,11 +13,15 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { gitInit, tmpDir, cleanupDirs } from "./helpers/fixture-kit.ts";
 import { isResumableClaim } from "../scripts/lib/resumable-claim.ts";
+// W2307: spawned work children must not inherit the dispatch lane's claim
+// pins (KLH_CLAIM_EPOCH/TOKEN fence fixture items at the lane's epoch) or
+// git context — stripGitEnv is the one shared strip.
+import { stripGitEnv } from "../hooks/lib/fixture-isolation.ts";
 
 const HOME = tmpDir("claude-work-cli-home-");
 const REPO = tmpDir("suspenders-work-cli-repo-");
 gitInit(REPO, { baseline: true });
-const env = { ...process.env, HOME };
+const env = { ...stripGitEnv(process.env), HOME };
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
 const DB = join(HOME, ".cache", "claude-governor", "governor.db");
 

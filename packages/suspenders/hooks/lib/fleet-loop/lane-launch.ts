@@ -34,7 +34,6 @@ import {
 	type DispatchPreviewDeps,
 	dryDispatchPreview,
 } from "../../../scripts/lib/dispatch-preview.ts";
-import { fenceBriefLine } from "../work/work-transition.ts";
 import {
 	execPick,
 	posturePreference,
@@ -142,6 +141,7 @@ import {
 } from "../posture/posture.admission.ts";
 import { darkHubNow, policyForRepo, tryLoadStack } from "../stack-config.ts";
 import { quotaProviderPenalty } from "../usage/exec-quota.ts";
+import { fenceBriefLine } from "../work/work-transition.ts";
 
 /** The entrypoint-bound closures + run-config the launch machine consumes.
  *  Mutable cycle collectors (refusal/wait/seed arrays) are shared references
@@ -169,6 +169,7 @@ export type LaneLaunchDeps = {
 	itemCapsuleGet: (item: string) => Record<string, string> | null;
 	/** W1295: `--role` agent-rules override; absent = composer auto-selects. */
 	role?: string;
+	ownerGo?: boolean; // W2338: explicit owner go (dispatch --item only)
 	routeAdmission: RouteAdmission;
 	/** W1712: a pinned model's known endpoint union (the W1711 registry
 	 *  join); absent = unknown — never refuses, never re-selects. */
@@ -215,6 +216,7 @@ export const dispatchLane = async (
 		routingExtra,
 		itemCapsuleGet,
 		role,
+		ownerGo,
 		routeAdmission,
 		wireEndpoints = unknownEndpoints,
 		sh,
@@ -539,7 +541,6 @@ export const dispatchLane = async (
 			if (rePin.note) console.log(rePin.note);
 			if (rePin.model) pick = { ...pick, model: rePin.model };
 		}
-
 		// W1712: the executor must speak the pinned model's wire. A steady
 		// model pin rides the default CLI, so a provably unserved wire moves
 		// the SAME model to a carrier that speaks it; a plaid route's explicit
@@ -583,7 +584,8 @@ export const dispatchLane = async (
 				"--as",
 				sid,
 				"--origin",
-				`${hostname()}:${adapterFor(pick.bin).id}`,
+				`${hostname()}:${adapterFor(pick.bin).id}`, // W2338: ownerGo → --owner-go
+				...(ownerGo ? ["--owner-go"] : []),
 			),
 		);
 		if (take.code !== 0) {
@@ -592,7 +594,7 @@ export const dispatchLane = async (
 				console.log(
 					`SKIP ${item} — claim could not be taken or resumed: ${take.out.split("\n")[0]}`,
 				);
-				return deferItem(item, show, sid);
+				return deferItem(item, show, sid, DRY ? undefined : FLEET);
 			}
 			// claimed by this sid from a previous dispatch attempt — resume
 		}
@@ -639,7 +641,6 @@ export const dispatchLane = async (
 			pick.model,
 		);
 		recordPlaidTrace(store, sid, POSTURE, routeName);
-
 		const expected = `suspenders/${item}`;
 		let cur = existsSync(wt)
 			? sh(["git", "-C", wt, "branch", "--show-current"])
@@ -663,7 +664,7 @@ export const dispatchLane = async (
 				console.log(
 					`SKIP ${item} — leftover worktree sits on ${cur || "(detached)"} AND is dirty — residue is never silently discarded; worktree.ts retire ${item} --force, then re-dispatch`,
 				);
-				return deferItem(item);
+				return deferItem(item, undefined, undefined, DRY ? undefined : FLEET);
 			}
 			const skip = recreateWorktree(item, sid, claimRevision);
 			if (skip) {
@@ -692,7 +693,7 @@ export const dispatchLane = async (
 			console.log(
 				`SKIP ${item} — worktree holds unbanked residue on the item branch — never spawn into unbanked state; worktree.ts retire ${item} --force, then re-dispatch`,
 			);
-			return deferItem(item);
+			return deferItem(item, undefined, undefined, DRY ? undefined : FLEET);
 		}
 		const branch = cur || expected;
 		const show = run(workCli("show", item));
@@ -766,7 +767,7 @@ export const dispatchLane = async (
 			console.log(
 				`SKIP ${item} — brief refused by ${adapter.briefHarness} verification: ${why} — launch refused; claim cleanup follows, nothing spawned`,
 			);
-			return deferItem(item);
+			return deferItem(item, undefined, undefined, DRY ? undefined : FLEET);
 		}
 		if (!verdict.ok)
 			console.log(

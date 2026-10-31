@@ -13,6 +13,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { stripGitEnv } from "../../hooks/lib/fixture-isolation.ts";
 
 export interface CliResult {
 	code: number;
@@ -34,7 +35,10 @@ const GOVDB = join(
 /** One isolated fixture: temp HOME (fresh governor.db) + git-inited repo.
  *  opts.env rides LAST over the pinned base (dispatch-harness envOverrides
  *  convention) — coord/gate suites pin GOVERNOR_STORE_URL=local so spawned
- *  children cannot rebind the store onto the lane's own env. */
+ *  children cannot rebind the store onto the lane's own env. The base
+ *  strips the dispatch lane's claim pins (W2307: KLH_CLAIM_EPOCH/TOKEN
+ *  fence fixture items at the lane's epoch) — a suite that WANTS a claim
+ *  env passes it via opts.env explicitly. */
 export function cliFixture(
 	label: string,
 	opts: { env?: Record<string, string | undefined> } = {},
@@ -56,7 +60,7 @@ export function cliFixture(
 	const HOME = mkdtempSync(join(tmpdir(), `w932-${label}-home-`));
 	const REPO = mkdtempSync(join(tmpdir(), `w932-${label}-repo-`));
 	mkdirSync(REPO, { recursive: true });
-	const env = { ...process.env, HOME, ...(opts.env ?? {}) };
+	const env = { ...stripGitEnv(process.env), HOME, ...(opts.env ?? {}) };
 	const spawn = (cwd: string, file: string, args: string[]): CliResult => {
 		const p = spawnSync("bun", [file, ...args], {
 			cwd,

@@ -20,7 +20,7 @@ function renderReport(){
   err.text = reportErr || '';
   if (reportErr) return;
   if (!reportData) return;
-  setText(byId('reportStamp'), 'the work report · checked ' + ago(msAgo(reportOkAt)) + ' · ' + ((reportData.rows || []).length) + ' rows');
+  setText(byId('reportStamp'), 'the work report · checked ' + ago(msAgo(reportOkAt)) + ' · ' + ((reportData.rows || []).length) + ' rows' + (reportData.capacity ? ' · ' + reportData.capacity : ''));
   setText(byId('reportTable'), reportData.table || '(no rows)');
   var rows = reportData.rows || [];
   var sig = rows.map(function(r){ return r.id + '\u0001' + r.st; }).join('|');

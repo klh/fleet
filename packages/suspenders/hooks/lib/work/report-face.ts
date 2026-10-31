@@ -12,6 +12,8 @@ import {
 } from "./work-report.ts";
 import { buildReportTable } from "./work-report-render.ts";
 import { downModelGroups, type ModelHealthStore } from "../hub/model-health.ts";
+import { capacityLine, reportCapacity } from "./report-capacity.ts";
+import { loadLaneRegistry } from "../lanes/lane-registry.ts";
 
 /** One expandable row of the pane: the report cells live in `table` (the
  *  verbatim renderer output); a row carries its expand key + live stamp. */
@@ -28,6 +30,9 @@ export interface ReportFace {
 	/** THE work-report table — buildReportTable output, byte-for-byte. */
 	table: string;
 	rows: ReportFaceRow[];
+	/** W2314 saturation line (pending/held/admitted vs target) — the board
+	 *  pane stamps it beside the table; same render the CLI footer carries. */
+	capacity: string;
 }
 
 /** work id -> latest event ts, read off the W-shredded `work` column
@@ -65,6 +70,13 @@ export const reportFace = (
 	});
 	const last = lastEventMap(db, project);
 	const down = downModelGroups(db as unknown as ModelHealthStore);
+	// W2314: the saturation triple — heldLaunchItems over the intents store +
+	// laneAlive over this project's registry rows (fail-soft to empty).
+	let registry: ReturnType<typeof loadLaneRegistry> = [];
+	try {
+		registry = loadLaneRegistry(project);
+	} catch {}
+	const cap = reportCapacity(db, project, registry);
 	return {
 		ts: now,
 		project,
@@ -75,6 +87,7 @@ export const reportFace = (
 			title: r.title.slice(0, TASK_CAP),
 			lastEventTs: last.get(r.id) ?? null,
 		})),
+		capacity: capacityLine(cap),
 	};
 };
 

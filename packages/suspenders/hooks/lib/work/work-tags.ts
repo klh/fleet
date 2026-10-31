@@ -5,12 +5,25 @@
 // (prefer.ts TAG_RE) — one source of truth for both surfaces.
 import { TAG_RE } from "./prefer.ts";
 
+/** The owner-gate classification tag (W2338): `operator` marks owner-only
+ *  work machines must not hand to lanes — the machine-readable half of
+ *  ownerGatedItem, minted automatically by insertItem on a gated title. */
+export const OWNER_GATE_TAG = "operator";
+
 /** Comma-split a tags column value into its tag set (trims, drops empties). */
 export const splitTags = (raw: string | null | undefined): string[] =>
 	(raw ?? "")
 		.split(",")
 		.map((t) => t.trim())
 		.filter(Boolean);
+
+/** W2338: the ONE owner-gate predicate — an OWNER-GATED title prefix or the
+ *  `operator` classification tag. The take gate, the allocator planner, the
+ *  refill pool filter and the report's needs-you facts all render from this
+ *  (moved from work-report.ts so the machine gates share the report's
+ *  definition instead of re-deriving a second one from title prose). */
+export const ownerGatedItem = (title: string, tags: string | null): boolean =>
+	title.startsWith("OWNER-GATED") || splitTags(tags).includes(OWNER_GATE_TAG);
 
 /** Validate a --tag flag value; returns the normalized csv; throws on a bad token. */
 export function validateTags(raw: string): string {

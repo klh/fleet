@@ -415,7 +415,7 @@ export async function cmdMessage(rest: string[]): Promise<void> {
 	if (all) {
 		const text = rest[1];
 		if (!text) die('usage: message --all "text" [--as sid]');
-		const sent = broadcastNote(text, source);
+		const sent = broadcastNote(db, text, source);
 		console.log(
 			`${green("✓")} ${dim(`message broadcast ${sent.id} → ${sent.targets} live session(s)`)}`,
 		);

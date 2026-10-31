@@ -7,15 +7,17 @@
 // actionable-first (needs-you → working → waiting → done); unreported
 // metrics render as UNKNOWN (—), never a measured 0 (W1131 §5).
 
-import type { ControllerStatus } from "../fleet-loop/controller-status.ts";
 import type { Database } from "bun:sqlite";
+import type { ControllerStatus } from "../fleet-loop/controller-status.ts";
 import {
 	type GroupSpend,
 	type ItemAttribution,
 	itemAttribution,
 } from "../lanes/lane-spend.ts";
+import type { ReportCapacity } from "./report-capacity.ts";
 import type { LaneLive } from "./work-report-live.ts";
 import { reportBoardBase } from "./work-report-live.ts";
+import { ownerGatedItem } from "./work-tags.ts";
 
 /** One table row: graph state joined to its spend attribution. */
 export interface ReportRow {
@@ -47,6 +49,10 @@ export interface ReportRow {
 	lastOutAgoMs: number | null;
 	stalled: boolean;
 	decision: boolean;
+	/** W2310: OWNER-GATED convention + unmet work_deps — the gated/blocked
+	 *  needs-you reasons and the board decisions drawer ride these. */
+	ownerGated: boolean;
+	blockedBy: string[] | null;
 	/** §5 unknown ≠ zero: false = no attribution rows — metrics are
 	 *  unreported (render as em-dash), never a measured 0. */
 	spendReported: boolean;
@@ -122,27 +128,71 @@ export const REPORT_SECTIONS: ReportSection[] = [
 	"done",
 ];
 
-/** needs-you reason precedence: decision > failed > stalled (§4 order). */
+/** W2310 needs-you facts: owner-gated convention (OWNER-GATED title prefix
+ *  or the `operator` classification tag) and unmet work_deps. */
+export interface NeedsYouFacts {
+	ownerGated?: boolean;
+	blockedBy?: string[];
+}
+
+/** needs-you reason precedence: decision > failed > blocked > gated >
+ *  stalled (§4 order; W2310 folds the gated/blocked rows the decisions
+ *  drawer must show into the same needs-you set the table emits). */
 export const needsYouReason = (
 	state: string,
 	stalled: boolean,
 	decision: boolean,
-): "decision" | "failed" | "stalled" | null =>
+	facts?: NeedsYouFacts,
+): "decision" | "failed" | "blocked" | "gated" | "stalled" | null =>
 	decision
 		? "decision"
 		: state === "FAILED"
 			? "failed"
-			: stalled
-				? "stalled"
-				: null;
+			: ["DONE", "CANCELLED", "SUPERSEDED"].includes(state)
+				? null // terminal rows are never actionable (a done gated item is done)
+				: state === "BLOCKED" || (facts?.blockedBy?.length ?? 0) > 0
+					? "blocked"
+					: facts?.ownerGated
+						? "gated"
+						: stalled
+							? "stalled"
+							: null;
+
+/** W2310: the ONE best-action recommendation — every view (CLI table cell,
+ *  board decisions drawer) renders this text, never its own variant. */
+export const bestActionFor = (
+	state: string,
+	stalled: boolean,
+	decision: boolean,
+	facts?: NeedsYouFacts,
+): string => {
+	const reason = needsYouReason(state, stalled, decision, facts);
+	switch (reason) {
+		case "decision":
+			return "open decision — record a ruling or answer the lane";
+		case "failed":
+			return "failed — inspect the failure, then retry or supersede";
+		case "blocked":
+			return facts?.blockedBy?.length
+				? `blocked on ${facts.blockedBy.join(", ")} — finish or unblock the deps`
+				: "blocked — clear the block (work unblock)";
+		case "gated":
+			return "owner-gated — dispatch explicitly or rewrite the gate";
+		case "stalled":
+			return "lane quiet past grace — steer, reclaim or wait";
+		default:
+			return "";
+	}
+};
 
 /** Row → section: needs_you wins, then state buckets. */
 export const reportSection = (
 	state: string,
 	stalled: boolean,
 	decision: boolean,
+	facts?: NeedsYouFacts,
 ): ReportSection => {
-	if (needsYouReason(state, stalled, decision)) return "needs_you";
+	if (needsYouReason(state, stalled, decision, facts)) return "needs_you";
 	if (state === "CLAIMED" || state === "RUNNING") return "working";
 	if (state === "READY" || state === "WAITING") return "waiting";
 	return "done";
@@ -274,6 +324,38 @@ export const openDecisions = (db: Database, project: string): Set<string> => {
 	}
 };
 
+/** W2310: unmet deps per item — deps still on a non-done item, i.e. what
+ *  actually gates dispatch. Fail-soft (no work_deps table = empty map). */
+export const unmetDeps = (
+	db: Database,
+	project: string,
+): Map<string, string[]> => {
+	const out = new Map<string, string[]>();
+	try {
+		const rows = db
+			.query(
+				`SELECT d.work_id AS work_id, d.depends_on AS dep
+				 FROM work_deps d JOIN work_items w
+				 ON w.project = d.project AND w.id = d.depends_on
+				 WHERE d.project = ? AND w.state NOT IN ('DONE','CANCELLED','SUPERSEDED')`,
+			)
+			.all(project) as { work_id: string; dep: string }[];
+		for (const r of rows) {
+			const arr = out.get(r.work_id) ?? [];
+			arr.push(r.dep);
+			out.set(r.work_id, arr);
+		}
+	} catch {}
+	return out;
+};
+
+/** W2310: the OWNER-GATED convention — a title prefix or the `operator`
+ *  classification tag marks owner-only work auto-dispatch must not pick.
+ *  W2338: the definition lives in work-tags.ts (the take gate and the
+ *  allocator render from the same predicate); re-exported here for the
+ *  existing importers. */
+export { ownerGatedItem } from "./work-tags.ts";
+
 /** W892 row mapper: graph items ⋈ W776 attribution → table rows. */
 export const toReportRows = (
 	items: Array<Record<string, string | number | null>>,
@@ -283,6 +365,7 @@ export const toReportRows = (
 	decisions?: Set<string>,
 	stallMs = DEFAULT_STALL_MS,
 	now = Date.now(),
+	facts?: Map<string, NeedsYouFacts>,
 ): ReportRow[] =>
 	items.map((it) => {
 		const id = String(it.id);
@@ -295,6 +378,7 @@ export const toReportRows = (
 			(a?.out ?? 0) === 0 || lastOutAgo == null || lastOutAgo > stallMs;
 		const stalled = Boolean(working && age > stallMs && quiet);
 		const decision = decisions?.has(id) ?? false;
+		const f = facts?.get(id) ?? {};
 		return {
 			id,
 			state: String(it.state),
@@ -317,6 +401,8 @@ export const toReportRows = (
 			lastOutAgoMs: lastOutAgo,
 			stalled,
 			decision,
+			ownerGated: Boolean(f.ownerGated),
+			blockedBy: f.blockedBy?.length ? f.blockedBy : null,
 			// §5: attribution with every figure zero = NOT reported (unknown ≠
 			// measured zero); a real report carries tokens or requests
 			spendReported:
@@ -389,6 +475,21 @@ export const reportRows = (
 		);
 	}
 	const liveMap = new Map(opts.live?.map((l) => [l.sid, l]));
+	// W2310: gated/blocked facts off the graph itself — the same needs-you
+	// set the CLI table and the board decisions drawer render from.
+	const deps = unmetDeps(db, project);
+	const facts = new Map<string, NeedsYouFacts>(
+		items.map((it) => [
+			String(it.id),
+			{
+				ownerGated: ownerGatedItem(
+					String(it.title ?? ""),
+					it.tags == null ? null : String(it.tags),
+				),
+				blockedBy: deps.get(String(it.id)),
+			},
+		]),
+	);
 	const builtRows = toReportRows(
 		items,
 		itemAttribution(
@@ -402,6 +503,7 @@ export const reportRows = (
 		openDecisions(db, project),
 		opts.stallMs ?? stallThresholdMs(),
 		now,
+		facts,
 	);
 	// §11 --mine: keep only rows claimed by this sid (the owner_sid join);
 	// unset/null keeps the whole pool.
@@ -415,8 +517,8 @@ export const reportRows = (
 	if (!opts.ids || opts.ids.length === 0)
 		rows.sort(
 			(a, b) =>
-				sectionRank(reportSection(a.state, a.stalled, a.decision)) -
-					sectionRank(reportSection(b.state, b.stalled, b.decision)) ||
+				sectionRank(reportSection(a.state, a.stalled, a.decision, a)) -
+					sectionRank(reportSection(b.state, b.stalled, b.decision, b)) ||
 				compareItemIds(a.id, b.id),
 		);
 	return {
@@ -437,7 +539,15 @@ export interface ReportItem {
 	glyph: string;
 	status: string;
 	section: ReportSection;
-	needs_you_reason: "decision" | "failed" | "stalled" | null;
+	needs_you_reason:
+		| "decision"
+		| "failed"
+		| "blocked"
+		| "gated"
+		| "stalled"
+		| null;
+	/** W2310: the one best-action line every view shares. */
+	best_action: string;
 	title: string;
 	age_ms: number | null;
 	last_activity_ms_ago: number | null;
@@ -490,6 +600,10 @@ export interface ReportContract {
 	/** fork E: per-project controller status (lease holder, last cycle,
 	 *  holds) — the CONTROL SNAPSHOT facts, one row per reported project */
 	controllers: ControllerStatus[];
+	/** W2314 Kueue saturation triple (pending/held/admitted vs the steady
+	 *  target) — null = the caller pinned no capacity facts (the contract
+	 *  renders no saturation line, never a fabricated 0). */
+	capacity: ReportCapacity | null;
 }
 
 /** rows → the versioned contract (§1). Every view renders FROM this — the
@@ -505,6 +619,9 @@ export const buildReportContract = (
 		lanesOtherProjects?: number | null;
 		modelHealthDown?: string[];
 		controllers?: ControllerStatus[];
+		/** W2314: the saturation triple — unset keeps capacity null (views
+		 *  render no saturation line, never a fabricated zero). */
+		capacity?: ReportCapacity;
 	},
 ): ReportContract => {
 	const now = opts.now ?? Date.now();
@@ -546,6 +663,7 @@ export const buildReportContract = (
 		footer: { lanes_other_projects: opts.lanesOtherProjects ?? null },
 		model_health: { down: opts.modelHealthDown ?? [] },
 		controllers: opts.controllers ?? [],
+		capacity: opts.capacity ?? null,
 	};
 };
 
@@ -555,16 +673,27 @@ const contractItemOf = (
 	r: ReportRow,
 	ctx: { project: string; base: string },
 ): ReportItem => {
-	const reason = needsYouReason(r.state, r.stalled, r.decision);
-	const section = reportSection(r.state, r.stalled, r.decision);
+	const facts: NeedsYouFacts = {
+		ownerGated: r.ownerGated,
+		blockedBy: r.blockedBy ?? undefined,
+	};
+	const reason = needsYouReason(r.state, r.stalled, r.decision, facts);
+	const section = reportSection(r.state, r.stalled, r.decision, facts);
 	const proj = r.project ?? ctx.project;
 	const head = {
 		id: r.id,
 		project: proj,
-		glyph: reason === "decision" ? REPORT_GLYPHS.blocked : reportGlyph(r.state),
-		status: reason === "decision" ? "blocked" : reportStatus(r.state),
+		glyph:
+			reason === "decision" || reason === "blocked"
+				? REPORT_GLYPHS.blocked
+				: reportGlyph(r.state),
+		status:
+			reason === "decision" || reason === "blocked"
+				? "blocked"
+				: reportStatus(r.state),
 		section,
 		needs_you_reason: reason,
+		best_action: bestActionFor(r.state, r.stalled, r.decision, facts),
 		title: r.title,
 		age_ms: r.agentMs > 0 ? r.agentMs : null,
 		last_activity_ms_ago: r.lastActivityAgoMs,

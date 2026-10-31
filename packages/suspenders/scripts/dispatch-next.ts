@@ -40,7 +40,6 @@ export { laneKeyDecision, parseGovernanceMode, probeFrontDecision };
 // THEN.D (W1255.6): the per-lane launch machine rides hooks/lib/fleet-loop and
 // the refill face declares through the verb kit (CLI Toolkit Law, W651).
 import { dispatchLane } from "../hooks/lib/fleet-loop/lane-launch.ts";
-import { fleetLoopSettings } from "../hooks/lib/stack-config.ts";
 import { openStore, projectIdentity } from "../hooks/lib/govdb/govdb.ts";
 // W494.1: the worktree-cwd probe is the shared EVIDENCE helper now — the
 // verdict itself lives in hooks/lib/lanes/lane-liveness.ts (pid/heartbeat, never cwd)
@@ -49,7 +48,6 @@ import {
 	laneAlive as sharedLaneAlive,
 	worktreeLive,
 } from "../hooks/lib/lanes/lane-liveness.ts";
-import { liveForCapacity } from "./lib/lane-capacity.ts";
 import {
 	canonicalProjectRoot,
 	loadLaneRegistry,
@@ -58,18 +56,25 @@ import {
 import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
 // W911: the bounded plaid posture — the ONE override of the execPick chain.
 import { plaidProbeHealth, readPosture } from "../hooks/lib/plaid/plaid.ts";
+import { fleetLoopSettings } from "../hooks/lib/stack-config.ts";
 import { forecastPush } from "../hooks/lib/usage/credit-forecast.ts";
 import { parseVerb, renderRegistryHelp } from "../hooks/lib/verb-kit.ts";
 // W1295: the agent-rules role library rides the launch path
 import { loadAgentRules } from "./lib/agent-rules.ts";
 import { recoverOrphanClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
-import { isDeferredItem } from "./lib/dispatch-defers.ts";
+import {
+	clearDeferral,
+	deferralOf,
+	isDeferredItem,
+	requeuePending,
+} from "./lib/dispatch-defers.ts";
 import type { ChosenExecutor } from "./lib/dispatch-executor-note.ts";
 // W1124.33: root usage + verb-head discovery live with the family doors'
 // root entries (lib/dispatch-usage.ts — schema discovery, 1500-law split).
 import { dispatchHelpEpilog, verbHeadIndex } from "./lib/dispatch-usage.ts";
 import { fleetReport } from "./lib/fleet-report.ts";
+import { liveForCapacity } from "./lib/lane-capacity.ts";
 import { stackWireEndpoints } from "./lib/lane-wire.ts";
 import { activeRateLimitWalls } from "./lib/launch-backoff.ts";
 import {
@@ -341,6 +346,9 @@ const dispatchItem = async (
 			routingExtra,
 			itemCapsuleGet,
 			...(ROLE ? { role: ROLE } : {}),
+			// W2338: an explicit --item dispatch is the owner channel —
+			// gated work claims only through it, never the FIFO refill
+			...(ITEM ? { ownerGo: true } : {}),
 			routeAdmission,
 			wireEndpoints: stackWireEndpoints(),
 			sh,
@@ -521,7 +529,10 @@ const main = async (): Promise<void> => {
 	for (const [, resume] of resumeOf) {
 		if (!canLaunch()) break;
 		const out = await dispatchItem(resume.item, live, resume);
-		if (out) dispatched.push(out);
+		if (out) {
+			dispatched.push(out);
+			if (!DRY) clearDeferral(FLEET, resume.item);
+		}
 		// W1145: item-local deferrals don't stop the refill; global holds do.
 		else if (POSTURE === "plaid" && !isDeferredItem(resume.item)) {
 			plaidRefused = true;
@@ -560,7 +571,10 @@ const main = async (): Promise<void> => {
 					!live.some((l) => l.item === r.id) &&
 					!held.has(r.id) &&
 					!resumeOf.has(r.id) &&
-					!isOwnerGated(r.title),
+					!isOwnerGated(r.title, r.tags.join(",")) &&
+					// W2315 BestEffortFIFO: a deferred item requeues on the backoff
+					// ladder — the refill continues past it until requeueAt expires.
+					!requeuePending(FLEET, r.id),
 			);
 	// W619 capability pre-filter: `work take` refuses requires ⊆ session caps
 	// at claim time, and a never-dispatched sid has NO sessions row yet — so
@@ -589,8 +603,17 @@ const main = async (): Promise<void> => {
 	for (const r of dispatchable) {
 		if (!canLaunch()) break;
 		const out = await dispatchItem(r.id, live, undefined, dispatched.length);
-		if (out) dispatched.push(out);
-		else if (POSTURE === "plaid" && !isDeferredItem(r.id)) {
+		if (out) {
+			dispatched.push(out);
+			if (!DRY) clearDeferral(FLEET, r.id);
+		} else if (isDeferredItem(r.id)) {
+			const rec = deferralOf(FLEET, r.id);
+			console.log(
+				`DEFER ${r.id} — item-local; refill continues${
+					rec ? `; requeue at ${new Date(rec.requeueAt).toISOString()}` : ""
+				}`,
+			);
+		} else if (POSTURE === "plaid" && !isDeferredItem(r.id)) {
 			plaidRefused = true;
 			break;
 		}

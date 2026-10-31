@@ -15,19 +15,21 @@
 
 import type { Database } from "bun:sqlite";
 import { basename } from "node:path";
-import { itemCapsuleKey } from "../lib/lanes/capsule-fence.ts";
+import { enforceFeedbackObligation } from "../lib/consult/feedback-obligation.ts";
 import {
 	advertisedCaps,
 	assertRequires,
 	machineCredScope,
 	stampRequires,
 } from "../lib/cred-scope.ts";
+import { emitDoneBroadcast } from "../lib/done-broadcast.ts";
 import { detectClient } from "../lib/executors/detect.ts";
 import { automaticRecoveryCheck } from "../lib/fleet-loop/automatic-recovery.ts";
 import { triggerMergeOnDone } from "../lib/fleet-loop/merge-on-done.ts";
 import { unmergedDeps, unmergedNote } from "../lib/gates/dep-merge-gate.ts";
 import { reproGateRefusal } from "../lib/gates/repro-gate.ts";
 import { projectRootOf, resolveSidOf } from "../lib/govdb/govdb.ts";
+import { itemCapsuleKey } from "../lib/lanes/capsule-fence.ts";
 import { BACKFILL_EVENT, backfillForItem } from "../lib/lanes/lane-backfill.ts";
 import { rebindKeptLaneContext } from "../lib/lanes/lane-context.ts";
 import {
@@ -72,7 +74,6 @@ import {
 import { budgetFlagClear } from "../lib/usage/budget-flag.ts";
 import { dieFor, idList, type Parsed, runCli } from "../lib/verb-kit.ts";
 import { curateCompletionKnowledge } from "../lib/work/completion-curation.ts";
-import { enforceFeedbackObligation } from "../lib/consult/feedback-obligation.ts";
 import {
 	applyAllocations,
 	assignTask,
@@ -92,12 +93,6 @@ import {
 import { editPayload, editSteer, editWorkItem } from "../lib/work/work-edit.ts";
 import { EFFORTS } from "../lib/work/work-effort.ts";
 import { evidencePatternsOf } from "../lib/work/work-fence.ts";
-import {
-	doneCas,
-	epochFromEnv,
-	epochPrintLine,
-	transitionStateOrDie,
-} from "../lib/work/work-transition.ts";
 import {
 	amber,
 	cyan,
@@ -131,6 +126,12 @@ import { attachCloseReport, regenReport } from "../lib/work/work-report-cli.ts";
 import { runReportVerb } from "../lib/work/work-report-verb.ts";
 import { retryFailedItem } from "../lib/work/work-retry.ts";
 import { validateTags } from "../lib/work/work-tags.ts";
+import {
+	doneCas,
+	epochFromEnv,
+	epochPrintLine,
+	transitionStateOrDie,
+} from "../lib/work/work-transition.ts";
 import { VERBS } from "../lib/work/work-verbs.ts";
 import {
 	parseWaitUntil,
@@ -439,6 +440,7 @@ const dispatchVerb = async (
 			sid: as,
 			reason: "manual take",
 			origin: origin ?? null,
+			ownerGo: rest.includes("--owner-go"), // W2338
 			token: flag("--token") ?? process.env.KLH_CLAIM_TOKEN ?? null,
 			expectedRevision: flag("--expect-updated-at")
 				? Number(flag("--expect-updated-at"))
@@ -678,6 +680,21 @@ const dispatchVerb = async (
 			sid: String(it.owner_sid ?? as ?? ""),
 			project: PROJECT,
 		});
+		// W822.1: the done handler itself broadcasts the condensed summary —
+		// kev-scored on the local SystemOne, fail-open, total (never an error
+		// path of done). Silence means hub deploy or kill switch.
+		const b = await emitDoneBroadcast(db(), {
+			id,
+			title: String(it.title ?? id),
+			sha: record?.commit_sha ?? sha ?? null,
+			summary: record?.summary ?? flag("--summary"),
+			description: (it.description as string | null) ?? null,
+			source: String(it.owner_sid ?? as ?? "manual"),
+		});
+		if (b)
+			console.log(
+				`${dim("↯")} broadcast ${b.id} kev=${b.label} → ${b.targets} live session(s)`,
+			);
 	} else if (name === "report-regen") {
 		// W1199 post-close face (`report` is the W892 supervisor table) — strict.
 		const id = pos[0];
@@ -1016,7 +1033,6 @@ const dispatchVerb = async (
 			host?: string;
 			launchedAt?: number;
 		}>(flag("--fleet") ?? process.cwd());
-
 		// W835: live lanes with a worktree gain a git observation record
 		// (lib/lane-git.ts — budgeted probes, per-field null-degradation);
 		// merge-ready gate = !dirty && ahead>0 && conflicted==0.
