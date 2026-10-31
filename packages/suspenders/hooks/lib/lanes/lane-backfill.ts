@@ -15,6 +15,7 @@ import { Database } from "bun:sqlite";
 import type { GroupSpend } from "./lane-spend.ts";
 import type { TimingEventRow } from "../work/work-timing.ts";
 import { claimWindows } from "../work/work-timing.ts";
+import { cyan, emit, get, green } from "../work/work-graph.ts";
 
 export interface BackfillSpend {
 	fresh: number;
@@ -173,4 +174,42 @@ export function backfillForItem(
 	} catch {
 		return null;
 	}
+}
+
+/** CLI verb face (W2059 backfill, W2233 re-land): attribute a DONE item's
+ * closer-session ledger rows — usage `work backfill <id> [--as sid]`.
+ * `ledgerPath`/`completionRecord` injected (their modules import this one). */
+export function runBackfillVerb(
+	db: Database,
+	project: string,
+	id: string,
+	deps: {
+		as?: string | null;
+		completionRecord: (
+			db: Database,
+			project: string,
+			id: string,
+		) => { completed_by?: string | null } | null;
+		ledgerPath: string | null;
+	},
+	out: { die: (m: string) => never },
+): void {
+	if (!id) out.die("usage: backfill <id> [--as sid]");
+	const it = get(id);
+	if (it.state !== "DONE")
+		out.die(`${id} is ${it.state} — backfill attributes a DONE item's close`);
+	const record = deps.completionRecord(db, project, id);
+	const sid = deps.as ?? String(record?.completed_by ?? "").trim();
+	if (!sid) out.die(`${id} has no closer sid on record — pass --as <sid>`);
+	const bf = backfillForItem(db, project, id, sid, deps.ledgerPath);
+	if (!bf) {
+		console.log(
+			`${id}: no closer-key ledger rows in the close window — stays '-' (honest no-data)`,
+		);
+		return;
+	}
+	emit(BACKFILL_EVENT, id, { backfill: JSON.stringify(bf), sid });
+	console.log(
+		`${green("✓")} ${cyan(id)} attribution backfilled: fresh ${bf.fresh} · cached ${bf.cached} · out ${bf.out} · ${bf.requests} req · groups ${Object.keys(bf.groups).join(",") || "-"}`,
+	);
 }

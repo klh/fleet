@@ -37,6 +37,7 @@ export type { GovernanceDecision } from "./lib/governance-decide.ts";
 export { hubAttributionDecision } from "./lib/governance-decide.ts";
 export { laneKeyDecision, parseGovernanceMode, probeFrontDecision };
 
+import { danglingFixHolds } from "../hooks/lib/fleet-loop/dangling-rejudge.ts";
 // THEN.D (W1255.6): the per-lane launch machine rides hooks/lib/fleet-loop and
 // the refill face declares through the verb kit (CLI Toolkit Law, W651).
 import { dispatchLane } from "../hooks/lib/fleet-loop/lane-launch.ts";
@@ -599,8 +600,22 @@ const main = async (): Promise<void> => {
 		(id) => sidOf(id, projectIdentity(REPO)),
 	);
 	for (const s of skips) console.log(s);
+	// W2189: repairs frozen by a merged-but-uninstalled classifier fix never
+	// launch from the pool (explicit --item stays operator-explicit).
+	const fixHolds = capStore
+		? danglingFixHolds(
+				capStore,
+				REPO,
+				dispatchable.map((r) => ({ id: r.id, title: r.title })),
+			)
+		: new Map<string, string>();
 	capStore?.close();
 	for (const r of dispatchable) {
+		const holdWhy = fixHolds.get(r.id);
+		if (holdWhy) {
+			console.log(`DANGLING-FIX-HOLD ${r.id} — ${holdWhy}`);
+			continue;
+		}
 		if (!canLaunch()) break;
 		const out = await dispatchItem(r.id, live, undefined, dispatched.length);
 		if (out) {
