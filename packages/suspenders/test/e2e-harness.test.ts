@@ -4,6 +4,7 @@
 // wire contract, the lane executor's evidence contract, and the runner's
 // root-key mint. The full chain itself is gated by the CI `docker-e2e` job.
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
+import { spawn } from "node:child_process";
 import {
 	existsSync,
 	mkdtempSync,
@@ -13,7 +14,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawn } from "node:child_process";
 
 setDefaultTimeout(30_000);
 
@@ -172,9 +172,7 @@ describe("W234 e2e harness (no-daemon fixtures)", () => {
 	test("W2260 semantic-SSE smoke: complete turn passes", async () => {
 		// positive leg of the W2260 deploy smoke, no docker: the REAL stub
 		// tier streams a FULL semantic turn (marker delta + [DONE]).
-		const { probeSemanticSseStream } = await import(
-			"../deploy/e2e/run-e2e.ts"
-		);
+		const { probeSemanticSseStream } = await import("../deploy/e2e/run-e2e.ts");
 		const port = 20000 + Math.floor(Math.random() * 20000);
 		const p = spawn(process.execPath, [join(E2E, "stub-tier.ts")], {
 			env: { ...process.env, TIER_PORT: String(port) },
@@ -196,9 +194,7 @@ describe("W234 e2e harness (no-daemon fixtures)", () => {
 	test("W2260 semantic-SSE smoke: truncated 200 body fails", async () => {
 		// negative leg — HTTP 200 with deltas but the stream closes BEFORE
 		// the protocol terminal: the incident shape. The probe must fail it.
-		const { probeSemanticSseStream } = await import(
-			"../deploy/e2e/run-e2e.ts"
-		);
+		const { probeSemanticSseStream } = await import("../deploy/e2e/run-e2e.ts");
 		const trunc = Bun.serve({
 			port: 0,
 			fetch: () =>
