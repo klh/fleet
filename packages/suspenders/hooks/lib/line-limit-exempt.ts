@@ -21,14 +21,10 @@ export interface LineLimitExemption {
 	upstream: string;
 }
 
-export const LINE_LIMIT_EXEMPT: readonly LineLimitExemption[] = [
-	{
-		path: "packages/decant/src/ingest.ts",
-		why: "vendored dosu-ai/decant v0.11.0 snapshot — upstream-owned bytes kept byte-pure (1982 lines); a local split forks the vendor tree and conflicts on every re-sync",
-		upstream:
-			"packages/decant/FLEET.md upstream re-sync recipe — size reconciles at the next vendored tag, never locally",
-	},
-];
+export const LINE_LIMIT_EXEMPT: readonly LineLimitExemption[] = [];
+// W2211: the decant ingest.ts row retired — W1238.1/W1238.6.3 decomposed
+// the vendored snapshot below the cap (ingest.ts 281 lines; the guard's
+// stale-row rule deletes the exemption in the same landing).
 
 /** The exemption row for an exact repo-relative path, else undefined. */
 export function lineLimitExemption(
