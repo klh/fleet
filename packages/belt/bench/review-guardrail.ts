@@ -16,6 +16,8 @@ import {
 	classifyRevert,
 	isRevertLanding,
 } from "@klh/kernel/src/kernel.revert.module.ts";
+// W1783: the ONE signed-approval src format (risk flavor, W1308).
+import { riskApprovalSrc } from "@klh/suspenders/hooks/lib/gates/approvals.ts";
 import type { DecisionRow, TaskRow } from "./pilot-measure.ts";
 
 export type ReviewTier = "low" | "medium" | "high";
@@ -56,10 +58,13 @@ export interface BoardEvent {
 	payload: unknown;
 }
 
-/** One verified landing — work.landed (recordLanding, W1130). */
+/** One verified landing — work.landed (recordLanding, W1130). `commit` is
+ * the branch head the risk src binds (the W1308 approve-merge candidate);
+ * `branch` rides the payload when the merger recorded it. */
 export interface Landing {
 	work: string;
 	commit: string;
+	branch: string | null;
 	ts: number;
 }
 
@@ -137,6 +142,11 @@ export interface ReviewSummary {
 		total: number;
 		per_landing: number | null;
 		human_touched_items: number;
+		/** W1783: live signed approve-merge approvals counted from the ledger. */
+		signed: number;
+		/** Which feed `total` is: the signed ledger when it holds live
+		 * approvals, the declared NEED_DECISION proxy otherwise. */
+		source: "signed-approve-merge-ledger" | "need-decision-proxy";
 	};
 	wait: {
 		min_total: number;
@@ -160,6 +170,9 @@ export interface ReviewInput {
 	tasks: ItemRef[];
 	commits: CommitRecord[];
 	conf: GuardrailConf;
+	/** W1783: the ledger counter (countRiskApprovals) — absent = no ledger
+	 * access, signed stays 0 and the proxy stands. */
+	signedCount?: (src: string) => number;
 }
 
 /** `git log --format=%H%x1f%ct%x1f%s%x1f%b%x1e` output → commit records. */
@@ -211,7 +224,8 @@ export function landingsFrom(events: BoardEvent[], project: string): Landing[] {
 		if (e.kind !== "work.landed" || p.project !== project || !work || !commit)
 			continue;
 		const key = `${work}\0${commit}`;
-		if (!rows.has(key)) rows.set(key, { work, commit, ts: e.ts });
+		if (!rows.has(key))
+			rows.set(key, { work, commit, branch: text(p.branch), ts: e.ts });
 	}
 	return [...rows.values()];
 }
@@ -291,6 +305,28 @@ export function humanByItem(
 			cur.wait_min + (d.answered_ts - d.created_ts) / 60_000,
 		);
 		by.set(d.task_id, cur);
+	}
+	return by;
+}
+
+/** W1783: live signed approve-merge approvals per landed item — the ONE
+ * human-approval ledger (lib/gates/approvals.ts, risk flavor) read through
+ * an injected counter so the logic stays pure and the IO tail owns the env
+ * seams. A landing without a recorded branch contributes no srcs. Tier
+ * enters the src hash, so every tier variant of the candidate is tried —
+ * the minter stamps the tier the ladder itself classified. */
+export function signedApprovalsByItem(
+	landings: Landing[],
+	project: string,
+	countSrc: (src: string) => number,
+): Map<string, number> {
+	const by = new Map<string, number>();
+	for (const l of landings) {
+		if (!l.branch) continue;
+		for (const tier of TIERS) {
+			const n = countSrc(riskApprovalSrc(project, l.branch, l.commit, tier));
+			if (n > 0) by.set(l.work, (by.get(l.work) ?? 0) + n);
+		}
 	}
 	return by;
 }
@@ -446,7 +482,7 @@ function iso(ms: number): string {
 
 function reviewGaps(input: ReviewInput, first: number | null): string[] {
 	const gaps = [
-		"approvals: no human-approval connector exists (how-to-review.md W1130 note) — settled NEED_DECISION answers on landed items are the proxy; W1130 machine receipts never count",
+		"approvals: signed approve-merge approvals are single-use — burned at merge, so a retrospective window reads only what is still live; when the ledger is empty, settled NEED_DECISION answers on landed items are the labelled fallback; W1130 machine receipts never count",
 		"incidents: incident-tagged items that landed (C156, shared with W1476) — untagged or never-landed incidents are invisible",
 		"reverts: git revert commits on the integration line (C156 markers) — undo commits without them are invisible",
 	];
@@ -486,7 +522,13 @@ export function buildReview(input: ReviewInput): ReviewSummary {
 	const landings = all.filter((l) => inside(l.ts));
 	const items = new Set(landings.map((l) => l.work));
 	const human = [...humanByItem(items, input.decisions, project).values()];
-	const approvals = human.reduce((s, h) => s + h.approvals, 0);
+	const proxy = human.reduce((s, h) => s + h.approvals, 0);
+	const signed = input.signedCount
+		? [
+				...signedApprovalsByItem(landings, project, input.signedCount).values(),
+			].reduce((s, n) => s + n, 0)
+		: 0;
+	const approvals = signed > 0 ? signed : proxy;
 	const waitTotal = round1(human.reduce((s, h) => s + h.wait_min, 0));
 	const reverts = new Map(
 		revertRows(input.commits)
@@ -513,6 +555,9 @@ export function buildReview(input: ReviewInput): ReviewSummary {
 			total: approvals,
 			per_landing: perLanding(approvals, n),
 			human_touched_items: human.length,
+			signed,
+			source:
+				signed > 0 ? "signed-approve-merge-ledger" : "need-decision-proxy",
 		},
 		wait: {
 			min_total: waitTotal,

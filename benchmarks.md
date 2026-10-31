@@ -1207,12 +1207,17 @@ measurement must read. Window = the `work.landed` era, 2026-10-22T19:59Z →
 | --- | --- | --- |
 | revert rate | 0 of 245 — the repo's reverts predate the window | `revert_rate_max` has no live signal yet |
 | incident rate (roots) | 0.0449 — 11 incident roots | the one signal a threshold can trip on today |
-| approvals per landing | 0.0082 — 2 settled NEED_DECISIONs on 1 item; wait 0.5 min | proxy too thin to gate on; needs an approval ledger |
+| approvals per landing | 0.0082 — 2 settled NEED_DECISIONs on 1 item; wait 0.5 min | W1783: pilot-measure now counts the W1308 signed approve-merge ledger per landing first; this row was the NEED_DECISION proxy, kept only as the labelled fallback |
 | fleet DONE rows in the tasks feed | bare 12 vs `?done=all&project=` 1771 | measurement reads the scoped feed (W682 trims the bare one) |
 
 One window, one repo. Incidents count incident-tagged items that landed, by
-root; approvals are the NEED_DECISION proxy (no human-approval record on
-main); the decisions feed caps at 200 rows (floor 2026-10-07).
+root; approvals above were the NEED_DECISION proxy measured before W1308's
+signed approve-merge ledger landed on main — W1783 wires that ledger into
+pilot-measure (`review:` line prints `source` + `signed`), so the real
+approval count reads from it from this row forward. Signed approvals are
+single-use (burned at merge), so a retrospective window reads only what is
+still live; the proxy stands when the ledger is empty. The decisions feed
+caps at 200 rows (floor 2026-10-07).
 
 ## Local 35B vs z.ai — sealed local-reason bench (W695.5, 2026-10-12)
 

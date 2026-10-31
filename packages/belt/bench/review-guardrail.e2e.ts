@@ -7,8 +7,8 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
 import { classifyRevert } from "@klh/kernel/src/kernel.revert.module.ts";
+import { expect, test } from "@playwright/test";
 import {
 	buildReview,
 	evaluateGuardrail,
@@ -22,6 +22,7 @@ import {
 	parseGuardrailConfig,
 	perLanding,
 	revertRows,
+	signedApprovalsByItem,
 	tightenTier,
 } from "./review-guardrail.ts";
 
@@ -112,9 +113,34 @@ test.describe("landingsFrom", () => {
 			{ id: 6, ts: 6000, kind: "work.landed", payload: null },
 		];
 		expect(landingsFrom(events, p)).toEqual([
-			{ work: "W1", commit: "c1", ts: 1000 },
-			{ work: "W1", commit: "c2", ts: 3000 },
+			{ work: "W1", commit: "c1", branch: null, ts: 1000 },
+			{ work: "W1", commit: "c2", branch: null, ts: 3000 },
 		]);
+	});
+});
+
+test.describe("signedApprovalsByItem (W1783)", () => {
+	test("counts signed approvals per landing from the ledger, tier variants summed once per file @unit", async () => {
+		const p = "/repo/.git";
+		const { riskApprovalSrc } = await import(
+			"@klh/suspenders/hooks/lib/gates/approvals.ts"
+		);
+		const landings = [
+			{
+				work: "W1",
+				commit: "c1",
+				branch: "suspenders/W1",
+				ts: 1000,
+			},
+			{ work: "W2", commit: "c2", branch: null, ts: 2000 },
+		];
+		const hitLow = riskApprovalSrc(p, "suspenders/W1", "c1", "low");
+		const hitHigh = riskApprovalSrc(p, "suspenders/W1", "c1", "high");
+		const counts = signedApprovalsByItem(landings, p, (src) =>
+			src === hitLow ? 2 : src === hitHigh ? 1 : 0,
+		);
+		expect(counts.get("W1")).toBe(3);
+		expect(counts.has("W2")).toBe(false); // no branch → no srcs → no count
 	});
 });
 
@@ -504,6 +530,8 @@ test.describe("buildReview", () => {
 			total: 1,
 			per_landing: 0.25,
 			human_touched_items: 1,
+			signed: 0,
+			source: "need-decision-proxy",
 		});
 		expect(review.wait).toEqual({
 			min_total: 40,
@@ -518,6 +546,54 @@ test.describe("buildReview", () => {
 		expect(review.gaps.some((g) => g.includes("work.landed starts"))).toBe(
 			true,
 		);
+	});
+
+	test("signed ledger with live approvals wins the approvals total; empty ledger falls back to the labelled proxy @unit", async () => {
+		const p = "/repo/.git";
+		const { riskApprovalSrc } = await import(
+			"@klh/suspenders/hooks/lib/gates/approvals.ts"
+		);
+		const landed = {
+			project: p,
+			work: "W5",
+			commit: "m5",
+			branch: "suspenders/W5",
+		};
+		const base = {
+			project: p,
+			sinceMs: 0,
+			untilMs: 10_000,
+			events: [{ id: 1, ts: 1000, kind: "work.landed", payload: landed }],
+			decisions: [
+				{
+					project: p,
+					task_id: "W5",
+					created_ts: 0,
+					answered_ts: 60_000,
+					state: "SETTLED",
+				},
+			],
+			tasks: [],
+			commits: [],
+			conf: { path: "/c", config: null, error: null },
+		};
+		const hit = riskApprovalSrc(p, "suspenders/W5", "m5", "medium");
+		const signed = buildReview({
+			...base,
+			signedCount: (src: string) => (src === hit ? 2 : 0),
+		});
+		expect(signed.approvals.source).toBe("signed-approve-merge-ledger");
+		expect(signed.approvals.signed).toBe(2);
+		expect(signed.approvals.total).toBe(2);
+		const fallback = buildReview({
+			...base,
+			signedCount: (_src: string) => 0,
+		});
+		expect(fallback.approvals.total).toBe(1); // the proxy answer
+		expect(fallback.approvals.source).toBe("need-decision-proxy");
+		const noLedger = buildReview(base); // no signedCount at all
+		expect(noLedger.approvals.signed).toBe(0);
+		expect(noLedger.approvals.source).toBe("need-decision-proxy");
 	});
 
 	test("a revert-class C156 row carries its incident root too @unit", () => {

@@ -304,9 +304,11 @@ target (coordinator evidence #69199, minted as W1273).
   human approvals (W1130 receipts are machine checks), so settled
   NEED_DECISION answers on landed items are the only proxy: 2 approvals on 1
   item across 245 landings (0.0082 per landing, 2026-10-22 → 2026-10-26) —
-  how rarely lanes ask, not how much humans review. Kept as a declared proxy;
-  the real signal is W1308's signed approve-merge ledger, not on main as of
-  2026-10-26.
+  how rarely lanes ask, not how much humans review. RETIRED as a gap by
+  W1783: W1308's signed approve-merge ledger is on main and
+  review-guardrail.ts counts it per landing (the NEED_DECISION proxy stays
+  only as the labelled fallback when no live approval exists — approvals are
+  single-use and burned at merge, so retrospective windows usually read 0).
 - **Retrospective counts from the board's bare `/api/tasks` (W1477)** — since
   W682 (2026-10-19) the bare feed keeps the newest 12 DONE rows per project
   (fleet: 12 vs 1771 on 2026-10-26), so window counts silently undercount.
