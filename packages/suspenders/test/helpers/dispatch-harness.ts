@@ -18,7 +18,7 @@ import {
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { expect } from "bun:test";
+import { expect } from "../pw";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 

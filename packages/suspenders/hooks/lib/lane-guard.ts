@@ -379,6 +379,10 @@ export function trailerVerdict(o: {
 	const missing: string[] = [];
 	for (const line of out.split("\n")) {
 		if (!line.trim()) continue;
+		// %(trailers:valueonly) emits the value with a trailing newline, so a
+		// carried trailer spills its sid onto the next (tab-less) line — only
+		// real sha/parents/trailer records contain tabs
+		if (!line.includes("\t")) continue;
 		const [sha, parents, trailer] = line.split("\t");
 		if (parents.split(" ").filter(Boolean).length >= 2) continue; // merge
 		if (trailer.trim() === o.sid) continue;
