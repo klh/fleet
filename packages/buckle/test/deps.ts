@@ -15,6 +15,7 @@ import { Preseeder } from "../src/preseed.ts";
 import { Router } from "../src/router.ts";
 import { servicemon } from "../src/servicemon.ts";
 import { StreamBreaker, streamBreakerConfig } from "../src/stream-breaker.ts";
+import type { SystemOneConfig } from "../src/systemone.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
 
 export function testDeps(
@@ -30,6 +31,7 @@ export function testDeps(
 		/** W2266: injectable cooldown clock — bench-window tests advance it
 		 *  instead of sleeping real seconds. */
 		now?: () => number;
+		systemonePolicy?: SystemOneConfig;
 	},
 ): AppDeps {
 	const policy: GatewayPolicy = opts?.policy ?? {
@@ -96,5 +98,6 @@ export function testDeps(
 		table,
 		streamBreaker,
 		accountPolicy: opts?.accountPolicy,
+		systemonePolicy: opts?.systemonePolicy,
 	};
 }

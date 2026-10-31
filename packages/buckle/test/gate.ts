@@ -37,6 +37,10 @@ export interface StartGateOptions {
 	ingressBodyTimeoutMs?: number;
 	/** Gateway policy yaml, written next to the scratch upstreams file. */
 	policyYaml?: string;
+	/** W1120: write the policy file under its real .json name — the .yaml
+	 *  name is retired (W1253) and parsePolicy refuses it outright, so a
+	 *  yaml-named JSON policy silently falls through to the machine conf. */
+	policyJson?: boolean;
 }
 
 const yamlFor = (opts: StartGateOptions): string => {
@@ -62,15 +66,18 @@ export async function startGate(
 		.toString(36)
 		.slice(2, 6)}`;
 	await Bun.write(`${dir}.yaml`, yamlFor(opts));
+	const policyName = opts.policyJson
+		? `${dir}-policy.json`
+		: `${dir}-policy.yaml`;
 	await Bun.write(
-		`${dir}-policy.yaml`,
+		policyName,
 		opts.policyYaml ??
 			JSON.stringify({ gateway: { num_retries: 1, allowed_fails: 3 } }),
 	);
 	const server = startServer({
 		port: 0,
 		upstreamsPath: `${dir}.yaml`,
-		policyPath: `${dir}-policy.yaml`,
+		policyPath: policyName,
 		dbPath: ":memory:",
 		auth: {
 			rootKey: ROOT,

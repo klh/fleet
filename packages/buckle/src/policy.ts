@@ -98,6 +98,9 @@ export interface GatewayPolicy {
 	/** Fail-fast resilience knobs (src/resilience-config.ts) — zod-parsed at
 	 *  load; absent block = RESILIENCE_DEFAULTS. */
 	resilience?: ResilienceConfig;
+	// W1120 SystemOne ingress: the kev-class typed-decision upstream. Belt
+	// ignores the block; buckle's /v1/systemone fails closed when unset.
+	systemone?: SystemOnePolicy;
 }
 
 /** W142 aids policy (routing-policy.yaml `aids:` block). Belt ignores the
@@ -148,6 +151,17 @@ export interface AidsPolicy {
  *  as the `federation.self_report` rule. */
 export interface FederationPolicy {
 	self_report?: { teams?: string[] };
+}
+
+/** W1120: routing-policy.json `gateway.systemone` — the kev-class upstream
+ *  the /v1/systemone ingress forwards typed decisions to. Absent block =
+ *  the ingress fails closed (typed 503, zero outbound). `api_key_env` names
+ *  the env var carrying the bearer credential — key material NEVER rides
+ *  the policy file (secrets are minted, machine conf only). */
+export interface SystemOnePolicy {
+	url: string;
+	api_key_env: string;
+	timeout_ms?: number;
 }
 
 /** W1260.2: routing-policy.yaml `gateway.connect` — the loopback-only

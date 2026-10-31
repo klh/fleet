@@ -22,6 +22,7 @@ import type { RepoPolicyRow } from "./repo-policy.ts";
 import type { Router } from "./router.ts";
 import type { Servicemon } from "./servicemon.ts";
 import type { StreamBreaker } from "./stream-breaker.ts";
+import type { SystemOneConfig } from "./systemone.ts";
 import type { Dialect, UpstreamPool } from "./upstreams.ts";
 
 export interface AppDeps {
@@ -91,4 +92,8 @@ export interface AppDeps {
 	// W706: this hub's stable id (BUCKLE_HUB_ID) — the peer/origin identity
 	// stamped on relay legs + observations. Absent → "local".
 	hubId?: string;
+	// W1120 SystemOne ingress: the configured kev-class upstream (gateway.
+	// systemone). Optional — absent/unset = the route fails closed (typed
+	// 503, zero outbound).
+	systemonePolicy?: SystemOneConfig;
 }
