@@ -89,13 +89,16 @@ export function createLoopConfigWatch(opts: {
 		if (next === null) return; // malformed — previous settings stand
 		const before = current;
 		current = next;
+		// W2351: the reviewer rows ride the same hot-apply (unset renders `-`)
 		if (
 			before.laneTarget !== current.laneTarget ||
 			before.everyS !== current.everyS ||
-			before.dispatchTarget !== current.dispatchTarget
+			before.dispatchTarget !== current.dispatchTarget ||
+			before.reviewFallbackModels !== current.reviewFallbackModels ||
+			before.reviewStepdownClasses !== current.reviewStepdownClasses
 		) {
 			log(
-				`LOOP-CONFIG hot-applied lane_target=${current.laneTarget} dispatch_target=${current.dispatchTarget} every_s=${current.everyS}`,
+				`LOOP-CONFIG hot-applied lane_target=${current.laneTarget} dispatch_target=${current.dispatchTarget} every_s=${current.everyS} review_fallback_models=${current.reviewFallbackModels ?? "-"} review_stepdown_classes=${current.reviewStepdownClasses ?? "-"}`,
 			);
 		}
 	};
