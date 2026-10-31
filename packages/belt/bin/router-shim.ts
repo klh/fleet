@@ -34,10 +34,9 @@ import { audioSpeech, audioTranscribe } from "./audio.ts";
 // W422.17.3 governor note: re-read after the /tmp splice that moved viaCloud
 // out; this adds the import for the extracted escalation leg.
 import { escalate } from "./escalate.ts";
-import { HOP_CONTRACT_HEADER, inheritDeadline } from "./hop-inherit.ts";
 import { livenessResponse } from "./health.ts";
+import { HOP_CONTRACT_HEADER, inheritDeadline } from "./hop-inherit.ts";
 import { beltOriginPrefix, upstreamDecline } from "./http-citizenship.ts";
-import { verifyUpstreamAuth } from "./router-auth.ts";
 import { promptFingerprint } from "./prompt-fingerprint.ts";
 import {
 	byPort,
@@ -49,7 +48,7 @@ import {
 } from "./registry.ts";
 import { registryResponse } from "./registry-emit.ts";
 import { arithmeticAnswer } from "./router-arith.ts";
-import { routerRuntimeRevision } from "./router-runtime-revision.ts";
+import { verifyUpstreamAuth } from "./router-auth.ts";
 import {
 	applyInboundCondense,
 	type CondenseMeta,
@@ -79,6 +78,7 @@ import {
 	usageRow,
 	viaLocal,
 } from "./router-core.ts";
+import { routerRuntimeRevision } from "./router-runtime-revision.ts";
 import { parseToolArgs } from "./router-tools.ts";
 import { ensureAvailable } from "./spawner.ts";
 
