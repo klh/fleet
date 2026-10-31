@@ -5,7 +5,7 @@
 // not-ahead branch is a no-op, a failed ladder aborts the merge and leaves
 // the branch (strike counted), a live daemon merge vetoes ship outright
 // (W101) and crashed debris is healed, not blindly aborted.
-import { expect, test } from "@playwright/test";
+
 import {
 	existsSync,
 	mkdirSync,
@@ -15,12 +15,27 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
+
 test.describe("@unit", () => {
 	// the once-mode cycle runs the full maintenance sweep — spawn-heavy, well
 	// over the 5s default under load (same guard as fleet-loop-flush.test.ts)
 
 	const LOOP = join(import.meta.dir, "..", "hooks", "bin", "fleet-loop.ts");
-	const env = { ...process.env, FLEET_UNTRACKED_GRACE_MS: "0" };
+	const env = {
+		...process.env,
+		FLEET_UNTRACKED_GRACE_MS: "0",
+		// W1303.5: fixture merges a product-path change (f.txt) — medium tier by
+		// design. The tier-gate deferral contract has its own coverage in
+		// fleet-loop-flush.test.ts (gate on: defer, partial and full approvals).
+		SUSPENDERS_RISK_TIERS: "0",
+	};
+	// W2297: a lane's own claim fence (KLH_CLAIM_EPOCH/KLH_CLAIM_TOKEN) must
+	// not ride into fixture children — their `work done` CAS runs against the
+	// isolated scratch store, where the ambient epoch is always stale.
+	const claimEnv = env as Record<string, string | undefined>;
+	delete claimEnv.KLH_CLAIM_EPOCH;
+	delete claimEnv.KLH_CLAIM_TOKEN;
 
 	// a scratch repo with main@base and a suspenders/SHIP1 worktree branch one
 	// commit ahead, laid out like a real lane (.worktrees/<id>); the ladder is

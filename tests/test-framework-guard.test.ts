@@ -25,7 +25,8 @@ const SELF = "tests/test-framework-guard.test.ts";
 // W1294.3 sweep-A (82 suspenders/test specs) re-pins DOWN (778 → 696) — 6
 // post-commit gate inputs (.githooks/post-commit, bun-run) stay bun:test.
 // W1294.9.2 sweep-G slice-2 (23 fleet* family specs) re-pins DOWN (696 → 653).
-const PIN = 653;
+// W2297 rebase: merged-tree measured count (main grew +1 since the branch cut).
+const PIN = 654;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });
