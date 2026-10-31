@@ -64,6 +64,11 @@ export class SseSniffer {
 	 *  a protocol terminal WITHOUT usable output is a typed failure, not a
 	 *  completed turn (the 483-byte envelope class). */
 	private readonly semantics = new StreamSemantics();
+	/** W2260: NON-keepalive data frames seen — the activity evidence that
+	 *  separates a semantic stream from a ping-only one in the receipt.
+	 *  Ping frames (event:ping / type:ping) never count (W616.1 drops
+	 *  them client-side; they are transport activity, not output). */
+	private frames = 0;
 
 	constructor(
 		private readonly dialect: Dialect,
@@ -154,6 +159,8 @@ export class SseSniffer {
 			if (payload.length > 0 && payload !== "[DONE]") {
 				const parsed: unknown = JSON.parse(payload);
 				this.onFrame?.(parsed);
+				// W2260: a transport ping frame is activity, never output.
+				if ((parsed as AnyRec).type !== "ping") this.frames++;
 				// W1106 empty-stream guard: re-mark the bridge's own typed
 				// failure when it passes through a second hop (preserve the
 				// semantic code, never a generic api_error), then observe.
@@ -188,6 +195,13 @@ export class SseSniffer {
 	/** W1106: true once the dialect's protocol terminal was seen. */
 	completed(): boolean {
 		return this.sawStop;
+	}
+
+	/** W2260: non-keepalive data frames observed — the receipt's activity
+	 *  evidence (0 frames + pings seen = a ping-only stream, never a
+	 *  semantic turn). */
+	framesSeen(): number {
+		return this.frames;
 	}
 
 	/** W1106 (#55446/#55461): an in-band failure arrived — non-success even
