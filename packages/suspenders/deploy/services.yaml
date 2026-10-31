@@ -238,6 +238,24 @@ services:
     # synced runtime home); a timeout fails the unit in the install report.
     # Metadata only — never rendered into any unit (like `port`).
     childPort: 4000
+    # W1195: the supervisor's OTHER service-owned children — the python
+    # rapid-mlx specialists — survive bootout/bootstrap exactly like the
+    # router, so the install recycles them too. Ports mirror belt's
+    # registry.ts (8901 coder, 8902 extract, 8903 reason, 8906 danish,
+    # 8907 embeddings, 8912 kev, 8913 rerank); the tier manifest scopes the
+    # resident set, so a port may legitimately be DARK at install time —
+    # okIfUnheld recycles trivially then. identity guards the signal: only
+    # a python holder is ever killed (B2), the fresh supervisor respawns
+    # residents from the synced runtime home; on-demand holders respawn on
+    # next demand via the fresh router.
+    childPorts:
+      - { port: 8901, identity: "python", okIfUnheld: true }
+      - { port: 8902, identity: "python", okIfUnheld: true }
+      - { port: 8903, identity: "python", okIfUnheld: true }
+      - { port: 8906, identity: "python", okIfUnheld: true }
+      - { port: 8907, identity: "python", okIfUnheld: true }
+      - { port: 8912, identity: "python", okIfUnheld: true }
+      - { port: 8913, identity: "python", okIfUnheld: true }
     bunEntry: "__HOME__/.claude/local-llm/swarm.ts"
     args: ["supervise"]
     # launchctl setenv survives reinstalls; only reviewed belt.env may set

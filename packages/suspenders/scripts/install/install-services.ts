@@ -93,6 +93,18 @@ export interface ServiceSpec {
 	 *  restarted supervisor serving pre-install code. Metadata only —
 	 *  never rendered into any unit. */
 	childPort?: number;
+	/** W1195: additional abandoned child listeners beyond the single
+	 *  childPort (belt-swarm's python MLX specialists survive bootout/
+	 *  bootstrap beside the :4000 router). identity is a regex source the
+	 *  holder's ps comm must match before a signal; okIfUnheld lets a
+	 *  tier-dependent port recycle trivially when nothing listens. */
+	childPorts?: ChildPortEntry[];
+}
+
+export interface ChildPortEntry {
+	port: number;
+	identity?: string;
+	okIfUnheld?: boolean;
 }
 
 interface ManifestFile {
@@ -153,6 +165,7 @@ const KNOWN_SERVICE_KEYS = new Set([
 	"placeholders",
 	"port",
 	"childPort",
+	"childPorts",
 ]);
 
 export function defaultRenderValues(
@@ -273,6 +286,38 @@ export function validateSpec(spec: ServiceSpec): void {
 	) {
 		problems.push("childPort must be an integer 1..65535");
 	}
+	// W1195: validate the multi-child extension the same way childPort is,
+	// plus per-entry identity/flag shape and cross-field port collisions.
+	const childPortEntries: ChildPortEntry[] = spec.childPorts ?? [];
+	const declaredChildPorts: number[] = [
+		...(spec.childPort !== undefined ? [spec.childPort] : []),
+		...childPortEntries.map((e) => e.port),
+	];
+	for (const [i, e] of childPortEntries.entries()) {
+		if (
+			!isPlainObject(e) ||
+			!Number.isInteger(e.port) ||
+			e.port < 1 ||
+			e.port > 65535
+		) {
+			problems.push(`childPorts[${i}].port must be an integer 1..65535`);
+			continue;
+		}
+		if (e.identity !== undefined) {
+			try {
+				new RegExp(e.identity);
+			} catch {
+				problems.push(`childPorts[${i}].identity is not a valid regex`);
+			}
+		}
+		if (e.okIfUnheld !== undefined && typeof e.okIfUnheld !== "boolean")
+			problems.push(`childPorts[${i}].okIfUnheld must be a boolean`);
+	}
+	const dupPorts = declaredChildPorts.filter(
+		(p, i, all) => all.indexOf(p) !== i,
+	);
+	if (dupPorts.length > 0)
+		problems.push(`duplicate child ports declared: ${dupPorts.join(", ")}`);
 	const used = usedPlaceholders(spec);
 	const declared = [...spec.placeholders].sort();
 	const missing = used.filter((t) => !declared.includes(t));
@@ -371,6 +416,22 @@ export function loadManifest(path = MANIFEST_PATH): ServiceSpec[] {
 		if (entry.port !== undefined) spec.port = entry.port as number;
 		if (entry.childPort !== undefined)
 			spec.childPort = entry.childPort as number;
+		if (entry.childPorts !== undefined) {
+			if (!Array.isArray(entry.childPorts))
+				throw new Error(`${path}: childPorts must be an array`);
+			spec.childPorts = (entry.childPorts as unknown[]).map(
+				(raw, i): ChildPortEntry => {
+					if (!isPlainObject(raw))
+						throw new Error(`${path}: childPorts[${i}] must be an object`);
+					const e = raw as Record<string, unknown>;
+					const out: ChildPortEntry = { port: e.port as number };
+					if (e.identity !== undefined) out.identity = e.identity as string;
+					if (e.okIfUnheld !== undefined)
+						out.okIfUnheld = e.okIfUnheld as boolean;
+					return out;
+				},
+			);
+		}
 		for (const a of spec.args) {
 			if (typeof a !== "string")
 				throw new Error(
@@ -932,6 +993,7 @@ function main(argv: string[]): number {
 		files: string[];
 		port?: number;
 		childPort?: number;
+		childPorts?: ChildPortEntry[];
 		clearInheritedEnv?: string[];
 	}[] = [];
 	if (outDir !== null) {
@@ -972,6 +1034,9 @@ function main(argv: string[]): number {
 				...(r.spec.childPort === undefined
 					? {}
 					: { childPort: r.spec.childPort }),
+				...(r.spec.childPorts === undefined
+					? {}
+					: { childPorts: r.spec.childPorts }),
 				...(r.spec.clearInheritedEnv === undefined
 					? {}
 					: { clearInheritedEnv: r.spec.clearInheritedEnv }),
@@ -992,6 +1057,9 @@ function main(argv: string[]): number {
 				...(r.spec.childPort === undefined
 					? {}
 					: { childPort: r.spec.childPort }),
+				...(r.spec.childPorts === undefined
+					? {}
+					: { childPorts: r.spec.childPorts }),
 				...(r.spec.clearInheritedEnv === undefined
 					? {}
 					: { clearInheritedEnv: r.spec.clearInheritedEnv }),

@@ -122,6 +122,30 @@ describe("recycle identity proof (W1073 B2, scripted hooks)", () => {
 	});
 });
 
+describe("okIfUnheld (W1195 tier-dependent children)", () => {
+	test("a dark port recycles trivially — no signal, no window", async () => {
+		const log: string[] = [];
+		const hooks = tickingHooks([[]], log);
+		const res = await recycleChildListener(
+			{ port: 8902, okIfUnheld: true, deadlineMs: 30_000, graceMs: 3_000 },
+			hooks,
+		);
+		expect(res).toEqual({ ok: true, pid: null, oldPids: [] });
+		expect(log).toEqual([]);
+	});
+
+	test("a held port recycles normally — okIfUnheld changes nothing", async () => {
+		const log: string[] = [];
+		const hooks = tickingHooks([[555], [777]], log);
+		const res = await recycleChildListener(
+			{ port: 8902, okIfUnheld: true, deadlineMs: 30_000, graceMs: 3_000 },
+			hooks,
+		);
+		expect(res).toEqual({ ok: true, pid: 777, oldPids: [555] });
+		expect(log).toEqual(["SIGTERM:555"]);
+	});
+});
+
 describe("recycle binds to an explicit bootstrap (W1073 B1)", () => {
 	test("a declared child recycles only when the unit actually bootstrapped", () => {
 		expect(recycleOnBootstrap(4000, true)).toBe(4000);
@@ -160,6 +184,52 @@ describe("belt-swarm childPort declaration (W1073, config-over-code)", () => {
 			};
 			expect(report.services[0]?.service).toBe("belt-swarm");
 			expect(report.services[0]?.childPort).toBe(4000);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("childPorts cover every specialist the swarm spawns (W1195)", () => {
+		const spec = loadManifest().find((s) => s.name === "belt-swarm");
+		// belt registry.ts ports — coder, extract, reason, danish, embeddings,
+		// kev, rerank (8904/8905 retired). identity pins the python holder
+		// class; the tier manifest scopes residency, so all ride okIfUnheld.
+		const specialistPorts = [8901, 8902, 8903, 8906, 8907, 8912, 8913];
+		const declared = spec?.childPorts ?? [];
+		expect(declared.map((e) => e.port).sort()).toEqual(specialistPorts);
+		for (const e of declared) {
+			expect(e.identity).toBe("python");
+			expect(e.okIfUnheld).toBe(true);
+		}
+	});
+
+	test("childPorts ride the renderer's --json (install map source)", () => {
+		const dir = mkdtempSync(join(tmpdir(), "fleet-childports-"));
+		try {
+			const proc = Bun.spawnSync(
+				[
+					process.execPath,
+					join(import.meta.dir, "../scripts/install/install-services.ts"),
+					"--target",
+					"darwin",
+					"--service",
+					"belt-swarm",
+					"--out",
+					join(dir, "units"),
+					"--json",
+				],
+				{ stdout: "pipe", stderr: "pipe" },
+			);
+			expect(proc.exitCode).toBe(0);
+			const report = JSON.parse(proc.stdout.toString()) as {
+				services: {
+					service: string;
+					childPorts?: { port: number; identity?: string }[];
+				}[];
+			};
+			expect(report.services[0]?.childPorts?.map((e) => e.port)).toContain(
+				8902,
+			);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
