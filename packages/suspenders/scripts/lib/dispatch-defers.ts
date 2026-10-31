@@ -142,3 +142,25 @@ export const clearDeferral = (fleetDir: string, item: string): void => {
 /** true when this dispatch run deferred the item for an item-local reason. */
 export const isDeferredItem = (item: string): boolean =>
 	deferred.includes(item);
+
+/** W2331 (Kueue F2, cluster_queue.go:624): the requirement shape key —
+ *  the sorted requires set. Structurally identical items share it. */
+export const shapeKey = (requires: string[]): string =>
+	[...requires].sort().join(",");
+
+/** Equivalence-shape bulk deferral: when a refill refusal is capability-
+ *  starved, every READY sibling with the same requirement shape rides the
+ *  W2315 requeue ladder in the same cycle instead of each burning its own.
+ *  Records a deferral for every pool row matching a starved shape (the
+ *  starved row itself included — it climbs the ladder with its siblings). */
+export const deferEquivalenceClass = (
+	fleetDir: string,
+	pool: { id: string; requires: string[] }[],
+	starvedRows: { id: string; requires: string[] }[],
+	now = Date.now(),
+): DeferRecord[] => {
+	const starvedShapes = new Set(starvedRows.map((r) => shapeKey(r.requires)));
+	return pool
+		.filter((r) => starvedShapes.has(shapeKey(r.requires)))
+		.map((r) => recordDeferral(fleetDir, r.id, now));
+};

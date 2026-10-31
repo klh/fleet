@@ -65,6 +65,7 @@ import { recoverOrphanClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import {
 	clearDeferral,
+	deferEquivalenceClass,
 	deferralOf,
 	isDeferredItem,
 	requeuePending,
@@ -599,6 +600,25 @@ const main = async (): Promise<void> => {
 		(id) => sidOf(id, projectIdentity(REPO)),
 	);
 	for (const s of skips) console.log(s);
+	// W2331 (Kueue F2, cluster_queue.go:624): a capability-starved refusal
+	// marks its whole equivalence class — every READY sibling with the same
+	// requires shape rides the W2315 requeue ladder this cycle, so
+	// structurally identical items don't each burn a refill slot. Only rows
+	// the gate itself skipped seed a shape (a broader-requires row is a
+	// different shape and keeps its turn).
+	if (!DRY && skips.length > 0) {
+		const skippedIds = new Set(
+			skips
+				.map((s) => /^SKIP (W[\d.]+)/.exec(s)?.[1])
+				.filter((x): x is string => !!x),
+		);
+		const starvedRows = ready.filter((r) => skippedIds.has(r.id));
+		const bulk = deferEquivalenceClass(FLEET, ready, starvedRows);
+		if (bulk.length > starvedRows.length)
+			console.log(
+				`DEFER ${bulk.length} items — equivalence-shape bulk (W2331): starved shape(s) [${[...starved.keys()].join(",")}] requeue on the ladder`,
+			);
+	}
 	capStore?.close();
 	for (const r of dispatchable) {
 		if (!canLaunch()) break;

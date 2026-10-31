@@ -4,10 +4,12 @@ import { expect, test } from "@playwright/test";
 import { scratchWorld } from "@klh/test-kit";
 import {
 	clearDeferral,
+	deferEquivalenceClass,
 	deferralOf,
 	deferItem,
 	isDeferredItem,
 	requeuePending,
+	shapeKey,
 } from "../scripts/lib/dispatch-defers.ts";
 test.describe("@unit", () => {
 let serial = 0;
@@ -106,5 +108,46 @@ test.describe("@unit W2315 requeueAt backoff", () => {
 		const id = "fixture-requeue-4";
 		deferItem(id);
 		expect(deferralOf(fleetDir, id)).toBeNull();
+	});
+});
+test.describe("@unit W2331 equivalence-shape bulk deferral", () => {
+	const fleet = scratchWorld();
+	test.afterAll(() => fleet.clean());
+	const fleetDir = join(fleet.repo, ".fleet");
+	const row = (id: string, requires: string[]) => ({ id, requires });
+
+	test("shapeKey is order-insensitive over requires", () => {
+		expect(shapeKey(["b", "a"])).toBe(shapeKey(["a", "b"]));
+		expect(shapeKey(["a"])).not.toBe(shapeKey(["a", "b"]));
+		expect(shapeKey([])).not.toBe(shapeKey(["a"]));
+	});
+
+	test("a starved shape defers every READY sibling with the same requires", () => {
+		const now = Date.now();
+		const pool = [
+			row("bulk-1", ["cap-a"]),
+			row("bulk-2", ["cap-a"]),
+			row("bulk-3", ["cap-a", "cap-b"]),
+			row("bulk-4", []),
+		];
+		const bulk = deferEquivalenceClass(fleetDir, pool, [pool[0]], now);
+		expect(bulk.map((r) => r.item).sort()).toEqual(["bulk-1", "bulk-2"]);
+		expect(requeuePending(fleetDir, "bulk-2", now)).toBe(true);
+		expect(requeuePending(fleetDir, "bulk-3", now)).toBe(false);
+		expect(requeuePending(fleetDir, "bulk-4", now)).toBe(false);
+	});
+
+	test("requires order does not split the class", () => {
+		const pool = [row("ord-1", ["x", "y"]), row("ord-2", ["y", "x"])];
+		expect(deferEquivalenceClass(fleetDir, pool, [pool[0]])).toHaveLength(2);
+	});
+
+	test("no starved rows, no bulk deferrals", () => {
+		const bulk = deferEquivalenceClass(
+			fleetDir,
+			[row("empty-1", ["cap-a"])],
+			[],
+		);
+		expect(bulk).toHaveLength(0);
 	});
 });
