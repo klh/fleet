@@ -85,6 +85,7 @@ export function allowOf(path: string): string | null {
 		path === "/v1/messages" ||
 		path === "/v1/messages/count_tokens" ||
 		path === "/v1/responses" ||
+		path === "/v1/systemone" ||
 		path === "/aids/preseed" ||
 		path === "/aids/expand" ||
 		path === "/repo-policy/check"
