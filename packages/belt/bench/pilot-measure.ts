@@ -10,6 +10,9 @@ import { Database } from "bun:sqlite";
 import { spawnSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
+// W1783: the signed approve-merge ledger counter (risk flavor) — the real
+// human-approval source now that W1308 is on main.
+import { countRiskApprovals } from "@klh/suspenders/hooks/lib/gates/approvals.ts";
 import {
 	buildReview,
 	fetchEvents,
@@ -580,6 +583,7 @@ if (import.meta.main) {
 		tasks,
 		commits: gitRevertCommits(project, since, until),
 		conf: loadGuardrailConf(guardrailPath),
+		signedCount: countRiskApprovals,
 	});
 	summary.review = review;
 
@@ -612,7 +616,7 @@ if (import.meta.main) {
 		`human time: decisions=${summary.human.decisions_in_window} settled=${summary.human.settled} latency p50=${summary.human.latency_min_p50}m p90=${summary.human.latency_min_p90}m (items attributed: ${summary.human.items_with_human_time})`,
 	);
 	console.log(
-		`review: landings=${review.landings} approvals/landing=${review.approvals.per_landing} wait/landing=${review.wait.min_per_landing}m reverts=${review.reverts.count} (rate ${review.reverts.rate}) incidents=${review.incidents.count} (rate ${review.incidents.rate})`,
+		`review: landings=${review.landings} approvals/landing=${review.approvals.per_landing} (source ${review.approvals.source}, signed ${review.approvals.signed}) wait/landing=${review.wait.min_per_landing}m reverts=${review.reverts.count} (rate ${review.reverts.rate}) incidents=${review.incidents.count} (rate ${review.incidents.rate})`,
 	);
 	console.log(
 		`guardrail: ${review.guardrail.state} — ${review.guardrail.note}`,
