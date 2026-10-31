@@ -92,6 +92,7 @@ import {
 	dispatchHoldGate,
 	plaidCycleOpen,
 	plaidLaunchGapMs,
+	plaidRefillBudget,
 	refillWindow,
 } from "./lib/refill-window.ts";
 import { isResumableClaim } from "./lib/resumable-claim.ts";
@@ -506,11 +507,35 @@ const main = async (): Promise<void> => {
 	const dispatched: string[] = [];
 	let plaidRefused = false;
 	const plaidCycleStarted = Date.now();
-	const canLaunch = (): boolean =>
-		!plaidRefused &&
-		(POSTURE !== "plaid" || plaidCycleOpen(plaidCycleStarted, Date.now())) &&
-		(DRY || !dispatchHeld(FLEET)) &&
-		canAttemptRefill(window, live.length + heldSlots + dispatched.length);
+	// W2332 (Kueue F3): alongside the 12-min clock, a per-cycle count budget
+	// bounds launches — deep backlog cannot stretch one window into forty
+	// spawns on a fast machine. Config-over-code:
+	// SUSPENDERS_PLAID_REFILL_BUDGET (default 8, like refill.go:36).
+	const plaidBudget =
+		POSTURE === "plaid"
+			? plaidRefillBudget(process.env.SUSPENDERS_PLAID_REFILL_BUDGET)
+			: Number.POSITIVE_INFINITY;
+	let budgetAnnounced = false;
+	const canLaunch = (): boolean => {
+		// disclose the clamp only when a further launch was actually attempted
+		if (
+			!budgetAnnounced &&
+			POSTURE === "plaid" &&
+			dispatched.length >= plaidBudget
+		) {
+			budgetAnnounced = true;
+			console.log(
+				`PLAID budget ${plaidBudget} launches this cycle (W2332) — remaining READY waits for the next cycle`,
+			);
+		}
+		return (
+			!plaidRefused &&
+			(POSTURE !== "plaid" || plaidCycleOpen(plaidCycleStarted, Date.now())) &&
+			dispatched.length < plaidBudget &&
+			(DRY || !dispatchHeld(FLEET)) &&
+			canAttemptRefill(window, live.length + heldSlots + dispatched.length)
+		);
+	};
 	const afterLaunch = async (): Promise<void> => {
 		if (POSTURE !== "plaid" || DRY || ITEM) return;
 		await Bun.sleep(
