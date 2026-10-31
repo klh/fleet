@@ -96,5 +96,6 @@ export function testDeps(
 		table,
 		streamBreaker,
 		accountPolicy: opts?.accountPolicy,
+		policy,
 	};
 }

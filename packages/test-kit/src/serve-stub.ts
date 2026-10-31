@@ -32,20 +32,24 @@ export type StubHandler = (
 
 /** Stub upstream on a scratch loopback port. The handler gets (req, parsed
  *  json body-or-null, 1-based request number) and answers programmatically;
- *  the default handler answers 200 "ok". */
+ *  the default handler answers 200 "ok". `raw: true` skips the JSON parse
+ * (body records null) so the handler can read non-JSON bodies — multipart,
+ * binary — itself. */
 export function serveStub(
 	handler: StubHandler = () => new Response("ok"),
-	opts?: { hostname?: string },
+	opts?: { hostname?: string; raw?: boolean },
 ): ServeStub {
 	const requests: StubRequest[] = [];
 	const server = Bun.serve({
 		hostname: opts?.hostname ?? "127.0.0.1",
 		port: 0,
 		async fetch(req) {
-			const body = (await req.json().catch(() => null)) as Record<
-				string,
-				unknown
-			> | null;
+			const body = opts?.raw
+				? null
+				: ((await req.json().catch(() => null)) as Record<
+						string,
+						unknown
+					> | null);
 			requests.push({
 				path: new URL(req.url).pathname,
 				body,

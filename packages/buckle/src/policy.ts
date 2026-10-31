@@ -98,6 +98,11 @@ export interface GatewayPolicy {
 	/** Fail-fast resilience knobs (src/resilience-config.ts) — zod-parsed at
 	 *  load; absent block = RESILIENCE_DEFAULTS. */
 	resilience?: ResilienceConfig;
+	/** W914 litellm-ops passthrough group (config-over-code): the upstream
+	 *  pool group serving files/batches/audio-multipart/images-edits ops.
+	 *  Registry default "litellm-ops"; machine override via the runtime
+	 *  routing-policy.json. */
+	litellm_ops?: { group?: string };
 }
 
 /** W142 aids policy (routing-policy.yaml `aids:` block). Belt ignores the

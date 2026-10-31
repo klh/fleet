@@ -16,7 +16,7 @@ import type { RouteHint } from "./hints.ts";
 import type { Ledger } from "./ledger.ts";
 import type { ObservationOutbox } from "./observe.ts";
 import type { CondenseStore } from "./pipeline.ts";
-import type { AidsPolicy } from "./policy.ts";
+import type { AidsPolicy, GatewayPolicy } from "./policy.ts";
 import type { Preseeder } from "./preseed.ts";
 import type { RepoPolicyRow } from "./repo-policy.ts";
 import type { Router } from "./router.ts";
@@ -47,6 +47,9 @@ export interface AppDeps {
 	aids: AidsLedger;
 	preseeder: Preseeder;
 	aidsPolicy: AidsPolicy;
+	// W914: the resolved gateway policy — the ops passthrough group knob
+	// (gateway.litellm_ops.group) rides it (config-over-code).
+	policy?: GatewayPolicy;
 	// W4 intent expansion — optional so bare deps (testDeps, dev) skip the
 	// expand aid honestly instead of failing the wire path.
 	expander?: Expander;
