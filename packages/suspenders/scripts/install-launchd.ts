@@ -288,6 +288,14 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 			files: string[];
 			port?: number;
 			childPort?: number;
+			/** W1195: additional abandoned child listeners — belt-swarm's
+			 *  python MLX specialists survive bootout/bootstrap beside the
+			 *  :4000 router. */
+			childPorts?: Array<{
+				port: number;
+				identity?: string;
+				okIfUnheld?: boolean;
+			}>;
 			clearInheritedEnv?: string[];
 		}>;
 	};
@@ -328,11 +336,26 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 	// synced runtime home actually runs. Timeout fails the unit.
 	const declaredChildPorts = new Map(
 		rendered.services.flatMap((s) =>
-			s.childPort === undefined
+			s.childPort === undefined && s.childPorts === undefined
 				? []
 				: s.files
 						.filter((f) => f.endsWith(".plist"))
-						.map((f) => [f.replace(/\.plist$/, ""), s.childPort as number]),
+						.map(
+							(f) =>
+								[
+									f.replace(/\.plist$/, ""),
+									[
+										...(s.childPort === undefined
+											? []
+											: [
+													{
+														port: s.childPort,
+													},
+												]),
+										...(s.childPorts ?? []),
+									],
+								] as const,
+						),
 		),
 	);
 	if (
@@ -414,21 +437,30 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 				// window) fails the unit. B1: only a unit that actually
 				// bootstrapped this install recycles (reviewed-retained units
 				// never reloaded, their child stays with the old supervisor).
-				const childPort = recycleOnBootstrap(
-					declaredChildPorts.get(label),
-					reviewed === undefined,
-				);
-				if (childPort !== null) {
+				let recycleFailure: string | null = null;
+				for (const child of declaredChildPorts.get(label) ?? []) {
+					if (recycleOnBootstrap(child.port, reviewed === undefined) === null)
+						continue;
 					const recycle = await recycleChildListener(
-						{ port: childPort },
+						{
+							port: child.port,
+							expectedChild: child.identity
+								? new RegExp(child.identity)
+								: undefined,
+							okIfUnheld: child.okIfUnheld,
+						},
 						processRecycleHooks(),
 					);
 					if (!recycle.ok) {
-						failed.push(label);
-						refused.push(`${label} — child recycle failed: ${recycle.reason}`);
-						continue;
+						recycleFailure = recycle.reason;
+						break;
 					}
-					recycled.push(label);
+					if (recycle.pid !== null) recycled.push(label);
+				}
+				if (recycleFailure !== null) {
+					failed.push(label);
+					refused.push(`${label} — child recycle failed: ${recycleFailure}`);
+					continue;
 				}
 				activated.push({
 					label,
