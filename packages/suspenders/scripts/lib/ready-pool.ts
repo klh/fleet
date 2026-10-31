@@ -6,16 +6,18 @@
 export const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
 /** parse `work ready` rows (renderRow format, ANSI-stripped): glyph, id,
- *  truncated title, and the `⟨needs …⟩` capability suffix (W619 — the
- *  dispatch-side capability pre-filter reads it). The title is for gating/log
- *  lines only — the brief must carry the FULL spec from `work show` (gaps W279
+ *  truncated title, the `⟨needs …⟩` capability suffix (W619 — the
+ *  dispatch-side capability pre-filter reads it) and the `#tag` suffixes
+ *  (W2338 — the owner-gate filter reads the machine-stamped `#operator`
+ *  tag, not just title prose). The title is for gating/log lines only —
+ *  the brief must carry the FULL spec from `work show` (gaps W279
  *  phantom-lane lesson). W494: the renderer pads the id field (width 7) — ids
  *  ≥7 chars emit NO separator space, so the id/title gap is zero-or-more and
  *  the title may be empty. The [\d.]+ class stops the id at the first non-id
  *  char. */
 export const parseReady = (
 	stdout: string,
-): { id: string; title: string; requires: string[] }[] =>
+): { id: string; title: string; requires: string[]; tags: string[] }[] =>
 	stdout
 		.replace(ANSI, "")
 		.split("\n")
@@ -23,6 +25,7 @@ export const parseReady = (
 		.map((m) => {
 			if (!m) return null;
 			const needs = /⟨needs ([^⟩]*)⟩/.exec(m[2]);
+			const tagTail = /#([\w,-]+)\s*$/.exec(m[2]);
 			return {
 				id: m[1],
 				title: m[2].trim(),
@@ -32,14 +35,33 @@ export const parseReady = (
 							.map((c) => c.trim())
 							.filter(Boolean)
 					: [],
+				tags: (tagTail?.[1] ?? "")
+					.split(",")
+					.map((t) => t.trim())
+					.filter(Boolean),
 			};
 		})
-		.filter((x): x is { id: string; title: string; requires: string[] } => !!x);
+		.filter(
+			(
+				x,
+			): x is {
+				id: string;
+				title: string;
+				requires: string[];
+				tags: string[];
+			} => !!x,
+		);
 
-/** Only an explicit owner gate in the title blocks automatic dispatch.
- * Event names such as NEED_DECISION and paused are ordinary feature work. */
-export const isOwnerGated = (title: string): boolean =>
-	/^\s*OWNER[- ]GATED\s*:/i.test(title);
+/** Only an explicit owner gate blocks automatic dispatch: an OWNER-GATED
+ *  title prefix (case-insensitive) or the `operator` classification tag
+ *  (W2338 — the tag renders in `work ready` rows as `#operator`). Event
+ *  names such as NEED_DECISION and paused are ordinary feature work. */
+export const isOwnerGated = (title: string, tags?: string | null): boolean =>
+	/^\s*OWNER[- ]GATED\s*:/i.test(title) ||
+	String(tags ?? "")
+		.split(",")
+		.map((t) => t.trim())
+		.includes("operator");
 
 /** W619 capability gate: split the fresh READY pool into dispatchable rows
  *  and capability-mismatched skips. Pure — capsOf injects the sessions read

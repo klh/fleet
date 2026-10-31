@@ -5,13 +5,13 @@
 // W646: scope-hint overlap — HintSet path/word split (paths weigh ×3),
 // recent-claim history affinity, scope-miss penalty, score>overlap>load>
 // live>sid tiebreak, overlap evidence in the reason string.
-import { expect, test } from "@playwright/test";
+
 import { Database } from "bun:sqlite";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpDir } from "./helpers/fixture-kit.ts";
-
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import {
+	type AllocLane,
 	assignTask,
 	beats,
 	candidateLanes,
@@ -19,8 +19,9 @@ import {
 	hintTokens,
 	planAllocation,
 	scoreLane,
-	type AllocLane,
 } from "../hooks/lib/work/work-alloc.ts";
+import { tmpDir } from "./helpers/fixture-kit.ts";
+
 test.describe("@unit", () => {
 	const databases: Database[] = [];
 	const directories: string[] = [];
@@ -57,10 +58,12 @@ test.describe("@unit", () => {
 		state = "READY",
 		owner: string | null = null,
 		requires: string | null = null,
+		title = "t",
+		tags: string | null = null,
 	): void {
 		db.query(
-			"INSERT INTO work_items (project,id,title,state,owner_sid,requires,scope,created_at,updated_at) VALUES ('project',?,'t',?,?,?,'src',100,?)",
-		).run(id, state, owner, requires, 100);
+			"INSERT INTO work_items (project,id,title,tags,state,owner_sid,requires,scope,created_at,updated_at) VALUES ('project',?,?,?,?,?,?,'src',100,?)",
+		).run(id, title, tags, state, owner, requires, 100);
 	}
 	const lane = (
 		sid: string,
@@ -380,6 +383,51 @@ test.describe("@unit", () => {
 			expect(
 				db.query("SELECT state FROM work_items WHERE id='W1'").get(),
 			).toEqual({ state: "READY" });
+		});
+
+		// W2338 — the owner gate is a machine state, not title prose the
+		// allocator could hand to a lane
+		test("owner-gated items refuse without ownerGo, claim with it", () => {
+			const db = fixture();
+			seed(db, "G1", "READY", null, null, "OWNER-GATED: secret work");
+			seed(db, "G2", "READY", null, null, "plain title", "fleet,operator");
+			seed(db, "G3", "READY", null, null, "plain title", "fleet");
+			for (const [id, q] of [
+				["G1", "SELECT state FROM work_items WHERE id='G1'"],
+				["G2", "SELECT state FROM work_items WHERE id='G2'"],
+			] as const) {
+				const r = assignTask(db, "project", { id, sid: "a", reason: "x" });
+				expect(r.ok).toBe(false);
+				expect(String(r.why)).toContain("owner-gated");
+				expect(db.query(q).get()).toEqual({ state: "READY" });
+			}
+			// the same take succeeds through the explicit owner channel
+			expect(
+				assignTask(db, "project", {
+					id: "G1",
+					sid: "a",
+					reason: "manual take",
+					ownerGo: true,
+				}).ok,
+			).toBe(true);
+			// ungated work still claims without the flag
+			expect(
+				assignTask(db, "project", { id: "G3", sid: "a", reason: "x" }).ok,
+			).toBe(true);
+		});
+
+		test("planAllocation never plans a lane for owner-gated work", () => {
+			const db = fixture();
+			seed(db, "W1", "READY", null, null, "plain work");
+			seed(db, "G1", "READY", null, null, "OWNER-GATED: secret work");
+			seed(db, "G2", "READY", null, null, "plain title", "operator");
+			const decisions = planAllocation(db, "project", [lane("live1", true)]);
+			expect(decisions.map((d) => d.item)).toEqual(["W1"]);
+			// explicit --items override still cannot smuggle a gated item in
+			const forced = planAllocation(db, "project", [lane("live1", true)], {
+				items: ["G1"],
+			});
+			expect(forced.map((d) => d.item)).toEqual([]);
 		});
 	});
 

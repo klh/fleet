@@ -16,19 +16,20 @@
 // overlap takes SCOPE_MISS_PENALTY, ties break score > overlap > load >
 // live > sid, and the reason string carries the matched tokens as evidence.
 import type { Database } from "bun:sqlite";
-import { unmergedDeps, type DepRow } from "../gates/dep-merge-gate.ts";
+import { type DepRow, unmergedDeps } from "../gates/dep-merge-gate.ts";
+import type { GovernorStore } from "../govdb/govdb.ts";
 import {
+	type LaneRef,
 	laneAlive,
 	transcriptPath,
-	type LaneRef,
 } from "../lanes/lane-liveness.ts";
-import type { GovernorStore } from "../govdb/govdb.ts";
+import {
+	type ContextTransfer,
+	prepareContextTransfer,
+} from "../lanes/reclaim-context.ts";
 import { clearReclaimMarker } from "../lanes/reclaim-sticky.ts";
 import { claimTokenHash, claimTokenMint } from "./work-fence.ts";
-import {
-	prepareContextTransfer,
-	type ContextTransfer,
-} from "../lanes/reclaim-context.ts";
+import { ownerGatedItem } from "./work-tags.ts";
 
 // the verified oh-my-codex weights (W515 brief description)
 export const ROLE_BONUS = 18; // +18 role-grouping
@@ -60,6 +61,7 @@ type ReadyRow = {
 	requires: string | null;
 	scope: string | null;
 	description: string | null;
+	tags: string | null;
 	updated_at: number;
 };
 
@@ -242,11 +244,13 @@ export function planAllocation(
 	opts: PlanOpts = {},
 ): AllocDecision[] {
 	const capacity = Math.max(1, opts.capacity ?? 1);
-	const ready = store
-		.query(
-			"SELECT id, title, requires, scope, description, updated_at FROM work_items WHERE project = ? AND state = 'READY'",
-		)
-		.all(project) as ReadyRow[];
+	const ready = (
+		store
+			.query(
+				"SELECT id, title, requires, scope, description, tags, updated_at FROM work_items WHERE project = ? AND state = 'READY'",
+			)
+			.all(project) as ReadyRow[]
+	).filter((r) => !ownerGatedItem(r.title, r.tags));
 	const items = opts.items
 		? ready.filter((r) => opts.items?.includes(String(r.id)))
 		: ready;
@@ -356,6 +360,11 @@ export function assignTask(
 		token?: string | null;
 		expectedRevision?: number;
 		reconcileEvidence?: string;
+		/** W2338: explicit owner go — the only way an owner-gated item
+		 *  (OWNER-GATED title or the `operator` tag) may be claimed. The
+		 *  owner channels (dispatch --item, operator repair) pass it;
+		 *  refill/allocate/manual takes never do. */
+		ownerGo?: boolean;
 	},
 ): AssignOutcome {
 	let transfer: ContextTransfer | null = null;
@@ -431,6 +440,13 @@ export function assignTask(
 		}
 		if (it.state !== "READY")
 			return { ok: false, why: `not READY (${it.state})` };
+		// W2338 owner gate: gated work claims only with explicit owner go —
+		// the machine state, not title prose the allocator could hand out.
+		if (ownerGatedItem(it.title, it.tags) && !args.ownerGo)
+			return {
+				ok: false,
+				why: "owner-gated (OWNER-GATED title or operator tag) — explicit owner go required (dispatch --item / --owner-go)",
+			};
 		if (
 			args.reconcileEvidence &&
 			(!Number.isSafeInteger(args.expectedRevision) ||

@@ -7,38 +7,6 @@
 
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
-import { symlinkBuildDirs } from "../work/builddirs.ts";
-import { openStore, projectIdentity } from "../govdb/govdb.ts";
-import { mergeLaneRegistry } from "../lanes/lane-registry.ts";
-import { laneSid } from "../lanes/laneslug.ts";
-import { laneProcessIdentity } from "../lanes/lane-liveness.ts";
-import { condensePrompt } from "../../board/prompt-transform.ts";
-import {
-	jobslabFor,
-	jobslabPrefix,
-	jobslabTag,
-	laneClassOf,
-} from "../lanes/jobslab.ts";
-import {
-	acquireLaunchLease,
-	releaseFailedLaunch,
-	releaseLaunchLease,
-	selectLaneCarrier,
-} from "../../../scripts/lib/launch-preflight.ts";
-import {
-	assertLaunchClaim,
-	awaitLaunchRegistration,
-	fencedExecutor,
-	finishFailedLaunch,
-	inspectLaunchIntent,
-	launchIntent,
-	nextReservedAttempt,
-	reserveLaunchIntent,
-	terminateOwnLaunch,
-	type LaunchIntent,
-} from "../../../scripts/lib/launch-fencing.ts";
-import { launchParent } from "../lanes/launch-parent.ts";
-import { laneAttemptLimit } from "../lanes/lane-retry-budget.ts";
 import {
 	launchLogAppended,
 	launchLogSize,
@@ -46,27 +14,59 @@ import {
 	readLaunchBackoff,
 	scheduleLaunchBackoff,
 } from "../../../scripts/lib/launch-backoff.ts";
-import { reproGateForItem } from "../gates/repro-gate.ts";
-import { recordLaneExecutor } from "../executors/executor-cv.ts";
 import {
-	credScopeGap,
+	assertLaunchClaim,
+	awaitLaunchRegistration,
+	fencedExecutor,
+	finishFailedLaunch,
+	inspectLaunchIntent,
+	type LaunchIntent,
+	launchIntent,
+	nextReservedAttempt,
+	reserveLaunchIntent,
+	terminateOwnLaunch,
+} from "../../../scripts/lib/launch-fencing.ts";
+import {
+	acquireLaunchLease,
+	releaseFailedLaunch,
+	releaseLaunchLease,
+	selectLaneCarrier,
+} from "../../../scripts/lib/launch-preflight.ts";
+import { isResumableClaim } from "../../../scripts/lib/resumable-claim.ts";
+import { condensePrompt } from "../../board/prompt-transform.ts";
+import {
 	credRoutingRefusal,
+	credScopeGap,
 	laneProviderEnv,
 	machineCredScope,
 } from "../cred-scope.ts";
-import { emitLoopEvent } from "./events.ts";
+import { recordLaneExecutor } from "../executors/executor-cv.ts";
 import { adapterFor } from "../executors/registry.ts";
+import { reproGateForItem } from "../gates/repro-gate.ts";
+import { openStore, projectIdentity } from "../govdb/govdb.ts";
+// W254: pointer-grade injection — file-map + done-definition digest for the
+// direct-launch brief, gated per W113 on repo size (hooks/lib/lanes/brief-intel.ts)
+import { briefIntel, renderIntel } from "../lanes/brief-intel.ts";
+import {
+	jobslabFor,
+	jobslabPrefix,
+	jobslabTag,
+	laneClassOf,
+} from "../lanes/jobslab.ts";
 import {
 	applyLaneAttribution,
 	executorLaunch,
 	probeBuckleFront,
 } from "../lanes/lane.ts";
 import { ensureLaneKey, laneKeyMetaPath } from "../lanes/lane-auth.ts";
-// W254: pointer-grade injection — file-map + done-definition digest for the
-// direct-launch brief, gated per W113 on repo size (hooks/lib/lanes/brief-intel.ts)
-import { briefIntel, renderIntel } from "../lanes/brief-intel.ts";
-import { isResumableClaim } from "../../../scripts/lib/resumable-claim.ts";
+import { laneProcessIdentity } from "../lanes/lane-liveness.ts";
+import { mergeLaneRegistry } from "../lanes/lane-registry.ts";
+import { laneAttemptLimit } from "../lanes/lane-retry-budget.ts";
+import { laneSid } from "../lanes/laneslug.ts";
+import { launchParent } from "../lanes/launch-parent.ts";
+import { symlinkBuildDirs } from "../work/builddirs.ts";
 import { flagFns, type LoopConfig } from "./config.ts";
+import { emitLoopEvent } from "./events.ts";
 import type { LoopDeps } from "./runtime.ts";
 export async function runDispatch(
 	config: LoopConfig,
@@ -207,6 +207,8 @@ export async function runDispatch(
 			sid,
 			"--origin",
 			`${hostname()}:${AGENT}`,
+			// W2338: --item dispatch is the owner channel — gated work claims
+			"--owner-go",
 		]);
 		if (take.code !== 0) {
 			const mine = runTool([
