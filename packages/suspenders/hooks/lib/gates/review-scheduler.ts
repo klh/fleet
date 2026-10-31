@@ -50,16 +50,32 @@ const backoffMs = (deferred: number): number =>
 // instantly. Healthy provider = unbounded throughput; saturated provider =
 // the storm collapses into a bounded, jittered retry cadence while code
 // lanes keep their slots.
+// W2356 (2026-10-31): the pause could not tell a brief upstream flap from
+// sustained saturation — a ~2-min flash 503 burst rode the doubling to the
+// 10m ceiling, and each expiry re-admitted the whole deferred herd onto a
+// still-flapping ladder, so every leg failed and re-armed the ceiling again:
+// ~35 min of zero review admissions while the upstream was healthy again.
+// Two corrections: the ceiling drops to 2m, and a lapsed pause admits ONE
+// canary leg whose finish decides reopen (served → memory drained, instant
+// full reopen) versus re-arm — the herd never refires on an unproven ladder.
 interface Pressure {
 	fails: number;
 	openUntil: number;
 	updated: number;
+	/** W2356: the expiry canary — the one leg admitted when a pause lapsed,
+	 * holding peers off until it finishes (or this window lapses). Any
+	 * applyPressure clears it: the canary's finish IS the resolution. */
+	probe?: { key: string; until: number };
 }
 /** Global fact key — shared across scheduler, runners and the reconcile sweep. */
 export const providerPressureKey = "review.provider.pressure";
-/** 30s doubling to a 10m ceiling. */
+/** 30s doubling to a 2m ceiling (W2356: was 10m — see the ledger header). */
 const pressureMs = (fails: number): number =>
-	Math.min(600_000, 30_000 * 2 ** Math.max(0, fails - 1));
+	Math.min(120_000, 30_000 * 2 ** Math.max(0, fails - 1));
+/** W2356: how long an admitted canary holds the probe window — spans a
+ * normal verdict leg (~100-400s observed) while bounding a hung one; the
+ * crash/launch-failure finish paths resolve it far sooner. */
+const canaryProbeMs = 300_000;
 /** Deterministic reopen spread (0-90s) — the deferred backlog must not
  * re-fire as one herd the instant the pause expires. */
 export const jitterMs = (key: string): number =>
@@ -79,6 +95,11 @@ export function providerPressureOf(db: GovernorStore): Pressure {
 			fails: Number(p.fails) || 0,
 			openUntil: Number(p.openUntil) || 0,
 			updated: Number(p.updated) || 0,
+			...(p.probe &&
+			typeof p.probe.key === "string" &&
+			Number.isFinite(p.probe.until)
+				? { probe: { key: p.probe.key, until: Number(p.probe.until) } }
+				: {}),
 		};
 	} catch {
 		return { fails: 0, openUntil: 0, updated: 0 };
@@ -110,6 +131,10 @@ export function applyPressure(db: GovernorStore, failed: boolean): void {
 					updated: now,
 				};
 			})();
+	// W2356: any finish resolves the canary — a failed one re-arms the pause
+	// above, a served verdict is the reopen proof. Either way no probe may
+	// outlive the decision it exists to produce.
+	next.probe = undefined;
 	db.query(
 		"INSERT INTO facts(key,value,source,version,ts) VALUES (?,?,'review-scheduler',1,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, version=facts.version+1,ts=excluded.ts",
 	).run(providerPressureKey, JSON.stringify(next), now);
@@ -420,6 +445,30 @@ export function scheduleReview(o: {
 					.run(JSON.stringify({ ...old, nextAt: staggered }), now, key);
 			return `review transport paused until ${new Date(pressure.openUntil).toISOString()} (provider pressure)`;
 		}
+		// W2356: a LAPSED pause is not yet a reopen — the 2026-10-31 over-freeze
+		// re-admitted the whole jittered herd the instant it expired, every leg
+		// failed on the still-flapping ladder, and the failure memory re-armed
+		// the ceiling: freezes stacked while the upstream was healthy again.
+		// Instead ONE canary leg holds the probe window: its finish is proof
+		// either way (served verdict → memory drained by applyPressure, instant
+		// full reopen; failure → pause re-armed, peers never saw a gap). A hung
+		// canary self-releases when canaryProbeMs lapses; the knob disables the
+		// probe for the W1280-era full-herd reopen.
+		const canaryOff = env.SUSPENDERS_REVIEW_CANARY === "0";
+		if (!canaryOff && pressure.fails > 0) {
+			const probe = pressure.probe;
+			const probeHeld =
+				probe && probe.key !== key && probe.until > now ? probe : undefined;
+			if (probeHeld) {
+				if (old && old.nextAt < probeHeld.until)
+					o.db
+						.query(
+							"UPDATE facts SET value=?, version=version+1, ts=? WHERE key=?",
+						)
+						.run(JSON.stringify({ ...old, nextAt: probeHeld.until }), now, key);
+				return `review transport probe in flight (canary holds admission until ${new Date(probeHeld.until).toISOString()})`;
+			}
+		}
 		if (old && old.nextAt > now)
 			return `review transport retry deferred until ${new Date(old.nextAt).toISOString()}`;
 		// W1243: no artificial default ceiling — the reviewer is unbounded and
@@ -454,6 +503,19 @@ export function scheduleReview(o: {
 				"INSERT INTO facts(key,value,source,version,ts) VALUES (?,?,'review-scheduler',1,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, version=facts.version+1,ts=excluded.ts",
 			)
 			.run(key, JSON.stringify(request), now);
+		// W2356: an admission that rode a lapsed pause IS the canary — stamp
+		// the probe window so peers hold until this leg's finish resolves it.
+		if (!canaryOff && pressure.fails > 0)
+			o.db
+				.query("UPDATE facts SET value=?, version=version+1, ts=? WHERE key=?")
+				.run(
+					JSON.stringify({
+						...pressure,
+						probe: { key, until: now + canaryProbeMs },
+					}),
+					now,
+					providerPressureKey,
+				);
 		return true;
 	})();
 	if (reserved !== true) return reserved;
