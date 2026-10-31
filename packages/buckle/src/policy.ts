@@ -101,6 +101,11 @@ export interface GatewayPolicy {
 	// W1120 SystemOne ingress: the kev-class typed-decision upstream. Belt
 	// ignores the block; buckle's /v1/systemone fails closed when unset.
 	systemone?: SystemOnePolicy;
+	/** W914 litellm-ops passthrough group (config-over-code): the upstream
+	 *  pool group serving files/batches/audio-multipart/images-edits ops.
+	 *  Registry default "litellm-ops"; machine override via the runtime
+	 *  routing-policy.json. */
+	litellm_ops?: { group?: string };
 }
 
 /** W142 aids policy (routing-policy.yaml `aids:` block). Belt ignores the
