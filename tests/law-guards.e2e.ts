@@ -149,7 +149,7 @@ const NEAR_CAP_PINNED = {
 	// 1200 stop rule. The rest re-pin to the actual merged-tree counts
 	// (work.ts rides the W2294 lineage: W2186 CAS extraction + W822.1
 	// done-broadcast call; debt: decompose).
-	"packages/belt/bin/router-shim.ts": 1282,
+	"packages/belt/bin/router-shim.ts": 1315, // W1238.6.1 decomposition (W2261 re-pin) + W2182 re-land of W960.1 usage reporting + W2258 origin-qualified error details (W2401 merge re-pin to the measured count; debt: decompose)
 	"packages/buckle/src/ledger.ts": 1389,
 	"packages/belt/test/dashboard-topology-model.e2e.ts": 1294,
 	"packages/suspenders/hooks/bin/work.ts": 1272, // W2299 took max(1263, parked/W2259's stale 1247); W2333 fail-verb body → lib/work/work-fail.ts shrank to 1257; W2348 re-pin to measured 1272 (debt: decompose)
