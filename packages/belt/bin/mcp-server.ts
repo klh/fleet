@@ -26,6 +26,7 @@ import {
 	type McpAuthConfig,
 	verifyEntraToken,
 } from "./mcp-auth.ts";
+import { THEME_HEAD } from "./klh-theme.ts";
 import { callTool, SERVER_INFO, TOOLS } from "./mcp-tools.ts";
 import {
 	HOP_CONTRACT_HEADER,
@@ -339,7 +340,7 @@ const server = Bun.serve({
 		if (!AUTH && !DEV) {
 			if (pathname === "/" && req.method === "GET")
 				return new Response(
-					`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Belt MCP · setup needed</title><style>body{margin:0;background:#171717;color:#e8e6e2;font:14px system-ui,sans-serif}main{max-width:620px;margin:12vh auto;padding:0 24px}small{color:#a6a29b;letter-spacing:.12em;text-transform:uppercase}h1{font-size:26px;font-weight:550;margin:22px 0 12px}p{line-height:1.6;color:#bbb7af}code{font:12px ui-monospace,monospace;color:#d99a25}a{color:#d99a25}hr{border:0;border-top:1px solid #393735;margin:28px 0}</style><main><small>klh·fleet / belt</small><h1>MCP setup needed</h1><p>The Belt MCP service is running, but its Entra tenant and audience are not configured. Tools remain unavailable until authentication is configured.</p><hr><p>Configure <code>BELT_MCP_TENANT</code> and <code>BELT_MCP_AUDIENCE</code> in the machine-level <code>belt-mcp.env</code>, then restart the service. See <a href="https://github.com/klh/fleet/blob/main/packages/belt/docs/mcp.md">setup instructions</a>.</p></main></html>`,
+					`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Belt MCP · setup needed</title>${THEME_HEAD}<style>body{margin:0;background:var(--klh-bg);color:var(--klh-ink);font:14px system-ui,sans-serif}main{max-width:620px;margin:12vh auto;padding:0 24px}small{color:var(--klh-ink-3);letter-spacing:.12em;text-transform:uppercase}h1{font-size:26px;font-weight:550;margin:22px 0 12px}p{line-height:1.6;color:var(--klh-ink-2)}code{font:12px ui-monospace,monospace;color:var(--klh-accent)}a{color:var(--klh-accent)}hr{border:0;border-top:1px solid var(--klh-edge);margin:28px 0}</style><main><small>klh·fleet / belt</small><h1>MCP setup needed</h1><p>The Belt MCP service is running, but its Entra tenant and audience are not configured. Tools remain unavailable until authentication is configured.</p><hr><p>Configure <code>BELT_MCP_TENANT</code> and <code>BELT_MCP_AUDIENCE</code> in the machine-level <code>belt-mcp.env</code>, then restart the service. See <a href="https://github.com/klh/fleet/blob/main/packages/belt/docs/mcp.md">setup instructions</a>.</p></main></html>`,
 					{
 						status: 503,
 						headers: { "content-type": "text/html; charset=utf-8" },

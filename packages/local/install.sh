@@ -14,6 +14,9 @@ PREFIX="${KLH_LOCAL_PREFIX:-$HOME/.local/klh-local}"
 
 command -v bun >/dev/null || { echo "klh-local needs bun — https://bun.sh first"; exit 1; }
 
+echo "→ building vendor bundles (lit-shared + fleet-local-board)"
+bun "$REPO_DIR/scripts/build-lit.ts"
+
 echo "→ deploying bin/ to $PREFIX"
 mkdir -p "$PREFIX/bin"
 for item in "$REPO_DIR"/bin/*; do

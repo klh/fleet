@@ -1,0 +1,212 @@
+// fleet-local-board.ts — W2269.1.4: the bar.local board element, extracted
+// from the inline <script> in dashboard-page.html (W2269.4 slice). Class-only
+// module (definition/registration split); register.ts calls
+// customElements.define, scripts/build-lit.ts bundles it to
+// bin/vendor/fleet-local-board.js. Talks to same-origin /api/status.
+import { LitElement, css, html, nothing } from "lit";
+import { observationFresh } from "./observation.ts";
+
+// W902: UTC-first dual stamp — a bare local time is unreadable across hubs
+const dualStamp = (ms: number | undefined): string => {
+	if (!ms) return "";
+	const d = new Date(ms);
+	if (Number.isNaN(d.getTime())) return String(ms);
+	const p = (n: number): string => String(n).padStart(2, "0");
+	const off = -d.getTimezoneOffset();
+	const a = Math.abs(off);
+	const sg = off >= 0 ? "+" : "-";
+	const utc = d.toISOString().replace(/\.\d{3}Z$/, "Z");
+	const loc = `local ${p(d.getHours())}:${p(d.getMinutes())}, UTC${sg}${p(Math.floor(a / 60))}:${p(a % 60)}`;
+	return `${utc} (${loc})`;
+};
+
+const shortStamp = (ms: number | undefined): string => {
+	const d = new Date(ms ?? Number.NaN);
+	if (Number.isNaN(d.getTime())) return "unknown";
+	const p = (n: number): string => String(n).padStart(2, "0");
+	return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${String(d.getFullYear()).slice(-2)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+export class FleetLocalBoard extends LitElement {
+	static properties = {
+		snapshot: { state: true },
+		error: { state: true },
+		pending: { state: true },
+		query: { state: true },
+		attention: { state: true },
+		now: { state: true },
+	};
+	declare snapshot: StatusSnapshot | null;
+	declare error: string;
+	declare pending: boolean;
+	declare query: string;
+	declare attention: boolean;
+	declare now: number;
+
+	static styles = css`
+		:host{display:block;max-width:1400px;margin:auto;padding:24px;box-sizing:border-box}
+		*{box-sizing:border-box} nav{display:flex;gap:24px;flex-wrap:wrap;border-bottom:1px solid var(--klh-edge);padding-bottom:16px}
+		a{color:var(--klh-ink);text-underline-offset:5px} a:hover{color:var(--klh-accent)} a[aria-current]{color:var(--klh-accent)}
+		header{margin:24px 0 24px} h1{font-size:28px;margin:0} h2{font-size:18px;margin:28px 0 8px}
+		p{margin:8px 0}.mut,small{color:var(--klh-ink-3)} .ok{color:var(--klh-ok-ink)} .bad{color:var(--klh-danger-ink)}
+		.toolbar{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:20px 0}
+		input,button{font:inherit;color:var(--klh-ink);background:transparent;border:1px solid var(--klh-edge);padding:8px 12px;border-radius:3px}
+		input[type=checkbox]{accent-color:var(--klh-accent)} button{cursor:pointer}button:disabled{opacity:.6;cursor:wait}
+		:focus-visible{outline:2px solid var(--klh-accent);outline-offset:4px} .notice{border-left:3px solid var(--klh-accent);padding:12px 16px}
+		.scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;white-space:nowrap}
+		th{text-align:left;font-size:12px;font-weight:400;color:var(--klh-ink-3);text-transform:uppercase;letter-spacing:.06em}
+		td,th{padding:14px 18px 14px 0;border-bottom:1px solid var(--klh-edge);vertical-align:top}td small{display:block;font:var(--klh-text-sm)/1.6 var(--klh-font-mono)} td:last-child{padding-right:0}
+		footer{margin-top:28px;padding-top:16px;border-top:1px solid var(--klh-edge);color:var(--klh-ink-3);font-size:12px}
+		@media(max-width:600px){:host{padding:16px}header{margin-top:24px}h1{font-size:24px}.toolbar{align-items:stretch}.toolbar label:first-child{width:100%}.toolbar input[type=search]{width:100%}}
+	`;
+
+	timer: ReturnType<typeof setTimeout> | undefined;
+	clock: ReturnType<typeof setInterval> | undefined;
+	controller: AbortController | undefined;
+
+	constructor() {
+		super();
+		this.snapshot = null;
+		this.error = "";
+		this.pending = false;
+		this.query = "";
+		this.attention = false;
+		this.now = Date.now();
+	}
+	connectedCallback(): void {
+		super.connectedCallback();
+		this.refresh();
+		this.clock = setInterval(() => {
+			this.now = Date.now();
+		}, 1000);
+	}
+	disconnectedCallback(): void {
+		super.disconnectedCallback();
+		clearTimeout(this.timer);
+		clearInterval(this.clock);
+		this.controller?.abort();
+	}
+	async refresh(): Promise<void> {
+		if (this.pending) return;
+		clearTimeout(this.timer);
+		this.pending = true;
+		this.controller = new AbortController();
+		const timeout = setTimeout(() => this.controller?.abort(), 6000);
+		try {
+			const response = await fetch("/api/status", {
+				cache: "no-store",
+				signal: this.controller.signal,
+			});
+			if (!response.ok)
+				throw new Error(`Status request failed: HTTP ${response.status}`);
+			const snapshot: unknown = await response.json();
+			if (!isValidSnapshot(snapshot))
+				throw new Error("Invalid status snapshot");
+			this.snapshot = snapshot;
+			this.error = "";
+		} catch (error) {
+			this.error =
+				error instanceof Error && error.message
+					? error.message
+					: "Status request timed out";
+		} finally {
+			clearTimeout(timeout);
+			this.pending = false;
+			if (this.isConnected) this.timer = setTimeout(() => this.refresh(), 3000);
+		}
+	}
+	needsAttention(service: ServiceRow): boolean {
+		return (
+			!service.health.ok ||
+			!service.fragment ||
+			Boolean(service.dns.claimed && !service.dns.alive)
+		);
+	}
+	render() {
+		const snapshot = this.snapshot;
+		const age = snapshot
+			? Math.max(0, Math.floor((this.now - Date.parse(snapshot.ts)) / 1000))
+			: 0;
+		const stale =
+			Boolean(this.error) || !observationFresh(snapshot?.observation, this.now);
+		const rows = (snapshot?.services ?? []).filter(
+			(service) =>
+				service.name.toLowerCase().includes(this.query.toLowerCase()) &&
+				(!this.attention || this.needsAttention(service)),
+		);
+		const responding = (snapshot?.services ?? []).filter(
+			(service) => service.health.ok,
+		).length;
+		const needAttention = (snapshot?.services ?? []).filter((service) =>
+			this.needsAttention(service),
+		).length;
+		return html`
+			<header><h1>Local services</h1><p class="mut">Caddy routes, configured endpoint checks and mDNS registrations.</p>
+			<p role="status" class=${stale ? "bad" : "mut"}>${snapshot ? `${stale ? "Stale snapshot" : "Last observation"} · ${age}s ago` : "Waiting for first observation"}${this.pending ? " · refreshing" : ""}</p></header>
+			${snapshot?.observation ? html`<p class="mut">Evidence: ${snapshot.observation.source} · ${snapshot.observation.scope} · expires <time title=${dualStamp(snapshot.observation.expiresAt)}>${shortStamp(snapshot.observation.expiresAt)}</time></p>` : nothing}
+			${this.error ? html`<p class="notice bad" role="alert">${this.error}. ${snapshot ? "Showing the last successful snapshot." : "No service state is available yet."}</p>` : nothing}
+			${snapshot?.error ? html`<p class="notice bad" role="alert">${snapshot.error}</p>` : nothing}
+			<h2>Caddy front</h2>
+			<p>${snapshot ? html`<span class=${snapshot.caddy.listening ? "ok" : "bad"}>${snapshot.caddy.listening ? "TCP reachable on :80" : "Not reachable on :80"}</span> <small title=${snapshot.caddy.version || "version unavailable"}>· ${(snapshot.caddy.version || "version unavailable").split(/\s+/)[0]}</small>` : "Waiting for observation"}</p>
+			<p class="mut">TCP reachability does not verify HTTPS, authentication or a route. Open a service to check its front.</p>
+			<h2>Registered services ${snapshot ? `(${snapshot.services.length})` : ""}</h2>
+			${snapshot ? html`<p class="mut">${responding} responding · ${needAttention} need attention · ${snapshot.services.length} registered</p>` : nothing}
+			<p class="mut">A 2xx response passes the configured check. A homepage check establishes reachability; application readiness needs a dedicated endpoint or independent health probe.</p>
+			<div class="toolbar"><label>Find service <input type="search" aria-label="Find service" .value=${this.query} @input=${(
+				event: InputEvent,
+			) => {
+				this.query = (event.target as HTMLInputElement).value;
+			}}></label>
+			<label><input type="checkbox" .checked=${this.attention} @change=${(
+				event: Event,
+			) => {
+				this.attention = (event.target as HTMLInputElement).checked;
+			}}> Needs attention</label>
+			<button type="button" ?disabled=${this.pending} @click=${() => this.refresh()}>Refresh now</button><a href="/api/status">Snapshot JSON</a></div>
+			<div class="scroll" tabindex="0" role="region" aria-label="Registered services table"><table><thead><tr><th scope="col">Service</th><th scope="col">Probe target</th><th scope="col">Configured check</th><th scope="col">mDNS claim</th><th scope="col">Route fragment</th></tr></thead>
+			<tbody>${rows.map(
+				(
+					service,
+				) => html`<tr><td><a href=${`https://${service.name}.local/`}>${service.name}</a><small>${service.upstream ? "Remote upstream" : "Local upstream"}</small></td>
+				<td>${service.target}<small>${service.health_path || "/"}</small></td>
+				<td class=${service.health.ok ? "ok" : "bad"}>${service.health.ok ? "Passed" : service.health.reachable ? "HTTP check failed" : "Unreachable"}<small>${service.health.code ? `HTTP ${service.health.code} · ` : ""}${service.health.ms}ms</small></td>
+				<td class=${service.dns.claimed && !service.dns.alive ? "bad" : "mut"}>${service.dns.claimed ? (service.dns.alive ? "Claim process alive" : "Claim process stopped") : "Not requested"}<small>${service.dns.pid ? `PID ${service.dns.pid}` : ""}</small></td>
+				<td class=${service.fragment ? "" : "bad"}>${service.fragment ? "Present" : "Missing"}<small>${(service.created_at || "").slice(0, 10)}</small></td></tr>`,
+			)}
+			${rows.length ? nothing : html`<tr><td colspan="5">${!snapshot ? "Waiting for service data." : snapshot.error ? "Registry data unavailable." : snapshot.services.length ? "No services match these filters." : "No services registered. Use klh-local register &lt;name&gt; --port N."}</td></tr>`}
+			</tbody></table></div>
+			<footer>${snapshot?.registry || "~/.local/state/klh-local/registry.json"} · refresh 3s · <a href="https://github.com/klh/fleet/tree/main/packages/local">Documentation</a></footer>
+		`;
+	}
+}
+
+interface ServiceRow {
+	name: string;
+	upstream: boolean;
+	target: string;
+	health_path?: string;
+	health: { ok: boolean; reachable: boolean; code?: number; ms: number };
+	dns: { claimed: boolean; alive: boolean; pid?: number };
+	fragment: boolean;
+	created_at?: string;
+}
+
+interface StatusSnapshot {
+	ts: string;
+	services: ServiceRow[];
+	caddy: { listening: boolean; version?: string };
+	observation?: { source: string; scope: string; expiresAt: number };
+	registry?: string;
+	error?: string;
+}
+
+function isValidSnapshot(snapshot: unknown): snapshot is StatusSnapshot {
+	if (typeof snapshot !== "object" || snapshot === null) return false;
+	const s = snapshot as { services?: unknown; caddy?: unknown; ts?: unknown };
+	return (
+		Array.isArray(s.services) &&
+		typeof s.caddy === "object" &&
+		s.caddy !== null &&
+		Number.isFinite(Date.parse(String(s.ts)))
+	);
+}

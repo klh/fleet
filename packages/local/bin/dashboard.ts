@@ -219,6 +219,10 @@ const PAGE = (
 	)
 	.replace("/* THEME_SETTINGS_JS */", THEME_SETTINGS_JS);
 const LIT = Bun.file(new URL("./vendor/lit-shared.js", import.meta.url));
+// W2269.1.4: extracted board element bundle (built by scripts/build-lit.ts).
+const BOARD = Bun.file(
+	new URL("./vendor/fleet-local-board.js", import.meta.url),
+);
 
 // ─── llms.txt — the plain-text intro ───
 const LLMS = `# klh-local
@@ -282,6 +286,7 @@ Bun.serve({
 			"/api/status",
 			"/observation.js",
 			"/vendor/lit-shared.js",
+			"/vendor/fleet-local-board.js",
 			"/llms.txt",
 		];
 		if (paths.includes(path)) {
@@ -298,6 +303,10 @@ Bun.serve({
 			);
 		if (path === "/vendor/lit-shared.js")
 			return new Response(LIT, {
+				headers: { "content-type": "text/javascript" },
+			});
+		if (path === "/vendor/fleet-local-board.js")
+			return new Response(BOARD, {
 				headers: { "content-type": "text/javascript" },
 			});
 		if (path === "/api/status") return json(await status());
