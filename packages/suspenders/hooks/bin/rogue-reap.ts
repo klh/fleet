@@ -4,7 +4,12 @@
 // fleet-board, router-shim, dashboard, coord store) running from fleet
 // worktree or fleet-ish tmp copies no live lane claim covers — cwd OR
 // commandline scope (W973 reap-by-commandline), and prunes merged-and-
-// clean stale worktrees. Kill batch bounded (--max-kill, default 200).
+// clean stale worktrees. W2335: the same cycle also reaps ORPHANED
+// test-runner workers (ppid=1 Playwright workerProcessEntry.js) whose
+// fleet scope resolves by cwd or commandline regardless of worktree —
+// they wedge on the dead runner's pipes and balloon (2026-10-30: 60-70GB
+// in 36min from the main checkout's store). Kill batch bounded
+// (--max-kill, default 200).
 //
 //   bun hooks/bin/rogue-reap.ts [--act] [--json] [--repo <dir>]
 //        [--main <branch>] [--grace-ms <n>] [--max-kill <n>]
@@ -16,13 +21,13 @@
 // `.fleet/rogue-reap-paused` pauses everything. Exit 1 when a dry-run
 // finds candidates or prune rows (a cron or a human should notice).
 import { emitLoopEvent } from "../lib/fleet-loop/events.ts";
-import { openStore, projectIdentity } from "../lib/govdb/govdb.ts";
-import type { LaneRef } from "../lib/lanes/lane-liveness.ts";
-import { readLaneRegistry } from "../lib/lanes/lane-registry.ts";
 import {
 	createRogueReap,
 	type ReapReport,
 } from "../lib/fleet-loop/rogue-reap.ts";
+import { openStore, projectIdentity } from "../lib/govdb/govdb.ts";
+import type { LaneRef } from "../lib/lanes/lane-liveness.ts";
+import { readLaneRegistry } from "../lib/lanes/lane-registry.ts";
 import {
 	defineVerb,
 	dieFor,
@@ -129,7 +134,7 @@ if (json) {
 			`${report.dryRun ? "would " : ""}${p.action} ${p.branch} ${p.worktree} — ${p.why}`,
 		);
 	console.log(
-		`${report.candidates.length} rogue serve(s), reaped ${report.reaped}, survivors ${report.survivors}, ${report.pruned.length} prune row(s)` +
+		`${report.candidates.length} rogue process(es), reaped ${report.reaped}, survivors ${report.survivors}, ${report.pruned.length} prune row(s)` +
 			(report.paused ? " · PAUSED" : report.dryRun ? " · dry-run" : " · acted"),
 	);
 }
