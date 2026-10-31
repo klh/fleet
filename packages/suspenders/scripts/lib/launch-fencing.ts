@@ -1,14 +1,14 @@
+import { dlopen, FFIType, ptr } from "bun:ffi";
 import {
+	existsSync,
+	mkdirSync,
 	readFileSync,
 	realpathSync,
-	mkdirSync,
 	writeFileSync,
-	existsSync,
 } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
-import { dlopen, FFIType, ptr } from "bun:ffi";
-import { openStore, type GovernorStore } from "../../hooks/lib/govdb/govdb.ts";
+import { type GovernorStore, openStore } from "../../hooks/lib/govdb/govdb.ts";
 import { sameMachine } from "../../hooks/lib/host-identity.ts";
 import { compareProcessBirth, darwinProcessBirth } from "./process-birth.ts";
 
@@ -415,6 +415,30 @@ export async function terminateOwnLaunch(
 	}
 	await proc.exited;
 }
+/** Kueue `SetRequeueState` (pkg/workload/workload.go:973, adopted W2330):
+ *  the ONE monotone merge rule every requeue-at writer routes through —
+ *  launch-backoff `eligibleAt`, W2315 defers `requeueAt`, the W2317
+ *  re-probe spec (adopts here when its branch merges). Invariants: a later
+ *  pending wall always wins; an earlier wall never clobbers a later one
+ *  (max() also means an expired prior wall can never pin an item — the
+ *  fresh candidate is always later than an expired wall); `count` moves
+ *  only on attempt-scoped evidence (W1165) — an evidence-free re-arm
+ *  keeps the previous count and wall, never mints a rung from nothing. */
+export type RequeueState = { requeueAt: number; count: number };
+export function mergeRequeueState(
+	prior: RequeueState | null,
+	candidate: RequeueState,
+	evidence: boolean,
+): RequeueState {
+	return {
+		requeueAt: Math.max(
+			candidate.requeueAt,
+			prior?.requeueAt ?? candidate.requeueAt,
+		),
+		count: evidence ? candidate.count : (prior?.count ?? 0),
+	};
+}
+
 if (import.meta.main) {
 	try {
 		if (process.argv[2] !== "--register")
