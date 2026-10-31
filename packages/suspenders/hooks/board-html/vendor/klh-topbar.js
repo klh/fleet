@@ -11,9 +11,9 @@ import{c,n,e,r}from"./lit-df39549a6b261b0c.js";import{u,d,p}from"./lit-50e491358
 			display: flex;
 			align-items: center;
 			gap: 14px;
-			padding: 7px 16px;
-			border-bottom: 1px solid var(--klh-edge-soft);
-			background: var(--klh-panel);
+			padding: 8px 24px;
+			border-bottom: 1px solid var(--klh-edge);
+			background: var(--klh-bg);
 			position: sticky;
 			top: 0;
 			z-index: 50;
@@ -21,7 +21,8 @@ import{c,n,e,r}from"./lit-df39549a6b261b0c.js";import{u,d,p}from"./lit-50e491358
 		.cw {
 			font-size: 12px;
 			font-weight: 700;
-			letter-spacing: 0.1em;
+			letter-spacing: 0.14em;
+			text-transform: uppercase;
 			color: var(--klh-ink);
 			text-decoration: none;
 			white-space: nowrap;
@@ -52,9 +53,9 @@ import{c,n,e,r}from"./lit-df39549a6b261b0c.js";import{u,d,p}from"./lit-50e491358
 		.cavbtn {
 			width: 26px;
 			height: 26px;
-			border-radius: 50%;
+			border-radius: 2px;
 			border: 1px solid var(--klh-edge-strong);
-			background: var(--klh-surface-hi);
+			background: var(--klh-surface);
 			color: var(--klh-ink);
 			font: 600 11px/1 var(--klh-font-sans);
 			cursor: pointer;
@@ -84,9 +85,9 @@ import{c,n,e,r}from"./lit-df39549a6b261b0c.js";import{u,d,p}from"./lit-50e491358
 		.cavbig {
 			width: 30px;
 			height: 30px;
-			border-radius: 50%;
+			border-radius: 2px;
 			border: 1px solid var(--klh-edge-strong);
-			background: var(--klh-surface-hi);
+			background: var(--klh-surface);
 			color: var(--klh-ink);
 			font: 600 13px/30px var(--klh-font-sans);
 			text-align: center;
