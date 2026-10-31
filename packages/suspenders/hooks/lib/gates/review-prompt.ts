@@ -6,6 +6,7 @@
 // measures exactly what the lane sends: a prompt, model-pin or tooling change
 // reruns the whole sealed set and the ledger records the score delta.
 import { reviewContext } from "./review-receipt.ts";
+import { wireModelMatch } from "./wire-model-check.ts";
 
 export interface ReviewPromptInput {
 	item: string;
@@ -105,7 +106,19 @@ export async function requestReviewLeg(o: {
 		}),
 		signal: AbortSignal.timeout(o.timeoutMs),
 	});
-	if (!response.ok) throw new Error(`Review LLM HTTP ${response.status}`);
+	if (!response.ok) {
+		// W2352: the trail must self-describe a client-error rejection — the
+		// spark rung's context-overflow 400 surfaced as a bare "HTTP 400" for
+		// weeks (litellm.ContextWindowExceededError rode the body unread).
+		const reason = (await response.text().catch(() => ""))
+			.replace(/\bbksk_[A-Za-z0-9_-]+|\bsk-[A-Za-z0-9_-]+/g, "[redacted]")
+			.replace(/\s+/g, " ")
+			.trim()
+			.slice(0, 200);
+		throw new Error(
+			`Review LLM HTTP ${response.status}${reason ? `: ${reason}` : ""}`,
+		);
+	}
 	const body = (await response.json()) as {
 		model?: string;
 		choices?: {
@@ -130,6 +143,16 @@ export async function requestReviewLeg(o: {
 	const model =
 		typeof body.model === "string" && body.model ? body.model : undefined;
 	if (model) o.onWireModel?.(model);
+	// W2352: a rung answering with a FOREIGN model class can never yield a
+	// trusted verdict (W1302.6 graded the PASS ERROR only after the full
+	// generation + proof burned — W2317/W2308 receipts, 378s/250s each).
+	// Demote the rung mid-walk instead: a terminal (non-transport) throw so
+	// walkLegs spends the leg and steps to the next rung; legWireModel still
+	// stamps via the callback above, so the receipt records the liar's stamp.
+	if (model && o.model && wireModelMatch(o.model, model) === "mismatch")
+		throw new Error(
+			`Review LLM wire-model mismatch: requested ${o.model} served ${model}`,
+		);
 	const usage = {
 		inTok: body.usage?.prompt_tokens ?? 0,
 		outTok: body.usage?.completion_tokens ?? 0,

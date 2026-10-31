@@ -392,6 +392,10 @@ describe("W634 review-lane coverage proof (Sinai rule)", () => {
 				});
 			},
 			2,
+			// W2352: the stub stamps the served class — with the W2352 rung
+			// demotion live, a foreign stamp spends the leg, so name the
+			// requested class the stub actually serves.
+			"glm-5.3-flash",
 		);
 		expect(incompleteCalls).toBe(2);
 		expect(incomplete.fact.verdict).toBe("ERROR");
@@ -577,6 +581,10 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 					usage: { completion_tokens: 1427 },
 				}),
 			2,
+			// W2352: name the requested class the stub actually serves (zai-
+			// prefix folds to the same core) — the demotion would otherwise
+			// spend the leg before the both-empty diagnostics could ride.
+			"glm-5.3-flash",
 		);
 		expect(fact.verdict).toBe("ERROR");
 		const h = String(fact.headline);
