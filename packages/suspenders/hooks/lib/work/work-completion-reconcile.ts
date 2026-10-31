@@ -8,6 +8,7 @@ import {
 } from "../lanes/lane-liveness.ts";
 import { bytesHash } from "../lanes/reclaim-context-evidence.ts";
 import { claimantLanes, matchingClaimantLane } from "../lanes/reclaim-all.ts";
+import { budgetFlagClear } from "../usage/budget-flag.ts";
 import { completionRecord } from "./work-completion-record.ts";
 import { registryWorktrees, resolveItemWorktree } from "./worktree-lookup.ts";
 
@@ -128,7 +129,7 @@ export function reconcileCompletion(
 		} | null;
 		if (
 			!row ||
-			!["CLAIMED", "RUNNING"].includes(row.state) ||
+			!["CLAIMED", "RUNNING", "FAILED"].includes(row.state) ||
 			row.owner_sid !== owner ||
 			row.updated_at !== revision
 		)
@@ -152,6 +153,19 @@ export function reconcileCompletion(
 			.run(record.commit_sha, now, project, item, owner, revision, row.state);
 		if (!updated.changes)
 			throw new Error("Claim CAS changed; reconciliation refused");
+		// W2341: FAILED is drift, not a live claim — the stranded row still
+		// carries the dead lane's claims rows and any open budget decision.
+		// Mirror the done/retry cleanup so the restored row is fully closed.
+		if (row.state === "FAILED") {
+			store.run(
+				"DELETE FROM claims WHERE sid = ? AND (scope = ? OR (? IS NOT NULL AND intent LIKE ? || ' %'))",
+				owner,
+				row.scope,
+				item,
+				item,
+			);
+			budgetFlagClear(store, item);
+		}
 		if (row.scope)
 			store
 				.query(

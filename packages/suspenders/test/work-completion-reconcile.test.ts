@@ -15,7 +15,10 @@ import { dispatchHarness } from "./helpers/dispatch-harness.ts";
 const h = dispatchHarness(afterAll, { tag: "completion-reconcile" });
 const owner = "manual-completion-fixture";
 
-async function fixture() {
+// driftState simulates which historical drift shape the row landed in:
+// CLAIMED (re-claimed after close) or FAILED (W2341: fail landed from a
+// stale harness branch lacking the W1173 reactivation guard).
+async function fixture(driftState: "CLAIMED" | "FAILED" = "CLAIMED") {
 	const id = await h.addItem("Immutable completion reconciliation fixture");
 	const take = await h.toolA({}, "work.ts", "take", id, "--as", owner);
 	expect(take.code).toBe(0);
@@ -66,13 +69,14 @@ async function fixture() {
 		[
 			process.execPath,
 			"-e",
-			`import{openStore}from${JSON.stringify(module)};const s=openStore();s.query("UPDATE work_items SET state='CLAIMED',owner_sid=?,updated_at=? WHERE project=? AND id=?").run(...JSON.parse(process.env.FIXTURE_DRIFT));s.close();`,
+			`import{openStore}from${JSON.stringify(module)};const s=openStore();s.query("UPDATE work_items SET state=?,owner_sid=?,updated_at=? WHERE project=? AND id=?").run(...JSON.parse(process.env.FIXTURE_DRIFT));s.close();`,
 		],
 		{
 			cwd: h.REPO,
 			env: {
 				...h.env,
 				FIXTURE_DRIFT: JSON.stringify([
+					driftState,
 					owner,
 					revision,
 					projectIdentity(h.REPO),
@@ -148,6 +152,34 @@ test("actual CLI restores graph once without rewriting immutable completion", as
 			(e: { kind: string }) => e.kind === "work.completion-reconciled",
 		),
 	).toHaveLength(1);
+}, 30_000);
+
+// W2341 regression: a completion record stands while the row renders FAILED
+// (the 2026-10-22 W1119/W1169 incident class — work.failed landed from a
+// stale harness branch before the W1173 fail guard existed). retry refuses
+// (WORK_COMPLETION_RECORD_EXISTS), reconcile-completion is the repair path.
+test("FAILED drift against a standing record restores DONE (W2341)", async () => {
+	const f = await fixture("FAILED");
+	const retry = await h.toolA({}, "work.ts", "retry", f.id);
+	expect(retry.code).not.toBe(0);
+	expect(retry.err).toContain("WORK_COMPLETION_RECORD_EXISTS");
+	const result = await f.run();
+	expect(result.code).toBe(0);
+	expect(JSON.parse(result.out)).toEqual({
+		item: f.id,
+		state: "DONE",
+		sha: f.sha,
+		restored: true,
+	});
+	const shown = JSON.parse(
+		(await h.toolA({}, "work.ts", "show", f.id, "--json")).out,
+	);
+	expect(shown.state).toBe("DONE");
+	expect(shown.owner_sid).toBeNull();
+	// the immutable receipt stands byte-identical — repair never edits it
+	expect(shown.completion).toEqual(f.original);
+	// idempotence: the restored DONE row refuses a second repair
+	expect((await f.run()).code).not.toBe(0);
 }, 30_000);
 
 test("missing operator intent and unpublished committed work refuse restoration", async () => {
