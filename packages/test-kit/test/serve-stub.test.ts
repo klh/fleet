@@ -46,3 +46,24 @@ test("serveStub: close() frees the port", () => {
 	const s = Bun.serve({ port, fetch: () => new Response("ok") });
 	s.stop(true);
 });
+
+test("serveStub: raw mode leaves non-JSON bodies for the handler", async () => {
+	const stub = serveStub(
+		async (req) => {
+			const form = await req.formData();
+			const f = form.get("file");
+			if (!(f instanceof File)) return new Response("no file", { status: 400 });
+			return Response.json({ name: f.name, text: await f.text() });
+		},
+		{ raw: true },
+	);
+	const form = new FormData();
+	form.set("file", new File(["kit-bytes"], "k.txt"));
+	const r = await fetch(`${stub.url}/v1/files`, { method: "POST", body: form });
+	expect(r.status).toBe(200);
+	expect(await r.json()).toEqual({ name: "k.txt", text: "kit-bytes" });
+	const rec = stub.requests[0];
+	if (!rec) throw new Error("no recorded request");
+	expect(rec.body).toBeNull();
+	stub.close();
+});
