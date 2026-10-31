@@ -1,5 +1,13 @@
 import { setting } from "@klh/settings";
-import { mkdirSync, realpathSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	unlinkSync,
+	mkdirSync,
+	realpathSync,
+	renameSync,
+	writeFileSync,
+} from "node:fs";
 import { join, relative } from "node:path";
 import {
 	addedDiffLines,
@@ -23,9 +31,15 @@ const MARKERS = "^([<]{7,}|[=]{7,}|[>]{7,}|[|]{7,})([[:space:]].*)?$";
 const SOURCE = /\.(?:[cm]?[jt]s|[jt]sx)$/i;
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024;
 
-function command(cwd: string, args: string[], timeout = 60_000) {
+function command(
+	cwd: string,
+	args: string[],
+	timeout = 60_000,
+	env: Record<string, string | undefined> = process.env,
+) {
 	const p = Bun.spawnSync(args, {
 		cwd,
+		env,
 		stdout: "pipe",
 		stderr: "pipe",
 		timeout,
@@ -389,11 +403,38 @@ function mergeCandidate(options: Options): Result {
 		const finalReview = options.verifyReview?.(sha);
 		if (finalReview && !finalReview.ok)
 			return fail(`review required: ${finalReview.why}`);
+		// W2255.2: the publish grant is a one-use attestation minted HERE, only
+		// after the final canonical verifyReview PASS, and bound to old/new —
+		// never a caller-supplied env pair, which any local process could forge.
+		// W2293: `--git-path` can return a cwd-relative path; the fs calls below
+		// resolve against process.cwd(), not `repo` — anchor to the absolute git
+		// dir (in a linked worktree `.git` is a file, and ENOTDIR kills the mint).
+		const attest = command(
+			repo,
+			["git", "rev-parse", "--absolute-git-dir"],
+			timeoutMs,
+		);
+		if (attest.code !== 0)
+			return fail("merge guard: cannot resolve attestation path");
+		const attestationPath = join(
+			attest.out.trim(),
+			"fleet-main-publish-attestation.json",
+		);
+		const temp = `${attestationPath}.${crypto.randomUUID()}`;
+		writeFileSync(
+			temp,
+			JSON.stringify({ old: head, new: sha, at: Date.now() }),
+			{ mode: 0o600, flag: "wx" },
+		);
+		chmodSync(temp, 0o600);
+		renameSync(temp, attestationPath);
 		const publish = command(
 			repo,
 			["git", "merge", "--ff-only", "--no-edit", sha],
 			timeoutMs,
 		);
+		if (publish.code !== 0 && existsSync(attestationPath))
+			unlinkSync(attestationPath);
 		return publish.code === 0
 			? { code: 0, tail: "" }
 			: fail(`merge guard: publication refused: ${publish.err.slice(-1600)}`);
