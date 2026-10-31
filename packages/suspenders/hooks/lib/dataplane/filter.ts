@@ -43,6 +43,7 @@ interface Comparison {
 	path: string[]; // dot-path segments AFTER the field root; [] = the column itself
 	op: CompareOp;
 	value: string;
+	quoted: boolean; // quoted values stay strings; bare numeric tokens bind as numbers
 }
 
 interface NotExpr {
@@ -70,7 +71,7 @@ type Token =
 	| { t: "or" }
 	| { t: "not" }
 	| { t: "op"; op: CompareOp }
-	| { t: "value"; v: string };
+	| { t: "value"; v: string; quoted: boolean };
 
 /** Bare-word characters: letters, digits, underscore, asterisk. */
 function isWordChar(c: string): boolean {
@@ -96,9 +97,12 @@ function tokenize(input: string): Token[] {
 			i++;
 			continue;
 		}
-		const tok = lexString(input, i) ?? lexOperator(input, i) ?? lexWord(input, i);
+		const tok =
+			lexString(input, i) ?? lexOperator(input, i) ?? lexWord(input, i);
 		if (!tok)
-			throw new FilterError(`unexpected character ${JSON.stringify(c)} in filter`);
+			throw new FilterError(
+				`unexpected character ${JSON.stringify(c)} in filter`,
+			);
 		tokens.push(tok.token);
 		i = tok.next;
 	}
@@ -121,7 +125,8 @@ function lexString(
 			j += 2;
 			continue;
 		}
-		if (ch === quote) return { token: { t: "value", v: s }, next: j + 1 };
+		if (ch === quote)
+			return { token: { t: "value", v: s, quoted: true }, next: j + 1 };
 		if (ch === "\n") break;
 		s += ch;
 		j++;
@@ -150,8 +155,12 @@ function lexWord(
 ): { token: Token; next: number } | undefined {
 	const c = input[i];
 	if (c !== "-" && !isWordChar(c)) return undefined;
-	let j = i;
-	let w = "";
+	// a leading '-' is only a token as a numeric sign (-5) — a bare '-'
+	// must fall through to the unexpected-character error, never return a
+	// zero-width token (tokenize would loop on it forever)
+	if (c === "-" && !/[0-9]/.test(input[i + 1] ?? "")) return undefined;
+	let j = c === "-" ? i + 1 : i;
+	let w = c === "-" ? "-" : "";
 	while (j < input.length && (isWordChar(input[j]) || input[j] === ".")) {
 		w += input[j];
 		j++;
@@ -161,7 +170,7 @@ function lexWord(
 	if (w === "AND") return { token: { t: "and" }, next: j };
 	if (w === "OR") return { token: { t: "or" }, next: j };
 	if (w === "NOT") return { token: { t: "not" }, next: j };
-	return { token: { t: "value", v: w }, next: j };
+	return { token: { t: "value", v: w, quoted: false }, next: j };
 }
 
 // ---- parser (recursive descent; OR binds loosest, NOT tightest) ----
@@ -229,18 +238,21 @@ class Parser {
 	/** field (dot-path) op value — the leaf. */
 	private parseComparison(): Expr {
 		const fieldTok = this.tokens[this.pos];
-		if (!fieldTok || fieldTok.t !== "value")
+		if (fieldTok?.t !== "value")
 			throw new FilterError("expected a field name in filter");
 		this.pos++;
 		const opTok = this.tokens[this.pos];
-		if (!opTok || opTok.t !== "op")
+		if (opTok?.t !== "op")
 			throw new FilterError(`expected an operator after '${fieldTok.v}'`);
 		this.pos++;
 		const valTok = this.tokens[this.pos];
-		if (!valTok || valTok.t !== "value")
+		if (valTok?.t !== "value")
 			throw new FilterError(`expected a value after '${opTok.op}'`);
 		this.pos++;
-		return { kind: "cmp", cmp: this.resolveField(fieldTok.v, opTok.op, valTok.v) };
+		return {
+			kind: "cmp",
+			cmp: this.resolveField(fieldTok.v, opTok.op, valTok),
+		};
 	}
 
 	/**
@@ -248,7 +260,11 @@ class Parser {
 	 * FilterError naming it; a dot-path on a non-JSON field is refused the
 	 * same way (the column has no nested shape to address).
 	 */
-	private resolveField(raw: string, op: CompareOp, value: string): Comparison {
+	private resolveField(
+		raw: string,
+		op: CompareOp,
+		val: Token & { t: "value" },
+	): Comparison {
 		const segs = raw.split(".");
 		const field = segs[0];
 		const spec = this.fields[field];
@@ -256,15 +272,15 @@ class Parser {
 		const path = segs.slice(1);
 		if (path.length > 0 && !spec.json)
 			throw new FilterError(`field '${field}' has no nested fields`, field);
-		return { field, path, op, value };
+		return { field, path, op, value: val.v, quoted: val.quoted };
 	}
 }
 
 // ---- SQL emitter ----
 
-/** SQL-quote a JSON path segment ('' for embedded single quotes). */
-function jsonQuote(seg: string): string {
-	return `$.${seg.replaceAll("'", "''")}`;
+/** SQL-escape a JSON path segment ('' for embedded single quotes). */
+function jsonEscape(seg: string): string {
+	return seg.replaceAll("'", "''");
 }
 
 class Emitter {
@@ -289,10 +305,10 @@ class Emitter {
 
 	private comparison(c: Comparison): string {
 		const spec = this.fields[c.field];
-		const lhs = this.lhs(c.field, c.path, spec);
+		const lhs = this.lhs(c.path, spec);
 		if (c.op === ":") return `${lhs} LIKE ?${this.push(likePattern(c.value))}`;
 		const op = c.op === "!=" ? "<>" : c.op;
-		return `${lhs} ${op} ?${this.push(bindValue(c.value, spec))}`;
+		return `${lhs} ${op} ?${this.push(bindValue(c.value, c.quoted, spec))}`;
 	}
 
 	private push(p: SqlParam): string {
@@ -301,9 +317,9 @@ class Emitter {
 	}
 
 	/** Left-hand SQL for a field: column, or json_extract into a dot-path. */
-	private lhs(field: string, path: string[], spec: FieldSpec): string {
+	private lhs(path: string[], spec: FieldSpec): string {
 		if (path.length === 0) return spec.column;
-		const inner = path.map(jsonQuote).join("");
+		const inner = `$.${path.map(jsonEscape).join(".")}`;
 		return `json_extract(${spec.column}, '${inner}')`;
 	}
 }
@@ -314,14 +330,16 @@ function likePattern(value: string): string {
 }
 
 /**
- * Numeric columns bind as numbers (a non-numeric value on one is a
- * FilterError — comparing a number column to text is a caller bug, and
- * SQLite's loose affinity would otherwise answer silently wrong).
+ * Bare numeric-looking tokens bind as numbers (AIP-160 semantics: quoting
+ * makes a string; SQLite's cross-type ordering would otherwise answer
+ * silently wrong — INTEGER is never >= TEXT). A `numeric` field REQUIRES a
+ * number: a quoted or non-numeric value on one is a FilterError.
  */
-function bindValue(value: string, spec: FieldSpec): SqlParam {
-	if (!spec.numeric) return value;
+function bindValue(value: string, quoted: boolean, spec: FieldSpec): SqlParam {
 	const n = Number(value);
-	if (value.trim() === "" || Number.isNaN(n))
+	const isNumericToken = value.trim() !== "" && !Number.isNaN(n);
+	if (spec.numeric && (quoted || !isNumericToken))
 		throw new FilterError(`expected a number, got '${value}'`);
-	return n;
+	if (!quoted && isNumericToken) return n;
+	return value;
 }
