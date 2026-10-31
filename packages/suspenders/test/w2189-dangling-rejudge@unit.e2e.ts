@@ -161,7 +161,7 @@ test.describe("@unit", () => {
 
 	// W2189-b: one CLI pass supersedes legacy rejects, rejects aggregate edges,
 	// keeps survivors + edges
-	test("rejudge CLI supersedes legacy rejects, keeps survivors and edges @unit", () => {
+	test("rejudge CLI supersedes rejects, keeps survivors and edges @unit", () => {
 		const repo = base();
 		const proj = projectIdentity(repo);
 		const db = storeDb(repo);
