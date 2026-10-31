@@ -12,11 +12,16 @@ import {
 	partText,
 } from "../gates/claim-evidence.ts";
 
+// W2376: playwright joins the vocabulary — the repo's one test framework
+// (AGENTS.md W1294) runs as `playwright test ...` (often via a bun-resolved
+// binary path ending in /.bin/playwright). Without it every e2e run is
+// invisible to the claim-check and done fails closed on real evidence.
 const TEST_CMD_RE = new RegExp(
 	assemble(
 		"\\b(?:bun|npm|yarn|pnpm)\\s+(?:run\\s+)?(?:--?[a-z-]+\\s+)*",
 		"test\\b|\\bvitest\\b|\\bjest\\b|\\bnode\\s+--test\\b|\\bcargo\\s+",
-		"test\\b|\\bgo\\s+test\\b|\\bpytest\\b",
+		"test\\b|\\bgo\\s+test\\b|\\bpytest\\b|",
+		"\\bplaywright\\s+test\\b",
 	),
 	"i",
 );

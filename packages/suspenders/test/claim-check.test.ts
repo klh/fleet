@@ -387,6 +387,34 @@ describe("origin: foreign noise never counts (W917)", () => {
 		expect(events.claims).toHaveLength(0);
 	});
 
+	test("a playwright e2e run counts as a test run (W2376)", () => {
+		const events = transcriptEventsFromText(
+			[
+				toolUse(
+					"bun --bun node_modules/.bin/playwright test -c tests/playwright.config.ts tests/law-guards.e2e.ts",
+					-11,
+				),
+				lineOf({
+					type: "user",
+					timestamp: iso(-10),
+					message: {
+						role: "user",
+						content: [
+							{
+								type: "tool_result",
+								tool_use_id: `toolu_w917_${tid}`,
+								content: "  14 passed (652ms)",
+							},
+						],
+					},
+				}),
+			].join("\n"),
+			"claude",
+		);
+		expect(events.runs).toHaveLength(1);
+		expect(isPassingRun(events.runs[0]?.text ?? "")).toBe(true);
+	});
+
 	test("a result of a non-test command is not a run", () => {
 		const events = transcriptEventsFromText(
 			[
