@@ -4,7 +4,7 @@
 // with the REAL liveness verdict on deterministic rows (pid-less row on this
 // host reads dead; foreign-host row without transcript reads unknown), plus
 // the router wiring through the dispatch entrypoint itself.
-import { expect, test } from "@playwright/test";
+
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -14,13 +14,15 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
+import type { Lane } from "../hooks/lib/lanes/lane.ts";
 import {
 	mergeLaneRegistry,
 	pruneLaneRegistry,
 	readLaneRegistry,
 } from "../hooks/lib/lanes/lane-registry.ts";
 import { classifyPrune, registryMain } from "../scripts/lib/registry-cli.ts";
-import type { Lane } from "../hooks/lib/lanes/lane.ts";
+
 test.describe("@unit", () => {
 	test.setTimeout(30_000);
 
@@ -349,6 +351,45 @@ test.describe("@unit", () => {
 			expect(miss.lines.join("\n")).toContain("NO ENTRY ghost");
 		});
 	});
+
+	test.describe("watchdog safety (W2340)", () => {
+		test("--all-dead is idempotent: a drained registry re-prunes as a no-op", async () => {
+			const fleet = fleetOf();
+			const sid = `autow2340-idem-${Math.random().toString(36).slice(2, 8)}`;
+			mergeLaneRegistry(fleet, [
+				row(sid),
+				row("live-foreign", {
+					host: "elsewhere.example",
+					launchedAt: Date.now(),
+					pid: process.pid,
+				}),
+			]);
+			const first = await capture(() =>
+				registryMain(["prune", "--all-dead"], { fleet }),
+			);
+			expect(first.lines.join("\n")).toContain(`PRUNED ${sid}`);
+			// the refused foreign row stays; re-pruning changes nothing
+			expect(readLaneRegistry<Lane>(fleet).lanes.map((r) => r.sid)).toEqual([
+				"live-foreign",
+			]);
+			const second = await capture(() =>
+				registryMain(["prune", "--all-dead"], { fleet }),
+			);
+			expect(second.lines.join("\n")).not.toContain(`PRUNED ${sid}`);
+			expect(readLaneRegistry<Lane>(fleet).lanes.map((r) => r.sid)).toEqual([
+				"live-foreign",
+			]);
+		});
+		test("absent registry: --all-dead is a clean exit-0 sweep", async () => {
+			const fleet = fleetOf(); // no lanes.json ever written
+			const out = await capture(() =>
+				registryMain(["prune", "--all-dead"], { fleet }),
+			);
+			expect(out.code).toBe(0);
+			expect(out.lines.join("\n")).toContain("registry prune: 0 pruned");
+		});
+	});
+
 
 	test.describe("router wiring", () => {
 		test("dispatch-next.ts registry prune runs the verb end to end", () => {

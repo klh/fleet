@@ -8,26 +8,27 @@
 // the dispatch refusal check and `work lanes` trust), or the age/pid-dead
 // trust below — re-verified under the registry lock. Live and young-unknown
 // reads are REFUSALS, never silent skips.
+
+import { openStore } from "../../hooks/lib/govdb/govdb.ts";
+import { type Lane, loadLanes } from "../../hooks/lib/lanes/lane.ts";
+import {
+	type LaneRef,
+	laneVerdict,
+	pidAlive,
+} from "../../hooks/lib/lanes/lane-liveness.ts";
+import {
+	pendingManagedRestart,
+	pruneLaneRegistry,
+} from "../../hooks/lib/lanes/lane-registry.ts";
 import {
 	defineVerb,
+	type Parsed,
 	parseVerb,
 	renderRegistryHelp,
 	renderVerbHelp,
-	type Parsed,
 	type VerbSpec,
 } from "../../hooks/lib/verb-kit.ts";
-import {
-	pruneLaneRegistry,
-	pendingManagedRestart,
-} from "../../hooks/lib/lanes/lane-registry.ts";
-import { openStore } from "../../hooks/lib/govdb/govdb.ts";
 import { captureLaneDeaths } from "./lane-death-capture.ts";
-import {
-	laneVerdict,
-	pidAlive,
-	type LaneRef,
-} from "../../hooks/lib/lanes/lane-liveness.ts";
-import { loadLanes, type Lane } from "../../hooks/lib/lanes/lane.ts";
 import { repairManagedWrapperPid } from "./registry-pid-repair.ts";
 
 // W651: the verb registry owns the surface — help is generated, parsing rides
