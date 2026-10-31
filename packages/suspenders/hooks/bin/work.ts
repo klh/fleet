@@ -25,12 +25,17 @@ import {
 import { emitDoneBroadcast } from "../lib/done-broadcast.ts";
 import { detectClient } from "../lib/executors/detect.ts";
 import { automaticRecoveryCheck } from "../lib/fleet-loop/automatic-recovery.ts";
+import { runRejudgeVerb } from "../lib/fleet-loop/dangling-rejudge.ts";
 import { triggerMergeOnDone } from "../lib/fleet-loop/merge-on-done.ts";
 import { unmergedDeps, unmergedNote } from "../lib/gates/dep-merge-gate.ts";
 import { reproGateRefusal } from "../lib/gates/repro-gate.ts";
 import { projectRootOf, resolveSidOf } from "../lib/govdb/govdb.ts";
 import { itemCapsuleKey } from "../lib/lanes/capsule-fence.ts";
-import { BACKFILL_EVENT, backfillForItem } from "../lib/lanes/lane-backfill.ts";
+import {
+	BACKFILL_EVENT,
+	backfillForItem,
+	runBackfillVerb,
+} from "../lib/lanes/lane-backfill.ts";
 import { rebindKeptLaneContext } from "../lib/lanes/lane-context.ts";
 import {
 	doneSpendStamp,
@@ -716,25 +721,17 @@ const dispatchVerb = async (
 	} else if (name === "backfill") {
 		// W2059: link an already-closed item's closer-session ledger rows as a
 		// work.attribution stamp. sid default = the completion record's closer.
-		const id = pos[0];
-		if (!id) die("usage: backfill <id> [--as sid]");
-		const it = get(id);
-		if (it.state !== "DONE")
-			die(`${id} is ${it.state} — backfill attributes a DONE item's close`);
-		const record = completionRecord(db(), PROJECT, id);
-		const sid = flag("--as") ?? String(record?.completed_by ?? "").trim();
-		if (!sid) die(`${id} has no closer sid on record — pass --as <sid>`);
-		const bf = backfillForItem(db(), PROJECT, id, sid, resolveBuckleDb());
-		if (!bf) {
-			console.log(
-				`${id}: no closer-key ledger rows in the close window — stays '-' (honest no-data)`,
-			);
-		} else {
-			emit(BACKFILL_EVENT, id, { backfill: JSON.stringify(bf), sid });
-			console.log(
-				`${green("✓")} ${cyan(id)} attribution backfilled: fresh ${bf.fresh} · cached ${bf.cached} · out ${bf.out} · ${bf.requests} req · groups ${Object.keys(bf.groups).join(",") || "-"}`,
-			);
-		}
+		runBackfillVerb(
+			db(),
+			PROJECT,
+			pos[0],
+			{
+				as: flag("--as"),
+				completionRecord,
+				ledgerPath: resolveBuckleDb(),
+			},
+			{ die },
+		);
 	} else if (name === "fail") {
 		const id = pos[0];
 		const note = flag("--note") ?? "";
@@ -852,6 +849,14 @@ const dispatchVerb = async (
 		// without this emit, linked NEED_DECISIONs hang OPEN (finding.w781)
 		emit("work.superseded", id, { note: `superseded by ${byId}` });
 		console.log(`${dim("■")} ${id} superseded by ${byId}`);
+	} else if (name === "rejudge") {
+		// W2189: one classifier-driven pass over open dangling-path repairs —
+		// rejects supersede (legacy items) or bank per-edge reject events
+		// (the aggregate item); survivors and their edges stay untouched.
+		if (pos[0] !== "dangling") die("usage: rejudge dangling [--dry-run]");
+		runRejudgeVerb(db(), projectRootOf(PROJECT), die, {
+			dryRun: flag("--dry-run") !== null,
+		});
 	} else if (name === "block") {
 		const id = pos[0];
 		const on = flag("--on");
