@@ -222,7 +222,7 @@ delegates to BLAM's engine, and model enhancement has an endpoint fallback.
 
 ```mermaid
 flowchart LR
-  CFG[("Machine configuration<br/>stack.yaml · one version pin")]
+  CFG[("Machine configuration<br/>stack.json · one version pin")]
   CTL["hubctl<br/>render · mint · push · up · status · deploy"]
   HUB["Hub services<br/>gateway · board · store · model dashboard"]
   PROBE["Independent health sidecars<br/>network probes · confirming re-probe"]
@@ -236,14 +236,14 @@ flowchart LR
 ```
 
 Hub profiles supply ports, binds, transports and secret paths. The version
-pin in `stack.yaml` selects the same git ref every hub pulls, and hub
+pin in `stack.json` selects the same git ref every hub pulls, and hub
 containers mount git-pulled volumes, never host paths. Health comes from a
 separate probe process with consecutive-miss handling and an active
 confirmation before declaring a target down. The compose template mounts this
 checkout's `packages/` trees; `hubctl deploy <hub>` runs the whole chain
 (mint, push, up, status). More:
 [hub deployment](packages/suspenders/deploy/README.md),
-[example configuration](packages/suspenders/deploy/stack.example.yaml).
+[example configuration](packages/suspenders/deploy/stack.example.json).
 
 ## Get started
 
@@ -279,12 +279,13 @@ bash packages/suspenders/install.sh --dry-run
 ```
 
 `install.sh` is a thin wrapper over the native installer
-(`bun scripts/install.ts`). Documented flags include `--wire`,
+(`bun packages/suspenders/scripts/install.ts`). Documented flags include
+`--wire`,
 `--with-launchd`, `--skip-models`, `--no-llm`, `--profile hub|spoke`,
 `--prune`, `--step`, `--json`, `--yes` and `--hub <name>`, with
 `SUSPENDERS_PREFIX` and `SUSPENDERS_SHIM_BIN` overrides. The default plan
 attempts model downloads; `--skip-models` and `--no-llm` skip those.
-`--hub <name>` runs the one-shot hub deploy against the machine `stack.yaml`.
+`--hub <name>` runs the one-shot hub deploy against the machine `stack.json`.
 
 For a fleet-wide install across packages, speedy ships the umbrella installer
 (`packages/speedy/bin/install-fleet.ts`), which defaults to this repository.
@@ -341,8 +342,8 @@ supplies examples and defaults.
 | `~/.config/klh/stack.json`                | Hub profiles, deployment settings, the stack version pin and the central `providers:` key block |
 | `~/.claude/local-llm/belt.env`            | Runtime provider settings and buckle admin credential       |
 | `~/.claude/local-llm/hubs.json`           | Hub labels and candidate URLs                               |
-| `~/.claude/local-llm/routing-policy.yaml` | Operator-owned routing ladder                               |
-| `~/.claude/local-llm/upstreams.yaml`      | Runtime upstream group overrides                            |
+| `~/.claude/local-llm/routing-policy.json` | Operator-owned routing ladder                               |
+| `~/.claude/local-llm/upstreams.json`      | Runtime upstream group overrides                            |
 | `~/.claude/local-llm/buckle-spoke.env`    | Spoke bootstrap credential                                  |
 
 Keep secret-bearing files mode **0600**. Root keys are generated on the target
@@ -351,7 +352,7 @@ revocable. Example ports in package docs are not universal settings.
 
 ## Engineering principles
 
-- **One stack version.** The version pin in `stack.yaml` selects the same ref
+- **One stack version.** The version pin in `stack.json` selects the same ref
   across deployed services; hubctl renders it as the ref every hub pulls.
 - **One work ledger.** Tasks and claims belong in the work graph; docs explain
   architecture and decisions. Project identity follows the Git common

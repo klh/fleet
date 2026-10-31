@@ -2,7 +2,7 @@
 
 One version for the whole stack: every release is a single git tag (`v2.0.0`
 style) and all `packages/*` manifests carry that version. The `version:` pin in
-machine-level `~/.config/klh/stack.yaml` names the same ref and `hubctl` renders
+machine-level `~/.config/klh/stack.json` names the same ref and `hubctl` renders
 it as what every hub pulls. Details for a release live in the work graph and
 package docs, not here — this file records the release line only.
 
