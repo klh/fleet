@@ -1,11 +1,12 @@
 // test/policy.test.ts — parse + defaults for the W124 policy shape.
-import { expect, test } from "@playwright/test";
+
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import {
-	POLICY_DEFAULTS,
 	loadGatewayPolicy,
+	POLICY_DEFAULTS,
 	parsePolicy,
 } from "../src/policy.ts";
 
@@ -87,6 +88,9 @@ test.describe("@unit", () => {
 			// W450 long-generation deadlines
 			stream_idle_timeout_s: 60,
 			stream_total_timeout_s: 900,
+			// W2266 terminal-SSE breaker: the ejection posture carries over
+			stream_allowed_fails: 3,
+			stream_cooldown_time_s: 30,
 		});
 	});
 
@@ -161,7 +165,18 @@ test.describe("@unit", () => {
 
 	test("parsePolicy: cost block parses into the versioned price table", () => {
 		const p = parsePolicy(
-			JSON.stringify({ cost: { version: "rates-2026-10", models: { m: { in_per_tok: 0.000002, out_per_tok: 0.00001, cache_read_mult: 0.1 } } } }),
+			JSON.stringify({
+				cost: {
+					version: "rates-2026-10",
+					models: {
+						m: {
+							in_per_tok: 0.000002,
+							out_per_tok: 0.00001,
+							cache_read_mult: 0.1,
+						},
+					},
+				},
+			}),
 		);
 		expect(p.cost?.version).toBe("rates-2026-10");
 		expect(p.cost?.models?.m?.in_per_tok).toBe(0.000002);
@@ -171,6 +186,8 @@ test.describe("@unit", () => {
 		expect(parsePolicy(JSON.stringify({ version: 1 })).cost).toBeNull();
 	});
 	test("parsePolicy: cost block without a version refuses startup (fail-closed)", () => {
-		expect(() => parsePolicy(JSON.stringify({ cost: { models: {} } }))).toThrow(/cost\.version/);
+		expect(() => parsePolicy(JSON.stringify({ cost: { models: {} } }))).toThrow(
+			/cost\.version/,
+		);
 	});
 });

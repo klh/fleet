@@ -1,13 +1,16 @@
 // src/proxy-stream.ts — SSE pass-through with the usage-only tee,
 // W616.1 re-framer, W1106 stream receipts, W1156 drain terminals.
 
+import { safeFailureKind } from "@klh/telemetry/src/http-trace.ts";
 import { RouterError } from "./adapters/errors.ts";
-import { traceStreamErrorPayload } from "./error-trace.ts";
 import { affinityOn } from "./affinity.ts";
+import type { AppDeps } from "./app-deps.ts";
 import { onDrain, writeDrainTerminal } from "./drain.ts";
+import { traceStreamErrorPayload } from "./error-trace.ts";
 import { endInflight } from "./gov/inflight.ts";
 import { jsonResponse } from "./proxy-body.ts";
-import { observe, type Ctx } from "./request-context.ts";
+import { type Ctx, observe } from "./request-context.ts";
+import type { ExecuteResult } from "./router.ts";
 import { SseSniffer, sseReframer } from "./sse.ts";
 import {
 	blackHole,
@@ -17,9 +20,6 @@ import {
 } from "./stream-terminal.ts";
 import { record } from "./usage-record.ts";
 import { SSE_HEADERS } from "./wire-stamp.ts";
-import { safeFailureKind } from "@klh/telemetry/src/http-trace.ts";
-import type { AppDeps } from "./app-deps.ts";
-import type { ExecuteResult } from "./router.ts";
 
 /** SSE pass-through with the usage-only tee: one branch flows to the client
  *  through the W616.1 sseReframer for anthropic clients (canonical frames,
@@ -153,6 +153,26 @@ export function streamResponse(
 			sniffer.usage(),
 			sniffer.cacheReported(),
 			sniffer.cacheWriteReported(),
+		);
+		// W2266: the receipt's own terminal feeds the terminal-SSE circuit
+		// breaker. Downstream cancels / drain cuts never count (the client's
+		// or the gateway's, not the upstream's); a completed stream resets
+		// the row's consecutive-failure count. The bench affects only the
+		// NEXT request — this stream is already over, never a mid-stream
+		// re-route.
+		deps.streamBreaker?.terminal(
+			result.deployment,
+			streamCancelled
+				? { kind: "downstream_cancel" }
+				: drainedCut
+					? { kind: "drain_cut" }
+					: streamFailed
+						? { kind: "failed", failureKind: streamFailureKind }
+						: streamInBand !== null
+							? { kind: "in_band", failureKind: streamInBand }
+							: streamTruncated
+								? { kind: "truncated" }
+								: { kind: "completed" },
 		);
 		const selected = ctx.sel?.head.candidate_id;
 		// W1106 (#55344): a downstream cancel is a DISTINCT non-success —
