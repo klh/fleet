@@ -42,6 +42,9 @@ export interface WorkItemRow {
 	wait_kind: string | null;
 	wait_reason: string | null;
 	wait_until: number | null;
+	/** W2333 (Kueue F4): the enumerated LaunchFailure kind stamped on the
+	 *  FAILED write — NULL on pre-F4 rows and non-FAILED states. */
+	fail_reason: string | null;
 }
 
 // W92.2: the board binds the control-plane store port — colocation-free

@@ -222,6 +222,11 @@ export function openGovernorDb(): Database {
 		db.run("ALTER TABLE work_items ADD COLUMN wait_reason TEXT");
 	if (!wiCols.includes("wait_until"))
 		db.run("ALTER TABLE work_items ADD COLUMN wait_until INTEGER");
+	// W2333 (Kueue F4) — reason-carrying terminal records: the enumerated
+	// LaunchFailure kind (rate-limit|upstream|transport|configuration|unknown)
+	// stamped on the FAILED write. NULL = pre-F4 rows (unknown, never re-derived).
+	if (!wiCols.includes("fail_reason"))
+		db.run("ALTER TABLE work_items ADD COLUMN fail_reason TEXT");
 	if (uv < 2) db.run("PRAGMA user_version = 2");
 	// v4 — consult knowledge base: (problem → solution) pairs harvested from
 	// answered consults; new consults resolve against it before routing to a
