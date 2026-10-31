@@ -24,9 +24,9 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { appendSweepNotice, pausePath, readPause } from "./sweep-state.ts";
-import type { LoopDeps } from "./runtime.ts";
 import { MODEL_HEALTH_SWEEP_S } from "../hub/model-health.ts";
+import type { LoopDeps } from "./runtime.ts";
+import { appendSweepNotice, pausePath, readPause } from "./sweep-state.ts";
 
 export interface MaintenanceTask {
 	/** registry name — also the stamp key and the log tag */
@@ -59,22 +59,6 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		calendar: { hour: 10, minute: 0 },
 		timeoutMs: 240_000,
 		argv: (root) => [join(root, "hooks/bin/db-backup.ts")],
-	},
-	{
-		// W2274: governor.db retention — events/audit/usage archive-and-prune
-		// plus the deltas ring. Nothing scheduled gc before, so the db grew
-		// unbounded (980 MB, deltas 596 MB). Window knob: SUSPENDERS_GC_DAYS.
-		name: "governor-gc",
-		calendar: { hour: 4, minute: 10 },
-		nice: 10,
-		timeoutMs: 600_000,
-		argv: (root) => [
-			join(root, "hooks/bin/coord.ts"),
-			"gc",
-			...(process.env.SUSPENDERS_GC_DAYS
-				? ["--days", process.env.SUSPENDERS_GC_DAYS]
-				: []),
-		],
 	},
 	{
 		name: "harvest",
@@ -448,6 +432,29 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 			repo,
 		],
 		cwd: (repo) => repo,
+	},
+	{
+		// W2274: governor.db retention — `coord gc --vacuum` daily off-peak so
+		// the deltas/events/facts churn (harvest.*, metrics.*, executor.*)
+		// cannot grow the file unbounded again (2026-10-29: 980 MB). VACUUM
+		// is an exclusive full-file rewrite — the one place it fits is an
+		// idle-hours fire; prunes alone would only bank freelist pages.
+		// archive-before-delete keeps the NDJSON long-term store under
+		// ~/.cache/claude-governor/archive/. Nothing here is a ledger table —
+		// work items are never auto-deleted. SUSPENDERS_MAINTENANCE=0
+		// disables (ops escape).
+		name: "gov-gc",
+		calendar: { hour: 4, minute: 0 },
+		nice: 10,
+		timeoutMs: 600_000,
+		argv: (root) => [
+			join(root, "hooks/bin/coord.ts"),
+			"gc",
+			"--vacuum",
+			...(process.env.SUSPENDERS_GC_DAYS
+				? ["--days", process.env.SUSPENDERS_GC_DAYS]
+				: []),
+		],
 	},
 	{
 		// W2309: the hub port-publishing self-heal — per live hub profile,

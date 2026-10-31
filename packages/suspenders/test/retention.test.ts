@@ -57,6 +57,7 @@ describe("retention", () => {
 			table: "events",
 			tsCol: "ts",
 			cut: now - 30 * DAY,
+			pkCols: ["id"],
 			dir: ARCHIVE,
 			cols: ["id", "ts", "source", "kind", "scope", "payload", "target"],
 		});
@@ -92,6 +93,7 @@ describe("retention: NDJSON fidelity + idempotence", () => {
 			table: "events",
 			tsCol: "ts",
 			cut: now - 30 * DAY,
+			pkCols: ["id"],
 			dir: ARCHIVE,
 			cols: ["id", "ts", "source", "kind", "scope", "payload", "target"],
 		});
@@ -111,6 +113,7 @@ describe("retention: per-table windows", () => {
 			table: "route_audit",
 			tsCol: "ts",
 			cut: now - 90 * DAY,
+			pkCols: ["rid"],
 			dir: ARCHIVE,
 			cols: [
 				"rid",
@@ -149,6 +152,7 @@ describe("retention: per-table windows", () => {
 			table: "usage_rollup",
 			tsCol: "hour_bucket",
 			cut: now - 180 * DAY,
+			pkCols: ["hour_bucket", "actor", "model"],
 			dir: ARCHIVE,
 			cols: [
 				"hour_bucket",
@@ -174,6 +178,7 @@ describe("retention: per-table windows", () => {
 			table: "auth_events",
 			tsCol: "ts",
 			cut: now - 180 * DAY,
+			pkCols: ["id"],
 			dir: ARCHIVE,
 			cols: ["id", "ts", "actor", "event", "jti", "via"],
 		});
@@ -182,6 +187,7 @@ describe("retention: per-table windows", () => {
 			table: "admin_audit",
 			tsCol: "ts",
 			cut: now - 365 * DAY,
+			pkCols: ["id"],
 			dir: ARCHIVE,
 			cols: ["id", "ts", "actor", "action", "target", "detail"],
 		});

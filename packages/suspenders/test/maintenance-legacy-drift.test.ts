@@ -41,11 +41,12 @@ const HEARTBEAT_BORN: Record<string, string> = {
 	"zai-catalog-refresh": "W1029.1",
 	"cost-alert": "W1132",
 	"model-health-sweep": "W2194",
-	"governor-gc": "W2274",
 	"kev-review-drain": "D7",
 	"consult-tick": "hub phase 4",
 	"hub-update": "W2239.3",
 	"hub-port-heal": "W2309",
+	"gov-gc": "W2274",
+	"knowledge-distill": "fork G",
 };
 
 // Retired com.suspenders.* labels that were never maintenance tasks —
