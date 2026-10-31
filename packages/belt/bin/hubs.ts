@@ -15,15 +15,16 @@
 // is one compose-up command the hub executes.
 
 import { readFileSync } from "node:fs";
+import { isLoopbackHostname } from "@klh/kernel/src/kernel.loopback.module.ts";
 import { composeUpArgv } from "@klh/suspenders/deploy/hub-remote.ts";
 import { mergedHubUpstreams } from "@klh/suspenders/deploy/openrouter-free.ts";
 import { mergeZaiHubUpstreams } from "@klh/suspenders/deploy/zai-catalog.ts";
 import {
+	type HubProfile,
 	inQuietHours,
 	tryLoadStack,
-	type HubProfile,
 } from "@klh/suspenders/hooks/lib/stack-config.ts";
-import { isLoopbackHostname } from "@klh/kernel/src/kernel.loopback.module.ts";
+import { providerKey } from "./dashboard-topology-model.js";
 import type { Target } from "./supervisor.ts";
 
 const HUBS_PATH = () =>
@@ -308,7 +309,21 @@ export function providerObservationsFromRequests(
 	now = Date.now(),
 ): HubProviderObservation[] {
 	const providerByModel = new Map<string, string>();
+	// W993: configured upstream hosts resolve the provider without a declared
+	// intent — hub moves surface automatically. Only unambiguous cloud hosts
+	// map; providerKey falls through to the raw host for local/unknown
+	// targets, which never becomes a provider edge.
+	for (const [model, hosts] of Object.entries(routes.providerHostsByModel)) {
+		const keys = new Set(
+			hosts
+				.map((host) => [providerKey(host), host.toLowerCase()])
+				.filter(([mapped, raw]) => mapped !== raw)
+				.map(([mapped]) => mapped),
+		);
+		if (keys.size === 1) providerByModel.set(model, [...keys][0]);
+	}
 	for (const [model, aliases] of Object.entries(routes.routesByModel)) {
+		if (providerByModel.has(model)) continue;
 		const providers = new Set(
 			aliases
 				.map((alias) => alias.split("/")[0])
@@ -362,8 +377,9 @@ export async function hubProviderObservations(
 		routes.map(async (route) => {
 			const profile = profiles.get(route.name.toLowerCase());
 			const hub = hubs.get(route.name.toLowerCase());
-			if (!profile?.token_file || !hub || !route.providerIntents.length)
-				return [];
+			// W993: a hub needs only a credential to contribute evidence —
+			// provider resolution happens per-model below, host-derived.
+			if (!profile?.token_file || !hub) return [];
 			try {
 				const key = readFileSync(profile.token_file, "utf8").trim();
 				if (!key) return [];
