@@ -115,7 +115,7 @@ const count = (db: Database, kind: string): number =>
 
 // W2189-a: the judge rejects the flood classes, keeps the real edges
 test.describe("@unit", () => {
-	test("judge applies current scoping rules", () => {
+	test("judge applies current scoping rules @unit", () => {
 		const kept: DanglingEvidence = {
 			target: "packages/telemetry/src/x.ts",
 			refBy: "packages/suspenders/hooks/bin/a.ts",
@@ -161,7 +161,7 @@ test.describe("@unit", () => {
 
 	// W2189-b: one CLI pass supersedes legacy rejects, rejects aggregate edges,
 	// keeps survivors + edges
-	test("rejudge CLI supersedes legacy rejects, aggregate edges reject per-edge", () => {
+	test("rejudge CLI supersedes legacy rejects, keeps survivors and edges @unit", () => {
 		const repo = base();
 		const proj = projectIdentity(repo);
 		const db = storeDb(repo);
@@ -228,7 +228,7 @@ test.describe("@unit", () => {
 	});
 
 	// W2189-c: idempotent fix banking + install-keyed hold
-	test("fix hold keys on the installed receipt revision", () => {
+	test("fix hold keys on the installed receipt revision @unit", () => {
 		const repo = base();
 		const proj = projectIdentity(repo);
 		const db = storeDb(repo);
@@ -276,7 +276,7 @@ test.describe("@unit", () => {
 	});
 
 	// rejudgeDangling library face: dry-run touches nothing
-	test("rejudge dry-run reports without mutating", () => {
+	test("rejudge dry-run reports without mutating @unit", () => {
 		const repo = base();
 		const proj = projectIdentity(repo);
 		const db = storeDb(repo);
