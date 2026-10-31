@@ -168,10 +168,76 @@ describe("W234 e2e harness (no-daemon fixtures)", () => {
 		expect(statSync(f).mode & 0o777).toBe(0o600);
 		rmSync(join(f, ".."), { recursive: true, force: true });
 	});
+
+	test("W2260 semantic-SSE smoke: complete turn passes", async () => {
+		// positive leg of the W2260 deploy smoke, no docker: the REAL stub
+		// tier streams a FULL semantic turn (marker delta + [DONE]).
+		const { probeSemanticSseStream } = await import(
+			"../deploy/e2e/run-e2e.ts"
+		);
+		const port = 20000 + Math.floor(Math.random() * 20000);
+		const p = spawn(process.execPath, [join(E2E, "stub-tier.ts")], {
+			env: { ...process.env, TIER_PORT: String(port) },
+			stdout: "pipe",
+		});
+		try {
+			expect(await waitStubUp(port)).toBe(true);
+			const good = await probeSemanticSseStream(
+				"unused-root",
+				`http://127.0.0.1:${port}`,
+			);
+			expect(good.ok).toBe(true);
+			expect(good.detail).toContain("terminal true");
+		} finally {
+			await kill(p);
+		}
+	});
+
+	test("W2260 semantic-SSE smoke: truncated 200 body fails", async () => {
+		// negative leg — HTTP 200 with deltas but the stream closes BEFORE
+		// the protocol terminal: the incident shape. The probe must fail it.
+		const { probeSemanticSseStream } = await import(
+			"../deploy/e2e/run-e2e.ts"
+		);
+		const trunc = Bun.serve({
+			port: 0,
+			fetch: () =>
+				new Response(
+					'data: {"choices":[{"delta":{"content":"half-a-turn"}}]}\n\n',
+					{ headers: { "content-type": "text/event-stream" } },
+				),
+		});
+		try {
+			const bad = await probeSemanticSseStream(
+				"unused-root",
+				`http://127.0.0.1:${trunc.port}`,
+			);
+			expect(bad.ok).toBe(false);
+			expect(bad.detail).toContain("terminal false");
+		} finally {
+			trunc.stop(true);
+		}
+	});
 });
 
 /** reap a spawned stub + its stdout pipe reader */
 async function kill(p: ReturnType<typeof spawn>): Promise<void> {
 	p.kill();
 	await Bun.sleep(100);
+}
+
+/** Wait until a spawned stub answers /healthz (the W2260 smoke spec's
+ *  second copy of the stub-tier wait loop — shared, not re-rolled). */
+async function waitStubUp(port: number): Promise<boolean> {
+	for (let i = 0; i < 50; i++) {
+		try {
+			const r = await fetch(`http://127.0.0.1:${port}/healthz`, {
+				signal: AbortSignal.timeout(1000),
+			});
+			if (r.ok) return true;
+		} catch {
+			await Bun.sleep(200);
+		}
+	}
+	return false;
 }
