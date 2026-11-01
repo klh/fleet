@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "@playwright/test";
-import { probePathFor } from "../../belt/bin/inventory-probe.ts";
+import { probePathFor } from "@klh/belt/bin/inventory-probe.ts";
 import { buildUsageReport } from "../hooks/lib/usage/usage.ts";
 import { seedUsage } from "../hooks/lib/usage/usage-seed.ts";
 
