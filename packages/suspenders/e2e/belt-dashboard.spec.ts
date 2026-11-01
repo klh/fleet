@@ -9,7 +9,7 @@ import { createServer, type Server } from "node:http";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
-import { displayLabel } from "../../belt/bin/klh-theme.ts";
+import { displayLabel } from "@klh/kernel/src/kernel.theme.module.ts";
 
 const BELT_BIN = join(
 	fileURLToPath(import.meta.url),

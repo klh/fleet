@@ -3,7 +3,7 @@
 // drift during the package-by-package migration fails loudly here. A face
 // that MIGRATES (its package repoints to kernel and the twin is deleted)
 // drops its block from this file in the same change.
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { servicemon } from "../src/kernel.servicemon.module.ts";
@@ -79,11 +79,23 @@ describe("kernel twin-parity (byte-equal promotion fidelity)", () => {
 		]);
 	});
 
-	test("theme: 4-way byte-equal (kernel + suspenders + belt + local)", () => {
-		const kernel = bytesOf(`${KERNEL}/kernel.theme.module.ts`);
-		expect(kernel).toBe(bytesOf("packages/suspenders/hooks/lib/theme.ts"));
-		expect(kernel).toBe(bytesOf("packages/belt/bin/klh-theme.ts"));
-		expect(kernel).toBe(bytesOf("packages/local/bin/klh-theme.ts"));
+	// W2269.1.1: theme MIGRATED — kernel.theme.module.ts is the single
+	// source, the three vendored twins are deleted, consumers import
+	// @klh/kernel/src/kernel.theme.module.ts. The retired twin paths must
+	// stay dead (a re-vendored copy is drift, not parity).
+	test("theme: single-sourced in kernel, the vendored twins stay deleted", () => {
+		expect(
+			existsSync(join(repoRoot, "packages/suspenders/hooks/lib/theme.ts")),
+		).toBe(false);
+		expect(
+			existsSync(join(repoRoot, "packages/belt/bin/klh-theme.ts")),
+		).toBe(false);
+		expect(
+			existsSync(join(repoRoot, "packages/local/bin/klh-theme.ts")),
+		).toBe(false);
+		expect(bytesOf(`${KERNEL}/kernel.theme.module.ts`)).toContain(
+			'"--klh-font-mono"',
+		);
 	});
 
 	test("kernel src imports nothing in fleet (node builtins only)", () => {
