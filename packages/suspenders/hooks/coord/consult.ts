@@ -40,6 +40,7 @@ import { claimedWorkOf } from "../lib/lanes/lane-effort.ts";
 import { listLiveTargets, resolveTarget } from "./addressing.ts";
 import { queueDirectedReceipt } from "./bus.ts";
 import { consultVersion, ensureConsultTrust } from "./consult-trust.ts";
+import { runContrastive } from "./contrastive.ts";
 import {
 	arg,
 	cyan,
@@ -65,8 +66,15 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 	// W449: skip-next only applies to VALUE options — boolean flags (--best,
 	// --no-kb) used to swallow the following positional (the question), so
 	// `consult --best "q"` died with a usage error.
-	const valueOpts = new Set(["--as", "--scope", "--version", "--hub"]);
-	const boolOpts = new Set(["--best", "--no-kb"]);
+	const valueOpts = new Set([
+		"--as",
+		"--scope",
+		"--version",
+		"--hub",
+		"--k",
+		"--domain",
+	]);
+	const boolOpts = new Set(["--best", "--no-kb", "--contrastive"]);
 	const pos: string[] = [];
 	for (let i = 0; i < rest.length; i++) {
 		if (valueOpts.has(rest[i])) {
@@ -79,16 +87,19 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 	}
 	let expert: string | null = null;
 	let question: string;
-	if (rest.includes("--best")) {
+	if (rest.includes("--best") || rest.includes("--contrastive")) {
 		question = pos.join(" ");
 	} else {
 		expert = pos[0] ?? null;
 		question = pos.slice(1).join(" ");
 	}
 	if (!as) die("consult requires --as <asker-sid>");
-	if ((!expert && !rest.includes("--best")) || !question)
+	if (
+		(!expert && !rest.includes("--best") && !rest.includes("--contrastive")) ||
+		!question
+	)
 		die(
-			'usage: consult [--best] "<question>" | consult <sid> <question> [--scope s] --as <asker>',
+			'usage: consult [--best] "<question>" | consult <sid> <question> [--scope s] | consult --contrastive [--k n] [--domain d] "<question>" --as <asker>',
 		);
 	// W934.2.1.2: the federation envelope — trace id + idempotency key.
 	ensureConsultFederation(db);
@@ -113,8 +124,12 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 		);
 	};
 
+	// W927: the grouping word — stamped on the row, threaded into retrieval
+	const domain = arg("--domain");
 	// Lessons are advisory context, not verified solutions.
-	const lessonHit = rest.includes("--no-kb") ? null : lessonLookup(question);
+	const lessonHit = rest.includes("--no-kb")
+		? null
+		: lessonLookup(question, domain);
 	// W909 CONSULT column: stamp the asker's current claim into every consult
 	// event payload — the reporter renders Y/N from these links.
 	const work = claimedWorkOf(db, projectIdentity(), as);
@@ -125,13 +140,15 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 	const version = arg("--version") ?? consultVersion();
 	const kbHit = rest.includes("--no-kb")
 		? null
-		: kbLookup(question, projectIdentity(), scope, version, true);
+		: kbLookup(question, projectIdentity(), scope, version, true, domain);
 	// W604: consult_kb first (asker-verified solutions), then the knowledge
 	// store — a hash-verified fact answers with its trust attached; lanes only
 	// pinged on miss. --no-kb escapes both.
 	const factHit =
-		kbHit || rest.includes("--no-kb") ? null : await factLookup(question);
-	if (!kbHit && !factHit) {
+		kbHit || rest.includes("--no-kb")
+			? null
+			: await factLookup(question, domain);
+	if (!kbHit && !factHit && !rest.includes("--contrastive")) {
 		if (rest.includes("--best"))
 			expert =
 				rankExperts(projectIdentity(), question, scope, as)[0]?.sid ?? null;
@@ -210,7 +227,7 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 	if (kbHit) {
 		const r = db
 			.query(
-				"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, answer, created_at, answered_at) VALUES (?, ?, ?, ?, ?, 'KB', ?, ?, ?)",
+				"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, answer, created_at, answered_at, domain) VALUES (?, ?, ?, ?, ?, 'KB', ?, ?, ?, ?)",
 			)
 			.run(
 				projectIdentity(),
@@ -221,6 +238,7 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 				kbHit.solution,
 				Date.now(),
 				Date.now(),
+				domain,
 			);
 		const cid = `C${r.lastInsertRowid}`;
 		ensureConsultTrust(db);
@@ -271,7 +289,7 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 		// trust attached — the consult is never routed to a live lane.
 		const r = db
 			.query(
-				"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, answer, created_at, answered_at) VALUES (?, ?, ?, ?, ?, 'FACT', ?, ?, ?)",
+				"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, answer, created_at, answered_at, domain) VALUES (?, ?, ?, ?, ?, 'FACT', ?, ?, ?, ?)",
 			)
 			.run(
 				projectIdentity(),
@@ -282,6 +300,7 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 				factHit.fact ?? "",
 				Date.now(),
 				Date.now(),
+				domain,
 			);
 		const cid = `C${r.lastInsertRowid}`;
 		// phase 4: every knowledge answer carries the trust mark + the
@@ -327,6 +346,22 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 		console.log(
 			`${green("✓")} ${cyan(cid)} answered from ${factHit.oracle === "trusted" ? "a verified fleet fact" : "an UNREVIEWED candidate fact"} ${dim(`k#${factHit.id} "${factHit.topic}" [hash ${factHit.trust}] — --no-kb routes to a human`)}\n  ${factHit.fact ?? ""}\n  ${mark}`,
 		);
+	} else if (rest.includes("--contrastive")) {
+		// W927 contrastive consult — runContrastive mints the consult row,
+		// fans k anonymized legs, composes identity-blind, writes kb + event.
+		const out = await runContrastive({
+			question,
+			scope,
+			as,
+			domain,
+			link,
+			version,
+			k: Number(arg("--k")),
+		});
+		if (out.refused)
+			die(
+				`contrastive pool refused ${out.cid ? `C${out.cid}` : "consult"}: ${out.refused} — evidence retained on the consult row`,
+			);
 	} else {
 		const pending = (
 			db
@@ -341,7 +376,7 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 			);
 		const r = db
 			.query(
-				"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, created_at, deadline_at) VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?)",
+				"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, created_at, deadline_at, domain) VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?, ?)",
 			)
 			.run(
 				projectIdentity(),
@@ -351,6 +386,7 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 				scope,
 				Date.now(),
 				consultDeadline(Date.now()),
+				domain,
 			);
 		stampFederation(Number(r.lastInsertRowid), "OPEN");
 		recordRouteStage(db, Number(r.lastInsertRowid), "expert");
@@ -380,7 +416,21 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 
 export async function cmdConsultReply(rest: string[]): Promise<void> {
 	const as = arg("--as");
-	const known = new Set(["--as", "--evidence", "--version", "--feedback"]);
+	const known = new Set([
+		"--as",
+		"--evidence",
+		"--version",
+		"--feedback",
+		"--cue",
+		"--lesson",
+		"--confidence",
+		"--domain",
+	]);
+	const CONF_VALUE: Record<string, number> = {
+		high: 0.7,
+		medium: 0.6,
+		low: 0.3,
+	};
 	const pos: string[] = [];
 	for (let i = 0; i < rest.length; i++) {
 		if (known.has(rest[i])) {
@@ -396,8 +446,14 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 	const text = pos.slice(1).join(" ");
 	if (!cid || (!text && !decline && !arg("--feedback")) || !as)
 		die(
-			'usage: consult-reply <C##> "<answer>" [--decline] [--version ref] --as <expert-sid> | consult-reply <C##> --feedback resolved|failed|unused [--evidence result] [--version ref] --as <asker-sid>',
+			'usage: consult-reply <C##> "<answer>" [--decline] [--version ref] [--cue c] [--lesson l] [--evidence e] [--confidence high|medium|low] [--domain d] --as <expert-sid> | consult-reply <C##> --feedback resolved|failed|unused [--evidence result] [--version ref] --as <asker-sid>',
 		);
+	// W927 experience flags: the confidence vocabulary maps to the W953 REAL
+	// column; an unmapped value refuses before any write.
+	const confArg = arg("--confidence");
+	if (confArg != null && !(confArg in CONF_VALUE))
+		die("consult-reply: --confidence must be high, medium or low");
+	const confVal = confArg != null ? CONF_VALUE[confArg] : null;
 	const c = db
 		.query("SELECT * FROM consults WHERE id = ?")
 		.get(Number(String(cid).replace(/^C/i, ""))) as
@@ -578,8 +634,16 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 					: `${dup.solution}\n— ${text.trim()}`;
 			db.transaction(() => {
 				db.query(
-					"UPDATE consult_kb SET solution = ?, hits = hits + 1, last_hit_at = ? WHERE id = ?",
-				).run(refined, Date.now(), dup.id);
+					"UPDATE consult_kb SET solution = ?, hits = hits + 1, last_hit_at = ?, cue = COALESCE(?, cue), lesson = COALESCE(?, lesson), evidence = COALESCE(?, evidence), domain = COALESCE(?, domain) WHERE id = ?",
+				).run(
+					refined,
+					Date.now(),
+					arg("--cue"),
+					arg("--lesson"),
+					arg("--evidence"),
+					arg("--domain"),
+					dup.id,
+				);
 				ensureConsultTrust(db);
 				// link this consult to the row it replenished, so asker feedback
 				// resolves the candidate (the row keeps its original consult_id)
@@ -588,16 +652,17 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 				).run(c.id, dup.id);
 			})();
 		} else {
-			// W953: the answer is a single-model pass — 0.6, setter = the expert
-			// executor, evidence = the consult link (provenance walkable)
+			// W953: the answer is a single-model pass — 0.6 default, the W927
+			// --confidence vocabulary overrides (0.9/0.6/0.3), setter = the
+			// expert executor, evidence = the consult link (provenance walkable)
 			const stamp = makeStamp({
-				value: 0.6,
+				value: confVal ?? 0.6,
 				setter: `model:${as}`,
 				evidence: `consult:${c.id}`,
 			});
 			const kr = db
 				.query(
-					"INSERT INTO consult_kb (problem, solution, project, asked_by, answered_by, consult_id, created_at, confidence, confidence_stamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+					"INSERT INTO consult_kb (problem, solution, project, asked_by, answered_by, consult_id, created_at, confidence, confidence_stamp, cue, lesson, evidence, domain) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 				)
 				.run(
 					c.question,
@@ -609,6 +674,10 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 					Date.now(),
 					stamp.value,
 					JSON.stringify(stamp),
+					arg("--cue"),
+					arg("--lesson"),
+					arg("--evidence"),
+					arg("--domain"),
 				);
 			ensureConsultTrust(db);
 			db.query(
