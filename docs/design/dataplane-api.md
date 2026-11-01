@@ -60,8 +60,10 @@ parent; `project` is a filterable field, not part of the name.
   `tags`, `updated_at` — the `work_items` DDL at
   `hooks/lib/govdb/govdb-open.ts:141`, `tags` via the :186 migration);
   `order_by` = `field [asc|desc]`, default
-  `updated_at desc`. Cursor = opaque base64 keyset on (updated_at, id), not
-  OFFSET — matches the report's recency ordering.
+  `updated_at desc`. Cursor = opaque base64 keyset on (order_by value, id),
+  not OFFSET — the tuple encodes the active sort column's own row value
+  (string columns as strings, W2513), NULL-aware; Lanes carries the same
+  keyset over (launchedAt, sid) in memory.
 - **Get** — by resource name; terminal items remain Get-able forever.
 - **Create** — title + optional parent/priority/tags/description; maps 1:1 to
   the `work add` argument surface (`hooks/bin/work.ts` verb) — the dataplane
