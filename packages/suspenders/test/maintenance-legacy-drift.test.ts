@@ -55,6 +55,8 @@ const HEARTBEAT_BORN: Record<string, string> = {
 const NON_TASK_RETIREES: Record<string, string> = {
 	"local-llm":
 		"W284 — the suspenders local-llm serve fork (server, not a task)",
+	"ikea-shim":
+		"W695.6 — the :4102 anthropic→copilot gateway (server, not a task)",
 };
 
 const tasks = new Set(MAINTENANCE_TASKS.map((t) => t.name));
