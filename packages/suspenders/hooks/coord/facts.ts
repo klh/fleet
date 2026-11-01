@@ -2,19 +2,8 @@
 // Handler bodies moved verbatim from bin/coord.ts's if/else chain —
 // one-tab indent preserved, output byte-compatible.
 
-import {
-	ensureKnowledgeFacts,
-	isKnowledgeFactKey,
-	originKindOf,
-	sourceRefOf,
-} from "../lib/knowledge/knowledge-facts.ts";
-import { openKnowledgeDb } from "../lib/knowledge/govdb-knowledge.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import {
-	assertCapsuleBounds,
-	itemCapsuleKey,
-} from "../lib/lanes/capsule-fence.ts";
 import { expireConsults } from "../lib/federation/consult-expiry.ts";
 import { openIdentity } from "../lib/govdb/govdb.ts";
 import { archiveAndPrune, pruneArchiveFiles } from "../lib/govdb/retention.ts";
@@ -25,11 +14,18 @@ import {
 	parseStamp,
 	renderStamp,
 } from "../lib/knowledge/confidence.ts";
+import { openKnowledgeDb } from "../lib/knowledge/govdb-knowledge.ts";
 import {
 	recordKnowledgeSuggestion,
 	renderKnowledgeSuggestion,
 	suggestKnowledge,
 } from "../lib/knowledge/kev-curation.ts";
+import {
+	ensureKnowledgeFacts,
+	isKnowledgeFactKey,
+	originKindOf,
+	sourceRefOf,
+} from "../lib/knowledge/knowledge-facts.ts";
 import {
 	searchSink,
 	sinkConfigured,
