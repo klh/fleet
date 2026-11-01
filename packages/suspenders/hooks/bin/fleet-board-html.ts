@@ -524,4 +524,5 @@ ${BODY}${CORE}${RENDERS}${DECISIONS}${HISTORY}${TASKS}${DIFF}${LAUNCH}${SHIP}${T
 <script type="module" src="/vendor/klh-board-tabs.js"></script>
 <script type="module" src="/vendor/usage-panels.js"></script>
 <script type="module" src="/vendor/klh-ent-zone.js"></script>
-<script type="module" src="/vendor/klh-board-mediator.js"></script>`);
+<script type="module" src="/vendor/klh-board-mediator.js"></script>
+<script type="module" src="/vendor/klh-card-activity.js"></script>`);
