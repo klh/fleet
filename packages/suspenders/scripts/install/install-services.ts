@@ -77,6 +77,12 @@ export interface ServiceSpec {
 	args: string[];
 	cwd?: string;
 	env: Record<string, string>;
+	/** W2470.2: EnvironmentVariables live in the machine settings
+	 *  fleet_loop.launchd_env.<name> and are applied at START time by
+	 *  hooks/bin/launchd-launcher.ts — the rendered unit carries NO env
+	 *  dict for this service (darwin only; linux/win32 still render env).
+	 *  The VALUES centralize, the launch contract stays in the plist. */
+	confEnv?: boolean;
 	envFile?: string | string[];
 	/** Environment names removed before envFile is sourced (launchd only). */
 	clearInheritedEnv?: string[];
@@ -145,6 +151,7 @@ const KNOWN_SERVICE_KEYS = new Set([
 	"args",
 	"cwd",
 	"env",
+	"confEnv",
 	"envFile",
 	"clearInheritedEnv",
 	"schedule",
@@ -360,6 +367,7 @@ export function loadManifest(path = MANIFEST_PATH): ServiceSpec[] {
 			placeholders: (entry.placeholders ?? []) as string[],
 		};
 		if (entry.cwd !== undefined) spec.cwd = entry.cwd as string;
+		if (entry.confEnv !== undefined) spec.confEnv = entry.confEnv === true;
 		if (entry.label !== undefined) spec.label = entry.label as string;
 		if (entry.abandonProcessGroup !== undefined)
 			spec.abandonProcessGroup = entry.abandonProcessGroup as boolean;
@@ -452,11 +460,24 @@ export function renderDarwin(spec: ServiceSpec, values: RenderValues): string {
 	const body: string[] = [];
 	body.push(xmlStr("Label", serviceLabel(spec), "\t"));
 	body.push("\t<key>ProgramArguments</key>\n\t<array>\n");
-	const directArgs = [
-		values.bun,
-		s(spec.bunEntry),
-		...spec.args.map((a) => s(a)),
-	];
+	// W2470.2 confEnv: the generic launcher sits between launchd and the
+	// entry, applying the machine settings' fleet_loop.launchd_env.<name>
+	// row at start time. The unit keeps its OWN paths/args (launchd never
+	// reads fleet conf); only the env VALUES centralize.
+	const directArgs = spec.confEnv
+		? [
+				values.bun,
+				s("__PREFIX__/bin/launchd-launcher.ts"),
+				spec.name,
+				"--",
+				s(spec.bunEntry),
+				...spec.args.map((a) => s(a)),
+			]
+		: [
+				values.bun,
+				s(spec.bunEntry),
+				...spec.args.map((a) => s(a)),
+			];
 	const files = envFilePaths(spec).map(s);
 	// launchd has no EnvironmentFile. Positional arguments keep machine
 	// paths and service argv out of shell syntax; exec preserves supervision.
@@ -498,21 +519,27 @@ export function renderDarwin(spec: ServiceSpec, values: RenderValues): string {
 			"local",
 			"root.crt",
 		);
-	const env = {
-		...spec.env,
-		// launchd does not inherit an interactive shell's utility paths. Every
-		// service needs the system administration tools used for supervision.
-		PATH: [
-			...new Set([
-				...(spec.env.PATH ?? "").split(":").filter(Boolean),
-				"/usr/bin",
-				"/bin",
-				"/usr/sbin",
-				"/sbin",
-			]),
-		].join(":"),
-		...(existsSync(localCa) ? { NODE_EXTRA_CA_CERTS: localCa } : {}),
-	};
+	const env = spec.confEnv
+		? // W2470.2: the conf row owns this service's env — the unit carries
+			// NO dict. The launcher's own PATH need (bun) rides the row or
+			// launchd's default; NODE_EXTRA_CA_CERTS is the one value that
+			// must survive the move, so the row template carries it.
+			{}
+		: {
+				...spec.env,
+				// launchd does not inherit an interactive shell's utility paths. Every
+				// service needs the system administration tools used for supervision.
+				PATH: [
+					...new Set([
+						...(spec.env.PATH ?? "").split(":").filter(Boolean),
+						"/usr/bin",
+						"/bin",
+						"/usr/sbin",
+						"/sbin",
+					]),
+				].join(":"),
+				...(existsSync(localCa) ? { NODE_EXTRA_CA_CERTS: localCa } : {}),
+			};
 	const envKeys = Object.keys(env);
 	if (envKeys.length > 0) {
 		body.push("\t<key>EnvironmentVariables</key>\n\t<dict>\n");

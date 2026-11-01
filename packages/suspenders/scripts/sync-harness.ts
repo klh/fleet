@@ -44,6 +44,10 @@ export const ENTRYPOINTS = [
 	"hooks/pre-compact.ts", // W253 checkpoint roll — validated with the other faces
 	"hooks/bin/coord.ts",
 	"hooks/bin/work.ts",
+	// W2470.2: string-referenced by the rendered launchd units (confEnv
+	// ProgramArguments) — never import-graph reachable, named here so the
+	// payload closure ships it to prefix/bin
+	"hooks/bin/launchd-launcher.ts",
 	"hooks/bin/oracle.ts",
 	"hooks/bin/fleet-loop.ts",
 	"hooks/bin/fleet-tracker.ts",
