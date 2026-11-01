@@ -3,12 +3,19 @@
 // text path; W789 tool-call blocks and W257 server timings ride the relay.
 // Extracted from router-core.ts (W1238.6.1); router-core re-exports the
 // public names so the router-core face stays stable.
-import type { RequestTimings } from "./router-core.ts";
+
+import { upstreamErrorDetail } from "@klh/buckle/src/error-detail.ts";
 import {
 	emptyStreamError,
 	StreamSemantics,
 } from "@klh/buckle/src/stream-semantics.ts";
-import { upstreamErrorDetail } from "@klh/buckle/src/error-detail.ts";
+import type {
+	AnthropicToolUse,
+	OpenAiUsage,
+	RequestTimings,
+	UpstreamUsage,
+} from "./router-core.ts";
+import { parseUpstreamUsage, usageRow } from "./router-core.ts";
 /** Drops <think>…</think> spans across chunk boundaries. */
 export function thinkFilter(): (chunk: string) => string {
 	let inThink = false;
@@ -87,10 +94,13 @@ function anthropicHead(meta: StreamMeta): string {
 	);
 }
 
-/** message_delta + message_stop (the tail after the last content block). */
+/** message_delta + message_stop (the tail after the usage-bearing chunk).
+ *  W2182: usage fields ride message_delta — the SDK merges present fields into
+ *  the accumulated message, so a proxy can deliver real counts without
+ *  knowing them at message_start. Absent counts stay 0. */
 function messageTail(
 	stop: string | undefined,
-	outTokens: number,
+	usage: UpstreamUsage | undefined,
 	timings?: RequestTimings,
 ): string {
 	return (
@@ -98,7 +108,7 @@ function messageTail(
 			type: "message_delta",
 			delta: { stop_reason: stop ?? "end_turn", stop_sequence: null },
 			usage: {
-				output_tokens: outTokens,
+				...usageRow(usage),
 				...(timings ? { _server_timings: timings } : {}),
 			},
 		}) + sseEvent("message_stop", { type: "message_stop" })
@@ -107,12 +117,12 @@ function messageTail(
 
 function anthropicTail(
 	finish: string | undefined,
-	outTokens: number,
+	usage: UpstreamUsage | undefined,
 	timings?: RequestTimings,
 ): string {
 	return (
 		sseEvent("content_block_stop", { type: "content_block_stop", index: 0 }) +
-		messageTail(stopReason(finish), outTokens, timings)
+		messageTail(stopReason(finish), usage, timings)
 	);
 }
 
@@ -129,6 +139,7 @@ export function anthropicSseFromText(
 	text: string,
 	meta: StreamMeta,
 	finish?: string,
+	usage?: UpstreamUsage,
 ): ReadableStream<Uint8Array> {
 	const enc = new TextEncoder();
 	return new ReadableStream({
@@ -137,9 +148,58 @@ export function anthropicSseFromText(
 				enc.encode(
 					anthropicHead(meta) +
 						textDelta(text) +
-						anthropicTail(finish, 0, meta.timings),
+						anthropicTail(finish, usage, meta.timings),
 				),
 			);
+			c.close();
+		},
+	});
+}
+
+/** W2182: a buffered answer (cloud tool_use blocks + text) as an Anthropic
+ *  SSE wire — one block per entry, indices advancing past the head's
+ *  index-0 text block. Tool blocks emit start + input_json_delta + stop. */
+export function anthropicSseFromBlocks(
+	blocks: Array<{ type: "text"; text: string } | AnthropicToolUse>,
+	meta: StreamMeta,
+	finish?: string,
+	usage?: UpstreamUsage,
+): ReadableStream<Uint8Array> {
+	const enc = new TextEncoder();
+	const chunks: string[] = [anthropicHead(meta)];
+	let index = 0;
+	for (const b of blocks) {
+		if (b.type !== "text") {
+			index += 1;
+			chunks.push(
+				sseEvent("content_block_start", {
+					type: "content_block_start",
+					index,
+					content_block: {
+						type: "tool_use",
+						id: b.id,
+						name: b.name,
+						input: {},
+					},
+				}),
+				sseEvent("content_block_delta", {
+					type: "content_block_delta",
+					index,
+					delta: {
+						type: "input_json_delta",
+						partial_json: JSON.stringify(b.input),
+					},
+				}),
+				sseEvent("content_block_stop", { type: "content_block_stop", index }),
+			);
+			continue;
+		}
+		if (b.text) chunks.push(textDelta(b.text));
+	}
+	chunks.push(anthropicTail(finish, usage, meta.timings));
+	return new ReadableStream({
+		start(c) {
+			c.enqueue(enc.encode(chunks.join("")));
 			c.close();
 		},
 	});
@@ -159,7 +219,7 @@ interface OpenAiChunk {
 		};
 		finish_reason?: string | null;
 	}>;
-	usage?: { completion_tokens?: number };
+	usage?: OpenAiUsage;
 }
 
 /** Translate an OpenAI chat-completions SSE body into Anthropic SSE, piping
@@ -182,7 +242,7 @@ export function anthropicSseFromOpenAi(
 	let chars = 0;
 	let finish: string | undefined;
 	let sourceFailure: string | undefined;
-	let outTokens = 0;
+	let streamUsage: UpstreamUsage | undefined;
 	let finished = false;
 	let ttftAt: number | undefined;
 	// W789: anthropic block indices — 0 is the text block opened by the head;
@@ -227,7 +287,7 @@ export function anthropicSseFromOpenAi(
 			sourceFailure = String(error.code ?? error.type);
 			return sseEvent("error", { type: "error", error });
 		}
-		if (j.usage?.completion_tokens) outTokens = j.usage.completion_tokens;
+		if (j.usage) streamUsage = parseUpstreamUsage(j.usage) ?? streamUsage;
 		const ch = j.choices?.[0];
 		if (ch?.finish_reason) finish = ch.finish_reason;
 		const tcs = ch?.delta?.tool_calls;
@@ -347,7 +407,7 @@ export function anthropicSseFromOpenAi(
 								done(failure, timings);
 								return;
 							}
-							let tail = anthropicTail(finish, outTokens, timings);
+							let tail = anthropicTail(finish, streamUsage, timings);
 							if (toolAcc.size > 0) {
 								if (!textClosed)
 									tail =
