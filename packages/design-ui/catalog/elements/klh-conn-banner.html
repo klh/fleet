@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<title>klh-conn-banner — fleet component catalog</title>
+<link rel="stylesheet" href="./tokens.css" />
+<link rel="stylesheet" href="./themes/light.css" />
+<link rel="stylesheet" href="./themes/high-contrast.css" />
+<style id="klh-theme-tokens">:root{--klh-font-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--klh-font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;--klh-text-xs:10px;--klh-text-sm:11px;--klh-text-md:12.5px;--klh-text-lg:13px;--klh-text-xl:14px;--klh-space-1:2px;--klh-space-2:4px;--klh-space-3:8px;--klh-space-4:12px;--klh-space-5:16px;--klh-space-6:20px;--klh-space-7:28px;--klh-radius:2px;--klh-radius-lg:3px;}:root,:root[data-theme="dark"]{color-scheme:dark;--klh-bg:#141413;--klh-field:#121110;--klh-panel:#171614;--klh-surface:#1c1b19;--klh-overlay:#1a1917;--klh-surface-hi:#232220;--klh-ink:#e8e6e1;--klh-ink-2:#c3c2b7;--klh-ink-3:#a5a29a;--klh-dim:#98958e;--klh-accent:#d8900f;--klh-on-accent:#141413;--klh-accent-bg:#221f14;--klh-accent-wash:rgba(216,144,15,.12);--klh-warm:#221f1c;--klh-danger:#af2f12;--klh-danger-ink:#c96a4f;--klh-danger-bg:#221512;--klh-danger-edge:rgba(175,47,18,.6);--klh-danger-wash:rgba(175,47,18,.16);--klh-ok:#5c7a35;--klh-ok-ink:#7da652;--klh-ok-hi:#a5c78a;--klh-ok-bg:#1a2015;--klh-ok-wash:rgba(92,122,53,.18);--klh-info:#8cbbad;--klh-wash:rgba(255,255,255,.03);--klh-edge-faint:rgba(255,255,255,.07);--klh-edge-soft:rgba(255,255,255,.10);--klh-edge:rgba(255,255,255,.12);--klh-edge-mid:rgba(255,255,255,.18);--klh-edge-strong:rgba(255,255,255,.24);--klh-edge-hover:rgba(255,255,255,.4);--klh-rule:#2c2c2a;--klh-shadow:rgba(0,0,0,.5);--klh-chart-grid:#2c2c2a;--klh-chart-hair:#383835;--klh-chart-axis:#898781;--klh-accent-dim:rgba(216,144,15,.45);--klh-ent-accent:#a08ed8;--klh-ent-accent-bg:#1d1a26;--klh-ent-accent-wash:rgba(160,142,216,.12);--klh-ent-edge:rgba(160,142,216,.38);}:root[data-theme="light"]{color-scheme:light;--klh-bg:#f6f4ef;--klh-field:#ffffff;--klh-panel:#fbfaf7;--klh-surface:#ffffff;--klh-overlay:#ffffff;--klh-surface-hi:#ece9e2;--klh-ink:#1c1b19;--klh-ink-2:#3b3934;--klh-ink-3:#55524b;--klh-dim:#6b675f;--klh-accent:#a86a00;--klh-on-accent:#ffffff;--klh-accent-bg:#fbf1dc;--klh-accent-wash:rgba(168,106,0,.10);--klh-warm:#f8efe4;--klh-danger:#af2f12;--klh-danger-ink:#a3361a;--klh-danger-bg:#fbe9e4;--klh-danger-edge:rgba(175,47,18,.5);--klh-danger-wash:rgba(175,47,18,.10);--klh-ok:#5c7a35;--klh-ok-ink:#3f6a1c;--klh-ok-hi:#35591a;--klh-ok-bg:#eaf3e0;--klh-ok-wash:rgba(92,122,53,.14);--klh-info:#2f7a68;--klh-wash:rgba(0,0,0,.025);--klh-edge-faint:rgba(0,0,0,.07);--klh-edge-soft:rgba(0,0,0,.10);--klh-edge:rgba(0,0,0,.13);--klh-edge-mid:rgba(0,0,0,.18);--klh-edge-strong:rgba(0,0,0,.24);--klh-edge-hover:rgba(0,0,0,.4);--klh-rule:#e2dfd8;--klh-shadow:rgba(0,0,0,.14);--klh-chart-grid:#e2dfd8;--klh-chart-hair:#cfcbc2;--klh-chart-axis:#6b675f;--klh-accent-dim:rgba(168,106,0,.40);--klh-ent-accent:#6b5ca5;--klh-ent-accent-bg:#efecf6;--klh-ent-accent-wash:rgba(107,92,165,.10);--klh-ent-edge:rgba(107,92,165,.35);}@media (prefers-color-scheme: light){:root:not([data-theme]){color-scheme:light;--klh-bg:#f6f4ef;--klh-field:#ffffff;--klh-panel:#fbfaf7;--klh-surface:#ffffff;--klh-overlay:#ffffff;--klh-surface-hi:#ece9e2;--klh-ink:#1c1b19;--klh-ink-2:#3b3934;--klh-ink-3:#55524b;--klh-dim:#6b675f;--klh-accent:#a86a00;--klh-on-accent:#ffffff;--klh-accent-bg:#fbf1dc;--klh-accent-wash:rgba(168,106,0,.10);--klh-warm:#f8efe4;--klh-danger:#af2f12;--klh-danger-ink:#a3361a;--klh-danger-bg:#fbe9e4;--klh-danger-edge:rgba(175,47,18,.5);--klh-danger-wash:rgba(175,47,18,.10);--klh-ok:#5c7a35;--klh-ok-ink:#3f6a1c;--klh-ok-hi:#35591a;--klh-ok-bg:#eaf3e0;--klh-ok-wash:rgba(92,122,53,.14);--klh-info:#2f7a68;--klh-wash:rgba(0,0,0,.025);--klh-edge-faint:rgba(0,0,0,.07);--klh-edge-soft:rgba(0,0,0,.10);--klh-edge:rgba(0,0,0,.13);--klh-edge-mid:rgba(0,0,0,.18);--klh-edge-strong:rgba(0,0,0,.24);--klh-edge-hover:rgba(0,0,0,.4);--klh-rule:#e2dfd8;--klh-shadow:rgba(0,0,0,.14);--klh-chart-grid:#e2dfd8;--klh-chart-hair:#cfcbc2;--klh-chart-axis:#6b675f;--klh-accent-dim:rgba(168,106,0,.40);--klh-ent-accent:#6b5ca5;--klh-ent-accent-bg:#efecf6;--klh-ent-accent-wash:rgba(107,92,165,.10);--klh-ent-edge:rgba(107,92,165,.35);}}</style>
+<style>
+.pair {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: var(--klh-space-3);
+}
+.pair section {
+	border: 1px solid var(--klh-edge);
+	padding: var(--klh-space-3);
+	background: var(--klh-panel);
+}
+.pair h2 {
+	font: 700 11px/1.2 var(--klh-font-sans);
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--klh-dim);
+	margin: 0 0 var(--klh-space-2);
+}
+section[data-theme="light"] {
+	color-scheme: light;
+	background: var(--klh-surface);
+}
+
+.proto-err {
+	color: var(--klh-danger-ink);
+	background: var(--klh-danger-bg);
+	padding: var(--klh-space-1) var(--klh-space-2);
+	font: var(--klh-text-sm)/1.4 var(--klh-font-sans);
+}
+.proto-retry {
+	background: none;
+	border: 1px solid var(--klh-danger);
+	color: var(--klh-danger-ink);
+	padding: 1px 8px;
+	margin-left: 8px;
+	cursor: pointer;
+}
+
+.proto-conn {
+	color: var(--klh-dim);
+	font: var(--klh-text-sm)/1.4 var(--klh-font-sans);
+	margin: 0;
+}
+.proto-dot {
+	display: inline-block;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	margin-right: 5px;
+	background: var(--klh-ok);
+}
+
+.proto-dim {
+	color: var(--klh-dim);
+}
+.proto-row {
+	font: var(--klh-text-md)/1.4 var(--klh-font-sans);
+	color: var(--klh-ink);
+}
+.proto-badge {
+	font-weight: 700;
+	color: var(--klh-ok-ink);
+}
+.proto-name {
+	font-weight: 600;
+}
+.proto-detail {
+	color: var(--klh-dim);
+	margin: var(--klh-space-1) 0 0;
+}
+</style>
+</head>
+<body>
+<main>
+<h1>klh-conn-banner</h1>
+<p class="why">Header connection banner — renders the mediator's conn verdict (live/stale/error dot + freshness), retry re-probes.</p>
+<div class="pair">
+<section data-pane="prototype">
+<h2>Prototype (native HTML)</h2>
+<p class="proto-conn"><span class="proto-dot"></span>live <span class="proto-dim">| decisions fresh</span> <button class="proto-retry" type="button">retry</button></p>
+</section>
+<section data-pane="component">
+<h2>Component (Lit)</h2>
+<klh-conn-banner></klh-conn-banner>
+</section>
+</div>
+</main>
+<script type="module" src="./klh-conn-banner.js"></script>
+<script></script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { beltPage, localPage } from "../hooks/bin/console-html.ts";
-import { displayLabel, fleetNav, FLEET_ICONS } from "../hooks/lib/theme.ts";
+import { displayLabel, fleetNav, FLEET_ICONS } from "@klh/kernel/src/kernel.theme.module.ts";
 
 test("every surface receives the same monochrome menu destinations", () => {
 	const menus = ["belt", "suspenders", "local"].map((site) =>

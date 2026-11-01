@@ -74,6 +74,17 @@ export function filesCheck(hook: HookInput): FilesExit {
 					kind: "block",
 					err: `UI LAW: innerHTML/document.write are NEVER allowed — rewrite as lit-html templates in a web component. ${F}\n`,
 				};
+			// W2269.1.5: a div/span carrying an interactive role is a badly-built
+			// control — native elements or a real component instead (UI law).
+			if (
+				/<(?:div|span)\b[^>]*\srole="(button|link|checkbox|radio|switch|tab|slider|textbox|option|menuitem|treeitem|combobox)"/.test(
+					payload,
+				)
+			)
+				return {
+					kind: "block",
+					err: `UI LAW: interactive role on div/span — use the native element (<button>, <a>, <input>, …) or a real web component. ${F}\n`,
+				};
 			if (
 				!isWc &&
 				/document\.createElement\s*\(|createElementNS\s*\(/.test(payload)

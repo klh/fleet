@@ -5,6 +5,7 @@
 // shared klh·fleet strip, and the version pin that guards the vendored
 // copies in belt + klh-local.
 import { describe, expect, test } from "bun:test";
+import { fileURLToPath } from "node:url";
 import {
 	FLEET_NAV_CSS,
 	FLEET_NAV_JS,
@@ -20,7 +21,7 @@ import {
 	THEME_SETTINGS_CSS,
 	THEME_SETTINGS_JS,
 	TOKENS,
-} from "../hooks/lib/theme.ts";
+} from "@klh/kernel/src/kernel.theme.module.ts";
 import { HTML } from "../hooks/bin/fleet-board-html.ts";
 import { consolePage } from "../hooks/bin/console-html.ts";
 
@@ -406,18 +407,17 @@ describe("vendoring pin (W291)", () => {
 			`<style id="klh-theme-tokens" data-klh-theme="${KLH_THEME_VERSION}">`,
 		);
 	});
-	// Edited hooks/lib/theme.ts? Bump KLH_THEME_VERSION, paste the new sha256
-	// here, then re-copy the file to belt + local bin/klh-theme.ts
-	// (docs/theme-tokens.md, "Vendoring").
+	// Edited the kernel theme module? Bump KLH_THEME_VERSION, paste the new
+	// sha256 here (W2269.1.1: the vendored re-copy step is retired).
 	test("theme.ts bytes are pinned to KLH_THEME_VERSION", async () => {
 		const src = await Bun.file(
-			new URL("../hooks/lib/theme.ts", import.meta.url),
+			fileURLToPath(import.meta.resolve("@klh/kernel/src/kernel.theme.module.ts")),
 		).arrayBuffer();
 		const sha256 = new Bun.CryptoHasher("sha256").update(src).digest("hex");
 		expect({ version: KLH_THEME_VERSION, sha256 }).toEqual({
-			version: "1.4.3",
+			version: "1.4.4",
 			sha256:
-				"1d90f0790d47a701c5e246c91cd39a454577e02d3b1980655634a177648774f3",
+				"56c7010e59219346b2ecb901468df03999f04e2269abfe41f578605cbba7123c",
 		});
 	});
 });
