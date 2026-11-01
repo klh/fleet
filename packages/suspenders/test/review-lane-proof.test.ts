@@ -128,6 +128,8 @@ interface Case {
 	files: Record<string, string>;
 	// paths the branch removes (the old side of a test rename, W1306.1)
 	delete?: string[];
+	// W1294.9.1.1: expected pure-test-port advisory on the proof
+	purePort?: boolean;
 	// the fact payload expectation after the stub executor PASSes
 	want: "proved" | "no-coverage" | "skipped" | "unknown";
 }
@@ -146,7 +148,14 @@ async function runCase(
 	for (const [path, content] of Object.entries(c.files))
 		await Bun.write(join(REPO, path), content);
 	for (const path of c.delete ?? []) rmSync(join(REPO, path));
-	expect(git(["add", "-A"]).code).toBe(0);
+	// W1294.9.1.1: a pure-port case must commit ONLY its paths — `git add -A`
+	// would sweep the graph's untracked .workgraph.jsonl (dropped by work add)
+	// into the branch as a non-test path and break the predicate the case
+	// exists to prove.
+	const addArgs = c.purePort
+		? ["add", ...Object.keys(c.files), ...(c.delete ?? [])]
+		: ["add", "-A"];
+	expect(git(addArgs).code).toBe(0);
 	expect(git(["commit", "-m", c.name]).code).toBe(0);
 	git(["checkout", "main"]); // the proof reads refs/heads/<branch>, not the checkout
 	if (c.keptChild) {
@@ -321,6 +330,37 @@ test("needs the change", () => {
 		},
 		want: "unknown",
 	},
+	{
+		// W1294.9.1.1: a PURE test port (only test files changed; src.ts
+		// untouched from main) has a tautological no-coverage signal — the
+		// reverted diff restores exactly the tests being proven. The verdict
+		// follows the reviewer PASS; the receipt notes the advisory.
+		name: "pure-port-advisory",
+		files: {
+			"ported.test.ts": `import { test, expect } from "bun:test";
+test("ported", () => {
+	expect(1 + 1).toBe(2);
+});
+`,
+		},
+		purePort: true,
+		want: "no-coverage",
+	},
+	{
+		// W1294.9.1.1 negative control: a production delta present + new
+		// untested tests keeps today's blocking FAIL — the advisory is for
+		// PURE test ports only
+		name: "prod-delta-still-blocks",
+		files: {
+			"src.ts": "export const base = 1;\nexport const marker = 'prod';\n",
+			"src.test.ts": `import { test, expect } from "bun:test";
+test("trivial", () => {
+	expect(1 + 1).toBe(2);
+});
+`,
+		},
+		want: "no-coverage",
+	},
 ];
 
 describe("W634 review-lane coverage proof (Sinai rule)", () => {
@@ -444,9 +484,13 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 			);
 			results[c.name] = fact;
 			ids[c.name] = id;
+			// W1294.9.1.1: a pure test port keeps the reviewer's PASS (advisory);
+			// every other no-coverage stays the blocking FAIL
 			expect(fact.verdict).toBe(
 				c.want === "no-coverage"
-					? "FAIL"
+					? c.purePort
+						? "PASS"
+						: "FAIL"
 					: c.want === "unknown"
 						? "ERROR"
 						: "PASS",

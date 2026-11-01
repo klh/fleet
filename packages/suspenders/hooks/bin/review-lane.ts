@@ -16,6 +16,7 @@ import {
 	addedWorkspaceDependencies,
 	missingImportsExplained,
 	type Proof,
+	pureTestDiff,
 	shareNodeModules,
 	TEST_FILE,
 } from "../lib/gates/coverage-proof.ts";
@@ -403,7 +404,13 @@ async function coverageProof(branch: string): Promise<Proof> {
 	const diffTests = gitRun(["diff", "--name-only", `main...${branch}`])
 		.out.trim()
 		.split("\n")
-		.filter((f) => TEST_FILE.test(f));
+		.filter(Boolean);
+	// W1294.9.1.1: a pure test port (every changed path is a test file) has a
+	// tautological no-coverage signal — the reverted diff restores exactly the
+	// tests being proven, so they pass by construction. Carried on the Proof;
+	// the verdict site demotes the downgrade to advisory on it.
+	const purePort = pureTestDiff(diffTests);
+	const tests = diffTests.filter((f) => TEST_FILE.test(f));
 	// W1306.1: a test rename pair lists the old path as branch-DELETED. It has
 	// no index entry at the branch tip, and one dead pathspec fails the whole
 	// restore checkout wholesale ("test restore failed"). Keep only tests that
@@ -411,7 +418,7 @@ async function coverageProof(branch: string): Promise<Proof> {
 	const tipTree = new Set(
 		gitRun(["ls-tree", "-r", "--name-only", branch]).out.trim().split("\n"),
 	);
-	const testFiles = diffTests.filter((f) => tipTree.has(f));
+	const testFiles = tests.filter((f) => tipTree.has(f));
 	if (testFiles.length === 0)
 		return { status: "skipped", detail: "no test files in diff" };
 	// The proof runs plain `bun test`, which collects only its own naming
@@ -554,9 +561,12 @@ async function coverageProof(branch: string): Promise<Proof> {
 				}
 			: {
 					status: "no-coverage",
-					detail: "all new tests pass without the change",
+					detail: purePort
+						? "all new tests pass without the change (pure test port — advisory)"
+						: "all new tests pass without the change",
 					failed: 0,
 					passed,
+					purePort,
 				};
 	} finally {
 		if (added) gitRun(["worktree", "remove", "--force", scratch]);
@@ -644,16 +654,22 @@ const trailHeadline =
 
 // Sinai proof gates the approval: a PASS stands only when the branch's new
 // tests FAIL without the change — otherwise the verdict is downgraded, with
-// the evidence annotating the headline.
+// the evidence annotating the headline. W1294.9.1.1: a PURE TEST PORT diff
+// (zero non-test changes) downgrades to advisory instead — the reverted
+// diff restores exactly the tests being proven, so no-coverage there is
+// tautological and must not override the reviewer's PASS. Any production
+// delta keeps today's blocking FAIL.
 const proof = verdict === "PASS" ? await coverageProof(boundBranch) : null;
 const proofHeadline =
 	proof === null
 		? ""
 		: proof.status === "proved"
 			? `coverage-proof: ${proof.failed} new test(s) fail without the change`
-			: proof.status === "no-coverage"
-				? "coverage-proof FAIL: all new tests pass without the change — no coverage"
-				: `coverage-proof ${proof.status}: ${proof.detail}`;
+			: proof.status === "no-coverage" && proof.purePort
+				? "coverage-proof ADVISORY (pure test port): all new tests pass without the change — tautological, not blocking"
+				: proof.status === "no-coverage"
+					? "coverage-proof FAIL: all new tests pass without the change — no coverage"
+					: `coverage-proof ${proof.status}: ${proof.detail}`;
 // W1302.6 (O3): the receipt asserts the served wire model against the
 // requested class. A mismatch can never land as a clean PASS — the W1278.1
 // review was requested as glm-5.3-flash and served by chatgpt/gpt-6-sol.
@@ -677,7 +693,7 @@ const effective =
 		? "ERROR"
 		: proof?.status === "error" || proof?.status === "unknown"
 			? "ERROR"
-			: proof?.status === "no-coverage"
+			: proof?.status === "no-coverage" && !proof.purePort
 				? "FAIL"
 				: verdict;
 const headline = [wireHeadline, proofHeadline, trailHeadline]
@@ -688,7 +704,7 @@ const proofNote = proof
 			proof.failed === undefined
 				? ""
 				: ` [failed=${proof.failed} passed=${proof.passed ?? 0}]`
-		}: ${proof.detail}`
+		}${proof.purePort ? " [pure-test-port advisory]" : ""}: ${proof.detail}`
 	: "";
 const factKey = `review.${item}.${executor}`;
 db.query(
