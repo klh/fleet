@@ -4,7 +4,12 @@
 import type { AppDeps } from "./app-deps.ts";
 import { errorResponse } from "./error-response.ts";
 import { hopKindOf } from "./hop.ts";
-import { type Ctx, observe } from "./request-context.ts";
+import {
+	type Ctx,
+	observe,
+	safeAuditPath,
+	safeAuditToken,
+} from "./request-context.ts";
 import { stamped } from "./wire-stamp.ts";
 
 /** A refusal at the wire seam (bad hint, bad body): the denied audit row
@@ -20,7 +25,13 @@ export function deny(
 ): Response {
 	deps.ledger.auditDecision({
 		rid: ctx.rid,
-		requested_group: ctx.sel ? ctx.group : null,
+		// W2256: the requested group is bounded-safe and ALWAYS carried — a
+		// refusal must name what it asked for even when selection never ran
+		// (six live 503 no_route rows had candidates_seen=0 and NULL group).
+		requested_group: safeAuditToken(ctx.group),
+		request_path: safeAuditPath(ctx.auditPath ?? null),
+		allow_cross: ctx.auditAllowCross,
+		provider_pin: safeAuditToken(ctx.auditProviderPin),
 		trace_id: ctx.trace.traceparent.split("-")[1],
 		ts: new Date().toISOString(),
 		actor: ctx.key,
