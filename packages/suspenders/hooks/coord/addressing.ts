@@ -1,11 +1,6 @@
 import { hostname } from "node:os";
-import {
-	formatSessionLabel,
-	llmShorthand,
-	normalizeTool,
-	parseSessionTags,
-	slugifyLabelPart,
-} from "../lib/lanes/addressing.ts";
+import { validScopeToken } from "../lib/cred-scope.ts";
+import { toolTokenForText } from "../lib/executors/registry.ts";
 import {
 	foreignLaneMatch,
 	forwardDirectEvent,
@@ -20,6 +15,13 @@ import {
 	localHubLabel,
 	workEdgeToken,
 } from "../lib/federation/federation-work.ts";
+import {
+	formatSessionLabel,
+	llmShorthand,
+	normalizeTool,
+	parseSessionTags,
+	slugifyLabelPart,
+} from "../lib/lanes/addressing.ts";
 import { loadLaneRegistry } from "../lib/lanes/lane-registry.ts";
 import { transcriptTail } from "../lib/lanes/transcript.ts";
 import { broadcastNote, emitEvent, isLiveSession } from "./bus.ts";
@@ -35,7 +37,6 @@ import {
 	projectIdentity,
 	red,
 } from "./shared.ts";
-import { validScopeToken } from "../lib/cred-scope.ts";
 
 interface SessionRow {
 	sid: string;
@@ -236,10 +237,8 @@ function toolFor(row: SessionRow, tags: Record<string, unknown>): string {
 	}
 	const pathish =
 		`${row.transcript_path ?? ""} ${row.worktree ?? ""}`.toLowerCase();
-	if (pathish.includes("copilot")) return "copilot";
-	if (pathish.includes("/.codex/") || pathish.includes("codex")) return "codex";
-	if (pathish.includes("grok")) return "grok";
-	return "claude";
+	// W1812: adapter match rows; the claude row rides last as the default.
+	return toolTokenForText(pathish) ?? "claude";
 }
 
 function modelFor(

@@ -19,8 +19,8 @@ import type { EvidenceNormalizer } from "../gates/claim-evidence.ts";
 import type { ExecutorAdapter } from "../lanes/lane.ts";
 import { claudeAdapter } from "./claude.ts";
 import { clineAdapter } from "./cline.ts";
-import { copilotAdapter } from "./copilot.ts";
 import { codexAdapter } from "./codex.ts";
+import { copilotAdapter } from "./copilot.ts";
 import { forgeAdapter } from "./forge.ts";
 import { grokAdapter } from "./grok.ts";
 
@@ -79,3 +79,30 @@ export const HARNESS_PROCESS_NAMES: string[] = [
 export const HARNESS_INSTALL_PATHS: string[] = [
 	...new Set(EXECUTOR_ADAPTERS.flatMap((a) => a.installPaths ?? [])),
 ];
+
+/** W1812: expanded install candidates for one executor — the adapter's
+ *  installPaths with `~` resolved (no fs probing; the caller decides). */
+export const expandInstallPaths = (
+	name: string,
+	home = process.env.HOME ?? "",
+): string[] =>
+	(adapterForExact(name)?.installPaths ?? []).map((p) =>
+		p.replace(/^~(?=\/|$)/, home),
+	);
+
+/** W1812: the free-text → tool-token vocabulary, adapter-owned — each row
+ *  lists the substrings that identify its client in a path or label
+ *  (normalizeTool / inferTool / coord toolFor scan this instead of a
+ *  hand-kept ladder). The default adapter matches LAST so its token
+ *  (claude) keeps its role as the fallback, never a mid-text steal. */
+const TOOL_MATCH_ORDER: ExecutorAdapter[] = [
+	...EXECUTOR_ADAPTERS.filter((a) => a.match && a !== DEFAULT_ADAPTER),
+	...(DEFAULT_ADAPTER.match ? [DEFAULT_ADAPTER] : []),
+];
+
+export const toolTokenForText = (text: string): string | null => {
+	const t = text.toLowerCase();
+	for (const a of TOOL_MATCH_ORDER)
+		for (const m of a.match ?? []) if (t.includes(m)) return a.id;
+	return null;
+};

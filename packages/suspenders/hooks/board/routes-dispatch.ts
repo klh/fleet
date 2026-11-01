@@ -4,10 +4,13 @@
 // routes-actions by action family.
 import { existsSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
+import {
+	expandInstallPaths,
+	isSpawnableExecutor,
+} from "../lib/executors/registry.ts";
 import { projectRootOf } from "../lib/govdb/govdb.ts";
 import { CLI, DEMO, db, WORK_CLI } from "./context.ts";
 import {
-	DISPATCHABLE_AGENTS,
 	dispatchStart,
 	LlmLegError,
 	normalizeAgent,
@@ -376,13 +379,15 @@ export async function handleDispatchActions(
 		// through the same catalog the ▶ dispatch uses.
 		let legArgs: string[] = [];
 		let binDir: string | null = null;
-		if (DISPATCHABLE_AGENTS.includes(executor)) {
+		// W1812: the executor gate is the registry (spawnable adapters), and
+		// the binary fallback probes the adapter's own installPaths instead
+		// of a per-client ternary (the old copilot arm resolved the CLAUDE
+		// binary — the wrong-backend wake W831 bans).
+		if (isSpawnableExecutor(executor)) {
 			const bin =
 				Bun.which(executor) ??
-				(executor === "codex"
-					? "/opt/homebrew/bin/codex"
-					: `${process.env.HOME}/.local/bin/claude`);
-			if (!existsSync(bin))
+				expandInstallPaths(executor).find((p) => existsSync(p));
+			if (!bin)
 				return json(
 					{
 						ok: false,

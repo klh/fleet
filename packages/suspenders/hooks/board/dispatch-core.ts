@@ -6,10 +6,7 @@ import { existsSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname } from "node:path";
 import { selectLaneCarrier } from "../../scripts/lib/launch-preflight.ts";
-import {
-	isSpawnableExecutor,
-	LEGACY_DISPATCHABLE_AGENTS,
-} from "../lib/executors/registry.ts";
+import { isSpawnableExecutor } from "../lib/executors/registry.ts";
 import { projectIdentity, projectRootOf } from "../lib/govdb/govdb.ts";
 import { laneSid } from "../lib/lanes/laneslug.ts";
 import { beltCheck, rowLocality } from "./belt.ts";
@@ -28,15 +25,14 @@ import { releaseCasRetry } from "./release-cas-retry.ts";
 // RETIRED from the legacy list (registry LEGACY_DISPATCHABLE_AGENTS) until
 // their transcript evidence readers land (claim-check fails their lanes
 // closed by name) — they refuse here on the registry miss instead of
-// spawning evidence-blind.
-export const DISPATCHABLE_AGENTS = LEGACY_DISPATCHABLE_AGENTS;
+// spawning evidence-blind. W1812: the legacy-list re-export is gone — the
+// registry (spawnable adapters) is the one vocabulary; the legacy list
+// lives only in the registry, beside the evidence-invariant test.
 export function normalizeAgent(raw: string): string | null {
 	const token = raw.trim().toLowerCase();
 	if (!token) return "claude"; // the GUI's empty-dropdown default
 	if (token.startsWith("llm:")) return token;
-	if (isSpawnableExecutor(token)) return token;
-	if (DISPATCHABLE_AGENTS.includes(token)) return token;
-	return null;
+	return isSpawnableExecutor(token) ? token : null;
 }
 
 // W182 — llm:* leg resolution for /api/second-opinion: the same catalog the
