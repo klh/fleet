@@ -48,7 +48,7 @@ const HEARTBEAT_BORN: Record<string, string> = {
 	"hub-port-heal": "W2309",
 	"lost-hub-sweep": "W2321.4",
 	"knowledge-distill": "6cec9094 — fork G knowledge distiller",
-	"hold-drain": "W2318 — born on the heartbeat (drain-mode dispatch hold)",
+	"hold-drain": "W2318",
 };
 
 // Retired com.suspenders.* labels that were never maintenance tasks —
