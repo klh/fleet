@@ -1,4 +1,4 @@
-// test/servicemon.test.ts — W125: the shared service observability module
+// test/servicemon.e2e.ts — W125: the shared service observability module
 // (hooks/lib/servicemon.ts) plus its wiring into store-server / knowledge-api
 // / fleet-board.
 // 1) registry primitives: counter math, histogram buckets, label cardinality
@@ -11,7 +11,7 @@
 //    transcripts within its TTL window. Payloads leak no /Users paths, no
 //    token/key value shapes.
 import { freePort } from "@klh/test-kit";
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -35,7 +35,7 @@ const boardHome = mkdtempSync(
 const repo = mkdtempSync(join(tmpdir(), "suspenders-servicemon-repo-"));
 const procs: Bun.Subprocess[] = [];
 
-afterAll(() => {
+test.afterAll(() => {
 	for (const p of procs) p.kill();
 	rmSync(home, { recursive: true, force: true });
 	rmSync(boardHome, { recursive: true, force: true });
@@ -74,7 +74,7 @@ const start = async (
 
 // ── 1 + 2: registry primitives and exposition format ────────────────────────
 
-describe("servicemon registry", () => {
+test.describe("servicemon registry @unit", () => {
 	test("counter inc cumulates per label set; set overrides", () => {
 		const sm = servicemon({ service: "t1", port: 0 });
 		const c = sm.counter("w125_test_total", "w125 test counter");
@@ -175,7 +175,7 @@ const gen = async (sm: Servicemon): Promise<string> => {
 	return ((await r.json()) as { generated_at: string }).generated_at;
 };
 
-describe("status cache honors STATUS_REFRESH_S", () => {
+test.describe("status cache honors STATUS_REFRESH_S", () => {
 	test("default (5s): cached — same generated_at inside the window", async () => {
 		const sm = servicemon({ service: "t6", port: 0 });
 		expect(sm.refreshS).toBe(5);
@@ -274,9 +274,9 @@ const unsafe = (s: string): boolean =>
 	/"(answer_)?token"\s*:/.test(s) ||
 	/sk-[A-Za-z0-9]{8,}/.test(s);
 
-describe("wiring — store-server", () => {
+test.describe("wiring — store-server", () => {
 	let base = "";
-	beforeAll(async () => {
+	test.beforeAll(async () => {
 		base = await start(join(BIN, "store-server.ts"), await freePort(), home);
 	});
 
@@ -334,9 +334,9 @@ describe("wiring — store-server", () => {
 	});
 });
 
-describe("wiring — knowledge-api", () => {
+test.describe("wiring — knowledge-api", () => {
 	let base = "";
-	beforeAll(async () => {
+	test.beforeAll(async () => {
 		base = await start(join(BIN, "knowledge-api.ts"), await freePort(), home);
 	});
 
@@ -396,9 +396,9 @@ db.close();`;
 	return tp;
 };
 
-describe("wiring — fleet-board", () => {
+test.describe("wiring — fleet-board", () => {
 	let base = "";
-	beforeAll(async () => {
+	test.beforeAll(async () => {
 		seedBoard();
 		base = await start(
 			join(BIN, "fleet-board.ts"),

@@ -1,9 +1,9 @@
-// test/policy-advisor.test.ts — W161 policy advisor: the machine-checkable
+// test/policy-advisor.e2e.ts — W161 policy advisor: the machine-checkable
 // rule catalog (catalog.ts), the check engine (checks.ts) and the CLI
 // (bin/policy-advisor.ts). Fixtures build temp repos exercising each law;
 // violations surface as findings with citation + offer — never mutations.
 
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -59,7 +59,7 @@ function bigFile(lines: number): string {
 	return `${out.join("\n")}\n`;
 }
 
-describe("policy catalog (hub-distributable)", () => {
+test.describe("policy catalog (hub-distributable) @unit", () => {
 	test("five law.* rules, JSON-serializable", () => {
 		expect(policyCatalog.length).toBe(5);
 		for (const r of policyCatalog) {
@@ -95,7 +95,7 @@ describe("policy catalog (hub-distributable)", () => {
 	});
 });
 
-describe("repo + line-law checks", () => {
+test.describe("repo + line-law checks", () => {
 	test("qlty missing → finding; present → clean", () => {
 		const root = mkRepo(tmpRoot(), { "src/a.ts": CLEAN_SERVICE });
 		const bad = runPolicyChecks(root);
@@ -140,7 +140,7 @@ describe("repo + line-law checks", () => {
 	});
 });
 
-describe("service-surface checks", () => {
+test.describe("service-surface checks", () => {
 	test("Bun.serve without servicemon fires; wiring clears it", () => {
 		const root = mkRepo(tmpRoot(), {
 			"src/one.ts": `export const r = Bun.serve({ port: 1 });`,
@@ -168,7 +168,7 @@ describe("service-surface checks", () => {
 	});
 });
 
-describe("http-citizenship honest omission", () => {
+test.describe("http-citizenship honest omission", () => {
 	test("spreads and variable headers are skipped, not guessed", () => {
 		const root = mkRepo(tmpRoot(), {
 			"src/skip.ts": [
@@ -194,7 +194,7 @@ describe("http-citizenship honest omission", () => {
 	});
 });
 
-describe("auth key material", () => {
+test.describe("auth key material", () => {
 	test("PEM in src fires; fixtures under test/ are exempt", () => {
 		const pem = [
 			"-----BEGIN PRIVATE KEY-----", // scrub:allow
@@ -226,7 +226,7 @@ describe("auth key material", () => {
 	});
 });
 
-describe("run semantics + CLI", () => {
+test.describe("run semantics + CLI", () => {
 	test("unknown requested ids land in skipped[] honestly", () => {
 		const out = runPolicyChecks(tmpRoot(), {
 			rules: ["law.qlty-required", "nope.rule"],
@@ -273,7 +273,7 @@ describe("run semantics + CLI", () => {
 	});
 });
 
-describe("integration: one file, three rules", () => {
+test.describe("integration: one file, three rules", () => {
 	test("BAD_SERVICE fires servicemon + http-citizenship + auth at once", () => {
 		const root = mkRepo(tmpRoot(), { "src/bad.ts": BAD_SERVICE });
 		const out = runPolicyChecks(root);

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	existsSync,
 	mkdirSync,
@@ -21,7 +21,7 @@ import {
 import { parsePlistXml } from "./plist-fields.ts";
 
 const dirs: string[] = [];
-afterEach(() => {
+test.afterEach(() => {
 	for (const dir of dirs.splice(0))
 		rmSync(dir, { recursive: true, force: true });
 });
@@ -57,7 +57,7 @@ function fixture() {
 	});
 	return { dir, first, second, spec, values };
 }
-describe("W501 supervised gateway env files", () => {
+test.describe("W501 supervised gateway env files @unit", () => {
 	test("Darwin service PATH preserves configured tools and resolves system administration utilities", () => {
 		const f = fixture();
 		f.spec.env.PATH = "/fixture/bin:/usr/bin:/bin";

@@ -1,6 +1,6 @@
-// race-policy.test.ts — W1143: the race policy — parse, conf chain,
+// race-policy.e2e.ts — W1143: the race policy — parse, conf chain,
 // classification, the raced decision, and the brief line.
-import { afterEach, describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,7 +15,7 @@ import {
 	parseRacePolicy,
 } from "../hooks/lib/race-policy.ts";
 
-describe("parseRacePolicy", () => {
+test.describe("parseRacePolicy @unit", () => {
 	test("absent keys ride the defaults; built-in defaults parse verbatim", () => {
 		expect(parseRacePolicy("version: 1\n")).toEqual(RACE_POLICY_DEFAULTS);
 		expect(parseRacePolicy(JSON.stringify(RACE_POLICY_DEFAULTS))).toEqual(
@@ -98,9 +98,9 @@ classify:
 	});
 });
 
-describe("loadRacePolicy (conf chain)", () => {
+test.describe("loadRacePolicy (conf chain)", () => {
 	const HOME = mkdtempSync(join(tmpdir(), "race-policy-"));
-	afterEach(() => {
+	test.afterEach(() => {
 		rmSync(join(HOME, ".claude"), { recursive: true, force: true });
 	});
 
@@ -160,7 +160,7 @@ describe("loadRacePolicy (conf chain)", () => {
 	});
 });
 
-describe("classification + decision", () => {
+test.describe("classification + decision", () => {
 	test("rules fire first-match-wins, case-insensitive on tags", () => {
 		const p = parseRacePolicy(`version: 1
 max_lanes: 4
