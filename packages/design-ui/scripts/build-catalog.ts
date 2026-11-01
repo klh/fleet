@@ -63,10 +63,10 @@ const PROTO_CSS = `
 }
 .proto-retry {
 	background: none;
-	border: 1px solid var(--klh-danger);
+	border: var(--klh-line-hair) solid var(--klh-danger);
 	color: var(--klh-danger-ink);
-	padding: 1px 8px;
-	margin-left: 8px;
+	padding: var(--klh-space-3);
+	margin-left: var(--klh-space-3);
 	cursor: pointer;
 }
 `;
@@ -78,10 +78,10 @@ const PROTO_CSS_B = `
 }
 .proto-dot {
 	display: inline-block;
-	width: 8px;
-	height: 8px;
+	width: var(--klh-space-3);
+	height: var(--klh-space-3);
 	border-radius: 50%;
-	margin-right: 5px;
+	margin-right: var(--klh-space-2);
 	background: var(--klh-ok);
 }
 `;
@@ -115,12 +115,12 @@ const PANE_CSS = `
 	gap: var(--klh-space-3);
 }
 .pair section {
-	border: 1px solid var(--klh-edge);
+	border: var(--klh-line-hair) solid var(--klh-edge);
 	padding: var(--klh-space-3);
 	background: var(--klh-panel);
 }
 .pair h2 {
-	font: 700 11px/1.2 var(--klh-font-sans);
+	font: 700 var(--klh-text-sm)/1.2 var(--klh-font-sans);
 	letter-spacing: 0.08em;
 	text-transform: uppercase;
 	color: var(--klh-dim);
@@ -181,7 +181,7 @@ export const buildElements = (repoRoot: string): void => {
 			"--production",
 			"--splitting",
 			"--chunk-naming",
-			"lit-[hash].[ext]",
+			"vendor/lit-[hash].[ext]",
 			"--outdir",
 			OUT,
 		],

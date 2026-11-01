@@ -2,7 +2,11 @@
 // the shell is the klh-topbar Lit component (avatar dropdown + settings
 // gear; me fetched live from /api/console/me by the component); the fleet
 // strip above it stays server-rendered theme.ts fleetNav().
-import { FLEET_NAV_CSS, fleetNav, THEME_HEAD } from "@klh/kernel/src/kernel.theme.module.ts";
+import {
+	FLEET_NAV_CSS,
+	fleetNav,
+	THEME_HEAD,
+} from "@klh/kernel/src/kernel.theme.module.ts";
 import { U_CSS, UPLOT_CSS, UPLOT_SRC } from "./usage-chrome.ts";
 
 const unesc = (s) =>
@@ -502,15 +506,15 @@ button.diffsend:disabled { opacity:.45; cursor:default; }
 button.lanesend { background:var(--klh-accent); color:var(--klh-on-accent); border:1px solid var(--klh-accent); border-radius:2px; padding:3px 10px; font:inherit; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; cursor:pointer; }
 button.lanesend:disabled { opacity:.45; cursor:default; }
 /* W1198 live work-report pane */
-.rpttable { margin:0 0 10px; padding:0; font-family:var(--klh-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size:11px; line-height:1.5; overflow-x:auto; }
+.rpttable { margin:0 0 10px; padding:0; font-family:var(--klh-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size:11px; line-height:1.5; overflow-x:auto; }
 .rptstrip { display:flex; flex-wrap:wrap; gap:4px; margin:0 0 8px; }
-.rptrow { background:none; border:1px solid var(--klh-edge-strong); color:var(--klh-dim); border-radius:2px; padding:2px 8px; font:inherit; font-size:10.5px; font-family:var(--klh-mono, ui-monospace, SFMono-Regular, Menlo, monospace); cursor:pointer; }
+.rptrow { background:none; border:1px solid var(--klh-edge-strong); color:var(--klh-dim); border-radius:2px; padding:2px 8px; font:inherit; font-size:10.5px; font-family:var(--klh-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); cursor:pointer; }
 .rptrow:hover { color:var(--klh-ink); border-color:var(--klh-edge-hover); }
 .rptrow.on { color:var(--klh-accent); border-color:var(--klh-accent); }
 .rptdetail { border:1px solid var(--klh-edge); border-radius:2px; background:var(--klh-bg); padding:8px 10px; font-size:11px; }
 .rptdetail:empty { display:none; }
 .rpthead { margin-bottom:6px; color:var(--klh-ink); }
-.rpttail { font-family:var(--klh-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size:10.5px; line-height:1.5; white-space:pre-wrap; word-break:break-word; }
+.rpttail { font-family:var(--klh-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size:10.5px; line-height:1.5; white-space:pre-wrap; word-break:break-word; }
 #toasts { position:fixed; bottom:16px; right:16px; display:flex; flex-direction:column; gap:6px; z-index:40; max-width:min(380px, 90vw); }
 .toast { background:var(--klh-warm); border:1px solid var(--klh-danger); border-left-width:3px; color:var(--klh-ink); padding:8px 12px; font-size:12px; border-radius:2px; box-shadow:0 2px 12px var(--klh-shadow); }
 </style></head><body>

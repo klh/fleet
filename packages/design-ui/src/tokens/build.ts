@@ -46,6 +46,7 @@ const primName = (key: string): string => {
 	)
 		return `--klh-typo-${key}`;
 	if (key.endsWith("ms")) return `--klh-motion-${key}`;
+	if (key.startsWith("line-")) return `--klh-${key}`;
 	if (/^[0-9]/.test(key)) return `--klh-space-${key}`;
 	return `--klh-radius-${key}`;
 };

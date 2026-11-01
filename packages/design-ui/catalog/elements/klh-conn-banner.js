@@ -1,4 +1,4 @@
-import{s,t,e,r}from"./lit-c70hdayb.js";import{i,o}from"./lit-pppnqcr5.js";class c extends r{static properties={verdict:{attribute:!1}};static styles=[s`
+import{s,t,e,r}from"./vendor/lit-b2fchqc3.js";import{i,o}from"./vendor/lit-3pe70h91.js";class c extends r{static properties={verdict:{attribute:!1}};static styles=[s`
 		:host {
 			font-size: 11px;
 			color: var(--klh-dim);

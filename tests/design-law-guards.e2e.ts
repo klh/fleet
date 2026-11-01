@@ -120,9 +120,13 @@ test.describe("design law: interactive roles + retired chunks", () => {
 	});
 
 	test("no tracked source puts an interactive role on div/span", () => {
-		const offenders = tracked().filter((f) =>
-			INTERACTIVE_ROLE.test(readFileSync(join(REPO, f), "utf8")),
-		);
+		// this file carries ROLE_TEETH (the fixture proving the regex bites);
+		// like law-guards' UI_LAW_ALLOWLIST self-entry, it is not an offender
+		const offenders = tracked()
+			.filter((f) => f !== "tests/design-law-guards.e2e.ts")
+			.filter((f) =>
+				INTERACTIVE_ROLE.test(readFileSync(join(REPO, f), "utf8")),
+			);
 		expect(offenders, offenders.join("\n")).toEqual([]);
 	});
 
