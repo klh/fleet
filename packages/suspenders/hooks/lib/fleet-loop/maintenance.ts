@@ -61,22 +61,6 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		argv: (root) => [join(root, "hooks/bin/db-backup.ts")],
 	},
 	{
-		// W2274: governor.db retention — events/audit/usage archive-and-prune
-		// plus the deltas ring. Nothing scheduled gc before, so the db grew
-		// unbounded (980 MB, deltas 596 MB). Window knob: SUSPENDERS_GC_DAYS.
-		name: "gov-gc",
-		calendar: { hour: 4, minute: 10 },
-		nice: 10,
-		timeoutMs: 600_000,
-		argv: (root) => [
-			join(root, "hooks/bin/coord.ts"),
-			"gc",
-			...(process.env.SUSPENDERS_GC_DAYS
-				? ["--days", process.env.SUSPENDERS_GC_DAYS]
-				: []),
-		],
-	},
-	{
 		name: "harvest",
 		everySeconds: 900,
 		timeoutMs: 240_000,
@@ -450,6 +434,29 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		cwd: (repo) => repo,
 	},
 	{
+		// W2274: governor.db retention — `coord gc --vacuum` daily off-peak so
+		// the deltas/events/facts churn (harvest.*, metrics.*, executor.*)
+		// cannot grow the file unbounded again (2026-10-29: 980 MB). VACUUM
+		// is an exclusive full-file rewrite — the one place it fits is an
+		// idle-hours fire; prunes alone would only bank freelist pages.
+		// archive-before-delete keeps the NDJSON long-term store under
+		// ~/.cache/claude-governor/archive/. Nothing here is a ledger table —
+		// work items are never auto-deleted. SUSPENDERS_MAINTENANCE=0
+		// disables (ops escape).
+		name: "gov-gc",
+		calendar: { hour: 4, minute: 0 },
+		nice: 10,
+		timeoutMs: 600_000,
+		argv: (root) => [
+			join(root, "hooks/bin/coord.ts"),
+			"gc",
+			"--vacuum",
+			...(process.env.SUSPENDERS_GC_DAYS
+				? ["--days", process.env.SUSPENDERS_GC_DAYS]
+				: []),
+		],
+	},
+	{
 		// W2309: the hub port-publishing self-heal — per live hub profile,
 		// probe for the exact restart-policy signature (health face red +
 		// container Up/(healthy) + NetworkSettings.Ports = {}) and run the
@@ -477,19 +484,6 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		cwd: (repo) => repo,
 	},
 	{
-		// W2194: the hub model-health sweep — every configured hub + the local
-		// spoke probes each catalog group through ITS OWN buckle front (~10min,
-		// hubs parallel, groups staggered), banking model.health.<core> facts
-		// the dispatch + review-scheduler pin layers re-pin from when a pinned
-		// group is DOWN. Exit 1 = down groups present (the heartbeat notices).
-		// SUSPENDERS_MODEL_HEALTH=0 disables the sweep.
-		name: "model-health-sweep",
-		everySeconds: MODEL_HEALTH_SWEEP_S,
-		nice: 10,
-		timeoutMs: 240_000,
-		argv: (root) => [join(root, "hooks/bin/model-health-sweep.ts")],
-	},
-	{
 		// W2321.4: the lost-hub requeue sweep — first-loss-anchored grace (15
 		// min default, the MultiKueue workerLostTimeout analog), then BUDGETED
 		// requeue of the hub's CLAIMED items → READY through the ONE release
@@ -503,6 +497,19 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		nice: 10,
 		timeoutMs: 120_000,
 		argv: (root) => [join(root, "hooks/bin/lost-hub.ts"), "--act"],
+	},
+	{
+		// W2194: the hub model-health sweep — every configured hub + the local
+		// spoke probes each catalog group through ITS OWN buckle front (~10min,
+		// hubs parallel, groups staggered), banking model.health.<core> facts
+		// the dispatch + review-scheduler pin layers re-pin from when a pinned
+		// group is DOWN. Exit 1 = down groups present (the heartbeat notices).
+		// SUSPENDERS_MODEL_HEALTH=0 disables the sweep.
+		name: "model-health-sweep",
+		everySeconds: MODEL_HEALTH_SWEEP_S,
+		nice: 10,
+		timeoutMs: 240_000,
+		argv: (root) => [join(root, "hooks/bin/model-health-sweep.ts")],
 	},
 ];
 
