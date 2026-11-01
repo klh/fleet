@@ -1,31 +1,13 @@
 // e2e/board-orchestrate.spec.ts — W875: the Orchestrate panel expands on
 // CLICK only (no hover-open), and shows a minus control that collapses it.
-import { expect, test } from "@playwright/test";
-import { type Board, startBoard } from "../test/helpers/board-harness";
-
-test.describe.configure({ mode: "serial" });
-
-let board: Board | null = null;
-
-test.beforeAll(async () => {
-	board = await startBoard("board-orchestrate");
-});
-
-test.afterAll(async () => {
-	if (board) await board.stop();
-});
-
-function mustBoard(): Board {
-	if (board === null) throw new Error("board not started");
-	return board;
-}
+// W1136: rides the shared fixtures — cleanBoard (fresh world per test) +
+// the auto pageWatcher; the beforeAll(startBoard) copy is gone.
+import { expect, test } from "./fixtures";
 
 test("orchestrate panel: click to expand, minus to collapse, no hover", {
 	tag: "@ui",
-}, async ({ page }) => {
-	const errors: string[] = [];
-	page.on("pageerror", (e) => errors.push(String(e)));
-	await page.goto(`${mustBoard().BASE}/`);
+}, async ({ page, cleanBoard }) => {
+	await page.goto(`${cleanBoard.BASE}/`);
 	const orch = page.locator("#orch");
 	const minus = page.locator("#orchCollapse");
 	await expect(orch).toBeVisible();
@@ -49,5 +31,4 @@ test("orchestrate panel: click to expand, minus to collapse, no hover", {
 	// and a plain summary click still expands again
 	await orch.locator("> summary").click();
 	await expect(orch).toHaveAttribute("open");
-	expect(errors, "uncaught page exceptions").toEqual([]);
 });

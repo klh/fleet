@@ -3,42 +3,11 @@
 // table pills and the fleet lanes rows both carry the .stl letter, and each
 // computed color resolves to the matching klh semantic token — never a
 // literal. Read against the shipped bytes; screenshots land in test-results.
-import { expect, test } from "@playwright/test";
-import { type Board, startBoard } from "../test/helpers/board-harness";
+// W1136: rides the shared fixtures — worker board (--demo pinned via
+// boardOptions) + the auto pageWatcher; the beforeAll(startBoard) copy is gone.
+import { expect, test } from "./fixtures";
 
-test.describe.configure({ mode: "serial" });
-
-let board: Board | null = null;
-let failedId = "";
-
-test.beforeAll(async () => {
-	board = await startBoard("board-state-letters", { args: ["--demo"] });
-	// W1270: seed one real FAILED item (w998 `work fail --note` pattern) so
-	// the F letter + work-failed tone render from live graph state, not a
-	// route mock
-	failedId = board.mintedId(
-		board.workOk(["add", "w1270 failed-state letters item"], "add"),
-	);
-	board.workOk(["take", failedId, "--as", "autow1270-letters"], "take");
-	board.workOk(
-		[
-			"fail",
-			failedId,
-			"--note",
-			"budget wall broke the run; the retry queue cascaded",
-		],
-		"fail",
-	);
-});
-
-test.afterAll(async () => {
-	if (board) await board.stop();
-});
-
-function mustBoard(): Board {
-	if (board === null) throw new Error("board not started");
-	return board;
-}
+test.use({ boardOptions: { args: ["--demo"] } });
 
 // token-resolved proof: the letter's computed color must equal the page's
 // own resolution of the semantic var — no hex literal in this spec
@@ -59,11 +28,10 @@ function hexToRgb(hex: string): string {
 
 test("tasks table: pills carry state letters in the semantic hues", {
 	tag: "@ui",
-}, async ({ page }) => {
-	const b = mustBoard();
+}, async ({ page, board }) => {
 	// DONE rows are opt-in (taskShowDone) — surface them so the D letter renders
 	await page.addInitScript(() => localStorage.setItem("taskShowDone", "1"));
-	await page.goto(`${b.BASE}/#tasks`);
+	await page.goto(`${board.BASE}/#tasks`);
 	const table = page.locator("#tasksBody");
 	await expect(table.locator("tr").first()).toBeVisible();
 	// the letter leads every state pill
@@ -96,8 +64,8 @@ test("tasks table: pills carry state letters in the semantic hues", {
 
 test("board cards, columns and pills resolve state hues in both themes", {
 	tag: "@ui",
-}, async ({ page }) => {
-	await page.goto(`${mustBoard().BASE}/#lanes`);
+}, async ({ page, board }) => {
+	await page.goto(`${board.BASE}/#lanes`);
 	await expect(page.locator('.kcard[data-tone="ready"]').first()).toBeVisible();
 	for (const theme of ["dark", "light"]) {
 		await page
@@ -128,9 +96,8 @@ test("board cards, columns and pills resolve state hues in both themes", {
 
 test("tasks filters use the shared project scope and retain column sorting", {
 	tag: "@ui",
-}, async ({ page }) => {
-	const b = mustBoard();
-	await page.goto(`${b.BASE}/#tasks`);
+}, async ({ page, board }) => {
+	await page.goto(`${board.BASE}/#tasks`);
 	await expect(page.locator("#proj")).toHaveCount(1);
 	await expect(page.locator("#taskProj")).toHaveCount(0);
 	const all = page.locator('#taskFocus [data-focus="all"]');
@@ -161,9 +128,8 @@ test("tasks filters use the shared project scope and retain column sorting", {
 
 test("fleet lanes rows: the status word leads with its letter", {
 	tag: "@ui",
-}, async ({ page }) => {
-	const b = mustBoard();
-	await page.goto(`${b.BASE}/#governor`);
+}, async ({ page, board }) => {
+	await page.goto(`${board.BASE}/#governor`);
 	// the fleet strip ships collapsed — expand before asserting rows
 	await page.click("#fleetHead");
 	const rows = page.locator(".fleetrow");
@@ -182,11 +148,31 @@ test("fleet lanes rows: the status word leads with its letter", {
 	await page.screenshot({ path: "test-results/w891-fleet-letters.png" });
 });
 
+// W1270: a REAL failed item rides the demo board — seeded per-test with a
+// cleanBoard world so the F letter + work-failed tone render from live graph
+// state, not a route mock.
+function seedFailed(b: import("./harness").Board): string {
+	const failedId = b.mintedId(
+		b.workOk(["add", "w1270 failed-state letters item"], "add"),
+	);
+	b.workOk(["take", failedId, "--as", "autow1270-letters"], "take");
+	b.workOk(
+		[
+			"fail",
+			failedId,
+			"--note",
+			"budget wall broke the run; the retry queue cascaded",
+		],
+		"fail",
+	);
+	return failedId;
+}
+
 test("a FAILED item renders the F letter in the work-failed token hue", {
 	tag: "@ui",
-}, async ({ page }) => {
-	const b = mustBoard();
-	await page.goto(`${b.BASE}/#tasks`);
+}, async ({ page, cleanBoard }) => {
+	const failedId = seedFailed(cleanBoard);
+	await page.goto(`${cleanBoard.BASE}/#tasks`);
 	// ids collide across projects on the demo board (W318) — the title scopes
 	// the row to the seeded scratch-repo item
 	const row = page
@@ -200,7 +186,7 @@ test("a FAILED item renders the F letter in the work-failed token hue", {
 	// the letter leads the state word
 	const text = (await pill.textContent()) ?? "";
 	expect(text.startsWith("F")).toBe(true);
-	// the tone resolves to the page's own --work-failed token — never a literal
+	// the tone resolves to the page own resolution of the semantic token
 	const expected = hexToRgb(await tokenColor(page, "--work-failed"));
 	await expect
 		.poll(() => pill.evaluate((el) => getComputedStyle(el).color))
@@ -210,9 +196,9 @@ test("a FAILED item renders the F letter in the work-failed token hue", {
 
 test("the FAILED kanban card shows the note head; the drawer keeps the full note", {
 	tag: "@ui",
-}, async ({ page }) => {
-	const b = mustBoard();
-	await page.goto(`${b.BASE}/#lanes`);
+}, async ({ page, cleanBoard }) => {
+	const failedId = seedFailed(cleanBoard);
+	await page.goto(`${cleanBoard.BASE}/#lanes`);
 	// ids collide across projects on the demo board (W318) — the title scopes
 	// the card to the seeded scratch-repo item
 	const card = page

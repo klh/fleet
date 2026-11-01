@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
-import { withFileLock } from "../lanes/file-lock.ts";
 import { legacyNameOf, writeJsonConf } from "../kernel-conf.ts";
+import { withFileLock } from "../lanes/file-lock.ts";
 import { resolvePosture } from "./posture.resolve.ts";
-import { parsePostureDocument, type PostureDocument } from "./posture.zod.ts";
+import { type PostureDocument, parsePostureDocument } from "./posture.zod.ts";
 
 export interface PostureSnapshot {
 	document: PostureDocument;
@@ -13,7 +13,8 @@ export interface PostureSnapshot {
 
 export interface StackPostureSnapshot {
 	document: PostureDocument | null;
-	revision: string;
+	/** null when the machine has NO stack config file at all (create-only). */
+	revision: string | null;
 }
 
 const revisionOf = (text: string): string =>
@@ -99,7 +100,13 @@ function readStackEnvelope(path: string): {
 	snapshot: StackPostureSnapshot;
 } {
 	const jsonPath = stackJsonPath(path);
-	const sourcePath = existsSync(jsonPath) ? jsonPath : legacyNameOf(jsonPath);
+	const legacy = legacyNameOf(jsonPath);
+	// W2272: neither name on disk = an un-configured machine — absence is
+	// explicit (document:null, revision:null = create-only), never an ENOENT
+	// 500 out of the posture routes.
+	if (!existsSync(jsonPath) && !existsSync(legacy))
+		return { envelope: {}, snapshot: { document: null, revision: null } };
+	const sourcePath = existsSync(jsonPath) ? jsonPath : legacy;
 	const text = readFileSync(sourcePath, "utf8");
 	let envelope: unknown;
 	try {
