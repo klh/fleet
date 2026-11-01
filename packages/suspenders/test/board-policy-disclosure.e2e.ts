@@ -3,9 +3,14 @@
 // and the dispatch brief discloses OPEN policy decisions for the repo as
 // provenance lines (read-only graph read — compliance re-checks at session
 // bootstrap, never at dispatch).
+<<<<<<<< HEAD:packages/suspenders/test/board-policy-disclosure.e2e.ts
 import { expect, test } from "@playwright/test";
+========
+
+>>>>>>>> parked/W1294.4:packages/suspenders/test/board-policy-disclosure@unit.e2e.ts
 import { Database } from "bun:sqlite";
 import { createContext, runInContext } from "node:vm";
+import { expect, test } from "@playwright/test";
 import { CORE } from "../hooks/board-html/core.ts";
 import { DECISIONS } from "../hooks/board-html/decisions.ts";
 import {
@@ -72,7 +77,11 @@ async function feed(query: string): Promise<{
 	return response.json();
 }
 
+<<<<<<<< HEAD:packages/suspenders/test/board-policy-disclosure.e2e.ts
 test.describe("policy provenance disclosure (W862) @unit", () => {
+========
+test.describe("policy provenance disclosure (W862)", () => {
+>>>>>>>> parked/W1294.4:packages/suspenders/test/board-policy-disclosure@unit.e2e.ts
 	test("board record carries the validated policy payload; broken pins and plain forks stay null", async () => {
 		const data = await feed(`?project=${encodeURIComponent(PROJECT)}`);
 		const health = data.decisions.find((d) => d.id === healthEvent);
