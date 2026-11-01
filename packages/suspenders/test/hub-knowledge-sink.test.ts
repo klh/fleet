@@ -1,8 +1,8 @@
 import { afterAll, expect, test } from "bun:test";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpDir } from "./helpers/fixture-kit.ts";
 import { join } from "node:path";
 import { parse } from "yaml";
+import { tmpDir } from "./helpers/fixture-kit.ts";
 
 // W1217: the NAS knowledge sink as config — a hub profile that declares
 // `knowledge:` enables the `knowledge` compose profile (the knowledge-api

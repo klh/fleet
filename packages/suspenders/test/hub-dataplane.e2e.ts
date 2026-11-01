@@ -6,10 +6,11 @@
 // undeclared = no dataplane service and a byte-clean solo render; declared
 // knobs fall through to the template defaults. The face owns its port — it
 // never rides the LLM gateway front door.
-import { expect, test } from "@playwright/test";
+
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import { parse } from "yaml";
 
 type Svc = Record<string, unknown> & {
@@ -20,10 +21,7 @@ type Svc = Record<string, unknown> & {
 };
 
 const compose = parse(
-	readFileSync(
-		join(import.meta.dir, "../deploy/hub-compose.yaml"),
-		"utf8",
-	),
+	readFileSync(join(import.meta.dir, "../deploy/hub-compose.yaml"), "utf8"),
 	{ merge: true, maxAliasCount: 500 },
 ) as { services: Record<string, Svc> };
 
@@ -102,9 +100,9 @@ test.describe("@unit W2329 — dataplane hub profile", () => {
 				/KEY|TOKEN|SECRET/,
 			);
 		// W264: the host allowlist rides the shared guard, not a new auth path.
-		expect(api.environment.SUSPENDERS_ALLOWED_HOSTS).toBe(
-			"${HUB_ALLOWED_HOSTS:-suspenders.local}",
-		);
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: compose contract
+		const hostsContract = "${HUB_ALLOWED_HOSTS:-suspenders.local}";
+		expect(api.environment.SUSPENDERS_ALLOWED_HOSTS).toBe(hostsContract);
 	});
 
 	test("health rides the outside-process probe sidecar (owner law)", () => {
