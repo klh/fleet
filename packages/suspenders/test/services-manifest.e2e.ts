@@ -1,4 +1,4 @@
-// test/services-manifest.test.ts — W488.1 parity: every service in
+// test/services-manifest.e2e.ts — W488.1 parity: every service in
 // deploy/services.yaml renders FIELD-EQUIVALENT to the hand-written template
 // plist it migrates (hooks/launchd/*.plist). Field-equivalence, not byte-
 // equality: formatting differs. Both sides get the SAME fixture placeholder
@@ -6,7 +6,7 @@
 // logs, cwd or Nice fails loudly. Also covers placeholder validation (used
 // but undeclared / declared but unused / unresolvable tokens) and the
 // install.sh-matching belt defaults.
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -59,7 +59,7 @@ const synth = (over: Partial<ServiceSpec>): ServiceSpec => ({
 	...over,
 });
 
-describe("services manifest (W488.1)", () => {
+test.describe("services manifest (W488.1) @unit", () => {
 	test("manifest covers exactly the templated plists on disk", () => {
 		const onDisk = readdirSync(TEMPLATE_DIR).filter((f) =>
 			f.endsWith(".plist"),
@@ -139,7 +139,7 @@ describe("services manifest (W488.1)", () => {
 		expect(args[4]).toBe(`${FIXTURE.home}/.claude/local-llm/belt.env`);
 		// direct args follow the sourced files: bun, entry, then "supervise"
 		expect(args[5]).toBe(FIXTURE.bun);
-		expect(args[6]).toEndWith(".claude/local-llm/swarm.ts");
+		expect(String(args[6]).endsWith(".claude/local-llm/swarm.ts")).toBe(true);
 		expect(args[7]).toBe("supervise");
 	});
 	test("belt defaults match install.sh ($BELT_URL / $BELT_TOKEN with fallbacks)", () => {
@@ -236,16 +236,22 @@ function parseIni(text: string): Record<string, Record<string, string>> {
 const iniByName = (name: string): Record<string, Record<string, string>> =>
 	parseIni(renderLinux(byName(name), FIXTURE));
 
-describe("services manifest linux (W488.2)", () => {
+test.describe("services manifest linux (W488.2)", () => {
 	test("every service renders a systemd unit that parses as INI with required keys", () => {
 		for (const spec of services) {
 			const ini = parseIni(renderLinux(spec, FIXTURE));
 			expect(ini.Unit?.Description).toBe(
 				`fleet ${spec.name} (deploy/services.yaml)`,
 			);
-			expect(ini.Service?.ExecStart).toStartWith(`"${FIXTURE.bun}"`);
-			expect(ini.Service?.StandardOutput).toStartWith("append:");
-			expect(ini.Service?.StandardError).toStartWith("append:");
+			expect(
+				String(ini.Service?.ExecStart).startsWith(`"${FIXTURE.bun}"`),
+			).toBe(true);
+			expect(String(ini.Service?.StandardOutput).startsWith("append:")).toBe(
+				true,
+			);
+			expect(String(ini.Service?.StandardError).startsWith("append:")).toBe(
+				true,
+			);
 			expect(ini.Install?.WantedBy).toBe("default.target");
 		}
 	});
@@ -364,7 +370,7 @@ function xmlText(xml: string, tag: string): string | null {
 
 const winByName = (name: string): string => renderWin32(byName(name), FIXTURE);
 
-describe("services manifest win32 (W488.3)", () => {
+test.describe("services manifest win32 (W488.3)", () => {
 	test("every service renders WinSW XML that balances with required elements", () => {
 		for (const spec of services) {
 			const xml = winByName(spec.name);

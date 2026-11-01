@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { probeService, type ProbeDeps } from "../hooks/board/service-probe.ts";
 
 const depsFor = (response: () => Response): ProbeDeps => ({
@@ -7,7 +7,7 @@ const depsFor = (response: () => Response): ProbeDeps => ({
 	now: () => new Date(),
 });
 
-test("LiteLLM exact declared JSON liveness passes only its configured service probe", async () => {
+test("LiteLLM exact declared JSON liveness passes only its configured service probe @unit", async () => {
 	const deps = depsFor(() => Response.json("I'm alive!"));
 	expect(await probeService("litellm-4100", deps)).toMatchObject({
 		state: "up",
@@ -20,7 +20,7 @@ test("LiteLLM exact declared JSON liveness passes only its configured service pr
 	});
 });
 
-test("LiteLLM contract rejects arbitrary scalars and misleading success objects", async () => {
+test("LiteLLM contract rejects arbitrary scalars and misleading success objects @unit", async () => {
 	for (const body of [
 		"alive",
 		"I'm alive! ",
@@ -40,7 +40,7 @@ test("LiteLLM contract rejects arbitrary scalars and misleading success objects"
 	}
 });
 
-test("LiteLLM contract requires successful JSON response, not redirect or plain text", async () => {
+test("LiteLLM contract requires successful JSON response, not redirect or plain text @unit", async () => {
 	for (const response of [
 		() => Response.json("I'm alive!", { status: 201 }),
 		() => Response.json("I'm alive!", { status: 503 }),
@@ -58,7 +58,7 @@ test("LiteLLM contract requires successful JSON response, not redirect or plain 
 	}
 });
 
-test("LiteLLM contract bounds streamed JSON to 1KiB and cancels overflow", async () => {
+test("LiteLLM contract bounds streamed JSON to 1KiB and cancels overflow @unit", async () => {
 	let cancelled = false;
 	const stream = new ReadableStream<Uint8Array>({
 		start(controller) {

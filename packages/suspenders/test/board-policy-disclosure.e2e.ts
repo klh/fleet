@@ -3,7 +3,7 @@
 // and the dispatch brief discloses OPEN policy decisions for the repo as
 // provenance lines (read-only graph read — compliance re-checks at session
 // bootstrap, never at dispatch).
-import { afterAll, describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
 import { createContext, runInContext } from "node:vm";
 import { CORE } from "../hooks/board-html/core.ts";
@@ -14,9 +14,9 @@ import {
 } from "../hooks/lib/policy/session-policy.ts";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
-const fixture = await boardFixture(0, afterAll);
+const fixture = await boardFixture(0, test.afterAll);
 const db = new Database(`${fixture.HOME}/.cache/claude-governor/governor.db`);
-afterAll(() => db.close());
+test.afterAll(() => db.close());
 
 const PROJECT = fixture.REPO;
 const sha = "a".repeat(64);
@@ -72,7 +72,7 @@ async function feed(query: string): Promise<{
 	return response.json();
 }
 
-describe("policy provenance disclosure (W862)", () => {
+test.describe("policy provenance disclosure (W862) @unit", () => {
 	test("board record carries the validated policy payload; broken pins and plain forks stay null", async () => {
 		const data = await feed(`?project=${encodeURIComponent(PROJECT)}`);
 		const health = data.decisions.find((d) => d.id === healthEvent);

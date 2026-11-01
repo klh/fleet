@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { renderHubPolicy } from "../deploy/hub-policy.ts";
 const base = JSON.stringify(
 	{
@@ -13,10 +13,10 @@ const base = JSON.stringify(
 	null,
 	"\t",
 );
-test("absent hub gateway is byte-identical repository policy", () => {
+test("absent hub gateway is byte-identical repository policy @unit", () => {
 	expect(renderHubPolicy(base)).toBe(base);
 });
-test("explicit zero retry and empty inner ladder survive rendering", () => {
+test("explicit zero retry and empty inner ladder survive rendering @unit", () => {
 	const p = JSON.parse(
 		renderHubPolicy(base, { num_retries: 0, fallbacks: {} }),
 	) as { gateway: Record<string, unknown> };
@@ -24,11 +24,11 @@ test("explicit zero retry and empty inner ladder survive rendering", () => {
 	expect(p.gateway.fallbacks).toEqual({});
 	expect(p.gateway.request_timeout_s).toBe(120);
 });
-test("invalid walk/attempt policy is rejected before deployment", () => {
+test("invalid walk/attempt policy is rejected before deployment @unit", () => {
 	expect(() => renderHubPolicy(base, { first_byte_budget_s: 10 })).toThrow();
 });
 
-test("fresh push materializes required policy before any up invocation", () => {
+test("fresh push materializes required policy before any up invocation @unit", () => {
 	const {
 		mkdtempSync,
 		readFileSync,

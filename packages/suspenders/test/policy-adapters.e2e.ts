@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	mkdtempSync,
 	mkdirSync,
@@ -13,7 +13,7 @@ import { installPolicyAdapters } from "../scripts/install/install-policy-adapter
 
 const home = mkdtempSync(join(tmpdir(), "policy-adapter-"));
 const prefix = join(import.meta.dir, "../hooks");
-afterAll(() => rmSync(home, { recursive: true, force: true }));
+test.afterAll(() => rmSync(home, { recursive: true, force: true }));
 const codexFile = join(home, ".codex/hooks.json");
 const copilotFile = join(home, ".copilot/settings.json");
 mkdirSync(join(home, ".codex"), { recursive: true });
@@ -42,7 +42,7 @@ const copilotExisting = {
 };
 writeFileSync(copilotFile, JSON.stringify(copilotExisting));
 
-test("canonical adapter install is additive and idempotent", () => {
+test("canonical adapter install is additive and idempotent @unit", () => {
 	installPolicyAdapters({ home, prefix });
 	installPolicyAdapters({ home, prefix });
 	const value = JSON.parse(readFileSync(codexFile, "utf8"));
@@ -65,7 +65,7 @@ test("canonical adapter install is additive and idempotent", () => {
 	).toBe(true);
 });
 
-test("dry run does not write and symlink configuration is refused", () => {
+test("dry run does not write and symlink configuration is refused @unit", () => {
 	const other = join(home, "dry");
 	installPolicyAdapters({ home: other, prefix, dryRun: true });
 	expect(() => readFileSync(join(other, ".codex/hooks.json"))).toThrow();
@@ -87,7 +87,7 @@ test("dry run does not write and symlink configuration is refused", () => {
 	).toThrow("symlink");
 });
 
-test("an invalid Copilot hooks map refuses before Codex is written", () => {
+test("an invalid Copilot hooks map refuses before Codex is written @unit", () => {
 	const other = join(home, "invalid");
 	mkdirSync(join(other, ".codex"), { recursive: true });
 	mkdirSync(join(other, ".copilot"), { recursive: true });
@@ -103,7 +103,7 @@ test("an invalid Copilot hooks map refuses before Codex is written", () => {
 	expect(readFileSync(join(other, ".codex/hooks.json"), "utf8")).toBe(prior);
 });
 
-test("native Copilot camelCase and Codex snake_case inputs produce supported context envelopes", async () => {
+test("native Copilot camelCase and Codex snake_case inputs produce supported context envelopes @unit", async () => {
 	for (const harness of ["copilot", "codex"]) {
 		const cwd = join(home, harness);
 		mkdirSync(cwd, { recursive: true });

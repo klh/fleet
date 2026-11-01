@@ -1,7 +1,7 @@
-// test/remotes.test.ts — hooks/lib/hub/remotes.ts: config loading, DNS-first
+// test/remotes.e2e.ts — hooks/lib/hub/remotes.ts: config loading, DNS-first
 // resolution with ip_fallback, protocol probes, and openai chat routing —
 // proven against a real local stub server (Bun.serve), not mocks.
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -118,7 +118,7 @@ const TLS_MACHINE: RemoteMachine = {
 
 const REAL_TLS_REJECT = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
 
-beforeAll(() => {
+test.beforeAll(() => {
 	mkdirSync(`${TMP}/.claude/local-llm`, { recursive: true });
 	process.env.HOME = TMP;
 	process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"; // self-signed test cert only
@@ -128,7 +128,7 @@ beforeAll(() => {
 	);
 });
 
-afterAll(() => {
+test.afterAll(() => {
 	stub.stop(true);
 	tlsStub.stop(true);
 	rmSync(TMP, { recursive: true, force: true });
@@ -142,7 +142,7 @@ afterAll(() => {
  *  poisons later test files that assert against $HOME paths). */
 const REAL_HOME = process.env.HOME;
 
-describe("remotes registry", () => {
+test.describe("remotes registry @unit", () => {
 	test("configPath follows HOME", () => {
 		expect(configPath()).toBe(`${TMP}/.claude/local-llm/remotes.json`);
 	});

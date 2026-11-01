@@ -1,11 +1,11 @@
-// test/hook-adapter-copilot.test.ts — W296: the Copilot CLI hook adapter
+// test/hook-adapter-copilot.e2e.ts — W296: the Copilot CLI hook adapter
 // (the fix for the original bug: a manually-started Copilot CLI session was
 // invisible to the fleet's coordination bus). Covers schema validation, the
 // two translations (payload in / decision out), the identity invariant
 // (ALWAYS register — never skip, unlike codex's unresolved-skip policy),
 // the emitter's merge-not-clobber + matcher-scoped contract, and
 // integration teeth through the real gate.ts copilot entrypoint.
-import { describe, test, expect, afterAll } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	mkdtempSync,
 	realpathSync,
@@ -59,7 +59,7 @@ const WIRE = join(
 	"wire.ts",
 );
 
-afterAll(() => {
+test.afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO, { recursive: true, force: true });
 });
@@ -97,7 +97,7 @@ const gate = (
 
 // ---- schema validation (degrade-honest, never throw) ----
 
-describe("copilot schemas", () => {
+test.describe("copilot schemas @unit", () => {
 	test("SessionStart accepts VS-Code-compatible snake_case payload", () => {
 		const r = CopilotSessionStartSchema.safeParse({
 			hook_event_name: "SessionStart",
@@ -125,7 +125,7 @@ describe("copilot schemas", () => {
 
 // ---- payload normalization (copilot → HookInput) ----
 
-describe("normalizeCopilotTool", () => {
+test.describe("normalizeCopilotTool", () => {
 	test("Bash tool rides command through", () => {
 		const h = normalizeCopilotTool(
 			{ tool_name: "Bash", tool_input: { command: "rg -n foo ." }, cwd: REPO },
@@ -204,7 +204,7 @@ describe("normalizeCopilotTool", () => {
 	});
 });
 
-describe("session normalization", () => {
+test.describe("session normalization", () => {
 	test("resume source rides through as resume", () => {
 		const n = normalizeCopilotSession({
 			session_id: "s1",
@@ -237,7 +237,7 @@ describe("session normalization", () => {
 
 // ---- output translation (the teeth — flat JSON, no hookSpecificOutput) ----
 
-describe("buildCopilotDecision translation table", () => {
+test.describe("buildCopilotDecision translation table", () => {
 	test("allow is empty control JSON", () => {
 		expect(buildCopilotDecision("allow", "PreToolUse", "")).toEqual({
 			stdout: "{}",
@@ -277,7 +277,7 @@ describe("buildCopilotDecision translation table", () => {
 
 // ---- identity resolution (always register — the policy divergence from codex) ----
 
-describe("resolveCopilotSid", () => {
+test.describe("resolveCopilotSid", () => {
 	test("env wins", () => {
 		process.env.SUSPENDERS_SID = "autowenv";
 		try {
@@ -324,7 +324,7 @@ describe("resolveCopilotSid", () => {
 
 // ---- wiring emitter (merge-not-clobber, matcher-scoped) ----
 
-describe("gate-wire-copilot emitter", () => {
+test.describe("gate-wire-copilot emitter", () => {
 	const WIREPATH = join(HOME, "settings.json");
 
 	test("merges matcher-scoped events, preserves user entries, idempotent", () => {
@@ -385,7 +385,7 @@ describe("gate-wire-copilot emitter", () => {
 
 // ---- integration: the teeth through the real entrypoint ----
 
-describe("gate.ts copilot integration", () => {
+test.describe("gate.ts copilot integration", () => {
 	test("pre-bash allow rides through as flat JSON (no hookSpecificOutput)", () => {
 		const r = gate(["copilot", "pre-bash"], {
 			tool_name: "Bash",

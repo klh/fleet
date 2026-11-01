@@ -1,8 +1,24 @@
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	claimCheckVerdict,
 	transcriptEventsFromText,
 } from "../hooks/lib/gates/claim-check.ts";
+
+// bun's CJS interop of @playwright/test drops the lazy test.each modifier —
+// this local loop keeps the bun:test each semantics (tuple cases spread).
+const pwEach =
+	(cases: readonly unknown[]) =>
+	(title: string, fn: (...args: never[]) => void) => {
+		cases.forEach((c, i) => {
+			const args = (Array.isArray(c) ? c : [c]) as never[];
+			let p = 0;
+			const sub = title
+				.replace(/%#/g, () => String(i))
+				.replace(/%s/g, () => String(args[p++]));
+			const name = sub === title ? `${sub} (${i})` : sub;
+			test(name, () => fn(...args));
+		});
+	};
 
 const timestamp = (minute: number) =>
 	new Date(Date.UTC(2026, 9, 26, 10, minute)).toISOString();
@@ -37,7 +53,7 @@ const verdict = (...frames: string[]) =>
 		now: Date.parse(timestamp(10)),
 	});
 
-describe("native Copilot completion evidence", () => {
+test.describe("native Copilot completion evidence @unit", () => {
 	test("pairs timestamped own bash tests and assistant prose", () => {
 		const text = transcript(call(), result(), claim);
 		const events = transcriptEventsFromText(text, "copilot");
@@ -49,7 +65,7 @@ describe("native Copilot completion evidence", () => {
 		expect(verdict(call(), result(), claim).ok).toBe(true);
 	});
 
-	test.each([
+	pwEach([
 		"bun test product.test.ts",
 		"cd .worktrees/W1357 && bun test product.test.ts",
 		'cd "a directory" && npm run test -- --runInBand',
@@ -71,7 +87,7 @@ describe("native Copilot completion evidence", () => {
 		expect(verdict(call(command), result(), claim).ok).toBe(true);
 	});
 
-	test.each([
+	pwEach([
 		"coord inbox --as owner",
 		'echo "bun test"',
 		"printf 'bun test'",
@@ -134,7 +150,7 @@ describe("native Copilot completion evidence", () => {
 			minute,
 		);
 
-	describe("native Copilot asynchronous own tests", () => {
+	test.describe("native Copilot asynchronous own tests", () => {
 		test("links repeated own reads to a timed-out test shell, not partial counts", () => {
 			const waiting = nativeResult(
 				"read",
@@ -183,7 +199,7 @@ describe("native Copilot completion evidence", () => {
 			).toHaveLength(1);
 		});
 
-		test.each(
+		pwEach(
 			[
 				[result("2 pass\n0 fail"), read(), finished()],
 				[call("coord inbox"), started, read(), finished()],
@@ -256,7 +272,7 @@ describe("native Copilot completion evidence", () => {
 					"copilot",
 				).runs;
 				expect(runs).toHaveLength(2);
-				expect(runs[1]?.text).toStartWith("0 pass\n1 fail");
+				expect(String(runs[1]?.text).startsWith("0 pass\n1 fail")).toBe(true);
 				expect(
 					verdict(
 						...frames,
@@ -416,7 +432,7 @@ describe("native Copilot completion evidence", () => {
 		}
 	});
 
-	test.each([
+	pwEach([
 		["0 pass\n1 fail\n<shellId: 1 completed with exit code 1>", true],
 		["1 pass\n0 fail\n<shellId: 1 completed with exit code 1>", true],
 		["1 pass\n0 fail\n<shellId: 1 completed with exit code 0>", false],
