@@ -315,6 +315,10 @@ services:
 legacyLabels:
   # pre-namespacing supersede set (W284/W640 history)
   - com.belt.swarm
+  # W695.6 — ikea-shim/:4102 retired from the manifest; the boot-out label
+  # was missing, so a loaded unit lingered and the watchdog kept auditing it
+  # (W2339). A retired server resident, not a maintenance task.
+  - com.suspenders.ikea-shim
   # W1105 — direct rapid-mlx KeepAlive plists competed with belt-swarm.
   - com.belt.llm-8901
   - com.belt.llm-8902
