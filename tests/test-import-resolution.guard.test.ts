@@ -121,5 +121,8 @@ test("every tracked test relative import resolves and exports its names", () => 
 });
 
 test("the scan has teeth (real tracked test population)", () => {
-	expect(collectTestFiles(ROOT).length).toBeGreaterThan(500);
+	// W2416: the collector now also globs *.e2e.ts (W1294 corpus) — 283
+	// legacy-suffix files + 784 ported specs. The floor guards against the
+	// scan silently going vacuous, not against ports between suffixes.
+	expect(collectTestFiles(ROOT).length).toBeGreaterThan(1000);
 });

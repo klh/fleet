@@ -6,10 +6,10 @@
 	"license": "SEE LICENSE IN LICENSE",
 	"packageManager": "bun@1.4.2",
 	"scripts": {
-		"test": "bun test test/",
-		"ci": "bun install && bun test test/",
-		"build:vendor": "bun scripts/build-vendor.ts",
-		"test:e2e": "bunx --bun playwright test --config e2e/playwright.config.ts"
+		"test": "playwright test --config test/playwright.config.ts",
+		"test:e2e": "playwright test --config e2e/playwright.config.ts",
+		"ci": "bun install && playwright test --config test/playwright.config.ts",
+		"build:vendor": "bun scripts/build-vendor.ts"
 	},
 	"dependencies": {
 		"@clack/prompts": "1.8.1",
