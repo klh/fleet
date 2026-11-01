@@ -17,14 +17,11 @@
 // Quiet-hours hubs are skipped (W483: never act into a dark window).
 // Exit 1 when a dry-run finds reapable rows or serves (a human should
 // notice), else 0; 2 on argv misuse.
-import { join } from "node:path";
 import { emitLoopEvent } from "../lib/fleet-loop/events.ts";
 import {
 	type HubGcTarget,
 	gcHub,
 	type HubGcWorktree,
-	listScript,
-	parseHubGcListing,
 } from "../lib/fleet-loop/hub-orphan-gc.ts";
 import { sshOpts } from "../../deploy/hub-remote.ts";
 import { inQuietHours, loadStack } from "../lib/stack-config.ts";
@@ -174,9 +171,10 @@ async function main(argv: string[]): Promise<number> {
 				console.log(`${r.hub} ${row.action} ${row.branch} — ${row.why}`);
 			for (const s of r.serves)
 				console.log(`${r.hub} serve pid=${s.pid} item=${s.item} ${s.cmd}`);
-			const tail = r.reaped || r.survivors || r.killed
-				? ` reaped=${r.reaped} survivors=${r.survivors} killed=${r.killed}`
-				: "";
+			const tail =
+				r.reaped || r.survivors || r.killed
+					? ` reaped=${r.reaped} survivors=${r.survivors} killed=${r.killed}`
+					: "";
 			console.log(
 				`${r.hub}: ${r.rows.length} row(s)${tail}${r.authorityReachable ? "" : " · AUTHORITY UNREACHABLE (scan-only)"}${r.dryRun ? " · dry-run" : ""}`,
 			);

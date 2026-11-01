@@ -19,8 +19,8 @@ import {
 } from "../hooks/lib/fleet-loop/hub-orphan-gc.ts";
 import {
 	ancestryProbe,
-	realGcExec,
 	toGcTarget,
+	type realGcExec,
 } from "../hooks/bin/hub-orphan-gc.ts";
 import { MAINTENANCE_TASKS } from "../hooks/lib/fleet-loop/maintenance.ts";
 
@@ -61,15 +61,21 @@ test.describe("@unit", () => {
 		expect(r.worktrees[1]?.clean).toBe(false);
 		expect(r.worktrees[1]?.branch).toBe("suspenders/W456");
 		expect(r.ps).toEqual([
-			{ pid: 4102, ppid: 1, cmd: "bun /vol/fleet/.worktrees/W123/fleet-board.ts" },
+			{
+				pid: 4102,
+				ppid: 1,
+				cmd: "bun /vol/fleet/.worktrees/W123/fleet-board.ts",
+			},
 		]);
 	});
 
 	test("claimTerminal: only terminal states license; unknown/absent/throw never", () => {
 		const face = (s: string | null) => (item: string) =>
-			item === "THROW" ? (() => {
-				throw new Error("store down");
-			})() : s;
+			item === "THROW"
+				? (() => {
+						throw new Error("store down");
+					})()
+				: s;
 		for (const s of TERMINAL_STATES)
 			expect(claimTerminal("W1", face(s))).toBe(true);
 		expect(claimTerminal("W1", face("CLAIMED"))).toBe(false);
@@ -87,9 +93,9 @@ test.describe("@unit", () => {
 			act: true,
 			...over,
 		});
-		expect(classifyWorktree(wt(), o({ authorityReachable: false })).action).toBe(
-			"authority-unreachable",
-		);
+		expect(
+			classifyWorktree(wt(), o({ authorityReachable: false })).action,
+		).toBe("authority-unreachable");
 		expect(classifyWorktree(wt(), o({ terminal: false })).action).toBe(
 			"protected",
 		);
@@ -107,15 +113,17 @@ test.describe("@unit", () => {
 	});
 
 	test("scopedServes: marker + worktree scope + terminal claim", () => {
-		const ps = parseHubGcListing([
-			"===GC-WORKTREES",
-			"===GC-PS",
-			`  100   1 bun /vol/fleet/.worktrees/W123/packages/buckle/src/server.ts`,
-			`  101   1 bun /vol/fleet/.worktrees/W777/fleet-board.ts`,
-			`  102   1 bun /vol/fleet/.worktrees/W124/router-shim.ts`,
-			`  103   1 vim /vol/fleet/.worktrees/W123/notes.txt`,
-			"===GC-END",
-		].join("\n")).ps;
+		const ps = parseHubGcListing(
+			[
+				"===GC-WORKTREES",
+				"===GC-PS",
+				`  100   1 bun /vol/fleet/.worktrees/W123/packages/buckle/src/server.ts`,
+				`  101   1 bun /vol/fleet/.worktrees/W777/fleet-board.ts`,
+				`  102   1 bun /vol/fleet/.worktrees/W124/router-shim.ts`,
+				`  103   1 vim /vol/fleet/.worktrees/W123/notes.txt`,
+				"===GC-END",
+			].join("\n"),
+		).ps;
 		const states: Record<string, string> = {
 			W123: "DONE",
 			W777: "CLAIMED",

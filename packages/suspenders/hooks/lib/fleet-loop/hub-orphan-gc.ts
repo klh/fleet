@@ -23,11 +23,7 @@
 // --act performs. The bin is the CLI face; the maintenance registry fires
 // it with --act every 30 min.
 import { parsePs } from "./rogue-sweep.ts";
-import {
-	cmdlineScope,
-	SERVE_MARKERS,
-	worktreeItem,
-} from "./rogue-reap.ts";
+import { cmdlineScope, SERVE_MARKERS, worktreeItem } from "./rogue-reap.ts";
 
 /** Terminal claim states at the authority — the only deletion license.
  * SHATTERED trees are the parent of an executed split; the kept child
@@ -124,13 +120,13 @@ export function listScript(t: HubGcTarget): string {
 		`git -C ${shQuote(t.repoRoot)} worktree list --porcelain | while IFS= read -r line; do`,
 		'  case "$line" in',
 		'    "worktree "*)',
-		'      wt=${line#worktree }',
+		"      wt=${" + "line#worktree }",
 		'      ctx="$wt/.fleet/lane-context.json"',
 		'      if [ -f "$ctx" ]; then',
 		'        item=$(sed -n \'s/.*"item"[ \t]*:[ \t]*"\\([^"]*\\)".*/\\1/p\' "$ctx" 2>/dev/null)',
 		'        branch=$(git -C "$wt" symbolic-ref --quiet --short HEAD 2>/dev/null || printf DETACHED)',
 		'        if [ -n "$(git -C "$wt" status --porcelain 2>/dev/null)" ]; then st=dirty; else st=clean; fi',
-		"        printf 'GCWT\\t%s\\t%s\\t%s\\t%s\\n' \"$item\" \"$wt\" \"$branch\" \"$st\"",
+		'        printf \'GCWT\\t%s\\t%s\\t%s\\t%s\\n\' "$item" "$wt" "$branch" "$st"',
 		"      fi",
 		"      ;;",
 		"  esac",
@@ -229,7 +225,9 @@ export function reapScript(
 			`git -C ${shQuote(t.repoRoot)} worktree remove ${shQuote(r.worktree)} || { git -C ${shQuote(t.repoRoot)} worktree prune; git -C ${shQuote(t.repoRoot)} worktree remove ${shQuote(r.worktree)}; }`,
 		);
 		if (r.merged)
-			lines.push(`git -C ${shQuote(t.repoRoot)} branch -d ${shQuote(r.branch)}`);
+			lines.push(
+				`git -C ${shQuote(t.repoRoot)} branch -d ${shQuote(r.branch)}`,
+			);
 	}
 	for (const s of serves)
 		if (Number.isInteger(s.pid) && s.pid > 1) lines.push(`kill -TERM ${s.pid}`);
