@@ -36,6 +36,7 @@ test("archiveAndPrune: >BATCH stale rows terminate, archive == deleted", () => {
 		cut: now - 30 * DAY,
 		dir: ARCHIVE,
 		cols: ["id", "ts", "source", "kind"],
+		pkCols: ["id"],
 	});
 	expect(n).toBe(1234);
 	const lines = readdirSync(ARCHIVE)
@@ -70,6 +71,7 @@ test("archiveAndPrune: floor predicate still bounds the cut", () => {
 		floorVal: floor,
 		dir: join(HOME, "archive-floor"),
 		cols: ["id", "ts", "source", "kind"],
+		pkCols: ["id"],
 	});
 	expect(n).toBe(600);
 	const left = db.query("SELECT COUNT(*) AS n FROM events").get() as {
