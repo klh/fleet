@@ -4,7 +4,7 @@ import { releaseWorkClaim } from "../../hooks/lib/work/work-release.ts";
 import type { GovernorStore } from "../../hooks/lib/govdb/govdb.ts";
 // W422: which executor tokens may resolve to a binary is registry data —
 // spawnable rows in hooks/lib/executors/ (a new agent flips its own row).
-import { isSpawnableExecutor } from "../../hooks/lib/executors/registry.ts";
+import { isSpawnableExecutor } from "../../hooks/lib/executors/executor-registry.ts";
 
 /** Daemon PATHs differ from interactive shells. Explicit operator paths are
  * authoritative; canonical user install plus PATH are a bounded fallback. */

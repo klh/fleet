@@ -10,7 +10,7 @@ import {
 	adapterForExact,
 	isSpawnableExecutor,
 	LEGACY_DISPATCHABLE_AGENTS,
-} from "../hooks/lib/executors/registry.ts";
+} from "../hooks/lib/executors/executor-registry.ts";
 import {
 	CLAUDE_ALLOWED_TOOLS,
 	workerManagedArgs,
@@ -108,7 +108,10 @@ describe("W422 executor-adapter registry", () => {
 	test("every legacy-dispatchable token carries transcript evidence", () => {
 		for (const token of LEGACY_DISPATCHABLE_AGENTS) {
 			const adapter = adapterForExact(token);
-			expect(adapter?.evidence, `${token} dispatches and must be readable`).toBeDefined();
+			expect(
+				adapter?.evidence,
+				`${token} dispatches and must be readable`,
+			).toBeDefined();
 		}
 		// retired until a reader verified against a real native session file lands
 		expect(LEGACY_DISPATCHABLE_AGENTS).not.toContain("grok");

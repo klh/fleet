@@ -22,7 +22,7 @@ import {
 	EXECUTOR_ADAPTERS,
 	HARNESS_INSTALL_PATHS,
 	HARNESS_PROCESS_NAMES,
-} from "../executors/registry.ts";
+} from "../executors/executor-registry.ts";
 // W1232: host trust rides the ONE .local/.localdomain flip normalizer —
 // a pre-flip registry row must stay probeable on its own machine.
 import { sameMachine } from "../host-identity.ts";

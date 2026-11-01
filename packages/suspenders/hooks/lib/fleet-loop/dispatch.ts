@@ -41,7 +41,7 @@ import {
 	machineCredScope,
 } from "../cred-scope.ts";
 import { recordLaneExecutor } from "../executors/executor-cv.ts";
-import { adapterFor } from "../executors/registry.ts";
+import { adapterFor } from "../executors/executor-registry.ts";
 import { reproGateForItem } from "../gates/repro-gate.ts";
 import { openStore, projectIdentity } from "../govdb/govdb.ts";
 // W254: pointer-grade injection — file-map + done-definition digest for the

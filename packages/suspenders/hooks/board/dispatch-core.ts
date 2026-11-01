@@ -9,7 +9,7 @@ import { selectLaneCarrier } from "../../scripts/lib/launch-preflight.ts";
 import {
 	isSpawnableExecutor,
 	LEGACY_DISPATCHABLE_AGENTS,
-} from "../lib/executors/registry.ts";
+} from "../lib/executors/executor-registry.ts";
 import { projectIdentity, projectRootOf } from "../lib/govdb/govdb.ts";
 import { laneSid } from "../lib/lanes/laneslug.ts";
 import { beltCheck, rowLocality } from "./belt.ts";

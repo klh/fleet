@@ -99,7 +99,7 @@ import {
 	recordLaneExecutor,
 	writeExecutorCvFacts,
 } from "../executors/executor-cv.ts";
-import { adapterFor } from "../executors/registry.ts";
+import { adapterFor } from "../executors/executor-registry.ts";
 import { openStore, projectIdentity } from "../govdb/govdb.ts";
 import { resolveHub } from "../hub/hub-locate.ts";
 import { rePinFallback } from "../hub/model-health.ts";
