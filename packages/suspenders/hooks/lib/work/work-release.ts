@@ -19,6 +19,8 @@ export function releaseWorkClaim(
 		reason: "owner-release" | "operator-reclaim" | "reclaim-all";
 		/** the reclaim cause (W831 marker); default derives from reason */
 		cause?: ReclaimReason;
+		/** W2337: operator justification riding a forced automated reclaim */
+		justification?: string;
 	},
 	guard?: () => boolean,
 ): boolean {
@@ -87,6 +89,7 @@ export function releaseWorkClaim(
 				expected.id,
 				audit.cause ?? (audit.reason === "reclaim-all" ? "crash" : "user"),
 				expected.owner,
+				audit.justification,
 			);
 		return true;
 	})();
