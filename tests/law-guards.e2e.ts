@@ -149,11 +149,11 @@ const NEAR_CAP_PINNED = {
 	// 1200 stop rule. The rest re-pin to the actual merged-tree counts
 	// (work.ts rides the W2294 lineage: W2186 CAS extraction + W822.1
 	// done-broadcast call; debt: decompose).
-	"packages/belt/bin/router-shim.ts": 1282,
-	"packages/buckle/src/ledger.ts": 1375, // W2260 StreamReceipt move (parked/W2380 lineage) shrank 1389 → re-measured at the W2403 merge
-	"packages/belt/test/dashboard-topology-model.e2e.ts": 1294,
-	"packages/suspenders/hooks/bin/work.ts": 1268, // W2299/W2348/W2372/W2337 lineage re-pins to measured count after W2333 fail-verb decomposition; W2437 merge re-measured 1268 (split-newline convention) on the merged tree (debt: decompose)
-	"packages/suspenders/deploy/hubctl.ts": 1212, // W2261 merge re-pin to measured count; W2299 merge reconciled with parked/W2259's identical count (debt: decompose)
+	"packages/belt/bin/router-shim.ts": 1281,
+	"packages/buckle/src/ledger.ts": 1374, // W2260 StreamReceipt move (parked/W2380 lineage) shrank 1389 → re-measured at the W2403 merge
+	"packages/belt/test/dashboard-topology-model.e2e.ts": 1293,
+	"packages/suspenders/hooks/bin/work.ts": 1267, // W2299/W2348/W2372/W2337 lineage re-pins to measured count after W2333 fail-verb decomposition; W2442 merge re-measured 1267 on the merged tree (debt: decompose)
+	// hubctl.ts left the band: W2329 extracted deploy/hub-profiles.ts (1189 lines)
 };
 
 test("the 1200-line band stays pinned: shrink-only, no new entrants (W1238.6) @unit", () => {
