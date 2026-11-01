@@ -165,6 +165,35 @@ test.describe("W1124.3 plaid local-coder: dry-run + installed-face launch select
 			rmSync(join(REPO, ".fleet", "posture"));
 		}
 	});
+
+	// W2332 (Kueue F3, refill.go:36 defaultRefillBudget=8): the per-cycle
+	// count budget bounds the launch loop alongside the 12-min clock — a deep
+	// READY pool cannot spend one window launching past SUSPENDERS_PLAID_REFILL_BUDGET.
+	test("W2332 plaid refill budget caps launches per cycle", async () => {
+		test.setTimeout(90_000);
+		machineRoutes();
+		plaidPosture();
+		// 5 READY items, budget 2 — dry-run previews advance the loop without
+		// spawning, so the budget (not an executor failure) is what stops it
+		for (let i = 0; i < 5; i++) await addItem(`W2332 budget fixture ${i}`);
+		try {
+			const result = await dispatchA(
+				{
+					PATH: `${binDir}:${process.env.PATH ?? ""}`,
+					SUSPENDERS_PLAID_LAUNCH_GAP_MS: "5000",
+					SUSPENDERS_PLAID_REFILL_BUDGET: "2",
+				},
+				"--dry-run",
+			);
+			const previews = result.out.match(/DRY dispatch W\d+/g) ?? [];
+			expect(previews.length).toBe(2);
+			expect(result.out).toContain(
+				"PLAID budget 2 launches this cycle (W2332)",
+			);
+		} finally {
+			rmSync(join(REPO, ".fleet", "posture"));
+		}
+	});
 });
 
 });

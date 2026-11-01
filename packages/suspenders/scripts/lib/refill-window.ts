@@ -34,6 +34,17 @@ export const plaidLaunchGapMs = (raw?: string): number => {
 export const plaidCycleOpen = (startedAt: number, now: number): boolean =>
 	now - startedAt < 12 * 60_000;
 
+/** W2332 (Kueue F3, refill.go:36 defaultRefillBudget=8): plaid cycles are
+ *  count-bounded too, not just time-capped — a deep READY pool on a fast
+ *  machine must not turn one 12-minute window into forty spawns. Operator
+ *  may lower or raise it; a non-positive or absurd value keeps the default. */
+export const plaidRefillBudget = (raw?: string): number => {
+	const parsed = Number(raw);
+	return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 100
+		? parsed
+		: 8;
+};
+
 export const refillWindow = (
 	posture: Posture,
 	steadyTarget: number,
