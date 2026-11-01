@@ -19,6 +19,7 @@ import {
 	addedWorkspaceDependencies,
 	missingImports,
 	missingImportsExplained,
+	pureTestDiff,
 	shareNodeModules,
 	TEST_FILE,
 } from "../hooks/lib/gates/coverage-proof.ts";
@@ -98,6 +99,34 @@ test("TEST_FILE still separates test paths from production modules", () => {
 	expect(TEST_FILE.test("packages/suspenders/hooks/coord/fleet-table.ts")).toBe(
 		false,
 	);
+});
+
+// W1294.9.1.1: the sweep-G shape — a rename port touches ONLY test paths
+// (old side deleted, new side added, both test files); the guard spec
+// tests/test-framework-guard.test.ts also matches TEST_FILE by its name.
+test("pureTestDiff — a pure test-rename port classifies as pure", () => {
+	const sweepGPort = [
+		"packages/suspenders/test/policy-advisor.test.ts",
+		"packages/suspenders/test/policy-advisor.e2e.ts",
+		"packages/suspenders/test/remotes.test.ts",
+		"packages/suspenders/test/remotes.e2e.ts",
+		"tests/test-framework-guard.test.ts",
+	];
+	expect(pureTestDiff(sweepGPort)).toBe(true);
+	// sweep-G also renames the guard spec itself; both sides are test paths
+	expect(pureTestDiff(["tests/test-framework-guard.test.ts"])).toBe(true);
+});
+
+test("pureTestDiff — any production delta classifies as NOT pure", () => {
+	expect(
+		pureTestDiff([
+			"packages/suspenders/test/policy-advisor.e2e.ts",
+			"packages/suspenders/hooks/bin/review-lane.ts",
+		]),
+	).toBe(false);
+	expect(pureTestDiff(["docs/audit.md"])).toBe(false);
+	// an empty diff is not a port — no changed paths carry no signal
+	expect(pureTestDiff([])).toBe(false);
 });
 
 test("missingImports parses bun's error line (spec + importer)", () => {
@@ -265,7 +294,11 @@ test("shareNodeModules links root AND package-local node_modules into a scratch"
 	// root closure shared
 	expect(existsSync(join(scratch, "node_modules"))).toBe(true);
 	// package-local linked where the source repo HAS one…
-	expect(existsSync(join(scratch, "packages", "one", "node_modules"))).toBe(true);
+	expect(existsSync(join(scratch, "packages", "one", "node_modules"))).toBe(
+		true,
+	);
 	// …and NOT invented where it does not
-	expect(existsSync(join(scratch, "packages", "two", "node_modules"))).toBe(false);
+	expect(existsSync(join(scratch, "packages", "two", "node_modules"))).toBe(
+		false,
+	);
 });
