@@ -351,23 +351,26 @@ test("reply: experience flags stamp the kb columns", {
 	// D7 (main's kev gate): a consult-reply stores only on a Kev "store"
 	// verdict — a hermetic stub supplies it (a dead URL defers, never stores)
 	const kev = await startKevStub("store");
-	const rep = await run([
-		"consult-reply",
-		`C${rCid}`,
-		"check the work.done event payload",
-		"--cue",
-		"W776 table questions",
-		"--lesson",
-		"read the event payload",
-		"--evidence",
-		"hooks/lib/work-report.ts:1",
-		"--confidence",
-		"high",
-		"--domain",
-		"reporting",
-		"--as",
-		EXPERT,
-	], { SUSPENDERS_KEV_URL: kev.url });
+	const rep = await run(
+		[
+			"consult-reply",
+			`C${rCid}`,
+			"check the work.done event payload",
+			"--cue",
+			"W776 table questions",
+			"--lesson",
+			"read the event payload",
+			"--evidence",
+			"hooks/lib/work-report.ts:1",
+			"--confidence",
+			"high",
+			"--domain",
+			"reporting",
+			"--as",
+			EXPERT,
+		],
+		{ SUSPENDERS_KEV_URL: kev.url },
+	);
 	kev.stop();
 	expect(rep.code, rep.err).toBe(0);
 	const rkb = await kbRow(rCid);
