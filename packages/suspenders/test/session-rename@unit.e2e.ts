@@ -1,4 +1,4 @@
-// test/session-rename.test.ts — W930: the shared rename surface. `coord
+// test/session-rename.e2e.ts — W930: the shared rename surface. `coord
 // rename` stamps sessions.tags `name` (the W293 key all @name resolution
 // reads), duplicate live same-project names refuse without --force, and the
 // shared stop gate syncs a native CLI /rename (claude-code custom-title
@@ -7,12 +7,10 @@
 // (test/fleet.test.ts recipe).
 
 import { Database } from "bun:sqlite";
-import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-setDefaultTimeout(30_000); // spawn-heavy suite (bun:test 5s default flake floor)
+import { expect, test } from "@playwright/test";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-rename-test-home-"));
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-rename-test-repo-"));
@@ -30,7 +28,7 @@ Bun.spawnSync(["git", "-C", REPO, "commit", "-q", "-m", "init"], {
 	stdout: "ignore",
 });
 
-afterAll(() => {
+test.afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO, { recursive: true, force: true });
 });
@@ -140,7 +138,7 @@ const bootEnv: Record<string, string | undefined> = {
 delete bootEnv.SUSPENDERS_SID;
 delete bootEnv.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
 
-describe("W954 session-start bootstrap sync", () => {
+test.describe("W954 session-start bootstrap sync", () => {
 	test("native title lands at bootstrap; coord targets resolves it", () => {
 		const sid = `w954boot-${Date.now()}`;
 		const tx = transcript("idle-renamed");
@@ -173,7 +171,7 @@ describe("W954 session-start bootstrap sync", () => {
 	});
 });
 
-describe("coord rename verb (W930)", () => {
+test.describe("coord rename verb (W930)", () => {
 	test("bootstrap seeds a name; rename re-stamps it and keeps other keys", () => {
 		expect(
 			coord([
@@ -236,7 +234,7 @@ describe("coord rename verb (W930)", () => {
 	});
 });
 
-describe("stop-gate native-rename sync (W930)", () => {
+test.describe("stop-gate native-rename sync (W930)", () => {
 	test("native custom-title lands in sessions.tags through the shared gate", () => {
 		expect(coord(["bootstrap", "--as", "laneT"]).code).toBe(0);
 		const tx = transcript("native-title-wins");
@@ -276,7 +274,7 @@ describe("stop-gate native-rename sync (W930)", () => {
 	});
 });
 
-describe("W954 subscribe-face sync", () => {
+test.describe("W954 subscribe-face sync", () => {
 	test("syncNativeRenameBySid syncs from the session row", () => {
 		expect(coord(["bootstrap", "--as", "w954sub1"]).code).toBe(0);
 		setRow("w954sub1", { transcript_path: transcript("sid-keyed-sync") });

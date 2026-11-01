@@ -1,9 +1,10 @@
-// test/session-enroll.test.ts — W422.17.1 interactive-session enrollment:
+// test/session-enroll.e2e.ts — W422.17.1 interactive-session enrollment:
 // the pure decision matrix, the 0600 file writers/readers (reuse window),
 // and the real hook round-trip (session-start mints/reuses, session-end
 // retires) against a stub buckle front. Patterns: lane-auth.test.ts +
 // session-start-lane.test.ts.
-import { describe, expect, test, afterAll } from "bun:test";
+
+import { Database } from "bun:sqlite";
 import {
 	existsSync,
 	mkdtempSync,
@@ -14,19 +15,19 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Database } from "bun:sqlite";
-import {
-	enrollSessionKey,
-	laneKeyMetaPath,
-	laneSettingsPath,
-	LANE_KEY_TTL_S,
-	SESSION_KEY_REUSE_SLACK_S,
-	sessionEnrollDecision,
-} from "../hooks/lib/lanes/lane-auth.ts";
+import { expect, test } from "@playwright/test";
 import {
 	enrollTopLevel,
 	retireTopLevel,
 } from "../hooks/lib/lanes/hook-scripts.ts";
+import {
+	enrollSessionKey,
+	LANE_KEY_TTL_S,
+	laneKeyMetaPath,
+	laneSettingsPath,
+	SESSION_KEY_REUSE_SLACK_S,
+	sessionEnrollDecision,
+} from "../hooks/lib/lanes/lane-auth.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-enroll-"));
 const BELT = join(HOME, "belt.env");
@@ -110,7 +111,7 @@ const setFact = (key: string, value: string): void => {
 	db.close();
 };
 
-afterAll(() => {
+test.afterAll(() => {
 	stubFront.stop(true);
 	Bun.spawnSync([
 		"/usr/bin/pkill",
@@ -121,7 +122,7 @@ afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 });
 
-describe("sessionEnrollDecision", () => {
+test.describe("sessionEnrollDecision", () => {
 	const base = {
 		sid: "enroll-sess-1",
 		front: "http://127.0.0.1:4101",
@@ -182,7 +183,7 @@ describe("sessionEnrollDecision", () => {
 	});
 });
 
-describe("hook round-trip (real session-start / session-end)", () => {
+test.describe("hook round-trip (real session-start / session-end)", () => {
 	test("top-level session enrolls: mint + 0600 files + note, then reuses", async () => {
 		const repo = newRepo();
 		const sid = "enroll-sess-enroll-1";
@@ -234,7 +235,7 @@ describe("hook round-trip (real session-start / session-end)", () => {
 	});
 });
 
-describe("hook fallback (front down)", () => {
+test.describe("hook fallback (front down)", () => {
 	test("strict folds belt-direct with the loud note, no files", () => {
 		const repo = newRepo();
 		const r = runHook(
@@ -254,7 +255,7 @@ describe("hook fallback (front down)", () => {
 	});
 });
 
-describe("hook fallback (governance:solo)", () => {
+test.describe("hook fallback (governance:solo)", () => {
 	test("solo wording renders when the front is down", () => {
 		setFact("fleet.governance", "solo");
 		const repo = newRepo();
@@ -270,7 +271,7 @@ describe("hook fallback (governance:solo)", () => {
 	});
 });
 
-describe("enrollSessionKey (in-lib, stubbed fetch)", () => {
+test.describe("enrollSessionKey (in-lib, stubbed fetch)", () => {
 	test("fresh mint writes 0600 files with the session env grammar", async () => {
 		const fleet = mkdtempSync(join(tmpdir(), "w422171-fleet-"));
 		let mints = 0;

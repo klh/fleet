@@ -2,22 +2,23 @@
 // (same mtime+size → no double count; append → tail-only), model→group
 // mapping, actor attribution via sessions.actor, and the govdb v7 migration
 // (sessions.actor/tags + usage_rollup) on a temp HOME — never the live hub.
-import { describe, test, expect, afterAll } from "bun:test";
-import {
-	runHarvestPipeline,
-	type HarvestAdapter,
-} from "../hooks/lib/harvest/harvest-engine.ts";
+
 import { Database } from "bun:sqlite";
 import {
-	mkdtempSync,
-	mkdirSync,
-	writeFileSync,
 	appendFileSync,
+	mkdirSync,
+	mkdtempSync,
 	rmSync,
 	statSync,
+	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
+import {
+	type HarvestAdapter,
+	runHarvestPipeline,
+} from "../hooks/lib/harvest/harvest-engine.ts";
 import { prepareUsageRebuild } from "../hooks/lib/usage/usage-rebuild.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-usage-"));
@@ -34,12 +35,12 @@ const { harvestUsage, modelGroup, harvestAll, usageAdapter, maybeHarvest } =
 // HOME set leaks into later-loading suites (the gate-writes interference)
 process.env.HOME = REAL_HOME;
 
-afterAll(() => {
+test.afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 });
 
 // ─── v7 migration guard ─────────────────────────────────────────────────────
-describe("govdb v7 usage migration", () => {
+test.describe("govdb v7 usage migration", () => {
 	test("sessions gains actor/tags; usage_rollup + index exist", () => {
 		const db = openGovernorDb();
 		const cols = (
@@ -63,7 +64,7 @@ describe("govdb v7 usage migration", () => {
 });
 
 // ─── model→group mapping ────────────────────────────────────────────────────
-describe("modelGroup", () => {
+test.describe("modelGroup", () => {
 	test("routing-doctrine classes", () => {
 		expect(modelGroup("glm-5.3-flash")).toBe("flash");
 		expect(modelGroup("glm-4.5-flashx")).toBe("flash"); // flash family
@@ -150,7 +151,7 @@ const rowOf = (db: Database, model: string): Record<string, string | number> =>
 		)
 		.get(model) as Record<string, string | number>;
 
-describe("harvestUsage", () => {
+test.describe("harvestUsage", () => {
 	test("UTF-8 cursor resumes on byte boundary and legacy cursors fail closed", () => {
 		const db = freshDb();
 		const root = join(HOME, "unicode");
@@ -373,7 +374,7 @@ describe("harvestUsage", () => {
 });
 
 // ─── W657 pipeline: one read pass serves both collectors ────────────────────
-describe("W657 pipeline", () => {
+test.describe("W657 pipeline", () => {
 	const PROOT = join(HOME, "pipe-root");
 	test("one pass, both rollups, per-slot cursors (byte-true)", () => {
 		const db = freshDb();

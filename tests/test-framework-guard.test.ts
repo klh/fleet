@@ -25,9 +25,11 @@ const SELF = "tests/test-framework-guard.test.ts";
 // W1294.3 sweep-A (82 suspenders/test specs) re-pins DOWN (778 → 696) — 6
 // post-commit gate inputs (.githooks/post-commit, bun-run) stay bun:test;
 // W1294.9.1 sweep-G slice-1 (16 policy/copilot/litellm/servicemon/services/
-// remotes specs) re-pins DOWN (696 → 661) — the pin tracks the landing
-// tree's net count (concurrent sweep slices already merged at this base).
-const PIN = 661;
+// remotes specs) re-pins DOWN (696 → 661); W1294.9.5 sweep-G slice-5 (17
+// session-*/usage-* specs) re-pins DOWN (661 → 646) — the pin tracks the
+// landing tree's net count (concurrent sweep slices already merged at this
+// base; verified by git ls-files at the W2475 merge).
+const PIN = 646;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });
