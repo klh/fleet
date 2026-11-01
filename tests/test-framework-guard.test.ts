@@ -24,7 +24,12 @@ const SELF = "tests/test-framework-guard.test.ts";
 // W1294.5 sweep (24 co-situated suspenders specs) re-pins DOWN (802 → 778);
 // W1294.3 sweep-A (82 suspenders/test specs) re-pins DOWN (778 → 696) — 6
 // post-commit gate inputs (.githooks/post-commit, bun-run) stay bun:test.
-const PIN = 696;
+// W2224 (merge of parked/W2173.5.1 full-corpus port) re-pin DOWN:
+// 696 → 237 — suspenders/test's base corpus is fully ported (parked's 521
+// with main's content evolutions merged in); the remaining 237 are belt (48),
+// buckle, local, speed-tools, root tests/ and the 41 post-base .test.ts
+// additions in suspenders/test (this guard self-exempt).
+const PIN = 237;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });
