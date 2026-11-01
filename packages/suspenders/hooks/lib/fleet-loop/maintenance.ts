@@ -64,7 +64,7 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		// W2274: governor.db retention — events/audit/usage archive-and-prune
 		// plus the deltas ring. Nothing scheduled gc before, so the db grew
 		// unbounded (980 MB, deltas 596 MB). Window knob: SUSPENDERS_GC_DAYS.
-		name: "governor-gc",
+		name: "gov-gc",
 		calendar: { hour: 4, minute: 10 },
 		nice: 10,
 		timeoutMs: 600_000,
