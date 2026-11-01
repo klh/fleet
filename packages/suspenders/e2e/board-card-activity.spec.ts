@@ -7,7 +7,7 @@
 // HTML-parser channel — UI-law clean) with the theme head inlined from
 // the lib; the component under test is the real built artifact, no
 // reimplementation.
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { THEME_HEAD } from "../hooks/lib/theme.ts";
 import { expect, test } from "./fixtures";
 
@@ -26,6 +26,7 @@ async function mountActivity(
 	points: [number, number, number, number][],
 	wallMs: number | null,
 	theme: "dark" | "light",
+	premount = false,
 ): Promise<void> {
 	await page.route("**/w2267-2-mount", (route) =>
 		route.fulfill({
@@ -36,11 +37,56 @@ async function mountActivity(
 				`</head><body><klh-card-activity style="width:360px"></klh-card-activity></body></html>`,
 		}),
 	);
+	if (premount) await preMount(page, points, wallMs);
 	await page.goto(`${base}/w2267-2-mount`);
 	const host = page.locator("klh-card-activity").last();
 	await expect
 		.poll(() => host.evaluate((el) => el.shadowRoot !== null))
 		.toBe(true);
+	if (!premount) await setProps(host, points, wallMs);
+}
+
+/** B1 (W2514): set element data pre-upgrade (post-upgrade poke re-renders
+ *  and masks the first-paint bug). */
+async function preMount(
+	page: Page,
+	points: [number, number, number, number][],
+	wallMs: number | null,
+): Promise<void> {
+	await page.addInitScript(applyOnDefine, [points, wallMs]);
+}
+
+/** runs in the page: wrap customElements.define so the stub's element —
+ *  already parsed when the module executes — receives the data just
+ *  before upgrade; Lit stashes own props and replays them in the first
+ *  performUpdate. */
+const applyOnDefine = (data: unknown) => {
+	const [pts, wall] = data as [
+		[number, number, number, number][],
+		number | null,
+	];
+	const c = customElements;
+	const apply = (el: Element) => {
+		const o = el as unknown as Record<string, unknown>;
+		o.points = pts;
+		o.wallMs = wall;
+	};
+	const define = c.define.bind(c);
+	c.define = ((name, ctor, opts) => {
+		if (name === "klh-card-activity")
+			for (const el of document.querySelectorAll(name)) {
+				const known = c.get(name);
+				if (!known || !(el instanceof known)) apply(el);
+			}
+		return define(name, ctor, opts);
+	}) as typeof c.define;
+};
+
+async function setProps(
+	host: Locator,
+	points: [number, number, number, number][],
+	wallMs: number | null,
+): Promise<void> {
 	await host.evaluate(
 		(el, [pts, wall]) => {
 			const c = el as unknown as Record<string, unknown>;
@@ -178,6 +224,64 @@ test("tooltip: exact bin values, keyboard reachable, stays in viewport", {
 			page
 				.locator("klh-card-activity")
 				.evaluate((el) => el.shadowRoot?.querySelector(".tip") === null),
+		)
+		.toBe(true);
+});
+
+test("first paint uses the measured width, not the 240px floor (W2514 B1)", {
+	tag: "@ui",
+}, async ({ page, board }) => {
+	// data lands pre-upgrade: the FIRST render after upgrade must already
+	// carry the measured 360px track. Buggy: firstUpdated set _width with no
+	// re-render and the RO's first callback sees w === _width → the card
+	// renders at the 240px fallback forever.
+	await mountActivity(page, board.BASE, PTS, 9 * 3_600_000, "dark", true);
+	await expect
+		.poll(() =>
+			page
+				.locator("klh-card-activity")
+				.evaluate(
+					(el) =>
+						el.shadowRoot?.querySelector("svg.plot")?.getAttribute("viewBox") ??
+						"",
+				),
+		)
+		.toBe("0 0 360 28");
+});
+
+test("hairline duration/scale is keyboard exposed (W2514 B2)", {
+	tag: "@ui",
+}, async ({ page, board }) => {
+	await mountActivity(page, board.BASE, PTS, 9 * 3_600_000, "dark");
+	const plot = page.locator("klh-card-activity .plot");
+	const line = page.locator("klh-card-activity .hairline");
+	await plot.focus();
+	await page.keyboard.press("Tab");
+	// locators pierce the open shadow root; toBeFocused walks it
+	await expect(line).toBeFocused();
+	const tip = () =>
+		page
+			.locator("klh-card-activity")
+			.evaluate(
+				(el) => el.shadowRoot?.querySelector(".tip")?.textContent ?? "",
+			);
+	await expect.poll(tip).toContain("9h 00m");
+	await expect.poll(tip).toContain("24h scale");
+	await page.keyboard.press("Escape");
+	await expect
+		.poll(() =>
+			page
+				.locator("klh-card-activity")
+				.evaluate((el) => el.shadowRoot?.querySelector(".tip") === null),
+		)
+		.toBe(true);
+	// zero duration → no hairline at all → nothing extra to focus
+	await mountActivity(page, board.BASE, PTS, 0, "dark", true);
+	await expect
+		.poll(() =>
+			page
+				.locator("klh-card-activity")
+				.evaluate((el) => el.shadowRoot?.querySelector(".hairline") === null),
 		)
 		.toBe(true);
 });

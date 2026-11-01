@@ -28,6 +28,7 @@ class KlhCardActivity extends LitElement {
 		points: { attribute: false },
 		wallMs: { attribute: false },
 		attempt: { attribute: false },
+		_width: { state: true },
 		_tip: { state: true },
 		_slot: { state: true },
 	};
@@ -35,6 +36,10 @@ class KlhCardActivity extends LitElement {
 	declare wallMs: number | null;
 	/** AttemptTimeline passthrough (W1188) — the card lane owns the view. */
 	declare attempt: unknown | null;
+	/** the MEASURED track width (W2514 B1: reactive state — assigning it in
+	 *  firstUpdated re-renders, so the first paint after upgrade already
+	 *  bins at the real card width instead of the 240px floor). */
+	declare _width: number;
 	/** tooltip text (null = hidden). */
 	declare _tip: string | null;
 	/** keyboard-focused bin index (-1 = none). */
@@ -91,6 +96,12 @@ class KlhCardActivity extends LitElement {
 		.hairline.saturated .span {
 			background: var(--klh-danger, #af2f12);
 		}
+		/* B2 (W2514): the hairline carries exact duration text — keyboard
+		   focus must be visible, same ring as the plot. */
+		.hairline:focus-visible {
+			outline: 2px solid var(--klh-accent, #d8900f);
+			outline-offset: 1px;
+		}
 		.tip {
 			position: fixed;
 			z-index: 1000;
@@ -111,13 +122,13 @@ class KlhCardActivity extends LitElement {
 		this.points = [];
 		this.wallMs = null;
 		this.attempt = null;
+		this._width = 0;
 		this._tip = null;
 		this._slot = -1;
 	}
 
 	// the measured track (W1203): recompute on width change.
 	private _ro: ResizeObserver | null = null;
-	private _width = 0;
 
 	connectedCallback(): void {
 		super.connectedCallback();
@@ -288,6 +299,10 @@ class KlhCardActivity extends LitElement {
 			role="img"
 			aria-label="elapsed ${fmtDurationExact(this.wallMs ?? 0)} of ${fmtScaleLabel()} scale${span.saturated ? " — saturated at full width" : ""}"
 			title="elapsed ${fmtDurationExact(this.wallMs ?? 0)} of ${fmtScaleLabel()} scale${span.saturated ? " — saturated at full width" : ""}"
+			tabindex="0"
+			@focus=${this._hairFocus}
+			@blur=${this._hide}
+			@keydown=${this._hairKey}
 		>
 			<span
 				class="span"
@@ -295,6 +310,37 @@ class KlhCardActivity extends LitElement {
 			></span>
 		</div>`;
 	}
+
+	/** B2 (W2514): focus states the exact duration + shared scale — same
+	 *  .tip surface the plot uses, pinned to the hairline's own geometry
+	 *  (never the pointer, which never came). */
+	private _hairFocus = (): void => {
+		const w = this._width || 240;
+		const span = durationSpan(this.wallMs, w);
+		if (!span.visible) return;
+		this._slot = -1;
+		this._tip =
+			`elapsed ${fmtDurationExact(this.wallMs ?? 0)} of ` +
+			`${fmtScaleLabel()} scale` +
+			(span.saturated ? " — saturated at full width" : "");
+		this.requestUpdate();
+		const r = this._plotEl()?.getBoundingClientRect();
+		if (r)
+			this._placeTip(
+				r.left + (span.center / Math.max(1, w)) * r.width,
+				r.bottom + 2,
+			);
+	};
+
+	/** Esc on the hairline hides the tip and drops focus; arrows do
+	 *  nothing here — bin walking belongs to the focused plot. */
+	private _hairKey = (e: KeyboardEvent): void => {
+		if (e.key === "Escape") {
+			this._hideTip();
+			this.requestUpdate();
+			(e.target as HTMLElement).blur();
+		}
+	};
 
 	/** the one-line axis: visible window start | TZ + bin width | window
 	 *  end — the ACTUAL window, never the first-ever request. */
