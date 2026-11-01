@@ -3,24 +3,25 @@
 // the projection, the roster-shape migration, the writer (no-stack
 // no-touch, 0600), and the cross-package parse contract: the generated file
 // must parse as rows for hub-locate.readRegistry AND belt readHubs.
-import { afterAll, describe, expect, test } from "bun:test";
+
 import {
 	chmodSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
-import { statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
+import { readRegistry } from "../hooks/lib/hub/hub-locate.ts";
 import {
 	hubRegistryFromStack,
 	rosterUrlEntries,
 	writeHubRegistry,
 } from "../hooks/lib/hub/hub-registry.ts";
-import { readRegistry } from "../hooks/lib/hub/hub-locate.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "hub-registry-home-"));
 const prevHome = process.env.HOME;
@@ -28,12 +29,12 @@ process.env.HOME = HOME;
 mkdirSync(join(HOME, ".claude", "local-llm"), { recursive: true });
 const file = join(HOME, ".claude", "local-llm", "hubs.json");
 
-afterAll(() => {
+test.afterAll(() => {
 	process.env.HOME = prevHome;
 	rmSync(HOME, { recursive: true, force: true });
 });
 
-describe("hubRegistryFromStack", () => {
+test.describe("hubRegistryFromStack", () => {
 	test("rejects invalid derived endpoints rather than inventing a front", () => {
 		for (const buckle_port of [0, -1, 1.5, 65536])
 			expect(() =>
@@ -99,7 +100,7 @@ describe("hubRegistryFromStack", () => {
 	});
 });
 
-describe("rosterUrlEntries", () => {
+test.describe("rosterUrlEntries", () => {
 	test("migrates the W230 roster array url-only", () => {
 		const reg = rosterUrlEntries(
 			JSON.stringify({
@@ -127,7 +128,7 @@ describe("rosterUrlEntries", () => {
 	});
 });
 
-describe("writeHubRegistry", () => {
+test.describe("writeHubRegistry", () => {
 	test("no stack config: file untouched", () => {
 		writeFileSync(file, "operator hand config");
 		const res = writeHubRegistry(file, null);

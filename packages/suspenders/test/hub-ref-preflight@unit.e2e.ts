@@ -3,12 +3,12 @@
 // origin the hub actually pulls from; refusal fails closed and never echoes
 // inline git credentials (A11: a well-formed pin to a nonexistent tag
 // activated fine and died at fleet-repo exit 128).
-import { expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	assertDeployRefsExist,
+	FLEET_ORIGIN,
 	type RefProbe,
 	resolveHubOrigin,
-	FLEET_ORIGIN,
 } from "../deploy/hub-ref-preflight.ts";
 import { stackAtRelease, updateRows } from "../deploy/hub-update.ts";
 import type { HubProfile, StackConfig } from "../hooks/lib/stack-config.ts";

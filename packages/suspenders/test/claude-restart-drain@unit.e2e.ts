@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { verifyRestartDrain } from "../scripts/lib/claude-restart-drain.ts";
 
 interface Row {
