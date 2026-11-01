@@ -12,11 +12,15 @@
 // so a fallback that kept the old name while riding another model would still
 // fail the receipt.
 import { z } from "zod";
-import { hubBuckleUrl } from "./hub-endpoint.ts";
-import { darkHubNow, loadStack } from "../stack-config.ts";
-import { adminKey, hubCredential } from "../lanes/lane-auth.ts";
-import { loopbackUrl, BUCKLE_SPOKE_PORT } from "../loopback.ts";
 import { modelCore, wireModelMatch } from "../gates/wire-model-check.ts";
+import { adminKey, hubCredential } from "../lanes/lane-auth.ts";
+import { BUCKLE_SPOKE_PORT, loopbackUrl } from "../loopback.ts";
+import {
+	darkHubNow,
+	loadStack,
+	modelCapabilityClasses,
+} from "../stack-config.ts";
+import { hubBuckleUrl } from "./hub-endpoint.ts";
 
 /** Fact keys ride the dots-to-dashes model CLASS CORE (modelCore) — the
  *  comparable vocabulary every hub's catalog ids normalize into, so
@@ -308,15 +312,36 @@ const outranks = (a: HealthCandidate, b: HealthCandidate): boolean =>
 				(b.fact.latencyMs ?? Number.POSITIVE_INFINITY) &&
 				a.core < b.core);
 
+/** W2264: the capability class a model group belongs to — the FIRST class
+ *  whose members wireModelMatch the group (conf order; dash-extension law,
+ *  so `zai-glm-5.3-flash` matches a `glm-5.3-flash` member). Undefined when
+ *  the taxonomy is absent/empty (no gating) or the group sits in none —
+ *  callers decide both policies. */
+export const classOfModel = (
+	model: string,
+	classes?: Record<string, string[]>,
+): string | undefined => {
+	if (!classes) return undefined;
+	for (const [cls, members] of Object.entries(classes))
+		for (const m of members)
+			if (wireModelMatch(model, m) === "match") return cls;
+	return undefined;
+};
+
 /** The fallback target for a DOWN/unknown pinned group: the freshest healthy
  *  group (outranks above), the pinned core excluded, `null` when nothing is
- *  fresh-healthy — the pinned model stands (honest, no invented fallback). */
+ *  fresh-healthy — the pinned model stands (honest, no invented fallback).
+ *  W2264: `classes` (the machine conf taxonomy) gates eligibility — when set,
+ *  a candidate must share the pin's class; the pin's own class is computed
+ *  once (a class member's own class; otherwise null). */
 export const pickHealthyGroup = (
 	facts: Map<string, ModelHealthFact>,
 	pinned: string,
 	nowMs = Date.now(),
+	classes?: Record<string, string[]>,
 ): { group: string; core: string; fact: ModelHealthFact } | null => {
 	let best: HealthCandidate | null = null;
+	const pinClass = classOfModel(pinned, classes);
 	for (const [key, fact] of facts) {
 		if (!key.startsWith(MODEL_HEALTH_PREFIX)) continue;
 		const core = key.slice(MODEL_HEALTH_PREFIX.length);
@@ -325,6 +350,7 @@ export const pickHealthyGroup = (
 			healthStatusOf(fact, nowMs) !== "up"
 		)
 			continue;
+		if (classes && classOfModel(core, classes) !== pinClass) continue;
 		const cand = { core, fact };
 		if (!best || outranks(cand, best)) best = cand;
 	}
@@ -333,13 +359,19 @@ export const pickHealthyGroup = (
 		: null;
 };
 
-/** The dispatch pin-layer fallback (the mission's second half): when the
- *  lane's pinned model is DOWN, re-pin the pick to the freshest healthy
- *  group. Loud + recorded — never a silent alias (the W1302.6 wire audit
- *  still grades SERVED vs REQUESTED). */
+/** The dispatch (lane-launch) and review-scheduler pin-layer fallback (the
+ *  W2194 second half): when the lane's pinned model is DOWN/unknown per the
+ *  fresh model.health facts, re-pin to the freshest healthy group.
+ *  W2264: the eligible pool is the pin's OWN capability class (the machine
+ *  conf taxonomy via modelCapabilityClasses() at the call sites) — a coding
+ *  lane is never re-pinned into a foreign class even when it is freshest;
+ *  none eligible → the pin stands (fail closed). Loud + recorded — never a
+ *  silent alias (the W1302.6 wire audit still grades SERVED vs REQUESTED),
+ *  and the note carries the target's MEASURED served model. */
 export const rePinModelPick = (
 	store: ModelHealthStore,
 	pinned: string | undefined,
+	classes?: Record<string, string[]>,
 ): { model?: string; note: string | null } => {
 	if (!pinned) return { note: null };
 	const facts = readModelHealthFacts(store);
@@ -360,16 +392,29 @@ export const rePinModelPick = (
 	}
 	const pin = healthStatusOf(pinFact);
 	if (pin === "up") return { note: null };
-	const alt = pickHealthyGroup(facts, pinned);
+	const alt = pickHealthyGroup(facts, pinned, Date.now(), classes);
 	if (!alt)
 		return {
-			note: `NOTE — model ${pinned} is ${pin} and no healthy group is fresh; pin stands (no fallback invented)`,
+			note: `NOTE — model ${pinned} is ${pin} and no same-class healthy group is fresh; pin stands (no fallback invented)`,
 		};
+	const served = alt.fact.servedModel ?? alt.fact.wireId ?? alt.core;
 	return {
 		model: alt.group,
-		note: `NOTE — model ${pinned} is ${pin}; re-pinned to ${alt.group} (served by ${alt.fact.hub}, ${alt.fact.latencyMs}ms; was ${pinned})`,
+		note: `NOTE — model ${pinned} is ${pin}; re-pinned to ${alt.group} (served by ${alt.fact.hub} as ${served}, ${alt.fact.latencyMs}ms; was ${pinned})`,
 	};
 };
+
+/** W2264 call-site face: the env knob + conf taxonomy wiring for the pin
+ *  fallback, in ONE place so the two pickers (dispatch lane-launch and the
+ *  review scheduler) cannot drift. Knob off = the pin stands untouched. */
+export const rePinFallback = (
+	store: ModelHealthStore,
+	pinned: string | undefined,
+	env: NodeJS.ProcessEnv = process.env,
+): { model?: string; note: string | null } =>
+	env.SUSPENDERS_MODEL_HEALTH === "0"
+		? { note: null }
+		: rePinModelPick(store, pinned, modelCapabilityClasses());
 
 /** One hub's sequential, staggered probe pass over its catalog groups —
  *  never a burst (W779 heartbeat discipline: bounded work per tick). */
