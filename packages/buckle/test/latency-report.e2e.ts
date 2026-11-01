@@ -1,15 +1,12 @@
+// W2247.1.1 kit adoption (W1135.1.3): scratch world + CLI spawn ride
+// @klh/test-kit — no hand-rolled mkdtemp/spawnSync helpers.
 import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runCli, scratchWorld } from "@klh/test-kit";
 import { latencyReport, renderReport } from "../src/latency-report.ts";
 
-test.afterEach(() => {
-	// scratch dirs are unique per test; nothing persists
-});
-
-test("latency report buckets request sizes and separates streaming", () => {
+test("latency report buckets request sizes and separates streaming @unit", () => {
 	const rows = [
 		{
 			transportJson: JSON.stringify({ requestBodyBytes: 5000, headersMs: 900 }),
@@ -59,10 +56,10 @@ test("latency report buckets request sizes and separates streaming", () => {
 	expect(renderReport(report)).toContain("pearson");
 });
 
-test("cli face renders the same report from a scratch ledger", async () => {
-	const dir = mkdtempSync(join(tmpdir(), "w2247-latency-"));
+test("cli face renders the same report from a scratch ledger @unit", () => {
+	const world = scratchWorld({ prefix: "w2247-latency-" });
 	try {
-		const dbPath = join(dir, "buckle.db");
+		const dbPath = join(world.home, "buckle.db");
 		const db = new Database(dbPath);
 		db.exec(
 			`CREATE TABLE route_attempt (rid TEXT PRIMARY KEY, trace_id TEXT, ts TEXT, status INTEGER, queue_wait_ms INTEGER, transport_json TEXT);
@@ -73,25 +70,23 @@ test("cli face renders the same report from a scratch ledger", async () => {
 			 INSERT INTO route_audit VALUES ('r2','2026-10-29T00:00:01Z','x');`,
 		);
 		db.close();
-		const proc = Bun.spawnSync([
-			"bun",
+		const cli = runCli(
 			join(import.meta.dir, "..", "bin", "latency-report.ts"),
-			"--db",
-			dbPath,
-		]);
-		expect(proc.exitCode).toBe(0);
-		const out = new TextDecoder().decode(proc.stdout);
-		expect(out).toContain("attempts with transport evidence: 2");
-		expect(out).toContain("500k+");
-		expect(out).toContain("76562");
-		expect(out).toContain("first body byte ms: p50 180");
-		expect(out).not.toContain("no first-body observations");
+			["--db", dbPath],
+		);
+		expect(cli.err).toBe("");
+		expect(cli.code).toBe(0);
+		expect(cli.out).toContain("attempts with transport evidence: 2");
+		expect(cli.out).toContain("500k+");
+		expect(cli.out).toContain("76562");
+		expect(cli.out).toContain("first body byte ms: p50 180");
+		expect(cli.out).not.toContain("no first-body observations");
 	} finally {
-		rmSync(dir, { recursive: true, force: true });
+		world.clean();
 	}
 });
 
-test("first body byte ms is reported separately from headersMs", () => {
+test("first body byte ms is reported separately from headersMs @unit", () => {
 	const rows = [
 		{
 			transportJson: JSON.stringify({
@@ -144,7 +139,7 @@ test("first body byte ms is reported separately from headersMs", () => {
 	expect(report.nonStreaming.n).toBe(1);
 });
 
-test("missing first-body data reports null, never a fabricated aggregate", () => {
+test("missing first-body data reports null, never a fabricated aggregate @unit", () => {
 	const rows = [
 		{
 			transportJson: JSON.stringify({
