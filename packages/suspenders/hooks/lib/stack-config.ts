@@ -40,13 +40,17 @@ export type FleetLoopProject = z.infer<typeof FleetLoopProjectSchema>;
  *  cycle cadence / config poll interval. Every knob optional; the resolver
  *  (fleetLoopSettings) owns the defaults, never a plist. Fork E: `projects`
  *  is the hub's project registry — with it, lane_target is the GLOBAL lane
- *  ceiling across every supervised repo. */
+ *  ceiling across every supervised repo. W2351: the reviewer model rows
+ *  (CSV, same shape the env vars carry) are the durable source for the
+ *  review spawn env; the env vars stay the override. */
 export const FleetLoopConfigSchema = z
 	.object({
 		lane_target: z.number().int().positive().optional(),
 		dispatch_target: z.number().int().positive().optional(),
 		every_s: z.number().int().positive().optional(),
 		config_poll_s: z.number().int().positive().optional(),
+		review_fallback_models: z.string().min(1).optional(),
+		review_stepdown_classes: z.string().min(1).optional(),
 		projects: z.array(FleetLoopProjectSchema).optional(),
 	})
 	.loose();
@@ -57,12 +61,16 @@ export type FleetLoopConfig = z.infer<typeof FleetLoopConfigSchema>;
 /** Resolved fleet-loop settings — config-over-code (W2242): the daemon's
  *  numbers come from the machine stack conf, CLI flags stay explicit
  *  one-shot overrides, and these are the fallback defaults when the block
- *  is absent (the plist hardcodes nothing). */
+ *  is absent (the plist hardcodes nothing). W2351: the reviewer rows are
+ *  optional — absence IS the default (no conf row = env-only, exactly the
+ *  pre-W2351 behavior). */
 export interface FleetLoopSettings {
 	laneTarget: number;
 	dispatchTarget: number;
 	everyS: number;
 	pollS: number;
+	reviewFallbackModels?: string;
+	reviewStepdownClasses?: string;
 }
 
 export const FLEET_LOOP_DEFAULTS: FleetLoopSettings = {
@@ -441,7 +449,14 @@ function stackFromSettings(): StackConfig | null {
 		if (prof.host === undefined) prof.host = "";
 		hubs[label] = prof as HubProfile;
 	}
-	const { lane_target, dispatch_target, every_s, config_poll_s } = s.fleet_loop;
+	const {
+		lane_target,
+		dispatch_target,
+		every_s,
+		config_poll_s,
+		review_fallback_models,
+		review_stepdown_classes,
+	} = s.fleet_loop;
 	const parsed = StackConfigSchema.safeParse({
 		version: s.version,
 		updates: s.updates,
@@ -451,7 +466,14 @@ function stackFromSettings(): StackConfig | null {
 		executors: s.executors,
 		policies: s.policies,
 		cache_unsupported_models: s.cache_unsupported_models,
-		fleet_loop: { lane_target, dispatch_target, every_s, config_poll_s },
+		fleet_loop: {
+			lane_target,
+			dispatch_target,
+			every_s,
+			config_poll_s,
+			review_fallback_models,
+			review_stepdown_classes,
+		},
 		hubs,
 	});
 	return parsed.success ? parsed.data : null;
@@ -494,6 +516,8 @@ export function fleetLoopSettings(
 			block?.dispatch_target ?? FLEET_LOOP_DEFAULTS.dispatchTarget,
 		everyS: block?.every_s ?? FLEET_LOOP_DEFAULTS.everyS,
 		pollS: block?.config_poll_s ?? FLEET_LOOP_DEFAULTS.pollS,
+		reviewFallbackModels: block?.review_fallback_models,
+		reviewStepdownClasses: block?.review_stepdown_classes,
 	};
 }
 
