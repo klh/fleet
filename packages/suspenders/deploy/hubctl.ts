@@ -67,14 +67,14 @@ import {
 	gitToplevel,
 } from "../scripts/lib/prefer-hub-line.ts";
 import { hubMetricsEnv } from "./hub-metrics.ts";
-import { pushProfileEnv } from "./hub-profiles.ts";
 import { renderHubPolicy } from "./hub-policy.ts";
-import { hubSettingsText } from "./hub-settings-render.ts";
+import { pushProfileEnv } from "./hub-profiles.ts";
 import {
 	assertDeployRefsExist,
 	resolveHubOrigin,
 } from "./hub-ref-preflight.ts";
 import { composeUpArgv, sshOpts } from "./hub-remote.ts";
+import { hubSettingsText } from "./hub-settings-render.ts";
 import { mergedHubUpstreams } from "./openrouter-free.ts";
 import {
 	buildRelease,
