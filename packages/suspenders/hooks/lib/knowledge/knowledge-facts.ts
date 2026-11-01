@@ -64,9 +64,11 @@ export function ensureKnowledgeFacts(kb: Database): void {
 	for (const s of DDL) kb.run(s);
 	// W2228 re-land: domain rides the guarded-ALTER heal (the additive house
 	// pattern) so pre-domain knowledge dbs gain the column on open.
-	const cols = (kb.query("PRAGMA table_info(knowledge_facts)").all() as {
-		name: string;
-	}[]).map((c) => c.name);
+	const cols = (
+		kb.query("PRAGMA table_info(knowledge_facts)").all() as {
+			name: string;
+		}[]
+	).map((c) => c.name);
 	if (cols.length && !cols.includes("domain"))
 		kb.run("ALTER TABLE knowledge_facts ADD COLUMN domain TEXT");
 	ensured.add(kb);
