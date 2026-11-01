@@ -176,7 +176,9 @@ on its own, so the row never reads LANDED wholesale.
   (commit, base, instructions) contexts whose latest bound receipt FAILED;
   transport ERROR legs never count. At the cap it emits one NEED_DECISION to
   the completion author: rethink the approach (supersede the item) or raise
-  `SUSPENDERS_REVIEW_ROUND_CAP` (`0` disables). Contexts, not commits, are
+  the `fleet_loop.review_round_cap` conf row (fallback
+  `SUSPENDERS_REVIEW_ROUND_CAP`, `0` disables; hot-applied by the loop
+  watcher, W2470). Contexts, not commits, are
   the unit on purpose: the live non-converging loop is re-review of an
   unchanged commit on every main move — W1075's round-8 receipt reads
   "byte-identical to every prior FAIL round", and W1030.6 and W1124.20 show

@@ -402,6 +402,7 @@ export function scheduleReview(o: {
 		item: o.item,
 		author: author.completed_by,
 		env,
+		confCap: o.settings?.().reviewRoundCap,
 	});
 	if (capped) return capped;
 	const pin = author
