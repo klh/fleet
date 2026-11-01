@@ -85,6 +85,15 @@ test.beforeAll(async () => {
 				res.end(await readFile(join(BELT_BIN, "vendor", "lit.js")));
 				return;
 			}
+			if (path === "/dashboard-wallclock.js") {
+				// W1107.1.2 import seam: model-access + observability pull
+				// dualStamp from this sibling module — serve it like prod does
+				res.writeHead(200, jsHeaders);
+				res.end(
+					await readFile(join(BELT_BIN, "dashboard-wallclock.js")),
+				);
+				return;
+			}
 			if (path === "/dashboard-state.js") {
 				res.writeHead(200, jsHeaders);
 				res.end(

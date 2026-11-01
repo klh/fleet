@@ -1,12 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import {
-	freePort,
-	scratchWorld,
-	serveStub,
-	waitUp,
-} from "@klh/test-kit";
+import { freePort, scratchWorld, serveStub, waitUp } from "@klh/test-kit";
 
 async function withService(
 	script: string,
@@ -90,9 +85,9 @@ for (const [script, portEnv] of [
 							},
 						],
 						external: [
-							"/vendor/lit.js",
-							"/dashboard-state.js",
-							"/observation.js",
+							"./vendor/lit.js",
+							"./dashboard-state.js",
+							"./observation.js",
 						],
 					});
 					expect(built.success).toBe(true);

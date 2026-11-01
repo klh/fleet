@@ -507,7 +507,7 @@ ${fleetNav("belt", "models")}
 </main>
 <footer><span>a <threads-mark size="20" transparent></threads-mark> Threads thing</span>
   <span class="right">belt.local:7791 · refresh 3s</span></footer>
-<script src="/threads-mark.js"></script>
+<script type="module" src="/threads-mark.js"></script>
 <script>
 function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 // UI law: never HTML-string DOM writes — strings are parsed by DOMParser and
@@ -940,6 +940,7 @@ const ROUTES: RouteMethods = {
 	"/api/route": ["POST"],
 	"/llms.txt": ["GET", "HEAD"],
 	"/threads-mark.js": ["GET", "HEAD"],
+	"/register.js": ["GET", "HEAD"],
 	"/dashboard-observability.js": ["GET", "HEAD"],
 	"/dashboard-model-access.js": ["GET", "HEAD"],
 	"/dashboard-topology.js": ["GET", "HEAD"],
@@ -1087,8 +1088,8 @@ Bun.serve({
 			return new Response(llmsText(), {
 				headers: { "content-type": "text/plain; charset=utf-8" },
 			});
-		if (path === "/threads-mark.js")
-			return new Response(Bun.file(`${import.meta.dir}/threads-mark.js`), {
+		if (path === "/threads-mark.js" || path === "/register.js")
+			return new Response(Bun.file(`${import.meta.dir}${path}`), {
 				headers: { "content-type": "text/javascript; charset=utf-8" },
 			});
 		if (path === "/dashboard-observability.js")

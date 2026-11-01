@@ -1,4 +1,10 @@
 // Buckle model catalog renderer; live data comes from Belt's read-only feeds.
+// W2269.1.2: rewritten as a lit-html leaf — one render() into the host page's
+// existing light-DOM #modelaccess container (the suspenders console owns the
+// .access-seats/.access-vendor CSS there; shadow DOM would orphan it). Text
+// strings are byte-stable with the retired createElement version: the
+// belt-dashboard parity spec asserts them verbatim.
+import { html, render } from "./vendor/lit.js";
 import { dualStamp as dual } from "./dashboard-wallclock.js"; // W902: one stamp vocabulary
 
 const DATA_BASE = globalThis.KLH_GATEWAY_READ_BASE ?? "";
@@ -9,6 +15,7 @@ function age(iso, now) {
 	if (t < 86400) return `${Math.round(t / 3600)}h`;
 	return `${Math.round(t / 86400)}d`;
 }
+
 function tickAccess() {
 	Promise.all(
 		["/api/model-access", "/api/model-capabilities"].map((path) =>
@@ -18,10 +25,7 @@ function tickAccess() {
 			}),
 		),
 	)
-		.then((results) => {
-			var s = results[0],
-				feed = results[1];
-			var box = document.getElementById("modelaccess");
+		.then(([s, feed]) => {
 			var c = s.copilot || {};
 			var models = c.models || [];
 			var o = s.openrouter || {};
@@ -37,13 +41,11 @@ function tickAccess() {
 					row,
 				]),
 			);
-			function fact(field, formatter) {
-				return field?.value === null || field?.value === undefined
+			const fact = (field, formatter) =>
+				field?.value === null || field?.value === undefined
 					? "unknown"
 					: formatter(field.value);
-			}
-			function capability(provider, id) {
-				var row = capabilityById.get(JSON.stringify([provider, id]));
+			const capabilityText = (row) => {
 				if (!row)
 					return "context unknown · max output unknown · input unknown · output unknown · tools unknown · structured output unknown";
 				var context = fact(
@@ -68,9 +70,8 @@ function tickAccess() {
 					" · structured " +
 					fact(row.structuredOutput, (v) => (v ? "yes" : "no"))
 				);
-			}
-			function evidence(provider, id) {
-				var row = capabilityById.get(JSON.stringify([provider, id]));
+			};
+			const evidenceText = (row) => {
 				if (!row) return "Capability source unavailable";
 				var field = row.contextTokens?.source
 					? row.contextTokens
@@ -85,9 +86,8 @@ function tickAccess() {
 					" · checked " +
 					(row.cost?.observedAt ? dual(row.cost.observedAt) : "never")
 				);
-			}
-			function shortEvidence(provider, id) {
-				var row = capabilityById.get(JSON.stringify([provider, id]));
+			};
+			const shortEvidenceText = (row) => {
 				if (!row) return "source unreported";
 				var field = row.contextTokens?.source
 					? row.contextTokens
@@ -108,60 +108,23 @@ function tickAccess() {
 						? age(row.cost.observedAt, Date.now())
 						: "unreported")
 				);
-			}
-			function appendCapability(cell, provider, id) {
-				var summary = document.createElement("div");
-				summary.textContent = capability(provider, id);
-				var provenance = document.createElement("small");
-				provenance.textContent = shortEvidence(provider, id);
-				provenance.title = evidence(provider, id);
-				cell.append(summary, provenance);
-			}
-			box.replaceChildren();
-			var seats = document.createElement("div");
-			seats.className = "access-seats";
-			[
-				"IKEA Copilot · " +
-					(c.state || "unobserved") +
-					" · " +
-					models.length +
-					" selectable models",
-				`Personal Claude CLI · ${s.personal?.claude || "unobserved"}`,
-				`Personal ChatGPT/Codex CLI · ${s.personal?.chatgpt || "unobserved"}`,
-			].forEach((t) => {
-				var span = document.createElement("span");
-				span.textContent = t;
-				seats.append(span);
-			});
-			box.append(seats);
-			if (c.reason) {
-				const error = document.createElement("p");
-				error.textContent = `Copilot catalog: ${c.reason}`;
-				box.append(error);
-			}
-			var note = document.createElement("p");
-			note.textContent =
-				"Copilot models: subscription access; per-token price unreported. Local models: no posted API token price. These are not zero-cost claims.";
-			box.append(note);
-			var capabilityNote = document.createElement("p");
-			capabilityNote.textContent =
-				"Capabilities · " +
-				(feed.state || "unavailable") +
-				" · OpenRouter " +
-				(feed.sources?.openrouter || "unavailable") +
-				" · snapshot " +
-				(feed.sources?.persistence || "unavailable") +
-				" · checked " +
-				dual(feed.observedAt);
-			box.append(capabilityNote);
-			function usd(value) {
+			};
+			// one capability cell: summary line + provenance small (title = full evidence)
+			const capabilityCell = (row) =>
+				html`<td>
+					<div>${capabilityText(row)}</div>
+					<small title=${evidenceText(row)}>${shortEvidenceText(row)}</small>
+				</td>`;
+			const usd = (value) => {
 				if (value === null || value === undefined) return "unreported";
 				return (
 					"$" +
-					Number(value).toLocaleString("en-US", { maximumFractionDigits: 4 })
+					Number(value).toLocaleString("en-US", {
+						maximumFractionDigits: 4,
+					})
 				);
-			}
-			function rate(price) {
+			};
+			const rate = (price) => {
 				if (!price || price.status === "unknown")
 					return price?.note || "token price unreported";
 				if (price.status === "included-unreported")
@@ -180,154 +143,177 @@ function tickAccess() {
 						: "") +
 					(price.note ? ` · ${price.note}` : "")
 				);
-			}
-			var catalog = document.createElement("p");
-			catalog.textContent =
-				"OpenRouter public catalog · " +
-				(o.state || "unavailable") +
-				" · checked " +
-				(o.fetchedAt ? dual(o.fetchedAt) : "never") +
-				(o.reason ? ` · ${o.reason}` : "") +
-				". Rates apply only when routed through OpenRouter.";
-			box.append(catalog);
-			[
-				["FREE", routerModels.filter((m) => m.price?.status === "free")],
-				[
-					"Priced or unreported",
-					routerModels.filter((m) => m.price?.status !== "free"),
-				],
-			].forEach((section) => {
-				var group = document.createElement("details");
-				group.className = "access-vendor";
-				var heading = document.createElement("summary");
-				heading.textContent = `OpenRouter ${section[0]} · ${section[1].length} models`;
-				group.append(heading);
-				var table = document.createElement("table");
-				section[1].forEach((m) => {
-					var row = document.createElement("tr");
-					var name = document.createElement("td");
-					var price = document.createElement("td");
-					name.textContent = `${m.name} · ${m.id}`;
-					price.textContent = rate(m.price);
-					var detail = document.createElement("td");
-					appendCapability(detail, "openrouter", m.id);
-					row.append(name, price, detail);
-					table.append(row);
-				});
-				group.append(table);
-				box.append(group);
+			};
+			var byVendor = {};
+			models.forEach((m) => {
+				byVendor[m.vendor] ??= [];
+				byVendor[m.vendor].push(m);
 			});
-			var zNote = document.createElement("p");
-			zNote.textContent =
-				"Z.ai published USD/1M token rates · " +
-				(z.state || "unavailable") +
-				" · checked " +
-				(z.fetchedAt ? dual(z.fetchedAt) : "never") +
-				" · source " +
-				(z.source || "unreported") +
-				" · account models " +
-				(zAccount.state === "available" ? zAccountIds.length : "unobserved") +
-				(z.reason ? ` · ${z.reason}` : "");
-			box.append(zNote);
-			var zGroup = document.createElement("details");
-			zGroup.className = "access-vendor";
-			var zHeading = document.createElement("summary");
-			zHeading.textContent =
-				"Z.ai model prices · " +
-				zModels.length +
-				" published" +
-				(zAccountIds.length
-					? " · " +
-						zAccountIds.filter((id) => !zModels.some((m) => m.id === id))
-							.length +
-						" unreported account rates"
-					: "");
-			zGroup.append(zHeading);
-			var zTable = document.createElement("table");
+			var copilotVia = (m) => {
+				var responseOnly =
+					m.endpoints.includes("/responses") &&
+					!m.endpoints.includes("/chat/completions") &&
+					!m.endpoints.includes("/v1/messages");
+				return m.routes?.length
+					? m.routes.map((route) => `local/Copilot/${route}`).join(", ")
+					: responseOnly
+						? "Copilot CLI · Buckle Responses needed"
+						: "Copilot CLI · Buckle route not configured";
+			};
 			var zIds = [...new Set(zAccountIds.concat(zModels.map((m) => m.id)))];
 			zIds.sort(
 				(a, b) =>
 					Number(zAccountIds.includes(b)) - Number(zAccountIds.includes(a)) ||
 					a.localeCompare(b),
 			);
-			zIds.forEach((id) => {
-				var m = zModels.find((item) => item.id === id);
-				var row = document.createElement("tr");
-				var name = document.createElement("td");
-				var price = document.createElement("td");
-				name.textContent =
-					(m?.name || id) +
-					(zAccountIds.includes(id)
-						? " · account visible"
-						: " · published price only");
-				price.textContent = rate(m?.price);
-				var detail = document.createElement("td");
-				appendCapability(detail, "zai", id);
-				row.append(name, price, detail);
-				zTable.append(row);
-			});
-			zGroup.append(zTable);
-			box.append(zGroup);
-			var byVendor = {};
-			models.forEach((m) => {
-				byVendor[m.vendor] ??= [];
-				byVendor[m.vendor].push(m);
-			});
-			Object.keys(byVendor)
-				.sort()
-				.forEach((v) => {
-					var group = document.createElement("details");
-					group.className = "access-vendor";
-					var heading = document.createElement("summary");
-					var count = byVendor[v].length;
-					heading.textContent = `${v} · ${count} model${count === 1 ? "" : "s"}`;
-					group.append(heading);
-					var table = document.createElement("table");
-					byVendor[v].forEach((m) => {
-						var row = document.createElement("tr");
-						var name = document.createElement("td");
-						var access = document.createElement("td");
-						name.textContent = m.name;
-						var responseOnly =
-							m.endpoints.includes("/responses") &&
-							!m.endpoints.includes("/chat/completions") &&
-							!m.endpoints.includes("/v1/messages");
-						var via = m.routes?.length
-							? m.routes.map((route) => `local/Copilot/${route}`).join(", ")
-							: responseOnly
-								? "Copilot CLI · Buckle Responses needed"
-								: "Copilot CLI · Buckle route not configured";
-						access.textContent = `${via} · ${rate(m.price)}`;
-						var detail = document.createElement("td");
-						appendCapability(detail, "copilot", m.id);
-						row.append(name, access, detail);
-						table.append(row);
-					});
-					group.append(table);
-					box.append(group);
-				});
-			var localRows = capabilityRows.filter(
-				(row) => row.provider === "belt-local",
+			// the template mirrors the retired DOM shape node-for-node:
+			// seats line, copilot reason, two standing notes, catalog note,
+			// OpenRouter groups, Z.ai note + group, per-vendor copilot groups,
+			// belt-local group. All text byte-stable with the old renderer.
+			render(
+				html`<div class="access-seats">
+						<span>IKEA Copilot · ${c.state || "unobserved"} · ${models.length}
+							selectable models</span
+						>
+						<span>Personal Claude CLI · ${s.personal?.claude || "unobserved"}</span>
+						<span>
+							Personal ChatGPT/Codex CLI · ${
+								s.personal?.chatgpt || "unobserved"
+							}</span
+						>
+					</div>
+					${c.reason ? html`<p>Copilot catalog: ${c.reason}</p>` : ""}
+					<p>
+						Copilot models: subscription access; per-token price unreported.
+						Local models: no posted API token price. These are not zero-cost
+						claims.
+					</p>
+					<p>
+						Capabilities · ${feed.state || "unavailable"} · OpenRouter ${
+							feed.sources?.openrouter || "unavailable"
+						} · snapshot ${
+							feed.sources?.persistence || "unavailable"
+						} · checked ${dual(feed.observedAt)}
+					</p>
+					<p>
+						OpenRouter public catalog · ${o.state || "unavailable"} · checked
+						${o.fetchedAt ? dual(o.fetchedAt) : "never"}${
+							o.reason ? ` · ${o.reason}` : ""
+						}. Rates apply only when routed through OpenRouter.
+					</p>
+					${[
+						["FREE", routerModels.filter((m) => m.price?.status === "free")],
+						[
+							"Priced or unreported",
+							routerModels.filter((m) => m.price?.status !== "free"),
+						],
+					].map(
+						([label, section]) =>
+							html`<details class="access-vendor">
+								<summary>
+									OpenRouter ${label} · ${section.length} models
+								</summary>
+								<table>
+									${section.map(
+										(m) =>
+											html`<tr>
+												<td>${m.name} · ${m.id}</td>
+												<td>${rate(m.price)}</td>
+												${capabilityCell(
+													capabilityById.get(
+														JSON.stringify(["openrouter", m.id]),
+													),
+												)}
+											</tr>`,
+									)}
+								</table>
+							</details>`,
+					)}
+					<p>
+						Z.ai published USD/1M token rates · ${z.state || "unavailable"} ·
+						checked ${z.fetchedAt ? dual(z.fetchedAt) : "never"} · source ${
+							z.source || "unreported"
+						} · account models ${
+							zAccount.state === "available" ? zAccountIds.length : "unobserved"
+						}${z.reason ? ` · ${z.reason}` : ""}
+					</p>
+					<details class="access-vendor">
+						<summary>
+							Z.ai model prices · ${zModels.length} published${
+								zAccountIds.length
+									? ` · ${
+											zAccountIds.filter(
+												(id) => !zModels.some((m) => m.id === id),
+											).length
+										} unreported account rates`
+									: ""
+							}
+						</summary>
+						<table>
+							${zIds.map((id) => {
+								const m = zModels.find((item) => item.id === id);
+								return html`<tr>
+									<td>
+										${m?.name || id}${
+											zAccountIds.includes(id)
+												? " · account visible"
+												: " · published price only"
+										}
+									</td>
+									<td>${rate(m?.price)}</td>
+									${capabilityCell(
+										capabilityById.get(JSON.stringify(["zai", id])),
+									)}
+								</tr>`;
+							})}
+						</table>
+					</details>
+					${Object.keys(byVendor)
+						.sort()
+						.map(
+							(v) =>
+								html`<details class="access-vendor">
+									<summary>
+										${v} · ${byVendor[v].length} model${
+											byVendor[v].length === 1 ? "" : "s"
+										}
+									</summary>
+									<table>
+										${byVendor[v].map(
+											(m) =>
+												html`<tr>
+													<td>${m.name}</td>
+													<td>${copilotVia(m)} · ${rate(m.price)}</td>
+													${capabilityCell(
+														capabilityById.get(
+															JSON.stringify(["copilot", m.id]),
+														),
+													)}
+												</tr>`,
+										)}
+									</table>
+								</details>`,
+						)}
+					${html`<details class="access-vendor">
+						<summary>Belt local models · ${
+							capabilityRows.filter((row) => row.provider === "belt-local")
+								.length
+						}</summary>
+						<table>
+							${capabilityRows
+								.filter((row) => row.provider === "belt-local")
+								.map(
+									(m) =>
+										html`<tr>
+											<td>${m.modelId}</td>
+											<td>${rate(m.cost?.value)}</td>
+											${capabilityCell(m)}
+										</tr>`,
+								)}
+						</table>
+					</details>`}`,
+				document.getElementById("modelaccess"),
 			);
-			var localGroup = document.createElement("details");
-			localGroup.className = "access-vendor";
-			var localHeading = document.createElement("summary");
-			localHeading.textContent = `Belt local models · ${localRows.length}`;
-			localGroup.append(localHeading);
-			var localTable = document.createElement("table");
-			localRows.forEach((m) => {
-				var row = document.createElement("tr");
-				var name = document.createElement("td");
-				var price = document.createElement("td");
-				var detail = document.createElement("td");
-				name.textContent = m.modelId;
-				price.textContent = rate(m.cost?.value);
-				appendCapability(detail, m.provider, m.modelId);
-				row.append(name, price, detail);
-				localTable.append(row);
-			});
-			localGroup.append(localTable);
-			box.append(localGroup);
 		})
 		.catch((e) => {
 			document.getElementById("modelaccess").textContent =
