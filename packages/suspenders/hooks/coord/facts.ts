@@ -2,13 +2,6 @@
 // Handler bodies moved verbatim from bin/coord.ts's if/else chain —
 // one-tab indent preserved, output byte-compatible.
 
-import {
-	ensureKnowledgeFacts,
-	isKnowledgeFactKey,
-	originKindOf,
-	sourceRefOf,
-} from "../lib/knowledge/knowledge-facts.ts";
-import { openKnowledgeDb } from "../lib/knowledge/govdb-knowledge.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { expireConsults } from "../lib/federation/consult-expiry.ts";
@@ -21,11 +14,18 @@ import {
 	parseStamp,
 	renderStamp,
 } from "../lib/knowledge/confidence.ts";
+import { openKnowledgeDb } from "../lib/knowledge/govdb-knowledge.ts";
 import {
 	recordKnowledgeSuggestion,
 	renderKnowledgeSuggestion,
 	suggestKnowledge,
 } from "../lib/knowledge/kev-curation.ts";
+import {
+	ensureKnowledgeFacts,
+	isKnowledgeFactKey,
+	originKindOf,
+	sourceRefOf,
+} from "../lib/knowledge/knowledge-facts.ts";
 import {
 	searchSink,
 	sinkConfigured,
@@ -223,9 +223,12 @@ export async function cmdFact(rest: string[]): Promise<void> {
 			value.startsWith("--")
 		)
 			die(
-				"usage: fact set <key> <value> | fact set <key> --text <text> [--source s] [--if-version n] [--trigger t] [--explanation e] [--procedure p] [--verification v] [--source-commit sha] [--applicability a]",
+				"usage: fact set <key> <value> | fact set <key> --text <text> [--source s] [--domain d] [--if-version n] [--trigger t] [--explanation e] [--procedure p] [--verification v] [--source-commit sha] [--applicability a]",
 			);
 		const src = arg("--source") ?? "coord";
+		// W927 (re-land W2184): the grouping word retrieval filters on —
+		// lesson.* domain scoping rides domainVisible.
+		const dom = arg("--domain");
 		// W953 confidence doctrine: --confidence REQUIRES --setter (provenance
 		// law — a grade without a logged setter is invalid). Verdict lifecycles
 		// (superseded/contradicted) require --ref per addendum 2. The stamp
@@ -305,8 +308,8 @@ export async function cmdFact(rest: string[]): Promise<void> {
 			const stampJson = stamp ? JSON.stringify(stamp) : null;
 			const kf = ft === "knowledge_facts";
 			fh.query(
-				`INSERT INTO ${ft} (key, value, source, version, ts, confidence, confidence_stamp, provenance${kf ? ", origin_kind, source_ref" : ""}) VALUES (?, ?, ?, 1, ?, ?, ?, ?${kf ? ", ?, ?" : ""}) ` +
-					`ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, version = version + 1, ts = excluded.ts, confidence = excluded.confidence, confidence_stamp = excluded.confidence_stamp, provenance = excluded.provenance${kf ? ", source_ref = COALESCE(excluded.source_ref, source_ref)" : ""}`,
+				`INSERT INTO ${ft} (key, value, source, version, ts, confidence, confidence_stamp, provenance${kf ? ", origin_kind, source_ref" : ""}, domain) VALUES (?, ?, ?, 1, ?, ?, ?, ?${kf ? ", ?, ?" : ""}, ?) ` +
+					`ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, version = version + 1, ts = excluded.ts, confidence = excluded.confidence, confidence_stamp = excluded.confidence_stamp, provenance = excluded.provenance${kf ? ", source_ref = COALESCE(excluded.source_ref, source_ref)" : ""}, domain = COALESCE(?, domain)`,
 			).run(
 				key,
 				value,
@@ -316,6 +319,8 @@ export async function cmdFact(rest: string[]): Promise<void> {
 				stampJson,
 				provenance,
 				...(kf ? [originKindOf(key), sourceRefOf(key, stampJson)] : []),
+				dom,
+				dom,
 			);
 			if (stamp)
 				db.query(
@@ -751,8 +756,15 @@ export async function cmdKb(rest: string[]): Promise<void> {
 			.all(project) as { ms: number }[];
 		const median = lat.length ? lat[Math.floor(lat.length / 2)].ms : 0;
 		const s = (k: string) => byState.find((b) => b.state === k)?.n ?? 0;
+		const contrastive = (
+			db
+				.query(
+					"SELECT COUNT(*) AS n FROM consults WHERE project = ? AND expert_sid = 'contrastive'",
+				)
+				.get(project) as { n: number }
+		).n;
 		console.log(
-			`kb: ${tot} solutions · ${hits} repeat questions auto-answered · consults: ${s("OPEN")} open, ${s("ANSWERED")} human, ${s("KB")} via kb, ${s("DECLINED")} declined`,
+			`kb: ${tot} solutions · ${hits} repeat questions auto-answered · consults: ${s("OPEN")} open, ${s("ANSWERED")} human, ${s("KB")} via kb, ${s("DECLINED")} declined, ${s("REFUSED")} refused, ${contrastive} contrastive`,
 		);
 		const outcomes = db
 			.query(
@@ -983,7 +995,7 @@ export async function cmdGc(rest: string[]): Promise<void> {
 	const x = expireConsults(db, Date.now());
 	const cd = db
 		.query(
-			"DELETE FROM consults WHERE state IN ('ANSWERED','DECLINED','EXPIRED') AND answered_at < ? AND answered_at IS NOT NULL",
+			"DELETE FROM consults WHERE state IN ('ANSWERED','DECLINED','EXPIRED','REFUSED') AND answered_at < ? AND answered_at IS NOT NULL",
 		)
 		.run(cut).changes;
 	const sw = db.local ? sweepStaleSessions(db as Database) : 0;
