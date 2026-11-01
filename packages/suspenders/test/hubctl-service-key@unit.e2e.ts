@@ -4,7 +4,7 @@
 // a fake curl answers the hub-side scripts (the REAL script text runs via
 // /bin/sh — same wire the live hub sees); a fake ssh proves key material
 // never rides the ssh command line.
-import { afterAll, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	chmodSync,
 	existsSync,
@@ -157,7 +157,7 @@ function callsText(): string {
 	return readFileSync(calls, "utf8");
 }
 
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+test.afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 // ─── mint-service-key: persistent, --out 0600, metadata only ───
 

@@ -6,7 +6,7 @@
 // prompt. groupSignature now expands $HOME before folding the prefix, and
 // the merge collapses existing signature-duplicates keep-first, so the next
 // wire run heals the live settings too.
-import { afterEach, describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -22,7 +22,7 @@ import {
 } from "../scripts/install/install-run.ts";
 
 const dirs: string[] = [];
-afterEach(() => {
+test.afterEach(() => {
 	for (const dir of dirs.splice(0)) {
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -89,7 +89,7 @@ function readHooks(target: string): unknown[] {
 	return Array.isArray(cur) ? cur : [];
 }
 
-describe("W904 wireSettings dedupe (W893 finding)", () => {
+test.describe("W904 wireSettings dedupe (W893 finding)", () => {
 	test("absolute-form settings + $HOME-form example converge, no duplicate", async () => {
 		const { ctx, target } = fixture((prefix) => ({
 			UserPromptSubmit: [

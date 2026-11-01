@@ -1,13 +1,6 @@
 // test/install-llm-steps.test.ts — W771.2: native local-llm kit installer
 // steps (seedLocalLlm, downloadModels, refreshSupervisor).
-import {
-	afterAll,
-	beforeAll,
-	describe,
-	expect,
-	setDefaultTimeout,
-	test,
-} from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	existsSync,
 	lstatSync,
@@ -37,7 +30,7 @@ import {
 import type { StepContext } from "../scripts/install/install-run.ts";
 import { validateBeltWiredGuard } from "../scripts/lib/belt-wired-guard.ts";
 
-setDefaultTimeout(120_000);
+test.setTimeout(120_000);
 
 const REPO = join(import.meta.dir, ".."); // packages/suspenders
 const dirs: string[] = [];
@@ -92,12 +85,12 @@ function ctxFor(llmHome: string, repo = REPO): StepContext {
 const step = (name: string) =>
 	INSTALL_CONTRACT.steps.find((s) => s.name === name);
 
-afterAll(() => {
+test.afterAll(() => {
 	for (const dir of dirs.splice(0))
 		rmSync(dir, { recursive: true, force: true });
 });
 
-describe("W771.2 contract flips", () => {
+test.describe("W771.2 contract flips", () => {
 	test("the three kit steps are v1 real", () => {
 		for (const name of [
 			"seedLocalLlm",
@@ -109,7 +102,7 @@ describe("W771.2 contract flips", () => {
 	});
 });
 
-describe("W1792 belt closure entry pins", () => {
+test.describe("W1792 belt closure entry pins", () => {
 	test("beltBin resolves under the belt package, where router-shim.ts lives", () => {
 		// W1792 regression pin: the "router-shim.ts" bare literal in
 		// seedLocalLlm's belt-closure refresh joins onto beltBin(ctx) —
@@ -121,7 +114,7 @@ describe("W1792 belt closure entry pins", () => {
 	});
 });
 
-describe("LiteLLM native metrics fresh install", () => {
+test.describe("LiteLLM native metrics fresh install", () => {
 	test("missing dependency installs the pinned tool and verifies the new env", async () => {
 		let present = false;
 		const calls: string[][] = [];
@@ -184,7 +177,7 @@ describe("LiteLLM native metrics fresh install", () => {
 	});
 });
 
-describe("ensureLiteLlmIntegrity (W1197)", () => {
+test.describe("ensureLiteLlmIntegrity (W1197)", () => {
 	const auditStub =
 		(verdict: "clean" | "exposed" | "unverifiable", reason: string) =>
 		async () => ({
@@ -244,7 +237,7 @@ describe("ensureLiteLlmIntegrity (W1197)", () => {
 	});
 });
 
-describe("seedLocalLlm", () => {
+test.describe("seedLocalLlm", () => {
 	test("fresh home seeds a safe wired guard from effective memory", async () => {
 		const home = tmpHome("seed-auto-guard");
 		const res = await seedLocalLlm(ctxFor(home));
@@ -329,7 +322,7 @@ describe("seedLocalLlm", () => {
 // W1051: with ctx.json the step's log sink is console.error — the belt
 // closure heal (refreshFlatHome default console.log) must ride it too, or
 // file-copy lines print to stdout ahead of the JSON outcome document.
-describe("seedLocalLlm --json stdout parity", () => {
+test.describe("seedLocalLlm --json stdout parity", () => {
 	test("no file-copy lines reach stdout in --json mode", async () => {
 		const home = tmpHome("seed-json-stdout");
 		writeGuard(home);
@@ -348,7 +341,7 @@ describe("seedLocalLlm --json stdout parity", () => {
 	});
 });
 
-describe("seedLocalLlm never clobbers", () => {
+test.describe("seedLocalLlm never clobbers", () => {
 	test("sentinel belt.env survives; belt swarm replaces a kit-serve copy", async () => {
 		const home = tmpHome("seed-keep");
 		mkdirSync(home, { recursive: true });
@@ -383,7 +376,7 @@ describe("seedLocalLlm never clobbers", () => {
 	});
 });
 
-describe("downloadModels", () => {
+test.describe("downloadModels", () => {
 	test("unsupported MLX platform skips with an explicit reason", async () => {
 		const res = await downloadModels(ctxFor(tmp("dl-linux")), {
 			platform: "linux",
@@ -455,7 +448,7 @@ describe("downloadModels", () => {
 	});
 });
 
-describe("refreshSupervisor", () => {
+test.describe("refreshSupervisor", () => {
 	test("missing runtime fails loudly", async () => {
 		const res = await refreshSupervisor(ctxFor(tmp("sv-missing")));
 		expect(res.status).toBe("failed");
@@ -537,7 +530,7 @@ describe("refreshSupervisor", () => {
 	});
 });
 
-describe("W889 gateway-config regen", () => {
+test.describe("W889 gateway-config regen", () => {
 	test("guard: missing, stampless, or trailing-stamp yaml is stale", () => {
 		const home = tmp("w889-guard");
 		mkdirSync(home, { recursive: true });
@@ -692,12 +685,12 @@ const staleZaiHome = (label: string, ageMs = 3 * 86_400_000, key = true) => {
 	return { root, home, snapshot };
 };
 
-describe("W1469 stale Z.ai catalog snapshot preflight", () => {
+test.describe("W1469 stale Z.ai catalog snapshot preflight", () => {
 	const saved = process.env.ZAI_CATALOG_FILE;
-	beforeAll(() => {
+	test.beforeAll(() => {
 		delete process.env.ZAI_CATALOG_FILE;
 	});
-	afterAll(() => {
+	test.afterAll(() => {
 		if (saved !== undefined) process.env.ZAI_CATALOG_FILE = saved;
 	});
 
@@ -794,7 +787,7 @@ describe("W1469 stale Z.ai catalog snapshot preflight", () => {
 	});
 });
 
-describe("W1205 truthful regen failure diagnostics", () => {
+test.describe("W1205 truthful regen failure diagnostics", () => {
 	test("defaultRun keeps a bounded multi-line stderr tail (a81: last line was noise)", async () => {
 		const dir = tmp("w1205-gen");
 		const gen = join(dir, "gen.ts");

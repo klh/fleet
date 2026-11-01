@@ -3,7 +3,7 @@
 // agent_next_steps + every documented flag; --dry-run mutates nothing
 // (temp-PREFIX snapshot before/after); every documented step name is accepted
 // via --step; the contract flags and meow's flags never drift.
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -62,7 +62,7 @@ function kebab(key: string): string {
 	return `--${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`;
 }
 
-describe("install --json outcomes (W490.1)", () => {
+test.describe("install --json outcomes (W490.1)", () => {
 	test("dry-run plan parses: contractVersion + agent_next_steps + every documented flag", async () => {
 		const { code, stdout } = await run(["--json", "--dry-run"]);
 		expect(code).toBe(0);
@@ -296,7 +296,7 @@ describe("install --json outcomes (W490.1)", () => {
 	});
 });
 
-describe("contract ⇔ CLI drift checks (W490.1)", () => {
+test.describe("contract ⇔ CLI drift checks (W490.1)", () => {
 	test("contract flags == meow's accepted flags", () => {
 		const contractKeys = Object.keys(INSTALL_CONTRACT.flags).sort();
 		const cliKeys = Object.keys(meowFlags).sort();
