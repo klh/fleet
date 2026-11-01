@@ -26,38 +26,20 @@
 import type { GovernorStore } from "../govdb/govdb.ts";
 import type { StackConfig } from "../stack-config.ts";
 import { providerOf } from "../usage/exec-quota.ts";
-import { z } from "zod";
+import {
+	type ProviderPool,
+	type ProviderPools,
+	ProviderPoolsSchema,
+} from "./provider-pools.schema.ts";
 
-const IDENT =
-	/^(?!__proto__$|constructor$|prototype$)[A-Za-z0-9][A-Za-z0-9._:/-]*$/;
-
-export const ProviderPoolSchema = z
-	.strictObject({
-		/** Model aliases riding this pool (any hub — pool identity is the
-		 *  shared credential, not the hub or the alias). */
-		models: z.array(z.string().regex(IDENT)).min(1),
-		/** Max concurrent lanes (running + reserved) across the pool. */
-		concurrency: z.number().int().positive(),
-		/** Headroom reserved for interactive/review traffic (default 0). */
-		interactive_reserve: z.number().int().nonnegative().optional(),
-		/** Explicit quota-pool key: pool entries sharing a quota_pool_id
-		 *  share ONE reservation ledger (alias collapse, owner directive). */
-		quota_pool_id: z.string().regex(IDENT).optional(),
-		/** Capability tag: placement may only re-pin inside the same tag. */
-		capability: z.string().regex(IDENT).optional(),
-	})
-	.refine((p) => p.concurrency > (p.interactive_reserve ?? 0), {
-		message: "interactive_reserve must leave at least 1 lane slot",
-		path: ["interactive_reserve"],
-	});
-
-export const ProviderPoolsSchema = z.record(
-	z.string().regex(IDENT),
+// conf schemas live in provider-pools.schema.ts (flat-home closure law,
+// W2343 — posture.zod.ts precedent); the module face stays unchanged.
+export {
+	type ProviderPool,
 	ProviderPoolSchema,
-);
-
-export type ProviderPool = z.infer<typeof ProviderPoolSchema>;
-export type ProviderPools = Record<string, ProviderPool>;
+	type ProviderPools,
+	ProviderPoolsSchema,
+} from "./provider-pools.schema.ts";
 
 /** The machine conf's provider_pools block — empty map when none is
  *  configured (pools are opt-in; unlisted models ride no ceiling, loud at

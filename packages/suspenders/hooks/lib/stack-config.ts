@@ -15,7 +15,7 @@ import {
 	warnDeprecated,
 } from "@klh/settings";
 import { z } from "zod";
-import { ProviderPoolsSchema } from "./fleet-loop/provider-pools.ts";
+import { ProviderPoolsSchema } from "./fleet-loop/provider-pools.schema.ts";
 import { readJsonConfEither } from "./kernel-conf.ts";
 import { PostureDocumentSchema } from "./posture/posture.zod.ts";
 
