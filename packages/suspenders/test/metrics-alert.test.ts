@@ -1,15 +1,18 @@
 import { describe, expect, test } from "bun:test";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
+	type AlertState,
 	counterSpikes,
+	diffAlerts,
 	familyDrops,
-	formatAlert,
 	loadState,
 	parseProm,
 	queueAlerts,
 	saveState,
 	scrapeTarget,
 	statusAlerts,
-	type AlertState,
+	throughputOnsets,
 } from "../hooks/bin/metrics-alert.ts";
 
 const freshState = (): AlertState => ({ targets: {} });
@@ -101,6 +104,74 @@ describe("queueAlerts", () => {
 	});
 });
 
+describe("throughputOnsets", () => {
+	test("onset fires once, silent while gauge holds 1, silent on clear", () => {
+		const gauge = (v: number) =>
+			parseProm(
+				`buckle_throughput_incident_active{node="spoke",incident="abc",model="m"} ${v}`,
+			);
+		// first sighting (series appears at 1) = onset
+		expect(throughputOnsets([], gauge(1))).toEqual([
+			{
+				labels: "incident=abc,model=m,node=spoke",
+				detail: "throughput incident active: incident=abc,model=m,node=spoke",
+			},
+		]);
+		// gauge holds 1 across passes = same incident, no re-fire
+		expect(throughputOnsets(gauge(1), gauge(1))).toEqual([]);
+		// cleared gauge alone reports nothing (clearance rides diffAlerts)
+		expect(throughputOnsets(gauge(1), gauge(0))).toEqual([]);
+		// a NEW incident (different cohort) is a fresh onset
+		expect(
+			throughputOnsets(
+				gauge(1),
+				parseProm(
+					'buckle_throughput_incident_active{node="spoke",incident="def",model="m"} 1',
+				),
+			),
+		).toHaveLength(1);
+	});
+});
+
+describe("diffAlerts THROUGHPUT", () => {
+	const gaugeLine = (v: number) =>
+		`buckle_throughput_incident_active{node="spoke",incident="abc"} ${v}`;
+	test("onset alerts THROUGHPUT, sticky at 1, RECOVER on clear", () => {
+		const st = {
+			url: "http://t",
+			misses: 0,
+			lastOkAt: null,
+			active: {},
+			series: parseProm(gaugeLine(0)),
+		};
+		const atOne = parseProm(gaugeLine(1));
+		// 0 -> 1: onset
+		const onset = diffAlerts(st, atOne, null, 0);
+		expect(onset.map((a) => a.kind)).toEqual(["THROUGHPUT"]);
+		expect(onset[0]?.detail).toContain("incident=abc");
+		expect(st.active["THROUGHPUT:incident=abc,node=spoke"]).toBe("on");
+		// 1 -> 1: sticky, silent (scrapeTarget assigns st.series = cur after
+		// the diff — mirror that between passes)
+		st.series = atOne;
+		expect(diffAlerts(st, atOne, null, 0)).toEqual([]);
+		// 1 -> 0: RECOVER
+		const cleared = diffAlerts(st, parseProm(gaugeLine(0)), null, 0);
+		expect(cleared.map((a) => a.kind)).toEqual(["RECOVER"]);
+		expect(cleared[0]?.detail).toContain("cleared");
+	});
+	test("series vanishing with the retention window also recovers", () => {
+		const st = {
+			url: "http://t",
+			misses: 1,
+			lastOkAt: null,
+			active: { 'THROUGHPUT:incident="abc",node="spoke"': "on" },
+			series: [],
+		};
+		const alerts = diffAlerts(st, parseProm("unrelated_total 1"), null, 0);
+		expect(alerts.map((a) => a.kind)).toEqual(["RECOVER"]);
+	});
+});
+
 describe("scrapeTarget", () => {
 	test("drop at threshold, then recover", async () => {
 		let healthy = false;
@@ -127,6 +198,67 @@ describe("scrapeTarget", () => {
 			expect(recovered.map((a) => a.kind)).toEqual(["RECOVER"]);
 			expect(s.targets[url]?.misses).toBe(0);
 		} finally {
+			server.stop(true);
+		}
+	});
+});
+
+describe("scrapeTarget admin join", () => {
+	const adminServer = (gauge: string) =>
+		Bun.serve({
+			port: 0,
+			fetch: (req) => {
+				const path = new URL(req.url).pathname;
+				if (path === "/status")
+					return Response.json({ service: "stub", healthy: true });
+				if (path === "/metrics") return new Response("http_requests_total 1");
+				if (path === "/v1/admin/metrics") {
+					if (req.headers.get("authorization") !== "Bearer fixture-admin-key")
+						return new Response("denied", { status: 401 });
+					return new Response(gauge);
+				}
+				return new Response("nope", { status: 404 });
+			},
+		});
+	test("no key configured: admin face never scraped, no THROUGHPUT onset", async () => {
+		const server = adminServer(
+			'buckle_throughput_incident_active{node="spoke",incident="abc"} 1',
+		);
+		try {
+			const s = freshState();
+			expect(
+				await scrapeTarget(s, `http://127.0.0.1:${server.port}`, 1),
+			).toEqual([]);
+		} finally {
+			server.stop(true);
+		}
+	});
+	test("key configured: joined admin gauge fires THROUGHPUT onset", async () => {
+		const server = adminServer(
+			'buckle_throughput_incident_active{node="spoke",incident="abc"} 1',
+		);
+		const saved = process.env.METRICS_ALERT_BUCKLE_ADMIN_KEY_FILE;
+		const keyFile = join(import.meta.dir, "metrics-alert-admin-key-fixture");
+		writeFileSync(keyFile, "BUCKLE_ADMIN_KEY=fixture-admin-key\n");
+		try {
+			process.env.METRICS_ALERT_BUCKLE_ADMIN_KEY_FILE = keyFile;
+			const s = freshState();
+			const alerts = await scrapeTarget(
+				s,
+				`http://127.0.0.1:${server.port}`,
+				1,
+			);
+			expect(alerts.map((a) => a.kind)).toEqual(["THROUGHPUT"]);
+			expect(
+				s.targets[`http://127.0.0.1:${server.port}`]?.active[
+					"THROUGHPUT:incident=abc,node=spoke"
+				],
+			).toBe("on");
+		} finally {
+			if (saved === undefined)
+				delete process.env.METRICS_ALERT_BUCKLE_ADMIN_KEY_FILE;
+			else process.env.METRICS_ALERT_BUCKLE_ADMIN_KEY_FILE = saved;
+			Bun.spawnSync(["rm", "-f", keyFile]);
 			server.stop(true);
 		}
 	});
