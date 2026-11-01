@@ -2,19 +2,20 @@
 // per-pool capacity (schema, ceilings, occupancy dedupe, fenced
 // reservation) + Kev placement over the live snapshot + the ONE
 // effective refill target (#89251 RCA regression).
-import { expect, test } from "@playwright/test";
+
 import { scratchWorld } from "@klh/test-kit";
+import { expect, test } from "@playwright/test";
 import { openStore } from "../govdb/govdb.ts";
+import { effectiveDispatchTarget, fleetLoopSettings } from "../stack-config.ts";
 import { kevPlacement, placementCandidates } from "./kev-placement.ts";
 import { buildPoolRampPlan, stageRouteArg } from "./pool-ramp-plan.ts";
 import {
 	automaticCeiling,
-	poolOfModel,
 	poolOccupancy,
-	resolveProviderPools,
+	poolOfModel,
 	reservePoolSlot,
+	resolveProviderPools,
 } from "./provider-pools.ts";
-import { effectiveDispatchTarget, fleetLoopSettings } from "../stack-config.ts";
 
 const world = scratchWorld({ prefix: "provider-pools-" });
 const realHome = process.env.HOME;
