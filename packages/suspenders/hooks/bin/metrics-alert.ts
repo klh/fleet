@@ -19,6 +19,9 @@
 //              gauge clears or its cohort series drops out of the window.
 //              Rides the admin metrics join (below) — the public /metrics
 //              face deliberately stays Buckle-only (W1124.23.1).
+//   DEGRADED  the admin metrics join is unhealthy while THROUGHPUT keys are
+//              active (W1124.23.2.1): active incidents are HELD — no RECOVER
+//              and no re-onset until the join proves healthy again.
 //
 // usage: metrics-alert [--help] — the `run` verb is the default (W656.3
 //   verb-kit): [--watch <s>] [--json]; targets: METRICS_ALERT_TARGETS env
@@ -57,7 +60,8 @@ export type AlertKind =
 	| "ERROR"
 	| "SPIKE"
 	| "QUEUE"
-	| "THROUGHPUT";
+	| "THROUGHPUT"
+	| "DEGRADED";
 
 export interface Alert {
 	kind: AlertKind;
@@ -301,10 +305,13 @@ export async function scrapeTarget(
 	const alerts: Alert[] = [];
 	let cur: Series[] = [];
 	let status: StatusBody | null = null;
+	const key = adminKeyOf();
+	let aRes: Response | null = null;
 	try {
 		const opts = { signal: AbortSignal.timeout(SCRAPE_TIMEOUT_MS) };
-		const key = adminKeyOf();
-		const [mRes, sRes, aRes] = await Promise.all([
+		let mRes: Response;
+		let sRes: Response;
+		[mRes, sRes, aRes] = await Promise.all([
 			fetchFn(`${url}/metrics`, opts),
 			fetchFn(`${url}/status`, opts),
 			key
@@ -338,6 +345,28 @@ export async function scrapeTarget(
 	}
 	st.misses = 0;
 	st.lastOkAt = now;
+	// W1124.23.2.1 (review B1): an admin join that failed/timed out/401'd/5xx'd
+	// must be indistinguishable-never from gauge clearance. While the join is
+	// unhealthy and THROUGHPUT keys are active, HOLD them — no RECOVER, no
+	// re-onset — and keep the last good admin-joined series as the diff
+	// baseline so the eventual healthy pass cannot fire a false onset.
+	const joinHealthy = key ? aRes?.ok === true : null;
+	const hasActiveThroughput = Object.keys(st.active).some((k) =>
+		k.startsWith("THROUGHPUT:"),
+	);
+	if (joinHealthy === false && hasActiveThroughput) {
+		if (!st.active.ADMIN_JOIN) {
+			st.active.ADMIN_JOIN = "held";
+			alerts.push({
+				kind: "DEGRADED",
+				target: url,
+				detail:
+					"admin metrics join unhealthy — active throughput incidents held",
+			});
+		}
+		return alerts;
+	}
+	delete st.active.ADMIN_JOIN;
 	alerts.push(...diffAlerts(st, cur, status, now));
 	st.series = cur;
 	return alerts;

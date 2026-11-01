@@ -272,4 +272,47 @@ describe("state io", () => {
 		expect(loadState(path)).toEqual({ targets: {} });
 		Bun.spawnSync(["rm", "-f", path]);
 	});
+	test("W1124.23.2.1: join flap holds keys — no RECOVER, no re-onset, DEGRADED", async () => {
+		const gauge =
+			'buckle_throughput_incident_active{node="spoke",incident="abc"} 1';
+		let adminOk = true;
+		const server = Bun.serve({
+			port: 0,
+			fetch: (req) => {
+				const path = new URL(req.url).pathname;
+				if (path === "/status") return Response.json({ healthy: true });
+				if (path === "/metrics") return new Response("http_requests_total 1");
+				return adminOk &&
+					req.headers.get("authorization") === "Bearer fixture-admin-key"
+					? new Response(gauge)
+					: new Response("boom", { status: 503 });
+			},
+		});
+		const saved = process.env.METRICS_ALERT_BUCKLE_ADMIN_KEY_FILE;
+		const keyFile = join(import.meta.dir, "metrics-alert-admin-key-fixture");
+		writeFileSync(keyFile, "BUCKLE_ADMIN_KEY=fixture-admin-key\n");
+		try {
+			process.env.METRICS_ALERT_BUCKLE_ADMIN_KEY_FILE = keyFile;
+			const url = `http://127.0.0.1:${server.port}`;
+			const s = freshState();
+			expect((await scrapeTarget(s, url, 1)).map((a) => a.kind)).toEqual([
+				"THROUGHPUT",
+			]);
+			adminOk = false;
+			expect((await scrapeTarget(s, url, 2)).map((a) => a.kind)).toEqual([
+				"DEGRADED",
+			]);
+			expect(s.targets[url]?.active["THROUGHPUT:incident=abc,node=spoke"]).toBe(
+				"on",
+			);
+			adminOk = true;
+			expect(await scrapeTarget(s, url, 3)).toEqual([]);
+		} finally {
+			if (saved === undefined)
+				delete process.env.METRICS_ALERT_BUCKLE_ADMIN_KEY_FILE;
+			else process.env.METRICS_ALERT_BUCKLE_ADMIN_KEY_FILE = saved;
+			Bun.spawnSync(["rm", "-f", keyFile]);
+			server.stop(true);
+		}
+	});
 });
