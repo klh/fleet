@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { postureDocument } from "../hooks/lib/posture/posture.fixtures.ts";
-import { type Board, startBoard } from "./harness";
+import { type Board, startBoard } from "../test/helpers/board-harness";
 
 const TOKEN = "posture-e2e-write-token-0123456789abcdef";
 let board: Board | null = null;
