@@ -29,6 +29,8 @@ import {
 	type ReasoningEffort,
 	resolveReasoningEffort,
 } from "./router-policy.ts";
+// W2417.1 N3: schema-law import — the answer body parses through zod.
+import { z } from "zod";
 
 /** Z.AI GLM-5.3 doc-verified efforts: low|high|max — the model ALWAYS
  *  thinks (disable → 400; medium is not in the 5.3 set). The fleet axis
@@ -65,6 +67,10 @@ export interface EscalateResult {
 	toolUses?: AnthropicToolUse[];
 	/** W2182: the cloud leg's own usage numbers when it reported them. */
 	usage?: UpstreamUsage;
+	/** W2417.1 B2: the gate response's stop_reason, when it sent one — the
+	 *  stream face threads it into the message_delta tail instead of
+	 *  fabricating end_turn for a tool_use answer. */
+	stopReason?: string;
 }
 
 function upstreamError(raw: string, status: number): string {
@@ -83,6 +89,32 @@ function upstreamError(raw: string, status: number): string {
 	}
 	return raw.trim().slice(0, 512) || `HTTP ${status}`;
 }
+
+// W2417.1 N3 (W1238.4 schema law): the escalation leg's ANSWER body
+// safeParses through a named zod schema — never a hand `as` cast. Loose
+// beyond the fields we read: unknown provider blocks/fields ride verbatim.
+const EscalateContentBlockSchema = z.looseObject({
+	type: z.string().optional(),
+	id: z.string().optional(),
+	name: z.string().optional(),
+	input: z.unknown().optional(),
+	text: z.string().optional(),
+});
+const num = (v: unknown): number | undefined =>
+	typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
+export const EscalateAnswerSchema = z.object({
+	content: z.array(EscalateContentBlockSchema).optional(),
+	stop_reason: z.string().optional(),
+	usage: z
+		.looseObject({
+			input_tokens: z.number().optional(),
+			output_tokens: z.number().optional(),
+			cache_read_input_tokens: z.number().optional(),
+			cache_creation_input_tokens: z.number().optional(),
+		})
+		.optional(),
+});
+export type EscalateAnswer = z.infer<typeof EscalateAnswerSchema>;
 
 /** The Buckle escalation leg the operator's machine config selects. */
 export interface EscalationLeg {
@@ -250,21 +282,16 @@ export async function escalate(
 				...(upstreamRid ? { upstreamRid } : {}),
 			};
 		}
-		const j = (await res.json()) as {
-			content?: Array<{
-				type?: unknown;
-				id?: unknown;
-				name?: unknown;
-				input?: unknown;
-				text?: unknown;
-			}>;
-			usage?: {
-				input_tokens?: number;
-				output_tokens?: number;
-				cache_read_input_tokens?: number;
-				cache_creation_input_tokens?: number;
-			};
-		};
+		// W2417.1 N3: named zod schema replaces the hand `as` cast — an
+		// unparseable answer body is a decode failure, never a silent cast.
+		const parsed = EscalateAnswerSchema.safeParse(await res.json());
+		if (!parsed.success) {
+			failureKind = "decode";
+			throw new Error(
+				`escalate answer body failed schema parse: ${parsed.error.message}`,
+			);
+		}
+		const j = parsed.data;
 		const blocks = j.content ?? [];
 		const text = blocks
 			.map((b) => (b.type === "text" ? (b.text ?? "") : ""))
@@ -276,8 +303,6 @@ export async function escalate(
 			return [{ type: "tool_use", id: b.id, name: b.name, input: b.input }];
 		});
 		if (!text && toolUses.length === 0) failureKind = "empty";
-		const num = (v: unknown): number | undefined =>
-			typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
 		const usage: UpstreamUsage = {};
 		const inp = num(j.usage?.input_tokens);
 		if (inp !== undefined) usage.inputTokens = inp;
@@ -291,6 +316,7 @@ export async function escalate(
 			text,
 			...(toolUses.length > 0 ? { toolUses } : {}),
 			...(Object.keys(usage).length > 0 ? { usage } : {}),
+			...(j.stop_reason ? { stopReason: j.stop_reason } : {}),
 			model,
 			status: res.status,
 			note: budget.note,

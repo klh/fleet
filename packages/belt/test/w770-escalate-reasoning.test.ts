@@ -15,22 +15,22 @@ import { scratchWorld } from "@klh/test-kit";
 type AnyRec = Record<string, unknown>;
 
 const { home: dir, clean } = scratchWorld({ prefix: "w770-" });
-const policyFile = `${dir}/policy.yaml`;
+// W1253 law: fleet policy is JSON — JSON.parse is the one parser, the yaml
+// format is retired (parsePolicyDocument throws on format "yaml"). The
+// fixture policy rides a .json file or the loader skips it and falls back
+// to the machine policy, silently clamping every effort to low.
+const policyFile = `${dir}/policy.json`;
 writeFileSync(
 	policyFile,
-	[
-		"version: 1",
-		"gateway: {}",
-		"classes:",
-		"  frontier: [glm-5.3]",
-		"  standard: [glm-5.3-flash]",
-		"reasoning:",
-		"  default: medium",
-		"  roles:",
-		"    escalate: high",
-		"    escalate-fast: xhigh",
-		"",
-	].join("\n"),
+	JSON.stringify({
+		version: 1,
+		gateway: {},
+		classes: { frontier: ["glm-5.3"], standard: ["glm-5.3-flash"] },
+		reasoning: {
+			default: "medium",
+			roles: { escalate: "high", "escalate-fast": "xhigh" },
+		},
+	}),
 );
 
 afterAll(() => clean());

@@ -71,27 +71,34 @@ export interface StreamMeta {
 	timings?: RequestTimings;
 }
 
+/** message_start alone — the blocks translator opens its own first block
+ *  only when the answer carries one (W2417.1 N3: no empty index-0 text
+ *  block when there is no text). */
+function messageStart(meta: StreamMeta): string {
+	return sseEvent("message_start", {
+		type: "message_start",
+		message: {
+			id: meta.id,
+			type: "message",
+			role: "assistant",
+			model: meta.model,
+			content: [],
+			stop_reason: null,
+			usage: { input_tokens: 0, output_tokens: 0 },
+			...(meta.routing ? { _routing: meta.routing } : {}),
+		},
+	});
+}
+
+const textBlockStart = (index: number) =>
+	sseEvent("content_block_start", {
+		type: "content_block_start",
+		index,
+		content_block: { type: "text", text: "" },
+	});
+
 function anthropicHead(meta: StreamMeta): string {
-	return (
-		sseEvent("message_start", {
-			type: "message_start",
-			message: {
-				id: meta.id,
-				type: "message",
-				role: "assistant",
-				model: meta.model,
-				content: [],
-				stop_reason: null,
-				usage: { input_tokens: 0, output_tokens: 0 },
-				...(meta.routing ? { _routing: meta.routing } : {}),
-			},
-		}) +
-		sseEvent("content_block_start", {
-			type: "content_block_start",
-			index: 0,
-			content_block: { type: "text", text: "" },
-		})
-	);
+	return messageStart(meta) + textBlockStart(0);
 }
 
 /** message_delta + message_stop (the tail after the usage-bearing chunk).
@@ -157,20 +164,39 @@ export function anthropicSseFromText(
 }
 
 /** W2182: a buffered answer (cloud tool_use blocks + text) as an Anthropic
- *  SSE wire — one block per entry, indices advancing past the head's
- *  index-0 text block. Tool blocks emit start + input_json_delta + stop. */
+ *  SSE wire — one block per entry with canonical lifecycle (each closes
+ *  before the next opens), indices dense from 0. Tool blocks emit start +
+ *  input_json_delta + stop. W2417.1 B2: the gate's stop_reason rides the
+ *  message_delta tail — tool_use when tool blocks are present, matching the
+ *  buffered JSON branch; absent falls back to stopReason(finish). */
 export function anthropicSseFromBlocks(
 	blocks: Array<{ type: "text"; text: string } | AnthropicToolUse>,
 	meta: StreamMeta,
 	finish?: string,
 	usage?: UpstreamUsage,
+	stop?: string,
 ): ReadableStream<Uint8Array> {
 	const enc = new TextEncoder();
-	const chunks: string[] = [anthropicHead(meta)];
-	let index = 0;
+	const chunks: string[] = [messageStart(meta)];
+	let index = -1;
+	let openBlock = false;
+	let sawTool = false;
+	const closeBlock = () => {
+		if (!openBlock) return;
+		chunks.push(
+			sseEvent("content_block_stop", {
+				type: "content_block_stop",
+				index,
+			}),
+		);
+		openBlock = false;
+	};
 	for (const b of blocks) {
 		if (b.type !== "text") {
+			closeBlock();
 			index += 1;
+			sawTool = true;
+			openBlock = true;
 			chunks.push(
 				sseEvent("content_block_start", {
 					type: "content_block_start",
@@ -190,13 +216,26 @@ export function anthropicSseFromBlocks(
 						partial_json: JSON.stringify(b.input),
 					},
 				}),
-				sseEvent("content_block_stop", { type: "content_block_stop", index }),
 			);
 			continue;
 		}
-		if (b.text) chunks.push(textDelta(b.text));
+		if (!b.text) continue;
+		if (!openBlock) {
+			closeBlock();
+			index += 1;
+			openBlock = true;
+			chunks.push(textBlockStart(index));
+		}
+		chunks.push(textDelta(b.text));
 	}
-	chunks.push(anthropicTail(finish, usage, meta.timings));
+	closeBlock();
+	chunks.push(
+		messageTail(
+			sawTool ? "tool_use" : (stop ?? stopReason(finish)),
+			usage,
+			meta.timings,
+		),
+	);
 	return new ReadableStream({
 		start(c) {
 			c.enqueue(enc.encode(chunks.join("")));

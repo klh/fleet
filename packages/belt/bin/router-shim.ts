@@ -57,7 +57,6 @@ import {
 import {
 	type AnthropicBody,
 	type AnthropicToolUse,
-	anthropicSseFromBlocks,
 	anthropicSseFromOpenAi,
 	anthropicSseFromText,
 	applyBudget,
@@ -70,16 +69,21 @@ import {
 	openLocalStream,
 	type RequestTimings,
 	scoreComplexity,
-	stopReason,
 	toOpenAiMessages,
 	toOpenAiTools,
 	toolChoiceToOpenAi,
 	type UpstreamUsage,
-	usageRow,
 	viaLocal,
 } from "./router-core.ts";
+// W2417.1: the buffered-answer tail (both faces + the stop_reason law).
+import {
+	bufferedContent,
+	bufferedStopReason,
+	bufferedStream,
+	bufferedUsageRow,
+	type BufferedAnswer,
+} from "./buffered-answer.ts";
 import { routerRuntimeRevision } from "./router-runtime-revision.ts";
-import { parseToolArgs } from "./router-tools.ts";
 import { ensureAvailable } from "./spawner.ts";
 
 // W504: per-provider request caps — registry rows carry maxInflight for the
@@ -808,6 +812,9 @@ Bun.serve({
 			 *  answered. Text-only answers leave both undefined. */
 			let escalatedToolUses: AnthropicToolUse[] | undefined;
 			let escalatedUsage: UpstreamUsage | undefined;
+			/** W2417.1 B2: the gate answer's own stop_reason — the stream face
+			 *  threads it instead of fabricating end_turn for tool_use answers. */
+			let escalatedStop: string | undefined;
 			let usedPort: number = route.port;
 			let usedModel = route.model;
 			let localTimings: RequestTimings | undefined;
@@ -997,6 +1004,7 @@ Bun.serve({
 					if (c.toolUses && c.toolUses.length > 0)
 						escalatedToolUses = c.toolUses;
 					if (c.usage) escalatedUsage = c.usage;
+					if (c.stopReason) escalatedStop = c.stopReason;
 					usedPort = 0;
 					usedModel = `z.ai:${c.model}`;
 					note.push("escalated → cloud(z.ai)");
@@ -1231,42 +1239,32 @@ Bun.serve({
 			});
 			const id = `msg_${route.role}_${Date.now()}`;
 			const routing = routingInfo();
+			// W2417.1: the buffered-answer tail renders from buffered-answer.ts
+			// (W1238.6 band shrink) — one home for both faces + the stop_reason law.
+			const answer: BufferedAnswer = {
+				text: response,
+				...(resultToolCalls ? { localToolCalls: resultToolCalls } : {}),
+				...(escalatedToolUses ? { escalatedToolUses } : {}),
+				// W2182: the leg that answered owns the usage row — escalation
+				// beats local; anything else stays honestly zero.
+				usage: escalatedUsage ?? localUsage,
+				...(escalatedStop ? { stopReason: escalatedStop } : {}),
+				...(finish ? { finish } : {}),
+			};
 			if (wantStream) {
-				// W2182: buffered answers may carry tool_use blocks + usage — emit
-				// with the blocks translator, never the text-only one.
-				const blocks = [
-					...(response ? [{ type: "text", text: response }] : []),
-					...(escalatedToolUses ?? []),
-				];
+				// W2182/W2417.1: the buffered-answer tail renders from
+				// buffered-answer.ts — blocks translator + stop_reason law.
 				return stamped(
 					new Response(
-						anthropicSseFromBlocks(
-							blocks,
-							{ id, model: body.model, routing, timings },
-							finish,
-							escalatedUsage ?? localUsage,
-						),
+						bufferedStream(answer, { id, model: body.model, routing, timings }),
 						{ headers: sseHeaders(routing) },
 					),
 					lastHop,
 					hopFields(),
 				);
 			}
-			// W789: tool_use blocks after any text; stop_reason tool_use wins.
-			const content: Array<Record<string, unknown>> = [
-				...(response ? [{ type: "text", text: response }] : []),
-				...(resultToolCalls ?? []).map((c) => ({
-					type: "tool_use",
-					id: c.id,
-					name: c.function.name,
-					input: parseToolArgs(c.function.arguments),
-				})),
-				...(escalatedToolUses ?? []),
-			];
-			// W2182: the leg that answered owns the usage row — escalation beats
-			// local, a local non-stream leg reports its own numbers, anything
-			// else stays honestly zero.
-			const usage = escalatedUsage ?? localUsage;
+			// W789/W2182/W2417.1: content + stop_reason + usage render from
+			// buffered-answer.ts — the same laws as the stream face.
 			return stamped(
 				Response.json(
 					{
@@ -1274,13 +1272,9 @@ Bun.serve({
 						type: "message",
 						role: "assistant",
 						model: body.model,
-						content,
-						stop_reason:
-							(resultToolCalls && resultToolCalls.length > 0) ||
-							(escalatedToolUses && escalatedToolUses.length > 0)
-								? "tool_use"
-								: stopReason(finish),
-						usage: usageRow(usage),
+						content: bufferedContent(answer),
+						stop_reason: bufferedStopReason(answer),
+						usage: bufferedUsageRow(answer),
 						_routing: routing,
 						_server_timings: timings,
 					},
