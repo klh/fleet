@@ -27,7 +27,9 @@ const SELF = "tests/test-framework-guard.test.ts";
 // W1294.9.1 sweep-G slice-1 (16 policy/copilot/litellm/servicemon/services/
 // remotes specs) re-pins DOWN (696 → 661) — the pin tracks the landing
 // tree's net count (concurrent sweep slices already merged at this base).
-const PIN = 661;
+// W2478 rebase re-pin: the W2291.1 merge carried the risk-tier
+// .test.ts→.e2e.ts port onto the 661 base — 661 → 660.
+const PIN = 660;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });
