@@ -182,7 +182,7 @@ export const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "rejudge",
 		usage:
-			"usage: rejudge dangling [--dry-run] — re-run the current dangling-path classifier over open repair items (W1762)",
+			"usage: rejudge dangling [--dry-run] — re-run the current dangling-path classifier over open repair items (W2189)",
 		flags: ["--dry-run"],
 		switches: ["--dry-run"],
 		minPos: 1,
