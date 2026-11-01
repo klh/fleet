@@ -7,7 +7,9 @@
 // REAL lsof/kill hooks against a real listener replaced mid-flight, and the
 // manifest/renderer assertions pin belt-swarm's declared childPort :4000 as
 // the config-over-code source the install map is built from.
-import { afterAll, describe, expect, test } from "bun:test";
+// sweep-G slice-7 port (W1294.9.7): bun:test -> @playwright/test @unit,
+// titles verbatim; the bun per-test timeout arg became test.setTimeout.
+import { expect, test } from "@playwright/test";
 import { join } from "node:path";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -37,7 +39,7 @@ const tickingHooks = (
 	};
 };
 
-describe("recycleChildListener (W1073, scripted hooks)", () => {
+test.describe("recycleChildListener (W1073, scripted hooks)", () => {
 	test("a fresh pid wins and the old holders are recorded", async () => {
 		const log: string[] = [];
 		const res = await recycleChildListener(
@@ -94,7 +96,7 @@ describe("recycleChildListener (W1073, scripted hooks)", () => {
 	});
 });
 
-describe("recycle identity proof (W1073 B2, scripted hooks)", () => {
+test.describe("recycle identity proof (W1073 B2, scripted hooks)", () => {
 	test("an unverified holder is never signaled and fails the window", async () => {
 		const log: string[] = [];
 		const hooks = tickingHooks([[555]], log);
@@ -122,7 +124,7 @@ describe("recycle identity proof (W1073 B2, scripted hooks)", () => {
 	});
 });
 
-describe("recycle binds to an explicit bootstrap (W1073 B1)", () => {
+test.describe("recycle binds to an explicit bootstrap (W1073 B1)", () => {
 	test("a declared child recycles only when the unit actually bootstrapped", () => {
 		expect(recycleOnBootstrap(4000, true)).toBe(4000);
 		expect(recycleOnBootstrap(4000, false)).toBe(null);
@@ -130,7 +132,7 @@ describe("recycle binds to an explicit bootstrap (W1073 B1)", () => {
 	});
 });
 
-describe("belt-swarm childPort declaration (W1073, config-over-code)", () => {
+test.describe("belt-swarm childPort declaration (W1073, config-over-code)", () => {
 	test("the manifest declares the abandoned :4000 child listener", () => {
 		const spec = loadManifest().find((s) => s.name === "belt-swarm");
 		expect(spec?.childPort).toBe(4000);
@@ -170,9 +172,9 @@ describe("belt-swarm childPort declaration (W1073, config-over-code)", () => {
 // the test plays supervise — spawning the replacement when SIGTERM lands —
 // exactly the post-install shape where the restarted supervisor respawns the
 // child from fresh source and the poll must find a NEW pid.
-describe("live recycle (W1073, real lsof/kill)", () => {
+test.describe("live recycle (W1073, real lsof/kill)", () => {
 	const spawned: ReturnType<typeof Bun.spawn>[] = [];
-	afterAll(() => {
+	test.afterAll(() => {
 		for (const proc of spawned) proc.kill();
 	});
 
@@ -189,6 +191,8 @@ setInterval(() => {}, 1 << 30);
 `;
 
 	test("a replaced listener lands a fresh pid within the window", async () => {
+		// bun carried the cap as a per-test timeout arg; playwright scopes it in-body
+		test.setTimeout(30_000);
 		// claim an ephemeral port, then hand it to the child listener
 		const probe = Bun.listen({
 			hostname: "127.0.0.1",
@@ -235,5 +239,5 @@ setInterval(() => {}, 1 << 30);
 			expect(res.pid).toBe(replacement?.pid);
 			expect(res.pid).not.toBe(first.pid);
 		}
-	}, 30_000);
+	});
 });
