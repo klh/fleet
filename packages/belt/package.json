@@ -76,6 +76,7 @@
 		"@klh/kernel": "2.1.2",
 		"@klh/buckle": "2.1.2",
 		"@klh/local-llm": "2.1.2",
+		"@klh/speedy": "2.1.2",
 		"@klh/suspenders": "2.1.2",
 		"@klh/telemetry": "2.1.2",
 		"bonjour-service": "1.4.4",
