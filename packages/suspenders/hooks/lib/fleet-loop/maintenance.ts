@@ -489,6 +489,21 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		timeoutMs: 240_000,
 		argv: (root) => [join(root, "hooks/bin/model-health-sweep.ts")],
 	},
+	{
+		// W2321.4: the lost-hub requeue sweep — first-loss-anchored grace (15
+		// min default, the MultiKueue workerLostTimeout analog), then BUDGETED
+		// requeue of the hub's CLAIMED items → READY through the ONE release
+		// path. A hub lane lives on a foreign host the ordinary liveness faces
+		// can never condemn, so without this a lost hub strands claims
+		// forever. Budget exhaustion holds + NEED_DECISION — never a silent
+		// total-loss assumption. Unprobeable ≠ lost (W51). Exit 1 = a hub sits
+		// lost (the heartbeat notices). `.fleet/lost-hub-paused` pauses.
+		name: "lost-hub-sweep",
+		everySeconds: 300,
+		nice: 10,
+		timeoutMs: 120_000,
+		argv: (root) => [join(root, "hooks/bin/lost-hub.ts"), "--act"],
+	},
 ];
 
 // the suspenders package root, identical in the repo worktree
