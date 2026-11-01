@@ -152,7 +152,7 @@ const NEAR_CAP_PINNED = {
 	"packages/belt/bin/router-shim.ts": 1282,
 	"packages/buckle/src/ledger.ts": 1375, // W2260 StreamReceipt move (parked/W2380 lineage) shrank 1389 → re-measured at the W2403 merge
 	"packages/belt/test/dashboard-topology-model.e2e.ts": 1294,
-	"packages/suspenders/hooks/bin/work.ts": 1272, // W2299/W2348/W2372 lineage re-pins to measured count after W2333 fail-verb decomposition (debt: decompose)
+	"packages/suspenders/hooks/bin/work.ts": 1261, // W2299 took max(1263, parked/W2259's stale 1247); W2348 re-pin 1272; W2384 merge tightens to the merged-tree count (W2333 fail-verb body → lib/work/work-fail.ts + W2186/W822.1/W2189 faces; debt: decompose); W2419 merge of parked/W2404 onto main re-pins 1261
 	"packages/suspenders/deploy/hubctl.ts": 1212, // W2261 merge re-pin to measured count; W2299 merge reconciled with parked/W2259's identical count (debt: decompose)
 };
 
