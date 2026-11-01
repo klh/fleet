@@ -97,6 +97,9 @@
     "packages/kernel": {
       "name": "@klh/kernel",
       "version": "2.1.2",
+      "devDependencies": {
+        "@playwright/test": "1.64.1",
+      },
     },
     "packages/local": {
       "name": "@klh/local",
@@ -108,6 +111,9 @@
       "dependencies": {
         "@klh/local-llm": "2.1.2",
         "lit": "3.3.3",
+      },
+      "devDependencies": {
+        "@playwright/test": "1.64.1",
       },
     },
     "packages/local-llm": {
@@ -121,6 +127,7 @@
       },
       "devDependencies": {
         "@klh/test-kit": "2.1.2",
+        "@playwright/test": "1.64.1",
       },
     },
     "packages/settings": {
@@ -145,6 +152,7 @@
         "shell-quote": "1.12.0",
       },
       "devDependencies": {
+        "@playwright/test": "1.64.1",
         "lit": "3.3.3",
       },
     },
@@ -193,6 +201,9 @@
     "packages/telemetry": {
       "name": "@klh/telemetry",
       "version": "2.1.2",
+      "devDependencies": {
+        "@playwright/test": "1.64.1",
+      },
     },
     "packages/test-kit": {
       "name": "@klh/test-kit",
