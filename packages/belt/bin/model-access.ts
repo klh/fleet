@@ -8,8 +8,8 @@ import { join } from "node:path";
 // via the home param like every other model-access input).
 import {
 	loadProviderProfiles,
-	providerStackPath,
 	profileForEnv,
+	providerStackPath,
 } from "./provider-profiles.ts";
 
 export interface SeatModel {

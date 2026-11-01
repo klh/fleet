@@ -11,8 +11,8 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import {
-	PROVIDER_STACK_PATH,
 	loadProviderConfig,
+	PROVIDER_STACK_PATH,
 	profileForEnv,
 } from "@klh/speedy/src/provider-config.ts";
 import type { HubProfile } from "../hooks/lib/stack-config.ts";

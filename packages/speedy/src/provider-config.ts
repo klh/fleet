@@ -8,7 +8,7 @@
 // Consumers: hubctl secret delivery (W1124.8.2.1), belt runtime-heal,
 // buckle gateway bootstrap. Pure module — node:fs only, no
 // fleet-internal imports (the file ports verbatim into DEPS closures).
-import { readFileSync, statSync, type Stats } from "node:fs";
+import { readFileSync, type Stats, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 

@@ -19,8 +19,8 @@
 
 import { openSync, readFileSync, statSync } from "node:fs";
 import {
-	type ProviderEntry,
 	loadProviderProfiles,
+	type ProviderEntry,
 	profileForEnv,
 } from "./provider-profiles.ts";
 import type { Child, Target } from "./supervisor.ts";
